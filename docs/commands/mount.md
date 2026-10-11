@@ -7,6 +7,7 @@
 ## Synopsis
 
     mount [-r] [-t <fstype>] [-o size=<n>[K|M|G]] <device|partition|none> <mountpoint>
+           mount -t smb [-o user=<name>] //<server>/<share> <mountpoint>
            mount                  list what is mounted
 
 ## Options
@@ -18,6 +19,14 @@
 - `-o size=<n>[K|M|G]` -- cap a ramfs mount's memory. A bare number is
   MiB, rounded UP to a whole MiB; it is the only option there is, and a
   disk filesystem accepts and ignores it.
+
+- `-t smb //server/share` -- a WINDOWS OR SAMBA SHARE, read-only. There
+  is no SMB client in the kernel: `mount` starts `smbfsd --url`, which
+  mounts the point itself (a userfs mount) and connects the first time
+  something opens it. `-o user=<name>` names who to sign in as; the
+  password is then given with `smb login <mountpoint>`, since a command
+  line is no place for one. Unmounting stops the worker. A share wanted
+  at every boot belongs in `/etc/mounts.d` instead (`doc smbfsd`).
 
 The flags come before the two operands; with no operands at all `mount`
 lists instead.

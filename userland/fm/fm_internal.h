@@ -113,6 +113,7 @@ enum {
     CMD_EXTRACT,
     CMD_RECENT_FOLDER, CMD_RECENT_FORGET, CMD_RECENT_CLEAR,   // fm_recent.c
     CMD_RUN_TERMINAL, CMD_RUN,                   // a program or script, lib/ulaunch.h
+    CMD_NET_SIGNIN, CMD_NET_DISCONNECT, CMD_NET_FORGET,   // a network share, fm_network.c
 };
 
 // The Recycle Bin's folder, as uui_fileview and the breadcrumb see it --
@@ -121,6 +122,8 @@ enum {
 #define FM_SEARCH "search:"
 #define FM_ZIP "zip:"
 #define FM_RECENT "recent:/"
+// The tree's "Add network share..." row: not a folder, an action.
+#define FM_NET_ADD "net:add"
 
 // The dialog's answers. ONE widget serves both questions the app asks
 // (a conflict, a delete), so `g_dialog_kind` says which one is up and
@@ -130,7 +133,7 @@ enum {
     DLG_RENAME, DLG_RENAME_ALL, DLG_CANCEL,
     DLG_DELETE, DLG_OK,
 };
-enum dialog_kind { DIALOG_NONE, DIALOG_CONFLICT, DIALOG_DELETE, DIALOG_PROMPT };
+enum dialog_kind { DIALOG_NONE, DIALOG_CONFLICT, DIALOG_DELETE, DIALOG_PROMPT, DIALOG_NETSHARE };
 extern enum dialog_kind g_dialog_kind;
 
 // --- navigation history, per pane (fm_history.c) ---------------------
@@ -462,5 +465,19 @@ void on_draw_over(struct uapp *a, struct uapp_draw *d);
 
 // Which VISIBLE pane holds this point, or -1.
 int pane_at(int x, int y);
+
+// --- network shares (fm_network.c) ----------------------------------
+//
+// fm_goto() asks net_intercept() first (a share that needs a password
+// opens Sign in instead of an empty listing; the Add row opens Add) and
+// tells net_after_goto() once it has listed (a share that turned out to
+// need one, or did not answer). net_tick() runs every tick.
+void net_add_share(void);
+int  net_intercept(int pane, const char *dir);
+void net_after_goto(int pane, const char *dir);
+void net_answer(int code);
+int  net_tick(void);
+int  net_in_share(const char *dir);
+void net_command(int code);
 
 #endif // FM_INTERNAL_H

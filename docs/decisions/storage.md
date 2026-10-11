@@ -3736,3 +3736,63 @@ Linux's online checkers lock less than this: `xfs_scrub` takes one
 allocation group at a time and the page cache serves faults without the
 filesystem's locks. Copying that means per-group locking inside tfs3,
 which nothing in `docs/fslock-design.md` plans yet.
+
+## Network shares are a ring-3 client behind a FUSE-shaped bridge, one process per share
+
+**The question.** toy-os reads Windows and Samba shares (read-only,
+2026-10-11). Linux (`cifs.ko`) and Windows (the redirector) put the SMB
+client in the kernel; GNOME (gvfs) and KDE (KIO) put it in a library,
+where only programs written against that library see the files; FUSE
+puts it in a process and lets the kernel forward each call to it.
+
+**The choice: a process (`/bin/smbfsd`) and a kernel bridge (userfs,
+`kernel/fs/userfs.c`, `abi/userfs_abi.h`).** Two reasons. SMB 3 needs
+MD4, HMAC-MD5, HMAC-SHA256, AES-CMAC and SHA-512, all of which already
+exist in ring 3 (mbedTLS in `libssl.so`) and none in the kernel; and a
+client parses a server's bytes, which this project keeps out of ring 0
+wherever it can (the TrueType parser moved to `/bin/fontd` for the same
+reason, and `docs/netstack-design.md` plans the network stack's move).
+A library in the gvfs shape was the cheaper build and the worse result:
+`cp`, `cat` and every app not ported would see nothing, which is
+exactly what the user asked to avoid ("mount these to the file
+system"). The bridge is generic -- nothing in it knows SMB -- so an
+archive mounted as a folder or an SFTP share is a second daemon, not a
+second kernel backend.
+
+**One process per share, as FUSE runs one per filesystem**, under a
+supervisor that reads `/etc/mounts.d`. A server that hangs stalls only
+its own share; a worker that crashes is restarted, and adopts its mount
+(USERFS_MOUNT on a point whose server has exited) rather than leaving a
+dead one behind. A worker serves one mount, so it needs no threads.
+
+**What the bridge refuses to do, because each is a FUSE trap:** a
+caller never waits holding the mount's lock if it can drop it
+(`mount_wait_until()`), so `sync` and every `fs_exclusive_begin()` are
+never stalled by a network; every wait is bounded (30 s) and re-checks
+the daemon every half second; and the daemon calling into its own mount
+is refused at once (`-EDEADLK`) rather than left to time out.
+
+**Saved shares are one file each in `/etc/mounts.d`, not an fstab.** The
+services.d shape: the File Manager adds a share by writing a file and
+forgets one by deleting it, and nothing rewrites a list other programs
+read. A share connects LAZILY, on first use -- Windows' "reconnect at
+sign-in" and systemd's automount -- so a boot never waits for a server,
+and its state is published through QUERY_FSINFO so a sidebar polling it
+never causes a connection. Only `Source` makes a worker a different
+one; the credentials are re-read at every connect.
+
+**A remembered password is stored as its NT hash, never as text.** NTLM
+needs nothing else, so a hash is enough to sign in to that share as
+that user -- with no user accounts, anyone who can read the file can --
+but it does not hand over a password reused elsewhere. Not remembering
+it keeps it in the worker's memory until reboot.
+
+**Names come back as Latin-1** -- the system's character set
+(`docs/decisions/drivers.md`) -- **unless Latin-1 cannot spell them**,
+when they come back as UTF-8: gibberish on screen, but a name that
+still opens the file, where Linux's `iocharset` turns the character into
+`?` and the file into one nothing can name.
+
+**Not built, each on the roadmap:** encryption, a share list in Add
+network share (srvsvc over a named pipe), finding servers on the LAN,
+Kerberos, writing.

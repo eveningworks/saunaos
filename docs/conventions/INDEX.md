@@ -740,6 +740,8 @@ whenever a headline here tells you something you did not already know.
   SAME STATE.**
 - **`uui_dialog` IS THE MODAL QUESTION, AND IT SWALLOWS EVERY KEY WHILE
   IT IS UP.**
+- **A DIALOG THAT ASKS FOR MORE THAN ONE THING HAS ONE `uui_form` BODY**
+  -- the dialog spends Tab on its buttons, so the form owns the fields' focus
 - **A LONG FILE OPERATION RUNS ON A WORKER THREAD, AND ITS QUESTIONS
   COME BACK AS POSTS.**
 - **A WIDGET IS NAMED BY ITS ID, NEVER BY ITS POSITION IN THE ARRAY.**
@@ -959,6 +961,10 @@ whenever a headline here tells you something you did not already know.
   MUST EMPTY THE TRIM QUEUE BEFORE HANDING OUT A BLOCK**
 - **A TFS3 INODE CHANGES ONLY THROUGH `t3_txn_stage_inode()`** -- the
   directory inode cache depends on it
+- **A FILESYSTEM SERVED BY A PROCESS (userfs) NEVER WAITS HOLDING THE
+  MOUNT LOCK, BOUNDS EVERY WAIT, AND REFUSES ITS OWN SERVER**
+- **A LISTING STATS EVERY ENTRY IT RETURNS, ON THE SAME MOUNT** -- a
+  remote backend answers those from the listing
 
 ### The shell, the console, and line editing
 

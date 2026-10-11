@@ -219,6 +219,8 @@ a command), and the `gui3`/`nano` aliases.
 - [`ntpd`](ntpd.md)
 - [`ping`](ping.md)
 - [`remoted`](remoted.md)
+- [`smb`](smb.md)
+- [`smbfsd`](smbfsd.md)
 - [`speedtest`](speedtest.md)
 - [`telnetd`](telnetd.md)
 - [`tftpd`](tftpd.md)

@@ -650,6 +650,39 @@ def disks():
     return finish(shadow(im))
 
 
+def drive_network():
+    # A drive on a cable: a network share (the File Manager's Network rows).
+    im = canvas()
+    m = m_rr(6, 10, 58, 36, 6)
+    fill(im, m, ((236, 239, 244), (188, 196, 210)))
+    edge(im, m, (150, 160, 178))
+    fill(im, m_and(m, m_rr(6, 26, 58, 36, 0)), ((176, 184, 200), (150, 160, 178)))
+    d = D4(im)
+    d.ellipse((46, 15, 51, 20), fill=(40, 170, 160, 255))
+    d.rounded_rectangle((12, 16, 32, 18.5), radius=1.25, fill=(150, 158, 174, 255))
+    teal = (31, 127, 120, 255)
+    d.line([(32, 36), (32, 50)], fill=teal, width=4)
+    d.rounded_rectangle((8, 50, 56, 54), radius=2, fill=teal)
+    d.rounded_rectangle((26, 46, 38, 56), radius=2.5, fill=(24, 104, 98, 255))
+    return finish(shadow(im))
+
+
+def lock():
+    # A padlock: something here needs a password (the Sign-in dialog).
+    im = canvas()
+    d = D4(im)
+    d.arc((19, 6, 45, 38), 180, 360, fill=(120, 132, 152, 255), width=6)
+    d.line([(22, 22), (22, 30)], fill=(120, 132, 152, 255), width=6)
+    d.line([(42, 22), (42, 30)], fill=(120, 132, 152, 255), width=6)
+    m = m_rr(12, 28, 52, 58, 6)
+    fill(im, m, ((96, 160, 236), (52, 104, 200)))
+    edge(im, m, (40, 84, 170))
+    d = D4(im)
+    d.ellipse((28, 37, 36, 45), fill=(232, 240, 252, 255))
+    d.rounded_rectangle((30.5, 42, 33.5, 51), radius=1.5, fill=(232, 240, 252, 255))
+    return finish(shadow(im))
+
+
 def drive_ram():
     im = canvas()
     d = D4(im)
@@ -915,6 +948,7 @@ ART = {
     "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr,
     "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,
+    "drive-network": drive_network, "lock": lock,
     "trash-empty": trash_empty, "trash-full": trash_full,
     "cat-time": cat_time, "cat-appearance": cat_appearance, "cat-input": cat_input,
     "cat-shortcuts": cat_shortcuts, "cat-kernel": cat_kernel, "cat-display": cat_display,

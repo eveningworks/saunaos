@@ -590,6 +590,40 @@ manual steps to be worth automating:
   issuer"), and did. Needs Docker and, the first time, deb.debian.org;
   in no runner (`ondemand_sweep.py`'s exclusions).
 
+- **`samba_server.py`** -- a throwaway Samba in Docker for the SMB tools
+  below: shares `media` (a user, `reader`), `public` (guest) and `sealed`
+  (encryption required) with deterministic files -- a 3 MiB binary, a
+  1500-entry folder, a name past Latin-1 and one inside it. Published on
+  127.0.0.1 only; a guest reaches it as `10.0.2.2:<port>`. `--serve
+  [--max SMB2_10] [--signing auto]` runs one by hand. The image
+  (`toyos-samba:1`) is BUILT ONCE with `--build`, which fetches samba
+  from deb.debian.org; nothing after that leaves the machine. A fixture,
+  not a test, so no runner names it.
+
+- **`smb_hostcheck.py`** -- the SMB client's protocol
+  (`userland/dynlib/usmb*.c`, `ucrypto_mbedtls.c`) built with the host's
+  gcc against the in-tree mbedTLS, driven against `samba_server.py` for
+  every dialect (2.0.2 to 3.1.1, signing mandatory) and the refusals
+  (wrong password, no share, encryption required, guest against required
+  signing). Bytes are compared with what the fixture wrote. The
+  positive control breaks the 3.x signing-key labels and must go red.
+  `ondemand_sweep.py` runs it when the image exists.
+
+- **`smb_test.py`** -- network shares in a GUEST: `/bin/smb`, `mount -t
+  smb` and `smb login`, a saved share across a cold boot, a killed
+  worker replaced, an unreachable server failing fast, and a forgotten
+  share unmounted. The 3 MiB file is hashed through both paths; the
+  1500-entry folder is walked (`cp -r`) to its last entry, since `ls`
+  stops at one listing on every filesystem (`docs/bugs.md`). The
+  positive control saves a wrong hash. `ondemand_sweep.py`, serial.
+
+- **`fm_network_test.py`** -- the File Manager's Network rows: a share
+  row found by its icon's teal pixels, Sign in drawn (the window dims,
+  the padlock shows) and answered, Add network share writing
+  `/etc/mounts.d` and opening the share, and the "not answering" dialog.
+  Each step waits on the app's `files: netshare` log line. The positive
+  control types a wrong password. `ondemand_sweep.py`, serial.
+
 - **`vnc_test.py`** -- `/bin/remoted`'s VNC server, from an RFB client
   written in the tool (DES through `openssl`, ZRLE through Python's
   `zlib`, so neither shares code with the server). The checks: a wrong

@@ -435,6 +435,16 @@ TOOLS = [
     # this file's header warns about.
     ("doom_sound",  "doom_sound_test.py",      "DOOM's effects and OPL music",       False,
      ("iwad", "no IWAD fetched -- see tools/fetch_wad.py"),                                   False),
+    # NETWORK SHARES, against Samba in Docker on 127.0.0.1. The image is
+    # BUILT ONCE BY HAND (`samba_server.py --build` reaches deb.debian.org)
+    # and the sweep runs these only once it exists, so a sweep never
+    # touches the network. The two guest tools boot their own: serial.
+    ("smb_host",    "smb_hostcheck.py",        "the SMB client vs Samba, every dialect", False,
+     ("samba", "needs Docker and the toyos-samba:1 image -- samba_server.py --build"),    False),
+    ("smb",         "smb_test.py",             "smb, mount -t smb and saved shares, in a guest", True,
+     ("samba", "needs Docker and the toyos-samba:1 image -- samba_server.py --build"),    False),
+    ("fm_network",  "fm_network_test.py",      "the File Manager's Network rows",    True,
+     ("samba", "needs Docker and the toyos-samba:1 image -- samba_server.py --build"),    False),
 ]
 
 # TOOLS THAT LEAVE disk.img CHANGED, run LAST for that reason.
@@ -477,6 +487,14 @@ def precondition_met(kind):
     if kind is None:
         return True, ""
     key, why = kind
+    if key == "samba":
+        # The image, not just Docker: building it is a download, which a
+        # sweep must not do unasked. A skip either way.
+        if not shutil.which("docker"):
+            return False, why
+        r = subprocess.run(["docker", "image", "inspect", "toyos-samba:1"],
+                           capture_output=True, text=True)
+        return r.returncode == 0, why
     if key == "iwad":
         for root, _dirs, files in os.walk(os.path.join(REPO, "seed")):
             if any(f.lower().endswith(".wad") for f in files):

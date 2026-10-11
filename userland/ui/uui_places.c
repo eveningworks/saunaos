@@ -8,6 +8,7 @@
 #include "lib/human.h"
 #include "rt/sys.h"
 #include "query_abi.h"
+#include "userfs_abi.h"
 #include "lib/upins.h"
 #include "kpath.h"
 #include "keyboard.h"
@@ -20,6 +21,15 @@ static int place_h(void)  { return ugfx_char_h() + 10; }
 static int device_h(void) { return 2 * ugfx_char_h() + 18; }
 static int gap_h(void)    { return 9 + ugfx_char_h() + 6; }   // the rule, then "This computer"
 
+// The caption rows: "This computer" over the devices (when places come
+// first), "Network" over the shares.
+static int caps_before(const struct uui_places *p, int i) {
+    int n = 0;
+    if (i >= p->places && p->count > p->places && p->places) n++;
+    if (i >= p->network && p->network < p->count && p->network > 0) n++;
+    return n;
+}
+
 static int row_h(const struct uui_places *p, int i) {
     return p->row[i].device ? device_h() : place_h();
 }
@@ -31,8 +41,7 @@ static int row_y(const struct uui_places *p, int i) {
     for (int j = 0; j < i; j++) y += row_h(p, j);
     // The same condition content_h() and the draw use: no places, no
     // rule and caption above the devices.
-    if (i >= p->places && p->count > p->places && p->places) y += gap_h();
-    return y;
+    return y + caps_before(p, i) * gap_h();
 }
 
 // Every row, the rule and the caption: what scrolls when a short window
@@ -40,8 +49,7 @@ static int row_y(const struct uui_places *p, int i) {
 static int content_h(const struct uui_places *p) {
     int h = 8;
     for (int i = 0; i < p->count; i++) h += row_h(p, i);
-    if (p->count > p->places && p->places) h += gap_h();
-    return h;
+    return h + caps_before(p, p->count) * gap_h();
 }
 
 static int max_scroll(const struct uui_places *p) {
@@ -127,20 +135,29 @@ void uui_places_refresh(struct uui_places *p) {
     if (p->selected >= 0) strlcpy(keep, p->row[p->selected].path, sizeof keep);
     p->count = p->places;
     struct query_fsinfo fs;
-    for (int i = 0; p->count < UUI_PLACES_MAX; i++) {
-        int n = sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs);
-        if (n <= 0) break;
-        if ((unsigned)n < sizeof fs || !(fs.flags & QUERY_FS_MOUNTED)) continue;
-        struct uui_place *r = &p->row[p->count++];
-        memset(r, 0, sizeof *r);
-        device_name(fs.point, r->label, sizeof r->label);
-        strlcpy(r->path, fs.point, sizeof r->path);
-        r->device = 1;
-        r->persistent = (fs.flags & QUERY_FS_PERSISTENT) != 0;
-        r->readonly = (fs.flags & QUERY_FS_RDONLY) != 0;
-        r->icon = r->persistent ? "drive" : "drive-ram";
-        r->total = fs.total_bytes;
-        r->used = fs.used_bytes;
+    // Two passes over the mounts: the local devices, then the shares.
+    for (int pass = 0; pass < 2; pass++) {
+        if (pass == 1) p->network = p->count;
+        for (int i = 0; p->count < UUI_PLACES_MAX; i++) {
+            int n = sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs);
+            if (n <= 0) break;
+            if ((unsigned)n < sizeof fs || !(fs.flags & QUERY_FS_MOUNTED)) continue;
+            int remote = (fs.flags & QUERY_FS_REMOTE) != 0;
+            if (remote != pass) continue;
+            struct uui_place *r = &p->row[p->count++];
+            memset(r, 0, sizeof *r);
+            device_name(fs.point, r->label, sizeof r->label);
+            strlcpy(r->path, fs.point, sizeof r->path);
+            r->device = 1;
+            r->persistent = (fs.flags & QUERY_FS_PERSISTENT) != 0;
+            r->readonly = (fs.flags & QUERY_FS_RDONLY) != 0;
+            r->icon = remote ? "drive-network" : r->persistent ? "drive" : "drive-ram";
+            r->total = fs.total_bytes;
+            r->used = fs.used_bytes;
+            r->remote = remote;
+            r->state = (int)fs.remote_state;
+            strlcpy(r->source, fs.source, sizeof r->source);
+        }
     }
     if (p->hot >= p->count) p->hot = -1;
     uui_places_select_path(p, keep[0] ? keep : "");
@@ -169,6 +186,7 @@ static uint32_t bg_of(const struct uui_places *p) {
 // glance -- and turns red when nearly full, Explorer's warning.
 uint32_t uui_places_bar_colour(const struct uui_place *r) {
     if (r->total && r->used * 10 >= r->total * 9) return utheme_action(UTHEME_ACT_DANGER);
+    if (r->remote)      return utheme_action(UTHEME_ACT_MEDIA);     // a share: teal
     if (!r->persistent) return utheme_action(UTHEME_ACT_EDIT);      // RAM: violet
     if (r->readonly)    return utheme_action(UTHEME_ACT_ARRANGE);   // read-only: orange
     return utheme_action(UTHEME_ACT_CREATE);                        // a disk: green
@@ -178,6 +196,18 @@ void uui_places_short_note(const struct uui_place *r, char *out, int cap) {
     if (cap <= 0) return;
     out[0] = '\0';
     if (!r->device) return;
+    if (r->remote && r->state != USERFS_ST_CONNECTED) {
+        static const char *const word[] = { "", "not connected", "connecting", "",
+                                            "sign in", "no answer", "failed", "stopped" };
+        snprintf(out, (size_t)cap, "%s", r->state >= 0 && r->state < 8 ? word[r->state] : "");
+        return;
+    }
+    if (r->remote) {
+        char free_s[16];
+        human_size(free_s, sizeof free_s, r->total > r->used ? r->total - r->used : 0);
+        snprintf(out, (size_t)cap, r->total ? "%s free" : "connected", free_s);
+        return;
+    }
     if (r->readonly) { snprintf(out, (size_t)cap, "read-only"); return; }
     if (!r->persistent) { snprintf(out, (size_t)cap, "not kept"); return; }
     char free_s[16];
@@ -197,12 +227,13 @@ static void op_draw(struct ugfx_surface *s, const void *w) {
         const struct uui_place *r = &p->row[i];
         int x, y, rw, rh;
         uui_places_row_rect(p, i, &x, &y, &rw, &rh);
-        if (i == p->places && i > 0) {
-            // The rule and the caption over the devices.
+        if ((i == p->places && i > 0) || (i == p->network && i > 0)) {
+            // The rule and the caption over the devices, or the shares.
             int ry = y - gap_h();
             ugfx_fill_rect(s, x + 6, ry + 4, rw - 12, 1, UTHEME_SEPARATOR);
             const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-            ugfx_draw_string_clipped(s, x + 6, ry + 9, rw - 12, "This computer", dim, bg);
+            ugfx_draw_string_clipped(s, x + 6, ry + 9, rw - 12,
+                                     i == p->network ? "Network" : "This computer", dim, bg);
             ugfx_set_font(was);
         }
         uint32_t rbg = bg, rfg = fg;
@@ -217,6 +248,22 @@ static void op_draw(struct ugfx_surface *s, const void *w) {
         int tx = x + 8 + px + 8;
         ugfx_draw_string_clipped(s, tx, line_y, x + rw - tx - 4, r->label, rfg, rbg);
         if (!r->device) continue;
+        if (r->remote) {
+            // Its state, or its free space once connected; no "read-only"
+            // badge -- every share is, and the caption already says where.
+            char note[32];
+            uui_places_short_note(r, note, sizeof note);
+            int bar_y = line_y + px + 4, bw = x + rw - tx - 10;
+            if (bw > 4 && r->total && r->state == USERFS_ST_CONNECTED) {
+                ugfx_fill_rect(s, tx, bar_y, bw, 4, ugfx_blend(rbg, UTHEME_BORDER, 90));
+                uint64_t used = r->used > r->total ? r->total : r->used;
+                ugfx_fill_rect(s, tx, bar_y, (int)((uint64_t)bw * used / r->total), 4,
+                               uui_places_bar_colour(r));
+            }
+            ugfx_draw_string_clipped(s, tx, bar_y + 8, x + rw - tx - 4, note,
+                                     i == p->selected ? rfg : dim, rbg);
+            continue;
+        }
         if (r->readonly) {
             // Beside the name, where it cannot be cut off with the sizes.
             int lw = ugfx_text_width(r->label), rw2 = ugfx_text_width("read-only");

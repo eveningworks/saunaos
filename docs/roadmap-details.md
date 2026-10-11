@@ -7774,3 +7774,26 @@ and a kill after a fixed deadline (around 300 ms) whatever it does -- the
 same pattern as the Leave page's refusal handling, with no way to refuse.
 Input during the animation must still reach nothing behind it.
 
+
+### The File Manager lists a share on its UI thread, so a server that stops mid-listing freezes the window until the request times out
+
+`uui_fileview_set_dir()` lists synchronously, as it does on a disk. On a
+network share each listing is a round trip through smbfsd, and a server
+that stops answering MID-listing holds the window for up to
+`USERFS_WAIT_MS` (30 s). The common cases are covered: a share that is
+not connected and whose server is down fails its connect in a few
+seconds (smbfsd's `CONNECT_MS`) and the "not answering" dialog says so,
+and smbfsd answers from memory for a few seconds after a failed connect.
+Explorer has the same freeze on a dead mapped drive; Dolphin avoids it
+by listing through KIO asynchronously. The fix here is the fileview
+listing on a worker, as fm_search.c already walks.
+
+### A share that needs a password asks only in the File Manager -- another app opening a file there gets an error, with no prompt
+
+The Sign-in dialog is the File Manager's (`fm_network.c` over
+`ui/uui_netshare.h`): it sees the share's state and asks. An Image
+Viewer opening `/net/photos/x.jpg` before anyone has signed in gets
+`no such file`. GNOME has the same split (gvfs asks the CLIENT app
+through GMountOperation); a system-wide answer is a session agent that
+smbfsd asks, as polkit's agent works. `smb login NAME` covers it from a
+shell.

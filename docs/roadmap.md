@@ -466,11 +466,26 @@ No dependency on the phases above; ordered among themselves.
 - [ ] `fs_ops` ops take a per-mount handle instead of the VFS setting a current state -- what SMP needs, and nothing before it
 - [x] ~~`mount` cannot name a device on a disk that is not the boot disk~~ DONE 2026-08-27 -- a source may be a device name (`lsblk`)
 - [ ] Nothing remounts in place: changing a mount's flags is `umount` then `mount`, and there is no `mount -o remount`
-- [ ] `MOUNT_MAX` is 6 and `PART_SLOTS` is 8, both compile-time
+- [ ] `MOUNT_MAX` (16, raised for network shares) and `PART_SLOTS` (8) are both compile-time
 - [ ] A mount point deeper than one already mounted works, but nothing tests a three-level nest
 - [x] ~~`fs_check`/`fsck` only ever check the ROOT -- there is no way to fsck `/boot`~~ DONE 2026-10-07 -- `/bin/fsck PATH`
 - [x] ~~`parttable` still reads the root's disk only (`blk_root_disk()`)~~ DONE 2026-10-09 -- `parttable DISK`
 - [ ] Mount a disk image FILE -- a loop block device, Linux's `losetup`; a FAT image opened on the machine itself
+
+### Network shares (SMB)
+
+- [x] ~~Read a Windows or Samba share~~ DONE 2026-10-11 -- `/bin/smb` over `/lib/libsmb.so`: SMB 2.0.2-3.1.1, NTLMv2, every message signed
+- [x] ~~Mount a share so every program sees it~~ DONE 2026-10-11 -- the userfs bridge + `/bin/smbfsd`; `mount -t smb`
+- [x] ~~Saved shares that come back after a reboot~~ DONE 2026-10-11 -- `/etc/mounts.d`, connected on first use, password kept as a hash
+- [x] ~~Network shares in the File Manager~~ DONE 2026-10-11 -- a Network group, Add network share, Sign in, "not answering"
+- [ ] A share that REQUIRES encryption is refused: no AES-CCM/GCM transform yet
+- [ ] Add network share cannot list a server's shares -- needs srvsvc (DCE/RPC over a named pipe)
+- [ ] No way to FIND servers on the network -- mDNS (`_smb._tcp`) or WS-Discovery, both multicast
+- [ ] Writing to a share: create, write, rename, delete -- userfs's write ops and SMB's
+- [ ] Kerberos sign-in, for a share in an Active Directory domain
+- [ ] The File Manager lists a share on its UI thread, so a server that stops mid-listing freezes the window until the request times out
+- [ ] A share that needs a password asks only in the File Manager -- another app opening a file there gets an error, with no prompt
+- [ ] userfs serves its mount one call at a time; a slow request queues every other caller of that share
 
 ### FAT32
 

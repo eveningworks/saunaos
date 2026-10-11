@@ -1,0 +1,8 @@
+# Saved network shares (/etc/mounts.d), served under /net. One worker
+# per share; each mounts at once and connects the first time something
+# opens it, so nothing here waits for the network at boot.
+# See docs/commands/smbfsd.md.
+Name=smbfsd
+Description=Serve saved network shares under /net
+Exec=/bin/smbfsd
+Restart=always

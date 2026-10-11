@@ -5802,3 +5802,16 @@ fm_options` or a `desktop.*` setting, and say so on its Options page
 (`uui_prefs_desc.notes`). A name as SHOWN is `ufiletype_display_name()`
 for both views, so "hide extensions" cannot mean two things.
 
+
+## A DIALOG THAT ASKS FOR MORE THAN ONE THING HAS ONE `uui_form` BODY
+
+`uui_dialog` routes keys to ONE focused body item and spends Tab on its
+own buttons, so a body made of separate field items could never move
+between them from the keyboard. `ui/uui_form.h` is one widget that owns
+its fields (text, password, checkbox, note), moves between them on Tab
+and declines Return, so the dialog's default button still commits.
+Labels sit ABOVE fields (Windows 11's and GNOME's dialogs), so a narrow
+dialog needs no label column. A password row is masked, is never the
+edit menu's target (nothing copies it), and `uui_form_wipe_passwords()`
+clears it once it has been sent. Sign in and Add network share
+(`ui/uui_netshare.h`) are the first two.

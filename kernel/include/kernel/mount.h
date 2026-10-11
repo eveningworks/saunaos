@@ -48,7 +48,9 @@ struct block_device;
 //     (see api/fs.h), so `/boot/..` is `/` before any mount is
 //     consulted. That is a property to keep, not a check to add --
 //     a backend that started accepting `..` would break it.
-#define MOUNT_MAX 6
+// Sixteen: root, /boot, /tmp, a USB stick or two, and the network
+// shares /etc/mounts.d names (userfs), one slot each.
+#define MOUNT_MAX 16
 
 // Per-mount flags. Read-only first, because it is the one every real
 // system has and the one `/boot` genuinely wants.
@@ -149,6 +151,9 @@ void mount_io_drain(void *st);
 // -1 the mount went away meanwhile (touch nothing). mount_op_depth() is
 // how deep the calling op holds the lock, which tags what it takes.
 int mount_wait(void *st, const void *chan);
+// The same, released by the timer at `wake_at_ns` if nothing wakes it
+// first -- the caller re-tests its condition and its own deadline.
+int mount_wait_until(void *st, const void *chan, uint64_t wake_at_ns);
 int mount_can_wait(void *st);   // would mount_wait() be able to drop the lock?
 void mount_op_restart(void *st);
 int mount_op_depth(void *st);
@@ -206,6 +211,11 @@ const struct mount *mount_at(int index);
 int mount_add(const struct block_device *dev, const char *fstype,
               const char *point, unsigned flags, uint64_t size_bytes,
               const char **why);
+
+// A no-volume backend that nothing probes for (userfs), with the state
+// its owner already built. 1, or 0 and *why -- the caller keeps `state`.
+int mount_add_nodev(const struct fs_ops *fs, void *state, const char *point,
+                    unsigned flags, const char **why);
 
 // Refuses the root, and refuses a mount with an open file under it.
 int mount_remove(const char *point, const char **why);

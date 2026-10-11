@@ -92,6 +92,11 @@
 #define MBEDTLS_MD_C
 #define MBEDTLS_HKDF_C
 
+// Not for TLS: <ucrypto.h>'s callers. NTLMv2 is HMAC-MD5 throughout,
+// and SMB 3 signs with AES-CMAC (the SMB client, userland/dynlib/usmb*).
+#define MBEDTLS_MD5_C
+#define MBEDTLS_CMAC_C
+
 // --- public key -----------------------------------------------------
 //
 // RSA for signature VERIFICATION only (the web is still mostly RSA

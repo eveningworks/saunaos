@@ -30,6 +30,7 @@
 #include "string.h"
 #include <stddef.h>
 #include "initcall.h"
+#include "userfs.h"
 
 static int fsinfo_count(void) {
     int n = mount_count();
@@ -50,6 +51,16 @@ static int fsinfo_fill(int index, void *out) {
     if (m->persistent) f->flags |= QUERY_FS_PERSISTENT;
     if (m->flags & MNT_RDONLY) f->flags |= QUERY_FS_RDONLY;
     if (m->point_len == 1) f->flags |= QUERY_FS_ROOT;
+    if (m->fs == &userfs_ops) {
+        // The share's own type ("smb"), not the bridge's.
+        struct userfs_describe d;
+        userfs_describe(m->state, &d);
+        f->flags |= QUERY_FS_REMOTE;
+        k_strlcpy(f->name, d.type, sizeof f->name);
+        k_strlcpy(f->source, d.source, sizeof f->source);
+        k_strlcpy(f->note, d.note, sizeof f->note);
+        f->remote_state = d.state;
+    }
 
     // PER-MOUNT USAGE, which is the whole reason this became a vector:
     // fs_disk_usage() answers for the root, so asking it for /boot would

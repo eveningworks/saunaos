@@ -1633,3 +1633,29 @@ So `/bin/update` STAGES a set that touches `/lib` (or the kernel) as
 boot, before it spawns init -- Windows' `PendingFileRenameOperations`.
 `remote.py flash` replaces `/lib` live and reboots at once, which keeps
 the window short rather than closing it.
+
+## A FILESYSTEM SERVED BY A PROCESS (userfs) NEVER WAITS HOLDING THE MOUNT LOCK, BOUNDS EVERY WAIT, AND REFUSES ITS OWN SERVER
+
+`kernel/fs/userfs.c` turns each backend call into a request a daemon
+answers (`abi/userfs_abi.h`; `/bin/smbfsd` serves network shares). A
+backend op runs under the mount's lock, and a network wait is seconds,
+so the op drops the lock while it waits (`mount_wait_until()`) -- held,
+it would stall `fs_exclusive_begin()`, which is `sync`, every mount
+change and a partition write. A nested call (a listing callback) cannot
+drop it and waits holding it, still bounded. Every wait gives up after
+`USERFS_WAIT_MS` and re-checks the daemon each half second, so a crashed
+one costs its callers half a second. The daemon calling into its own
+mount would wait on itself: refused at once with `-EDEADLK`. A request
+belongs to its CALLER (allocated, waited on and freed there); whoever
+finishes it -- a reply, an unmount, a dead daemon noticed -- does so under
+userfs's lock, which is what lets an unmount free the mount's state while
+requests are still outstanding.
+
+## A LISTING STATS EVERY ENTRY IT RETURNS, ON THE SAME MOUNT
+
+`listdir_collect()` (`kernel/fs/fs_syscalls.c`) calls `fs_stat()` on each
+entry for its date, from inside the backend's `fs_list()` callback. On a
+disk that is a cache hit; on a backend whose stat is a round trip it is
+one request per entry, made while the listing holds the mount's lock.
+`smbfsd` answers those from the listing it just fetched (`from_list()`);
+another remote backend has to do the same or a big folder crawls.

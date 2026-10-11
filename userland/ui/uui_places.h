@@ -32,6 +32,11 @@ struct uui_place {
     int device;                   // 1 for a mount, with the fields below
     uint64_t total, used;
     int readonly, persistent;
+    // A NETWORK SHARE (QUERY_FS_REMOTE): what its server last said it was
+    // doing (USERFS_ST_*), and what it is a share of. Listed after the
+    // local devices, under their own caption.
+    int remote, state;
+    char source[64];
 };
 
 struct uui_places {
@@ -39,6 +44,7 @@ struct uui_places {
     struct uui_place row[UUI_PLACES_MAX];
     int count;
     int places;                   // how many of `row` are places; devices follow
+    int network;                  // where the network shares start (== count: none)
     int pinned;                   // the LAST this many places are pins (lib/upins.h)
     int selected;                 // row, or -1: the one whose path is where you are
     int hot, armed;               // OWNED
@@ -58,7 +64,9 @@ void uui_places_add_pins(struct uui_places *p);
 // devices after the places.
 void uui_places_add(struct uui_places *p, const char *label, const char *icon,
                     const char *path);
-// Re-reads the mounts and their free space. Cheap: one query per mount.
+// Re-reads the mounts and their free space. Cheap: one query per mount,
+// and a network share's numbers are what its server last reported --
+// asking never connects to anything.
 void uui_places_refresh(struct uui_places *p);
 // Highlights the row that IS this directory, or none -- a folder under
 // Home is not Home, which is why this is an exact match.
@@ -70,7 +78,8 @@ int  uui_places_take(struct uui_places *p, char *out, int cap);
 int  uui_places_row_rect(const struct uui_places *p, int i, int *x, int *y, int *w, int *h);
 // A device's usage colour (its state, through the theme's action roles)
 // and a short note for one line ("8.7G free", "read-only", "not kept")
-// -- the File Manager's navigation tree draws devices with these.
+// -- the File Manager's navigation tree draws devices with these. A
+// network share's note is its state ("not connected", "sign in").
 uint32_t uui_places_bar_colour(const struct uui_place *r);
 void uui_places_short_note(const struct uui_place *r, char *out, int cap);
 

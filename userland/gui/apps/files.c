@@ -334,6 +334,11 @@ static const struct uui_menu_item ctx_items[] = {
     UUI_MENU("New folder",  CMD_MKDIR,    "F7"),
     UUI_MENU_SEP,
     UUI_MENU("Properties",  CMD_PROPERTIES, 0),
+    // Only inside a network share (fm_network.c).
+    UUI_MENU_SEP,
+    UUI_MENU("Sign in...",        CMD_NET_SIGNIN, 0),
+    UUI_MENU("Disconnect",        CMD_NET_DISCONNECT, 0),
+    UUI_MENU("Forget this share", CMD_NET_FORGET, 0),
 };
 
 // ...and inside the Recycle Bin: what a deleted item can have done to it.
@@ -459,7 +464,14 @@ static int build_ctx_items(void) {
         return n;
     }
     int runs = !is_dir && selected_launch(0) != ULAUNCH_NONE && selected_launch(0) != ULAUNCH_APP;
+    int share = net_in_share(uui_fileview_dir(active()));
     for (int i = 0; i < (int)(sizeof ctx_items / sizeof ctx_items[0]); i++) {
+        int net = ctx_items[i].code == CMD_NET_SIGNIN || ctx_items[i].code == CMD_NET_DISCONNECT ||
+                  ctx_items[i].code == CMD_NET_FORGET;
+        if (net && !share) continue;
+        // The separator before them goes with them.
+        if (!share && !ctx_items[i].label && i + 1 < (int)(sizeof ctx_items / sizeof ctx_items[0]) &&
+            ctx_items[i + 1].code == CMD_NET_SIGNIN) continue;
         if (ctx_items[i].code == CMD_EDIT && !can_edit) continue;
         if ((ctx_items[i].code == CMD_RUN || ctx_items[i].code == CMD_RUN_TERMINAL) && !runs) continue;
         if (ctx_items[i].code == CMD_OPEN && runs) continue;
@@ -959,6 +971,8 @@ void do_command(struct uapp *a, int code) {
     case CMD_UNDO:           do_undo(0); break;
     case CMD_VIEW_SIZES:     sizes_set(!g_sizes_on); break;
     case CMD_PIN:            pin_selected(1); break;
+    case CMD_NET_SIGNIN: case CMD_NET_DISCONNECT: case CMD_NET_FORGET:
+        net_command(code); break;
     case CMD_EXTRACT_ALL:
     case CMD_EXTRACT_SEL: {
         char archive[PATH_MAX_LEN], dest[PATH_MAX_LEN];
@@ -1601,6 +1615,7 @@ static int on_tick(struct uapp *a) {
     if (uui_toolbar_tick(&g_viewbar)) changed = 1;
     if (thumb_tick()) changed = 1;
     if (undo_toast_tick()) changed = 1;
+    if (net_tick()) changed = 1;
 
     // Not under a rubber band: a reload clears the marks the band is
     // mid-way through choosing (the desktop's desktop_drag_active() rule).
@@ -1812,6 +1827,11 @@ static void answer_conflict(int code) {
 static void answer_dialog(int code) {
     enum dialog_kind kind = g_dialog_kind;
     g_dialog_kind = DIALOG_NONE;
+    if (kind == DIALOG_NETSHARE) {
+        net_answer(code);
+        refresh_status();
+        return;
+    }
     if (kind == DIALOG_PROMPT) {
         answer_prompt(code);
         refresh_status();

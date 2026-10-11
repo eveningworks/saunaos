@@ -138,6 +138,7 @@ static const struct { int code; const char *name; const char *msg; } g_errmsg[] 
     { ECONNRESET,   "ECONNRESET", "connection reset by peer" },
     { ECONNREFUSED, "ECONNREFUSED", "connection refused" },
     { ENOTCONN,     "ENOTCONN", "not connected" },
+    { ETIMEDOUT,    "ETIMEDOUT", "timed out" },
     { ENETDOWN,     "ENETDOWN", "network is down" },
     { EACCES, "EACCES", "permission denied" },
     { ELOOP,  "ELOOP", "too many levels of symbolic links" },
@@ -533,6 +534,10 @@ int sys_futex_wait(volatile uint32_t *word, uint32_t expected, int timeout_ms) {
 
 int64_t sys_kdfile(int op, uint64_t arg1, uint64_t arg2) {
     return err(syscall3(SYS_KDFILE, (uint64_t)op, arg1, arg2));
+}
+
+int64_t sys_userfs(int op, uint64_t arg1, uint64_t arg2) {
+    return err(syscall3(SYS_USERFS, (uint64_t)op, arg1, arg2));
 }
 
 int sys_shm_grant(const char *name, int pid) {

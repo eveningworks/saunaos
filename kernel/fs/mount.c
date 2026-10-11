@@ -283,6 +283,22 @@ int mount_wait(void *st, const void *chan) {
     return (m->used && m->gen == gen) ? 1 : -1;
 }
 
+// mount_wait() with a deadline, for a backend waiting on something that
+// may never answer (userfs: a daemon, and behind it a network).
+int mount_wait_until(void *st, const void *chan, uint64_t wake_at_ns) {
+    struct mount *m = mount_of_state(st);
+    if (!m || !can_drop(m)) return 0;
+    uint32_t gen = m->gen;
+    scheduler_wait_arm(chan);
+    kmutex_unlock(&m->lock);
+    if (!scheduler_block_kernel_until(chan, SCHED_WAIT_LOCK, wake_at_ns)) {
+        scheduler_wait_disarm();
+        cpu_relax();
+    }
+    kmutex_lock(&m->lock);
+    return (m->used && m->gen == gen) ? 1 : -1;
+}
+
 int mount_can_wait(void *st) {
     struct mount *m = mount_of_state(st);
     return m && can_drop(m);
@@ -429,13 +445,8 @@ static void record(struct mount *slot, const struct fs_ops *fs,
                 slot->persistent ? "" : " (not persistent -- files vanish on reboot)");
 }
 
-int mount_add(const struct block_device *dev, const char *fstype,
-              const char *point, unsigned flags, uint64_t size_bytes,
-              const char **why) {
-    static const char *dummy;
-    if (!why) why = &dummy;
-    *why = "";
-
+// The checks every new mount's point must pass, whatever answers it.
+static int point_ok(const char *point, const char **why) {
     if (!point || point[0] != '/') { *why = "mount point must be an absolute path"; return 0; }
     int plen = (int)k_strlen(point);
     if (plen >= FS_PATH_MAX) { *why = "mount point too long"; return 0; }
@@ -451,6 +462,17 @@ int mount_add(const struct block_device *dev, const char *fstype,
         if (!mount_root()) { *why = "nothing is mounted to mount onto"; return 0; }
         if (!fs_is_dir(point)) { *why = "mount point does not exist, or is not a directory"; return 0; }
     }
+    return 1;
+}
+
+int mount_add(const struct block_device *dev, const char *fstype,
+              const char *point, unsigned flags, uint64_t size_bytes,
+              const char **why) {
+    static const char *dummy;
+    if (!why) why = &dummy;
+    *why = "";
+
+    if (!point_ok(point, why)) return 0;
 
     if (dev) {
         for (int i = 0; i < MOUNT_MAX; i++) {
@@ -540,6 +562,26 @@ int mount_add(const struct block_device *dev, const char *fstype,
 
     slot->state = state;
     record(slot, chosen, dev, point, flags, r);
+    return 1;
+}
+
+// A backend that is NOT in g_backends and has no volume, mounted with a
+// state its caller built (userfs: the daemon's queue). Nothing probes
+// for it and nothing names it by type -- only the code that owns it can
+// mount it. On failure the caller still owns `state`.
+int mount_add_nodev(const struct fs_ops *fs, void *state, const char *point,
+                    unsigned flags, const char **why) {
+    static const char *dummy;
+    if (!why) why = &dummy;
+    *why = "";
+    if (!point_ok(point, why)) return 0;
+    struct mount *slot = free_slot();
+    if (!slot) { *why = "the mount table is full"; return 0; }
+    if (mounts_of(fs) >= fs->max_mounts) { *why = "too many of that kind mounted"; return 0; }
+    fs_exclusive_begin();
+    slot->state = state;
+    record(slot, fs, NULL, point, flags, 0);
+    fs_exclusive_end();
     return 1;
 }
 

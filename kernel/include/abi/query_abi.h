@@ -895,6 +895,7 @@ struct query_meminfo {
 
 #define QUERY_FS_RDONLY     (1u << 2) // mounted read-only; a write is refused
 #define QUERY_FS_ROOT       (1u << 3) // this is the root mount
+#define QUERY_FS_REMOTE     (1u << 4) // served by a process over the network (userfs)
 
 // ONE RECORD PER MOUNT, root first. It was a scalar while there was one
 // filesystem; Real mount points made that a lie the moment /boot was
@@ -909,6 +910,12 @@ struct query_fsinfo {
     char     name[QUERY_NAME_MAX]; // "tfs3" -- the backend
     char     point[64];    // "/" or "/boot" -- FS_PATH_MAX, spelled out since abi/ has no fs.h
     char     device[QUERY_NAME_MAX]; // "ata3", "virtio-blk2", or "" for a backend with no volume
+    // A NETWORK mount (QUERY_FS_REMOTE): what it is a share of, and what
+    // its server last said it was doing (USERFS_ST_*, userfs_abi.h) --
+    // read without waking the server, so polling this never connects.
+    char     source[64];   // "//nas/media"
+    uint64_t remote_state;
+    char     note[48];     // "No answer from 192.168.1.30"
 };
 
 // QUERY_MEMMAP's record. One firmware-reported region.

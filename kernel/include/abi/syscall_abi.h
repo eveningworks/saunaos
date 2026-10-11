@@ -2740,6 +2740,10 @@ struct usb_control_msg {
                              // policy | priority << 8, or -ESRCH. Packed
                              // so one call answers sched_getscheduler()
                              // and sched_getparam() both.
+#define SYS_USERFS 145       // RDI = a USERFS_* op, RSI/RDX its arguments:
+                             // a filesystem a process serves (smbfsd's
+                             // shares under /net). userfs_abi.h has the
+                             // contract.
 
 #define INPUT_INJECT_BATCH 32
 #define INPUT_INJECT_KEY      1 // code: an evdev keycode; x: 1 down, 0 up

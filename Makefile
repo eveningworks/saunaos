@@ -1205,7 +1205,8 @@ $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
 # wildcarded, again as toywm is -- a stray .c dropped in there should
 # fail to link with an undefined symbol, not be absorbed silently.
 EXTRA_OBJS_files = fm/fm_view fm/fm_jobs fm/fm_tree fm/fm_thumbs fm/fm_modal \
-                   fm/fm_history fm/fm_details fm/fm_options fm/fm_trash fm/fm_undo fm/fm_search fm/fm_sizes fm/fm_tabs fm/fm_zip fm/fm_recent
+                   fm/fm_history fm/fm_details fm/fm_options fm/fm_trash fm/fm_undo fm/fm_search fm/fm_sizes fm/fm_tabs fm/fm_zip fm/fm_recent \
+                   fm/fm_network
 # System Settings, the same way: userland/settings/ is its parts.
 EXTRA_OBJS_settings = settings/set_registry settings/set_page settings/set_owner \
                       settings/set_sysinfo settings/set_clock settings/set_preview settings/set_startup settings/set_keyboard \
@@ -1246,6 +1247,9 @@ ULIB_SO_update = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_sysupdate = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # DOOM downloads its game data (userland/doom/doom_front.c).
 ULIB_SO_doom = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
+# The SMB client and the share daemon (libsmb's crypto is in libssl).
+ULIB_SO_smb = $(LIBSMB_SO) $(LIBSSL_SO)
+ULIB_SO_smbfsd = $(LIBSMB_SO) $(LIBSSL_SO)
 
 ulibso = $(ULIB_SO_$(notdir $(1)))
 
@@ -1387,7 +1391,8 @@ $(BUILD)/userland/bin/reboot.elf: $(BUILD)/userland/bin/reboot.o $(USERLAND_RT) 
 # 2 MiB-aligned .so's offsets are not page-congruent under 4 KiB
 # pages -- ld-toy refuses such a file by name).
 LDSO    = $(BUILD)/lib/ld-toy.so
-DYNLIBS = $(BUILD)/lib/libhello.so $(BUILD)/lib/libplug.so $(BUILD)/lib/libhash.so $(LIBSSL_SO) $(LIBHTTP_SO)
+DYNLIBS = $(BUILD)/lib/libhello.so $(BUILD)/lib/libplug.so $(BUILD)/lib/libhash.so $(LIBSSL_SO) $(LIBHTTP_SO) \
+          $(LIBSMB_SO)
 
 # /lib/snd/<name>.so -- one sound driver per chip, dlopen'd by
 # /bin/snddrv. **ADDING A CARD IS A FILE HERE AND NOTHING ELSE**: the
@@ -1558,6 +1563,19 @@ $(LIBHTTP_SO): $(BUILD)/userland/dynlib/uhttp.o $(BUILD)/userland/dynlib/uhttp_d
 	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libhttp.so -o $@ \
 	      $(BUILD)/userland/dynlib/uhttp.o $(BUILD)/userland/dynlib/uhttp_download.o \
 	      $(LIBSSL_SO) $(BUILD)/lib/libhash.so $(LIBUAPP_SO) $(LIBC_SO)
+
+# libsmb.so -- the SMB2/3 client (<usmb.h>), for /bin/smb and
+# /bin/smbfsd. In userland/dynlib/ for libhttp's reason: its crypto
+# (<ucrypto.h>) is in libssl.so, and libuapp must not depend on mbedTLS.
+# usmb_dial.c is the toy-os transport; the protocol files also build on
+# the host (tools/smb_hostcheck.py).
+LIBSMB_OBJS = $(BUILD)/userland/dynlib/usmb.o $(BUILD)/userland/dynlib/usmb_auth.o \
+              $(BUILD)/userland/dynlib/usmb_dial.o
+LIBSMB_SO = $(BUILD)/lib/libsmb.so
+$(LIBSMB_SO): $(LIBSMB_OBJS) $(LIBSSL_SO) $(LIBUAPP_SO) $(LIBC_SO)
+	@mkdir -p $(dir $@)
+	$(LD) -shared --hash-style=sysv -z max-page-size=4096 -soname libsmb.so -o $@ \
+	      $(LIBSMB_OBJS) $(LIBSSL_SO) $(LIBUAPP_SO) $(LIBC_SO)
 
 # The one test with its own link line: a DYNAMIC executable.
 # link-dyn.ld adds the .interp/.dynamic/GOT/PLT homes the static script

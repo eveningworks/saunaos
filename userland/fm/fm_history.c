@@ -141,8 +141,14 @@ void fm_history_sync(void) {
 // site cannot forget.
 int fm_goto(int pane, const char *dir) {
     if (pane < 0 || pane > 1) return 0;
-    if (!uui_fileview_set_dir(&g_pane[pane], dir)) return 0;
+    // A network share that needs a password asks for it instead of
+    // listing empty, and the Add row opens a dialog (fm_network.c).
+    if (net_intercept(pane, dir)) return 1;
+    char want[PATH_MAX_LEN];
+    strlcpy(want, dir, sizeof want);       // `dir` may be a buffer the listing rewrites
+    if (!uui_fileview_set_dir(&g_pane[pane], want)) return 0;
     fm_history_record(pane, uui_fileview_dir(&g_pane[pane]));
+    net_after_goto(pane, want);
     return 1;
 }
 

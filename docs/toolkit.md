@@ -64,6 +64,7 @@
 | `unametpl.h` | A FILE-NAME TEMPLATE: literal text with <tokens> the caller fills -- "shot-<date>-<time>" -> "shot-20261007-142233". |
 | `unetctl.h` | The control protocol between /bin/netctl (and the desktop's network flyout) and /bin/netd, over uchan -- the initctl shape (lib/uinitctl.h). |
 | `unetlink.h` | unetlink -- a network card's ADAPTER settings (the rates it offers, Energy Efficient Ethernet, pause frames, interrupt moderation): the words /etc/net.conf spells them in, the labels a person reads... |
+| `unetmount.h` | Saved network shares: one file per share in /etc/mounts.d, mounted at /net/<file name> by /bin/smbfsd. |
 | `unum.h` | A number written the way the LC_NUMERIC locale writes it: format it the C way ("1234567.89", "12.5%", "1.2 MiB") and pass the string through unum_localize(), which swaps in the decimal mark and, wi... |
 | `uopen.h` | uopen -- which program opens this file? |
 | `upager.h` | The pager: show a block of text one screenful at a time, on whichever of fd 0 and fd 1 is a terminal. |
@@ -143,6 +144,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_findbar.h` | uui_findbar -- a find control: a lens, a query field, an "N of M" readout, previous / next, and close. |
 | `uui_focus.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_fontsample.h` | A font face loaded to SHOW it, and its sample drawn in a box -- what a font picker's card holds: Settings' Appearance > Fonts gallery, and the Character Map's face list. |
+| `uui_form.h` | A SMALL FORM: labelled text fields, password fields, checkboxes and notes stacked down a column, with Tab moving between them -- the body of a dialog that asks for more than one thing (Sign in, Add... |
 | `uui_gallery.h` | uui_gallery -- one choice out of a few, each shown as a CARD: a picture the caller paints and a label under it. |
 | `uui_grid.h` | uui_grid -- a GRID OF EQUAL CELLS the caller paints, one selected: a character map's glyphs (the Character Map), an icon picker, a board. |
 | `uui_image.h` | A decoded picture, in a layout. |
@@ -159,6 +161,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_meter.h` | A MEASURED VALUE, shown big: a caption, a number, its unit, an optional detail line and an optional fill bar. |
 | `uui_nametpl.h` | uui_nametpl -- a FILE-NAME TEMPLATE FIELD: a text field, a row of chips that each type a <token> at the caret, and the name the template gives today under them ("Next file: shot-20261007-...qoi"),... |
 | `uui_netadapter.h` | uui_netadapter -- one network card's ADAPTER SETTINGS as a panel: Link speed, Energy Efficient Ethernet, Flow control and Interrupt moderation, each a setting row shown only when the card's driver... |
+| `uui_netshare.h` | THE TWO NETWORK-SHARE DIALOGS, for any app with a uui_dialog: "Add network share" (an address, a name, open it now) and "Sign in to <server>" (a user, a password, Remember). |
 | `uui_optlist.h` | A scrolling list of OPTIONS, one per row: a checkbox, the option's name, an optional value field edited in place, and a one-line description. |
 | `uui_pathbar.h` | A BREADCRUMB PATH: the folder you are in as a row of buttons, one per level, each of which takes you there -- Explorer's address bar, Dolphin's URL navigator, GTK's path bar. |
 | `uui_places.h` | PLACES AND DEVICES: the list down the left of a file window -- named folders a person goes to (Home, Documents, ...), then every mounted filesystem with how full it is. |

@@ -154,7 +154,11 @@
                    // switched off on purpose, unlike a cable that is out
 #define ENOTCONN 107 // the socket is not connected, so there is no
                    // stream to read or write. Distinct from EBADF for
-                   // the same reason EPIPE is.
+                   // the same reason EPIPE is. Also a network share
+                   // whose serving process has exited (userfs).
+#define ETIMEDOUT 110 // waited as long as allowed and nothing answered --
+                   // a network share's server, today (userfs). A
+                   // caller may retry it, unlike ECONNRESET.
 
 #define ELOOP  40  // too many symbolic links resolving one path
 #define ENOTEMPTY 39 // a directory still has entries, so it cannot be

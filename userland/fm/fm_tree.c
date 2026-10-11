@@ -136,6 +136,11 @@ static int tree_build_head(void) {
                                                        .kind = UUI_TREE_HEADER };
             n++;
         }
+        if (i == g_places.network) {
+            g_tree_path[n][0] = '\0';
+            g_tree_nodes[n] = (struct uui_tree_node){ .label = "Network", .kind = UUI_TREE_HEADER };
+            n++;
+        }
         strlcpy(g_tree_path[n], r->path, PATH_MAX_LEN);
         struct uui_tree_node *nd = &g_tree_nodes[n];
         *nd = (struct uui_tree_node){ .label = r->label, .icon = r->icon };
@@ -144,6 +149,18 @@ static int tree_build_head(void) {
                      : tree_is_open(r->path) ? UUI_TREE_OPEN : UUI_TREE_CLOSED;
             head_device(nd, r, i);
         }
+        n++;
+    }
+    // THE NETWORK GROUP IS ALWAYS THERE, with its Add row last, so a
+    // machine with no shares yet still shows where they go.
+    if (g_places.network >= g_places.count && n < TREE_MAX - 1) {
+        g_tree_path[n][0] = '\0';
+        g_tree_nodes[n] = (struct uui_tree_node){ .label = "Network", .kind = UUI_TREE_HEADER };
+        n++;
+    }
+    if (n < TREE_MAX) {
+        strlcpy(g_tree_path[n], FM_NET_ADD, PATH_MAX_LEN);
+        g_tree_nodes[n] = (struct uui_tree_node){ .label = "Add network share...", .icon = "tb-new" };
         n++;
     }
     return n;
