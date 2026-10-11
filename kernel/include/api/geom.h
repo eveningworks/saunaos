@@ -87,10 +87,12 @@ void geom_fill_circle(const struct geom_target *t, int cx, int cy, int r,
 // a stack of concentric geom_ellipse() calls is not -- adjacent radii
 // leave gaps the eye reads as moire.
 //
-// Swept as radial SPOKES rather than as scanlines, because a scanline
-// has to be clipped against the angular limits and a spoke already is
-// one. Sampled densely enough that neighbouring spokes touch at the
-// OUTER edge, which is where they are furthest apart.
+// JUDGED PIXEL BY PIXEL, ANTI-ALIASED: every pixel of the bounding box
+// gets its coverage from its distance to the two circles and its signed
+// distance to the two edge rays (a cross product). Radial spokes rounded
+// to pixels left pinholes along the diagonals (geom_test.c's "no
+// pinholes" KTEST); a pixel visited once cannot.
+// Radii are capped at 2048 (isqrt32's range).
 //
 // ANGLES ARE TURNS (fixed.h), and turn 0 is at 3 o'clock with positive
 // turns going CLOCKWISE on screen, because y grows downward. A gauge

@@ -476,6 +476,44 @@ KTEST("geom", "a gauge starting at twelve o'clock fills clockwise from the top")
     KTEST_ASSERT(!rec_any_in(100 - 21, 100 - 21, 100 - 13, 100 + 21)); // left half bare
 }
 
+// The strongest alpha each pixel of a 101x101 box around (100, 100) got.
+static uint8_t g_cov[101][101];
+static void rec_coverage(void) {
+    for (int y = 0; y < 101; y++) for (int x = 0; x < 101; x++) g_cov[y][x] = 0;
+    for (int i = 0; i < g_rec.n; i++) {
+        int x = g_rec.xs[i] - 50, y = g_rec.ys[i] - 50;
+        if (x >= 0 && x < 101 && y >= 0 && y < 101 && g_rec.as[i] > g_cov[y][x]) g_cov[y][x] = g_rec.as[i];
+    }
+}
+
+KTEST("geom", "a ring has no pinholes: every pixel well inside the band is opaque") {
+    // Radial SPOKES rounded to pixels left holes along the diagonals that
+    // the background showed through (seen in Properties' volume ring,
+    // 2026-10-11): two neighbouring spokes round past the same pixel. A
+    // ring is judged pixel by pixel, the way it is seen.
+    struct geom_target t = rec_target();
+    geom_fill_ring(&t, 100, 100, 30, 18, 0, FX_ONE, 0xFFFFFF);
+    KTEST_ASSERT(!g_rec.overflow);
+    rec_coverage();
+    int holes = 0;
+    for (int dy = -30; dy <= 30; dy++)
+        for (int dx = -30; dx <= 30; dx++) {
+            int d2 = dx * dx + dy * dy;
+            if (d2 >= 19 * 19 && d2 <= 29 * 29 && g_cov[50 + dy][50 + dx] != 255) holes++;
+        }
+    KTEST_ASSERT_EQ(holes, 0);
+    // ...and its edges are SMOOTHED: some pixel on the outer rim is
+    // partly covered, which a hard-edged fill never draws.
+    int partial = 0;
+    for (int dy = -31; dy <= 31; dy++)
+        for (int dx = -31; dx <= 31; dx++) {
+            int d2 = dx * dx + dy * dy;
+            uint8_t a = g_cov[50 + dy][50 + dx];
+            if (d2 > 29 * 29 && a > 0 && a < 255) partial++;
+        }
+    KTEST_ASSERT(partial > 0);
+}
+
 KTEST("geom", "a degenerate ring draws nothing rather than something") {
     struct geom_target t = rec_target();
     geom_fill_ring(&t, 100, 100, 20, 12, 0, 0, 0xFFFFFF);   // zero sweep

@@ -217,32 +217,52 @@ void geom_fill_circle(const struct geom_target *t, int cx, int cy, int r,
                        uint32_t color) {
     geom_fill_ellipse(t, cx, cy, r, r, color);
 }
+// Coverage of one edge, 0..255, from a signed distance in 1/16 px:
+// inside by half a pixel or more is full, outside by as much is none.
+static uint8_t edge_cov(int64_t d16) {
+    int64_t c = (d16 + 8) * 255 / 16;
+    return (uint8_t)(c < 0 ? 0 : c > 255 ? 255 : c);
+}
+
 void geom_fill_ring(const struct geom_target *t, int cx, int cy,
                      int r_outer, int r_inner, fx_t from, fx_t to,
                      uint32_t color) {
     if (!t || !t->plot || r_outer < 0) return;
     if (r_inner < 0) r_inner = 0;
     if (r_inner > r_outer) return;
+    if (r_outer > 2048) r_outer = 2048;   // d^2 * 256 must fit isqrt32
 
     fx_t sweep = to - from;
     if (sweep <= 0) return;
-    if (sweep > FX_ONE) sweep = FX_ONE;   // more than a full turn is a full turn
+    int full = sweep >= FX_ONE;
 
-    // One full turn is 2*pi*r_outer pixels around, so eight samples per
-    // unit of radius over-samples it comfortably; the +16 keeps a tiny
-    // ring from being drawn as a polygon.
-    int64_t steps = 8 * (int64_t)r_outer + 16;
-    if (steps > 32768) steps = 32768;
-    int64_t n = (steps * sweep) / FX_ONE;
-    if (n < 1) n = 1;
+    // The two edges' unit directions, in 1/65536 (fixed.h). A pixel's
+    // signed distance from each edge's line is a cross product.
+    int64_t ax = fx_cos(from), ay = fx_sin(from);
+    int64_t bx = fx_cos(to),   by = fx_sin(to);
+    int wide = sweep > FX_ONE / 2;   // more than half a turn: a union, not a wedge
 
-    for (int64_t i = 0; i <= n; i++) {
-        fx_t turns = from + (fx_t)(((int64_t)sweep * i) / n);
-        fx_t c = fx_cos(turns), sn = fx_sin(turns);
-        for (int r = r_inner; r <= r_outer; r++) {
-            fx_t fr = fx_from_int(r);
-            put(t, cx + fx_round(fx_mul(fr, c)),
-                   cy + fx_round(fx_mul(fr, sn)), color, 255);
+    int R = r_outer + 1;
+    for (int py = -R; py <= R; py++) {
+        for (int px = -R; px <= R; px++) {
+            uint32_t d2 = (uint32_t)(px * px + py * py);
+            if (d2 > (uint32_t)(R * R)) continue;
+            int64_t d16 = isqrt32(d2 * 256u);                 // the distance, in 1/16 px
+            uint8_t rad = edge_cov((int64_t)r_outer * 16 - d16);
+            if (r_inner > 0) {
+                uint8_t in = edge_cov(d16 - (int64_t)r_inner * 16);
+                if (in < rad) rad = in;
+            }
+            if (!rad) continue;
+            uint8_t ang = 255;
+            if (!full) {
+                // After `from` going clockwise, and before `to`.
+                int64_t s1 = (ax * py - ay * px) * 16 / FX_ONE;
+                int64_t s2 = (bx * py - by * px) * -16 / FX_ONE;
+                uint8_t c1 = edge_cov(s1), c2 = edge_cov(s2);
+                ang = wide ? (c1 > c2 ? c1 : c2) : (c1 < c2 ? c1 : c2);
+            }
+            put(t, cx + px, cy + py, color, (uint8_t)((rad * ang + 127) / 255));
         }
     }
 }
