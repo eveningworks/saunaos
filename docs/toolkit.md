@@ -148,6 +148,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_gallery.h` | uui_gallery -- one choice out of a few, each shown as a CARD: a picture the caller paints and a label under it. |
 | `uui_grid.h` | uui_grid -- a GRID OF EQUAL CELLS the caller paints, one selected: a character map's glyphs (the Character Map), an icon picker, a board. |
 | `uui_image.h` | A decoded picture, in a layout. |
+| `uui_infobar.h` | AN INFO BAR across the top of a view: an icon, one line saying what is going on, and at most one action -- "Opened for this session" with Save to Network, a read-only medium with Open as writable. |
 | `uui_keycapture.h` | A CONTROL THAT RECORDS A KEY COMBINATION BY HAVING YOU PRESS IT. |
 | `uui_keymap.h` | keymap -- a keyboard drawn from a layout, two ways: |
 | `uui_keysheet.h` | keysheet -- an app's keyboard shortcuts as a sheet: groups of rows, each an action on the left and its keys on the right, drawn as caps. |

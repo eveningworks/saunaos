@@ -17,6 +17,15 @@ declares the extension in its `Handles=` list. A directory opens in the
 File Manager. The handler is spawned and not waited for, so `open`
 returns at once and prints nothing on success.
 
+**A share address opens the share.** `open smb://nas/media` (or
+`//nas/media`, quoted `\\nas\media`) opens the folder in the File
+Manager, and `open smb://nas/media/Photos/beach.jpg` the file in its app.
+A share nothing has mounted is mounted FOR THE SESSION by `smbfsd` at
+`/net/<share>` -- gone after a restart unless it is saved (the File
+Manager's "Save to Network", `doc smbfsd`); a share already mounted
+with that address is reused. A password is asked for in the File
+Manager, or with `smb login`.
+
 A PROGRAM OR A SCRIPT is run instead of opened, before any extension is
 looked at (`userland/lib/ulaunch.h`): an ELF with a window -- a desktop
 entry runs it, or it lives under `/bin/wm` -- starts at once; any other

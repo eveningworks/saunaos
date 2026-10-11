@@ -23,6 +23,8 @@ enum {
 #define ST_MORE_PROCESSING  0xC0000016u
 #define ST_END_OF_FILE      0xC0000011u
 
+#define CAP_LARGE_MTU            0x4   // multi-credit requests: READs past 64 KiB
+
 #define SECMODE_SIGNING_ENABLED  0x1
 #define SECMODE_SIGNING_REQUIRED 0x2
 
@@ -225,13 +227,14 @@ static int recv_msg(struct usmb *s) {
     }
 }
 
-// Fill in the header for `cmd` at s->tx; the body follows it.
+// Fill in the header for `cmd` at s->tx; the body follows it. One
+// credit, unless the caller raises CreditCharge (a READ past 64 KiB).
 static void header(struct usmb *s, uint16_t cmd) {
     uint8_t *h = s->tx;
     memset(h, 0, USMB_HDR);
     memcpy(h, "\xfeSMB", 4);
     put16(h + 4, USMB_HDR);
-    put16(h + 6, s->dialect > 0x0202 ? 1 : 0);   // CreditCharge
+    put16(h + 6, s->dialect > 0x0202 ? 1 : 0);   // CreditCharge (2.0.2 has none)
     put16(h + 12, cmd);
     put16(h + 14, 64);                           // credits asked for
     put64(h + 24, s->msg_id);
@@ -244,7 +247,13 @@ static void header(struct usmb *s, uint16_t cmd) {
 // the response is in s->rx, its body at s->rx + USMB_HDR.
 static int64_t transact(struct usmb *s, size_t body, int sign) {
     size_t len = USMB_HDR + body;
-    uint64_t id = s->msg_id++;
+    // MS-SMB2 3.2.4.1.5: a request of charge N consumes N message ids
+    // and N credits.
+    uint16_t charge = get16(s->tx + 6);
+    uint64_t id = s->msg_id;
+    s->msg_id += charge ? charge : 1;
+    uint32_t spend = charge ? charge : 1;
+    s->credits = s->credits > spend ? s->credits - spend : 0;
     if (sign) usmb_sign(s->dialect, s->sign_key, s->tx, len);
     uint8_t nb[4] = { 0, (uint8_t)(len >> 16), (uint8_t)(len >> 8), (uint8_t)len };
     if (s->io.send(s->io.ctx, nb, 4) < 0 || s->io.send(s->io.ctx, s->tx, len) < 0)
@@ -256,6 +265,7 @@ static int64_t transact(struct usmb *s, size_t body, int sign) {
         uint32_t flags = get32(h + 16);
         if (!(flags & FLAG_SERVER_TO_REDIR) || get64(h + 24) != id) continue; // not ours (an oplock break)
         uint32_t st = get32(h + 8);
+        s->credits += get16(h + 14);                                         // granted, even on an interim
         if (st == ST_PENDING && (flags & FLAG_ASYNC)) continue;               // interim: the answer follows
         if (s->sign) {
             if (!(flags & FLAG_SIGNED)) return USMB_E_SIGN;
@@ -289,6 +299,7 @@ static int negotiate(struct usmb *s) {
     put16(b, 36);
     put16(b + 2, (uint16_t)nd);
     put16(b + 4, SECMODE_SIGNING_ENABLED);
+    put32(b + 8, CAP_LARGE_MTU);
     memcpy(b + 12, s->client_guid, 16);
     for (int i = 0; i < nd; i++) put16(b + 36 + 2 * i, DIALECTS[i]);
     size_t len = 36 + 2 * (size_t)nd;
@@ -317,12 +328,15 @@ static int negotiate(struct usmb *s) {
     s->server_secmode = get16(r + 2);
     s->dialect = get16(r + 4);
     s->max_read = get32(r + 32);
+    uint32_t caps = get32(r + 24);
     s->server_time = get64(r + 40);
     int known = 0;
     for (int i = 0; i < nd; i++) known |= s->dialect == DIALECTS[i];
     if (!known) return USMB_E_DIALECT;
     if (s->dialect == 0x0311) usmb_preauth_update(s->preauth, s->rx, s->rx_len);
-    if (s->max_read > USMB_READ_MAX) s->max_read = USMB_READ_MAX;
+    // Past one credit only with large MTU, which 2.0.2 cannot have.
+    uint32_t ceiling = s->dialect >= 0x0210 && (caps & CAP_LARGE_MTU) ? USMB_READ_MAX : USMB_CREDIT;
+    if (s->max_read > ceiling) s->max_read = ceiling;
     if (s->max_read < 4096) s->max_read = 4096;
     return 0;
 }
@@ -357,7 +371,7 @@ static int64_t session_leg(struct usmb *s, const uint8_t *blob, size_t n,
 }
 
 static int session_setup(struct usmb *s, const struct usmb_auth *a) {
-    uint8_t tok[64], blob[2048];
+    uint8_t tok[64], blob[256];   // NegTokenInit around a 32-byte NEGOTIATE
     int tn = usmb_ntlm_negotiate(tok, sizeof tok);
     int bn = usmb_spnego_init(tok, (size_t)tn, blob, sizeof blob);
     if (tn < 0 || bn < 0) return USMB_E_PROTO;
@@ -446,6 +460,9 @@ static int tree_connect(struct usmb *s, const char *share) {
     return 0;
 }
 
+static uint32_t g_failed_status;
+uint32_t usmb_failed_status(void) { return g_failed_status; }
+
 int usmb_open(struct usmb **out, const struct usmb_io *io,
               const char *server, const char *share,
               const struct usmb_auth *auth, unsigned timeout_ms) {
@@ -458,6 +475,7 @@ int usmb_open(struct usmb **out, const struct usmb_io *io,
         return USMB_E_NOMEM;
     }
     s->io = *io;
+    s->credits = 1;            // what every connection starts with
     s->timeout_ms = timeout_ms ? timeout_ms : 10000;
     size_t sl = strlen(server);
     if (sl >= sizeof s->server) sl = sizeof s->server - 1;
@@ -466,6 +484,7 @@ int usmb_open(struct usmb **out, const struct usmb_io *io,
     int rc = negotiate(s);
     if (!rc) rc = session_setup(s, auth);
     if (!rc) rc = tree_connect(s, share);
+    g_failed_status = rc ? s->last_status : 0;
     if (rc) { usmb_close(s); return rc; }
     *out = s;
     return 0;
@@ -585,7 +604,7 @@ int usmb_list(struct usmb *s, const char *path, usmb_list_cb cb, void *ctx) {
         memcpy(b + 8, id, 16);
         put16(b + 24, USMB_HDR + 32);
         put16(b + 26, 2);
-        put32(b + 28, USMB_READ_MAX);
+        put32(b + 28, USMB_LIST_MAX);
         put16(b + 32, '*');
         int64_t st = transact(s, 34, s->sign);
         if (st == ST_NO_MORE_FILES) break;
@@ -625,7 +644,11 @@ int usmb_open_file(struct usmb *s, const char *path, struct usmb_file *f) {
 int64_t usmb_read(struct usmb *s, const struct usmb_file *f,
                   uint64_t offset, void *buf, uint32_t len) {
     if (len > s->max_read) len = s->max_read;
+    // As many credits as the read is wide, and no more than we hold.
+    uint32_t afford = (s->credits ? s->credits : 1) * USMB_CREDIT;
+    if (len > afford) len = afford;
     header(s, CMD_READ);
+    if (s->dialect > 0x0202) put16(s->tx + 6, (uint16_t)((len + USMB_CREDIT - 1) / USMB_CREDIT));
     uint8_t *b = s->tx + USMB_HDR;
     memset(b, 0, 49);
     put16(b, 49);

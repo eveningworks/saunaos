@@ -36,6 +36,7 @@ struct uui_place {
     // doing (USERFS_ST_*), and what it is a share of. Listed after the
     // local devices, under their own caption.
     int remote, state;
+    int session;                  // opened for the session: nothing in /etc/mounts.d keeps it
     char source[64];
 };
 

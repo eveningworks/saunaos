@@ -1651,6 +1651,13 @@ finishes it -- a reply, an unmount, a dead daemon noticed -- does so under
 userfs's lock, which is what lets an unmount free the mount's state while
 requests are still outstanding.
 
+**ITS READ-AHEAD WINDOW IS TOUCHED ONLY UNDER THE MOUNT'S LOCK.** A small
+`read()` fetches a window (128 KiB, doubling to 1 MiB while sequential)
+into a fresh buffer and installs it only once `call()` returns with the
+lock retaken AND the mount still there (`*gone` is 0) -- the lock was
+dropped for the wait, so another reader may have used the window
+meanwhile, and an unmount may have freed the state.
+
 ## A LISTING STATS EVERY ENTRY IT RETURNS, ON THE SAME MOUNT
 
 `listdir_collect()` (`kernel/fs/fs_syscalls.c`) calls `fs_stat()` on each

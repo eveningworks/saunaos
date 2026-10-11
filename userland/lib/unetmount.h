@@ -53,4 +53,29 @@ int unetmount_remove(const char *name);
 // The saved names, sorted; how many (at most `max`).
 int unetmount_list(char (*names)[UNETMOUNT_NAME_MAX], int max);
 
+// ---- share ADDRESSES: smb://nas/media/Films, //nas/media, \\nas\media ----
+//
+// What a person types into an address bar, a file chooser or `open`.
+// Opening one never needs a saved share: a share already mounted with
+// that address is reused, and any other is mounted FOR THE SESSION by a
+// worker of its own (`smbfsd --url`) at /net/<share>, gone after a
+// restart unless saved -- Windows' \\server\share and Nautilus'
+// smb://, neither of which asks you to map a drive first.
+
+// 1 if `s` is spelled as a share address (not whether it exists).
+int unetmount_is_address(const char *s);
+// The address written the one way, "//server[:port]/share[/folder...]",
+// with no trailing '/'. 1, or 0 if it names no share.
+int unetmount_normalise(const char *in, char *out, size_t cap);
+// Opens an address: writes the folder to go to (the mount point plus any
+// folder inside the share) to `out`. 0, or -EINVAL (not a share address,
+// or one with a space, which smbfsd's argument cannot carry), -ENOSPC
+// (no name free), -EIO (the worker did not mount it within a few
+// seconds). Connecting -- and asking for a password -- happens on the
+// first listing, as with any share.
+int unetmount_open_address(const char *addr, char *out, size_t cap);
+// 1 if `point` is a network mount nothing in /etc/mounts.d saves: one
+// opened for the session.
+int unetmount_is_session(const char *point);
+
 #endif

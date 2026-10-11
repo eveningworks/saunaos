@@ -5,10 +5,12 @@
 // editable without an editor.
 #include "lib/uopen.h"
 #include "lib/uconf.h"
+#include "lib/unetmount.h"
 #include "lib/cmd.h"
 #include <string.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <errno.h>
 
 static void lower(char *s) {
     for (; *s; s++) *s = (char)tolower((unsigned char)*s);
@@ -49,8 +51,21 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    if (uopen_spawn(argv[1]) < 0) {
-        fprintf(stderr, "open: nothing opens %s\n", argv[1]);
+    // A share address (smb://nas/media/x.jpg) opens what it names, the
+    // share mounted for the session first if nothing has it (lib/unetmount.h).
+    const char *what = argv[1];
+    char target[512];
+    if (unetmount_is_address(what)) {
+        int rc = unetmount_open_address(what, target, sizeof target);
+        if (rc) {
+            fprintf(stderr, "open: %s: %s\n", what, rc == -EINVAL ? "not a share address (//server/share)"
+                    : "the share could not be mounted");
+            return 1;
+        }
+        what = target;
+    }
+    if (uopen_spawn(what) < 0) {
+        fprintf(stderr, "open: nothing opens %s\n", what);
         return 1;
     }
     return 0; // spawned, not waited for -- see lib/uopen.h

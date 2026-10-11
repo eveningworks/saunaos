@@ -32,7 +32,9 @@
 // never on a ring-3 frame (those are capped at 2 KiB).
 
 #define UFILEOP_PATH_MAX 256   // NOT FS_PATH_MAX (4096): the walk's own bound
-#define UFILEOP_BUF 4096       // one TFS3 block-ish
+// 64 KiB per read: each read() is a call, and on a network share a call
+// is a round trip, so 4 KiB ran a copy at a few MB/s (2026-10-11).
+#define UFILEOP_BUF (64 * 1024)
 #define UFILEOP_MAX_DIRS 64    // pending directories in a tree walk
 
 // What a caller decides when a destination already exists.

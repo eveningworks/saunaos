@@ -79,6 +79,7 @@
 #define ID_TOAST_X  21  // ...and its dismiss
 #define ID_SCOPE    22  // the search strip's Look in switch
 #define ID_SEARCH_STOP 23
+#define ID_NETBAR   24  // "Opened for this session" + Save to Network (fm_network.c)
 
 // The commands, shared by the menu bar, the toolbar, the context menu
 // and the function keys -- one code per act, so those four cannot
@@ -114,6 +115,7 @@ enum {
     CMD_RECENT_FOLDER, CMD_RECENT_FORGET, CMD_RECENT_CLEAR,   // fm_recent.c
     CMD_RUN_TERMINAL, CMD_RUN,                   // a program or script, lib/ulaunch.h
     CMD_NET_SIGNIN, CMD_NET_DISCONNECT, CMD_NET_FORGET,   // a network share, fm_network.c
+    CMD_NET_OPEN,
 };
 
 // The Recycle Bin's folder, as uui_fileview and the breadcrumb see it --
@@ -479,5 +481,18 @@ void net_answer(int code);
 int  net_tick(void);
 int  net_in_share(const char *dir);
 void net_command(int code);
+// The Save bar: whether the active pane is in a share opened for the
+// session (cheap: one QUERY_FSINFO walk), its widget, and its click.
+#include "ui/uui_infobar.h"
+extern struct uui_infobar g_netbar;
+int  net_bar_wanted(void);
+void net_save_session(void);
+// An address typed anywhere a path is (smb://, //, \\): 1 and the pane
+// navigated (or the reason in the status bar), 0 if it was not one.
+int  net_goto_address(int pane, const char *typed);
+// A share's row in the tree has a menu of its own: is `path` a network
+// mount point, and that menu (aimed at it until the next command).
+int  net_is_share_root(const char *path);
+int  net_ctx_items(struct uui_menu_item *out, int cap, const char *point);
 
 #endif // FM_INTERNAL_H

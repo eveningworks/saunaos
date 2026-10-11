@@ -97,6 +97,9 @@ struct usmb_info {
 };
 void usmb_get_info(const struct usmb *s, struct usmb_info *out);
 uint32_t usmb_last_status(const struct usmb *s); // the NTSTATUS behind USMB_E_OTHER
+// The same for the last usmb_open() that FAILED in this process (0 for
+// none) -- the session it would be read from is gone by then.
+uint32_t usmb_failed_status(void);
 
 // One entry's metadata. Times are seconds since the Unix epoch, UTC.
 struct usmb_stat {
@@ -117,7 +120,8 @@ int usmb_list(struct usmb *s, const char *path, usmb_list_cb cb, void *ctx);
 struct usmb_file { uint8_t id[16]; uint64_t size; };
 int usmb_open_file(struct usmb *s, const char *path, struct usmb_file *f);
 // Bytes read (0 at the end of the file), or an error. At most
-// usmb_info.max_read, and at most 64 KiB, per call.
+// usmb_info.max_read per call: 1 MiB from a server that allows large
+// MTU (multi-credit READs; 2.1 and later), 64 KiB otherwise.
 int64_t usmb_read(struct usmb *s, const struct usmb_file *f,
                   uint64_t offset, void *buf, uint32_t len);
 int usmb_close_file(struct usmb *s, const struct usmb_file *f);

@@ -9,6 +9,7 @@
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "userfs_abi.h"
+#include "lib/unetmount.h"
 #include "lib/upins.h"
 #include "kpath.h"
 #include "keyboard.h"
@@ -156,6 +157,7 @@ void uui_places_refresh(struct uui_places *p) {
             r->used = fs.used_bytes;
             r->remote = remote;
             r->state = (int)fs.remote_state;
+            r->session = remote && unetmount_is_session(fs.point);
             strlcpy(r->source, fs.source, sizeof r->source);
         }
     }
@@ -202,6 +204,7 @@ void uui_places_short_note(const struct uui_place *r, char *out, int cap) {
         snprintf(out, (size_t)cap, "%s", r->state >= 0 && r->state < 8 ? word[r->state] : "");
         return;
     }
+    if (r->remote && r->session) { snprintf(out, (size_t)cap, "this session"); return; }
     if (r->remote) {
         char free_s[16];
         human_size(free_s, sizeof free_s, r->total > r->used ? r->total - r->used : 0);

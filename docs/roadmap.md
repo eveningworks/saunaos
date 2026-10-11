@@ -478,6 +478,9 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~Mount a share so every program sees it~~ DONE 2026-10-11 -- the userfs bridge + `/bin/smbfsd`; `mount -t smb`
 - [x] ~~Saved shares that come back after a reboot~~ DONE 2026-10-11 -- `/etc/mounts.d`, connected on first use, password kept as a hash
 - [x] ~~Network shares in the File Manager~~ DONE 2026-10-11 -- a Network group, Add network share, Sign in, "not answering"
+- [x] ~~Open a share by its address~~ DONE 2026-10-11 -- `smb://` in the address bar, the file chooser and `open`; Save to Network
+- [x] ~~A share reads at a few MB/s~~ DONE 2026-10-11 -- 1 MiB READs (large MTU) and read-ahead in the bridge
+- [ ] One READ in flight per share: a second, pipelined, would close the gap to the link once the TCP stack is not the limit
 - [ ] A share that REQUIRES encryption is refused: no AES-CCM/GCM transform yet
 - [ ] Add network share cannot list a server's shares -- needs srvsvc (DCE/RPC over a named pipe)
 - [ ] No way to FIND servers on the network -- mDNS (`_smb._tcp`) or WS-Discovery, both multicast

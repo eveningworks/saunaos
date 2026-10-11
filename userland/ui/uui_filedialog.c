@@ -1,5 +1,6 @@
 // See ui/uui_filedialog.h for the design writeup (what this is, why it
 // is a window, and why Places rather than a tree).
+#include "lib/unetmount.h"
 #include "ui/uui_filedialog.h"
 
 #include <string.h>
@@ -156,7 +157,12 @@ static int commit(struct uui_filedialog *fd) {
         // AN ABSOLUTE PATH TYPED INTO THE FIELD IS TAKEN AS ONE, which
         // every real chooser allows and is the only way to reach a
         // directory the Places list does not name.
-        if (typed[0] == '/') strlcpy(full, typed, sizeof full);
+        // A share address (smb://nas/media) opens the share, mounted for
+        // the session if nothing has it yet (lib/unetmount.h).
+        if (unetmount_is_address(typed)) {
+            if (unetmount_open_address(typed, full, sizeof full)) return 0;
+            build_places(fd);
+        } else if (typed[0] == '/') strlcpy(full, typed, sizeof full);
         else if (!k_path_join(dir, typed, full, sizeof full)) return 0;
     } else if (!uui_fileview_selected_path(&fd->view, full, sizeof full)) {
         return 0;   // nothing named and nothing selected
@@ -224,6 +230,11 @@ static void on_widget(struct uapp_window *w, int id, int reason) {
         static char scratch[KPATH_SCRATCH_FOR(UUI_FILEDIALOG_PATH_MAX)];
         struct kpath_scratch sc = { scratch, sizeof scratch };
         struct sys_stat st;
+        if (unetmount_is_address(to)) {
+            if (unetmount_open_address(to, full, sizeof full)) break;
+            build_places(fd);
+            snprintf(to, sizeof to, "%s", full);
+        }
         if (k_path_resolve(uui_fileview_dir(&fd->view), to, full, sizeof full, &sc) &&
             sys_stat(full, &st) == 0 && st.is_dir) {
             uui_fileview_set_dir(&fd->view, full);

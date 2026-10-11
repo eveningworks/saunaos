@@ -53,7 +53,7 @@ struct userfs_mount {
 // Requests (kernel -> server).
 #define USERFS_OP_STAT 1       // reply: struct userfs_stat
 #define USERFS_OP_LIST 2       // offset = the entry to resume at; reply: packed userfs_dirent
-#define USERFS_OP_READ 3       // offset, len; reply: the bytes
+#define USERFS_OP_READ 3       // offset, len (up to 1 MiB: the kernel reads ahead); reply: the bytes
 #define USERFS_OP_CTL  4       // ctl, data; reply: up to `len` bytes back, and the result
 
 struct userfs_req {
@@ -114,6 +114,7 @@ struct userfs_state {
 // USERFS_CTL codes, for smbfsd. A payload is NUL-separated fields.
 #define USERFS_CTL_LOGIN      1  // "user\0domain\0password\0remember(0|1)"
 #define USERFS_CTL_RECONNECT  2  // drop the connection; the next access makes a new one
+#define USERFS_CTL_SAVE       3  // "name": a share opened for the session becomes a saved one
 
 struct userfs_ctl {
     char point[256];

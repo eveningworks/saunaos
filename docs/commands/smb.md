@@ -17,8 +17,9 @@
 - `cat URL` -- print a file to the terminal (or a pipe).
 - `stat URL` -- one file's or folder's type, size and dates.
 - `info URL` -- what the server agreed to: the SMB dialect, whether
-  every message is signed, who you are signed in as, and the share's
-  size and free space.
+  every message is signed, who you are signed in as, how much one read
+  may carry (1 MiB from a server that allows large MTU, 64 KiB
+  otherwise), and the share's size and free space.
 - `login NAME` -- sign in to a MOUNTED share: `/net/NAME` for a saved
   one (`/etc/mounts.d/NAME`), or any mount point given as a path. It
   hands the user and password to the share's `smbfsd` worker -- the same
@@ -71,6 +72,10 @@ those words rather than "access denied". Encryption is not supported:
 a share that requires it is refused, and the server says "access
 denied" for it, so that is what you see, with the encryption named as
 the likely cause.
+
+**A refusal it has no words for names the server's code** --
+`the server refused (NTSTATUS 0xc000000d)` -- so a report from a server
+nobody here has seen can still be read.
 
 **The password is never stored** -- it is hashed (NTLM's NT hash) as it
 is read and the plain text cleared.

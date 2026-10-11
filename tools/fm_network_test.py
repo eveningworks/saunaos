@@ -207,6 +207,49 @@ def main():
                 out = dc.send("sh cat /etc/mounts.d/public") or ""
                 res.check("...from a file in /etc/mounts.d", f"Source={base}/public" in out, out[-200:])
 
+            print("forget a share from its row's menu")
+            rows = share_rows(shot("tree2b"), tree)
+            forgot = False
+            if len(rows) >= 2:
+                dc.rclick(tree["screen"]["x"] + 40, rows[1])
+                # An app's own menu is not `gui ctxmenu`'s (that is the
+                # compositor's): Up from nothing is its LAST row, Forget.
+                dc.key("0xF780")
+                dc.key("0x0d")
+                if True:
+                    for _ in range(20):
+                        out = dc.send("sh ls /etc/mounts.d") or ""
+                        if "public" not in out:
+                            forgot = True
+                            break
+                        time.sleep(0.5)
+            res.check("Forget this share, on the row's own menu, removes the saved share", forgot)
+
+            print("an smb:// address in the address bar")
+            dc.key("0x0c")                       # Ctrl+L: the address bar as text
+            typ(f"smb://10.0.2.2:{srv.port}/public")
+            dc.key("0x0d")
+            m = wait_log(r"netshare address smb://\S+ -> (/net/\S+)")
+            res.check("an smb:// address opens the share, mounted for the session",
+                      m is not None and m.group(1).startswith("/net/public"), m.group(0) if m else "nothing")
+            time.sleep(1)
+            dc.settle()
+            bar = dc.widgets("File Manager").get("netbar")
+            ok = False
+            if bar and bar.get("w", 0) > 0:
+                # The Save button: the accent-filled run at the bar's right.
+                im = Image.open(shot("netbar")).convert("RGB")
+                bx, by = bar["screen"]["x"], bar["screen"]["y"]
+                hits = [(x, y) for y in range(by, by + bar["h"]) for x in range(bx + bar["w"] // 2, bx + bar["w"])
+                        if (lambda p: p[2] > 120 and p[2] - p[0] > 60 and p[0] < 110)(im.getpixel((x, y)))]
+                if hits:
+                    dc.click(sum(h[0] for h in hits) // len(hits), sum(h[1] for h in hits) // len(hits))
+                    ok = wait_log(r"netshare save /net/public\S* rc 0") is not None
+            res.check("the session bar's Save to Network saves it", ok, f"bar {bar}")
+            name = m.group(1).split("/")[2] if m else "public"
+            out = dc.send(f"sh cat /etc/mounts.d/{name}") or ""
+            res.check("...as a file in /etc/mounts.d", f"Source=//10.0.2.2:{srv.port}/public" in out, out[-200:])
+
             print("a share that does not answer")
             dc.send("sh write /etc/mounts.d/dead Source=//10.0.2.2:1/nothing")
             rows = []

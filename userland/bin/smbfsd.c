@@ -43,6 +43,7 @@
 #define STAT_TTL_MS   2000u
 #define LIST_TTL_MS   3000u
 #define FILE_IDLE_MS  15000u
+#define READ_BUF      (1024u * 1024u)   // the kernel's largest read-ahead window
 
 static uint64_t now_ms(void) { return sys_monotonic_ns() / 1000000ull; }
 
@@ -217,8 +218,10 @@ static int ensure(void) {
     char note[96];
     // An ANONYMOUS try a server refuses is a share that wants a user --
     // what a share added without one hits first. Ask, not "failed".
-    int anon_refused = !g_cfg.user[0] &&
-        (rc == USMB_E_ACCESS || rc == USMB_E_SHAREDENIED || rc == USMB_E_NEEDSIGN);
+    // Servers say it differently -- access denied, logon failure, a
+    // Windows server's INVALID_PARAMETER -- so anything but the network.
+    int anon_refused = !g_cfg.user[0] && rc != USMB_E_NET && rc != USMB_E_TIMEOUT &&
+        rc != USMB_E_RESOLVE && rc != USMB_E_NOMEM;
     if (rc == USMB_E_LOGON || anon_refused) {
         // A saved password that stopped working (changed on the server)
         // is forgotten for this boot, so the user is asked again.
@@ -232,6 +235,9 @@ static int ensure(void) {
     } else if (rc == USMB_E_RESOLVE) {
         snprintf(note, sizeof note, "%s was not found on the network", g_server);
         publish(USERFS_ST_UNREACHABLE, note, 0, 0);
+    } else if (rc == USMB_E_OTHER) {
+        snprintf(note, sizeof note, "%s (NTSTATUS 0x%08x)", usmb_strerror(rc), usmb_failed_status());
+        publish(USERFS_ST_FAILED, note, 0, 0);
     } else {
         snprintf(note, sizeof note, "%s", usmb_strerror(rc));
         publish(USERFS_ST_FAILED, note, 0, 0);
@@ -387,23 +393,54 @@ static struct open_ent *file_for(const char *path, int *err) {
     return lru;
 }
 
+// Fills [off, off + len) as far as the file goes: the kernel asks for
+// up to its read-ahead window (1 MiB) and one READ may carry less.
 static int64_t do_read(const char *path, uint64_t off, uint8_t *buf, uint32_t len) {
     int rc = 0;
     for (int attempt = 0; attempt < 2; attempt++) {
         rc = ensure();
         if (!rc) {
             struct open_ent *f = file_for(path, &rc);
-            if (f) {
-                int64_t n = usmb_read(g_s, &f->f, off, buf, len);
-                if (n >= 0) return n;
-                rc = (int)n;
+            uint32_t done = 0;
+            while (f && done < len) {
+                int64_t n = usmb_read(g_s, &f->f, off + done, buf + done, len - done);
+                if (n < 0) { rc = (int)n; break; }
+                if (n == 0) break;
+                done += (uint32_t)n;
             }
+            if (f && !rc) return done;
+            if (f && done) return done;     // what came before the error
         }
         if (!session_broke(rc) || attempt) break;
         drop_session();
     }
     if (session_broke(rc)) drop_session();
     return to_errno(rc);
+}
+
+// USERFS_CTL_SAVE: a share opened for the session (`--url`) writes its
+// own /etc/mounts.d file and becomes a saved one, keeping its
+// connection. The password is not saved -- that is Remember's, asked for
+// in the Sign-in dialog. smbfsd's supervisor sees the file, finds the
+// point served, and takes over only if this worker ever exits.
+static int do_save(const uint8_t *data, uint32_t len) {
+    char name[UNETMOUNT_NAME_MAX];
+    uint32_t n = 0;
+    while (n < len && n + 1 < sizeof name && data[n]) { name[n] = (char)data[n]; n++; }
+    name[n] = '\0';
+    if (!unetmount_name_ok(name)) return -EINVAL;
+    struct unetmount m, old;
+    if (unetmount_load(name, &old)) return -EEXIST;
+    memset(&m, 0, sizeof m);
+    snprintf(m.name, sizeof m.name, "%s", name);
+    snprintf(m.source, sizeof m.source, "%s", g_cfg.url);
+    snprintf(m.user, sizeof m.user, "%s", g_cfg.user);
+    snprintf(m.domain, sizeof m.domain, "%s", g_cfg.domain);
+    if (!unetmount_save(&m)) return -EIO;
+    snprintf(g_cfg.name, sizeof g_cfg.name, "%s", name);
+    g_cfg.saved = 1;
+    g_cfg.signed_in = 1;        // what it signed in with stays in force
+    return 0;
 }
 
 // USERFS_CTL_LOGIN: "user\0domain\0password\0remember".
@@ -446,7 +483,7 @@ static int do_login(const uint8_t *data, uint32_t len) {
 
 static void serve(void) {
     struct userfs_req *req = malloc(sizeof *req);
-    uint8_t *buf = malloc(64 * 1024);
+    uint8_t *buf = malloc(READ_BUF);
     if (!req || !buf) return;
     for (;;) {
         int64_t t = sys_userfs(USERFS_TAKE, (uint64_t)g_handle, (uint64_t)(uintptr_t)req);
@@ -462,7 +499,7 @@ static void serve(void) {
         memset(&rp, 0, sizeof rp);
         rp.id = req->id;
         rp.buf = (uint64_t)(uintptr_t)buf;
-        uint32_t cap = req->len < 64 * 1024 ? req->len : 64 * 1024;
+        uint32_t cap = req->len < READ_BUF ? req->len : READ_BUF;
         if (req->op == USERFS_OP_STAT) {
             struct userfs_stat st;
             rp.result = do_stat(req->path, &st);
@@ -483,6 +520,7 @@ static void serve(void) {
             rp.len = n > 0 ? (uint32_t)n : 0;
         } else if (req->op == USERFS_OP_CTL) {
             if (req->ctl == USERFS_CTL_LOGIN) rp.result = do_login(req->data, req->data_len);
+            else if (req->ctl == USERFS_CTL_SAVE) rp.result = do_save(req->data, req->data_len);
             else if (req->ctl == USERFS_CTL_RECONNECT) {
                 drop_session();
                 g_failed_at = 0;
@@ -582,7 +620,7 @@ struct child {
     struct unetmount cfg;       // what it was started with (hash aside)
     int pid;
     int gone;                   // its file was removed: stop, do not restart
-    int busy;                   // someone else serves its point: wait for a change
+    int busy;                   // someone else serves its point: retried every 10 s
     uint64_t restart_at;
     unsigned backoff_ms;
 };
@@ -692,11 +730,14 @@ static __attribute__((noreturn)) void supervisor(void) {
             int code = 0;
             if (k->pid > 0 && sys_waitpid_nohang(k->pid, &code) == k->pid) {
                 k->pid = 0;
-                if (code == 3) { k->busy = 1; continue; }     // another process serves it
+                // Another process serves its point -- a session share just
+                // saved (USERFS_CTL_SAVE). Look again now and then: when
+                // that worker exits, this one takes the mount over.
+                if (code == 3) { k->busy = 1; k->restart_at = t + 10000; continue; }
                 k->backoff_ms = k->backoff_ms ? (k->backoff_ms * 2 > 30000 ? 30000 : k->backoff_ms * 2) : 1000;
                 k->restart_at = t + k->backoff_ms;
             }
-            if (!k->pid && !k->busy && k->restart_at && t >= k->restart_at) {
+            if (!k->pid && k->restart_at && t >= k->restart_at) {
                 k->restart_at = 0;
                 start(k);
             }

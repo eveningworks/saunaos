@@ -125,6 +125,7 @@ struct uui_button g_toast_x;     // ...and over its dismiss slot
 // row landed under the cursor (uui_menubar.h says it once, in full).
 static int g_ctx_armed;
 static int g_ctx_x, g_ctx_y;
+static int g_ctx_tree = -1;     // the menu was asked for on this tree row (a share's)
 
 char g_stat_dir[PATH_MAX_LEN + 8];
 char g_stat_items[48];
@@ -585,6 +586,7 @@ struct uui_item g_widgets[] = {
     { .ops = &uui_button_ops, .widget = &g_toast_x, .id = ID_TOAST_X, .hidden = 1 },
     { .ops = &uui_segmented_ops, .widget = &g_scope_seg, .id = ID_SCOPE, .hidden = 1, .name = "scope" },
     { .ops = &uui_button_ops, .widget = &g_search_stop, .id = ID_SEARCH_STOP, .hidden = 1 },
+    { .ops = &uui_infobar_ops, .widget = &g_netbar, .id = ID_NETBAR, .hidden = 1, .name = "netbar" },
     { .ops = &uui_textbox_ops, .widget = &g_addr[0], .id = ID_ADDR_L, .name = "addr0" },
     { .ops = &uui_textbox_ops, .widget = &g_addr[1], .id = ID_ADDR_R, .name = "addr1" },
     // LAST, so it is hit-tested FIRST: input order is the reverse of
@@ -628,6 +630,7 @@ void addr_begin_edit(int pane) {
 void addr_end_edit(int commit) {
     int pane = g_addr_edit;
     if (pane < 0) return;
+    if (commit && net_goto_address(pane, uui_textbox_text(&g_addr[pane]))) commit = 0;
     if (commit) {
         char path[PATH_MAX_LEN], was[PATH_MAX_LEN];
         strlcpy(was, uui_fileview_dir(&g_pane[pane]), sizeof was);
@@ -856,6 +859,10 @@ void search_clear(void) {
 // takes them to mean). A place that does not exist is said so, and the
 // field stays up holding what was typed.
 static void path_navigate(const char *typed) {
+    if (net_goto_address(g_active, typed)) {
+        uui_pathbar_set_path(&g_path, uui_fileview_dir(active()));
+        return;
+    }
     char path[PATH_MAX_LEN], was[PATH_MAX_LEN];
     strlcpy(was, uui_fileview_dir(active()), sizeof was);
     static char scratch[KPATH_SCRATCH_FOR(PATH_MAX_LEN)];
@@ -971,7 +978,7 @@ void do_command(struct uapp *a, int code) {
     case CMD_UNDO:           do_undo(0); break;
     case CMD_VIEW_SIZES:     sizes_set(!g_sizes_on); break;
     case CMD_PIN:            pin_selected(1); break;
-    case CMD_NET_SIGNIN: case CMD_NET_DISCONNECT: case CMD_NET_FORGET:
+    case CMD_NET_SIGNIN: case CMD_NET_DISCONNECT: case CMD_NET_FORGET: case CMD_NET_OPEN:
         net_command(code); break;
     case CMD_EXTRACT_ALL:
     case CMD_EXTRACT_SEL: {
@@ -1187,6 +1194,12 @@ static void on_widget(struct uapp *a, int id, int reason) {
         uapp_redraw(a);
         return;
     }
+    if (id == ID_NETBAR) {
+        if (reason == UUI_REASON_RELEASE && uui_infobar_take(&g_netbar)) net_save_session();
+        refresh_status();
+        uapp_redraw(a);
+        return;
+    }
     if (id == ID_PLACES) {
         if (uui_places_take(&g_places, taken, sizeof taken) &&
             strcmp(taken, uui_fileview_dir(active())) != 0 && !fm_goto(g_active, taken))
@@ -1381,6 +1394,17 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         uapp_redraw(a);
         return;
     }
+    // A network share's row in the tree has a menu of its own: Open,
+    // Sign in, Disconnect, Forget (fm_network.c).
+    int nid = uui_tree_hit(&g_tree, x, y);
+    if (!widget_by_id(ID_TREE)->hidden && nid >= 0 && nid < g_tree_count &&
+        net_is_share_root(g_tree_path[nid])) {
+        g_ctx_armed = 1;
+        g_ctx_tree = nid;
+        g_ctx_x = x; g_ctx_y = y;
+        return;
+    }
+    g_ctx_tree = -1;
     int p = pane_at(x, y);
     if (p < 0) return;   // not over a listing: no menu, as on the chrome
     g_ctx_armed = 1;
@@ -1400,7 +1424,12 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     if (!g_ctx_armed) return;
     g_ctx_armed = 0;
     if (g_modal != MODAL_NONE) return;
-    g_ctx_rows = build_ctx_items();
+    if (g_ctx_tree >= 0 && g_ctx_tree < g_tree_count)
+        g_ctx_rows = net_ctx_items(g_ctx_built, (int)(sizeof g_ctx_built / sizeof g_ctx_built[0]),
+                                   g_tree_path[g_ctx_tree]);
+    else
+        g_ctx_rows = build_ctx_items();
+    g_ctx_tree = -1;
     uui_menubar_open_at(&g_ctx, g_ctx_built, g_ctx_rows, g_ctx_x, g_ctx_y);
     uapp_redraw(a);
 }

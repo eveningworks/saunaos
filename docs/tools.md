@@ -605,7 +605,8 @@ manual steps to be worth automating:
   gcc against the in-tree mbedTLS, driven against `samba_server.py` for
   every dialect (2.0.2 to 3.1.1, signing mandatory) and the refusals
   (wrong password, no share, encryption required, guest against required
-  signing). Bytes are compared with what the fixture wrote. The
+  signing), with 1 MiB reads where large MTU allows them (2.0.2 must stay
+  at 64 KiB). Bytes are compared with what the fixture wrote. The
   positive control breaks the 3.x signing-key labels and must go red.
   `ondemand_sweep.py` runs it when the image exists.
 
@@ -613,6 +614,9 @@ manual steps to be worth automating:
   smb` and `smb login`, a saved share across a cold boot, a killed
   worker replaced, an unreachable server failing fast, and a forgotten
   share unmounted. The 3 MiB file is hashed through both paths; the
+  file is also hashed straight off the mount (`sum`'s 8 KiB reads, what
+  the kernel's read-ahead window answers), `open smb://...` mounts a
+  session share and saves nothing, and the
   1500-entry folder is walked (`cp -r`) to its last entry, since `ls`
   stops at one listing on every filesystem (`docs/bugs.md`). The
   positive control saves a wrong hash. `ondemand_sweep.py`, serial.
@@ -620,7 +624,10 @@ manual steps to be worth automating:
 - **`fm_network_test.py`** -- the File Manager's Network rows: a share
   row found by its icon's teal pixels, Sign in drawn (the window dims,
   the padlock shows) and answered, Add network share writing
-  `/etc/mounts.d` and opening the share, and the "not answering" dialog.
+  `/etc/mounts.d` and opening the share, Forget this share from the
+  row's own menu, an `smb://` address in the address bar opening a
+  session share whose Save to Network bar saves it, and the "not
+  answering" dialog.
   Each step waits on the app's `files: netshare` log line. The positive
   control types a wrong password. `ondemand_sweep.py`, serial.
 

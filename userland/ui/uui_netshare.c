@@ -86,29 +86,8 @@ static void reopen_with(struct uui_netshare *n, const char *error, int focus_row
     uui_form_focus(&n->form, focus_row);
 }
 
-// //server/share in any of the three spellings, written the one way.
-// 0 if it names no share.
 static int normalise(const char *in, char *out, size_t cap) {
-    const char *p = in;
-    while (*p == ' ') p++;
-    if (!strncmp(p, "smb://", 6)) p += 6;
-    else if ((p[0] == '/' && p[1] == '/') || (p[0] == '\\' && p[1] == '\\')) p += 2;
-    else return 0;
-    size_t o = 0;
-    if (cap < 3) return 0;
-    out[o++] = '/'; out[o++] = '/';
-    int seps = 0, after = 0;
-    for (; *p && *p != ' '; p++) {
-        char c = *p == '\\' ? '/' : *p;
-        if (c == '/') { if (o && out[o - 1] == '/') continue; seps++; after = 0; }
-        else after++;
-        if (o + 2 > cap) return 0;
-        out[o++] = c;
-    }
-    while (o > 2 && out[o - 1] == '/') o--;
-    out[o] = '\0';
-    // A server, then at least one more component: the share.
-    return seps >= 1 && (after > 0 || seps >= 2) && out[2] != '/';
+    return unetmount_normalise(in, out, cap);
 }
 
 static void *signin_thread(void *arg) {

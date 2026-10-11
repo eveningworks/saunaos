@@ -140,6 +140,10 @@ def main():
             res.check("a nested file reads through the mount", "three levels down" in out, out[-200:])
             g.sh("cp /mnt/big.bin /tmp/mnt.bin")
             res.check("cp through the mount: byte-exact", sha_in_guest(g, "/tmp/mnt.bin") == big)
+            # 8 KiB reads straight off the mount: the kernel's read-ahead
+            # windows (128 KiB growing to 1 MiB) answer most of them.
+            res.check("sum read through the mount (read-ahead): byte-exact",
+                      sha_in_guest(g, "/mnt/big.bin") == big)
             # Paged (SYS_LISTDIR_AT) by cp -r's walk, as the File Manager
             # pages -- `ls` alone stops at one listing, on every filesystem.
             last = samba_server.MANY - 1
@@ -148,6 +152,13 @@ def main():
                       re.search(rf"^{last}$", out, re.M) is not None, out[-200:])
             g.sh("umount /mnt")
             res.check("umount ends it", g.mount_state("/mnt") is None)
+
+            g.sh(f"open smb://{GW}:{srv.port}/public")
+            st = g.wait_state("/net/public", {"idle", "connected", "connecting", "sign-in needed"}, timeout_s=10)
+            res.check("open smb://... mounts the share for the session", st is not None, st)
+            out = g.sh("ls /etc/mounts.d")
+            res.check("...and saves nothing", "public" not in out.split("---")[-1], out[-200:])
+            g.sh("umount /net/public")
 
             print("phase 3: a saved share")
             g.sh("mkdir /etc/mounts.d", f"write /etc/mounts.d/media Source={url}",

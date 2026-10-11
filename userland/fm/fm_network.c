@@ -20,11 +20,14 @@
 #include "kpath.h"
 #include "query_abi.h"
 #include "userfs_abi.h"
+#include <errno.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 static struct uui_netshare g_ns;
+struct uui_infobar g_netbar;
+static int g_netbar_ready;
 // Where to go once a sign-in succeeds: the folder that asked.
 static int g_pend_pane = -1;
 static char g_pend_dir[PATH_MAX_LEN];
@@ -143,27 +146,66 @@ int net_in_share(const char *dir) {
     return share_of(dir, &fs);
 }
 
+// Where the share menu points: a tree row's share, or (empty) the one
+// the active pane is in.
+static char g_target[UUI_PLACES_PATH_MAX];
+
+int net_is_share_root(const char *path) {
+    struct query_fsinfo fs;
+    return share_of(path, &fs) && !strcmp(fs.point, path);
+}
+
+int net_ctx_items(struct uui_menu_item *out, int cap, const char *point) {
+    static const struct uui_menu_item items[] = {
+        UUI_MENU("Open",              CMD_NET_OPEN, 0),
+        UUI_MENU_SEP,
+        UUI_MENU("Sign in...",        CMD_NET_SIGNIN, 0),
+        UUI_MENU("Disconnect",        CMD_NET_DISCONNECT, 0),
+        UUI_MENU_SEP,
+        UUI_MENU("Forget this share", CMD_NET_FORGET, 0),
+    };
+    strlcpy(g_target, point, sizeof g_target);
+    int n = 0;
+    for (int i = 0; i < (int)(sizeof items / sizeof items[0]) && n < cap; i++) out[n++] = items[i];
+    return n;
+}
+
 void net_command(int code) {
     struct query_fsinfo fs;
-    const char *dir = uui_fileview_dir(active());
-    if (!share_of(dir, &fs)) return;
+    const char *dir = g_target[0] ? g_target : uui_fileview_dir(active());
+    int found = share_of(dir, &fs);
+    g_target[0] = '\0';
+    if (!found) return;
     const char *name = k_path_basename(fs.point);
+    if (code == CMD_NET_OPEN) {
+        fm_goto(g_active, fs.point);
+        return;
+    }
     if (code == CMD_NET_SIGNIN) {
         open_signin(g_active, dir, &fs);
     } else if (code == CMD_NET_DISCONNECT) {
         ctl(fs.point, USERFS_CTL_RECONNECT);
         snprintf(g_stat_note, sizeof g_stat_note, "disconnected from %s", fs.source);
     } else if (code == CMD_NET_FORGET) {
-        struct unetmount m;
-        if (!unetmount_load(name, &m)) {
-            snprintf(g_stat_note, sizeof g_stat_note, "%s was mounted by hand -- umount it", fs.point);
-            return;
+        char point[UUI_PLACES_PATH_MAX];
+        strlcpy(point, fs.point, sizeof point);
+        // Leave the share first: a pane in it would keep it in use.
+        for (int p = 0; p < 2; p++) {
+            struct query_fsinfo in;
+            if (share_of(uui_fileview_dir(&g_pane[p]), &in) && !strcmp(in.point, point))
+                fm_goto(p, "/home");
         }
-        // Leave the share first: smbfsd cannot unmount a folder in use.
-        for (int p = 0; p < 2; p++)
-            if (share_of(uui_fileview_dir(&g_pane[p]), &fs)) fm_goto(p, "/home");
-        unetmount_remove(name);
-        snprintf(g_stat_note, sizeof g_stat_note, "forgot the share %s", name);
+        struct unetmount m;
+        if (unetmount_load(name, &m) && !strncmp(point, UNETMOUNT_ROOT "/", strlen(UNETMOUNT_ROOT) + 1)) {
+            unetmount_remove(name);           // smbfsd unmounts it within a couple of seconds
+            snprintf(g_stat_note, sizeof g_stat_note, "forgot the share %s", name);
+        } else if (sys_umount(point) == 0) {   // a session share, or one mounted by hand
+            snprintf(g_stat_note, sizeof g_stat_note, "closed %s", point);
+        } else {
+            snprintf(g_stat_note, sizeof g_stat_note, "%s is in use -- close what is open there", point);
+        }
+        uui_places_refresh(&g_places);
+        tree_rebuild();
     }
 }
 
@@ -221,4 +263,53 @@ int net_tick(void) {
         }
     }
     return changed;
+}
+
+// ---- shares opened for the session (lib/unetmount.h's addresses) ----------
+
+int net_goto_address(int pane, const char *typed) {
+    if (!unetmount_is_address(typed)) return 0;
+    char path[PATH_MAX_LEN];
+    int rc = unetmount_open_address(typed, path, sizeof path);
+    if (rc) {
+        snprintf(g_stat_note, sizeof g_stat_note, rc == -EINVAL ? "not a share address: %s"
+                 : "could not open %s", typed);
+        return 1;
+    }
+    uui_places_refresh(&g_places);
+    tree_rebuild();
+    if (!fm_goto(pane, path)) snprintf(g_stat_note, sizeof g_stat_note, "no such folder in the share");
+    ulogf("files: netshare address %s -> %s\n", typed, path);
+    return 1;
+}
+
+int net_bar_wanted(void) {
+    if (!g_netbar_ready) {
+        uui_infobar_init(&g_netbar, "tb-info", "Opened for this session -- it is gone after a restart.",
+                         "Save to Network");
+        g_netbar_ready = 1;
+    }
+    struct query_fsinfo fs;
+    return share_of(uui_fileview_dir(active()), &fs) && unetmount_is_session(fs.point);
+}
+
+void net_save_session(void) {
+    struct query_fsinfo fs;
+    if (!share_of(uui_fileview_dir(active()), &fs)) return;
+    const char *name = k_path_basename(fs.point);
+    struct userfs_ctl *c = calloc(1, sizeof *c);
+    if (!c) return;
+    strlcpy(c->point, fs.point, sizeof c->point);
+    c->code = USERFS_CTL_SAVE;
+    c->len = (uint32_t)strlen(name) + 1;
+    memcpy(c->data, name, c->len);
+    int64_t rc = sys_userfs(USERFS_CTL, (uint64_t)(uintptr_t)c, 0);
+    int e = rc < 0 ? sys_errno() : 0;
+    free(c);
+    if (!rc) snprintf(g_stat_note, sizeof g_stat_note, "saved as %s -- it comes back after a restart", name);
+    else snprintf(g_stat_note, sizeof g_stat_note, e == EEXIST ? "a share called %s is already saved"
+                  : "could not save %s", name);
+    ulogf("files: netshare save %s rc %d\n", fs.point, e);
+    uui_places_refresh(&g_places);
+    tree_rebuild();
 }

@@ -49,7 +49,16 @@
 
 #define USERFS_WAIT_MS  30000u  // one call: connect, sign in, answer
 #define USERFS_SLICE_MS 500u    // how often a waiter checks the daemon lives
-#define USERFS_CHUNK    (64u * 1024u)   // the most one request carries back
+#define USERFS_CHUNK    (1024u * 1024u) // the most one request carries back
+// READ-AHEAD: a small read fetches a WINDOW and the reads after it come
+// from memory. The window starts small (a header read must not pull a
+// megabyte) and doubles while the reads stay sequential -- Linux's
+// readahead in miniature. Without it every 4 KiB read() was a round
+// trip through the daemon and the network: ~1 ms each, so a copy ran
+// at a few MB/s on a link that carries twenty.
+#define USERFS_RA_MIN   (128u * 1024u)
+#define USERFS_RA_MAX   USERFS_CHUNK
+#define USERFS_RA_TTL_MS 2000u           // a remote file can change under us
 
 struct ufs_req {
     struct ufs_req *next;
@@ -75,6 +84,15 @@ struct ufs_mount {
     uint32_t next_id;
     char take_chan;             // an address the daemon parks on
     uint64_t mounted_at;        // epoch: the root's times, answered without the server
+    // The read-ahead window, touched only under the MOUNT's lock (a
+    // backend op holds it whenever it is not waiting).
+    struct {
+        uint8_t *buf;           // kmalloc'd, `len` bytes of `path` from `off`
+        uint64_t off, next;     // `next`: where a sequential read would go on
+        uint32_t len, window;
+        uint64_t at_ns;
+        char path[USERFS_PATH_MAX];
+    } ra;
 };
 
 static struct kmutex g_lock;
@@ -116,7 +134,8 @@ static int32_t enqueue_locked(struct ufs_mount *um, struct ufs_req *r) {
 // backend op holding the mount's lock (so it can be dropped), else NULL.
 // Returns the result (>= 0) or -errno; `st` MUST NOT be used after
 // this returns -- the mount may have gone while we waited.
-static int32_t wait_for(void *st, struct ufs_req *r) {
+static int32_t wait_for(void *st, struct ufs_req *r, int *gone) {
+    if (gone) *gone = 0;
     uint64_t deadline = clocksource_now_ns() + (uint64_t)USERFS_WAIT_MS * 1000000ull;
     for (;;) {
         uint64_t now = clocksource_now_ns();
@@ -135,13 +154,19 @@ static int32_t wait_for(void *st, struct ufs_req *r) {
             }
         }
         kmutex_lock(&g_lock);
-        if (r->done) { kmutex_unlock(&g_lock); return r->result; }
+        if (r->done) {
+            // -ENODEV is an unmount finishing it: the state is freed.
+            if (gone && (r->result == -ENODEV || !st)) *gone = 1;
+            kmutex_unlock(&g_lock);
+            return r->result;
+        }
         // Not done means the mount is still there (an unmount finishes
         // every request), so r->um is good.
         int dead = !owner_alive(r->um);
         if (dead || clocksource_now_ns() >= deadline) {
             if (dead) r->um->st.state = USERFS_ST_NO_SERVER;
             finish(r, dead ? -ENOTCONN : -ETIMEDOUT);
+            if (gone && !st) *gone = 1;
             kmutex_unlock(&g_lock);
             return r->result;
         }
@@ -150,11 +175,14 @@ static int32_t wait_for(void *st, struct ufs_req *r) {
     }
 }
 
-static int32_t call(void *st, struct ufs_req *r) {
+// `*gone` (if asked) says the mount went away while we waited: the
+// caller must not touch its state then.
+static int32_t call(void *st, struct ufs_req *r, int *gone) {
+    if (gone) *gone = 0;
     kmutex_lock(&g_lock);
     int32_t rc = enqueue_locked(st, r);
     kmutex_unlock(&g_lock);
-    return rc ? rc : wait_for(st, r);
+    return rc ? rc : wait_for(st, r, gone);
 }
 
 static struct ufs_req *req_new(uint32_t op, const char *path) {
@@ -181,7 +209,7 @@ static int do_stat(void *st, const char *path, struct userfs_stat *out) {
     if (!r) return 0;
     r->buf = out;
     r->cap = r->msg.len = sizeof *out;
-    int32_t rc = call(st, r);
+    int32_t rc = call(st, r, NULL);
     int ok = rc >= 0 && r->got == sizeof *out;
     kfree(r);
     return ok;
@@ -226,22 +254,75 @@ static int u_stat(void *st, const char *path, struct fs_stat_info *out) {
     return 1;
 }
 
+// One READ request for [off, off + want) into `dst`. Bytes got, or -1.
+static int64_t fetch(void *st, const char *path, uint64_t off, void *dst, uint32_t want, int *gone) {
+    struct ufs_req *r = req_new(USERFS_OP_READ, path);
+    if (!r) { *gone = 0; return -1; }
+    r->msg.offset = off;
+    r->msg.len = r->cap = want;
+    r->buf = dst;
+    int32_t rc = call(st, r, gone);
+    int64_t got = rc >= 0 ? (int64_t)r->got : -1;
+    kfree(r);
+    return got;
+}
+
 static uint32_t u_read_range(void *st, const char *path, uint64_t offset, void *buf, uint32_t len) {
+    struct ufs_mount *um = st;
     uint32_t done = 0;
     while (done < len) {
-        struct ufs_req *r = req_new(USERFS_OP_READ, path);
-        if (!r) break;
-        uint32_t want = len - done > USERFS_CHUNK ? USERFS_CHUNK : len - done;
-        r->msg.offset = offset + done;
-        r->msg.len = r->cap = want;
-        r->buf = (uint8_t *)buf + done;
-        int32_t rc = call(st, r);
-        uint32_t got = rc >= 0 ? r->got : 0;
-        kfree(r);
-        // The mount may be gone now (call()'s rule): `st` is only
-        // touched again by the next call(), which re-checks it.
-        done += got;
-        if (got < want) break;      // the end of the file, or an error
+        uint64_t off = offset + done;
+        uint32_t want = len - done;
+        uint64_t now = clocksource_now_ns();
+        int same = !k_strcmp(um->ra.path, path);
+        // From the window, when it holds this offset and is fresh.
+        if (um->ra.buf && same && off >= um->ra.off && off < um->ra.off + um->ra.len &&
+            now - um->ra.at_ns < (uint64_t)USERFS_RA_TTL_MS * 1000000ull) {
+            uint32_t n = (uint32_t)(um->ra.off + um->ra.len - off);
+            if (n > want) n = want;
+            k_memcpy((uint8_t *)buf + done, um->ra.buf + (off - um->ra.off), n);
+            done += n;
+            um->ra.next = off + n;
+            continue;
+        }
+        int gone;
+        if (want >= USERFS_RA_MAX) {
+            // A read this big gains nothing from the window: straight in.
+            int64_t got = fetch(st, path, off, (uint8_t *)buf + done, USERFS_RA_MAX, &gone);
+            if (got <= 0) break;
+            done += (uint32_t)got;
+            if (gone || got < USERFS_RA_MAX) break;   // the end of the file, or no mount left
+            continue;
+        }
+        // A small read: fetch a window, growing while reads stay sequential.
+        uint32_t window = same && off == um->ra.next && um->ra.window ? um->ra.window * 2 : USERFS_RA_MIN;
+        if (window > USERFS_RA_MAX) window = USERFS_RA_MAX;
+        if (window < want) window = want;
+        uint8_t *fresh = kmalloc(window);
+        if (!fresh) break;
+        int64_t got = fetch(st, path, off, fresh, window, &gone);
+        if (got <= 0 || gone) {
+            if (got > 0) {          // the mount went: hand over what came, keep nothing
+                uint32_t n = got < want ? (uint32_t)got : want;
+                k_memcpy((uint8_t *)buf + done, fresh, n);
+                done += n;
+            }
+            kfree(fresh);
+            break;
+        }
+        // The lock is ours again (call() retook it): install the window.
+        kfree(um->ra.buf);
+        um->ra.buf = fresh;
+        um->ra.off = off;
+        um->ra.len = (uint32_t)got;
+        um->ra.window = window;
+        um->ra.at_ns = clocksource_now_ns();
+        k_strlcpy(um->ra.path, path, sizeof um->ra.path);
+        uint32_t n = got < want ? (uint32_t)got : want;
+        k_memcpy((uint8_t *)buf + done, fresh, n);
+        done += n;
+        um->ra.next = off + n;
+        if ((uint32_t)got < window && n < want) break;   // the end of the file
     }
     return done;
 }
@@ -273,7 +354,7 @@ static void u_list(void *st, const char *dir, fs_list_cb cb, void *ctx) {
         r->msg.offset = next;
         r->msg.len = r->cap = LIST_BUF;
         r->buf = buf;
-        int32_t n = call(st, r);
+        int32_t n = call(st, r, NULL);
         uint32_t got = r->got, more = r->flags & USERFS_LIST_MORE;
         kfree(r);
         if (n <= 0) break;
@@ -316,6 +397,7 @@ static void u_state_free(void *st) {
     if (um->handle > 0 && g_tab[um->handle - 1] == um) g_tab[um->handle - 1] = NULL;
     scheduler_wake(&um->take_chan, 0);      // TAKE answers -ENODEV now
     kmutex_unlock(&g_lock);
+    kfree(um->ra.buf);
     kfree(um);
 }
 
@@ -522,7 +604,7 @@ static int64_t op_ctl(struct syscall_ctx *c) {
         if (g_tab[i] && !k_strcmp(g_tab[i]->point, u->point)) um = g_tab[i];
     rc = um ? enqueue_locked(um, r) : -ENOENT;
     kmutex_unlock(&g_lock);
-    if (!rc) rc = wait_for(NULL, r);
+    if (!rc) rc = wait_for(NULL, r, NULL);
 out:
     k_memset(u, 0, sizeof *u);      // a password, often
     k_memset(&r->msg.data, 0, sizeof r->msg.data);

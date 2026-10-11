@@ -174,9 +174,18 @@ void layout_all(int cw, int ch) {
     int tx = side_w + split_w;
     int pw2 = right_edge - tx;
 
+    // The Save bar, over the panes, while the active one is in a share
+    // opened for the session (fm_network.c).
+    int nb = 0;
+    widget_by_id(ID_NETBAR)->hidden = !net_bar_wanted();
+    if (!widget_by_id(ID_NETBAR)->hidden) {
+        int nbw;
+        uui_infobar_ops.natural_size(&g_netbar, &nbw, &nb);
+        uui_infobar_ops.set_geometry(&g_netbar, tx, top, pw2, nb);
+    }
     int hdr = panehdr_h();
-    int panes_y = top + hdr;
-    int panes_h = body_h - hdr;
+    int panes_y = top + nb + hdr;
+    int panes_h = body_h - nb - hdr;
     if (panes_h < 1) panes_h = 1;
 
     if (g_single) {
@@ -190,7 +199,7 @@ void layout_all(int cw, int ch) {
         int sx = uui_splitter_pos(&g_pane_split);
         uui_fileview_set_geometry(&g_pane[0], tx, panes_y,
                                    uui_splitter_before(&g_pane_split), panes_h);
-        uui_splitter_set_geometry(&g_pane_split, sx, top, split_w, body_h);
+        uui_splitter_set_geometry(&g_pane_split, sx, top + nb, split_w, body_h - nb);
         uui_fileview_set_geometry(&g_pane[1], sx + split_w, panes_y,
                                    right_edge - sx - split_w, panes_h);
     }

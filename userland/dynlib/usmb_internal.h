@@ -12,7 +12,9 @@
 
 #define USMB_HDR       64
 #define USMB_TX_CAP    (16 * 1024)           // the largest request: a CREATE's path
-#define USMB_READ_MAX  (64 * 1024)           // one credit's worth: no multi-credit READs
+#define USMB_CREDIT    (64 * 1024)           // what one credit pays for
+#define USMB_READ_MAX  (1024 * 1024)         // one READ, 16 credits, when the server allows large MTU
+#define USMB_LIST_MAX  USMB_CREDIT           // one QUERY_DIRECTORY's output
 #define USMB_RX_CAP    (USMB_READ_MAX + 4096)
 
 struct usmb {
@@ -24,6 +26,7 @@ struct usmb {
     uint64_t session_id;
     uint32_t tree_id;
     uint32_t max_read;
+    uint32_t credits;       // what the server has granted and we have not spent
     uint64_t server_time;   // the NEGOTIATE response's FILETIME, for NTLM's timestamp
     uint32_t last_status;
     int sign;               // sign requests, check responses

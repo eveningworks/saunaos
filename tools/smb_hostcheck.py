@@ -99,7 +99,7 @@ int main(int argc, char **argv) {
     if (!strcmp(cmd, "info")) {
         struct usmb_info in;
         usmb_get_info(s, &in);
-        printf("dialect=0x%04x signing=%d guest=%d\n", in.dialect, in.signing, in.guest);
+        printf("dialect=0x%04x signing=%d guest=%d max_read=%u\n", in.dialect, in.signing, in.guest, in.max_read);
     } else if (!strcmp(cmd, "ls")) {
         rc = usmb_list(s, path, print_entry, NULL);
     } else if (!strcmp(cmd, "stat")) {
@@ -109,7 +109,7 @@ int main(int argc, char **argv) {
     } else if (!strcmp(cmd, "get")) {
         struct usmb_file f;
         rc = usmb_open_file(s, path, &f);
-        static unsigned char buf[65536];
+        static unsigned char buf[1 << 20];   /* what one large-MTU READ may carry */
         for (uint64_t off = 0; !rc && off < f.size;) {
             int64_t n = usmb_read(s, &f, off, buf, sizeof buf);
             if (n < 0) { rc = (int)n; break; }
@@ -188,7 +188,9 @@ def dialect_cell(run, dialect):
     with samba_server.SambaServer(dialect, dialect, "mandatory") as srv:
         u, p = srv.USER, srv.PASSWORD
         rc, out = run.call(srv, "media", u, p, "info")
-        want = f"dialect=0x{samba_server.WIRE[dialect]:04x} signing=1 guest=0"
+        # Large MTU (multi-credit READs) from 2.1 on; 2.0.2 reads one credit.
+        mr = 65536 if dialect == "SMB2_02" else 1 << 20
+        want = f"dialect=0x{samba_server.WIRE[dialect]:04x} signing=1 guest=0 max_read={mr}"
         run.check(f"{dialect} info", rc == 0 and out.decode().strip() == want, out[:200])
         if rc:
             return

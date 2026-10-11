@@ -89,22 +89,32 @@ static int print_entry(void *ctx, const char *name, const struct usmb_stat *st) 
     return 0;
 }
 
-static int fail(const char *what, int rc) {
-    fprintf(stderr, "smb: %s: %s\n", what, usmb_strerror(rc));
+// A refusal this client has no words for names the server's NTSTATUS,
+// so a report from a server nobody here has can still be read.
+static int fail_status(const char *what, int rc, uint32_t status) {
+    if (rc == USMB_E_OTHER && status)
+        fprintf(stderr, "smb: %s: %s (NTSTATUS 0x%08x)\n", what, usmb_strerror(rc), status);
+    else
+        fprintf(stderr, "smb: %s: %s\n", what, usmb_strerror(rc));
     return 1;
 }
+
+static int fail(const char *what, int rc) { return fail_status(what, rc, 0); }
 
 // Copy `path` to `fd`.
 static int copy_out(struct usmb *s, const char *path, int fd) {
     struct usmb_file f;
     int rc = usmb_open_file(s, path, &f);
     if (rc) return fail(path, rc);
-    char *buf = malloc(64 * 1024);
+    // As wide as one READ may be: 1 MiB on a server that allows large MTU.
+    struct usmb_info in;
+    usmb_get_info(s, &in);
+    char *buf = malloc(in.max_read);
     if (!buf) { usmb_close_file(s, &f); return fail(path, USMB_E_NOMEM); }
     int status = 0;
     for (uint64_t off = 0; off < f.size;) {
-        int64_t n = usmb_read(s, &f, off, buf, 64 * 1024);
-        if (n < 0) { status = fail(path, (int)n); break; }
+        int64_t n = usmb_read(s, &f, off, buf, in.max_read);
+        if (n < 0) { status = fail_status(path, (int)n, usmb_last_status(s)); break; }
         if (n == 0) break;
         if (write(fd, buf, (size_t)n) != n) { fprintf(stderr, "smb: write failed\n"); status = 1; break; }
         off += (uint64_t)n;
@@ -177,7 +187,7 @@ int main(int argc, char **argv) {
     if (rc) return fail(server, rc);
     struct usmb *s;
     rc = usmb_open(&s, &io, server, share, &auth, timeout);
-    if (rc) return fail(url, rc);
+    if (rc) return fail_status(url, rc, usmb_failed_status());
 
     int status = 0;
     if (!strcmp(cmd, "ls")) {
@@ -212,6 +222,7 @@ int main(int argc, char **argv) {
         printf(" Dialect: SMB %u.%u%s\n", in.dialect >> 8, (in.dialect >> 4) & 0xf,
                (in.dialect & 0xf) ? (in.dialect == 0x0311 ? ".1" : ".2") : "");
         printf(" Signing: %s\n", in.signing ? "every message" : "none");
+        printf("   Reads: up to %u KiB each\n", in.max_read / 1024);
         printf(" Sign-in: %s\n", in.guest ? "guest" : auth.user ? auth.user : "anonymous");
         uint64_t total = 0, avail = 0;
         if (!usmb_fs_size(s, &total, &avail)) {

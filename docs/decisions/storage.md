@@ -3793,6 +3793,33 @@ when they come back as UTF-8: gibberish on screen, but a name that
 still opens the file, where Linux's `iocharset` turns the character into
 `?` and the file into one nothing can name.
 
+**A share is read 1 MiB at a time, and the bridge reads ahead.** The
+first build moved one 64 KiB READ per request and one request per
+`read()`, so a reader's buffer set the speed: every call was a round
+trip through the daemon and the network, about 1 ms. Measured on the
+ASUS against a Windows share (58.5 MB file): `cp`, reading 4 KiB, ran
+at ~3.7 MB/s into the SSD; `sum`, reading 8 KiB, at ~7.3 MB/s; a
+single HTTP stream on the same link reaches ~23 MB/s. Three changes,
+each where Linux puts the same idea: multi-credit READs of up to 1 MiB
+when the server offers large MTU (cifs's `rsize`); a read-ahead window
+in the kernel side of the bridge, 128 KiB doubling to 1 MiB while reads
+stay sequential, so most `read()`s never wake the daemon (the page
+cache's readahead, without a page cache); and a 64 KiB buffer in the
+shared copy loop. After: the same `cp` ~15 MB/s, `sum` ~14 MB/s, and a
+1.3 GB file hashed at no less than 14.5 MB/s, byte-exact. The rest is
+the TCP stack's (`docs/roadmap-details.md`'s USB NIC entry); a second
+READ in flight is on the roadmap for when it is not.
+
+**An address opens a share without saving it.** `smb://nas/media` in
+the File Manager's address bar, a file chooser or `open` mounts the
+share for the session (`lib/unetmount.h`'s `unetmount_open_address()`,
+one worker at `/net/<share>`), as Windows opens `\\server\share` with no
+drive mapped and Nautilus opens `smb://` -- a look at a share must not
+leave a file in `/etc/mounts.d`. Saving is the worker writing its own
+file (`USERFS_CTL_SAVE`), so the connection and its sign-in carry over;
+the supervisor finds the point served and takes over only when that
+worker exits.
+
 **Not built, each on the roadmap:** encryption, a share list in Add
 network share (srvsvc over a named pipe), finding servers on the LAN,
 Kerberos, writing.
