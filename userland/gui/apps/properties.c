@@ -29,6 +29,8 @@
 #include "ui/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui_fileinfo.h"
+#include "ui/uui_volinfo.h"
+#include "lib/uvolinfo.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_dropdown.h"
 #include "ui/uui_checkbox.h"
@@ -37,6 +39,7 @@
 #include "ui/uui_route.h"   // UUI_REASON_*
 #include "ui/uui_widget.h"  // uui_custom
 #include "query_abi.h"
+#include "userfs_abi.h"
 #include "lib/udate.h"
 #include <fcntl.h>
 #include <unistd.h>
@@ -573,11 +576,157 @@ static void on_size(int *w, int *h) {
     if (!g_open_h) g_open_h = *h;
 }
 
+// --- a volume or share: its own page -------------------------------------------
+//
+// A MOUNT POINT IS NOT A FOLDER HERE: given "/" or "/net/media" the
+// window describes the volume -- what it is, where it comes from, how
+// full -- as Explorer's drive sheet does, rather than a folder's name
+// and permissions (ui/uui_volinfo.h, shared with the File Manager's
+// details pane).
+
+enum { VID_CARD = 1, VID_OPEN, VID_ACT, VID_COPY };
+static struct uvolinfo g_vol;
+static struct uui_volinfo g_vcard;
+static struct uui_button g_vopen, g_vact, g_vcopy;
+static struct uui_item g_vitems[] = {
+    { .ops = &uui_volinfo_ops, .widget = &g_vcard, .id = VID_CARD, .name = "volume" },
+    { .ops = &uui_button_ops,  .widget = &g_vopen, .id = VID_OPEN, .name = "open" },
+    { .ops = &uui_button_ops,  .widget = &g_vact,  .id = VID_ACT,  .name = "action" },
+    { .ops = &uui_button_ops,  .widget = &g_vcopy, .id = VID_COPY, .name = "copy" },
+};
+#define N_VITEMS ((int)(sizeof g_vitems / sizeof g_vitems[0]))
+static struct uui_focusable g_vring[3];
+
+static void vol_log(void) {
+    struct uvolinfo_row r[UVOL_ROWS];
+    int n = uvolinfo_rows(&g_vol, r, UVOL_ROWS);
+    ulogf("properties: volume %s %s\n", g_vol.point, g_vol.remote ? "share" : "local");
+    for (int i = 0; i < n; i++) ulogf("properties: row %s=%s\n", r[i].key, r[i].value);
+}
+
+// The second button: Disconnect for a connected share, Open in Disks for
+// a disk's volume; none for one in memory or a share not connected.
+static void vol_action(void) {
+    const char *label = g_vol.remote ? (g_vol.state == USERFS_ST_CONNECTED ? "Disconnect" : 0)
+                      : g_vol.persistent ? "Open in Disks" : 0;
+    g_vact.label = label ? label : "";
+    g_vitems[2].hidden = !label;
+}
+
+static int vol_h(void) { return uui_volinfo_height(&g_vcard, win_w()) + bar_h(); }
+
+static void vol_layout(int cw, int ch) {
+    g_vcard.x = 0; g_vcard.y = 0; g_vcard.w = cw; g_vcard.h = ch - bar_h();
+    int p = utheme_pad(), by = ch - bar_h() + p, bw, bh, x = p;
+    uui_button_natural_size(&g_vopen, &bw, &bh);
+    uui_button_set_geometry(&g_vopen, x, by, bw, ctl_h());
+    x += bw + p / 2;
+    uui_button_natural_size(&g_vact, &bw, &bh);
+    uui_button_set_geometry(&g_vact, x, by, bw, ctl_h());
+    uui_button_natural_size(&g_vcopy, &bw, &bh);
+    uui_button_set_geometry(&g_vcopy, cw - p - bw, by, bw, ctl_h());
+}
+
+static void vol_draw(struct uapp *a, struct uapp_draw *d) {
+    struct ugfx_surface *s = d->surface;
+    const struct utheme *t = utheme_current();
+    vol_layout(s->w, s->h);
+    int by = s->h - bar_h();
+    ugfx_fill_rect(s, 0, by, s->w, bar_h(), t->chrome);
+    ugfx_fill_rect(s, 0, by, s->w, 1, t->separator);
+    const struct uui_button *last = g_vitems[2].hidden ? &g_vopen : &g_vact;
+    int x0 = last->x + last->w + utheme_pad(), x1 = g_vcopy.x - utheme_pad();
+    if (x1 > x0)
+        ugfx_draw_string_elided(s, x0, by + (bar_h() - ugfx_char_h()) / 2, x1 - x0, g_status,
+                                uui_state_bg(t->text, UUI_STATE_DISABLED), t->chrome);
+    uapp_log_layout(a, "properties");
+    int rx, ry, rd;
+    if (uui_volinfo_ring_rect(&g_vcard, &rx, &ry, &rd))
+        uapp_logf_layout("properties: layout ring %d %d %d\n", rx, ry, rd);
+}
+
+static void vol_on_action(struct uapp *a, int code) {
+    char addr[96];
+    if (code == VID_OPEN) {
+        char *const argv[] = { "files", g_vol.point, 0 };
+        if (sys_spawn_argv("/bin/wm/apps/files", argv) < 0) status("Could not start Files");
+    } else if (code == VID_ACT && g_vol.remote) {
+        int rc = uvolinfo_disconnect(g_vol.point);
+        if (rc < 0) status("Could not disconnect: %s", strerror(-rc));
+        else status("Disconnected from %s", g_vol.server);
+        ulogf("properties: disconnect %s rc %d\n", g_vol.point, rc);
+    } else if (code == VID_ACT) {
+        char *const argv[] = { "disks", g_vol.point, 0 };
+        if (sys_spawn_argv("/bin/wm/apps/disks", argv) < 0) status("Could not start Disks");
+    } else if (code == VID_COPY) {
+        uvolinfo_address(&g_vol, addr, sizeof addr);
+        status(uclip_set_text(addr, (int)strlen(addr)) ? "Copied %s" : "The clipboard refused %s", addr);
+    }
+    uapp_redraw(a);
+}
+
+// A share's state and every volume's free space move on their own:
+// re-read once a second, and redraw (and log) only when a fact changed.
+static int vol_on_tick(struct uapp *a) {
+    static int n;
+    if (++n % 10) return 0;
+    struct uvolinfo now;
+    if (!uvolinfo_load(g_vol.point, &now) || !memcmp(&now, &g_vol, sizeof now)) return 0;
+    int was_h = vol_h();
+    g_vol = now;
+    vol_action();
+    vol_log();
+    if (vol_h() != was_h) uapp_resize(a, win_w(), vol_h());
+    return 1;
+}
+
+static void vol_on_open(struct uapp *a) {
+    g_app = a;
+    uapp_resize(a, win_w(), vol_h());
+}
+
+static void vol_on_size(int *w, int *h) {
+    *w = win_w();
+    *h = vol_h();
+}
+
+static int vol_main(void) {
+    snprintf(g_title, sizeof g_title, "%s%s%s Properties", g_vol.label,
+             g_vol.remote && g_vol.server[0] ? " on " : "", g_vol.remote ? g_vol.server : "");
+    uui_volinfo_init(&g_vcard, &g_vol, 0);
+    uui_button_init(&g_vopen, 0, 0, 0, 0, "Open", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, VID_OPEN);
+    uui_button_init(&g_vact, 0, 0, 0, 0, "", UTHEME_BUTTON_BG, UTHEME_TEXT, VID_ACT);
+    uui_button_init(&g_vcopy, 0, 0, 0, 0, g_vol.remote ? "Copy address" : "Copy path",
+                    UTHEME_BUTTON_BG, UTHEME_TEXT, VID_COPY);
+    g_vact.outlined = g_vcopy.outlined = 1;
+    vol_action();
+    g_vring[0] = (struct uui_focusable){ &g_vopen, &uui_button_ops };
+    g_vring[1] = (struct uui_focusable){ &g_vact, &uui_button_ops };
+    g_vring[2] = (struct uui_focusable){ &g_vcopy, &uui_button_ops };
+    uui_focus_init(&g_focus, g_vring, 3);
+    vol_log();
+    struct uapp_desc desc = {
+        .title        = g_title,
+        .app_id       = "properties",
+        .widgets      = g_vitems,
+        .widget_count = N_VITEMS,
+        .focus        = &g_focus,
+        .tick_ms      = 100,
+        .on_size      = vol_on_size,
+        .on_open      = vol_on_open,
+        .on_draw      = vol_draw,
+        .on_action    = vol_on_action,
+        .on_tick      = vol_on_tick,
+    };
+    return uapp_run(&desc);
+}
+
 int main(int argc, char **argv) {
     if (argc < 2 || !argv[1][0]) {
         ulog("properties: no path given\n");
         return 1;
     }
+    if (uvolinfo_load(argv[1], &g_vol)) return vol_main();
     ufileinfo_load(&g_fi, argv[1], UFI_HEADERS | UFI_WALK | UFI_OPENS);
     snprintf(g_title, sizeof g_title, "%s Properties", g_fi.name);
 

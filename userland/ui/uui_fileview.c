@@ -750,6 +750,8 @@ int uui_fileview_select_name(struct uui_fileview *fv, const char *name) {
     return fv_select_name(fv, name, 1);
 }
 
+void uui_fileview_select_none(struct uui_fileview *fv) { fv->table.selected = -1; }
+
 static void fv_report_select(struct uui_fileview *fv) {
     if (!fv->on_select) return;
     char p[UUI_FILEVIEW_PATH_MAX];

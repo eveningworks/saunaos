@@ -28,6 +28,8 @@
 #include "ui/uui_image.h"
 #include "ui/uui_label.h"  // uui_label_wrap_next() -- the caption's wrap
 #include "lib/uclip.h"      // the desktop's Copy/Cut/Paste ride the system clipboard
+#include "lib/udirs.h"      // where the desktop folder is
+#include "ui/uui_verbs.h"   // each verb's icon and colour, shared with the File Manager
 #include "confirm_dialog.h" // Delete asks first
 #include "wm_dnd.h"         // a file icon dragged onto a window
 #include "lib/udclick.h"    // the double-click time
@@ -72,7 +74,8 @@ static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap 
 // The application database (/usr/wm/applications) feeds the Start menu
 // and the Open > submenu, never an icon. Read on the same generation
 // poll as the wallpaper; a change re-derives the grid.
-#define DESKTOP_DIR "/home/desktop"
+// The known folder (lib/udirs.h): /home/Desktop unless moved.
+#define DESKTOP_DIR udir_path(UDIR_DESKTOP)
 #define DESKTOP_FILES_MAX DESKTOP_MAX_ICONS
 static struct sys_dirent g_files[DESKTOP_FILES_MAX];
 static struct gui_app_entry g_launch[DESKTOP_FILES_MAX];   // name[0] == 0: a plain file
@@ -310,7 +313,7 @@ static const char *item_key(int i, char *buf, int cap) {
     return buf;
 }
 static void item_path(int i, char *out, int cap) {
-    k_snprintf(out, (size_t)cap, DESKTOP_DIR "/%s", g_files[i].name);
+    k_snprintf(out, (size_t)cap, "%s/%s", DESKTOP_DIR, g_files[i].name);
 }
 static int is_desktop_file(const char *name) {
     size_t n = k_strlen(name);
@@ -651,7 +654,9 @@ static void resort(void);
 static void bin_entry_restore(void) {
     for (int i = 0; i < item_count(); i++) if (item_is_bin(i)) return;
     static const char text[] = "Name=Recycle Bin\nExec=/bin/wm/apps/files\nIcon=trash-empty\nAppId=trash\n";
-    int fd = sys_open(DESKTOP_DIR "/trash.desktop", SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
+    char path[160];
+    k_snprintf(path, sizeof path, "%s/trash.desktop", DESKTOP_DIR);
+    int fd = sys_open(path, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
     if (fd < 0) { wm_logf("desktop: could not bring the Recycle Bin back"); return; }
     if (sys_write(fd, text, sizeof text - 1) != (int)sizeof text - 1) wm_logf("desktop: short write to trash.desktop");
     sys_close(fd);
@@ -1770,7 +1775,7 @@ static void launch_entry(const struct gui_app_entry *e) {
 // filename; the folder poll picks it up like any new file.
 void desktop_add_launcher(const struct gui_app *a) {
     char path[PATH_BUF], text[256], glyph[2] = { a->icon, '\0' };
-    k_snprintf(path, sizeof path, DESKTOP_DIR "/%s.desktop", a->app_id);
+    k_snprintf(path, sizeof path, "%s/%s.desktop", DESKTOP_DIR, a->app_id);
     int n = k_snprintf(text, sizeof text, "Name=%s\nExec=%s\nIcon=%s\nAppId=%s\n",
                        a->name, a->exec_path, a->icon_name[0] ? a->icon_name : glyph, a->app_id);
     if (n <= 0 || n >= (int)sizeof text) return;
@@ -1965,10 +1970,10 @@ static void paste_from(const struct uclip *c, int op) {
         k_path_dirname(src, dir, sizeof dir);
         if (k_strcmp(dir, DESKTOP_DIR) == 0) continue;
         if (op == UCLIP_CUT) {
-            char *const argv[] = { "/bin/mv", src, DESKTOP_DIR, 0 };
+            char *const argv[] = { "/bin/mv", src, (char *)DESKTOP_DIR, 0 };
             spawn_argv(argv);
         } else {
-            char *const argv[] = { "/bin/cp", "-r", src, DESKTOP_DIR, 0 };
+            char *const argv[] = { "/bin/cp", "-r", src, (char *)DESKTOP_DIR, 0 };
             spawn_argv(argv);
         }
         undo_add_into(src, DESKTOP_DIR);
@@ -2192,8 +2197,8 @@ static void make_new(int folder) {
     const char *ext = folder ? "" : ".txt";
     char path[PATH_BUF];
     for (int n = 1; n < 100; n++) {
-        if (n == 1) k_snprintf(path, sizeof path, DESKTOP_DIR "/%s%s", stem, ext);
-        else        k_snprintf(path, sizeof path, DESKTOP_DIR "/%s %d%s", stem, n, ext);
+        if (n == 1) k_snprintf(path, sizeof path, "%s/%s%s", DESKTOP_DIR, stem, ext);
+        else        k_snprintf(path, sizeof path, "%s/%s %d%s", DESKTOP_DIR, stem, n, ext);
         struct sys_stat st;
         if (sys_stat(path, &st) == 0) continue;
         int ok;
@@ -2547,13 +2552,13 @@ void desktop_handle_right_click(int mx, int my) {
         if (item_is_bin(idx) && rb_selected_count(&sel) == 1) {
             items[k++] = (struct context_menu_item){ .label = "Open", .on_select = menu_open_item,
                                                      .ctx = (void *)(intptr_t)idx,
-                                                     .icon = "tb-open", .tint = UTHEME_ACT_NAV };
+                                                     .icon = UUI_VI_OPEN, .tint = UUI_VT_OPEN };
             items[k++] = (struct context_menu_item){ .label = "Empty Recycle Bin", .on_select = menu_empty_bin,
-                                                     .icon = "tb-bin-empty", .tint = UTHEME_ACT_DANGER,
+                                                     .icon = UUI_VI_EMPTY_BIN, .tint = UUI_VT_EMPTY_BIN,
                                                      .disabled = !g_bin_full };
             items[k++] = (struct context_menu_item){ .separator = 1 };
             items[k++] = (struct context_menu_item){ .label = "Recycle Bin settings...", .on_select = menu_bin_settings,
-                                                     .icon = "tb-gear" };
+                                                     .icon = UUI_VI_SETTINGS, .tint = UUI_VT_SETTINGS };
             context_menu_open_at(mx, my, items, k);
             return;
         }
@@ -2561,20 +2566,20 @@ void desktop_handle_right_click(int mx, int my) {
         // the rows. Rename names one thing, so it greys out for several.
         int one = rb_selected_count(&sel) == 1;
         items[k++] = (struct context_menu_item){ .label = "Cut", .on_select = menu_cut, .strip = 1,
-                                                 .icon = "tb-cut", .tint = UTHEME_ACT_EDIT, .accel = "Ctrl+X" };
+                                                 .icon = UUI_VI_CUT, .tint = UUI_VT_CUT, .accel = "Ctrl+X" };
         items[k++] = (struct context_menu_item){ .label = "Copy", .on_select = menu_copy, .strip = 1,
-                                                 .icon = "tb-copy", .tint = UTHEME_ACT_EDIT, .accel = "Ctrl+C" };
+                                                 .icon = UUI_VI_COPY, .tint = UUI_VT_COPY, .accel = "Ctrl+C" };
         items[k++] = (struct context_menu_item){ .label = "Rename", .on_select = menu_rename, .strip = 1,
-                                                 .icon = "tb-rename", .tint = UTHEME_ACT_EDIT, .accel = "F2",
+                                                 .icon = UUI_VI_RENAME, .tint = UUI_VT_RENAME, .accel = "F2",
                                                  .disabled = !one };
         items[k++] = (struct context_menu_item){ .label = "Delete", .on_select = menu_delete, .strip = 1,
-                                                 .icon = "tb-delete", .tint = UTHEME_ACT_DANGER, .accel = "Del" };
+                                                 .icon = UUI_VI_DELETE, .tint = UUI_VT_DELETE, .accel = "Del" };
         items[k++] = (struct context_menu_item){ .separator = 1 };
         items[k++] = (struct context_menu_item){ .label = "Open", .on_select = menu_open_item,
                                                  .ctx = (void *)(intptr_t)idx,
-                                                 .icon = "tb-open", .tint = UTHEME_ACT_NAV };
+                                                 .icon = UUI_VI_OPEN, .tint = UUI_VT_OPEN };
         items[k++] = (struct context_menu_item){ .label = "Properties", .on_select = menu_properties,
-                                                 .icon = "tb-info", .accel = "Alt+Enter" };
+                                                 .icon = UUI_VI_PROPERTIES, .tint = UUI_VT_PROPERTIES, .accel = "Alt+Enter" };
         context_menu_open_at(mx, my, items, k);
         return;
     }
@@ -2592,9 +2597,9 @@ void desktop_handle_right_click(int mx, int my) {
     static struct context_menu_item news[2], sorts[4];
     static char undo_label[112];
     news[0] = (struct context_menu_item){ .label = "Folder", .on_select = menu_new_folder,
-                                          .icon = "tb-mkdir", .tint = UTHEME_ACT_CREATE };
+                                          .icon = UUI_VI_NEW_FOLDER, .tint = UUI_VT_NEW_FOLDER };
     news[1] = (struct context_menu_item){ .label = "Text document", .on_select = menu_new_text,
-                                          .icon = "tb-new", .tint = UTHEME_ACT_CREATE };
+                                          .icon = UUI_VI_NEW_FILE, .tint = UUI_VT_NEW_FILE };
     static const char *const sort_words[4] = { "name", "type", "size", "date" };
     static const char *const sort_labels[4] = { "Name", "Type", "Size", "Date modified" };
     for (int s2 = 0; s2 < 4; s2++)
@@ -2604,19 +2609,19 @@ void desktop_handle_right_click(int mx, int my) {
     else k_strlcpy(undo_label, "Undo", sizeof undo_label);
 
     items[k++] = (struct context_menu_item){ .label = "Open", .sub = cats, .sub_count = ncat,
-                                             .icon = "tb-open", .tint = UTHEME_ACT_NAV };
+                                             .icon = UUI_VI_OPEN, .tint = UUI_VT_OPEN };
     items[k++] = (struct context_menu_item){ .separator = 1 };
     items[k++] = (struct context_menu_item){ .label = "New", .sub = news, .sub_count = 2,
-                                             .icon = "tb-new", .tint = UTHEME_ACT_CREATE };
+                                             .icon = UUI_VI_NEW_FILE, .tint = UUI_VT_NEW_FILE };
     items[k++] = (struct context_menu_item){ .label = "Paste", .on_select = menu_paste,
-                                             .icon = "tb-paste", .tint = UTHEME_ACT_EDIT,
+                                             .icon = UUI_VI_PASTE, .tint = UUI_VT_PASTE,
                                              .accel = "Ctrl+V", .disabled = !can_paste() };
     items[k++] = (struct context_menu_item){ .label = undo_label, .on_select = menu_undo,
-                                             .icon = "tb-undo", .tint = UTHEME_ACT_EDIT,
+                                             .icon = UUI_VI_UNDO, .tint = UUI_VT_UNDO,
                                              .accel = "Ctrl+Z", .disabled = g_undo.kind == UNDO_NONE };
     items[k++] = (struct context_menu_item){ .separator = 1 };
     items[k++] = (struct context_menu_item){ .label = "Refresh", .on_select = menu_refresh,
-                                             .icon = "tb-refresh", .tint = UTHEME_ACT_VIEW, .accel = "F5" };
+                                             .icon = UUI_VI_REFRESH, .tint = UUI_VT_REFRESH, .accel = "F5" };
     items[k++] = (struct context_menu_item){ .label = "Sort by", .sub = sorts, .sub_count = 4,
                                              .icon = "tb-sort", .tint = UTHEME_ACT_ARRANGE };
     items[k++] = (struct context_menu_item){ .label = "Icon size", .sub = sizes, .sub_count = 3,
@@ -2627,6 +2632,6 @@ void desktop_handle_right_click(int mx, int my) {
                                              .ctx = (void *)"desktop.show_icons", .checked = g_show_icons };
     items[k++] = (struct context_menu_item){ .separator = 1 };
     items[k++] = (struct context_menu_item){ .label = "System Settings", .on_select = menu_settings,
-                                             .icon = "tb-gear" };
+                                             .icon = UUI_VI_SETTINGS, .tint = UUI_VT_SETTINGS };
     context_menu_open_at(mx, my, items, k);
 }

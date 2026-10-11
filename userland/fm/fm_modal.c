@@ -38,7 +38,7 @@ void open_prompt(int cmd, const char *title, const char *initial) {
     // selected so typing replaces it.
     int n = (int)strlen(g_field.buf), stem = n;
     const char *dot = strrchr(g_field.buf, '.');
-    if (cmd != CMD_MKDIR && dot && dot != g_field.buf) stem = (int)(dot - g_field.buf);
+    if (cmd != CMD_MKDIR && cmd != CMD_PL_RENAME && dot && dot != g_field.buf) stem = (int)(dot - g_field.buf);
     uui_textbox_select(&g_field, 0, stem);
 
     // What it is about, under the title: the file being renamed, or
@@ -47,6 +47,8 @@ void open_prompt(int cmd, const char *title, const char *initial) {
     if (cmd == CMD_RENAME)
         snprintf(g_modal_row, sizeof g_modal_row, "%s -- %s", initial,
                  ufiletype_name(initial, uui_fileview_selected_is_dir(active())));
+    else if (cmd == CMD_PL_RENAME)   // a pin's name in Places; the folder keeps its own
+        snprintf(g_modal_row, sizeof g_modal_row, "Shown in Places -- the folder keeps its name");
     else
         snprintf(g_modal_row, sizeof g_modal_row, "in %s", about);
 
@@ -57,13 +59,13 @@ void open_prompt(int cmd, const char *title, const char *initial) {
         { "Cancel", DLG_CANCEL, 0 }, { "Create", DLG_OK, UUI_DLG_PRIMARY },
     };
     uui_dialog_open(&g_dialog, title, g_modal_rows, 1,
-                    cmd == CMD_RENAME ? rename_btns : create_btns, 2, 1, DLG_CANCEL);
+                    cmd == CMD_RENAME || cmd == CMD_PL_RENAME ? rename_btns : create_btns, 2, 1, DLG_CANCEL);
     int fh;
     uui_textbox_natural_size(&g_field, 0, &fh);
     uui_dialog_set_body(&g_dialog, &g_field_item, ugfx_char_w() * 30, fh);
     uui_dialog_focus(&g_dialog, &g_field_item);
 
-    const char *icon = cmd == CMD_MKDIR ? "folder"
+    const char *icon = cmd == CMD_MKDIR || cmd == CMD_PL_RENAME ? "folder"
                      : cmd == CMD_NEW_FILE ? "file-text"
                      : ufiletype_icon(initial, uui_fileview_selected_is_dir(active()));
     // The file's own picture when a thumbnail is ready, as on the delete
@@ -87,6 +89,7 @@ void answer_prompt(int code) {
     if (cmd == CMD_MKDIR) commit_mkdir(text);
     else if (cmd == CMD_RENAME) commit_rename(text);
     else if (cmd == CMD_NEW_FILE) commit_newfile(text);
+    else if (cmd == CMD_PL_RENAME) places_rename_pin(text);
 }
 
 // --- rename many (ui/uui_renamer.h) ----------------------------------------

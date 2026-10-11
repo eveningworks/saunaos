@@ -56,7 +56,7 @@ def run(dbg, qmp, res):
 
     # 6. the desktop, first -- before a window covers its icons
     def desk_delete(name, mods):
-        sh(f"touch /home/desktop/{name}")
+        sh(f"touch /home/Desktop/{name}")
         fi, end = None, time.time() + 10
         while fi is None and time.time() < end:   # the desktop polls its folder
             icons = dbg.json("gui icons --json") or {}
@@ -77,11 +77,11 @@ def run(dbg, qmp, res):
         return btns[0]["label"], ""
 
     label, why = desk_delete("tg-desk.txt", "")
-    moved = wait(lambda: "tg-desk.txt" not in names("/home/desktop") and "tg-desk.txt" in binned())
+    moved = wait(lambda: "tg-desk.txt" not in names("/home/Desktop") and "tg-desk.txt" in binned())
     res.check("the desktop's Delete asks 'Move' and moves the file to the bin",
               label == "Move" and moved, f"button={label!r} {why} bin={binned()}")
     label, why = desk_delete("tg-gone.txt", "shift")
-    gone = wait(lambda: "tg-gone.txt" not in names("/home/desktop"))
+    gone = wait(lambda: "tg-gone.txt" not in names("/home/Desktop"))
     res.check("the desktop's Shift+Delete deletes for good",
               label == "Delete" and gone and "tg-gone.txt" not in binned(),
               f"button={label!r} {why} bin={binned()}")

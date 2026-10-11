@@ -130,7 +130,7 @@ int desktop_icon_count(void);              // the folder's entries, launchers in
 // than adding to it -- which no screenshot distinguishes reliably.
 int desktop_icon_selected(int i);
 struct gui_app;
-void desktop_add_launcher(const struct gui_app *app);   // writes <app_id>.desktop into /home/desktop
+void desktop_add_launcher(const struct gui_app *app);   // writes <app_id>.desktop into /home/Desktop
 // Ctrl+C/X/V and Delete when no window has the focus. 1 if consumed.
 int desktop_handle_key(int key, unsigned mods);
 // A caption being edited in place (F2, the icon menu's Rename): a left
@@ -139,7 +139,7 @@ int desktop_handle_key(int key, unsigned mods);
 int desktop_rename_click(int mx, int my);
 int desktop_renaming(void);                // the icon index, or -1
 // A drop from another window landed on the desktop background: the
-// drag slot's files move (or copy, with Ctrl) into /home/desktop.
+// drag slot's files move (or copy, with Ctrl) into /home/Desktop.
 // Returns 1 if it took them.
 int desktop_drop_here(int mx, int my);
 // A drag resting over the desktop at (mx, my), any drag -- (-1, -1) when

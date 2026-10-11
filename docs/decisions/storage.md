@@ -3823,3 +3823,38 @@ worker exits.
 **Not built, each on the roadmap:** encryption, a share list in Add
 network share (srvsvc over a named pipe), finding servers on the LAN,
 Kerberos, writing.
+
+## Personal folders live under /home, capitalised, found through a known-folders file
+
+**What it was:** Places' Documents, Music and Pictures were
+`/usr/share/doc`, `/usr/share/music` and `/usr/share/wallpapers` --
+what the system SHIPS, so the "personal" folders held read-mostly
+system content and had nowhere for a person's own files. The same three
+paths were spelled out in the File Manager and the file dialog.
+
+**What it is (2026-10-11):** `/home/Desktop`, `Documents`, `Music`,
+`Pictures`, `Videos`, `Downloads`, and `Pictures/Screenshots`, made
+empty by the compositor at start; shipped content stays in `/usr/share`
+where the players and the wallpaper picker already list it. Apps ask
+`lib/udirs.h` by name, and `/etc/user-dirs.conf` may move any of them.
+
+**Why this shape:**
+- **XDG user-dirs and Windows' Known Folders both separate "where the
+  person's music is" from "a path"**, so a folder can move without every
+  program that saves into it breaking. `user-dirs.conf` takes XDG's own
+  `XDG_MUSIC_DIR="$HOME/Music"` lines as well as plain `MUSIC=/path`.
+- **Capitalised**, as XDG, Windows and macOS all spell them -- and
+  `/home/desktop` moved with them rather than stay the one lower-case
+  folder. `udir_migrate()` moves the old `/home/desktop` and
+  `/home/screenshots` across ONCE at the compositor's start; when an
+  update has already seeded the new Desktop (its launchers), the OLD
+  folder is the person's: its entries win, and a seeded launcher it
+  lacks is one they deleted, so it is removed again.
+- **Shipped content is not copied in** (the option that makes the
+  folders look less empty): it would cost the disk twice and blur whose
+  files are whose. Windows 7's Libraries -- a place showing a personal
+  folder merged with the shipped samples -- was the third option, not
+  taken: a virtual folder to build for a cosmetic gain.
+- **No accounts, so no `/home/<user>`**: `/home` is the one user's home
+  (`docs/filesystem-layout.md`); per-user homes are the roadmap's.
+

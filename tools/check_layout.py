@@ -209,7 +209,7 @@ SEED_SOURCES = {
     # The desktop's seeded launchers are copies of application entries,
     # staged under seed/once/ (copied only when missing), beside the
     # desktop-only entries (the Recycle Bin) -- see unsourced_staged_files().
-    "../once/home/desktop": ("data/wm/applications", "data/wm/desktop"),
+    "../once/home/Desktop": ("data/wm/applications", "data/wm/desktop"),
     "usr/wm/startup":    "data/wm/startup",
     "usr/wm/savers":     "data/wm/savers",
     "usr/share/icons":   "data/icons",

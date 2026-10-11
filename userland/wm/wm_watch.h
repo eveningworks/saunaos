@@ -22,7 +22,7 @@ enum wm_topic {
     WM_TOPIC_SETTINGS,   // any setting, from anywhere (WIN_EV_SETTING)
     WM_TOPIC_ETC,        // /etc's own files: a hand edit of a .conf
     WM_TOPIC_APPS,       // /usr/wm/applications -- the .desktop entries
-    WM_TOPIC_DESKTOP,    // /home/desktop -- the icons on the desktop
+    WM_TOPIC_DESKTOP,    // the Desktop folder (lib/udirs.h) -- the icons on the desktop
     WM_TOPIC_EFFECTS,    // /etc/effects -- the effects' options
     WM_TOPIC_TRASH,      // /home/.Trash/files -- the desktop's Recycle Bin picture
     WM_TOPIC_THUMBS,     // /var/cache/thumbnails -- the desktop's thumbnails, made

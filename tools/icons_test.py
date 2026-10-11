@@ -206,7 +206,7 @@ def cached_count(dbg):
 
 # A launcher this tool writes and removes, for the wrap check below:
 # a name long enough to need two lines whatever the interface face is.
-WRAP_ENTRY = "/home/desktop/zz-wraptest.desktop"
+WRAP_ENTRY = "/home/Desktop/zz-wraptest.desktop"
 
 
 def desktop_report(dbg):
@@ -864,7 +864,7 @@ def run(dbg, qmp, tmp, res):
         # The desktop's own files BEFORE, so the launcher this adds can
         # be removed by name -- leaving it behind shifts the icon grid
         # and every later check aims at the wrong cell.
-        before_ls = set(dbg.send("sh ls /home/desktop").split())
+        before_ls = set(dbg.send("sh ls /home/Desktop").split())
         pos = dbg.ctxmenu_row("Add to desktop")
         if pos:
             dbg.click(*pos)
@@ -888,13 +888,13 @@ def run(dbg, qmp, tmp, res):
         res.check("...and no icon ended up stacked on another",
                   len(set(cell_map(dbg).values())) == len(cell_map(dbg)),
                   f"cells={sorted(cell_map(dbg).values())}")
-        for added in set(dbg.send("sh ls /home/desktop").split()) - before_ls:
-            dbg.send(f"sh rm -r /home/desktop/{added}")
+        for added in set(dbg.send("sh ls /home/Desktop").split()) - before_ls:
+            dbg.send(f"sh rm -r /home/Desktop/{added}")
         time.sleep(1.0)
 
     # --- the desktop folder ---------------------------------------------
     #
-    # A file in /home/desktop is an icon like the seeded launchers; its menu
+    # A file in /home/Desktop is an icon like the seeded launchers; its menu
     # is the file's; New folder creates; Delete asks and then removes.
     # Asserted through the shell's listing where a file changes hands.
     print("the desktop folder: a file is an icon, and the verbs act on it")
@@ -904,13 +904,13 @@ def run(dbg, qmp, tmp, res):
     for w2 in sorted(dbg.windows(), key=lambda w2: -w2["z"]):
         dbg.send(f"gui close {w2['z']}")
         time.sleep(0.3)
-    dbg.send("sh rm -r /home/desktop/icontest.txt")
-    dbg.send("sh rm -r '/home/desktop/New folder'")
-    dbg.send("sh touch /home/desktop/icontest.txt")
+    dbg.send("sh rm -r /home/Desktop/icontest.txt")
+    dbg.send("sh rm -r '/home/Desktop/New folder'")
+    dbg.send("sh touch /home/Desktop/icontest.txt")
     time.sleep(1.5)
     rep = desktop_report(dbg)
     fi = icon_rect(rep, "icontest.txt")
-    res.check("a file in /home/desktop is a desktop icon of kind file",
+    res.check("a file in /home/Desktop is a desktop icon of kind file",
               fi is not None and fi.get("kind") == "file", f"icon={fi}")
     if fi:
         dbg.rclick(fi["x"] + fi["w"] // 2, fi["y"] + fi["w"] // 2)
@@ -936,7 +936,7 @@ def run(dbg, qmp, tmp, res):
             dbg.click(sub["x"] + sub["w"] // 2, nf[0]["cy"])
             time.sleep(1.5)
             dbg.key("0x1b")   # a new folder opens into rename: Esc keeps its name
-    listing = (dbg.send("sh ls /home/desktop") or "")
+    listing = (dbg.send("sh ls /home/Desktop") or "")
     res.check("New > Folder creates one, and it is a dir icon",
               bool(nf) and "New folder" in listing and
               (icon_rect(desktop_report(dbg), "New folder") or {}).get("kind") == "dir",
@@ -961,10 +961,10 @@ def run(dbg, qmp, tmp, res):
             yes = dlg["buttons"][0]
             dbg.click(yes["cx"], yes["cy"])
             time.sleep(1.5)
-        listing = (dbg.send("sh ls /home/desktop") or "")
+        listing = (dbg.send("sh ls /home/Desktop") or "")
         res.check("...and confirming removes it", "icontest.txt" not in listing,
                   f"ls={listing.strip()[:80]}")
-    dbg.send("sh rm -r '/home/desktop/New folder'")
+    dbg.send("sh rm -r '/home/Desktop/New folder'")
 
 
 def main():

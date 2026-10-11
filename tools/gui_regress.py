@@ -143,6 +143,7 @@ TOOLS = [
     ("sizesgui",   "sizes_gui_test.py",  "folder sizes: each folder counted, subfolders included"),
     ("tabsgui",    "tabs_gui_test.py",   "title-bar tabs: new, label, switch, own history, close, last closes window"),
     ("pinsgui",    "pins_gui_test.py",   "Pin to Places: the file, the Pinned row, going there, Unpin, a deleted pin"),
+    ("placesmenu", "fm_places_menu_test.py", "left-pane menus: one per row kind, move/rename/unpin/hide, a volume's Properties ring, its details card"),
     ("fmthumb",    "fm_thumb_drag_test.py", "icons view: a thumb drag after a click scrolls, carries no file"),
     ("zipgui",     "zip_gui_test.py",    "a .zip as a folder: list, open in place, Up, Extract all, open a member"),
     ("renamegui",  "rename_gui_test.py", "Rename many: F2 on a set, a chain through temp names, one Undo, Esc"),

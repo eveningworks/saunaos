@@ -100,7 +100,8 @@ def menu_rows(table):
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
                             "userland", "gui", "apps", "files.c")).read()
     body = src.split(f"static const struct uui_menu_item {table}[] = {{", 1)[1].split("};", 1)[0]
-    rows = re.findall(r'UUI_MENU_SEP|UUI_MENU\("([^"]*)"', body)
+    # Any UUI_MENU* row form: plain, _ICON, _VERB (ui/uui_verbs.h), STRIP_VERB.
+    rows = re.findall(r'UUI_MENU_SEP|UUI_(?:MENU|MENU_ICON|MENU_VERB|STRIP_VERB)\(\s*"([^"]*)"', body)
     return {label: i for i, label in enumerate(rows) if label}
 
 
@@ -673,6 +674,47 @@ def sure_rclick(dbg, qmp, x, y):
     time.sleep(0.3)
 
 
+def ctx_mark(dbg):
+    """Before a right-click: drop older `ctxmenu rows` lines from the
+    console and note where the transcript (_ALL_BUF) stands. ctx_rows()
+    then reads the line from EITHER place without consuming anything --
+    a wait_layout() in between may have swept it into the transcript, and
+    a read that called _collect() itself would swallow the popup's layout
+    block that ctx_pick() waits for."""
+    dbg.logs("files: ctxmenu rows")
+    return len(_ALL_BUF)
+
+
+def ctx_rows(dbg, mark, timeout=6.0):
+    """The labels of the context menu that opened after `mark`
+    (ctx_mark()), from the app's `files: ctxmenu rows a|b|-|c` line ("-"
+    a separator), or None. A row is picked BY LABEL, never by position:
+    Cut/Copy/Rename/Delete lead as a strip, and which rows follow depends
+    on what was clicked."""
+    end = time.time() + timeout
+    while time.time() < end:
+        got = [ln for ln in _ALL_BUF[mark:] if "files: ctxmenu rows " in ln]
+        got += dbg.logs("files: ctxmenu rows ", clear=False)
+        if got:
+            return got[-1].split("ctxmenu rows ", 1)[1].strip().split("|")
+        time.sleep(0.2)
+    return None
+
+
+def ctx_pick(dbg, qmp, win, rows, label, timeout=6.0):
+    """Click the open context menu's row `label` (rows: ctx_rows()), at the
+    rect the menu itself reports. The layout it was aimed from, or None."""
+    if not rows or label not in rows:
+        return None
+    i = rows.index(label)
+    pop = wait_layout(dbg, win, lambda l: l.ctx == 1 and i in l.popitems, timeout=timeout)
+    if pop is None:
+        return None
+    x, y, w, h = pop.popitems[i]
+    sure_click(dbg, qmp, pop.ox + x + w // 2, pop.oy + y + h // 2)
+    return pop
+
+
 def band_drag(dbg, qmp, x0, y0, x1, y1, steps=4):
     """A drag whose ENDPOINTS are confirmed, not assumed. qmp.drag()'s
     open-loop goto lands a large jump about a third of the way
@@ -691,17 +733,20 @@ def band_drag(dbg, qmp, x0, y0, x1, y1, steps=4):
 
 
 def gutter_ink(png, menu_rect, ox, oy):
-    """Dark pixels in the popup's tick GUTTER (the two-character column
-    left of the labels, uui_menubar.c's gutter()). Labels start after
-    it, so the only ink here is UUI_MI_CHECKED's tick."""
+    """Tick pixels in the popup's GUTTER, the icon column left of the
+    labels (uui_menubar.c's gutter()). A tick is drawn in the theme's
+    ACCENT (70, 110, 160) and takes the place of the row's icon, so it is
+    counted by that colour, tightly: every row has an icon there now, and
+    a dark-pixel count reads the icons (it also never saw an accent tick).
+    Measured 2026-10-11: See more 0, View with four rows ticked 48."""
     from PIL import Image
     im = Image.open(png).convert("RGB")
     mx, my, mw, mh = menu_rect
     n = 0
     for yy in range(oy + my + 2, oy + my + mh - 2):
-        for xx in range(ox + mx + 4, ox + mx + 18):
+        for xx in range(ox + mx + 4, ox + mx + 30):
             r, g, b = im.getpixel((xx, yy))
-            if r + g + b < 300:
+            if abs(r - 70) <= 4 and abs(g - 110) <= 4 and abs(b - 160) <= 4:
                 n += 1
     return n
 
@@ -2094,12 +2139,11 @@ def run(dbg, qmp, tmp, res):
               binary is not None and binary.selected == "prog" and bin_h is not None
               and text_h is not None and 0 < text_h - bin_h <= 2 * rowh,
               f"selected={binary and binary.selected} height={bin_h} vs text {text_h}")
-    # Pick it: the second row of the popup, and Notepad opens on the file.
+    # Pick it, by its label, and Notepad opens on the file.
+    mark = ctx_mark(dbg)
     got = ctx_on(2)
-    if got and got.ctxbox and text_h and bin_h and text_h > bin_h:
-        cbx, cby, cbw, _ = got.ctxbox
-        rowh = got.rowh or 20
-        sure_click(dbg, qmp, ox + cbx + cbw // 2, oy + cby + rowh + rowh // 2 + 1)
+    if got and text_h and bin_h and text_h > bin_h:
+        ctx_pick(dbg, qmp, win, ctx_rows(dbg, mark), "Edit in Notepad")
     deadline = time.time() + 8.0
     titles = []
     while time.time() < deadline:
@@ -3054,7 +3098,7 @@ def run(dbg, qmp, tmp, res):
     #
     # The compositor brokers a drag between windows (userland/wm/
     # wm_dnd.c): a row dragged onto the desktop background lands in
-    # /home/desktop, and a desktop file icon dragged into a pane lands in
+    # /home/Desktop, and a desktop file icon dragged into a pane lands in
     # that pane's directory. Both asserted through the shell's listing.
     # The window is moved clear of the icon columns first, since the
     # desktop's file icons sit after the launchers and a window over
@@ -3064,7 +3108,7 @@ def run(dbg, qmp, tmp, res):
     # moves one into /dddest), so reusing one couples this section to
     # whether an earlier drag flaked. `dragme.txt` is created here and
     # nothing else touches it.
-    dbg.send("sh rm -r /home/desktop/dragme.txt")
+    dbg.send("sh rm -r /home/Desktop/dragme.txt")
     dbg.send(f"sh touch {DD}/dragme.txt")
     lay = wait_layout(dbg, win, lambda l: "dragme.txt" in
                       [None] or l.rows.get(0, 0) >= 2) or lay
@@ -3105,10 +3149,10 @@ def run(dbg, qmp, tmp, res):
             time.sleep(0.1)
         time.sleep(0.3)
         qmp.mouse_up()
-    landed = wait_listing(dbg, "/home/desktop", lambda names: "dragme.txt" in names)
-    res.check("a row dragged onto the desktop moves the file to /home/desktop",
+    landed = wait_listing(dbg, "/home/Desktop", lambda names: "dragme.txt" in names)
+    res.check("a row dragged onto the desktop moves the file to /home/Desktop",
               landed and "dragme.txt" not in listing(dbg, DD),
-              f"row={dragme_row} desktop={listing(dbg, '/home/desktop')} src={listing(dbg, DD)}")
+              f"row={dragme_row} desktop={listing(dbg, '/home/Desktop')} src={listing(dbg, DD)}")
     # ...and back: the desktop's icon for it, into the RIGHT pane (DDST).
     reply = dbg.send("gui icons --json") or ""
     start = reply.rfind('{"cached"')
@@ -3152,8 +3196,8 @@ def run(dbg, qmp, tmp, res):
         qmp.mouse_up()
         back = wait_listing(dbg, DDST, lambda names: "dragme.txt" in names)
         res.check("a desktop icon dragged into a pane moves the file there",
-                  back and "dragme.txt" not in listing(dbg, "/home/desktop"),
-                  f"dst={listing(dbg, DDST)} desktop={listing(dbg, '/home/desktop')}")
+                  back and "dragme.txt" not in listing(dbg, "/home/Desktop"),
+                  f"dst={listing(dbg, DDST)} desktop={listing(dbg, '/home/Desktop')}")
 
     # Back to section 18's window for what follows.
     for w2 in sorted(dbg.windows(), key=lambda w2: -w2["z"]):

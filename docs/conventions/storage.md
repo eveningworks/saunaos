@@ -1666,3 +1666,17 @@ disk that is a cache hit; on a backend whose stat is a round trip it is
 one request per entry, made while the listing holds the mount's lock.
 `smbfsd` answers those from the listing it just fetched (`from_list()`);
 another remote backend has to do the same or a big folder crawls.
+
+## A PERSONAL FOLDER IS ASKED FOR BY NAME: `udir_path(UDIR_MUSIC)`, NEVER `"/home/Music"`
+
+Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots
+are `lib/udirs.h`'s: `/home/<Name>` unless `/etc/user-dirs.conf` moves
+one, read once per process. A path spelled out in an app is one a moved
+folder leaves behind -- XDG's `xdg-user-dir` and Windows' Known Folders
+exist for the same reason. The one exception is a constant that must be
+a string (a preference's default): `UDIR_DEFAULT_*`, from the same
+header. **What SHIPS stays in `/usr/share`** -- the wallpapers, the
+music, the documentation; a personal folder starts empty and is the
+person's. The compositor makes the missing ones at start
+(`udir_create_all()`), Screenshots excepted (the first capture makes it).
+

@@ -252,6 +252,94 @@ def icon_tb_up():
     p = _Pen(); _arrow(p, 12, 19.5, 12, 4.5, 6.5); return p.done()
 
 
+def icon_tb_down():
+    p = _Pen(); _arrow(p, 12, 4.5, 12, 19.5, 6.5); return p.done()
+
+
+# --- the menus' verbs (ui/uui_verbs.h), the same outline set ------------
+
+def icon_tb_tab():
+    # A folder tab with a plus: Open in new tab, New tab.
+    p = _Pen()
+    p.line((3, 19), (3, 7), (9, 7), (11, 9.5), (21, 9.5), (21, 19), (3, 19))
+    p.line((12, 11.5), (12, 17)); p.line((9.25, 14.25), (14.75, 14.25))
+    return p.done()
+
+
+def icon_tb_terminal():
+    p = _Pen()
+    p.rrect(2.5, 4, 19, 16, 2.5)
+    p.line((7, 9), (10, 12), (7, 15)); p.line((12.5, 16), (17, 16))
+    return p.done()
+
+
+def icon_tb_drive():
+    p = _Pen()
+    p.rrect(2.5, 7, 19, 10, 2.5)
+    p.line((6, 12), (12, 12)); p.circle(17, 12, 0.6)
+    return p.done()
+
+
+def _eye(p):
+    p.arc(12, 19, 11, 220, 320, 16); p.arc(12, 5, 11, 40, 140, 16)
+    p.circle(12, 12, 3)
+
+
+def icon_tb_show():
+    p = _Pen(); _eye(p); return p.done()
+
+
+def icon_tb_hide():
+    p = _Pen(); _eye(p); p.line((4, 20), (20, 4)); return p.done()
+
+
+def icon_tb_key():
+    p = _Pen()
+    p.circle(7.5, 12, 4)
+    p.line((11.5, 12), (21, 12)); p.line((18, 12), (18, 15.5)); p.line((21, 12), (21, 14.5))
+    return p.done()
+
+
+def icon_tb_plug():
+    # A plug with a stroke through it: Disconnect.
+    p = _Pen()
+    p.line((9, 3), (9, 7)); p.line((15, 3), (15, 7))
+    p.line((6, 7), (18, 7), (18, 11)); p.arc(12, 11, 6, 0, 180, 16); p.line((6, 11), (6, 7))
+    p.line((12, 17), (12, 21))
+    p.line((3.5, 3.5), (20.5, 20.5))
+    return p.done()
+
+
+def _pill(p, cx, cy, half, r, deg):
+    """A capsule outline along `deg`: two half-circles and two sides."""
+    a = math.radians(deg)
+    ux, uy, nx, ny = math.cos(a), math.sin(a), -math.sin(a), math.cos(a)
+    x0, y0, x1, y1 = cx - ux * half, cy - uy * half, cx + ux * half, cy + uy * half
+    p.arc(x1, y1, r, deg - 90, deg + 90, 12); p.arc(x0, y0, r, deg + 90, deg + 270, 12)
+    p.line((x0 + nx * r, y0 + ny * r), (x1 + nx * r, y1 + ny * r))
+    p.line((x0 - nx * r, y0 - ny * r), (x1 - nx * r, y1 - ny * r))
+
+
+def icon_tb_link():
+    # Two chain links: Copy address.
+    p = _Pen()
+    _pill(p, 8.3, 15.7, 2.6, 3.3, -45); _pill(p, 15.7, 8.3, 2.6, 3.3, -45)
+    return p.done()
+
+
+def icon_tb_notepad():
+    # A page with a pencil across its corner: Edit in Notepad.
+    p = _Pen()
+    p.line((11, 20.5), (4, 20.5), (4, 3.5), (13, 3.5), (17, 7.5), (17, 8.5))
+    p.line((7.5, 9.5), (12.5, 9.5)); p.line((7.5, 13), (10.5, 13))
+    # The pencil: two sides, the end, and the point.
+    ax, ay, bx, by, w = 13.5, 18.5, 19.5, 12.5, 1.7
+    nx, ny = w * 0.7071, w * 0.7071
+    p.line((ax + nx, ay + ny), (bx + nx, by + ny), (bx - nx, by - ny), (ax - nx, ay - ny))
+    p.line((ax + nx, ay + ny), (12, 21), (ax - nx, ay - ny))
+    return p.done()
+
+
 def icon_tb_refresh():
     # An open circle, the gap on the right, and a head on its upper end
     # pointing along the turn -- Fluent's ArrowClockwise.
@@ -331,6 +419,24 @@ def icon_place_pictures():
     return im
 
 
+def icon_place_videos():
+    # A play frame: the frame inked, the triangle left light so the tile
+    # shows through it.
+    im, d = _place()
+    d.rounded_rectangle([6, 12, 58, 52], radius=6, fill=PLACE_INK)
+    d.polygon([(26, 22), (44, 32), (26, 42)], fill=WHITE)
+    return im
+
+
+def icon_place_downloads():
+    # An arrow into a tray.
+    im, d = _place()
+    d.line([32, 6, 32, 38], fill=PLACE_INK, width=6)
+    d.polygon([(18, 28), (46, 28), (32, 44)], fill=PLACE_INK)
+    d.line([10, 44, 10, 54, 54, 54, 54, 44], fill=PLACE_INK, width=6, joint="curve")
+    return im
+
+
 # --- coloured places and folder kinds (the File Manager, F1) -----------
 #
 # A PLACE IS A COLOURED TILE with its glyph in white: the glyph functions
@@ -361,6 +467,8 @@ def icon_place_music_tile():     return _tile((214, 92, 143), icon_place_music)
 def icon_place_pictures_tile():  return _tile((74, 163, 107), icon_place_pictures)
 def icon_place_trash_tile():     return _tile((104, 112, 125), icon_place_trash)
 def icon_place_recent_tile():    return _tile((214, 133, 54), icon_place_recent)
+def icon_place_videos_tile():    return _tile((122, 85, 196), icon_place_videos)
+def icon_place_downloads_tile(): return _tile((46, 140, 190), icon_place_downloads)
 
 
 # A FOLDER OF A KNOWN KIND is the plain folder's shape in the kind's
@@ -1228,6 +1336,16 @@ ICONS = {
     "start": icon_start,
     "toyos": icon_toyos,
     "tb-up": icon_tb_up,
+    "tb-down": icon_tb_down,
+    "tb-tab": icon_tb_tab,
+    "tb-terminal": icon_tb_terminal,
+    "tb-drive": icon_tb_drive,
+    "tb-show": icon_tb_show,
+    "tb-hide": icon_tb_hide,
+    "tb-key": icon_tb_key,
+    "tb-plug": icon_tb_plug,
+    "tb-link": icon_tb_link,
+    "tb-notepad": icon_tb_notepad,
     "tb-zoom-in": icon_tb_zoom_in,
     "tb-zoom-out": icon_tb_zoom_out,
     "tb-fit": icon_tb_fit,
@@ -1293,6 +1411,8 @@ ICONS = {
     "place-pictures": icon_place_pictures_tile,
     "place-trash": icon_place_trash_tile,
     "place-recent": icon_place_recent_tile,
+    "place-videos": icon_place_videos_tile,
+    "place-downloads": icon_place_downloads_tile,
     "tb-bin-restore": icon_tb_bin_restore,
     "tb-bin-empty": icon_tb_bin_empty,
     "tb-details": icon_tb_details,

@@ -4,7 +4,7 @@ One file per installed app, seeded to `/usr/wm/applications/` (the
 `/usr/share/applications` of this system). The window manager scans
 that directory at startup and builds its app list from it, so **adding
 an app to the Start menu is dropping a file here** rather than editing
-a table. The DESKTOP shows `/home/desktop`, not this directory: a copy
+a table. The DESKTOP shows `/home/Desktop`, not this directory: a copy
 of one of these files there is a desktop launcher, which is what the
 Start menu's "Add to desktop" writes, and `about`, `files`, `notepad`,
 `settings` and `terminal` are seeded there once by the Makefile.

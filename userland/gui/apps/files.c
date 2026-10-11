@@ -39,6 +39,7 @@
 #include "lib/ulaunch.h"
 #include "lib/uclip.h"
 #include "lib/upins.h"
+#include "ui/uui_verbs.h"
 #include <errno.h>
 #include "ui/uui.h"
 #include "ui/utheme.h"
@@ -125,7 +126,8 @@ struct uui_button g_toast_x;     // ...and over its dismiss slot
 // row landed under the cursor (uui_menubar.h says it once, in full).
 static int g_ctx_armed;
 static int g_ctx_x, g_ctx_y;
-static int g_ctx_tree = -1;     // the menu was asked for on this tree row (a share's)
+static int g_ctx_on_tree;       // the menu was asked for in the left pane...
+static int g_ctx_tree = -1;     // ...on this row of it, or -1 for the pane itself
 
 char g_stat_dir[PATH_MAX_LEN + 8];
 char g_stat_items[48];
@@ -179,8 +181,8 @@ struct uui_fileview *other(void)   { return &g_pane[!g_active]; }
 // or on a key -- and every drop-down row names its key, so the F-keys
 // are still discoverable.
 static const struct uui_menu_item new_items[] = {
-    UUI_MENU("Folder",         CMD_MKDIR,    "Ctrl+Shift+N"),
-    UUI_MENU("Text file",      CMD_NEW_FILE, 0),
+    UUI_MENU_VERB("Folder",    CMD_MKDIR,    "Ctrl+Shift+N", NEW_FOLDER),
+    UUI_MENU_VERB("Text file", CMD_NEW_FILE, 0,              NEW_FILE),
 };
 
 static const struct uui_menu_item sort_items[] = {
@@ -194,35 +196,35 @@ static const struct uui_menu_item sort_items[] = {
 };
 
 static const struct uui_menu_item view_items[] = {
-    UUI_MENU("Large icons",    CMD_VIEW_LARGE,   0),
-    UUI_MENU("Icons",          CMD_VIEW_ICONS,   0),
-    UUI_MENU("Details",        CMD_VIEW_DETAILS, 0),
+    UUI_MENU_ICON("Large icons",  CMD_VIEW_LARGE,   0, "tb-icons",   UTHEME_ACT_ARRANGE),
+    UUI_MENU_ICON("Icons",        CMD_VIEW_ICONS,   0, "tb-icons",   UTHEME_ACT_ARRANGE),
+    UUI_MENU_ICON("Details",      CMD_VIEW_DETAILS, 0, "tb-details", UTHEME_ACT_ARRANGE),
     UUI_MENU_SEP,
-    UUI_MENU("Folder sizes",   CMD_VIEW_SIZES,   0),
-    UUI_MENU("Details pane",   CMD_VIEW_DPANE,   0),
-    UUI_MENU("Second pane",    CMD_VIEW_PANES,   0),
-    UUI_MENU("Folder tree",    CMD_VIEW_TREE,    0),
+    UUI_MENU_ICON("Folder sizes", CMD_VIEW_SIZES,   0, "tb-chart",   UTHEME_ACT_VIEW),
+    UUI_MENU_ICON("Details pane", CMD_VIEW_DPANE,   0, "tb-pane",    UTHEME_ACT_VIEW),
+    UUI_MENU_ICON("Second pane",  CMD_VIEW_PANES,   0, "tb-panes",   UTHEME_ACT_VIEW),
+    UUI_MENU_VERB("Folder tree",  CMD_VIEW_TREE,    0, TREE),
 };
 
 // "See more": what Explorer puts behind its "..." -- the rarer verbs.
 static const struct uui_menu_item more_items[] = {
-    UUI_MENU("New tab",            CMD_NEW_TAB,    "Ctrl+T"),
-    UUI_MENU("Close tab",          CMD_CLOSE_TAB,  "Ctrl+W"),
+    UUI_MENU_VERB("New tab",            CMD_NEW_TAB,    "Ctrl+T", NEW_TAB),
+    UUI_MENU_VERB("Close tab",          CMD_CLOSE_TAB,  "Ctrl+W", CLOSE),
     UUI_MENU_SEP,
-    UUI_MENU("Undo",               CMD_UNDO,       "Ctrl+Z"),
-    UUI_MENU("Redo",               CMD_REDO,       "Ctrl+Y"),
+    UUI_MENU_VERB("Undo",               CMD_UNDO,       "Ctrl+Z", UNDO),
+    UUI_MENU_VERB("Redo",               CMD_REDO,       "Ctrl+Y", REDO),
     UUI_MENU_SEP,
-    UUI_MENU("Select all",         CMD_SELECT_ALL, "Ctrl+A"),
-    UUI_MENU("Refresh",            CMD_REFRESH,    "Ctrl+R"),
+    UUI_MENU_VERB("Select all",         CMD_SELECT_ALL, "Ctrl+A", SELECT_ALL),
+    UUI_MENU_VERB("Refresh",            CMD_REFRESH,    "Ctrl+R", REFRESH),
     UUI_MENU_SEP,
-    UUI_MENU("Copy to other pane", CMD_COPY,       "F5"),
-    UUI_MENU("Move to other pane", CMD_MOVE,       "F6"),
-    UUI_MENU("Other pane",         CMD_SWAP,       "Tab"),
+    UUI_MENU_VERB("Copy to other pane", CMD_COPY,       "F5",     OTHER_PANE),
+    UUI_MENU_VERB("Move to other pane", CMD_MOVE,       "F6",     MOVE),
+    UUI_MENU_VERB("Other pane",         CMD_SWAP,       "Tab",    SWAP),
     UUI_MENU_SEP,
-    UUI_MENU("Properties",         CMD_PROPERTIES, 0),
-    UUI_MENU("Options...",         CMD_OPTIONS,    0),
+    UUI_MENU_VERB("Properties",         CMD_PROPERTIES, 0,        PROPERTIES),
+    UUI_MENU_VERB("Options...",         CMD_OPTIONS,    0,        SETTINGS),
     UUI_MENU_SEP,
-    UUI_MENU("Close",              CMD_EXIT,       "Alt+F4"),
+    UUI_MENU_VERB("Close",              CMD_EXIT,       "Alt+F4", CLOSE),
 };
 
 // COLOUR-CODED BY WHAT EACH COMMAND DOES (the File Manager design chosen
@@ -312,88 +314,58 @@ static const struct uui_toolbar_item viewbar_items[] = {
 // The order is Explorer's and Dolphin's: open first, the verbs, then
 // Properties last with a separator before it.
 static const struct uui_menu_item ctx_items[] = {
+    // WINDOWS 11'S COMMAND STRIP: the four verbs every file has, as icons
+    // across the top (uui_menubar.h). A strip must be the LEADING run.
+    UUI_STRIP_VERB("Cut",    CMD_CLIP_CUT,  "Ctrl+X", CUT),
+    UUI_STRIP_VERB("Copy",   CMD_CLIP_COPY, "Ctrl+C", COPY),
+    UUI_STRIP_VERB("Rename", CMD_RENAME,    "F2",     RENAME),
+    UUI_STRIP_VERB("Delete", CMD_DELETE,    "F8",     DELETE),
     // A PROGRAM OR SCRIPT runs rather than opens: these two take Open's
     // place (build_ctx_items), Run in Terminal first because it is the
     // one that shows what the thing printed.
-    UUI_MENU("Run in Terminal", CMD_RUN_TERMINAL, "Shift+Enter"),
-    UUI_MENU("Run",         CMD_RUN,      0),
-    UUI_MENU("Open",        CMD_OPEN,     "Enter"),
-    UUI_MENU("Open in new tab", CMD_OPEN_TAB, 0),   // dropped for anything but a folder
-    UUI_MENU("Pin to Places",     CMD_PIN,   0),     // a folder not yet pinned
-    UUI_MENU("Unpin from Places", CMD_UNPIN, 0),     // ...and one that is
-    UUI_MENU("Edit in Notepad", CMD_EDIT, 0),   // dropped for anything but a text file
+    UUI_MENU_VERB("Run in Terminal",   CMD_RUN_TERMINAL, "Shift+Enter", TERMINAL),
+    UUI_MENU_VERB("Run",               CMD_RUN,      0,     RUN),
+    UUI_MENU_VERB("Open",              CMD_OPEN,     "Enter", OPEN),
+    UUI_MENU_VERB("Open in new tab",   CMD_OPEN_TAB, 0,     OPEN_TAB),   // dropped for anything but a folder
+    UUI_MENU_VERB("Pin to Places",     CMD_PIN,      0,     PIN),        // a folder not yet pinned
+    UUI_MENU_VERB("Unpin from Places", CMD_UNPIN,    0,     PIN),        // ...and one that is
+    UUI_MENU_VERB("Edit in Notepad",   CMD_EDIT,     0,     NOTEPAD),    // dropped for anything but a text file
     UUI_MENU_SEP,
-    UUI_MENU("Cut",         CMD_CLIP_CUT,   "Ctrl+X"),
-    UUI_MENU("Copy",        CMD_CLIP_COPY,  "Ctrl+C"),
-    UUI_MENU("Paste",       CMD_CLIP_PASTE, "Ctrl+V"),
+    UUI_MENU_VERB("Paste",       CMD_CLIP_PASTE, "Ctrl+V", PASTE),
     UUI_MENU_SEP,
-    UUI_MENU("Copy to other pane", CMD_COPY, "F5"),
-    UUI_MENU("Move to other pane", CMD_MOVE, "F6"),
-    UUI_MENU("Rename",      CMD_RENAME,   "F2"),
-    UUI_MENU("Delete",      CMD_DELETE,   "F8"),
+    UUI_MENU_VERB("Copy to other pane", CMD_COPY, "F5", OTHER_PANE),
+    UUI_MENU_VERB("Move to other pane", CMD_MOVE, "F6", MOVE),
     UUI_MENU_SEP,
-    UUI_MENU("New folder",  CMD_MKDIR,    "F7"),
+    UUI_MENU_VERB("New folder",  CMD_MKDIR,    "F7", NEW_FOLDER),
     UUI_MENU_SEP,
-    UUI_MENU("Properties",  CMD_PROPERTIES, 0),
+    UUI_MENU_VERB("Properties",  CMD_PROPERTIES, 0, PROPERTIES),
     // Only inside a network share (fm_network.c).
     UUI_MENU_SEP,
-    UUI_MENU("Sign in...",        CMD_NET_SIGNIN, 0),
-    UUI_MENU("Disconnect",        CMD_NET_DISCONNECT, 0),
-    UUI_MENU("Forget this share", CMD_NET_FORGET, 0),
+    UUI_MENU_VERB("Sign in...",        CMD_NET_SIGNIN,     0, SIGN_IN),
+    UUI_MENU_VERB("Disconnect",        CMD_NET_DISCONNECT, 0, DISCONNECT),
+    UUI_MENU_VERB("Forget this share", CMD_NET_FORGET,     0, FORGET),
+};
+
+// ...and in Recent: a file elsewhere, so nothing moves INTO here.
+static const struct uui_menu_item recent_ctx_items[] = {
+    UUI_MENU_VERB("Open",             CMD_OPEN,          "Enter", OPEN),
+    UUI_MENU_VERB("Open folder",      CMD_RECENT_FOLDER, 0,       OPEN),
+    UUI_MENU_SEP,
+    UUI_MENU_VERB("Copy",             CMD_CLIP_COPY,     "Ctrl+C", COPY),
+    UUI_MENU_VERB("Remove from list", CMD_RECENT_FORGET, "Del",    CLEAR),
+    UUI_MENU_SEP,
+    UUI_MENU_VERB("Properties",       CMD_PROPERTIES,    0,        PROPERTIES),
 };
 
 // ...and inside the Recycle Bin: what a deleted item can have done to it.
-static const struct uui_menu_item recent_ctx_items[] = {
-    UUI_MENU("Open",             CMD_OPEN,          "Enter"),
-    UUI_MENU("Open folder",      CMD_RECENT_FOLDER, 0),
-    UUI_MENU_SEP,
-    UUI_MENU("Copy",             CMD_CLIP_COPY,     "Ctrl+C"),
-    UUI_MENU("Remove from list", CMD_RECENT_FORGET, "Del"),
-    UUI_MENU_SEP,
-    UUI_MENU("Properties",       CMD_PROPERTIES,    0),
-};
-
 static const struct uui_menu_item bin_ctx_items[] = {
-    UUI_MENU("Restore",            CMD_RESTORE,        0),
+    UUI_MENU_VERB("Restore",            CMD_RESTORE,        0,        RESTORE),
     UUI_MENU_SEP,
-    UUI_MENU("Copy",               CMD_CLIP_COPY,      "Ctrl+C"),
-    UUI_MENU("Delete permanently", CMD_DELETE_FOREVER, "Del"),
+    UUI_MENU_VERB("Copy",               CMD_CLIP_COPY,      "Ctrl+C", COPY),
+    UUI_MENU_VERB("Delete permanently", CMD_DELETE_FOREVER, "Del",    DELETE),
     UUI_MENU_SEP,
-    UUI_MENU("Properties",         CMD_PROPERTIES,     0),
+    UUI_MENU_VERB("Properties",         CMD_PROPERTIES,     0,        PROPERTIES),
 };
-
-// PLACES: Recent, the named folders, the Recycle Bin, the folders pinned to
-// Places (lib/upins.h), then every mounted volume. Rebuilt when a pin is
-// made or taken away, with the tree that shows them.
-static void places_build(void) {
-    uui_places_init(&g_places);
-    uui_places_add(&g_places, "Recent",    "place-recent",    FM_RECENT);
-    uui_places_add(&g_places, "Home",      "place-home",      "/home");
-    uui_places_add(&g_places, "Desktop",   "place-desktop",   "/home/desktop");
-    uui_places_add(&g_places, "Documents", "place-documents", "/usr/share/doc");
-    uui_places_add(&g_places, "Music",     "place-music",     "/usr/share/music");
-    uui_places_add(&g_places, "Pictures",  "place-pictures",  "/usr/share/wallpapers");
-    uui_places_add(&g_places, "Recycle Bin", "place-trash",   FM_BIN);
-    uui_places_add_pins(&g_places);
-    uui_places_refresh(&g_places);
-}
-
-// A TREE ROW WHOSE FOLDER HAS GONE -- a pin to a folder deleted since
-// the tree was built, most often -- is said so, and the pane stays where
-// it was: set_dir() has already taken the path when the listing fails.
-// The rebuild drops it from Pinned (lib/upins.h keeps the pin for when
-// the folder is back).
-static void tree_goto(const char *path) {
-    char was[PATH_MAX_LEN], gone[PATH_MAX_LEN];
-    strlcpy(was, uui_fileview_dir(active()), sizeof was);
-    strlcpy(gone, path, sizeof gone);   // `path` is a tree slot the rebuild rewrites
-    if (fm_goto(g_active, gone)) return;
-    uui_fileview_set_dir(active(), was);
-    snprintf(g_stat_note, sizeof g_stat_note, "%s is not there any more -- moved or deleted",
-             k_path_basename(gone));
-    places_build();
-    tree_rebuild();
-}
 
 static void pin_selected(int pin) {
     char path[PATH_MAX_LEN];
@@ -935,6 +907,7 @@ static void set_view(int code) {
 }
 
 void do_command(struct uapp *a, int code) {
+    if (code >= CMD_PL_FIRST && code <= CMD_PL_LAST) { places_command(a, code); return; }
     // A command the bin greys is refused here too: a key reaches this
     // without asking menu_item_flags().
     if ((in_bin(active()) || in_search(active()) || in_zip(active()) || in_recent(active())) &&
@@ -1321,6 +1294,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 // Under a modal they do nothing, as every routed widget does.
 static void on_action(struct uapp *a, int code) {
     if (g_modal != MODAL_NONE) return;
+    if ((code == ID_DP_OPEN || code == ID_DP_PROPS) && details_button(a, code)) { uapp_redraw(a); return; }
     if (code == ID_DP_OPEN)  do_command(a, CMD_OPEN);
     if (code == ID_DP_PROPS) do_command(a, CMD_PROPERTIES);
     if (code == ID_SEARCH_STOP) {
@@ -1394,17 +1368,17 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         uapp_redraw(a);
         return;
     }
-    // A network share's row in the tree has a menu of its own: Open,
-    // Sign in, Disconnect, Forget (fm_network.c).
-    int nid = uui_tree_hit(&g_tree, x, y);
-    if (!widget_by_id(ID_TREE)->hidden && nid >= 0 && nid < g_tree_count &&
-        net_is_share_root(g_tree_path[nid])) {
+    // THE LEFT PANE HAS MENUS OF ITS OWN, one per kind of row, and one
+    // for the pane itself on a heading or below the rows (fm_places.c).
+    // The row is not selected: the menu acts on it, the pane stays put.
+    g_ctx_on_tree = !widget_by_id(ID_TREE)->hidden &&
+                    x >= g_tree.x && x < g_tree.x + g_tree.w && y >= g_tree.y && y < g_tree.y + g_tree.h;
+    if (g_ctx_on_tree) {
         g_ctx_armed = 1;
-        g_ctx_tree = nid;
+        g_ctx_tree = uui_tree_hit(&g_tree, x, y);
         g_ctx_x = x; g_ctx_y = y;
         return;
     }
-    g_ctx_tree = -1;
     int p = pane_at(x, y);
     if (p < 0) return;   // not over a listing: no menu, as on the chrome
     g_ctx_armed = 1;
@@ -1424,12 +1398,22 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     if (!g_ctx_armed) return;
     g_ctx_armed = 0;
     if (g_modal != MODAL_NONE) return;
-    if (g_ctx_tree >= 0 && g_ctx_tree < g_tree_count)
-        g_ctx_rows = net_ctx_items(g_ctx_built, (int)(sizeof g_ctx_built / sizeof g_ctx_built[0]),
-                                   g_tree_path[g_ctx_tree]);
-    else
+    if (g_ctx_on_tree)
+        g_ctx_rows = places_ctx_items(g_ctx_built, (int)(sizeof g_ctx_built / sizeof g_ctx_built[0]),
+                                      g_ctx_tree);
+    else {
         g_ctx_rows = build_ctx_items();
-    g_ctx_tree = -1;
+        // What a test picks rows by: the labels, in order ("-" a separator).
+        char rows[400] = "";
+        for (int i = 0; i < g_ctx_rows; i++) {
+            size_t l = strlen(rows);
+            snprintf(rows + l, sizeof rows - l, "%s%s", i ? "|" : "",
+                     g_ctx_built[i].label ? g_ctx_built[i].label : "-");
+        }
+        ulogf("files: ctxmenu rows %s\n", rows);
+    }
+    g_ctx_on_tree = 0;
+    if (!g_ctx_rows) { uapp_redraw(a); return; }
     uui_menubar_open_at(&g_ctx, g_ctx_built, g_ctx_rows, g_ctx_x, g_ctx_y);
     uapp_redraw(a);
 }

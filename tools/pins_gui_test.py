@@ -12,8 +12,8 @@ with `cat` as well as from the app.
    pane stays where it was, and the row leaves the column -- it used to
    "open" a folder that was not there.
 
-The context menu's rows are the ones the app logs (`ctxmenu.item`); a
-folder's menu is Open, Open in new tab, then Pin (or Unpin) -- row 2.
+The context menu's rows are picked by LABEL, from the app's `files:
+ctxmenu rows` line (filemanager_test.ctx_rows()).
 """
 import argparse
 import sys
@@ -26,9 +26,8 @@ import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
 START = "/usr/share"
-TARGET = "/usr/share/sounds"   # not a standard place: Documents IS /usr/share/doc
+TARGET = "/usr/share/sounds"   # not a standard place (lib/udirs.h names those)
 GONE = "/home/pin-gone"        # pinned, then deleted under the running app
-PIN_ROW = 2
 
 
 def run(dbg, qmp, res):
@@ -60,9 +59,12 @@ def run(dbg, qmp, res):
         names = sorted(n.rstrip("/") for n in fm.listing(dbg, START))
         view_row = 1 + names.index("sounds")
         px, py, pw, ph = l.pane[0]
+        mark = fm.ctx_mark(dbg)
         fm.sure_rclick(dbg, qmp, l.ox + px + pw // 2,
                        l.oy + l.rowy[0] + l.rowh * view_row + l.rowh // 2)
-        return fm.wait_layout(dbg, win, lambda l: l.ctx == 1 and PIN_ROW in l.popitems)
+        rows = fm.ctx_rows(dbg, mark)
+        m = fm.wait_layout(dbg, win, lambda l: l.ctx == 1 and l.popitems)
+        return (m, rows) if m else None
 
     def tree_row(l, path):
         rows = [r for r, p in sorted(l.treerow.items()) if p == path]
@@ -71,8 +73,7 @@ def run(dbg, qmp, res):
     # 1. pin
     m = menu_on_doc()
     if m:
-        x, y, w, h = m.popitems[PIN_ROW]
-        fm.sure_click(dbg, qmp, m.ox + x + w // 2, m.oy + y + h // 2)
+        fm.ctx_pick(dbg, qmp, win, m[1], "Pin to Places")
     end = time.time() + 10
     while time.time() < end and not pinned():
         time.sleep(0.3)
@@ -103,8 +104,7 @@ def run(dbg, qmp, res):
     fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == START, timeout=25.0)
     m = menu_on_doc()
     if m:
-        x, y, w, h = m.popitems[PIN_ROW]
-        fm.sure_click(dbg, qmp, m.ox + x + w // 2, m.oy + y + h // 2)
+        fm.ctx_pick(dbg, qmp, win, m[1], "Unpin from Places")
     end = time.time() + 10
     while time.time() < end and pinned():
         time.sleep(0.3)

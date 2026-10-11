@@ -150,25 +150,7 @@ int net_in_share(const char *dir) {
 // the active pane is in.
 static char g_target[UUI_PLACES_PATH_MAX];
 
-int net_is_share_root(const char *path) {
-    struct query_fsinfo fs;
-    return share_of(path, &fs) && !strcmp(fs.point, path);
-}
-
-int net_ctx_items(struct uui_menu_item *out, int cap, const char *point) {
-    static const struct uui_menu_item items[] = {
-        UUI_MENU("Open",              CMD_NET_OPEN, 0),
-        UUI_MENU_SEP,
-        UUI_MENU("Sign in...",        CMD_NET_SIGNIN, 0),
-        UUI_MENU("Disconnect",        CMD_NET_DISCONNECT, 0),
-        UUI_MENU_SEP,
-        UUI_MENU("Forget this share", CMD_NET_FORGET, 0),
-    };
-    strlcpy(g_target, point, sizeof g_target);
-    int n = 0;
-    for (int i = 0; i < (int)(sizeof items / sizeof items[0]) && n < cap; i++) out[n++] = items[i];
-    return n;
-}
+void net_aim(const char *point) { strlcpy(g_target, point, sizeof g_target); }
 
 void net_command(int code) {
     struct query_fsinfo fs;

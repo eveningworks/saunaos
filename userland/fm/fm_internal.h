@@ -39,6 +39,7 @@
 //   fm_modal.c   Rename / New folder (the two prompts with a text field)
 //   fm_details.c the details pane: a preview and the selection's facts
 //   fm_trash.c   the Recycle Bin's folder (trash:/) and its verbs
+//   fm_places.c  the left pane's places and the menu on each of its rows
 
 #define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
                                  // buffers; the shared widgets it uses
@@ -116,6 +117,16 @@ enum {
     CMD_RUN_TERMINAL, CMD_RUN,                   // a program or script, lib/ulaunch.h
     CMD_NET_SIGNIN, CMD_NET_DISCONNECT, CMD_NET_FORGET,   // a network share, fm_network.c
     CMD_NET_OPEN,
+    // The left pane's own menus (fm_places.c), aimed at the row clicked
+    // rather than the selection. CMD_PL_FIRST..CMD_PL_LAST go there whole.
+    CMD_PL_FIRST,
+    CMD_PL_OPEN = CMD_PL_FIRST, CMD_PL_OPEN_TAB, CMD_PL_OPEN_OTHER,
+    CMD_PL_HIDE, CMD_PL_SHOW_HIDDEN, CMD_PL_COPY_PATH, CMD_PL_COPY_ADDRESS,
+    CMD_PL_TERMINAL, CMD_PL_PROPERTIES, CMD_PL_RENAME, CMD_PL_UP, CMD_PL_DOWN,
+    CMD_PL_PIN, CMD_PL_UNPIN, CMD_PL_DISKS, CMD_PL_CHECK, CMD_PL_UNMOUNT,
+    CMD_PL_SIGNIN, CMD_PL_DISCONNECT, CMD_PL_FORGET, CMD_PL_ADD_SHARE,
+    CMD_PL_RESTORE_ALL, CMD_PL_EMPTY_BIN, CMD_PL_CLEAR_RECENT, CMD_PL_BIN_SETTINGS,
+    CMD_PL_LAST = CMD_PL_BIN_SETTINGS,
 };
 
 // The Recycle Bin's folder, as uui_fileview and the breadcrumb see it --
@@ -234,6 +245,7 @@ void options_open(struct uapp *a); // the window
 int  details_width(int cw);
 void details_layout(int x, int y, int w, int h);
 void details_draw(struct ugfx_surface *s);
+int  details_button(struct uapp *a, int id);   // ID_DP_*: 1 when a volume card took it
 
 extern char g_stat_dir[PATH_MAX_LEN + 8];
 extern char g_stat_items[48];
@@ -299,6 +311,21 @@ void tree_rebuild(void);
 int  tree_poll(void);           // rebuild if an open folder changed; 1 if it did
 void tree_refresh_meters(void); // the volumes' notes and meters, from g_places
 void tree_toggle(void *ctx, int id, int expand);
+// The g_places row a tree row shows, or TREE_FOLDER (a folder under a
+// volume), TREE_HEADER (a group heading) or TREE_ADD_ROW.
+#define TREE_FOLDER  (-1)
+#define TREE_HEADER  (-2)
+#define TREE_ADD_ROW (-3)
+int  tree_place_of(int nid);
+
+// --- the places and their menus (fm_places.c) ------------------------
+void places_build(void);        // g_places: the named places not hidden, the pins, the mounts
+void tree_goto(const char *path);   // a row clicked: there, or "not there any more"
+// The menu for tree row `nid` (-1: the pane itself, below the rows);
+// aims places_command() at that row. Rows written, separators included.
+int  places_ctx_items(struct uui_menu_item *out, int cap, int nid);
+void places_command(struct uapp *a, int code);   // CMD_PL_*
+void places_rename_pin(const char *label);        // Rename pin's prompt answered
 
 // --- thumbnails (fm_thumbs.c) ----------------------------------------
 
@@ -490,9 +517,8 @@ void net_save_session(void);
 // An address typed anywhere a path is (smb://, //, \\): 1 and the pane
 // navigated (or the reason in the status bar), 0 if it was not one.
 int  net_goto_address(int pane, const char *typed);
-// A share's row in the tree has a menu of its own: is `path` a network
-// mount point, and that menu (aimed at it until the next command).
-int  net_is_share_root(const char *path);
-int  net_ctx_items(struct uui_menu_item *out, int cap, const char *point);
+// Aim net_command() at a share's mount point (the tree row's menu,
+// fm_places.c) until the next command.
+void net_aim(const char *point);
 
 #endif // FM_INTERNAL_H

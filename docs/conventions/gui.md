@@ -2191,7 +2191,7 @@ this the obvious way), not from how much history it accumulated.
   LIVE, no restart: the WM watches `fs_generation()` and re-reads the
   directory when it moves. **One directory feeds the Start menu and the
   desktop menu's Open > submenu**, with `ShowIn=desktop startmenu`
-  choosing which; the desktop's own icons come from `/home/desktop`
+  choosing which; the desktop's own icons come from `/home/Desktop`
   (the entry above), never from here. **Anything positional
   must go through `gui_app_visible_count()`/`_at()`** -- the Start
   menu's rows are indexed by position, so filtering the draw while
@@ -5259,9 +5259,9 @@ its `Name=`, rewritten line by line with the rest of the file kept, so
 the file name, its saved position and its AppId do not move. `gui icons
 --json` reports `hovered` and `renaming` per icon.
 
-## THE DESKTOP IS `/home/desktop` AND NOTHING ELSE: A `.desktop` FILE THERE IS A LAUNCHER, THE APPLICATION DATABASE IS `/usr/wm/applications`, AND EVERY VERB IS A CHILD PROCESS
+## THE DESKTOP IS `/home/Desktop` AND NOTHING ELSE: A `.desktop` FILE THERE IS A LAUNCHER, THE APPLICATION DATABASE IS `/usr/wm/applications`, AND EVERY VERB IS A CHILD PROCESS
 
-Every icon in `userland/wm/desktop.c` is an entry of `/home/desktop`, in
+Every icon in `userland/wm/desktop.c` is an entry of `/home/Desktop`, in
 name order, directories first -- KDE's Folder View and the Windows
 desktop are folders with the shortcuts in them. A `.desktop` file there
 is drawn as the launcher it describes (`gui_app_read_entry()`, the same
@@ -5310,7 +5310,7 @@ the router's `uui_router_extern_over/leave/drop`, so a widget's
 `drag_over`/`drop` ops serve a drag from anywhere -- the File Manager's
 panes and tree accept a drop from the desktop with no code of their
 own beyond `do_drop_extern()`, which reads the slot. The desktop is a
-target (files land in `/home/desktop`, Ctrl copies) and a source (a file
+target (files land in `/home/Desktop`, Ctrl copies) and a source (a file
 icon dragged onto a window; the icon stays in its cell when a window
 took the drop). Wayland's `wl_data_device` is this shape; X11's XDND
 made the two windows talk directly, which every compositor since has
@@ -5480,7 +5480,7 @@ wait (0.6-1.7 s frames, measured). The WM's pollers compare a TOPIC
 counter from `userland/wm/wm_watch.h` instead: `WM_TOPIC_SETTINGS` moves
 on `WIN_EV_SETTING` (the registry's generation bump, pushed), the path
 topics on `WIN_EV_FSWATCH` from a `SYS_FS_WATCH` on `/etc`,
-`/etc/effects`, `/usr/wm/applications` and `/home/desktop`. A new
+`/etc/effects`, `/usr/wm/applications` and `/home/Desktop`. A new
 config poller picks a topic, or adds one with its path; it never reads
 the fs generation. The watch is on a directory's DIRECT children, so a
 file two levels down needs its own topic (that is why `/etc/effects` is
@@ -5815,3 +5815,30 @@ dialog needs no label column. A password row is masked, is never the
 edit menu's target (nothing copies it), and `uui_form_wipe_passwords()`
 clears it once it has been sent. Sign in and Add network share
 (`ui/uui_netshare.h`) are the first two.
+
+## THE FILE MANAGER'S LEFT-PANE MENU ACTS ON THE ROW CLICKED, NEVER THE SELECTION
+
+A right-click anywhere in the tree opens `userland/fm/fm_places.c`'s menu
+for that KIND of row (a named place, Recent, the Recycle Bin, a pin, a
+volume, a share, a folder, a heading or the empty pane), and the row is
+NOT selected -- Explorer's and Dolphin's rule: the pane stays where it
+is. So its commands are their own, `CMD_PL_*`, run by
+`places_command()` on the path `places_ctx_items()` copied when the menu
+opened; the file commands (`CMD_OPEN`, `CMD_PROPERTIES`) act on the
+active pane's selection and would act on the wrong thing. A tree rebuild
+renumbers rows, which is why the path is copied rather than the row kept.
+A new kind of row gets a case in `kind_of()` and its own menu there.
+
+## A VERB'S ICON AND COLOUR COME FROM `ui/uui_verbs.h`, IN EVERY MENU
+
+Copy is `UUI_VI_COPY` in `UUI_VT_COPY` wherever a menu offers it -- the
+File Manager's pane, left-pane and command-bar menus and the desktop's
+-- through `UUI_MENU_VERB(label, code, accel, COPY)` (and
+`UUI_STRIP_VERB()` for Windows 11's leading strip), or `.icon =
+UUI_VI_COPY, .tint = UUI_VT_COPY` in the compositor's own menus. Names,
+not a lookup, because a menu is a static array. A new verb gets its pair
+there first; an icon spelled out at a menu is one that drifts from the
+next menu's. Tests pick a context-menu row BY LABEL (the File Manager
+logs `files: ctxmenu rows` and `files: placemenu`), never by index: the
+strip moves every row below it.
+

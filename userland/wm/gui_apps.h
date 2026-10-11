@@ -367,7 +367,7 @@ extern int gui_app_registry_count;
 // launch of whatever happens to be last.
 // ONE PARSED .desktop FILE, as either surface reads it: the application
 // database builds its registry from these, and the desktop reads a
-// launcher dropped in /home/desktop the same way (desktop.c).
+// launcher dropped in /home/Desktop the same way (desktop.c).
 struct gui_app_entry {
     char name[GUI_APP_NAME_MAX];
     char exec[GUI_APP_EXEC_MAX];

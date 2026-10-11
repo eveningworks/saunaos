@@ -17,10 +17,10 @@
 #include "rt/sys.h"
 #include "lib/cmd.h"
 #include "lib/ushot.h"
+#include "lib/udirs.h"
 
 #define USAGE "screenshot [-w] [-r x,y,w,h] [-p] [-d seconds] [-f qoi|png] [path]"
 
-#define SHOT_DIR "/home/screenshots"
 
 static int parse_region(const char *s, int *x, int *y, int *w, int *h) {
     // "x,y,w,h", all four required. A partial rectangle is refused
@@ -42,18 +42,18 @@ static int parse_region(const char *s, int *x, int *y, int *w, int *h) {
     return *p == '\0';
 }
 
-// /home/screenshots/shot-YYYYMMDD-HHMMSS.<ext>, and the directory is
-// made on demand -- it is not seeded, because an empty directory nobody
-// has taken a screenshot into is clutter.
+// Pictures/Screenshots/shot-YYYYMMDD-HHMMSS.<ext> (lib/udirs.h), the
+// folder made on demand -- see udir_create_all() for why.
 static void default_path(char *buf, size_t cap, const char *ext) {
-    sys_mkdir(SHOT_DIR);
+    udir_make(UDIR_SCREENSHOTS);
+    const char *dir = udir_path(UDIR_SCREENSHOTS);
     time_t now = time(NULL);
     struct tm tm;
     char stamp[32];
     if (localtime_r(&now, &tm) && strftime(stamp, sizeof stamp, "%Y%m%d-%H%M%S", &tm))
-        snprintf(buf, cap, SHOT_DIR "/shot-%s.%s", stamp, ext);
+        snprintf(buf, cap, "%s/shot-%s.%s", dir, stamp, ext);
     else
-        snprintf(buf, cap, SHOT_DIR "/shot-%d.%s", sys_getpid(), ext);
+        snprintf(buf, cap, "%s/shot-%d.%s", dir, sys_getpid(), ext);
 }
 
 int main(int argc, char **argv) {

@@ -1,5 +1,6 @@
 // See ui/uui_filedialog.h for the design writeup (what this is, why it
 // is a window, and why Places rather than a tree).
+#include "lib/udirs.h"
 #include "lib/unetmount.h"
 #include "ui/uui_filedialog.h"
 
@@ -63,12 +64,10 @@ static void build_places(struct uui_filedialog *fd) {
     // The File Manager's list, in its order -- one idea of where
     // Documents is -- then Scratch, which a chooser saves into and a
     // file manager does not need, then every mounted device.
-    add_place(fd, "Home",      "place-home",      "/home");
-    add_place(fd, "Desktop",   "place-desktop",   "/home/desktop");
-    add_place(fd, "Documents", "place-documents", "/usr/share/doc");
-    add_place(fd, "Music",     "place-music",     "/usr/share/music");
-    add_place(fd, "Pictures",  "place-pictures",  "/usr/share/wallpapers");
-    add_place(fd, "Scratch",   "folder",          "/var/tmp");
+    add_place(fd, "Home", "place-home", "/home");
+    for (int d = UDIR_DESKTOP; d <= UDIR_DOWNLOADS; d++)   // the personal folders (lib/udirs.h)
+        add_place(fd, udir_label((enum udir)d), udir_icon((enum udir)d), udir_path((enum udir)d));
+    add_place(fd, "Scratch", "folder", "/var/tmp");
     uui_places_add_pins(&fd->places);   // the File Manager's pins, here too
     uui_places_refresh(&fd->places);
 }

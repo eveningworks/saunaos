@@ -47,9 +47,11 @@ VM = os.path.join(HERE, "vm.py")
 
 def tealish(px):
     """The share icon's cable at the tree's icon size, blended: green and
-    blue well above red, and close to each other."""
+    blue well above red, and CLOSE to each other -- within 15, or the
+    Downloads place's sky-blue tile (46, 140, 190), its edge blended into
+    the pane, passes for teal."""
     r, g, b = px[:3]
-    return g - r > 45 and b - r > 40 and abs(g - b) < 35 and r < 150
+    return g - r > 45 and b - r > 40 and abs(g - b) < 15 and r < 150
 
 
 def share_rows(png, tree):
@@ -89,17 +91,20 @@ def add_row(png, tree, below):
     return (ys[0] + ys[-1]) // 2 if ys else None
 
 
-def dialog_drawn(png, win):
+def dialog_drawn(png, win, tiles=(0, 0)):
     """(white pixels, blue padlock pixels) over the whole window. A modal
     DIMS what is behind it, so the listing's white falls away and only
     the card stays white; the padlock is the one blue thing on it."""
     im = Image.open(png).convert("RGB")
     white = blue = 0
+    # Blue is NOT counted in `tiles`, the left pane's icon column (x0, x1):
+    # its place tiles (Downloads is sky blue) would swamp the padlock's
+    # gain -- and the card may overlap the pane, so only that column goes.
     for y in range(win["y"], win["y"] + win["h"], 2):
         for x in range(win["x"], win["x"] + win["w"], 2):
             r, g, b = im.getpixel((x, y))
             white += (r, g, b) == (255, 255, 255)
-            blue += b > 180 and b - r > 80 and b - g > 30
+            blue += not tiles[0] <= x < tiles[1] and b > 180 and b - r > 80 and b - g > 30
     return white, blue
 
 
@@ -171,13 +176,13 @@ def main():
                 return res.finish("fm_network_test")
 
             print("sign in")
-            before = dialog_drawn(shot("before"), win)
+            before = dialog_drawn(shot("before"), win, (tree["screen"]["x"], tree["screen"]["x"] + 48))
             dc.click(tree["screen"]["x"] + 40, rows[0])
             res.check("a share that wants a password asks for one",
                       wait_log(r"netshare signin /net/media") is not None)
             dc.settle()
             time.sleep(0.5)
-            white, blue = dialog_drawn(shot("signin"), win)
+            white, blue = dialog_drawn(shot("signin"), win, (tree["screen"]["x"], tree["screen"]["x"] + 48))
             res.check("the Sign-in dialog is drawn: the window dims, the padlock shows",
                       white < before[0] * 0.85 and blue > before[1] + 40,
                       f"white {before[0]}->{white}, blue {before[1]}->{blue}")
@@ -207,13 +212,37 @@ def main():
                 out = dc.send("sh cat /etc/mounts.d/public") or ""
                 res.check("...from a file in /etc/mounts.d", f"Source={base}/public" in out, out[-200:])
 
+            print("Properties of a share")
+            rows = share_rows(shot("tree2p"), tree)
+            props = ""
+            if rows:
+                dc.logs("properties:")
+                dc.rclick(tree["screen"]["x"] + 40, rows[0])
+                dc.key("0xF780")                 # Up from nothing: the last row, Properties
+                dc.key("0x0d")
+                for _ in range(30):
+                    props += "\n".join(dc.logs("properties:"))
+                    if "properties: row Space=" in props:
+                        break
+                    time.sleep(0.5)
+            res.check("Properties on a share's row opens its volume page: address, state, sign-in",
+                      "properties: volume /net/media share" in props
+                      and f"properties: row Address=smb:{base}/media" in props
+                      and "properties: row Status=Connected" in props
+                      and f"properties: row Signed in as={srv.USER}" in props, props[-400:])
+            for w2 in dc.windows():
+                if w2["title"].endswith(" Properties"):
+                    dc.close_window(w2["title"])
+
             print("forget a share from its row's menu")
             rows = share_rows(shot("tree2b"), tree)
             forgot = False
             if len(rows) >= 2:
                 dc.rclick(tree["screen"]["x"] + 40, rows[1])
                 # An app's own menu is not `gui ctxmenu`'s (that is the
-                # compositor's): Up from nothing is its LAST row, Forget.
+                # compositor's): Up from nothing is its LAST row,
+                # Properties; once more is Forget (fm_places.c's order).
+                dc.key("0xF780")
                 dc.key("0xF780")
                 dc.key("0x0d")
                 if True:

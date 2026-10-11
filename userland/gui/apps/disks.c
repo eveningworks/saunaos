@@ -1102,7 +1102,35 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     uapp_redraw(a);
 }
 
+// `disks <point>` opens on the volume mounted there, the File Manager's
+// "Open in Disks"; `disks --check <point>` also starts its read-only
+// Check, once the window is up (on the first tick).
+static int g_check_on_open;
+
+static void select_point(const char *point) {
+    for (int i = 0; i < g_ndisks; i++)
+        for (int j = 0; j < g_disks[i].nparts; j++) {
+            if (strcmp(g_disks[i].parts[j].point, point)) continue;
+            select_drive(i);
+            for (int k = 0; k < g_nsegs; k++)
+                if (g_seg_part[k] == j) g_map.selected = k;
+            selection_changed();
+            return;
+        }
+    for (int i = 0; i < g_nram; i++)
+        if (!strcmp(g_ram[i].point, point)) { select_drive(g_ndisks + i); return; }
+    say("%s is not a volume Disks shows%s", point, "");
+    g_check_on_open = 0;
+}
+
 static int on_tick(struct uapp *a) {
+    if (g_check_on_open) {
+        g_check_on_open = 0;
+        const char *why = refusal(CMD_CHECK);
+        if (why) say("%s%s", why, "");
+        else do_check(a, 0);
+        uapp_redraw(a);
+    }
     int r = uui_toolbar_tick(&g_tb) | check_tick(a);
     if (r) uapp_redraw(a);
     return r;
@@ -1134,7 +1162,7 @@ static void default_size(int *w, int *h) {
     *h = ugfx_char_h() * 30;
 }
 
-int main(void) {
+int main(int argc, char **argv) {
     if (!ugfx_font_init()) return 2;
     uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
     g_menu.item_flags = item_flags;
@@ -1166,6 +1194,8 @@ int main(void) {
     scan();
     g_cur = -1;
     select_drive(0);
+    if (argc >= 3 && !strcmp(argv[1], "--check")) { g_check_on_open = 1; select_point(argv[2]); }
+    else if (argc >= 2) select_point(argv[1]);
 
     struct uapp_desc desc = {
         .title        = "Disks",

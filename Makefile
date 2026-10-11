@@ -1206,7 +1206,7 @@ $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
 # fail to link with an undefined symbol, not be absorbed silently.
 EXTRA_OBJS_files = fm/fm_view fm/fm_jobs fm/fm_tree fm/fm_thumbs fm/fm_modal \
                    fm/fm_history fm/fm_details fm/fm_options fm/fm_trash fm/fm_undo fm/fm_search fm/fm_sizes fm/fm_tabs fm/fm_zip fm/fm_recent \
-                   fm/fm_network
+                   fm/fm_network fm/fm_places
 # System Settings, the same way: userland/settings/ is its parts.
 EXTRA_OBJS_settings = settings/set_registry settings/set_page settings/set_owner \
                       settings/set_sysinfo settings/set_clock settings/set_preview settings/set_startup settings/set_keyboard \
@@ -2097,10 +2097,10 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# (userland/wm/desktop.c). A few launchers are seeded ONCE -- the
 	# writer's once/ mode copies a file only when it is missing -- so a
 	# launcher deleted from the desktop stays deleted across `make iso`.
-	mkdir -p $(SEED_DIR)/sync/home/desktop $(SEED_DIR)/once/home/desktop
+	mkdir -p $(SEED_DIR)/sync/home/Desktop $(SEED_DIR)/once/home/Desktop
 	@for a in about files notepad settings terminal; do \
-	    cp data/wm/applications/$$a.desktop $(SEED_DIR)/once/home/desktop/; done
-	cp data/wm/desktop/trash.desktop $(SEED_DIR)/once/home/desktop/
+	    cp data/wm/applications/$$a.desktop $(SEED_DIR)/once/home/Desktop/; done
+	cp data/wm/desktop/trash.desktop $(SEED_DIR)/once/home/Desktop/
 	@for f in data/etc/ssl/certs/*; do \
 	    if [ -f "$$f" ] && [ "$$(basename $$f)" != "README.md" ]; then \
 	        cp "$$f" $(SEED_DIR)/sync/etc/ssl/certs/; fi; \

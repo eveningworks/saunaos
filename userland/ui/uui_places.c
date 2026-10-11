@@ -11,6 +11,7 @@
 #include "userfs_abi.h"
 #include "lib/unetmount.h"
 #include "lib/upins.h"
+#include "lib/uvolinfo.h"
 #include "kpath.h"
 #include "keyboard.h"
 #include <string.h>
@@ -115,20 +116,12 @@ void uui_places_add_pins(struct uui_places *p) {
     int n = upins_load(pins, UPINS_MAX);
     p->pinned = 0;
     for (int i = 0; i < n; i++) {
-        const char *base = k_path_basename(pins[i]);
+        char label[UPINS_LABEL];
+        upins_label(pins[i], label, sizeof label);
         int before = p->count;
-        uui_places_add(p, base[0] ? base : pins[i], "folder", pins[i]);
+        uui_places_add(p, label, "folder", pins[i]);
         if (p->count > before) p->pinned++;
     }
-}
-
-static void device_name(const char *point, char *out, int cap) {
-    if (!strcmp(point, "/"))     { strlcpy(out, "System", (size_t)cap); return; }
-    if (!strcmp(point, "/boot")) { strlcpy(out, "Boot", (size_t)cap); return; }
-    if (!strcmp(point, "/tmp"))  { strlcpy(out, "Temporary", (size_t)cap); return; }
-    const char *base = point;
-    for (const char *s = point; *s; s++) if (*s == '/' && s[1]) base = s + 1;
-    strlcpy(out, base, (size_t)cap);
 }
 
 void uui_places_refresh(struct uui_places *p) {
@@ -147,7 +140,7 @@ void uui_places_refresh(struct uui_places *p) {
             if (remote != pass) continue;
             struct uui_place *r = &p->row[p->count++];
             memset(r, 0, sizeof *r);
-            device_name(fs.point, r->label, sizeof r->label);
+            uvolinfo_name(fs.point, r->label, sizeof r->label);
             strlcpy(r->path, fs.point, sizeof r->path);
             r->device = 1;
             r->persistent = (fs.flags & QUERY_FS_PERSISTENT) != 0;

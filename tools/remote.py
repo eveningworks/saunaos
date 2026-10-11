@@ -872,7 +872,7 @@ def do_sync(host, telnet_port, tftp_port, local_dir, remote_dir, timeout,
         return 1
 
     want = _local_manifest(local_dir)
-    # An EMPTY tree is a tree: /home/desktop ships empty by design, and
+    # An EMPTY tree is a tree: /home/Desktop ships empty by design, and
     # the machine still needs the directory. Its subdirectories come
     # from the local walk below, files or not.
     local_dirs = set()

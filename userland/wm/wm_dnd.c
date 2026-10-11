@@ -7,7 +7,7 @@
 // the drag to whatever the held pointer is over that is NOT the source:
 // WIN_EV_DRAG_OVER while it hovers, DRAG_LEAVE when it moves on, DROP
 // on the release. The desktop is a target too (files land in
-// /home/desktop) and a source (a file icon dragged onto a window).
+// /home/Desktop) and a source (a file icon dragged onto a window).
 //
 // This is Wayland's wl_data_device shape -- the compositor brokers,
 // the data rides shared memory, the source and target never meet --

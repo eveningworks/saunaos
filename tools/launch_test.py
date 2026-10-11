@@ -220,12 +220,13 @@ def run(dbg, qmp, res):
     m = None
     if lay and view_row is not None and 0 in lay.pane and 0 in lay.rowy:
         px, py, pw, ph = lay.pane[0]
+        mark = fm.ctx_mark(dbg)
         fm.sure_rclick(dbg, qmp, lay.ox + px + pw // 2,
                        lay.oy + lay.rowy[0] + lay.rowh * view_row + lay.rowh // 2)
-        m = fm.wait_layout(dbg, win, lambda l: l.ctx == 1 and 0 in l.popitems)
-    if m:
-        x, y, w_, h = m.popitems[0]
-        fm.sure_click(dbg, qmp, m.ox + x + w_ // 2, m.oy + y + h // 2)
+        rows = fm.ctx_rows(dbg, mark)
+        # The first ROW: the strip's four verbs lead every file's menu.
+        first = next((r for r in (rows or []) if r not in ("Cut", "Copy", "Rename", "Delete", "-")), None)
+        m = fm.ctx_pick(dbg, qmp, win, rows, first) if first == "Run in Terminal" else None
     asked = window("Run hello.sh?", timeout=2.0) is not None
     fin = finished(SCRIPT)
     res.check("a script's context menu starts with Run in Terminal", m is not None and not asked and fin,

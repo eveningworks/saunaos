@@ -624,8 +624,10 @@ manual steps to be worth automating:
 - **`fm_network_test.py`** -- the File Manager's Network rows: a share
   row found by its icon's teal pixels, Sign in drawn (the window dims,
   the padlock shows) and answered, Add network share writing
-  `/etc/mounts.d` and opening the share, Forget this share from the
-  row's own menu, an `smb://` address in the address bar opening a
+  `/etc/mounts.d` and opening the share, Properties on the share's row
+  (the volume page: its address, Connected, the user it signed in as --
+  the `properties: row` lines), Forget this share from the row's own
+  menu (two Ups from nothing: Properties is the last row), an `smb://` address in the address bar opening a
   session share whose Save to Network bar saves it, and the "not
   answering" dialog.
   Each step waits on the app's `files: netshare` log line. The positive
@@ -3276,14 +3278,28 @@ window without going through it will find its layout polls timing out.
 - **`pins_gui_test.py`** -- Pin to Places (`lib/upins.h`) through the
   File Manager's context menu, read back from `/etc/places.conf` with
   `cat` and from the side column's rows by PATH. **The target is
-  `/usr/share/sounds`, not `doc`**: Documents IS `/usr/share/doc`, so a
-  lookup by path finds the standard place first. Its positive control
+  `/usr/share/sounds`, no personal folder** (`lib/udirs.h`): a lookup by
+  path would find the standard place first. Its positive control
   stops the app listing pins: the row check reddens. Check 4 pins
   `/home/pin-gone` through `/etc/places.conf` BEFORE the app starts (a
   pin is listed only while its folder exists), deletes it under the
   running app and clicks the row; its control is the tree click
   ignoring `fm_goto()`'s refusal, which lands the pane in the deleted
   folder.
+
+- **`fm_places_menu_test.py`** -- the File Manager's left-pane menus
+  (`userland/fm/fm_places.c`): one menu per kind of row, read from the
+  app's `files: placemenu <kind> <path> rows a|b|-|c` line AND the popup
+  laid out; Move down, Rename pin and Unpin read back from
+  `/etc/places.conf`; Hide and Show hidden places from files.conf's
+  `hidden_places=`; Properties on System opens the VOLUME page
+  (`ui/uui_volinfo.h`) whose ring is sampled all round its middle circle
+  in the window's pixels (`properties: layout ring x y d`, content-
+  relative); the details pane at `/` logs `files: details volume /
+  button Open in Disks`. **A row is found by PATH in the layout's
+  `treerow` lines, a heading by its `-`**: the one above the first pin.
+  `--positive-control` aims Properties at `/home`, a folder, which gets
+  the file page and no ring: that check reddens.
 
 - **`fm_thumb_drag_test.py`** -- the icons view's scrollbar after a
   click: `/bin`, click the first icon after `..` (`wm`), then drag the
@@ -3758,7 +3774,13 @@ window without going through it will find its layout polls timing out.
   (`BTN`, one table mapping a name to its strip -- the nav buttons, the
   command bar or the status bar's view switch -- and its index there),
   and drop-down rows by the row rects the menu itself logs
-  (`view_pick()`), never by pitch. F7, F2 and Ctrl+Shift+N are checked
+  (`view_pick()`), never by pitch. **A context-menu row is picked BY
+  LABEL** -- `ctx_mark()` before the right-click, `ctx_rows(mark)` reads
+  the app's `files: ctxmenu rows a|b|-|c` line from the transcript after
+  it (`_collect()` drains every `files:` line, so a plain log read can
+  miss it), `ctx_pick()` clicks that label's logged rect -- because
+  Cut/Copy/Rename/Delete lead every file's menu as a strip and move the
+  rows below; `pins_gui_test.py` and `launch_test.py` use the same pair. F7, F2 and Ctrl+Shift+N are checked
   as IN-PLACE edits (the app's `renaming` line); the Options window is
   driven to "Rename in a dialog" to check that F2 then asks, and back to
   Defaults for what follows. **Run by `ondemand_sweep.py --only files`, not

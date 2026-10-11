@@ -46,7 +46,7 @@ from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 from harness import Results  # noqa: E402
 
-DESK_FILE = "/home/desktop/zz-dragtest.txt"
+DESK_FILE = "/home/Desktop/zz-dragtest.txt"
 
 
 Result = Results

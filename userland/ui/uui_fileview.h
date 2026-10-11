@@ -359,6 +359,10 @@ const struct sys_dirent *uui_fileview_selected_entry(const struct uui_fileview *
 
 // Selects the row with this name, if it is there. Returns 1 if found.
 int  uui_fileview_select_name(struct uui_fileview *fv, const char *name);
+// Selects nothing: the folder itself is what is described (a details
+// pane), as after entering a drive from Explorer's navigation pane. An
+// arrow key or a click picks a row again.
+void uui_fileview_select_none(struct uui_fileview *fv);
 
 // --- marks; see the struct ------------------------------------------
 //

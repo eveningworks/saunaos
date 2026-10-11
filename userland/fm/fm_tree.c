@@ -24,6 +24,9 @@ struct uui_tree g_tree;
 static struct uui_tree_node g_tree_nodes[TREE_MAX];
 char g_tree_path[TREE_MAX][PATH_MAX_LEN];
 int g_tree_count;
+// Each row's g_places row (or TREE_FOLDER/_HEADER/_ADD_ROW), moved with
+// the rows as folders are inserted -- what a right-click asks.
+static int g_tree_place[TREE_MAX];
 static char g_tree_open[TREE_OPEN_MAX][PATH_MAX_LEN];
 static int g_tree_open_count;
 static struct sys_dirent g_tree_scratch[SYS_LISTDIR_MAX];
@@ -127,21 +130,25 @@ static int tree_build_head(void) {
         const struct uui_place *r = &g_places.row[i];
         if (g_places.pinned && i == g_places.places - g_places.pinned) {
             g_tree_path[n][0] = '\0';
+            g_tree_place[n] = TREE_HEADER;
             g_tree_nodes[n] = (struct uui_tree_node){ .label = "Pinned", .kind = UUI_TREE_HEADER };
             n++;
         }
         if (i == g_places.places) {
             g_tree_path[n][0] = '\0';
+            g_tree_place[n] = TREE_HEADER;
             g_tree_nodes[n] = (struct uui_tree_node){ .label = "This computer",
                                                        .kind = UUI_TREE_HEADER };
             n++;
         }
         if (i == g_places.network) {
             g_tree_path[n][0] = '\0';
+            g_tree_place[n] = TREE_HEADER;
             g_tree_nodes[n] = (struct uui_tree_node){ .label = "Network", .kind = UUI_TREE_HEADER };
             n++;
         }
         strlcpy(g_tree_path[n], r->path, PATH_MAX_LEN);
+        g_tree_place[n] = i;
         struct uui_tree_node *nd = &g_tree_nodes[n];
         *nd = (struct uui_tree_node){ .label = r->label, .icon = r->icon };
         if (r->device) {
@@ -155,11 +162,13 @@ static int tree_build_head(void) {
     // machine with no shares yet still shows where they go.
     if (g_places.network >= g_places.count && n < TREE_MAX - 1) {
         g_tree_path[n][0] = '\0';
+        g_tree_place[n] = TREE_HEADER;
         g_tree_nodes[n] = (struct uui_tree_node){ .label = "Network", .kind = UUI_TREE_HEADER };
         n++;
     }
     if (n < TREE_MAX) {
         strlcpy(g_tree_path[n], FM_NET_ADD, PATH_MAX_LEN);
+        g_tree_place[n] = TREE_ADD_ROW;
         g_tree_nodes[n] = (struct uui_tree_node){ .label = "Add network share...", .icon = "tb-new" };
         n++;
     }
@@ -271,8 +280,11 @@ void tree_rebuild(void) {
                 (size_t)(g_tree_count - i - 1) * sizeof g_tree_nodes[0]);
         memmove(&g_tree_path[i + 1 + nd], &g_tree_path[i + 1],
                 (size_t)(g_tree_count - i - 1) * sizeof g_tree_path[0]);
+        memmove(&g_tree_place[i + 1 + nd], &g_tree_place[i + 1],
+                (size_t)(g_tree_count - i - 1) * sizeof g_tree_place[0]);
         for (int j = 0; j < nd; j++) {
             char *dst = g_tree_path[i + 1 + j];
+            g_tree_place[i + 1 + j] = TREE_FOLDER;
             k_path_join(g_tree_path[i], g_tree_scratch[j].name, dst, PATH_MAX_LEN);
             g_tree_nodes[i + 1 + j] = (struct uui_tree_node){
                 .depth = g_tree_nodes[i].depth + 1,
@@ -295,6 +307,10 @@ void tree_rebuild(void) {
     uui_tree_set_nodes_keep(&g_tree, g_tree_nodes, g_tree_count);
     if (sel[0]) tree_select_path(sel);
     g_tree_gen = tree_generation();
+}
+
+int tree_place_of(int nid) {
+    return nid >= 0 && nid < g_tree_count ? g_tree_place[nid] : TREE_HEADER;
 }
 
 void tree_toggle(void *ctx, int id, int expand) {

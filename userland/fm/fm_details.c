@@ -15,6 +15,10 @@
 #include "lib/icon_cache.h"
 #include "lib/ufileinfo.h"
 #include "ui/uui_fileinfo.h"
+#include "ui/uui_volinfo.h"
+#include "lib/uvolinfo.h"
+#include "userfs_abi.h"
+#include "ui/ulog.h"
 #include "kpath.h"
 #include <string.h>
 #include <stdio.h>
@@ -30,6 +34,23 @@ static int g_dx, g_dy, g_dw, g_dh;   // the pane's rect, from layout_all()
 static struct ufileinfo g_fi;
 static struct uui_fileinfo g_info;
 static char g_fi_key[UUI_FILEVIEW_PATH_MAX + 32];   // path + mtime it was read for
+
+// A VOLUME'S ROOT WITH NOTHING SELECTED is described as the volume -- its
+// card, shared with Properties (ui/uui_volinfo.h) -- not as a folder:
+// what "/net/media" is, is a share of //nas/media. Re-read at most once
+// a second, since a share's state and every volume's free space move on
+// their own and this runs on every paint.
+static struct uvolinfo g_vol;
+static struct uui_volinfo g_vcard;
+static int g_vol_on;
+static unsigned long long g_vol_ns;
+
+// The first button's verb on a volume card: what that kind can have done.
+enum { VACT_NONE, VACT_DISCONNECT, VACT_SIGNIN, VACT_DISKS };
+static int vol_act(void) {
+    if (g_vol.remote) return g_vol.state == USERFS_ST_CONNECTED ? VACT_DISCONNECT : VACT_SIGNIN;
+    return g_vol.persistent ? VACT_DISKS : VACT_NONE;
+}
 
 int details_width(int cw) {
     int w = ugfx_char_advance('n') * 28;
@@ -58,10 +79,20 @@ static int described(char *path, int cap, const struct sys_dirent **ent) {
 // picture's headers are a file read, and this runs on every paint.
 static void refresh(void) {
     static int inited;
-    if (!inited) { uui_fileinfo_init(&g_info); g_info.compact = 1; inited = 1; }
+    if (!inited) { uui_fileinfo_init(&g_info); g_info.compact = 1; uui_volinfo_init(&g_vcard, &g_vol, 1); inited = 1; }
     char path[UUI_FILEVIEW_PATH_MAX];
     const struct sys_dirent *e;
+    g_vol_on = 0;
     if (!described(path, sizeof path, &e)) { g_fi_key[0] = 0; return; }
+    if (!e) {
+        unsigned long long now = sys_monotonic_ns();
+        if (strcmp(g_vol.point, path) || now - g_vol_ns >= 1000000000ull) {
+            g_vol_ns = now;
+            if (!uvolinfo_load(path, &g_vol)) g_vol.point[0] = '\0';
+            else if (strcmp(g_vol.point, path)) g_vol.point[0] = '\0';
+        }
+        if (!strcmp(g_vol.point, path)) { g_vol_on = 1; g_fi_key[0] = 0; return; }
+    }
     char key[sizeof g_fi_key];
     snprintf(key, sizeof key, "%s|%u", path, e ? (unsigned)e->modified.second + 60u * e->modified.minute : 0u);
     if (strcmp(key, g_fi_key)) {
@@ -78,6 +109,7 @@ static void refresh(void) {
 
 // Where the buttons go: under whatever the pane drew.
 static int buttons_y(void) {
+    if (g_vol_on) return g_dy + uui_volinfo_height(&g_vcard, g_dw) + 4;
     if (g_fi_key[0]) return g_dy + uui_fileinfo_height(&g_info, g_dw) + 4;
     return g_dy + PAD + (g_dw - 2 * PAD) * 3 / 5 + 10 + 3 * line_h() + 8 + 2 * line_h() + 10;
 }
@@ -86,6 +118,16 @@ void details_layout(int x, int y, int w, int h) {
     g_dx = x; g_dy = y; g_dw = w; g_dh = h;
     refresh();
     uui_fileinfo_set_geometry(&g_info, x + 1, y, w - 1, uui_fileinfo_height(&g_info, w - 1));
+    g_vcard.x = x + 1; g_vcard.y = y; g_vcard.w = w - 1; g_vcard.h = uui_volinfo_height(&g_vcard, w - 1);
+    static const char *const VERB[] = { "Open", "Disconnect", "Sign in...", "Open in Disks" };
+    g_dp_open.label = g_vol_on ? VERB[vol_act()] : "Open";
+    static char logged[UVOL_POINT + 16];   // what a test reads, once per change
+    char now[sizeof logged];
+    snprintf(now, sizeof now, "%s|%d", g_vol_on ? g_vol.point : "", g_vol_on ? vol_act() : 0);
+    if (strcmp(now, logged)) {
+        strlcpy(logged, now, sizeof logged);
+        if (g_vol_on) ulogf("files: details volume %s button %s\n", g_vol.point, g_dp_open.label);
+    }
     int bw, bh, bw2;
     uui_button_natural_size(&g_dp_open, &bw, &bh);
     uui_button_natural_size(&g_dp_props, &bw2, &bh);
@@ -95,6 +137,34 @@ void details_layout(int x, int y, int w, int h) {
     // Nothing to open when nothing is chosen.
     g_dp_open.disabled = uui_fileview_selected_name(active()) == 0;
     g_dp_props.disabled = g_dp_open.disabled;
+    if (g_vol_on) {
+        g_dp_open.disabled = vol_act() == VACT_NONE;
+        g_dp_props.disabled = 0;
+    }
+}
+
+// The details pane's buttons on a volume card: its own verb, and its
+// Properties. 0 when the pane shows a file, for files.c's own answer.
+int details_button(struct uapp *a, int id) {
+    if (!g_vol_on) return 0;
+    char point[UVOL_POINT];
+    strlcpy(point, g_vol.point, sizeof point);
+    if (id == ID_DP_PROPS) {
+        if (uapp_spawn(a, PROPERTIES_EXEC, point) < 0) set_note("could not open Properties");
+        return 1;
+    }
+    switch (vol_act()) {
+    case VACT_DISCONNECT: net_aim(point); net_command(CMD_NET_DISCONNECT); break;
+    case VACT_SIGNIN:     net_aim(point); net_command(CMD_NET_SIGNIN); break;
+    case VACT_DISKS: {
+        char *const argv[] = { "disks", point, 0 };
+        if (sys_spawn_argv("/bin/wm/apps/disks", argv) < 0) set_note("could not start Disks");
+        break;
+    }
+    default: break;
+    }
+    g_vol_ns = 0;   // its state is about to change: read it again at once
+    return 1;
 }
 
 // Several marked: their count, total size and folder.
@@ -148,7 +218,8 @@ void details_draw(struct ugfx_surface *s) {
     ugfx_fill_rect(s, g_dx, g_dy, g_dw, g_dh, bg);
     ugfx_fill_rect(s, g_dx, g_dy, 1, g_dh, UTHEME_BORDER);
     ugfx_set_clip_rect(s, g_dx, g_dy, g_dw, g_dh);
-    if (g_fi_key[0]) uui_fileinfo_draw(s, &g_info);
+    if (g_vol_on) uui_volinfo_draw(s, &g_vcard);
+    else if (g_fi_key[0]) uui_fileinfo_draw(s, &g_info);
     else draw_marked(s, bg);
     ugfx_clear_clip_rect(s);
 }

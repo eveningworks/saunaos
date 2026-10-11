@@ -38,6 +38,7 @@
 | `udes.h` | DES (FIPS 46-3), one 64-bit block at a time -- for the protocols that still require it, which here means VNC's password check (RFB 7.2.2). |
 | `udevice.h` | THE MACHINE'S DEVICES, as one list -- what /bin/devctl prints and the Device Manager shows. |
 | `udhcp.h` | THE DHCP CLIENT, AS A LIBRARY -- one implementation, two front ends. |
+| `udirs.h` | THE PERSONAL FOLDERS -- Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots -- asked for BY NAME, never by path: XDG's user-dirs (`xdg-user-dir MUSIC`) and Windows' Known Folders. |
 | `uduration.h` | A length of time typed by a person -- "2", "0.25", "90s", "1.5m", "2h", "1d" -- as whole milliseconds. |
 | `ueffect.h` | A WINDOW EFFECT'S OPTIONS -- what it declares, and what the user chose. |
 | `uelfsym.h` | uelfsym -- function names for addresses in an ELF64 file on disk, and the bytes at an address: what a crash report's backtrace needs to name a frame and to check it follows a call. |
@@ -70,7 +71,7 @@
 | `upager.h` | The pager: show a block of text one screenful at a time, on whichever of fd 0 and fd 1 is a terminal. |
 | `upath.h` | PATH lookup for a ring-3 program that has to RUN another one. |
 | `upile.h` | DEBRIS THAT FALLS, BOUNCES AND PILES UP at the bottom of a picture -- the Desktop cube's chips (gui/savers/cube.c), and anything else that sheds bits onto a floor. |
-| `upins.h` | PINNED FOLDERS: the folders a person added to Places, kept in /etc/places.conf one absolute path per line -- GTK's bookmarks file, Explorer's Quick access pins. |
+| `upins.h` | PINNED FOLDERS: the folders a person added to Places, kept in /etc/places.conf one absolute path per line, optionally a TAB and the name it is shown by -- GTK's bookmarks file ("file:///path Name")... |
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |
 | `urecent.h` | RECENT FILES: what was opened lately, by any app, and in which -- freedesktop's recently-used.xbel and Windows' Recent Items, as one plain-text list in /var/lib/recent. |
@@ -101,6 +102,7 @@
 | `uunicode.h` | The Unicode NAMES and BLOCKS of the characters this system's fonts can draw ("LATIN SMALL LETTER E WITH ACUTE", "Latin-1 Supplement"), and the UTF-8 encoding of a code point. |
 | `uvid.h` | uvid -- decoding video files into frames, in RING 3. |
 | `uvid_play.h` | uvid_play -- PLAYING a video: a thread decoding a few frames ahead, the sound through lib/usnd.h, and the frame due now for whoever draws. |
+| `uvolinfo.h` | What one mounted volume or network share IS, gathered in one place: the kernel's QUERY_FSINFO record, the share's file in /etc/mounts.d and its server's last word -- for Properties' volume page and... |
 | `uwalk.h` | A DIRECTORY TREE WALK, one directory at a time, for a caller that has to stop, report progress or share a thread: the File Manager's search into subfolders and its folder sizes. |
 | `uwmchan.h` | TWP over a channel: a client's request reaching the compositor DIRECTLY instead of through the kernel. |
 | `uzip.h` | Reading ONE member out of a .zip archive into a file -- PKWARE's APPNOTE, the subset every archiver writes: stored (method 0) and deflated (method 8) members, no encryption, no zip64. |
@@ -204,7 +206,9 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_transport.h` | uui_transport -- previous, play/pause, next: a media transport, the round play button in the middle (Windows 11 Media Player's, Amberol's). |
 | `uui_tree.h` | A TREE: rows at a depth, with collapsible parents. |
 | `uui_undo.h` | uui_undo -- an edit HISTORY for editable text: what Ctrl+Z and Ctrl+Y step through, for every buffer the shared edit core (ui/uui_edit.h) drives. |
+| `uui_verbs.h` | THE ICON AND COLOUR EACH VERB IS DRAWN WITH, in every menu that offers it -- the File Manager's, the desktop's -- so Copy is one picture in one colour wherever it appears (freedesktop's icon naming... |
 | `uui_video.h` | uui_video -- a playing video's picture: the frame lib/uvid_play.h says is due, scaled into the widget's rect, letterboxed (`fit`) or cropped to fill it (`cover`, a wallpaper's placement). |
+| `uui_volinfo.h` | uui_volinfo -- a mounted volume's or network share's card, drawn from a struct uvolinfo (lib/uvolinfo.h): its icon, name and kind, its facts as label/value rows, and how full it is. |
 | `uui_widget.h` | uui_widget_ops -- the ONE table a widget exports to be handled generically: laid out, drawn, hit-tested, focused. |
 | `uvterm.h` | uvterm -- ONE TERMINAL: a pty and the program on it, the reader thread that drains it, the ANSI parser, the grid, its scrollback and alternate screen, the cursor, a selection, and drawing all of th... |
 

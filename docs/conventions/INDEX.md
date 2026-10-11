@@ -791,7 +791,7 @@ whenever a headline here tells you something you did not already know.
   OUTSIDE THE WINDOW**
 - **THE DESKTOP'S SELECTION IS GLASS, ITS HOVER ASKS
   `wm_point_on_desktop()`, AND A CAPTION RENAMES IN PLACE**
-- **THE DESKTOP IS `/home/desktop` AND NOTHING ELSE: A `.desktop` FILE
+- **THE DESKTOP IS `/home/Desktop` AND NOTHING ELSE: A `.desktop` FILE
   THERE IS A LAUNCHER, THE APPLICATION DATABASE IS
   `/usr/wm/applications`, AND EVERY VERB IS A CHILD PROCESS**
 - **MARKS SURVIVE A RELOAD BY NAME, BECAUSE THE VOLUME'S GENERATION
@@ -817,6 +817,10 @@ whenever a headline here tells you something you did not already know.
   CONSTANT**
 - **THE DESKTOP FOLLOWS THE FILE MANAGER'S FOLDER OPTIONS
   (`lib/ufolderopts.h`)**
+- **THE FILE MANAGER'S LEFT-PANE MENU ACTS ON THE ROW CLICKED, NEVER THE
+  SELECTION** -- `CMD_PL_*`, aimed by `places_ctx_items()`
+- **A VERB'S ICON AND COLOUR COME FROM `ui/uui_verbs.h`, IN EVERY MENU** --
+  and a test picks a menu row by label, never by index
 
 ### Storage, the filesystem, and /etc
 
@@ -965,6 +969,8 @@ whenever a headline here tells you something you did not already know.
   MOUNT LOCK, BOUNDS EVERY WAIT, AND REFUSES ITS OWN SERVER**
 - **A LISTING STATS EVERY ENTRY IT RETURNS, ON THE SAME MOUNT** -- a
   remote backend answers those from the listing
+- **A PERSONAL FOLDER IS ASKED FOR BY NAME: `udir_path(UDIR_MUSIC)`,
+  NEVER `"/home/Music"`** -- `lib/udirs.h`; what ships stays in `/usr/share`
 
 ### The shell, the console, and line editing
 

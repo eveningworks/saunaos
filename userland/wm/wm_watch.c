@@ -3,12 +3,13 @@
 #include "wm/wm_log.h"
 #include "rt/sys.h"
 #include "lib/udclick.h"
+#include "lib/udirs.h"
 
-static const char *const PATH[WM_TOPIC_COUNT] = {
+static const char *PATH[WM_TOPIC_COUNT] = {
     [WM_TOPIC_SETTINGS] = 0,                    // an event, not a path
     [WM_TOPIC_ETC]      = "/etc",
     [WM_TOPIC_APPS]     = "/usr/wm/applications",
-    [WM_TOPIC_DESKTOP]  = "/home/desktop",
+    [WM_TOPIC_DESKTOP]  = 0,                    // the known folder, set below
     [WM_TOPIC_EFFECTS]  = "/etc/effects",
     [WM_TOPIC_TRASH]    = "/home/.Trash/files",
     [WM_TOPIC_THUMBS]   = "/var/cache/thumbnails",
@@ -18,6 +19,12 @@ static int g_id[WM_TOPIC_COUNT];         // the kernel's watch id, > 0
 static uint64_t g_gen[WM_TOPIC_COUNT];
 
 void wm_watch_init(void) {
+    // The personal folders before anything lists them (lib/udirs.h):
+    // the old lower-case layout moved across once, then any missing made.
+    int moved = udir_migrate();
+    if (moved) wm_logf("wm: moved %d item(s) to the personal folders\n", moved);
+    udir_create_all();
+    PATH[WM_TOPIC_DESKTOP] = udir_path(UDIR_DESKTOP);
     // The bin and the thumbnail cache are made on first use, and a watch
     // needs a folder to watch: one refused falls back to EVERY write.
     sys_mkdir("/home/.Trash");

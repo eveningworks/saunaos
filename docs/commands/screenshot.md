@@ -12,7 +12,7 @@
 
 Writes a picture of the screen to a file. With no arguments it captures
 the whole screen into
-`/home/screenshots/shot-<YYYYMMDD-HHMMSS>.qoi` and prints the path it
+`/home/Pictures/Screenshots/shot-<YYYYMMDD-HHMMSS>.qoi` and prints the path it
 chose; give it a path and it writes there and says nothing.
 
 It is an ordinary program with no window of its own. It asks the

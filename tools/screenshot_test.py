@@ -277,7 +277,7 @@ def main():
 #
 # The app IS a fullscreen overlay over a frozen frame (userland/gui/apps/
 # screenshot.c): PrtSc opens it, a pill picks Region / Screen / Window,
-# the shutter saves to /home/screenshots and quits, and the compositor
+# the shutter saves to /home/Pictures/Screenshots and quits, and the compositor
 # puts up a card with Open / Copy / Folder. Everything is asked of the
 # app's layout log and the compositor's `gui state`, never derived here.
 
@@ -324,7 +324,7 @@ def gone(dbg, timeout=6.0):
 
 
 def newest(dbg):
-    names = sorted(n for n in dbg.send("sh ls /home/screenshots").split() if n.endswith(".qoi"))
+    names = sorted(n for n in dbg.send("sh ls /home/Pictures/Screenshots").split() if n.endswith(".qoi"))
     return names[-1] if names else None
 
 
@@ -374,7 +374,7 @@ def overlay_checks(dbg, disk, out, qmp, skip):
     time.sleep(0.3)
     name = newest(dbg)
     got = out("overlay_screen.qoi")
-    if check("...and saves a capture", bool(name) and pull(disk, "/home/screenshots/" + name, got)):
+    if check("...and saves a capture", bool(name) and pull(disk, "/home/Pictures/Screenshots/" + name, got)):
         im = Image.open(got).convert("RGB")
         check("...at the screen's size", im.size == (W, H), str(im.size))
         if im.size == (W, H):
@@ -416,7 +416,7 @@ def overlay_checks(dbg, disk, out, qmp, skip):
     time.sleep(0.3)
     name = newest(dbg)
     got = out("overlay_region.qoi")
-    if name and pull(disk, "/home/screenshots/" + name, got):
+    if name and pull(disk, "/home/Pictures/Screenshots/" + name, got):
         im = Image.open(got).convert("RGB")
         check("the crop is exactly the chosen region", im.size == (440, 320), str(im.size))
         if im.size == (440, 320):
@@ -452,7 +452,7 @@ def overlay_checks(dbg, disk, out, qmp, skip):
         time.sleep(0.3)
         name = newest(dbg)
         got = out("overlay_window.qoi")
-        if name and pull(disk, "/home/screenshots/" + name, got):
+        if name and pull(disk, "/home/Pictures/Screenshots/" + name, got):
             im = Image.open(got)
             check("a click captures that window at its size",
                   im.size == (note["w"], note["h"]), f"{im.size}")
@@ -507,20 +507,20 @@ def overlay_checks(dbg, disk, out, qmp, skip):
                     done = dbg.logs("screenshot: saved as ", clear=False)
                     time.sleep(0.3)
                 check("...and Return writes the copy where it was named",
-                      bool(done) and done[-1].strip().endswith("/home/screenshots/saved-copy.png"),
+                      bool(done) and done[-1].strip().endswith("/home/Pictures/Screenshots/saved-copy.png"),
                       str(done))
                 check("...and the window goes", gone(dbg))
                 dbg.send("sh sync")
                 time.sleep(0.3)
-                files = dbg.send("sh ls /home/screenshots").split()
+                files = dbg.send("sh ls /home/Pictures/Screenshots").split()
                 check("the original is kept beside it", src in files and "saved-copy.png" in files,
                       str(files))
                 got = out("saved_copy.png")
-                if pull(disk, "/home/screenshots/saved-copy.png", got):
+                if pull(disk, "/home/Pictures/Screenshots/saved-copy.png", got):
                     im = Image.open(got)
                     check("...as a real PNG, at the capture's size",
                           im.format == "PNG" and im.size == (W, H), f"{im.format} {im.size}")
-                dbg.send("sh rm /home/screenshots/saved-copy.png")
+                dbg.send("sh rm /home/Pictures/Screenshots/saved-copy.png")
 
     # --- 8. Esc saves nothing; the copy toggle is kept and is said
     before = newest(dbg)

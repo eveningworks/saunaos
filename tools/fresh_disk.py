@@ -6,7 +6,7 @@
 
 WHY. `make iso` SYNCS disk.img rather than reformatting it, so what a
 test or a `make run` left behind -- `/etc/windows.conf`'s remembered
-window positions, a launcher in `/home/desktop` -- stays on the image and
+window positions, a launcher in `/home/Desktop` -- stays on the image and
 reaches every later VM booted from a copy of it. On 2026-09-30 that made
 four GUI tools fail deterministically, and `predates.py` then called them
 pre-existing, because both of its runs boot the same image. A fresh image

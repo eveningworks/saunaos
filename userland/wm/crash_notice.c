@@ -206,7 +206,7 @@ static struct { int pid; int have; char buf[PATH_MAX_NOTICE]; } g_asm[ASSEMBLIES
 // file in the compositor and offers to open it -- so it is held to what
 // the one kind ever names, which also keeps it fit for a JSON string.
 // The FOLDER is the person's choice (Screenshot's Options), so it is not
-// pinned to /home/screenshots; no SPACE, because Folder hands the path
+// pinned to Pictures/Screenshots; no SPACE, because Folder hands the path
 // to Files as its argument line.
 static int fit_path(const char *p) {
     if (p[0] != '/') return 0;

@@ -7380,7 +7380,7 @@ shape, and offering the drag to a client's popup surfaces.
 Until 2026-09-10 `/usr/wm/desktop` did two jobs: it was the list of
 installed applications (the Start menu) AND every entry in it was an
 icon on the desktop, with `ShowIn=` the only way off. When
-`/home/desktop` arrived the desktop became two lists glued into one
+`/home/Desktop` arrived the desktop became two lists glued into one
 index space, and the maintainer's reading was the right one: two
 directories both called "desktop", neither doing what its name said.
 
@@ -7394,7 +7394,7 @@ shortcut" adds a file. Nobody shows every installed application on
 the desktop, and nobody has for twenty years.
 
 **toy-os follows.** The database is `/usr/wm/applications`, the desktop
-is exactly `/home/desktop`, a `.desktop` file there is a launcher read
+is exactly `/home/Desktop`, a `.desktop` file there is a launcher read
 by the same parser (`gui_app_read_entry()`), and "Add to desktop" on a
 Start menu row writes one. A launcher on the desktop opens through the
 registry entry with the same `AppId` so single-instance and remembered
