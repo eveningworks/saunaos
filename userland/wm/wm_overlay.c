@@ -280,8 +280,14 @@ int wm_overlay_under(int mx, int my) {
 }
 
 int wm_overlay_click(int mx, int my) {
+    // A CLOSED overlay's click handler is how a tray popup OPENS, from a
+    // hit on its tray icon -- and under a fullscreen window the taskbar is
+    // neither drawn nor clickable (wm_handle_left_click()'s guard), so
+    // that hit is on a control nobody can see.
+    int covered = wm_top_covers_screen();
     for (int i = 0; i < OVERLAY_COUNT; i++) {
         const struct wm_overlay *o = &g_overlays[i];
+        if (covered && !o->is_open()) continue;
         if (o->handle_click(mx, my)) return 1;
     }
     return 0;
