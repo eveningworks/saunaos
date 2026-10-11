@@ -104,6 +104,31 @@ def seed_partitioned(disk, seed_dir, kind, layout):
         "--at-lba", str(start), "--sectors", str(sectors))
 
 
+# FIRST-BOOT SETUP'S DONE-MARKER (userland/lib/ufbs.h). Written only when
+# MISSING -- seed/once's rule -- so it cannot be part of the seed tree,
+# which the live image is made from too and must show setup. A dev image
+# that has run `fbs --again` is marked again by the next `make iso`;
+# `fbs --now` or the `fbs=on` boot word shows setup on one regardless.
+FBS_MARKER = "/var/lib/fbs/done"
+
+
+def mark_fbs_done(disk):
+    sys.path.insert(0, HERE)
+    import mkpart_test
+    import tfs3_writer
+    base, sectors = mkpart_test.volume_of(disk)
+    img = tfs3_writer.Tfs3Image(disk, writable=True, base_lba=base, sectors=sectors)
+    try:
+        if img.lookup(FBS_MARKER) is None:
+            for d in ("/var", "/var/lib", "/var/lib/fbs"):   # it makes one level
+                if img.lookup(d) is None:
+                    tfs3_writer.mkdir_path(img, d)
+            tfs3_writer.write_file(img, b"seeded by tools/seed_disk.py --fbs-done\n", FBS_MARKER)
+            print(f"seed_disk: {FBS_MARKER} written -- First-boot setup will not show")
+    finally:
+        img.close()
+
+
 DEFAULT_PARTITION = "gpt"   # what a BLANK image gets
 
 # THE BOOTABLE LAYOUT, and the reason a blank image gets three
@@ -133,6 +158,11 @@ def main():
     ap.add_argument("--partition", choices=("gpt", "mbr"),
                     help=f"table kind for a blank image (default: "
                          f"{DEFAULT_PARTITION})")
+    ap.add_argument("--fbs-done", action="store_true",
+                    help="write First-boot setup's done-marker (/var/lib/fbs/done) "
+                         "if it is missing, so the image boots straight to the "
+                         "desktop -- every development and test image; never the "
+                         "live image (userland/lib/ufbs.h)")
     ap.add_argument("--layout", default=None, metavar="SIZE[:KIND][,...]",
                     help=f"partition sizes, e.g. '64M,rest'; a :KIND suffix "
                          f"names the type (bios, esp, data). Default: "
@@ -164,6 +194,8 @@ def main():
         print(f"seed_disk: {disk} is blank -- {kind.upper()}, "
               f"layout '{layout}'")
         seed_partitioned(disk, seed_dir, kind, layout)
+        if args.fbs_done:
+            mark_fbs_done(disk)
         return
     elif fmt is None:
         # A table, but no filesystem in it -- a `mkpart`ed disk that was
@@ -179,6 +211,8 @@ def main():
     print(f"seed_disk: {disk} is tfs3, {where}")
     extra = ["--at-lba", str(base), "--sectors", str(sectors)] if partitioned else []
     run("tfs3_writer.py", "sync", disk, seed_dir, *extra)
+    if args.fbs_done:
+        mark_fbs_done(disk)
 
     # A FLAT IMAGE IS SEEDED, AND WILL NOT MOUNT. Seeding it anyway is
     # deliberate: this tool's job is to put files where an image keeps

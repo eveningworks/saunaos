@@ -540,6 +540,16 @@ manual steps to be worth automating:
   checks; a Mute that never writes the file reddens the `/etc` check.
   `/tests/ulogset_test` covers the line store underneath (the merge,
   repeats, the filter, a saved file read back).
+- **`fbs_test.py`** -- First-boot setup, on a guest whose image is
+  pre-marked: `firstboot --boot` opens nothing, `fbs again` then makes it
+  open; the window is fullscreen and a click across the taskbar's band
+  opens no tray flyout (a closed overlay used to take that click under a
+  fullscreen app -- the control restores it and sees the On-Screen
+  Keyboard flyout open); a layout picked with the arrow key is saved
+  (`config get`); an invalid computer name keeps Next on its step and a
+  valid one lands in `system.hostname`; the last Next ends it
+  `finished`, and Skip then Return ends a `fbs now` run `skipped`.
+  Geometry from `gui widgets`. In `gui_regress.py` as `fbs`.
 - **`bootmgr_test.py`** -- the Boot Manager and System Settings > Boot
   menu write the real `grub.cfg`. The word list is DRAWN (a word the
   entry has has an accent checkbox, one it lacks a white one, by pixel);
@@ -5831,6 +5841,13 @@ runs first**: a `doom1.wad` with one
   `filesystem in partition N -- LBA ..., ... sectors`, which is what
   `partition_test.py` reads rather than assuming partition 1.
   `install_grub.py` fills the other two.
+
+  **`--fbs-done` writes First-boot setup's marker** (`/var/lib/fbs/done`)
+  when it is missing, so the image boots straight to the desktop. `make
+  iso`, the USB image, `fresh_disk.py` and `partition_test.py` pass it;
+  the live image does not, and must show setup. **A new tool that seeds a
+  bootable image must pass it too**, or the wizard covers the desktop and
+  every GUI check after it fails (`docs/commands/fbs.md`).
 
   **An EXISTING image keeps its shape.** It asks `mkpart_test.py`'s
   `volume_of()` and seeds into whatever it finds, so a checkout does not

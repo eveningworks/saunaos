@@ -532,6 +532,12 @@ entirely).
 
 ## Driving the desktop: the apps built to be tested against
 
+**Every development and test image boots past First-boot setup**: it is
+seeded with `/var/lib/fbs/done` (`tools/seed_disk.py --fbs-done`). To see
+the wizard on one, `fbs now` at a `#` prompt (it opens on this desktop),
+or `fbs again` and restart; `fbs=on` on the GRUB line shows it whatever
+the marker says. `tools/fbs_test.py` drives it (`docs/commands/fbs.md`).
+
 **There is a GUI app built to be tested against: "UI Demo"**
 (`userland/gui/uidemo.c` -- a RING-3 process since Milestone 41's
 stage 0; it was `apps/uidemo.c`). One of every Toykit widget at documented,

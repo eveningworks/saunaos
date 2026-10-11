@@ -927,3 +927,17 @@ tree's flags**: `ucrt.c`'s first vectorised version used `memcpy()` for
 its loads, measured 3x faster in a plain host build and 2x SLOWER on
 the ASUS (`tools/ucrt_hostcheck.py --bench` compiles freestanding for
 this reason).
+
+## A BOOTABLE IMAGE SEEDED FOR DEVELOPMENT OR TESTING PASSES `--fbs-done`
+
+First-boot setup (`docs/commands/fbs.md`) shows its full-screen wizard
+on any graphical boot whose root has no `/var/lib/fbs/done`. A test
+image without it boots to the wizard, not the desktop: every GUI check
+after that clicks on the wizard, and the failure reads like a broken
+desktop. So `tools/seed_disk.py --fbs-done` writes the marker -- `make
+iso` (`disk.img`), the USB image, `fresh_disk.py` and `partition_test.py`
+pass it -- and **a new tool that seeds a bootable image from the seed
+tree passes it too**. The live image deliberately does not, and
+`install` drops the marker from its target: those are the machines setup
+exists for. The marker is not in the seed tree because the live image is
+made from the same tree.

@@ -405,6 +405,10 @@ static void on_action(struct uapp *a, int code) {
     case ID_SU_OPEN:
         sys_spawn("/bin/wm/system/bootmgr", 0, -1);
         break;
+    case ID_SU_FBS_NOW:
+    case ID_SU_FBS_AGAIN:
+        startup_fbs(code);
+        break;
     case ID_OPTS:
         open_options_dialog(a);
         return;

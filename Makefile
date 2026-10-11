@@ -2155,7 +2155,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	else \
 		echo "seed: xkbcli not found -- skipping /usr/share/kbs regeneration (apt-get install libxkbcommon-tools to enable; kernel falls back to compiled-in US regardless)"; \
 	fi
-	python3 tools/seed_disk.py $(DISK_IMG) $(SEED_DIR)
+	python3 tools/seed_disk.py $(DISK_IMG) $(SEED_DIR) --fbs-done
 	# THE KERNEL GOES ON THE DISK TOO. GRUB cannot read TFS3, so
 	# /boot is a FAT32 partition in front of it and GRUB's core.img
 	# is embedded in a BIOS boot partition in front of THAT -- see
@@ -2283,7 +2283,7 @@ USB_SIZE = 512M
 usb-image: version $(KERNEL) $(USERLAND_ELVES) seed $(BUILD)/conf.mk $(KERNEL_MEDIA)
 	rm -f $(USB_IMG)
 	truncate -s $(USB_SIZE) $(USB_IMG)
-	python3 tools/seed_disk.py $(USB_IMG) $(SEED_DIR)
+	python3 tools/seed_disk.py $(USB_IMG) $(SEED_DIR) --fbs-done
 	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' \
 	    grub.cfg > $(BUILD)/grub-usb.cfg
 	python3 tools/install_grub.py $(USB_IMG) --kernel $(KERNEL_MEDIA) \

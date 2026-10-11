@@ -20,6 +20,7 @@
 #include "lib/uargs.h"
 #include "remoted/rd.h"
 #include "lib/uconf.h"
+#include "lib/uhostname.h"
 #include "utls.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -99,7 +100,9 @@ static void identity(const struct uremote_conf *c) {
     static char ips[UTLS_NAMES_MAX][16];
     const char *names[UTLS_NAMES_MAX];
     int n = 0;
-    names[n++] = "toy-os";
+    static char host[UHOSTNAME_MAX + 1];
+    uhostname_get(host, sizeof host);
+    names[n++] = host;
     struct query_netdev d;
     QUERY_FOREACH(QUERY_NETDEV, d, i) {
         if (!d.ip || n >= UTLS_NAMES_MAX - 1) continue;

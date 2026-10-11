@@ -43,6 +43,7 @@
 | `uduration.h` | A length of time typed by a person -- "2", "0.25", "90s", "1.5m", "2h", "1d" -- as whole milliseconds. |
 | `ueffect.h` | A WINDOW EFFECT'S OPTIONS -- what it declares, and what the user chose. |
 | `uelfsym.h` | uelfsym -- function names for addresses in an ELF64 file on disk, and the bytes at an address: what a crash report's backtrace needs to name a frame and to check it follows a call. |
+| `ufbs.h` | First-boot setup (FBS): whether it should run this boot, and the marker that says it has -- for the wizard (/bin/wm/system/firstboot), `fbs` and System Settings. |
 | `ufile.h` | Reading a whole file into one allocation, in one place. |
 | `ufileinfo.h` | ufileinfo -- the facts about one path, gathered once: what Properties and the File Manager's details pane show (ui/uui_fileinfo.h draws them). |
 | `ufileop.h` | ufileop -- copying, moving and deleting files and trees, once. |
@@ -50,6 +51,7 @@
 | `ufileundo.h` | AN UNDO JOURNAL FOR FILE OPERATIONS: what a move, copy, rename, new item or delete-to-the-bin did, and how to take it back -- Explorer's Ctrl+Z/Ctrl+Y over file operations, Dolphin's KIO undo manager. |
 | `ufolderopts.h` | ufolderopts -- how files are shown and opened, in File Manager windows AND on the desktop: Explorer's Folder Options, which apply to both. |
 | `uhistory.h` | Command history for a ring-3 line editor. |
+| `uhostname.h` | This computer's name -- `system.hostname`, what About shows, what a VNC viewer's title bar says and what the remote-desktop certificate names. |
 | `uhwids.h` | Names for hardware ids, from the pci.ids / usb.ids databases -- the files a Linux distribution ships as hwdata, refreshed by /bin/hwdata. |
 | `uimg.h` | uimg -- decoding an image file into pixels, in RING 3. |
 | `uinflate.h` | DEFLATE, both directions, in ring 3 -- RFC 1951, plus the zlib (RFC 1950) and gzip (RFC 1952) wrappers around it. |
@@ -202,6 +204,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_textbox.h` | Renamed from `uui_field` so the two sides of one widget share a name as well as a path: the kernel's version is apps/ui/ui_textbox.h. |
 | `uui_textview.h` | uui_textview -- the ring-3 port of apps/ui/ui_textview.c: a utext, its scrollbar, the geometry that splits the two, and all of the input handling that makes scrolling work, as ONE control. |
 | `uui_thumbstrip.h` | uui_thumbstrip -- a row of thumbnails with one selected: a filmstrip, Windows Photos' and Gwenview's thumbnail bar. |
+| `uui_tiles.h` | The pictures a uui_gallery's cards show for a cursor set and for a wallpaper -- System Settings' and First-boot setup's, from one place. |
 | `uui_toast.h` | A TOAST: one short line in a dark pill that rises into view at the bottom of a box the app names, over its content -- Android's Toast, the "Solved in 0:37" note a game shows. |
 | `uui_toolbar.h` | uui_toolbar -- a strip of icon buttons under the menu bar. |
 | `uui_transport.h` | uui_transport -- previous, play/pause, next: a media transport, the round play button in the middle (Windows 11 Media Player's, Amberol's). |
@@ -211,6 +214,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_video.h` | uui_video -- a playing video's picture: the frame lib/uvid_play.h says is due, scaled into the widget's rect, letterboxed (`fit`) or cropped to fill it (`cover`, a wallpaper's placement). |
 | `uui_volinfo.h` | uui_volinfo -- a mounted volume's or network share's card, drawn from a struct uvolinfo (lib/uvolinfo.h): its icon, name and kind, its facts as label/value rows, and how full it is. |
 | `uui_widget.h` | uui_widget_ops -- the ONE table a widget exports to be handled generically: laid out, drawn, hit-tested, focused. |
+| `uui_wizard.h` | uui_wizard -- a whole window of steps: a RAIL listing them on the left, the current step's page on the right under "STEP 2 OF 7" and its title, Back and Next in a bar along the bottom, and an optio... |
 | `uvterm.h` | uvterm -- ONE TERMINAL: a pty and the program on it, the reader thread that drains it, the ANSI parser, the grid, its scrollback and alternate screen, the cursor, a selection, and drawing all of th... |
 
 Private seams of a split module, not for apps: `uapp_internal.h`.

@@ -26,6 +26,7 @@
 #include "lib/udes.h"
 #include "lib/ukeysym.h"
 #include "lib/ushot.h"
+#include "lib/uhostname.h"
 #include "rt/sys.h"
 #include "net_abi.h"
 #include "syscall_abi.h"   // struct input_inject
@@ -434,7 +435,9 @@ static int server_init(struct vnc *v) {
     uint8_t pf[16];
     rd_pixfmt_write(&v->enc.pf, pf);
     rd_buf_put(&v->out, pf, 16);
-    const char *name = "toy-os";
+    // The desktop's name, which a viewer puts in its title bar.
+    char name[UHOSTNAME_MAX + 1];
+    uhostname_get(name, sizeof name);
     rd_buf_u32(&v->out, (uint32_t)strlen(name));
     rd_buf_put(&v->out, name, strlen(name));
     return flush(v);

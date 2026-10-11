@@ -532,3 +532,25 @@ int usetting_set_int(const char *name, int value) {
     snprintf(v, sizeof v, "%d", value);
     return usetting_set(name, v);
 }
+
+int usetting_choices(const char *name, char (*value)[SETTING_ABI_VALUE_MAX],
+                     char (*label)[SETTING_ABI_LABEL_MAX], int max, int *current) {
+    struct setting_msg m;
+    int index = usetting_find(name, &m);
+    *current = -1;
+    if (index < 0) return -1;
+    char now[SETTING_ABI_VALUE_MAX] = "";
+    usetting_get(name, now, sizeof now);
+    int n = 0;
+    for (; n < max; n++) {
+        memset(&m, 0, sizeof m);
+        m.op = SETTING_OP_CHOICE;
+        m.index = (uint32_t)index;
+        m.choice = (uint32_t)n;
+        if (usetting_dispatch(&m) != 0) break;
+        strlcpy(value[n], m.value, sizeof value[0]);
+        strlcpy(label[n], m.label[0] ? m.label : m.value, sizeof label[0]);
+        if (!strcmp(m.value, now)) *current = n;
+    }
+    return n;
+}

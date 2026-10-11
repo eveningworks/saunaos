@@ -60,6 +60,14 @@ int usetting_set_int(const char *name, int value);
 // has that qualified name. `out` is left zeroed on failure.
 int usetting_find(const char *name, struct setting_msg *out);
 
+// An enum's choices, values and labels, in the order every front end
+// lists them (Sort=label applied), and which one is current. Fills at most
+// `max`; returns how many, or -1 for no such setting. `*current` is -1
+// when the value is none of them. For a wizard or a popup offering one
+// setting's choices without System Settings' slot table.
+int usetting_choices(const char *name, char (*value)[SETTING_ABI_VALUE_MAX],
+                     char (*label)[SETTING_ABI_LABEL_MAX], int max, int *current);
+
 // Serves one setting_msg against the merged registry. `struct
 // setting_msg` and `enum setting_op` are the ABI's (abi/setting_abi.h);
 // everything a client could ask the kernel it may ask here.

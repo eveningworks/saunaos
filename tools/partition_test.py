@@ -98,7 +98,7 @@ def build_image(path, size_bytes, kind, layout, seed_dir):
     with open(path, "wb") as f:
         f.truncate(size_bytes)
     r = subprocess.run([sys.executable, os.path.join(HERE, "seed_disk.py"),
-                        path, seed_dir, "--partition", kind, "--layout", layout],
+                        path, seed_dir, "--partition", kind, "--layout", layout, "--fbs-done"],
                        capture_output=True, text=True)
     if r.returncode != 0:
         print(r.stdout + r.stderr)

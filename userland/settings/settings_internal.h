@@ -88,7 +88,7 @@ enum { CTRL_RADIO = 0, CTRL_COMBO, CTRL_SLIDER, CTRL_SPIN, CTRL_TEXT,
 enum { ID_TREE = 1, ID_SIDE_SPLIT, ID_BODY, ID_PAGE, ID_ADVANCED, ID_TEST,
        ID_OPTS, ID_OPTS_OK, ID_OPTS_CANCEL, ID_SEARCH, ID_RESET, ID_APPLY,
        ID_ASK, ID_FOOTER, ID_SI_COPY, ID_SI_DEVMGR, ID_SI_DEBUG, ID_CLOCK_CHANGE,
-       ID_SU_DEFAULT, ID_SU_TIMEOUT, ID_SU_NEXT, ID_SU_OPEN,
+       ID_SU_DEFAULT, ID_SU_TIMEOUT, ID_SU_NEXT, ID_SU_OPEN, ID_SU_FBS_NOW, ID_SU_FBS_AGAIN,
        ID_KB_LIST, ID_KB_ADD, ID_KB_REMOVE, ID_KB_UP, ID_KB_DOWN, ID_KB_TRY,
        ID_NA_CARD, ID_NA_DEVMGR,
        ID_RD_VNC, ID_RD_RDP, ID_RD_PORT, ID_RD_PW, ID_RD_PW_SAVE, ID_RD_WHEN, ID_RD_FROM,
@@ -389,6 +389,7 @@ void startup_init(void);
 void startup_load(void);
 int  startup_emit(struct uui_item *out, int n, struct uui_focusable *focus, int *nfocus);
 void startup_changed(int id);
+void startup_fbs(int id);
 int  startup_fit(void);
 
 // set_network.c -- Network > Adapters, each card's adapter settings

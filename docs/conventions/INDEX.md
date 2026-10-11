@@ -1109,3 +1109,5 @@ whenever a headline here tells you something you did not already know.
   `Release-note:` TRAILER**
 - **RING 3 IS BUILT `-ffreestanding`, SO A SMALL `memcpy()` IS A CALL --
   `__builtin_memcpy` IN A HOT LOOP**
+- **A BOOTABLE IMAGE SEEDED FOR DEVELOPMENT OR TESTING PASSES `--fbs-done`**,
+  or First-boot setup covers the desktop and every GUI check after it fails

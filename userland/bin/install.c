@@ -55,6 +55,7 @@
 #include "lib/ufile.h"
 #include "lib/ubootcfg.h" // --bootloader also brings grub.cfg up to bootpart=
 #include "lib/ubootlayout.h"
+#include "lib/ufbs.h"     // the target starts unmarked: it shows First-boot setup
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -670,6 +671,9 @@ int main(int argc, char **argv) {
 
     step("copying the system");
     int ok = copy_system();
+    // A NEW MACHINE IS SET UP BY WHOEVER BOOTS IT, not by this one: the
+    // copied marker would hide First-boot setup on the target.
+    unlink(TARGET_ROOT UFBS_MARKER);
     step("writing the target's /boot");
     if (ok) ok = copy_boot();
 

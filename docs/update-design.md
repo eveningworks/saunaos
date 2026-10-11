@@ -169,7 +169,9 @@ URL-QUOTED (settings files have spaces in their names) under a
 replaced only while unedited since 2026-10-10, dpkg's conffile rule;
 `docs/commands/update.md`,
 imported from `remote.py`'s `USERLAND_TREES` so push and pull agree),
-and `kernel` / `kernel-gz` with a `src=` -- the kernel is listed as the
+`if-missing` (written where absent, never compared or replaced -- First-boot
+setup's marker, so an UPDATED machine counts as set up and never shows the
+new-machine wizard), and `kernel` / `kernel-gz` with a `src=` -- the kernel is listed as the
 ELF and the gzipped image, and the client picks by what its own GRUB
 records (`/etc/grub-core.modules`), as `remote.py flash` does. The
 server GENERATES it from `seed/sync` per request and answers 503 while

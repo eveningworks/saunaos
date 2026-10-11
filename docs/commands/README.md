@@ -243,6 +243,7 @@ a command), and the `gui3`/`nano` aliases.
 ### System administration
 
 - [`bootcfg`](bootcfg.md)
+- [`fbs`](fbs.md)
 - [`modload`](modload.md)
 - [`modunload`](modunload.md)
 - [`update`](update.md)

@@ -95,6 +95,9 @@ TESTS = [
     # (lib/ubootcfg.h), on fixtures; tools/bootcfg_test.py is the real
     # /boot and the reboot into a trial.
     ("bootcfg_test", 0, None, None),
+    # First-boot setup's boot words and marker, and the computer-name rule
+    # (lib/ufbs.h, lib/uhostname.h); tools/fbs_test.py is the wizard.
+    ("fbs_test", 0, None, None),
     # lib/ulogset.h, the Log Viewer's lines: the merge, repeats, the
     # filter, and a saved file read back. tools/logview_test.py is the app.
     ("ulogset_test", 0, None, None),

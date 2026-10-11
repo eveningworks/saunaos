@@ -46,6 +46,7 @@
 #define UPD_F_NEW_ONLY  0x1
 #define UPD_F_KERNEL    0x2   // the ELF kernel image
 #define UPD_F_KERNEL_GZ 0x4   // the same kernel, gzipped, for a GRUB with gzio
+#define UPD_F_IF_MISSING 0x8  // written only where absent, never compared or replaced
 
 // UPD_REMOVE: shipped last time, no longer -- a row upd_check() appends
 // after the manifest's own (see UPD_INSTALLED_PATH).

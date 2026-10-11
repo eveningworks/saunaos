@@ -71,7 +71,7 @@ def make_fresh(dest, quiet=True):
         os.remove(dest)
     out = subprocess.DEVNULL if quiet else None
     subprocess.run(["truncate", "-s", DISK_SIZE, dest], check=True)
-    subprocess.run([sys.executable, os.path.join(HERE, "seed_disk.py"), dest, SEED],
+    subprocess.run([sys.executable, os.path.join(HERE, "seed_disk.py"), dest, SEED, "--fbs-done"],
                    check=True, stdout=out, cwd=REPO)
     subprocess.run([sys.executable, os.path.join(HERE, "install_grub.py"), dest,
                     "--kernel", kernel, "--grub-cfg", cfg, "--optional"],

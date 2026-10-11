@@ -1,0 +1,12 @@
+# /etc/settings.d/system.hostname -- this computer's name (lib/uhostname.h).
+# A setting rather than Linux's /etc/hostname + sethostname(): nothing in
+# the kernel needs it. About shows it; a VNC viewer's title bar and the
+# remote-desktop certificate carry it. First-boot setup asks for it.
+Type=string
+File=/etc/toyos.conf
+Label=Computer name
+Category=System
+Group=About this computer
+Default=toy-os
+Description=Letters, digits and hyphens, up to 63 -- shown in About and to remote-desktop viewers
+Order=10

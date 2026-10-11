@@ -266,6 +266,9 @@ look fine.
   tree-moving `git`. Docs, `tools/` and `.claude/` stay editable. A NEW
   tool that boots QEMU without `iso_guard` or `harness.Results` calls
   `tree_lock.hold()` itself.
+- **A NEW TOOL THAT SEEDS A BOOTABLE IMAGE PASSES `seed_disk.py
+  --fbs-done`**, or First-boot setup's full-screen wizard covers the
+  desktop and every GUI check after it fails (`docs/commands/fbs.md`).
 - **`seed/sync/` KEEPS WHAT YOU DELETE FROM `data/`**: `make clean`
   (staging) THEN `make clean-disk` (the image). **NEVER hand-write into
   `seed/sync/`** -- gitignored build staging that `make clean` deletes;

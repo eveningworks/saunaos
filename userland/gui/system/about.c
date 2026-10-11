@@ -35,6 +35,7 @@
 #include "ui/uui_route.h"   // UUI_REASON_*
 #include "ui/ulog.h"
 #include "lib/uclip.h"
+#include "lib/uhostname.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -56,7 +57,7 @@ struct row {
     int warn;
 };
 
-#define MAX_ROWS 16
+#define MAX_ROWS 20
 static struct row g_rows[MAX_ROWS];
 static int g_nrows;
 static char g_title[48];
@@ -86,7 +87,10 @@ static void fill_rows(void) {
 
     add("SOFTWARE", 1, 0);
 
-    struct row *r = add("Kernel", 0, 0);
+    struct row *r = add("Computer name", 0, 0);
+    uhostname_get(r->value, sizeof r->value);
+
+    r = add("Kernel", 0, 0);
     if (have_kv) snprintf(r->value, sizeof r->value, "%s (%s)", kv.version, kv.build_id);
     else         snprintf(r->value, sizeof r->value, "does not report its version");
 

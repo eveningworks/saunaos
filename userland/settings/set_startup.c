@@ -8,11 +8,19 @@
 // grub.cfg.bak -- the same save as `bootcfg` and the Boot Manager. A
 // change the check calls risky (timeout 0) is refused here and named,
 // since this page has no "save anyway"; bootcfg --force does it.
+//
+// And First-boot setup, which is also about what this machine does when
+// it starts: run it now, or have the next boot show it (lib/ufbs.h).
 #include "settings_internal.h"
 #include "lib/ubootcfg.h"
+#include "lib/ufbs.h"
 
 int g_show_startup;
-struct uui_setting_row g_su_row[3];
+struct uui_setting_row g_su_row[4];
+static struct uui_button g_su_fbs_now, g_su_fbs_again;
+static struct uui_item g_su_fbs_items[2];
+static struct uui_layout g_su_fbs_l;
+static char g_su_fbs_desc[128];
 struct uui_custom g_su_list;
 struct uui_button g_su_open;
 
@@ -42,6 +50,26 @@ void startup_load(void) {
     g_su_default.disabled = g_su_timeout.disabled = !g_su_ok;
     g_su_next.disabled = !g_su_ok || !g_su_menu.oneshot;
     g_su_list.h = (n ? n : 1) * (2 * ugfx_char_h() + utheme_pad()) + 2 * utheme_pad();
+
+    char how[64];
+    if (ufbs_done(how, sizeof how))
+        snprintf(g_su_fbs_desc, sizeof g_su_fbs_desc, "The full-screen setup a new machine shows once. Last: %s.",
+                 how[0] ? how : "done");
+    else
+        snprintf(g_su_fbs_desc, sizeof g_su_fbs_desc,
+                 "The full-screen setup a new machine shows once. It shows at the next restart.");
+}
+
+void startup_fbs(int id) {
+    if (id == ID_SU_FBS_NOW) {
+        if (sys_spawn("/bin/wm/system/firstboot", 0, -1) < 0)
+            snprintf(g_status, sizeof g_status, "Could not start First-boot setup");
+    } else if (ufbs_rearm() == 0) {
+        snprintf(g_status, sizeof g_status, "First-boot setup shows at the next restart");
+    } else {
+        snprintf(g_status, sizeof g_status, "Could not remove %s", UFBS_MARKER);
+    }
+    startup_load();
 }
 
 // Save `c` if the edit introduced no problem; otherwise say which.
@@ -132,12 +160,15 @@ int startup_emit(struct uui_item *out, int n, struct uui_focusable *focus, int *
     out[n++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_su_open, .id = ID_SU_OPEN,
                                   .name = "su_open" };
     focus[(*nfocus)++] = (struct uui_focusable){ &g_su_open, &uui_button_ops };
+    out[n++] = (struct uui_item){ .ops = &uui_setting_row_ops, .widget = &g_su_row[3], .flags = UUI_FILL_W };
+    focus[(*nfocus)++] = (struct uui_focusable){ &g_su_fbs_now, &uui_button_ops };
+    focus[(*nfocus)++] = (struct uui_focusable){ &g_su_fbs_again, &uui_button_ops };
     return n;
 }
 
 int startup_fit(void) {
     int changed = 0;
-    for (int i = 0; i < 3; i++) if (uui_setting_row_fit(&g_su_row[i])) changed = 1;
+    for (int i = 0; i < 4; i++) if (uui_setting_row_fit(&g_su_row[i])) changed = 1;
     return changed;
 }
 
@@ -155,4 +186,15 @@ void startup_init(void) {
                          (struct uui_item){ 0 });
     g_su_list = (struct uui_custom){ .draw = draw_list };
     uui_button_init(&g_su_open, 0, 0, 0, 0, "Open Boot Manager", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SU_OPEN);
+
+    uui_button_init(&g_su_fbs_now, 0, 0, 0, 0, "Run it now", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SU_FBS_NOW);
+    uui_button_init(&g_su_fbs_again, 0, 0, 0, 0, "At the next restart", UTHEME_BUTTON_BG, UTHEME_TEXT,
+                    ID_SU_FBS_AGAIN);
+    g_su_fbs_items[0] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_su_fbs_now,
+                                           .id = ID_SU_FBS_NOW, .name = "su_fbs_now" };
+    g_su_fbs_items[1] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_su_fbs_again,
+                                           .id = ID_SU_FBS_AGAIN, .name = "su_fbs_again" };
+    g_su_fbs_l = (struct uui_layout){ .dir = UUI_ROW, .items = g_su_fbs_items, .count = 2 };
+    uui_setting_row_init(&g_su_row[3], "First-boot setup", g_su_fbs_desc,
+                         (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_su_fbs_l });
 }

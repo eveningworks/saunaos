@@ -235,6 +235,7 @@ class Manifest:
                         files[target] = full
             if self.kernel:
                 self._add_kernel(lines, files)
+            self._add_fbs_marker(lines, files)
             built = datetime.datetime.fromtimestamp(newest).strftime("%Y-%m-%d %H:%M")
             head = ["# toy-os update manifest", f"# version {_version()}",
                     f"# built {built}", f"# commit {_build_id()}"]
@@ -252,6 +253,24 @@ class Manifest:
 
     def notes(self):
         return release_notes(_build_id())
+
+    # A MACHINE THAT IS UPDATED IS ALREADY SET UP: First-boot setup's
+    # marker (userland/lib/ufbs.h) goes to every updated machine that has
+    # none, so an update never shows a machine the new-machine wizard.
+    # `if-missing`: written where absent, and never compared or replaced
+    # -- a machine's own "finished"/"skipped" line stays. An updater from
+    # before the flag reads it as a plain file, which is right for it too:
+    # no machine it runs on has a marker yet.
+    def _add_fbs_marker(self, lines, files):
+        path = os.path.join(REPO, "build", "fbs-done-by-update")
+        text = b"updated from an earlier build\n"
+        if not os.path.isfile(path) or open(path, "rb").read() != text:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as fh:
+                fh.write(text)
+        crc, size, _ = self._crc32(path)
+        lines.append(f"{crc} {size} /var/lib/fbs/done if-missing")
+        files["/var/lib/fbs/done"] = path
 
     def _add_kernel(self, lines, files):
         elf, media = self.kernel_elf, self.kernel_media

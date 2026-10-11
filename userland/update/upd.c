@@ -231,6 +231,7 @@ static int parse_line(char *line, struct upd_file *f) {
         char *s2 = 0;
         for (char *o = strtok_r(opts, ",", &s2); o; o = strtok_r(0, ",", &s2)) {
             if (!strcmp(o, "new-only")) f->flags |= UPD_F_NEW_ONLY;
+            else if (!strcmp(o, "if-missing")) f->flags |= UPD_F_IF_MISSING;
             else if (!strcmp(o, "kernel")) f->flags |= UPD_F_KERNEL;
             else if (!strcmp(o, "kernel-gz")) f->flags |= UPD_F_KERNEL_GZ;
             else if (!strncmp(o, "src=", 4) && o[4] == '/') snprintf(f->src, sizeof f->src, "%s", o + 4);
@@ -357,7 +358,7 @@ static void find_stale(struct upd_plan *p, const struct upd_hooks *h) {
         if (l[0] == '#' || !l[0]) continue;
         struct upd_file f;
         if (parse_line(l, &f) != 0) continue;
-        if (f.flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ | UPD_F_NEW_ONLY)) continue;
+        if (f.flags & (UPD_F_KERNEL | UPD_F_KERNEL_GZ | UPD_F_NEW_ONLY | UPD_F_IF_MISSING)) continue;
         if (listed(p, n, f.path)) continue;
         uint64_t size = 0;
         if (exists(f.path, &size) != 1) continue;          // gone already, or a directory
@@ -646,6 +647,7 @@ int upd_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
             uint32_t crc;
             if (e == 2) f->change = UPD_IGNORED;           // a directory where a file should be
             else if (!e) f->change = UPD_NEW;
+            else if (f->flags & UPD_F_IF_MISSING) f->change = UPD_SAME;   // the machine's own now
             else if (f->flags & UPD_F_NEW_ONLY) f->change = conffile_change(p, f, size, rec, h);
             else if (size != f->size) f->change = UPD_CHANGED;
             else if (file_crc(f->path, &crc) != 0 || crc != f->crc) f->change = UPD_CHANGED;

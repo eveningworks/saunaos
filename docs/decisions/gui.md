@@ -11185,3 +11185,61 @@ pinned into Quick access instead; not taken, so a drag keeps one meaning
 per group. The order is `dev:<mount point>` lines in `/etc/places.conf`,
 so a mount that is not there today keeps its place for when it is.
 
+
+## First-boot setup is a one-shot service's full-screen window, not a compositor mode -- and never "OOBE"
+
+A new machine shows a full-screen wizard once, before the desktop is
+used: region and formats, keyboard, time zone, appearance, a computer
+name, the network and the update server (`docs/commands/fbs.md`). The
+maintainer asked for it on 2026-10-11, picked the step-rail layout from
+mockups, and asked that it not be called OOBE: "First-boot setup" in
+the interface, `fbs` for short.
+
+**What real systems do.** Windows 11's OOBE is its own full-screen host
+before any desktop exists, and automation skips it with an answer file
+(`unattend.xml`). macOS's Setup Assistant runs until
+`/var/db/.AppleSetupDone` exists. GNOME Initial Setup runs in its own
+gnome-shell session mode and writes `gnome-initial-setup-done`;
+`systemd-firstboot` is a unit gated on `ConditionFirstBoot=`, and
+`systemd.firstboot=off` on the command line skips it. So: a marker file,
+a boot word, and something started early -- toy-os takes all three.
+
+**A one-shot init service after `toywm`, not a compositor mode.** The
+service runs `firstboot --boot`, which exits at once unless the marker
+is missing or `fbs=on` is on the command line. The wizard asks for
+FULLSCREEN and inhibits the compositor's shortcuts -- both existed --
+so the taskbar and Start are neither drawn nor reachable and Super goes
+to the window. A GNOME-style session mode would have meant a second
+startup path through the compositor for a screen seen once; this way a
+crash in the wizard leaves an ordinary desktop rather than a locked one.
+The one compositor change it needed was a bug fix: a closed tray
+flyout took the click on its own hidden icon, opening over ANY
+fullscreen window (`wm_overlay_click()`).
+
+**Every choice is saved as it is made**, GNOME's behaviour rather than
+Windows' apply-at-the-end: the pointer, the keyboard layout (the Try it
+field types with it) and the clock's spelling change under the person
+choosing them, and Skip keeps what was already chosen -- its question
+says so. The computer name and the update server save on Next, once
+valid, and a refused Next returns the keys to the field.
+
+**Development and test images are seeded WITH the marker**
+(`tools/seed_disk.py --fbs-done`), so `make run` and every GUI test boot
+straight to the desktop; the live ISO is not, and `install` drops the
+marker from the disk it writes, because a new machine is set up by
+whoever boots it. Rejected: showing it on dev images and having every
+test tool skip it (a hundred tools to change, and a missed one fails
+every check after its first), and a boot word baked into the dev media
+(it would ride along onto a USB stick made from them).
+
+**An UPDATED machine is a set-up machine.** System Update ships the
+marker as an `if-missing` file, so the machines already running toy-os
+get it with the update that brings the wizard -- Windows does not re-run
+its setup after an update either -- and a machine's own "finished" or
+"skipped" line is never touched. A fresh install and the live ISO get no
+update before their first boot, so they show it.
+
+**The computer name is a ring-3 setting**, `system.hostname`, not
+Linux's `/etc/hostname` + `sethostname()`: nothing in the kernel reads
+it. About shows it; the VNC desktop name and the remote-desktop
+certificate carry it.
