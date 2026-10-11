@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include "rt/sys.h"
 #include "lib/uimg.h"
+#include "lib/uimg_reduce.h"
 #include <kerrno.h>
 #include <kcrc.h>
 #include "uimg_vectors.h"
@@ -419,6 +420,121 @@ int main(int argc, char **argv) {
     rc = uimg_encode(&enc, "webp", &bytes, &len);
     ok("a format this build cannot write is -ENOTSUP", rc == -ENOTSUP,
        uimg_last_error());
+
+    // THE BOX REDUCER (lib/uimg_reduce.h), against arithmetic done by hand.
+    {
+        uint32_t px4[8] = { 0xFF000000, 0xFF0A1428, 0xFF141E32, 0xFF1E283C,
+                            0xFF28323C, 0xFF323C46, 0xFF3C4650, 0xFF46505A };
+        struct uimg_reduce r;
+        struct uimg o;
+        uimg_reduce_init(&r, 4, 2, 2, 2, 0);
+        uimg_reduce_row(&r, px4);
+        uimg_reduce_row(&r, px4 + 4);
+        int rc2 = uimg_reduce_finish(&r, &o);
+        // Block 0, each channel the ROUNDED average of its four pixels.
+        uint32_t want0 = 0xFF000000u | (((0x00 + 0x0A + 0x28 + 0x32 + 2) / 4) << 16) |
+                         (((0x00 + 0x14 + 0x32 + 0x3C + 2) / 4) << 8) | ((0x00 + 0x28 + 0x3C + 0x46 + 2) / 4);
+        char dr[96];
+        snprintf(dr, sizeof dr, "rc=%d %dx%d px0=%08x want %08x", rc2, o.w, o.h,
+                 rc2 == 0 ? o.px[0] : 0, want0);
+        ok("a 2x2 block is the average of its four pixels", rc2 == 0 && o.w == 2 && o.h == 1 &&
+           o.px[0] == want0, dr);
+        if (rc2 == 0) uimg_free(&o);
+
+        // ALPHA-WEIGHTED: one opaque red pixel and three transparent black
+        // ones average to red at a quarter alpha, not to dark red.
+        uint32_t pa[4] = { 0xFFFF0000, 0x00000000, 0x00000000, 0x00000000 };
+        uimg_reduce_init(&r, 2, 2, 2, 2, 1);
+        uimg_reduce_row(&r, pa);
+        uimg_reduce_row(&r, pa + 2);
+        rc2 = uimg_reduce_finish(&r, &o);
+        snprintf(dr, sizeof dr, "rc=%d px0=%08x", rc2, rc2 == 0 ? o.px[0] : 0);
+        ok("a transparent pixel's colour does not bleed into the average",
+           rc2 == 0 && o.px[0] == 0x3FFF0000u, dr);
+        if (rc2 == 0) uimg_free(&o);
+    }
+
+    // DECODED REDUCED = DECODED, THEN REDUCED -- the same picture, by the
+    // same reducer, with or without the full-size copy -- on a picture
+    // with alpha and a partial block at each edge.
+    {
+        struct uimg pic = { .w = 37, .h = 23, .has_alpha = 1 };
+        pic.px = malloc(37 * 23 * 4);
+        for (int i = 0; i < 37 * 23; i++)
+            pic.px[i] = ((uint32_t)(i * 7 % 256) << 24) | ((uint32_t)(i * 13 % 256) << 16) |
+                        ((uint32_t)(i * 29 % 256) << 8) | (uint32_t)(i % 256);
+        uint8_t *q;
+        size_t qn;
+        int rc2 = uimg_encode(&pic, "qoi", &q, &qn);
+        struct uimg full, viaR, red;
+        const struct uimg_codec *c = rc2 == 0 ? uimg_probe(q, qn) : 0;
+        int ok1 = c && c->decode_reduced && uimg_decode(q, qn, &full) == 0;
+        struct uimg_reduce r;
+        if (ok1) {
+            uimg_reduce_init(&r, full.w, full.h, 4, 3, 1);
+            for (int y = 0; y < full.h; y++) uimg_reduce_row(&r, full.px + y * full.w);
+            ok1 = uimg_reduce_finish(&r, &viaR) == 0 && c->decode_reduced(q, qn, 4, 3, &red) == 0;
+        }
+        int same = ok1 && red.w == viaR.w && red.h == viaR.h && red.w == 10 && red.h == 8 &&
+                   !memcmp(red.px, viaR.px, (size_t)red.w * red.h * 4);
+        ok("a QOI decoded reduced equals the same decode reduced afterwards", same,
+           ok1 ? "the pixels differ" : "a decode failed");
+        if (ok1) { uimg_free(&full); uimg_free(&viaR); uimg_free(&red); }
+
+        // HEADER-ONLY INFO on a file larger than the prefix read, and the
+        // whole thumbnail path from it.
+        struct uimg big = { .w = 400, .h = 400, .has_alpha = 0 };
+        big.px = malloc(400 * 400 * 4);
+        uint32_t seed = 1;
+        for (int i = 0; i < 400 * 400; i++) {
+            seed = seed * 1103515245u + 12345u;
+            big.px[i] = 0xFF000000u | (seed >> 8);
+        }
+        uint8_t *bq;
+        size_t bqn;
+        char dr[96];
+        if (uimg_encode(&big, "qoi", &bq, &bqn) == 0) {
+            FILE *f = fopen("/tmp/uimg_test_big.qoi", "wb");
+            if (f) { fwrite(bq, 1, bqn, f); fclose(f); }
+            struct uimg_info a1, a2;
+            int r1 = uimg_load_info("/tmp/uimg_test_big.qoi", &a1);
+            int r2 = uimg_info(bq, bqn, &a2);
+            snprintf(dr, sizeof dr, "%lu bytes; %d %dx%d vs %d %dx%d", (unsigned long)bqn, r1, a1.w, a1.h,
+                     r2, a2.w, a2.h);
+            ok("info from the file's front matches info from all of it",
+               bqn > 256 * 1024 && r1 == 0 && r2 == 0 && a1.w == a2.w && a1.h == a2.h &&
+               !strcmp(a1.detail, a2.detail), dr);
+            struct uimg th;
+            int r3 = uimg_load_fit("/tmp/uimg_test_big.qoi", 64, 48, &th);
+            snprintf(dr, sizeof dr, "rc=%d %dx%d", r3, r3 == 0 ? th.w : 0, r3 == 0 ? th.h : 0);
+            ok("a thumbnail from the file fits its box", r3 == 0 && th.w == 48 && th.h == 48, dr);
+            if (r3 == 0) uimg_free(&th);
+            remove("/tmp/uimg_test_big.qoi");
+            free(bq);
+        }
+        free(big.px);
+        free(pic.px);
+        if (rc2 == 0) free(q);
+    }
+
+    // A FLAT COLOUR STAYS EXACTLY THAT COLOUR through both shrink paths --
+    // the reducer's and the resampler's reciprocals round, and a rounding
+    // that lost a step would turn 255 into 254 across a whole picture.
+    {
+        struct uimg flat2 = { .w = 1001, .h = 333, .has_alpha = 0 };
+        flat2.px = malloc((size_t)1001 * 333 * 4);
+        for (int i = 0; i < 1001 * 333; i++) flat2.px[i] = 0xFFFF7F01u;
+        int exact = 1;
+        int sizes[3][2] = { { 37, 11 }, { 250, 83 }, { 600, 200 } };
+        for (int k = 0; k < 3; k++) {
+            struct uimg sm;
+            if (uimg_scale(&flat2, sizes[k][0], sizes[k][1], &sm) != 0) { exact = 0; continue; }
+            for (int i = 0; i < sm.w * sm.h; i++) if (sm.px[i] != 0xFFFF7F01u) { exact = 0; break; }
+            uimg_free(&sm);
+        }
+        ok("a flat colour is exact after a big and a small shrink", exact, "a channel moved");
+        free(flat2.px);
+    }
 
     // fit maths, which the widget and the wallpaper both depend on
     int fw, fh;

@@ -90,6 +90,11 @@ struct uimg_codec {
     // write-first should not have to invent it again.
     int (*decode)(const uint8_t *d, size_t n, struct uimg *out);
 
+    // Optional: decode shrunk by whole factors kx x ky AS IT DECODES
+    // (lib/uimg_reduce.h), never holding the full-size picture -- what a
+    // thumbnail wants. NULL: uimg_load_fit() decodes in full and scales.
+    int (*decode_reduced)(const uint8_t *d, size_t n, int kx, int ky, struct uimg *out);
+
     // Writes `im` into a fresh allocation, `*out_len` bytes, which the
     // caller frees. NULL for a format this build only reads.
     int (*encode)(const struct uimg *im, uint8_t **out, size_t *out_len);
@@ -133,7 +138,7 @@ int uimg_decode(const void *data, size_t n, struct uimg *out);
 // UIMG_MAX_FILE is a REFUSAL, not a truncation: half a JPEG decodes to
 // half a picture and a plausible-looking one, which is worse than an
 // error (the same rule kfmt's formatters and fs_read_into() follow).
-#define UIMG_MAX_FILE (8u * 1024u * 1024u)
+#define UIMG_MAX_FILE (64u * 1024u * 1024u)
 int uimg_load_info(const char *path, struct uimg_info *out);
 int uimg_load(const char *path, struct uimg *out);
 
@@ -213,6 +218,12 @@ void uimg_fit_size(int sw, int sh, int bw, int bh, enum uimg_fit mode,
 // ring. Weights are 16.16 fixed point, accumulated in 32-bit and
 // normalised once per output pixel.
 int uimg_scale(const struct uimg *src, int dw, int dh, struct uimg *out);
+
+// The picture at `path`, shrunk to fit a bw x bh box (UIMG_FIT_CONTAIN) --
+// a THUMBNAIL. A codec with decode_reduced shrinks while it decodes, so a
+// 4K picture never costs its 33 MB of pixels; any other is decoded in full
+// and scaled -- what uthumb did by hand, so the result is the same size.
+int uimg_load_fit(const char *path, int bw, int bh, struct uimg *out);
 
 // `src` turned `quarters` quarter turns CLOCKWISE (any integer; taken mod
 // 4) into a freshly allocated `out` -- a 90-degree turn swaps w and h.

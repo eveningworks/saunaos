@@ -12,6 +12,8 @@
 // with no framebuffer, no compositor and no pixels involved.
 #include "rt/sys.h"
 #include "lib/cmd.h"
+#include "lib/uargs.h"
+#include "lib/ufile.h"
 #include "lib/uimg.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -47,25 +49,36 @@ static int parse_xy(const char *s, int *x, int *y) {
     return 1;
 }
 
+static int g_decode;
+static const char *g_pixel, *g_scale;
+
+static const struct uargs_opt OPTS[] = {
+    { "decode", 'd', 0,     "decode it, and time the read and the decode apart", &g_decode, 0 },
+    { "pixel",  'p', "X,Y", "decode it and print one pixel as RRGGBB", 0, &g_pixel },
+    { "scale",  's', "PX",  "decode it, then shrink it to fit PX as a thumbnail is, and time that too",
+      0, &g_scale },
+    { 0 }
+};
+
+static const struct uargs_prog PROG = {
+    .name = "imginfo",
+    .usage = "[-d] [-p X,Y] [-s PX] PATH",
+    .summary = "What an image file is -- and, decoded, what reading, decoding and\n"
+               "shrinking it cost and what one pixel holds.",
+    .opts = OPTS,
+};
+
+static unsigned long long ms_since(unsigned long long t0) {
+    return (sys_monotonic_ns() - t0) / 1000000ull;
+}
+
 int main(int argc, char **argv) {
-    const char *pixel = NULL;
-    int decode = 0;
-    int i = 1;
-    for (; i < argc && argv[i][0] == '-' && argv[i][1]; i++) {
-        if (argv[i][1] == 'p' && argv[i][2] == '\0' && i + 1 < argc) {
-            pixel = argv[++i];
-        } else if (argv[i][1] == 'd' && argv[i][2] == '\0') {
-            decode = 1;
-        } else {
-            cmd_usage("imginfo [-d] [-p x,y] <path>");
-            return 1;
-        }
-    }
-    if (i != argc - 1) {
-        cmd_usage("imginfo [-d] [-p x,y] <path>");
-        return 1;
-    }
-    const char *path = argv[i];
+    struct uargs a;
+    if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
+    if (a.argc != 1) return uargs_error(&PROG, "one PATH, please");
+    const char *path = a.argv[0];
+    int px_box = 0;
+    if (g_scale && (px_box = atoi(g_scale)) <= 0) return uargs_error(&PROG, "-s takes a size in pixels");
 
     struct uimg_info info;
     int rc = uimg_load_info(path, &info);
@@ -80,12 +93,24 @@ int main(int argc, char **argv) {
              info.components == 1 ? "" : "s", info.detail);
     sys_print(buf);
 
-    if (!pixel && !decode) return 0;
+    if (!g_pixel && !g_decode && !g_scale) return 0;
 
-    struct uimg im;
+    // READ AND DECODE TIMED APART: on a disk-backed photograph the read
+    // can cost as much as the decode, and only the split says which one
+    // a faster decoder would help.
+    uint8_t *file;
+    size_t len;
     unsigned long long t0 = sys_monotonic_ns();
-    rc = uimg_load(path, &im);
-    unsigned long long ms = (sys_monotonic_ns() - t0) / 1000000ull;
+    if (ufile_slurp(path, 0, &file, &len) != UFILE_OK) {
+        report(path, -ENOENT);
+        return 1;
+    }
+    unsigned long long read_ms = ms_since(t0);
+    struct uimg im;
+    t0 = sys_monotonic_ns();
+    rc = uimg_decode(file, len, &im);
+    unsigned long long dec_ms = ms_since(t0);
+    free(file);
     if (rc < 0) {
         report(path, rc);
         return 1;
@@ -94,16 +119,43 @@ int main(int argc, char **argv) {
     // every automated boot here is TCG, where a full-screen photograph
     // is the desktop's slowest startup step, and "how long does this
     // wallpaper cost" is otherwise a guess.
+    snprintf(buf, sizeof buf, "read: %lu bytes, %llu ms\n", (unsigned long)len, read_ms);
+    sys_print(buf);
     snprintf(buf, sizeof buf, "decoded: %dx%d, %lu bytes of pixels, %llu ms\n",
-             im.w, im.h, (unsigned long)((size_t)im.w * im.h * 4), ms);
+             im.w, im.h, (unsigned long)((size_t)im.w * im.h * 4), dec_ms);
     sys_print(buf);
 
-    if (pixel) {
+    if (px_box) {
+        int tw, th;
+        struct uimg small;
+        uimg_fit_size(im.w, im.h, px_box, px_box, UIMG_FIT_CONTAIN, &tw, &th);
+        t0 = sys_monotonic_ns();
+        rc = uimg_scale(&im, tw, th, &small);
+        unsigned long long sc_ms = ms_since(t0);
+        if (rc == 0) {
+            snprintf(buf, sizeof buf, "scaled: %dx%d, %llu ms\n", tw, th, sc_ms);
+            sys_print(buf);
+            uimg_free(&small);
+        } else {
+            report(path, rc);
+        }
+        // The whole thumbnail path from the file, as the File Manager's
+        // thumbnailer takes it: a codec that can shrinks while decoding.
+        t0 = sys_monotonic_ns();
+        rc = uimg_load_fit(path, px_box, px_box, &small);
+        unsigned long long fit_ms = ms_since(t0);
+        if (rc == 0) {
+            snprintf(buf, sizeof buf, "thumbnail from the file: %dx%d, %llu ms\n", small.w, small.h, fit_ms);
+            sys_print(buf);
+            uimg_free(&small);
+        }
+    }
+
+    if (g_pixel) {
         int x, y;
-        if (!parse_xy(pixel, &x, &y)) {
-            cmd_usage("imginfo [-d] [-p x,y] <path>");
+        if (!parse_xy(g_pixel, &x, &y)) {
             uimg_free(&im);
-            return 1;
+            return uargs_error(&PROG, "-p takes X,Y");
         }
         if (x >= im.w || y >= im.h) {
             sys_print("imginfo: that pixel is outside the image\n");

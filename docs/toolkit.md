@@ -54,6 +54,7 @@
 | `uhostname.h` | This computer's name -- `system.hostname`, what About shows, what a VNC viewer's title bar says and what the remote-desktop certificate names. |
 | `uhwids.h` | Names for hardware ids, from the pci.ids / usb.ids databases -- the files a Linux distribution ships as hwdata, refreshed by /bin/hwdata. |
 | `uimg.h` | uimg -- decoding an image file into pixels, in RING 3. |
+| `uimg_reduce.h` | A picture shrunk by WHOLE factors as its rows arrive: every kx x ky block of source pixels becomes one pixel, its average -- alpha weighted when the picture has alpha, so a transparent pixel's colo... |
 | `uinflate.h` | DEFLATE, both directions, in ring 3 -- RFC 1951, plus the zlib (RFC 1950) and gzip (RFC 1952) wrappers around it. |
 | `uinitctl.h` | The control protocol between init and its clients -- `/bin/service`, and everything that restarts or powers off the machine -- over uchan. |
 | `ukeymap.h` | A keyboard layout read from /usr/share/kbs/<name>: which character each key gives on each level, and which keys are dead -- a snapshot for SHOWING a layout. |

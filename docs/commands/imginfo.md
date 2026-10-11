@@ -6,7 +6,17 @@
 
 ## Synopsis
 
-    imginfo [-d] [-p x,y] <path>
+    imginfo [-d] [-p X,Y] [-s PX] PATH
+
+## Options
+
+- `-d`, `--decode` -- decode the whole image, and time the read and the
+  decode apart.
+- `-p X,Y`, `--pixel X,Y` -- decode it and print one pixel as `RRGGBB`.
+- `-s PX`, `--scale PX` -- decode it, shrink it to fit a PX x PX box as a
+  thumbnail is, and time that; then time the whole thumbnail path from the
+  file (`uimg_load_fit()`), which a QOI takes shrinking as it decodes.
+- `-h`, `--help` -- the options in one page.
 
 ## Description
 
@@ -23,9 +33,16 @@ chroma subsampling, whether there are restart markers.
 
 `-d` decodes the whole image and reports the time:
 
-    /$ imginfo -d /usr/share/wallpapers/aurora.jpg
+    /$ imginfo -s 256 /usr/share/wallpapers/aurora.jpg
     /usr/share/wallpapers/aurora.jpg: jpeg 1280x720, 3 components (baseline, 4:2:0)
-    decoded: 1280x720, 3686400 bytes of pixels, 97 ms
+    read: 13370 bytes, 1 ms
+    decoded: 1280x720, 3686400 bytes of pixels, 39 ms
+    scaled: 256x144, 18 ms
+    thumbnail from the file: 256x144, 61 ms
+
+(the ASUS, 2026-10-11). **The read and the decode are timed apart** because
+only the split says whether a faster decoder would help: a 9 MB 4K QOI
+there reads in about 50 ms and decodes in 190.
 
 **The time is printed because it is the number that decides things.**
 Every automated boot here runs TCG, where decoding a full-screen

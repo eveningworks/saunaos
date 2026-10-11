@@ -226,12 +226,9 @@ static int thumb_produce(struct thumb_job *j) {
         return uvid_still(j->path, at, j->px, j->px, &j->im) == 0 ? 0 : -1;
     }
 
-    struct uimg full;
-    if (uimg_load(j->path, &full) != 0) return -1;  // broken or refused
-    int tw, th;
-    uimg_fit_size(full.w, full.h, j->px, j->px, UIMG_FIT_CONTAIN, &tw, &th);
-    int rc = uimg_scale(&full, tw, th, &j->im);
-    uimg_free(&full);
+    // Shrunk WHILE it decodes where the codec can (uimg_load_fit()): a 4K
+    // QOI never costs its full-size pixels here.
+    int rc = uimg_load_fit(j->path, j->px, j->px, &j->im);
     return rc != 0 ? -1 : 0;   // the WRITE is the main thread's -- see uthumb_posted()
 }
 

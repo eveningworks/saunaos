@@ -1,6 +1,9 @@
 // uimg -- the codec table, the file front end, and the resampler.
 // See uimg.h for why any of this is in ring 3 rather than in the kernel.
 #include "lib/uimg.h"
+#include "lib/uimg_reduce.h"
+#include <fcntl.h>
+#include <unistd.h>
 #include "lib/ufile.h"
 #include "rt/sys.h"
 #include <kerrno.h>
@@ -107,13 +110,73 @@ static int read_file(const char *path, uint8_t **out, size_t *out_len) {
     }
 }
 
+// THE HEADER IS AT THE FRONT: a 9 MB photograph's dimensions are in its
+// first few hundred bytes, and reading the whole file for them cost the
+// Image Viewer and the File Manager's details a full read each. A prefix
+// is read first; the whole file only when the prefix was not enough --
+// a header further in, or GIF, whose frame count walks every frame.
+#define UIMG_INFO_HEAD (256u * 1024u)
+
 int uimg_load_info(const char *path, struct uimg_info *out) {
+    uint8_t *buf = malloc(UIMG_INFO_HEAD);
+    int fd = buf ? open(path, O_RDONLY) : -1;
+    if (fd >= 0) {
+        size_t n = 0;
+        long got;
+        while (n < UIMG_INFO_HEAD && (got = read(fd, buf + n, UIMG_INFO_HEAD - n)) > 0) n += (size_t)got;
+        close(fd);
+        const struct uimg_codec *c = n ? uimg_probe(buf, n) : 0;
+        int whole = n < UIMG_INFO_HEAD;
+        if (c && (whole || strcmp(c->name, "gif") != 0) && uimg_info(buf, n, out) == 0) {
+            free(buf);
+            return 0;
+        }
+        if (whole && n) {   // the whole file, and it did not parse: that is the answer
+            int rc = uimg_info(buf, n, out);
+            free(buf);
+            return rc;
+        }
+    }
+    free(buf);
+    uint8_t *all;
+    size_t len;
+    int rc = read_file(path, &all, &len);
+    if (rc < 0) return rc;
+    rc = uimg_info(all, len, out);
+    free(all);
+    return rc;
+}
+
+int uimg_load_fit(const char *path, int bw, int bh, struct uimg *out) {
+    memset(out, 0, sizeof *out);
     uint8_t *buf;
     size_t len;
     int rc = read_file(path, &buf, &len);
     if (rc < 0) return rc;
-    rc = uimg_info(buf, len, out);
+    const struct uimg_codec *c = uimg_probe(buf, len);
+    struct uimg_info info;
+    if (c && c->decode_reduced && uimg_info(buf, len, &info) == 0) {
+        int tw, th, kx, ky;
+        uimg_fit_size(info.w, info.h, bw, bh, UIMG_FIT_CONTAIN, &tw, &th);
+        uimg_reduce_factors(info.w, info.h, tw, th, &kx, &ky);
+        if (kx > 1 || ky > 1) {
+            struct uimg small;
+            rc = c->decode_reduced(buf, len, kx, ky, &small);
+            free(buf);
+            if (rc < 0) return rc;
+            rc = uimg_scale(&small, tw, th, out);
+            uimg_free(&small);
+            return rc;
+        }
+    }
+    struct uimg full;
+    rc = uimg_decode(buf, len, &full);
     free(buf);
+    if (rc < 0) return rc;
+    int tw, th;
+    uimg_fit_size(full.w, full.h, bw, bh, UIMG_FIT_CONTAIN, &tw, &th);
+    rc = uimg_scale(&full, tw, th, out);
+    uimg_free(&full);
     return rc;
 }
 
@@ -375,6 +438,48 @@ static void resample_axis(const uint32_t *src, uint32_t *dst,
     // to exactly one output pixel's worth of source, so the divide is by
     // a constant.
     int64_t span = ((int64_t)src_n << 16) / dst_n;   // source pixels per output pixel
+    if (opaque && span <= (16 << 16)) {
+        // OPAQUE: every weight depends on the output position alone, so it
+        // is worked out once per position and the divide becomes one
+        // reciprocal -- the general path below divides three times per
+        // pixel per line, which made shrinking dearer than decoding.
+        // Sums stay in 32 bits: 255 x 16 source pixels x 65536.
+        for (int i = 0; i < dst_n; i++) {
+            int64_t start = (int64_t)i * src_n * 65536 / dst_n;
+            int64_t end = start + span;
+            int s0 = (int)(start >> 16);
+            int s1 = (int)((end - 1) >> 16);
+            if (s1 > src_n - 1) s1 = src_n - 1;
+            uint32_t wt[17];
+            uint32_t wsum = 0;
+            int nw = 0;
+            for (int s = s0; s <= s1 && nw < 17; s++) {
+                int64_t lo = (int64_t)s << 16, hi = lo + 65536;
+                int64_t w = (end < hi ? end : hi) - (start > lo ? start : lo);
+                wt[nw++] = w > 0 ? (uint32_t)w : 0;
+                wsum += w > 0 ? (uint32_t)w : 0;
+            }
+            uint64_t inv = wsum ? ((1ull << 32) + wsum / 2) / wsum : 0;
+            for (int l = 0; l < lines; l++) {
+                const uint32_t *sp = src + (size_t)l * src_line + (size_t)s0 * src_step;
+                uint32_t r = 0, g = 0, b = 0;
+                for (int k = 0; k < nw; k++) {
+                    uint32_t v = sp[(size_t)k * src_step], w = wt[k];
+                    r += ((v >> 16) & 0xFF) * w;
+                    g += ((v >> 8) & 0xFF) * w;
+                    b += (v & 0xFF) * w;
+                }
+                // Rounded: the reciprocal itself is, so flooring lost a step.
+                uint32_t rr = (uint32_t)((r * inv + (1ull << 31)) >> 32),
+                         gg = (uint32_t)((g * inv + (1ull << 31)) >> 32),
+                         bb = (uint32_t)((b * inv + (1ull << 31)) >> 32);
+                dst[(size_t)l * dst_line + (size_t)i * dst_step] =
+                    0xFF000000u | ((rr > 255 ? 255 : rr) << 16) | ((gg > 255 ? 255 : gg) << 8) |
+                    (bb > 255 ? 255 : bb);
+            }
+        }
+        return;
+    }
     for (int i = 0; i < dst_n; i++) {
         int64_t start = (int64_t)i * src_n * 65536 / dst_n;
         int64_t end = start + span;
@@ -470,6 +575,27 @@ int uimg_scale(const struct uimg *src, int dw, int dh, struct uimg *out) {
         out->w = dw; out->h = dh; out->px = px;
         out->has_alpha = src->has_alpha;
         return 0;
+    }
+
+    // A BIG SHRINK GOES IN TWO STEPS: whole kx x ky blocks averaged first
+    // (lib/uimg_reduce.h -- integer sums, a reciprocal), then the weighted
+    // resampler below on a picture two to four times the target. The
+    // resampler's per-pixel divides were the cost: shrinking a 1080p
+    // picture to a thumbnail took longer than decoding it (imginfo -s).
+    int kx, ky;
+    uimg_reduce_factors(src->w, src->h, dw, dh, &kx, &ky);
+    if (kx > 1 || ky > 1) {
+        struct uimg_reduce r;
+        struct uimg small;
+        if (uimg_reduce_init(&r, src->w, src->h, kx, ky, src->has_alpha) == 0) {
+            for (int y = 0; y < src->h; y++) uimg_reduce_row(&r, src->px + (size_t)y * src->w);
+            if (uimg_reduce_finish(&r, &small) == 0) {
+                int rc = uimg_scale(&small, dw, dh, out);
+                uimg_free(&small);
+                return rc;
+            }
+        }
+        // No memory for the small copy: the one-step path below still works.
     }
 
     uint32_t *mid = malloc((size_t)dw * src->h * sizeof *mid);

@@ -24,6 +24,7 @@
 // type this decoder misreads produces a wrong picture rather than a
 // wrong picture that round-trips through a matching bug.
 #include "lib/uimg.h"
+#include "lib/uimg_reduce.h"
 #include <kerrno.h>
 #include <stdlib.h>
 #include <string.h>
@@ -117,6 +118,90 @@ static int qoi_info(const uint8_t *d, size_t n, struct uimg_info *out) {
     return 0;
 }
 
+// THE DECODING LOOP, once, for both destinations: the whole picture
+// (`px`), or one row at a time into a box reducer (`red`, with `row` its
+// buffer) -- a thumbnail then never holds the full-size picture.
+//
+// TUNED, because a photograph is millions of trips round it: the two-bit
+// tag is switched on first (RGB and RGBA are rare; the reference tests
+// them first), the pixel is one packed word rather than four bytes, a run
+// is a store loop rather than a trip per pixel, and transparency is noted
+// only by the two ops that can set alpha. Measured on a 4K photograph.
+static uint32_t qoi_hash32(uint32_t c) {
+    return (((c >> 16) & 0xFF) * 3 + ((c >> 8) & 0xFF) * 5 + (c & 0xFF) * 7 + (c >> 24) * 11) & 63;
+}
+
+static int qoi_core(const uint8_t *d, size_t n, int w, int h, uint32_t *px,
+                    struct uimg_reduce *red, uint32_t *row, int *transparent) {
+    uint32_t index[64];
+    memset(index, 0, sizeof index);
+    uint32_t c = 0xFF000000u;   // r = g = b = 0, a = 255
+    size_t p = QOI_HEADER_LEN;
+    // The last 8 bytes are the end marker and are never chunk data.
+    size_t end = n - QOI_PADDING_LEN;
+    int run = 0, alpha = 0;
+
+    for (int y = 0; y < h; y++) {
+        uint32_t *dst = px ? px + (size_t)y * w : row;
+        int x = 0;
+        while (x < w) {
+            if (run > 0) {
+                // A run may cross a row; it is filled in place either way.
+                int k = run < w - x ? run : w - x;
+                for (int i = 0; i < k; i++) dst[x + i] = c;
+                x += k;
+                run -= k;
+                continue;
+            }
+            if (p >= end) QFAIL(-EINVAL, "QOI ended before the image was complete");
+            int b1 = d[p++];
+            switch (b1 >> 6) {
+            case 0:   // QOI_OP_INDEX
+                c = index[b1];
+                alpha |= (c >> 24) != 255;
+                break;
+            case 1: { // QOI_OP_DIFF: each delta 2 bits, BIASED BY 2, wrapping in 8
+                uint32_t r = (((c >> 16) & 0xFF) + ((b1 >> 4) & 3) - 2) & 0xFF;
+                uint32_t g = (((c >> 8) & 0xFF) + ((b1 >> 2) & 3) - 2) & 0xFF;
+                uint32_t b = ((c & 0xFF) + (b1 & 3) - 2) & 0xFF;
+                c = (c & 0xFF000000u) | (r << 16) | (g << 8) | b;
+                break;
+            }
+            case 2: { // QOI_OP_LUMA
+                if (p + 1 > end) QFAIL(-EINVAL, "truncated QOI LUMA chunk");
+                int b2 = d[p++];
+                int vg = (b1 & 0x3f) - 32;
+                uint32_t r = (((c >> 16) & 0xFF) + vg - 8 + ((b2 >> 4) & 0x0f)) & 0xFF;
+                uint32_t g = (((c >> 8) & 0xFF) + vg) & 0xFF;
+                uint32_t b = ((c & 0xFF) + vg - 8 + (b2 & 0x0f)) & 0xFF;
+                c = (c & 0xFF000000u) | (r << 16) | (g << 8) | b;
+                break;
+            }
+            default:  // 11xxxxxx: RGB, RGBA, or a run
+                if (b1 == QOI_OP_RGB) {
+                    if (p + 3 > end) QFAIL(-EINVAL, "truncated QOI RGB chunk");
+                    c = (c & 0xFF000000u) | ((uint32_t)d[p] << 16) | ((uint32_t)d[p + 1] << 8) | d[p + 2];
+                    p += 3;
+                } else if (b1 == QOI_OP_RGBA) {
+                    if (p + 4 > end) QFAIL(-EINVAL, "truncated QOI RGBA chunk");
+                    c = ((uint32_t)d[p + 3] << 24) | ((uint32_t)d[p] << 16) |
+                        ((uint32_t)d[p + 1] << 8) | d[p + 2];
+                    p += 4;
+                    alpha |= (c >> 24) != 255;
+                } else {
+                    run = b1 & 0x3f;   // biased by 1: this pixel is the first
+                }
+                break;
+            }
+            index[qoi_hash32(c)] = c;
+            dst[x++] = c;
+        }
+        if (red) uimg_reduce_row(red, row);
+    }
+    *transparent = alpha;
+    return 0;
+}
+
 static int qoi_decode(const uint8_t *d, size_t n, struct uimg *out) {
     int w, h, ch, linear;
     int rc = qoi_read_header(d, n, &w, &h, &ch, &linear);
@@ -124,71 +209,37 @@ static int qoi_decode(const uint8_t *d, size_t n, struct uimg *out) {
 
     uint32_t *px = malloc((size_t)w * h * sizeof *px);
     if (!px) QFAIL(-ENOMEM, "not enough memory for the decoded image");
-
-    struct qoi_px index[64];
-    memset(index, 0, sizeof index);
-    struct qoi_px cur = { 0, 0, 0, 255 };
-
-    size_t p = QOI_HEADER_LEN;
-    // The last 8 bytes are the end marker and are never chunk data.
-    size_t end = n - QOI_PADDING_LEN;
-    long total = (long)w * h;
-    int run = 0;
     int transparent = 0;
-
-    for (long i = 0; i < total; i++) {
-        if (run > 0) {
-            run--;
-        } else if (p < end) {
-            int b1 = d[p++];
-            if (b1 == QOI_OP_RGB) {
-                if (p + 3 > end) { free(px); QFAIL(-EINVAL, "truncated QOI RGB chunk"); }
-                cur.r = d[p++];
-                cur.g = d[p++];
-                cur.b = d[p++];
-            } else if (b1 == QOI_OP_RGBA) {
-                if (p + 4 > end) { free(px); QFAIL(-EINVAL, "truncated QOI RGBA chunk"); }
-                cur.r = d[p++];
-                cur.g = d[p++];
-                cur.b = d[p++];
-                cur.a = d[p++];
-            } else if ((b1 & QOI_MASK_2) == QOI_OP_INDEX) {
-                cur = index[b1 & 0x3f];
-            } else if ((b1 & QOI_MASK_2) == QOI_OP_DIFF) {
-                // Each delta is 2 bits, BIASED BY 2, and wraps in 8 bits.
-                cur.r = (uint8_t)(cur.r + ((b1 >> 4) & 0x03) - 2);
-                cur.g = (uint8_t)(cur.g + ((b1 >> 2) & 0x03) - 2);
-                cur.b = (uint8_t)(cur.b + (b1 & 0x03) - 2);
-            } else if ((b1 & QOI_MASK_2) == QOI_OP_LUMA) {
-                if (p + 1 > end) { free(px); QFAIL(-EINVAL, "truncated QOI LUMA chunk"); }
-                int b2 = d[p++];
-                int vg = (b1 & 0x3f) - 32;
-                cur.r = (uint8_t)(cur.r + vg - 8 + ((b2 >> 4) & 0x0f));
-                cur.g = (uint8_t)(cur.g + vg);
-                cur.b = (uint8_t)(cur.b + vg - 8 + (b2 & 0x0f));
-            } else { // QOI_OP_RUN
-                run = b1 & 0x3f;   // biased by 1: the current pixel counts
-            }
-            index[qoi_hash(cur)] = cur;
-        } else {
-            // Out of chunks with pixels still to fill. Not fatal: the
-            // rest stays as the last pixel, which is what a truncated
-            // file looks like rather than a crash. It IS reported, so a
-            // caller can tell a short file from a short image.
-            free(px);
-            QFAIL(-EINVAL, "QOI ended before the image was complete");
-        }
-
-        if (cur.a != 255) transparent = 1;
-        px[i] = ((uint32_t)cur.a << 24) | ((uint32_t)cur.r << 16) |
-                ((uint32_t)cur.g << 8) | (uint32_t)cur.b;
-    }
-
+    // A truncated file is REPORTED, not padded: the caller can tell a
+    // short file from a short image.
+    rc = qoi_core(d, n, w, h, px, 0, 0, &transparent);
+    if (rc < 0) { free(px); return rc; }
     out->w = w;
     out->h = h;
     out->px = px;
     out->has_alpha = transparent;
     return 0;
+}
+
+// The picture shrunk by whole factors while it decodes (uimg.h's
+// decode_reduced): one row of the source alive at a time.
+static int qoi_decode_reduced(const uint8_t *d, size_t n, int kx, int ky, struct uimg *out) {
+    int w, h, ch, linear;
+    int rc = qoi_read_header(d, n, &w, &h, &ch, &linear);
+    if (rc < 0) return rc;
+    uint32_t *row = malloc((size_t)w * sizeof *row);
+    struct uimg_reduce red;
+    if (!row || uimg_reduce_init(&red, w, h, kx, ky, ch == 4) != 0) {
+        free(row);
+        QFAIL(-ENOMEM, "not enough memory to decode the image reduced");
+    }
+    int transparent = 0;
+    rc = qoi_core(d, n, w, h, 0, &red, row, &transparent);
+    free(row);
+    if (rc < 0) { uimg_reduce_abort(&red); return rc; }
+    rc = uimg_reduce_finish(&red, out);
+    if (rc == 0) out->has_alpha = transparent;
+    return rc;
 }
 
 
@@ -310,5 +361,6 @@ const struct uimg_codec uimg_codec_qoi = {
     .probe  = qoi_probe,
     .info   = qoi_info,
     .decode = qoi_decode,
+    .decode_reduced = qoi_decode_reduced,
     .encode = qoi_encode,
 };
