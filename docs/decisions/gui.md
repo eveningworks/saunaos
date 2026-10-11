@@ -11178,3 +11178,10 @@ without the `#places 2` line is the older pins-only file, read as the
 defaults followed by its pins, and a files.conf still naming
 `hidden_places` has those entries removed once.
 
+**The mounts reorder within their groups, not into Places** (chosen the
+same day): a volume among the volumes under This computer, a share among
+the shares under Network -- Dolphin's Devices. Explorer lets a drive be
+pinned into Quick access instead; not taken, so a drag keeps one meaning
+per group. The order is `dev:<mount point>` lines in `/etc/places.conf`,
+so a mount that is not there today keeps its place for when it is.
+

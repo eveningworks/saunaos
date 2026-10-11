@@ -11,6 +11,11 @@
 
 struct pin { char entry[UPINS_PATH]; char label[UPINS_LABEL]; };
 
+// The "dev:" lines, read with the entries and written back with them, so
+// no rewrite of the Places list drops the mounts' order.
+static char g_dev[UPINS_DEV_MAX][64];
+static int g_ndev;
+
 static const char *const DEFAULTS[] = {
     "recent:/", "/home", "udir:desktop", "udir:documents", "udir:music",
     "udir:pictures", "udir:videos", "udir:downloads", "trash:/",
@@ -33,6 +38,7 @@ static int read_all(struct pin *out, int cap) {
     int n = 0, versioned = 0;
     static struct pin old[UPINS_MAX];   // 6 KiB: never on a ring-3 frame
     int nold = 0;
+    g_ndev = 0;
     FILE *f = fopen(UPINS_FILE, "r");
     if (f) {
         char line[UPINS_PATH + UPINS_LABEL + 4];
@@ -40,6 +46,10 @@ static int read_all(struct pin *out, int cap) {
             size_t l = strlen(line);
             while (l && (line[l - 1] == '\n' || line[l - 1] == '\r')) line[--l] = '\0';
             if (!strcmp(line, VERSION_LINE)) { versioned = 1; continue; }
+            if (!strncmp(line, "dev:", 4)) {
+                if (g_ndev < UPINS_DEV_MAX && line[4] == '/') strlcpy(g_dev[g_ndev++], line + 4, sizeof g_dev[0]);
+                continue;
+            }
             char *tab = strchr(line, '\t');
             if (tab) *tab++ = '\0';
             if (!is_entry(line) || nold >= UPINS_MAX) continue;   // blank, a comment, or not one
@@ -67,6 +77,8 @@ static int write_all(const struct pin *in, int n) {
         if (in[i].label[0]) fprintf(f, "%s\t%s\n", in[i].entry, in[i].label);
         else fprintf(f, "%s\n", in[i].entry);
     }
+    if (g_ndev) fputs("# The mounts' order under This computer and Network\n", f);
+    for (int i = 0; i < g_ndev; i++) fprintf(f, "dev:%s\n", g_dev[i]);
     return fclose(f) == 0 ? 0 : -EIO;
 }
 
@@ -232,4 +244,28 @@ int upins_restore_defaults(void) {
     if (!back) return 0;
     int rc = write_all(g_all, n);
     return rc < 0 ? rc : back;
+}
+
+int upins_dev_order(char (*out)[64], int cap) {
+    read_all(g_all, UPINS_MAX);
+    int n = g_ndev < cap ? g_ndev : cap;
+    for (int i = 0; i < n; i++) strlcpy(out[i], g_dev[i], sizeof out[0]);
+    return n;
+}
+
+int upins_dev_set_order(char (*points)[64], int n) {
+    int np = read_all(g_all, UPINS_MAX);
+    static char merged[UPINS_DEV_MAX][64];
+    int m = 0;
+    for (int i = 0; i < n && m < UPINS_DEV_MAX; i++) strlcpy(merged[m++], points[i], sizeof merged[0]);
+    for (int i = 0; i < g_ndev && m < UPINS_DEV_MAX; i++) {
+        int seen = 0;
+        for (int k = 0; k < n; k++) if (!strcmp(points[k], g_dev[i])) seen = 1;
+        if (!seen) strlcpy(merged[m++], g_dev[i], sizeof merged[0]);
+    }
+    memcpy(g_dev, merged, sizeof merged[0] * (size_t)m);
+    g_ndev = m;
+    // An unversioned file is the old one: writing it makes it the new
+    // shape, defaults and all -- which read_all() has already put in g_all.
+    return write_all(g_all, np);
 }

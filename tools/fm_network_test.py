@@ -234,11 +234,34 @@ def main():
                 if w2["title"].endswith(" Properties"):
                     dc.close_window(w2["title"])
 
+            print("drag a share above another")
+            rows = share_rows(shot("tree2d"), tree)
+            if len(rows) >= 2:
+                x = tree["screen"]["x"] + 60
+                dc.warp_cursor(q, x, rows[1] + 6)
+                q.mouse_down()
+                time.sleep(0.2)
+                pitch = rows[1] - rows[0]          # one row: the upper third of row 0 is its gap above
+                for yy in range(rows[1] + 6, rows[0] - pitch // 3, -4):
+                    dc.warp_cursor(q, x, yy)
+                q.mouse_up()
+            conf = ""
+            for _ in range(20):
+                conf = dc.send("sh cat /etc/places.conf") or ""
+                if "dev:/net/public" in conf and "dev:/net/media" in conf:
+                    break
+                time.sleep(0.5)
+            moved = ("dev:/net/public" in conf and "dev:/net/media" in conf
+                     and conf.index("dev:/net/public") < conf.index("dev:/net/media"))
+            res.check("a share dragged above the other moves there (dev: lines in /etc/places.conf)",
+                      moved, conf[-300:])
+            public_row = 0 if moved else 1         # Forget below aims at `public`, wherever it is now
+
             print("forget a share from its row's menu")
             rows = share_rows(shot("tree2b"), tree)
             forgot = False
             if len(rows) >= 2:
-                dc.rclick(tree["screen"]["x"] + 40, rows[1])
+                dc.rclick(tree["screen"]["x"] + 40, rows[public_row])
                 # An app's own menu is not `gui ctxmenu`'s (that is the
                 # compositor's): Up from nothing is its LAST row,
                 # Properties; once more is Forget (fm_places.c's order).

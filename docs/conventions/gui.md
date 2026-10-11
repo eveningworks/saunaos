@@ -5835,7 +5835,10 @@ and brought back by "Restore default places". The list reorders by drag
 folder dropped in a GAP is pinned there, one dropped ONTO a row moves
 into that folder -- the tree tells them apart by how near the row's edge
 the pointer is. A drag of a row is `UUI_DRAG_ROW` and never leaves its
-window: uapp announces only a FILES drag to the compositor.
+window: uapp announces only a FILES drag to the compositor. **The volumes
+and the shares reorder too, each within its own group** (`group_of()`),
+saved as `dev:` lines in the same file and applied by
+`uui_places_refresh()`, so the file dialog shows the same order.
 
 ## A VERB'S ICON AND COLOUR COME FROM `ui/uui_verbs.h`, IN EVERY MENU
 

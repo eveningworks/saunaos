@@ -817,7 +817,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~File Manager in colour~~ DONE 2026-10-01 -- action colours as theme roles, folders by kind, place tiles, breadcrumb chips
 - [x] ~~File Manager to the design language~~ DONE 2026-10-01 -- soft selection, grey chrome, one navigation tree with volumes as roots
 - [x] ~~A menu on every row of the File Manager's left pane~~ DONE 2026-10-11 -- per kind of row; rename, move, unpin, restore defaults
-- [x] ~~Reorder Places by drag, and pin by dropping a folder~~ DONE 2026-10-11 -- one list (Explorer's Quick access); `uui_tree` reorders
+- [x] ~~Reorder Places, volumes and shares by drag; pin by dropping a folder~~ DONE 2026-10-11 -- `uui_tree` reorders
 - [x] ~~Properties of a volume or share~~ DONE 2026-10-11 -- a used/free ring and its facts (`uui_volinfo`), and in the details pane
 - [x] ~~Personal folders under /home~~ DONE 2026-10-11 -- Documents, Music, Pictures, Videos, Downloads; `lib/udirs.h`, moved once
 - [ ] A personal folder's Location: move it from its Properties, written to `/etc/user-dirs.conf` -- Windows' Location tab

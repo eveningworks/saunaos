@@ -627,7 +627,8 @@ manual steps to be worth automating:
   `/etc/mounts.d` and opening the share, Properties on the share's row
   (the volume page: its address, Connected, the user it signed in as --
   the `properties: row` lines), Forget this share from the row's own
-  menu (two Ups from nothing: Properties is the last row), an `smb://` address in the address bar opening a
+  menu (two Ups from nothing: Properties is the last row), a share
+  dragged above the other (`dev:` lines in `/etc/places.conf`), an `smb://` address in the address bar opening a
   session share whose Save to Network bar saves it, and the "not
   answering" dialog.
   Each step waits on the app's `files: netshare` log line. The positive
@@ -3302,8 +3303,11 @@ window without going through it will find its layout polls timing out.
   by PATH in the layout's `treerow` lines, a heading by its `-`**; the
   dragged folder is `0pin`, first under `..` in any sort order.
   `--positive-control` aims Properties at `/home`, a folder, which gets
-  the file page and no ring: that check reddens. The drag checks were
-  shown red by `mutate.py` refusing every gap in `places_can_insert()`.
+  the file page and no ring: that check reddens. Then a VOLUME dragged
+  above System (the `dev:` lines and the tree) and one dragged into Places
+  landing nowhere. The drag checks were shown red by `mutate.py` -- every
+  gap refused in `places_can_insert()`, and volumes made undraggable in
+  `group_of()`.
 
 - **`fm_thumb_drag_test.py`** -- the icons view's scrollbar after a
   click: `/bin`, click the first icon after `..` (`wm`), then drag the

@@ -61,4 +61,17 @@ int upins_missing_defaults(void);
 // Appends each missing default. How many came back, or -errno.
 int upins_restore_defaults(void);
 
+// THE MOUNTS' ORDER, in the same file as "dev:<mount point>" lines: the
+// volumes under This computer and the shares under Network, as the
+// person dragged them (Dolphin's Devices). A mount not named keeps the
+// kernel's order, after those that are; one named but not mounted today
+// keeps its place for when it is.
+#define UPINS_DEV_MAX 32
+// The saved order, into `out`: how many.
+int upins_dev_order(char (*out)[64], int cap);
+// Saves `points` (the mounts of one group, in their new order): each
+// takes its slot, and the saved points not among them keep theirs after.
+// 0 or -errno.
+int upins_dev_set_order(char (*points)[64], int n);
+
 #endif

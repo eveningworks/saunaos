@@ -12,7 +12,9 @@ volume card they and the details pane open (ui/uui_volinfo.h).
 3. **A default unpins like a pin**, and **Restore default places** on a
    heading brings it back. **Drag and drop**: a row dragged above Home
    lands there; a folder dragged from the pane to the gap below the
-   Recycle Bin is pinned there -- each read back from the file.
+   Recycle Bin is pinned there; a volume dragged above System moves
+   there (dev: lines) but dragged into Places lands nowhere -- each read
+   back from the file.
 4. **Properties on a volume opens the volume page**: the window is
    titled "System Properties", logs the volume's rows, and DRAWS its
    used/free ring -- track grey or the CREATE green all round the
@@ -232,6 +234,31 @@ def run(dbg, qmp, res, positive_control):
               "/home/0pin" in order and "trash:/" in order
               and order.index("/home/0pin") == order.index("trash:/") + 1, f"conf={c}")
     sh("rm -r /home/0pin")
+
+    # 3c. A volume moves among volumes (dev: lines), and never into Places
+    lay = fm.layout_now(dbg, win) or lay
+    rt, rs = row_of(lay, "/tmp"), row_of(lay, "/")
+    if rt is not None and rs is not None:
+        x0, y0 = row_y(lay, rt)
+        x1, y1 = row_y(lay, rs)
+        fm.band_drag(dbg, qmp, x0, y0, x1, y1 - lay.treebox[4] // 3, steps=6)
+    c = wait_conf(lambda c: "dev:/tmp" in c and "dev:/" in c)
+    lay = fm.wait_layout(dbg, win, lambda l: (row_of(l, "/tmp") or 99) < (row_of(l, "/") or -1)) \
+        or fm.layout_now(dbg, win) or fm.last_layout() or lay
+    res.check("a volume dragged above System moves there, in the file (dev: lines) and the tree",
+              "dev:/tmp" in c and "dev:/" in c and c.index("dev:/tmp") < c.index("dev:/")
+              and (row_of(lay, "/tmp") or 99) < (row_of(lay, "/") or -1), f"conf={c} tree={lay.treerow}")
+    before = conf()
+    rt, rh2 = row_of(lay, "/tmp"), row_of(lay, "/home")
+    if rt is not None and rh2 is not None:
+        x0, y0 = row_y(lay, rt)
+        x1, y1 = row_y(lay, rh2)
+        fm.band_drag(dbg, qmp, x0, y0, x1, y1 - lay.treebox[4] // 3, steps=6)
+    time.sleep(1.5)
+    after = conf()
+    res.check("...but dragged up into Places it lands nowhere (the list unchanged)",
+              [x for x in after if not x.startswith("dev:")] == [x for x in before if not x.startswith("dev:")]
+              and "/tmp" not in after, f"before={before} after={after}")
 
     # 4. Properties of a volume: the volume page, ring drawn
     target = "/home" if positive_control else "/"

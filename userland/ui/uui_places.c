@@ -130,9 +130,14 @@ void uui_places_refresh(struct uui_places *p) {
     if (p->selected >= 0) strlcpy(keep, p->row[p->selected].path, sizeof keep);
     p->count = p->places;
     struct query_fsinfo fs;
-    // Two passes over the mounts: the local devices, then the shares.
+    // Two passes over the mounts: the local devices, then the shares,
+    // each then put in the order the person dragged them into
+    // (upins_dev_order); a mount never ordered keeps the kernel's, after.
+    static char order[UPINS_DEV_MAX][64];
+    int norder = upins_dev_order(order, UPINS_DEV_MAX);
     for (int pass = 0; pass < 2; pass++) {
         if (pass == 1) p->network = p->count;
+        int first = p->count;
         for (int i = 0; p->count < UUI_PLACES_MAX; i++) {
             int n = sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs);
             if (n <= 0) break;
@@ -153,6 +158,21 @@ void uui_places_refresh(struct uui_places *p) {
             r->state = (int)fs.remote_state;
             r->session = remote && unetmount_is_session(fs.point);
             strlcpy(r->source, fs.source, sizeof r->source);
+        }
+        // Insertion sort, stable: a handful of rows.
+        static int rank[UUI_PLACES_MAX];
+        for (int i = first; i < p->count; i++) {
+            int rk = UPINS_DEV_MAX + i;
+            for (int k = 0; k < norder; k++) if (!strcmp(order[k], p->row[i].path)) { rk = k; break; }
+            rank[i] = rk;
+        }
+        for (int i = first + 1; i < p->count; i++) {
+            static struct uui_place tmp;
+            tmp = p->row[i];
+            int rk = rank[i], j = i - 1;
+            while (j >= first && rank[j] > rk) { p->row[j + 1] = p->row[j]; rank[j + 1] = rank[j]; j--; }
+            p->row[j + 1] = tmp;
+            rank[j + 1] = rk;
         }
     }
     if (p->hot >= p->count) p->hot = -1;

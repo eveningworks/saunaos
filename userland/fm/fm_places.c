@@ -371,31 +371,66 @@ void places_command(struct uapp *a, int code) {
 
 // --- reordering by drag (uui_tree_set_reorder) -------------------------------
 //
-// THE PLACES LIST moves by drag, like Explorer's Quick access: any of its
-// rows, into any gap between its rows -- never among the volumes. A
-// folder dragged in from a pane lands in such a gap too, and is pinned
+// THREE GROUPS MOVE BY DRAG, each within itself: the Places list (any
+// row, into any gap of it -- Explorer's Quick access), the volumes under
+// This computer and the shares under Network (Dolphin's Devices). A
+// folder dragged in from a pane lands only in a Places gap, and is pinned
 // there; dropped ONTO a row it is moved into that folder, as ever.
 
-static int in_list(int nid) {
+enum { G_NONE = -1, G_LIST, G_VOLUMES, G_SHARES };
+
+static int group_of(int nid) {
     int pl = tree_place_of(nid);
-    return pl >= 0 && pl < g_places.places;
+    if (pl < 0) return G_NONE;
+    if (pl < g_places.places) return G_LIST;
+    if (pl < g_places.network) return G_VOLUMES;
+    return pl < g_places.count ? G_SHARES : G_NONE;
 }
 
 static int places_can_drag(void *ctx, int nid) {
     (void)ctx;
-    return in_list(nid);
+    return group_of(nid) != G_NONE;
 }
 
-// The gap after `after`, before `before` (-1 at an end): inside the list,
-// or just after its last row.
+// The gap after `after`, before `before` (-1 at an end): beside a row of
+// the dragged row's own group -- files: of the Places list.
 static int places_can_insert(void *ctx, int from, int after, int before) {
-    (void)ctx; (void)from;
-    if (before >= 0 && in_list(before)) return after < 0 || in_list(after);
-    return after >= 0 && in_list(after);
+    (void)ctx;
+    int g = from >= 0 ? group_of(from) : G_LIST;
+    if (g == G_NONE) return 0;
+    if (before >= 0 && group_of(before) == g)
+        return after < 0 || group_of(after) == g || g != G_LIST;
+    return after >= 0 && group_of(after) == g;
 }
 
 void places_reorder_init(void) {
     uui_tree_set_reorder(&g_tree, places_can_drag, places_can_insert, 0);
+}
+
+// A volume or a share dropped in its group's gap: the group's points in
+// their new order, saved (lib/upins.h's dev: lines).
+// Before `before` when it is of the group, else right after `after` --
+// with the folder tree open, a volume's own folders sit between it and
+// the next, so the gap under it names a folder below.
+static void mounts_reorder(int g, int from, int after, int before) {
+    static char pts[UUI_PLACES_MAX][64];
+    int lo = g == G_VOLUMES ? g_places.places : g_places.network;
+    int hi = g == G_VOLUMES ? g_places.network : g_places.count;
+    const char *moved = g_places.row[tree_place_of(from)].path;
+    const char *ahead = before >= 0 && group_of(before) == g ? g_places.row[tree_place_of(before)].path : 0;
+    const char *behind = !ahead && after >= 0 && group_of(after) == g ? g_places.row[tree_place_of(after)].path : 0;
+    int n = 0, put = 0;
+    for (int i = lo; i < hi && n < UUI_PLACES_MAX - 1; i++) {
+        const char *p = g_places.row[i].path;
+        if (!strcmp(p, moved)) continue;
+        if (ahead && !strcmp(p, ahead)) { strlcpy(pts[n++], moved, sizeof pts[0]); put = 1; }
+        strlcpy(pts[n++], p, sizeof pts[0]);
+        if (behind && !strcmp(p, behind)) { strlcpy(pts[n++], moved, sizeof pts[0]); put = 1; }
+    }
+    if (!put) strlcpy(pts[n++], moved, sizeof pts[0]);
+    int e = upins_dev_set_order(pts, n);
+    ulogf("files: placedrop mount %s %s %s rc %d\n", moved, ahead ? "before" : "after",
+          ahead ? ahead : behind ? behind : "-", e);
 }
 
 // A drop into a gap of the list: a row moved, or the source pane's
@@ -405,10 +440,12 @@ int places_drop(struct uui_fileview *src) {
     int from, after, before;
     if (!uui_tree_drop_insert(&g_tree, &from, &after, &before)) return 0;
     char before_path[PATH_MAX_LEN] = "";
-    if (before >= 0 && before < g_tree_count && in_list(before))
+    if (before >= 0 && before < g_tree_count && group_of(before) == G_LIST)
         strlcpy(before_path, g_tree_path[before], sizeof before_path);
     const char *at = before_path[0] ? before_path : 0;
-    if (from >= 0 && from < g_tree_count) {
+    if (from >= 0 && from < g_tree_count && group_of(from) != G_LIST) {
+        mounts_reorder(group_of(from), from, after, before);
+    } else if (from >= 0 && from < g_tree_count) {
         char moved[PATH_MAX_LEN];
         strlcpy(moved, g_tree_path[from], sizeof moved);
         int e = upins_move_before(moved, at);
