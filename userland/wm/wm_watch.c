@@ -3,6 +3,7 @@
 #include "wm/wm_log.h"
 #include "rt/sys.h"
 #include "lib/udclick.h"
+#include "ui/utheme.h"
 #include "lib/udirs.h"
 
 static const char *PATH[WM_TOPIC_COUNT] = {
@@ -51,6 +52,7 @@ void wm_watch_fired(int id) {
 void wm_watch_setting(void) {
     g_gen[WM_TOPIC_SETTINGS]++;
     udclick_reload();   // the compositor's own clicks: title bars, desktop icons
+    utheme_settings_reload();   // its corners and scrollbars (ui/utheme.h)
 }
 
 uint64_t wm_watch_gen(enum wm_topic t) {

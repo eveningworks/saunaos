@@ -1,0 +1,11 @@
+Type=enum
+File=/etc/desktop.conf
+Label=Scrollbars
+Category=Appearance
+Group=Windows
+Default=always
+Choices=always,auto
+Description=Always show the groove and the handle, or a thin handle that widens when the pointer comes near
+Order=30
+Choice.always=Always
+Choice.auto=When pointed at

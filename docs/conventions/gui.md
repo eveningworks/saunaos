@@ -525,9 +525,9 @@ this the obvious way), not from how much history it accumulated.
   or the window below rather than a guessed colour. It works because
   the compositor repaints everything under the damage box back to
   front (`docs/decisions/gui.md`); nothing else knows a corner is
-  transparent, and nothing needs to. **The radius is half the line
-  height**, 8 px at the default font (Plasma's; a third was tried and
-  read as square), and **a maximized window is
+  transparent, and nothing needs to. **The radius is the Windows corner
+  group's** (`utheme_radius(UTHEME_R_WINDOW)`, 8 px at Small; Square
+  makes it 0 and nothing is saved), and **a maximized window is
   square** -- Plasma's and Windows 11's rule both. **Hit testing stays
   rectangular**: a click in a corner belongs to the window. Two
   consequences for tests: a pixel sampled at a window's outermost
@@ -945,9 +945,21 @@ this the obvious way), not from how much history it accumulated.
   open-on-press exception in `docs/gui-guidelines.md` is about the
   primary button and does not carry over.
 
+- **A CORNER RADIUS COMES FROM `utheme_radius(group)`, NEVER A LITERAL.**
+  Five groups (`enum utheme_round`: control, popup, window, selection,
+  scrollbar) from `desktop.corners` -- a preset or Custom's
+  `desktop.corners_*` pixels, capped at 16. Controls draw their frame with
+  `uui_control_frame()`; a selection rounds with `uui_select_radius()`.
+  The value is cached; `utheme_settings_reload()` runs on WIN_EV_SETTING
+  in both uapp and the WM, so an open app changes at once. **A popup that
+  belongs to a control** (a dropdown's list) opens with
+  `UUI_POPUP_CONTROL`, carried to the WM as `WIN_POPUP_CONTROL`, and the
+  compositor cuts it at the CONTROLS radius instead of the popup one.
+  Pixels, not line heights: the groups are what the user sets in pixels,
+  Windows 11's own unit.
 - **A POPUP IS THE TOOLKIT'S CARD: PAINTED SQUARE INTO A SURFACE, CUT
   ROUND BY THE COMPOSITOR.** `ui/uui_popup.h` owns the card's radius
-  (`uui_popup_radius()`, font-derived), ground and hairline, so a menu,
+  (`uui_popup_radius()`, the Popups corner group's), ground and hairline, so a menu,
   a dropdown list and a tooltip are one shape. A widget drawing into a
   popup SURFACE paints a square card; `wm_render.c` saves what is under
   the corners, composites the surface, and cuts the arc as it does a
@@ -5669,6 +5681,13 @@ main()'s local.
   `UUI_SCROLLBAR_HELD` while a drag holds the thumb.
 - **The column under an overlay bar is the PAGE's colour**, painted by
   the app: the bar draws only its thumb and groove.
+- **The bar is FLUSH with its strip's far edge at every width.** An inset
+  there left a one-pixel column of field that a whole-widget focus ring
+  painted only while the selection was scrolled away -- a gap that came
+  and went with the scroll position. `tools/corners_test.py` checks it.
+- **`utheme_scrollbars_always()` changes the SHAPE, never the hover**:
+  under Always the geometry is the wide one at rest and `wide` only
+  darkens the thumb, so a test of hover still sees it.
 
 ## A SCROLLING VIEW EMBEDS `uui_sbar`, AND ROUTES ITS POINTER THROUGH IT FIRST
 

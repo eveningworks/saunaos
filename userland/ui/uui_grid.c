@@ -123,10 +123,10 @@ static void grid_draw(struct ugfx_surface *s, const void *w) {
         int st = 0;
         if (i == g->selected) {
             st |= UUI_GRID_SELECTED | (g->focused ? UUI_GRID_FOCUSED : 0);
-            uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, 6, UTHEME_ACCENT);
+            uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, uui_select_radius(0), UTHEME_ACCENT);
         } else if (i == g->hot) {
             st |= UUI_GRID_HOT;
-            uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, 6, uui_state_bg(g->bg, UUI_STATE_HOVER));
+            uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, uui_select_radius(0), uui_state_bg(g->bg, UUI_STATE_HOVER));
         }
         g->cell(s, g->ctx, i, x, y, px, g->cell_h, st);
     }

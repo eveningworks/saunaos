@@ -67,7 +67,9 @@ void uui_checkbox_draw(struct ugfx_surface *s, const struct uui_checkbox *cb) {
 
     int bs = box_size(cb);
     if (cb->accent) {
-        int r = bs / 4 > 1 ? bs / 4 : 1;
+        // The Controls radius, no rounder than a third of the box.
+        int r = uui_control_radius(0);
+        if (r > bs / 3) r = bs / 3;
         uint32_t edge = cb->checked && !cb->disabled ? UTHEME_ACCENT : UTHEME_OUTLINE;
         uui_fill_round_rect(s, cb->x, cb->y, bs, bs, r, edge);
         if (!cb->checked || cb->disabled)

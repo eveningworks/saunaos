@@ -1072,11 +1072,11 @@ static void ic_draw(struct ugfx_surface *s, const struct uui_fileview *fv) {
         if (selected || marked) {
             int cur = selected && t->focused;
             uint32_t edge = cur ? UTHEME_ACCENT : ugfx_blend(UTHEME_WHITE, UTHEME_ACCENT, 130);
-            uui_fill_round_rect(s, x, y, cw - 2, chh - 2, 6, edge);
-            uui_fill_round_rect(s, x + 1, y + 1, cw - 4, chh - 4, 5, bg);
+            uui_fill_round_rect(s, x, y, cw - 2, chh - 2, uui_select_radius(0), edge);
+            uui_fill_round_rect(s, x + 1, y + 1, cw - 4, chh - 4, uui_select_radius(1), bg);
             if (cur) cursor_drawn = 1;
         } else if (bg != uui_table_c_bg(t)) {
-            uui_fill_round_rect(s, x, y, cw - 2, chh - 2, 8, bg);
+            uui_fill_round_rect(s, x, y, cw - 2, chh - 2, uui_select_radius(0), bg);
         }
 
         int is_up = fv_is_up_row(fv, src);

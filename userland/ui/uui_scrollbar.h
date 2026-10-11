@@ -108,6 +108,10 @@ void uui_scrollbar_draw_styled(struct ugfx_surface *s, int x, int y, int w, int 
 
 // The thumb is held by a drag: the overlay bar draws it darker.
 #define UUI_SCROLLBAR_HELD   0x04
+// The bar floats OVER content it does not reserve (the Terminal's last
+// column): it stays thin at rest even under desktop.scrollbars=always,
+// or the groove would hide that content for good.
+#define UUI_SCROLLBAR_FLOATS 0x08
 
 // THE OVERLAY BAR, Windows 11's and Plasma's -- the Start menu's, which
 // draws through this:

@@ -47,6 +47,9 @@
 // marks its ground whether or not glass is on.
 #define UUI_POPUP_GLASS 0x02u
 #define UUI_POPUP_GLASS_PX 0xFF000000u
+// A CONTROL'S LIST -- a dropdown's: its corners are the Controls radius,
+// as the box's are, not the menus' (abi/win_proto.h's WIN_POPUP_CONTROL).
+#define UUI_POPUP_CONTROL 0x04u
 
 struct uui_popup_ops {
     // 0 on refusal; else an id > 0 and where it landed in *out_x/*out_y.
@@ -75,7 +78,8 @@ struct ugfx_surface *uui_popup_surface(int id);
 // corners itself (wm_render.c, as it does a window's) at this radius, so
 // a widget drawing into a surface paints a SQUARE card and lets the
 // compositor cut it; one drawing in-window (no provider -- the WM's own
-// menus) rounds with uui_fill_round_rect(). Font-derived: 8 px at 14 px.
+// menus) rounds with uui_fill_round_rect(). The Popups group of
+// desktop.corners (ui/utheme.h): 8 px under the default Small.
 int uui_popup_radius(void);
 uint32_t uui_popup_bg(void);      // a step lighter than the chrome
 uint32_t uui_popup_border(void);  // the card's hairline

@@ -474,10 +474,10 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
             if (selected) {
                 uint32_t edge = t->focused ? UTHEME_ACCENT
                                            : ugfx_blend(UTHEME_WHITE, UTHEME_ACCENT, 130);
-                uui_fill_round_rect(s, rx, ry + 1, rw, rh - 2, 5, edge);
-                uui_fill_round_rect(s, rx + 1, ry + 2, rw - 2, rh - 4, 4, sel_bg);
+                uui_fill_round_rect(s, rx, ry + 1, rw, rh - 2, uui_select_radius(0), edge);
+                uui_fill_round_rect(s, rx + 1, ry + 2, rw - 2, rh - 4, uui_select_radius(1), sel_bg);
             } else {
-                uui_fill_round_rect(s, rx, ry + 1, rw, rh - 2, 5,
+                uui_fill_round_rect(s, rx, ry + 1, rw, rh - 2, uui_select_radius(0),
                                     uui_state_bg(t->bg, UUI_STATE_HOVER));
             }
         } else if (selected)
@@ -876,7 +876,7 @@ static void tree_drag_draw_op(struct ugfx_surface *s, const void *w, const struc
     const struct uimg *ic = t->nodes[n].icon ? icon_get(t->nodes[n].icon, px) : 0;
     int tw = ugfx_text_width(t->drag_label);
     int gx = d->x + 12, gy = d->y + 8, gw = px + 10 + tw + 8, gh = px + 8;
-    uui_fill_round_rect(s, gx, gy, gw, gh, 5, t->sel_bg);
+    uui_fill_round_rect(s, gx, gy, gw, gh, uui_select_radius(0), t->sel_bg);
     if (ic) ugfx_blit_alpha(s, gx + 4, gy + 4, ic->w, ic->h, ic->px, ic->w);
     ugfx_draw_string(s, gx + px + 10, gy + (gh - ugfx_char_h()) / 2, t->drag_label, t->sel_fg, t->sel_bg);
 }

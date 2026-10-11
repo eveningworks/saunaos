@@ -12,7 +12,7 @@ static int min_card(void) { return ugfx_char_h() * 13; }
 static int tile_h(void)   { return ugfx_char_h() * 4 + 4; }
 static int label_h(void)  { return ugfx_char_h() + 8; }
 static int card_h(void)   { return 2 * pad() + tile_h() + label_h(); }
-static int radius(void)   { return ugfx_char_h() * 5 / 8; }
+static int radius(void)   { return uui_select_radius(0); }   // the Selection group (ui/utheme.h)
 
 void uui_gallery_init(struct uui_gallery *g, const char *const *labels, int count,
                       int selected) {

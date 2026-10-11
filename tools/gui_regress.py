@@ -172,6 +172,7 @@ TOOLS = [
     ("netadapter", "netadapter_test.py", "a network card's adapter settings: netctl link, Settings > Adapters, saved and restored"),
     ("sndformat", "sndformat_test.py", "a sound card's Format panel, in Settings and Device Manager, and Settings' speaker Test card"),
     ("bootmgr", "bootmgr_test.py", "Boot Manager and Settings > Boot menu write grub.cfg; a broken file is refused"),
+    ("corners", "corners_test.py", "desktop.corners reaches an open app's button corner; desktop.scrollbars draws the groove at rest, flush with the edge"),
     ("fbs", "fbs_test.py", "First-boot setup: --boot decides, fullscreen keeps the tray out, choices saved, finished and skipped"),
     ("logview", "logview_test.py", "Log Viewer: severity colours, Errors, repeats, Only this, a kept Mute"),
     ("properties", "properties_test.py", "Properties: hero by pixel, sections, chmod/rename/opens-with/SHA-256 checked outside the app"),
@@ -298,6 +299,7 @@ COST_S = {
     "taskmgr": 19,
     "devmgr": 25,      # a row-by-row select twice, a disable and an enable
     "bootmgr": 25,     # two apps, a save, a refused save, four bootcfg reads
+    "corners": 20,     # two settings flipped twice, four settled frames
     "fbs": 30,         # two spawns, seven steps, a dozen config reads
     "properties": 25,  # two windows, a screenshot, five edits each read back
     "help": 15,        # a dozen settled clicks and keys, one screenshot

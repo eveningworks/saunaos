@@ -29,6 +29,7 @@ struct uui_sbar {
     int step;          // one line, in those units: a page is visible - step
     int grab;          // OWNED: where in the thumb a drag holds it, or -1
     int hover;         // OWNED: the pointer is on the strip
+    int floats;        // over content it does not reserve: thin at rest even under Always
     // The widening, eased: out over a few frames, back only after the
     // pointer has been gone a moment, so a hand drifting off does not
     // snatch the bar away -- the Start menu's numbers. A function of

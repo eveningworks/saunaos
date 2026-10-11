@@ -3,6 +3,9 @@
 // and the utheme_*() metric calls.
 #include "ui/utheme.h"
 #include "ui/ugfx.h"
+#include "ui/uui_primitives.h"   // UUI_CAPSULE
+#include "lib/usetting.h"
+#include <string.h>
 
 static struct utheme g_theme;
 static int g_inited;
@@ -97,3 +100,48 @@ int utheme_gap(void)       { return utheme_pad(); }
 int utheme_border_w(void)  { return 1; }
 int utheme_control_h(void) { return ch() + utheme_pad(); }
 int utheme_focus_w(void)   { return 2; }
+
+// --- corners and the scrollbar's look (utheme.h) ---------------------------
+
+static const int PRESET[][UTHEME_R_COUNT] = {
+    /* square */ { 0, 0, 0, 0, 0 },
+    /* small  */ { 4, 8, 8, 4, 3 },                       // Windows 11's
+    /* medium */ { 4, 10, 8, 8, UUI_CAPSULE },            // the look before the setting
+    /* round  */ { 8, 14, 12, 10, UUI_CAPSULE },
+};
+static const char *const PRESET_NAME[] = { "square", "small", "medium", "round" };
+static const char *const GROUP_KEY[UTHEME_R_COUNT] = {
+    "desktop.corners_controls", "desktop.corners_popups", "desktop.corners_windows",
+    "desktop.corners_selection", "desktop.corners_scrollbars",
+};
+static int g_radius[UTHEME_R_COUNT];
+static int g_sb_always = 1;
+static int g_round_loaded;
+
+static void load_round(void) {
+    char v[SETTING_ABI_VALUE_MAX] = "";
+    int preset = 1;   // small, the default
+    if (usetting_get("desktop.corners", v, sizeof v)) {
+        for (int i = 0; i < 4; i++) if (!strcmp(v, PRESET_NAME[i])) preset = i;
+        if (!strcmp(v, "custom")) preset = -1;
+    }
+    for (int g = 0; g < UTHEME_R_COUNT; g++) {
+        int px = PRESET[preset < 0 ? 1 : preset][g];
+        if (preset < 0 && usetting_get_int(GROUP_KEY[g], &px) && px > 16) px = 16;
+        g_radius[g] = px;
+    }
+    g_sb_always = !(usetting_get("desktop.scrollbars", v, sizeof v) && !strcmp(v, "auto"));
+    g_round_loaded = 1;
+}
+
+int utheme_radius(enum utheme_round which) {
+    if (!g_round_loaded) load_round();
+    return which >= 0 && which < UTHEME_R_COUNT ? g_radius[which] : 0;
+}
+
+int utheme_scrollbars_always(void) {
+    if (!g_round_loaded) load_round();
+    return g_sb_always;
+}
+
+void utheme_settings_reload(void) { g_round_loaded = 0; }

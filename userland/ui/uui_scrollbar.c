@@ -263,19 +263,30 @@ void uui_scrollbar_draw_overlay(struct ugfx_surface *s, int x, int y, int w, int
     int far = (horiz ? y + h : x + w) - 1;
 
     // Thin: a 3 px thumb on the strip's far edge. Wide: a groove the
-    // run of the strip and EXACTLY the thumb's width -- the capsule in a
+    // run of the strip and EXACTLY the thumb's width -- the handle in a
     // channel of its own size, no rim of grey beside it. Every `wide`
     // between is the two blended, the groove fading in as it widens.
+    //
+    // ALWAYS (desktop.scrollbars, the default) draws the wide SHAPE at
+    // rest and lets `wide` -- the pointer's nearness -- only darken the
+    // handle: Windows 11's "Always show scrollbars". The corners are the
+    // Scrollbars group's (desktop.corners).
+    int geo = utheme_scrollbars_always() && !(flags & UUI_SCROLLBAR_FLOATS) ? 255 : wide;
+    int r = utheme_radius(UTHEME_R_SCROLLBAR);
     int inset = uui_scrollbar_thumb_inset(bw);
-    int tw = OVERLAY_THIN + (bw - 2 * inset - OVERLAY_THIN) * wide / 255;
-    int edge = far - (inset - 1) * wide / 255;   // the thumb's outer edge
-    if (wide > 0) {
-        uint32_t gc = ugfx_blend(ground, ink, (uint8_t)(24 * wide / 255));
-        if (horiz) uui_fill_round_rect(s, x, edge - tw + 1, w, tw, UUI_CAPSULE, gc);
-        else       uui_fill_round_rect(s, edge - tw + 1, y, tw, h, UUI_CAPSULE, gc);
+    int tw = OVERLAY_THIN + (bw - 2 * inset - OVERLAY_THIN) * geo / 255;
+    // FLUSH with the strip's far edge at every width. An inset there left
+    // a one-pixel column that a widget's whole-rect focus ring painted
+    // only while the selection was scrolled away -- a gap that came and
+    // went with the scroll position.
+    int edge = far;
+    if (geo > 0) {
+        uint32_t gc = ugfx_blend(ground, ink, (uint8_t)(24 * geo / 255));
+        if (horiz) uui_fill_round_rect(s, x, edge - tw + 1, w, tw, r, gc);
+        else       uui_fill_round_rect(s, edge - tw + 1, y, tw, h, r, gc);
     }
     uint32_t held = ugfx_blend(ground, ink, (flags & UUI_SCROLLBAR_HELD) ? 170 : 130);
     uint32_t tc = ugfx_blend(UTHEME_OUTLINE, held, (uint8_t)wide);
-    if (horiz) uui_fill_round_rect(s, tp, edge - tw + 1, tl, tw, UUI_CAPSULE, tc);
-    else       uui_fill_round_rect(s, edge - tw + 1, tp, tw, tl, UUI_CAPSULE, tc);
+    if (horiz) uui_fill_round_rect(s, tp, edge - tw + 1, tl, tw, r, tc);
+    else       uui_fill_round_rect(s, edge - tw + 1, tp, tw, tl, r, tc);
 }

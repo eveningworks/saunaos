@@ -1,0 +1,16 @@
+Type=int
+File=/etc/desktop.conf
+Label=Scrollbars
+Category=Appearance
+Group=Windows
+Default=3
+Min=0
+Max=16
+Step=1
+Unit=px
+Description=The scrollbar's groove and handle
+Requires=desktop.corners=custom
+RequiresReason=Choose Custom in Corners to set this apart
+WhenUnmet=hide
+Order=45
+Advanced=1

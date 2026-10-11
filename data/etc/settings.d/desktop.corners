@@ -1,0 +1,16 @@
+Type=enum
+File=/etc/desktop.conf
+Label=Corners
+Category=Appearance
+Group=Windows
+Default=small
+Choices=square,small,medium,round,custom
+Description=How round buttons, menus and windows are; Custom sets each kind apart
+Order=40
+Advanced=1
+Widget=dropdown
+Choice.square=Square
+Choice.small=Small
+Choice.medium=Medium
+Choice.round=Round
+Choice.custom=Custom

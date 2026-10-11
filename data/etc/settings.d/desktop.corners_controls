@@ -1,0 +1,16 @@
+Type=int
+File=/etc/desktop.conf
+Label=Controls
+Category=Appearance
+Group=Windows
+Default=4
+Min=0
+Max=16
+Step=1
+Unit=px
+Description=Buttons, text fields, dropdowns and their lists, segmented buttons
+Requires=desktop.corners=custom
+RequiresReason=Choose Custom in Corners to set this apart
+WhenUnmet=hide
+Order=41
+Advanced=1

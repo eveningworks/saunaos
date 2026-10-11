@@ -33,10 +33,8 @@ struct ugfx_surface *uui_popup_surface(int id) {
 }
 
 int uui_popup_radius(void) {
-    int r = ugfx_char_h() * 5 / 8;
-    if (r < 4) r = 4;
-    if (r > 16) r = 16;
-    return r;
+    int r = utheme_radius(UTHEME_R_POPUP);
+    return r < 0 ? 0 : r;   // no preset rounds a popup fully
 }
 
 uint32_t uui_popup_bg(void)     { return ugfx_blend(UTHEME_WHITE, UTHEME_CHROME, 40); }

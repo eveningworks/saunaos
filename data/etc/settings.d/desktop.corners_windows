@@ -1,0 +1,16 @@
+Type=int
+File=/etc/desktop.conf
+Label=Windows
+Category=Appearance
+Group=Windows
+Default=8
+Min=0
+Max=16
+Step=1
+Unit=px
+Description=Window and dialog corners
+Requires=desktop.corners=custom
+RequiresReason=Choose Custom in Corners to set this apart
+WhenUnmet=hide
+Order=43
+Advanced=1

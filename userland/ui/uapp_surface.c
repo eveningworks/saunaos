@@ -285,7 +285,8 @@ static int popup_open(void *ctx, int ax, int ay, int aw, int ah, int w, int h,
     m.pos.gravity = gravity == UUI_POPUP_RIGHT ? WIN_POPUP_RIGHT : WIN_POPUP_BELOW;
     _Static_assert(UUI_POPUP_GLASS_PX == WIN_GLASS_PX, "one glass mark, two names");
     m.pos.flags = ((flags & UUI_POPUP_GRAB) ? WIN_POPUP_GRAB : 0) |
-                  ((flags & UUI_POPUP_GLASS) ? WIN_POPUP_GLASS : 0);
+                  ((flags & UUI_POPUP_GLASS) ? WIN_POPUP_GLASS : 0) |
+                  ((flags & UUI_POPUP_CONTROL) ? WIN_POPUP_CONTROL : 0);
     if (!wmchan() ||
         uchan_call(&g_wmchan, &m, sizeof m, &r, sizeof r, UAPP_CALL_TIMEOUT_MS) < 0 ||
         r.a < 0) {

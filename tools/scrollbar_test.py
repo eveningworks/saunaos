@@ -67,8 +67,8 @@ SPAWN_TIMEOUT_S = 20.0
 ENTER = "0x0d"
 
 # THE OVERLAY BAR (ui/uui_scrollbar.h's uui_scrollbar_draw_overlay):
-# nothing but a thin thumb at rest, a groove and a full-width thumb
-# under the pointer. The thumb is a blend toward the text ink, the
+# groove and thumb at rest under Always (the default), a thin thumb at
+# rest under Automatically, the full width under the pointer. The thumb is a blend toward the text ink, the
 # groove only a faint one, the ground the document's white -- so "a
 # thumb pixel" is anything darker than THUMB_MAX.
 THUMB_MAX = 190
@@ -204,14 +204,26 @@ def run(dbg, qmp, tmp, res):
         return
     bar = Bar(win["content"], layout)
 
-    # AT REST it is an OVERLAY: a thin thumb on the strip's right edge and
-    # nothing at its centre. The pointer is parked off the strip first.
+    # AT REST, desktop.scrollbars decides: Always (the default) draws the
+    # full thumb, so the strip's centre column has it; Automatically
+    # leaves a thin thumb on the right edge and nothing at the centre.
+    # The pointer is parked off the strip first.
     dbg.warp_cursor(qmp, bar.x - 60, bar.y + bar.h // 2)
     time.sleep(0.4)
+    im = shot(qmp, tmp, "sb_always.png")
+    always_mid, _ = thumb_extent(im, bar, x=bar.x + bar.w // 2)
+    res.check("at rest under Always the full thumb shows (its centre column is thumb)",
+              always_mid is not None, f"centre run at {always_mid}")
+    dbg.send("sh config set desktop.scrollbars auto")
+    time.sleep(1.5)
+    dbg.settle()
     im = shot(qmp, tmp, "sb_rest.png")
     rest_edge, _ = thumb_extent(im, bar, x=bar.x + bar.w - 2)
     rest_mid, _ = thumb_extent(im, bar, x=bar.x + bar.w // 2)
-    res.check("at rest the bar is a thin thumb on its edge (an overlay bar)",
+    dbg.send("sh config set desktop.scrollbars always")   # every later check, and tool, sees the default
+    time.sleep(1.5)
+    dbg.settle()
+    res.check("at rest under Automatically the bar is a thin thumb on its edge",
               rest_edge is not None and rest_mid is None,
               f"edge run at {rest_edge}, centre run at {rest_mid}")
 

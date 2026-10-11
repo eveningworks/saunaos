@@ -1,0 +1,16 @@
+Type=int
+File=/etc/desktop.conf
+Label=Selection
+Category=Appearance
+Group=Windows
+Default=4
+Min=0
+Max=16
+Step=1
+Unit=px
+Description=A selected row, card or icon
+Requires=desktop.corners=custom
+RequiresReason=Choose Custom in Corners to set this apart
+WhenUnmet=hide
+Order=44
+Advanced=1

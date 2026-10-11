@@ -1039,9 +1039,11 @@ int wm_cursor_shape_changed(int mx, int my) {
 static int corner_radius(const struct window *win) {
     if (win->state == WIN_MAXIMIZED || win->fullscreen) return 0;
     // A POPUP is the toolkit's card (ui/uui_popup.h): its widget paints
-    // it square and the corners are cut here, as a window's are.
-    int r = win->popup ? uui_popup_radius() : ugfx_char_h() / 2;
-    if (r < 4) r = 4;
+    // it square and the corners are cut here, as a window's are. Each
+    // radius is its desktop.corners group's (ui/utheme.h); Square is 0.
+    int r = !win->popup ? utheme_radius(UTHEME_R_WINDOW)
+          : win->popup_control ? utheme_radius(UTHEME_R_CONTROL) : uui_popup_radius();
+    if (r <= 0) return 0;
     if (r > CORNER_MAX_R) r = CORNER_MAX_R;
     if (2 * r > win->w || 2 * r > win->h) return 0;
     return r;

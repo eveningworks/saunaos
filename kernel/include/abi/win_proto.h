@@ -1049,7 +1049,7 @@ struct win_event {
 struct win_popup_pos {
     int32_t  ax, ay, aw, ah;  // the anchor rect, in the PARENT's content coords
     uint32_t gravity;         // WIN_POPUP_*
-    uint32_t flags;           // WIN_POPUP_GRAB | WIN_POPUP_GLASS; every other bit must be 0
+    uint32_t flags;           // WIN_POPUP_GRAB | WIN_POPUP_GLASS | WIN_POPUP_CONTROL; every other bit must be 0
 };
 #define WIN_POPUP_BELOW 0 // left edges aligned, below the anchor; flips above
 #define WIN_POPUP_RIGHT 1 // top edges aligned, right of the anchor; flips left
@@ -1063,6 +1063,10 @@ struct win_popup_pos {
 // client names the region, the compositor owns the effect.
 #define WIN_POPUP_GLASS 0x02u
 #define WIN_GLASS_PX    0xFF000000u
+// A CONTROL'S OWN LIST (a dropdown's), not a menu: the compositor cuts
+// its corners at the Controls radius, like the box it drops from, rather
+// than at the menus' (ui/utheme.h's desktop.corners groups).
+#define WIN_POPUP_CONTROL 0x04u
 
 // --- dialog windows (WIN_REQ_DIALOG) -----------------------------------
 //

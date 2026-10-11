@@ -460,7 +460,7 @@ static void bar_rect(int win_w, int win_h, int *x, int *y, int *w, int *h) {
 // the UI face, since its width is read from the face selected
 // (bar_w()'s rule); its position counts from the top, sb_view from the
 // bottom.
-static struct uui_sbar g_sb = { .step = 1, .grab = -1 };   // uui_sbar_init()'s values
+static struct uui_sbar g_sb = { .step = 1, .grab = -1, .floats = 1 };   // uui_sbar_init()'s values; over the grid's last column
 
 static struct uui_sbar *term_sbar(int win_w, int win_h, const struct session *ses) {
     int bx, by, bw, bh;

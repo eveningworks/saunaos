@@ -82,7 +82,8 @@ void uui_sbar_draw(const struct uui_sbar *b, struct ugfx_surface *s,
     if (!settled) uui_anim_request();
     uui_scrollbar_draw_overlay(s, b->x, b->y, b->w, b->h, b->total, b->visible,
                                offset(b), ground, ink, wide,
-                               b->grab >= 0 ? UUI_SCROLLBAR_HELD : 0);
+                               (b->grab >= 0 ? UUI_SCROLLBAR_HELD : 0) |
+                               (b->floats ? UUI_SCROLLBAR_FLOATS : 0));
 }
 
 static int move_to(struct uui_sbar *b, int top) {

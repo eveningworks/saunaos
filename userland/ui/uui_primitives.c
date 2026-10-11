@@ -215,3 +215,25 @@ void uui_fill_round_rect(struct ugfx_surface *s, int x, int y, int w, int h,
         }
     }
 }
+
+int uui_control_radius(int in) {
+    int r = utheme_radius(UTHEME_R_CONTROL) - in;
+    return r > 0 ? r : 0;
+}
+
+void uui_control_frame(struct ugfx_surface *s, int x, int y, int w, int h,
+                       uint32_t fill, uint32_t border) {
+    int r = uui_control_radius(0);
+    if (r <= 0) {
+        ugfx_fill_rect(s, x, y, w, h, fill);
+        ugfx_draw_rect(s, x, y, w, h, border);
+        return;
+    }
+    uui_fill_round_rect(s, x, y, w, h, r, border);
+    uui_fill_round_rect(s, x + 1, y + 1, w - 2, h - 2, uui_control_radius(1), fill);
+}
+
+int uui_select_radius(int in) {
+    int r = utheme_radius(UTHEME_R_SELECTION) - in;
+    return r > 0 ? r : 0;
+}

@@ -56,8 +56,8 @@ void uui_segmented_draw(struct ugfx_surface *s, const struct uui_segmented *sg) 
 
     // The outer capsule-ish frame, then each face inset by the 1px edge
     // so neighbours share one divider line.
-    uui_fill_round_rect(s, sg->x, sg->y, sg->w, sg->h, 4, edge);
-    uui_fill_round_rect(s, sg->x + 1, sg->y + 1, sg->w - 2, sg->h - 2, 3, face);
+    uui_fill_round_rect(s, sg->x, sg->y, sg->w, sg->h, uui_control_radius(0), edge);
+    uui_fill_round_rect(s, sg->x + 1, sg->y + 1, sg->w - 2, sg->h - 2, uui_control_radius(1), face);
     for (int i = 0; i < n; i++) {
         int x = sg->x + i * sw;
         int chosen = i == sg->selected;
@@ -71,7 +71,7 @@ void uui_segmented_draw(struct ugfx_surface *s, const struct uui_segmented *sg) 
             // fill, then its inner half squared off again.
             int l = i == 0, r = i == n - 1, fy = sg->y + 1, fh = sg->h - 2;
             if (l || r) {
-                uui_fill_round_rect(s, x + l, fy, sw - l - r, fh, 3, bg);
+                uui_fill_round_rect(s, x + l, fy, sw - l - r, fh, uui_control_radius(1), bg);
                 if (l && !r) ugfx_fill_rect(s, x + sw / 2, fy, sw - sw / 2, fh, bg);
                 if (r && !l) ugfx_fill_rect(s, x, fy, sw / 2, fh, bg);
             } else {

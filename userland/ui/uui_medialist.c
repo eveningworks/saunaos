@@ -96,7 +96,7 @@ static void draw_row(struct ugfx_surface *s, const struct uui_medialist *m, int 
         // the full accent where the keyboard is.
         uint32_t edge = sel && m->focused ? UTHEME_ACCENT : ugfx_blend(UTHEME_WHITE, UTHEME_ACCENT, 130);
         uui_fill_round_rect(s, rx, ry + 1, rw, rh - 2, 6, edge);
-        uui_fill_round_rect(s, rx + 1, ry + 2, rw - 2, rh - 4, 5, UTHEME_SELECTION);
+        uui_fill_round_rect(s, rx + 1, ry + 2, rw - 2, rh - 4, uui_select_radius(0), UTHEME_SELECTION);
         ground = UTHEME_SELECTION;
     } else if (r == m->hot) {
         ground = uui_state_bg(m->bg, UUI_STATE_HOVER);

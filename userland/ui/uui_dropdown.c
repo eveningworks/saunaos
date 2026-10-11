@@ -82,7 +82,7 @@ static void dd_open(struct uui_dropdown *d) {
     int px, py;
     d->popup = uui_popup_open(d->x, d->y, d->w, d->h,
                               d->list.w, d->list.h, UUI_POPUP_BELOW,
-                              UUI_POPUP_GRAB, dd_done, d, &px, &py);
+                              UUI_POPUP_GRAB | UUI_POPUP_CONTROL, dd_done, d, &px, &py);
     // Where the COMPOSITOR put it -- it may have flipped the list above
     // the box near the screen's bottom edge, which the in-window
     // placement above could never do.
@@ -114,8 +114,7 @@ void uui_dropdown_draw(struct ugfx_surface *s, const struct uui_dropdown *d) {
     // Dimmed text and caret; the face and border stay, so the control
     // still occupies its place rather than looking absent.
     uint32_t fg = d->disabled ? uui_state_bg(d->fg, UUI_STATE_DISABLED) : d->fg;
-    ugfx_fill_rect(s, d->x, d->y, d->w, d->h, d->bg);
-    ugfx_draw_rect(s, d->x, d->y, d->w, d->h, d->border);
+    uui_control_frame(s, d->x, d->y, d->w, d->h, d->bg, d->border);
 
     const char *label = (d->list.selected >= 0 && d->list.selected < d->list.count)
                             ? d->list.items[d->list.selected] : "";

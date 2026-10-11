@@ -540,6 +540,13 @@ manual steps to be worth automating:
   checks; a Mute that never writes the file reddens the `/etc` check.
   `/tests/ulogset_test` covers the line store underneath (the merge,
   repeats, the filter, a saved file read back).
+- **`corners_test.py`** -- `desktop.corners` and `desktop.scrollbars`
+  by pixel: About's Close button's corner pixel is its own edge under
+  Square and the window behind it under Small, changed in the OPEN app;
+  First-boot setup's layout list at rest shows the groove under Always
+  and plain field under Automatically, and the bar's far column is the
+  groove (an inset left a one-pixel gap there). In `gui_regress.py` as
+  `corners`.
 - **`fbs_test.py`** -- First-boot setup, on a guest whose image is
   pre-marked: `firstboot --boot` opens nothing, `fbs again` then makes it
   open; the window is fullscreen and a click across the taskbar's band
@@ -3103,7 +3110,9 @@ window without going through it will find its layout polls timing out.
   setting left behind changes the machine for every later tool.
 
 - **`scrollbar_test.py`** -- scrollbar BEHAVIOUR, against the ring-3
-  Notepad's OVERLAY bar: thin at rest, wide under the pointer, the thumb
+  Notepad's OVERLAY bar: the full thumb at rest under Always (the
+  default), thin at rest under Automatically (set, then restored), wide
+  under the pointer, the thumb
   doesn't jump when grabbed anywhere on it, a drag is reversible, the
   trough pages, and the strip is wide enough to hit. The pointer is
   parked on the strip at the end AWAY from the thumb, so its sprite

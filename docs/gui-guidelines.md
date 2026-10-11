@@ -323,15 +323,20 @@ clamps, and dragging back returns along the same path -- no accumulated
 drift.
 
 **0. It is the OVERLAY BAR** (`uui_scrollbar_draw_overlay()`, Windows
-11's and Plasma's, approved 2026-10-04): a 3 px thumb on the strip's far
-edge at rest; under the pointer the thumb widens and a groove EXACTLY
-its width runs the strip's length -- no rim of grey beside the capsule.
-No arrows. The strip is `uui_scrollbar_overlay_width()`, a row less than
+11's and Plasma's, approved 2026-10-04): a groove the strip's length and
+a thumb EXACTLY its width, flush with the strip's far edge -- no rim of
+grey beside the thumb, no column of field outside it. **`desktop.scrollbars`
+decides when it shows**: Always (the default, Windows 11's "Always show
+scrollbars") draws groove and thumb at rest and the pointer only darkens
+the thumb; Automatically keeps a 3 px thumb at rest that widens under the
+pointer. Its corners are the Scrollbars group's (`utheme_radius()`, 3 px
+at Small). No arrows. The strip is `uui_scrollbar_overlay_width()`, a row less than
 a line, measured in the interface face, and it is RESERVED: the content
 stops short of it, so the thumb never covers text (chosen over a bar
 floating on the content, 2026-10-10) -- except the Terminal, whose resting
 thumb fits in its margin and whose bar widens over the last column, so
-its grid keeps that column. A scrolling view gets all of this, and
+its grid keeps that column -- and stays thin at rest even under Always
+(`UUI_SCROLLBAR_FLOATS`), or the groove would hide that column's text. A scrolling view gets all of this, and
 points 1-5 below, by embedding `uui_sbar` (`ui/uui_sbar.h`) -- every
 list-shaped widget and the Terminal do, so they cannot drift apart.
 
@@ -550,14 +555,25 @@ band: the primary actions outlined on the left, the way to Settings on
 the right. Text at rest blends against the card (`wm_flyout_ink()`),
 never a guessed colour. A disabled action stays visible, greyed.
 
+**Corners: one radius per GROUP, from the theme** (`desktop.corners`,
+Appearance > Advanced). A preset -- Square, Small (the default: Windows
+11's numbers), Medium, Round -- or Custom, five pixel values: **Controls**
+(buttons, text fields, dropdown boxes AND their open lists, segmented
+buttons, check boxes) 4, **Popups and menus** 8, **Windows** 8,
+**Selection** (a selected row, card or icon) 4, **Scrollbars** 3. Drawing
+code asks `utheme_radius(UTHEME_R_*)`, or `uui_control_frame()` /
+`uui_control_radius()` / `uui_select_radius()` -- never a literal. A
+switch stays a capsule (squared only when Controls is 0); a focus ring
+and a spin box are still square.
+
 **How a menu LOOKS: one card, for every menu.** An app's menu bar
 dropdown, its right-click menu, the desktop's, the window menu and the
 taskbar's are all `uui_menubar`, so they are one design -- Windows 11's
 (chosen from mockups on 2026-10-01, Plasma and a dark shell beside it):
 
 - **The card** (`ui/uui_popup.h`): a step lighter than the chrome, a
-  1px hairline, corners rounded at five-eighths of the line height
-  (8 px at 14 px), a shadow below its top edge. A popup SURFACE is painted
+  1px hairline, corners at the Popups group's radius (8 px at Small; see
+  "Corners" below), a shadow below its top edge. A popup SURFACE is painted
   square and the compositor cuts its corners, continuing whatever edge
   the widget drew; a menu drawn in-window rounds itself.
 - **Rows twice the line height plus air** (32 px at 14 px) -- a pointer

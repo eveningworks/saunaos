@@ -60,7 +60,7 @@ static void rail_draw(struct ugfx_surface *s, const void *w) {
                                  wz->d.heading, UTHEME_TEXT, UTHEME_CHROME);
     ugfx_set_font(was);
 
-    int rh = row_h(), d = dot_d(), rad = ugfx_char_h() / 2;
+    int rh = row_h(), d = dot_d(), rad = uui_select_radius(0);
     for (int i = 0; i < wz->d.count; i++) {
         int y = rail_rows_y(r) + i * rh;
         int now = i == wz->step, done = i < wz->step || i <= wz->reached;
@@ -69,7 +69,7 @@ static void rail_draw(struct ugfx_surface *s, const void *w) {
             // The soft accent selection with its 1px edge
             // (docs/gui-guidelines.md, the app design language).
             uui_fill_round_rect(s, r->x, y + 2, r->w, rh - 4, rad, UTHEME_ACCENT);
-            uui_fill_round_rect(s, r->x + 1, y + 3, r->w - 2, rh - 6, rad - 1, UTHEME_SELECTION);
+            uui_fill_round_rect(s, r->x + 1, y + 3, r->w - 2, rh - 6, uui_select_radius(1), UTHEME_SELECTION);
             bg = UTHEME_SELECTION;
         }
         int dx = r->x + ugfx_char_w(), dy = y + (rh - d) / 2;

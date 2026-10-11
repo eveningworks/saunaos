@@ -48,14 +48,17 @@ void uui_switch_draw(struct ugfx_surface *s, const struct uui_switch *sw) {
     uint32_t track = sw->on ? UTHEME_ACCENT : dim;
     if (sw->disabled) track = sw->on ? dim : uui_state_bg(dim, UUI_STATE_DISABLED);
     else if (sw->hovered) track = uui_state_bg(track, UUI_STATE_HOVER);
-    uui_fill_round_rect(s, tx, ty, tw, th, UUI_CAPSULE, track);
+    // A capsule, except under Square corners, where the track keeps only
+    // the 2 px that let it still read as a track.
+    int cap = uui_control_radius(0) ? UUI_CAPSULE : 2;
+    uui_fill_round_rect(s, tx, ty, tw, th, cap, track);
     if (!sw->on)
-        uui_fill_round_rect(s, tx + 1, ty + 1, tw - 2, th - 2, UUI_CAPSULE, UTHEME_WHITE);
+        uui_fill_round_rect(s, tx + 1, ty + 1, tw - 2, th - 2, cap, UTHEME_WHITE);
 
     int k = th - 6;
     int kx = sw->on ? tx + tw - 3 - k : tx + 3;
     uint32_t knob = sw->on ? UTHEME_WHITE : (sw->disabled ? dim : fg);
-    uui_fill_round_rect(s, kx, ty + 3, k, k, UUI_CAPSULE, knob);
+    uui_fill_round_rect(s, kx, ty + 3, k, k, cap == 2 ? 1 : UUI_CAPSULE, knob);
 
     const char *t = state_text(sw);
     if (t) {

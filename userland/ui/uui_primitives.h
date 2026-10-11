@@ -74,6 +74,17 @@ int uui_hit(int x, int y, int w, int h, int px, int py);
 // so the caller must have painted under the rect in this same pass** --
 // blending against a stale back buffer darkens the corner a little
 // every frame.
+// A CONTROL'S BODY: `fill` inside a 1px `border`, at the Controls corner
+// radius (desktop.corners, ui/utheme.h) -- a text field's, a dropdown's.
+void uui_control_frame(struct ugfx_surface *s, int x, int y, int w, int h,
+                       uint32_t fill, uint32_t border);
+// The Controls radius less `in` pixels, for a face drawn `in` inside an
+// edge -- never below 0.
+int uui_control_radius(int in);
+// The same for a SELECTION fill -- a selected row, card or icon (the
+// Selection group).
+int uui_select_radius(int in);
+
 void uui_fill_round_rect(struct ugfx_surface *s, int x, int y, int w, int h,
                          int radius, uint32_t c);
 

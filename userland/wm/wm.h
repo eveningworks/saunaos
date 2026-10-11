@@ -285,6 +285,7 @@ struct window {
     int popup;
     int popup_grab;
     int popup_glass;   // WIN_POPUP_GLASS: its marked pixels show wm_glass.c's glass
+    int popup_control; // WIN_POPUP_CONTROL: a dropdown's list, cut at the Controls radius
     uint32_t popup_parent;
 
     // A DIALOG WINDOW (abi/win_proto.h's WIN_REQ_DIALOG): a second

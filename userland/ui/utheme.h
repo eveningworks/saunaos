@@ -156,4 +156,31 @@ int utheme_indicator(void);  // checkbox / radio box edge
 int utheme_control_h(void);  // a one-line control's height
 int utheme_focus_w(void);    // focus-ring inset / width
 
+// --- corners and the scrollbar's look: SETTINGS, read once ----------------
+//
+// desktop.corners picks a preset -- Square, Small (Windows 11's: 4 px
+// controls, 8 px popups and windows), Medium, Round -- or Custom, which
+// takes the five desktop.corners_* values. Every widget asks HERE for its
+// group's radius rather than carrying a number, so one setting reaches
+// them all. Pixels, not font-derived: a corner is a style, not a size
+// (Windows 11 and Breeze fix theirs in px too). UUI_CAPSULE where a
+// preset rounds a group fully.
+//
+// READ ONCE AND CACHED: a widget asks on every paint. A process re-reads
+// on a setting change -- uapp on WIN_EV_SETTING, the compositor in its
+// own watch -- through utheme_settings_reload().
+enum utheme_round {
+    UTHEME_R_CONTROL,     // buttons, fields, dropdowns and their lists, segmented buttons
+    UTHEME_R_POPUP,       // menus, right-click menus, flyouts, tooltips
+    UTHEME_R_WINDOW,      // window and dialog corners
+    UTHEME_R_SELECTION,   // a selected row, card or icon
+    UTHEME_R_SCROLLBAR,   // the overlay bar's groove and handle
+    UTHEME_R_COUNT
+};
+int  utheme_radius(enum utheme_round which);
+// desktop.scrollbars: 1 for Always (the groove and handle drawn at rest),
+// 0 for the thin handle that widens when pointed at.
+int  utheme_scrollbars_always(void);
+void utheme_settings_reload(void);
+
 #endif

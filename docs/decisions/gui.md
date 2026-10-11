@@ -11243,3 +11243,43 @@ update before their first boot, so they show it.
 Linux's `/etc/hostname` + `sethostname()`: nothing in the kernel reads
 it. About shows it; the VNC desktop name and the remote-desktop
 certificate carry it.
+
+## Corners are five theme groups in pixels, and scrollbars show always by default
+
+On 2026-10-11 the maintainer found the dropdown's rounding too much,
+asked for scrollbars that stay visible, then for "a setting for rounding
+for different widgets" that is "a little bit more hidden". Picked from
+mockups: a preset plus five groups, default Small, in Desktop >
+Appearance behind Advanced; and an always-visible bar as a setting that
+defaults to Always.
+
+**What real systems do.** Windows 11 hard-codes its radii in pixels
+(8 for windows and flyouts, 4 for controls and list selection) and lets
+nobody change them; its "Always show scrollbars" (Accessibility >
+Visual effects) is the one switch, off by default. macOS has "Show
+scroll bars: Automatically / When scrolling / Always". Plasma's Breeze
+radius is in the style plugin's code; GTK themes set `border-radius` per
+CSS node, so a theme has one value per kind of thing. toy-os takes
+GTK's shape -- one value per GROUP -- and Windows' numbers as the
+default, and exposes the groups as Windows does not.
+
+**Groups, not per widget.** Controls, Popups and menus, Windows,
+Selection, Scrollbars: what a person sees as "the same kind of corner".
+A per-widget table would be twenty rows nobody tunes; one global radius
+would make windows and check boxes the same size of curve, which no
+system does. A dropdown's open list follows CONTROLS, not Popups, because
+it reads as the box unfolding (`WIN_POPUP_CONTROL` tells the compositor).
+
+**Pixels, not line heights.** The old window radius was half the line
+height and the popup's five-eighths of it; the groups are what the user
+sets, and a setting in "fractions of a line" is unreadable. A bigger
+interface font no longer rounds more -- Windows' radii do not grow with
+text size either.
+
+**Always shows the wide shape at rest; hover only darkens the thumb.**
+The geometry no longer moves under the pointer, so nothing reflows and
+the thumb is a fixed target; Automatically keeps the 2026-10-04 overlay
+behaviour for anyone who preferred it. The bar sits flush with its
+strip's far edge -- an inset left a column that a whole-widget focus
+ring filled only while the selection was off-screen, which read as a
+gap that came and went with scrolling.

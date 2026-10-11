@@ -360,6 +360,7 @@ whenever a headline here tells you something you did not already know.
   NOT HAND-ROUTED**
 - **ONE MENU WIDGET SERVES A BAR AND A CONTEXT MENU:
   `uui_menubar_open_at()`, opened on the secondary RELEASE**
+- **A CORNER RADIUS COMES FROM `utheme_radius(group)`, NEVER A LITERAL.**
 - **A POPUP IS THE TOOLKIT'S CARD: PAINTED SQUARE INTO A SURFACE, CUT
   ROUND BY THE COMPOSITOR**
 - **A POPUP IS A SURFACE OF ITS CLIENT, PLACED BY THE COMPOSITOR, AND A
@@ -659,7 +660,8 @@ whenever a headline here tells you something you did not already know.
 - **EDITABLE TEXT HAS ONE HISTORY: `uui_undo`, RECORDED BY `uui_edit`**
 - **`utext` DRAWS A GUTTER, THE CARET'S LINE AND MARKS -- AND EVERY CALL
   WITH A BOX KNOWS**
-- **ONE SCROLLBAR LOOK: `uui_scrollbar_draw_overlay()`**
+- **ONE SCROLLBAR LOOK: `uui_scrollbar_draw_overlay()`** (flush with the
+  far edge; `desktop.scrollbars` changes its shape, never its hover)
 - **A SCROLLING VIEW EMBEDS `uui_sbar`, AND ROUTES ITS POINTER THROUGH IT FIRST**
 - **CHROME IS MEASURED IN THE INTERFACE FACE, EVEN INSIDE A DOCUMENT'S**
 - **`uui_chart` HAS A RUN MODE: `uui_chart_set_fit()`**

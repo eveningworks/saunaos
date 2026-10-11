@@ -1,0 +1,16 @@
+Type=int
+File=/etc/desktop.conf
+Label=Popups and menus
+Category=Appearance
+Group=Windows
+Default=8
+Min=0
+Max=16
+Step=1
+Unit=px
+Description=Menus, right-click menus, tray flyouts, tooltips
+Requires=desktop.corners=custom
+RequiresReason=Choose Custom in Corners to set this apart
+WhenUnmet=hide
+Order=42
+Advanced=1
