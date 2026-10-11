@@ -1,5 +1,6 @@
 // The left pane's places and their menus: which places it lists (the
-// named folders, minus any hidden; the pins; the volumes and shares),
+// Places list of lib/upins.h, in the person's order; the volumes and
+// shares),
 // and the context menu a right-click on any row of it opens -- one per
 // KIND of row, Explorer's navigation pane and Dolphin's Places panel:
 // the open verbs, that row's own verbs, Properties last.
@@ -24,75 +25,38 @@
 
 #define DISKS_EXEC    "/bin/wm/apps/disks"
 #define SETTINGS_EXEC "/bin/wm/system/settings"
-#define HIDDEN_KEY    "hidden_places"
+#define HIDDEN_KEY    "hidden_places"   // the old hide switch, read once to migrate
 
-// The named places, in the order listed: Recent, Home, the personal
-// folders (lib/udirs.h, asked by name), the Recycle Bin. `key` is what
-// files.conf's hidden_places names, so a label can change without
-// unhiding anything; a personal folder's path is filled in at build.
-static struct { const char *key, *label, *icon; const char *path; int udir; } NAMED[] = {
-    { "recent", "Recent", "place-recent", FM_RECENT, -1 },
-    { "home",   "Home",   "place-home",   "/home",   -1 },
-    { 0, 0, 0, 0, UDIR_DESKTOP },
-    { 0, 0, 0, 0, UDIR_DOCUMENTS },
-    { 0, 0, 0, 0, UDIR_MUSIC },
-    { 0, 0, 0, 0, UDIR_PICTURES },
-    { 0, 0, 0, 0, UDIR_VIDEOS },
-    { 0, 0, 0, 0, UDIR_DOWNLOADS },
-    { "bin", "Recycle Bin", "place-trash", FM_BIN, -1 },
-};
-#define N_NAMED ((int)(sizeof NAMED / sizeof NAMED[0]))
-
-static void named_fill(void) {
-    for (int i = 0; i < N_NAMED; i++) {
-        if (NAMED[i].udir < 0) continue;
-        enum udir d = (enum udir)NAMED[i].udir;
-        NAMED[i].key = udir_key(d);
-        NAMED[i].label = udir_label(d);
-        NAMED[i].icon = udir_icon(d);
-        NAMED[i].path = udir_path(d);
+// HIDDEN PLACES WERE A SWITCH; they are entries unpinned now. A
+// files.conf from before still naming some is turned into that once.
+static void migrate_hidden(void) {
+    char list[128] = "";
+    if (!uconf_get(FILES_CONF, HIDDEN_KEY, list, sizeof list) || !list[0]) return;
+    for (char *k = strtok(list, ","); k; k = strtok(0, ",")) {
+        char entry[40];
+        if (!strcmp(k, "recent")) strlcpy(entry, "recent:/", sizeof entry);
+        else if (!strcmp(k, "bin")) strlcpy(entry, "trash:/", sizeof entry);
+        else if (!strcmp(k, "home")) strlcpy(entry, "/home", sizeof entry);
+        else snprintf(entry, sizeof entry, "udir:%s", k);
+        upins_remove(entry);
     }
+    uconf_unset(FILES_CONF, HIDDEN_KEY);
 }
 
-// Which named places are hidden: a comma list in files.conf.
-static int is_hidden(const char *list, const char *key) {
-    size_t n = strlen(key);
-    for (const char *p = list; *p; ) {
-        if (!strncmp(p, key, n) && (p[n] == ',' || p[n] == '\0')) return 1;
-        p = strchr(p, ',');
-        if (!p) break;
-        p++;
-    }
-    return 0;
-}
-
-static void hidden_list(char *out, int cap) {
-    out[0] = '\0';
-    uconf_get(FILES_CONF, HIDDEN_KEY, out, (uint32_t)cap);
-}
-
-static int named_of(const char *path) {
-    named_fill();
-    for (int i = 0; i < N_NAMED; i++) if (!strcmp(NAMED[i].path, path)) return i;
-    return -1;
-}
-
+// PLACES IS ONE LIST (lib/upins.h): the defaults and the pins in the
+// person's order, then every mounted volume.
 void places_build(void) {
-    char hidden[128];
-    hidden_list(hidden, sizeof hidden);
-    named_fill();
+    static int migrated;
+    if (!migrated) { migrated = 1; migrate_hidden(); }
     uui_places_init(&g_places);
-    for (int i = 0; i < N_NAMED; i++)
-        if (!is_hidden(hidden, NAMED[i].key))
-            uui_places_add(&g_places, NAMED[i].label, NAMED[i].icon, NAMED[i].path);
-    uui_places_add_pins(&g_places);
+    uui_places_add_pins(&g_places, 1);
     uui_places_refresh(&g_places);
 }
 
 // A TREE ROW WHOSE FOLDER HAS GONE -- a pin to a folder deleted since
 // the tree was built, most often -- is said so, and the pane stays where
 // it was: set_dir() has already taken the path when the listing fails.
-// The rebuild drops it from Pinned (lib/upins.h keeps the pin for when
+// The rebuild drops it from Places (lib/upins.h keeps the entry for when
 // the folder is back).
 void tree_goto(const char *path) {
     char was[PATH_MAX_LEN], gone[PATH_MAX_LEN];
@@ -115,8 +79,8 @@ void tree_goto(const char *path) {
 
 // --- the menus --------------------------------------------------------------
 
-enum kind { K_NONE, K_PANE, K_NAMED, K_RECENT, K_BIN, K_PIN, K_VOLUME, K_SHARE, K_FOLDER, K_ADD };
-static const char *const KIND_NAME[] = { "none", "pane", "place", "recent", "bin", "pin",
+enum kind { K_NONE, K_PANE, K_RECENT, K_BIN, K_PIN, K_VOLUME, K_SHARE, K_FOLDER, K_ADD };
+static const char *const KIND_NAME[] = { "none", "pane", "recent", "bin", "place",
                                          "volume", "share", "folder", "add" };
 
 // What the open menu is about, until its command runs: copied, because
@@ -124,7 +88,6 @@ static const char *const KIND_NAME[] = { "none", "pane", "place", "recent", "bin
 static enum kind g_kind;
 static char g_aim[PATH_MAX_LEN];
 static struct uvolinfo g_vol;
-static char g_show_label[96];
 
 #define ADD(...) do { if (n < cap) out[n++] = (struct uui_menu_item)__VA_ARGS__; } while (0)
 #define SEP      ADD(UUI_MENU_SEP)
@@ -142,33 +105,21 @@ static int path_rows(struct uui_menu_item *out, int n, int cap) {
     return n;
 }
 
-// Each pin's neighbours: whether it can move up or down at all.
-static void pin_ends(const char *path, int *first, int *last) {
-    int lo = g_places.places - g_places.pinned;
+// An entry's neighbours in the list: whether it can move up or down.
+static void list_ends(const char *path, int *first, int *last) {
     *first = *last = 0;
-    for (int i = lo; i < g_places.places; i++)
-        if (!strcmp(g_places.row[i].path, path)) { *first = i == lo; *last = i == g_places.places - 1; }
+    for (int i = 0; i < g_places.places; i++)
+        if (!strcmp(g_places.row[i].path, path)) { *first = i == 0; *last = i == g_places.places - 1; }
 }
 
-// "Show hidden places (Music, Pictures)": the names, as many as fit.
-static int show_hidden_row(struct uui_menu_item *out, int n, int cap) {
-    char hidden[128];
-    hidden_list(hidden, sizeof hidden);
-    named_fill();
-    int k = 0;
-    size_t len = 0;
-    g_show_label[0] = '\0';
-    for (int i = 0; i < N_NAMED; i++) {
-        if (!is_hidden(hidden, NAMED[i].key)) continue;
-        len = strlen(g_show_label);
-        snprintf(g_show_label + len, sizeof g_show_label - len, "%s%s", k ? ", " : "Show hidden places (",
-                 NAMED[i].label);
-        k++;
-    }
-    if (!k) return n;
-    len = strlen(g_show_label);
-    snprintf(g_show_label + len, sizeof g_show_label - len, ")");
-    ADD(UUI_MENU_VERB(g_show_label, CMD_PL_SHOW_HIDDEN, 0, SHOW));
+// What any entry of Places can have done to it.
+static int list_rows(struct uui_menu_item *out, int n, int cap) {
+    int first, last;
+    list_ends(g_aim, &first, &last);
+    ADD(UUI_MENU_VERB("Rename...", CMD_PL_RENAME, 0, RENAME));
+    if (!first) ADD(UUI_MENU_VERB("Move up", CMD_PL_UP, 0, MOVE_UP));
+    if (!last) ADD(UUI_MENU_VERB("Move down", CMD_PL_DOWN, 0, MOVE_DOWN));
+    ADD(UUI_MENU_VERB("Unpin from Places", CMD_PL_UNPIN, 0, PIN));
     return n;
 }
 
@@ -182,9 +133,8 @@ static enum kind kind_of(int nid) {
     if (pl < 0) return K_FOLDER;
     if (pl >= g_places.network) return K_SHARE;
     if (pl >= g_places.places) return K_VOLUME;
-    if (pl >= g_places.places - g_places.pinned) return K_PIN;
     const char *p = g_places.row[pl].path;
-    return !strcmp(p, FM_RECENT) ? K_RECENT : !strcmp(p, FM_BIN) ? K_BIN : K_NAMED;
+    return !strcmp(p, FM_RECENT) ? K_RECENT : !strcmp(p, FM_BIN) ? K_BIN : K_PIN;
 }
 
 int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
@@ -194,7 +144,8 @@ int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
     if (g_kind != K_PANE) strlcpy(g_aim, g_tree_path[nid], sizeof g_aim);
     switch (g_kind) {
     case K_PANE:
-        n = show_hidden_row(out, n, cap);
+        if (upins_missing_defaults() > 0)
+            ADD(UUI_MENU_VERB("Restore default places", CMD_PL_RESTORE_DEFAULTS, 0, SHOW));
         ADD(UUI_MENU_VERB("Folder tree", CMD_VIEW_TREE, 0, TREE));
         break;
     case K_ADD:
@@ -203,42 +154,28 @@ int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
     case K_RECENT:
         n = open_rows(out, n, cap, 0);
         SEP;
-        ADD(UUI_MENU_VERB("Hide from Places", CMD_PL_HIDE, 0, HIDE));
         ADD(UUI_MENU_VERB("Clear list", CMD_PL_CLEAR_RECENT, 0, CLEAR));
+        SEP;
+        n = list_rows(out, n, cap);
         break;
     case K_BIN:
         n = open_rows(out, n, cap, 0);
         SEP;
         ADD(UUI_MENU_VERB("Restore all", CMD_PL_RESTORE_ALL, 0, RESTORE));
         ADD(UUI_MENU_VERB("Empty Recycle Bin", CMD_PL_EMPTY_BIN, 0, EMPTY_BIN));
-        SEP;
-        ADD(UUI_MENU_VERB("Hide from Places", CMD_PL_HIDE, 0, HIDE));
         ADD(UUI_MENU_VERB("Recycle Bin settings...", CMD_PL_BIN_SETTINGS, 0, SETTINGS));
+        SEP;
+        n = list_rows(out, n, cap);
         break;
-    case K_NAMED:
+    case K_PIN:
         n = open_rows(out, n, cap, 1);
         SEP;
-        ADD(UUI_MENU_VERB("Hide from Places", CMD_PL_HIDE, 0, HIDE));
+        n = list_rows(out, n, cap);
         SEP;
         n = path_rows(out, n, cap);
         SEP;
         ADD(UUI_MENU_VERB("Properties", CMD_PL_PROPERTIES, 0, PROPERTIES));
         break;
-    case K_PIN: {
-        int first, last;
-        pin_ends(g_aim, &first, &last);
-        n = open_rows(out, n, cap, 1);
-        SEP;
-        ADD(UUI_MENU_VERB("Rename pin...", CMD_PL_RENAME, 0, RENAME));
-        if (!first) ADD(UUI_MENU_VERB("Move up", CMD_PL_UP, 0, MOVE_UP));
-        if (!last) ADD(UUI_MENU_VERB("Move down", CMD_PL_DOWN, 0, MOVE_DOWN));
-        ADD(UUI_MENU_VERB("Unpin from Places", CMD_PL_UNPIN, 0, PIN));
-        SEP;
-        n = path_rows(out, n, cap);
-        SEP;
-        ADD(UUI_MENU_VERB("Properties", CMD_PL_PROPERTIES, 0, PROPERTIES));
-        break;
-    }
     case K_FOLDER:
         n = open_rows(out, n, cap, 1);
         SEP;
@@ -311,19 +248,6 @@ static void open_terminal(struct uapp *a, const char *dir) {
     chdir(was);
 }
 
-static void set_hidden(const char *key, int hide) {
-    char list[128], out[128] = "";
-    hidden_list(list, sizeof list);
-    for (int i = 0; i < N_NAMED; i++) {
-        int h = !strcmp(NAMED[i].key, key) ? hide : is_hidden(list, NAMED[i].key);
-        if (!h) continue;
-        size_t l = strlen(out);
-        snprintf(out + l, sizeof out - l, "%s%s", l ? "," : "", NAMED[i].key);
-    }
-    if (out[0]) uconf_set(FILES_CONF, HIDDEN_KEY, out);
-    else uconf_unset(FILES_CONF, HIDDEN_KEY);
-}
-
 // Leave a volume about to go: a pane standing in it would keep it busy.
 static void leave(const char *point) {
     size_t n = strlen(point);
@@ -353,9 +277,9 @@ static void unmount(void) {
 void places_rename_pin(const char *label) {
     int e = upins_set_label(g_aim, label);
     if (e == -EINVAL) set_note("a name cannot hold a tab");
-    else if (e) set_note("could not rename the pin");
-    else snprintf(g_stat_note, sizeof g_stat_note, "renamed the pin to %s",
-                  label[0] ? label : k_path_basename(g_aim));
+    else if (e) set_note("could not rename it");
+    else if (label[0]) snprintf(g_stat_note, sizeof g_stat_note, "renamed to %s", label);
+    else set_note("its own name again");
     rebuild();
 }
 
@@ -375,20 +299,12 @@ void places_command(struct uapp *a, int code) {
         g_active = !g_active;
         tree_goto(path);
         break;
-    case CMD_PL_HIDE: {
-        int i = named_of(path);
-        if (i < 0) break;
-        set_hidden(NAMED[i].key, 1);
-        snprintf(g_stat_note, sizeof g_stat_note, "%s hidden -- right-click the pane to show it again",
-                 NAMED[i].label);
+    case CMD_PL_RESTORE_DEFAULTS: {
+        int back = upins_restore_defaults();
+        if (back > 0) snprintf(g_stat_note, sizeof g_stat_note, "%d place%s back", back, back == 1 ? "" : "s");
         rebuild();
         break;
     }
-    case CMD_PL_SHOW_HIDDEN:
-        uconf_unset(FILES_CONF, HIDDEN_KEY);
-        set_note("every place shown");
-        rebuild();
-        break;
     case CMD_PL_COPY_PATH:
         set_note(uclip_set_text(path, (int)strlen(path)) ? "path copied" : "the clipboard refused it");
         break;
@@ -402,17 +318,17 @@ void places_command(struct uapp *a, int code) {
         break;
     case CMD_PL_RENAME:
         upins_label(path, text, sizeof text);
-        open_prompt(CMD_PL_RENAME, "Rename pin", text);
+        open_prompt(CMD_PL_RENAME, "Rename in Places", text);
         break;
     case CMD_PL_UP:
     case CMD_PL_DOWN:
-        if (upins_move(path, code == CMD_PL_UP ? -1 : 1)) set_note("could not move the pin");
+        if (upins_move(path, code == CMD_PL_UP ? -1 : 1)) set_note("could not move it");
         rebuild();
         break;
     case CMD_PL_PIN:
     case CMD_PL_UNPIN: {
         int e = code == CMD_PL_PIN ? upins_add(path) : upins_remove(path);
-        if (e == -ENOSPC) set_note("Places holds 8 pins -- unpin one first");
+        if (e == -ENOSPC) set_note("Places is full -- unpin one first");
         else if (e && e != -EEXIST && e != -ENOENT) set_note("could not change the pin");
         else snprintf(g_stat_note, sizeof g_stat_note, code == CMD_PL_PIN ? "pinned %s" : "unpinned %s",
                       k_path_basename(path));
@@ -451,4 +367,70 @@ void places_command(struct uapp *a, int code) {
         break;
     }
     ulogf("files: placecmd %d %s\n", code, path[0] ? path : "-");
+}
+
+// --- reordering by drag (uui_tree_set_reorder) -------------------------------
+//
+// THE PLACES LIST moves by drag, like Explorer's Quick access: any of its
+// rows, into any gap between its rows -- never among the volumes. A
+// folder dragged in from a pane lands in such a gap too, and is pinned
+// there; dropped ONTO a row it is moved into that folder, as ever.
+
+static int in_list(int nid) {
+    int pl = tree_place_of(nid);
+    return pl >= 0 && pl < g_places.places;
+}
+
+static int places_can_drag(void *ctx, int nid) {
+    (void)ctx;
+    return in_list(nid);
+}
+
+// The gap after `after`, before `before` (-1 at an end): inside the list,
+// or just after its last row.
+static int places_can_insert(void *ctx, int from, int after, int before) {
+    (void)ctx; (void)from;
+    if (before >= 0 && in_list(before)) return after < 0 || in_list(after);
+    return after >= 0 && in_list(after);
+}
+
+void places_reorder_init(void) {
+    uui_tree_set_reorder(&g_tree, places_can_drag, places_can_insert, 0);
+}
+
+// A drop into a gap of the list: a row moved, or the source pane's
+// folders pinned there. 1 when it was one (the caller then does nothing
+// else with the drop).
+int places_drop(struct uui_fileview *src) {
+    int from, after, before;
+    if (!uui_tree_drop_insert(&g_tree, &from, &after, &before)) return 0;
+    char before_path[PATH_MAX_LEN] = "";
+    if (before >= 0 && before < g_tree_count && in_list(before))
+        strlcpy(before_path, g_tree_path[before], sizeof before_path);
+    const char *at = before_path[0] ? before_path : 0;
+    if (from >= 0 && from < g_tree_count) {
+        char moved[PATH_MAX_LEN];
+        strlcpy(moved, g_tree_path[from], sizeof moved);
+        int e = upins_move_before(moved, at);
+        ulogf("files: placedrop move %s before %s rc %d\n", moved, at ? at : "-", e);
+    } else if (src) {
+        // The marked folders, or the selected one; files are not places.
+        int marks = uui_fileview_mark_count(src), pinned = 0, full = 0;
+        for (int m = 0; m < (marks ? marks : 1); m++) {
+            char path[PATH_MAX_LEN];
+            int ok = marks ? uui_fileview_marked_path(src, m, path, sizeof path) && uui_fileview_marked_is_dir(src, m)
+                           : uui_fileview_selected_path(src, path, sizeof path) && uui_fileview_selected_is_dir(src);
+            if (!ok) continue;
+            int e = upins_add_before(path, at);
+            if (e == -EEXIST) e = upins_move_before(path, at);   // there already: moved instead
+            if (e == -ENOSPC) { full = 1; break; }
+            if (!e) pinned++;
+            ulogf("files: placedrop pin %s before %s rc %d\n", path, at ? at : "-", e);
+        }
+        if (full) set_note("Places is full -- unpin one first");
+        else if (!pinned) set_note("only folders go in Places");
+        else snprintf(g_stat_note, sizeof g_stat_note, "pinned %d folder%s", pinned, pinned == 1 ? "" : "s");
+    }
+    rebuild();
+    return 1;
 }

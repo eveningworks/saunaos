@@ -121,7 +121,7 @@ enum {
     // rather than the selection. CMD_PL_FIRST..CMD_PL_LAST go there whole.
     CMD_PL_FIRST,
     CMD_PL_OPEN = CMD_PL_FIRST, CMD_PL_OPEN_TAB, CMD_PL_OPEN_OTHER,
-    CMD_PL_HIDE, CMD_PL_SHOW_HIDDEN, CMD_PL_COPY_PATH, CMD_PL_COPY_ADDRESS,
+    CMD_PL_RESTORE_DEFAULTS, CMD_PL_COPY_PATH, CMD_PL_COPY_ADDRESS,
     CMD_PL_TERMINAL, CMD_PL_PROPERTIES, CMD_PL_RENAME, CMD_PL_UP, CMD_PL_DOWN,
     CMD_PL_PIN, CMD_PL_UNPIN, CMD_PL_DISKS, CMD_PL_CHECK, CMD_PL_UNMOUNT,
     CMD_PL_SIGNIN, CMD_PL_DISCONNECT, CMD_PL_FORGET, CMD_PL_ADD_SHARE,
@@ -326,6 +326,8 @@ void tree_goto(const char *path);   // a row clicked: there, or "not there any m
 int  places_ctx_items(struct uui_menu_item *out, int cap, int nid);
 void places_command(struct uapp *a, int code);   // CMD_PL_*
 void places_rename_pin(const char *label);        // Rename pin's prompt answered
+void places_reorder_init(void);                   // the tree's rows move by drag
+int  places_drop(struct uui_fileview *src);       // a drop in a gap of the list: 1 if it was
 
 // --- thumbnails (fm_thumbs.c) ----------------------------------------
 

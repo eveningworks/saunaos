@@ -102,6 +102,22 @@ struct uui_tree {
     int drop_node;
     int dropped_node;
 
+    // REORDERING BY DRAG (uui_tree_set_reorder), off unless an app turns
+    // it on: a row may be dragged to a GAP between rows, shown by a line
+    // in the accent (Explorer's and Dolphin's), and a file dropped near a
+    // gap rather than onto a row lands there too. The app says which rows
+    // move and which gaps take them; the widget only finds the gap.
+    int (*can_drag)(void *ctx, int id);
+    // Between the nodes `after` and `before` (either -1 at an end), from
+    // node `from` -- or -1 for files dragged in from elsewhere.
+    int (*can_insert)(void *ctx, int from, int after, int before);
+    void *reorder_ctx;
+    int press_node, pre_press_sel;   // OWNED: the press a drag starts from
+    int drag_node;                   // the row being dragged, -1; OWNED
+    int ins_y, ins_after, ins_before;   // the gap under the pointer; ins_y -1 none. OWNED
+    int dropped_from, dropped_after, dropped_before, dropped_insert;   // the last drop. OWNED
+    char drag_label[64];             // OWNED, the ghost's
+
     // One bit per node: 1 = collapsed, so its descendants are hidden.
     // A BITMAP rather than a flag on the node, because the nodes are
     // the APP's const array and collapsing is the widget's state --
@@ -201,6 +217,15 @@ int  uui_tree_select_id(struct uui_tree *t, int id);
 // on_widget(id, UUI_REASON_DROP). Every node is a drop target; what a
 // drop MEANS is the app's (a folder tree moves files into the node).
 int  uui_tree_drop_id(const struct uui_tree *t);
+// Turns on reordering by drag (see the struct). Either callback NULL
+// leaves it off.
+void uui_tree_set_reorder(struct uui_tree *t, int (*can_drag)(void *ctx, int id),
+                          int (*can_insert)(void *ctx, int from, int after, int before),
+                          void *ctx);
+// Whether the last drop landed in a GAP: 1, with the node dragged
+// (-1: files from elsewhere) and the nodes either side of the gap (-1 at
+// an end); 0 for a drop onto a row (uui_tree_drop_id) or none.
+int  uui_tree_drop_insert(const struct uui_tree *t, int *from, int *after, int *before);
 
 int  uui_tree_is_parent(const struct uui_tree *t, int node);
 int  uui_tree_is_collapsed(const struct uui_tree *t, int node);

@@ -34,6 +34,8 @@
 enum uui_drag_kind {
     UUI_DRAG_NONE = 0,
     UUI_DRAG_FILES,   // `dir` + the source widget's marked set or selection
+    UUI_DRAG_ROW,     // a row of the SOURCE widget moved within it (uui_tree's
+                      // reorder): `source_id`'s widget, the row its own state
 };
 
 struct uui_drag {

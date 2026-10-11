@@ -372,7 +372,7 @@ static void pin_selected(int pin) {
     if (!uui_fileview_selected_is_dir(active()) ||
         !uui_fileview_selected_path(active(), path, sizeof path)) { set_note("select a folder"); return; }
     int e = pin ? upins_add(path) : upins_remove(path);
-    if (e == -ENOSPC) set_note("Places holds 8 pins -- unpin one first");
+    if (e == -ENOSPC) set_note("Places is full -- unpin one first");
     else if (e && e != -EEXIST && e != -ENOENT) set_note(pin ? "could not pin it" : "could not unpin it");
     else snprintf(g_stat_note, sizeof g_stat_note, pin ? "pinned %s" : "unpinned %s", k_path_basename(path));
     places_build();
@@ -1222,6 +1222,14 @@ static void on_widget(struct uapp *a, int id, int reason) {
         // where, the payload says from which pane and whether Ctrl
         // asked for a copy. The source pane stays the active one.
         const struct uui_drag *d = uapp_drag(a);
+        // A gap in the Places list: a row moved, or folders pinned there.
+        if (d && id == ID_TREE &&
+            places_drop(d->kind == UUI_DRAG_FILES && d->source == &g_pane[1] ? &g_pane[1]
+                        : d->kind == UUI_DRAG_FILES && d->source == &g_pane[0] ? &g_pane[0] : 0)) {
+            refresh_status();
+            uapp_redraw(a);
+            return;
+        }
         if (!d || d->kind != UUI_DRAG_FILES) return;
         // No source widget: the drag came from ANOTHER window (or the
         // desktop), and its files are in the drag slot.

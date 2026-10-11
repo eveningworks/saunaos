@@ -111,15 +111,16 @@ void uui_places_add(struct uui_places *p, const char *label, const char *icon,
     p->places = p->count;
 }
 
-void uui_places_add_pins(struct uui_places *p) {
+void uui_places_add_pins(struct uui_places *p, int virtual_ok) {
     static char pins[UPINS_MAX][UPINS_PATH];
     int n = upins_load(pins, UPINS_MAX);
     p->pinned = 0;
     for (int i = 0; i < n; i++) {
-        char label[UPINS_LABEL];
-        upins_label(pins[i], label, sizeof label);
+        char label[UPINS_LABEL], path[UPINS_PATH];
+        const char *icon;
+        if (upins_resolve(pins[i], path, sizeof path, label, sizeof label, &icon) && !virtual_ok) continue;
         int before = p->count;
-        uui_places_add(p, label, "folder", pins[i]);
+        uui_places_add(p, label, icon, path);
         if (p->count > before) p->pinned++;
     }
 }

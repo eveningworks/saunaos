@@ -5828,6 +5828,14 @@ opened; the file commands (`CMD_OPEN`, `CMD_PROPERTIES`) act on the
 active pane's selection and would act on the wrong thing. A tree rebuild
 renumbers rows, which is why the path is copied rather than the row kept.
 A new kind of row gets a case in `kind_of()` and its own menu there.
+**Places is ONE list** (`lib/upins.h`): Recent, Home, the personal
+folders and the Recycle Bin are default ENTRIES, unpinned like any pin
+and brought back by "Restore default places". The list reorders by drag
+(`uui_tree_set_reorder()`, a line in the accent where it will land); a
+folder dropped in a GAP is pinned there, one dropped ONTO a row moves
+into that folder -- the tree tells them apart by how near the row's edge
+the pointer is. A drag of a row is `UUI_DRAG_ROW` and never leaves its
+window: uapp announces only a FILES drag to the compositor.
 
 ## A VERB'S ICON AND COLOUR COME FROM `ui/uui_verbs.h`, IN EVERY MENU
 

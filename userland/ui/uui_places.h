@@ -21,7 +21,7 @@
 // Like the path bar it navigates nothing: a click parks the row's path
 // for uui_places_take(), and the app goes there.
 
-#define UUI_PLACES_MAX       24
+#define UUI_PLACES_MAX       48   // the Places list (UPINS_MAX) and the mounts
 #define UUI_PLACES_PATH_MAX  256
 #define UUI_PLACES_LABEL_MAX 24
 
@@ -46,7 +46,7 @@ struct uui_places {
     int count;
     int places;                   // how many of `row` are places; devices follow
     int network;                  // where the network shares start (== count: none)
-    int pinned;                   // the LAST this many places are pins (lib/upins.h)
+    int pinned;                   // the LAST this many places are the Places list (lib/upins.h)
     int selected;                 // row, or -1: the one whose path is where you are
     int hot, armed;               // OWNED
     char taken[UUI_PLACES_PATH_MAX];
@@ -58,9 +58,11 @@ struct uui_places {
 };
 
 void uui_places_init(struct uui_places *p);
-// The folders pinned to Places (lib/upins.h), after the named ones: call
-// once the app's own places are added, before uui_places_refresh().
-void uui_places_add_pins(struct uui_places *p);
+// The Places list (lib/upins.h), in the person's order -- the defaults
+// and the pins are one list. `virtual_ok` 0 leaves out Recent and the
+// Recycle Bin, which only the File Manager can list. Call before
+// uui_places_refresh().
+void uui_places_add_pins(struct uui_places *p, int virtual_ok);
 // A named folder. Call before uui_places_refresh(), which appends the
 // devices after the places.
 void uui_places_add(struct uui_places *p, const char *label, const char *icon,

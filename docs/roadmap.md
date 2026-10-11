@@ -816,13 +816,13 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Image Viewer redesigned~~ DONE 2026-10-01 -- filmstrip, ambient stage, zoom and pan, rotate, Properties, slideshow
 - [x] ~~File Manager in colour~~ DONE 2026-10-01 -- action colours as theme roles, folders by kind, place tiles, breadcrumb chips
 - [x] ~~File Manager to the design language~~ DONE 2026-10-01 -- soft selection, grey chrome, one navigation tree with volumes as roots
-- [x] ~~A menu on every row of the File Manager's left pane~~ DONE 2026-10-11 -- per kind of row; pins move and rename, places hide
+- [x] ~~A menu on every row of the File Manager's left pane~~ DONE 2026-10-11 -- per kind of row; rename, move, unpin, restore defaults
+- [x] ~~Reorder Places by drag, and pin by dropping a folder~~ DONE 2026-10-11 -- one list (Explorer's Quick access); `uui_tree` reorders
 - [x] ~~Properties of a volume or share~~ DONE 2026-10-11 -- a used/free ring and its facts (`uui_volinfo`), and in the details pane
 - [x] ~~Personal folders under /home~~ DONE 2026-10-11 -- Documents, Music, Pictures, Videos, Downloads; `lib/udirs.h`, moved once
 - [ ] A personal folder's Location: move it from its Properties, written to `/etc/user-dirs.conf` -- Windows' Location tab
 - [ ] The left pane's menu from the keyboard -- the Menu key and Shift+F10 open it on the selected row
 - [ ] Sign in to a share from its Properties window -- the sign-in dialog lives in the File Manager today
-- [ ] The file dialog's places obey the File Manager's hidden places
 - [x] ~~A Help browser over `docs/`~~ DONE 2026-09-14 -- `/bin/wm/apps/help`; contents, links, history and search since 2026-09-29
 - [x] ~~A Log Viewer~~ DONE 2026-09-15 -- both rings merged on their shared stamp, a level filter and a search field
 - [x] ~~Log Viewer redesign~~ DONE 2026-10-07 -- details pane, timeline, repeats, kept mutes, Save as, any /var/log file; `uui_loglist`

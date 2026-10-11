@@ -885,7 +885,8 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // pointer is still held, so nothing else can be meant by it.
         if (a->top.router.count && ev->a == 0x1B && uui_router_drag_active(&a->top.router)) {
             uui_router_drag_cancel(&a->top.router);
-            wmchan_send(WIN_REQ_DRAG_END, 0, 0, 0, 0, 0);
+            if (a->drag_exported) wmchan_send(WIN_REQ_DRAG_END, 0, 0, 0, 0, 0);
+            a->drag_exported = 0;
             a->top.dirty = 1;
             break;
         }
@@ -937,9 +938,15 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         // A drag just began: tell the compositor, so it can offer it to
         // whatever the pointer leaves this window for. The source widget
         // has filled the drag slot (lib/uclip.h) in drag_start.
+        // FILES only: a row moved within its own widget (UUI_DRAG_ROW) is
+        // nothing another window could take, and the slot it would offer
+        // is whatever the last file drag left there.
         if (a->top.router.count && !was_dragging && uui_router_drag_active(&a->top.router)) {
             const struct uui_drag *dg = uui_router_drag(&a->top.router);
-            wmchan_send(WIN_REQ_DRAG_START, 0, dg ? dg->count : 1, 0, 0, 0);
+            if (dg && dg->kind == UUI_DRAG_FILES) {
+                wmchan_send(WIN_REQ_DRAG_START, 0, dg->count, 0, 0, 0);
+                a->drag_exported = 1;
+            }
         }
         if (d->buttons) {
             int changed = held ? uui_button_group_press(d->buttons, ev->a, ev->b)
@@ -966,7 +973,8 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
             top_release(&a->top, ev->a, ev->b);
             // The slot stays: a target in another window reads it AFTER
             // this release reaches the compositor (wm_dnd.c says why).
-            if (was_dragging) wmchan_send(WIN_REQ_DRAG_END, 0, 0, 0, 0, 0);
+            if (was_dragging && a->drag_exported) wmchan_send(WIN_REQ_DRAG_END, 0, 0, 0, 0, 0);
+            a->drag_exported = 0;
             // A release that DROPPED names the target instead. The
             // payload is still readable through uapp_drag() here and
             // nowhere later -- the router has already let go of it.

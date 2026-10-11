@@ -21,6 +21,15 @@ void uui_tree_init(struct uui_tree *t, int x, int y, int w, int h,
     t->hovered = -1;
     t->drop_node = -1;
     t->dropped_node = -1;
+    t->can_drag = 0;
+    t->can_insert = 0;
+    t->reorder_ctx = 0;
+    t->press_node = t->pre_press_sel = -1;
+    t->drag_node = -1;
+    t->ins_y = t->ins_after = t->ins_before = -1;
+    t->dropped_from = t->dropped_after = t->dropped_before = -1;
+    t->dropped_insert = 0;
+    t->drag_label[0] = '\0';
     t->top = 0;
     t->row_h = 0; // derive from the font
     uui_sbar_init(&t->sb);
@@ -291,8 +300,29 @@ int uui_tree_select_id(struct uui_tree *t, int id) {
 }
 
 int uui_tree_drop_id(const struct uui_tree *t) {
+    if (t->dropped_insert) return -1;   // a GAP, not a row: uui_tree_drop_insert()
     int n = t->dropped_node;
     return (n >= 0 && n < t->count) ? t->nodes[n].id : -1;
+}
+
+void uui_tree_set_reorder(struct uui_tree *t, int (*can_drag)(void *ctx, int id),
+                          int (*can_insert)(void *ctx, int from, int after, int before),
+                          void *ctx) {
+    t->can_drag = can_drag;
+    t->can_insert = can_insert;
+    t->reorder_ctx = ctx;
+}
+
+int uui_tree_drop_insert(const struct uui_tree *t, int *from, int *after, int *before) {
+    if (!t->dropped_insert) return 0;
+    if (from) *from = t->dropped_from;
+    if (after) *after = t->dropped_after;
+    if (before) *before = t->dropped_before;
+    return 1;
+}
+
+static int id_of(const struct uui_tree *t, int node) {
+    return node >= 0 && node < t->count ? t->nodes[node].id : -1;
 }
 
 // --- geometry ---------------------------------------------------------
@@ -526,7 +556,7 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
         int avail = right - tx;
         if (avail > 0)
             ugfx_draw_string_clipped(s, tx, ty, avail, nd->label,
-                                      selected ? sel_fg : t->fg, row_bg);
+                                      node == t->drag_node ? muted : selected ? sel_fg : t->fg, row_bg);
         // The filter's matching run, marked over the label in the colour
         // Notepad marks a find hit in.
         int at = t->filter[0] ? find_ci(nd->label, t->filter) : -1;
@@ -547,6 +577,13 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
                 ugfx_draw_string_clipped(s, mx, ty, mw, run, UTHEME_TEXT, FILTER_HIT_BG);
             }
         }
+    }
+    // THE GAP a drag would land in: a line in the accent with a dot at
+    // its start, Explorer's and Dolphin's insertion mark.
+    if (t->ins_y >= 0) {
+        int lx = t->x + 8, lw = t->w - bar - 16, ly = t->ins_y - 1;
+        ugfx_fill_rect(s, lx, ly, lw, 2, UTHEME_ACCENT);
+        uui_fill_round_rect(s, lx - 3, ly - 2, 6, 6, 3, UTHEME_ACCENT);
     }
     ugfx_clip_restore(s, &saved);
 
@@ -631,6 +668,8 @@ int uui_tree_press(struct uui_tree *t, int cx, int cy) {
         t->top = t->sb.top;
     }
     if (r & UUI_SBAR_TOOK) return 1;
+    t->pre_press_sel = t->selected;
+    t->press_node = uui_tree_hit(t, cx, cy);
     uui_tree_click(t, cx, cy);
     // NON-ZERO ON ANY HIT, even when nothing changed: the router takes
     // its pointer grab only when press does, so returning 0 for a
@@ -800,23 +839,105 @@ static void tree_describe_op(const void *w, const struct uui_describe *d) {
     uui_describe_int(d, "selected", t->selected);
 }
 
+// --- a drag source: its own rows, reordered -----------------------------
+//
+// Only with uui_tree_set_reorder(), and only a row the app lets move. The
+// press that became a drag selected the row: the selection goes back, so
+// picking a row up is not choosing it.
+static int tree_drag_start_op(void *w, int cx, int cy, struct uui_drag *d) {
+    (void)cx; (void)cy;
+    struct uui_tree *t = (struct uui_tree *)w;
+    int n = t->press_node;
+    if (!t->can_drag || !t->can_insert || n < 0 || n >= t->count || is_header(t, n) ||
+        !t->can_drag(t->reorder_ctx, id_of(t, n))) return 0;
+    t->selected = t->pre_press_sel;
+    t->drag_node = n;
+    snprintf(t->drag_label, sizeof t->drag_label, "%s", t->nodes[n].label ? t->nodes[n].label : "");
+    d->kind = UUI_DRAG_ROW;
+    d->count = 1;
+    d->label = t->drag_label;
+    d->dir = 0;
+    return 1;
+}
+
+static void tree_drag_end_op(void *w, int dropped) {
+    (void)dropped;
+    struct uui_tree *t = (struct uui_tree *)w;
+    t->drag_node = -1;
+    t->ins_y = -1;
+    uui_sbar_release(&t->sb);
+}
+
+// The ghost: the row's icon and label under the pointer.
+static void tree_drag_draw_op(struct ugfx_surface *s, const void *w, const struct uui_drag *d) {
+    const struct uui_tree *t = (const struct uui_tree *)w;
+    int n = t->drag_node, px = ugfx_char_h();
+    if (n < 0 || n >= t->count) return;
+    const struct uimg *ic = t->nodes[n].icon ? icon_get(t->nodes[n].icon, px) : 0;
+    int tw = ugfx_text_width(t->drag_label);
+    int gx = d->x + 12, gy = d->y + 8, gw = px + 10 + tw + 8, gh = px + 8;
+    uui_fill_round_rect(s, gx, gy, gw, gh, 5, t->sel_bg);
+    if (ic) ugfx_blit_alpha(s, gx + 4, gy + 4, ic->w, ic->h, ic->px, ic->w);
+    ugfx_draw_string(s, gx + px + 10, gy + (gh - ugfx_char_h()) / 2, t->drag_label, t->sel_fg, t->sel_bg);
+}
+
 // --- a drop target (ui/uui_route.h's third rule) ------------------------
 //
-// Every node accepts: a tree's rows are all places (a folder tree lists
-// only directories). The app decides at the drop whether the node is
-// somewhere the payload can go.
+// Every node accepts files: a tree's rows are all places (a folder tree
+// lists only directories), and the app decides at the drop whether the
+// node is somewhere they can go. With reordering on, the GAPS take part
+// too: a row dragged in this tree only ever lands in one, and a file
+// lands in one when it is near a row's edge rather than its middle.
+
+// The gap at (cx, cy): `edge` 0 picks the nearer one for any point, 1
+// only for one within a quarter row of it. Sets ins_* and returns 1 when
+// the app takes it.
+static int find_gap(struct uui_tree *t, int cx, int cy, int from, int edge) {
+    (void)cx;
+    int rh = uui_tree_row_h(t), total = uui_tree_visible_count(t);
+    if (rh <= 0 || cy < t->y) return 0;
+    int rel = cy - t->y, r = t->top + rel / rh, frac = rel % rh;
+    if (r >= total) { r = total; frac = 0; }   // below the last row: the end
+    int gap = frac < rh / 2 ? r : r + 1;
+    if (edge && frac >= rh / 4 && frac < rh - rh / 4 && r < total) return 0;
+    int before = gap < total ? uui_tree_node_at_row(t, gap) : -1;
+    int after = gap > 0 ? uui_tree_node_at_row(t, gap - 1) : -1;
+    if (!t->can_insert(t->reorder_ctx, from < 0 ? -1 : id_of(t, from), id_of(t, after), id_of(t, before)))
+        return 0;
+    t->ins_y = t->y + (gap - t->top) * rh;
+    t->ins_after = after;
+    t->ins_before = before;
+    return 1;
+}
+
 static int tree_drag_over_op(void *w, int cx, int cy, const struct uui_drag *d) {
     struct uui_tree *t = (struct uui_tree *)w;
-    int node = (d->kind == UUI_DRAG_FILES && cx != UUI_NOWHERE)
-                   ? uui_tree_hit(t, cx, cy) : -1;
+    t->ins_y = -1;
+    t->drop_node = -1;
+    if (cx == UUI_NOWHERE) return 0;
+    int reorder = t->can_insert != 0;
+    if (d->kind == UUI_DRAG_ROW)
+        return d->source == w && reorder && find_gap(t, cx, cy, t->drag_node, 0);
+    if (d->kind != UUI_DRAG_FILES) return 0;
+    if (reorder && find_gap(t, cx, cy, -1, 1)) return 1;
+    int node = uui_tree_hit(t, cx, cy);
     if (is_header(t, node)) node = -1;
     t->drop_node = node;
     return node >= 0;
 }
 
 static int tree_drop_op(void *w, int cx, int cy, const struct uui_drag *d) {
-    (void)cx; (void)cy; (void)d;
+    (void)cx; (void)cy;
     struct uui_tree *t = (struct uui_tree *)w;
+    t->dropped_insert = 0;
+    if (t->ins_y >= 0) {
+        t->dropped_insert = 1;
+        t->dropped_from = d->kind == UUI_DRAG_ROW ? id_of(t, t->drag_node) : -1;
+        t->dropped_after = id_of(t, t->ins_after);
+        t->dropped_before = id_of(t, t->ins_before);
+        t->ins_y = -1;
+        return 1;
+    }
     if (t->drop_node < 0) return 0;
     t->dropped_node = t->drop_node;
     t->drop_node = -1;
@@ -839,4 +960,7 @@ const struct uui_widget_ops uui_tree_ops = {
     .describe     = tree_describe_op,
     .drag_over    = tree_drag_over_op,
     .drop         = tree_drop_op,
+    .drag_start   = tree_drag_start_op,
+    .drag_end     = tree_drag_end_op,
+    .drag_draw    = tree_drag_draw_op,
 };

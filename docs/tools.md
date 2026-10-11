@@ -3296,10 +3296,14 @@ window without going through it will find its layout polls timing out.
   (`ui/uui_volinfo.h`) whose ring is sampled all round its middle circle
   in the window's pixels (`properties: layout ring x y d`, content-
   relative); the details pane at `/` logs `files: details volume /
-  button Open in Disks`. **A row is found by PATH in the layout's
-  `treerow` lines, a heading by its `-`**: the one above the first pin.
+  button Open in Disks`; Places as ONE list -- a default unpinned and
+  restored, a row DRAGGED above Home and a folder dragged from the pane
+  into a gap, each read back from `/etc/places.conf`. **A row is found
+  by PATH in the layout's `treerow` lines, a heading by its `-`**; the
+  dragged folder is `0pin`, first under `..` in any sort order.
   `--positive-control` aims Properties at `/home`, a folder, which gets
-  the file page and no ring: that check reddens.
+  the file page and no ring: that check reddens. The drag checks were
+  shown red by `mutate.py` refusing every gap in `places_can_insert()`.
 
 - **`fm_thumb_drag_test.py`** -- the icons view's scrollbar after a
   click: `/bin`, click the first icon after `..` (`wm`), then drag the

@@ -146,6 +146,7 @@ struct uapp {
     const struct uapp_desc *desc;
     uint32_t window;
     int w, h;
+    int drag_exported;          // a FILES drag was announced to the compositor (WIN_REQ_DRAG_START)
     // The TOPLEVEL's back buffer -- a copy of TOPLEVEL->surface kept
     // here because every draw callback is handed `&a->surface` and the
     // two are refreshed together in present() and uapp_resize().

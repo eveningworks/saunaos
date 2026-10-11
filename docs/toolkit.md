@@ -71,7 +71,7 @@
 | `upager.h` | The pager: show a block of text one screenful at a time, on whichever of fd 0 and fd 1 is a terminal. |
 | `upath.h` | PATH lookup for a ring-3 program that has to RUN another one. |
 | `upile.h` | DEBRIS THAT FALLS, BOUNCES AND PILES UP at the bottom of a picture -- the Desktop cube's chips (gui/savers/cube.c), and anything else that sheds bits onto a floor. |
-| `upins.h` | PINNED FOLDERS: the folders a person added to Places, kept in /etc/places.conf one absolute path per line, optionally a TAB and the name it is shown by -- GTK's bookmarks file ("file:///path Name")... |
+| `upins.h` | PLACES: the list down the top of a file window's side pane, in the person's order -- Explorer's Quick access and Dolphin's Places panel, ONE list: Recent, Home, the personal folders and the Recycle... |
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |
 | `urecent.h` | RECENT FILES: what was opened lately, by any app, and in which -- freedesktop's recently-used.xbel and Windows' Recent Items, as one plain-text list in /var/lib/recent. |

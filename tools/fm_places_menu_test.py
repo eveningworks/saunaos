@@ -6,10 +6,13 @@ volume card they and the details pane open (ui/uui_volinfo.h).
    Recycle Bin, a pin at each end of the list, a disk volume, a volume
    in memory, a heading -- read from the app's `placemenu` log line, and
    the popup is OPEN (its rows are laid out), not just logged.
-2. **Move down / Rename pin / Unpin** change /etc/places.conf, read back
-   with `cat`, and the tree follows.
-3. **Hide from Places** writes files.conf's hidden_places and the row
-   goes; **Show hidden places** on a heading brings it back.
+2. **Move down / Rename / Unpin** change /etc/places.conf, read back
+   with `cat`, and the tree follows. Places is ONE list (lib/upins.h):
+   the defaults, then the pins.
+3. **A default unpins like a pin**, and **Restore default places** on a
+   heading brings it back. **Drag and drop**: a row dragged above Home
+   lands there; a folder dragged from the pane to the gap below the
+   Recycle Bin is pinned there -- each read back from the file.
 4. **Properties on a volume opens the volume page**: the window is
    titled "System Properties", logs the volume's rows, and DRAWS its
    used/free ring -- track grey or the CREATE green all round the
@@ -97,15 +100,18 @@ def run(dbg, qmp, res, positive_control):
         fm.wait_layout(dbg, win, lambda l: l.ctx == 0, timeout=4.0)
 
     # 1. a menu per kind
+    # ONE LIST: the defaults (Recent ... Recycle Bin), then PA and PB --
+    # the old pins-only file is read as the defaults followed by it.
+    LIST = "Rename...|{up}{down}Unpin from Places"
+    def lst(up, down):
+        return LIST.format(up="Move up|" if up else "", down="Move down|" if down else "")
     want = {
-        "/home": ("place", "Open|Open in new tab|-|Hide from Places|-|Copy path|Open in Terminal|-|Properties"),
-        "recent:/": ("recent", "Open|Open in new tab|-|Hide from Places|Clear list"),
-        "trash:/": ("bin", "Open|Open in new tab|-|Restore all|Empty Recycle Bin|-|Hide from Places|"
-                           "Recycle Bin settings..."),
-        PA: ("pin", "Open|Open in new tab|-|Rename pin...|Move down|Unpin from Places|-|Copy path|"
-                    "Open in Terminal|-|Properties"),
-        PB: ("pin", "Open|Open in new tab|-|Rename pin...|Move up|Unpin from Places|-|Copy path|"
-                    "Open in Terminal|-|Properties"),
+        "recent:/": ("recent", "Open|Open in new tab|-|Clear list|-|" + lst(0, 1)),
+        "/home": ("place", "Open|Open in new tab|-|" + lst(1, 1) + "|-|Copy path|Open in Terminal|-|Properties"),
+        "trash:/": ("bin", "Open|Open in new tab|-|Restore all|Empty Recycle Bin|Recycle Bin settings...|-|"
+                           + lst(1, 1)),
+        PA: ("place", "Open|Open in new tab|-|" + lst(1, 1) + "|-|Copy path|Open in Terminal|-|Properties"),
+        PB: ("place", "Open|Open in new tab|-|" + lst(1, 0) + "|-|Copy path|Open in Terminal|-|Properties"),
         "/": ("volume", "Open|Open in new tab|-|Copy path|Open in Terminal|-|Open in Disks|Check...|-|Properties"),
         "/tmp": ("volume", "Open|Open in new tab|-|Copy path|Open in Terminal|-|Properties"),
     }
@@ -122,17 +128,20 @@ def run(dbg, qmp, res, positive_control):
         close_menu()
 
     lay = fm.layout_now(dbg, win) or lay
-    pins = [r for r, p in sorted(lay.treerow.items()) if p in (PA, PB)]
-    head = min(pins) - 1 if pins else None
+    heads = [r for r, p in sorted(lay.treerow.items()) if p == "-"]
+    head = heads[0] if heads else None     # "This computer": the list has no heading
     got = None
-    if head is not None and lay.treerow.get(head) == "-":
+    if head is not None:
         got, pop = rclick_row(lay, head)
         close_menu()
     res.check("a heading opens the pane's own menu", got is not None and got[0] == "pane"
               and got[2] == "Folder tree", f"got={got}")
 
     def conf():
-        return [ln.strip() for ln in sh("cat /etc/places.conf").splitlines() if ln.startswith("/")]
+        return [ln.strip() for ln in sh("cat /etc/places.conf").splitlines() if ln and not ln.startswith("#")]
+
+    def pins_of(c):
+        return [x for x in c if x.startswith((PA, PB))]
 
     def wait_conf(pred, timeout=8.0):
         end = time.time() + timeout
@@ -147,19 +156,19 @@ def run(dbg, qmp, res, positive_control):
     lay = fm.layout_now(dbg, win) or lay
     got, pop = rclick_row(lay, row_of(lay, PA))
     pick(pop, got[2] if got else "", "Move down")
-    c = wait_conf(lambda c: c[:2] == [PB, PA])
+    c = wait_conf(lambda c: pins_of(c) == [PB, PA])
     lay = fm.wait_layout(dbg, win, lambda l: (row_of(l, PB) or 99) < (row_of(l, PA) or -1)) or fm.layout_now(dbg, win)
-    res.check("Move down swaps the pins in the file and the tree", c[:2] == [PB, PA]
+    res.check("Move down swaps the pins in the file and the tree", pins_of(c) == [PB, PA]
               and (row_of(lay, PB) or 99) < (row_of(lay, PA) or -1), f"conf={c} tree={lay.treerow}")
 
     got, pop = rclick_row(lay, row_of(lay, PA))
-    if pick(pop, got[2] if got else "", "Rename pin..."):
+    if pick(pop, got[2] if got else "", "Rename..."):
         fm.wait_layout(dbg, win, lambda l: l.modal == 1, timeout=6.0)
         for ch in "Alpha":
             dbg.key(ch, settle=False)
         dbg.key(fm.K_ENTER)
     c = wait_conf(lambda c: f"{PA}\tAlpha" in c)
-    res.check("Rename pin writes its name beside the path", f"{PA}\tAlpha" in c, f"conf={c}")
+    res.check("Rename writes its name beside the path", f"{PA}\tAlpha" in c, f"conf={c}")
 
     lay = fm.layout_now(dbg, win) or lay
     got, pop = rclick_row(lay, row_of(lay, PB))
@@ -169,27 +178,66 @@ def run(dbg, qmp, res, positive_control):
     res.check("Unpin takes it out of the file and the tree",
               not any(x.startswith(PB) for x in c) and row_of(lay, PB) is None, f"conf={c}")
 
-    # 3. Hide and Show
+    # 3. A default unpinned, and Restore default places on a heading
     got, pop = rclick_row(lay, row_of(lay, "/home/Music"))
-    pick(pop, got[2] if got else "", "Hide from Places")
+    pick(pop, got[2] if got else "", "Unpin from Places")
+    c = wait_conf(lambda c: "udir:music" not in c)
     lay = fm.wait_layout(dbg, win, lambda l: row_of(l, "/home/Music") is None) or fm.layout_now(dbg, win)
-    hidden = sh(f"cat {fm.FILES_CONF}")
-    res.check("Hide from Places writes hidden_places and the row goes",
-              "hidden_places=music" in hidden and row_of(lay, "/home/Music") is None,
-              f"conf={hidden[-200:]!r}")
-    pins = [r for r, p in sorted(lay.treerow.items()) if p == PA]
-    got, pop = rclick_row(lay, pins[0] - 1) if pins else (None, None)
-    pick(pop, got[2] if got else "", "Show hidden places (Music)")
+    res.check("a default place unpins like any other (udir:music leaves the list)",
+              "udir:music" not in c and row_of(lay, "/home/Music") is None, f"conf={c}")
+    heads = [r for r, p in sorted(lay.treerow.items()) if p == "-"]
+    got, pop = rclick_row(lay, heads[0]) if heads else (None, None)
+    pick(pop, got[2] if got else "", "Restore default places")
+    c = wait_conf(lambda c: "udir:music" in c)
     lay = fm.wait_layout(dbg, win, lambda l: row_of(l, "/home/Music") is not None) or fm.layout_now(dbg, win)
-    res.check("Show hidden places brings it back",
-              got is not None and "Show hidden places (Music)" in got[2]
-              and row_of(lay, "/home/Music") is not None
-              and "hidden_places" not in sh(f"cat {fm.FILES_CONF}"), f"got={got}")
+    res.check("Restore default places brings it back",
+              got is not None and "Restore default places" in got[2]
+              and "udir:music" in c and row_of(lay, "/home/Music") is not None, f"got={got} conf={c}")
+
+    # 3b. Drag and drop: a row to another gap, and a folder from the pane
+    def row_y(l, r):
+        tx, ty, tw, th, trh, _ = l.treebox
+        return l.ox + tx + tw // 3, l.oy + ty + r * trh + trh // 2
+
+    lay = fm.layout_now(dbg, win) or lay
+    ra, rh = row_of(lay, PA), row_of(lay, "/home")
+    if ra is not None and rh is not None:
+        x0, y0 = row_y(lay, ra)
+        x1, y1 = row_y(lay, rh)
+        trh = lay.treebox[4]
+        fm.band_drag(dbg, qmp, x0, y0, x1, y1 - trh // 3, steps=6)   # the upper half of Home: before it
+    c = wait_conf(lambda c: c.index(next(x for x in c if x.startswith(PA))) < c.index("/home")
+                  if any(x.startswith(PA) for x in c) and "/home" in c else False)
+    order = [x.split("\t")[0] for x in c]
+    res.check("a place dragged above Home lands there, in the file and the tree",
+              PA in order and "/home" in order and order.index(PA) == order.index("/home") - 1,
+              f"conf={c}")
+
+    sh("mkdir /home/0pin")   # first under ".." in any sort order: digits before letters
+    # The pane reloads by itself when /home changes (its generation).
+    fm.wait_listing(dbg, "/home", lambda names: "0pin" in [n.rstrip("/") for n in names])
+    time.sleep(1.0)
+    lay = fm.wait_layout(dbg, win, lambda l: l.rowy and l.dir.get(0) == "/home") or fm.layout_now(dbg, win)
+    target_row = row_of(lay, "trash:/")
+    if target_row is not None and lay.rowy:
+        px, py, pw, ph = lay.pane[0]
+        vr = 1
+        sx, sy = lay.ox + px + 60, lay.oy + lay.rowy[0] + lay.rowh * vr + lay.rowh // 2
+        tx, ty = row_y(lay, target_row)
+        trh = lay.treebox[4]
+        fm.band_drag(dbg, qmp, sx, sy, tx, ty + trh // 2 - 2, steps=8)   # the lower edge of Recycle Bin
+    c = wait_conf(lambda c: "/home/0pin" in c)
+    order = [x.split("\t")[0] for x in c]
+    res.check("a folder dragged from the pane to a gap is pinned there",
+              "/home/0pin" in order and "trash:/" in order
+              and order.index("/home/0pin") == order.index("trash:/") + 1, f"conf={c}")
+    sh("rm -r /home/0pin")
 
     # 4. Properties of a volume: the volume page, ring drawn
     target = "/home" if positive_control else "/"
     title = "home Properties" if positive_control else "System Properties"
     dbg.logs("properties:")
+    lay = fm.layout_now(dbg, win) or lay      # the rows moved: a pin was added above
     got, pop = rclick_row(lay, row_of(lay, target))
     pick(pop, got[2] if got else "", "Properties")
     pw = None

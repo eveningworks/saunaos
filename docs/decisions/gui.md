@@ -11150,3 +11150,31 @@ after a delete. **A bin's newest item is never cut for size**, so the
 delete that pushed it over cannot be undone by its own bookkeeping --
 where Windows instead refuses to bin a file larger than the limit.
 
+## Places is one ordered list, Explorer's Quick access, not named places plus pins
+
+**What it was (earlier on 2026-10-11):** Recent, Home, the personal
+folders and the Recycle Bin were a fixed table the File Manager drew
+first, which could be hidden by a switch (`hidden_places=` in
+files.conf); folders pinned by the person followed under a "Pinned"
+heading, reorderable among themselves.
+
+**What it is:** ONE list in `/etc/places.conf`, in the person's order --
+the old places are default entries (`recent:/`, `/home`, `udir:<key>`,
+`trash:/`) and a pinned folder is an entry like them. Any entry can be
+renamed, moved up or down, dragged anywhere in the list, or unpinned;
+"Restore default places" appends the defaults that are missing. A folder
+dropped from a pane into a gap of the list is pinned there.
+
+**Why:** the maintainer chose it from mockups over keeping the two
+groups. Explorer's Quick access and Dolphin's Places panel both work
+this way -- Desktop and Downloads there are pins with defaults, not a
+separate class -- and it makes one gesture (drag to reorder) mean the
+same thing on every row. GNOME Files keeps its built-in places fixed and
+reorders only bookmarks, which is the shape this replaced.
+
+**`udir:<key>`, not a path, for a personal folder**, so the entry follows
+the folder if `/etc/user-dirs.conf` moves it (`lib/udirs.h`). A file
+without the `#places 2` line is the older pins-only file, read as the
+defaults followed by its pins, and a files.conf still naming
+`hidden_places` has those entries removed once.
+
