@@ -71,6 +71,14 @@ static void dd_open(struct uui_dropdown *d) {
     if (d->open) return;
     d->open = 1;
     dd_place_list(d);
+    // THE CURRENT CHOICE IS IN VIEW when the list opens, in the middle of
+    // it where the ends allow -- Windows' combo box and Qt's both scroll to
+    // it; a list starting from the top made a long one (92 time zones)
+    // look as if nothing were chosen.
+    int rows = d->list.count < d->max_rows ? d->list.count : d->max_rows;
+    int top = d->list.selected - rows / 2;
+    if (top > d->list.count - rows) top = d->list.count - rows;
+    d->list.top = top > 0 ? top : 0;
     int px, py;
     d->popup = uui_popup_open(d->x, d->y, d->w, d->h,
                               d->list.w, d->list.h, UUI_POPUP_BELOW,
@@ -297,7 +305,11 @@ static int dd_ops_motion(void *w, int cx, int cy, unsigned buttons) {
     if (d->disabled) return 0;
     if (buttons) return uui_dropdown_drag(d, cx, cy);
     if (!d->open) return 0;
-    return uui_listbox_hover(&d->list, cx, cy);
+    // The LIST BOX'S OWN motion, not just its row hover: the overlay bar
+    // widens as the pointer nears it, and that is the bar's hover --
+    // calling uui_listbox_hover() alone left a dropdown's bar thin until
+    // it was pressed.
+    return uui_listbox_ops.motion(&d->list, cx, cy, 0);
 }
 
 static int dd_ops_release(void *w, int cx, int cy) {
