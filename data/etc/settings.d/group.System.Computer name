@@ -1,0 +1,4 @@
+Order=5
+# Debug=1: the name is changed from About > System Information (Rename...);
+# this page, holding the bare setting, is for the debug view.
+Debug=1

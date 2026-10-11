@@ -635,6 +635,14 @@ void relayout_page(void) {
     if (g_show_sysinfo) {
         static struct uui_item si_btns[2];
         static struct uui_layout si_row;
+        g_si_head.h = sysinfo_head_height();
+        g_si_head.w = 0;
+        PAGE[n++] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_si_head,
+                                       .flags = UUI_FILL_W };
+        sysinfo_name_refresh();
+        PAGE[n++] = (struct uui_item){ .ops = &uui_setting_row_ops, .widget = &g_si_name,
+                                       .flags = UUI_FILL_W };
+        FOCUS[FOCUS_COUNT++] = (struct uui_focusable){ &g_si_rename, &uui_button_ops };
         g_si_view.h = sysinfo_height();
         g_si_view.w = 0;
         PAGE[n++] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_si_view,
@@ -755,6 +763,7 @@ int refit_prose(void) {
     for (int i = 0; i < page_slots; i++)
         if (g_slot[i].setting >= 0 && uui_setting_row_fit(&g_slot[i].row)) changed = 1;
     if (g_show_sysinfo && uui_setting_row_fit(&g_si_debug)) changed = 1;
+    if (g_show_sysinfo && uui_setting_row_fit(&g_si_name)) changed = 1;
     if (g_show_startup && startup_fit()) changed = 1;
     if (g_show_adapters && adapters_fit()) changed = 1;
     if (snd_fit()) changed = 1;

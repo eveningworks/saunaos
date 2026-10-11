@@ -87,7 +87,7 @@ enum { CTRL_RADIO = 0, CTRL_COMBO, CTRL_SLIDER, CTRL_SPIN, CTRL_TEXT,
 
 enum { ID_TREE = 1, ID_SIDE_SPLIT, ID_BODY, ID_PAGE, ID_ADVANCED, ID_TEST,
        ID_OPTS, ID_OPTS_OK, ID_OPTS_CANCEL, ID_SEARCH, ID_RESET, ID_APPLY,
-       ID_ASK, ID_FOOTER, ID_SI_COPY, ID_SI_DEVMGR, ID_SI_DEBUG, ID_CLOCK_CHANGE,
+       ID_ASK, ID_FOOTER, ID_SI_COPY, ID_SI_DEVMGR, ID_SI_DEBUG, ID_SI_RENAME, ID_CLOCK_CHANGE,
        ID_SU_DEFAULT, ID_SU_TIMEOUT, ID_SU_NEXT, ID_SU_OPEN, ID_SU_FBS_NOW, ID_SU_FBS_AGAIN,
        ID_KB_LIST, ID_KB_ADD, ID_KB_REMOVE, ID_KB_UP, ID_KB_DOWN, ID_KB_TRY,
        ID_NA_CARD, ID_NA_DEVMGR,
@@ -373,8 +373,12 @@ void clock_open_dialog(struct uapp *a);
 void region_preview_refresh(void);
 
 // set_sysinfo.c
-extern struct uui_custom g_si_view;
-extern struct uui_button g_si_copy, g_si_devmgr;
+extern struct uui_custom g_si_view, g_si_head;
+extern struct uui_button g_si_copy, g_si_devmgr, g_si_rename;
+extern struct uui_setting_row g_si_name;
+int  sysinfo_head_height(void);
+void sysinfo_name_refresh(void);
+void sysinfo_rename_open(struct uapp *a);
 extern struct uui_checkbox g_si_debug_cb;
 extern struct uui_setting_row g_si_debug;
 void sysinfo_init(void);

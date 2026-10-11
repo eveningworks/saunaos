@@ -402,6 +402,9 @@ static void on_action(struct uapp *a, int code) {
     case ID_SI_DEVMGR:
         sys_spawn("/bin/wm/system/devmgr", 0, -1);
         break;
+    case ID_SI_RENAME:
+        sysinfo_rename_open(a);
+        return;
     case ID_SU_OPEN:
         sys_spawn("/bin/wm/system/bootmgr", 0, -1);
         break;

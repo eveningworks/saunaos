@@ -10,6 +10,8 @@
 #include "lib/uclip.h"
 #include "build_date.h"
 #include "query_abi.h"
+#include "lib/uhostname.h"
+#include "lib/usetting.h"
 
 #define SI_ROWS 16
 
@@ -168,9 +170,10 @@ static int key_w(void) {
     return w + pad() * 2;
 }
 
+int sysinfo_head_height(void) { return pad() + logo() + 4 + ugfx_char_h() * 3; }
+
 int sysinfo_height(void) {
-    return pad() + logo() + ugfx_char_h() * 3 + pad() +
-           caption_h() + card_h(g_sw_n) + caption_h() + card_h(g_hw_n) + pad();
+    return caption_h() + card_h(g_sw_n) + caption_h() + card_h(g_hw_n) + pad();
 }
 
 static int draw_card(struct ugfx_surface *s, int x, int y, int w, const char *title,
@@ -190,7 +193,8 @@ static int draw_card(struct ugfx_surface *s, int x, int y, int w, const char *ti
     return y + h;
 }
 
-static void draw_view(struct ugfx_surface *s, const struct uui_custom *c) {
+// The mark and the name over the Computer name row; the cards under it.
+static void draw_head(struct ugfx_surface *s, const struct uui_custom *c) {
     int x = c->x, y = c->y + pad(), w = c->w;
     // The mark and the name, centred -- the one place in Settings that is
     // about the system rather than a setting of it.
@@ -206,13 +210,118 @@ static void draw_view(struct ugfx_surface *s, const struct uui_custom *c) {
     tw = ugfx_text_width(tag);
     ugfx_draw_string_clipped(s, x + (w - tw) / 2, y, w, tag,
                              uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), UTHEME_PANEL_BG);
-    y += ugfx_char_h() * 2;
+}
+
+static void draw_view(struct ugfx_surface *s, const struct uui_custom *c) {
+    int x = c->x, y = c->y, w = c->w;
     y = draw_card(s, x, y, w, "Software", g_sw, g_sw_n);
     draw_card(s, x, y, w, "Hardware", g_hw, g_hw_n);
 }
 
+// --- the computer's name, and renaming it ------------------------------------
+//
+// HERE, AT THE TOP OF ABOUT, as Windows 11's System > About and GNOME's
+// About put the device name -- not a page of its own holding one row.
+// The setting (system.hostname) stays in the registry for `config`.
+
+struct uui_custom g_si_head;
+struct uui_setting_row g_si_name;
+struct uui_button g_si_rename;
+static char g_si_name_text[UHOSTNAME_MAX + 1];
+
+enum { RN_OK = 1, RN_CANCEL, RN_FIELD };
+static struct uapp_window *g_rn_win;
+static struct uui_label g_rn_caption, g_rn_hint, g_rn_err, g_rn_gap;
+static struct uui_textbox g_rn_field;
+static struct uui_button g_rn_ok, g_rn_cancel;
+static struct uui_item RN[5], RN_BTNS[3];
+static struct uui_layout RN_LAYOUT, RN_BTN_ROW;
+static struct uui_focusable RN_FOCUS[3];
+static struct uui_focus g_rn_focus;
+
+void sysinfo_name_refresh(void) { uhostname_get(g_si_name_text, sizeof g_si_name_text); }
+
+static void rn_close(struct uapp_window *w) {
+    uapp_window_close(w);
+    g_rn_win = 0;
+}
+
+static void rn_ok(struct uapp_window *w) {
+    const char *name = uui_textbox_text(&g_rn_field);
+    if (!uhostname_valid(name)) {
+        g_rn_err.text = "Use 1 to 63 letters, digits and hyphens, not starting or ending with a hyphen.";
+        uapp_window_redraw(w);
+        return;
+    }
+    int r = usetting_set(UHOSTNAME_SETTING, name);
+    snprintf(g_status, sizeof g_status, r == SETTING_SAVED ? "This computer is now called %s"
+                                                           : "Could not rename this computer to %s", name);
+    ulogf("settings: hostname %s result %d\n", name, r);
+    sysinfo_name_refresh();
+    rn_close(w);
+}
+
+static void rn_on_action(struct uapp_window *w, int code) {
+    if (code == RN_OK) rn_ok(w);
+    if (code == RN_CANCEL) rn_close(w);
+}
+
+static void rn_on_key(struct uapp_window *w, int key, unsigned mods) {
+    (void)mods;
+    if (key == '\n' || key == '\r') { rn_ok(w); return; }
+    if (uhostname_valid(uui_textbox_text(&g_rn_field))) g_rn_err.text = "";
+    uapp_window_redraw(w);
+}
+
+void sysinfo_rename_open(struct uapp *a) {
+    if (g_rn_win && uapp_window_is_open(g_rn_win)) return;
+    sysinfo_name_refresh();
+    uui_label_init(&g_rn_caption, "New name");
+    uui_textbox_init(&g_rn_field, g_si_name_text);
+    uui_textbox_select(&g_rn_field, 0, (int)strlen(g_si_name_text));
+    uui_label_init(&g_rn_hint, "Letters, digits and hyphens, up to 63. Shown in About and to remote-desktop viewers.");
+    g_rn_hint.fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    uui_label_init(&g_rn_err, "");
+    g_rn_err.fg = utheme_severity(UTHEME_SEV_ERROR);
+    uui_label_init(&g_rn_gap, "");
+    uui_button_init(&g_rn_ok, 0, 0, 0, 0, "Rename", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, RN_OK);
+    uui_button_init(&g_rn_cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, RN_CANCEL);
+    RN_BTNS[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_rn_gap, .flags = UUI_FILL_W };
+    RN_BTNS[1] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_rn_cancel, .id = RN_CANCEL, .name = "rename_cancel" };
+    RN_BTNS[2] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_rn_ok, .id = RN_OK, .name = "rename_ok" };
+    RN_BTN_ROW = (struct uui_layout){ .dir = UUI_ROW, .items = RN_BTNS, .count = 3 };
+    RN[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_rn_caption };
+    RN[1] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_rn_field, .id = RN_FIELD,
+                               .flags = UUI_FILL_W, .name = "rename_field" };
+    RN[2] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_rn_hint, .flags = UUI_FILL_W };
+    RN[3] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_rn_err, .flags = UUI_FILL_W, .name = "rename_error" };
+    RN[4] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &RN_BTN_ROW, .flags = UUI_FILL_W };
+    RN_LAYOUT = (struct uui_layout){ .dir = UUI_COLUMN, .items = RN, .count = 5 };
+    RN_FOCUS[0] = (struct uui_focusable){ &g_rn_field, &uui_textbox_focus_ops };
+    RN_FOCUS[1] = (struct uui_focusable){ &g_rn_cancel, &uui_button_ops };
+    RN_FOCUS[2] = (struct uui_focusable){ &g_rn_ok, &uui_button_ops };
+    uui_focus_init(&g_rn_focus, RN_FOCUS, 3);
+    uui_focus_set(&g_rn_focus, 0);
+    int w = 0, h = 0;
+    uui_layout_natural_size(&RN_LAYOUT, &w, &h);
+    int hint_w = ugfx_text_width(g_rn_hint.text) + 2 * pad();
+    if (w < hint_w) w = hint_w;
+    g_rn_win = uapp_window_open(a, &(struct uapp_window_desc){
+        .title = "Rename this computer", .w = w, .h = h, .flags = UAPP_WIN_MODAL,
+        .widgets = RN, .widget_count = 5, .layout = &RN_LAYOUT, .focus = &g_rn_focus,
+        .on_action = rn_on_action, .on_key = rn_on_key, .on_close = rn_close,
+        .log_prefix = "settings.rename",
+    });
+}
+
 void sysinfo_init(void) {
     g_si_view = (struct uui_custom){ .draw = draw_view };
+    g_si_head = (struct uui_custom){ .draw = draw_head };
+    sysinfo_name_refresh();
+    uui_button_init(&g_si_rename, 0, 0, 0, 0, "Rename...", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SI_RENAME);
+    uui_setting_row_init(&g_si_name, "Computer name", g_si_name_text,
+                         (struct uui_item){ .ops = &uui_button_ops, .widget = &g_si_rename,
+                                            .id = ID_SI_RENAME, .name = "si_rename" });
     uui_button_init(&g_si_devmgr, 0, 0, 0, 0, "Open Device Manager", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SI_DEVMGR);
     uui_button_init(&g_si_copy, 0, 0, 0, 0, "Copy to clipboard", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SI_COPY);
     uui_checkbox_init(&g_si_debug_cb, 0, 0, 0, 0, UTHEME_WHITE, UTHEME_TEXT);
