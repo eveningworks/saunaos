@@ -1038,6 +1038,18 @@ def _boot_device(sess, timeout):
     return None, None
 
 
+def _boot_dir(sess, timeout):
+    """Where kernel.bin and grub/ are: /boot, or /boot/boot on a machine
+    whose boot volume the `bootmigrate` service has not moved up yet
+    (userland/lib/ubootlayout.h)."""
+    legacy = any(ln.strip() == "boot/" for ln in sess.run("ls /boot", timeout))
+    return "/boot/boot" if legacy else "/boot"
+
+
+# Set by do_flash() once it has asked the machine; the paths below read it.
+BOOT_DIR = "/boot"
+
+
 def _grub_timeout_ok(sess, timeout):
     """True if grub.cfg draws a menu -- see do_flash's docstring.
 
@@ -1050,7 +1062,7 @@ def _grub_timeout_ok(sess, timeout):
     `'^set timeout='` arrives as two arguments and grep reads the
     second as a filename. Anchoring is done here instead.
     """
-    for ln in sess.run("grep timeout /boot/boot/grub/grub.cfg", timeout):
+    for ln in sess.run(f"grep timeout {BOOT_DIR}/grub/grub.cfg", timeout):
         t = ln.strip()
         if t.startswith("set timeout=") and t != "set timeout=0":
             return True
@@ -1105,9 +1117,9 @@ def _verify_offline(host, tftp_port, local, want, timeout,
     fd, tmp = tempfile.mkstemp(prefix="remote_verify_")
     os.close(fd)
     try:
-        if do_get(host, tftp_port, "/boot/boot/kernel.bin", tmp, timeout):
+        if do_get(host, tftp_port, f"{BOOT_DIR}/kernel.bin", tmp, timeout):
             print("remote: COULD NOT READ THE KERNEL BACK. Its state is "
-                  "unknown.\nremote: /boot/boot/kernel.old still holds the "
+                  f"unknown.\nremote: {BOOT_DIR}/kernel.old still holds the "
                   "kernel this machine\nremote: is running -- pick "
                   "\"toy-os (previous kernel)\" in GRUB if it will not boot.",
                   file=sys.stderr)
@@ -1277,9 +1289,11 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
         print(f"remote: no such file: {local}", file=sys.stderr)
         return 1
 
+    global BOOT_DIR
     sess = Session(host, telnet_port, timeout)
     try:
         dev, opts = _boot_device(sess, timeout)
+        BOOT_DIR = _boot_dir(sess, timeout)
         if not dev:
             print("remote: nothing is mounted at /boot", file=sys.stderr)
             return 1
@@ -1293,7 +1307,7 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
                 return 1
 
         if not _grub_timeout_ok(sess, timeout):
-            print("remote: /boot/boot/grub/grub.cfg has `set timeout=0`, so "
+            print(f"remote: {BOOT_DIR}/grub/grub.cfg has `set timeout=0`, so "
                   "the rescue entry\nremote: cannot be reached. Fix that "
                   "first -- a bad flash would need a USB stick.",
                   file=sys.stderr)
@@ -1336,7 +1350,7 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
                   f"({len(blob) // 1024} KiB) -- this machine's GRUB "
                   "records gzio")
 
-        if _sha256(sess, "/boot/boot/kernel.bin", timeout) == want:
+        if _sha256(sess, f"{BOOT_DIR}/kernel.bin", timeout) == want:
             # **A MATCHING KERNEL SKIPS THE KERNEL WRITE AND NOTHING
             # ELSE.** This used to `return 0` here -- so a flash whose
             # kernel happened to match did not sync the userland, did not
@@ -1357,13 +1371,13 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
         if kernel_current:
             print("remote: leaving /boot alone -- the kernel already matches")
         else:
-            print("remote: rotating the running kernel to /boot/boot/kernel.old")
+            print(f"remote: rotating the running kernel to {BOOT_DIR}/kernel.old")
         # ITS OWN TIMEOUT, not --timeout. This copies ~5 MB through the
         # guest's filesystem and took longer than the 15s default on a
         # real laptop, which aborted the flash before it had sent a byte
         # -- and left the rescue slot holding a partial copy.
         if not kernel_current:
-            sess.run("cp /boot/boot/kernel.bin /boot/boot/kernel.old",
+            sess.run(f"cp {BOOT_DIR}/kernel.bin {BOOT_DIR}/kernel.old",
                      max(timeout, ROTATE_TIMEOUT))
     finally:
         sess.close()
@@ -1423,7 +1437,7 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
     if kernel_current:
         print("remote: kernel unchanged, so nothing to write or verify")
     else:
-        rc = do_put(host, tftp_port, local, "/boot/boot/kernel.bin", timeout)
+        rc = do_put(host, tftp_port, local, f"{BOOT_DIR}/kernel.bin", timeout)
         if rc:
             if rescue is not None:
                 rescue.close()
@@ -1453,7 +1467,7 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
                 rescue.close()
     try:
         sess.run("sync", timeout)
-        got = _sha256(sess, "/boot/boot/kernel.bin", timeout)
+        got = _sha256(sess, f"{BOOT_DIR}/kernel.bin", timeout)
         if got != want:
             print(f"remote: FLASH DID NOT VERIFY\nremote:   want {want}"
                   f"\nremote:   got  {got}\nremote: kernel.old still holds "

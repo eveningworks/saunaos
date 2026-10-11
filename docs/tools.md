@@ -516,6 +516,15 @@ manual steps to be worth automating:
   unknown entry, and a core recorded without `loadenv`. On demand: it
   reboots twice. **The debug console's shell has no redirection** -- a
   file the test needs in the guest goes in with `vm.py put`.
+- **`boot_migrate_test.py`** -- a machine with the old `/boot/boot`
+  layout moves up to `/boot` by itself and boots from the result. Writes
+  the OLD layout onto a copy of `disk.img` (`install_grub.py
+  --legacy-layout`, plus a `kernel.old` and a marker word on the default
+  entry), boots it, waits for the `bootmigrate` service, checks the flat
+  tree, then REBOOTS: the marker on the second boot's command line can
+  only have come through the rewritten core image, since the old tree is
+  gone. Its control -- the core write skipped -- fails at "came back".
+  On demand: it reboots.
 - **`logview_test.py`** -- the Log Viewer on a FIXTURE log it is opened
   at (`logview <file>`): an error, a warning, an ordinary line, the
   error again and a program line, planted with `vm.py put` -- not
@@ -772,7 +781,7 @@ manual steps to be worth automating:
   **`flash` REPLACES THE KERNEL ON THE MACHINE'S OWN BOOT PARTITION**,
   which is four commands with one irreversible step in the middle when
   done by hand. It remounts the read-only `/boot` writable, rotates the
-  RUNNING kernel to `/boot/boot/kernel.old` so the "previous kernel"
+  RUNNING kernel to `/boot/kernel.old` so the "previous kernel"
   entry in `grub.cfg` is known-good, writes the new one, and reads a
   sha256 back off the partition, and then **REBOOTS -- which is the
   DEFAULT**, and only ever after that verify succeeds. `--no-reboot`
@@ -872,9 +881,9 @@ manual steps to be worth automating:
   the same state.) TFTP is a separate
   service and keeps answering when `telnetd` cannot spawn:
 
-      python3 tools/remote.py --host H get /boot/boot/kernel.bin /tmp/k
+      python3 tools/remote.py --host H get /boot/kernel.bin /tmp/k
       sha256sum /tmp/k build/kernel.bin     # do they match?
-      python3 tools/remote.py --host H put build/kernel.bin /boot/boot/kernel.bin
+      python3 tools/remote.py --host H put build/kernel.bin /boot/kernel.bin
       python3 tools/remote.py --host H put seed/sync/lib/libc.so /lib/libc.so   # ...and each of the rest
 
   Read every file back with `get` and compare hashes -- that is the only
@@ -916,7 +925,7 @@ manual steps to be worth automating:
   whole safety argument: the rescue entry exists on every installed
   machine, and with no timeout GRUB draws no menu, so it cannot be
   picked and a bad kernel needs a USB stick. Fixing that is a one-line
-  edit to `/boot/boot/grub/grub.cfg` and deliberately not something
+  edit to `/boot/grub/grub.cfg` and deliberately not something
   this does for you -- see `docs/conventions/build.md`.
 
   **`sync` sends only what differs, and ASKS the machine rather than
@@ -5836,9 +5845,11 @@ runs first**: a `doom1.wad` with one
   and keeping the existing partition table), `core.img` embedded in the
   BIOS boot partition -- or, on an MBR, in the gap before the first
   partition -- with its own block list patched, the part
-  `grub-bios-setup` normally does, and `/boot/kernel.bin` +
-  `/boot/grub` written into the FAT32 partition with `mtools` -- no root,
-  no loop device, no mount.
+  `grub-bios-setup` normally does, and `kernel.bin` + `grub/` written at
+  the FAT32 partition's root (toy-os's `/boot`) with `mtools` -- no root,
+  no loop device, no mount. A volume still holding the old `::/boot/`
+  tree has it moved up and removed once the new core image is written;
+  **`--legacy-layout`** writes that old tree instead, as a test fixture.
 
   **Why `/boot` is FAT32 at all:** GRUB cannot read TFS3 and never will
   without a module written into its own GPLv3 source tree. Every real
@@ -5850,9 +5861,10 @@ runs first**: a `doom1.wad` with one
   -- `kernel.bin`, `grub.cfg`, `boot.img`, `core.img` -- into a directory
   instead of onto a disk. The build points it at `seed/sync/install`, so
   every toy-os filesystem carries `/install` and can install itself. The
-  `core.img` it makes has `(hd0,gpt2)/boot/grub` baked in, which is what
+  `core.img` it makes has `(hd0,gpt2)/grub` baked in, which is what
   makes the ESP-is-partition-2 layout a constraint rather than a
-  preference. A checkout without GRUB's BIOS target stages nothing and
+  preference; `core.prefix` says so, and `install --bootloader` refuses
+  a payload without it. A checkout without GRUB's BIOS target stages nothing and
   says so; that build boots, it just cannot install itself.
 
   **`--check`** answers "is this image bootable" for a script;

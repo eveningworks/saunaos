@@ -26,7 +26,7 @@ static const char *g_path = UBOOTMENU_CFG;
 static int g_force, g_keep, g_drop;
 
 static const struct uargs_opt OPTS[] = {
-    { "file",  0, "CFG", "edit CFG instead of /boot/boot/grub/grub.cfg", 0, &g_path },
+    { "file",  0, "CFG", "edit CFG instead of /boot/grub/grub.cfg", 0, &g_path },
     { "force", 0, 0,     "save despite a risky problem (never a broken one)", &g_force, 0 },
     { "keep",  0, 0,     "with try: move the trial's words to its entry", &g_keep, 0 },
     { "drop",  0, 0,     "with try: remove the trial", &g_drop, 0 },
@@ -52,7 +52,7 @@ static const struct uargs_cmd CMDS[] = {
 static const struct uargs_prog PROG = {
     .name = "bootcfg",
     .usage = "[OPTION]... [COMMAND [ARG]...]",
-    .summary = "Read and change GRUB's boot menu, /boot/boot/grub/grub.cfg. Every change\n"
+    .summary = "Read and change GRUB's boot menu, /boot/grub/grub.cfg. Every change\n"
                "is checked, shown as a diff, and saved with the old file as grub.cfg.bak.",
     .opts = OPTS,
     .cmds = CMDS,

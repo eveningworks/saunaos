@@ -2245,8 +2245,10 @@ $(LIVE_IMG): $(USERLAND_ELVES) seed
 
 iso: version $(KERNEL) $(USERLAND_ELVES) seed $(BUILD)/conf.mk $(KERNEL_MEDIA)
 	mkdir -p iso/boot/grub
-	rm -f iso/boot/live.img
-	cp $(KERNEL_MEDIA) iso/boot/kernel.bin
+	rm -f iso/boot/live.img iso/boot/kernel.bin
+	# At the ISO's ROOT, as on the disk's boot volume, so grub.cfg's one
+	# `multiboot2 /kernel.bin` finds it on both media.
+	cp $(KERNEL_MEDIA) iso/kernel.bin
 	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' grub.cfg > iso/boot/grub/grub.cfg
 	@if [ -z "$(GRUB_MKRESCUE)" ]; then \
 		echo "make: grub-mkrescue not found (looked for grub-mkrescue and grub2-mkrescue)."; \
@@ -2749,7 +2751,7 @@ clean:
 	# other build product. This used to name 21 $(FOO_ELF) variables by
 	# hand -- they built into the source tree next to their .c files and
 	# needed a .gitignore entry to stay out of the repo.
-	rm -rf $(BUILD) $(ISO) $(LIVE_ISO) $(USB_IMG) iso/boot/kernel.bin iso/boot/live.img iso-live $(SEED_DIR)/sync $(SEED_DIR)/once
+	rm -rf $(BUILD) $(ISO) $(LIVE_ISO) $(USB_IMG) iso/kernel.bin iso/boot/kernel.bin iso/boot/live.img iso-live $(SEED_DIR)/sync $(SEED_DIR)/once
 	# Deliberately NOT touching $(DISK_IMG) here -- see its comment above.
 	# Use `make clean-disk` to explicitly wipe the persistent filesystem.
 

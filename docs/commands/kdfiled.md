@@ -23,7 +23,7 @@ each staged file (`SYS_KDFILE`, `kdfile_abi.h`) and writes it with
 ordinary locking. Windows' `.kdfiles` has the same rule: the target pulls
 from the debugger at a point of its own choosing.
 
-    (gdb) remote put build/kernel.bin /boot/boot/kernel.bin
+    (gdb) remote put build/kernel.bin /boot/kernel.bin
     (gdb) continue      # the file is written once the machine runs
 
 **Each file is written beside its target and renamed into place, and the

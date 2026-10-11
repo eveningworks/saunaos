@@ -1383,7 +1383,7 @@ this to be better?".
 - [x] ~~Nothing checks that a driver declares itself to the `lsdrv` registry~~ DONE 2026-09-01 -- `tools/check_drivers.py`
 - [x] ~~`/bin/wget` builds with an unwaived 3056-byte frame against the 2048 budget~~ DONE 2026-09-01 -- its 2 KiB read buffer is static
 - [ ] Nothing automated covers stdio's flush-before-a-blocking-read -- see `docs/roadmap-details.md`
-- [ ] The ESP's own layout puts the kernel at `/boot/boot/kernel.bin`, because one `grub.cfg` serves the ISO and the disk
+- [x] ~~The ESP puts the kernel at `/boot/boot/kernel.bin`~~ DONE 2026-10-11 -- flat volume; `bootmigrate` moves old machines
 - [ ] `/boot` is mounted read-only and there is no `/etc/fstab` to say otherwise -- the policy is `mount_boot_auto()`
 - [ ] `/bin/update` installs a kernel checked only by crc32, with `kernel.old` as the undo: nothing tests that the image boots
 - [ ] A FAT32 `disk_usage()` scans the whole FAT the first time anything asks, inside the VFS preemption guard

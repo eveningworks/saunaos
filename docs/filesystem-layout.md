@@ -83,7 +83,7 @@ in check_layout.py changes with it.)
 | `/var/tmp` | Scratch that must SURVIVE a reboot, and must be REAL STORAGE. The FHS's distinction from `/tmp`, and Linux's reason for keeping both once `/tmp` is a tmpfs. Anything measuring the disk belongs here -- `diskbench`, Disk Benchmark's scratch file, the shell's `stress` -- because the same work against a ramfs measures memcpy and reports a number that is enormous and meaningless. So do `remote.py`'s sync checksums and the KTESTs that assert what the DEVICE did | boot | present |
 | `/run` | RUNTIME state: init's control file and status (`init.ctl`, `init.status`) and a service's stop marker. The FHS's directory for this, and what `init.c`'s own comment asked for while settling for `/tmp`. It stopped being a tenable stand-in when `/tmp` became a mount point one of init's SERVICES mounts -- init's control channel cannot live under a filesystem init is responsible for putting there. Not emptied at boot, so init unlinks both files itself at startup | boot | present |
 | `/run/smbfsd` | One `<name>.pid` per share worker, so a restarted `smbfsd` can stop the workers its predecessor left serving | app | optional |
-| `/boot` | MOUNT POINT for the boot volume -- the disk's FAT32 ESP, mounted here READ-ONLY at boot (`kernel/fs/mount.c`). Empty on the root itself, and it stays empty on a machine whose disk has no ESP (a live ISO, a hand-made image), which is the honest picture: that build's kernel came from somewhere else. What is INSIDE it is the ESP's own layout, not this table's -- `tools/install_grub.py` writes `boot/kernel.bin` and `boot/grub/` there, so the running kernel is at `/boot/boot/kernel.bin`, and `boot/grub/grubenv` -- GRUB's 1024-byte environment block -- appears there the first time `reboot --entry` chooses a one-shot entry. `bootcfg` and the Boot Manager leave `boot/grub/grub.cfg.bak` beside it, the file as it was before their last save (`.new` and `.swp` exist only mid-save) | boot | present |
+| `/boot` | MOUNT POINT for the boot volume -- the disk's FAT32 ESP, mounted here READ-ONLY at boot (`kernel/fs/mount.c`). Empty on the root itself, and it stays empty on a machine whose disk has no ESP (a live ISO, a hand-made image), which is the honest picture: that build's kernel came from somewhere else. What is INSIDE it is the volume's own layout, not this table's -- `tools/install_grub.py` writes `kernel.bin` and `grub/` at its root, so the running kernel is at `/boot/kernel.bin` (`kernel.old` beside it after an update), and `/boot/grub/grubenv` -- GRUB's 1024-byte environment block -- appears the first time `reboot --entry` chooses a one-shot entry. `bootcfg` and the Boot Manager leave `/boot/grub/grub.cfg.bak` beside it, the file as it was before their last save (`.new` and `.swp` exist only mid-save) | boot | present |
 | `/mnt` | MOUNT POINT for anything mounted by hand (`mount 3 /mnt`, `mount -t ramfs none /mnt`), and the parent of Disks' mounts: `/mnt/<device>` (`/mnt/virtio0p1`), made by Mount and removed by Unmount. Empty otherwise, and deliberately: it exists so `mount` has somewhere to attach, since a mount point must already be a directory | boot | present |
 | `/net` | MOUNT POINTS for saved network shares: `/net/<name>` for each file in `/etc/mounts.d`, made and mounted by `smbfsd` (a userfs mount, served by a process). Created when the first share is saved; **legitimately ABSENT** until then | app | optional |
 | `/usr` | Container only -- holds `share/`, nothing of its own | build | present |
@@ -200,12 +200,12 @@ root by `ensure_layout()` because a mount point must already exist and
 be a directory (Linux's rule); on a machine whose disk has no ESP it
 simply stays empty, which is the honest picture.
 
-**What is INSIDE it is the ESP's own layout, not this table's.**
-`install_grub.py` writes `boot/kernel.bin` and `boot/grub/` into the
-volume so that ONE `grub.cfg` serves the ISO and the disk with identical
-paths -- so the running kernel is at `/boot/boot/kernel.bin`. That
-nesting is the volume as it really is, the same way a Linux ESP mounted
-at `/boot/efi` shows `/boot/efi/EFI/...`.
+**What is INSIDE it is the volume's own layout, not this table's.**
+`install_grub.py` writes `kernel.bin` and `grub/` at the volume's ROOT,
+so the running kernel is `/boot/kernel.bin` and GRUB's config
+`/boot/grub/grub.cfg` -- a Linux `/boot` partition's shape. Disks
+written before 2026-10-11 had both one level down (`/boot/boot/...`);
+the `bootmigrate` service moves them up (`docs/commands/install.md`).
 
 **No merged `/usr`.** Modern distributions make `/bin` a symlink to
 `/usr/bin`. toy-os has no symlinks at all, so that isn't expressible;

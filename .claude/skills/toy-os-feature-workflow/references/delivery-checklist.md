@@ -317,10 +317,10 @@ it back that way -- so leave it `ro` when you are done.
 
     remote.py --host $H exec "umount /boot"
     remote.py --host $H exec "mount ahci0p2 /boot"        # rw
-    remote.py --host $H exec "cp /boot/boot/kernel.bin /boot/boot/kernel.old"
-    remote.py --host $H put build/kernel.bin /boot/boot/kernel.new
-    remote.py --host $H get /boot/boot/kernel.new /tmp/back && cmp build/kernel.bin /tmp/back
-    remote.py --host $H exec "cp /boot/boot/kernel.new /boot/boot/kernel.bin"
+    remote.py --host $H exec "cp /boot/kernel.bin /boot/kernel.old"
+    remote.py --host $H put build/kernel.bin /boot/kernel.new
+    remote.py --host $H get /boot/kernel.new /tmp/back && cmp build/kernel.bin /tmp/back
+    remote.py --host $H exec "cp /boot/kernel.new /boot/kernel.bin"
     remote.py --host $H sync seed/sync/bin /bin      # ~43s, 90 files
     remote.py --host $H sync seed/sync/lib /lib
     remote.py --host $H sync seed/sync/tests /tests

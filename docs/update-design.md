@@ -53,7 +53,7 @@ The manifest is the same shape `sum` already emits and `sum -c` already
 reads, which is not a coincidence -- it is the reason this is small:
 
     <crc32> <size> <path>
-    2990051957 4795272 /boot/boot/kernel.bin
+    2990051957 4795272 /boot/kernel.bin
     1850299656 150336 /bin/ls
 
 **The server is a static file server.** `tools/gen_manifest.py` over

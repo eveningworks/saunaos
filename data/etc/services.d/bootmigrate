@@ -1,0 +1,16 @@
+# Moves a boot volume written before the flat layout -- kernel.bin and
+# grub/ one level down, so /boot/boot/... -- up to /boot, and rewrites
+# GRUB's core image to read it there. `install --migrate` is a no-op on
+# a machine already moved, so this costs one stat per boot after that.
+#
+# A ONE-SHOT AT BOOT rather than a step of System Update: the update
+# that brings this runs the PREVIOUS updater, and the payload whose
+# core image reads /boot/grub only lands at the reboot after it.
+# Debian's grub-pc postinst re-running grub-install is the same idea.
+#
+# See docs/commands/install.md.
+Name=bootmigrate
+Description=Move /boot/boot up to /boot, once
+Exec=/bin/install
+Args=--migrate confirm
+Restart=no

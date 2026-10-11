@@ -9,7 +9,7 @@
 //
 // THE LAYOUT IS THE ONE THIS DISK ALREADY HAS, and that is a constraint
 // rather than a preference: `core.img` carries its prefix baked in at
-// the host's `grub-mkimage` time -- `(hd0,gpt2)/boot/grub` -- so the
+// the host's `grub-mkimage` time -- `(hd0,gpt2)/grub` -- so the
 // copy this installs only finds its config if the ESP is partition 2 on
 // the target as well. Anaconda and the Debian installer generate a
 // fresh core image per target instead; toy-os has no `grub-mkimage`,
@@ -54,6 +54,7 @@
 #include "lib/dirsort.h"
 #include "lib/ufile.h"
 #include "lib/ubootcfg.h" // --bootloader also brings grub.cfg up to bootpart=
+#include "lib/ubootlayout.h"
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -61,13 +62,16 @@
 #define USAGE \
     "install [--disk <name>] [--esp <MiB>] [--mbr] confirm\n" \
     "install --bootloader confirm\n" \
+    "install --migrate confirm\n" \
     "  --disk <name>  the target (`lsblk`); refuses the one this machine runs from\n" \
     "  --esp <MiB>    size of the FAT32 /boot partition (default 64)\n" \
     "  --mbr          write an MBR table instead of GPT, for firmware that\n" \
     "                 will not boot a GPT disk in legacy/CSM mode\n" \
     "  --bootloader   rewrite THIS machine's bootloader in place, and add\n" \
     "                 bootpart= to grub.cfg's entries -- no partitioning,\n" \
-    "                 no other file touched\n" \
+    "                 no other file touched; moves /boot/boot up to /boot first\n" \
+    "  --migrate      the same, only when /boot/boot is still there -- what the\n" \
+    "                 boot-migrate service runs; nothing to do on a moved machine\n" \
     "  confirm        required -- this ERASES the target disk"
 
 #define SECTOR_BYTES 512
@@ -287,7 +291,7 @@ static int copy_system(void) {
 }
 
 // The target's ESP: the kernel and grub.cfg, at the paths GRUB's own
-// prefix names. Written from PAYLOAD rather than copied from `/boot`,
+// prefix names -- the volume's root, which the target shows as /boot. Written from PAYLOAD rather than copied from `/boot`,
 // which does not exist on a live boot.
 //
 // GRUB's MODULE DIRECTORY IS NOT COPIED. `core.img` already carries
@@ -295,17 +299,13 @@ static int copy_system(void) {
 // it; what that target cannot do is have a HOST `grub-install` run
 // against it later without re-copying them.
 static int copy_boot(void) {
-    if (mkdir(TARGET_BOOT "/boot", 0755) < 0 && sys_errno() != EEXIST) {
-        cmd_fail("install", TARGET_BOOT "/boot");
-        return 0;
-    }
-    if (mkdir(TARGET_BOOT "/boot/grub", 0755) < 0 && sys_errno() != EEXIST) {
-        cmd_fail("install", TARGET_BOOT "/boot/grub");
+    if (mkdir(TARGET_BOOT "/grub", 0755) < 0 && sys_errno() != EEXIST) {
+        cmd_fail("install", TARGET_BOOT "/grub");
         return 0;
     }
     static const char *const FILES[][2] = {
-        { PAYLOAD "/kernel.bin", TARGET_BOOT "/boot/kernel.bin" },
-        { PAYLOAD "/grub.cfg",   TARGET_BOOT "/boot/grub/grub.cfg" },
+        { PAYLOAD "/kernel.bin", TARGET_BOOT "/kernel.bin" },
+        { PAYLOAD "/grub.cfg",   TARGET_BOOT "/grub/grub.cfg" },
     };
     for (unsigned i = 0; i < sizeof FILES / sizeof FILES[0]; i++) {
         printf("  %s\n", FILES[i][0]);
@@ -313,6 +313,22 @@ static int copy_boot(void) {
             return 0;
     }
     return 1;
+}
+
+// Do the staged core images read the flat layout -- kernel.bin and grub/
+// at the boot volume's root? A core image whose prefix does not match the
+// files on the disk is a machine at a GRUB rescue prompt, so a payload
+// that cannot say (one staged before core.prefix existed) is refused.
+static int payload_flat(void) {
+    char buf[128] = "";
+    int fd = open(PAYLOAD "/core.prefix", O_RDONLY);
+    long n = fd >= 0 ? read(fd, buf, sizeof buf - 1) : -1;
+    if (fd >= 0) close(fd);
+    if (n > 0) buf[n] = 0;
+    if (n > 0 && strstr(buf, ")/grub\n") && !strstr(buf, "/boot/grub")) return 1;
+    printf("install: " PAYLOAD "/core.prefix does not say the staged GRUB reads "
+           "/boot/grub -- refusing to write a bootloader that may not find its files.\n");
+    return 0;
 }
 
 // Is this filesystem one that can install itself? A build made without
@@ -336,7 +352,7 @@ static int payload_present(int mbr) {
             return 0;
         }
     }
-    return 1;
+    return payload_flat();
 }
 
 // `in_use` is the INSTALL_BOOT_CONFIRM the kernel wants before it writes
@@ -443,11 +459,15 @@ static int refresh_bootloader(int confirmed) {
     int mbr = (t.kind == QUERY_PART_MBR);
 
     if (!payload_present(mbr)) return 1;
+    int legacy = ubootlayout_legacy();
 
     if (!confirmed) {
-        int missing = refresh_grub_cfg(0);
+        int missing = legacy ? -2 : refresh_grub_cfg(0);
         printf("install: this rewrites %s's bootloader in place (%s layout):\n",
                disk, mbr ? "MBR" : "GPT");
+        if (legacy)
+            printf("  /boot/boot     copied up to /boot first, removed once the new GRUB "
+                   "is in place\n");
         printf("  boot sector    LBA 0, keeping this disk's partition table\n");
         printf("  core image     %s\n",
                mbr ? PAYLOAD "/core-msdos.img" : PAYLOAD "/core.img");
@@ -465,10 +485,43 @@ static int refresh_bootloader(int confirmed) {
         return 1;
     }
 
+    // THE MOVE UP FROM /boot/boot, around the write: the copy is made
+    // while the old core still boots the old tree, and the old tree goes
+    // only once a core reading /boot/grub is in place (lib/ubootlayout.h).
+    char dev[64] = "";
+    const char *why = 0;
+    if (legacy) {
+        step("copying /boot/boot up to /boot");
+        if (uboot_writable(dev, sizeof dev) < 0) {
+            refuse("cannot remount /boot read-write -- nothing was changed.");
+            return 1;
+        }
+        int ok = ubootlayout_copy_up(&why) == 0;
+        if (!ok) ubootlayout_drop_flat();
+        uboot_restore(dev);     // read-only again, which flushes the copy
+        if (!ok) {
+            printf("install: %s -- nothing was changed.\n", why);
+            return 1;
+        }
+    }
+
     step("writing the bootloader");
     if (!write_bootloader(disk, mbr, 1)) {
+        if (legacy && uboot_writable(dev, sizeof dev) == 0) {
+            ubootlayout_drop_flat();
+            uboot_restore(dev);
+        }
         printf("install: FAILED -- %s still has the bootloader it had.\n", disk);
         return 1;
+    }
+    if (legacy) {
+        step("removing /boot/boot");
+        int ok = uboot_writable(dev, sizeof dev) == 0 && ubootlayout_drop_legacy(&why) == 0;
+        uboot_restore(dev);
+        if (!ok)
+            printf("install: %s -- the machine boots from /boot already; run "
+                   "`install --migrate confirm` again to tidy it.\n",
+                   why ? why : "cannot remount /boot read-write");
     }
 
     // WHAT WENT IN, WRITTEN DOWN. The core image lives in raw sectors
@@ -509,15 +562,29 @@ int main(int argc, char **argv) {
     int confirmed = 0;
     int mbr = 0;
     int bootloader = 0;
+    int migrate = 0;
 
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--disk") == 0 && i + 1 < argc) { disk = argv[++i]; continue; }
         if (strcmp(argv[i], "--esp") == 0 && i + 1 < argc) { esp_mib = (uint64_t)atoi(argv[++i]); continue; }
         if (strcmp(argv[i], "--mbr") == 0) { mbr = 1; continue; }
         if (strcmp(argv[i], "--bootloader") == 0) { bootloader = 1; continue; }
+        if (strcmp(argv[i], "--migrate") == 0) { migrate = 1; continue; }
         if (strcmp(argv[i], "confirm") == 0) { confirmed = 1; continue; }
         cmd_usage(USAGE);
         return 1;
+    }
+    if (migrate) {
+        if (bootloader || disk || mbr) {
+            refuse("--migrate rewrites THIS machine's bootloader; it takes no other flag.");
+            return 1;
+        }
+        if (!ubootlayout_legacy()) {
+            printf("install: /boot has kernel.bin and grub/ at its root already -- "
+                   "nothing to move.\n");
+            return 0;
+        }
+        return refresh_bootloader(confirmed);
     }
     if (bootloader) {
         // The target is this machine's own disk and the layout is read

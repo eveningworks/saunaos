@@ -100,7 +100,7 @@ def host_grub_cfg(img):
     esp = esp_of(img)
     if not esp:
         return None
-    return install_grub.mtype(img, esp, "::/boot/grub/grub.cfg")
+    return install_grub.mtype(img, esp, "::/grub/grub.cfg")
 
 
 def main():
@@ -141,10 +141,7 @@ def main():
     t1, err = run_boot(args.work, args.qemu_log, [
         ("sh ahci", None),
         ("sh df", None),
-        # The ESP is mounted at /boot and its OWN layout puts grub.cfg
-        # under boot/ -- hence the doubling, the same way a Linux ESP at
-        # /boot/efi shows /boot/efi/EFI/... (docs/conventions/storage.md).
-        ("sh cat /boot/boot/grub/grub.cfg", None),
+        ("sh cat /boot/grub/grub.cfg", None),
         ("sh ktest ahci", "ktest: "),
         (f"sh mkdir {marker_dir}", None),
         (f"sh mkfiles {marker_dir} 4 20000", None),

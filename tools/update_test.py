@@ -151,13 +151,13 @@ def raise_grub_timeout(disk):
     """`set timeout=0` -> 1 in the image's grub.cfg, from the host."""
     start, _ = esp_window(disk)
     at = mtools_at(disk, start)
-    r = mrun(["mtype", "-i", at, "::/boot/grub/grub.cfg"])
+    r = mrun(["mtype", "-i", at, "::/grub/grub.cfg"])
     if r.returncode or "set timeout=0" not in r.stdout:
         return False
     local = disk + ".grub.cfg"
     with open(local, "w") as fh:
         fh.write(r.stdout.replace("set timeout=0", "set timeout=1"))
-    return mrun(["mcopy", "-o", "-i", at, local, "::/boot/grub/grub.cfg"]).returncode == 0
+    return mrun(["mcopy", "-o", "-i", at, local, "::/grub/grub.cfg"]).returncode == 0
 
 
 def kernel_checks(c, sh, pidfile, disk, tmp, srv, url):
@@ -165,12 +165,12 @@ def kernel_checks(c, sh, pidfile, disk, tmp, srv, url):
     if not c.ok("a twin kernel can be made (one boot message changed)", twin):
         return sh, pidfile
     srv.manifest.kernel_elf, srv.manifest.kernel_media = twin, ""
-    before = summed(sh, "/boot/boot/kernel.bin")
+    before = summed(sh, "/boot/kernel.bin")
     out = sh.run(f"update --from {url}", timeout=600)
     c.ok("with no GRUB menu a kernel update is refused whole",
          "cannot update" in out and "nothing" in out.lower(), out.strip()[-200:])
-    c.ok("...and /boot/boot/kernel.bin is untouched",
-         before is not None and summed(sh, "/boot/boot/kernel.bin") == before)
+    c.ok("...and /boot/kernel.bin is untouched",
+         before is not None and summed(sh, "/boot/kernel.bin") == before)
 
     sh.run("sync")
     kill(pidfile)
@@ -178,7 +178,7 @@ def kernel_checks(c, sh, pidfile, disk, tmp, srv, url):
     sh, pidfile = launch(disk, tmp, "upd3", "e1000")
     out = sh.run(f"update --from {url}", timeout=600)
     c.ok("with a menu the kernel installs", "kernel: installed" in out, out.strip()[-200:])
-    c.ok("...keeping the running one as kernel.old", "kernel.old" in sh.run("ls /boot/boot"))
+    c.ok("...keeping the running one as kernel.old", "kernel.old" in sh.run("ls /boot"))
     sh.run("sync")
     kill(pidfile)
     sh, pidfile = launch(disk, tmp, "upd4", "e1000")

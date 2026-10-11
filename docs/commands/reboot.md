@@ -70,7 +70,7 @@ unconditionally, and QEMU's own tables happen to agree with it.
 `reboot --entry "toy-os (no kernel debugger)"` is `grub-reboot` and a
 reboot in one command -- the shape of systemd's `systemctl reboot
 --boot-loader-entry=` and Windows' `bcdedit /bootsequence`. It writes
-`next_entry` into GRUB's environment block (`/boot/boot/grub/grubenv`,
+`next_entry` into GRUB's environment block (`/boot/grub/grubenv`,
 remounting the read-only `/boot` for that one write), and `grub.cfg`'s
 stanza makes it the default and **saves it empty before booting
 anything**. So an entry that hangs is taken once and the next reset

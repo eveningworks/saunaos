@@ -1706,7 +1706,7 @@ directory.
 
 **And `build/kernel.bin` had to remain the installed artifact**, not a
 second stripped copy beside a fat one. `remote.py flash` verifies by
-hashing the LOCAL file against the machine's `/boot/boot/kernel.bin`, so
+hashing the LOCAL file against the machine's `/boot/kernel.bin`, so
 anything that installed a different file than the one it hashed would
 have broken that check -- and five Makefile paths (the disk seed, the
 ISO, the USB image, the live ISO, and the flash) would each have had to

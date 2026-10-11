@@ -112,6 +112,10 @@ import preflight_stamp    # noqa: E402
 from remote import USERLAND_TREES   # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# THE PATH UPDATERS BEFORE THE FLAT /boot EXPECT, kept for them: they
+# stage and install the kernel at this exact path, and every machine they
+# run on still has the /boot/boot layout. A current updater ignores it and
+# writes the kernel where that machine's GRUB reads it (upd.c).
 KERNEL_TARGET = "/boot/boot/kernel.bin"
 STORE = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"),
                      "toy-os", "updates")

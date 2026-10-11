@@ -17,7 +17,7 @@
 // the stanza at the top of grub.cfg; an older machine gets both from
 // `install --bootloader confirm` and a new grub.cfg.
 
-#define UBOOTMENU_DIR     "/boot/boot/grub"
+#define UBOOTMENU_DIR     "/boot/grub"
 #define UBOOTMENU_CFG     UBOOTMENU_DIR "/grub.cfg"
 #define UBOOTMENU_ENV     UBOOTMENU_DIR "/grubenv"
 #define UBOOTMENU_MAX     16

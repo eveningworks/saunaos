@@ -32,7 +32,7 @@ from harness import copy_disk  # noqa: E402
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 VM = os.path.join(HERE, "vm.py")
-CFG = "/boot/boot/grub/grub.cfg"
+CFG = "/boot/grub/grub.cfg"
 
 
 class Result:
@@ -99,7 +99,7 @@ def main():
         bak = body(vm(inst, "exec", f"cat {CFG}.bak"))
         r.check("an edit is saved and shown as a diff", "saved" in out and "+ " in out, out[-400:])
         r.check("the boot line carries the word now",
-                "multiboot2 /boot/kernel.bin debugcon nokaslr" in after, after[-600:])
+                "multiboot2 /kernel.bin debugcon nokaslr" in after, after[-600:])
         r.check("the old file is the .bak, byte for byte", bak == before)
         r.check("exactly one line changed",
                 len(set(after.splitlines()) ^ set(before.splitlines())) == 2)

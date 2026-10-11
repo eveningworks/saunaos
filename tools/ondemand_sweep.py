@@ -295,6 +295,10 @@ TOOLS = [
     # its own guest on a COPY of disk.img.
     ("vnc",         "vnc_test.py",             "remoted's VNC: auth, frames vs screendump, input", True, None,     False),
     ("boot_entry",  "boot_entry_test.py",      "reboot --entry: one boot, cleared by GRUB", True,  None,             False),
+    # The /boot/boot -> /boot move: writes the OLD layout onto a COPY of
+    # disk.img, boots it, lets bootmigrate run, and reboots through the
+    # rewritten core image.
+    ("boot_migrate", "boot_migrate_test.py",   "bootmigrate moves /boot/boot up and boots from it", True, None,    False),
     # A reboot ENDS its guest (-no-reboot), so it boots its own on a COPY
     # of disk.img and reads init's lines from a file-backed serial log.
     ("shutdown",    "shutdown_test.py",        "reboot stops the services in reverse order, then the rest", True, None, False),

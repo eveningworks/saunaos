@@ -855,7 +855,7 @@ Four things:
   reading of "reinstall over myself" that ends with a working machine.
 - **THE LAYOUT IS A CONSTRAINT, NOT A PREFERENCE.** `core.img` carries
   its prefix baked in at the host's `grub-mkimage` time --
-  `(hd0,gpt2)/boot/grub` -- so the copy it installs only finds its config
+  `(hd0,gpt2)/grub` -- so the copy it installs only finds its config
   if the ESP is PARTITION 2 on the target too. Anaconda and the Debian
   installer generate a fresh core image per target; toy-os has no
   `grub-mkimage`, so it reproduces the layout the image it copies
@@ -1048,13 +1048,14 @@ ordinary path uses.
 
 **`/boot` IS visible from inside toy-os now** — there is a FAT32 driver
 (`kernel/fs/fat32.c`) and a mount table (`kernel/fs/mount.c`), and the
-ESP is mounted at `/boot` read-only at boot. What is INSIDE it is the
-ESP's own layout: `install_grub.py` writes `boot/kernel.bin` and
-`boot/grub/` there so ONE `grub.cfg` serves the ISO and the disk with
-identical paths, so the running kernel is at `/boot/boot/kernel.bin`.
-That nesting is the volume as it really is, the same way a Linux ESP
-mounted at `/boot/efi` shows `/boot/efi/EFI/...`. Do not create a TFS3
-`/boot` beside it; see `docs/filesystem-layout.md`.
+ESP is mounted at `/boot` read-only at boot. `install_grub.py` writes
+`kernel.bin` and `grub/` at the volume's ROOT, so the running kernel is
+`/boot/kernel.bin` and GRUB's prefix is `(hd0,gpt2)/grub`. The ISO keeps
+its kernel at ITS root too, so ONE `grub.cfg` (`multiboot2 /kernel.bin`)
+serves both media. **A path in grub.cfg is relative to the boot volume,
+never to toy-os's `/`** -- `/kernel.bin` there is `/boot/kernel.bin`
+here (`ubootcfg_check()` adds the `/boot`). Do not create a TFS3 `/boot`
+beside it; see `docs/filesystem-layout.md`.
 
 ## NEVER LEAVE THE BOOT ORDER OUT OF A QEMU LINE, AND ASK `boot_medium()` WHICH ONE
 

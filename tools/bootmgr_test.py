@@ -34,7 +34,7 @@ from harness import Results  # noqa: E402
 BOOTMGR = "/bin/wm/system/bootmgr"
 SETTINGS = "/bin/wm/system/settings"
 TITLE = "Boot Manager"
-CFG = "/boot/boot/grub/grub.cfg"
+CFG = "/boot/grub/grub.cfg"
 ACCENT = (70, 110, 160)
 K_UP, K_DOWN, K_ENTER = "0xf780", "0xf781", "0x0a"   # api/keyboard.h
 
@@ -81,7 +81,7 @@ def listing(dbg):
     """`bootcfg`'s rows as [(title, default?, words)] -- the independent reader."""
     rows = []
     for line in dbg.send("sh bootcfg").splitlines():
-        m = re.match(r"\s+(\d+)\s+(.+?)\s{2,}(\*|next|booted)?\s*(/boot/\S+)\s+(.*)$", line)
+        m = re.match(r"\s+(\d+)\s+(.+?)\s{2,}(\*|next|booted)?\s*(/\S+)\s+(.*)$", line)
         if m:
             rows.append((m.group(2).strip(), m.group(3) == "*", m.group(5).split()))
     return rows

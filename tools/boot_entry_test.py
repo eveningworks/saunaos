@@ -37,7 +37,7 @@ REPO = os.path.dirname(HERE)
 VM = os.path.join(HERE, "vm.py")
 
 TEST_TITLE = "toy-os (text test)"
-TEST_ENTRY = ('menuentry "%s" {\n    multiboot2 /boot/kernel.bin debugcon target=text\n'
+TEST_ENTRY = ('menuentry "%s" {\n    multiboot2 /kernel.bin debugcon target=text\n'
               '    boot\n}\n' % TEST_TITLE)
 
 
@@ -63,7 +63,7 @@ def wait_back(inst, want, deadline=240):
     t0 = time.monotonic()
     while time.monotonic() - t0 < deadline:
         try:
-            out = vm(inst, "exec", "ps", "cat /boot/boot/grub/grubenv", timeout=20)
+            out = vm(inst, "exec", "ps", "cat /boot/grub/grubenv", timeout=20)
         except subprocess.TimeoutExpired:
             continue
         if want in out:
@@ -95,17 +95,17 @@ def main():
         r.check("/boot is mounted, read-only as shipped", bool(dev) and " ro" in
                 vm(inst, "exec", "mount"), vm(inst, "exec", "mount"))
 
-        cfg = vm(inst, "exec", "cat /boot/boot/grub/grub.cfg").split("\n", 1)[1]
+        cfg = vm(inst, "exec", "cat /boot/grub/grub.cfg").split("\n", 1)[1]
         r.check("the shipped grub.cfg carries the one-shot stanza", "save_env next_entry" in cfg)
         local = os.path.join(tmp, "grub.cfg")
         with open(local, "w") as f:
             f.write(cfg.rstrip("\n") + "\n" + TEST_ENTRY)
         vm(inst, "put", local, "/tmp/grub.cfg")
         vm(inst, "exec", "umount /boot", f"mount {dev} /boot",
-           "rm /boot/boot/grub/i386-pc/loadenv.mod",
-           "cp /tmp/grub.cfg /boot/boot/grub/grub.cfg",
+           "rm /boot/grub/i386-pc/loadenv.mod",
+           "cp /tmp/grub.cfg /boot/grub/grub.cfg",
            "umount /boot", f"mount -r {dev} /boot")
-        gone = vm(inst, "exec", "ls /boot/boot/grub/i386-pc/loadenv.mod")
+        gone = vm(inst, "exec", "ls /boot/grub/i386-pc/loadenv.mod")
         r.check("loadenv.mod is gone, so only the core image can supply it",
                 "no such file" in gone, gone.strip()[-200:])
 

@@ -190,13 +190,13 @@ def main():
               boot_row[0] if boot_row else "no /boot row")
 
         print("phase 2: GRUB's own files are readable")
-        cfg = g.sh("cat /boot/boot/grub/grub.cfg")
+        cfg = g.sh("cat /boot/grub/grub.cfg")
         # Text only a correct chain walk and directory parse produce --
         # "it printed something" would pass on a driver returning the
         # raw first sector.
         check("grub.cfg reads back", "menuentry" in cfg and "multiboot2" in cfg,
               cfg.strip()[:120])
-        listing = g.sh("rescue ls /boot/boot/grub/i386-pc")
+        listing = g.sh("rescue ls /boot/grub/i386-pc")
         # The module directory is where the LONG names are: `.mod` files
         # with names well past 8.3. A driver that ignored LFN entries
         # reports their `~1` aliases instead.
@@ -206,10 +206,10 @@ def main():
         print("phase 3: a read-only mount refuses every write")
         for cmd, word in (("write /boot/nope.txt x", "write"),
                           ("mkdir /boot/nope", "mkdir"),
-                          ("rm /boot/boot/grub/grub.cfg", "delete")):
+                          ("rm /boot/grub/grub.cfg", "delete")):
             out = g.sh(cmd)
             check(f"{word} on /boot is refused", "read-only" in out, out.strip()[:120])
-        check("grub.cfg survived", "menuentry" in g.sh("cat /boot/boot/grub/grub.cfg"))
+        check("grub.cfg survived", "menuentry" in g.sh("cat /boot/grub/grub.cfg"))
 
         print("phase 4: the mount table -- a third filesystem, and the refusals")
         g.sh("mount -t ramfs none /mnt")

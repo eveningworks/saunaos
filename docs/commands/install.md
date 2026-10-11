@@ -8,13 +8,16 @@
 
     install [--disk <name>] [--esp <MiB>] [--mbr] confirm
     install --bootloader confirm
+    install --migrate confirm
       --disk <name>  the target (`lsblk`); refuses the one this machine runs from
       --esp <MiB>    size of the FAT32 /boot partition (default 64)
       --mbr          write an MBR table instead of GPT, for firmware that
                      will not boot a GPT disk in legacy/CSM mode
       --bootloader   rewrite THIS machine's bootloader in place, and add
                      bootpart= to grub.cfg's entries -- no partitioning,
-                     no other file touched
+                     no other file touched; moves /boot/boot up to /boot first
+      --migrate      the same, only when /boot/boot is still there -- what the
+                     boot-migrate service runs; nothing to do on a moved machine
       confirm        required -- this ERASES the target disk
 
 ## Options
@@ -30,6 +33,10 @@
   "Refreshing the bootloader" below. `--disk` and `--mbr` are refused
   with it, because the target is this machine's disk and the layout is
   read from that disk.
+- `--migrate` -- `--bootloader`, but only on a machine whose boot volume
+  still has the old `/boot/boot` layout; anywhere else it says so and
+  exits 0. See "Moving `/boot/boot` up to `/boot`" below. It takes no
+  other flag.
 - `confirm` -- required, and it ERASES the target disk.
 
 ## Description
@@ -120,6 +127,36 @@ bootloader can do: `core.img` lives in raw sectors nothing can open and is
 lzma-compressed besides. `tools/remote.py flash` reads it to decide whether this
 machine can be sent a compressed kernel.
 
+## Moving `/boot/boot` up to `/boot`
+
+    install --migrate confirm
+
+The boot volume holds `kernel.bin` and `grub/` at its ROOT, which toy-os
+shows as `/boot/kernel.bin` and `/boot/grub/` — a Linux `/boot` partition's
+shape. Disks written before 2026-10-11 kept both one level down, so toy-os
+showed `/boot/boot/...`, and their GRUB core image has `/boot/grub` baked into
+its prefix: the files cannot simply be moved. So the move is three steps around
+the one write that changes what GRUB reads (`lib/ubootlayout.h`):
+
+| step | the machine boots |
+| --- | --- |
+| copy `/boot/boot/*` up to `/boot`; grub.cfg's `/boot/kernel.bin` becomes `/kernel.bin` | the old tree, through the old core |
+| write the payload's core image, whose prefix is `/grub` | the new tree, through the new core |
+| delete `/boot/boot` | the new tree |
+
+A failed core-image write deletes the copies again, so the machine is as it
+was. `kernel.old`, `grubenv`, `grub.cfg.bak` and anything else in `/boot/boot`
+come along; the machine's own grub.cfg edits are kept.
+
+**It runs by itself, once**: `/etc/services.d/bootmigrate` runs `install
+--migrate confirm` at every boot, which is a no-op on a machine already moved.
+It is a boot service rather than a step of System Update because the update that
+brings it runs the PREVIOUS updater, and the payload whose core image reads
+`/grub` only lands at the reboot after it — so an old machine moves on the
+first boot of the update and reads the flat layout from the boot after that.
+`/install/core.prefix` must say the staged images read `/grub`, or nothing is
+written.
+
 ## Installing from live media
 
 **This is the path a real machine uses**, and it is why `/install` exists. Write
@@ -152,7 +189,7 @@ rather than being read out of `/boot` — one path on every medium.
 ## The trap
 
 **The layout is not a preference, it is a constraint.** `core.img` carries its
-prefix baked in at the host's `grub-mkimage` time — `(hd0,gpt2)/boot/grub` — so
+prefix baked in at the host's `grub-mkimage` time — `(hd0,gpt2)/grub` — so
 the copy this installs only finds its config if the ESP is **partition 2** on
 the target as well. Anaconda and the Debian installer generate a fresh core
 image per target instead; toy-os has no `grub-mkimage` of its own, so it

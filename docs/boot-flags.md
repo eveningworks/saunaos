@@ -1,6 +1,6 @@
 # GRUB command-line flags
 
-Words appended to the `multiboot2 /boot/kernel.bin` line in `grub.cfg`.
+Words appended to the `multiboot2 /kernel.bin` line in `grub.cfg`.
 The kernel reads the raw string with `multiboot_cmdline()` and each
 consumer looks for its own word with `k_strstr()` — so matching is by
 SUBSTRING and there is no parser. A `key=value` word is read with
@@ -64,15 +64,15 @@ sets a non-zero `GRUB_TIMEOUT`.
 
 **On a running machine** — `bootcfg words 0 +nokaslr` (or the Boot
 Manager app, or System Settings > System > Boot menu) edits the installed
-`/boot/boot/grub/grub.cfg`, checked, keeping the old file as
+`/boot/grub/grub.cfg`, checked, keeping the old file as
 `grub.cfg.bak`; `bootcfg try 0 +nokaslr` boots the change ONCE first.
 Both accept only words in the table above (`--force` overrides).
 
 **Permanently, in the build** — add the word to the `multiboot2` line in `grub.cfg`
 and `make iso`. Note the repo-root `grub.cfg` is the SOURCE for two
 generated copies -- `iso/boot/grub/grub.cfg` in the ISO and
-`/boot/grub/grub.cfg` inside `disk.img`'s FAT32 boot partition, which is
-the one an ordinary boot reads. Edit the repo-root file; editing either
+`grub/grub.cfg` on `disk.img`'s FAT32 boot partition (toy-os's
+`/boot/grub/grub.cfg`), which is the one an ordinary boot reads. Edit the repo-root file; editing either
 copy is overwritten by the next build, and editing only one of them
 gives you a machine whose two boot media disagree.
 

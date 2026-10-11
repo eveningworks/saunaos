@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """tools/install_grub.py -- put GRUB, and the kernel, ON disk.img.
 
-toy-os boots from its own disk now: the kernel lives at /boot/kernel.bin
-inside a FAT32 partition, GRUB's core.img is embedded in a BIOS boot
-partition in front of it, and the ISO is only one of the media rather
+toy-os boots from its own disk now: the kernel lives at /kernel.bin
+inside a FAT32 partition (toy-os mounts it at /boot), GRUB's core.img
+is embedded in a BIOS boot partition in front of it, and the ISO is only one of the media rather
 than the only one. This is the tool that writes all three pieces.
 
 WHY THERE IS A SEPARATE BOOT PARTITION AT ALL. GRUB cannot read TFS3 --
@@ -41,8 +41,10 @@ THE THREE PLACES A BYTE HAS TO LAND, and what makes each one work:
                segment) at 0x1f4. grub-bios-setup patches that; so does
                this, and a core.img written without it loads one sector
                and jumps into nothing.
-  FAT32 /boot  kernel.bin, grub.cfg, and the module directory. The paths
-               are the ISO's paths exactly, so ONE grub.cfg serves both
+  FAT32 /boot  kernel.bin and grub/ at the VOLUME'S ROOT, which toy-os
+               mounts at /boot -- the shape of a Linux /boot partition,
+               or an ESP mounted at /boot on Arch. The ISO puts its
+               kernel at its root too, so ONE grub.cfg serves both
                media and neither drifts.
 
 THE FAT VOLUME IS FORMATTED ONCE, not per build -- reformatting would
@@ -116,7 +118,7 @@ FAT_LABEL = "TOYOSBOOT"
 # The stamp that says which GRUB wrote the module directory, so a host
 # upgrade re-copies them instead of leaving a module set one version
 # behind the core.img that loads it.
-STAMP = "::/boot/grub/i386-pc/toyos.stamp"
+STAMP = "::/grub/i386-pc/toyos.stamp"
 
 
 def _tool(*names):
@@ -361,6 +363,46 @@ def grub_version(mkimage):
     return _run([mkimage, "--version"]).strip()
 
 
+def _mdir_names(disk, esp, path):
+    """Names in a directory of the volume, or [] when it is not there."""
+    mdir = _tool("mdir")
+    if not mdir:
+        return []
+    try:
+        r = subprocess.run([mdir, "-i", mtools_at(disk, esp), "-b", path],
+                           capture_output=True, text=True, stdin=subprocess.DEVNULL,
+                           start_new_session=True, timeout=RUN_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        _timeout_exit([mdir, "-b", path], RUN_TIMEOUT)
+    if r.returncode != 0:
+        return []
+    return [ln.rstrip("/").rsplit("/", 1)[-1] for ln in r.stdout.split()
+            if ln.strip()]
+
+
+def drop_legacy(disk, esp, verbose=True):
+    """Remove the pre-flat layout (::/boot/kernel.bin, ::/boot/grub) from a
+    volume this tool has just written flat. What toy-os itself put there
+    -- kernel.old, grubenv, a kernel copied in by hand -- moves up rather
+    than being deleted; GRUB's modules were re-copied to ::/grub."""
+    names = _mdir_names(disk, esp, "::/boot")
+    if not names:
+        return
+    mmove = _tool("mmove")
+    root = set(_mdir_names(disk, esp, "::/"))
+    for n in names:
+        if n.lower() in ("grub", ".", "..") or n in root:
+            continue
+        _run([mmove, "-i", mtools_at(disk, esp), f"::/boot/{n}", f"::/{n}"])
+    if "grubenv" in _mdir_names(disk, esp, "::/boot/grub") and \
+            "grubenv" not in _mdir_names(disk, esp, "::/grub"):
+        _run([mmove, "-i", mtools_at(disk, esp), "::/boot/grub/grubenv", "::/grub/grubenv"])
+    _run([_tool("mdeltree"), "-i", mtools_at(disk, esp), "::/boot"])
+    if verbose:
+        print(f"install_grub: {disk} -- moved ::/boot up to the volume's root "
+              "(toy-os shows it as /boot, not /boot/boot)")
+
+
 def has_boot_partition(disk):
     bios, esp = parts_of(disk)
     return bios is not None and esp is not None
@@ -384,9 +426,9 @@ def has_boot_partition(disk):
 #
 # THE PREFIX IS FIXED HERE, and it is what makes the layout in
 # `/bin/install` a constraint rather than a preference: core.img carries
-# `(hd0,gpt2)/boot/grub` baked in, so the ESP must be partition 2 on
+# `(hd0,gpt2)/grub` baked in, so the ESP must be partition 2 on
 # whatever this ends up installed onto.
-PAYLOAD_PREFIX = "(hd0,gpt2)/boot/grub"
+PAYLOAD_PREFIX = "(hd0,gpt2)/grub"
 
 # THE SECOND CORE IMAGE, for `install --mbr`. A prefix is baked in at
 # mkimage time and names the TABLE FORMAT as well as the partition
@@ -397,7 +439,7 @@ PAYLOAD_PREFIX = "(hd0,gpt2)/boot/grub"
 # msdos1, not msdos2: an MBR install needs no BIOS-boot partition (the
 # core image goes in the gap before the first partition), so the FAT32
 # boot partition is the first one.
-PAYLOAD_PREFIX_MBR = "(hd0,msdos1)/boot/grub"
+PAYLOAD_PREFIX_MBR = "(hd0,msdos1)/grub"
 
 
 def stage_payload(outdir, kernel, grub_cfg, verbose=True):
@@ -430,6 +472,12 @@ def stage_payload(outdir, kernel, grub_cfg, verbose=True):
     # gzipped kernel, which GRUB unpacks only with `gzio` present.
     with open(os.path.join(outdir, "core.modules"), "w") as f:
         f.write(" ".join(CORE_MODULES) + "\n")
+    # WHERE THESE CORE IMAGES LOOK FOR grub.cfg. `install --bootloader`
+    # refuses to move a machine's /boot/boot up to /boot unless this says
+    # the staged images read the flat layout -- writing a core whose
+    # prefix does not match the files is a machine at a rescue prompt.
+    with open(os.path.join(outdir, "core.prefix"), "w") as f:
+        f.write(f"{PAYLOAD_PREFIX}\n{PAYLOAD_PREFIX_MBR}\n")
     if verbose:
         total = sum(os.path.getsize(os.path.join(outdir, f))
                     for f in os.listdir(outdir))
@@ -439,7 +487,7 @@ def stage_payload(outdir, kernel, grub_cfg, verbose=True):
     return True
 
 
-def install(disk, kernel, grub_cfg, verbose=True, optional=False):
+def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
     mkimage = _tool("grub-mkimage", "grub2-mkimage")
     if not mkimage:
         sys.exit("install_grub: grub-mkimage not found (looked for "
@@ -477,20 +525,30 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False):
     fresh = not fat_present(disk, esp)
     if fresh:
         format_fat(disk, esp)
-    mkdirs(disk, esp, ["::/boot", "::/boot/grub", "::/boot/grub/i386-pc"])
-    mcopy_into(disk, esp, [kernel], "::/boot/kernel.bin")
-    mcopy_into(disk, esp, [grub_cfg], "::/boot/grub/grub.cfg")
+    # `legacy` writes the layout before this one, everything one level
+    # down in ::/boot -- a FIXTURE, for tools/boot_migrate_test.py.
+    top = "::/boot" if legacy else "::"
+    stamp_at = STAMP.replace("::", top, 1)
+    if legacy:
+        cfg_text = open(grub_cfg).read()
+        grub_cfg = os.path.join(os.path.dirname(os.path.abspath(kernel)), "grub-legacy.cfg")
+        with open(grub_cfg, "w") as f:
+            f.write(re.sub(r"^(\s*multiboot2\s+)/", r"\1/boot/", cfg_text, flags=re.MULTILINE))
+        mkdirs(disk, esp, ["::/boot"])
+    mkdirs(disk, esp, [f"{top}/grub", f"{top}/grub/i386-pc"])
+    mcopy_into(disk, esp, [kernel], f"{top}/kernel.bin")
+    mcopy_into(disk, esp, [grub_cfg], f"{top}/grub/grub.cfg")
 
     stamp = grub_version(mkimage)
-    if fresh or (mtype(disk, esp, STAMP) or "").strip() != stamp:
+    if fresh or (mtype(disk, esp, stamp_at) or "").strip() != stamp:
         mod_files = [os.path.join(mods, f) for f in sorted(os.listdir(mods))
                      if f.endswith((".mod", ".lst"))]
-        mcopy_into(disk, esp, mod_files, "::/boot/grub/i386-pc/")
+        mcopy_into(disk, esp, mod_files, f"{top}/grub/i386-pc/")
         stamp_path = os.path.join(os.path.dirname(os.path.abspath(kernel)),
                                   ".grub-stamp")
         with open(stamp_path, "w") as f:
             f.write(stamp + "\n")
-        mcopy_into(disk, esp, [stamp_path], STAMP)
+        mcopy_into(disk, esp, [stamp_path], stamp_at)
 
     # ---- 2. core.img, into the BIOS boot partition ------------------
     #
@@ -500,7 +558,7 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False):
     # disk is not hd0 wants a `search --file` in the config rather than
     # a cleverer guess here.
     scheme = "gpt" if _is_gpt(disk) else "msdos"
-    prefix = f"(hd0,{scheme}{esp[0]})/boot/grub"
+    prefix = f"(hd0,{scheme}{esp[0]}){top[2:]}/grub"
     core_path = os.path.join(os.path.dirname(os.path.abspath(kernel)), "core.img")
     _run([mkimage, "-O", "i386-pc", "-d", mods, "-p", prefix,
           "-o", core_path, *CORE_MODULES])
@@ -541,7 +599,17 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False):
     # images land, which is the target's business and not this one's.
     # SYS_INSTALL_BOOT applies them.
     mcopy_into(disk, esp, [os.path.join(mods, "boot.img"), core_path],
-               "::/boot/grub/i386-pc/")
+               f"{top}/grub/i386-pc/")
+
+    # ---- 4. the layout before this one, removed ---------------------
+    #
+    # Only now, with the core image reading ::/grub in place: until it
+    # was written, ::/boot was what this disk booted from.
+    if legacy:
+        _run([_tool("mdeltree"), "-i", mtools_at(disk, esp), "::/grub"])
+        _run([_tool("mdel"), "-i", mtools_at(disk, esp), "::/kernel.bin"])
+    else:
+        drop_legacy(disk, esp, verbose)
 
     if verbose:
         where = f"partition {bios[0]}" if bios[0] else "the MBR gap"
@@ -551,7 +619,7 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False):
 
 
 def patch_grub_cfg(img, transform, tag="patched"):
-    """Rewrite the image's /boot/grub/grub.cfg through `transform(text)`.
+    """Rewrite the image's grub.cfg (/boot/grub/grub.cfg in toy-os) through `transform(text)`.
 
     GRUB's command line is baked into that file at `make iso` time, so a
     test that needs a different boot line rewrites it inside its image
@@ -560,14 +628,14 @@ def patch_grub_cfg(img, transform, tag="patched"):
     _bios, esp = parts_of(img)
     if not esp:
         return False, "the image has no FAT32 /boot partition"
-    cfg = mtype(img, esp, "::/boot/grub/grub.cfg")
+    cfg = mtype(img, esp, "::/grub/grub.cfg")
     if not cfg or "multiboot2" not in cfg:
-        return False, "could not read /boot/grub/grub.cfg out of the image"
+        return False, "could not read ::/grub/grub.cfg out of the image"
     tmp = os.path.abspath(f"grub-{tag}.cfg")
     with open(tmp, "w") as f:
         f.write(transform(cfg))
     try:
-        mcopy_into(img, esp, [tmp], "::/boot/grub/grub.cfg")
+        mcopy_into(img, esp, [tmp], "::/grub/grub.cfg")
     finally:
         os.unlink(tmp)
     return True, ""
@@ -604,8 +672,8 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("disk", nargs="?",
                     help="the image to install onto; omitted with --stage-payload")
-    ap.add_argument("--kernel", help="the kernel to install at /boot/kernel.bin")
-    ap.add_argument("--grub-cfg", help="the grub.cfg to install at /boot/grub/grub.cfg")
+    ap.add_argument("--kernel", help="the kernel to install at the boot volume's /kernel.bin")
+    ap.add_argument("--grub-cfg", help="the grub.cfg to install at the boot volume's /grub/grub.cfg")
     ap.add_argument("--stage-payload", metavar="DIR",
                     help="write the four files /bin/install needs (kernel.bin, "
                          "grub.cfg, boot.img, core.img) into DIR instead of "
@@ -616,6 +684,10 @@ def main():
                     help="an image with no boot partition is reported and "
                          "skipped rather than being an error -- what the build "
                          "passes, so a pre-existing disk.img keeps working")
+    ap.add_argument("--legacy-layout", action="store_true",
+                    help="write the layout before the flat one (everything under "
+                         "the volume's boot/, so toy-os shows /boot/boot) -- a "
+                         "fixture for tools/boot_migrate_test.py, never for a build")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args()
 
@@ -634,7 +706,7 @@ def main():
     if not (args.kernel and args.grub_cfg):
         ap.error("--kernel and --grub-cfg are both required (or use --check)")
     install(args.disk, args.kernel, args.grub_cfg, verbose=not args.quiet,
-            optional=args.optional)
+            optional=args.optional, legacy=args.legacy_layout)
     return 0
 
 

@@ -371,7 +371,7 @@ def run_bootloader(args, c):
 
     # The payoff: the same disk, now carrying a GZIPPED kernel.
     _bios, esp = install_grub.parts_of(self_img)
-    install_grub.mcopy_into(self_img, esp, [media], "::/boot/kernel.bin")
+    install_grub.mcopy_into(self_img, esp, [media], "::/kernel.bin")
     log = os.path.join(args.scratch, "self-gz.log")
     add("and then boots a COMPRESSED kernel",
         "init: target" in boot_target_alone(self_img, log))

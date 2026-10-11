@@ -32,7 +32,7 @@
 - `undo` -- swap `grub.cfg` and `grub.cfg.bak`, so a second `undo` redoes.
 - `known` -- every boot word it accepts, with its value's shape.
 - `--force` -- save despite a RISKY problem the edit introduces.
-- `--file=<cfg>` -- another file than `/boot/boot/grub/grub.cfg`.
+- `--file=<cfg>` -- another file than `/boot/grub/grub.cfg`.
 - `-h`, `--help` -- every command and option in one page, as GNU tools
   print it.
 
@@ -46,13 +46,13 @@ Every edit is the same four steps: change ONE thing in the file's text
 (the lines that entry or `set` owns -- comments, the one-shot stanza and
 anything else are kept byte for byte), **check** the result, print the
 change as a diff, and save it with the old file kept as
-`/boot/boot/grub/grub.cfg.bak`. `/boot` is remounted read-write for the
+`/boot/grub/grub.cfg.bak`. `/boot` is remounted read-write for the
 save and put back read-only.
 
     $ bootcfg words 0 +nokaslr +video=1920x1080
-      - multiboot2 /boot/kernel.bin debugcon
-      + multiboot2 /boot/kernel.bin debugcon nokaslr video=1920x1080
-      saved    /boot/boot/grub/grub.cfg (previous copy: /boot/boot/grub/grub.cfg.bak)
+      - multiboot2 /kernel.bin debugcon
+      + multiboot2 /kernel.bin debugcon nokaslr video=1920x1080
+      saved    /boot/grub/grub.cfg (previous copy: /boot/grub/grub.cfg.bak)
 
 The check sorts problems in two. **Broken** -- GRUB would not get
 through the file: a `{` never closed, a quote never closed, an entry

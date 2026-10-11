@@ -2052,21 +2052,13 @@ write path through the chain walker, for a mount that is read-only by
 default and holds a bootloader.
 
 **Updating the machine's own kernel is HALF done.** `/bin/update`
-(2026-09-30) writes `/boot/boot/kernel.bin` with the running kernel kept
+(2026-09-30) writes `/boot/kernel.bin` with the running kernel kept
 as `kernel.old` -- GRUB's *previous kernel* entry -- and refuses while
 `grub.cfg` has `set timeout=0`, since the undo is then unreachable. What
 is still missing: nothing verifies the image is a KERNEL (the crc32 only
 proves it arrived as the server sent it), and nothing notices a kernel
 that fails to boot and falls back by itself; that is A/B slots with a
 boot counter, `docs/update-design.md` stage 5.
-
-**The path is `/boot/boot/kernel.bin`, not `/boot/kernel.bin.`** The ESP
-holds a `boot/` directory because `tools/install_grub.py` keeps the
-ISO's paths exactly, so ONE `grub.cfg` serves both media. Mounting the
-volume shows it as it is -- the same way a Linux ESP at `/boot/efi`
-shows `/boot/efi/EFI/...`. Flattening it (kernel at the volume root,
-prefix `(hd0,gpt2)/grub`) would read better and would cost that
-shared-config property; it is a real fork, not an oversight.
 
 ### Observability
 

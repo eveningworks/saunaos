@@ -785,7 +785,7 @@ that program's `main`, with source lines. `info threads` lists
 every process by name and state, and `thread <Id>` then `bt` shows where
 that one is parked -- through its syscall, down to its user-space PC.
 
-`remote put build/kernel.bin /boot/boot/kernel.bin`, then `continue`,
+`remote put build/kernel.bin /boot/kernel.bin`, then `continue`,
 replaces the kernel over the debugger's own link: the stub stages the
 file and `/bin/kdfiled` writes it once the machine runs, keeping the old
 one as `kernel.old` (`docs/kdebug-design.md`, "Files through the

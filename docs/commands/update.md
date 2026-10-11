@@ -34,13 +34,13 @@ progress bar, and what this prints *is* the log that window shows.
     compared 664 files: 3 to fetch
     3 files to fetch, 2.3M:
       /bin/hello                          169.1K
-      /boot/boot/kernel.bin                 2.0M  (restart needed)
+      /boot/kernel.bin                 2.0M  (restart needed)
       /lib/libhello.so                     16.2K
     fetching 3 files
     /bin/hello: 173176 bytes, crc 1130093803 ok
     ...
     staged 2 files for the next boot (a library is in the set)
-    kernel: installed; the running kernel is kept as /boot/boot/kernel.old
+    kernel: installed; the running kernel is kept as /boot/kernel.old
     done: 3 files staged, restart to finish
     update: restart to finish (`reboot`)
 
@@ -129,7 +129,7 @@ failed or cancelled download changes nothing. Then:
 **The kernel** is written to `/boot` straight away, with the running one
 kept as `kernel.old` -- the GRUB rescue entry, *toy-os (previous
 kernel)*. So `update` **refuses to install anything** while
-`/boot/boot/grub/grub.cfg` has `set timeout=0`: with no menu, a new
+`/boot/grub/grub.cfg` has `set timeout=0`: with no menu, a new
 kernel that fails to boot could not be undone. A VM built with plain
 `make iso` is in that state; `make iso MENU=1` gives it a menu. The
 gzipped kernel is sent instead of the ELF when this machine's GRUB

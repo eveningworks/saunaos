@@ -300,14 +300,15 @@ static int g_nkernels;
 static char g_next_label[UBOOTMENU_MAX + 1][UBOOTMENU_TITLE + 16];
 static const char *g_next_items[UBOOTMENU_MAX + 1];
 
-// What /boot/boot holds that looks like a kernel, plus the entry's own.
+// What /boot holds that looks like a kernel, plus the entry's own. Named
+// as grub.cfg names them -- from the boot volume's root.
 static void list_kernels(const char *current) {
     g_nkernels = 0;
-    DIR *d = opendir("/boot/boot");
+    DIR *d = opendir("/boot");
     struct dirent *de;
     while (d && (de = readdir(d)) && g_nkernels < KERNELS - 1)
         if (!strncmp(de->d_name, "kernel", 6))
-            snprintf(g_kernel_name[g_nkernels++], UBOOTCFG_PATH, "/boot/%s", de->d_name);
+            snprintf(g_kernel_name[g_nkernels++], UBOOTCFG_PATH, "/%s", de->d_name);
     if (d) closedir(d);
     int have = -1;
     for (int i = 0; i < g_nkernels; i++) if (!strcmp(g_kernel_name[i], current)) have = i;
@@ -425,7 +426,7 @@ static void load(void) {
     g_loaded = ubootcfg_load(&g_disk, UBOOTMENU_CFG) == 0;
     if (!g_loaded) {
         ubootcfg_parse(&g_disk, "", 0);
-        note("No boot menu on this boot -- /boot/boot/grub/grub.cfg cannot be read");
+        note("No boot menu on this boot -- /boot/grub/grub.cfg cannot be read");
     }
     g_cfg = g_disk;
     static char line[UBOOTCFG_WORDS * UBOOTCFG_WORD];

@@ -36,18 +36,18 @@ static const char FIXTURE[] =
     "    save_env next_entry\n"
     "fi\n"
     "menuentry \"rescue {old} \\\"x\\\"\" {\n"
-    "    multiboot2 /boot/kernel.old\n"
+    "    multiboot2 /kernel.old\n"
     "    boot\n"
     "}\n"
     "\n"
     "menuentry \"toy-os\" --class os {\n"
     "    # Boot words: see docs/boot-flags.md\n"
-    "    multiboot2 /boot/kernel.bin nokaslr video=1920x1080\n"
+    "    multiboot2 /kernel.bin nokaslr video=1920x1080\n"
     "    boot\n"
     "}\n"
     "\n"
     "menuentry \"quoted\" {\n"
-    "    multiboot2 /boot/kernel.bin \"loglevel=7\"\n"
+    "    multiboot2 /kernel.bin \"loglevel=7\"\n"
     "    boot\n"
     "}\n";
 
@@ -102,7 +102,7 @@ int main(void) {
                  "default 1, timeout 5, the one-shot stanza (got %d, %d, %d)",
                  orig.def, orig.timeout, orig.oneshot);
     utest_check(orig.entry[1].plain && orig.entry[1].nwords == 2 &&
-                !strcmp(orig.entry[1].kernel, "/boot/kernel.bin") &&
+                !strcmp(orig.entry[1].kernel, "/kernel.bin") &&
                 !strcmp(orig.entry[1].word[1], "video=1920x1080"), "kernel and words are read");
     utest_check(!orig.entry[2].plain, "a quoted word makes a boot line text-only");
 
@@ -112,7 +112,7 @@ int main(void) {
     utest_check(ubootcfg_edit_words(&c, 1, ops, 3) == 0, "a words edit is accepted");
     diff(&orig, &c);
     utest_checkf(g_minus == 1 && g_plus == 1 && !strcmp(g_last_plus,
-                 "    multiboot2 /boot/kernel.bin video=1280x720 loglevel=4"),
+                 "    multiboot2 /kernel.bin video=1280x720 loglevel=4"),
                  "one line changed, to the replaced words (-%d +%d: \"%s\")", g_minus, g_plus, g_last_plus);
     utest_check(strstr(c.text, "# Boot words: see docs/boot-flags.md") != 0, "the comment survives");
     const char *qw[] = { "nokaslr" };
@@ -124,7 +124,7 @@ int main(void) {
     c = orig;
     int t = ubootcfg_copy(&c, 0, "rescue copy");
     utest_checkf(t == 1 && c.count == 4 && !strcmp(c.entry[1].title, "rescue copy") &&
-                 !strcmp(c.entry[1].kernel, "/boot/kernel.old"),
+                 !strcmp(c.entry[1].kernel, "/kernel.old"),
                  "a copy lands after its source with the body (t=%d)", t);
     utest_checkf(c.def == 2 && !strcmp(c.entry[c.def].title, "toy-os"),
                  "the numeric default follows its entry past the copy (def=%d)", c.def);
@@ -150,7 +150,7 @@ int main(void) {
     static const char broken[] =
         "set timeout=soon\n"
         "menuentry \"a\" {\n"
-        "    multiboot2 /boot/kernel.bin vidoe=1280x720 frobnicate\n"
+        "    multiboot2 /kernel.bin vidoe=1280x720 frobnicate\n"
         "    boot\n";
     ubootcfg_parse(&c, broken, (int)sizeof broken - 1);
     n = ubootcfg_check(&c, &orig, 0, probs, 16);
@@ -209,9 +209,9 @@ int main(void) {
     // bootpart=: ONE final `$name` keeps a line editable, and survives
     // an edit of its neighbours; anything more stays text-only.
     static const char VARS[] =
-        "menuentry \"a\" {\n    multiboot2 /boot/kernel.bin bootpart=$bootpart nokaslr\n    boot\n}\n"
-        "menuentry \"b\" {\n    multiboot2 /boot/kernel.bin x=${y}\n    boot\n}\n"
-        "menuentry \"c\" {\n    multiboot2 /boot/kernel.bin x=$y-z\n    boot\n}\n";
+        "menuentry \"a\" {\n    multiboot2 /kernel.bin bootpart=$bootpart nokaslr\n    boot\n}\n"
+        "menuentry \"b\" {\n    multiboot2 /kernel.bin x=${y}\n    boot\n}\n"
+        "menuentry \"c\" {\n    multiboot2 /kernel.bin x=$y-z\n    boot\n}\n";
     utest_check(ubootcfg_parse(&c, VARS, (int)sizeof VARS - 1) == 0, "the variables fixture parses");
     utest_check(c.entry[0].plain && c.entry[0].nwords == 2 &&
                 !strcmp(c.entry[0].word[0], "bootpart=$bootpart"), "a final $name is a plain word");
@@ -236,9 +236,9 @@ int main(void) {
     utest_check(strstr(c.text,
                 "    set bootpart=\n"
                 "    if probe --part-uuid --set=bootpart $root; then true; fi\n"
-                "    multiboot2 /boot/kernel.bin nokaslr video=1920x1080 bootpart=$bootpart\n") != 0,
+                "    multiboot2 /kernel.bin nokaslr video=1920x1080 bootpart=$bootpart\n") != 0,
                 "the probe sits above the boot line, the word at its end");
-    utest_check(strstr(c.text, "multiboot2 /boot/kernel.old bootpart=$bootpart\n") != 0,
+    utest_check(strstr(c.text, "multiboot2 /kernel.old bootpart=$bootpart\n") != 0,
                 "the rescue entry gains it too");
     utest_check(strstr(c.text, "\"loglevel=7\"\n") && strstr(c.text, "linux /vmlinuz root=/dev/sda2\n"),
                 "the quoted and the linux entries are untouched");

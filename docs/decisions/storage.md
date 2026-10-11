@@ -2547,6 +2547,49 @@ machine's own `/boot` back afterwards. All three were one mechanism —
 protecting a single shared instance from a second user — and all three
 stop existing once there can be two.
 
+## The boot volume is flat -- `/boot/kernel.bin`, not `/boot/boot/kernel.bin` -- and old machines move themselves
+
+Until 2026-10-11 `install_grub.py` wrote `boot/kernel.bin` and
+`boot/grub/` INSIDE the FAT32 volume, copying the ISO's tree so that one
+`grub.cfg` (`multiboot2 /boot/kernel.bin`) served both media. Mounted at
+`/boot`, that read `/boot/boot/kernel.bin` everywhere -- every tool, every
+doc, every command a person typed.
+
+**What real systems do.** A Linux `/boot` partition (Debian, Fedora) and
+an ESP mounted at `/boot` (Arch) keep the partition's root AS the boot
+directory: `grub/` and `vmlinuz` at the top, GRUB's prefix
+`(hd0,gptN)/grub`. The only nesting on a Linux box is `/boot/efi/EFI/`,
+and that `EFI/` is mandated by the UEFI spec -- nothing mandated ours.
+toy-os follows: kernel and `grub/` at the volume's root, prefix `/grub`.
+
+**The shared-config property survives** because the ISO moved too: its
+kernel is at the ISO's root (`iso/kernel.bin`), so `multiboot2
+/kernel.bin` is right on both media. grub-mkrescue still owns
+`/boot/grub` on the ISO, which nothing in toy-os ever mounts. The live
+ISO has its own `grub-live.cfg` and kept its paths.
+
+**An installed machine cannot just have its files moved**: its GRUB core
+image has `/boot/grub` baked into the prefix, and with no config there it
+stops at a rescue prompt. So the move is copy up, rewrite the core image
+(the `install --bootloader` write that already existed), then delete the
+old tree -- bootable after every step, the old core reading the old tree
+until the new core is written (`lib/ubootlayout.h`).
+
+**It runs as a boot service (`bootmigrate`), not inside System Update**,
+because the update that delivers it is applied by the PREVIOUS updater,
+and the payload whose `core.img` reads `/grub` only lands at the reboot
+after it -- a `postinst` that re-runs `grub-install`, Debian's grub-pc
+shape, moved to the first boot. Three things keep that hop safe:
+`update_server.py` still names the kernel `/boot/boot/kernel.bin`, which
+the old updater installs exactly as before; the current updater ignores
+that path and installs where the machine's GRUB reads (`ubootlayout_dir()`),
+so a machine the service has not moved yet still updates; and
+`/install/core.prefix` must say `/grub` or no core image is written at
+all. `remote.py flash` asks the machine which layout it has for the same
+reason. Rejected: moving machines only on reinstall (permanent dual paths
+in every tool), and a manual step per machine (the fleet is updated far
+more often than anyone would remember it).
+
 ## The installer is five ordinary operations, and the kernel never learns what a bootloader is
 
 toy-os can install itself now (`/bin/install`). The question worth
