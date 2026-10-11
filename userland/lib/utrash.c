@@ -11,13 +11,16 @@
 #include "rt/sys.h"
 #include "kpath.h"
 #include "query_abi.h"
+#include "lib/usetting.h"
+#include "lib/ufileop.h"
+#include "lib/uwalk.h"
 
 #define HOME_BIN "/home/.Trash"
 #define TOP_BIN  ".Trash-0"
 
 // The mount `path` is on: the longest mount point that is a prefix of
 // it, at a component boundary. 1 with its flags, or 0.
-static int volume_of(const char *path, char *point, int cap, uint64_t *flags) {
+static int volume_of_sized(const char *path, char *point, int cap, uint64_t *flags, uint64_t *total) {
     struct query_fsinfo fs;
     int best = -1;
     for (int i = 0; ; i++) {
@@ -31,8 +34,13 @@ static int volume_of(const char *path, char *point, int cap, uint64_t *flags) {
         best = len;
         strlcpy(point, fs.point, (size_t)cap);
         *flags = fs.flags;
+        if (total) *total = fs.total_bytes;
     }
     return best >= 0;
+}
+
+static int volume_of(const char *path, char *point, int cap, uint64_t *flags) {
+    return volume_of_sized(path, point, cap, flags, 0);
 }
 
 int utrash_bin_for(const char *path, char *out, int cap) {
@@ -330,4 +338,126 @@ int utrash_forget(const struct utrash_item *it) {
     char ip[UTRASH_PATH + 80];
     if (!info_path(it->bin, it->name, ip, sizeof ip)) return -ENAMETOOLONG;
     return sys_unlink(ip) == 0 ? 0 : -sys_errno();
+}
+
+// --- limits ---------------------------------------------------------------
+
+static int setting_number(const char *name) {
+    char v[16];
+    if (!usetting_get(name, v, sizeof v)) return 0;
+    return atoi(v);   // "never" and "none" read as 0
+}
+
+void utrash_limits_get(struct utrash_limits *l) {
+    l->max_age_days = setting_number(UTRASH_SET_AGE);
+    l->max_size_pct = setting_number(UTRASH_SET_SIZE);
+}
+
+static int add_size(void *ctx, const char *path, const struct sys_dirent *e) {
+    (void)path;
+    if (!e->is_dir) *(uint64_t *)ctx += e->size;
+    return 1;
+}
+
+// An item's bytes: a file's size, a folder's files summed.
+static uint64_t item_bytes(const struct utrash_item *it, struct uwalk *w) {
+    if (!it->is_dir) return it->size;
+    char p[UTRASH_PATH + 80];
+    uint64_t sum = 0;
+    if (utrash_item_path(it, p, sizeof p) && uwalk_begin(w, p))
+        while (uwalk_step(w, add_size, &sum)) {}
+    return sum;
+}
+
+#define LIMIT_ITEMS 512
+
+// The bins and their items, oldest first, with each item's bytes; on the
+// heap, as a walk and the list are far past a ring-3 frame.
+struct census {
+    struct utrash_item items[LIMIT_ITEMS];
+    uint64_t bytes[LIMIT_ITEMS];
+    uint8_t dead[LIMIT_ITEMS];   // utrash_expire(): deleted for good
+    int n;
+    struct uwalk walk;
+};
+
+static struct census *census_take(void) {
+    struct census *c = calloc(1, sizeof *c);
+    if (!c) return 0;
+    struct utrash_item *tmp = c->items;
+    int n = utrash_list(tmp, LIMIT_ITEMS);   // newest first
+    for (int i = 0, j = n - 1; i < j; i++, j--) {
+        struct utrash_item t = tmp[i]; tmp[i] = tmp[j]; tmp[j] = t;
+    }
+    c->n = n;
+    for (int i = 0; i < n; i++) c->bytes[i] = item_bytes(&c->items[i], &c->walk);
+    return c;
+}
+
+int utrash_usage(struct utrash_usage *out, int cap) {
+    struct census *c = census_take();
+    if (!c) return 0;
+    int nb = 0;
+    for (int i = 0; i < c->n; i++) {
+        int b = 0;
+        while (b < nb && strcmp(out[b].bin, c->items[i].bin)) b++;
+        if (b == nb) {
+            if (nb == cap) continue;
+            memset(&out[b], 0, sizeof out[b]);
+            strlcpy(out[b].bin, c->items[i].bin, sizeof out[b].bin);
+            uint64_t flags = 0;
+            volume_of_sized(out[b].bin, out[b].point, sizeof out[b].point, &flags, &out[b].volume_bytes);
+            nb++;
+        }
+        out[b].items++;
+        out[b].bytes += c->bytes[i];
+    }
+    free(c);
+    return nb;
+}
+
+static int purge(const struct utrash_item *it, struct ufileop *op) {
+    static const struct ufileop_policy pol = { 0 };
+    char p[UTRASH_PATH + 80];
+    if (!utrash_item_path(it, p, sizeof p)) return 0;
+    if (ufileop_remove(p, 1, op, &pol) != UFILEOP_OK) return 0;
+    return utrash_forget(it) == 0;
+}
+
+int utrash_expire(const struct utrash_limits *l, struct ufileop *op) {
+    if (!l->max_age_days && !l->max_size_pct) return 0;
+    struct census *c = census_take();
+    if (!c) return -ENOMEM;
+    int gone = 0;
+    uint8_t *dead = c->dead;
+    if (l->max_age_days) {
+        struct rtc_time now;
+        sys_gettime(&now);
+        uint64_t cutoff = cal_rtc_to_epoch(&now) - (uint64_t)l->max_age_days * 86400;
+        for (int i = 0; i < c->n; i++) {
+            uint64_t when = cal_rtc_to_epoch(&c->items[i].deleted);
+            if (when && when < cutoff && purge(&c->items[i], op)) { dead[i] = 1; gone++; }
+        }
+    }
+    if (l->max_size_pct) {
+        for (int i = 0; i < c->n; i++) {   // each bin once, from its oldest item
+            if (dead[i]) continue;
+            int first = 1;
+            for (int k = 0; k < i; k++) if (!strcmp(c->items[k].bin, c->items[i].bin)) first = 0;
+            if (!first) continue;
+            char point[64];
+            uint64_t flags = 0, total = 0, held = 0;
+            if (!volume_of_sized(c->items[i].bin, point, sizeof point, &flags, &total)) continue;
+            uint64_t limit = total / 100 * (uint64_t)l->max_size_pct;
+            int newest = -1;
+            for (int k = 0; k < c->n; k++)
+                if (!dead[k] && !strcmp(c->items[k].bin, c->items[i].bin)) { held += c->bytes[k]; newest = k; }
+            for (int k = i; k < c->n && held > limit; k++) {
+                if (dead[k] || k == newest || strcmp(c->items[k].bin, c->items[i].bin)) continue;
+                if (purge(&c->items[k], op)) { dead[k] = 1; held -= c->bytes[k]; gone++; }
+            }
+        }
+    }
+    free(c);
+    return gone;
 }

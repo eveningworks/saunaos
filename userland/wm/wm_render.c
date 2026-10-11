@@ -761,6 +761,7 @@ static enum wm_cursor_kind resolve_cursor_kind(int mx, int my) {
     if ((right && top) || (left && bottom)) return WM_CURSOR_DIAG2;
     if (left || right) return WM_CURSOR_H;
     if (top || bottom) return WM_CURSOR_V;
+    if (desktop_link_hovered()) return WM_CURSOR_HAND;
     // Frame first: a resize edge is geometry the compositor owns, and
     // wins over anything the client inside asked for.
     return client_cursor_at(mx, my);

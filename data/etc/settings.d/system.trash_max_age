@@ -1,0 +1,16 @@
+Type=enum
+File=/etc/toyos.conf
+Label=Delete items for good after
+Category=Storage
+Group=Recycle Bin
+Default=never
+Choices=never,1,7,30,60
+Description=Counted from when each item was deleted; checked at login and every hour
+# Days, read by lib/utrash.h's utrash_limits_get() ("never" reads as 0).
+# Enforced by `trash expire`, which the desktop runs.
+Order=20
+Choice.never=Never
+Choice.1=1 day
+Choice.7=7 days
+Choice.30=30 days
+Choice.60=60 days

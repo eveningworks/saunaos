@@ -1,0 +1,11 @@
+Type=enum
+File=/etc/desktop.conf
+Label=Show on the desktop
+Category=Storage
+Group=Recycle Bin
+Default=on
+Choices=on,off
+Description=The Recycle Bin icon, which deleted files can be dropped on
+Order=10
+Choice.on=On
+Choice.off=Off

@@ -92,6 +92,7 @@
 #include "ui/uvterm.h"   // one terminal: grid, scrollback, pty, selection
 #include "ui/umonofont.h"   // the grid's face at a chosen size
 #include "term/term.h"    // /etc/terminal.conf and the Preferences dialog
+#include "lib/udclick.h"  // the double-click time
 
 // THE WINDOW IS SIZED FOR A GRID, NOT IN PIXELS. A fixed pair does not
 // survive the font: 640x400 was 78x21 at size 14 and 44x12 at size 24,
@@ -1864,11 +1865,9 @@ static void on_prefs_commit(const struct term_conf *next) {
 
 // A press the router did not consume. Its only job is the rename prompt:
 // clicking away cancels, and clicking IN it places the caret.
-// How close in time and space two presses must be to count as a
-// double-click. 400 ms is Windows' default and within a pixel of KDE's;
-// the distance gate is what stops two deliberate clicks in different
-// places being read as one gesture.
-#define MULTICLICK_MS 400
+// How close in SPACE two presses must be to count as a double-click (the
+// time is the desktop's, lib/udclick.h): the distance gate is what stops
+// two deliberate clicks in different places being read as one gesture.
 #define MULTICLICK_PX 4
 
 static unsigned long long g_last_click_ns;
@@ -1885,7 +1884,7 @@ static int click_run(int x, int y) {
     // from a zero g_last_click_ns would be an enormous interval rather
     // than a negative one -- which is the answer this wants anyway.
     int soon = g_last_click_ns &&
-               now - g_last_click_ns < (unsigned long long)MULTICLICK_MS * 1000000ull;
+               now - g_last_click_ns < udclick_ns();
     g_click_run = (near && soon) ? g_click_run + 1 : 1;
     if (g_click_run > 3) g_click_run = 1;   // a fourth click starts over
     g_last_click_ns = now;

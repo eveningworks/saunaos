@@ -11111,3 +11111,42 @@ first, nothing interrupts a move. Its button undoes only the operation
 it named -- a newer operation, or a Ctrl+Z, makes it do nothing --
 since a card left up for twelve seconds could otherwise undo something
 it never mentioned.
+
+## Folder Options, the double-click time and the bin's limits are each ONE value the desktop shares
+
+The desktop round (2026-10-10) hard-coded what the File Manager already
+let a person choose: it always drew thumbnails, always wanted a double
+click, always asked before a delete and always showed extensions, so
+someone who picked single click in Files still double-clicked on the
+desktop. And the double-click time itself was eight constants at two
+values (2026-10-11).
+
+**The desktop reads the File Manager's `/etc/files.conf`**
+(`lib/ufolderopts.h`) rather than gaining `desktop.*` settings of its
+own. Explorer's Folder Options set Explorer and the desktop together,
+and KDE's single-click is one global switch; two copies of "show
+extensions" would be a second source of truth the moment either was
+changed. The other way -- declared `files.*` settings in System Settings
+that both read -- was offered and declined: a settings layer for five
+booleans that already had a window. The cost is that the desktop polls a
+file another app writes, which the compositor's `/etc` watch already
+does for every other config.
+
+**The double-click time is a setting with named steps** (Very slow to
+Very fast, 700 to 250 ms; Normal is GNOME's 400), Windows' slider rather
+than a millisecond box, with a folder to try it on that uses the STAGED
+step. The File Manager's tree keeps its measured slack ON TOP of the
+setting, since its first click navigates before the second is looked at.
+
+**The Recycle Bin's limits -- an age and a share of the volume, both off
+by default -- are enforced in one place, `trash expire`**, which the
+desktop runs at startup, hourly, a few seconds after the bin changes
+while a limit is set, and when a limit changes. Not in `utrash_put()`:
+four callers put things in the bin (the File Manager's job, `trash put`,
+the file Undo, the desktop through `trash put`), and a sweep inside each
+would walk every bin on every delete. Windows trims at the delete, GNOME
+sweeps on a housekeeping timer; this is GNOME's shape with a prompt
+after a delete. **A bin's newest item is never cut for size**, so the
+delete that pushed it over cannot be undone by its own bookkeeping --
+where Windows instead refuses to bin a file larger than the limit.
+

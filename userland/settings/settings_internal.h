@@ -352,6 +352,15 @@ int  snd_fit(void);
 int  snd_tick(struct uapp *a);
 void snd_shutdown(void);
 
+// set_mouse.c -- Input > Mouse's double-click Test card
+void mouse_page_opened(void);
+int  mouse_emit_after(struct uui_item *out, int n, int i);
+int  mouse_fit(void);
+
+// set_trash.c -- Storage > Recycle Bin's "What the bins hold now" card
+void trash_page_opened(void);
+int  trash_emit_after(struct uui_item *out, int n, int i);
+
 // set_clock.c -- Time & Locale's live clock, Change... and preview
 extern int g_clock_page, g_region_page;
 void clock_init(void);

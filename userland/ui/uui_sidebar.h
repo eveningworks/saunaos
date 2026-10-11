@@ -105,6 +105,7 @@ struct uui_sidebar {
     int hovered;    // ROW index, or -1; OWNED, never a heading
     int focused;    // OWNED -- driven by the focus ring's set_focused
     int top;        // first visible row; OWNED
+    int reveal_owed; // OWNED: selected before it had a height to scroll in
     int row_h;      // 0 = derive from the font
     struct uui_sbar sb; // OWNED: the scrollbar
 
@@ -132,7 +133,9 @@ void uui_sidebar_set_rows(struct uui_sidebar *s,
 // move when the sidebar is rebuilt and ids do not.
 int uui_sidebar_selected_id(const struct uui_sidebar *s);
 
-// Selects the item with this id. Returns 1 if it was found; a heading's
+// Selects the item with this id and SCROLLS IT INTO VIEW -- at once, or
+// at the first set_geometry() when it has no height yet (an app choosing
+// its opening page in on_size). Returns 1 if it was found; a heading's
 // id is never matched, because a heading is not a destination.
 int uui_sidebar_select_id(struct uui_sidebar *s, int id);
 

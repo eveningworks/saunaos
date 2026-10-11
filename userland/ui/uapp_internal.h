@@ -39,6 +39,7 @@
 #include "ui/uui_caret.h"
 #include "lib/uappentry.h" // uapp_display_name()
 #include "lib/uclip.h"   // clip_poll() -- the clipboard is shared memory now
+#include "lib/udclick.h"  // udclick_reload() on WIN_EV_SETTING
 #include <locale.h>
 #include <time.h>       // tzset()
 

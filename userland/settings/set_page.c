@@ -375,6 +375,8 @@ void open_group(int g) {
 
     clock_page_opened();
     kbd_page_opened();
+    mouse_page_opened();
+    trash_page_opened();
     snd_page_opened();
     snprintf(g_status, sizeof g_status, "%s", g_page_title_text);
     relayout_page();
@@ -668,6 +670,8 @@ void relayout_page(void) {
         n = clock_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = kbd_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = snd_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
+        n = mouse_emit_after(PAGE, n, i);
+        n = trash_emit_after(PAGE, n, i);
         // Test, under the saver it previews (Windows puts Preview there).
         if (g_test_has && sl->setting >= 0 && strcmp(g_name[sl->setting], OWNER_SAVER) == 0) {
             PAGE[n++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_test_btn,
@@ -754,6 +758,7 @@ int refit_prose(void) {
     if (g_show_startup && startup_fit()) changed = 1;
     if (g_show_adapters && adapters_fit()) changed = 1;
     if (snd_fit()) changed = 1;
+    if (mouse_fit()) changed = 1;
     if (g_show_remote && remote_fit()) changed = 1;
     if (changed) relayout_page();
     return changed;

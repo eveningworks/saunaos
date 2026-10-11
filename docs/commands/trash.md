@@ -22,6 +22,13 @@
   that name, or when the folder it came from is gone -- it is not
   re-created.
 - `empty` -- delete everything in the bins for good.
+- `expire` -- delete for good what the bin's limits say must go: every
+  item deleted more than `system.trash_max_age` days ago, then, in each bin
+  holding more than `system.trash_max_size` percent of its volume, the oldest
+  items until it does not -- never a bin's newest. Both limits are off
+  by default (System Settings, Storage > Recycle Bin), and with neither
+  set this deletes nothing. The desktop runs it at startup, every hour,
+  and after the bin changes while a limit is set.
 - `-h`, `--help` -- every command in one page.
 
 Exit status: 0 done, 1 something refused or failed, 2 bad usage

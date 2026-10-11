@@ -20,6 +20,7 @@ static const struct uargs_cmd CMDS[] = {
     { "list",    0,         "what is in the bins, newest first" },
     { "restore", "NAME...", "put an item back where it was deleted from; a /PATH names it by that" },
     { "empty",   0,         "delete everything in the bins for good" },
+    { "expire",  0,         "delete for good what the bin's age and size limits say must go" },
     { 0 },
 };
 
@@ -99,6 +100,21 @@ static int restore(int argc, char **argv) {
     return rc;
 }
 
+// The limits are System Settings' (system.trash_max_age, _max_size); the
+// desktop runs this at startup, hourly, and after the bin changes.
+static int expire(void) {
+    struct utrash_limits l;
+    utrash_limits_get(&l);
+    if (!l.max_age_days && !l.max_size_pct) {
+        printf("the Recycle Bin has no limits set\n");
+        return 0;
+    }
+    int n = utrash_expire(&l, &g_op);
+    if (n < 0) { fprintf(stderr, "trash: %s\n", sys_strerror(-n)); return 1; }
+    printf("%d item%s deleted\n", n, n == 1 ? "" : "s");
+    return 0;
+}
+
 static int empty(void) {
     struct ufileop_policy pol = { .on_error = op_error };
     int n = utrash_list(g_items, 256), rc = 0;
@@ -115,12 +131,14 @@ static int empty(void) {
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
-    if (a.argc < 1) return uargs_error(&PROG, "a command: put, list, restore or empty");
+    if (a.argc < 1) return uargs_error(&PROG, "a command: put, list, restore, empty or expire");
     const char *c = a.argv[0];
     if (!strcmp(c, "put") || !strcmp(c, "restore")) {
         if (a.argc < 2) return uargs_error(&PROG, "%s needs at least one name", c);
         return c[0] == 'p' ? put(a.argc - 1, a.argv + 1) : restore(a.argc - 1, a.argv + 1);
     }
     if (a.argc > 1) return uargs_error(&PROG, "%s takes no arguments", c);
-    return !strcmp(c, "list") ? list() : empty();
+    if (!strcmp(c, "list")) return list();
+    if (!strcmp(c, "expire")) return expire();
+    return empty();
 }

@@ -5777,3 +5777,28 @@ elide); the layout is measured once per width. Properties' and the File
 Manager's `uui_fileinfo` predates it and draws its own sections -- moving
 it onto `uui_props` is on the roadmap.
 
+## A DOUBLE CLICK IS JUDGED BY `lib/udclick.h`, NEVER BY A WIDGET'S OWN CONSTANT
+
+How soon a second click must follow the first is ONE value,
+`system.double_click` (Input > Mouse), read through `udclick_ms()` /
+`udclick_ticks()` / `udclick_ns()` -- Windows' `GetDoubleClickTime()`.
+Eight widgets and windows once carried their own number, at 300 ms and
+400 ms, so the same pair of clicks opened a desktop icon and not a
+File Manager row. The value is cached per process and dropped on every
+`WIN_EV_SETTING` (uapp) and every settings change the compositor hears
+(`wm_watch_setting()`), so nothing re-reads `/etc` on a click. A widget
+whose first click does slow work before the second is looked at adds
+SLACK to the time, never a time of its own (the File Manager's folder
+tree). DOOM's double-click "use" is the game's own and stays so.
+
+## THE DESKTOP FOLLOWS THE FILE MANAGER'S FOLDER OPTIONS (`lib/ufolderopts.h`)
+
+Single click, thumbnails and their size cap, hidden files, extensions
+and asking before a delete are ONE table in `/etc/files.conf`, which the
+File Manager's Options window edits and the desktop only reads --
+Explorer's Folder Options, which set both. Add an option the desktop
+should obey to that table, not to the File Manager's own `struct
+fm_options` or a `desktop.*` setting, and say so on its Options page
+(`uui_prefs_desc.notes`). A name as SHOWN is `ufiletype_display_name()`
+for both views, so "hide extensions" cannot mean two things.
+

@@ -44,11 +44,12 @@ static struct {
 static int g_nbound;
 
 static struct uui_sidebar g_pages;
-static struct uui_label g_heading, g_spacer;
+static struct uui_label g_heading, g_note, g_spacer;
 static char g_heading_text[48];
 static struct uui_button g_defaults, g_ok, g_cancel;
 
-static struct uui_item g_page_items[1 + UUI_PREFS_ROWS_MAX], g_body_items[2], g_button_items[4],
+// The heading, the page's note, then the rows.
+static struct uui_item g_page_items[2 + UUI_PREFS_ROWS_MAX], g_body_items[2], g_button_items[4],
                        g_root_items[2];
 static struct uui_layout g_page_l, g_body_l, g_button_l, g_root_l;
 // The pages, OK and Cancel, then up to three controls a row.
@@ -59,7 +60,9 @@ static struct uui_focus g_focus;
 static void show_page(int page) {
     if (page < 0 || page >= g_d.page_count) return;
     strlcpy(g_heading_text, g_d.pages[page].label, sizeof g_heading_text);
-    for (int i = 0; i < g_rows; i++) g_page_items[1 + i].hidden = g_row[i].page != page;
+    g_note.text = g_d.notes ? g_d.notes[page] : 0;
+    g_page_items[1].hidden = !g_note.text || !g_note.text[0];
+    for (int i = 0; i < g_rows; i++) g_page_items[2 + i].hidden = g_row[i].page != page;
 }
 
 // THE WINDOW FITS ITS LARGEST PAGE, not the one showing --
@@ -139,7 +142,7 @@ int uui_prefs_row(int page, const char *caption, const struct uui_widget_ops *op
         g_row[i].items[0].flags = 0;
         g_row[i].items[0].main_size = 0;
     }
-    g_page_items[1 + i] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_row[i].row,
+    g_page_items[2 + i] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_row[i].row,
                                              .flags = UUI_FILL_W };
     g_focusables[g_nfocus++] = (struct uui_focusable){ widget, ops };
     return i;
@@ -266,6 +269,8 @@ int uui_prefs_open(struct uapp *a) {
     g_pages.sel_fg = UTHEME_ACCENT_TEXT;
     uui_label_init(&g_heading, g_heading_text);
     g_heading.font = ugfx_font_session(UGFX_FONT_BOLD);
+    uui_label_init(&g_note, 0);
+    g_note.fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);   // a setting row's description colour
     uui_label_init(&g_spacer, "");
     uui_button_init(&g_defaults, 0, 0, 0, 0, "Defaults", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_DEFAULTS);
     uui_button_init(&g_ok, 0, 0, 0, 0, "OK", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_OK);
@@ -276,11 +281,13 @@ int uui_prefs_open(struct uapp *a) {
     g_focusables[2] = (struct uui_focusable){ &g_cancel, &uui_button_ops };
     g_page_items[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_heading,
                                          .flags = UUI_FILL_W, .name = "heading" };
+    g_page_items[1] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_note,
+                                         .flags = UUI_FILL_W, .name = "note" };
     int first = g_d.first_page >= 0 && g_d.first_page < g_d.page_count ? g_d.first_page : 0;
     show_page(first);
     uui_sidebar_select_id(&g_pages, first);
 
-    g_page_l = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_page_items, .count = 1 + g_rows,
+    g_page_l = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_page_items, .count = 2 + g_rows,
                                     .margin = 12, .gap = 10 };
     g_body_items[0] = (struct uui_item){ .ops = &uui_sidebar_ops, .widget = &g_pages, .id = ID_PAGES,
                                          .flags = UUI_FILL_H, .name = "pages",

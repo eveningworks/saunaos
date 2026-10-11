@@ -20,4 +20,9 @@ const char *ufiletype_name(const char *name, int is_dir);
 // by name), "file-image", ..., or "file".
 const char *ufiletype_icon(const char *name, int is_dir);
 
+// The name as SHOWN: `name` without its extension when `hide_ext` and the
+// type is one the table knows -- an unknown extension is part of what the
+// name says, and a folder has none. Explorer's rule.
+void ufiletype_display_name(const char *name, int is_dir, int hide_ext, char *out, int cap);
+
 #endif

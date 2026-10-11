@@ -41,10 +41,6 @@
 
 #define UUI_FILEVIEW_PATH_MAX 256 // NOT FS_PATH_MAX (4096): a widget's own bound
 
-// ~300ms at the PIT's 100 Hz, the same threshold the desktop's icons and
-// the file picker each defined for themselves before this widget was the
-// one place to define it.
-#define UUI_FILEVIEW_DOUBLE_CLICK_TICKS 30
 // How many marked NAMES a reload carries across (see uui_fileview.c's
 // reload); a larger set keeps its first this many.
 #define UUI_FILEVIEW_KEEP_MARKS 64

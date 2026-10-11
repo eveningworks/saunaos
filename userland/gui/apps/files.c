@@ -45,6 +45,7 @@
 #include "ui/uui_dialog.h"
 #include "ui/uui_runask.h"
 #include "lib/ufileop.h"
+#include "lib/udclick.h"   // the folder tree's double-click
 #include "ui/ulog.h"
 #include "keyboard.h"
 
@@ -812,7 +813,7 @@ void path_sync(void) {
 // every keystroke. Case-insensitive, anywhere in the name.
 static int pane_filter(void *ctx, const char *dir, const struct sys_dirent *e) {
     (void)dir;
-    if (!g_opt.hidden && e->name[0] == '.') return 0;
+    if (!g_opt.folder.hidden && e->name[0] == '.') return 0;
     const char *q = g_query[(int)(intptr_t)ctx];
     int qn = (int)strlen(q), n = (int)strlen(e->name);
     for (int i = 0; i + qn <= n; i++)
@@ -1124,17 +1125,13 @@ void do_command(struct uapp *a, int code) {
 
 // --- input --------------------------------------------------------------
 
-// Double-click tracking for the folder tree. The window is the
-// fileview's, not a second constant: two double-click speeds in one
-// window is a thing a user feels and cannot name.
-// A LONGER WINDOW THAN THE FILEVIEW'S, because the first click of the
-// pair does real work -- it navigates a pane, which lists a directory
-// and relayouts the window -- and the second click is not looked at
-// until that frame is done. Measured at 60-90 ticks in the emulator
-// against the fileview's 30, where both clicks are cheap. ~900 ms is
-// also Windows' own maximum double-click time, so it is not out of
-// band for a person either.
-#define TREE_DOUBLE_CLICK_TICKS 90
+// Double-click tracking for the folder tree: the desktop's double-click
+// time (lib/udclick.h) PLUS SLACK, because the first click of the pair
+// does real work -- it navigates a pane, which lists a directory and
+// relayouts the window -- and the second is not looked at until that
+// frame is done. Measured at 60-90 ticks in the emulator against the
+// fileview's 30, where both clicks are cheap.
+#define TREE_CLICK_SLACK_TICKS 60
 static int g_tree_click_id = -1;
 static uint64_t g_tree_click_tick = 0;
 static int g_tree_click_collapsed = 0;
@@ -1264,7 +1261,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         int nid = uui_tree_selected_id(&g_tree);
         uint64_t now = sys_ticks();
         if (nid >= 0 && nid == g_tree_click_id &&
-            now - g_tree_click_tick <= TREE_DOUBLE_CLICK_TICKS) {
+            now - g_tree_click_tick <= udclick_ticks() + TREE_CLICK_SLACK_TICKS) {
             // THE STATE THE FIRST CLICK SAW, not the state now: that
             // click navigated, and navigating REVEALS the node's path,
             // so a blind toggle here reads an already-expanded node and
@@ -2040,11 +2037,11 @@ int main(int argc, char **argv) {
         g_pane[i].on_open = on_pane_open;
         g_pane[i].ctx = (void *)(intptr_t)i;
         uui_fileview_set_resolver(&g_pane[i], resolve_virtual, 0);
-        uui_fileview_set_thumb(&g_pane[i], g_opt.thumbs ? pane_thumb : 0, 0);
-        uui_fileview_set_badge(&g_pane[i], g_opt.thumbs ? pane_badge : 0);
+        uui_fileview_set_thumb(&g_pane[i], g_opt.folder.thumbs ? pane_thumb : 0, 0);
+        uui_fileview_set_badge(&g_pane[i], g_opt.folder.thumbs ? pane_badge : 0);
         uui_fileview_set_filter(&g_pane[i], pane_filter, (void *)(intptr_t)i);
-        g_pane[i].single_click = g_opt.single_click;
-        g_pane[i].hide_ext = !g_opt.extensions;
+        g_pane[i].single_click = g_opt.folder.single_click;
+        g_pane[i].hide_ext = !g_opt.folder.extensions;
     }
 
     // The remembered view options. Unknown values fall back to the

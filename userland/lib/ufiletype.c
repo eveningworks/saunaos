@@ -1,5 +1,7 @@
 #include "lib/ufiletype.h"
 #include <strings.h>
+#include <stdio.h>
+#include <string.h>
 
 // One row per extension. Kept short: a type nobody meets here is better
 // called "File" than guessed at.
@@ -75,4 +77,11 @@ const char *ufiletype_icon(const char *name, int is_dir) {
     }
     int i = lookup(name ? name : "");
     return i < 0 ? "file" : TYPES[i].icon;
+}
+
+void ufiletype_display_name(const char *name, int is_dir, int hide_ext, char *out, int cap) {
+    snprintf(out, (size_t)cap, "%s", name);
+    if (!hide_ext || is_dir || !strcmp(ufiletype_name(name, 0), "File")) return;
+    char *dot = strrchr(out, '.');
+    if (dot && dot != out) *dot = '\0';
 }

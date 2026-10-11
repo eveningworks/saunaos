@@ -57,7 +57,7 @@ static int visit(void *ctx, const char *path, const struct sys_dirent *e) {
     if (g_cancel) return -1;
     // Hidden names the way the panes hide them -- and a bin is never
     // searched: what is in it was deleted.
-    if (e->name[0] == '.' && (!g_opt.hidden || !strncmp(e->name, ".Trash", 6))) return 0;
+    if (e->name[0] == '.' && (!g_opt.folder.hidden || !strncmp(e->name, ".Trash", 6))) return 0;
     if (matches(e->name)) {
         pthread_mutex_lock(&g_lock);
         if (g_nhits < SEARCH_MAX) {

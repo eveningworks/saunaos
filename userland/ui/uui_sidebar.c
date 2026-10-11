@@ -39,6 +39,7 @@ void uui_sidebar_init(struct uui_sidebar *s, int x, int y, int w, int h,
     s->selected = -1;
     s->hovered = -1;
     s->top = 0;
+    s->reveal_owed = 0;
     s->row_h = 0; // derive from the font
     uui_sbar_init(&s->sb);
     s->bg = ugfx_rgb(246, 246, 248);
@@ -84,6 +85,8 @@ int uui_sidebar_selected_id(const struct uui_sidebar *s) {
     return s->rows[s->selected].id;
 }
 
+static void reveal(struct uui_sidebar *s, int row);
+
 int uui_sidebar_select_id(struct uui_sidebar *s, int id) {
     for (int i = 0; i < s->count; i++) {
         // is_item() first: a heading's id is never matched, so an app
@@ -91,6 +94,8 @@ int uui_sidebar_select_id(struct uui_sidebar *s, int id) {
         // array itself.
         if (is_item(s, i) && s->rows[i].id == id) {
             s->selected = i;
+            if (s->h > 0) reveal(s, i);
+            else s->reveal_owed = 1;
             return 1;
         }
     }
@@ -203,9 +208,17 @@ void uui_sidebar_natural_size(const struct uui_sidebar *s, int *out_w, int *out_
     if (out_h) *out_h = row_h(s) * (s->count > 0 ? s->count : 1);
 }
 
+// A RESIZE KEEPS A SHOWN SELECTION SHOWN: the window an app opens is
+// often laid out taller first and fitted to the screen after, which left
+// a selection revealed at the first height below the second.
 void uui_sidebar_set_geometry(struct uui_sidebar *s, int x, int y, int w, int h) {
+    int shown = s->h > 0 && s->selected >= s->top && s->selected < s->top + visible_rows(s);
     s->x = x; s->y = y; s->w = w; s->h = h;
     clamp_top(s);
+    if ((s->reveal_owed || shown) && h > 0) {
+        s->reveal_owed = 0;
+        reveal(s, s->selected);
+    }
 }
 
 // --- drawing ------------------------------------------------------------

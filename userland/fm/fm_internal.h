@@ -11,6 +11,7 @@
 #include "ui/uui_menubar.h"
 #include "ui/uui_statusbar.h"
 #include "ui/uui_splitter.h"
+#include "lib/ufolderopts.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_widget.h"
 #include "ui/uui_pathbar.h"
@@ -215,13 +216,9 @@ enum { FM_START_LAST, FM_START_HOME, FM_START_ROOT };
 enum { FM_VIEW_ICONS, FM_VIEW_LARGE, FM_VIEW_DETAILS };
 struct fm_options {
     int start;           // FM_START_*
-    int single_click;    // a click opens, not a double click
     int view;            // FM_VIEW_* -- what a new window shows
-    int thumbs;          // pictures show themselves
-    int hidden;          // names that start with a dot are listed
-    int extensions;      // "dusk.jpg", not "dusk"
     int rename_dialog;   // F2 asks in a dialog rather than editing in place
-    int confirm_delete;  // Delete asks first
+    struct ufolderopts folder;   // the ones the desktop follows too (lib/ufolderopts.h)
 };
 extern struct fm_options g_opt;
 void options_load(void);           // from FILES_CONF, defaults for what is missing
@@ -280,7 +277,7 @@ void do_command(struct uapp *a, int code);
 // rewrite.
 void save_split(const char *key, const struct uui_splitter *sp);
 
-#define FILES_CONF "/etc/files.conf"
+#define FILES_CONF UFOLDEROPTS_CONF
 
 // --- the folder tree (fm_tree.c) -------------------------------------
 

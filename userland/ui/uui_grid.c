@@ -4,11 +4,11 @@
 #include "ui/uui_scrollbar.h"
 #include "ui/utheme.h"
 #include "rt/sys.h"
+#include "lib/udclick.h"
 #include "keyboard.h"
 
 #include <string.h>
 
-#define DOUBLE_NS 400000000ull
 
 void uui_grid_init(struct uui_grid *g, int cell_w, int cell_h) {
     memset(g, 0, sizeof *g);
@@ -188,7 +188,7 @@ static int grid_release(void *w, int cx, int cy) {
     int i = cell_at(g, cx, cy);
     if (g->armed >= 0 && i == g->armed) {
         uint64_t now = sys_monotonic_ns();
-        if (i == g->last_click && now - g->last_click_ns < DOUBLE_NS) {
+        if (i == g->last_click && now - g->last_click_ns < udclick_ns()) {
             g->activated = i;
             g->last_click = -1;
         } else {

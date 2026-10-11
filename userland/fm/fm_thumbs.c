@@ -31,6 +31,7 @@ const struct uimg *pane_thumb(void *ctx, const char *dir,
                               const struct sys_dirent *e, int px) {
     (void)ctx;
     char path[PATH_MAX_LEN];
+    if (!ufolderopts_thumb_ok(&g_opt.folder, e->size)) return 0;   // too big: its type's icon
     if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
     init_once();
     return uthumb_get(path, &e->modified, e->size, px);

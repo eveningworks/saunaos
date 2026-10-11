@@ -30,6 +30,10 @@
 #include "lib/uclip.h"      // the desktop's Copy/Cut/Paste ride the system clipboard
 #include "confirm_dialog.h" // Delete asks first
 #include "wm_dnd.h"         // a file icon dragged onto a window
+#include "lib/udclick.h"    // the double-click time
+#include "lib/ufolderopts.h" // the File Manager's options, which the desktop follows
+#include "lib/ufiletype.h"
+#include "lib/utrash.h"       // the bin's limits, kept by `trash expire`
 #include "kpath.h"
 #include <stdint.h>
 
@@ -58,7 +62,6 @@ static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap 
 // never be truncated; anything longer (the "(ring 3)" launchers) is cut
 // with a ".." marker rather than widening every column to fit it.
 #define DESKTOP_ICON_LABEL_CHARS 13
-#define DESKTOP_DOUBLE_CLICK_TICKS 30 // ~300ms at the PIT's 100Hz -- same order of magnitude as start_menu.c's flash
 #define DESKTOP_MAX_ICONS 64
 #define DESKTOP_CONF_PATH "/etc/desktop.conf"
 // THE DESKTOP FOLDER IS THE DESKTOP. Every icon is an entry of this
@@ -103,6 +106,11 @@ static int band_drawn = 0;
 static int band_x, band_y, band_w, band_h;
 static int last_click_index = -1;
 static uint64_t last_click_tick = 0;
+// Single-click mode: the press armed an open on release, and the last
+// icon opened that way (so the second click of a double opens nothing).
+static int g_click_opens;
+static int g_opened_index = -1;
+static uint64_t g_opened_tick;
 
 // Per-icon grid position, indexed the same as g_files[] --
 // see desktop.h's top comment. Loaded from DESKTOP_CONF_PATH (or
@@ -277,7 +285,23 @@ enum { SORT_NAME, SORT_TYPE, SORT_SIZE, SORT_DATE };
 static int g_sort_by = SORT_NAME;
 static int g_auto_arrange;       // icons packed in sort order, no free cells
 static int g_show_icons = 1;     // off: the wallpaper bare, nothing to hit
-static int item_visible(int i) { return g_show_icons && i >= 0 && i < item_count(); }
+static int g_show_trash = 1;     // desktop.show_trash: the Recycle Bin's icon
+static int item_visible(int i) {
+    return g_show_icons && i >= 0 && i < item_count() && (g_show_trash || !item_is_bin(i));
+}
+// The File Manager's Folder Options -- single click, thumbnails and their
+// size cap, hidden files, extensions, asking before a delete.
+static struct ufolderopts g_fo;
+// The caption: a launcher's Name=, else the file's name as the File
+// Manager shows it. A ring of buffers, as a caller may hold two.
+static const char *item_label(int i) {
+    static char ring[4][sizeof g_files[0].name];
+    static int next;
+    if (item_is_launcher(i)) return g_launch[i].name;
+    char *out = ring[next++ & 3];
+    ufiletype_display_name(g_files[i].name, item_is_dir(i), !g_fo.extensions, out, (int)sizeof ring[0]);
+    return out;
+}
 // The saved-position key is the FILENAME, so a launcher keeps its cell
 // whatever its Name= says (the "file:" prefix is what older configs
 // keyed files by, kept so their cells survive).
@@ -311,6 +335,11 @@ static int desktop_files_reload(void) {
     static struct sys_dirent fresh[DESKTOP_FILES_MAX];
     int n = sys_listdir(DESKTOP_DIR, fresh, DESKTOP_FILES_MAX);
     if (n < 0) n = 0;
+    if (!g_fo.hidden) {   // a dot-file is listed only when the File Manager would list it
+        int kept = 0;
+        for (int i = 0; i < n; i++) if (fresh[i].name[0] != '.') fresh[kept++] = fresh[i];
+        n = kept;
+    }
     // Directories first, then by name -- the File Manager's order.
     for (int i = 1; i < n; i++) {
         struct sys_dirent t = fresh[i];
@@ -616,16 +645,60 @@ static void wallpaper_reload(void) {
 // cell positions are kept, since a cell is a (col, row) and not a pixel.
 static void resort(void);
 
+// TURNING THE BIN ON brings its entry back if it was deleted -- Windows'
+// "Desktop icons" checkbox does the same. Only on the switch, never at a
+// start, so a bin deleted with the switch on stays deleted.
+static void bin_entry_restore(void) {
+    for (int i = 0; i < item_count(); i++) if (item_is_bin(i)) return;
+    static const char text[] = "Name=Recycle Bin\nExec=/bin/wm/apps/files\nIcon=trash-empty\nAppId=trash\n";
+    int fd = sys_open(DESKTOP_DIR "/trash.desktop", SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
+    if (fd < 0) { wm_logf("desktop: could not bring the Recycle Bin back"); return; }
+    if (sys_write(fd, text, sizeof text - 1) != (int)sizeof text - 1) wm_logf("desktop: short write to trash.desktop");
+    sys_close(fd);
+}
+
+// THE BIN'S LIMITS (lib/utrash.h) are kept by `trash expire`, run from
+// here -- the compositor deletes nothing itself: once at startup, every
+// hour, when a limit changes, and a few seconds after the bin changes
+// while one is set (Windows trims at the delete; GNOME's housekeeping
+// sweeps on a timer).
+#define EXPIRE_HOURLY (3600ull * USER_HZ)
+#define EXPIRE_SETTLE (3ull * USER_HZ)
+static struct utrash_limits g_bin_limits;
+static uint64_t g_expire_due, g_expire_last;
+
+static void expire_soon(uint64_t delay) {
+    if (g_bin_limits.max_age_days || g_bin_limits.max_size_pct) g_expire_due = sys_ticks() + delay;
+}
+
+static void expire_poll(void) {
+    uint64_t now = sys_ticks();
+    if (g_expire_last && now - g_expire_last >= EXPIRE_HOURLY && !g_expire_due) expire_soon(0);
+    if (!g_expire_due || now < g_expire_due) return;
+    g_expire_due = 0;
+    g_expire_last = now;
+    char *const argv[] = { "/bin/trash", "expire", 0 };
+    spawn_argv(argv);
+}
+
+static void limits_reload(void) {
+    struct utrash_limits was = g_bin_limits;
+    utrash_limits_get(&g_bin_limits);
+    if (k_memcmp(&was, &g_bin_limits, sizeof was) != 0) expire_soon(USER_HZ);
+}
+
 static void arrange_reload(void) {
     static int loaded;
     char v[SETTING_ABI_VALUE_MAX];
-    int sort = SORT_NAME, autoa = 0, show = 1;
+    int sort = SORT_NAME, autoa = 0, show = 1, bin = 1;
     if (usetting_get("desktop.sort_by", v, sizeof v))
         sort = !k_strcmp(v, "type") ? SORT_TYPE : !k_strcmp(v, "size") ? SORT_SIZE
              : !k_strcmp(v, "date") ? SORT_DATE : SORT_NAME;
     if (usetting_get("desktop.auto_arrange", v, sizeof v)) autoa = !k_strcmp(v, "on");
     if (usetting_get("desktop.show_icons", v, sizeof v)) show = k_strcmp(v, "off") != 0;
-    if (sort == g_sort_by && autoa == g_auto_arrange && show == g_show_icons) return;
+    if (usetting_get("desktop.show_trash", v, sizeof v)) bin = k_strcmp(v, "off") != 0;
+    if (loaded && bin && !g_show_trash) bin_entry_restore();
+    if (sort == g_sort_by && autoa == g_auto_arrange && show == g_show_icons && bin == g_show_trash) return;
     // Any of them lays the icons out again: hidden icons were never placed.
     positions_loaded = 0;
     int resorted = loaded && sort != g_sort_by;
@@ -633,10 +706,26 @@ static void arrange_reload(void) {
     g_sort_by = sort;
     g_auto_arrange = autoa;
     g_show_icons = show;
+    g_show_trash = bin;
     // A new order from anywhere -- the menu or System Settings -- is a sort.
     if (resorted) resort();
     redraw_pending = 1;
     wm_damage_rect(0, 0, screen_w, screen_h);
+}
+
+// The File Manager's Folder Options (/etc/files.conf), read again when /etc
+// changes. Each option undoes only what it decides.
+static void folder_opts_reload(int first) {
+    struct ufolderopts was = g_fo;
+    ufolderopts_load(&g_fo);
+    if (first) return;
+    if (g_fo.hidden != was.hidden && !desktop_drag_active() && desktop_files_reload())
+        desktop_entries_changed();
+    if (g_fo.thumbs != was.thumbs || g_fo.thumb_max_mb != was.thumb_max_mb) thumbs_reset();
+    if (k_memcmp(&g_fo, &was, sizeof was) != 0) {
+        redraw_pending = 1;
+        wm_damage_rect(0, 0, screen_w, screen_h);
+    }
 }
 
 static void icon_size_reload(void) {
@@ -667,6 +756,10 @@ void desktop_poll_config(void) {
     if (!primed) {
         primed = 1;
         seen_gen = gen;
+        folder_opts_reload(1);
+        limits_reload();
+        expire_soon(10 * USER_HZ);   // past the boot's busiest seconds
+        g_expire_last = sys_ticks();
         icon_size_reload();
         arrange_reload();
         wallpaper_reload();      // the first call is the initial load
@@ -704,9 +797,13 @@ void desktop_poll_config(void) {
             for (int i = 0; i < item_count(); i++) if (item_is_bin(i)) damage_icon_hl(i);
             redraw_pending = 1;
         }
+        if (!g_expire_due) expire_soon(EXPIRE_SETTLE);
     }
+    expire_poll();
     if (gen == seen_gen) return;
     seen_gen = gen;
+    folder_opts_reload(0);
+    limits_reload();
     icon_size_reload();
     arrange_reload();
     wallpaper_reload();
@@ -805,7 +902,9 @@ static int label_lines(const char *name) {
 // KDE's and Windows' default. ".." rather than U+2026: the font is
 // indexed from ASCII 32 (kernel/drivers/font_ttf.c), so an ellipsis
 // glyph would draw as nothing. Clipped, always (docs/gui-guidelines.md).
-static void draw_label(int cell_x, int label_y, const char *name, uint32_t fg) {
+// UNDERLINED under the pointer in single-click mode: the label is a link
+// then, as in Explorer's "underline icon titles" mode.
+static void draw_label(int cell_x, int label_y, const char *name, uint32_t fg, int underline) {
     int max_w = icon_col_w() - 4;
     int left = cell_x + 2;
     char line[64];
@@ -818,6 +917,7 @@ static void draw_label(int cell_x, int label_y, const char *name, uint32_t fg) {
             int tw = ugfx_text_width(line);
             int lx = tw < max_w ? left + (max_w - tw) / 2 : left;
             ugfx_draw_string_clipped_shadowed(wm_surface(), lx, y, max_w, line, fg);
+            if (underline) ugfx_fill_rect(wm_surface(), lx, y + ugfx_char_h() - 1, tw < max_w ? tw : max_w, 1, fg);
             continue;
         }
         // More than fits: this line is cut two characters short and
@@ -832,6 +932,7 @@ static void draw_label(int cell_x, int label_y, const char *name, uint32_t fg) {
         if (lx < left) lx = left;
         ugfx_draw_string_clipped_shadowed(wm_surface(), lx, y, cut_w, line, fg);
         ugfx_draw_string_clipped_shadowed(wm_surface(), lx + tw, y, ell, "..", fg);
+        if (underline) ugfx_fill_rect(wm_surface(), lx, y + ugfx_char_h() - 1, tw + ell, 1, fg);
     }
 }
 
@@ -841,8 +942,8 @@ int desktop_icon_geometry(int i, const char **name, int *x, int *y, int *w, int 
     if (!item_visible(i)) return 0;
     struct icon_grid g = current_grid();
     icon_box(&g, i, x, y, w, h);
-    if (name) *name = item_name(i);
-    if (lines) *lines = label_lines(item_name(i));
+    if (name) *name = item_label(i);
+    if (lines) *lines = label_lines(item_label(i));
     if (kind) *kind = item_is_launcher(i) ? "app" : item_is_dir(i) ? "dir" : "file";
     return 1;
 }
@@ -872,6 +973,12 @@ int desktop_icon_preview(int i, int *peeks) {
 static int has_thumb_type(const char *name) {
     const char *t = ufiletype_icon(name, 0);
     return k_strcmp(t, "file-image") == 0 || k_strcmp(t, "file-video") == 0;
+}
+
+// A picture or a video the File Manager would show as itself: thumbnails
+// on, and the file inside their size cap (ufolderopts).
+static int wants_thumb(const struct sys_dirent *e) {
+    return has_thumb_type(e->name) && ufolderopts_thumb_ok(&g_fo, e->size);
 }
 
 static void thumb_forget(int i) {
@@ -925,7 +1032,7 @@ static void thumbs_refresh(void) {
         char path[PATH_BUF];
         item_path(i, path, sizeof path);
         if (!item_is_dir(i)) {
-            if (g_thumb[i].px || !has_thumb_type(g_files[i].name)) continue;
+            if (g_thumb[i].px || !wants_thumb(&g_files[i])) continue;
             if (uthumb_load_cached(path, &g_files[i].modified, px, &g_thumb[i]) == 0) {
                 damage_icon_hl(i);
                 redraw_pending = 1;
@@ -940,7 +1047,8 @@ static void thumbs_refresh(void) {
         static struct sys_dirent kids[32];
         int m = sys_listdir(path, kids, 32), got = 0, waiting = 0;
         for (int k = 0; k < m && got < DESKTOP_PEEKS; k++) {
-            if (kids[k].is_dir || !has_thumb_type(kids[k].name)) continue;
+            if (kids[k].is_dir || !wants_thumb(&kids[k])) continue;
+            if (!g_fo.hidden && kids[k].name[0] == '.') continue;
             char kid[PATH_BUF];
             if (!k_path_join(path, kids[k].name, kid, sizeof kid)) continue;
             if (g_peek[i][got].px || uthumb_load_cached(kid, &kids[k].modified, peek_px, &g_peek[i][got]) == 0) {
@@ -1109,7 +1217,8 @@ void desktop_draw(void) {
         // it. Every desktop shadows or outlines these -- macOS, GNOME
         // and KDE shadow, Windows outlines -- because no single ink is
         // legible on every photograph a person might choose.
-        if (i != g_rename) draw_label(cell_x, y + px + 4, item_name(i), label_fg);
+        if (i != g_rename) draw_label(cell_x, y + px + 4, item_label(i), label_fg,
+                                      g_fo.single_click && hovered);
     }
     draw_rename();   // over the icons, under the band
 
@@ -1236,6 +1345,8 @@ void desktop_update_hover(int mx, int my, int on_desktop) {
 
 int desktop_hovered_icon(void) { return g_hover; }
 
+int desktop_link_hovered(void) { return g_fo.single_click && g_hover >= 0; }
+
 // EVERY ICON WHOSE HIGHLIGHT CHANGED, damaged by rect. `redraw_pending`
 // alone is not enough: it repaints the whole screen only in a QUIET
 // frame, and the taskbar clock is damaging one most seconds, so a
@@ -1291,7 +1402,10 @@ void desktop_handle_click(int mx, int my) {
     }
 
     int launched = 0;
-    if (idx == last_click_index && now - last_click_tick <= DESKTOP_DOUBLE_CLICK_TICKS) {
+    // SINGLE CLICK OPENS on the release (desktop_update_drag), and only a
+    // plain click: Ctrl and Shift still select, as in Explorer.
+    g_click_opens = g_fo.single_click && mode == RB_REPLACE;
+    if (!g_fo.single_click && idx == last_click_index && now - last_click_tick <= udclick_ticks()) {
         item_activate(idx);
         last_click_index = -1; // avoid a third click within the window re-triggering as a double
         launched = 1;
@@ -1455,6 +1569,19 @@ static void damage_band(void) {
     band_x = nx; band_y = ny; band_w = nw; band_h = nh;
 }
 
+static void item_activate(int i);
+
+// Single-click mode's open, on the release of a plain click.
+static void single_click_open(int i) {
+    if (i < 0) return;
+    uint64_t now = sys_ticks();
+    // The second click of a double is the same gesture, not a second open.
+    if (i == g_opened_index && now - g_opened_tick <= udclick_ticks()) return;
+    g_opened_index = i;
+    g_opened_tick = now;
+    item_activate(i);
+}
+
 void desktop_update_drag(int mx, int my, uint8_t buttons) {
     // A band in progress takes precedence: it is only ever armed when
     // the press missed every icon, so the two can never both be live.
@@ -1535,6 +1662,8 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
         return;
     }
     desktop_drop_hover(-1, -1);   // a click, or a drop that was nobody's
+    int open_now = g_click_opens && !drag_moved ? drag.index : -1;
+    g_click_opens = 0;
 
     // Group drop: move every selected icon by the primary's cell delta,
     // then settle each into the nearest free cell so a group landing
@@ -1576,6 +1705,7 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
         group_drag = 0;
         if (g_auto_arrange) positions_loaded = 0;
         redraw_pending = 1;
+        single_click_open(open_now);
         return;
     }
 
@@ -1597,6 +1727,7 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
         wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
     }
     redraw_pending = 1;
+    single_click_open(open_now);
 }
 
 // --- the desktop's verbs: open, copy, cut, paste, delete, new folder ----
@@ -2030,10 +2161,15 @@ static void delete_selected(int forever) {
     g_del_forever = forever;
     g_del_count = selected_paths(g_del_paths, DESKTOP_FILES_MAX);
     if (g_del_count == 0) return;
-    if (g_del_count == 1)
+    // Folder Options' "Ask before moving to the Recycle Bin"; a delete for
+    // good always asks, as in Explorer -- Undo cannot take it back.
+    if (!forever && !g_fo.confirm_delete) { delete_confirmed(); return; }
+    if (g_del_count == 1) {
+        const char *shown = k_path_basename(g_del_paths[0]);
+        for (int i = 0; i < item_count(); i++) if (rb_is_selected(&sel, i)) { shown = item_label(i); break; }
         k_snprintf(g_del_msg, sizeof g_del_msg, forever ? "Permanently delete %s?"
-                                                         : "Move %s to the Recycle Bin?",
-                   k_path_basename(g_del_paths[0]));
+                                                         : "Move %s to the Recycle Bin?", shown);
+    }
     else
         k_snprintf(g_del_msg, sizeof g_del_msg, forever ? "Permanently delete %d items?"
                                                          : "Move %d items to the Recycle Bin?",
@@ -2085,6 +2221,12 @@ static void bin_empty_confirmed(void) {
     char *const argv[] = { "/bin/trash", "empty", 0 };
     spawn_argv(argv);
     wm_logf("desktop: emptied the Recycle Bin");
+}
+// System Settings, on Storage > Recycle Bin.
+static void menu_bin_settings(void *ctx) {
+    (void)ctx;
+    char *const argv[] = { "/bin/wm/system/settings", UTRASH_SET_AGE, 0 };
+    spawn_argv(argv);
 }
 static void menu_empty_bin(void *ctx) {
     (void)ctx;
@@ -2409,6 +2551,9 @@ void desktop_handle_right_click(int mx, int my) {
             items[k++] = (struct context_menu_item){ .label = "Empty Recycle Bin", .on_select = menu_empty_bin,
                                                      .icon = "tb-bin-empty", .tint = UTHEME_ACT_DANGER,
                                                      .disabled = !g_bin_full };
+            items[k++] = (struct context_menu_item){ .separator = 1 };
+            items[k++] = (struct context_menu_item){ .label = "Recycle Bin settings...", .on_select = menu_bin_settings,
+                                                     .icon = "tb-gear" };
             context_menu_open_at(mx, my, items, k);
             return;
         }

@@ -76,4 +76,42 @@ int utrash_forget_path(const char *files_path);
 // Redo's restore, which know both ends. Refused like utrash_restore().
 int utrash_restore_to(const char *files_path, const char *dest);
 
+// --- how long and how much a bin keeps -------------------------------------
+//
+// `system.trash_max_age` (days) and `system.trash_max_size` (a share of
+// each bin's volume, in percent), System Settings' Storage > Recycle Bin.
+// 0 is no limit, and both are 0 out of the box -- GNOME's age purge and
+// Windows' size limit ship off too. ENFORCED IN ONE PLACE, `trash
+// expire`, which the desktop runs -- not by every utrash_put() caller.
+
+#define UTRASH_SET_AGE  "system.trash_max_age"
+#define UTRASH_SET_SIZE "system.trash_max_size"
+
+struct utrash_limits {
+    int max_age_days;   // 0: none
+    int max_size_pct;   // 0: none
+};
+
+void utrash_limits_get(struct utrash_limits *l);
+
+// One bin in total. Its volume's size is what max_size_pct is a share of.
+struct utrash_usage {
+    char bin[UTRASH_PATH];
+    char point[64];          // the volume's mount point
+    int items;
+    uint64_t bytes;          // folders walked
+    uint64_t volume_bytes;
+};
+
+// Every bin that exists. How many were written (at most `cap`).
+int utrash_usage(struct utrash_usage *out, int cap);
+
+// Deletes for good what the limits say must go: every item deleted more
+// than max_age_days ago, then, in each bin over max_size_pct of its
+// volume, the OLDEST items until it is not -- but never a bin's newest,
+// which the delete that just happened would otherwise undo. `op` is the
+// caller's (tens of KB). The number deleted, or -errno.
+struct ufileop;
+int utrash_expire(const struct utrash_limits *l, struct ufileop *op);
+
 #endif

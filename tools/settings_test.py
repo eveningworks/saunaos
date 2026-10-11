@@ -632,8 +632,7 @@ def main():
     check("no two pages in one category share a name", not dupes, f"{dupes}")
     # A category's only page keeps its own name, under the category's.
     check("a lone page sits under its category's heading",
-          len(under("Sound")) == 1 and len(under("Storage")) == 1,
-          f"Sound: {under('Sound')} Storage: {under('Storage')}")
+          len(under("Sound")) == 1, f"Sound: {under('Sound')}")
 
     # Pages from three different categories, so the walk is exercised
     # across the list rather than at one end of it.

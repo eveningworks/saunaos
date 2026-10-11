@@ -640,7 +640,16 @@ The desktop shows a photograph, so nothing on it is a solid fill:
   Recycle Bin". A plain file under the pointer is no target. The same
   for an icon dragged on the desktop and files dragged from a window.
 - **The Recycle Bin is an icon** (a `.desktop` with `AppId=trash`):
-  drawn full or empty, opened in the File Manager, Empty on its menu.
+  drawn full or empty, opened in the File Manager, Empty and "Recycle
+  Bin settings..." on its menu. Whether it shows, and how long and how
+  much it keeps, are settings (Storage > Recycle Bin); turning it on
+  brings back a deleted one, as Windows' Desktop icons checkbox does.
+- **The File Manager's Folder Options apply here too**
+  (`lib/ufolderopts.h`): single click, thumbnails and their size cap,
+  hidden files, extensions, asking before a delete. In single-click mode
+  a plain click opens on RELEASE (Ctrl and Shift still select), and the
+  icon under the pointer underlines its caption and shows the link hand
+  -- Explorer's "underline icon titles" mode.
 
 ## Closing a window: Esc doesn't, Alt+F4 does
 
@@ -1261,6 +1270,9 @@ the order they bite:
   two states. See `tools/cursor_theme_test.py`; the three gesture shapes
   are asserted on the RESOLVED shape (`gui state`), in
   `tools/cursor_shapes_test.py`.
+- **The double-click time is ONE setting** (`system.double_click`,
+  Input > Mouse, with a folder to try it on); every widget asks
+  `lib/udclick.h`, never a constant of its own.
 - **Size is a setting, not a consequence of the font size.** People pick
   a large pointer for reasons that have nothing to do with text size.
   An image theme loads its rendering FOR that size; masks, and an image

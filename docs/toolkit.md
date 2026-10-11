@@ -34,6 +34,7 @@
 | `ucrash.h` | ucrash -- a ring-3 crash report from /var/crash, read: its header, the kernel log it carries, and a BACKTRACE recovered from the saved stack. |
 | `ucursor.h` | One cursor SHAPE, as /usr/share/cursors/<theme>/<shape> describes it -- the file format, shared by the compositor (userland/wm/cursor_theme.c, which owns the live theme) and anything that only SHOW... |
 | `udate.h` | A `struct rtc_time` written the way the LC_TIME locale writes it -- "1.10.2026 14.02" in Finland, "10/1/2026 2:02 PM" in the US. |
+| `udclick.h` | udclick -- the double-click time: how soon a second click must follow the first to count as a double click. |
 | `udes.h` | DES (FIPS 46-3), one 64-bit block at a time -- for the protocols that still require it, which here means VNC's password check (RFB 7.2.2). |
 | `udevice.h` | THE MACHINE'S DEVICES, as one list -- what /bin/devctl prints and the Device Manager shows. |
 | `udhcp.h` | THE DHCP CLIENT, AS A LIBRARY -- one implementation, two front ends. |
@@ -45,6 +46,7 @@
 | `ufileop.h` | ufileop -- copying, moving and deleting files and trees, once. |
 | `ufiletype.h` | WHAT KIND OF FILE A NAME IS, in words and as an icon -- the File Manager's Type column, its details pane and Properties all ask, and three private tables would drift into three answers. |
 | `ufileundo.h` | AN UNDO JOURNAL FOR FILE OPERATIONS: what a move, copy, rename, new item or delete-to-the-bin did, and how to take it back -- Explorer's Ctrl+Z/Ctrl+Y over file operations, Dolphin's KIO undo manager. |
+| `ufolderopts.h` | ufolderopts -- how files are shown and opened, in File Manager windows AND on the desktop: Explorer's Folder Options, which apply to both. |
 | `uhistory.h` | Command history for a ring-3 line editor. |
 | `uhwids.h` | Names for hardware ids, from the pci.ids / usb.ids databases -- the files a Linux distribution ships as hwdata, refreshed by /bin/hwdata. |
 | `uimg.h` | uimg -- decoding an image file into pixels, in RING 3. |

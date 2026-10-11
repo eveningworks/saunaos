@@ -19,6 +19,7 @@
 #include "ui/uui.h"
 #include "rt/sys.h"   // sys_ticks(), for the title-bar double-click
 #include "lib/usetting.h" // desktop.move_mode / desktop.resize_mode
+#include "lib/udclick.h"  // the title bar's double-click
 #include "wm_log.h"
 #include "kapi.h"
 
@@ -189,7 +190,6 @@ int wm_find_resize_zone(int mx, int my, int *out_edges) {
 static void wm_toggle_maximize(int i);
 
 // The last title-bar press, for the double-click below.
-#define TITLE_DOUBLE_CLICK_TICKS 30   // ~300 ms at 100 Hz, desktop.c's threshold
 static int title_click_pid = 0;
 static uint32_t title_click_win = 0;
 static unsigned long title_click_tick = 0;
@@ -405,10 +405,9 @@ void wm_handle_left_click(int mx, int my) {
             // DOUBLE-CLICK ON THE TITLE BAR TOGGLES MAXIMIZE, as on
             // Windows and KDE. The window is named by its client ids
             // rather than its index, which bring_to_front() moves.
-            // The same threshold the desktop's icons use.
             unsigned long now = sys_ticks();
             int same = w->client_pid == title_click_pid && w->client_win == title_click_win;
-            if (same && now - title_click_tick <= TITLE_DOUBLE_CLICK_TICKS) {
+            if (same && now - title_click_tick <= udclick_ticks()) {
                 title_click_pid = 0;   // a third click is a fresh first one
                 bring_to_front(i);
                 wm_toggle_maximize(window_count - 1);

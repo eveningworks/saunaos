@@ -3416,6 +3416,29 @@ window without going through it will find its layout polls timing out.
   desktop icons off hiding every icon. Positive
   controls: folders never targets turns the three folder checks red; a
   cache the compositor can never read turns the thumbnail check red.
+- **`folder_options_test.py`** -- the desktop following the File
+  Manager's Folder Options (`/etc/files.conf`, `lib/ufolderopts.h`) and
+  the one double-click time (`system.double_click`, `lib/udclick.h`), in
+  `gui_regress.py`: extensions off and on in `gui icons` names (a folder
+  keeps its name), a dot-file appearing only with `hidden=on`, thumbnails
+  off, a 1 MB cap that leaves the 1.03 MB `orbit.avi` an icon while a
+  small picture stays a thumbnail (and 2 MB lets it in), Delete asking
+  by default (`gui dialog`) and not with `confirm_delete=off`, one click
+  opening a folder only in single-click mode (with the link hand,
+  `cursor.shape` 7), presses ~450 ms apart a double click at Very slow
+  and not at Very fast, and System Settings' Test folder opening on a
+  double click (`settings: dclick test opened`; the page is wheeled with
+  the REAL pointer, which is where a wheel goes). Positive control:
+  breaking the confirm gate and the tick conversion turned it red.
+- **`trash_limits_test.py`** -- the Recycle Bin's settings, in
+  `gui_regress.py`: `desktop.show_trash` hiding and showing the bin's
+  icon and bringing back a deleted entry, a hand-made item dated 2020
+  deleted by the desktop's own `trash expire` within seconds of
+  `system.trash_max_age 30` while one deleted now stays (and `trash
+  expire` with no limit deleting nothing), and the bin's "Recycle Bin
+  settings..." row opening System Settings on the page with its usage
+  card (`settings: trash usage`). The SIZE limit's trimming is not
+  covered: its smallest step is 5% of the volume.
 - **`desktop_menu_test.py`** -- the desktop's menus, glass, Rename and
   Properties (26 checks; the last three are `desktop.menu_spacing`: the
   rows shrink in order, the card is DRAWN shorter -- the comfortable

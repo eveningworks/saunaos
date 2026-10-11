@@ -2,13 +2,13 @@
 #include "ui/uui_splitter.h"
 #include "ui/utheme.h"
 #include "rt/sys.h"     // sys_ticks() -- the double-click window
+#include "lib/udclick.h"
 #include "keyboard.h"
 #include <stddef.h>
 
 // Two double clicks of the same handle within this many ticks resets
 // it. The same window uui_fileview uses, and for the same reason: one
 // number for "that was a double click" across the toolkit.
-#define SPLIT_DOUBLE_TICKS 30
 
 int uui_splitter_thickness(void) {
     int t = ugfx_char_w() / 2;
@@ -134,7 +134,7 @@ int uui_splitter_press(struct uui_splitter *sp, int cx, int cy) {
     if (sp->disabled || !uui_splitter_hit(sp, cx, cy)) return 0;
 
     unsigned long now = sys_ticks();
-    int is_double = (now - sp->last_click_tick <= SPLIT_DOUBLE_TICKS);
+    int is_double = (now - sp->last_click_tick <= udclick_ticks());
     sp->last_click_tick = is_double ? 0 : now;
     if (is_double) {
         sp->dragging = 0;

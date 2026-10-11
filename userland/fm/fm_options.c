@@ -13,6 +13,7 @@
 #include "lib/uconf.h"
 #include "lib/ulaunch.h"
 #include "lib/uprefs.h"
+#include "lib/ufolderopts.h"
 #include "ui/ulog.h"
 #include <stddef.h>
 #include <string.h>
@@ -22,21 +23,16 @@ struct fm_options g_opt;
 // --- the file -------------------------------------------------------------
 
 static const char *const START_WORDS[]  = { "last", "home", "root" };          // FM_START_*
-static const char *const CLICK_WORDS[]  = { "double", "single" };
 static const char *const VIEW_WORDS[]   = { "icons", "large", "details" };     // FM_VIEW_*
 static const char *const RENAME_WORDS[] = { "inplace", "dialog" };
 
-// The defaults: what Explorer and Dolphin ship.
+// The defaults: what Explorer and Dolphin ship. The options the desktop
+// follows too are lib/ufolderopts.h's table, in the same file.
 #define C struct fm_options
 static const struct upref KEYS[] = {
     UPREF_WORD_KEY("start",          C, start,          START_WORDS, 3, FM_START_LAST),
-    UPREF_WORD_KEY("click",          C, single_click,   CLICK_WORDS, 2, 0),
     UPREF_WORD_KEY("view",           C, view,           VIEW_WORDS, 3, FM_VIEW_ICONS),
-    UPREF_BOOL_KEY("thumbs",         C, thumbs,         1),
-    UPREF_BOOL_KEY("hidden",         C, hidden,         0),
-    UPREF_BOOL_KEY("extensions",     C, extensions,     1),
     UPREF_WORD_KEY("rename",         C, rename_dialog,  RENAME_WORDS, 2, 0),
-    UPREF_BOOL_KEY("confirm_delete", C, confirm_delete, 1),
 };
 #undef C
 static const struct uprefs PREFS = { FILES_CONF, KEYS, (int)(sizeof KEYS / sizeof KEYS[0]) };
@@ -44,10 +40,12 @@ static const struct uprefs PREFS = { FILES_CONF, KEYS, (int)(sizeof KEYS / sizeo
 void options_load(void) {
     memset(&g_opt, 0, sizeof g_opt);
     uprefs_load(&PREFS, &g_opt);
+    ufolderopts_load(&g_opt.folder);
 }
 
 static void save(void) {
     uprefs_save(&PREFS, &g_opt, 0);
+    uprefs_save(&ufolderopts_prefs, &g_opt.folder, 0);
     // "New windows use" is what the panes open in, so it is their view too.
     uconf_set(FILES_CONF, "left_view", VIEW_WORDS[g_opt.view]);
     uconf_set(FILES_CONF, "right_view", VIEW_WORDS[g_opt.view]);
@@ -56,10 +54,10 @@ static void save(void) {
 void options_apply(void) {
     for (int i = 0; i < 2; i++) {
         struct uui_fileview *fv = &g_pane[i];
-        fv->single_click = g_opt.single_click;
-        fv->hide_ext = !g_opt.extensions;
-        uui_fileview_set_thumb(fv, g_opt.thumbs ? pane_thumb : 0, 0);
-        uui_fileview_set_badge(fv, g_opt.thumbs ? pane_badge : 0);
+        fv->single_click = g_opt.folder.single_click;
+        fv->hide_ext = !g_opt.folder.extensions;
+        uui_fileview_set_thumb(fv, g_opt.folder.thumbs ? pane_thumb : 0, 0);
+        uui_fileview_set_badge(fv, g_opt.folder.thumbs ? pane_badge : 0);
     }
     reload_panes();   // hidden files come and go with the filter
 }
@@ -80,6 +78,12 @@ static const char *const CLICK_OPTS[]  = { "Double click", "Single click" };
 static const char *const VIEW_OPTS[]   = { "Large icons", "Icons", "Details" };
 static const int VIEW_VALUES[] = { FM_VIEW_LARGE, FM_VIEW_ICONS, FM_VIEW_DETAILS };
 static const char *const RENAME_OPTS[] = { "In place", "In a dialog" };
+// INDEXED BY PAGE_*. Which options the desktop follows too (ufolderopts).
+static const char *const PAGE_NOTES[] = {
+    "Single click applies to the desktop too.",
+    "Thumbnails, hidden files and extensions apply to the desktop too.",
+    "Asking before a delete applies to the desktop too.",
+};
 // INDEXED BY ULAUNCH_* ACT. Not the File Manager's own setting: the
 // desktop and `open` read it too (lib/ulaunch.h), so OK writes it to
 // /etc/mimeapps.conf rather than FILES_CONF -- which is why these two
@@ -93,6 +97,7 @@ static struct uui_segmented g_scripts, g_programs;
 static void edit_defaults(void *edit) {
     memset(edit, 0, sizeof g_edit);
     uprefs_defaults(&PREFS, edit);
+    uprefs_defaults(&ufolderopts_prefs, &((struct fm_options *)edit)->folder);
 }
 
 static void on_defaults(void) { g_scripts.selected = g_programs.selected = ULAUNCH_ASK; }
@@ -132,18 +137,20 @@ void options_open(struct uapp *a) {
         .edit_defaults = edit_defaults,
         .on_defaults = on_defaults,
         .on_ok = on_ok,
+        .notes = PAGE_NOTES,
     });
 #define F(field) offsetof(struct fm_options, field)
     uui_prefs_choice(PAGE_GENERAL, "Open in:", START_OPTS, 0, 3, F(start), "start");
-    uui_prefs_choice(PAGE_GENERAL, "Open items with:", CLICK_OPTS, 0, 2, F(single_click), "click");
+    uui_prefs_choice(PAGE_GENERAL, "Open items with:", CLICK_OPTS, 0, 2, F(folder.single_click), "click");
     uui_prefs_row(PAGE_GENERAL, "Scripts:", &uui_segmented_ops, &g_scripts, OPT_SCRIPTS, "scripts", 0);
     uui_prefs_row(PAGE_GENERAL, "Programs:", &uui_segmented_ops, &g_programs, OPT_PROGRAMS, "programs", 0);
     uui_prefs_choice(PAGE_VIEW, "New windows use:", VIEW_OPTS, VIEW_VALUES, 3, F(view), "view");
-    uui_prefs_check(PAGE_VIEW, "Pictures:", "Show thumbnails", F(thumbs), "thumbs");
-    uui_prefs_check(PAGE_VIEW, "Hidden files:", "Show names that start with a dot", F(hidden), "hidden");
-    uui_prefs_check(PAGE_VIEW, "Names:", "Show file extensions", F(extensions), "ext");
+    uui_prefs_check(PAGE_VIEW, "Pictures:", "Show thumbnails", F(folder.thumbs), "thumbs");
+    uui_prefs_number(PAGE_VIEW, "Up to:", 1, 1024, 1, "MB", F(folder.thumb_max_mb), "thumb_max");
+    uui_prefs_check(PAGE_VIEW, "Hidden files:", "Show names that start with a dot", F(folder.hidden), "hidden");
+    uui_prefs_check(PAGE_VIEW, "Names:", "Show file extensions", F(folder.extensions), "ext");
     uui_prefs_choice(PAGE_FILES, "Rename files:", RENAME_OPTS, 0, 2, F(rename_dialog), "rename");
-    uui_prefs_check(PAGE_FILES, "Deleting:", "Ask before moving to the Recycle Bin", F(confirm_delete), "confirm");
+    uui_prefs_check(PAGE_FILES, "Deleting:", "Ask before moving to the Recycle Bin", F(folder.confirm_delete), "confirm");
 #undef F
     if (!uui_prefs_open(a)) ulog("files: could not open Options\n");
 }

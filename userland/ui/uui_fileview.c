@@ -16,6 +16,7 @@
 #include "ui/uui_label.h" // uui_label_wrap_next -- the icon caption
 #include "lib/uclip.h"     // the drag slot -- a drag that leaves the window
 #include "ui/uui_route.h" // UUI_NOWHERE -- a drag_over's leave
+#include "lib/udclick.h"   // the double-click time
 
 // Column indices in DETAILS mode. LIST mode declares only the first.
 // Dolphin's order, and chosen for how it NARROWS: a pane too narrow for
@@ -191,15 +192,10 @@ static int fv_compare(void *ctx, int row_a, int row_b, int col) {
 
 // --- cells ------------------------------------------------------------
 
-// The name as SHOWN: without its extension when the view hides them and
-// the type is one the table knows -- an unknown extension is part of
-// what the name says.
+// The name as SHOWN (lib/ufiletype.h).
 static void fv_display_name(const struct uui_fileview *fv, const struct sys_dirent *e,
                             char *out, int cap) {
-    snprintf(out, (size_t)cap, "%s", e->name);
-    if (!fv->hide_ext || e->is_dir || !strcmp(ufiletype_name(e->name, 0), "File")) return;
-    char *dot = strrchr(out, '.');
-    if (dot && dot != out) *dot = '\0';
+    ufiletype_display_name(e->name, e->is_dir, fv->hide_ext, out, cap);
 }
 
 static void fv_cell(void *ctx, int row, int col, char *out, int cap) {
@@ -1236,7 +1232,7 @@ static int ic_press(struct uui_fileview *fv, int cx, int cy, unsigned mods) {
 
     unsigned long now = sys_ticks();
     int is_double = (src == fv->last_click_row &&
-                      now - fv->last_click_tick <= UUI_FILEVIEW_DOUBLE_CLICK_TICKS);
+                      now - fv->last_click_tick <= udclick_ticks());
     fv->last_click_tick = now;
     fv->last_click_row = is_double ? -1 : src;
 
@@ -1590,7 +1586,7 @@ int uui_fileview_press(struct uui_fileview *fv, int cx, int cy, unsigned mods) {
 
     unsigned long now = sys_ticks();
     int is_double = (row == fv->last_click_row &&
-                      now - fv->last_click_tick <= UUI_FILEVIEW_DOUBLE_CLICK_TICKS);
+                      now - fv->last_click_tick <= udclick_ticks());
     fv->last_click_tick = now;
     // A third click inside the window must not re-trigger as a second
     // double -- the same guard the desktop's icons carry.

@@ -2,6 +2,7 @@
 #include "wm/wm_watch.h"
 #include "wm/wm_log.h"
 #include "rt/sys.h"
+#include "lib/udclick.h"
 
 static const char *const PATH[WM_TOPIC_COUNT] = {
     [WM_TOPIC_SETTINGS] = 0,                    // an event, not a path
@@ -40,7 +41,10 @@ void wm_watch_fired(int id) {
         if (g_id[t] > 0 && g_id[t] == id) g_gen[t]++;
 }
 
-void wm_watch_setting(void) { g_gen[WM_TOPIC_SETTINGS]++; }
+void wm_watch_setting(void) {
+    g_gen[WM_TOPIC_SETTINGS]++;
+    udclick_reload();   // the compositor's own clicks: title bars, desktop icons
+}
 
 uint64_t wm_watch_gen(enum wm_topic t) {
     if (t < 0 || t >= WM_TOPIC_COUNT) return 0;

@@ -3,11 +3,11 @@
 #include "ui/uui_primitives.h"
 #include "lib/uvid_play.h"
 #include "rt/sys.h"
+#include "lib/udclick.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-#define DOUBLE_NS   400000000ull    // the double-click time
 #define FRAME_US     16000           // a 60 Hz frame: the bilinear budget
 #define TRIAL_EVERY  120             // fast mode tries bilinear again this often
 
@@ -125,7 +125,7 @@ static int vid_release(void *w, int cx, int cy) {
     v->armed = 0;
     if (!uui_hit(v->x, v->y, v->w, v->h, cx, cy)) return 1;
     uint64_t now = sys_monotonic_ns();
-    if (v->last_click_ns && now - v->last_click_ns < DOUBLE_NS) {
+    if (v->last_click_ns && now - v->last_click_ns < udclick_ns()) {
         v->committed = UUI_VIDEO_DOUBLE;
         v->last_click_ns = 0;
     } else {

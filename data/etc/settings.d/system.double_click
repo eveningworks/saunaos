@@ -1,0 +1,18 @@
+Type=enum
+File=/etc/toyos.conf
+Label=Double-click speed
+Category=Input
+Group=Mouse
+Default=normal
+Choices=veryslow,slow,normal,fast,veryfast
+Widget=slider
+Description=How soon the second click must follow the first, everywhere on the desktop
+# Read through lib/udclick.h, which maps each word to milliseconds
+# (700, 550, 400, 300, 250). The page's Test card below it uses the
+# STAGED word, so a speed can be tried before it is applied.
+Order=50
+Choice.veryslow=Very slow
+Choice.slow=Slow
+Choice.normal=Normal
+Choice.fast=Fast
+Choice.veryfast=Very fast

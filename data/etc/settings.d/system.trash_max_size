@@ -1,0 +1,15 @@
+Type=enum
+File=/etc/toyos.conf
+Label=Largest size
+Category=Storage
+Group=Recycle Bin
+Default=none
+Choices=none,5,10,20
+Description=A share of each disk's size; past it, the oldest items are deleted for good first
+# Percent of the bin's volume ("none" reads as 0), lib/utrash.h. A bin's
+# newest item is never cut for size.
+Order=30
+Choice.none=No limit
+Choice.5=5%
+Choice.10=10%
+Choice.20=20%

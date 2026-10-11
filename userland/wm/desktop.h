@@ -74,12 +74,15 @@ void desktop_update_drag(int mx, int my, uint8_t buttons);
 // desktop under the pointer" (no window, overlay or taskbar on top).
 void desktop_update_hover(int mx, int my, int on_desktop);
 int desktop_hovered_icon(void);            // -1 when none, for `gui icons`
+// An icon is under the pointer and a click opens it (single-click mode):
+// the compositor draws the link hand.
+int desktop_link_hovered(void);
 
 // Handles a left-click at (mx, my) that nothing else (a window, the
 // taskbar, an open Start/context menu) claimed -- i.e. wm_input.c's
 // old "clicked empty desktop, nothing to do" fallback. A single click
 // on an icon selects it (highlight only); a second click on the SAME
-// icon within DESKTOP_DOUBLE_CLICK_TICKS launches it, same
+// icon within the double-click time (lib/udclick.h) launches it, same
 // double-click-to-open convention as a real desktop. A click that
 // doesn't land on any icon clears the current selection. Always
 // returns after acting -- there's nothing below this in the input

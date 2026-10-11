@@ -46,6 +46,9 @@ struct uui_prefs_desc {
     void (*on_widget)(int id, int reason);   // optional: a control changed
     void (*on_action)(int code);             // optional: one of the app's own buttons
     int first_page;              // the page it opens on; 0 is the first
+    // Optional: a line under each page's heading, indexed by page -- what a
+    // reader should know about the page as a whole. NULL, or "", for none.
+    const char *const *notes;
     // The struct the bound rows edit, and how to put its defaults in;
     // Defaults calls this, then `on_defaults` for the app's own rows.
     void *edit;

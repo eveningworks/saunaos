@@ -676,7 +676,7 @@ void delete_picture(void) {
     if (g_del_path[0]) {
         struct sys_stat st;
         if (sys_stat(g_del_path, &st) == 0) {
-            if (!st.is_dir && g_opt.thumbs) {
+            if (!st.is_dir && g_opt.folder.thumbs) {
                 struct sys_dirent e;
                 memset(&e, 0, sizeof e);
                 strlcpy(e.name, k_path_basename(g_del_path), sizeof e.name);
@@ -728,7 +728,7 @@ void do_delete(int forever) {
                : all_binnable(fv, where, sizeof where) ? DEL_TRASH : DEL_FOREVER;
     // Options can say not to ask before the BIN -- never before a delete
     // that cannot be taken back.
-    if (g_del_mode == DEL_TRASH && !g_opt.confirm_delete) { commit_delete(); return; }
+    if (g_del_mode == DEL_TRASH && !g_opt.folder.confirm_delete) { commit_delete(); return; }
 
     int marks = uui_fileview_mark_count(fv);
     const char *verb = g_del_mode == DEL_TRASH ? "Move" : "Permanently delete";

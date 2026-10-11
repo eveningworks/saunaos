@@ -72,7 +72,7 @@ static void refresh(void) {
     }
     g_info.preview = 0;
     char parent[UUI_FILEVIEW_PATH_MAX];
-    if (e && !e->is_dir && g_opt.thumbs && k_path_dirname(path, parent, sizeof parent))
+    if (e && !e->is_dir && g_opt.folder.thumbs && k_path_dirname(path, parent, sizeof parent))
         g_info.preview = pane_thumb(0, parent, e, uui_fileinfo_preview_px(&g_info, g_dw));
 }
 

@@ -811,6 +811,10 @@ whenever a headline here tells you something you did not already know.
   FULLY OPEN**
 - **A PROPERTIES PAGE IS `uui_props`, FILLED FROM A LIST THE COMMAND LINE
   PRINTS TOO**
+- **A DOUBLE CLICK IS JUDGED BY `lib/udclick.h`, NEVER BY A WIDGET'S OWN
+  CONSTANT**
+- **THE DESKTOP FOLLOWS THE FILE MANAGER'S FOLDER OPTIONS
+  (`lib/ufolderopts.h`)**
 
 ### Storage, the filesystem, and /etc
 

@@ -4897,13 +4897,14 @@ Dolphin's behaviour and a far bigger target than the expander triangle.
 The BEHAVIOUR is built; the check is not, and here is what the attempt
 found so the next session does not re-derive it.
 
-**The window is 90 ticks, not the fileview's 30, and that is measured.**
-The first click of the pair navigates a pane -- which lists a directory
-and relayouts the window -- and the second click is not looked at until
-that frame is done. Instrumented gaps between the two `on_widget` calls
-were 61-90 ticks in the emulator against the fileview's cheap two, and
-`g_tree_click_tick` is taken AFTER the navigation for the same reason.
-~900 ms is also Windows' own maximum double-click time.
+**The window is the desktop's double-click time plus 60 ticks of
+slack, and the slack is measured.** The first click of the pair
+navigates a pane -- which lists a directory and relayouts the window --
+and the second click is not looked at until that frame is done.
+Instrumented gaps between the two `on_widget` calls were 61-90 ticks in
+the emulator against the fileview's cheap two, and `g_tree_click_tick`
+is taken AFTER the navigation for the same reason. (It was a fixed 90
+ticks until `system.double_click` became the one time, 2026-10-11.)
 
 **The toggle reads the state the FIRST click saw**
 (`g_tree_click_collapsed`), not the state at the second. Measured: a
