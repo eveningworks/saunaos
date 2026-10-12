@@ -155,13 +155,22 @@ static void card_fit(struct uui_custom *c, const struct facts *f) {
     c->h = fact_row_h() * (f->n ? f->n : 1);
 }
 
-// The pages the session set, as a list a person reads: "Keyboard, Time zone".
+// The pages the session set, as a list a person reads: "Keyboard, Time
+// zone". Four or more would not fit a fact row, so those are said by
+// what is left out instead.
 static void carried_text(char *out, size_t cap) {
+    int n = 0;
+    for (int p = 0; p < UFBS_PAGES; p++) if (g_carry & (1u << p)) n++;
     out[0] = 0;
+    if (n == UFBS_PAGES) { snprintf(out, cap, "every setup page"); return; }
+    int listing_set = n < 4;
+    if (!listing_set) strlcat(out, "every setup page but ", cap);
+    int first = 1;
     for (int p = 0; p < UFBS_PAGES; p++) {
-        if (!(g_carry & (1u << p))) continue;
-        if (out[0]) strlcat(out, ", ", cap);
+        if ((int)((g_carry >> p) & 1u) != listing_set) continue;
+        if (!first) strlcat(out, ", ", cap);
         strlcat(out, ufbs_page_title(p), cap);
+        first = 0;
     }
 }
 
