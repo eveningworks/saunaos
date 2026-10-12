@@ -1,0 +1,6 @@
+# Web Browser -- see this directory's README.md for the format.
+Name=Web Browser
+Exec=/bin/wm/apps/browser
+Category=network
+Comment=Web pages, with NetSurf's engine -- local pages for now
+Icon=browser

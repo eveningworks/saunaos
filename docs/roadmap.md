@@ -866,7 +866,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Browser stage 0: vendor NetSurf at pinned SHAs, fill the libc gaps~~ DONE 2026-10-12 -- `/tests/nsmonkey` links
 - [x] ~~Browser stage 1: NetSurf's headless front end on `file:` pages, diffed against the host build~~ DONE 2026-10-12 -- 10/10 identical
 - [ ] Browser stage 2: HTTP/1.1 in `libhttp` (methods, headers, chunked, keep-alive) and a threaded NetSurf fetcher over it
-- [ ] Browser stage 3: the Web Browser window (W1), drawing through `uui_canvas`, `uglyph.h` and `uimg.h`
+- [x] ~~Browser stage 3: the Web Browser window (W1), drawing local pages~~ DONE 2026-10-12 -- tabs, links, history, scrolling
+- [ ] Browser: PNG and JPEG through `lib/uimg.h` -- GIF and BMP decode through NetSurf's own libraries today
+- [ ] Browser: the address field holds 127 bytes (`UUI_TEXTBOX_MAX`), and real addresses run longer
 - [ ] Browser stage 4: the lock's connection card, Downloads, find in page, zoom, bookmarks and history
 - [ ] Browser stage 5: `uui_webview` -- the engine as a content process, so Help and release notes can embed a page
 - [ ] Browser stage 6: JavaScript through Duktape, off by default until measured

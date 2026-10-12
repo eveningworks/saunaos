@@ -223,7 +223,8 @@ SEED_SOURCES = {
     "usr/share/doc/cmd": "docs/commands",
     # NetSurf's run-time resources, staged from the vendored port.
     "usr/share/netsurf": ("userland/ports/netsurf/resources",
-                          "userland/ports/netsurf/generated/res"),
+                          "userland/ports/netsurf/generated/res",
+                          "data/usr/share/netsurf"),
     "usr/share/doc/guide": "data/usr/share/doc/guide",
 }
 

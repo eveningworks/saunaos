@@ -178,6 +178,7 @@ TOOLS = [
     ("properties", "properties_test.py", "Properties: hero by pixel, sections, chmod/rename/opens-with/SHA-256 checked outside the app"),
     ("sysupdate", "sysupdate_test.py", "System Update: finds, shows and installs a change, by pixel and by sum"),
     ("help", "help_test.py", "Help: contents, links, history and full-text search"),
+    ("browser", "browser_test.py", "Web Browser: NetSurf's pages drawn, addresses, links, history, scrolling, tabs"),
     ("singleinst", "single_instance_test.py", "one copy of an app, and relaunch raises it"),
     ("osk", "osk_test.py", "the on-screen keyboard types, floats, drags, docks and closes"),
     ("settings", "settings_test.py", "the settings registry, in ring 3"),
@@ -304,6 +305,7 @@ COST_S = {
     "fbs": 30,         # two spawns, seven steps, a dozen config reads
     "properties": 25,  # two windows, a screenshot, five edits each read back
     "help": 15,        # a dozen settled clicks and keys, one screenshot
+    "browser": 30,     # six page loads, two screenshots, two tabs
     "uidemo": 17,
     "blank": 17,
     "wingeom": 70,

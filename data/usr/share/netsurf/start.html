@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html><head><meta charset="utf-8"><title>Start</title>
+<style>
+body { font-family: sans-serif; margin: 0; background: #f4f4f6; color: #141414; }
+.top { background: #325aa0; color: white; padding: 28px 40px 22px; }
+.top h1 { margin: 0 0 6px; font-size: 26px; font-weight: normal; }
+.top p { margin: 0; color: #dbe4f3; }
+.main { padding: 10px 40px 30px; max-width: 900px; }
+h2 { font-size: 15px; color: #555a66; text-transform: uppercase; letter-spacing: 1px; margin: 24px 0 8px; }
+.cards { display: flex; flex-wrap: wrap; gap: 12px; }
+.card { display: block; width: 250px; padding: 12px 14px; background: white; border: 1px solid #cdcdd2;
+        border-radius: 6px; text-decoration: none; color: #141414; }
+.card b { display: block; color: #2f5d9c; margin-bottom: 4px; }
+.card span { color: #555a66; font-size: 13px; }
+.note { margin-top: 26px; padding: 10px 14px; background: #fff4e5; border: 1px solid #e8c48a; border-radius: 6px; }
+</style></head>
+<body>
+<div class="top"><h1>Web Browser</h1>
+<p>NetSurf's engine, on toy-os. Type a path in the address bar -- /usr/share/doc, say -- or pick a page below.</p></div>
+<div class="main">
+<h2>This machine</h2>
+<div class="cards">
+<a class="card" href="file:///"><b>The file system</b><span>Browse / as directory listings</span></a>
+<a class="card" href="file:///usr/share/doc/guide/"><b>Getting started</b><span>The guide pages, as text</span></a>
+<a class="card" href="file:///usr/share/doc/cmd/"><b>The manual</b><span>Every command's page</span></a>
+</div>
+<h2>Test pages</h2>
+<div class="cards">
+<a class="card" href="file:///tests/web/text.html"><b>Text</b><span>Headings, inline runs, lists, entities</span></a>
+<a class="card" href="file:///tests/web/table.html"><b>Tables</b><span>Spans, borders, widths</span></a>
+<a class="card" href="file:///tests/web/float.html"><b>Floats</b><span>Wrapping and positioning</span></a>
+<a class="card" href="file:///tests/web/flex.html"><b>Flexbox</b><span>Rows, columns, wrapping</span></a>
+<a class="card" href="file:///tests/web/forms.html"><b>Forms</b><span>Fields, buttons, a select</span></a>
+<a class="card" href="file:///tests/web/css.html"><b>CSS</b><span>Selectors, units, counters</span></a>
+<a class="card" href="file:///tests/web/image.html"><b>Images</b><span>GIF and BMP, scaled and tiled</span></a>
+<a class="card" href="file:///tests/web/charsetutf8.html"><b>Unicode</b><span>UTF-8 text in several scripts</span></a>
+</div>
+<div class="note">The web itself comes next: HTTPS through toy-os's own network stack is the following stage.</div>
+</div>
+</body></html>

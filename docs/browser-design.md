@@ -4,9 +4,10 @@ A staged plan for a Web Browser app: NetSurf's engine behind a toy-os
 window. It answers "port or write our own, what does a port actually
 need from this system, and in what order is it worth building?"
 
-**STAGES 0 AND 1 ARE BUILT (2026-10-12)** -- NetSurf and its libraries
-are vendored, link for toy-os as `/tests/nsmonkey`, and lay out a set
-of test pages identically to the same source built on the host. **The choices were
+**STAGES 0, 1 AND MOST OF 3 ARE BUILT (2026-10-12)** -- NetSurf and its
+libraries are vendored, lay out a set of test pages identically to the
+same source built on the host, and draw local pages in the Web Browser
+app (Start -> Internet). The network (stage 2) is next. **The choices were
 made the same day**: port NetSurf
 (GPL-2.0, C) from a PINNED MASTER COMMIT rather than its last release;
 the W1 window (a tab strip over a toolbar, the Web Browser mockup
@@ -216,15 +217,43 @@ thread and queues results for `poll`. Tests serve a corpus from a
 loopback server (http and https with a test CA), so nothing leaves the
 machine.
 
-### Stage 3 -- the Web Browser window -- PLANNED
+### Stage 3 -- the Web Browser window -- BUILT 2026-10-12, three items open
 
-W1 from the mockups: tab strip over a toolbar (back, forward, reload,
-home, the address field with the lock and a bookmark star, Downloads,
-the menu), the page, a hovered link's URL in the bottom-left corner.
-Plotters onto `uui_canvas`, text through `uglyph.h` with Liberation
-Serif and the italic faces added, images through handlers over
-`uimg.h` (NetSurf's own libnsgif for animation). A `.desktop` entry and
-a Start-menu icon.
+`/bin/wm/apps/browser` (Start -> Internet -> Web Browser) lays out and
+draws NetSurf's pages in a toy-os window: W1's toolbar row -- back,
+forward, reload/stop, home, the address field, Downloads and the menu
+(both greyed until stage 4) -- over the page, with tabs. Links, typed
+addresses and paths, history, the wheel and the keyboard scroll, forms
+take keys, a hovered link's address shows in the corner, and
+`file:`/`about:`/`data:` pages load -- the network is stage 2.
+`tools/browser_test.py` drives it in `gui_regress.py`.
+
+How it is put together, in `userland/browser/` beside the app:
+
+- **Text** (`ns_font.c`): Liberation Sans and DejaVu Sans Mono through
+  `lib/ttf.h`'s metrics to MEASURE and `ui/uglyph.h` to DRAW, walking a
+  run the same way in both so it draws exactly as wide as it measured.
+  Measuring never rasterises -- uglyph's cache is of rendered glyphs, and
+  layout asks for widths thousands of times a page. NetSurf's DPI is
+  set to CSS's 96, the same the point-to-pixel conversion uses.
+- **Drawing** (`ns_plot.c`) onto the window's surface, every clip NetSurf
+  asks for cut to the page view's; **bitmaps** (`ns_bitmap.c`) declared
+  to NetSurf in ugfx's own 0xAARRGGBB layout, so a decoded image is
+  blitted without a conversion pass, with one cached scaled copy.
+- **Timers** (`ns_sched.c`) run from the app's tick, which is re-armed
+  for the next one -- the app sleeps until NetSurf has something to do.
+- **The page widget** (`ns_view.c`'s ops in `ns_window.c`) is the shape
+  stage 5's `uui_webview` takes: everything the app learns about a page
+  arrives through `nsapp_*()` hooks.
+
+**THE TABS ARE THE TITLE BAR'S** (`uapp_set_tabs()`, the compositor's,
+as Files has them) rather than the mockup's separate strip -- Chrome's
+and Edge's arrangement, and one toy-os already draws.
+
+Still open from this stage: Liberation Serif and the italic faces (a
+page's serif and `<em>` draw upright in sans), PNG and JPEG through
+`lib/uimg.h` (GIF and BMP decode through NetSurf's own libraries
+today), and the address field's 127-byte limit (`UUI_TEXTBOX_MAX`).
 
 ### Stage 4 -- what makes it a browser -- PLANNED
 

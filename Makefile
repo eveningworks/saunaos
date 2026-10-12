@@ -398,7 +398,7 @@ PORT_LICENSE_libwapcaplet   = MIT
 # so a list derived from them is empty there (the trap the "deferred"
 # rule at the top of this file is about).
 PORT_PROGRAMS_doom = gui/apps/doom
-PORT_PROGRAMS_netsurf = tests/nsmonkey
+PORT_PROGRAMS_netsurf = tests/nsmonkey gui/apps/browser
 
 # GPL-ONLY means every alternative is GPL or AGPL. A dual licence with a
 # permissive option (Mbed TLS) is not, and LGPL is not: it is a library
@@ -1149,6 +1149,19 @@ $(BUILD)/userland/tests/nsmonkey.o: USERLAND_CFLAGS += -std=gnu11 -nostdinc \
 
 # The headless engine: stage 1's test oracle (docs/browser-design.md).
 EXTRA_OBJS_nsmonkey = $(NS_BACKEND_OBJS) $(NS_PORT_OBJS)
+
+# The Web Browser: the same engine WITHOUT monkey's front end, and ours
+# in userland/browser/ (fonts, plotters, bitmaps, timers, the page
+# widget) -- outside USERLAND_PROGRAM_DIRS for the reason fm/ is.
+NS_CORE_OBJS = $(filter-out ports/netsurf/frontends/%,$(NS_PORT_OBJS))
+BROWSER_SRCS = $(shell find userland/browser -name '*.c' 2>/dev/null | sort)
+BROWSER_OBJS = $(patsubst userland/%.c,%,$(BROWSER_SRCS))
+EXTRA_OBJS_browser = $(BROWSER_OBJS) $(NS_BACKEND_OBJS) $(NS_CORE_OBJS)
+$(BUILD)/userland/browser/%.o $(BUILD)/userland/gui/apps/browser.o: USERLAND_CFLAGS += \
+        -nostdinc -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
+        -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
+        $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) \
+        -Iuserland/backends/netsurf/include $(NS_CORE_CFLAGS)
 
 # --- dash, the vendored POSIX shell -----------------------------------
 #
@@ -2127,7 +2140,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# Messages -- straight from the vendored port (docs/browser-design.md),
 	# and left out with the port under NOGPL=1.
 	$(if $(NOGPL),@true,mkdir -p $(SEED_DIR)/sync/usr/share/netsurf)
-	$(if $(NOGPL),@true,cp userland/ports/netsurf/resources/*.css userland/ports/netsurf/generated/res/Messages $(SEED_DIR)/sync/usr/share/netsurf/)
+	$(if $(NOGPL),@true,cp userland/ports/netsurf/resources/*.css userland/ports/netsurf/generated/res/Messages data/usr/share/netsurf/* $(SEED_DIR)/sync/usr/share/netsurf/)
 	# A FILM, and only under EXTRAS=1: tools/fetch_video.py's Big Buck
 	# Bunny is the Blender Foundation's (CC BY), transcoded on this
 	# machine into data/videos-extra/ (gitignored), its credit beside it.

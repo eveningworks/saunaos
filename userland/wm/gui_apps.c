@@ -83,6 +83,7 @@ static void collect(const char *name, uint32_t size, int is_dir) {
 static const struct { const char *key, *label; } g_cat_table[] = {
     { "utility",     "Utilities" },
     { "graphics",    "Graphics" },
+    { "network",     "Internet" },      // freedesktop's Network, GNOME's word for it
     { "multimedia",  "Multimedia" },
     { "games",       "Games" },
     { "system",      "System" },

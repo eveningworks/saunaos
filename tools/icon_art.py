@@ -383,6 +383,26 @@ def help_app():
     return finish(shadow(im))
 
 
+def browser():
+    """The Earth: blue sea, green land, a soft highlight -- chosen from
+    four mockups (2026-10-12). A globe of meridians and parallels came
+    first and read as a church boat."""
+    im = canvas()
+    fill(im, m_ellipse(6, 6, 58, 58), ((80, 160, 250), (25, 90, 200)))
+    land = canvas()
+    d = D4(land)
+    g = (70, 190, 110, 255)
+    d.polygon([(16, 16), (27, 12), (33, 18), (30, 26), (22, 30), (18, 40), (12, 34), (11, 24)], fill=g)
+    d.polygon([(36, 30), (46, 27), (53, 34), (50, 46), (42, 52), (37, 44)], fill=g)
+    d.polygon([(38, 12), (46, 14), (44, 20), (39, 19)], fill=g)
+    land.putalpha(ImageChops.multiply(land.getchannel("A"), m_ellipse(6, 6, 58, 58)))
+    im = Image.alpha_composite(im, land)
+    hl = canvas()
+    D4(hl).ellipse((14, 10, 34, 24), fill=(255, 255, 255, 60))
+    im = Image.alpha_composite(im, hl)
+    return finish(shadow(im))
+
+
 def logview():
     im, m = page()
     d = D4(im)
@@ -971,7 +991,7 @@ def cat_sound():
 ART = {
     "notepad": notepad, "files": files, "terminal": terminal, "calculator": calculator,
     "imgview": imgview, "player": player, "video": video, "settings": settings, "taskmgr": taskmgr,
-    "mines": mines, "screenshot": screenshot, "about": about, "help": help_app,
+    "mines": mines, "screenshot": screenshot, "about": about, "help": help_app, "browser": browser,
     "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "disks": disks, "themeedit": themeedit,
     "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
     "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,

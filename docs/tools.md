@@ -6745,6 +6745,18 @@ runs first**: a `doom1.wad` with one
   and it writes to a temporary name and renames, so an interrupted build
   cannot leave a truncated store that fails for only some sites.
 
+- **`browser_test.py`** -- the Web Browser app in `gui_regress.py`: it
+  opens on its start page and reports it loaded; the page's header band
+  is DRAWN in its own blue with white text on it, against a control rect
+  of bare body grey; a typed address is followed and names the tab; Back
+  returns; a click on `/tests/web/links.html`'s block link (a known band,
+  so no guessed coordinates) follows it; the wheel scrolls; Ctrl+T and
+  Ctrl+W open and close a tab. **The window is found by its title's
+  SUFFIX after the page loads** -- "Web Browser" becomes "Start - Web
+  Browser" as soon as the page names itself, and a fast load renamed it
+  before `spawn()`'s exact match looked. Shown red by swapping red and
+  blue in the plotters' colour conversion.
+
 - **`browser_hostcheck.py`** -- NetSurf's layout on toy-os against the
   SAME pinned source built on the host (`docs/browser-design.md`,
   stage 1). Every page in `data/tests/web/` (`/tests/web` on the image)
