@@ -52,7 +52,7 @@ struct uui_spinbox {
     int hovered;        // 0 none, 1 up, 2 down; OWNED
     int armed;          // the stepper a press landed on; OWNED
 
-    uint32_t bg, fg, border, step_bg;
+    uint32_t bg, fg, border, step_bg;   // UUI_COLOR_UNSET = the theme's; or a UUI_ROLE()
 
     // VISIBLE, BUT DOES NOTHING -- the same field uui_button and
     // uui_checkbox already carry. Set it and the control draws dimmed

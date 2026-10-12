@@ -35,9 +35,8 @@ void uui_statusbar_init(struct uui_statusbar *sb) {
     sb->panes[0].text = 0;
     sb->panes[0].chars = 0;
     sb->count = 1;
-    sb->bg     = UUI_COLOR_UNSET; // UTHEME_BAR_BG, resolved at draw
-    sb->fg     = ugfx_rgb(90, 100, 115);
-    sb->border = ugfx_rgb(200, 205, 215);
+    // The theme's bar, muted text and separator, resolved at draw.
+    sb->bg = sb->fg = sb->border = UUI_COLOR_UNSET;
 }
 
 void uui_statusbar_set_geometry(struct uui_statusbar *sb, int x, int y, int w, int h) {
@@ -86,8 +85,10 @@ int uui_statusbar_pane_rect(const struct uui_statusbar *sb, int index,
 
 void uui_statusbar_draw(struct ugfx_surface *s, const struct uui_statusbar *sb) {
     uint32_t bg = UUI_COLOR(sb->bg, UTHEME_BAR_BG);
+    uint32_t fg = UUI_COLOR(sb->fg, utheme_current()->text_muted);
+    uint32_t border = UUI_COLOR(sb->border, UTHEME_SEPARATOR);
     ugfx_fill_rect(s, sb->x, sb->y, sb->w, sb->h, bg);
-    ugfx_fill_rect(s, sb->x, sb->y, sb->w, 1, sb->border);
+    ugfx_fill_rect(s, sb->x, sb->y, sb->w, 1, border);
 
     for (int i = 0; i < sb->count; i++) {
         int x, y, w, h;
@@ -96,14 +97,14 @@ void uui_statusbar_draw(struct ugfx_surface *s, const struct uui_statusbar *sb) 
         // A hairline BEFORE each pane but the first: separators between
         // parts, not a box around each, which is what keeps a flat strip
         // from reading as a row of buttons.
-        if (i > 0) ugfx_fill_rect(s, x, y + 2, 1, h - 4, sb->border);
+        if (i > 0) ugfx_fill_rect(s, x, y + 2, 1, h - 4, border);
 
         if (!sb->panes[i].text) continue;
         int tx = x + pad();
         int avail = w - 2 * pad();
         if (avail <= 0) continue;
         ugfx_draw_string_clipped(s, tx, y + (h - ugfx_char_h()) / 2, avail,
-                                  sb->panes[i].text, sb->fg, bg);
+                                  sb->panes[i].text, fg, bg);
     }
 }
 

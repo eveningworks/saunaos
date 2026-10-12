@@ -26,7 +26,7 @@ static uint64_t g_checked_ms;
 void adapters_init(void) {
     uui_netadapter_init(&g_na, ID_NETADP);
     uui_dropdown_init(&g_card_dd, 0, 0, 0, 0, 0, 0);
-    uui_button_init(&g_dm_b, 0, 0, 0, 0, "Open in Device Manager", UTHEME_BUTTON_BG, UTHEME_TEXT,
+    uui_button_init(&g_dm_b, 0, 0, 0, 0, "Open in Device Manager", UUI_ROLE(control_bg), UUI_ROLE(text),
                     ID_NA_DEVMGR);
     uui_setting_row_init(&g_card_row, "Adapter", "The network card these settings are for.",
                          (struct uui_item){ .ops = &uui_dropdown_ops, .widget = &g_card_dd,

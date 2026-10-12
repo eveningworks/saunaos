@@ -74,6 +74,19 @@ this the obvious way), not from how much history it accumulated.
   that sets a colour explicitly still wins, because any other value is
   not the sentinel.
 
+- **AN APP NAMES A ROLE WITH `UUI_ROLE(field)`, NEVER A `UTHEME_*`
+  COPY -- AND `UTHEME_WHITE` IS NOT WHITE.** `list.sel_bg =
+  UUI_ROLE(accent)` (and `uui_button_init(..., UUI_ROLE(control_bg),
+  UUI_ROLE(text), ...)`) follows a theme switch; `= UTHEME_ACCENT` copies
+  today's value and keeps it. A field that can hold a role must reach
+  ugfx through `UUI_COLOR()`, or the tag draws as a wrong colour. A
+  hint's grey is `label.dim = 1`, never `fg = uui_state_bg(UTHEME_TEXT,
+  ...)`, which freezes it. `UTHEME_WHITE` is the FIELD role -- near-black
+  in Dark -- so anything that means literal white (text on a dark pill
+  over a picture, a print's border on the wallpaper, a pointer) is
+  `ugfx_rgb(255, 255, 255)`, and ink on the accent is
+  `UTHEME_ACCENT_TEXT`.
+
   **THE PALETTE HAS THREE GREYS AND THEY ARE NOT INTERCHANGEABLE.**
   `border` frames a window or a menu and is nearly black; `outline`
   edges something you can click (a field, a scrollbar thumb); and

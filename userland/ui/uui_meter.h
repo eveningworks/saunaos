@@ -60,8 +60,8 @@ struct uui_meter {
     // drawn overflowing.
     int fill;
 
-    // NULL for all three means the theme's own colours, so a meter
-    // declared with nothing but its strings still looks right.
+    // UUI_COLOR_UNSET (what init sets) for all three means the theme's
+    // own colours, looked up per paint; a UUI_ROLE() is resolved too.
     uint32_t fg, bg, accent;
 
     // WHICH FONT THE BIG NUMBER IS IN, and it affects MEASUREMENT as
@@ -79,7 +79,8 @@ struct uui_meter {
     const struct uui_chart *spark;   // NULL for none -- see set_spark()
 
     // The number's own colour -- a read and a write told apart at a
-    // glance (Disk Mark); 0 = `fg`. The bar takes `accent`.
+    // glance (Disk Mark); 0 = `fg`, and a UUI_ROLE() is resolved. The
+    // bar takes `accent`.
     uint32_t value_fg;
     // The reading being taken NOW: the card wears the accent ring.
     int active;

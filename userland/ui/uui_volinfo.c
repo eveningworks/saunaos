@@ -31,7 +31,7 @@ uint32_t uui_volinfo_colour(const struct uvolinfo *v) {
 
 static uint32_t ground(const struct uui_volinfo *w) {
     const struct utheme *t = utheme_current();
-    if (w->bg) return w->bg;
+    if (w->bg) return UUI_COLOR(w->bg, UTHEME_PANEL_BG);
     return w->compact ? ugfx_blend(t->panel_bg, t->field_bg, 128) : t->panel_bg;
 }
 

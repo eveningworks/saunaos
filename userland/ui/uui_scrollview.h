@@ -88,9 +88,8 @@ struct uui_scrollview {
     int pref_rows;   // natural height, in text rows (0 = a default)
     int step;        // wheel/arrow step in pixels (0 = one text row)
 
-    // Defaulted from the theme at init, like every other widget's
-    // colours -- an app that wants a different look assigns them
-    // rather than the widget guessing.
+    // UUI_COLOR_UNSET = the theme's window ground, looked up per paint;
+    // an app that wants a different look assigns a colour or a UUI_ROLE().
     uint32_t bg;
 };
 

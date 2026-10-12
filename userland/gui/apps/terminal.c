@@ -2098,8 +2098,8 @@ int main(int argc, char **argv) {
     uui_toolbar_init(&g_tb, tb_items, TB_COUNT);
     g_tb.item_flags = menu_item_flags;
     g_tb.accent_latch = 1;   // the open panel reads as a latched toggle
-    g_tb.bg = UTHEME_WINDOW_BG;
-    g_tb.border = UTHEME_BORDER;   // continues the strip's baseline
+    g_tb.bg = UUI_ROLE(window_bg);
+    g_tb.border = UUI_ROLE(border);   // continues the strip's baseline
 
     struct uapp_desc desc = {
         .title   = "Terminal",

@@ -37,17 +37,19 @@ void uui_tree_init(struct uui_tree *t, int x, int y, int w, int h,
     t->collapsed = 0; // EXPANDED by default -- see the header
     t->on_toggle = 0;
     t->toggle_ctx = 0;
-    t->bg = ugfx_rgb(246, 246, 248);
-    t->fg = ugfx_rgb(20, 20, 20);
-    t->sel_bg = ugfx_rgb(205, 220, 240);
-    t->sel_fg = ugfx_rgb(20, 20, 20);
+    // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
+    t->bg = t->fg = t->sel_bg = t->sel_fg = t->guide = UUI_COLOR_UNSET;
     t->sel_style = UUI_SEL_SOFT;
-    t->guide = ugfx_rgb(200, 200, 208);
+}
+
+// The ground when the app names none: a step lighter than the page.
+static uint32_t tree_bg(const struct uui_tree *t) {
+    return UUI_COLOR(t->bg, ugfx_blend(UTHEME_PANEL_BG, UTHEME_WHITE, 141));
 }
 
 // --- the filter -----------------------------------------------------------
 
-#define FILTER_HIT_BG ugfx_rgb(255, 231, 163)   // notepad.c's HIT_BG
+#define FILTER_HIT_BG (utheme_current()->find_hit)   // Notepad's search hit
 
 static int is_header(const struct uui_tree *t, int node);
 static int node_hidden(const struct uui_tree *t, int node);
@@ -414,8 +416,10 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
     int vis = uui_tree_visible_rows(t);
     int total = uui_tree_visible_count(t);
     int bar = uui_tree_scrollbar_visible(t) ? uui_sbar_width() : 0;
+    uint32_t bg = tree_bg(t), fg = UUI_COLOR(t->fg, UTHEME_TEXT);
+    uint32_t guide = UUI_COLOR(t->guide, UTHEME_SEPARATOR);
 
-    ugfx_fill_rect(s, t->x, t->y, t->w, t->h, t->bg);
+    ugfx_fill_rect(s, t->x, t->y, t->w, t->h, bg);
 
     // The selected row's SCREEN y, captured as the rows are walked --
     // there is no node-index-to-row conversion to call, and the loop
@@ -423,7 +427,7 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
     int sel_ry = -1;
     int strong = t->sel_style == UUI_SEL_STRONG;
     int rounded = t->sel_style == UUI_SEL_ROUNDED;
-    uint32_t muted = ugfx_blend(t->fg, t->bg, 120);
+    uint32_t muted = ugfx_blend(fg, bg, 120);
     // METERS ARE ALL OR NONE: one volume with a bar and its neighbour
     // without reads as a fault, so they show only if every one fits.
     int meters = 1;
@@ -435,8 +439,8 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
                  - (m->note ? ugfx_text_width(m->note) + 6 : 0);
         if (room < meter_w() + 6) meters = 0;
     }
-    uint32_t sel_bg = strong ? UTHEME_ACCENT : t->sel_bg;
-    uint32_t sel_fg = strong ? UTHEME_ACCENT_TEXT : t->sel_fg;
+    uint32_t sel_bg = strong ? UTHEME_ACCENT : UUI_COLOR(t->sel_bg, UTHEME_SELECTION);
+    uint32_t sel_fg = strong ? UTHEME_ACCENT_TEXT : UUI_COLOR(t->sel_fg, UTHEME_TEXT);
 
     // The glide (ui/uui_scrollanim.h): `top` has moved; the rows are
     // drawn `disp` px from where it puts them for a few frames, plus the
@@ -462,7 +466,7 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
             int hy = ry + rh - ugfx_char_h() - 2;
             ugfx_draw_string_clipped(s, t->x + UUI_TREE_PAD_X + 4, hy,
                                       t->w - bar - 2 * UUI_TREE_PAD_X - 4, nd->label,
-                                      muted, t->bg);
+                                      muted, bg);
             ugfx_set_font(was);
             continue;
         }
@@ -478,15 +482,15 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
                 uui_fill_round_rect(s, rx + 1, ry + 2, rw - 2, rh - 4, uui_select_radius(1), sel_bg);
             } else {
                 uui_fill_round_rect(s, rx, ry + 1, rw, rh - 2, uui_select_radius(0),
-                                    uui_state_bg(t->bg, UUI_STATE_HOVER));
+                                    uui_state_bg(bg, UUI_STATE_HOVER));
             }
         } else if (selected)
             ugfx_fill_rect(s, t->x, ry, t->w - bar, rh, sel_bg);
         else if (node == t->hovered)
             ugfx_fill_rect(s, t->x, ry, t->w - bar, rh,
-                            uui_state_bg(t->bg, UUI_STATE_HOVER));
+                            uui_state_bg(bg, UUI_STATE_HOVER));
         uint32_t row_bg = selected ? sel_bg
-                        : node == t->hovered ? uui_state_bg(t->bg, UUI_STATE_HOVER) : t->bg;
+                        : node == t->hovered ? uui_state_bg(bg, UUI_STATE_HOVER) : bg;
         // The drop target, in the accent -- the same outline the
         // fileview draws, so a drag reads the same over both.
         if (node == t->drop_node) uui_focus_ring(s, t->x, ry, t->w - bar, rh);
@@ -501,7 +505,7 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
             // without an expander to anchor it.
             ugfx_fill_rect(s, t->x + UUI_TREE_PAD_X +
                                t->nodes[node].depth * UUI_TREE_INDENT + 3,
-                           ry + rh / 2, 3, 1, t->guide);
+                           ry + rh / 2, 3, 1, guide);
         }
 
         // ugfx_blit_alpha(), never ugfx_blit(): an icon's corners are
@@ -556,7 +560,7 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
         int avail = right - tx;
         if (avail > 0)
             ugfx_draw_string_clipped(s, tx, ty, avail, nd->label,
-                                      node == t->drag_node ? muted : selected ? sel_fg : t->fg, row_bg);
+                                      node == t->drag_node ? muted : selected ? sel_fg : fg, row_bg);
         // The filter's matching run, marked over the label in the colour
         // Notepad marks a find hit in.
         int at = t->filter[0] ? find_ci(nd->label, t->filter) : -1;
@@ -594,7 +598,7 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
         struct uui_sbar sb = t->sb;
         uui_sbar_place(&sb, t->x + t->w - bar, t->y, t->h);
         uui_sbar_set(&sb, total * rh, vis * rh, t->top * rh - disp);
-        uui_sbar_draw(&sb, s, t->bg, t->fg);
+        uui_sbar_draw(&sb, s, bg, fg);
     }
 
     // On the selected row, or round the box when it is collapsed away
@@ -876,9 +880,10 @@ static void tree_drag_draw_op(struct ugfx_surface *s, const void *w, const struc
     const struct uimg *ic = t->nodes[n].icon ? icon_get(t->nodes[n].icon, px) : 0;
     int tw = ugfx_text_width(t->drag_label);
     int gx = d->x + 12, gy = d->y + 8, gw = px + 10 + tw + 8, gh = px + 8;
-    uui_fill_round_rect(s, gx, gy, gw, gh, uui_select_radius(0), t->sel_bg);
+    uint32_t sel_bg = UUI_COLOR(t->sel_bg, UTHEME_SELECTION), sel_fg = UUI_COLOR(t->sel_fg, UTHEME_TEXT);
+    uui_fill_round_rect(s, gx, gy, gw, gh, uui_select_radius(0), sel_bg);
     if (ic) ugfx_blit_alpha(s, gx + 4, gy + 4, ic->w, ic->h, ic->px, ic->w);
-    ugfx_draw_string(s, gx + px + 10, gy + (gh - ugfx_char_h()) / 2, t->drag_label, t->sel_fg, t->sel_bg);
+    ugfx_draw_string(s, gx + px + 10, gy + (gh - ugfx_char_h()) / 2, t->drag_label, sel_fg, sel_bg);
 }
 
 // --- a drop target (ui/uui_route.h's third rule) ------------------------

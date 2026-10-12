@@ -3,11 +3,15 @@
 #include "ui/utheme.h"
 #include <string.h>
 
+// The theme's when the app left it unset, looked up per paint
+// (ui/utheme.h's UUI_COLOR), so a theme switch reaches it.
+static uint32_t c_bg(const struct uui_image *im) { return UUI_COLOR(im->bg, UTHEME_WINDOW_BG); }
+
 void uui_image_init(struct uui_image *im, const struct uimg *src, enum uimg_fit fit) {
     memset(im, 0, sizeof *im);
     im->img = src;
     im->fit = fit;
-    im->bg = UTHEME_WINDOW_BG;
+    im->bg = UUI_COLOR_UNSET;
 }
 
 void uui_image_set(struct uui_image *im, const struct uimg *src) {
@@ -174,7 +178,7 @@ void uui_image_draw(struct ugfx_surface *s, const struct uui_image *im) {
     struct uui_image *m = (struct uui_image *)im;
     if (im->w <= 0 || im->h <= 0) return;
 
-    if (!im->transparent) ugfx_fill_rect(s, im->x, im->y, im->w, im->h, im->bg);
+    if (!im->transparent) ugfx_fill_rect(s, im->x, im->y, im->w, im->h, c_bg(im));
     if (!im->img || !im->img->px) return;
 
     int px, py, dw, dh;

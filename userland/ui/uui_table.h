@@ -321,6 +321,7 @@ uint32_t uui_table_c_sel_bg(const struct uui_table *t);
 uint32_t uui_table_c_sel_fg(const struct uui_table *t);
 uint32_t uui_table_c_head_bg(const struct uui_table *t);
 uint32_t uui_table_c_grid(const struct uui_table *t);
+uint32_t uui_table_c_head_fg(const struct uui_table *t);
 
 int  uui_table_row_h(const struct uui_table *t);
 int  uui_table_header_h(const struct uui_table *t);

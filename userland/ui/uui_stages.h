@@ -25,7 +25,7 @@ struct uui_stages {
     char line[64];                    // under the bar, left: "18 of 28 groups"
     int current;                      // the running stage; `count` once all are done
     struct uui_progress bar;
-    uint32_t bg;                      // the ground it sits on: a dialog's, at init
+    uint32_t bg;                      // the ground it sits on; UUI_COLOR_UNSET = field_bg
 };
 
 void uui_stages_init(struct uui_stages *s);

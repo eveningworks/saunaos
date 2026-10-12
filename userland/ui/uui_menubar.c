@@ -514,9 +514,13 @@ static void draw_item_icon(struct ugfx_surface *s, const struct uui_menubar *m,
         uint32_t c = off ? m_disabled_fg(m)
                    : it->tint < UTHEME_ACT_COUNT ? utheme_action((int)it->tint) : it->tint;
         ugfx_blit_tinted(s, x, y, ico->w, ico->h, ico->px, ico->w, c);
-    } else {
-        ugfx_blit_alpha(s, x, y, ico->w, ico->h, ico->px, ico->w);
+        return;
     }
+    uint32_t ink;
+    if (uui_glyph_ink(it->icon, m_fg(m), m_popup_bg(m), &ink))
+        ugfx_blit_tinted(s, x, y, ico->w, ico->h, ico->px, ico->w, ink);
+    else
+        ugfx_blit_alpha(s, x, y, ico->w, ico->h, ico->px, ico->w);
 }
 
 void uui_menubar_draw(struct ugfx_surface *s, const struct uui_menubar *m) {

@@ -57,11 +57,11 @@ static void addr_style(int i) {
     struct uui_textbox *f = &g_addr[i];
     int active_pane = (i == g_active);
     if (g_addr_edit == i) {
-        f->bg = UTHEME_WHITE; f->fg = UTHEME_TEXT; f->border = UTHEME_ACCENT;
+        f->bg = UUI_ROLE(field_bg); f->fg = UUI_ROLE(text); f->border = UUI_ROLE(accent);
     } else if (active_pane) {
-        f->bg = UTHEME_ACCENT; f->fg = UTHEME_ACCENT_TEXT; f->border = UTHEME_ACCENT;
+        f->bg = UUI_ROLE(accent); f->fg = UUI_ROLE(accent_text); f->border = UUI_ROLE(accent);
     } else {
-        f->bg = UTHEME_PANEL_BG; f->fg = UTHEME_TEXT; f->border = UTHEME_BORDER;
+        f->bg = UUI_ROLE(panel_bg); f->fg = UUI_ROLE(text); f->border = UUI_ROLE(border);
     }
     // Re-synced from the pane while nobody is typing in it, so a
     // navigation by any other route (Enter, Backspace, the tree) shows
@@ -96,7 +96,7 @@ void layout_all(int cw, int ch) {
     uui_textbox_set_geometry(&g_search, cw - sw - 6, (nh - fh) / 2, sw, fh);
     int px = nw + 4, pw = cw - sw - 12 - px;
     uui_pathbar_ops.set_geometry(&g_path, px, (nh - fh) / 2, pw > 40 ? pw : 40, fh);
-    if (g_search_on) { g_search.border = UTHEME_ACCENT; } else { g_search.border = UTHEME_BORDER; }
+    if (g_search_on) { g_search.border = UUI_ROLE(accent); } else { g_search.border = UUI_ROLE(border); }
 
     // --- the command bar ------------------------------------------------
     uui_toolbar_ops.set_geometry(&g_toolbar, 0, nh, cw, tb);
@@ -105,7 +105,7 @@ void layout_all(int cw, int ch) {
     g_status.bg = chrome();
     g_places.bg = places_bg();
     g_tree.bg = places_bg();
-    g_tree.sel_bg = UTHEME_SELECTION;
+    g_tree.sel_bg = UUI_ROLE(selection_bg);
     g_tree.sel_style = UUI_SEL_ROUNDED;
     g_tree.row_h = ugfx_char_h() + 10;
 

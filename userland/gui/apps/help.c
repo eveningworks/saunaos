@@ -520,7 +520,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 // reaches it -- the setting row's description does the same.
 static void on_draw(struct uapp *a, struct uapp_draw *d) {
     (void)a; (void)d;
-    g_crumb.fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    g_crumb.dim = 1;
 }
 
 // The report tests drive the app by. From on_draw_over, because the

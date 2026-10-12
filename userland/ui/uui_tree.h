@@ -129,7 +129,7 @@ struct uui_tree {
     void (*on_toggle)(void *ctx, int id, int expand);
     void *toggle_ctx;
 
-    uint32_t bg, fg, sel_bg, sel_fg, guide;
+    uint32_t bg, fg, sel_bg, sel_fg, guide;   // UUI_COLOR_UNSET = the theme's; or a UUI_ROLE()
 
     // THE SELECTION'S STYLE, the app's choice: UUI_SEL_SOFT (0, the
     // default) is the pale wash in sel_bg/sel_fg; UUI_SEL_STRONG fills the

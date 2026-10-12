@@ -297,8 +297,8 @@ void clock_open_dialog(struct uapp *a) {
              "%s time. The hardware clock is kept in UTC", tzname[0]);
     uui_label_init(&g_cd_note, g_cd_note_text);
     uui_label_init(&g_cd_gap, "");
-    uui_button_init(&g_cd_set, 0, 0, 0, 0, "Set", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, CD_SET);
-    uui_button_init(&g_cd_cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, CD_CANCEL);
+    uui_button_init(&g_cd_set, 0, 0, 0, 0, "Set", UUI_ROLE(accent), UUI_ROLE(accent_text), CD_SET);
+    uui_button_init(&g_cd_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), CD_CANCEL);
     // The two captions share a width, so the fields after them align.
     int cap_w = ugfx_text_width("Date") > ugfx_text_width("Time")
                 ? ugfx_text_width("Date") : ugfx_text_width("Time");
@@ -351,7 +351,7 @@ void clock_open_dialog(struct uapp *a) {
 
 void clock_init(void) {
     g_clock_view = (struct uui_custom){ .draw = draw_clock };
-    uui_button_init(&g_clock_btn, 0, 0, 0, 0, "Change...", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_CLOCK_CHANGE);
+    uui_button_init(&g_clock_btn, 0, 0, 0, 0, "Change...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CLOCK_CHANGE);
     g_clock_row.desc_rows = 1;   // not a slot, so the page's fit never sets it
     uui_label_init(&g_region_preview, g_preview_text);
     uui_label_set_wrap(&g_region_preview, 2);   // a narrow window wraps it

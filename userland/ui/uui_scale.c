@@ -4,6 +4,12 @@
 #include "keyboard.h"
 #include <stddef.h>
 
+// The theme's when the app left it unset, looked up per paint
+// (ui/utheme.h's UUI_COLOR), so a theme switch reaches it.
+static uint32_t c_track_bg(const struct uui_scale *s) { return UUI_COLOR(s->track_bg, UTHEME_BUTTON_BG); }
+static uint32_t c_fill_bg(const struct uui_scale *s) { return UUI_COLOR(s->fill_bg, UTHEME_ACCENT); }
+static uint32_t c_thumb_bg(const struct uui_scale *s) { return UUI_COLOR(s->thumb_bg, UTHEME_ACCENT); }
+
 // Everything here is FONT-DERIVED (docs/gui-guidelines.md): the thumb is
 // a text row tall, so the control grows with the session font instead of
 // staying a 10px sliver on a large one.
@@ -23,10 +29,11 @@ void uui_scale_init(struct uui_scale *s, long min, long max, long value) {
     s->value = value;
     s->step = s->page = 0;
     s->hovered = s->dragging = s->focused = s->disabled = 0;
-    // From the THEME, never hand-picked (docs/gui-guidelines.md).
-    s->track_bg = UTHEME_BUTTON_BG;
-    s->fill_bg  = UTHEME_ACCENT;
-    s->thumb_bg = UTHEME_ACCENT;
+    // The THEME's, never hand-picked (docs/gui-guidelines.md), and
+    // looked up per paint.
+    s->track_bg = UUI_COLOR_UNSET;
+    s->fill_bg = UUI_COLOR_UNSET;
+    s->thumb_bg = UUI_COLOR_UNSET;
     uui_scale_set_value(s, value);
 }
 
@@ -95,16 +102,16 @@ void uui_scale_draw(struct ugfx_surface *surf, const struct uui_scale *s) {
     int tx = thumb_x(s);
     int sz = thumb_sz();
 
-    uint32_t track = s->disabled ? uui_state_bg(s->track_bg, UUI_STATE_DISABLED) : s->track_bg;
-    uint32_t fill  = s->disabled ? uui_state_bg(s->fill_bg,  UUI_STATE_DISABLED) : s->fill_bg;
+    uint32_t track = s->disabled ? uui_state_bg(c_track_bg(s), UUI_STATE_DISABLED) : c_track_bg(s);
+    uint32_t fill  = s->disabled ? uui_state_bg(c_fill_bg(s),  UUI_STATE_DISABLED) : c_fill_bg(s);
 
     ugfx_fill_rect(surf, x0, ty - th / 2, x1 - x0, th, track);
     if (tx > x0) ugfx_fill_rect(surf, x0, ty - th / 2, tx - x0, th, fill);
 
-    uint32_t thumb = s->disabled ? uui_state_bg(s->thumb_bg, UUI_STATE_DISABLED)
+    uint32_t thumb = s->disabled ? uui_state_bg(c_thumb_bg(s), UUI_STATE_DISABLED)
                    : (s->dragging || s->hovered)
-                       ? uui_state_bg(s->thumb_bg, UUI_STATE_HOVER)
-                       : s->thumb_bg;
+                       ? uui_state_bg(c_thumb_bg(s), UUI_STATE_HOVER)
+                       : c_thumb_bg(s);
     ugfx_fill_rect(surf, tx - sz / 2, ty - sz / 2, sz, sz, thumb);
 
     // Round the THUMB, as uui_slider does: the arrows move the thumb, so

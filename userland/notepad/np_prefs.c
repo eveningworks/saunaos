@@ -92,9 +92,9 @@ void np_prefs_open(struct uapp *a, const struct np_conf *c,
     g_on_commit = on_commit;
     g_clear_fn = on_clear_recent;
 
-    uui_checkbox_init(&g_sysfont, 0, 0, 0, "Use the desktop's size", UTHEME_WINDOW_BG, UTHEME_TEXT);
+    uui_checkbox_init(&g_sysfont, 0, 0, 0, "Use the desktop's size", UUI_ROLE(window_bg), UUI_ROLE(text));
     uui_spinbox_init(&g_font, 14, NP_FONT_MIN, NP_FONT_MAX, 1, "px");
-    uui_button_init(&g_clear, 0, 0, 0, 0, "Clear list", UTHEME_BUTTON_BG, UTHEME_TEXT, OPT_CLEAR);
+    uui_button_init(&g_clear, 0, 0, 0, 0, "Clear list", UUI_ROLE(control_bg), UUI_ROLE(text), OPT_CLEAR);
     font_to_controls();
 
     uui_prefs_begin(&(struct uui_prefs_desc){

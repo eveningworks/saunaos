@@ -15,9 +15,8 @@ void uui_dropdown_init(struct uui_dropdown *d, int x, int y, int w, int h,
     d->tracking = 0;
     d->max_rows = 6;
     d->focused = 0;
-    d->bg = ugfx_rgb(255, 255, 255);
-    d->fg = ugfx_rgb(20, 20, 20);
-    d->border = ugfx_rgb(150, 155, 165);
+    // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
+    d->bg = d->fg = d->border = UUI_COLOR_UNSET;
 
     int rh = ugfx_char_h() + 4;
     int rows = count < d->max_rows ? count : d->max_rows;
@@ -113,13 +112,15 @@ void uui_dropdown_set_geometry(struct uui_dropdown *d, int x, int y, int w, int 
 void uui_dropdown_draw(struct ugfx_surface *s, const struct uui_dropdown *d) {
     // Dimmed text and caret; the face and border stay, so the control
     // still occupies its place rather than looking absent.
-    uint32_t fg = d->disabled ? uui_state_bg(d->fg, UUI_STATE_DISABLED) : d->fg;
-    uui_control_frame(s, d->x, d->y, d->w, d->h, d->bg, d->border);
+    uint32_t bg = UUI_COLOR(d->bg, UTHEME_WHITE), border = UUI_COLOR(d->border, UTHEME_OUTLINE);
+    uint32_t fg = UUI_COLOR(d->fg, UTHEME_TEXT);
+    if (d->disabled) fg = uui_state_bg(fg, UUI_STATE_DISABLED);
+    uui_control_frame(s, d->x, d->y, d->w, d->h, bg, border);
 
     const char *label = (d->list.selected >= 0 && d->list.selected < d->list.count)
                             ? d->list.items[d->list.selected] : "";
     ugfx_draw_string_clipped(s, d->x + 6, d->y + (d->h - ugfx_char_h()) / 2,
-                              d->w - 24, label, fg, d->bg);
+                              d->w - 24, label, fg, bg);
 
     // A caret so it reads as a dropdown rather than a text field.
     int cx = d->x + d->w - 14, cy = d->y + d->h / 2 - 2;
@@ -143,7 +144,7 @@ void uui_dropdown_draw_popup(struct ugfx_surface *s, const struct uui_dropdown *
     }
     uui_listbox_draw_at(s, &d->list, ox, oy);
     ugfx_draw_rect(s, d->list.x - ox, d->list.y - oy, d->list.w, d->list.h,
-                    d->border);
+                    UUI_COLOR(d->border, UTHEME_OUTLINE));
 }
 
 void uui_dropdown_natural_size(const struct uui_dropdown *d, int *out_w, int *out_h) {

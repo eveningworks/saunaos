@@ -8,6 +8,10 @@
 #include "ui/uui_primitives.h"
 #include "lib/icon_cache.h"
 
+// The theme's when the app left it unset, looked up per paint
+// (ui/utheme.h's UUI_COLOR), so a theme switch reaches it.
+static uint32_t c_bg(const struct uui_props *w) { return UUI_COLOR(w->bg, UTHEME_PANEL_BG); }
+
 #define MAX_LINES 4   // a value wraps this far, then elides
 
 static int pad(void)   { return utheme_pad(); }
@@ -19,7 +23,7 @@ static int hdr_h(void) { return lh() + pad(); }
 void uui_props_init(struct uui_props *w) {
     memset(w, 0, sizeof *w);
     w->laid_w = -1;
-    w->bg = UTHEME_PANEL_BG;
+    w->bg = UUI_COLOR_UNSET;
     w->hot = w->armed = w->action = -1;
 }
 
@@ -284,7 +288,7 @@ static void draw_wrapped(struct ugfx_surface *s, int x, int y, int width, const 
 
 void uui_props_draw(struct ugfx_surface *s, const struct uui_props *w) {
     const struct utheme *t = utheme_current();
-    uint32_t bg = w->bg;
+    uint32_t bg = c_bg(w);
     layout(w, w->w);
     int p = pad(), kw = w->key_w;
     ugfx_set_clip_rect(s, w->x, w->y, w->w, w->h);
@@ -296,7 +300,10 @@ void uui_props_draw(struct ugfx_surface *s, const struct uui_props *w) {
         if (sec->kind == UUI_PROPS_NOTICE) {
             // A WARNING BOX: amber edge on a pale amber ground, the same
             // "!" the tree's badge draws, then the text wrapped beside it.
-            uint32_t edge = ugfx_rgb(227, 196, 103), fill = ugfx_rgb(255, 246, 220);
+            // Washes of the warning colour over the field, so a dark
+            // theme gets a dark amber.
+            uint32_t warn = t->severity[UTHEME_SEV_WARNING];
+            uint32_t edge = ugfx_blend(t->field_bg, warn, 140), fill = ugfx_blend(t->field_bg, warn, 22);
             int bx = w->x + 2 * p, bw = w->w - 4 * p, bh = sh - p;
             uui_fill_round_rect(s, bx, y, bw, bh, p / 2, edge);
             uui_fill_round_rect(s, bx + 1, y + 1, bw - 2, bh - 2, p / 2, fill);

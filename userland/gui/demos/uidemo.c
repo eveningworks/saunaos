@@ -107,13 +107,10 @@
 // legitimate pixel can be.
 #define OOB_MARKER ugfx_rgb(255, 0, 255)
 
-// utheme.h carries four colours and no selection tint; this is the one
-// uui_listbox picks for its own selected row, named here rather than
-// repeated as a literal so the text view's selection matches the
-// listbox's.
-#define SEL_BG ugfx_rgb(205, 220, 240)
-// Likewise the widgets' own border grey.
-#define BORDER ugfx_rgb(160, 160, 165)
+// The theme's selection tint and control outline, as role references
+// the widgets resolve per paint (ui/utheme.h's UUI_ROLE).
+#define SEL_BG UUI_ROLE(selection_bg)
+#define BORDER UUI_ROLE(outline)
 
 #define CHK_SIZE  (ugfx_char_h() - 2)
 #define BTN_W     (6 * ugfx_char_w() + 16)
@@ -341,14 +338,14 @@ static void on_open(struct uapp *a) {
     (void)a;
     for (int i = 0; i < BTN_COUNT; i++) {
         uui_button_init(&g.buttons[i], 0, 0, 0, 0, BTN_LABELS[i],
-                        UTHEME_BUTTON_BG, UTHEME_TEXT, i + 1);
+                        UUI_ROLE(control_bg), UUI_ROLE(text), i + 1);
     }
     uui_button_group_init(&g.group, g.buttons, BTN_COUNT);
 
     uui_checkbox_init(&g.chk[0], PAD, 0, CHK_SIZE, "Alpha",
-                      UTHEME_PANEL_BG, UTHEME_TEXT);
+                      UUI_ROLE(panel_bg), UUI_ROLE(text));
     uui_checkbox_init(&g.chk[1], PAD, 0, CHK_SIZE, "Beta",
-                      UTHEME_PANEL_BG, UTHEME_TEXT);
+                      UUI_ROLE(panel_bg), UUI_ROLE(text));
 
     g.radio.options = RADIO_LABELS;
     g.radio.count = RADIO_COUNT;
@@ -358,8 +355,8 @@ static void on_open(struct uapp *a) {
     g.radio.marker_size = ugfx_char_h() - 4;
     g.radio.selected = 0;
     g.radio.hovered = -1;
-    g.radio.bg = UTHEME_PANEL_BG;
-    g.radio.fg = UTHEME_TEXT;
+    g.radio.bg = UUI_ROLE(panel_bg);
+    g.radio.fg = UUI_ROLE(text);
 
     uui_textbox_init(&g.textbox, "type here");
     g.textbox.border = BORDER;
@@ -373,7 +370,7 @@ static void on_open(struct uapp *a) {
     g.list.selected = 0;
 
     uui_textview_init(&g.view, PAD, row_scroll(), VIEW_W, scroll_h(),
-                      UTHEME_TEXT, UTHEME_WHITE, SEL_BG, g_view_buf, (int)sizeof g_view_buf);
+                      UUI_ROLE(text), UUI_ROLE(field_bg), SEL_BG, g_view_buf, (int)sizeof g_view_buf);
     // Body drags PAN this view: UI Demo has no cursor or selection of
     // its own, so nothing conflicts, and it makes the third input route
     // demonstrable. Notepad keeps the default (body presses are the

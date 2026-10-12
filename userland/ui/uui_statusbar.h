@@ -41,7 +41,7 @@ struct uui_statusbar {
     int x, y, w, h;
     struct uui_status_pane panes[UUI_STATUSBAR_MAX_PANES];
     int count;
-    uint32_t bg, fg, border;
+    uint32_t bg, fg, border;   // UUI_COLOR_UNSET = the theme's; or a UUI_ROLE()
 };
 
 // One stretching pane, empty. An app fills in `panes[]` and `count`.

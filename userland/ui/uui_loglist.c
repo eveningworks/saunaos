@@ -126,7 +126,10 @@ int uui_loglist_take_changes(struct uui_loglist *l) {
 // A SHAPE as well as a colour: a cross in a disc for an error, a bar in a
 // triangle for a warning, so the two differ without colour vision.
 static void draw_severity(struct ugfx_surface *s, int x, int y, int sz, int sev, uint32_t bg) {
-    uint32_t c = utheme_severity(sev), w = UTHEME_WHITE;
+    // The mark's ink by the badge's lightness: white on Light's deep red
+    // and amber, near-black on a dark theme's pale ones.
+    uint32_t c = utheme_severity(sev);
+    uint32_t w = ugfx_luminance(c) < 140 ? ugfx_rgb(255, 255, 255) : ugfx_rgb(20, 20, 20);
     (void)bg;
     if (sev == UTHEME_SEV_ERROR) {
         int r = sz / 2, cx = x + r, cy = y + r, k = r / 2;

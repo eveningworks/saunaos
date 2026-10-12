@@ -90,8 +90,8 @@ int main(void) {
     if (!ugfx_font_init()) return 2;
 
     uui_label_init(&g_label, g_text);
-    uui_button_init(&g_add, 0, 0, 0, 0, "+1", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_ADD);
-    uui_button_init(&g_reset, 0, 0, 0, 0, "Reset", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_RESET);
+    uui_button_init(&g_add, 0, 0, 0, 0, "+1", UUI_ROLE(control_bg), UUI_ROLE(text), ID_ADD);
+    uui_button_init(&g_reset, 0, 0, 0, 0, "Reset", UUI_ROLE(control_bg), UUI_ROLE(text), ID_RESET);
     g_add.outlined = g_reset.outlined = 1;
 
     // A custom item's natural size is whatever it holds before layout:

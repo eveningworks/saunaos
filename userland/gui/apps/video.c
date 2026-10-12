@@ -681,14 +681,15 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     // The playlist's heading.
     if (g_panel) {
         int x = g_list.x, lh = ugfx_char_h();
-        ugfx_fill_rect(s, x, g_sy, cw - x, g_list.y - g_sy, g_list.bg);
+        uint32_t list_bg = UUI_COLOR(g_list.bg, UTHEME_PANEL_BG);   // the list's own ground
+        ugfx_fill_rect(s, x, g_sy, cw - x, g_list.y - g_sy, list_bg);
         ugfx_fill_rect(s, x, g_sy, 1, ch - g_sy, g_amb.chrome_line);
         const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-        ugfx_draw_string_clipped(s, x + pad, g_sy + pad / 2, pad * 10, "Up next", utheme_action(UTHEME_ACT_VIEW), g_list.bg);
+        ugfx_draw_string_clipped(s, x + pad, g_sy + pad / 2, pad * 10, "Up next", utheme_action(UTHEME_ACT_VIEW), list_bg);
         int hw = ugfx_text_width("Up next");
         ugfx_set_font(was);
         ugfx_draw_string_clipped(s, x + pad * 2 + hw, g_sy + pad / 2, cw - x - pad * 3 - hw, g_dir,
-                                 uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), g_list.bg);
+                                 uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), list_bg);
         (void)lh;
     }
     uui_statusbar_draw(s, &g_status);

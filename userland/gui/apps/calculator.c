@@ -101,7 +101,7 @@ static void draw_display(struct ugfx_surface *s, const struct uui_custom *c) {
     // aligned and muted -- secondary to the main display, exactly as in
     // the kernel version.
     if (g_calc.pending_op != 0) {
-        uint32_t expr_fg = ugfx_rgb(90, 100, 115);
+        uint32_t expr_fg = utheme_current()->text_muted;
         char num[CALC_DISPLAY_MAX];
         calc_format_scaled(g_calc.accumulator, num);
         unum_localize(num, sizeof num, UNUM_GROUP);
@@ -221,9 +221,10 @@ static void on_open(struct uapp *a) {
 int main(void) {
     if (!ugfx_font_init()) return 2; // metrics are needed to build the layout
 
-    uint32_t fg = UTHEME_TEXT;
-    uint32_t btn_bg = UTHEME_BUTTON_BG;
-    uint32_t op_btn_bg = ugfx_rgb(210, 218, 235); // operators stand out slightly
+    // Roles, resolved when a button draws, so a theme switch reaches them.
+    uint32_t fg = UUI_ROLE(text);
+    uint32_t btn_bg = UUI_ROLE(control_bg);
+    uint32_t op_btn_bg = UUI_ROLE(selection_bg); // operators stand out slightly
     for (int i = 0; i < BUTTON_COUNT; i++) {
         char c = BUTTONS[i].code;
         int is_op = (c == '+' || c == '-' || c == '*' || c == '/' || c == '%' || c == '=');

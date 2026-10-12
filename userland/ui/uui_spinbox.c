@@ -57,10 +57,8 @@ void uui_spinbox_init(struct uui_spinbox *s, int value,
     s->value = clamp(s, value);
     s->hovered = 0;
     s->armed = 0;
-    s->bg = ugfx_rgb(255, 255, 255);
-    s->fg = ugfx_rgb(20, 20, 20);
-    s->border = ugfx_rgb(170, 172, 180);
-    s->step_bg = ugfx_rgb(238, 238, 242);
+    // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
+    s->bg = s->fg = s->border = s->step_bg = UUI_COLOR_UNSET;
     render(s);
     s->disabled = 0;
 }
@@ -158,6 +156,9 @@ static void arrow(struct ugfx_surface *surf, int cx, int cy, int up, uint32_t co
 }
 
 void uui_spinbox_draw(struct ugfx_surface *surf, const struct uui_spinbox *s) {
+    uint32_t bg = UUI_COLOR(s->bg, UTHEME_WHITE), fg = UUI_COLOR(s->fg, UTHEME_TEXT);
+    uint32_t border = UUI_COLOR(s->border, UTHEME_OUTLINE);
+    uint32_t step_bg = UUI_COLOR(s->step_bg, UTHEME_PANEL_BG);
     // The field draws its own background, caret and selection -- this
     // must not paint over it, which is why only the stepper column and
     // the border are drawn here.
@@ -174,7 +175,7 @@ void uui_spinbox_draw(struct ugfx_surface *surf, const struct uui_spinbox *s) {
         int avail = s->x + s->w - STEP_W - ux - 2;
         if (avail > 0)
             ugfx_draw_string_clipped(surf, ux, uy, avail, s->unit,
-                                      ugfx_rgb(120, 122, 130), s->bg);
+                                      ugfx_blend(fg, bg, 110), bg);
     }
 
     int sx = s->x + s->w - STEP_W;
@@ -193,19 +194,19 @@ void uui_spinbox_draw(struct ugfx_surface *surf, const struct uui_spinbox *s) {
         // control that looks live and does nothing is worse than one
         // that says it cannot.
         int usable = !s->disabled && (up ? (s->value < s->max) : (s->value > s->min));
-        uint32_t bg = s->step_bg;
-        if (usable && s->armed == which) bg = uui_state_bg(s->step_bg, UUI_STATE_PRESSED);
-        else if (usable && s->hovered == which) bg = uui_state_bg(s->step_bg, UUI_STATE_HOVER);
-        ugfx_fill_rect(surf, sx, ry, STEP_W, rh, bg);
+        uint32_t face = step_bg;
+        if (usable && s->armed == which) face = uui_state_bg(step_bg, UUI_STATE_PRESSED);
+        else if (usable && s->hovered == which) face = uui_state_bg(step_bg, UUI_STATE_HOVER);
+        ugfx_fill_rect(surf, sx, ry, STEP_W, rh, face);
         // Centred on the half: the glyph is 4 rows tall and drawn
         // downward from `cy`, so the top is half its height above the
         // middle -- the same expression for both, now that direction is
         // carried by the widths rather than by the y step.
         arrow(surf, sx + STEP_W / 2, ry + rh / 2 - 2, up,
-              usable ? s->fg : ugfx_rgb(180, 182, 190));
+              usable ? fg : ugfx_blend(fg, step_bg, 187));
     }
-    ugfx_draw_rect(surf, s->x, s->y, s->w, s->h, s->border);
-    ugfx_fill_rect(surf, sx, s->y, 1, s->h, s->border);
+    ugfx_draw_rect(surf, s->x, s->y, s->w, s->h, border);
+    ugfx_fill_rect(surf, sx, s->y, 1, s->h, border);
 
     // Round the whole control, steppers included: Up/Down are the
     // spinbox's keys, not the field's, so the field alone would understate

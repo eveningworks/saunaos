@@ -21,15 +21,17 @@ void uui_meter_init(struct uui_meter *m) {
     m->x = m->y = m->w = m->h = 0;
     m->caption = m->value = m->unit = m->detail = NULL;
     m->fill = -1;                    // no bar, which is not an empty bar
-    m->fg = UTHEME_TEXT;
-    m->bg = UTHEME_WHITE;
-    m->accent = UTHEME_ACCENT;
+    m->fg = m->bg = m->accent = UUI_COLOR_UNSET;   // the theme's, resolved at draw
     m->value_font = NULL;
     m->style = UUI_METER_BAR;
     m->spark = NULL;
     m->value_fg = 0;
     m->active = 0;
 }
+
+static uint32_t m_fg(const struct uui_meter *m)     { return UUI_COLOR(m->fg, UTHEME_TEXT); }
+static uint32_t m_bg(const struct uui_meter *m)     { return UUI_COLOR(m->bg, UTHEME_WHITE); }
+static uint32_t m_accent(const struct uui_meter *m) { return UUI_COLOR(m->accent, UTHEME_ACCENT); }
 
 void uui_meter_set(struct uui_meter *m, const char *caption,
                    const char *value, const char *unit, const char *detail) {
@@ -173,7 +175,7 @@ static void draw_ring(struct ugfx_surface *s, const struct uui_meter *m) {
         int cw = ugfx_text_width(m->caption);
         int cx = x + (inner - cw) / 2;
         if (cx < x) cx = x;
-        ugfx_draw_string_clipped(s, cx, top, inner, m->caption, m->fg, m->bg);
+        ugfx_draw_string_clipped(s, cx, top, inner, m->caption, m_fg(m), m_bg(m));
     }
     top += line;
 
@@ -216,7 +218,7 @@ static void draw_ring(struct ugfx_surface *s, const struct uui_meter *m) {
         // is what says "empty", so zero really is nothing here.
         fx_t sweep = (fx_t)(((int64_t)FX_ONE * fill) / 1000);
         if (sweep > 0) ugfx_fill_ring(s, cx, cy, r_outer, r_inner,
-                                      start, start + sweep, m->accent);
+                                      start, start + sweep, m_accent(m));
     }
     ugfx_draw_circle(s, cx, cy, r_outer, UTHEME_BORDER, GEOM_AA);
     ugfx_draw_circle(s, cx, cy, r_inner, UTHEME_BORDER, GEOM_AA);
@@ -241,7 +243,7 @@ static void draw_ring(struct ugfx_surface *s, const struct uui_meter *m) {
         int tw = ugfx_text_width(rows[i]);
         int tx = cx - tw / 2;
         if (tx < cx - hole / 2) tx = cx - hole / 2;
-        ugfx_draw_string_clipped(s, tx, ty, hole, rows[i], m->fg, m->bg);
+        ugfx_draw_string_clipped(s, tx, ty, hole, rows[i], m_fg(m), m_bg(m));
         ty += ugfx_char_h();
         if (was) ugfx_set_font(was);
     }
@@ -252,7 +254,7 @@ static void draw_ring(struct ugfx_surface *s, const struct uui_meter *m) {
         int dw = ugfx_text_width(m->detail);
         int dx = x + (inner - dw) / 2;
         if (dx < x) dx = x;
-        ugfx_draw_string_clipped(s, dx, top + d, inner, m->detail, m->fg, m->bg);
+        ugfx_draw_string_clipped(s, dx, top + d, inner, m->detail, m_fg(m), m_bg(m));
     }
 }
 
@@ -263,11 +265,11 @@ void uui_meter_draw(struct ugfx_surface *s, const struct uui_meter *m) {
 
     // A ROUNDED CARD with a hairline, Windows 11's -- and the accent
     // ring, two pixels, when this is the reading being taken.
-    uint32_t edge = m->active ? UTHEME_ACCENT : ugfx_blend(UTHEME_OUTLINE, m->bg, 120);
+    uint32_t edge = m->active ? UTHEME_ACCENT : ugfx_blend(UTHEME_OUTLINE, m_bg(m), 120);
     int ring = m->active ? 2 : 1;
     uui_fill_round_rect(s, m->x, m->y, m->w, m->h, CARD_R, edge);
     uui_fill_round_rect(s, m->x + ring, m->y + ring, m->w - 2 * ring, m->h - 2 * ring,
-                        CARD_R - ring, m->bg);
+                        CARD_R - ring, m_bg(m));
 
     if (m->style == UUI_METER_RING) {
         draw_ring(s, m);
@@ -286,10 +288,10 @@ void uui_meter_draw(struct ugfx_surface *s, const struct uui_meter *m) {
     // wider than its tile would run into the one beside it -- the
     // identical overlap bug this codebase has shipped twice
     // (docs/gui-guidelines.md).
-    uint32_t dim = ugfx_blend(m->fg, m->bg, 110);
+    uint32_t dim = ugfx_blend(m_fg(m), m_bg(m), 110);
     if (m->caption) {
         const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-        ugfx_draw_string_clipped(s, x, y, inner, m->caption, dim, m->bg);
+        ugfx_draw_string_clipped(s, x, y, inner, m->caption, dim, m_bg(m));
         ugfx_set_font(was);
         y += line;
     }
@@ -301,16 +303,16 @@ void uui_meter_draw(struct ugfx_surface *s, const struct uui_meter *m) {
         int vw = m->value ? ugfx_text_width(m->value) : 0;
         if (m->value)
             ugfx_draw_string_clipped(s, x, y, inner, m->value,
-                                     m->value_fg ? m->value_fg : m->fg, m->bg);
+                                     m->value_fg ? UUI_COLOR(m->value_fg, 0) : m_fg(m), m_bg(m));
         ugfx_set_font(was);
         if (m->unit && vw + line / 2 < inner)
             ugfx_draw_string_clipped(s, x + vw + line / 3, y + vh - line - line / 6,
-                                     inner - vw - line / 3, m->unit, dim, m->bg);
+                                     inner - vw - line / 3, m->unit, dim, m_bg(m));
         y += vh;
     }
 
     if (m->detail) {
-        ugfx_draw_string_clipped(s, x, y, inner, m->detail, dim, m->bg);
+        ugfx_draw_string_clipped(s, x, y, inner, m->detail, dim, m_bg(m));
         y += line;
     }
 
@@ -332,8 +334,8 @@ void uui_meter_draw(struct ugfx_surface *s, const struct uui_meter *m) {
         uui_fill_round_rect(s, x, bar_y, inner, bar_h, UUI_CAPSULE,
                             uui_state_bg(UTHEME_PANEL_BG, UUI_STATE_HOVER));
         int on = (inner * fill) / 1000;
-        if (on >= bar_h) uui_fill_round_rect(s, x, bar_y, on, bar_h, UUI_CAPSULE, m->accent);
-        else if (on > 0) ugfx_fill_rect(s, x, bar_y, on, bar_h, m->accent);
+        if (on >= bar_h) uui_fill_round_rect(s, x, bar_y, on, bar_h, UUI_CAPSULE, m_accent(m));
+        else if (on > 0) ugfx_fill_rect(s, x, bar_y, on, bar_h, m_accent(m));
     }
 }
 

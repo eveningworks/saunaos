@@ -22,7 +22,7 @@ struct uui_progress {
     // says "nothing done yet", busy says "cannot tell".
     int value;
     int phase;      // OWNED: the busy block's position, advanced by _tick()
-    uint32_t track, fill, border;   // from the theme at _init()
+    uint32_t track, fill, border;   // UUI_COLOR_UNSET = the theme's, resolved at draw
 };
 
 void uui_progress_init(struct uui_progress *p);

@@ -582,7 +582,7 @@ void tm_perf_init(struct tm_page *page) {
 
     for (int i = 0; i < STATS; i++) {
         uui_label_init(&g_key[i], "");
-        g_key[i].fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+        g_key[i].dim = 1;
         uui_label_init(&g_val[i], "");
         STAT_ITEMS[2 * i] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_key[i] };
         STAT_ITEMS[2 * i + 1] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_val[i],

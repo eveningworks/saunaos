@@ -13,7 +13,7 @@ void uui_infobar_init(struct uui_infobar *b, const char *icon, const char *text,
     memset(b, 0, sizeof *b);
     b->icon = icon;
     b->text = text;
-    uui_button_init(&b->action, 0, 0, 0, 0, action_label, UTHEME_ACCENT, UTHEME_WHITE, 0);
+    uui_button_init(&b->action, 0, 0, 0, 0, action_label, UUI_ROLE(accent), UUI_ROLE(field_bg), 0);
 }
 
 int uui_infobar_take(struct uui_infobar *b) {

@@ -201,7 +201,7 @@ int main(int argc, char **argv) {
     check("uui_segmented", &uui_segmented_ops, &seg);
 
     static struct uui_button btn;
-    uui_button_init(&btn, 10, 10, 90, 24, "Apply", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, 1);
+    uui_button_init(&btn, 10, 10, 90, 24, "Apply", UUI_ROLE(accent), UUI_ROLE(accent_text), 1);
     check("uui_button, even an accent one", &uui_button_ops, &btn);
     btn.disabled = 1;
     ok("a disabled uui_button refuses focus", !uui_button_ops.accepts_focus(&btn),

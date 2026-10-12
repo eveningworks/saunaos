@@ -288,7 +288,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
 
     // A hairline under the controls, so the preview reads as its own pane.
     ugfx_fill_rect(s, PAD, g.preview_top - 5, s->w - 2 * PAD, 1,
-                   ugfx_rgb(200, 205, 215));
+                   UTHEME_SEPARATOR);
 
     const char *text = uui_textbox_text(&g.text);
     int y = g.preview_top;
@@ -376,7 +376,7 @@ static void on_size(int *w, int *h) {
 
 int main(void) {
     uui_dropdown_init(&g.family, 0, 0, 0, 0, FACE_NAMES, FACE_COUNT);
-    uui_checkbox_init(&g.bold, 0, 0, 0, "Bold", UTHEME_PANEL_BG, UTHEME_TEXT);
+    uui_checkbox_init(&g.bold, 0, 0, 0, "Bold", UUI_ROLE(panel_bg), UUI_ROLE(text));
     uui_spinbox_init(&g.size, FD_SIZE_DEF, FD_SIZE_MIN, FD_SIZE_MAX, 2, "px");
     uui_textbox_init(&g.text, PANGRAM);
 

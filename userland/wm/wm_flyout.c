@@ -31,6 +31,9 @@ uint32_t wm_flyout_ground(void) { return uui_popup_bg(); }
 uint32_t wm_flyout_ink(void) { return UGFX_TRANSPARENT; }
 uint32_t wm_flyout_dim(void) { return ugfx_blend(UTHEME_TEXT, uui_popup_bg(), 110); }
 
+// An OFF control's ring and a badge with nothing to report: a grey
+// between the muted text and the field, (138,141,150) on Light.
+static uint32_t off_grey(void) { return ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80); }
 static uint32_t foot_bg(void) { return ugfx_blend(uui_popup_bg(), UTHEME_CHROME, 128); }
 static uint32_t rule_c(void) { return ugfx_blend(uui_popup_border(), uui_popup_bg(), 96); }
 
@@ -63,7 +66,8 @@ void wm_flyout_hero(int x, int y, int w, uint32_t badge, const char *icon,
     const struct uimg *ico = icon ? icon_get(icon, m.badge * 11 / 20) : 0;
     if (ico)
         ugfx_blit_tinted(s, bx + (m.badge - ico->w) / 2, by + (m.badge - ico->h) / 2,
-                         ico->w, ico->h, ico->px, ico->w, UTHEME_WHITE);
+                         ico->w, ico->h, ico->px, ico->w,
+                         badge == UTHEME_ACCENT ? UTHEME_ACCENT_TEXT : ugfx_rgb(255, 255, 255));
 
     int ch = ugfx_char_h();
     int tx = bx + m.badge + m.pad * 3 / 4;
@@ -135,10 +139,10 @@ void wm_flyout_switch(int x, int y, int on, int hot) {
     if (on) {
         uint32_t c = hot ? uui_state_bg(UTHEME_ACCENT, UUI_STATE_HOVER) : UTHEME_ACCENT;
         uui_fill_round_rect(s, x, y, m.sw_w, m.sw_h, UUI_CAPSULE, c);
-        uui_fill_round_rect(s, x + m.sw_w - 3 - k, y + 3, k, k, UUI_CAPSULE, UTHEME_WHITE);
+        uui_fill_round_rect(s, x + m.sw_w - 3 - k, y + 3, k, k, UUI_CAPSULE, UTHEME_ACCENT_TEXT);
     } else {
         uint32_t c = hot ? uui_state_bg(UTHEME_WHITE, UUI_STATE_HOVER) : UTHEME_WHITE;
-        uui_fill_round_rect(s, x, y, m.sw_w, m.sw_h, UUI_CAPSULE, ugfx_rgb(130, 130, 140));
+        uui_fill_round_rect(s, x, y, m.sw_w, m.sw_h, UUI_CAPSULE, off_grey());
         uui_fill_round_rect(s, x + 1, y + 1, m.sw_w - 2, m.sw_h - 2, UUI_CAPSULE, c);
         uui_fill_round_rect(s, x + 3, y + 3, k, k, UUI_CAPSULE, UTHEME_TEXT);
     }
@@ -169,7 +173,7 @@ void wm_flyout_radio_row(int x, int y, int w, int h, int selected, int hot,
     }
     int d = ch * 3 / 4 + 2;                 // the radio's diameter
     int rx = x + ch / 2, ry = y + (h - d) / 2;
-    uui_fill_round_rect(s, rx, ry, d, d, UUI_CAPSULE, selected ? UTHEME_ACCENT : ugfx_rgb(130, 130, 140));
+    uui_fill_round_rect(s, rx, ry, d, d, UUI_CAPSULE, selected ? UTHEME_ACCENT : off_grey());
     uui_fill_round_rect(s, rx + 2, ry + 2, d - 4, d - 4, UUI_CAPSULE, selected ? UTHEME_SELECTION : UTHEME_WHITE);
     if (selected) uui_fill_round_rect(s, rx + d / 4 + 1, ry + d / 4 + 1, d - 2 * (d / 4) - 2,
                                       d - 2 * (d / 4) - 2, UUI_CAPSULE, UTHEME_ACCENT);

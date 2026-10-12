@@ -75,7 +75,7 @@ int uui_form_add_password(struct uui_form *f, const char *label, const char *hin
 int uui_form_add_check(struct uui_form *f, const char *label, int checked, const char *hint) {
     struct uui_form_row *r = add(f, UUI_FORM_CHECK, label, hint);
     if (!r) return -1;
-    uui_checkbox_init(&r->check, 0, 0, 0, label, ground(), UTHEME_TEXT);
+    uui_checkbox_init(&r->check, 0, 0, 0, label, ground(), UUI_ROLE(text));
     r->check.checked = checked;
     r->check.accent = 1;
     return f->count - 1;

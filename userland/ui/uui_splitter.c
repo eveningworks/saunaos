@@ -109,7 +109,7 @@ void uui_splitter_draw(struct ugfx_surface *s, const struct uui_splitter *sp) {
                         uui_state_bg(UTHEME_PANEL_BG, st));
 
     int t = uui_splitter_thickness();
-    uint32_t line = sp->line ? sp->line : UTHEME_BORDER;
+    uint32_t line = sp->line ? UUI_COLOR(sp->line, UTHEME_BORDER) : UTHEME_BORDER;
     if (sp->horizontal)
         ugfx_fill_rect(s, sp->x + t / 2, sp->y, 1, sp->h, line);
     else

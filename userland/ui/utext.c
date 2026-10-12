@@ -10,6 +10,7 @@
 // interface face this spreads text at cell pitch with ragged gaps and
 // puts the caret nowhere near the click.
 #include "ui/utext.h"
+#include "ui/utheme.h"   // UUI_COLOR: a mark may name a role
 #include "ui/uui_caret.h"
 #include "ui/uui_undo.h"
 #include "ui/uui_widget.h"   // uui_key_is_shortcut
@@ -552,7 +553,7 @@ void utext_draw(struct utext *t, struct ugfx_surface *s,
             while (mk < t->mark_count && t->marks[mk].end <= k) mk++;
             uint32_t cell = row_bg;
             if (has_sel && k >= sel_start && k < sel_end) cell = sel_bg;
-            else if (mk < t->mark_count && t->marks[mk].start <= k) cell = t->marks[mk].bg;
+            else if (mk < t->mark_count && t->marks[mk].start <= k) cell = UUI_COLOR(t->marks[mk].bg, 0);
             // text-measure-ok: a fixed grid by contract -- see the top of this file
             int rx = x + col * char_w;
             // text-measure-ok: a tab is n cells of the fixed grid -- see the top of this file

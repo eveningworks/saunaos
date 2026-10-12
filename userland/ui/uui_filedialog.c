@@ -407,8 +407,8 @@ struct uapp_window *uui_filedialog_open(struct uapp *a, struct uui_filedialog *f
     const char *ok_label = opts->mode == UUI_FILEDIALOG_SAVE   ? "Save"
                          : opts->mode == UUI_FILEDIALOG_FOLDER ? "Choose"
                                                                : "Open";
-    uui_button_init(&fd->ok, 0, 0, 0, 0, ok_label, UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_OK);
-    uui_button_init(&fd->cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_CANCEL);
+    uui_button_init(&fd->ok, 0, 0, 0, 0, ok_label, UUI_ROLE(accent), UUI_ROLE(accent_text), ID_OK);
+    uui_button_init(&fd->cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CANCEL);
 
     // --- the layout ----------------------------------------------------
     //

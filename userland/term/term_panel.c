@@ -37,13 +37,13 @@ void term_panel_init(void) {
         "panel-intr", "panel-eof", "panel-kill",
     };
     for (int i = 0; i < TERM_PANEL_BUTTONS; i++) {
-        uui_button_init(&g_btn[i], 0, 0, 0, 0, labels[i], UTHEME_BUTTON_BG, UTHEME_TEXT, i);
+        uui_button_init(&g_btn[i], 0, 0, 0, 0, labels[i], UUI_ROLE(control_bg), UUI_ROLE(text), i);
         g_items[i] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_btn[i],
                                         .id = TERM_PANEL_ID_BASE + i, .name = names[i] };
     }
     // Force quit is the one that loses work: outlined in the danger role.
     g_btn[TERM_PANEL_KILL].outlined = 1;
-    g_btn[TERM_PANEL_KILL].fg = utheme_action(UTHEME_ACT_DANGER);
+    g_btn[TERM_PANEL_KILL].fg = UUI_ROLE(action[UTHEME_ACT_DANGER]);
 }
 
 struct uui_item *term_panel_item(int i) {

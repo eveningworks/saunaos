@@ -14,7 +14,7 @@
 struct uui_button {
     int x, y, w, h;      // content-relative
     const char *label;   // not owned -- must outlive the button
-    uint32_t bg, fg;
+    uint32_t bg, fg;     // a colour, a UUI_ROLE() or UUI_COLOR_UNSET (control face, text)
     int code;            // app-defined id, handed back on a completed click
     int pressed;         // OWNED -- driven by uui_button_group_press/_release
     int hovered;         // OWNED -- driven by uui_button_group_hover

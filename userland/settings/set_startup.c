@@ -185,10 +185,10 @@ void startup_init(void) {
                          "Boot another entry once; the restart after uses the default.",
                          (struct uui_item){ 0 });
     g_su_list = (struct uui_custom){ .draw = draw_list };
-    uui_button_init(&g_su_open, 0, 0, 0, 0, "Open Boot Manager", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SU_OPEN);
+    uui_button_init(&g_su_open, 0, 0, 0, 0, "Open Boot Manager", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SU_OPEN);
 
-    uui_button_init(&g_su_fbs_now, 0, 0, 0, 0, "Run it now", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SU_FBS_NOW);
-    uui_button_init(&g_su_fbs_again, 0, 0, 0, 0, "At the next restart", UTHEME_BUTTON_BG, UTHEME_TEXT,
+    uui_button_init(&g_su_fbs_now, 0, 0, 0, 0, "Run it now", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SU_FBS_NOW);
+    uui_button_init(&g_su_fbs_again, 0, 0, 0, 0, "At the next restart", UUI_ROLE(control_bg), UUI_ROLE(text),
                     ID_SU_FBS_AGAIN);
     g_su_fbs_items[0] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_su_fbs_now,
                                            .id = ID_SU_FBS_NOW, .name = "su_fbs_now" };

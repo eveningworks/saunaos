@@ -1097,8 +1097,8 @@ int main(int argc, char **argv) {
     g_tb.accent_latch = 1;   // a latched toggle is filled in the accent
     g_tb.overflow = 1;
     uui_thumbstrip_init(&g_strip);
-    uui_button_init(&g_wp_fill, 0, 0, 1, 1, "Fill", UTHEME_BUTTON_BG, UTHEME_TEXT, CMD_WALLPAPER_FILL);
-    uui_button_init(&g_wp_fit,  0, 0, 1, 1, "Fit",  UTHEME_BUTTON_BG, UTHEME_TEXT, CMD_WALLPAPER_FIT);
+    uui_button_init(&g_wp_fill, 0, 0, 1, 1, "Fill", UUI_ROLE(control_bg), UUI_ROLE(text), CMD_WALLPAPER_FILL);
+    uui_button_init(&g_wp_fit,  0, 0, 1, 1, "Fit",  UUI_ROLE(control_bg), UUI_ROLE(text), CMD_WALLPAPER_FIT);
     g_wp_fill.outlined = g_wp_fit.outlined = 1;
     g_widgets[W_FILL].hidden = g_widgets[W_FIT].hidden = 1;
 

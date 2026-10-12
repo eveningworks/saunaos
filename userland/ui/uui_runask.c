@@ -209,7 +209,7 @@ static void describe(void) {
 static void build(void) {
     describe();
     int ch = ugfx_char_h();
-    uint32_t bg = UTHEME_PANEL_BG, fg = UTHEME_TEXT;
+    uint32_t bg = UUI_ROLE(panel_bg), fg = UUI_ROLE(text);   // roles: resolved at draw
 
     uui_image_init(&g_icon, icon_get(g_info.kind == ULAUNCH_SCRIPT ? "file-text" : "terminal", ch * 2 + 8),
                    UIMG_FIT_CONTAIN);
@@ -236,11 +236,11 @@ static void build(void) {
     uui_checkbox_init(&g_always, 0, 0, 0, g_always_text, bg, fg);
     g_always.checked = 0;
 
-    uui_button_init(&g_b_edit, 0, 0, 0, 0, "Open in Notepad", UTHEME_BUTTON_BG, fg, ID_EDIT);
-    uui_button_init(&g_b_term, 0, 0, 0, 0, "Run in Terminal", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_TERMINAL);
-    uui_button_init(&g_b_run, 0, 0, 0, 0, "Run", UTHEME_BUTTON_BG, fg, ID_RUN);
-    uui_button_init(&g_b_cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, fg, ID_CANCEL);
-    uui_button_init(&g_b_allow, 0, 0, 0, 0, "Allow running, and run", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_ALLOW);
+    uui_button_init(&g_b_edit, 0, 0, 0, 0, "Open in Notepad", UUI_ROLE(control_bg), fg, ID_EDIT);
+    uui_button_init(&g_b_term, 0, 0, 0, 0, "Run in Terminal", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_TERMINAL);
+    uui_button_init(&g_b_run, 0, 0, 0, 0, "Run", UUI_ROLE(control_bg), fg, ID_RUN);
+    uui_button_init(&g_b_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), fg, ID_CANCEL);
+    uui_button_init(&g_b_allow, 0, 0, 0, 0, "Allow running, and run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_ALLOW);
     g_b_term.disabled = g_b_run.disabled = !g_info.interp_found;
 
     int nb = 0, nf = 0;

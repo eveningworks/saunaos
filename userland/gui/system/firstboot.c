@@ -168,7 +168,7 @@ static void caption(struct uui_label *l, const char *text) {
 
 static void hint(struct uui_label *l, const char *text) {
     uui_label_init(l, text);
-    l->fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    l->dim = 1;
     uui_label_set_wrap(l, 2);
 }
 
@@ -555,7 +555,7 @@ static void build(void) {
     uui_keymap_init(&g_keymap, &g_map);
     caption(&c_try, "Try it");
     uui_textbox_init(&g_try, "");
-    uui_checkbox_init(&g_dead, 0, 0, 0, "Dead keys (an accent, then a letter)", UTHEME_WINDOW_BG, UTHEME_TEXT);
+    uui_checkbox_init(&g_dead, 0, 0, 0, "Dead keys (an accent, then a letter)", UUI_ROLE(window_bg), UUI_ROLE(text));
     g_dead.checked = on_off(SET_DEAD);
     g_dead.accent = 1;
     P_KB_RIGHT[0] = item(&uui_keymap_ops, &g_keymap, 0, "keymap", UUI_FILL_W);
@@ -573,7 +573,7 @@ static void build(void) {
     uui_dropdown_set_selected(&g_dd_tz, g_tz.current);
     uui_label_init(&g_tz_sample, g_tz_text);
     uui_checkbox_init(&g_ntp_cb, 0, 0, 0, "Set the clock from the internet (the time server in System Settings)",
-                      UTHEME_WINDOW_BG, UTHEME_TEXT);
+                      UUI_ROLE(window_bg), UUI_ROLE(text));
     g_ntp_cb.checked = on_off(SET_NTP);
     g_ntp_cb.accent = 1;
     P_TIME[0] = item(&uui_label_ops, &c_tz, 0, "tz_caption", 0);
@@ -618,7 +618,7 @@ static void build(void) {
     uui_textbox_init(&g_name, host);
     hint(&g_name_hint, "Shown in About, and to a remote-desktop viewer. Letters, digits and hyphens, up to 63.");
     uui_label_init(&g_name_err, "");
-    g_name_err.fg = utheme_severity(UTHEME_SEV_ERROR);
+    g_name_err.fg = UUI_ROLE(severity[UTHEME_SEV_ERROR]);
     P_NAME[0] = item(&uui_label_ops, &c_name, 0, "name_caption", 0);
     P_NAME[1] = item(&uui_textbox_ops, &g_name, ID_NAME, "name", 0);
     P_NAME[2] = item(&uui_label_ops, &g_name_hint, 0, "name_hint", UUI_FILL_W);
@@ -637,7 +637,7 @@ static void build(void) {
     uui_textbox_init(&g_server, server);
     hint(&g_server_hint, "Where System Update looks for new versions of toy-os.");
     uui_label_init(&g_server_err, "");
-    g_server_err.fg = utheme_severity(UTHEME_SEV_ERROR);
+    g_server_err.fg = UUI_ROLE(severity[UTHEME_SEV_ERROR]);
     P_NET[0] = item(&uui_label_ops, &c_net, 0, "net_caption", 0);
     P_NET[1] = item(&uui_label_ops, &g_net1, 0, "net_status", UUI_FILL_W);
     P_NET[2] = item(&uui_label_ops, &g_net2, 0, "net_address", UUI_FILL_W);

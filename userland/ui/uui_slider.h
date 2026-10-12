@@ -35,7 +35,7 @@ struct uui_slider {
     int hovered;    // OWNED
     int dragging;   // OWNED -- 1 while the thumb is held
     int focused;    // OWNED -- driven by the focus ring's set_focused
-    uint32_t bg, fg, track_bg, fill_bg, thumb_bg;
+    uint32_t bg, fg, track_bg, fill_bg, thumb_bg;   // UUI_COLOR_UNSET = the theme's; or a UUI_ROLE()
 
     // VISIBLE, BUT DOES NOTHING -- the same field uui_button and
     // uui_checkbox already carry. Set it and the control draws dimmed

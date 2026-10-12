@@ -79,7 +79,7 @@ struct utext_wrap {
 };
 
 // A range drawn on a tinted ground behind its text -- a find hit.
-struct utext_mark { int start, end; uint32_t bg; };
+struct utext_mark { int start, end; uint32_t bg; };   // bg: a colour or a UUI_ROLE()
 
 struct utext {
     char *buf;   // the caller's; utext never frees it

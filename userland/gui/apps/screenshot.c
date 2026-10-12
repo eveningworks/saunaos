@@ -315,11 +315,14 @@ static void draw_check(struct ugfx_surface *s, int x, int y, int sz, int on, uin
     }
 }
 
+// The pill's and the popover's card: a step lighter than the page.
+static uint32_t card_ground(void) { return ugfx_blend(UTHEME_PANEL_BG, UTHEME_WHITE, 105); }
+
 static void draw_pop(struct ugfx_surface *s) {
     struct rect p;
     pop_rect(&p);
     int u = unit();
-    uint32_t ground = ugfx_rgb(244, 244, 246);
+    uint32_t ground = card_ground();
     for (int k = 4; k >= 1; k--)
         uui_glass_round_rect(s, p.x - k, p.y - k + 3, p.w + 2 * k, p.h + 2 * k, u / 2 + k,
                              ugfx_rgb(0, 0, 0), (uint8_t)(18 + 6 * (4 - k)), 0);
@@ -335,11 +338,11 @@ static void draw_pop(struct ugfx_surface *s) {
         }
         switch (POP[k].kind) {
         case P_SEP:
-            ugfx_fill_rect(s, r.x, r.y + r.h / 2, r.w, 1, ugfx_rgb(208, 208, 214));
+            ugfx_fill_rect(s, r.x, r.y + r.h / 2, r.w, 1, UTHEME_SEPARATOR);
             break;
         case P_HEAD:
             ugfx_draw_string_clipped(s, r.x + u, ty, r.w - 2 * u, POP[k].label,
-                                     ugfx_rgb(96, 96, 104), bg);
+                                     utheme_current()->text_muted, bg);
             break;
         case P_CHECK: {
             int sz = u;
@@ -697,8 +700,12 @@ static void lit(struct ugfx_surface *s, const struct rect *r) {
     ugfx_blit(s, r->x, r->y, r->w, r->h, frame() + (size_t)r->y * (size_t)g_sw + (size_t)r->x, g_sw);
 }
 
+// Over the CAPTURED PICTURE, so fixed whatever the theme: a frame, a
+// handle and a label must read against any screenshot.
+#define OVER_WHITE ugfx_rgb(255, 255, 255)
+
 static void frame_rect(struct ugfx_surface *s, const struct rect *r) {
-    ugfx_draw_rect(s, r->x - 1, r->y - 1, r->w + 2, r->h + 2, UTHEME_WHITE);
+    ugfx_draw_rect(s, r->x - 1, r->y - 1, r->w + 2, r->h + 2, OVER_WHITE);
     ugfx_draw_rect(s, r->x - 2, r->y - 2, r->w + 4, r->h + 4, ugfx_rgb(0, 0, 0));
 }
 
@@ -721,7 +728,7 @@ static void size_label(struct ugfx_surface *s, const struct rect *r) {
     x = clampi(x, 2, g_sw - tw - 2);
     y = clampi(y, 2, g_sh - th - 2);
     uui_fill_round_rect(s, x, y, tw, th, UUI_CAPSULE, ugfx_rgb(24, 24, 28));
-    ugfx_draw_string(s, x + u / 2, y + (th - ugfx_char_h()) / 2, t, UTHEME_WHITE, ugfx_rgb(24, 24, 28));
+    ugfx_draw_string(s, x + u / 2, y + (th - ugfx_char_h()) / 2, t, OVER_WHITE, ugfx_rgb(24, 24, 28));
 }
 
 // THE MAGNIFIER, while an edge is being placed: the pixels round the
@@ -738,7 +745,7 @@ static void magnifier(struct ugfx_surface *s) {
     x = clampi(x, 2, g_sw - side - 2);
     y = clampi(y, 2, g_sh - side - 2);
     ugfx_fill_rect(s, x - 2, y - 2, side + 4, side + 4, ugfx_rgb(0, 0, 0));
-    ugfx_fill_rect(s, x - 1, y - 1, side + 2, side + 2, UTHEME_WHITE);
+    ugfx_fill_rect(s, x - 1, y - 1, side + 2, side + 2, OVER_WHITE);
     const uint32_t *f = frame();
     for (int j = 0; j < MAG_SRC; j++)
         for (int i = 0; i < MAG_SRC; i++) {
@@ -749,7 +756,7 @@ static void magnifier(struct ugfx_surface *s) {
         }
     int c0 = (MAG_SRC / 2) * MAG_ZOOM;
     ugfx_draw_rect(s, x + c0 - 1, y + c0 - 1, MAG_ZOOM + 2, MAG_ZOOM + 2, ugfx_rgb(0, 0, 0));
-    ugfx_draw_rect(s, x + c0, y + c0, MAG_ZOOM, MAG_ZOOM, UTHEME_WHITE);
+    ugfx_draw_rect(s, x + c0, y + c0, MAG_ZOOM, MAG_ZOOM, OVER_WHITE);
 }
 
 static void draw_icon(struct ugfx_surface *s, const char *name, int cx, int cy, uint32_t ink) {
@@ -761,7 +768,7 @@ static void draw_pill(struct ugfx_surface *s) {
     struct rect p;
     pill_rect(&p);
     int u = unit();
-    uint32_t ground = ugfx_rgb(244, 244, 246);
+    uint32_t ground = card_ground();
     // A soft shadow under the card, then the card.
     for (int k = 4; k >= 1; k--)
         uui_glass_round_rect(s, p.x - k, p.y - k + 3, p.w + 2 * k, p.h + 2 * k, u + k,
@@ -808,7 +815,7 @@ static void draw_pill(struct ugfx_surface *s) {
     ctl_rect(C_WINDOW, &w);
     ctl_rect(C_SHUTTER, &sh);
     ctl_rect(C_POINTER, &pt);
-    uint32_t rule = ugfx_rgb(208, 208, 214);
+    uint32_t rule = UTHEME_SEPARATOR;
     ugfx_fill_rect(s, (w.x + w.w + sh.x) / 2, p.y + u, 1, p.h - 2 * u, rule);
     ugfx_fill_rect(s, (sh.x + sh.w + pt.x) / 2, p.y + u, 1, p.h - 2 * u, rule);
 }
@@ -868,7 +875,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
                 handle_xy(&g_sel, k, &hx, &hy);
                 uui_fill_round_rect(s, hx - hr - 1, hy - hr - 1, 2 * hr + 2, 2 * hr + 2, UUI_CAPSULE,
                                     ugfx_rgb(0, 0, 0));
-                uui_fill_round_rect(s, hx - hr, hy - hr, 2 * hr, 2 * hr, UUI_CAPSULE, UTHEME_WHITE);
+                uui_fill_round_rect(s, hx - hr, hy - hr, 2 * hr, 2 * hr, UUI_CAPSULE, OVER_WHITE);
             }
         }
         if (g_mode == MODE_REGION && g_conf.magnifier && sizing()) magnifier(s);
@@ -876,7 +883,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
             const char *hint = g_mode == MODE_REGION ? "Drag to select an area"
                                                      : "Point at a window and click it";
             int tw = ugfx_text_width(hint);
-            ugfx_draw_string_shadowed(s, (g_sw - tw) / 2, g_sh / 3, hint, UTHEME_WHITE);
+            ugfx_draw_string_shadowed(s, (g_sw - tw) / 2, g_sh / 3, hint, OVER_WHITE);
         }
     }
     draw_pill(s);

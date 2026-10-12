@@ -57,7 +57,7 @@ void uui_switch_draw(struct ugfx_surface *s, const struct uui_switch *sw) {
 
     int k = th - 6;
     int kx = sw->on ? tx + tw - 3 - k : tx + 3;
-    uint32_t knob = sw->on ? UTHEME_WHITE : (sw->disabled ? dim : fg);
+    uint32_t knob = sw->on ? UTHEME_ACCENT_TEXT : (sw->disabled ? dim : fg);
     uui_fill_round_rect(s, kx, ty + 3, k, k, cap == 2 ? 1 : UUI_CAPSULE, knob);
 
     const char *t = state_text(sw);

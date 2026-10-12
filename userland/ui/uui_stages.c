@@ -7,12 +7,16 @@
 #include "ui/uui_widget.h"
 #include "ui/utheme.h"
 
+// The theme's when the app left it unset, looked up per paint
+// (ui/utheme.h's UUI_COLOR), so a theme switch reaches it.
+static uint32_t c_bg(const struct uui_stages *s) { return UUI_COLOR(s->bg, UTHEME_WHITE); }
+
 static int row_h(void) { return ugfx_char_h() + utheme_gap() / 2; }
 
 void uui_stages_init(struct uui_stages *s) {
     memset(s, 0, sizeof *s);
     uui_progress_init(&s->bar);
-    s->bg = UTHEME_WHITE;
+    s->bg = UUI_COLOR_UNSET;
 }
 
 void uui_stages_set_names(struct uui_stages *s, const char *const *names, int n) {
@@ -69,7 +73,7 @@ void uui_stages_draw(struct ugfx_surface *surf, const struct uui_stages *s) {
         snprintf(head, sizeof head, "Stage %d of %d: %s", s->current + 1, s->count, s->names[s->current]);
     else
         snprintf(head, sizeof head, "%s", s->count ? "Done" : "");
-    ugfx_draw_string_clipped(surf, s->x, y, s->w, head, UTHEME_TEXT, s->bg);
+    ugfx_draw_string_clipped(surf, s->x, y, s->w, head, UTHEME_TEXT, c_bg(s));
     y += rh + gap / 2;
 
     int bw, bh;
@@ -82,8 +86,8 @@ void uui_stages_draw(struct ugfx_surface *surf, const struct uui_stages *s) {
     char pct[8] = "";
     if (s->bar.value >= 0) snprintf(pct, sizeof pct, "%d%%", s->bar.value / 10);
     int pw = ugfx_text_width(pct);
-    ugfx_draw_string_clipped(surf, s->x, y, s->w - pw - cw, s->line, dim, s->bg);
-    ugfx_draw_string_clipped(surf, s->x + s->w - pw, y, pw, pct, dim, s->bg);
+    ugfx_draw_string_clipped(surf, s->x, y, s->w - pw - cw, s->line, dim, c_bg(s));
+    ugfx_draw_string_clipped(surf, s->x + s->w - pw, y, pw, pct, dim, c_bg(s));
     y += rh;
     if (!s->count) return;
 
@@ -97,8 +101,8 @@ void uui_stages_draw(struct ugfx_surface *surf, const struct uui_stages *s) {
         int dw = ugfx_text_width(s->detail[i]);
         if (dw > s->w / 2) dw = s->w / 2;
         ugfx_draw_string_clipped(surf, tx, y, s->x + s->w - dw - cw - tx, s->names[i],
-                                 state > 0 ? dim : UTHEME_TEXT, s->bg);
-        ugfx_draw_string_clipped(surf, s->x + s->w - dw, y, dw, s->detail[i], dim, s->bg);
+                                 state > 0 ? dim : UTHEME_TEXT, c_bg(s));
+        ugfx_draw_string_clipped(surf, s->x + s->w - dw, y, dw, s->detail[i], dim, c_bg(s));
     }
 }
 

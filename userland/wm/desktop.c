@@ -2279,7 +2279,7 @@ static void begin_rename(int i) {
     const char *text = item_is_launcher(i) ? g_launch[i].name : k_path_basename(g_rename_path);
     uui_textbox_init(&g_rename_box, text);
     uui_textbox_set_active(&g_rename_box, 1);
-    g_rename_box.border = UTHEME_ACCENT;
+    g_rename_box.border = UUI_ROLE(accent);
     // The NAME selected, not the extension -- the File Manager's rule.
     int n = (int)k_strlen(text), stem = n;
     const char *dot = k_strrchr(text, '.');

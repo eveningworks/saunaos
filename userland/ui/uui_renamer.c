@@ -156,7 +156,7 @@ void uui_renamer_open(struct uapp *a, const char *dir, char (*names)[URENAME_NAM
     g_done = done;
     g_ctx = ctx;
 
-    uint32_t bg = UTHEME_WINDOW_BG, fg = UTHEME_TEXT;
+    uint32_t bg = UUI_ROLE(window_bg), fg = UUI_ROLE(text);   // roles: resolved at draw
     uui_segmented_init(&g_mode, MODES, 3, URENAME_NUMBER);
     uui_segmented_init(&g_casing, CASES, 3, URENAME_TITLE);
     // The folder's own name as the pattern's start, Dolphin's default.
@@ -181,8 +181,8 @@ void uui_renamer_open(struct uapp *a, const char *dir, char (*names)[URENAME_NAM
     uui_label_init(&g_spacer, "");
     uui_table_init(&g_table, 0, 0, 0, 0, COLS, 2, cell, 0);
     uui_table_set_heat(&g_table, heat);
-    uui_button_init(&g_ok, 0, 0, 0, 0, "Rename", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, RN_OK);
-    uui_button_init(&g_cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, RN_CANCEL);
+    uui_button_init(&g_ok, 0, 0, 0, 0, "Rename", UUI_ROLE(accent), UUI_ROLE(accent_text), RN_OK);
+    uui_button_init(&g_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), RN_CANCEL);
 
     g_num_items[0] = item(&uui_label_ops, &g_l_name, 0, 0, 0);
     g_num_items[1] = item(&uui_textbox_ops, &g_pattern, RN_PATTERN, "pattern", UUI_FILL_W);

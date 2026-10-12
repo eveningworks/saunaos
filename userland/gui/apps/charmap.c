@@ -467,7 +467,7 @@ static void card(struct ugfx_surface *s, void *ctx, int index, int x, int y, int
     struct face *f = &g_faces[index];
     int pad = ugfx_char_w(), lh = ugfx_char_h();
     int sel = state & UUI_GRID_SELECTED;
-    uint32_t ink = sel ? UTHEME_ACCENT_TEXT : UTHEME_TEXT, ground = sel ? UTHEME_ACCENT : g_cards.bg;
+    uint32_t ink = sel ? UTHEME_ACCENT_TEXT : UTHEME_TEXT, ground = sel ? UTHEME_ACCENT : uui_grid_c_bg(&g_cards);
     int aa = h * 2 / 5;
     uglyph_text(s, &f->ff.reg, "Aa", aa, x + pad, y + (h + uglyph_ascent(&f->ff.reg, aa)) / 2, ink);
     int tx = x + pad * 2 + aa * 3 / 2, room = w - (tx - x) - pad, ty = y + (h - lh * 2 - 2) / 2;
@@ -638,13 +638,13 @@ int main(void) {
     uui_grid_init(&g_grid, ugfx_char_h() * 5 / 2, ugfx_char_h() * 5 / 2);
     uui_grid_init(&g_cards, ugfx_char_w() * 28, ugfx_char_h() * 4);
     uui_grid_set(&g_cards, g_nfaces, card, 0);
-    g_cards.bg = UTHEME_PANEL_BG;
-    uui_button_init(&g_copy, 0, 0, 0, 0, "Copy", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_COPY);
-    uui_button_init(&g_add, 0, 0, 0, 0, "Add to text", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_ADD);
-    uui_button_init(&g_copy_all, 0, 0, 0, 0, "Copy all", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_COPY_ALL);
-    uui_button_init(&g_clear, 0, 0, 0, 0, "Clear", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_CLEAR);
-    uui_button_init(&g_use_ui, 0, 0, 0, 0, "Use for the interface", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_USE_UI);
-    uui_button_init(&g_use_mono, 0, 0, 0, 0, "Use for terminals", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_USE_MONO);
+    g_cards.bg = UUI_ROLE(panel_bg);
+    uui_button_init(&g_copy, 0, 0, 0, 0, "Copy", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_COPY);
+    uui_button_init(&g_add, 0, 0, 0, 0, "Add to text", UUI_ROLE(control_bg), UUI_ROLE(text), ID_ADD);
+    uui_button_init(&g_copy_all, 0, 0, 0, 0, "Copy all", UUI_ROLE(control_bg), UUI_ROLE(text), ID_COPY_ALL);
+    uui_button_init(&g_clear, 0, 0, 0, 0, "Clear", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CLEAR);
+    uui_button_init(&g_use_ui, 0, 0, 0, 0, "Use for the interface", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_USE_UI);
+    uui_button_init(&g_use_mono, 0, 0, 0, 0, "Use for terminals", UUI_ROLE(control_bg), UUI_ROLE(text), ID_USE_MONO);
     // The interface's face first, as GNOME Characters opens on the system font.
     read_usage();
     int first = 0;

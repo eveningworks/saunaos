@@ -453,7 +453,7 @@ static void draw_graph(const struct network_geom *g) {
         ys_rx[i] = g->graph_y + 3 + ih - (int)(g_rx_hist[i] * (unsigned long long)ih / top);
         ys_tx[i] = g->graph_y + 3 + ih - (int)(g_tx_hist[i] * (unsigned long long)ih / top);
     }
-    ugfx_draw_polyline(s, xs, ys_tx, HIST, 0, ugfx_rgb(176, 112, 58), GEOM_AA);
+    ugfx_draw_polyline(s, xs, ys_tx, HIST, 0, utheme_action(UTHEME_ACT_ARRANGE), GEOM_AA);
     ugfx_draw_polyline(s, xs, ys_rx, HIST, 0, UTHEME_ACCENT, GEOM_AA);
 
     // The legend: a swatch and the last second's rate for each.
@@ -467,7 +467,7 @@ static void draw_graph(const struct network_geom *g) {
     fmt_rate(rate, sizeof rate, g_view.tx_rate);
     k_snprintf(line, sizeof line, "Sending %s", rate);
     uui_fill_round_rect(s, g->graph_x + half, g->legend_y + ch / 2 - 3, 10, 6, 2,
-                        ugfx_rgb(176, 112, 58));
+                        utheme_action(UTHEME_ACT_ARRANGE));
     ugfx_draw_string_clipped(s, g->graph_x + half + 14, g->legend_y, half - 16, line,
                              wm_flyout_dim(), wm_flyout_ink());
 }
@@ -490,11 +490,11 @@ void network_draw(int mx, int my) {
     if (!g_view.have_device) {
         k_strlcpy(title, "No network device", sizeof title);
         k_strlcpy(sub, "Nothing to connect with", sizeof sub);
-        badge = ugfx_rgb(140, 140, 150);
+        badge = ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80);   // nothing to report
     } else if (down) {
         k_strlcpy(title, "Switched off", sizeof title);
         k_snprintf(sub, sizeof sub, "Wired, %s", g_view.name);
-        badge = ugfx_rgb(140, 140, 150);
+        badge = ugfx_blend(utheme_current()->text_muted, UTHEME_WHITE, 80);   // nothing to report
     } else if (g_view.connected) {
         k_strlcpy(title, "Connected", sizeof title);
         k_snprintf(sub, sizeof sub, "Wired, %s%s%s", g_view.name, speed[0] ? ", " : "", speed);
@@ -503,7 +503,7 @@ void network_draw(int mx, int my) {
         k_snprintf(sub, sizeof sub, "%s, %s%s%s",
                    g_view.link_known && !g_view.link_up ? "Cable out" : "Waiting for one",
                    g_view.name, speed[0] ? ", " : "", speed);
-        badge = ugfx_rgb(200, 144, 42);
+        badge = utheme_severity(UTHEME_SEV_WARNING);
     }
     wm_flyout_hero(g.x, g.y, g.w - (g.sw_w ? g.sw_w + g.pad + 8 : g.pad), badge,
                    icon_for(&g_view) == g_icon ? g_icon : icon_for(&g_view), title, sub);

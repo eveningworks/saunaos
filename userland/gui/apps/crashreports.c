@@ -347,8 +347,8 @@ static void list_size(int *w, int *h) {
 static void dialog_size(int *w, int *h) { *w = ugfx_char_advance('n') * 74; *h = ugfx_char_h() * 25; }
 
 static void button(struct uui_button *b, const char *label, int code, int primary, int i) {
-    uui_button_init(b, 0, 0, 0, 0, label, primary ? UTHEME_ACCENT : UTHEME_BUTTON_BG,
-                    primary ? UTHEME_ACCENT_TEXT : UTHEME_TEXT, code);
+    uui_button_init(b, 0, 0, 0, 0, label, primary ? UUI_ROLE(accent) : UUI_ROLE(control_bg),
+                    primary ? UUI_ROLE(accent_text) : UUI_ROLE(text), code);
     g_btn_items[i] = (struct uui_item){ .ops = &uui_button_ops, .widget = b, .id = code,
                                         .name = label };
 }

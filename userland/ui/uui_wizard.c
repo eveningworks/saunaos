@@ -223,15 +223,15 @@ void uui_wizard_init(struct uui_wizard *w, const struct uui_wizard_desc *d) {
     w->rail.armed = -1;
 
     uui_label_init(&w->count_l, w->count_text);
-    w->count_l.fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    w->count_l.dim = 1;
     uui_label_init(&w->title_l, "");
     w->title_l.font = ugfx_font_session(UGFX_FONT_BOLD);
     uui_label_init(&w->note_l, "");
     uui_label_set_wrap(&w->note_l, 2);
     uui_label_init(&w->spacer, "");
-    uui_button_init(&w->back, 0, 0, 0, 0, "Back", UTHEME_BUTTON_BG, UTHEME_TEXT, UUI_WIZARD_BACK);
-    uui_button_init(&w->next, 0, 0, 0, 0, "Next", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, UUI_WIZARD_NEXT);
-    uui_button_init(&w->skip, 0, 0, 0, 0, d->skip ? d->skip : "", UTHEME_CHROME,
+    uui_button_init(&w->back, 0, 0, 0, 0, "Back", UUI_ROLE(control_bg), UUI_ROLE(text), UUI_WIZARD_BACK);
+    uui_button_init(&w->next, 0, 0, 0, 0, "Next", UUI_ROLE(accent), UUI_ROLE(accent_text), UUI_WIZARD_NEXT);
+    uui_button_init(&w->skip, 0, 0, 0, 0, d->skip ? d->skip : "", UUI_ROLE(chrome),
                     utheme_action(UTHEME_ACT_NAV), UUI_WIZARD_SKIP);
     w->back.outlined = w->next.outlined = 1;
 

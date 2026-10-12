@@ -829,9 +829,9 @@ static void draw_header(struct ugfx_surface *s) {
     int bh = ch + pad;
     ugfx_fill_rect(s, x, y, w, bh, t->field_bg);
     ugfx_draw_rect(s, x, y, w, bh, t->outline);
-    uint32_t dot = d->disabled ? ugfx_rgb(130, 130, 136)
-                 : d->problem || d->holder_pid ? ugfx_rgb(191, 110, 0)
-                 : ugfx_rgb(46, 125, 50);
+    uint32_t dot = d->disabled ? ugfx_blend(t->text_muted, t->field_bg, 80)
+                 : d->problem || d->holder_pid ? t->severity[UTHEME_SEV_WARNING]
+                 : t->action[UTHEME_ACT_CREATE];
     int r = ch / 4 > 2 ? ch / 4 : 2;
     ugfx_fill_circle(s, x + pad + r, y + bh / 2, r, dot);
     ugfx_draw_string_clipped(s, x + 2 * pad + 2 * r, y + (bh - ch) / 2, w - 3 * pad - 2 * r, st,
@@ -1074,10 +1074,10 @@ int main(void) {
     g_tree.sel_style = UUI_SEL_STRONG;
     uui_splitter_init(&g_split, 1, 430);
     uui_props_init(&g_props);
-    uui_button_init(&g_toggle, 0, 0, 0, 0, "Disable device", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_TOGGLE);
-    uui_button_init(&g_refresh, 0, 0, 0, 0, "Refresh", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_REFRESH);
-    uui_button_init(&g_load, 0, 0, 0, 0, "Load driver", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_LOAD);
-    uui_button_init(&g_unload, 0, 0, 0, 0, "Unload driver", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_UNLOAD);
+    uui_button_init(&g_toggle, 0, 0, 0, 0, "Disable device", UUI_ROLE(control_bg), UUI_ROLE(text), ID_TOGGLE);
+    uui_button_init(&g_refresh, 0, 0, 0, 0, "Refresh", UUI_ROLE(control_bg), UUI_ROLE(text), ID_REFRESH);
+    uui_button_init(&g_load, 0, 0, 0, 0, "Load driver", UUI_ROLE(control_bg), UUI_ROLE(text), ID_LOAD);
+    uui_button_init(&g_unload, 0, 0, 0, 0, "Unload driver", UUI_ROLE(control_bg), UUI_ROLE(text), ID_UNLOAD);
     uui_dropdown_init(&g_mods, 0, 0, 0, 0, g_mod_items, 0);
     // The mockup's look: outlined buttons, and the selected device in
     // the accent -- both opt-in styles of the toolkit.

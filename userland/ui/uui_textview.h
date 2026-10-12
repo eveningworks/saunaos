@@ -73,7 +73,8 @@ struct uui_textview {
     int page_overlap;  // rows kept when paging (1 = classic)
     int show_caret;
 
-    uint32_t fg, bg, sel_bg;
+    uint32_t fg, bg, sel_bg;   // a colour, a UUI_ROLE() or UUI_COLOR_UNSET
+
 
     struct uui_sbar sb; // the scrollbar, in LINES; OWNED
     int pan_last_y;

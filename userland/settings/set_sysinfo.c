@@ -280,12 +280,12 @@ void sysinfo_rename_open(struct uapp *a) {
     uui_textbox_init(&g_rn_field, g_si_name_text);
     uui_textbox_select(&g_rn_field, 0, (int)strlen(g_si_name_text));
     uui_label_init(&g_rn_hint, "Letters, digits and hyphens, up to 63. Shown in About and to remote-desktop viewers.");
-    g_rn_hint.fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    g_rn_hint.dim = 1;
     uui_label_init(&g_rn_err, "");
-    g_rn_err.fg = utheme_severity(UTHEME_SEV_ERROR);
+    g_rn_err.fg = UUI_ROLE(severity[UTHEME_SEV_ERROR]);
     uui_label_init(&g_rn_gap, "");
-    uui_button_init(&g_rn_ok, 0, 0, 0, 0, "Rename", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, RN_OK);
-    uui_button_init(&g_rn_cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, RN_CANCEL);
+    uui_button_init(&g_rn_ok, 0, 0, 0, 0, "Rename", UUI_ROLE(accent), UUI_ROLE(accent_text), RN_OK);
+    uui_button_init(&g_rn_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), RN_CANCEL);
     RN_BTNS[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_rn_gap, .flags = UUI_FILL_W };
     RN_BTNS[1] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_rn_cancel, .id = RN_CANCEL, .name = "rename_cancel" };
     RN_BTNS[2] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_rn_ok, .id = RN_OK, .name = "rename_ok" };
@@ -318,13 +318,13 @@ void sysinfo_init(void) {
     g_si_view = (struct uui_custom){ .draw = draw_view };
     g_si_head = (struct uui_custom){ .draw = draw_head };
     sysinfo_name_refresh();
-    uui_button_init(&g_si_rename, 0, 0, 0, 0, "Rename...", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SI_RENAME);
+    uui_button_init(&g_si_rename, 0, 0, 0, 0, "Rename...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SI_RENAME);
     uui_setting_row_init(&g_si_name, "Computer name", g_si_name_text,
                          (struct uui_item){ .ops = &uui_button_ops, .widget = &g_si_rename,
                                             .id = ID_SI_RENAME, .name = "si_rename" });
-    uui_button_init(&g_si_devmgr, 0, 0, 0, 0, "Open Device Manager", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SI_DEVMGR);
-    uui_button_init(&g_si_copy, 0, 0, 0, 0, "Copy to clipboard", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SI_COPY);
-    uui_checkbox_init(&g_si_debug_cb, 0, 0, 0, 0, UTHEME_WHITE, UTHEME_TEXT);
+    uui_button_init(&g_si_devmgr, 0, 0, 0, 0, "Open Device Manager", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SI_DEVMGR);
+    uui_button_init(&g_si_copy, 0, 0, 0, 0, "Copy to clipboard", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SI_COPY);
+    uui_checkbox_init(&g_si_debug_cb, 0, 0, 0, 0, UUI_ROLE(field_bg), UUI_ROLE(text));
     uui_setting_row_init(&g_si_debug, "Kernel and debugging settings",
                          "List the kernel and diagnostics pages in the sidebar",
                          (struct uui_item){ .ops = &uui_checkbox_ops, .widget = &g_si_debug_cb,

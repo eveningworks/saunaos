@@ -355,9 +355,9 @@ void tm_services_init(struct tm_page *page) {
     g_title.font = ugfx_font_session(UGFX_FONT_BOLD);
     uui_label_init(&g_spacer, "");
     uui_label_init(&g_detail, g_detail_text);
-    uui_button_init(&g_btn_start, 0, 0, 0, 0, "Start", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_START);
-    uui_button_init(&g_btn_stop, 0, 0, 0, 0, "Stop", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_STOP);
-    uui_button_init(&g_btn_restart, 0, 0, 0, 0, "Restart", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_RESTART);
+    uui_button_init(&g_btn_start, 0, 0, 0, 0, "Start", UUI_ROLE(control_bg), UUI_ROLE(text), ID_START);
+    uui_button_init(&g_btn_stop, 0, 0, 0, 0, "Stop", UUI_ROLE(control_bg), UUI_ROLE(text), ID_STOP);
+    uui_button_init(&g_btn_restart, 0, 0, 0, 0, "Restart", UUI_ROLE(control_bg), UUI_ROLE(text), ID_RESTART);
     g_btn_start.outlined = g_btn_stop.outlined = g_btn_restart.outlined = 1;
 
     BAR_ITEMS[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_title };

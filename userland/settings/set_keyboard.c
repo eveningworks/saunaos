@@ -139,15 +139,15 @@ static void try_end(void) {
 
 void kbd_init(void) {
     uui_listbox_init(&g_kb_list, 0, 0, 0, 0, g_row_ptr, 0);
-    g_kb_list.sel_bg = UTHEME_ACCENT;          // a selected row is the accent,
-    g_kb_list.sel_fg = UTHEME_ACCENT_TEXT;     // as the sidebar's is
-    uui_button_init(&g_kb_add, 0, 0, 0, 0, "Add a layout...", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_KB_ADD);
-    uui_button_init(&g_kb_remove, 0, 0, 0, 0, "Remove", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_KB_REMOVE);
-    uui_button_init(&g_kb_up, 0, 0, 0, 0, "Move up", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_KB_UP);
-    uui_button_init(&g_kb_down, 0, 0, 0, 0, "Move down", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_KB_DOWN);
+    g_kb_list.sel_bg = UUI_ROLE(accent);          // a selected row is the accent,
+    g_kb_list.sel_fg = UUI_ROLE(accent_text);     // as the sidebar's is
+    uui_button_init(&g_kb_add, 0, 0, 0, 0, "Add a layout...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_KB_ADD);
+    uui_button_init(&g_kb_remove, 0, 0, 0, 0, "Remove", UUI_ROLE(control_bg), UUI_ROLE(text), ID_KB_REMOVE);
+    uui_button_init(&g_kb_up, 0, 0, 0, 0, "Move up", UUI_ROLE(control_bg), UUI_ROLE(text), ID_KB_UP);
+    uui_button_init(&g_kb_down, 0, 0, 0, 0, "Move down", UUI_ROLE(control_bg), UUI_ROLE(text), ID_KB_DOWN);
     uui_label_init(&g_kb_gap, "");
     uui_keymap_init(&g_kb_view, &g_kb_map);
-    g_kb_view.bg = UTHEME_WHITE;
+    g_kb_view.bg = UUI_ROLE(field_bg);
     uui_label_init(&g_kb_try_l, "Try it");
     uui_textbox_init(&g_kb_try, "");
     g_kb_row.desc_rows = 1;
@@ -305,10 +305,10 @@ static void kp_open(struct uapp *a) {
     if (g_kp_win && uapp_window_is_open(g_kp_win)) return;
     uui_textbox_init(&g_kp_find, "");
     uui_listbox_init(&g_kp_list, 0, 0, 0, 0, g_kp_rows, 0);
-    g_kp_list.sel_bg = UTHEME_ACCENT;
-    g_kp_list.sel_fg = UTHEME_ACCENT_TEXT;
-    uui_button_init(&g_kp_add, 0, 0, 0, 0, "Add", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, KP_ADD);
-    uui_button_init(&g_kp_cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, KP_CANCEL);
+    g_kp_list.sel_bg = UUI_ROLE(accent);
+    g_kp_list.sel_fg = UUI_ROLE(accent_text);
+    uui_button_init(&g_kp_add, 0, 0, 0, 0, "Add", UUI_ROLE(accent), UUI_ROLE(accent_text), KP_ADD);
+    uui_button_init(&g_kp_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), KP_CANCEL);
     uui_label_init(&g_kp_gap, "");
     kp_filter();
     int rh = uui_listbox_row_h(&g_kp_list);

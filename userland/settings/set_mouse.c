@@ -50,7 +50,7 @@ static void dt_draw(struct ugfx_surface *s, const void *w) {
     if (t->open) {
         int pw = px * 3 / 5, ph = px * 3 / 4, pxx = ix + (px - pw) / 2, py = iy - px / 4;
         ugfx_fill_rect(s, pxx - 1, py - 1, pw + 2, ph + 2, UTHEME_BORDER);
-        ugfx_fill_rect(s, pxx, py, pw, ph, ugfx_rgb(255, 255, 255));
+        ugfx_fill_rect(s, pxx, py, pw, ph, UTHEME_WHITE);
         for (int k = 1; k <= 3; k++)
             ugfx_fill_rect(s, pxx + pw / 6, py + k * ph / 6, pw * 2 / 3, 2, UTHEME_ACCENT);
     }

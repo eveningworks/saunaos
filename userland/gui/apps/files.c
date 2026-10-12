@@ -2041,14 +2041,14 @@ int main(int argc, char **argv) {
     uui_pathbar_set_scheme(&g_path, "search:/", "Search results", "tb-find");
     uui_pathbar_set_scheme(&g_path, "zip:/", "Archive", "file-app");
     uui_segmented_init(&g_scope_seg, g_scope_names, 3, 0);
-    uui_button_init(&g_search_stop, 0, 0, 0, 0, "Stop", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SEARCH_STOP);
+    uui_button_init(&g_search_stop, 0, 0, 0, 0, "Stop", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SEARCH_STOP);
     uui_textbox_init(&g_search, "");
     g_search.placeholder = g_search_hint;
     // The places are the file chooser's (ui/uui_filedialog.c) -- one
     // idea of where Documents is.
     places_build();
-    uui_button_init(&g_dp_open, 0, 0, 0, 0, "Open", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_DP_OPEN);
-    uui_button_init(&g_dp_props, 0, 0, 0, 0, "Properties", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_DP_PROPS);
+    uui_button_init(&g_dp_open, 0, 0, 0, 0, "Open", UUI_ROLE(control_bg), UUI_ROLE(text), ID_DP_OPEN);
+    uui_button_init(&g_dp_props, 0, 0, 0, 0, "Properties", UUI_ROLE(control_bg), UUI_ROLE(text), ID_DP_PROPS);
     // NO ITEMS: a context menu has no bar strip, so Left/Right have no
     // titles to walk out into (ui/uui_menubar.h).
     uui_menubar_init(&g_ctx, 0, 0);
@@ -2057,12 +2057,12 @@ int main(int argc, char **argv) {
                       (int)(sizeof toolbar_items / sizeof toolbar_items[0]));
     g_toolbar.item_flags = menu_item_flags; // ONE state source -- see uui_toolbar.h
     uui_button_init(&g_cancel_btn, 0, 0, 0, 0, "Cancel",
-                     UTHEME_BUTTON_BG, UTHEME_TEXT, ID_CANCEL);
+                     UUI_ROLE(control_bg), UUI_ROLE(text), ID_CANCEL);
     // On the toast's light card: the accent button, and a flat dismiss
     // in the card's own colour, so only its hover shows a face.
-    uui_button_init(&g_toast_btn, 0, 0, 0, 0, "Undo", UTHEME_ACCENT, UTHEME_WHITE, ID_TOAST);
+    uui_button_init(&g_toast_btn, 0, 0, 0, 0, "Undo", UUI_ROLE(accent), UUI_ROLE(field_bg), ID_TOAST);
     g_toast_btn.outlined = 1;
-    uui_button_init(&g_toast_x, 0, 0, 0, 0, "\xd7", uui_popup_bg(), UTHEME_TEXT, ID_TOAST_X);
+    uui_button_init(&g_toast_x, 0, 0, 0, 0, "\xd7", uui_popup_bg(), UUI_ROLE(text), ID_TOAST_X);
     uui_statusbar_init(&g_status);
     g_status.panes[0].text = g_stat_dir;      // "118 items"
     g_status.panes[0].chars = 14;

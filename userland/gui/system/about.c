@@ -393,8 +393,8 @@ static void on_action(struct uapp *a, int code) {
 }
 
 int main(void) {
-    uui_button_init(&g_copy, 0, 0, 0, 0, g_copy_label, UTHEME_BUTTON_BG, UTHEME_TEXT, ID_COPY);
-    uui_button_init(&g_close, 0, 0, 0, 0, "Close", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_CLOSE);
+    uui_button_init(&g_copy, 0, 0, 0, 0, g_copy_label, UUI_ROLE(control_bg), UUI_ROLE(text), ID_COPY);
+    uui_button_init(&g_close, 0, 0, 0, 0, "Close", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CLOSE);
     g_copy.outlined = g_close.outlined = 1;
     uui_focus_init(&g_focus, g_focusables, 2);
     struct uapp_desc desc = {

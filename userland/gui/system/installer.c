@@ -180,7 +180,7 @@ static void disk_card(struct ugfx_surface *s, void *ctx, int index, int x, int y
     if (index < 0 || index >= g_nusable) return;
     const struct udisk *d = &g_scan.disks[g_usable[index]];
     int pad = ugfx_char_w(), lh = ugfx_char_h(), sel = state & UUI_GRID_SELECTED;
-    uint32_t ink = sel ? UTHEME_ACCENT_TEXT : UTHEME_TEXT, ground = sel ? UTHEME_ACCENT : g_grid.bg;
+    uint32_t ink = sel ? UTHEME_ACCENT_TEXT : UTHEME_TEXT, ground = sel ? UTHEME_ACCENT : uui_grid_c_bg(&g_grid);
     char line1[64], line2[96], size[24];
     human_size_iec(size, sizeof size, d->sectors * 512);
     snprintf(line1, sizeof line1, "%s", d->model[0] ? d->model : d->name);
@@ -602,7 +602,7 @@ static void caption(struct uui_label *l, const char *text) {
 
 static void para(struct uui_label *l, const char *text, int dim) {
     uui_label_init(l, text);
-    if (dim) l->fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    if (dim) l->dim = 1;
     uui_label_set_wrap(l, 3);
 }
 
@@ -634,7 +634,7 @@ static void build(void) {
 
     // Disk
     uui_grid_init(&g_grid, cw * 60, lh * 3);
-    g_grid.bg = UTHEME_PANEL_BG;
+    g_grid.bg = UUI_ROLE(panel_bg);
     uui_grid_set(&g_grid, g_nusable, disk_card, 0);
     uui_grid_select(&g_grid, g_nusable ? 0 : -1);
     para(&w_none, g_none_text, 0);
@@ -643,7 +643,7 @@ static void build(void) {
     caption(&c_table, "Partition table");
     uui_segmented_init(&g_table, TABLES, 2, 0);
     uui_label_init(&w_table_hint, "MBR if the firmware will not boot GPT");
-    w_table_hint.fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    w_table_hint.dim = 1;
     uui_diskplan_init(&g_plan_w);
     P_TABLE[0] = item(&uui_label_ops, &c_table, 0, "table_caption", 0);
     P_TABLE[1] = item(&uui_segmented_ops, &g_table, ID_TABLE, "table", 0);
@@ -660,7 +660,7 @@ static void build(void) {
     g_ready_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
                                         .state = &g_ready_facts };
     uui_checkbox_init(&g_askall, 0, 0, 0, "Ask every First-boot setup question again on the first start",
-                      UTHEME_WINDOW_BG, UTHEME_TEXT);
+                      UUI_ROLE(window_bg), UUI_ROLE(text));
     g_askall.accent = 1;
     para(&w_ready_note, "Install erases the disk named above and writes toy-os to it.", 1);
     P_READY[0] = item(&uui_custom_ops, &g_ready_card, 0, "summary", UUI_FILL_W);
@@ -670,11 +670,11 @@ static void build(void) {
 
     // Installing
     uui_stages_init(&g_stages);
-    g_stages.bg = UTHEME_WINDOW_BG;
+    g_stages.bg = UUI_ROLE(window_bg);
     const char *names[UINSTALL_STAGES];
     for (int i = 0; i < UINSTALL_STAGES; i++) names[i] = uinstall_stage_name(i);
     uui_stages_set_names(&g_stages, names, UINSTALL_STAGES);
-    uui_checkbox_init(&g_restart, 0, 0, 0, "Restart when it has finished", UTHEME_WINDOW_BG, UTHEME_TEXT);
+    uui_checkbox_init(&g_restart, 0, 0, 0, "Restart when it has finished", UUI_ROLE(window_bg), UUI_ROLE(text));
     g_restart.accent = 1;
     P_INSTALL[0] = item(&uui_stages_ops, &g_stages, 0, "stages", UUI_FILL_W);
     P_INSTALL[1] = item(&uui_checkbox_ops, &g_restart, ID_RESTART, "restart", 0);
@@ -686,9 +686,9 @@ static void build(void) {
     para(&w_done_text, g_done_text, 0);
     g_done_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
                                        .state = &g_done_facts };
-    uui_button_init(&g_keep, 0, 0, 0, 0, g_live ? "Keep trying toy-os" : "Close", UTHEME_BUTTON_BG, UTHEME_TEXT,
+    uui_button_init(&g_keep, 0, 0, 0, 0, g_live ? "Keep trying toy-os" : "Close", UUI_ROLE(control_bg), UUI_ROLE(text),
                     ID_KEEP);
-    uui_button_init(&g_shutdown, 0, 0, 0, 0, "Shut down", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SHUTDOWN);
+    uui_button_init(&g_shutdown, 0, 0, 0, 0, "Shut down", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SHUTDOWN);
     g_keep.outlined = g_shutdown.outlined = 1;
     P_DONE_BTNS[0] = item(&uui_button_ops, &g_keep, ID_KEEP, "keep", 0);
     P_DONE_BTNS[1] = item(&uui_button_ops, &g_shutdown, ID_SHUTDOWN, "shutdown", 0);

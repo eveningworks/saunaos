@@ -41,6 +41,10 @@ void uui_diskplan_init(struct uui_diskplan *p);
 // UUI_DISKPLAN_NEW_MAX). Both are copied.
 void uui_diskplan_set(struct uui_diskplan *p, const struct udisk *disk,
                       const struct uui_diskplan_new *after, int n);
+// A partition card's colours by what it IS (a UDISK_ROLE_*): firmware
+// amber, `strong` (a filesystem) the accent's tint, the rest grey --
+// theme roles, shared with Disks so the two maps agree.
+void uui_diskplan_colour(struct uui_segbar_seg *s, int role, int strong);
 
 extern const struct uui_widget_ops uui_diskplan_ops;
 

@@ -4,15 +4,21 @@
 #include "ui/uui_widget.h"
 #include "ui/utheme.h"
 
+// The theme's when the app left it unset, looked up per paint
+// (ui/utheme.h's UUI_COLOR), so a theme switch reaches it.
+static uint32_t c_track(const struct uui_progress *p) { return UUI_COLOR(p->track, UTHEME_WHITE); }
+static uint32_t c_fill(const struct uui_progress *p) { return UUI_COLOR(p->fill, UTHEME_ACCENT); }
+static uint32_t c_border(const struct uui_progress *p) { return UUI_COLOR(p->border, UTHEME_OUTLINE); }
+
 #define BUSY_STEPS 64   // one sweep of the busy block, in ticks
 
 void uui_progress_init(struct uui_progress *p) {
     p->x = p->y = p->w = p->h = 0;
     p->value = 0;
     p->phase = 0;
-    p->track = UTHEME_WHITE;
-    p->fill = UTHEME_ACCENT;
-    p->border = UTHEME_OUTLINE;
+    p->track = UUI_COLOR_UNSET;
+    p->fill = UUI_COLOR_UNSET;
+    p->border = UUI_COLOR_UNSET;
 }
 
 void uui_progress_set(struct uui_progress *p, int per_mille) {
@@ -43,10 +49,10 @@ void uui_progress_natural_size(const struct uui_progress *p, int *out_w, int *ou
 void uui_progress_draw(struct ugfx_surface *s, const struct uui_progress *p) {
     if (p->w <= 2 || p->h <= 2) return;
     int ix = p->x + 1, iy = p->y + 1, iw = p->w - 2, ih = p->h - 2;
-    ugfx_fill_rect(s, ix, iy, iw, ih, p->track);
+    ugfx_fill_rect(s, ix, iy, iw, ih, c_track(p));
     if (p->value >= 0) {
         int on = iw * p->value / 1000;
-        if (on > 0) ugfx_fill_rect(s, ix, iy, on, ih, p->fill);
+        if (on > 0) ugfx_fill_rect(s, ix, iy, on, ih, c_fill(p));
     } else {
         // A quarter-width block entering at the left and leaving at the
         // right, clipped to the track at both ends.
@@ -54,9 +60,9 @@ void uui_progress_draw(struct ugfx_surface *s, const struct uui_progress *p) {
         int left = (iw + blk) * p->phase / BUSY_STEPS - blk;
         int x0 = left < 0 ? 0 : left;
         int x1 = left + blk > iw ? iw : left + blk;
-        if (x1 > x0) ugfx_fill_rect(s, ix + x0, iy, x1 - x0, ih, p->fill);
+        if (x1 > x0) ugfx_fill_rect(s, ix + x0, iy, x1 - x0, ih, c_fill(p));
     }
-    ugfx_draw_rect(s, p->x, p->y, p->w, p->h, p->border);
+    ugfx_draw_rect(s, p->x, p->y, p->w, p->h, c_border(p));
 }
 
 static void natural_op(const void *w, int *ow, int *oh) {

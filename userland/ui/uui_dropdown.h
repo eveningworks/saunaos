@@ -19,7 +19,7 @@ struct uui_dropdown {
     int open;
     int max_rows;
     int focused;  // OWNED -- driven by the focus ring's set_focused
-    uint32_t bg, fg, border;
+    uint32_t bg, fg, border;   // UUI_COLOR_UNSET = the theme's; or a UUI_ROLE()
 
     // VISIBLE, BUT DOES NOTHING -- the same field uui_button and
     // uui_checkbox already carry. Set it and the control draws dimmed

@@ -6,8 +6,8 @@
 void uui_label_init(struct uui_label *l, const char *text) {
     l->x = l->y = l->w = l->h = 0;
     l->text = text;
-    l->fg = ugfx_rgb(20, 20, 20);
-    l->bg = UUI_COLOR_UNSET; // the page's ground, resolved at draw
+    l->fg = l->bg = UUI_COLOR_UNSET; // the theme's text and page, resolved at draw
+    l->dim = 0;
     l->rows = 1;
     l->wrap = 0;
 }
@@ -100,6 +100,8 @@ void uui_label_draw(struct ugfx_surface *s, const struct uui_label *l) {
 
 static void uui_label_draw_body(struct ugfx_surface *s, const struct uui_label *l) {
     if (!l->text || !l->text[0]) return;
+    uint32_t fg = UUI_COLOR(l->fg, UTHEME_TEXT), bg = UUI_COLOR(l->bg, UTHEME_PANEL_BG);
+    if (l->dim) fg = uui_state_bg(fg, UUI_STATE_DISABLED);
     if (!l->wrap) {
         // **CENTRED IN WHATEVER HEIGHT IT WAS GIVEN.** A label's box is
         // its own text height unless a layout stretched it, and then
@@ -110,7 +112,7 @@ static void uui_label_draw_body(struct ugfx_surface *s, const struct uui_label *
         // which is what every toolkit centres it to avoid.
         int th = ugfx_char_h();
         int ty = l->h > th ? l->y + (l->h - th) / 2 : l->y;
-        ugfx_draw_string_clipped(s, l->x, ty, l->w, l->text, l->fg, UUI_COLOR(l->bg, UTHEME_PANEL_BG));
+        ugfx_draw_string_clipped(s, l->x, ty, l->w, l->text, fg, bg);
         return;
     }
 
@@ -139,7 +141,7 @@ static void uui_label_draw_body(struct ugfx_surface *s, const struct uui_label *
                 }
             }
         }
-        ugfx_draw_string_clipped(s, l->x, l->y + r * line_h, l->w, line, l->fg, UUI_COLOR(l->bg, UTHEME_PANEL_BG));
+        ugfx_draw_string_clipped(s, l->x, l->y + r * line_h, l->w, line, fg, bg);
         p = next;
     }
 }

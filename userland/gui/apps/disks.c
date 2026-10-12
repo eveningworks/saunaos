@@ -37,6 +37,7 @@
 #include "ui/uui_menubar.h"
 #include "ui/uui_primitives.h"
 #include "ui/uui_segbar.h"
+#include "ui/uui_diskplan.h"   // uui_diskplan_colour()
 #include "ui/uui_segmented.h"
 #include "ui/uui_stages.h"
 #include "ui/uui_statusbar.h"
@@ -146,16 +147,7 @@ static void add_seg(int part, uint64_t start, uint64_t count) {
         snprintf(g_seg_corner[i], sizeof g_seg_corner[i], "%s", p->point);
         if (p->total) s->used_pct = (int)(p->used * 100 / p->total);
         // Colour by what it IS: the firmware's in amber, data in the accent's tint.
-        if (p->role == UDISK_ROLE_ESP || p->role == UDISK_ROLE_BIOS) {
-            s->fill = ugfx_rgb(255, 241, 220);
-            s->edge = ugfx_rgb(217, 165, 90);
-        } else if (p->point[0]) {
-            s->fill = ugfx_rgb(205, 220, 240);
-            s->edge = ugfx_rgb(70, 110, 160);
-        } else {
-            s->fill = ugfx_rgb(233, 235, 240);
-            s->edge = ugfx_rgb(185, 192, 206);
-        }
+        uui_diskplan_colour(s, p->role, p->point[0] != 0);
         s->corner = g_seg_corner[i][0] ? g_seg_corner[i] : 0;
     }
     s->title = g_seg_title[i];
@@ -626,7 +618,7 @@ static void answer(struct uapp *a, int code) {
 static void drive_card(struct ugfx_surface *s, void *ctx, int index, int x, int y, int w, int h, int state) {
     (void)ctx;
     int pad = ugfx_char_w(), lh = ugfx_char_h(), sel = state & UUI_GRID_SELECTED;
-    uint32_t ink = sel ? UTHEME_ACCENT_TEXT : UTHEME_TEXT, ground = sel ? UTHEME_ACCENT : g_drives.bg;
+    uint32_t ink = sel ? UTHEME_ACCENT_TEXT : UTHEME_TEXT, ground = sel ? UTHEME_ACCENT : uui_grid_c_bg(&g_drives);
     char line1[48], line2[64], size[24];
     const char *icon = "drive";
     if (index < g_scan.ndisks) {
@@ -1017,14 +1009,14 @@ int main(int argc, char **argv) {
     g_tb.item_flags = item_flags;
     g_tb.overflow = 1;    // a narrow window folds the right-hand buttons into a menu
     uui_grid_init(&g_drives, ugfx_char_w() * 16, ugfx_char_h() * 3);
-    g_drives.bg = UTHEME_PANEL_BG;
+    g_drives.bg = UUI_ROLE(panel_bg);
     g_drives.cell = drive_card;
     uui_segbar_init(&g_map);
     uui_textbox_init(&g_size, "");
     uui_textbox_init(&g_name, "");
     g_name.placeholder = "Name (optional)";
     uui_segmented_init(&g_fs, FS_CHOICES, 3, 0);
-    uui_button_init(&g_create, 0, 0, 0, 0, "Create", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_CREATE);
+    uui_button_init(&g_create, 0, 0, 0, 0, "Create", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_CREATE);
     uui_dialog_init(&g_ask);
     uui_stages_init(&g_stages);
     uui_statusbar_init(&g_sb);

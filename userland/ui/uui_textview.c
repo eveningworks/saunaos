@@ -107,11 +107,12 @@ static void sbar_moved(struct uui_textview *tv) {
 
 void uui_textview_draw(struct ugfx_surface *s, struct uui_textview *tv) {
     int tw = uui_textview_text_w(tv);
+    uint32_t fg = UUI_COLOR(tv->fg, UTHEME_TEXT), bg = UUI_COLOR(tv->bg, UTHEME_WHITE);
+    uint32_t sel_bg = UUI_COLOR(tv->sel_bg, UTHEME_SELECTION);
 
-    ugfx_fill_rect(s, tv->x, tv->y, tv->w, tv->h, tv->bg);
+    ugfx_fill_rect(s, tv->x, tv->y, tv->w, tv->h, bg);
     const struct ugfx_font *was = grid_font();
-    utext_draw(&tv->tb, s, tv->x, tv->y, tw, tv->h,
-               tv->fg, tv->bg, tv->sel_bg, tv->show_caret);
+    utext_draw(&tv->tb, s, tv->x, tv->y, tw, tv->h, fg, bg, sel_bg, tv->show_caret);
     ugfx_set_font(was);
 
     if (!uui_textview_scrollbar_visible(tv)) return;
@@ -127,7 +128,7 @@ void uui_textview_draw(struct ugfx_surface *s, struct uui_textview *tv) {
     struct uui_sbar sb = tv->sb;
     uui_sbar_place(&sb, tv->x + tw, tv->y, tv->h);
     uui_sbar_set(&sb, total_px, vis_px, total_px - vis_px - off_px);
-    uui_sbar_draw(&sb, s, tv->bg, tv->fg);
+    uui_sbar_draw(&sb, s, bg, fg);
 }
 
 int uui_textview_wheel(struct uui_textview *tv, int delta) {

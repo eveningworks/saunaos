@@ -35,7 +35,7 @@ struct uui_grid {
     int scroll;                 // pixels
     uui_grid_cell_fn cell;
     void *ctx;
-    uint32_t bg;
+    uint32_t bg;   // UUI_COLOR_UNSET = field_bg; a cell callback reads uui_grid_c_bg()
     // OWNED
     int hot, armed, activated, focused;
     int bar_hot, bar_drag, bar_grab;
@@ -44,6 +44,8 @@ struct uui_grid {
 };
 
 void uui_grid_init(struct uui_grid *g, int cell_w, int cell_h);
+// The ground the grid draws on, resolved against the live theme.
+uint32_t uui_grid_c_bg(const struct uui_grid *g);
 void uui_grid_set(struct uui_grid *g, int count, uui_grid_cell_fn cell, void *ctx);
 // Selects `index` (or -1) and scrolls it into view.
 void uui_grid_select(struct uui_grid *g, int index);

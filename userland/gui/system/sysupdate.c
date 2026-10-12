@@ -585,11 +585,11 @@ int main(void) {
     uui_label_init(&g_amount, g_amount_text);
     uui_label_init(&g_rate, g_rate_text);
     uui_label_init(&g_spacer, "");
-    uui_button_init(&g_change, 0, 0, 0, 0, "Change...", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_CHANGE);
-    uui_button_init(&g_use, 0, 0, 0, 0, "Use", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_USE);
-    uui_button_init(&g_edit_cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_EDIT_CANCEL);
-    uui_button_init(&g_check, 0, 0, 0, 0, "Check again", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_CHECK);
-    uui_button_init(&g_main, 0, 0, 0, 0, "Restart now", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_MAIN);
+    uui_button_init(&g_change, 0, 0, 0, 0, "Change...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CHANGE);
+    uui_button_init(&g_use, 0, 0, 0, 0, "Use", UUI_ROLE(control_bg), UUI_ROLE(text), ID_USE);
+    uui_button_init(&g_edit_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), ID_EDIT_CANCEL);
+    uui_button_init(&g_check, 0, 0, 0, 0, "Check again", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CHECK);
+    uui_button_init(&g_main, 0, 0, 0, 0, "Restart now", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_MAIN);
     g_change.outlined = g_use.outlined = g_edit_cancel.outlined = 1;
     g_check.outlined = 1;
     uui_textbox_init(&g_edit, g_server);
@@ -598,7 +598,7 @@ int main(void) {
     uui_progress_init(&g_bar);
     uui_table_init(&g_table, 0, 0, 0, 0, COLS, (int)(sizeof COLS / sizeof COLS[0]), cell, 0);
     uui_table_set_tint(&g_table, tint);
-    uui_textview_init(&g_log, 0, 0, 0, 0, UTHEME_TEXT, UTHEME_WHITE, UTHEME_SELECTION,
+    uui_textview_init(&g_log, 0, 0, 0, 0, UUI_ROLE(text), UUI_ROLE(field_bg), UUI_ROLE(selection_bg),
                       g_log_buf, (int)sizeof g_log_buf);
     uui_markdown_init(&g_notes);
     uui_tabs_init(&g_tabs, g_tab_list, PAGE_COUNT, 0);

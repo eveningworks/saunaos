@@ -141,7 +141,7 @@ void remote_init(void) {
     uui_textbox_init(&g_vnc_pw, "");
     g_vnc_pw.masked = 1;
     g_vnc_pw.placeholder = "Not set";
-    uui_button_init(&g_vnc_pw_save, 0, 0, 0, 0, "Save", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_RD_PW_SAVE);
+    uui_button_init(&g_vnc_pw_save, 0, 0, 0, 0, "Save", UUI_ROLE(control_bg), UUI_ROLE(text), ID_RD_PW_SAVE);
     g_pw_items[0] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_vnc_pw,
                                        .id = ID_RD_PW, .flags = UUI_FILL_W, .name = "rd_vnc_pw" };
     g_pw_items[1] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_vnc_pw_save,
@@ -213,7 +213,7 @@ void remote_init(void) {
     g_add_addr.placeholder = "Address or subnet, 192.168.1.0/24";
     uui_textbox_init(&g_add_label, "");
     g_add_label.placeholder = "Name (optional)";
-    uui_button_init(&g_add_b, 0, 0, 0, 0, "Add", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_RD_ADD);
+    uui_button_init(&g_add_b, 0, 0, 0, 0, "Add", UUI_ROLE(control_bg), UUI_ROLE(text), ID_RD_ADD);
     g_add_items[0] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_add_addr,
                                         .id = ID_RD_ADD_ADDR, .flags = UUI_FILL_W, .name = "rd_add_addr" };
     g_add_items[1] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_add_label,

@@ -260,7 +260,7 @@ void term_prefs_open(struct uapp *a, const struct term_conf *c,
 
     uui_gallery_init(&g_schemes, g_label_ptr, g_scheme_count, 0);
     g_schemes.draw_tile = draw_scheme;
-    uint32_t bg = UTHEME_WINDOW_BG, fg = UTHEME_TEXT;
+    uint32_t bg = UUI_ROLE(window_bg), fg = UUI_ROLE(text);   // roles: resolved at draw
     uui_checkbox_init(&g_sysfont,   0, 0, 0, "Use the desktop's size", bg, fg);
     uui_checkbox_init(&g_flicker,   0, 0, 0, "Flicker", bg, fg);
     uui_checkbox_init(&g_noise,     0, 0, 0, "Static noise", bg, fg);

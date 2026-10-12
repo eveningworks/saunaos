@@ -144,7 +144,7 @@ void uui_sndtest_init(struct uui_sndtest *t, int code_base) {
     t->playing = -1;
     t->tile[0].label = LABEL[UUI_SNDTEST_LEFT];
     t->tile[1].label = LABEL[UUI_SNDTEST_RIGHT];
-    uui_button_init(&t->both, 0, 0, 0, 0, LABEL[UUI_SNDTEST_BOTH], UTHEME_BUTTON_BG, UTHEME_TEXT,
+    uui_button_init(&t->both, 0, 0, 0, 0, LABEL[UUI_SNDTEST_BOTH], UUI_ROLE(control_bg), UUI_ROLE(text),
                     code_base + UUI_SNDTEST_BOTH);
     t->both.outlined = 1;
     strlcpy(t->status, IDLE, sizeof t->status);
@@ -203,8 +203,8 @@ static void mark(struct uui_sndtest *t) {
     t->tile[0].latched = t->playing == UUI_SNDTEST_LEFT;
     t->tile[1].latched = t->playing == UUI_SNDTEST_RIGHT;
     int both = t->playing == UUI_SNDTEST_BOTH;
-    t->both.bg = both ? UTHEME_ACCENT : UTHEME_BUTTON_BG;
-    t->both.fg = both ? UTHEME_ACCENT_TEXT : UTHEME_TEXT;
+    t->both.bg = both ? UUI_ROLE(accent) : UUI_ROLE(control_bg);
+    t->both.fg = both ? UUI_ROLE(accent_text) : UUI_ROLE(text);
 }
 
 static void chime(struct uui_sndtest *t) {

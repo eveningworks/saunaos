@@ -80,10 +80,7 @@ void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
     t->sel_bg = UUI_COLOR_UNSET;
     t->sel_fg = UUI_COLOR_UNSET;
     t->head_bg = UUI_COLOR_UNSET;
-    // A header's ink is a step lighter than body text and the palette
-    // has no role for it yet; left a literal rather than mapped to
-    // `text`, which would darken every table header today.
-    t->head_fg = ugfx_rgb(40, 40, 40);
+    t->head_fg = UUI_COLOR_UNSET;
     t->grid = UUI_COLOR_UNSET;
 }
 
@@ -99,6 +96,11 @@ uint32_t uui_table_c_sel_bg(const struct uui_table *t)  { return UUI_COLOR(t->se
 uint32_t uui_table_c_sel_fg(const struct uui_table *t)  { return UUI_COLOR(t->sel_fg, UTHEME_TEXT); }
 uint32_t uui_table_c_head_bg(const struct uui_table *t) { return UUI_COLOR(t->head_bg, UTHEME_BUTTON_BG); }
 uint32_t uui_table_c_grid(const struct uui_table *t)    { return UUI_COLOR(t->grid, UTHEME_SEPARATOR); }
+// A header's ink is a step lighter than body text: a third of the way
+// to the muted text, (40,42,46) on Light.
+uint32_t uui_table_c_head_fg(const struct uui_table *t) {
+    return UUI_COLOR(t->head_fg, ugfx_blend(UTHEME_TEXT, utheme_current()->text_muted, 80));
+}
 
 int uui_table_row_h(const struct uui_table *t) {
     return t->row_h > 0 ? t->row_h : ugfx_char_h() + 4;
@@ -555,7 +557,7 @@ static void table_draw_header(struct ugfx_surface *s, const struct uui_table *t,
             if (tw < text_avail) tx = cx + cw - UUI_TABLE_PAD_X - arrow - tw;
         }
         ugfx_draw_string_clipped(s, tx, t->y + (hh - ugfx_char_h()) / 2,
-                                  text_avail, title, t->head_fg, uui_table_c_head_bg(t));
+                                  text_avail, title, uui_table_c_head_fg(t), uui_table_c_head_bg(t));
         if (arrow) {
             // Drawn as stacked rows rather than a glyph: the baked font
             // has no arrow character, and a triangle built from the
@@ -572,7 +574,7 @@ static void table_draw_header(struct ugfx_surface *s, const struct uui_table *t,
                 int inset = (ah - 1 - row) * aw / (2 * ah);
                 int rw = aw - 2 * inset;
                 if (rw < 1) rw = 1;
-                ugfx_fill_rect(s, ax + inset, ay + r, rw, 1, t->head_fg);
+                ugfx_fill_rect(s, ax + inset, ay + r, rw, 1, uui_table_c_head_fg(t));
             }
         }
         // Column separator, header only -- a full grid turns a dense

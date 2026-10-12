@@ -17,6 +17,10 @@
 #include "ui/utheme.h"
 #include "ui/ugfx.h"
 
+// The theme's when the app left it unset, looked up per paint
+// (ui/utheme.h's UUI_COLOR), so a theme switch reaches it.
+static uint32_t c_bg(const struct uui_scrollview *sv) { return UUI_COLOR(sv->bg, UTHEME_WINDOW_BG); }
+
 static int row_px(const struct uui_scrollview *sv) {
     if (sv->step > 0) return sv->step;
     int r = ugfx_char_h();
@@ -118,7 +122,7 @@ void uui_scrollview_init(struct uui_scrollview *sv, struct uui_layout *content) 
                           // state, and 0 would read as "already seen".
     sv->pref_rows = 0;
     sv->step = 0;
-    sv->bg = UTHEME_WINDOW_BG;
+    sv->bg = UUI_COLOR_UNSET;
     if (content) uui_router_init(&sv->router, content->items, content->count);
     else uui_router_init(&sv->router, 0, 0);
 }
@@ -211,7 +215,7 @@ static void sv_children_begin(struct ugfx_surface *s, void *w) {
     // drawn.
     int disp = uui_scrollanim_sync(&sv->anim, sv->offset);
     if (disp != sv->anim_disp) { sv->anim_disp = disp; place_content(sv); }
-    ugfx_fill_rect(s, sv->x, sv->y, sv->w, sv->h, sv->bg);
+    ugfx_fill_rect(s, sv->x, sv->y, sv->w, sv->h, c_bg(sv));
     // A non-positive w/h would set an EMPTY clip rather than none
     // (ugfx.h), which is exactly right for a zero-sized viewport.
     ugfx_set_clip_rect(s, sv->x, sv->y,
@@ -225,7 +229,7 @@ static void sv_children_end(struct ugfx_surface *s, void *w) {
     if (!uui_scrollview_scrollable(sv)) return;
 
     sbar_fill(sv, &sv->sb);
-    uui_sbar_draw(&sv->sb, s, sv->bg, UTHEME_TEXT);
+    uui_sbar_draw(&sv->sb, s, c_bg(sv), UTHEME_TEXT);
 }
 
 // THE ONE ACCESSOR for the children, which is why the staleness check

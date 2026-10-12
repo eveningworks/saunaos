@@ -17,13 +17,8 @@ void uui_slider_init(struct uui_slider *s, const char *const *options, int count
     s->selected = count > 0 ? 0 : -1;
     s->hovered = 0;
     s->dragging = 0;
-    s->bg = UUI_COLOR_UNSET; // the page's ground, resolved at draw
-    s->fg = ugfx_rgb(20, 20, 20);
-    s->track_bg = ugfx_rgb(205, 205, 212);
-    // The travelled part of the track, so "how far along am I" reads
-    // without counting ticks -- what every real slider draws.
-    s->fill_bg = ugfx_rgb(120, 150, 200);
-    s->thumb_bg = ugfx_rgb(70, 100, 160);
+    // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
+    s->bg = s->fg = s->track_bg = s->fill_bg = s->thumb_bg = UUI_COLOR_UNSET;
     s->disabled = 0;
 }
 
@@ -91,26 +86,29 @@ void uui_slider_draw(struct ugfx_surface *surf, const struct uui_slider *s) {
     int ty = track_y(s), x0 = track_x0(s), x1 = track_x1(s);
     int sel = s->selected < 0 ? 0 : s->selected;
     int sx = stop_x(s, sel);
+    uint32_t fg = UUI_COLOR(s->fg, UTHEME_TEXT), track = UUI_COLOR(s->track_bg, UTHEME_SEPARATOR);
+    uint32_t thumb_bg = UUI_COLOR(s->thumb_bg, UTHEME_ACCENT);
+    // The travelled part of the track, so "how far along am I" reads
+    // without counting ticks -- what every real slider draws.
+    uint32_t fill = UUI_COLOR(s->fill_bg, ugfx_blend(UTHEME_ACCENT, UTHEME_WHITE, 69));
 
-    ugfx_fill_rect(surf, x0, ty - SLIDER_TRACK_H / 2, x1 - x0, SLIDER_TRACK_H,
-                    s->track_bg);
+    ugfx_fill_rect(surf, x0, ty - SLIDER_TRACK_H / 2, x1 - x0, SLIDER_TRACK_H, track);
     // The travelled part.
     if (sx > x0)
-        ugfx_fill_rect(surf, x0, ty - SLIDER_TRACK_H / 2, sx - x0, SLIDER_TRACK_H,
-                        s->fill_bg);
+        ugfx_fill_rect(surf, x0, ty - SLIDER_TRACK_H / 2, sx - x0, SLIDER_TRACK_H, fill);
 
     // A tick per stop, so the discreteness is VISIBLE -- a slider that
     // looked continuous and snapped would read as a bug rather than as
     // a design.
     for (int i = 0; i < s->count; i++) {
         int tx = stop_x(s, i);
-        ugfx_fill_rect(surf, tx, ty + SLIDER_TRACK_H, 1, SLIDER_TICK_H, s->track_bg);
+        ugfx_fill_rect(surf, tx, ty + SLIDER_TRACK_H, 1, SLIDER_TICK_H, track);
     }
 
-    uint32_t thumb = s->disabled ? uui_state_bg(s->thumb_bg, UUI_STATE_DISABLED)
+    uint32_t thumb = s->disabled ? uui_state_bg(thumb_bg, UUI_STATE_DISABLED)
                    : (s->dragging || s->hovered)
-                       ? uui_state_bg(s->thumb_bg, UUI_STATE_HOVER)
-                       : s->thumb_bg;
+                       ? uui_state_bg(thumb_bg, UUI_STATE_HOVER)
+                       : thumb_bg;
     ugfx_fill_rect(surf, sx - SLIDER_THUMB_W / 2, ty - SLIDER_THUMB_W / 2,
                     SLIDER_THUMB_W, SLIDER_THUMB_W, thumb);
 
@@ -127,7 +125,7 @@ void uui_slider_draw(struct ugfx_surface *surf, const struct uui_slider *s) {
     int ly = s->y + SLIDER_THUMB_W + SLIDER_LABEL_GAP;
     ugfx_draw_string_clipped(surf, s->x + SLIDER_PAD_X, ly,
                               s->w - 2 * SLIDER_PAD_X, label,
-                              s->disabled ? uui_state_bg(s->fg, UUI_STATE_DISABLED) : s->fg,
+                              s->disabled ? uui_state_bg(fg, UUI_STATE_DISABLED) : fg,
                               UUI_COLOR(s->bg, UTHEME_PANEL_BG));
 }
 

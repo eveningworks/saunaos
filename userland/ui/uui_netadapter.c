@@ -15,7 +15,7 @@ void uui_netadapter_init(struct uui_netadapter *n, int id_base) {
     uui_dropdown_init(&n->flow_dd, 0, 0, 0, 0, 0, 0);
     uui_dropdown_init(&n->mod_dd, 0, 0, 0, 0, 0, 0);
     uui_switch_init(&n->eee_sw, 0);
-    uui_button_init(&n->reset_b, 0, 0, 0, 0, "Restore defaults", UTHEME_BUTTON_BG, UTHEME_TEXT,
+    uui_button_init(&n->reset_b, 0, 0, 0, 0, "Restore defaults", UUI_ROLE(control_bg), UUI_ROLE(text),
                     id_base + ID_RESET);
     uui_label_init(&n->note_l, n->note);
     for (int i = 0; i < 4; i++) {

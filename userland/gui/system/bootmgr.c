@@ -943,13 +943,13 @@ int main(void) {
     uui_textbox_init(&g_title, "");
     uui_optlist_init(&g_words, g_rows, 0);
     g_words.value_chars = 12;
-    uui_textview_init(&g_text, 0, 0, 0, 0, UTHEME_TEXT, UTHEME_WHITE, UTHEME_SELECTION,
+    uui_textview_init(&g_text, 0, 0, 0, 0, UUI_ROLE(text), UUI_ROLE(field_bg), UUI_ROLE(selection_bg),
                       g_textbuf, sizeof g_textbuf);
     g_text.show_caret = 1;
     g_text.editable = 1;   // its keys are text_key()'s; the menu edits too
     utext_set_wrap(&g_text.tb, UTEXT_WRAP_OFF);
-    uui_button_init(&g_save, 0, 0, 0, 0, "Save", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_SAVE);
-    uui_button_init(&g_revert, 0, 0, 0, 0, "Revert", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_REVERT);
+    uui_button_init(&g_save, 0, 0, 0, 0, "Save", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_SAVE);
+    uui_button_init(&g_revert, 0, 0, 0, 0, "Revert", UUI_ROLE(control_bg), UUI_ROLE(text), ID_REVERT);
     g_revert.outlined = 1;
     uui_dialog_init(&g_ask);
     set_hidden(ID_TEXT, 1);

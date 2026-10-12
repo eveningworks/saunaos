@@ -8,10 +8,14 @@
 
 #include <string.h>
 
+// The theme's when the app left it unset, looked up per paint
+// (ui/utheme.h's UUI_COLOR), so a theme switch reaches it.
+static uint32_t c_bg(const struct uui_medialist *m) { return UUI_COLOR(m->bg, UTHEME_PANEL_BG); }
+
 void uui_medialist_init(struct uui_medialist *m) {
     memset(m, 0, sizeof *m);
     m->selected = m->current = m->hot = m->armed = m->committed = -1;
-    m->bg = UTHEME_PANEL_BG;
+    m->bg = UUI_COLOR_UNSET;
 }
 
 // Two lines and a margin: the title, the detail under it.
@@ -90,7 +94,7 @@ static void draw_row(struct ugfx_surface *s, const struct uui_medialist *m, int 
     int rh = uui_medialist_row_h(), pad = ugfx_char_w(), lh = ugfx_char_h();
     int rx = m->x + pad / 2, rw = m->w - pad - bar_w() / 2;
     int sel = r == m->selected, cur = r == m->current;
-    uint32_t ground = m->bg;
+    uint32_t ground = c_bg(m);
     if (sel || cur) {
         // The design language's selection: a soft fill, a 1px edge --
         // the full accent where the keyboard is.
@@ -99,7 +103,7 @@ static void draw_row(struct ugfx_surface *s, const struct uui_medialist *m, int 
         uui_fill_round_rect(s, rx + 1, ry + 2, rw - 2, rh - 4, uui_select_radius(0), UTHEME_SELECTION);
         ground = UTHEME_SELECTION;
     } else if (r == m->hot) {
-        ground = uui_state_bg(m->bg, UUI_STATE_HOVER);
+        ground = uui_state_bg(c_bg(m), UUI_STATE_HOVER);
         uui_fill_round_rect(s, rx, ry + 1, rw, rh - 2, 6, ground);
     }
 
@@ -136,7 +140,7 @@ static void draw_row(struct ugfx_surface *s, const struct uui_medialist *m, int 
 
 static void ml_draw(struct ugfx_surface *s, const void *w) {
     const struct uui_medialist *m = w;
-    ugfx_fill_rect(s, m->x, m->y, m->w, m->h, m->bg);
+    ugfx_fill_rect(s, m->x, m->y, m->w, m->h, c_bg(m));
     int rh = uui_medialist_row_h();
     int first = m->scroll / rh;
     struct ugfx_clip saved;
@@ -149,7 +153,7 @@ static void ml_draw(struct ugfx_surface *s, const void *w) {
     }
     ugfx_clip_restore(s, &saved);
     uui_scrollbar_draw_overlay(s, m->x + m->w - bar_w(), m->y, bar_w(), m->h, content_h(m), m->h,
-                               m->scroll, m->bg, UTHEME_TEXT, (m->bar_hot || m->bar_drag) ? 255 : 0,
+                               m->scroll, c_bg(m), UTHEME_TEXT, (m->bar_hot || m->bar_drag) ? 255 : 0,
                                m->bar_drag ? UUI_SCROLLBAR_HELD : 0);
 }
 

@@ -160,7 +160,7 @@ void shot_prefs_open(struct uapp *a, const struct shot_conf *c, int page,
     for (int i = 0; i < SHOT_KEYS; i++)
         uui_dropdown_init(&g_key[i], 0, 0, 0, 0, SHOT_KEY_LABEL, SHOT_KEY_CHOICES);
     uui_label_init(&g_folder, 0);
-    uui_button_init(&g_browse, 0, 0, 0, 0, "Browse...", UTHEME_BUTTON_BG, UTHEME_TEXT, OPT_BROWSE);
+    uui_button_init(&g_browse, 0, 0, 0, 0, "Browse...", UUI_ROLE(control_bg), UUI_ROLE(text), OPT_BROWSE);
     shot_vars_now(&g_sample, "notepad", SHOT_MODE_REGION);
     uui_nametpl_init(&g_name, g_edit.name, SHOT_CHIPS, SHOT_CHIP_COUNT, g_sample.v, SHOT_CHIP_COUNT);
     g_name.suffix = g_edit.png ? ".png" : ".qoi";

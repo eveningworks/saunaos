@@ -923,8 +923,8 @@ static int g_nhits, g_hit_cur = -1;
 static unsigned g_find_rev;
 static char g_find_q[UUI_TEXTBOX_MAX];
 
-#define HIT_BG     ugfx_rgb(255, 231, 163)
-#define HIT_CUR_BG ugfx_rgb(245, 184, 76)
+#define HIT_BG     UUI_ROLE(find_hit)           // roles: utext resolves them per paint
+#define HIT_CUR_BG UUI_ROLE(find_hit_current)
 
 static char fold(char c) { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
 
@@ -2008,13 +2008,13 @@ static void on_open_cb(struct uapp *a) {
     uui_findbar_init(&g_find);
     g_find.pill = 1;
     uui_splitter_init(&g_split, !g_conf.preview_below, 500);
-    g_split.line = UTHEME_SEPARATOR;
+    g_split.line = UUI_ROLE(separator);
     uui_tabs_init(&g_tabs, g_tablist, 0, 0);
     g_tabs.on_select = tab_selected;
     g_tabs.on_close = tab_closed;
     g_tabs.on_new = tab_new;
     g_tabs.show_new = 1;
-    g_tabs.baseline = UTHEME_SEPARATOR;   // a light rule over the white page
+    g_tabs.baseline = UUI_ROLE(separator);   // a light rule over the white page
     refresh_tabs();
     clip_refresh();   // the broadcast only fires on a CHANGE, so ask once
 

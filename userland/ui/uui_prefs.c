@@ -162,7 +162,7 @@ int uui_prefs_check(int page, const char *caption, const char *text, size_t fiel
                     const char *name) {
     int b = bound(B_CHECK, field);
     if (b < 0) return -1;
-    uui_checkbox_init(&g_bound[b].check, 0, 0, 0, text, UTHEME_WINDOW_BG, UTHEME_TEXT);
+    uui_checkbox_init(&g_bound[b].check, 0, 0, 0, text, UUI_ROLE(window_bg), UUI_ROLE(text));
     return uui_prefs_row(page, caption, &uui_checkbox_ops, &g_bound[b].check, ID_BOUND + b, name, 0);
 }
 
@@ -187,7 +187,7 @@ int uui_prefs_number(int page, const char *caption, int lo, int hi, int step, co
 void uui_prefs_also_check(int row, const char *text, size_t field, const char *name) {
     int b = bound(B_CHECK, field);
     if (b < 0) return;
-    uui_checkbox_init(&g_bound[b].check, 0, 0, 0, text, UTHEME_WINDOW_BG, UTHEME_TEXT);
+    uui_checkbox_init(&g_bound[b].check, 0, 0, 0, text, UUI_ROLE(window_bg), UUI_ROLE(text));
     uui_prefs_also(row, &uui_checkbox_ops, &g_bound[b].check, ID_BOUND + b, name);
 }
 
@@ -265,16 +265,16 @@ int uui_prefs_open(struct uapp *a) {
     bound_to_controls();
 
     uui_sidebar_init(&g_pages, 0, 0, 0, 0, g_d.pages, g_d.page_count);
-    g_pages.sel_bg = UTHEME_ACCENT;   // the page you are on
-    g_pages.sel_fg = UTHEME_ACCENT_TEXT;
+    g_pages.sel_bg = UUI_ROLE(accent);   // the page you are on
+    g_pages.sel_fg = UUI_ROLE(accent_text);
     uui_label_init(&g_heading, g_heading_text);
     g_heading.font = ugfx_font_session(UGFX_FONT_BOLD);
     uui_label_init(&g_note, 0);
-    g_note.fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);   // a setting row's description colour
+    g_note.dim = 1;   // a setting row's description colour
     uui_label_init(&g_spacer, "");
-    uui_button_init(&g_defaults, 0, 0, 0, 0, "Defaults", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_DEFAULTS);
-    uui_button_init(&g_ok, 0, 0, 0, 0, "OK", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_OK);
-    uui_button_init(&g_cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_CANCEL);
+    uui_button_init(&g_defaults, 0, 0, 0, 0, "Defaults", UUI_ROLE(control_bg), UUI_ROLE(text), ID_DEFAULTS);
+    uui_button_init(&g_ok, 0, 0, 0, 0, "OK", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_OK);
+    uui_button_init(&g_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CANCEL);
 
     g_focusables[0] = (struct uui_focusable){ &g_pages, &uui_sidebar_ops };
     g_focusables[1] = (struct uui_focusable){ &g_ok, &uui_button_ops };

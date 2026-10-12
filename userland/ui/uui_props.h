@@ -49,7 +49,7 @@ struct uui_props_section {
 
 struct uui_props {
     int x, y, w, h;
-    uint32_t bg;                  // the page's ground; UTHEME_PANEL_BG by default
+    uint32_t bg;                  // the page's ground; UUI_COLOR_UNSET = the panel
     struct uui_props_section sec[UUI_PROPS_SECTIONS];
     int nsec;
     struct uui_props_row row[UUI_PROPS_ROWS];

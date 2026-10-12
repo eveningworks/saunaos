@@ -193,11 +193,11 @@ static void build(void) {
     };
     for (int i = 0; i < 5; i++) {
         uui_button_init(&g_r3_btn[i], 0, i * 30, 150, 26, r3_names[i],
-                         UTHEME_BUTTON_BG, UTHEME_TEXT, i + 1);
+                         UUI_ROLE(control_bg), UUI_ROLE(text), i + 1);
     }
     uui_button_group_init(&g_r3, g_r3_btn, 5);
     uui_button_init(&g_dk_btn[0], 0, 0, 150, 26, "crash the desktop",
-                    UTHEME_BUTTON_BG, UTHEME_TEXT, DESKTOP_CRASH);
+                    UUI_ROLE(control_bg), UUI_ROLE(text), DESKTOP_CRASH);
     uui_button_group_init(&g_dk, g_dk_btn, 1);
 
     // The kernel's list, enumerated rather than hardcoded.
@@ -218,7 +218,7 @@ static void build(void) {
             if (sys_crashtest(&m) != 0) break;
             strlcpy(g_k0_label[i], m.name, sizeof g_k0_label[i]);
             uui_button_init(&g_k0_btn[i], 0, i * 30, 150, 26, g_k0_label[i],
-                             UTHEME_BUTTON_BG, UTHEME_TEXT, K0_BASE + i);
+                             UUI_ROLE(control_bg), UUI_ROLE(text), K0_BASE + i);
             g_k0_count = i + 1;
         }
     }

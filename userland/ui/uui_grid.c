@@ -9,13 +9,17 @@
 
 #include <string.h>
 
+// The theme's when the app left it unset, looked up per paint
+// (ui/utheme.h's UUI_COLOR), so a theme switch reaches it.
+uint32_t uui_grid_c_bg(const struct uui_grid *g) { return UUI_COLOR(g->bg, UTHEME_WHITE); }
+
 
 void uui_grid_init(struct uui_grid *g, int cell_w, int cell_h) {
     memset(g, 0, sizeof *g);
     g->cell_w = cell_w > 0 ? cell_w : 32;
     g->cell_h = cell_h > 0 ? cell_h : 32;
     g->selected = g->hot = g->armed = g->activated = g->last_click = -1;
-    g->bg = UTHEME_WHITE;
+    g->bg = UUI_COLOR_UNSET;
 }
 
 static int bar_w(void) { return uui_scrollbar_overlay_width(); }
@@ -110,7 +114,7 @@ static void grid_bounds(const void *w, int *x, int *y, int *ow, int *oh) {
 
 static void grid_draw(struct ugfx_surface *s, const void *w) {
     const struct uui_grid *g = w;
-    ugfx_fill_rect(s, g->x, g->y, g->w, g->h, g->bg);
+    ugfx_fill_rect(s, g->x, g->y, g->w, g->h, uui_grid_c_bg(g));
     if (!g->cell) return;
     struct ugfx_clip saved;
     ugfx_clip_save(s, &saved);
@@ -126,13 +130,13 @@ static void grid_draw(struct ugfx_surface *s, const void *w) {
             uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, uui_select_radius(0), UTHEME_ACCENT);
         } else if (i == g->hot) {
             st |= UUI_GRID_HOT;
-            uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, uui_select_radius(0), uui_state_bg(g->bg, UUI_STATE_HOVER));
+            uui_fill_round_rect(s, x + 2, y + 2, px - 4, g->cell_h - 4, uui_select_radius(0), uui_state_bg(uui_grid_c_bg(g), UUI_STATE_HOVER));
         }
         g->cell(s, g->ctx, i, x, y, px, g->cell_h, st);
     }
     ugfx_clip_restore(s, &saved);
     uui_scrollbar_draw_overlay(s, g->x + g->w - bar_w(), g->y, bar_w(), g->h, content_h(g), g->h,
-                               g->scroll, g->bg, UTHEME_TEXT, (g->bar_hot || g->bar_drag) ? 255 : 0,
+                               g->scroll, uui_grid_c_bg(g), UTHEME_TEXT, (g->bar_hot || g->bar_drag) ? 255 : 0,
                                g->bar_drag ? UUI_SCROLLBAR_HELD : 0);
 }
 

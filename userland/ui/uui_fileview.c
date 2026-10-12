@@ -1437,7 +1437,7 @@ static void fv_draw_rename(struct ugfx_surface *s, const struct uui_fileview *fv
     if (!fv_rename_rect(fv, &x, &y, &w, &h)) return;
     struct uui_fileview *mut = (struct uui_fileview *)fv;   // the field's geometry is the draw's
     uui_textbox_set_geometry(&mut->rename_box, x, y, w, h);
-    mut->rename_box.border = UTHEME_ACCENT;
+    mut->rename_box.border = UUI_ROLE(accent);
     ugfx_set_clip_rect(s, fv->table.x, fv->table.y, fv->table.w, fv->table.h);
     uui_textbox_draw(s, &fv->rename_box);
     ugfx_clear_clip_rect(s);

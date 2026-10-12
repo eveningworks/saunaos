@@ -36,6 +36,13 @@ uint32_t uui_state_bg(uint32_t base, enum uui_state state) {
     }
 }
 
+int uui_glyph_ink(const char *icon, uint32_t fg, uint32_t bg, uint32_t *ink) {
+    if (!icon || icon[0] != 't' || icon[1] != 'b' || icon[2] != '-') return 0;
+    if (ugfx_luminance(bg) >= 128) return 0;
+    *ink = ugfx_blend(fg, bg, 40);
+    return 1;
+}
+
 int uui_hit(int x, int y, int w, int h, int px, int py) {
     return px >= x && px < x + w && py >= y && py < y + h;
 }

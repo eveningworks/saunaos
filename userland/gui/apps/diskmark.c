@@ -808,7 +808,7 @@ int main(void) {
     for (int i = 0; i < PROFILES; i++) {
         uui_meter_init(&g_meter[i]);
         if (g_big_ok) g_meter[i].value_font = &g_big;
-        uint32_t c = utheme_action(is_write(i) ? UTHEME_ACT_ARRANGE : UTHEME_ACT_NAV);
+        uint32_t c = is_write(i) ? UUI_ROLE(action[UTHEME_ACT_ARRANGE]) : UUI_ROLE(action[UTHEME_ACT_NAV]);
         g_meter[i].value_fg = c;
         g_meter[i].accent = c;
         uui_meter_set(&g_meter[i], CAPTION[i], "--", NULL, NULL);
@@ -817,8 +817,8 @@ int main(void) {
     uui_chart_set_scale(&g_chart, 0);
     uui_chart_set_axis(&g_chart, "MB/s", 1000);   // samples are milli-MB/s
     uui_chart_set_fit(&g_chart, 1);
-    g_chart.series_col[0] = utheme_action(UTHEME_ACT_NAV);
-    g_chart.series_col[1] = utheme_action(UTHEME_ACT_ARRANGE);
+    g_chart.series_col[0] = UUI_ROLE(action[UTHEME_ACT_NAV]);
+    g_chart.series_col[1] = UUI_ROLE(action[UTHEME_ACT_ARRANGE]);
 
     uui_table_init(&g_hist, 0, 0, 0, 0, HIST_COLS,
                    (int)(sizeof HIST_COLS / sizeof HIST_COLS[0]), hist_cell, NULL);

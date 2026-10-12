@@ -27,7 +27,11 @@
 struct uui_label {
     int x, y, w, h;
     const char *text;   // caller-owned; NULL draws nothing
-    uint32_t fg, bg;
+    uint32_t fg, bg;    // UUI_COLOR_UNSET = the theme's text / page
+    // A HINT'S GREY: `fg` faded the way a disabled control's text is,
+    // worked out at draw so it follows a theme switch -- never store
+    // uui_state_bg(UTHEME_TEXT, ...) in `fg`, which freezes it.
+    int dim;
     // Reserve room for this many rows even when `text` is shorter or
     // NULL, so a caption that changes cannot reflow the page under the
     // user. 0 means one row.

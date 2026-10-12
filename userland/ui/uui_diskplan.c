@@ -17,17 +17,18 @@ void uui_diskplan_init(struct uui_diskplan *p) {
 }
 
 // The colours say what a partition IS -- Disks' (gui/apps/disks.c):
-// firmware amber, a filesystem the accent's tint, the rest grey.
-static void colour(struct uui_segbar_seg *s, int role, int strong) {
+// firmware amber, a filesystem the accent's tint, the rest grey. Roles,
+// so a theme switch repaints them (ui/uui_segbar.h).
+void uui_diskplan_colour(struct uui_segbar_seg *s, int role, int strong) {
     if (role == UDISK_ROLE_ESP || role == UDISK_ROLE_BIOS) {
-        s->fill = ugfx_rgb(255, 241, 220);
-        s->edge = ugfx_rgb(217, 165, 90);
+        s->fill = UUI_COLOR_UNSET;   // a wash of the edge
+        s->edge = UUI_ROLE(action[UTHEME_ACT_ARRANGE]);
     } else if (strong) {
-        s->fill = ugfx_rgb(205, 220, 240);
-        s->edge = UTHEME_ACCENT;
+        s->fill = UUI_ROLE(selection_bg);
+        s->edge = UUI_ROLE(accent);
     } else {
-        s->fill = ugfx_rgb(233, 235, 240);
-        s->edge = ugfx_rgb(185, 192, 206);
+        s->fill = UUI_ROLE(panel_bg);
+        s->edge = UUI_ROLE(outline);
     }
 }
 
@@ -50,7 +51,7 @@ static void add_now(struct uui_diskplan *p, int *n, const struct udisk_part *par
         snprintf(p->now_detail[i], sizeof p->now_detail[i], "%s%s%s", size, part->fs[0] ? " " : "",
                  part->fs);
         snprintf(p->now_corner[i], sizeof p->now_corner[i], "%s", part->point);
-        colour(s, part->role, part->fs[0] != 0);
+        uui_diskplan_colour(s, part->role, part->fs[0] != 0);
         s->corner = p->now_corner[i][0] ? p->now_corner[i] : 0;
     }
     s->title = p->now_title[i];
@@ -89,7 +90,7 @@ void uui_diskplan_set(struct uui_diskplan *p, const struct udisk *disk,
         snprintf(p->after_title[i], sizeof p->after_title[i], "%s", after[i].title ? after[i].title : "");
         snprintf(p->after_detail[i], sizeof p->after_detail[i], "%s%s%s", size,
                  after[i].detail ? " " : "", after[i].detail ? after[i].detail : "");
-        colour(s, after[i].role, 1);
+        uui_diskplan_colour(s, after[i].role, 1);
         s->title = p->after_title[i];
         s->detail = p->after_detail[i];
     }

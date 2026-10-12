@@ -27,7 +27,9 @@ struct uui_segbar_seg {
     const char *detail;   // bottom line ("119.1 GB tfs3"), or NULL
     uint64_t size;        // any unit, the same for every segment
     int used_pct;         // 0-100 draws a meter; -1 none
-    uint32_t fill, edge;  // the card's colours
+    // The card's colours: a colour or a UUI_ROLE(), resolved per paint.
+    // A fill of UUI_COLOR_UNSET is a light wash of the edge.
+    uint32_t fill, edge;
     int empty;            // unallocated: a dashed edge, no fill
 };
 

@@ -195,7 +195,8 @@ int uui_places_take(struct uui_places *p, char *out, int cap) {
 // --- drawing ------------------------------------------------------------
 
 static uint32_t bg_of(const struct uui_places *p) {
-    return p->bg ? p->bg : ugfx_blend(UTHEME_PANEL_BG, UTHEME_WHITE, 128);
+    uint32_t dflt = ugfx_blend(UTHEME_PANEL_BG, UTHEME_WHITE, 128);
+    return p->bg ? UUI_COLOR(p->bg, dflt) : dflt;
 }
 
 // A DRIVE'S BAR IS COLOURED BY WHAT IT IS, so the three read apart at a

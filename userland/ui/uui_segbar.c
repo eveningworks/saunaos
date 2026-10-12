@@ -98,7 +98,9 @@ static void sb_draw(struct ugfx_surface *s, const void *w) {
         const struct uui_segbar_seg *g = &b->segs[i];
         int x = b->sx[i], y = b->y, sw = b->sw[i], h = b->h;
         int sel = i == b->selected;
-        uint32_t ground = g->empty ? UTHEME_WHITE : g->fill;
+        uint32_t edge = UUI_COLOR(g->edge, UTHEME_OUTLINE);
+        uint32_t ground = g->empty ? UTHEME_WHITE
+                                   : UUI_COLOR(g->fill, ugfx_blend(UTHEME_WHITE, edge, 40));
         if (i == b->hot && !sel) ground = uui_state_bg(ground, UUI_STATE_HOVER);
         // SELECTED is a 2px accent border in place of the card's own
         // edge, so its fill -- which says what it holds -- still shows.
@@ -112,7 +114,7 @@ static void sb_draw(struct ugfx_surface *s, const void *w) {
                 dashed_box(s, x, y, sw, h, UTHEME_OUTLINE);
             }
         } else {
-            uui_fill_round_rect(s, x, y, sw, h, 6, sel ? UTHEME_ACCENT : g->edge);
+            uui_fill_round_rect(s, x, y, sw, h, 6, sel ? UTHEME_ACCENT : edge);
             uui_fill_round_rect(s, x + bw, y + bw, sw - 2 * bw, h - 2 * bw, 6 - bw, ground);
         }
         int tx = x + pad, tw = sw - pad * 2;

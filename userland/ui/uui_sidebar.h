@@ -109,7 +109,7 @@ struct uui_sidebar {
     int row_h;      // 0 = derive from the font
     struct uui_sbar sb; // OWNED: the scrollbar
 
-    uint32_t bg, fg, heading_fg, sel_bg, sel_fg;
+    uint32_t bg, fg, heading_fg, sel_bg, sel_fg;   // UUI_COLOR_UNSET = the theme's; or a UUI_ROLE()
 };
 
 // Everything starts scrolled to the top with the FIRST ITEM selected --

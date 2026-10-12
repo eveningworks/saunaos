@@ -697,11 +697,11 @@ static void on_size(int *w, int *h) {
 int main(int argc, char **argv) {
     if (argc > 1) g_open_setting = argv[1];
     uui_sidebar_init(&g_tree, 0, 0, 0, 0, g_nodes, 0);
-    g_tree.bg = UTHEME_PANEL_BG;
-    g_tree.fg = UTHEME_TEXT;
+    g_tree.bg = UUI_ROLE(panel_bg);
+    g_tree.fg = UUI_ROLE(text);
     // The page you are on, in the accent -- as Device Manager's tree.
-    g_tree.sel_bg = UTHEME_ACCENT;
-    g_tree.sel_fg = UTHEME_ACCENT_TEXT;
+    g_tree.sel_bg = UUI_ROLE(accent);
+    g_tree.sel_fg = UUI_ROLE(accent_text);
 
     uui_textbox_init(&g_search, "");
     g_search.placeholder = "Find a setting";
@@ -715,18 +715,18 @@ int main(int argc, char **argv) {
         g_slot[i].radio.selected = -1;
         g_slot[i].radio.hovered = -1;
         g_slot[i].radio.bg = UUI_COLOR_UNSET;
-        g_slot[i].radio.fg = UTHEME_TEXT;
+        g_slot[i].radio.fg = UUI_ROLE(text);
         uui_dropdown_init(&g_slot[i].combo, 0, 0, 0, 0, 0, 0);
         uui_slider_init(&g_slot[i].slider, 0, 0);
         g_slot[i].slider.bg = UUI_COLOR_UNSET;
-        g_slot[i].slider.fg = UTHEME_TEXT;
+        g_slot[i].slider.fg = UUI_ROLE(text);
     }
-    uui_button_init(&g_test_btn, 0, 0, 0, 0, "Test", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_TEST);
-    uui_button_init(&g_opts_btn, 0, 0, 0, 0, "Settings...", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_OPTS);
-    uui_button_init(&g_opts_ok, 0, 0, 0, 0, "OK", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_OPTS_OK);
-    uui_button_init(&g_opts_cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_OPTS_CANCEL);
+    uui_button_init(&g_test_btn, 0, 0, 0, 0, "Test", UUI_ROLE(control_bg), UUI_ROLE(text), ID_TEST);
+    uui_button_init(&g_opts_btn, 0, 0, 0, 0, "Settings...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_OPTS);
+    uui_button_init(&g_opts_ok, 0, 0, 0, 0, "OK", UUI_ROLE(control_bg), UUI_ROLE(text), ID_OPTS_OK);
+    uui_button_init(&g_opts_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), ID_OPTS_CANCEL);
     uui_checkbox_init(&g_advanced_cb, 0, 0, 0, "Show advanced settings",
-                       UTHEME_PANEL_BG, UTHEME_TEXT);
+                       UUI_ROLE(panel_bg), UUI_ROLE(text));
     uui_dialog_init(&g_ask);
     sysinfo_init();
     clock_init();
@@ -737,8 +737,8 @@ int main(int argc, char **argv) {
     startup_init();
 
     // Apply is the PRIMARY action, so it wears the accent.
-    uui_button_init(&g_reset, 0, 0, 0, 0, "Reset", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_RESET);
-    uui_button_init(&g_apply, 0, 0, 0, 0, "Apply", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_APPLY);
+    uui_button_init(&g_reset, 0, 0, 0, 0, "Reset", UUI_ROLE(control_bg), UUI_ROLE(text), ID_RESET);
+    uui_button_init(&g_apply, 0, 0, 0, 0, "Apply", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_APPLY);
     uui_label_init(&g_footer, g_footer_text);
 
     PAGE_LAYOUT = (struct uui_layout){ .dir = UUI_COLUMN, .items = PAGE, .count = 0 };

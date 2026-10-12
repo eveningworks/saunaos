@@ -42,23 +42,9 @@ void uui_sidebar_init(struct uui_sidebar *s, int x, int y, int w, int h,
     s->reveal_owed = 0;
     s->row_h = 0; // derive from the font
     uui_sbar_init(&s->sb);
-    s->bg = ugfx_rgb(246, 246, 248);
-    s->fg = ugfx_rgb(20, 20, 20);
-    // Slightly dimmer than an item, but only slightly -- and the first
-    // attempt at this got the balance wrong in a way worth recording.
-    // At (110,112,120) the grey cancelled the bold: on a monospace face
-    // bold changes stroke weight and nothing else, so a caption that is
-    // both lighter AND the same width simply reads as regular text in
-    // grey, and the hierarchy the bold was for disappeared. Measured
-    // rather than eyeballed -- ink per character came out LOWER for a
-    // heading than for an item beside it.
-    //
-    // So: dim enough to sit behind the destinations, dark enough that
-    // the weight still shows. KDE and GNOME grey their headers too, but
-    // both do it on proportional faces where bold also widens.
-    s->heading_fg = ugfx_rgb(64, 66, 74);
-    s->sel_bg = ugfx_rgb(205, 220, 240);
-    s->sel_fg = ugfx_rgb(20, 20, 20);
+    // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR): see
+    // heading_colour() for the one that is not a role of its own.
+    s->bg = s->fg = s->heading_fg = s->sel_bg = s->sel_fg = UUI_COLOR_UNSET;
     s->selected = first_item(s);
 }
 
@@ -223,12 +209,28 @@ void uui_sidebar_set_geometry(struct uui_sidebar *s, int x, int y, int w, int h)
 
 // --- drawing ------------------------------------------------------------
 
+// A HEADING IS DIMMER THAN AN ITEM, BUT ONLY SLIGHTLY: on a monospace
+// face bold changes stroke weight and nothing else, so a caption both
+// lighter and the same width reads as regular text in grey and the
+// hierarchy disappears (measured: ink per character came out LOWER
+// for a heading than for an item beside it at (110,112,120)). So two
+// thirds of the way from the text to the muted text -- (64,66,74) on
+// Light, and it follows a dark theme's pair the same way.
+static uint32_t heading_colour(const struct uui_sidebar *s) {
+    return UUI_COLOR(s->heading_fg,
+                     ugfx_blend(UTHEME_TEXT, utheme_current()->text_muted, 173));
+}
+
 void uui_sidebar_draw(struct ugfx_surface *surf, const struct uui_sidebar *s) {
+    uint32_t bg = UUI_COLOR(s->bg, ugfx_blend(UTHEME_PANEL_BG, UTHEME_WHITE, 141));
+    uint32_t fg = UUI_COLOR(s->fg, UTHEME_TEXT), heading_fg = heading_colour(s);
+    uint32_t sel_bg = UUI_COLOR(s->sel_bg, UTHEME_SELECTION);
+    uint32_t sel_fg = UUI_COLOR(s->sel_fg, UTHEME_TEXT);
     int rh = row_h(s);
     int vis = visible_rows(s);
     int bar = scrollbar_visible(s) ? uui_sbar_width() : 0;
 
-    ugfx_fill_rect(surf, s->x, s->y, s->w, s->h, s->bg);
+    ugfx_fill_rect(surf, s->x, s->y, s->w, s->h, bg);
 
     int sel_ry = -1; // the selected row's screen y, or -1 if off-screen
 
@@ -246,7 +248,7 @@ void uui_sidebar_draw(struct ugfx_surface *surf, const struct uui_sidebar *s) {
         if (s->rows[row].kind == UUI_SIDEBAR_SEP) {
             int inset = UUI_SIDEBAR_PAD_X * 2;
             ugfx_fill_rect(surf, s->x + inset, ry + rh / 2,
-                            s->w - bar - inset * 2, 1, s->heading_fg);
+                            s->w - bar - inset * 2, 1, heading_fg);
             continue;
         }
         int heading = s->rows[row].kind != UUI_SIDEBAR_ITEM;
@@ -259,10 +261,10 @@ void uui_sidebar_draw(struct ugfx_surface *surf, const struct uui_sidebar *s) {
         // clicked, and it cannot -- which is the specific lie this
         // widget exists to avoid.
         if (selected)
-            ugfx_fill_rect(surf, s->x, ry, s->w - bar, rh, s->sel_bg);
+            ugfx_fill_rect(surf, s->x, ry, s->w - bar, rh, sel_bg);
         else if (!inert && row == s->hovered)
             ugfx_fill_rect(surf, s->x, ry, s->w - bar, rh,
-                            uui_state_bg(s->bg, UUI_STATE_HOVER));
+                            uui_state_bg(bg, UUI_STATE_HOVER));
 
         // THE HEADING'S ICON, before the label and at the label's own
         // height. ugfx_blit_alpha(), never ugfx_blit(): an icon's
@@ -290,15 +292,15 @@ void uui_sidebar_draw(struct ugfx_surface *surf, const struct uui_sidebar *s) {
                                       // SELECTED WINS over the heading colour,
                                       // or a selectable heading row reads dark
                                       // on an accent fill.
-                                      selected ? s->sel_fg
-                                               : (heading ? s->heading_fg : s->fg),
-                                      selected ? s->sel_bg : s->bg);
+                                      selected ? sel_fg
+                                               : (heading ? heading_fg : fg),
+                                      selected ? sel_bg : bg);
         ugfx_set_font(was);
     }
 
     struct uui_sbar sb = s->sb;
     sbar_fill(s, &sb);
-    uui_sbar_draw(&sb, surf, s->bg, s->fg);
+    uui_sbar_draw(&sb, surf, bg, fg);
 
     // On the selected row, or round the pane when it is scrolled off --
     // see uui_listbox.c for why an indicator that can vanish is not one.

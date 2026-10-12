@@ -41,14 +41,18 @@ void uui_toolbar_init(struct uui_toolbar *t,
     t->hot = -1;
     t->armed = -1;
     t->committed = -1;
-    t->bg = ugfx_rgb(238, 238, 242);
-    t->fg = ugfx_rgb(20, 20, 20);
-    t->border = ugfx_rgb(200, 200, 208);
-    t->tip_bg = ugfx_rgb(255, 252, 220); // the tooltip cream every desktop uses
-    t->tip_fg = ugfx_rgb(20, 20, 20);
+    // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
+    t->bg = t->fg = t->border = t->tip_bg = t->tip_fg = UUI_COLOR_UNSET;
     t->more = (struct uui_toolbar_item){ "tb-more", "See more", -1, 0, UUI_TB_MENU, 0, 0 };
     uui_menubar_init(&t->menu, 0, 0);
 }
+
+// A field the app left unset is the theme's, looked up per paint.
+static uint32_t c_bg(const struct uui_toolbar *t)     { return UUI_COLOR(t->bg, UTHEME_PANEL_BG); }
+static uint32_t c_fg(const struct uui_toolbar *t)     { return UUI_COLOR(t->fg, UTHEME_TEXT); }
+static uint32_t c_border(const struct uui_toolbar *t) { return UUI_COLOR(t->border, UTHEME_SEPARATOR); }
+static uint32_t c_tip_bg(const struct uui_toolbar *t) { return UUI_COLOR(t->tip_bg, utheme_current()->tooltip_bg); }
+static uint32_t c_tip_fg(const struct uui_toolbar *t) { return UUI_COLOR(t->tip_fg, utheme_current()->tooltip_text); }
 
 // Item `i`, where `count` names the overflow button.
 static const struct uui_toolbar_item *item_at(const struct uui_toolbar *t, int i) {
@@ -242,21 +246,25 @@ static void draw_icon(struct ugfx_surface *s, const struct uui_toolbar *t,
                       const struct uimg *ico, int x, int y, int accent, int disabled) {
     if (disabled) {
         ugfx_blit_tinted(s, x, y, ico->w, ico->h, ico->px, ico->w,
-                         uui_state_bg(t->fg, UUI_STATE_DISABLED));
+                         uui_state_bg(c_fg(t), UUI_STATE_DISABLED));
         return;
     }
     if (it->tint) {
         uint32_t c = it->tint < UTHEME_ACT_COUNT ? utheme_action((int)it->tint) : it->tint;
         ugfx_blit_tinted(s, x, y, ico->w, ico->h, ico->px, ico->w,
                          accent ? UTHEME_ACCENT_TEXT : c);
+        return;
     }
+    uint32_t ink;
+    if (uui_glyph_ink(it->icon, c_fg(t), c_bg(t), &ink))
+        ugfx_blit_tinted(s, x, y, ico->w, ico->h, ico->px, ico->w, accent ? UTHEME_ACCENT_TEXT : ink);
     else
         ugfx_blit_alpha(s, x, y, ico->w, ico->h, ico->px, ico->w);
 }
 
 static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
-    ugfx_fill_rect(s, t->x, t->y, t->w, t->h, t->bg);
-    if (!t->compact) ugfx_fill_rect(s, t->x, t->y + t->h - 1, t->w, 1, t->border);
+    ugfx_fill_rect(s, t->x, t->y, t->w, t->h, c_bg(t));
+    if (!t->compact) ugfx_fill_rect(s, t->x, t->y + t->h - 1, t->w, 1, c_border(t));
 
     for (int i = 0; i <= t->count; i++) {
         int x, y, w, h;
@@ -265,11 +273,11 @@ static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
         if (it->flags & UUI_TB_TEXT) {
             if (it->label)
                 ugfx_draw_string_clipped(s, x + 6, y + (h - ugfx_char_h()) / 2,
-                                          w - 6, it->label, t->fg, t->bg);
+                                          w - 6, it->label, c_fg(t), c_bg(t));
             continue;
         }
         if (is_sep(it)) {
-            ugfx_fill_rect(s, x + sep_w() / 2, y + 3, 1, h - 6, t->border);
+            ugfx_fill_rect(s, x + sep_w() / 2, y + 3, 1, h - 6, c_border(t));
             continue;
         }
         unsigned f = flags_of(t, i);
@@ -280,8 +288,8 @@ static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
         // all washes come from uui_state_bg so hover darkens on this
         // theme like everything else.
         int accent = t->accent_latch && (f & UUI_MI_CHECKED) && !(f & UUI_MI_DISABLED);
-        uint32_t base = accent ? UTHEME_ACCENT : t->bg;
-        uint32_t ink = accent ? UTHEME_ACCENT_TEXT : t->fg;
+        uint32_t base = accent ? UTHEME_ACCENT : c_bg(t);
+        uint32_t ink = accent ? UTHEME_ACCENT_TEXT : c_fg(t);
         enum uui_state st = UUI_STATE_REST;
         if (f & UUI_MI_DISABLED) st = UUI_STATE_DISABLED;
         else if (i == t->armed || ((f & UUI_MI_CHECKED) && !accent)) st = UUI_STATE_PRESSED;
@@ -293,11 +301,11 @@ static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
         if (accent)                     ugfx_fill_rect(s, x + 1, y, w - 2, h, bg);
         else if (st != UUI_STATE_REST)  ugfx_fill_rect(s, x, y, w, h, bg);
         if ((f & UUI_MI_CHECKED) && !accent)
-            ugfx_draw_rect(s, x, y, w, h, t->border);
+            ugfx_draw_rect(s, x, y, w, h, c_border(t));
 
         if (it->label || (it->flags & UUI_TB_MENU)) {
             // Icon, word, chevron, left to right.
-            uint32_t fg = (f & UUI_MI_DISABLED) ? uui_state_bg(t->fg, UUI_STATE_DISABLED) : ink;
+            uint32_t fg = (f & UUI_MI_DISABLED) ? uui_state_bg(c_fg(t), UUI_STATE_DISABLED) : ink;
             int cx = x + 6;
             const struct uimg *li = it->icon ? icon_get(it->icon, icon_px(t)) : 0;
             if (li) {
@@ -358,10 +366,10 @@ static void tb_draw_tip(struct ugfx_surface *s, const struct uui_toolbar *t) {
         if (y + h > s->h) y = by - h - UUI_TIP_GAP; // no room below: flip above
     }
 
-    ugfx_fill_rect(s, x, y, w, h, t->tip_bg);
-    ugfx_draw_rect(s, x, y, w, h, t->border);
+    ugfx_fill_rect(s, x, y, w, h, c_tip_bg(t));
+    ugfx_draw_rect(s, x, y, w, h, c_border(t));
     ugfx_draw_string_clipped(s, x + UUI_TIP_PAD, y + UUI_TIP_PAD,
-                              w - UUI_TIP_PAD * 2, tip, t->tip_fg, t->tip_bg);
+                              w - UUI_TIP_PAD * 2, tip, c_tip_fg(t), c_tip_bg(t));
 }
 
 // --- the ops table ----------------------------------------------------

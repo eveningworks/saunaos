@@ -711,9 +711,9 @@ void tm_procs_init(struct tm_page *page) {
     g_search.placeholder = "Filter by name or PID";
     uui_segmented_init(&g_viewsel, VIEW_NAMES, 3, VIEW_GROUPED);
     uui_label_init(&g_spacer, "");
-    uui_button_init(&g_btn_stop, 0, 0, 0, 0, "Stop", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_STOP);
-    uui_button_init(&g_btn_close, 0, 0, 0, 0, "Close", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_CLOSE);
-    uui_button_init(&g_btn_kill, 0, 0, 0, 0, "Force Quit", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_KILL);
+    uui_button_init(&g_btn_stop, 0, 0, 0, 0, "Stop", UUI_ROLE(control_bg), UUI_ROLE(text), ID_STOP);
+    uui_button_init(&g_btn_close, 0, 0, 0, 0, "Close", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CLOSE);
+    uui_button_init(&g_btn_kill, 0, 0, 0, 0, "Force Quit", UUI_ROLE(control_bg), UUI_ROLE(text), ID_KILL);
     g_btn_stop.outlined = g_btn_close.outlined = g_btn_kill.outlined = 1;
 
     // The filter takes the bar's spare width, as Windows' search box
@@ -736,7 +736,7 @@ void tm_procs_init(struct tm_page *page) {
     uui_label_init(&g_d_sub, g_d_sub_text);
     for (int i = 0; i < DETAIL_ROWS; i++) {
         uui_label_init(&g_d_key[i], DETAIL_KEYS[i]);
-        g_d_key[i].fg = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+        g_d_key[i].dim = 1;
         uui_label_init(&g_d_val[i], g_d_val_text[i]);
         DETAIL_GRID_ITEMS[2 * i] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_d_key[i] };
         DETAIL_GRID_ITEMS[2 * i + 1] = (struct uui_item){ .ops = &uui_label_ops,

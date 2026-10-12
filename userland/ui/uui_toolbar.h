@@ -120,7 +120,7 @@ struct uui_toolbar {
     // which is const.
     int tip_popup;
 
-    uint32_t bg, fg, border, tip_bg, tip_fg;
+    uint32_t bg, fg, border, tip_bg, tip_fg;   // UUI_COLOR_UNSET = the theme's; or a UUI_ROLE()
     // Icons at the text's height and no strip border -- for a toolbar
     // living inside a status bar. Set after init.
     int compact;

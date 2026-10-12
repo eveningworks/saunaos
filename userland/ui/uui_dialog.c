@@ -256,8 +256,12 @@ static void draw_frame(struct ugfx_surface *s, const struct uui_dialog *d) {
         int danger = 0;
         for (int i = 0; i < d->button_count; i++)
             if (d->buttons[i].style == UUI_DLG_DANGER) danger = 1;
-        uint32_t tint = ugfx_blend(bg, danger ? ugfx_rgb(178, 58, 36) : UTHEME_ACCENT, 28);
-        uint32_t ink = danger ? ugfx_rgb(122, 42, 24) : UTHEME_TEXT;
+        const struct utheme *t = utheme_current();
+        uint32_t tint = ugfx_blend(bg, danger ? t->danger_bg : UTHEME_ACCENT, 28);
+        // The error red pulled toward the text, so it stays legible on
+        // its own pale (or dark) wash.
+        uint32_t ink = danger ? ugfx_blend(t->severity[UTHEME_SEV_ERROR], UTHEME_TEXT, 100)
+                              : UTHEME_TEXT;
         int ny = d->y + pad() + head_h(d) + utheme_gap();
         int nx = d->x + pad(), nw = d->w - pad() * 2;
         uui_fill_round_rect(s, nx, ny, nw, note_lines(d) * line_h() + utheme_gap(), 4, tint);
@@ -288,9 +292,11 @@ static void draw_buttons(struct ugfx_surface *s, const struct uui_dialog *d) {
                                                : UUI_STATE_REST;
         int style = button_style(d, i);
         uint32_t face = style == UUI_DLG_PRIMARY ? UTHEME_ACCENT
-                      : style == UUI_DLG_DANGER  ? ugfx_rgb(178, 58, 36)
+                      : style == UUI_DLG_DANGER  ? utheme_current()->danger_bg
                                                  : UTHEME_BUTTON_BG;
-        uint32_t fg = style ? ugfx_rgb(255, 255, 255) : UTHEME_TEXT;
+        uint32_t fg = style == UUI_DLG_PRIMARY ? UTHEME_ACCENT_TEXT
+                    : style == UUI_DLG_DANGER  ? ugfx_rgb(255, 255, 255)   // white on danger_bg
+                                               : UTHEME_TEXT;
         uint32_t fill = uui_state_bg(face, st);
         uint32_t edge = uui_state_bg(uui_state_bg(face, UUI_STATE_PRESSED), UUI_STATE_PRESSED);
         uui_fill_round_rect(s, bx, by, bw, bh, 4, edge);

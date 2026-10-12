@@ -31,18 +31,19 @@ void uui_button_draw_one(struct ugfx_surface *s, const struct uui_button *b) {
     if (b->disabled)     st = UUI_STATE_DISABLED;
     else if (b->pressed) st = UUI_STATE_PRESSED;
     else if (b->hovered) st = UUI_STATE_HOVER;
+    uint32_t bg = UUI_COLOR(b->bg, UTHEME_BUTTON_BG), fg = UUI_COLOR(b->fg, UTHEME_TEXT);
     if (!b->outlined) {
-        uui_button_draw(s, b->x, b->y, b->w, b->h, b->label, b->bg, b->fg, st);
+        uui_button_draw(s, b->x, b->y, b->w, b->h, b->label, bg, fg, st);
         return;
     }
     // The border is the face darkened twice, so it follows the face's own
     // colour -- grey on a plain button, deep blue on an accent one.
-    uint32_t face = uui_state_bg(b->bg, st);
-    uint32_t edge = uui_state_bg(uui_state_bg(b->bg, UUI_STATE_PRESSED), UUI_STATE_PRESSED);
+    uint32_t face = uui_state_bg(bg, st);
+    uint32_t edge = uui_state_bg(uui_state_bg(bg, UUI_STATE_PRESSED), UUI_STATE_PRESSED);
     if (st == UUI_STATE_DISABLED) edge = uui_state_bg(edge, UUI_STATE_DISABLED);
     uui_fill_round_rect(s, b->x, b->y, b->w, b->h, uui_control_radius(0), edge);
     uui_fill_round_rect(s, b->x + 1, b->y + 1, b->w - 2, b->h - 2, uui_control_radius(1), face);
-    uui_button_draw_label(s, b->x, b->y, b->w, b->h, b->label, b->fg, face, st);
+    uui_button_draw_label(s, b->x, b->y, b->w, b->h, b->label, fg, face, st);
 }
 
 // --- as a layout child ------------------------------------------------

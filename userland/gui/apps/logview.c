@@ -739,11 +739,11 @@ int main(int argc, char **argv) {
     g_search.placeholder = "Filter lines";
     uui_loglist_init(&g_list, &g_set);
     g_list.follow = viewing_live();     // a finished log opens at its top
-    uui_button_init(&g_around, 0, 0, 0, 0, "Show the lines around it", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_AROUND);
-    uui_button_init(&g_only, 0, 0, 0, 0, g_only_lbl, UTHEME_BUTTON_BG, UTHEME_TEXT, ID_ONLY);
-    uui_button_init(&g_mute, 0, 0, 0, 0, g_mute_lbl, UTHEME_BUTTON_BG, UTHEME_TEXT, ID_MUTE);
-    uui_button_init(&g_copyline, 0, 0, 0, 0, "Copy line", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_COPYLINE);
-    uui_button_init(&g_unmute, 0, 0, 0, 0, g_unmute_lbl, UTHEME_BUTTON_BG, UTHEME_TEXT, ID_UNMUTE);
+    uui_button_init(&g_around, 0, 0, 0, 0, "Show the lines around it", UUI_ROLE(control_bg), UUI_ROLE(text), ID_AROUND);
+    uui_button_init(&g_only, 0, 0, 0, 0, g_only_lbl, UUI_ROLE(control_bg), UUI_ROLE(text), ID_ONLY);
+    uui_button_init(&g_mute, 0, 0, 0, 0, g_mute_lbl, UUI_ROLE(control_bg), UUI_ROLE(text), ID_MUTE);
+    uui_button_init(&g_copyline, 0, 0, 0, 0, "Copy line", UUI_ROLE(control_bg), UUI_ROLE(text), ID_COPYLINE);
+    uui_button_init(&g_unmute, 0, 0, 0, 0, g_unmute_lbl, UUI_ROLE(control_bg), UUI_ROLE(text), ID_UNMUTE);
     g_around.outlined = g_only.outlined = g_mute.outlined = g_copyline.outlined = g_unmute.outlined = 1;
 
     uui_statusbar_init(&g_status);

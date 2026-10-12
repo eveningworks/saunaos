@@ -368,7 +368,7 @@ static void ops_draw(struct ugfx_surface *s, const void *w) {
     // to agree with it.
     if (!t->floating)
         ugfx_fill_rect(s, t->x, t->y + t->h - 1, t->w, 1,
-                       t->baseline ? t->baseline : UTHEME_BORDER);
+                       t->baseline ? UUI_COLOR(t->baseline, UTHEME_BORDER) : UTHEME_BORDER);
     for (int i = 0; i < t->count; i++) draw_one(s, t, i);
     draw_new(s, t);
 }

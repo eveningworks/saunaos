@@ -59,6 +59,14 @@ enum uui_state {
 // rather than assumed. See the header comment for why that matters.
 uint32_t uui_state_bg(uint32_t base, enum uui_state state);
 
+// THE INK FOR A MONOCHROME GLYPH ICON -- the "tb-*" set, drawn in one
+// dark ink for light chrome (tools/gen_icons.py's TB_INK) -- that has no
+// tint of its own, on a DARK ground: the text colour a step toward the
+// ground, so it turns light instead of vanishing. Returns 0 -- draw the
+// icon as it is -- on a light ground, which the ink was drawn for, and
+// for full-colour artwork; else 1 with the ink in *ink.
+int uui_glyph_ink(const char *icon, uint32_t fg, uint32_t bg, uint32_t *ink);
+
 // 1 if (px, py) is inside the rect. Coordinate space is the caller's --
 // this is a bounds check and nothing more.
 int uui_hit(int x, int y, int w, int h, int px, int py);

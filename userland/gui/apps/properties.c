@@ -694,10 +694,10 @@ static int vol_main(void) {
     snprintf(g_title, sizeof g_title, "%s%s%s Properties", g_vol.label,
              g_vol.remote && g_vol.server[0] ? " on " : "", g_vol.remote ? g_vol.server : "");
     uui_volinfo_init(&g_vcard, &g_vol, 0);
-    uui_button_init(&g_vopen, 0, 0, 0, 0, "Open", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, VID_OPEN);
-    uui_button_init(&g_vact, 0, 0, 0, 0, "", UTHEME_BUTTON_BG, UTHEME_TEXT, VID_ACT);
+    uui_button_init(&g_vopen, 0, 0, 0, 0, "Open", UUI_ROLE(accent), UUI_ROLE(accent_text), VID_OPEN);
+    uui_button_init(&g_vact, 0, 0, 0, 0, "", UUI_ROLE(control_bg), UUI_ROLE(text), VID_ACT);
     uui_button_init(&g_vcopy, 0, 0, 0, 0, g_vol.remote ? "Copy address" : "Copy path",
-                    UTHEME_BUTTON_BG, UTHEME_TEXT, VID_COPY);
+                    UUI_ROLE(control_bg), UUI_ROLE(text), VID_COPY);
     g_vact.outlined = g_vcopy.outlined = 1;
     vol_action();
     g_vring[0] = (struct uui_focusable){ &g_vopen, &uui_button_ops };
@@ -740,10 +740,10 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 9; i++)
         uui_checkbox_init(&g_perm[i], 0, 0, 0, labels[i % 3], UUI_COLOR_UNSET, UUI_COLOR_UNSET);
     for (int i = 0; i < 9; i++) g_perm[i].accent = 1;
-    uui_button_init(&g_sum, 0, 0, 0, 0, "Compute SHA-256", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SUM);
-    uui_button_init(&g_open, 0, 0, 0, 0, "Open", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_OPEN);
-    uui_button_init(&g_show, 0, 0, 0, 0, "Show in Files", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SHOW);
-    uui_button_init(&g_copy, 0, 0, 0, 0, "Copy path", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_COPY);
+    uui_button_init(&g_sum, 0, 0, 0, 0, "Compute SHA-256", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SUM);
+    uui_button_init(&g_open, 0, 0, 0, 0, "Open", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_OPEN);
+    uui_button_init(&g_show, 0, 0, 0, 0, "Show in Files", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SHOW);
+    uui_button_init(&g_copy, 0, 0, 0, 0, "Copy path", UUI_ROLE(control_bg), UUI_ROLE(text), ID_COPY);
     g_sum.outlined = g_show.outlined = g_copy.outlined = 1;
     sync_controls();
     rebuild();
