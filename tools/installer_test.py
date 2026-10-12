@@ -11,6 +11,12 @@ region -- then drives the window through Welcome, Disk and Ready, CANCELS
 the erase confirm, and checks from the host that the disk is still
 blank. Then it confirms, and waits for Finished.
 
+Phase 0 boots the live image with `installer=on` -- the live boot menu's
+Install toy-os entry -- and checks the window is up full screen at once
+AND that the desktop has its launcher behind it, so "Keep trying toy-os"
+leaves a way back in; no notice, since the window is already open. Its
+ISO is made here with grub-mkrescue, one entry; the phase SKIPS without it.
+
 Phase 2 boots the disk with nothing else attached and checks it is the
 installed system: its root is the disk's third partition, the name set
 in the live session is there, and First-boot setup will skip exactly the
@@ -46,6 +52,7 @@ from gui_debug import DebugConsole, enter_gui   # noqa: E402
 from harness import Results                     # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
+from live_boot_test import build_unasked_iso, UNASKED_CFG   # noqa: E402
 
 LIVE_ISO = "toy-os-live.iso"
 TARGET_BYTES = 512 * 1024 * 1024
@@ -133,6 +140,7 @@ def phase1(dbg, res, target):
     klog = sh("log -n 3000")
     res.check("...and the compositor put up the live-session notice", "wm: live-session notice" in klog)
     res.check("...and First-boot setup did not run", "firstboot: step" not in klog)
+    res.check("...nor does the desktop wait for it", "holding the desktop back" not in klog)
     res.check("fbs says a live session never shows setup", "live session never shows it" in sh("fbs"))
 
     # What a person trying the session would set: one setup page each.
@@ -186,11 +194,37 @@ def phase1(dbg, res, target):
               str(lay.state))
     lay = wait(dbg, c, lambda lay: lay.state["step"] == 4)
     res.check("...on the Finished page", lay.state["step"] == 4)
+    # The end is reported ONCE: a tick that kept treating it as new re-read
+    # the clock for Took every quarter second (and would ask to restart
+    # every tick with that box ticked).
+    time.sleep(2)
+    poll(dbg)
+    ends = [ln for ln in LOG if re.search(r"installer: (done|FAILED) in", ln)]
+    res.check("...and the end is reported once, not every tick after", len(ends) == 1, f"{len(ends)} reports")
     said = "\n".join(LOG)
     res.check("every stage ran, in order",
               all(f"installer: [{i}/5]" in said for i in range(1, 6)),
               " ".join(re.findall(r"installer: \[(\d)/5\]", said)))
     return True
+
+
+def phase0(dbg, res):
+    """installer=on: the window, full screen, with the launcher behind it."""
+    sh = lambda c: dbg.send(f"sh {c}")   # noqa: E731
+    win = None
+    for _ in range(60):
+        win = dbg.window(TITLE)
+        if win:
+            break
+        time.sleep(0.5)
+    res.check("installer=on opens the installer by itself", win is not None)
+    res.check("...full screen", win is not None and win.get("state") == "fullscreen",
+              str(win.get("state")) if win else "")
+    res.check("...with the Install toy-os launcher on the desktop behind it",
+              "installer.desktop" in sh("ls /home/Desktop"))
+    klog = sh("log -n 3000")
+    res.check("...and no live-session notice", "wm: live-session notice" not in klog and
+              "notice not asked for" in klog)
 
 
 def phase2(dbg, res):
@@ -207,7 +241,12 @@ def phase2(dbg, res):
               carried == ["Computer name", "Region & formats"], str(carried))
     res.check("...and has not run yet", "not done" in fbs)
     res.check("an installed machine gets no launcher", "installer.desktop" not in sh("ls /home/Desktop"))
-    res.check("...and no live-session notice", "live-session notice" not in sh("log -n 3000"))
+    klog = sh("log -n 3000")
+    res.check("...and no live-session notice", "live-session notice" not in klog)
+    # Setup is due here, so the compositor shows no desktop until setup's
+    # window is up -- let go BY setup, not by the timeout.
+    res.check("the desktop is held back until First-boot setup is up",
+              "holding the desktop back" in klog and "let go -- First-boot setup is up" in klog)
 
 
 def main():
@@ -248,6 +287,34 @@ def run_in(args, tmp):
         return r.stdout + r.stderr
 
     sock = port_guard.instance_sock(args.instance)
+
+    # Phase 0: a one-entry ISO asking for installer=on.
+    cfg = UNASKED_CFG.replace("multiboot2 /boot/kernel.bin", "multiboot2 /boot/kernel.bin live installer=on debugcon")
+    on_iso = build_unasked_iso(tmp, os.path.join(REPO, "build/kernel.bin"), os.path.join(REPO, "build/live.img"),
+                               cfg)
+    if not on_iso:
+        res.skip("installer=on", "no grub-mkrescue")
+    else:
+        print("installer_test: installer=on")
+        env = dict(os.environ, TOYOS_ALLOW_STALE_ISO="1")
+        base = [sys.executable, os.path.join(HERE, "vm.py"), "--instance", str(args.instance), "--disk", target,
+                "--iso", on_iso, "--boot", "cd", *(["--kvm"] if args.kvm else [])]
+        run = lambda *a: subprocess.run(base + list(a), cwd=REPO, capture_output=True, text=True,   # noqa: E731
+                                        timeout=600, env=env).stdout
+        run("stop")
+        if res.check("the guest came up (installer=on)", "vm: ready" in run("--timeout", "180", "start")):
+            try:
+                qmp = QMPSession(port=port_guard.instance_qmp(args.instance))
+                enter_gui(qmp, sock, timeout=60)
+                dbg = DebugConsole(sock, timeout=15)
+                try:
+                    phase0(dbg, res)
+                finally:
+                    dbg.close()
+                    qmp.close()
+            finally:
+                run("stop")
+
     for phase, live in (("live session", True), ("the installed disk", False)):
         vm("stop", live=live)
         print(f"installer_test: {phase}")

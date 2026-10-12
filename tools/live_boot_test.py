@@ -160,15 +160,16 @@ menuentry "toy-os (unasked)" {
 """
 
 
-def build_unasked_iso(tmp, kernel, image):
-    """A one-entry ISO carrying the live module and NOT asking for it."""
+def build_unasked_iso(tmp, kernel, image, cfg=None):
+    """A one-entry ISO carrying the live module and NOT asking for it --
+    or `cfg`'s entry instead (installer_test.py's installer=on)."""
     tree = os.path.join(tmp, "live_policy_iso")
     subprocess.run(f"rm -rf {tree}", shell=True, check=True)
     os.makedirs(os.path.join(tree, "boot", "grub"))
     subprocess.run(f"cp {kernel} {tree}/boot/kernel.bin", shell=True, check=True)
     subprocess.run(f"cp {image} {tree}/boot/live.img", shell=True, check=True)
     with open(os.path.join(tree, "boot", "grub", "grub.cfg"), "w") as f:
-        f.write(UNASKED_CFG)
+        f.write(cfg or UNASKED_CFG)
     iso = os.path.join(tmp, "live_policy.iso")
     mkrescue = shutil.which("grub-mkrescue") or shutil.which("grub2-mkrescue")
     if not mkrescue:

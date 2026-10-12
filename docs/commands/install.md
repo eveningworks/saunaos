@@ -112,13 +112,17 @@ nothing is written until a confirm naming the partitions that are lost. The
 rail and the buttons are held while the copy runs, and closing the window then
 is refused.
 
+On an installed machine the window installs onto ANOTHER disk, and its
+"keep trying" buttons say Close and Quit instead.
+
 **A live session offers it unasked**: `/etc/services.d/installer` runs
 `installer --boot` after the desktop starts, which in a live session puts an
 **Install toy-os** launcher on the desktop and a notice in the corner ("This is
 a live session", with Install toy-os) that stays until it is closed or the
 installer opens. An installed machine gets neither. The live ISO's boot menu
 also has an **Install toy-os** entry, which opens the window full screen at
-once (`installer=on`); `installer=off` offers nothing at all
+once (`installer=on`) with the launcher already on the desktop behind it, so
+"Keep trying toy-os" leaves a way back; `installer=off` offers nothing at all
 (`docs/boot-flags.md`).
 
 ## What a live session's settings do

@@ -77,6 +77,7 @@ static uint64_t g_bytes, g_need;
 static unsigned g_carry;                  // the pages this session set (lib/ufbs.h)
 static char g_version[32] = "toy-os";
 
+static int g_live;   // a live session: "keep trying" and the USB stick mean something
 static struct uinstall_plan g_plan;
 static struct uinstall_progress g_prog;
 static int g_running;
@@ -291,10 +292,16 @@ static void refresh_done(void) {
     uduration_clock(g_took_ms, took, sizeof took);
     if (g_prog.ok) {
         snprintf(g_done_title, sizeof g_done_title, "toy-os is installed on %s", g_plan.disk);
-        snprintf(g_done_text, sizeof g_done_text,
-                 "Remove the USB stick or disc, then restart. The computer starts from %s, and "
-                 "First-boot setup asks %s.", g_plan.disk,
-                 g_carry && !g_askall.checked ? "only what this session did not set" : "how to set it up");
+        const char *asks = g_carry && !g_askall.checked ? "only what this session did not set"
+                                                        : "how to set it up";
+        if (g_live)
+            snprintf(g_done_text, sizeof g_done_text,
+                     "Remove the USB stick or disc, then restart. The computer starts from %s, and "
+                     "First-boot setup asks %s.", g_plan.disk, asks);
+        else
+            snprintf(g_done_text, sizeof g_done_text,
+                     "%s starts toy-os on its own now; this computer still starts from the disk it "
+                     "did. On %s, First-boot setup asks %s.", g_plan.disk, g_plan.disk, asks);
         human_size_iec(total, sizeof total, g_bytes);
         human_size_iec(root, sizeof root, g_plan.part[g_plan.root].sectors * 512);
         fact(f, "Disk", "%s", g_plan.disk);
@@ -355,7 +362,7 @@ static void start_install(void) {
     pthread_attr_init(&at);
     pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
     if (pthread_create(&th, &at, worker, 0) != 0) {
-        g_running = 0;
+        // Still "running": the next tick reports it as a finished failure.
         g_prog.finished = 1;
         g_prog.ok = 0;
         snprintf(g_prog.error, sizeof g_prog.error, "could not start the install's thread");
@@ -363,8 +370,11 @@ static void start_install(void) {
 }
 
 // From the tick: copy how far it has got into the stage list.
+// ONCE PER RUN: g_running is what says the end has not been reported yet,
+// so Took is measured once and Finished entered (and a restart asked
+// for) once, not every tick after.
 static int poll_install(void) {
-    if (!g_running && !g_prog.finished) return 0;
+    if (!g_running) return 0;
     int s = g_prog.stage;
     for (int i = 0; i < UINSTALL_STAGES; i++)
         snprintf(g_stages.detail[i], sizeof g_stages.detail[i], "%s", i <= s ? g_stage_detail[i] : "");
@@ -610,8 +620,10 @@ static void build(void) {
     int cw = ugfx_char_advance('n'), lh = ugfx_char_h();
 
     // Welcome
-    para(&w_intro, "This puts toy-os on a disk in this computer, so that it starts from that disk "
-                   "instead of the USB stick or disc.", 0);
+    para(&w_intro, g_live ? "This puts toy-os on a disk in this computer, so that it starts from that disk "
+                            "instead of the USB stick or disc."
+                          : "This puts a copy of this system on another disk in this computer. The disk it "
+                            "runs from now is left as it is.", 0);
     g_welcome_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
                                           .state = &g_welcome_facts };
     para(&w_hint, "Nothing is changed until you confirm, two steps from here.", 1);
@@ -674,7 +686,8 @@ static void build(void) {
     para(&w_done_text, g_done_text, 0);
     g_done_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
                                        .state = &g_done_facts };
-    uui_button_init(&g_keep, 0, 0, 0, 0, "Keep trying toy-os", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_KEEP);
+    uui_button_init(&g_keep, 0, 0, 0, 0, g_live ? "Keep trying toy-os" : "Close", UTHEME_BUTTON_BG, UTHEME_TEXT,
+                    ID_KEEP);
     uui_button_init(&g_shutdown, 0, 0, 0, 0, "Shut down", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_SHUTDOWN);
     g_keep.outlined = g_shutdown.outlined = 1;
     P_DONE_BTNS[0] = item(&uui_button_ops, &g_keep, ID_KEEP, "keep", 0);
@@ -702,7 +715,7 @@ static void build(void) {
         .heading = "Install toy-os",
         .steps = g_steps,
         .count = S_COUNT,
-        .skip = "Quit -- keep trying toy-os",
+        .skip = g_live ? "Quit -- keep trying toy-os" : "Quit",
         .finish = "Restart now",
         .can_leave = can_leave,
         .on_enter = on_enter,
@@ -715,7 +728,6 @@ static void build(void) {
 }
 
 static int g_fullscreen;
-
 // From the font: the layout is empty until on_open builds it, so it
 // cannot be what sizes the window.
 static void on_size(int *w, int *h) {
@@ -742,8 +754,10 @@ static void on_open(struct uapp *a) {
 // A live session's two ways in: an icon on the desktop, and a notice that
 // says what a live session is (WIN_NOTICE_LIVE, whose action opens this).
 // The launcher lives in the RAM image, so it is gone with the session,
-// and an install leaves it behind (UINSTALL_LAUNCHER).
-static void offer(void) {
+// and an install leaves it behind (UINSTALL_LAUNCHER). installer=on gets
+// the launcher too but no notice: the window is the way back in after
+// "Keep trying toy-os", and the notice would only be dropped again.
+static void offer(int notice) {
     static const char ENTRY[] =
         "# Written by `installer --boot` in a live session (docs/commands/install.md).\n"
         "Name=Install toy-os\n"
@@ -762,8 +776,9 @@ static void offer(void) {
             close(fd);
         }
     }
-    int sent = uapp_notice(0, WIN_NOTICE_LIVE, 0, "live");
-    ulogf("installer: live session -- launcher at %s, notice %s\n", launcher, sent ? "sent" : "not sent");
+    int sent = notice && uapp_notice(0, WIN_NOTICE_LIVE, 0, "live");
+    ulogf("installer: live session -- launcher at %s, notice %s\n", launcher,
+          sent ? "sent" : notice ? "not sent" : "not asked for");
 }
 
 int main(int argc, char **argv) {
@@ -772,12 +787,14 @@ int main(int argc, char **argv) {
         int word = uinstall_boot_word();
         if (word == 2) return 0;                         // installer=off: nothing at all
         if (word != 1) {
-            if (udisk_live_root()) offer();
+            if (udisk_live_root()) offer(1);
             return 0;
         }
+        if (udisk_live_root()) offer(0);
         g_fullscreen = 1;                                // installer=on: this window, now
     }
     if (argc > 1 && !strcmp(argv[1], "--fullscreen")) g_fullscreen = 1;
+    g_live = udisk_live_root();
 
     struct query_version kv;
     if (sys_query_record(QUERY_VERSION, 0, &kv, sizeof kv) >= (int)sizeof kv)
