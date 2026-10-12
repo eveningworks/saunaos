@@ -292,8 +292,9 @@ here. The assertion has to be that a file the ISO shipped can be read.
   is how the live path ends up able to mutate an installed system.
 - **Compression.** A squashfs equivalent would make the image smaller
   and is entirely separate from where it is mounted from.
-- **Installing to disk from a live session.** Wants a partitioner and a
-  copy tool; `parttable` already parses tables, nothing writes them.
+- **Installing to disk from a live session.** Since built: `/bin/install`
+  and the Install toy-os window a live session offers
+  (`docs/commands/install.md`).
 - **Booting the live image on real hardware from USB.** Should follow,
   but El Torito/hybrid-ISO layout is a `grub-mkrescue` question rather
   than a kernel one.
@@ -357,6 +358,6 @@ than costed: TFS3 already funnelled every read and write through
 in 15 call-site substitutions plus one include. TFS2 kept its 24 direct
 `ata_*` calls exactly as planned.
 
-**Still out of scope, unchanged:** a writable overlay, compression,
-installing to disk from a live session, and USB-bootable hybrid ISO
-layout.
+**Still out of scope, unchanged:** a writable overlay, compression, and
+USB-bootable hybrid ISO layout. (Installing to disk from a live session
+has since been built -- `docs/commands/install.md`.)

@@ -22,6 +22,7 @@
 #include "partition_abi.h"
 #include "mount_abi.h"
 #include "lib/human.h"
+#include "lib/udiskscan.h"
 #include "lib/icon_cache.h"
 #include "lib/uimg.h"
 #include "ui/uapp.h"
@@ -43,42 +44,10 @@
 #include "ui/uui_toolbar.h"
 #include "keyboard.h"
 
-#define MAX_DISKS 8
-#define MAX_PARTS 16
-#define MAX_RAM   6
-#define MIB       2048ull          // sectors
-#define GPT_TAIL  34               // the backup header and entries at the end
+#define MIB       UDISK_MIB
+#define GPT_TAIL  UDISK_GPT_TAIL
 
-enum { ROLE_DATA, ROLE_ESP, ROLE_BIOS, ROLE_OTHER };
-
-struct part {
-    int number;                    // 1-based slot in the table; 0 = a whole-disk volume
-    uint64_t start, count;         // 512-byte sectors
-    int mbr_type, role;
-    uint8_t type_guid[16];
-    char name[40];
-    char dev[16];                  // its block device, "" when it has none yet
-    char point[64], fs[16];        // where it is mounted, and as what; "" when not
-    uint64_t used, total;
-    int root;
-};
-
-struct disk {
-    char name[16], model[48], driver[16];
-    uint64_t sectors, block_size;
-    int kind;                      // QUERY_PART_*
-    uint8_t guid[16];
-    int system, persistent;
-    int nparts;
-    struct part parts[MAX_PARTS];
-};
-
-struct ramvol { char point[64], fs[16]; uint64_t used, total; };
-
-static struct disk g_disks[MAX_DISKS];
-static int g_ndisks;
-static struct ramvol g_ram[MAX_RAM];
-static int g_nram;
+static struct udisk_scan g_scan;   // ~10 KB: never on the stack
 static int g_cur;                  // the drives list's row: a disk, then the RAM volumes
 
 // The map of the current drive: a segment per partition and per gap.
@@ -118,127 +87,25 @@ static int g_form_x, g_form_y;     // where the form's labels go
 
 // --- reading the machine ---------------------------------------------------
 
-static int role_of(const struct part *p, int kind) {
-    static const uint8_t BASIC[16] = { 0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
-                                       0x87, 0xC0, 0x68, 0xB6, 0xB7, 0x26, 0x99, 0xC7 };
-    static const uint8_t BIOS[16]  = { 0x48, 0x61, 0x68, 0x21, 0x49, 0x64, 0x6F, 0x6E,
-                                       0x74, 0x4E, 0x65, 0x65, 0x64, 0x45, 0x46, 0x49 };
-    static const uint8_t ESP[16]   = { 0x28, 0x73, 0x2A, 0xC1, 0x1F, 0xF8, 0xD2, 0x11,
-                                       0xBA, 0x4B, 0x00, 0xA0, 0xC9, 0x3E, 0xC9, 0x3B };
-    if (kind == QUERY_PART_GPT) {
-        if (!memcmp(p->type_guid, BASIC, 16)) return ROLE_DATA;
-        if (!memcmp(p->type_guid, ESP, 16)) return ROLE_ESP;
-        if (!memcmp(p->type_guid, BIOS, 16)) return ROLE_BIOS;
-        return ROLE_OTHER;
-    }
-    return p->mbr_type == 0xEF ? ROLE_ESP : ROLE_DATA;
-}
-
-static struct disk *disk_named(const char *name) {
-    for (int i = 0; i < g_ndisks; i++) if (!strcmp(g_disks[i].name, name)) return &g_disks[i];
-    return 0;
-}
-
 static void scan(void) {
-    g_ndisks = g_nram = 0;
-    struct query_blkdev b;
-    QUERY_FOREACH(QUERY_BLKDEV, b, i) {
-        if (b.parent[0] || g_ndisks >= MAX_DISKS) continue;
-        struct disk *d = &g_disks[g_ndisks++];
-        memset(d, 0, sizeof *d);
-        snprintf(d->name, sizeof d->name, "%s", b.name);
-        snprintf(d->model, sizeof d->model, "%s", b.model);
-        snprintf(d->driver, sizeof d->driver, "%s", b.driver);
-        d->sectors = b.sectors;
-        d->block_size = b.block_size ? b.block_size : 512;
-        d->persistent = (int)b.persistent;
-        d->system = (int)b.is_root;
-    }
-    struct query_parttable t;
-    QUERY_FOREACH(QUERY_PARTTABLE, t, i) {
-        struct disk *d = disk_named(t.disk);
-        if (!d) continue;
-        d->kind = (int)t.kind;
-        memcpy(d->guid, t.disk_guid, 16);
-    }
-    struct query_partition q;
-    QUERY_FOREACH(QUERY_PARTITION, q, i) {
-        struct disk *d = disk_named(q.disk);
-        if (!d || d->nparts >= MAX_PARTS || !q.lba_count) continue;
-        struct part *p = &d->parts[d->nparts++];
-        memset(p, 0, sizeof *p);
-        p->number = (int)q.number;
-        p->start = q.lba_start;
-        p->count = q.lba_count;
-        p->mbr_type = (int)q.mbr_type;
-        memcpy(p->type_guid, q.type_guid, 16);
-        snprintf(p->name, sizeof p->name, "%s", q.name);
-        p->role = role_of(p, d->kind);
-    }
-    // Each partition's block device: the window on that disk at that LBA.
-    QUERY_FOREACH(QUERY_BLKDEV, b, i) {
-        struct disk *d = b.parent[0] ? disk_named(b.parent) : 0;
-        for (int k = 0; d && k < d->nparts; k++)
-            if (d->parts[k].start == b.base_lba) {
-                snprintf(d->parts[k].dev, sizeof d->parts[k].dev, "%s", b.name);
-                if (b.is_root) d->system = 1;
-            }
-    }
-    // What is mounted where: on a partition, on a whole disk with no
-    // table (a stock disk.img), or on nothing at all (ramfs).
-    struct query_fsinfo f;
-    QUERY_FOREACH(QUERY_FSINFO, f, i) {
-        if (!(f.flags & QUERY_FS_MOUNTED)) continue;
-        struct part *p = 0;
-        struct disk *whole = disk_named(f.device);
-        for (int k = 0; k < g_ndisks && !p; k++)
-            for (int j = 0; j < g_disks[k].nparts && !p; j++)
-                if (f.device[0] && !strcmp(g_disks[k].parts[j].dev, f.device)) p = &g_disks[k].parts[j];
-        if (!p && whole && whole->nparts < MAX_PARTS && !whole->kind) {
-            p = &whole->parts[whole->nparts++];
-            memset(p, 0, sizeof *p);
-            p->count = whole->sectors;
-            snprintf(p->dev, sizeof p->dev, "%s", whole->name);
-        }
-        if (p) {
-            snprintf(p->point, sizeof p->point, "%s", f.point);
-            snprintf(p->fs, sizeof p->fs, "%s", f.name);
-            p->used = f.used_bytes;
-            p->total = f.total_bytes;
-            p->root = (f.flags & QUERY_FS_ROOT) != 0;
-        } else if (!f.device[0] && g_nram < MAX_RAM) {
-            struct ramvol *r = &g_ram[g_nram++];
-            snprintf(r->point, sizeof r->point, "%s", f.point);
-            snprintf(r->fs, sizeof r->fs, "%s", f.name);
-            r->used = f.used_bytes;
-            r->total = f.total_bytes;
-        }
-    }
-    // The system disk first, the way the list reads best.
-    for (int i = 1; i < g_ndisks; i++)
-        if (g_disks[i].system) {
-            static struct disk tmp;   // ~4 KB: never on the stack
-            tmp = g_disks[0];
-            g_disks[0] = g_disks[i];
-            g_disks[i] = tmp;
-        }
-    int rows = g_ndisks + g_nram;
+    udisk_scan(&g_scan);
+    int rows = g_scan.ndisks + g_scan.nram;
     uui_grid_set(&g_drives, rows, g_drives.cell, 0);
     if (g_cur >= rows) g_cur = rows - 1;
     if (g_cur < 0) g_cur = 0;
     uui_grid_select(&g_drives, rows ? g_cur : -1);
     int nparts = 0;
-    for (int i = 0; i < g_ndisks; i++) nparts += g_disks[i].nparts;
-    snprintf(g_st_count, sizeof g_st_count, "%d drive%s, %d partition%s", g_ndisks, g_ndisks == 1 ? "" : "s",
+    for (int i = 0; i < g_scan.ndisks; i++) nparts += g_scan.disks[i].nparts;
+    snprintf(g_st_count, sizeof g_st_count, "%d drive%s, %d partition%s", g_scan.ndisks, g_scan.ndisks == 1 ? "" : "s",
              nparts, nparts == 1 ? "" : "s");
-    ulogf("disks: %d drives, %d partitions, %d in memory\n", g_ndisks, nparts, g_nram);
+    ulogf("disks: %d drives, %d partitions, %d in memory\n", g_scan.ndisks, nparts, g_scan.nram);
 }
 
-static struct disk *cur_disk(void) { return g_cur < g_ndisks ? &g_disks[g_cur] : 0; }
-static struct ramvol *cur_ram(void) { return g_cur >= g_ndisks && g_cur - g_ndisks < g_nram ? &g_ram[g_cur - g_ndisks] : 0; }
+static struct udisk *cur_disk(void) { return g_cur < g_scan.ndisks ? &g_scan.disks[g_cur] : 0; }
+static struct udisk_ram *cur_ram(void) { return g_cur >= g_scan.ndisks && g_cur - g_scan.ndisks < g_scan.nram ? &g_scan.ram[g_cur - g_scan.ndisks] : 0; }
 
-static struct part *cur_part(void) {
-    struct disk *d = cur_disk();
+static struct udisk_part *cur_part(void) {
+    struct udisk *d = cur_disk();
     int s = g_map.selected;
     if (!d || s < 0 || s >= g_nsegs || g_seg_part[s] < 0) return 0;
     return &d->parts[g_seg_part[s]];
@@ -249,27 +116,12 @@ static int cur_is_free(void) {
     return cur_disk() && s >= 0 && s < g_nsegs && g_seg_part[s] < 0;
 }
 
-static int disk_busy(const struct disk *d) {
+static int disk_busy(const struct udisk *d) {
     for (int i = 0; i < d->nparts; i++) if (d->parts[i].point[0]) return 1;
     return 0;
 }
 
 // --- the map -----------------------------------------------------------------
-
-static const char *role_name(const struct part *p) {
-    switch (p->role) {
-    case ROLE_ESP:  return "EFI";
-    case ROLE_BIOS: return "BIOS boot";
-    default:        return 0;
-    }
-}
-
-static void title_of(const struct part *p, char *out, size_t cap) {
-    if (p->name[0]) snprintf(out, cap, "%s", p->name);
-    else if (role_name(p)) snprintf(out, cap, "%s", role_name(p));
-    else if (p->number) snprintf(out, cap, "Partition %d", p->number);
-    else snprintf(out, cap, "Whole disk");
-}
 
 static void add_seg(int part, uint64_t start, uint64_t count) {
     if (g_nsegs >= UUI_SEGBAR_MAX) return;
@@ -288,13 +140,13 @@ static void add_seg(int part, uint64_t start, uint64_t count) {
         snprintf(g_seg_detail[i], sizeof g_seg_detail[i], "%s", size);
         s->empty = 1;
     } else {
-        const struct part *p = &cur_disk()->parts[part];
-        title_of(p, g_seg_title[i], sizeof g_seg_title[i]);
+        const struct udisk_part *p = &cur_disk()->parts[part];
+        udisk_part_title(p, g_seg_title[i], sizeof g_seg_title[i]);
         snprintf(g_seg_detail[i], sizeof g_seg_detail[i], "%s%s%s", size, p->fs[0] ? " " : "", p->fs);
         snprintf(g_seg_corner[i], sizeof g_seg_corner[i], "%s", p->point);
         if (p->total) s->used_pct = (int)(p->used * 100 / p->total);
         // Colour by what it IS: the firmware's in amber, data in the accent's tint.
-        if (p->role == ROLE_ESP || p->role == ROLE_BIOS) {
+        if (p->role == UDISK_ROLE_ESP || p->role == UDISK_ROLE_BIOS) {
             s->fill = ugfx_rgb(255, 241, 220);
             s->edge = ugfx_rgb(217, 165, 90);
         } else if (p->point[0]) {
@@ -310,22 +162,17 @@ static void add_seg(int part, uint64_t start, uint64_t count) {
     s->detail = g_seg_detail[i];
 }
 
-static int by_start(const void *a, const void *b) {
-    const struct part *x = a, *y = b;
-    return x->start < y->start ? -1 : x->start > y->start;
-}
-
 // Partitions in disk order, and every gap of a megabyte or more between
 // the table's first usable sector and its last as free space.
 static void build_map(void) {
     g_nsegs = 0;
-    struct disk *d = cur_disk();
+    struct udisk *d = cur_disk();
     if (!d) { uui_segbar_set(&g_map, g_segs, 0); return; }
-    qsort(d->parts, (size_t)d->nparts, sizeof d->parts[0], by_start);
+    udisk_sort(d);
     uint64_t at = MIB, end = d->kind == QUERY_PART_GPT ? d->sectors - GPT_TAIL : d->sectors;
     if (!d->kind && d->nparts) at = 0;   // a whole-disk volume
     for (int i = 0; i < d->nparts; i++) {
-        const struct part *p = &d->parts[i];
+        const struct udisk_part *p = &d->parts[i];
         if (p->start > at && p->start - at >= MIB) add_seg(-1, at, p->start - at);
         add_seg(i, p->start, p->count);
         if (p->start + p->count > at) at = p->start + p->count;
@@ -342,8 +189,8 @@ static void build_map(void) {
 static int check_running(void);
 
 static const char *refusal(int cmd) {
-    struct disk *d = cur_disk();
-    struct part *p = cur_part();
+    struct udisk *d = cur_disk();
+    struct udisk_part *p = cur_part();
     // Refresh too: reading a volume's usage waits behind the check's lock.
     if (check_running() && cmd != CMD_EXIT) return "Wait for the check to finish";
     if (!d) return "Volumes in memory cannot be changed";
@@ -354,7 +201,7 @@ static const char *refusal(int cmd) {
         if (!d->persistent) return "This disk is in memory";
         if (disk_busy(d)) return "Unmount this disk's volumes first";
         for (int i = 0; i < d->nparts; i++)
-            if (d->parts[i].role == ROLE_OTHER)
+            if (d->parts[i].role == UDISK_ROLE_OTHER)
                 return "A partition here has a type Disks cannot keep -- use mkpart";
         if (cmd == CMD_NEW) {
             if (!cur_is_free()) return "Select free space";
@@ -368,7 +215,7 @@ static const char *refusal(int cmd) {
         if (!p || !p->number) return "Select a partition";
         if (d->system) return "The system disk cannot be formatted while it runs";
         if (p->point[0]) return "Unmount it first";
-        if (p->role != ROLE_DATA) return "This partition holds the firmware's boot data";
+        if (p->role != UDISK_ROLE_DATA) return "This partition holds the firmware's boot data";
         if (!p->dev[0]) return "This partition has no device until the next boot";
         return 0;
     case CMD_CHECK:
@@ -377,7 +224,7 @@ static const char *refusal(int cmd) {
     case CMD_MOUNT:
         if (!p) return "Select a partition";
         if (d->system) return "The system disk's volumes stay as they are";
-        if (!p->point[0] && (p->role != ROLE_DATA || !p->dev[0])) return "Nothing here can be mounted";
+        if (!p->point[0] && (p->role != UDISK_ROLE_DATA || !p->dev[0])) return "Nothing here can be mounted";
         return 0;
     default:
         return 0;
@@ -406,13 +253,13 @@ static void ask(struct uapp *a, const char *title, int rows, const struct uui_di
 
 // The table as it would be with `skip` removed and `add` placed: every
 // other entry as it is, in disk order, its role and MBR type kept.
-static int write_table(struct disk *d, int skip, const struct mkpart_entry *add) {
+static int write_table(struct udisk *d, int skip, const struct mkpart_entry *add) {
     struct mkpart_request req;
     memset(&req, 0, sizeof req);
     req.kind = d->kind == QUERY_PART_MBR ? MKPART_KIND_MBR : MKPART_KIND_GPT;
     snprintf(req.device, sizeof req.device, "%s", d->name);
     for (int i = 0; i < d->nparts; i++) {
-        const struct part *p = &d->parts[i];
+        const struct udisk_part *p = &d->parts[i];
         if (i == skip || !p->number) continue;
         if (add && req.count < MKPART_MAX_ENTRIES && add->start_lba < p->start) req.entries[req.count++] = *add, add = 0;
         if (req.count >= MKPART_MAX_ENTRIES) return -EINVAL;
@@ -420,7 +267,7 @@ static int write_table(struct disk *d, int skip, const struct mkpart_entry *add)
         e->start_lba = p->start;
         e->sectors = p->count;
         e->mbr_type = (uint8_t)p->mbr_type;
-        e->role = p->role == ROLE_ESP ? MKPART_ROLE_ESP : p->role == ROLE_BIOS ? MKPART_ROLE_BIOS_BOOT : MKPART_ROLE_DATA;
+        e->role = p->role == UDISK_ROLE_ESP ? MKPART_ROLE_ESP : p->role == UDISK_ROLE_BIOS ? MKPART_ROLE_BIOS_BOOT : MKPART_ROLE_DATA;
         snprintf(e->name, sizeof e->name, "%s", p->name);
     }
     if (add) {
@@ -444,7 +291,7 @@ static int format(const char *dev, const char *fs) {
 }
 
 static void do_create(void) {
-    struct disk *d = cur_disk();
+    struct udisk *d = cur_disk();
     int s = g_map.selected;
     if (refusal(CMD_NEW) || !d) return;
     uint64_t spb = d->block_size / 512 ? d->block_size / 512 : 1;
@@ -465,7 +312,7 @@ static void do_create(void) {
     char name[16];
     snprintf(name, sizeof name, "%s", d->name);
     scan();
-    d = disk_named(name);
+    d = udisk_named(&g_scan, name);
     const char *dev = "";
     for (int i = 0; d && i < d->nparts; i++)
         if (d->parts[i].start == e.start_lba) dev = d->parts[i].dev;
@@ -481,7 +328,7 @@ static void do_create(void) {
 }
 
 static void do_mount(void) {
-    struct part *p = cur_part();
+    struct udisk_part *p = cur_part();
     if (!p || refusal(CMD_MOUNT)) return;
     int rc;
     if (p->point[0]) {
@@ -636,11 +483,11 @@ static void start_check(struct uapp *a, unsigned flags) {
 }
 
 static void do_check(struct uapp *a, unsigned flags) {
-    struct part *p = cur_part();
+    struct udisk_part *p = cur_part();
     if (!flags) {
         if (!p || refusal(CMD_CHECK)) return;
         snprintf(g_check_point, sizeof g_check_point, "%s", p->point);
-        title_of(p, g_check_title, sizeof g_check_title);
+        udisk_part_title(p, g_check_title, sizeof g_check_title);
     }
     start_check(a, flags);
 }
@@ -704,8 +551,8 @@ static int check_tick(struct uapp *a) {
 }
 
 static void command(struct uapp *a, int cmd) {
-    struct disk *d = cur_disk();
-    struct part *p = cur_part();
+    struct udisk *d = cur_disk();
+    struct udisk_part *p = cur_part();
     char size[24], title[32];
     const char *why = refusal(cmd);
     if (why && cmd != CMD_EXIT && (cmd != CMD_REFRESH || check_running())) { say("%s%s", why, ""); return; }
@@ -715,7 +562,7 @@ static void command(struct uapp *a, int cmd) {
     case CMD_NEW:     uui_focus_set(&g_focus, RING_SIZE); break;
     case CMD_FORMAT:
         human_size_iec(size, sizeof size, p->count * 512);
-        title_of(p, title, sizeof title);
+        udisk_part_title(p, title, sizeof title);
         snprintf(g_ask_line[0], sizeof g_ask_line[0], "Format %s (%s, %s) on %s?", p->dev, title, size, d->name);
         snprintf(g_ask_line[1], sizeof g_ask_line[1], "Everything on it is erased.");
         btns[0] = (struct uui_dialog_button){ "Format as tfs3", ASK_FORMAT_TFS3, UUI_DLG_DANGER };
@@ -727,7 +574,7 @@ static void command(struct uapp *a, int cmd) {
     case CMD_MOUNT:   do_mount(); break;
     case CMD_DELETE:
         human_size_iec(size, sizeof size, p->count * 512);
-        title_of(p, title, sizeof title);
+        udisk_part_title(p, title, sizeof title);
         snprintf(g_ask_line[0], sizeof g_ask_line[0], "Delete %s (%s, %s) from %s?", p->dev[0] ? p->dev : title, title,
                  size, d->name);
         snprintf(g_ask_line[1], sizeof g_ask_line[1], "Its data cannot be recovered with Disks.");
@@ -741,8 +588,8 @@ static void command(struct uapp *a, int cmd) {
 }
 
 static void answer(struct uapp *a, int code) {
-    struct disk *d = cur_disk();
-    struct part *p = cur_part();
+    struct udisk *d = cur_disk();
+    struct udisk_part *p = cur_part();
     int rc;
     switch (code) {
     case ASK_FORMAT_TFS3:
@@ -782,8 +629,8 @@ static void drive_card(struct ugfx_surface *s, void *ctx, int index, int x, int 
     uint32_t ink = sel ? UTHEME_ACCENT_TEXT : UTHEME_TEXT, ground = sel ? UTHEME_ACCENT : g_drives.bg;
     char line1[48], line2[64], size[24];
     const char *icon = "drive";
-    if (index < g_ndisks) {
-        const struct disk *d = &g_disks[index];
+    if (index < g_scan.ndisks) {
+        const struct udisk *d = &g_scan.disks[index];
         human_size_iec(size, sizeof size, d->sectors * 512);
         snprintf(line1, sizeof line1, "%s", d->name);
         snprintf(line2, sizeof line2, "%s  %s%s", size,
@@ -791,7 +638,7 @@ static void drive_card(struct ugfx_surface *s, void *ctx, int index, int x, int 
                  d->system ? "  system" : "");
         if (!d->persistent) icon = "drive-ram";
     } else {
-        const struct ramvol *r = &g_ram[index - g_ndisks];
+        const struct udisk_ram *r = &g_scan.ram[index - g_scan.ndisks];
         human_size_iec(size, sizeof size, r->total);
         snprintf(line1, sizeof line1, "%s", r->point);
         snprintf(line2, sizeof line2, "%s  %s", size, r->fs);
@@ -826,8 +673,8 @@ static void draw_details(struct ugfx_surface *s, int cw) {
     int pad = ugfx_char_w(), lh = ugfx_char_h(), x = g_pane_x + pad * 2, right = cw - pad * 2;
     int vx = x + ugfx_text_width("Partition table") + pad * 2, y = g_pane_y + pad * 2;
     char a[96], b[64], c[64];
-    struct disk *d = cur_disk();
-    struct ramvol *r = cur_ram();
+    struct udisk *d = cur_disk();
+    struct udisk_ram *r = cur_ram();
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
     ugfx_draw_string(s, x, y, d ? d->name : r ? r->point : "No drives", UTHEME_TEXT, UTHEME_WHITE);
     int nw = ugfx_text_width(d ? d->name : r ? r->point : "No drives");
@@ -862,7 +709,7 @@ static void draw_details(struct ugfx_surface *s, int cw) {
     y = g_facts_y;
     ugfx_fill_rect(s, x, y - pad, right - x, 1, UTHEME_SEPARATOR);
     int sidx = g_map.selected;
-    struct part *p = cur_part();
+    struct udisk_part *p = cur_part();
     if (sidx >= 0 && sidx < g_nsegs && !p) {
         human_size_iec(b, sizeof b, g_seg_count[sidx] * 512);
         snprintf(a, sizeof a, "%s (%llu sectors), from LBA %llu", b, (unsigned long long)g_seg_count[sidx],
@@ -881,7 +728,7 @@ static void draw_details(struct ugfx_surface *s, int cw) {
     }
     if (!p) return;
     char t[32];
-    title_of(p, t, sizeof t);
+    udisk_part_title(p, t, sizeof t);
     if (p->number) snprintf(a, sizeof a, "%d of %d, %s", p->number, d->nparts, t);
     else snprintf(a, sizeof a, "The whole disk, no partition table");
     fact(s, x, &y, vx, right, "Partition", a, UTHEME_TEXT);
@@ -889,7 +736,7 @@ static void draw_details(struct ugfx_surface *s, int cw) {
     snprintf(a, sizeof a, "%s (%llu sectors), from LBA %llu", b, (unsigned long long)p->count, (unsigned long long)p->start);
     fact(s, x, &y, vx, right, "Size", a, UTHEME_TEXT);
     if (p->point[0]) snprintf(a, sizeof a, "%s, mounted at %s", p->fs, p->point);
-    else snprintf(a, sizeof a, "%s", p->role == ROLE_BIOS ? "A boot loader, no filesystem" : "Not mounted");
+    else snprintf(a, sizeof a, "%s", p->role == UDISK_ROLE_BIOS ? "A boot loader, no filesystem" : "Not mounted");
     fact(s, x, &y, vx, right, "Contents", a, UTHEME_TEXT);
     if (p->total) {
         human_size_iec(b, sizeof b, p->used);
@@ -900,8 +747,8 @@ static void draw_details(struct ugfx_surface *s, int cw) {
         fact(s, x, &y, vx, right, "Used", a, UTHEME_TEXT);
     }
     if (d->kind == QUERY_PART_GPT) {
-        const char *rn = p->role == ROLE_DATA ? "Basic data" : p->role == ROLE_ESP ? "EFI System" :
-                         p->role == ROLE_BIOS ? "BIOS boot" : 0;
+        const char *rn = p->role == UDISK_ROLE_DATA ? "Basic data" : p->role == UDISK_ROLE_ESP ? "EFI System" :
+                         p->role == UDISK_ROLE_BIOS ? "BIOS boot" : 0;
         guid_text(p->type_guid, b, sizeof b);
         snprintf(a, sizeof a, "%s%s%s", rn ? rn : "", rn ? "  " : "", b);
         fact(s, x, &y, vx, right, "Type", a, UTHEME_TEXT);
@@ -976,7 +823,7 @@ static void layout(int cw, int ch) {
     uui_grid_ops.set_geometry(&g_drives, 0, top, listw, ch - sbh - top);
     g_pane_x = listw + 1;
     g_pane_y = top;
-    struct disk *d = cur_disk();
+    struct udisk *d = cur_disk();
     int x = g_pane_x + pad * 2, right = cw - pad * 2;
     // Under the drive's heading and its two or three facts.
     int my = top + pad * 2 + lh + pad + (lh + 4) * (d && d->kind == QUERY_PART_GPT ? 2 : 1) + pad / 2 + lh + 4;
@@ -1000,18 +847,18 @@ static void layout(int cw, int ch) {
 }
 
 static void status(void) {
-    struct part *p = cur_part();
+    struct udisk_part *p = cur_part();
     char t[32];
     if (p) {
-        title_of(p, t, sizeof t);
+        udisk_part_title(p, t, sizeof t);
         snprintf(g_st_sel, sizeof g_st_sel, "%s selected", t);
     } else {
         snprintf(g_st_sel, sizeof g_st_sel, "%s", cur_is_free() ? "Free space selected" : "");
     }
     uint64_t free = 0;
-    for (int i = 0; i < g_ndisks; i++)
-        for (int k = 0; k < g_disks[i].nparts; k++)
-            if (g_disks[i].parts[k].total) free += g_disks[i].parts[k].total - g_disks[i].parts[k].used;
+    for (int i = 0; i < g_scan.ndisks; i++)
+        for (int k = 0; k < g_scan.disks[i].nparts; k++)
+            if (g_scan.disks[i].parts[k].total) free += g_scan.disks[i].parts[k].total - g_scan.disks[i].parts[k].used;
     char f[24];
     human_size_iec(f, sizeof f, free);
     snprintf(g_st_free, sizeof g_st_free, "%s free in all", f);
@@ -1022,7 +869,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     layout(s->w, s->h);
     status();
     // The Mount button says which way it goes.
-    struct part *p = cur_part();
+    struct udisk_part *p = cur_part();
     tb_items[TB_MOUNT].label = p && p->point[0] ? "Unmount" : "Mount";
     uapp_log_layout(a, "disks");
     uapp_logf_layout("disks: layout state %d %d %d %d\n", g_cur, g_map.selected, g_nsegs, p ? p->number : -1);
@@ -1071,7 +918,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 
 static void on_action(struct uapp *a, int code) {
     if (code == ID_CREATE && !refusal(CMD_NEW)) {
-        struct disk *d = cur_disk();
+        struct udisk *d = cur_disk();
         uint64_t mb = strtoull(uui_textbox_text(&g_size), 0, 10);
         snprintf(g_ask_line[0], sizeof g_ask_line[0], "Create a %llu MiB partition on %s%s%s?", (unsigned long long)mb,
                  d->name, g_fs.selected == 2 ? "" : ", formatted ", g_fs.selected == 2 ? "" : FS_CHOICES[g_fs.selected]);
@@ -1108,17 +955,17 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 static int g_check_on_open;
 
 static void select_point(const char *point) {
-    for (int i = 0; i < g_ndisks; i++)
-        for (int j = 0; j < g_disks[i].nparts; j++) {
-            if (strcmp(g_disks[i].parts[j].point, point)) continue;
+    for (int i = 0; i < g_scan.ndisks; i++)
+        for (int j = 0; j < g_scan.disks[i].nparts; j++) {
+            if (strcmp(g_scan.disks[i].parts[j].point, point)) continue;
             select_drive(i);
             for (int k = 0; k < g_nsegs; k++)
                 if (g_seg_part[k] == j) g_map.selected = k;
             selection_changed();
             return;
         }
-    for (int i = 0; i < g_nram; i++)
-        if (!strcmp(g_ram[i].point, point)) { select_drive(g_ndisks + i); return; }
+    for (int i = 0; i < g_scan.nram; i++)
+        if (!strcmp(g_scan.ram[i].point, point)) { select_drive(g_scan.ndisks + i); return; }
     say("%s is not a volume Disks shows%s", point, "");
     g_check_on_open = 0;
 }

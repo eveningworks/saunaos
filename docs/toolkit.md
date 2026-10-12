@@ -40,6 +40,7 @@
 | `udevice.h` | THE MACHINE'S DEVICES, as one list -- what /bin/devctl prints and the Device Manager shows. |
 | `udhcp.h` | THE DHCP CLIENT, AS A LIBRARY -- one implementation, two front ends. |
 | `udirs.h` | THE PERSONAL FOLDERS -- Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots -- asked for BY NAME, never by path: XDG's user-dirs (`xdg-user-dir MUSIC`) and Windows' Known Folders. |
+| `udiskscan.h` | What is on this machine's disks, read in one pass: every whole disk (model, size, table kind), its partitions (where, what role, which block device), what is mounted on each and how full, and the v... |
 | `uduration.h` | A length of time typed by a person -- "2", "0.25", "90s", "1.5m", "2h", "1d" -- as whole milliseconds. |
 | `ueffect.h` | A WINDOW EFFECT'S OPTIONS -- what it declares, and what the user chose. |
 | `uelfsym.h` | uelfsym -- function names for addresses in an ELF64 file on disk, and the bytes at an address: what a crash report's backtrace needs to name a frame and to check it follows a call. |
@@ -57,6 +58,7 @@
 | `uimg_reduce.h` | A picture shrunk by WHOLE factors as its rows arrive: every kx x ky block of source pixels becomes one pixel, its average -- alpha weighted when the picture has alpha, so a transparent pixel's colo... |
 | `uinflate.h` | DEFLATE, both directions, in ring 3 -- RFC 1951, plus the zlib (RFC 1950) and gzip (RFC 1952) wrappers around it. |
 | `uinitctl.h` | The control protocol between init and its clients -- `/bin/service`, and everything that restarts or powers off the machine -- over uchan. |
+| `uinstall.h` | Putting this running system onto another disk and making that disk boot: the five stages `install` and the installer window both run -- partition (SYS_MKPART), format (SYS_MKFS), mount (SYS_MOUNT),... |
 | `ukeymap.h` | A keyboard layout read from /usr/share/kbs/<name>: which character each key gives on each level, and which keys are dead -- a snapshot for SHOWING a layout. |
 | `ukeysym.h` | An X11 KEYSYM -- what a VNC viewer sends for a key (RFB 7.5.4) -- as something toy-os's input core takes: a Latin-1 character to type on the active layout, or an evdev keycode (abi/input_keys.h) fo... |
 | `uktest.h` | KTEST's assertions in ring 3, so a test can follow its code out of the kernel with its bodies unchanged: a case is a plain function, and KTEST_ASSERT / KTEST_ASSERT_EQ fail it and return, exactly a... |
@@ -141,6 +143,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_confetti.h` | A CONFETTI BURST: pieces thrown up from a point, tumbling and falling under gravity, fading out at the end -- what a game shows when it is won (Microsoft Minesweeper, Google's, a Solitaire cascade'... |
 | `uui_describe.h` | uui_describe.h -- a widget REPORTS ITS OWN GEOMETRY, by name. |
 | `uui_dialog.h` | A MODAL over the app's own window: a title, some lines, and a row of buttons. |
+| `uui_diskplan.h` | uui_diskplan -- what a disk holds NOW and what it will hold AFTER an operation, as two labelled partition maps one above the other: an installer's or a partitioner's before-and-after (Calamares' pa... |
 | `uui_dropdown.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_edit.h` | uui_edit -- what EDITING TEXT means, in one place. |
 | `uui_editmenu.h` | uui_editmenu -- THE right-click menu of every editable text: Undo, Redo / Cut, Copy, Paste, Delete / Select All, run through the edit core on whatever widget answered uui_widget_ops.edit_target. |

@@ -5949,6 +5949,26 @@ runs first**: a `doom1.wad` with one
   Run it after touching anything in `kernel/fs/`; it exercises the
   probe/format/remount/reboot cycle no KTEST can (the suite runs
   inside one booted kernel).
+- **`installer_test.py`** -- the Install toy-os window
+  (`userland/gui/system/installer.c`) on `toy-os-live.iso` with one BLANK
+  512 MiB IDE disk, then that disk booted with nothing else attached. In
+  `ondemand_sweep.py`; about 4 minutes under TCG. Phase 1 checks what a
+  live session offers unasked -- the desktop launcher, the compositor's
+  live-session notice, and NO First-boot setup -- sets the computer's name
+  and the region as a person trying the session would, walks Welcome,
+  Disk and Ready by the window's own layout log, CANCELS the erase
+  confirm and has the HOST check the disk is still blank, then confirms
+  and waits for Finished with every stage logged in order. Phase 2 boots
+  the disk alone: rooted on `ata0p3`, the name carried, First-boot setup
+  skipping EXACTLY the two pages the session set, and no launcher or
+  notice on an installed machine. **The live ISO is judged by the tool
+  itself** (iso_guard only knows `toy-os.iso`): missing, or older than
+  the kernel, `libuapp.so`, the installer or `install`, it SKIPS (exit
+  77) rather than test the previous build. Positive control: the first
+  run caught the live session's launcher riding along onto the new
+  machine ("an installed machine gets no launcher"), which is why the
+  install now leaves `UINSTALL_LAUNCHER` behind.
+
 - **`install_test.py`** -- does toy-os install itself onto another disk,
   and does that disk then BOOT? Two phases, and the second is the one
   that matters: it boots the installed image with **nothing else

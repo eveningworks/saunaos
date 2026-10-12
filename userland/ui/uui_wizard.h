@@ -31,6 +31,7 @@ struct uui_wizard_step {
     const char *title;       // the rail row and the page heading
     const char *note;        // a line under the heading, or NULL
     struct uui_item page;    // the app's page; flags are the wizard's
+    const char *next;        // Next's text on this step ("Install"), NULL for the usual
 };
 
 struct uui_wizard_desc {
@@ -58,6 +59,7 @@ struct uui_wizard {
     struct uui_wizard_desc d;
     int step;                 // showing
     int reached;              // the furthest step shown so far
+    int hold_back, hold_next, hold_skip;   // uui_wizard_hold()
     int x, y, w, h;
 
     // OWNED, all of it.
@@ -82,6 +84,12 @@ int uui_wizard_action(struct uui_wizard *w, int code);
 // Show `step`. Moves backward freely; forward only through can_leave().
 void uui_wizard_go(struct uui_wizard *w, int step);
 int uui_wizard_step(const struct uui_wizard *w);
+
+// HOLD THE BUTTONS while a step's job runs, or after one that cannot be
+// undone (an installer past its copy): a held Back also stops the rail
+// jumping back, a held Next stops Next and Finish, a held Skip greys it.
+// 1 holds, 0 releases; kept across steps until changed.
+void uui_wizard_hold(struct uui_wizard *w, int back, int next, int skip);
 
 // The buttons, for the app's focus ring: Back, Next, then Skip if shown.
 // Returns how many were written to `ops`/`widgets`.

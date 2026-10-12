@@ -98,6 +98,10 @@ TESTS = [
     # First-boot setup's boot words and marker, and the computer-name rule
     # (lib/ufbs.h, lib/uhostname.h); tools/fbs_test.py is the wizard.
     ("fbs_test", 0, None, None),
+    # The install engine's plan and refusals on fixture disks
+    # (lib/uinstall.h); tools/installer_test.py and install_test.py run
+    # whole installs.
+    ("uinstall_test", 0, None, None),
     # lib/ulogset.h, the Log Viewer's lines: the merge, repeats, the
     # filter, and a saved file read back. tools/logview_test.py is the app.
     ("ulogset_test", 0, None, None),

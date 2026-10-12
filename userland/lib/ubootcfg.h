@@ -111,6 +111,11 @@ int ubootcfg_cmdline(char *out, int cap);
 // Matching the running line against entries instead would be wrong as
 // soon as one is edited after boot -- the mark is what survives that.
 int ubootcfg_trial_booted(const char *cmdline);
+// A `<key>on` / `<key>off` switch in `cmdline` (`key` is "fbs=",
+// "installer="): 1 on, 2 off, 0 absent. Whole words only (`xfbs=on` is
+// not one), the value exactly on or off, and the LAST one wins, as a
+// later word on a command line does.
+int ubootcfg_onoff_in(const char *cmdline, const char *key);
 
 // --- checking ------------------------------------------------------------
 enum { UBOOTCFG_BROKEN = 1,   // GRUB would not get through it: never saved

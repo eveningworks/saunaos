@@ -18,6 +18,11 @@
 // pointer, the layout and the clock's spelling change under the person
 // choosing them. The two text fields save on Next, once valid. So Skip
 // keeps what was already chosen.
+//
+// PAGES AN INSTALL CARRIED ARE NOT ASKED AGAIN: `install` copies the live
+// session's settings and names the pages it set (lib/ufbs.h,
+// UFBS_ANSWERED); those steps are left off the rail, and Ready still
+// shows what they hold.
 #include <stdio.h>
 #include <string.h>
 #include <time.h>
@@ -64,6 +69,8 @@
 #define SET_GLASS    "desktop.transparency"
 #define SET_SERVER   "update.server"
 
+// A PAGE, in lib/ufbs.h's UFBS_PAGE_* order; the wizard's steps are the
+// pages not already answered, then Ready (g_page maps one to the other).
 enum { S_REGION, S_KEYBOARD, S_TIME, S_LOOK, S_NAME, S_NET, S_READY, S_COUNT };
 
 enum {
@@ -143,6 +150,12 @@ static struct uui_layout L_REGION, L_KB_RIGHT, L_KB, L_TIME, L_LOOK_ROW, L_LOOK_
 
 static struct uui_wizard g_wz;
 static struct uui_wizard_step g_steps[S_COUNT];
+static int g_page[S_COUNT];        // the page each wizard step shows
+static int g_nsteps;
+static unsigned g_answered;        // UFBS_ANSWERED's pages, a bit each
+
+static int page_of(int step) { return step >= 0 && step < g_nsteps ? g_page[step] : S_READY; }
+static int cur_page(void) { return page_of(uui_wizard_step(&g_wz)); }
 static struct uui_item g_widgets[2];
 static struct uui_layout g_root;
 static struct uui_focusable g_focusables[12];
@@ -257,7 +270,7 @@ static void draw_ready(struct ugfx_surface *s, const struct uui_custom *c) {
 static void focus_for(int step) {
     int n = 0;
     struct uui_focusable *f = g_focusables;
-    switch (step) {
+    switch (page_of(step)) {
     case S_REGION:
         f[n++] = (struct uui_focusable){ &g_dd_region, &uui_dropdown_focus_ops };
         f[n++] = (struct uui_focusable){ &g_dd_timefmt, &uui_dropdown_focus_ops };
@@ -301,14 +314,16 @@ static void focus_for(int step) {
 
 static void on_enter(int step) {
     ulogf("firstboot: step %d\n", step);
-    if (step == S_REGION || step == S_TIME) refresh_samples();
-    if (step == S_NET || step == S_READY) refresh_network();
-    if (step == S_READY) refresh_ready();
+    int page = page_of(step);
+    if (page == S_REGION || page == S_TIME) refresh_samples();
+    if (page == S_NET || page == S_READY) refresh_network();
+    if (page == S_READY) refresh_ready();
     focus_for(step);
     if (g_app) uapp_redraw(g_app);
 }
 
 static int can_leave(int step) {
+    step = page_of(step);
     if (step == S_NAME) {
         g_name_err.text = name_valid() ? "" : "Use 1 to 63 letters, digits and hyphens, not starting or ending with a hyphen.";
         // Refused: the keys go back to the field that was refused.
@@ -359,6 +374,7 @@ static void save_layout_list(void) {
 static void finish(const char *how) {
     save_layout_list();
     if (ufbs_mark(how) != 0) ulogf("firstboot: could not write %s\n", UFBS_MARKER);
+    ufbs_clear_answered();
     ulogf("firstboot: %s\n", how);
     uui_cursor_tiles_reset(&g_cursor_tiles);
     uui_picture_tiles_reset(&g_wall_tiles);
@@ -451,8 +467,8 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     (void)mods;
     sync_controls();
     // Re-read the fields after the ring delivered a key to one.
-    if (uui_wizard_step(&g_wz) == S_NAME && name_valid()) g_name_err.text = "";
-    if (uui_wizard_step(&g_wz) == S_NET && server_valid()) g_server_err.text = "";
+    if (cur_page() == S_NAME && name_valid()) g_name_err.text = "";
+    if (cur_page() == S_NET && server_valid()) g_server_err.text = "";
     (void)key;
     uapp_redraw(a);
 }
@@ -466,7 +482,7 @@ static int on_close(struct uapp *a) {
 
 static int on_tick(struct uapp *a) {
     (void)a;
-    int s = uui_wizard_step(&g_wz);
+    int s = cur_page();
     if (s != S_REGION && s != S_TIME) return 0;
     refresh_samples();
     return 1;
@@ -645,15 +661,19 @@ static void build(void) {
         { "Network", "How this machine reaches the network, and where its updates come from.", &L_NET },
         { "Ready", "These are saved. Each one is also in System Settings.", &L_READY },
     };
-    for (int i = 0; i < S_COUNT; i++)
-        g_steps[i] = (struct uui_wizard_step){ STEPS[i].title, STEPS[i].note,
-                                               item(&uui_layout_ops, STEPS[i].page, 0, 0, 0) };
+    g_nsteps = 0;
+    for (int i = 0; i < S_COUNT; i++) {
+        if (i != S_READY && (g_answered & (1u << i))) continue;
+        g_page[g_nsteps] = i;
+        g_steps[g_nsteps++] = (struct uui_wizard_step){ STEPS[i].title, STEPS[i].note,
+                                                        item(&uui_layout_ops, STEPS[i].page, 0, 0, 0), 0 };
+    }
 
     uui_dialog_init(&g_ask);
     struct uui_wizard_desc d = {
         .heading = "Set up toy-os",
         .steps = g_steps,
-        .count = S_COUNT,
+        .count = g_nsteps,
         .skip = "Skip setup -- keep the defaults",
         .finish = "Start using toy-os",
         .can_leave = can_leave,
@@ -669,6 +689,15 @@ static void build(void) {
 
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "--boot") && !ufbs_needed()) return 0;
+    g_answered = ufbs_answered();
+    // Every page carried by the install: nothing is left to ask.
+    unsigned all = (1u << UFBS_PAGES) - 1;
+    if ((g_answered & all) == all) {
+        ufbs_mark("finished");
+        ufbs_clear_answered();
+        ulogf("firstboot: every page was answered before the install -- nothing to ask\n");
+        return 0;
+    }
     // Empty until on_open fills it.
     g_root = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_widgets, .count = 0, .margin = 1 };
     struct uapp_desc desc = {

@@ -108,7 +108,7 @@ static int rail_press(void *w, int cx, int cy, unsigned mods) {
     (void)mods;
     struct uui_wizard_rail *r = w;
     int i = rail_row_at(r, cx, cy);
-    r->armed = i >= 0 && i <= r->wz->reached && i != r->wz->step ? i : -1;
+    r->armed = i >= 0 && i <= r->wz->reached && i != r->wz->step && !r->wz->hold_back ? i : -1;
     return r->armed >= 0;
 }
 
@@ -148,9 +148,12 @@ static void show(struct uui_wizard *w, int step) {
     w->note_l.text = w->d.steps[step].note;
     w->body_items[2].hidden = !w->note_l.text || !w->note_l.text[0];
     for (int i = 0; i < w->d.count; i++) w->body_items[3 + i].hidden = i != step;
-    w->back.disabled = step == 0;
+    w->back.disabled = step == 0 || w->hold_back;
+    w->next.disabled = w->hold_next;
+    w->skip.disabled = w->hold_skip;
     int last = step == w->d.count - 1;
-    w->next.label = last && w->d.finish ? w->d.finish : "Next";
+    w->next.label = w->d.steps[step].next ? w->d.steps[step].next
+                  : last && w->d.finish ? w->d.finish : "Next";
     // A new label is a new width: lay out again where the wizard already is.
     if (w->w > 0) uui_layout_run(&w->root, w->x, w->y, w->w, w->h);
     if (w->d.on_enter) w->d.on_enter(step);
@@ -158,7 +161,9 @@ static void show(struct uui_wizard *w, int step) {
 
 void uui_wizard_go(struct uui_wizard *w, int step) {
     if (step < 0 || step >= w->d.count || step == w->step) return;
+    if (step < w->step && w->hold_back) return;
     if (step > w->step) {
+        if (w->hold_next) return;
         // Forward only ONE step at a time and only through can_leave():
         // a later step's check is never jumped over.
         if (step != w->step + 1) return;
@@ -169,6 +174,15 @@ void uui_wizard_go(struct uui_wizard *w, int step) {
 
 int uui_wizard_step(const struct uui_wizard *w) { return w->step; }
 
+void uui_wizard_hold(struct uui_wizard *w, int back, int next, int skip) {
+    w->hold_back = back;
+    w->hold_next = next;
+    w->hold_skip = skip;
+    w->back.disabled = w->step == 0 || back;
+    w->next.disabled = next;
+    w->skip.disabled = skip;
+}
+
 int uui_wizard_action(struct uui_wizard *w, int code) {
     switch (code) {
     case UUI_WIZARD_BACK:
@@ -177,12 +191,12 @@ int uui_wizard_action(struct uui_wizard *w, int code) {
     case UUI_WIZARD_NEXT:
         if (w->step < w->d.count - 1) {
             uui_wizard_go(w, w->step + 1);
-        } else if (!w->d.can_leave || w->d.can_leave(w->step)) {
+        } else if (!w->hold_next && (!w->d.can_leave || w->d.can_leave(w->step))) {
             if (w->d.on_finish) w->d.on_finish();
         }
         return 1;
     case UUI_WIZARD_SKIP:
-        if (w->d.on_skip) w->d.on_skip();
+        if (w->d.on_skip && !w->hold_skip) w->d.on_skip();
         return 1;
     }
     return 0;

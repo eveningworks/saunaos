@@ -650,6 +650,22 @@ def disks():
     return finish(shadow(im))
 
 
+def installer():
+    # A drive with an arrow going into it: Install toy-os.
+    im = canvas()
+    m = m_rr(6, 34, 58, 56, 6)
+    fill(im, m, ((236, 239, 244), (188, 196, 210)))
+    edge(im, m, (150, 160, 178))
+    d = D4(im)
+    d.ellipse((47, 43, 52, 48), fill=(60, 190, 110, 255))
+    d.rounded_rectangle((12, 44, 32, 46.5), radius=1.25, fill=(150, 158, 174, 255))
+    arrow = canvas()
+    fill(arrow, m_or(m_rr(26, 4, 38, 22, 2.5), m_poly(17, 20, 47, 20, 32, 36)),
+         ((96, 160, 236), (52, 104, 200)))
+    im = Image.alpha_composite(im, shadow(arrow, dy=1, blur=1.2, alpha=70))
+    return finish(shadow(im))
+
+
 def drive_network():
     # A drive on a cable: a network share (the File Manager's Network rows).
     im = canvas()
@@ -945,7 +961,7 @@ ART = {
     "imgview": imgview, "player": player, "video": video, "settings": settings, "taskmgr": taskmgr,
     "mines": mines, "screenshot": screenshot, "about": about, "help": help_app,
     "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "disks": disks,
-    "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr,
+    "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
     "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,
     "drive-network": drive_network, "lock": lock,

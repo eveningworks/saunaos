@@ -9,6 +9,7 @@
 #include "rt/sys.h"
 #include "lib/uargs.h"
 #include "lib/ufbs.h"
+#include "lib/udiskscan.h"
 
 #define WIZARD "/bin/wm/system/firstboot"
 
@@ -25,15 +26,28 @@ static const struct uargs_prog PROG = {
     .summary = "First-boot setup: the full-screen wizard a new machine shows once.",
     .cmds = CMDS,
     .notes = "The marker is " UFBS_MARKER ". The boot words fbs=on and fbs=off\n"
-             "show it, or never show it, whatever the marker says (docs/boot-flags.md).",
+             "show it, or never show it, whatever the marker says (docs/boot-flags.md).\n"
+             "A live session never shows it, and a machine `install` wrote skips the pages\n"
+             "the live session already answered (" UFBS_ANSWERED ").",
 };
 
 static int status(void) {
     char how[64];
     if (ufbs_done(how, sizeof how))
         printf("First-boot setup: done (%s)\n", how[0] ? how : "no date recorded");
+    else if (udisk_live_root() && ufbs_boot_word() != UFBS_WORD_ON)
+        printf("First-boot setup: not done -- and a live session never shows it\n");
     else
         printf("First-boot setup: not done -- it shows at the next graphical boot\n");
+    unsigned carried = ufbs_answered();
+    if (carried) {
+        printf("Carried over by the install, so not asked:");
+        for (int p = 0; p < UFBS_PAGES; p++)
+            if (carried & (1u << p)) printf(" %s;", ufbs_page_title(p));
+        printf("\n");
+    }
+    if (udisk_live_root() && ufbs_boot_word() != UFBS_WORD_ON)
+        printf("What you set in this session goes with an install, and setup there skips it.\n");
     switch (ufbs_boot_word()) {
     case UFBS_WORD_ON:  printf("This boot has fbs=on: it shows whatever the marker says.\n"); break;
     case UFBS_WORD_OFF: printf("This boot has fbs=off: it never shows.\n"); break;
@@ -54,7 +68,7 @@ int main(int argc, char **argv) {
             fprintf(stderr, "fbs: could not remove %s\n", UFBS_MARKER);
             return 1;
         }
-        printf("fbs: the next boot shows First-boot setup\n");
+        printf("fbs: the next boot shows First-boot setup, every page\n");
         return 0;
     }
     if (!strcmp(cmd, "now")) {

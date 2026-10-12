@@ -1008,6 +1008,8 @@ run on, not by order.
 - [x] ~~Refresh the PCI/USB id databases from the internet~~ DONE 2026-09-07 -- `/bin/hwdata`; `lspci --update` hands off to it
 - [x] ~~Per-volume state in filesystem backends~~ done -- `struct t3_state`/`fat32_state`/`ramfs_state`, switched at `FS_OP`
 - [x] ~~A self-hosted installer: partition, format, copy the running system, write the bootloader~~ done -- `/bin/install`
+- [x] ~~A graphical installer, offered by a live session~~ DONE 2026-10-12 -- Install toy-os over `lib/uinstall.h`
+- [ ] Install beside another system: keep a disk's partitions and install into its free space -- the installer erases whole disks only
 - [ ] USB mass storage (bulk-only transport) -- the first non-disk-bus storage backend
 - [ ] A USB gamepad for DOOM -- HID's generic-desktop gamepad and joystick usages, through the input core
 - [ ] Bluetooth, or a written decision against it -- the Intel cards' Bluetooth half is a USB device, Linux's `btusb`

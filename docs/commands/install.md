@@ -6,29 +6,22 @@
 
 ## Synopsis
 
-    install [--disk <name>] [--esp <MiB>] [--mbr] confirm
-    install --bootloader confirm
-    install --migrate confirm
-      --disk <name>  the target (`lsblk`); refuses the one this machine runs from
-      --esp <MiB>    size of the FAT32 /boot partition (default 64)
-      --mbr          write an MBR table instead of GPT, for firmware that
-                     will not boot a GPT disk in legacy/CSM mode
-      --bootloader   rewrite THIS machine's bootloader in place, and add
-                     bootpart= to grub.cfg's entries -- no partitioning,
-                     no other file touched; moves /boot/boot up to /boot first
-      --migrate      the same, only when /boot/boot is still there -- what the
-                     boot-migrate service runs; nothing to do on a moved machine
-      confirm        required -- this ERASES the target disk
+    install [--disk NAME] [--esp MIB] [--mbr] [--ask-all] [confirm]
+    install --bootloader [confirm]
+    install --migrate [confirm]
 
 ## Options
 
-- `--disk <name>` -- the target disk, named as `lsblk` names it. There
-  is no default, and the disk this machine is running from is refused.
-- `--esp <MiB>` -- size of the FAT32 `/boot` partition; 64 by default,
+- `--disk NAME` -- the target disk, named as `lsblk` names it. The disk
+  this machine is running from is refused. Without it, at a terminal,
+  `install` asks (below); anywhere else it lists the disks it could use.
+- `--esp MIB` -- size of the FAT32 `/boot` partition; 64 by default,
   and anything under 8 MiB is refused.
 - `--mbr` -- write an MBR table instead of GPT, for firmware that will
   not boot a GPT disk in legacy/CSM mode. Refused before anything is
   erased on a build that staged no `core-msdos.img`.
+- `--ask-all` -- the new machine's First-boot setup asks every page,
+  including the ones this session already set (below).
 - `--bootloader` -- rewrite this machine's own bootloader in place; see
   "Refreshing the bootloader" below. `--disk` and `--mbr` are refused
   with it, because the target is this machine's disk and the layout is
@@ -37,13 +30,16 @@
   still has the old `/boot/boot` layout; anywhere else it says so and
   exits 0. See "Moving `/boot/boot` up to `/boot`" below. It takes no
   other flag.
-- `confirm` -- required, and it ERASES the target disk.
+- `confirm` -- go ahead without asking; it ERASES the target disk.
+- `-h`, `--help` -- every option on one page.
 
 ## Description
 
 `/bin/install` puts the running system onto another disk and makes that disk
-boot. Five steps, each of which is an existing command's operation done through
-the same syscall that command uses:
+boot. The **Install toy-os** window does the same through the same library
+(`lib/uinstall.h`), so the two cannot install two different ways. Five steps,
+each of which is an existing command's operation done through the same syscall
+that command uses:
 
 | step | what it is |
 | --- | --- |
@@ -52,6 +48,17 @@ the same syscall that command uses:
 | mount | `SYS_MOUNT` — the target's root at `/mnt`, its ESP at `/mnt/boot` |
 | copy | `ufileop`, the library `cp -r` and the File Manager share |
 | bootloader | `SYS_INSTALL_BOOT` — the boot sector and GRUB's core image |
+
+It prints each step as it starts, and a meter over the copy when it is
+writing to a terminal:
+
+    [1/5] Partition   GPT, 3 partitions, root 445.9 MiB
+    [2/5] Format      FAT32 on ata0p2, TFS3 on ata0p3
+    [3/5] Mount       ata0p3 at /mnt, ata0p2 at /mnt/boot
+    [4/5] Copy files  1225 files, 130.6 MiB
+    [===========================================>] 100% 130.6M/130.6M 3.4M/s in 38s
+    [5/5] Bootloader  the boot sector and /install/core.img
+    install: done in 0:40. Boot ata0 on its own and it should come up.
 
 The four files it writes onto the target's boot partitions come from
 **`/install`** — `kernel.bin`, `grub.cfg`, `boot.img`, `core.img` — which every
@@ -68,6 +75,66 @@ The layout it writes:
 | `p1` | 1 MiB | BIOS boot | GRUB's `core.img`, no filesystem |
 | `p2` | `--esp` (64 MiB) | ESP, FAT32 | the kernel, `grub.cfg`, GRUB's modules |
 | `p3` | the rest | TFS3 | the root |
+
+## Asking at a terminal
+
+Run bare at a terminal, `install` asks -- Alpine's `setup-alpine` shape:
+
+    /$ install
+    Install toy-os onto which disk?
+         ram0      171.0 MiB  live image                   This system is running from it
+      1) ata0      512.0 MiB  QEMU HARDDISK                (empty)
+    Disk [1]:
+    Partition table -- GPT, or MBR for firmware that won't boot GPT [GPT]:
+    This ERASES ata0:
+      (no partitions -- nothing on it is lost)
+    Type ata0 to go on: ata0
+    [1/5] Partition   GPT, 3 partitions, root 445.9 MiB
+    ...
+
+Every disk is listed; the ones it cannot use are not numbered and say why (the
+disk it runs from, a live image, sectors that are not 512 bytes, too small for
+the system). `--disk` without `confirm` at a terminal prints the plan and the
+partitions it would erase, then asks for the disk's name the same way.
+
+**Flags and `confirm` skip every question, and a program that is not a
+terminal is never asked anything**: off a terminal, bare `install` lists the
+disks and exits, and `--disk` without `confirm` prints the plan and exits, as
+they always did. A script or a test drives it exactly as before.
+
+## The installer window
+
+**Install toy-os** (`/bin/wm/system/installer`, System in the Start menu) is
+the same install on a step rail -- Welcome, Disk, Ready, Installing, Finished,
+First-boot setup's frame. Disk shows the disks it can use and what each holds
+now and after, Ready says what is erased and what goes with the install, and
+nothing is written until a confirm naming the partitions that are lost. The
+rail and the buttons are held while the copy runs, and closing the window then
+is refused.
+
+**A live session offers it unasked**: `/etc/services.d/installer` runs
+`installer --boot` after the desktop starts, which in a live session puts an
+**Install toy-os** launcher on the desktop and a notice in the corner ("This is
+a live session", with Install toy-os) that stays until it is closed or the
+installer opens. An installed machine gets neither. The live ISO's boot menu
+also has an **Install toy-os** entry, which opens the window full screen at
+once (`installer=on`); `installer=off` offers nothing at all
+(`docs/boot-flags.md`).
+
+## What a live session's settings do
+
+**They go with the install.** The copy takes `/etc`, so what was set while
+trying the live session -- the keyboard, the region, the computer's name --
+is what the new machine starts with. It also writes
+`/var/lib/fbs/answered` on the target, naming each First-boot setup page one of
+whose settings the session set, and the new machine's First-boot setup skips
+those pages and asks the rest. `--ask-all` (or the window's "Ask every
+First-boot setup question again") writes no such list, so setup asks
+everything. A live session itself never shows First-boot setup
+(`docs/commands/fbs.md`).
+
+What the session's desktop held goes too -- except its **Install toy-os**
+launcher, which the install leaves behind.
 
 ## Refreshing the bootloader
 
@@ -175,9 +242,9 @@ rather than being read out of `/boot` — one path on every medium.
 - **It does not install onto the disk this machine is running from,** and
   refuses by name. There is no reading of "reinstall over myself" that ends
   with a working machine.
-- **It does not ask anything.** No partitioner, no package selection, no
-  hostname prompt — one command line, so a test can drive it and a person can
-  read back what they typed.
+- **It asks only for the disk, the table and a typed confirm**, and only at a
+  terminal. No partitioner, no package selection, no hostname prompt: the
+  settings are the live session's, and First-boot setup asks the rest.
 - **It does not resize or preserve anything on the target.** The whole disk
   becomes the layout above.
 - **It does not generate a new `core.img`.** See the trap.
@@ -252,9 +319,9 @@ machine cannot boot a toy-os install at all.
 
 ## Typical use
 
-    lsblk                              # find the target
-    install --disk virtio0             # prints the plan, changes nothing
-    install --disk virtio0 confirm     # ~30 seconds
+    install                            # at a terminal: asks, then installs
+    install --disk virtio0             # off one: prints the plan, changes nothing
+    install --disk virtio0 confirm     # ~40 seconds
     poweroff
 
 If that disk then does not boot, the firmware may be refusing GPT in legacy

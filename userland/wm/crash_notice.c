@@ -67,6 +67,7 @@ struct notice {
     int shown_left;               // the countdown's second as last drawn
     char action[24];              // an action card's one button ("Undo")
     void (*act)(void);            // ...and what it does
+    int live;                     // the live-session card: gone once the installer is open
     uint64_t until;
 };
 
@@ -186,6 +187,12 @@ void crash_notice_action(const char *title, const char *sub, const char *icon,
     push(&c);
 }
 
+static int installer_open(void) {
+    for (int i = 0; i < window_count; i++)
+        if (k_strcmp(windows[i].app_id, "installer") == 0) return 1;
+    return 0;
+}
+
 static int stayed_open(const struct notice *n) {
     for (int k = 0; k < n->nwin; k++)
         if (wm_window_by_seq(n->seq[k]) >= 0) return 1;
@@ -297,6 +304,33 @@ static void tell_remote(int pid, unsigned flags, const char *text) {
     ulogf("wm: remote request from %s (%s)\n", n.peer, proto);
 }
 
+// --- a live session (WIN_NOTICE_LIVE) ------------------------------------
+
+static void open_installer(void) {
+    int pid = sys_spawn("/bin/wm/system/installer", 0, -1);
+    if (pid > 0) wm_track_launched(pid);
+}
+
+// ONLY THE INSTALLER MAY SAY IT: the card's button starts a program that
+// erases disks, so a card claiming to be it is held to its spawn path, as
+// a remote request is.
+static void tell_live(int pid) {
+    if (!wm_pid_exec_is(pid, "/bin/wm/system/installer")) {
+        wm_logf("notice: live-session notice from pid %d refused -- not the installer\n", pid);
+        return;
+    }
+    crash_notice_action("This is a live session",
+                        "Files and settings are lost when the computer is switched off.",
+                        "installer", "Install toy-os", open_installer);
+    // It stays until closed or used: it arrives at boot, before anybody
+    // is looking, and a 12-second card would be gone unread. An installer
+    // window, however it was opened, ends it -- the card would sit over
+    // the window's own buttons.
+    g_n[0].until = UINT64_MAX;
+    g_n[0].live = 1;
+    ulogf("wm: live-session notice\n");
+}
+
 // Is the asker still waiting? Its session is in the kernel's list for as
 // long as it lives (QUERY_REMOTESESS) -- a viewer that hung up takes its
 // question with it.
@@ -321,8 +355,9 @@ void crash_notice_piece(int pid, int a, int kind, unsigned flags, const char *te
     g_asm[slot].have = idx + 1;
     if (g_asm[slot].have == pieces) {
         g_asm[slot].pid = 0;
-        if (kind == WIN_NOTICE_REMOTE) tell_remote(pid, flags, g_asm[slot].buf);
-        else                           tell_file(kind, flags, g_asm[slot].buf);
+        if (kind == WIN_NOTICE_REMOTE)    tell_remote(pid, flags, g_asm[slot].buf);
+        else if (kind == WIN_NOTICE_LIVE) tell_live(pid);
+        else                              tell_file(kind, flags, g_asm[slot].buf);
     }
 }
 
@@ -362,7 +397,8 @@ void crash_notice_poll(void) {
             continue;
         }
         if ((now >= g_n[i].until && g_hover_card != i) ||
-            (g_n[i].kind == KIND_STAYED && !stayed_open(&g_n[i])))   // saved and closed meanwhile
+            (g_n[i].kind == KIND_STAYED && !stayed_open(&g_n[i])) ||   // saved and closed meanwhile
+            (g_n[i].live && installer_open()))
             drop(i);
     }
     if (now < g_next_poll) return;

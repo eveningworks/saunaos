@@ -13,7 +13,8 @@
 - `status` (or nothing) -- whether First-boot setup has run (and when, and
   whether it was finished or skipped), and what this boot's command line
   says about it.
-- `again` -- remove the marker, so the next graphical boot shows setup.
+- `again` -- remove the marker (and any list of pages an install carried), so
+  the next graphical boot shows every page of setup.
 - `now` -- show setup now, on this desktop.
 - `-h`, `--help` -- every command in one page.
 
@@ -39,6 +40,7 @@ you type.
 | `/var/lib/fbs/done` exists | it does not run -- the file's line says how it ended |
 | `fbs=on` on the command line | it runs, marker or not |
 | `fbs=off` on the command line | it never runs, and writes no marker |
+| a live session (the root is GRUB's RAM image) | it does not run: the installer is what that boot is for |
 
 The `firstboot` service (`/etc/services.d/firstboot`) runs `firstboot
 --boot` after `toywm` on every graphical boot, and `--boot` exits at once
@@ -50,6 +52,22 @@ unless the table above says to show it.
 leaves it off the disk it writes -- a new machine is set up by whoever boots
 it. So a development image marked by `make iso` is marked again by the next
 one even after `fbs again`; use `fbs now`, or `fbs=on`, to see setup there.
+
+**An install skips what the live session answered.** `install` (and the
+Install toy-os window) copies the session's settings and writes
+`/var/lib/fbs/answered` on the new disk, naming each page one of whose
+settings the session set -- set by someone, rather than left at its built-in
+default. Setup there leaves those steps off the rail (Ready still shows what
+they hold), removes the list when it ends, and, when every page was answered,
+marks itself finished without showing. `fbs` names the carried pages:
+
+    /$ fbs
+    First-boot setup: not done -- it shows at the next graphical boot
+    Carried over by the install, so not asked: Region & formats; Computer name;
+
+The list is written by the install, never worked out at boot: a machine
+somebody has used has settings stored everywhere, and `fbs again` there must
+still ask every page -- it removes the list along with the marker.
 
 **System Update writes it too**, where it is missing (`docs/update-design.md`):
 a machine that is updated was set up already, so the update that brings

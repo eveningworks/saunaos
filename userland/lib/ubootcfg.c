@@ -580,6 +580,19 @@ int ubootcfg_keep(struct ubootcfg *c, int t) {
     return commit(c, rc);
 }
 
+int ubootcfg_onoff_in(const char *cmdline, const char *key) {
+    size_t k = strlen(key);
+    int w = 0;
+    for (const char *p = cmdline; (p = strstr(p, key)) != 0; p++) {
+        if (p != cmdline && p[-1] != ' ') continue;
+        const char *v = p + k;
+        size_t n = strcspn(v, " ");
+        if (n == 2 && !strncmp(v, "on", 2)) w = 1;
+        else if (n == 3 && !strncmp(v, "off", 3)) w = 2;
+    }
+    return w;
+}
+
 int ubootcfg_cmdline(char *out, int cap) {
     struct query_cmdline q;
     int n = 0;

@@ -1,0 +1,19 @@
+# The installer's way in at boot (docs/commands/install.md). `--boot`
+# decides from the command line and the root:
+#
+#   installer=off    nothing at all
+#   installer=on     the installer, full screen -- the live boot menu's
+#                    "Install toy-os" entry
+#   a live session   an "Install toy-os" icon on the desktop and a notice
+#                    saying what a live session is; then it exits
+#   otherwise        nothing: an installed machine starts it from Start
+#
+# After toywm, which is Ready=notify at its first composited frame: the
+# window and the notice both need a compositor.
+Name=installer
+Description=Offer to install toy-os, in a live session
+Exec=/bin/wm/system/installer
+Args=--boot
+Target=graphical
+After=toywm
+Restart=no

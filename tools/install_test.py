@@ -180,7 +180,7 @@ def run_media(args, c, media):
         seed_out = vm(args, "live", "--timeout", "400", "exec",
                       "install --disk ata0 confirm", timeout=900)
         vm(args, "live", "stop", timeout=120)
-        if not add("a smaller install lands first", "install: done." in seed_out):
+        if not add("a smaller install lands first", "install: done" in seed_out):
             return False
         with open(args.target, "r+b") as f:
             f.truncate(GROWN_MB * 1024 * 1024)
@@ -235,7 +235,7 @@ def run_media(args, c, media):
         # output -- four checks read empty while the install was right.
         klog = vm(args, media, "exec", "dmesg")
         both = out + "\n" + klog
-        add("the installer runs to completion", "install: done." in out)
+        add("the installer runs to completion", "install: done" in out)
         add("it partitioned the target",
             ("2 partition(s) named" if mbr else "3 partition(s) named") in both)
         add("it formatted both target filesystems",
@@ -243,8 +243,10 @@ def run_media(args, c, media):
         add("it mounted the target while its own root stayed mounted",
             f"mounted at /mnt on ata0p{root_n}" in both and
             f"mounted at /mnt/boot on ata0p{boot_n}" in both)
-        add("it copied the system and wrote the target's /boot",
-            "copying the system" in out and "/install/kernel.bin" in out)
+        # The stage lines print on a terminal and off one alike; the
+        # per-directory lines only off one, and the debug console is a tty.
+        add("it copied the system and wrote the target's bootloader",
+            "[4/5] Copy files" in out and "[5/5] Bootloader" in out)
         add("nothing was truncated or ran out of room", "no space left" not in out)
         add("it wrote a boot sector and a core image",
             "boot sector written, core image at LBA" in both)

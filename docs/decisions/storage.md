@@ -3901,3 +3901,60 @@ where the players and the wallpaper picker already list it. Apps ask
 - **No accounts, so no `/home/<user>`**: `/home` is the one user's home
   (`docs/filesystem-layout.md`); per-user homes are the roadmap's.
 
+
+## The installer is a live session's window over one engine, and setup pages travel instead of being asked twice
+
+**One engine, two front ends.** The five stages moved out of
+`/bin/install` into `lib/uinstall.h`; the CLI and the Install toy-os
+window both call `uinstall_run()`, which prints nothing and reports
+through callbacks and a progress record a UI thread polls. Calamares
+and Ubiquity are each one program with a GUI; Anaconda has a text and a
+graphical front end over one backend, which is the shape here. Two
+installers over two copies of the partition-and-copy logic would be two
+ways to get the layout trap (`docs/commands/install.md`) wrong.
+
+**It is offered by the live session, not by a separate installer
+image.** Ubuntu's and Fedora's live media boot to a desktop with an
+Install icon (casper writes `ubiquity.desktop` at boot); Debian's
+offers installer entries in the boot menu; Windows boots straight into
+Setup. toy-os does the first and the second: `installer --boot` writes
+the launcher into the RAM image's Desktop and asks the compositor for a
+notice, and the boot menu's "Install toy-os" passes `installer=on`.
+Nothing is automatic on a machine that is not live, so development
+images and every GUI test never meet it, and `installer=off` turns the
+offer off on live media too. A full-screen chooser at every live boot
+(old Ubuntu's "Try or Install") was the alternative; it blocks the
+desktop for someone who only wanted to look.
+
+**The notice is the compositor's and only the installer may ask for it**
+(`WIN_NOTICE_LIVE`, held to `/bin/wm/system/installer`'s spawn path),
+since its button starts a program that erases disks. It stays until
+closed, because it arrives before anybody is looking, and it goes as
+soon as an installer window exists, because it would sit over that
+window's own buttons -- a test found it covering Next.
+
+**Setup pages already answered travel; they are not asked again.**
+macOS's installer asks nothing and Setup Assistant asks everything;
+Ubuntu's installer asks everything and has no first-boot step (bar OEM
+mode); Fedora's Anaconda asks and GNOME Initial Setup skips the pages
+it answered. toy-os is the last. The copy takes `/etc`, so the
+settings move by themselves; the install adds `UFBS_ANSWERED` naming
+each page one of whose settings the session STORED (`stored` non-empty
+in the registry's INFO: set by someone, not left at its built-in
+default). The list is written BY THE INSTALL, never worked out at boot,
+because every page of a machine somebody has used has stored settings,
+and `fbs again` there must still ask everything. A session that chose
+a default value explicitly leaves no stored key, so that page is asked
+again -- the cheaper mistake. A live session never shows First-boot
+setup at all: it forgets everything at power off.
+
+**What the session's desktop held goes with the install, except the
+installer's own launcher** (`UINSTALL_LAUNCHER`), which is the live
+session's and would offer to install an installed machine.
+
+**The CLI asks only at a terminal.** Bare `install` there asks for the
+disk, the table and the disk's name typed back (setup-alpine's shape,
+and `dd`-style safety: a typed name rather than a y); flags and
+`confirm` skip every question, and off a terminal nothing is asked, so
+scripts and tests are unchanged. A full-screen text UI (bsdinstall,
+archinstall) was the larger alternative and waits for a text toolkit.
