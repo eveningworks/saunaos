@@ -14,6 +14,7 @@
 // compositor is a process and has no other way to hear about a write.
 #include "wm/wm_watch.h" // wm_shortcut_poll()'s change counter
 #include "wm_internal.h"
+#include "wm_setup_hold.h"
 #include "wm_shortcut.h"
 #include "keycombo.h"
 #include "lib/ushortcuts.h"
@@ -169,6 +170,8 @@ void wm_shortcut_inhibit(int window, int on) {
 }
 
 int wm_shortcut_inhibited(int focused_window) {
+    // While First-boot setup starts, there is no desktop for a shortcut to act on.
+    if (wm_setup_hold_active()) return 1;
     return g_inhibit_seq && g_inhibit_seq == seq_of(focused_window);
 }
 

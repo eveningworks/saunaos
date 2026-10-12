@@ -11216,6 +11216,20 @@ The one compositor change it needed was a bug fix: a closed tray
 flyout took the click on its own hidden icon, opening over ANY
 fullscreen window (`wm_overlay_click()`).
 
+**But the compositor does hold the desktop back while it starts**
+(`userland/wm/wm_setup_hold.h`, 2026-10-12). Started after `toywm` is
+ready, the wizard took a second or two to put up its first full-screen
+frame, and that whole time the ordinary desktop showed -- the very
+thing Windows, macOS and GNOME never let a new machine show before
+setup. So toywm asks the same question the service does
+(`ufbs_needed()`) at its start, and while the answer is yes it draws
+only setup's plain grey -- no icons, taskbar or notices, no clicks or
+shortcuts -- until setup's window has presented a full-screen frame,
+or twenty seconds have passed, so a wizard that crashes before drawing
+leaves an ordinary desktop rather than a grey screen. It is a hold, not
+a mode: nothing else in the compositor changes, and a toywm restarted
+under a running setup lets go on its first frame.
+
 **Every choice is saved as it is made**, GNOME's behaviour rather than
 Windows' apply-at-the-end: the pointer, the keyboard layout (the Try it
 field types with it) and the clock's spelling change under the person

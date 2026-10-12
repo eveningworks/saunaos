@@ -44,6 +44,7 @@
 #include "volume_popup.h"
 #include "brightness_popup.h"
 #include "crash_notice.h"
+#include "wm_setup_hold.h"
 #include "wm_flash.h"
 #include "close_batch.h"
 #include "network_popup.h"
@@ -1064,6 +1065,7 @@ void wm_run(void) {
     volume_tray_init();   // the tray's second item, after the clock takes slot 0
     brightness_tray_init();
     crash_notice_init();   // after the app list: a notice names the app
+    wm_setup_hold_begin();  // First-boot setup on its way: no desktop until it is up
     network_tray_init();  // furthest right of the non-clock items
     remote_tray_init();   // hidden unless somebody is connected
 
@@ -1202,6 +1204,7 @@ void wm_run(void) {
         volume_poll_config();   // the level and the device list, and the debounced write
         brightness_poll_config();
         crash_notice_poll();
+        wm_setup_hold_poll();
         leave_page_poll();       // the apps asked to close: gone yet?
         close_all_poll();        // ...and a Close all's
 

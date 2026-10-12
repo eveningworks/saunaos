@@ -5952,7 +5952,13 @@ runs first**: a `doom1.wad` with one
 - **`installer_test.py`** -- the Install toy-os window
   (`userland/gui/system/installer.c`) on `toy-os-live.iso` with one BLANK
   512 MiB IDE disk, then that disk booted with nothing else attached. In
-  `ondemand_sweep.py`; about 4 minutes under TCG. Phase 1 checks what a
+  `ondemand_sweep.py`; about 7 minutes under TCG. Phase 0 boots a
+  one-entry ISO it makes with `installer=on` (`live_boot_test.py`'s
+  `build_unasked_iso()`, given the entry): the window is up full screen
+  with the desktop launcher behind it and no notice. Phase 1 also checks
+  the end of the run is reported ONCE (a tick that kept treating it as new
+  re-read Took's clock every quarter second), and phase 2 that the
+  compositor held the desktop back until setup was up. Phase 1 checks what a
   live session offers unasked -- the desktop launcher, the compositor's
   live-session notice, and NO First-boot setup -- sets the computer's name
   and the region as a person trying the session would, walks Welcome,

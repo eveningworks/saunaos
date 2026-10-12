@@ -3,6 +3,7 @@
 // this reads and mutates (windows[], dragging/resizing, etc.) and
 // wm.c's top comment for why that sharing is fine here.
 #include "wm_internal.h"
+#include "wm_setup_hold.h"
 #include "wm_shadow.h"
 #include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
 #include "start_menu.h"
@@ -195,6 +196,7 @@ static uint32_t title_click_win = 0;
 static unsigned long title_click_tick = 0;
 
 void wm_handle_left_click(int mx, int my) {
+    if (wm_setup_hold_active()) return;   // nothing is shown to click (wm_setup_hold.h)
     // EVERY OVERLAY FIRST, most modal first, from the table in
     // wm_overlay.h -- a modal dialog takes a click before a menu does,
     // and both take one before a window. The two tray popups are asked
@@ -763,6 +765,7 @@ void wm_handle_thumb_button(int mx, int my, unsigned btn, int down) {
 }
 
 void wm_handle_right_click(int mx, int my) {
+    if (wm_setup_hold_active()) return;
     // A right-click always resolves to at most one popup -- close
     // whatever's already open before deciding what (if anything) the
     // new click should show, so right-clicks never stack menus.

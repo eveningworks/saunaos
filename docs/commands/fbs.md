@@ -46,6 +46,11 @@ The `firstboot` service (`/etc/services.d/firstboot`) runs `firstboot
 --boot` after `toywm` on every graphical boot, and `--boot` exits at once
 unless the table above says to show it.
 
+**The desktop never shows first.** When setup is due, the compositor
+draws only setup's plain grey from its first frame until setup's window is
+up full screen (or twenty seconds have passed), so the second or two setup
+takes to start shows no icons, taskbar or notices.
+
 **Development and test images boot straight to the desktop**: `make iso`,
 `tools/fresh_disk.py` and the USB image write the marker when they seed
 (`tools/seed_disk.py --fbs-done`). The live ISO is not marked, and `install`

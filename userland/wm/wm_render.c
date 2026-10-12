@@ -27,6 +27,7 @@
 #include "wm_shadow.h"
 #include "wm_glass.h"
 #include "wm_anim.h"
+#include "wm_setup_hold.h"
 #include "lib/icon_cache.h"
 #include "cursor_theme.h"
 #include "ui/uui.h"
@@ -2105,6 +2106,15 @@ void wm_cull_stats(struct wm_cull_stats *out) { *out = g_cull; }
 
 static void render_scene(int mx, int my, int has_damage) {
     apply_scene_clip(has_damage);
+
+    // First-boot setup on its way: its own grey, and nothing of the
+    // desktop under it (wm_setup_hold.h).
+    if (wm_setup_hold_active()) {
+        ugfx_fill_rect(wm_surface(), 0, 0, screen_w, screen_h, UTHEME_WINDOW_BG);
+        ugfx_clear_clip_rect(wm_surface());
+        draw_cursor_at(mx, my);
+        return;
+    }
 
     g_cover = cover_index();
     int covered = g_cover >= 0;

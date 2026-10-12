@@ -982,7 +982,7 @@ EXTRA_OBJS_toywm      = wm/wm wm/wm_rawin wm/wm_render wm/wm_input wm/wm_client 
                         wm/calendar_popup \
                         wm/wm_tooltip \
                         wm/wm_peek \
-                        wm/volume_popup wm/brightness_popup wm/tray_slider_popup wm/crash_notice \
+                        wm/volume_popup wm/brightness_popup wm/tray_slider_popup wm/crash_notice wm/wm_setup_hold \
                         wm/network_popup wm/remote_popup wm/layout_popup \
                         wm/wm_overlay wm/osk \
                         wm/confirm_dialog wm/leave_page wm/close_batch wm/cursor_theme \
