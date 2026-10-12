@@ -165,6 +165,8 @@ static void damage_strip(void) {
     wm_damage_rect(0, screen_h - taskbar_h - m, screen_w, taskbar_h + m);
 }
 
+void taskbar_damage(void) { damage_strip(); }
+
 // **THROUGH usetting_get(), NOT sys_setting().** These settings are
 // DECLARED by files in /etc/settings.d rather than registered in the
 // kernel, so the syscall does not know them -- it answers for the

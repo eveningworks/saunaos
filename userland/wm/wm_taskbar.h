@@ -215,6 +215,10 @@ void taskbar_start_hit_rect(int *x, int *y, int *w, int *h);
 // from off-screen, minimize it if it is focused, else raise it. The
 // peek card's click does the same (wm_peek.c).
 void taskbar_activate(int i);
+// The strip changed for a reason it cannot see -- a window just
+// presented its first frame, which is what lists its button. Damages the
+// band so the next present carries it; see wm_client.c's first frame.
+void taskbar_damage(void);
 
 // DRAG TO REORDER: a press on a window button ARMS it and a release on
 // it activates (Windows acts on release too); moving 4px first -- the

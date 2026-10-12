@@ -21,6 +21,7 @@
 #include "wm_peek.h"
 #include "wm_shadow.h"
 #include "wm_anim.h"   // wm_damage_window_rect(): a window's rect plus its shadow
+#include "wm_taskbar.h" // taskbar_damage(): a first frame lists a button
 #include "wm_shortcut.h"
 #include "lib/usaver.h"
 #include "wm_background.h"
@@ -555,7 +556,16 @@ static void on_window_present(int pid, uint32_t id, int front, uint32_t gen,
     // A failed open leaves the last good frame on screen -- see
     // map_buf() on why the size is checked by mapping it.
     if (!map_buf(win, front, gen, w, h)) { win->client_damage_all = 1; return; }
-    if (first) { win->first_w = w; win->first_h = h; }
+    // THE FIRST FRAME IS ALSO WHAT LISTS ITS TASKBAR BUTTON (shown_now()
+    // in wm_taskbar.c), so the strip is damaged with it. Without this the
+    // button was composed but never PRESENTED -- a page flip copies only
+    // damaged rects -- and appeared 1-4 s later with whatever next touched
+    // the strip, on the ASUS; a full-frame display (QEMU's) hid it.
+    if (first) {
+        win->first_w = w;
+        win->first_h = h;
+        taskbar_damage();
+    }
     int old = win->client_front;
     win->client_front = front;
     win->client_buf = win->client_px[front];
