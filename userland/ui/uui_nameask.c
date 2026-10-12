@@ -60,10 +60,10 @@ void uui_nameask_open(struct uui_nameask *q, struct uapp *a, const char *title,
     uui_textbox_init(&q->field, initial);
     uui_textbox_select(&q->field, 0, (int)strlen(initial));
     uui_label_init(&q->err, "");
-    q->err.fg = utheme_severity(UTHEME_SEV_ERROR);
+    q->err.fg = UUI_ROLE(severity[UTHEME_SEV_ERROR]);
     uui_label_init(&q->gap, "");
-    uui_button_init(&q->ok, 0, 0, 0, 0, ok_label, UTHEME_ACCENT, UTHEME_ACCENT_TEXT, NA_OK);
-    uui_button_init(&q->cancel, 0, 0, 0, 0, "Cancel", UTHEME_BUTTON_BG, UTHEME_TEXT, NA_CANCEL);
+    uui_button_init(&q->ok, 0, 0, 0, 0, ok_label, UUI_ROLE(accent), UUI_ROLE(accent_text), NA_OK);
+    uui_button_init(&q->cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), NA_CANCEL);
     q->btns[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &q->gap, .flags = UUI_FILL_W };
     q->btns[1] = (struct uui_item){ .ops = &uui_button_ops, .widget = &q->cancel, .id = NA_CANCEL, .name = "nameask_cancel" };
     q->btns[2] = (struct uui_item){ .ops = &uui_button_ops, .widget = &q->ok, .id = NA_OK, .name = "nameask_ok" };

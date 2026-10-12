@@ -81,10 +81,10 @@ int theme_emit_after(struct uui_item *out, int n, int i, struct uui_focusable *f
     if (g_slot[i].setting < 0 || strcmp(g_name[g_slot[i].setting], SET_THEME)) return n;
     char stem[UTHEME_STEM_MAX];
     picked(stem, sizeof stem);
-    uui_button_init(&g_customize, 0, 0, 0, 0, "Customize...", UTHEME_ACCENT, UTHEME_ACCENT_TEXT, ID_TH_CUSTOMIZE);
-    uui_button_init(&g_saveas, 0, 0, 0, 0, "Save as new theme...", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_TH_SAVEAS);
-    uui_button_init(&g_import, 0, 0, 0, 0, "Import a theme file...", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_TH_IMPORT);
-    uui_button_init(&g_delete, 0, 0, 0, 0, "Delete", UTHEME_BUTTON_BG, UTHEME_TEXT, ID_TH_DELETE);
+    uui_button_init(&g_customize, 0, 0, 0, 0, "Customize...", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_TH_CUSTOMIZE);
+    uui_button_init(&g_saveas, 0, 0, 0, 0, "Save as new theme...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_TH_SAVEAS);
+    uui_button_init(&g_import, 0, 0, 0, 0, "Import a theme file...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_TH_IMPORT);
+    uui_button_init(&g_delete, 0, 0, 0, 0, "Delete", UUI_ROLE(control_bg), UUI_ROLE(text), ID_TH_DELETE);
     // A shipped theme is not this page's to delete.
     g_delete.disabled = utheme_is_shipped(stem);
     struct uui_button *b[4] = { &g_customize, &g_saveas, &g_import, &g_delete };

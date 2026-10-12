@@ -13,11 +13,11 @@ border=FFFFFF
 # Pages and controls
 window_bg=000000
 panel_bg=000000
-control_bg=000000
+control_bg=2A2A2A
 field_bg=000000
 bar_bg=000000
 chrome=000000
-tab_rest=000000
+tab_rest=1A1A1A
 outline=FFFFFF
 separator=FFFFFF
 
