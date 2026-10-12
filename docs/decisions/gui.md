@@ -11223,7 +11223,8 @@ frame, and that whole time the ordinary desktop showed -- the very
 thing Windows, macOS and GNOME never let a new machine show before
 setup. So toywm asks the same question the service does
 (`ufbs_needed()`) at its start, and while the answer is yes it draws
-only setup's plain grey -- no icons, taskbar or notices, no clicks or
+only the boot splash with "Loading setup..." (plain grey until the
+splash, below) -- no icons, taskbar or notices, no clicks or
 shortcuts -- until setup's window has presented a full-screen frame,
 or twenty seconds have passed, so a wizard that crashes before drawing
 leaves an ordinary desktop rather than a grey screen. It is a hold, not
@@ -11297,3 +11298,38 @@ behaviour for anyone who preferred it. The bar sits flush with its
 strip's far edge -- an inset left a column that a whole-widget focus
 ring filled only while the selection was off-screen, which read as a
 gap that came and went with scrolling.
+
+## The boot splash is drawn by the kernel, statically, and carried on by the compositor on the same pixels
+
+A graphical boot showed the scrolling kernel log, then the ring-0 shell's
+prompt and tosh's banner, for a second or two before the desktop (or
+First-boot setup's grey hold). Windows and Fedora's Plymouth never show a
+console on a graphical boot: the firmware's logo stays up with a spinner
+until the login screen or setup appears ("flicker-free boot").
+
+So the kernel draws the toy-os mark, near-black ground, and a line of
+text ("Starting toy-os...") from the framebuffer's first moment
+(`kernel/drivers/splash.c`), and the compositor draws the SAME mark on the
+same pixels plus a turning spinner while First-boot setup loads
+(`userland/wm/wm_setup_hold.c`) -- one geometry, `kernel/lib/splash_layout.c`,
+compiled into both rings, because a handover that moves anything is the
+flicker this exists to remove. Chosen 2026-10-12 from a canvas: S1 dark
+(not setup's grey, not the wallpaper's blue), then T2 -- the mark alone in
+the middle, spinner and text together near the bottom, as Windows does.
+
+**The kernel's splash is static.** Animating it would mean flushing the
+display from a timer interrupt, and a virtio-gpu flush may not run there;
+the spinner arrives with the compositor, which is why T2 puts it at the
+bottom where its appearing moves nothing else. **The splash writes the
+FRONT buffer and holds back the console's presents**, so the log keeps
+collecting in the back buffer and is all there the moment the splash ends
+with it -- Esc (Plymouth's key), a panic, a text or rescue target, or no
+desktop within 30 seconds. **Its text is drawn by its own front-buffer
+routine** rather than by pointing the shared drawing state at the screen:
+the console is not serialised against interrupts, and an IRQ that logs a
+line draws through that state.
+
+`system.boot_messages` (default `simple`) is the maintainer's "a little
+more verbose" option: `detailed` names each stage -- "Starting
+services..." once init runs, then "Loading desktop..." for the frame the
+desktop takes to draw. `splash=off` on the command line keeps the log.

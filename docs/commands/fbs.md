@@ -47,9 +47,10 @@ The `firstboot` service (`/etc/services.d/firstboot`) runs `firstboot
 unless the table above says to show it.
 
 **The desktop never shows first.** When setup is due, the compositor
-draws only setup's plain grey from its first frame until setup's window is
-up full screen (or twenty seconds have passed), so the second or two setup
-takes to start shows no icons, taskbar or notices.
+carries the kernel's boot splash on -- the logo, a turning spinner and
+"Loading setup..." -- from its first frame until setup's window is up full
+screen (or twenty seconds have passed), so the second or two setup takes to
+start shows no icons, taskbar or notices.
 
 **Development and test images boot straight to the desktop**: `make iso`,
 `tools/fresh_disk.py` and the USB image write the marker when they seed

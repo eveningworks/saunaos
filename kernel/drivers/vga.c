@@ -13,6 +13,7 @@
 #include "io.h"
 #include "gfx.h"
 #include "win_role.h" // win_server_any() -- is anything else painting the screen?
+#include "splash.h"   // the boot splash holds presenting back
 #include "timer.h"
 #include "klog.h"
 #include "knum.h"
@@ -416,6 +417,7 @@ static void present_now(void) {
 
 void vga_present_force(void) {
     if (!fb_mode) return;
+    splash_end(1);   // a panic is the log's, splash or not
     present_now();
 }
 
@@ -425,6 +427,10 @@ static uint64_t g_held_until;   // coarse tick when the console takes it back
 void vga_present(void) {
     if (!fb_mode) return;
     if (g_held) return;   // the held frame (vga_hold_begin) is the screen's
+    // THE BOOT SPLASH OWNS IT (splash.h) until Esc, a text boot or the
+    // compositor -- the log keeps collecting in the back buffer.
+    splash_poll();
+    if (splash_active()) return;
     // THE DESKTOP OWNS THE SCREEN. Without this, any ring-3 process
     // writing to fd 1 blits the text console over the whole desktop --
     // DOOM's startup banner was the visible case, `dmesg` covers 100% of

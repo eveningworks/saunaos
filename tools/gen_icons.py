@@ -1232,7 +1232,7 @@ def icon_start():
     mark becomes a smudge.
     """
     im = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    brick_stack(ImageDraw.Draw(im), w=22, h=20, gap=5, bottom_y=34, left_x=6)
+    brick_stack(ImageDraw.Draw(im), w=22, h=20, gap=5, bottom_y=34, left_x=7)
     return im
 
 
@@ -1277,7 +1277,11 @@ def icon_toyos():
     rounding. Verified at 20px, which is what a menu row gets.
     """
     im, d = tile((40, 96, 230))
-    brick_stack(d, w=19, h=17, gap=5, bottom_y=36, left_x=9)
+    # CENTRED on the plate (4..59 both ways): the group spans 10..53
+    # across and 12..51 down. It sat a pixel left and two low until
+    # 2026-10-12, which the boot splash -- the same mark at 144px --
+    # made plain (kernel/lib/splash_layout.c draws it from these numbers).
+    brick_stack(d, w=19, h=17, gap=5, bottom_y=34, left_x=10)
     return im
 
 

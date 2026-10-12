@@ -1,0 +1,7 @@
+Description=What the screen says while the machine starts
+Widget=radio
+Choice.simple=Starting toy-os...
+Choice.detailed=Each stage: services, then the desktop
+# Read at boot by the kernel's splash and by the compositor, so a change
+# shows on the next start.
+Applies=reboot

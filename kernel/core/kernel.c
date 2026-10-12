@@ -52,6 +52,8 @@
 // program seeded to /bin like any other.
 #define INIT_PATH "/bin/init"
 #include "process.h"  // process_guard_page_init() -- the legacy loader's stack
+#include "splash.h"   // splash_begin() -- the logo in place of the log
+#include "string.h"
 #include "target.h"   // target_init() -- the boot target init starts services for
 #include "debug_console.h"
 #include "i8042.h"      // i8042_register_sources() -- the PS/2 pair, into the input core
@@ -212,6 +214,9 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // to read and only existed on the serial line afterwards.
     klog_set_console_echo(1);
     vga_write("toy-os booting...\n");
+    // The logo goes up NOW and the log collects behind it (splash.h);
+    // a text boot gets it back once the target is known, below.
+    splash_begin();
 
     gdt_init();
     klog_write("toy-os: GDT/TSS initialized\n");
@@ -412,6 +417,10 @@ void kernel_main(uint64_t multiboot_info_addr) {
 
     klog_printf("toy-os: boot target '%s'%s\n", target_get(),
                 target_overridden() ? " (from the kernel command line)" : "");
+    // A text or rescue target has no desktop to take the splash over:
+    // the log and the shell are the screen (the persisted target is
+    // only known now; the command line's was checked at the start).
+    if (k_strcmp(target_get(), "graphical")) splash_end(1);
 
     // init, pid 1 -- spawned HERE, before anything else can take a
     // slot, because pids are handed out in order from 1. Nothing enforces
@@ -436,6 +445,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
             scheduler_set_init_pid(init_pid);
             klog_printf("toy-os: init started as pid %d (" INIT_PATH ")\n",
                         init_pid);
+            splash_stage_services();
         } else {
             klog_printf(KLOG_WARN "toy-os: WARNING -- could not spawn " INIT_PATH
                         "; orphaned processes will hold their slots\n");

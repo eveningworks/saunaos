@@ -953,8 +953,10 @@ static void draw_cursor_at(int x, int y) {
     //
     // Both render paths funnel through here, so this is the whole of
     // it: the cheap move path has already restored what was under the
-    // sprite by the time it calls this.
-    if (wm_idle_saver_pid()) {
+    // sprite by the time it calls this. The same goes for the splash
+    // while First-boot setup loads: nothing on it takes a click, and the
+    // pointer starts on its spinner (wm_setup_hold.h).
+    if (wm_idle_saver_pid() || wm_setup_hold_active()) {
         wm_hwcursor_hide();
         drawn_cursor_kind = -1;
         return;
@@ -2109,12 +2111,12 @@ void wm_cull_stats(struct wm_cull_stats *out) { *out = g_cull; }
 static void render_scene(int mx, int my, int has_damage) {
     apply_scene_clip(has_damage);
 
-    // First-boot setup on its way: its own grey, and nothing of the
+    // First-boot setup on its way: the boot splash, and nothing of the
     // desktop under it (wm_setup_hold.h).
     if (wm_setup_hold_active()) {
-        ugfx_fill_rect(wm_surface(), 0, 0, screen_w, screen_h, UTHEME_WINDOW_BG);
+        wm_setup_hold_draw(wm_surface());
         ugfx_clear_clip_rect(wm_surface());
-        draw_cursor_at(mx, my);
+        draw_cursor_at(mx, my);   // which draws none while held
         return;
     }
 

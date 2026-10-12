@@ -963,10 +963,10 @@ def main():
     tz_ctls = controls(dbg, mark)
     # A ONE-SETTING PAGE IS ONE CARD, and the card is titled even when
     # the page's name is the same word: a card is read on its own, as it
-    # is in Windows 11's Settings. Startup target is one setting and the
-    # page is named for it.
-    one_row = row_named("Startup target")
-    if check("the sidebar offers a Startup target page", one_row is not None):
+    # is in Windows 11's Settings. Updates is one setting (update.server)
+    # and the page is named for its group.
+    one_row = row_named("Updates")
+    if check("the sidebar offers an Updates page", one_row is not None):
         mark = len(drain(dbg))
         open_row(one_row)
         one_page = page_line(dbg, mark)

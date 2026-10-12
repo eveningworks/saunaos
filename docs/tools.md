@@ -5949,6 +5949,17 @@ runs first**: a `doom1.wad` with one
   Run it after touching anything in `kernel/fs/`; it exercises the
   probe/format/remount/reboot cycle no KTEST can (the suite runs
   inside one booted kernel).
+- **`boot_splash_test.py`** -- the boot splash (`kernel/drivers/splash.c`,
+  `userland/wm/wm_setup_hold.c`): one guest on a copy of `disk.img`, five
+  boots, a screendump burst through each. An ordinary boot shows the
+  splash and NO frame of the text console, and the kernel hands it to the
+  desktop; Esc during it brings the log; First-boot setup's hold carries
+  the kernel's logo on the SAME PIXELS and its spinner turns;
+  `system.boot_messages=detailed` holds a frame on an ordinary boot; and
+  the text target shows the log -- which is also the control that the
+  console-frame test can see a console at all. In `ondemand_sweep.py`;
+  about 4 minutes under TCG. Reboots get `--timeout 180`: the burst slows
+  the guest past `vm.py reboot`'s 30-second default.
 - **`installer_test.py`** -- the Install toy-os window
   (`userland/gui/system/installer.c`) on `toy-os-live.iso` with one BLANK
   512 MiB IDE disk, then that disk booted with nothing else attached. In

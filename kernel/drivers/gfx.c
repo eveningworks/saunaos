@@ -608,6 +608,66 @@ void gfx_present(void) {
     dirty_x0 = dirty_x1 = dirty_y0 = dirty_y1 = 0;
 }
 
+void gfx_front_fill_rect(int x, int y, int w, int h, uint32_t color) {
+    if (!double_buffered || !fb) return;
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > width) w = width - x;
+    if (y + h > height) h = height - y;
+    if (w <= 0 || h <= 0) return;
+    int bytes = bpp / 8;
+    for (int j = 0; j < h; j++) {
+        uint8_t *dst = fb + (uint32_t)(y + j) * pitch + (uint32_t)x * bytes;
+        if (bytes == 4) {
+            uint32_t *d32 = (uint32_t *)dst;
+            for (int i = 0; i < w; i++) *d32++ = color;
+        } else {
+            for (int i = 0; i < w; i++, dst += bytes) {
+                dst[0] = (uint8_t)(color & 0xFF);
+                dst[1] = (uint8_t)((color >> 8) & 0xFF);
+                dst[2] = (uint8_t)((color >> 16) & 0xFF);
+            }
+        }
+    }
+    display_flush(x, y, w, h);
+}
+
+static void front_put(int x, int y, uint32_t color) {
+    if (x < 0 || y < 0 || x >= width || y >= height) return;
+    uint8_t *p = fb + (uint32_t)y * pitch + (uint32_t)x * (bpp / 8);
+    if (bpp == 32) { *(uint32_t *)p = color; return; }
+    p[0] = (uint8_t)(color & 0xFF);
+    p[1] = (uint8_t)((color >> 8) & 0xFF);
+    p[2] = (uint8_t)((color >> 16) & 0xFF);
+}
+
+// The baked face only, like everything ring 0 draws, and an opaque
+// `bg` -- the splash's ground. No clip, no dirty box, no kerning: the
+// same rules as gfx_front_fill_rect(), and the same reason (the drawing
+// state is the console's, and an IRQ may be using it right now).
+int gfx_front_draw_string(int x, int y, const char *s, uint32_t fg, uint32_t bg) {
+    if (!double_buffered || !fb || !s) return 0;
+    const struct font_ttf_variant *fv = &font_ttf_variants[cur_font_size];
+    int gw = fv->w, gh = fv->h, pen = x;
+    for (; *s; s++) {
+        int idx = font_ttf_glyph_index((unsigned char)*s);
+        if (idx < 0) idx = font_ttf_glyph_index('?');
+        const unsigned char *glyph = fv->glyphs + (size_t)idx * (size_t)gw * (size_t)gh;
+        for (int row = 0; row < gh; row++)
+            for (int col = 0; col < gw; col++)
+                front_put(pen + col, y + row, gfx_blend(bg, fg, glyph[row * gw + col]));
+        pen += gfx_char_advance((unsigned char)*s);
+    }
+    display_flush(x, y, pen - x, gh);
+    return pen - x;
+}
+
+void gfx_present_all(void) {
+    if (!double_buffered) return;
+    dirty_mark_rect(0, 0, width, height);
+    gfx_present();
+}
+
 void gfx_fill_rect(int x, int y, int w, int h, uint32_t color) {
     for (int j = 0; j < h; j++)
         for (int i = 0; i < w; i++)

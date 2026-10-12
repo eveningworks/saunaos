@@ -335,7 +335,15 @@ class QMPSession:
 
     def _cmd(self, obj):
         self._sock.sendall((json.dumps(obj) + "\n").encode())
-        return self._recv_json()
+        # SKIP ASYNCHRONOUS EVENTS: QEMU interleaves them ({"event":
+        # "RESET"} after a guest reboot, SHUTDOWN, POWERDOWN) with the
+        # replies, and taking one for the reply puts every later call one
+        # line out of step -- a screendump then "returns" before QEMU has
+        # written the file.
+        while True:
+            r = self._recv_json()
+            if not (isinstance(r, dict) and "event" in r):
+                return r
 
     # -- hot-plug ----------------------------------------------------------
     #

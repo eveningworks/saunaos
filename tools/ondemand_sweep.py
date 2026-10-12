@@ -205,6 +205,9 @@ TOOLS = [
     # that disk booted alone. Its own guests and image; SKIPS (77) when
     # the live ISO is missing or older than the build.
     ("installer",   "installer_test.py",       "the GUI installer, live ISO to a booting disk", False, None,         False),
+    # Five boots of one guest on a COPY of disk.img, a screendump burst
+    # through each: its own QEMU, so wants_vm is False.
+    ("splash",      "boot_splash_test.py",     "the boot splash: no console, Esc, setup's hold, text", False, None,  False),
     ("tfs3_v1",     "tfs3_v1_test.py",         "the older TFS3 on-disk version",     True,  None,                   False),
     # FAT32 and the mount table, cross-checked on the HOST with mtools
     # and fsck.fat. It launches its own guest against a COPY of

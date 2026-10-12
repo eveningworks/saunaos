@@ -5,6 +5,7 @@
 // window, no client state: a window is the compositor's
 // (userland/wm/wm_client.c) and a client's events ride its own channel
 // ring (lib/uwmchan.h). abi/win_proto.h is TWP, the protocol.
+#include "splash.h"
 #include "fswatch.h" // fswatch_owner_gone() -- a dead compositor's watches
 #include "win_role.h"
 #include "keyboard.h" // keyboard_suspend_blocking() -- who owns the keyboard follows the compositor role
@@ -523,6 +524,7 @@ int win_server_set_compositor(int pid, uint64_t pml4) {
     // it. vga_hold_expired() gives it back if no desktop returns.
     keyboard_suspend_blocking(pid != 0 || held);
     if (pid != 0) vga_hold_end(0);   // a new desktop takes the screen over
+    if (pid != 0) splash_end(0);     // ...or from the boot splash, which it carries on
 
     // AFTER the registration is cleared, not before: compositor_gone()
     // pushes events and repaints, and anything it reaches must already

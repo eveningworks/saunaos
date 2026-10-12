@@ -1,3 +1,4 @@
+#include "splash.h"
 #include "clockevent.h" // clockevent_idle_halt()
 #include "keyboard.h"
 #include "keyboard_layout.h"
@@ -455,6 +456,10 @@ static void key_event_body(uint16_t keycode, int down, uint16_t wire, int extend
 // The echo and the LED's i8042 wait are slow to hold interrupts for; a
 // bottom half is on docs/roadmap.md.
 static void key_event(uint16_t keycode, int down, uint16_t wire, int extended) {
+    // Esc during the boot splash asks for the log (splash.h). HERE, where
+    // the PS/2 wire and every keycode driver meet: PS/2 never passes
+    // through input_report_key().
+    splash_key(keycode, down);
     uint64_t f = irq_save();
     key_event_body(keycode, down, wire, extended);
     irq_restore(f);

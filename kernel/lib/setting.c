@@ -6,6 +6,7 @@
 // once per boot from static descriptors, so copying them would buy
 // nothing and cost the ability to have a `choice` list computed at call
 // time.
+#include "splash.h"   // splash_setting_register()
 #include "setting.h"
 #include "string.h"
 #include "klog.h"
@@ -748,6 +749,7 @@ void settings_init(void) {
     keyboard_config_setting_register();
     storage_config_setting_register();
     target_setting_register();
+    splash_setting_register();
     tunables_register();
     config_files_scan();
 }

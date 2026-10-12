@@ -325,8 +325,8 @@ void gfx_scroll_up(int pixel_rows, uint32_t bg_color);
 // the window manager from flickering -- without it you're watching the
 // screen get cleared and repainted piece by piece.
 //
-// The console (vga.c) leaves this OFF, so its writes go straight to the
-// display and appear immediately, exactly as before.
+// The console (vga.c) turns it ON at vga_init() and presents at its
+// flush points (vga.c's "console double buffering").
 //
 // Returns 1 if double buffering could be enabled, 0 otherwise --
 // callers can still draw either way. The back buffer is allocated at
@@ -339,6 +339,18 @@ int gfx_set_double_buffered(int enabled);
 // Copies the back buffer to the visible framebuffer. No-op when double
 // buffering is off.
 void gfx_present(void);
+
+// THE FRONT BUFFER, written directly -- the boot splash's
+// (kernel/drivers/splash.c), which owns the screen while the console
+// keeps drawing into the back buffer behind it. Clipped to the screen,
+// published to the display, and kept OUT of the dirty box: that box is
+// the console's, and the splash must not make it present early.
+// gfx_present_all() is the other half: the console's whole page, back
+// on screen when the splash ends with the log. Both need double
+// buffering on; without it there is no page behind the splash.
+void gfx_front_fill_rect(int x, int y, int w, int h, uint32_t color);
+int  gfx_front_draw_string(int x, int y, const char *s, uint32_t fg, uint32_t bg);   // its width
+void gfx_present_all(void);
 
 // Loads a SCANOUT's pixels into the back buffer, faded toward black by
 // `dim`/255, turns double buffering on and marks it all dirty -- so the

@@ -870,6 +870,7 @@ LIBUAPP_OBJS = $(patsubst userland/%.c,$(BUILD)/userland/%.o,$(LIBUAPP_SRCS)) \
                $(BUILD)/userland/shared/tmppath.o \
                $(BUILD)/userland/shared/kcrc.o \
                $(BUILD)/userland/shared/pci_class.o \
+               $(BUILD)/userland/shared/splash_layout.o \
                $(BUILD)/userland/shared/ubsan_cases.o
 LIBUAPP      = $(BUILD)/userland/libuapp.a
 
