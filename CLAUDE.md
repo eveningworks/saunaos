@@ -536,7 +536,8 @@ socket or `kernel/net/` work), `trace-design.md` (`strace` decoding in
 ring 3 and a debugger's stop, stages 1-3 BUILT -- before `strace.c` or
 `ptrace` work), `input-policy-design.md` (keymaps in the compositor, the pointer
 kept, stage 1 BUILT -- before `keyboard_layout.c` or `WIN_EV_RAW_KEY`
-work).
+work), `browser-design.md` (a NetSurf port, PLANNED -- before
+NetSurf, `uui_webview` or HTTP/1.1 work in `libhttp`).
 
 **Rules for editing docs/:**
 

@@ -857,6 +857,18 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] The Terminal's selection is DROPPED when the text scrolls under it, rather than following it
 - [ ] Dragging a Terminal selection past the edge scrolls only while the pointer MOVES -- autoscroll needs a tick this window has not got
 
+### A web browser
+**Needs:** nothing for stages 0-1. `docs/browser-design.md` stages it; NetSurf at a pinned master commit, chosen 2026-10-12.
+
+- [ ] Browser stage 0: vendor NetSurf and its libraries at pinned SHAs (`tools/netsurf_vendor.py`), and fill the libc gaps the link finds
+- [ ] Browser stage 1: NetSurf's headless `monkey` front end on `file:` pages, diffed against the same source built on the host
+- [ ] Browser stage 2: HTTP/1.1 in `libhttp` (methods, headers, chunked, keep-alive) and a threaded NetSurf fetcher over it
+- [ ] Browser stage 3: the Web Browser window (W1), drawing through `uui_canvas`, `uglyph.h` and `uimg.h`
+- [ ] Browser stage 4: the lock's connection card, Downloads, find in page, zoom, bookmarks and history
+- [ ] Browser stage 5: `uui_webview` -- the engine as a content process, so Help and release notes can embed a page
+- [ ] Browser stage 6: JavaScript through Duktape, off by default until measured
+- [ ] Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans
+
 ## Hardware
 
 Each is self-contained: one device, one driver. Pick by what you want to
