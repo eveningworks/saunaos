@@ -108,9 +108,9 @@ static int title_btn_hit_test(int mx, int my, int *out_kind) {
         if (!window_has_chrome(w)) return -1;      // fullscreen: nothing to press
         if (my >= w->y + WM_TITLEBAR_H) return -1; // topmost window here, but below its title bar
         struct btn_rects r = title_buttons(w);
-        if (uui_hit(r.min_x, r.y, r.size, r.size, mx, my)) { *out_kind = 0; return i; }
-        if (uui_hit(r.max_x, r.y, r.size, r.size, mx, my)) { *out_kind = 1; return i; }
-        if (uui_hit(r.close_x, r.y, r.size, r.size, mx, my)) { *out_kind = 2; return i; }
+        if (uui_hit(r.min_x, r.y, r.w, r.h, mx, my)) { *out_kind = 0; return i; }
+        if (uui_hit(r.max_x, r.y, r.w, r.h, mx, my)) { *out_kind = 1; return i; }
+        if (uui_hit(r.close_x, r.y, r.w, r.h, mx, my)) { *out_kind = 2; return i; }
         int tab;
         int k = title_tab_hit(w, mx, my, &tab);
         if (k >= 0) { *out_kind = k; title_tab_idx = tab; return i; }
@@ -326,7 +326,7 @@ void wm_handle_left_click(int mx, int my) {
             // a window with a modal dialog is brought forward by
             // wm_request_close(), and such a window never reaches this
             // press -- the blocker check above takes it.)
-            if (uui_hit(r.min_x, r.y, r.size, r.size, mx, my)) {
+            if (uui_hit(r.min_x, r.y, r.w, r.h, mx, my)) {
                 title_btn_armed_win = i;
                 damage_title_buttons(i);   // the pressed look arrives
                 title_btn_armed_kind = 0;
@@ -336,7 +336,7 @@ void wm_handle_left_click(int mx, int my) {
                 redraw_pending = 1;
                 return;
             }
-            if (uui_hit(r.max_x, r.y, r.size, r.size, mx, my)) {
+            if (uui_hit(r.max_x, r.y, r.w, r.h, mx, my)) {
                 title_btn_armed_win = i;
                 damage_title_buttons(i);   // the pressed look arrives
                 title_btn_armed_kind = 1;
@@ -346,7 +346,7 @@ void wm_handle_left_click(int mx, int my) {
                 redraw_pending = 1;
                 return;
             }
-            if (uui_hit(r.close_x, r.y, r.size, r.size, mx, my)) {
+            if (uui_hit(r.close_x, r.y, r.w, r.h, mx, my)) {
                 title_btn_armed_win = i;
                 damage_title_buttons(i);   // the pressed look arrives
                 title_btn_armed_kind = 2;
@@ -1284,7 +1284,7 @@ void wm_update_title_btn_press(int mx, int my, uint8_t buttons) {
     int bx = (title_btn_armed_kind == 0) ? r.min_x
            : (title_btn_armed_kind == 1) ? r.max_x
            : r.close_x;
-    int now_over = uui_hit(bx, r.y, r.size, r.size, mx, my);
+    int now_over = uui_hit(bx, r.y, r.w, r.h, mx, my);
     if (title_btn_armed_kind >= 4) {   // a tab's close box, or the "+"
         int tab = -1;
         now_over = title_tab_hit(w, mx, my, &tab) == title_btn_armed_kind &&
@@ -1461,7 +1461,7 @@ static void damage_title_buttons(int win) {
         return;
     }
     struct btn_rects r = title_buttons(&windows[win]);
-    wm_damage_rect(r.min_x, r.y, (r.close_x + r.size) - r.min_x, r.size);
+    wm_damage_rect(r.min_x, r.y, (r.close_x + r.w) - r.min_x, r.h);
 }
 
 void wm_update_title_hover(int mx, int my) {

@@ -1,6 +1,8 @@
 // Pushed configuration for the compositor -- see wm_watch.h.
 #include "wm/wm_watch.h"
 #include "wm/wm_log.h"
+#include "wm_internal.h"   // wm_render_reset()
+#include <string.h>
 #include "rt/sys.h"
 #include "lib/udclick.h"
 #include "ui/utheme.h"
@@ -52,7 +54,13 @@ void wm_watch_fired(int id) {
 void wm_watch_setting(void) {
     g_gen[WM_TOPIC_SETTINGS]++;
     udclick_reload();   // the compositor's own clicks: title bars, desktop icons
-    utheme_settings_reload();   // its corners and scrollbars (ui/utheme.h)
+    // Its corners and scrollbars, and the theme (ui/utheme.h). A theme
+    // that changed repaints everything: every frame and the taskbar are
+    // drawn from it, and a damage-limited frame would leave the rest in
+    // the old colours -- the font change's reason for wm_render_reset().
+    struct utheme before = *utheme_current();
+    utheme_settings_reload();
+    if (memcmp(&before, utheme_current(), sizeof before)) wm_render_reset();
 }
 
 uint64_t wm_watch_gen(enum wm_topic t) {

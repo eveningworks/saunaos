@@ -519,9 +519,9 @@ static void cmd_probe(struct dbg_out *o, int px, int py, int json) {
         if (wm_find_resize_zone(px, py, &edges) == i) {
             region = "resize-edge";
         } else if (py < w->y + WM_TITLEBAR_H) {
-            if (px >= r.close_x && px < r.close_x + r.size) region = "close-button";
-            else if (px >= r.max_x && px < r.max_x + r.size) region = "maximize-button";
-            else if (px >= r.min_x && px < r.min_x + r.size) region = "minimize-button";
+            if (px >= r.close_x && px < r.close_x + r.w) region = "close-button";
+            else if (px >= r.max_x && px < r.max_x + r.w) region = "maximize-button";
+            else if (px >= r.min_x && px < r.min_x + r.w) region = "minimize-button";
             else region = "title-bar";
         } else {
             region = "content";

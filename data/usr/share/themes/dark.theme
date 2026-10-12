@@ -1,0 +1,54 @@
+# toy-os theme -- docs/theme-design.md
+Name=Dark
+Description=Dark grey pages and a blue accent
+
+# Window frame
+titlebar=1F3F70
+titlebar_text=FFFFFF
+titlebar_inactive=3A3A41
+titlebar_inactive_text=C8C8CE
+caption_bg=4A4A52
+border=55555E
+
+# Pages and controls
+window_bg=2B2B30
+panel_bg=232327
+control_bg=3A3A41
+field_bg=1B1B1E
+bar_bg=2E2E33
+chrome=29292E
+tab_rest=1F1F23
+outline=5C616C
+separator=3A3A41
+
+# Text and selection
+text=E8E8EA
+text_muted=A3A3AC
+accent=3F73BF
+accent_text=FFFFFF
+selection_bg=26395A
+find_hit=6B5310
+find_hit_current=855A08
+tooltip_bg=3A3A41
+tooltip_text=E8E8EA
+
+# Command colours
+action_nav=7DA7E8
+action_view=5EC4B8
+action_create=6CC287
+action_edit=A98BE8
+action_danger=EC7B70
+action_arrange=E8A15E
+action_media=D9A04A
+danger_bg=C0453C
+severity_error=EC7B70
+severity_warning=E8B45A
+
+[frame]
+caption_buttons=disc
+title_align=left
+titlebar_pad=8
+
+[apply]
+desktop.corners=small
+desktop.taskbar_theme=dark

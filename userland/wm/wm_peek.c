@@ -340,7 +340,7 @@ void wm_peek_draw(int mx, int my) {
         ugfx_draw_string_elided(s, tx, hy + (hh - ugfx_char_h()) / 2, title_w,
                                 windows[idx].title, p->text, ground);
         if (k == g_hot_entry) {
-            uint32_t cbg = g_hot_close ? ugfx_rgb(190, 60, 60)
+            uint32_t cbg = g_hot_close ? utheme_current()->danger_bg
                                        : uui_state_bg(ground, UUI_STATE_HOVER);
             uui_fill_round_rect(s, clx, hy, hh, hh, 4, cbg);
             uint32_t ink = g_hot_close ? ugfx_rgb(255, 255, 255) : p->text;

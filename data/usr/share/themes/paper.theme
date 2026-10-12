@@ -1,0 +1,56 @@
+# toy-os theme -- docs/theme-design.md
+Name=Paper
+Description=Warm paper pages, flat title bars in the window's own colour, round corners
+
+# Window frame
+titlebar=EFECE6
+titlebar_text=2A2723
+titlebar_inactive=E6E2DA
+titlebar_inactive_text=7A746A
+caption_bg=E6E2DA
+border=8F887C
+
+# Pages and controls
+window_bg=EFECE6
+panel_bg=F6F4EF
+control_bg=E6E2DA
+field_bg=FFFFFF
+bar_bg=EDEAE3
+chrome=EFECE6
+tab_rest=DCD7CD
+outline=B4AEA3
+separator=DDD8CE
+
+# Text and selection
+text=2A2723
+text_muted=6B655C
+accent=1F7A72
+accent_text=FFFFFF
+selection_bg=D3EAE6
+find_hit=FFE7A3
+find_hit_current=F5B84C
+tooltip_bg=FBFAF7
+tooltip_text=2A2723
+
+# Command colours
+action_nav=2F5D9C
+action_view=1F7F78
+action_create=2C7A3D
+action_edit=6B4BB8
+action_danger=B23A32
+action_arrange=B0651F
+action_media=A8630F
+danger_bg=BE3C3C
+severity_error=B23A32
+severity_warning=A05C00
+
+[frame]
+caption_buttons=rect
+title_align=center
+titlebar_pad=14
+
+[apply]
+desktop.corners=round
+desktop.taskbar_theme=light
+desktop.wallpaper_type=picture
+desktop.wallpaper=ember

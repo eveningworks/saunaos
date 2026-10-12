@@ -1,0 +1,56 @@
+# toy-os theme -- docs/theme-design.md
+Name=High contrast
+Description=White on black with a yellow accent, for the most contrast
+
+# Window frame
+titlebar=FFD400
+titlebar_text=000000
+titlebar_inactive=000000
+titlebar_inactive_text=FFFFFF
+caption_bg=000000
+border=FFFFFF
+
+# Pages and controls
+window_bg=000000
+panel_bg=000000
+control_bg=000000
+field_bg=000000
+bar_bg=000000
+chrome=000000
+tab_rest=000000
+outline=FFFFFF
+separator=FFFFFF
+
+# Text and selection
+text=FFFFFF
+text_muted=FFFFFF
+accent=FFD400
+accent_text=000000
+selection_bg=00336B
+find_hit=5C4A00
+find_hit_current=8A6E00
+tooltip_bg=000000
+tooltip_text=FFFFFF
+
+# Command colours
+action_nav=7FD4FF
+action_view=7FFFE6
+action_create=7CFF7C
+action_edit=D6B4FF
+action_danger=FF8A80
+action_arrange=FFD400
+action_media=FFC266
+danger_bg=B00000
+severity_error=FF8A80
+severity_warning=FFD400
+
+[frame]
+caption_buttons=disc
+title_align=left
+titlebar_pad=8
+
+[apply]
+desktop.corners=square
+desktop.taskbar_theme=dark
+desktop.transparency=off
+desktop.shadows=off

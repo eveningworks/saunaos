@@ -1,0 +1,54 @@
+# toy-os theme -- docs/theme-design.md
+Name=Light
+Description=Grey pages, a blue accent and blue title bars -- toy-os as it ships
+
+# Window frame
+titlebar=325AA0
+titlebar_text=FFFFFF
+titlebar_inactive=78788C
+titlebar_inactive_text=FFFFFF
+caption_bg=E6E6EB
+border=3C3C3C
+
+# Pages and controls
+window_bg=E4E4E4
+panel_bg=ECECEC
+control_bg=DCDCE2
+field_bg=FFFFFF
+bar_bg=E2E2E5
+chrome=E8E8EA
+tab_rest=C8C8CF
+outline=969BA5
+separator=CDCDD2
+
+# Text and selection
+text=141414
+text_muted=555A66
+accent=466EA0
+accent_text=FFFFFF
+selection_bg=CDDCF0
+find_hit=FFE7A3
+find_hit_current=F5B84C
+tooltip_bg=FFFCDC
+tooltip_text=141414
+
+# Command colours
+action_nav=2F5D9C
+action_view=1F7F78
+action_create=2C7A3D
+action_edit=6B4BB8
+action_danger=B23A32
+action_arrange=C77428
+action_media=A8630F
+danger_bg=BE3C3C
+severity_error=B23A32
+severity_warning=A05C00
+
+[frame]
+caption_buttons=disc
+title_align=left
+titlebar_pad=8
+
+[apply]
+desktop.corners=small
+desktop.taskbar_theme=dark

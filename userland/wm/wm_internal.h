@@ -555,7 +555,9 @@ int  wm_damage_verify_enabled(void);
 // by wm_input.c to hit-test clicks against and by wm_render.c to draw
 // them, so it can't be static to either file. Defined in wm_render.c
 // since it's fundamentally a layout/drawing computation.
-struct btn_rects { int min_x, max_x, close_x, y, size; };
+// `size` is the GLYPH's square; `w`x`h` is what is hit and painted --
+// the same square for discs, the bar's full height for rectangles.
+struct btn_rects { int min_x, max_x, close_x, y, size, w, h; };
 struct btn_rects title_buttons(const struct window *win);
 
 // A window's title-bar TABS, laid out ONCE for drawing, hit-testing and

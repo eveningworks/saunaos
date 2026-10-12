@@ -129,6 +129,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `umonofont.h` | umonofont -- the desktop's MONOSPACE face at a size an app chooses, or the session's own when it chooses none: what a terminal grid or a text document draws in. |
 | `utext.h` | utext -- a wrapped, scrollable, editable text buffer with a cursor and a selection. |
 | `utheme.h` | The ring-3 toolkit's THEME: a PALETTE (colour roles, Qt's QPalette / GTK's named colours) and METRICS (font-derived sizes and spacing, Qt's QStyle). |
+| `utheme_file.h` | Theme FILES: reading, writing and applying the `.theme` files a `desktop.theme` setting names (docs/theme-design.md). |
 | `uui.h` | Toykit -- the ring-3 GUI toolkit -- and the umbrella include for its widgets. |
 | `uui_actionlist.h` | ROWS OF THINGS, EACH WITH ITS OWN BUTTONS: a title, a dim line under it, and up to two buttons at the right of the row -- "Disconnect" on a remote session, "Remove" on a trusted address. |
 | `uui_anim.h` | FRAMES FOR THINGS THAT MOVE ON THEIR OWN. |

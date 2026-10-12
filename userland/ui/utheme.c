@@ -4,11 +4,15 @@
 #include "ui/utheme.h"
 #include "ui/ugfx.h"
 #include "ui/uui_primitives.h"   // UUI_CAPSULE
+#include "ui/utheme_file.h"
 #include "lib/usetting.h"
 #include <string.h>
 
 static struct utheme g_theme;
 static int g_inited;
+// The pushed palettes' predecessors, innermost last (utheme_push()).
+static struct utheme g_saved[2];
+static int g_depth;
 
 // The default (light) palette, filled at runtime because ugfx_rgb() is
 // a function, not a constant.
@@ -56,6 +60,21 @@ void utheme_default(struct utheme *out) {
     // this is text at 4.5:1 on white -- and lighter than the error red,
     // so the two still differ in lightness, not hue alone.
     out->severity[UTHEME_SEV_WARNING] = ugfx_rgb(160, 92, 0);
+    out->text_muted   = ugfx_rgb(85, 90, 102);
+    out->tooltip_bg   = ugfx_rgb(255, 252, 220);
+    out->tooltip_text = out->text;
+    out->find_hit     = ugfx_rgb(255, 231, 163);
+    out->find_hit_current = ugfx_rgb(245, 184, 76);
+    out->danger_bg    = ugfx_rgb(190, 60, 60);
+    out->titlebar     = ugfx_rgb(50, 90, 160);
+    out->titlebar_text = ugfx_rgb(255, 255, 255);
+    out->titlebar_inactive = ugfx_rgb(120, 120, 130);
+    out->titlebar_inactive_text = ugfx_rgb(255, 255, 255);
+    out->caption_bg   = ugfx_rgb(230, 230, 235);
+    out->caption_style = UTHEME_CAPTION_DISC;
+    out->title_align  = UTHEME_TITLE_LEFT;
+    out->titlebar_pad = 8;
+    strlcpy(out->name, "Light", sizeof out->name);
 }
 
 uint32_t utheme_action(int role) {
@@ -68,22 +87,39 @@ uint32_t utheme_severity(int sev) {
     return utheme_current()->severity[sev];
 }
 
+// The theme `desktop.theme` names, else the default. A file that is
+// missing or unreadable is the default, never an error: the desktop
+// has to draw with SOMETHING (utheme_file.h).
 void utheme_init(void) {
-    utheme_default(&g_theme);
+    char stem[SETTING_ABI_VALUE_MAX] = "";
+    if (!usetting_get("desktop.theme", stem, sizeof stem) || !stem[0] ||
+        !utheme_load(stem, &g_theme, 0))
+        utheme_default(&g_theme);
     g_inited = 1;
 }
 
 const struct utheme *utheme_current(void) {
-    // Lazy, so a UTHEME_* colour used before uapp_run() calls
-    // utheme_init() still resolves to the default rather than to zero
-    // (which is black -- a silent, ugly failure).
-    if (!g_inited) utheme_init();
+    // Lazy, so a UTHEME_* colour used before uapp_run() still resolves
+    // to a palette rather than to zero (which is black -- a silent,
+    // ugly failure). Not while a preview has pushed one: the reload
+    // would replace the preview's palette mid-paint.
+    if (!g_inited && !g_depth) utheme_init();
     return &g_theme;
 }
 
 void utheme_set(const struct utheme *t) {
     g_theme = *t;
     g_inited = 1;
+}
+
+void utheme_push(const struct utheme *t) {
+    if (g_depth >= (int)(sizeof g_saved / sizeof g_saved[0])) return;
+    g_saved[g_depth++] = *utheme_current();
+    g_theme = *t;
+}
+
+void utheme_pop(void) {
+    if (g_depth > 0) g_theme = g_saved[--g_depth];
 }
 
 // --- metrics: derived from the font, clamped for before-font-up -------
@@ -144,4 +180,9 @@ int utheme_scrollbars_always(void) {
     return g_sb_always;
 }
 
-void utheme_settings_reload(void) { g_round_loaded = 0; }
+void utheme_settings_reload(void) {
+    g_round_loaded = 0;
+    g_inited = 0;   // the palette too: `desktop.theme` may have moved
+}
+
+int utheme_titlebar_h(void) { return ch() + utheme_current()->titlebar_pad; }

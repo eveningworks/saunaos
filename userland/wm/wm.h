@@ -5,6 +5,7 @@
                  // at runtime now (see gfx_set_font_size()) -- this used
                  // to be a plain compile-time constant.
 #include "win_proto.h" // WIN_CLIENT_BUFS: the client_px[] tables below
+#include "ui/utheme.h" // WM_TITLEBAR_H: the theme pads the bar
 
 // The window manager's public, app-facing API -- everything a GUI app
 // (Notepad, About, Calculator, ...) is allowed to use. Implemented
@@ -309,7 +310,7 @@ struct window {
 // A macro rather than a cached variable so it always reflects whatever
 // font size is currently active -- gfx_char_h() is cheap (just an array
 // lookup), so recomputing this on every use costs nothing.
-#define WM_TITLEBAR_H (ugfx_char_h() + 8)
+#define WM_TITLEBAR_H utheme_titlebar_h()   // the font's height plus the theme's padding
 
 // --- helpers for use inside a gui_app's callbacks ---
 

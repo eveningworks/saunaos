@@ -19,10 +19,8 @@ void uui_listbox_init(struct uui_listbox *lb, int x, int y, int w, int h,
     uui_scrollanim_init(&lb->anim);
     lb->row_h = 0; // derive from the font
     uui_sbar_init(&lb->sb);
-    lb->bg = ugfx_rgb(255, 255, 255);
-    lb->fg = ugfx_rgb(20, 20, 20);
-    lb->sel_bg = ugfx_rgb(205, 220, 240);
-    lb->sel_fg = ugfx_rgb(20, 20, 20);
+    // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
+    lb->bg = lb->fg = lb->sel_bg = lb->sel_fg = UUI_COLOR_UNSET;
 }
 
 void uui_listbox_set_items(struct uui_listbox *lb, const char *const *items, int count) {
@@ -84,8 +82,11 @@ void uui_listbox_draw(struct ugfx_surface *s, const struct uui_listbox *lb) {
     int vis = uui_listbox_visible_rows(lb);
     int bar = uui_listbox_scrollbar_visible(lb) ? uui_sbar_width() : 0;
     int text_w = lb->w - bar;
+    uint32_t bg = UUI_COLOR(lb->bg, UTHEME_WHITE), fg = UUI_COLOR(lb->fg, UTHEME_TEXT);
+    uint32_t sel_bg = UUI_COLOR(lb->sel_bg, UTHEME_SELECTION);
+    uint32_t sel_fg = UUI_COLOR(lb->sel_fg, UTHEME_TEXT);
 
-    ugfx_fill_rect(s, lb->x, lb->y, lb->w, lb->h, lb->bg);
+    ugfx_fill_rect(s, lb->x, lb->y, lb->w, lb->h, bg);
 
     // The glide (ui/uui_scrollanim.h): `top` has moved; the rows are
     // drawn `disp` px from where it puts them for a few frames, plus the
@@ -103,11 +104,11 @@ void uui_listbox_draw(struct ugfx_surface *s, const struct uui_listbox *lb) {
         if (idx >= lb->count) break;
         int ry = lb->y + (idx - lb->top) * rh + disp;
 
-        uint32_t rbg = lb->bg, rfg = lb->fg;
-        if (idx == lb->selected) { rbg = lb->sel_bg; rfg = lb->sel_fg; }
-        else if (idx == lb->hovered) { rbg = uui_state_bg(lb->bg, UUI_STATE_HOVER); }
+        uint32_t rbg = bg, rfg = fg;
+        if (idx == lb->selected) { rbg = sel_bg; rfg = sel_fg; }
+        else if (idx == lb->hovered) { rbg = uui_state_bg(bg, UUI_STATE_HOVER); }
 
-        if (rbg != lb->bg) ugfx_fill_rect(s, lb->x, ry, text_w, rh, rbg);
+        if (rbg != bg) ugfx_fill_rect(s, lb->x, ry, text_w, rh, rbg);
         ugfx_draw_string_clipped(s, lb->x + UUI_LISTBOX_PAD_X, ry + (rh - ugfx_char_h()) / 2,
                                   text_w - 8, lb->items[idx], rfg, rbg);
     }
@@ -119,7 +120,7 @@ void uui_listbox_draw(struct ugfx_surface *s, const struct uui_listbox *lb) {
         struct uui_sbar sb = lb->sb;
         uui_sbar_place(&sb, lb->x + lb->w - bar, lb->y, lb->h);
         uui_sbar_set(&sb, lb->count * rh, vis * rh, lb->top * rh - disp);
-        uui_sbar_draw(&sb, s, lb->bg, lb->fg);
+        uui_sbar_draw(&sb, s, bg, fg);
     }
 
     // THE SELECTED ROW IS NOT THE FOCUS INDICATOR: a selected row looks

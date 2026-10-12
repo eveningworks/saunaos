@@ -149,10 +149,20 @@ struct btn_rects title_buttons(const struct window *win) {
     struct btn_rects r;
     r.size = btn_size();
     int gap = 4, margin = 6;
+    r.w = r.h = r.size;
     r.y = win->y + (WM_TITLEBAR_H - r.size) / 2;
-    r.close_x = win->x + win->w - margin - r.size;
-    r.max_x = r.close_x - gap - r.size;
-    r.min_x = r.max_x - gap - r.size;
+    // RECTANGLES fill the bar's height and touch, flush to the corner:
+    // Windows 11's and Breeze's buttons, a wide target with no disc.
+    if (utheme_current()->caption_style == UTHEME_CAPTION_RECT) {
+        r.w = r.size * 7 / 4;
+        r.h = WM_TITLEBAR_H;
+        r.y = win->y + 1;
+        gap = 0;
+        margin = 1;
+    }
+    r.close_x = win->x + win->w - margin - r.w;
+    r.max_x = r.close_x - gap - r.w;
+    r.min_x = r.max_x - gap - r.w;
     return r;
 }
 
@@ -931,7 +941,7 @@ static void draw_drag_outline(void) {
     ugfx_draw_rect(wm_surface(), drag_outline_x, drag_outline_y,
                    drag_outline_w, drag_outline_h, UTHEME_WHITE);
     ugfx_draw_rect(wm_surface(), drag_outline_x + 1, drag_outline_y + 1,
-                   drag_outline_w - 2, drag_outline_h - 2, ugfx_rgb(50, 90, 160));
+                   drag_outline_w - 2, drag_outline_h - 2, utheme_current()->titlebar);
 }
 
 // Saves what's under (x, y) before drawing the cursor there, so a later
@@ -1163,8 +1173,9 @@ static void corners_round(const struct window *win) {
 }
 
 static void draw_window_chrome(struct window *win, int idx, int focused) {
-    uint32_t titlebar = focused ? ugfx_rgb(50, 90, 160) : ugfx_rgb(120, 120, 130);
-    uint32_t titletext = UTHEME_WHITE;
+    const struct utheme *th = utheme_current();
+    uint32_t titlebar = focused ? th->titlebar : th->titlebar_inactive;
+    uint32_t titletext = focused ? th->titlebar_text : th->titlebar_inactive_text;
     uint32_t winbg = UTHEME_WINDOW_BG;
     int can_resize = win->resizable;
 
@@ -1242,11 +1253,24 @@ static void draw_window_chrome(struct window *win, int idx, int focused) {
     int i = 0;
     for (; shown[i] && i < max_chars && i < (int)sizeof title_buf - 1; i++) title_buf[i] = shown[i];
     title_buf[i] = '\0';
+    if (th->title_align == UTHEME_TITLE_CENTER && !win->ntabs) {
+        // Centred on the WINDOW, as GNOME does, but never left of where
+        // the icon ends or into the buttons.
+        int tw = ugfx_text_width(title_buf);
+        int cx = win->x + (win->w - tw) / 2;
+        if (cx + tw > r.min_x - 4) cx = r.min_x - 4 - tw;
+        if (cx > text_x) text_x = cx;
+    }
     ugfx_draw_string(wm_surface(), text_x, win->y + (WM_TITLEBAR_H - ugfx_char_h()) / 2, title_buf,
                      titletext, glass ? UGFX_TRANSPARENT : titlebar);
 
-    uint32_t btnbg = ugfx_rgb(230, 230, 235);
-    uint32_t btnfg = UTHEME_TEXT;
+    // A DISC's glyph contrasts with the disc; a RECTANGLE sits on the
+    // bar, so its glyph is the title's colour and its face appears only
+    // on hover. Derived, so a theme names one colour and not five.
+    int rect = th->caption_style == UTHEME_CAPTION_RECT;
+    uint32_t btnbg = rect ? titlebar : th->caption_bg;
+    uint32_t btnfg = rect ? titletext
+                          : ugfx_luminance(btnbg) < 128 ? ugfx_rgb(235, 235, 240) : ugfx_rgb(20, 20, 20);
 
     // Hover/press feedback for the three title-bar buttons -- see
     // wm_internal.h's title_btn_armed_win/title_hover_win comments for
@@ -1270,35 +1294,14 @@ static void draw_window_chrome(struct window *win, int idx, int focused) {
     int is_armed = (title_btn_armed_win == idx ? UUI_STATE_PRESSED : UUI_STATE_REST);
     int is_hovered = (title_hover_win == idx);
 
-    // Icon-only buttons: uui_button_draw() with label=NULL just fills the
-    // background, then each hand-drawn icon goes on top with its own
-    // gfx_* calls -- these aren't text, so widgets.h's centered-label
-    // path doesn't apply to them (see widgets.h's top comment).
-    draw_btn_disc(r.min_x, r.y, r.size,
-                   uui_state_bg(btnbg, title_btn_state(0, is_armed, is_hovered)
-                                        ? UUI_STATE_PRESSED : UUI_STATE_REST));
-    draw_min_icon(r.min_x, r.y, r.size, btnfg);
-
     // Maximize/restore: drawn muted and does nothing when the app isn't
     // resizable (Calculator -- see gui_apps.h) -- a visibly "disabled"
     // button rather than removing it, so the title bar layout doesn't
     // shift between fixed and resizable apps. Still shows hover/press
     // feedback either way (it still focuses the window on commit even
-    // when disabled -- see wm_update_title_btn_press()), just tinted
-    // from its own muted base color instead of btnbg.
-    uint32_t max_bg_base = can_resize ? btnbg : ugfx_rgb(210, 210, 212);
-    uint32_t max_fg = can_resize ? btnfg : ugfx_rgb(170, 170, 172);
-    draw_btn_disc(r.max_x, r.y, r.size,
-                   uui_state_bg(max_bg_base, title_btn_state(1, is_armed, is_hovered)));
-    if (win->state == WIN_MAXIMIZED) draw_restore_icon(r.max_x, r.y, r.size, max_fg);
-    else                             draw_max_icon(r.max_x, r.y, r.size, max_fg);
+    // when disabled -- see wm_update_title_btn_press()).
+    uint32_t max_fg = can_resize ? btnfg : ugfx_blend(btnbg, btnfg, 110);
 
-    // close: red button with a hand-drawn X. This used to draw the font
-    // glyph 'x' via gfx_draw_char(), which clipped/overflowed once the
-    // font became runtime-resizable (a glyph cell is 11x22 to 20x40px,
-    // way bigger than this button at most sizes). A hand-drawn diagonal
-    // cross scales cleanly with r.size instead, same approach already
-    // used for the minimize/maximize icons above.
     // THE CLOSE BUTTON IS GREY UNTIL YOU HOVER IT. Red is the mark of
     // the destructive action and it belongs on the moment you are about
     // to take it, not on every title bar for the whole session --
@@ -1307,12 +1310,24 @@ static void draw_window_chrome(struct window *win, int idx, int focused) {
     int close_state = title_btn_state(2, is_armed, is_hovered);
     int close_hot = (close_state != UUI_STATE_REST);
     uint32_t close_bg = close_hot
-        ? uui_state_bg(ugfx_rgb(190, 60, 60),
-                        close_state == UUI_STATE_PRESSED ? UUI_STATE_PRESSED
-                                                          : UUI_STATE_REST)
-        : uui_state_bg(btnbg, UUI_STATE_REST);
-    draw_btn_disc(r.close_x, r.y, r.size, close_bg);
-    draw_close_icon(r.close_x, r.y, r.size, close_hot ? UTHEME_WHITE : btnfg);
+        ? uui_state_bg(th->danger_bg, close_state == UUI_STATE_PRESSED ? UUI_STATE_PRESSED
+                                                                      : UUI_STATE_REST)
+        : btnbg;
+
+    int states[3] = { title_btn_state(0, is_armed, is_hovered),
+                      title_btn_state(1, is_armed, is_hovered), close_state };
+    int xs[3] = { r.min_x, r.max_x, r.close_x };
+    for (int k = 0; k < 3; k++) {
+        uint32_t bg = k == 2 ? close_bg : uui_state_bg(btnbg, states[k]);
+        if (!rect) draw_btn_disc(xs[k], r.y, r.size, bg);
+        else if (bg != btnbg) ugfx_fill_rect(wm_surface(), xs[k], r.y, r.w, r.h, bg);
+    }
+    // Every glyph is centred in its button's square, whatever the shape.
+    int gx = (r.w - r.size) / 2, gy = r.y + (r.h - r.size) / 2;
+    draw_min_icon(r.min_x + gx, gy, r.size, btnfg);
+    if (win->state == WIN_MAXIMIZED) draw_restore_icon(r.max_x + gx, gy, r.size, max_fg);
+    else                             draw_max_icon(r.max_x + gx, gy, r.size, max_fg);
+    draw_close_icon(r.close_x + gx, gy, r.size, close_hot ? ugfx_rgb(255, 255, 255) : btnfg);
 }
 
 // Resize grip hint in the bottom-right corner -- drawn as a separate

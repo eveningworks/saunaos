@@ -1,0 +1,16 @@
+Type=enum
+File=/etc/desktop.conf
+Label=Theme
+Category=Appearance
+Group=Theme
+Default=light
+# The shipped themes, then the ones made on this machine (a local one of
+# the same stem wins when it loads -- ui/utheme_file.h).
+ChoiceDir=/usr/share/themes,/etc/themes
+ChoiceDirMode=stem
+Description=The colours of every window, control and title bar, and the look of the frame
+Choice.light=Light
+Choice.dark=Dark
+Choice.high-contrast=High contrast
+Choice.paper=Paper
+Order=1

@@ -18,8 +18,9 @@
 // need no rebuild when `font_size` changes.
 //
 // This is the ONLY palette (apps/theme.h, the kernel-side copy, is
-// gone). When a dark mode or accent lands, it starts from the default
-// and overrides roles, rather than each app re-picking colours.
+// gone). A THEME (docs/theme-design.md) is a file of these roles,
+// picked by the `desktop.theme` setting; a role it leaves out is the
+// default's.
 //
 // THE GREYS ARE A LADDER, AND A WIDGET THAT COPIES ONE AS A LITERAL
 // FALLS OFF IT: retuning the ground once left labels as lighter boxes
@@ -66,7 +67,27 @@ struct utheme {
     // drawn with a shape that differs too (a cross, a triangle), so the
     // two are told apart by more than hue.
     uint32_t severity[4];
+
+    uint32_t text_muted;   // secondary text: headings, status bars, hints
+    uint32_t tooltip_bg, tooltip_text;
+    uint32_t find_hit, find_hit_current;   // a search match, and the one Find is on
+    uint32_t danger_bg;    // a destructive button's face; the close button's hover
+
+    // THE FRAME, which the compositor draws and a preview copies. Its
+    // own text roles, because a title bar's ground is not a page's: the
+    // default's is accent blue under white whichever way the pages go.
+    uint32_t titlebar, titlebar_text;
+    uint32_t titlebar_inactive, titlebar_inactive_text;
+    uint32_t caption_bg;   // a caption button's face at rest
+    uint8_t caption_style; // UTHEME_CAPTION_*
+    uint8_t title_align;   // UTHEME_TITLE_*
+    uint8_t titlebar_pad;  // px added to the font height for the bar
+
+    char name[32];         // Name=, what the gallery calls it
 };
+
+enum { UTHEME_CAPTION_DISC = 0, UTHEME_CAPTION_RECT };
+enum { UTHEME_TITLE_LEFT = 0, UTHEME_TITLE_CENTER };
 
 enum utheme_severity {
     UTHEME_SEV_NONE = 0,   // ordinary text
@@ -93,15 +114,23 @@ enum utheme_action {
 };
 uint32_t utheme_action(int role);
 
-// The live theme. Never NULL: the first read lazily installs the default
-// palette, so a UTHEME_* used before uapp_run() calls utheme_init()
-// still resolves. utheme_set() replaces it wholesale (a future dark
-// mode / accent picker); utheme_default() fills `out` with the defaults
-// so a variant can start from them.
+// The live theme. Never NULL: the first read loads the one
+// `desktop.theme` names (the default when it names nothing loadable), so
+// a UTHEME_* used before uapp_run() still resolves.
+// utheme_settings_reload() makes the next read load it again.
+// utheme_set() replaces it wholesale until that next reload;
+// utheme_default() fills `out` with the built-in Light palette.
 const struct utheme *utheme_current(void);
 void utheme_init(void);
 void utheme_set(const struct utheme *t);
 void utheme_default(struct utheme *out);
+
+// DRAW WITH ANOTHER PALETTE for the length of one paint -- a preview of
+// a theme that is not live (ui/uui_themepreview.h). Pushes nest two
+// deep; a push nobody pops leaves the whole app in that theme, so push
+// and pop in ONE function. A settings reload waits until the last pop.
+void utheme_push(const struct utheme *t);
+void utheme_pop(void);
 
 // --- colour roles, spelled as the call sites already spell them ------
 //
@@ -139,7 +168,23 @@ void utheme_default(struct utheme *out);
 // The sentinel is outside the 24-bit range ugfx_rgb() produces, so no
 // real colour can collide with it.
 #define UUI_COLOR_UNSET 0xFF000000u
-#define UUI_COLOR(v, role) ((v) == UUI_COLOR_UNSET ? (role) : (v))
+
+// A ROLE REFERENCE: what an app stores to pick a role OTHER than the
+// widget's default and still follow a theme switch --
+// `list.sel_bg = UUI_ROLE(accent)`, never `= UTHEME_ACCENT`, which
+// copies today's accent and keeps it. A tag above the 24-bit range plus
+// the role's offset in struct utheme; UUI_COLOR() resolves both kinds.
+// A tagged value that reaches ugfx unresolved is a wrong colour, so
+// only a field the widget passes through UUI_COLOR() may hold one.
+#define UUI_ROLE_TAG 0xFE000000u
+#define UUI_ROLE(field) (UUI_ROLE_TAG | (uint32_t)__builtin_offsetof(struct utheme, field))
+static inline uint32_t uui_color_resolve(uint32_t v, uint32_t dflt) {
+    if (v == UUI_COLOR_UNSET) return dflt;
+    if ((v & 0xFF000000u) == UUI_ROLE_TAG)
+        return *(const uint32_t *)((const char *)utheme_current() + (v & 0xFFFFu));
+    return v;
+}
+#define UUI_COLOR(v, role) uui_color_resolve((v), (role))
 
 // --- metrics (QStyle), FONT-DERIVED and live -------------------------
 //
@@ -182,5 +227,8 @@ int  utheme_radius(enum utheme_round which);
 // 0 for the thin handle that widens when pointed at.
 int  utheme_scrollbars_always(void);
 void utheme_settings_reload(void);
+
+// The window title bar's height: the font's plus the theme's padding.
+int  utheme_titlebar_h(void);
 
 #endif
