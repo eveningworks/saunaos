@@ -1,0 +1,4 @@
+/* net.html's stylesheet: fetched as its own resource. */
+h1 { border-bottom: 4px solid #c03030; color: #204080; }
+p.n { margin: 2px 0; }
+p.n:nth-child(odd) { color: #206020; }

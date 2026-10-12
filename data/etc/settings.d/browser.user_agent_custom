@@ -1,0 +1,13 @@
+# /etc/settings.d/browser.user_agent_custom -- the User-Agent sent when
+# browser.user_agent is Custom.
+Type=string
+File=/etc/browser.conf
+Label=Custom identity
+Category=Network
+Group=Web Browser
+Default=Mozilla/5.0 (toy-os; x86_64) NetSurf/3.12
+Requires=browser.user_agent=custom
+RequiresReason=Used when Identify as is Custom
+WhenUnmet=hide
+Description=The exact User-Agent string to send
+Order=20

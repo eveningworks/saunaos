@@ -121,6 +121,14 @@ with the binaries as their licenses require.
         link. Its copyright notices and the NOTICE-style attribution in
         each file are separate from toy-os's and must be preserved.
 
+        EXCEPT IN THE NETSURF PROGRAMS. /bin/wm/apps/browser and
+        /tests/nsmonkey are GPL-2.0-only and link /lib/libssl.so (through
+        /lib/libhttp.so); Apache-2.0 code is not compatible with
+        GPL-2.0, so for those two binaries Mbed TLS is taken under its
+        GPL-2.0-or-later option instead, which the same dual licence
+        permits. The library file is the same; the option is chosen per
+        program that links it.
+
         WHAT IS NOT VENDORED. The Mozilla CA certificate bundle is not
         in this repository. `make iso EXTRAS=1` fetches it, shows its
         licence (MPL-2.0) before doing so, and records the acceptance;
@@ -166,11 +174,13 @@ with the binaries as their licenses require.
 
         THE SAME ARRANGEMENT AS THE DOOM PORT: an aggregation, linked
         into exactly the programs Makefile's PORT_PROGRAMS_netsurf
-        names (today the test program /tests/nsmonkey) and nothing
-        else. The libraries below are MIT, and every toy-os library
-        that binary links is MIT or, for Mbed TLS, may be taken under
-        its GPL-2.0-or-later option -- so the binary is distributable
-        under GPL-2.0. docs/browser-design.md has the plan.
+        names (the Web Browser, /bin/wm/apps/browser, and the test
+        program /tests/nsmonkey) and nothing else. The libraries below
+        are MIT, and every toy-os library those binaries link is MIT
+        or, for Mbed TLS (/lib/libssl.so, reached for https), taken
+        under its GPL-2.0-or-later option as stated above -- so each
+        binary is distributable under GPL-2.0. docs/browser-design.md
+        has the plan.
 
   The nine libraries NetSurf is built from, each under the MIT License,
   each with its own COPYING in its directory, whose copyright notice is

@@ -6745,6 +6745,33 @@ runs first**: a `doom1.wad` with one
   and it writes to a temporary name and renames, so an interrupted build
   cannot leave a truncated store that fails for only some sites.
 
+- **`http_test.py`** -- libhttp's HTTP/1.1 half through `/bin/wget`,
+  against `web_server.py` on this machine (on demand, `ondemand_sweep.py`'s
+  `http`). Every check is judged by the SERVER or the BYTES, never by what
+  the client says about itself: three URLs on one command line must be
+  ONE connection in the server's own count; a 40 KB body that arrived
+  chunked, gzipped, or gzipped inside chunked must hash (`sum -a sha256`)
+  to the file; a connection the server dropped without saying so is
+  retried on a fresh one; redirects are followed by default and handed
+  back with `--max-redirect 0`; a POST carries its body and a 303 turns
+  it into a GET; `-S` prints the headers; https over a test CA reuses
+  ONE TLS connection, and an expired, wrong-name and self-signed
+  certificate are each refused with THEIR reason. Shown red by never
+  pooling (the two reuse checks), by shortening every chunk over 50
+  bytes (the chunked hashes) and by not retrying a stale connection.
+
+- **`web_server.py`** -- the test web server the network tests share: an
+  HTTP/1.1 keep-alive server on this machine that COUNTS CONNECTIONS (the
+  only honest oracle for reuse), serving a corpus directory plus
+  `?gzip`, `?chunked`, `?close`, `?drop` (closes without saying so),
+  `/redirect/N/...`, `/redirect303/...`, `/echo`, `/cookie/set` and
+  `/cookie/show`, `/stats` and `/reset`. `make_ca()` makes a test CA and
+  leaves it signed -- good (for 10.0.2.2 and 127.0.0.1), expired and
+  wrong-name -- plus a self-signed one, with `openssl`. The handshake runs
+  in the CONNECTION's thread, so a client that refuses a certificate and
+  walks away wedges nothing. Runnable by hand: `--root DIR --port N
+  [--tls DIR --leaf good|expired|wrongname]`.
+
 - **`browser_test.py`** -- the Web Browser app in `gui_regress.py`: it
   opens on its start page and reports it loaded; the page's header band
   is DRAWN in its own blue with white text on it, against a control rect
@@ -6756,6 +6783,19 @@ runs first**: a `doom1.wad` with one
   Browser" as soon as the page names itself, and a fast load renamed it
   before `spawn()`'s exact match looked. Shown red by swapping red and
   blue in the plotters' colour conversion.
+
+  **The network half** (skipped on bare metal, where 10.0.2.2 is nobody)
+  runs against `web_server.py`: a typed `10.0.2.2:PORT/net.html` is
+  fetched over http and its SEPARATELY fetched stylesheet's red is in
+  the pixels, with none lower down; a cookie the server set comes back
+  on the next page and is in `/var/lib/browser/cookies` after the window
+  closes; words become a search, pointed at the same server with the
+  app's `--search-url`; the server saw fewer connections than requests;
+  and with the test CA fetched into `/etc/ssl/certs` by wget, https loads
+  and an expired certificate stops at NetSurf's "Privacy error" page.
+  The app is spawned with `--weak-entropy`, as the guest has no
+  virtio-rng. Shown red by never sending the Cookie header and by never
+  pooling.
 
 - **`browser_hostcheck.py`** -- NetSurf's layout on toy-os against the
   SAME pinned source built on the host (`docs/browser-design.md`,
@@ -6771,6 +6811,17 @@ runs first**: a `doom1.wad` with one
   running program's stdin; a page that did not finish is reported as
   "not loaded within N s", never as a layout difference. Shown red by
   breaking Windows-1252's euro in libparserutils' table.
+
+  **`--scheme http` or `https`** has the GUEST read the same pages from
+  `web_server.py` (https with a test CA put in its `/etc/ssl/certs`)
+  while the host still reads files: layout does not depend on how the
+  bytes arrived, so a difference is the fetcher's. `net.html` exists for
+  this mode -- every older page arrives in ONE chunk with no separate
+  resource, and dropping a byte per chunk turned none of them red;
+  dropping every other chunk turns `net.html`'s extent red. https gets
+  12 s to load by default (three handshakes under TCG), and a page whose
+  `Done` came only DURING the redraw counts as not loaded -- it used to
+  read as a two-line plot difference.
 
 - **`netsurf_vendor.py`** -- vendors NetSurf and its nine libraries into
   `userland/ports/` at the commits pinned in its `PINS` table

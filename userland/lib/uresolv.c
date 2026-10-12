@@ -95,7 +95,10 @@ int uresolv_lookup(const char *name, uint32_t server, uint32_t *out_ip) {
     if (!server) server = uresolv_server();
     if (!server) return -ENODEV;
 
-    static uint8_t query[DNS_MAX], reply[DNS_MAX];
+    // On the stack, not static: the browser resolves from several fetch
+    // threads at once, and a shared buffer hands one lookup's reply to
+    // another. 1 KiB is inside the ring-3 frame budget.
+    uint8_t query[DNS_MAX], reply[DNS_MAX];
 
     // A random id, so a reply that is not ours is recognisable as such.
     // Not a security boundary -- there is no off-path attacker model

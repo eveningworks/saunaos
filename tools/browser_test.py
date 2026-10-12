@@ -20,6 +20,21 @@ WHAT IT CHECKS, and what a broken version would still pass:
   - the wheel scrolls a long page, by the scroll offset the app reports;
   - Ctrl+T opens a second tab and Ctrl+W closes it again.
 
+OVER THE NETWORK (stage 2), against tools/web_server.py on this machine
+through SLIRP's 10.0.2.2 -- skipped on bare metal, where that address is
+nobody:
+
+  - a typed host:port/path is fetched over http, and the page's own
+    stylesheet -- a SEPARATE request -- is applied: net.css's red rule is
+    in the pixels, and none of it lower down (control);
+  - a cookie the server set is sent back on the next page, and kept in
+    /var/lib/browser/cookies when the window closes;
+  - words that are not an address become a search (--search-url points
+    it at the same server, so nothing leaves the machine);
+  - the server saw FEWER connections than requests: they were reused;
+  - https with a test CA (fetched into /etc/ssl/certs by wget) loads, and
+    an expired certificate stops at NetSurf's "Privacy error" page.
+
 Geometry and state are the app's own report (`browser: layout page ...`,
 `browser: tab ...`), never re-derived here.
 """
@@ -33,11 +48,16 @@ from gui_debug import DebugConsole, enter_gui   # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
+from web_server import WebServer, make_ca, GATEWAY  # noqa: E402
 
 APP = "/bin/wm/apps/browser"
 HOME = "file:///usr/share/netsurf/start.html"
 HEADER_BLUE = (50, 90, 160)        # start.html's .top background, #325aa0
-HEX = {" ": "0x20", "/": "0x2f", ".": "0x2e", "-": "0x2d", "_": "0x5f"}
+HEX = {" ": "0x20", "/": "0x2f", ".": "0x2e", "-": "0x2d", "_": "0x5f", ":": "0x3a",
+       "?": "0x3f", "=": "0x3d"}
+NET_RED = (192, 48, 48)            # net.css's h1 border, #c03030
+WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                   "data", "tests", "web")
 
 _res = Results()
 check = _res.check
@@ -112,6 +132,34 @@ def main():
     dbg = DebugConsole(args.sock)
     print("browser (NetSurf in a window: drawing, addresses, links, history, scrolling, tabs)")
 
+    # The network half's servers, started before the app so its search
+    # can be pointed at one. Not on bare metal: 10.0.2.2 is SLIRP's.
+    net = None
+    if not os.environ.get("TOYOS_REMOTE_HOST"):
+        import shutil
+        import tempfile
+        d = tempfile.mkdtemp(prefix="browser_test.")
+        web = os.path.join(d, "web")
+        shutil.copytree(WEB, web)
+        certs = make_ca(os.path.join(d, "ca")) if shutil.which("openssl") else None
+        if certs:
+            shutil.copy(certs["ca"], os.path.join(web, "ca.pem"))
+        net = {"dir": d, "http": WebServer(web, 0), "certs": certs}
+        if certs:
+            net["good"] = WebServer(web, 0, tls=certs["good"])
+            net["expired"] = WebServer(web, 0, tls=certs["expired"])
+    try:
+        return run(dbg, qmp, args, net)
+    finally:
+        if net:
+            for k in ("http", "good", "expired"):
+                if k in net:
+                    net[k].shutdown()
+            import shutil
+            shutil.rmtree(net["dir"], ignore_errors=True)
+
+
+def run(dbg, qmp, args, net):
     old = window(dbg)
     if old:
         dbg.send(f"gui close {old['z']}")
@@ -120,7 +168,10 @@ def main():
     # By SUFFIX, after the page has loaded: the title is "Web Browser"
     # only until the first page names itself ("Start - Web Browser"),
     # and a fast load renames it before spawn()'s exact match ever sees it.
-    dbg.spawn(APP)
+    argv = APP
+    if net:
+        argv += f" --weak-entropy --search-url http://{GATEWAY}:{net['http'].port}/echo?q=%s"
+    dbg.spawn(argv)
     st = wait(dbg, lambda s: "page" in s and loaded(HOME)(s))
     dbg.settle(1.0)
     win = window(dbg)
@@ -193,7 +244,88 @@ def main():
     st = wait(dbg, lambda s: s.get("tabs") == 1, timeout=6)
     check("...and Ctrl+W closes it, back to the first", st.get("tabs") == 1 and
           st.get("url") == "file:///tests/web/text.html", f"tabs={st.get('tabs')} url={st.get('url')}")
+    if net:
+        network(dbg, net, page, at, shot)
     return finish()
+
+
+def labels(dbg):
+    return [t.get("label") for t in (window(dbg) or {}).get("tabs", [])]
+
+
+def network(dbg, net, page, at, shot):
+    srv = net["http"]
+    srv.reset()
+    host = f"{GATEWAY}:{srv.port}"
+    go(dbg, f"{host}/net.html")             # no scheme: a local address is http
+    url = f"http://{host}/net.html"
+    st = wait(dbg, loaded(url), timeout=30)
+    check("a typed host:port is fetched over http", st.get("url") == url and
+          st.get("loading") == 0, f"url={st.get('url')} loading={st.get('loading')}")
+    check("...titled from the page", "Fetched resources" in labels(dbg), f"tabs {labels(dbg)}")
+    check("...and laid out whole (a long page)", st.get("ext_h", 0) > 3000,
+          f"extent {st.get('ext_h')}")
+    im = shot("net")
+    red = count(im, at((page[0], page[1], page[2], 80)), near(NET_RED, 40))
+    ctl = count(im, at((page[0], page[1] + 150, page[2], 120)), near(NET_RED, 40))
+    check("...with its stylesheet, a SEPARATE request, applied", red > 100, f"{red} red px")
+    check("...and none of its red lower down (control)", ctl < 20, f"{ctl} px")
+
+    go(dbg, f"{host}/cookie/set?toy=yes")
+    wait(dbg, loaded(f"http://{host}/cookie/set?toy=yes"), timeout=20)
+    go(dbg, f"{host}/cookie/show")
+    wait(dbg, loaded(f"http://{host}/cookie/show"), timeout=20)
+    dbg.settle(1.0)
+    check("a cookie the server set is sent back", "cookie toy=yes" in labels(dbg),
+          f"tabs {labels(dbg)}")
+
+    go(dbg, "toy os")
+    want = f"http://{host}/echo?q=toy+os"
+    st = wait(dbg, lambda s: s.get("url") == want, timeout=20)
+    check("words that are not an address are searched for", st.get("url") == want,
+          f"url={st.get('url')}")
+
+    conns, reqs = srv.counts()
+    check("the server saw fewer connections than requests (reused)",
+          reqs >= 6 and conns < reqs, f"connections={conns} requests={reqs}")
+
+    if net.get("certs"):
+        dbg.send(f"gui spawn /bin/wget -O /etc/ssl/certs/toyos-test-ca.pem http://{host}/ca.pem")
+        for _ in range(40):
+            if "BEGIN CERTIFICATE" in (dbg.send("sh cat /etc/ssl/certs/toyos-test-ca.pem") or ""):
+                break
+            time.sleep(0.3)
+        # A new process: the trust store is parsed once per process.
+        good = f"https://{GATEWAY}:{net['good'].port}/table.html"
+        dbg.send("gui key 0x14 ctrl")      # Ctrl+T, so the tab count is the check's own
+        go(dbg, good)
+        st = wait(dbg, loaded(good), timeout=40)
+        check("https with a trusted test CA loads", st.get("url") == good and "Tables" in labels(dbg),
+              f"url={st.get('url')} tabs {labels(dbg)}")
+        bad = f"https://{GATEWAY}:{net['expired'].port}/table.html"
+        go(dbg, bad)
+        # NetSurf's certificate page keeps the address it refused, and
+        # names itself; the page's own title must NOT appear.
+        for _ in range(80):
+            if "Privacy error" in labels(dbg):
+                break
+            time.sleep(0.5)
+        st = state(dbg)
+        check("an expired certificate stops at the certificate page",
+              "Privacy error" in labels(dbg) and labels(dbg).count("Tables") == 0,
+              f"tabs {labels(dbg)} url={st.get('url')} loading={st.get('loading')}")
+
+    win = window(dbg)
+    dbg.send(f"gui close {win['z']}")
+    gone = False
+    for _ in range(40):
+        if not window(dbg):
+            gone = True
+            break
+        time.sleep(0.25)
+    jar = dbg.send("sh cat /var/lib/browser/cookies") or ""
+    check("closing the window keeps the cookie in /var/lib/browser",
+          gone and "toy" in jar and "yes" in jar, jar.strip()[-120:])
 
 
 def finish():

@@ -32,6 +32,13 @@ AS THAT -- "not loaded within N s" -- never as a layout difference.
     python3 tools/browser_hostcheck.py -k table       # pages matching
     python3 tools/browser_hostcheck.py --show text    # print both streams
 
+OVER THE NETWORK: `--scheme http` or `https` has the GUEST load the same
+pages from tools/web_server.py on this machine (10.0.2.2 through SLIRP;
+https with a test CA put in the guest's /etc/ssl/certs) while the host
+still reads them as files. Layout does not depend on how the bytes
+arrived, so any difference is the fetcher's -- a lost or reordered
+chunk, a header mangled, an image that never came.
+
 Needs `make iso` and the host oracle (`tools/netsurf_vendor.py --no-copy`
 rebuilds it). Boots its own guest on a sparse copy of disk.img.
 """
@@ -50,6 +57,7 @@ REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
 from netsurf_vendor import DEFAULT_WORK  # noqa: E402
 from vm import parse_framed  # noqa: E402
+from web_server import WebServer, make_ca, GATEWAY  # noqa: E402
 
 VM = os.path.join(HERE, "vm.py")
 PAGES = os.path.join(REPO, "data", "tests", "web")
@@ -127,13 +135,15 @@ def vm(args, *argv, check=True):
     return r
 
 
-def guest_runs(args, names):
-    """One dash script for every page, then each page's output read back."""
+def guest_runs(args, names, base):
+    """One dash script for every page, then each page's output read back.
+    `base` is where the guest reads the pages from."""
     script = []
     for n in names:
-        new, redraw, quit_ = commands(f"file://{GUEST_PAGES}/{n}")
+        new, redraw, quit_ = commands(f"{base}/{n}")
         script.append(f'(echo "{new}"; sleep {args.load_s}; echo "{redraw}"; '
-                      f'sleep {args.redraw_s}; echo "{quit_}") | /tests/nsmonkey > /tmp/ns-{n}.out')
+                      f'sleep {args.redraw_s}; echo "{quit_}") | /tests/nsmonkey --weak-entropy'
+                      f' > /tmp/ns-{n}.out')
     with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
         f.write("\n".join(script) + "\n")
         local = f.name
@@ -156,10 +166,17 @@ def main():
     ap.add_argument("-k", default="", help="only pages whose name contains this")
     ap.add_argument("--instance", type=int, default=0, help="vm.py slot")
     ap.add_argument("--disk", help="boot this image rather than a copy of disk.img")
-    ap.add_argument("--load-s", type=int, default=5, help="seconds a page gets to load in the guest")
+    ap.add_argument("--load-s", type=int, default=0,
+                    help="seconds a page gets to load in the guest (default 5; 12 for https, "
+                         "whose handshakes under TCG cost seconds)")
     ap.add_argument("--redraw-s", type=int, default=3, help="seconds the guest's redraw gets")
     ap.add_argument("--show", metavar="PAGE", help="print both sides' summaries for one page")
+    ap.add_argument("--scheme", choices=("file", "http", "https"), default="file",
+                    help="how the GUEST reads the pages (the host always reads files)")
+    ap.add_argument("--port", type=int, default=18090, help="the page server's port")
     args = ap.parse_args()
+    if not args.load_s:
+        args.load_s = 12 if args.scheme == "https" else 5
 
     monkey = os.path.join(DEFAULT_WORK, "src", "netsurf", "nsmonkey")
     if not os.access(monkey, os.X_OK):
@@ -182,13 +199,29 @@ def main():
         subprocess.run(["cp", "--reflink=auto", "--sparse=always", src, tmp.name], check=True)
         args.disk = tmp.name
 
+    srv, certdir = None, None
+    base = f"file://{GUEST_PAGES}"
     try:
+        if args.scheme != "file":
+            tls = None
+            if args.scheme == "https":
+                certdir = tempfile.mkdtemp(prefix="hostcheck-ca.")
+                certs = make_ca(certdir)
+                tls = certs["good"]
+            srv = WebServer(PAGES, args.port, tls=tls)
+            base = f"{args.scheme}://{GATEWAY}:{srv.port}"
         if vm(args, "start").returncode != 0:
             print("browser_hostcheck: could not start the VM")
             return 2
-        guest = guest_runs(args, names)
+        if certdir:
+            vm(args, "put", certs["ca"], "/etc/ssl/certs/toyos-test-ca.pem")
+        guest = guest_runs(args, names, base)
     finally:
         vm(args, "stop", check=False)
+        if srv:
+            srv.shutdown()
+        if certdir:
+            subprocess.run(["rm", "-rf", certdir])
         if tmp:
             os.unlink(tmp.name)
 
@@ -201,7 +234,12 @@ def main():
             for side, s in (("host", h), ("toy-os", g)):
                 print(f"--- {side}: {s[0]}\n    {s[1]}")
                 print("\n".join("    " + p for p in s[2]))
-        if not any("STR Done" in line for line in g_lines):
+        # Done BEFORE the redraw began: a page that finished during the
+        # redraw was not loaded when it was drawn, and its short plot
+        # list would read as a layout difference.
+        start = next((i for i, line in enumerate(g_lines)
+                      if line.startswith("WINDOW REDRAW WIN 0 START")), len(g_lines))
+        if not any("STR Done" in line for line in g_lines[:start]):
             failed += 1
             print(f"  FAIL  {n:20s} not loaded within {args.load_s} s on toy-os "
                   f"({len(g_lines)} lines of output)")

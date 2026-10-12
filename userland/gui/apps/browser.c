@@ -6,12 +6,15 @@
 // address field, then the right-hand buttons -- and the page.
 //
 // THE ENGINE IS NetSurf, LINKED INTO THIS ONE BINARY (GPL-2.0, as DOOM
-// is; LICENSE says why that is an aggregation). Everything between it and
-// the toolkit is in userland/browser/: fonts, plotters, bitmaps, the
-// scheduler, and the page widget, which this file only places.
+// is; LICENSE says why that is an aggregation, and why /lib/libssl.so is
+// taken here under mbedTLS's GPL option). Everything between it and the
+// toolkit is in userland/browser/: fonts, plotters, bitmaps, the
+// scheduler, and the page widget, which this file only places. http: and
+// https: are userland/backends/netsurf/fetch_http.c, over libhttp.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 
 #include "utils/errors.h"
 #include "browser/ns_bitmap.h"
@@ -22,7 +25,12 @@
 #include "netsurf/browser.h"
 #include "netsurf/browser_window.h"
 #include "netsurf/netsurf.h"
+#include "netsurf/url_db.h"
+#include "netsurf/cookie_db.h"
+#include "content/fetch.h"
 #include "desktop/browser_history.h"
+#include "desktop/version.h"
+#include "backends/netsurf/fetch_http.h"
 #include "utils/messages.h"
 #include "utils/nsoption.h"
 #include "utils/nsurl.h"
@@ -33,10 +41,17 @@
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
 #include "ui/ulog.h"
+#include "lib/usetting.h"
 #include "win_proto.h"   // WIN_TAB_*, WIN_TABS_MAX, WIN_TITLE_LEN
 
 #define HOME_URL "file:///usr/share/netsurf/start.html"
 #define MESSAGES "/usr/share/netsurf/Messages"
+// What the browser KEEPS: the cookie jar and the global history, in
+// /var/lib like every app's kept state (docs/filesystem-layout.md). The
+// cache stays in memory -- NetSurf's disk cache is not built here.
+#define STATE_DIR    "/var/lib/browser"
+#define COOKIES_FILE STATE_DIR "/cookies"
+#define HISTORY_FILE STATE_DIR "/history"
 
 enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_RELOAD, CMD_HOME, CMD_DOWNLOADS, CMD_MENU };
@@ -134,25 +149,100 @@ void nsapp_window_changed(struct gui_window *gw) {
 
 // --- navigation ---------------------------------------------------------------
 
-// What was typed, as a URL: a path is a file, a word with a dot is a
-// host, and anything with a scheme is taken as it is.
-static void fix_url(const char *in, char *out, size_t cap) {
+// The User-Agent, from browser.user_agent -- read at each navigation, so
+// a change in System Settings applies to the next page loaded.
+static void apply_user_agent(void) {
+    char which[16], ua[256];
+    if (usetting_get("browser.user_agent", which, sizeof which) < 0) strcpy(which, "toyos");
+    if (!strcmp(which, "custom") &&
+        usetting_get("browser.user_agent_custom", ua, sizeof ua) >= 0 && ua[0]) {
+        ns_fetch_http_set_user_agent(ua);
+        return;
+    }
+    snprintf(ua, sizeof ua, "Mozilla/5.0 (%s) NetSurf/%d.%d",
+             strcmp(which, "linux") ? "toy-os; x86_64" : "X11; Linux x86_64",
+             netsurf_version_major, netsurf_version_minor);
+    ns_fetch_http_set_user_agent(ua);
+}
+
+// Does typed text look like an address rather than words to search for?
+// Chrome's omnibox test, cut down: no spaces, and a dot, a colon (a
+// port) or "localhost" in it.
+static int looks_like_host(const char *in) {
+    if (strchr(in, ' ') || !in[0]) return 0;
+    return strchr(in, '.') || strchr(in, ':') || !strncmp(in, "localhost", 9);
+}
+
+// Is the host part a dotted quad, or localhost? Those are reached over
+// http, as Chrome leaves them out of its https upgrade: a machine on the
+// LAN almost never has a certificate.
+static int local_host(const char *in) {
+    if (!strncmp(in, "localhost", 9)) return 1;
+    int dots = 0;
+    for (; *in && *in != '/' && *in != ':'; in++) {
+        if (*in == '.') dots++;
+        else if (*in < '0' || *in > '9') return 0;
+    }
+    return dots == 3;
+}
+
+// Where words typed in the address field are searched for: DuckDuckGo's
+// page that needs no JavaScript, NetSurf's own default engine. `%s` is
+// the words. `--search-url` replaces it, so a test can search a server
+// on this machine instead of the internet.
+static const char *g_search = "https://html.duckduckgo.com/html/?q=%s";
+
+// The search URL for `words`: the template with them form-encoded
+// (letters, digits and -._~ kept, a space as '+', the rest %XX).
+static void search_url(const char *words, char *out, size_t cap) {
+    static const char hex[] = "0123456789ABCDEF";
+    size_t n = 0;
+    for (const char *t = g_search; *t && n + 4 < cap; t++) {
+        if (t[0] != '%' || t[1] != 's') { out[n++] = *t; continue; }
+        for (const unsigned char *w = (const unsigned char *)words; *w && n + 4 < cap; w++) {
+            if ((*w >= 'a' && *w <= 'z') || (*w >= 'A' && *w <= 'Z') || (*w >= '0' && *w <= '9') ||
+                strchr("-._~", *w)) {
+                out[n++] = (char)*w;
+            } else if (*w == ' ') {
+                out[n++] = '+';
+            } else {
+                out[n++] = '%';
+                out[n++] = hex[*w >> 4];
+                out[n++] = hex[*w & 15];
+            }
+        }
+        t++;
+    }
+    out[n] = 0;
+}
+
+// What was typed, as a URL: a path is a file, anything with a scheme is
+// taken as it is, a host is https (http for a local one or an explicit
+// port other than 443 -- libhttp's own guess), and anything else is a
+// search. 0, or -1 if it is nothing a URL can be made of.
+static int typed_url(const char *in, struct nsurl **u) {
+    static char url[NS_URL_MAX];   // static: past the ring-3 frame budget
     while (*in == ' ') in++;
     if (strstr(in, "://") || !strncmp(in, "about:", 6) || !strncmp(in, "data:", 5) ||
-        !strncmp(in, "resource:", 9))
-        strlcpy(out, in, cap);
-    else if (in[0] == '/')
-        snprintf(out, cap, "file://%s", in);
-    else
-        snprintf(out, cap, "http://%s", in);
+        !strncmp(in, "resource:", 9)) {
+        strlcpy(url, in, sizeof url);
+    } else if (in[0] == '/') {
+        snprintf(url, sizeof url, "file://%s", in);
+    } else if (looks_like_host(in)) {
+        const char *colon = strchr(in, ':');
+        int odd_port = colon && strncmp(colon, ":443", 4) != 0;
+        snprintf(url, sizeof url, "%s://%s", local_host(in) || odd_port ? "http" : "https", in);
+    } else {
+        search_url(in, url, sizeof url);
+    }
+    return nsurl_create(url, u) == NSERROR_OK ? 0 : -1;
 }
 
 static void go(const char *text) {
     struct gui_window *gw = nsapp_active();
-    static char url[NS_URL_MAX];   // static: past the ring-3 frame budget
     struct nsurl *u;
-    fix_url(text, url, sizeof url);
-    if (nsurl_create(url, &u) != NSERROR_OK) return;
+    if (typed_url(text, &u) != 0) return;
+    apply_user_agent();
     if (gw) browser_window_navigate(gw->bw, u, NULL, BW_NAVIGATE_HISTORY, NULL, NULL, NULL);
     nsurl_unref(u);
 }
@@ -315,19 +405,35 @@ static void on_open(struct uapp *a) {
 
 static int on_close(struct uapp *a) {
     (void)a;
+    urldb_save_cookies(COOKIES_FILE);
+    urldb_save(HISTORY_FILE);
     netsurf_exit();
     return 1;
+}
+
+// A fetch thread queued something (fetch_http.c's wake). NetSurf's own
+// poll runs every 10 ms while a fetch is active; this drains NOW, through
+// fetch_fdset(), which polls every fetcher -- how upstream's front ends
+// drive their fetchers when select() wakes them.
+static int on_user(struct uapp *a, int a0, int a1) {
+    (void)a; (void)a0; (void)a1;
+    fd_set r, w, e;
+    int maxfd;
+    fetch_fdset(&r, &w, &e, &maxfd);
+    return 0;
+}
+
+static void wake(void) {
+    if (g_app) uapp_post(g_app, 0, 0);
 }
 
 // --- NetSurf ----------------------------------------------------------------
 
 static nserror set_defaults(struct nsoption_s *defaults) {
     (void)defaults;
-    // No cookie or history file yet: where they live is an open question
-    // of the plan (docs/browser-design.md).
-    nsoption_setnull_charp(cookie_file, strdup(""));
-    nsoption_setnull_charp(cookie_jar, strdup(""));
-    nsoption_setnull_charp(url_file, strdup(""));
+    nsoption_setnull_charp(cookie_file, strdup(COOKIES_FILE));
+    nsoption_setnull_charp(cookie_jar, strdup(COOKIES_FILE));
+    nsoption_setnull_charp(url_file, strdup(HISTORY_FILE));
     return NSERROR_OK;
 }
 
@@ -346,9 +452,28 @@ static int engine_init(int argc, char **argv) {
     if (netsurf_register(&table) != NSERROR_OK) return 0;
     ns_bitmap_set_format();
     if (nsoption_init(set_defaults, &nsoptions, &nsoptions_default) != NSERROR_OK) return 0;
+    // Ours before NetSurf's own parsing, which consumes "--" words:
+    // `--weak-entropy` is https on a test guest with no virtio-rng, as
+    // wget's flag; `--search-url` is above.
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--weak-entropy")) ns_fetch_http_allow_weak_entropy(1);
+        else if (!strcmp(argv[i], "--search-url") && i + 1 < argc && strstr(argv[i + 1], "%s"))
+            g_search = argv[++i];
+    }
     nsoption_commandline(&argc, argv, nsoptions);
+    // Six fetches at once and six to one host -- Chrome's and Firefox's
+    // per-host figure, and each is a thread here (NetSurf's default 24).
+    nsoption_set_int(max_fetchers, 6);
+    nsoption_set_int(max_fetchers_per_host, 6);
     if (messages_add_from_file(MESSAGES) != NSERROR_OK) ulogf("browser: no %s\n", MESSAGES);
     if (netsurf_init(NULL) != NSERROR_OK) return 0;
+    if (ns_fetch_http_register() != 0) ulogf("browser: no http fetcher -- local pages only\n");
+    ns_fetch_http_set_wake(wake);
+    apply_user_agent();
+    mkdir("/var/lib", 0755);
+    mkdir(STATE_DIR, 0755);
+    urldb_load(HISTORY_FILE);
+    urldb_load_cookies(COOKIES_FILE);
     browser_set_dpi(96);
     return 1;
 }
@@ -397,6 +522,7 @@ int main(int argc, char **argv) {
         .on_tab       = on_tab,
         .on_draw_over = on_draw_over,
         .on_tick      = on_tick,
+        .on_user      = on_user,
         .tick_ms      = 10,
         .on_open      = on_open,
         .on_close     = on_close,

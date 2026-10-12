@@ -15,7 +15,10 @@
 // (upstream prints a "POLL" line per wait; this loop does not, so a
 // comparison with the host's output drops those). Every
 // other part of monkey -- the window, fetch, bitmap, layout and plot
-// tables, the command dispatcher -- is upstream's, unchanged.
+// tables, the command dispatcher -- is upstream's, unchanged. http: and
+// https: go through ours (userland/backends/netsurf/fetch_http.c), where
+// the host build has curl; `--weak-entropy` lets https key a connection
+// on a guest with no virtio-rng, as wget's flag does.
 #include <limits.h>
 #include <pthread.h>
 #include <stdio.h>
@@ -41,6 +44,7 @@
 #include "monkey/schedule.h"
 #include "monkey/bitmap.h"
 #include "monkey/layout.h"
+#include "backends/netsurf/fetch_http.h"
 
 // Where NetSurf's resources (Messages, default.css, mime.types) live on
 // the image, then a directory named by $NETSURFRES for a test's own.
@@ -164,6 +168,9 @@ int main(int argc, char **argv) {
     respaths = filepath_generate(pathv, langv);
     filepath_free_strvec(pathv);
 
+    // Before NetSurf's own option parsing, which consumes "--" words.
+    for (int i = 1; i < argc; i++)
+        if (!strcmp(argv[i], "--weak-entropy")) ns_fetch_http_allow_weak_entropy(1);
     nslog_init(NULL, &argc, argv);
     if (nsoption_init(set_defaults, &nsoptions, &nsoptions_default) != NSERROR_OK)
         die("Options failed to initialise");
@@ -173,6 +180,7 @@ int main(int argc, char **argv) {
     if (messages_add_from_file(messages) != NSERROR_OK) NSLOG(netsurf, INFO, "Messages failed to load");
     if (netsurf_init(NULL) != NSERROR_OK) die("NetSurf failed to initialise");
     free(messages);
+    if (ns_fetch_http_register() != 0) die("the http fetcher failed to register");
 
     static char buf[PATH_MAX];
     filepath_sfinddef(respaths, buf, "mime.types", "/etc/");

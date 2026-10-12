@@ -865,7 +865,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 
 - [x] ~~Browser stage 0: vendor NetSurf at pinned SHAs, fill the libc gaps~~ DONE 2026-10-12 -- `/tests/nsmonkey` links
 - [x] ~~Browser stage 1: NetSurf's headless front end on `file:` pages, diffed against the host build~~ DONE 2026-10-12 -- 10/10 identical
-- [ ] Browser stage 2: HTTP/1.1 in `libhttp` (methods, headers, chunked, keep-alive) and a threaded NetSurf fetcher over it
+- [x] ~~Browser stage 2: HTTP/1.1 in `libhttp` and a threaded NetSurf fetcher over it~~ DONE 2026-10-12 -- the web, over http and https
+- [ ] Browser: a typed host goes to https with no fallback to http when 443 does not answer
+- [ ] Browser: NetSurf's disk cache, under `/var/cache/browser` -- the cache is memory-only today
+- [ ] Browser: a search-engine setting -- DuckDuckGo's no-JavaScript page is the only one
 - [x] ~~Browser stage 3: the Web Browser window (W1), drawing local pages~~ DONE 2026-10-12 -- tabs, links, history, scrolling
 - [ ] Browser: PNG and JPEG through `lib/uimg.h` -- GIF and BMP decode through NetSurf's own libraries today
 - [ ] Browser: the address field holds 127 bytes (`UUI_TEXTBOX_MAX`), and real addresses run longer
@@ -1094,7 +1097,7 @@ run on, not by order.
 - [ ] Remote desktop: a JPEG-sent VNC tile re-sent losslessly once the screen is still (TigerVNC's refresh)
 - [ ] Remote desktop, stage 4: an RDP server -- X.224/MCS/GCC, bitmap updates and NLA, over stage 3's TLS
 - [ ] Certificate revocation: nothing reads a CRL or speaks OCSP, so a revoked certificate still verifies
-- [ ] `wget` following redirects, which most https URLs now answer with
+- [x] ~~`wget` following redirects, which most https URLs now answer with~~ DONE 2026-10-12 -- 20 by default, `--max-redirect`
 - [ ] IPv6, or a written decision against it -- link-local, neighbour discovery and SLAAC first
 - [ ] Wi-Fi, or a written decision against it -- both laptops have an Intel card; the USB NICs stand in for it
 - [x] ~~A second NIC driver, to prove the interface isn't shaped around the first~~ DONE 2026-08-29 -- both landed together

@@ -30,6 +30,43 @@ enum utls_entropy_policy {
     UTLS_ENTROPY_ALLOW_WEAK,       // proceed, and say so
 };
 
+// What is wrong with one certificate of a chain -- the order is
+// NetSurf's and OpenSSL's coarse one, so a browser maps it 1:1. A chain
+// can carry several faults; the worst is reported by priority, highest
+// first: NAME_MISMATCH, EXPIRED, NOT_YET_VALID, REVOKED, SELF_SIGNED,
+// UNTRUSTED, BAD_SIG.
+enum utls_cert_err {
+    UTLS_CERT_OK = 0,
+    UTLS_CERT_UNKNOWN,         // verification failed for a reason not below
+    UTLS_CERT_UNTRUSTED,       // no anchor in the store vouches for its issuer
+    UTLS_CERT_BAD_SIG,         // a signature or key the policy will not accept
+    UTLS_CERT_NOT_YET_VALID,
+    UTLS_CERT_EXPIRED,
+    UTLS_CERT_SELF_SIGNED,     // the server's certificate is its own issuer
+    UTLS_CERT_REVOKED,
+    UTLS_CERT_NAME_MISMATCH,   // valid, but for a different host
+};
+
+// A sentence for one: "the certificate has expired".
+const char *utls_cert_err_text(enum utls_cert_err e);
+
+// The chain the server PRESENTED, leaf first, each certificate in DER
+// with its own fault. Filled on success AND on a verification failure --
+// a browser's "this connection is not private" page is built from the
+// failing chain, which is exactly when a NULL session would lose it.
+#define UTLS_CHAIN_MAX 10
+struct utls_chain {
+    int depth;                       // how many of certs[] are filled
+    enum utls_cert_err worst;        // the chain's fault, OK when it verified
+    struct {
+        enum utls_cert_err err;
+        unsigned char *der;          // heap, owned by the chain
+        size_t der_len;
+    } certs[UTLS_CHAIN_MAX];
+};
+// Frees the DER copies and zeroes the chain. Safe on an empty one.
+void utls_chain_free(struct utls_chain *c);
+
 struct utls_config {
     // The name to verify the certificate against, and to send as SNI.
     // REQUIRED even when verification is off: a shared-hosting server
@@ -47,6 +84,13 @@ struct utls_config {
     int insecure;
 
     enum utls_entropy_policy entropy;
+
+    // OUT, optional: the peer's chain and each certificate's fault, on
+    // success or on a certificate failure (a failure before the server
+    // sent one leaves it empty). The caller frees it with
+    // utls_chain_free(). An `insecure` connection still verifies, so its
+    // chain says what was wrong with what it accepted.
+    struct utls_chain *chain;
 };
 
 #define UTLS_DEFAULT_CA_DIR "/etc/ssl/certs"
@@ -55,6 +99,12 @@ struct utls_config {
 // so a caller linked against it can answer without a handshake.
 int utls_available(void);
 
+// THE TRUST STORE IS PARSED ONCE PER PROCESS AND DIRECTORY, not once
+// per handshake: the Mozilla bundle is about 150 certificates, and a
+// page of thirty resources over TLS paid for parsing it thirty times.
+// A change to the directory is seen by the next process, as a change to
+// /etc/ssl/certs is by OpenSSL's callers.
+//
 // Wraps an already-CONNECTED socket. The fd stays the caller's: this
 // does not close it, on success or failure.
 //

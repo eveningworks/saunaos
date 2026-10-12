@@ -10,6 +10,7 @@
 #include <dirent.h>
 #include <limits.h>
 #include <unistd.h>
+#include <pthread.h>
 
 #include "mbedtls/build_info.h"
 #include "mbedtls/ssl.h"
@@ -32,8 +33,9 @@ struct utls {
     mbedtls_ssl_config       conf;
     mbedtls_entropy_context  entropy;
     mbedtls_ctr_drbg_context drbg;
-    mbedtls_x509_crt         ca;    // a client's trust anchors; a server's own chain
+    mbedtls_x509_crt         ca;    // a client's PRIVATE anchors; a server's own chain
     mbedtls_pk_context       key;   // a server's private key
+    struct utls_chain       *chain; // the caller's, filled while verifying
 };
 
 int utls_available(void) { return 1; }
@@ -131,6 +133,96 @@ static int load_anchors(mbedtls_x509_crt *ca, const char *dir) {
     return loaded;
 }
 
+// THE SHARED STORE: the default directory's anchors, parsed by the
+// first connect in the process and read-only after -- verification only
+// reads a CA chain, so every thread's handshake may walk it at once.
+// Never freed: it lives as long as the process that wanted it.
+static pthread_mutex_t g_store_mu = PTHREAD_MUTEX_INITIALIZER;
+static mbedtls_x509_crt g_store;
+static int g_store_n = -1;   // -1 = not loaded yet
+
+// The anchors for `dir`: the shared store for the default directory, a
+// private parse into `own` for any other (a test's, wget --ca-dir).
+static mbedtls_x509_crt *anchors_for(const char *dir, mbedtls_x509_crt *own, int *n) {
+    if (strcmp(dir, UTLS_DEFAULT_CA_DIR) != 0) {
+        *n = load_anchors(own, dir);
+        return own;
+    }
+    pthread_mutex_lock(&g_store_mu);
+    if (g_store_n < 0) {
+        mbedtls_x509_crt_init(&g_store);
+        g_store_n = load_anchors(&g_store, dir);
+    }
+    *n = g_store_n;
+    pthread_mutex_unlock(&g_store_mu);
+    return &g_store;
+}
+
+const char *utls_cert_err_text(enum utls_cert_err e) {
+    switch (e) {
+    case UTLS_CERT_OK:            return "the certificate is valid";
+    case UTLS_CERT_UNTRUSTED:     return "the certificate is not trusted by any anchor in the store";
+    case UTLS_CERT_BAD_SIG:       return "the certificate's signature or key is not acceptable";
+    case UTLS_CERT_NOT_YET_VALID: return "the certificate is not valid yet";
+    case UTLS_CERT_EXPIRED:       return "the certificate has expired";
+    case UTLS_CERT_SELF_SIGNED:   return "the certificate is self-signed";
+    case UTLS_CERT_REVOKED:       return "the certificate has been revoked";
+    case UTLS_CERT_NAME_MISMATCH: return "the certificate is for a different host name";
+    case UTLS_CERT_UNKNOWN:       break;
+    }
+    return "the certificate could not be verified";
+}
+
+void utls_chain_free(struct utls_chain *c) {
+    if (!c) return;
+    for (int i = 0; i < UTLS_CHAIN_MAX; i++) free(c->certs[i].der);
+    memset(c, 0, sizeof *c);
+}
+
+// One certificate's mbedTLS flags as the one fault a person is shown.
+static enum utls_cert_err cert_err_of(const mbedtls_x509_crt *crt, int depth, uint32_t f) {
+    if (!f) return UTLS_CERT_OK;
+    if (f & MBEDTLS_X509_BADCERT_CN_MISMATCH) return UTLS_CERT_NAME_MISMATCH;
+    if (f & MBEDTLS_X509_BADCERT_EXPIRED) return UTLS_CERT_EXPIRED;
+    if (f & MBEDTLS_X509_BADCERT_FUTURE) return UTLS_CERT_NOT_YET_VALID;
+    if (f & MBEDTLS_X509_BADCERT_REVOKED) return UTLS_CERT_REVOKED;
+    if (f & MBEDTLS_X509_BADCERT_NOT_TRUSTED) {
+        int self = depth == 0 && crt->issuer_raw.len == crt->subject_raw.len &&
+                   !memcmp(crt->issuer_raw.p, crt->subject_raw.p, crt->subject_raw.len);
+        return self ? UTLS_CERT_SELF_SIGNED : UTLS_CERT_UNTRUSTED;
+    }
+    if (f & (MBEDTLS_X509_BADCERT_BAD_MD | MBEDTLS_X509_BADCERT_BAD_PK |
+             MBEDTLS_X509_BADCERT_BAD_KEY)) return UTLS_CERT_BAD_SIG;
+    return UTLS_CERT_UNKNOWN;
+}
+
+// Higher is worse, in utls.h's stated priority.
+static int err_rank(enum utls_cert_err e) {
+    static const int rank[] = {
+        [UTLS_CERT_OK] = 0, [UTLS_CERT_UNKNOWN] = 1, [UTLS_CERT_BAD_SIG] = 2,
+        [UTLS_CERT_UNTRUSTED] = 3, [UTLS_CERT_SELF_SIGNED] = 4, [UTLS_CERT_REVOKED] = 5,
+        [UTLS_CERT_NOT_YET_VALID] = 6, [UTLS_CERT_EXPIRED] = 7, [UTLS_CERT_NAME_MISMATCH] = 8,
+    };
+    return rank[e];
+}
+
+// mbedTLS's verify callback: called once per certificate of the chain it
+// BUILT (the presented ones, plus the anchor when one was found), top
+// first. The flags are left alone -- this records, it does not decide.
+static int on_verify(void *ctx, mbedtls_x509_crt *crt, int depth, uint32_t *flags) {
+    struct utls *t = ctx;
+    struct utls_chain *c = t->chain;
+    if (!c || depth < 0 || depth >= UTLS_CHAIN_MAX) return 0;
+    free(c->certs[depth].der);
+    c->certs[depth].der = malloc(crt->raw.len);
+    c->certs[depth].der_len = c->certs[depth].der ? crt->raw.len : 0;
+    if (c->certs[depth].der) memcpy(c->certs[depth].der, crt->raw.p, crt->raw.len);
+    c->certs[depth].err = cert_err_of(crt, depth, *flags);
+    if (depth + 1 > c->depth) c->depth = depth + 1;
+    if (err_rank(c->certs[depth].err) > err_rank(c->worst)) c->worst = c->certs[depth].err;
+    return 0;
+}
+
 struct utls *utls_connect(int fd, const struct utls_config *cfg,
                           char *err, size_t errcap) {
     if (!cfg || !cfg->hostname || !cfg->hostname[0]) {
@@ -160,6 +252,11 @@ struct utls *utls_connect(int fd, const struct utls_config *cfg,
         return NULL;
     }
     t->fd = fd;
+    // A chain of our own when the caller wants none: the failure
+    // sentence is built from it either way.
+    struct utls_chain *own_chain = cfg->chain ? NULL : calloc(1, sizeof *own_chain);
+    t->chain = cfg->chain ? cfg->chain : own_chain;
+    if (t->chain) memset(t->chain, 0, sizeof *t->chain);
     mbedtls_ssl_init(&t->ssl);
     mbedtls_ssl_config_init(&t->conf);
     mbedtls_entropy_init(&t->entropy);
@@ -181,11 +278,17 @@ struct utls *utls_connect(int fd, const struct utls_config *cfg,
         goto fail;
     }
 
+    const char *dir = cfg->ca_dir ? cfg->ca_dir : UTLS_DEFAULT_CA_DIR;
+    int n = 0;
+    mbedtls_x509_crt *store = anchors_for(dir, &t->ca, &n);
     if (cfg->insecure) {
-        mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_NONE);
+        // OPTIONAL rather than NONE when there is anything to verify
+        // against: the handshake goes ahead either way, and the chain
+        // then says what was wrong with what was accepted.
+        mbedtls_ssl_conf_authmode(&t->conf, n ? MBEDTLS_SSL_VERIFY_OPTIONAL
+                                              : MBEDTLS_SSL_VERIFY_NONE);
+        if (n) mbedtls_ssl_conf_ca_chain(&t->conf, store, NULL);
     } else {
-        const char *dir = cfg->ca_dir ? cfg->ca_dir : UTLS_DEFAULT_CA_DIR;
-        int n = load_anchors(&t->ca, dir);
         if (n == 0) {
             // Distinguished from a verification FAILURE on purpose:
             // an empty trust store is a machine that was never told
@@ -196,8 +299,9 @@ struct utls *utls_connect(int fd, const struct utls_config *cfg,
             goto fail;
         }
         mbedtls_ssl_conf_authmode(&t->conf, MBEDTLS_SSL_VERIFY_REQUIRED);
-        mbedtls_ssl_conf_ca_chain(&t->conf, &t->ca, NULL);
+        mbedtls_ssl_conf_ca_chain(&t->conf, store, NULL);
     }
+    mbedtls_ssl_conf_verify(&t->conf, on_verify, t);
 
     mbedtls_ssl_conf_rng(&t->conf, mbedtls_ctr_drbg_random, &t->drbg);
 
@@ -223,16 +327,25 @@ struct utls *utls_connect(int fd, const struct utls_config *cfg,
             mbedtls_x509_crt_verify_info(why, sizeof why, "", flags);
             char *nl = strchr(why, '\n');
             if (nl) *nl = '\0'; // the first reason is the useful one
-            say(err, errcap, "certificate verification failed: %s", why);
+            if (t->chain && t->chain->worst != UTLS_CERT_OK)
+                say(err, errcap, "certificate verification failed: %s",
+                    utls_cert_err_text(t->chain->worst));
+            else
+                say(err, errcap, "certificate verification failed: %s", why);
         } else {
             say_mbed(err, errcap, "TLS handshake", rc);
         }
         goto fail;
     }
 
+    // The caller's chain is theirs again: nothing after the handshake
+    // verifies, and a pointer kept here would outlive it.
+    t->chain = NULL;
+    if (own_chain) { utls_chain_free(own_chain); free(own_chain); }
     return t;
 
 fail:
+    if (own_chain) { utls_chain_free(own_chain); free(own_chain); }
     mbedtls_ssl_free(&t->ssl);
     mbedtls_ssl_config_free(&t->conf);
     mbedtls_ctr_drbg_free(&t->drbg);

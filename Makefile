@@ -1148,6 +1148,12 @@ $(BUILD)/userland/tests/nsmonkey.o: USERLAND_CFLAGS += -std=gnu11 -nostdinc \
         -Iuserland/backends/netsurf/include $(NS_CORE_CFLAGS)
 
 # The headless engine: stage 1's test oracle (docs/browser-design.md).
+# The http/https fetcher is ours but speaks NetSurf's core headers.
+$(BUILD)/userland/backends/netsurf/fetch_http.o: USERLAND_CFLAGS += -std=gnu11 -nostdinc \
+        -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
+        -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
+        $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) $(NS_CORE_CFLAGS)
+
 EXTRA_OBJS_nsmonkey = $(NS_BACKEND_OBJS) $(NS_PORT_OBJS)
 
 # The Web Browser: the same engine WITHOUT monkey's front end, and ours
@@ -1341,6 +1347,11 @@ ULIB_SO_update = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_sysupdate = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # DOOM downloads its game data (userland/doom/doom_front.c).
 ULIB_SO_doom = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
+# NetSurf's http/https fetcher (userland/backends/netsurf/fetch_http.c).
+# GPL-2.0 binaries: libssl is taken under mbedTLS's GPL-2.0-or-later
+# option for these two (LICENSE).
+ULIB_SO_browser = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
+ULIB_SO_nsmonkey = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # The SMB client and the share daemon (libsmb's crypto is in libssl).
 ULIB_SO_smb = $(LIBSMB_SO) $(LIBSSL_SO)
 ULIB_SO_smbfsd = $(LIBSMB_SO) $(LIBSSL_SO)
@@ -1689,6 +1700,12 @@ $(BUILD)/userland/tests/dyn_test.elf: $(BUILD)/userland/tests/dyn_test.o $(USERL
 # program, which is what makes it a fair test of one.
 $(BUILD)/userland/tests/hash_test.elf: $(BUILD)/userland/tests/hash_test.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO) $(BUILD)/lib/libhash.so $(LDSO)
 	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(BUILD)/lib/libhash.so $(LIBUAPP) $(LIBC_NONSHARED) $(LIBC_SO)
+
+# /tests/nsmonkey is DYNAMIC for hash_test's reason the other way round:
+# its http/https fetcher speaks through /lib/libhttp.so, which a static
+# link cannot reach.
+$(BUILD)/userland/tests/nsmonkey.elf: $(BUILD)/userland/tests/nsmonkey.o $(USERLAND_RT) userland/rt/link-dyn.ld $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO) $(LDSO) $$(call uextra,nsmonkey) $(ULIB_SO_nsmonkey)
+	$(DYN_LINK) -o $@ $(BUILD)/userland/rt/crt0.o $< $(call uextra,nsmonkey) $(BUILD)/userland/rt/sys.o $(BUILD)/userland/rt/stack_chk.o $(BUILD)/userland/rt/sigtramp.o $(BUILD)/userland/rt/tls.o $(ULIB_SO_nsmonkey) $(LIBUAPP_SO) $(LIBC_NONSHARED) $(LIBC_SO)
 
 # --gc-sections drops every section nothing reaches, which is what
 # makes linking against one archive cheap: `hello` references nothing in
@@ -2129,7 +2146,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	cp data/tests/tiny.avi data/tests/tiny.mpg data/tests/tiny.yuv $(SEED_DIR)/sync/tests/
 	# The pages tools/browser_hostcheck.py lays out on both sides.
 	mkdir -p $(SEED_DIR)/sync/tests/web
-	cp data/tests/web/*.html $(SEED_DIR)/sync/tests/web/
+	cp data/tests/web/* $(SEED_DIR)/sync/tests/web/
 	# Unicode's names and blocks for the characters the fonts can draw
 	# (tools/gen_unicode_names.py, tracked), for the Character Map --
 	# Unicode, Inc.'s data, so its notice travels with it.

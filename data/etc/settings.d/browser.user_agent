@@ -1,0 +1,15 @@
+# /etc/settings.d/browser.user_agent -- what the Web Browser calls itself
+# in the User-Agent header (userland/gui/apps/browser.c builds the string).
+# Read at each navigation, so a change applies to the next page loaded.
+Type=enum
+File=/etc/browser.conf
+Label=Identify as
+Category=Network
+Group=Web Browser
+Default=toyos
+Choices=toyos,linux,custom
+Choice.toyos=toy-os (NetSurf)
+Choice.linux=Linux (NetSurf)
+Choice.custom=Custom
+Description=The User-Agent sent to websites
+Order=10

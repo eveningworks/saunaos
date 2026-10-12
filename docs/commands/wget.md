@@ -6,31 +6,48 @@
 
 ## Synopsis
 
-    wget [-O <file>] [-k] [--weak-entropy] <url>
+    wget [OPTION]... URL...
 
 ## Options
 
-- `-O <file>` -- write the body to `<file>` rather than to standard
-  output, creating it or truncating it, and print the byte count when
-  the fetch finishes. The connecting line and any error still go to the
-  terminal.
-- `-k` -- do not verify the server's certificate. The connection is
-  still encrypted; it is no longer *authenticated*, so a warning is
-  printed. https only.
+- `-O <file>`, `--output-document <file>` -- write the body to `<file>`
+  rather than to standard output, creating it or truncating it, and
+  print the byte count when each fetch finishes. Several URLs into one
+  file are concatenated, as GNU wget's are. The connecting line and any
+  error still go to the terminal.
+- `-k`, `--no-check-certificate` -- do not verify the server's
+  certificate. The connection is still encrypted; it is no longer
+  *authenticated*, so a warning is printed. https only.
 - `--weak-entropy` -- key the connection even when this machine's
   randomness is only TSC jitter. https only, and see below.
+- `--max-redirect <n>` -- follow at most `n` redirects, 0 to 100; 20 by
+  default, GNU wget's figure. `0` follows none and reports the 3xx
+  status, which is curl's default.
+- `-S`, `--server-response` -- print the status line and every response
+  header, indented, before the body -- exactly as the server sent them,
+  for each hop of a redirect.
+- `--post-data <string>` -- send a POST with `<string>` as its body, as
+  `application/x-www-form-urlencoded`. A 303 answer, or a 301/302, turns
+  the next hop into a GET, as browsers do.
+- `--header <line>` -- add one request header, `"Name: value"`. One naming
+  `User-Agent` or `Accept-Encoding` replaces the default; `Host`,
+  `Content-Length`, `Connection` and `Transfer-Encoding` are libhttp's and
+  are refused.
+- `-h`, `--help` -- every option and what it does.
 
 ## Description
 
-`/bin/wget` — fetch a URL over HTTP or HTTPS and print it, or save it
-with `-O`.
+`/bin/wget` — fetch URLs over HTTP or HTTPS and print them, or save them
+with `-O`. Several URLs are fetched in turn over **one kept-alive
+connection per host** (a `struct uhttp_pool`), which is what GNU wget
+does with several URLs on its command line.
 
 The protocol is not in this program. It lives in `/lib/libhttp.so`
 (`<uhttp.h>`), which reaches `/lib/libssl.so` (`<utls.h>`, mbedTLS) for
 the https half; wget is the front end that parses arguments, decides
-where the body goes, and words the failures. That split exists because
-there were about to be three copies of a URL parser and a header scan —
-this, `httpd`, and the `update` that `docs/update-design.md` designs.
+where the body goes, and words the failures. The same library is the
+Web Browser's network (`userland/backends/netsurf/fetch_http.c`),
+`update`'s and DOOM's game-data downloader's.
 
 ## The scheme may be left off
 
@@ -60,19 +77,22 @@ default port. Say `https://host:8443` when you want TLS on an odd port.
 A scheme this does not speak — `ftp://` — is refused rather than treated
 as a hostname.
 
-## HTTP/1.0
+## HTTP/1.1
 
-**HTTP/1.0 with `Connection: close`**, deliberately. That makes the
-*server* end the body by closing the connection, so there is no chunked
-decoding, no `Content-Length` arithmetic and no persistent-connection
-state to keep — the end of the stream is the end of the response. A
-`Host:` header is sent anyway, because name-based virtual hosting is
-universal and a server given no name serves the wrong site.
+**HTTP/1.1, and a connection may outlive its request.** A response ends
+where its framing says -- a `Content-Length`, or a chunked body -- and
+then its connection waits in the pool for the next URL to the same
+scheme, host and port. A lone URL has no next request, so it is sent
+with `Connection: close` and the server may end the body by closing.
 
-`Content-Length` **is** read, but only to size the progress meter below.
-Nothing frames the body with it: the close is still what ends the
-response, so a server that omits the header costs you the bar and
-nothing else.
+A kept connection the server has meanwhile closed is found out by the
+request that takes it, before any byte of the answer arrives, and that
+request is sent once more on a fresh connection -- a GET or a HEAD only,
+which are safe to send twice. A POST always opens a fresh connection.
+
+A gzipped body (`Accept-Encoding: gzip` is sent) is inflated before it
+is written, inside chunked framing or not; `deflate` is never asked for
+and refused if sent.
 
 ## The progress meter
 
@@ -112,7 +132,7 @@ because they send you to different places:
 | Message | What it means |
 |---|---|
 | `no trust anchors in /etc/ssl/certs` | This machine was never told whom to trust. Build with `EXTRAS=1`, or drop a PEM in |
-| `certificate verification failed: ...` | The store has anchors and none of them vouches for this server |
+| `certificate verification failed: <reason>` | The certificate is wrong: `not trusted by any anchor in the store`, `has expired`, `is not valid yet`, `is for a different host name`, `is self-signed`, `has been revoked` |
 | `WARNING: the server's identity was NOT verified` | You passed `-k`; the traffic is encrypted and nobody checked who is on the other end |
 
 **The trust store is empty on a default build, and that is a state, not
@@ -139,12 +159,13 @@ RDSEED/RDRAND, or a guest given `-device virtio-rng-pci`, it does not.
 
 ## What it is not
 
-**No redirects, no cookies, no resume, no recursion.** A non-2xx status
-is reported and the body is still printed, because an error page is
-usually the explanation; the exit status is what a script reads.
+**No cookies, no resume, no recursion.** A non-2xx status is reported
+and the body is still printed, because an error page is usually the
+explanation; the exit status is what a script reads, 1 if any URL
+failed. A redirect from https to plain http is refused, never followed.
 
-**Not a downloader.** There is no progress bar and no retry: a failed
-fetch is a failed fetch.
+**Not a downloader.** There is no retry: a failed fetch is a failed
+fetch.
 
 **No client certificates**, and no TLS *server* anywhere in toy-os —
 `httpd` speaks plaintext, because giving it TLS means a private key on

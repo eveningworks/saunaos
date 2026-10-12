@@ -12,8 +12,10 @@ two is a directory, as it is for `userland/backends/doom/`.
 | `include/zlib.h`, `zlib_shim.c` | The corner of zlib NetSurf calls, over toy-os's own `lib/uinflate.h`. Not zlib: anything else NetSurf calls is a compile error. |
 | `include/curl/curl.h` | A type NAME. Upstream's `content/fetch.c` includes the curl fetcher's header even when curl is not built. |
 | `include/dom/bindings/hubbub/` | Forwarders: NetSurf includes libdom's HTML binding where libdom INSTALLS it; the vendored tree keeps it elsewhere. |
+| `fetch_http.c`, `fetch_http.h` | The http: and https: fetcher, over `/lib/libhttp.so`: one thread per fetch, its results queued for NetSurf's poll on the main thread. Upstream's is curl; this is that fetcher's shape (`docs/browser-design.md`, stage 2). |
 | `no_sockets.c` | A `socket()` that refuses, for `desktop/gui_factory.c`'s default opener, which only the (unbuilt) curl fetcher reaches. tolibc has no `socket()`. |
 
 The front ends that use all this are programs elsewhere:
 `userland/tests/nsmonkey.c` (the headless one, replacing upstream's
-`frontends/monkey/main.c`).
+`frontends/monkey/main.c`) and the Web Browser, `userland/gui/apps/browser.c`
+with its front end in `userland/browser/`.

@@ -188,6 +188,12 @@ TOOLS = [
     # Needs openssl to make the certificates and SKIPS cleanly without it.
     ("https",       "https_test.py",           "wget over TLS, and what it refuses", False,
      ("openssl",    "needs openssl on PATH to make test certificates"),                       False),
+    # libhttp's HTTP/1.1 half through wget: keep-alive judged by the
+    # host server's own connection count, chunked/gzip bodies by hash,
+    # redirects, POST, and https certificate faults (those SKIP without
+    # openssl; the rest still run).
+    ("http",        "http_test.py",            "wget over HTTP/1.1: keep-alive, chunked, redirects", False,
+     None,                                                                                   False),
     # Same arrangement, no certificates needed: a plain http server on
     # the host, so this too leaves nothing.
     ("hwdata",      "hwdata_test.py",          "the id databases refuse a bad download", False, None,               False),

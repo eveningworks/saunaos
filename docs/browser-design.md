@@ -4,11 +4,11 @@ A staged plan for a Web Browser app: NetSurf's engine behind a toy-os
 window. It answers "port or write our own, what does a port actually
 need from this system, and in what order is it worth building?"
 
-**STAGES 0, 1 AND MOST OF 3 ARE BUILT (2026-10-12)** -- NetSurf and its
+**STAGES 0-2 AND MOST OF 3 ARE BUILT (2026-10-12)** -- NetSurf and its
 libraries are vendored, lay out a set of test pages identically to the
-same source built on the host, and draw local pages in the Web Browser
-app (Start -> Internet). The network (stage 2) is next. **The choices were
-made the same day**: port NetSurf
+same source built on the host -- read from files, over http and over
+https -- and the Web Browser app (Start -> Internet) browses the web.
+Stage 4 is next. **The choices were made the same day**: port NetSurf
 (GPL-2.0, C) from a PINNED MASTER COMMIT rather than its last release;
 the W1 window (a tab strip over a toolbar, the Web Browser mockup
 canvas); and the page view as a reusable `uui_webview` widget. The
@@ -87,11 +87,9 @@ YouTube and Gmail do not.
 
 - **HTTPS**: `/lib/libhttp.so` (`<uhttp.h>`) over `/lib/libssl.so`
   (mbedTLS 3.6, TLS 1.3, chain verification against
-  `/etc/ssl/certs`). **It is HTTP/1.0 with `Connection: close` and
-  blocks**: one connection per request, GET only, no caller-supplied
-  headers, and `on_headers` reports only the status and length. It
-  decodes gzip and can follow redirects (`max_redirects`), though NetSurf
-  wants redirects handed to it.
+  `/etc/ssl/certs`). It was HTTP/1.0 with `Connection: close`, GET
+  only, with no caller headers -- stage 2 below made it what a browser
+  needs.
 - **Sockets**: blocking only -- `<unistd.h>` says there is no
   `select`/`poll`, and a connect waits up to `SYS_NET_CONNECT_MS`. So a
   fetch is a THREAD (pthreads exist), and `uapp_post()` -- "the one call
@@ -205,17 +203,73 @@ What it found, both fixed:
   `readfile` by characters rather than bytes. Five of the ten pages read
   back empty until that was fixed; the engine had been right.
 
-### Stage 2 -- HTTP/1.1 in libhttp, and the fetcher -- PLANNED
+### Stage 2 -- HTTP/1.1 in libhttp, and the fetcher -- BUILT 2026-10-12
 
-`libhttp` grows what NetSurf (and `wget`, `update`) want: a method and
-body, caller headers, every response header delivered as it arrives,
-HTTP/1.1 chunked bodies, and kept-alive connections pooled per host --
-a page with thirty images otherwise pays thirty TLS handshakes in a
-row. The certificate chain, and the reason it failed, are reported
-rather than flattened into `err`. The fetcher runs each fetch in a
-thread and queues results for `poll`. Tests serve a corpus from a
-loopback server (http and https with a test CA), so nothing leaves the
-machine.
+**libhttp** (`userland/dynlib/uhttp.c`) is HTTP/1.1: a method and body,
+caller headers, EVERY response header handed over raw as it arrives
+(`on_header`), Content-Length and chunked framing, gzip inside either,
+and KEPT-ALIVE connections in a caller-owned `struct uhttp_pool` -- six
+idle per host, sixteen in all, closed after 30 s idle (curl's connection
+cache, owned by its caller as a curl share handle is). A pooled
+connection the server dropped is found out by the request that takes it
+and retried once on a fresh one, for GET and HEAD only; a POST never
+takes a pooled one. The certificate chain the server presented comes
+back leaf first with each certificate's fault (`on_certs`,
+`<utls.h>`'s `struct utls_chain`), and a refused one says why
+(`cert_err`, and "the certificate has expired" in `err`).
+`max_redirects` stays for wget (now GNU's default of 20) and update;
+NetSurf passes 0 and follows them itself.
+
+**The fetcher** (`userland/backends/netsurf/fetch_http.c`, shared by the
+app and `/tests/nsmonkey`) is upstream's curl fetcher's shape over
+libhttp: the same messages in the same order, Location, WWW-Authenticate
+and Set-Cookie read on the way past, cookies and Basic credentials from
+urldb added at start, and urldb's "proceed anyway" as an insecure fetch.
+Each fetch is a detached THREAD (256 KiB stack, for the handshake) that
+queues headers, data, the chain and its result; NetSurf's poll drains
+the queue on the main thread, and the first message into an empty queue
+wakes the app through `uapp_post()`, whose handler drains at once
+through `fetch_fdset()`. The queue holds at most 512 KiB per fetch, so
+a fast server cannot outrun layout into the heap. The fdset slot is
+NULL. NetSurf runs six fetches at once and six per host
+(`max_fetchers`, `max_fetchers_per_host`; its default was 24 threads).
+
+**The app**: cookies and the global history are kept in
+`/var/lib/browser` (`cookies`, `history`) -- the place every app's kept
+state has, not the personal folders, which hold a person's documents
+(Firefox and Chrome keep theirs in `~/.config`/`%APPDATA%` too). The
+cache stays in memory: NetSurf's disk cache was left out in stage 0.
+Typed words that are not an address are searched for on DuckDuckGo's
+page that needs no JavaScript (NetSurf's own default engine; the app
+builds the URL, so `--search-url` can point a test at a local server).
+A typed host is https, except a dotted quad, localhost or an explicit
+port other than 443 -- Chrome's exclusions from its upgrade -- and,
+unlike Chrome's, there is no fallback to http when https does not
+answer. The User-Agent is `Mozilla/5.0 (toy-os; x86_64) NetSurf/3.12`,
+or the Linux form or a custom string (`browser.user_agent`, System
+Settings > Network > Web Browser, read at each navigation).
+
+What it took beyond the plan:
+
+- **libhttp and the resolver were not thread-safe**: a `static` read
+  buffer in the fetch and static DNS query/reply buffers in
+  `uresolv_lookup()`. mbedTLS needed `MBEDTLS_THREADING_C` too -- PSA's
+  key slots and RNG are global, however separate the sessions look.
+- **Every handshake parsed the whole trust store**, about 150
+  certificates, per connection. It is parsed once per process now.
+- **NetSurf's fallback `uname()` says "windows"**, so its own UA string
+  read `Mozilla/5.0 (windows) NetSurf/3.12`; the fetcher sends ours.
+- **`tools/browser_hostcheck.py --scheme http|https`** lays the corpus out
+  with the guest reading it from `tools/web_server.py` and the host from
+  files: 12/12 identical both ways. The original pages each arrived in
+  ONE chunk with no separate resource, so dropping a byte per chunk
+  changed nothing; `net.html` (21 KB, its own stylesheet and image) is
+  what turns a lost chunk red.
+- **`tools/http_test.py`** checks libhttp through wget against the
+  server's own connection count; `tools/browser_test.py` gained the
+  network half (a typed host, a separate stylesheet in the pixels,
+  cookies sent back and kept, a search, reuse, https and an expired
+  certificate's "Privacy error" page).
 
 ### Stage 3 -- the Web Browser window -- BUILT 2026-10-12, three items open
 
@@ -225,7 +279,7 @@ forward, reload/stop, home, the address field, Downloads and the menu
 (both greyed until stage 4) -- over the page, with tabs. Links, typed
 addresses and paths, history, the wheel and the keyboard scroll, forms
 take keys, a hovered link's address shows in the corner, and
-`file:`/`about:`/`data:` pages load -- the network is stage 2.
+`file:`/`about:`/`data:` pages load -- and `http:`/`https:` since stage 2.
 `tools/browser_test.py` drives it in `gui_regress.py`.
 
 How it is put together, in `userland/browser/` beside the app:
@@ -283,9 +337,6 @@ corpus, with a setting to turn it on.
 - The memory budget: what a Wikipedia article costs in NetSurf's
   caches, measured in stage 3, against the RAM toy-os is usually run
   with.
-- Where the store path (cookies, cache, history) lives under the
-  personal folders (`lib/udirs.h`).
-- The address bar's search engine, and the User-Agent string.
 
 ## The case against
 

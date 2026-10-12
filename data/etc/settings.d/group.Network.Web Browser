@@ -1,0 +1,3 @@
+Label=Web Browser
+Description=How the Web Browser identifies itself to websites
+Order=30

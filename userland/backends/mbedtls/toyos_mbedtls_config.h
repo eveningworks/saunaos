@@ -184,6 +184,15 @@
 #define MBEDTLS_SSL_IN_CONTENT_LEN  16384
 #define MBEDTLS_SSL_OUT_CONTENT_LEN 4096
 
+// --- threads --------------------------------------------------------
+//
+// The Web Browser runs a handshake in each fetch thread. Separate
+// sessions share PSA's global state -- its key slots and its RNG -- so
+// without these two handshakes at once corrupt each other, however
+// separate their contexts look.
+#define MBEDTLS_THREADING_C
+#define MBEDTLS_THREADING_PTHREAD
+
 // --- diagnostics ----------------------------------------------------
 //
 // ERROR_C turns a negative code into a sentence. It costs a string
