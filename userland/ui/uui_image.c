@@ -118,6 +118,11 @@ int uui_image_can_pan(const struct uui_image *im) {
            (long)im->img->h * im->zoom / 100 > im->h;
 }
 
+int uui_image_cursor(const struct uui_image *im, int dragging) {
+    if (dragging) return WIN_CURSOR_GRABBING;
+    return uui_image_can_pan(im) ? WIN_CURSOR_GRAB : WIN_CURSOR_DEFAULT;
+}
+
 int uui_image_drawn_rect(const struct uui_image *im, int *x, int *y, int *w, int *h) {
     if (!im->img || !im->img->px || im->w <= 0 || im->h <= 0) return 0;
     // The part of the picture inside the view: cropped when it is larger

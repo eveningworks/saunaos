@@ -31,7 +31,7 @@
 // The names are the STABLE part -- they are what an app asks for, and a
 // rename breaks every theme on disk. Each has a caller; `hand`, `move`
 // and `not-allowed` are cursor-shape-v1's pointer, move and not-allowed;
-// `crosshair` is its crosshair.
+// `crosshair`, `grab` and `grabbing` are its own names.
 // An unknown name in a theme directory is ignored.
 // The theme a machine with no `cursor_theme` stored gets. MUST MATCH
 // /etc/settings.d/system.cursor_theme's Default=: the WM reads the conf
@@ -39,7 +39,7 @@
 // being written the same.
 #define CURSOR_THEME_DEFAULT "graphite"
 
-#define CURSOR_SHAPE_COUNT 11
+#define CURSOR_SHAPE_COUNT 13
 const char *cursor_shape_name(int index); // "arrow", "resize-h", ...
 
 // The shape format itself -- struct cursor_shape, its parser, decoding
@@ -54,9 +54,10 @@ int cursor_theme_load(const char *theme);
 
 // The shape for `kind`, or NULL if it did not load and the caller should
 // use its built-in. Never returns a partially-filled shape. `hand`,
-// `move` and `not-allowed` fall back to the theme's ARROW when the theme
-// lacks them: they have no built-in drawing, and an arrow is what the
-// pointer showed in those places before they existed.
+// `move`, `not-allowed`, `crosshair`, `grab` and `grabbing` fall back to
+// the theme's ARROW when the theme lacks them: they have no built-in
+// drawing, and an arrow is what the pointer showed in those places
+// before they existed.
 const struct cursor_shape *cursor_theme_shape(enum wm_cursor_kind kind);
 
 // The integer scale the size setting asks for, at least 1. Whatever the

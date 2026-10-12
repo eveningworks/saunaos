@@ -811,6 +811,8 @@ static void draw_slideshow(struct ugfx_surface *s, int cw, int ch) {
     ugfx_fill_rect(s, 0, ch - 4, (int)frac, 4, amber);
 }
 
+static void sync_cursor(struct uapp *a);
+
 static void on_draw(struct uapp *a, struct uapp_draw *d) {
     if (g_active) g_frames_during++;
     int cw = d->surface->w, ch = d->surface->h;
@@ -826,6 +828,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
         ugfx_fill_rect(d->surface, 0, g_sy - 1, cw, 1, g_amb.chrome_line);
     }
     uapp_log_layout(a, "imgview");   // every widget, by name (ui/uui_describe.h)
+    sync_cursor(a);
 }
 
 static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
@@ -926,8 +929,15 @@ static int on_pill(int x, int y) {
     return g_slide && in_hit(&g_pill, x, y);
 }
 
+// The hand over a picture that pans, closed while it does. Only over the
+// stage: elsewhere the widget tree's answer stands. Also called from
+// on_draw, so a zoom by key or wheel updates it without a motion.
+static void sync_cursor(struct uapp *a) {
+    if (g_drag || (in_stage(g_mx, g_my) && !on_pill(g_mx, g_my)))
+        uapp_set_cursor(a, uui_image_cursor(&g_view, g_drag));
+}
+
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
-    (void)a;
     // A DRAG PANS a picture bigger than the stage, full screen included;
     // the picture follows the pointer, as every viewer's hand tool does.
     g_dragged = 0;
@@ -935,14 +945,16 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         g_drag = 1;
         g_drag_x = x;
         g_drag_y = y;
+        sync_cursor(a);
     }
 }
 
 static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     g_mx = x;
     g_my = y;
+    if (g_drag && !(buttons & 1)) g_drag = 0;
+    sync_cursor(a);
     if (!g_drag) return;
-    if (!(buttons & 1)) { g_drag = 0; return; }
     if (uui_image_pan(&g_view, x - g_drag_x, y - g_drag_y)) uapp_redraw(a);
     if (x != g_drag_x || y != g_drag_y) g_dragged = 1;
     g_drag_x = x;
@@ -952,6 +964,9 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
 static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     (void)buttons;
     g_drag = 0;
+    g_mx = x;
+    g_my = y;
+    sync_cursor(a);
     // A pan that ENDS over a pill is not a click on it.
     if (!g_slide || g_dragged) return;
     if (in_hit(&g_pill_every, x, y)) {

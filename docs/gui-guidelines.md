@@ -59,7 +59,8 @@ key, and the content gives it room rather than being covered.
 - **Full screen drops the chrome**: the controls float as a pill at the
   bottom, Esc leaves, and the content can still be zoomed and panned.
 - **Direct manipulation first**: the wheel zooms about the pointer, a
-  drag pans anything bigger than its view, and arrow keys step through
+  drag pans anything bigger than its view -- under the open hand, closed
+  while it pans (`uui_image_cursor()`) -- and arrow keys step through
   items.
 
 New pieces of this language become `userland/ui/` widgets once a second
@@ -1259,11 +1260,11 @@ right thing:
 ## The pointer
 
 The cursor's shapes are DATA, not code: `/usr/share/cursors/<theme>/`,
-one descriptor per shape, eleven names (`arrow`, `text`, `wait`,
-`resize-h`, `resize-v`, `resize-diag`, `resize-diag2`, `hand`, `move`,
-`not-allowed`, `crosshair` -- the last four are cursor-shape-v1's
-pointer, move, not-allowed and crosshair, and a theme lacking one shows
-its arrow). The rules, in
+one descriptor per shape (`arrow`, `text`, `wait`, `resize-h`,
+`resize-v`, `resize-diag`, `resize-diag2`, `hand`, `move`,
+`not-allowed`, `crosshair`, `grab`, `grabbing` -- the last six are
+cursor-shape-v1's pointer, move, not-allowed, crosshair, grab and
+grabbing, and a theme lacking one shows its arrow). The rules, in
 the order they bite:
 
 - **A shape is MASKS or an IMAGE, Xcursor's split.** Masks (`default`,

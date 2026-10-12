@@ -89,6 +89,40 @@ def g_hand(d, s):
     return (9, 2)                   # the index fingertip
 
 
+def g_grab(d, s):
+    """An open hand: four fingers up, the thumb out to the left."""
+    ox, oy = 3.5, 2.5
+
+    def R(x0, y0, x1, y1, r):
+        d.rounded_rectangle([(ox + x0) * s, (oy + y0) * s, (ox + x1) * s, (oy + y1) * s],
+                            radius=r * s, fill=255)
+    R(4.2, 2.2, 6.6, 12.5, 1.2)     # index
+    R(7.2, 0.6, 9.6, 12.5, 1.2)     # middle
+    R(10.2, 1.4, 12.6, 12.5, 1.2)   # ring
+    R(13.2, 3.6, 15.6, 13.0, 1.2)   # little
+    R(4.2, 9.5, 15.6, 20.5, 3.6)    # palm
+    d.polygon([((ox + x) * s, (oy + y) * s) for x, y in
+               [(5.0, 13.0), (1.6, 8.8), (0.2, 9.0), (-0.2, 10.4), (3.2, 17.0), (5.4, 18.0)]],
+              fill=255)             # thumb
+    return (11, 12)                 # the palm's middle: the picture moves with it
+
+
+def g_grabbing(d, s):
+    """The same hand closed: four curled knuckles, the thumb tucked."""
+    ox, oy = 3.5, 2.5
+
+    def R(x0, y0, x1, y1, r):
+        d.rounded_rectangle([(ox + x0) * s, (oy + y0) * s, (ox + x1) * s, (oy + y1) * s],
+                            radius=r * s, fill=255)
+    for x0, top in ((4.2, 6.4), (7.2, 5.6), (10.2, 5.9), (13.2, 7.0)):
+        R(x0, top, x0 + 2.4, 12.0, 1.2)
+    R(4.2, 9.0, 15.6, 20.5, 3.6)    # palm
+    d.polygon([((ox + x) * s, (oy + y) * s) for x, y in
+               [(5.0, 12.0), (2.6, 10.6), (1.4, 11.4), (3.4, 16.6), (5.4, 17.6)]],
+              fill=255)             # thumb
+    return (11, 13)
+
+
 def g_move(d, s, c=12.0):
     for a in (0, math.pi / 2):
         g_double_arrow(d, s, a, cx=c, cy=c, L=20.0, H=5.5, hw=4.2, sw=1.2)
@@ -126,6 +160,8 @@ GEOM = {
     "move": ((25, 25), g_move),
     "not-allowed": ((23, 23), g_not_allowed),
     "crosshair": ((25, 25), g_crosshair),
+    "grab": ((24, 27), g_grab),
+    "grabbing": ((24, 27), g_grabbing),
 }
 
 

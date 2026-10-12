@@ -742,7 +742,28 @@ def check_features(dbg, qmp, tmp, res, content):
     b_png = shot(qmp, tmp, "pan-b.png").crop(box).tobytes()
     res.check("a drag pans the zoomed picture", a_png != b_png,
               "the stage did not change under a drag at 100%")
+
+    # THE HAND: open over a picture that pans, closed while panning.
+    cx, cy = ix + iw // 2, iy + ih // 2
+    dbg.warp_cursor(qmp, cx, cy)
+    time.sleep(0.6)
+    s = dbg.cursor_shape()
+    res.check("over a pannable picture the pointer is the open hand",
+              s == dbg.CURSOR_GRAB, f"shape={s}")
+    qmp.mouse_down()
+    dbg.settle()
+    dbg.warp_cursor(qmp, cx + 40, cy + 20)
+    time.sleep(0.6)
+    s = dbg.cursor_shape()
+    qmp.mouse_up()
+    dbg.settle()
+    res.check("while dragging it is the closed hand", s == dbg.CURSOR_GRABBING, f"shape={s}")
     key(ord("0"))
+    dbg.warp_cursor(qmp, cx, cy)
+    time.sleep(0.6)
+    s = dbg.cursor_shape()
+    res.check("control: at fit, nothing pans and there is no hand",
+              s not in (dbg.CURSOR_GRAB, dbg.CURSOR_GRABBING), f"shape={s}")
 
     # ROTATE: a landscape picture turned a quarter fits as a portrait.
     key(ord("r"))

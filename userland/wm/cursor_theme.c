@@ -16,7 +16,8 @@
 
 static const char *const g_names[CURSOR_SHAPE_COUNT] = {
     "arrow", "resize-h", "resize-v", "resize-diag", "text", "wait",
-    "resize-diag2", "hand", "move", "not-allowed", "crosshair",
+    "resize-diag2", "hand", "move", "not-allowed", "crosshair", "grab",
+    "grabbing",
 };
 
 const char *cursor_shape_name(int index) {
@@ -44,6 +45,8 @@ static int kind_to_index(enum wm_cursor_kind kind) {
         case WM_CURSOR_MOVE: return 8;
         case WM_CURSOR_NOT_ALLOWED: return 9;
         case WM_CURSOR_CROSSHAIR: return 10;
+        case WM_CURSOR_GRAB: return 11;
+        case WM_CURSOR_GRABBING: return 12;
         default:             return 0;
     }
 }
@@ -132,7 +135,7 @@ const struct cursor_shape *cursor_theme_shape(enum wm_cursor_kind kind) {
     const struct cursor_shape *s = &g_shapes[kind_to_index(kind)];
     if (s->loaded) return s;
     if (kind == WM_CURSOR_HAND || kind == WM_CURSOR_MOVE || kind == WM_CURSOR_NOT_ALLOWED ||
-        kind == WM_CURSOR_CROSSHAIR)
+        kind == WM_CURSOR_CROSSHAIR || kind == WM_CURSOR_GRAB || kind == WM_CURSOR_GRABBING)
         return g_shapes[0].loaded ? &g_shapes[0] : 0;
     return 0;
 }

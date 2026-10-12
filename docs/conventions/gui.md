@@ -1948,7 +1948,7 @@ this the obvious way), not from how much history it accumulated.
   shape names straight-alpha QOI files (`image=`, `image2=`, `image3=`,
   one per size) whose colours are the theme's own, and the loader
   decodes ONLY the one the size setting wants -- so a size change
-  reloads the theme. **`hand`, `move`, `not-allowed` and `crosshair` fall back to
+  reloads the theme. **`hand`, `move`, `not-allowed`, `crosshair`, `grab` and `grabbing` fall back to
   the theme's ARROW**, not to a built-in: they have none, and an arrow
   is what showed there before they existed. **The built-in shapes are the floor**: a
   missing or malformed file costs its own shape, not the pointer --

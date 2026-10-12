@@ -91,6 +91,10 @@ int uui_image_zoom_pct(const struct uui_image *im);
 int uui_image_pan(struct uui_image *im, int dx, int dy);
 // Whether the zoomed picture is larger than the view on either axis.
 int uui_image_can_pan(const struct uui_image *im);
+// The WIN_CURSOR_* for a pointer over the view: GRABBING while `dragging`
+// a pan, GRAB where a press would start one, DEFAULT where it would not.
+// The caller decides the pointer is over the picture at all.
+int uui_image_cursor(const struct uui_image *im, int dragging);
 
 // The rect the picture is actually drawn in, content-relative -- what a
 // test asserts on, and what an app needs to map a click back to a pixel
