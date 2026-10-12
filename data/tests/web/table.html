@@ -1,0 +1,16 @@
+<!DOCTYPE html>
+<html><head><title>Tables</title>
+<style>table { border-collapse: collapse; } td, th { border: 1px solid black; padding: 4px; }</style></head>
+<body>
+<table>
+<caption>Table 1: spans</caption>
+<tr><th>H1</th><th>H2</th><th>H3</th></tr>
+<tr><td rowspan="2">R1-2 C1</td><td colspan="2">R1 C2-3</td></tr>
+<tr><td>R2 C2</td><td>R2 C3 with a longer cell that forces the column wider</td></tr>
+<tr><td>R3 C1</td><td></td><td>R3 C3</td></tr>
+</table>
+<table border="1" cellpadding="6" width="50%">
+<tr><td width="30%">Table 2: 30%</td><td>auto</td></tr>
+<tr><td align="right">right</td><td valign="top">top<br>two lines</td></tr>
+</table>
+</body></html>

@@ -221,6 +221,9 @@ SEED_SOURCES = {
     # The one staged tree whose source is NOT under data/: the command
     # pages are the repository's own docs, seeded unconverted.
     "usr/share/doc/cmd": "docs/commands",
+    # NetSurf's run-time resources, staged from the vendored port.
+    "usr/share/netsurf": ("userland/ports/netsurf/resources",
+                          "userland/ports/netsurf/generated/res"),
     "usr/share/doc/guide": "data/usr/share/doc/guide",
 }
 

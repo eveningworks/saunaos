@@ -65,12 +65,12 @@ clock_t clock(void);
 
 // --- POSIX clocks ------------------------------------------------------
 //
-// TWO CLOCKS, AND THEY DO NOT AGREE ON RESOLUTION. CLOCK_MONOTONIC is
-// the kernel's nanosecond counter since boot (sys_monotonic_ns): use it
-// to MEASURE. CLOCK_REALTIME is the RTC, which this kernel reads to the
-// SECOND, so its tv_nsec is always 0 and clock_getres() says 1 s rather
-// than pretending -- gluing the monotonic fraction onto an RTC second
-// would make the wall clock run backwards at every second's edge.
+// TWO CLOCKS. CLOCK_MONOTONIC is the kernel's nanosecond counter since
+// boot (sys_monotonic_ns): use it to MEASURE. CLOCK_REALTIME is the
+// kernel's UTC to the nanosecond (QUERY_CLOCK's utc_ns -- the RTC read
+// once at boot and carried forward on the clocksource, api/ktime.h),
+// which ntpd or a settime STEPS, so an interval measured on it can run
+// backwards. time() and SYS_GETTIME give the same clock in whole seconds.
 struct timespec {
     time_t tv_sec;
     long   tv_nsec;

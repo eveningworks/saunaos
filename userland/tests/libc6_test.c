@@ -173,19 +173,28 @@ int main(void) {
     utest_check(scandir("/no/such/dir", &list, NULL, NULL) == -1 && errno, "scandir: a missing directory is -1");
 
     // --- clocks ---------------------------------------------------------
-    struct timespec t1, t2, res;
+    struct timespec t1, t2, w1, w2, res;
     clock_gettime(CLOCK_MONOTONIC, &t1);
+    clock_gettime(CLOCK_REALTIME, &w1);
     struct timespec nap = { 0, 20 * 1000000L };
     int slept = nanosleep(&nap, NULL);
     clock_gettime(CLOCK_MONOTONIC, &t2);
+    clock_gettime(CLOCK_REALTIME, &w2);
     long long dt = (long long)(t2.tv_sec - t1.tv_sec) * 1000000000LL + (t2.tv_nsec - t1.tv_nsec);
+    long long dw = (long long)(w2.tv_sec - w1.tv_sec) * 1000000000LL + (w2.tv_nsec - w1.tv_nsec);
     utest_checkf(slept == 0 && dt >= 20000000LL,
                  "nanosleep(20 ms) returned %d, then CLOCK_MONOTONIC moved %lld ns, >= 20 ms", slept, dt);
-    utest_check(clock_getres(CLOCK_REALTIME, &res) == 0 && res.tv_sec == 1, "clock_getres: REALTIME says 1 s, honestly");
+    // The point of the realtime clock carrying nanoseconds: NetSurf's
+    // scheduler times 10 ms callbacks on gettimeofday(), and a clock in
+    // whole seconds made every one of them wait up to a second.
+    utest_checkf(dw >= 19000000LL && dw < 1000000000LL,
+                 "CLOCK_REALTIME moved %lld ns across the same sleep -- finer than a second", dw);
+    utest_check(clock_getres(CLOCK_REALTIME, &res) == 0 && res.tv_sec == 0, "clock_getres: REALTIME is sub-second");
     struct timeval tv;
     time_t now = time(NULL);
-    utest_check(gettimeofday(&tv, NULL) == 0 && tv.tv_sec - now <= 1 && tv.tv_usec == 0,
-                "gettimeofday: agrees with time()");
+    utest_check(gettimeofday(&tv, NULL) == 0 && tv.tv_sec - now <= 1 && tv.tv_sec >= now &&
+                tv.tv_usec >= 0 && tv.tv_usec < 1000000,
+                "gettimeofday: agrees with time(), microseconds in range");
     errno = 0;
     utest_check(clock_gettime(7, &t1) == -1 && errno == EINVAL, "clock_gettime: an unknown clock is EINVAL");
 

@@ -1334,6 +1334,12 @@ manual steps to be worth automating:
   out. `cat` crossed the wire in chunks and a log line between two of
   them tore verdict lines -- 4 full runs in 25 reported a passing test
   as failed. Any tool reading a file off the guest should do the same.
+  **The frame's length is in BYTES** and the reply is decoded UTF-8, so
+  `parse_framed()` measures in bytes, and `vm.py` decodes the socket
+  INCREMENTALLY: the serial console hands over a byte or two per read,
+  and decoding each read alone used to split every multi-byte character
+  -- so a file holding any non-ASCII text came back mangled and never
+  matched its frame (found by `browser_hostcheck.py`, 2026-10-12).
   **An expected exit code of `None` means SPAWN IT INSTEAD**, and judge
   it by what it printed. `run` uses the legacy loader, which has no
   scheduler slot, so anything reaching the window server is refused
@@ -6738,6 +6744,21 @@ runs first**: a `doom1.wad` with one
   a captive-portal page is the shape of thing that otherwise lands here;
   and it writes to a temporary name and renames, so an interrupted build
   cannot leave a truncated store that fails for only some sites.
+
+- **`browser_hostcheck.py`** -- NetSurf's layout on toy-os against the
+  SAME pinned source built on the host (`docs/browser-design.md`,
+  stage 1). Every page in `data/tests/web/` (`/tests/web` on the image)
+  is opened and redrawn by the headless `monkey` front end on both
+  sides, and the title, the laid-out extent and every PLOT line of the
+  redraw must be identical. monkey measures text at a fixed width per
+  character, so no font enters it: a difference is the PORT's.
+  On demand (`ondemand_sweep.py`'s `browser_host`), and a skip without
+  the host build. **Status lines are not compared** -- their count is
+  timing -- and the guest is PACED with sleeps in one dash script
+  (`--load-s`, `--redraw-s`), because the debug console cannot feed a
+  running program's stdin; a page that did not finish is reported as
+  "not loaded within N s", never as a layout difference. Shown red by
+  breaking Windows-1252's euro in libparserutils' table.
 
 - **`netsurf_vendor.py`** -- vendors NetSurf and its nine libraries into
   `userland/ports/` at the commits pinned in its `PINS` table

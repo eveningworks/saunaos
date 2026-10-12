@@ -1,0 +1,20 @@
+<!DOCTYPE html>
+<html><head><title>Floats and positioning</title>
+<style>
+.l { float: left; width: 150px; height: 80px; margin: 5px; background: #ccf; }
+.r { float: right; width: 120px; height: 120px; background: #fcc; }
+.c { clear: both; }
+.rel { position: relative; left: 20px; top: 10px; }
+.abs { position: absolute; left: 300px; top: 400px; width: 100px; }
+.box { margin: 20px 0; padding: 10px; border: 2px solid green; }
+.box p { margin: 15px 0; }
+</style></head>
+<body>
+<div class="l">Float 1 left</div><div class="r">Float 2 right</div>
+<p>Line 1: text flows around the left float and the right float, wrapping in the space between them until both end.
+More words to make the paragraph long enough to pass below the floats and reflow to the full width again.</p>
+<p class="c">Line 2: cleared below both floats.</p>
+<p class="rel">Line 3: relatively positioned, moved 20 right and 10 down.</p>
+<div class="abs">Line 4: absolutely positioned</div>
+<div class="box"><p>Line 5: margins collapse through the box's padding? They must not.</p><p>Line 6</p></div>
+</body></html>

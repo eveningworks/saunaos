@@ -214,6 +214,12 @@ TOOLS = [
     # disk.img, so wants_vm is False; it SKIPS cleanly without mtools,
     # which is a skip rather than a pass -- see run_one().
     ("fat32",       "fat32_test.py",           "FAT32 and /boot, against mtools",    True,  None,                   False),
+    # NetSurf's layout on toy-os against the SAME pinned source built on
+    # the host (docs/browser-design.md, stage 1). Its own guest on a copy
+    # of disk.img, so wants_vm is False; the host build is the oracle,
+    # and without it this is a skip -- tools/netsurf_vendor.py makes it.
+    ("browser_host", "browser_hostcheck.py",   "NetSurf's layout, toy-os vs the host build", True,
+     ("netsurf_oracle", "needs the host NetSurf build: tools/netsurf_vendor.py --no-copy"),  False),
     ("live_boot",   "live_boot_test.py",       "the Live CD's RAM image",            True,
      ("live_iso", "no toy-os-live.iso -- run `make live-iso` first"),                        False),
     # Two disks on two drivers -- the one configuration no other tool
@@ -534,6 +540,11 @@ def precondition_met(kind):
     if key == "host_audio_flac":
         # host_audio plus Xiph's `flac`, the FLAC half's oracle. A skip.
         return all(shutil.which(t) for t in ("gcc", "lame", "ffmpeg", "flac")), why
+    if key == "netsurf_oracle":
+        # The host nsmonkey IS the oracle, and building it needs gperf
+        # and perl -- a skip without it, as lame and ffmpeg are above.
+        from netsurf_vendor import DEFAULT_WORK
+        return os.access(os.path.join(DEFAULT_WORK, "src", "netsurf", "nsmonkey"), os.X_OK), why
     if key == "host_video":
         # ffmpeg is both the encoder of the sweep and its oracle. A skip.
         return all(shutil.which(t) for t in ("gcc", "ffmpeg")), why

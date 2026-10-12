@@ -102,6 +102,16 @@ NOT_VENDORED = {
     "libdom": ("bindings/xml/",),
 }
 
+# Resources the engine loads by name at run time, which no dependency
+# file can name: the user-agent stylesheets (resource:default.css and
+# the rest), copied as upstream has them, and the English Messages file
+# the host build generated for the monkey front end (gzipped, which
+# utils/hashtable.c reads either way). The image stages both at
+# /usr/share/netsurf/ (Makefile).
+RESOURCES = ["resources/default.css", "resources/quirks.css",
+             "resources/adblock.css", "resources/internal.css"]
+GENERATED_RESOURCES = {"frontends/monkey/res/en/Messages": "generated/res/Messages"}
+
 # Upstream's own licence file, by its own name.
 LICENCE_FILE = "COPYING"
 
@@ -237,7 +247,9 @@ EXTRA = {
                "  `select()`, which toy-os has not got; `userland/tests/nsmonkey.c`\n"
                "  replaces it, and `content/fs_backing_store.c`, the disk cache only\n"
                "  that main.c named. `generated/testament.h` is the tool's, not upstream's\n"
-               "  (upstream's records the build host).",
+               "  (upstream's records the build host). The four stylesheets under\n"
+               "  `resources/` and `generated/res/Messages` are run-time resources,\n"
+               "  staged on the image at `/usr/share/netsurf/`.",
     "libdom": "\n- **Not taken**: `bindings/xml/` -- the XML parser binding, over\n"
               "  expat, which NetSurf does not use in this configuration.",
     "libnsutils": "\n- **Not taken**: `src/unistd.c` -- `nsu_pread()`/`nsu_pwrite()`, whose\n"
@@ -271,6 +283,12 @@ def vendor(work):
                     f"NS_SRCS_{var} = \\\n")
             f.write(" \\\n".join(f"\tuserland/ports/{name}/{u}" for u in units) + "\n")
         if name == "netsurf":
+            for rel in RESOURCES:
+                os.makedirs(os.path.dirname(os.path.join(dest, rel)), exist_ok=True)
+                shutil.copy2(os.path.join(root, rel), os.path.join(dest, rel))
+            for src, rel in GENERATED_RESOURCES.items():
+                os.makedirs(os.path.dirname(os.path.join(dest, rel)), exist_ok=True)
+                shutil.copy2(os.path.join(root, src), os.path.join(dest, rel))
             os.makedirs(os.path.join(dest, "generated"), exist_ok=True)
             with open(os.path.join(dest, "generated", "testament.h"), "w") as f:
                 f.write(TESTAMENT.format(sha=sha))

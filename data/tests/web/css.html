@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html><head><title>CSS selectors and units</title>
+<style>
+body { font-size: 16px; line-height: 1.5; }
+p:first-child { color: red; }
+li:nth-child(2n) { margin-left: 2em; }
+a[href^="http"] { font-weight: bold; }
+#id > .cls { padding-left: 25%; }
+.inherit { font-size: 150%; }
+.inherit span { font-size: 0.5em; }
+.imp { color: blue !important; color: green; }
+@media screen { .media { text-decoration: underline; } }
+@media print { .media { display: none; } }
+.hidden { display: none; }
+.ib { display: inline-block; width: 120px; height: 30px; vertical-align: middle; border: 1px dotted; }
+h2::before { content: "[" counter(c) "] "; counter-increment: c; }
+</style></head>
+<body style="counter-reset: c">
+<div><p>Line 1: first child</p><p>Line 2: second</p></div>
+<ul><li>Item 1</li><li>Item 2</li><li>Item 3</li><li>Item 4</li></ul>
+<p>Line 3: <a href="http://example.invalid/">absolute</a> and <a href="rel.html">relative</a></p>
+<div id="id"><div class="cls">Line 4: a quarter in</div></div>
+<div class="inherit">Line 5: big <span>and half of that</span></div>
+<p class="imp">Line 6: important</p>
+<p class="media">Line 7: screen only</p>
+<p class="hidden">Line 8: never shown</p>
+<p>Line 9: <span class="ib">inline-block</span> beside text</p>
+<h2>Counted</h2><h2>Counted again</h2>
+</body></html>

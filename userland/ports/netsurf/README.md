@@ -16,5 +16,7 @@ new pin. `docs/browser-design.md` is the plan this serves.
   `select()`, which toy-os has not got; `userland/tests/nsmonkey.c`
   replaces it, and `content/fs_backing_store.c`, the disk cache only
   that main.c named. `generated/testament.h` is the tool's, not upstream's
-  (upstream's records the build host).
+  (upstream's records the build host). The four stylesheets under
+  `resources/` and `generated/res/Messages` are run-time resources,
+  staged on the image at `/usr/share/netsurf/`.
 - **Licence**: `COPYING`, upstream's own file.

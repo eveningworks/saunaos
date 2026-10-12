@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html><head><title>Text and inline formatting</title></head>
+<body>
+<h1>1. Headings, paragraphs, inline runs</h1>
+<h2>1.1 A second level</h2>
+<p>Line 1: <b>bold</b>, <i>italic</i>, <em>emphasis</em>, <strong>strong</strong>,
+<code>code</code>, <a href="other.html">a link</a>, <small>small</small> and <big>big</big>.</p>
+<p>Line 2: entities &amp; &lt;tags&gt; &quot;quoted&quot; &copy; &eacute; &mdash; &nbsp;nbsp, a numeric &#x263A; and &#8364;.</p>
+<p>Line 3: a long paragraph that has to wrap across several lines at the default window width, because the
+monkey front end lays text out at a fixed ten pixels per character, so wrapping points are exactly predictable
+and any difference between two builds of the same source is the port's, not the font's.</p>
+<ul><li>Item 1</li><li>Item 2 with <b>bold</b><ul><li>Nested 2.1</li><li>Nested 2.2</li></ul></li><li>Item 3</li></ul>
+<ol start="7"><li>Seventh</li><li>Eighth</li></ol>
+<pre>Line 4: preformatted
+    indented  spaces	and a tab</pre>
+<blockquote>Line 5: a blockquote.</blockquote>
+<hr>
+<p>Line 6: after a rule<br>and a forced break.</p>
+</body></html>

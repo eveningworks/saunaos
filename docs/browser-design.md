@@ -4,8 +4,9 @@ A staged plan for a Web Browser app: NetSurf's engine behind a toy-os
 window. It answers "port or write our own, what does a port actually
 need from this system, and in what order is it worth building?"
 
-**STAGE 0 IS BUILT (2026-10-12)** -- NetSurf and its libraries are
-vendored and link for toy-os as `/tests/nsmonkey`. **The choices were
+**STAGES 0 AND 1 ARE BUILT (2026-10-12)** -- NetSurf and its libraries
+are vendored, link for toy-os as `/tests/nsmonkey`, and lay out a set
+of test pages identically to the same source built on the host. **The choices were
 made the same day**: port NetSurf
 (GPL-2.0, C) from a PINNED MASTER COMMIT rather than its last release;
 the W1 window (a tab strip over a toolbar, the Web Browser mockup
@@ -181,15 +182,27 @@ What it took, and where each piece lives:
   problem, because libcurl's headers are installed there -- which is
   what `-nostdinc` on the toy-os side exists to catch.
 
-### Stage 1 -- a page laid out headlessly -- PLANNED
+### Stage 1 -- a page laid out headlessly -- DONE 2026-10-12
 
-`/tests/nsmonkey`, NetSurf's `monkey` front end: `file:` and `data:` URLs
-only, no network, no window. It prints what it would plot. **The
-oracle is the SAME pinned source built for the host**:
-`tools/browser_hostcheck.py` runs both on a fixed corpus of saved pages
-and diffs the plot streams, so a difference is a port or libc bug
-rather than an engine one -- the `*_hostcheck.py` pattern. Proves the
-engine before any GUI or network work.
+`/tests/nsmonkey` loads `file:` pages from `/tests/web` (ten of them, one
+engine feature each: text, tables, floats, flex, forms, two charsets,
+tag soup, CSS selectors, GIF/BMP images) with its resources at
+`/usr/share/netsurf`, and **`tools/browser_hostcheck.py` finds every
+page's layout IDENTICAL to the host build's** -- the title, the extent
+and every draw call of a redraw. Breaking libparserutils' Windows-1252
+table turned exactly the euro sign's text run red.
+
+What it found, both fixed:
+
+- **`CLOCK_REALTIME` in whole seconds stalled every page.** NetSurf's
+  scheduler times 10 ms callbacks on `gettimeofday()`, so each step of a
+  load waited up to a second. It reads the kernel's nanosecond UTC now
+  (`QUERY_CLOCK`); a `file:` page loads in a few hundred milliseconds
+  under TCG.
+- **`vm.py` mangled non-ASCII text read off the guest** -- it decoded
+  each serial read alone, splitting multi-byte characters, and framed
+  `readfile` by characters rather than bytes. Five of the ten pages read
+  back empty until that was fixed; the engine had been right.
 
 ### Stage 2 -- HTTP/1.1 in libhttp, and the fetcher -- PLANNED
 

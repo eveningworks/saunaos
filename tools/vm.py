@@ -38,6 +38,7 @@ nothing about whether a button is drawn in the right place.
 """
 
 import argparse
+import codecs
 import os
 import re
 import socket
@@ -548,10 +549,13 @@ def parse_framed(text):
     n = int(m.group(1))
     if n < 0:
         return None
-    body = t[m.end():m.end() + n]
-    if len(body) != n or not t.startswith("\n>>>END", m.end() + n):
+    # n counts BYTES; the reply is text. Measured in UTF-8 so a file
+    # holding non-ASCII text still matches its own length.
+    rest = t[m.end():].encode("utf-8")
+    body = rest[:n]
+    if len(body) != n or not rest.startswith(b"\n>>>END", n):
         return None
-    return body
+    return body.decode("utf-8", errors="replace")
 
 
 # A TERMINAL'S CONTROL SEQUENCES, which a reply now carries: the debug
@@ -581,10 +585,15 @@ def _exec_one(command, timeout=15.0, keep_escapes=False):
         # trying to match the boot banner.
         s.sendall(b"\n")
         buf = ""
+        # INCREMENTAL, because the serial console delivers a byte or two
+        # per recv(): decoding each chunk alone split every multi-byte
+        # character and replaced its bytes one by one, so a readfile of
+        # UTF-8 text came back mangled and its frame never matched.
+        dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
         deadline = time.time() + timeout
         while time.time() < deadline and not buf.endswith(PROMPT):
             try:
-                buf += s.recv(65536).decode("utf-8", errors="replace")
+                buf += dec.decode(s.recv(65536))
             except socket.timeout:
                 return None
         if not buf.endswith(PROMPT):
@@ -594,10 +603,11 @@ def _exec_one(command, timeout=15.0, keep_escapes=False):
 
         s.sendall((command + "\n").encode())
         buf = ""
+        dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
         deadline = time.time() + timeout
         while time.time() < deadline and not buf.endswith(PROMPT):
             try:
-                buf += s.recv(65536).decode("utf-8", errors="replace")
+                buf += dec.decode(s.recv(65536))
             except socket.timeout:
                 break
         # Strip the echoed command line and the trailing prompt.

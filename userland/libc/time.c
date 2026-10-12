@@ -11,6 +11,7 @@
 #include <langinfo.h>
 #include "rt/sys.h"
 #include "proc_info.h"
+#include "query_abi.h"
 #include "syscall_abi.h"
 
 #define SECS_PER_DAY 86400
@@ -280,8 +281,10 @@ int clock_gettime(clockid_t clk, struct timespec *ts) {
         return 0;
     }
     if (clk == CLOCK_REALTIME) {
-        ts->tv_sec = time(0);
-        ts->tv_nsec = 0;
+        struct query_clock q;
+        if (sys_query_record(QUERY_CLOCK, 0, &q, sizeof q) < (int)sizeof q) { errno = EIO; return -1; }
+        ts->tv_sec = (time_t)(q.utc_ns / 1000000000ull);
+        ts->tv_nsec = (long)(q.utc_ns % 1000000000ull);
         return 0;
     }
     errno = EINVAL;
@@ -290,9 +293,9 @@ int clock_gettime(clockid_t clk, struct timespec *ts) {
 
 int clock_getres(clockid_t clk, struct timespec *res) {
     if (clk != CLOCK_MONOTONIC && clk != CLOCK_REALTIME) { errno = EINVAL; return -1; }
-    if (res) {
-        res->tv_sec = clk == CLOCK_REALTIME ? 1 : 0;
-        res->tv_nsec = clk == CLOCK_REALTIME ? 0 : 1;
+    if (res) {             // both carry nanoseconds; how fine they are is the clocksource's
+        res->tv_sec = 0;
+        res->tv_nsec = 1;
     }
     return 0;
 }
@@ -319,8 +322,8 @@ int gettimeofday(struct timeval *tv, void *tz) {
     if (tz) memset(tz, 0, sizeof(struct timezone));
     if (!tv) return 0;
     struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0) return -1;
     tv->tv_sec = ts.tv_sec;
-    tv->tv_usec = 0;
+    tv->tv_usec = ts.tv_nsec / 1000;
     return 0;
 }

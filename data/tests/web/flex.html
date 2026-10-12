@@ -1,0 +1,15 @@
+<!DOCTYPE html>
+<html><head><title>Flex</title>
+<style>
+.row { display: flex; gap: 10px; justify-content: space-between; border: 1px solid; }
+.row div { border: 1px solid blue; padding: 5px; }
+.grow { flex: 1; }
+.col { display: flex; flex-direction: column; align-items: center; width: 300px; }
+.wrap { display: flex; flex-wrap: wrap; width: 250px; }
+.wrap span { width: 100px; border: 1px solid red; }
+</style></head>
+<body>
+<div class="row"><div>Flex 1</div><div class="grow">Flex 2 grows</div><div>Flex 3</div></div>
+<div class="col"><div>Column 1</div><div>Column 2, centred and wider</div></div>
+<div class="wrap"><span>W1</span><span>W2</span><span>W3</span><span>W4</span><span>W5</span></div>
+</body></html>

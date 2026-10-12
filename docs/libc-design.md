@@ -785,11 +785,11 @@ Latin-1, Windows-1252, UTF-16 and UTF-32; anything else refused at
 from `<string.h>`, `isascii()`/`toascii()`, and the TYPE headers
 `<sys/socket.h>`, `<netinet/in.h>` and `<sys/select.h>`.
 
-**THE CLOCKS DISAGREE ON RESOLUTION, ON PURPOSE.** `CLOCK_MONOTONIC` is
-the kernel's nanosecond counter; `CLOCK_REALTIME` is the RTC, read to
-the second, so its `tv_nsec` is 0 and `clock_getres()` says one second.
-Gluing the monotonic fraction onto an RTC second would make the wall
-clock run backwards at every second's edge.
+**`CLOCK_REALTIME` IS THE KERNEL'S UTC TO THE NANOSECOND**
+(`QUERY_CLOCK`'s `utc_ns`, `api/ktime.h`'s software clock), not
+`SYS_GETTIME`'s whole seconds. The first version took the seconds, and
+it showed at once: NetSurf's scheduler times 10 ms callbacks on
+`gettimeofday()`, so every step of a page load waited up to a second.
 
 **STILL ABSENT, each for a reason**: `socket()` and `select()` (the
 headers carry their types only -- toy-os's sockets are its own calls,
