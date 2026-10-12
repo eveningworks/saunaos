@@ -11,6 +11,8 @@
 #include "scheduler.h"
 #include "syscall_abi.h" // SYS_RETRY -- the value a woken reader gets
 #include "string.h"
+#include "signal.h"        // signal_send_group() -- a hangup
+#include "signal_abi.h"    // SIGHUP, SIGCONT
 #include <stddef.h>
 
 #define PTY_OUT_MAX 4096 // what the terminal has emitted and the master
@@ -108,10 +110,32 @@ static void maybe_release(struct pty *p, int idx) {
     (void)idx;
 }
 
+// THE LAST MASTER CLOSING IS A HANGUP -- the terminal's far end is gone
+// (a telnet client disconnected, a Terminal window closed) -- and it is
+// Linux's tty_vhangup(): SIGHUP, then SIGCONT, to the FOREGROUND JOB,
+// and every waiter on either queue woken to find the end gone.
+//
+// **THE JOB, NOT JUST THE SHELL.** A shell runs each job in a group of
+// its own, so the shell's owner hanging up its own group (telnetd does)
+// never reached a running command: a long `update` printing its notes
+// to a disconnected session sat in write() forever.
+//
+// **AND THE WRITERS, NOT JUST THE READERS.** A program whose output
+// filled the ring parks on pty_out_wait_chan(); waking only the slave's
+// readers left it parked with nobody ever coming to drain it. Woken, its
+// write retries and is discarded (pty_slave_write(), no master).
 void pty_close_master(int idx) {
     struct pty *p = at(idx);
     if (!p || p->masters <= 0) return;
-    if (--p->masters == 0) scheduler_wake(tty_wait_chan(p->t), SYS_RETRY);
+    if (--p->masters == 0) {
+        int fg = p->t ? tty_fg_pgid(p->t) : 0;
+        if (fg > 0) {
+            signal_send_group(fg, SIGHUP);
+            signal_send_group(fg, SIGCONT);   // a stopped job must wake to die
+        }
+        scheduler_wake(tty_wait_chan(p->t), SYS_RETRY);
+        scheduler_wake(pty_out_wait_chan(idx), SYS_RETRY);
+    }
     maybe_release(p, idx);
 }
 

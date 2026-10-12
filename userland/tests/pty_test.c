@@ -15,6 +15,10 @@
 #include "rt/sys.h"
 
 #define CHILD "/tests/spin_test"
+// More than the pty's output ring (PTY_OUT_MAX) by far, so the writer
+// parks with nobody draining it: phase 6.
+#define WRITER "/bin/cat"
+#define WRITER_ARG "/tests/sine1k.wav"
 
 static int slen(const char *s) { int n = 0; while (s[n]) n++; return n; }
 
@@ -127,7 +131,38 @@ int main(void) {
     if (sys_waitpid(pid, &status) < 0) return 20;
     if (status != 128 + SIGINT) return 21;
 
-    // --- 6. end of file, both directions -----------------------------
+    // --- 6. A HANGUP REACHES A JOB BLOCKED WRITING ---------------------
+    //
+    // The case that stuck a real `update` on the ASUS: a job in its OWN
+    // group (a shell runs each one so) writing more than the output ring
+    // holds, with nobody reading, when the far end goes away. Closing the
+    // last master must hang it up -- SIGHUP to the foreground job, its
+    // parked write woken -- so it dies of SIGHUP. Before that it slept in
+    // write() forever, and this phase would hang rather than fail; the
+    // kernel test driving it times out and says so.
+    {
+        int m2 = -1, s2 = -1;
+        if (sys_openpty(&m2, &s2) < 0) return 28;
+        // The first READER of a slave owns the terminal (kernel pty.h),
+        // and only an owner's session may choose its foreground job.
+        if (sys_write(m2, "x\n", 2) != 2 || sys_read(s2, buf, sizeof buf) <= 0) return 33;
+        int in2 = sys_dup(0), out2 = sys_dup(1);
+        sys_dup2(s2, 0);
+        sys_dup2(s2, 1);
+        int writer = sys_spawn_group(WRITER, WRITER_ARG, -1, 0, PGID_NEW);
+        if (in2 >= 0)  { sys_dup2(in2, 0);  sys_close(in2); }
+        if (out2 >= 0) { sys_dup2(out2, 1); sys_close(out2); }
+        if (writer < 0) return 29;
+        if (sys_tcsetpgrp(m2, writer) < 0) return 30;
+        sys_sleep_ms(500);     // long enough to fill the ring and park
+        sys_close(m2);         // the far end hangs up
+        int st2 = 0;
+        if (sys_waitpid(writer, &st2) < 0) return 31;
+        if (st2 != 128 + SIGHUP) return 32;
+        sys_close(s2);
+    }
+
+    // --- 7. end of file, both directions -----------------------------
     //
     // The rule a shell is written against, and the one a terminal gets
     // wrong: a read with nothing available and the other end still open
