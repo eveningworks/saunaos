@@ -70,7 +70,7 @@ static void build_from_shape(const struct cursor_shape *s, int sc,
     int dw = s->w * sc, dh = s->h * sc;
     for (int y = 0; y < dh; y++)
         for (int x = 0; x < dw; x++)
-            g_sprite[y * dw + x] = cursor_shape_argb(s, x, y, UTHEME_WHITE);
+            g_sprite[y * dw + x] = cursor_shape_argb(s, x, y, ugfx_rgb(255, 255, 255));
     *out_w = dw;
     *out_h = dh;
 }
@@ -80,7 +80,7 @@ static void build_from_shape(const struct cursor_shape *s, int sc,
 // makes per frame, folded into straight ARGB once.
 static void build_sprite(const unsigned char *outline, const unsigned char *fill,
                           int w, int h, int stride, int sc, int *out_w, int *out_h) {
-    uint32_t fill_rgb = UTHEME_WHITE;
+    uint32_t fill_rgb = ugfx_rgb(255, 255, 255);   // a pointer is white in every theme
     int dw = w * sc, dh = h * sc;
     for (int y = 0; y < dh; y++) {
         for (int x = 0; x < dw; x++) {

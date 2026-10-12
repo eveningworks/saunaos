@@ -5872,3 +5872,26 @@ next menu's. Tests pick a context-menu row BY LABEL (the File Manager
 logs `files: ctxmenu rows` and `files: placemenu`), never by index: the
 strip moves every row below it.
 
+
+## A WIDGET FIELD NAMES A ROLE WITH `UUI_ROLE()`, NEVER A COPIED `UTHEME_*`
+
+Themes switch live (`docs/theme-design.md`), and a widget is built once,
+at app start. `list.sel_bg = UTHEME_ACCENT` copies TODAY's accent into
+the widget and keeps it through every theme change after -- the light
+blue selection left behind in a Dark Settings sidebar. Store the role
+instead: `list.sel_bg = UUI_ROLE(accent)` (ui/utheme.h), and the widget
+resolves it with `UUI_COLOR(field, default)` at draw time, the same call
+that resolves `UUI_COLOR_UNSET`. **A field that may hold a role reference
+must reach ugfx through `UUI_COLOR()`**: a tagged value drawn raw is a
+wrong colour, not a crash, so nothing complains. A colour computed in a
+draw path (`UTHEME_ACCENT` passed straight to a fill) is fine as it is --
+it is read every frame.
+
+## `UTHEME_WHITE` IS THE FIELD COLOUR, NOT WHITE
+
+The macro predates themes and kept its name: it reads `field_bg`, which
+is near-black in Dark and black in High contrast. Anything that means
+literal white -- a label over the wallpaper, a photo's frame, the pointer's
+fill, glass over a picture -- is `ugfx_rgb(255, 255, 255)`. Desktop icon
+labels drawn in it went dark-on-dark in Dark and smeared under the light
+shadow `ugfx_draw_string_shadowed()` picks for dark text.

@@ -410,6 +410,9 @@ int apply_page(void) {
             continue;
         }
 
+        // A THEME carries settings of its own (set_theme.c).
+        if (theme_apply_slot(sl, &changed)) continue;
+
         struct setting_msg m;
         memset(&m, 0, sizeof m);
         m.op = SETTING_OP_SET;
@@ -680,6 +683,7 @@ void relayout_page(void) {
         n = snd_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = mouse_emit_after(PAGE, n, i);
         n = trash_emit_after(PAGE, n, i);
+        n = theme_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         // Test, under the saver it previews (Windows puts Preview there).
         if (g_test_has && sl->setting >= 0 && strcmp(g_name[sl->setting], OWNER_SAVER) == 0) {
             PAGE[n++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_test_btn,

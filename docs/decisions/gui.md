@@ -11333,3 +11333,35 @@ line draws through that state.
 more verbose" option: `detailed` names each stage -- "Starting
 services..." once init runs, then "Loading desktop..." for the frame the
 desktop takes to draw. `splash=off` on the command line keeps the log.
+
+## A theme is a bundle of colour roles, a few code-drawn frame styles and the settings it carries -- not artwork
+
+Asked for "a proper theming system", three scopes were mocked up
+(2026-10-12): A, colour schemes only; B, a GLOBAL theme -- every colour
+role, a handful of frame styles drawn in code, and the desktop settings it
+applies; C, artwork visual styles drawn from nine-slice images. The
+maintainer chose B, with C on the roadmap ("Artwork visual styles").
+
+KDE's Global Theme and Windows' `.theme` are the shape copied: a theme is
+a bundle, and applying it WRITES ordinary settings (the wallpaper, the
+corners, the taskbar's colour), each still changeable on its own
+afterwards -- so a theme never becomes a second place a setting lives.
+`config set desktop.theme` alone changes the palette and the frame and
+leaves those settings be, Windows' split between a `.theme` file and the
+registry values it writes. Artwork (KDE's Aurorae, Windows' `.msstyles`)
+was deferred because it is a second drawing path through every widget,
+and because broken artwork breaks drawing rather than colours -- the
+reason Windows only loads signed styles.
+
+**Widgets resolve colours at draw time and apps store ROLE REFERENCES**
+(`UUI_ROLE()`), so a switch needs no restart and no new event: every
+process already re-reads its appearance settings on `WIN_EV_SETTING`. A
+local theme in `/etc/themes` wins over a shipped one of the same stem,
+`/etc` over `/usr` as everywhere, and a shipped theme is never written
+over -- the editor's first Save on one is a Save as.
+
+Making one is in two places, as chosen: System Settings' Theme page is
+the gallery (pick, Save as new, Import, Delete), and Customize... opens
+the Theme Editor, whose preview draws the theme being edited without
+touching the desktop until Apply. Both draw a theme with one widget,
+`uui_themepreview`.

@@ -26,6 +26,7 @@ void preview_reset(void) {
     pictures_reset();
     fonts_reset();
     uui_cursor_tiles_reset(&g_pv_cursor);
+    theme_tiles_reset();
 }
 
 static void cursor_tile(struct ugfx_surface *s, int i, int x, int y, int w, int h, void *ctx) {
@@ -394,6 +395,7 @@ static const struct {
     { "winresize", winresize_tile },
     { "shadow", shadow_tile },
     { "seethrough", seethrough_tile },
+    { "theme", theme_tile },
 };
 
 void preview_attach(struct slot *sl, int idx) {
@@ -410,5 +412,8 @@ void preview_attach(struct slot *sl, int idx) {
     // Seven savers on a page half as wide as the wallpapers': smaller
     // cards, four across, under the monitor that shows the chosen one big.
     if (!strcmp(word, "saver")) sl->gallery.min_w = ugfx_char_h() * 8;
+    // A theme is a window: four across keeps a card near the screen's
+    // shape, where two stretched one into a strip.
+    if (!strcmp(word, "theme")) sl->gallery.min_w = ugfx_char_h() * 8;
     if (!strcmp(word, "font") || !strcmp(word, "fontmono")) font_labels(sl);
 }

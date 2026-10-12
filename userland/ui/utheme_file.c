@@ -83,6 +83,19 @@ int utheme_stem_ok(const char *stem) {
     return 1;
 }
 
+int utheme_stem_from_name(const char *name, char *out, size_t cap) {
+    size_t n = 0;
+    for (const char *p = name; *p && n + 1 < cap; p++) {
+        char c = *p;
+        if (c >= 'A' && c <= 'Z') c = (char)(c - 'A' + 'a');
+        if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) out[n++] = c;
+        else if (n && out[n - 1] != '-') out[n++] = '-';
+    }
+    while (n && out[n - 1] == '-') n--;
+    out[n] = '\0';
+    return utheme_stem_ok(out);
+}
+
 static int stem_path(const char *dir, const char *stem, char *out, size_t cap) {
     int n = snprintf(out, cap, "%s/%s.theme", dir, stem);
     return n > 0 && (size_t)n < cap;

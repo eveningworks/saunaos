@@ -1098,14 +1098,14 @@ int desktop_icon_px(void) { return icon_px(); }
 static void draw_thumb(const struct uimg *t, int x, int y, int px, int video) {
     int tx = x + (px - t->w) / 2, ty = y + (px - t->h) / 2;
     ugfx_fill_rect(wm_surface(), tx - 2, ty - 1, t->w + 4, t->h + 4, ugfx_rgb(0, 0, 0));
-    ugfx_fill_rect(wm_surface(), tx - 2, ty - 2, t->w + 4, t->h + 4, UTHEME_WHITE);
+    ugfx_fill_rect(wm_surface(), tx - 2, ty - 2, t->w + 4, t->h + 4, ugfx_rgb(255, 255, 255));
     ugfx_blit_alpha(wm_surface(), tx, ty, t->w, t->h, t->px, t->w);
     if (video) {
         int r = px / 7, cx = tx + t->w / 2, cy = ty + t->h / 2;
         ugfx_fill_circle(wm_surface(), cx, cy, r, ugfx_rgb(20, 22, 28));
         int pts_x[3] = { cx - r / 3, cx - r / 3, cx + r / 2 };
         int pts_y[3] = { cy - r / 2, cy + r / 2, cy };
-        ugfx_fill_polygon(wm_surface(), pts_x, pts_y, 3, UTHEME_WHITE);
+        ugfx_fill_polygon(wm_surface(), pts_x, pts_y, 3, ugfx_rgb(255, 255, 255));
     }
 }
 
@@ -1117,7 +1117,7 @@ static void draw_peeks(int i, int x, int y, int px) {
         if (!t->px) continue;
         int tx = x + px / 2 - t->w / 2 + (k ? px / 6 : -px / 8);
         int ty = y + px / 2 - t->h / 3 + (k ? px / 12 : 0);
-        ugfx_fill_rect(wm_surface(), tx - 1, ty - 1, t->w + 2, t->h + 2, UTHEME_WHITE);
+        ugfx_fill_rect(wm_surface(), tx - 1, ty - 1, t->w + 2, t->h + 2, ugfx_rgb(255, 255, 255));
         ugfx_blit_alpha(wm_surface(), tx, ty, t->w, t->h, t->px, t->w);
     }
 }
@@ -1128,7 +1128,10 @@ void desktop_draw(void) {
 
     draw_background();
 
-    uint32_t label_fg = UTHEME_WHITE;
+    // White on the wallpaper whatever the theme: a label is drawn over a
+    // picture, not a page, and UTHEME_WHITE is the theme's FIELD colour --
+    // near-black in Dark, which smeared under the light shadow it picks.
+    uint32_t label_fg = ugfx_rgb(255, 255, 255);
     uint32_t icon_fg = ugfx_rgb(230, 230, 235);
 
     // The primary follows the cursor; during a GROUP drag the other
@@ -1174,7 +1177,7 @@ void desktop_draw(void) {
             uint8_t fill = target ? 80 : selected ? (hovered ? 72 : 56) : 28;
             uint8_t edge = target ? 200 : selected ? (hovered ? 160 : 140) : 28;
             uui_glass_round_rect(wm_surface(), hx, hy, hw, hh, ugfx_char_h() / 2,
-                                 UTHEME_WHITE, fill, edge);
+                                 ugfx_rgb(255, 255, 255), fill, edge);
         }
 
         // A REAL ICON IF THERE IS ONE, the letter tile if there is not.
@@ -1286,7 +1289,7 @@ void desktop_draw(void) {
     // and a firmer edge -- Windows' and KDE's band.
     int bx, by, bw, bh;
     if (rb_rect(&sel, &bx, &by, &bw, &bh)) {
-        uui_glass_round_rect(wm_surface(), bx, by, bw, bh, 0, UTHEME_WHITE, 40, 200);
+        uui_glass_round_rect(wm_surface(), bx, by, bw, bh, 0, ugfx_rgb(255, 255, 255), 40, 200);
     }
 }
 

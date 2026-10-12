@@ -14,3 +14,7 @@ Choice.dark=Dark
 Choice.high-contrast=High contrast
 Choice.paper=Paper
 Order=1
+# A card per theme, each drawn in its own colours (ui/uui_themepreview.h),
+# with Customize, Save as, Import and Delete under them (set_theme.c).
+Widget=gallery
+Preview=theme

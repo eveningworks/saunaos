@@ -381,6 +381,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_action(struct uapp *a, int code) {
     if (kbd_on_action(a, code)) { uapp_redraw(a); return; }
     if (snd_on_action(a, code)) { uapp_redraw(a); return; }
+    if (theme_on_action(a, code)) { uapp_redraw(a); return; }
     if (adapters_on_action(code)) { relayout_page(); uapp_redraw(a); return; }
     if (remote_on_action(code)) { relayout_page(); uapp_redraw(a); return; }
     switch (code) {

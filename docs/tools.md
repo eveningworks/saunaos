@@ -2410,6 +2410,18 @@ window without going through it will find its layout polls timing out.
   then the HOST reads the GPT: the first partition is still 'data' at
   LBA 2048, kept across two table rewrites. Positive control: a
   rewrite that drops the entries it should keep fails "the first kept".
+- **`theme_test.py`** -- themes (`userland/ui/utheme_file.h`) and the
+  Theme Editor, in `gui_regress.py`. A live `config set desktop.theme`
+  must turn a focused title bar from Light's blue to Dark's and High
+  contrast's yellow by PIXEL, with a desktop pixel beside it unchanged
+  (the control), and darken an open app's page; then the editor: a colour
+  typed into its picker changes the preview's title text, Save as writes
+  `/etc/themes/testred.theme`, and Apply makes it the desktop's -- the
+  setting, the bundled settings (Paper's round corners and light taskbar)
+  and the REAL title bar drawn red. Its toolbar buttons are found by
+  their Create-green icons: the toolbar's items are not in the layout
+  log. Types lower case only: the harness's Shift does not reach the
+  guest's text fields. Puts every setting back and deletes its theme.
 - **`charmap_test.py`** -- the Character Map, in `gui_regress.py`: it
   opens on the interface's font with the names loaded and the grid DRAWN
   (a cell with "!" has ink, one past the last has none); "rightwards

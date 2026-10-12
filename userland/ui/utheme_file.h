@@ -50,6 +50,8 @@ int utheme_parse_colour(const char *s, uint32_t *out);
 // A stem a file may be saved under: 1..UTHEME_STEM_MAX-1 of [a-z0-9-],
 // so it is a file name and a setting value at once.
 int utheme_stem_ok(const char *stem);
+// "My Paper 2" -> "my-paper-2"; 1 when the result is a stem.
+int utheme_stem_from_name(const char *name, char *out, size_t cap);
 
 // The file `stem` loads from: the local one if it exists, else the
 // shipped one. 0 when neither exists.

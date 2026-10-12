@@ -1,0 +1,6 @@
+# Theme Editor -- see this directory's README.md for the format.
+Name=Theme Editor
+Exec=/bin/wm/apps/themeedit
+Category=system
+Comment=Make your own theme: every colour, the window frame, a live preview
+Icon=themeedit

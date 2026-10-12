@@ -443,6 +443,18 @@ def charmap():
     return finish(shadow(im))
 
 
+def themeedit():
+    # A painter's palette with four colours on it: the Theme Editor.
+    im = canvas()
+    body = m_minus(m_ellipse(6, 12, 58, 54), m_ellipse(13, 36, 24, 47))
+    fill(im, body, ((250, 244, 230), (224, 208, 180)))
+    d = D4(im)
+    for x, y, c in ((21, 22, (64, 110, 226)), (33, 18, (228, 84, 66)),
+                    (45, 22, (246, 186, 48)), (49, 35, (52, 168, 108))):
+        d.ellipse((x - 5, y - 5, x + 5, y + 5), fill=c + (255,))
+    return finish(shadow(im))
+
+
 def uidemo():
     im, m = window(bar=(120, 96, 220))
     d = D4(im)
@@ -960,7 +972,7 @@ ART = {
     "notepad": notepad, "files": files, "terminal": terminal, "calculator": calculator,
     "imgview": imgview, "player": player, "video": video, "settings": settings, "taskmgr": taskmgr,
     "mines": mines, "screenshot": screenshot, "about": about, "help": help_app,
-    "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "disks": disks,
+    "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "disks": disks, "themeedit": themeedit,
     "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
     "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,

@@ -7789,3 +7789,17 @@ Viewer opening `/net/photos/x.jpg` before anyone has signed in gets
 through GMountOperation); a system-wide answer is a session agent that
 smbfsd asks, as polkit's agent works. `smb login NAME` covers it from a
 shell.
+
+### Artwork visual styles
+
+Scope C of the theming choice (2026-10-12; the maintainer: "B for now, but
+add C to roadmap after done"). Colour themes (`docs/theme-design.md`) set
+every role and a few frame styles drawn in code; a VISUAL STYLE would draw
+the widgets and the window frame from the theme's own artwork --
+nine-slice images per part and state, KDE's Aurorae (SVG window
+decorations) and Windows' `.msstyles`. Every widget's draw path gains an
+image path beside its colour path, the preview (`uui_themepreview`) learns
+to draw from parts, and a theme file names a directory of them. The cost
+Windows guards against by signing styles is real here too: a broken
+artwork set is the part of a theme that breaks drawing rather than
+colours, so a missing or bad part must fall back to the code-drawn look.

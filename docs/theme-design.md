@@ -77,3 +77,19 @@ draw: `uui_themepreview` draws a mini desktop with real widgets under
 the theme being previewed, for the Settings gallery and the editor.
 Single-threaded drawing makes that safe; a push that is never popped
 is the trap, so the preview pushes and pops in one function.
+
+## Picking one, and making one
+
+- **System Settings > Appearance > Theme** is a gallery: a card per
+  theme, each a `uui_themepreview` drawn in that theme's colours.
+  Apply goes through `utheme_apply()`, so the theme's `[apply]` settings
+  come with it. Under the cards: Customize... (the Theme Editor on the
+  theme picked), Save as new theme..., Import a theme file... (parsed,
+  then written fresh into `/etc/themes`) and Delete (local themes only;
+  the theme in use falls back to Light).
+- **The Theme Editor** (`/bin/wm/apps/themeedit [stem]`): every role in
+  its group with a swatch, the window frame's style and the desktop's
+  settings on two more pages, a large preview of the theme being edited,
+  and an inspector -- the colour picker (`uui_colourpick`) with each
+  role's WCAG contrast against what it is read on. Save on a shipped
+  theme is Save as; Apply saves first.

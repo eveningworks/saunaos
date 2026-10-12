@@ -733,10 +733,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Remember each app's window size and position across runs -- KWin's window rules; Windows keeps it per app
 - [ ] Resize from any edge or corner -- only the bottom-right grip works today
 - [x] ~~Per-window back buffers, so a slow app's redraw can't tear~~ DONE 2026-08-24 -- two buffers, `WIN_REQ_PRESENT` flips
-- [ ] Theme switching -- the theme object landed (`utheme.{h,c}`); a dark mode now needs a dark palette + a `WIN_EV_THEME` broadcast
+- [x] ~~Theme switching~~ DONE 2026-10-12 -- `.theme` files, `desktop.theme`, live; four ship (`docs/theme-design.md`)
+- [ ] Artwork visual styles -- widgets and the frame drawn from a theme's nine-slice images (Aurorae, `.msstyles`)
 - [ ] Night light: a warm tint on a schedule -- KDE's Night Color; the Intel pipe's gamma table, the compositor elsewhere
 - [ ] A notification service: one API for an app's notice, a history, Do Not Disturb -- freedesktop Notifications, Windows' toasts
-- [ ] A user accent colour: a setting + an Appearance page (the `UTHEME_ACCENT` role exists; make it settable)
+- [x] ~~A user accent colour~~ DONE 2026-10-12 -- every role, the accent too, in the Theme Editor
 - [ ] Migrate apps' `PAD`/`GAP`/size constants to the theme metrics (`utheme_pad/gap/indicator`), so chrome scales from one owner
 - [ ] Finish the 2026-08-21 toolkit centralizations -- only System Settings and Font Demo set `desc.focus`
 - [x] ~~A screenshot tool that writes a real image file to disk~~ DONE 2026-09-15 -- `WIN_REQ_SCREENSHOT`, `/bin/screenshot`, the app
@@ -752,7 +753,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 **Needs:** nothing for the input half; a high-contrast theme needs Theme switching (Desktop visual polish).
 
 - [ ] A screen magnifier in the compositor -- KWin's Zoom, Windows' Magnifier; it follows the pointer and the focus
-- [ ] A high-contrast theme -- Windows' contrast themes; a palette on Theme switching, checked against WCAG's 7:1
+- [x] ~~A high-contrast theme~~ DONE 2026-10-12 -- `high-contrast.theme`: white on black, a yellow accent
 - [ ] Sticky, slow and bounce keys in the input core -- Windows' Filter Keys, X11's AccessX; every keyboard gets them
 
 ### Screensavers

@@ -498,7 +498,7 @@ static struct ugfx_surface *cursor_surface(void) {
 }
 
 static void draw_cursor_normal(int x, int y) {
-    uint32_t fill = UTHEME_WHITE, outline = ugfx_rgb(0, 0, 0);
+    uint32_t fill = ugfx_rgb(255, 255, 255), outline = ugfx_rgb(0, 0, 0);
     // Outline first, fill on top -- matches how the two masks were
     // baked (the outline ring sits where fill was subtracted out, so
     // drawing fill second never re-covers outline-only pixels, and
@@ -584,7 +584,7 @@ static void draw_resize_cursor(int x, int y, enum wm_cursor_kind kind) {
 
     // CENTRED ON THE HOTSPOT, as the I-beam is and unlike the arrow: a
     // resize arrow has to straddle the edge it is grabbing.
-    uint32_t fill = UTHEME_WHITE, outline = ugfx_rgb(0, 0, 0);
+    uint32_t fill = ugfx_rgb(255, 255, 255), outline = ugfx_rgb(0, 0, 0);
     for (int gy = 0; gy < RZ_GRID; gy++)
         for (int gx = 0; gx < RZ_GRID; gx++)
             if (rz_grid[gy][gx])
@@ -603,7 +603,7 @@ static void draw_resize_cursor(int x, int y, enum wm_cursor_kind kind) {
 #define CURSOR_TEXT_HOT_Y 8
 
 static void draw_cursor_text(int x, int y) {
-    uint32_t color = UTHEME_WHITE, outline = ugfx_rgb(0, 0, 0);
+    uint32_t color = ugfx_rgb(255, 255, 255), outline = ugfx_rgb(0, 0, 0);
     int ox = x - CURSOR_TEXT_HOT_X, oy = y - CURSOR_TEXT_HOT_Y;
     // Outline one pixel out all round, so the bar stays visible over
     // white paper as well as over dark text.
@@ -640,7 +640,7 @@ static int wait_half(int j) {
 }
 
 static void draw_cursor_wait(int x, int y) {
-    uint32_t color = UTHEME_WHITE, outline = ugfx_rgb(0, 0, 0);
+    uint32_t color = ugfx_rgb(255, 255, 255), outline = ugfx_rgb(0, 0, 0);
     int cx = x, oy = y - CURSOR_WAIT_HOT_Y;
     for (int j = 0; j < CURSOR_WAIT_H; j++) {
         if (j == 0 || j == CURSOR_WAIT_H - 1) { // the end bars
@@ -664,7 +664,7 @@ static void draw_cursor_themed(const struct cursor_shape *s, int x, int y,
                                 int scale) {
     int ox = x - s->hot_x * scale, oy = y - s->hot_y * scale;
     int dw = s->w * scale, dh = s->h * scale;
-    uint32_t fill = UTHEME_WHITE;
+    uint32_t fill = ugfx_rgb(255, 255, 255);   // the pointer's, not the theme's field colour
     for (int dy = 0; dy < dh; dy++) {
         for (int dx = 0; dx < dw; dx++) {
             uint32_t p = cursor_shape_argb(s, dx, dy, fill);

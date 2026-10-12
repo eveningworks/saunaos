@@ -93,6 +93,7 @@ enum { ID_TREE = 1, ID_SIDE_SPLIT, ID_BODY, ID_PAGE, ID_ADVANCED, ID_TEST,
        ID_NA_CARD, ID_NA_DEVMGR,
        ID_RD_VNC, ID_RD_RDP, ID_RD_PORT, ID_RD_PW, ID_RD_PW_SAVE, ID_RD_WHEN, ID_RD_FROM,
        ID_RD_TRUSTED, ID_RD_ADD_ADDR, ID_RD_ADD_LABEL, ID_RD_ADD, ID_RD_CONN, ID_RD_ENC,
+       ID_TH_CUSTOMIZE, ID_TH_SAVEAS, ID_TH_IMPORT, ID_TH_DELETE,
        ID_SNDFMT = 60,          // .. + UUI_SNDFORMAT_IDS, Sound > Output's Format
        ID_SNDTEST = 76,         // .. + UUI_SNDTEST_IDS, Sound > Output's Test
        ID_NETADP = 80,          // .. + UUI_NETADAPTER_IDS, Network > Adapters' panel
@@ -348,6 +349,13 @@ int  snd_emit_after(struct uui_item *out, int n, int i,
                     struct uui_focusable *focus, int *nfocus);
 int  snd_on_widget(struct uapp *a, int id);
 int  snd_on_action(struct uapp *a, int code);
+
+// set_theme.c -- Appearance > Theme's cards and buttons
+void theme_tile(struct ugfx_surface *s, int i, int x, int y, int w, int h, void *ctx);
+void theme_tiles_reset(void);
+int  theme_emit_after(struct uui_item *out, int n, int i, struct uui_focusable *focus, int *fc);
+int  theme_on_action(struct uapp *a, int code);
+int  theme_apply_slot(const struct slot *sl, int *changed);
 int  snd_fit(void);
 int  snd_tick(struct uapp *a);
 void snd_shutdown(void);
