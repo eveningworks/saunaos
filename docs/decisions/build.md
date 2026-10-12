@@ -2116,3 +2116,40 @@ mistake the licence check cannot see.
 **Default unchanged.** Ordinary builds and releases keep DOOM: the
 option exists for whoever builds a closed product, and its gate exists
 so the option still works the day they need it.
+
+## NetSurf is vendored from a host build's dependency files, generated sources included
+
+**2026-10-12.** `tools/netsurf_vendor.py` builds NetSurf's headless
+front end ON THE HOST with upstream's own Makefiles, then copies into
+`userland/ports/` exactly the files that build compiled and the headers
+they reached, read off the compiler's `.d` files, and writes each port's
+`sources.mk` naming its translation units. The toy-os Makefile compiles
+those lists.
+
+**Why not a glob, as DOOM and mbedTLS have.** Both of those are one
+directory of `.c` files that are all translation units. NetSurf's
+libraries are not: libhubbub `#include`s one generated `.c` into
+another, so a glob compiles it twice. And NetSurf's tree carries nine
+front ends and a dozen optional features; which files a configuration
+needs is decided by upstream's Makefiles, and a list kept here would be
+a second copy of somebody else's build. The dependency files are that
+build's own answer, headers included, so a file nothing includes is never
+copied.
+
+**Why the generated sources are committed, as mbedTLS's are, and not
+generated at build time, as dash's are.** dash's generators are C
+programs in its own tree, built with the host `gcc` the build already
+needs. NetSurf's need Perl, gperf and Python, and a build that starts
+requiring a package a fresh checkout may not have is the failure that
+keeps Docker out of `preflight.sh` (the mbedTLS entry above). The
+vendoring tool needs them; the build does not.
+
+**Why the host build is kept around.** The same pinned source built for
+Linux is stage 1's oracle (`docs/browser-design.md`): its `nsmonkey`
+prints what it would draw, so a difference from toy-os's is a port or
+C-library bug, not an engine one. The work directory lives outside
+`build/`, because the Makefile includes every `.d` file under `build/`.
+
+**One generated file is never copied**: `testament.h`, which upstream
+writes from the build host and which records the builder's user name,
+host name and checkout path. The tool writes a neutral one.

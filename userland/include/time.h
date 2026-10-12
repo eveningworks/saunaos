@@ -63,6 +63,31 @@ typedef int64_t clock_t;
 #define CLOCKS_PER_SEC 1000000
 clock_t clock(void);
 
+// --- POSIX clocks ------------------------------------------------------
+//
+// TWO CLOCKS, AND THEY DO NOT AGREE ON RESOLUTION. CLOCK_MONOTONIC is
+// the kernel's nanosecond counter since boot (sys_monotonic_ns): use it
+// to MEASURE. CLOCK_REALTIME is the RTC, which this kernel reads to the
+// SECOND, so its tv_nsec is always 0 and clock_getres() says 1 s rather
+// than pretending -- gluing the monotonic fraction onto an RTC second
+// would make the wall clock run backwards at every second's edge.
+struct timespec {
+    time_t tv_sec;
+    long   tv_nsec;
+};
+typedef int clockid_t;
+#define CLOCK_REALTIME  0
+#define CLOCK_MONOTONIC 1
+// 0, or -1 with EINVAL for a clock other than those two.
+int clock_gettime(clockid_t clk, struct timespec *ts);
+int clock_getres(clockid_t clk, struct timespec *res);
+// Sleeps at least `req`, in whole MILLISECONDS rounded up (the kernel's
+// unit). It cannot be woken early by a signal here, so `rem`, when
+// given, is always zeroed and the return is 0 -- the same reason
+// <unistd.h>'s sleep() always returns 0. -1 with ENOTSUP for a process
+// with no scheduler slot to sleep in (one started by the legacy `run`).
+int nanosleep(const struct timespec *req, struct timespec *rem);
+
 // Both convert in the same reckoning -- see the header comment. The
 // result is in a STATIC buffer that the next call overwrites, which is
 // what C specifies and is why a caller keeping two of them must copy.

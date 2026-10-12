@@ -381,6 +381,16 @@ PORT_LICENSE_cjson   = MIT
 PORT_LICENSE_dash    = BSD-3-Clause
 PORT_LICENSE_doom    = GPL-2.0-or-later
 PORT_LICENSE_mbedtls = Apache-2.0 OR GPL-2.0-or-later
+PORT_LICENSE_netsurf        = GPL-2.0-only
+PORT_LICENSE_libcss         = MIT
+PORT_LICENSE_libdom         = MIT
+PORT_LICENSE_libhubbub      = MIT
+PORT_LICENSE_libnsbmp       = MIT
+PORT_LICENSE_libnsgif       = MIT
+PORT_LICENSE_libnspsl       = MIT
+PORT_LICENSE_libnsutils     = MIT
+PORT_LICENSE_libparserutils = MIT
+PORT_LICENSE_libwapcaplet   = MIT
 
 # ...and the programs built from it, under userland/ without the .c.
 # DECLARED, not read off EXTRA_OBJS_<program>: those are defined further
@@ -388,6 +398,7 @@ PORT_LICENSE_mbedtls = Apache-2.0 OR GPL-2.0-or-later
 # so a list derived from them is empty there (the trap the "deferred"
 # rule at the top of this file is about).
 PORT_PROGRAMS_doom = gui/apps/doom
+PORT_PROGRAMS_netsurf = tests/nsmonkey
 
 # GPL-ONLY means every alternative is GPL or AGPL. A dual licence with a
 # permissive option (Mbed TLS) is not, and LGPL is not: it is a library
@@ -1069,6 +1080,75 @@ $(BUILD)/userland/backends/doom/%.o: USERLAND_CFLAGS += -Iuserland/ports/doom \
                                      -Iuserland/backends/doom/compat \
                                      -DDOOMGENERIC_RESX=640 -DDOOMGENERIC_RESY=400 \
                                      -DFEATURE_SOUND
+
+# --- NetSurf, the web browser's engine --------------------------------
+#
+# TEN PORTS: NetSurf itself (GPL-2.0-only) and the nine MIT libraries it
+# is built from, each vendored byte for byte by tools/netsurf_vendor.py.
+# userland/backends/netsurf/ is OURS. docs/browser-design.md is the plan.
+#
+# **NOT WILDCARDED, unlike DOOM, and for DOOM's own reason.** The file
+# list is upstream's, so it comes from upstream's build: the vendoring
+# tool writes each port's sources.mk from the dependency files of a host
+# build. A glob would be wrong -- libhubbub #includes one generated .c
+# into another, so not every .c is a translation unit.
+#
+# **-nostdinc, as mbedTLS has it (see LIBSSL_SO below)**: a header tolibc
+# lacks must fail here, not resolve to the host's /usr/include -- zlib.h
+# and iconv.h both exist there.
+NS_LIBS  = libwapcaplet libparserutils libhubbub libdom libcss libnsgif \
+           libnsbmp libnsutils libnspsl
+NS_PORTS = $(NS_LIBS) netsurf
+include $(wildcard $(patsubst %,userland/ports/%/sources.mk,$(NS_PORTS)))
+
+NS_BASE_CFLAGS = $(subst -Wframe-larger-than=2048,-Wframe-larger-than=16384,\
+                   $(subst -Wextra,,$(subst -Wall,-w,$(USERLAND_CFLAGS)))) \
+                 -std=c99 -nostdinc -isystem $(GCC_FREESTANDING_INC) \
+                 -Uunix -U__unix -U__unix__ -U__linux__ -U__gnu_linux__ \
+                 -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 -DNDEBUG \
+                 $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) \
+                 -Iuserland/backends/netsurf/include
+# libparserutils' input filter converts through iconv() unless told not
+# to, and then decodes with its own codecs instead -- which know more
+# charsets than tolibc's iconv() does.
+NS_LIB_CFLAGS_libparserutils = -DWITHOUT_ICONV_FILTER
+# NetSurf's core: upstream's include roots and the defines its Makefiles
+# pass for this configuration (tools/netsurf_vendor.py's NETSURF_FLAGS),
+# and OUR platform switches in place of its utils/config.h.
+NS_CORE_CFLAGS = -include userland/backends/netsurf/toyos_config.h \
+                 -Iuserland/ports/netsurf -Iuserland/ports/netsurf/include \
+                 -Iuserland/ports/netsurf/content/handlers \
+                 -Iuserland/ports/netsurf/frontends \
+                 -Iuserland/ports/netsurf/generated \
+                 -Dmonkey -Dnsmonkey -DWITH_BMP -DWITH_GIF -DWITH_NSPSL \
+                 -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE
+
+$(BUILD)/userland/ports/netsurf/%.o: userland/ports/netsurf/%.c $(BUILD)/.sanitize-flag
+	@mkdir -p $(dir $@)
+	$(CC) $(NS_BASE_CFLAGS) $(NS_CORE_CFLAGS) $< -o $@
+
+define ns_lib_rule
+$$(BUILD)/userland/ports/$(1)/%.o: userland/ports/$(1)/%.c $$(BUILD)/.sanitize-flag
+	@mkdir -p $$(dir $$@)
+	$$(CC) $$(NS_BASE_CFLAGS) -Iuserland/ports/$(1)/src $$(NS_LIB_CFLAGS_$(1)) $$< -o $$@
+endef
+$(foreach l,$(NS_LIBS),$(eval $(call ns_lib_rule,$(l))))
+
+NS_PORT_OBJS = $(patsubst userland/%.c,%,$(foreach p,$(NS_PORTS),$(NS_SRCS_$(p))))
+NS_BACKEND_SRCS = $(shell find userland/backends/netsurf -name '*.c' 2>/dev/null | sort)
+NS_BACKEND_OBJS = $(patsubst userland/%.c,%,$(NS_BACKEND_SRCS))
+
+# OUR code keeps its warnings, and reaches NetSurf's headers the way the
+# core does -- the same -nostdinc, the same platform switches.
+$(BUILD)/userland/backends/netsurf/%.o: USERLAND_CFLAGS += -Iuserland/backends/netsurf/include
+$(BUILD)/userland/tests/nsmonkey.o: USERLAND_CFLAGS += -std=gnu11 -nostdinc \
+        -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
+        -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
+        $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) \
+        -Iuserland/backends/netsurf/include $(NS_CORE_CFLAGS)
+
+# The headless engine: stage 1's test oracle (docs/browser-design.md).
+EXTRA_OBJS_nsmonkey = $(NS_BACKEND_OBJS) $(NS_PORT_OBJS)
 
 # --- dash, the vendored POSIX shell -----------------------------------
 #

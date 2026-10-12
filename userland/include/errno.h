@@ -27,4 +27,12 @@ int *__errno_location(void);
 // correct either way.
 #define EWOULDBLOCK EAGAIN
 
+// RAISED BY THE C LIBRARY, NEVER RETURNED BY THE KERNEL -- which is why
+// they are here and not in abi/errno.h, whose list is what a kernel
+// handler distinguishes. C itself requires EDOM and EILSEQ; Linux's
+// numbers, as the rest are (abi/errno.h says why).
+#define EDOM         33  // a maths argument outside the function's domain
+#define EILSEQ       84  // bytes that are not a character: iconv(), mbrtowc()
+#define EAFNOSUPPORT 97  // inet_pton()/inet_ntop() given a family they do not know
+
 #endif

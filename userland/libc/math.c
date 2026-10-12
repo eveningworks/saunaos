@@ -6,6 +6,7 @@
 // because a double can hold values no integer type can and
 // `(double)(long long)x` is undefined once |x| exceeds LLONG_MAX. That
 // is not hypothetical for floor(1e300).
+#include <errno.h>
 #include <math.h>
 #include <string.h>
 
@@ -105,3 +106,21 @@ double fmod(double x, double y) {
     }
     return copysign(ax, x);
 }
+
+// The float forms -- through the double ones, exactly (<math.h> says why).
+float floorf(float x) { return (float)floor(x); }
+float ceilf(float x) { return (float)ceil(x); }
+float truncf(float x) { return (float)trunc(x); }
+float roundf(float x) { return (float)round(x); }
+float fabsf(float x) { return (float)fabs(x); }
+// NOT through <math.h>'s sqrt(): in this file GCC follows the hardware
+// sqrtsd with a call to an out-of-line sqrt() for a negative argument
+// (to set errno), and no such symbol exists -- the header's is inline.
+// sqrtss, and EDOM written here, instead.
+float sqrtf(float x) {
+    if (x < 0.0f) { errno = EDOM; return __builtin_nanf(""); }
+    float r;
+    __asm__("sqrtss %1, %0" : "=x"(r) : "x"(x));
+    return r;
+}
+float fmodf(float x, float y) { return (float)fmod(x, y); }

@@ -4,7 +4,9 @@ A staged plan for a Web Browser app: NetSurf's engine behind a toy-os
 window. It answers "port or write our own, what does a port actually
 need from this system, and in what order is it worth building?"
 
-**NOTHING IS BUILT. The choices were made on 2026-10-12**: port NetSurf
+**STAGE 0 IS BUILT (2026-10-12)** -- NetSurf and its libraries are
+vendored and link for toy-os as `/tests/nsmonkey`. **The choices were
+made the same day**: port NetSurf
 (GPL-2.0, C) from a PINNED MASTER COMMIT rather than its last release;
 the W1 window (a tab strip over a toolbar, the Web Browser mockup
 canvas); and the page view as a reusable `uui_webview` widget. The
@@ -67,9 +69,10 @@ NetSurf's last release is 3.11, from December 2023, and it is still what
 Arch, Alpine and Flathub package. Master is alive: commits from three
 developers through February 2026 (the GitHub mirror,
 `netsurf-browser/netsurf`), including "Improve HTTP redirect handling"
-and bounded-string fixes. So the port vendors a PINNED MASTER COMMIT --
-and each library at a commit from the same day -- the way mbedTLS is
-pinned, and refreshes it deliberately with the vendoring tool (stage 0).
+and bounded-string fixes; libcss and libnsgif have commits as late as
+August 2026. So the port vendors PINNED MASTER COMMITS -- each library at
+its head on the day it was vendored -- the way mbedTLS is pinned, and
+refreshes them deliberately with the vendoring tool (stage 0).
 The risk is the bus factor of a three-person project, not abandonment.
 
 What NetSurf does NOT do, and nobody should expect after the port: CSS
@@ -97,13 +100,10 @@ YouTube and Gmail do not.
   so pages would set Georgia and `<em>` in upright sans until faces are
   added (Liberation Serif and the italics, OFL).
 - **Images**: `lib/uimg.h` decodes PNG, JPEG, GIF, BMP and QOI.
-- **libc gaps, from the headers** (the link in stage 0 is the real
-  list): no `<iconv.h>`, no `fd_set`/`<sys/select.h>` (the fetcher
-  table's `fdset` slot names the type), no `strcasestr`, `realpath`,
-  `strptime` or `nanosleep`. libparserutils has built-in codecs for
-  UTF-8, UTF-16 and the 8859/Windows-125x families, so an `iconv` that
-  knows UTF-8, Latin-1 and Windows-1252 and refuses the rest is enough
-  for NetSurf's `utils/utf8.c`.
+- **libc gaps** -- filled in stage 0, below. libparserutils has its own
+  codecs for UTF-8, UTF-16 and the 8859/Windows-125x families, so an
+  `iconv` that knows UTF-8, Latin-1 and Windows-1252 and refuses the
+  rest is enough for NetSurf's `utils/utf8.c`.
 - **Isolation**: `/bin/thumb` is the precedent for a separate process
   parsing hostile files; `lib/uchan.h` is the asynchronous channel
   between two ring-3 processes, over shared memory.
@@ -133,10 +133,12 @@ YouTube and Gmail do not.
 ```
 userland/ports/netsurf/        NetSurf core at the pinned SHA (GPL-2.0)
 userland/ports/libcss/ ...     each library, own directory (MIT)
-userland/backends/browser/     OUR front end: window, fetcher, fonts,
-                               bitmaps, plotters, schedule (outside the
-                               vendored tree, as backends/doom/ is)
-/bin/wm/apps/browser           the one binary that links all of it
+userland/backends/netsurf/     OURS: platform switches and shims (stage 0),
+                               then the fetcher, fonts, bitmaps, plotters
+                               (outside the vendored tree, as
+                               backends/doom/ is)
+userland/tests/nsmonkey.c      the headless front end (stages 0-1)
+/bin/wm/apps/browser           the window (stage 3), linking all of it
 ```
 
 Generated sources (libcss's property tables, libhubbub's entities,
@@ -145,19 +147,43 @@ committed with the source, so the build runs no Perl and no generator.
 
 ## The stages
 
-### Stage 0 -- vendoring, and the libc it needs -- PLANNED
+### Stage 0 -- vendoring, and the libc it needs -- DONE 2026-10-12
 
-`tools/netsurf_vendor.py`: fetch NetSurf and each library at pinned
-SHAs, run the generators on the host, copy the subset the build uses
-(core, `frontends/monkey`, resources) into `userland/ports/`, and record
-the SHAs in each directory's README beside the licence. Link it and let
-the undefined symbols be the libc list; fill each gap in tolibc (a C or
-POSIX name, `docs/libc-design.md`'s rule), never with a shim inside the
-port.
+`tools/netsurf_vendor.py` clones NetSurf and nine libraries at pinned
+commits, builds upstream's headless `monkey` front end on the host, and
+copies exactly what that build compiled -- read off the compiler's
+dependency files -- into `userland/ports/`, with each port's
+`sources.mk` naming its translation units. The toy-os Makefile compiles
+those 588 units with `-nostdinc`, and `/tests/nsmonkey` links. **On a
+VM it starts, registers its tables, opens a window and begins a `file:`
+fetch, then shuts down cleanly** when its input ends; loading a page to
+completion is stage 1's harness.
+
+What it took, and where each piece lives:
+
+- **tolibc** grew what was POSIX and missing -- `iconv`, `inet_pton`/
+  `inet_ntop`, `realpath`, `scandir`, the POSIX clocks, `strtof`, the
+  float forms of the exact maths -- and three things C itself requires
+  that were simply absent (`EXIT_FAILURE`, `EDOM`/`EILSEQ`, a defined
+  `gettimeofday`). `docs/libc-design.md`'s stage 10 has the list and
+  what stays absent and why; `userland/tests/libc6_test.c` checks it.
+- **`userland/backends/netsurf/`** holds what is NetSurf's problem, not
+  the C library's: the platform switches in place of `utils/config.h`,
+  a zlib-shaped shim over `lib/uinflate.h`, forwarders for libdom's
+  binding headers, and two upstream rough edges -- `content/fetch.c`
+  includes the curl fetcher's header in a curl-less build, and
+  `desktop/gui_factory.c`'s default socket opener calls `socket()`.
+  Its README lists each file and why.
+- **Not taken**: monkey's `main.c` (its loop waits in `select()`; ours is
+  `userland/tests/nsmonkey.c`), the disk cache (`fs_backing_store.c`),
+  libnsutils' `pread()` wrapper that only the disk cache calls, and
+  libdom's XML binding (expat). The host build HID the curl-header
+  problem, because libcurl's headers are installed there -- which is
+  what `-nostdinc` on the toy-os side exists to catch.
 
 ### Stage 1 -- a page laid out headlessly -- PLANNED
 
-The `monkey` front end as a `/bin` program: `file:` and `data:` URLs
+`/tests/nsmonkey`, NetSurf's `monkey` front end: `file:` and `data:` URLs
 only, no network, no window. It prints what it would plot. **The
 oracle is the SAME pinned source built for the host**:
 `tools/browser_hostcheck.py` runs both on a fixed corpus of saved pages

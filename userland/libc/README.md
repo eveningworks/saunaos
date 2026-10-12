@@ -24,10 +24,10 @@ why this is tolibc and not musl.
 |---|---|
 | `stdio.c` | `FILE`, the buffering policy, `printf`, `sprintf` |
 | `scanf.c` | `sscanf`/`fscanf`/`scanf` over one scanner |
-| `stdlib.c` | `strtol`/`strtod`, the `long long` parsers, `div`/`ldiv`/`lldiv`, `realloc`, `qsort`, `exit`/`atexit`/`_Exit`/`quick_exit` |
+| `stdlib.c` | `strtol`/`strtod`/`strtof`, the `long long` parsers, `div`/`ldiv`/`lldiv`, `realloc`, `qsort`, `exit`/`atexit`/`_Exit`/`quick_exit` |
 | `inttypes.c` | `strtoimax`/`strtoumax`/`imaxabs`/`imaxdiv`. The PRI\*/SCN\* macros are deliberately absent -- see the header |
 | `string.c` | the half of `<string.h>` the toolkit has no equivalent of |
-| `time.c` | `struct tm`, `mktime`, `strftime`, `clock` |
+| `time.c` | `struct tm`, `mktime`, `strftime`, `clock`, the POSIX clocks, `nanosleep`, `gettimeofday` |
 | `math.c` | the EXACT functions -- bit reasoning, no approximation |
 | `math_trig.c` | the APPROXIMATE ones -- polynomials, with measured error |
 | `printf_float.c` | `%f`/`%e`/`%g`, which the kernel's build cannot have |
@@ -37,6 +37,9 @@ why this is tolibc and not musl.
 | `fcntl.c` | `open()`'s variadic mode argument, accepted and discarded |
 | `getopt.c` | POSIX option parsing -- stops at the first operand |
 | `strings.c` | `strncasecmp`, `bzero`, `bcopy` |
+| `iconv.c` | `iconv_open`/`iconv`/`iconv_close` -- a small charset set, refused at open beyond it |
+| `inet.c` | `inet_pton`/`inet_ntop` |
+| `realpath.c` | `realpath`, over kernel/lib's `k_path_resolve()` |
 | `pthread.c` | threads: the stack, the TLS block and the return value |
 | `dirent.c`, `assert.c`, `cmem.c`, `heap_os.c`, `setjmp.S` | the rest |
 

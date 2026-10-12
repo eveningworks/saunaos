@@ -343,6 +343,10 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [x] ~~Prove it: build and run a real ported program nobody here wrote~~ DONE twice -- cJSON, then Doom (libc-design.md)
 - [ ] `/bin`'s output moves from `sys_print` to stdio -- see `docs/roadmap-details.md`
 - [ ] Decide, in writing, what is deliberately NOT pursued
+- [ ] `uname()` -- its `nodename` is `system.hostname`, a ring-3 setting tolibc cannot read from beneath the settings layer
+- [ ] `pread()`/`pwrite()`: a positioned read in the kernel -- one over `lseek()` would race between threads
+- [ ] An out-of-line `sqrt()`, so code built with `-fmath-errno` links -- GCC calls one for a negative argument
+- [ ] A finer `CLOCK_REALTIME` -- the RTC is read to the second, so `gettimeofday()`'s microseconds are always 0
 
 ### A ported POSIX shell
 **Needs:** nothing for the process model any more -- `fork()`/`exec()` landed 2026-09-11. The shell is **`dash`** (chosen 2026-09-12), and the list below is measured against its own source rather than against ash's.
@@ -860,7 +864,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 ### A web browser
 **Needs:** nothing for stages 0-1. `docs/browser-design.md` stages it; NetSurf at a pinned master commit, chosen 2026-10-12.
 
-- [ ] Browser stage 0: vendor NetSurf and its libraries at pinned SHAs (`tools/netsurf_vendor.py`), and fill the libc gaps the link finds
+- [x] ~~Browser stage 0: vendor NetSurf at pinned SHAs, fill the libc gaps~~ DONE 2026-10-12 -- `/tests/nsmonkey` links
 - [ ] Browser stage 1: NetSurf's headless `monkey` front end on `file:` pages, diffed against the same source built on the host
 - [ ] Browser stage 2: HTTP/1.1 in `libhttp` (methods, headers, chunked, keep-alive) and a threaded NetSurf fetcher over it
 - [ ] Browser stage 3: the Web Browser window (W1), drawing through `uui_canvas`, `uglyph.h` and `uimg.h`

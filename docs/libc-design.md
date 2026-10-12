@@ -755,6 +755,58 @@ directions (set the bits on, read back, clear them, read back), which is
 strictly more than the original asserted: a `tcsetattr` that masked
 everything to zero would have passed the clearing half alone.
 
+## Stage 10 -- what the NetSurf port needed (2026-10-12)
+
+The third port (`docs/browser-design.md`, stage 0) compiled 588 units
+against tolibc's headers and reported what was missing, which is the
+bar this file set: complete where the capability exists, absent where
+it does not. **Three of the gaps were gaps in C itself, found only now**:
+
+- **`EXIT_SUCCESS`/`EXIT_FAILURE` were not defined**, nor C's `EDOM` and
+  `EILSEQ`. The last two are the C library's own codes, never returned
+  by the kernel, so they live in `<errno.h>` rather than `abi/errno.h`
+  (with `EAFNOSUPPORT`, which `inet_pton()` raises).
+- **`gettimeofday()` had been declared since the dash port and never
+  defined** -- dash only included `<sys/time.h>`, and nothing linked a
+  call to it until NetSurf's scheduler did.
+- **`strtof()` and the float forms of the exact maths** (`floorf`,
+  `ceilf`, `sqrtf` and the rest). `sqrtf` cannot go through the header's
+  inline `sqrt()`: in `math.c`, GCC follows `sqrtsd` with a call to an
+  out-of-line `sqrt()` to set `errno` for a negative argument, and the
+  header's is inline, so no such symbol exists. It uses `sqrtss`.
+
+What was added, each POSIX: `<iconv.h>` (`iconv.c` -- UTF-8, ASCII,
+Latin-1, Windows-1252, UTF-16 and UTF-32; anything else refused at
+`iconv_open()`, where a caller can still choose a fallback),
+`inet_pton()`/`inet_ntop()` (`inet.c`, RFC 5952's canonical IPv6),
+`realpath()` (`realpath.c`, over `k_path_resolve()`), `scandir()` and
+`alphasort()`, `clock_gettime()`/`clock_getres()`/`nanosleep()` with
+`_POSIX_TIMERS` and `_POSIX_MONOTONIC_CLOCK`, `strncasecmp()` reachable
+from `<string.h>`, `isascii()`/`toascii()`, and the TYPE headers
+`<sys/socket.h>`, `<netinet/in.h>` and `<sys/select.h>`.
+
+**THE CLOCKS DISAGREE ON RESOLUTION, ON PURPOSE.** `CLOCK_MONOTONIC` is
+the kernel's nanosecond counter; `CLOCK_REALTIME` is the RTC, read to
+the second, so its `tv_nsec` is 0 and `clock_getres()` says one second.
+Gluing the monotonic fraction onto an RTC second would make the wall
+clock run backwards at every second's edge.
+
+**STILL ABSENT, each for a reason**: `socket()` and `select()` (the
+headers carry their types only -- toy-os's sockets are its own calls,
+and nothing can wait on several descriptors); `pread()`/`pwrite()`
+(the kernel has no positioned read, and an `lseek`-based one races
+between threads); the `*at()` family and `dirfd()` (the kernel resolves
+paths, not directory handles); and `uname()`, whose `nodename` is the
+`system.hostname` setting, which tolibc cannot read without the ring-3
+settings layer it sits beneath. NetSurf has a portable path past each,
+chosen in `userland/backends/netsurf/toyos_config.h`.
+
+`userland/tests/libc6_test.c` checks every addition, with expected
+values from the host's Python; two mutations (the IPv6 tie rule, the
+UTF-8 overlong check) turned it red on the named check, and the second
+needed a test added first -- `C0 80` is refused by the lead-byte table,
+so only a three-byte overlong reaches the minimum check.
+
 ## Open questions
 
 - ~~**The environment.**~~ BUILT -- see Stage 8 above.

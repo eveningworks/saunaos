@@ -65,6 +65,20 @@ long long      atoll(const char *s);
 // not a round trip. "inf" and "nan" are accepted, as C requires.
 double         strtod(const char *nptr, char **endptr);
 double         atof(const char *s);
+// strtod() rounded to float. ROUNDED TWICE -- decimal to double, then
+// double to float -- so a decimal string lying almost exactly between
+// two floats can round to the farther one, which a direct conversion
+// would not; the caveat above already costs more than that. ERANGE as
+// strtod's, for float's range.
+float          strtof(const char *nptr, char **endptr);
+
+// The absolute, normalised path naming `path`, which must EXIST
+// (ENOENT otherwise) -- into `resolved` (PATH_MAX bytes), or into a
+// malloc'd buffer when `resolved` is NULL, as POSIX-2008 allows.
+// There are no symbolic links to follow (the filesystem keeps them but
+// nothing resolves them yet), so this is `.`/`..` removal against the
+// working directory plus an existence check.
+char          *realpath(const char *path, char *resolved);
 
 // --- arithmetic -------------------------------------------------------
 
@@ -142,6 +156,9 @@ int   putenv(char *entry);
 int   clearenv(void);
 
 // --- leaving ---------------------------------------------------------
+
+#define EXIT_SUCCESS 0
+#define EXIT_FAILURE 1
 //
 // exit() runs the atexit handlers in reverse order of registration and
 // then FLUSHES EVERY STREAM. crt0 calls it when main() returns, which

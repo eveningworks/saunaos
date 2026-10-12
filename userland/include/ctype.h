@@ -45,5 +45,8 @@ static inline int isgraph(int c) { return c > 0x20 && c < 0x7F; }
 static inline int iscntrl(int c) { return (c >= 0 && c < 0x20) || c == 0x7F; }
 static inline int ispunct(int c) { return isgraph(c) && !isalnum(c); }
 static inline int isblank(int c) { return c == ' ' || c == '\t'; }
+// XSI, and marked obsolescent there; ported code still reaches for them.
+static inline int isascii(int c) { return c >= 0 && c <= 0x7F; }
+static inline int toascii(int c) { return c & 0x7F; }
 
 #endif

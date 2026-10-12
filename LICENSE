@@ -57,9 +57,9 @@ with the font.
 
 Third-party code
 
-This repository vendors four third-party programs. None is covered by
-the MIT License above, and each keeps its own license file in its own
-directory.
+This repository vendors five third-party programs and the nine
+libraries the fifth is built from. None is covered by the MIT License
+above, and each keeps its own license file in its own directory.
 A built image carries each of those license files, and this file, in
 /usr/share/licenses/ (<port>.txt and toy-os.txt), so the notices travel
 with the binaries as their licenses require.
@@ -91,8 +91,8 @@ with the binaries as their licenses require.
         source for it, which this repository is.
 
         A BUILD WITHOUT IT: `make iso NOGPL=1` leaves out every program
-        built from a GPL-only port, which today is /bin/doom alone, and
-        the rest of toy-os works without it.
+        built from a GPL-only port -- /bin/doom, and /tests/nsmonkey from
+        NetSurf below -- and the rest of toy-os works without them.
 
         The Doom IWAD is NOT part of this repository and is not
         redistributed by it -- tools/fetch_wad.py obtains one, and the
@@ -154,6 +154,40 @@ with the binaries as their licenses require.
         kept byte for byte and deleting it would be a divergence to
         carry forever; it is listed here so a reader of this file can
         learn it is present.
+
+  userland/ports/netsurf/ NetSurf, the web browser, by the NetSurf
+                          developers (each file names its copyright
+                          holders), under the GNU General
+                          Public License, version 2 ONLY (no "or
+                          later"), with an exception permitting linking
+                          with OpenSSL; its visual artwork is under the
+                          MIT License. Full text:
+                          userland/ports/netsurf/COPYING.
+
+        THE SAME ARRANGEMENT AS THE DOOM PORT: an aggregation, linked
+        into exactly the programs Makefile's PORT_PROGRAMS_netsurf
+        names (today the test program /tests/nsmonkey) and nothing
+        else. The libraries below are MIT, and every toy-os library
+        that binary links is MIT or, for Mbed TLS, may be taken under
+        its GPL-2.0-or-later option -- so the binary is distributable
+        under GPL-2.0. docs/browser-design.md has the plan.
+
+  The nine libraries NetSurf is built from, each under the MIT License,
+  each with its own COPYING in its directory, whose copyright notice is
+  separate from toy-os's and must be preserved:
+
+  userland/ports/libwapcaplet/    Copyright 2009 The NetSurf Browser Project
+  userland/ports/libparserutils/  Copyright 2007-8 J-M Bell
+  userland/ports/libhubbub/       Copyright 2007 J-M Bell
+  userland/ports/libdom/          Copyright 2007 J-M Bell
+  userland/ports/libcss/          Copyright 2007 J-M Bell
+  userland/ports/libnsgif/        Copyright 2004 Richard Wilson, 2008 Sean Fox
+  userland/ports/libnsbmp/        Copyright 2006 Richard Wilson, 2008 Sean Fox
+  userland/ports/libnsutils/      Copyright 2014 Vincent Sanders
+  userland/ports/libnspsl/        Copyright 2016 Vincent Sanders
+
+        tools/netsurf_vendor.py copies all ten from upstream at pinned
+        commits; each directory's README.md names its commit.
 
 ---
 

@@ -478,6 +478,11 @@ TESTS = [
     # every expected value was checked against the host's Python
     # datetime rather than against the code under test.
     ("libc5_test", 0, None, None),
+    # What the NetSurf port needed: iconv, inet_pton/ntop, realpath,
+    # scandir, the POSIX clocks, strtof and the exact float maths. Every
+    # expected value came from the host's Python (ipaddress, codecs).
+    # SPAWNED: nanosleep() needs a scheduler slot, which `run` lacks.
+    ("libc6_test", None, None, None),
     # The timezone conversion, which is libc's since the city database
     # left ring 0 (api/tz.h): the offset, both DST rules and their
     # transition days. It WRITES `system.timezone` and puts it back,
@@ -529,6 +534,12 @@ TESTS = [
 # adding one of these without solving the reason would produce a red
 # table that says nothing about the code under test.
 EXCLUDED = [
+    # NetSurf's headless front end: a DRIVER, not a self-checking test.
+    # It reads monkey commands on stdin and prints what it would draw;
+    # the browser plan's stage 1 compares that with the same NetSurf
+    # built on the host (docs/browser-design.md).
+    ("nsmonkey",         "a driver, not a test: it takes NetSurf monkey commands "
+                          "on stdin; browser stage 1's host comparison runs it"),
     # The two BENCHMARKS. Both are real programs under /tests and both
     # report a timing number, which would make this gate flap for
     # reasons that have nothing to do with the code under test. They are

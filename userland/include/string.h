@@ -88,6 +88,9 @@ static inline char *strchr(const char *s, int c) { return k_strchr(s, (char)c); 
 static inline char *strrchr(const char *s, int c) { return k_strrchr(s, (char)c); }
 static inline char *strstr(const char *h, const char *n) { return k_strstr(h, n); }
 static inline int strcasecmp(const char *a, const char *b) { return k_strcasecmp(a, b); }
+// <strings.h>'s, declared here as well because strcasecmp is: code that
+// found one through <string.h> -- glibc's default -- expects both.
+int strncasecmp(const char *a, const char *b, size_t n);
 
 // --- the rest of C's set (real symbols, userland/libc/string.c) ------
 //

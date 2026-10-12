@@ -20,8 +20,9 @@
 // and asserts a looser bound for it.
 //
 // Still absent, and these are omissions of the ordinary kind rather
-// than decisions: the long-double forms, the float forms (sinf and
-// friends), lgamma/tgamma/erf, and the C99 rounding-mode functions.
+// than decisions: the long-double forms, the float forms of the
+// approximate functions (sinf and friends -- the exact ones' float forms
+// are here), lgamma/tgamma/erf, and the C99 rounding-mode functions.
 //
 // **Not to be confused with kernel/include/api/fixed.h**, which is the
 // kernel's Q16.16 fixed-point maths and exists precisely BECAUSE the
@@ -110,5 +111,18 @@ double fmod(double x, double y);
 // mantissa in [0.5, 1).
 double ldexp(double x, int e);
 double frexp(double x, int *e);
+
+// The float forms of the exact ones. Each goes through its double
+// counterpart and back, which is EXACT for these -- a float widens to a
+// double without loss, and every one of them (sqrt included, double
+// carrying more than twice float's 24 bits) rounds to the same float a
+// float-only implementation would.
+float floorf(float x);
+float ceilf(float x);
+float truncf(float x);
+float roundf(float x);
+float fabsf(float x);
+float sqrtf(float x);
+float fmodf(float x, float y);
 
 #endif

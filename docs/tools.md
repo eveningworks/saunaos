@@ -6739,6 +6739,27 @@ runs first**: a `doom1.wad` with one
   and it writes to a temporary name and renames, so an interrupted build
   cannot leave a truncated store that fails for only some sites.
 
+- **`netsurf_vendor.py`** -- vendors NetSurf and its nine libraries into
+  `userland/ports/` at the commits pinned in its `PINS` table
+  (`docs/browser-design.md`). Clones each from the netsurf-browser
+  GitHub mirrors, builds them ON THE HOST with upstream's own Makefiles
+  (the libraries, then NetSurf's headless `monkey` front end), and copies
+  exactly what that build compiled, read off the compiler's dependency
+  files -- plus each port's `sources.mk`, the translation units the
+  toy-os Makefile builds. Run it to move a pin; the result is a diff of
+  `userland/ports/`.
+
+  **Not every `.c` is a translation unit**, which is why `sources.mk`
+  exists rather than a glob: libhubbub `#include`s one generated `.c`
+  into another. **It never copies upstream's `testament.h`**, which
+  records the build host's user name, host name and path; it writes a
+  neutral one. **The work directory is NOT under `build/`**
+  (`~/.cache/toy-os/netsurf-host` by default): the Makefile includes
+  every `.d` file it finds there, and the host build leaves hundreds,
+  one of which is not make syntax. The host `nsmonkey` it leaves behind
+  is stage 1's oracle. Host tools: `gperf`, `perl`, `pkg-config` (see
+  the host-tools list). Reaches github.com.
+
 - **`libc_diff.py`** -- tolibc's formatter and number parsers against
   glibc, case by case. No guest: it compiles `kernel/lib/kfmt.c` and
   `userland/libc/stdlib.c` with the host gcc, links them beside glibc,
@@ -7674,6 +7695,10 @@ to. Arch package names; all are in the official repos.
   different compiler's warnings find real bugs a single toolchain hides.
 
 - **`docker`** — `qemu_matrix.py` needs it, and nothing else does.
+
+- **`gperf`, `perl`, `pkg-config`** — `netsurf_vendor.py` needs them to
+  run upstream's generators, and nothing else does. The generated
+  sources are committed, so the BUILD needs none of them.
 
 Deliberately NOT used: `gcovr`/`lcov` (coverage needs runtime support a
 freestanding kernel does not have) and `valgrind` (same reason).

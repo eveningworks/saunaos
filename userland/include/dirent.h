@@ -64,4 +64,14 @@ struct dirent *readdir(DIR *d);
 void           rewinddir(DIR *d);
 int            closedir(DIR *d);
 
+// POSIX-2008's directory listing in one call: every entry `filter`
+// accepts (NULL takes all), sorted by `compar`, into a malloc'd array
+// of malloc'd entries the caller frees -- each, then the array. The
+// count, or -1 with errno set. alphasort() is a byte-order comparison
+// (strcmp), there being no collation (no locales).
+int scandir(const char *dir, struct dirent ***namelist,
+            int (*filter)(const struct dirent *),
+            int (*compar)(const struct dirent **, const struct dirent **));
+int alphasort(const struct dirent **a, const struct dirent **b);
+
 #endif

@@ -614,6 +614,19 @@ double strtod(const char *nptr, char **endptr) {
 
 double atof(const char *s) { return strtod(s, 0); }
 
+float strtof(const char *nptr, char **endptr) {
+    double d = strtod(nptr, endptr);
+    double a = d < 0 ? -d : d;
+    if (a > FLT_MAX && a <= DBL_MAX) {
+        // Out of float's range: C leaves the bare conversion UNDEFINED,
+        // so the infinity is written rather than left to the cast.
+        errno = ERANGE;
+        return d < 0 ? -__builtin_inff() : __builtin_inff();
+    }
+    if (a != 0.0 && a < FLT_MIN) errno = ERANGE;         // a denormal float or zero
+    return (float)d;
+}
+
 // --- mkstemp -----------------------------------------------------------
 //
 // Creates a uniquely-named file from a template ending in exactly six

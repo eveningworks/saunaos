@@ -3,6 +3,8 @@
 // time is libc/tz.c, beside this file for the same reason glibc keeps
 // its zoneinfo reader inside libc.
 #include <time.h>
+#include <errno.h>
+#include <sys/time.h>
 #include <string.h>
 #include <stdio.h>
 #include <caltime.h>
@@ -265,4 +267,60 @@ clock_t clock(void) {
     for (int i = 0; sys_proc_info(i, &pi) == 0; i++)
         if (pi.pid == me) return (clock_t)(pi.cpu_ns / 1000u);   // CLOCKS_PER_SEC is 1e6
     return (clock_t)-1;
+}
+
+// --- POSIX clocks: see <time.h> -------------------------------------
+
+int clock_gettime(clockid_t clk, struct timespec *ts) {
+    if (!ts) { errno = EINVAL; return -1; }
+    if (clk == CLOCK_MONOTONIC) {
+        unsigned long long ns = sys_monotonic_ns();
+        ts->tv_sec = (time_t)(ns / 1000000000ull);
+        ts->tv_nsec = (long)(ns % 1000000000ull);
+        return 0;
+    }
+    if (clk == CLOCK_REALTIME) {
+        ts->tv_sec = time(0);
+        ts->tv_nsec = 0;
+        return 0;
+    }
+    errno = EINVAL;
+    return -1;
+}
+
+int clock_getres(clockid_t clk, struct timespec *res) {
+    if (clk != CLOCK_MONOTONIC && clk != CLOCK_REALTIME) { errno = EINVAL; return -1; }
+    if (res) {
+        res->tv_sec = clk == CLOCK_REALTIME ? 1 : 0;
+        res->tv_nsec = clk == CLOCK_REALTIME ? 0 : 1;
+    }
+    return 0;
+}
+
+int nanosleep(const struct timespec *req, struct timespec *rem) {
+    if (!req || req->tv_sec < 0 || req->tv_nsec < 0 || req->tv_nsec >= 1000000000L) {
+        errno = EINVAL;
+        return -1;
+    }
+    long long ms = (long long)req->tv_sec * 1000 + (req->tv_nsec + 999999) / 1000000;
+    while (ms > 0) {
+        int step = ms > 0x7fffffff ? 0x7fffffff : (int)ms;
+        // -1 for a caller with no scheduler slot to park in -- a program
+        // started by the legacy `run`. Reporting success there would be
+        // a sleep that did not happen.
+        if (sys_sleep_ms(step) < 0) { errno = ENOTSUP; return -1; }
+        ms -= step;
+    }
+    if (rem) { rem->tv_sec = 0; rem->tv_nsec = 0; }
+    return 0;
+}
+
+int gettimeofday(struct timeval *tv, void *tz) {
+    if (tz) memset(tz, 0, sizeof(struct timezone));
+    if (!tv) return 0;
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    tv->tv_sec = ts.tv_sec;
+    tv->tv_usec = 0;
+    return 0;
 }

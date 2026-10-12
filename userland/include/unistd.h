@@ -21,6 +21,13 @@
 #include <stdint.h>
 #include "rt/sys.h"
 
+// POSIX's option macros, for what <time.h> provides: clock_gettime(),
+// clock_getres() and nanosleep(), with a monotonic clock. NOT timer_*()
+// -- POSIX files those under the same option, and code reaching for
+// them gets a link error naming the gap.
+#define _POSIX_TIMERS          200809L
+#define _POSIX_MONOTONIC_CLOCK 200809L
+
 // THE THREE DESCRIPTORS EVERY PROCESS STARTS WITH. POSIX fixes the
 // numbers and this kernel matches them; the names exist because ported
 // code writes STDOUT_FILENO and would otherwise not compile over a
