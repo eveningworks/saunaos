@@ -16,7 +16,9 @@
 struct browser_window;
 
 #define NS_TITLE_MAX  256
-#define NS_URL_MAX    2048
+// A URL as long as browsers meet in practice: a search results page or a
+// signed download link runs past 2 KiB. Each tab is heap-allocated.
+#define NS_URL_MAX    8192
 #define NS_STATUS_MAX 512
 
 struct gui_window {

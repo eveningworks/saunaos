@@ -18,7 +18,12 @@ WHAT IT CHECKS, and what a broken version would still pass:
     a known band at the top of the page, so the click needs no guessed
     coordinates, and the page it leads to must be the one loaded after;
   - the wheel scrolls a long page, by the scroll offset the app reports;
-  - Ctrl+T opens a second tab and Ctrl+W closes it again.
+  - Ctrl+T opens a second tab and Ctrl+W closes it again;
+  - /tests/web/photos.html's progressive JPEG (four colour quadrants)
+    and 2-bit palette Adam7 PNG (four bands) are DRAWN, each region its
+    own colour in the pixels -- decoded by lib/uimg.h in a thread, as
+    both are over the in-place threshold -- and the page beside them
+    stays white (control).
 
 OVER THE NETWORK (stage 2), against tools/web_server.py on this machine
 through SLIRP's 10.0.2.2 -- skipped on bare metal, where that address is
@@ -70,11 +75,13 @@ def state(dbg):
         if m:
             _st[m.group(1)] = tuple(int(v) for v in m.groups()[1:])
         m = re.search(r"browser: tab (\d+)/(\d+) loading (\d) extent (\d+) (\d+) "
-                      r"scroll (-?\d+) (-?\d+) url (\S*)", line)
+                      r"scroll (-?\d+) (-?\d+) len (\d+) url (\S*)", line)
         if m:
             g = m.groups()
+            # The app reports at most 72 bytes of the address: `url` is
+            # then a prefix, and `urllen` its real length.
             _st.update(cur=int(g[0]), tabs=int(g[1]), loading=int(g[2]), ext_w=int(g[3]),
-                       ext_h=int(g[4]), sx=int(g[5]), sy=int(g[6]), url=g[7])
+                       ext_h=int(g[4]), sx=int(g[5]), sy=int(g[6]), urllen=int(g[7]), url=g[8])
     return _st
 
 
@@ -93,8 +100,12 @@ def window(dbg):
 
 
 def type_text(dbg, text):
-    for ch in text:
+    # A pause every 30 keys: a long burst outruns the app's event queue,
+    # and the key lost is as likely to be the Enter after it.
+    for i, ch in enumerate(text):
         dbg.send(f"gui key {HEX.get(ch, ch)}")
+        if i % 30 == 29:
+            dbg.settle(0.3)
 
 
 def go(dbg, path):
@@ -244,9 +255,39 @@ def run(dbg, qmp, args, net):
     st = wait(dbg, lambda s: s.get("tabs") == 1, timeout=6)
     check("...and Ctrl+W closes it, back to the first", st.get("tabs") == 1 and
           st.get("url") == "file:///tests/web/text.html", f"tabs={st.get('tabs')} url={st.get('url')}")
+    photos(dbg, page, at, shot)
     if net:
         network(dbg, net, page, at, shot)
     return finish()
+
+
+def photos(dbg, page, at, shot):
+    go(dbg, "/tests/web/photos.html")
+    url = "file:///tests/web/photos.html"
+    st = wait(dbg, loaded(url))
+    check("a page of a JPEG and a PNG loads", st.get("url") == url, f"url={st.get('url')}")
+    # The decode runs in a thread and the box fills on the redraw after
+    # it: wait for the LAST region rather than sleeping.
+    sx, sy = st.get("sx", 0), st.get("sy", 0)
+
+    def box(x, y):   # a 40x30 box centred on page coordinates (x, y)
+        return at((page[0] + x - sx - 20, page[1] + y - sy - 15, 40, 30))
+    im = None
+    for _ in range(20):
+        im = shot("photos")
+        if count(im, box(8 + 240, 256 + 210), near((90, 60, 30), 30)) > 900:
+            break
+        time.sleep(0.5)
+    quads = [((8 + 80, 8 + 60), (220, 30, 30)), ((8 + 240, 8 + 60), (30, 180, 40)),
+             ((8 + 80, 8 + 180), (30, 60, 220)), ((8 + 240, 8 + 180), (240, 210, 30))]
+    got = [count(im, box(*xy), near(c, 30)) for xy, c in quads]
+    check("the progressive JPEG is drawn, each quadrant its colour", min(got) > 900, f"{got} of 1200 px")
+    bands = [((8 + 160, 256 + 30), (200, 40, 160)), ((8 + 160, 256 + 90), (20, 160, 160)),
+             ((8 + 160, 256 + 150), (250, 140, 0)), ((8 + 160, 256 + 210), (90, 60, 30))]
+    got = [count(im, box(*xy), near(c, 30)) for xy, c in bands]
+    check("the 2-bit Adam7 PNG is drawn, each band its colour", min(got) > 900, f"{got} of 1200 px")
+    white = count(im, box(8 + 320 + 60, 8 + 60), lambda p: min(p) > 245)
+    check("...and the page beside them stays white (control)", white > 1100, f"{white} px")
 
 
 def labels(dbg):
@@ -285,9 +326,19 @@ def network(dbg, net, page, at, shot):
     check("words that are not an address are searched for", st.get("url") == want,
           f"url={st.get('url')}")
 
+    # An address longer than a toolkit field's default 127 bytes, typed.
+    tail = "x" * 200
+    go(dbg, f"{host}/net.html?q={tail}")
+    want = f"http://{host}/net.html?q={tail}"
+    whole = lambda s: (s.get("urllen") == len(want) and s.get("url")
+                       and want.startswith(s["url"]) and s.get("loading") == 0)
+    st = wait(dbg, whole, timeout=30)
+    check("a typed address of over 200 bytes is followed whole", whole(st),
+          f"{st.get('urllen')} bytes, want {len(want)}")
+
     conns, reqs = srv.counts()
     check("the server saw fewer connections than requests (reused)",
-          reqs >= 6 and conns < reqs, f"connections={conns} requests={reqs}")
+          reqs >= 7 and conns < reqs, f"connections={conns} requests={reqs}")
 
     if net.get("certs"):
         dbg.send(f"gui spawn /bin/wget -O /etc/ssl/certs/toyos-test-ca.pem http://{host}/ca.pem")
@@ -298,6 +349,10 @@ def network(dbg, net, page, at, shot):
         # A new process: the trust store is parsed once per process.
         good = f"https://{GATEWAY}:{net['good'].port}/table.html"
         dbg.send("gui key 0x14 ctrl")      # Ctrl+T, so the tab count is the check's own
+        # The new tab must EXIST before the address is typed: keys sent
+        # into the gap land in the old tab, or nowhere (seen under the
+        # full suite's load).
+        wait(dbg, lambda s: s.get("tabs") == 2 and loaded(HOME)(s), timeout=20)
         go(dbg, good)
         st = wait(dbg, loaded(good), timeout=40)
         check("https with a trusted test CA loads", st.get("url") == good and "Tables" in labels(dbg),

@@ -371,16 +371,16 @@ int main(int argc, char **argv) {
         free(bytes);
     }
 
-    // A BIT DEPTH THIS BUILD REFUSES IS -ENOTSUP, NOT -EINVAL, and the
-    // difference is what lets the Image Viewer say "this build cannot
-    // show 16-bit PNGs" instead of calling a good file corrupt. The
-    // header is hand-built: there is no 16-bit encoder here to make one.
+    // EVERY DEPTH THE SPEC ALLOWS IS READ NOW (tools/uimg_codec_hostcheck.py
+    // checks each against Pillow); one it FORBIDS for the colour type is a
+    // broken file, -EINVAL. Truecolour at 4 bits is the example: legal for
+    // grey and palette, never for RGB. The header is hand-built.
     {
         static uint8_t hdr[] = {
             137, 'P', 'N', 'G', '\r', '\n', 26, '\n',
             0, 0, 0, 13, 'I', 'H', 'D', 'R',
             0, 0, 0, 4, 0, 0, 0, 4,   // 4x4
-            16,                        // bit depth 16 -- the point
+            4,                         // bit depth 4 -- the point
             2, 0, 0, 0,                // truecolour, deflate, adaptive, none
             0, 0, 0, 0,                // CRC, filled in below
         };
@@ -391,7 +391,7 @@ int main(int argc, char **argv) {
         int nrc = uimg_decode(hdr, sizeof hdr, &deep);
         char d5[96];
         snprintf(d5, sizeof d5, "rc=%d (%s)", nrc, uimg_last_error());
-        ok("a 16-bit PNG is -ENOTSUP, not -EINVAL", nrc == -ENOTSUP, d5);
+        ok("a depth impossible for its colour type is -EINVAL", nrc == -EINVAL, d5);
     }
 
     // JPEG ROUND TRIPS IN THE GUEST. The host harness

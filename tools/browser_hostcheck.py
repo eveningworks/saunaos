@@ -63,6 +63,11 @@ VM = os.path.join(HERE, "vm.py")
 PAGES = os.path.join(REPO, "data", "tests", "web")
 GUEST_PAGES = "/tests/web"
 HOST_TIMEOUT_S = 20
+# Pages the HOST cannot be the oracle for, and why. Checked by pixels in
+# tools/browser_test.py instead.
+HOST_LACKS = {
+    "photos.html": "the host build has no libpng or libjpeg (netsurf_vendor.py's flags)",
+}
 
 ADDR = re.compile(r"0x[0-9a-fA-F]+")
 
@@ -183,7 +188,8 @@ def main():
         print(f"browser_hostcheck: no host oracle at {monkey} -- "
               "run `python3 tools/netsurf_vendor.py --no-copy`")
         return 2
-    names = sorted(n for n in os.listdir(PAGES) if n.endswith(".html") and args.k in n)
+    names = sorted(n for n in os.listdir(PAGES)
+                   if n.endswith(".html") and args.k in n and n not in HOST_LACKS)
     if not names:
         print(f"browser_hostcheck: no page matches -k {args.k!r}")
         return 2

@@ -1148,8 +1148,10 @@ $(BUILD)/userland/tests/nsmonkey.o: USERLAND_CFLAGS += -std=gnu11 -nostdinc \
         -Iuserland/backends/netsurf/include $(NS_CORE_CFLAGS)
 
 # The headless engine: stage 1's test oracle (docs/browser-design.md).
-# The http/https fetcher is ours but speaks NetSurf's core headers.
-$(BUILD)/userland/backends/netsurf/fetch_http.o: USERLAND_CFLAGS += -std=gnu11 -nostdinc \
+# The http/https fetcher and the PNG/JPEG/QOI handler are ours but speak
+# NetSurf's core headers.
+$(BUILD)/userland/backends/netsurf/fetch_http.o $(BUILD)/userland/backends/netsurf/image_uimg.o: \
+        USERLAND_CFLAGS += -std=gnu11 -nostdinc \
         -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
         -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
         $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) $(NS_CORE_CFLAGS)

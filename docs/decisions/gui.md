@@ -8115,6 +8115,11 @@ rather than `-EINVAL` for the reason `uimg_jpeg.c` refuses progressive
 that way: an app can say "this build cannot show 16-bit PNGs" instead of
 calling a perfectly good file corrupt.
 
+**SUPERSEDED 2026-10-12 for both**: the Web Browser met them on real
+sites (optimised palette PNGs are often 1/2/4-bit), so the decoder reads
+every depth and Adam7 now, and `tools/uimg_codec_hostcheck.py` checks
+each -- the risk named above is answered by the check, not by refusing.
+
 ## PNG is written here and not read, and that is an honest state
 
 **SUPERSEDED the same day, by the entry above: PNG reads now.** Kept

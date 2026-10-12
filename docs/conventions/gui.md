@@ -870,10 +870,13 @@ this the obvious way), not from how much history it accumulated.
   test on the page reading exactly as it did. Only `staged_value()`
   knows the difference, which is what that pair was designed for.
 
-  Two things that had to move with it. **`UUI_TEXTBOX_MAX` is 64 now**,
-  matching `SETTING_ABI_VALUE_MAX`, with a `_Static_assert` tying them
-  together -- a shorter field would silently truncate what it was handed,
-  which is a wrong answer rather than a full field. And **`uui_textbox`
+  Two things that had to move with it. **`UUI_TEXTBOX_MAX` is at least
+  `SETTING_ABI_VALUE_MAX`** (128 bytes now), with a `_Static_assert`
+  tying them together -- a shorter field would silently truncate what it
+  was handed, which is a wrong answer rather than a full field. A field
+  that needs more -- the Web Browser's address -- asks for it with
+  `uui_textbox_set_max()`, which moves its text to the heap; read any
+  field through `uui_textbox_text()`, never `.buf`. And **`uui_textbox`
   grew a `disabled` flag**, because it was the only control here without
   one: a setting the registry has made unavailable must READ as
   unavailable, and every interactive slot checks it (pointer AND focus
@@ -2764,12 +2767,13 @@ real scanout hardware does. Do not write a pixel assertion for one.
   initrd; toy-os compresses neither, so there is no ring-0 caller to
   compile twice for.
 
-  **What the decoder reads is 8-bit, every colour type, not
-  interlaced** -- greyscale, truecolour, palette, both alpha variants,
-  plus tRNS. A 1/2/4/16-bit depth or an Adam7 file is `-ENOTSUP` with a
-  sentence naming what it found, which is `uimg_jpeg.c`'s arrangement
-  for progressive and CMYK: the file is fine, this build is not, and
-  that is a different sentence from "corrupt".
+  **The decoder reads every PNG** -- each colour type at each depth the
+  spec allows it (1/2/4/8/16), tRNS, and Adam7 interlacing. A 16-bit
+  sample is cut to its high byte (the decoded image is 8 bits a
+  channel), but a 16-bit tRNS key is matched on all sixteen.
+  `tools/uimg_codec_hostcheck.py` checks every depth and both interlace
+  methods against files written by its own small PNG writer, which
+  Pillow cross-checks wherever Pillow itself is right.
 
 - **THE COMPOSITOR COPIES PIXELS AND THE CLIENT ENCODES THEM:
   `WIN_REQ_SCREENSHOT`, `lib/ushot.h`.** A program asking for a capture

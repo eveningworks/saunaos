@@ -13,6 +13,7 @@ two is a directory, as it is for `userland/backends/doom/`.
 | `include/curl/curl.h` | A type NAME. Upstream's `content/fetch.c` includes the curl fetcher's header even when curl is not built. |
 | `include/dom/bindings/hubbub/` | Forwarders: NetSurf includes libdom's HTML binding where libdom INSTALLS it; the vendored tree keeps it elsewhere. |
 | `fetch_http.c`, `fetch_http.h` | The http: and https: fetcher, over `/lib/libhttp.so`: one thread per fetch, its results queued for NetSurf's poll on the main thread. Upstream's is curl; this is that fetcher's shape (`docs/browser-design.md`, stage 2). |
+| `image_uimg.c`, `image_uimg.h` | PNG, JPEG and QOI content through `lib/uimg.h` in place of libpng and libjpeg: header on load, pixels on first draw into NetSurf's `image_cache`, a large image decoded in a thread. |
 | `no_sockets.c` | A `socket()` that refuses, for `desktop/gui_factory.c`'s default opener, which only the (unbuilt) curl fetcher reaches. tolibc has no `socket()`. |
 
 The front ends that use all this are programs elsewhere:

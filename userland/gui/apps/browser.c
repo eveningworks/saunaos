@@ -31,6 +31,7 @@
 #include "desktop/browser_history.h"
 #include "desktop/version.h"
 #include "backends/netsurf/fetch_http.h"
+#include "backends/netsurf/image_uimg.h"
 #include "utils/messages.h"
 #include "utils/nsoption.h"
 #include "utils/nsurl.h"
@@ -384,8 +385,12 @@ static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
     uapp_log_layout(a, "browser");
     struct gui_window *gw = nsapp_active();
     if (gw)
-        uapp_logf_layout("browser: tab %d/%d loading %d extent %d %d scroll %d %d url %s\n",
-                         g_cur, g_ntabs, gw->loading, gw->ext_w, gw->ext_h, gw->sx, gw->sy, gw->url);
+        // The LENGTH, and at most 72 bytes of the address: a layout line
+        // is 160 bytes, and one cut by vsnprintf() loses its newline and
+        // runs into the next. A test reads the real length from `len`.
+        uapp_logf_layout("browser: tab %d/%d loading %d extent %d %d scroll %d %d len %d url %.72s\n",
+                         g_cur, g_ntabs, gw->loading, gw->ext_w, gw->ext_h, gw->sx, gw->sy,
+                         (int)strlen(gw->url), gw->url);
 }
 
 static void on_size(int *w, int *h) {
@@ -468,6 +473,7 @@ static int engine_init(int argc, char **argv) {
     if (messages_add_from_file(MESSAGES) != NSERROR_OK) ulogf("browser: no %s\n", MESSAGES);
     if (netsurf_init(NULL) != NSERROR_OK) return 0;
     if (ns_fetch_http_register() != 0) ulogf("browser: no http fetcher -- local pages only\n");
+    if (ns_image_uimg_register() != NSERROR_OK) ulogf("browser: no PNG/JPEG handler\n");
     ns_fetch_http_set_wake(wake);
     apply_user_agent();
     mkdir("/var/lib", 0755);
@@ -491,6 +497,7 @@ int main(int argc, char **argv) {
     uui_toolbar_init(&g_tools_r, TOOLS_R, (int)(sizeof TOOLS_R / sizeof TOOLS_R[0]));
     g_tools_r.item_flags = tool_flags;
     uui_textbox_init(&g_address, "");
+    uui_textbox_set_max(&g_address, NS_URL_MAX - 1);   // a URL, not a 127-byte value
     g_address.placeholder = "Type a web address or a path";
     ns_view_init(&g_view);
     uui_focus_init(&g_focus, g_focusables, (int)(sizeof g_focusables / sizeof g_focusables[0]));

@@ -2335,18 +2335,21 @@ window without going through it will find its layout polls timing out.
   **Decoding:** the same argument in reverse -- files PILLOW wrote,
   read by us, compared exactly (PNG is lossless, so there is no
   tolerance to hide behind). Every colour type including palette, each
-  row filter forced in turn, and sizes whose stride is not round. Plus
-  what it must REFUSE and with which errno: a 16-bit or interlaced file
-  is `-ENOTSUP` (the file is fine, this build is not) and a corrupted
-  chunk is `-EINVAL`, because an app prints a different sentence for
-  each.
+  row filter forced in turn, and sizes whose stride is not round. A
+  corrupted chunk must be `-EINVAL`, never a picture.
 
-  **The interlaced fixture is BUILT BY HAND**, and that is the
-  interesting part: Pillow silently ignores `interlace=1` and writes a
-  progressive-free file, so asking it for one produced a fixture that
-  never reached the code under test and a check that passed for the
-  wrong reason. Flipping the IHDR byte and repairing its CRC is what
-  actually tests the refusal.
+  **Every depth and Adam7 come from a writer IN THE SCRIPT**
+  (`write_png_any`), because Pillow writes neither Adam7 nor 16-bit
+  truecolour -- and silently ignores `interlace=1`, which once made a
+  check pass on a file that was never interlaced. Each colour type at
+  each legal depth, plain and Adam7, at 13x11, 3x2 and 1x1 (the last two
+  have EMPTY passes), rows cycling all five filters, with tRNS on
+  palette, grey and truecolour. The expected pixels are the spec's rules
+  applied to the samples written; Pillow cross-checks the WRITER on every
+  file it reads faithfully -- not 16-bit grey, which it clips, nor a
+  grey or truecolour tRNS key off 8 bits, which it compares after
+  converting the samples and so never matches. Shown red by unpacking
+  sub-byte samples least-significant first and by moving one Adam7 pass.
 
   `--positive-control` carries TWO sabotages in two files -- an
   unreversed Huffman code in the compressor, and the Paeth predictor
@@ -6795,7 +6798,17 @@ runs first**: a `doom1.wad` with one
   and an expired certificate stops at NetSurf's "Privacy error" page.
   The app is spawned with `--weak-entropy`, as the guest has no
   virtio-rng. Shown red by never sending the Cookie header and by never
-  pooling.
+  pooling. The same half types a 233-byte address, past a toolkit
+  field's default 127, and checks its LENGTH (the app's layout line
+  carries `len`, and at most 72 bytes of the address itself, since a
+  160-byte log line cut by vsnprintf() loses its newline); shown red by
+  dropping the field's `uui_textbox_set_max()`.
+
+  **`/tests/web/photos.html`** checks PNG and JPEG by pixels -- each
+  quadrant of a progressive JPEG and each band of a 2-bit palette Adam7
+  PNG its own colour, with the page beside them white -- decoded in a
+  thread, as both are over `image_uimg.c`'s in-place threshold. Shown
+  red by never asking for the redraw when the decode finishes.
 
 - **`browser_hostcheck.py`** -- NetSurf's layout on toy-os against the
   SAME pinned source built on the host (`docs/browser-design.md`,
@@ -6821,7 +6834,9 @@ runs first**: a `doom1.wad` with one
   dropping every other chunk turns `net.html`'s extent red. https gets
   12 s to load by default (three handshakes under TCG), and a page whose
   `Done` came only DURING the redraw counts as not loaded -- it used to
-  read as a two-line plot difference.
+  read as a two-line plot difference. `HOST_LACKS` names the pages the
+  host cannot judge (`photos.html`: it is built without libpng and
+  libjpeg), each with its reason.
 
 - **`netsurf_vendor.py`** -- vendors NetSurf and its nine libraries into
   `userland/ports/` at the commits pinned in its `PINS` table

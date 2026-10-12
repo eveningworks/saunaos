@@ -45,6 +45,7 @@
 #include "monkey/bitmap.h"
 #include "monkey/layout.h"
 #include "backends/netsurf/fetch_http.h"
+#include "backends/netsurf/image_uimg.h"
 
 // Where NetSurf's resources (Messages, default.css, mime.types) live on
 // the image, then a directory named by $NETSURFRES for a test's own.
@@ -181,6 +182,7 @@ int main(int argc, char **argv) {
     if (netsurf_init(NULL) != NSERROR_OK) die("NetSurf failed to initialise");
     free(messages);
     if (ns_fetch_http_register() != 0) die("the http fetcher failed to register");
+    if (ns_image_uimg_register() != NSERROR_OK) die("the PNG/JPEG handler failed to register");
 
     static char buf[PATH_MAX];
     filepath_sfinddef(respaths, buf, "mime.types", "/etc/");

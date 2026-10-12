@@ -1,5 +1,6 @@
 // field. Split out of uwidgets.c -- see ui/uui_textbox.h.
 #include "ui/uui_textbox.h"
+#include <stdlib.h>
 #include <string.h>
 #include "ui/uui_caret.h"
 #include "ui/uui_widget.h"  // the ops tables at the bottom of this file
@@ -24,21 +25,28 @@
 // text with a full keymap (ui/uui_edit.h). The line ops stay NULL: a
 // single-line field genuinely has no line above, so Up and Down are
 // declined rather than silently swallowed.
+// Where the text is and how much it may hold -- `buf` inline, or `big`.
+static char *T(const struct uui_textbox *f) { return f->big ? f->big : (char *)f->buf; }
+static int CAP(const struct uui_textbox *f) {
+    return f->big && f->max > 0 ? f->max : UUI_TEXTBOX_MAX - 1;
+}
+
 static int tb_len(void *t) { return ((struct uui_textbox *)t)->len; }
 
 static char tb_at(void *t, int i) {
     struct uui_textbox *f = (struct uui_textbox *)t;
-    return (i >= 0 && i < f->len) ? f->buf[i] : 0;
+    return (i >= 0 && i < f->len) ? T(f)[i] : 0;
 }
 
 static int tb_insert(void *t, int i, char c) {
     struct uui_textbox *f = (struct uui_textbox *)t;
-    if (f->len >= UUI_TEXTBOX_MAX - 1) return 0; // full: a normal answer
+    if (f->len >= CAP(f)) return 0; // full: a normal answer
     if (i < 0 || i > f->len) return 0;
-    for (int k = f->len; k > i; k--) f->buf[k] = f->buf[k - 1];
-    f->buf[i] = c;
+    char *b = T(f);
+    for (int k = f->len; k > i; k--) b[k] = b[k - 1];
+    b[i] = c;
     f->len++;
-    f->buf[f->len] = '\0';
+    b[f->len] = '\0';
     return 1;
 }
 
@@ -48,9 +56,10 @@ static void tb_erase(void *t, int start, int end) {
     if (end > f->len) end = f->len;
     if (start >= end) return;
     int n = end - start;
-    for (int k = start; k + n <= f->len; k++) f->buf[k] = f->buf[k + n];
+    char *b = T(f);
+    for (int k = start; k + n <= f->len; k++) b[k] = b[k + n];
     f->len -= n;
-    f->buf[f->len] = '\0';
+    b[f->len] = '\0';
 }
 
 static const struct uui_edit_ops TB_EDIT_OPS = {
@@ -61,6 +70,8 @@ static const struct uui_edit_ops TB_EDIT_OPS = {
 };
 
 void uui_textbox_init(struct uui_textbox *f, const char *initial) {
+    f->big = 0;    // init is the start of a field's life: nothing to free
+    f->max = 0;
     int i = 0;
     if (initial) {
         while (initial[i] && i < UUI_TEXTBOX_MAX - 1) { f->buf[i] = initial[i]; i++; }
@@ -103,11 +114,12 @@ void uui_textbox_select(struct uui_textbox *f, int start, int end) {
 }
 
 void uui_textbox_set_text(struct uui_textbox *f, const char *text) {
-    int i = 0;
+    int i = 0, cap = CAP(f);
+    char *b = T(f);
     if (text) {
-        while (text[i] && i < UUI_TEXTBOX_MAX - 1) { f->buf[i] = text[i]; i++; }
+        while (text[i] && i < cap) { b[i] = text[i]; i++; }
     }
-    f->buf[i] = '\0';
+    b[i] = '\0';
     f->len = i;
     uui_edit_init(&f->ed);
     f->ed.cursor = i;
@@ -116,7 +128,18 @@ void uui_textbox_set_text(struct uui_textbox *f, const char *text) {
     f->ed.undo = &f->undo;
 }
 
-const char *uui_textbox_text(const struct uui_textbox *f) { return f->buf; }
+const char *uui_textbox_text(const struct uui_textbox *f) { return T(f); }
+
+int uui_textbox_set_max(struct uui_textbox *f, int max) {
+    if (f->masked) return -1;
+    if (max < UUI_TEXTBOX_MAX - 1) max = UUI_TEXTBOX_MAX - 1;
+    char *nb = realloc(f->big, (size_t)max + 1);
+    if (!nb) return -1;
+    if (!f->big) memcpy(nb, f->buf, (size_t)f->len + 1);
+    f->big = nb;
+    f->max = max;
+    return 0;
+}
 
 int uui_textbox_has_selection(const struct uui_textbox *f) {
     return uui_edit_has_selection(&f->ed);
@@ -145,22 +168,27 @@ static int field_avail(const struct uui_textbox *f) {
 
 // How far the visible window has slid right, as a character INDEX
 // chosen by MEASURING -- a proportional face has no column to count, so
-// this walks left from the caret while the text between the two still
-// fits. Shared by draw() and by uui_textbox_index_at_x() below, so a
-// click lands on the character that is actually drawn there -- two
-// copies of this arithmetic is the classic way a caret ends up one
-// glyph off.
+// this finds the leftmost start whose slice up to the caret still fits.
+// Shared by draw() and by uui_textbox_index_at_x() below, so a click
+// lands on the character that is actually drawn there -- two copies of
+// this arithmetic is the classic way a caret ends up one glyph off.
 //
-// Re-measuring the slice per step is O(len^2), which is 64 characters
-// squared and invisible; measuring forward from a running total would
-// be wrong, because the kerning of a slice depends on where it starts.
+// A BINARY SEARCH, because a slice ending at the caret only narrows as
+// its start moves right. Walking left one character at a time re-measured
+// the whole slice per step -- cubic in glyph lookups, invisible at 64
+// characters and seconds per key on a field holding a long URL.
+// Measuring forward from a running total would be wrong instead: the
+// kerning of a slice depends on where it starts.
 static int field_window_start(const struct uui_textbox *f, int avail) {
-    if (!f->active || ugfx_text_width(f->buf) <= avail) return 0;
-    int start = f->ed.cursor;
-    while (start > 0
-           && ugfx_text_width_n(f->buf + start - 1, f->ed.cursor - start + 1) <= avail)
-        start--;
-    return start;
+    const char *b = T(f);
+    if (!f->active || ugfx_text_width(b) <= avail) return 0;
+    int lo = 0, hi = f->ed.cursor;   // hi always fits: an empty slice
+    while (lo < hi) {
+        int mid = lo + (hi - lo) / 2;
+        if (ugfx_text_width_n(b + mid, f->ed.cursor - mid) <= avail) hi = mid;
+        else lo = mid + 1;
+    }
+    return lo;
 }
 
 // What is DRAWN: the field itself, or for a masked one a copy whose text
@@ -168,6 +196,7 @@ static int field_window_start(const struct uui_textbox *f, int avail) {
 static const struct uui_textbox *shown_field(const struct uui_textbox *f, struct uui_textbox *tmp) {
     if (!f->masked) return f;
     *tmp = *f;
+    tmp->big = 0;   // set_max() refuses a masked field; the copy writes its own
     for (int i = 0; i < f->len; i++) tmp->buf[i] = '*';
     return tmp;
 }
@@ -178,7 +207,7 @@ int uui_textbox_index_at_x(const struct uui_textbox *f0, int cx) {
     int start = field_window_start(f, field_avail(f));
     int rel = cx - (f->x + UUI_TEXTBOX_PAD);
     if (rel < 0) rel = 0;
-    int idx = start + ugfx_text_index_at_x(f->buf + start, rel);
+    int idx = start + ugfx_text_index_at_x(T(f) + start, rel);
     if (idx > f->len) idx = f->len;
     return idx;
 }
@@ -213,7 +242,7 @@ int uui_textbox_insert(struct uui_textbox *f, const char *s) {
     tb_sync(f);
     uui_edit_delete_selection(&f->ed, &TB_EDIT_OPS, f);
     int n = (int)strlen(s);
-    if (f->len + n > UUI_TEXTBOX_MAX - 1) return 0;   // all of it or none
+    if (f->len + n > CAP(f)) return 0;   // all of it or none
     int at = f->ed.cursor;
     int put = uui_edit_insert_text(&f->ed, &TB_EDIT_OPS, f, at, s, n);
     uui_edit_place(&f->ed, &TB_EDIT_OPS, f, at + put, 0);
@@ -262,9 +291,13 @@ void uui_textbox_draw(struct ugfx_surface *s, const struct uui_textbox *f0) {
     int avail = field_avail(f);
     int start = field_window_start(f, avail);
 
-    char shown[UUI_TEXTBOX_MAX];
-    int n = ugfx_text_fit_chars(f->buf + start, avail);
-    for (int i = 0; i < n; i++) shown[i] = f->buf[start + i];
+    // What fits, never more than SHOWN_MAX bytes: a field is at most a
+    // window wide, and a heap field may hold kilobytes past its edge.
+    enum { SHOWN_MAX = 1024 };
+    static char shown[SHOWN_MAX];   // static: past the ring-3 frame budget
+    int n = ugfx_text_fit_chars(T(f) + start, avail);
+    if (n > SHOWN_MAX - 1) n = SHOWN_MAX - 1;
+    for (int i = 0; i < n; i++) shown[i] = T(f)[start + i];
     shown[n] = '\0';
     // The SELECTION, behind the glyphs. Drawn before the text and
     // clipped to the visible window, so a selection running off either
@@ -342,7 +375,7 @@ int uui_textbox_edit_target(struct uui_textbox *f, int cx, int cy,
     const struct uui_textbox *d = shown_field(f, &tmp);
     int start = field_window_start(d, field_avail(d));
     int at = f->ed.cursor > start ? f->ed.cursor : start;
-    out->x = f->x + UUI_TEXTBOX_PAD + ugfx_text_width_n(d->buf + start, at - start);
+    out->x = f->x + UUI_TEXTBOX_PAD + ugfx_text_width_n(T(d) + start, at - start);
     out->y = f->y + f->h;
     return 1;
 }

@@ -7,12 +7,10 @@
 // than something private here because /bin/wget inflates a gzip
 // Content-Encoding through the same code.
 //
-// **WHAT IT READS IS 8-BIT, EVERY COLOUR TYPE, NOT INTERLACED.**
-// Greyscale, truecolour, palette and both alpha variants, plus tRNS.
-// A 1/2/4/16-bit depth or an Adam7 file is answered -ENOTSUP with a
-// sentence naming what it found, which is uimg_jpeg.c's arrangement for
-// progressive and CMYK -- the file is fine, this build is not, and that
-// is a different sentence from "corrupt".
+// **WHAT IT READS IS EVERY PNG**: each colour type at each depth the
+// spec allows it (1/2/4/8/16), tRNS, and Adam7 interlacing. 16-bit
+// samples are cut to their high byte -- the decoded image is 8 bits a
+// channel -- but a 16-bit tRNS key is still matched on all 16.
 //
 // **THE DEFLATE IT WRITES IS FIXED-HUFFMAN LZ77, AND STORED BLOCKS WOULD
 // HAVE BEEN A TRAP.** A spec-legal PNG can be written with uncompressed
@@ -250,17 +248,10 @@ static int png_encode(const struct uimg *im, uint8_t **out, size_t *out_len) {
 
 // --- decoding ---------------------------------------------------------
 //
-// WHAT THIS READS, AND WHAT IT REFUSES. Every colour type -- greyscale,
-// truecolour, PALETTE, and both alpha variants -- at 8 bits a channel,
-// plus tRNS transparency, not interlaced. A file outside that is
-// answered -ENOTSUP with a sentence naming what it found, which is
-// uimg_jpeg.c's arrangement for progressive and CMYK and the reason
-// -ENOTSUP is distinct from -EINVAL: the file is fine, we are not.
-//
-// The two left out are 1/2/4/16-bit depths and Adam7 interlacing. Both
-// are rare now, and both are where PNG decoders go subtly wrong --
-// sub-byte unpacking and a seven-pass walk have plenty of room for an
-// off-by-one that produces a picture rather than an error.
+// SUB-BYTE DEPTHS AND ADAM7 ARE WHERE PNG DECODERS GO SUBTLY WRONG --
+// an off-by-one in unpacking or in the seven-pass walk produces a
+// picture rather than an error -- which is why tools/uimg_codec_hostcheck.py
+// decodes every depth and both interlace methods against Pillow.
 
 #define PNG_MAX_PIXELS (64u * 1024u * 1024u)
 
@@ -298,14 +289,16 @@ static int png_read_ihdr(const uint8_t *d, size_t n, struct png_hdr *h) {
     default: PFAIL(-EINVAL, "PNG declares an unknown colour type");
     }
 
-    if (h->depth != 8) {
-        if (h->depth == 1 || h->depth == 2 || h->depth == 4 || h->depth == 16)
-            PFAIL(-ENOTSUP, "a PNG bit depth other than 8, which this build does not read");
-        PFAIL(-EINVAL, "PNG declares an impossible bit depth");
+    // The depths each colour type may have (the spec's table 11.1).
+    int ok;
+    switch (h->colour) {
+    case 0:  ok = h->depth == 1 || h->depth == 2 || h->depth == 4 || h->depth == 8 ||
+                  h->depth == 16; break;
+    case 3:  ok = h->depth == 1 || h->depth == 2 || h->depth == 4 || h->depth == 8; break;
+    default: ok = h->depth == 8 || h->depth == 16; break;
     }
-    if (h->interlace == 1)
-        PFAIL(-ENOTSUP, "an interlaced PNG, which this build does not read");
-    if (h->interlace != 0) PFAIL(-EINVAL, "PNG declares an unknown interlace method");
+    if (!ok) PFAIL(-EINVAL, "PNG declares an impossible bit depth for its colour type");
+    if (h->interlace > 1) PFAIL(-EINVAL, "PNG declares an unknown interlace method");
     return 0;
 }
 
@@ -331,6 +324,15 @@ static int png_unfilter(uint8_t *row, const uint8_t *up, size_t stride,
         row[i] = (uint8_t)v;
     }
     return 0;
+}
+
+// Sample `i` of an unfiltered row, `depth` bits each, big-endian and
+// packed most significant bit first below 8 (PNG's order).
+static uint32_t png_sample(const uint8_t *row, size_t i, int depth) {
+    if (depth == 8) return row[i];
+    if (depth == 16) return ((uint32_t)row[2 * i] << 8) | row[2 * i + 1];
+    size_t bit = i * (size_t)depth;
+    return (uint32_t)(row[bit / 8] >> (8 - depth - bit % 8)) & ((1u << depth) - 1);
 }
 
 static int png_decode(const uint8_t *d, size_t n, struct uimg *out) {
@@ -419,9 +421,27 @@ static int png_decode(const uint8_t *d, size_t n, struct uimg *out) {
         PFAIL(-EINVAL, "a palette PNG with no palette");
     }
 
-    int bpp = h.channels;                       // 8 bits a channel
-    size_t stride = (size_t)h.w * bpp;
-    size_t raw_len = (stride + 1) * h.h;
+    // Adam7's seven passes as (x0, y0, dx, dy); a plain image is one
+    // pass covering everything. Each pass is a sub-image of its own,
+    // filtered row by row, and an EMPTY pass has no rows and no filter
+    // bytes at all -- a small image skips some.
+    static const uint8_t ADAM7[7][4] = {
+        { 0, 0, 8, 8 }, { 4, 0, 8, 8 }, { 0, 4, 4, 8 }, { 2, 0, 4, 4 },
+        { 0, 2, 2, 4 }, { 1, 0, 2, 2 }, { 0, 1, 1, 2 },
+    };
+    static const uint8_t PLAIN[1][4] = { { 0, 0, 1, 1 } };
+    const uint8_t (*passes)[4] = h.interlace ? ADAM7 : PLAIN;
+    int npass = h.interlace ? 7 : 1;
+
+    int bits = h.channels * h.depth;            // per pixel
+    int bpp = bits >= 8 ? bits / 8 : 1;         // the filters' "pixel to the left"
+    size_t raw_len = 0;
+    for (int p = 0; p < npass; p++) {
+        uint32_t pw = (h.w - passes[p][0] + passes[p][2] - 1) / passes[p][2];
+        uint32_t ph = (h.h - passes[p][1] + passes[p][3] - 1) / passes[p][3];
+        if (h.w <= passes[p][0] || h.h <= passes[p][1]) pw = ph = 0;
+        if (pw && ph) raw_len += (((size_t)pw * bits + 7) / 8 + 1) * ph;
+    }
 
     uint8_t *raw = malloc(raw_len);
     if (!raw) { free(z); PFAIL(-ENOMEM, "not enough memory for the decompressed rows"); }
@@ -448,43 +468,65 @@ static int png_decode(const uint8_t *d, size_t n, struct uimg *out) {
     if (!px) { free(raw); PFAIL(-ENOMEM, "not enough memory for the decoded image"); }
 
     int transparent = 0;
-    for (uint32_t y = 0; y < h.h; y++) {
-        uint8_t *row = raw + (size_t)y * (stride + 1) + 1;
-        uint8_t *up = y ? raw + (size_t)(y - 1) * (stride + 1) + 1 : NULL;
-        rc = png_unfilter(row, up, stride, bpp, raw[(size_t)y * (stride + 1)]);
-        if (rc < 0) { free(raw); free(px); return rc; }
+    int max = (1 << (h.depth < 16 ? h.depth : 8)) - 1;   // a sample's top value, 8-bit after cutting
+    uint8_t *pass_raw = raw;
+    for (int p = 0; p < npass; p++) {
+        uint32_t x0 = passes[p][0], y0 = passes[p][1], dx = passes[p][2], dy = passes[p][3];
+        if (h.w <= x0 || h.h <= y0) continue;
+        uint32_t pw = (h.w - x0 + dx - 1) / dx, ph = (h.h - y0 + dy - 1) / dy;
+        size_t stride = ((size_t)pw * bits + 7) / 8;
+        for (uint32_t y = 0; y < ph; y++) {
+            uint8_t *row = pass_raw + (size_t)y * (stride + 1) + 1;
+            uint8_t *up = y ? pass_raw + (size_t)(y - 1) * (stride + 1) + 1 : NULL;
+            rc = png_unfilter(row, up, stride, bpp, row[-1]);
+            if (rc < 0) { free(raw); free(px); return rc; }
 
-        for (uint32_t x = 0; x < h.w; x++) {
-            const uint8_t *s = row + (size_t)x * bpp;
-            uint32_t a = 255, r, g, b;
-            switch (h.colour) {
-            case 0:
-                r = g = b = s[0];
-                if (have_trns_key && s[0] == (trns_grey & 0xFF)) a = 0;
-                break;
-            case 2:
-                r = s[0]; g = s[1]; b = s[2];
-                if (have_trns_key && s[0] == (trns_r & 0xFF) &&
-                    s[1] == (trns_g & 0xFF) && s[2] == (trns_b & 0xFF)) a = 0;
-                break;
-            case 3: {
-                int idx = s[0];
-                if (idx >= plte_n) { free(raw); free(px); PFAIL(-EINVAL, "a palette index past the palette"); }
-                r = plte[idx * 3]; g = plte[idx * 3 + 1]; b = plte[idx * 3 + 2];
-                if (idx < trns_n) a = trns[idx];
-                break;
+            for (uint32_t x = 0; x < pw; x++) {
+                // Sample k of this pixel, as stored: up to 16 bits.
+                #define SAMPLE(k) png_sample(row, (size_t)x * h.channels + (k), h.depth)
+                // ...and as 8 bits: scaled up from fewer, cut from 16.
+                #define TO8(v) (h.depth == 16 ? (v) >> 8 : h.depth == 8 ? (v) : (v) * 255 / max)
+                uint32_t a = 255, r, g, b;
+                switch (h.colour) {
+                case 0: {
+                    uint32_t v = SAMPLE(0);
+                    r = g = b = TO8(v);
+                    if (have_trns_key && v == trns_grey) a = 0;
+                    break;
+                }
+                case 2: {
+                    uint32_t vr = SAMPLE(0), vg = SAMPLE(1), vb = SAMPLE(2);
+                    r = TO8(vr); g = TO8(vg); b = TO8(vb);
+                    if (have_trns_key && vr == trns_r && vg == trns_g && vb == trns_b) a = 0;
+                    break;
+                }
+                case 3: {
+                    uint32_t idx = SAMPLE(0);
+                    if ((int)idx >= plte_n) {
+                        free(raw); free(px);
+                        PFAIL(-EINVAL, "a palette index past the palette");
+                    }
+                    r = plte[idx * 3]; g = plte[idx * 3 + 1]; b = plte[idx * 3 + 2];
+                    if ((int)idx < trns_n) a = trns[idx];
+                    break;
+                }
+                case 4:
+                    r = g = b = TO8(SAMPLE(0));
+                    a = TO8(SAMPLE(1));
+                    break;
+                default:
+                    r = TO8(SAMPLE(0)); g = TO8(SAMPLE(1)); b = TO8(SAMPLE(2));
+                    a = TO8(SAMPLE(3));
+                    break;
+                }
+                #undef SAMPLE
+                #undef TO8
+                if (a != 255) transparent = 1;
+                px[(size_t)(y0 + y * dy) * h.w + x0 + x * dx] =
+                    (a << 24) | (r << 16) | (g << 8) | b;
             }
-            case 4:
-                r = g = b = s[0];
-                a = s[1];
-                break;
-            default:
-                r = s[0]; g = s[1]; b = s[2]; a = s[3];
-                break;
-            }
-            if (a != 255) transparent = 1;
-            px[(size_t)y * h.w + x] = (a << 24) | (r << 16) | (g << 8) | b;
         }
+        pass_raw += (stride + 1) * ph;
     }
     free(raw);
 

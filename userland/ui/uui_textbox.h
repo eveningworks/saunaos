@@ -24,6 +24,7 @@
 // System Settings) and for a pasted `sha256sum` line -- 64 hex digits,
 // two spaces and a name -- which Properties compares. A shorter field
 // truncates what it is handed: a silent wrong answer, not a full field.
+// The DEFAULT capacity: uui_textbox_set_max() gives one field more.
 #define UUI_TEXTBOX_MAX 128
 
 struct uui_textbox {
@@ -33,8 +34,18 @@ struct uui_textbox {
     // "no preference" -- see uui_primitives.h).
     int x, y, w, h;
 
-    char buf[UUI_TEXTBOX_MAX]; // NUL-terminated
+    char buf[UUI_TEXTBOX_MAX]; // NUL-terminated -- unless `big` is set
     int len;
+
+    // A field given more room by uui_textbox_set_max() keeps its text
+    // HERE instead, on the heap, and `buf` is unused: read any field
+    // through uui_textbox_text(). Win32's EM_LIMITTEXT and Qt's maxLength,
+    // per control -- the Web Browser's address takes a URL of kilobytes,
+    // and every other field stays 128 bytes inline. `max` is the most
+    // bytes it holds, 0 meaning UUI_TEXTBOX_MAX - 1. A copy by value
+    // SHARES `big`; a masked field never has one.
+    char *big;
+    int max;
 
     // Caret and selection, and the standard keymap that goes with them
     // (Ctrl+A, Shift+arrows, typing replaces the selection...) -- see
@@ -113,6 +124,10 @@ int uui_textbox_insert(struct uui_textbox *f, const char *s);
 // The text, and how much of it is selected. For an app that wants to
 // read a field without knowing about the edit core.
 const char *uui_textbox_text(const struct uui_textbox *f);
+// Lets the field hold up to `max` bytes (at least UUI_TEXTBOX_MAX - 1),
+// moving its text to the heap; after init. 0, or -1 out of memory or for
+// a masked field, which is left as it was.
+int uui_textbox_set_max(struct uui_textbox *f, int max);
 int uui_textbox_has_selection(const struct uui_textbox *f);
 
 // Height only: one row plus insets. **Width is 0 -- no preference**

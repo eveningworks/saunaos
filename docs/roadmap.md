@@ -870,8 +870,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Browser: NetSurf's disk cache, under `/var/cache/browser` -- the cache is memory-only today
 - [ ] Browser: a search-engine setting -- DuckDuckGo's no-JavaScript page is the only one
 - [x] ~~Browser stage 3: the Web Browser window (W1), drawing local pages~~ DONE 2026-10-12 -- tabs, links, history, scrolling
-- [ ] Browser: PNG and JPEG through `lib/uimg.h` -- GIF and BMP decode through NetSurf's own libraries today
-- [ ] Browser: the address field holds 127 bytes (`UUI_TEXTBOX_MAX`), and real addresses run longer
+- [x] ~~Browser: PNG and JPEG through `lib/uimg.h`~~ DONE 2026-10-12 -- large ones decoded in a thread; PNG reads every depth and Adam7
+- [x] ~~Browser: the address field holds 127 bytes (`UUI_TEXTBOX_MAX`), and real addresses run longer~~ DONE 2026-10-12 -- 8 KiB
 - [ ] Browser stage 4: the lock's connection card, Downloads, find in page, zoom, bookmarks and history
 - [ ] Browser stage 5: `uui_webview` -- the engine as a content process, so Help and release notes can embed a page
 - [ ] Browser stage 6: JavaScript through Duktape, off by default until measured

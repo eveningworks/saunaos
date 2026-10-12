@@ -82,6 +82,14 @@ static int write_all(const char *path, const unsigned char *d, size_t n) {
 // DECODE MODE: argv = "decode" <file> <out.raw>. Writes w, h and the
 // pixels as 0xAARRGGBB to stdout's file, and reports the return code on
 // stderr so a refusal can be told from a crash.
+// uimg.c's, which cannot be built here (above): uimg_reduce.c calls it.
+void uimg_free(struct uimg *im) {
+    if (!im) return;
+    free(im->px);
+    im->px = NULL;
+    im->w = im->h = 0;
+}
+
 static int do_decode(const char *in, const char *out) {
     FILE *f = fopen(in, "rb");
     if (!f) return 2;
@@ -277,6 +285,8 @@ def build(tmp, sabotage=False):
     cmd = ["gcc", "-O2", "-Wall", "-Wextra", "-Werror", "-o", exe, src,
            os.path.join(ROOT, "userland", "lib", "uimg_qoi.c"), png_c, infl_c,
            bmp_c, gif_c,
+           # QOI's reduced decode (thumbnails) lives in its own file.
+           os.path.join(ROOT, "userland", "lib", "uimg_reduce.c"),
            os.path.join(ROOT, "kernel", "lib", "kcrc.c"),
            "-I" + shim,
            "-I" + os.path.join(ROOT, "userland"),
@@ -417,6 +427,129 @@ def unfilter_png(path):
         out.append(bytes(line))
         prev = line
     return w, h, bpp, b"".join(out)
+
+
+def write_png_any(path, w, h, colour, depth, interlace, trns):
+    """A PNG of any colour type, depth and interlace, written here from
+    samples made up here; returns the RGBA the spec says it decodes to.
+    Rows cycle through all five filters (filter_row below), so sub-byte
+    rows exercise the filters' one-byte "pixel to the left" too."""
+    chans = {0: 1, 2: 3, 3: 1, 4: 2, 6: 4}[colour]
+    top = (1 << depth) - 1
+    npal = min(1 << depth, 256) if colour == 3 else 0
+    pal = [((i * 53) & 255, (i * 101 + 7) & 255, (i * 197 + 31) & 255) for i in range(npal)]
+    palalpha = [(i * 37) & 255 for i in range(npal)] if trns else []
+
+    def sample(x, y, k):
+        v = (x * 7 + y * 13 + k * 29 + x * y * 3) * 2654435761 >> 7
+        if colour == 3:
+            return v % npal
+        return v & top
+
+    key = None
+    if trns and colour in (0, 2):
+        key = tuple(sample(1, 0, k) for k in range(chans))   # some pixel IS the key
+
+    def to8(v):
+        return v >> 8 if depth == 16 else v if depth == 8 else v * 255 // top
+
+    want = []
+    for y in range(h):
+        for x in range(w):
+            s = [sample(x, y, k) for k in range(chans)]
+            a = 255
+            if colour == 0:
+                r = g = b = to8(s[0])
+                if key and tuple(s) == key:
+                    a = 0
+            elif colour == 2:
+                r, g, b = (to8(v) for v in s)
+                if key and tuple(s) == key:
+                    a = 0
+            elif colour == 3:
+                r, g, b = pal[s[0]]
+                if palalpha:
+                    a = palalpha[s[0]]
+            elif colour == 4:
+                r = g = b = to8(s[0])
+                a = to8(s[1])
+            else:
+                r, g, b, a = (to8(v) for v in s)
+            want.append((r, g, b, a))
+
+    def pack_row(xs, y):
+        out, acc, nbits = bytearray(), 0, 0
+        for x in xs:
+            for k in range(chans):
+                v = sample(x, y, k)
+                if depth == 16:
+                    out += struct.pack(">H", v)
+                elif depth == 8:
+                    out.append(v)
+                else:
+                    acc = (acc << depth) | v
+                    nbits += depth
+                    if nbits == 8:
+                        out.append(acc)
+                        acc, nbits = 0, 0
+        if nbits:
+            out.append(acc << (8 - nbits))
+        return bytes(out)
+
+    bpp = max(1, chans * depth // 8)
+    passes = ([(0, 0, 8, 8), (4, 0, 8, 8), (0, 4, 4, 8), (2, 0, 4, 4),
+               (0, 2, 2, 4), (1, 0, 2, 2), (0, 1, 1, 2)] if interlace else [(0, 0, 1, 1)])
+    raw = bytearray()
+    n = 0
+    for (x0, y0, dx, dy) in passes:
+        xs = list(range(x0, w, dx))
+        if not xs or y0 >= h:
+            continue
+        prev = None
+        for y in range(y0, h, dy):
+            row = pack_row(xs, y)
+            ft = n % 5
+            n += 1
+            raw.append(ft)
+            raw += filter_row(row, prev, bpp, ft)
+            prev = row
+
+    def chunk(typ, data):
+        return (struct.pack(">I", len(data)) + typ + data
+                + struct.pack(">I", zlib.crc32(typ + data) & 0xFFFFFFFF))
+    blob = b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, depth, colour,
+                                                             0, 0, interlace))
+    if colour == 3:
+        blob += chunk(b"PLTE", bytes(c for rgb in pal for c in rgb))
+        if palalpha:
+            blob += chunk(b"tRNS", bytes(palalpha))
+    elif key:
+        blob += chunk(b"tRNS", b"".join(struct.pack(">H", v) for v in key))
+    blob += chunk(b"IDAT", zlib.compress(bytes(raw))) + chunk(b"IEND", b"")
+    open(path, "wb").write(blob)
+    return want
+
+
+def filter_row(row, prev, bpp, ft):
+    """PNG filter `ft` applied to `row` against `prev` (None: zeros)."""
+    out = bytearray(len(row))
+    for i, v in enumerate(row):
+        a = row[i - bpp] if i >= bpp else 0
+        b = prev[i] if prev else 0
+        c = prev[i - bpp] if prev and i >= bpp else 0
+        if ft == 0:
+            p = 0
+        elif ft == 1:
+            p = a
+        elif ft == 2:
+            p = b
+        elif ft == 3:
+            p = (a + b) >> 1
+        else:
+            pa, pb, pc = abs(b - c), abs(a - c), abs(a + b - 2 * c)
+            p = a if pa <= pb and pa <= pc else b if pb <= pc else c
+        out[i] = (v - p) & 255
+    return bytes(out)
 
 
 def compare(name, want, got, alpha):
@@ -1000,49 +1133,62 @@ def main():
                 elif not args.positive_control:
                     print("  %-30s %s" % (tag, "ok"))
 
-            # --- what it must REFUSE, and with WHICH error ------------------
+            # --- every depth, and Adam7 -----------------------------------
             #
-            # -ENOTSUP and -EINVAL are not interchangeable here: one says the
-            # file is fine and this build is not, the other says the file is
-            # broken. An app prints a different sentence for each.
-            def make_interlaced(path):
-                """An Adam7 IHDR, built BY HAND.
-
-                Pillow silently ignores `interlace=1` and writes a
-                progressive-free file, so asking it for one produced a
-                fixture that never reached the code under test -- and the
-                check passed for the wrong reason. Flipping the byte and
-                repairing the IHDR's CRC is the smallest thing that is
-                actually an interlaced header; the pixel data behind it
-                is not valid Adam7, which does not matter because the
-                refusal happens in the header, before anything reads it.
-                """
-                patterns("gradient", 32, 16).convert("RGB").save(path)
-                b = bytearray(open(path, "rb").read())
-                b[8 + 8 + 12] = 1                      # IHDR interlace
-                crc = zlib.crc32(bytes(b[12:12 + 4 + 13])) & 0xFFFFFFFF
-                b[12 + 4 + 13:12 + 4 + 13 + 4] = struct.pack(">I", crc)
-                open(path, "wb").write(bytes(b))
-
-            refusals = [
-                ("16-bit", lambda p: patterns("gradient", 32, 16).convert("I;16").save(p), -95),
-                ("interlaced", make_interlaced, -95),
-            ]
-            for tag, make, want_rc in refusals:
-                src = os.path.join(tmp2, tag + ".png")
-                try:
-                    make(src)
-                except Exception:                        # noqa: BLE001
-                    continue                              # Pillow cannot make it here
-                r = subprocess.run([exe2, "decode", src, os.path.join(tmp2, "x.raw")],
-                                    capture_output=True)
-                checks += 1
-                err = r.stderr.decode()
-                ok = ("rc=%d" % want_rc) in err
-                if not ok:
-                    failures.append("%s: wanted rc=%d, got %s" % (tag, want_rc, err.strip()))
-                elif not args.positive_control:
-                    print("  %-30s refused with the right errno" % ("refuse " + tag))
+            # BUILT BY HAND (write_png_any), because Pillow writes neither
+            # Adam7 nor 16-bit truecolour. The expected pixels come from
+            # the SPEC's rules applied to the samples the writer packed --
+            # never from the decoder under test -- and Pillow, a foreign
+            # decoder, cross-checks the WRITER on every file it reads
+            # faithfully: not 16-bit grey, which it clips to 255 rather
+            # than cutting to the high byte, nor a tRNS key on grey or
+            # truecolour below or above 8 bits, which it compares AFTER
+            # converting the samples to 8 bits -- so the key never matches
+            # and the transparency the spec requires is lost.
+            any_cases = []
+            for il in (0, 1):
+                for d in (1, 2, 4, 8, 16):
+                    any_cases.append((0, d, il, False))
+                for d in (1, 2, 4, 8):
+                    any_cases.append((3, d, il, d == 4))
+                for c in (2, 4, 6):
+                    for d in (8, 16):
+                        any_cases.append((c, d, il, False))
+            any_cases += [(0, 2, 0, True), (0, 16, 1, True), (2, 16, 0, True), (2, 8, 1, True)]
+            for (colour, depth, il, trns) in any_cases:
+                for (w, h) in ((13, 11), (3, 2), (1, 1)):
+                    tag = "decode c%d %d-bit%s%s %dx%d" % (colour, depth, " adam7" if il else "",
+                                                          " tRNS" if trns else "", w, h)
+                    src = os.path.join(keep or tmp2, tag.replace(" ", "_") + ".png")
+                    want = write_png_any(src, w, h, colour, depth, il, trns)
+                    checks += 1
+                    pillow_wrong = ((colour == 0 and depth == 16) or
+                                    (trns and colour in (0, 2) and depth != 8))
+                    if not pillow_wrong:
+                        pil = pixels(Image.open(src).convert("RGBA"))
+                        if compare(tag + " (Pillow reads the fixture)", want, pil, True):
+                            failures.append("%s: the hand-written fixture disagrees with "
+                                            "Pillow -- the WRITER is wrong" % tag)
+                            continue
+                    raw = os.path.join(tmp2, "d.raw")
+                    r = subprocess.run([exe2, "decode", src, raw], capture_output=True)
+                    if r.returncode != 0:
+                        failures.append("%s: %s" % (tag, r.stderr.decode().strip()))
+                        continue
+                    body = open(raw, "rb").read()
+                    nl = body.index(b"\n")
+                    gw, gh, _alpha = (int(v) for v in body[:nl].split())
+                    data = body[nl + 1:]
+                    got = [(data[i * 4 + 1], data[i * 4 + 2], data[i * 4 + 3], data[i * 4])
+                           for i in range(gw * gh)]
+                    if (gw, gh) != (w, h):
+                        failures.append("%s: decoded %dx%d" % (tag, gw, gh))
+                        continue
+                    e = compare(tag, want, got, True)
+                    if e:
+                        failures.append(e)
+                    elif not args.positive_control and (w, h) == (13, 11):
+                        print("  %-30s %s" % (tag, "ok"))
 
             # A CORRUPT chunk must be -EINVAL, not a picture.
             good = os.path.join(tmp2, "ok.png")

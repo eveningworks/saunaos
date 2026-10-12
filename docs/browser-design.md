@@ -271,7 +271,7 @@ What it took beyond the plan:
   cookies sent back and kept, a search, reuse, https and an expired
   certificate's "Privacy error" page).
 
-### Stage 3 -- the Web Browser window -- BUILT 2026-10-12, three items open
+### Stage 3 -- the Web Browser window -- BUILT 2026-10-12, one item open
 
 `/bin/wm/apps/browser` (Start -> Internet -> Web Browser) lays out and
 draws NetSurf's pages in a toy-os window: W1's toolbar row -- back,
@@ -304,10 +304,29 @@ How it is put together, in `userland/browser/` beside the app:
 as Files has them) rather than the mockup's separate strip -- Chrome's
 and Edge's arrangement, and one toy-os already draws.
 
+**PNG, JPEG and QOI** (`userland/backends/netsurf/image_uimg.c`, the
+same day) decode through `lib/uimg.h` rather than libpng and libjpeg,
+which are not vendored; GIF and BMP stay with NetSurf's libnsgif and
+libnsbmp, which animate. The shape is upstream `jpeg.c`'s -- the header
+read when the bytes are in, the pixels decoded on the first draw into
+`image_cache`, which may evict them -- plus a THREAD: an image over
+64 KiB decoded is decoded off the main thread from a copy of its bytes,
+its box empty until a main-thread timer sees the job finish and asks
+for the redraw that takes the pixels. Smaller ones decode in place,
+where a thread costs more than they do. `lib/uimg.h`'s PNG reader grew
+every bit depth and Adam7 for it, which the Image Viewer and the
+thumbnails gained too.
+
+**The address field holds 8 KiB** (`NS_URL_MAX`), through
+`uui_textbox_set_max()`: a field may now ask for more than the
+toolkit's 127 bytes, its text then on the heap. Typing a long address
+exposed a cost in the toolkit: the field re-measured its whole visible
+slice once per character to find where to start drawing, which was
+seconds per key past a few hundred characters under TCG. It is a binary
+search now.
+
 Still open from this stage: Liberation Serif and the italic faces (a
-page's serif and `<em>` draw upright in sans), PNG and JPEG through
-`lib/uimg.h` (GIF and BMP decode through NetSurf's own libraries
-today), and the address field's 127-byte limit (`UUI_TEXTBOX_MAX`).
+page's serif and `<em>` draw upright in sans).
 
 ### Stage 4 -- what makes it a browser -- PLANNED
 
