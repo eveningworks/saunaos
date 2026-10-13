@@ -65,6 +65,142 @@ static void note_dropped(struct window *win) {
         wm_logf("wm: client pid %d is not draining its events\n", win->client_pid);
 }
 
+// --- input waiting for room: the WAITING LINE --------------------------
+//
+// INPUT IS NEVER DROPPED FOR A CLIENT THAT IS ONLY SLOW. The inbox is a
+// fixed 64-slot ring the client drains, so a client busy for one long
+// frame used to lose whatever arrived meanwhile -- a burst of typing is
+// two events a key. Input the inbox cannot take now waits here, in
+// order, and is moved in as the client makes room (each frame, from
+// wm_client_flush_pending()); while anything waits, newer input joins
+// the line rather than overtaking it. A MOVE following a move in the
+// line replaces it, so motion collapses to the latest position only
+// while the client is behind -- one that keeps up still gets every
+// point of a stroke.
+//
+// PER PROCESS, not per window: a client's windows and popups share one
+// inbox, and a line each could reorder input between them. It grows
+// from empty to a 1 MiB cap -- KWin's limit on a libwayland connection,
+// about half a minute of a client not reading -- and is freed once it
+// drains, so a client that keeps up costs nothing. At the cap the
+// OLDEST event goes, and the client's windows are marked not
+// responding at once rather than after a ping times out.
+#define WM_EV_LINE_FIRST 64
+#define WM_EV_LINE_MAX ((1 << 20) / (int)sizeof(struct win_event))
+#define WM_EV_LINES 32
+int wm_ev_line_cap = WM_EV_LINE_MAX;   // a TEST lever: `gui evline <events>`
+
+static struct ev_line {
+    int pid;                    // 0: a free entry
+    struct win_event *ev;       // a ring of `cap`
+    int cap, head, count;
+} g_lines[WM_EV_LINES];
+
+static struct ev_line *line_of(int pid, int create) {
+    struct ev_line *free_entry = NULL;
+    for (int i = 0; i < WM_EV_LINES; i++) {
+        if (g_lines[i].pid == pid) return &g_lines[i];
+        if (!g_lines[i].pid && !free_entry) free_entry = &g_lines[i];
+    }
+    if (!create || !free_entry) return NULL;
+    free_entry->pid = pid;
+    free_entry->ev = NULL;
+    free_entry->cap = free_entry->head = free_entry->count = 0;
+    return free_entry;
+}
+
+static void line_free(struct ev_line *l) {
+    free(l->ev);
+    l->ev = NULL;
+    l->pid = 0;
+    l->cap = l->head = l->count = 0;
+}
+
+static struct win_event *line_at(struct ev_line *l, int i) {
+    return &l->ev[(l->head + i) % l->cap];
+}
+
+// Room for one more: doubled while under the cap, unwrapped as it grows.
+static int line_grow(struct ev_line *l) {
+    if (l->count < l->cap) return 1;
+    int cap = l->cap ? l->cap * 2 : WM_EV_LINE_FIRST;
+    if (cap > wm_ev_line_cap) cap = wm_ev_line_cap;
+    if (cap <= l->cap) return 0;
+    struct win_event *n = malloc((size_t)cap * sizeof *n);
+    if (!n) return 0;
+    for (int i = 0; i < l->count; i++) n[i] = *line_at(l, i);
+    free(l->ev);
+    l->ev = n;
+    l->cap = cap;
+    l->head = 0;
+    return 1;
+}
+
+// Every window of the client that could not keep up: marked now.
+static void mark_not_responding(int pid) {
+    for (int i = 0; i < window_count; i++) {
+        struct window *w = &windows[i];
+        if (w->client_pid != pid || !wm_client_is_client_window(w) || w->not_responding) continue;
+        w->not_responding = 1;
+        wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H);   // the title text changes
+        redraw_pending = 1;
+        wm_logf("wm: client pid %d is not responding: its input backlog is full\n", pid);
+    }
+}
+
+// Input for `win`'s client: straight into the inbox while nothing waits
+// and there is room, otherwise to the back of the line.
+static void send_input(struct window *win, const struct win_event *ev) {
+    int pid = win->client_pid;
+    struct ev_line *l = line_of(pid, 0);
+    if ((!l || !l->count) && uchan_server_room(&g_chan, pid) > 0) {
+        if (!win_events_push(pid, ev)) note_dropped(win);
+        return;
+    }
+    if (!l) l = line_of(pid, 1);
+    if (!l) {                    // every entry taken: the old behaviour
+        if (!win_events_push(pid, ev)) note_dropped(win);
+        return;
+    }
+    if (ev->type == WIN_EV_MOUSE_MOVE && l->count) {
+        struct win_event *last = line_at(l, l->count - 1);
+        if (last->type == WIN_EV_MOUSE_MOVE && last->window == ev->window) {
+            *last = *ev;
+            return;
+        }
+    }
+    if (!line_grow(l)) {
+        l->head = (l->head + 1) % l->cap;   // full at the cap: the oldest goes
+        l->count--;
+        note_dropped(win);
+        mark_not_responding(pid);
+    }
+    *line_at(l, l->count++) = *ev;
+}
+
+// Moves what the inbox has room for, in order; frees a drained line, and
+// one whose client has no windows left.
+static void flush_lines(void) {
+    for (int i = 0; i < WM_EV_LINES; i++) {
+        struct ev_line *l = &g_lines[i];
+        if (!l->pid) continue;
+        int alive = 0;
+        for (int k = 0; k < window_count && !alive; k++)
+            alive = windows[k].client_pid == l->pid && wm_client_is_client_window(&windows[k]);
+        while (alive && l->count && uchan_server_room(&g_chan, l->pid) > 0) {
+            if (!win_events_push(l->pid, line_at(l, 0))) break;
+            l->head = (l->head + 1) % l->cap;
+            l->count--;
+        }
+        if (!alive || !l->count) line_free(l);
+    }
+}
+
+int wm_client_ev_backlog(int pid) {
+    struct ev_line *l = line_of(pid, 0);
+    return l ? l->count : 0;
+}
+
 // A STATE event: sent now if there is room, otherwise remembered and
 // sent by wm_client_flush_pending() with the state as it is THEN. The
 // caller fills the payload fields on the window before calling.
@@ -98,6 +234,7 @@ static int find_client_window(int pid, uint32_t id);
 static void send_release(struct window *win, int b);
 
 void wm_client_flush_pending(void) {
+    flush_lines();
     for (int i = 0; i < window_count; i++) {
         struct window *win = &windows[i];
         if (!wm_client_is_client_window(win)) continue;
@@ -1164,7 +1301,7 @@ void wm_client_send_tab(struct window *win, int tab, int action) {
     ev.window = win->client_win;
     ev.a = tab;
     ev.b = action;
-    if (!win_events_push(win->client_pid, &ev)) note_dropped(win);
+    send_input(win, &ev);
 }
 
 static void req_notice(int from, struct wmchan_msg *m) {
@@ -1683,7 +1820,7 @@ void wm_client_send_key(struct window *win, int key, unsigned mods) {
     ev.window = win->client_win;
     ev.a = key;
     ev.mods = mods;
-    if (!win_events_push(win->client_pid, &ev)) note_dropped(win);
+    send_input(win, &ev);
 }
 
 // The other edge. A separate function rather than a `down` flag on the
@@ -1698,7 +1835,7 @@ void wm_client_send_key_up(struct window *win, int key, unsigned mods) {
     ev.window = win->client_win;
     ev.a = key;
     ev.mods = mods;
-    if (!win_events_push(win->client_pid, &ev)) note_dropped(win);
+    send_input(win, &ev);
 }
 
 // A key BY POSITION (abi/win_proto.h's WIN_EV_KEY_PHYS), to the focused
@@ -1716,7 +1853,7 @@ void wm_client_route_phys_key(int keycode, int down, unsigned mods) {
     ev.a = keycode;
     ev.b = down;
     ev.mods = mods;
-    if (!win_events_push(windows[f].client_pid, &ev)) note_dropped(&windows[f]);
+    send_input(&windows[f], &ev);
 }
 
 void wm_client_send_mouse(struct window *win, int type, int x, int y, unsigned buttons) {
@@ -1747,11 +1884,7 @@ void wm_client_send_mouse(struct window *win, int type, int x, int y, unsigned b
     // in because every caller would otherwise read the same global.
     ev.mods = WIN_MOUSE_BUTTONS(buttons) |
               ((unsigned)wm_rawin_pointer_mods() << WIN_MOUSE_MODS_SHIFT);
-    if (!win_events_push(win->client_pid, &ev)) {
-        note_dropped(win);
-        // So the next motion is not read as "already delivered".
-        if (type == WIN_EV_MOUSE_MOVE) win->client_last_mx = INT32_MIN;
-    }
+    send_input(win, &ev);
 }
 
 // Propose a new CONTENT size. Deliberately a proposal: the WM does not
@@ -1811,7 +1944,7 @@ void wm_client_send_wheel(struct window *win, int notches) {
     ev.type = WIN_EV_WHEEL;
     ev.window = win->client_win;
     ev.a = notches;
-    if (!win_events_push(win->client_pid, &ev)) note_dropped(win);
+    send_input(win, &ev);
 }
 
 void wm_client_send_close(struct window *win) {

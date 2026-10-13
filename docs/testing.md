@@ -599,6 +599,7 @@ gui layout [--json]      the keyboard-layout tray item: the list, the active one
 gui spawn PATH [args]    run a ring-3 binary directly -- no Terminal in the loop
 gui watchdog [<ms>|off]  slow-frame threshold, plus how often it fired
 gui pingtimeout [<ticks>] not-responding timeout -- a TEST LEVER, see below
+gui evline [<events>]    the input backlog's cap per client -- a TEST LEVER
 gui kill PID             end a process -- `gui spawn`'s counterpart
 gui endtask PID          Task Manager's End Task: PID's windows asked to close,
                          as a batch (no raise, no focus change)

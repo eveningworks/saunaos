@@ -149,6 +149,7 @@ TOOLS = [
     ("renamegui",  "rename_gui_test.py", "Rename many: F2 on a set, a chain through temp names, one Undo, Esc"),
     ("recentgui",  "recent_gui_test.py", "Recent: open records the app, recent:/ in day bands, Delete forgets, Open folder, Clear"),
     ("forcequit", "forcequit_test.py", "not-responding detection and force quit"),
+    ("inputbacklog", "input_backlog_test.py", "a slow client loses no input; a full backlog marks it hung"),
     ("dialog", "dialog_test.py", "the confirm dialog, by pixel value"),
     ("leave", "leave_test.py", "the Leave page: Restart/Shut down/Exit to shell, apps asked to close, Restart into"),
     ("sched", "sched_gui_test.py", "the desktop stays live while a process runs"),

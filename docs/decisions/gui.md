@@ -1492,6 +1492,45 @@ attempt (the ping is only sent when the WM asks a window to close, so
 that is the only time the mark can appear), and any way to recover a
 client that is hung but has NOT been asked to close.
 
+## A slow client's input waits in the compositor; it is never dropped
+
+**Input the client's inbox cannot take waits, in order, in a per-process
+line the compositor keeps, and is moved in as the client makes room.**
+Before 2026-10-13 it was dropped: the inbox is a fixed 64-slot ring the
+client drains, a key is two events, and a client busy for one long frame
+-- the Web Browser redrawing a heavy page -- lost keys out of the middle
+of an address. Measured with `tools/input_backlog_test.py`: a 200-key
+burst at a client taking 40 ms a key arrived as 106 characters.
+
+**What real systems do.** Windows queues input per thread and merges
+mouse moves into the latest position; posted messages are capped at
+10,000 per queue. libwayland had a fixed 4 KiB per connection and
+DISCONNECTED a client that overflowed it; since 1.23 the buffer grows to
+a cap the compositor sets, and KWin set 1 MiB -- about 30 s of a client
+not reading -- because slow apps were being killed by input arriving
+faster than they read it. None of them drops a key for an app that is
+merely slow.
+
+**Why in the compositor, and not a bigger inbox.** The inbox is shared
+memory both ends agree on; growing it changes the page every client
+maps, and only moves the point where input is lost. The line is the
+growable buffer libwayland grew, kept by the only writer: it starts
+empty, doubles to a 1 MiB cap (KWin's), and is freed once it drains, so
+a client that keeps up costs nothing. It is PER PROCESS because a
+client's windows and popups share one inbox; a line each could deliver
+input out of order between them.
+
+**Motion collapses only while the client is behind** -- a move following
+a move in the line replaces it -- so a client keeping up still sees every
+point of a stroke, and one behind gets the latest position, as Windows
+gives everyone.
+
+**At the cap the oldest input goes, and the client's windows are marked
+not responding at once**, rather than when a ping times out: a person
+typing into a hung app sees why nothing happens. Closing it, as libwayland
+did, would lose work in an app that was only slow for a while; the
+existing force-quit offer on Alt+F4 is what ends a hung one.
+
 ## Angles are measured in turns, not radians
 
 `kernel/lib/fixed.c`'s `fx_sin()`/`fx_cos()` take an angle where

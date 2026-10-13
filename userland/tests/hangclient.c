@@ -13,6 +13,12 @@
 // The WM's ping goes unanswered, the title bar gains "(Not Responding)",
 // and asking it to close raises the dialog. Force Quit kills it.
 //
+// Started with --slow it takes 40 ms over every key, as an app redrawing
+// a heavy page does, and keeps everything typed: Enter logs it as
+// "hangclient: typed <text>". A burst typed at it then outruns its inbox
+// -- what the compositor's input backlog must hold rather than drop
+// (tools/input_backlog_test.py).
+//
 // Press 'b' and it names the BUSY cursor and keeps answering. That is
 // the contrast case, and the reason it is here: the WM raises the busy
 // pointer by itself for a window that stopped answering, so without an
@@ -43,6 +49,9 @@
 
 static int g_hung;
 static int g_busy;
+static int g_slow;
+static char g_typed[1024];
+static int g_ntyped;
 
 static void on_draw(struct uapp *a, struct uapp_draw *d) {
     (void)a;
@@ -59,6 +68,19 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
 
 static void on_key(struct uapp *a, int key, unsigned mods) {
     (void)mods;
+    if (g_slow) {
+        sys_sleep_ms(40);
+        if (key == '\n' || key == '\r') {
+            g_typed[g_ntyped] = '\0';
+            sys_eprint("hangclient: typed ");
+            sys_eprint(g_typed);
+            sys_eprint("\n");
+            g_ntyped = 0;
+        } else if (key >= 0x20 && key < 0x7F && g_ntyped < (int)sizeof g_typed - 1) {
+            g_typed[g_ntyped++] = (char)key;
+        }
+        return;
+    }
     if (key == 'b') {
         // Busy AND alive: the loop keeps turning, so the ping is still
         // answered and the WM has no reason of its own to show this.
@@ -92,7 +114,10 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     }
 }
 
-int main(void) {
+int main(int argc, char **argv) {
+    for (int i = 1; i < argc; i++)
+        if (argv[i][0] == '-' && argv[i][1] == '-' && argv[i][2] == 's') g_slow = 1;   // --slow
+    if (g_slow) sys_eprint("hangclient: slow\n");
     struct uapp_desc desc = {
         .title   = "Hang Test",
         .w       = WIN_W,

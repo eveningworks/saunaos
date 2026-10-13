@@ -385,6 +385,10 @@ static void cmd_windows(struct dbg_out *o, int json) {
             // client's own and a test looking for the suffix in it finds
             // nothing. Report the fact and let the test assert on that.
             dbg_out_printf(o, "\"not_responding\":%s,", w->not_responding ? "true" : "false");
+            // Input waiting for room in its client's inbox (wm_client.c's
+            // waiting line), and how much was ever dropped.
+            dbg_out_printf(o, "\"backlog\":%d,\"dropped\":%u,", wm_client_ev_backlog(w->client_pid),
+                           w->ev_dropped);
             // WHICH BUFFER OBJECT THIS PROCESS IS ACTUALLY READING.
             // `lswin` reports the same pair from the kernel's side, and
             // the generation is what a compositor that failed to re-open
@@ -1939,6 +1943,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  layout [--json]       the keyboard-layout item: the list, the active one, the switcher\r\n");
     dbg_out_write(o, "  pingtimeout [<ticks>] not-responding timeout (a TEST lever)\r\n");
     dbg_out_write(o, "  pinginterval [<ticks>] how often every client is asked (a TEST lever)\r\n");
+    dbg_out_write(o, "  evline [<events>]     input a slow client's backlog may hold (a TEST lever)\r\n");
     dbg_out_write(o, "Injected input enters at the WM loop, below the PS/2 driver -- it tests\r\n");
     dbg_out_write(o, "WM/app logic, not the mouse driver. It is also asynchronous: the events\r\n");
     dbg_out_write(o, "drain one per frame, so allow ~100ms before reading the result back.\r\n");
@@ -2109,6 +2114,23 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         dbg_out_printf(o, "present: full=%s buffers=%d\r\n",
                        ugfx_screen_present_full_get() ? "on" : "off",
                        g_wm_screen.buffers);
+        return 1;
+    }
+
+    // The input backlog's cap (wm_client.c). A TEST lever: the real cap
+    // is far more input than a tool can type.
+    if (k_strcmp(sub, "evline") == 0) {
+        char *arg = next_tok(&p);
+        if (arg) {
+            int n;
+            if (parse_int(arg, &n) && n >= 1) {
+                wm_ev_line_cap = n;
+            } else {
+                dbg_out_write(o, "usage: gui evline [<events>]\r\n");
+                return 1;
+            }
+        }
+        dbg_out_printf(o, "evline: %d events\r\n", wm_ev_line_cap);
         return 1;
     }
 

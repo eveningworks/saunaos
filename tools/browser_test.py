@@ -180,12 +180,12 @@ def window(dbg):
 
 
 def type_text(dbg, text):
-    # A pause every 10 keys: a burst outruns the app's inbox and the
-    # compositor DROPS what does not fit, keys included (docs/bugs.md) --
-    # at 30 a page as heavy as net.html lost the 30th.
+    # A pause every 30 keys, for the debug console's sake: the compositor
+    # holds what the app's inbox cannot take (input_backlog_test.py), so
+    # a burst no longer loses keys.
     for i, ch in enumerate(text):
         dbg.send(f"gui key {HEX.get(ch, ch)}")
-        if i % 10 == 9:
+        if i % 30 == 29:
             dbg.settle(0.3)
 
 

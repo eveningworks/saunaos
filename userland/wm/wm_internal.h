@@ -420,6 +420,10 @@ int wm_end_task(int pid);
 // change how the desktop treats a slow app on every later boot.
 #define WM_PING_TIMEOUT_DEFAULT 300
 extern int wm_ping_timeout_ticks;
+// The input backlog's cap in events (wm_client.c's waiting line), and
+// how much a client has waiting now -- `gui evline` and `gui windows`.
+extern int wm_ev_line_cap;
+int wm_client_ev_backlog(int pid);
 
 // HOW OFTEN EVERY CLIENT IS ASKED, not just one being closed. Without a
 // cadence `not_responding` only ever appeared during a close attempt,

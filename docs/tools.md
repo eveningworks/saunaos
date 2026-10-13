@@ -3426,6 +3426,19 @@ window without going through it will find its layout polls timing out.
   title bar under the dialog and the check fails as a fixture problem
   that reads exactly like a regression. Three positive controls are
   recorded there, including the one that found this.
+- **`input_backlog_test.py`** -- input a slow client cannot take at once
+  WAITS in the compositor (`wm_client.c`'s line) and arrives whole: a
+  200-key burst typed at `/tests/hangclient --slow` (40 ms over every
+  key) is logged back by the client and compared byte for byte, the
+  window's `backlog` (`gui windows`) must have been non-zero mid-burst --
+  a client that kept up would pass the first check vacuously -- and
+  `dropped` 0. Then, with `gui evline 64` and the ping timeout raised past
+  the wait, a HUNG `hangclient` flooded past the inbox and the cap is
+  marked not responding at once, which only the backlog can have done.
+  Injected keys drain one per frame and send a press alone, so the flood
+  is 300 keys and the wait 10 s. Shown red by sending input straight to
+  the inbox again: 106 of 200 characters arrived. In `gui_regress.py`.
+
 - **`forcequit_test.py`** -- not-responding detection and force quit
   (TWP's ping/pong, `scheduler_kill()`, the dialog, and the slot
   reaping). 15 checks. The design point it encodes: a client that
