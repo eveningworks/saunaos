@@ -253,6 +253,31 @@ int ns_view_scroll_by(struct ns_view *v, int dx, int dy) {
     return gw->sx != ox || gw->sy != oy;
 }
 
+static const int ZOOM_STEPS[] = { 25, 33, 50, 67, 75, 80, 90, 100, 110, 125, 150, 175, 200,
+                                   250, 300, 400, 500 };
+#define ZOOM_COUNT ((int)(sizeof ZOOM_STEPS / sizeof ZOOM_STEPS[0]))
+
+int ns_view_zoom_pct(struct gui_window *gw) {
+    if (!gw || !gw->bw) return 100;
+    return (int)(browser_window_get_scale(gw->bw) * 100.0f + 0.5f);
+}
+
+int ns_view_zoom(struct gui_window *gw, int dir) {
+    if (!gw || !gw->bw) return 100;
+    int pct = ns_view_zoom_pct(gw), to = 100;
+    if (dir > 0) {
+        to = ZOOM_STEPS[ZOOM_COUNT - 1];
+        for (int i = 0; i < ZOOM_COUNT; i++)
+            if (ZOOM_STEPS[i] > pct) { to = ZOOM_STEPS[i]; break; }
+    } else if (dir < 0) {
+        to = ZOOM_STEPS[0];
+        for (int i = ZOOM_COUNT - 1; i >= 0; i--)
+            if (ZOOM_STEPS[i] < pct) { to = ZOOM_STEPS[i]; break; }
+    }
+    if (to != pct) browser_window_set_scale(gw->bw, (float)to / 100.0f, true);
+    return to;
+}
+
 static void v_natural_size(const void *w, int *out_w, int *out_h) {
     (void)w;
     *out_w = ugfx_char_advance('n') * 40;

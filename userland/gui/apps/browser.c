@@ -1,5 +1,5 @@
 // Web Browser -- NetSurf's engine in a toy-os window (docs/browser-design.md,
-// stage 3).
+// stages 3 and 4).
 //
 // W1 from the design canvas: tabs in the title bar (the compositor's,
 // as Files has them), a toolbar row -- back, forward, reload, home, the
@@ -18,6 +18,7 @@
 
 #include "utils/errors.h"
 #include "browser/ns_bitmap.h"
+#include "browser/ns_find.h"
 #include "browser/ns_font.h"
 #include "browser/ns_sched.h"
 #include "browser/ns_view.h"
@@ -38,7 +39,9 @@
 
 #include "ui/uapp.h"
 #include "ui/uui.h"
+#include "ui/uui_findbar.h"
 #include "ui/uui_focus.h"
+#include "ui/uui_menubar.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
 #include "ui/ulog.h"
@@ -54,8 +57,9 @@
 #define COOKIES_FILE STATE_DIR "/cookies"
 #define HISTORY_FILE STATE_DIR "/history"
 
-enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE };
-enum { CMD_BACK = 1, CMD_FORWARD, CMD_RELOAD, CMD_HOME, CMD_DOWNLOADS, CMD_MENU };
+enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND };
+enum { CMD_BACK = 1, CMD_FORWARD, CMD_RELOAD, CMD_HOME, CMD_DOWNLOADS, CMD_MENU,
+       CMD_NEWTAB, CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_RESET, CMD_FIND };
 
 static struct uapp *g_app;
 
@@ -110,11 +114,24 @@ static const struct uui_toolbar_item TOOLS_LOADING[] = {
 };
 static const struct uui_toolbar_item TOOLS_R[] = {
     { "tb-down", "Downloads (not yet)", CMD_DOWNLOADS, 0, 0, 0, 0 },
-    { "tb-menu", "Menu (not yet)",      CMD_MENU, 0, 0, 0, 0 },
+    { "tb-menu", "Menu",                CMD_MENU, 0, 0, 0, 0 },
 };
 static struct uui_toolbar g_tools, g_tools_r;
 static struct uui_textbox g_address;
 static int g_shown_loading = -1;
+
+// The ☰ menu: a menu with no bar strip, opened under its button (KDE's
+// ☰, Terminal's). Built as it opens, so Reset zoom can name the level.
+static struct uui_menubar g_ctx;
+static struct uui_menu_item g_menu_items[8];
+static char g_reset_label[32];
+
+// Find in page floats at the page's top right, as Notepad's and
+// Terminal's do. While it has the keyboard the focus ring holds nothing,
+// so every key reaches on_key and goes to the bar.
+static struct uui_findbar g_find;
+static int g_find_open;
+static struct uui_focus g_focus;
 
 static unsigned tool_flags(int code) {
     struct gui_window *gw = nsapp_active();
@@ -122,8 +139,7 @@ static unsigned tool_flags(int code) {
     switch (code) {
     case CMD_BACK:      return browser_window_back_available(gw->bw) ? 0 : UUI_MI_DISABLED;
     case CMD_FORWARD:   return browser_window_forward_available(gw->bw) ? 0 : UUI_MI_DISABLED;
-    case CMD_DOWNLOADS:
-    case CMD_MENU:      return UUI_MI_DISABLED;   // stage 4
+    case CMD_DOWNLOADS: return UUI_MI_DISABLED;   // stage 4
     }
     return 0;
 }
@@ -257,8 +273,11 @@ static void open_tab(const char *url) {
     nsurl_unref(u);
 }
 
+static void find_close(void);
+
 static void select_tab(int i) {
     if (i < 0 || i >= g_ntabs) return;
+    if (g_find_open && i != g_cur) find_close();
     g_cur = i;
     g_shown_loading = -1;
     g_address.active = 0;
@@ -296,6 +315,72 @@ static void close_tab(int i) {
     browser_window_destroy(g_tabs[i]->bw);   // calls back into nsapp_window_removed()
 }
 
+// --- find in page and zoom ----------------------------------------------------
+
+static void find_report(void) {
+    g_find.matches = ns_find_matches();
+    g_find.current = ns_find_current();
+    ulogf("browser: find %d of %d\n", g_find.current, g_find.matches);
+}
+
+static void find_run(int dir) {
+    ns_find(nsapp_active(), uui_findbar_query(&g_find), dir);
+    find_report();
+}
+
+static void place_find(void) {
+    struct ns_view *v = nsapp_view();
+    int fw = 0, fh = 0;
+    uui_findbar_natural_size(&g_find, &fw, &fh);
+    int cap = 34 * ugfx_char_advance('n');   // a field, not a banner
+    int room = ns_view_page_w(v) - 16;
+    if (fw > cap) fw = cap;
+    if (fw > room) fw = room;
+    if (fw < 1) fw = 1;
+    uui_findbar_set_geometry(&g_find, v->x + ns_view_page_w(v) - 8 - fw, v->y + 6, fw, fh);
+}
+
+static struct uui_item g_widgets[3];
+enum { W_CTX, W_ROOT, W_FIND };
+
+static void find_open(void) {
+    g_find_open = 1;
+    g_widgets[W_FIND].hidden = 0;
+    place_find();
+    uui_findbar_activate(&g_find);
+    g_address.active = 0;
+    uui_focus_set(&g_focus, -1);
+    if (uui_findbar_query(&g_find)[0]) find_run(0);
+}
+
+static void find_close(void) {
+    g_find_open = 0;
+    g_widgets[W_FIND].hidden = 1;
+    uui_textbox_set_active(&g_find.field, 0);
+    ns_find_clear(nsapp_active());
+    uui_focus_set(&g_focus, 1);
+}
+
+static void zoom(int dir) {
+    int pct = ns_view_zoom(nsapp_active(), dir);
+    ulogf("browser: zoom %d\n", pct);
+}
+
+static void open_menu(void) {
+    int n = 0;
+    snprintf(g_reset_label, sizeof g_reset_label, "Reset zoom (%d%%)", ns_view_zoom_pct(nsapp_active()));
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("New tab", CMD_NEWTAB, "Ctrl+T", "tb-new", UTHEME_ACT_CREATE);
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_SEP;
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Zoom in", CMD_ZOOM_IN, "Ctrl+=", "tb-zoom-in", UTHEME_ACT_VIEW);
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Zoom out", CMD_ZOOM_OUT, "Ctrl+-", "tb-zoom-out", UTHEME_ACT_VIEW);
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON(g_reset_label, CMD_ZOOM_RESET, "Ctrl+0", "tb-actual", UTHEME_ACT_VIEW);
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_SEP;
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Find in page...", CMD_FIND, "Ctrl+F", "tb-find", UTHEME_ACT_NAV);
+    int x, y, w, h;
+    uui_toolbar_item_rect(&g_tools_r, 1, &x, &y, &w, &h);
+    uui_menubar_open_below(&g_ctx, g_menu_items, n, x, y, w, h);
+}
+
 static void command(int code) {
     struct gui_window *gw = nsapp_active();
     if (!gw) return;
@@ -307,6 +392,19 @@ static void command(int code) {
         else browser_window_reload(gw->bw, true);
         break;
     case CMD_HOME:    go(HOME_URL); break;
+    case CMD_MENU:    open_menu(); break;
+    case CMD_NEWTAB:  open_tab(HOME_URL); break;
+    case CMD_ZOOM_IN:    zoom(+1); break;
+    case CMD_ZOOM_OUT:   zoom(-1); break;
+    case CMD_ZOOM_RESET: zoom(0); break;
+    case CMD_FIND:
+        if (g_find_open) {
+            uui_findbar_activate(&g_find);
+            uui_focus_set(&g_focus, -1);
+        } else {
+            find_open();
+        }
+        break;
     }
 }
 
@@ -320,13 +418,24 @@ static struct uui_focusable g_focusables[] = {
     { .widget = &g_address, .ops = &uui_textbox_ops },
     { .widget = &g_view,    .ops = &ns_view_ops },
 };
-static struct uui_focus g_focus;
 
 static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     int code = 0;
     if (id == ID_TOOLS) code = uui_toolbar_take_code(&g_tools);
     else if (id == ID_TOOLS_R) code = uui_toolbar_take_code(&g_tools_r);
+    else if (id == ID_CTX) code = uui_menubar_take_code(&g_ctx);
+    else if (id == ID_FIND) {
+        uui_focus_set(&g_focus, -1);   // a click on the bar gives it the keyboard
+        switch (uui_findbar_take(&g_find)) {
+        case UUI_FIND_NEXT:  find_run(+1); break;
+        case UUI_FIND_PREV:  find_run(-1); break;
+        case UUI_FIND_CLOSE: find_close(); break;
+        default: break;
+        }
+    } else if (id == ID_PAGE && g_find_open) {
+        uui_textbox_set_active(&g_find.field, 0);   // the page took the keyboard back
+    }
     if (code > 0) command(code);
     uapp_redraw(a);
 }
@@ -334,7 +443,29 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_key(struct uapp *a, int key, unsigned mods) {
     struct gui_window *gw = nsapp_active();
     int ctrl = (mods & KEY_MOD_CTRL) != 0;
-    if (mods & KEY_MOD_ALT) {
+    // An open find bar with the keyboard: the query, Enter, Esc -- and
+    // the field's own Ctrl+A/C/V. Not the browser's shortcuts.
+    int ours = uui_key_is_shortcut(key, mods) || (ctrl && strchr("\x06\x0c\x12\x14\x17", key));
+    if (g_find_open && g_focus.current < 0 && !ours && uui_findbar_key(&g_find, key, mods)) {
+        switch (uui_findbar_take(&g_find)) {
+        case UUI_FIND_CHANGED: find_run(0); break;
+        case UUI_FIND_NEXT:    find_run(+1); break;
+        case UUI_FIND_PREV:    find_run(-1); break;
+        case UUI_FIND_CLOSE:   find_close(); break;
+        default: break;
+        }
+        uapp_redraw(a);
+        return;
+    }
+    if (ctrl && (key == '=' || key == '+')) {
+        command(CMD_ZOOM_IN);
+    } else if (ctrl && key == '-') {
+        command(CMD_ZOOM_OUT);
+    } else if (ctrl && key == '0') {
+        command(CMD_ZOOM_RESET);
+    } else if (ctrl && key == 0x06) {                             // Ctrl+F
+        command(CMD_FIND);
+    } else if (mods & KEY_MOD_ALT) {
         if (key == KEY_ARROW_LEFT) command(CMD_BACK);
         else if (key == KEY_ARROW_RIGHT) command(CMD_FORWARD);
         else if (key == KEY_HOME) command(CMD_HOME);
@@ -342,6 +473,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     } else if (key == KEY_F5 || (ctrl && key == 0x12)) {          // F5, Ctrl+R
         if (gw) browser_window_reload(gw->bw, true);
     } else if (ctrl && key == 0x0C) {                             // Ctrl+L
+        if (g_find_open) uui_textbox_set_active(&g_find.field, 0);
         uui_focus_set(&g_focus, 0);
         uui_textbox_select(&g_address, 0, (int)strlen(uui_textbox_text(&g_address)));
     } else if (ctrl && key == 0x14) {                             // Ctrl+T
@@ -358,6 +490,8 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         uui_focus_set(&g_focus, 1);
     } else if (gw && gw->loading && key == 0x1B) {
         browser_window_stop(gw->bw);
+    } else if (g_find_open && key == 0x1B) {
+        find_close();
     } else {
         return;
     }
@@ -398,8 +532,15 @@ static void on_size(int *w, int *h) {
     *h = ugfx_char_h() * 40;
 }
 
+static void on_resize(struct uapp *a, int w, int h) {
+    (void)a;
+    uui_menubar_set_bounds(&g_ctx, 0, 0, w, h);
+    if (g_find_open) place_find();
+}
+
 static void on_open(struct uapp *a) {
     g_app = a;
+    uui_menubar_set_bounds(&g_ctx, 0, 0, uapp_width(a), uapp_height(a));
     struct nsurl *u;
     if (nsurl_create(HOME_URL, &u) == NSERROR_OK) {
         browser_window_create(BW_CREATE_HISTORY | BW_CREATE_FOREGROUND, u, NULL, NULL, NULL);
@@ -515,15 +656,25 @@ int main(int argc, char **argv) {
     // Edge to edge: a margin of 0 means "the default", a character cell,
     // which framed the page in panel grey -- 1 is the least there is.
     ROOT_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = ITEMS, .count = 2, .margin = 1 };
-    static struct uui_item root = { .ops = &uui_layout_ops, .widget = &ROOT_L };
+    // Drawn in this order and hit-tested in reverse: the menu's popup is
+    // offered every press first anyway (an overlay), and the find bar
+    // draws over the page and takes a press on it before the page does.
+    g_widgets[W_CTX] = (struct uui_item){ .ops = &uui_menubar_ops, .widget = &g_ctx, .id = ID_CTX,
+                                          .name = "menu" };
+    g_widgets[W_ROOT] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &ROOT_L };
+    g_widgets[W_FIND] = (struct uui_item){ .ops = &uui_findbar_ops, .widget = &g_find, .id = ID_FIND,
+                                           .name = "find", .hidden = 1 };
+    uui_menubar_init(&g_ctx, 0, 0);   // no bar of its own: open_below() supplies the rows
+    uui_findbar_init(&g_find);
+    g_find.pill = 1;
 
     struct uapp_desc desc = {
         .title        = "Web Browser",
         .app_id       = "browser",
         .on_size      = on_size,
         .layout       = &ROOT_L,
-        .widgets      = &root,
-        .widget_count = 1,
+        .widgets      = g_widgets,
+        .widget_count = 3,
         .on_widget    = on_widget,
         .on_key       = on_key,
         .on_tab       = on_tab,
@@ -532,6 +683,7 @@ int main(int argc, char **argv) {
         .on_user      = on_user,
         .tick_ms      = 10,
         .on_open      = on_open,
+        .on_resize    = on_resize,
         .on_close     = on_close,
         .focus        = &g_focus,
         .flags        = UAPP_RESIZABLE,

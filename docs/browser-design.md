@@ -340,13 +340,33 @@ a missing one falls back upright, then regular, then sans. The italics
 are styles of a face as `-bold` is (`font_face.h`), so the font pickers
 list Liberation Serif once and never an italic.
 
-### Stage 4 -- what makes it a browser -- PLANNED
+### Stage 4 -- what makes it a browser -- IN PROGRESS
 
-The lock's connection card (protocol, cipher, certificate, cookies),
-the Downloads flyout through `uhttp_download` into
-`/home/Downloads`, find in page (`uui_findbar`), zoom, bookmarks and
-history (NetSurf's hotlist and global history are core windows), and
-a plain-http page saying "Not secure".
+Chosen 2026-10-13 on the Browser stage 4 canvas: S1 (words in the
+address field: a lock, a red "Not secure" chip, a "File" chip, a zoom
+badge, a star), P1 (the lock's connection card: protocol, cipher,
+certificate, cookies), D1 (a downloads flyout, its list a shared
+widget), H1 (bookmarks and history in a sidebar), and the ☰ menu with
+find in page floating at the page's top right, as Notepad's does.
+
+**Built: the ☰ menu, zoom and find in page.** The menu is a bar-less
+`uui_menubar` opened under its button (Terminal's). Zoom is NetSurf's
+own scale, per tab, along Chrome's steps from 25% to 500% (Ctrl+=,
+Ctrl+-, Ctrl+0). Find is NetSurf's search -- it finds, highlights every
+match and scrolls to the current one -- with the bar's "N of M" counted
+by a LINK-TIME HOOK rather than an edit to the vendored source: NetSurf
+keeps its match list private, so the browser links with
+`--wrap=content_textsearch_add_match` and counts each match a new
+search adds (`userland/browser/ns_find.c`). NetSurf's search stops at
+either end; the bar wraps, as Chrome's and Firefox's do. Two things are
+upstream's and stay so: a match draws in the SELECTION's colours (no
+yellow, no distinct current match), and a text box shows only its first
+match highlighted, though every match is counted and stepped to.
+
+Downloads go through NetSurf's own download path, which takes the
+response already arriving -- a second fetch through `uhttp_download`
+would lose a POST's result and a download that needs the session's
+cookie.
 
 ### Stage 5 -- `uui_webview`: the engine as a content process -- PLANNED
 

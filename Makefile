@@ -1165,6 +1165,10 @@ NS_CORE_OBJS = $(filter-out ports/netsurf/frontends/%,$(NS_PORT_OBJS))
 BROWSER_SRCS = $(shell find userland/browser -name '*.c' 2>/dev/null | sort)
 BROWSER_OBJS = $(patsubst userland/%.c,%,$(BROWSER_SRCS))
 EXTRA_OBJS_browser = $(BROWSER_OBJS) $(NS_BACKEND_OBJS) $(NS_CORE_OBJS)
+# Find in page counts NetSurf's matches as they are added
+# (userland/browser/ns_find.c) -- a link-time hook, not an edit to the
+# vendored source.
+$(BUILD)/userland/gui/apps/browser.elf: DYN_LINK += --wrap=content_textsearch_add_match
 $(BUILD)/userland/browser/%.o $(BUILD)/userland/gui/apps/browser.o: USERLAND_CFLAGS += \
         -nostdinc -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
         -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \

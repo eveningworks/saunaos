@@ -19,6 +19,12 @@ WHAT IT CHECKS, and what a broken version would still pass:
     coordinates, and the page it leads to must be the one loaded after;
   - the wheel scrolls a long page, by the scroll offset the app reports;
   - Ctrl+T opens a second tab and Ctrl+W closes it again;
+  - the ☰ menu opens and reports its rows; its Zoom in lays the page out
+    taller at 110%, and Ctrl+0 returns it to the SAME extent;
+  - Ctrl+F finds "line" in /tests/web/text.html 1 of 8 times, with the
+    page's pixels changed by the highlights; Enter steps on, Shift+Enter
+    wraps back past the first to the last, and Esc leaves the page
+    pixel-identical to before the search (the round trip);
   - /tests/web/fonts.html draws serif, italic and monospace italic each
     in its own face -- the same word's ink differs from the upright or
     sans row beside it -- while a row repeated, and "Times New Roman"
@@ -79,6 +85,15 @@ def state(dbg):
         m = re.search(r"browser: layout (\S+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
         if m:
             _st[m.group(1)] = tuple(int(v) for v in m.groups()[1:])
+        m = re.search(r"browser: layout menu\.item 0 (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+        if m:
+            _st.setdefault("menu_items", {})[int(m.group(1))] = tuple(int(v) for v in m.groups()[1:])
+        m = re.search(r"browser: zoom (\d+)$", line)
+        if m:
+            _st["zoom"] = int(m.group(1))
+        m = re.search(r"browser: find (\d+) of (\d+)$", line)
+        if m:
+            _st["found"] = (int(m.group(1)), int(m.group(2)))
         m = re.search(r"browser: tab (\d+)/(\d+) loading (\d) extent (\d+) (\d+) "
                       r"scroll (-?\d+) (-?\d+) len (\d+) url (\S*)", line)
         if m:
@@ -266,6 +281,7 @@ def run(dbg, qmp, args, net):
           st.get("url") == "file:///tests/web/text.html", f"tabs={st.get('tabs')} url={st.get('url')}")
     photos(dbg, page, at, shot)
     fonts(dbg, page, at, shot)
+    zoom_and_find(dbg, page, at, shot, c)
     if net:
         network(dbg, net, page, at, shot)
     return finish()
@@ -335,6 +351,72 @@ def fonts(dbg, page, at, shot):
         check(f"{what}: its ink differs", diff(a, b) > 400, f"{diff(a, b)} px differ")
     check('"Times New Roman" draws in the serif face', diff("serif", "Times New Roman") < 20,
           f"{diff('serif', 'Times New Roman')} px differ")
+
+
+# The ☰ menu's rows, in browser.c's open_menu() order.
+MENU_ZOOM_IN, MENU_FIND = 2, 6
+
+
+def zoom_and_find(dbg, page, at, shot, c):
+    url = "file:///tests/web/text.html"
+    go(dbg, "/tests/web/text.html")
+    st = wait(dbg, loaded(url))
+    base = dict(st)
+    base_im = shot("find_before")
+
+    # Zoom from the ☰ menu, by the row the menu itself reports.
+    _st.pop("menu_items", None)
+    tx, ty, tw, th = st["tools-right"]          # Downloads, then ☰: its right half
+    dbg.send("gui click %d %d" % (c["x"] + tx + tw * 3 // 4, c["y"] + ty + th // 2))
+    dbg.settle(0.5)
+    rows = wait(dbg, lambda s: MENU_ZOOM_IN in s.get("menu_items", {}), 4).get("menu_items", {})
+    check("the ☰ menu opens, with its rows", MENU_ZOOM_IN in rows and MENU_FIND in rows,
+          f"rows {sorted(rows)}")
+    if MENU_ZOOM_IN in rows:
+        x, y, w, h = rows[MENU_ZOOM_IN]
+        dbg.send("gui click %d %d" % (c["x"] + x + w // 2, c["y"] + y + h // 2))
+    st = wait(dbg, lambda s: s.get("zoom") == 110 and s.get("ext_h", 0) > base["ext_h"], 6)
+    check("its Zoom in scales the page to 110%, and it lays out taller",
+          st.get("zoom") == 110 and st.get("ext_h", 0) > base["ext_h"],
+          f"zoom {st.get('zoom')} extent {base['ext_h']} -> {st.get('ext_h')}")
+    dbg.send("gui key 0x30 ctrl")      # Ctrl+0
+    st = wait(dbg, lambda s: s.get("zoom") == 100 and s.get("ext_h") == base["ext_h"], 6)
+    check("...and Ctrl+0 puts it back, to the same extent (round trip)",
+          st.get("zoom") == 100 and st.get("ext_h") == base["ext_h"],
+          f"zoom {st.get('zoom')} extent {st.get('ext_h')} vs {base['ext_h']}")
+
+    # Find: "line" is in text.html eight times, ignoring case -- "Line 1" to
+    # "Line 6", "lines", and the heading's "inline".
+    dbg.send("gui key 0x06 ctrl")      # Ctrl+F
+    dbg.settle(0.5)
+    type_text(dbg, "line")
+    st = wait(dbg, lambda s: s.get("found") == (1, 8), 6)
+    check("Ctrl+F and a query find every match: 1 of 8", st.get("found") == (1, 8),
+          f"found {st.get('found')}")
+    im = shot("find_on")
+    pg = at((page[0], page[1], page[2] - 16, page[3]))
+    x, y, w, h = pg
+    a = im.crop((x, y, x + w, y + h)).get_flattened_data()
+    b = base_im.crop((x, y, x + w, y + h)).get_flattened_data()
+    lit = sum(1 for p, q in zip(a, b) if p != q)
+    check("...and the matches are highlighted on the page", lit > 300, f"{lit} px changed")
+    dbg.send("gui key 0x0d")
+    st = wait(dbg, lambda s: s.get("found") == (2, 8), 4)
+    check("Enter steps to the next match", st.get("found") == (2, 8), f"found {st.get('found')}")
+    for _ in range(2):
+        dbg.send("gui key 0x0d shift")
+    st = wait(dbg, lambda s: s.get("found") == (8, 8), 6)
+    check("Shift+Enter steps back, wrapping past the first to the last",
+          st.get("found") == (8, 8), f"found {st.get('found')}")
+    dbg.send("gui key 0x1b")
+    dbg.settle(0.5)
+    dbg.send("gui key 0xf786")         # Home: the last match scrolled the page
+    wait(dbg, lambda s: s.get("sy") == base.get("sy"), 4)
+    im = shot("find_off")
+    a = im.crop((x, y, x + w, y + h)).get_flattened_data()
+    diff = sum(1 for p, q in zip(a, b) if p != q)
+    check("Esc closes it, and the page is as it was before (round trip)", diff < 20,
+          f"{diff} px differ from before the search")
 
 
 def labels(dbg):

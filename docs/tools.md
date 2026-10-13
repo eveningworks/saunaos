@@ -6787,6 +6787,15 @@ runs first**: a `doom1.wad` with one
   before `spawn()`'s exact match looked. Shown red by swapping red and
   blue in the plotters' colour conversion.
 
+  **Menu, zoom and find**: the ☰ menu reports its rows (the menu's own
+  describe op) and its Zoom in is clicked by that rect: the extent grows
+  at 110% and Ctrl+0 returns the SAME extent. Ctrl+F "line" on
+  `text.html` is 1 of 8, the page's pixels change under the highlights,
+  Enter steps, Shift+Enter wraps to 8 of 8, and Esc (then Home) leaves
+  the page pixel-identical to before the search. Shown red by counting
+  no matches and by dropping the scale call: exactly the three count
+  checks and the zoom check failed.
+
   **Fonts**: `/tests/web/fonts.html` draws one word per 48 px row in
   sans, serif, mono and each one's italic, and the INK of each pair
   that must differ (sans/serif, upright/italic, regular/bold) differs,

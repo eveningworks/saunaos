@@ -51,6 +51,11 @@ int ns_view_page_w(const struct ns_view *v);
 // Scrolls the active page by (dx, dy) page pixels, clamped. 1 if it moved.
 int ns_view_scroll_by(struct ns_view *v, int dx, int dy);
 
+// A tab's zoom, as a percentage: `dir` +1 and -1 step along Chrome's
+// ladder (25% to 500%), 0 resets to 100%. Returns the new level.
+int ns_view_zoom(struct gui_window *gw, int dir);
+int ns_view_zoom_pct(struct gui_window *gw);
+
 // NetSurf's tables, for netsurf_register().
 extern struct gui_window_table *ns_window_table;
 extern struct gui_misc_table *ns_misc_table;
