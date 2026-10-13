@@ -8,7 +8,7 @@ need from this system, and in what order is it worth building?"
 libraries are vendored, lay out a set of test pages identically to the
 same source built on the host -- read from files, over http and over
 https -- and the Web Browser app (Start -> Internet) browses the web.
-Stage 4 is next. **The choices were made the same day**: port NetSurf
+Stage 4 was built on 2026-10-13. **The choices were made the same day**: port NetSurf
 (GPL-2.0, C) from a PINNED MASTER COMMIT rather than its last release;
 the W1 window (a tab strip over a toolbar, the Web Browser mockup
 canvas); and the page view as a reusable `uui_webview` widget. The
@@ -340,7 +340,7 @@ a missing one falls back upright, then regular, then sans. The italics
 are styles of a face as `-bold` is (`font_face.h`), so the font pickers
 list Liberation Serif once and never an italic.
 
-### Stage 4 -- what makes it a browser -- IN PROGRESS
+### Stage 4 -- what makes it a browser -- BUILT 2026-10-13
 
 Chosen 2026-10-13 on the Browser stage 4 canvas: S1 (words in the
 address field: a lock, a red "Not secure" chip, a "File" chip, a zoom
@@ -381,6 +381,18 @@ certificate of its own: the fetcher hands NetSurf the chain that host
 presented last, or the card of the second page from a site would have
 none.
 
+**Built: bookmarks and history**, in a sidebar left of the page
+(Ctrl+B, Ctrl+H), as Firefox has them. Bookmarks are NetSurf's hotlist,
+kept in its own HTML file at `/var/lib/browser/bookmarks` -- started
+EMPTY rather than with NetSurf's default links -- and history is its URL
+database, the pages browsed to, newest first under a heading per day.
+Both are drawn by a toolkit widget, `ui/uui_entrylist.h` (entries under
+headings, a search, a remove button on the hovered row), rather than
+NetSurf's tree windows, which would look like NetSurf. The address
+field's star and Ctrl+D add or remove the page. Ctrl+H and Backspace are
+the same key code, so the browser reads the Ctrl bit before taking it
+as History.
+
 **Built: downloads.** They go through NetSurf's own download path
 (`userland/browser/ns_download.c`), which takes the response already
 arriving -- a second fetch through `uhttp_download` would lose a POST's
@@ -391,9 +403,11 @@ failed or cancelled one is deleted; a name already there becomes
 when a download starts, and its list is a toolkit widget,
 `ui/uui_transfers.h` (a row per file: progress, status, and the one
 action its state allows), so the next list of transfers is not drawn
-again. NetSurf turns a fetch into a download as its headers are handled:
-a connection that breaks in the same poll as the headers arrive is a
-failed PAGE, shown as NetSurf's error page, not a failed download.
+again. NetSurf decides a fetch is a download from its first bytes (an
+`application/octet-stream` is sniffed) and makes the download's window
+only on data that arrives after that: a connection that breaks before a
+second piece of data is a failed PAGE, NetSurf's error page, and leaves
+no row in the flyout. That is upstream's `download_context_callback()`.
 
 ### Stage 5 -- `uui_webview`: the engine as a content process -- PLANNED
 

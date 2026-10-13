@@ -24,6 +24,7 @@
 #include "browser/ns_download.h"
 #include "browser/ns_find.h"
 #include "browser/ns_font.h"
+#include "browser/ns_marks.h"
 #include "browser/ns_sched.h"
 #include "browser/ns_site.h"
 #include "browser/ns_view.h"
@@ -44,9 +45,11 @@
 
 #include "ui/uapp.h"
 #include "ui/uui.h"
+#include "ui/uui_entrylist.h"
 #include "ui/uui_findbar.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_menubar.h"
+#include "ui/uui_segmented.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
 #include "ui/ulog.h"
@@ -61,11 +64,13 @@
 #define STATE_DIR    "/var/lib/browser"
 #define COOKIES_FILE STATE_DIR "/cookies"
 #define HISTORY_FILE STATE_DIR "/history"
+#define BOOKMARKS_FILE STATE_DIR "/bookmarks"
 
 enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND, ID_ADDRBAR, ID_CARD,
-       ID_DLPANEL, ID_DLLIST };
+       ID_DLPANEL, ID_DLLIST, ID_SIDE_TABS, ID_SIDE_SEARCH, ID_SIDE_LIST };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_RELOAD, CMD_HOME, CMD_DOWNLOADS, CMD_MENU,
-       CMD_NEWTAB, CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_RESET, CMD_FIND };
+       CMD_NEWTAB, CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_RESET, CMD_FIND,
+       CMD_BOOKMARK, CMD_SIDE_BOOKMARKS, CMD_SIDE_HISTORY };
 
 static struct uapp *g_app;
 
@@ -133,10 +138,19 @@ static struct ns_card g_card;
 // The Downloads flyout (D1), under the down arrow.
 static struct ns_dlpanel g_dlp;
 
+// Bookmarks and history (H1): a sidebar left of the page -- which list,
+// a search field, and the entries.
+static const char *const SIDE_TABS[] = { "Bookmarks", "History" };
+static struct uui_segmented g_side_tabs;
+static struct uui_textbox g_side_search;
+static struct uui_entrylist g_side_list;
+static struct uui_entry g_side_rows[NS_MARKS_MAX];
+static int g_side_open;
+
 // The ☰ menu: a menu with no bar strip, opened under its button (KDE's
 // ☰, Terminal's). Built as it opens, so Reset zoom can name the level.
 static struct uui_menubar g_ctx;
-static struct uui_menu_item g_menu_items[12];
+static struct uui_menu_item g_menu_items[16];
 static char g_reset_label[32];
 
 // Find in page floats at the page's top right, as Notepad's and
@@ -170,16 +184,27 @@ static void sync_chrome(void) {
         uui_textbox_set_text(&g_address, gw->url);
     }
     int state = ns_site_state(gw), zoom = ns_view_zoom_pct(gw);
-    if (state != g_addr.state || zoom != g_addr.zoom) {
+    int starred = gw && ns_bookmarked(gw->url);
+    if (state != g_addr.state || zoom != g_addr.zoom || starred != g_addr.starred) {
         g_addr.state = state;
         g_addr.zoom = zoom;
+        g_addr.starred = starred;
         ns_addr_sync(&g_addr);
         ulogf("browser: site %d zoom %d\n", state, zoom);
     }
 }
 
+static void side_refresh(void);
+
 void nsapp_window_changed(struct gui_window *gw) {
-    if (gw == nsapp_active()) sync_chrome();
+    static int was_loading;
+    if (gw == nsapp_active()) {
+        sync_chrome();
+        // A page that finished loading is the newest in History.
+        if (was_loading && !gw->loading && g_side_open && g_side_tabs.selected == NS_MARKS_HISTORY)
+            side_refresh();
+        was_loading = gw->loading;
+    }
     sync_tabs();
     nsapp_redraw();
 }
@@ -374,6 +399,44 @@ static void downloads_toggle(void) {
     ns_dlpanel_open(&g_dlp, x, y + h + 2, w, uapp_width(g_app), uapp_height(g_app));
 }
 
+static struct uui_item ROW[3], ITEMS[2], SIDE[3], PAGE_ROW[2];
+static struct uui_layout ROW_L, ROOT_L, SIDE_L, PAGE_L;
+
+static void side_refresh(void) {
+    if (!g_side_open) return;
+    int which = g_side_tabs.selected;
+    g_side_list.rows = g_side_rows;
+    g_side_list.count = ns_marks_rows(which, uui_textbox_text(&g_side_search), g_side_rows, NS_MARKS_MAX);
+    g_side_list.removable = 1;
+    g_side_list.empty = which == NS_MARKS_BOOKMARKS ? "No bookmarks yet: Ctrl+D keeps the page you are on"
+                                                    : "Nothing browsed to yet";
+    uui_entrylist_reset(&g_side_list);
+    ulogf("browser: sidebar %d rows %d\n", which, g_side_list.count);
+}
+
+// Ctrl+B and Ctrl+H: open the sidebar on that list, switch to it, or
+// close it when it is the one shown -- Firefox's toggle.
+static void side_show(int which) {
+    if (g_side_open && g_side_tabs.selected == which) {
+        g_side_open = 0;
+    } else {
+        g_side_open = 1;
+        g_side_tabs.selected = which;
+    }
+    PAGE_ROW[0].hidden = !g_side_open;
+    if (g_app) uui_layout_run(&ROOT_L, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    side_refresh();
+}
+
+static void bookmark_toggle(void) {
+    struct gui_window *gw = nsapp_active();
+    if (!gw || !gw->url[0]) return;
+    int on = ns_bookmark_toggle(gw->url, gw->title);
+    ulogf("browser: bookmark %d\n", on);
+    sync_chrome();
+    if (g_side_tabs.selected == NS_MARKS_BOOKMARKS) side_refresh();
+}
+
 // A download started or moved on. One that STARTS opens the flyout, as
 // Chrome's bubble and Firefox's panel do, so a click that downloads is
 // seen to have done something.
@@ -443,6 +506,12 @@ static void open_menu(void) {
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON(g_reset_label, CMD_ZOOM_RESET, "Ctrl+0", "tb-actual", UTHEME_ACT_VIEW);
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_SEP;
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Find in page...", CMD_FIND, "Ctrl+F", "tb-find", UTHEME_ACT_NAV);
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_SEP;
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON(ns_bookmarked(nsapp_active() ? nsapp_active()->url : "")
+                                                            ? "Remove bookmark" : "Bookmark this page",
+                                                            CMD_BOOKMARK, "Ctrl+D", "tb-star", UTHEME_ACT_CREATE);
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Bookmarks", CMD_SIDE_BOOKMARKS, "Ctrl+B", "tb-star", UTHEME_ACT_NAV);
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("History", CMD_SIDE_HISTORY, "Ctrl+H", "tb-history", UTHEME_ACT_NAV);
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Downloads", CMD_DOWNLOADS, "Ctrl+J", "tb-down", UTHEME_ACT_NAV);
     int x, y, w, h;
     uui_toolbar_item_rect(&g_tools_r, 1, &x, &y, &w, &h);
@@ -462,6 +531,9 @@ static void command(int code) {
     case CMD_HOME:    go(HOME_URL); break;
     case CMD_MENU:    open_menu(); break;
     case CMD_DOWNLOADS: downloads_toggle(); break;
+    case CMD_BOOKMARK:  bookmark_toggle(); break;
+    case CMD_SIDE_BOOKMARKS: side_show(NS_MARKS_BOOKMARKS); break;
+    case CMD_SIDE_HISTORY:   side_show(NS_MARKS_HISTORY); break;
     case CMD_NEWTAB:  open_tab(HOME_URL); break;
     case CMD_ZOOM_IN:    zoom(+1); break;
     case CMD_ZOOM_OUT:   zoom(-1); break;
@@ -479,13 +551,12 @@ static void command(int code) {
 
 // --- layout -----------------------------------------------------------------
 
-static struct uui_item ROW[3], ITEMS[2];
-static struct uui_layout ROW_L, ROOT_L;
 
 // The address first in Tab order; the page has the keyboard on open.
 static struct uui_focusable g_focusables[] = {
     { .widget = &g_address, .ops = &uui_textbox_ops },
     { .widget = &g_view,    .ops = &ns_view_ops },
+    { .widget = &g_side_search, .ops = &uui_textbox_ops },
 };
 
 static void on_widget(struct uapp *a, int id, int reason) {
@@ -506,6 +577,19 @@ static void on_widget(struct uapp *a, int id, int reason) {
         switch (ns_addr_take(&g_addr)) {
         case NS_ADDR_CHIP: card_toggle(); break;
         case NS_ADDR_ZOOM: zoom(0); break;
+        case NS_ADDR_STAR: bookmark_toggle(); break;
+        }
+    } else if (id == ID_SIDE_TABS || id == ID_SIDE_SEARCH) {
+        side_refresh();
+    } else if (id == ID_SIDE_LIST) {
+        int row;
+        switch (uui_entrylist_take(&g_side_list, &row)) {
+        case UUI_ENTRY_EV_OPEN:   go(ns_marks_url(row)); break;
+        case UUI_ENTRY_EV_REMOVE:
+            ns_marks_remove(g_side_tabs.selected, row);
+            sync_chrome();
+            side_refresh();
+            break;
         }
     } else if (id == ID_DLPANEL) {
         switch (ns_dlpanel_take(&g_dlp)) {
@@ -533,7 +617,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     int ctrl = (mods & KEY_MOD_CTRL) != 0;
     // An open find bar with the keyboard: the query, Enter, Esc -- and
     // the field's own Ctrl+A/C/V. Not the browser's shortcuts.
-    int ours = uui_key_is_shortcut(key, mods) || (ctrl && strchr("\x06\x0a\x0c\x12\x14\x17", key));
+    int ours = uui_key_is_shortcut(key, mods) || (ctrl && strchr("\x02\x04\x06\x08\x0a\x0c\x12\x14\x17", key));
     if (g_find_open && g_focus.current < 0 && !ours && uui_findbar_key(&g_find, key, mods)) {
         switch (uui_findbar_take(&g_find)) {
         case UUI_FIND_CHANGED: find_run(0); break;
@@ -555,6 +639,12 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         command(CMD_FIND);
     } else if (ctrl && key == 0x0A) {                             // Ctrl+J, not Enter
         command(CMD_DOWNLOADS);
+    } else if (ctrl && key == 0x04) {                             // Ctrl+D
+        command(CMD_BOOKMARK);
+    } else if (ctrl && key == 0x02) {                             // Ctrl+B
+        command(CMD_SIDE_BOOKMARKS);
+    } else if (ctrl && key == 0x08) {                             // Ctrl+H, not Backspace
+        command(CMD_SIDE_HISTORY);
     } else if (mods & KEY_MOD_ALT) {
         if (key == KEY_ARROW_LEFT) command(CMD_BACK);
         else if (key == KEY_ARROW_RIGHT) command(CMD_FORWARD);
@@ -643,6 +733,7 @@ static int on_close(struct uapp *a) {
     (void)a;
     urldb_save_cookies(COOKIES_FILE);
     urldb_save(HISTORY_FILE);
+    ns_marks_fini();   // saves the bookmarks
     netsurf_exit();
     return 1;
 }
@@ -712,6 +803,7 @@ static int engine_init(int argc, char **argv) {
     mkdir(STATE_DIR, 0755);
     urldb_load(HISTORY_FILE);
     urldb_load_cookies(COOKIES_FILE);
+    if (!ns_marks_init(BOOKMARKS_FILE)) ulogf("browser: bookmarks could not be loaded\n");
     browser_set_dpi(96);
     return 1;
 }
@@ -737,14 +829,31 @@ int main(int argc, char **argv) {
     ROW[0] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_tools, .id = ID_TOOLS,
                                 .name = "tools" };
     ns_addr_init(&g_addr, &g_address, ID_ADDRESS, "address");
+    g_addr.show_star = 1;
     ROW[1] = (struct uui_item){ .ops = &ns_addr_ops, .widget = &g_addr, .id = ID_ADDRBAR,
                                 .name = "addressbar", .flags = UUI_FILL_W };
     ROW[2] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_tools_r, .id = ID_TOOLS_R,
                                 .name = "tools-right" };
     ROW_L = (struct uui_layout){ .dir = UUI_ROW, .items = ROW, .count = 3, .gap = 4, .margin = 3 };
     ITEMS[0] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &ROW_L, .flags = UUI_FILL_W };
-    ITEMS[1] = (struct uui_item){ .ops = &ns_view_ops, .widget = &g_view, .id = ID_PAGE,
-                                  .name = "page", .flags = UUI_FILL_W | UUI_FILL_H };
+    uui_segmented_init(&g_side_tabs, SIDE_TABS, 2, NS_MARKS_BOOKMARKS);
+    uui_textbox_init(&g_side_search, "");
+    g_side_search.placeholder = "Search";
+    uui_entrylist_init(&g_side_list, NULL);
+    SIDE[0] = (struct uui_item){ .ops = &uui_segmented_ops, .widget = &g_side_tabs, .id = ID_SIDE_TABS,
+                                 .name = "side-tabs" };
+    SIDE[1] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_side_search, .id = ID_SIDE_SEARCH,
+                                 .name = "side-search", .flags = UUI_FILL_W };
+    SIDE[2] = (struct uui_item){ .ops = &uui_entrylist_ops, .widget = &g_side_list, .id = ID_SIDE_LIST,
+                                 .name = "side-list", .flags = UUI_FILL_W | UUI_FILL_H };
+    SIDE_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = SIDE, .count = 3, .gap = 6, .margin = 6 };
+    PAGE_ROW[0] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &SIDE_L, .flags = UUI_FILL_H,
+                                     .hidden = 1 };
+    PAGE_ROW[1] = (struct uui_item){ .ops = &ns_view_ops, .widget = &g_view, .id = ID_PAGE,
+                                     .name = "page", .flags = UUI_FILL_W | UUI_FILL_H };
+    PAGE_L = (struct uui_layout){ .dir = UUI_ROW, .items = PAGE_ROW, .count = 2, .margin = 1 };
+    ITEMS[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &PAGE_L,
+                                  .flags = UUI_FILL_W | UUI_FILL_H };
     // Edge to edge: a margin of 0 means "the default", a character cell,
     // which framed the page in panel grey -- 1 is the least there is.
     ROOT_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = ITEMS, .count = 2, .margin = 1 };

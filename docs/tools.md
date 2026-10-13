@@ -6808,6 +6808,15 @@ runs first**: a `doom1.wad` with one
   card then counts 0 and the server is no longer SENT the cookie, read
   from a new address so the answer is not the cache's.
 
+  **Bookmarks and history**: Ctrl+D fills the address field's star (the
+  ACCENT, matched closely -- a loose match took the unfilled star's grey
+  outline for blue, and passed with adding bookmarks broken); the sidebar
+  opens on Ctrl+B with the page in it and the page view narrowed, a row
+  goes to its page, Ctrl+H lists history, its search narrows to one
+  entry, Backspace edits the search (Ctrl+H is the same code), the row's
+  remove button deletes, Ctrl+B again closes, and the bookmark is in its
+  file after the window closes. Shown red by never adding a bookmark.
+
   **Downloads** (the network half): an attachment opens the flyout and
   lands in `/home/Downloads` with the server's bytes (`sum`'s CRC-32
   against `download_bytes()`), a second of the same name is

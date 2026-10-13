@@ -150,6 +150,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_dropdown.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_edit.h` | uui_edit -- what EDITING TEXT means, in one place. |
 | `uui_editmenu.h` | uui_editmenu -- THE right-click menu of every editable text: Undo, Redo / Cut, Copy, Paste, Delete / Select All, run through the edit core on whatever widget answered uui_widget_ops.edit_target. |
+| `uui_entrylist.h` | uui_entrylist -- a scrolling list of ENTRIES, each a title with a dim line under it (a page and its address, a file and its folder), grouped under HEADINGS ("Today", "Yesterday"): a click opens an... |
 | `uui_filedialog.h` | --- the file chooser, as a window ------------------------------------ |
 | `uui_fileinfo.h` | uui_fileinfo -- a file's preview and facts, drawn from a struct ufileinfo (lib/ufileinfo.h): a HERO (its picture on a stage tinted by it, else its type's icon; the name and a one-line summary; a fo... |
 | `uui_fileview.h` | --- fileview: a directory, as a widget ------------------------------- |

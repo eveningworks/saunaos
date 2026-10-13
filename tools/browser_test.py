@@ -25,6 +25,13 @@ WHAT IT CHECKS, and what a broken version would still pass:
     page's pixels changed by the highlights; Enter steps on, Shift+Enter
     wraps back past the first to the last, and Esc leaves the page
     pixel-identical to before the search (the round trip);
+  - Ctrl+D bookmarks a page and fills the address field's star; Ctrl+B
+    opens the sidebar on it and narrows the page, its row goes to the
+    page, Ctrl+H lists History under a day's heading, its search narrows
+    it to one entry, Backspace edits that search (Ctrl+H and Backspace
+    share a code), the row's remove button deletes the bookmark, and
+    Ctrl+B again closes the sidebar; the bookmark is in its file after
+    the window closes;
   - downloads (over the network): an attachment lands in /home/Downloads
     with the server's exact bytes (CRC-32 from `sum`), a second of the
     same name is "name (1)", a broken connection and a Cancel both leave
@@ -79,7 +86,8 @@ HEX = {" ": "0x20", "/": "0x2f", ".": "0x2e", "-": "0x2d", "_": "0x5f", ":": "0x
 NET_RED = (192, 48, 48)
 # enum ns_site_state (userland/browser/ns_site.h)
 SITE_FILE, SITE_INSECURE, SITE_SECURE = 2, 3, 6
-DANGER = (178, 58, 50)             # utheme's DANGER action role            # net.css's h1 border, #c03030
+DANGER = (178, 58, 50)             # utheme's DANGER action role
+ACCENT = (70, 110, 160)            # utheme_default()'s accent            # net.css's h1 border, #c03030
 WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "data", "tests", "web")
 
@@ -120,6 +128,15 @@ def state(dbg):
         m = re.search(r"browser: layout dlpanel\.open (\d)$", line)
         if m:
             _st["dlp_open"] = int(m.group(1))
+        m = re.search(r"browser: bookmark (\d)$", line)
+        if m:
+            _st["bookmarked"] = int(m.group(1))
+        m = re.search(r"browser: sidebar (\d) rows (\d+)$", line)
+        if m:
+            _st["sidebar"] = (int(m.group(1)), int(m.group(2)))
+        m = re.search(r"browser: layout side-list\.(row|remove) (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+        if m:
+            _st.setdefault("side_" + m.group(1), {})[int(m.group(2))] = tuple(int(v) for v in m.groups()[2:])
         m = re.search(r"browser: zoom (\d+)$", line)
         if m:
             _st["zoom"] = int(m.group(1))
@@ -152,11 +169,12 @@ def window(dbg):
 
 
 def type_text(dbg, text):
-    # A pause every 30 keys: a long burst outruns the app's event queue,
-    # and the key lost is as likely to be the Enter after it.
+    # A pause every 10 keys: a burst outruns the app's inbox and the
+    # compositor DROPS what does not fit, keys included (docs/bugs.md) --
+    # at 30 a page as heavy as net.html lost the 30th.
     for i, ch in enumerate(text):
         dbg.send(f"gui key {HEX.get(ch, ch)}")
-        if i % 30 == 29:
+        if i % 10 == 9:
             dbg.settle(0.3)
 
 
@@ -322,6 +340,7 @@ def run(dbg, qmp, args, net):
     photos(dbg, page, at, shot)
     fonts(dbg, page, at, shot)
     zoom_and_find(dbg, page, at, shot, c)
+    bookmarks_and_history(dbg, page, at, shot)
     if net:
         network(dbg, net, page, at, shot)
     return finish()
@@ -471,6 +490,76 @@ def zoom_and_find(dbg, page, at, shot, c):
           f"{diff} px differ from before the search")
 
 
+def click_rect(dbg, at, r):
+    x, y, w, h = r
+    dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+
+
+def bookmarks_and_history(dbg, page, at, shot):
+    text = "file:///tests/web/text.html"
+    go(dbg, "/tests/web/text.html")
+    wait(dbg, loaded(text))
+    dbg.send("gui key 0x04 ctrl")      # Ctrl+D
+    st = wait(dbg, lambda s: s.get("bookmarked") == 1 and "addressbar.star" in s, 6)
+    im = shot("starred")
+    star = st.get("addressbar.star")
+    # The ACCENT, close: an unfilled star's outline is the muted grey,
+    # which a looser match takes for blue.
+    blue = count(im, at(star), near(ACCENT, 25)) if star else 0
+    check("Ctrl+D bookmarks the page, and the address field's star fills",
+          st.get("bookmarked") == 1 and blue > 10, f"bookmarked {st.get('bookmarked')} {blue} accent px")
+
+    _st.pop("side_row", None)
+    dbg.send("gui key 0x02 ctrl")      # Ctrl+B
+    st = wait(dbg, lambda s: s.get("sidebar") == (0, 1) and s.get("side_row"), 6)
+    check("Ctrl+B opens the sidebar on Bookmarks, holding that page", st.get("sidebar") == (0, 1),
+          f"sidebar {st.get('sidebar')}")
+    st2 = state(dbg)
+    check("...beside the page, which narrows for it", st2.get("page", page)[0] > page[0],
+          f"page {st2.get('page')} was {page}")
+    dbg.send("gui key 0xf786 alt")     # Alt+Home: away, so the click has somewhere to go
+    wait(dbg, loaded(HOME))
+    row = st.get("side_row", {}).get(0)
+    if row:
+        click_rect(dbg, at, row)
+    st = wait(dbg, loaded(text), 8)
+    check("a click on the bookmark goes to it", st.get("url") == text, f"url {st.get('url')}")
+
+    dbg.send("gui key 0x08 ctrl")      # Ctrl+H -- not Backspace: the ctrl bit
+    st = wait(dbg, lambda s: s.get("sidebar", (0, 0))[0] == 1 and s["sidebar"][1] >= 4, 6)
+    check("Ctrl+H switches it to History: the pages visited, under a day's heading",
+          st.get("sidebar", (0, 0))[0] == 1 and st["sidebar"][1] >= 4, f"sidebar {st.get('sidebar')}")
+    search = state(dbg).get("side-search")
+    if search:
+        click_rect(dbg, at, search)
+    type_text(dbg, "fonts")
+    st = wait(dbg, lambda s: s.get("sidebar") == (1, 2), 6)
+    check("...and its search narrows it to the one page that matches (a heading and an entry)",
+          st.get("sidebar") == (1, 2), f"sidebar {st.get('sidebar')}")
+    for _ in range(5):
+        dbg.send("gui key 0x08")       # Backspace: the query emptied, NOT History toggled
+    st = wait(dbg, lambda s: s.get("sidebar", (0, 0))[1] >= 4, 6)
+    check("...Backspace edits the search rather than toggling History",
+          st.get("sidebar", (0, 0))[0] == 1 and st["sidebar"][1] >= 4, f"sidebar {st.get('sidebar')}")
+
+    _st.pop("side_remove", None)
+    dbg.send("gui key 0x02 ctrl")      # Ctrl+B: back to Bookmarks
+    st = wait(dbg, lambda s: s.get("sidebar") == (0, 1) and 0 in s.get("side_remove", {}), 6)
+    rm = st.get("side_remove", {}).get(0)
+    if rm:
+        click_rect(dbg, at, rm)
+    st = wait(dbg, lambda s: s.get("sidebar") == (0, 0), 6)
+    st = wait(dbg, lambda s: s.get("bookmarked") == 0 or s.get("sidebar") == (0, 0), 2)
+    check("the row's remove button deletes the bookmark", st.get("sidebar") == (0, 0),
+          f"sidebar {st.get('sidebar')}")
+    dbg.send("gui key 0x04 ctrl")      # Ctrl+D again: kept for the jar check at the end
+    wait(dbg, lambda s: s.get("bookmarked") == 1, 6)
+    dbg.send("gui key 0x02 ctrl")      # Ctrl+B on Bookmarks: closes it
+    st = wait(dbg, lambda s: s.get("page", (0,))[0] == page[0], 6)
+    check("...and Ctrl+B again closes the sidebar, the page wide again",
+          st.get("page", (0,))[0] == page[0], f"page {st.get('page')}")
+
+
 def labels(dbg):
     return [t.get("label") for t in (window(dbg) or {}).get("tabs", [])]
 
@@ -594,6 +683,9 @@ def network(dbg, net, page, at, shot):
     jar = dbg.send("sh cat /var/lib/browser/cookies") or ""
     check("closing the window keeps the cookie in /var/lib/browser",
           gone and "toy" in jar and "yes" in jar, jar.strip()[-120:])
+    marks = dbg.send("sh cat /var/lib/browser/bookmarks") or ""
+    check("...and the bookmark in /var/lib/browser/bookmarks", "tests/web/text.html" in marks,
+          marks.strip()[-160:])
 
     # Clear, from the card, in a new window (the jar above is checked
     # first): the cookie must then no longer be SENT.
@@ -659,7 +751,10 @@ def downloads(dbg, host, at, shot):
 
     _st.pop("dl_action", None)
     go(dbg, f"{host}/download/slow.bin?size=2000000&slow=1")
-    st = wait(dbg, lambda s: dl_event("start", "slow.bin")(s) and 0 in s.get("dl_action", {}), 20)
+    # Row 0's action must be the new row's SQUARE Cancel: a frame drawn
+    # before the row arrived reports broken.bin's wider Retry there.
+    cancel = lambda s: s.get("dl_action", {}).get(0, (0, 0, 1, 0))
+    st = wait(dbg, lambda s: dl_event("start", "slow.bin")(s) and cancel(s)[2] == cancel(s)[3], 20)
     act = st.get("dl_action", {}).get(0)
     if act:
         x, y, w, h = act

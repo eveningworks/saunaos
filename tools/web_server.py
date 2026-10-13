@@ -24,7 +24,7 @@ What it serves, beside the files of a corpus directory:
   /download/NAME?size=N   N bytes as an attachment named NAME (Content-
                           Disposition), byte i = (7i + 3) & 255 -- what a
                           test checks the saved file against (download_bytes());
-                          &drop=K sends K of them, waits a second and closes, &slow=1 trickles
+                          &drop=K sends K of them in four pieces and closes, &slow=1 trickles
                           them out, 16 KiB every 0.2 s, so a test can cancel
   /stats                  "connections=N requests=M" since the last /reset
   /reset                  zeroes those counters
@@ -110,11 +110,16 @@ def _handler(root, stats):
                 return
             if "drop" in q:
                 # Fewer bytes than promised, then gone: a connection that
-                # broke mid-download. A moment between the two, as a real
-                # one breaks -- NetSurf turns a fetch into a download as
-                # its headers are handled, and a break in the same poll
-                # as them is a failed PAGE, its error page shown.
-                self.wfile.write(data[:int(q["drop"])])
+                # broke mid-download -- in pieces, with pauses, as a real
+                # one breaks. NetSurf decides a fetch is a download from
+                # its first bytes and makes the download's window only on
+                # data AFTER that, so a break that follows one burst ends
+                # a download that never had a row.
+                k = int(q["drop"])
+                for i in range(4):
+                    self.wfile.flush()
+                    time.sleep(0.3)
+                    self.wfile.write(data[i * k // 4:(i + 1) * k // 4])
                 self.wfile.flush()
                 time.sleep(1.0)
                 self.close_connection = True
