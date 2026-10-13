@@ -17,10 +17,13 @@
 #include <sys/stat.h>
 
 #include "utils/errors.h"
+#include "browser/ns_addr.h"
 #include "browser/ns_bitmap.h"
+#include "browser/ns_card.h"
 #include "browser/ns_find.h"
 #include "browser/ns_font.h"
 #include "browser/ns_sched.h"
+#include "browser/ns_site.h"
 #include "browser/ns_view.h"
 
 #include "netsurf/browser.h"
@@ -57,7 +60,7 @@
 #define COOKIES_FILE STATE_DIR "/cookies"
 #define HISTORY_FILE STATE_DIR "/history"
 
-enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND };
+enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND, ID_ADDRBAR, ID_CARD };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_RELOAD, CMD_HOME, CMD_DOWNLOADS, CMD_MENU,
        CMD_NEWTAB, CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_RESET, CMD_FIND };
 
@@ -120,6 +123,11 @@ static struct uui_toolbar g_tools, g_tools_r;
 static struct uui_textbox g_address;
 static int g_shown_loading = -1;
 
+// The address field's frame (S1): the security chip, the field, the zoom
+// badge -- and the lock's card (P1), drawn over the page.
+static struct ns_addr g_addr;
+static struct ns_card g_card;
+
 // The ☰ menu: a menu with no bar strip, opened under its button (KDE's
 // ☰, Terminal's). Built as it opens, so Reset zoom can name the level.
 static struct uui_menubar g_ctx;
@@ -155,6 +163,13 @@ static void sync_chrome(void) {
     // The address shows the page's -- unless the person is typing in it.
     if (gw && !g_address.active) {
         uui_textbox_set_text(&g_address, gw->url);
+    }
+    int state = ns_site_state(gw), zoom = ns_view_zoom_pct(gw);
+    if (state != g_addr.state || zoom != g_addr.zoom) {
+        g_addr.state = state;
+        g_addr.zoom = zoom;
+        ns_addr_sync(&g_addr);
+        ulogf("browser: site %d zoom %d\n", state, zoom);
     }
 }
 
@@ -278,6 +293,7 @@ static void find_close(void);
 static void select_tab(int i) {
     if (i < 0 || i >= g_ntabs) return;
     if (g_find_open && i != g_cur) find_close();
+    ns_card_close(&g_card);
     g_cur = i;
     g_shown_loading = -1;
     g_address.active = 0;
@@ -340,8 +356,8 @@ static void place_find(void) {
     uui_findbar_set_geometry(&g_find, v->x + ns_view_page_w(v) - 8 - fw, v->y + 6, fw, fh);
 }
 
-static struct uui_item g_widgets[3];
-enum { W_CTX, W_ROOT, W_FIND };
+static struct uui_item g_widgets[4];
+enum { W_CTX, W_ROOT, W_FIND, W_CARD };
 
 static void find_open(void) {
     g_find_open = 1;
@@ -364,6 +380,32 @@ static void find_close(void) {
 static void zoom(int dir) {
     int pct = ns_view_zoom(nsapp_active(), dir);
     ulogf("browser: zoom %d\n", pct);
+    sync_chrome();
+}
+
+// The lock's card, under the chip; a second click on the chip closes it.
+static void card_toggle(void) {
+    int x, y, w, h;
+    if (g_card.open) {
+        ns_card_close(&g_card);
+        return;
+    }
+    if (!ns_addr_part_rect(&g_addr, NS_ADDR_CHIP, &x, &y, &w, &h)) return;
+    struct ns_site site;
+    ns_site_get(nsapp_active(), &site);
+    ns_card_open(&g_card, &site, x, y + h + 4, uapp_width(g_app), uapp_height(g_app));
+    ulogf("browser: card %d cookies %d chain %d tls %s\n", site.state, site.cookies,
+          site.chain_depth, site.version[0] ? site.version : "-");
+}
+
+static void card_clear(void) {
+    int n = ns_site_clear_cookies(nsapp_active());
+    ulogf("browser: cookies cleared %d\n", n);
+    struct ns_site site;
+    ns_site_get(nsapp_active(), &site);
+    ns_card_open(&g_card, &site, g_card.x, g_card.y, uapp_width(g_app), uapp_height(g_app));
+    ulogf("browser: card %d cookies %d chain %d tls %s\n", site.state, site.cookies,
+          site.chain_depth, site.version[0] ? site.version : "-");
 }
 
 static void open_menu(void) {
@@ -433,6 +475,13 @@ static void on_widget(struct uapp *a, int id, int reason) {
         case UUI_FIND_CLOSE: find_close(); break;
         default: break;
         }
+    } else if (id == ID_ADDRBAR) {
+        switch (ns_addr_take(&g_addr)) {
+        case NS_ADDR_CHIP: card_toggle(); break;
+        case NS_ADDR_ZOOM: zoom(0); break;
+        }
+    } else if (id == ID_CARD) {
+        if (ns_card_take(&g_card) == NS_CARD_CLEAR) card_clear();
     } else if (id == ID_PAGE && g_find_open) {
         uui_textbox_set_active(&g_find.field, 0);   // the page took the keyboard back
     }
@@ -645,8 +694,9 @@ int main(int argc, char **argv) {
 
     ROW[0] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_tools, .id = ID_TOOLS,
                                 .name = "tools" };
-    ROW[1] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &g_address, .id = ID_ADDRESS,
-                                .name = "address", .flags = UUI_FILL_W };
+    ns_addr_init(&g_addr, &g_address, ID_ADDRESS, "address");
+    ROW[1] = (struct uui_item){ .ops = &ns_addr_ops, .widget = &g_addr, .id = ID_ADDRBAR,
+                                .name = "addressbar", .flags = UUI_FILL_W };
     ROW[2] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_tools_r, .id = ID_TOOLS_R,
                                 .name = "tools-right" };
     ROW_L = (struct uui_layout){ .dir = UUI_ROW, .items = ROW, .count = 3, .gap = 4, .margin = 3 };
@@ -664,6 +714,8 @@ int main(int argc, char **argv) {
     g_widgets[W_ROOT] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &ROOT_L };
     g_widgets[W_FIND] = (struct uui_item){ .ops = &uui_findbar_ops, .widget = &g_find, .id = ID_FIND,
                                            .name = "find", .hidden = 1 };
+    g_widgets[W_CARD] = (struct uui_item){ .ops = &ns_card_ops, .widget = &g_card, .id = ID_CARD,
+                                           .name = "card" };
     uui_menubar_init(&g_ctx, 0, 0);   // no bar of its own: open_below() supplies the rows
     uui_findbar_init(&g_find);
     g_find.pill = 1;
@@ -674,7 +726,7 @@ int main(int argc, char **argv) {
         .on_size      = on_size,
         .layout       = &ROOT_L,
         .widgets      = g_widgets,
-        .widget_count = 3,
+        .widget_count = 4,
         .on_widget    = on_widget,
         .on_key       = on_key,
         .on_tab       = on_tab,

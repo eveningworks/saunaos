@@ -6796,6 +6796,16 @@ runs first**: a `doom1.wad` with one
   no matches and by dropping the scale call: exactly the three count
   checks and the zoom check failed.
 
+  **The address field and the lock's card**: the start page's chip says
+  File (drawn ink in the reported rect); a zoomed page shows its badge
+  and a click on it resets to 100%; an http page's chip is red (Not
+  secure) and its card counts the cookie the server set; an https page
+  is secure and its card has a TLS version and a chain -- still after a
+  second page over a POOLED connection, the case with no handshake. Clear
+  is checked last, in a reopened window after the jar has been read: the
+  card then counts 0 and the server is no longer SENT the cookie, read
+  from a new address so the answer is not the cache's.
+
   **Fonts**: `/tests/web/fonts.html` draws one word per 48 px row in
   sans, serif, mono and each one's italic, and the INK of each pair
   that must differ (sans/serif, upright/italic, regular/bold) differs,

@@ -71,7 +71,10 @@ HOME = "file:///usr/share/netsurf/start.html"
 HEADER_BLUE = (50, 90, 160)        # start.html's .top background, #325aa0
 HEX = {" ": "0x20", "/": "0x2f", ".": "0x2e", "-": "0x2d", "_": "0x5f", ":": "0x3a",
        "?": "0x3f", "=": "0x3d"}
-NET_RED = (192, 48, 48)            # net.css's h1 border, #c03030
+NET_RED = (192, 48, 48)
+# enum ns_site_state (userland/browser/ns_site.h)
+SITE_FILE, SITE_INSECURE, SITE_SECURE = 2, 3, 6
+DANGER = (178, 58, 50)             # utheme's DANGER action role            # net.css's h1 border, #c03030
 WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "data", "tests", "web")
 
@@ -88,6 +91,18 @@ def state(dbg):
         m = re.search(r"browser: layout menu\.item 0 (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
         if m:
             _st.setdefault("menu_items", {})[int(m.group(1))] = tuple(int(v) for v in m.groups()[1:])
+        m = re.search(r"browser: site (\d+) zoom (\d+)$", line)
+        if m:
+            _st["site"] = int(m.group(1))
+        m = re.search(r"browser: card (\d+) cookies (\d+) chain (\d+) tls (\S+)$", line)
+        if m:
+            _st["cardinfo"] = (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4))
+        m = re.search(r"browser: cookies cleared (\d+)$", line)
+        if m:
+            _st["cleared"] = int(m.group(1))
+        m = re.search(r"browser: layout card\.open (\d)$", line)
+        if m:
+            _st["card_open"] = int(m.group(1))
         m = re.search(r"browser: zoom (\d+)$", line)
         if m:
             _st["zoom"] = int(m.group(1))
@@ -279,6 +294,14 @@ def run(dbg, qmp, args, net):
     st = wait(dbg, lambda s: s.get("tabs") == 1, timeout=6)
     check("...and Ctrl+W closes it, back to the first", st.get("tabs") == 1 and
           st.get("url") == "file:///tests/web/text.html", f"tabs={st.get('tabs')} url={st.get('url')}")
+    st = state(dbg)
+    chip = st.get("addressbar.chip")
+    check("the address field says a local page is a File", st.get("site") == SITE_FILE and chip,
+          f"site {st.get('site')} chip {chip}")
+    if chip:
+        ink = count(im, at(chip), lambda p: max(p) < 150)
+        check("...in a chip that is drawn", ink > 20, f"{ink} dark px")
+
     photos(dbg, page, at, shot)
     fonts(dbg, page, at, shot)
     zoom_and_find(dbg, page, at, shot, c)
@@ -385,6 +408,18 @@ def zoom_and_find(dbg, page, at, shot, c):
           st.get("zoom") == 100 and st.get("ext_h") == base["ext_h"],
           f"zoom {st.get('zoom')} extent {st.get('ext_h')} vs {base['ext_h']}")
 
+    _st.pop("addressbar.zoom", None)
+    dbg.send("gui key 0x3d ctrl")      # Ctrl+=
+    st = wait(dbg, lambda s: s.get("zoom") == 110 and "addressbar.zoom" in s, 6)
+    badge = st.get("addressbar.zoom")
+    check("a zoomed page shows its level in the address field", badge is not None,
+          f"zoom {st.get('zoom')} badge {badge}")
+    if badge:
+        x, y, w, h = badge
+        dbg.send("gui click %d %d" % (c["x"] + x + w // 2, c["y"] + y + h // 2))
+    st = wait(dbg, lambda s: s.get("zoom") == 100 and s.get("ext_h") == base["ext_h"], 6)
+    check("...and a click on that badge resets it", st.get("zoom") == 100, f"zoom {st.get('zoom')}")
+
     # Find: "line" is in text.html eight times, ignoring case -- "Line 1" to
     # "Line 6", "lines", and the heading's "inline".
     dbg.send("gui key 0x06 ctrl")      # Ctrl+F
@@ -448,6 +483,18 @@ def network(dbg, net, page, at, shot):
     dbg.settle(1.0)
     check("a cookie the server set is sent back", "cookie toy=yes" in labels(dbg),
           f"tabs {labels(dbg)}")
+    im = shot("insecure")
+    st = state(dbg)
+    chip = st.get("addressbar.chip")
+    red = count(im, at(chip), near(DANGER, 40)) if chip else 0
+    check("an http page's address field says Not secure, in red", st.get("site") == SITE_INSECURE
+          and red > 30, f"site {st.get('site')} {red} red px")
+    card = open_card(dbg, at)
+    check("its lock's card opens, counting the site's cookie", card and card[0] == SITE_INSECURE
+          and card[1] >= 1 and _st.get("card_open") == 1, f"card {card} open {_st.get('card_open')}")
+    dbg.send("gui key 0x1b")
+    st = wait(dbg, lambda s: s.get("card_open") == 0, 4)
+    check("...and Esc closes it", st.get("card_open") == 0, f"open {st.get('card_open')}")
 
     go(dbg, "toy os")
     want = f"http://{host}/echo?q=toy+os"
@@ -486,6 +533,24 @@ def network(dbg, net, page, at, shot):
         st = wait(dbg, loaded(good), timeout=40)
         check("https with a trusted test CA loads", st.get("url") == good and "Tables" in labels(dbg),
               f"url={st.get('url')} tabs {labels(dbg)}")
+        check("...and the address field shows it as secure", st.get("site") == SITE_SECURE,
+              f"site {st.get('site')}")
+        card = open_card(dbg, at)
+        check("its card names the protocol and the certificate chain", card and card[0] == SITE_SECURE
+              and card[2] >= 1 and card[3].startswith("TLS"), f"card {card}")
+        shot("card_https")
+        dbg.send("gui key 0x1b")
+        wait(dbg, lambda s: s.get("card_open") == 0, 4)
+        # The same server again: a POOLED connection, no handshake -- the
+        # certificate comes from the host's record.
+        good2 = f"https://{GATEWAY}:{net['good'].port}/net.html"
+        go(dbg, good2)
+        wait(dbg, loaded(good2), timeout=40)
+        card = open_card(dbg, at)
+        check("...and still does after a page over a reused connection",
+              card and card[0] == SITE_SECURE and card[2] >= 1, f"card {card}")
+        dbg.send("gui key 0x1b")
+        wait(dbg, lambda s: s.get("card_open") == 0, 4)
         bad = f"https://{GATEWAY}:{net['expired'].port}/table.html"
         go(dbg, bad)
         # NetSurf's certificate page keeps the address it refused, and
@@ -510,6 +575,41 @@ def network(dbg, net, page, at, shot):
     jar = dbg.send("sh cat /var/lib/browser/cookies") or ""
     check("closing the window keeps the cookie in /var/lib/browser",
           gone and "toy" in jar and "yes" in jar, jar.strip()[-120:])
+
+    # Clear, from the card, in a new window (the jar above is checked
+    # first): the cookie must then no longer be SENT.
+    _st.clear()
+    dbg.spawn(APP + " --weak-entropy")
+    wait(dbg, lambda s: "page" in s and loaded(HOME)(s), 30)
+    go(dbg, f"{host}/cookie/show")
+    wait(dbg, loaded(f"http://{host}/cookie/show"), timeout=20)
+    card = open_card(dbg, at)
+    clear = _st.get("card.clear")
+    if clear:
+        x, y, w, h = clear
+        dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+    st = wait(dbg, lambda s: s.get("cleared") is not None and s.get("cardinfo", (0, 1))[1] == 0, 4)
+    after = st.get("cardinfo")
+    dbg.send("gui key 0x1b")
+    # A NEW address, so the answer is the server's and not the cache's.
+    go(dbg, f"{host}/cookie/show?after=clear")
+    wait(dbg, loaded(f"http://{host}/cookie/show?after=clear"), timeout=20)
+    dbg.settle(1.0)
+    check("Clear on the card deletes the site's cookie, so it is no longer sent",
+          card and card[1] >= 1 and st.get("cleared", 0) >= 1 and after and after[1] == 0
+          and "cookie toy=yes" not in labels(dbg),
+          f"card {card} cleared {st.get('cleared')} then {after} tabs {labels(dbg)}")
+
+
+def open_card(dbg, at):
+    """Clicks the address field's chip; the card's report, or None."""
+    _st.pop("cardinfo", None)
+    chip = state(dbg).get("addressbar.chip")
+    if not chip:
+        return None
+    x, y, w, h = chip
+    dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+    return wait(dbg, lambda s: "cardinfo" in s and s.get("card_open") == 1, 6).get("cardinfo")
 
 
 def finish():

@@ -17,6 +17,7 @@
 #include "mbedtls/entropy.h"
 #include "mbedtls/ctr_drbg.h"
 #include "mbedtls/x509_crt.h"
+#include "mbedtls/oid.h"
 #include "mbedtls/error.h"
 #include "mbedtls/pk.h"
 #include "mbedtls/ecp.h"
@@ -156,6 +157,45 @@ static mbedtls_x509_crt *anchors_for(const char *dir, mbedtls_x509_crt *own, int
     *n = g_store_n;
     pthread_mutex_unlock(&g_store_mu);
     return &g_store;
+}
+
+// The first attribute of a distinguished name with this OID, as text.
+// A DN's values are DER strings of several types; every one a browser
+// shows is UTF8String or PrintableString, both readable as bytes.
+static void dn_attr(const mbedtls_x509_name *n, const char *oid, size_t oid_len,
+                    char *out, size_t cap) {
+    out[0] = '\0';
+    for (; n; n = n->next)
+        if (n->oid.len == oid_len && !memcmp(n->oid.p, oid, oid_len)) {
+            size_t k = n->val.len < cap - 1 ? n->val.len : cap - 1;
+            memcpy(out, n->val.p, k);
+            out[k] = '\0';
+            return;
+        }
+}
+
+int utls_cert_describe(const unsigned char *der, size_t len, struct utls_cert_info *out) {
+    memset(out, 0, sizeof *out);
+    mbedtls_x509_crt crt;
+    mbedtls_x509_crt_init(&crt);
+    if (mbedtls_x509_crt_parse_der(&crt, der, len) != 0) {
+        mbedtls_x509_crt_free(&crt);
+        return -1;
+    }
+#define ATTR(dn, oid, field) dn_attr(&crt.dn, oid, sizeof(oid) - 1, out->field, sizeof out->field)
+    ATTR(subject, MBEDTLS_OID_AT_CN, subject_cn);
+    ATTR(subject, MBEDTLS_OID_AT_ORGANIZATION, subject_org);
+    ATTR(issuer, MBEDTLS_OID_AT_CN, issuer_cn);
+    ATTR(issuer, MBEDTLS_OID_AT_ORGANIZATION, issuer_org);
+#undef ATTR
+    out->not_before.year = crt.valid_from.year;
+    out->not_before.mon = crt.valid_from.mon;
+    out->not_before.day = crt.valid_from.day;
+    out->not_after.year = crt.valid_to.year;
+    out->not_after.mon = crt.valid_to.mon;
+    out->not_after.day = crt.valid_to.day;
+    mbedtls_x509_crt_free(&crt);
+    return 0;
 }
 
 const char *utls_cert_err_text(enum utls_cert_err e) {

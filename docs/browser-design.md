@@ -363,6 +363,24 @@ upstream's and stay so: a match draws in the SELECTION's colours (no
 yellow, no distinct current match), and a text box shows only its first
 match highlighted, though every match is counted and stepped to.
 
+**Built: the address field's states and the lock's card.** The field
+is a frame (`userland/browser/ns_addr.c`) around the app's own text
+field drawn bare, so the field keeps its focus, editing and edit menu;
+the chip before it comes from NetSurf's page-info state (a lock for
+https, a red "Not secure" for http or a refused certificate, "File",
+"Web Browser" for the browser's own pages), and a zoom badge after it
+shows off 100% and resets on a click. The card (`ns_card.c`) is drawn
+in the window as an overlay, so a click outside closes it and still
+reaches the page. Its facts come from three places: the protocol and
+cipher from libhttp, recorded per host by the fetcher, since NetSurf
+keeps neither; the certificate's names and dates decoded by
+`utls_cert_describe()`; and the cookies from NetSurf's cookie store,
+matched to the host as RFC 6265 sends them and cleared the same way.
+**A FETCH OVER A POOLED CONNECTION MAKES NO HANDSHAKE**, so it brings no
+certificate of its own: the fetcher hands NetSurf the chain that host
+presented last, or the card of the second page from a site would have
+none.
+
 Downloads go through NetSurf's own download path, which takes the
 response already arriving -- a second fetch through `uhttp_download`
 would lose a POST's result and a download that needs the session's

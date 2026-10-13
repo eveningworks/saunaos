@@ -67,6 +67,17 @@ struct utls_chain {
 // Frees the DER copies and zeroes the chain. Safe on an empty one.
 void utls_chain_free(struct utls_chain *c);
 
+// What one certificate of a chain says, for a person to read -- the
+// names and dates a browser's connection card shows. Strings are
+// empty when the certificate does not carry them.
+struct utls_cert_info {
+    char subject_cn[128], subject_org[128];
+    char issuer_cn[128], issuer_org[128];
+    struct { int year, mon, day; } not_before, not_after;
+};
+// From a certificate's DER. 0, or -1 when it does not parse.
+int utls_cert_describe(const unsigned char *der, size_t len, struct utls_cert_info *out);
+
 struct utls_config {
     // The name to verify the certificate against, and to send as SNI.
     // REQUIRED even when verification is off: a shared-hosting server

@@ -26,4 +26,8 @@ void ns_fetch_http_set_wake(void (*wake)(void));
 // `wget --weak-entropy` does, for a guest with no virtio-rng under test.
 void ns_fetch_http_allow_weak_entropy(int on);
 
+// The protocol and cipher of `host`'s last https connection
+// ("TLSv1.3", "TLS1-3-AES-256-GCM-SHA384" -- mbedTLS's names), for the
+// connection card. 1, or 0 when this run has not reached it over https.
+int ns_fetch_http_tls_info(const char *host, char *version, size_t vcap, char *cipher, size_t ccap);
 #endif

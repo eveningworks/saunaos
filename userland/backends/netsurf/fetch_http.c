@@ -41,7 +41,7 @@
 // pthread stack (64 KiB) is sized for workers that do not do TLS.
 #define FETCH_STACK (256 * 1024)
 
-enum { M_HEADER, M_DATA, M_CERTS, M_DONE };
+enum { M_HEADER, M_DATA, M_CERTS, M_TLS, M_DONE };
 
 struct msg {
     struct msg *next;
@@ -50,7 +50,8 @@ struct msg {
     int rc, cert_err;
     struct utls_chain *chain;   // M_CERTS, a deep copy
     size_t len;
-    char data[];                // M_HEADER (with its CRLF), M_DATA, M_DONE's err
+    char data[];                // M_HEADER (with its CRLF), M_DATA, M_DONE's err,
+                                // M_TLS's version NUL cipher
 };
 
 struct hfetch {
@@ -74,7 +75,7 @@ struct hfetch {
 
     // The main thread's.
     struct hfetch *next;        // the active list
-    bool started, linked, aborted, stopped, had_headers, terminal;
+    bool started, linked, aborted, stopped, had_headers, had_certs, terminal;
     long http_code;
     char *location, *realm;
 };
@@ -275,22 +276,32 @@ static int t_data(void *ctx, const void *data, size_t len) {
     return push(f, m) == 0 ? 0 : 1;
 }
 
+// A deep copy: the DER copies are `dst`'s own.
+static void chain_copy(struct utls_chain *dst, const struct utls_chain *src) {
+    *dst = *src;
+    for (int i = 0; i < src->depth && i < UTLS_CHAIN_MAX; i++) {
+        dst->certs[i].der = malloc(src->certs[i].der_len ? src->certs[i].der_len : 1);
+        if (dst->certs[i].der && src->certs[i].der_len)
+            memcpy(dst->certs[i].der, src->certs[i].der, src->certs[i].der_len);
+        else if (!dst->certs[i].der)
+            dst->certs[i].der_len = 0;
+    }
+    for (int i = src->depth; i < UTLS_CHAIN_MAX; i++) dst->certs[i].der = NULL;
+}
+
 static void t_certs(void *ctx, const struct utls_chain *chain) {
     struct msg *m = msg_new(M_CERTS, NULL, 0, NULL);
     if (!m) return;
     m->chain = calloc(1, sizeof *m->chain);
-    if (m->chain) {
-        *m->chain = *chain;
-        for (int i = 0; i < chain->depth && i < UTLS_CHAIN_MAX; i++) {
-            m->chain->certs[i].der = malloc(chain->certs[i].der_len ? chain->certs[i].der_len : 1);
-            if (m->chain->certs[i].der && chain->certs[i].der_len)
-                memcpy(m->chain->certs[i].der, chain->certs[i].der, chain->certs[i].der_len);
-            else if (!m->chain->certs[i].der)
-                m->chain->certs[i].der_len = 0;
-        }
-        for (int i = chain->depth; i < UTLS_CHAIN_MAX; i++) m->chain->certs[i].der = NULL;
-    }
+    if (m->chain) chain_copy(m->chain, chain);
     push(ctx, m);
+}
+
+static void t_connect(void *ctx, uint32_t ip, const char *version, const char *cipher) {
+    (void)ip;
+    if (!version) return;   // plain http
+    struct msg *m = msg_new(M_TLS, version, strlen(version) + 1, cipher ? cipher : "");
+    if (m) push(ctx, m);
 }
 
 static void *worker(void *arg) {
@@ -312,6 +323,7 @@ static void *worker(void *arg) {
         req->sink_ctx = f;
         req->on_header = t_header;
         req->on_certs = t_certs;
+        req->on_connect = t_connect;
         rc = uhttp_fetch(req);
     }
     const char *err = req ? req->err : "out of memory";
@@ -516,6 +528,60 @@ static ssl_cert_err cert_err_of(enum utls_cert_err e) {
     return SSL_CERT_ERR_UNKNOWN;
 }
 
+// --- what each host's TLS connection was --------------------------------------
+//
+// Kept on the main thread, per host, for two readers. A fetch over a
+// POOLED connection makes no handshake, so it brings no certificates of
+// its own -- NetSurf is handed the host's last chain instead, and its
+// page info shows a certificate either way. And the connection card asks
+// which protocol and cipher the page arrived over, which NetSurf does
+// not record.
+#define TLS_HOSTS 16
+static struct host_tls {
+    char host[128];
+    char version[24], cipher[64];
+    struct utls_chain chain;
+    unsigned used;                 // the clock at its last use; 0 = free
+} g_tls[TLS_HOSTS];
+static unsigned g_tls_clock;
+
+static const char *host_of(struct hfetch *f, char *buf, size_t cap) {
+    lwc_string *h = nsurl_get_component(f->url, NSURL_HOST);
+    buf[0] = '\0';
+    if (h) {
+        snprintf(buf, cap, "%.*s", (int)lwc_string_length(h), lwc_string_data(h));
+        lwc_string_unref(h);
+    }
+    return buf;
+}
+
+// The host's entry; with `create`, the least recently used one is taken
+// over for a host not seen.
+static struct host_tls *tls_entry(const char *host, int create) {
+    struct host_tls *lru = &g_tls[0];
+    for (int i = 0; i < TLS_HOSTS; i++) {
+        if (g_tls[i].used && !strcmp(g_tls[i].host, host)) {
+            g_tls[i].used = ++g_tls_clock;
+            return &g_tls[i];
+        }
+        if (g_tls[i].used < lru->used) lru = &g_tls[i];
+    }
+    if (!create || !host[0]) return NULL;
+    utls_chain_free(&lru->chain);
+    memset(lru, 0, sizeof *lru);
+    snprintf(lru->host, sizeof lru->host, "%s", host);
+    lru->used = ++g_tls_clock;
+    return lru;
+}
+
+int ns_fetch_http_tls_info(const char *host, char *version, size_t vcap, char *cipher, size_t ccap) {
+    struct host_tls *t = host ? tls_entry(host, 0) : NULL;
+    if (!t || !t->version[0]) return 0;
+    snprintf(version, vcap, "%s", t->version);
+    snprintf(cipher, ccap, "%s", t->cipher);
+    return 1;
+}
+
 static void send_certs(struct hfetch *f, const struct utls_chain *c) {
     struct cert_chain *chain;
     size_t depth = c->depth < MAX_CERT_DEPTH ? (size_t)c->depth : MAX_CERT_DEPTH;
@@ -536,13 +602,38 @@ static void send_certs(struct hfetch *f, const struct utls_chain *c) {
 // One message. Sets f->terminal once a message that ends the fetch has
 // been sent.
 static void handle(struct hfetch *f, struct msg *m) {
+    char host[128];
+    // A response with no handshake of its own came over a pooled
+    // connection: the certificates its host presented last time, before
+    // anything else of it.
+    if (!f->had_certs && m->kind != M_CERTS && m->kind != M_TLS) {
+        f->had_certs = true;
+        struct host_tls *t = !strncmp(f->urlstr, "https:", 6) ? tls_entry(host_of(f, host, sizeof host), 0) : NULL;
+        if (t && t->chain.depth) send_certs(f, &t->chain);
+    }
     switch (m->kind) {
     case M_HEADER:
         on_header_line(f, m->data, m->len);
         break;
     case M_CERTS:
-        if (m->chain) send_certs(f, m->chain);
+        f->had_certs = true;
+        if (m->chain) {
+            send_certs(f, m->chain);
+            struct host_tls *t = tls_entry(host_of(f, host, sizeof host), 1);
+            if (t) {
+                utls_chain_free(&t->chain);
+                chain_copy(&t->chain, m->chain);
+            }
+        }
         break;
+    case M_TLS: {
+        struct host_tls *t = tls_entry(host_of(f, host, sizeof host), 1);
+        if (t) {
+            snprintf(t->version, sizeof t->version, "%s", m->data);
+            snprintf(t->cipher, sizeof t->cipher, "%s", m->data + strlen(m->data) + 1);
+        }
+        break;
+    }
     case M_DATA:
         if (!f->had_headers && process_headers(f)) {
             f->stopped = f->terminal = true;
