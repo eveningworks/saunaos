@@ -19,6 +19,11 @@ WHAT IT CHECKS, and what a broken version would still pass:
     coordinates, and the page it leads to must be the one loaded after;
   - the wheel scrolls a long page, by the scroll offset the app reports;
   - Ctrl+T opens a second tab and Ctrl+W closes it again;
+  - /tests/web/fonts.html draws serif, italic and monospace italic each
+    in its own face -- the same word's ink differs from the upright or
+    sans row beside it -- while a row repeated, and "Times New Roman"
+    against `serif`, match (the controls: a broken version that drew
+    every row the same would pass "it differs" nowhere);
   - /tests/web/photos.html's progressive JPEG (four colour quadrants)
     and 2-bit palette Adam7 PNG (four bands) are DRAWN, each region its
     own colour in the pixels -- decoded by lib/uimg.h in a thread, as
@@ -256,6 +261,7 @@ def run(dbg, qmp, args, net):
     check("...and Ctrl+W closes it, back to the first", st.get("tabs") == 1 and
           st.get("url") == "file:///tests/web/text.html", f"tabs={st.get('tabs')} url={st.get('url')}")
     photos(dbg, page, at, shot)
+    fonts(dbg, page, at, shot)
     if net:
         network(dbg, net, page, at, shot)
     return finish()
@@ -288,6 +294,43 @@ def photos(dbg, page, at, shot):
     check("the 2-bit Adam7 PNG is drawn, each band its colour", min(got) > 900, f"{got} of 1200 px")
     white = count(im, box(8 + 320 + 60, 8 + 60), lambda p: min(p) > 245)
     check("...and the page beside them stays white (control)", white > 1100, f"{white} px")
+
+
+# /tests/web/fonts.html: one 48 px row per style, the same word in each.
+FONT_ROWS = ["sans", "sans again", "serif", "sans italic", "serif italic",
+             "mono", "mono italic", "Times New Roman", "serif bold", "serif bold italic"]
+
+
+def fonts(dbg, page, at, shot):
+    go(dbg, "/tests/web/fonts.html")
+    url = "file:///tests/web/fonts.html"
+    st = wait(dbg, loaded(url))
+    check("a page of serif, italic and monospace text loads", st.get("url") == url,
+          f"url={st.get('url')}")
+    im = shot("fonts")
+    w = min(page[2] - 8, 420)
+
+    def ink(row):    # the row's dark pixels, as a set of (x, y) within it
+        x, y, _, h = at((page[0], page[1] + row * 48 - st.get("sy", 0), w, 48))
+        crop = im.crop((x, y, x + w, y + h)).convert("L")
+        return {(i % w, i // w) for i, v in enumerate(crop.get_flattened_data()) if v < 128}
+    rows = {name: ink(i) for i, name in enumerate(FONT_ROWS)}
+
+    def diff(a, b):
+        return len(rows[a] ^ rows[b])
+    check("every row is drawn", min(len(r) for r in rows.values()) > 300,
+          f"{[len(r) for r in rows.values()]} ink px")
+    check("...the same style twice draws the same ink (control)", diff("sans", "sans again") < 20,
+          f"{diff('sans', 'sans again')} px differ")
+    for a, b, what in [("sans", "serif", "serif is not sans"),
+                       ("sans", "sans italic", "sans italic is slanted"),
+                       ("serif", "serif italic", "serif italic is slanted"),
+                       ("mono", "mono italic", "monospace italic is slanted"),
+                       ("serif", "serif bold", "serif bold is bold"),
+                       ("serif bold", "serif bold italic", "serif bold italic is slanted")]:
+        check(f"{what}: its ink differs", diff(a, b) > 400, f"{diff(a, b)} px differ")
+    check('"Times New Roman" draws in the serif face', diff("serif", "Times New Roman") < 20,
+          f"{diff('serif', 'Times New Roman')} px differ")
 
 
 def labels(dbg):

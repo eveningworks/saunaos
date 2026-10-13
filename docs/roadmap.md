@@ -875,7 +875,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Browser stage 4: the lock's connection card, Downloads, find in page, zoom, bookmarks and history
 - [ ] Browser stage 5: `uui_webview` -- the engine as a content process, so Help and release notes can embed a page
 - [ ] Browser stage 6: JavaScript through Duktape, off by default until measured
-- [ ] Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans
+- [x] ~~Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans~~ DONE 2026-10-13
 
 ## Hardware
 

@@ -31,23 +31,29 @@ The full OFL text is included at tools/OFL.txt and must accompany any
 redistribution of that font data (or substantial rendered derivatives
 of it), per the OFL's own terms.
 
-data/fonts/ contains five complete third-party font files, shipped
+data/fonts/ contains thirteen complete third-party font files, shipped
 verbatim onto the disk image as /usr/share/fonts and loaded at runtime
-(see kernel/drivers/font_face.c). None is covered by the MIT License
-above:
+(by /bin/fontd and userland/ui/uglyph.c). None is covered by the MIT
+License above:
 
-  dejavu-sans-mono.ttf       DejaVu Sans Mono, under the Bitstream
-  dejavu-sans-mono-bold.ttf  Vera Fonts Copyright and the Arev Fonts
-                             Copyright. Full text:
-                             data/fonts/LICENSE-DejaVu.txt.
+  dejavu-sans-mono.ttf              DejaVu Sans Mono and its Oblique
+  dejavu-sans-mono-bold.ttf         faces, under the Bitstream Vera
+  dejavu-sans-mono-italic.ttf       Fonts Copyright and the Arev Fonts
+  dejavu-sans-mono-bold-italic.ttf  Copyright. Full text:
+                                    data/fonts/LICENSE-DejaVu.txt.
 
-  liberation-sans.ttf        Liberation Sans, under the SIL Open Font
-  liberation-sans-bold.ttf   License, Version 1.1. Full text:
-                             data/fonts/LICENSE-Liberation.txt.
+  liberation-sans.ttf               Liberation Sans and Liberation
+  liberation-sans-bold.ttf          Serif, under the SIL Open Font
+  liberation-sans-italic.ttf        License, Version 1.1. Full text:
+  liberation-sans-bold-italic.ttf   data/fonts/LICENSE-Liberation.txt.
+  liberation-serif.ttf
+  liberation-serif-bold.ttf
+  liberation-serif-italic.ttf
+  liberation-serif-bold-italic.ttf
 
-  vera-mono.ttf              Bitstream Vera Sans Mono, under the
-                             Bitstream Vera Fonts Copyright. Full
-                             text: data/fonts/LICENSE-Vera.txt.
+  vera-mono.ttf                     Bitstream Vera Sans Mono, under the
+                                    Bitstream Vera Fonts Copyright. Full
+                                    text: data/fonts/LICENSE-Vera.txt.
 
 All three license files are copied onto the disk image alongside the
 fonts themselves, because each license requires the notice to travel

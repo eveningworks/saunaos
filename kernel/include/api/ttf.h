@@ -149,8 +149,8 @@ int ttf_advance_px(const struct ttf_font *f, int gid, int px);
 // modern OpenType face expresses kerning in GPOS, which is a shaping
 // engine's job -- HarfBuzz is ~50k lines and exists because doing this
 // properly means lookups, contextual rules and script logic. Reading
-// `kern` is ~40 lines and covers what this OS actually draws: of the
-// two faces shipped, liberation-sans carries a 908-pair format-0 table
+// `kern` is ~40 lines and covers what this OS actually draws: the
+// Liberation faces carry format-0 tables (liberation-sans 908 pairs)
 // and dejavu-sans-mono has none at all (it is monospace, so kerning it
 // would be wrong anyway). A face with GPOS-only kerning simply renders
 // unkerned, exactly as it does today.

@@ -59,7 +59,9 @@ struct face {
     struct uui_fontface ff;     // the file, its bold weight, family and mono-ness
     int named;                  // characters with a Unicode name it maps
     char licence[48];           // the LICENSE-*.txt beside it, or empty
-    unsigned long bytes;
+    char styles[40];            // ", italic, bold italic" -- the style files beside it
+    int nstyles;                // its files: the regular and each style
+    unsigned long bytes;        // every file of the family
 };
 
 static struct uapp *g_app;
@@ -111,7 +113,24 @@ static void load_faces(void) {
         struct face *f = &g_faces[g_nfaces];
         memset(f, 0, sizeof *f);
         if (!uui_fontface_open(&f->ff, FONT_DIR, stem)) continue;
-        f->bytes = (unsigned long)f->ff.reg.len + (f->ff.has_bold ? (unsigned long)f->ff.bold.len : 0);
+        // The family's files from the listing: the regular, and each
+        // style uui_fontface_family_file() refused to list as a family.
+        static const struct { const char *tail, *name; } style[] = {
+            { "", 0 }, { "-bold", "bold" }, { "-italic", "italic" }, { "-bold-italic", "bold italic" },
+        };
+        for (int t = 0; t < 4; t++) {
+            char want[64];
+            snprintf(want, sizeof want, "%s%s.ttf", stem, style[t].tail);
+            for (int k = 0; k < n; k++)
+                if (!strcmp(e[k].name, want)) {
+                    f->bytes += e[k].size;
+                    f->nstyles++;
+                    if (style[t].name) {
+                        size_t used = strlen(f->styles);
+                        snprintf(f->styles + used, sizeof f->styles - used, ", %s", style[t].name);
+                    }
+                }
+        }
         for (int k = 0; k < uunicode_named_count(); k++)
             f->named += uglyph_has(&f->ff.reg, uunicode_named(k));
         // The licence its stem names up to the first dash:
@@ -476,7 +495,7 @@ static void card(struct ugfx_surface *s, void *ctx, int index, int x, int y, int
     ugfx_set_font(was);
     char sub[64];
     const char *use = !strcmp(g_ui_face, f->ff.stem) ? ", interface" : !strcmp(g_term_face, f->ff.stem) ? ", terminals" : "";
-    snprintf(sub, sizeof sub, "%d style%s%s", f->ff.has_bold ? 2 : 1, f->ff.has_bold ? "s" : "", use);
+    snprintf(sub, sizeof sub, "%d style%s%s", f->nstyles, f->nstyles == 1 ? "" : "s", use);
     ugfx_draw_string_clipped(s, tx, ty + lh + 2, room, sub, sel ? ink : uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED),
                              ground);
 }
@@ -509,7 +528,10 @@ static void draw_font_page(struct ugfx_surface *s, int cw) {
     ugfx_fill_rect(s, x, y, right - x, 1, UTHEME_SEPARATOR);
     y += pad;
     char files[96], chars[64];
-    snprintf(files, sizeof files, "%s.ttf%s, %lu KB", f->ff.stem, f->ff.has_bold ? " and -bold.ttf" : "", f->bytes / 1024);
+    if (f->styles[0])
+        snprintf(files, sizeof files, "%s.ttf + %s; %lu KB", f->ff.stem, f->styles + 2, f->bytes / 1024);
+    else
+        snprintf(files, sizeof files, "%s.ttf, %lu KB", f->ff.stem, f->bytes / 1024);
     snprintf(chars, sizeof chars, "%d with a Unicode name%s", f->named, f->ff.mono ? ", monospaced" : "");
     const char *rows[][2] = {
         { "Files", files }, { "Characters", chars },

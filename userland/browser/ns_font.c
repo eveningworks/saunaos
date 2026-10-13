@@ -8,7 +8,9 @@
 // kerning) here, and only drawing goes through uglyph -- and both walk
 // a string the same way, so a run draws exactly as wide as it measured.
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
+#include <strings.h>
 
 #include "utils/errors.h"
 #include "browser/ns_font.h"
@@ -17,42 +19,90 @@
 
 #include "netsurf/layout.h"
 #include "netsurf/plot_style.h"
+#include <libwapcaplet/libwapcaplet.h>
 
 // CSS's reference pixel: 96 to the inch. main() sets NetSurf's own DPI
 // to the same (browser_set_dpi()), so a 12pt font NetSurf asks for is
 // the 16 px it laid the page out with.
 #define NS_DPI 96
 
-enum { F_SANS, F_SANS_BOLD, F_MONO, F_MONO_BOLD, F_COUNT };
+enum { FAM_SANS, FAM_SERIF, FAM_MONO, FAM_COUNT };
+enum { STY_BOLD = 1, STY_ITALIC = 2, STY_COUNT = 4 };
 
-// Liberation Sans and DejaVu Sans Mono are what /usr/share/fonts ships;
-// serif, italic and the rest map onto these until faces for them are
-// added (docs/roadmap.md).
-static const char *const FACE_PATH[F_COUNT] = {
-    "/usr/share/fonts/liberation-sans.ttf",
-    "/usr/share/fonts/liberation-sans-bold.ttf",
-    "/usr/share/fonts/dejavu-sans-mono.ttf",
-    "/usr/share/fonts/dejavu-sans-mono-bold.ttf",
+// A family is a stem in /usr/share/fonts, a style a suffix on it
+// (font_face.h's -bold and -italic). Cursive and fantasy have no face
+// of their own and draw in sans.
+static const char *const FAMILY_STEM[FAM_COUNT] = {
+    "liberation-sans", "liberation-serif", "dejavu-sans-mono",
+};
+static const char *const STYLE_TAIL[STY_COUNT] = { "", "-bold", "-italic", "-bold-italic" };
+
+// The named families pages ask for most, onto the face that stands in
+// for them -- fontconfig's metric aliases (Liberation is metric-
+// compatible with Arial, Times New Roman and Courier New), so a page
+// laid out for those wraps where its author saw it wrap.
+static const struct { const char *name; int fam; } NAMED[] = {
+    { "arial", FAM_SANS }, { "helvetica", FAM_SANS }, { "liberation sans", FAM_SANS },
+    { "times new roman", FAM_SERIF }, { "times", FAM_SERIF }, { "georgia", FAM_SERIF },
+    { "liberation serif", FAM_SERIF },
+    { "courier new", FAM_MONO }, { "courier", FAM_MONO }, { "consolas", FAM_MONO },
+    { "dejavu sans mono", FAM_MONO },
 };
 
-static struct uglyph_face g_face[F_COUNT];
+// Each face is opened the first time a page asks for it: a page with no
+// serif never reads the serif's file. `resolved` is where the chain in
+// resolve() landed, so a missing face is looked for once.
+static struct uglyph_face g_face[FAM_COUNT][STY_COUNT];
+static char g_tried[FAM_COUNT][STY_COUNT];
+static struct uglyph_face *g_resolved[FAM_COUNT][STY_COUNT];
+static struct uglyph_face g_none;   // ok == 0: measured as missing glyphs, drawn as boxes
 
-int ns_font_init(void) {
-    int ok = 0;
-    for (int i = 0; i < F_COUNT; i++) ok += uglyph_open(&g_face[i], FACE_PATH[i]);
-    // Whatever opened stands in for whatever did not: a missing bold is
-    // regular text, never no text.
-    for (int i = 0; i < F_COUNT; i++)
-        if (!g_face[i].ok)
-            for (int j = 0; j < F_COUNT; j++)
-                if (g_face[j].ok) { g_face[i] = g_face[j]; break; }
-    return ok > 0;
+static struct uglyph_face *open_face(int fam, int sty) {
+    if (!g_tried[fam][sty]) {
+        g_tried[fam][sty] = 1;
+        char path[96];
+        snprintf(path, sizeof path, "/usr/share/fonts/%s%s.ttf", FAMILY_STEM[fam], STYLE_TAIL[sty]);
+        uglyph_open(&g_face[fam][sty], path);
+    }
+    return g_face[fam][sty].ok ? &g_face[fam][sty] : 0;
+}
+
+// Whatever opened stands in for whatever did not: an upright for a
+// missing italic, regular for a missing bold, sans for a missing
+// family -- never no text while any face exists.
+static struct uglyph_face *resolve(int fam, int sty) {
+    if (g_resolved[fam][sty]) return g_resolved[fam][sty];
+    const int order[][2] = {
+        { fam, sty }, { fam, sty & ~STY_ITALIC }, { fam, 0 },
+        { FAM_SANS, sty }, { FAM_SANS, sty & ~STY_ITALIC }, { FAM_SANS, 0 },
+    };
+    struct uglyph_face *f = 0;
+    for (size_t i = 0; i < sizeof order / sizeof order[0] && !f; i++)
+        f = open_face(order[i][0], order[i][1]);
+    for (int i = 0; i < FAM_COUNT && !f; i++) f = open_face(i, 0);
+    return g_resolved[fam][sty] = f ? f : &g_none;
+}
+
+int ns_font_init(void) { return resolve(FAM_SANS, 0) != &g_none; }
+
+static int named_family(const plot_font_style_t *st) {
+    for (lwc_string *const *n = st->families; n && *n; n++)
+        for (size_t i = 0; i < sizeof NAMED / sizeof NAMED[0]; i++)
+            if (lwc_string_length(*n) == strlen(NAMED[i].name) &&
+                !strncasecmp(lwc_string_data(*n), NAMED[i].name, lwc_string_length(*n)))
+                return NAMED[i].fam;
+    return -1;
 }
 
 static struct uglyph_face *face_for(const plot_font_style_t *st) {
-    int mono = st->family == PLOT_FONT_FAMILY_MONOSPACE;
-    int bold = st->weight >= 600;
-    return &g_face[(mono ? F_MONO : F_SANS) + bold];
+    int fam = named_family(st);
+    if (fam < 0)
+        fam = st->family == PLOT_FONT_FAMILY_SERIF     ? FAM_SERIF
+            : st->family == PLOT_FONT_FAMILY_MONOSPACE ? FAM_MONO
+            : FAM_SANS;
+    int sty = (st->weight >= 600 ? STY_BOLD : 0) |
+              (st->flags & (FONTF_ITALIC | FONTF_OBLIQUE) ? STY_ITALIC : 0);
+    return resolve(fam, sty);
 }
 
 int ns_font_px(const plot_font_style_t *st) {

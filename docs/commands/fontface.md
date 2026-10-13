@@ -35,7 +35,8 @@ and listing what is available is a directory listing rather than
 something that has to open every file and read its internal `name`
 table.
 
-**A `-bold` file is a WEIGHT, not a face.** `dejavu-sans-mono.ttf` and
+**A `-bold` file is a WEIGHT, not a face** (and an `-italic` one a
+slant). `dejavu-sans-mono.ttf` and
 `dejavu-sans-mono-bold.ttf` are one family listed once, and both are
 loaded and rasterized when you select it -- so an app can draw bold
 text beside regular without a second `fontface`. A family with no
@@ -52,7 +53,8 @@ whole registry a directory listing. Real systems do read the metadata
 they have to cope with whatever fonts a user has, and toy-os does
 not.
 
-Selecting a face parses it (`kernel/lib/ttf.c`) and rasterizes the
+Selecting a face has `/bin/fontd` parse it (`userland/lib/ttf.c`; the
+kernel parses no font) and rasterize the
 101-glyph set the baked font also carries, at the size currently in
 effect, into an atlas laid out exactly like a baked one -- which is why
 the console, the desktop and every ring-3 client change together. The
@@ -60,17 +62,20 @@ choice persists to `/etc/toyos.conf` as `font_face` and is applied on
 the next boot BEFORE the size, since an arbitrary size is only
 rasterizable once a face is loaded.
 
-Three faces ship, and each is there to make one thing observable rather
+Four faces ship, and each is there to make one thing observable rather
 than merely implemented:
 
 | Face | Why it ships |
 |---|---|
-| `dejavu-sans-mono` | the classic Linux terminal face; the default |
-| `liberation-sans` | PROPORTIONAL, so per-glyph advance widths are visible -- pick it and the desktop's labels narrow. It is also the only shipped face with a `kern` table, so it is where kerning can be seen |
+| `dejavu-sans-mono` | the classic Linux terminal face; the default monospace face |
+| `liberation-sans` | PROPORTIONAL, so per-glyph advance widths are visible -- the default interface face. It and `liberation-serif` carry a `kern` table, so they are where kerning can be seen |
+| `liberation-serif` | the Web Browser's face for a page's `serif` (and Times New Roman, Georgia); selectable for the interface like any other |
 | `vera-mono` | ships with NO `-bold` companion, so it is the only face on the image whose bold is SYNTHESIZED |
 
-The first two carry a real `-bold` file; `vera-mono` deliberately does
-not.
+All but `vera-mono` carry a real `-bold` file, and `-italic` and
+`-bold-italic` files too -- styles like `-bold`, never faces of their
+own, and drawn only by the Web Browser (`userland/browser/ns_font.c`);
+the desktop has no italic text. `vera-mono` deliberately has none.
 
 ## What it deliberately does not do
 

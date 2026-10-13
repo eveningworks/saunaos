@@ -473,9 +473,9 @@ this the obvious way), not from how much history it accumulated.
 
   Only the legacy format-0 `kern` table is read; a GPOS-only face
   renders unkerned, on purpose (doing it properly is a shaping engine).
-  `liberation-sans` is the only shipped face that kerns, so **a kerning
-  check on the default monospace face passes vacuously** -- switch faces
-  first.
+  `liberation-sans` and `liberation-serif` are the shipped faces that
+  kern, so **a kerning check on the default monospace face passes
+  vacuously** -- switch faces first.
 
   **The overlap trap, and it exists only in ring 0.** A glyph cell there
   is OPAQUE, so a negative kern makes the new cell's leading columns

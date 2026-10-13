@@ -6787,6 +6787,15 @@ runs first**: a `doom1.wad` with one
   before `spawn()`'s exact match looked. Shown red by swapping red and
   blue in the plotters' colour conversion.
 
+  **Fonts**: `/tests/web/fonts.html` draws one word per 48 px row in
+  sans, serif, mono and each one's italic, and the INK of each pair
+  that must differ (sans/serif, upright/italic, regular/bold) differs,
+  while two controls match to the pixel: a row repeated, and
+  "Times New Roman" against `serif` (the alias). A broken face choice
+  that draws every row alike fails the differences; noise or a moved
+  row fails the controls. Shown red by never choosing an italic in
+  `ns_font.c`: exactly the four slant checks failed, at 0 px.
+
   **The network half** (skipped on bare metal, where 10.0.2.2 is nobody)
   runs against `web_server.py`: a typed `10.0.2.2:PORT/net.html` is
   fetched over http and its SEPARATELY fetched stylesheet's red is in

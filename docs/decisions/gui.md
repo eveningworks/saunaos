@@ -3641,7 +3641,8 @@ outside its own atlas, which is correct: it is scaled to that size.
 oversight.** Modern faces keep kerning in GPOS, which is a shaping
 engine's job -- HarfBuzz is ~50k lines and exists because doing it
 properly means lookups, contextual rules and script logic. Of the faces
-shipped, `liberation-sans` has a 908-pair `kern` table and
+shipped, `liberation-sans` has a 908-pair `kern` table (and
+`liberation-serif`, added for the browser, one of its own) and
 `dejavu-sans-mono` has none (it is monospace, so kerning it would be
 wrong). A GPOS-only face renders unkerned, exactly as before.
 

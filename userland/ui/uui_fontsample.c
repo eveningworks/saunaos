@@ -2,13 +2,18 @@
 #include "ui/uui_fontsample.h"
 #include "ui/utheme.h"
 #include "ui/uui_primitives.h"
+#include "font_face.h"   // FONT_BOLD_SUFFIX, FONT_ITALIC_SUFFIX
 #include <stdio.h>
 #include <string.h>
 
 int uui_fontface_family_file(const char *name, char *stem, int cap) {
     size_t len = strlen(name);
     if (len < 5 || strcmp(name + len - 4, ".ttf")) return 0;
-    if (len > 9 && !strcmp(name + len - 9, "-bold.ttf")) return 0;   // a weight, not a family
+    static const char *const style_tail[] = { FONT_BOLD_SUFFIX ".ttf", FONT_ITALIC_SUFFIX ".ttf" };
+    for (int t = 0; t < 2; t++) {   // a weight or a slant, not a family
+        size_t tl = strlen(style_tail[t]);
+        if (len > tl && !strcmp(name + len - tl, style_tail[t])) return 0;
+    }
     snprintf(stem, (size_t)cap, "%.*s", (int)(len - 4), name);
     return 1;
 }

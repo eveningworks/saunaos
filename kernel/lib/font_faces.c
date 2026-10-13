@@ -1,13 +1,13 @@
 // Which faces exist, and which one is selected. See api/font_faces.h --
 // this is a directory listing and a string, and ring 0 opens no font.
 #include "font_faces.h"
+#include "font_face.h"
 #include "fs.h"
 #include "string.h"
 #include <stddef.h>
 
 #define FACES_MAX 8
 #define SUFFIX     ".ttf"
-#define BOLD_TAIL  "-bold"
 
 static char g_name[FACES_MAX][FONT_FACE_NAME_LEN];
 static int  g_count;
@@ -38,11 +38,15 @@ static void scan_cb(void *ctx, const char *name, uint32_t size, int is_dir) {
     for (int i = 0; i < keep; i++) base[i] = name[i];
     base[keep] = '\0';
 
-    // THE BOLD MEMBER IS NOT A FACE. `x-bold.ttf` is the bold weight of
-    // the family `x`, so listing it would offer the same family twice
-    // and let somebody select a weight as though it were a typeface.
-    int blen = (int)k_strlen(BOLD_TAIL);
-    if (keep > blen && k_strcmp(base + keep - blen, BOLD_TAIL) == 0) return;
+    // A STYLE MEMBER IS NOT A FACE. `x-bold.ttf` and `x-italic.ttf` are
+    // weights and slants of the family `x`, so listing them would offer
+    // the same family twice and let somebody select a style as though it
+    // were a typeface.
+    static const char *const style_tail[] = { FONT_BOLD_SUFFIX, FONT_ITALIC_SUFFIX };
+    for (int t = 0; t < 2; t++) {
+        int tlen = (int)k_strlen(style_tail[t]);
+        if (keep > tlen && k_strcmp(base + keep - tlen, style_tail[t]) == 0) return;
+    }
 
     for (int i = 0; i < x->count; i++)
         if (k_strcmp(x->name[i], base) == 0) return;

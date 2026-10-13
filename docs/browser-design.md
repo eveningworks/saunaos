@@ -271,7 +271,7 @@ What it took beyond the plan:
   cookies sent back and kept, a search, reuse, https and an expired
   certificate's "Privacy error" page).
 
-### Stage 3 -- the Web Browser window -- BUILT 2026-10-12, one item open
+### Stage 3 -- the Web Browser window -- BUILT 2026-10-12, its fonts 2026-10-13
 
 `/bin/wm/apps/browser` (Start -> Internet -> Web Browser) lays out and
 draws NetSurf's pages in a toy-os window: W1's toolbar row -- back,
@@ -284,7 +284,8 @@ take keys, a hovered link's address shows in the corner, and
 
 How it is put together, in `userland/browser/` beside the app:
 
-- **Text** (`ns_font.c`): Liberation Sans and DejaVu Sans Mono through
+- **Text** (`ns_font.c`): Liberation Sans, Liberation Serif and DejaVu
+  Sans Mono, each in regular, bold, italic and bold italic, through
   `lib/ttf.h`'s metrics to MEASURE and `ui/uglyph.h` to DRAW, walking a
   run the same way in both so it draws exactly as wide as it measured.
   Measuring never rasterises -- uglyph's cache is of rendered glyphs, and
@@ -325,8 +326,19 @@ slice once per character to find where to start drawing, which was
 seconds per key past a few hundred characters under TCG. It is a binary
 search now.
 
-Still open from this stage: Liberation Serif and the italic faces (a
-page's serif and `<em>` draw upright in sans).
+**A page's fonts are three families in four styles**, real faces rather
+than an upright slanted in software (what FreeType and Skia fall back
+to when a family has no italic). CSS's generic `serif`, `sans-serif` and
+`monospace` pick the family; `cursive` and `fantasy` draw in sans. The
+named families pages ask for most map onto the face that stands in for
+them, as fontconfig's aliases do -- Arial and Helvetica to Liberation
+Sans, Times New Roman and Georgia to Liberation Serif, Courier New and
+Consolas to DejaVu Sans Mono -- and Liberation is metric-compatible with
+Arial, Times New Roman and Courier New, so a page wraps where its author
+saw it wrap. Each face is opened the first time a page asks for it, and
+a missing one falls back upright, then regular, then sans. The italics
+are styles of a face as `-bold` is (`font_face.h`), so the font pickers
+list Liberation Serif once and never an italic.
 
 ### Stage 4 -- what makes it a browser -- PLANNED
 

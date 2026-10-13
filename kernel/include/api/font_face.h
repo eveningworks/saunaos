@@ -47,6 +47,11 @@
 // suffix rule keeps the whole registry a directory listing.
 #define FONT_BOLD_SUFFIX "-bold"
 
+// `-italic` makes a file a family's ITALIC (or oblique) member the same
+// way, and `-bold-italic` ends in it too: styles, never faces. Only the
+// browser draws them (userland/browser/ns_font.c).
+#define FONT_ITALIC_SUFFIX "-italic"
+
 enum font_weight {
     FONT_WEIGHT_REGULAR = 0,
     FONT_WEIGHT_BOLD    = 1,
