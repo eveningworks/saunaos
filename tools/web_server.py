@@ -24,7 +24,7 @@ What it serves, beside the files of a corpus directory:
   /download/NAME?size=N   N bytes as an attachment named NAME (Content-
                           Disposition), byte i = (7i + 3) & 255 -- what a
                           test checks the saved file against (download_bytes());
-                          &drop=K sends K of them in four pieces and closes, &slow=1 trickles
+                          &drop=K sends K of them in eight pieces over 4 s and closes, &slow=1 trickles
                           them out, 16 KiB every 0.2 s, so a test can cancel
   /stats                  "connections=N requests=M" since the last /reset
   /reset                  zeroes those counters
@@ -115,11 +115,14 @@ def _handler(root, stats):
                 # its first bytes and makes the download's window only on
                 # data AFTER that, so a break that follows one burst ends
                 # a download that never had a row.
+                # Eight pieces over four seconds: under a loaded host the
+                # browser's loop can stall long enough to take four quick
+                # ones, and the break, in a single poll.
                 k = int(q["drop"])
-                for i in range(4):
+                for i in range(8):
                     self.wfile.flush()
-                    time.sleep(0.3)
-                    self.wfile.write(data[i * k // 4:(i + 1) * k // 4])
+                    time.sleep(0.5)
+                    self.wfile.write(data[i * k // 8:(i + 1) * k // 8])
                 self.wfile.flush()
                 time.sleep(1.0)
                 self.close_connection = True
