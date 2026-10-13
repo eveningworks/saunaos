@@ -393,6 +393,19 @@ field's star and Ctrl+D add or remove the page. Ctrl+H and Backspace are
 the same key code, so the browser reads the Ctrl bit before taking it
 as History.
 
+**One popup at a time**, as a Wayland popup grab allows: opening the
+menu, the lock's card or the Downloads flyout closes the other two, and
+a click outside closes the one open. The flyout is a CONTAINER (its list
+is a child), and the toolkit's router used to gate every press outside
+a container before its own press was asked -- so a flyout that closes on
+an outside click never heard one. `ui/uui_route.c` now lets an overlay
+owner's own press see it.
+
+**The I-beam over text.** NetSurf leaves plain text to the window's
+default arrow (`BROWSER_POINTER_AUTO`); the page widget asks NetSurf's
+box tree whether the box under the pointer holds text, as NetSurf's own
+hit tests do, and shows the I-beam Chrome and Firefox show there.
+
 **Built: downloads.** They go through NetSurf's own download path
 (`userland/browser/ns_download.c`), which takes the response already
 arriving -- a second fetch through `uhttp_download` would lose a POST's

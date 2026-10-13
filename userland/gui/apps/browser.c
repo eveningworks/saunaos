@@ -389,11 +389,21 @@ static void place_find(void) {
 static struct uui_item g_widgets[5];
 enum { W_CTX, W_ROOT, W_FIND, W_CARD, W_DLP };
 
+// ONE POPUP AT A TIME, as a Wayland popup grab allows and every
+// desktop's menus behave: opening the menu, the lock's card or the
+// Downloads flyout closes the other two.
+static void popups_close(void) {
+    uui_menubar_close(&g_ctx);
+    ns_card_close(&g_card);
+    ns_dlpanel_close(&g_dlp);
+}
+
 static void downloads_toggle(void) {
     if (g_dlp.open) {
         ns_dlpanel_close(&g_dlp);
         return;
     }
+    popups_close();
     int x, y, w, h;
     uui_toolbar_item_rect(&g_tools_r, 0, &x, &y, &w, &h);
     ns_dlpanel_open(&g_dlp, x, y + h + 2, w, uapp_width(g_app), uapp_height(g_app));
@@ -442,7 +452,9 @@ static void bookmark_toggle(void) {
 // seen to have done something.
 void nsapp_download_changed(int started) {
     if (!g_app) return;
-    if (started && !g_dlp.open) downloads_toggle();
+    // Not over a menu or card the person has open: the row is there
+    // when they next open the flyout.
+    if (started && !g_dlp.open && !g_card.open && !uui_menubar_is_open(&g_ctx)) downloads_toggle();
     else ns_dlpanel_sync(&g_dlp, uapp_width(g_app), uapp_height(g_app));
     uapp_redraw(g_app);
 }
@@ -479,6 +491,7 @@ static void card_toggle(void) {
         return;
     }
     if (!ns_addr_part_rect(&g_addr, NS_ADDR_CHIP, &x, &y, &w, &h)) return;
+    popups_close();
     struct ns_site site;
     ns_site_get(nsapp_active(), &site);
     ns_card_open(&g_card, &site, x, y + h + 4, uapp_width(g_app), uapp_height(g_app));
@@ -497,6 +510,7 @@ static void card_clear(void) {
 }
 
 static void open_menu(void) {
+    popups_close();
     int n = 0;
     snprintf(g_reset_label, sizeof g_reset_label, "Reset zoom (%d%%)", ns_view_zoom_pct(nsapp_active()));
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("New tab", CMD_NEWTAB, "Ctrl+T", "tb-new", UTHEME_ACT_CREATE);

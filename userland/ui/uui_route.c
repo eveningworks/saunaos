@@ -48,10 +48,17 @@ static struct uui_item *press_item(struct uui_item *it, int cx, int cy,
     if (it->hidden) return NULL;   // hidden is hidden from the mouse too
     int n = 0;
     struct uui_item *sub = nested(it, &n);
+    int overlay = it->ops && it->ops->overlay_active && it->ops->overlay_active(it->widget);
     if (sub) {
-        if (!container_admits(it, cx, cy)) return NULL;
+        // A press outside a container is not its children's -- but an
+        // OVERLAY OWNER still hears it below, unhit-tested: a light-
+        // dismiss popup that is a container (a flyout around a list) is
+        // closed by exactly that press, and gating it here left the
+        // popup open under every click outside it.
+        int admitted = container_admits(it, cx, cy);
+        if (!admitted && !overlay) return NULL;
         // Back to front within the nested container too.
-        for (int i = n - 1; i >= 0; i--) {
+        for (int i = n - 1; admitted && i >= 0; i--) {
             struct uui_item *hit = press_item(&sub[i], cx, cy, mods, changed);
             if (hit) return hit;
         }
@@ -62,7 +69,6 @@ static struct uui_item *press_item(struct uui_item *it, int cx, int cy,
     if (!it->ops || !it->ops->press) return NULL;
     // A widget with an active overlay is asked WITHOUT a hit test: its
     // popup is drawn outside its own rect (see uui_route.h).
-    int overlay = it->ops->overlay_active && it->ops->overlay_active(it->widget);
     if (!overlay && it->ops->hit && !it->ops->hit(it->widget, cx, cy)) return NULL;
     if (!it->ops->press(it->widget, cx, cy, mods)) return NULL;
     *changed = 1;

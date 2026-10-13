@@ -6808,6 +6808,14 @@ runs first**: a `doom1.wad` with one
   card then counts 0 and the server is no longer SENT the cookie, read
   from a new address so the answer is not the cache's.
 
+  **Popups and the pointer**: a click on the page closes the Downloads
+  flyout, opening the menu closes the flyout, a click outside closes the
+  menu; the compositor's RESOLVED pointer shape (`cursor_shape()`, in
+  `WM_CURSOR_*` numbering, where TEXT is 4) is the I-beam over a word
+  and the arrow over blank page beside it. Shown red by restoring the
+  router's old gate and by never asking for the I-beam: exactly those
+  two checks failed.
+
   **Bookmarks and history**: Ctrl+D fills the address field's star (the
   ACCENT, matched closely -- a loose match took the unfilled star's grey
   outline for blue, and passed with adding bookmarks broken); the sidebar

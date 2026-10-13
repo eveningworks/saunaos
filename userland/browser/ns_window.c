@@ -17,6 +17,11 @@
 #include "netsurf/plotters.h"
 #include "netsurf/window.h"
 #include "utils/nsurl.h"
+#include "content/hlcache.h"
+#include "netsurf/content.h"
+#include "content/handlers/html/box.h"
+#include "content/handlers/html/box_inspect.h"
+#include "content/handlers/html/private.h"
 
 #include "ui/ugfx.h"
 #include "ui/utheme.h"
@@ -384,6 +389,26 @@ static int v_press(void *w, int cx, int cy, unsigned mods) {
     return 1;
 }
 
+// Is there TEXT under the page point (px, py)? NetSurf leaves plain
+// text to the window's default arrow (BROWSER_POINTER_AUTO), where
+// Chrome and Firefox show the I-beam that says it can be selected; the
+// deepest box under the point says, as NetSurf's own hit tests ask it.
+static int over_text(struct gui_window *gw, int px, int py) {
+    struct hlcache_handle *h = browser_window_get_content(gw->bw);
+    if (!h) return 0;
+    content_type type = content_get_type(h);
+    if (type == CONTENT_TEXTPLAIN) return 1;
+    if (type != CONTENT_HTML) return 0;
+    html_content *html = (html_content *)hlcache_handle_get_content(h);
+    struct box *box = html ? html->layout : NULL;
+    if (!box) return 0;
+    float scale = browser_window_get_scale(gw->bw);
+    int x = (int)(px / scale), y = (int)(py / scale), bx = 0, by = 0, text = 0;
+    while ((box = box_at_point(&html->unit_len_ctx, box, x, y, &bx, &by)))
+        text = box->text != NULL && box->object == NULL;
+    return text;
+}
+
 static int v_motion(void *w, int cx, int cy, unsigned buttons) {
     struct ns_view *v = w;
     struct gui_window *gw = nsapp_active();
@@ -405,6 +430,7 @@ static int v_motion(void *w, int cx, int cy, unsigned buttons) {
             }
             int state = v->dragged ? (BROWSER_MOUSE_DRAG_ON | BROWSER_MOUSE_HOLDING_1) : 0;
             browser_window_mouse_track(gw->bw, state, px, py);
+            if (gw->pointer == WIN_CURSOR_DEFAULT && over_text(gw, px, py)) gw->pointer = WIN_CURSOR_TEXT;
         }
     } else if (v->hover_x >= 0) {
         v->hover_x = v->hover_y = -1;

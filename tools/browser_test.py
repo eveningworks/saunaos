@@ -25,6 +25,11 @@ WHAT IT CHECKS, and what a broken version would still pass:
     page's pixels changed by the highlights; Enter steps on, Shift+Enter
     wraps back past the first to the last, and Esc leaves the page
     pixel-identical to before the search (the round trip);
+  - one popup at a time: a click on the page closes the Downloads flyout
+    (a popup that is a CONTAINER, which the router used to gate), opening
+    the menu closes the flyout, and a click outside closes the menu;
+  - the pointer is an I-beam over a page's text and the arrow over the
+    blank page beside it -- NetSurf itself leaves text to the arrow;
   - Ctrl+D bookmarks a page and fills the address field's star; Ctrl+B
     opens the sidebar on it and narrows the page, its row goes to the
     page, Ctrl+H lists History under a day's heading, its search narrows
@@ -83,11 +88,14 @@ HOME = "file:///usr/share/netsurf/start.html"
 HEADER_BLUE = (50, 90, 160)        # start.html's .top background, #325aa0
 HEX = {" ": "0x20", "/": "0x2f", ".": "0x2e", "-": "0x2d", "_": "0x5f", ":": "0x3a",
        "?": "0x3f", "=": "0x3d"}
-NET_RED = (192, 48, 48)
+NET_RED = (192, 48, 48)            # net.css's h1 border, #c03030
 # enum ns_site_state (userland/browser/ns_site.h)
 SITE_FILE, SITE_INSECURE, SITE_SECURE = 2, 3, 6
 DANGER = (178, 58, 50)             # utheme's DANGER action role
-ACCENT = (70, 110, 160)            # utheme_default()'s accent            # net.css's h1 border, #c03030
+ACCENT = (70, 110, 160)            # utheme_default()'s accent
+# The shape the compositor RESOLVED (cursor_shape()), in wm_internal.h's
+# WM_CURSOR_* numbering -- not the client's WIN_CURSOR_*.
+CURSOR_DEFAULT, CURSOR_TEXT = 0, 4
 WEB = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "data", "tests", "web")
 
@@ -125,6 +133,9 @@ def state(dbg):
         m = re.search(r"browser: layout downloads\.count (\d+)$", line)
         if m:
             _st["dl_count"] = int(m.group(1))
+        m = re.search(r"browser: layout menu\.open (\d)$", line)
+        if m:
+            _st["menu_open"] = int(m.group(1))
         m = re.search(r"browser: layout dlpanel\.open (\d)$", line)
         if m:
             _st["dlp_open"] = int(m.group(1))
@@ -339,7 +350,9 @@ def run(dbg, qmp, args, net):
 
     photos(dbg, page, at, shot)
     fonts(dbg, page, at, shot)
+    text_cursor(dbg, qmp, page, at)
     zoom_and_find(dbg, page, at, shot, c)
+    popups(dbg, page, at, c)
     bookmarks_and_history(dbg, page, at, shot)
     if net:
         network(dbg, net, page, at, shot)
@@ -410,6 +423,22 @@ def fonts(dbg, page, at, shot):
         check(f"{what}: its ink differs", diff(a, b) > 400, f"{diff(a, b)} px differ")
     check('"Times New Roman" draws in the serif face', diff("serif", "Times New Roman") < 20,
           f"{diff('serif', 'Times New Roman')} px differ")
+
+
+def text_cursor(dbg, qmp, page, at):
+    """Over text the I-beam; over the blank page beside it, the arrow."""
+    # fonts.html is loaded: row 0's word runs from x=8 to ~300 at y 0..48.
+    word = at((page[0] + 60, page[1] + 24, 0, 0))[:2]
+    blank = at((page[0] + page[2] - 80, page[1] + 24, 0, 0))[:2]
+    dbg.warp_cursor(qmp, *word)
+    dbg.settle(0.5)
+    over = dbg.cursor_shape()
+    dbg.warp_cursor(qmp, *blank)
+    dbg.settle(0.5)
+    beside = dbg.cursor_shape()
+    check("the pointer is an I-beam over a page's text", over == CURSOR_TEXT, f"shape {over}")
+    check("...and the arrow over the blank page beside it (control)", beside == CURSOR_DEFAULT,
+          f"shape {beside}")
 
 
 # The ☰ menu's rows, in browser.c's open_menu() order.
@@ -493,6 +522,29 @@ def zoom_and_find(dbg, page, at, shot, c):
 def click_rect(dbg, at, r):
     x, y, w, h = r
     dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+
+
+def popups(dbg, page, at, c):
+    """One popup at a time, and each closed by a click outside it."""
+    blank = at((page[0] + page[2] - 60, page[1] + page[3] // 2, 0, 0))[:2]
+    dbg.send("gui key 0x0a ctrl")      # Ctrl+J
+    st = wait(dbg, lambda s: s.get("dlp_open") == 1, 4)
+    dbg.send("gui click %d %d" % blank)
+    st = wait(dbg, lambda s: s.get("dlp_open") == 0, 4)
+    check("a click on the page closes the Downloads flyout", st.get("dlp_open") == 0,
+          f"open {st.get('dlp_open')}")
+    dbg.send("gui key 0x0a ctrl")
+    wait(dbg, lambda s: s.get("dlp_open") == 1, 4)
+    tx, ty, tw, th = state(dbg)["tools-right"]
+    dbg.send("gui click %d %d" % (c["x"] + tx + tw * 3 // 4, c["y"] + ty + th // 2))
+    st = wait(dbg, lambda s: s.get("menu_open") == 1 and s.get("dlp_open") == 0, 4)
+    check("opening the menu closes the flyout: one popup at a time",
+          st.get("menu_open") == 1 and st.get("dlp_open") == 0,
+          f"menu {st.get('menu_open')} flyout {st.get('dlp_open')}")
+    dbg.send("gui click %d %d" % blank)
+    st = wait(dbg, lambda s: s.get("menu_open") == 0, 4)
+    check("...and a click on the page closes the menu", st.get("menu_open") == 0,
+          f"menu {st.get('menu_open')}")
 
 
 def bookmarks_and_history(dbg, page, at, shot):
