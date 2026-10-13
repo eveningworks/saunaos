@@ -8,7 +8,8 @@ need from this system, and in what order is it worth building?"
 libraries are vendored, lay out a set of test pages identically to the
 same source built on the host -- read from files, over http and over
 https -- and the Web Browser app (Start -> Internet) browses the web.
-Stage 4 was built on 2026-10-13. **The choices were made the same day**: port NetSurf
+Stage 4 was built on 2026-10-13, and stage 5 -- the engine in a
+content process per view, the network in its own -- the same day. **The choices were made the same day**: port NetSurf
 (GPL-2.0, C) from a PINNED MASTER COMMIT rather than its last release;
 the W1 window (a tab strip over a toolbar, the Web Browser mockup
 canvas); and the page view as a reusable `uui_webview` widget. The
@@ -138,7 +139,11 @@ userland/backends/netsurf/     OURS: platform switches and shims (stage 0),
                                (outside the vendored tree, as
                                backends/doom/ is)
 userland/tests/nsmonkey.c      the headless front end (stages 0-1)
-/bin/wm/apps/browser           the window (stage 3), linking all of it
+/bin/wm/apps/browser           the window (stage 3); since stage 5 it links
+                               none of the above (userland/browser/)
+/bin/webcontent                the engine, one process per view (stage 5):
+                               userland/webcontent/ over all of the above
+/bin/webnet                    the network process (stage 5), MIT
 ```
 
 Generated sources (libcss's property tables, libhubbub's entities,
@@ -441,14 +446,134 @@ exposed the next:
   takes the parent instead. The vendored source stays untouched, as for
   find. `tools/web_server.py`'s `image_delay` gives a test that order.
 
-### Stage 5 -- `uui_webview`: the engine as a content process -- PLANNED
+### Stage 5 -- `uui_webview`: the engine as a content process -- BUILT 2026-10-13
 
-The engine moves into a content process per view; the widget forwards
-input and composites what it drew from shared memory, over `uchan`. The
-browser becomes the first client, then Help and release notes.
-The licence and the crash boundary are the same line (the finding
-above). A crashed page shows a "this page stopped" card in the view,
-not a crash of the app.
+Chosen 2026-10-13 (the Browser stage 5 canvas and two question rounds).
+
+**Three kinds of process, Chrome's and WebKit's shape:**
+
+```
+ Web Browser app (MIT)                 Help, System Update (MIT)
+ tabs, toolbar, card, flyouts,         uui_webview + an "app:" scheme
+ bookmarks, history                    handler -- NO network process
+ uui_webview per tab ---------------.          |
+      |  uchan "wv<app pid>"        |          | uchan "wv<app pid>"
+      |  + a ubulk record ring      |          |
+ /bin/webcontent (GPL) ...one per tab   /bin/webcontent (GPL)
+ NetSurf: parse, lay out, paint        file:, resource:, data:, app:
+ into a shm pixel buffer
+      |  uchan "wn<app pid>" + ubulk
+ /bin/webnet (MIT) ...one per browser, spawned by it
+ sockets, TLS, cookies, certificate exceptions, downloads
+```
+
+- **The app links no NetSurf**, so the Web Browser, Help and System
+  Update are MIT programs; `/bin/webcontent` is the one GPL binary.
+- **Isolation here is CRASH ISOLATION, not containment.** Chrome's,
+  Firefox's and WebKit's content processes are sandboxed; toy-os has no
+  per-process sandbox, so a compromised content process can do what any
+  process can. What the split buys is that a page that crashes NetSurf
+  costs one tab, the licence boundary, and the shape a sandbox would
+  later slot into. `umdf-design.md` says the same of its drivers.
+- **The network leaves the content process** (WebKit's NetworkProcess,
+  Chrome's Network Service). `/bin/webnet` owns the sockets, TLS, the
+  connection pool, the cookie jar (`lib/ucookie.h`, RFC 6265, MIT --
+  amending the earlier "cookies in the app" line), the certificate
+  exceptions and the downloads, so a download outlives the tab that
+  started it. Content processes and the app are its clients. A webview
+  with no network process (Help, release notes) reaches only local
+  schemes; a click on an http(s) link there is handed to the app.
+
+**The surface: a pixel buffer and dirty rectangles**, WebKitGTK's
+software path (`UpdateInfo`). The content process paints into a
+viewport-sized shm buffer it created and granted to the app, then sends
+FRAME (a scroll offset to apply, then the rectangles that changed). The
+widget copies those rectangles into ITS OWN copy of the page and acks;
+the content process does not paint again until the ack, so neither side
+reads a half-drawn frame. A scroll is a blit of the old pixels plus a
+paint of the exposed strip. The widget's copy is also the C3 view: a
+crashed page's last frame is already in the app.
+
+**The protocol: uchan as the doorbell, records in a ring.** The app is
+the uchan server for its views (`uchan_server_scan()` reports a dead
+content process for free) and a content process its client. Messages a
+uchan slot cannot hold -- an 8 KiB URL, a title, a page's certificate --
+travel as framed records in `lib/ubulk.h`: per client, one shm object
+with a byte ring each way, created by the client and granted to the
+server, the uchan message only saying "look". Everything rides the
+records; the planned seqlock "state page" was not needed once the app
+keeps the state the records describe.
+
+**Input** goes to the content process in view coordinates, as Chrome's
+browser process routes it. Keys the page might want (printable, editing,
+arrows, paging, Tab, Enter, Esc, Ctrl+A/C/V/X/Z/Y) are forwarded and
+claimed; everything else (Ctrl+T, F5, Alt+Left) stays the app's. What
+NetSurf declines, the content process acts on itself -- scroll, or Esc
+stopping a load -- since it owns the scroll offset.
+
+**Lifetime:** a RAM-derived cap on live content processes; past it the
+least recently shown background tab's process exits, the tab keeps its
+URL and last frame, and it reloads when shown (Chrome's tab discarding,
+Firefox's tab unloading).
+
+**Bookmarks and history** move into the app as `lib/ubookmarks.h` and
+`lib/uhistory.h`: one entry per line, tab-separated, imported once from
+NetSurf's files. A content process reports each committed page
+(VISITED); the app records it.
+
+**Help and What's new** embed a webview with an `app:` scheme handler
+(WebKit's `WKURLSchemeHandler`, Qt's `QWebEngineUrlSchemeHandler`): the
+content process asks the embedding app for `app:` URLs, and the app
+answers with HTML it made from its Markdown (`lib/umd.h` gains an HTML
+writer) and a stylesheet from the theme.
+
+**The crash view is C3**: the last frame kept, greyed, under a red bar --
+"This page stopped." -- with Reload and View report (Crash Reports at
+`/var/crash/webcontent-<pid>.crash`); the tab's title carries a
+stopped-page icon.
+
+What is per content process and therefore lost on a crash or an unload:
+the back/forward list (NetSurf's), HTTP authentication answered on the
+page, and `:visited` colouring for pages visited in other tabs.
+
+**What a test reads.** A page drawn in another process has no geometry
+the app could report -- so the content process reports its LINKS (each
+link box's rect in view pixels and its address, those in view first,
+`WV_LINKS`), and the widget's `describe` op logs them with its pid,
+whether it stopped, the stopped bar's buttons and its URL. An
+accessibility tree's hyperlinks in miniature; `help_test.py` and
+`sysupdate_test.py` click by it.
+
+**Help and What's new, chosen 2026-10-13 (canvas H2 and N2).** Help's
+pages take a document's look -- serif headings, a readable measure, a
+page name written as its title and linked -- from a stylesheet the
+widget makes from the live theme (`uui_webview_markdown_page()`), over
+`lib/umd.h`'s HTML writer. NetSurf has no `<details>`, so What's new's
+"Under the hood" fold became a LINK to a second page of its own, with a
+Back link. A build without the engine (NOGPL=1) keeps both drawing
+their Markdown with `uui_markdown`.
+
+**Measured on the ASUS, 2026-10-13**: Wikipedia's "Operating system"
+article holds its content process at 36 MiB, the browser app at 18 MiB,
+`/bin/webnet` at 4 MiB. The live cap is (RAM - 512 MiB) / 160 MiB,
+never under two -- every tab on a 2 GiB machine, since a window holds
+eight.
+
+**Two things below the browser it found:**
+
+- **SHARED MEMORY WAS GRANTED TO A THREAD, NOT ITS PROCESS.**
+  `kernel/mm/shm.c` checked an opener against `scheduler_current_pid()`
+  -- the calling THREAD -- so a worker thread of a process that had been
+  granted an object was refused it. webnet's fetch threads, waiting for
+  room in a content process's ring, re-open its page to see that it
+  still lives; refused, they took it for dead and ended the fetch. A
+  page bigger than the 256 KiB ring (Wikipedia's article, never a test
+  fixture) is the one that waits, so it never loaded. The check is the
+  PROCESS's now (`scheduler_current_tgid()`), and `shm_test` has a
+  thread open and grant.
+- **A uchan service name with a dot cannot be found again**: a client
+  finds its server by the part of its ring's name before the first dot.
+  The names are `wv<pid>` and `wn<pid>`, and uchan refuses a dotted one.
 
 ### Stage 6 -- JavaScript -- PLANNED
 

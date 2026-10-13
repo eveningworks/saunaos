@@ -1248,10 +1248,14 @@ struct win_popup_pos {
 // which keeps the title bar it owns (moving, the buttons, the menu) as
 // KWin's window tabs did. WIN_REQ_TABS: a = how many (0 = none, the
 // title again), b = the active one; then one WIN_REQ_TAB each: a =
-// index, text = its label. Clicks come back as WIN_EV_TAB.
+// index, b = its icon (WIN_TAB_ICON_*), text = its label. Clicks come
+// back as WIN_EV_TAB.
 #define WIN_REQ_TABS 41
 #define WIN_REQ_TAB  42
 #define WIN_TABS_MAX 8
+#define WIN_TAB_ICON_FOLDER  0   // what every tab had before there was a choice
+#define WIN_TAB_ICON_PAGE    1   // a web page
+#define WIN_TAB_ICON_STOPPED 2   // a page whose process died (the browser's C3)
 #define WIN_NOTICE_SCREENSHOT 1   // "Screenshot saved", the image as its thumbnail
 // SOMEBODY WANTS THE SCREEN: a remote desktop session asks the person at
 // it (Allow / View only / Deny, "Always allow this address"). One piece,

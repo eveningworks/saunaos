@@ -398,7 +398,7 @@ PORT_LICENSE_libwapcaplet   = MIT
 # so a list derived from them is empty there (the trap the "deferred"
 # rule at the top of this file is about).
 PORT_PROGRAMS_doom = gui/apps/doom
-PORT_PROGRAMS_netsurf = tests/nsmonkey gui/apps/browser
+PORT_PROGRAMS_netsurf = tests/nsmonkey bin/webcontent
 
 # GPL-ONLY means every alternative is GPL or AGPL. A dual licence with a
 # permissive option (Mbed TLS) is not, and LGPL is not: it is a library
@@ -410,7 +410,12 @@ PORT_PROGRAMS_netsurf = tests/nsmonkey gui/apps/browser
 # GPL-only port, which is what catches a program missing from the list.
 PORTS          = $(notdir $(wildcard userland/ports/*))
 GPL_ONLY_PORTS = $(foreach p,$(PORTS),$(if $(filter-out GPL-% AGPL-% OR,$(PORT_LICENSE_$(p))),,$(p)))
-NOGPL_DROPS    = $(foreach p,$(GPL_ONLY_PORTS),$(patsubst %,userland/%.c,$(PORT_PROGRAMS_$(p))))
+# ...and the programs that are MIT but show nothing without one: the Web
+# Browser's every page is /bin/webcontent's (Help and System Update fall
+# back to drawing Markdown themselves, so they stay).
+NOGPL_USELESS  = gui/apps/browser
+NOGPL_DROPS    = $(foreach p,$(GPL_ONLY_PORTS),$(patsubst %,userland/%.c,$(PORT_PROGRAMS_$(p)))) \
+                 $(patsubst %,userland/%.c,$(NOGPL_USELESS))
 
 # For tools/preflight.sh's NOGPL=1 gate: which ports must not appear.
 gpl-only-ports:
@@ -1158,23 +1163,37 @@ $(BUILD)/userland/backends/netsurf/fetch_http.o $(BUILD)/userland/backends/netsu
 
 EXTRA_OBJS_nsmonkey = $(NS_BACKEND_OBJS) $(NS_PORT_OBJS)
 
-# The Web Browser: the same engine WITHOUT monkey's front end, and ours
-# in userland/browser/ (fonts, plotters, bitmaps, timers, the page
-# widget) -- outside USERLAND_PROGRAM_DIRS for the reason fm/ is.
+# /bin/webcontent: a page's engine, one process per view (docs/browser-design.md,
+# stage 5) -- the same engine WITHOUT monkey's front end, and ours in
+# userland/webcontent/ (fonts, plotters, bitmaps, timers, the page). The
+# Web Browser app (userland/browser/) links none of it: it is MIT.
 NS_CORE_OBJS = $(filter-out ports/netsurf/frontends/%,$(NS_PORT_OBJS))
-BROWSER_SRCS = $(shell find userland/browser -name '*.c' 2>/dev/null | sort)
-BROWSER_OBJS = $(patsubst userland/%.c,%,$(BROWSER_SRCS))
-EXTRA_OBJS_browser = $(BROWSER_OBJS) $(NS_BACKEND_OBJS) $(NS_CORE_OBJS)
-# Find in page counts NetSurf's matches as they are added
-# (userland/browser/ns_find.c), and box_coords() survives a float with
-# no container (ns_boxfix.c) -- link-time hooks, not edits to the
-# vendored source.
-$(BUILD)/userland/gui/apps/browser.elf: DYN_LINK += --wrap=content_textsearch_add_match --wrap=box_coords
-$(BUILD)/userland/browser/%.o $(BUILD)/userland/gui/apps/browser.o: USERLAND_CFLAGS += \
+WEBCONTENT_SRCS = $(shell find userland/webcontent -name '*.c' 2>/dev/null | sort)
+WEBCONTENT_OBJS = $(patsubst userland/%.c,%,$(WEBCONTENT_SRCS))
+EXTRA_OBJS_webcontent = $(WEBCONTENT_OBJS) $(NS_BACKEND_OBJS) $(NS_CORE_OBJS)
+# Link-time hooks, not edits to the vendored source: find in page counts
+# NetSurf's matches as they are added (ns_find.c), box_coords() survives
+# a float with no container (ns_boxfix.c), and an accepted certificate is
+# told to the network process (wc_net.c).
+$(BUILD)/userland/bin/webcontent.elf: DYN_LINK += --wrap=content_textsearch_add_match \
+        --wrap=box_coords --wrap=urldb_set_cert_permissions
+$(BUILD)/userland/webcontent/%.o $(BUILD)/userland/bin/webcontent.o: USERLAND_CFLAGS += \
         -nostdinc -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
         -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \
         $(patsubst %,-Iuserland/ports/%/include,$(NS_LIBS)) \
         -Iuserland/backends/netsurf/include $(NS_CORE_CFLAGS)
+
+# The Web Browser app: its widgets in userland/browser/, outside
+# USERLAND_PROGRAM_DIRS for the reason fm/ is.
+BROWSER_SRCS = $(shell find userland/browser -name '*.c' 2>/dev/null | sort)
+BROWSER_OBJS = $(patsubst userland/%.c,%,$(BROWSER_SRCS))
+EXTRA_OBJS_browser = $(BROWSER_OBJS)
+
+# /bin/webnet: the Web Browser's network process (MIT; docs/browser-design.md,
+# stage 5). It links ONE NetSurf library, libnspsl (MIT), for the public
+# suffix list its cookie jar refuses a Domain on.
+EXTRA_OBJS_webnet = ports/libnspsl/src/nspsl
+$(BUILD)/userland/bin/webnet.o: USERLAND_CFLAGS += -Iuserland/ports/libnspsl/include
 
 # --- dash, the vendored POSIX shell -----------------------------------
 #
@@ -1356,9 +1375,12 @@ ULIB_SO_sysupdate = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_doom = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # NetSurf's http/https fetcher (userland/backends/netsurf/fetch_http.c).
 # GPL-2.0 binaries: libssl is taken under mbedTLS's GPL-2.0-or-later
-# option for these two (LICENSE).
-ULIB_SO_browser = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
+# option for these two (LICENSE). webcontent fetches through webnet, but
+# the fetcher's in-process half is linked, and certificates are decoded.
+ULIB_SO_webcontent = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 ULIB_SO_nsmonkey = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
+# The network process the Web Browser starts (MIT): libssl under Apache-2.0.
+ULIB_SO_webnet = $(LIBHTTP_SO) $(LIBSSL_SO) $(BUILD)/lib/libhash.so
 # The SMB client and the share daemon (libsmb's crypto is in libssl).
 ULIB_SO_smb = $(LIBSMB_SO) $(LIBSSL_SO)
 ULIB_SO_smbfsd = $(LIBSMB_SO) $(LIBSSL_SO)

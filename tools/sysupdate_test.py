@@ -10,11 +10,12 @@ WHAT IT CHECKS, and what a broken version would still pass:
     guest's build counted (a cut in the wrong place changes the count)
     and DRAWN -- more text rows than the one-line "no notes" placeholder
     leaves, which `--positive-control` serves instead;
-  - the OS's unseen changes sit under ONE folded "Under the hood" row,
-    shut: clicking the row the widget reports opens it (its bit flips in
-    the layout log), and scrolled to the end the row has RISEN with
-    lines of text drawn below it -- a pane that is not taller can only
-    have scrolled if the fold opened;
+  - the OS's unseen changes sit behind ONE "Under the hood" link (the
+    page is a web view, stage 5's N2): clicking the link the page
+    reports opens them as a page of their own, drawn, with a Back link
+    that returns to the notes. Without the engine (NOGPL) they sit under
+    one folded row instead: clicking it opens it, and scrolled to the
+    end the row has RISEN with lines of text drawn below it;
   - the Files tab, clicked at the slot the strip reports, shows the list;
   - the file list is DRAWN: ink in the table's rect, not only rows
     reported;
@@ -189,6 +190,35 @@ def layout_rect(dbg, w, widget, key):
     return None
 
 
+def layout_str(dbg, widget, key):
+    want = f"sysupdate: layout {widget}.{key} "
+    views(dbg, [])
+    for line in reversed([ln for ln in LINES if want in ln]):
+        return line.split(want, 1)[1].strip()
+    return None
+
+
+def layout_link(dbg, w, widget, href):
+    """Screen rect of the link to `href` a web view reports, or None: its
+    rects (`notes.link i x y w h`) and addresses (`notes.href.i URL`)."""
+    views(dbg, [])
+    rects, hrefs = {}, {}
+    for ln in LINES:
+        m = re.search(rf"sysupdate: layout {widget}\.link (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", ln)
+        if m:
+            rects[int(m.group(1))] = tuple(int(v) for v in m.groups()[1:])
+        m = re.search(rf"sysupdate: layout {widget}\.href\.(\d+) (\S+)$", ln)
+        if m:
+            hrefs[int(m.group(1))] = m.group(2)
+    for i, u in hrefs.items():
+        if u == href and i in rects:
+            x, y, ww, hh = rects[i]
+            ox = w[widget]["screen"]["x"] - w[widget]["x"]
+            oy = w[widget]["screen"]["y"] - w[widget]["y"]
+            return ox + x, oy + y, ww, hh
+    return None
+
+
 def layout_value(dbg, widget, key):
     want = f"sysupdate: layout {widget}.{key} "
     views(dbg, [])
@@ -265,35 +295,76 @@ def main():
         im = Image.open(shot).convert("RGB")
         notes_rows = text_rows(im, screen_rect(w, "notes"))
         line_h = w["tabs"]["h"]
+        # More than two lines of text: the placeholder is one.
         check("What's new opens first, and the notes are drawn",
-              notes_rows > 3 * line_h, f"{notes_rows} rows of ink, a line is ~{line_h}")
+              notes_rows > 2 * line_h, f"{notes_rows} rows of ink, a line is ~{line_h}")
 
-        # UNDER THE HOOD, shut, then opened by its own row.
-        fold = layout_rect(dbg, w, "notes", "fold 0")
-        opened = layout_value(dbg, "notes", "folds_open")
-        if check("the unseen changes are behind one row, shut",
-                 fold is not None and opened == 0, f"row {fold}, folds_open {opened}"):
-            dbg.click(fold[0] + fold[2] // 3, fold[1] + fold[3] // 2)
-            dbg.settle()
-            opened = layout_value(dbg, "notes", "folds_open")
-            check("...and clicking it opens it", opened == 1, f"folds_open {opened}")
-            # WHAT IT OPENED IS DRAWN: scrolled to the end, the row rises
-            # (the document is taller than the pane only because it opened)
-            # and the band below it carries lines of text. The pane is
-            # short, so what opens starts below its edge until scrolled.
-            nx, ny, nw, nh = screen_rect(w, "notes")
+        # UNDER THE HOOD. On the web view (stage 5's N2) a link to a
+        # second page; without the engine, uui_markdown's folded row.
+        hood = layout_link(dbg, w, "notes", "app:notes/hood")
+        nx, ny, nw, nh = screen_rect(w, "notes")
+        if hood is not None and hood[1] + hood[3] > ny + nh:
+            # Below the pane's edge: scrolled into view, then asked again.
             dbg.warp_cursor(qmp, nx + nw // 2, ny + nh // 2)
             dbg.wheel(-10)
-            dbg.settle()
-            moved = layout_rect(dbg, w, "notes", "fold 0")
-            qmp.screenshot(shot)
-            im = Image.open(shot).convert("RGB")
-            band = ((nx, moved[1] + moved[3], nw - 16, ny + nh - moved[1] - moved[3])
-                    if moved else None)
-            ink = text_rows(im, band) if band and band[3] > 0 else 0
-            check("...and what it opened is drawn, under the row",
-                  moved is not None and moved[1] < fold[1] and ink > 2 * line_h,
-                  f"row {fold} -> {moved}; {ink} rows of ink below it")
+            for _ in range(20):
+                time.sleep(0.2)
+                hood = layout_link(dbg, w, "notes", "app:notes/hood")
+                if hood and hood[1] + hood[3] <= ny + nh:
+                    break
+        if hood is not None or layout_value(dbg, "notes", "folds_open") is None:
+            if check("the unseen changes are behind one link", hood is not None, f"link {hood}"):
+                dbg.click(hood[0] + hood[2] // 2, hood[1] + hood[3] // 2)
+                url = None
+                for _ in range(30):
+                    url = layout_str(dbg, "notes", "url")
+                    if url == "app:notes/hood":
+                        break
+                    time.sleep(0.2)
+                dbg.settle()
+                qmp.screenshot(shot)
+                im = Image.open(shot).convert("RGB")
+                rows = text_rows(im, screen_rect(w, "notes"))
+                back = layout_link(dbg, w, "notes", "app:notes/main")
+                check("...which opens them as a page of their own, drawn, with a way back",
+                      url == "app:notes/hood" and rows > 2 * line_h and back is not None,
+                      f"url {url}, {rows} rows of ink, back {back}")
+                if back:
+                    dbg.click(back[0] + back[2] // 2, back[1] + back[3] // 2)
+                    for _ in range(30):
+                        if (layout_str(dbg, "notes", "url") or "").startswith("app:notes/") and \
+                                layout_link(dbg, w, "notes", "app:notes/hood"):
+                            break
+                        time.sleep(0.2)
+                    check("...and Back returns to the notes",
+                          layout_link(dbg, w, "notes", "app:notes/hood") is not None,
+                          f"url {layout_str(dbg, 'notes', 'url')}")
+        else:
+            fold = layout_rect(dbg, w, "notes", "fold 0")
+            opened = layout_value(dbg, "notes", "folds_open")
+            if check("the unseen changes are behind one row, shut",
+                     fold is not None and opened == 0, f"row {fold}, folds_open {opened}"):
+                dbg.click(fold[0] + fold[2] // 3, fold[1] + fold[3] // 2)
+                dbg.settle()
+                opened = layout_value(dbg, "notes", "folds_open")
+                check("...and clicking it opens it", opened == 1, f"folds_open {opened}")
+                # WHAT IT OPENED IS DRAWN: scrolled to the end, the row rises
+                # (the document is taller than the pane only because it opened)
+                # and the band below it carries lines of text. The pane is
+                # short, so what opens starts below its edge until scrolled.
+                nx, ny, nw, nh = screen_rect(w, "notes")
+                dbg.warp_cursor(qmp, nx + nw // 2, ny + nh // 2)
+                dbg.wheel(-10)
+                dbg.settle()
+                moved = layout_rect(dbg, w, "notes", "fold 0")
+                qmp.screenshot(shot)
+                im = Image.open(shot).convert("RGB")
+                band = ((nx, moved[1] + moved[3], nw - 16, ny + nh - moved[1] - moved[3])
+                        if moved else None)
+                ink = text_rows(im, band) if band and band[3] > 0 else 0
+                check("...and what it opened is drawn, under the row",
+                      moved is not None and moved[1] < fold[1] and ink > 2 * line_h,
+                      f"row {fold} -> {moved}; {ink} rows of ink below it")
         slot = tab_slot(dbg, w, 1)
         if not check("the strip reports the Files tab", slot is not None):
             return finish()
@@ -348,7 +419,7 @@ def main():
             qmp.screenshot(shot)
             im = Image.open(shot).convert("RGB")
             after = text_rows(im, screen_rect(dbg.widgets(TITLE), "notes"))
-            check("...and What's new still shows the notes", after > 3 * line_h,
+            check("...and What's new still shows the notes", after > 2 * line_h,
                   f"{after} rows of ink")
         if win:
             wz = next((x for x in dbg.windows() if x.get("title") == TITLE), None)

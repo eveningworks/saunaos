@@ -13,7 +13,7 @@
 #include <strings.h>
 
 #include "utils/errors.h"
-#include "browser/ns_font.h"
+#include "webcontent/ns_font.h"
 #include "lib/uunicode.h"
 #include "ui/uglyph.h"
 

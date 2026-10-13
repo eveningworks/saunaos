@@ -9,9 +9,9 @@
 
 #include "utils/errors.h"
 
-#include "browser/ns_bitmap.h"
-#include "browser/ns_font.h"
-#include "browser/ns_plot.h"
+#include "webcontent/ns_bitmap.h"
+#include "webcontent/ns_font.h"
+#include "webcontent/ns_plot.h"
 
 #include "netsurf/plotters.h"
 #include "netsurf/plot_style.h"

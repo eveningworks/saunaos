@@ -26,6 +26,9 @@ What it serves, beside the files of a corpus directory:
                           test checks the saved file against (download_bytes());
                           &drop=K sends K of them in eight pieces over 4 s and closes, &slow=1 trickles
                           them out, 16 KiB every 0.2 s, so a test can cancel
+  /big.html?kb=N          an HTML page of N KiB of numbered paragraphs, titled
+                          "Big N" -- more than the browser's network ring
+                          (lib/ubulk.h) holds, so the page waits for room
   /stats                  "connections=N requests=M" since the last /reset
   /reset                  zeroes those counters
 
@@ -179,6 +182,17 @@ def _handler(root, stats, image_delay=0.0):
             if path.startswith("/download/"):
                 return self._download(path[len("/download/"):] or "file.bin",
                                       dict(urllib.parse.parse_qsl(query)))
+            if path == "/big.html":
+                kb = int(dict(urllib.parse.parse_qsl(query)).get("kb", "1024"))
+                rows, n, i = [], 0, 0
+                while n < kb * 1024:
+                    r = "<p>Paragraph %d: the quick brown fox jumps over the lazy dog.</p>\n" % i
+                    rows.append(r)
+                    n += len(r)
+                    i += 1
+                return self._send(200, ("<html><head><title>Big %d</title></head><body>%s"
+                                        "<p id=end>The end.</p></body></html>"
+                                        % (kb, "".join(rows))).encode(), "text/html")
             if path == "/ua":
                 return self._send(200, (self.headers.get("User-Agent", "") + "\n").encode())
             name = os.path.normpath(path.lstrip("/")) or "index.html"

@@ -1276,7 +1276,10 @@ static void req_tabs(int from, struct wmchan_msg *m) {
     if (idx < 0) return;
     struct window *w = &windows[idx];
     int n = m->a < 0 ? 0 : m->a > WIN_TABS_MAX ? WIN_TABS_MAX : m->a;
-    for (int i = w->ntabs; i < n; i++) w->tab[i][0] = '\0';
+    for (int i = w->ntabs; i < n; i++) {
+        w->tab[i][0] = '\0';
+        w->tab_icon[i] = WIN_TAB_ICON_FOLDER;
+    }
     w->ntabs = n;
     w->active_tab = m->b >= 0 && m->b < n ? m->b : 0;
     wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H);
@@ -1290,6 +1293,7 @@ static void req_tab(int from, struct wmchan_msg *m) {
     int i = 0;
     for (; m->text[i] && i < WIN_TITLE_MAX - 1; i++) w->tab[m->a][i] = m->text[i];
     w->tab[m->a][i] = '\0';
+    w->tab_icon[m->a] = m->b;
     wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H);
     redraw_pending = 1;
 }

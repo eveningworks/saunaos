@@ -592,6 +592,9 @@ void uapp_track_child(struct uapp *a, int pid);
 // n + 1 requests, so call it when the tabs CHANGE, not per frame.
 // 1 when all were sent, 0 when the channel refused one.
 int uapp_set_tabs(struct uapp *a, const char *const *labels, int n, int active);
+// Each tab's icon (WIN_TAB_ICON_*), sent with the NEXT uapp_set_tabs().
+// Unset tabs keep the folder every tab had before.
+void uapp_set_tab_icons(struct uapp *a, const int *icons, int n);
 int uapp_set_title(struct uapp *a, const char *title);
 
 // The name a person knows this app by: the Name= of the desktop entry

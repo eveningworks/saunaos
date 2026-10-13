@@ -233,6 +233,7 @@ struct window {
     // TITLE-BAR TABS (WIN_REQ_TABS), drawn in place of the title; the
     // client decides what they are, this only draws and reports clicks.
     char tab[WIN_TABS_MAX][WIN_TITLE_MAX];
+    int tab_icon[WIN_TABS_MAX];   // WIN_TAB_ICON_*
     int ntabs;            // 0 = no tabs: the title as ever
     int active_tab;
     uint64_t ping_blocked_tick;   // since when a ping found the inbox full; 0 = it did not

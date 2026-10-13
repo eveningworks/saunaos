@@ -47,6 +47,11 @@ struct uchan_client {
 // Publishes `name` as a beacon and registers its wake word with the
 // kernel, so a client's wake and a window event arrive through the same
 // wait. Returns 0, or -1 (the name is taken, or out of memory).
+//
+// **A NAME HAS NO DOT**, and both ends refuse one: a client's ring is
+// "<name>.<pid>", and the client finds its server again by the part
+// before the first dot (uchan_client_server_alive()) -- "wv.24" would
+// look for a beacon "wv" and find its live server dead.
 int uchan_server_open(struct uchan_server *s, const char *name);
 
 // Adopts any client ring that has appeared and drops any whose client

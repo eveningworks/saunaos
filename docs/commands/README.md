@@ -205,6 +205,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`screenshot`](screenshot.md)
 - [`thumb`](thumb.md)
 - [`vplay`](vplay.md)
+- [`webcontent`](webcontent.md)
 
 ### Networking
 
@@ -224,6 +225,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`speedtest`](speedtest.md)
 - [`telnetd`](telnetd.md)
 - [`tftpd`](tftpd.md)
+- [`webnet`](webnet.md)
 - [`wget`](wget.md)
 
 ### Services and the system

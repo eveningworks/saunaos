@@ -276,6 +276,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [x] ~~A tab can be renamed by hand~~ DONE 2026-08-27 -- Terminal > Rename Tab; the name outranks the shell's OSC
 - [ ] A thread stack with a guard page, which needs an `mprotect`-shaped syscall
 - [ ] Signal dispositions shared by a thread group, as POSIX has them -- per thread here, inherited at create
+- [ ] Audit every `scheduler_current_pid()` that decides a PERMISSION -- shared memory asked the thread, not the process, until 2026-10-13
 - [ ] GCC's default (`%fs:0x28`) stack-protector guard in ring 3, now that TLS exists
 - [x] ~~`mmap`-style anonymous memory for userspace~~ DONE 2026-08-28 -- see Phase 2's demand-paging items
 - [x] ~~Time syscalls (a monotonic clock and wall-clock read)~~ DONE -- `sys_monotonic_ns()` for intervals, `sys_gettime()` for wall clock
@@ -873,7 +874,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Browser: PNG and JPEG through `lib/uimg.h`~~ DONE 2026-10-12 -- large ones decoded in a thread; PNG reads every depth and Adam7
 - [x] ~~Browser: the address field holds 127 bytes (`UUI_TEXTBOX_MAX`), and real addresses run longer~~ DONE 2026-10-12 -- 8 KiB
 - [x] ~~Browser stage 4: the lock's connection card, Downloads, find in page, zoom, bookmarks and history~~ DONE 2026-10-13
-- [ ] Browser stage 5: `uui_webview` -- the engine as a content process, so Help and release notes can embed a page
+- [x] ~~Browser stage 5: `uui_webview`, the engine as a content process~~ DONE 2026-10-13 -- a process per tab, `/bin/webnet`, Help on it
+- [ ] Browser: a tab's back/forward list survives its content process -- it is NetSurf's, in the process that died
+- [ ] Browser: HTTP authentication kept by `/bin/webnet`, not per content process
+- [ ] Browser: a sandboxed content process -- with no per-process sandbox, stage 5 isolates crashes, not compromise
 - [ ] Browser stage 6: JavaScript through Duktape, off by default until measured
 - [x] ~~Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans~~ DONE 2026-10-13
 

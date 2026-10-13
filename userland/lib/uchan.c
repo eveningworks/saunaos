@@ -45,7 +45,7 @@ static void *map_object(const char *name, uint64_t bytes, int create) {
 
 int uchan_server_open(struct uchan_server *s, const char *name) {
     memset(s, 0, sizeof *s);
-    if (!name || !*name || strlen(name) >= UCHAN_NAME_MAX) return -1;
+    if (!name || !*name || strlen(name) >= UCHAN_NAME_MAX || strchr(name, '.')) return -1;
     snprintf(s->name, sizeof s->name, "%s", name);
 
     // Unlink first: a previous server that died left its beacon behind,
@@ -225,7 +225,7 @@ void uchan_server_close(struct uchan_server *s) {
 
 int uchan_client_open(struct uchan_client *c, const char *name) {
     memset(c, 0, sizeof *c);
-    if (!name || !*name || strlen(name) >= UCHAN_NAME_MAX) return -1;
+    if (!name || !*name || strlen(name) >= UCHAN_NAME_MAX || strchr(name, '.')) return -1;
 
     c->beacon = map_object(name, sizeof(struct uchan_beacon), 0);
     if (!c->beacon) return -1;              // no server

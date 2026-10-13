@@ -408,12 +408,19 @@ void uapp_display_name(const struct uapp *a, char *out, int cap) {
         strlcpy(out, a && a->desc->title ? a->desc->title : "", (size_t)cap);
 }
 
+static int g_tab_icon[WIN_TABS_MAX];
+
+void uapp_set_tab_icons(struct uapp *a, const int *icons, int n) {
+    (void)a;
+    for (int i = 0; i < WIN_TABS_MAX; i++) g_tab_icon[i] = icons && i < n ? icons[i] : 0;
+}
+
 int uapp_set_tabs(struct uapp *a, const char *const *labels, int n, int active) {
     if (n < 0) n = 0;
     if (n > WIN_TABS_MAX) n = WIN_TABS_MAX;
     int ok = wmchan_send(WIN_REQ_TABS, a->window, n, active, 0, 0);
     for (int i = 0; i < n && ok; i++)
-        ok = wmchan_send(WIN_REQ_TAB, a->window, i, 0, 0, labels[i] ? labels[i] : "");
+        ok = wmchan_send(WIN_REQ_TAB, a->window, i, g_tab_icon[i], 0, labels[i] ? labels[i] : "");
     return ok;
 }
 

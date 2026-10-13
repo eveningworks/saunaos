@@ -2834,6 +2834,26 @@ real scanout hardware does. Do not write a pixel assertion for one.
   burst of messages from a client goes through the waiting send**, never
   bare `uchan_send()` with its -1 ignored.
 
+- **A uchan SERVICE NAME HAS NO DOT, AND RECORDS OF ANY SIZE RIDE
+  `lib/ubulk.h`.** A client finds its server again by the part of its
+  ring's name before the first dot, so `wv.24` looked for a beacon `wv`
+  and took its live server for dead; `uchan_server_open()` and
+  `uchan_client_open()` refuse a dot now. What a 64-byte slot cannot
+  carry -- a URL, a title, a response body -- goes through `ubulk`: a
+  byte ring each way beside the client's uchan ring, uchan only ringing
+  the doorbell. Wayland's shape (a small message, the payload in shared
+  memory); the web view and `/bin/webnet` are its users.
+
+- **A PAGE DRAWN IN ANOTHER PROCESS IS A `uui_webview`, AND ITS LINKS ARE
+  REPORTED, NOT DERIVED.** The content process sends its link boxes and
+  addresses (`WV_LINKS`), and the widget's `describe` logs them as
+  `<name>.link i x y w h` and `<name>.href.i URL`, with `<name>.pid`,
+  `.stopped`, `.url` and, when stopped, the bar's `.reload`/`.report`.
+  A test clicks by those -- the same rule as every widget's layout log.
+  A document an app makes (Help, the release notes) is served over the
+  `app:` scheme as `uui_webview_markdown_page()`, with `uui_markdown`
+  kept as the fallback for a build without the engine.
+
 - **A REMOTE DESKTOP REQUEST IS THE ONE NOTICE THAT ANSWERS:
   `WIN_NOTICE_REMOTE`.** Every other card acts in the compositor; this
   one sends `WIN_EV_REMOTE_ANSWER` back to the asker, which is waiting.

@@ -19,10 +19,12 @@
 | `tunable.h` | Reading and writing a kernel TUNABLE from ring 3 -- the write half of the commands whose read half is a query provider (`heap`, `ata`, `kstack`). |
 | `uappentry.h` | The desktop's application entries -- /usr/wm/applications/*.desktop -- read one, walk them, or find the one that launches a given program. |
 | `uargs.h` | A /bin program's arguments from a DECLARED TABLE: one table is both what the parser accepts and what -h/--help prints, so the help cannot list an option the program does not take (clap's, argparse'... |
+| `ubookmarks.h` | ubookmarks -- a list of bookmarked pages, kept in one file: a line per bookmark, "URL<tab>title", in the order they were added, readable with `less`. |
 | `ubootcfg.h` | GRUB's grub.cfg as an EDITABLE model: parse, change one thing, check, save -- for `bootcfg`, the Boot Manager and the Startup settings page. |
 | `ubootlayout.h` | Where GRUB's files are on the boot volume, and the one-time move from the layout before this one. |
 | `ubootmenu.h` | GRUB's menu, read from its grub.cfg, and the ONE-SHOT choice of which entry the next boot takes -- `grub-reboot`'s mechanism, for `reboot --entry` and the Leave page's "Restart into". |
 | `ubootwords.h` | The kernel's boot words, as a table: GENERATED from docs/boot-flags.md (tools/gen_bootwords.py), which is the only list of them -- the kernel matches its command line by substring and keeps no regi... |
+| `ubulk.h` | ubulk -- records of any size, up to UBULK_REC_MAX, between two ring-3 processes: a uchan channel for the doorbells, the discovery and the death of a client, and beside each client's uchan ring ONE... |
 | `ubytes.h` | Little-endian fields out of a byte buffer, and a read at an offset that does not come back short -- what every parser of an on-disk format here starts by writing (zip, WAD, RIFF/WAV, SoundFont). |
 | `uchan.h` | uchan -- a message channel between two ring-3 processes. |
 | `uchan_page.h` | uchan -- the shared page layout for a message channel between two ring-3 processes. |
@@ -33,6 +35,7 @@
 | `ucolour.h` | COLOUR ARITHMETIC for a picker and a contrast check: 0xRRGGBB to and from hue, saturation and lightness (CSS's HSL), and WCAG 2's contrast ratio between two colours. |
 | `ucomplete.h` | `/bin/tosh`'s completion ENVIRONMENT -- the ring-3 half of api/completion.h, whose engine is kernel/lib/completion.c compiled into libuapp.a. |
 | `uconf.h` | /etc access for a ring-3 program: reading and writing `name=value` documents. |
+| `ucookie.h` | ucookie -- an HTTP cookie jar, RFC 6265: what /bin/webnet keeps for the Web Browser (docs/browser-design.md, stage 5). |
 | `ucrash.h` | ucrash -- a ring-3 crash report from /var/crash, read: its header, the kernel log it carries, and a BACKTRACE recovered from the saved stack. |
 | `ucursor.h` | One cursor SHAPE, as /usr/share/cursors/<theme>/<shape> describes it -- the file format, shared by the compositor (userland/wm/cursor_theme.c, which owns the live theme) and anything that only SHOW... |
 | `udate.h` | A `struct rtc_time` written the way the LC_TIME locale writes it -- "1.10.2026 14.02" in Finland, "10/1/2026 2:02 PM" in the US. |
@@ -109,10 +112,13 @@
 | `uunicode.h` | The Unicode NAMES and BLOCKS of the characters this system's fonts can draw ("LATIN SMALL LETTER E WITH ACUTE", "Latin-1 Supplement"), and the UTF-8 encoding of a code point. |
 | `uvid.h` | uvid -- decoding video files into frames, in RING 3. |
 | `uvid_play.h` | uvid_play -- PLAYING a video: a thread decoding a few frames ahead, the sound through lib/usnd.h, and the frame due now for whoever draws. |
+| `uvisits.h` | uvisits -- the pages a person browsed to (a browser's History; the shell's command history is lib/uhistory.h): one entry per address, with when it was last visited, how often, and its title. |
 | `uvolinfo.h` | What one mounted volume or network share IS, gathered in one place: the kernel's QUERY_FSINFO record, the share's file in /etc/mounts.d and its server's last word -- for Properties' volume page and... |
 | `uwalk.h` | A DIRECTORY TREE WALK, one directory at a time, for a caller that has to stop, report progress or share a thread: the File Manager's search into subfolders and its folder sizes. |
 | `uwmchan.h` | TWP over a channel: a client's request reaching the compositor DIRECTLY instead of through the kernel. |
 | `uzip.h` | Reading ONE member out of a .zip archive into a file -- PKWARE's APPNOTE, the subset every archiver writes: stored (method 0) and deflated (method 8) members, no encryption, no zip64. |
+| `webnet_proto.h` | The contract between /bin/webnet -- the network process, one per Web Browser (docs/browser-design.md, stage 5) -- and its clients: each content process, which fetches through it, and the browser ap... |
+| `webview_proto.h` | The contract between ui/uui_webview.h (in the embedding app) and /bin/webcontent (the engine, one process per view) -- docs/browser-design.md, stage 5. |
 
 Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal.h`, `uvid_internal.h`.
 
@@ -224,6 +230,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_verbs.h` | THE ICON AND COLOUR EACH VERB IS DRAWN WITH, in every menu that offers it -- the File Manager's, the desktop's -- so Copy is one picture in one colour wherever it appears (freedesktop's icon naming... |
 | `uui_video.h` | uui_video -- a playing video's picture: the frame lib/uvid_play.h says is due, scaled into the widget's rect, letterboxed (`fit`) or cropped to fill it (`cover`, a wallpaper's placement). |
 | `uui_volinfo.h` | uui_volinfo -- a mounted volume's or network share's card, drawn from a struct uvolinfo (lib/uvolinfo.h): its icon, name and kind, its facts as label/value rows, and how full it is. |
+| `uui_webview.h` | A WEB PAGE IN A WIDGET, drawn by another process: each view starts its own /bin/webcontent (NetSurf), which paints the page into shared memory this widget copies from, and hears the person's input... |
 | `uui_widget.h` | uui_widget_ops -- the ONE table a widget exports to be handled generically: laid out, drawn, hit-tested, focused. |
 | `uui_wizard.h` | uui_wizard -- a whole window of steps: a RAIL listing them on the left, the current step's page on the right under "STEP 2 OF 7" and its title, Back and Next in a bar along the bottom, and an optio... |
 | `uvterm.h` | uvterm -- ONE TERMINAL: a pty and the program on it, the reader thread that drains it, the ANSI parser, the grid, its scrollback and alternate screen, the cursor, a selection, and drawing all of th... |

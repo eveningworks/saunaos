@@ -8,7 +8,7 @@
 #include <string.h>
 
 #include "utils/errors.h"
-#include "browser/ns_bitmap.h"
+#include "webcontent/ns_bitmap.h"
 #include "netsurf/bitmap.h"
 #include "netsurf/content.h"
 

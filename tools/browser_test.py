@@ -46,6 +46,10 @@ WHAT IT CHECKS, and what a broken version would still pass:
     sans row beside it -- while a row repeated, and "Times New Roman"
     against `serif`, match (the controls: a broken version that drew
     every row the same would pass "it differs" nowhere);
+  - a page's content process killed: the app survives, the C3 view is
+    up (the last frame greyed under a danger-tinted bar), Reload brings
+    the page back in a new process; about:crash leaves a crash report
+    that View report opens (stage 5);
   - /tests/web/photos.html's progressive JPEG (four colour quadrants)
     and 2-bit palette Adam7 PNG (four bands) are DRAWN, each region its
     own colour in the pixels -- decoded by lib/uimg.h in a thread, as
@@ -59,8 +63,10 @@ nobody:
   - a typed host:port/path is fetched over http, and the page's own
     stylesheet -- a SEPARATE request -- is applied: net.css's red rule is
     in the pixels, and none of it lower down (control);
+  - a page of 1 MiB -- more than the network ring holds -- loads whole;
   - a cookie the server set is sent back on the next page, and kept in
-    /var/lib/browser/cookies when the window closes;
+    /var/lib/browser/cookie-jar (the network process's) when the window
+    closes;
   - words that are not an address become a search (--search-url points
     it at the same server, so nothing leaves the machine);
   - the server saw FEWER connections than requests: they were reused;
@@ -121,6 +127,10 @@ def state(dbg):
         m = re.search(r"browser: cookies cleared (\d+)$", line)
         if m:
             _st["cleared"] = int(m.group(1))
+        # A widget's scalar ("layout page.pid 123", "page.stopped 1").
+        m = re.search(r"browser: layout (\S+) (-?\d+)$", line)
+        if m:
+            _st[m.group(1)] = int(m.group(2))
         m = re.search(r"browser: layout card\.open (\d)$", line)
         if m:
             _st["card_open"] = int(m.group(1))
@@ -354,6 +364,7 @@ def run(dbg, qmp, args, net):
     zoom_and_find(dbg, page, at, shot, c)
     popups(dbg, page, at, c)
     bookmarks_and_history(dbg, page, at, shot)
+    stopped_page(dbg, page, at, shot)
     if net:
         network(dbg, net, page, at, shot)
     return finish()
@@ -379,7 +390,8 @@ def photos(dbg, page, at, shot):
     quads = [((8 + 80, 8 + 60), (220, 30, 30)), ((8 + 240, 8 + 60), (30, 180, 40)),
              ((8 + 80, 8 + 180), (30, 60, 220)), ((8 + 240, 8 + 180), (240, 210, 30))]
     got = [count(im, box(*xy), near(c, 30)) for xy, c in quads]
-    check("the progressive JPEG is drawn, each quadrant its colour", min(got) > 900, f"{got} of 1200 px")
+    check("the progressive JPEG is drawn, each quadrant its colour", min(got) > 900,
+          f"{got} of 1200 px, scrolled {sx},{sy}")
     bands = [((8 + 160, 256 + 30), (200, 40, 160)), ((8 + 160, 256 + 90), (20, 160, 160)),
              ((8 + 160, 256 + 150), (250, 140, 0)), ((8 + 160, 256 + 210), (90, 60, 30))]
     got = [count(im, box(*xy), near(c, 30)) for xy, c in bands]
@@ -612,6 +624,94 @@ def bookmarks_and_history(dbg, page, at, shot):
           st.get("page", (0,))[0] == page[0], f"page {st.get('page')}")
 
 
+def saturated(p):
+    return max(p) - min(p) > 60
+
+
+def stopped_page(dbg, page, at, shot):
+    """The engine as a process (docs/browser-design.md, stage 5): a page's
+    content process KILLED leaves the app running and the C3 view up --
+    the last frame greyed under a danger-tinted bar -- and Reload brings
+    the page back in a NEW process. about:crash then faults the engine on
+    purpose, which leaves a crash report the bar's View report opens.
+    What a broken version still passes: a bar drawn over a page that is
+    still live (the frame would keep its colour), or a Reload that
+    reuses a dead pid (it would never load)."""
+    url = "file:///tests/web/photos.html"
+    go(dbg, "/tests/web/photos.html")
+    st = wait(dbg, lambda s: loaded(url)(s) and s.get("page.pid", 0) > 0)
+    pid = st.get("page.pid", 0)
+    rect = at((page[0], page[1], page[2] - 16, page[3]))
+    im = shot("before_kill")
+    colour = count(im, rect, saturated)
+    check("a page in colour, drawn by its own content process (control)", pid > 0 and colour > 5000,
+          f"pid {pid}, {colour} saturated px")
+
+    dbg.send(f"sh kill -KILL {pid}")
+    st = wait(dbg, lambda s: s.get("page.stopped") == 1, 10)
+    win = window(dbg)
+    check("killing the content process stops the page, and the app is still there",
+          st.get("page.stopped") == 1 and win is not None,
+          f"stopped {st.get('page.stopped')} window {bool(win)}")
+    im = shot("stopped")
+    reload_ = st.get("page.reload")
+    bar = st.get("page.bar")
+    left = count(im, rect, saturated)
+    below = at((page[0], page[1] + (bar[3] if bar else 40), page[2] - 16, page[3] - (bar[3] if bar else 40)))
+    kept = count(im, below, lambda p: min(p) < 235)
+    check("...its last frame kept, greyed: no colour left in it, but not blank",
+          kept > 2000 and left < colour // 20, f"{left} saturated px of {colour} before, {kept} drawn")
+    tint = count(im, at(bar), lambda p: p[0] > p[1] + 15 and p[0] > p[2] + 15) if bar else 0
+    check("...under the bar, in the danger colour's tint", bar and tint > 500, f"bar {bar}, {tint} px")
+    check("...whose View report is unavailable: a killed process left no report",
+          st.get("page.report") is None, f"report {st.get('page.report')}")
+    labels_now = window(dbg).get("tabs", []) if win else []
+    check("...and the tab still shows the page's title", labels_now and labels_now[0].get("label"),
+          f"tabs {labels_now}")
+
+    if reload_:
+        x, y, w, h = reload_
+        dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+    st = wait(dbg, lambda s: s.get("page.stopped") == 0 and loaded(url)(s) and
+              s.get("page.pid", 0) not in (0, pid), 15)
+    im = shot("reloaded")
+    again = count(im, rect, saturated)
+    check("Reload brings the page back, in a new process, in colour",
+          st.get("page.stopped") == 0 and st.get("page.pid", 0) not in (0, pid) and again > colour // 2,
+          f"stopped {st.get('page.stopped')} pid {st.get('page.pid')} (was {pid}), {again} px")
+
+    pid = st.get("page.pid", 0)
+    go(dbg, "about:crash")
+    st = wait(dbg, lambda s: s.get("page.stopped") == 1 and s.get("page.report"), 15)
+    ls = dbg.send("sh ls /var/crash") or ""
+    check("about:crash faults the engine: the page stops, and a crash report is written",
+          st.get("page.stopped") == 1 and f"webcontent-{pid}.crash" in ls,
+          f"stopped {st.get('page.stopped')} report {st.get('page.report')} ls {ls.strip()[-160:]}")
+    rep = st.get("page.report")
+    if rep:
+        x, y, w, h = rep
+        dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+    viewer = None
+    for _ in range(40):
+        # The viewer opened on one report is titled for it ("webcontent crashed").
+        viewer = next((w for w in dbg.windows() if "webcontent crashed" in w["title"]), None)
+        if viewer:
+            break
+        time.sleep(0.25)
+    check("...and View report opens it in Crash Reports", viewer is not None,
+          f"windows {[w['title'] for w in dbg.windows()]}")
+    if viewer:
+        dbg.send(f"gui close {viewer['z']}")
+        dbg.settle(1.0)
+    reload_ = st.get("page.reload")
+    if reload_:
+        x, y, w, h = reload_
+        dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+    st = wait(dbg, lambda s: s.get("page.stopped") == 0 and loaded(url)(s), 15)
+    check("...and Reload recovers that one too", st.get("page.stopped") == 0 and loaded(url)(st),
+          f"stopped {st.get('page.stopped')} url {st.get('url')}")
+
+
 def labels(dbg):
     return [t.get("label") for t in (window(dbg) or {}).get("tabs", [])]
 
@@ -634,6 +734,15 @@ def network(dbg, net, page, at, shot):
     check("...with its stylesheet, a SEPARATE request, applied", red > 100, f"{red} red px")
     check("...and none of its red lower down (control)", ctl < 20, f"{ctl} px")
 
+    # A page bigger than the network process's ring (lib/ubulk.h): it
+    # arrives in pieces as the content process makes room. A broken wait
+    # for room once ended the fetch half-sent, and the page never loaded.
+    go(dbg, f"{host}/big.html?kb=1024")
+    st = wait(dbg, loaded(f"http://{host}/big.html?kb=1024"), timeout=40)
+    check("a page of 1 MiB, more than the ring holds, loads whole",
+          loaded(f"http://{host}/big.html?kb=1024")(st) and "Big 1024" in labels(dbg)
+          and st.get("ext_h", 0) > 100000,
+          f"url={st.get('url')} loading={st.get('loading')} ext_h={st.get('ext_h')} tabs {labels(dbg)}")
     go(dbg, f"{host}/cookie/set?toy=yes")
     wait(dbg, loaded(f"http://{host}/cookie/set?toy=yes"), timeout=20)
     go(dbg, f"{host}/cookie/show")
@@ -732,11 +841,16 @@ def network(dbg, net, page, at, shot):
             gone = True
             break
         time.sleep(0.25)
-    jar = dbg.send("sh cat /var/lib/browser/cookies") or ""
+    jar = ""
+    for _ in range(20):   # webnet saves as it exits, a moment after the window
+        jar = dbg.send("sh cat /var/lib/browser/cookie-jar") or ""
+        if "toy" in jar:
+            break
+        time.sleep(0.25)
     check("closing the window keeps the cookie in /var/lib/browser",
           gone and "toy" in jar and "yes" in jar, jar.strip()[-120:])
-    marks = dbg.send("sh cat /var/lib/browser/bookmarks") or ""
-    check("...and the bookmark in /var/lib/browser/bookmarks", "tests/web/text.html" in marks,
+    marks = dbg.send("sh cat /var/lib/browser/bookmarks.tsv") or ""
+    check("...and the bookmark in /var/lib/browser/bookmarks.tsv", "tests/web/text.html" in marks,
           marks.strip()[-160:])
 
     # Clear, from the card, in a new window (the jar above is checked

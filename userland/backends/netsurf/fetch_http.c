@@ -11,6 +11,13 @@
 // lets go last frees it, under g_mu. Abort and free only ever set
 // `cancel` -- a thread is never waited for on the main thread, and one
 // blocked reading a silent server finishes its read first.
+//
+// REMOTE MODE (ns_fetch_http_set_remote()): /bin/webcontent's, where the
+// transfer runs in /bin/webnet. A fetch then has no thread: start and
+// free go to the transport, and what webnet sends back is queued here as
+// the same messages a thread would have queued -- so everything below
+// the queue is one copy for both. Cookies and certificate exceptions are
+// webnet's then, not urldb's.
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -74,6 +81,7 @@ struct hfetch {
     size_t queued;
 
     // The main thread's.
+    uint32_t rid;               // remote mode: the fetch's number at webnet
     struct hfetch *next;        // the active list
     bool started, linked, aborted, stopped, had_headers, had_certs, terminal;
     long http_code;
@@ -89,6 +97,10 @@ static int g_schemes;           // how many of http/https are initialised
 static char *g_ua;
 static void (*g_wake)(void);
 static int g_weak;
+static const struct ns_fetch_remote *g_remote;
+static uint32_t g_next_rid = 1;
+
+void ns_fetch_http_set_remote(const struct ns_fetch_remote *ops) { g_remote = ops; }
 
 void ns_fetch_http_set_user_agent(const char *ua) {
     free(g_ua);
@@ -231,7 +243,9 @@ fail:
 // A cancelled fetch's messages are dropped: nobody will read them.
 static int push(struct hfetch *f, struct msg *m) {
     pthread_mutex_lock(&g_mu);
-    while (f->queued > QUEUE_HIGH && !f->cancel) pthread_cond_wait(&g_room, &g_mu);
+    // Remote mode pushes on the MAIN thread, which is the one that would
+    // drain: the ring to webnet is the back-pressure there instead.
+    while (!g_remote && f->queued > QUEUE_HIGH && !f->cancel) pthread_cond_wait(&g_room, &g_mu);
     int dropped = f->cancel && m->kind != M_DONE;
     // One wake per batch: the main thread drains everything queued, so
     // only the message that finds the queue empty needs to wake it.
@@ -341,7 +355,7 @@ static void *worker(void *arg) {
 static bool fh_start(void *vf) {
     struct hfetch *f = vf;
     // On the main thread: urldb is NetSurf's and is not locked.
-    char *cookie = urldb_get_cookie(f->url, true);
+    char *cookie = g_remote ? NULL : urldb_get_cookie(f->url, true);
     if (cookie) {
         add_header(f, "Cookie: %s%s", cookie, "");
         free(cookie);
@@ -360,6 +374,17 @@ static bool fh_start(void *vf) {
             }
             free(b64);
         }
+    }
+    if (g_remote) {
+        f->rid = g_next_rid++;
+        if (g_remote->start(f->rid, f->urlstr, strcmp(f->method, "GET") != 0,
+                            (const char *const *)f->headers, f->body, f->body_len) != 0)
+            return false;
+        f->started = true;
+        f->next = g_active;
+        g_active = f;
+        f->linked = true;
+        return true;
     }
     // "Proceed anyway" on the certificate page records this for the host.
     f->insecure = urldb_get_cert_permissions(f->url);
@@ -397,8 +422,24 @@ static void stop_thread(struct hfetch *f) {
     pthread_mutex_unlock(&g_mu);
 }
 
+// Remote mode: the last fetches let go, by URL. NetSurf asks for a
+// download window from the llcache's NEXT poll, by which time a small
+// response has been delivered whole and its fetch freed.
+#define RECENT 16
+static struct { uint32_t rid; char *url; } g_recent[RECENT];
+static unsigned g_recent_at;
+
 static void fh_free(void *vf) {
     struct hfetch *f = vf;
+    if (g_remote && f->rid && f->had_headers) {
+        unsigned k = g_recent_at++ % RECENT;
+        free(g_recent[k].url);
+        g_recent[k].rid = f->rid;
+        g_recent[k].url = strdup(f->urlstr);
+    }
+    // webnet holds a fetch until it is let go, finished or not -- a
+    // response that turns out to be a download is still wanted there.
+    if (g_remote && f->rid) g_remote->abort(f->rid);
     unlink_active(f);
     stop_thread(f);
     hfetch_unref(f);
@@ -504,7 +545,7 @@ static void on_header_line(struct hfetch *f, const char *line, size_t len) {
                 f->realm = strndup(r, (size_t)(q - r));
             }
         }
-    } else if (len > 11 && !strncasecmp(line, "Set-Cookie:", 11)) {
+    } else if (len > 11 && !g_remote && !strncasecmp(line, "Set-Cookie:", 11)) {
         char *v = value_dup(line, len, 11);
         if (v) {
             fetch_set_cookie(f->parent, v);
@@ -668,6 +709,7 @@ static void fh_poll(lwc_string *scheme) {
     (void)scheme;
     if (g_in_poll) return;
     g_in_poll = true;
+    if (g_remote) g_remote->pump();
     for (struct hfetch *f = g_active, *next; f; f = next) {
         next = f->next;
         pthread_mutex_lock(&g_mu);
@@ -719,6 +761,65 @@ static void fh_finalise(lwc_string *scheme) {
         uhttp_pool_free(g_pool);
         g_pool = NULL;
     }
+}
+
+// --- remote mode: what webnet sent, queued as a thread would have ------------
+
+static struct hfetch *by_rid(uint32_t rid) {
+    for (struct hfetch *f = g_active; f; f = f->next)
+        if (f->rid == rid) return f;
+    return NULL;
+}
+
+void ns_fetch_http_remote_header(uint32_t rid, const char *line, size_t len) {
+    struct hfetch *f = by_rid(rid);
+    struct msg *m = f ? msg_new(M_HEADER, line, len, NULL) : NULL;
+    if (m) push(f, m);
+}
+
+void ns_fetch_http_remote_data(uint32_t rid, const void *data, size_t len) {
+    struct hfetch *f = by_rid(rid);
+    struct msg *m = f ? msg_new(M_DATA, data, len, NULL) : NULL;
+    if (m) push(f, m);
+}
+
+void ns_fetch_http_remote_tls(uint32_t rid, const char *version, const char *cipher) {
+    struct hfetch *f = by_rid(rid);
+    struct msg *m = f ? msg_new(M_TLS, version, strlen(version) + 1, cipher) : NULL;
+    if (m) push(f, m);
+}
+
+void ns_fetch_http_remote_certs(uint32_t rid, const struct utls_chain *chain) {
+    struct hfetch *f = by_rid(rid);
+    struct msg *m = f ? msg_new(M_CERTS, NULL, 0, NULL) : NULL;
+    if (!m) return;
+    m->chain = calloc(1, sizeof *m->chain);
+    if (m->chain) chain_copy(m->chain, chain);
+    push(f, m);
+}
+
+void ns_fetch_http_remote_done(uint32_t rid, int rc, int cert_err, const char *err) {
+    struct hfetch *f = by_rid(rid);
+    struct msg *m = f ? msg_new(M_DONE, err, strlen(err), NULL) : NULL;
+    if (!m) return;
+    m->rc = rc;
+    m->cert_err = cert_err;
+    push(f, m);
+}
+
+void ns_fetch_http_remote_fail_all(const char *err) {
+    for (struct hfetch *f = g_active; f; f = f->next)
+        if (f->rid && !f->terminal) ns_fetch_http_remote_done(f->rid, -1, 0, err);
+}
+
+uint32_t ns_fetch_http_remote_id_for(const char *url) {
+    uint32_t best = 0;
+    for (struct hfetch *f = g_active; f; f = f->next)
+        if (f->rid && f->had_headers && !strcmp(f->urlstr, url) && f->rid > best) best = f->rid;
+    for (int k = 0; k < RECENT; k++)
+        if (g_recent[k].url && !strcmp(g_recent[k].url, url) && g_recent[k].rid > best)
+            best = g_recent[k].rid;
+    return best;
 }
 
 static bool fh_acceptable(const nsurl *url) {

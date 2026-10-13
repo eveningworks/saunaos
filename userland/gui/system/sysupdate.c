@@ -13,6 +13,7 @@
 // the log queue below. Everything drawn is touched here.
 #include <pthread.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "keyboard.h"   // KEY_PAGE_*, KEY_MOD_CTRL
@@ -23,13 +24,15 @@
 #include "ui/uui.h"
 #include "ui/uui_label.h"
 #include "ui/uui_markdown.h"
+#include "ui/uui_webview.h"
+#include "lib/umd.h"
 #include "ui/uui_table.h"
 #include "ui/uui_tabs.h"
 #include "ui/ulog.h"
 #include "ui/utheme.h"
 #include "update/upd.h"
 
-enum { EV_LOG = 1, EV_PROGRESS, EV_DONE };
+enum { EV_LOG = 1, EV_PROGRESS, EV_DONE, EV_WEB };
 enum { JOB_NONE, JOB_CHECK, JOB_APPLY };
 
 enum {
@@ -78,6 +81,14 @@ static char g_log_buf[32768];
 static int g_rows[UUI_TABLE_MAX_ROWS];   // plan index per table row
 static int g_row_count;
 static struct uui_markdown g_notes;
+// What's new as a web page when the engine is installed (ui/uui_webview.h):
+// app:notes/<gen> is the notes, the "Under the hood" fold a link to
+// app:notes/hood -- NetSurf has no <details> (the stage 5 canvas's N2).
+// Without the engine (NOGPL=1), g_notes draws them as before.
+static struct uui_webview g_web;
+static int g_web_on;
+static char *g_notes_md;            // a copy: the worker frees the plan's
+static unsigned g_notes_gen;
 static char g_files_label[24] = "Files";
 static struct uui_tab g_tab_list[PAGE_COUNT] = {
     { "What's new", 0, 0 }, { g_files_label, 0, 0 }, { "Log", 0, 0 },
@@ -287,8 +298,50 @@ static void show_notes(void) {
     if (g_job == JOB_CHECK) t = "Checking for release notes...";
     else if (!t && g_plan.notes_since) t = "Nothing new since this machine's build.";
     else if (!t) t = "This server publishes no release notes.";
-    uui_markdown_set_text(&g_notes, t, (int)strlen(t));
+    if (!g_web_on) {
+        uui_markdown_set_text(&g_notes, t, (int)strlen(t));
+        return;
+    }
+    free(g_notes_md);
+    g_notes_md = strdup(t);
+    // A new address each time: the page is the notes AS THEY ARE NOW.
+    char url[48];
+    snprintf(url, sizeof url, "app:notes/%u", ++g_notes_gen);
+    uui_webview_navigate(&g_web, url);
 }
+
+static void notes_page(struct uui_webview *v, uint32_t id, const char *url) {
+    const char *md = g_notes_md ? g_notes_md : "";
+    int hood = !strcmp(url, "app:notes/hood");
+    struct umd_html_opts o = { NULL, NULL, hood ? UMD_HTML_DETAILS_ONLY : UMD_HTML_DETAILS_LINK,
+                               hood ? "app:notes/main" : "app:notes/hood" };
+    int n = 0;
+    char *page = uui_webview_markdown_page("What's new", md, (int)strlen(md), &o, &n);
+    if (page) uui_webview_scheme_reply(v, id, 200, "text/html", page, (uint32_t)n, 1);
+    else uui_webview_scheme_reply(v, id, 404, NULL, NULL, 0, 1);
+    free(page);
+}
+
+static void notes_changed(struct uui_webview *v, unsigned what) {
+    (void)v;
+    if (!g_app) return;
+    // Where the page's links are, for a test (ui/uui_describe.h), as the
+    // fold's row was reported when the notes were drawn here.
+    if (what & (UUI_WV_LINKS | UUI_WV_URL)) uapp_log_layout(g_app, "sysupdate");
+    uapp_redraw(g_app);
+}
+
+// A link in the notes to the web opens in the Web Browser.
+static void notes_external(struct uui_webview *v, const char *url) {
+    (void)v;
+    if (g_app) uapp_spawn(g_app, "/bin/wm/apps/browser", url);
+}
+
+static const struct uui_webview_host NOTES_HOST = {
+    .changed = notes_changed,
+    .external = notes_external,
+    .scheme = notes_page,
+};
 
 static void show_page(struct uapp *a, int page) {
     g_page_items[1].hidden = page != PAGE_NOTES;
@@ -532,6 +585,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 }
 
 static int on_user(struct uapp *a, int kind, int arg) {
+    if (kind == EV_WEB) return uui_webview_on_post(a, kind, arg);
     if (kind == EV_LOG) { drain_log(); return 1; }
     if (kind == EV_DONE) { drain_log(); job_done(a, arg); return 1; }
     if (kind == EV_PROGRESS) {
@@ -554,7 +608,10 @@ static int on_tick(struct uapp *a) {
 // that is going away; ask it to stop first, and let the next close go.
 static int on_close(struct uapp *a) {
     (void)a;
-    if (g_job == JOB_NONE) return 1;
+    if (g_job == JOB_NONE) {
+        if (g_web_on) uui_webview_destroy(&g_web);
+        return 1;
+    }
     g_cancel = 1;
     return 0;
 }
@@ -570,6 +627,7 @@ static void on_size(int *w, int *h) {
 static void on_open(struct uapp *a) {
     g_app = a;
     g_tabs.ctx = a;
+    if (g_web_on && uui_webview_setup(a, EV_WEB) != 0) ulogf("sysupdate: no page channel\n");
     start_job(a, JOB_CHECK);
 }
 
@@ -601,6 +659,14 @@ int main(void) {
     uui_textview_init(&g_log, 0, 0, 0, 0, UUI_ROLE(text), UUI_ROLE(field_bg), UUI_ROLE(selection_bg),
                       g_log_buf, (int)sizeof g_log_buf);
     uui_markdown_init(&g_notes);
+    g_web_on = uui_webview_available();
+    if (g_web_on) {
+        uui_webview_init(&g_web, &NOTES_HOST, NULL);
+        g_web.scheme = 1;
+        g_web.visible = 1;
+        g_page_items[1].ops = &uui_webview_ops;
+        g_page_items[1].widget = &g_web;
+    }
     uui_tabs_init(&g_tabs, g_tab_list, PAGE_COUNT, 0);
     g_tabs.on_select = tab_selected;
     show_page(0, PAGE_NOTES);

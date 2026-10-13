@@ -74,7 +74,7 @@ than merely implemented:
 
 All but `vera-mono` carry a real `-bold` file, and `-italic` and
 `-bold-italic` files too -- styles like `-bold`, never faces of their
-own, and drawn only by the Web Browser (`userland/browser/ns_font.c`);
+own, and drawn only by the Web Browser (`userland/webcontent/ns_font.c`);
 the desktop has no italic text. `vera-mono` deliberately has none.
 
 ## What it deliberately does not do

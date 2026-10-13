@@ -146,4 +146,26 @@ int umd_field(const char *src, int len, const char *name, char *out, int cap);
 int umd_section_para(const char *src, int len, const char *name,
                      char *out, int cap);
 
+// --- as HTML, for a web engine (lib/umd_html.c) -----------------------
+//
+// The same blocks and inline rules as umd_render(), written as HTML a
+// page is made of: Help's pages and System Update's What's new, drawn by
+// ui/uui_webview.h. No <html> or stylesheet: the caller wraps it.
+enum {
+    UMD_HTML_DETAILS_OPEN,   // a fold's summary as a heading, its body after it
+    UMD_HTML_DETAILS_LINK,   // the summary as a link to `details_href`, the body left out
+    UMD_HTML_DETAILS_ONLY,   // ONLY what is inside the fold (the page that link opens)
+};
+struct umd_html_opts {
+    // An inline `code` word that names something: write its href (and a
+    // link text, or leave it empty for the word) and return 1. NULL, or
+    // 0, leaves the word as <code>.
+    int (*link)(void *ctx, const char *word, char *href, int hcap, char *text, int tcap);
+    void *ctx;
+    int details;              // UMD_HTML_DETAILS_*
+    const char *details_href; // with UMD_HTML_DETAILS_LINK: where the summary goes;
+                              // with UMD_HTML_DETAILS_ONLY: a "back" link first, or NULL
+};
+void umd_html(const char *src, int len, const struct umd_html_opts *opts, struct umd_out *out);
+
 #endif // ULIB_UMD_H

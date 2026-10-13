@@ -8,8 +8,10 @@
 // thing in the yellow strip of an Explorer window.
 //
 // Drawn in the accent's tint, so it reads as information rather than a
-// warning. The click is PARKED (uui_infobar_take()) as a dialog's is:
-// the router can only say the bar was released.
+// warning -- or, with `error` set, in the danger colour's (KMessageWidget's
+// Error type: "This page stopped."). The click is PARKED
+// (uui_infobar_take()) as a dialog's is: the router can only say the bar
+// was released.
 #include "ui/ugfx.h"
 #include "ui/uui_button.h"
 
@@ -18,13 +20,17 @@ struct uui_infobar {
     const char *text;          // caller-owned
     const char *icon;          // icon_get() name, or NULL
     struct uui_button action;  // label NULL: no action
-    int pressed;               // OWNED: a press landed on the action
+    struct uui_button second;  // an outlined second action, right of it; label NULL: none
+    int error;                 // the danger tint and a warning sign, not the accent's
+    int pressed;               // OWNED: which action a press landed on, 1 or 2
     int clicked;               // parked, taken by uui_infobar_take()
 };
 
 void uui_infobar_init(struct uui_infobar *b, const char *icon, const char *text,
                       const char *action_label);
-// 1 if the action was clicked since the last call.
+// Adds the second action (KMessageWidget takes several; two is enough here).
+void uui_infobar_set_second(struct uui_infobar *b, const char *label);
+// The action clicked since the last call: 1, 2 for the second, 0 for none.
 int uui_infobar_take(struct uui_infobar *b);
 
 struct uui_widget_ops;

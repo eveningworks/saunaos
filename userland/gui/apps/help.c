@@ -16,9 +16,18 @@
 //
 // Every page is read once, at start, and kept: search looks through the
 // whole text, and the manual is a few hundred kilobytes.
+//
+// THE PAGE IS A WEB VIEW when the engine is installed (ui/uui_webview.h,
+// docs/browser-design.md stage 5): this app answers app:help/... with
+// the page as HTML (lib/umd.h's writer) in the document look, and a
+// link clicked in it is followed by the page itself -- the app hears
+// the new address and keeps its contents and history in step. A build
+// without the engine (NOGPL=1) draws the page with uui_markdown as
+// before.
 #include "ui/uapp.h"
 #include "ui/uui.h"
 #include "ui/uui_markdown.h"
+#include "ui/uui_webview.h"
 #include "ui/uui_tree.h"
 #include "ui/uui_toolbar.h"
 #include "ui/uui_textbox.h"
@@ -50,6 +59,7 @@
 #define HIST_MAX   64
 
 enum { ID_TOOLBAR = 1, ID_SEARCH, ID_TREE, ID_DOC };
+enum { POST_WEB = 1 };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_HOME };
 
 // A place in the manual: a page index (>= 0) or a category's own page.
@@ -86,6 +96,9 @@ static char                 g_head[MAX_CATS][CAT_CAP + 12];
 static int                  g_node_count;
 
 static struct uui_markdown g_md;
+static struct uui_webview g_web;
+static int g_web_on;          // the engine is installed: the page is g_web
+static struct uapp *g_app;
 static struct uui_textbox  g_search;
 static struct uui_label    g_crumb;
 static char                g_crumb_text[CAT_CAP + TITLE_CAP + 16];
@@ -356,11 +369,12 @@ static void summary(const struct page *p, char *out, int cap) {
     if (out[0] >= 'a' && out[0] <= 'z') out[0] = (char)(out[0] - 'a' + 'A');
 }
 
-static void show_category(int c) {
+// A category's page, as Markdown, into g_gen. Its length.
+static int category_md(int c) {
     size_t cap = 256;
     for (int i = 0; i < g_npages; i++) if (g_page[i].cat == c) cap += 200 + NAME_CAP;
     char *buf = malloc(cap);
-    if (!buf) return;
+    if (!buf) return 0;
     int n = snprintf(buf, cap, "# %s\n\n", g_cat[c].name);
     int count = 0;
     for (int k = 0; k < g_npages; k++) if (g_page[g_order[k]].cat == c) count++;
@@ -373,22 +387,118 @@ static void show_category(int c) {
         n += snprintf(buf + n, cap - (size_t)n, "- `%s`%s%s\n", p->name,
                       s[0] ? " -- " : "", s);
     }
-    uui_markdown_set_text(&g_md, buf, n < (int)cap ? n : (int)cap - 1);
+    if (!g_web_on) uui_markdown_set_text(&g_md, buf, n < (int)cap ? n : (int)cap - 1);
     free(g_gen);           // only once the widget points at the new one
     g_gen = buf;
+    return n < (int)cap ? n : (int)cap - 1;
+}
+
+static void show_category(int c) {
+    category_md(c);
     snprintf(g_crumb_text, sizeof g_crumb_text, "Help  >  %s", g_cat[c].name);
 }
 
-static void show(int target, int scroll) {
+// --- the page as a web view -------------------------------------------
+
+// A place's address: app:help/<dir>/<name>, or app:help/category/<n>.
+static void url_of(int target, char *out, size_t cap) {
+    if (target >= 0 && target < g_npages)
+        snprintf(out, cap, "app:help/%s/%s", g_page[target].dir, g_page[target].name);
+    else if (IS_CAT(target))
+        snprintf(out, cap, "app:help/category/%d", CAT_OF(target));
+    else
+        snprintf(out, cap, "app:help/missing");
+}
+
+static int target_of(const char *url) {
+    const char *p = !strncmp(url, "app:help/", 9) ? url + 9 : NULL;
+    if (!p) return NO_TARGET;
+    if (!strncmp(p, "category/", 9)) {
+        int c = atoi(p + 9);
+        return c >= 0 && c < g_ncats ? CAT_TARGET(c) : NO_TARGET;
+    }
+    const char *slash = strchr(p, '/');
+    if (!slash) return NO_TARGET;
+    for (int i = 0; i < g_npages; i++)
+        if (!strncmp(g_page[i].dir, p, (size_t)(slash - p)) && !g_page[i].dir[slash - p] &&
+            !strcmp(g_page[i].name, slash + 1))
+            return i;
+    return NO_TARGET;
+}
+
+// A code span naming another page is a link, written with its title.
+static int html_link(void *ctx, const char *word, char *href, int hcap, char *text, int tcap) {
+    (void)ctx;
+    int i = find_page(word);
+    if (i < 0 || i == g_here) return 0;
+    url_of(i, href, (size_t)hcap);
+    snprintf(text, (size_t)tcap, "%s", g_page[i].title);
+    return 1;
+}
+
+static void wv_scheme(struct uui_webview *v, uint32_t id, const char *url) {
+    int t = target_of(url);
+    const char *md = MISSING;
+    int len = (int)sizeof MISSING - 1;
+    const char *title = "Help";
+    if (t >= 0) {
+        md = g_page[t].text, len = g_page[t].len, title = g_page[t].title;
+    } else if (IS_CAT(t)) {
+        len = category_md(CAT_OF(t));
+        md = g_gen;
+        title = g_cat[CAT_OF(t)].name;
+    }
+    // The page's own name is not a link to itself: g_here is where the
+    // page is GOING, which is the place being asked for.
+    int was = g_here;
+    g_here = t;
+    struct umd_html_opts o = { html_link, NULL, UMD_HTML_DETAILS_OPEN, NULL };
+    int n = 0;
+    char *page = uui_webview_markdown_page(title, md, len, &o, &n);
+    g_here = was;
+    if (page) uui_webview_scheme_reply(v, id, 200, "text/html", page, (uint32_t)n, 1);
+    else uui_webview_scheme_reply(v, id, 404, NULL, NULL, 0, 1);
+    free(page);
+}
+
+static void arrive(int target);
+
+// The page went somewhere by itself -- a link clicked in it.
+static void wv_changed(struct uui_webview *v, unsigned what) {
+    if (what & UUI_WV_URL) {
+        int t = target_of(v->url);
+        if (t != NO_TARGET && t != g_here) arrive(t);
+    }
+    if (g_app) uapp_redraw(g_app);
+}
+
+// An http(s) link in the manual opens in the Web Browser.
+static void wv_external(struct uui_webview *v, const char *url) {
+    (void)v;
+    if (g_app) uapp_spawn(g_app, "/bin/wm/apps/browser", url);
+}
+
+static const struct uui_webview_host HOST = {
+    .changed = wv_changed,
+    .external = wv_external,
+    .scheme = wv_scheme,
+};
+
+static void show_ex(int target, int scroll, int navigate) {
+    if (g_web_on && navigate) {
+        char url[PATH_CAP];
+        url_of(target, url, sizeof url);
+        uui_webview_navigate(&g_web, url);
+    }
     if (target >= 0 && target < g_npages) {
         const struct page *p = &g_page[target];
-        uui_markdown_set_text(&g_md, p->text, p->len);
+        if (!g_web_on) uui_markdown_set_text(&g_md, p->text, p->len);
         snprintf(g_crumb_text, sizeof g_crumb_text, "Help  >  %s  >  %s",
                  g_cat[p->cat].name, p->title);
     } else if (IS_CAT(target) && CAT_OF(target) < g_ncats) {
         show_category(CAT_OF(target));
     } else {
-        uui_markdown_set_text(&g_md, MISSING, (int)sizeof MISSING - 1);
+        if (!g_web_on) uui_markdown_set_text(&g_md, MISSING, (int)sizeof MISSING - 1);
         strlcpy(g_crumb_text, "Help", sizeof g_crumb_text);
     }
     g_md.scroll = scroll;   // clamped by the next draw
@@ -405,6 +515,8 @@ static void show(int target, int scroll) {
     ulogf("help: showing %s\n", target_name(target));
 }
 
+static void show(int target, int scroll) { show_ex(target, scroll, 1); }
+
 // Go somewhere new: forward history past here is dropped, as in a browser.
 static void go(int target) {
     if (target == NO_TARGET || target == NODE_NONE || target == g_here) return;
@@ -418,6 +530,20 @@ static void go(int target) {
     g_hist[g_hist_pos].target = target;
     g_hist[g_hist_pos].scroll = 0;
     show(target, 0);
+}
+
+// Somewhere the PAGE went: history as go() keeps it, without loading it
+// again.
+static void arrive(int target) {
+    if (g_hist_pos == HIST_MAX - 1) {
+        memmove(g_hist, g_hist + 1, sizeof g_hist[0] * (HIST_MAX - 1));
+        g_hist_pos--;
+    }
+    g_hist_pos++;
+    g_hist_n = g_hist_pos + 1;
+    g_hist[g_hist_pos].target = target;
+    g_hist[g_hist_pos].scroll = 0;
+    show_ex(target, 0, 0);
 }
 
 static void step(int by) {
@@ -574,14 +700,20 @@ static void on_font(struct uapp *a) {
 }
 
 static void on_open(struct uapp *a) {
-    (void)a;
+    g_app = a;
+    if (g_web_on && uui_webview_setup(a, POST_WEB) != 0) ulogf("help: no page channel\n");
     int home = home_target();
     if (home == NO_TARGET) show(NO_TARGET, 0);   // go() ignores "nowhere"
     else go(home);
 }
 
+static int on_user(struct uapp *a, int a0, int a1) {
+    return uui_webview_on_post(a, a0, a1);
+}
+
 static int on_close(struct uapp *a) {
     (void)a;
+    if (g_web_on) uui_webview_destroy(&g_web);
     uui_markdown_free(&g_md);
     for (int i = 0; i < g_npages; i++) free(g_page[i].text);
     free(g_gen);
@@ -605,6 +737,12 @@ int main(void) {
     uui_label_init(&g_crumb, g_crumb_text);
     uui_markdown_init(&g_md);
     uui_markdown_set_links(&g_md, is_link, NULL);
+    g_web_on = uui_webview_available();
+    if (g_web_on) {
+        uui_webview_init(&g_web, &HOST, NULL);
+        g_web.scheme = 1;
+        g_web.visible = 1;
+    }
 
     uui_focus_init(&g_focus, g_focusables,
                    (int)(sizeof g_focusables / sizeof g_focusables[0]));
@@ -623,6 +761,10 @@ int main(void) {
     RIGHT[1] = (struct uui_item){ .ops = &uui_markdown_ops, .widget = &g_md,
                                   .id = ID_DOC, .name = "doc",
                                   .flags = UUI_FILL_W | UUI_FILL_H };
+    if (g_web_on) {
+        RIGHT[1].ops = &uui_webview_ops;
+        RIGHT[1].widget = &g_web;
+    }
     RIGHT_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = RIGHT, .count = 2, .gap = 6 };
 
     BODY[0] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &LEFT_L,
@@ -659,6 +801,7 @@ int main(void) {
         .tick_ms      = 250,
         .on_open      = on_open,
         .on_close     = on_close,
+        .on_user      = on_user,
         .focus        = &g_focus,
         .flags        = UAPP_RESIZABLE,
     };

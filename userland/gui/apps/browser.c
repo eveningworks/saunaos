@@ -1,47 +1,28 @@
-// Web Browser -- NetSurf's engine in a toy-os window (docs/browser-design.md,
-// stages 3 and 4).
+// Web Browser -- web pages in a toy-os window (docs/browser-design.md,
+// stages 3 to 5).
 //
 // W1 from the design canvas: tabs in the title bar (the compositor's,
 // as Files has them), a toolbar row -- back, forward, reload, home, the
 // address field, then the right-hand buttons -- and the page.
 //
-// THE ENGINE IS NetSurf, LINKED INTO THIS ONE BINARY (GPL-2.0, as DOOM
-// is; LICENSE says why that is an aggregation, and why /lib/libssl.so is
-// taken here under mbedTLS's GPL option). Everything between it and the
-// toolkit is in userland/browser/: fonts, plotters, bitmaps, the
-// scheduler, and the page widget, which this file only places. http: and
-// https: are userland/backends/netsurf/fetch_http.c, over libhttp.
+// THE ENGINE IS NOT HERE. Each tab is a ui/uui_webview, whose page is
+// laid out and painted by its own /bin/webcontent (NetSurf, GPL-2.0); the
+// network is /bin/webnet, started below, one per browser. This program
+// links neither and is MIT. What it keeps itself: the tabs and their
+// chrome, bookmarks and history (browser/ns_marks.c), and the downloads
+// list webnet reports (browser/ns_net.c).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 
-#include "utils/errors.h"
 #include "browser/ns_addr.h"
-#include "browser/ns_bitmap.h"
 #include "browser/ns_card.h"
 #include "browser/ns_dlpanel.h"
 #include "browser/ns_download.h"
-#include "browser/ns_find.h"
-#include "browser/ns_font.h"
 #include "browser/ns_marks.h"
-#include "browser/ns_sched.h"
+#include "browser/ns_net.h"
 #include "browser/ns_site.h"
-#include "browser/ns_view.h"
-
-#include "netsurf/browser.h"
-#include "netsurf/browser_window.h"
-#include "netsurf/netsurf.h"
-#include "netsurf/url_db.h"
-#include "netsurf/cookie_db.h"
-#include "content/fetch.h"
-#include "desktop/browser_history.h"
-#include "desktop/version.h"
-#include "backends/netsurf/fetch_http.h"
-#include "backends/netsurf/image_uimg.h"
-#include "utils/messages.h"
-#include "utils/nsoption.h"
-#include "utils/nsurl.h"
 
 #include "ui/uapp.h"
 #include "ui/uui.h"
@@ -52,56 +33,51 @@
 #include "ui/uui_segmented.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
+#include "ui/uui_webview.h"
 #include "ui/ulog.h"
-#include "lib/usetting.h"
 #include "win_proto.h"   // WIN_TAB_*, WIN_TABS_MAX, WIN_TITLE_LEN
 
 #define HOME_URL "file:///usr/share/netsurf/start.html"
-#define MESSAGES "/usr/share/netsurf/Messages"
-// What the browser KEEPS: the cookie jar and the global history, in
-// /var/lib like every app's kept state (docs/filesystem-layout.md). The
-// cache stays in memory -- NetSurf's disk cache is not built here.
+// What the browser KEEPS, in /var/lib like every app's kept state
+// (docs/filesystem-layout.md): bookmarks and history here, the cookie
+// jar in /bin/webnet.
 #define STATE_DIR    "/var/lib/browser"
-#define COOKIES_FILE STATE_DIR "/cookies"
-#define HISTORY_FILE STATE_DIR "/history"
-#define BOOKMARKS_FILE STATE_DIR "/bookmarks"
 
 enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND, ID_ADDRBAR, ID_CARD,
        ID_DLPANEL, ID_DLLIST, ID_SIDE_TABS, ID_SIDE_SEARCH, ID_SIDE_LIST };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_RELOAD, CMD_HOME, CMD_DOWNLOADS, CMD_MENU,
        CMD_NEWTAB, CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_RESET, CMD_FIND,
        CMD_BOOKMARK, CMD_SIDE_BOOKMARKS, CMD_SIDE_HISTORY };
+// What uapp_post() carries: a content process wrote, or webnet did.
+enum { POST_WEBVIEW = 1, POST_NET };
 
 static struct uapp *g_app;
 
-// --- tabs: one NetSurf window each ------------------------------------------
+// --- tabs: one page view, and so one content process, each ------------------
 
-static struct gui_window *g_tabs[WIN_TABS_MAX];
+static struct uui_webview *g_tabs[WIN_TABS_MAX];
 static int g_ntabs, g_cur = -1;
 static char g_label[WIN_TABS_MAX][WIN_TITLE_LEN];
+static int g_zoom_logged[WIN_TABS_MAX];
 
-struct gui_window *nsapp_active(void) { return g_cur >= 0 ? g_tabs[g_cur] : NULL; }
+static struct uui_webview *active(void) { return g_cur >= 0 ? g_tabs[g_cur] : NULL; }
 
-static struct ns_view g_view;
-struct ns_view *nsapp_view(void) { return &g_view; }
-
-void nsapp_redraw(void) {
-    if (g_app) uapp_redraw(g_app);
-}
-
-static const char *tab_name(const struct gui_window *gw) {
-    if (gw->title[0]) return gw->title;
-    if (gw->url[0]) return gw->url;
+static const char *tab_name(const struct uui_webview *v) {
+    if (v->title[0]) return v->title;
+    if (v->url[0]) return v->url;
     return "New tab";
 }
 
 static void sync_tabs(void) {
     if (!g_app || !g_ntabs) return;
     const char *labels[WIN_TABS_MAX];
+    int icons[WIN_TABS_MAX];
     for (int i = 0; i < g_ntabs; i++) {
         strlcpy(g_label[i], tab_name(g_tabs[i]), sizeof g_label[i]);
         labels[i] = g_label[i];
+        icons[i] = g_tabs[i]->stopped ? WIN_TAB_ICON_STOPPED : WIN_TAB_ICON_PAGE;
     }
+    uapp_set_tab_icons(g_app, icons, g_ntabs);
     uapp_set_tabs(g_app, labels, g_ntabs, g_cur);
     char title[WIN_TITLE_LEN + 16];
     snprintf(title, sizeof title, "%s - Web Browser", tab_name(g_tabs[g_cur]));
@@ -161,30 +137,30 @@ static int g_find_open;
 static struct uui_focus g_focus;
 
 static unsigned tool_flags(int code) {
-    struct gui_window *gw = nsapp_active();
-    if (!gw) return UUI_MI_DISABLED;
+    struct uui_webview *v = active();
+    if (!v) return UUI_MI_DISABLED;
     switch (code) {
-    case CMD_BACK:      return browser_window_back_available(gw->bw) ? 0 : UUI_MI_DISABLED;
-    case CMD_FORWARD:   return browser_window_forward_available(gw->bw) ? 0 : UUI_MI_DISABLED;
+    case CMD_BACK:      return v->st.can_back ? 0 : UUI_MI_DISABLED;
+    case CMD_FORWARD:   return v->st.can_forward ? 0 : UUI_MI_DISABLED;
     case CMD_DOWNLOADS: return g_dlp.open ? UUI_MI_CHECKED : 0;
     }
     return 0;
 }
 
 static void sync_chrome(void) {
-    struct gui_window *gw = nsapp_active();
-    int loading = gw && gw->loading;
+    struct uui_webview *v = active();
+    int loading = v && v->st.loading && !v->stopped;
     if (loading != g_shown_loading) {
         g_shown_loading = loading;
         const struct uui_toolbar_item *items = loading ? TOOLS_LOADING : TOOLS;
         g_tools.items = items;
     }
     // The address shows the page's -- unless the person is typing in it.
-    if (gw && !g_address.active) {
-        uui_textbox_set_text(&g_address, gw->url);
+    if (v && !g_address.active) {
+        uui_textbox_set_text(&g_address, v->url);
     }
-    int state = ns_site_state(gw), zoom = ns_view_zoom_pct(gw);
-    int starred = gw && ns_bookmarked(gw->url);
+    int state = v ? v->site.state : NS_SITE_NONE, zoom = v ? v->st.zoom : 100;
+    int starred = v && ns_bookmarked(v->url);
     if (state != g_addr.state || zoom != g_addr.zoom || starred != g_addr.starred) {
         g_addr.state = state;
         g_addr.zoom = zoom;
@@ -196,36 +172,52 @@ static void sync_chrome(void) {
 
 static void side_refresh(void);
 
-void nsapp_window_changed(struct gui_window *gw) {
-    static int was_loading;
-    if (gw == nsapp_active()) {
+static void find_report(void);
+
+static int tab_of(const struct uui_webview *v) {
+    for (int i = 0; i < g_ntabs; i++) if (g_tabs[i] == v) return i;
+    return -1;
+}
+
+// What a page's content process said, through the widget.
+static void wv_changed(struct uui_webview *v, unsigned what) {
+    int i = tab_of(v);
+    if (i < 0) return;
+    if (v == active()) {
         sync_chrome();
         // A page that finished loading is the newest in History.
-        if (was_loading && !gw->loading && g_side_open && g_side_tabs.selected == NS_MARKS_HISTORY)
+        if ((what & UUI_WV_STATE) && !v->st.loading && g_side_open &&
+            g_side_tabs.selected == NS_MARKS_HISTORY)
             side_refresh();
-        was_loading = gw->loading;
+        if ((what & UUI_WV_STATE) && v->st.zoom != g_zoom_logged[i]) {
+            g_zoom_logged[i] = v->st.zoom;
+            ulogf("browser: zoom %d\n", v->st.zoom);
+        }
+        if (what & UUI_WV_FIND) find_report();
     }
-    sync_tabs();
-    nsapp_redraw();
+    if (what & (UUI_WV_TITLE | UUI_WV_URL | UUI_WV_STOPPED)) sync_tabs();
+    if (g_app) uapp_redraw(g_app);
 }
+
+static void open_tab(const char *url);
+
+static void wv_open_tab(struct uui_webview *v, const char *url) {
+    (void)v;
+    open_tab(url);
+}
+
+static void wv_visited(struct uui_webview *v, const char *url, const char *title) {
+    (void)v;
+    ns_marks_visited(url, title);
+}
+
+static const struct uui_webview_host HOST = {
+    .changed = wv_changed,
+    .open_tab = wv_open_tab,
+    .visited = wv_visited,
+};
 
 // --- navigation ---------------------------------------------------------------
-
-// The User-Agent, from browser.user_agent -- read at each navigation, so
-// a change in System Settings applies to the next page loaded.
-static void apply_user_agent(void) {
-    char which[16], ua[256];
-    if (usetting_get("browser.user_agent", which, sizeof which) < 0) strcpy(which, "toyos");
-    if (!strcmp(which, "custom") &&
-        usetting_get("browser.user_agent_custom", ua, sizeof ua) >= 0 && ua[0]) {
-        ns_fetch_http_set_user_agent(ua);
-        return;
-    }
-    snprintf(ua, sizeof ua, "Mozilla/5.0 (%s) NetSurf/%d.%d",
-             strcmp(which, "linux") ? "toy-os; x86_64" : "X11; Linux x86_64",
-             netsurf_version_major, netsurf_version_minor);
-    ns_fetch_http_set_user_agent(ua);
-}
 
 // Does typed text look like an address rather than words to search for?
 // Chrome's omnibox test, cut down: no spaces, and a dot, a colon (a
@@ -281,9 +273,10 @@ static void search_url(const char *words, char *out, size_t cap) {
 // What was typed, as a URL: a path is a file, anything with a scheme is
 // taken as it is, a host is https (http for a local one or an explicit
 // port other than 443 -- libhttp's own guess), and anything else is a
-// search. 0, or -1 if it is nothing a URL can be made of.
-static int typed_url(const char *in, struct nsurl **u) {
-    static char url[NS_URL_MAX];   // static: past the ring-3 frame budget
+// search. The content process parses it; a URL it cannot make goes
+// nowhere.
+static const char *typed_url(const char *in) {
+    static char url[WEBVIEW_URL_MAX];   // static: past the ring-3 frame budget
     while (*in == ' ') in++;
     if (strstr(in, "://") || !strncmp(in, "about:", 6) || !strncmp(in, "data:", 5) ||
         !strncmp(in, "resource:", 9)) {
@@ -297,59 +290,57 @@ static int typed_url(const char *in, struct nsurl **u) {
     } else {
         search_url(in, url, sizeof url);
     }
-    return nsurl_create(url, u) == NSERROR_OK ? 0 : -1;
+    return url;
 }
 
 static void go(const char *text) {
-    struct gui_window *gw = nsapp_active();
-    struct nsurl *u;
-    if (typed_url(text, &u) != 0) return;
-    apply_user_agent();
-    if (gw) browser_window_navigate(gw->bw, u, NULL, BW_NAVIGATE_HISTORY, NULL, NULL, NULL);
-    nsurl_unref(u);
+    struct uui_webview *v = active();
+    if (!v) return;
+    const char *url = typed_url(text);
+    // about:crash TYPED, never followed from a page: the engine faults on
+    // purpose, as chrome://crash does -- how the stopped page is tried.
+    if (!strcmp(url, "about:crash")) {
+        uui_webview_crash(v);
+        return;
+    }
+    uui_webview_navigate(v, url);
 }
 
-static void open_tab(const char *url) {
-    struct nsurl *u;
-    if (g_ntabs >= WIN_TABS_MAX) return;
-    if (nsurl_create(url, &u) != NSERROR_OK) return;
-    browser_window_create(BW_CREATE_HISTORY | BW_CREATE_FOREGROUND | BW_CREATE_TAB, u, NULL,
-                          NULL, NULL);
-    nsurl_unref(u);
-}
-
+static void place_page(void);
 static void find_close(void);
 
 static void select_tab(int i) {
     if (i < 0 || i >= g_ntabs) return;
     if (g_find_open && i != g_cur) find_close();
     ns_card_close(&g_card);
+    struct uui_webview *old = active();
     g_cur = i;
+    if (old && old != g_tabs[i]) uui_webview_set_visible(old, 0);
+    place_page();
+    uui_webview_set_visible(g_tabs[i], 1);
     g_shown_loading = -1;
     g_address.active = 0;
     sync_chrome();
     sync_tabs();
-    // A tab laid out at another window size reflows to this one.
-    browser_window_schedule_reformat(g_tabs[i]->bw);
-    nsapp_redraw();
+    if (g_app) uapp_redraw(g_app);
 }
 
-void nsapp_window_added(struct gui_window *gw, struct gui_window *existing, int foreground) {
-    (void)existing;
-    if (g_ntabs >= WIN_TABS_MAX) return;
-    g_tabs[g_ntabs++] = gw;
-    if (foreground || g_cur < 0) select_tab(g_ntabs - 1);
-    else sync_tabs();
+// A new tab, shown, with nothing loaded yet. NULL when there is no room.
+static struct uui_webview *new_tab(void) {
+    if (g_ntabs >= WIN_TABS_MAX) return NULL;
+    struct uui_webview *v = calloc(1, sizeof *v);
+    if (!v) return NULL;
+    uui_webview_init(v, &HOST, NULL);
+    v->net = ns_net_service();
+    g_zoom_logged[g_ntabs] = 100;
+    g_tabs[g_ntabs++] = v;
+    select_tab(g_ntabs - 1);
+    return v;
 }
 
-void nsapp_window_removed(struct gui_window *gw) {
-    int i = 0;
-    while (i < g_ntabs && g_tabs[i] != gw) i++;
-    if (i == g_ntabs) return;
-    memmove(&g_tabs[i], &g_tabs[i + 1], (size_t)(g_ntabs - i - 1) * sizeof g_tabs[0]);
-    g_ntabs--;
-    if (g_cur >= g_ntabs) g_cur = g_ntabs - 1;
-    if (g_ntabs) select_tab(g_cur);
+static void open_tab(const char *url) {
+    struct uui_webview *v = new_tab();
+    if (v) uui_webview_navigate(v, url);
 }
 
 static void close_tab(int i) {
@@ -358,32 +349,42 @@ static void close_tab(int i) {
         uapp_quit(g_app, 0);
         return;
     }
-    browser_window_destroy(g_tabs[i]->bw);   // calls back into nsapp_window_removed()
+    struct uui_webview *v = g_tabs[i];
+    uui_webview_destroy(v);
+    free(v);
+    memmove(&g_tabs[i], &g_tabs[i + 1], (size_t)(g_ntabs - i - 1) * sizeof g_tabs[0]);
+    memmove(&g_zoom_logged[i], &g_zoom_logged[i + 1], (size_t)(g_ntabs - i - 1) * sizeof g_zoom_logged[0]);
+    g_ntabs--;
+    int keep = g_cur > i ? g_cur - 1 : g_cur;
+    if (keep >= g_ntabs) keep = g_ntabs - 1;
+    g_cur = -1;   // select_tab's "old" is gone
+    select_tab(keep);
 }
 
 // --- find in page and zoom ----------------------------------------------------
 
 static void find_report(void) {
-    g_find.matches = ns_find_matches();
-    g_find.current = ns_find_current();
+    struct uui_webview *v = active();
+    g_find.matches = v ? v->find.matches : 0;
+    g_find.current = v ? v->find.current : 0;
     ulogf("browser: find %d of %d\n", g_find.current, g_find.matches);
 }
 
 static void find_run(int dir) {
-    ns_find(nsapp_active(), uui_findbar_query(&g_find), dir);
-    find_report();
+    if (active()) uui_webview_find(active(), uui_findbar_query(&g_find), dir);
 }
 
 static void place_find(void) {
-    struct ns_view *v = nsapp_view();
-    int fw = 0, fh = 0;
+    struct uui_webview *v = active();
+    if (!v) return;
+    int fw = 0, fh = 0, pw = v->w - uui_sbar_width();
     uui_findbar_natural_size(&g_find, &fw, &fh);
     int cap = 34 * ugfx_char_advance('n');   // a field, not a banner
-    int room = ns_view_page_w(v) - 16;
+    int room = pw - 16;
     if (fw > cap) fw = cap;
     if (fw > room) fw = room;
     if (fw < 1) fw = 1;
-    uui_findbar_set_geometry(&g_find, v->x + ns_view_page_w(v) - 8 - fw, v->y + 6, fw, fh);
+    uui_findbar_set_geometry(&g_find, v->x + pw - 8 - fw, v->y + 6, fw, fh);
 }
 
 static struct uui_item g_widgets[5];
@@ -439,9 +440,9 @@ static void side_show(int which) {
 }
 
 static void bookmark_toggle(void) {
-    struct gui_window *gw = nsapp_active();
-    if (!gw || !gw->url[0]) return;
-    int on = ns_bookmark_toggle(gw->url, gw->title);
+    struct uui_webview *v = active();
+    if (!v || !v->url[0]) return;
+    int on = ns_bookmark_toggle(v->url, v->title);
     ulogf("browser: bookmark %d\n", on);
     sync_chrome();
     if (g_side_tabs.selected == NS_MARKS_BOOKMARKS) side_refresh();
@@ -473,14 +474,13 @@ static void find_close(void) {
     g_find_open = 0;
     g_widgets[W_FIND].hidden = 1;
     uui_textbox_set_active(&g_find.field, 0);
-    ns_find_clear(nsapp_active());
+    if (active()) uui_webview_find_clear(active());
     uui_focus_set(&g_focus, 1);
 }
 
+// The new level comes back from the page as UUI_WV_STATE, logged there.
 static void zoom(int dir) {
-    int pct = ns_view_zoom(nsapp_active(), dir);
-    ulogf("browser: zoom %d\n", pct);
-    sync_chrome();
+    if (active()) uui_webview_zoom(active(), dir);
 }
 
 // The lock's card, under the chip; a second click on the chip closes it.
@@ -492,18 +492,22 @@ static void card_toggle(void) {
     }
     if (!ns_addr_part_rect(&g_addr, NS_ADDR_CHIP, &x, &y, &w, &h)) return;
     popups_close();
+    struct uui_webview *v = active();
+    if (!v) return;
     struct ns_site site;
-    ns_site_get(nsapp_active(), &site);
+    ns_site_from(&site, &v->site, ns_net_cookies(v->site.host));
     ns_card_open(&g_card, &site, x, y + h + 4, uapp_width(g_app), uapp_height(g_app));
     ulogf("browser: card %d cookies %d chain %d tls %s\n", site.state, site.cookies,
           site.chain_depth, site.version[0] ? site.version : "-");
 }
 
 static void card_clear(void) {
-    int n = ns_site_clear_cookies(nsapp_active());
-    ulogf("browser: cookies cleared %d\n", n);
+    struct uui_webview *v = active();
+    if (!v) return;
+    int n = ns_net_cookies_clear(v->site.host);
+    ulogf("browser: cookies cleared %d\n", n < 0 ? 0 : n);
     struct ns_site site;
-    ns_site_get(nsapp_active(), &site);
+    ns_site_from(&site, &v->site, ns_net_cookies(v->site.host));
     ns_card_open(&g_card, &site, g_card.x, g_card.y, uapp_width(g_app), uapp_height(g_app));
     ulogf("browser: card %d cookies %d chain %d tls %s\n", site.state, site.cookies,
           site.chain_depth, site.version[0] ? site.version : "-");
@@ -512,7 +516,7 @@ static void card_clear(void) {
 static void open_menu(void) {
     popups_close();
     int n = 0;
-    snprintf(g_reset_label, sizeof g_reset_label, "Reset zoom (%d%%)", ns_view_zoom_pct(nsapp_active()));
+    snprintf(g_reset_label, sizeof g_reset_label, "Reset zoom (%d%%)", active() ? active()->st.zoom : 100);
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("New tab", CMD_NEWTAB, "Ctrl+T", "tb-new", UTHEME_ACT_CREATE);
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_SEP;
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Zoom in", CMD_ZOOM_IN, "Ctrl+=", "tb-zoom-in", UTHEME_ACT_VIEW);
@@ -521,7 +525,7 @@ static void open_menu(void) {
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_SEP;
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Find in page...", CMD_FIND, "Ctrl+F", "tb-find", UTHEME_ACT_NAV);
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_SEP;
-    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON(ns_bookmarked(nsapp_active() ? nsapp_active()->url : "")
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON(ns_bookmarked(active() ? active()->url : "")
                                                             ? "Remove bookmark" : "Bookmark this page",
                                                             CMD_BOOKMARK, "Ctrl+D", "tb-star", UTHEME_ACT_CREATE);
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Bookmarks", CMD_SIDE_BOOKMARKS, "Ctrl+B", "tb-star", UTHEME_ACT_NAV);
@@ -533,14 +537,14 @@ static void open_menu(void) {
 }
 
 static void command(int code) {
-    struct gui_window *gw = nsapp_active();
-    if (!gw) return;
+    struct uui_webview *v = active();
+    if (!v) return;
     switch (code) {
-    case CMD_BACK:    browser_window_history_back(gw->bw, false); break;
-    case CMD_FORWARD: browser_window_history_forward(gw->bw, false); break;
+    case CMD_BACK:    uui_webview_back(v); break;
+    case CMD_FORWARD: uui_webview_forward(v); break;
     case CMD_RELOAD:
-        if (gw->loading) browser_window_stop(gw->bw);
-        else browser_window_reload(gw->bw, true);
+        if (v->st.loading && !v->stopped) uui_webview_stop(v);
+        else uui_webview_reload(v);
         break;
     case CMD_HOME:    go(HOME_URL); break;
     case CMD_MENU:    open_menu(); break;
@@ -567,11 +571,24 @@ static void command(int code) {
 
 
 // The address first in Tab order; the page has the keyboard on open.
+// Slot 1 is whichever tab's view is shown (place_page()).
 static struct uui_focusable g_focusables[] = {
     { .widget = &g_address, .ops = &uui_textbox_ops },
-    { .widget = &g_view,    .ops = &ns_view_ops },
+    { .widget = NULL,       .ops = &uui_webview_ops },
     { .widget = &g_side_search, .ops = &uui_textbox_ops },
 };
+
+// The shown tab's view into the page's place in the layout and the
+// focus ring, at the size the page area has.
+static void place_page(void) {
+    struct uui_webview *v = active(), *was = g_focusables[1].widget;
+    if (!v) return;
+    if (was && was != v && g_focus.current == 1) uui_webview_ops.set_focused(was, 0);
+    PAGE_ROW[1].widget = v;
+    g_focusables[1].widget = v;
+    if (g_focus.current == 1) uui_webview_ops.set_focused(v, 1);
+    if (g_app) uui_layout_run(&ROOT_L, 0, 0, uapp_width(g_app), uapp_height(g_app));
+}
 
 static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
@@ -627,7 +644,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 }
 
 static void on_key(struct uapp *a, int key, unsigned mods) {
-    struct gui_window *gw = nsapp_active();
+    struct uui_webview *v = active();
     int ctrl = (mods & KEY_MOD_CTRL) != 0;
     // An open find bar with the keyboard: the query, Enter, Esc -- and
     // the field's own Ctrl+A/C/V. Not the browser's shortcuts.
@@ -665,7 +682,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         else if (key == KEY_HOME) command(CMD_HOME);
         else return;
     } else if (key == KEY_F5 || (ctrl && key == 0x12)) {          // F5, Ctrl+R
-        if (gw) browser_window_reload(gw->bw, true);
+        if (v) uui_webview_reload(v);
     } else if (ctrl && key == 0x0C) {                             // Ctrl+L
         if (g_find_open) uui_textbox_set_active(&g_find.field, 0);
         uui_focus_set(&g_focus, 0);
@@ -682,8 +699,8 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         g_address.active = 0;
         sync_chrome();
         uui_focus_set(&g_focus, 1);
-    } else if (gw && gw->loading && key == 0x1B) {
-        browser_window_stop(gw->bw);
+    } else if (v && v->st.loading && key == 0x1B) {
+        uui_webview_stop(v);
     } else if (g_find_open && key == 0x1B) {
         find_close();
     } else {
@@ -699,26 +716,23 @@ static void on_tab(struct uapp *a, int tab, int action) {
     else if (action == WIN_TAB_NEW) open_tab(HOME_URL);
 }
 
-// NetSurf's timers run here, and the tick is re-armed for the next one:
-// the app sleeps until NetSurf has something to do, not on a fixed beat.
+// Tooltips: the toolbars' hover is timed (uui_toolbar_tick()).
 static int on_tick(struct uapp *a) {
-    int due = ns_sched_run();
-    uapp_set_tick(a, due < 0 ? 500 : due < 5 ? 5 : (unsigned)due);
-    int r = uui_toolbar_tick(&g_tools) | uui_toolbar_tick(&g_tools_r);
-    return r;
+    (void)a;
+    return uui_toolbar_tick(&g_tools) | uui_toolbar_tick(&g_tools_r);
 }
 
 static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
     (void)d;
     uapp_log_layout(a, "browser");
-    struct gui_window *gw = nsapp_active();
-    if (gw)
+    struct uui_webview *v = active();
+    if (v)
         // The LENGTH, and at most 72 bytes of the address: a layout line
         // is 160 bytes, and one cut by vsnprintf() loses its newline and
         // runs into the next. A test reads the real length from `len`.
         uapp_logf_layout("browser: tab %d/%d loading %d extent %d %d scroll %d %d len %d url %.72s\n",
-                         g_cur, g_ntabs, gw->loading, gw->ext_w, gw->ext_h, gw->sx, gw->sy,
-                         (int)strlen(gw->url), gw->url);
+                         g_cur, g_ntabs, v->st.loading, v->st.ext_w, v->st.ext_h, v->st.sx, v->st.sy,
+                         (int)strlen(v->url), v->url);
 }
 
 static void on_size(int *w, int *h) {
@@ -732,118 +746,61 @@ static void on_resize(struct uapp *a, int w, int h) {
     if (g_find_open) place_find();
 }
 
+static int g_weak;
+static const char *g_first_url = HOME_URL;
+
 static void on_open(struct uapp *a) {
     g_app = a;
     uui_menubar_set_bounds(&g_ctx, 0, 0, uapp_width(a), uapp_height(a));
-    struct nsurl *u;
-    if (nsurl_create(HOME_URL, &u) == NSERROR_OK) {
-        browser_window_create(BW_CREATE_HISTORY | BW_CREATE_FOREGROUND, u, NULL, NULL, NULL);
-        nsurl_unref(u);
-    }
+    if (uui_webview_setup(a, POST_WEBVIEW) != 0) ulogf("browser: no page channel\n");
+    if (!ns_net_start(a, POST_NET, g_weak)) ulogf("browser: no network -- local pages only\n");
+    place_page();
+    uui_webview_navigate(active(), g_first_url);
     uui_focus_set(&g_focus, 1);
 }
 
 static int on_close(struct uapp *a) {
     (void)a;
-    urldb_save_cookies(COOKIES_FILE);
-    urldb_save(HISTORY_FILE);
-    ns_marks_fini();   // saves the bookmarks
-    netsurf_exit();
+    ns_marks_fini();
+    for (int i = 0; i < g_ntabs; i++) uui_webview_destroy(g_tabs[i]);
     return 1;
 }
 
-// A fetch thread queued something (fetch_http.c's wake). NetSurf's own
-// poll runs every 10 ms while a fetch is active; this drains NOW, through
-// fetch_fdset(), which polls every fetcher -- how upstream's front ends
-// drive their fetchers when select() wakes them.
+// A content process or the network process wrote (each has a thread that
+// posts; the reading happens here, on the main thread).
 static int on_user(struct uapp *a, int a0, int a1) {
-    (void)a; (void)a0; (void)a1;
-    fd_set r, w, e;
-    int maxfd;
-    fetch_fdset(&r, &w, &e, &maxfd);
+    if (a0 == POST_WEBVIEW) return uui_webview_on_post(a, a0, a1);
+    if (a0 == POST_NET) return ns_net_on_post();
     return 0;
-}
-
-static void wake(void) {
-    if (g_app) uapp_post(g_app, 0, 0);
-}
-
-// --- NetSurf ----------------------------------------------------------------
-
-static nserror set_defaults(struct nsoption_s *defaults) {
-    (void)defaults;
-    nsoption_setnull_charp(cookie_file, strdup(COOKIES_FILE));
-    nsoption_setnull_charp(cookie_jar, strdup(COOKIES_FILE));
-    nsoption_setnull_charp(url_file, strdup(HISTORY_FILE));
-    return NSERROR_OK;
-}
-
-static int engine_init(int argc, char **argv) {
-    // STATIC: netsurf_register() keeps the POINTER. A local here died
-    // when this function returned, and NetSurf then called through the
-    // stack that replaced it.
-    static struct netsurf_table table = {
-        .misc = NULL,   // filled below: the tables are pointers, not constants
-    };
-    table.misc = ns_misc_table;
-    table.window = ns_window_table;
-    table.fetch = ns_fetch_table;
-    table.bitmap = ns_bitmap_table;
-    table.layout = ns_layout_table;
-    table.download = ns_download_table;
-    if (netsurf_register(&table) != NSERROR_OK) return 0;
-    ns_bitmap_set_format();
-    if (nsoption_init(set_defaults, &nsoptions, &nsoptions_default) != NSERROR_OK) return 0;
-    // Ours before NetSurf's own parsing, which consumes "--" words:
-    // `--weak-entropy` is https on a test guest with no virtio-rng, as
-    // wget's flag; `--search-url` is above.
-    for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--weak-entropy")) ns_fetch_http_allow_weak_entropy(1);
-        else if (!strcmp(argv[i], "--search-url") && i + 1 < argc && strstr(argv[i + 1], "%s"))
-            g_search = argv[++i];
-    }
-    nsoption_commandline(&argc, argv, nsoptions);
-    // Six fetches at once and six to one host -- Chrome's and Firefox's
-    // per-host figure, and each is a thread here (NetSurf's default 24).
-    nsoption_set_int(max_fetchers, 6);
-    nsoption_set_int(max_fetchers_per_host, 6);
-    if (messages_add_from_file(MESSAGES) != NSERROR_OK) ulogf("browser: no %s\n", MESSAGES);
-    if (netsurf_init(NULL) != NSERROR_OK) return 0;
-    if (ns_fetch_http_register() != 0) ulogf("browser: no http fetcher -- local pages only\n");
-    if (ns_image_uimg_register() != NSERROR_OK) ulogf("browser: no PNG/JPEG handler\n");
-    ns_fetch_http_set_wake(wake);
-    apply_user_agent();
-    mkdir("/var/lib", 0755);
-    mkdir(STATE_DIR, 0755);
-    urldb_load(HISTORY_FILE);
-    urldb_load_cookies(COOKIES_FILE);
-    if (!ns_marks_init(BOOKMARKS_FILE)) ulogf("browser: bookmarks could not be loaded\n");
-    browser_set_dpi(96);
-    return 1;
 }
 
 int main(int argc, char **argv) {
     if (!ugfx_font_init()) return 2;
-    if (!ns_font_init()) ulogf("browser: no page fonts -- text draws as boxes\n");
-    if (!engine_init(argc, argv)) {
-        ulogf("browser: NetSurf failed to start\n");
-        return 1;
+    // `--weak-entropy` is https on a test guest with no virtio-rng, as
+    // wget's flag; `--search-url` points searches at a server on this
+    // machine. Anything else is a page to open.
+    for (int i = 1; i < argc; i++) {
+        if (!strcmp(argv[i], "--weak-entropy")) g_weak = 1;
+        else if (!strcmp(argv[i], "--search-url") && i + 1 < argc && strstr(argv[i + 1], "%s"))
+            g_search = argv[++i];
+        else if (argv[i][0] != '-') g_first_url = argv[i];
     }
+    if (!ns_marks_init(STATE_DIR)) ulogf("browser: bookmarks could not be loaded\n");
 
     uui_toolbar_init(&g_tools, TOOLS, (int)(sizeof TOOLS / sizeof TOOLS[0]));
     g_tools.item_flags = tool_flags;
     uui_toolbar_init(&g_tools_r, TOOLS_R, (int)(sizeof TOOLS_R / sizeof TOOLS_R[0]));
     g_tools_r.item_flags = tool_flags;
     uui_textbox_init(&g_address, "");
-    uui_textbox_set_max(&g_address, NS_URL_MAX - 1);   // a URL, not a 127-byte value
+    uui_textbox_set_max(&g_address, WEBVIEW_URL_MAX - 1);   // a URL, not a 127-byte value
     g_address.placeholder = "Type a web address or a path";
-    ns_view_init(&g_view);
     uui_focus_init(&g_focus, g_focusables, (int)(sizeof g_focusables / sizeof g_focusables[0]));
 
     ROW[0] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_tools, .id = ID_TOOLS,
                                 .name = "tools" };
     ns_addr_init(&g_addr, &g_address, ID_ADDRESS, "address");
     g_addr.show_star = 1;
+    if (!new_tab()) return 1;   // after the address frame: showing a tab syncs it
     ROW[1] = (struct uui_item){ .ops = &ns_addr_ops, .widget = &g_addr, .id = ID_ADDRBAR,
                                 .name = "addressbar", .flags = UUI_FILL_W };
     ROW[2] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_tools_r, .id = ID_TOOLS_R,
@@ -863,7 +820,7 @@ int main(int argc, char **argv) {
     SIDE_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = SIDE, .count = 3, .gap = 6, .margin = 6 };
     PAGE_ROW[0] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &SIDE_L, .flags = UUI_FILL_H,
                                      .hidden = 1 };
-    PAGE_ROW[1] = (struct uui_item){ .ops = &ns_view_ops, .widget = &g_view, .id = ID_PAGE,
+    PAGE_ROW[1] = (struct uui_item){ .ops = &uui_webview_ops, .widget = active(), .id = ID_PAGE,
                                      .name = "page", .flags = UUI_FILL_W | UUI_FILL_H };
     PAGE_L = (struct uui_layout){ .dir = UUI_ROW, .items = PAGE_ROW, .count = 2, .margin = 1 };
     ITEMS[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &PAGE_L,
@@ -901,7 +858,7 @@ int main(int argc, char **argv) {
         .on_draw_over = on_draw_over,
         .on_tick      = on_tick,
         .on_user      = on_user,
-        .tick_ms      = 10,
+        .tick_ms      = 250,
         .on_open      = on_open,
         .on_resize    = on_resize,
         .on_close     = on_close,

@@ -5,7 +5,7 @@
 not-allowed (userland/wm/cursor_theme.h). Each has ONE first caller, and
 this drives each of them:
 
-  * hand   -- a link in Help's markdown (uui_markdown's `cursor` op)
+  * hand   -- a link in Help's page (the web view's, or uui_markdown's `cursor` op)
   * move   -- a window held by its title bar (the WM's own drag)
   * not-allowed -- a desktop icon dragged over a title bar, which takes
     no drop (wm_dnd_refused_at())
@@ -30,10 +30,8 @@ Usage (the VM must already be up):
 import argparse
 import os
 import sys
-import tempfile
 import time
 
-from PIL import Image
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gui_debug import DebugConsole, enter_gui   # noqa: E402
@@ -96,26 +94,30 @@ def drag_to(dbg, qmp, x, y, tries=6):
     return dbg.cursor()
 
 
-def find_link(qmp, w):
-    """A link in Help's page: the longest run of the link colour, which
-    is an underline. Returns a point on the word above it, or None."""
-    path = os.path.join(tempfile.gettempdir(), "cursor_shapes_help.png")
-    qmp.screenshot(path)
-    im = Image.open(path).convert("RGB")
+def find_link(dbg, w):
+    """A link in Help's page, from the geometry Help REPORTS: a web view's
+    `doc.link i x y w h` (stage 5), or uui_markdown's `help: link NAME x y
+    w h` in a build without the engine. The first one wholly inside the
+    page. Returns a point on it, or None."""
+    import re
     c = w["content"]
-    x0, x1 = c["x"] + c["w"] // 3, c["x"] + c["w"] - 24   # the page, not the tree
-    best = None
-    for y in range(c["y"] + 40, c["y"] + c["h"] - 4):
-        run = 0
-        for x in range(x0, x1):
-            r, g, b = im.getpixel((x, y))
-            if b > 120 and b - r > 50 and abs(g - (r + b) // 2) < 30:
-                run += 1
-                if run >= 18 and (best is None or run > best[2]):
-                    best = (x - run // 2, y, run)
-            else:
-                run = 0
-    return (best[0], best[1] - 6) if best else None
+    doc, links = None, []
+    for _ in range(30):
+        for line in dbg.logs("help:", clear=True):
+            m = re.search(r"help: layout doc (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+            if m:
+                doc = tuple(int(v) for v in m.groups())
+            m = (re.search(r"help: layout doc\.link \d+ (-?\d+) (-?\d+) (\d+) (\d+)$", line) or
+                 re.search(r"help: link \S+ (-?\d+) (-?\d+) (\d+) (\d+)", line))
+            if m:
+                links.append(tuple(int(v) for v in m.groups()))
+        inside = [r for r in links if doc and doc[1] <= r[1] and r[1] + r[3] <= doc[1] + doc[3]
+                  and r[2] > 0]
+        if inside:
+            x, y, ww, hh = inside[0]
+            return c["x"] + x + ww // 2, c["y"] + y + hh // 2
+        time.sleep(0.2)
+    return None
 
 
 def main():
@@ -140,7 +142,7 @@ def main():
     dbg.settle()
 
     # --- hand: a link, and the prose beside it ------------------------
-    at = find_link(qmp, w)
+    at = find_link(dbg, w)
     check("Help's page shows a link to hover", at is not None, str(at))
     if at:
         D.warp_cursor(dbg, qmp, *at)

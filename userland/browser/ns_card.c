@@ -284,3 +284,23 @@ const struct uui_widget_ops ns_card_ops = {
     .cursor         = c_cursor,
     .describe       = c_describe,
 };
+
+void ns_site_from(struct ns_site *out, const struct wv_site *in, int cookies) {
+    memset(out, 0, sizeof *out);
+    out->state = in->state;
+    snprintf(out->host, sizeof out->host, "%s", in->host);
+    snprintf(out->version, sizeof out->version, "%s", in->version);
+    snprintf(out->cipher, sizeof out->cipher, "%s", in->cipher);
+    out->chain_depth = in->chain_depth;
+    out->have_leaf = in->have_leaf;
+    const struct wv_cert *c = &in->leaf;
+    snprintf(out->leaf.subject_cn, sizeof out->leaf.subject_cn, "%s", c->subject_cn);
+    snprintf(out->leaf.subject_org, sizeof out->leaf.subject_org, "%s", c->subject_org);
+    snprintf(out->leaf.issuer_cn, sizeof out->leaf.issuer_cn, "%s", c->issuer_cn);
+    snprintf(out->leaf.issuer_org, sizeof out->leaf.issuer_org, "%s", c->issuer_org);
+    out->leaf.not_before.year = c->nb_year, out->leaf.not_before.mon = c->nb_mon;
+    out->leaf.not_before.day = c->nb_day;
+    out->leaf.not_after.year = c->na_year, out->leaf.not_after.mon = c->na_mon;
+    out->leaf.not_after.day = c->na_day;
+    out->cookies = cookies < 0 ? 0 : cookies;
+}

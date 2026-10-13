@@ -199,6 +199,23 @@ void title_tabs(const struct window *win, struct tab_rects *t) {
 // chrome colour, joined to the client area below like a sheet pulled
 // forward; the rest as lighter text on the bar. Each has a close box;
 // a "+" follows. Hover shades come from uui_state_bg, as the buttons'.
+// A page with a cross on it, `size` square at (x, y), in `ink`: a tab
+// whose page stopped (the browser's C3). Drawn, not an icon file, so it
+// takes the tab's text colour. Returns its width.
+static int draw_stopped_page(int x, int y, int size, uint32_t ink) {
+    struct ugfx_surface *s = wm_surface();
+    int w = size * 3 / 4, h = size, f = size / 4;
+    ugfx_draw_line(s, x, y, x + w - f, y, ink, GEOM_AA);
+    ugfx_draw_line(s, x + w - f, y, x + w, y + f, ink, GEOM_AA);
+    ugfx_draw_line(s, x + w, y + f, x + w, y + h - 1, ink, GEOM_AA);
+    ugfx_draw_line(s, x + w, y + h - 1, x, y + h - 1, ink, GEOM_AA);
+    ugfx_draw_line(s, x, y + h - 1, x, y, ink, GEOM_AA);
+    int c = x + w / 2, m = y + h / 2, a = w / 4;
+    ugfx_draw_line(s, c - a, m - a, c + a, m + a, ink, GEOM_AA);
+    ugfx_draw_line(s, c + a, m - a, c - a, m + a, ink, GEOM_AA);
+    return w + 1;
+}
+
 static void draw_title_tabs(const struct window *win, int idx, uint32_t bar, uint32_t barfg) {
     struct tab_rects t;
     title_tabs(win, &t);
@@ -221,10 +238,15 @@ static void draw_title_tabs(const struct window *win, int idx, uint32_t bar, uin
             ugfx_fill_rect(wm_surface(), t.x[i] + t.w[i] + 1, t.y + 5, 1, t.h - 8,
                            ugfx_blend(bar, barfg, 90));
         int tx = t.x[i] + 8;
-        const struct uimg *fi = icon_get("folder", ugfx_char_h());
-        if (fi) {
-            ugfx_blit_alpha(wm_surface(), tx, t.y + (t.h - fi->h) / 2, fi->w, fi->h, fi->px, fi->w);
-            tx += fi->w + 6;
+        if (win->tab_icon[i] == WIN_TAB_ICON_STOPPED) {
+            tx += draw_stopped_page(tx, t.y + (t.h - ugfx_char_h()) / 2, ugfx_char_h(), fg) + 6;
+        } else {
+            const char *name = win->tab_icon[i] == WIN_TAB_ICON_PAGE ? "file-text" : "folder";
+            const struct uimg *fi = icon_get(name, ugfx_char_h());
+            if (fi) {
+                ugfx_blit_alpha(wm_surface(), tx, t.y + (t.h - fi->h) / 2, fi->w, fi->h, fi->px, fi->w);
+                tx += fi->w + 6;
+            }
         }
         int room = t.close_x[i] - 4 - tx;
         ugfx_draw_string_clipped(wm_surface(), tx, t.y + (t.h - ugfx_char_h()) / 2, room,

@@ -2,18 +2,20 @@
 #define BROWSER_NS_MARKS_H
 
 // Bookmarks and history for the sidebar -- H1 on the stage 4 canvas.
-// Bookmarks are NetSurf's hotlist, kept in NetSurf's own HTML file;
-// history is its URL database, the pages browsed to and when. Read
-// here into rows the toolkit's uui_entrylist draws, with toy-os's look
-// rather than NetSurf's tree windows.
+// The app's own since stage 5 (lib/ubookmarks.h, lib/uvisits.h): the
+// engine runs in another process and keeps neither. NetSurf's files from
+// before are read once. Shown as rows the toolkit's uui_entrylist draws.
 #include "ui/uui_entrylist.h"
 
 enum { NS_MARKS_BOOKMARKS, NS_MARKS_HISTORY };
 #define NS_MARKS_MAX 256
 
-// Loads the bookmarks from `path` (made empty when missing -- not
-// NetSurf's default links) and saves there as they change.
-int ns_marks_init(const char *path);
+// Loads both lists from `dir` (/var/lib/browser), taking NetSurf's old
+// files the first time. 1, or 0 when the bookmarks could not be read.
+int ns_marks_init(const char *dir);
+// A page the person reached: History's entry for it made or moved up.
+void ns_marks_visited(const char *url, const char *title);
+// Saves what changed.
 void ns_marks_fini(void);
 
 int ns_bookmarked(const char *url);

@@ -3,10 +3,11 @@
 
 // What the address field and the lock's connection card say about a
 // tab's page: how it was reached, over which protocol and cipher, the
-// certificate it was served with, and the cookies its site keeps.
+// certificate it was served with (all three the content process's to
+// say, lib/webview_proto.h's wv_site), and the cookies its site keeps
+// (the network process's: ns_net.h).
 #include "utls.h"
-
-struct gui_window;
+#include "lib/webview_proto.h"
 
 enum ns_site_state {
     NS_SITE_NONE,        // nothing loaded yet
@@ -28,9 +29,7 @@ struct ns_site {
     int cookies;                   // stored for this host and its parents
 };
 
-int ns_site_state(struct gui_window *gw);
-void ns_site_get(struct gui_window *gw, struct ns_site *out);
-// Deletes every cookie the page's host would be sent. Returns how many.
-int ns_site_clear_cookies(struct gui_window *gw);
+// The content process's account of the page, in the card's terms.
+void ns_site_from(struct ns_site *out, const struct wv_site *in, int cookies);
 
 #endif

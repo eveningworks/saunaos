@@ -7,7 +7,7 @@
 #include <stdlib.h>
 #include <time.h>
 
-#include "browser/ns_sched.h"
+#include "webcontent/ns_sched.h"
 
 struct entry {
     long long due_ms;

@@ -2,8 +2,8 @@
 #include <string.h>
 
 #include "utils/errors.h"
-#include "browser/ns_find.h"
-#include "browser/ns_view.h"
+#include "webcontent/ns_find.h"
+#include "webcontent/wc.h"
 
 #include "desktop/search.h"
 

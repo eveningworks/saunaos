@@ -8,8 +8,10 @@ WHAT IT CHECKS, and what a broken version would still pass:
   - the page and the contents are DRAWN: ink in each rect of a settled
     frame, because "it responds" is not "it is drawn";
   - the overview's code spans naming pages are LINKS: reported by the
-    page as it draws them, and drawn in the accent -- measured against a
-    control rect of body text on the same page, which must have none;
+    page as it draws them -- by the content process, when the page is a
+    web view (stage 5), else by uui_markdown -- and drawn in the link
+    colour, measured against a control rect of body text on the same
+    page, which must have none;
   - clicking a link opens that page; Alt+Left goes back and Alt+Right
     forward, and the toolbar's Home returns to the overview;
   - search looks through page TEXT, not just names: a word found in the
@@ -63,12 +65,23 @@ def layout(dbg):
         if m:
             if m.group(1) != _lay.get("here"):
                 _lay["links"] = {}      # a new page's links replace the old
+                _lay["wrect"] = {}
             _lay["here"], _lay["sel"] = m.group(1), m.group(2)
             for k, v in zip(("rows", "row_h", "top", "back", "fwd"), m.groups()[2:]):
                 _lay[k] = int(v)
         m = re.search(r"help: link (\S+) (-?\d+) (-?\d+) (\d+) (\d+)", line)
         if m:
             _lay["links"][m.group(1)] = tuple(int(v) for v in m.groups()[1:])
+        # The page as a web view (stage 5): its links as the content
+        # process reports them, a rect and then its address.
+        m = re.search(r"help: layout doc\.link (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+        if m:
+            _lay.setdefault("wrect", {})[int(m.group(1))] = tuple(int(v) for v in m.groups()[1:])
+        m = re.search(r"help: layout doc\.href\.(\d+) app:help/[^/]+/(\S+)$", line)
+        if m:
+            i = int(m.group(1))
+            if i in _lay.get("wrect", {}):
+                _lay["links"][m.group(2)] = _lay["wrect"][i]
         m = re.search(r'help: search "([^"]*)" matches (\d+)', line)
         if m:
             _lay["query"], _lay["matches"] = m.group(1), int(m.group(2))
@@ -126,7 +139,7 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
-    print("help (contents tree, uui_markdown links, history, full-text search)")
+    print("help (contents tree, links in the page, history, full-text search)")
 
     old = window(dbg)
     if old:

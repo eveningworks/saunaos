@@ -6,61 +6,75 @@
 #include <sys/stat.h>
 #include <time.h>
 
-#include "utils/errors.h"
 #include "browser/ns_marks.h"
-
-#include "content/urldb.h"
-#include "desktop/hotlist.h"
-#include "netsurf/url_db.h"
-#include "utils/nsurl.h"
+#include "lib/ubookmarks.h"
+#include "lib/uvisits.h"
+#include "ui/ulog.h"
 
 static char g_url[NS_MARKS_MAX][1024];   // row i's address, for the last rows built
-static int g_ready;
+static struct ubookmarks g_marks;
+static struct uvisits g_visits_db;
+static char g_marks_path[256], g_hist_path[256];
+static int g_ready, g_marks_dirty;
 
-int ns_marks_init(const char *path) {
+static int exists(const char *p) {
     struct stat st;
-    if (stat(path, &st) != 0) {
-        // An empty list NetSurf can load: without a file it would make
-        // its own default links (hotlist_generate()).
-        FILE *f = fopen(path, "w");
-        if (f) {
-            fputs("<!DOCTYPE html>\n<html>\n<head>\n<title>Bookmarks</title>\n</head>\n"
-                  "<body>\n<ul>\n</ul>\n</body>\n</html>\n", f);
-            fclose(f);
-        }
+    return stat(p, &st) == 0;
+}
+
+int ns_marks_init(const char *dir) {
+    mkdir("/var/lib", 0755);
+    mkdir(dir, 0755);
+    snprintf(g_marks_path, sizeof g_marks_path, "%s/bookmarks.tsv", dir);
+    snprintf(g_hist_path, sizeof g_hist_path, "%s/history.tsv", dir);
+    time_t now = time(NULL);
+    // NetSurf's own files, from before the engine left this process, are
+    // read the first time and then left alone.
+    if (!exists(g_marks_path)) {
+        char old[256];
+        snprintf(old, sizeof old, "%s/bookmarks", dir);
+        int n = ubookmarks_import_netsurf(&g_marks, old);
+        if (n) ulogf("browser: %d bookmarks taken from NetSurf's list\n", n);
+        g_marks_dirty = 1;
+        g_ready = 1;
+    } else {
+        g_ready = ubookmarks_load(&g_marks, g_marks_path) == 0;
     }
-    g_ready = hotlist_init(path, path) == NSERROR_OK;
+    if (!exists(g_hist_path)) {
+        char old[256];
+        snprintf(old, sizeof old, "%s/history", dir);
+        int n = uvisits_import_netsurf(&g_visits_db, old, now);
+        if (n) ulogf("browser: %d history entries taken from NetSurf's\n", n);
+    } else {
+        uvisits_load(&g_visits_db, g_hist_path, now);
+    }
     return g_ready;
 }
 
+static void save_marks(void) {
+    if (g_ready && ubookmarks_save(&g_marks, g_marks_path) == 0) g_marks_dirty = 0;
+}
+
 void ns_marks_fini(void) {
-    if (g_ready) hotlist_fini();
-    g_ready = 0;
+    if (g_marks_dirty) save_marks();
+    if (g_visits_db.dirty) uvisits_save(&g_visits_db, g_hist_path);
 }
 
-static struct nsurl *url_of(const char *s) {
-    struct nsurl *u = NULL;
-    return s && s[0] && nsurl_create(s, &u) == NSERROR_OK ? u : NULL;
+void ns_marks_visited(const char *url, const char *title) {
+    uvisits_visit(&g_visits_db, url, title, time(NULL));
+    // Saved as it happens: a browser killed with its window loses nothing.
+    uvisits_save(&g_visits_db, g_hist_path);
 }
 
-int ns_bookmarked(const char *url) {
-    struct nsurl *u = url_of(url);
-    int on = g_ready && u && hotlist_has_url(u);
-    if (u) nsurl_unref(u);
-    return on;
-}
+int ns_bookmarked(const char *url) { return url && url[0] && ubookmarks_find(&g_marks, url) >= 0; }
 
 int ns_bookmark_toggle(const char *url, const char *title) {
-    struct nsurl *u = url_of(url);
-    if (!u || !g_ready) {
-        if (u) nsurl_unref(u);
-        return 0;
-    }
-    int on = hotlist_has_url(u);
-    if (on) hotlist_remove_url(u);
-    else hotlist_add_entry(u, title && title[0] ? title : url, false, 0);
-    nsurl_unref(u);
-    return !on;
+    if (!url || !url[0] || !g_ready) return 0;
+    int i = ubookmarks_find(&g_marks, url);
+    if (i >= 0) ubookmarks_remove(&g_marks, i);
+    else ubookmarks_add(&g_marks, url, title && title[0] ? title : url);
+    save_marks();
+    return i < 0;
 }
 
 static int matches(const char *filter, const char *title, const char *url) {
@@ -79,47 +93,9 @@ static void shown_url(char *out, size_t cap, const char *url) {
     snprintf(out, cap, "%s", p ? p + 3 : url);
 }
 
-// --- one walk's state: neither iterator takes a context for us ----------------
-
-static struct uui_entry *g_rows;
-static int g_cap, g_n;
-static const char *g_filter;
-
-static nserror bm_address(void *ctx, struct nsurl *url, const char *title) {
-    (void)ctx;
-    const char *s = nsurl_access(url);
-    if (g_n >= g_cap || !matches(g_filter, title, s)) return NSERROR_OK;
-    struct uui_entry *r = &g_rows[g_n];
-    memset(r, 0, sizeof *r);
-    snprintf(r->title, sizeof r->title, "%s", title && title[0] ? title : s);
-    shown_url(r->sub, sizeof r->sub, s);
-    snprintf(g_url[g_n], sizeof g_url[0], "%s", s);
-    g_n++;
-    return NSERROR_OK;
-}
-
-struct visit { time_t when; char title[96]; char url[1024]; };
+struct visit { time_t when; const char *title, *url; };
 static struct visit *g_visits;
 static int g_nvisits, g_capvisits;
-
-static bool hist_entry(struct nsurl *url, const struct url_data *d) {
-    if (!d || !d->visits || !d->last_visit) return true;   // fetched, never browsed to
-    const char *s = nsurl_access(url);
-    if (!matches(g_filter, d->title, s)) return true;
-    if (g_nvisits == g_capvisits) {
-        int cap = g_capvisits ? g_capvisits * 2 : 64;
-        if (cap > 4096) return false;
-        struct visit *v = realloc(g_visits, (size_t)cap * sizeof *v);
-        if (!v) return false;
-        g_visits = v;
-        g_capvisits = cap;
-    }
-    struct visit *v = &g_visits[g_nvisits++];
-    v->when = d->last_visit;
-    snprintf(v->title, sizeof v->title, "%s", d->title && d->title[0] ? d->title : s);
-    snprintf(v->url, sizeof v->url, "%s", s);
-    return true;
-}
 
 static int newest_first(const void *a, const void *b) {
     time_t x = ((const struct visit *)a)->when, y = ((const struct visit *)b)->when;
@@ -145,50 +121,68 @@ static void day_heading(time_t t, time_t now, char *out, size_t cap) {
 
 int ns_marks_rows(int which, const char *filter, struct uui_entry *rows, int cap) {
     if (cap > NS_MARKS_MAX) cap = NS_MARKS_MAX;
-    g_rows = rows;
-    g_cap = cap;
-    g_n = 0;
-    g_filter = filter;
+    int n = 0;
     if (which == NS_MARKS_BOOKMARKS) {
-        if (g_ready) hotlist_iterate(NULL, NULL, bm_address, NULL);
-        return g_n;
+        for (int i = 0; i < g_marks.n && n < cap; i++) {
+            const struct ubookmark *b = &g_marks.b[i];
+            if (!matches(filter, b->title, b->url)) continue;
+            memset(&rows[n], 0, sizeof rows[0]);
+            snprintf(rows[n].title, sizeof rows[0].title, "%s", b->title);
+            shown_url(rows[n].sub, sizeof rows[0].sub, b->url);
+            snprintf(g_url[n], sizeof g_url[0], "%s", b->url);
+            n++;
+        }
+        return n;
+    }
+    if (g_capvisits < g_visits_db.n) {
+        struct visit *v = realloc(g_visits, (size_t)g_visits_db.n * sizeof *v);
+        if (!v) return 0;
+        g_visits = v;
+        g_capvisits = g_visits_db.n;
     }
     g_nvisits = 0;
-    urldb_iterate_entries(hist_entry);
+    for (int i = 0; i < g_visits_db.n; i++) {
+        const struct uvisit *e = &g_visits_db.e[i];
+        if (!matches(filter, e->title, e->url)) continue;
+        g_visits[g_nvisits++] = (struct visit){ (time_t)e->when, e->title[0] ? e->title : e->url, e->url };
+    }
     qsort(g_visits, (size_t)g_nvisits, sizeof g_visits[0], newest_first);
     time_t now = time(NULL);
     char last[48] = "";
-    for (int i = 0; i < g_nvisits && g_n < cap; i++) {
+    for (int i = 0; i < g_nvisits && n < cap; i++) {
         char day[48];
         day_heading(g_visits[i].when, now, day, sizeof day);
         if (strcmp(day, last)) {
-            if (g_n + 1 >= cap) break;
-            memset(&rows[g_n], 0, sizeof rows[0]);
-            snprintf(rows[g_n].title, sizeof rows[0].title, "%s", day);
-            rows[g_n].heading = 1;
-            g_url[g_n][0] = '\0';
-            g_n++;
+            if (n + 1 >= cap) break;
+            memset(&rows[n], 0, sizeof rows[0]);
+            snprintf(rows[n].title, sizeof rows[0].title, "%s", day);
+            rows[n].heading = 1;
+            g_url[n][0] = '\0';
+            n++;
             snprintf(last, sizeof last, "%s", day);
         }
-        struct uui_entry *r = &rows[g_n];
+        struct uui_entry *r = &rows[n];
         memset(r, 0, sizeof *r);
         snprintf(r->title, sizeof r->title, "%s", g_visits[i].title);
         shown_url(r->sub, sizeof r->sub, g_visits[i].url);
-        snprintf(g_url[g_n], sizeof g_url[0], "%s", g_visits[i].url);
-        g_n++;
+        snprintf(g_url[n], sizeof g_url[0], "%s", g_visits[i].url);
+        n++;
     }
-    return g_n;
+    return n;
 }
 
 const char *ns_marks_url(int row) { return row >= 0 && row < NS_MARKS_MAX ? g_url[row] : ""; }
 
 void ns_marks_remove(int which, int row) {
-    struct nsurl *u = url_of(ns_marks_url(row));
-    if (!u) return;
+    const char *url = ns_marks_url(row);
+    if (!url[0]) return;
     if (which == NS_MARKS_BOOKMARKS) {
-        if (g_ready) hotlist_remove_url(u);
-    } else {
-        urldb_reset_url_visit_data(u);
+        int i = ubookmarks_find(&g_marks, url);
+        if (i >= 0) {
+            ubookmarks_remove(&g_marks, i);
+            save_marks();
+        }
+    } else if (uvisits_forget(&g_visits_db, url)) {
+        uvisits_save(&g_visits_db, g_hist_path);
     }
-    nsurl_unref(u);
 }
