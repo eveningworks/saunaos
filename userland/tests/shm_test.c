@@ -16,6 +16,7 @@
 // IT IS SPAWNED, NOT `run`: the parent blocks in waitpid, which the
 // legacy loader has no scheduler slot for. The verdict goes to a file
 // for the same reason env_test's does.
+#include <pthread.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -28,6 +29,20 @@
 #define SHM_BYTES (SHM_PAGES * 4096)
 
 static uint8_t want(int i) { return (uint8_t)(i * 31 + 7); }
+
+// A THREAD of the creating process opens and grants the private object:
+// access is the PROCESS's, so a thread that was refused would be the
+// kernel asking for its thread id where it meant its process (fixed
+// 2026-10-13 -- /bin/webnet's fetch threads lost their clients to it).
+static int g_thread_open, g_thread_grant;
+static void *thread_side(void *arg) {
+    (void)arg;
+    int fd = sys_shm_open("t-private", 0, 0);
+    g_thread_open = fd >= 0;
+    if (fd >= 0) sys_close(fd);
+    g_thread_grant = sys_shm_grant("t-private", 1) == 0;
+    return NULL;
+}
 static uint8_t reply(int i) { return (uint8_t)(i * 17 + 3); }
 
 int main(void) {
@@ -80,6 +95,10 @@ int main(void) {
     // tries it once and fails the run if it gets in.
     int priv = sys_shm_open("t-private", 4096, SHM_CREATE | SHM_EXCL);
     utest_check(priv >= 0, "created a private object the child cannot have");
+    pthread_t t;
+    if (pthread_create(&t, NULL, thread_side, NULL) == 0) pthread_join(t, NULL);
+    utest_check(g_thread_open, "a thread of the creator opens the private object");
+    utest_check(g_thread_grant, "...and may grant it, as its process may");
 
     int pid = sys_spawn("/tests/shm_child", "", -1);
     // THE GRANT IS WHAT LETS IT IN. Before objects had an owner any

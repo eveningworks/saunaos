@@ -312,7 +312,7 @@ int sys_shm_open(struct syscall_ctx *c) {
     if (!name_ok(name)) { ret = -EINVAL; goto out; }
     if (m.flags & ~(SHM_CREATE | SHM_EXCL | SHM_PUBLIC)) { ret = -EINVAL; goto out; }
 
-    int pid = scheduler_current_pid();
+    int pid = scheduler_current_tgid();   // the PROCESS: a thread opens what its process may
     int idx = shm_lookup(name);
     if (idx >= 0) {
         if ((m.flags & SHM_CREATE) && (m.flags & SHM_EXCL)) { ret = -EEXIST; goto out; }
@@ -357,7 +357,7 @@ int sys_shm_grant(struct syscall_ctx *c) {
     }
     int idx = shm_lookup(name);
     if (idx < 0) { ret = -ENOENT; goto out; }
-    if (g_obj[idx].creator != scheduler_current_pid()) { ret = -EPERM; goto out; }
+    if (g_obj[idx].creator != scheduler_current_tgid()) { ret = -EPERM; goto out; }
 
     int target = (int)c->a1;
     if (target < 1) { ret = -EINVAL; goto out; }

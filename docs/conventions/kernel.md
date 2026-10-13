@@ -2490,8 +2490,10 @@ THREAD and `scheduler_current_tgid()` is the PROCESS, and they were equal
 everywhere until this landed -- so every existing caller kept working and
 the ones that meant "which program is this" had to be moved over one at a
 time: a window's owner, a terminal's owner, a child's parent,
-`getpid()`, `setpgid(0, ...)`. The rule for a new caller is the question
-it is really asking. A window belongs to a program, so a second thread of
+`getpid()`, `setpgid(0, ...)`, and (2026-10-13, after it cost the Web
+Browser's network process its clients) who may open a shared memory
+object and who created it. The rule for a new caller is the question
+it is really asking -- and a PERMISSION is always the process's. A window belongs to a program, so a second thread of
 it must find the same windows rather than a fresh, empty client.
 
 **THE STACK IS RING 3's.** `SYS_THREAD_CREATE` takes an entry point and a
