@@ -6768,7 +6768,9 @@ runs first**: a `doom1.wad` with one
   only honest oracle for reuse), serving a corpus directory plus
   `?gzip`, `?chunked`, `?close`, `?drop` (closes without saying so),
   `/redirect/N/...`, `/redirect303/...`, `/echo`, `/cookie/set` and
-  `/cookie/show`, `/stats` and `/reset`. `make_ca()` makes a test CA and
+  `/cookie/show`, `/download/NAME?size=N` (an attachment of known bytes,
+  `download_bytes()`; `&drop=K` breaks it after K, `&slow=1` trickles it
+  for a cancel), `/stats` and `/reset`. `make_ca()` makes a test CA and
   leaves it signed -- good (for 10.0.2.2 and 127.0.0.1), expired and
   wrong-name -- plus a self-signed one, with `openssl`. The handshake runs
   in the CONNECTION's thread, so a client that refuses a certificate and
@@ -6805,6 +6807,14 @@ runs first**: a `doom1.wad` with one
   is checked last, in a reopened window after the jar has been read: the
   card then counts 0 and the server is no longer SENT the cookie, read
   from a new address so the answer is not the cache's.
+
+  **Downloads** (the network half): an attachment opens the flyout and
+  lands in `/home/Downloads` with the server's bytes (`sum`'s CRC-32
+  against `download_bytes()`), a second of the same name is
+  "data (1).bin", a connection that breaks a moment after it started and
+  a Cancel clicked on the row's reported rect each leave nothing behind,
+  and Clear finished empties the list. Shown red by skipping the rename
+  of the finished `.part`: exactly the two file checks failed.
 
   **Fonts**: `/tests/web/fonts.html` draws one word per 48 px row in
   sans, serif, mono and each one's italic, and the INK of each pair

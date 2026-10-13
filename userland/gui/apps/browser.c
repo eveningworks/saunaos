@@ -20,6 +20,8 @@
 #include "browser/ns_addr.h"
 #include "browser/ns_bitmap.h"
 #include "browser/ns_card.h"
+#include "browser/ns_dlpanel.h"
+#include "browser/ns_download.h"
 #include "browser/ns_find.h"
 #include "browser/ns_font.h"
 #include "browser/ns_sched.h"
@@ -60,7 +62,8 @@
 #define COOKIES_FILE STATE_DIR "/cookies"
 #define HISTORY_FILE STATE_DIR "/history"
 
-enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND, ID_ADDRBAR, ID_CARD };
+enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND, ID_ADDRBAR, ID_CARD,
+       ID_DLPANEL, ID_DLLIST };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_RELOAD, CMD_HOME, CMD_DOWNLOADS, CMD_MENU,
        CMD_NEWTAB, CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_RESET, CMD_FIND };
 
@@ -116,7 +119,7 @@ static const struct uui_toolbar_item TOOLS_LOADING[] = {
     { "tb-home",    "Home (Alt+Home)",     CMD_HOME, 0, 0, 0, 0 },
 };
 static const struct uui_toolbar_item TOOLS_R[] = {
-    { "tb-down", "Downloads (not yet)", CMD_DOWNLOADS, 0, 0, 0, 0 },
+    { "tb-down", "Downloads (Ctrl+J)",  CMD_DOWNLOADS, 0, 0, 0, 0 },
     { "tb-menu", "Menu",                CMD_MENU, 0, 0, 0, 0 },
 };
 static struct uui_toolbar g_tools, g_tools_r;
@@ -127,11 +130,13 @@ static int g_shown_loading = -1;
 // badge -- and the lock's card (P1), drawn over the page.
 static struct ns_addr g_addr;
 static struct ns_card g_card;
+// The Downloads flyout (D1), under the down arrow.
+static struct ns_dlpanel g_dlp;
 
 // The ☰ menu: a menu with no bar strip, opened under its button (KDE's
 // ☰, Terminal's). Built as it opens, so Reset zoom can name the level.
 static struct uui_menubar g_ctx;
-static struct uui_menu_item g_menu_items[8];
+static struct uui_menu_item g_menu_items[12];
 static char g_reset_label[32];
 
 // Find in page floats at the page's top right, as Notepad's and
@@ -147,7 +152,7 @@ static unsigned tool_flags(int code) {
     switch (code) {
     case CMD_BACK:      return browser_window_back_available(gw->bw) ? 0 : UUI_MI_DISABLED;
     case CMD_FORWARD:   return browser_window_forward_available(gw->bw) ? 0 : UUI_MI_DISABLED;
-    case CMD_DOWNLOADS: return UUI_MI_DISABLED;   // stage 4
+    case CMD_DOWNLOADS: return g_dlp.open ? UUI_MI_CHECKED : 0;
     }
     return 0;
 }
@@ -356,8 +361,28 @@ static void place_find(void) {
     uui_findbar_set_geometry(&g_find, v->x + ns_view_page_w(v) - 8 - fw, v->y + 6, fw, fh);
 }
 
-static struct uui_item g_widgets[4];
-enum { W_CTX, W_ROOT, W_FIND, W_CARD };
+static struct uui_item g_widgets[5];
+enum { W_CTX, W_ROOT, W_FIND, W_CARD, W_DLP };
+
+static void downloads_toggle(void) {
+    if (g_dlp.open) {
+        ns_dlpanel_close(&g_dlp);
+        return;
+    }
+    int x, y, w, h;
+    uui_toolbar_item_rect(&g_tools_r, 0, &x, &y, &w, &h);
+    ns_dlpanel_open(&g_dlp, x, y + h + 2, w, uapp_width(g_app), uapp_height(g_app));
+}
+
+// A download started or moved on. One that STARTS opens the flyout, as
+// Chrome's bubble and Firefox's panel do, so a click that downloads is
+// seen to have done something.
+void nsapp_download_changed(int started) {
+    if (!g_app) return;
+    if (started && !g_dlp.open) downloads_toggle();
+    else ns_dlpanel_sync(&g_dlp, uapp_width(g_app), uapp_height(g_app));
+    uapp_redraw(g_app);
+}
 
 static void find_open(void) {
     g_find_open = 1;
@@ -418,6 +443,7 @@ static void open_menu(void) {
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON(g_reset_label, CMD_ZOOM_RESET, "Ctrl+0", "tb-actual", UTHEME_ACT_VIEW);
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_SEP;
     g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Find in page...", CMD_FIND, "Ctrl+F", "tb-find", UTHEME_ACT_NAV);
+    g_menu_items[n++] = (struct uui_menu_item)UUI_MENU_ICON("Downloads", CMD_DOWNLOADS, "Ctrl+J", "tb-down", UTHEME_ACT_NAV);
     int x, y, w, h;
     uui_toolbar_item_rect(&g_tools_r, 1, &x, &y, &w, &h);
     uui_menubar_open_below(&g_ctx, g_menu_items, n, x, y, w, h);
@@ -435,6 +461,7 @@ static void command(int code) {
         break;
     case CMD_HOME:    go(HOME_URL); break;
     case CMD_MENU:    open_menu(); break;
+    case CMD_DOWNLOADS: downloads_toggle(); break;
     case CMD_NEWTAB:  open_tab(HOME_URL); break;
     case CMD_ZOOM_IN:    zoom(+1); break;
     case CMD_ZOOM_OUT:   zoom(-1); break;
@@ -480,6 +507,18 @@ static void on_widget(struct uapp *a, int id, int reason) {
         case NS_ADDR_CHIP: card_toggle(); break;
         case NS_ADDR_ZOOM: zoom(0); break;
         }
+    } else if (id == ID_DLPANEL) {
+        switch (ns_dlpanel_take(&g_dlp)) {
+        case NS_DLP_OPEN_FOLDER: uapp_spawn(a, "/bin/wm/apps/files", NS_DOWNLOAD_DIR); break;
+        case NS_DLP_CLEAR:       ns_downloads_clear_finished(); break;
+        }
+    } else if (id == ID_DLLIST) {
+        int row;
+        switch (uui_transfers_take(&g_dlp.list, &row)) {
+        case UUI_XFER_EV_CANCEL: ns_download_cancel(row); break;
+        case UUI_XFER_EV_SHOW:   uapp_spawn(a, "/bin/wm/apps/files", ns_download_path(row)); break;
+        case UUI_XFER_EV_RETRY:  go(ns_download_url(row)); break;
+        }
     } else if (id == ID_CARD) {
         if (ns_card_take(&g_card) == NS_CARD_CLEAR) card_clear();
     } else if (id == ID_PAGE && g_find_open) {
@@ -494,7 +533,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     int ctrl = (mods & KEY_MOD_CTRL) != 0;
     // An open find bar with the keyboard: the query, Enter, Esc -- and
     // the field's own Ctrl+A/C/V. Not the browser's shortcuts.
-    int ours = uui_key_is_shortcut(key, mods) || (ctrl && strchr("\x06\x0c\x12\x14\x17", key));
+    int ours = uui_key_is_shortcut(key, mods) || (ctrl && strchr("\x06\x0a\x0c\x12\x14\x17", key));
     if (g_find_open && g_focus.current < 0 && !ours && uui_findbar_key(&g_find, key, mods)) {
         switch (uui_findbar_take(&g_find)) {
         case UUI_FIND_CHANGED: find_run(0); break;
@@ -514,6 +553,8 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         command(CMD_ZOOM_RESET);
     } else if (ctrl && key == 0x06) {                             // Ctrl+F
         command(CMD_FIND);
+    } else if (ctrl && key == 0x0A) {                             // Ctrl+J, not Enter
+        command(CMD_DOWNLOADS);
     } else if (mods & KEY_MOD_ALT) {
         if (key == KEY_ARROW_LEFT) command(CMD_BACK);
         else if (key == KEY_ARROW_RIGHT) command(CMD_FORWARD);
@@ -644,6 +685,7 @@ static int engine_init(int argc, char **argv) {
     table.fetch = ns_fetch_table;
     table.bitmap = ns_bitmap_table;
     table.layout = ns_layout_table;
+    table.download = ns_download_table;
     if (netsurf_register(&table) != NSERROR_OK) return 0;
     ns_bitmap_set_format();
     if (nsoption_init(set_defaults, &nsoptions, &nsoptions_default) != NSERROR_OK) return 0;
@@ -716,6 +758,9 @@ int main(int argc, char **argv) {
                                            .name = "find", .hidden = 1 };
     g_widgets[W_CARD] = (struct uui_item){ .ops = &ns_card_ops, .widget = &g_card, .id = ID_CARD,
                                            .name = "card" };
+    ns_dlpanel_init(&g_dlp, ID_DLLIST);
+    g_widgets[W_DLP] = (struct uui_item){ .ops = &ns_dlpanel_ops, .widget = &g_dlp, .id = ID_DLPANEL,
+                                          .name = "dlpanel" };
     uui_menubar_init(&g_ctx, 0, 0);   // no bar of its own: open_below() supplies the rows
     uui_findbar_init(&g_find);
     g_find.pill = 1;
@@ -726,7 +771,7 @@ int main(int argc, char **argv) {
         .on_size      = on_size,
         .layout       = &ROOT_L,
         .widgets      = g_widgets,
-        .widget_count = 4,
+        .widget_count = 5,
         .on_widget    = on_widget,
         .on_key       = on_key,
         .on_tab       = on_tab,

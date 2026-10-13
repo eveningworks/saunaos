@@ -216,6 +216,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_tiles.h` | The pictures a uui_gallery's cards show for a cursor set and for a wallpaper -- System Settings' and First-boot setup's, from one place. |
 | `uui_toast.h` | A TOAST: one short line in a dark pill that rises into view at the bottom of a box the app names, over its content -- Android's Toast, the "Solved in 0:37" note a game shows. |
 | `uui_toolbar.h` | uui_toolbar -- a strip of icon buttons under the menu bar. |
+| `uui_transfers.h` | uui_transfers -- a list of FILE TRANSFERS: each row a file's name, a progress bar while it runs and a status line under it ("14.2 MiB of 23.0 MiB", "4.0 MiB, done", "Failed: the connection closed")... |
 | `uui_transport.h` | uui_transport -- previous, play/pause, next: a media transport, the round play button in the middle (Windows 11 Media Player's, Amberol's). |
 | `uui_tree.h` | A TREE: rows at a depth, with collapsible parents. |
 | `uui_undo.h` | uui_undo -- an edit HISTORY for editable text: what Ctrl+Z and Ctrl+Y step through, for every buffer the shared edit core (ui/uui_edit.h) drives. |

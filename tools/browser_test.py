@@ -25,6 +25,10 @@ WHAT IT CHECKS, and what a broken version would still pass:
     page's pixels changed by the highlights; Enter steps on, Shift+Enter
     wraps back past the first to the last, and Esc leaves the page
     pixel-identical to before the search (the round trip);
+  - downloads (over the network): an attachment lands in /home/Downloads
+    with the server's exact bytes (CRC-32 from `sum`), a second of the
+    same name is "name (1)", a broken connection and a Cancel both leave
+    nothing behind, and Clear finished empties the flyout;
   - /tests/web/fonts.html draws serif, italic and monospace italic each
     in its own face -- the same word's ink differs from the upright or
     sans row beside it -- while a row repeated, and "Times New Roman"
@@ -64,7 +68,8 @@ from gui_debug import DebugConsole, enter_gui   # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
-from web_server import WebServer, make_ca, GATEWAY  # noqa: E402
+from web_server import WebServer, make_ca, GATEWAY, download_bytes  # noqa: E402
+import zlib  # noqa: E402
 
 APP = "/bin/wm/apps/browser"
 HOME = "file:///usr/share/netsurf/start.html"
@@ -103,6 +108,18 @@ def state(dbg):
         m = re.search(r"browser: layout card\.open (\d)$", line)
         if m:
             _st["card_open"] = int(m.group(1))
+        m = re.search(r"browser: download (start|done|failed|cancelled) (.+) (\d+)(: .*)?$", line)
+        if m:
+            _st.setdefault("dl", []).append((m.group(1), m.group(2), int(m.group(3))))
+        m = re.search(r"browser: layout downloads\.action (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+        if m:
+            _st.setdefault("dl_action", {})[int(m.group(1))] = tuple(int(v) for v in m.groups()[1:])
+        m = re.search(r"browser: layout downloads\.count (\d+)$", line)
+        if m:
+            _st["dl_count"] = int(m.group(1))
+        m = re.search(r"browser: layout dlpanel\.open (\d)$", line)
+        if m:
+            _st["dlp_open"] = int(m.group(1))
         m = re.search(r"browser: zoom (\d+)$", line)
         if m:
             _st["zoom"] = int(m.group(1))
@@ -512,6 +529,8 @@ def network(dbg, net, page, at, shot):
     check("a typed address of over 200 bytes is followed whole", whole(st),
           f"{st.get('urllen')} bytes, want {len(want)}")
 
+    downloads(dbg, host, at, shot)
+
     conns, reqs = srv.counts()
     check("the server saw fewer connections than requests (reused)",
           reqs >= 7 and conns < reqs, f"connections={conns} requests={reqs}")
@@ -599,6 +618,66 @@ def network(dbg, net, page, at, shot):
           card and card[1] >= 1 and st.get("cleared", 0) >= 1 and after and after[1] == 0
           and "cookie toy=yes" not in labels(dbg),
           f"card {card} cleared {st.get('cleared')} then {after} tabs {labels(dbg)}")
+
+
+def dl_event(ev, name):
+    return lambda s: (ev, name) in [(e, n) for e, n, _ in s.get("dl", [])]
+
+
+def guest_crc(dbg, path):
+    """`sum`'s CRC-32 and length of a guest file, or None."""
+    out = dbg.send(f"sh sum {path}") or ""
+    m = re.search(r"(\d+) (\d+) " + re.escape(path), out)
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+def downloads(dbg, host, at, shot):
+    page_before = state(dbg).get("url")
+    size = 300000
+    want = (zlib.crc32(download_bytes(size)), size)
+    go(dbg, f"{host}/download/data.bin?size={size}")
+    st = wait(dbg, lambda s: dl_event("done", "data.bin")(s) and s.get("dlp_open") == 1, 30)
+    check("an attachment downloads, and the Downloads flyout opens for it",
+          dl_event("done", "data.bin")(st) and st.get("dlp_open") == 1,
+          f"events {st.get('dl')} open {st.get('dlp_open')}")
+    got = guest_crc(dbg, "/home/Downloads/data.bin")
+    check("...into /home/Downloads, byte for byte", got == want, f"sum {got}, want {want}")
+    part = dbg.send("sh ls /home/Downloads") or ""
+    check("...leaving no .part behind, and the page it came from shown", ".part" not in part
+          and state(dbg).get("url") == page_before, f"ls: {part.strip()[-120:]}")
+    go(dbg, f"{host}/download/data.bin?size=1000")
+    st = wait(dbg, dl_event("done", "data (1).bin"), 30)
+    check("a second file of the same name is saved beside it, as 'data (1).bin'",
+          dl_event("done", "data (1).bin")(st), f"events {st.get('dl')}")
+
+    go(dbg, f"{host}/download/broken.bin?size={size}&drop=5000")
+    st = wait(dbg, dl_event("failed", "broken.bin"), 30)
+    ls = dbg.send("sh ls /home/Downloads") or ""
+    check("a download whose connection breaks fails, and leaves nothing",
+          dl_event("failed", "broken.bin")(st) and "broken" not in ls,
+          f"events {st.get('dl')} ls: {ls.strip()[-120:]}")
+
+    _st.pop("dl_action", None)
+    go(dbg, f"{host}/download/slow.bin?size=2000000&slow=1")
+    st = wait(dbg, lambda s: dl_event("start", "slow.bin")(s) and 0 in s.get("dl_action", {}), 20)
+    act = st.get("dl_action", {}).get(0)
+    if act:
+        x, y, w, h = act
+        dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+    st = wait(dbg, dl_event("cancelled", "slow.bin"), 10)
+    ls = dbg.send("sh ls /home/Downloads") or ""
+    check("Cancel on a running download's row stops it and leaves nothing",
+          dl_event("cancelled", "slow.bin")(st) and "slow" not in ls,
+          f"events {st.get('dl')} ls: {ls.strip()[-120:]}")
+
+    shot("downloads")
+    clear = state(dbg).get("dlpanel.clear")
+    if clear:
+        x, y, w, h = clear
+        dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+    st = wait(dbg, lambda s: s.get("dl_count") == 0, 6)
+    check("Clear finished empties the list", st.get("dl_count") == 0, f"count {st.get('dl_count')}")
+    dbg.send("gui key 0x1b")
 
 
 def open_card(dbg, at):

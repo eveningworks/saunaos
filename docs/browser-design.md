@@ -381,10 +381,19 @@ certificate of its own: the fetcher hands NetSurf the chain that host
 presented last, or the card of the second page from a site would have
 none.
 
-Downloads go through NetSurf's own download path, which takes the
-response already arriving -- a second fetch through `uhttp_download`
-would lose a POST's result and a download that needs the session's
-cookie.
+**Built: downloads.** They go through NetSurf's own download path
+(`userland/browser/ns_download.c`), which takes the response already
+arriving -- a second fetch through `uhttp_download` would lose a POST's
+result and a download that needs the session's cookie. A file is
+written to `/home/Downloads/<name>.part` and renamed when whole; a
+failed or cancelled one is deleted; a name already there becomes
+"name (1).ext", as Chrome's does. The flyout under the down arrow opens
+when a download starts, and its list is a toolkit widget,
+`ui/uui_transfers.h` (a row per file: progress, status, and the one
+action its state allows), so the next list of transfers is not drawn
+again. NetSurf turns a fetch into a download as its headers are handled:
+a connection that breaks in the same poll as the headers arrive is a
+failed PAGE, shown as NetSurf's error page, not a failed download.
 
 ### Stage 5 -- `uui_webview`: the engine as a content process -- PLANNED
 

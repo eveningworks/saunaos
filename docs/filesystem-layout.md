@@ -53,7 +53,7 @@ in check_layout.py changes with it.)
 | `/home/Music` | A personal folder, as Documents; the shipped music stays in `/usr/share/music` | app | optional |
 | `/home/Pictures` | A personal folder, as Documents; the shipped wallpapers stay in `/usr/share/wallpapers` | app | optional |
 | `/home/Videos` | A personal folder, as Documents; the shipped videos stay in `/usr/share/videos` | app | optional |
-| `/home/Downloads` | A personal folder, as Documents | app | optional |
+| `/home/Downloads` | A personal folder, as Documents; the Web Browser saves downloads here, as `<name>.part` until whole | app | optional |
 | `/home/Pictures/Screenshots` | Where a capture lands when nobody named a file: `/bin/screenshot` and the Screenshot app both write `shot-<YYYYMMDD-HHMMSS>.qoi` here. Created on the FIRST capture rather than at start -- an empty directory nobody has taken a screenshot into is clutter. Was `/home/screenshots`, moved across once | app | optional |
 | `/home/.Trash` | THE RECYCLE BIN for the system volume (`lib/utrash.h`): what Delete moved here, on the freedesktop Trash layout. Another disk's bin is `.Trash-0` at its own top; a RAM or read-only volume has none. Created by the compositor at start (`wm_watch.c`), so the desktop's Recycle Bin can watch it | app | optional |
 | `/home/.Trash/files` | The deleted files and folders themselves, under a name unique in the bin | app | optional |

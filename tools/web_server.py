@@ -21,6 +21,11 @@ What it serves, beside the files of a corpus directory:
   /echo                   the request back: method, path, headers, body
   /cookie/set?k=v         sets cookie k=v for a day (a SESSION cookie is
                           rightly not saved); /cookie/show echoes Cookie:
+  /download/NAME?size=N   N bytes as an attachment named NAME (Content-
+                          Disposition), byte i = (7i + 3) & 255 -- what a
+                          test checks the saved file against (download_bytes());
+                          &drop=K sends K of them, waits a second and closes, &slow=1 trickles
+                          them out, 16 KiB every 0.2 s, so a test can cancel
   /stats                  "connections=N requests=M" since the last /reset
   /reset                  zeroes those counters
 
@@ -41,6 +46,7 @@ import ssl
 import subprocess
 import sys
 import threading
+import time
 import urllib.parse
 
 GATEWAY = "10.0.2.2"
@@ -93,6 +99,34 @@ def _handler(root, stats):
             if self.command != "HEAD":
                 self.wfile.write(body)
 
+        def _download(self, name, q):
+            data = download_bytes(int(q.get("size", "100000")))
+            self.send_response(200)
+            self.send_header("Content-Type", "application/octet-stream")
+            self.send_header("Content-Disposition", 'attachment; filename="%s"' % name)
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            if self.command == "HEAD":
+                return
+            if "drop" in q:
+                # Fewer bytes than promised, then gone: a connection that
+                # broke mid-download. A moment between the two, as a real
+                # one breaks -- NetSurf turns a fetch into a download as
+                # its headers are handled, and a break in the same poll
+                # as them is a failed PAGE, its error page shown.
+                self.wfile.write(data[:int(q["drop"])])
+                self.wfile.flush()
+                time.sleep(1.0)
+                self.close_connection = True
+                self.connection.shutdown(socket.SHUT_RDWR)
+                return
+            step = 16384 if "slow" in q else len(data) or 1
+            for i in range(0, len(data), step):
+                self.wfile.write(data[i:i + step])
+                self.wfile.flush()
+                if "slow" in q:
+                    time.sleep(0.2)
+
         def _body(self):
             n = int(self.headers.get("Content-Length") or 0)
             return self.rfile.read(n) if n else b""
@@ -131,6 +165,9 @@ def _handler(root, stats):
                 c = self.headers.get("Cookie", "")
                 return self._send(200, ("<html><title>cookie %s</title><p>%s</p></html>"
                                         % (c, c)).encode(), "text/html")
+            if path.startswith("/download/"):
+                return self._download(path[len("/download/"):] or "file.bin",
+                                      dict(urllib.parse.parse_qsl(query)))
             if path == "/ua":
                 return self._send(200, (self.headers.get("User-Agent", "") + "\n").encode())
             name = os.path.normpath(path.lstrip("/")) or "index.html"
@@ -156,6 +193,11 @@ def _handler(root, stats):
         do_GET = do_HEAD = do_POST = _route
 
     return Handler
+
+
+def download_bytes(n):
+    """The bytes /download/ serves: byte i is (7i + 3) & 255."""
+    return bytes((7 * i + 3) & 255 for i in range(n))
 
 
 class _Quiet(http.server.ThreadingHTTPServer):
