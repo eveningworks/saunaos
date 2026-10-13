@@ -52,7 +52,7 @@ import gui_debug  # noqa: E402
 import port_guard  # noqa: E402
 from gui_debug import DebugConsole  # noqa: E402
 from qmp_test import QMPSession  # noqa: E402
-from harness import copy_disk  # noqa: E402
+from harness import copy_disk, poll  # noqa: E402
 
 checks = []
 
@@ -100,6 +100,11 @@ class Keyboard:
     def is_open(self):
         return "osk: open" in (self.d.send("gui osk") or "")
 
+    def becomes(self, want, timeout=5.0):
+        """Polled: a click's settle is a guess, and under the full suite's
+        load the panel's state lands after it."""
+        return poll(lambda: self.is_open() == want, timeout)
+
     def mods(self):
         m = re.search(r"mods=0x([0-9a-f]+)", self.d.send("gui osk") or "")
         return int(m.group(1), 16) if m else -1
@@ -116,6 +121,14 @@ def listing(dbg):
     return dbg.send("sh ls /") or ""
 
 
+def listed(dbg, name, timeout=6.0):
+    """`ls /` once `name` is in it, or the last listing at the deadline:
+    a typed command runs when the shell gets to it, not after a fixed
+    sleep."""
+    return poll(lambda: (lambda out: out if name in out else "")(listing(dbg)),
+                timeout) or listing(dbg)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--instance", default="auto",
@@ -127,15 +140,19 @@ def main():
         print("osk_test: no free VM slot")
         return 2
 
-    img = os.path.join(tempfile.gettempdir(), f"osk_test_{n}.img")
-    copy_disk("disk.img", img, cwd=REPO)
-    subprocess.run([sys.executable, os.path.join(HERE, "vm.py"),
-                    "--instance", str(n), "stop"], capture_output=True)
-    boot = subprocess.run([sys.executable, os.path.join(HERE, "vm.py"),
-                           "--instance", str(n), "--disk", img, "start"], cwd=REPO)
+    # A GUEST ALREADY ON THE SLOT IS THE ONE TO TEST -- gui_regress
+    # booted it from a fresh image, and stopping it to boot a copy of
+    # disk.img tested whatever earlier runs had left there instead.
+    vm = [sys.executable, os.path.join(HERE, "vm.py"), "--instance", str(n)]
+    status = subprocess.run(vm + ["status"], capture_output=True, text=True, cwd=REPO)
     print("osk_test: the on-screen keyboard")
-    if not check("the guest boots", boot.returncode == 0):
-        return 1
+    booted = "not running" in status.stdout
+    if booted:
+        img = os.path.join(tempfile.gettempdir(), f"osk_test_{n}.img")
+        copy_disk("disk.img", img, cwd=REPO)
+        boot = subprocess.run(vm + ["--disk", img, "start"], cwd=REPO)
+        if not check("the guest boots", boot.returncode == 0):
+            return 1
 
     try:
         qmp = QMPSession(port=port_guard.instance_qmp(n))
@@ -151,7 +168,7 @@ def main():
         tray = kb.tray()
         if tray:
             kb.click(*tray, settle=0.4)
-        if not check("clicking the tray item opens it", kb.is_open()):
+        if not check("clicking the tray item opens it", kb.becomes(True)):
             return 1
 
         dbg.open_app("Terminal")
@@ -164,8 +181,7 @@ def main():
 
         # --- THE ROUND TRIP ------------------------------------------
         kb.type_caps(spell("oskok"))
-        time.sleep(1.2)
-        after = listing(dbg)
+        after = listed(dbg, "oskok/")
         check("typing a command creates the directory it names",
               "oskok/" in after, "letters, Space and Enter all arrived")
 
@@ -184,8 +200,7 @@ def main():
         time.sleep(0.4)
 
         kb.type_caps(list("mkdir") + ["Space", "/", "Shift", "z", "z", "Enter"])
-        time.sleep(1.2)
-        after = listing(dbg)
+        after = listed(dbg, "Zz/")
         check("Shift types the shifted cap, and only for one key",
               "Zz/" in after, "wanted Zz/ -- ZZ/ means it stuck, zz/ that it never armed")
 
@@ -193,8 +208,7 @@ def main():
         kb.type_caps(list("xyz") + ["Ctrl", "c"])
         time.sleep(0.6)
         kb.type_caps(spell("ctrlok"))
-        time.sleep(1.2)
-        after = listing(dbg)
+        after = listed(dbg, "ctrlok/")
         check("Ctrl folds to a control code, so Ctrl-C discards the line",
               "ctrlok/" in after,
               "a literal 'c' would have made the command xyzcmkdir")
@@ -213,8 +227,7 @@ def main():
               f"layout={k.get('layout')!r}")
         fi_slash = ["Space", "Shift", "7"]
         kb.type_caps(list("mkdir") + fi_slash + ["a", "AltGr", "2", "b", "Enter"])
-        time.sleep(1.2)
-        after = listing(dbg)
+        after = listed(dbg, "a@b/")
         check("AltGr types the layout's third level", "a@b/" in after,
               "wanted a@b/ -- a2b/ means AltGr typed the base, no directory that / was US")
 
@@ -228,8 +241,7 @@ def main():
         check("a dead key latches until its letter", k.get("pending") == 13,
               f"pending={k.get('pending')}")
         kb.type_caps(["e", "y", "Enter"])
-        time.sleep(1.2)
-        after = listing(dbg)
+        after = listed(dbg, "x\ufffdy/")
         check("dead acute then e composes to one character", "x\ufffdy/" in after,
               "x\ufffdey/ means it never composed, xey/ that the accent was lost")
         dbg.send("sh config set system.keyboard_layout us")
@@ -248,8 +260,7 @@ def main():
         check("dragging its bar moves it", (m["x"], m["y"]) == (k["x"] - 80, k["y"] - 120),
               f"{(k['x'], k['y'])} -> {(m['x'], m['y'])}")
         kb.type_caps(spell("moved"))
-        time.sleep(1.2)
-        check("...and a moved keyboard still types", "moved/" in listing(dbg))
+        check("...and a moved keyboard still types", "moved/" in listed(dbg, "moved/"))
         kb.click(m["dock"]["cx"], m["dock"]["cy"], settle=0.4)
         m = dbg.json("gui osk --json")
         check("Dock makes it full width above the taskbar", m["docked"] and m["w"] >= 1280,
@@ -258,22 +269,22 @@ def main():
         check("...and the same button floats it again", not dbg.json("gui osk --json")["docked"])
         m = dbg.json("gui osk --json")
         kb.click(m["close"]["cx"], m["close"]["cy"], settle=0.4)
-        check("its close button closes it", not kb.is_open())
+        check("its close button closes it", kb.becomes(False))
         tray = kb.tray()
         if tray:
             kb.click(*tray, settle=0.4)
-        check("...and the tray item opens it again", kb.is_open())
+        check("...and the tray item opens it again", kb.becomes(True))
 
         # --- the toggle closes it again ------------------------------
         tray = kb.tray()
         if tray:
             kb.click(*tray, settle=0.4)
-        check("clicking the tray item again closes it", not kb.is_open())
+        check("clicking the tray item again closes it", kb.becomes(False))
 
         dbg.close()
     finally:
-        subprocess.run([sys.executable, os.path.join(HERE, "vm.py"),
-                        "--instance", str(n), "stop"], capture_output=True)
+        if booted:
+            subprocess.run(vm + ["stop"], capture_output=True, cwd=REPO)
 
     passed = sum(1 for _, ok, _ in checks if ok)
     print(f"\nosk_test: {passed} passed, {len(checks) - passed} failed")

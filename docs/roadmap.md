@@ -26,7 +26,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 
 - [ ] Receive aggregation on the RTL8156: one frame per bulk transfer caps a 2.5G link at ~450 frames/s -- measured  *(USB)*
 - [ ] The UAC2 feedback endpoint: an asynchronous sink drifts against the bus without it, and `xhci.c` has no isochronous IN  *(USB)*
-- [ ] Restore trust in the GUI suite: harness faults first, then the deterministic reds, intermittents kept with a rate  *(Kernel test harness)*
 <!-- END next-up -->
 
 
@@ -1254,7 +1253,7 @@ hand as a throwaway probe during a real hunt (see roadmap-details).
 - [ ] A `ktest -v` that reports each assertion, not just pass/fail
 - [ ] Tests for the boundary this kernel enforces by include path
 - [ ] A golden-image baseline for the GUI, diffed automatically
-- [ ] **NEXT** Restore trust in the GUI suite: harness faults first, then the deterministic reds, intermittents kept with a rate
+- [x] ~~Restore trust in the GUI suite: harness faults first, then the deterministic reds, intermittents kept with a rate~~ DONE 2026-10-14
 
 ### Convention drift: rules that live only in prose
 

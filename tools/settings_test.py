@@ -55,7 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from gui_debug import DebugConsole, changed_rows, enter_gui   # noqa: E402
 from qmp_test import QMPSession             # noqa: E402
 import port_guard  # noqa: E402
-from harness import Results  # noqa: E402
+from harness import Results, poll  # noqa: E402
 
 DEFAULT_SOCK = ".vm.serial"
 SETTINGS = "/bin/wm/system/settings"
@@ -274,6 +274,21 @@ def wait_page(dbg, mark, want, timeout=6.0):
         if time.time() >= deadline:
             return None
         time.sleep(0.15)
+
+
+def wait_refresh(dbg, mark, timeout=6.0):
+    """A setting changed outside the app: poll until it has reloaded and
+    DRAWN the result. The reload reports its page; the frame after it
+    reports the sidebar's position whether or not it moved -- and that
+    is the line sidebar_state() aims rows by, so the page line alone
+    would leave it reading the position from before the reload."""
+    def drawn():
+        drain(dbg)
+        page = next((i for i in range(mark, len(_log))
+                     if "settings: page " in _log[i]), None)
+        return page is not None and any(
+            "settings: sidebar top " in _log[i] for i in range(page, len(_log)))
+    return poll(drawn, timeout)
 
 
 def sidebar_state(dbg):
@@ -776,8 +791,13 @@ def main():
             for _ in range(12):
                 dbg.send("gui wheel -1")
             dbg.settle(1.0)
-            time.sleep(0.5)
-            ob = opts_button() or ob
+            # The page GLIDES: under load it is still moving after any
+            # fixed wait. Read until two reports 0.4 s apart agree.
+            def still():
+                a = opts_button()
+                time.sleep(0.4)
+                return a if a and a == opts_button() else None
+            ob = poll(still, 8) or opts_button() or ob
             check("effects: the button is reachable on the page",
                   pv[1] <= ob[1] and ob[1] + ob[3] <= pv[1] + pv[3],
                   f"button {ob[:4]} against page {pv}")
@@ -797,7 +817,7 @@ def main():
                 if dlg:
                     break
                 dbg.settle(1.0)
-                ob = opts_button() or ob
+                ob = poll(still, 8) or opts_button() or ob
             check("effects: the button opens the effect's options window",
                   dlg is not None,
                   f"windows={[w['title'] for w in dbg.windows()]}")
@@ -1156,9 +1176,9 @@ def main():
     # have been written, in which case stored_value() is None -- and
     # "None -> None" passes the unchanged check vacuously, which is
     # exactly the shape of a test that measures nothing.
+    mark = len(drain(dbg))
     dbg.send("sh config set system.mouse_speed normal")
-    dbg.settle()
-    time.sleep(0.4)
+    wait_refresh(dbg, mark)
     mark = len(drain(dbg))
     open_row(mouse_row)
     page_slots = slots(dbg, mark)
@@ -1838,7 +1858,9 @@ def main():
             # The saver's file goes too: it changes what the screen draws.
             dbg.send(f"sh rm {conf}")
         if started_on:
+            mark = len(drain(dbg))
             dbg.send(f"sh config set desktop.screensaver {started_on}")
+            wait_refresh(dbg, mark)
         dbg.settle()
 
     # --- Reset discards; leaving a changed page asks ------------------
@@ -1932,8 +1954,12 @@ def main():
     # found on the laptop, the first time any segmented control was
     # disabled while showing a choice.
     import tempfile
+    # WAIT FOR THE APP'S REFRESH, never a sleep: it rebuilds the sidebar,
+    # which can move its scroll position, and a row aimed at through the
+    # position from before lands on its neighbour.
+    mark = len(drain(dbg))
     dbg.send("sh config set desktop.start_position center")
-    time.sleep(1.0)
+    wait_refresh(dbg, mark)
     tb_page = select_page("Taskbar")
     if tb_page:
         ctl = controls(dbg, 0).get("desktop.taskbar_align")
@@ -1950,8 +1976,9 @@ def main():
         else:
             check("the Taskbar page has Button position as a segmented control", False,
                   f"{ctl}")
+    mark = len(drain(dbg))
     dbg.send("sh config unset desktop.start_position")
-    time.sleep(0.6)
+    wait_refresh(dbg, mark)
 
     # A PAGE WITH A CHANGE STAYS LISTED under a filter that excludes it:
     # the filter may not navigate away from staged work, so hiding its row

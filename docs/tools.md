@@ -3468,9 +3468,12 @@ window without going through it will find its layout polls timing out.
   client was repainting it. **The pane moving is the control** -- frames
   that differ from the one before -- since a scroll that never happened
   would pass on a still picture. Guards the buffer handback
-  (`WIN_EV_BUF_RELEASE`, `docs/decisions/gui.md`); its positive control
-  is `surf_back()` ignoring the busy flags, 81 of 240 frames. In
-  `gui_regress.py`.
+  (`WIN_EV_BUF_RELEASE`, `docs/decisions/gui.md`). **It captures until
+  40 frames have MOVED** (up to 960), not a fixed count: the power is
+  in the moved frames, and a fixed 240 fell under the control's floor
+  beside fifteen other guests. Positive control: `surf_back()` drawing
+  into the front buffer, 85 of 241 half-painted -- merely ignoring the
+  busy flags no longer fires with three buffers. In `gui_regress.py`.
 
 - **`idle_desktop_test.py`** -- with nobody touching it, does the screen
   SIT STILL? Two regions (the icon column, an empty patch) must be
@@ -4353,8 +4356,10 @@ window without going through it will find its layout polls timing out.
   the line and nothing would be created. Its control is breaking that
   fold, which reddens two checks. **Warp the cursor, never `click_at`
   alone** -- the WM accelerates an injected delta, so an open-loop move
-  misses the tray item and reads as a dead control. Run by
-  `gui_regress.py`.
+  misses the tray item and reads as a dead control. **It tests the guest
+  already on its slot** (the runner's fresh image) and boots its own from
+  a `disk.img` copy only when there is none; it used to stop the
+  runner's and boot `disk.img` every time. Run by `gui_regress.py`.
 - **`msi_test.py`** -- the Local APIC, and the xHCI delivering through
   MSI-X instead of its shared pin. **Its load-bearing check is that
   interrupts ARRIVE, and enumeration cannot show that**: every control

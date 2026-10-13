@@ -352,18 +352,35 @@ def open_page(dbg, key, want, keys):
 
 
 def scroll_to(dbg, qmp, win, key, label):
-    """Wheels the page until `key`'s `label` card is on screen; its rect."""
+    """Wheels the page until `key`'s `label` card is on screen; its rect.
+
+    ONCE THE REPORT STOPS MOVING, not when the card first appears: the
+    page GLIDES (smooth scrolling), and rects read mid-glide sample cards
+    where they no longer are in the settled frame shot() takes."""
     dbg.warp_cursor(qmp, win["x"] + win["w"] * 2 // 3, win["y"] + win["h"] // 2)
     dbg.settle()
     dbg.logs()
     dbg.wheel(-12)
-    cards = {}
-    for _ in range(20):
+    cards, prev = {}, None
+    for _ in range(30):
         time.sleep(0.3)
         cards = gallery_cards(dbg.logs(clear=False), key)
-        if label in cards:
+        if label in cards and cards == prev:
             break
+        prev = cards
     return cards
+
+
+def settled_shot(dbg, qmp, win, tmp, name, key, cards):
+    """shot(), and `key`'s cards as reported AFTER it: retaken while the
+    report still moves, so every rect sampled is where the frame drew it."""
+    for _ in range(4):
+        img = shot(dbg, qmp, win, tmp, name)
+        after = gallery_cards(dbg.logs(clear=False), key)
+        if after == cards:
+            break
+        cards = after
+    return img, cards
 
 
 def shot(dbg, qmp, win, tmp, name):
@@ -435,7 +452,7 @@ def run_effects(dbg, qmp, tmp, res):
                      f"{sorted(cards)}"):
         return
     ox, oy = win["content"]["x"], win["content"]["y"]
-    img = shot(dbg, qmp, win, tmp, "effects.png")
+    img, cards = settled_shot(dbg, qmp, win, tmp, "effects.png", key, cards)
     on = tile_count(img, dict(cards["On"], x=cards["On"]["x"] + ox, y=cards["On"]["y"] + oy), is_shadow)
     off = tile_count(img, dict(cards["Off"], x=cards["Off"]["x"] + ox, y=cards["Off"]["y"] + oy), is_shadow)
     res.check("the On card draws a shadow, the Off card none", on > 40 and off == 0,
@@ -451,7 +468,7 @@ def run_effects(dbg, qmp, tmp, res):
                          names <= set(cards), f"{sorted(cards)}"):
             return
         ox, oy = win["content"]["x"], win["content"]["y"]
-        img = shot(dbg, qmp, win, tmp, "seethrough.png")
+        img, cards = settled_shot(dbg, qmp, win, tmp, "seethrough.png", key, cards)
         n = {k: tile_count(img, dict(c, x=c["x"] + ox, y=c["y"] + oy), is_solid_body)
              for k, c in cards.items() if k in names}
         res.check("None keeps both window bodies solid, Inactive one, All neither",

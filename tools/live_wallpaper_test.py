@@ -124,7 +124,11 @@ def run(dbg, qmp, shot):
     f0 = bg(dbg).get("frames", 0)
     dbg.send("gui idle start")
     st = wait_bg(dbg, lambda s: s.get("paused") == 1, timeout=8)
-    f1 = st.get("frames", 0)
+    # Pausing stops the TIMER events (wm_background.c), so one sent just
+    # before it is still drawn and counted after: read the count once
+    # that in-flight frame has landed, then demand it stands still.
+    time.sleep(1.0)
+    f1 = bg(dbg).get("frames", 0)
     time.sleep(2.0)
     f2 = bg(dbg).get("frames", 0)
     check("a screensaver pauses it: no frames while it runs",

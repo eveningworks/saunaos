@@ -19,12 +19,18 @@ almost none of it.
 
 THE CONTROL is that the pane MOVED: frames are counted that differ from
 the one before. A scroll that never happened would pass the main check
-on a still picture.
+on a still picture. A frame can only be half-painted around a repaint,
+so the check's power is the MOVED count, not the frames taken: it
+captures until MOVED_WANT frames have moved, up to MAX_FRAMES. A fixed
+240 gave 29-32 moved alone and 14-16 beside fifteen other guests, under
+a floor of 20 -- the suite's load, not the File Manager, failed it.
 
-POSITIVE CONTROL, verified with tools/mutate.py: surf_back() in
-ui/uapp.c made to ignore `busy` turns this red, 81 of 240 frames
-half-painted under TCG (the two-buffer build before the release event:
-123 of 400). With it: 0, with 66-134 frames moving.
+POSITIVE CONTROL, verified with tools/mutate.py: surf_back()
+(ui/uapp_surface.c) starting from `int pick = s->front;` -- every frame
+drawn into the buffer on screen -- turns this red, 85 of 241 frames
+half-painted under TCG. Making it merely ignore `busy` NO LONGER DOES
+(0 of 240, before and after the moved-frame loop): with three buffers
+the lowest non-front one is in practice released already.
 
 Run by gui_regress.py, which boots the guest and passes --instance.
 """
@@ -41,7 +47,9 @@ from qmp_test import QMPSession                        # noqa: E402
 from harness import Results                            # noqa: E402
 import port_guard                                      # noqa: E402
 
-FRAMES = 240
+MOVED_WANT = 40       # moved frames to observe before stopping
+MOVED_MIN = 20        # the control's floor
+MAX_FRAMES = 960      # the hang guard: 4x the old fixed count
 GREY = (236, 236, 236)     # utheme panel_bg: what a cleared, unpainted window shows
 
 
@@ -79,7 +87,11 @@ def main():
         box = (c["x"] + 260, c["y"] + 60, c["x"] + c["w"] - 30, c["y"] + c["h"] - 30)
         ppm = os.path.join(tmp, "frame.ppm")
         half, moved, prev, first_half = 0, 0, None, None
-        for i in range(FRAMES):
+        frames = 0
+        for i in range(MAX_FRAMES):
+            if moved >= MOVED_WANT:
+                break
+            frames += 1
             if i % 6 == 0:
                 qmp.wheel("down" if (i // 36) % 2 == 0 else "up", notches=3, delay=0.02)
             qmp._cmd({"execute": "screendump", "arguments": {"filename": ppm}})
@@ -95,10 +107,10 @@ def main():
                     first_half = os.path.join(tmp, f"half{i}.png")
                     Image.open(ppm).save(first_half)
 
-        res.check("the pane really scrolled (the control)", moved >= 20,
-                  f"{moved} of {FRAMES} frames moved")
+        res.check("the pane really scrolled (the control)", moved >= MOVED_MIN,
+                  f"{moved} of {frames} frames moved")
         res.check("no half-painted frame reached the screen", half == 0,
-                  f"{half} of {FRAMES}" + (f", first saved as {first_half}" if first_half else ""))
+                  f"{half} of {frames}" + (f", first saved as {first_half}" if first_half else ""))
     finally:
         dbg.close()
     return res.finish("half_frame_test")

@@ -180,10 +180,13 @@ def run(dbg, qmp, tmp, shot_dir, res):
     # sampled blank background in every state, so "typed", "cleared" and
     # "reopened" all compared equal and two checks failed while a third
     # passed for the wrong reason. Ask the app (docs/gui-guidelines.md).
-    tr = None
-    for l in reversed(dbg.logs("notepad: layout text", clear=False)):
-        tr = [int(v) for v in l.split("layout text")[1].split()[:4]]
-        break
+    # POLLED: the window is listed before its first frame is drawn, and
+    # the report is written by that frame.
+    def text_rect():
+        for l in reversed(dbg.logs("notepad: layout text", clear=False)):
+            return [int(v) for v in l.split("layout text")[1].split()[:4]]
+        return None
+    tr = poll(text_rect, SPAWN_TIMEOUT_S)
     res.check("Notepad reports its text area", tr is not None,
               "no 'notepad: layout text' line")
     if tr is None:

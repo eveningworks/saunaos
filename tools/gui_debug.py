@@ -931,9 +931,17 @@ class DebugConsole:
                 # A window in the WM's list is not yet a window with
                 # PIXELS: the client still has to draw and present its
                 # first frame. A caller that samples immediately reads
-                # desktop through the window's rect. Settle, then a short
-                # grace -- and if the app reports its own layout line,
-                # wait for THAT instead (see uterm_test.py).
+                # desktop through the window's rect, and finds no widget
+                # map (sent from the same draw, ahead of the present).
+                # `first_frame` is 0 until that present; then settle and
+                # a short grace for the composite -- and if the app
+                # reports its own layout line, wait for THAT instead
+                # (see uterm_test.py): the log is a different wire.
+                while (win.get("client_pid", 0) > 0
+                       and win.get("first_frame", {"w": 1})["w"] == 0
+                       and time.time() < deadline):
+                    time.sleep(0.1)
+                    win = self.window(title) or win
                 self.settle()
                 time.sleep(FIRST_PRESENT_S)
                 return win

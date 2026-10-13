@@ -5022,15 +5022,26 @@ measurement.
 
 ### Restore trust in the GUI suite: harness faults first, then the deterministic reds, intermittents kept with a rate
 
-Four tools are red while the feature under each works (`docs/bugs.md`,
-2026-09-09): `settings_test` (6 of 65, a harness fault -- the app
-scrolls by hand), `font_test` (6 of 30, asserting the retired
-kernel-font architecture), `taskbar_test` (no grouping, a real bug),
-and `popup_test` (one pixel sampled at the wrong shade). A source
-review (2026-09-11) put this ahead of new features: a suite with known
-reds hides a new one. Order: the two harness faults, then the two
-deterministic reds, and every intermittent stays listed with its
-measured rate rather than being re-run until green.
+**DONE 2026-10-14.** The 2026-09-09 reds this item was written for
+(`settings_test`, `font_test`, `taskbar_test`, `popup_test`) had been
+fixed in passing by then. Measured afresh -- eight full `gui_regress.py`
+runs on fresh images at 16 jobs -- the first run (b560eb73) had four
+reds, and those plus four found in later runs were all HARNESS faults,
+none a defect in the OS: a window read before its first frame (Notepad's
+layout line, which had hidden 46 checks since at least 2026-09-21, and
+Crash Reports' widget map), a sidebar position read across a reload,
+gallery rects read mid-glide, fixed waits (`osk`, `livewall`), a control
+over a fixed frame count (`halfframe`) and an unretried fixture drag
+(`resizeedges`). `osk_test.py` also tested `disk.img` instead of the
+runner's fresh image. Runs 4 and 6 of the eight were fully green; the
+reds left are intermittent and listed in `docs/bugs.md` with their
+rates. The suite's own entry there ("The full parallel `gui_regress`
+run fails a different tool each time") has the list.
+
+*Why it was urgent (2026-09-11): a suite with known reds hides a new
+one. Order: harness faults, then deterministic reds, and every
+intermittent listed with its measured rate rather than re-run until
+green.*
 
 *The heading used to be struck through as "completed 2026-08-13" while
 five boxes below it were unchecked. That is the milestone lying about

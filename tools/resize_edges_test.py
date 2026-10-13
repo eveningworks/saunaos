@@ -111,14 +111,19 @@ def reset_window(con, qmp):
     con.send(f"gui resize {HOME_W} {HOME_H}")
     con.settle()
     w = topmost(con)
-    if w is None:
-        return None
-    bar = w["content"]["y"] - w["y"]          # title-bar height, font-derived
-    gx, gy = w["x"] + w["w"] // 2, w["y"] + bar // 2
-    con.drag_real(qmp, gx, gy,
-                  gx + (HOME_X - w["x"]), gy + (HOME_Y - w["y"]), steps=6)
-    con.settle()
-    return topmost(con)
+    # RETRIED, because this is the fixture, not the thing under test: a
+    # drag the suite's load loses leaves the window where it opened, and
+    # the case then reports the fixture (seen 1 full run in 5).
+    for _ in range(3):
+        if w is None or (abs(w["x"] - HOME_X) <= 4 and abs(w["y"] - HOME_Y) <= 4):
+            break
+        bar = w["content"]["y"] - w["y"]          # title-bar height, font-derived
+        gx, gy = w["x"] + w["w"] // 2, w["y"] + bar // 2
+        con.drag_real(qmp, gx, gy,
+                      gx + (HOME_X - w["x"]), gy + (HOME_Y - w["y"]), steps=6)
+        con.settle()
+        w = topmost(con)
+    return w
 
 
 def edges_of(win):

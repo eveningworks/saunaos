@@ -30,6 +30,7 @@ struct uui_sidebar g_tree;   // set_registry.c rebuilds its rows
 // and marked stale, as is one under an open dialog; it is refreshed once
 // those are applied, reset or closed.
 static int g_stale;
+static int g_report_sidebar;   // the next frame reports the sidebar (on_draw)
 
 static struct uui_dialog g_ask;
 
@@ -51,6 +52,7 @@ static int on_tick(struct uapp *a) {
         return clock;
     }
     g_stale = 0;
+    g_report_sidebar = 1;
     int keep_node = uui_sidebar_selected_id(&g_tree);
     reload_settings();
     uui_sidebar_select_id(&g_tree, keep_node);
@@ -522,8 +524,12 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
 
     // Where the sidebar is scrolled to, on a CHANGE -- nothing else says.
     // The row count too: the debugging pages change it without a scroll.
+    // And once after every reload, changed or not: a test that changed a
+    // setting waits for this line, and the line from before the reload
+    // reads the same until the frame after it has been drawn.
     static int last_top = -1, last_rows = -1;
-    if (g_tree.top != last_top || g_node_count != last_rows) {
+    if (g_tree.top != last_top || g_node_count != last_rows || g_report_sidebar) {
+        g_report_sidebar = 0;
         last_top = g_tree.top;
         last_rows = g_node_count;
         ulogf("settings: sidebar top %d visible %d rows %d\n", g_tree.top,

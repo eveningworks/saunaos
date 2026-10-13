@@ -3088,3 +3088,24 @@ still be that kind after the change under test.** `filemanager_test.py`'s
 "binary" was `/bin/hello` -- a program, so once programs got Run rows its
 menu stopped being the one-row-shorter control. A library is a binary
 that is not a program.
+
+## A window in the list is not a window that has drawn (2026-10-14)
+
+Five of the eight harness faults in one "restore trust in the GUI suite"
+pass were ONE shape: a test found the window and read something the
+window's FIRST FRAME produces -- Notepad's `layout text` line, Crash
+Reports' widget map, System Settings' sidebar position after a reload.
+`gui windows` lists a client's window from its creation. The widget map
+rides the same draw (sent ahead of the present), and `first_frame` in
+`gui windows --json` stays 0 until that present -- `DebugConsole.spawn()`
+waits on it now. A `ulog` line travels a DIFFERENT wire (stderr -> klog
+-> COM1), so nothing on the console orders it: poll for the line itself.
+Notepad's version hid 46 checks behind its first red for a month, and
+the bug entry had predicted the cause and the fix.
+
+The other three were fixed sleeps and fixed counts calibrated on an idle
+host: a 0.4 s settle before one look, a 1.2 s wait before one `ls`, a
+control floor over a fixed 240 screendumps. Poll on what you assert;
+count the thing the check's POWER depends on (moved frames), not the
+work done to get it. And a FIXTURE step (homing a window) may retry --
+it is not under test -- where a checked step may not.

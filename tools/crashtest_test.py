@@ -210,7 +210,10 @@ def crash_ux(dbg, args):
     check("All reports opens the list, in place of the dialog",
           lst is not None and dbg.window("Crash Test crashed") is None)
     if lst:
-        w = dbg.widgets("Crash Reports")
+        # POLLED: the window is listed before the client reports its
+        # widget map, and a map read first has no panel to measure.
+        w = wait_for(lambda: (lambda m: m if "details" in m else None)(
+            dbg.widgets("Crash Reports"))) or dbg.widgets("Crash Reports")
         # The panel was once laid out 0 wide (a width read before the
         # font loaded), and the list looked complete without it.
         check("the list shows the details panel beside it",
