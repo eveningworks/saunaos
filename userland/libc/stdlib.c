@@ -269,23 +269,6 @@ int       abs(int v)         { return v < 0 ? -v : v; }
 long      labs(long v)       { return v < 0 ? -v : v; }
 long long llabs(long long v) { return v < 0 ? -v : v; }
 
-// --- realloc ----------------------------------------------------------
-
-void *realloc(void *p, size_t n) {
-    if (!p) return malloc(n);
-    if (!n) { free(p); return 0; }
-    void *q = malloc(n);
-    if (!q) return 0; // C: the ORIGINAL block is still valid on failure
-    // ASKS THE ALLOCATOR how big the old block is. Copying `n` bytes
-    // instead would read past a shorter block, and past the LAST block
-    // in a region that is an unmapped page rather than merely other
-    // people's data. kmalloc_size() was added for exactly this -- see
-    // api/heap.h.
-    size_t old = kmalloc_size(p);
-    k_memcpy(q, p, old < n ? old : n);
-    free(p);
-    return q;
-}
 
 // --- sorting and searching --------------------------------------------
 

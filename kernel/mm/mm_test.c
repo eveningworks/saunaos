@@ -312,6 +312,45 @@ KTEST("mm", "freeing then reallocating the same size reuses space") {
     KTEST_ASSERT(heap_total_bytes() == before || heap_total_bytes() > 0);
 }
 
+// The size-class free lists against the block list, through a few
+// thousand mixed allocations, resizes and frees -- the shapes that broke
+// them while they were written (a merge unlinking a block never listed).
+// tools/heap_hostcheck.py runs the same idea for millions of steps.
+KTEST("mm", "the heap's free lists agree with its blocks under churn") {
+    enum { N = 64 };
+    uint8_t *p[N];
+    uint32_t len[N];
+    k_memset(p, 0, sizeof p);   // the kernel has no memset for `= {0}` to call
+    k_memset(len, 0, sizeof len);
+    uint64_t x = 0x9e3779b97f4a7c15ull;
+    for (int it = 0; it < 4000; it++) {
+        x ^= x << 13; x ^= x >> 7; x ^= x << 17;
+        int i = (int)(x % N);
+        uint32_t n = (uint32_t)(x >> 20) % ((x & 0x700) ? 600 : 20000) + 1;
+        if (!p[i]) {
+            p[i] = kmalloc(n);
+            len[i] = n;
+            KTEST_ASSERT(p[i] != 0);
+            p[i][0] = (uint8_t)i;
+            p[i][n - 1] = (uint8_t)i;
+        } else if (x & 0x10000) {
+            uint8_t *q = krealloc(p[i], n);
+            KTEST_ASSERT(q != 0);
+            KTEST_ASSERT(q[0] == (uint8_t)i);   // the first byte always survives
+            p[i] = q;
+            len[i] = n;
+            q[n - 1] = (uint8_t)i;
+        } else {
+            KTEST_ASSERT(p[i][len[i] - 1] == (uint8_t)i);
+            kfree(p[i]);
+            p[i] = 0;
+        }
+        if (it % 500 == 0) KTEST_ASSERT(heap_validate() == 0);
+    }
+    for (int i = 0; i < N; i++) kfree(p[i]);
+    KTEST_ASSERT(heap_validate() == 0);
+}
+
 // ---- heap debug mode: red-zones and use-after-free poisoning ----
 //
 // Every test here deliberately corrupts a block, so each one leaks the
@@ -324,8 +363,9 @@ KTEST("mm", "freeing then reallocating the same size reuses space") {
 // destroys the poison and the red-zones -- so a test that frees a lone
 // block and then expects to find its poison intact is testing whether
 // the heap happened to have a free neighbour that run. Freeing the
-// MIDDLE of three keeps both neighbours in use, which makes it
-// deterministic.
+// MIDDLE of three kept both neighbours in use under first-fit. Since the
+// size-class lists a poisoned block never coalesces at all
+// (heap_core.c's try_merge_next()), so the three remain only as cover.
 
 // PREEMPTION IS DISABLED AROUND EVERY heap_used_bytes() COMPARISON below.
 //
@@ -438,7 +478,7 @@ KTEST("heap-debug", "freeing poisons the payload") {
     uint8_t *a = kmalloc(64), *b = kmalloc(64), *c = kmalloc(64);
     KTEST_ASSERT(a != 0 && b != 0 && c != 0);
     for (int i = 0; i < 64; i++) b[i] = 0x11;
-    kfree(b); // neighbours still in use, so nothing coalesces it away
+    kfree(b); // poisoned, so nothing coalesces it away
 
     // Reading through a freed pointer on purpose -- this is the one
     // place that is a measurement rather than a bug.

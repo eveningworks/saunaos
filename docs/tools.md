@@ -6598,6 +6598,20 @@ runs first**: a `doom1.wad` with one
   -- a fault a round trip alone would pass, since a wrong schedule is
   still a permutation.
 
+- **`heap_hostcheck.py`** -- builds `kernel/lib/heap_core.c` (malloc for
+  both rings) with the host gcc and fuzzes it: millions of seeded
+  `kmalloc`/`krealloc`/`kfree` steps over a few thousand live,
+  pattern-filled blocks, plain and with `heap debug` on, checking every
+  byte, alignment, `kmalloc_size()`, and `heap_validate()` (the
+  size-class free lists against the block list) every 20 000 steps.
+  Then ring 3's slab front end (`userland/libc/malloc.c`) over the same
+  heap: that fuzz through `malloc`/`calloc`/`realloc`/`free`, and four
+  threads freeing each other's blocks. `--netsurf PAGE` preloads the same allocator into the host's NetSurf
+  and times a layout against glibc's -- the measurement that found the
+  old first-fit walk quadratic. `--positive-control` restores the first
+  bins bug (a merge unlinking a block never listed) and passes only if
+  validation catches it. In `ondemand_sweep.py` as `heap_host`.
+
 - **`hash_hostcheck.py`** -- compiles `/lib/libhash.so`'s two algorithms
   (`userland/dynlib/uhash.c` plus `kernel/lib/kcrc.c`) with the host gcc
   and judges them against Python's `hashlib` and `zlib`. ~2,150 vectors:

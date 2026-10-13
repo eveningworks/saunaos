@@ -1,6 +1,8 @@
-// A general-purpose kernel-space heap: kmalloc()/kfree(), first-fit
-// over an address-ordered doubly-linked list of blocks, coalescing
-// adjacent free blocks back together on kfree(). See heap.h for the
+// A general-purpose kernel-space heap: kmalloc()/kfree() over a
+// doubly-linked list of blocks, coalescing adjacent free blocks back
+// together on kfree(), with the FREE blocks also kept in size-class
+// lists (g_bin, below) so a request never walks the blocks in use.
+// See heap.h for the
 // public contract and why this exists (multi-instance app windows --
 // gui_apps.h's `multi_instance` flag -- were the first thing that
 // actually needed dynamic allocation; before this, every app's state
@@ -111,12 +113,31 @@ struct heap_block {
     uint64_t size;            // usable payload size, NOT including this header
     int free;
     uint32_t magic;           // HEAP_HDR_MAGIC -- see header_plausible()
+    struct heap_block *fnext; // its size class's free list -- meaningful only while
+    struct heap_block *fprev; //   free (HEAP_FREE / HEAP_FREE_POISONED); see bin_insert()
     struct heap_block *next;  // list order, not necessarily address order across regions -- see top comment
     struct heap_block *prev;  // MUST stay the last field: kfree() reads these 8 bytes to tell a red-zoned block from a plain one
 };
 
 static struct heap_block *g_head = 0;
 static struct heap_block *g_tail = 0;
+
+// THE FREE BLOCKS, BY SIZE CLASS -- what kmalloc() searches, so its cost
+// follows the number of size classes rather than the number of blocks.
+// It used to walk the whole block list, in-use blocks included, which
+// made a program holding N allocations pay O(N) for the next one: a
+// web page's half a million DOM and CSS objects took minutes to lay out.
+//
+// Below 1 KiB a class is one exact size (the payload is a multiple of
+// 16), so any block in it fits. Above, TLSF's shape: a power of two cut
+// into 8 slices, where a block in a HIGHER class always fits and one in
+// the request's own class may not (bin_find() scans that one). A block
+// is in exactly one list while it is free and in none otherwise; every
+// change to a free block's size goes remove, resize, insert.
+#define HEAP_EXACT_BINS 64
+#define HEAP_BINS 512
+static struct heap_block *g_bin[HEAP_BINS];
+static uint64_t g_binmap[HEAP_BINS / 64];
 static uint64_t g_total_bytes = 0; // sum of every block's payload size ever claimed from pmm, used + free
 static uint64_t g_used_bytes = 0;
 
@@ -127,6 +148,54 @@ static uint64_t g_quarantined_bytes = 0;
 
 static uint64_t align_up(uint64_t n, uint64_t a) {
     return (n + (a - 1)) & ~(a - 1);
+}
+
+static unsigned bin_index(uint64_t size) {
+    if (size < HEAP_EXACT_BINS * HEAP_ALIGN) return (unsigned)(size / HEAP_ALIGN);
+    unsigned fl = 63u - (unsigned)__builtin_clzll(size);       // >= 10
+    unsigned sl = (unsigned)(size >> (fl - 3)) & 7u;
+    return HEAP_EXACT_BINS + (fl - 10u) * 8u + sl;
+}
+
+static void bin_insert(struct heap_block *b) {
+    unsigned i = bin_index(b->size);
+    b->fprev = 0;
+    b->fnext = g_bin[i];
+    if (b->fnext) b->fnext->fprev = b;
+    g_bin[i] = b;
+    g_binmap[i / 64] |= 1ull << (i % 64);
+}
+
+// `b` must still have the size it was inserted with.
+static void bin_remove(struct heap_block *b) {
+    unsigned i = bin_index(b->size);
+    if (b->fprev) b->fprev->fnext = b->fnext;
+    else g_bin[i] = b->fnext;
+    if (b->fnext) b->fnext->fprev = b->fprev;
+    if (!g_bin[i]) g_binmap[i / 64] &= ~(1ull << (i % 64));
+    b->fnext = b->fprev = 0;
+}
+
+static int is_free(const struct heap_block *b) {
+    return b->free == HEAP_FREE || b->free == HEAP_FREE_POISONED;
+}
+
+static void try_merge_next(struct heap_block *b);
+
+// A free block of at least `need`, still in its list, or NULL. The
+// request's own class is scanned a few entries deep (above 1 KiB its
+// blocks may be smaller than `need`); every higher class fits outright.
+static struct heap_block *bin_find(uint64_t need) {
+    unsigned i = bin_index(need);
+    int scan = 8;
+    for (struct heap_block *b = g_bin[i]; b && scan--; b = b->fnext)
+        if (b->size >= need) return b;
+    for (unsigned w = (i + 1) / 64; w < HEAP_BINS / 64; w++) {
+        uint64_t bits = g_binmap[w];
+        if (w == (i + 1) / 64) bits &= ~0ull << ((i + 1) % 64);
+        if (bits) return g_bin[w * 64 + (unsigned)__builtin_ctzll(bits)];
+    }
+    return 0;
 }
 
 // Asks the platform for one contiguous run of `pages` and links it in
@@ -152,6 +221,17 @@ static struct heap_block *append_region(uint64_t pages) {
 
     g_total_bytes += b->size;
     kasan_poison(region, pages * HEAP_PAGE_SIZE, KASAN_HEAP_UNUSED);
+    // sbrk hands out consecutive regions, so the old tail is often
+    // right before this one: folding a free tail in lets a request
+    // bigger than either be met without a third region.
+    bin_insert(b);   // first: try_merge_next() takes `b` out of its list
+    struct heap_block *p = b->prev;
+    if (p && p->free == HEAP_FREE && (uint8_t *)(p + 1) + p->size == (uint8_t *)b) {
+        bin_remove(p);
+        try_merge_next(p);
+        bin_insert(p);
+        b = p;
+    }
     return b;
 }
 
@@ -167,20 +247,23 @@ void heap_init(void) {
     g_tail = 0;
     g_total_bytes = 0;
     g_used_bytes = 0;
+    for (unsigned i = 0; i < HEAP_BINS; i++) g_bin[i] = 0;
+    for (unsigned i = 0; i < HEAP_BINS / 64; i++) g_binmap[i] = 0;
     // Grows lazily on the first kmalloc() that needs it, rather than
     // reserving anything eagerly here -- a boot that never opens a
     // multi-instance window (or hits any future kmalloc caller)
     // shouldn't cost any memory for this at all.
 }
 
-// Shrinks `b` to exactly `size` and, if what's left over is large
-// enough to be its own useful block (a header plus at least
-// HEAP_ALIGN bytes), carves it off as a new free block right after `b`
-// in the list -- keeps a large free region from being handed out whole
-// to a small request forever.
-static void split_block(struct heap_block *b, uint64_t size) {
+// Shrinks `b` (in no free list) to exactly `size` and, if what's left
+// over is large enough to be its own useful block (a header plus at
+// least HEAP_ALIGN bytes), carves it off as a new free block right
+// after `b` in the list -- keeps a large free region from being handed
+// out whole to a small request forever. The remainder is returned, in
+// its free list, or NULL when nothing was carved.
+static struct heap_block *split_block(struct heap_block *b, uint64_t size) {
     uint64_t remaining = b->size - size;
-    if (remaining < sizeof(struct heap_block) + HEAP_ALIGN) return; // not worth splitting
+    if (remaining < sizeof(struct heap_block) + HEAP_ALIGN) return 0; // not worth splitting
 
     struct heap_block *rem = (struct heap_block *)((uint8_t *)(b + 1) + size);
     rem->size = remaining - sizeof(struct heap_block);
@@ -192,6 +275,11 @@ static void split_block(struct heap_block *b, uint64_t size) {
     else g_tail = rem;
     b->next = rem;
     b->size = size;
+    // A poisoned `b` was kept apart from a free right neighbour
+    // (try_merge_next()); its remainder is plain and may now join it.
+    try_merge_next(rem);
+    bin_insert(rem);
+    return rem;
 }
 
 // ---- red-zones and poisoning (debug mode only) ----
@@ -293,6 +381,7 @@ static int rz_check_poison(struct heap_block *b) {
 // putting it back on the free list hands the damage to the next
 // allocation.
 static void quarantine(struct heap_block *b) {
+    if (is_free(b)) bin_remove(b);
     b->free = HEAP_IN_USE;
 }
 
@@ -376,26 +465,26 @@ static void *kmalloc_locked(size_t size) {
     uint64_t rz = g_debug ? HEAP_RZ_SIZE : 0;
     uint64_t need = span + 2 * rz + HEAP_KASAN_TAIL; // a red-zone on each side of the payload
 
-    for (struct heap_block *b = g_head; b; b = b->next) {
-        if (b->free == HEAP_IN_USE || b->free == HEAP_HELD || b->size < need) continue;
+    struct heap_block *b;
+    for (;;) {
+        b = bin_find(need);
+        if (!b) {
+            b = grow_heap(need);
+            if (!b) return 0; // out of physical memory
+        }
         // A poisoned block is verified BEFORE it is split or handed
         // out -- once it is reused, the evidence is gone.
         if (b->free == HEAP_FREE_POISONED && !rz_check_poison(b)) {
             quarantine(b);
             continue; // damaged; keep looking rather than handing it out
         }
-        split_block(b, need);
-        b->free = HEAP_IN_USE;
-        g_used_bytes += b->size;
-        return kasan_open(b, rz ? rz_arm(b, span) : (void *)(b + 1), rz ? span : size);
+        break;
     }
-
-    struct heap_block *grown = grow_heap(need);
-    if (!grown) return 0; // out of physical memory
-    split_block(grown, need);
-    grown->free = HEAP_IN_USE;
-    g_used_bytes += grown->size;
-    return kasan_open(grown, rz ? rz_arm(grown, span) : (void *)(grown + 1), rz ? span : size);
+    bin_remove(b);
+    split_block(b, need);
+    b->free = HEAP_IN_USE;
+    g_used_bytes += b->size;
+    return kasan_open(b, rz ? rz_arm(b, span) : (void *)(b + 1), rz ? span : size);
 }
 
 void *kmalloc(size_t size) {
@@ -420,18 +509,20 @@ void *kzalloc(size_t size) {
 // here).
 static void try_merge_next(struct heap_block *b) {
     struct heap_block *n = b->next;
-    if (!n || n->free == HEAP_IN_USE || n->free == HEAP_HELD) return;
+    // A POISONED block never merges, either way: merging hides its
+    // payload inside a bigger block, and the write through a stale
+    // pointer that the poison exists to catch would go unseen -- which
+    // used to depend on whether the freed block's neighbours happened to
+    // be free. It costs fragmentation only while `heap debug` is on;
+    // Linux's KASAN quarantine holds freed memory back for the same reason.
+    if (!n || n->free != HEAP_FREE) return;
     if ((uint8_t *)(b + 1) + b->size != (uint8_t *)n) return; // not physically adjacent
 
+    bin_remove(n);
     b->size += sizeof(struct heap_block) + n->size;
     b->next = n->next;
     if (n->next) n->next->prev = b;
     else g_tail = b;
-    // The merged region is no longer one verifiable span -- n's header
-    // now sits inside b's payload where poison used to be -- so it
-    // stops claiming to be checkable. Losing that check on merge is
-    // the deliberate cost of coalescing; the red-zone check at free
-    // time has already run by this point.
     b->free = HEAP_FREE;
 }
 
@@ -525,6 +616,10 @@ static void kfree_locked(void *ptr, uintptr_t ip) {
 
 // A freed block rejoins the free list: merged with any free neighbour.
 static void release(struct heap_block *b) {
+    if (b->free == HEAP_FREE_POISONED) {   // kept apart: see try_merge_next()
+        bin_insert(b);
+        return;
+    }
     try_merge_next(b);            // pull a free right-neighbor into b
     // Pull b (now possibly bigger) into a free left-neighbor -- but
     // ONLY if that left-neighbor is itself free. try_merge_next()
@@ -541,8 +636,13 @@ static void release(struct heap_block *b) {
     // LATER kfree() of that same corrupted block subtracting its
     // inflated size from g_used_bytes, underflowing the unsigned
     // counter. See docs/decisions.md for the full story.
-    if (b->prev && b->prev->free != HEAP_IN_USE && b->prev->free != HEAP_HELD)
-        try_merge_next(b->prev);
+    bin_insert(b);   // before the merge below, which takes `b` out again
+    struct heap_block *p = b->prev;
+    if (p && p->free == HEAP_FREE && (uint8_t *)(p + 1) + p->size == (uint8_t *)b) {
+        bin_remove(p);
+        try_merge_next(p);
+        bin_insert(p);
+    }
 }
 
 void kfree(void *ptr) {
@@ -552,6 +652,56 @@ void kfree(void *ptr) {
     heap_os_lock();
     kfree_locked(ptr, (uintptr_t)__builtin_return_address(0));
     heap_os_unlock();
+}
+
+// Resizes a plain block where it stands -- a shrink gives its tail
+// back, a grow takes a free right neighbour -- and moves it only when
+// neither fits. A red-zoned block (and every block under KASAN, whose
+// payload is opened to an exact length) always moves: its layout is
+// sized to the old request.
+static void *krealloc_locked(void *p, size_t n) {
+    struct heap_block *b = (struct heap_block *)p - 1;
+    uint64_t need = align_up(n, HEAP_ALIGN);
+#ifndef TOYOS_KASAN
+    if (!rz_armed(p) && header_plausible(b) && b->free == HEAP_IN_USE) {
+        uint64_t old = b->size;
+        struct heap_block *nx = b->next;
+        if (need > old && nx && nx->free == HEAP_FREE &&
+            (uint8_t *)(b + 1) + old == (uint8_t *)nx &&
+            old + sizeof(struct heap_block) + nx->size >= need) {
+            bin_remove(nx);
+            b->size += sizeof(struct heap_block) + nx->size;
+            b->next = nx->next;
+            if (nx->next) nx->next->prev = b;
+            else g_tail = b;
+        }
+        if (need <= b->size) {
+            struct heap_block *rem = split_block(b, need);
+            if (rem) {
+                // The tail may sit against a free block: merged, as a free would.
+                bin_remove(rem);
+                release(rem);
+            }
+            g_used_bytes = g_used_bytes - old + b->size;
+            return p;
+        }
+    }
+#endif
+    void *q = kmalloc_locked(n);
+    if (!q) return 0; // C: the ORIGINAL block is still valid on failure
+    uint64_t have = kmalloc_size(p);
+    k_memcpy(q, p, have < n ? have : n);
+    kfree_locked(p, (uintptr_t)__builtin_return_address(0));
+    return q;
+}
+
+void *krealloc(void *p, size_t n) {
+    if (!p) return kmalloc(n);
+    if (!n) { kfree(p); return 0; }
+    heap_os_lock();
+    void *q = krealloc_locked(p, n);
+    heap_os_unlock();
+    return q;
 }
 
 uint64_t heap_total_bytes(void) { return g_total_bytes; }
@@ -577,6 +727,42 @@ uint64_t heap_check(void) {
     uint64_t found = g_rz_violations - before;
     heap_os_unlock();
     return found;
+}
+
+// The free lists against the block list: every free block in the list
+// of its size class and nowhere else, no two plain free blocks side by
+// side (release() would have merged them), and the used count equal to the
+// in-use payloads. 0 when they agree, else the number of disagreements.
+// A walk over everything, under the lock: for tests, never a hot path.
+uint64_t heap_validate(void) {
+    heap_os_lock();
+    uint64_t bad = 0, in_bins = 0, free_blocks = 0, used = 0;
+    for (unsigned i = 0; i < HEAP_BINS; i++) {
+        int set = (g_binmap[i / 64] >> (i % 64)) & 1;
+        if (set != (g_bin[i] != 0)) bad++;
+        for (struct heap_block *f = g_bin[i]; f; f = f->fnext) {
+            if (!is_free(f) || bin_index(f->size) != i) bad++;
+            if (f->fnext && f->fnext->fprev != f) bad++;
+            if (++in_bins > g_total_bytes) { bad++; break; } // a cycle
+        }
+    }
+    for (struct heap_block *b = g_head; b; b = b->next) {
+        if (is_free(b)) {
+            free_blocks++;
+            struct heap_block *n = b->next;
+            if (b->free == HEAP_FREE && n && n->free == HEAP_FREE &&
+                (uint8_t *)(b + 1) + b->size == (uint8_t *)n)
+                bad++;   // poisoned blocks stay apart on purpose
+        } else if (b->free == HEAP_IN_USE) {
+            used += b->size;
+        }
+    }
+    if (free_blocks != in_bins) bad++;
+    // A block quarantined while free is IN_USE without ever having been
+    // counted as used, so the walk may exceed the count by up to that.
+    if (used < g_used_bytes || used > g_used_bytes + g_quarantined_bytes) bad++;
+    heap_os_unlock();
+    return bad;
 }
 
 // Affects allocations made from here on, not existing ones -- see the

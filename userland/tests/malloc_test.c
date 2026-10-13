@@ -87,10 +87,9 @@ int main(void) {
     //
     // Free three adjacent blocks and ask for one that only their MERGED
     // extent can hold. The assertion is that the answer is `a` itself:
-    // the list is address-ordered and first-fit, so a merged block
-    // starts where the first of the three did, and an allocator that
-    // did not merge cannot return that address -- `a` alone is far too
-    // small for the request.
+    // a merged block starts where the first of the three did, and an
+    // allocator that did not merge cannot return that address -- `a`
+    // alone is far too small for the request.
     //
     // **The obvious version of this check does not work, and it is
     // worth saying why.** It first asked whether the process's
@@ -124,6 +123,36 @@ int main(void) {
     // exercise it.
     check("calloc refuses a count that would overflow",
           calloc((size_t)-1 / 2, 4) == 0, 0);
+
+    // --- zero sizes -------------------------------------------------
+    //
+    // A unique block, as glibc and musl give: NetSurf's flex layout
+    // calloc()s one element per child, and an empty flex container's
+    // NULL read as out of memory abandoned the whole page.
+    void *z0 = malloc(0), *z1 = calloc(0, 16), *z2 = calloc(16, 0);
+    check("malloc(0) and calloc(0, n) return distinct blocks",
+          z0 && z1 && z2 && z0 != z1 && z1 != z2 && z0 != z2, 0);
+    free(z0); free(z1); free(z2);
+
+    // --- realloc in place ---------------------------------------------
+    //
+    // A grow into the free block right after, and a shrink, keep the
+    // address; a block that moved would have copied, which is what made
+    // a buffer grown a few bytes at a time quadratic.
+    char *g = malloc(5000), *after = malloc(5000);
+    check("two blocks side by side to grow into",
+          g && after && after > g && after - g < 5000 + 128, 0);
+    memset(g, 'g', 5000);
+    free(after);
+    char *g2 = realloc(g, 9000);
+    check("realloc grows into a free neighbour without moving", g2 == g,
+          g2 == g ? 0 : "the block moved");
+    int kept = g2 != 0;
+    for (int i = 0; kept && i < 5000; i++) if (g2[i] != 'g') kept = 0;
+    check("and keeps its contents", kept, 0);
+    char *g3 = realloc(g2, 16);
+    check("realloc shrinks in place", g3 == g2, 0);
+    free(g3);
 
     // --- a big one, to cross several sbrk regions -------------------
     void *huge = malloc(2 * 1024 * 1024);

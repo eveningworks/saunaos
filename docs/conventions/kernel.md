@@ -2536,19 +2536,20 @@ thread pointer faults on its first failing call.
 ## RING-3 `malloc` TAKES A LOCK; THE KERNEL'S DOES NOT.
 
 `kernel/lib/heap_core.c` is compiled into both rings and holds one
-address-ordered free list, so a walker interrupted between its fit test
-and its store of `HEAP_IN_USE` can hand two callers the same block.
-`kmalloc()`, `kfree()` and `heap_check()` take `heap_os_lock()`, which
-each ring implements for itself (`api/heap_os.h`):
+block list and its size-class free lists, so a caller interrupted
+between taking a block off its list and marking it `HEAP_IN_USE` can
+hand two callers the same block. `kmalloc()`, `krealloc()`, `kfree()`,
+`heap_check()` and `heap_validate()` take `heap_os_lock()`, which each
+ring implements for itself (`api/heap_os.h`):
 
 - **Ring 3: a real lock**, a test-and-set that yields. A process has
-  threads now and they are preempted at any instruction.
-- **Ring 0: a no-op**, because nothing preempts kernel code between two
-  instructions of `kmalloc` -- the scheduler only switches ring-3
-  processes and every syscall runs with interrupts off. That is the
-  assumption the file has always stated, and it **ends at SMP**:
-  `docs/smp-design.md` names the kernel heap as split #1, and these two
-  bodies are the slot it fills.
+  threads now and they are preempted at any instruction. **The slab in
+  front of it (`userland/libc/malloc.c`) has a second lock of the same
+  shape, always taken FIRST** -- a span comes from `kmalloc()`.
+- **Ring 0: preemption off** (`kernel/mm/heap_os.c`), not a lock: it
+  was a no-op until the syscall gate became a trap gate, and it **ends
+  at SMP** -- `docs/smp-design.md` names the kernel heap as split #1,
+  and these two bodies are the slot it fills.
 
 **THE RACE IS REAL BY INSPECTION AND WAS NOT REPRODUCIBLE.** The control
 was run three times with the ring-3 lock emptied out -- 600 allocations,

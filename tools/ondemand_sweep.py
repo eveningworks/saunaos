@@ -85,6 +85,10 @@ TOOLS = [
     # are the oracle -- so it has no `needs` gate at all.
     ("hash_host",   "hash_hostcheck.py",       "crc32/sha256 against hashlib and zlib", False,
      None,                                                                                   False),
+    # heap_core.c (malloc for both rings) fuzzed natively with its free
+    # lists validated against its blocks; gcc only, like hash_host.
+    ("heap_host",   "heap_hostcheck.py",       "the shared heap fuzzed, free lists validated", False,
+     None,                                                                                   False),
     # The HID report-descriptor walker against descriptors CAPTURED off
     # real devices -- a Logitech G305 receiver and QEMU's pair. Host-only
     # for the same reason: the bytes are fixed, and the failure it exists

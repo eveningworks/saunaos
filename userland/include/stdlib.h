@@ -3,7 +3,9 @@
 
 // malloc/free for ring 3, under the C names.
 //
-// NOT a second allocator: this is the kernel's own
+// TWO LAYERS, ONE ALLOCATOR UNDERNEATH. Requests up to 1 KiB take a slot
+// in a size-class slab (userland/libc/malloc.c); everything else, and
+// the slabs' own 64 KiB spans, come from the kernel's own
 // kernel/lib/heap_core.c compiled a second time into libuapp.a, with
 // SYS_SBRK behind it instead of the physical frame allocator (see
 // api/heap_os.h). So a ring-3 malloc and the kernel's kmalloc cannot
@@ -12,7 +14,8 @@
 //
 // It also means `heap debug on`'s machinery is here: red-zones each
 // side of the payload and poison on free, catching an overflow or a
-// use-after-free at the free() that follows it.
+// use-after-free at the free() that follows it. While it is on the
+// slabs are bypassed, so every block is red-zoned.
 //
 // **What it does NOT do is return memory to the kernel.** sbrk cannot
 // move down, so free() returns a block to this process's free list and
@@ -197,26 +200,24 @@ void abort(void) __attribute__((noreturn));
 // userland/libc/system.c for what that costs a caller.
 int system(const char *command);
 
-// The same contract as kmalloc(): NULL for a zero-sized or unsatisfiable
-// request, 16-byte aligned otherwise.
-static inline void *malloc(size_t n) { return kmalloc(n); }
+// 16-byte aligned, NULL only when the request cannot be met. **A ZERO
+// SIZE STILL GETS A UNIQUE BLOCK** -- kmalloc(0) is NULL, but glibc,
+// musl and the BSDs return a pointer, and ported code reads NULL as out
+// of memory: NetSurf's calloc() of zero elements laid Wikipedia out as a
+// header and nothing else.
+void *malloc(size_t n);
 
-// Zeroed. calloc()'s two arguments are multiplied here WITHOUT an
-// overflow check on purpose being a thing to notice: n * size can wrap,
-// and a wrapped product allocates a small block for a huge request.
-// Checked below rather than trusted.
-static inline void *calloc(size_t n, size_t size) {
-    if (n && size && n > (size_t)-1 / size) return 0; // would wrap
-    return kzalloc(n * size);
-}
+// Zeroed, and NULL when n * size would wrap -- a wrapped product would
+// allocate a small block for a huge request. Zero: as malloc(0).
+void *calloc(size_t n, size_t size);
 
-static inline void free(void *p) { kfree(p); }
+void free(void *p);
 
-// Grows or shrinks a block, COPYING every time it moves -- there is no
-// grow-in-place path, because the shared allocator has no call for
-// "extend this block if the next one is free" and adding one to satisfy
-// a single caller is not the bar this project holds. realloc(NULL, n)
-// is malloc(n) and realloc(p, 0) frees and returns NULL, as C says.
+// Resizes in place when it can -- within a slab slot's class, or a
+// heap block's shrink or grow into a free block right after (krealloc)
+// -- and moves (copying) only when not.
+// realloc(NULL, n) is malloc(n) and realloc(p, 0) frees and returns
+// NULL, as C says.
 //
 // It cannot make the process smaller either way: free() returns a block
 // to this process's own list and sbrk never moves down.

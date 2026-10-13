@@ -3647,6 +3647,82 @@ is address-ordered and first-fit, so a merged block starts where the
 first of the three did, and an allocator that did not merge cannot
 return that address. That version reddens exactly one check.
 
+## The heap keeps its free blocks in size classes, and ring 3 puts a slab in front
+
+**The first-fit walk was quadratic, and a web page is what found it.**
+`kmalloc()` walked the whole block list from its head, in-use blocks
+included, so a program holding N allocations paid O(N) for the next
+one. Measured 2026-10-13 with the host's NetSurf and `heap_core.c`
+preloaded as its malloc (`tools/heap_hostcheck.py --netsurf`): a
+Wikipedia article laid out in 0.1 s on glibc and had not laid out
+after 200 s on this allocator; in the guest the browser was "not
+responding" for minutes. Small programs never noticed -- a few
+hundred live blocks walk in microseconds.
+
+**What real allocators do.** glibc keeps free chunks in bins by size
+(exact bins for small sizes, ranges above) with a per-thread cache in
+front; musl's mallocng and mimalloc carve same-sized slots out of
+groups per size class; Linux puts SLUB's per-size caches over the buddy
+allocator; NT's Low Fragmentation Heap is size-class buckets over the
+backend heap; real-time systems use TLSF, two levels of size classes
+with a bitmap so a search is O(1).
+
+**What toy-os did: TLSF's shape in `heap_core.c`, and a slab in front
+in ring 3 only.** The block list stays -- coalescing needs address
+neighbours -- and free blocks are ALSO linked into one of 512 size
+classes: exact 16-byte classes below 1 KiB, eight slices per power of
+two above, with a bitmap to find the next non-empty class. The links
+live in the header (48 bytes, from 32), not in the free payload,
+because a poisoned free block's payload is the evidence `heap debug`
+checks. `krealloc()` came with it: a shrink gives its tail back and a
+grow takes a free right neighbour, where `realloc` used to copy every
+time. Ring 3's `malloc` (`userland/libc/malloc.c`) puts 64 KiB spans
+of same-sized slots in front for requests up to 1 KiB -- NetSurf's
+DOM nodes and CSS objects are almost all that size -- because the
+bins alone left it about 20 % slower than glibc and each small object
+paid the 48-byte header. With both it matches glibc.
+
+**Why the slab is not in the kernel too.** The kernel's allocations
+are few and long-lived; one allocator in both rings is the rule
+(`malloc is the KERNEL's allocator compiled twice`, above) and the
+slab is a front end, not a second allocator: it gets its spans from
+`kmalloc()`, and anything it does not take still goes there.
+
+**How `free()` tells a slab slot from a heap block** is the trick
+`heap debug` already relies on: the word before the pointer. A heap
+block's is its header's `prev` pointer, top 16 bits clear; a red-zoned
+block's is a magic with `0xC0DE` on top; a slot's is `0x51AB` on top
+over its span's address. A freed slot's word changes to `0x51AF`, so a
+double free is ignored, as `kfree()` ignores one.
+
+**A zero-sized `malloc`/`calloc` returns a unique block in ring 3,
+though `kmalloc(0)` is NULL.** C allows either; glibc, musl and the
+BSDs return a pointer, and ported code reads NULL as out of memory.
+NetSurf's flex layout `calloc()`s one item per child, and an empty
+`display: flex` box made it abandon the whole page -- Wikipedia's Main
+Page laid out as its header and nothing else. `data/tests/web/
+flex_empty.html` keeps `browser_hostcheck.py` on it. `realloc(p, 0)`
+still frees and returns NULL, as glibc does.
+
+**A poisoned free block no longer coalesces.** Under `heap debug`, a
+freed block that merged with a free neighbour lost its poison, so
+whether a write through a stale pointer was caught depended on the
+neighbours. First-fit hid that -- three blocks allocated in a row were
+side by side, and the KTESTs freed the middle one. Size classes hand
+out the closest hole instead, and `a write through a freed pointer is
+caught by heap_check()` failed 3 runs in 10. Linux's KASAN quarantine
+holds freed memory back for the same reason; here a poisoned block
+stays apart until it is reused, which costs fragmentation only while
+debug is on. 0 in 10 after.
+
+**The two bins bugs, for whoever changes this next.** Both were a
+merge unlinking a block from a list it had never been put on --
+`release()` and `append_region()` merging a block that was not yet
+listed into its left neighbour. Both wiped another list's head, and
+neither showed up as corruption for thousands of steps;
+`heap_validate()` (the lists against the blocks) caught each within
+20 000. `heap_hostcheck.py --positive-control` restores the first.
+
 ## The boot target is a setting, and the boot flag overrides the LIVE value rather than the file
 
 `system.default_target` (`kernel/lib/target.c`) decides what init

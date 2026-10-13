@@ -57,6 +57,12 @@ void kfree(void *ptr);
 // into the difference is relying on this number rather than on its own.
 uint64_t kmalloc_size(const void *ptr);
 
+// realloc()'s contract: krealloc(NULL, n) is kmalloc(n), krealloc(p, 0)
+// frees and returns NULL, and on failure NULL with `p` still valid.
+// RESIZES IN PLACE when it can -- a shrink, or a grow into a free block
+// right after -- so the pointer only changes when the block moved.
+void *krealloc(void *ptr, size_t size);
+
 // Stats -- same shape as pmm_total_frames()/pmm_free_frames(), useful
 // for a future meminfo-style command. `heap_total_bytes()` is every
 // byte this allocator has ever claimed from pmm (used + free);
@@ -103,6 +109,10 @@ uint64_t heap_quarantined_bytes(void);
 // logs pass/fail via klog_write() -- same "prove it at boot" pattern as
 // pmm_selftest(). Called once from kernel_main() right after
 // heap_init().
+// The size-class free lists checked against the block list -- see
+// heap_core.c. 0 = consistent. Walks everything: tests only.
+uint64_t heap_validate(void);
+
 int heap_selftest(void); // 1 = passed, 0 = failed (details logged) -- wrapped by a KTEST
 
 #endif

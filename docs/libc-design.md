@@ -81,7 +81,10 @@ of these changed it.
 - **`snprintf`/`vsnprintf` are done**, as kfmt's formatter. The
   conversion set is kfmt's: `%d %u %x %s %c %%`, zero-pad width, `l/ll/z`.
 - **`malloc`/`calloc`/`free`/`realloc` are done**, as
-  `kernel/lib/heap_core.c` compiled twice over `SYS_SBRK`. `free()`
+  `kernel/lib/heap_core.c` compiled twice over `SYS_SBRK`, with a
+  size-class slab in front for requests up to 1 KiB
+  (`userland/libc/malloc.c`; `docs/decisions/kernel.md`, "The heap keeps
+  its free blocks in size classes"). `free()`
   still does not return memory to the kernel: `mmap`/`munmap` exist now
   (they landed with dynamic linking), so the barrier is no longer their
   absence but that the allocator is a single `sbrk` arena and would have
@@ -330,12 +333,13 @@ uses, the KERNEL header gets a k-prefixed alias. Only those two collide;
 `api/` and `abi/` also own `fs.h`, `heap.h`, `timer.h`, `pipe.h` and
 `query.h`, none of which the C library wants.
 
-**`realloc` forced one addition to the shared allocator.**
-`kmalloc_size()` (`api/heap.h`), because realloc has to copy
+**`realloc` forced one addition to the shared allocator, then a
+second.** `kmalloc_size()` (`api/heap.h`), because realloc has to copy
 min(old, new) bytes and only the allocator knows the first -- copying
 `new` from a shorter block walks off the end of the last block in a
-region and into an unmapped page. That is a real requirement rather than
-a convenience, which is why it was added despite having one caller.
+region and into an unmapped page. Then `krealloc()` (2026-10-13), which
+resizes in place where the block's neighbour allows, because copying on
+every grow made a buffer grown a little at a time quadratic.
 
 **`<unistd.h>` omits rather than stubs.** No `select`, no `poll` (and,
 until 2026-09-11, no `fork` or `exec` -- both exist now, see

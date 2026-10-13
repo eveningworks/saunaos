@@ -1,0 +1,12 @@
+<!DOCTYPE html>
+<html><head><title>Empty flex</title>
+<style>
+.bar { display: flex; border: 1px solid; height: 20px; }
+</style></head>
+<body>
+<p>An empty flex container above the rest of the page.</p>
+<div class="bar"></div>
+<p>Text after it must still be laid out: layout_flex.c calloc()s one item per
+child, and a C library whose calloc(0, n) answers NULL made the whole page's
+layout give up here.</p>
+</body></html>
