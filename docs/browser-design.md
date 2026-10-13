@@ -422,6 +422,25 @@ only on data that arrives after that: a connection that breaks before a
 second piece of data is a failed PAGE, NetSurf's error page, and leaves
 no row in the flyout. That is upstream's `download_context_callback()`.
 
+**Real pages, 2026-10-13: three bugs below the browser, none in it.**
+Wikipedia was the first real site tried on the ASUS, and each fix
+exposed the next:
+
+- **The allocator was quadratic** -- `heap_core.c`'s first-fit walk over
+  every block; an article never finished laying out. Fixed in the
+  allocator (`docs/decisions/kernel.md`, "The heap keeps its free blocks
+  in size classes").
+- **`calloc(0, n)` answered NULL**, and NetSurf's flex layout read it as
+  out of memory for any empty `display: flex` box -- Wikipedia's Main
+  Page laid out as its header alone. tolibc now returns a block, as
+  glibc does; `data/tests/web/flex_empty.html` keeps
+  `browser_hostcheck.py` on it.
+- **`box_coords()` dereferenced a float's missing container** when an
+  image finished after layout (a slow network's order). A second
+  link-time hook, `--wrap=box_coords` (`userland/browser/ns_boxfix.c`),
+  takes the parent instead. The vendored source stays untouched, as for
+  find. `tools/web_server.py`'s `image_delay` gives a test that order.
+
 ### Stage 5 -- `uui_webview`: the engine as a content process -- PLANNED
 
 The engine moves into a content process per view; the widget forwards

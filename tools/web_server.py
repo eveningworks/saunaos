@@ -29,6 +29,9 @@ What it serves, beside the files of a corpus directory:
   /stats                  "connections=N requests=M" since the last /reset
   /reset                  zeroes those counters
 
+`image_delay` (`--image-delay S`) holds every image response S seconds,
+so images land after the page has laid out, as on a slow network.
+
 HTTPS: make_ca() makes a test CA and, signed by it, certificates for the
 gateway address -- a good one, an expired one, and one for the wrong
 name -- with openssl. The CA goes in the guest's /etc/ssl/certs; the
@@ -64,7 +67,7 @@ class _Stats:
             self.requests += reqs
 
 
-def _handler(root, stats):
+def _handler(root, stats, image_delay=0.0):
     class Handler(http.server.BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
         timeout = 30
@@ -187,8 +190,14 @@ def _handler(root, stats):
             # for a file: URL -- what browser_hostcheck compares against.
             ctype = {"html": "text/html", "css": "text/css",
                      "gif": "image/gif", "bmp": "image/bmp", "png": "image/png",
-                     "jpg": "image/jpeg"}.get(name.rsplit(".", 1)[-1], "application/octet-stream")
+                     "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                     "svg": "image/svg+xml"}.get(name.rsplit(".", 1)[-1], "application/octet-stream")
             flags = set(query.split("&")) if query else set()
+            if image_delay and ctype.startswith("image/"):
+                # Every image AFTER the page has laid out, as a slow
+                # network delivers them -- the order that took NetSurf
+                # down in box_coords() (userland/browser/ns_boxfix.c).
+                time.sleep(image_delay)
             headers = []
             if "gzip" in flags:
                 data = gzip.compress(data)
@@ -223,9 +232,9 @@ class _Quiet(http.server.ThreadingHTTPServer):
 class WebServer:
     """The server in a thread. `tls` is (cert, key) or None."""
 
-    def __init__(self, root, port=0, tls=None, bind="0.0.0.0"):
+    def __init__(self, root, port=0, tls=None, bind="0.0.0.0", image_delay=0.0):
         self.stats = _Stats()
-        handler = _handler(os.path.abspath(root), self.stats)
+        handler = _handler(os.path.abspath(root), self.stats, image_delay)
         self.srv = _Quiet((bind, port), handler)
         if tls:
             ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
@@ -315,13 +324,15 @@ def main():
     ap.add_argument("--port", type=int, default=18080)
     ap.add_argument("--tls", metavar="DIR", help="serve https with a test CA made in DIR")
     ap.add_argument("--leaf", default="good", choices=("good", "expired", "wrongname"))
+    ap.add_argument("--image-delay", type=float, default=0.0, metavar="S",
+                    help="hold every image response S seconds")
     a = ap.parse_args()
     tls = None
     if a.tls:
         certs = make_ca(a.tls)
         tls = certs[a.leaf]
         print("CA for the guest's /etc/ssl/certs:", certs["ca"])
-    srv = WebServer(a.root, a.port, tls)
+    srv = WebServer(a.root, a.port, tls, image_delay=a.image_delay)
     print("serving %s on port %d (%s)" % (a.root, srv.port, "https" if tls else "http"))
     try:
         threading.Event().wait()

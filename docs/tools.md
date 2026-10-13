@@ -6797,7 +6797,9 @@ runs first**: a `doom1.wad` with one
   `/redirect/N/...`, `/redirect303/...`, `/echo`, `/cookie/set` and
   `/cookie/show`, `/download/NAME?size=N` (an attachment of known bytes,
   `download_bytes()`; `&drop=K` breaks it after K, `&slow=1` trickles it
-  for a cancel), `/stats` and `/reset`. `make_ca()` makes a test CA and
+  for a cancel), `/stats` and `/reset`. `image_delay=S` (`--image-delay`) holds
+  every image S seconds, so images land after the page has laid out, as
+  on a slow network -- the order that crashed NetSurf's `box_coords()`. `make_ca()` makes a test CA and
   leaves it signed -- good (for 10.0.2.2 and 127.0.0.1), expired and
   wrong-name -- plus a self-signed one, with `openssl`. The handshake runs
   in the CONNECTION's thread, so a client that refuses a certificate and
