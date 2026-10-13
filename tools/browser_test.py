@@ -4,8 +4,8 @@
 WHAT IT CHECKS, and what a broken version would still pass:
 
   - it opens on the start page and REPORTS it loaded: the page's address,
-    not loading, and an extent taller than the view (the start page
-    scrolls) -- a window that never laid a page out fails here;
+    not loading, and an extent at least the view's (NetSurf's root box is
+    never shorter) -- a window that never laid a page out reports 0;
   - the page is DRAWN, read in pixels of a settled frame: the start
     page's header band is its own blue, with white text in it, and a
     control rect lower down (the page's grey body) has none of that blue
@@ -195,7 +195,11 @@ def run(dbg, qmp, args, net):
                  f"url={st.get('url')} loading={st.get('loading')} ext_h={st.get('ext_h')}"):
         return finish()
     page = st["page"]
-    check("...a page taller than the view, as the start page is", st["ext_h"] > page[3],
+    # NOT "taller than the view": NetSurf's root box is at least the
+    # viewport, so the extent IS the view wherever the page fits -- the
+    # start page does at the ASUS's 1366x768. Laid out is >= the view;
+    # never laid out is 0.
+    check("...laid out, its extent at least the view", st["ext_h"] >= page[3] > 0,
           f"extent {st['ext_h']} vs view {page[3]}")
 
     from PIL import Image
