@@ -257,6 +257,18 @@ def icon_tb_strike():
     return p.done()
 
 
+def icon_tb_plus():
+    p = _Pen(); p.line((12, 5), (12, 19)); p.line((5, 12), (19, 12)); return p.done()
+
+
+def icon_tb_merge_down():
+    # An arrow down onto a bar: this layer into the one below (Paint.NET's).
+    p = _Pen()
+    p.line((12, 4), (12, 15)); p.line((7.5, 10.5), (12, 15)); p.line((16.5, 10.5), (12, 15))
+    p.line((5, 19.5), (19, 19.5))
+    return p.done()
+
+
 def icon_tb_cut():
     p = _Pen()
     p.line((9.2, 14.4), (17.5, 3)); p.line((14.8, 14.4), (6.5, 3))
@@ -1540,6 +1552,8 @@ ICONS = {
     "tb-fill": icon_tb_fill,
     "tb-picker": icon_tb_picker,
     "tb-text": icon_tb_text,
+    "tb-plus": icon_tb_plus,
+    "tb-merge-down": icon_tb_merge_down,
     "tb-bold": icon_tb_bold,
     "tb-italic": icon_tb_italic,
     "tb-underline": icon_tb_underline,

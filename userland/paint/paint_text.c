@@ -1,12 +1,12 @@
-// Paint's text tool: a box placed by a click, edited, moved, and put
-// into the picture when it is let go -- a click elsewhere, Esc, another
-// tool. One of Paint's units -- see paint.h.
+// Paint's text tool: a box placed by a click, edited, moved, and kept as
+// a TEXT LAYER when it is let go -- a click elsewhere, Esc, another tool
+// -- that the tool re-opens with a click on it later (Krita's, GIMP's).
+// One of Paint's units -- see paint.h.
 //
-// THE TEXT IS DRAWN INTO THE PICTURE AS IT IS TYPED, from the copy the
-// undo step took when the box was placed: each change puts that copy
-// back over what the last render covered and draws the text again. So
-// what shows is exactly what will be kept, at every zoom, and committing
-// is the undo step closing over the box's rect (lib/upixundo.h). The
+// THE BOX DRAWS INTO A LAYER OF ITS OWN as it is typed (paint_layers.c's
+// live layer): each change clears what the last render covered and draws
+// the text again. So what shows is exactly what will be kept, at every
+// zoom, and letting it go is ONE step -- the layer and its words. The
 // caret, the selection and the frame are drawn OVER the picture, never
 // into it.
 //
@@ -45,6 +45,7 @@ static unsigned char g_hist_buf[8192];
 static enum drag g_drag;
 static int g_grab_x, g_grab_y;       // a move: where in the box it was taken
 static struct upix_rect g_drawn;     // what the last render covered
+static int g_reopened = -1;          // the text layer being edited again, or -1
 static struct ugfx_font g_font;
 static void *g_arena;
 static unsigned long g_arena_size;
@@ -144,13 +145,10 @@ static const struct uui_edit_ops ED_OPS = {
 
 // --- the box ----------------------------------------------------------
 
-// The undo copy back over what the last render covered.
+// What the last render covered, transparent again: the layer is the box's alone.
 static void restore(void) {
-    const struct uimg *snap = &g_undo.snap;
-    if (!snap->px || snap->w != g_img.w || snap->h != g_img.h) return;
     for (int j = 0; j < g_drawn.h; j++)
-        memcpy(g_img.px + (size_t)(g_drawn.y + j) * g_img.w + g_drawn.x,
-               snap->px + (size_t)(g_drawn.y + j) * snap->w + g_drawn.x, (size_t)g_drawn.w * 4);
+        memset(g_layer->px + (size_t)(g_drawn.y + j) * g_layer->w + g_drawn.x, 0, (size_t)g_drawn.w * 4);
 }
 
 // The box's size in picture pixels, with g_font selected: the wrap width
@@ -162,7 +160,7 @@ static void measure(int *w, int *h) {
 }
 
 static void render(void) {
-    if (!g_active || !g_img.px) return;
+    if (!g_active || !g_layer->px) return;
     restore();
     struct upix_rect was = g_drawn;
     g_drawn = (struct upix_rect){ 0, 0, 0, 0 };
@@ -170,52 +168,89 @@ static void render(void) {
     const struct ugfx_font *old = ugfx_set_font(&g_font);
     int w, h, lh = ugfx_char_h();
     measure(&w, &h);
-    upix_rect_add(&g_drawn, &g_img, g_x, g_y, w, h);
+    upix_rect_add(&g_drawn, g_layer, g_x, g_y, w, h);
     if (g_drawn.w <= 0) { ugfx_set_font(old); paint_changed(&was); return; }
-    struct ugfx_surface s = ugfx_surface_for_pixels(g_img.px, g_img.w, g_img.h);
     uint32_t ink = g_colour[0] & 0xFFFFFF;
-    if (g_text_fill) ugfx_fill_rect(&s, g_drawn.x, g_drawn.y, g_drawn.w, g_drawn.h, g_colour[1] & 0xFFFFFF);
+    if (g_text_fill) {
+        for (int j = 0; j < g_drawn.h; j++) {
+            uint32_t *row = g_layer->px + (size_t)(g_drawn.y + j) * g_layer->w + g_drawn.x;
+            for (int i = 0; i < g_drawn.w; i++) row[i] = g_colour[1] | 0xFF000000u;
+        }
+    }
+    // THE LETTERS ARE DRAWN AS COVERAGE -- white on black in a scratch the
+    // box's size -- and laid on the layer as the ink at that alpha. Drawn
+    // straight onto the layer, their soft edges would blend with whatever
+    // colour a transparent pixel happens to hold, and fringe.
+    static struct uimg cov;
+    static size_t cov_cap;
+    size_t need = (size_t)g_drawn.w * g_drawn.h;
+    if (cov_cap < need) {
+        uint32_t *px = realloc(cov.px, need * 4);
+        if (!px) { ugfx_set_font(old); paint_changed(&was); return; }
+        cov.px = px;
+        cov_cap = need;
+    }
+    cov.w = g_drawn.w;
+    cov.h = g_drawn.h;
+    for (size_t i = 0; i < need; i++) cov.px[i] = 0;
+    struct ugfx_surface s = ugfx_surface_for_pixels(cov.px, cov.w, cov.h);
+    int ox = g_x - g_drawn.x, oy = g_y - g_drawn.y;
     static char line[TEXT_MAX];
     struct utextflow_line l = { 0 };
-    for (int at = 0, y = g_y;; at = l.next, y += lh) {
+    for (int at = 0, y = oy;; at = l.next, y += lh) {
         utextflow_line(g_buf, g_len, at, g_wrap, &l);
         int n = l.end - l.start;
         memcpy(line, g_buf + l.start, (size_t)n);
         line[n] = '\0';
-        ugfx_draw_string(&s, g_x, y, line, ink, UGFX_TRANSPARENT);
+        ugfx_draw_string(&s, ox, y, line, 0xFFFFFF, UGFX_TRANSPARENT);
         // Lines the face does not have: under the baseline, through the
         // middle of the small letters -- a fifteenth of the size.
         if (n && (g_fontpick.underline || g_fontpick.strike)) {
             int th = lh / 15 > 1 ? lh / 15 : 1;
-            if (g_fontpick.underline) ugfx_fill_rect(&s, g_x, y + lh * 7 / 8, l.width, th, ink);
-            if (g_fontpick.strike) ugfx_fill_rect(&s, g_x, y + lh * 11 / 20, l.width, th, ink);
+            if (g_fontpick.underline) ugfx_fill_rect(&s, ox, y + lh * 7 / 8, l.width, th, 0xFFFFFF);
+            if (g_fontpick.strike) ugfx_fill_rect(&s, ox, y + lh * 11 / 20, l.width, th, 0xFFFFFF);
         }
         if (l.last) break;
     }
     ugfx_set_font(old);
-    // A SURFACE HAS NO ALPHA, the picture does: a pixel the text changed
-    // is opaque, one it did not is the undo copy's exactly -- a
-    // transparent picture stays transparent around the letters.
-    const struct uimg *snap = &g_undo.snap;
-    for (int j = 0; j < g_drawn.h; j++) {
-        uint32_t *row = g_img.px + (size_t)(g_drawn.y + j) * g_img.w + g_drawn.x;
-        const uint32_t *orig = snap->px + (size_t)(g_drawn.y + j) * snap->w + g_drawn.x;
-        for (int i = 0; i < g_drawn.w; i++)
-            row[i] = ((row[i] ^ orig[i]) & 0xFFFFFF) ? (row[i] | 0xFF000000u) : orig[i];
+    for (size_t i = 0; i < need; i++) {
+        uint32_t p = cov.px[i];
+        unsigned a = (p >> 16) & 0xFF, g = (p >> 8) & 0xFF, b = p & 0xFF;
+        if (g > a) a = g;
+        if (b > a) a = b;
+        cov.px[i] = (uint32_t)a << 24 | ink;
     }
+    upix_over_at(g_layer, g_drawn.x, g_drawn.y, &cov);
     struct upix_rect both = was;
-    upix_rect_add(&both, &g_img, g_drawn.x, g_drawn.y, g_drawn.w, g_drawn.h);
+    upix_rect_add(&both, g_layer, g_drawn.x, g_drawn.y, g_drawn.w, g_drawn.h);
     paint_changed(&both);
 }
 
 void text_commit(void) {
     if (!g_active) return;
-    g_active = 0;
     g_drag = DRAG_NONE;
-    // Nothing typed: nothing to keep, and the undo copy is let go.
-    if (!g_len) { restore(); upixundo_commit(&g_undo, &g_img, &(struct upix_rect){ 0, 0, 0, 0 }); }
-    else upixundo_commit(&g_undo, &g_img, &g_drawn);
+    // Nothing typed: no layer. Otherwise the words as they are set.
+    if (!g_len) {
+        g_active = 0;
+        layers_live_end(0);
+    } else {
+        static struct paint_text t;
+        memset(&t, 0, sizeof t);
+        memcpy(t.buf, g_buf, (size_t)g_len);
+        t.len = g_len;
+        t.x = g_x;
+        t.y = g_y;
+        t.wrap = g_wrap;
+        text_box(&t.x, &t.y, &t.w, &t.h);
+        uui_fontpick_get(&g_fontpick, &t.font);
+        t.ink = g_colour[0];
+        t.fill_colour = g_colour[1];
+        t.fill = g_text_fill;
+        g_active = 0;
+        layers_live_end(&t);
+    }
     ulogf("paint: text committed, %d chars at %d,%d wrap %d\n", g_len, g_x, g_y, g_wrap);
+    g_reopened = -1;
     g_len = 0;
     g_buf[0] = '\0';
     g_drawn = (struct upix_rect){ 0, 0, 0, 0 };
@@ -262,15 +297,33 @@ static int index_at(int x, int y) {
     return i;
 }
 
-static void open_box(int x, int y) {
-    if (upixundo_begin(&g_undo, &g_img) != 0) { paint_note("Not enough memory for a text box"); return; }
+// A box at (x, y) on a new layer, or text layer `reopen` again -- its
+// words, face and colours back in the box and the bar, the caret at the end.
+static void open_box(int x, int y, int reopen) {
+    const struct paint_text *t = layers_text(reopen);
+    if (!layers_live_begin(t ? reopen : -1)) return;
     g_active = 1;
-    g_x = x;
-    g_y = y;
-    g_wrap = 0;
-    g_len = 0;
-    g_buf[0] = '\0';
+    g_reopened = t ? reopen : -1;
+    g_drawn = (struct upix_rect){ 0, 0, 0, 0 };
+    if (t) {
+        memcpy(g_buf, t->buf, (size_t)t->len + 1);
+        g_len = t->len;
+        g_x = t->x;
+        g_y = t->y;
+        g_wrap = t->wrap;
+        uui_fontpick_set(&g_fontpick, &t->font);
+        g_colour[0] = t->ink;
+        if (t->fill) g_colour[1] = t->fill_colour;
+        g_text_fill = t->fill;
+    } else {
+        g_x = x;
+        g_y = y;
+        g_wrap = 0;
+        g_len = 0;
+        g_buf[0] = '\0';
+    }
     uui_edit_init(&g_ed);
+    g_ed.cursor = g_len;
     uui_undo_init(&g_hist, g_hist_buf, sizeof g_hist_buf);
     g_ed.undo = &g_hist;
     render();
@@ -338,8 +391,8 @@ void text_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods) {
     int was = g_active;
     text_commit();
     if (was) return;   // that click only let the old box go
-    if (x < 0 || y < 0 || x >= g_img.w || y >= g_img.h) return;
-    open_box(x, y);
+    if (x < 0 || y < 0 || x >= g_layer->w || y >= g_layer->h) return;
+    open_box(x, y, layers_text_at(x, y));
 }
 
 int text_key(int key, unsigned mods) {

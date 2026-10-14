@@ -11,6 +11,12 @@ void upixundo_init(struct upixundo *u, size_t limit_bytes) {
 }
 
 static void step_free(struct upixundo *u, struct upixundo_step *s) {
+    if (s->custom) {
+        u->bytes -= s->custom_bytes;
+        if (s->custom->drop) s->custom->drop(s->payload);
+        s->custom = 0;
+        return;
+    }
     size_t px = s->whole ? (size_t)s->bw * s->bh + (size_t)s->aw * s->ah : 2 * (size_t)s->w * s->h;
     u->bytes -= px * 4;
     free(s->before);
@@ -77,20 +83,41 @@ static void trim(struct upixundo *u) {
     u->at -= drop;
 }
 
-int upixundo_commit(struct upixundo *u, const struct uimg *im, const struct upix_rect *dirty) {
+// Room for one more step, after the redo list is let go.
+static int make_room(struct upixundo *u) {
+    drop_after(u);
+    if (u->count < u->cap) return 0;
+    int cap = u->cap ? u->cap * 2 : 32;
+    struct upixundo_step *grown = realloc(u->steps, sizeof *grown * (size_t)cap);
+    if (!grown) return -ENOMEM;
+    u->steps = grown;
+    u->cap = cap;
+    return 0;
+}
+
+int upixundo_push(struct upixundo *u, const struct upixundo_custom *ops, void *payload, size_t bytes) {
+    u->snapped = 0;
+    if (make_room(u) != 0) { if (ops->drop) ops->drop(payload); return -ENOMEM; }
+    struct upixundo_step s = { 0 };
+    s.custom = ops;
+    s.payload = payload;
+    s.custom_bytes = bytes;
+    s.id = u->next_id++;
+    u->bytes += bytes;
+    u->steps[u->count++] = s;
+    u->at = u->count;
+    trim(u);
+    return 0;
+}
+
+int upixundo_commit(struct upixundo *u, struct uimg *im, const struct upix_rect *dirty) {
     if (!u->snapped) return 0;
     u->snapped = 0;
     int whole = !dirty || im->w != u->snap.w || im->h != u->snap.h;
     if (!whole && (dirty->w <= 0 || dirty->h <= 0)) return 0;
-    drop_after(u);
-    if (u->count == u->cap) {
-        int cap = u->cap ? u->cap * 2 : 32;
-        struct upixundo_step *grown = realloc(u->steps, sizeof *grown * (size_t)cap);
-        if (!grown) return -ENOMEM;
-        u->steps = grown;
-        u->cap = cap;
-    }
+    if (make_room(u) != 0) return -ENOMEM;
     struct upixundo_step s = { 0 };
+    s.im = im;
     s.whole = whole;
     s.id = u->next_id++;
     if (whole) {
@@ -114,9 +141,14 @@ int upixundo_commit(struct upixundo *u, const struct uimg *im, const struct upix
 int upixundo_can_undo(const struct upixundo *u) { return u->at > 0; }
 int upixundo_can_redo(const struct upixundo *u) { return u->at < u->count; }
 
-// Puts one side of a step into the picture.
-static int apply(struct uimg *im, const struct upixundo_step *s, int after,
-                 struct upix_rect *changed) {
+// Puts one side of a step into its picture, or runs its custom ops.
+static int apply(const struct upixundo_step *s, int after, struct upix_rect *changed) {
+    if (s->custom) {
+        s->custom->apply(s->payload, after);
+        if (changed) *changed = (struct upix_rect){ 0, 0, 0, 0 };
+        return 1;
+    }
+    struct uimg *im = s->im;
     const uint32_t *src = after ? s->after : s->before;
     if (s->whole) {
         int w = after ? s->aw : s->bw, h = after ? s->ah : s->bh;
@@ -135,14 +167,14 @@ static int apply(struct uimg *im, const struct upixundo_step *s, int after,
     return 1;
 }
 
-int upixundo_undo(struct upixundo *u, struct uimg *im, struct upix_rect *changed) {
-    if (!u->at || !apply(im, &u->steps[u->at - 1], 0, changed)) return 0;
+int upixundo_undo(struct upixundo *u, struct upix_rect *changed) {
+    if (!u->at || !apply(&u->steps[u->at - 1], 0, changed)) return 0;
     u->at--;
     return 1;
 }
 
-int upixundo_redo(struct upixundo *u, struct uimg *im, struct upix_rect *changed) {
-    if (u->at >= u->count || !apply(im, &u->steps[u->at], 1, changed)) return 0;
+int upixundo_redo(struct upixundo *u, struct upix_rect *changed) {
+    if (u->at >= u->count || !apply(&u->steps[u->at], 1, changed)) return 0;
     u->at++;
     return 1;
 }

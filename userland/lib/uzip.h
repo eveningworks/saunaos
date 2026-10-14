@@ -1,7 +1,10 @@
 #ifndef ULIB_UZIP_H
 #define ULIB_UZIP_H
 
-// Reading ONE member out of a .zip archive into a file -- PKWARE's
+#include <stddef.h>
+
+// Reading ONE member out of a .zip archive into a file or memory, and
+// writing a new archive -- PKWARE's
 // APPNOTE, the subset every archiver writes: stored (method 0) and
 // deflated (method 8) members, no encryption, no zip64.
 //
@@ -33,6 +36,10 @@ typedef int (*uzip_progress)(void *ctx, unsigned long done, unsigned long total)
 // -EINTR stopped by `progress`.
 int uzip_extract(const char *zip_path, const char *name, const char *out_path,
                  uzip_progress progress, void *ctx, char *err, int errcap);
+// The same member into MEMORY: *out (malloc'd, the caller frees it) and
+// its length. Refused with -E2BIG when it would be bigger than `max`.
+int uzip_read(const char *zip_path, const char *name, size_t max, unsigned char **out, size_t *out_len,
+              char *err, int errcap);
 
 // Every member of the archive, in the central directory's order: its
 // full name ('/'-separated; a folder's ends in '/'), its size, its size
@@ -66,6 +73,11 @@ int uzip_create_begin(struct uzip_writer *w, const char *out_path, char *err, in
 // '/'. `progress` reports this member's bytes (may be NULL).
 int uzip_add_file(struct uzip_writer *w, const char *name, const char *src_path, int level,
                   uzip_progress progress, void *ctx, char *err, int errcap);
+// A member from bytes in memory, dated now -- written in the order added,
+// so a format whose first member is fixed (OpenRaster's "mimetype",
+// stored: level 0) gets it first.
+int uzip_add_mem(struct uzip_writer *w, const char *name, const void *data, size_t n, int level,
+                 char *err, int errcap);
 // A folder record, "name/" -- so an empty folder survives the round trip.
 int uzip_add_dir(struct uzip_writer *w, const char *name, char *err, int errcap);
 int uzip_create_end(struct uzip_writer *w, char *err, int errcap);

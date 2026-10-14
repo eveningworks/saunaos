@@ -36,6 +36,13 @@ struct uui_fontpick {
     struct uui_layout row;
 };
 
+// THE CHOICE AS A VALUE, to keep and give back -- a text layer remembers
+// the face it was set in.
+struct uui_fontchoice {
+    char family[32];   // a file stem: "liberation-sans"
+    int px, bold, italic, underline, strike;
+};
+
 // `family` names a file stem ("liberation-sans"); an unknown one is the
 // first installed.
 void uui_fontpick_init(struct uui_fontpick *p, int id_base, const char *family, int px,
@@ -45,6 +52,9 @@ int  uui_fontpick_focusables(struct uui_fontpick *p, struct uui_focusable *out, 
 // 1 when `id` was one of its controls AND the font changed.
 int  uui_fontpick_on_widget(struct uui_fontpick *p, int id);
 int  uui_fontpick_px(const struct uui_fontpick *p);
+void uui_fontpick_get(const struct uui_fontpick *p, struct uui_fontchoice *out);
+// An uninstalled family keeps the one chosen; the rest are taken as given.
+void uui_fontpick_set(struct uui_fontpick *p, const struct uui_fontchoice *c);
 // The face's file, and whether it must be emboldened by the rasterizer
 // (Bold chosen, the family has no bold file). 1, or 0 when none fits.
 int  uui_fontpick_path(const struct uui_fontpick *p, char *out, int cap, int *embolden);

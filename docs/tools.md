@@ -3422,9 +3422,25 @@ window without going through it will find its layout polls timing out.
   above it (a breadth-first search decides the region), every dirty rect
   covering what changed, and histories of strokes, fills and a
   size-changing step that undo to the first picture and redo to the
-  last, with a small byte limit dropping the oldest steps. Its positive
-  control -- a fill that never seeds the row below -- reddens the fills.
-  In `ondemand_sweep.py`.
+  last, with a small byte limit dropping the oldest steps; ONE history
+  over two pictures and custom steps undoing step by step to each state
+  before; and source-over (`upix_over`, `upix_over_at`) within an
+  alpha-scaled tolerance of a floating-point Porter-Duff. Its positive
+  control -- a fill that never seeds the row below, and a source-over
+  that forgets to scale the picture below -- reddens the fills and the
+  composites. In `ondemand_sweep.py`.
+
+- **`ora_hostcheck.py`** -- `lib/uora` (OpenRaster, Paint's layered
+  save) and `lib/uzip` compiled on the HOST against Python's zipfile,
+  ElementTree and Pillow, BOTH ways: what the C writer makes must have a
+  STORED `mimetype` first, a `stack.xml` that parses with the layers top
+  first, their names (XML specials and Latin-1), opacities and
+  visibility, each layer's PNG pixel-exact, `mergedimage.png` and a
+  thumbnail within 256; a Krita-shaped file from Python -- a CROPPED
+  layer at an offset, a nested group, entities -- must read bottom first
+  on the full canvas; a wrong mimetype and a missing PNG are refused.
+  `--positive-control` leaves the stack top first and `&` unescaped.
+  Needs Pillow. In `ondemand_sweep.py`.
 
 - **`archive_hostcheck.py`** -- `lib/uzip` and `lib/utar` compiled on
   the HOST (shims for `sys_stat` and the calendar) against Python's

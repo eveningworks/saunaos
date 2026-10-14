@@ -21,8 +21,25 @@
 // BOUNDED BY BYTES, oldest dropped -- a count would be wrong both ways,
 // a thousand dabs being small and ten full-picture steps large. The
 // newest step is always kept, whatever it costs.
+//
+// A STEP KNOWS ITS PICTURE: undo puts the pixels back into the image the
+// step was committed on, so one history can span several (a layered
+// picture's layers). Steps that are not pixels -- a layer added, moved,
+// merged -- are the caller's own records, pushed with upixundo_push() and
+// undone through their ops, in the same line as the strokes (Paint.NET's
+// one History). The caller keeps every image a step names alive until
+// that step is dropped; a custom step's `drop` is where it hears so.
+
+struct upixundo_custom {
+    void (*apply)(void *payload, int redo);   // undo it (redo 0) or do it again
+    void (*drop)(void *payload);              // the step is forgotten: free what it holds
+};
 
 struct upixundo_step {
+    struct uimg *im;         // the picture it was committed on; NULL for a custom step
+    const struct upixundo_custom *custom;
+    void *payload;
+    size_t custom_bytes;
     int x, y, w, h;          // the region; the whole picture when `whole`
     int whole;
     int bw, bh, aw, ah;      // a whole step's sizes before and after
@@ -49,15 +66,20 @@ int upixundo_begin(struct upixundo *u, const struct uimg *im);
 // After it: the `dirty` part of the change, or -- when the picture's
 // size changed, or `dirty` is NULL -- the whole picture. An empty rect
 // records nothing. Either way the redo list is gone. 0 or -ENOMEM.
-int upixundo_commit(struct upixundo *u, const struct uimg *im, const struct upix_rect *dirty);
+int upixundo_commit(struct upixundo *u, struct uimg *im, const struct upix_rect *dirty);
+// A change already made that is not pixels, as one step costing `bytes`
+// against the limit. The redo list is gone. On -ENOMEM the step is not
+// kept and `drop` has already been called.
+int upixundo_push(struct upixundo *u, const struct upixundo_custom *ops, void *payload, size_t bytes);
 
 int upixundo_can_undo(const struct upixundo *u);
 int upixundo_can_redo(const struct upixundo *u);
-// One step back or forward, applied to `im` (whose pixels a whole step
-// reallocates). `*changed` is what to redraw; its w 0 means the picture's
-// size changed and all of it should be. 1 if a step was applied.
-int upixundo_undo(struct upixundo *u, struct uimg *im, struct upix_rect *changed);
-int upixundo_redo(struct upixundo *u, struct uimg *im, struct upix_rect *changed);
+// One step back or forward, applied to the picture it was committed on
+// (whose pixels a whole step reallocates), or through its custom ops.
+// `*changed` is what to redraw; its w 0 means all of it -- a size change
+// or a custom step. 1 if a step was applied.
+int upixundo_undo(struct upixundo *u, struct upix_rect *changed);
+int upixundo_redo(struct upixundo *u, struct upix_rect *changed);
 
 // Where the history stands, as a number that changes with every step
 // done or undone and comes back when a step is redone -- compare it with

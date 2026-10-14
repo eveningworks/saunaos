@@ -46,4 +46,13 @@ void upix_line(struct uimg *im, int x0, int y0, int x1, int y1, int size,
 int upix_fill(struct uimg *im, int x, int y, uint32_t colour, int tolerance,
               struct upix_rect *dirty);
 
+// ONE PICTURE OVER ANOTHER, the exception to "paint replaces": `src`
+// laid on `dst` over `r` at `opacity` 0..255, Porter-Duff source-over on
+// STRAIGHT (unpremultiplied) alpha -- how a layer shows over the ones
+// below it. The two must be the same size; `r` is clipped to them.
+void upix_over(struct uimg *dst, const struct uimg *src, const struct upix_rect *r, int opacity);
+// The whole of `src` laid on `dst` with its top-left at (x, y), clipped
+// -- a stamp of anti-aliased letters, their coverage in the alpha.
+void upix_over_at(struct uimg *dst, int x, int y, const struct uimg *src);
+
 #endif

@@ -32,6 +32,17 @@ What it proves, and what a broken version would still pass:
   * HANDLES: the canvas's corner handle dragged by (+50, +25) at 50% makes
     an 800 x 600 picture 900 x 650. TEXT: "Hi" typed into a box puts
     non-white pixels where the box was, and one Ctrl+Z takes them all.
+  * LAYERS: a stroke on a new layer crossing one on the background; the
+    eraser on the upper layer leaves the background's stroke BLACK at the
+    crossing (an eraser painting Colour 2 would whiten it); the eye hides
+    it; 40% opacity greys it and Ctrl+Z restores it; dragged under the
+    opaque background it is covered; Merge down keeps both strokes, and
+    Ctrl+Z splits them; saved as .ora and reopened, two layers and the
+    same pixels.
+  * TEXT LAYERS: a let-go box is a text layer; the Text tool re-opens it
+    with its words, an edit stays one layer and one Ctrl+Z; a brush on it
+    asks, Make it pixels is a step; saved as .ora and reopened, the words
+    open again.
   * TEXT EDITING: Home, Shift+Left, Ctrl+X/V and a click change the
     text and caret the box reports; its frame dragged moves it, leaving
     WHITE behind (a move that forgot to restore would leave the old
@@ -254,6 +265,8 @@ def run(dbg, qmp, res, tmp):
     check_resize(dbg, qmp, res, tmp)
     check_handles_and_text(dbg, qmp, res, tmp)
     check_text_edit(dbg, qmp, res, tmp)
+    check_layers(dbg, qmp, res, tmp)
+    check_text_layers(dbg, qmp, res, tmp)
 
 
 def rect(dbg, part):
@@ -518,6 +531,201 @@ def check_text_edit(dbg, qmp, res, tmp):
     dbg.key(CTRL["z"], mods="ctrl")
     t = text_state(dbg)
     res.check("Ctrl+Z undoes the typing, then the box", t.get("open") == 0, f"{t}")
+    close_all(dbg)
+
+
+ORA = "/var/tmp/paint_test.ora"
+
+
+def layer_stack(dbg):
+    """(count, current, opacity) from `paint: layout layerstack`."""
+    dbg.settle()
+    for line in reversed(dbg.logs("paint: layout layerstack ", clear=False)):
+        f = line.split("layerstack ", 1)[1].split()
+        return int(f[0]), int(f[2]), int(f[4])
+    return 0, -1, -1
+
+
+def current_is_text(dbg):
+    dbg.settle()
+    for line in reversed(dbg.logs("paint: layout layerstack ", clear=False)):
+        return line.split(" text ", 1)[1].split()[0] == "1"
+    return False
+
+
+def check_text_layers(dbg, qmp, res, tmp):
+    """A let-go box is a TEXT LAYER: the Text tool re-opens it with its
+    words, an edit is one step, a brush on it asks first, and .ora keeps
+    the words."""
+    dbg.send(f"sh rm {ORA}")
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Text layers: Paint opens", False, "no window")
+        return
+    dbg.key("t")
+    dbg.click(*scr.at(100, 100))
+    type_text(dbg, "Hi")
+    dbg.key("0x1b")
+    res.check("a let-go text box is a text layer of its own", layer_stack(dbg)[:2] == (2, 1)
+              and current_is_text(dbg), f"{layer_stack(dbg)} text {current_is_text(dbg)}")
+    dbg.click(*scr.at(104, 110))
+    t = text_state(dbg)
+    res.check("the Text tool clicked on it opens it again with its words",
+              t.get("open") == 1 and t.get("text") == "Hi" and t.get("box", [0])[0] == 100, f"{t}")
+    type_text(dbg, "!")
+    dbg.key("0x1b")
+    res.check("...an edit keeps the one layer", layer_stack(dbg)[0] == 2, f"{layer_stack(dbg)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    dbg.click(*scr.at(104, 110))
+    t = text_state(dbg)
+    res.check("Ctrl+Z takes the edit back, as one step", t.get("text") == "Hi", f"{t}")
+    dbg.key("0x1b")
+    dbg.key("b")
+    dbg.click(*scr.at(110, 112))
+    ask = rect(dbg, "ask")
+    res.check("a brush on a text layer asks first", ask and ask[2] > 0 and current_is_text(dbg), f"ask {ask}")
+    dbg.key("0x0d")   # the primary: Make it pixels
+    res.check("...and Make it pixels makes it pixels", not current_is_text(dbg) and layer_stack(dbg)[0] == 2,
+              f"{layer_stack(dbg)} text {current_is_text(dbg)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    res.check("...as a step Ctrl+Z takes back", current_is_text(dbg), f"text {current_is_text(dbg)}")
+    # .ora keeps the words: saved, reopened, the Text tool opens them.
+    dbg.key("0x13", mods="ctrl shift")
+    time.sleep(0.5)
+    dbg.settle()
+    dbg.key(CTRL["a"], mods="ctrl")
+    for ch in ORA:
+        dbg.key({"/": "0x2f", ".": "0x2e", "_": "0x5f"}.get(ch, ch), settle=False)
+    dbg.settle()
+    dbg.key("0x0d")
+    deadline = time.time() + 10
+    while time.time() < deadline and state(dbg).get("path") != ORA:
+        time.sleep(0.3)
+        dbg.settle()
+    close_all(dbg)
+    dbg.spawn(f"{PAINT} {ORA}", "paint_test.ora - Paint")
+    time.sleep(1)
+    scr2 = Screen(dbg, qmp, tmp, "paint_test.ora - Paint")
+    dbg.key("0", mods="ctrl")
+    scr2.refresh()
+    dbg.key("t")
+    dbg.click(*scr2.at(104, 110))
+    t = text_state(dbg)
+    res.check("reopened from .ora, the text layer opens with its words",
+              scr2.ok and t.get("open") == 1 and t.get("text") == "Hi", f"{t}")
+    dbg.key("0x1b")
+    close_all(dbg)
+
+
+def check_layers(dbg, qmp, res, tmp):
+    """Layers: a stroke on each of two, the eraser making holes in the top
+    one only, hide, opacity, reorder, merge, undo, and an .ora round trip
+    -- judged on screen pixels where two strokes CROSS, so a wrong order,
+    a white-painting eraser or a lost layer each change what shows."""
+    dbg.send(f"sh rm {ORA}")
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Layers: Paint opens", False, "no window")
+        return
+
+    def at(part):
+        r = rect(dbg, part)
+        return (scr.cx + r[0] + r[2] // 2, scr.cy + r[1] + r[3] // 2) if r else None
+
+    def drag(x0, y0, x1, y1):
+        a, b = scr.at(x0, y0), scr.at(x1, y1)
+        dbg.drag(a[0], a[1], b[0], b[1], steps=16)
+        dbg.settle()
+
+    dbg.key("b")
+    drag(60, 200, 400, 200)            # Background: a horizontal stroke
+    dbg.click(*at("paneltabs.slot 1"))
+    dbg.move(10, 10)
+    dbg.click(*at("layerbar.button 0"))
+    res.check("the Layers tab's + adds a layer above, current", layer_stack(dbg)[:2] == (2, 1), f"{layer_stack(dbg)}")
+    drag(200, 60, 200, 350)            # Layer 2: a vertical one, crossing it at (200, 200)
+    scr.shoot()
+    res.check("a stroke on the new layer shows over the background",
+              scr.pixel(200, 300) == BLACK and scr.pixel(300, 200) == BLACK and scr.pixel(300, 300) == WHITE,
+              f"{scr.pixel(200, 300)} {scr.pixel(300, 200)} {scr.pixel(300, 300)}")
+    # THE ERASER on the top layer: through the crossing, the background's
+    # stroke must still show -- an eraser painting Colour 2 would whiten it.
+    dbg.key("e")
+    drag(200, 120, 200, 230)
+    scr.shoot()
+    res.check("the eraser on an upper layer makes a hole to the layer below",
+              scr.pixel(200, 140) == WHITE and scr.pixel(200, 200) == BLACK and scr.pixel(200, 300) == BLACK,
+              f"erased {scr.pixel(200, 140)}, crossing {scr.pixel(200, 200)}, kept {scr.pixel(200, 300)}")
+    dbg.click(*at("layers.eye 1"))
+    scr.shoot()
+    res.check("the eye hides the layer", scr.pixel(200, 300) == WHITE and scr.pixel(300, 200) == BLACK,
+              f"{scr.pixel(200, 300)} {scr.pixel(300, 200)}")
+    dbg.click(*at("layers.eye 1"))
+    op = rect(dbg, "opacity")
+    if op:
+        dbg.click(scr.cx + op[0] + op[2] * 4 // 10, scr.cy + op[1] + op[3] // 2)
+    scr.shoot()
+    grey = scr.pixel(200, 300)
+    res.check("40% opacity shows the stroke part-way to white",
+              60 < grey[0] < 200 and grey[0] == grey[1] == grey[2], f"{grey}, stack {layer_stack(dbg)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    scr.shoot()
+    res.check("Ctrl+Z puts the opacity back", scr.pixel(200, 300) == BLACK and layer_stack(dbg)[2] == 255,
+              f"{scr.pixel(200, 300)} {layer_stack(dbg)}")
+    # REORDER by dragging the top row below the bottom one: the opaque
+    # white background now covers the stroke.
+    top, bottom = rect(dbg, "layers.row 1"), rect(dbg, "layers.row 0")
+    if top and bottom:
+        x = scr.cx + top[0] + top[2] // 2
+        dbg.drag(x, scr.cy + top[1] + top[3] // 2, x, scr.cy + bottom[1] + bottom[3] - 2, steps=16)
+        dbg.settle()
+    scr.shoot()
+    res.check("a row dragged to the bottom goes under the background",
+              layer_stack(dbg)[1] == 0 and scr.pixel(200, 300) == WHITE and scr.pixel(300, 200) == BLACK,
+              f"stack {layer_stack(dbg)}, {scr.pixel(200, 300)} {scr.pixel(300, 200)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    dbg.key("0x05", mods="ctrl")       # Ctrl+E, merge down
+    scr.shoot()
+    res.check("Merge down leaves one layer showing both strokes",
+              layer_stack(dbg)[0] == 1 and scr.pixel(200, 300) == BLACK and scr.pixel(300, 200) == BLACK,
+              f"stack {layer_stack(dbg)}, {scr.pixel(200, 300)} {scr.pixel(300, 200)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    res.check("...and Ctrl+Z splits them again", layer_stack(dbg)[0] == 2, f"{layer_stack(dbg)}")
+
+    # .ora keeps the layers: saved, reopened in a fresh Paint, two layers
+    # and the same pixels -- and the top one can still be hidden alone.
+    dbg.key("0x13", mods="ctrl shift")  # Save as
+    time.sleep(0.5)
+    dbg.settle()
+    dbg.key(CTRL["a"], mods="ctrl")
+    for ch in ORA:
+        dbg.key({"/": "0x2f", ".": "0x2e", "_": "0x5f"}.get(ch, ch), settle=False)
+    dbg.settle()
+    dbg.key("0x0d")
+    deadline = time.time() + 10
+    while time.time() < deadline and state(dbg).get("path") != ORA:
+        time.sleep(0.3)
+        dbg.settle()
+    res.check("Save as .ora writes it, and the picture is saved", state(dbg).get("path") == ORA
+              and state(dbg).get("dirty") == 0, f"{state(dbg)}")
+    close_all(dbg)
+    dbg.spawn(f"{PAINT} {ORA}", "paint_test.ora - Paint")
+    time.sleep(1)
+    scr2 = Screen(dbg, qmp, tmp, "paint_test.ora - Paint")
+    if not scr2.ok:
+        res.check("the .ora reopens", False, "no window")
+        return
+    dbg.key("0", mods="ctrl")
+    scr2.refresh()
+    scr2.shoot()
+    res.check("reopened, the .ora has its two layers and both strokes",
+              layer_stack(dbg)[0] == 2 and scr2.pixel(200, 300) == BLACK and scr2.pixel(300, 200) == BLACK
+              and scr2.pixel(200, 140) == WHITE,
+              f"stack {layer_stack(dbg)}, {scr2.pixel(200, 300)} {scr2.pixel(300, 200)} {scr2.pixel(200, 140)}")
     close_all(dbg)
 
 

@@ -81,6 +81,7 @@
 | `unetmount.h` | Saved network shares: one file per share in /etc/mounts.d, mounted at /net/<file name> by /bin/smbfsd. |
 | `unum.h` | A number written the way the LC_NUMERIC locale writes it: format it the C way ("1234567.89", "12.5%", "1.2 MiB") and pass the string through unum_localize(), which swaps in the decimal mark and, wi... |
 | `uopen.h` | uopen -- which program opens this file? |
+| `uora.h` | uora -- OPENRASTER, the layered picture Krita, GIMP and MyPaint all read: a .zip (lib/uzip.h) whose FIRST member is "mimetype", STORED, holding "image/openraster"; a stack.xml naming the layers TOP... |
 | `upager.h` | The pager: show a block of text one screenful at a time, on whichever of fd 0 and fd 1 is a terminal. |
 | `upath.h` | PATH lookup for a ring-3 program that has to RUN another one. |
 | `upile.h` | DEBRIS THAT FALLS, BOUNCES AND PILES UP at the bottom of a picture -- the Desktop cube's chips (gui/savers/cube.c), and anything else that sheds bits onto a floor. |
@@ -122,7 +123,7 @@
 | `uvolinfo.h` | What one mounted volume or network share IS, gathered in one place: the kernel's QUERY_FSINFO record, the share's file in /etc/mounts.d and its server's last word -- for Properties' volume page and... |
 | `uwalk.h` | A DIRECTORY TREE WALK, one directory at a time, for a caller that has to stop, report progress or share a thread: the File Manager's search into subfolders and its folder sizes. |
 | `uwmchan.h` | TWP over a channel: a client's request reaching the compositor DIRECTLY instead of through the kernel. |
-| `uzip.h` | Reading ONE member out of a .zip archive into a file -- PKWARE's APPNOTE, the subset every archiver writes: stored (method 0) and deflated (method 8) members, no encryption, no zip64. |
+| `uzip.h` | Reading ONE member out of a .zip archive into a file or memory, and writing a new archive -- PKWARE's APPNOTE, the subset every archiver writes: stored (method 0) and deflated (method 8) members, n... |
 | `webnet_proto.h` | The contract between /bin/webnet -- the network process, one per Web Browser (docs/browser-design.md, stage 5) -- and its clients: each content process, which fetches through it, and the browser ap... |
 | `webview_proto.h` | The contract between ui/uui_webview.h (in the embedding app) and /bin/webcontent (the engine, one process per view) -- docs/browser-design.md, stage 5. |
 
@@ -183,6 +184,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_keymap.h` | keymap -- a keyboard drawn from a layout, two ways: |
 | `uui_keysheet.h` | keysheet -- an app's keyboard shortcuts as a sheet: groups of rows, each an action on the left and its keys on the right, drawn as caps. |
 | `uui_label.h` | A line of text the LAYOUT knows about. |
+| `uui_layerlist.h` | uui_layerlist -- A LAYER STACK, the top layer the top row: an eye that shows or hides it, a thumbnail on a checkerboard, its name and its opacity -- Krita's Layers docker, Paint.NET's Layers window... |
 | `uui_layout.h` | uui_layout -- places widgets so apps stop doing coordinate arithmetic. |
 | `uui_listbox.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_loglist.h` | uui_loglist -- a log's lines (lib/ulogset.h) as a list: Time, Level, Source and the message with its subsystem in bold, a severity drawn as a shape AND a theme colour, errors marked on the scrollba... |

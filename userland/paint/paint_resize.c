@@ -135,9 +135,9 @@ static void show_tab(int t) {
 void resize_init(void) { uui_dialog_init(&g_dlg); }
 
 void resize_open(struct uapp *a, int canvas_tab) {
-    if (uui_dialog_is_open(&g_dlg) || !g_img.px) return;
-    g_ow = g_img.w;
-    g_oh = g_img.h;
+    if (uui_dialog_is_open(&g_dlg) || !g_layer) return;
+    g_ow = g_layer->w;
+    g_oh = g_layer->h;
     int lw = ugfx_text_width("Anchor") + ugfx_char_w() * 3;
     uui_tabs_init(&g_tabs, g_tab_list, 2, 0);
     g_tabs.ground = UTHEME_WHITE;   // the dialog's card: no bar beside the tabs
@@ -195,37 +195,51 @@ void resize_open(struct uapp *a, int canvas_tab) {
 }
 
 // THE CANVAS, re-framed to w x h: the old picture placed by the anchor's
-// column and row (0..2), the new room in Colour 2. The Canvas size tab's
-// and the edge handles' one way to do it (the handles anchor top-left).
-void resize_canvas_to(int w, int h, int col, int rw) {
-    if (!g_img.px || (w == g_img.w && h == g_img.h)) return;
-    struct uimg out = { 0 };
-    out.px = malloc((size_t)w * h * 4);
-    if (!out.px) { paint_note("Not enough memory for that canvas"); return; }
-    out.w = w;
-    out.h = h;
-    for (size_t i = 0; i < (size_t)w * h; i++) out.px[i] = g_colour[1];
-    // Where the old picture's top-left lands: against the anchored edge,
-    // or centred between the two.
-    int dx = col == 0 ? 0 : col == 1 ? (w - g_img.w) / 2 : w - g_img.w;
-    int dy = rw == 0 ? 0 : rw == 1 ? (h - g_img.h) / 2 : h - g_img.h;
-    for (int y = 0; y < g_img.h; y++) {
-        int ty = y + dy;
-        if (ty < 0 || ty >= h) continue;
-        for (int x = 0; x < g_img.w; x++) {
-            int tx = x + dx;
-            if (tx >= 0 && tx < w) out.px[(size_t)ty * w + tx] = g_img.px[(size_t)y * g_img.w + x];
+// column and row (0..2), the new room in Colour 2 on the bottom layer and
+// transparent on the ones above (Paint.NET's). The Canvas size tab's and
+// the edge handles' one way to do it (the handles anchor top-left).
+struct reframe { int w, h, dx, dy; };
+
+static int reframe_one(const struct uimg *in, struct uimg *out, int index, void *ctx) {
+    const struct reframe *r = ctx;
+    out->px = malloc((size_t)r->w * r->h * 4);
+    if (!out->px) return -1;
+    out->w = r->w;
+    out->h = r->h;
+    uint32_t room = index == 0 ? g_colour[1] : 0;
+    for (size_t i = 0; i < (size_t)r->w * r->h; i++) out->px[i] = room;
+    for (int y = 0; y < in->h; y++) {
+        int ty = y + r->dy;
+        if (ty < 0 || ty >= r->h) continue;
+        for (int x = 0; x < in->w; x++) {
+            int tx = x + r->dx;
+            if (tx >= 0 && tx < r->w) out->px[(size_t)ty * r->w + tx] = in->px[(size_t)y * in->w + x];
         }
     }
-    out.has_alpha = g_img.has_alpha || (g_colour[1] >> 24) != 0xFF;
-    ulogf("paint: canvas %dx%d anchor %d,%d\n", w, h, col, rw);
-    paint_replace_picture(&out);
+    return 0;
 }
 
-// Scale, or re-frame, into a new picture handed to the window.
+void resize_canvas_to(int w, int h, int col, int rw) {
+    if (!g_layer || (w == g_layer->w && h == g_layer->h)) return;
+    // Where the old picture's top-left lands: against the anchored edge,
+    // or centred between the two.
+    struct reframe r = { w, h, col == 0 ? 0 : col == 1 ? (w - g_layer->w) / 2 : w - g_layer->w,
+                         rw == 0 ? 0 : rw == 1 ? (h - g_layer->h) / 2 : h - g_layer->h };
+    if (!layers_transform(reframe_one, &r, "canvas size")) { paint_note("Not enough memory for that canvas"); return; }
+    ulogf("paint: canvas %dx%d anchor %d,%d\n", w, h, col, rw);
+}
+
+struct scale { int w, h; };
+
+static int scale_one(const struct uimg *in, struct uimg *out, int index, void *ctx) {
+    (void)index;
+    const struct scale *sc = ctx;
+    return uimg_scale(in, sc->w, sc->h, out);
+}
+
+// Scale, or re-frame, every layer.
 static void apply(void) {
     int tab = g_tabs.selected;
-    struct uimg out = { 0 };
     if (tab == 0) {
         uui_spinbox_commit(&g_rw);
         uui_spinbox_commit(&g_rh);
@@ -233,8 +247,9 @@ static void apply(void) {
         if (pct()) { w = (int)((long long)g_ow * w / 100); h = (int)((long long)g_oh * h / 100); }
         if (w < 1) w = 1;
         if (h < 1) h = 1;
-        if (w == g_img.w && h == g_img.h) return;
-        if (uimg_scale(&g_img, w, h, &out) != 0) { paint_note("Not enough memory to resize"); return; }
+        if (w == g_layer->w && h == g_layer->h) return;
+        struct scale sc = { w, h };
+        if (!layers_transform(scale_one, &sc, "resize")) { paint_note("Not enough memory to resize"); return; }
         ulogf("paint: resized to %dx%d\n", w, h);
     } else {
         uui_spinbox_commit(&g_cw);
@@ -242,9 +257,7 @@ static void apply(void) {
         int col, rw;
         uui_anchor_xy(&g_anchor, &col, &rw);
         resize_canvas_to(uui_spinbox_value(&g_cw), uui_spinbox_value(&g_ch), col, rw);
-        return;
     }
-    paint_replace_picture(&out);
 }
 
 static void answer(int code) {

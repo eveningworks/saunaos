@@ -1800,11 +1800,14 @@ Manager. Left to build, in order:
   (`ui/uui_fontpick.h`), and Open/Save listing each format. The open text
   box edits like a field (`ui/uui_edit.h` over `ui/utextflow.h`), moves
   by its frame and wraps at a width set by a side handle.
-- **Next, layers** (chosen: a Layers tab in the panel, basics + opacity
-  + drag to reorder, `.ora` keeps them). With them, TEXT LAYERS: a let-go
-  box becomes a layer that keeps its words, face and colour, re-opened
-  by clicking it with the Text tool; painting on it asks to turn it into
-  pixels (GIMP, Krita); `.ora` keeps it editable. Then **shapes**: line,
+- **Layers are built** (2026-10-14): the panel's Layers tab
+  (`ui/uui_layerlist.h`) -- new, duplicate, delete, merge down, flatten,
+  move, rename, hide, opacity, drag to reorder, all in one history --
+  and `.ora` (`lib/uora.h`) keeps them; PNG/JPEG/QOI save flat.
+- **Next, TEXT LAYERS**: a let-go box becomes a layer that keeps its
+  words, face and colour, re-opened by clicking it with the Text tool;
+  painting on it asks to turn it into pixels (GIMP, Krita); `.ora` keeps
+  it editable. Then **shapes**: line,
   rectangle, ellipse, rounded rectangle, polygon, curve, arrow and star,
   previewed through `uui_paintcanvas.draw_over` and committed on release.
 - **Stage 3, selection and the picture's size**: a rectangle selection

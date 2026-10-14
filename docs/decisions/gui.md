@@ -11521,3 +11521,34 @@ The decisions inside it, each one a thing a later session would ask:
   (`WIN_EV_WHEEL`'s `mods`) and the toolkit answers "what is held" for
   a handler with no `mods` of its own -- `uapp_keyboard_mods()`, Qt's
   `QGuiApplication::keyboardModifiers()`.
+- **Layers share ONE history, and a layer change is the stack before
+  and after** (`paint/paint_layers.c`). The obvious shape -- an undo
+  stack per layer -- cannot say what Ctrl+Z means after "paint on A,
+  delete B, paint on A": the user means the delete, which neither
+  layer's stack holds. Paint.NET, Krita and GIMP each keep one History
+  for the document; so does this. A stroke stays a rectangle step on the
+  layer's own pixels (a `upixundo` step now names its picture), and a
+  stack change -- add, delete, move, merge, opacity, a rotate of every
+  layer -- is a custom step holding two small arrays. Pixels are
+  COUNTED, never copied for a step: a deleted layer lives on in the step
+  that deleted it, and a merge or a rotate makes new buffers rather than
+  writing ones a step still names.
+- **The eraser makes holes on an upper layer** and keeps painting
+  Colour 2 on the bottom one: on a layer, "rub out" means "show what is
+  below" (Paint.NET, Krita, Windows 11 Paint's layers); on the bottom it
+  stays MS Paint's.
+- **The picker picks what SHOWS**, all layers together, as Windows 11
+  Paint's does -- a picker on the current layer alone answers "which
+  colour is this?" with transparency over most of a new layer.
+- **A flat save of a layered picture counts as SAVED** (Paint.NET's
+  rule), with a status note that only `.ora` keeps the layers
+  (OpenRaster, `lib/uora.h`, which Krita, GIMP and MyPaint read). GIMP's
+  "export, still unsaved" was built first and dropped: every typed word
+  is a text layer, so a PNG of a picture with a caption would ask "save
+  changes?" at every close.
+- **Text is a layer that keeps its words** (Krita's, GIMP's): the Text
+  tool clicked on one re-opens it with its face and colours; a brush,
+  the eraser or the fill on it asks to make it pixels first; a rotate, a
+  resize or a merge into it makes it pixels without asking, as GIMP's
+  transforms do. `.ora` carries the words as `toyos:` attributes, which
+  every other reader ignores and shows the pixels of.

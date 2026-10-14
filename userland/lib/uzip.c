@@ -9,6 +9,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -144,8 +145,11 @@ int uzip_list(const char *zip_path, uzip_entry_fn fn, void *ctx, char *err, int 
     return rc < 0 ? rc : 0;
 }
 
+// THE SINK: a member's bytes as they inflate -- to a file, or to memory.
 struct out {
-    int fd;
+    int fd;                      // a file, or -1 for memory
+    unsigned char *buf;          // memory: grown as it fills, up to `max`
+    size_t len, cap, max;
     uint32_t crc;
     unsigned long done, total;
     uzip_progress progress;
@@ -155,11 +159,17 @@ struct out {
 
 static int out_write(void *vctx, const uint8_t *data, size_t n) {
     struct out *o = vctx;
-    size_t put = 0;
-    while (put < n) {
-        long w = write(o->fd, data + put, n - put);
-        if (w <= 0) { o->write_failed = 1; return -1; }
-        put += (size_t)w;
+    if (o->fd < 0) {
+        if (o->len + n > o->max) { o->write_failed = 1; return -1; }
+        memcpy(o->buf + o->len, data, n);   // sized from the member's own size, below
+        o->len += n;
+    } else {
+        size_t put = 0;
+        while (put < n) {
+            long w = write(o->fd, data + put, n - put);
+            if (w <= 0) { o->write_failed = 1; return -1; }
+            put += (size_t)w;
+        }
     }
     o->crc = kcrc32_update(o->crc, data, n);
     o->done += n;
@@ -167,48 +177,76 @@ static int out_write(void *vctx, const uint8_t *data, size_t n) {
     return 0;
 }
 
-int uzip_extract(const char *zip_path, const char *name, const char *out_path,
-                 uzip_progress progress, void *ctx, char *err, int errcap) {
+// Member `name`'s packed bytes, checked against the archive, into *src
+// (the caller frees it). 0, or a negative errno with `err` a sentence.
+static int member_bytes(const char *zip_path, const char *name, struct member *m,
+                        unsigned char **src, char *err, int errcap) {
     if (err && errcap > 0) err[0] = 0;
     int fd = open(zip_path, O_RDONLY);
     if (fd < 0) return failf(err, errcap, -ENOENT, "cannot open %s", zip_path);
     struct stat st;
     if (fstat(fd, &st) != 0) { close(fd); return failf(err, errcap, -EIO, "cannot stat %s", zip_path); }
     unsigned long fsize = (unsigned long)st.st_size;
-
-    struct member m;
-    int rc = find_member(fd, fsize, name, &m, err, errcap);
+    int rc = find_member(fd, fsize, name, m, err, errcap);
     if (rc < 0) { close(fd); return rc; }
-    if (m.flags & 1) { close(fd); return failf(err, errcap, -ENOTSUP, "%s is encrypted", name); }
-    if (m.method != 0 && m.method != 8) {
+    if (m->flags & 1) { close(fd); return failf(err, errcap, -ENOTSUP, "%s is encrypted", name); }
+    if (m->method != 0 && m->method != 8) {
         close(fd);
-        return failf(err, errcap, -ENOTSUP, "%s uses compression method %u", name, m.method);
+        return failf(err, errcap, -ENOTSUP, "%s uses compression method %u", name, m->method);
     }
-    if (m.method == 0 && m.csize != m.usize) {
+    if (m->method == 0 && m->csize != m->usize) {
         close(fd);
         return failf(err, errcap, -EINVAL, "%s is stored but its sizes differ", name);
     }
-
     unsigned char lh[LOCAL_LEN];
-    if ((unsigned long)m.local + LOCAL_LEN > fsize || ub_read_at(fd, m.local, lh, sizeof lh) < 0 ||
+    if ((unsigned long)m->local + LOCAL_LEN > fsize || ub_read_at(fd, m->local, lh, sizeof lh) < 0 ||
         ub_le32(lh) != LOCAL_SIG) {
         close(fd);
         return failf(err, errcap, -EINVAL, "%s's local header is damaged", name);
     }
-    unsigned long data = (unsigned long)m.local + LOCAL_LEN + ub_le16(lh + 26) + ub_le16(lh + 28);
-    if (data + m.csize > fsize) {
+    unsigned long data = (unsigned long)m->local + LOCAL_LEN + ub_le16(lh + 26) + ub_le16(lh + 28);
+    if (data + m->csize > fsize) {
         close(fd);
         return failf(err, errcap, -EINVAL, "%s runs past the end of the archive", name);
     }
-    unsigned char *src = malloc(m.csize ? m.csize : 1);
-    if (!src) { close(fd); return failf(err, errcap, -ENOMEM, "out of memory for %s", name); }
-    if (ub_read_at(fd, data, src, m.csize) < 0) {
-        free(src);
+    *src = malloc(m->csize ? m->csize : 1);
+    if (!*src) { close(fd); return failf(err, errcap, -ENOMEM, "out of memory for %s", name); }
+    if (ub_read_at(fd, data, *src, m->csize) < 0) {
+        free(*src);
+        *src = 0;
         close(fd);
         return failf(err, errcap, -EIO, "could not read %s", name);
     }
     close(fd);
+    return 0;
+}
 
+// The packed bytes through the sink, and the verdict on what came out.
+static int unpack(const struct member *m, const unsigned char *src, struct out *o, const char *name,
+                  char *err, int errcap) {
+    int rc;
+    if (m->method == 0) {
+        rc = out_write(o, src, m->csize) ? -1 : 0;
+    } else {
+        struct uinflate_scratch *sc = malloc(sizeof *sc);
+        size_t outlen = 0;
+        rc = sc ? uinflate(src, m->csize, UINFLATE_RAW, sc, out_write, o, &outlen) : -ENOMEM;
+        free(sc);
+    }
+    if (o->stopped) return failf(err, errcap, -EINTR, "stopped");
+    if (o->write_failed) return failf(err, errcap, -EIO, "writing %s failed", name);
+    if (rc < 0) return failf(err, errcap, -EINVAL, "%s: %s", name, uinflate_error());
+    if (o->done != m->usize || KCRC32_FINAL(o->crc) != m->crc)
+        return failf(err, errcap, -EINVAL, "%s does not match its CRC-32 and size", name);
+    return 0;
+}
+
+int uzip_extract(const char *zip_path, const char *name, const char *out_path,
+                 uzip_progress progress, void *ctx, char *err, int errcap) {
+    struct member m;
+    unsigned char *src;
+    int rc = member_bytes(zip_path, name, &m, &src, err, errcap);
+    if (rc < 0) return rc;
     char part[512];
     if (snprintf(part, sizeof part, "%s.part", out_path) >= (int)sizeof part) {
         free(src);
@@ -217,29 +255,37 @@ int uzip_extract(const char *zip_path, const char *name, const char *out_path,
     struct out o = { .crc = KCRC32_INIT, .total = m.usize, .progress = progress, .ctx = ctx };
     o.fd = open(part, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (o.fd < 0) { free(src); return failf(err, errcap, -EACCES, "cannot write %s", part); }
-
-    if (m.method == 0) {
-        rc = out_write(&o, src, m.csize) ? -1 : 0;
-    } else {
-        struct uinflate_scratch *sc = malloc(sizeof *sc);
-        size_t outlen = 0;
-        rc = sc ? uinflate(src, m.csize, UINFLATE_RAW, sc, out_write, &o, &outlen) : -ENOMEM;
-        free(sc);
-    }
+    rc = unpack(&m, src, &o, part, err, errcap);
     free(src);
-    if (fsync(o.fd) != 0) o.write_failed = 1;
+    if (fsync(o.fd) != 0 && rc == 0) rc = failf(err, errcap, -EIO, "writing %s failed", part);
     close(o.fd);
-
-    if (o.stopped) rc = failf(err, errcap, -EINTR, "stopped");
-    else if (o.write_failed) rc = failf(err, errcap, -EIO, "writing %s failed", part);
-    else if (rc < 0) rc = failf(err, errcap, -EINVAL, "%s: %s", name, uinflate_error());
-    else if (o.done != m.usize || KCRC32_FINAL(o.crc) != m.crc)
-        rc = failf(err, errcap, -EINVAL, "%s does not match its CRC-32 and size", name);
     if (rc < 0) { unlink(part); return rc; }
     if (rename(part, out_path) != 0) {
         unlink(part);
         return failf(err, errcap, -EIO, "cannot rename %s into place", part);
     }
+    return 0;
+}
+
+int uzip_read(const char *zip_path, const char *name, size_t max, unsigned char **out, size_t *out_len,
+              char *err, int errcap) {
+    *out = 0;
+    *out_len = 0;
+    struct member m;
+    unsigned char *src;
+    int rc = member_bytes(zip_path, name, &m, &src, err, errcap);
+    if (rc < 0) return rc;
+    if (m.usize > max) { free(src); return failf(err, errcap, -E2BIG, "%s is too big", name); }
+    // THE BUFFER IS THE SIZE THE ARCHIVE RECORDS, and the sink refuses a
+    // byte past it -- so a lying header is a CRC/size error, not an overrun.
+    struct out o = { .fd = -1, .max = m.usize, .crc = KCRC32_INIT, .total = m.usize };
+    o.buf = malloc(m.usize ? m.usize : 1);
+    if (!o.buf) { free(src); return failf(err, errcap, -ENOMEM, "out of memory for %s", name); }
+    rc = unpack(&m, src, &o, name, err, errcap);
+    free(src);
+    if (rc < 0) { free(o.buf); return rc; }
+    *out = o.buf;
+    *out_len = o.len;
     return 0;
 }
 
@@ -269,14 +315,21 @@ static int write_all(int fd, const void *buf, size_t n) {
     return 0;
 }
 
-// MS-DOS packs a date as years-since-1980 | month | day and a time in
+// `path`'s modification time, or with NULL the clock's. MS-DOS packs a date as years-since-1980 | month | day and a time in
 // two-second steps; before 1980 is not representable, so it clamps.
 static void dos_stamp(const char *path, uint16_t *date, uint16_t *tm) {
     struct sys_stat st;
     unsigned y = 1980, mo = 1, d = 1, h = 0, mi = 0, s = 0;
-    if (sys_stat(path, &st) == 0 && st.modified.year >= 1980) {
+    if (path && sys_stat(path, &st) == 0 && st.modified.year >= 1980) {
         y = st.modified.year; mo = st.modified.month; d = st.modified.day;
         h = st.modified.hour; mi = st.modified.minute; s = st.modified.second;
+    } else if (!path) {
+        time_t t = time(0);   // a member made in memory: now, local as a DOS date is
+        struct tm *now = localtime(&t);
+        if (now && now->tm_year + 1900 >= 1980) {
+            y = (unsigned)now->tm_year + 1900; mo = (unsigned)now->tm_mon + 1; d = (unsigned)now->tm_mday;
+            h = (unsigned)now->tm_hour; mi = (unsigned)now->tm_min; s = (unsigned)now->tm_sec;
+        }
     }
     *date = (uint16_t)(((y - 1980) << 9) | (mo << 5) | d);
     *tm = (uint16_t)((h << 11) | (mi << 5) | (s / 2));
@@ -348,36 +401,16 @@ int uzip_add_dir(struct uzip_writer *w, const char *name, char *err, int errcap)
 // The largest member this reads whole -- and holds twice, raw and packed.
 #define UZIP_MEMBER_MAX (512ul * 1024 * 1024)
 
-int uzip_add_file(struct uzip_writer *w, const char *name, const char *src_path, int level,
-                  uzip_progress progress, void *ctx, char *err, int errcap) {
-    struct sys_stat st;
-    if (sys_stat(src_path, &st) != 0) return failf(err, errcap, -ENOENT, "cannot read %s", src_path);
-    if (st.size >= 0xFFFFFFFFull || st.size > UZIP_MEMBER_MAX)
-        return failf(err, errcap, -E2BIG, "%s is too big to compress here", src_path);
-    unsigned long n = (unsigned long)st.size;
-    unsigned char *raw = malloc(n ? n : 1);
-    if (!raw) return failf(err, errcap, -ENOMEM, "out of memory for %s", src_path);
-    int fd = open(src_path, O_RDONLY);
-    if (fd < 0) { free(raw); return failf(err, errcap, -EACCES, "cannot open %s", src_path); }
-    unsigned long got = 0;
-    while (got < n) {
-        long r = read(fd, raw + got, n - got);
-        if (r <= 0) break;
-        got += (unsigned long)r;
-        if (progress && progress(ctx, got / 2, n)) {   // reading is half the work
-            close(fd); free(raw);
-            return failf(err, errcap, -EINTR, "stopped");
-        }
-    }
-    close(fd);
-    if (got != n) { free(raw); return failf(err, errcap, -EIO, "%s changed while it was read", src_path); }
-
+// One member from bytes in hand, its date `date`/`time` (MS-DOS).
+static int add_bytes(struct uzip_writer *w, const char *name, const unsigned char *raw, size_t n, int level,
+                     uint16_t date, uint16_t time, char *err, int errcap) {
+    if (n >= 0xFFFFFFFFull) return failf(err, errcap, -E2BIG, "%s is too big to compress here", name);
     struct uzip_wentry *e = new_entry(w, name, err, errcap);
-    if (!e) { free(raw); return -ENOMEM; }
+    if (!e) return -ENOMEM;
     e->usize = (uint32_t)n;
     e->crc = KCRC32_FINAL(kcrc32_update(KCRC32_INIT, raw, n));
-    dos_stamp(src_path, &e->dos_date, &e->dos_time);
-
+    e->dos_date = date;
+    e->dos_time = time;
     // DEFLATED ONLY WHEN IT IS SMALLER: a JPEG or another archive comes
     // out bigger, and every archiver stores those.
     unsigned char *packed = 0;
@@ -402,8 +435,46 @@ int uzip_add_file(struct uzip_writer *w, const char *name, const char *src_path,
         rc = write_local(w, e, raw);
     }
     free(packed);
-    free(raw);
     if (rc) return failf(err, errcap, -EIO, "writing %s failed", w->part);
+    return 0;
+}
+
+int uzip_add_mem(struct uzip_writer *w, const char *name, const void *data, size_t n, int level,
+                 char *err, int errcap) {
+    uint16_t date, time;
+    dos_stamp(0, &date, &time);
+    return add_bytes(w, name, data, n, level, date, time, err, errcap);
+}
+
+int uzip_add_file(struct uzip_writer *w, const char *name, const char *src_path, int level,
+                  uzip_progress progress, void *ctx, char *err, int errcap) {
+    struct sys_stat st;
+    if (sys_stat(src_path, &st) != 0) return failf(err, errcap, -ENOENT, "cannot read %s", src_path);
+    if (st.size >= 0xFFFFFFFFull || st.size > UZIP_MEMBER_MAX)
+        return failf(err, errcap, -E2BIG, "%s is too big to compress here", src_path);
+    unsigned long n = (unsigned long)st.size;
+    unsigned char *raw = malloc(n ? n : 1);
+    if (!raw) return failf(err, errcap, -ENOMEM, "out of memory for %s", src_path);
+    int fd = open(src_path, O_RDONLY);
+    if (fd < 0) { free(raw); return failf(err, errcap, -EACCES, "cannot open %s", src_path); }
+    unsigned long got = 0;
+    while (got < n) {
+        long r = read(fd, raw + got, n - got);
+        if (r <= 0) break;
+        got += (unsigned long)r;
+        if (progress && progress(ctx, got / 2, n)) {   // reading is half the work
+            close(fd); free(raw);
+            return failf(err, errcap, -EINTR, "stopped");
+        }
+    }
+    close(fd);
+    if (got != n) { free(raw); return failf(err, errcap, -EIO, "%s changed while it was read", src_path); }
+
+    uint16_t date, time;
+    dos_stamp(src_path, &date, &time);
+    int rc = add_bytes(w, name, raw, n, level, date, time, err, errcap);
+    free(raw);
+    if (rc) return rc;
     if (progress) progress(ctx, n, n);
     return 0;
 }

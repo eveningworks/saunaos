@@ -36,6 +36,9 @@
 #include "ui/uui_infonote.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_menubar.h"
+#include "ui/uui_nameask.h"
+#include "ui/uui_scale.h"
+#include "ui/uui_tabs.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_sizepick.h"
 #include "ui/uui_slider.h"
@@ -56,6 +59,7 @@
 enum {
     ID_MENU = 1, ID_BAR, ID_RAIL, ID_CANVAS, ID_RECENT, ID_PALETTE, ID_SIZE, ID_SHAPE,
     ID_STATUS, ID_ASK, ID_NEWDLG, ID_NEW_BG, ID_RESIZE, ID_TEXTFILL,
+    ID_PTABS, ID_LBAR, ID_LAYERS, ID_LOPACITY,
     ID_PICK = 40,   // .. + UUI_COLOURPICK_IDS
     ID_NEW_SIZE = 50,   // .. + UUI_SIZEPICK_IDS
     ID_FONT = 80,       // .. + UUI_FONTPICK_IDS
@@ -66,15 +70,17 @@ enum {
     CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_ACTUAL, CMD_ZOOM_FIT, CMD_PANEL,
     CMD_ROT_RIGHT, CMD_ROT_LEFT, CMD_ROT_180, CMD_FLIP_H, CMD_FLIP_V, CMD_RESIZE, CMD_CANVAS,
     CMD_SWAP,
+    CMD_LAYER_NEW, CMD_LAYER_DUP, CMD_LAYER_DEL, CMD_LAYER_MERGE, CMD_LAYER_FLATTEN,
+    CMD_LAYER_UP, CMD_LAYER_DOWN, CMD_LAYER_RENAME, CMD_LAYER_HIDE,
     CMD_TOOL = 200,   // + enum paint_tool
     // The unsaved-changes question's answers.
     ASK_SAVE = 300, ASK_DISCARD, ASK_CANCEL,
+    ASK_RASTERIZE, ASK_KEEP_TEXT,
     NEW_CREATE = 310, NEW_CANCEL,
 };
 
 // --- the state paint.h shares ---------------------------------------------
 
-struct uimg g_img;
 struct upixundo g_undo;
 struct uui_paintcanvas g_canvas;
 int g_tool = TOOL_BRUSH;
@@ -130,7 +136,7 @@ static char g_title[PATH_MAX_LEN + 16];
 static char g_zoom_text[12], g_st_pos[32], g_st_size[32], g_st_note[128];
 static char g_size_text[24];
 static char g_ask_line[PATH_MAX_LEN + 48];
-static const char *g_ask_rows[2];
+static const char *g_ask_rows[3];
 
 // What the unsaved-changes question was asked for: what to do once the
 // picture is saved, or the change let go.
@@ -189,6 +195,20 @@ static const struct uui_menu_item image_items[] = {
     UUI_MENU("Flip horizontally", CMD_FLIP_H, 0),
     UUI_MENU("Flip vertically", CMD_FLIP_V, 0),
 };
+static const struct uui_menu_item layer_items[] = {
+    UUI_MENU_ICON("New layer", CMD_LAYER_NEW, "Ctrl+Shift+N", "tb-plus", UTHEME_ACT_CREATE),
+    UUI_MENU_ICON("Duplicate layer", CMD_LAYER_DUP, "Ctrl+Shift+D", "tb-copy", 0),
+    UUI_MENU_ICON("Delete layer", CMD_LAYER_DEL, 0, "tb-delete", UTHEME_ACT_DANGER),
+    UUI_MENU_SEP,
+    UUI_MENU_ICON("Merge down", CMD_LAYER_MERGE, "Ctrl+E", "tb-merge-down", 0),
+    UUI_MENU("Flatten", CMD_LAYER_FLATTEN, "Ctrl+Shift+F"),
+    UUI_MENU_SEP,
+    UUI_MENU_ICON("Move layer up", CMD_LAYER_UP, 0, "tb-up", 0),
+    UUI_MENU_ICON("Move layer down", CMD_LAYER_DOWN, 0, "tb-down", 0),
+    UUI_MENU_SEP,
+    UUI_MENU_ICON("Rename layer...", CMD_LAYER_RENAME, 0, "tb-rename", UTHEME_ACT_EDIT),
+    UUI_MENU("Hide layer", CMD_LAYER_HIDE, 0),
+};
 static const struct uui_menu_item tool_items[] = {
     UUI_MENU_ICON("Pencil", CMD_TOOL + TOOL_PENCIL, "P", "tb-pencil", 0),
     UUI_MENU_ICON("Brush", CMD_TOOL + TOOL_BRUSH, "B", "tb-brush", 0),
@@ -205,6 +225,7 @@ static const struct uui_menu_item menu_bar[] = {
     UUI_SUBMENU("Edit", edit_items),
     UUI_SUBMENU("View", view_items),
     UUI_SUBMENU("Image", image_items),
+    UUI_SUBMENU("Layers", layer_items),
     UUI_SUBMENU("Tools", tool_items),
     UUI_SUBMENU("Colours", colour_items),
 };
@@ -249,6 +270,26 @@ static const struct uui_toggle textfill_items[] = {
     { "Fill", "Fill the box with Colour 2", "tb-fill", &g_fill_chip },
 };
 
+// THE PANEL'S TWO TABS (L2 from the mockups): the colours and the
+// brush, or the layers -- Krita's dockers, folded into one panel.
+static struct uui_tab g_ptab_list[] = { { "Colours & brush", 0, 0 }, { "Layers", 0, 0 } };
+static struct uui_tabs g_ptabs;
+static struct uui_toolbar g_lbar;
+static struct uui_layerlist g_layerlist;
+static struct uui_scale g_lopacity;
+static struct uui_infonote g_lnote;
+static struct uui_nameask g_rename;
+static char g_opacity_text[32];
+static int g_layers_head_y, g_opacity_head_y;
+static const struct uui_toolbar_item lbar_items[] = {
+    { "tb-plus",       "New layer (Ctrl+Shift+N)",       CMD_LAYER_NEW,   0, 0, 0, UTHEME_ACT_CREATE },
+    { "tb-copy",       "Duplicate layer (Ctrl+Shift+D)", CMD_LAYER_DUP,   0, 0, 0, 0 },
+    { "tb-merge-down", "Merge down (Ctrl+E)",            CMD_LAYER_MERGE, 0, 0, 0, 0 },
+    { "tb-up",         "Move layer up",                  CMD_LAYER_UP,    0, 0, 0, 0 },
+    { "tb-down",       "Move layer down",                CMD_LAYER_DOWN,  0, 0, 0, 0 },
+    { "tb-delete",     "Delete layer",                   CMD_LAYER_DEL,   0, UUI_TB_END, 0, UTHEME_ACT_DANGER },
+};
+
 static struct uui_item g_widgets[] = {
     { .ops = &uui_toolbar_ops,       .widget = &g_bar,       .id = ID_BAR,     .name = "bar" },
     { .ops = &uui_toolbar_ops,       .widget = &g_rail,      .id = ID_RAIL,    .name = "rail" },
@@ -263,13 +304,19 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_custom_ops,        .widget = &g_textbar_card, .name = "textbar", .hidden = 1 },
     { 0 },   // the font picker: uui_fontpick_item(), set in main()
     { .ops = &uui_togglebar_ops,     .widget = &g_textfill,  .id = ID_TEXTFILL, .name = "textfill", .hidden = 1 },
+    { .ops = &uui_tabs_ops,          .widget = &g_ptabs,     .id = ID_PTABS,   .name = "paneltabs" },
+    { .ops = &uui_toolbar_ops,       .widget = &g_lbar,      .id = ID_LBAR,    .name = "layerbar", .hidden = 1 },
+    { .ops = &uui_layerlist_ops,     .widget = &g_layerlist, .id = ID_LAYERS,  .name = "layers", .hidden = 1 },
+    { .ops = &uui_scale_ops,         .widget = &g_lopacity,  .id = ID_LOPACITY, .name = "opacity", .hidden = 1 },
+    { .ops = &uui_infonote_ops,      .widget = &g_lnote,     .name = "layernote", .hidden = 1 },
     // The menu bar after the bars: its popups must be on top of them.
     { .ops = &uui_menubar_ops,       .widget = &g_menu,      .id = ID_MENU,    .name = "menu" },
     { .ops = &uui_dialog_ops,        .widget = &g_ask,       .id = ID_ASK,     .name = "ask" },
     { .ops = &uui_dialog_ops,        .widget = &g_newdlg,    .id = ID_NEWDLG,  .name = "newdlg" },
     { 0 },   // Resize: paint_resize.c's dialog, set in main()
 };
-enum { W_PICK = 3, W_PANEL_FIRST = 3, W_PANEL_LAST = 7, W_TEXTBAR = 9, W_FONTPICK = 10, W_TEXTFILL = 11 };
+enum { W_PICK = 3, W_PANEL_FIRST = 3, W_PANEL_LAST = 7, W_TEXTBAR = 9, W_FONTPICK = 10, W_TEXTFILL = 11,
+       W_PTABS = 12, W_LAYERS_FIRST = 13, W_LAYERS_LAST = 16 };
 
 // --- small things -------------------------------------------------------------
 
@@ -312,7 +359,30 @@ static void set_brush(int px) {
 // --- what paint.h asks of the window -------------------------------------------
 
 void paint_changed(const struct upix_rect *r) {
-    (void)r;
+    layers_update(r);
+    set_title();
+    if (g_app) uapp_redraw(g_app);
+}
+
+static void sync_opacity(void) {
+    int pct = (layers_opacity(layers_active()) * 100 + 127) / 255;
+    if (!g_lopacity.dragging) uui_scale_set_value(&g_lopacity, pct);
+    snprintf(g_opacity_text, sizeof g_opacity_text, "Opacity \xb7 %d%%", pct);
+}
+
+void paint_layers_changed(void) {
+    static int w, h;
+    const struct uimg *v = layers_view();
+    g_canvas.img = (struct uimg *)v;
+    if (v->w != w || v->h != h) {
+        w = v->w;
+        h = v->h;
+        uui_paintcanvas_picture_changed(&g_canvas);
+    }
+    g_layerlist.rows = layers_rows();
+    g_layerlist.count = layers_count();
+    g_layerlist.current = layers_active();
+    sync_opacity();
     set_title();
     if (g_app) uapp_redraw(g_app);
 }
@@ -368,44 +438,58 @@ static void set_tool(int t) {
 // A fresh picture of one colour -- white, MS Paint's default -- with an
 // empty history.
 static int new_picture(int w, int h, uint32_t bg) {
-    uint32_t *px = malloc((size_t)w * h * 4);
-    if (!px) { note("Not enough memory for a picture that big"); return 0; }
-    for (size_t i = 0; i < (size_t)w * h; i++) px[i] = bg;
-    uimg_free(&g_img);
-    g_img.px = px;
-    g_img.w = w;
-    g_img.h = h;
-    g_img.has_alpha = (bg >> 24) != 0xFF;
-    upixundo_clear(&g_undo);
+    struct uimg im = { 0 };
+    im.px = malloc((size_t)w * h * 4);
+    if (!im.px) { note("Not enough memory for a picture that big"); return 0; }
+    for (size_t i = 0; i < (size_t)w * h; i++) im.px[i] = bg;
+    im.w = w;
+    im.h = h;
+    im.has_alpha = (bg >> 24) != 0xFF;
+    if (!layers_reset(&im)) { uimg_free(&im); note("Not enough memory for a picture that big"); return 0; }
     g_saved_state = upixundo_state(&g_undo);
     g_path[0] = '\0';
-    g_canvas.img = &g_img;
-    uui_paintcanvas_picture_changed(&g_canvas);
     uui_paintcanvas_set_zoom(&g_canvas, 100, -1, -1);
     set_title();
     return 1;
 }
 
+static int is_ora(const char *path) {
+    const char *dot = strrchr(k_path_basename(path), '.');
+    return dot && !strcasecmp(dot, ".ora");
+}
+
 static int load_picture(const char *path) {
-    struct uimg im = { 0 };
-    int r = uimg_load(path, &im);
-    if (r != 0) {
-        snprintf(g_st_note, sizeof g_st_note, "Can't open %s: %s", k_path_basename(path), uimg_last_error());
-        ulogf("paint: open %s failed: %d\n", path, r);
-        return 0;
+    if (is_ora(path)) {
+        struct uora_layer *ls;
+        int n, w, h;
+        char err[160];
+        int r = uora_load(path, &ls, &n, &w, &h, err, sizeof err);
+        if (r != 0 || n > PAINT_LAYERS_MAX || !layers_reset_many(ls, n)) {
+            snprintf(g_st_note, sizeof g_st_note, "Can't open %s: %s", k_path_basename(path),
+                     r ? err : "too many layers, or not enough memory");
+            ulogf("paint: open %s failed: %d\n", path, r);
+            if (r == 0) uora_free(ls, n);
+            return 0;
+        }
+        uora_free(ls, n);   // the pixels went to the stack; the array is let go
+    } else {
+        struct uimg im = { 0 };
+        int r = uimg_load(path, &im);
+        if (r != 0 || !layers_reset(&im)) {
+            snprintf(g_st_note, sizeof g_st_note, "Can't open %s: %s", k_path_basename(path),
+                     r ? uimg_last_error() : "not enough memory");
+            ulogf("paint: open %s failed: %d\n", path, r);
+            uimg_free(&im);
+            return 0;
+        }
     }
-    uimg_free(&g_img);
-    g_img = im;
-    upixundo_clear(&g_undo);
     g_saved_state = upixundo_state(&g_undo);
     snprintf(g_path, sizeof g_path, "%s", path);
-    g_canvas.img = &g_img;
-    uui_paintcanvas_picture_changed(&g_canvas);
     // Shown whole, never enlarged: a photo opens fitted, an icon at 100%.
     uui_paintcanvas_set_zoom(&g_canvas, uui_paintcanvas_fit_zoom(&g_canvas), -1, -1);
     note("");
     set_title();
-    ulogf("paint: opened %s %dx%d\n", path, g_img.w, g_img.h);
+    ulogf("paint: opened %s %dx%d, %d layers\n", path, g_layer->w, g_layer->h, layers_count());
     return 1;
 }
 
@@ -416,21 +500,36 @@ static const char *write_format(const char *path) {
     if (!strcasecmp(dot, ".png")) return "png";
     if (!strcasecmp(dot, ".jpg") || !strcasecmp(dot, ".jpeg")) return "jpeg";
     if (!strcasecmp(dot, ".qoi")) return "qoi";
+    if (!strcasecmp(dot, ".ora")) return "ora";
     return 0;
 }
 
 static int save_to(const char *path) {
     const char *fmt = write_format(path);
-    if (!fmt) { note("Save as .png, .jpg or .qoi"); return 0; }
-    int r = uimg_save(path, &g_img, fmt);
+    if (!fmt) { note("Save as .png, .jpg, .qoi or .ora"); return 0; }
+    int r;
+    char err[160] = "";
+    if (!strcmp(fmt, "ora")) {
+        static struct uora_layer ls[PAINT_LAYERS_MAX];
+        int n = layers_export(ls);
+        r = uora_save(path, ls, n, layers_view(), err, sizeof err);
+        layers_export_free(ls, n);
+    } else {
+        r = uimg_save(path, layers_view(), fmt);
+    }
     if (r != 0) {
-        snprintf(g_st_note, sizeof g_st_note, "Couldn't save %s (%d)", k_path_basename(path), r);
-        ulogf("paint: save %s failed: %d\n", path, r);
+        snprintf(g_st_note, sizeof g_st_note, "Couldn't save %s (%s)", k_path_basename(path), err[0] ? err : "error");
+        ulogf("paint: save %s failed: %d %s\n", path, r, err);
         return 0;
     }
     snprintf(g_path, sizeof g_path, "%s", path);
+    // A FLAT FILE OF A LAYERED PICTURE IS SAVED, Paint.NET's rule, with a
+    // note that only .ora keeps the layers: every typed word is a layer,
+    // and a PNG that never counted as saved would ask at every close.
+    int flat = strcmp(fmt, "ora") && layers_count() > 1;
     g_saved_state = upixundo_state(&g_undo);
-    snprintf(g_st_note, sizeof g_st_note, "Saved %s", k_path_basename(path));
+    if (flat) snprintf(g_st_note, sizeof g_st_note, "Saved %s flattened -- .ora keeps the layers", k_path_basename(path));
+    else snprintf(g_st_note, sizeof g_st_note, "Saved %s", k_path_basename(path));
     ulogf("paint: saved %s as %s\n", path, fmt);
     set_title();
     return 1;
@@ -528,8 +627,23 @@ static void ask_then(enum pending p) {
     uui_dialog_open(&g_ask, "Paint", g_ask_rows, 1, btns, 3, 0, ASK_CANCEL);
 }
 
+void paint_ask_rasterize(void) {
+    if (uui_dialog_is_open(&g_ask)) return;
+    static const struct uui_dialog_button btns[] = {
+        { "Make it pixels", ASK_RASTERIZE, UUI_DLG_PRIMARY }, { "Cancel", ASK_KEEP_TEXT, 0 },
+    };
+    snprintf(g_ask_line, sizeof g_ask_line, "\"%s\" is a text layer. Make it pixels to paint on it?",
+             layers_name(layers_active()));
+    g_ask_rows[0] = g_ask_line;
+    g_ask_rows[1] = "Its words can no longer be edited after that.";
+    uui_dialog_set_bounds(&g_ask, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    uui_dialog_open(&g_ask, "Paint", g_ask_rows, 2, btns, 2, 0, ASK_KEEP_TEXT);
+}
+
 static void ask_answer(int code) {
     uui_dialog_close(&g_ask);
+    if (code == ASK_RASTERIZE) { layers_rasterize(layers_active()); return; }
+    if (code == ASK_KEEP_TEXT) return;
     if (code == ASK_SAVE) do_save();
     else if (code == ASK_DISCARD) run_pending();
     else g_pending = PEND_NONE;
@@ -595,48 +709,76 @@ static void new_answer(int code) {
 
 void paint_note(const char *text) { note(text); }
 
-void paint_replace_picture(struct uimg *out) {
-    upixundo_begin(&g_undo, &g_img);
-    uimg_free(&g_img);
-    g_img = *out;
-    upixundo_commit(&g_undo, &g_img, 0);
-    uui_paintcanvas_picture_changed(&g_canvas);
-    paint_changed(0);
+static int rotate_one(const struct uimg *in, struct uimg *out, int index, void *ctx) {
+    (void)index;
+    return uimg_rotate(in, *(const int *)ctx, out);
 }
 
 static void rotate(int quarters) {
-    struct uimg out = { 0 };
-    if (uimg_rotate(&g_img, quarters, &out) != 0) { note("Not enough memory to rotate"); return; }
-    paint_replace_picture(&out);
+    if (!layers_transform(rotate_one, &quarters, "rotate")) note("Not enough memory to rotate");
+}
+
+static int flip_one(const struct uimg *in, struct uimg *out, int index, void *ctx) {
+    (void)index;
+    int horizontal = *(const int *)ctx;
+    out->px = malloc((size_t)in->w * in->h * 4);
+    if (!out->px) return -1;
+    out->w = in->w;
+    out->h = in->h;
+    for (int y = 0; y < in->h; y++) {
+        const uint32_t *src = in->px + (size_t)(horizontal ? y : in->h - 1 - y) * in->w;
+        uint32_t *row = out->px + (size_t)y * in->w;
+        for (int x = 0; x < in->w; x++) row[x] = src[horizontal ? in->w - 1 - x : x];
+    }
+    return 0;
 }
 
 static void flip(int horizontal) {
-    upixundo_begin(&g_undo, &g_img);
-    for (int y = 0; y < (horizontal ? g_img.h : g_img.h / 2); y++) {
-        uint32_t *row = g_img.px + (size_t)y * g_img.w;
-        if (horizontal) {
-            for (int i = 0, j = g_img.w - 1; i < j; i++, j--) { uint32_t t = row[i]; row[i] = row[j]; row[j] = t; }
-        } else {
-            uint32_t *other = g_img.px + (size_t)(g_img.h - 1 - y) * g_img.w;
-            for (int i = 0; i < g_img.w; i++) { uint32_t t = row[i]; row[i] = other[i]; other[i] = t; }
-        }
-    }
-    struct upix_rect all = { 0, 0, g_img.w, g_img.h };
-    upixundo_commit(&g_undo, &g_img, &all);
-    paint_changed(&all);
+    if (!layers_transform(flip_one, &horizontal, "flip")) note("Not enough memory to flip");
 }
 
 static void undo_redo(int redo) {
     struct upix_rect r;
-    int ok = redo ? upixundo_redo(&g_undo, &g_img, &r) : upixundo_undo(&g_undo, &g_img, &r);
+    int ok = redo ? upixundo_redo(&g_undo, &r) : upixundo_undo(&g_undo, &r);
     if (!ok) return;
-    if (r.w == 0) uui_paintcanvas_picture_changed(&g_canvas);
-    paint_changed(&r);
+    paint_changed(r.w ? &r : 0);
 }
 
 static void zoom_to(int z) {
     uui_paintcanvas_set_zoom(&g_canvas, z, -1, -1);
 }
+
+// RENAME, in ui/uui_nameask.h's window: the name it has, selected.
+static const char *rename_check(void *ctx, const char *name) {
+    (void)ctx;
+    if (!name[0]) return "A layer needs a name";
+    if (strlen(name) >= PAINT_LAYER_NAME) return "That name is too long";
+    return 0;
+}
+
+static void rename_done(void *ctx, const char *name) {
+    layers_rename((int)(long)ctx, name);
+    if (g_app) uapp_redraw(g_app);
+}
+
+static void rename_open(void) {
+    if (uui_nameask_is_open(&g_rename)) return;
+    int i = layers_active();
+    uui_nameask_open(&g_rename, g_app, "Rename layer", "Name", layers_name(i), "Rename", rename_check,
+                     rename_done, (void *)(long)i);
+}
+
+static void layer_up(void)   { layers_move(layers_active(), layers_active() + 1); }
+static void layer_down(void) { layers_move(layers_active(), layers_active() - 1); }
+static void layer_hide(void) { layers_set_hidden(layers_active(), !layers_rows()[layers_active()].hidden); }
+
+// The Layers menu and the panel's buttons, CMD_LAYER_NEW onwards.
+static void (*const LAYER_CMD[])(void) = {
+    layers_add, layers_duplicate, layers_delete, layers_merge_down, layers_flatten,
+    layer_up, layer_down, rename_open, layer_hide,
+};
+_Static_assert(sizeof LAYER_CMD / sizeof LAYER_CMD[0] == CMD_LAYER_HIDE - CMD_LAYER_NEW + 1,
+               "one handler per CMD_LAYER_*, in their order");
 
 static void command(int code) {
     if (code >= CMD_TOOL && code < CMD_TOOL + TOOL_COUNT) { set_tool(code - CMD_TOOL); return; }
@@ -646,6 +788,11 @@ static void command(int code) {
     if (code != CMD_ZOOM_IN && code != CMD_ZOOM_OUT && code != CMD_ZOOM_ACTUAL && code != CMD_ZOOM_FIT &&
         code != CMD_PANEL)
         text_commit();
+    if (code >= CMD_LAYER_NEW && code < CMD_LAYER_NEW + (int)(sizeof LAYER_CMD / sizeof LAYER_CMD[0])) {
+        LAYER_CMD[code - CMD_LAYER_NEW]();
+        if (g_app) uapp_redraw(g_app);
+        return;
+    }
     switch (code) {
     case CMD_NEW:         ask_then(PEND_NEW); break;
     case CMD_OPEN:        ask_then(PEND_OPEN); break;
@@ -669,6 +816,7 @@ static void command(int code) {
     case CMD_SWAP: {
         uint32_t t = g_colour[0]; g_colour[0] = g_colour[1]; g_colour[1] = t;
         sync_pick();
+        if (text_active()) text_restyle();
         break;
     }
     default: break;
@@ -683,6 +831,13 @@ static unsigned item_flags(int code) {
     case CMD_UNDO:  return upixundo_can_undo(&g_undo) ? 0 : UUI_MI_DISABLED;
     case CMD_REDO:  return upixundo_can_redo(&g_undo) ? 0 : UUI_MI_DISABLED;
     case CMD_PANEL: return g_panel ? UUI_MI_CHECKED : 0;
+    case CMD_LAYER_DEL:   return layers_count() > 1 ? 0 : UUI_MI_DISABLED;
+    case CMD_LAYER_MERGE: return layers_active() > 0 ? 0 : UUI_MI_DISABLED;
+    case CMD_LAYER_UP:    return layers_active() < layers_count() - 1 ? 0 : UUI_MI_DISABLED;
+    case CMD_LAYER_DOWN:  return layers_active() > 0 ? 0 : UUI_MI_DISABLED;
+    case CMD_LAYER_NEW: case CMD_LAYER_DUP:
+        return layers_count() < PAINT_LAYERS_MAX ? 0 : UUI_MI_DISABLED;
+    case CMD_LAYER_HIDE:  return layers_rows()[layers_active()].hidden ? UUI_MI_CHECKED : 0;
     case CMD_ZOOM_IN:  return g_canvas.zoom >= UUI_PAINT_ZOOM_MAX ? UUI_MI_DISABLED : 0;
     case CMD_ZOOM_OUT: return g_canvas.zoom <= UUI_PAINT_ZOOM_MIN ? UUI_MI_DISABLED : 0;
     default: return 0;
@@ -762,13 +917,37 @@ static void layout(int cw, int ch) {
 
     g_pw = g_panel ? pad * 30 : 0;
     g_px = cw - g_pw;
-    for (int i = W_PANEL_FIRST; i <= W_PANEL_LAST; i++) g_widgets[i].hidden = !g_panel;
+    int tab = g_ptabs.selected;
+    for (int i = W_PANEL_FIRST; i <= W_PANEL_LAST; i++) g_widgets[i].hidden = !g_panel || tab != 0;
+    for (int i = W_LAYERS_FIRST; i <= W_LAYERS_LAST; i++) g_widgets[i].hidden = !g_panel || tab != 1;
+    g_widgets[W_PTABS].hidden = !g_panel;
     uui_paintcanvas_ops.set_geometry(&g_canvas, rw, top, g_px - rw - (g_panel ? 1 : 0), bottom - top);
     if (!g_panel) return;
 
+    int x = g_px + pad, w = g_pw - 2 * pad, y = top + pad / 2;
+    uui_tabs_set_geometry(&g_ptabs, x, y, w, uui_tabs_height());
+    y += uui_tabs_height() + pad;
+    if (tab == 1) {
+        // LAYERS: the buttons, the stack filling the room, the current
+        // layer's opacity, and a line on what saving keeps.
+        int tw, th, nw, nh, sw2, sh2;
+        g_layers_head_y = y;
+        uui_toolbar_natural_size(&g_lbar, &tw, &th);
+        uui_toolbar_ops.set_geometry(&g_lbar, x, y, w, th);
+        uui_toolbar_set_bounds(&g_lbar, 0, 0, cw, ch);
+        y += th + pad / 2;
+        uui_infonote_ops.natural_size(&g_lnote, &nw, &nh);
+        uui_infonote_ops.set_geometry(&g_lnote, x, bottom - pad - nh, w, nh);
+        uui_scale_natural_size(&g_lopacity, &sw2, &sh2);
+        int sy = bottom - pad - nh - pad - sh2;
+        uui_scale_set_geometry(&g_lopacity, x, sy, w, sh2);
+        g_opacity_head_y = sy - lh - pad / 2;
+        uui_layerlist_ops.set_geometry(&g_layerlist, x, y, w, g_opacity_head_y - pad - y);
+        return;
+    }
+
     // The panel, top to bottom: the two colours, the picker, Recent,
     // the palette, the brush. Headings are on_draw's.
-    int x = g_px + pad, w = g_pw - 2 * pad, y = top + pad;
     g_colour_head_y = y;
     y += lh + pad / 2;
     g_box_s = lh * 2;
@@ -802,7 +981,7 @@ static void layout(int cw, int ch) {
 
 static void status(void) {
     snprintf(g_zoom_text, sizeof g_zoom_text, "%d%%", g_canvas.zoom);
-    snprintf(g_st_size, sizeof g_st_size, "%d \xd7 %d px", g_img.w, g_img.h);
+    snprintf(g_st_size, sizeof g_st_size, "%d \xd7 %d px", g_layer->w, g_layer->h);
 }
 
 static void heading(struct ugfx_surface *s, int y, const char *text) {
@@ -831,13 +1010,20 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     uapp_log_layout(a, "paint");
     uapp_logf_layout("paint: layout tool %d colour %08X %08X brush %d shape %d zoom %d\n", g_tool,
                      (unsigned)g_colour[0], (unsigned)g_colour[1], g_brush, (int)g_shape, g_canvas.zoom);
-    uapp_logf_layout("paint: layout image %d %d dirty %d path %s\n", g_img.w, g_img.h, dirty(),
+    uapp_logf_layout("paint: layout image %d %d dirty %d path %s\n", g_layer->w, g_layer->h, dirty(),
                      g_path[0] ? g_path : "-");
     text_log_layout();
+    uapp_logf_layout("paint: layout layerstack %d current %d opacity %d tab %d text %d\n", layers_count(),
+                     layers_active(), layers_opacity(layers_active()), g_ptabs.selected,
+                     layers_text(layers_active()) != 0);
     if (!g_panel) return;
     int top = g_canvas.y, bottom = g_sb.y;
     ugfx_fill_rect(s, g_px, top, g_pw, bottom - top, UTHEME_PANEL_BG);
     ugfx_fill_rect(s, g_px - 1, top, 1, bottom - top, UTHEME_SEPARATOR);
+    if (g_ptabs.selected == 1) {
+        heading(s, g_opacity_head_y, g_opacity_text);
+        return;
+    }
     heading(s, g_colour_head_y, "Colour");
     colour_box(s, 0);
     colour_box(s, 1);
@@ -880,19 +1066,42 @@ static void on_widget(struct uapp *a, int id, int reason) {
         return;
     }
     if (id >= ID_PICK && id < ID_PICK + UUI_COLOURPICK_IDS) {
-        if (uui_colourpick_on_widget(&g_pick, id)) g_colour[g_edit] = g_pick.rgb | 0xFF000000u;
+        if (uui_colourpick_on_widget(&g_pick, id)) {
+            g_colour[g_edit] = g_pick.rgb | 0xFF000000u;
+            if (text_active()) text_restyle();   // the open box takes the colour, Windows 11 Paint's
+        }
         uapp_redraw(a);
         return;
     }
     switch (id) {
+    case ID_PTABS: break;   // the tab chosen: layout() reads it
+    case ID_LBAR: if ((code = uui_toolbar_take_code(&g_lbar)) > 0) command(code); break;
+    case ID_LAYERS: {
+        int row, to;
+        enum uui_layer_event ev = uui_layerlist_take(&g_layerlist, &row, &to);
+        if (ev != UUI_LAYER_NONE && !tools_busy()) text_commit();
+        if (ev == UUI_LAYER_PICK) layers_select(row);
+        else if (ev == UUI_LAYER_EYE) layers_set_hidden(row, !layers_rows()[row].hidden);
+        else if (ev == UUI_LAYER_MOVE) layers_move(row, to);
+        else if (ev == UUI_LAYER_RENAME) { layers_select(row); rename_open(); }
+        break;
+    }
+    case ID_LOPACITY:
+        // SHOWN AS IT MOVES, KEPT ONCE: a drag is one undo step.
+        text_commit();
+        layers_opacity_preview((int)((uui_scale_value(&g_lopacity) * 255 + 50) / 100));
+        if (reason != UUI_REASON_PRESS && reason != UUI_REASON_MOTION) layers_opacity_commit();
+        break;
     case ID_MENU: if ((code = uui_menubar_take_code(&g_menu)) > 0) command(code); break;
     case ID_BAR:  if ((code = uui_toolbar_take_code(&g_bar)) > 0) command(code); break;
     case ID_RAIL: if ((code = uui_toolbar_take_code(&g_rail)) > 0) command(code); break;
     case ID_RECENT:
         if (uui_swatches_take(&g_recent, &rgb)) { g_colour[g_edit] = rgb | 0xFF000000u; sync_pick(); }
+        if (text_active()) text_restyle();
         break;
     case ID_PALETTE:
         if (uui_swatches_take(&g_palette, &rgb)) { g_colour[g_edit] = rgb | 0xFF000000u; sync_pick(); }
+        if (text_active()) text_restyle();
         break;
     case ID_SIZE:
         if (g_size.selected >= 0) { g_brush = SIZE_PX[g_size.selected]; sync_size_text(); }
@@ -921,15 +1130,16 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         uui_menubar_is_open(&g_menu)) return;
     if (b & 0x1) {
         // The two colour wells choose which one the picker edits.
-        for (int i = 0; i < 2 && g_panel; i++)
+        for (int i = 0; i < 2 && g_panel && g_ptabs.selected == 0; i++)
             if (uui_hit(g_box_x[i], g_box_y, g_box_s, g_box_s, x, y)) { g_edit = i; sync_pick(); uapp_redraw(a); }
         return;
     }
     if (!(b & 0x2)) return;
     int i;
-    if (g_panel && (i = uui_swatches_at(&g_palette, x, y)) >= 0) {
+    int colours = g_panel && g_ptabs.selected == 0;
+    if (colours && (i = uui_swatches_at(&g_palette, x, y)) >= 0) {
         g_colour[1] = PALETTE[i] | 0xFF000000u;
-    } else if (g_panel && (i = uui_swatches_at(&g_recent, x, y)) >= 0) {
+    } else if (colours && (i = uui_swatches_at(&g_recent, x, y)) >= 0) {
         g_colour[1] = g_recent_c[i] | 0xFF000000u;
     } else if (uui_hit(g_canvas.x, g_canvas.y, g_canvas.w, g_canvas.h, x, y) && !tools_busy()) {
         int px, py;
@@ -941,6 +1151,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         return;
     }
     if (g_edit == 1) sync_pick();
+    if (text_active()) text_restyle();
     uapp_redraw(a);
 }
 
@@ -989,12 +1200,15 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     // is Paint's, below.
     if (text_active() && g_focus.current < 0 && text_key(key, mods)) { uapp_redraw(a); return; }
     switch (key) {
-    case 0x0E: command(CMD_NEW); return;                             // Ctrl+N
+    case 0x0E: command(shift ? CMD_LAYER_NEW : CMD_NEW); return;     // Ctrl+N, Ctrl+Shift+N
     case 0x0F: command(CMD_OPEN); return;                            // Ctrl+O
     case 0x13: command(shift ? CMD_SAVE_AS : CMD_SAVE); return;      // Ctrl+S
     case 0x12: command(shift ? CMD_CANVAS : CMD_RESIZE); return;     // Ctrl+R
     case 0x1A: command(CMD_UNDO); return;                            // Ctrl+Z
     case 0x19: command(CMD_REDO); return;                            // Ctrl+Y
+    case 0x05: command(CMD_LAYER_MERGE); return;                     // Ctrl+E, Photoshop's
+    case 0x04: if (shift) { command(CMD_LAYER_DUP); return; } break; // Ctrl+Shift+D
+    case 0x06: if (shift) { command(CMD_LAYER_FLATTEN); return; } break;   // Ctrl+Shift+F
     default: break;
     }
     if (ctrl) {
@@ -1050,7 +1264,7 @@ static void on_open(struct uapp *a) {
 int main(int argc, char **argv) {
     if (!ugfx_font_init()) return 2;
     upixundo_init(&g_undo, 256u << 20);
-    uui_paintcanvas_init(&g_canvas, &g_img);
+    uui_paintcanvas_init(&g_canvas, 0);
     g_canvas.on_pointer = canvas_pointer;
     g_canvas.on_resize = canvas_handle_resize;
     g_canvas.draw_over = canvas_draw_over;
@@ -1077,6 +1291,14 @@ int main(int argc, char **argv) {
     uui_slider_init(&g_size, SIZES, NSIZES);
     uui_segmented_init(&g_shape_seg, SHAPES, 2, 0);
     set_brush(g_brush);
+    uui_tabs_init(&g_ptabs, g_ptab_list, 2, 0);
+    g_ptabs.ground = UTHEME_PANEL_BG;
+    uui_toolbar_init(&g_lbar, lbar_items, (int)(sizeof lbar_items / sizeof lbar_items[0]));
+    g_lbar.item_flags = item_flags;
+    g_lbar.overflow = 1;   // a narrow panel: what does not fit goes under a More button
+    uui_layerlist_init(&g_layerlist);
+    uui_scale_init(&g_lopacity, 0, 100, 100);
+    uui_infonote_init(&g_lnote, "PNG and JPEG save it flat; .ora keeps the layers.");
     uui_dialog_init(&g_ask);
     uui_dialog_init(&g_newdlg);
     resize_init();

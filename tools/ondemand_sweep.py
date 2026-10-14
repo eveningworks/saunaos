@@ -97,6 +97,10 @@ TOOLS = [
     # -- against a reference written in Python; gcc and the stdlib only.
     ("upixel_host", "upixel_hostcheck.py",     "paint stamps, fills and undo against Python", False,
      None,                                                                                   False),
+    # lib/uora -- OpenRaster, Paint's layered save -- against zipfile,
+    # ElementTree and Pillow, both ways; gcc and Pillow.
+    ("ora_host", "ora_hostcheck.py",           "OpenRaster both ways against Python and Pillow", False,
+     None,                                                                                   False),
     # The HID report-descriptor walker against descriptors CAPTURED off
     # real devices -- a Logitech G305 receiver and QEMU's pair. Host-only
     # for the same reason: the bytes are fixed, and the failure it exists

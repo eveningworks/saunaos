@@ -133,3 +133,42 @@ int upix_fill(struct uimg *im, int x, int y, uint32_t colour, int tolerance,
     free(seen);
     return changed;
 }
+
+// One pixel of `s` at `opacity` over `d`.
+static uint32_t over_px(uint32_t dp, uint32_t sp, int opacity) {
+    unsigned sa = ((sp >> 24) * (unsigned)opacity + 127) / 255;
+    if (!sa) return dp;
+    if (sa == 255) return sp | 0xFF000000u;
+    // da' = da * (1 - sa), so out alpha = sa + da'; each channel the two
+    // weighted by their alpha, over out alpha.
+    unsigned da = ((dp >> 24) * (255 - sa) + 127) / 255, oa = sa + da;
+    uint32_t out = oa << 24;
+    for (int sh = 0; sh <= 16; sh += 8) {
+        unsigned cs = (sp >> sh) & 0xFF, cd = (dp >> sh) & 0xFF;
+        out |= ((cs * sa + cd * da + oa / 2) / oa) << sh;
+    }
+    return out;
+}
+
+void upix_over(struct uimg *dst, const struct uimg *src, const struct upix_rect *r, int opacity) {
+    if (!dst->px || !src->px || dst->w != src->w || dst->h != src->h || opacity <= 0) return;
+    if (opacity > 255) opacity = 255;
+    struct upix_rect c = { 0, 0, 0, 0 };
+    upix_rect_add(&c, dst, r->x, r->y, r->w, r->h);
+    for (int y = c.y; y < c.y + c.h; y++) {
+        uint32_t *d = dst->px + (size_t)y * dst->w;
+        const uint32_t *s = src->px + (size_t)y * src->w;
+        for (int x = c.x; x < c.x + c.w; x++) d[x] = over_px(d[x], s[x], opacity);
+    }
+}
+
+void upix_over_at(struct uimg *dst, int x0, int y0, const struct uimg *src) {
+    if (!dst->px || !src->px) return;
+    struct upix_rect c = { 0, 0, 0, 0 };
+    upix_rect_add(&c, dst, x0, y0, src->w, src->h);
+    for (int y = c.y; y < c.y + c.h; y++) {
+        uint32_t *d = dst->px + (size_t)y * dst->w;
+        const uint32_t *s = src->px + (size_t)(y - y0) * src->w - x0;
+        for (int x = c.x; x < c.x + c.w; x++) d[x] = over_px(d[x], s[x], 255);
+    }
+}

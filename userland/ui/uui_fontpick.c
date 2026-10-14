@@ -76,6 +76,27 @@ int uui_fontpick_focusables(struct uui_fontpick *p, struct uui_focusable *out, i
 
 int uui_fontpick_px(const struct uui_fontpick *p) { return uui_spinbox_value(&p->size); }
 
+void uui_fontpick_get(const struct uui_fontpick *p, struct uui_fontchoice *out) {
+    int f = uui_dropdown_selected(&p->family);
+    snprintf(out->family, sizeof out->family, "%s", f >= 0 && f < p->nfam ? p->files[f] : "");
+    out->px = uui_fontpick_px(p);
+    out->bold = p->bold;
+    out->italic = p->italic;
+    out->underline = p->underline;
+    out->strike = p->strike;
+}
+
+void uui_fontpick_set(struct uui_fontpick *p, const struct uui_fontchoice *c) {
+    for (int i = 0; i < p->nfam; i++)
+        if (!strcmp(p->files[i], c->family)) uui_dropdown_set_selected(&p->family, i);
+    uui_spinbox_set_value(&p->size, c->px);
+    p->bold = !!c->bold;
+    p->italic = !!c->italic;
+    p->underline = !!c->underline;
+    p->strike = !!c->strike;
+    sync_style(p);
+}
+
 int uui_fontpick_on_widget(struct uui_fontpick *p, int id) {
     int k = id - p->id_base;
     if (k < 0 || k >= UUI_FONTPICK_IDS) return 0;

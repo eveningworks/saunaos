@@ -13,6 +13,13 @@ What it asserts, on seeded random pictures:
   - a FILL changes exactly the 4-connected region a breadth-first search
     finds, at tolerance 0 and above it, and reports how many pixels
   - every call's DIRTY RECT covers every pixel it changed
+  - ONE HISTORY over TWO pictures and CUSTOM steps (a number set): each
+    step undone gives back exactly the state before it, and a new step
+    lets go of (drops) the custom steps in the redo list
+  - SOURCE-OVER (upix_over) within one of a floating-point Porter-Duff
+    on straight alpha, at full, half, near-zero and random opacity; and a
+    stamp at an OFFSET (upix_over_at) clipped at every edge, leaving
+    every pixel outside it untouched
   - UNDO: after a run of strokes and fills, each recorded with begin and
     commit, undoing all of them gives back the first picture exactly,
     redoing all gives back the last, and the state number comes back to
@@ -42,7 +49,16 @@ DRIVER = r"""
 
 void uimg_free(struct uimg *im) { free(im->px); memset(im, 0, sizeof *im); }
 
-static struct uimg im;
+static struct uimg ims[2];
+#define im (*cur)
+static struct uimg *cur = &ims[0];
+static int g_val, g_drops;
+
+// A custom step: a number set from one value to another.
+struct num { int before, after; };
+static void num_apply(void *p, int redo) { struct num *n = p; g_val = redo ? n->after : n->before; }
+static void num_drop(void *p) { free(p); g_drops++; }
+static const struct upixundo_custom NUM = { num_apply, num_drop };
 static struct upix_rect dirty;
 static struct upixundo u;
 
@@ -97,11 +113,28 @@ int main(void) {
             int w = im.w; im.w = im.h; im.h = w;
             if (upixundo_commit(&u, &im, 0)) return 3;
         } else if (!strcmp(cmd, "undo")) {
-            printf("undo %d\n", upixundo_undo(&u, &im, 0));
+            printf("undo %d\n", upixundo_undo(&u, 0));
         } else if (!strcmp(cmd, "redo")) {
-            printf("redo %d\n", upixundo_redo(&u, &im, 0));
+            printf("redo %d\n", upixundo_redo(&u, 0));
         } else if (!strcmp(cmd, "state")) {
             printf("state %u %d %d\n", upixundo_state(&u), upixundo_can_undo(&u), u.count);
+        } else if (!strcmp(cmd, "on")) {             // on N: the picture the next commands paint
+            if (scanf("%d", &a) != 1) return 2;
+            cur = &ims[a & 1];
+        } else if (!strcmp(cmd, "custom")) {         // custom V: the number set to V, as a step
+            if (scanf("%d", &a) != 1) return 2;
+            struct num *n = malloc(sizeof *n);
+            n->before = g_val; n->after = a; g_val = a;
+            if (upixundo_push(&u, &NUM, n, sizeof *n)) return 3;
+        } else if (!strcmp(cmd, "val")) {
+            printf("val %d %d\n", g_val, g_drops);
+        } else if (!strcmp(cmd, "over")) {           // over OPACITY: picture 1 laid on picture 0
+            if (scanf("%d", &a) != 1) return 2;
+            struct upix_rect all = { 0, 0, ims[0].w, ims[0].h };
+            upix_over(&ims[0], &ims[1], &all, a);
+        } else if (!strcmp(cmd, "overat")) {         // overat X Y: picture 1 stamped on picture 0 at X, Y
+            if (scanf("%d %d", &a, &b) != 2) return 2;
+            upix_over_at(&ims[0], a, b, &ims[1]);
         } else if (!strcmp(cmd, "dump")) {
             dump();
         } else return 2;
@@ -118,9 +151,13 @@ def build(tmp, poison=False):
     hostcheck.stage(tmp, "userland/lib/upixundo.h", dest="lib/upixundo.h")
     # The control: a fill that looks at 8 neighbours' rows but forgets to
     # seed the row BELOW -- a region reached only by going down stays.
+    # The second: source-over that forgets to scale the picture below by
+    # what the one on top leaves of it.
     src = hostcheck.stage(tmp, "userland/lib/upixel.c", apply=poison, tool="upixel_hostcheck",
                           edits=[("for (int dyi = -1; dyi <= 1; dyi += 2) {",
-                                  "for (int dyi = -1; dyi <= -1; dyi += 2) {")])
+                                  "for (int dyi = -1; dyi <= -1; dyi += 2) {"),
+                                 ("unsigned da = ((dp >> 24) * (255 - sa) + 127) / 255, oa = sa + da;",
+                                  "unsigned da = dp >> 24, oa = sa + da > 255 ? 255 : sa + da;")])
     und = hostcheck.stage(tmp, "userland/lib/upixundo.c")
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
     return hostcheck.compile(tmp, "upixel_host", [src, und, drv], includes=[tmp],
@@ -350,6 +387,126 @@ def main():
                 fails.append(f"undo case {case}: redoing all is not the last picture")
             if d.ask("state")[1] != end_state:
                 fails.append(f"undo case {case}: the state number did not come back")
+
+        # ONE HISTORY OVER TWO PICTURES AND A CUSTOM STEP: each step undone
+        # puts back exactly the state before it -- both pictures and the
+        # number -- and the right picture is the one that changes.
+        for case in range(20):
+            d.send("on 0")
+            random_picture(rng, d, 9, 9)
+            d.send("on 1")
+            random_picture(rng, d, 9, 9)
+            d.send("custom 0")
+            d.ask("undo")   # the number starts at 0, with nothing to redo past it
+            states = []
+
+            def snap():
+                d.send("on 0"); a = d.dump()
+                d.send("on 1"); b = d.dump()
+                return a, b, d.ask("val")[1]
+            states.append(snap())
+            for step in range(rng.randrange(3, 10)):
+                if rng.randrange(3) == 0:
+                    d.send(f"custom {rng.randrange(1, 1000)}")
+                else:
+                    d.send(f"on {rng.randrange(2)}")
+                    d.send("begin")
+                    d.send(f"stamp {rng.randrange(9)} {rng.randrange(9)} {rng.randrange(1, 5)} 1 "
+                           f"{rng.choice(PALETTE):x}")
+                    d.send("commit")
+                states.append(snap())
+            checks += 1
+            for back in range(len(states) - 1, 0, -1):
+                d.ask("undo")
+                if snap() != states[back - 1]:
+                    fails.append(f"layered undo case {case}: undoing to step {back - 1} is not that state")
+                    break
+            drops = int(d.ask("val")[2])
+            d.send("on 0"); d.send("begin"); d.send("stamp 1 1 1 1 ff123456"); d.send("commit")
+            checks += 1
+            customs = sum(1 for i in range(1, len(states)) if states[i][2] != states[i - 1][2])
+            if int(d.ask("val")[2]) - drops < customs:
+                fails.append(f"layered undo case {case}: a new step let go of fewer custom steps "
+                             f"than the redo list held ({customs})")
+
+        # SOURCE-OVER against floating point: every channel within one.
+        def over_ref(dp, sp, op):
+            sa = (sp >> 24) / 255 * op / 255
+            da = (dp >> 24) / 255
+            oa = sa + da * (1 - sa)
+            if oa == 0:
+                return dp
+            out = round(oa * 255) << 24
+            for sh in (0, 8, 16):
+                cs, cd = (sp >> sh) & 255, (dp >> sh) & 255
+                out |= round((cs * sa + cd * da * (1 - sa)) / oa) << sh
+            return out
+        for case in range(30):
+            w, h = 8, 6
+            pics = []
+            for k in (0, 1):
+                px = [rng.randrange(256) << 24 | rng.randrange(1 << 24) for _ in range(w * h)]
+                for i in rng.sample(range(w * h), 6):
+                    px[i] = rng.choice((0, 255)) << 24 | (px[i] & 0xFFFFFF)
+                d.send(f"on {k}")
+                d.send(f"new {w} {h} 0")
+                for i, v in enumerate(px):
+                    d.send(f"set {i % w} {i // w} {v:x}")
+                pics.append(px)
+            op = rng.choice((255, 128, 1, rng.randrange(256)))
+            d.send(f"over {op}")
+            d.send("on 0")
+            got = d.dump()[2]
+            checks += 1
+            for i in range(w * h):
+                want = over_ref(pics[0][i], pics[1][i], op)
+                if (want >> 24) == 0 and (pics[1][i] >> 24) * op < 128:
+                    want = pics[0][i]   # nothing laid on: the pixel below, untouched
+                # ALPHA IS 8 BITS: each alpha's half-unit rounding moves a
+                # colour by up to |above - below| / out-alpha -- a lot when
+                # the result is nearly transparent, nothing when opaque.
+                oa = max(want >> 24, 1)
+
+                def tol(sh):
+                    return 1 if sh == 24 else 1 + -(-abs(((pics[1][i] >> sh) & 255) - ((pics[0][i] >> sh) & 255)) // oa)
+                if any(abs(((got[i] >> sh) & 255) - ((want >> sh) & 255)) > tol(sh) for sh in (0, 8, 16, 24)) \
+                        and not ((got[i] >> 24) == 0 and (want >> 24) == 0):
+                    fails.append(f"over case {case}: pixel {i} {pics[1][i]:08x} on {pics[0][i]:08x} "
+                                 f"at {op} is {got[i]:08x}, want {want:08x}")
+                    break
+
+        # A STAMP AT AN OFFSET, clipped: inside it the same source-over,
+        # outside it the picture below untouched -- every pixel checked.
+        for case in range(20):
+            dw, dh, sw, sh = 10, 8, rng.randrange(1, 7), rng.randrange(1, 6)
+            ox, oy = rng.randrange(-4, 12), rng.randrange(-4, 10)
+            base = [rng.randrange(1 << 32) for _ in range(dw * dh)]
+            top = [rng.randrange(256) << 24 | rng.randrange(1 << 24) for _ in range(sw * sh)]
+            for k, (w, h, px) in enumerate(((dw, dh, base), (sw, sh, top))):
+                d.send(f"on {k}")
+                d.send(f"new {w} {h} 0")
+                for i, v in enumerate(px):
+                    d.send(f"set {i % w} {i // w} {v:x}")
+            d.send(f"overat {ox} {oy}")
+            d.send("on 0")
+            got = d.dump()[2]
+            checks += 1
+            for i in range(dw * dh):
+                x, y = i % dw, i // dw
+                sx, sy = x - ox, y - oy
+                if not (0 <= sx < sw and 0 <= sy < sh):
+                    if got[i] != base[i]:
+                        fails.append(f"overat case {case}: pixel {x},{y} outside the stamp changed")
+                        break
+                    continue
+                s = top[sy * sw + sx]
+                want = base[i] if (s >> 24) == 0 else over_ref(base[i], s, 255)
+                oa = max(want >> 24, 1)
+                if any(abs(((got[i] >> b) & 255) - ((want >> b) & 255)) >
+                       (1 if b == 24 else 1 + -(-abs(((s >> b) & 255) - ((base[i] >> b) & 255)) // oa))
+                       for b in (0, 8, 16, 24)):
+                    fails.append(f"overat case {case}: pixel {x},{y} is {got[i]:08x}, want {want:08x}")
+                    break
 
         # A small byte limit keeps the newest steps and drops the oldest.
         d.send("new 20 20 ffffffff")

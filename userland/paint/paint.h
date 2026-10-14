@@ -13,10 +13,12 @@
 #include "lib/upixundo.h"
 #include "ui/uui_paintcanvas.h"
 #include "ui/uui_fontpick.h"
+#include "ui/uui_layerlist.h"
+#include "lib/uora.h"
 
 enum paint_tool { TOOL_PENCIL, TOOL_BRUSH, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_TEXT, TOOL_COUNT };
 
-extern struct uimg g_img;              // the picture
+extern struct uimg *g_layer;           // the current layer's pixels: what every tool paints on
 extern struct upixundo g_undo;
 extern struct uui_paintcanvas g_canvas;
 extern int g_tool;
@@ -33,7 +35,9 @@ void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned 
 int  tools_busy(void);                 // a stroke is under way
 
 // What the window must hear back. Defined in paint.c.
-void paint_changed(const struct upix_rect *r);   // pixels changed: redraw, title
+void paint_changed(const struct upix_rect *r);   // pixels changed: the view, redraw, title (NULL: all)
+void paint_layers_changed(void);                 // the stack changed: the panel, the canvas
+void paint_ask_rasterize(void);                  // a tool pressed on a text layer: ask first
 void paint_colour_used(int slot);                // into Recent colours
 void paint_colour_picked(int slot);              // the picker set a colour
 void paint_tool_changed(void);
@@ -50,10 +54,67 @@ void text_restyle(void);                   // the face or the fill changed
 int  text_box(int *x, int *y, int *w, int *h);   // the open box, picture pixels
 void text_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
 void text_log_layout(void);                // "paint: layout text ...", for the test
-// The picture replaced by `out` (a rotate, a resize), as ONE undo step;
-// `out` is taken over.
-void paint_replace_picture(struct uimg *out);
 void paint_note(const char *text);                // the status bar's note
+
+// A TEXT LAYER'S WORDS AND HOW THEY ARE SET -- what re-opening one puts
+// back in the box and the bar.
+#define PAINT_TEXT_MAX 2048
+struct paint_text {
+    char buf[PAINT_TEXT_MAX];
+    int len;
+    int x, y, wrap;             // the box's top-left in picture pixels; wrap 0 = grows
+    int w, h;                   // the box as last drawn, for a click to find it
+    struct uui_fontchoice font;
+    uint32_t ink, fill_colour;  // 0xAARRGGBB
+    int fill;
+};
+
+// --- paint_layers.c: the layer stack -----------------------------------------
+// Bottom first. Every change to the stack is one undo step; choosing the
+// current layer is not.
+#define PAINT_LAYERS_MAX 32
+#define PAINT_LAYER_NAME 48
+const struct uimg *layers_view(void);            // the picture as shown: what the canvas draws, saves flatten
+void layers_update(const struct upix_rect *r);   // pixels in r changed (NULL: all)
+int  layers_count(void);
+int  layers_active(void);
+int  layers_opacity(int i);
+const char *layers_name(int i);
+const struct uui_layerrow *layers_rows(void);    // for ui/uui_layerlist.h, bottom first
+// A new picture: one layer, "Background", taking over `bottom`; the
+// history cleared. 0 on no memory.
+int  layers_reset(struct uimg *bottom);
+int  layers_reset_many(struct uora_layer *ls, int n);   // an opened .ora; takes the pixels
+int  layers_export(struct uora_layer *out);      // shallow: the pixels stay the stack's, the attrs are new
+void layers_export_free(struct uora_layer *out, int n);   // ...and freed here
+void layers_select(int i);
+void layers_add(void);
+void layers_duplicate(void);
+void layers_delete(void);
+void layers_move(int from, int to);
+void layers_merge_down(void);
+void layers_flatten(void);
+void layers_set_hidden(int i, int hidden);
+void layers_rename(int i, const char *name);
+void layers_opacity_preview(int v);               // a slider drag, shown...
+void layers_opacity_commit(void);                 // ...and kept as one step
+// TEXT LAYERS. layers_text() is a layer's words, or NULL for pixels;
+// layers_text_at() the topmost shown text layer whose box holds (x, y).
+const struct paint_text *layers_text(int i);
+int  layers_text_at(int x, int y);
+// A box being edited draws into a LIVE layer: a new one above the
+// current (`reopen` < 0), or text layer `reopen` emptied to be drawn
+// again. g_layer is then that layer. live_end() keeps it as ONE step with
+// `t`'s words -- or, with NULL (nothing typed), puts the stack back as it
+// was (a reopened layer emptied is deleted, as a step). 0 on no memory.
+int  layers_live_begin(int reopen);
+void layers_live_end(const struct paint_text *t);
+void layers_rasterize(int i);                     // a text layer becomes pixels, as a step
+// Every layer replaced by fn's picture of it (index 0 the bottom) -- a
+// rotate, a resize -- as one step; text layers become pixels. 0 when one
+// failed and nothing changed.
+typedef int (*layers_fn)(const struct uimg *in, struct uimg *out, int index, void *ctx);
+int  layers_transform(layers_fn fn, void *ctx, const char *what);
 
 // --- paint_resize.c: Image > Resize, two tabs ------------------------------
 struct uapp;

@@ -1,4 +1,4 @@
-// lib/uzip.h in ring 3: one member of a .zip out to a file.
+// lib/uzip.h in ring 3: one member of a .zip out to a file, and into memory.
 //
 // THE ARCHIVE IS PYTHON'S zipfile, not ours (generated once and pasted
 // below), so a reader agreeing with its own writer proves nothing here:
@@ -108,6 +108,20 @@ int main(void) {
     utest_checkf(rc == 0 && listed == 2 && list_ok,
                  "the listing names both members with their sizes (%d listed)", listed);
 
+    // INTO MEMORY: the same two members, and a cap below the size refused.
+    unsigned char *mem = 0;
+    size_t mlen = 0;
+    rc = uzip_read(zip, "dir/lorem.txt", 1 << 20, &mem, &mlen, err, sizeof err);
+    utest_check_detail(rc == 0 && mlen == 1807 && mem && !memcmp(mem, buf, 1807),
+                       "uzip_read inflates the DEFLATED member into memory, the same bytes", err);
+    free(mem);
+    rc = uzip_read(zip, "hello.txt", 1 << 20, &mem, &mlen, err, sizeof err);
+    utest_check_detail(rc == 0 && mlen == 15 && mem && !memcmp(mem, "Hello, toy-os!\n", 15),
+                       "...and the STORED one", err);
+    free(mem);
+    rc = uzip_read(zip, "dir/lorem.txt", 1000, &mem, &mlen, err, sizeof err);
+    utest_check_detail(rc == -E2BIG && !mem, "a member bigger than the cap is -E2BIG, nothing kept", err);
+
     rc = uzip_extract(zip, "nope.txt", out, 0, 0, err, sizeof err);
     utest_check_detail(rc == -ENOENT, "a member that is not there is -ENOENT", err);
 
@@ -124,6 +138,8 @@ int main(void) {
     rc = uzip_extract(zip, "dir/lorem.txt", out, 0, 0, err, sizeof err);
     utest_check_detail(rc == -EINVAL && access(out, F_OK) != 0,
                        "a damaged member is refused and leaves no file", err);
+    rc = uzip_read(zip, "dir/lorem.txt", 1 << 20, &mem, &mlen, err, sizeof err);
+    utest_check_detail(rc == -EINVAL && !mem, "...and uzip_read refuses it too", err);
 
     write_file(zip, ZIP, 20);   // not an archive at all
     rc = uzip_extract(zip, "hello.txt", out, 0, 0, err, sizeof err);
