@@ -487,6 +487,9 @@ static enum uui_fileview_sort sort_key_of(int code) {
 // checked in the default two-pane state, not when the option was used.
 static unsigned menu_item_flags(int code) {
     unsigned bin;
+    // ONE PANE SHOWN: nothing to copy, move or switch to.
+    if (g_single && (code == CMD_COPY || code == CMD_MOVE || code == CMD_SWAP))
+        return UUI_MI_DISABLED;
     if (bin_item_flags(code, &bin)) return bin;   // the Recycle Bin's own rules
     if (search_item_flags(code, &bin)) return bin;   // ...and a search's
     if (arc_item_flags(code, &bin)) return bin;      // ...and an archive's
@@ -924,6 +927,10 @@ static void set_view(int code) {
 
 void do_command(struct uapp *a, int code) {
     if (code >= CMD_PL_FIRST && code <= CMD_PL_LAST) { places_command(a, code); return; }
+    if (g_single && (code == CMD_COPY || code == CMD_MOVE || code == CMD_SWAP)) {
+        set_note("one pane is shown -- View > Second pane adds the other");
+        return;
+    }
     // A command the bin greys is refused here too: a key reaches this
     // without asking menu_item_flags().
     if ((in_bin(active()) || in_search(active()) || in_archive(active()) || in_recent(active())) &&
