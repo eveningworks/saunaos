@@ -3232,7 +3232,11 @@ window without going through it will find its layout polls timing out.
   caret, Shift+Right selects and typing replaces, a click places the
   caret, the pointer is the I-beam over the field only, and raw frames
   show the caret blink -- after turning `desktop.caret_blink` back ON,
-  which the harness turns off for every tool (`_steady_caret`).
+  which the harness turns off for every tool (`_steady_caret`). The
+  frames are taken on a 0.375 s GRID until two differ: a fixed sleep
+  after each shot made the loop's period the screendump's cost plus the
+  sleep, ~1 s under load, which is the blink's own period -- every frame
+  in one half of it (5 runs in 8 with the period forced to 1 s).
   It also covers the DESCRIPTION: a line too long for the strip is
   marked `..` and the tooltip carries the whole of it, with the three
   halves asserted apart because they fail apart -- not up immediately,
@@ -6541,6 +6545,19 @@ runs first**: a `doom1.wad` with one
   a rounding overshoot (100 -> 0 visited -1 for a frame) before any
   guest had drawn with it. `--positive-control` compiles a LINEAR curve
   and must fail on the ease-out check. Needs only gcc.
+
+- **`caret_hostcheck.py`** -- compiles `userland/ui/uui_caret.c`, the
+  one blink every text caret shares, and drives it the way the
+  compositor's loop does: park until the caret's deadline or the next
+  clock tick, paint the clock's frame (which asks `uui_caret_visible()`
+  with the clip elsewhere, so the field's pixels do not change), then
+  ask the caret. With the clock at every 5 ms of its second, on time
+  and waking 30 ms late, it asserts what the field SHOWS: on in even
+  half-periods, off in odd ones, for the whole blink; solid at the end;
+  one repaint asked per phase; and a field that loses focus stops the
+  asking within a phase. `--positive-control` restores the logic that
+  took any `visible()` call for the phase's repaint -- frozen at 26 of
+  200 alignments when 30 ms late -- and must fail. Needs only gcc.
 
 - **`ucrt_hostcheck.py`** -- compiles `userland/ui/ucrt.c`, the CRT
   effect, with the host gcc and the tree's `-ffreestanding`, and checks

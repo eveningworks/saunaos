@@ -691,3 +691,18 @@ loop that skipped "index < head" left two folders with no label.
 `UUI_TREE_HEADER` is a row every input path (hover, click, keys, drop)
 steps over: add a new non-node row kind to ALL of them, not only to
 draw.
+
+## A clipped frame is not the caret's repaint (2026-10-14)
+
+`uui_caret_visible()` RECORDS the phase it was asked in, and
+`uui_caret_wait_ms()` asked for a repaint only while no draw had happened
+in the current phase. The compositor paints the clock's damage once a
+second and runs EVERY overlay's draw under that clip, so the Start menu's
+field asked "visible?" in the off phase while its pixels stayed on -- and
+the caret never asked for its own repaint. Both being 1 s periodic, one
+bad alignment froze the caret on for the whole ten-second blink (1 run in
+~25 under load, chased since 2026-10-03). The WM's own probes said every
+phase was drawn; the kept frames said the screen never changed. A call
+made during a draw proves the draw RAN, not that it reached the pixels:
+ask once per state change, whoever drew in between
+(`tools/caret_hostcheck.py`).

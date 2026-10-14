@@ -8,7 +8,8 @@
 static unsigned long long g_t0_ns;  // the last input; 0 = none yet
 static int g_blink = -1;            // desktop.caret_blink; -1 = not yet asked
 static int g_drawn = -1;            // the phase a caret was last drawn in
-static int g_asked = -1;            // the phase a repaint was last asked for
+static int g_asked = LAST_PHASE;    // the phase a repaint was last asked for
+                                    // (the input's own, from a reset)
 
 static int read_setting(void) {
     char v[8];
@@ -36,9 +37,7 @@ static unsigned long long g_read_ns;   // when the setting was last asked
 
 void uui_caret_reset(void) {
     g_t0_ns = sys_monotonic_ns();
-    // A new cycle: forget the old one's bookkeeping, or a stale g_asked
-    // equal to the new cycle's first "off" phase swallows that flip.
-    g_drawn = g_asked = -1;
+    g_drawn = -1;
     // The registry, at most every two seconds: this runs on EVERY key and
     // press in every app, caret or not, and a settings round trip per
     // key-repeat is input latency for nothing. A change in System
@@ -47,16 +46,22 @@ void uui_caret_reset(void) {
         g_blink = read_setting();
         g_read_ns = g_t0_ns;
     }
+    // The input's own repaint draws this phase; the first ask is the next.
+    g_asked = phase();
 }
 
 int uui_caret_wait_ms(void) {
     int p = phase();
     if (g_drawn < 0) return -1;
-    if (p != g_drawn) {
-        // A phase ended since the caret was drawn: repaint ONCE. If that
-        // frame drew no caret (its field lost focus) there is nothing
-        // blinking, and asking again would spin the loop at 100% CPU.
-        if (p == g_asked) return -1;
+    if (p != g_asked) {
+        // A NEW PHASE: ask for its repaint ONCE, whoever has drawn since.
+        // A frame painted for other damage (the taskbar clock's, every
+        // second) runs the caret's draw with the clip elsewhere, so a
+        // visible() call is not the caret's pixels changing -- taking it
+        // for one held the Start menu's caret on, locked to the clock,
+        // for a whole blink. If the LAST ask drew no caret (its field
+        // lost focus) nothing is blinking: asking again would spin.
+        if (g_drawn < g_asked) return -1;
         g_asked = p;
         return 0;
     }

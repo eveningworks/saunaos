@@ -104,6 +104,10 @@ TOOLS = [
     # an argument, so nothing here needs a guest.
     ("utween_host", "utween_hostcheck.py",     "the easing tween lands, is monotonic, eases out", False,
      None,                                                                                   False),
+    # The caret's blink against a simulated compositor loop that also
+    # paints the clock's clipped frame. Host-only, gcc alone.
+    ("caret_host",  "caret_hostcheck.py",      "the caret blinks whatever else the loop paints", False,
+     None,                                                                                   False),
     # The compositor's visible-region arithmetic against a bitmap, and
     # that an overflow errs LARGE. Host-only, gcc alone.
     ("uregion_host", "uregion_hostcheck.py",   "visible regions are exact, or a superset on overflow", False,

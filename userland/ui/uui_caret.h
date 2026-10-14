@@ -11,7 +11,7 @@
 //
 // Input restarts the cycle ON, so the caret is never missing under a key
 // just typed. `desktop.caret_blink` off draws it solid always. uapp wakes
-// for the next flip only while a caret was drawn in the current phase;
+// for the next flip only while a caret was drawn since the last one;
 // nothing registers, so a widget destroyed mid-blink leaves nothing
 // dangling (the uui_anim.h shape).
 

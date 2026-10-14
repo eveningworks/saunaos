@@ -3109,3 +3109,20 @@ control floor over a fixed 240 screendumps. Poll on what you assert;
 count the thing the check's POWER depends on (moved frames), not the
 work done to get it. And a FIXTURE step (homing a window) may retry --
 it is not under test -- where a checked step may not.
+
+## A sampler whose period is the signal's sees one phase (2026-10-14)
+
+`start_menu_test.py`'s `the caret blinks` took six raw frames with a
+fixed 0.27 s sleep after each. The loop's real period was the
+screendump's cost plus the sleep -- about 1 s on a host running sixteen
+guests, which is the blink's own period, so every frame landed in the
+same half of it. Forcing the period to exactly 1 s made it fail 5 runs
+in 8. A sleep AFTER the work never sets a rate; when sampling anything
+periodic, take frames on a deadline grid that does not divide the
+period (3/8 of it here) and stop on the first difference.
+
+The same check had a SECOND, real cause (session-gui.md, "A clipped
+frame is not the caret's repaint"), and the aliasing fix alone still
+failed 1 run in 24 -- with 19 identical frames over 7 s, which aliasing
+cannot produce. Fix the harness, then measure again before believing
+the product is clean.

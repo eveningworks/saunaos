@@ -100,6 +100,9 @@ KEY_HOME = "0xf786"
 KEY_END = "0xf787"
 KEY_LEFT = "0xf784"
 KEY_SHIFT_RIGHT = "0xf78c"
+# The caret-blink check samples on this grid: 3/8 of the 1 s blink period
+# (ui/uui_caret.h), which no screendump cost can alias.
+CARET_GRID_S = 0.375
 
 class Result:
     def __init__(self):
@@ -291,22 +294,31 @@ def run(dbg, qmp, tmp, res):
               on == DebugConsole.CURSOR_TEXT and off == DebugConsole.CURSOR_NORMAL,
               f"over the field {on}, off it {off}")
     # THE CARET BLINKS: raw frames (a settled capture waits the blink out)
-    # of the field across about three half-periods must not all agree.
-    # The harness turns the blink OFF for every tool (gui_debug.py's
-    # _steady_caret), and the caret re-reads it at most every 2 s on an
-    # input -- so on, wait that out, then End (an input that changes no
-    # text) restarts the ten-second blink this samples inside.
+    # of the field must not all agree. The harness turns the blink OFF for
+    # every tool (gui_debug.py's _steady_caret), and the caret re-reads it
+    # at most every 2 s on an input -- so on, wait that out, then End (an
+    # input that changes no text) restarts the ten-second blink this
+    # samples inside.
+    # ON A GRID OF 3/8 OF THE BLINK'S 1 s PERIOD, until two frames differ:
+    # a fixed sleep after each shot made the loop's period whatever the
+    # screendump cost plus the sleep, and under load that came to ~1 s --
+    # every frame in the same half of the blink, measured 5 runs in 8 with
+    # the period forced to 1 s. Shots that overrun land on later grid
+    # points, which still step through the cycle rather than lock to it.
     dbg.send("sh config set desktop.caret_blink on")
     time.sleep(2.2)
     dbg.key(KEY_END)
-    seen = set()
-    for i in range(6):
-        p = os.path.join(tmp, f"blink{i}.png")
+    from PIL import Image
+    seen, shots, t0 = set(), 0, time.time()
+    while len(seen) < 2 and time.time() - t0 < 7.0:
+        p = os.path.join(tmp, f"blink{shots}.png")
         qmp.screenshot(p, stable=False)
-        from PIL import Image
         seen.add(crop(Image.open(p).convert("RGB"), field))
-        time.sleep(0.27)
-    res.check("the caret blinks", len(seen) >= 2, f"{len(seen)} distinct frames of 6")
+        shots += 1
+        k = int((time.time() - t0) / CARET_GRID_S) + 1
+        time.sleep(max(0.0, t0 + k * CARET_GRID_S - time.time()))
+    res.check("the caret blinks", len(seen) >= 2,
+              f"{len(seen)} distinct frames of {shots} over {time.time() - t0:.1f} s")
     dbg.send("sh config set desktop.caret_blink off")   # still, for the frames below
     dbg.key(KEY_ESC)                     # clears the query, menu stays up
     for ch in "cal":
