@@ -444,6 +444,9 @@ int  uui_fileview_press(struct uui_fileview *fv, int cx, int cy, unsigned mods);
 // Dolphin's rule) without any chance of a second right-click counting
 // as a double and opening the file. Returns 1 if the selection moved.
 int  uui_fileview_select_at(struct uui_fileview *fv, int cx, int cy);
+// The row at (cx, cy) -- a source row, as `table.selected` is -- or -1
+// on the empty space, the header or the bar.
+int  uui_fileview_row_at(const struct uui_fileview *fv, int cx, int cy);
 int  uui_fileview_drag(struct uui_fileview *fv, int cx, int cy);
 void uui_fileview_drag_end(struct uui_fileview *fv);
 int  uui_fileview_wheel(struct uui_fileview *fv, int notches);

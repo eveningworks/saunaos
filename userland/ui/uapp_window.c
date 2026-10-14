@@ -442,6 +442,10 @@ int uapp_question_open(struct uapp *a) {
     return uapp_inwindow_question_open(a);
 }
 
+// The window whose on_button heard a press: its release is that
+// handler's, not the widgets'.
+static struct uapp_window *g_secondary;
+
 void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
     const struct uapp_window_desc *d = &w->desc;
     switch (ev->type) {
@@ -460,8 +464,12 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         w->top.mouse_y = ev->b;
         if (WIN_MOUSE_BUTTONS(ev->mods) & 0x1)
             top_press(&w->top, ev->a, ev->b, WIN_MOUSE_MODS(ev->mods));
-        else if (WIN_MOUSE_BUTTONS(ev->mods) & 0x2)
-            top_secondary(&w->top, ev->a, ev->b, 0);
+        else if (WIN_MOUSE_BUTTONS(ev->mods) &&
+                 !((WIN_MOUSE_BUTTONS(ev->mods) & 0x2) && top_secondary(&w->top, ev->a, ev->b, 0)) &&
+                 d->on_button) {
+            g_secondary = w;
+            d->on_button(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods), 0);
+        }
         return;
     case WIN_EV_MOUSE_MOVE: {
         if (ev->a < 0 || ev->b < 0) return;   // a leave carries no position
@@ -480,6 +488,11 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         w->top.mouse_x = ev->a;
         w->top.mouse_y = ev->b;
         if (top_secondary(&w->top, ev->a, ev->b, 1)) return;
+        if (g_secondary == w && d->on_button) {
+            g_secondary = 0;
+            d->on_button(w, ev->a, ev->b, 0, 1);
+            return;
+        }
         top_release(&w->top, ev->a, ev->b);
         return;
     case WIN_EV_WHEEL:

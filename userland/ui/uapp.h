@@ -417,6 +417,12 @@ struct uapp_window_desc {
     // menu). NULL closes it; a handler that wants to refuse simply does
     // not call uapp_window_close(), which is uapp_desc.on_close's rule.
     void (*on_close)(struct uapp_window *w);
+    // A press of any button but the PRIMARY -- the secondary when the
+    // shared edit menu did not take it, the two side buttons
+    // (WIN_MOUSE_BTN_SIDE, _EXTRA) -- with `buttons` the ones down
+    // (`up` 0); then its release (`up` 1, `buttons` 0). A context menu
+    // opens on the release -- uui_menubar_open_at()'s rule.
+    void (*on_button)(struct uapp_window *w, int x, int y, unsigned buttons, int up);
 
     // What the layout log calls this window (ui/uui_describe.h's
     // vocabulary). Set it and the toolkit emits the report itself each

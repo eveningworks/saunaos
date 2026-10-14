@@ -53,6 +53,17 @@ What it proves, and what a broken version would still pass:
     midline sits within a pixel of the field's. Top-aligned labels (the
     first version) fail the second half.
 
+  * NEW FOLDER, RENAME and DELETE (2026-10-14), each read back from the
+    DISK with `ls`: Ctrl+Shift+N makes a folder and its Enter names it
+    WITHOUT answering the dialog; F2 keeps the extension; Del moves to
+    the Recycle Bin and Undo puts it back; a right-click selects the row
+    and opens the row's menu, below the rows the folder's; Esc closes
+    the menu, not the dialog; Shift+Del asks, and its default is Cancel;
+    two marked items go and come back together; Alt+Left/Right and the
+    mouse's thumb buttons (4 and 5) step Back and Forward.
+    Positive control: on_key ignoring the was-renaming guard reddens the
+    "without answering" check (the Enter enters the new folder).
+
 Positive controls, each run once when this was written (2026-09-14):
   * `on_dialog_created()` returning 0 (no dialog granted): NOTHING is
     green -- the run stops at the first group with 5 of 5 red.
@@ -662,6 +673,202 @@ def check_owner_close(dbg, res):
               f"{[w.get('title') for w in windows(dbg)]}")
 
 
+MANAGE_DIR = "/var/tmp/fdm"
+K_F2 = "0xf789"    # KEY_F2, kernel/include/api/keyboard.h
+K_DEL = "0xf788"   # KEY_DELETE
+K_SPACE = "0x20"
+K_LEFT = "0xf784"   # KEY_ARROW_LEFT
+K_RIGHT = "0xf785"
+
+
+def fd_quoted(dbg, key):
+    """`filedialog: layout <key> "text" rest...` -> (text, [rest...])."""
+    lines = dbg.logs(f"filedialog: layout {key} ", clear=False)
+    if not lines:
+        return None, []
+    tail = lines[-1].split(f"{key} ", 1)[1]
+    if not tail.startswith('"') or '"' not in tail[1:]:
+        return None, []
+    end = tail.index('"', 1)
+    return tail[1:end], tail[end + 1:].split()
+
+
+def fd_flags(dbg):
+    """renaming / ctx / ask, as the chooser reports them."""
+    lines = dbg.logs("filedialog: layout renaming ", clear=False)
+    if not lines:
+        return {}
+    p = lines[-1].split("renaming ", 1)[1].split()
+    return {"renaming": p[0], "ctx": p[2], "ask": p[4]} if len(p) >= 5 else {}
+
+
+def names_in(dbg, d):
+    out = set()
+    for ln in (dbg.send(f"sh ls {d}") or "").splitlines():
+        ln = ln.strip()
+        if ln and not ln.startswith("ls"):
+            out.add(ln.rstrip("/"))
+    return out
+
+
+def type_text(dbg, text):
+    for ch in text:
+        dbg.key({"/": "0x2f", ".": "0x2e", "_": "0x5f"}.get(ch, ch), settle=False)
+    dbg.settle()
+
+
+def check_manage(dbg, res):
+    """New folder, Rename, Delete + Undo, and the right-click menu --
+    each read back from the DISK (`ls`), not from the listing, so a
+    dialog that only redrew a row cannot pass."""
+    dbg.send(f"sh rm -r {MANAGE_DIR}")
+    dbg.send(f"sh mkdir {MANAGE_DIR}")
+    dbg.write_lines(f"{MANAGE_DIR}/keep.txt", ["keep"])
+    dbg.write_lines(f"{MANAGE_DIR}/gone.txt", ["gone"])
+    owner, dlg = open_chooser(dbg, NOTEPAD, "untitled")
+    name = fd_geom(dbg, "name") if dlg else None
+    if not dlg or not name:
+        res.check("the chooser opens for the file commands", False, f"dlg={dlg is not None}")
+        close_all(dbg)
+        return
+    nx, ny, nw, nh = name
+    click_in(dbg, dlg, nx + 10, ny + nh // 2)
+    type_text(dbg, MANAGE_DIR)
+    dbg.key("0x0d")   # OK on a folder enters it
+    dbg.settle()
+    res.check("the chooser lists the test folder", fd_dir(dbg) == MANAGE_DIR, f"dir {fd_dir(dbg)!r}")
+
+    # Back and Forward: the keys, then the mouse's thumb buttons (4 back,
+    # 5 forward), over the listing.
+    dbg.key(K_LEFT, mods="alt")
+    was = fd_dir(dbg)
+    dbg.key(K_RIGHT, mods="alt")
+    res.check("Alt+Left goes back and Alt+Right forward",
+              was not in (None, MANAGE_DIR) and fd_dir(dbg) == MANAGE_DIR,
+              f"back at {was!r}, forward at {fd_dir(dbg)!r}")
+    view = fd_geom(dbg, "view")
+    if view:
+        vx, vy, vw, vh = view
+        px, py = dlg["content"]["x"] + vx + vw // 2, dlg["content"]["y"] + vy + vh - 6
+        dbg.send(f"gui click {px} {py} 4")
+        dbg.settle()
+        was = fd_dir(dbg)
+        dbg.send(f"gui click {px} {py} 5")
+        dbg.settle()
+    res.check("the mouse's back and forward buttons do the same",
+              view and was not in (None, MANAGE_DIR) and fd_dir(dbg) == MANAGE_DIR,
+              f"back at {was!r}, forward at {fd_dir(dbg)!r}")
+
+    # New folder: made at once, its name edited in place; Enter keeps the
+    # name and does NOT answer the dialog.
+    dbg.key("0x0e", mods="ctrl shift")
+    res.check("Ctrl+Shift+N makes a folder and edits its name",
+              "New folder" in names_in(dbg, MANAGE_DIR) and fd_flags(dbg).get("renaming") == "1",
+              f"{sorted(names_in(dbg, MANAGE_DIR))} {fd_flags(dbg)}")
+    type_text(dbg, "made")
+    dbg.key("0x0d")
+    have = names_in(dbg, MANAGE_DIR)
+    res.check("...and Enter names it, on the disk",
+              "made" in have and "New folder" not in have, f"{sorted(have)}")
+    res.check("...without answering the dialog", dialog(dbg) is not None)
+
+    # Rename a file with F2: the stem is selected, so typing keeps .txt.
+    dbg.key("k")   # type-ahead to keep.txt
+    sel, _ = fd_quoted(dbg, "view.selected")
+    dbg.key(K_F2)
+    type_text(dbg, "kept")
+    dbg.key("0x0d")
+    have = names_in(dbg, MANAGE_DIR)
+    res.check("F2 renames the selected file, keeping its extension",
+              sel == "keep.txt" and "kept.txt" in have and "keep.txt" not in have,
+              f"selected {sel!r}, now {sorted(have)}")
+
+    # Delete goes to the Recycle Bin; the strip's Undo puts it back.
+    dbg.key("g")
+    sel, _ = fd_quoted(dbg, "view.selected")
+    dbg.key(K_DEL)
+    note, rest = fd_quoted(dbg, "note")
+    have = names_in(dbg, MANAGE_DIR)
+    res.check("Del moves the selected file to the Recycle Bin",
+              sel == "gone.txt" and "gone.txt" not in have and note and "Recycle Bin" in note
+              and rest[-1:] == ["1"], f"selected {sel!r}, note {note!r} {rest}, now {sorted(have)}")
+    undo = fd_geom(dbg, "undo")
+    if undo:
+        ux, uy, uw, uh = undo
+        click_in(dbg, dlg, ux + uw // 2, uy + uh // 2)
+    res.check("...and Undo puts it back", "gone.txt" in names_in(dbg, MANAGE_DIR),
+              f"undo rect {undo}, now {sorted(names_in(dbg, MANAGE_DIR))}")
+
+    # Two MARKED items (Space marks and steps on): Del takes both, and
+    # one Undo brings both back.
+    dbg.key("g")
+    dbg.key(K_SPACE)
+    dbg.key(K_SPACE)
+    dbg.key(K_DEL)
+    note, rest = fd_quoted(dbg, "note")
+    have = names_in(dbg, MANAGE_DIR)
+    res.check("Del with two items marked moves both to the Recycle Bin",
+              "gone.txt" not in have and "kept.txt" not in have and note and "2 items" in note,
+              f"note {note!r}, now {sorted(have)}")
+    undo = fd_geom(dbg, "undo")
+    if undo:
+        ux, uy, uw, uh = undo
+        click_in(dbg, dlg, ux + uw // 2, uy + uh // 2)
+    have = names_in(dbg, MANAGE_DIR)
+    res.check("...and one Undo puts both back", "gone.txt" in have and "kept.txt" in have,
+              f"undo rect {undo}, now {sorted(have)}")
+
+    # The right-click menu: on a row, the row's verbs; below the rows,
+    # the folder's. The press selects the row first.
+    dbg.key("m")   # made
+    sel, rect = fd_quoted(dbg, "view.selected")
+    view = fd_geom(dbg, "view")
+    ok_row = sel == "made" and len(rect) == 4 and view
+    if ok_row:
+        rx, ry, rw, rh = (int(v) for v in rect)
+        dbg.key("k")   # away, so the right-click has to move it back
+        x, y = dlg["content"]["x"] + rx + rw // 3, dlg["content"]["y"] + ry + rh // 2
+        dbg.rclick(x, y)
+    rows = dbg.logs("filedialog: ctxmenu rows ", clear=False)
+    sel2, _ = fd_quoted(dbg, "view.selected")
+    res.check("a right-click on a row selects it and opens the row's menu",
+              ok_row and sel2 == "made" and rows and "Rename|Delete" in rows[-1]
+              and fd_flags(dbg).get("ctx") == "1",
+              f"selected {sel2!r}, menu {rows[-1:] if rows else None}, {fd_flags(dbg)}")
+    dbg.key(ESC)
+    dbg.settle()
+    res.check("...and Esc closes the menu, not the dialog",
+              fd_flags(dbg).get("ctx") == "0" and dialog(dbg) is not None, f"{fd_flags(dbg)}")
+    if view:
+        vx, vy, vw, vh = view
+        dbg.rclick(dlg["content"]["x"] + vx + vw // 2, dlg["content"]["y"] + vy + vh - 6)
+        rows = dbg.logs("filedialog: ctxmenu rows ", clear=False)
+        res.check("below the rows, the folder's menu", rows and rows[-1].strip().endswith(
+                  "rows New folder|Refresh"), f"{rows[-1:] if rows else None}")
+        dbg.key(ESC)
+        dbg.settle()
+
+    # Shift+Del asks, and Cancel deletes nothing.
+    dbg.key("g")
+    dbg.key(K_DEL, mods="shift")
+    res.check("Shift+Del asks before deleting for good", fd_flags(dbg).get("ask") == "1",
+              f"{fd_flags(dbg)}")
+    dbg.key(ESC)
+    dbg.settle()
+    res.check("...and Esc there deletes nothing and keeps the dialog",
+              "gone.txt" in names_in(dbg, MANAGE_DIR) and fd_flags(dbg).get("ask") == "0"
+              and dialog(dbg) is not None, f"{fd_flags(dbg)}")
+    dbg.key(K_DEL, mods="shift")
+    dbg.key("0x0d")   # the default is Cancel, so Enter... is Cancel too
+    dbg.settle()
+    res.check("...whose default answer is Cancel", "gone.txt" in names_in(dbg, MANAGE_DIR),
+              f"{sorted(names_in(dbg, MANAGE_DIR))}")
+    dbg.key(ESC)
+    wait_dialog(dbg, False)
+    close_all(dbg)
+    dbg.send(f"sh rm -r {MANAGE_DIR}")
+
+
 def check_other_apps(dbg, res):
     # BY ITS WINDOW, not by its process: a Ctrl+O sent before the app's
     # window exists goes nowhere, and the Player's first window waits on
@@ -726,6 +933,10 @@ def run(dbg, res, qmp):
 
     print("the other two apps")
     check_other_apps(dbg, res)
+    close_all(dbg)
+
+    print("new folder, rename, delete")
+    check_manage(dbg, res)
 
 
 def main():

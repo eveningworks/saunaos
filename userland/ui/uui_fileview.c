@@ -1599,11 +1599,16 @@ int uui_fileview_press(struct uui_fileview *fv, int cx, int cy, unsigned mods) {
     return set_changed || changed || inside;
 }
 
+int uui_fileview_row_at(const struct uui_fileview *fv, int cx, int cy) {
+    const struct uui_table *t = &fv->table;
+    return (fv->mode == UUI_FILEVIEW_ICONS)
+               ? uui_table_source_row(t, ic_hit_view(fv, cx, cy))
+               : uui_table_hit(t, cx, cy);
+}
+
 int uui_fileview_select_at(struct uui_fileview *fv, int cx, int cy) {
     struct uui_table *t = &fv->table;
-    int row = (fv->mode == UUI_FILEVIEW_ICONS)
-                  ? uui_table_source_row(t, ic_hit_view(fv, cx, cy))
-                  : uui_table_hit(t, cx, cy);
+    int row = uui_fileview_row_at(fv, cx, cy);
     if (row < 0) return 0;
 
     // A SECONDARY CLICK INSIDE THE SET KEEPS IT. This is the one place
@@ -1709,7 +1714,8 @@ static int fv_ops_hit(const void *w, int cx, int cy) {
 }
 
 static int fv_ops_key(void *w, int key, unsigned mods) {
-    (void)mods;
+    // ALT+ANYTHING IS THE APP'S -- Alt+Left is Back, not a step left.
+    if (mods & KEY_MOD_ALT) return 0;
     return uui_fileview_key((struct uui_fileview *)w, key);
 }
 

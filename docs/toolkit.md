@@ -75,6 +75,7 @@
 | `umd.h` | umd -- rendering Markdown as text for a terminal. |
 | `umemcomp.h` | Where the memory in use is, as four rows that SUM to it: Apps (every process's private bytes, QUERY_PROCMEM), Shared (shm objects, each once), Graphics (RAM held for the screen) and Kernel (the res... |
 | `unametpl.h` | A FILE-NAME TEMPLATE: literal text with <tokens> the caller fills -- "shot-<date>-<time>" -> "shot-20261007-142233". |
+| `unavhist.h` | unavhist -- BACK AND FORWARD through the folders a view has shown: the File Manager's panes and the file chooser. |
 | `unetctl.h` | The control protocol between /bin/netctl (and the desktop's network flyout) and /bin/netd, over uchan -- the initctl shape (lib/uinitctl.h). |
 | `unetlink.h` | unetlink -- a network card's ADAPTER settings (the rates it offers, Energy Efficient Ethernet, pause frames, interrupt moderation): the words /etc/net.conf spells them in, the labels a person reads... |
 | `unetmount.h` | Saved network shares: one file per share in /etc/mounts.d, mounted at /net/<file name> by /bin/smbfsd. |

@@ -803,7 +803,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~The folder tree follows the active pane~~ DONE 2026-09-10 -- on a NAVIGATION only, so a collapsed branch stays collapsed
 - [x] ~~Move the WM's file picker onto `uui_fileview`~~ DONE 2026-09-14 -- deleted; see `ui/uui_filedialog.h`
 - [ ] A dialog window cannot be RESIZED -- `uapp_window` sends no hints and routes no `WIN_EV_RESIZE`, so the chooser is one size
-- [ ] The file chooser has no "New folder" button -- Save As can only write into a directory that already exists
+- [x] ~~The file chooser has no "New folder" button~~ DONE 2026-10-14 -- plus Rename, Delete with Undo, Back/Forward
 - [ ] The chooser's Places list is compiled in -- KDE and Windows both let you add one
 - [x] ~~Desktop calendar widget~~ DONE 2026-08-24 -- a panel popup on the tray clock, not an app
 - [x] ~~Control panel with pluggable applets~~ done

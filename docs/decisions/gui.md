@@ -7957,6 +7957,28 @@ unreachable since the apps moved to ring 3 -- 531 lines that nothing
 called, plus fifteen live `!file_picker_open` guards threaded through
 `wm.c`, `wm_render.c` and `wm_overlay.c` for a flag that was always 0.
 
+**It manages files too, Windows' way (2026-10-14).** Windows' common
+dialog has New folder on its bar and Rename and Delete on right-click
+plus F2/Del; GTK4 and KDE's QFileDialog have the same three. Without
+them, Save As could only write into a folder that already existed, and
+a misnamed download meant leaving the app for the File Manager. The
+alternative was New folder alone, on the argument that nothing should
+be deleted by accident inside a Save dialog. It was declined, because a
+delete here goes to the Recycle Bin with Undo on a strip under the
+listing. Only Shift+Del, or a place with no bin, deletes for good, and
+both ask first, with Cancel as the default. A delete takes the marked
+set when there is one, and one Undo brings it all back. Back and Forward
+(the bar, Alt+Left/Right, the mouse's thumb buttons) step through
+`lib/unavhist.h`, the File Manager's per-pane history moved into the
+toolkit so both keep one shape. There is no Properties row:
+Windows' opens Explorer's sheet, and toy-os has no shared Properties
+window to open. Two toolkit pieces made it possible.
+`uapp_window_desc.on_secondary` gives a toolkit window the right-click
+an app's `on_press` already had. And while the menu is open the focus
+ring is PARKED, because a window hands the key to its focused widget
+before `on_key` sees it: Enter would otherwise open the file under the
+menu.
+
 ## A widget resolves its colours when it draws, not when it is built
 
 Every widget's `_init()` filled its colour fields with `ugfx_rgb()`

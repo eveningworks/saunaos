@@ -5,30 +5,16 @@
 // pane back to somewhere the RIGHT pane had been, which reads as the
 // window losing its mind rather than as a feature.
 //
-// THE SHAPE IS THE BROWSER'S, and it is the shape because everyone
-// expects it: going somewhere new TRUNCATES the forward list. The
-// alternative -- keeping it, so forward still goes to the old branch --
-// is a tree, which no file manager or browser offers because nobody can
-// hold the second branch in their head.
-//
-// A BOUNDED RING, oldest dropped. HISTORY_MAX is deliberately small:
-// this is "where was I", not an audit trail, and a person who has
-// visited 32 directories does not want the 33rd-from-last back.
+// The list itself is lib/unavhist.h's, shared with the file chooser:
+// the browser's shape, a bounded ring.
 #include "fm_internal.h"
 #include "ui/uui_fileview.h"
+#include "lib/unavhist.h"
 #include "kpath.h"
 #include <string.h>
 #include <stdio.h>
 
-#define HISTORY_MAX 32
-
-struct pane_history {
-    char dir[HISTORY_MAX][PATH_MAX_LEN];
-    int count;    // entries in use
-    int at;       // where we are, 0..count-1; -1 before the first record
-};
-
-static struct pane_history g_hist[2];
+static struct unavhist g_hist[2];
 
 // Set while history itself is driving the pane, so the set_dir() that
 // results does not record a new entry on top of the one it is
@@ -43,7 +29,7 @@ int fm_history_size(void) { return (int)sizeof g_hist[0]; }
 void fm_history_save(int pane, void *out) { memcpy(out, &g_hist[pane], sizeof g_hist[pane]); }
 void fm_history_load(int pane, const void *in) {
     if (in) memcpy(&g_hist[pane], in, sizeof g_hist[pane]);
-    else { memset(&g_hist[pane], 0, sizeof g_hist[pane]); g_hist[pane].at = -1; }
+    else unavhist_init(&g_hist[pane]);
 }
 // Put a pane where a restored history says it is, without recording it.
 void fm_history_replay(int pane, const char *dir) {
@@ -53,29 +39,19 @@ void fm_history_replay(int pane, const char *dir) {
 }
 
 void fm_history_record(int pane, const char *dir) {
-    if (pane < 0 || pane > 1 || !dir || !dir[0] || g_replaying) return;
-    struct pane_history *h = &g_hist[pane];
-
-    // THE SAME PLACE TWICE IS NOT A STEP. A refresh, or activating the
-    // directory you are already in, must not fill the history with
-    // entries Back cannot move past.
-    if (h->at >= 0 && strcmp(h->dir[h->at], dir) == 0) return;
-
-    if (h->at + 1 < HISTORY_MAX) {
-        h->at++;
-    } else {
-        // Full: drop the oldest and keep the newest. The cost is that
-        // the far end of Back quietly gets shorter, which is what every
-        // bounded history does.
-        memmove(h->dir[0], h->dir[1], sizeof h->dir[0] * (HISTORY_MAX - 1));
-    }
-    snprintf(h->dir[h->at], PATH_MAX_LEN, "%s", dir);
-    h->count = h->at + 1;   // anything ahead is now unreachable
+    if (pane < 0 || pane > 1 || g_replaying) return;
+    unavhist_record(&g_hist[pane], dir);
 }
 
-int fm_history_can_back(int pane)    { return pane >= 0 && pane <= 1 && g_hist[pane].at > 0; }
-int fm_history_can_forward(int pane) {
-    return pane >= 0 && pane <= 1 && g_hist[pane].at + 1 < g_hist[pane].count;
+int fm_history_can_back(int pane)    { return pane >= 0 && pane <= 1 && unavhist_can(&g_hist[pane], -1); }
+int fm_history_can_forward(int pane) { return pane >= 0 && pane <= 1 && unavhist_can(&g_hist[pane], 1); }
+
+// The bin and Recent are always there; a folder must still exist.
+static int still_there(void *ctx, const char *dir) {
+    (void)ctx;
+    struct sys_stat st;
+    if (!strcmp(dir, FM_BIN) || !strcmp(dir, FM_RECENT)) return 1;
+    return sys_stat(dir, &st) == 0 && st.is_dir;
 }
 
 // Move by one and put the pane there. Returns 1 on arriving, 0 when
@@ -87,27 +63,19 @@ int fm_history_can_forward(int pane) {
 // stays, because it may exist again by the time Back comes past.
 static int go(int pane, int delta) {
     if (pane < 0 || pane > 1) return 0;
-    struct pane_history *h = &g_hist[pane];
-    int dead = -1;
-    for (int want = h->at + delta; want >= 0 && want < h->count; want += delta) {
-        struct sys_stat st;
-        int is_bin = !strcmp(h->dir[want], FM_BIN) || !strcmp(h->dir[want], FM_RECENT);   // always there
-        if (!is_bin && (sys_stat(h->dir[want], &st) != 0 || !st.is_dir)) {
-            if (dead < 0) dead = want;
-            continue;
-        }
-        h->at = want;
+    const char *dead;
+    const char *to = unavhist_step(&g_hist[pane], delta, still_there, 0, &dead);
+    if (to) {
         g_replaying = 1;
-        uui_fileview_set_dir(&g_pane[pane], h->dir[want]);
+        uui_fileview_set_dir(&g_pane[pane], to);
         g_replaying = 0;
-        if (dead >= 0)
+        if (dead)
             snprintf(g_stat_note, sizeof g_stat_note, "skipped %s -- it no longer exists",
-                     k_path_basename(h->dir[dead]));
+                     k_path_basename(dead));
         return 1;
     }
-    if (dead < 0) return 0;
-    snprintf(g_stat_note, sizeof g_stat_note, "no such folder: %s",
-             k_path_basename(h->dir[dead]));
+    if (!dead) return 0;
+    snprintf(g_stat_note, sizeof g_stat_note, "no such folder: %s", k_path_basename(dead));
     return -1;
 }
 
