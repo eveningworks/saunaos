@@ -102,6 +102,7 @@
 #define WIN_EV_RESIZE     6 // a, b: PROPOSED content size -- a configure,
                             // not a command. See below.
 #define WIN_EV_WHEEL      8 // a: notches, + = up/away, - = down/toward.
+                            // mods: KEY_MOD_* held (Ctrl+wheel zooms).
                             //
                             // A client had no way to receive scrolling
                             // at all before this: kernel-space apps got

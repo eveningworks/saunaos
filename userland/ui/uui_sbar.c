@@ -13,11 +13,27 @@ void uui_sbar_init(struct uui_sbar *b) {
 int uui_sbar_width(void) { return uui_scrollbar_overlay_width(); }
 
 void uui_sbar_place(struct uui_sbar *b, int x, int y, int h) {
+    b->horiz = 0;
     b->x = x;
     b->y = y;
     b->w = uui_sbar_width();
     b->h = h;
 }
+
+void uui_sbar_place_h(struct uui_sbar *b, int x, int y, int w) {
+    b->horiz = 1;
+    b->x = x;
+    b->y = y;
+    b->w = w;
+    b->h = uui_sbar_width();
+}
+
+// The painter's terms: the scrolled axis's start and length, the bar's
+// thickness, and its flag.
+static int along_pos(const struct uui_sbar *b) { return b->horiz ? b->x : b->y; }
+static int along_len(const struct uui_sbar *b) { return b->horiz ? b->w : b->h; }
+static int thick(const struct uui_sbar *b)     { return b->horiz ? b->h : b->w; }
+static unsigned hflag(const struct uui_sbar *b) { return b->horiz ? UUI_SCROLLBAR_HORIZ : 0; }
 
 static int max_top(const struct uui_sbar *b) {
     return b->total > b->visible ? b->total - b->visible : 0;
@@ -34,7 +50,7 @@ void uui_sbar_set(struct uui_sbar *b, int total, int visible, int top) {
     b->top = clamp_top(b, top);
 }
 
-int uui_sbar_shown(const struct uui_sbar *b) { return b->total > b->visible && b->h > 0; }
+int uui_sbar_shown(const struct uui_sbar *b) { return b->total > b->visible && along_len(b) > 0; }
 
 int uui_sbar_hit(const struct uui_sbar *b, int cx, int cy) {
     return uui_sbar_shown(b) && cx >= b->x && cx < b->x + b->w &&
@@ -72,8 +88,8 @@ static void set_hover(struct uui_sbar *b, int on) {
 }
 
 // The painter's offset: a vertical bar counts from the BOTTOM
-// (uui_scrollbar.h), this struct from the start.
-static int offset(const struct uui_sbar *b) { return max_top(b) - b->top; }
+// (uui_scrollbar.h), a horizontal one and this struct from the start.
+static int offset(const struct uui_sbar *b) { return b->horiz ? b->top : max_top(b) - b->top; }
 
 void uui_sbar_draw(const struct uui_sbar *b, struct ugfx_surface *s,
                    uint32_t ground, uint32_t ink) {
@@ -83,7 +99,7 @@ void uui_sbar_draw(const struct uui_sbar *b, struct ugfx_surface *s,
     uui_scrollbar_draw_overlay(s, b->x, b->y, b->w, b->h, b->total, b->visible,
                                offset(b), ground, ink, wide,
                                (b->grab >= 0 ? UUI_SCROLLBAR_HELD : 0) |
-                               (b->floats ? UUI_SCROLLBAR_FLOATS : 0));
+                               (b->floats ? UUI_SCROLLBAR_FLOATS : 0) | hflag(b));
 }
 
 static int move_to(struct uui_sbar *b, int top) {
@@ -95,13 +111,14 @@ static int move_to(struct uui_sbar *b, int top) {
 
 int uui_sbar_press(struct uui_sbar *b, int cx, int cy) {
     if (!uui_sbar_hit(b, cx, cy)) return 0;
-    int w = b->w;
-    enum uui_scrollbar_zone z = uui_scrollbar_hit(b->x, b->y, w, b->h, b->total, b->visible,
-                                                  offset(b), cx, cy, 0);
+    enum uui_scrollbar_zone z = uui_scrollbar_hit(b->x, b->y, b->w, b->h, b->total, b->visible,
+                                                  offset(b), cx, cy, hflag(b));
     if (z == UUI_SB_THUMB) {
         int ty, th;
-        uui_scrollbar_thumb_rect(b->y, b->h, b->total, b->visible, offset(b), &ty, &th, w, 0);
-        b->grab = cy - ty;   // where it was taken, so the thumb does not jump to the cursor
+        uui_scrollbar_thumb_rect(along_pos(b), along_len(b), b->total, b->visible, offset(b),
+                                 &ty, &th, thick(b), hflag(b));
+        // Where it was taken, so the thumb does not jump to the cursor.
+        b->grab = (b->horiz ? cx : cy) - ty;
         return UUI_SBAR_TOOK | UUI_SBAR_REDRAW;
     }
     // The trough PAGES (guidelines, point 3), keeping one line of context.
@@ -114,10 +131,10 @@ int uui_sbar_press(struct uui_sbar *b, int cx, int cy) {
 
 int uui_sbar_motion(struct uui_sbar *b, int cx, int cy, unsigned buttons) {
     (void)buttons;
-    if (b->grab >= 0) {   // follows y only, and survives leaving the strip
-        int off = uui_scrollbar_offset_for_drag(b->y, b->h, b->total, b->visible, cy, b->grab,
-                                                b->w, 0);
-        return UUI_SBAR_TOOK | move_to(b, max_top(b) - off);
+    if (b->grab >= 0) {   // follows its own axis only, and survives leaving the strip
+        int off = uui_scrollbar_offset_for_drag(along_pos(b), along_len(b), b->total, b->visible,
+                                                b->horiz ? cx : cy, b->grab, thick(b), hflag(b));
+        return UUI_SBAR_TOOK | move_to(b, b->horiz ? off : max_top(b) - off);
     }
     int on = uui_sbar_hit(b, cx, cy);
     int r = 0;

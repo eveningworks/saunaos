@@ -1784,13 +1784,28 @@ Chosen 2026-09-28. Offset, bytes and ASCII columns over
 with go-to-offset and find-bytes. Editing is a second step: it needs an
 undo log and a decision about writing in place.
 
-### Paint: pencil, shapes, fill, select and copy, saving PNG/JPEG/QOI
+### Paint: stage 1 BUILT 2026-10-14 (pencil, brush, eraser, fill, picker, files, undo, zoom); shapes + text, then selection
 
-Put on the roadmap 2026-09-28 (not scheduled). `uui_canvas` draws, the
-image codecs encode all three formats, and the file chooser exists. New:
-a colour picker, which belongs in `userland/ui/` as a widget rather than
-in the app, and an image kind on the clipboard (a GUI clipboard item
-already listed) for copy and paste between apps.
+Put on the roadmap 2026-09-28; layout P3 and the whole v1 scope chosen
+2026-10-14. **Stage 1 is built**: the window (`gui/apps/paint.c`), the
+tools (`paint/paint_tools.c`) over `lib/upixel.h` and `lib/upixundo.h`,
+the two new widgets `ui/uui_paintcanvas.h` and `ui/uui_swatches.h`, a
+vertical `uui_toolbar` for the rail, opening JPEG/GIF/BMP/QOI/PNG and
+saving PNG/JPEG/QOI, Rotate and Flip, and "Edit in Paint" in the File
+Manager. Left to build, in order:
+
+- **Stage 2, shapes and text**: line, rectangle and ellipse (outline,
+  filled, both) previewed through `uui_paintcanvas.draw_over` and
+  committed on release; a text tool typing into the picture in the UI
+  font. Undo per shape, as a stroke is now.
+- **Stage 3, selection and the picture's size**: a rectangle selection
+  that moves, cuts, copies and pastes within Paint (an IMAGE kind on the
+  clipboard, for other apps, is a separate item), Crop to selection,
+  Resize (through `uimg_scale`) and the canvas size; the status bar's
+  selection pane comes with it.
+- **Not v1**: zoom past the wheel's steps by a typed value, layers, and
+  a soft (anti-aliased) brush -- `lib/upixel.h` replaces rather than
+  blends on purpose.
 
 ### Clock: timer, stopwatch, alarms through `soundd`, and a world clock over the timezone city list
 

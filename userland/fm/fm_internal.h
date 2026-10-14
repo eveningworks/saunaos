@@ -55,6 +55,7 @@
 // Notepad does NOT claim -- a README, a .desktop -- and is what "open
 // this as text anyway" means.
 #define NOTEPAD_EXEC "/bin/wm/apps/notepad"
+#define PAINT_EXEC "/bin/wm/apps/paint"
 
 // The router's ids. A widget reports its own (ui/uui_widget.h).
 #define ID_LEFT  1
@@ -91,7 +92,7 @@ enum {
     CMD_VIEW_DETAILS, CMD_VIEW_ICONS, CMD_VIEW_PANES, CMD_VIEW_TREE,
     CMD_UP, CMD_OPEN, CMD_PROPERTIES,
     CMD_CLIP_COPY, CMD_CLIP_CUT, CMD_CLIP_PASTE,
-    CMD_EDIT,
+    CMD_EDIT, CMD_EDIT_PAINT,
     CMD_BACK, CMD_FORWARD,
     // The command bar's drop-downs (they open a menu, they do nothing
     // themselves) and what is in them.

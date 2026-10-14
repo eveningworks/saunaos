@@ -1,0 +1,6 @@
+# Paint -- see this directory's README.md for the format.
+Name=Paint
+Exec=/bin/wm/apps/paint
+Category=graphics
+Comment=Draw on a picture, or touch one up, and save it
+Icon=paint

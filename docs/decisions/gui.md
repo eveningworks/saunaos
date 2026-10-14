@@ -11483,3 +11483,41 @@ the gallery (pick, Save as new, Import, Delete), and Customize... opens
 the Theme Editor, whose preview draws the theme being edited without
 touching the desktop until Apply. Both draw a theme with one widget,
 `uui_themepreview`.
+
+## Paint is a rail, a command bar and a panel, and its history keeps rectangles
+
+Chosen from three mockups (2026-10-14): Windows 11 Paint's command bar
+and its ribbon of tools was one, KolourPaint's rail with a colour box
+under the picture another, and the one built (P3) puts KolourPaint's
+slim tool RAIL on the left, Windows 11's COMMAND BAR on top and a RIGHT
+PANEL that hides -- the two colours, the colour picker, Recent and the
+palette, the brush. A ribbon gives a small window to its own chrome; a
+colour box under the picture loses the picker.
+
+The decisions inside it, each one a thing a later session would ask:
+
+- **Two colours, MS Paint's.** The left button paints the first and the
+  right the second; the ERASER paints the second, which is what "rub
+  out to the background" means in every MS Paint since 1985. The
+  toolkit routes the primary button alone, so Paint drives the right
+  button from `on_press`/`on_motion`/`on_release` itself.
+- **Paint does not claim the picture extensions.** The default opener
+  is the first desktop entry whose `Handles=` matches, in directory
+  order, and two claimants would make Image Viewer's double-click
+  depend on it. Explorer has the same pair -- Photos opens, "Edit"
+  opens Paint -- so the File Manager gains **Edit in Paint** beside
+  Edit in Notepad, for any file the image codecs recognise by its bytes.
+- **Undo keeps the rectangle a change touched, before and after**
+  (`lib/upixundo.h`), Paint.NET's history rather than a copy of the
+  picture per step: a dab on a 4000x3000 photo costs the dab. Bounded by
+  BYTES, oldest dropped, because a count is wrong both ways.
+- **Paint replaces pixels; it does not blend** (`lib/upixel.h`): the
+  pencil, the fill's edge and the eraser are exact, as MS Paint's are. A
+  soft brush is a later, separate tool.
+- **Nearest neighbour at every zoom** (`ui/uui_paintcanvas.h`): at 800%
+  each pixel is a square to aim at, and smoothing would hide the pixel
+  being edited.
+- **Ctrl+wheel zooms**, so a wheel event now carries the modifiers held
+  (`WIN_EV_WHEEL`'s `mods`) and the toolkit answers "what is held" for
+  a handler with no `mods` of its own -- `uapp_keyboard_mods()`, Qt's
+  `QGuiApplication::keyboardModifiers()`.

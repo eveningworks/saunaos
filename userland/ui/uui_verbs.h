@@ -32,6 +32,8 @@
 #define UUI_VT_TERMINAL    UTHEME_ACT_NONE
 #define UUI_VI_NOTEPAD     "tb-notepad"
 #define UUI_VT_NOTEPAD     UTHEME_ACT_EDIT
+#define UUI_VI_PAINT       "tb-brush"
+#define UUI_VT_PAINT       UTHEME_ACT_EDIT
 #define UUI_VI_DISKS       "tb-drive"
 #define UUI_VT_DISKS       UTHEME_ACT_NONE
 

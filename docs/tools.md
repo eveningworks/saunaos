@@ -3392,6 +3392,29 @@ window without going through it will find its layout polls timing out.
   -- reddens Extract all for both formats. Whether another archiver can read what toy-os WRITES is
   `archive_hostcheck.py`'s question, not this one.
 
+- **`paint_test.py`** -- Paint (`gui/apps/paint.c`, `paint/paint_tools.c`)
+  judged by PIXELS, the screen's and then the saved file's: a brush drag
+  paints black with the pixel above it still white; the palette's red
+  and the fill tool flood around the stroke, which stays black; Ctrl+Z
+  and Ctrl+Y on screen; a right-click with the pencil paints the SECOND
+  colour (the button the toolkit does not route); the rail's pencil
+  button; Ctrl+S on an untitled picture saves where it is told
+  (`imginfo` says PNG 800x600); a fresh Paint on that file shows the
+  stroke, the fill and the dot; Ctrl++ zooms to 150% with the picture
+  rect. Its positive control -- the fill painting the second colour --
+  reddens the fill, undo/redo and reopened checks. In `gui_regress.py`.
+
+- **`upixel_hostcheck.py`** -- `lib/upixel` and `lib/upixundo` compiled
+  on the host against a reference in Python: every brush size and both
+  shapes stamped and stroked off every edge (the disc computed in floats,
+  not the C's doubled integers), seeded random fills at tolerance 0 and
+  above it (a breadth-first search decides the region), every dirty rect
+  covering what changed, and histories of strokes, fills and a
+  size-changing step that undo to the first picture and redo to the
+  last, with a small byte limit dropping the oldest steps. Its positive
+  control -- a fill that never seeds the row below -- reddens the fills.
+  In `ondemand_sweep.py`.
+
 - **`archive_hostcheck.py`** -- `lib/uzip` and `lib/utar` compiled on
   the HOST (shims for `sys_stat` and the calendar) against Python's
   zipfile, tarfile and gzip, BOTH ways: what the C writers make at every

@@ -46,6 +46,7 @@
 #include "ui/uui_dialog.h"
 #include "ui/uui_runask.h"
 #include "lib/ufileop.h"
+#include "lib/ufile.h"
 #include "lib/udclick.h"   // the folder tree's double-click
 #include "ui/ulog.h"
 #include "keyboard.h"
@@ -201,7 +202,7 @@ static const struct uui_menu_item view_items[] = {
     UUI_MENU_ICON("Details",      CMD_VIEW_DETAILS, 0, "tb-details", UTHEME_ACT_ARRANGE),
     UUI_MENU_SEP,
     UUI_MENU_ICON("Folder sizes", CMD_VIEW_SIZES,   0, "tb-chart",   UTHEME_ACT_VIEW),
-    UUI_MENU_ICON("Details pane", CMD_VIEW_DPANE,   0, "tb-pane",    UTHEME_ACT_VIEW),
+    UUI_MENU_ICON("Details pane", CMD_VIEW_DPANE,   "Alt+Shift+P", "tb-pane", UTHEME_ACT_VIEW),
     UUI_MENU_ICON("Second pane",  CMD_VIEW_PANES,   0, "tb-panes",   UTHEME_ACT_VIEW),
     UUI_MENU_VERB("Folder tree",  CMD_VIEW_TREE,    0, TREE),
 };
@@ -265,7 +266,7 @@ static const struct uui_toolbar_item toolbar_items[] = {
     { "tb-sort",    0,                  CMD_MENU_SORT,  "Sort", UUI_TB_MENU, 0, TINT_TEAL },
     { "tb-view",    0,                  CMD_MENU_VIEW,  "View", UUI_TB_MENU, 0, TINT_ORANGE },
     { "tb-more",    "See more",         CMD_MENU_MORE,  0, UUI_TB_MENU, 0, 0 },
-    { "tb-pane",    "Show the details pane", CMD_VIEW_DPANE, "Details", UUI_TB_END, 0, TINT_NAV },
+    { "tb-pane",    "Show the details pane (Alt+Shift+P)", CMD_VIEW_DPANE, "Details", UUI_TB_END, 0, TINT_NAV },
 };
 
 // THE RECYCLE BIN'S COMMAND BAR, swapped in while the active pane shows
@@ -280,7 +281,7 @@ static const struct uui_toolbar_item bin_toolbar_items[] = {
     UUI_TOOLBAR_SEP,
     { "tb-sort",    0,                  CMD_MENU_SORT,  "Sort", UUI_TB_MENU, 0, TINT_TEAL },
     { "tb-view",    0,                  CMD_MENU_VIEW,  "View", UUI_TB_MENU, 0, TINT_ORANGE },
-    { "tb-pane",    "Show the details pane", CMD_VIEW_DPANE, "Details", UUI_TB_END, 0, TINT_NAV },
+    { "tb-pane",    "Show the details pane (Alt+Shift+P)", CMD_VIEW_DPANE, "Details", UUI_TB_END, 0, TINT_NAV },
 };
 
 // ...and in Recent: the rows are files opened lately, so the verbs are
@@ -293,7 +294,7 @@ static const struct uui_toolbar_item recent_toolbar_items[] = {
     UUI_TOOLBAR_SEP,
     { "tb-sort",    0,                  CMD_MENU_SORT,  "Sort", UUI_TB_MENU, 0, TINT_TEAL },
     { "tb-view",    0,                  CMD_MENU_VIEW,  "View", UUI_TB_MENU, 0, TINT_ORANGE },
-    { "tb-pane",    "Show the details pane", CMD_VIEW_DPANE, "Details", UUI_TB_END, 0, TINT_NAV },
+    { "tb-pane",    "Show the details pane (Alt+Shift+P)", CMD_VIEW_DPANE, "Details", UUI_TB_END, 0, TINT_NAV },
 };
 
 // ...and inside an archive: read-only, so the verbs are Extract.
@@ -304,7 +305,7 @@ static const struct uui_toolbar_item arc_toolbar_items[] = {
     UUI_TOOLBAR_SEP,
     { "tb-sort",    0,                  CMD_MENU_SORT,  "Sort", UUI_TB_MENU, 0, TINT_TEAL },
     { "tb-view",    0,                  CMD_MENU_VIEW,  "View", UUI_TB_MENU, 0, TINT_ORANGE },
-    { "tb-pane",    "Show the details pane", CMD_VIEW_DPANE, "Details", UUI_TB_END, 0, TINT_NAV },
+    { "tb-pane",    "Show the details pane (Alt+Shift+P)", CMD_VIEW_DPANE, "Details", UUI_TB_END, 0, TINT_NAV },
 };
 
 // The status bar's view switch, at its right end, as in Explorer.
@@ -335,6 +336,7 @@ static const struct uui_menu_item ctx_items[] = {
     UUI_MENU_VERB("Pin to Places",     CMD_PIN,      0,     PIN),        // a folder not yet pinned
     UUI_MENU_VERB("Unpin from Places", CMD_UNPIN,    0,     PIN),        // ...and one that is
     UUI_MENU_VERB("Edit in Notepad",   CMD_EDIT,     0,     NOTEPAD),    // dropped for anything but a text file
+    UUI_MENU_VERB("Edit in Paint",     CMD_EDIT_PAINT, 0,   PAINT),      // ...and this for anything but a picture
     UUI_MENU_VERB("Extract here",      CMD_EXTRACT_HERE, 0, COMPRESS),   // an archive file only
     UUI_MENU_VERB("Extract to...",     CMD_EXTRACT_TO,   0, COMPRESS),   // ...or inside one
     UUI_MENU_VERB("Compress to ZIP",   CMD_COMPRESS_ZIP, 0, COMPRESS),
@@ -432,6 +434,16 @@ static int build_ctx_items(void) {
     if (uui_fileview_selected_path(active(), path, sizeof path) &&
         !uui_fileview_selected_is_dir(active()))
         can_edit = looks_like_text(path);
+    // A PICTURE IS EDITED IN PAINT and opened in the Image Viewer --
+    // Explorer's "Edit" verb beside its default, rather than a second
+    // app claiming the same extensions (data/wm/applications/README.md).
+    int can_paint = 0;
+    if (uui_fileview_selected_path(active(), path, sizeof path) &&
+        !uui_fileview_selected_is_dir(active())) {
+        uint8_t head[16];
+        size_t got = ufile_read_head(path, head, sizeof head);
+        can_paint = got >= 4 && uimg_probe(head, got) != 0;
+    }
     int is_dir = uui_fileview_selected_is_dir(active());
     int pinned = is_dir && uui_fileview_selected_path(active(), path, sizeof path) && upins_has(path);
     int n = 0;
@@ -456,6 +468,7 @@ static int build_ctx_items(void) {
         if (!share && !ctx_items[i].label && i + 1 < (int)(sizeof ctx_items / sizeof ctx_items[0]) &&
             ctx_items[i + 1].code == CMD_NET_SIGNIN) continue;
         if (ctx_items[i].code == CMD_EDIT && !can_edit) continue;
+        if (ctx_items[i].code == CMD_EDIT_PAINT && !can_paint) continue;
         if (ctx_items[i].code == CMD_EXTRACT_HERE && !arc_file) continue;
         if (ctx_items[i].code == CMD_EXTRACT_TO && !arc_file && !in_archive(active())) continue;
         if ((ctx_items[i].code == CMD_COMPRESS_ZIP || ctx_items[i].code == CMD_COMPRESS_ASK) &&
@@ -1051,16 +1064,18 @@ void do_command(struct uapp *a, int code) {
         else launch_start(path, li.kind, code == CMD_RUN ? ULAUNCH_RUN : ULAUNCH_TERMINAL);
         break;
     }
-    case CMD_EDIT: {
+    case CMD_EDIT:
+    case CMD_EDIT_PAINT: {
         // A launch, like on_pane_open(): not waited for.
         char path[PATH_MAX_LEN];
         if (!uui_fileview_selected_path(active(), path, sizeof path)) {
             set_note("nothing selected");
             break;
         }
-        if (uapp_spawn(a, NOTEPAD_EXEC, path) < 0) {
-            set_note("could not start Notepad");
-            ulogf("files: edit %s -- spawn %s FAILED\n", path, NOTEPAD_EXEC);
+        const char *exec = code == CMD_EDIT ? NOTEPAD_EXEC : PAINT_EXEC;
+        if (uapp_spawn(a, exec, path) < 0) {
+            set_note(code == CMD_EDIT ? "could not start Notepad" : "could not start Paint");
+            ulogf("files: edit %s -- spawn %s FAILED\n", path, exec);
         } else {
             snprintf(g_stat_note, sizeof g_stat_note, "editing %s", k_path_basename(path));
         }
@@ -1511,6 +1526,12 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         if (key == '\n' || key == '\r') addr_end_edit(1);
         else if (key == 0x1B) addr_end_edit(0);
         else uui_textbox_key_mods(&g_addr[g_addr_edit], key, mods);
+        uapp_redraw(a);
+        return;
+    }
+    // ALT+SHIFT+P, Windows 11's key for its details pane.
+    if ((mods & KEY_MOD_ALT) && (mods & KEY_MOD_SHIFT) && (key == 'P' || key == 'p')) {
+        do_command(a, CMD_VIEW_DPANE);
         uapp_redraw(a);
         return;
     }

@@ -130,6 +130,12 @@ struct uui_toolbar {
     // where the grey wash barely differs from the bar. Set after init.
     int accent_latch;
 
+    // A RAIL: items stacked top to bottom, icon-only, a separator a
+    // short horizontal rule, the border down the right and tooltips to
+    // the right -- a paint program's tool strip, Qt's vertical
+    // QToolBar. No overflow. Set after init.
+    int vertical;
+
     // --- overflow (see the header comment); set after init ---------------
     int overflow;
     // The button the hidden items collapse behind: "tb-more" with the

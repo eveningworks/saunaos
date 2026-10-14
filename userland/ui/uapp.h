@@ -530,6 +530,11 @@ void uapp_flush(struct uapp *a);
 int uapp_question_open(struct uapp *a);
 int uapp_inwindow_question_open(struct uapp *a);
 
+// The KEY_MOD_* bits held, as of the event being handled -- what a
+// handler with no `mods` of its own asks (a widget's wheel: Ctrl+wheel
+// zooms). Qt's QGuiApplication::keyboardModifiers().
+unsigned uapp_keyboard_mods(void);
+
 void uapp_quit(struct uapp *a, int status);
 
 // --- launching another program ----------------------------------------

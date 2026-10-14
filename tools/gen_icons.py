@@ -164,6 +164,53 @@ def icon_tb_archive():
     return p.done()
 
 
+# Paint's tools (gui/apps/paint.c's rail), drawn as Lucide draws them.
+def icon_tb_pencil():
+    p = _Pen()
+    p.line((15, 4.5), (19.5, 9), (8.5, 20), (4, 20), (4, 15.5), (15, 4.5))
+    p.line((12.5, 7), (17, 11.5))
+    return p.done()
+
+
+def icon_tb_brush():
+    # A handle, its ferrule, and the bristles' rounded tip.
+    p = _Pen()
+    p.line((20, 4), (13, 11))
+    p.line((11.5, 9.5), (14.5, 12.5))
+    p.line((11.5, 9.5), (8, 10), (5.5, 12.5), (4, 20), (11.5, 18.5), (14, 16), (14.5, 12.5))
+    return p.done()
+
+
+def icon_tb_eraser():
+    p = _Pen()
+    p.line((7.5, 20.5), (3.5, 16.5), (13, 7), (20, 14), (13.5, 20.5), (7.5, 20.5))
+    p.line((8.5, 11.5), (15.5, 18.5))
+    p.line((13.5, 20.5), (20.5, 20.5))
+    return p.done()
+
+
+def icon_tb_fill():
+    # A tipped paint bucket and the drop falling from it.
+    p = _Pen()
+    p.line((11, 3.5), (18.5, 11), (11.5, 18), (10, 18), (3.5, 11.5), (3.5, 10.5), (11, 3.5))
+    p.line((5.5, 2.5), (9.5, 6.5))
+    p.line((3, 12.5), (17, 12.5))
+    p.line((20, 15.5), (20, 17.5))
+    p.circle(20, 19.5, 1.6)
+    return p.done()
+
+
+def icon_tb_picker():
+    # A pipette, its bulb up and to the right.
+    p = _Pen()
+    p.line((3, 21), (4, 20), (7, 20), (15, 12))
+    p.line((4, 20), (4, 17), (12, 9))
+    p.line((10.5, 7.5), (16.5, 13.5))
+    p.circle(18, 6, 2.6)
+    p.line((14, 10), (16.2, 7.8))
+    return p.done()
+
+
 def icon_tb_cut():
     p = _Pen()
     p.line((9.2, 14.4), (17.5, 3)); p.line((14.8, 14.4), (6.5, 3))
@@ -1441,6 +1488,11 @@ ICONS = {
     "tb-move": icon_tb_move,
     "tb-mkdir": icon_tb_mkdir,
     "tb-archive": icon_tb_archive,
+    "tb-pencil": icon_tb_pencil,
+    "tb-brush": icon_tb_brush,
+    "tb-eraser": icon_tb_eraser,
+    "tb-fill": icon_tb_fill,
+    "tb-picker": icon_tb_picker,
     "tb-rename": icon_tb_rename,
     "tb-delete": icon_tb_delete,
     "tray-volume-high": icon_tray_volume_high,

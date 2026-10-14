@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 
-// uui_sbar -- one vertical scrollbar's STATE, for a widget to embed: the
+// uui_sbar -- one scrollbar's STATE, for a widget to embed: the
 // overlay bar in a reserved strip, its hover, its thumb grab and its
 // track paging, so every scrolling view looks and behaves the same
 // (docs/gui-guidelines.md, "Scrollbars"). uui_scrollbar.h is the
@@ -30,6 +30,7 @@ struct uui_sbar {
     int grab;          // OWNED: where in the thumb a drag holds it, or -1
     int hover;         // OWNED: the pointer is on the strip
     int floats;        // over content it does not reserve: thin at rest even under Always
+    int horiz;         // along the BOTTOM, scrolling sideways: placed by uui_sbar_place_h()
     // The widening, eased: out over a few frames, back only after the
     // pointer has been gone a moment, so a hand drifting off does not
     // snatch the bar away -- the Start menu's numbers. A function of
@@ -50,6 +51,9 @@ int  uui_sbar_width(void);
 // The width is taken HERE, in whatever face is selected -- so place it
 // in the interface face, as every measurement of chrome is.
 void uui_sbar_place(struct uui_sbar *b, int x, int y, int h);
+// The same for a HORIZONTAL bar `w` long, its strip `uui_sbar_width()`
+// tall -- a picture or a wide document. `top` is then the first COLUMN.
+void uui_sbar_place_h(struct uui_sbar *b, int x, int y, int w);
 // The content, before drawing or routing. `top` is clamped here.
 void uui_sbar_set(struct uui_sbar *b, int total, int visible, int top);
 // Is there anything to scroll? A bar with nothing to do is not drawn.

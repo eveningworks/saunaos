@@ -93,6 +93,10 @@ TOOLS = [
     # both ways; gcc and the standard library only.
     ("archive_host", "archive_hostcheck.py",   "zip/tar/gzip both ways against Python", False,
      None,                                                                                   False),
+    # lib/upixel and lib/upixundo -- Paint's stamps, lines, fill and undo
+    # -- against a reference written in Python; gcc and the stdlib only.
+    ("upixel_host", "upixel_hostcheck.py",     "paint stamps, fills and undo against Python", False,
+     None,                                                                                   False),
     # The HID report-descriptor walker against descriptors CAPTURED off
     # real devices -- a Logitech G305 receiver and QEMU's pair. Host-only
     # for the same reason: the bytes are fixed, and the failure it exists

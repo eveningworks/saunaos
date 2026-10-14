@@ -531,11 +531,32 @@ static void owed_release(struct uapp *a) {
     dispatch(a, &up);
 }
 
+// The modifiers held, as of the last input event that said: a key's
+// press or release carries them, a pointer event in its high byte, and
+// the wheel in `mods` (abi/win_proto.h).
+static unsigned g_kbd_mods;
+
+unsigned uapp_keyboard_mods(void) { return g_kbd_mods; }
+
+static void note_mods(const struct win_event *ev) {
+    switch (ev->type) {
+    case WIN_EV_KEY: case WIN_EV_KEY_UP: case WIN_EV_WHEEL:
+        g_kbd_mods = ev->mods & 0xFFu;
+        break;
+    case WIN_EV_MOUSE_DOWN: case WIN_EV_MOUSE_UP: case WIN_EV_MOUSE_MOVE:
+        g_kbd_mods = WIN_MOUSE_MODS(ev->mods);
+        break;
+    default:
+        break;
+    }
+}
+
 static void dispatch(struct uapp *a, const struct win_event *in) {
     const struct uapp_desc *d = a->desc;
 
     clip_poll(a);
     reap_children();
+    note_mods(in);
 
     // Typing or clicking shows the caret solid and restarts its blink,
     // whichever window or widget the event is for (ui/uui_caret.h).
@@ -1224,9 +1245,18 @@ static int uapp_pump(struct uapp *a, int block) {
     // Drain everything queued, blocking or not: one wake often carries
     // several events, and handling them together is what makes the
     // single coalesced present below correct rather than laggy.
+    // **BUT NOT FOR EVER ONCE A FRAME IS OWED.** Motion that arrives as
+    // fast as it is handled never empties the queue, and a paint stroke
+    // drew nothing until the hand stopped; after a frame's worth of
+    // events the frame goes out, and the rest are handled after it.
+    unsigned long long drain_from = sys_monotonic_ns();
     while (a->running && next_event(&ev)) {
         dispatch(a, &ev);
         owed_release(a);
+        // Not before the FIRST frame: what a window does as it opens --
+        // made, then sized, then fullscreen -- is handled whole, or the
+        // compositor is shown an interim size.
+        if (a->shown && a->top.dirty && sys_monotonic_ns() - drain_from > 16000000ull) break;
     }
 
     // A widget asked for another frame from its last draw: paint every

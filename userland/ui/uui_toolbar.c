@@ -68,7 +68,7 @@ static int span_w(const struct uui_toolbar *t, int from, int to) {
 // One pass: the longest prefix that fits beside the More button, once
 // everything together does not fit without it.
 int uui_toolbar_shown(const struct uui_toolbar *t) {
-    if (!t->overflow) return t->count;
+    if (!t->overflow || t->vertical) return t->count;
     int room = t->w - 8 - item_w(t, &t->more), used = 0, n = 0, fit = -1;
     for (; n < t->count; n++) {
         used += item_w(t, &t->items[n]);
@@ -92,7 +92,19 @@ static unsigned flags_of(const struct uui_toolbar *t, int i) {
     return t->item_flags ? t->item_flags(t->items[i].code) : 0;
 }
 
+// A rail's item height: a button, or a separator's gap.
+static int item_h(const struct uui_toolbar *t, const struct uui_toolbar_item *it) {
+    return is_sep_item(it) ? sep_w() : btn_h(t);
+}
+
 void uui_toolbar_natural_size(const struct uui_toolbar *t, int *out_w, int *out_h) {
+    if (t->vertical) {
+        int h = 4;
+        for (int i = 0; i < t->count; i++) h += item_h(t, &t->items[i]);
+        if (out_w) *out_w = btn_w(t) + 8;
+        if (out_h) *out_h = h + 4;
+        return;
+    }
     int w = 4;
     for (int i = 0; i < t->count; i++) w += item_w(t, &t->items[i]);
     if (out_w) *out_w = w + 4;
@@ -109,6 +121,16 @@ static int end_group(const struct uui_toolbar *t) {
 int uui_toolbar_item_rect(const struct uui_toolbar *t, int i,
                            int *x, int *y, int *w, int *h) {
     if (i < 0 || i > t->count) return 0;
+    if (t->vertical) {
+        if (i == t->count) return 0;   // no overflow button
+        int iy = t->y + 4;
+        for (int j = 0; j < i; j++) iy += item_h(t, &t->items[j]);
+        if (x) *x = t->x + (t->w - btn_w(t)) / 2;
+        if (y) *y = iy;
+        if (w) *w = btn_w(t);
+        if (h) *h = item_h(t, &t->items[i]);
+        return 1;
+    }
     int n = uui_toolbar_shown(t);
     if (i == t->count && n == t->count) return 0;   // no overflow button
     int mw = n < t->count ? item_w(t, &t->more) : 0;
@@ -228,7 +250,8 @@ int uui_toolbar_tick(struct uui_toolbar *t) {
         // is no room below, which is the clamp this widget used to do
         // against the surface -- and could only ever do against its
         // OWN window.
-        t->tip_popup = uui_popup_open(bx, by, bw, bh, w, h, UUI_POPUP_BELOW,
+        t->tip_popup = uui_popup_open(bx, by, bw, bh, w, h,
+                                      t->vertical ? UUI_POPUP_RIGHT : UUI_POPUP_BELOW,
                                       0, tip_done, t, &px, &py);
     }
     return 1;
@@ -264,7 +287,8 @@ static void draw_icon(struct ugfx_surface *s, const struct uui_toolbar *t,
 
 static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
     ugfx_fill_rect(s, t->x, t->y, t->w, t->h, c_bg(t));
-    if (!t->compact) ugfx_fill_rect(s, t->x, t->y + t->h - 1, t->w, 1, c_border(t));
+    if (t->vertical) ugfx_fill_rect(s, t->x + t->w - 1, t->y, 1, t->h, c_border(t));
+    else if (!t->compact) ugfx_fill_rect(s, t->x, t->y + t->h - 1, t->w, 1, c_border(t));
 
     for (int i = 0; i <= t->count; i++) {
         int x, y, w, h;
@@ -277,7 +301,8 @@ static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
             continue;
         }
         if (is_sep(it)) {
-            ugfx_fill_rect(s, x + sep_w() / 2, y + 3, 1, h - 6, c_border(t));
+            if (t->vertical) ugfx_fill_rect(s, x + 3, y + sep_w() / 2, w - 6, 1, c_border(t));
+            else ugfx_fill_rect(s, x + sep_w() / 2, y + 3, 1, h - 6, c_border(t));
             continue;
         }
         unsigned f = flags_of(t, i);
@@ -359,8 +384,8 @@ static void tb_draw_tip(struct ugfx_surface *s, const struct uui_toolbar *t) {
         // In-window fallback -- the only clamp this widget can do, and
         // the reason a tooltip near the window edge used to be cut off
         // rather than moved.
-        x = bx;
-        y = by + bh + UUI_TIP_GAP;
+        x = t->vertical ? bx + bw + UUI_TIP_GAP : bx;
+        y = t->vertical ? by + (bh - h) / 2 : by + bh + UUI_TIP_GAP;
         if (x + w > s->w) x = s->w - w;
         if (x < 0) x = 0;
         if (y + h > s->h) y = by - h - UUI_TIP_GAP; // no room below: flip above
@@ -490,12 +515,12 @@ static int tb_accepts_focus_op(const void *w) {
     return 0;   // it takes keys only through its open menu, never as focus
 }
 
-// An OVERFLOWING strip only (the others' logs predate this): button i for
-// each one in the strip, more, shown, and the open menu's rows in
-// uui_menubar's own vocabulary (popup 0, item 0 i, open).
+// An OVERFLOWING strip or a rail only (the others' logs predate this):
+// button i for each one in the strip, more, shown, and the open menu's
+// rows in uui_menubar's own vocabulary (popup 0, item 0 i, open).
 static void tb_describe_op(const void *w, const struct uui_describe *d) {
     const struct uui_toolbar *t = w;
-    if (!t->overflow) return;
+    if (!t->overflow && !t->vertical) return;
     int x, y, iw, ih;
     for (int i = 0; i < t->count; i++)
         if (uui_toolbar_item_rect(t, i, &x, &y, &iw, &ih) && iw > 0)

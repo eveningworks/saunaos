@@ -85,6 +85,8 @@
 | `upath.h` | PATH lookup for a ring-3 program that has to RUN another one. |
 | `upile.h` | DEBRIS THAT FALLS, BOUNCES AND PILES UP at the bottom of a picture -- the Desktop cube's chips (gui/savers/cube.c), and anything else that sheds bits onto a floor. |
 | `upins.h` | PLACES: the list down the top of a file window's side pane, in the person's order -- Explorer's Quick access and Dolphin's Places panel, ONE list: Recent, Home, the personal folders and the Recycle... |
+| `upixel.h` | upixel -- PAINTING ON A PICTURE: a brush stamp, a stroke of them, a flood fill, on a struct uimg's 0xAARRGGBB pixels. |
+| `upixundo.h` | upixundo -- UNDO FOR A PICTURE BEING PAINTED: Paint.NET's history shape. |
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |
 | `urecent.h` | RECENT FILES: what was opened lately, by any app, and in which -- freedesktop's recently-used.xbel and Windows' Recent Items, as one plain-text list in /var/lib/recent. |
@@ -188,6 +190,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_netadapter.h` | uui_netadapter -- one network card's ADAPTER SETTINGS as a panel: Link speed, Energy Efficient Ethernet, Flow control and Interrupt moderation, each a setting row shown only when the card's driver... |
 | `uui_netshare.h` | THE TWO NETWORK-SHARE DIALOGS, for any app with a uui_dialog: "Add network share" (an address, a name, open it now) and "Sign in to <server>" (a user, a password, Remember). |
 | `uui_optlist.h` | A scrolling list of OPTIONS, one per row: a checkbox, the option's name, an optional value field edited in place, and a one-line description. |
+| `uui_paintcanvas.h` | uui_paintcanvas -- A PICTURE TO PAINT ON, ZOOMED AND SCROLLED: the view half of a paint program. |
 | `uui_pathbar.h` | A BREADCRUMB PATH: the folder you are in as a row of buttons, one per level, each of which takes you there -- Explorer's address bar, Dolphin's URL navigator, GTK's path bar. |
 | `uui_places.h` | PLACES AND DEVICES: the list down the left of a file window -- named folders a person goes to (Home, Documents, ...), then every mounted filesystem with how full it is. |
 | `uui_popup.h` | A POPUP SURFACE, as a widget sees it. |
@@ -199,7 +202,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_renamer.h` | THE RENAME-MANY DIALOG: a window of its own, over lib/urename.h -- a rule (Numbered, Find and replace, Change case), Keep extensions, and a PREVIEW of every old name beside its new one, with the cl... |
 | `uui_route.h` | uui_route -- pointer input, delivered to widgets by the toolkit instead of by every app. |
 | `uui_runask.h` | uui_runask -- "Run backup.sh?": the card that asks what to do with a program or a script before anything runs. |
-| `uui_sbar.h` | uui_sbar -- one vertical scrollbar's STATE, for a widget to embed: the overlay bar in a reserved strip, its hover, its thumb grab and its track paging, so every scrolling view looks and behaves the... |
+| `uui_sbar.h` | uui_sbar -- one scrollbar's STATE, for a widget to embed: the overlay bar in a reserved strip, its hover, its thumb grab and its track paging, so every scrolling view looks and behaves the same (do... |
 | `uui_scale.h` | A CONTINUOUS value on a range, dragged with the pointer -- a media player's position bar, a volume control, a percentage. |
 | `uui_scrollanim.h` | SMOOTH SCROLLING AS A DISPLACEMENT OF THE DRAWN CONTENT, easing to zero -- the widget's own position (`top`, `offset`, `scroll_offset`) still jumps exactly as it always did, so every reader of it,... |
 | `uui_scrollbar.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
@@ -217,6 +220,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_stackbar.h` | A STACKED BAR WITH A LEGEND: how one whole splits into parts, each a coloured segment and a legend row (swatch, label, value). |
 | `uui_stages.h` | A JOB'S STAGES AND HOW FAR IT HAS GOT: "Stage 2 of 3: ...", a bar, a count under it, and every stage listed -- done, running, or still to come -- each with a line of its own. |
 | `uui_statusbar.h` | uui_statusbar -- the strip along the bottom of an application window, as Windows (the common control, `msctls_statusbar32`) and KDE (KStatusBar / QStatusBar) both have it. |
+| `uui_swatches.h` | uui_swatches -- A GRID OF COLOURS TO PICK FROM: a paint program's palette and its recent colours, Windows Paint's colour box and KolourPaint's. |
 | `uui_switch.h` | AN ON/OFF SWITCH -- a sliding knob in a capsule, with the state spelled beside it ("On"/"Off", Windows 11's shape; KDE and GNOME show the knob alone). |
 | `uui_table.h` | --- table: rows in columns, with a header --------------------------- |
 | `uui_tabs.h` | A ROW OF TABS -- one selected, the rest waiting, each optionally with a close box. |

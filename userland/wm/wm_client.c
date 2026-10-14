@@ -1948,6 +1948,7 @@ void wm_client_send_wheel(struct window *win, int notches) {
     ev.type = WIN_EV_WHEEL;
     ev.window = win->client_win;
     ev.a = notches;
+    ev.mods = wm_rawin_mods_now();
     send_input(win, &ev);
 }
 

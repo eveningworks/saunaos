@@ -463,6 +463,24 @@ def charmap():
     return finish(shadow(im))
 
 
+def paint():
+    # A picture being painted: a card with a red stroke and two dots of
+    # colour, and the brush laid across its corner.
+    im = canvas()
+    card = m_rr(5, 9, 49, 55, 7)
+    fill(im, card, ((255, 255, 255), (226, 232, 242)))
+    edge(im, card, (176, 186, 204), 1.2)
+    d = D4(im)
+    d.line([(12, 43), (19, 34), (27, 40), (36, 28)], fill=(232, 72, 58, 255), width=5)
+    d.ellipse((12, 16, 21, 25), fill=(64, 110, 226, 255))
+    d.ellipse((25, 15, 34, 24), fill=(246, 186, 48, 255))
+    handle = m_poly(53, 15, 59, 21, 42, 38, 36, 32)
+    fill(im, handle, ((196, 132, 74), (150, 94, 46)))
+    fill(im, m_poly(36, 32, 42, 38, 38, 42, 32, 36), (178, 186, 198))
+    fill(im, m_poly(32, 36, 38, 42, 31, 51, 24, 54, 26, 45), (232, 72, 58))
+    return finish(shadow(im))
+
+
 def themeedit():
     # A painter's palette with four colours on it: the Theme Editor.
     im = canvas()
@@ -1004,7 +1022,7 @@ ART = {
     "notepad": notepad, "files": files, "terminal": terminal, "calculator": calculator,
     "imgview": imgview, "player": player, "video": video, "settings": settings, "taskmgr": taskmgr,
     "mines": mines, "screenshot": screenshot, "about": about, "help": help_app, "browser": browser,
-    "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "disks": disks, "themeedit": themeedit,
+    "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "disks": disks, "themeedit": themeedit, "paint": paint,
     "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
     "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,
