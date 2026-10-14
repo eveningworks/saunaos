@@ -102,9 +102,10 @@ int64_t pty_master_write(int idx, const char *src, uint32_t len);
 //
 // **ALL OR NOTHING, and that is why it is separate from the echo path.**
 // Echo happens in the keyboard IRQ and cannot block, so it DROPS when
-// the buffer is full; a program's output must not, because nothing in
-// ring 3 loops on a short write. Same split, same reasoning as
-// pipe_write()'s atomicity.
+// the buffer is full; a program's output must not. Same split, same
+// reasoning as pipe_write()'s atomicity -- and, like it, A WRITE LONGER
+// THAN THE BUFFER IS CLAMPED to the buffer's size and returns that short
+// count, or it could never fit and would park for good.
 int64_t pty_slave_write(int idx, const char *src, uint32_t len);
 
 #endif // KERNEL_PTY_H

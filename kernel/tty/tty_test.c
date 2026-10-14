@@ -361,6 +361,28 @@ KTEST("tty", "a slave write with no master is discarded and reported") {
     KTEST_ASSERT_EQ((int)n, 0);
 }
 
+KTEST("tty", "a slave write longer than the buffer is clamped, never parked for good") {
+    // All-or-nothing on the WHOLE length parked a 20 KB write forever:
+    // it could never fit a 4 KB buffer. Clamped, it takes the buffer's
+    // worth and says so; the rest follows once the master has read.
+    int idx = pty_create();
+    if (idx < 0) KTEST_SKIP("no free pty");
+    static char big[3 * 4096];
+    for (unsigned i = 0; i < sizeof big; i++) big[i] = (char)('a' + i % 26);
+    int64_t first = pty_slave_write(idx, big, sizeof big);
+    int64_t full = pty_slave_write(idx, big, sizeof big);    // nothing fits now: would block
+    static char got[4096];
+    int64_t drained = pty_master_read(idx, got, sizeof got);
+    int64_t again = pty_slave_write(idx, big + first, (uint32_t)(sizeof big - first));
+    pty_close_slave(idx);
+    pty_close_master(idx);
+    KTEST_ASSERT(first > 0 && first < (int64_t)sizeof big);
+    KTEST_ASSERT_EQ((int)full, -1);
+    KTEST_ASSERT_EQ((int)drained, (int)first);
+    KTEST_ASSERT(got[0] == 'a' && got[first - 1] == big[first - 1]);
+    KTEST_ASSERT(again > 0);
+}
+
 KTEST("tty", "a pty carries a line, and INTR through it, from ring 3") {
     if (!fs_exists(PTY_TEST_PATH)) KTEST_SKIP("no " PTY_TEST_PATH " on this boot");
     if (!fs_exists("/tests/spin_test")) KTEST_SKIP("no /tests/spin_test on this boot");

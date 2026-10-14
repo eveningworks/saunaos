@@ -194,6 +194,12 @@ int64_t pty_slave_write(int idx, const char *src, uint32_t len) {
     struct pty *p = at(idx);
     if (!p || !src) return 0;
     if (p->masters <= 0) return 0; // discarded and reported; see pty.h
+    // CLAMPED TO WHAT THE BUFFER CAN EVER HOLD, pipe_fd_write()'s rule: a
+    // write bigger than the whole buffer could never fit, so all-or-nothing
+    // parked it for good (`update` printing its notes in one 20 KB write
+    // hung the remote shell). The short count goes back to the caller,
+    // whose libc loops (stdio.c's write_all()).
+    if (len > PTY_OUT_MAX - 1) len = PTY_OUT_MAX - 1;
     if (out_space(p) < len) return -1; // would block -- park and retry
 
     out_push(p, src, len);
