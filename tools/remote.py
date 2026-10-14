@@ -370,7 +370,9 @@ def do_reboot(host, port, entry, list_only, wait, timeout):
             lines = sess.run(cmd, 5.0)
         except (TimeoutError, EOFError, OSError):
             lines = None           # the machine went away: it is restarting
-        if lines is not None:
+        # A reboot under way says so before the session drops -- init's
+        # "stopping the services" -- and is not a refusal.
+        if lines is not None and not any("init is stopping" in ln for ln in lines):
             # Still here: the program refused (an unknown entry, a /boot
             # it could not write) and said why.
             print("\n".join(lines))
@@ -394,6 +396,59 @@ def do_reboot(host, port, entry, list_only, wait, timeout):
             time.sleep(2)
     print(f"remote: not back after {wait:.0f} s", file=sys.stderr)
     return 1
+
+
+def do_update(host, port, url, reboot, wait, timeout):
+    """System Update on the machine, from `url`, then (by default) the
+    reboot that finishes it and the wait for the machine to come back --
+    the whole "ship it to the laptop" round in one bounded command.
+
+    THE UPDATE'S OUTPUT GOES TO A FILE ON THE MACHINE, never through this
+    session: a kernel before the pty-write clamp (pty.c) parks any single
+    terminal write over 4 KB for good, and `update` writes its release
+    notes in one. A run that stalls anyway is cut off at `timeout` and the
+    log's tail says which step it stopped at, instead of the session
+    hanging with nothing to show."""
+    log = "/var/tmp/remote-update.out"
+    try:
+        sess = Session(host, port, 15.0)
+    except OSError as e:
+        print(f"remote: {e}", file=sys.stderr)
+        return 1
+    stalled = False
+    try:
+        try:
+            sess.run(f"update --from {url} > {log}", timeout)
+        except (TimeoutError, EOFError) as e:
+            print(f"remote: update did not finish within {timeout:.0f} s ({e})", file=sys.stderr)
+            stalled = True
+    finally:
+        sess.close()
+    try:
+        s2 = Session(host, port, 15.0)
+        tail = s2.run(f"tail -n 6 {log}", 20.0)
+        s2.close()
+    except (OSError, TimeoutError, EOFError) as e:
+        print(f"remote: could not read {log}: {e}", file=sys.stderr)
+        return 1
+    print("\n".join(tail))
+    if stalled:
+        return 1
+    if not any("restart to finish" in ln for ln in tail):
+        return 0 if any("up to date" in ln.lower() or "nothing to" in ln.lower() for ln in tail) else 1
+    if not reboot:
+        return 0
+    rc = do_reboot(host, port, None, False, wait, timeout)
+    if rc:
+        return rc
+    try:
+        s3 = Session(host, port, 15.0)
+        banner = s3.run("echo up", 10.0)
+        s3.close()
+        print("\n".join(ln for ln in banner if "toy-os" in ln))
+    except (OSError, TimeoutError, EOFError):
+        pass
+    return 0
 
 
 # --- TFTP ---------------------------------------------------------------
@@ -1630,6 +1685,14 @@ def main():
     rb.add_argument("--list", action="store_true", help="list the boot entries")
     rb.add_argument("--wait", type=float, default=0, metavar="SECONDS",
                     help="wait up to this long for telnet to answer again")
+    up = sub.add_parser("update", help="System Update from a server, reboot, wait "
+                        "until it answers -- bounded, its output kept in a file")
+    up.add_argument("--from", dest="url", required=True,
+                    help="the update server, e.g. http://<dev-host-ip>:8080/dev "
+                    "(local_info.txt has the address)")
+    up.add_argument("--no-reboot", action="store_true", help="stage only; do not restart")
+    up.add_argument("--wait", type=float, default=240, metavar="SECONDS",
+                    help="how long the reboot may take to answer again (default 240)")
 
     a = ap.parse_args()
     try:
@@ -1654,6 +1717,9 @@ def main():
             return do_shell(a.host, a.telnet_port, a.timeout)
         if a.cmd == "reboot":
             return do_reboot(a.host, a.telnet_port, a.entry, a.list, a.wait, a.timeout)
+        if a.cmd == "update":
+            return do_update(a.host, a.telnet_port, a.url, not a.no_reboot, a.wait,
+                             a.timeout if a.timeout > 15.0 else 480.0)
     except (OSError, RuntimeError) as ex:
         print(f"remote: {ex}", file=sys.stderr)
         return 1

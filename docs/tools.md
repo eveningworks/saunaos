@@ -750,6 +750,17 @@ manual steps to be worth automating:
       python3 tools/remote.py --host <machine-ip> --timeout 60 flash build/kernel.bin
       python3 tools/remote.py --host <machine-ip> reboot --list
       python3 tools/remote.py --host <machine-ip> reboot --entry "toy-os (no kernel debugger)" --wait 120
+      python3 tools/remote.py --host <machine-ip> update --from http://<dev-host-ip>:8080/dev
+
+  **`update` is the ship-to-the-laptop round in one bounded command**:
+  System Update from the server, its output written to a FILE on the
+  machine (a kernel before the pty write clamp parked any one terminal
+  write over 4 KB for good, and `update` prints its release notes in
+  one), the log's tail shown, then the reboot and the wait until telnet
+  answers, ending on the new version's banner. A run that stalls is cut
+  off at `--timeout` with the tail saying which step it stopped at.
+  `--no-reboot` stages only. A 503 from the server is a stale build:
+  `make iso`, not just `make all`.
 
   **`reboot --entry` is one boot**: GRUB clears the choice before it
   boots it (`docs/commands/reboot.md`), so a session can take a laptop
