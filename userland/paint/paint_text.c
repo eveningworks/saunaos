@@ -70,7 +70,7 @@ static void measure(int *w, int *h, int *lh) {
     const struct ugfx_font *was = ugfx_set_font(&g_font);
     *lh = ugfx_char_h();
     int lines = 1, widest = 0, cur = 0;
-    char line[TEXT_MAX];
+    static char line[TEXT_MAX];
     for (int i = 0; i <= g_len; i++) {
         if (i == g_len || g_buf[i] == '\n') {
             line[cur] = '\0';
@@ -102,13 +102,22 @@ static void render(void) {
         ugfx_fill_rect(&s, g_drawn.x, g_drawn.y, g_drawn.w, g_drawn.h, g_colour[1] & 0xFFFFFF);
     const struct ugfx_font *old = ugfx_set_font(&g_font);
     int y = g_y, start = 0;
-    char line[TEXT_MAX];
+    static char line[TEXT_MAX];
     for (int i = 0; i <= g_len; i++) {
         if (i == g_len || g_buf[i] == '\n') {
             int n = i - start;
             memcpy(line, g_buf + start, (size_t)n);
             line[n] = '\0';
             ugfx_draw_string(&s, g_x, y, line, g_colour[0] & 0xFFFFFF, UGFX_TRANSPARENT);
+            // Lines the face does not have: under the baseline, through
+            // the middle of the small letters -- a fifteenth of the size.
+            if (n && (g_fontpick.underline || g_fontpick.strike)) {
+                int tw = ugfx_text_width(line), th = lh / 15 > 1 ? lh / 15 : 1;
+                if (g_fontpick.underline)
+                    ugfx_fill_rect(&s, g_x, y + lh * 7 / 8, tw, th, g_colour[0] & 0xFFFFFF);
+                if (g_fontpick.strike)
+                    ugfx_fill_rect(&s, g_x, y + lh * 11 / 20, tw, th, g_colour[0] & 0xFFFFFF);
+            }
             y += lh;
             start = i + 1;
         }

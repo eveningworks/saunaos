@@ -679,7 +679,9 @@ unsigned long ugfx_font_arena_size(int px) {
 
 int ugfx_font_load(const char *path, int px, int bold,
                     struct ugfx_font *f, void *arena, unsigned long arena_size) {
-    if (!path || !f || !arena || px < 6 || px > 64) return 0;
+    // 128: a glyph's advance must fit its byte and its cell ttf.h's
+    // TTF_MAX_CELL_W, both comfortable at twice an em of this.
+    if (!path || !f || !arena || px < 6 || px > UGFX_FONT_PX_MAX) return 0;
     if (arena_size < ugfx_font_arena_size(px)) return 0;
 
     // The FILE BYTES and the ~69 KB of scratch are transient and come

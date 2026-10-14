@@ -42,6 +42,7 @@
 #include "ui/uui_statusbar.h"
 #include "ui/uui_swatches.h"
 #include "ui/uui_toolbar.h"
+#include "ui/uui_togglebar.h"
 #include "lib/ufile.h"
 #include "query_abi.h"
 #include "lib/uimg.h"
@@ -118,6 +119,7 @@ static int g_last_w = NEW_W, g_last_h = NEW_H, g_last_bg;
 static struct uui_filedialog g_fd;
 static struct uui_focus g_focus;
 static struct uui_focusable g_ring[8];
+static int g_ring_font;   // where the text bar's font list sits in the ring; the size follows
 
 static char g_path[PATH_MAX_LEN];        // "" for a picture never saved
 static unsigned g_saved_state;           // upixundo_state() at the last save or open
@@ -240,10 +242,11 @@ static const struct uui_toolbar_item rail_items[] = {
 // THE TEXT BAR (T1 from the mockups): over the open text box, the face
 // and a Fill latch, on a card of its own.
 static struct uui_custom g_textbar_card;
-static struct uui_toolbar g_textfill;
-#define CMD_TEXTFILL 1
-static const struct uui_toolbar_item textfill_items[] = {
-    { 0, "Fill the box with Colour 2", CMD_TEXTFILL, "Fill", 0, 0, 0 },
+static int g_textbar_sep_x;    // the divider before Fill
+static struct uui_togglebar g_textfill;
+static uint32_t g_fill_chip;   // Colour 2, as the Fill toggle shows it
+static const struct uui_toggle textfill_items[] = {
+    { "Fill", "Fill the box with Colour 2", "tb-fill", &g_fill_chip },
 };
 
 static struct uui_item g_widgets[] = {
@@ -259,7 +262,7 @@ static struct uui_item g_widgets[] = {
     // The text bar: over the canvas, so after it; hidden with no box open.
     { .ops = &uui_custom_ops,        .widget = &g_textbar_card, .name = "textbar", .hidden = 1 },
     { 0 },   // the font picker: uui_fontpick_item(), set in main()
-    { .ops = &uui_toolbar_ops,       .widget = &g_textfill,  .id = ID_TEXTFILL, .name = "textfill", .hidden = 1 },
+    { .ops = &uui_togglebar_ops,     .widget = &g_textfill,  .id = ID_TEXTFILL, .name = "textfill", .hidden = 1 },
     // The menu bar after the bars: its popups must be on top of them.
     { .ops = &uui_menubar_ops,       .widget = &g_menu,      .id = ID_MENU,    .name = "menu" },
     { .ops = &uui_dialog_ops,        .widget = &g_ask,       .id = ID_ASK,     .name = "ask" },
@@ -335,14 +338,13 @@ void paint_colour_picked(int slot) {
 
 void paint_text_changed(void) { if (g_app) uapp_redraw(g_app); }
 
-static unsigned textfill_flags(int code) { return code == CMD_TEXTFILL && g_text_fill ? UUI_MI_CHECKED : 0; }
-
 static void draw_textbar_card(struct ugfx_surface *s, const struct uui_custom *cu) {
     int r = uui_control_radius(0) + 2;
     for (int i = 3; i >= 1; i--)   // a soft shadow, as a menu has
         uui_fill_round_rect(s, cu->x + i, cu->y + i * 2, cu->w, cu->h, r, ugfx_blend(UTHEME_PANEL_BG, 0, 18));
     uui_fill_round_rect(s, cu->x, cu->y, cu->w, cu->h, r, UTHEME_OUTLINE);
     uui_fill_round_rect(s, cu->x + 1, cu->y + 1, cu->w - 2, cu->h - 2, r - 1, UTHEME_WHITE);
+    ugfx_fill_rect(s, g_textbar_sep_x, cu->y + cu->h / 4, 1, cu->h / 2, UTHEME_SEPARATOR);
 }
 
 void paint_tool_changed(void) {
@@ -736,8 +738,11 @@ static void layout(int cw, int ch) {
     if (show_bar) {
         int fw, fh, tw2, th2;
         g_widgets[W_FONTPICK].ops->natural_size(g_widgets[W_FONTPICK].widget, &fw, &fh);
-        uui_toolbar_natural_size(&g_textfill, &tw2, &th2);
-        int barw = fw + tw2 + pad * 2, barh = (fh > th2 ? fh : th2) + pad;
+        uui_togglebar_ops.natural_size(&g_textfill, &tw2, &th2);
+        g_fill_chip = g_colour[1];
+        g_textfill.on = (unsigned)g_text_fill;
+        int sep = pad * 2;   // a gap with a divider in it, then Fill at the row's height
+        int barw = fw + sep + tw2 + pad, barh = (fh > th2 ? fh : th2) + pad;
         int sx0, sy0, sx1, sy1;
         uui_paintcanvas_to_screen(&g_canvas, bx, by, &sx0, &sy0);
         uui_paintcanvas_to_screen(&g_canvas, bx + bw, by + bh, &sx1, &sy1);
@@ -748,7 +753,11 @@ static void layout(int cw, int ch) {
         if (y + barh > g_canvas.y + g_canvas.h - 4) y = g_canvas.y + g_canvas.h - 4 - barh;
         g_textbar_card.x = x; g_textbar_card.y = y; g_textbar_card.w = barw; g_textbar_card.h = barh;
         g_widgets[W_FONTPICK].ops->set_geometry(g_widgets[W_FONTPICK].widget, x + pad / 2, y + (barh - fh) / 2, fw, fh);
-        uui_toolbar_ops.set_geometry(&g_textfill, x + pad / 2 + fw + pad, y + (barh - th2) / 2, tw2, th2);
+        // Fill takes the toggles' own line, so its top and bottom agree.
+        uui_togglebar_ops.set_geometry(&g_textfill, x + pad / 2 + fw + sep, g_fontpick.style.y, tw2,
+                                       g_fontpick.style.h);
+        // Halfway between the last toggle and Fill, from where they ARE.
+        g_textbar_sep_x = (g_fontpick.style.x + g_fontpick.style.w + g_textfill.x) / 2;
     }
 
     g_pw = g_panel ? pad * 30 : 0;
@@ -843,12 +852,20 @@ static void on_widget(struct uapp *a, int id, int reason) {
     uint32_t rgb;
     if (resize_on_widget(id, reason)) { uapp_redraw(a); return; }
     if (id >= ID_FONT && id < ID_FONT + UUI_FONTPICK_IDS) {
-        if (uui_fontpick_on_widget(&g_fontpick, id)) text_restyle();
+        // THE SIZE IS TAKEN ON ENTER OR A STEPPER, never per keystroke: a
+        // half-typed "1" of 12 would be refused and put back.
+        int size = id == ID_FONT + 1;
+        if (!(size && (reason == UUI_REASON_KEY || g_fontpick.size.field.active))) {
+            if (uui_fontpick_on_widget(&g_fontpick, id)) text_restyle();
+            // BACK TO THE TEXT once the choice is made, or the next keys
+            // would go on into the list or the field instead of the box.
+            if (!g_fontpick.family.open && text_active()) uui_focus_set(&g_focus, -1);
+        }
         uapp_redraw(a);
         return;
     }
     if (id == ID_TEXTFILL) {
-        if (uui_toolbar_take_code(&g_textfill) == CMD_TEXTFILL) { g_text_fill = !g_text_fill; text_restyle(); }
+        if (uui_togglebar_take(&g_textfill) == 0) { g_text_fill = !g_text_fill; text_restyle(); }
         uapp_redraw(a);
         return;
     }
@@ -981,6 +998,15 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         else if (key == '0') command(CMD_ZOOM_ACTUAL);
         return;
     }
+    // ENTER IN THE TEXT BAR'S SIZE takes the size and gives the keys back
+    // to the box.
+    if (text_active() && g_focus.current == g_ring_font + 1 && (key == '\r' || key == '\n')) {
+        uui_spinbox_commit(&g_fontpick.size);
+        text_restyle();
+        uui_focus_set(&g_focus, -1);
+        uapp_redraw(a);
+        return;
+    }
     // LETTERS ARE TOOLS -- unless a field has them (the hex value, the
     // text bar's size) or a text box is open, which takes them all.
     if (g_focus.current >= 0) return;
@@ -1028,11 +1054,7 @@ int main(int argc, char **argv) {
     g_widgets[W_FONTPICK] = uui_fontpick_item(&g_fontpick);
     g_widgets[W_FONTPICK].hidden = 1;
     g_widgets[W_FONTPICK].name = "fontpick";
-    uui_toolbar_init(&g_textfill, textfill_items, 1);
-    g_textfill.item_flags = textfill_flags;
-    g_textfill.compact = 1;
-    g_textfill.bg = UUI_ROLE(field_bg);   // the text bar's white card
-    g_textfill.accent_latch = 1;
+    uui_togglebar_init(&g_textfill, textfill_items, 1);
     g_textbar_card = (struct uui_custom){ .draw = draw_textbar_card };
     uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
     g_menu.item_flags = item_flags;
@@ -1068,6 +1090,7 @@ int main(int argc, char **argv) {
     g_sb.panes[2].text = g_st_size; g_sb.panes[2].chars = 16;
     g_sb.panes[3].text = g_zoom_text; g_sb.panes[3].chars = 7;
     int n = uui_colourpick_focusables(&g_pick, g_ring, 6);
+    g_ring_font = n;
     n += uui_fontpick_focusables(&g_fontpick, g_ring + n, 8 - n);
     g_ring[n++] = (struct uui_focusable){ &g_size, &uui_slider_ops };
     g_ring[n++] = (struct uui_focusable){ &g_shape_seg, &uui_segmented_ops };

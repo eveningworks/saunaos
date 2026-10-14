@@ -8,7 +8,6 @@
 
 #define FONT_DIR "/usr/share/fonts"
 enum { ID_FAMILY, ID_SIZE, ID_STYLE };
-enum { CODE_BOLD = 1, CODE_ITALIC };
 
 // The families worth offering, in this order, when their file is there.
 static const struct { const char *label, *file; } KNOWN[] = {
@@ -21,19 +20,15 @@ static int exists(const char *path) {
     return sys_stat(path, &st) == 0 && !st.is_dir;
 }
 
-static const struct uui_toolbar_item STYLE[] = {
-    { 0, "Bold",   CODE_BOLD,   "B", 0, 0, 0 },
-    { 0, "Italic", CODE_ITALIC, "I", 0, 0, 0 },
+static const struct uui_toggle STYLE[] = {
+    { 0, "Bold",          "tb-bold",      0 },
+    { 0, "Italic",        "tb-italic",    0 },
+    { 0, "Underline",     "tb-underline", 0 },
+    { 0, "Strikethrough", "tb-strike",    0 },
 };
 
-// The toolbar asks by code alone: one picker's latches at a time, the
-// arrangement uui_filedialog's view buttons use.
-static const struct uui_fontpick *g_flags_for;
-static unsigned style_flags(int code) {
-    if (!g_flags_for) return 0;
-    if (code == CODE_BOLD) return g_flags_for->bold ? UUI_MI_CHECKED : 0;
-    if (code == CODE_ITALIC) return g_flags_for->italic ? UUI_MI_CHECKED : 0;
-    return 0;
+static void sync_style(struct uui_fontpick *p) {
+    p->style.on = (unsigned)(p->bold | p->italic << 1 | p->underline << 2 | p->strike << 3);
 }
 
 void uui_fontpick_init(struct uui_fontpick *p, int id_base, const char *family, int px,
@@ -54,19 +49,17 @@ void uui_fontpick_init(struct uui_fontpick *p, int id_base, const char *family, 
     }
     uui_dropdown_init(&p->family, 0, 0, 0, 0, p->labels, p->nfam);
     if (p->nfam) uui_dropdown_set_selected(&p->family, sel);
-    uui_spinbox_init(&p->size, px, 6, 200, 1, "px");
-    uui_toolbar_init(&p->style, STYLE, 2);
-    p->style.item_flags = style_flags;
-    p->style.compact = 1;
-    p->style.bg = UUI_ROLE(field_bg);   // on whatever card holds it, not a toolbar's grey
-    p->style.accent_latch = 1;
-    g_flags_for = p;
+    uui_spinbox_init(&p->size, px, 6, UGFX_FONT_PX_MAX, 1, "px");   // what the rasterizer takes
+    uui_togglebar_init(&p->style, STYLE, 4);
+    sync_style(p);
+    // ONE HEIGHT FOR THE ROW: each stretched to it, so the list, the
+    // number and the toggles line up top and bottom.
     p->it[0] = (struct uui_item){ .ops = &uui_dropdown_ops, .widget = &p->family, .id = id_base + ID_FAMILY,
-                                  .name = "fontfamily" };
+                                  .flags = UUI_FILL_H, .name = "fontfamily" };
     p->it[1] = (struct uui_item){ .ops = &uui_spinbox_ops, .widget = &p->size, .id = id_base + ID_SIZE,
-                                  .name = "fontsize" };
-    p->it[2] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &p->style, .id = id_base + ID_STYLE,
-                                  .name = "fontstyle" };
+                                  .flags = UUI_FILL_H, .name = "fontsize" };
+    p->it[2] = (struct uui_item){ .ops = &uui_togglebar_ops, .widget = &p->style, .id = id_base + ID_STYLE,
+                                  .flags = UUI_FILL_H, .name = "fontstyle" };
     p->row = (struct uui_layout){ .dir = UUI_ROW, .items = p->it, .count = 3, .margin = 1 };
 }
 
@@ -86,12 +79,15 @@ int uui_fontpick_px(const struct uui_fontpick *p) { return uui_spinbox_value(&p-
 int uui_fontpick_on_widget(struct uui_fontpick *p, int id) {
     int k = id - p->id_base;
     if (k < 0 || k >= UUI_FONTPICK_IDS) return 0;
-    g_flags_for = p;
     if (k == ID_STYLE) {
-        int code = uui_toolbar_take_code(&p->style);
-        if (code == CODE_BOLD) { p->bold = !p->bold; return 1; }
-        if (code == CODE_ITALIC) { p->italic = !p->italic; return 1; }
-        return 0;
+        int i = uui_togglebar_take(&p->style);
+        if (i == 0) p->bold = !p->bold;
+        else if (i == 1) p->italic = !p->italic;
+        else if (i == 2) p->underline = !p->underline;
+        else if (i == 3) p->strike = !p->strike;
+        else return 0;
+        sync_style(p);
+        return 1;
     }
     if (k == ID_SIZE) uui_spinbox_commit(&p->size);
     return 1;   // a family or a size: the caller re-loads, cheaply skipping no change

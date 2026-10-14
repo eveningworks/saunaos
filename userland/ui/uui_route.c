@@ -364,24 +364,31 @@ int uui_router_motion(struct uui_router *r, int cx, int cy, unsigned buttons,
 }
 
 // The deepest declaring widget under (cx, cy) wins, back to front.
+// -1 means "nothing here, look further back".
 //
 // NOT routed through the grab: a grab is about who gets told, the
 // cursor is about what is under the pointer.
+//
+// **A LEAF WIDGET UNDER THE POINTER ANSWERS, EVEN WITH NO CURSOR OF ITS
+// OWN** -- the default arrow -- rather than letting the one behind it
+// show through: Paint's text bar, floating over its canvas, wore the
+// canvas's I-beam. A CONTAINER stays see-through, as press treats it.
 static int cursor_item(struct uui_item *it, int cx, int cy) {
-    if (it->hidden) return WIN_CURSOR_DEFAULT;
+    if (it->hidden) return -1;
     int n = 0;
     struct uui_item *sub = nested(it, &n);
     if (sub) {
-        if (!container_admits(it, cx, cy)) return WIN_CURSOR_DEFAULT;
+        if (!container_admits(it, cx, cy)) return -1;
         for (int i = n - 1; i >= 0; i--) {
             int c = cursor_item(&sub[i], cx, cy);
-            if (c != WIN_CURSOR_DEFAULT) return c;
+            if (c >= 0) return c;
         }
         // Fall through to the container's own answer, same as press.
+        if (!it->ops || !it->ops->cursor) return -1;
     }
-    if (!it->ops || !it->ops->cursor) return WIN_CURSOR_DEFAULT;
-    if (it->ops->hit && !it->ops->hit(it->widget, cx, cy)) return WIN_CURSOR_DEFAULT;
-    return it->ops->cursor(it->widget, cx, cy);
+    if (!it->ops) return -1;
+    if (!it->ops->hit || !it->ops->hit(it->widget, cx, cy)) return -1;
+    return it->ops->cursor ? it->ops->cursor(it->widget, cx, cy) : WIN_CURSOR_DEFAULT;
 }
 
 int uui_router_overlay_open(const struct uui_router *r) { return owner(r) != NULL; }
@@ -396,7 +403,7 @@ int uui_router_cursor(const struct uui_router *r, int cx, int cy) {
         if (sub && container_admits(ov, cx, cy)) {
             for (int i = n - 1; i >= 0; i--) {
                 int c = cursor_item(&sub[i], cx, cy);
-                if (c != WIN_CURSOR_DEFAULT) return c;
+                if (c >= 0) return c;
             }
         }
         if (ov->ops->cursor) {
@@ -411,7 +418,7 @@ int uui_router_cursor(const struct uui_router *r, int cx, int cy) {
     }
     for (int i = r->count - 1; i >= 0; i--) {
         int c = cursor_item(&r->items[i], cx, cy);
-        if (c != WIN_CURSOR_DEFAULT) return c;
+        if (c >= 0) return c;
     }
     return WIN_CURSOR_DEFAULT;
 }

@@ -220,6 +220,43 @@ def icon_tb_text():
     return p.done()
 
 
+# The text bar's B I U S (ui/uui_fontpick.h), drawn rather than typed
+# so all four letters share ONE cap height and baseline (y 4.5 to 17)
+# -- four fonts' metrics never did -- with U's line below it and S's
+# through its middle.
+def icon_tb_bold():
+    p = _Pen()
+    p.w *= 1.45   # bold reads as a heavier stroke...
+    t, b = 4.5 + 0.38, 17 - 0.38   # ...inset by its extra half-width, so its ink meets the others'
+    p.line((7, t), (7, b))
+    p.line((7, t), (11.5, t)); p.arc(11.5, (t + 10.7) / 2, (10.7 - t) / 2, -90, 90, 12); p.line((11.5, 10.7), (7, 10.7))
+    p.line((7, 10.7), (12.3, 10.7)); p.arc(12.3, (10.7 + b) / 2, (b - 10.7) / 2, -90, 90, 12); p.line((12.3, b), (7, b))
+    return p.done()
+
+
+def icon_tb_italic():
+    p = _Pen()
+    p.line((10.5, 4.5), (17, 4.5))
+    p.line((7, 17), (13.5, 17))
+    p.line((13.75, 4.5), (10.25, 17))
+    return p.done()
+
+
+def icon_tb_underline():
+    p = _Pen()
+    p.line((7.5, 4.5), (7.5, 12.5)); p.arc(12, 12.5, 4.5, 180, 0, 14); p.line((16.5, 12.5), (16.5, 4.5))
+    p.line((5.5, 20.5), (18.5, 20.5))
+    return p.done()
+
+
+def icon_tb_strike():
+    p = _Pen()   # no round-letter overshoot: the same 4.5 to 17 as B, I and U
+    p.arc(12, 7.625, 3.125, -25, -270, 14)
+    p.arc(12, 13.875, 3.125, -90, 155, 14)
+    p.line((5, 10.75), (19, 10.75))
+    return p.done()
+
+
 def icon_tb_cut():
     p = _Pen()
     p.line((9.2, 14.4), (17.5, 3)); p.line((14.8, 14.4), (6.5, 3))
@@ -1503,6 +1540,10 @@ ICONS = {
     "tb-fill": icon_tb_fill,
     "tb-picker": icon_tb_picker,
     "tb-text": icon_tb_text,
+    "tb-bold": icon_tb_bold,
+    "tb-italic": icon_tb_italic,
+    "tb-underline": icon_tb_underline,
+    "tb-strike": icon_tb_strike,
     "tb-rename": icon_tb_rename,
     "tb-delete": icon_tb_delete,
     "tray-volume-high": icon_tray_volume_high,

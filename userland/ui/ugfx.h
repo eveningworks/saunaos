@@ -357,6 +357,7 @@ int ugfx_kern(int prev, int c);
 // It needs no window and no compositor -- rasterizing is arithmetic
 // over a file, which is exactly why ttf.c can be the same source in
 // both rings.
+#define UGFX_FONT_PX_MAX 128   // the largest size ugfx_font_load() rasterizes
 int ugfx_font_load(const char *path, int px, int bold,
                     struct ugfx_font *f, void *arena, unsigned long arena_size);
 
