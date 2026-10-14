@@ -141,6 +141,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `ulog.h` | Toolkit diagnostics: one line to the app's stderr, which the kernel routes to its log and to a QMP test's console (CLAUDE.md's "diagnostics go to stderr"). |
 | `umonofont.h` | umonofont -- the desktop's MONOSPACE face at a size an app chooses, or the session's own when it chooses none: what a terminal grid or a text document draws in. |
 | `utext.h` | utext -- a wrapped, scrollable, editable text buffer with a cursor and a selection. |
+| `utextflow.h` | utextflow -- PLAIN TEXT IN LINES, PROPORTIONALLY: where each line of a string breaks at a pixel width, where character `index` is drawn, and which index a point is nearest. |
 | `utheme.h` | The ring-3 toolkit's THEME: a PALETTE (colour roles, Qt's QPalette / GTK's named colours) and METRICS (font-derived sizes and spacing, Qt's QStyle). |
 | `utheme_file.h` | Theme FILES: reading, writing and applying the `.theme` files a `desktop.theme` setting names (docs/theme-design.md). |
 | `uui.h` | Toykit -- the ring-3 GUI toolkit -- and the umbrella include for its widgets. |

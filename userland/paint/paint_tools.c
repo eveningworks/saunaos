@@ -39,7 +39,7 @@ static void end(void) {
     paint_changed(&g_dirty);
 }
 
-void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot) {
+void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned mods) {
     if (!g_img.px) return;
     switch (g_tool) {
     case TOOL_PENCIL: case TOOL_BRUSH: case TOOL_ERASER:
@@ -71,7 +71,7 @@ void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot) {
         end();
         return;
     case TOOL_TEXT:
-        if (phase == UUI_PAINT_DOWN) text_pointer_down(x, y);
+        text_pointer(phase, x, y, mods);
         return;
     case TOOL_PICK:
         if (phase != UUI_PAINT_DOWN || x < 0 || y < 0 || x >= g_img.w || y >= g_img.h) return;

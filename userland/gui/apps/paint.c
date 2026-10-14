@@ -692,11 +692,11 @@ static unsigned item_flags(int code) {
 // --- the canvas's pointer, both buttons ------------------------------------------
 
 static void canvas_pointer(void *ctx, enum uui_paint_phase ph, int x, int y, unsigned mods) {
-    (void)ctx; (void)mods;
+    (void)ctx;
     if (g_canvas.hovering) snprintf(g_st_pos, sizeof g_st_pos, "%d, %d px", x, y);
     else g_st_pos[0] = '\0';
     if (ph == UUI_PAINT_DOWN) uui_focus_set(&g_focus, -1);   // typed letters are tools again
-    if (ph != UUI_PAINT_HOVER) tools_pointer(ph, x, y, 0);
+    tools_pointer(ph, x, y, 0, mods);
     if (g_app) uapp_redraw(g_app);
 }
 
@@ -833,6 +833,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
                      (unsigned)g_colour[0], (unsigned)g_colour[1], g_brush, (int)g_shape, g_canvas.zoom);
     uapp_logf_layout("paint: layout image %d %d dirty %d path %s\n", g_img.w, g_img.h, dirty(),
                      g_path[0] ? g_path : "-");
+    text_log_layout();
     if (!g_panel) return;
     int top = g_canvas.y, bottom = g_sb.y;
     ugfx_fill_rect(s, g_px, top, g_pw, bottom - top, UTHEME_PANEL_BG);
@@ -935,7 +936,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         uui_paintcanvas_to_picture(&g_canvas, x, y, &px, &py);
         g_slot_down = 1;
         uui_focus_set(&g_focus, -1);
-        tools_pointer(UUI_PAINT_DOWN, px, py, 1);
+        tools_pointer(UUI_PAINT_DOWN, px, py, 1, 0);
     } else {
         return;
     }
@@ -947,7 +948,7 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     if (g_slot_down < 0 || !(WIN_MOUSE_BUTTONS(buttons) & 0x2)) return;
     int px, py;
     uui_paintcanvas_to_picture(&g_canvas, x, y, &px, &py);
-    tools_pointer(UUI_PAINT_MOVE, px, py, 1);
+    tools_pointer(UUI_PAINT_MOVE, px, py, 1, 0);
     uapp_redraw(a);
 }
 
@@ -957,7 +958,7 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     g_slot_down = -1;
     int px, py;
     uui_paintcanvas_to_picture(&g_canvas, x, y, &px, &py);
-    tools_pointer(UUI_PAINT_UP, px, py, 1);
+    tools_pointer(UUI_PAINT_UP, px, py, 1, 0);
     uapp_redraw(a);
 }
 
@@ -983,6 +984,10 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         return;
     }
     int ctrl = (mods & KEY_MOD_CTRL) != 0, shift = (mods & KEY_MOD_SHIFT) != 0;
+    // AN OPEN TEXT BOX HAS THE KEYS FIRST, Ctrl+A/C/X/V/Z/Y with them;
+    // what it declines (Ctrl+S, a Ctrl+Z with no typing left to undo)
+    // is Paint's, below.
+    if (text_active() && g_focus.current < 0 && text_key(key, mods)) { uapp_redraw(a); return; }
     switch (key) {
     case 0x0E: command(CMD_NEW); return;                             // Ctrl+N
     case 0x0F: command(CMD_OPEN); return;                            // Ctrl+O
@@ -1010,7 +1015,6 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     // LETTERS ARE TOOLS -- unless a field has them (the hex value, the
     // text bar's size) or a text box is open, which takes them all.
     if (g_focus.current >= 0) return;
-    if (!ctrl && text_key(key)) { uapp_redraw(a); return; }
     switch (key) {
     case 'p': set_tool(TOOL_PENCIL); break;
     case 'b': set_tool(TOOL_BRUSH); break;

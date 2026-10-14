@@ -32,6 +32,11 @@ What it proves, and what a broken version would still pass:
   * HANDLES: the canvas's corner handle dragged by (+50, +25) at 50% makes
     an 800 x 600 picture 900 x 650. TEXT: "Hi" typed into a box puts
     non-white pixels where the box was, and one Ctrl+Z takes them all.
+  * TEXT EDITING: Home, Shift+Left, Ctrl+X/V and a click change the
+    text and caret the box reports; its frame dragged moves it, leaving
+    WHITE behind (a move that forgot to restore would leave the old
+    letters); a side handle halves its width into two lines; Ctrl+Z
+    undoes the typing and then the box.
   * NEW PICTURE: Ctrl+N shows the size cards; HD + Create makes a 1280 x
     720 picture, and a size typed into both fields picks the Custom card
     and makes that picture.
@@ -60,7 +65,8 @@ from harness import Results  # noqa: E402
 
 PAINT = "/bin/wm/apps/paint"
 SAVED = "/var/tmp/paint_test.png"
-CTRL = {"a": "0x01", "s": "0x13", "y": "0x19", "z": "0x1a"}
+CTRL = {"a": "0x01", "s": "0x13", "v": "0x16", "x": "0x18", "y": "0x19", "z": "0x1a"}
+K_HOME, K_END, K_SHIFT_LEFT = "0xf786", "0xf787", "0xf78b"
 BLACK, WHITE, RED = (0, 0, 0), (255, 255, 255), (0xED, 0x1C, 0x24)
 K_DOWN = "0xf781"   # KEY_ARROW_DOWN
 
@@ -247,6 +253,7 @@ def run(dbg, qmp, res, tmp):
     check_new(dbg, res)
     check_resize(dbg, qmp, res, tmp)
     check_handles_and_text(dbg, qmp, res, tmp)
+    check_text_edit(dbg, qmp, res, tmp)
 
 
 def rect(dbg, part):
@@ -430,6 +437,87 @@ def check_handles_and_text(dbg, qmp, res, tmp):
     dbg.key(CTRL["z"], mods="ctrl")
     scr.shoot()
     res.check("...as one undo step", inked() == 0, f"{inked()} left after Ctrl+Z")
+    close_all(dbg)
+
+
+def text_state(dbg):
+    """The open text box: [x, y, w, h], then the rest of its line as a dict."""
+    dbg.settle()
+    for line in reversed(dbg.logs("paint: layout text ", clear=False)):
+        p = line.split("layout text ", 1)[1]
+        head, _, typed = p.partition(" text ")
+        f = head.split()
+        d = {"box": [int(v) for v in f[:4]], "open": int(f[5])}
+        if d["open"]:
+            d.update(wrap=int(f[7]), cursor=int(f[9]), sel=(int(f[11]), int(f[12])), text=typed)
+        return d
+    return {"open": 0}
+
+
+def type_text(dbg, s):
+    for ch in s:
+        dbg.key("0x20" if ch == " " else ch)
+
+
+def check_text_edit(dbg, qmp, res, tmp):
+    """The open box edits like a text field and moves by its frame."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Text edit: Paint opens", False, "no window")
+        return
+    dbg.key("t")
+    dbg.click(*scr.at(100, 100))
+    type_text(dbg, "Hello world")
+    dbg.key(K_HOME)
+    dbg.key("X")
+    t = text_state(dbg)
+    res.check("Home puts the caret first: X goes in before the text",
+              t.get("text") == "XHello world" and t.get("cursor") == 1, f"{t}")
+    dbg.key(K_END)
+    for _ in range(5):
+        dbg.key(K_SHIFT_LEFT)
+    t = text_state(dbg)
+    res.check("Shift+Left x5 from the end selects 'world'", t.get("sel") == (7, 12), f"{t}")
+    dbg.key(CTRL["x"], mods="ctrl")
+    t = text_state(dbg)
+    res.check("Ctrl+X cuts it", t.get("text") == "XHello ", f"{t}")
+    dbg.key(CTRL["v"], mods="ctrl")
+    t = text_state(dbg)
+    res.check("...and Ctrl+V puts it back", t.get("text") == "XHello world", f"{t}")
+    # A click in the box's left edge puts the caret at 0.
+    x, y, w, h = t["box"]
+    dbg.click(*scr.at(x + 1, y + h // 2))
+    t = text_state(dbg)
+    res.check("a click inside the text places the caret", t.get("cursor") == 0, f"{t}")
+    # Dragged by its top edge, (+60, +40) at 100%; the old place is white again.
+    sx, sy = scr.at(x + w // 2, y)
+    dbg.drag(sx, sy - 3, sx + 60, sy - 3 + 40, steps=12)
+    t = text_state(dbg)
+    res.check("dragging the frame moves the box", t.get("box", [0, 0])[:2] == [x + 60, y + 40], f"{t}")
+    scr.shoot()
+    old = sum(1 for py in range(y, y + 30, 2) for px in range(x, x + 50, 2) if scr.pixel(px, py) != WHITE)
+    nx, ny = t["box"][:2]
+    new = sum(1 for py in range(ny, ny + h, 2) for px in range(nx, nx + w, 2) if scr.pixel(px, py) != WHITE)
+    res.check("...and its letters go with it", old == 0 and new > 4, f"{old} left behind, {new} at the new place")
+    # The right handle dragged to half the width wraps "XHello world" in two.
+    x, y, w, h = t["box"]
+    sx, sy = scr.at(x + w, y + h // 2)
+    dbg.drag(sx + 1, sy, sx - w // 2, sy, steps=12)
+    t = text_state(dbg)
+    res.check("the side handle sets a wrap width: two lines",
+              t.get("wrap", 0) > 0 and t.get("box", [0, 0, 0, 0])[3] == 2 * h, f"{t}, one line was {h}")
+    dbg.key("0x1b")
+    t = text_state(dbg)
+    res.check("Esc lets it go", t.get("open") == 0, f"{t}")
+    # A fresh box with nothing typed: Ctrl+Z is the picture's and takes it away.
+    dbg.click(*scr.at(300, 300))
+    type_text(dbg, "a")
+    dbg.key(CTRL["z"], mods="ctrl")
+    dbg.key(CTRL["z"], mods="ctrl")
+    t = text_state(dbg)
+    res.check("Ctrl+Z undoes the typing, then the box", t.get("open") == 0, f"{t}")
     close_all(dbg)
 
 

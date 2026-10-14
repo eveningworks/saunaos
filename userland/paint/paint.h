@@ -29,7 +29,7 @@ extern int g_text_fill;                 // text drawn on a Colour 2 box
 
 // The pointer, in picture pixels, with which colour slot is painting
 // (0 left, 1 right). DOWN starts a change, UP ends it.
-void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot);
+void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned mods);   // HOVER too
 int  tools_busy(void);                 // a stroke is under way
 
 // What the window must hear back. Defined in paint.c.
@@ -41,12 +41,15 @@ void paint_text_changed(void);                   // a text box opened, closed or
 
 // --- paint_text.c: the text tool ---------------------------------------------
 int  text_active(void);
-void text_pointer_down(int x, int y);      // place a box, or let the open one go
-int  text_key(int key);                    // 1 when the open box took it
+// A press places a box or lets the open one go; over the open box it
+// places the caret, selects, moves the box or sets its wrap width.
+void text_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods);
+int  text_key(int key, unsigned mods);     // 1 when the open box took it
 void text_commit(void);                    // the box into the picture, one undo step
 void text_restyle(void);                   // the face or the fill changed
 int  text_box(int *x, int *y, int *w, int *h);   // the open box, picture pixels
 void text_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
+void text_log_layout(void);                // "paint: layout text ...", for the test
 // The picture replaced by `out` (a rotate, a resize), as ONE undo step;
 // `out` is taken over.
 void paint_replace_picture(struct uimg *out);
