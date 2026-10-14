@@ -1,11 +1,13 @@
 // See ubootlayout.h.
 #include <fcntl.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
 
 #include "rt/sys.h"
+#include "ulistdir.h"
 #include "lib/ufileop.h"
 #include "lib/ubootcfg.h"    // UBOOTCFG_MAX: refused rather than cut above it
 #include "lib/ubootlayout.h"
@@ -14,7 +16,7 @@
 
 // ~30 KB -- file scope, like every other ufileop caller.
 static struct ufileop g_op;
-static struct sys_dirent g_ents[SYS_LISTDIR_MAX];
+static struct sys_dirent *g_ents;   // the last legacy_names() listing
 
 int ubootlayout_legacy(void) {
     struct stat st;
@@ -82,7 +84,9 @@ static const struct ufileop_policy QUIET = { 0 };
 // The names in /boot/boot worth carrying: everything but `.`/`..`, and
 // never a `boot` inside it, which would be copied onto itself.
 static int legacy_names(void) {
-    int n = sys_listdir(UBOOTLAYOUT_LEGACY, g_ents, SYS_LISTDIR_MAX);
+    free(g_ents);
+    g_ents = 0;
+    int n = ulistdir(UBOOTLAYOUT_LEGACY, &g_ents);
     int k = 0;
     for (int i = 0; i < n; i++) {
         const char *s = g_ents[i].name;

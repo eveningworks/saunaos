@@ -1,7 +1,9 @@
 // See ufileinfo.h.
 #include "lib/ufileinfo.h"
+#include "ulistdir.h"
 #include "lib/uvid.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include "kpath.h"
 #include "lib/human.h"
@@ -14,12 +16,11 @@
 
 #define HEAD_BYTES (64 * 1024)   // a JPEG's SOF, a PNG's IHDR and a QOI header all sit well inside it
 
-// --- the folder walk: a queue, not recursion (one listing buffer) ------------
+// --- the folder walk: a queue, not recursion ---------------------------------
 
 #define WALK_QUEUE 64
 static char g_queue[WALK_QUEUE][UFI_PATH];
 static int g_qhead, g_qtail, g_qcount;
-static struct sys_dirent g_ents[SYS_LISTDIR_MAX];
 
 static void push(struct ufileinfo *fi, const char *path) {
     if (g_qcount >= WALK_QUEUE) { fi->overflow = 1; return; }
@@ -36,14 +37,15 @@ int ufileinfo_walk(struct ufileinfo *fi, int steps) {
         g_qcount--;
         // A directory gone mid-walk is left out silently: the rest of
         // the total is still right.
-        int n = sys_listdir(dir, g_ents, SYS_LISTDIR_MAX);
+        struct sys_dirent *ents = 0;
+        int n = ulistdir(dir, &ents);
         for (int i = 0; i < n; i++) {
             char child[UFI_PATH];
-            if (!k_path_join(dir, g_ents[i].name, child, sizeof child)) { fi->overflow = 1; continue; }
-            if (g_ents[i].is_dir) { fi->dirs++; push(fi, child); }
-            else { fi->files++; fi->bytes += g_ents[i].size; }
+            if (!k_path_join(dir, ents[i].name, child, sizeof child)) { fi->overflow = 1; continue; }
+            if (ents[i].is_dir) { fi->dirs++; push(fi, child); }
+            else { fi->files++; fi->bytes += ents[i].size; }
         }
-        if (n == SYS_LISTDIR_MAX) fi->overflow = 1;   // a full listing may have left some out
+        free(ents);
     }
     fi->walking = g_qcount > 0;
     return fi->walking;

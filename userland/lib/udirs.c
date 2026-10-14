@@ -1,5 +1,6 @@
 // The personal folders -- see udirs.h.
 #include "lib/udirs.h"
+#include "ulistdir.h"
 #include "lib/uconf.h"
 #include "etc_config.h"
 #include "rt/sys.h"
@@ -102,9 +103,11 @@ int udir_migrate(void) {
         // new folder (the desktop's launchers) before this first boot. The
         // OLD one is the person's: its entries win a clash, and a seeded
         // launcher it lacks is one they had deleted, so it goes again.
-        static struct sys_dirent ents[SYS_LISTDIR_MAX];
+        // Each listing is read WHOLE before anything in it moves, so a
+        // rename or an unlink cannot shift a page still to be read.
+        struct sys_dirent *ents = 0;
         char a[192], b[192];
-        int n = sys_listdir(to, ents, SYS_LISTDIR_MAX);
+        int n = ulistdir(to, &ents);
         for (int k = 0; k < n; k++) {
             snprintf(a, sizeof a, "%s/%s", OLD[i].from, ents[k].name);
             snprintf(b, sizeof b, "%s/%s", to, ents[k].name);
@@ -112,12 +115,15 @@ int udir_migrate(void) {
             int launcher = !ents[k].is_dir && l > 8 && !strcmp(ents[k].name + l - 8, ".desktop");
             if (!ents[k].is_dir && (exists(a) || launcher)) sys_unlink(b);
         }
-        n = sys_listdir(OLD[i].from, ents, SYS_LISTDIR_MAX);
+        free(ents);
+        ents = 0;
+        n = ulistdir(OLD[i].from, &ents);
         for (int k = 0; k < n; k++) {
             snprintf(a, sizeof a, "%s/%s", OLD[i].from, ents[k].name);
             snprintf(b, sizeof b, "%s/%s", to, ents[k].name);
             if (!exists(b) && sys_rename(a, b) == 0) moved++;
         }
+        free(ents);
         sys_unlink(OLD[i].from);   // refused while anything is left in it
     }
     // Screenshot's Options may name the old folder outright

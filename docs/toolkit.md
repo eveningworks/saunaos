@@ -68,6 +68,7 @@
 | `uktest.h` | KTEST's assertions in ring 3, so a test can follow its code out of the kernel with its bodies unchanged: a case is a plain function, and KTEST_ASSERT / KTEST_ASSERT_EQ fail it and return, exactly a... |
 | `ulaunch.h` | ulaunch -- is this file something to RUN, and how should it run? |
 | `uline.h` | uline -- the PAINTING half of a ring-3 line-editing front end. |
+| `ulistdir.h` | A WHOLE DIRECTORY LISTING, however many entries it has: SYS_LISTDIR_AT paged into one malloc'd array, for a caller that sorts or counts what it lists. |
 | `ulivewall.h` | LIVE WALLPAPERS: the effects, their options, and a wallpaper program's whole main(). |
 | `ulogset.h` | ulogset -- log lines held for READING: the kernel ring, the application ring, a stored boot or any /var/log file, parsed into time, level, source and subsystem, merged in time order, counted for re... |
 | `umd.h` | umd -- rendering Markdown as text for a terminal. |

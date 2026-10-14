@@ -23,6 +23,7 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include "lib/uvid.h"
+#include "lib/ulistdir.h"
 #include "lib/uvid_play.h"
 #include "lib/usnd.h"
 #include "lib/uconf.h"
@@ -309,10 +310,10 @@ static int by_name(const void *a, const void *b) {
 }
 
 static void scan(const char *dir) {
-    static struct sys_dirent all[SYS_LISTDIR_MAX];   // static: the frame budget is 2 KiB
+    struct sys_dirent *all = 0;
     if (dir != g_dir) strlcpy(g_dir, dir, sizeof g_dir);
     g_count = 0;
-    int n = sys_listdir(g_dir, all, SYS_LISTDIR_MAX);
+    int n = ulistdir(g_dir, &all);
     for (int i = 0; i < n && g_count < MAX_ITEMS; i++) {
         if (!keep_video(0, g_dir, &all[i])) continue;
         struct item *it = &g_items[g_count];
@@ -332,6 +333,7 @@ static void scan(const char *dir) {
         if (sys_stat(path, &st) == 0) { it->mtime = st.modified; it->size = (uint32_t)st.size; }
         g_count++;
     }
+    free(all);
     qsort(g_items, (size_t)g_count, sizeof g_items[0], by_name);
 }
 

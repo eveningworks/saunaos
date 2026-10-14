@@ -46,6 +46,8 @@
 #include <string.h>
 #include <stdio.h>
 #include "lib/dirsort.h"
+#include "lib/ulistdir.h"
+#include <stdlib.h>
 #include "lib/udate.h"
 #include "lib/unum.h"
 #include "lib/uargs.h"
@@ -143,15 +145,8 @@ static void put_timestamp(const struct rtc_time *t) {
 
 // ---- one directory ---------------------------------------------------
 
-// The entry buffer is STATIC and there is one of it, which is what
-// forces -R below to be a queue rather than recursion: SYS_LISTDIR_MAX
-// dirents is far past ring 3's 2 KiB frame budget (USERLAND_CFLAGS), so
-// a recursive call could not have its own.
-static struct sys_dirent g_entries[SYS_LISTDIR_MAX];
-
-// -R's work list. Breadth-first, because a depth-first walk means
-// recursion and recursion means a per-level buffer this program cannot
-// afford. The bound is stated rather than assumed: a tree deeper or
+// -R's work list. Breadth-first, so one directory's listing is freed
+// before the next is read rather than one held per level. The bound is stated rather than assumed: a tree deeper or
 // wider than this reports that it stopped.
 #define QUEUE_MAX 64
 // 64 is FS_PATH_MAX, the kernel's own limit -- a path longer than this
@@ -197,9 +192,11 @@ static int stat_one(const char *path, struct sys_dirent *out) {
 }
 
 static int list_one(const struct opts *o, const char *path, int with_header) {
-    int64_t count = sys_listdir(path, g_entries, SYS_LISTDIR_MAX);
+    struct sys_dirent *ents = 0, one;
+    int count = ulistdir(path, &ents);
     if (count < 0) {
-        if (stat_one(path, &g_entries[0])) {
+        if (stat_one(path, &one)) {
+            ents = &one;
             count = 1;
         } else {
             put("ls: cannot access '");
@@ -213,12 +210,12 @@ static int list_one(const struct opts *o, const char *path, int with_header) {
 
     if (with_header) { put("\n"); put(path); put(":\n"); }
 
-    dirsort(g_entries, (int)count,
+    dirsort(ents, count,
             o->sort == 'S' ? DIRSORT_SIZE : o->sort == 't' ? DIRSORT_TIME : DIRSORT_NAME,
             o->reverse);
 
-    for (int i = 0; i < (int)count; i++) {
-        struct sys_dirent *e = &g_entries[i];
+    for (int i = 0; i < count; i++) {
+        struct sys_dirent *e = &ents[i];
 
         if (o->recurse && e->is_dir) queue_push(path, e->name);
 
@@ -241,21 +238,7 @@ static int list_one(const struct opts *o, const char *path, int with_header) {
         put(o->columns && !o->long_form ? "  " : "\n");
     }
     if (o->columns && !o->long_form && count > 0) put("\n");
-
-    // A FULL ARRAY MEANS THERE MAY BE MORE. SYS_LISTDIR fills up to its
-    // cap and says nothing about what it left, so this is the only place
-    // that can notice -- and before it did, `ls` on a directory of 40
-    // files listed 32 and stopped silently. See syscall_abi.h.
-    if (count == SYS_LISTDIR_MAX) {
-        put("ls: ");
-        put(path);
-        put(": listing truncated at ");
-        char buf[16];
-        snprintf(buf, sizeof buf, "%u", (unsigned)SYS_LISTDIR_MAX);
-        put(buf);
-        put(" entries\n");
-        return 1;
-    }
+    if (ents != &one) free(ents);
     return 0;
 }
 

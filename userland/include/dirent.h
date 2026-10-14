@@ -8,14 +8,11 @@
 // name and is `struct sys_dirent` now (abi/syscall_abi.h) -- two structs
 // cannot share a tag, and every other ABI struct is `sys_*` anyway.
 //
-// **THE WHOLE DIRECTORY IS READ AT opendir()**, not streamed. SYS_LISTDIR
-// takes a path and fills an array; there is no directory handle in the
-// kernel and no cursor to advance, so a DIR is a snapshot plus an index.
-// Two consequences a caller can see, and neither is hidden:
+// **THE WHOLE DIRECTORY IS READ AT opendir()**, not streamed. SYS_LISTDIR_AT
+// takes a path and fills an array from an offset; there is no directory
+// handle in the kernel, so a DIR is a snapshot plus an index, read in as
+// many pages as the directory needs. One consequence a caller can see:
 //
-//   - A directory larger than SYS_LISTDIR_MAX entries is TRUNCATED, and
-//     readdir() simply ends early. That is the syscall's limit, not this
-//     header's, and /bin/ls has always had it.
 //   - Changes made after opendir() are invisible until the next one.
 //     POSIX says a directory changed during iteration is unspecified,
 //     so this is a legal reading of the standard rather than a gap in
@@ -24,8 +21,8 @@
 //     the other way round.
 //
 // The buffer is malloc'd at opendir() and freed at closedir(), so a DIR
-// costs one allocation of SYS_LISTDIR_MAX entries -- which is why a
-// program should closedir() rather than leaking it.
+// costs at least SYS_LISTDIR_MAX entries, more for a bigger directory --
+// which is why a program should closedir() rather than leaking it.
 #include <stddef.h>
 #include "syscall_abi.h"
 

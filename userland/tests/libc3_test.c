@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <limits.h>
 #include <fcntl.h>   // O_RDWR, for the refusal check
+#include <sys/stat.h> // mkdir, for the 300-entry directory
 #include "rt/sys.h"
 
 #include "lib/utest.h"
@@ -269,6 +270,40 @@ int main(void) {
     utest_check(again == count, "rewinddir restarts the same snapshot");
     utest_check(closedir(d) == 0, "closedir");
     utest_check(opendir("/definitely/not/here") == 0, "opendir refuses a missing path");
+    {
+        // PAST ONE SYS_LISTDIR PAGE: 300 entries, each seen exactly once.
+        // opendir() read one 256-entry call and readdir() ended there.
+        enum { BIG = 300 };
+        static unsigned char seen[BIG];
+        char p[64];
+        mkdir("/tmp/libc3_big", 0755);
+        for (int i = 0; i < BIG; i++) {
+            snprintf(p, sizeof p, "/tmp/libc3_big/f%03d", i);
+            int fd = open(p, O_CREAT | O_WRONLY, 0644);
+            if (fd >= 0) close(fd);
+        }
+        DIR *bd = opendir("/tmp/libc3_big");
+        int got = 0, dup = 0;
+        memset(seen, 0, sizeof seen);
+        for (struct dirent *be; bd && (be = readdir(bd)) != 0;) {
+            int k = atoi(be->d_name + 1);
+            if (be->d_name[0] != 'f' || k < 0 || k >= BIG) continue;
+            if (seen[k]++) dup++;
+            got++;
+        }
+        if (bd) closedir(bd);
+        utest_check(got == BIG && !dup, "readdir lists a 300-entry directory whole, once each");
+        struct dirent **list = 0;
+        int sn = scandir("/tmp/libc3_big", &list, 0, alphasort);
+        utest_check(sn == BIG, "...and so does scandir");
+        for (int i = 0; i < sn; i++) free(list[i]);
+        free(list);
+        for (int i = 0; i < BIG; i++) {
+            snprintf(p, sizeof p, "/tmp/libc3_big/f%03d", i);
+            remove(p);
+        }
+        rmdir("/tmp/libc3_big");
+    }
 
     // --- unistd ------------------------------------------------------
     utest_check(isatty(1) == 1, "isatty(stdout) on the console");

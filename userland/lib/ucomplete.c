@@ -2,9 +2,11 @@
 // a hook the shared engine (kernel/lib/completion.c) calls; there is no
 // completion LOGIC in this file, which is the point of the split.
 #include "ucomplete.h"
+#include "ulistdir.h"
 #include "lib/upath.h"
 #include "rt/sys.h"
 #include <string.h>
+#include <stdlib.h>
 
 // tosh's builtins, and only its builtins. Every other name a first word
 // can be is a program the engine finds by walking PATH.
@@ -18,19 +20,14 @@ static const char *const TOSH_BUILTINS[] = {
     "bg", "cd", "fg", "help", "jobs", "pwd", 0
 };
 
-// A LISTING AT A TIME, because SYS_LISTDIR fills an array while the
-// engine wants a callback. 20 KB of entries is far past a ring-3 frame
-// budget (-Wframe-larger-than=2048), so the array is static -- and that
-// is safe for the same reason the engine's own collector pointer is:
-// nothing re-enters completion mid-listing.
-#define UC_MAX_ENTRIES 256
-static struct sys_dirent g_entries[UC_MAX_ENTRIES];
-
+// A WHOLE LISTING, handed to the engine's callback one name at a time.
 static void uc_list_dir(const char *path,
                          void (*cb)(const char *name, uint32_t size, int is_dir)) {
-    int n = sys_listdir(path, g_entries, UC_MAX_ENTRIES);
+    struct sys_dirent *ents = 0;
+    int n = ulistdir(path, &ents);
     for (int i = 0; i < n; i++)
-        cb(g_entries[i].name, g_entries[i].size, (int)g_entries[i].is_dir);
+        cb(ents[i].name, ents[i].size, (int)ents[i].is_dir);
+    free(ents);
 }
 
 static int uc_is_dir(const char *path) {

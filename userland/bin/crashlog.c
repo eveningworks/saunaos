@@ -12,7 +12,9 @@
 // "what crashed" never conflates the system working with the system
 // failing.
 #include <stdint.h>
+#include <stdlib.h>
 #include "rt/sys.h"
+#include "lib/ulistdir.h"
 #include "lib/cmd.h"
 #include "lib/dirsort.h"
 #include "lib/ucrash.h"
@@ -21,11 +23,11 @@
 
 #define CRASH_DIR "/var/crash"
 #define USAGE "crashlog [<report>]"
-#define MAX_ENTRIES 64
 
 static int list(void) {
-    static struct sys_dirent ents[MAX_ENTRIES];
-    int n = sys_listdir(CRASH_DIR, ents, MAX_ENTRIES);
+    // WHOLE, or the newest report could be one the listing left out.
+    struct sys_dirent *ents = 0;
+    int n = ulistdir(CRASH_DIR, &ents);
     if (n < 0) {
         sys_print("crashlog: no reports (" CRASH_DIR " does not exist)\n");
         return 0;
@@ -42,6 +44,7 @@ static int list(void) {
         sys_print(line);
         shown++;
     }
+    free(ents);
     if (!shown) sys_print("crashlog: no reports\n");
     return 0;
 }

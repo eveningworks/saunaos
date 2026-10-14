@@ -256,7 +256,7 @@ TOOLS = [
     # long-standing reds (docs/bugs.md) that made every suite run read as
     # failing. Run it after touching the File Manager or userland/fm/.
     ("files",       "filemanager_test.py",     "the File Manager: panes, marks, file ops", True, None,                 True),
-    ("ls",          "ls_test.py",              "/bin/ls flags and the listing cap",  True,  None,                   False),
+    ("ls",          "ls_test.py",              "/bin/ls flags and a listing past a page", True,  None,                   False),
     # ATTACHES (it drives `vm.py exec`), so wants_vm -- without a guest
     # every check read an empty answer and 5 of 7 "failed".
     ("fileop",      "fileop_test.py",          "lib/ufileop through cp/mv/rm",       True,  None,                   True),

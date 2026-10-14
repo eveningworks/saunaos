@@ -17,14 +17,28 @@ DIR *opendir(const char *path) {
     if (!path) return 0;
     DIR *d = (DIR *)malloc(sizeof *d);
     if (!d) return 0;
-    d->ents = (struct sys_dirent *)malloc(sizeof(struct sys_dirent) * SYS_LISTDIR_MAX);
+    // PAGED, so a directory bigger than one SYS_LISTDIR_AT call is read
+    // whole: the buffer doubles until a page comes back short.
+    int cap = SYS_LISTDIR_MAX, n = 0;
+    d->ents = (struct sys_dirent *)malloc(sizeof(struct sys_dirent) * (size_t)cap);
     if (!d->ents) { free(d); return 0; }
-    int n = sys_listdir(path, d->ents, SYS_LISTDIR_MAX);
-    // A missing path and an empty directory are different answers and
-    // must not become the same one: sys_listdir reports -1 for the
-    // first and 0 for the second, and an opendir() that succeeded on a
-    // missing path would make every caller's error handling dead code.
-    if (n < 0) { free(d->ents); free(d); return 0; }
+    for (;;) {
+        if (cap - n < SYS_LISTDIR_MAX) {
+            struct sys_dirent *g = (struct sys_dirent *)realloc(
+                d->ents, sizeof(struct sys_dirent) * (size_t)cap * 2);
+            if (!g) { free(d->ents); free(d); errno = ENOMEM; return 0; }
+            d->ents = g;
+            cap *= 2;
+        }
+        int got = sys_listdir_at(path, d->ents + n, SYS_LISTDIR_MAX, n);
+        // A missing path and an empty directory are different answers and
+        // must not become the same one: the listing reports -1 for the
+        // first and 0 for the second, and an opendir() that succeeded on a
+        // missing path would make every caller's error handling dead code.
+        if (got < 0) { free(d->ents); free(d); return 0; }
+        n += got;
+        if (got < SYS_LISTDIR_MAX) break;
+    }
     d->n = n;
     d->i = 0;
     return d;

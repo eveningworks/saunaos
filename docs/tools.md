@@ -1491,20 +1491,21 @@ manual steps to be worth automating:
   `keyboard_claim_console()` reddens two, and neither reddens the
   other's.
 - **`ls_test.py`** -- `/bin/ls`: ordering, the format flags, colour and
-  the listing cap. Fourteen checks against a THROWAWAY copy of
-  `disk.img`, into which it stages a 300-entry directory from the host
-  with `tfs3_writer.py` -- the cap is 256, so nothing a person could
-  reasonably type at a shell reaches that branch, and a test that made a
-  handful of files would be green with the whole limit removed. Two of
+  a directory past one listing page. Fourteen checks against a THROWAWAY
+  copy of `disk.img`, into which it stages a 300-entry directory from the
+  host with `tfs3_writer.py` -- a page is 256 entries, so nothing a person
+  would type at a shell crosses it, and a test that made a handful of
+  files would be green with the paging removed. It must list all 300,
+  once each and in order (it stopped at 256 until 2026-10-14). Two of
   the checks exist because their failures are SILENT: `ls` listed a
   40-file directory as 32 entries and simply stopped, and the console's
   ANSI parser being unwired shows up as literal `[1;36m` beside every
   directory name rather than as missing colour (the captured console
   output cannot show colour at all). Positive controls, measured:
   disabling `ansi_feed()`'s dispatch reddens the escape check -- with
-  `\x1b[1;36mbin\x1b[0m/` printed in the failure detail -- and dropping
-  ls's truncation message reddens the other, each naming its own
-  failure.
+  `\x1b[1;36mbin\x1b[0m/` printed in the failure detail -- and making
+  `ulistdir()` stop after one page reddens the whole-listing check
+  (`listed 256, first gap at f0256`), each naming its own failure.
 - **`hires_test.py`** -- a desktop ABOVE the mode this OS boots into by
   default, and whether a ring-3 client window can actually fill it. Two
   constants have to move together and did not: the mode the display
@@ -3999,7 +4000,10 @@ window without going through it will find its layout polls timing out.
   separately by dragging a window and reading the file. A restored
   window's FIRST frame (`gui windows`' `first_frame`) must already be
   its restored content size: drawn before the queued resize was read,
-  Settings first appeared at its default 896x704 and then jumped.
+  Settings first appeared at its default 896x704 and then jumped. The
+  same holds for an app whose OWN default is taller than the work area
+  (the Audio Player's 898x698 on 1280x720): fitted before its first
+  frame, not shrunk after it.
 
   **Its checks were written twice, and the first set was nearly
   worthless**: with restore disabled entirely, five of six still passed,

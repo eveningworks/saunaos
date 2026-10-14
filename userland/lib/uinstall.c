@@ -8,6 +8,7 @@
 #include <unistd.h>
 #include <sys/stat.h>
 #include "rt/sys.h"
+#include "ulistdir.h"
 #include "errno.h"          // EEXIST -- an existing directory is not a failure
 #include "partition_abi.h"
 #include "mount_abi.h"
@@ -77,11 +78,18 @@ static int measure_one(void *ctx, const char *path, const struct sys_dirent *e) 
 }
 
 static struct uwalk g_walk;            // several KB: never on a 2 KiB frame
-static struct sys_dirent g_top[SYS_LISTDIR_MAX];
+static struct sys_dirent *g_top;   // the last list_root() listing of "/"
+
+// "/" WHOLE, replacing the last listing.
+static int list_root(void) {
+    free(g_top);
+    g_top = 0;
+    return ulistdir("/", &g_top);
+}
 
 int uinstall_measure(uint32_t *files, uint64_t *bytes) {
     struct measure m = { 0, 0 };
-    int n = sys_listdir("/", g_top, SYS_LISTDIR_MAX);
+    int n = list_root();
     if (n < 0) return -1;
     for (int i = 0; i < n; i++) {
         if (is_skipped(g_top[i].name)) continue;
@@ -322,7 +330,7 @@ static int copy_system(struct run *r) {
     const struct ufileop_policy pol = {
         .ctx = r, .on_conflict = 0, .on_progress = copy_progress, .on_error = copy_error,
     };
-    int n = sys_listdir("/", g_top, SYS_LISTDIR_MAX);
+    int n = list_root();
     if (n < 0) return fail(r, "/", sys_errno());
     // Sorted so the progress is the same on two machines, which is what
     // makes a transcript of a failed install comparable.

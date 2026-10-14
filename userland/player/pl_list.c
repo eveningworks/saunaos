@@ -7,6 +7,7 @@
 // turning shuffle on never jumps away from what is playing.
 #include "player/player_internal.h"
 #include "lib/usnd.h"
+#include "lib/ulistdir.h"
 #include "lib/utags.h"
 #include "lib/ufile.h"
 #include "lib/dirsort.h"
@@ -57,12 +58,13 @@ static void describe_track(const char *dir, struct pl_track *t) {
 }
 
 int pl_scan(const char *dir) {
-    static struct sys_dirent all[SYS_LISTDIR_MAX];   // static: the frame budget is 2 KiB
+    struct sys_dirent *all = 0;
     static struct sys_dirent keep[PL_MAX];
     if (dir != g_dir) strlcpy(g_dir, dir, sizeof g_dir);
-    int n = sys_listdir(g_dir, all, SYS_LISTDIR_MAX), count = 0;
+    int n = ulistdir(g_dir, &all), count = 0;
     for (int i = 0; i < n && count < PL_MAX; i++)
         if (playable(g_dir, &all[i])) keep[count++] = all[i];
+    free(all);
     dirsort(keep, count, DIRSORT_NAME, 0);
     for (int i = 0; i < count; i++) {
         memset(&g_tracks[i], 0, sizeof g_tracks[i]);

@@ -21,6 +21,7 @@
 // on one.
 #include <stdint.h>
 #include "rt/sys.h"
+#include "lib/ulistdir.h"
 #include "net_abi.h"
 #include "lib/cmd.h"
 #include "lib/dirsort.h"
@@ -80,8 +81,8 @@ static void serve_error(int fd, const char *status, const char *text) {
 // disagrees with the body is worse than no length at all.
 static void serve_listing(int fd, const char *path) {
     static char page[8192];
-    static struct sys_dirent ents[64];
-    int n = sys_listdir(path, ents, (int)(sizeof ents / sizeof ents[0]));
+    struct sys_dirent *ents = 0;
+    int n = ulistdir(path, &ents);
     if (n < 0) { serve_error(fd, "404 Not Found", "No such directory."); return; }
     // SYS_LISTDIR returns the filesystem's walk order, which is not an
     // order -- and this index is read by a person in a browser.
@@ -96,6 +97,7 @@ static void serve_listing(int fd, const char *path) {
                         path, slash ? "" : "/", ents[i].name,
                         ents[i].name, ents[i].is_dir ? "/" : "");
     }
+    free(ents);
     len += snprintf(page + len, sizeof page - (size_t)len, "</ul></body></html>\n");
 
     say(fd, "200 OK", "text/html", len);

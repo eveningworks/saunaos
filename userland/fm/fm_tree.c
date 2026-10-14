@@ -8,8 +8,10 @@
 #include "fm_internal.h"
 #include "kpath.h"
 #include "lib/dirsort.h"
+#include "lib/ulistdir.h"
 #include "lib/ufiletype.h"
 #include <string.h>
+#include <stdlib.h>
 
 // --- the directory tree -----------------------------------------------
 //
@@ -29,7 +31,7 @@ int g_tree_count;
 static int g_tree_place[TREE_MAX];
 static char g_tree_open[TREE_OPEN_MAX][PATH_MAX_LEN];
 static int g_tree_open_count;
-static struct sys_dirent g_tree_scratch[SYS_LISTDIR_MAX];
+static struct sys_dirent *g_tree_scratch;   // the last folder listed; replaced by the next
 static char g_tree_note[UUI_PLACES_MAX][24];
 
 // The tree's own setup: the node array it draws from, and the open set
@@ -248,7 +250,9 @@ void tree_rebuild(void) {
 
     for (int i = 0; i < g_tree_count; i++) {
         if (g_tree_nodes[i].kind != UUI_TREE_OPEN) continue;
-        int n = sys_listdir(g_tree_path[i], g_tree_scratch, SYS_LISTDIR_MAX);
+        free(g_tree_scratch);
+        g_tree_scratch = 0;
+        int n = ulistdir(g_tree_path[i], &g_tree_scratch);
         if (n < 0) continue;
 
         // Directories only, joinable only (a path past FS_PATH_MAX is

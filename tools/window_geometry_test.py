@@ -130,6 +130,37 @@ def run(dbg, qmp, res):
               f"at {w['x']},{w['y']}" if w else "no window")
     close_all(dbg)
 
+    # 2b. AN APP WHOSE OWN DEFAULT IS TALLER THAN THE WORK AREA is fitted
+    #     before its first frame, not shown at its default and shrunk a
+    #     frame later: the Audio Player's 898x698 against a 1280x720
+    #     screen. The fit is proposed during the create, like a restore,
+    #     so uapp's drain answers it before drawing. Asserted only where
+    #     the default really overflows -- elsewhere nothing is fitted.
+    dbg.send(f"sh rm {CONF}")
+    time.sleep(0.5)
+    w = open_and_read(dbg, "Audio Player")
+    # A window EXISTS before its first present, and until then its record
+    # holds the create-time size and a first_frame of 0x0 -- so wait for
+    # the frame this check is about, not merely the window.
+    deadline = time.time() + 10.0
+    while w and not w["first_frame"]["w"] and time.time() < deadline:
+        time.sleep(0.3)
+        dbg.settle()
+        ws = dbg.json("gui windows --json")["windows"]
+        w = ws[-1] if ws else None
+    if w and w["h"] >= sh - tb:
+        first = (w["first_frame"]["w"], w["first_frame"]["h"])
+        content = (w["content"]["w"], w["content"]["h"])
+        res.check("a default taller than the work area is fitted before its first frame",
+                  w["h"] <= sh - tb and first == content,
+                  f"window {w['w']}x{w['h']} (work area {sh - tb} high), first frame "
+                  f"{first}, content {content}")
+    else:
+        print(f"  (skipped the oversized-default check: the Audio Player opened "
+              f"{w['w']}x{w['h'] if w else '-'}, which fits this screen)" if w else
+              "  (skipped the oversized-default check: no Audio Player window)")
+    close_all(dbg)
+
     # 3. A negative position is pulled back, title bar reachable.
     set_conf(dbg, f"{APP_ID}=-400,-300,640,480")
     w = open_and_read(dbg)

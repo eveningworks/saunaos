@@ -30,6 +30,7 @@
 #include <pthread.h>
 #include "rt/sys.h"
 #include "lib/uimg.h"
+#include "lib/ulistdir.h"
 #include "lib/ufile.h"
 #include "lib/usetting.h"
 #include "lib/uthumb.h"
@@ -211,11 +212,12 @@ static const struct uimg *strip_thumb(void *ctx, int i, int px) {
 }
 
 static void load_dir(void) {
-    static struct sys_dirent all[SYS_LISTDIR_MAX];   // static: the frame budget is 2 KiB
-    int n = sys_listdir(g_dir, all, SYS_LISTDIR_MAX);
+    struct sys_dirent *all = 0;
+    int n = ulistdir(g_dir, &all);
     g_count = 0;
     for (int i = 0; i < n && g_count < MAX_FILES; i++)
         if (keep_images(0, g_dir, &all[i])) g_entries[g_count++] = all[i];
+    free(all);
     dirsort(g_entries, g_count, DIRSORT_NAME, 0);
     uui_thumbstrip_set(&g_strip, g_count, strip_thumb, 0);
     ulogf("imgview: listing %s -- %d image(s)\n", g_dir, g_count);

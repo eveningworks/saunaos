@@ -1,5 +1,6 @@
 // See lib/uappentry.h.
 #include "lib/uappentry.h"
+#include "ulistdir.h"
 #include "lib/uconf.h"
 #include "lib/uopen.h"   // UOPEN_ENTRY_SECTION
 #include "rt/sys.h"
@@ -42,8 +43,8 @@ static int is_entry(const char *name) {
 }
 
 int uappentry_each(int (*fn)(const struct uappentry *e, void *ctx), void *ctx) {
-    static struct sys_dirent ents[SYS_LISTDIR_MAX];
-    int n = sys_listdir(UAPPENTRY_DIR, ents, SYS_LISTDIR_MAX);
+    struct sys_dirent *ents = 0;
+    int n = ulistdir(UAPPENTRY_DIR, &ents);
     int seen = 0;
     for (int i = 0; i < n; i++) {
         if (ents[i].is_dir || !is_entry(ents[i].name)) continue;
@@ -54,6 +55,7 @@ int uappentry_each(int (*fn)(const struct uappentry *e, void *ctx), void *ctx) {
         seen++;
         if (fn(&e, ctx)) break;
     }
+    free(ents);
     return seen;
 }
 

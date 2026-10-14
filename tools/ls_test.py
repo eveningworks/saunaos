@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""/bin/ls: format flags, ordering, colour, and the truncation limit.
+"""/bin/ls: format flags, ordering, colour, and a directory past the page.
 
 WHAT IS UNDER TEST
 ------------------
@@ -27,11 +27,12 @@ Four properties, each with a failure the others would not catch:
    directory name -- which is precisely what this checks for, since the
    captured console output cannot show colour itself.
 
-4. **A truncated listing SAYS SO.** The fixture is staged from the HOST
-   (tfs3_writer.py) rather than by typing `touch` hundreds of times, so
-   this reaches the branch at all -- a 40-file directory does not, now
-   that the cap is 256, and a test that only creates a handful would be
-   green with the whole limit removed.
+4. **A directory bigger than one SYS_LISTDIR page lists WHOLE** -- every
+   name, each once. It used to stop at the 256-entry cap (and say so).
+   The fixture is staged from the HOST (tfs3_writer.py) rather than by
+   typing `touch` hundreds of times, so the listing really crosses a
+   page boundary; a test that creates a handful would be green with the
+   paging removed.
 
 RUN IT ON DEMAND. It builds its own >256-entry directory in a THROWAWAY
 copy of disk.img, so it never touches the real image.
@@ -50,8 +51,7 @@ from harness import copy_disk  # noqa: E402
 VM = os.path.join(REPO, "tools", "vm.py")
 WRITER = os.path.join(REPO, "tools", "tfs3_writer.py")
 
-# Comfortably past SYS_LISTDIR_MAX (256), so the cap is reached whatever
-# else the directory happens to hold.
+# Comfortably past SYS_LISTDIR_MAX (256), so the listing takes two pages.
 # On DISK: /tmp is a RAM filesystem mounted at boot, so a fixture written
 # into the image there is hidden -- the listing came back empty and the
 # cap check below passed on nothing.
@@ -242,18 +242,19 @@ def main():
         check("a directory still carries its trailing slash with colour off",
               any(l.strip().endswith("/") for l in vm.sh("ls --color=never /")))
 
-        print("recursion, and the limit")
+        print("recursion, and a directory past one page")
         rec = vm.sh("ls -R /etc")
         check("-R prints a header per subdirectory",
               any(l.strip().endswith(":") for l in rec), f"{rec[:4]}")
 
         big = vm.sh(f"ls -1 {BIG_DIR}")
-        listed = [l for l in big if l.strip().startswith("f")]
-        check(f"a directory of {BIG_COUNT} files is truncated at the cap",
-              0 < len(listed) < BIG_COUNT, f"listed {len(listed)}")
-        check("...and the truncation is REPORTED, not silent",
-              any("truncated" in l for l in big),
-              "listing simply stopped -- the silent bug is back")
+        listed = [l.strip() for l in big if l.strip().startswith("f")]
+        want = [f"f{i:04d}" for i in range(BIG_COUNT)]
+        check(f"a directory of {BIG_COUNT} files lists every one, once, in order",
+              listed == want, f"listed {len(listed)}, first gap at "
+              f"{next((w for w, g in zip(want, listed + [''] * BIG_COUNT) if w != g), '-')}")
+        check("...with no truncation notice",
+              not any("truncated" in l for l in big), f"{[l for l in big if 'truncated' in l]}")
 
         bad = "\n".join(vm.sh("ls --nonsense /"))
         check("an unknown option is refused rather than guessed at",

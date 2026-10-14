@@ -3,6 +3,7 @@
 // was the design doc's "the day a second caller wants one".
 #include <stdlib.h>
 #include "lib/uopen.h"
+#include "ulistdir.h"
 #include "lib/ulaunch.h"
 #include "lib/urecent.h"
 #include "lib/uconf.h"
@@ -50,8 +51,8 @@ static int entry_exec(const char *name, char *out, int cap) {
 
 // The declaration scan: the first entry whose Handles= claims `ext`.
 static int declared_exec(const char *ext, char *out, int cap) {
-    static struct sys_dirent entries[SYS_LISTDIR_MAX];
-    int n = sys_listdir(DESKTOP_ENTRY_DIR, entries, SYS_LISTDIR_MAX);
+    struct sys_dirent *entries = 0;
+    int n = ulistdir(DESKTOP_ENTRY_DIR, &entries);
     for (int i = 0; i < n; i++) {
         if (entries[i].is_dir) continue;
         char entry[UOPEN_PATH_MAX];
@@ -72,8 +73,9 @@ static int declared_exec(const char *ext, char *out, int cap) {
                   && etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION,
                                                   "Exec", out, (uint32_t)cap);
         free(cfg);
-        if (hit) return 1;
+        if (hit) { free(entries); return 1; }
     }
+    free(entries);
     return 0;
 }
 
@@ -180,15 +182,15 @@ static int ext_of(const char *path, char *ext, int cap) {
 }
 
 int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *current) {
-    static struct sys_dirent entries[SYS_LISTDIR_MAX];
+    struct sys_dirent *entries = 0;
     char ext[16], now[UOPEN_PATH_MAX] = "";
     int count = 0;
     *current = -1;
     if (!ext_of(path, ext, sizeof ext)) return 0;
     if (!uopen_resolve(path, now, sizeof now)) now[0] = '\0';
-    int n = sys_listdir(DESKTOP_ENTRY_DIR, entries, SYS_LISTDIR_MAX);
     struct etc_config_buf *cfg = malloc(sizeof *cfg);
     if (!cfg) return 0;
+    int n = ulistdir(DESKTOP_ENTRY_DIR, &entries);
     // Two passes, Windows' "Open with" order: the apps that claim this
     // extension, then every other app that opens files at all.
     for (int pass = 0; pass < 2; pass++)
@@ -210,6 +212,7 @@ int uopen_apps_for(const char *path, struct uopen_app *out, int max, int *curren
         count++;
     }
     free(cfg);
+    free(entries);
     // An override naming a program no entry claims still opens the file:
     // list it, or the choice would vanish from the list showing it.
     if (now[0] && *current < 0 && count < max) {

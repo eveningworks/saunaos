@@ -6779,9 +6779,8 @@ that opens many files in a large directory. The usual answers are a
 hashed directory (ext4's htree, NTFS's B+ tree) or keeping directories
 small; TFS3 has neither today.
 
-`ls` on such a directory also stops at `SYS_LISTDIR_MAX` (256) and says
-so, which is the listing cap working as designed rather than a second
-finding.
+(`ls` on such a directory stopped at `SYS_LISTDIR_MAX` (256) until
+2026-10-14; it pages now, through `lib/ulistdir.h`.)
 
 
 
