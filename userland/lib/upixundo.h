@@ -63,6 +63,8 @@ void upixundo_free(struct upixundo *u);
 // Before a change: the picture as it is. 0, or -ENOMEM (the change then
 // cannot be undone, and commit() records nothing).
 int upixundo_begin(struct upixundo *u, const struct uimg *im);
+// The change begun was taken back by its caller: nothing to commit.
+void upixundo_cancel(struct upixundo *u);
 // After it: the `dirty` part of the change, or -- when the picture's
 // size changed, or `dirty` is NULL -- the whole picture. An empty rect
 // records nothing. Either way the redo list is gone. 0 or -ENOMEM.

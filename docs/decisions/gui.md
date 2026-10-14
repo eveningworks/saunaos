@@ -11552,3 +11552,12 @@ The decisions inside it, each one a thing a later session would ask:
   resize or a merge into it makes it pixels without asking, as GIMP's
   transforms do. `.ora` carries the words as `toyos:` attributes, which
   every other reader ignores and shows the pixels of.
+- **Shapes stay editable until let go, and are smooth by choice**
+  (Windows 11 Paint's, Paint.NET's): eight handles and the frame resize
+  and move a drawn shape and the bar restyles it, all drawn again from
+  the step's undo copy; a click away commits it, and the same press
+  starts the next. Edges are anti-aliased through coverage masks
+  (`lib/upixel.h`, `upix_mask_*`) with a Smooth toggle; off, a pixel is
+  in or out at its centre, as the pencil is -- the brush, the pencil and
+  the fill stay exact either way, so "Paint replaces pixels" still holds
+  for everything but a smoothed shape's edge.

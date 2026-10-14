@@ -16,7 +16,12 @@
 #include "ui/uui_layerlist.h"
 #include "lib/uora.h"
 
-enum paint_tool { TOOL_PENCIL, TOOL_BRUSH, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_TEXT, TOOL_COUNT };
+enum paint_tool { TOOL_PENCIL, TOOL_BRUSH, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_TEXT, TOOL_SHAPES, TOOL_COUNT };
+
+// The shape bar's gallery, in its order.
+enum paint_shape { SHAPE_LINE, SHAPE_CURVE, SHAPE_RECT, SHAPE_ROUNDED, SHAPE_ELLIPSE, SHAPE_POLYGON,
+                   SHAPE_TRIANGLE, SHAPE_ARROW, SHAPE_STAR, SHAPE_COUNT };
+enum paint_shape_ink { SHAPE_INK_NONE, SHAPE_INK_1, SHAPE_INK_2 };   // an outline's Colour 1 is the fill's Colour 2
 
 extern struct uimg *g_layer;           // the current layer's pixels: what every tool paints on
 extern struct upixundo g_undo;
@@ -28,6 +33,10 @@ extern int g_brush;                    // brush and eraser size, in pixels
 extern enum upix_shape g_shape;
 extern struct uui_fontpick g_fontpick;  // the text tool's face, in its floating bar
 extern int g_text_fill;                 // text drawn on a Colour 2 box
+extern int g_shape_kind;                // enum paint_shape
+extern int g_shape_outline, g_shape_fill;   // enum paint_shape_ink: the bar's two drop-downs
+extern int g_shape_width;               // the outline, pixels
+extern int g_shape_aa;                  // smooth edges
 
 // The pointer, in picture pixels, with which colour slot is painting
 // (0 left, 1 right). DOWN starts a change, UP ends it.
@@ -68,6 +77,15 @@ struct paint_text {
     uint32_t ink, fill_colour;  // 0xAARRGGBB
     int fill;
 };
+
+// --- paint_shapes.c: the shapes tool ------------------------------------------
+int  shapes_active(void);                  // a drawn shape is still editable
+void shapes_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods);
+int  shapes_key(int key);                  // 1 when the open shape took it (Enter, Esc)
+void shapes_commit(void);                  // the shape into the picture, one undo step
+void shapes_restyle(void);                 // the bar changed: drawn again
+void shapes_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
+void shapes_log_layout(const struct uui_paintcanvas *c);
 
 // --- paint_layers.c: the layer stack -----------------------------------------
 // Bottom first. Every change to the stack is one undo step; choosing the

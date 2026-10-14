@@ -47,7 +47,8 @@ void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned 
     // would be lost on its next edit: ask first, GIMP's "discard the text
     // information?".
     if (phase == UUI_PAINT_DOWN && layers_text(layers_active()) &&
-        (g_tool == TOOL_PENCIL || g_tool == TOOL_BRUSH || g_tool == TOOL_ERASER || g_tool == TOOL_FILL)) {
+        (g_tool == TOOL_PENCIL || g_tool == TOOL_BRUSH || g_tool == TOOL_ERASER || g_tool == TOOL_FILL ||
+         (g_tool == TOOL_SHAPES && !shapes_active()))) {
         paint_ask_rasterize();
         return;
     }
@@ -82,6 +83,9 @@ void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned 
         return;
     case TOOL_TEXT:
         text_pointer(phase, x, y, mods);
+        return;
+    case TOOL_SHAPES:
+        shapes_pointer(phase, x, y, mods);
         return;
     case TOOL_PICK:
         // WHAT SHOWS, every layer together -- Windows 11 Paint's picker.

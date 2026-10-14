@@ -973,7 +973,7 @@ EXTRA_OBJS_uiclient   =
 EXTRA_OBJS_calculator = calc/calc_engine
 EXTRA_OBJS_notepad    = notepad/np_conf notepad/np_prefs
 EXTRA_OBJS_screenshot = screenshot/shot_conf screenshot/shot_prefs
-EXTRA_OBJS_paint      = paint/paint_tools paint/paint_resize paint/paint_text paint/paint_layers
+EXTRA_OBJS_paint      = paint/paint_tools paint/paint_resize paint/paint_text paint/paint_layers paint/paint_shapes
 EXTRA_OBJS_terminal   = term/term_conf term/term_prefs term/term_panel
 # Shapes keeps its teapot mesh in userland/shapes/, outside the program
 # directories for the reason userland/fm/ is (see EXTRA_OBJS_files).

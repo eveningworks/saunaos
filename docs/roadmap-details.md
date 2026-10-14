@@ -1804,12 +1804,15 @@ Manager. Left to build, in order:
   (`ui/uui_layerlist.h`) -- new, duplicate, delete, merge down, flatten,
   move, rename, hide, opacity, drag to reorder, all in one history --
   and `.ora` (`lib/uora.h`) keeps them; PNG/JPEG/QOI save flat.
-- **Next, TEXT LAYERS**: a let-go box becomes a layer that keeps its
-  words, face and colour, re-opened by clicking it with the Text tool;
-  painting on it asks to turn it into pixels (GIMP, Krita); `.ora` keeps
-  it editable. Then **shapes**: line,
-  rectangle, ellipse, rounded rectangle, polygon, curve, arrow and star,
-  previewed through `uui_paintcanvas.draw_over` and committed on release.
+- **Text layers are built** (2026-10-14): a let-go box is a layer that
+  keeps its words, face and colours, re-opened by the Text tool; a brush
+  on it asks to make it pixels; `.ora` keeps the words.
+- **Shapes are built** (2026-10-14, S2): line, curve, rectangle,
+  rounded rectangle, ellipse, polygon, triangle, arrow and star on a
+  floating bar with outline, fill, width and Smooth; editable by handles
+  until let go.
+- **Next**: the spray can, a highlighter and a soft brush; lasso and
+  magic wand; a gradient fill.
 - **Stage 3, selection and the picture's size**: a rectangle selection
   that moves, cuts, copies and pastes within Paint (an IMAGE kind on the
   clipboard, for other apps, is a separate item), Crop to selection,

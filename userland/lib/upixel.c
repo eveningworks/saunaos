@@ -1,6 +1,7 @@
 // Painting on a picture -- see lib/upixel.h.
 #include "lib/upixel.h"
 #include <errno.h>
+#include <math.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -171,4 +172,225 @@ void upix_over_at(struct uimg *dst, int x0, int y0, const struct uimg *src) {
         const uint32_t *s = src->px + (size_t)(y - y0) * src->w - x0;
         for (int x = c.x; x < c.x + c.w; x++) d[x] = over_px(d[x], s[x], 255);
     }
+}
+
+// --- shapes ----------------------------------------------------------------
+
+void upix_mask_free(struct upix_mask *m) {
+    free(m->a);
+    *m = (struct upix_mask){ 0 };
+}
+
+// The points' box grown by `pad`, clipped to the picture.
+static int mask_alloc(struct upix_mask *m, const struct upix_pt *p, int n, float pad, int cw, int ch) {
+    *m = (struct upix_mask){ 0 };
+    if (n < 1) return 0;
+    float x0 = p[0].x, y0 = p[0].y, x1 = x0, y1 = y0;
+    for (int i = 1; i < n; i++) {
+        if (p[i].x < x0) x0 = p[i].x;
+        if (p[i].x > x1) x1 = p[i].x;
+        if (p[i].y < y0) y0 = p[i].y;
+        if (p[i].y > y1) y1 = p[i].y;
+    }
+    int ix0 = (int)floorf(x0 - pad), iy0 = (int)floorf(y0 - pad);
+    int ix1 = (int)ceilf(x1 + pad), iy1 = (int)ceilf(y1 + pad);
+    if (ix0 < 0) ix0 = 0;
+    if (iy0 < 0) iy0 = 0;
+    if (ix1 > cw) ix1 = cw;
+    if (iy1 > ch) iy1 = ch;
+    if (ix1 <= ix0 || iy1 <= iy0) return 0;
+    m->a = calloc((size_t)(ix1 - ix0) * (iy1 - iy0), 1);
+    if (!m->a) return -ENOMEM;
+    m->x = ix0; m->y = iy0; m->w = ix1 - ix0; m->h = iy1 - iy0;
+    return 0;
+}
+
+static int cmp_float(const void *a, const void *b) {
+    float x = *(const float *)a, y = *(const float *)b;
+    return x < y ? -1 : x > y;
+}
+
+#define SUBROWS 4
+
+int upix_mask_fill(struct upix_mask *m, const struct upix_pt *p, int n, int cw, int ch, int aa) {
+    int rc = mask_alloc(m, p, n, 1, cw, ch);
+    if (rc || !m->a || n < 3) return rc;
+    float *xs = malloc(sizeof *xs * (size_t)n);
+    int *acc = malloc(sizeof *acc * (size_t)(m->w + 1));
+    if (!xs || !acc) { free(xs); free(acc); upix_mask_free(m); return -ENOMEM; }
+    int subs = aa ? SUBROWS : 1;
+    for (int row = 0; row < m->h; row++) {
+        memset(acc, 0, sizeof *acc * (size_t)(m->w + 1));
+        for (int s = 0; s < subs; s++) {
+            // A sub-row's centre, and where every edge crosses it.
+            float sy = (float)(m->y + row) + (aa ? (s + 0.5f) / SUBROWS : 0.5f);
+            int k = 0;
+            for (int i = 0; i < n; i++) {
+                struct upix_pt a = p[i], b = p[(i + 1) % n];
+                if ((a.y <= sy) == (b.y <= sy)) continue;   // half-open: a vertex counts once
+                xs[k++] = a.x + (sy - a.y) * (b.x - a.x) / (b.y - a.y);
+            }
+            qsort(xs, (size_t)k, sizeof *xs, cmp_float);
+            for (int i = 0; i + 1 < k; i += 2) {
+                float l = xs[i] - (float)m->x, r = xs[i + 1] - (float)m->x;
+                if (!aa) {   // a pixel is in when its centre is
+                    int a = (int)ceilf(l - 0.5f), b = (int)ceilf(r - 0.5f);
+                    if (a < 0) a = 0;
+                    if (b > m->w) b = m->w;
+                    for (int x = a; x < b; x++) acc[x] = 255;
+                    continue;
+                }
+                if (l < 0) l = 0;
+                if (r > (float)m->w) r = (float)m->w;
+                if (r <= l) continue;
+                // EXACT ENDS: a partly covered first and last pixel get
+                // their share; the run between them all of a sub-row.
+                int a = (int)l, b = (int)r;
+                int unit = 255 * 64 / SUBROWS;   // one sub-row's worth, in 1/64ths
+                if (a == b) { acc[a] += (int)((r - l) * (float)unit); continue; }
+                acc[a] += (int)(((float)(a + 1) - l) * (float)unit);
+                for (int x = a + 1; x < b; x++) acc[x] += unit;
+                if (b < m->w) acc[b] += (int)((r - (float)b) * (float)unit);
+            }
+        }
+        uint8_t *dst = m->a + (size_t)row * m->w;
+        for (int x = 0; x < m->w; x++) {
+            int v = aa ? (acc[x] + 32) / 64 : acc[x];
+            dst[x] = (uint8_t)(v > 255 ? 255 : v);
+        }
+    }
+    free(xs);
+    free(acc);
+    return 0;
+}
+
+// The distance from (px, py) to the segment a-b.
+static float seg_dist(float px, float py, struct upix_pt a, struct upix_pt b) {
+    float dx = b.x - a.x, dy = b.y - a.y, l2 = dx * dx + dy * dy;
+    float t = l2 > 0 ? ((px - a.x) * dx + (py - a.y) * dy) / l2 : 0;
+    if (t < 0) t = 0;
+    if (t > 1) t = 1;
+    float ex = a.x + t * dx - px, ey = a.y + t * dy - py;
+    return sqrtf(ex * ex + ey * ey);
+}
+
+int upix_mask_stroke(struct upix_mask *m, const struct upix_pt *p, int n, int closed, float width,
+                     int cw, int ch, int aa) {
+    float hw = width / 2;
+    int rc = mask_alloc(m, p, n, hw + 1, cw, ch);
+    if (rc || !m->a) return rc;
+    int segs = n == 1 ? 1 : closed ? n : n - 1;
+    // SEGMENT BY SEGMENT over each one's own box, keeping the most any
+    // segment covers -- so a join is round and nothing is counted twice.
+    for (int i = 0; i < segs; i++) {
+        struct upix_pt a = p[i], b = p[n == 1 ? 0 : (i + 1) % n];
+        int x0 = (int)floorf((a.x < b.x ? a.x : b.x) - hw - 1) - m->x;
+        int x1 = (int)ceilf((a.x > b.x ? a.x : b.x) + hw + 1) - m->x;
+        int y0 = (int)floorf((a.y < b.y ? a.y : b.y) - hw - 1) - m->y;
+        int y1 = (int)ceilf((a.y > b.y ? a.y : b.y) + hw + 1) - m->y;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 > m->w) x1 = m->w;
+        if (y1 > m->h) y1 = m->h;
+        for (int y = y0; y < y1; y++) {
+            uint8_t *row = m->a + (size_t)y * m->w;
+            for (int x = x0; x < x1; x++) {
+                float d = seg_dist((float)(m->x + x) + 0.5f, (float)(m->y + y) + 0.5f, a, b);
+                // A pixel's coverage, near enough: how much of a unit
+                // square centred on it the edge at distance d leaves in.
+                float cov = aa ? hw + 0.5f - d : (d <= hw ? 1.0f : 0.0f);
+                if (cov <= 0) continue;
+                if (aa && hw < 0.5f) cov *= 2 * hw;   // a hairline is fainter, not wider
+                int v = cov >= 1 ? 255 : (int)(cov * 255 + 0.5f);
+                if (v > row[x]) row[x] = (uint8_t)v;
+            }
+        }
+    }
+    return 0;
+}
+
+void upix_mask_paint(struct uimg *im, const struct upix_mask *m, uint32_t colour, int exact,
+                     struct upix_rect *dirty) {
+    if (!im->px || !m->a) return;
+    for (int y = 0; y < m->h; y++) {
+        int iy = m->y + y;
+        if (iy < 0 || iy >= im->h) continue;
+        const uint8_t *src = m->a + (size_t)y * m->w;
+        uint32_t *row = im->px + (size_t)iy * im->w;
+        for (int x = 0; x < m->w; x++) {
+            int ix = m->x + x;
+            if (!src[x] || ix < 0 || ix >= im->w) continue;
+            if (exact) { row[ix] = colour; continue; }
+            unsigned a = ((colour >> 24) * src[x] + 127) / 255;
+            row[ix] = over_px(row[ix], (colour & 0xFFFFFF) | a << 24, 255);
+        }
+    }
+    upix_rect_add(dirty, im, m->x, m->y, m->w, m->h);
+}
+
+int upix_bezier(struct upix_pt p0, struct upix_pt p1, struct upix_pt p2, struct upix_pt p3,
+                struct upix_pt *out, int n) {
+    for (int i = 0; i <= n; i++) {
+        float t = (float)i / (float)n, u = 1 - t;
+        float a = u * u * u, b = 3 * u * u * t, c = 3 * u * t * t, d = t * t * t;
+        out[i] = (struct upix_pt){ a * p0.x + b * p1.x + c * p2.x + d * p3.x, a * p0.y + b * p1.y + c * p2.y + d * p3.y };
+    }
+    return n + 1;
+}
+
+static int ellipse_pts(float cx, float cy, float rx, float ry, float a0, float a1, int steps,
+                       struct upix_pt *out, int at, int max) {
+    for (int i = 0; i <= steps && at < max; i++) {
+        float a = a0 + (a1 - a0) * (float)i / (float)steps;
+        out[at++] = (struct upix_pt){ cx + rx * (float)cos(a), cy + ry * (float)sin(a) };
+    }
+    return at;
+}
+
+int upix_figure(enum upix_figure f, float x0, float y0, float x1, float y1, struct upix_pt *out, int max) {
+    if (x1 < x0) { float t = x0; x0 = x1; x1 = t; }
+    if (y1 < y0) { float t = y0; y0 = y1; y1 = t; }
+    float w = x1 - x0, h = y1 - y0, cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const float PI = 3.14159265f;
+    int n = 0;
+#define PT(X, Y) do { if (n < max) out[n++] = (struct upix_pt){ (X), (Y) }; } while (0)
+    switch (f) {
+    case UPIX_FIG_RECT:
+        PT(x0, y0); PT(x1, y0); PT(x1, y1); PT(x0, y1);
+        break;
+    case UPIX_FIG_ROUNDED: {
+        // Windows 11 Paint's: a corner a fifth of the shorter side.
+        float r = (w < h ? w : h) / 5;
+        n = ellipse_pts(x1 - r, y0 + r, r, r, -PI / 2, 0, 8, out, n, max);
+        n = ellipse_pts(x1 - r, y1 - r, r, r, 0, PI / 2, 8, out, n, max);
+        n = ellipse_pts(x0 + r, y1 - r, r, r, PI / 2, PI, 8, out, n, max);
+        n = ellipse_pts(x0 + r, y0 + r, r, r, PI, 3 * PI / 2, 8, out, n, max);
+        break;
+    }
+    case UPIX_FIG_ELLIPSE: {
+        // Enough sides that none is longer than a couple of pixels.
+        int steps = (int)((w + h) * 0.8f) + 16;
+        if (steps > max - 1) steps = max - 1;
+        n = ellipse_pts(cx, cy, w / 2, h / 2, 0, 2 * PI, steps, out, n, max) - 1;   // the last = the first
+        break;
+    }
+    case UPIX_FIG_TRIANGLE:
+        PT(cx, y0); PT(x1, y1); PT(x0, y1);
+        break;
+    case UPIX_FIG_ARROW: {
+        // Pointing right: a shaft half the height, a head a third of the length.
+        float hx = x1 - w / 3, t = h / 4;
+        PT(x0, cy - t); PT(hx, cy - t); PT(hx, y0); PT(x1, cy); PT(hx, y1); PT(hx, cy + t); PT(x0, cy + t);
+        break;
+    }
+    case UPIX_FIG_STAR:
+        // Five points, the inner radius 0.38 of the outer, the top point up.
+        for (int i = 0; i < 10; i++) {
+            float a = -PI / 2 + (float)i * PI / 5, k = i % 2 ? 0.38f : 1.0f;
+            PT(cx + w / 2 * k * (float)cos(a), cy + h / 2 * k * (float)sin(a));
+        }
+        break;
+    }
+#undef PT
+    return n;
 }

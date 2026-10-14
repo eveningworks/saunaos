@@ -21,7 +21,7 @@ struct uui_toggle {
     const uint32_t *chip;     // 0xRRGGBB to show after the label, or NULL
 };
 
-#define UUI_TOGGLEBAR_MAX 8
+#define UUI_TOGGLEBAR_MAX 12
 
 struct uui_togglebar {
     int x, y, w, h;

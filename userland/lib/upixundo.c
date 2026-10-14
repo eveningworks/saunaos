@@ -59,6 +59,8 @@ int upixundo_begin(struct upixundo *u, const struct uimg *im) {
     return 0;
 }
 
+void upixundo_cancel(struct upixundo *u) { u->snapped = 0; }
+
 static uint32_t *cut(const uint32_t *px, int stride, int x, int y, int w, int h) {
     uint32_t *out = malloc((size_t)w * h * 4);
     if (!out) return 0;

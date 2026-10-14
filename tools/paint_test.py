@@ -43,6 +43,10 @@ What it proves, and what a broken version would still pass:
     with its words, an edit stays one layer and one Ctrl+Z; a brush on it
     asks, Make it pixels is a step; saved as .ora and reopened, the words
     open again.
+  * SHAPES: S and the bar; smoothing off and Fill: Colour 2; a rectangle
+    exact on its edge, inside and out; a corner handle resizing it; a
+    click away keeping it as one step (and drawing nothing itself); an
+    ellipse smoothed has grey edge pixels the hard one lacks.
   * TEXT EDITING: Home, Shift+Left, Ctrl+X/V and a click change the
     text and caret the box reports; its frame dragged moves it, leaving
     WHITE behind (a move that forgot to restore would leave the old
@@ -267,6 +271,7 @@ def run(dbg, qmp, res, tmp):
     check_text_edit(dbg, qmp, res, tmp)
     check_layers(dbg, qmp, res, tmp)
     check_text_layers(dbg, qmp, res, tmp)
+    check_shapes(dbg, qmp, res, tmp)
 
 
 def rect(dbg, part):
@@ -726,6 +731,107 @@ def check_layers(dbg, qmp, res, tmp):
               layer_stack(dbg)[0] == 2 and scr2.pixel(200, 300) == BLACK and scr2.pixel(300, 200) == BLACK
               and scr2.pixel(200, 140) == WHITE,
               f"stack {layer_stack(dbg)}, {scr2.pixel(200, 300)} {scr2.pixel(300, 200)} {scr2.pixel(200, 140)}")
+    close_all(dbg)
+
+
+def shape_style(dbg):
+    dbg.settle()
+    for line in reversed(dbg.logs("paint: layout shapestyle ", clear=False)):
+        f = line.split("shapestyle ", 1)[1].split()
+        return dict(zip(f[0::2], map(int, f[1::2])))
+    return {}
+
+
+def shape_box(dbg):
+    dbg.settle()
+    for line in reversed(dbg.logs("paint: layout shape.open ", clear=False)):
+        f = line.split("shape.open ", 1)[1].split()
+        return [int(v) for v in f[4:8]] if f[0] == "1" else None
+    return None
+
+
+def check_shapes(dbg, qmp, res, tmp):
+    """Shapes: the bar's style, a rectangle dragged out and judged by exact
+    pixels with smoothing off (outline Colour 1, fill Colour 2), a corner
+    handle making it bigger, a click away keeping it as one step, and an
+    ellipse smoothed -- grey pixels on its edge where a hard one has none."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Shapes: Paint opens", False, "no window")
+        return
+
+    def at(part):
+        r = rect(dbg, part)
+        return (scr.cx + r[0] + r[2] // 2, scr.cy + r[1] + r[3] // 2) if r else None
+
+    def drag(x0, y0, x1, y1):
+        a, b = scr.at(x0, y0), scr.at(x1, y1)
+        dbg.drag(a[0], a[1], b[0], b[1], steps=16)
+        dbg.settle()
+
+    # Colour 2 red: a right click on the palette's red.
+    cell = rect(dbg, "palette.cell 3")
+    if cell:
+        dbg.rclick(scr.cx + cell[0] + cell[2] // 2, scr.cy + cell[1] + cell[3] // 2)
+        dbg.settle()
+    dbg.key("s")
+    res.check("S is the Shapes tool, and its bar shows", state(dbg).get("tool") == 6 and rect(dbg, "shapegallery"),
+              f"{state(dbg)}")
+    dbg.click(*at("shapesmooth.button 0"))
+    fill = rect(dbg, "shapefill")
+    if fill:
+        dbg.click(scr.cx + fill[0] + fill[2] // 2, scr.cy + fill[1] + fill[3] // 2)
+        dbg.settle()
+        dbg.click(scr.cx + fill[0] + fill[2] // 2, scr.cy + fill[1] + 2 * fill[3] + fill[3] // 2)   # row 1
+        dbg.settle()
+    st = shape_style(dbg)
+    res.check("the bar sets smoothing off and Fill: Colour 2", st.get("smooth") == 0 and st.get("fill") == 1
+              and st.get("kind") == 2, f"{st}")
+    dbg.move(10, 10)
+    drag(100, 100, 300, 200)
+    scr.shoot()
+    # Off the handles: their white middles sit over the outline while it is open.
+    res.check("a rectangle: outline Colour 1 on its edge, Colour 2 inside, white outside -- exact",
+              scr.pixel(100, 130) == BLACK and scr.pixel(200, 150) == RED and scr.pixel(90, 130) == WHITE
+              and scr.pixel(160, 100) == BLACK, f"edge {scr.pixel(100, 130)} in {scr.pixel(200, 150)} "
+              f"out {scr.pixel(90, 130)} top {scr.pixel(160, 100)}, box {shape_box(dbg)}")
+    h = at("shape.handle 2")
+    if h:
+        b = scr.at(400, 250)
+        dbg.drag(h[0], h[1], b[0], b[1], steps=16)
+        dbg.settle()
+    scr.shoot()
+    res.check("its corner handle makes it bigger, drawn again", shape_box(dbg) == [100, 100, 400, 250]
+              and scr.pixel(350, 230) == RED and scr.pixel(400, 230) == BLACK,
+              f"box {shape_box(dbg)}, {scr.pixel(350, 230)} {scr.pixel(400, 230)}")
+    dbg.click(*scr.at(600, 500))
+    scr.shoot()
+    res.check("a click away keeps it (and draws nothing of its own)",
+              shape_box(dbg) is None and scr.pixel(350, 230) == RED and scr.pixel(600, 500) == WHITE,
+              f"box {shape_box(dbg)} {scr.pixel(350, 230)} {scr.pixel(600, 500)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    scr.shoot()
+    res.check("...as one step Ctrl+Z takes away", scr.pixel(350, 230) == WHITE and scr.pixel(100, 130) == WHITE,
+              f"{scr.pixel(350, 230)} {scr.pixel(100, 130)}")
+
+    def greys(y, x0, x1):
+        return sum(1 for x in range(x0, x1) if scr.pixel(x, y) not in (WHITE, BLACK, RED))
+    # An ellipse, hard, then the same one smoothed.
+    dbg.click(*at("shapegallery.button 4"))
+    drag(100, 300, 300, 400)
+    dbg.key("0x0d")
+    scr.shoot()
+    hard = greys(330, 95, 160)
+    dbg.key(CTRL["z"], mods="ctrl")
+    dbg.click(*at("shapesmooth.button 0"))
+    drag(100, 300, 300, 400)
+    dbg.key("0x0d")
+    scr.shoot()
+    soft = greys(330, 95, 160)
+    res.check("Smooth gives an ellipse soft edges a hard one does not have", hard == 0 and soft > 2,
+              f"hard {hard} in-between pixels, smooth {soft}, style {shape_style(dbg)}")
     close_all(dbg)
 
 

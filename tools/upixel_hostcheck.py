@@ -20,6 +20,11 @@ What it asserts, on seeded random pictures:
     on straight alpha, at full, half, near-zero and random opacity; and a
     stamp at an OFFSET (upix_over_at) clipped at every edge, leaving
     every pixel outside it untouched
+  - SHAPES: a random polygon's anti-aliased fill against 16 x 16 samples
+    a pixel (full is 255, empty 0, partial within a sub-row's error, the
+    ink within 2% of the area), the plain fill pixel-exact against centre
+    sampling; a stroke's coverage full inside, empty outside its width;
+    every figure closed and inside its box
   - UNDO: after a run of strokes and fills, each recorded with begin and
     commit, undoing all of them gives back the first picture exactly,
     redoing all gives back the last, and the state number comes back to
@@ -135,6 +140,28 @@ int main(void) {
         } else if (!strcmp(cmd, "overat")) {         // overat X Y: picture 1 stamped on picture 0 at X, Y
             if (scanf("%d %d", &a, &b) != 2) return 2;
             upix_over_at(&ims[0], a, b, &ims[1]);
+        } else if (!strcmp(cmd, "mask")) {          // mask KIND(fill|stroke) AA CLOSED WIDTH N x y ...
+            char kind[8];
+            float width;
+            if (scanf("%7s %d %d %f %d", kind, &a, &b, &width, &c) != 5) return 2;
+            struct upix_pt *pts = malloc(sizeof *pts * (size_t)(c ? c : 1));
+            for (int i = 0; i < c; i++) if (scanf("%f %f", &pts[i].x, &pts[i].y) != 2) return 2;
+            struct upix_mask m;
+            int rc = kind[0] == 'f' ? upix_mask_fill(&m, pts, c, 64, 64, a)
+                                    : upix_mask_stroke(&m, pts, c, b, width, 64, 64, a);
+            printf("mask %d %d %d %d %d", rc, m.x, m.y, m.w, m.h);
+            for (int i = 0; i < m.w * m.h; i++) printf(" %d", m.a[i]);
+            printf("\n");
+            upix_mask_free(&m);
+            free(pts);
+        } else if (!strcmp(cmd, "figure")) {        // figure KIND x0 y0 x1 y1
+            float x0, y0, x1, y1;
+            if (scanf("%d %f %f %f %f", &a, &x0, &y0, &x1, &y1) != 5) return 2;
+            struct upix_pt pts[512];
+            int n = upix_figure((enum upix_figure)a, x0, y0, x1, y1, pts, 512);
+            printf("figure %d", n);
+            for (int i = 0; i < n; i++) printf(" %.4f %.4f", pts[i].x, pts[i].y);
+            printf("\n");
         } else if (!strcmp(cmd, "dump")) {
             dump();
         } else return 2;
@@ -160,7 +187,7 @@ def build(tmp, poison=False):
                                   "unsigned da = dp >> 24, oa = sa + da > 255 ? 255 : sa + da;")])
     und = hostcheck.stage(tmp, "userland/lib/upixundo.c")
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
-    return hostcheck.compile(tmp, "upixel_host", [src, und, drv], includes=[tmp],
+    return hostcheck.compile(tmp, "upixel_host", [src, und, drv, "-lm"], includes=[tmp],
                              tool="upixel_hostcheck")
 
 
@@ -507,6 +534,102 @@ def main():
                        for b in (0, 8, 16, 24)):
                     fails.append(f"overat case {case}: pixel {x},{y} is {got[i]:08x}, want {want:08x}")
                     break
+
+        # SHAPES: a polygon's fill and a path's stroke against 16 x 16
+        # samples per pixel, computed here. Anti-aliased: a pixel every
+        # sample covers is 255, one none covers is 0, a partial one within
+        # what four sub-rows can miss, and the whole mask's ink within 2%
+        # of the area. Without: a pixel is in exactly when its centre is.
+        import math
+
+        def inside(px, py, pts):
+            c = False
+            for i in range(len(pts)):
+                (ax, ay), (bx, by) = pts[i], pts[(i + 1) % len(pts)]
+                if (ay <= py) != (by <= py) and px < ax + (py - ay) * (bx - ax) / (by - ay):
+                    c = not c
+            return c
+
+        def segd(px, py, a, b):
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            l2 = dx * dx + dy * dy
+            t = 0 if l2 == 0 else max(0, min(1, ((px - a[0]) * dx + (py - a[1]) * dy) / l2))
+            return math.hypot(a[0] + t * dx - px, a[1] + t * dy - py)
+
+        def ask_mask(kind, aa, closed, width, pts):
+            r = d.ask(f"mask {kind} {aa} {closed} {width} {len(pts)} " + " ".join(f"{x} {y}" for x, y in pts))
+            x, y, w, h = map(int, r[2:6])
+            return x, y, w, h, list(map(int, r[6:]))
+
+        def area(pts):
+            return abs(sum(pts[i][0] * pts[(i + 1) % len(pts)][1] - pts[(i + 1) % len(pts)][0] * pts[i][1]
+                           for i in range(len(pts)))) / 2
+        S = 16
+        for case in range(12):
+            n = rng.randrange(3, 8)
+            cx, cy, rad = rng.uniform(20, 44), rng.uniform(20, 44), rng.uniform(6, 18)
+            pts = [(cx + rad * rng.uniform(0.5, 1) * math.cos(2 * math.pi * k / n + rng.uniform(0, 0.4)),
+                    cy + rad * rng.uniform(0.5, 1) * math.sin(2 * math.pi * k / n + rng.uniform(0, 0.4)))
+                   for k in range(n)]
+            for aa in (1, 0):
+                mx, my, mw, mh, cov = ask_mask("fill", aa, 1, 0, pts)
+                checks += 1
+                bad = None
+                for j in range(mh):
+                    for i in range(mw):
+                        X, Y = mx + i, my + j
+                        v = cov[j * mw + i]
+                        if not aa:
+                            want = 255 if inside(X + 0.5, Y + 0.5, pts) else 0
+                            if v != want:
+                                bad = f"pixel {X},{Y} is {v}, its centre says {want}"
+                            continue
+                        k = sum(inside(X + (a + 0.5) / S, Y + (b + 0.5) / S, pts) for a in range(S) for b in range(S))
+                        # A sliver every sample misses is still a sliver: 16 either end.
+                        if (k == S * S and v < 239) or (k == 0 and v > 16) or abs(v - k * 255 / (S * S)) > 72:
+                            bad = f"pixel {X},{Y} is {v}, the samples say {k * 255 // (S * S)}"
+                    if bad:
+                        break
+                if bad:
+                    fails.append(f"fill case {case} aa {aa}: {bad}")
+                elif aa and abs(sum(cov) / 255 - area(pts)) > 0.02 * area(pts) + 1:
+                    fails.append(f"fill case {case}: {sum(cov) / 255:.1f} px of ink for an area of {area(pts):.1f}")
+        for case in range(10):
+            pts = [(rng.uniform(10, 54), rng.uniform(10, 54)) for _ in range(rng.randrange(1, 5))]
+            width, closed = rng.choice((1.0, 2.5, 5.0, rng.uniform(1, 9))), rng.randrange(2)
+            segs = [(pts[0], pts[0])] if len(pts) == 1 else \
+                [(pts[i], pts[(i + 1) % len(pts)]) for i in range(len(pts) if closed else len(pts) - 1)]
+            for aa in (1, 0):
+                mx, my, mw, mh, cov = ask_mask("stroke", aa, closed, width, pts)
+                checks += 1
+                hw = width / 2
+                for j in range(mh):
+                    for i in range(mw):
+                        X, Y = mx + i + 0.5, my + j + 0.5
+                        dmin = min(segd(X, Y, a, b) for a, b in segs)
+                        v = cov[j * mw + i]
+                        if not aa:
+                            if dmin < hw - 1e-3 and v != 255 or dmin > hw + 1e-3 and v != 0:
+                                fails.append(f"stroke case {case}: pixel at distance {dmin:.2f} of {hw} is {v}")
+                                break
+                        elif (dmin + 0.75 <= hw and v != 255) or (dmin - 0.75 >= hw and v != 0):
+                            fails.append(f"stroke case {case}: pixel at distance {dmin:.2f} of {hw} is {v}")
+                            break
+                    else:
+                        continue
+                    break
+        # THE FIGURES stay in their box and are closed polygons that the fill accepts.
+        for f in range(6):
+            for case in range(4):
+                x0, y0 = rng.uniform(0, 30), rng.uniform(0, 30)
+                x1, y1 = x0 + rng.uniform(4, 30), y0 + rng.uniform(4, 30)
+                r = d.ask(f"figure {f} {x0} {y0} {x1} {y1}")
+                n = int(r[1])
+                xy = list(map(float, r[2:]))
+                checks += 1
+                if n < 3 or any(not (x0 - 0.01 <= xy[k] <= x1 + 0.01) for k in range(0, 2 * n, 2)) or \
+                        any(not (y0 - 0.01 <= xy[k] <= y1 + 0.01) for k in range(1, 2 * n, 2)):
+                    fails.append(f"figure {f} case {case}: {n} points, not all inside the box")
 
         # A small byte limit keeps the newest steps and drops the oldest.
         d.send("new 20 20 ffffffff")

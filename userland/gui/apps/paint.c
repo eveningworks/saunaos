@@ -60,6 +60,7 @@ enum {
     ID_MENU = 1, ID_BAR, ID_RAIL, ID_CANVAS, ID_RECENT, ID_PALETTE, ID_SIZE, ID_SHAPE,
     ID_STATUS, ID_ASK, ID_NEWDLG, ID_NEW_BG, ID_RESIZE, ID_TEXTFILL,
     ID_PTABS, ID_LBAR, ID_LAYERS, ID_LOPACITY,
+    ID_SHGAL, ID_SHOUT, ID_SHFILL, ID_SHWIDTH, ID_SHAA,
     ID_PICK = 40,   // .. + UUI_COLOURPICK_IDS
     ID_NEW_SIZE = 50,   // .. + UUI_SIZEPICK_IDS
     ID_FONT = 80,       // .. + UUI_FONTPICK_IDS
@@ -216,6 +217,7 @@ static const struct uui_menu_item tool_items[] = {
     UUI_MENU_ICON("Fill", CMD_TOOL + TOOL_FILL, "F", "tb-fill", 0),
     UUI_MENU_ICON("Colour picker", CMD_TOOL + TOOL_PICK, "I", "tb-picker", 0),
     UUI_MENU_ICON("Text", CMD_TOOL + TOOL_TEXT, "T", "tb-text", 0),
+    UUI_MENU_ICON("Shapes", CMD_TOOL + TOOL_SHAPES, "S", "tb-shapes", 0),
 };
 static const struct uui_menu_item colour_items[] = {
     UUI_MENU("Swap the two colours", CMD_SWAP, "X"),
@@ -258,6 +260,7 @@ static const struct uui_toolbar_item rail_items[] = {
     { "tb-picker", "Colour picker (I)", CMD_TOOL + TOOL_PICK,   0, 0, 0, 0 },
     UUI_TOOLBAR_SEP,
     { "tb-text",   "Text (T)",          CMD_TOOL + TOOL_TEXT,   0, 0, 0, 0 },
+    { "tb-shapes", "Shapes (S)",        CMD_TOOL + TOOL_SHAPES, 0, 0, 0, 0 },
 };
 
 // THE TEXT BAR (T1 from the mockups): over the open text box, the face
@@ -290,6 +293,23 @@ static const struct uui_toolbar_item lbar_items[] = {
     { "tb-delete",     "Delete layer",                   CMD_LAYER_DEL,   0, UUI_TB_END, 0, UTHEME_ACT_DANGER },
 };
 
+// THE SHAPE BAR (S2 from the mockups): the gallery, outline, fill, the
+// width and smoothing, on a card over the picture while Shapes is the tool.
+static struct uui_custom g_shapebar_card;
+static struct uui_togglebar g_shgal, g_shaa;
+static struct uui_dropdown g_shout, g_shfill, g_shwidth;
+static const struct uui_toggle shgal_items[SHAPE_COUNT] = {
+    { 0, "Line", "sh-line", 0 },          { 0, "Curve", "sh-curve", 0 },
+    { 0, "Rectangle", "sh-rect", 0 },     { 0, "Rounded rectangle", "sh-rounded", 0 },
+    { 0, "Ellipse", "sh-ellipse", 0 },    { 0, "Polygon", "sh-polygon", 0 },
+    { 0, "Triangle", "sh-triangle", 0 },  { 0, "Arrow", "sh-arrow", 0 },
+    { 0, "Star", "sh-star", 0 },
+};
+static const struct uui_toggle shaa_items[] = { { "Smooth", "Smooth edges (anti-aliased)", "tb-smooth", 0 } };
+static const char *const SHOUT[] = { "No outline", "Outline: Colour 1", "Outline: Colour 2" };
+static const char *const SHFILL[] = { "No fill", "Fill: Colour 2", "Fill: Colour 1" };
+static const char *const SHWIDTHS[] = { "1 px", "2 px", "3 px", "5 px", "8 px", "12 px", "20 px", "32 px" };
+
 static struct uui_item g_widgets[] = {
     { .ops = &uui_toolbar_ops,       .widget = &g_bar,       .id = ID_BAR,     .name = "bar" },
     { .ops = &uui_toolbar_ops,       .widget = &g_rail,      .id = ID_RAIL,    .name = "rail" },
@@ -309,6 +329,12 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_layerlist_ops,     .widget = &g_layerlist, .id = ID_LAYERS,  .name = "layers", .hidden = 1 },
     { .ops = &uui_scale_ops,         .widget = &g_lopacity,  .id = ID_LOPACITY, .name = "opacity", .hidden = 1 },
     { .ops = &uui_infonote_ops,      .widget = &g_lnote,     .name = "layernote", .hidden = 1 },
+    { .ops = &uui_custom_ops,        .widget = &g_shapebar_card, .name = "shapebar", .hidden = 1 },
+    { .ops = &uui_togglebar_ops,     .widget = &g_shgal,     .id = ID_SHGAL,   .name = "shapegallery", .hidden = 1 },
+    { .ops = &uui_dropdown_ops,      .widget = &g_shout,     .id = ID_SHOUT,   .name = "shapeoutline", .hidden = 1 },
+    { .ops = &uui_dropdown_ops,      .widget = &g_shfill,    .id = ID_SHFILL,  .name = "shapefill", .hidden = 1 },
+    { .ops = &uui_dropdown_ops,      .widget = &g_shwidth,   .id = ID_SHWIDTH, .name = "shapewidth", .hidden = 1 },
+    { .ops = &uui_togglebar_ops,     .widget = &g_shaa,      .id = ID_SHAA,    .name = "shapesmooth", .hidden = 1 },
     // The menu bar after the bars: its popups must be on top of them.
     { .ops = &uui_menubar_ops,       .widget = &g_menu,      .id = ID_MENU,    .name = "menu" },
     { .ops = &uui_dialog_ops,        .widget = &g_ask,       .id = ID_ASK,     .name = "ask" },
@@ -316,7 +342,7 @@ static struct uui_item g_widgets[] = {
     { 0 },   // Resize: paint_resize.c's dialog, set in main()
 };
 enum { W_PICK = 3, W_PANEL_FIRST = 3, W_PANEL_LAST = 7, W_TEXTBAR = 9, W_FONTPICK = 10, W_TEXTFILL = 11,
-       W_PTABS = 12, W_LAYERS_FIRST = 13, W_LAYERS_LAST = 16 };
+       W_PTABS = 12, W_LAYERS_FIRST = 13, W_LAYERS_LAST = 16, W_SHAPE_FIRST = 17, W_SHAPE_LAST = 22 };
 
 // --- small things -------------------------------------------------------------
 
@@ -408,12 +434,17 @@ void paint_colour_picked(int slot) {
 
 void paint_text_changed(void) { if (g_app) uapp_redraw(g_app); }
 
-static void draw_textbar_card(struct ugfx_surface *s, const struct uui_custom *cu) {
+// A bar's card over the picture: the text bar's and the shape bar's.
+static void draw_card(struct ugfx_surface *s, const struct uui_custom *cu) {
     int r = uui_control_radius(0) + 2;
     for (int i = 3; i >= 1; i--)   // a soft shadow, as a menu has
         uui_fill_round_rect(s, cu->x + i, cu->y + i * 2, cu->w, cu->h, r, ugfx_blend(UTHEME_PANEL_BG, 0, 18));
     uui_fill_round_rect(s, cu->x, cu->y, cu->w, cu->h, r, UTHEME_OUTLINE);
     uui_fill_round_rect(s, cu->x + 1, cu->y + 1, cu->w - 2, cu->h - 2, r - 1, UTHEME_WHITE);
+}
+
+static void draw_textbar_card(struct ugfx_surface *s, const struct uui_custom *cu) {
+    draw_card(s, cu);
     ugfx_fill_rect(s, g_textbar_sep_x, cu->y + cu->h / 4, 1, cu->h / 2, UTHEME_SEPARATOR);
 }
 
@@ -427,6 +458,7 @@ void paint_tool_changed(void) {
 static void set_tool(int t) {
     if (t < 0 || t >= TOOL_COUNT || tools_busy()) return;
     if (t != TOOL_TEXT) text_commit();
+    if (t != TOOL_SHAPES) shapes_commit();
     if (t == TOOL_PICK && g_tool != TOOL_PICK) g_tool_before_pick = g_tool;
     g_tool = t;
     ulogf("paint: tool %d\n", t);
@@ -786,8 +818,10 @@ static void command(int code) {
     // An open text box is put into the picture before anything else acts
     // on it -- a save, an undo, a rotate -- except looking at it.
     if (code != CMD_ZOOM_IN && code != CMD_ZOOM_OUT && code != CMD_ZOOM_ACTUAL && code != CMD_ZOOM_FIT &&
-        code != CMD_PANEL)
+        code != CMD_PANEL) {
         text_commit();
+        shapes_commit();
+    }
     if (code >= CMD_LAYER_NEW && code < CMD_LAYER_NEW + (int)(sizeof LAYER_CMD / sizeof LAYER_CMD[0])) {
         LAYER_CMD[code - CMD_LAYER_NEW]();
         if (g_app) uapp_redraw(g_app);
@@ -817,6 +851,7 @@ static void command(int code) {
         uint32_t t = g_colour[0]; g_colour[0] = g_colour[1]; g_colour[1] = t;
         sync_pick();
         if (text_active()) text_restyle();
+        if (shapes_active()) shapes_restyle();
         break;
     }
     default: break;
@@ -860,6 +895,7 @@ static void canvas_pointer(void *ctx, enum uui_paint_phase ph, int x, int y, uns
 static void canvas_draw_over(void *ctx, struct ugfx_surface *s, const struct uui_paintcanvas *c) {
     (void)ctx;
     text_draw_over(s, c);
+    shapes_draw_over(s, c);
 }
 
 static void canvas_handle_resize(void *ctx, int w, int h) {
@@ -913,6 +949,34 @@ static void layout(int cw, int ch) {
                                        g_fontpick.style.h);
         // Halfway between the last toggle and Fill, from where they ARE.
         g_textbar_sep_x = (g_fontpick.style.x + g_fontpick.style.w + g_textfill.x) / 2;
+    }
+
+    // THE SHAPE BAR, at the canvas's top-left while Shapes is the tool.
+    int show_shapes = g_tool == TOOL_SHAPES;
+    for (int i = W_SHAPE_FIRST; i <= W_SHAPE_LAST; i++) g_widgets[i].hidden = !show_shapes;
+    if (show_shapes) {
+        int gw, gh, ow, oh, fw, fh, ww, wh, aw, ah;
+        uui_togglebar_ops.natural_size(&g_shgal, &gw, &gh);
+        uui_dropdown_ops.natural_size(&g_shout, &ow, &oh);
+        uui_dropdown_ops.natural_size(&g_shfill, &fw, &fh);
+        uui_dropdown_ops.natural_size(&g_shwidth, &ww, &wh);
+        uui_togglebar_ops.natural_size(&g_shaa, &aw, &ah);
+        int h = gh, gap = pad / 2;
+        int barw = pad / 2 + gw + pad + ow + gap + fw + gap + ww + pad + aw + pad / 2, barh = h + pad;
+        int x = rw + pad, y = top + pad;
+        g_shapebar_card.x = x; g_shapebar_card.y = y; g_shapebar_card.w = barw; g_shapebar_card.h = barh;
+        int cx = x + pad / 2, cy = y + pad / 2;
+        uui_togglebar_ops.set_geometry(&g_shgal, cx, cy, gw, h);
+        cx += gw + pad;
+        uui_dropdown_ops.set_geometry(&g_shout, cx, cy, ow, h);
+        cx += ow + gap;
+        uui_dropdown_ops.set_geometry(&g_shfill, cx, cy, fw, h);
+        cx += fw + gap;
+        uui_dropdown_ops.set_geometry(&g_shwidth, cx, cy, ww, h);
+        cx += ww + pad;
+        uui_togglebar_ops.set_geometry(&g_shaa, cx, cy, aw, h);
+        g_shgal.on = 1u << g_shape_kind;
+        g_shaa.on = (unsigned)g_shape_aa;
     }
 
     g_pw = g_panel ? pad * 30 : 0;
@@ -1013,6 +1077,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     uapp_logf_layout("paint: layout image %d %d dirty %d path %s\n", g_layer->w, g_layer->h, dirty(),
                      g_path[0] ? g_path : "-");
     text_log_layout();
+    shapes_log_layout(&g_canvas);
     uapp_logf_layout("paint: layout layerstack %d current %d opacity %d tab %d text %d\n", layers_count(),
                      layers_active(), layers_opacity(layers_active()), g_ptabs.selected,
                      layers_text(layers_active()) != 0);
@@ -1068,8 +1133,28 @@ static void on_widget(struct uapp *a, int id, int reason) {
     if (id >= ID_PICK && id < ID_PICK + UUI_COLOURPICK_IDS) {
         if (uui_colourpick_on_widget(&g_pick, id)) {
             g_colour[g_edit] = g_pick.rgb | 0xFF000000u;
-            if (text_active()) text_restyle();   // the open box takes the colour, Windows 11 Paint's
+            if (text_active()) text_restyle();
+        if (shapes_active()) shapes_restyle();   // the open box takes the colour, Windows 11 Paint's
         }
+        uapp_redraw(a);
+        return;
+    }
+    if (id >= ID_SHGAL && id <= ID_SHAA) {
+        int i;
+        if (id == ID_SHGAL && (i = uui_togglebar_take(&g_shgal)) >= 0) {
+            shapes_commit();   // the next shape is the new kind; the one drawn stays what it is
+            g_shape_kind = i;
+        } else if (id == ID_SHAA && uui_togglebar_take(&g_shaa) == 0) {
+            g_shape_aa = !g_shape_aa;
+        } else if (id == ID_SHOUT) {
+            g_shape_outline = uui_dropdown_selected(&g_shout);
+        } else if (id == ID_SHFILL) {
+            g_shape_fill = uui_dropdown_selected(&g_shfill);
+        } else if (id == ID_SHWIDTH) {
+            int k = uui_dropdown_selected(&g_shwidth);
+            if (k >= 0) g_shape_width = SIZE_PX[k];
+        }
+        if (shapes_active()) shapes_restyle();
         uapp_redraw(a);
         return;
     }
@@ -1098,10 +1183,12 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_RECENT:
         if (uui_swatches_take(&g_recent, &rgb)) { g_colour[g_edit] = rgb | 0xFF000000u; sync_pick(); }
         if (text_active()) text_restyle();
+        if (shapes_active()) shapes_restyle();
         break;
     case ID_PALETTE:
         if (uui_swatches_take(&g_palette, &rgb)) { g_colour[g_edit] = rgb | 0xFF000000u; sync_pick(); }
         if (text_active()) text_restyle();
+        if (shapes_active()) shapes_restyle();
         break;
     case ID_SIZE:
         if (g_size.selected >= 0) { g_brush = SIZE_PX[g_size.selected]; sync_size_text(); }
@@ -1152,6 +1239,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     }
     if (g_edit == 1) sync_pick();
     if (text_active()) text_restyle();
+    if (shapes_active()) shapes_restyle();
     uapp_redraw(a);
 }
 
@@ -1199,6 +1287,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     // what it declines (Ctrl+S, a Ctrl+Z with no typing left to undo)
     // is Paint's, below.
     if (text_active() && g_focus.current < 0 && text_key(key, mods)) { uapp_redraw(a); return; }
+    if (shapes_active() && shapes_key(key)) { uapp_redraw(a); return; }
     switch (key) {
     case 0x0E: command(shift ? CMD_LAYER_NEW : CMD_NEW); return;     // Ctrl+N, Ctrl+Shift+N
     case 0x0F: command(CMD_OPEN); return;                            // Ctrl+O
@@ -1236,6 +1325,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     case 'f': set_tool(TOOL_FILL); break;
     case 'i': set_tool(TOOL_PICK); break;
     case 't': set_tool(TOOL_TEXT); break;
+    case 's': set_tool(TOOL_SHAPES); break;
     case 'x': command(CMD_SWAP); break;
     case '[': set_brush(SIZE_PX[size_index(g_brush) > 0 ? size_index(g_brush) - 1 : 0]); break;
     case ']': set_brush(SIZE_PX[size_index(g_brush) + 1 < NSIZES ? size_index(g_brush) + 1 : NSIZES - 1]); break;
@@ -1291,6 +1381,15 @@ int main(int argc, char **argv) {
     uui_slider_init(&g_size, SIZES, NSIZES);
     uui_segmented_init(&g_shape_seg, SHAPES, 2, 0);
     set_brush(g_brush);
+    g_shapebar_card = (struct uui_custom){ .draw = draw_card };
+    uui_togglebar_init(&g_shgal, shgal_items, SHAPE_COUNT);
+    uui_togglebar_init(&g_shaa, shaa_items, 1);
+    uui_dropdown_init(&g_shout, 0, 0, 0, 0, SHOUT, 3);
+    uui_dropdown_set_selected(&g_shout, g_shape_outline);
+    uui_dropdown_init(&g_shfill, 0, 0, 0, 0, SHFILL, 3);
+    uui_dropdown_set_selected(&g_shfill, g_shape_fill);
+    uui_dropdown_init(&g_shwidth, 0, 0, 0, 0, SHWIDTHS, NSIZES);
+    uui_dropdown_set_selected(&g_shwidth, size_index(g_shape_width));
     uui_tabs_init(&g_ptabs, g_ptab_list, 2, 0);
     g_ptabs.ground = UTHEME_PANEL_BG;
     uui_toolbar_init(&g_lbar, lbar_items, (int)(sizeof lbar_items / sizeof lbar_items[0]));

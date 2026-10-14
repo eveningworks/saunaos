@@ -269,6 +269,74 @@ def icon_tb_merge_down():
     return p.done()
 
 
+# --- Paint's shape gallery (gui/apps/paint.c), one per enum paint_shape ----
+
+def icon_sh_line():
+    p = _Pen(); p.line((5, 19), (19, 5)); return p.done()
+
+
+def icon_sh_curve():
+    p = _Pen()
+    pts, (x0, y0), (x1, y1), (x2, y2), (x3, y3) = [], (4, 18), (8, 2), (15, 24), (20, 6)
+    for i in range(25):
+        t = i / 24
+        u = 1 - t
+        pts.append((u**3 * x0 + 3 * u * u * t * x1 + 3 * u * t * t * x2 + t**3 * x3,
+                    u**3 * y0 + 3 * u * u * t * y1 + 3 * u * t * t * y2 + t**3 * y3))
+    p.line(*pts)
+    return p.done()
+
+
+def icon_sh_rect():
+    p = _Pen(); p.line((4, 6), (20, 6), (20, 18), (4, 18), (4, 6)); return p.done()
+
+
+def icon_sh_rounded():
+    p = _Pen(); p.rrect(4, 6, 16, 12, 3.5); return p.done()
+
+
+def icon_sh_ellipse():
+    p = _Pen()
+    import math
+    p.line(*[(12 + 8 * math.cos(a / 32 * 2 * math.pi), 12 + 6 * math.sin(a / 32 * 2 * math.pi)) for a in range(33)])
+    return p.done()
+
+
+def icon_sh_polygon():
+    p = _Pen(); p.line((5, 17), (7, 6), (15, 4), (20, 12), (12, 19), (5, 17)); return p.done()
+
+
+def icon_sh_triangle():
+    p = _Pen(); p.line((12, 5), (20, 19), (4, 19), (12, 5)); return p.done()
+
+
+def icon_sh_arrow():
+    p = _Pen(); p.line((4, 9.5), (13, 9.5), (13, 5.5), (20, 12), (13, 18.5), (13, 14.5), (4, 14.5), (4, 9.5)); return p.done()
+
+
+def icon_sh_star():
+    import math
+    pts = []
+    for i in range(11):
+        a = -math.pi / 2 + i * math.pi / 5
+        k = 0.42 if i % 2 else 1.0
+        pts.append((12 + 8.5 * k * math.cos(a), 12.8 + 8.5 * k * math.sin(a)))
+    p = _Pen(); p.line(*pts); return p.done()
+
+
+def icon_tb_shapes():
+    # The rail's Shapes: a square behind a circle, Windows 11 Paint's.
+    p = _Pen(); p.line((3.5, 3.5), (13.5, 3.5), (13.5, 13.5), (3.5, 13.5), (3.5, 3.5)); p.circle(15, 15, 5.5); return p.done()
+
+
+def icon_tb_smooth():
+    # Smooth edges: a curve, soft, over its own stair-stepped shadow.
+    p = _Pen()
+    import math
+    p.line(*[(4 + 16 * i / 20, 18 - 12 * math.sin(i / 20 * math.pi / 2)) for i in range(21)])
+    return p.done()
+
+
 def icon_tb_cut():
     p = _Pen()
     p.line((9.2, 14.4), (17.5, 3)); p.line((14.8, 14.4), (6.5, 3))
@@ -1552,6 +1620,10 @@ ICONS = {
     "tb-fill": icon_tb_fill,
     "tb-picker": icon_tb_picker,
     "tb-text": icon_tb_text,
+    "sh-line": icon_sh_line, "sh-curve": icon_sh_curve, "sh-rect": icon_sh_rect,
+    "sh-rounded": icon_sh_rounded, "sh-ellipse": icon_sh_ellipse, "sh-polygon": icon_sh_polygon,
+    "sh-triangle": icon_sh_triangle, "sh-arrow": icon_sh_arrow, "sh-star": icon_sh_star,
+    "tb-shapes": icon_tb_shapes, "tb-smooth": icon_tb_smooth,
     "tb-plus": icon_tb_plus,
     "tb-merge-down": icon_tb_merge_down,
     "tb-bold": icon_tb_bold,
