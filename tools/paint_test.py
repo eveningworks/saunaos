@@ -25,6 +25,13 @@ What it proves, and what a broken version would still pass:
     not what the first window remembered.
   * The RAIL: clicking its pencil button makes the pencil the tool.
   * ZOOM: Ctrl++ takes 100% to 150% and the picture's rect with it.
+  * RESIZE: Canvas size to 1000 wide on the left anchor keeps the old
+    pixels left and fills the new room with Colour 2; Resize at 50% with
+    the aspect kept halves both sides. SAVE AS TYPE: picking JPEG turns
+    "Untitled.png" into "Untitled.jpg".
+  * NEW PICTURE: Ctrl+N shows the size cards; HD + Create makes a 1280 x
+    720 picture, and a size typed into both fields picks the Custom card
+    and makes that picture.
 
 Positive control (2026-10-14): `paint_tools.c`'s fill painting the
 primary colour as the SECOND (`g_colour[!slot]`) reddens the fill, the
@@ -52,6 +59,7 @@ PAINT = "/bin/wm/apps/paint"
 SAVED = "/var/tmp/paint_test.png"
 CTRL = {"a": "0x01", "s": "0x13", "y": "0x19", "z": "0x1a"}
 BLACK, WHITE, RED = (0, 0, 0), (255, 255, 255), (0xED, 0x1C, 0x24)
+K_DOWN = "0xf781"   # KEY_ARROW_DOWN
 
 
 def layout(dbg, part):
@@ -233,6 +241,144 @@ def run(dbg, qmp, res, tmp):
               f"zoom {state(dbg).get('zoom')}, {before} -> {after}")
     close_all(dbg)
     dbg.send(f"sh rm {SAVED}")
+    check_new(dbg, res)
+    check_resize(dbg, qmp, res, tmp)
+
+
+def rect(dbg, part):
+    for line in reversed(dbg.logs(f"paint: layout {part} ", clear=False)):
+        try:
+            return [int(v) for v in line.split(f"layout {part} ", 1)[1].split()[:4]]
+        except ValueError:
+            return None
+    return None
+
+
+def check_new(dbg, res):
+    """New picture: a preset card, then a typed (Custom) size; judged by
+    the picture's size, which a dialog that drew and did nothing fails."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    dbg.settle()
+    w = dbg.window("Untitled - Paint")
+    if not w:
+        res.check("New: Paint opens", False, "no window")
+        return
+    cx, cy = w["content"]["x"], w["content"]["y"]
+    dbg.key("0x0e", mods="ctrl")   # Ctrl+N
+    dbg.settle()
+    card = rect(dbg, "sizes.card 2")   # HD
+    create = rect(dbg, "newdlg.button 1")
+    res.check("Ctrl+N opens New picture with its size cards", bool(card and create),
+              f"card {card}, Create {create}")
+    if not (card and create):
+        close_all(dbg)
+        return
+    dbg.click(cx + card[0] + card[2] // 2, cy + card[1] + card[3] // 2)
+    dbg.click(cx + create[0] + create[2] // 2, cy + create[1] + create[3] // 2)
+    dbg.settle()
+    st = state(dbg)
+    res.check("the HD card and Create make a 1280 x 720 picture",
+              st.get("w") == 1280 and st.get("h") == 720, f"{st}")
+    # Custom: typed into both fields, Tab between them, Enter creates.
+    dbg.key("0x0e", mods="ctrl")
+    dbg.settle()
+    dbg.key(CTRL["a"], mods="ctrl")
+    for ch in "640":
+        dbg.key(ch, settle=False)
+    dbg.key("0x09")
+    dbg.key(CTRL["a"], mods="ctrl")
+    for ch in "333":
+        dbg.key(ch, settle=False)
+    dbg.settle()
+    sel = None
+    for line in reversed(dbg.logs("paint: layout sizes.selected ", clear=False)):
+        sel = int(line.split()[-1])
+        break
+    dbg.key("0x0d")
+    dbg.settle()
+    st = state(dbg)
+    res.check("a typed size picks Custom and makes that picture",
+              sel == 7 and st.get("w") == 640 and st.get("h") == 333, f"card {sel}, {st}")
+    close_all(dbg)
+
+
+def check_resize(dbg, qmp, res, tmp):
+    """Canvas size and Resize, judged by the picture's size AND its
+    pixels; then Save's type list rewriting the name's extension."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Resize: Paint opens", False, "no window")
+        return
+    cell = layout(dbg, "palette.cell 3")
+    dbg.click(scr.cx + cell[0] + cell[2] // 2, scr.cy + cell[1] + cell[3] // 2)   # red
+    dbg.key("f")
+    fx, fy = scr.at(400, 300)
+    dbg.click(fx, fy)
+    # Canvas size: 1000 wide, anchored on the RIGHT edge's middle -- the old
+    # picture moves right by 200 and the new room is the left 200, in view.
+    dbg.key("0x12", mods="ctrl shift")
+    dbg.settle()
+    dbg.key(CTRL["a"], mods="ctrl")
+    for ch in "1000":
+        dbg.key(ch, settle=False)
+    dbg.settle()
+    a = rect(dbg, "anchor.cell 5")
+    if a:
+        dbg.click(scr.cx + a[0] + a[2] // 2, scr.cy + a[1] + a[3] // 2)
+    dbg.key("0x0d")
+    scr.refresh()
+    scr.shoot()
+    st = state(dbg)
+    res.check("Canvas size widens the picture to 1000 x 600", st.get("w") == 1000 and st.get("h") == 600,
+              f"anchor {a}, {st}")
+    res.check("...the new room on the left in Colour 2, the old pixels moved right",
+              scr.pixel(100, 300) == WHITE and scr.pixel(196, 300) == WHITE and scr.pixel(204, 300) == RED,
+              f"new {scr.pixel(100, 300)}, edge {scr.pixel(196, 300)} | {scr.pixel(204, 300)}")
+    # Resize by Percent, aspect kept: 50 -> 500 x 300.
+    dbg.key("0x12", mods="ctrl")
+    dbg.settle()
+    seg = rect(dbg, "by")
+    if seg:
+        dbg.click(scr.cx + seg[0] + seg[2] // 4, scr.cy + seg[1] + seg[3] // 2)   # Percent
+    w_ = "focused at open"
+    dbg.key(CTRL["a"], mods="ctrl")
+    for ch in "50":
+        dbg.key(ch, settle=False)
+    dbg.key("0x0d")
+    dbg.settle()
+    st = state(dbg)
+    res.check("Resize at 50% with the aspect kept makes 500 x 300", st.get("w") == 500 and st.get("h") == 300,
+              f"by {seg}, width field {w_}, {st}")
+    # Save as type: JPEG rewrites "Untitled.png" to "Untitled.jpg".
+    dbg.key(CTRL["s"], mods="ctrl")
+    time.sleep(0.8)
+    dbg.settle()
+    name0 = None
+    for line in reversed(dbg.logs("filedialog: layout name.text ", clear=False)):
+        name0 = line.split("name.text ", 1)[1].strip().strip('"')
+        break
+    dlg = [w for w in dbg.windows() if w.get("dialog")]
+    typ = None
+    for line in reversed(dbg.logs("filedialog: layout type ", clear=False)):
+        typ = [int(v) for v in line.split("layout type ", 1)[1].split()[:4]]
+        break
+    name1 = None
+    if dlg and typ:
+        dx, dy = dlg[-1]["content"]["x"], dlg[-1]["content"]["y"]
+        dbg.click(dx + typ[0] + typ[2] // 2, dy + typ[1] + typ[3] // 2)
+        dbg.key(K_DOWN)
+        dbg.key("0x0d")
+        dbg.settle()
+        for line in reversed(dbg.logs("filedialog: layout name.text ", clear=False)):
+            name1 = line.split("name.text ", 1)[1].strip().strip('"')
+            break
+    res.check("Save as type JPEG rewrites the name's extension",
+              name0 == "Untitled.png" and name1 == "Untitled.jpg", f"{name0!r} -> {name1!r}")
+    dbg.key("0x1b")
+    close_all(dbg)
 
 
 def main():

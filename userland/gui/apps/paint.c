@@ -32,14 +32,18 @@
 #include "ui/uui_colourpick.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_filedialog.h"
+#include "ui/uui_imagetypes.h"
+#include "ui/uui_infonote.h"
 #include "ui/uui_focus.h"
 #include "ui/uui_menubar.h"
 #include "ui/uui_segmented.h"
+#include "ui/uui_sizepick.h"
 #include "ui/uui_slider.h"
 #include "ui/uui_statusbar.h"
 #include "ui/uui_swatches.h"
 #include "ui/uui_toolbar.h"
 #include "lib/ufile.h"
+#include "query_abi.h"
 #include "lib/uimg.h"
 #include "paint/paint.h"
 
@@ -50,18 +54,20 @@
 
 enum {
     ID_MENU = 1, ID_BAR, ID_RAIL, ID_CANVAS, ID_RECENT, ID_PALETTE, ID_SIZE, ID_SHAPE,
-    ID_STATUS, ID_ASK,
+    ID_STATUS, ID_ASK, ID_NEWDLG, ID_NEW_BG, ID_RESIZE,
     ID_PICK = 40,   // .. + UUI_COLOURPICK_IDS
+    ID_NEW_SIZE = 50,   // .. + UUI_SIZEPICK_IDS
 };
 enum {
     CMD_NEW = 100, CMD_OPEN, CMD_SAVE, CMD_SAVE_AS, CMD_EXIT,
     CMD_UNDO, CMD_REDO,
     CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_ACTUAL, CMD_ZOOM_FIT, CMD_PANEL,
-    CMD_ROT_RIGHT, CMD_ROT_LEFT, CMD_ROT_180, CMD_FLIP_H, CMD_FLIP_V,
+    CMD_ROT_RIGHT, CMD_ROT_LEFT, CMD_ROT_180, CMD_FLIP_H, CMD_FLIP_V, CMD_RESIZE, CMD_CANVAS,
     CMD_SWAP,
     CMD_TOOL = 200,   // + enum paint_tool
     // The unsaved-changes question's answers.
     ASK_SAVE = 300, ASK_DISCARD, ASK_CANCEL,
+    NEW_CREATE = 310, NEW_CANCEL,
 };
 
 // --- the state paint.h shares ---------------------------------------------
@@ -86,6 +92,26 @@ static struct uui_slider g_size;
 static struct uui_segmented g_shape_seg;
 static struct uui_statusbar g_sb;
 static struct uui_dialog g_ask;
+
+// --- the New picture dialog: size cards, then the background ------------
+//
+// N2 from the mockups (2026-10-14): Photoshop's New Document cards over
+// ui/uui_sizepick.h. "Screen" is filled in from the display at start.
+static struct uui_sizepick_preset g_presets[] = {
+    { "Screen", 1366, 768 }, { "Small", 800, 600 }, { "HD", 1280, 720 }, { "Full HD", 1920, 1080 },
+    { "Square", 1080, 1080 }, { "A4", 1240, 1754 }, { "Icon", 256, 256 }, { "Custom", 0, 0 },
+};
+#define NEW_MAX 8192
+static const char *const BACKGROUNDS[] = { "White", "Colour 2", "Transparent" };
+static struct uui_dialog g_newdlg;
+static struct uui_sizepick g_sizepick;
+static struct uui_segmented g_bg_seg;
+static struct uui_custom g_bg_label;
+static struct uui_infonote g_bg_note;
+static uint32_t g_bg_chips[3];
+static struct uui_item g_bg_it[2], g_new_it[3], g_new_body;
+static struct uui_layout g_bg_row, g_new_col;
+static int g_last_w = NEW_W, g_last_h = NEW_H, g_last_bg;
 static struct uui_filedialog g_fd;
 static struct uui_focus g_focus;
 static struct uui_focusable g_ring[8];
@@ -148,6 +174,9 @@ static const struct uui_menu_item view_items[] = {
     UUI_MENU("Side panel", CMD_PANEL, 0),
 };
 static const struct uui_menu_item image_items[] = {
+    UUI_MENU("Resize...", CMD_RESIZE, "Ctrl+R"),
+    UUI_MENU("Canvas size...", CMD_CANVAS, "Ctrl+Shift+R"),
+    UUI_MENU_SEP,
     UUI_MENU_ICON("Rotate right", CMD_ROT_RIGHT, 0, "tb-rotate-right", 0),
     UUI_MENU_ICON("Rotate left", CMD_ROT_LEFT, 0, "tb-rotate-left", 0),
     UUI_MENU("Rotate 180\xb0", CMD_ROT_180, 0),   // Latin-1, as every string drawn here
@@ -215,6 +244,8 @@ static struct uui_item g_widgets[] = {
     // The menu bar after the bars: its popups must be on top of them.
     { .ops = &uui_menubar_ops,       .widget = &g_menu,      .id = ID_MENU,    .name = "menu" },
     { .ops = &uui_dialog_ops,        .widget = &g_ask,       .id = ID_ASK,     .name = "ask" },
+    { .ops = &uui_dialog_ops,        .widget = &g_newdlg,    .id = ID_NEWDLG,  .name = "newdlg" },
+    { 0 },   // Resize: paint_resize.c's dialog, set in main()
 };
 enum { W_PICK = 3, W_PANEL_FIRST = 3, W_PANEL_LAST = 7 };
 
@@ -299,16 +330,17 @@ static void set_tool(int t) {
 
 // --- the picture ------------------------------------------------------------------
 
-// A fresh white picture, MS Paint's default, with an empty history.
-static int new_picture(int w, int h) {
+// A fresh picture of one colour -- white, MS Paint's default -- with an
+// empty history.
+static int new_picture(int w, int h, uint32_t bg) {
     uint32_t *px = malloc((size_t)w * h * 4);
-    if (!px) return 0;
-    for (size_t i = 0; i < (size_t)w * h; i++) px[i] = 0xFFFFFFFFu;
+    if (!px) { note("Not enough memory for a picture that big"); return 0; }
+    for (size_t i = 0; i < (size_t)w * h; i++) px[i] = bg;
     uimg_free(&g_img);
     g_img.px = px;
     g_img.w = w;
     g_img.h = h;
-    g_img.has_alpha = 0;
+    g_img.has_alpha = (bg >> 24) != 0xFF;
     upixundo_clear(&g_undo);
     g_saved_state = upixundo_state(&g_undo);
     g_path[0] = '\0';
@@ -372,15 +404,7 @@ static int save_to(const char *path) {
 // --- choosers and the question ---------------------------------------------------
 
 static void run_pending(void);
-
-static int keep_images(void *ctx, const char *dir, const struct sys_dirent *e) {
-    (void)ctx;
-    char path[PATH_MAX_LEN];
-    if (!k_path_join(dir, e->name, path, sizeof path)) return 0;
-    uint8_t head[16];
-    size_t got = ufile_read_head(path, head, sizeof head);
-    return got >= 4 && uimg_probe(head, got);
-}
+static void open_new_dialog(void);
 
 static void start_dir(char *out, int cap) {
     if (g_path[0]) { k_path_dirname(g_path, out, (size_t)cap); return; }
@@ -396,15 +420,11 @@ static void open_chosen(void *ctx, const char *path) {
 
 static void open_dialog(void) {
     if (uui_filedialog_is_open(&g_fd)) return;
-    static const struct uui_filedialog_filter types[] = {
-        { "Pictures", keep_images, 0 },
-        UUI_FILEDIALOG_ALL_FILES,
-    };
     char dir[PATH_MAX_LEN];
     start_dir(dir, sizeof dir);
     struct uui_filedialog_opts o = {
         .mode = UUI_FILEDIALOG_OPEN, .title = "Open Picture", .start_dir = dir,
-        .filters = types, .filter_count = 2,
+        .filters = uui_imagetypes_open, .filter_count = uui_imagetypes_open_count,
     };
     uui_filedialog_open(g_app, &g_fd, &o, open_chosen, 0);
 }
@@ -433,9 +453,13 @@ static void save_as_dialog(void) {
         if (dot) *dot = '\0';
         strlcat(name, ".png", sizeof name);
     }
+    // SAVE AS TYPE, starting at the picture's own format: picking another
+    // row rewrites the name's extension (ui/uui_filedialog.h).
     struct uui_filedialog_opts o = {
         .mode = UUI_FILEDIALOG_SAVE, .title = "Save Picture As", .start_dir = dir,
         .initial_name = name,
+        .filters = uui_imagetypes_save, .filter_count = uui_imagetypes_save_count,
+        .filter_index = uui_imagetypes_save_index(write_format(name)),
     };
     uui_filedialog_open(g_app, &g_fd, &o, save_chosen, 0);
 }
@@ -448,7 +472,7 @@ static void do_save(void) {
 static void run_pending(void) {
     enum pending p = g_pending;
     g_pending = PEND_NONE;
-    if (p == PEND_NEW) new_picture(NEW_W, NEW_H);
+    if (p == PEND_NEW) open_new_dialog();
     else if (p == PEND_OPEN) open_dialog();
     else if (p == PEND_QUIT) uapp_quit(g_app, 0);
 }
@@ -476,9 +500,67 @@ static void ask_answer(int code) {
     else g_pending = PEND_NONE;
 }
 
+static void draw_label(struct ugfx_surface *s, const struct uui_custom *cu) {
+    ugfx_draw_string_clipped(s, cu->x, cu->y + (cu->h - ugfx_char_h()) / 2, cu->w,
+                             (const char *)cu->state, UTHEME_TEXT, UGFX_TRANSPARENT);
+}
+
+static void open_new_dialog(void) {
+    if (uui_dialog_is_open(&g_newdlg)) return;
+    uui_sizepick_init(&g_sizepick, ID_NEW_SIZE, g_presets, (int)(sizeof g_presets / sizeof g_presets[0]),
+                      g_last_w, g_last_h, NEW_MAX);
+    uui_segmented_init(&g_bg_seg, BACKGROUNDS, 3, g_last_bg);
+    // B1 from the mockups: each choice shows the colour it is.
+    g_bg_chips[0] = 0xFFFFFF;
+    g_bg_chips[1] = g_colour[1] & 0xFFFFFF;
+    g_bg_chips[2] = UUI_SEG_CHECKER;
+    g_bg_seg.chips = g_bg_chips;
+    g_bg_label = (struct uui_custom){ .w = ugfx_text_width("Background") + ugfx_char_w(),
+                                      .h = utheme_control_h(), .draw = draw_label, .state = (void *)"Background" };
+    g_bg_it[0] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_bg_label };
+    g_bg_it[1] = (struct uui_item){ .ops = &uui_segmented_ops, .widget = &g_bg_seg, .id = ID_NEW_BG,
+                                    .name = "background" };
+    g_bg_row = (struct uui_layout){ .dir = UUI_ROW, .items = g_bg_it, .count = 2 };
+    uui_infonote_init(&g_bg_note, "Colour 2 is the side panel's second colour. Transparent shows as a checkerboard.");
+    g_new_it[0] = uui_sizepick_item(&g_sizepick);
+    g_new_it[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_bg_row };
+    g_new_it[2] = (struct uui_item){ .ops = &uui_infonote_ops, .widget = &g_bg_note, .name = "bgnote" };
+    g_new_col = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_new_it, .count = 3 };
+    g_new_body = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_new_col, .name = "new" };
+    static const struct uui_dialog_button btns[] = {
+        { "Cancel", NEW_CANCEL, 0 }, { "Create", NEW_CREATE, UUI_DLG_PRIMARY },
+    };
+    uui_dialog_set_bounds(&g_newdlg, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    uui_dialog_open(&g_newdlg, "New picture", 0, 0, btns, 2, 1, NEW_CANCEL);
+    int bw, bh;
+    uui_layout_ops.natural_size(&g_new_col, &bw, &bh);
+    uui_dialog_set_body(&g_newdlg, &g_new_body, bw, bh);
+    struct uui_item *tabs[] = { &g_sizepick.w_it[1], &g_sizepick.h_it[1] };
+    uui_dialog_set_tabs(&g_newdlg, tabs, 2);
+    uui_dialog_focus(&g_newdlg, &g_sizepick.w_it[1]);
+}
+
+static void new_answer(int code) {
+    uui_dialog_close(&g_newdlg);
+    uui_dialog_set_body(&g_newdlg, 0, 0, 0);
+    if (code != NEW_CREATE) return;
+    uui_sizepick_commit(&g_sizepick);
+    int w, h;
+    uui_sizepick_size(&g_sizepick, &w, &h);
+    int bg = g_bg_seg.selected < 0 ? 0 : g_bg_seg.selected;
+    uint32_t fill = bg == 0 ? 0xFFFFFFFFu : bg == 1 ? g_colour[1] : 0x00FFFFFFu;
+    if (!new_picture(w, h, fill)) return;
+    g_last_w = w;
+    g_last_h = h;
+    g_last_bg = bg;
+    ulogf("paint: new %dx%d background %d\n", w, h, bg);
+}
+
 // --- whole-picture changes ---------------------------------------------------------
 
-static void replace_picture(struct uimg *out) {
+void paint_note(const char *text) { note(text); }
+
+void paint_replace_picture(struct uimg *out) {
     upixundo_begin(&g_undo, &g_img);
     uimg_free(&g_img);
     g_img = *out;
@@ -490,7 +572,7 @@ static void replace_picture(struct uimg *out) {
 static void rotate(int quarters) {
     struct uimg out = { 0 };
     if (uimg_rotate(&g_img, quarters, &out) != 0) { note("Not enough memory to rotate"); return; }
-    replace_picture(&out);
+    paint_replace_picture(&out);
 }
 
 static void flip(int horizontal) {
@@ -542,6 +624,8 @@ static void command(int code) {
     case CMD_ROT_180:     rotate(2); break;
     case CMD_FLIP_H:      flip(1); break;
     case CMD_FLIP_V:      flip(0); break;
+    case CMD_RESIZE:      resize_open(g_app, 0); break;
+    case CMD_CANVAS:      resize_open(g_app, 1); break;
     case CMD_SWAP: {
         uint32_t t = g_colour[0]; g_colour[0] = g_colour[1]; g_colour[1] = t;
         sync_pick();
@@ -682,9 +766,18 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
 // --- input ------------------------------------------------------------------
 
 static void on_widget(struct uapp *a, int id, int reason) {
-    (void)reason;
     int code;
     uint32_t rgb;
+    if (resize_on_widget(id, reason)) { uapp_redraw(a); return; }
+    if (id == ID_RESIZE) { resize_take(); uapp_redraw(a); return; }
+    if (id >= ID_NEW_SIZE && id < ID_NEW_SIZE + UUI_SIZEPICK_IDS) {
+        // A press moves the dialog's key focus to the field pressed.
+        if (reason == UUI_REASON_PRESS && id != ID_NEW_SIZE)
+            uui_dialog_focus(&g_newdlg, id == ID_NEW_SIZE + 1 ? &g_sizepick.w_it[1] : &g_sizepick.h_it[1]);
+        uui_sizepick_on_widget(&g_sizepick, id);
+        uapp_redraw(a);
+        return;
+    }
     if (id >= ID_PICK && id < ID_PICK + UUI_COLOURPICK_IDS) {
         if (uui_colourpick_on_widget(&g_pick, id)) g_colour[g_edit] = g_pick.rgb | 0xFF000000u;
         uapp_redraw(a);
@@ -709,6 +802,11 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_ASK:
         if ((code = uui_dialog_take_code(&g_ask)) > 0) ask_answer(code);
         break;
+    case ID_NEWDLG:
+        // A key went to a field through the dialog: the card follows it.
+        if (reason == UUI_REASON_KEY) uui_sizepick_on_widget(&g_sizepick, ID_NEW_SIZE + 1);
+        if ((code = uui_dialog_take_code(&g_newdlg)) > 0) new_answer(code);
+        break;
     default: break;
     }
     uapp_redraw(a);
@@ -718,7 +816,8 @@ static void on_widget(struct uapp *a, int id, int reason) {
 // two swatch grids. A left press reaches here too, after the widgets.
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     unsigned b = WIN_MOUSE_BUTTONS(buttons);
-    if (uui_dialog_is_open(&g_ask) || uui_menubar_is_open(&g_menu)) return;
+    if (uui_dialog_is_open(&g_ask) || uui_dialog_is_open(&g_newdlg) || resize_is_open() ||
+        uui_menubar_is_open(&g_menu)) return;
     if (b & 0x1) {
         // The two colour wells choose which one the picker edits.
         for (int i = 0; i < 2 && g_panel; i++)
@@ -770,6 +869,14 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         uapp_redraw(a);
         return;
     }
+    if (resize_key(key)) { uapp_redraw(a); return; }
+    if (uui_dialog_is_open(&g_newdlg)) {
+        uui_dialog_key(&g_newdlg, key);
+        uui_sizepick_on_widget(&g_sizepick, ID_NEW_SIZE + 1);
+        if ((code = uui_dialog_take_code(&g_newdlg)) > 0) new_answer(code);
+        uapp_redraw(a);
+        return;
+    }
     if (uui_menubar_key(&g_menu, key, &code)) {
         if (code > 0) command(code);
         uapp_redraw(a);
@@ -780,6 +887,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     case 0x0E: command(CMD_NEW); return;                             // Ctrl+N
     case 0x0F: command(CMD_OPEN); return;                            // Ctrl+O
     case 0x13: command(shift ? CMD_SAVE_AS : CMD_SAVE); return;      // Ctrl+S
+    case 0x12: command(shift ? CMD_CANVAS : CMD_RESIZE); return;     // Ctrl+R
     case 0x1A: command(CMD_UNDO); return;                            // Ctrl+Z
     case 0x19: command(CMD_REDO); return;                            // Ctrl+Y
     default: break;
@@ -846,6 +954,15 @@ int main(int argc, char **argv) {
     uui_segmented_init(&g_shape_seg, SHAPES, 2, 0);
     set_brush(g_brush);
     uui_dialog_init(&g_ask);
+    uui_dialog_init(&g_newdlg);
+    resize_init();
+    g_widgets[sizeof g_widgets / sizeof g_widgets[0] - 1] =
+        (struct uui_item){ .ops = &uui_dialog_ops, .widget = resize_dialog(), .id = ID_RESIZE, .name = "resize" };
+    struct query_display qd;
+    if (sys_query_record(QUERY_DISPLAY, 0, &qd, sizeof qd) >= (int)sizeof qd && qd.width && qd.height) {
+        g_presets[0].w = (int)qd.width;
+        g_presets[0].h = (int)qd.height;
+    }
     uui_statusbar_init(&g_sb);
     g_sb.count = 4;
     g_sb.panes[0].text = g_st_note; g_sb.panes[0].chars = 0;
@@ -859,7 +976,7 @@ int main(int argc, char **argv) {
     uui_focus_set(&g_focus, -1);
 
     if (argc >= 2 && load_picture(argv[1])) {}
-    else new_picture(NEW_W, NEW_H);
+    else new_picture(NEW_W, NEW_H, 0xFFFFFFFFu);
 
     struct uapp_desc desc = {
         .title        = "Paint",

@@ -34,5 +34,23 @@ void paint_changed(const struct upix_rect *r);   // pixels changed: redraw, titl
 void paint_colour_used(int slot);                // into Recent colours
 void paint_colour_picked(int slot);              // the picker set a colour
 void paint_tool_changed(void);
+// The picture replaced by `out` (a rotate, a resize), as ONE undo step;
+// `out` is taken over.
+void paint_replace_picture(struct uimg *out);
+void paint_note(const char *text);                // the status bar's note
+
+// --- paint_resize.c: Image > Resize, two tabs ------------------------------
+struct uapp;
+struct uui_dialog;
+void resize_init(void);
+void resize_open(struct uapp *a, int canvas_tab);   // 0 Resize picture, 1 Canvas size
+int  resize_is_open(void);
+// The dialog's widget ids are PAINT_RESIZE_ID .. +PAINT_RESIZE_IDS-1.
+#define PAINT_RESIZE_ID  60
+#define PAINT_RESIZE_IDS 12
+int  resize_on_widget(int id, int reason);           // 1 when it was the dialog's
+int  resize_key(int key);                            // 1 when the dialog took it
+int  resize_take(void);                              // the dialog's own id was named
+struct uui_dialog *resize_dialog(void);
 
 #endif
