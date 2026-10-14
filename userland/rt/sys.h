@@ -532,12 +532,20 @@ int sys_usb_isoch_open(struct usb_isoch_msg *m);
 // has the measurement. Returns how many were queued, or -1 with errno.
 int sys_usb_isoch_post(int slot, int ep, unsigned offset, unsigned len,
                        int ioc, unsigned count, unsigned stride);
+// The same with a length per descriptor, `lens[0..count)`, each at most
+// `stride` -- packets that follow a device's clock differ by a frame.
+int sys_usb_isoch_post_lens(int slot, int ep, unsigned offset, unsigned stride,
+                            int ioc, unsigned count, const uint16_t *lens);
 
 // COMPLETIONS SINCE THE LAST CALL. The kernel's completion callback
 // runs in interrupt context and cannot call into a process, so it
 // counts and bumps this holder's wakeword; this is how many landed.
 // Read-and-clear, so a missed wakeup still reports the true number.
 int sys_usb_isoch_status(int slot, int ep);
+
+// WHAT AN IN ENDPOINT RECEIVED: up to `max` (at most 64) completed TDs'
+// byte counts, oldest first, into `lens`. Returns how many, or -1.
+int sys_usb_isoch_reap(int slot, int ep, uint16_t *lens, unsigned max);
 
 // READ OR WRITE AN I/O BAR of a device you hold. Ring 3 cannot run
 // in/out, so the kernel performs the access -- validated against that

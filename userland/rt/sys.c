@@ -797,8 +797,27 @@ int sys_usb_isoch_post(int slot, int ep, unsigned offset, unsigned len,
     return (int)err(syscall1(SYS_USB_ISOCH_POST, (uint64_t)(uintptr_t)&m));
 }
 
+int sys_usb_isoch_post_lens(int slot, int ep, unsigned offset, unsigned stride,
+                            int ioc, unsigned count, const uint16_t *lens) {
+    struct usb_isoch_post_msg m;
+    __builtin_memset(&m, 0, sizeof m);
+    m.slot = (uint32_t)slot; m.ep = (uint32_t)ep;
+    m.offset = offset; m.ioc = ioc ? 1 : 0;
+    m.count = count; m.stride = stride;
+    m.lens = (uint64_t)(uintptr_t)lens;
+    return (int)err(syscall1(SYS_USB_ISOCH_POST, (uint64_t)(uintptr_t)&m));
+}
+
 int sys_usb_isoch_status(int slot, int ep) {
     return (int)err(syscall2(SYS_USB_ISOCH_STATUS, (uint64_t)slot, (uint64_t)ep));
+}
+
+int sys_usb_isoch_reap(int slot, int ep, uint16_t *lens, unsigned max) {
+    struct usb_isoch_reap_msg m;
+    __builtin_memset(&m, 0, sizeof m);
+    m.slot = (uint32_t)slot; m.ep = (uint32_t)ep; m.max = max;
+    m.lens = (uint64_t)(uintptr_t)lens;
+    return (int)err(syscall1(SYS_USB_ISOCH_REAP, (uint64_t)(uintptr_t)&m));
 }
 
 int sys_usb_control(int slot, const uint8_t setup[8], void *buf,

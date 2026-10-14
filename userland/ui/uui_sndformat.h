@@ -51,7 +51,7 @@ struct uui_sndformat {
     int nallow;
     char allow_text[SND_RATE_COUNT][16];
     char allow_name[SND_RATE_COUNT][24];    // "sndfmt_allow_44100", for the layout log
-    char now_text[160];
+    char now_text[200];
 
     struct uui_item rate_row_it[2], allow_row_it[2], bits_row_it[2];
     struct uui_item allow_grid_it[SND_RATE_COUNT];

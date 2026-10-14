@@ -144,6 +144,11 @@ request), and from `soundd`'s stall recovery.
 `usbaudio: stop after ... N dry, at ms: ...`. The ring map is what the
 mixer had written when the start arrived; a *dry* event is the endpoint
 running out before the driver refilled it, which is a gap on the wire.
+A card with a feedback endpoint adds whose clock the stream kept --
+`usbaudio: clock: the device's, +0 ppm (-354..+30387 over 804
+reading(s), 6 refused; within 500 ppm after 109 ms)`, or `the bus's`
+when every reading was refused -- and the last refused value, which
+after a rate change is often the OLD rate (`docs/decisions/drivers.md`).
 
 **A polite kill hands the card back; a crash does not.** `snddrv`
 catches `SIGTERM`, `SIGINT` and `SIGHUP` and releases the device so the

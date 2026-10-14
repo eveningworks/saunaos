@@ -39,6 +39,7 @@ SYSCALL_ROW(SYS_USB_CONTROL, "usb_control", sys_usb_control, A_HEX, A_END, A_END
 SYSCALL_ROW(SYS_USB_ISOCH_OPEN, "usb_isoch_open", sys_usb_isoch_open, A_HEX, A_END, A_END, R_DEC)
 SYSCALL_ROW(SYS_USB_ISOCH_POST, "usb_isoch_post", sys_usb_isoch_post, A_HEX, A_END, A_END, R_DEC)
 SYSCALL_ROW(SYS_USB_ISOCH_STATUS, "usb_isoch_status", sys_usb_isoch_status, A_INT, A_INT, A_END, R_DEC)
+SYSCALL_ROW(SYS_USB_ISOCH_REAP, "usb_isoch_reap", sys_usb_isoch_reap, A_HEX, A_END, A_END, R_DEC)
 SYSCALL_ROW(SYS_SND_RING_MAP, "snd_ring_map", sys_snd_ring_map, A_HEX, A_END, A_END, R_DEC)
 SYSCALL_ROW(SYS_SETPRIORITY, "setpriority", sys_setpriority, A_INT, A_INT, A_INT, R_DEC)
 SYSCALL_ROW(SYS_GETPRIORITY, "getpriority", sys_getpriority, A_INT, A_INT, A_END, R_DEC)

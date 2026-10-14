@@ -105,7 +105,8 @@ int xhci_add_interrupt_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
 // bytes it carries EVERY service interval, not a ceiling.
 //
 // `done` is called once per completed TD group, FROM THE EVENT DRAIN
-// (so from interrupt context), with the bytes the controller reported.
+// (so from interrupt context), with the bytes the controller reported
+// for the TD that carried IOC -- on IN, what was received.
 // A driver's callback may call xhci_isoch_post() and nothing else here.
 // Returns 0, or a negative completion code.
 // --- bulk endpoints ---------------------------------------------------
@@ -134,6 +135,13 @@ int xhci_bulk_halted(uint8_t slot, uint8_t ep_addr);
 int xhci_add_isoch_out(uint8_t slot, uint8_t ep_addr, uint16_t mps,
                        uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
                        void *ctx);
+// ISOCHRONOUS IN, the same shape: `done` gets the bytes RECEIVED, 0 for
+// a missed or failed interval. An IN ring with nothing posted is idle,
+// so a driver that only wants a reading now and then (a UAC feedback
+// endpoint) posts one TD when it wants one.
+int xhci_add_isoch_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+                      uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
+                      void *ctx);
 
 // Queues ONE isochronous TD -- one packet, one service interval -- from
 // `buf_phys`. `ioc` asks for a completion event; a group of TDs

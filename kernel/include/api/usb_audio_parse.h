@@ -88,6 +88,12 @@ struct usb_audio_format {
     // UAC1: it lists more than one rate, so the endpoint's sampling
     // frequency control has to be SET to pick one.
     uint8_t  rate_ctl;
+    // THE FEEDBACK ENDPOINT, 0 for none: an ASYNCHRONOUS OUT endpoint's
+    // partner, an isochronous IN saying how fast the device's own clock
+    // eats samples (usb_audio_fb_feed()). UAC1 names it in the data
+    // endpoint's bSynchAddress; UAC2 gives it the usage type "feedback".
+    uint8_t  fb_ep, fb_interval;
+    uint16_t fb_mps;
 };
 
 struct usb_audio_stream {
@@ -187,11 +193,65 @@ int usb_audio_pick_format(const struct usb_audio_stream *s, uint32_t clock_rates
 // THE FRAMES IN EACH PACKET. 44.1 kHz is 44.1 frames a millisecond, so
 // packets carry 44 or 45 and an accumulator keeps the total exact --
 // what Linux's snd-usb-audio and every UAC host do. Start with zero.
+//
+// `fb` FOLLOWS THE DEVICE: once usb_audio_pace_follow() sets it, the
+// packets carry the device's measured frames-per-packet instead of the
+// nominal rate's -- on an asynchronous sink the nominal rate is the
+// BUS's clock, and the two drift apart by the crystal's error.
 struct usb_audio_pace {
     uint32_t rate, us;
     uint32_t acc;          // millionths of a frame carried over
+    uint32_t fb;           // frames per packet, 16.16; 0 = nominal
+    uint32_t fb_acc;       // 1/65536ths of a frame carried over
 };
 uint32_t usb_audio_pace_next(struct usb_audio_pace *p);
+// Follow `fb16` (a usb_audio_fb's `value`) from the next packet on,
+// keeping the fraction already carried. 0 returns to nominal.
+void usb_audio_pace_follow(struct usb_audio_pace *p, uint32_t fb16);
+
+// THE DEVICE'S CLOCK, READ OFF ITS FEEDBACK ENDPOINT.
+//
+// The value is frames per BUS interval -- a 1 ms frame at full speed,
+// a 125 us microframe at high speed -- in 10.14 (3 bytes, full speed)
+// or 16.16 (4 bytes, high speed), as the spec says. Devices get this
+// wrong often enough that Linux GUESSES (snd_usb_handle_sync_urb()):
+// the first value is shifted until it lands near nominal and that shift
+// is LOCKED, and a later value out of range unlocks it to guess again.
+// This does the same, trying the spec's shift first.
+//
+// A VALUE IS ACCEPTED WITHIN 1/1024 OF NOMINAL (~0.1%), and no bigger
+// than the packet slot holds: ten times any crystal's error, and narrow
+// on purpose. After a rate change the G6 reports the OLD rate (8.8% off
+// between 44.1 and 48 kHz) -- for 100 ms, or for the whole stream --
+// and on the way back its servo slews percent-wide for seconds;
+// following that slew was MEASURED to click where nominal did not
+// (docs/decisions/drivers.md). Refused, the stream plays at nominal.
+struct usb_audio_fb {
+    uint32_t nominal;      // frames per packet, 16.16, at the bus's clock
+    uint32_t max;          // the most a packet may carry, 16.16
+    uint32_t per_bus;      // packet interval / bus interval
+    int8_t   shift;        // the locked correction, raw -> 16.16
+    uint8_t  locked;
+    uint32_t value;        // the last accepted, frames per packet, 16.16; 0 none
+    // WHAT THE PACER FOLLOWS: `value`, or 0 -- the exact nominal -- when
+    // the reading is nominal to within the device's own resolution. 16.16
+    // cannot hold 44.1 kHz's 5.5125 frames a microframe, and following
+    // the rounded 0x5.8333 would shed a frame every 41 s against a
+    // device whose clock is exact.
+    uint32_t follow;
+    uint32_t rate, us;     // nominal, for that comparison
+    uint32_t accepted, rejected;
+    uint32_t refused_raw;  // the last refused packet, as the device sent it
+};
+// `us` is the OUT endpoint's packet interval, `bus_us` the bus's (1000
+// full speed, 125 high), `max_frames` the most frames a packet slot holds.
+void usb_audio_fb_init(struct usb_audio_fb *f, uint32_t rate, uint32_t us,
+                       uint32_t bus_us, uint32_t max_frames);
+// One received feedback packet. 1 when it was accepted (`value` is new),
+// 0 when it was empty, short or out of range.
+int usb_audio_fb_feed(struct usb_audio_fb *f, const uint8_t *buf, uint32_t len);
+// `value` against `nominal`, in parts per million; 0 with no value.
+int32_t usb_audio_fb_ppm(const struct usb_audio_fb *f);
 // The most frames any one packet can carry at that rate and interval.
 uint32_t usb_audio_pace_max(uint32_t rate, uint32_t us);
 

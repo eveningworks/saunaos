@@ -374,6 +374,7 @@ int sys_usb_control(struct syscall_ctx *c);
 int sys_usb_isoch_open(struct syscall_ctx *c);
 int sys_usb_isoch_post(struct syscall_ctx *c);
 int sys_usb_isoch_status(struct syscall_ctx *c);    // beside it
+int sys_usb_isoch_reap(struct syscall_ctx *c);
 int sys_snd_register(struct syscall_ctx *c);  // kernel/drivers/sound/sound_proc.c
 int sys_snd_period(struct syscall_ctx *c);
 int sys_snd_ring_map(struct syscall_ctx *c);

@@ -84,6 +84,10 @@ int main(int argc, char **argv) {
                                  (unsigned)(r / 1000), (unsigned)(r % 1000 / 100));
             else printf("             plays:  %u-bit, %u kHz\n", (unsigned)q.bits, (unsigned)(r / 1000));
         }
+        // Whose clock the stream keeps: a USB DAC's own, through its
+        // feedback endpoint, or (unsaid) the bus's or the card's DMA.
+        if (q.clock)
+            printf("             clock:  the card's own, %+d ppm\n", (int)q.clock_ppm);
     }
     if (!n) {
         printf("no sound device\n");

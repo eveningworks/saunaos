@@ -461,6 +461,8 @@ int main(int argc, char **argv) {
                 sys_snd_period((uint32_t)pos);
                 bounce_period((uint32_t)pos);
                 g_sh->drv.running = 1;
+                g_sh->drv.clock_ppm = g_card.clock_ppm;
+                g_sh->drv.clock = g_card.clock;
             }
         }
 

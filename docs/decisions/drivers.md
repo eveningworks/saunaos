@@ -2114,16 +2114,9 @@ walking to the output terminal whose type is not USB streaming and
 taking its `bSourceID`. The same walk is correct for UAC1, where it
 happens to pick what "the first one" would have.
 
-**What is NOT built: the feedback endpoint.** The G6's OUT endpoint is
-ASYNCHRONOUS and carries a feedback IN endpoint beside it, whose 16.16
-value says how many samples per microframe the device's own clock
-actually wants. Nothing here reads it — `xhci.c` has no isochronous IN —
-so the host sends the nominal six frames every 125 us and the device's
-buffer walks against its crystal at roughly 50 ppm, which is a click
-every few minutes once its ~10 ms of lock delay is used up. Staged
-deliberately: it is the difference between hearing the device and
-hearing it indefinitely, the first is what proves every other piece, and
-`docs/roadmap.md` carries the second.
+**The feedback endpoint is read, and followed only when it agrees with
+nominal to 0.1%** -- the section below, "An asynchronous DAC's feedback
+is followed within 0.1%, not Linux's -12.5..+50%".
 
 **Why the sample width is converted rather than negotiated.** (The ring has been s32 since 2026-10-06 -- "The sound ring is s32, and a 16-bit card narrows in its driver" below.) The G6
 offers 24-bit and 32-bit and no 16-bit at all, so "refuse anything that
@@ -2133,6 +2126,55 @@ the ABI is a real project (rate and format negotiation through the ring,
 4-byte subslot is one function. The trap that earns its comment is the
 direction: into the BOTTOM of the subslot is a 256x attenuation, which
 sounds like silence rather than like a bug.
+
+## An asynchronous DAC's feedback is followed within 0.1%, not Linux's -12.5..+50%
+
+An ASYNCHRONOUS isochronous OUT endpoint runs off the DEVICE's crystal,
+and its feedback IN endpoint says how many frames per bus interval that
+crystal actually eats: 10.14 in 3 bytes at full speed, 16.16 in 4 at
+high speed. Both USB audio drivers read it (`usb_audio_fb_feed()`, shared
+by `sound_usb.c` and `/lib/snd/usbaudio.so`) and the packet pacer
+follows it (`usb_audio_pace_follow()`). The format is guessed and locked
+the way Linux's `snd_usb_handle_sync_urb()` does it, because devices get
+it wrong; the spec's shift is tried first.
+
+**THE WINDOW IS THE DECISION.** Linux accepts a reading from 12.5% under
+nominal up to the packet's maximum. Here it is 1/1024 of nominal, and
+that was MEASURED rather than chosen, on a Sound BlasterX G6 on the bare
+ASUS with its output looped into the dev host's line-in:
+
+- In steady state the G6 reports EXACTLY nominal at both speeds
+  (`0x30.0000`, `0x6.0000`), and so does Linux's `Momentary freq` for
+  the same device -- its clock follows the bus, and there is no drift
+  to correct on it.
+- After a 48 -> 44.1 kHz switch it reports the OLD rate for ~100 ms.
+  After 44.1 -> 48 it either slews back over 0.5-4 s or reports
+  `0x5.8333` -- 44.1 kHz -- for the WHOLE stream, while its DAC really
+  runs at 48 (the tone comes back right). Linux's -12.5% would accept
+  that and send 8.8% too few frames.
+- Following the slew inside a 3% window put 8-10 phase jumps into the
+  first 3.4 s of three slewing streams out of five; never following, 0
+  in five; the 0.1% window, 0 in five, the slewing one included.
+
+0.1% is ten times any crystal's error, so a device that really drifts is
+still followed. A reading refused leaves the stream at the exact nominal
+pace, which is what played before feedback existed.
+
+**A reading within one LSB of nominal IS nominal.** 16.16 cannot hold
+44.1 kHz's 5.5125 frames a microframe; `0x5.8333` is 0.55 ppm slow, and
+following it literally sheds a frame every 41 s against a device that is
+exact. So `follow` is 0 -- the pacer's exact millionths path -- for
+either representable value bracketing nominal.
+
+**What is not proved here.** Correcting a REAL drift: the only
+asynchronous DAC on the bench never reports one, so following a
+non-nominal value is KTESTed with synthetic readings only. A device that
+steers its FIFO harder than 0.1% would be refused, and play as before.
+
+**Why ring 3 drives the IN endpoint itself** rather than the kernel
+latching the value: it is the shape a USB microphone needs, and usbfs's.
+`SYS_USB_ISOCH_REAP` returns each completed TD's received length, as an
+iso URB's `actual_length` per frame.
 
 ## A per-chip vendor driver, in a kernel whose rule is "a class, not a device"
 
@@ -3135,9 +3177,9 @@ no daemon the playing program's own sink applies the same rule
 **44.1 kHz on USB is fractional packets.** 44.1 frames a millisecond, or
 5.5125 a high-speed microframe, so packets carry 44/45 (5/6) frames from
 an accumulator, as every UAC host does; the in-kernel driver posts each
-at its own length. The ring-3 driver posts a group at one length per
-syscall, so it offers only rates with a whole number of frames per
-packet (48/96/192 kHz) until that syscall takes lengths.
+at its own length. The ring-3 driver posts a group per syscall with a
+length for each (since 2026-10-14; it offered only whole-frame rates
+before).
 
 **The library's reference rate stays 48 kHz.** Clips, `usnd_push()` and
 every position and duration in usnd's API are in 48 kHz frames, so DOOM

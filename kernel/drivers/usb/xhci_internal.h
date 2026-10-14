@@ -337,9 +337,9 @@ struct xhci_ep {
     uint64_t buf_of_trb_phys[TRBS_PER_RING];  // which buffer a TRB carried
     uint32_t bulk_len_of_trb[TRBS_PER_RING];  // ...and how much was asked for
 
-    // ISOCHRONOUS OUT. Nothing above is used by one: the driver owns
-    // the buffer (there is no `buf` to allocate) and takes its
-    // completions through the callback rather than by polling ready[].
+    // ISOCHRONOUS, either direction. Nothing above is used by one: the
+    // driver owns the buffer (there is no `buf` to allocate) and takes
+    // its completions through the callback rather than by polling ready[].
     uint8_t  is_iso;
     void   (*iso_done)(void *ctx, uint32_t bytes);
     void    *iso_ctx;
@@ -349,6 +349,9 @@ struct xhci_ep {
     // own every ISO_FORCE_IOC (see xhci_isoch_post) and must not report
     // those, or a driver counting completions per group miscounts.
     uint8_t  iso_want_ioc[TRBS_PER_RING];
+    // The length each TRB was posted with: the event's residual is
+    // against THAT, which on an IN endpoint is what was received.
+    uint16_t iso_len[TRBS_PER_RING];
     uint16_t iso_since_ioc;
 };
 

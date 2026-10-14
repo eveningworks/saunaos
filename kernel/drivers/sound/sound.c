@@ -642,6 +642,7 @@ static int sound_q_fill(int index, void *out) {
     q->bits = d->bits;
     q->rate = dev_rate(d);
     k_strlcpy(q->device_id, d->device_id ? d->device_id : "", sizeof q->device_id);
+    if (d->clock) q->clock = (uint32_t)d->clock(d, &q->clock_ppm);
     return 1;
 }
 

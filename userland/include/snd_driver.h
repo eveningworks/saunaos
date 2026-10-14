@@ -33,7 +33,7 @@
 // Bumped when anything below changes shape. The host refuses a plugin
 // that does not match rather than calling through a moved slot -- the
 // abi/toyabi.h rule, for the same reason.
-#define SND_DRIVER_ABI 4u
+#define SND_DRIVER_ABI 5u
 
 // The symbol every plugin exports, by this exact name.
 #define SND_DRIVER_SYMBOL "snd_driver"
@@ -100,6 +100,11 @@ struct snd_dev {
     // The bus device, as userland/lib/udevice.c spells it. The host fills
     // it for a PCI card; a driver that found its own device sets it.
     char     device_id[24];
+    // WHOSE CLOCK IT PLAYS AT, kept current by period(): 1 when the
+    // card's own (a USB feedback endpoint), with its offset from
+    // nominal. The host passes both on to the kernel, for lssound.
+    uint32_t clock;
+    int32_t  clock_ppm;
 };
 
 // A driver answers this after an interrupt.

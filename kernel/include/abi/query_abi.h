@@ -1071,6 +1071,10 @@ struct query_sound {
     // The bus device it is, as userland/lib/udevice.c names devices
     // ("pci:00:1b.0", "usb:2:041e:3256"); "" when its driver does not say.
     char     device_id[24];
+    // 1 when the stream follows the CARD's clock (a USB DAC's feedback
+    // endpoint), `clock_ppm` its offset from nominal; 0 otherwise.
+    uint32_t clock;
+    int32_t  clock_ppm;
 };
 
 // QUERY_MODULE: one record per loaded module (kernel/core/module.c).

@@ -2940,7 +2940,7 @@ quality levels, soxr, PipeWire's `resample.quality`) makes that clean;
 it belongs in the same place, so every codec and both sinks get it, and
 the bypass for an already-matching rate stays.
 
-### 44.1 kHz through the ring-3 USB driver -- `SYS_USB_ISOCH_POST` posts a group at one length, and 44.1 needs 5- and 6-frame packets
+### 44.1 kHz through the ring-3 USB driver
 
 Put on the roadmap 2026-10-06 (not scheduled). `userland/snd/usbaudio.c`
 posts each completion group in one `SYS_USB_ISOCH_POST`, which takes a
@@ -2952,6 +2952,11 @@ whole number of frames per packet. The fix is a lengths array (or a
 pacing rule the kernel applies) in the syscall. Test it on BARE METAL
 (`audio_loopback_test.py --rate --host`): QEMU's USB passthrough breaks
 packets whose length varies, under KVM too (docs/testing.md).
+
+DONE 2026-10-14: `struct usb_isoch_post_msg` takes a `lens` array, and
+the plugin paces with the shared `usb_audio_pace` the kernel's driver
+uses. `--rate --ring3 --host <asus-ip>`: 4/4, 1187.014 Hz, 0 phase
+jumps in 398 windows.
 
 ### Dynamic linking / shared libraries
 

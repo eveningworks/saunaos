@@ -11,9 +11,9 @@
 //
 // A PACKET IS THE RATE'S SHARE OF ONE SERVICE INTERVAL, and at 44.1 kHz
 // that share is not whole: packets carry 44 or 45 frames a millisecond
-// (usb_audio_pace_next()). The endpoint is driven off the bus's own SOF
-// clock; an asynchronous device's feedback endpoint is not read, so its
-// clock and ours may drift apart by its crystal's error.
+// (usb_audio_pace_next()). An ASYNCHRONOUS endpoint's feedback endpoint
+// is read and the pace follows the device's clock -- within 0.1% of
+// nominal only, which docs/decisions/drivers.md has the measurement for.
 //
 // THE SAMPLES ARE COPIED, unlike the AC'97's descriptor list which
 // points straight into the core's ring. A packet divides neither the
@@ -35,6 +35,7 @@
 #include "ktest.h"
 #include "barrier.h"   // cpu_relax() in the drain poll
 #include "driver.h" // driver_bound() -- `lsdrv`
+#include "ktime.h"  // when the feedback settled, for the stop line
 
 DRIVER_DECLARE("usb-audio", "sound", "USB audio class, UAC1 and UAC2");
 
@@ -52,6 +53,10 @@ DRIVER_DECLARE("usb-audio", "sound", "USB audio class, UAC1 and UAC2");
 // been -- and on a 125 us endpoint it stays 16 ms instead of becoming 2.
 #define AUDIO_INFLIGHT_US 16000
 #define AUDIO_PACKETS_MAX 128
+// The feedback TD's buffer, at the end of the packet frame.
+#define FB_OFF   (4096u - 64u)
+#define FB_EVERY 8
+#define FB_SETTLED_PPM 500
 
 struct audio_dev {
     uint8_t  in_use;
@@ -92,6 +97,22 @@ struct audio_dev {
     // volatile -- audio_stop() waits on it, and the wait is what keeps
     // a dropped alternate from stalling everything still in flight.
     volatile uint8_t inflight;
+
+    // THE DEVICE'S CLOCK, for an ASYNCHRONOUS endpoint: its feedback
+    // endpoint, read one TD at a time into the packet frame's tail and
+    // asked again every FB_EVERY completions, from the OUT completion --
+    // so it adds a reading, not an interrupt rate. `pace` follows it.
+    uint8_t  fb_ep;          // configured at bind; 0 = the bus's clock
+    uint16_t fb_mps;
+    uint32_t bus_us;         // 1000 at full speed, 125 above
+    uint8_t  fb_countdown;
+    volatile uint8_t fb_pending;
+    struct usb_audio_fb fb;
+    int32_t  fb_ppm_lo, fb_ppm_hi;
+    // SETTLING: the last reading refused or beyond FB_SETTLED_PPM, in ms
+    // from the start. A rate change sends the G6's servo seconds wide.
+    uint64_t t0_ns;
+    uint32_t fb_unsettled_ms;
 
     const uint8_t *ring;     // the sound core's, read-only to us
     uint32_t copy_pos;       // ring offset of the next packet to copy
@@ -233,6 +254,11 @@ static void audio_packet_done(void *ctx, uint32_t bytes) {
 
     a->inflight = (a->inflight > a->group) ? (uint8_t)(a->inflight - a->group) : 0;
     if (!a->running) return;
+    if (a->fb_ep && !a->fb_pending && !a->fb_countdown--) {
+        a->fb_countdown = FB_EVERY;
+        if (xhci_isoch_post(a->slot, a->fb_ep, a->pkt_phys + FB_OFF, a->fb_mps, 1) == 0)
+            a->fb_pending = 1;
+    }
     for (uint8_t k = 0; k < a->group; k++) {
         uint8_t slot = a->next_slot;
         a->next_slot = (uint8_t)((slot + 1) % a->packets);
@@ -242,6 +268,28 @@ static void audio_packet_done(void *ctx, uint32_t bytes) {
                             a->slot_wire[slot], k + 1 == a->group) == 0)
             a->inflight++;
     }
+}
+
+// A feedback reading landed (or its interval was missed: 0 bytes).
+static void audio_fb_done(void *ctx, uint32_t bytes) {
+    struct audio_dev *a = ctx;
+    a->fb_pending = 0;
+    if (!a->in_use || !a->running) return;
+    uint32_t refused = a->fb.rejected;
+    int ok = usb_audio_fb_feed(&a->fb, a->pkt + FB_OFF, bytes);
+    int32_t ppm = usb_audio_fb_ppm(&a->fb);
+    if (a->fb.rejected != refused || (ok && (ppm > FB_SETTLED_PPM || ppm < -FB_SETTLED_PPM)))
+        a->fb_unsettled_ms = (uint32_t)((ktime_now_ns() - a->t0_ns) / 1000000u);
+    if (!ok) return;
+    usb_audio_pace_follow(&a->pace, a->fb.follow);
+    if (a->fb.accepted == 1 || ppm < a->fb_ppm_lo) a->fb_ppm_lo = ppm;
+    if (a->fb.accepted == 1 || ppm > a->fb_ppm_hi) a->fb_ppm_hi = ppm;
+}
+
+static int audio_clock(const struct sound_device *d, int32_t *ppm) {
+    const struct audio_dev *a = d->priv;
+    *ppm = usb_audio_fb_ppm(&a->fb);
+    return a->fb_ep && a->fb.value;
 }
 
 // A class request to an ENTITY on the AudioControl interface -- a
@@ -344,9 +392,13 @@ static int set_rate(struct audio_dev *a) {
 // one 4 KiB frame holds), whole groups only.
 static void plan_packets(struct audio_dev *a) {
     uint32_t frames = usb_audio_pace_max(a->rate, a->us);
-    a->stride = (uint16_t)(frames * SND_CHANNELS * cur_fmt(a)->subslot);
+    // FOLLOWING THE DEVICE CAN ASK FOR ONE FRAME MORE, if the alternate
+    // holds it -- the feedback is refused above what the slot holds.
+    uint32_t per = SND_CHANNELS * cur_fmt(a)->subslot;
+    if (a->fb_ep && (frames + 1) * per <= cur_fmt(a)->mps) frames++;
+    a->stride = (uint16_t)(frames * per);
     uint32_t want = AUDIO_INFLIGHT_US / a->us;
-    uint32_t fits = 4096 / a->stride;
+    uint32_t fits = FB_OFF / a->stride;
     if (want > fits) want = fits;
     if (want > AUDIO_PACKETS_MAX) want = AUDIO_PACKETS_MAX;
     want -= want % a->group;
@@ -355,6 +407,10 @@ static void plan_packets(struct audio_dev *a) {
     a->pace.rate = a->rate;
     a->pace.us = a->us;
     a->pace.acc = 0;
+    a->pace.fb = 0;
+    a->pace.fb_acc = 0;
+    usb_audio_fb_init(&a->fb, a->rate, a->us, a->bus_us, frames);
+    a->fb_countdown = 0;
 }
 
 static int audio_format(const struct sound_device *d, uint32_t rate, uint32_t bits) {
@@ -404,6 +460,8 @@ static int audio_start(const struct sound_device *d) {
     a->reported = 0;
     a->next_slot = 0;
     a->inflight = 0;
+    a->t0_ns = ktime_now_ns();
+    a->fb_unsettled_ms = 0;
     a->running = 1;
 
     // Every packet posted before the first doorbell matters: an
@@ -451,13 +509,27 @@ static void audio_stop(const struct sound_device *d) {
     // is the driver's usual one, for a controller that has stopped
     // completing anything at all.
     uint32_t spins = 0;
-    while (a->inflight && spins++ < XHCI_POLL_BACKSTOP) {
+    while ((a->inflight || a->fb_pending) && spins++ < XHCI_POLL_BACKSTOP) {
         xhci_service();
         cpu_relax();
     }
 
     // Back to the zero-bandwidth alternate -- see audio_start().
     set_interface(a->slot, a->s.ifnum, 0);
+    if (a->fb.accepted)
+        klog_printf("usb-audio: stop -- clock: the device's, %+d ppm "
+                    "(%+d..%+d over %u reading(s), %u refused; within %d ppm "
+                    "after %u ms)\n",
+                    (int)usb_audio_fb_ppm(&a->fb), (int)a->fb_ppm_lo, (int)a->fb_ppm_hi,
+                    (unsigned)a->fb.accepted, (unsigned)a->fb.rejected, FB_SETTLED_PPM,
+                    (unsigned)a->fb_unsettled_ms);
+    else
+        klog_printf("usb-audio: stop -- clock: the bus's (%s)\n",
+                    a->fb_ep ? (a->fb.rejected ? "feedback refused" : "no feedback came")
+                             : "no feedback endpoint");
+    if (a->fb.rejected)
+        klog_printf("usb-audio: the last refused reading was %#x, nominal %#x a packet\n",
+                    (unsigned)a->fb.refused_raw, (unsigned)a->fb.nominal);
 }
 
 // --- volume -----------------------------------------------------------
@@ -635,6 +707,8 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
     a->slot = info->slot;
     a->s = s;
     a->us = us;
+    a->bus_us = (info->speed == XHCI_SPEED_HIGH || info->speed == XHCI_SPEED_SUPER)
+                ? 125u : 1000u;
     a->rate = SND_RATE;
     for (int f = 0; f < s.nformats; f++)
         if (s.formats[f].alt == s.alt) a->fmt = f;
@@ -672,6 +746,18 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
                     info->slot, s.ep);
         pmm_free_contiguous(a->pkt_phys, 1);
         return 0;
+    }
+    // THE FEEDBACK ENDPOINT, when the stream is asynchronous. Every
+    // format on this endpoint names the same one on the G6; one that
+    // names none plays at the bus's clock, as before.
+    const struct usb_audio_format *df = &s.formats[a->fmt];
+    if (df->fb_ep && xhci_add_isoch_in(info->slot, df->fb_ep, df->fb_mps,
+                                       df->fb_interval, audio_fb_done, a) == 0) {
+        a->fb_ep = df->fb_ep;
+        a->fb_mps = df->fb_mps;
+    } else if (df->fb_ep) {
+        klog_printf("usb: slot %u: feedback endpoint 0x%x not configured -- "
+                    "playing at the bus's clock\n", info->slot, df->fb_ep);
     }
 
     a->in_use = 1;   // published before any control transfer can be answered
@@ -737,6 +823,7 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
     a->dev.stop       = audio_stop;
     a->dev.set_volume = audio_set_volume;
     a->dev.set_format = audio_format;
+    a->dev.clock      = audio_clock;
     // WHAT CAN BE ASKED FOR: the playable alternates' widths, and their
     // rates -- a UAC2 clock's for all of them. A pairing no alternate
     // holds (a rate too busy for the 16-bit one's packet) is refused by
@@ -754,16 +841,20 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
         return 0;
     }
     usb_mark_bound(info, "usb-audio");
+    char fbs[24] = ", no feedback";
+    if (a->fb_ep) k_snprintf(fbs, sizeof fbs, ", feedback ep 0x%x", a->fb_ep);
     klog_printf("usb: slot %u: bound as usb-audio, UAC%u, if %u alt %u, "
-                "ep 0x%x %u-bit\n", info->slot, s.uac2 ? 2 : 1,
-                s.ifnum, s.alt, s.ep, s.bits);
+                "ep 0x%x %u-bit%s\n", info->slot, s.uac2 ? 2 : 1,
+                s.ifnum, s.alt, s.ep, s.bits, fbs);
     a->pace.rate = SND_RATE;   // plan the default, for the log's numbers
     plan_packets(a);
+    uint32_t nominal = usb_audio_pace_max(SND_RATE, us);
     klog_printf("usb-audio: %u frame(s) every %u us = %u B/interval at %u Hz "
-                "(endpoint holds %u), %u packets, IOC every %u, %u format(s), "
-                "rates %#x%s\n",
-                usb_audio_pace_max(SND_RATE, us), us, a->stride, (unsigned)SND_RATE,
-                mps, a->packets, a->group, s.nformats, a->dev.rates,
+                "(endpoint holds %u, slots %u B), %u packets, IOC every %u, "
+                "%u format(s), rates %#x%s\n",
+                nominal, us, nominal * SND_CHANNELS * cur_fmt(a)->subslot,
+                (unsigned)SND_RATE, mps, a->stride, a->packets, a->group, s.nformats,
+                a->dev.rates,
                 a->has_volume ? ", volume" : "");
     return 1;
 }
@@ -1074,6 +1165,153 @@ KTEST("usb-audio", "44.1 kHz packets alternate 44 and 45 frames and sum exactly"
     struct usb_audio_pace q = { 48000, 125, 0 };          // high speed: exactly 6
     for (int i = 0; i < 16; i++) KTEST_ASSERT_EQ(usb_audio_pace_next(&q), 6u);
     KTEST_ASSERT_EQ(usb_audio_pace_max(48000, 125), 6u);
+}
+
+// THE SAME G6 AT FULL SPEED, where it is a UAC1 device -- CAPTURED from
+// the dev host's sysfs (2026-10-14), not reconstructed. Its OUT
+// endpoint is asynchronous and names 0x81 in bSynchAddress: 3 bytes of
+// 10.14 feedback, refreshed every 2^5 ms.
+static const uint8_t G6_FS_AUDIO_CFG[] = {
+    0x09, 0x02, 0x78, 0x01, 0x05, 0x01, 0x00, 0x80, 0xfa, 0x09, 0x04, 0x00,
+    0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0x0a, 0x24, 0x01, 0x00, 0x01, 0xc3,
+    0x00, 0x02, 0x01, 0x02, 0x0c, 0x24, 0x02, 0x21, 0x01, 0x01, 0x00, 0x02,
+    0x03, 0x00, 0x00, 0x00, 0x0c, 0x24, 0x02, 0x23, 0x03, 0x06, 0x00, 0x02,
+    0x03, 0x00, 0x00, 0x06, 0x0c, 0x24, 0x02, 0x24, 0x01, 0x02, 0x00, 0x02,
+    0x03, 0x00, 0x00, 0x07, 0x0c, 0x24, 0x02, 0x25, 0x05, 0x06, 0x00, 0x02,
+    0x03, 0x00, 0x00, 0x08, 0x0c, 0x24, 0x02, 0x27, 0x02, 0x06, 0x00, 0x02,
+    0x03, 0x00, 0x00, 0x05, 0x09, 0x24, 0x03, 0x2a, 0x01, 0x03, 0x00, 0x01,
+    0x04, 0x09, 0x24, 0x03, 0x2b, 0x01, 0x01, 0x00, 0x0e, 0x00, 0x0a, 0x24,
+    0x06, 0x01, 0x0d, 0x01, 0x01, 0x02, 0x02, 0x00, 0x0a, 0x24, 0x06, 0x03,
+    0x23, 0x01, 0x01, 0x02, 0x02, 0x00, 0x0a, 0x24, 0x06, 0x04, 0x24, 0x01,
+    0x01, 0x02, 0x02, 0x00, 0x0a, 0x24, 0x06, 0x05, 0x25, 0x01, 0x01, 0x02,
+    0x02, 0x00, 0x0a, 0x24, 0x06, 0x06, 0x27, 0x01, 0x01, 0x02, 0x02, 0x00,
+    0x0a, 0x24, 0x05, 0x0e, 0x04, 0x03, 0x04, 0x05, 0x06, 0x00, 0x0a, 0x24,
+    0x06, 0x09, 0x23, 0x01, 0x01, 0x02, 0x02, 0x00, 0x0a, 0x24, 0x06, 0x0a,
+    0x24, 0x01, 0x01, 0x02, 0x02, 0x00, 0x0a, 0x24, 0x06, 0x0c, 0x25, 0x01,
+    0x01, 0x02, 0x02, 0x00, 0x11, 0x24, 0x04, 0x0d, 0x04, 0x21, 0x09, 0x0a,
+    0x0c, 0x02, 0x03, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x09, 0x04, 0x01,
+    0x00, 0x00, 0x01, 0x02, 0x00, 0x00, 0x09, 0x04, 0x01, 0x01, 0x02, 0x01,
+    0x02, 0x00, 0x00, 0x07, 0x24, 0x01, 0x21, 0x01, 0x01, 0x00, 0x0b, 0x24,
+    0x02, 0x01, 0x02, 0x03, 0x18, 0x01, 0x80, 0xbb, 0x00, 0x09, 0x05, 0x01,
+    0x05, 0x26, 0x01, 0x01, 0x00, 0x81, 0x07, 0x25, 0x01, 0x00, 0x00, 0x00,
+    0x00, 0x09, 0x05, 0x81, 0x01, 0x03, 0x00, 0x01, 0x05, 0x00, 0x09, 0x04,
+    0x02, 0x00, 0x00, 0x01, 0x02, 0x00, 0x00, 0x09, 0x04, 0x02, 0x01, 0x01,
+    0x01, 0x02, 0x00, 0x00, 0x07, 0x24, 0x01, 0x2b, 0x01, 0x01, 0x00, 0x0b,
+    0x24, 0x02, 0x01, 0x02, 0x03, 0x18, 0x01, 0x80, 0xbb, 0x00, 0x09, 0x05,
+    0x82, 0x05, 0x26, 0x01, 0x01, 0x00, 0x00, 0x07, 0x25, 0x01, 0x00, 0x00,
+    0x00, 0x00, 0x09, 0x04, 0x03, 0x00, 0x01, 0x03, 0x00, 0x00, 0x00, 0x09,
+    0x21, 0x00, 0x01, 0x00, 0x01, 0x22, 0x44, 0x00, 0x07, 0x05, 0x83, 0x03,
+    0x10, 0x00, 0x02, 0x09, 0x04, 0x04, 0x00, 0x01, 0x03, 0x00, 0x00, 0x00,
+    0x09, 0x21, 0x00, 0x01, 0x00, 0x01, 0x22, 0x1d, 0x00, 0x07, 0x05, 0x85,
+    0x03, 0x40, 0x00, 0x02,
+};
+
+KTEST("usb-audio", "each G6 binding finds its feedback endpoint, and QEMU's has none") {
+    struct usb_audio_stream s;
+    KTEST_ASSERT(usb_audio_parse(G6_AUDIO_CFG, sizeof G6_AUDIO_CFG, &s, 0));
+    for (int i = 0; i < s.nformats; i++) {          // UAC2: the usage type says so
+        KTEST_ASSERT_EQ(s.formats[i].fb_ep, 0x81);
+        KTEST_ASSERT_EQ(s.formats[i].fb_mps, 4);
+    }
+    KTEST_ASSERT(usb_audio_parse(G6_FS_AUDIO_CFG, sizeof G6_FS_AUDIO_CFG, &s, 0));
+    KTEST_ASSERT(!s.uac2);
+    KTEST_ASSERT_EQ(s.ep, 0x01);
+    KTEST_ASSERT_EQ(s.formats[0].fb_ep, 0x81);      // UAC1: bSynchAddress says so
+    KTEST_ASSERT_EQ(s.formats[0].fb_mps, 3);
+    KTEST_ASSERT(usb_audio_parse(QEMU_AUDIO_CFG, sizeof QEMU_AUDIO_CFG, &s, 0));
+    KTEST_ASSERT_EQ(s.formats[0].fb_ep, 0);         // synchronous: nothing to follow
+}
+
+KTEST("usb-audio", "feedback is read in either format and locked, and nonsense is refused") {
+    struct usb_audio_fb f;
+    // Full speed, 48 kHz: 10.14 in 3 bytes. 48.0024 frames/ms is +50 ppm.
+    usb_audio_fb_init(&f, 48000, 1000, 1000, 49);
+    KTEST_ASSERT_EQ(f.nominal, 48u << 16);
+    uint32_t raw = 48u * 16384u + 39u;               // 48.00238
+    uint8_t b3[3] = { (uint8_t)raw, (uint8_t)(raw >> 8), (uint8_t)(raw >> 16) };
+    KTEST_ASSERT(usb_audio_fb_feed(&f, b3, 3));
+    KTEST_ASSERT_EQ(f.shift, 2);
+    KTEST_ASSERT(usb_audio_fb_ppm(&f) >= 45 && usb_audio_fb_ppm(&f) <= 55);
+    // A full-speed device that sends 16.16 in 4 bytes, as many do.
+    usb_audio_fb_init(&f, 48000, 1000, 1000, 49);
+    uint8_t b4[4] = { 0x8f, 0x02, 0x30, 0x00 };     // 48 + 655/65536, +208 ppm
+    KTEST_ASSERT(usb_audio_fb_feed(&f, b4, 4));
+    KTEST_ASSERT_EQ(f.shift, 0);
+    KTEST_ASSERT_EQ(f.value, (48u << 16) + 655u);
+    // THE SLEW the G6 sends after a rate change: 1% off is refused.
+    uint8_t slew[4] = { 0x00, 0x00, 0x2f, 0x00 };   // 47.0: 2% off, a slew
+    KTEST_ASSERT(!usb_audio_fb_feed(&f, slew, 4));
+    KTEST_ASSERT_EQ(f.value, (48u << 16) + 655u);
+    // High speed, 125 us packets: 16.16 per microframe, 6 frames nominal.
+    usb_audio_fb_init(&f, 48000, 125, 125, 7);
+    uint8_t hs[4] = { 0x10, 0x00, 0x06, 0x00 };     // 6 + 16/65536
+    KTEST_ASSERT(usb_audio_fb_feed(&f, hs, 4));
+    KTEST_ASSERT_EQ(f.value, (6u << 16) + 16u);
+    // Out of range -- two frames over -- is refused, keeps the last
+    // value and unlocks; an empty packet is not a reading at all.
+    // (The window is the format check: a 10.14 value read as 16.16 is
+    // a quarter of nominal.)
+    uint8_t far[4] = { 0x00, 0x00, 0x08, 0x00 };
+    KTEST_ASSERT(!usb_audio_fb_feed(&f, far, 4));
+    KTEST_ASSERT_EQ(f.value, (6u << 16) + 16u);
+    KTEST_ASSERT(!f.locked);
+    KTEST_ASSERT(!usb_audio_fb_feed(&f, hs, 0));
+    // High speed with 1 ms packets: the per-microframe value times 8.
+    usb_audio_fb_init(&f, 48000, 1000, 125, 49);
+    KTEST_ASSERT(usb_audio_fb_feed(&f, hs, 4));
+    KTEST_ASSERT_EQ(f.value, (48u << 16) + 128u);
+    // NOMINAL TO THE DEVICE'S RESOLUTION IS NOMINAL: 44.1 kHz at high
+    // speed reads 0x5.8333, 0.55 ppm under the true 5.5125, and following
+    // it would shed a frame every 41 s. The pacer keeps the exact path.
+    usb_audio_fb_init(&f, 44100, 125, 125, 6);
+    uint8_t r441[4] = { 0x33, 0x83, 0x05, 0x00 };
+    KTEST_ASSERT(usb_audio_fb_feed(&f, r441, 4));
+    KTEST_ASSERT_EQ(f.follow, 0u);
+    struct usb_audio_pace p441 = { 44100, 125, 0, 0, 0 };
+    usb_audio_pace_follow(&p441, f.follow);
+    uint32_t sum = 0;
+    for (int i = 0; i < 8000; i++) sum += usb_audio_pace_next(&p441);
+    KTEST_ASSERT_EQ(sum, 44100u);                   // one second, to the frame
+    uint8_t r441_up[4] = { 0x34, 0x83, 0x05, 0x00 };  // the value just above
+    KTEST_ASSERT(usb_audio_fb_feed(&f, r441_up, 4));
+    KTEST_ASSERT_EQ(f.follow, 0u);
+    // THE OLD RATE, which the G6 reports for a few readings after a
+    // switch from 48 kHz: 6.0 against 5.5125 is refused, not followed.
+    uint8_t stale[4] = { 0x00, 0x00, 0x06, 0x00 };
+    KTEST_ASSERT(!usb_audio_fb_feed(&f, stale, 4));
+    KTEST_ASSERT_EQ(f.value, 0x58334u);
+    // A WHOLE LSB off an exact nominal is the device steering, and is
+    // followed: 48 + 1/16384 at full speed.
+    usb_audio_fb_init(&f, 48000, 1000, 1000, 49);
+    uint8_t one[3] = { 0x01, 0x00, 0x0c };
+    KTEST_ASSERT(usb_audio_fb_feed(&f, one, 3));
+    KTEST_ASSERT_EQ(f.follow, f.value);
+    uint8_t exact48[3] = { 0x00, 0x00, 0x0c };
+    KTEST_ASSERT(usb_audio_fb_feed(&f, exact48, 3));
+    KTEST_ASSERT_EQ(f.follow, 0u);
+    // Bigger than the packet slot holds: refused even inside the window.
+    usb_audio_fb_init(&f, 48000, 1000, 1000, 48);
+    uint8_t over[4] = { 0x2c, 0x01, 0x30, 0x00 };   // 48 + 300/65536, +95 ppm
+    KTEST_ASSERT(!usb_audio_fb_feed(&f, over, 4));
+}
+
+KTEST("usb-audio", "packets follow the feedback, and the total is the device's rate") {
+    struct usb_audio_pace p = { 48000, 1000, 0, 0, 0 };
+    for (int i = 0; i < 10; i++) KTEST_ASSERT_EQ(usb_audio_pace_next(&p), 48u);
+    // +50 ppm: 2.4 frames more per second, in packets of 48 or 49.
+    usb_audio_pace_follow(&p, (48u << 16) + 157u);   // 48.0024
+    uint32_t total = 0;
+    for (int i = 0; i < 1000; i++) {
+        uint32_t n = usb_audio_pace_next(&p);
+        KTEST_ASSERT(n == 48 || n == 49);
+        total += n;
+    }
+    KTEST_ASSERT(total == 48002u || total == 48003u);
+    // Back to nominal, keeping the fraction already carried.
+    usb_audio_pace_follow(&p, 0);
+    total = 0;
+    for (int i = 0; i < 1000; i++) total += usb_audio_pace_next(&p);
+    KTEST_ASSERT(total == 48000u || total == 48001u);
 }
 
 KTEST("usb-audio", "a clock's GET RANGE answer becomes rate bits") {

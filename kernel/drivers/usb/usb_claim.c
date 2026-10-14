@@ -18,6 +18,7 @@
 #include "mmap.h"
 #include "futex.h"
 #include "devevent.h"
+#include "barrier.h"
 
 #define USB_CLASS_HUB 9   // usb_enum.c's, and the same value the spec gives
 
@@ -27,9 +28,14 @@ static struct {
     int      pid;
 } g_claims[USB_MAX_DEVICES];
 
-// ONE ISOCHRONOUS OUT ENDPOINT PER CLAIM. A UAC device streams on one;
-// a holder that needs two can ask when there is one.
-static struct {
+// TWO ISOCHRONOUS ENDPOINTS, AN OUT AND AN IN: a UAC stream and its
+// feedback endpoint. Each has its own grant; a holder that needs more
+// can ask when there is one.
+#define ISOCH_MAX 2
+// Received lengths kept for an IN endpoint until reaped -- the transfer
+// ring's size, so a holder that reaps as often as it posts never loses one.
+#define ISOCH_LENS 256
+struct isoch {
     uint8_t  slot, ep, open;
     uint64_t dma_phys, dma_base, dma_pages;
     // Written by the completion callback, which runs in INTERRUPT
@@ -40,10 +46,27 @@ static struct {
     // whether the interrupt half ever ran at all.
     volatile uint32_t total;
     volatile uint32_t posted;
+    // IN ONLY: each completed TD's received bytes, in completion order,
+    // which is post order -- usbfs's iso_frame_desc actual_length.
+    uint16_t lens[ISOCH_LENS];
+    volatile uint32_t lens_head, lens_tail, lens_lost;
     int pid;
-} g_isoch;
+};
+static struct isoch g_isoch[ISOCH_MAX];
 
-static void isoch_close(void);
+static void isoch_close(struct isoch *q);
+
+static struct isoch *isoch_find(uint8_t slot, uint8_t ep) {
+    for (int i = 0; i < ISOCH_MAX; i++)
+        if (g_isoch[i].open && g_isoch[i].slot == slot && g_isoch[i].ep == ep)
+            return &g_isoch[i];
+    return 0;
+}
+
+static void isoch_close_slot(uint8_t slot) {
+    for (int i = 0; i < ISOCH_MAX; i++)
+        if (g_isoch[i].open && g_isoch[i].slot == slot) isoch_close(&g_isoch[i]);
+}
 
 static const struct usb_device_info *dev_by_slot(uint8_t slot) {
     for (int i = 0; i < usb_device_count(); i++) {
@@ -136,7 +159,7 @@ int usb_claim_drop(uint8_t slot, uint64_t pml4, int rebind) {
     // THE ENDPOINT GOES WITH THE CLAIM. A holder that drops the device
     // while TDs are posted would otherwise leave the controller
     // fetching from frames the allocator has handed to somebody else.
-    if (g_isoch.open && g_isoch.slot == slot) isoch_close();
+    isoch_close_slot(slot);
     k_memset(&g_claims[i], 0, sizeof g_claims[i]);
     klog_printf("usb: pid %d released slot %u%s\n", pid, slot,
                 rebind ? " (rebinding)" : "");
@@ -163,15 +186,25 @@ int usb_claim_drop(uint8_t slot, uint64_t pml4, int rebind) {
 // things and nothing else -- the holder does the refilling, which is
 // the whole point of it being in ring 3.
 static void isoch_done(void *ctx, uint32_t bytes) {
-    (void)ctx; (void)bytes;
-    if (!g_isoch.open) return;
-    g_isoch.completions++;
-    g_isoch.total++;
-    futex_note_ready(g_isoch.pid);
+    struct isoch *q = ctx;
+    if (!q->open) return;
+    if (q->ep & 0x80) {
+        uint32_t h = q->lens_head;
+        if (h - q->lens_tail < ISOCH_LENS) {
+            q->lens[h % ISOCH_LENS] = (uint16_t)bytes;
+            kbarrier();   // the length before the index that publishes it
+            q->lens_head = h + 1;
+        } else {
+            q->lens_lost++;
+        }
+    }
+    q->completions++;
+    q->total++;
+    futex_note_ready(q->pid);
 }
 
-static void isoch_close(void) {
-    if (!g_isoch.open) return;
+static void isoch_close(struct isoch *q) {
+    if (!q->open) return;
     // ONE LINE, AT CLOSE. A probe per completion would outrun the klog
     // ring at an endpoint's service rate; this is the whole question --
     // did the controller ever come back -- asked once.
@@ -180,28 +213,36 @@ static void isoch_close(void) {
     // there and something else dropped them.
     klog_printf("usb: isoch ep 0x%x closing -- %u posted, %u completed, "
                 "%u underrun(s), %u refused\n",
-                g_isoch.ep, (unsigned)g_isoch.posted, (unsigned)g_isoch.total,
-                (unsigned)xhci_isoch_underruns(g_isoch.slot, g_isoch.ep),
-                (unsigned)xhci_isoch_refused(g_isoch.slot, g_isoch.ep));
+                q->ep, (unsigned)q->posted, (unsigned)q->total,
+                (unsigned)xhci_isoch_underruns(q->slot, q->ep),
+                (unsigned)xhci_isoch_refused(q->slot, q->ep));
     // THE MAPPING GOES BEFORE THE FRAMES. They are borrowed, so no
     // teardown disposes of them -- freeing first would hand the
     // allocator pages the holder still has a live writable PTE for.
-    if (g_isoch.dma_base)
-        mmap_drop_dma_region(g_isoch.dma_base, g_isoch.dma_pages);
-    if (g_isoch.dma_phys)
-        pmm_free_contiguous(g_isoch.dma_phys, g_isoch.dma_pages);
-    k_memset(&g_isoch, 0, sizeof g_isoch);
+    if (q->dma_base)
+        mmap_drop_dma_region(q->dma_base, q->dma_pages);
+    if (q->dma_phys)
+        pmm_free_contiguous(q->dma_phys, q->dma_pages);
+    k_memset(q, 0, sizeof *q);
 }
 
 int sys_usb_isoch_open(struct syscall_ctx *c) {
     struct usb_isoch_msg m;
     int64_t ret;
+    struct isoch *q = 0;
 
     if (!scheduler_current_mm()) { ret = -EPERM; goto out; }
     if (!vmm_copy_from_user(c->pml4, &m, c->a0, sizeof m)) { ret = -EFAULT; goto out; }
     if ((ret = usb_claim_check((uint8_t)m.slot, c->pml4)) != 0) goto out;
-    if (g_isoch.open) { ret = -EBUSY; goto out; }
     if (!m.dma_bytes || m.dma_bytes > 64 * 1024 || !m.mps) { ret = -EINVAL; goto out; }
+    if (isoch_find((uint8_t)m.slot, (uint8_t)m.ep)) { ret = -EBUSY; goto out; }
+    // One of each direction: a second OUT is a second stream, which
+    // nothing asks for.
+    for (int i = 0; i < ISOCH_MAX; i++) {
+        if (g_isoch[i].open && ((g_isoch[i].ep ^ m.ep) & 0x80) == 0) { ret = -EBUSY; goto out; }
+        if (!g_isoch[i].open && !q) q = &g_isoch[i];
+    }
+    if (!q) { ret = -EBUSY; goto out; }
 
     uint64_t npages = (m.dma_bytes + 4095) / 4096;
     uint64_t base = mmap_dma_reserve(npages);
@@ -224,17 +265,21 @@ int sys_usb_isoch_open(struct syscall_ctx *c) {
         goto out;
     }
 
-    g_isoch.slot = (uint8_t)m.slot;
-    g_isoch.ep   = (uint8_t)m.ep;
-    g_isoch.dma_phys = phys;
-    g_isoch.dma_base = base;
-    g_isoch.dma_pages = npages;
-    g_isoch.pid = scheduler_current_pid();
-    g_isoch.open = 1;
+    q->slot = (uint8_t)m.slot;
+    q->ep   = (uint8_t)m.ep;
+    q->dma_phys = phys;
+    q->dma_base = base;
+    q->dma_pages = npages;
+    q->pid = scheduler_current_pid();
+    q->open = 1;
 
-    if (xhci_add_isoch_out((uint8_t)m.slot, (uint8_t)m.ep, (uint16_t)m.mps,
-                           (uint8_t)m.interval, isoch_done, 0) < 0) {
-        isoch_close();
+    int r = (m.ep & 0x80)
+        ? xhci_add_isoch_in((uint8_t)m.slot, (uint8_t)m.ep, (uint16_t)m.mps,
+                            (uint8_t)m.interval, isoch_done, q)
+        : xhci_add_isoch_out((uint8_t)m.slot, (uint8_t)m.ep, (uint16_t)m.mps,
+                             (uint8_t)m.interval, isoch_done, q);
+    if (r < 0) {
+        isoch_close(q);
         ret = -EIO;
         goto out;
     }
@@ -242,12 +287,12 @@ int sys_usb_isoch_open(struct syscall_ctx *c) {
     m.addr = base;
     m.phys = phys;
     if (!vmm_copy_to_user(c->pml4, c->a0, &m, sizeof m)) {
-        isoch_close();
+        isoch_close(q);
         ret = -EFAULT;
         goto out;
     }
     klog_printf("usb: pid %d opened isoch ep 0x%x on slot %u, %llu page(s) at %llx\n",
-                g_isoch.pid, m.ep, (unsigned)m.slot,
+                q->pid, m.ep, (unsigned)m.slot,
                 (unsigned long long)npages, (unsigned long long)phys);
     ret = 0;
 out:
@@ -257,24 +302,36 @@ out:
 
 int sys_usb_isoch_post(struct syscall_ctx *c) {
     struct usb_isoch_post_msg m;
+    uint16_t lens[256];
     int64_t ret;
 
     if (!scheduler_current_mm()) { ret = -EPERM; goto out; }
     if (!vmm_copy_from_user(c->pml4, &m, c->a0, sizeof m)) { ret = -EFAULT; goto out; }
     if ((ret = usb_claim_check((uint8_t)m.slot, c->pml4)) != 0) goto out;
-    if (!g_isoch.open || g_isoch.slot != m.slot || g_isoch.ep != m.ep) {
-        ret = -EINVAL;
-        goto out;
-    }
+    struct isoch *q = isoch_find((uint8_t)m.slot, (uint8_t)m.ep);
+    if (!q) { ret = -EINVAL; goto out; }
     uint32_t count = m.count ? m.count : 1;
-    uint32_t stride = m.stride ? m.stride : m.len;
+    if (count > 256) { ret = -EINVAL; goto out; }
+    // PER-PACKET LENGTHS, when given: a stream following its device's
+    // clock carries a frame more or less now and then.
+    uint32_t biggest = m.len;
+    if (m.lens) {
+        if (!vmm_copy_from_user(c->pml4, lens, m.lens, count * sizeof lens[0])) {
+            ret = -EFAULT;
+            goto out;
+        }
+        biggest = 0;
+        for (uint32_t i = 0; i < count; i++) if (lens[i] > biggest) biggest = lens[i];
+    }
+    uint32_t stride = m.stride ? m.stride : biggest;
     // THE RANGE IS CHECKED FOR THE WHOLE GROUP, not trusted: each of
     // these becomes a PHYSICAL address in a descriptor the controller
     // will read, so one past the grant would point the hardware at
-    // somebody else's page. Checked on the LAST, which bounds them all.
-    uint64_t bytes = g_isoch.dma_pages * 4096;
+    // somebody else's page. Checked on the LAST, which bounds them all
+    // -- and no packet may be longer than the stride between them.
+    uint64_t bytes = q->dma_pages * 4096;
     uint64_t last = (uint64_t)m.offset + (uint64_t)(count - 1) * stride;
-    if (!m.len || !count || count > 256 || last + m.len > bytes) {
+    if (!biggest || biggest > stride || last + biggest > bytes) {
         ret = -EINVAL;
         goto out;
     }
@@ -282,16 +339,20 @@ int sys_usb_isoch_post(struct syscall_ctx *c) {
     // A COMPLETION ON THE LAST ONLY, which is what `IOC every N` means:
     // an isochronous endpoint completes in order and an error reports
     // itself regardless, so one event per group is all the driver needs.
+    // An IN endpoint asks for EVERY one, because each TD's length is
+    // the data.
+    int in = (m.ep & 0x80) != 0;
     uint32_t done = 0;
     int r = 0;
     for (uint32_t i = 0; i < count; i++) {
+        uint32_t len = m.lens ? lens[i] : m.len;
         r = xhci_isoch_post((uint8_t)m.slot, (uint8_t)m.ep,
-                            g_isoch.dma_phys + m.offset + (uint64_t)i * stride,
-                            m.len, (m.ioc && i + 1 == count) ? 1 : 0);
+                            q->dma_phys + m.offset + (uint64_t)i * stride, len,
+                            (in || (m.ioc && i + 1 == count)) ? 1 : 0);
         if (r != 0) break;
         done++;
     }
-    g_isoch.posted += done;
+    q->posted += done;
     ret = done ? (int64_t)done : r == -2 ? -ENOSPC : -EINVAL;
 out:
     c->regs[14] = (uint64_t)ret;
@@ -302,12 +363,37 @@ int sys_usb_isoch_status(struct syscall_ctx *c) {
     int64_t ret;
     if (!scheduler_current_mm()) { ret = -EPERM; goto out; }
     if ((ret = usb_claim_check((uint8_t)c->a0, c->pml4)) != 0) goto out;
-    if (!g_isoch.open || g_isoch.slot != (uint8_t)c->a0 ||
-        g_isoch.ep != (uint8_t)c->a1) { ret = -EINVAL; goto out; }
+    struct isoch *q = isoch_find((uint8_t)c->a0, (uint8_t)c->a1);
+    if (!q) { ret = -EINVAL; goto out; }
     // READ AND CLEAR, so a caller that misses a wakeup still learns how
     // many landed rather than one.
-    ret = (int64_t)g_isoch.completions;
-    g_isoch.completions = 0;
+    ret = (int64_t)q->completions;
+    q->completions = 0;
+out:
+    c->regs[14] = (uint64_t)ret;
+    return 0;
+}
+
+int sys_usb_isoch_reap(struct syscall_ctx *c) {
+    struct usb_isoch_reap_msg m;
+    uint16_t out_lens[64];
+    int64_t ret;
+    if (!scheduler_current_mm()) { ret = -EPERM; goto out; }
+    if (!vmm_copy_from_user(c->pml4, &m, c->a0, sizeof m)) { ret = -EFAULT; goto out; }
+    if ((ret = usb_claim_check((uint8_t)m.slot, c->pml4)) != 0) goto out;
+    struct isoch *q = isoch_find((uint8_t)m.slot, (uint8_t)m.ep);
+    if (!q || !(q->ep & 0x80)) { ret = -EINVAL; goto out; }
+    uint32_t max = m.max < 64 ? m.max : 64, n = 0;
+    while (n < max && q->lens_tail != q->lens_head) {
+        kbarrier();
+        out_lens[n++] = q->lens[q->lens_tail % ISOCH_LENS];
+        q->lens_tail++;
+    }
+    if (n && !vmm_copy_to_user(c->pml4, m.lens, out_lens, n * sizeof out_lens[0])) {
+        ret = -EFAULT;
+        goto out;
+    }
+    ret = (int64_t)n;
 out:
     c->regs[14] = (uint64_t)ret;
     return 0;

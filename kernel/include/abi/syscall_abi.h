@@ -2570,8 +2570,8 @@ struct usb_control_msg {
     uint8_t  setup[8]; // bmRequestType, bRequest, wValue, wIndex, wLength
 };
 
-// AN ISOCHRONOUS OUT ENDPOINT, opened by the holder and driven by the
-// kernel. This is what makes a ring-3 USB audio driver possible: the
+// AN ISOCHRONOUS ENDPOINT, opened by the holder and driven by the
+// kernel -- one OUT and one IN at a time, a stream and its feedback. This is what makes a ring-3 USB audio driver possible: the
 // holder cannot touch the transfer ring (the controller is shared), so
 // it hands over packets and the kernel queues them.
 //
@@ -2591,9 +2591,12 @@ struct usb_control_msg {
 // per call is what makes the rate reachable at all.
 #define SYS_USB_ISOCH_POST 131  // RDI = a `struct usb_isoch_post_msg`.
                                 // Queues `count` descriptors, the Nth
-                                // at `offset + N * stride`, and asks
-                                // for a completion on the LAST one
-                                // when `ioc` is set. Returns how many
+                                // at `offset + N * stride` and `len`
+                                // long -- or `lens[N]` long, when
+                                // `lens` is given -- and asks for a
+                                // completion on the LAST one when
+                                // `ioc` is set (on EVERY one, on an IN
+                                // endpoint). Returns how many
                                 // were queued -- FEWER than `count`
                                 // when the transfer ring filled -- or
                                 // -EACCES not the holder, -ENOSPC the
@@ -2609,6 +2612,16 @@ struct usb_control_msg {
 #define SYS_USB_ISOCH_STATUS 132 // RDI = the slot, RSI = the endpoint.
                                  // Returns completions since the last
                                  // call, or a negative errno.
+
+// WHAT AN IN ENDPOINT RECEIVED: each completed TD's byte count, oldest
+// first -- completion order is post order, so the holder knows which
+// slot of its buffer each one filled. usbfs returns the same thing as
+// an iso URB's actual_length per frame. 0 is a missed interval.
+#define SYS_USB_ISOCH_REAP 146   // RDI = a `struct usb_isoch_reap_msg`.
+                                 // Returns how many lengths it wrote
+                                 // (up to `max`, at most 64), or
+                                 // -EACCES/-EINVAL (not an IN endpoint
+                                 // you opened)/-EFAULT.
 
 // THE SOUND RING, READ-ONLY, TO THE DRIVER THAT ASKS.
 //
@@ -2782,8 +2795,17 @@ struct usb_isoch_post_msg {
     uint32_t len;        // bytes per descriptor
     uint32_t ioc;        // a completion event on the LAST of the group
     uint32_t count;      // descriptors to queue; 0 is read as 1
-    uint32_t stride;     // bytes between them; 0 is read as `len`
+    uint32_t stride;     // bytes between them; 0 is read as the longest
     uint32_t reserved;
+    uint64_t lens;       // 0, or `count` uint16_t lengths that replace `len`
+};
+
+struct usb_isoch_reap_msg {
+    uint32_t slot;
+    uint32_t ep;         // an IN endpoint, e.g. 0x81
+    uint32_t max;        // room at `lens`, in entries
+    uint32_t reserved;
+    uint64_t lens;       // OUT: uint16_t received lengths, oldest first
 };
 
 struct dev_io_msg {

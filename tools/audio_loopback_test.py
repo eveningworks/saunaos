@@ -46,6 +46,7 @@ QEMU has the device the host cannot open it for playback.
     python3 tools/audio_loopback_test.py --analyse cap.wav
     python3 tools/audio_loopback_test.py --depth          # 24-bit proof
     python3 tools/audio_loopback_test.py --rate --host <asus-ip>   # 44.1 kHz, bare metal
+    python3 tools/audio_loopback_test.py --rate --ring3 --host <asus-ip>   # ...ring-3 driver
 
 THE RATE CHECK (--rate --host IP) plays a 1187 Hz tone written at 44.1
 kHz on a BARE-METAL machine with the G6 plugged into it (QEMU's
@@ -53,6 +54,10 @@ passthrough cannot carry it -- see rate()), once with the card following
 the file to 44.1 kHz and once held at 48 kHz. Both must come back at
 1187 Hz with no phase jumps: the line-in records at 48 kHz, so a wrong
 rate is 1087 Hz, and a broken packet stream is a jump in every window.
+`--ring3` runs it through /lib/snd/usbaudio.so instead of the kernel's
+driver. Either way it also checks the stream followed the G6's FEEDBACK
+endpoint ("clock: the device's" in the driver's stop line) -- the
+device's clock, not the bus's, sets the packet sizes.
 
 THE DEPTH CHECK (--depth) asks whether a 24-bit file reaches the DAC as
 24 bits, and it is built so that only a real 24-bit path can pass. The
@@ -67,6 +72,7 @@ capture digs the tone out of the line-in's broadband hiss.
 import argparse
 import math
 import os
+import re
 import struct
 import subprocess
 import sys
@@ -553,6 +559,7 @@ def rate(args):
               "replug it (a reboot does not reach high speed)")
         return 0
     was = remote(h, "exec", "config get audio_device").strip().splitlines()[-1]
+    ring3_pid, stopped_svc = None, False
     remote(h, "exec", f"config set audio_device {card[0]}")
     got = {}
     try:
@@ -562,15 +569,41 @@ def rate(args):
             print(f"SKIP: {card[0]} did not become the output -- not playing")
             return 0
         remote(h, "put", os.path.join(tmp, "rate_44100.flac"), "/tmp/rate_44100.flac")
+        if args.ring3:
+            # THE RING-3 DRIVER CLAIMS THE CARD from the kernel's and
+            # registers under the same name; it exits with the claim.
+            # The kernel takes ONE ring-3 sound driver, and a machine
+            # whose own card runs as the `snddrv` service already has it.
+            stopped_svc = "running" in next((ln for ln in remote(h, "exec", "service list")
+                                             .splitlines() if ln.startswith("snddrv")), "")
+            if stopped_svc:
+                remote(h, "exec", "service stop snddrv")
+                time.sleep(2.0)
+            out = remote(h, "exec", "spawn /bin/snddrv --driver usbaudio --usb-id 041e:3256")
+            m = re.search(r"started as pid (\d+)", out)
+            ring3_pid = m.group(1) if m else None
+            time.sleep(2.0)
+            active = [ln for ln in remote(h, "exec", "lssound").splitlines()
+                      if ln.startswith("*")]
+            if not ring3_pid or not active or "ring3" not in active[0]:
+                print("SKIP: the ring-3 driver did not take the card -- not playing")
+                return 0
         remote(h, "exec", "sndfmt -r match -a 44100,48000 -b auto")
         print("leg 44.1 kHz, the card following it ...")
         got["match"] = rate_leg("match", "/tmp/rate_44100.flac", h, cap)
-        clock = "set to 44100 Hz (reads back 44100)" in remote(h, "exec", "dmesg")
+        dm = remote(h, "exec", "dmesg")
+        clock = re.search(r"clock \d+ set to 44100 Hz", dm) is not None
+        followed = "clock: the device's" in dm
         remote(h, "exec", "sndfmt -r 48000")
         print("leg 44.1 kHz, the card held at 48 kHz ...")
         got["held"] = rate_leg("held", "/tmp/rate_44100.flac", h, cap)
     finally:
         remote(h, "exec", "sndfmt -r match")
+        if ring3_pid:
+            remote(h, "exec", f"kill {ring3_pid}")
+        if stopped_svc:
+            time.sleep(1.0)
+            remote(h, "exec", "service start snddrv")
         remote(h, "exec", f"config set audio_device {was}")
 
     def ok(r):
@@ -579,6 +612,7 @@ def rate(args):
 
     checks = [
         ("44.1 kHz: the clock was set to it, and reads back so", clock),
+        ("the stream followed the card's feedback endpoint", followed),
         ("44.1 kHz: the tone came back at 1187 Hz, unbroken", ok(got["match"])),
         ("held at 48 kHz: the same file, resampled, at 1187 Hz, unbroken", ok(got["held"])),
     ]
@@ -723,6 +757,8 @@ def main():
     ap.add_argument("--rate", action="store_true",
                     help="44.1 kHz played on a bare-metal machine (--host), "
                          "pitch and continuity found on line in")
+    ap.add_argument("--ring3", action="store_true",
+                    help="--rate through the ring-3 usbaudio.so, not the kernel's driver")
     ap.add_argument("--host", default=None,
                     help="the machine --rate plays on (remote.py's address)")
     ap.add_argument("--seconds", type=float, default=60.0,

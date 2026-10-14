@@ -25,7 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] Receive aggregation on the RTL8156: one frame per bulk transfer caps a 2.5G link at ~450 frames/s -- measured  *(USB)*
-- [ ] The UAC2 feedback endpoint: an asynchronous sink drifts against the bus without it, and `xhci.c` has no isochronous IN  *(USB)*
 <!-- END next-up -->
 
 
@@ -895,7 +894,7 @@ run on, not by order.
 - [x] ~~A ring-3 driver as the system's sound device -- `/bin/snddrv` registers, `soundd` mixes on top of it unchanged~~ DONE 2026-09-21
 - [x] ~~Start the ring-3 sound driver at boot instead of by hand~~ DONE 2026-10-07 -- the `snddrv` service, PCI cards only
 - [ ] Delete the kernel's `hda.c` and `ac97.c` once `snddrv` has been the default on both laptops for a while
-- [ ] USB DACs on `snddrv` at boot too (drop `--pci`), once the ring-3 driver plays 44.1 kHz -- then `sound_usb.c` can go the same way
+- [ ] USB DACs on `snddrv` at boot too (drop `--pci`) -- the kernel takes ONE ring-3 sound driver, and the HDA's holds it
 
 ### virtio, and a real GPU driver
 
@@ -1022,7 +1021,7 @@ run on, not by order.
 - [x] ~~An RTL8156 driver, the 2.5G USB part~~ DONE 2026-09-09 -- `rtl8156.c`, an ops table over the core; 2.5G link, DHCP, a fetch
 - [ ] **NEXT** Receive aggregation on the RTL8156: one frame per bulk transfer caps a 2.5G link at ~450 frames/s -- measured
 - [x] ~~The ASUS needed two presses to start after a toy-os power-off~~ DONE 2026-10-09 -- the ACPI-mode switch
-- [ ] **NEXT** The UAC2 feedback endpoint: an asynchronous sink drifts against the bus without it, and `xhci.c` has no isochronous IN
+- [x] ~~The UAC2 feedback endpoint~~ DONE 2026-10-14 -- both USB audio drivers, UAC1 and UAC2, followed within 0.1%
 - [x] ~~USB Ethernet (CDC-ECM), and the BULK transfer type it needed~~ DONE 2026-08-31 -- `net_usb_ecm.c`; RX untested, see `docs/bugs.md`
 - [x] ~~Remote access: a shell and file transfer over the network~~ DONE 2026-08-31 -- `telnetd`, `tftpd`, `tools/remote.py`
 - [x] ~~`/bin/update`: a machine updates itself from an HTTP manifest~~ DONE 2026-09-30 -- plus System Update and `update_server.py`
@@ -1147,7 +1146,7 @@ run on, not by order.
 - [ ] Subtitles (SRT beside the file)
 - [ ] An Ogg reader, for `.oga` FLAC and for Opus -- the codec table has no container layer
 - [ ] A proper resampler -- usnd interpolates linearly; windowed-sinc or polyphase, as speexdsp, soxr and PipeWire use
-- [ ] 44.1 kHz through the ring-3 USB driver -- `SYS_USB_ISOCH_POST` posts a group at one length, and 44.1 needs 5- and 6-frame packets
+- [x] ~~44.1 kHz through the ring-3 USB driver~~ DONE 2026-10-14 -- `SYS_USB_ISOCH_POST` takes a length per packet
 
 ### ACPI + real power/timer
 

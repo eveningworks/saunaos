@@ -4266,7 +4266,12 @@ window without going through it will find its layout polls timing out.
   passthrough breaks packets whose length varies -- 364 jumps in 398
   windows under TCG, 398 under KVM, 0 on the ASUS and 0 from Linux
   (docs/testing.md). It SKIPS when
-  the G6 bound UAC1 at full speed (48 kHz only): replug it. It never
+  the G6 bound UAC1 at full speed (48 kHz only): replug it. **`--ring3`**
+  runs it through `/lib/snd/usbaudio.so` instead, stopping the machine's
+  own `snddrv` service for the leg and starting it again after -- the
+  kernel takes ONE ring-3 sound driver, and an ASUS's HDA already holds
+  it. Both modes also check the stream FOLLOWED the card's feedback
+  endpoint (`clock: the device's` in the driver's stop line). It never
   plays unless the G6 is the machine's active output, and puts the
   output back afterwards.
 - **`devclaim_test.py`** -- a ring-3 process takes the sound card OFF

@@ -147,6 +147,10 @@ int usb_audio_parse(const uint8_t *cfg, uint32_t total,
     uint8_t cand_rate_ctl = 0;
     int format_ok = 0;
     uint8_t fmt_if[USB_AUDIO_MAX_FORMATS];
+    // The format this alternate's OUT endpoint became, so the feedback
+    // endpoint that FOLLOWS it in the same alternate can be attached.
+    int alt_fmt = -1;
+    uint8_t alt_async = 0, alt_synch = 0;
 
     while (o + 2 <= total) {
         uint32_t blen = cfg[o];
@@ -165,6 +169,7 @@ int usb_audio_parse(const uint8_t *cfg, uint32_t total,
             cand_channels = 0; cand_bits = 0; cand_subslot = 0;
             cand_rate = 0; cand_link = 0; format_ok = 0;
             cand_rates = 0; cand_rate_ctl = 0;
+            alt_fmt = -1; alt_async = 0; alt_synch = 0;
         } else if (in_control && btype == DESC_CS_INTERFACE && blen >= 5 &&
                    cfg[o + 2] == AC_HEADER) {
             // bcdADC, and the one field that says UAC1 from UAC2. The
@@ -234,6 +239,18 @@ int usb_audio_parse(const uint8_t *cfg, uint32_t total,
             uint8_t  mult = (uint8_t)(((w >> 11) & 3) + 1);
             if ((attr & 0x03) != 1) { o += blen; continue; }   // isochronous only
 
+            // THE FEEDBACK PARTNER of the OUT endpoint just recorded.
+            // UAC1 must match the data endpoint's bSynchAddress when it
+            // names one (Linux's rule); UAC2 says so in the usage type.
+            if ((addr & 0x80) && alt_fmt >= 0 && alt_async && mps >= 3 && mps <= 4 &&
+                (out->uac2 ? ((attr >> 4) & 3) == 1
+                           : (!alt_synch || alt_synch == addr))) {
+                struct usb_audio_format *f = &out->formats[alt_fmt];
+                f->fb_ep = addr;
+                f->fb_mps = mps;
+                f->fb_interval = cfg[o + 6];
+            }
+
             if (rep) {
                 rep->alts_seen++;
                 if (rep->alt_count < USB_AUDIO_MAX_ALTS) {
@@ -265,6 +282,10 @@ int usb_audio_parse(const uint8_t *cfg, uint32_t total,
                 f->mps = mps;
                 f->rates = out->uac2 ? 0 : cand_rates;
                 f->rate_ctl = out->uac2 ? 0 : cand_rate_ctl;
+                alt_fmt = out->nformats - 1;
+                alt_async = ((attr >> 2) & 3) == 1;
+                // UAC1's endpoint is 9 bytes, the last bSynchAddress.
+                alt_synch = (!out->uac2 && blen >= 9) ? cfg[o + 8] : 0;
             }
             // THE DEFAULT: the deepest that plays 48 kHz, so a 24-bit
             // file reaches a 24/32-bit DAC whole; on a tie the first seen.
@@ -318,10 +339,89 @@ uint32_t usb_audio_pace_max(uint32_t rate, uint32_t us) {
 }
 
 uint32_t usb_audio_pace_next(struct usb_audio_pace *p) {
+    if (p->fb) {
+        uint64_t a = (uint64_t)p->fb_acc + p->fb;
+        p->fb_acc = (uint32_t)(a & 0xFFFFu);
+        return (uint32_t)(a >> 16);
+    }
     uint64_t a = (uint64_t)p->acc + (uint64_t)p->rate * p->us;
     uint32_t n = (uint32_t)(a / 1000000u);
     p->acc = (uint32_t)(a - (uint64_t)n * 1000000u);
     return n;
+}
+
+void usb_audio_pace_follow(struct usb_audio_pace *p, uint32_t fb16) {
+    if (fb16 && !p->fb)
+        p->fb_acc = (uint32_t)(((uint64_t)p->acc << 16) / 1000000u);
+    else if (!fb16 && p->fb)
+        p->acc = (uint32_t)(((uint64_t)p->fb_acc * 1000000u) >> 16);
+    p->fb = fb16;
+}
+
+// --- the feedback endpoint ---------------------------------------------
+
+void usb_audio_fb_init(struct usb_audio_fb *f, uint32_t rate, uint32_t us,
+                       uint32_t bus_us, uint32_t max_frames) {
+    k_memset(f, 0, sizeof *f);
+    f->per_bus = bus_us && us >= bus_us ? us / bus_us : 1;
+    f->nominal = (uint32_t)(((uint64_t)rate * us * 65536u + 500000u) / 1000000u);
+    f->max = max_frames << 16;
+    f->rate = rate;
+    f->us = us;
+}
+
+// Is a per-packet value plausible? Within 1/1024 of nominal, and it fits.
+static int fb_in_range(const struct usb_audio_fb *f, uint64_t v) {
+    uint64_t slack = f->nominal / 1024;
+    return v + slack >= f->nominal && v <= f->nominal + slack && v <= f->max;
+}
+
+static uint64_t fb_shifted(uint32_t raw, int shift) {
+    return shift >= 0 ? (uint64_t)raw << shift : (uint64_t)raw >> -shift;
+}
+
+int usb_audio_fb_feed(struct usb_audio_fb *f, const uint8_t *buf, uint32_t len) {
+    if (!buf || len < 3) return 0;   // an empty packet: the device had nothing new
+    uint32_t raw = (uint32_t)buf[0] | ((uint32_t)buf[1] << 8) | ((uint32_t)buf[2] << 16);
+    if (len >= 4) raw |= (uint32_t)buf[3] << 24;
+    if (!raw) return 0;
+
+    if (!f->locked) {
+        // The spec's format first; then Linux's search, shifting until
+        // the value lands between -25% and +50% of nominal.
+        int shift = len == 3 ? 2 : 0;
+        if (!fb_in_range(f, fb_shifted(raw, shift) * f->per_bus)) {
+            uint64_t nom_bus = f->nominal / f->per_bus, v = raw;
+            shift = 0;
+            while (v && v < nom_bus - nom_bus / 4 && shift < 16) { v <<= 1; shift++; }
+            while (v > nom_bus + nom_bus / 2 && shift > -16) { v >>= 1; shift--; }
+        }
+        f->shift = (int8_t)shift;
+    }
+    uint64_t v = fb_shifted(raw, f->shift) * f->per_bus;
+    if (!fb_in_range(f, v)) {
+        f->locked = 0;       // guess again on the next one
+        f->rejected++;
+        f->refused_raw = raw;
+        return 0;
+    }
+    f->locked = 1;
+    f->value = (uint32_t)v;
+    // One LSB of the reading, in 16.16 per packet, against the exact
+    // nominal -- both scaled by 10^6 so 44.1 kHz's fraction survives.
+    uint64_t lsb = (f->shift > 0 ? (1ull << f->shift) : 1ull) * f->per_bus;
+    uint64_t exact = (uint64_t)f->rate * f->us * 65536u;
+    uint64_t got = v * 1000000u;
+    uint64_t diff = got > exact ? got - exact : exact - got;
+    f->follow = diff < lsb * 1000000u ? 0 : f->value;
+    f->accepted++;
+    return 1;
+}
+
+int32_t usb_audio_fb_ppm(const struct usb_audio_fb *f) {
+    if (!f->value || !f->nominal) return 0;
+    int64_t d = (int64_t)f->value - (int64_t)f->nominal;
+    return (int32_t)(d * 1000000 / (int64_t)f->nominal);
 }
 
 int usb_audio_pick_format(const struct usb_audio_stream *s, uint32_t clock_rates,

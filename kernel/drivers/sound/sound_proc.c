@@ -74,6 +74,14 @@ static void post(uint32_t op, uint32_t volume) {
     futex_note_ready(g_drv.pid);
 }
 
+static int proc_clock(const struct sound_device *dev, int32_t *ppm) {
+    (void)dev;
+    volatile struct snd_driver_page *p = page();
+    if (!p || !p->clock) return 0;
+    *ppm = p->clock_ppm;
+    return 1;
+}
+
 static int proc_start(const struct sound_device *dev) {
     (void)dev;   // one ring-3 driver per process, and g_drv is it
     volatile struct snd_driver_page *p = page();
@@ -182,6 +190,7 @@ int sys_snd_register(struct syscall_ctx *c) {
     g_drv.dev.stop = proc_stop;
     g_drv.dev.set_volume = proc_volume;
     g_drv.dev.set_format = proc_format;
+    g_drv.dev.clock = proc_clock;
     g_drv.dev.rate = SND_RATE;
     g_drv.dev.rates = m.rates;
     g_drv.dev.depths = m.depths;

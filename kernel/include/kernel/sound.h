@@ -78,6 +78,12 @@ struct sound_device {
     // start(), which every driver here already re-programs from
     // scratch. Optional: NULL plays SND_RATE at the width it chose.
     int (*set_format)(const struct sound_device *dev, uint32_t rate, uint32_t bits);
+
+    // WHOSE CLOCK THE STREAM RUNS AT: 1 when the card's own (a USB
+    // feedback endpoint it follows), with `*ppm` how far that is from
+    // nominal; 0 when it is the bus's or the card's DMA engine's, which
+    // is every PCI card. Optional (NULL is 0).
+    int (*clock)(const struct sound_device *dev, int32_t *ppm);
 };
 
 // --- a driver whose card cannot read the s32 ring directly -------------

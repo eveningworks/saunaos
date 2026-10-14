@@ -73,9 +73,29 @@ offer.
 
 **`usb-audio`** reports the widths of the alternate settings it can
 play, and their rates: the rates each UAC1 alternate lists, or what a
-UAC2 device's clock answers when asked for its range. The ring-3 driver
-(`snddrv --usb-id`) offers only the rates with a whole number of frames
-per packet -- 48, 96 and 192 kHz, not 44.1.
+UAC2 device's clock answers when asked for its range. Both its drivers
+-- the kernel's and the ring-3 one (`snddrv --usb-id`) -- carry 44.1
+kHz as packets of 44 and 45 frames.
+
+**`clock:`** appears for a USB DAC that sets the pace itself -- an
+ASYNCHRONOUS endpoint with a feedback endpoint beside it, such as a
+Sound BlasterX G6. The stream then follows the card's crystal rather
+than the bus's, and this is how far apart the two are, as the last
+feedback reading said; a card with no `clock:` line plays at the bus's
+or its own DMA engine's pace, which needs no following:
+
+```
+/$ lssound -v
+* usb-041e3256 Sound BlasterX G6        usb-audio
+             rates:  44.1 48 kHz
+             depths: 24 32-bit
+             plays:  32-bit, 48 kHz
+             clock:  the card's own, +0 ppm
+```
+
+The G6 says +0: its clock follows the bus. The line appears once a
+stream has played and the feedback agreed with nominal to 0.1%; a
+reading further off is refused (`docs/decisions/drivers.md`).
 
 **`plays:`** is the width the driver plays at -- the deepest HDA format,
 the deepest USB alternate, unless the card's setting chose another --

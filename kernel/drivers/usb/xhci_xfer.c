@@ -677,16 +677,18 @@ int xhci_add_interrupt_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     return 0;
 }
 
-int xhci_add_isoch_out(uint8_t slot, uint8_t ep_addr, uint16_t mps,
-                       uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
-                       void *ctx) {
+static int add_isoch(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+                     uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
+                     void *ctx) {
     if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return -1;
-    if (mps == 0 || (ep_addr & 0x80)) return -1;   // OUT endpoints only
+    if (mps == 0) return -1;
 
     int cc = 0;
     // CErr = 0: an isochronous transfer is not retried, and the spec
     // has the controller ignore the field on such an endpoint anyway.
-    struct xhci_ep *e = ep_configure(slot, ep_addr, mps, interval, 1, 0, &cc);
+    // Type 1 is Isoch OUT, 5 Isoch IN.
+    struct xhci_ep *e = ep_configure(slot, ep_addr, mps, interval,
+                                     (ep_addr & 0x80) ? 5u : 1u, 0, &cc);
     if (!e) return xhci_fail(cc);
     e->is_iso   = 1;
     e->iso_done = done;
@@ -695,6 +697,18 @@ int xhci_add_isoch_out(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     // not broken, and the stream's first packet is the driver's to
     // decide the timing of.
     return 0;
+}
+
+int xhci_add_isoch_out(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+                       uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
+                       void *ctx) {
+    return (ep_addr & 0x80) ? -1 : add_isoch(slot, ep_addr, mps, interval, done, ctx);
+}
+
+int xhci_add_isoch_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+                      uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
+                      void *ctx) {
+    return (ep_addr & 0x80) ? add_isoch(slot, ep_addr, mps, interval, done, ctx) : -1;
 }
 
 // A BULK endpoint, either direction. The xHCI endpoint type is the only
@@ -774,13 +788,19 @@ int xhci_isoch_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
     // endpoint can complete it before the next line runs.
     uint32_t idx = (uint32_t)((xhci_ring_enq_phys(&e->ring) - e->ring.phys) /
                               sizeof(struct xhci_trb));
-    if (idx < TRBS_PER_RING) e->iso_want_ioc[idx] = (uint8_t)(ioc ? 1 : 0);
+    if (idx < TRBS_PER_RING) {
+        e->iso_want_ioc[idx] = (uint8_t)(ioc ? 1 : 0);
+        e->iso_len[idx] = (uint16_t)len;
+    }
 
     // SIA rather than a Frame ID: the alternative is tracking the
     // controller's own frame counter and predicting one interval ahead,
     // which buys nothing for a stream that is simply continuous.
+    // ISP on IN, so a short packet -- the usual for one that carries a
+    // value -- still reports its length rather than being merged away.
     xhci_ring_push(&e->ring, buf_phys, len & 0x1FFFFu,
                    XHCI_TRB_SET_TYPE(XHCI_TRB_ISOCH) | XHCI_TRB_SIA |
+                   ((e->ep_addr & 0x80) ? XHCI_TRB_ISP : 0) |
                    (irq ? XHCI_TRB_IOC : 0));
     ring_doorbell(e->slot, dci_of(e->ep_addr));
     return 0;
@@ -1076,8 +1096,10 @@ void xhci_service(void) {
                     // the drain. That is safe because posting touches
                     // only its own transfer ring and a doorbell -- never
                     // the event ring this loop owns.
+                    uint32_t len = idx < TRBS_PER_RING ? e->iso_len[idx] : e->mps;
                     uint32_t resid = ev.status & 0xFFFFFFu;
-                    uint32_t got = resid <= e->mps ? e->mps - resid : 0;
+                    uint32_t got = resid <= len ? len - resid : 0;
+                    if (code != XHCI_CC_SUCCESS && code != XHCI_CC_SHORT_PACKET) got = 0;
                     if (want && e->iso_done) e->iso_done(e->iso_ctx, got);
                 } else if (e && (code == XHCI_CC_SUCCESS || code == XHCI_CC_SHORT_PACKET)) {
                     uint32_t idx = (uint32_t)((src - e->ring.phys) /

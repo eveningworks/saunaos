@@ -135,10 +135,15 @@ void uui_sndformat_load(struct uui_sndformat *s, const struct query_sound *q) {
         if (s->depths & snd_depth_mask(widths[i]))
             dn += (size_t)snprintf(depth + dn, sizeof depth - dn, "%s%u", dn ? " or " : "",
                                    (unsigned)widths[i]);
+    // A USB card that sets the pace says so: the stream follows its
+    // clock, not the bus's.
+    char clock[40] = "";
+    if (q->clock) snprintf(clock, sizeof clock, ", on the card's own clock (%+d ppm)",
+                           (int)q->clock_ppm);
     if (q->active)
-        snprintf(s->now_text, sizeof s->now_text, "Playing now: %u-bit, %s. The card takes %s%s%s%s.",
+        snprintf(s->now_text, sizeof s->now_text, "Playing now: %u-bit, %s%s. The card takes %s%s%s%s.",
                  (unsigned)q->bits, usndfmt_rate_label(q->rate ? q->rate : SND_RATE, b, sizeof b),
-                 takes, dn ? " at " : "", depth, dn ? " bits" : "");
+                 clock, takes, dn ? " at " : "", depth, dn ? " bits" : "");
     else
         snprintf(s->now_text, sizeof s->now_text, "Not the output now. The card takes %s%s%s%s.",
                  takes, dn ? " at " : "", depth, dn ? " bits" : "");

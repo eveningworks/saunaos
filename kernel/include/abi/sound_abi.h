@@ -295,6 +295,10 @@ struct snd_driver_page {
     // driver applies its own at start().
     uint32_t rate;
     uint32_t bits;
+    // WHOSE CLOCK IT PLAYS AT, written by the driver: query_sound's
+    // `clock` and `clock_ppm` (a USB DAC following its feedback endpoint).
+    uint32_t clock;
+    int32_t  clock_ppm;
 };
 
 // What SYS_SND_REGISTER is handed. `ring_phys` comes back in it: the

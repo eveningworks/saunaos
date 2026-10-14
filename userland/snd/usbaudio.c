@@ -45,6 +45,9 @@
 // eats 8000 packets in that second -- so a wakeup has to queue ~45 to
 // break even, and the buffer has to hold several times that.
 #define PKT_BYTES 16384
+// A feedback reading is asked for every this many wakeups (~4 ms each).
+#define FB_EVERY 2
+#define FB_SETTLED_PPM 500
 
 static struct {
     int      slot;
@@ -54,12 +57,29 @@ static struct {
     int      fmt;
     uint32_t us, clock_rates;
     uint16_t mps;         // the endpoint as configured: its biggest alternate's
-    uint16_t frames;      // the rate's share of ONE service interval
-    uint16_t ring_bytes;  // what that costs in the s32 ring
-    uint16_t wire_bytes;  // ...and on the wire, which differ above 16 bits
+    // A PACKET'S FRAMES COME FROM `pace` -- the rate's share of one
+    // service interval, 44 or 45 at 44.1 kHz, and the DEVICE's share
+    // once its feedback is followed -- so each slot keeps its own cost
+    // in the s32 ring and on the wire, and `stride` is the busiest's.
+    struct usb_audio_pace pace;
+    uint16_t stride;
+    uint16_t slot_ring[256];
+    uint16_t slot_wire[256];
     uint8_t  group;       // packets per completion
     uint8_t  packets;     // how many fit in the frame
     uint8_t  next;        // the packet slot the next completion refills
+
+    // THE FEEDBACK ENDPOINT, 0 when the stream is not asynchronous: one
+    // TD at a time into `fbbuf` (its own grant), asked again every
+    // FB_EVERY wakeups, its length reaped -- usb_audio_fb_feed() reads it.
+    uint8_t  fb_ep;
+    uint16_t fb_mps;
+    uint8_t *fbbuf;
+    int      fb_pending;
+    uint8_t  fb_countdown;
+    struct usb_audio_fb fb;
+    int32_t  fb_lo, fb_hi;
+    uint32_t fb_unsettled_ms;   // the last reading refused or wide, from the start
 
     uint8_t *pkt;         // the granted buffer, ours to write
     const uint8_t *ring;  // the core's, READ-ONLY to us
@@ -131,13 +151,16 @@ static void write_sample(uint8_t *dst, int32_t v, uint8_t subslot) {
 static uint8_t subslot(void) { return g.s.formats[g.fmt].subslot; }
 
 static void copy_one_packet(uint8_t slot) {
-    uint8_t *dst = g.pkt + (uint32_t)slot * g.wire_bytes;
+    uint8_t *dst = g.pkt + (uint32_t)slot * g.stride;
     uint32_t at = g.copy_pos;
+    uint32_t frames = usb_audio_pace_next(&g.pace);
+    g.slot_ring[slot] = (uint16_t)(frames * SND_FRAME_BYTES);
+    g.slot_wire[slot] = (uint16_t)(frames * SND_CHANNELS * subslot());
 
     if (subslot() == 4) {
         // THE RING WRAPS MID-PACKET on most laps -- a packet divides
         // neither the ring nor a chunk -- so this is two copies.
-        uint32_t n = g.ring_bytes, first = SND_RING_BYTES - at;
+        uint32_t n = g.slot_ring[slot], first = SND_RING_BYTES - at;
         if (first > n) first = n;
         memcpy(dst, g.ring + at, first);
         if (first < n) memcpy(dst + first, g.ring, n - first);
@@ -147,7 +170,7 @@ static void copy_one_packet(uint8_t slot) {
     // Sample at a time, because the widths differ. `at` is always a
     // multiple of 4 and the ring is a whole number of frames, so a sample
     // never straddles the wrap and only the step has to check it.
-    uint32_t samples = (uint32_t)g.frames * SND_CHANNELS;
+    uint32_t samples = frames * SND_CHANNELS;
     for (uint32_t i = 0; i < samples; i++) {
         int32_t v;
         memcpy(&v, g.ring + at, 4);
@@ -236,24 +259,19 @@ static uint32_t read_clock_rates(void) {
     return m ? m : SND_RATE_48000;
 }
 
-// ONLY RATES WITH A WHOLE NUMBER OF FRAMES PER PACKET: a group is posted
-// in one call at one length (SYS_USB_ISOCH_POST), so 44.1 kHz's 44-and-
-// 45 packets are the in-kernel driver's. docs/roadmap.md has the rest.
-static uint32_t whole_rates(uint32_t mask) {
-    uint32_t out = 0;
-    for (int i = 0; i < SND_RATE_COUNT; i++)
-        if ((mask & (1u << i)) && (uint64_t)snd_rate_hz(i) * g.us % 1000000u == 0)
-            out |= 1u << i;
-    return out;
-}
-
 // The packet geometry for one rate at the current format.
 static int plan(uint32_t rate) {
-    uint32_t frames = (uint32_t)((uint64_t)rate * g.us / 1000000u);
+    uint32_t frames = usb_audio_pace_max(rate, g.us);
     if (!frames) return -1;
-    g.frames     = (uint16_t)frames;
-    g.ring_bytes = (uint16_t)(frames * SND_FRAME_BYTES);
-    g.wire_bytes = (uint16_t)(frames * SND_CHANNELS * subslot());
+    // FOLLOWING THE DEVICE CAN ASK FOR ONE FRAME MORE, when the
+    // alternate holds it; the feedback is refused above what a slot holds.
+    uint32_t per = SND_CHANNELS * subslot();
+    if (g.fb_ep && (frames + 1) * per <= g.s.formats[g.fmt].mps) frames++;
+    g.stride = (uint16_t)(frames * per);
+    memset(&g.pace, 0, sizeof g.pace);
+    g.pace.rate = rate;
+    g.pace.us = g.us;
+    usb_audio_fb_init(&g.fb, rate, g.us, g.s.uac2 ? 125u : 1000u, frames);
     // PACKETS PER COMPLETION, AND A RING-3 DRIVER WANTS MORE OF THEM
     // THAN THE KERNEL DOES. The in-kernel driver refills from inside
     // the interrupt handler, so one completion per millisecond costs it
@@ -262,7 +280,7 @@ static int plan(uint32_t rate) {
     // needs. Grouping ~4 ms per wakeup cuts the wakeups fourfold and
     // costs latency nobody can hear.
     uint32_t per_ms = g.us >= 1000 ? 1 : 1000 / g.us;
-    uint32_t fits = PKT_BYTES / g.wire_bytes;
+    uint32_t fits = PKT_BYTES / g.stride;
     // MEASURED, not chosen: 4 ms per wakeup sustained 94% of the
     // endpoint's rate, where 1 ms (the in-kernel driver's shape) gave
     // 90% and 6 and 8 ms collapsed below 10%.
@@ -494,8 +512,10 @@ static int usbaudio_open(struct snd_dev *dev) {
     g.mps = g.s.mps;
     for (int f = 0; f < g.s.nformats; f++)
         if (g.s.formats[f].mps > g.mps) g.mps = g.s.formats[f].mps;
+    g.fb_ep = g.s.formats[g.fmt].fb_ep;
+    g.fb_mps = g.s.formats[g.fmt].fb_mps;
     if (plan(SND_RATE) < 0) {
-        fprintf(stderr, "usbaudio: %u Hz does not divide a %u us interval\n",
+        fprintf(stderr, "usbaudio: no frames of %u Hz in a %u us interval\n",
                 (unsigned)SND_RATE, (unsigned)g.us);
         sys_usb_release(g.slot, USB_RELEASE_REBIND);
         return -1;
@@ -537,8 +557,28 @@ static int usbaudio_open(struct snd_dev *dev) {
     g.pkt = (uint8_t *)(uintptr_t)im.addr;
     memset(g.pkt, 0, PKT_BYTES);
 
+    // THE FEEDBACK ENDPOINT, the second this holder opens. Refused, the
+    // stream still plays -- at the bus's clock, as it did before it.
+    if (g.fb_ep) {
+        struct usb_isoch_msg fm;
+        memset(&fm, 0, sizeof fm);
+        fm.slot = (uint32_t)g.slot;
+        fm.ep = g.fb_ep;
+        fm.mps = g.fb_mps;
+        fm.interval = g.s.formats[g.fmt].fb_interval;
+        fm.dma_bytes = 4096;
+        if (sys_usb_isoch_open(&fm) == 0) {
+            g.fbbuf = (uint8_t *)(uintptr_t)fm.addr;
+        } else {
+            fprintf(stderr, "usbaudio: feedback endpoint 0x%x would not configure "
+                            "-- playing at the bus's clock\n", g.fb_ep);
+            g.fb_ep = 0;
+            plan(SND_RATE);
+        }
+    }
+
     for (int f = 0; f < g.s.nformats; f++) {
-        dev->rates  |= whole_rates(g.s.uac2 ? g.clock_rates : g.s.formats[f].rates);
+        dev->rates  |= g.s.uac2 ? g.clock_rates : g.s.formats[f].rates;
         dev->depths |= snd_depth_mask(g.s.formats[f].bits);
     }
     dev->bits = g.s.bits;          // narrowed per packet here; no bounce
@@ -546,10 +586,12 @@ static int usbaudio_open(struct snd_dev *dev) {
     dev->pci = -1;                 // not a PCI device; see usbaudio_match
     dev->priv = &g;
     fprintf(stderr, "usbaudio: slot %d, %s, if %u alt %u ep 0x%x %u-bit, "
-                    "%u frame(s) every %u us, %u packets, IOC every %u\n",
+                    "%u frame(s) every %u us, %u packets, IOC every %u, feedback ",
             g.slot, g.s.uac2 ? "UAC2" : "UAC1", g.s.ifnum, g.s.alt, g.s.ep,
-            (unsigned)g.s.subslot * 8, (unsigned)g.frames, (unsigned)g.us,
-            (unsigned)g.packets, (unsigned)g.group);
+            (unsigned)g.s.subslot * 8, (unsigned)usb_audio_pace_max(SND_RATE, g.us),
+            (unsigned)g.us, (unsigned)g.packets, (unsigned)g.group);
+    if (g.fb_ep) fprintf(stderr, "ep 0x%x\n", g.fb_ep);
+    else         fprintf(stderr, "none\n");
     return 0;
 }
 
@@ -560,6 +602,35 @@ static void usbaudio_close(struct snd_dev *dev) {
         sys_usb_release(g.slot, USB_RELEASE_REBIND);
         g.slot = -1;
     }
+}
+
+// A feedback TD that landed: ONE is posted at a time, so whatever was
+// reaped is it, and the last length is the reading.
+static void fb_poll(struct snd_dev *dev) {
+    if (!g.fb_ep) return;
+    uint16_t lens[64];
+    int n = sys_usb_isoch_reap(g.slot, g.fb_ep, lens, 64);
+    if (n <= 0) return;
+    g.fb_pending = 0;
+    if (!g.running) return;
+    uint32_t refused = g.fb.rejected;
+    int ok = usb_audio_fb_feed(&g.fb, g.fbbuf, lens[n - 1]);
+    int32_t ppm = usb_audio_fb_ppm(&g.fb);
+    if (g.fb.rejected != refused || (ok && (ppm > FB_SETTLED_PPM || ppm < -FB_SETTLED_PPM)))
+        g.fb_unsettled_ms = ms_since_start();
+    if (!ok) return;
+    usb_audio_pace_follow(&g.pace, g.fb.follow);
+    if (g.fb.accepted == 1 || ppm < g.fb_lo) g.fb_lo = ppm;
+    if (g.fb.accepted == 1 || ppm > g.fb_hi) g.fb_hi = ppm;
+    dev->clock = 1;
+    dev->clock_ppm = ppm;
+}
+
+static void fb_ask(void) {
+    if (!g.fb_ep || g.fb_pending || g.fb_countdown--) return;
+    g.fb_countdown = FB_EVERY;
+    if (sys_usb_isoch_post(g.slot, g.fb_ep, 0, g.fb_mps, 1, 1, g.fb_mps) == 1)
+        g.fb_pending = 1;
 }
 
 static int usbaudio_start(struct snd_dev *dev, uint64_t ring_phys) {
@@ -621,6 +692,10 @@ static int usbaudio_start(struct snd_dev *dev, uint64_t ring_phys) {
     g.copy_pos = 0;
     g.play_pos = 0;
     g.next = 0;
+    fb_poll(dev);             // the last stream's reading, discarded
+    g.fb_countdown = 0;
+    g.fb_lo = g.fb_hi = 0;
+    g.fb_unsettled_ms = 0;
     g.running = 1;
     // SET `USBAUDIO_PROBE=1` IN snddrv's ENVIRONMENT to turn the
     // lateness counters on. Off by default because they sit in the
@@ -634,8 +709,8 @@ static int usbaudio_start(struct snd_dev *dev, uint64_t ring_phys) {
     g.probe = getenv("USBAUDIO_PROBE") != 0;
     g.pr_polls = g.pr_ev = g.pr_late = g.pr_nmax = g.pr_ticks = 0;
     if (g.probe)
-        fprintf(stderr, "usbaudio: probe on -- packets=%u group=%u wire=%u frames=%u\n",
-                g.packets, g.group, g.wire_bytes, g.frames);
+        fprintf(stderr, "usbaudio: probe on -- packets=%u group=%u stride=%u frames<=%u\n",
+                g.packets, g.group, g.stride, (unsigned)usb_audio_pace_max(dev->rate, g.us));
     // PRIME IT: an isochronous endpoint with nothing posted is idle,
     // and the first completion is what drives every refill after it.
     // The COPIES are per packet; the POSTS are one call per group, for
@@ -651,10 +726,11 @@ static int usbaudio_start(struct snd_dev *dev, uint64_t ring_phys) {
     // IN FLIGHT ONLY IF THE IOC TRB WENT ON: a post the kernel refused
     // part-way (a full ring) will never complete.
     for (uint8_t k = 0; k + g.group <= g.packets; k = (uint8_t)(k + g.group))
-        if (sys_usb_isoch_post(g.slot, g.s.ep, (uint32_t)k * g.wire_bytes,
-                               g.wire_bytes, 1, g.group, g.wire_bytes) == g.group)
+        if (sys_usb_isoch_post_lens(g.slot, g.s.ep, (uint32_t)k * g.stride, g.stride,
+                                    1, g.group, &g.slot_wire[k]) == g.group)
             g.inflight++;
     g.next = 0;
+    fb_ask();
     return 0;
 }
 
@@ -668,6 +744,19 @@ static void usbaudio_stop(struct snd_dev *dev) {
                     "longest wait %u ms, ending at %u\n",
             ms_since_start(), g.run_ev, g.run_first_n, g.run_nmax,
             (int)g.inflight, g.run_dry, at, g.run_gap_ms, g.run_gap_at);
+    if (g.fb.accepted)
+        fprintf(stderr, "usbaudio: clock: the device's, %+d ppm (%+d..%+d over %u "
+                        "reading(s), %u refused; within %d ppm after %u ms)\n",
+                (int)usb_audio_fb_ppm(&g.fb), (int)g.fb_lo, (int)g.fb_hi,
+                (unsigned)g.fb.accepted, (unsigned)g.fb.rejected, FB_SETTLED_PPM,
+                (unsigned)g.fb_unsettled_ms);
+    else
+        fprintf(stderr, "usbaudio: clock: the bus's (%s)\n",
+                g.fb_ep ? (g.fb.rejected ? "feedback refused" : "no feedback came")
+                        : "no feedback endpoint");
+    if (g.fb.rejected)
+        fprintf(stderr, "usbaudio: the last refused reading was %#x, nominal %#x a packet\n",
+                (unsigned)g.fb.refused_raw, (unsigned)g.fb.nominal);
     // NOTHING IS CANCELLED: the TDs already posted play out over the
     // next few milliseconds and the endpoint goes quiet on its own --
     // and their completions are still owed, which start() collects.
@@ -678,8 +767,8 @@ static void usbaudio_stop(struct snd_dev *dev) {
 }
 
 static int usbaudio_period(struct snd_dev *dev) {
-    (void)dev;
     if (!g.running) return SND_IRQ_NOT_MINE;
+    fb_poll(dev);
     int n = sys_usb_isoch_status(g.slot, g.s.ep);
     if (n <= 0) return SND_IRQ_NOT_MINE;
 
@@ -720,7 +809,12 @@ static int usbaudio_period(struct snd_dev *dev) {
     // ONE EVENT COVERS A GROUP -- only the last of each carries IOC --
     // so the ring advances by the whole group, per event.
     for (int e = 0; e < n; e++) {
-        g.play_pos = (g.play_pos + (uint32_t)g.ring_bytes * g.group) % SND_RING_BYTES;
+        // The oldest group in flight is the one at `next` -- the one
+        // about to be refilled -- so its slots say what it consumed.
+        uint32_t moved = 0;
+        for (uint8_t k = 0; k < g.group; k++)
+            moved += g.slot_ring[(g.next + k) % g.packets];
+        g.play_pos = (g.play_pos + moved) % SND_RING_BYTES;
         // ONE CALL FOR THE WHOLE GROUP. The packets are contiguous in
         // the buffer, so a stride covers them -- unless the group wraps
         // the buffer's end, which is posted as two calls rather than
@@ -730,15 +824,17 @@ static int usbaudio_period(struct snd_dev *dev) {
         uint8_t run = room < g.group ? room : g.group;
         for (uint8_t k = 0; k < g.group; k++)
             copy_one_packet((uint8_t)((first + k) % g.packets));
-        int ok = sys_usb_isoch_post(g.slot, g.s.ep, (uint32_t)first * g.wire_bytes,
-                                    g.wire_bytes, run == g.group, run, g.wire_bytes) == run;
+        int ok = sys_usb_isoch_post_lens(g.slot, g.s.ep, (uint32_t)first * g.stride,
+                                         g.stride, run == g.group, run,
+                                         &g.slot_wire[first]) == run;
         if (run < g.group)
-            ok = sys_usb_isoch_post(g.slot, g.s.ep, 0, g.wire_bytes, 1,
-                                    (uint8_t)(g.group - run), g.wire_bytes) ==
+            ok = sys_usb_isoch_post_lens(g.slot, g.s.ep, 0, g.stride, 1,
+                                         (uint8_t)(g.group - run), &g.slot_wire[0]) ==
                  g.group - run;
         if (ok) g.inflight++;     // one IOC per group, split or not
         g.next = (uint8_t)((first + g.group) % g.packets);
     }
+    fb_ask();
     // ON A CHUNK BOUNDARY, which is the only granularity the core's
     // zeroing rule is defined at (abi/sound_abi.h).
     return (int)((g.play_pos / SND_CHUNK_BYTES) * SND_CHUNK_BYTES);
