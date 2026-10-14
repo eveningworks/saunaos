@@ -3371,15 +3371,38 @@ window without going through it will find its layout polls timing out.
   `press_row` reset ahead of `ic_press()`'s scrollbar branch: the
   folder goes with the pointer and the grid stays put.
 
-- **`zip_gui_test.py`** -- a `.zip` as a folder (`fm_zip.c` over
-  `lib/uzip.h`). The archive is written by Python's `zipfile` on the
+- **`archive_gui_test.py`** -- archives in the File Manager
+  (`fm_archive.c`, `fm_compress.c`, over `lib/uarchive.h`). A `.zip` and
+  a `.tar.gz` are written by Python's `zipfile` and `tarfile` on the
   host and put on the guest with `vm.py put` **BEFORE the test takes the
   debug console**: put talks over the same socket, and with the test
-  holding it the file never arrived and nothing said so. Checks the
-  derived folders, opening a folder in place, Up to the archive's own
-  folder, Extract all against the sizes zipfile wrote, and opening a
-  member through /tmp/zip-open. Its positive control stops extraction
-  making parent folders: the Extract all check reddens.
+  holding it the file never arrived and nothing said so. For each:
+  the derived folders, opening a folder in place, Up to the archive's
+  own folder, Extract all against the sizes Python wrote, and opening a
+  member through /tmp/zip-open. Then Compress to ZIP from the context
+  menu (named in place, then opened back as a folder), Compress... as
+  `.tar.gz` from the keyboard, and on an archive FILE Extract here (into
+  `zt`, selected) and Extract to... (its chooser opens; Esc cancels).
+  A layout that never arrives is read as an empty one, so a broken build
+  FAILS its checks rather than crashing the run. Two traps it encodes: a real folder
+  lists `..` as row 0, so a right-click aimed by row index is off by
+  one without it; and closing the Notepad a member opened in does not
+  promise where focus lands, so the test clicks the pane before typing
+  again. Its positive control -- extraction not making parent folders
+  -- reddens Extract all for both formats. Whether another archiver can read what toy-os WRITES is
+  `archive_hostcheck.py`'s question, not this one.
+
+- **`archive_hostcheck.py`** -- `lib/uzip` and `lib/utar` compiled on
+  the HOST (shims for `sys_stat` and the calendar) against Python's
+  zipfile, tarfile and gzip, BOTH ways: what the C writers make at every
+  level (and `.tar`, `.tar.gz`, with a ustar-prefixed name and one only a
+  GNU long-name member holds) must read back byte for byte, `testzip()`
+  clean, and the levels must actually differ on real prose (store >
+  fast > normal >= best); what Python writes (zip stored and deflated,
+  GNU and pax tar, `.tar.gz`, a lone `.gz`) must list at its sizes and
+  extract byte for byte; a wrong header checksum must be refused.
+  `--positive-control` breaks the tar checksum and the zip CRC: exactly
+  the six writer checks redden. In `ondemand_sweep.py`.
 
 - **`rename_gui_test.py`** -- Rename many (`lib/urename.h`,
   `ui/uui_renamer.h`): Ctrl+A then F2 opens "Rename 3 items", Enter

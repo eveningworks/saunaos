@@ -221,6 +221,9 @@ static const struct uui_menu_item more_items[] = {
     UUI_MENU_VERB("Move to other pane", CMD_MOVE,       "F6",     MOVE),
     UUI_MENU_VERB("Other pane",         CMD_SWAP,       "Tab",    SWAP),
     UUI_MENU_SEP,
+    UUI_MENU_VERB("Compress to ZIP",    CMD_COMPRESS_ZIP, 0,      COMPRESS),
+    UUI_MENU_VERB("Compress...",        CMD_COMPRESS_ASK, 0,      COMPRESS),
+    UUI_MENU_SEP,
     UUI_MENU_VERB("Properties",         CMD_PROPERTIES, 0,        PROPERTIES),
     UUI_MENU_VERB("Options...",         CMD_OPTIONS,    0,        SETTINGS),
     UUI_MENU_SEP,
@@ -257,6 +260,7 @@ static const struct uui_toolbar_item toolbar_items[] = {
     { "tb-paste",   "Paste (Ctrl+V)",   CMD_CLIP_PASTE, 0, 0, 0, TINT_NAV },
     { "tb-rename",  "Rename (F2)",      CMD_RENAME,     0, 0, 0, TINT_VIOLET },
     { "tb-delete",  "Delete (Del)",     CMD_DELETE,     0, 0, 0, TINT_RED },
+    { "tb-archive", "Compress to ZIP",  CMD_COMPRESS_ZIP, 0, 0, 0, TINT_GREEN },
     UUI_TOOLBAR_SEP,
     { "tb-sort",    0,                  CMD_MENU_SORT,  "Sort", UUI_TB_MENU, 0, TINT_TEAL },
     { "tb-view",    0,                  CMD_MENU_VIEW,  "View", UUI_TB_MENU, 0, TINT_ORANGE },
@@ -293,9 +297,10 @@ static const struct uui_toolbar_item recent_toolbar_items[] = {
 };
 
 // ...and inside an archive: read-only, so the verbs are Extract.
-static const struct uui_toolbar_item zip_toolbar_items[] = {
+static const struct uui_toolbar_item arc_toolbar_items[] = {
     { "tb-new",  "Extract everything beside the archive", CMD_EXTRACT_ALL, "Extract all", 0, 0, TINT_GREEN },
     { "tb-copy", "Extract what is selected",              CMD_EXTRACT_SEL, "Extract selected", 0, 0, TINT_GREEN },
+    { "tb-move", "Extract the selection, or everything, to a folder you choose", CMD_EXTRACT_TO, "Extract to...", 0, 0, TINT_GREEN },
     UUI_TOOLBAR_SEP,
     { "tb-sort",    0,                  CMD_MENU_SORT,  "Sort", UUI_TB_MENU, 0, TINT_TEAL },
     { "tb-view",    0,                  CMD_MENU_VIEW,  "View", UUI_TB_MENU, 0, TINT_ORANGE },
@@ -330,6 +335,10 @@ static const struct uui_menu_item ctx_items[] = {
     UUI_MENU_VERB("Pin to Places",     CMD_PIN,      0,     PIN),        // a folder not yet pinned
     UUI_MENU_VERB("Unpin from Places", CMD_UNPIN,    0,     PIN),        // ...and one that is
     UUI_MENU_VERB("Edit in Notepad",   CMD_EDIT,     0,     NOTEPAD),    // dropped for anything but a text file
+    UUI_MENU_VERB("Extract here",      CMD_EXTRACT_HERE, 0, COMPRESS),   // an archive file only
+    UUI_MENU_VERB("Extract to...",     CMD_EXTRACT_TO,   0, COMPRESS),   // ...or inside one
+    UUI_MENU_VERB("Compress to ZIP",   CMD_COMPRESS_ZIP, 0, COMPRESS),
+    UUI_MENU_VERB("Compress...",       CMD_COMPRESS_ASK, 0, COMPRESS),
     UUI_MENU_SEP,
     UUI_MENU_VERB("Paste",       CMD_CLIP_PASTE, "Ctrl+V", PASTE),
     UUI_MENU_SEP,
@@ -411,7 +420,7 @@ static int selected_launch(struct ulaunch_info *out) {
     memset(out, 0, sizeof *out);
     if (uui_fileview_selected_is_dir(active()) ||
         !uui_fileview_selected_path(active(), path, sizeof path) ||
-        in_bin(active()) || in_zip(active()))
+        in_bin(active()) || in_archive(active()))
         return ULAUNCH_NONE;
     ulaunch_classify(path, out);
     return out->kind;
@@ -438,6 +447,7 @@ static int build_ctx_items(void) {
     }
     int runs = !is_dir && selected_launch(0) != ULAUNCH_NONE && selected_launch(0) != ULAUNCH_APP;
     int share = net_in_share(uui_fileview_dir(active()));
+    int arc_file = selected_archive(path, sizeof path);   // Extract here / to...
     for (int i = 0; i < (int)(sizeof ctx_items / sizeof ctx_items[0]); i++) {
         int net = ctx_items[i].code == CMD_NET_SIGNIN || ctx_items[i].code == CMD_NET_DISCONNECT ||
                   ctx_items[i].code == CMD_NET_FORGET;
@@ -446,6 +456,10 @@ static int build_ctx_items(void) {
         if (!share && !ctx_items[i].label && i + 1 < (int)(sizeof ctx_items / sizeof ctx_items[0]) &&
             ctx_items[i + 1].code == CMD_NET_SIGNIN) continue;
         if (ctx_items[i].code == CMD_EDIT && !can_edit) continue;
+        if (ctx_items[i].code == CMD_EXTRACT_HERE && !arc_file) continue;
+        if (ctx_items[i].code == CMD_EXTRACT_TO && !arc_file && !in_archive(active())) continue;
+        if ((ctx_items[i].code == CMD_COMPRESS_ZIP || ctx_items[i].code == CMD_COMPRESS_ASK) &&
+            in_archive(active())) continue;
         if ((ctx_items[i].code == CMD_RUN || ctx_items[i].code == CMD_RUN_TERMINAL) && !runs) continue;
         if (ctx_items[i].code == CMD_OPEN && runs) continue;
         if (ctx_items[i].code == CMD_OPEN_TAB && !uui_fileview_selected_is_dir(active())) continue;
@@ -475,7 +489,7 @@ static unsigned menu_item_flags(int code) {
     unsigned bin;
     if (bin_item_flags(code, &bin)) return bin;   // the Recycle Bin's own rules
     if (search_item_flags(code, &bin)) return bin;   // ...and a search's
-    if (zip_item_flags(code, &bin)) return bin;      // ...and an archive's
+    if (arc_item_flags(code, &bin)) return bin;      // ...and an archive's
     if (recent_item_flags(code, &bin)) return bin;   // ...and Recent's
     if (code == CMD_UNDO || code == CMD_REDO)
         return undo_can(code == CMD_REDO) ? 0 : UUI_MI_DISABLED;
@@ -502,6 +516,8 @@ static unsigned menu_item_flags(int code) {
     case CMD_CLIP_CUT:
     case CMD_DELETE:
     case CMD_DELETE_FOREVER:
+    case CMD_COMPRESS_ZIP:
+    case CMD_COMPRESS_ASK:
         return operand_count() > 0 ? 0 : UUI_MI_DISABLED;
     case CMD_CLIP_PASTE:
         // Greyed when there is nothing to paste, which is what tells a
@@ -710,7 +726,7 @@ static const struct uui_fileview_source *resolve_virtual(void *ctx, const char *
     if (strcmp(dir, FM_BIN) == 0) return bin_source();
     if (strcmp(dir, FM_RECENT) == 0) return recent_source();
     if (search_scope(dir)) return search_source();
-    if (!strncmp(dir, FM_ZIP, sizeof FM_ZIP - 1)) return zip_source();
+    if (!strncmp(dir, FM_ARC, sizeof FM_ARC - 1)) return arc_source();
     return 0;
 }
 
@@ -756,15 +772,15 @@ void path_sync(void) {
     tabs_sync(g_app);
     const struct uui_toolbar_item *want = in_bin(active()) ? bin_toolbar_items
                                         : in_recent(active()) ? recent_toolbar_items
-                                        : in_zip(active()) ? zip_toolbar_items : toolbar_items;
+                                        : in_archive(active()) ? arc_toolbar_items : toolbar_items;
     if (g_toolbar.items != want) {
         g_toolbar.items = want;
         g_toolbar.count = want == bin_toolbar_items
                         ? (int)(sizeof bin_toolbar_items / sizeof bin_toolbar_items[0])
                         : want == recent_toolbar_items
                         ? (int)(sizeof recent_toolbar_items / sizeof recent_toolbar_items[0])
-                        : want == zip_toolbar_items
-                        ? (int)(sizeof zip_toolbar_items / sizeof zip_toolbar_items[0])
+                        : want == arc_toolbar_items
+                        ? (int)(sizeof arc_toolbar_items / sizeof arc_toolbar_items[0])
                         : (int)(sizeof toolbar_items / sizeof toolbar_items[0]);
         g_toolbar.hot = g_toolbar.armed = -1;
     }
@@ -910,10 +926,10 @@ void do_command(struct uapp *a, int code) {
     if (code >= CMD_PL_FIRST && code <= CMD_PL_LAST) { places_command(a, code); return; }
     // A command the bin greys is refused here too: a key reaches this
     // without asking menu_item_flags().
-    if ((in_bin(active()) || in_search(active()) || in_zip(active()) || in_recent(active())) &&
+    if ((in_bin(active()) || in_search(active()) || in_archive(active()) || in_recent(active())) &&
         (menu_item_flags(code) & UUI_MI_DISABLED) && code != CMD_UP) {
         set_note(in_bin(active()) ? "not in the Recycle Bin"
-                 : in_zip(active()) ? "an archive is read-only -- extract it first"
+                 : in_archive(active()) ? "an archive is read-only -- extract it first"
                  : in_recent(active()) ? "not in Recent -- open the folder first"
                  : "not in search results");
         return;
@@ -921,7 +937,7 @@ void do_command(struct uapp *a, int code) {
     // In Recent, Delete takes the row off the list, never the file.
     if (in_recent(active()) && code == CMD_DELETE) code = CMD_RECENT_FORGET;
     // Inside an archive, Copy to the other pane EXTRACTS there.
-    if (in_zip(active()) && code == CMD_COPY) {
+    if (in_archive(active()) && code == CMD_COPY) {
         do_extract(0, uui_fileview_dir(other()), 0);
         return;
     }
@@ -953,12 +969,16 @@ void do_command(struct uapp *a, int code) {
     case CMD_PIN:            pin_selected(1); break;
     case CMD_NET_SIGNIN: case CMD_NET_DISCONNECT: case CMD_NET_FORGET: case CMD_NET_OPEN:
         net_command(code); break;
+    case CMD_COMPRESS_ZIP:
+    case CMD_COMPRESS_ASK:   compress_command(code); break;
+    case CMD_EXTRACT_HERE:
+    case CMD_EXTRACT_TO:     extract_command(code); break;
     case CMD_EXTRACT_ALL:
     case CMD_EXTRACT_SEL: {
         char archive[PATH_MAX_LEN], dest[PATH_MAX_LEN];
         const char *inner;
-        if (zip_split(uui_fileview_dir(active()), archive, sizeof archive, &inner) &&
-            zip_default_dest(archive, dest, sizeof dest))
+        if (arc_split(uui_fileview_dir(active()), archive, sizeof archive, &inner) &&
+            arc_default_dest(archive, dest, sizeof dest))
             do_extract(code == CMD_EXTRACT_ALL, dest, 1);
         break;
     }
@@ -1678,14 +1698,14 @@ static void on_pane_open(void *ctx, const char *path) {
     }
     // A FILE INSIDE AN ARCHIVE is extracted to /tmp first and that copy
     // opened -- Explorer's way; an app cannot read "zip:...".
-    if (in_zip(&g_pane[(int)(intptr_t)ctx])) {
+    if (in_archive(&g_pane[(int)(intptr_t)ctx])) {
         do_extract(0, "/tmp/zip-open", 2);
         return;
     }
     // AN ARCHIVE OPENS AS A FOLDER, Explorer's compressed folders.
-    if (is_zip_name(path)) {
+    if (is_archive_name(path)) {
         char dir[PATH_MAX_LEN + 8];
-        snprintf(dir, sizeof dir, "%s%s", FM_ZIP, path);
+        snprintf(dir, sizeof dir, "%s%s", FM_ARC, path);
         fm_goto((int)(intptr_t)ctx, dir);
         return;
     }
@@ -1855,6 +1875,11 @@ static void answer_dialog(int code) {
     }
     if (kind == DIALOG_PROMPT) {
         answer_prompt(code);
+        refresh_status();
+        return;
+    }
+    if (kind == DIALOG_COMPRESS) {
+        compress_answer(code);
         refresh_status();
         return;
     }
@@ -2039,7 +2064,7 @@ int main(int argc, char **argv) {
     uui_pathbar_set_scheme(&g_path, FM_BIN, "Recycle Bin", "place-trash");
     uui_pathbar_set_scheme(&g_path, FM_RECENT, "Recent", "place-recent");
     uui_pathbar_set_scheme(&g_path, "search:/", "Search results", "tb-find");
-    uui_pathbar_set_scheme(&g_path, "zip:/", "Archive", "file-app");
+    uui_pathbar_set_scheme(&g_path, FM_ARC "/", "Archive", "file-archive");
     uui_segmented_init(&g_scope_seg, g_scope_names, 3, 0);
     uui_button_init(&g_search_stop, 0, 0, 0, 0, "Stop", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SEARCH_STOP);
     uui_textbox_init(&g_search, "");

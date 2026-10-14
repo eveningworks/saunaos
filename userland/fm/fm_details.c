@@ -68,9 +68,9 @@ static int described(char *path, int cap, const struct sys_dirent **ent) {
     if (uui_fileview_mark_count(fv) > 1) return 0;
     // The selection's REAL path -- in the Recycle Bin, where it lies in
     // the bin, not "trash:/" joined with its name.
-    if (e && in_zip(fv)) return 0;   // a member has no path to read facts from
+    if (e && in_archive(fv)) return 0;   // a member has no path to read facts from
     if (e) return uui_fileview_selected_path(fv, path, cap);
-    if (in_bin(fv) || in_search(fv) || in_zip(fv) || in_recent(fv)) return 0;   // a virtual folder is nothing to describe
+    if (in_bin(fv) || in_search(fv) || in_archive(fv) || in_recent(fv)) return 0;   // a virtual folder is nothing to describe
     strlcpy(path, dir, (size_t)cap);
     return 1;
 }
@@ -177,7 +177,7 @@ static void draw_marked(struct ugfx_surface *s, uint32_t bg) {
     char title[48], h[24], path[UUI_FILEVIEW_PATH_MAX];
     const char *one = uui_fileview_selected_name(fv);
     if (marks) snprintf(title, sizeof title, "%d items selected", marks);
-    else if (in_zip(fv) && one) snprintf(title, sizeof title, "%s", one);   // a member: its name
+    else if (in_archive(fv) && one) snprintf(title, sizeof title, "%s", one);   // a member: its name
     else snprintf(title, sizeof title, "Nothing selected");
     int y = by + bh + 10;
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
@@ -192,7 +192,7 @@ static void draw_marked(struct ugfx_surface *s, uint32_t bg) {
             bytes += st.size;
     }
     const struct sys_dirent *sel = uui_fileview_selected_entry(fv);
-    int member = !marks && in_zip(fv) && sel && !sel->is_dir;
+    int member = !marks && in_archive(fv) && sel && !sel->is_dir;
     if (member) bytes = sel->size;
     human_size(h, sizeof h, bytes);
     uint32_t dim = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
@@ -208,7 +208,7 @@ static void draw_marked(struct ugfx_surface *s, uint32_t bg) {
     const char *inner;
     const char *where = in_bin(fv) ? "Recycle Bin" : in_search(fv) ? "Search results"
                       : in_recent(fv) ? "Recent"
-                      : zip_split(uui_fileview_dir(fv), archive, sizeof archive, &inner)
+                      : arc_split(uui_fileview_dir(fv), archive, sizeof archive, &inner)
                         ? k_path_basename(archive) : uui_fileview_dir(fv);
     ugfx_draw_string_elided(s, bx + kw, y, bw - kw, where, UTHEME_TEXT, bg);
 }

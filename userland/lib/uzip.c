@@ -2,6 +2,7 @@
 #include "lib/uzip.h"
 #include "lib/uinflate.h"
 #include "lib/ubytes.h"
+#include "rt/sys.h"
 #include <kcrc.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -214,7 +215,7 @@ int uzip_extract(const char *zip_path, const char *name, const char *out_path,
         return failf(err, errcap, -ENAMETOOLONG, "%s: name too long", out_path);
     }
     struct out o = { .crc = KCRC32_INIT, .total = m.usize, .progress = progress, .ctx = ctx };
-    o.fd = open(part, O_WRONLY | O_CREAT | O_TRUNC);
+    o.fd = open(part, O_WRONLY | O_CREAT | O_TRUNC, 0644);
     if (o.fd < 0) { free(src); return failf(err, errcap, -EACCES, "cannot write %s", part); }
 
     if (m.method == 0) {
@@ -240,4 +241,226 @@ int uzip_extract(const char *zip_path, const char *name, const char *out_path,
         return failf(err, errcap, -EIO, "cannot rename %s into place", part);
     }
     return 0;
+}
+
+// --- writing ----------------------------------------------------------
+
+struct uzip_wentry {
+    char *name;
+    uint32_t crc, csize, usize, offset;
+    uint16_t method, dos_date, dos_time;
+    uint8_t is_dir;
+};
+
+static void put16(unsigned char *p, unsigned v) { p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8); }
+static void put32(unsigned char *p, uint32_t v) {
+    p[0] = (unsigned char)v; p[1] = (unsigned char)(v >> 8);
+    p[2] = (unsigned char)(v >> 16); p[3] = (unsigned char)(v >> 24);
+}
+
+static int write_all(int fd, const void *buf, size_t n) {
+    const unsigned char *p = buf;
+    while (n) {
+        long w = write(fd, p, n);
+        if (w <= 0) return -1;
+        p += w;
+        n -= (size_t)w;
+    }
+    return 0;
+}
+
+// MS-DOS packs a date as years-since-1980 | month | day and a time in
+// two-second steps; before 1980 is not representable, so it clamps.
+static void dos_stamp(const char *path, uint16_t *date, uint16_t *tm) {
+    struct sys_stat st;
+    unsigned y = 1980, mo = 1, d = 1, h = 0, mi = 0, s = 0;
+    if (sys_stat(path, &st) == 0 && st.modified.year >= 1980) {
+        y = st.modified.year; mo = st.modified.month; d = st.modified.day;
+        h = st.modified.hour; mi = st.modified.minute; s = st.modified.second;
+    }
+    *date = (uint16_t)(((y - 1980) << 9) | (mo << 5) | d);
+    *tm = (uint16_t)((h << 11) | (mi << 5) | (s / 2));
+}
+
+int uzip_create_begin(struct uzip_writer *w, const char *out_path, char *err, int errcap) {
+    memset(w, 0, sizeof *w);
+    w->fd = -1;
+    if (snprintf(w->out, sizeof w->out, "%s", out_path) >= (int)sizeof w->out ||
+        snprintf(w->part, sizeof w->part, "%s.part", out_path) >= (int)sizeof w->part)
+        return failf(err, errcap, -ENAMETOOLONG, "%s: name too long", out_path);
+    w->fd = open(w->part, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (w->fd < 0) return failf(err, errcap, -EACCES, "cannot write %s", w->part);
+    return 0;
+}
+
+static struct uzip_wentry *new_entry(struct uzip_writer *w, const char *name, char *err, int errcap) {
+    if (strlen(name) >= UZIP_NAME_MAX) { failf(err, errcap, -ENAMETOOLONG, "%s: name too long", name); return 0; }
+    if (w->count == w->cap) {
+        int cap = w->cap ? w->cap * 2 : 64;
+        struct uzip_wentry *g = realloc(w->ent, sizeof *g * (size_t)cap);
+        if (!g) { failf(err, errcap, -ENOMEM, "out of memory for the directory"); return 0; }
+        w->ent = g;
+        w->cap = cap;
+    }
+    struct uzip_wentry *e = &w->ent[w->count];
+    memset(e, 0, sizeof *e);
+    e->name = strdup(name);
+    if (!e->name) { failf(err, errcap, -ENOMEM, "out of memory for the directory"); return 0; }
+    w->count++;
+    return e;
+}
+
+static int write_local(struct uzip_writer *w, struct uzip_wentry *e, const void *data) {
+    unsigned char h[LOCAL_LEN];
+    size_t nlen = strlen(e->name);
+    put32(h, LOCAL_SIG);
+    put16(h + 4, 20);                // version needed: 2.0, deflate
+    put16(h + 6, 0x0800);            // bit 11: the name is UTF-8
+    put16(h + 8, e->method);
+    put16(h + 10, e->dos_time);
+    put16(h + 12, e->dos_date);
+    put32(h + 14, e->crc);
+    put32(h + 18, e->csize);
+    put32(h + 22, e->usize);
+    put16(h + 26, (unsigned)nlen);
+    put16(h + 28, 0);
+    e->offset = (uint32_t)w->offset;
+    if (write_all(w->fd, h, sizeof h) || write_all(w->fd, e->name, nlen) ||
+        (e->csize && write_all(w->fd, data, e->csize)))
+        return -1;
+    w->offset += sizeof h + nlen + e->csize;
+    return 0;
+}
+
+int uzip_add_dir(struct uzip_writer *w, const char *name, char *err, int errcap) {
+    char n[UZIP_NAME_MAX + 1];
+    size_t l = strlen(name);
+    if (snprintf(n, sizeof n, "%s%s", name, l && name[l - 1] == '/' ? "" : "/") >= (int)sizeof n)
+        return failf(err, errcap, -ENAMETOOLONG, "%s: name too long", name);
+    struct uzip_wentry *e = new_entry(w, n, err, errcap);
+    if (!e) return -ENOMEM;
+    e->is_dir = 1;
+    e->dos_date = (uint16_t)((0 << 9) | (1 << 5) | 1);
+    if (write_local(w, e, 0)) return failf(err, errcap, -EIO, "writing %s failed", w->part);
+    return 0;
+}
+
+// The largest member this reads whole -- and holds twice, raw and packed.
+#define UZIP_MEMBER_MAX (512ul * 1024 * 1024)
+
+int uzip_add_file(struct uzip_writer *w, const char *name, const char *src_path, int level,
+                  uzip_progress progress, void *ctx, char *err, int errcap) {
+    struct sys_stat st;
+    if (sys_stat(src_path, &st) != 0) return failf(err, errcap, -ENOENT, "cannot read %s", src_path);
+    if (st.size >= 0xFFFFFFFFull || st.size > UZIP_MEMBER_MAX)
+        return failf(err, errcap, -E2BIG, "%s is too big to compress here", src_path);
+    unsigned long n = (unsigned long)st.size;
+    unsigned char *raw = malloc(n ? n : 1);
+    if (!raw) return failf(err, errcap, -ENOMEM, "out of memory for %s", src_path);
+    int fd = open(src_path, O_RDONLY);
+    if (fd < 0) { free(raw); return failf(err, errcap, -EACCES, "cannot open %s", src_path); }
+    unsigned long got = 0;
+    while (got < n) {
+        long r = read(fd, raw + got, n - got);
+        if (r <= 0) break;
+        got += (unsigned long)r;
+        if (progress && progress(ctx, got / 2, n)) {   // reading is half the work
+            close(fd); free(raw);
+            return failf(err, errcap, -EINTR, "stopped");
+        }
+    }
+    close(fd);
+    if (got != n) { free(raw); return failf(err, errcap, -EIO, "%s changed while it was read", src_path); }
+
+    struct uzip_wentry *e = new_entry(w, name, err, errcap);
+    if (!e) { free(raw); return -ENOMEM; }
+    e->usize = (uint32_t)n;
+    e->crc = KCRC32_FINAL(kcrc32_update(KCRC32_INIT, raw, n));
+    dos_stamp(src_path, &e->dos_date, &e->dos_time);
+
+    // DEFLATED ONLY WHEN IT IS SMALLER: a JPEG or another archive comes
+    // out bigger, and every archiver stores those.
+    unsigned char *packed = 0;
+    size_t plen = 0;
+    if (level > 0 && n > 0) {
+        size_t cap = udeflate_bound(n);
+        packed = malloc(cap);
+        if (packed && udeflate_level_into(raw, n, UINFLATE_RAW, (enum udeflate_level)level,
+                                          packed, cap, &plen) != 0) {
+            free(packed);
+            packed = 0;
+        }
+    }
+    int rc;
+    if (packed && plen < n) {
+        e->method = 8;
+        e->csize = (uint32_t)plen;
+        rc = write_local(w, e, packed);
+    } else {
+        e->method = 0;
+        e->csize = (uint32_t)n;
+        rc = write_local(w, e, raw);
+    }
+    free(packed);
+    free(raw);
+    if (rc) return failf(err, errcap, -EIO, "writing %s failed", w->part);
+    if (progress) progress(ctx, n, n);
+    return 0;
+}
+
+int uzip_create_end(struct uzip_writer *w, char *err, int errcap) {
+    unsigned long cd_start = w->offset, cd_len = 0;
+    for (int i = 0; i < w->count; i++) {
+        struct uzip_wentry *e = &w->ent[i];
+        unsigned char c[CDIR_LEN];
+        size_t nlen = strlen(e->name);
+        memset(c, 0, sizeof c);
+        put32(c, CDIR_SIG);
+        put16(c + 4, 0x031E);        // made by: Unix, spec 3.0
+        put16(c + 6, 20);
+        put16(c + 8, 0x0800);
+        put16(c + 10, e->method);
+        put16(c + 12, e->dos_time);
+        put16(c + 14, e->dos_date);
+        put32(c + 16, e->crc);
+        put32(c + 20, e->csize);
+        put32(c + 24, e->usize);
+        put16(c + 28, (unsigned)nlen);
+        // External attributes: Unix mode in the high half, and MS-DOS's
+        // directory bit, so both kinds of unzip see a folder as one.
+        put32(c + 38, e->is_dir ? ((0040755u << 16) | 0x10) : (0100644u << 16));
+        put32(c + 42, e->offset);
+        if (write_all(w->fd, c, sizeof c) || write_all(w->fd, e->name, nlen)) {
+            uzip_create_abort(w);
+            return failf(err, errcap, -EIO, "writing the directory failed");
+        }
+        cd_len += sizeof c + nlen;
+    }
+    unsigned char eocd[EOCD_LEN];
+    memset(eocd, 0, sizeof eocd);
+    put32(eocd, EOCD_SIG);
+    put16(eocd + 8, (unsigned)w->count);
+    put16(eocd + 10, (unsigned)w->count);
+    put32(eocd + 12, (uint32_t)cd_len);
+    put32(eocd + 16, (uint32_t)cd_start);
+    int bad = w->count > 0xFFFF || write_all(w->fd, eocd, sizeof eocd) || fsync(w->fd) != 0;
+    close(w->fd);
+    w->fd = -1;
+    for (int i = 0; i < w->count; i++) free(w->ent[i].name);
+    free(w->ent);
+    w->ent = 0;
+    if (bad) { unlink(w->part); return failf(err, errcap, -EIO, "finishing %s failed", w->part); }
+    if (rename(w->part, w->out) != 0) {
+        unlink(w->part);
+        return failf(err, errcap, -EIO, "cannot rename %s into place", w->part);
+    }
+    return 0;
+}
+
+void uzip_create_abort(struct uzip_writer *w) {
+    if (w->fd >= 0) { close(w->fd); w->fd = -1; unlink(w->part); }
+    for (int i = 0; i < w->count; i++) free(w->ent[i].name);
+    free(w->ent);
+    w->ent = 0;
+    w->count = 0;
 }

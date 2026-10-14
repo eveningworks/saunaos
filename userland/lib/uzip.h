@@ -44,4 +44,32 @@ typedef int (*uzip_entry_fn)(void *ctx, const char *name, unsigned long size,
                              unsigned long packed, unsigned dos_date, unsigned dos_time);
 int uzip_list(const char *zip_path, uzip_entry_fn fn, void *ctx, char *err, int errcap);
 
+// --- writing ----------------------------------------------------------
+//
+// A NEW ARCHIVE, a member at a time: begin, add files and folders, end.
+// Written to `<out_path>.part` and renamed into place at the end, so a
+// failed or cancelled compress never leaves a half archive under the
+// real name. Each file is read whole and stored, or deflated when that
+// is smaller (`level` 0 always stores); no zip64, so a member must be
+// under 4 GiB -- refused, not truncated. The central directory is kept
+// in memory until uzip_create_end() writes it.
+struct uzip_wentry;
+struct uzip_writer {
+    int fd;
+    char part[512], out[512];
+    struct uzip_wentry *ent;
+    int count, cap;
+    unsigned long offset;
+};
+int uzip_create_begin(struct uzip_writer *w, const char *out_path, char *err, int errcap);
+// `name` is the member's path in the archive, '/'-separated, no leading
+// '/'. `progress` reports this member's bytes (may be NULL).
+int uzip_add_file(struct uzip_writer *w, const char *name, const char *src_path, int level,
+                  uzip_progress progress, void *ctx, char *err, int errcap);
+// A folder record, "name/" -- so an empty folder survives the round trip.
+int uzip_add_dir(struct uzip_writer *w, const char *name, char *err, int errcap);
+int uzip_create_end(struct uzip_writer *w, char *err, int errcap);
+// Gives up: closes and removes the `.part`, frees the directory.
+void uzip_create_abort(struct uzip_writer *w);
+
 #endif

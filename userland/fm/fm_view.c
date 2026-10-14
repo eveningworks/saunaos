@@ -438,6 +438,7 @@ void log_layout(void) {
 }
 
 void on_draw(struct uapp *a, struct uapp_draw *d) {
+    compress_sync();   // the Compress dialog's rows follow its choices
     layout_all(d->surface->w, d->surface->h);
     int cw = d->surface->w, nh = navrow_h(), tb = toolbar_h();
     ugfx_fill_rect(d->surface, 0, 0, cw, d->surface->h, UTHEME_PANEL_BG);

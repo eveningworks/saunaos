@@ -130,6 +130,23 @@ extern const uint8_t  uinflate_dist_extra[30];
 int udeflate_into(const void *src, size_t n, enum uinflate_wrap wrap,
                   void *dst, size_t cap, size_t *out_len);
 
+// THE SAME, AT A LEVEL. The encoder has one dial -- how deep the match
+// search follows a hash chain -- so a level is a depth: FAST stops early,
+// NORMAL is udeflate_into()'s, BEST looks much further for a longer match.
+enum udeflate_level { UDEFLATE_FAST = 4, UDEFLATE_NORMAL = 32, UDEFLATE_BEST = 512 };
+int udeflate_level_into(const void *src, size_t n, enum uinflate_wrap wrap,
+                        enum udeflate_level level, void *dst, size_t cap, size_t *out_len);
+
+// A GZIP MEMBER WRITTEN A PIECE AT A TIME, for something too big to hold
+// whole -- a .tar.gz of a folder. The first piece writes the header;
+// each piece is one block (byte-aligned by a sync flush, so the caller
+// can write it out at once); the piece with `last` set ends the stream
+// with the CRC-32 and length trailer. A block never reaches back into
+// an earlier piece, which costs a little ratio at each 64 KiB seam.
+struct udeflate_gz { uint32_t crc, size; int started; enum udeflate_level level; };
+int udeflate_gz_piece(struct udeflate_gz *st, const void *src, size_t n, int last,
+                      void *dst, size_t cap, size_t *out_len);
+
 // ONE PIECE OF A ZLIB STREAM THAT NEVER ENDS -- RFB's ZRLE keeps a
 // single stream per connection and each rectangle's bytes continue it.
 // The first call writes the zlib header; every call writes one

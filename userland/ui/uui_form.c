@@ -29,11 +29,18 @@ static int check_h(const struct uui_form_row *r) {
     return h > line_h() ? h : line_h();
 }
 
+static int seg_h(const struct uui_form_row *r) {
+    int w, h;
+    uui_segmented_natural_size(&r->seg, &w, &h);
+    return h;
+}
+
 static int row_h(const struct uui_form_row *r) {
     int h;
     switch (r->kind) {
     case UUI_FORM_TEXT: case UUI_FORM_PASSWORD: h = line_h() + field_h(r); break;
     case UUI_FORM_CHECK: h = check_h(r); break;
+    case UUI_FORM_CHOICE: h = line_h() + seg_h(r); break;
     default: h = NOTE_LINES * line_h(); break;
     }
     return h + (r->hint ? line_h() : 0);
@@ -85,11 +92,34 @@ int uui_form_add_note(struct uui_form *f, const char *text) {
     return add(f, UUI_FORM_NOTE, text, NULL) ? f->count - 1 : -1;
 }
 
+int uui_form_add_choice(struct uui_form *f, const char *label, const char *const *options,
+                        int count, int selected, const char *hint) {
+    struct uui_form_row *r = add(f, UUI_FORM_CHOICE, label, hint);
+    if (!r) return -1;
+    uui_segmented_init(&r->seg, options, count, selected);
+    return f->count - 1;
+}
+
+int uui_form_choice(const struct uui_form *f, int row) {
+    return row >= 0 && row < f->count && f->rows[row].kind == UUI_FORM_CHOICE ? f->rows[row].seg.selected : -1;
+}
+
+void uui_form_set_disabled(struct uui_form *f, int row, int disabled) {
+    if (row < 0 || row >= f->count || f->rows[row].kind != UUI_FORM_CHOICE) return;
+    f->rows[row].seg.disabled = disabled;
+}
+
+void uui_form_set_note(struct uui_form *f, int row, const char *text) {
+    if (row >= 0 && row < f->count && f->rows[row].kind == UUI_FORM_NOTE) f->rows[row].label = text;
+}
+
 static int is_field(const struct uui_form_row *r) {
     return r->kind == UUI_FORM_TEXT || r->kind == UUI_FORM_PASSWORD;
 }
 
-static int takes_focus(const struct uui_form_row *r) { return is_field(r) || r->kind == UUI_FORM_CHECK; }
+static int takes_focus(const struct uui_form_row *r) {
+    return is_field(r) || r->kind == UUI_FORM_CHECK || (r->kind == UUI_FORM_CHOICE && !r->seg.disabled);
+}
 
 const char *uui_form_text(const struct uui_form *f, int row) {
     return row >= 0 && row < f->count && is_field(&f->rows[row]) ? uui_textbox_text(&f->rows[row].field) : "";
@@ -111,6 +141,7 @@ static void show_focus(struct uui_form *f) {
         int on = f->focused && i == f->focus;
         if (is_field(r)) uui_textbox_set_active(&r->field, on);
         else if (r->kind == UUI_FORM_CHECK) r->check.focused = on;
+        else if (r->kind == UUI_FORM_CHOICE) uui_segmented_ops.set_focused(&r->seg, on);
     }
 }
 
@@ -136,6 +167,11 @@ static void ops_natural_size(const void *w, int *ow, int *oh) {
         const struct uui_form_row *r = &f->rows[i];
         h += row_h(r) + (i ? gap() : 0);
         int lw = ugfx_text_width(r->label ? r->label : "");
+        if (r->kind == UUI_FORM_CHOICE) {
+            int sw, sh;
+            uui_segmented_natural_size(&r->seg, &sw, &sh);
+            if (sw > lw) lw = sw;
+        }
         if (r->kind != UUI_FORM_NOTE && lw > wide) wide = lw;
     }
     if (f->error) h += gap() + NOTE_LINES * line_h();
@@ -155,6 +191,8 @@ static void ops_set_geometry(void *w, int x, int y, int width, int height) {
             int cw, ch;
             uui_checkbox_natural_size(&r->check, &cw, &ch);
             uui_checkbox_set_geometry(&r->check, x, cy + (check_h(r) - ch) / 2);
+        } else if (r->kind == UUI_FORM_CHOICE) {
+            uui_segmented_set_geometry(&r->seg, x, cy + line_h());
         }
         cy += row_h(r) + gap();
     }
@@ -186,6 +224,11 @@ static void ops_draw(struct ugfx_surface *s, const void *w) {
         } else if (r->kind == UUI_FORM_CHECK) {
             uui_checkbox_draw(s, &r->check);
             y += check_h(r);
+        } else if (r->kind == UUI_FORM_CHOICE) {
+            ugfx_draw_string_clipped(s, f->x, y, f->w, r->label ? r->label : "",
+                                     r->seg.disabled ? dim() : UTHEME_TEXT, ground());
+            uui_segmented_draw(s, &r->seg);
+            y += line_h() + seg_h(r);
         } else {
             wrapped(s, f, y, r->label, dim());
             y += NOTE_LINES * line_h();
@@ -208,6 +251,7 @@ static int row_at(const struct uui_form *f, int cx, int cy) {
         const struct uui_form_row *r = &f->rows[i];
         if (is_field(r) && uui_textbox_hit(&r->field, cx, cy)) return i;
         if (r->kind == UUI_FORM_CHECK && uui_checkbox_hit(&r->check, cx, cy)) return i;
+        if (r->kind == UUI_FORM_CHOICE && !r->seg.disabled && uui_segmented_at(&r->seg, cx, cy) >= 0) return i;
     }
     return -1;
 }
@@ -223,6 +267,7 @@ static int ops_press(void *w, int cx, int cy, unsigned mods) {
     f->focused = 1;
     show_focus(f);
     if (is_field(&f->rows[i])) return uui_textbox_ops.press(&f->rows[i].field, cx, cy, mods);
+    if (f->rows[i].kind == UUI_FORM_CHOICE) return uui_segmented_ops.press(&f->rows[i].seg, cx, cy, mods);
     return 1;
 }
 
@@ -230,6 +275,8 @@ static int ops_motion(void *w, int cx, int cy, unsigned buttons) {
     struct uui_form *f = w;
     if (f->pressed >= 0 && is_field(&f->rows[f->pressed]))
         return uui_textbox_ops.motion(&f->rows[f->pressed].field, cx, cy, buttons);
+    if (f->pressed >= 0 && f->rows[f->pressed].kind == UUI_FORM_CHOICE)
+        return uui_segmented_ops.motion(&f->rows[f->pressed].seg, cx, cy, buttons);
     return 0;
 }
 
@@ -241,6 +288,11 @@ static int ops_release(void *w, int cx, int cy) {
     f->pressed = -1;
     if (i >= 0 && f->rows[i].kind == UUI_FORM_CHECK && uui_checkbox_hit(&f->rows[i].check, cx, cy))
         uui_checkbox_toggle(&f->rows[i].check);
+    if (i >= 0 && f->rows[i].kind == UUI_FORM_CHOICE) {
+        int was = f->rows[i].seg.selected;
+        uui_segmented_ops.release(&f->rows[i].seg, cx, cy);
+        if (f->rows[i].seg.selected != was) f->edits++;
+    }
     return 1;
 }
 
@@ -258,6 +310,12 @@ static int ops_key(void *w, int key, unsigned mods) {
     if (f->focus < 0 || f->focus >= f->count) return 0;
     struct uui_form_row *r = &f->rows[f->focus];
     if (r->kind == UUI_FORM_CHECK) return key == ' ' ? (uui_checkbox_toggle(&r->check), 1) : 0;
+    if (r->kind == UUI_FORM_CHOICE) {
+        int was = r->seg.selected;
+        int used = uui_segmented_ops.key(&r->seg, key, mods);
+        if (r->seg.selected != was) f->edits++;
+        return used;
+    }
     if (!is_field(r)) return 0;
     int used = uui_textbox_key_mods(&r->field, key, mods);
     if (used) f->edits++;

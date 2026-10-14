@@ -116,7 +116,7 @@ const char *fm_watch_path(const char *dir) {
     // An archive's view changes when the archive does.
     static char archive[PATH_MAX_LEN];
     const char *inner;
-    if (zip_split(dir, archive, sizeof archive, &inner)) return archive;
+    if (arc_split(dir, archive, sizeof archive, &inner)) return archive;
     return dir;
 }
 

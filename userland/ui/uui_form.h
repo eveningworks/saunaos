@@ -1,8 +1,9 @@
 #ifndef UUI_FORM_H
 #define UUI_FORM_H
 
-// A SMALL FORM: labelled text fields, password fields, checkboxes and
-// notes stacked down a column, with Tab moving between them -- the body
+// A SMALL FORM: labelled text fields, password fields, checkboxes,
+// choices (a uui_segmented: two to four short options) and notes stacked
+// down a column, with Tab moving between them -- the body
 // of a dialog that asks for more than one thing (Sign in, Add network
 // share). QFormLayout's job, and GtkGrid-of-labels' in a GTK dialog.
 //
@@ -19,10 +20,11 @@
 #include "ui/ugfx.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_checkbox.h"
+#include "ui/uui_segmented.h"
 
 #define UUI_FORM_ROWS 8
 
-enum { UUI_FORM_TEXT, UUI_FORM_PASSWORD, UUI_FORM_CHECK, UUI_FORM_NOTE };
+enum { UUI_FORM_TEXT, UUI_FORM_PASSWORD, UUI_FORM_CHECK, UUI_FORM_NOTE, UUI_FORM_CHOICE };
 
 struct uui_form_row {
     int kind;
@@ -30,6 +32,7 @@ struct uui_form_row {
     const char *hint;          // a dim line under it, or NULL
     struct uui_textbox field;  // TEXT and PASSWORD
     struct uui_checkbox check; // CHECK
+    struct uui_segmented seg;  // CHOICE
     int y;                     // where the row starts, from set_geometry
 };
 
@@ -41,7 +44,7 @@ struct uui_form {
     int focused;               // the form holds the dialog's focus
     int pressed;               // the row a press landed in, -1 for none
     const char *error;         // a line in the danger colour at the foot, or NULL
-    int edits;                 // bumped by every key a field takes: "the user typed"
+    int edits;                 // bumped by every key a field takes, and every choice changed
 };
 
 void uui_form_init(struct uui_form *f);
@@ -50,6 +53,15 @@ int uui_form_add_text(struct uui_form *f, const char *label, const char *initial
 int uui_form_add_password(struct uui_form *f, const char *label, const char *hint);
 int uui_form_add_check(struct uui_form *f, const char *label, int checked, const char *hint);
 int uui_form_add_note(struct uui_form *f, const char *text);
+// One of `count` short `options` (caller-owned, 2-4), `selected` chosen.
+int uui_form_add_choice(struct uui_form *f, const char *label, const char *const *options,
+                        int count, int selected, const char *hint);
+int uui_form_choice(const struct uui_form *f, int row);
+// A choice that does not apply now (a level for an archive that stores):
+// drawn dim, skipped by Tab, its value kept.
+void uui_form_set_disabled(struct uui_form *f, int row, int disabled);
+// A note's text, changed in place (the text is caller-owned).
+void uui_form_set_note(struct uui_form *f, int row, const char *text);
 
 const char *uui_form_text(const struct uui_form *f, int row);
 void uui_form_set_text(struct uui_form *f, int row, const char *text);

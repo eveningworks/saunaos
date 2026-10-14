@@ -1804,7 +1804,7 @@ Put on the roadmap 2026-09-28 (not scheduled). Drag-and-drop between
 piles on `uui_canvas`, and card faces generated the way the icons are
 (`tools/gen_icons.py`), so there is no artwork licence to track.
 
-### An archive viewer that browses and extracts .zip and .tar over the existing inflate -- no compressing
+### An archive viewer that browses and extracts .zip and .tar
 
 Put on the roadmap 2026-09-28 (not scheduled). **The .zip half is DONE
 (2026-10-06)**, as the File Manager's `zip:` virtual folder (`fm_zip.c`,
@@ -1813,6 +1813,11 @@ Put on the roadmap 2026-09-28 (not scheduled). **The .zip half is DONE
 then Extract to a chosen directory. Stored and deflated zip entries
 decompress with `userland/lib/uinflate.c`; writing an archive needs a
 compressor, which does not exist, and is a separate item if wanted.
+
+DONE 2026-10-14: .tar, .tar.gz, .tgz and .gz open the same way
+(`fm_archive.c` over `lib/uarchive.h`), and Compress to ZIP / Compress...
+write archives (decisions: "Tar opens the same way, and Compress is two
+commands, not an Archive Manager").
 
 
 ### Disk Usage: a treemap of where the space went -- Filelight, WinDirStat; needs a treemap widget

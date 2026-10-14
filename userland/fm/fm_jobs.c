@@ -10,7 +10,7 @@
 #include "lib/ufileop.h"
 #include "lib/utrash.h"
 #include "lib/ufileundo.h"
-#include "lib/uzip.h"
+#include "lib/uarchive.h"
 #include "ui/uui_dialog.h"
 #include <pthread.h>
 #include "lib/uclip.h"
@@ -54,6 +54,9 @@ static int g_extract_then;
 static char g_extract_open[PATH_MAX_LEN];
 // An Undo or Redo running as a job: the journal entry and the direction.
 static struct ufu_op *g_job_undo;
+// A compress's own facts: what to make, and whether to rename it after.
+static int g_cmp_kind, g_cmp_level, g_cmp_rename;
+static char g_cmp_out[PATH_MAX_LEN];
 static int g_job_redo;
 
 // --- jobs -------------------------------------------------------------
@@ -379,32 +382,31 @@ static int mkdirs(const char *path) {
 
 struct xjob { const char *archive, *prefix, *dest; size_t plen, cut; };
 
-static int x_progress(void *ctx, unsigned long done, unsigned long total) {
+static int x_progress(void *ctx, unsigned long long done, unsigned long long total) {
     (void)ctx;
     pthread_mutex_lock(&g_lock);
-    g_cur_done = done;
-    g_cur_size = total;
+    g_cur_done = (unsigned long)done;
+    if (total) g_cur_size = (unsigned long)total;
     pthread_mutex_unlock(&g_lock);
     return g_cancel;   // non-zero stops
 }
 
-// One member, if it is the item or under it: written under `dest` by its
-// name from the item's PARENT on, so the item keeps its own name.
-static int x_member(void *ctx, const char *name, unsigned long size, unsigned long packed,
-                    unsigned d, unsigned t) {
-    (void)size; (void)packed; (void)d; (void)t;
+// One member, if it is the item or under it: routed under `dest` by its
+// name from the item's PARENT on, so the item keeps its own name. A
+// folder's record is made here and passed by.
+static int x_route(void *ctx, const struct uarchive_entry *e, char *out, int cap) {
     struct xjob *x = ctx;
-    if (g_cancel) return 1;
+    const char *name = e->name;
+    if (g_cancel) return 0;
     if (x->plen && strcmp(name, x->prefix) &&
         (strncmp(name, x->prefix, x->plen) || name[x->plen] != '/')) return 0;
-    char out[PATH_MAX_LEN], err[96];
-    if (snprintf(out, sizeof out, "%s/%s", x->dest, name + x->cut) >= (int)sizeof out) {
+    if (snprintf(out, (size_t)cap, "%s/%s", x->dest, name + x->cut) >= cap) {
         worker_error(0, name, ENAMETOOLONG);
         return 0;
     }
     size_t l = strlen(out);
-    if (l && out[l - 1] == '/') {             // a folder's own record
-        out[l - 1] = '\0';
+    if (e->is_dir) {
+        if (l && out[l - 1] == '/') out[l - 1] = '\0';
         if (mkdirs(out)) worker_error(0, out, EIO);
         return 0;
     }
@@ -412,26 +414,53 @@ static int x_member(void *ctx, const char *name, unsigned long size, unsigned lo
     if (k_path_dirname(out, parent, sizeof parent)) mkdirs(parent);
     pthread_mutex_lock(&g_lock);
     strlcpy(g_cur_name, k_path_basename(out), sizeof g_cur_name);
+    g_cur_size = (unsigned long)e->size;
     pthread_mutex_unlock(&g_lock);
-    int rc = uzip_extract(x->archive, name, out, x_progress, 0, err, sizeof err);
-    if (rc) {
-        worker_error(0, name, -rc);
-        ulogf("files: extract %s: %s\n", name, err);
-    }
-    return 0;
+    return 1;
 }
 
 static void extract_one(const char *item, const char *dest) {
     char archive[PATH_MAX_LEN], err[96];
     const char *inner;
-    if (!zip_split(item, archive, sizeof archive, &inner)) { worker_error(0, item, EINVAL); return; }
+    if (!arc_split(item, archive, sizeof archive, &inner)) { worker_error(0, item, EINVAL); return; }
     struct xjob x = { archive, inner, dest, strlen(inner), 0 };
     const char *slash = strrchr(inner, '/');
     x.cut = slash ? (size_t)(slash - inner) + 1 : 0;   // the item's parent, cut off
-    if (uzip_list(archive, x_member, &x, err, sizeof err) < 0) {
-        worker_error(0, archive, EINVAL);
+    // ONE PASS over the archive for all the members: a tar has no index.
+    int rc = uarchive_extract_many(archive, x_route, &x, x_progress, 0, err, sizeof err);
+    if (rc < 0 && !g_cancel) {
+        worker_error(0, archive, -rc);
         ulogf("files: extract %s: %s\n", archive, err);
     }
+}
+
+static int c_progress(void *ctx, unsigned long long done, unsigned long long total) {
+    (void)ctx;
+    pthread_mutex_lock(&g_lock);
+    g_cur_done = (unsigned long)done;
+    g_cur_size = (unsigned long)total;
+    pthread_mutex_unlock(&g_lock);
+    return g_cancel;
+}
+
+// ALL the items into one archive, run once rather than per item: the
+// archive is the single result, and every member is named from the
+// folder they share.
+static void compress_all(void) {
+    static const char *names[JOB_MAX];
+    for (int i = 0; i < g_job_count; i++) names[i] = k_path_basename(g_job_path[i]);
+    pthread_mutex_lock(&g_lock);
+    strlcpy(g_cur_name, k_path_basename(g_cmp_out), sizeof g_cur_name);
+    pthread_mutex_unlock(&g_lock);
+    char err[128];
+    int rc = uarchive_create(g_cmp_out, g_cmp_kind, g_cmp_level, g_job_dest, names, g_job_count,
+                             c_progress, 0, err, sizeof err);
+    if (rc < 0) {
+        if (!g_cancel) worker_error(0, g_cmp_out, -rc);
+        ulogf("files: compress %s: %s\n", g_cmp_out, err);
+        return;
+    }
+    strlcpy(g_job_result[0], g_cmp_out, PATH_MAX_LEN);
 }
 
 static void *worker_main(void *arg) {
@@ -488,6 +517,10 @@ static void *worker_main(void *arg) {
         }
         case CMD_EXTRACT:
             extract_one(g_job_path[i], g_job_dest);
+            break;
+        case CMD_COMPRESS:
+            compress_all();
+            i = g_job_count;   // one archive for them all
             break;
         case CMD_UNDO: {
             int e = ufileundo_apply(g_job_undo, i, g_job_redo, &g_engine, &policy);
@@ -573,6 +606,7 @@ int poll_job(void) {
 
 // The post arrived: the operation is over.
 void fm_job_finished(void) {
+    char select_after[PATH_MAX_LEN] = "";
     snprintf(g_stat_note, sizeof g_stat_note, "%s %s", g_job_what,
               g_cancel ? "cancelled" : (g_job_failures ? "FAILED" : "done"));
     if (g_job_op == CMD_EXTRACT && !g_cancel && !g_job_failures) {
@@ -586,6 +620,10 @@ void fm_job_finished(void) {
         } else if (then == 2) {
             g_job_count = g_job_at = 0;
             open_path(g_extract_open);
+        } else if (then == 3) {
+            // Extract here: stay, and show the folder it made selected --
+            // after the reload below, which would otherwise drop it.
+            strlcpy(select_after, k_path_basename(g_job_dest), sizeof select_after);
         }
     }
     if (!g_cancel) {
@@ -593,25 +631,59 @@ void fm_job_finished(void) {
         else undo_record_job(g_job_op, g_job_what, g_job_path, g_job_result,
                              g_job_count, g_job_dest);
     }
+    int compressed = g_job_op == CMD_COMPRESS && !g_cancel && !g_job_failures && g_job_result[0][0];
     g_job_count = g_job_at = 0;
     reload_panes();
+    // THE NEW ARCHIVE, selected -- and for Compress to ZIP named in place,
+    // Explorer's: the name it was given is a guess the user may not want.
+    if (compressed && uui_fileview_select_name(active(), k_path_basename(g_job_result[0])) &&
+        g_cmp_rename)
+        uui_fileview_begin_rename(active());
+    if (select_after[0]) uui_fileview_select_name(active(), select_after);
     refresh_status();
+}
+
+void do_compress(int kind, int level, const char *out, int rename_after) {
+    struct uui_fileview *fv = active();
+    if (!queue_from(CMD_COMPRESS, "Compress", fv, uui_fileview_dir(fv))) return;
+    g_cmp_kind = kind;
+    g_cmp_level = level;
+    g_cmp_rename = rename_after;
+    strlcpy(g_cmp_out, out, sizeof g_cmp_out);
+    g_job_result[0][0] = '\0';
+    start_job();
+}
+
+// A WHOLE ARCHIVE named by its path, from outside it -- Extract here and
+// Extract to... on an archive in an ordinary folder. `then` as do_extract().
+void do_extract_archive(const char *archive, const char *dest, int then) {
+    if (g_job_count > 0) { set_note("busy"); return; }
+    if (mkdirs(dest)) { set_note("could not make the folder to extract into"); return; }
+    g_job_at = g_job_failures = 0;
+    g_job_op = CMD_EXTRACT;
+    strlcpy(g_job_what, "Extract", sizeof g_job_what);
+    strlcpy(g_job_dest, dest, sizeof g_job_dest);
+    snprintf(g_job_path[0], PATH_MAX_LEN, "%s%s", FM_ARC, archive);
+    g_job_isdir[0] = 1;
+    g_job_count = 1;
+    g_extract_then = then;
+    start_job();
 }
 
 void do_extract(int all, const char *dest, int then) {
     struct uui_fileview *fv = active();
-    if (!in_zip(fv)) return;
+    if (!in_archive(fv)) return;
     if (mkdirs(dest)) { set_note("could not make the folder to extract into"); return; }
     if (all) {
         char archive[PATH_MAX_LEN];
         const char *inner;
         if (g_job_count > 0) { set_note("busy"); return; }
-        if (!zip_split(uui_fileview_dir(fv), archive, sizeof archive, &inner)) return;
+        if (!arc_split(uui_fileview_dir(fv), archive, sizeof archive, &inner)) return;
         g_job_at = g_job_failures = 0;
         g_job_op = CMD_EXTRACT;
         strlcpy(g_job_what, "Extract", sizeof g_job_what);
         strlcpy(g_job_dest, dest, sizeof g_job_dest);
-        snprintf(g_job_path[0], PATH_MAX_LEN, "%s%s", FM_ZIP, archive);
+        snprintf(g_job_path[0], PATH_MAX_LEN, "%s%s", FM_ARC, archive);
         g_job_isdir[0] = 1;
         g_job_count = 1;
     } else if (!queue_from(CMD_EXTRACT, "Extract", fv, dest)) {

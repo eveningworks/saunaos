@@ -542,6 +542,11 @@ static int deflate_block(const uint8_t *src, size_t n, struct bitw *b, int final
 
 int udeflate_into(const void *src_v, size_t n, enum uinflate_wrap wrap,
                   void *dst_v, size_t cap, size_t *out_len) {
+    return udeflate_level_into(src_v, n, wrap, UDEFLATE_NORMAL, dst_v, cap, out_len);
+}
+
+int udeflate_level_into(const void *src_v, size_t n, enum uinflate_wrap wrap,
+                        enum udeflate_level level, void *dst_v, size_t cap, size_t *out_len) {
     const uint8_t *src = src_v;
     uint8_t *dst = dst_v;
     size_t head = 0;
@@ -560,7 +565,7 @@ int udeflate_into(const void *src_v, size_t n, enum uinflate_wrap wrap,
 
     size_t tail = (wrap == UINFLATE_RAW) ? 0 : (wrap == UINFLATE_ZLIB ? 4 : 8);
     struct bitw b = { dst + head, cap > head + tail ? cap - head - tail : 0, 0, 0, 0, 0 };
-    int rc = deflate_block(src, n, &b, 1, DEF_PROBES);
+    int rc = deflate_block(src, n, &b, 1, (int)level);
     if (rc) return rc;
     bw_flush(&b);
     if (b.full) ZFAIL(-ENOMEM, "the compressed result did not fit");
@@ -579,6 +584,50 @@ int udeflate_into(const void *src_v, size_t n, enum uinflate_wrap wrap,
         uint32_t isz = (uint32_t)n;
         dst[len++] = (uint8_t)isz; dst[len++] = (uint8_t)(isz >> 8);
         dst[len++] = (uint8_t)(isz >> 16); dst[len++] = (uint8_t)(isz >> 24);
+    }
+    if (out_len) *out_len = len;
+    return 0;
+}
+
+int udeflate_gz_piece(struct udeflate_gz *st, const void *src, size_t n, int last,
+                      void *dst_v, size_t cap, size_t *out_len) {
+    uint8_t *dst = dst_v;
+    size_t head = 0;
+    if (!st->started) {
+        if (cap < 10) ZFAIL(-ENOMEM, "no room for a gzip header");
+        static const uint8_t hdr[10] = { 0x1F, 0x8B, 8, 0, 0, 0, 0, 0, 0, 255 };
+        memcpy(dst, hdr, sizeof hdr);
+        head = 10;
+        st->crc = KCRC32_INIT;
+        st->size = 0;
+        if (!st->level) st->level = UDEFLATE_NORMAL;
+    }
+    size_t tail = last ? 8 : 0;
+    struct bitw b = { dst + head, cap > head + tail ? cap - head - tail : 0, 0, 0, 0, 0 };
+    int rc = deflate_block(src, n, &b, last, (int)st->level);
+    if (rc) return rc;
+    if (!last) {
+        // Byte-aligned so the piece can be written out on its own: the
+        // same empty stored block udeflate_sync() ends with.
+        bw_bits(&b, 0, 1);
+        bw_bits(&b, 0, 2);
+        bw_flush(&b);
+        bw_bits(&b, 0x0000, 16);
+        bw_bits(&b, 0xFFFF, 16);
+    } else {
+        bw_flush(&b);
+    }
+    if (b.full) ZFAIL(-ENOMEM, "the compressed result did not fit");
+    st->crc = kcrc32_update(st->crc, src, n);
+    st->size += (uint32_t)n;
+    st->started = 1;
+    size_t len = head + b.len;
+    if (last) {
+        uint32_t crc = KCRC32_FINAL(st->crc);
+        dst[len++] = (uint8_t)crc; dst[len++] = (uint8_t)(crc >> 8);
+        dst[len++] = (uint8_t)(crc >> 16); dst[len++] = (uint8_t)(crc >> 24);
+        dst[len++] = (uint8_t)st->size; dst[len++] = (uint8_t)(st->size >> 8);
+        dst[len++] = (uint8_t)(st->size >> 16); dst[len++] = (uint8_t)(st->size >> 24);
     }
     if (out_len) *out_len = len;
     return 0;

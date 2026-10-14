@@ -56,6 +56,8 @@
 #define UUI_VT_NEW_FOLDER  UTHEME_ACT_CREATE
 #define UUI_VI_NEW_FILE    "tb-new"
 #define UUI_VT_NEW_FILE    UTHEME_ACT_CREATE
+#define UUI_VI_COMPRESS    "tb-archive"
+#define UUI_VT_COMPRESS    UTHEME_ACT_CREATE
 #define UUI_VI_PROPERTIES  "tb-info"
 #define UUI_VT_PROPERTIES  UTHEME_ACT_NONE
 #define UUI_VI_SETTINGS    "tb-gear"

@@ -18,6 +18,7 @@
 | `tosh_jobs.h` | The shell's JOB TABLE: what `jobs`, `fg` and `bg` are lists of. |
 | `tunable.h` | Reading and writing a kernel TUNABLE from ring 3 -- the write half of the commands whose read half is a query provider (`heap`, `ata`, `kstack`). |
 | `uappentry.h` | The desktop's application entries -- /usr/wm/applications/*.desktop -- read one, walk them, or find the one that launches a given program. |
+| `uarchive.h` | AN ARCHIVE, WHICHEVER KIND IT IS -- .zip (lib/uzip.h), .tar, .tar.gz or .tgz, and a lone .gz (lib/utar.h) -- listed, a member taken out, or a new one made from files and folders. |
 | `uargs.h` | A /bin program's arguments from a DECLARED TABLE: one table is both what the parser accepts and what -h/--help prints, so the help cannot list an option the program does not take (clap's, argparse'... |
 | `ubookmarks.h` | ubookmarks -- a list of bookmarked pages, kept in one file: a line per bookmark, "URL<tab>title", in the order they were added, readable with `less`. |
 | `ubootcfg.h` | GRUB's grub.cfg as an EDITABLE model: parse, change one thing, check, save -- for `bootcfg`, the Boot Manager and the Startup settings page. |
@@ -104,6 +105,7 @@
 | `usndfmt.h` | usndfmt -- each sound card's chosen output format: its rate policy and its width, kept in SND_CARDS_FILE (abi/sound_abi.h) as one `[<card>]` section per card, keyed by the card's stable name. |
 | `usolid.h` | A textured solid -- a cube, a pyramid or a ball -- that folds up out of one flat face, tumbles, and bounces around a screen. |
 | `utags.h` | utags -- what a sound file says about itself: title, artist, album, and an embedded picture. |
+| `utar.h` | TAR ARCHIVES, plain or gzipped, and a lone .gz file -- reading one member out, listing them, and writing a new archive. |
 | `utest.h` | The harness every self-checking /tests program reports through: a banner, one line per check, and ONE epilogue line in the shape tools/usertest_run.py knows by default -- |
 | `uthumb.h` | uthumb -- thumbnails: a LOOKUP on the draw path, a decode on a WORKER THREAD, and a copy on disk (/var/cache/thumbnails) that outlives the process. |
 | `utmppath.h` | A SCRATCH PATH IN ONE EXPRESSION, for ring 3. |
@@ -164,7 +166,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_findbar.h` | uui_findbar -- a find control: a lens, a query field, an "N of M" readout, previous / next, and close. |
 | `uui_focus.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_fontsample.h` | A font face loaded to SHOW it, and its sample drawn in a box -- what a font picker's card holds: Settings' Appearance > Fonts gallery, and the Character Map's face list. |
-| `uui_form.h` | A SMALL FORM: labelled text fields, password fields, checkboxes and notes stacked down a column, with Tab moving between them -- the body of a dialog that asks for more than one thing (Sign in, Add... |
+| `uui_form.h` | A SMALL FORM: labelled text fields, password fields, checkboxes, choices (a uui_segmented: two to four short options) and notes stacked down a column, with Tab moving between them -- the body of a... |
 | `uui_gallery.h` | uui_gallery -- one choice out of a few, each shown as a CARD: a picture the caller paints and a label under it. |
 | `uui_grid.h` | uui_grid -- a GRID OF EQUAL CELLS the caller paints, one selected: a character map's glyphs (the Character Map), an icon picker, a board. |
 | `uui_image.h` | A decoded picture, in a layout. |

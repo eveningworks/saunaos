@@ -52,7 +52,8 @@ static const char *folder_name(const char *dir) {
 void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
                      char (*results)[PATH_MAX_LEN], int n, const char *dest) {
     (void)what;
-    int kind = op == CMD_MOVE ? UFU_MOVE : op == CMD_COPY ? UFU_COPY
+    // A COMPRESS is undone like a copy: what it made goes to the bin.
+    int kind = op == CMD_MOVE ? UFU_MOVE : op == CMD_COPY || op == CMD_COMPRESS ? UFU_COPY
              : op == CMD_TRASH ? UFU_TRASH : 0;
     if (!kind) return;
     int done = 0;
@@ -66,7 +67,11 @@ void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
     } else {
         snprintf(one, sizeof one, "%d items", done);
     }
-    if (kind == UFU_TRASH) snprintf(label, sizeof label, "Moved %s to the Recycle Bin", one);
+    if (op == CMD_COMPRESS) {
+        for (int i = 0; i < n; i++)
+            if (results[i][0]) { snprintf(one, sizeof one, "%s", k_path_basename(results[i])); break; }
+        snprintf(label, sizeof label, "Compressed %d item%s into %s", n, n == 1 ? "" : "s", one);
+    } else if (kind == UFU_TRASH) snprintf(label, sizeof label, "Moved %s to the Recycle Bin", one);
     else snprintf(label, sizeof label, "%s %s to %s", kind == UFU_MOVE ? "Moved" : "Copied",
                   one, folder_name(dest));
 
@@ -78,7 +83,8 @@ void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
     }
     ufileundo_commit(&g_undo, rec);
     ulogf("files: undo recorded \"%s\" (%d step%s)\n", label, rec->count, rec->count == 1 ? "" : "s");
-    toast(kind == UFU_TRASH ? "place-trash" : kind == UFU_MOVE ? "tb-move" : "tb-copy",
+    toast(op == CMD_COMPRESS ? "tb-archive" : kind == UFU_TRASH ? "place-trash"
+          : kind == UFU_MOVE ? "tb-move" : "tb-copy",
           label, "Undo", 0);
 }
 

@@ -1331,7 +1331,7 @@ $(DASH_GEN)/.stamp: $(wildcard $(DASH_SRC)/*.c) $(DASH_SRC)/nodetypes \
 # wildcarded, again as toywm is -- a stray .c dropped in there should
 # fail to link with an undefined symbol, not be absorbed silently.
 EXTRA_OBJS_files = fm/fm_view fm/fm_jobs fm/fm_tree fm/fm_thumbs fm/fm_modal \
-                   fm/fm_history fm/fm_details fm/fm_options fm/fm_trash fm/fm_undo fm/fm_search fm/fm_sizes fm/fm_tabs fm/fm_zip fm/fm_recent \
+                   fm/fm_history fm/fm_details fm/fm_options fm/fm_trash fm/fm_undo fm/fm_search fm/fm_sizes fm/fm_tabs fm/fm_archive fm/fm_compress fm/fm_recent \
                    fm/fm_network fm/fm_places
 # System Settings, the same way: userland/settings/ is its parts.
 EXTRA_OBJS_settings = settings/set_registry settings/set_page settings/set_owner \

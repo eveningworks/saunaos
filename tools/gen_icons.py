@@ -152,6 +152,18 @@ def icon_tb_new():
     p = _Pen(); p.line((12, 4.5), (12, 19.5)); p.line((4.5, 12), (19.5, 12)); return p.done()
 
 
+def icon_tb_archive():
+    # A box with a zipper down its middle and the pull at its foot --
+    # an archive, as Ark and Explorer's compressed folder draw one.
+    p = _Pen()
+    p.rrect(4.5, 3.5, 15, 17, 2)
+    for i, y in enumerate((6, 8.5, 11)):
+        x = 10.5 if i % 2 == 0 else 13.5
+        p.line((x, y), (12, y))
+    p.rrect(10, 13, 4, 4.5, 1)
+    return p.done()
+
+
 def icon_tb_cut():
     p = _Pen()
     p.line((9.2, 14.4), (17.5, 3)); p.line((14.8, 14.4), (6.5, 3))
@@ -1428,6 +1440,7 @@ ICONS = {
     "tb-copy": icon_tb_copy,
     "tb-move": icon_tb_move,
     "tb-mkdir": icon_tb_mkdir,
+    "tb-archive": icon_tb_archive,
     "tb-rename": icon_tb_rename,
     "tb-delete": icon_tb_delete,
     "tray-volume-high": icon_tray_volume_high,

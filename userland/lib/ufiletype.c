@@ -33,6 +33,10 @@ static const struct { const char *ext, *name, *icon; } TYPES[] = {
     { "mpeg",    "MPEG video",      "file-video" },
     { "avi",     "AVI video",       "file-video" },
     { "ttf",     "Font",            "file-font" },
+    { "zip",     "ZIP archive",     "file-archive" },
+    { "tar",     "Tar archive",     "file-archive" },
+    { "tgz",     "Tar archive",     "file-archive" },
+    { "gz",      "Gzip file",       "file-archive" },
     { "so",      "Shared library",  "file" },
     { "wad",     "Game data",       "file" },
 };
@@ -42,8 +46,11 @@ static int lookup(const char *name) {
     for (const char *p = name; *p; p++) if (*p == '.') dot = p;
     // A leading dot is a hidden name, not an extension.
     if (!dot || dot == name || !dot[1]) return -1;
+    // ONE TYPE, TWO DOTS: a .tar.gz is a tar archive, not a gzip file.
+    const char *ext = dot + 1;
+    if (!strcasecmp(ext, "gz") && dot - name > 4 && !strncasecmp(dot - 4, ".tar", 4)) ext = "tar";
     for (int i = 0; i < (int)(sizeof TYPES / sizeof TYPES[0]); i++)
-        if (!strcasecmp(dot + 1, TYPES[i].ext)) return i;
+        if (!strcasecmp(ext, TYPES[i].ext)) return i;
     return -1;
 }
 

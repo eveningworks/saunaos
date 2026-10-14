@@ -10698,9 +10698,10 @@ cannot see it. At most 8.
 
 **Picked 2026-10-06** (artboard F), covering the .zip half of the
 archive-viewer roadmap item. Explorer's compressed folders and KDE's
-`zip:/` worker, not a separate Ark: an archive is the `zip:<archive>[/
-<folder>]` virtual folder (`fm_zip.c`, the "virtual folder is a source"
-convention), so the breadcrumb, tabs, Back and sorting work unchanged.
+`zip:/` worker, not a separate Ark: an archive is the `archive:<archive>[/
+<folder>]` virtual folder (`fm_archive.c` since 2026-10-14, the "virtual
+folder is a source" convention), so the breadcrumb, tabs, Back and
+sorting work unchanged.
 **The folders of a level are DERIVED from the member names below it**,
 since an archive need not store folder records at all. It is READ-ONLY:
 nothing is renamed, deleted, cut or pasted inside -- what is wanted
@@ -10710,8 +10711,58 @@ there), Copy to the other pane extracts there, and opening a member
 extracts it to /tmp/zip-open and opens that copy, as Explorer does. A
 source may now say where Up goes (`up`) and that its folders open in
 place (`descends`) -- from the archive's top, Up is the folder it is in.
-No compressing: there is no deflate encoder, and writing archives is a
-separate item if wanted.
+Tar and compressing came 2026-10-14 -- the next entry.
+
+## Tar opens the same way, and Compress is two commands, not an Archive Manager
+
+**Picked 2026-10-14** (canvas C1, C2 and T). An Archive Manager app was
+on the list and was NOT built: the File Manager already browsed zips as
+folders, and a second window over the same archives would be Ark beside
+Dolphin's integration -- Windows 11 has no archive app at all. So:
+
+- **.tar, .tar.gz, .tgz and a lone .gz open as folders like a .zip**,
+  through `lib/uarchive.h`, one interface over `lib/uzip.h` and the new
+  `lib/utar.h`. A tar has NO INDEX, so taking members out one at a time
+  walks -- and for a .tar.gz inflates -- the whole archive per member;
+  `uarchive_extract_many()` routes every member in ONE pass instead, and
+  the File Manager's Extract uses it for both formats. A tar member's
+  Packed cell is EMPTY: gzip packs the stream as a whole, and a number
+  there would be invented.
+- **Extract here and Extract to... on an archive FILE** (Dolphin's and
+  Ark's pair, asked for 2026-10-14): Extract here makes the folder
+  Extract all would, beside it, and stays with it selected; Extract
+  to... asks with the shared file dialog's folder mode and goes there.
+  Inside an archive Extract to... takes the selection, or everything
+  with nothing selected.
+- **Compress to ZIP** (Windows 11's): no question, a .zip named after
+  the item under the pointer, made at once, dropped into an in-place
+  rename, Undo on the toast (undone like a copy: the archive goes to the
+  bin). **Compress...** (Ark's): a dialog for the name, the format
+  (.zip, .tar.gz, .tar) and Store / Fast / Normal / Best. The dialog's
+  choice rows are `uui_form`'s new CHOICE row, so any dialog can ask
+  one of a few short things.
+- **A LEVEL IS A HASH-CHAIN DEPTH**, because the deflate encoder has
+  that one dial and nothing else (greedy LZ77, fixed Huffman --
+  `lib/uinflate.h`): Fast 4, Normal 32, Best 512. On real prose that
+  measured 182 KB, 172 KB and 171 KB from 278 KB stored
+  (`tools/archive_hostcheck.py`) -- Best buys little, which is honest
+  about the encoder, not a bug in the dial. Store is zip's method 0; a
+  .tar.gz cannot store, so Store there becomes Fast, and a .tar has no
+  level at all (the row greys).
+- **A .tar.gz is written a piece at a time** (`udeflate_gz_piece()`):
+  each 64 KiB of the tar stream is one block, byte-aligned by a sync
+  flush, so a folder's archive never has to be held in memory whole. A
+  zip member is read whole and deflated only when that comes out
+  smaller (a JPEG is stored, as every archiver does).
+- **Checked against a foreign implementation both ways**: Python's
+  zipfile, tarfile and gzip read every archive these write, and these
+  read what Python writes in GNU and pax form. A member name that does
+  not fit is SKIPPED, never truncated -- a cut name is another file's.
+
+Not built: adding to or deleting from an existing archive (Explorer
+does not either), zip64 (a member must be under 4 GiB), encryption, 7z,
+and a dynamic-Huffman encoder, which is what would make Best worth more
+than Normal.
 
 ## Rename many is a dialog with a preview, and renames through temporary names
 

@@ -111,8 +111,11 @@ enum {
     CMD_VIEW_SIZES,          // View > Folder sizes (fm_sizes.c)
     CMD_OPEN_TAB, CMD_NEW_TAB, CMD_CLOSE_TAB,   // fm_tabs.c
     CMD_PIN, CMD_UNPIN,                          // lib/upins.h, Places
-    CMD_EXTRACT_ALL, CMD_EXTRACT_SEL,            // fm_zip.c; CMD_EXTRACT the worker's op
+    CMD_EXTRACT_ALL, CMD_EXTRACT_SEL,            // fm_archive.c; CMD_EXTRACT the worker's op
+    CMD_EXTRACT_HERE, CMD_EXTRACT_TO,            // an archive file's, and Extract to... inside one
     CMD_EXTRACT,
+    CMD_COMPRESS_ZIP, CMD_COMPRESS_ASK,          // fm_compress.c; CMD_COMPRESS the worker's op
+    CMD_COMPRESS,
     CMD_RECENT_FOLDER, CMD_RECENT_FORGET, CMD_RECENT_CLEAR,   // fm_recent.c
     CMD_RUN_TERMINAL, CMD_RUN,                   // a program or script, lib/ulaunch.h
     CMD_NET_SIGNIN, CMD_NET_DISCONNECT, CMD_NET_FORGET,   // a network share, fm_network.c
@@ -133,7 +136,7 @@ enum {
 // KIO's trash:/. A search's results are "search:" + the folder searched.
 #define FM_BIN "trash:/"
 #define FM_SEARCH "search:"
-#define FM_ZIP "zip:"
+#define FM_ARC "archive:"
 #define FM_RECENT "recent:/"
 // The tree's "Add network share..." row: not a folder, an action.
 #define FM_NET_ADD "net:add"
@@ -146,7 +149,8 @@ enum {
     DLG_RENAME, DLG_RENAME_ALL, DLG_CANCEL,
     DLG_DELETE, DLG_OK,
 };
-enum dialog_kind { DIALOG_NONE, DIALOG_CONFLICT, DIALOG_DELETE, DIALOG_PROMPT, DIALOG_NETSHARE };
+enum dialog_kind { DIALOG_NONE, DIALOG_CONFLICT, DIALOG_DELETE, DIALOG_PROMPT, DIALOG_NETSHARE,
+                   DIALOG_COMPRESS };
 extern enum dialog_kind g_dialog_kind;
 
 // --- navigation history, per pane (fm_history.c) ---------------------
@@ -409,15 +413,31 @@ extern struct uui_segmented g_scope_seg;
 extern struct uui_button g_search_stop;
 
 // --- the inside of a .zip (fm_zip.c) ----------------------------------------
-const struct uui_fileview_source *zip_source(void);
-int  in_zip(const struct uui_fileview *fv);
-int  is_zip_name(const char *path);
-int  zip_split(const char *dir, char *archive, int acap, const char **inner);
-int  zip_item_flags(int code, unsigned *out);
-int  zip_default_dest(const char *archive, char *out, int cap);
+const struct uui_fileview_source *arc_source(void);
+int  in_archive(const struct uui_fileview *fv);
+int  is_archive_name(const char *path);
+int  arc_split(const char *dir, char *archive, int acap, const char **inner);
+int  arc_item_flags(int code, unsigned *out);
+int  arc_default_dest(const char *archive, char *out, int cap);
+// Extract here / Extract to... (fm_archive.c), and whether the selected
+// row is an archive file outside one (filling its path).
+void extract_command(int code);
+int  selected_archive(char *out, int cap);
 // Extract: the selection (or everything, `all`) into `dest`, a job;
 // `then` 1 goes there when it is done, 2 opens the one file extracted.
 void do_extract(int all, const char *dest, int then);
+// The whole archive at `archive` into `dest` (made if it is not there).
+// `then`: 0 stay, 1 go to `dest`, 3 stay and select `dest`.
+void do_extract_archive(const char *archive, const char *dest, int then);
+// The marked items (or the selected one) into a new archive at `out`, on
+// the worker. `rename_after`: select it and start an in-place rename when
+// it is made -- Compress to ZIP's Explorer shape.
+void do_compress(int kind, int level, const char *out, int rename_after);
+// fm_compress.c: the two commands, the dialog's answer, and its per-frame
+// sync (the note and the level row follow the format chosen).
+void compress_command(int code);
+void compress_answer(int code);
+void compress_sync(void);
 void open_path(const char *path);   // files.c: by its type, through lib/uopen
 // files.c: a program or script (lib/ulaunch.h) -- run it with an
 // ULAUNCH_* act, or ask with the card (ui/uui_runask.h).

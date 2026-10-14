@@ -645,6 +645,17 @@ def _font(d):
     d.line([(26, 42), (38, 42)], fill=ink, width=3)
 
 
+def _archive(d):
+    # A zipper down the page with its pull: the teeth alternate sides.
+    ink = (168, 110, 40, 255)
+    for i in range(6):
+        y = 22 + i * 4
+        x0 = 29 if i % 2 == 0 else 32
+        d.rounded_rectangle((x0, y, x0 + 4, y + 2.5), radius=1, fill=ink)
+    d.rounded_rectangle((27, 46, 37, 54), radius=2, fill=ink)
+    d.rounded_rectangle((30, 49, 34, 51), radius=1, fill=WHITE)
+
+
 def _app(d):
     d.rounded_rectangle((21, 28, 43, 50), radius=5, fill=(50, 104, 220, 255))
     d.rounded_rectangle((26, 37, 38, 41), radius=1.5, fill=WHITE)
@@ -652,7 +663,8 @@ def _app(d):
 
 FILE_TYPES = {"file-text": _text, "file-doc": _doc, "file-image": _image, "file-audio": _audio,
               "file-video": _video,
-              "file-config": _config, "file-font": _font, "file-app": _app}
+              "file-config": _config, "file-font": _font, "file-app": _app,
+              "file-archive": _archive}
 
 
 def drive():
