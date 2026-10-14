@@ -7838,3 +7838,25 @@ to draw from parts, and a theme file names a directory of them. The cost
 Windows guards against by signing styles is real here too: a broken
 artwork set is the part of a theme that breaks drawing rather than
 colours, so a missing or bad part must fall back to the code-drawn look.
+
+### Audit every app for square controls -- the rounded look of Paint's New picture dialog is the default
+
+Asked for 2026-10-14. Paint's New picture dialog is the reference:
+every control's corners follow the Corners setting
+(`uui_control_radius()`), a spinbox is ONE rounded frame with a
+frameless field inside, dialog buttons and the focus ring are rounded
+(`uui_stroke_round_rect()`, which the focus ring now uses everywhere).
+The audit walks each app and the toolkit for a control frame drawn with
+`ugfx_draw_rect` or a hard-coded radius -- the dialog box's own 8 px,
+swatch cells, colour wells, table and list selections -- and moves it
+onto the shared frame. Screenshot each app at the default Corners and at
+Large, and read the corner pixels rather than judging by eye.
+
+**The theme sets the DEFAULT, and an app may still choose square.**
+The radius a widget draws with comes from the theme and the Corners
+setting unless the APP set one on that widget -- the shape colours
+already have (`UUI_COLOR_UNSET` = the theme's). So each control gains a
+corner field whose unset value means "the theme's", and an app that
+wants a sharp-cornered control sets it to 0 and keeps it whatever the
+theme says. A theme with square corners makes every UNSET control
+square; it never rounds what an app made square on purpose.

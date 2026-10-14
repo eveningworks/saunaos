@@ -988,6 +988,11 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
         if (a->top.router.count) uapp_set_cursor(a, uui_router_cursor(&a->top.router, ev->a, ev->b));
         if (d->on_motion) d->on_motion(a, ev->a, ev->b, ev->mods);
         int want = a->motion_cursor;
+        // AN OPEN POPUP OR DIALOG OWNS THE POINTER, over the app's own
+        // choice too: a pan hand or a crosshair picked in on_motion for
+        // the content under a modal is not the pointer's to show.
+        if (a->top.router.count && uui_router_overlay_open(&a->top.router))
+            want = uui_router_cursor(&a->top.router, ev->a, ev->b);
         a->motion_cursor = -1;
         uapp_set_cursor(a, want);
         break;

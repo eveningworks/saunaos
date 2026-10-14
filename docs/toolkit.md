@@ -145,6 +145,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `utheme_file.h` | Theme FILES: reading, writing and applying the `.theme` files a `desktop.theme` setting names (docs/theme-design.md). |
 | `uui.h` | Toykit -- the ring-3 GUI toolkit -- and the umbrella include for its widgets. |
 | `uui_actionlist.h` | ROWS OF THINGS, EACH WITH ITS OWN BUTTONS: a title, a dim line under it, and up to two buttons at the right of the row -- "Disconnect" on a remote session, "Remove" on a trusted address. |
+| `uui_anchor.h` | uui_anchor -- WHICH CORNER, EDGE OR MIDDLE: a 3 x 3 grid of cells, one chosen -- Paint.NET's and Photoshop's Canvas Size anchor, and what a wallpaper or a watermark placement asks. |
 | `uui_anim.h` | FRAMES FOR THINGS THAT MOVE ON THEIR OWN. |
 | `uui_button.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_button_group.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
@@ -173,7 +174,9 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_gallery.h` | uui_gallery -- one choice out of a few, each shown as a CARD: a picture the caller paints and a label under it. |
 | `uui_grid.h` | uui_grid -- a GRID OF EQUAL CELLS the caller paints, one selected: a character map's glyphs (the Character Map), an icon picker, a board. |
 | `uui_image.h` | A decoded picture, in a layout. |
+| `uui_imagetypes.h` | uui_imagetypes -- THE PICTURE ROWS of a file chooser's "Files of type", written once: "All pictures (*.png; *.jpg; ...)", then one row per format, then "All files" -- Windows' common dialog's wordi... |
 | `uui_infobar.h` | AN INFO BAR across the top of a view: an icon, one line saying what is going on, and at most one action -- "Opened for this session" with Save to Network, a read-only medium with Open as writable. |
+| `uui_infonote.h` | uui_infonote -- A LINE THAT EXPLAINS: the info icon in the accent, then muted text -- under a choice that needs a sentence ("Colour 2 is the panel's second colour"), so it reads as a note and not a... |
 | `uui_keycapture.h` | A CONTROL THAT RECORDS A KEY COMBINATION BY HAVING YOU PRESS IT. |
 | `uui_keymap.h` | keymap -- a keyboard drawn from a layout, two ways: |
 | `uui_keysheet.h` | keysheet -- an app's keyboard shortcuts as a sheet: groups of rows, each an action on the left and its keys on the right, drawn as caps. |
@@ -212,6 +215,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_segmented.h` | A SEGMENTED CONTROL: two to four mutually-exclusive choices as one row of joined buttons, the chosen one filled -- macOS's NSSegmentedControl, Windows' and KDE's view switchers. |
 | `uui_setting_row.h` | ONE SETTING AS A CARD: its name and a line or two of description on the left, its control on the right -- or, for a control too wide to sit beside the text (a radio list, a long field), under it. |
 | `uui_sidebar.h` | A NAVIGATION SIDEBAR: bold section headings with selectable items under them. |
+| `uui_sizepick.h` | uui_sizepick -- A PICTURE'S SIZE, CHOSEN: preset cards that each show their size's SHAPE, and a width and a height beside them -- Photoshop's New Document and Paint.NET's presets. |
 | `uui_slider.h` | A slider with DISCRETE STOPS -- one per option, not a continuous range. |
 | `uui_sndformat.h` | uui_sndformat -- one sound card's output FORMAT as a panel: a Sample rate list (Match what plays, then each rate the card takes), the rates Match may switch to as checkboxes, a Bit depth list (Auto... |
 | `uui_sndtest.h` | uui_sndtest -- a SPEAKER TEST as a panel: a speaker tile per side (a cabinet drawn above its name, the side under test latched in the accent), a level meter outside each, a Both button between them... |

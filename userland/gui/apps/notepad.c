@@ -1233,7 +1233,7 @@ static int file_dialog(int saving) {
     if (!d->path[0] || !k_path_dirname(d->path, dir, sizeof dir)) strlcpy(dir, "/", sizeof dir);
 
     static const struct uui_filedialog_filter types[] = {
-        { "Text files", keep_text, 0 },
+        { "Text files", keep_text, 0, 0 },
         UUI_FILEDIALOG_ALL_FILES,
     };
     struct uui_filedialog_opts o = {

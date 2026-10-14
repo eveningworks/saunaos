@@ -9,13 +9,33 @@ static int count_of(const struct uui_segmented *sg) {
     return sg->count < UUI_SEGMENTED_MAX ? sg->count : UUI_SEGMENTED_MAX;
 }
 
+static int chip_px(void) { return ugfx_char_h() - 2; }
+static int has_chip(const struct uui_segmented *sg, int i) {
+    return sg->chips && sg->chips[i] != UUI_SEG_NONE;
+}
+
 static int seg_w(const struct uui_segmented *sg) {
     int widest = 0;
     for (int i = 0; i < count_of(sg); i++) {
         int w = sg->options[i] ? ugfx_text_width(sg->options[i]) : 0;
+        if (has_chip(sg, i)) w += chip_px() + ugfx_char_w() / 2;
         if (w > widest) widest = w;
     }
     return widest + 2 * UUI_PAD_X;
+}
+
+// The chip: the colour in a framed rounded square, or a checkerboard.
+static void draw_chip(struct ugfx_surface *s, int x, int y, uint32_t c, uint32_t edge) {
+    int n = chip_px(), r = uui_control_radius(2);
+    uui_fill_round_rect(s, x, y, n, n, r, edge);
+    if (c == UUI_SEG_CHECKER) {
+        int q = n / 2;
+        uui_fill_round_rect(s, x + 1, y + 1, n - 2, n - 2, r > 1 ? r - 1 : 0, 0xFFFFFF);
+        ugfx_fill_rect(s, x + 1, y + 1, q - 1, q - 1, 0xC8C8C8);
+        ugfx_fill_rect(s, x + q, y + q, n - q - 1, n - q - 1, 0xC8C8C8);
+    } else {
+        uui_fill_round_rect(s, x + 1, y + 1, n - 2, n - 2, r > 1 ? r - 1 : 0, c & 0xFFFFFF);
+    }
 }
 
 void uui_segmented_init(struct uui_segmented *sg, const char *const *options,
@@ -82,8 +102,13 @@ void uui_segmented_draw(struct ugfx_surface *s, const struct uui_segmented *sg) 
             ugfx_fill_rect(s, x, sg->y + 4, 1, sg->h - 8, edge);
         const char *t = sg->options[i] ? sg->options[i] : "";
         int tw = ugfx_text_width(t);
-        int tx = x + (sw - tw) / 2;
+        int cw = has_chip(sg, i) ? chip_px() + ugfx_char_w() / 2 : 0;
+        int tx = x + (sw - tw - cw) / 2;
         if (tx < x + 2) tx = x + 2;
+        if (cw) {
+            draw_chip(s, tx, sg->y + (sg->h - chip_px()) / 2, sg->chips[i], edge);
+            tx += cw;
+        }
         ugfx_draw_string_clipped(s, tx, sg->y + (sg->h - ugfx_char_h()) / 2, sw - 4, t,
                                  !chosen ? fg : sg->disabled ? off_fg : UTHEME_ACCENT_TEXT, bg);
     }

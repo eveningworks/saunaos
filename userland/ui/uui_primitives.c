@@ -72,9 +72,12 @@ void uui_button_draw_label(struct ugfx_surface *s, int x, int y, int w, int h,
     ugfx_draw_string_clipped(s, lx, ly, w, label, fg, fill);
 }
 
+// ROUNDED LIKE THE CONTROL IT RINGS: a square ring over a rounded button
+// squared its corners off, so the focused button looked another shape
+// from its neighbours.
 void uui_focus_ring(struct ugfx_surface *s, int x, int y, int w, int h) {
     if (w <= 0 || h <= 0) return;
-    ugfx_draw_rect(s, x, y, w, h, UTHEME_ACCENT);
+    uui_stroke_round_rect(s, x, y, w, h, uui_control_radius(0), UTHEME_ACCENT);
 }
 
 // --- the rounded rect --------------------------------------------------
@@ -218,6 +221,33 @@ void uui_fill_round_rect(struct ugfx_surface *s, int x, int y, int w, int h,
                 int sx = (q & 1) ? x + w - 1 - px : x + px;
                 int sy = (q & 2) ? y + h - 1 - py : y + py;
                 ugfx_blend_pixel(s, sx, sy, c, cov);
+            }
+        }
+    }
+}
+
+// A one-pixel OUTLINE of the same shape: the straight runs, then each
+// corner as the ring between the outer disc and the one a pixel inside
+// it, so it lies exactly on the edge uui_fill_round_rect() draws.
+void uui_stroke_round_rect(struct ugfx_surface *s, int x, int y, int w, int h,
+                           int radius, uint32_t c) {
+    if (w <= 0 || h <= 0) return;
+    int r = clamp_radius(radius, w, h);
+    if (r < 1) { ugfx_draw_rect(s, x, y, w, h, c); return; }
+    ugfx_fill_rect(s, x + r, y, w - 2 * r, 1, c);
+    ugfx_fill_rect(s, x + r, y + h - 1, w - 2 * r, 1, c);
+    ugfx_fill_rect(s, x, y + r, 1, h - 2 * r, c);
+    ugfx_fill_rect(s, x + w - 1, y + r, 1, h - 2 * r, c);
+    for (int q = 0; q < 4; q++) {
+        for (int py = 0; py < r; py++) {
+            for (int px = 0; px < r; px++) {
+                int out = arc_coverage(r, px, py);
+                int in = (px > 0 && py > 0 && r > 1) ? arc_coverage(r - 1, px - 1, py - 1) : 0;
+                int cov = out - in;
+                if (cov <= 0) continue;
+                int sx = (q & 1) ? x + w - 1 - px : x + px;
+                int sy = (q & 2) ? y + h - 1 - py : y + py;
+                ugfx_blend_pixel(s, sx, sy, c, (uint8_t)cov);
             }
         }
     }

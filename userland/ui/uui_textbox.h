@@ -90,6 +90,11 @@ struct uui_textbox {
     // every ordinary field.
     int bare;
 
+    // 1 = drawn with NO FRAME and NO GROUND: the field is one part of a
+    // control that frames and fills the whole (a spinbox), which would
+    // otherwise show a frame inside a frame.
+    int frameless;
+
     // 1 = a password: every character is drawn as '*' (the font is
     // Latin-1, which has no bullet), and clicks place the caret by those.
     // The text itself is unchanged in `buf`.

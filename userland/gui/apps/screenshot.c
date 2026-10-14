@@ -992,7 +992,7 @@ static int keep_images(void *ctx, const char *dir, const struct sys_dirent *e) {
 }
 
 static const struct uui_filedialog_filter SAVE_FILTERS[] = {
-    { "Images (.qoi .png)", keep_images, 0 },
+    { "Images (.qoi .png)", keep_images, 0, 0 },
     UUI_FILEDIALOG_ALL_FILES,
 };
 

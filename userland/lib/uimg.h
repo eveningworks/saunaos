@@ -142,6 +142,15 @@ int uimg_decode(const void *data, size_t n, struct uimg *out);
 int uimg_load_info(const char *path, struct uimg_info *out);
 int uimg_load(const char *path, struct uimg *out);
 
+// WHICH FORMAT A FILE IS, without decoding it, by shared-mime-info's
+// rule (what KDE's and GNOME's file dialogs list by): a KNOWN EXTENSION
+// decides -- no read, so a big folder lists fast -- and a name with no
+// extension, or one this table does not know, is decided by its first
+// bytes. A codec name ("png", "jpeg", "gif", "bmp", "qoi"), or NULL for
+// not a picture. Opening still decodes by content, so a JPEG named .png
+// is listed as PNG here and opens correctly anyway.
+const char *uimg_format_guess(const char *path);
+
 // Releases `im->px` and zeroes the struct. Safe on an already-freed or
 // never-decoded image.
 void uimg_free(struct uimg *im);

@@ -199,7 +199,7 @@ static void import_chosen(void *ctx, const char *path) {
 static void import_open(struct uapp *a) {
     if (uui_filedialog_is_open(&g_fd)) return;
     static const struct uui_filedialog_filter types[] = {
-        { "Theme files", keep_themes, 0 },
+        { "Theme files", keep_themes, 0, 0 },
         UUI_FILEDIALOG_ALL_FILES,
     };
     struct uui_filedialog_opts o = {

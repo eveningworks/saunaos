@@ -97,6 +97,10 @@ struct uui_dialog {
     struct uui_item *focus;
 
     int open;
+    // The body's fields in TAB ORDER (uui_dialog_set_tabs()): Tab walks
+    // them, then the buttons, then back. None: Tab walks the buttons.
+    struct uui_item *tabs[UUI_DIALOG_BUTTONS];
+    int tab_count;
     int hot;           // hovered or arrowed-to button, -1 for none
     int pressed;       // armed by a press, committed by the release
     int committed;     // parked code, -1 when there is nothing waiting
@@ -122,6 +126,10 @@ void uui_dialog_set_body(struct uui_dialog *d, struct uui_item *body, int w, int
 // Moves the key focus to a body item (NULL: the buttons), telling the
 // old and new items through their set_focused ops.
 void uui_dialog_focus(struct uui_dialog *d, struct uui_item *it);
+// The body items Tab steps through, in order (at most
+// UUI_DIALOG_BUTTONS); cleared by every open. A field's Enter still
+// answers the default button, after the field has taken it.
+void uui_dialog_set_tabs(struct uui_dialog *d, struct uui_item *const *items, int count);
 // Where the body was placed. 0 when there is none or it is closed.
 int  uui_dialog_body_rect(const struct uui_dialog *d, int *x, int *y, int *w, int *h);
 

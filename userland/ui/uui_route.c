@@ -384,6 +384,8 @@ static int cursor_item(struct uui_item *it, int cx, int cy) {
     return it->ops->cursor(it->widget, cx, cy);
 }
 
+int uui_router_overlay_open(const struct uui_router *r) { return owner(r) != NULL; }
+
 int uui_router_cursor(const struct uui_router *r, int cx, int cy) {
     // An open popup answers first: its rows are outside its own `hit`,
     // so the walk below would never reach them.
@@ -401,6 +403,11 @@ int uui_router_cursor(const struct uui_router *r, int cx, int cy) {
             int c = ov->ops->cursor(ov->widget, cx, cy);
             if (c != WIN_CURSOR_DEFAULT) return c;
         }
+        // AN OPEN POPUP OR DIALOG OWNS THE POINTER, the rule motion
+        // follows below: nothing under it is hovered, so nothing under it
+        // picks the pointer's shape either -- a canvas's crosshair showed
+        // through a modal dialog until this said so.
+        return WIN_CURSOR_DEFAULT;
     }
     for (int i = r->count - 1; i >= 0; i--) {
         int c = cursor_item(&r->items[i], cx, cy);

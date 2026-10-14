@@ -477,7 +477,7 @@ static void open_dialog(struct uapp *a) {
     if (uui_filedialog_is_open(&g_fd)) return;
     uui_menubar_close(&g_menu);
     static const struct uui_filedialog_filter types[] = {
-        { "Image files", keep_images, 0 },
+        { "Image files", keep_images, 0, 0 },
         UUI_FILEDIALOG_ALL_FILES,
     };
     struct uui_filedialog_opts o = {

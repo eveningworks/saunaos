@@ -156,6 +156,9 @@ int  uui_router_extern_drop(struct uui_router *r, int cx, int cy, unsigned mods)
 // A QUERY -- consumes nothing -- so uapp calls it on every motion and
 // lets uapp_set_cursor() filter the no-ops.
 int uui_router_cursor(const struct uui_router *r, int cx, int cy);
+// Is a popup or a dialog up, owning the pointer? What uapp asks before
+// letting an app's own on_motion pick the pointer's shape.
+int uui_router_overlay_open(const struct uui_router *r);
 
 // The wheel goes to the widget under the cursor, or to the grab holder
 // if there is one. Apps used to send it to a fixed chain of widgets in

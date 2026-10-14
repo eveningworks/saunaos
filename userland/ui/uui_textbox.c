@@ -279,7 +279,9 @@ void uui_textbox_draw(struct ugfx_surface *s, const struct uui_textbox *f0) {
         border = uui_state_bg(border, UUI_STATE_DISABLED);
     }
     int x = f->x, y = f->y, w = f->w, h = f->h;
-    uui_control_frame(s, x, y, w, h, bg, border);
+    // Frameless: the container framed it and painted its ground, round
+    // corners and all -- a square fill here would square them again.
+    if (!f->frameless) uui_control_frame(s, x, y, w, h, bg, border);
 
     int pad = UUI_TEXTBOX_PAD;
     int ty = y + (h - ugfx_char_h()) / 2;

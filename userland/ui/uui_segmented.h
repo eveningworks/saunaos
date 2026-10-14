@@ -16,6 +16,8 @@
 // -- the widest label's -- so the row does not look like a ragged table.
 
 #define UUI_SEGMENTED_MAX 8
+#define UUI_SEG_NONE    0xFF000000u   // no chip in this segment
+#define UUI_SEG_CHECKER 0xFE000000u   // a checkerboard: transparent
 
 struct uui_segmented {
     int x, y, w, h;                 // w/h are the natural size
@@ -26,6 +28,11 @@ struct uui_segmented {
     int focused;                    // OWNED
     int disabled;
     uint32_t bg, fg;                // UUI_COLOR_UNSET = the theme's
+    // A COLOUR CHIP before each label, `count` of them, caller-owned --
+    // a background choice showing the colours it chooses between.
+    // 0xRRGGBB, UUI_SEG_CHECKER for transparent, UUI_SEG_NONE for none.
+    // NULL (init's default): no chips.
+    const uint32_t *chips;
 };
 
 void uui_segmented_init(struct uui_segmented *sg, const char *const *options,

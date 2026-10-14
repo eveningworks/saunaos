@@ -102,6 +102,10 @@ struct uui_tabs {
     // The baseline's colour; 0 = UTHEME_BORDER. Over a white page the
     // separator colour is the right weight (Notepad).
     uint32_t baseline;
+    // The strip's GROUND behind and beside the tabs; 0 = the window's.
+    // A dialog sets its own card colour, so only the tabs show and no
+    // grey bar runs on past the last one.
+    uint32_t ground;
 
     // Driven by the widget from pointer input; an app never sets these.
     int hovered;                // tab index under the cursor, or -1

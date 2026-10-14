@@ -361,7 +361,7 @@ static void ops_draw(struct ugfx_surface *s, const void *w) {
     // makes the selection a LIFT rather than a tint: panel over field is
     // ten units and would be the "moved the background by two out of
     // 255" trap docs/gui-guidelines.md names.
-    ugfx_fill_rect(s, t->x, t->y, t->w, t->h, UTHEME_WINDOW_BG);
+    ugfx_fill_rect(s, t->x, t->y, t->w, t->h, t->ground ? t->ground : UTHEME_WINDOW_BG);
     // THE BASELINE IS WHAT THE SELECTED TAB BREAKS. Drawn under every
     // tab and then painted over by that tab's accent, so the break is a
     // consequence of the fill rather than a second calculation that has

@@ -158,6 +158,7 @@ void uui_dialog_open(struct uui_dialog *d, const char *title,
     d->cancel_code = cancel_code;
     d->picture = NULL;
     d->note = NULL;
+    d->tab_count = 0;
     d->committed = -1;
     d->pressed = -1;
     // The default starts hot, so Return works before the pointer has
@@ -299,8 +300,9 @@ static void draw_buttons(struct ugfx_surface *s, const struct uui_dialog *d) {
                                                : UTHEME_TEXT;
         uint32_t fill = uui_state_bg(face, st);
         uint32_t edge = uui_state_bg(uui_state_bg(face, UUI_STATE_PRESSED), UUI_STATE_PRESSED);
-        uui_fill_round_rect(s, bx, by, bw, bh, 4, edge);
-        uui_fill_round_rect(s, bx + 1, by + 1, bw - 2, bh - 2, 3, fill);
+        // The Corners setting's radius, as every uui_button has it.
+        uui_fill_round_rect(s, bx, by, bw, bh, uui_control_radius(0), edge);
+        uui_fill_round_rect(s, bx + 1, by + 1, bw - 2, bh - 2, uui_control_radius(1), fill);
         uui_button_draw_label(s, bx, by, bw, bh, d->buttons[i].label, fg, fill, st);
         if (d->hot == i) uui_focus_ring(s, bx, by, bw, bh);
     }
@@ -329,13 +331,34 @@ static void commit(struct uui_dialog *d, int index) {
     uui_dialog_close(d);
 }
 
+void uui_dialog_set_tabs(struct uui_dialog *d, struct uui_item *const *items, int count) {
+    if (count > UUI_DIALOG_BUTTONS) count = UUI_DIALOG_BUTTONS;
+    d->tab_count = count < 0 ? 0 : count;
+    for (int i = 0; i < d->tab_count; i++) d->tabs[i] = items[i];
+}
+
+// Tab: the next field, then the buttons, then the first field again.
+static void tab_step(struct uui_dialog *d) {
+    int at = -1;
+    for (int i = 0; i < d->tab_count; i++) if (d->tabs[i] == d->focus) at = i;
+    if (at >= 0 && at + 1 < d->tab_count) { uui_dialog_focus(d, d->tabs[at + 1]); return; }
+    if (at >= 0) { uui_dialog_focus(d, 0); d->hot = d->default_button; return; }
+    if (d->hot < d->button_count - 1) { d->hot++; return; }
+    d->hot = -1;
+    uui_dialog_focus(d, d->tabs[0]);
+}
+
 int uui_dialog_key(struct uui_dialog *d, int key) {
     if (!d->open) return 0;
+    if (key == '\t' && d->tab_count) { tab_step(d); return 1; }
     // The focused body item first: a fileview's Enter opens, a field's
-    // Left moves its caret. What it declines falls to the buttons -- a
-    // field never takes Enter, so Return still commits the default.
+    // Left moves its caret. What it declines falls to the buttons. A
+    // field that TOOK Enter (a spinbox adopting what was typed) has
+    // still been answered: Return commits the default button too, as
+    // Windows' dialogs do.
+    int enter = key == '\r' || key == '\n';
     if (d->focus && d->focus->ops && d->focus->ops->key &&
-        d->focus->ops->key(d->focus->widget, key, 0)) return 1;
+        d->focus->ops->key(d->focus->widget, key, 0) && !enter) return 1;
     switch (key) {
     case 0x1B:   // Esc answers the cancel code, whatever it is
         d->committed = d->cancel_code;

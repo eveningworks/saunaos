@@ -64,11 +64,15 @@ struct uui_filedialog_filter {
     const char *label;
     uui_fileview_filter_fn fn;
     void *ctx;
+    // What a SAVE in this type writes (".png"), or NULL. Picking the row
+    // in a Save dialog rewrites the typed name's extension to it --
+    // Windows' "Save as type" -- and typing another extension still wins.
+    const char *ext;
 };
 
 // The row every chooser ends with, written once here rather than in
 // each app: Win32's "All Files (*.*)", KDE's "All Files".
-#define UUI_FILEDIALOG_ALL_FILES { "All files", 0, 0 }
+#define UUI_FILEDIALOG_ALL_FILES { "All files", 0, 0, 0 }
 
 struct uui_filedialog_opts {
     enum uui_filedialog_mode mode;

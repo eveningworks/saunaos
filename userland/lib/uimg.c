@@ -621,3 +621,23 @@ int uimg_scale(const struct uimg *src, int dw, int dh, struct uimg *out) {
     out->has_alpha = src->has_alpha;
     return 0;
 }
+
+// --- uimg_format_guess --------------------------------------------------
+
+static const struct { const char *ext, *format; } EXTS[] = {
+    { ".png", "png" }, { ".jpg", "jpeg" }, { ".jpeg", "jpeg" }, { ".jpe", "jpeg" }, { ".jfif", "jpeg" },
+    { ".gif", "gif" }, { ".bmp", "bmp" }, { ".dib", "bmp" }, { ".qoi", "qoi" },
+};
+
+const char *uimg_format_guess(const char *path) {
+    const char *base = strrchr(path, '/');
+    base = base ? base + 1 : path;
+    const char *dot = strrchr(base, '.');
+    if (dot && dot != base)
+        for (unsigned i = 0; i < sizeof EXTS / sizeof EXTS[0]; i++)
+            if (!strcasecmp(dot, EXTS[i].ext)) return EXTS[i].format;
+    uint8_t head[16];
+    size_t got = ufile_read_head(path, head, sizeof head);
+    const struct uimg_codec *c = got >= 4 ? uimg_probe(head, got) : 0;
+    return c ? c->name : 0;
+}

@@ -93,6 +93,9 @@ int uui_control_radius(int in);
 // Selection group).
 int uui_select_radius(int in);
 
+// Its one-pixel outline, on the same edge.
+void uui_stroke_round_rect(struct ugfx_surface *s, int x, int y, int w, int h,
+                           int radius, uint32_t c);
 void uui_fill_round_rect(struct ugfx_surface *s, int x, int y, int w, int h,
                          int radius, uint32_t c);
 

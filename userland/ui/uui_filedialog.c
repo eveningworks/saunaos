@@ -123,6 +123,22 @@ static void apply_filter(struct uui_filedialog *fd) {
     uui_fileview_reload(&fd->view);
 }
 
+// SAVE AS TYPE: the name's extension becomes the chosen row's -- the
+// last one swapped ("holiday.png" -> "holiday.jpg"), or added to a name
+// with none. A row with no `ext` leaves the name alone.
+static void retype_name(struct uui_filedialog *fd) {
+    const struct uui_filedialog_filter *f = chosen_filter(fd);
+    if (!f || !f->ext) return;
+    char name[UUI_FILEDIALOG_PATH_MAX];
+    snprintf(name, sizeof name, "%s", uui_textbox_text(&fd->name));
+    if (!name[0]) return;
+    char *slash = strrchr(name, '/');
+    char *dot = strrchr(slash ? slash + 1 : name, '.');
+    if (dot && dot != (slash ? slash + 1 : name)) *dot = '\0';
+    strlcat(name, f->ext, sizeof name);
+    uui_textbox_set_text(&fd->name, name);
+}
+
 // --- committing --------------------------------------------------------
 
 static void finish(struct uui_filedialog *fd, const char *path) {
@@ -593,6 +609,7 @@ static void on_widget(struct uapp_window *w, int id, int reason) {
         // until the next click is worse than one that re-lists twice.
         if (reason == UUI_REASON_PRESS) uui_focus_set(&fd->focus, FOCUS_TYPE);
         apply_filter(fd);
+        if (fd->mode == UUI_FILEDIALOG_SAVE) retype_name(fd);
         break;
     default:
         break;

@@ -25,6 +25,11 @@ static void render(struct uui_spinbox *s) {
     char buf[24];
     snprintf(buf, sizeof buf, "%d", s->value);
     uui_textbox_init(&s->field, buf);
+    // ONE FRAME, THE SPINBOX'S: the field is drawn without its own (and
+    // without its own focus ring), inside the frame this draws round both
+    // it and the steppers.
+    s->field.frameless = 1;
+    s->field.bare = 1;
 }
 
 // Parses the field. Returns 1 and writes the number, or 0 for anything
@@ -119,8 +124,8 @@ void uui_spinbox_set_geometry(struct uui_spinbox *s, int x, int y, int w, int h)
     // its geometry rather than deriving it, so the caret and the
     // click-to-position arithmetic inside uui_textbox stay that widget's
     // business.
-    int fw = w - STEP_W;
-    uui_textbox_set_geometry(&s->field, x, y, fw > 0 ? fw : 0, h);
+    int fw = w - STEP_W - 1;
+    uui_textbox_set_geometry(&s->field, x + 1, y + 1, fw > 0 ? fw : 0, h > 2 ? h - 2 : 0);
 }
 
 static int in_steppers(const struct uui_spinbox *s, int cx, int cy) {
@@ -159,9 +164,18 @@ void uui_spinbox_draw(struct ugfx_surface *surf, const struct uui_spinbox *s) {
     uint32_t bg = UUI_COLOR(s->bg, UTHEME_WHITE), fg = UUI_COLOR(s->fg, UTHEME_TEXT);
     uint32_t border = UUI_COLOR(s->border, UTHEME_OUTLINE);
     uint32_t step_bg = UUI_COLOR(s->step_bg, UTHEME_PANEL_BG);
-    // The field draws its own background, caret and selection -- this
-    // must not paint over it, which is why only the stepper column and
-    // the border are drawn here.
+    // The frame first, then the stepper column inside its right corners,
+    // then the field over the rest -- it draws its own background, caret
+    // and selection, so nothing is painted over it afterwards but the
+    // separator.
+    int sx = s->x + s->w - STEP_W;
+    int r1 = uui_control_radius(1);
+    if (s->disabled) bg = uui_state_bg(bg, UUI_STATE_DISABLED);
+    uui_control_frame(surf, s->x, s->y, s->w, s->h, bg, border);
+    // Rounded on the right, with the frame; its left corners are put
+    // back to the field's ground, which the field itself does not paint.
+    uui_fill_round_rect(surf, sx - r1, s->y + 1, STEP_W + r1 - 1, s->h - 2, r1, step_bg);
+    ugfx_fill_rect(surf, sx - r1, s->y + 1, r1, s->h - 2, bg);
     uui_textbox_draw(surf, &s->field);
 
     // THE UNIT IS DRAWN ONLY WHEN NOT EDITING. While the field has the
@@ -178,11 +192,6 @@ void uui_spinbox_draw(struct ugfx_surface *surf, const struct uui_spinbox *s) {
                                       ugfx_blend(fg, bg, 110), bg);
     }
 
-    int sx = s->x + s->w - STEP_W;
-    // The field's own focus ring would leave its right edge one pixel
-    // left of the separator, reading as a stray accent line inside the
-    // control; this one rings the whole box at the end instead.
-    if (s->field.active) ugfx_fill_rect(surf, sx - 1, s->y + 1, 1, s->h - 2, uui_textbox_c_bg(&s->field));
 
     int half = s->h / 2;
     for (int i = 0; i < 2; i++) {
@@ -197,7 +206,8 @@ void uui_spinbox_draw(struct ugfx_surface *surf, const struct uui_spinbox *s) {
         uint32_t face = step_bg;
         if (usable && s->armed == which) face = uui_state_bg(step_bg, UUI_STATE_PRESSED);
         else if (usable && s->hovered == which) face = uui_state_bg(step_bg, UUI_STATE_HOVER);
-        ugfx_fill_rect(surf, sx, ry, STEP_W, rh, face);
+        if (face != step_bg)
+            uui_fill_round_rect(surf, sx + 1, ry + (up ? 1 : 0), STEP_W - 2, rh - 1, r1, face);
         // Centred on the half: the glyph is 4 rows tall and drawn
         // downward from `cy`, so the top is half its height above the
         // middle -- the same expression for both, now that direction is
@@ -205,8 +215,7 @@ void uui_spinbox_draw(struct ugfx_surface *surf, const struct uui_spinbox *s) {
         arrow(surf, sx + STEP_W / 2, ry + rh / 2 - 2, up,
               usable ? fg : ugfx_blend(fg, step_bg, 187));
     }
-    ugfx_draw_rect(surf, s->x, s->y, s->w, s->h, border);
-    ugfx_fill_rect(surf, sx, s->y, 1, s->h, border);
+    ugfx_fill_rect(surf, sx, s->y + 1, 1, s->h - 2, border);
 
     // Round the whole control, steppers included: Up/Down are the
     // spinbox's keys, not the field's, so the field alone would understate
