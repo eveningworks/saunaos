@@ -70,6 +70,9 @@ void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot) {
         paint_colour_used(slot);
         end();
         return;
+    case TOOL_TEXT:
+        if (phase == UUI_PAINT_DOWN) text_pointer_down(x, y);
+        return;
     case TOOL_PICK:
         if (phase != UUI_PAINT_DOWN || x < 0 || y < 0 || x >= g_img.w || y >= g_img.h) return;
         g_colour[slot] = upix_get(&g_img, x, y) | 0xFF000000u;

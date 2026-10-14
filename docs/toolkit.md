@@ -169,6 +169,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_fileview.h` | --- fileview: a directory, as a widget ------------------------------- |
 | `uui_findbar.h` | uui_findbar -- a find control: a lens, a query field, an "N of M" readout, previous / next, and close. |
 | `uui_focus.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
+| `uui_fontpick.h` | uui_fontpick -- A FONT, CHOSEN: the family from what /usr/share/fonts holds, a size in pixels, Bold and Italic -- Windows 11 Paint's text bar and every word processor's. |
 | `uui_fontsample.h` | A font face loaded to SHOW it, and its sample drawn in a box -- what a font picker's card holds: Settings' Appearance > Fonts gallery, and the Character Map's face list. |
 | `uui_form.h` | A SMALL FORM: labelled text fields, password fields, checkboxes, choices (a uui_segmented: two to four short options) and notes stacked down a column, with Tab moving between them -- the body of a... |
 | `uui_gallery.h` | uui_gallery -- one choice out of a few, each shown as a CARD: a picture the caller paints and a label under it. |

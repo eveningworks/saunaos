@@ -1794,10 +1794,14 @@ vertical `uui_toolbar` for the rail, opening JPEG/GIF/BMP/QOI/PNG and
 saving PNG/JPEG/QOI, Rotate and Flip, and "Edit in Paint" in the File
 Manager. Left to build, in order:
 
-- **Stage 2, shapes and text**: line, rectangle and ellipse (outline,
-  filled, both) previewed through `uui_paintcanvas.draw_over` and
-  committed on release; a text tool typing into the picture in the UI
-  font. Undo per shape, as a stroke is now.
+- **Built since stage 1** (2026-10-14): New picture with size cards,
+  Image > Resize and Canvas size (one dialog, two tabs, an anchor), the
+  canvas's edge handles, the text tool with its floating font bar
+  (`ui/uui_fontpick.h`), and Open/Save listing each format.
+- **Next, layers** (chosen: a Layers tab in the panel, basics + opacity
+  + drag to reorder, `.ora` keeps them), then **shapes**: line,
+  rectangle, ellipse, rounded rectangle, polygon, curve, arrow and star,
+  previewed through `uui_paintcanvas.draw_over` and committed on release.
 - **Stage 3, selection and the picture's size**: a rectangle selection
   that moves, cuts, copies and pastes within Paint (an IMAGE kind on the
   clipboard, for other apps, is a separate item), Crop to selection,

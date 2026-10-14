@@ -29,6 +29,9 @@ What it proves, and what a broken version would still pass:
     pixels left and fills the new room with Colour 2; Resize at 50% with
     the aspect kept halves both sides. SAVE AS TYPE: picking JPEG turns
     "Untitled.png" into "Untitled.jpg".
+  * HANDLES: the canvas's corner handle dragged by (+50, +25) at 50% makes
+    an 800 x 600 picture 900 x 650. TEXT: "Hi" typed into a box puts
+    non-white pixels where the box was, and one Ctrl+Z takes them all.
   * NEW PICTURE: Ctrl+N shows the size cards; HD + Create makes a 1280 x
     720 picture, and a size typed into both fields picks the Custom card
     and makes that picture.
@@ -243,6 +246,7 @@ def run(dbg, qmp, res, tmp):
     dbg.send(f"sh rm {SAVED}")
     check_new(dbg, res)
     check_resize(dbg, qmp, res, tmp)
+    check_handles_and_text(dbg, qmp, res, tmp)
 
 
 def rect(dbg, part):
@@ -378,6 +382,54 @@ def check_resize(dbg, qmp, res, tmp):
     res.check("Save as type JPEG rewrites the name's extension",
               name0 == "Untitled.png" and name1 == "Untitled.jpg", f"{name0!r} -> {name1!r}")
     dbg.key("0x1b")
+    close_all(dbg)
+
+
+def check_handles_and_text(dbg, qmp, res, tmp):
+    """The canvas's corner handle, dragged, is a new size; the text tool
+    puts letters into the picture, in Colour 1, as one undo step."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    dbg.key("-", mods="ctrl")
+    dbg.key("-", mods="ctrl")   # 50%: the picture and its handles in view
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Handles: Paint opens", False, "no window")
+        return
+    hd = None
+    for line in reversed(dbg.logs("paint: layout canvas.handle 3 ", clear=False)):
+        hd = [int(v) for v in line.split("canvas.handle 3 ", 1)[1].split()[:4]]
+        break
+    if hd:
+        x0, y0 = scr.cx + hd[0] + hd[2] // 2, scr.cy + hd[1] + hd[3] // 2
+        dbg.drag(x0, y0, x0 + 50, y0 + 25, steps=10)   # 50% zoom: +100 x +50 picture px
+        dbg.settle()
+    st = state(dbg)
+    res.check("dragging the corner handle makes the canvas 900 x 650",
+              hd and st.get("w") == 900 and st.get("h") == 650, f"handle {hd}, {st}")
+    # The text tool: a box at (40, 40), "Hi", Esc.
+    dbg.key("t")
+    scr.refresh()
+    tx, ty = scr.at(40, 40)
+    dbg.click(tx, ty)
+    for ch in "Hi":
+        dbg.key(ch)
+    dbg.key("0x1b")
+    scr.refresh()
+    scr.shoot()
+
+    def inked():
+        n = 0
+        for py in range(40, 76, 2):
+            for px in range(40, 90, 2):
+                if scr.pixel(px, py) != WHITE:
+                    n += 1
+        return n
+    ink = inked()
+    res.check("the text tool draws letters into the picture", ink > 4, f"{ink} non-white samples")
+    dbg.key(CTRL["z"], mods="ctrl")
+    scr.shoot()
+    res.check("...as one undo step", inked() == 0, f"{inked()} left after Ctrl+Z")
     close_all(dbg)
 
 

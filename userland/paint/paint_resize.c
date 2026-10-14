@@ -194,6 +194,34 @@ void resize_open(struct uapp *a, int canvas_tab) {
     show_tab(canvas_tab ? 1 : 0);
 }
 
+// THE CANVAS, re-framed to w x h: the old picture placed by the anchor's
+// column and row (0..2), the new room in Colour 2. The Canvas size tab's
+// and the edge handles' one way to do it (the handles anchor top-left).
+void resize_canvas_to(int w, int h, int col, int rw) {
+    if (!g_img.px || (w == g_img.w && h == g_img.h)) return;
+    struct uimg out = { 0 };
+    out.px = malloc((size_t)w * h * 4);
+    if (!out.px) { paint_note("Not enough memory for that canvas"); return; }
+    out.w = w;
+    out.h = h;
+    for (size_t i = 0; i < (size_t)w * h; i++) out.px[i] = g_colour[1];
+    // Where the old picture's top-left lands: against the anchored edge,
+    // or centred between the two.
+    int dx = col == 0 ? 0 : col == 1 ? (w - g_img.w) / 2 : w - g_img.w;
+    int dy = rw == 0 ? 0 : rw == 1 ? (h - g_img.h) / 2 : h - g_img.h;
+    for (int y = 0; y < g_img.h; y++) {
+        int ty = y + dy;
+        if (ty < 0 || ty >= h) continue;
+        for (int x = 0; x < g_img.w; x++) {
+            int tx = x + dx;
+            if (tx >= 0 && tx < w) out.px[(size_t)ty * w + tx] = g_img.px[(size_t)y * g_img.w + x];
+        }
+    }
+    out.has_alpha = g_img.has_alpha || (g_colour[1] >> 24) != 0xFF;
+    ulogf("paint: canvas %dx%d anchor %d,%d\n", w, h, col, rw);
+    paint_replace_picture(&out);
+}
+
 // Scale, or re-frame, into a new picture handed to the window.
 static void apply(void) {
     int tab = g_tabs.selected;
@@ -211,28 +239,10 @@ static void apply(void) {
     } else {
         uui_spinbox_commit(&g_cw);
         uui_spinbox_commit(&g_ch);
-        int w = uui_spinbox_value(&g_cw), h = uui_spinbox_value(&g_ch), col, rw;
-        if (w == g_img.w && h == g_img.h) return;
+        int col, rw;
         uui_anchor_xy(&g_anchor, &col, &rw);
-        out.px = malloc((size_t)w * h * 4);
-        if (!out.px) { paint_note("Not enough memory for that canvas"); return; }
-        out.w = w;
-        out.h = h;
-        for (size_t i = 0; i < (size_t)w * h; i++) out.px[i] = g_colour[1];
-        // Where the old picture's top-left lands: against the anchored
-        // edge, or centred between the two.
-        int dx = col == 0 ? 0 : col == 1 ? (w - g_img.w) / 2 : w - g_img.w;
-        int dy = rw == 0 ? 0 : rw == 1 ? (h - g_img.h) / 2 : h - g_img.h;
-        for (int y = 0; y < g_img.h; y++) {
-            int ty = y + dy;
-            if (ty < 0 || ty >= h) continue;
-            for (int x = 0; x < g_img.w; x++) {
-                int tx = x + dx;
-                if (tx >= 0 && tx < w) out.px[(size_t)ty * w + tx] = g_img.px[(size_t)y * g_img.w + x];
-            }
-        }
-        out.has_alpha = g_img.has_alpha || (g_colour[1] >> 24) != 0xFF;
-        ulogf("paint: canvas %dx%d anchor %d\n", w, h, g_anchor.selected);
+        resize_canvas_to(uui_spinbox_value(&g_cw), uui_spinbox_value(&g_ch), col, rw);
+        return;
     }
     paint_replace_picture(&out);
 }

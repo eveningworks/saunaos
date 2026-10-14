@@ -7,6 +7,7 @@
 #include "ui/uui_primitives.h"
 #include "syscall_abi.h"      // WIN_CURSOR_*
 #include "keyboard.h"
+#include <stdio.h>
 #include <stdlib.h>
 
 static const int ZOOMS[] = { 10, 25, 50, 75, 100, 150, 200, 300, 400, 600, 800, 1200, 1600, 2400, 3200 };
@@ -20,10 +21,17 @@ static int zoomed(int n, int zoom) {
 static int pic_w(const struct uui_paintcanvas *c) { return c->img && c->img->px ? zoomed(c->img->w, c->zoom) : 0; }
 static int pic_h(const struct uui_paintcanvas *c) { return c->img && c->img->px ? zoomed(c->img->h, c->zoom) : 0; }
 
+// What scrolls: the picture, and with edge handles a MARGIN past its
+// right and bottom edges -- or a picture bigger than the view would put
+// the handles where no scroll could reach them.
+static int margin(const struct uui_paintcanvas *c) { return c->on_resize ? ugfx_char_h() * 2 : 0; }
+static int cont_w(const struct uui_paintcanvas *c) { return pic_w(c) ? pic_w(c) + margin(c) : 0; }
+static int cont_h(const struct uui_paintcanvas *c) { return pic_h(c) ? pic_h(c) + margin(c) : 0; }
+
 // The view: the widget less whichever bars the picture needs. A bar can
 // make the other necessary, so the two are decided together.
 static void view(const struct uui_paintcanvas *c, int *vw, int *vh, int *need_h, int *need_v) {
-    int sb = uui_sbar_width(), dw = pic_w(c), dh = pic_h(c);
+    int sb = uui_sbar_width(), dw = cont_w(c), dh = cont_h(c);
     int nh = dw > c->w, nv = dh > c->h;
     if (nh && !nv) nv = dh > c->h - sb;
     if (nv && !nh) nh = dw > c->w - sb;
@@ -39,7 +47,7 @@ static int clampi(int v, int lo, int hi) { return v < lo ? lo : v > hi ? hi : v;
 static void layout(struct uui_paintcanvas *c) {
     int vw, vh, nh, nv;
     view(c, &vw, &vh, &nh, &nv);
-    int dw = pic_w(c), dh = pic_h(c);
+    int dw = cont_w(c), dh = cont_h(c);
     c->sx = dw > vw ? clampi(c->sx, 0, dw - vw) : 0;
     c->sy = dh > vh ? clampi(c->sy, 0, dh - vh) : 0;
     uui_sbar_place(&c->vbar, c->x + c->w - uui_sbar_width(), c->y, nv ? vh : 0);
@@ -53,9 +61,10 @@ static void layout(struct uui_paintcanvas *c) {
 static void origin(const struct uui_paintcanvas *c, int *ox, int *oy) {
     int vw, vh;
     view(c, &vw, &vh, 0, 0);
-    int dw = pic_w(c), dh = pic_h(c);
-    *ox = c->x + (dw < vw ? (vw - dw) / 2 : -c->sx);
-    *oy = c->y + (dh < vh ? (vh - dh) / 2 : -c->sy);
+    // Centred while the picture and its margin fit; scrolled from the
+    // picture's top-left once they do not.
+    *ox = c->x + (cont_w(c) <= vw ? (vw - pic_w(c)) / 2 : -c->sx);
+    *oy = c->y + (cont_h(c) <= vh ? (vh - pic_h(c)) / 2 : -c->sy);
 }
 
 void uui_paintcanvas_init(struct uui_paintcanvas *c, struct uimg *img) {
@@ -124,10 +133,80 @@ int uui_paintcanvas_zoom_step(int zoom, int dir) {
 
 int uui_paintcanvas_fit_zoom(const struct uui_paintcanvas *c) {
     if (!c->img || !c->img->px || c->w <= 0 || c->h <= 0) return 100;
-    int zw = (int)((long long)(c->w - 8) * 100 / c->img->w);
-    int zh = (int)((long long)(c->h - 8) * 100 / c->img->h);
+    int zw = (int)((long long)(c->w - 8 - margin(c)) * 100 / c->img->w);
+    int zh = (int)((long long)(c->h - 8 - margin(c)) * 100 / c->img->h);
     int z = zw < zh ? zw : zh;
     return clampi(z, UUI_PAINT_ZOOM_MIN, 100);
+}
+
+// --- the edge handles ------------------------------------------------------
+
+static int handle_px(void) { int n = ugfx_char_h() / 2; return n < 6 ? 6 : n; }
+
+// Where handle `h` (1 right, 2 bottom, 3 corner) sits, centred on its
+// edge just outside the picture. 0 when the canvas has no handles.
+static int handle_rect(const struct uui_paintcanvas *c, int h, int *x, int *y) {
+    if (!c->on_resize || !c->img || !c->img->px) return 0;
+    int ox, oy, n = handle_px();
+    origin(c, &ox, &oy);
+    int dw = pic_w(c), dh = pic_h(c);
+    *x = h == 2 ? ox + dw / 2 - n / 2 : ox + dw + 1;
+    *y = h == 1 ? oy + dh / 2 - n / 2 : oy + dh + 1;
+    return 1;
+}
+
+static int handle_at(const struct uui_paintcanvas *c, int cx, int cy) {
+    for (int h = 3; h >= 1; h--) {
+        int x, y, n = handle_px();
+        // A little slack round each: a 6 px square is a small target.
+        if (handle_rect(c, h, &x, &y) && uui_hit(x - 3, y - 3, n + 6, n + 6, cx, cy)) return h;
+    }
+    return 0;
+}
+
+// The size a handle dragged to (cx, cy) makes, in picture pixels.
+static void handle_size(const struct uui_paintcanvas *c, int cx, int cy, int *w, int *h) {
+    int ox, oy;
+    origin(c, &ox, &oy);
+    *w = c->img->w;
+    *h = c->img->h;
+    // From the GRAB, not the pointer: the handle sits past the edge, and
+    // a size read off the pointer jumped by that much on the first move.
+    if (c->handle != 2) *w = (int)((long long)(cx - c->grab_dx - ox) * 100 / c->zoom);
+    if (c->handle != 1) *h = (int)((long long)(cy - c->grab_dy - oy) * 100 / c->zoom);
+    if (*w < 1) *w = 1;
+    if (*h < 1) *h = 1;
+    if (*w > 8192) *w = 8192;
+    if (*h > 8192) *h = 8192;
+}
+
+static void draw_handles(struct ugfx_surface *s, const struct uui_paintcanvas *c) {
+    int n = handle_px();
+    for (int h = 1; h <= 3; h++) {
+        int x, y;
+        if (!handle_rect(c, h, &x, &y)) return;
+        ugfx_fill_rect(s, x, y, n, n, UTHEME_ACCENT);
+        ugfx_fill_rect(s, x + 1, y + 1, n - 2, n - 2, UTHEME_WHITE);
+    }
+    if (!c->handle) return;
+    // THE NEW SIZE, dashed, with its numbers beside the corner.
+    int ox, oy;
+    origin(c, &ox, &oy);
+    int w = zoomed(c->drag_w, c->zoom), h = zoomed(c->drag_h, c->zoom);
+    for (int i = 0; i < w; i += 6) {
+        ugfx_fill_rect(s, ox + i, oy - 1, i + 3 < w ? 3 : w - i, 1, UTHEME_ACCENT);
+        ugfx_fill_rect(s, ox + i, oy + h, i + 3 < w ? 3 : w - i, 1, UTHEME_ACCENT);
+    }
+    for (int i = 0; i < h; i += 6) {
+        ugfx_fill_rect(s, ox - 1, oy + i, 1, i + 3 < h ? 3 : h - i, UTHEME_ACCENT);
+        ugfx_fill_rect(s, ox + w, oy + i, 1, i + 3 < h ? 3 : h - i, UTHEME_ACCENT);
+    }
+    char t[32];
+    snprintf(t, sizeof t, "%d \xd7 %d px", c->drag_w, c->drag_h);
+    int tw = ugfx_text_width(t) + 12, th = ugfx_char_h() + 6;
+    int bx = ox + w + 6, by = oy + h + 6;
+    uui_fill_round_rect(s, bx, by, tw, th, uui_control_radius(0), UTHEME_ACCENT);
+    ugfx_draw_string_clipped(s, bx + 6, by + 3, tw - 12, t, UTHEME_ACCENT_TEXT, UTHEME_ACCENT);
 }
 
 // --- drawing -------------------------------------------------------------
@@ -199,11 +278,10 @@ static void pc_draw(struct ugfx_surface *s, const void *w) {
         if (oy - 1 >= c->y) ugfx_fill_rect(s, c0, oy - 1, c1 - c0, 1, UTHEME_OUTLINE);
         if (oy + dh < c->y + vh) ugfx_fill_rect(s, c0, oy + dh, c1 - c0, 1, UTHEME_OUTLINE);
     }
-    if (c->draw_over) {
-        ugfx_set_clip_rect(s, c->x, c->y, vw, vh);
-        c->draw_over(c->ctx, s, c);
-        ugfx_clear_clip_rect(s);
-    }
+    ugfx_set_clip_rect(s, c->x, c->y, vw, vh);
+    if (c->draw_over) c->draw_over(c->ctx, s, c);
+    draw_handles(s, c);
+    ugfx_clear_clip_rect(s);
     uui_sbar_draw(&c->vbar, s, ground(), UTHEME_TEXT);
     uui_sbar_draw(&c->hbar, s, ground(), UTHEME_TEXT);
 }
@@ -237,6 +315,14 @@ static int pc_press(void *w, int cx, int cy, unsigned mods) {
     if (!r) r = bars(c, uui_sbar_press(&c->hbar, cx, cy));
     if (r & UUI_SBAR_TOOK) { c->bar_held = 1; return 1; }
     if (!in_view(c, cx, cy)) return 1;
+    if ((c->handle = handle_at(c, cx, cy)) != 0) {
+        int ox, oy;
+        origin(c, &ox, &oy);
+        c->grab_dx = cx - (ox + pic_w(c));
+        c->grab_dy = cy - (oy + pic_h(c));
+        handle_size(c, cx, cy, &c->drag_w, &c->drag_h);
+        return 1;
+    }
     c->painting = 1;
     report(c, UUI_PAINT_DOWN, cx, cy);
     return 1;
@@ -249,6 +335,7 @@ static int pc_motion(void *w, int cx, int cy, unsigned buttons) {
         bars(c, uui_sbar_motion(&c->hbar, cx, cy, buttons));
         return 1;
     }
+    if (c->handle) { handle_size(c, cx, cy, &c->drag_w, &c->drag_h); return 1; }
     if (c->painting) { report(c, UUI_PAINT_MOVE, cx, cy); return 1; }
     int r = bars(c, uui_sbar_motion(&c->vbar, cx, cy, buttons)) |
             bars(c, uui_sbar_motion(&c->hbar, cx, cy, buttons));
@@ -264,6 +351,13 @@ static int pc_release(void *w, int cx, int cy) {
         c->bar_held = 0;
         bars(c, uui_sbar_release(&c->vbar));
         bars(c, uui_sbar_release(&c->hbar));
+        return 1;
+    }
+    if (c->handle) {
+        handle_size(c, cx, cy, &c->drag_w, &c->drag_h);
+        c->handle = 0;
+        if (c->img && (c->drag_w != c->img->w || c->drag_h != c->img->h))
+            c->on_resize(c->ctx, c->drag_w, c->drag_h);
         return 1;
     }
     if (!c->painting) return 0;
@@ -291,6 +385,8 @@ static int pc_wheel(void *w, int notches) {
 
 static int pc_cursor(const void *w, int cx, int cy) {
     const struct uui_paintcanvas *c = w;
+    int h = c->handle ? c->handle : handle_at(c, cx, cy);
+    if (h) return h == 1 ? WIN_CURSOR_RESIZE_H : h == 2 ? WIN_CURSOR_RESIZE_V : WIN_CURSOR_MOVE;
     return in_view(c, cx, cy) && !uui_sbar_hit(&c->vbar, cx, cy) && !uui_sbar_hit(&c->hbar, cx, cy)
                ? c->cursor : WIN_CURSOR_DEFAULT;
 }
@@ -320,6 +416,10 @@ static void pc_describe(const void *w, const struct uui_describe *d) {
     uui_paintcanvas_picture_rect(c, &x, &y, &pw, &ph);
     uui_describe_rect(d, "picture", x, y, pw, ph);
     uui_describe_int(d, "zoom", c->zoom);
+    for (int h = 1; h <= 3; h++) {
+        int hx, hy;
+        if (handle_rect(c, h, &hx, &hy)) uui_describe_rect_i(d, "handle", h, hx, hy, handle_px(), handle_px());
+    }
 }
 
 const struct uui_widget_ops uui_paintcanvas_ops = {

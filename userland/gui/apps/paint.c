@@ -54,9 +54,10 @@
 
 enum {
     ID_MENU = 1, ID_BAR, ID_RAIL, ID_CANVAS, ID_RECENT, ID_PALETTE, ID_SIZE, ID_SHAPE,
-    ID_STATUS, ID_ASK, ID_NEWDLG, ID_NEW_BG, ID_RESIZE,
+    ID_STATUS, ID_ASK, ID_NEWDLG, ID_NEW_BG, ID_RESIZE, ID_TEXTFILL,
     ID_PICK = 40,   // .. + UUI_COLOURPICK_IDS
     ID_NEW_SIZE = 50,   // .. + UUI_SIZEPICK_IDS
+    ID_FONT = 80,       // .. + UUI_FONTPICK_IDS
 };
 enum {
     CMD_NEW = 100, CMD_OPEN, CMD_SAVE, CMD_SAVE_AS, CMD_EXIT,
@@ -80,6 +81,8 @@ int g_tool_before_pick = TOOL_BRUSH;
 uint32_t g_colour[2] = { 0xFF000000u, 0xFFFFFFFFu };
 int g_brush = 3;
 enum upix_shape g_shape = UPIX_ROUND;
+struct uui_fontpick g_fontpick;
+int g_text_fill;
 
 // --- the window's own -------------------------------------------------------
 
@@ -190,6 +193,7 @@ static const struct uui_menu_item tool_items[] = {
     UUI_MENU_ICON("Eraser", CMD_TOOL + TOOL_ERASER, "E", "tb-eraser", 0),
     UUI_MENU_ICON("Fill", CMD_TOOL + TOOL_FILL, "F", "tb-fill", 0),
     UUI_MENU_ICON("Colour picker", CMD_TOOL + TOOL_PICK, "I", "tb-picker", 0),
+    UUI_MENU_ICON("Text", CMD_TOOL + TOOL_TEXT, "T", "tb-text", 0),
 };
 static const struct uui_menu_item colour_items[] = {
     UUI_MENU("Swap the two colours", CMD_SWAP, "X"),
@@ -229,6 +233,17 @@ static const struct uui_toolbar_item rail_items[] = {
     UUI_TOOLBAR_SEP,
     { "tb-fill",   "Fill (F)",          CMD_TOOL + TOOL_FILL,   0, 0, 0, 0 },
     { "tb-picker", "Colour picker (I)", CMD_TOOL + TOOL_PICK,   0, 0, 0, 0 },
+    UUI_TOOLBAR_SEP,
+    { "tb-text",   "Text (T)",          CMD_TOOL + TOOL_TEXT,   0, 0, 0, 0 },
+};
+
+// THE TEXT BAR (T1 from the mockups): over the open text box, the face
+// and a Fill latch, on a card of its own.
+static struct uui_custom g_textbar_card;
+static struct uui_toolbar g_textfill;
+#define CMD_TEXTFILL 1
+static const struct uui_toolbar_item textfill_items[] = {
+    { 0, "Fill the box with Colour 2", CMD_TEXTFILL, "Fill", 0, 0, 0 },
 };
 
 static struct uui_item g_widgets[] = {
@@ -241,13 +256,17 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_slider_ops,        .widget = &g_size,      .id = ID_SIZE,    .name = "size" },
     { .ops = &uui_segmented_ops,     .widget = &g_shape_seg, .id = ID_SHAPE,   .name = "shape" },
     { .ops = &uui_statusbar_ops,     .widget = &g_sb,        .id = ID_STATUS,  .name = "status" },
+    // The text bar: over the canvas, so after it; hidden with no box open.
+    { .ops = &uui_custom_ops,        .widget = &g_textbar_card, .name = "textbar", .hidden = 1 },
+    { 0 },   // the font picker: uui_fontpick_item(), set in main()
+    { .ops = &uui_toolbar_ops,       .widget = &g_textfill,  .id = ID_TEXTFILL, .name = "textfill", .hidden = 1 },
     // The menu bar after the bars: its popups must be on top of them.
     { .ops = &uui_menubar_ops,       .widget = &g_menu,      .id = ID_MENU,    .name = "menu" },
     { .ops = &uui_dialog_ops,        .widget = &g_ask,       .id = ID_ASK,     .name = "ask" },
     { .ops = &uui_dialog_ops,        .widget = &g_newdlg,    .id = ID_NEWDLG,  .name = "newdlg" },
     { 0 },   // Resize: paint_resize.c's dialog, set in main()
 };
-enum { W_PICK = 3, W_PANEL_FIRST = 3, W_PANEL_LAST = 7 };
+enum { W_PICK = 3, W_PANEL_FIRST = 3, W_PANEL_LAST = 7, W_TEXTBAR = 9, W_FONTPICK = 10, W_TEXTFILL = 11 };
 
 // --- small things -------------------------------------------------------------
 
@@ -314,14 +333,28 @@ void paint_colour_picked(int slot) {
     note(buf);
 }
 
+void paint_text_changed(void) { if (g_app) uapp_redraw(g_app); }
+
+static unsigned textfill_flags(int code) { return code == CMD_TEXTFILL && g_text_fill ? UUI_MI_CHECKED : 0; }
+
+static void draw_textbar_card(struct ugfx_surface *s, const struct uui_custom *cu) {
+    int r = uui_control_radius(0) + 2;
+    for (int i = 3; i >= 1; i--)   // a soft shadow, as a menu has
+        uui_fill_round_rect(s, cu->x + i, cu->y + i * 2, cu->w, cu->h, r, ugfx_blend(UTHEME_PANEL_BG, 0, 18));
+    uui_fill_round_rect(s, cu->x, cu->y, cu->w, cu->h, r, UTHEME_OUTLINE);
+    uui_fill_round_rect(s, cu->x + 1, cu->y + 1, cu->w - 2, cu->h - 2, r - 1, UTHEME_WHITE);
+}
+
 void paint_tool_changed(void) {
-    // A crosshair to aim with; the fill and the picker act at a point.
-    g_canvas.cursor = WIN_CURSOR_CROSSHAIR;
+    // A crosshair to aim with; the fill and the picker act at a point;
+    // an I-beam where text goes.
+    g_canvas.cursor = g_tool == TOOL_TEXT ? WIN_CURSOR_TEXT : WIN_CURSOR_CROSSHAIR;
     if (g_app) uapp_redraw(g_app);
 }
 
 static void set_tool(int t) {
     if (t < 0 || t >= TOOL_COUNT || tools_busy()) return;
+    if (t != TOOL_TEXT) text_commit();
     if (t == TOOL_PICK && g_tool != TOOL_PICK) g_tool_before_pick = g_tool;
     g_tool = t;
     ulogf("paint: tool %d\n", t);
@@ -606,6 +639,11 @@ static void zoom_to(int z) {
 static void command(int code) {
     if (code >= CMD_TOOL && code < CMD_TOOL + TOOL_COUNT) { set_tool(code - CMD_TOOL); return; }
     if (tools_busy()) return;
+    // An open text box is put into the picture before anything else acts
+    // on it -- a save, an undo, a rotate -- except looking at it.
+    if (code != CMD_ZOOM_IN && code != CMD_ZOOM_OUT && code != CMD_ZOOM_ACTUAL && code != CMD_ZOOM_FIT &&
+        code != CMD_PANEL)
+        text_commit();
     switch (code) {
     case CMD_NEW:         ask_then(PEND_NEW); break;
     case CMD_OPEN:        ask_then(PEND_OPEN); break;
@@ -660,6 +698,18 @@ static void canvas_pointer(void *ctx, enum uui_paint_phase ph, int x, int y, uns
     if (g_app) uapp_redraw(g_app);
 }
 
+// R2 from the mockups: an edge handle dragged is a new canvas size, the
+// picture kept at the top-left -- MS Paint's handles.
+static void canvas_draw_over(void *ctx, struct ugfx_surface *s, const struct uui_paintcanvas *c) {
+    (void)ctx;
+    text_draw_over(s, c);
+}
+
+static void canvas_handle_resize(void *ctx, int w, int h) {
+    (void)ctx;
+    resize_canvas_to(w, h, 0, 0);
+}
+
 // --- layout and drawing ------------------------------------------------------------
 
 static void layout(int cw, int ch) {
@@ -677,6 +727,29 @@ static void layout(int cw, int ch) {
     uui_toolbar_natural_size(&g_rail, &rw, &rh);
     uui_toolbar_ops.set_geometry(&g_rail, 0, top, rw, bottom - top);
     uui_toolbar_set_bounds(&g_rail, 0, 0, cw, ch);
+
+    // The text bar, over the open box -- above it, or below when there is
+    // no room -- inside the canvas.
+    int bx, by, bw, bh;
+    int show_bar = text_box(&bx, &by, &bw, &bh);
+    for (int i = W_TEXTBAR; i <= W_TEXTFILL; i++) g_widgets[i].hidden = !show_bar;
+    if (show_bar) {
+        int fw, fh, tw2, th2;
+        g_widgets[W_FONTPICK].ops->natural_size(g_widgets[W_FONTPICK].widget, &fw, &fh);
+        uui_toolbar_natural_size(&g_textfill, &tw2, &th2);
+        int barw = fw + tw2 + pad * 2, barh = (fh > th2 ? fh : th2) + pad;
+        int sx0, sy0, sx1, sy1;
+        uui_paintcanvas_to_screen(&g_canvas, bx, by, &sx0, &sy0);
+        uui_paintcanvas_to_screen(&g_canvas, bx + bw, by + bh, &sx1, &sy1);
+        int x = sx0, y = sy0 - barh - pad;
+        if (y < g_canvas.y + 2) y = sy1 + pad;
+        if (x + barw > g_canvas.x + g_canvas.w - 4) x = g_canvas.x + g_canvas.w - 4 - barw;
+        if (x < g_canvas.x + 4) x = g_canvas.x + 4;
+        if (y + barh > g_canvas.y + g_canvas.h - 4) y = g_canvas.y + g_canvas.h - 4 - barh;
+        g_textbar_card.x = x; g_textbar_card.y = y; g_textbar_card.w = barw; g_textbar_card.h = barh;
+        g_widgets[W_FONTPICK].ops->set_geometry(g_widgets[W_FONTPICK].widget, x + pad / 2, y + (barh - fh) / 2, fw, fh);
+        uui_toolbar_ops.set_geometry(&g_textfill, x + pad / 2 + fw + pad, y + (barh - th2) / 2, tw2, th2);
+    }
 
     g_pw = g_panel ? pad * 30 : 0;
     g_px = cw - g_pw;
@@ -769,6 +842,16 @@ static void on_widget(struct uapp *a, int id, int reason) {
     int code;
     uint32_t rgb;
     if (resize_on_widget(id, reason)) { uapp_redraw(a); return; }
+    if (id >= ID_FONT && id < ID_FONT + UUI_FONTPICK_IDS) {
+        if (uui_fontpick_on_widget(&g_fontpick, id)) text_restyle();
+        uapp_redraw(a);
+        return;
+    }
+    if (id == ID_TEXTFILL) {
+        if (uui_toolbar_take_code(&g_textfill) == CMD_TEXTFILL) { g_text_fill = !g_text_fill; text_restyle(); }
+        uapp_redraw(a);
+        return;
+    }
     if (id == ID_RESIZE) { resize_take(); uapp_redraw(a); return; }
     if (id >= ID_NEW_SIZE && id < ID_NEW_SIZE + UUI_SIZEPICK_IDS) {
         // A press moves the dialog's key focus to the field pressed.
@@ -898,14 +981,17 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         else if (key == '0') command(CMD_ZOOM_ACTUAL);
         return;
     }
-    // LETTERS ARE TOOLS -- unless a field has them (the hex value).
+    // LETTERS ARE TOOLS -- unless a field has them (the hex value, the
+    // text bar's size) or a text box is open, which takes them all.
     if (g_focus.current >= 0) return;
+    if (!ctrl && text_key(key)) { uapp_redraw(a); return; }
     switch (key) {
     case 'p': set_tool(TOOL_PENCIL); break;
     case 'b': set_tool(TOOL_BRUSH); break;
     case 'e': set_tool(TOOL_ERASER); break;
     case 'f': set_tool(TOOL_FILL); break;
     case 'i': set_tool(TOOL_PICK); break;
+    case 't': set_tool(TOOL_TEXT); break;
     case 'x': command(CMD_SWAP); break;
     case '[': set_brush(SIZE_PX[size_index(g_brush) > 0 ? size_index(g_brush) - 1 : 0]); break;
     case ']': set_brush(SIZE_PX[size_index(g_brush) + 1 < NSIZES ? size_index(g_brush) + 1 : NSIZES - 1]); break;
@@ -936,6 +1022,18 @@ int main(int argc, char **argv) {
     upixundo_init(&g_undo, 256u << 20);
     uui_paintcanvas_init(&g_canvas, &g_img);
     g_canvas.on_pointer = canvas_pointer;
+    g_canvas.on_resize = canvas_handle_resize;
+    g_canvas.draw_over = canvas_draw_over;
+    uui_fontpick_init(&g_fontpick, ID_FONT, "liberation-sans", 32, 0, 0);
+    g_widgets[W_FONTPICK] = uui_fontpick_item(&g_fontpick);
+    g_widgets[W_FONTPICK].hidden = 1;
+    g_widgets[W_FONTPICK].name = "fontpick";
+    uui_toolbar_init(&g_textfill, textfill_items, 1);
+    g_textfill.item_flags = textfill_flags;
+    g_textfill.compact = 1;
+    g_textfill.bg = UUI_ROLE(field_bg);   // the text bar's white card
+    g_textfill.accent_latch = 1;
+    g_textbar_card = (struct uui_custom){ .draw = draw_textbar_card };
     uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
     g_menu.item_flags = item_flags;
     uui_toolbar_init(&g_bar, bar_items, (int)(sizeof bar_items / sizeof bar_items[0]));
@@ -970,6 +1068,7 @@ int main(int argc, char **argv) {
     g_sb.panes[2].text = g_st_size; g_sb.panes[2].chars = 16;
     g_sb.panes[3].text = g_zoom_text; g_sb.panes[3].chars = 7;
     int n = uui_colourpick_focusables(&g_pick, g_ring, 6);
+    n += uui_fontpick_focusables(&g_fontpick, g_ring + n, 8 - n);
     g_ring[n++] = (struct uui_focusable){ &g_size, &uui_slider_ops };
     g_ring[n++] = (struct uui_focusable){ &g_shape_seg, &uui_segmented_ops };
     uui_focus_init(&g_focus, g_ring, n);

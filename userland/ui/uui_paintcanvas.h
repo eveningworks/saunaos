@@ -41,6 +41,11 @@ struct uui_paintcanvas {
     void (*draw_over)(void *ctx, struct ugfx_surface *s, const struct uui_paintcanvas *c);
     void *ctx;
     int cursor;                  // WIN_CURSOR_* over the picture; the app's per tool
+    // EDGE HANDLES, MS Paint's: set this and three small squares sit on
+    // the picture's right edge, bottom edge and corner; dragging one shows
+    // the new size as a dashed outline and calls this on release with it.
+    // The app decides what a bigger canvas is (Paint fills Colour 2).
+    void (*on_resize)(void *ctx, int w, int h);
 
     // --- OWNED --------------------------------------------------------
     int sx, sy;                  // the view's offset into the zoomed picture
@@ -48,6 +53,9 @@ struct uui_paintcanvas {
     int painting;                // a press of ours is held
     int bar_held;                // ...or a bar has it
     int hover_x, hover_y, hovering;   // the pointer's last picture position
+    int handle;                  // a handle held: 1 right, 2 bottom, 3 corner; 0 none
+    int drag_w, drag_h;          // the size it would make
+    int grab_dx, grab_dy;        // where on the handle it was taken, from the edge
 };
 
 void uui_paintcanvas_init(struct uui_paintcanvas *c, struct uimg *img);

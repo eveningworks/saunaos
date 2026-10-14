@@ -211,6 +211,15 @@ def icon_tb_picker():
     return p.done()
 
 
+def icon_tb_text():
+    # A capital T with its serifs: the text tool.
+    p = _Pen()
+    p.line((4.5, 7.5), (4.5, 4.5), (19.5, 4.5), (19.5, 7.5))
+    p.line((12, 4.5), (12, 19.5))
+    p.line((9, 19.5), (15, 19.5))
+    return p.done()
+
+
 def icon_tb_cut():
     p = _Pen()
     p.line((9.2, 14.4), (17.5, 3)); p.line((14.8, 14.4), (6.5, 3))
@@ -1493,6 +1502,7 @@ ICONS = {
     "tb-eraser": icon_tb_eraser,
     "tb-fill": icon_tb_fill,
     "tb-picker": icon_tb_picker,
+    "tb-text": icon_tb_text,
     "tb-rename": icon_tb_rename,
     "tb-delete": icon_tb_delete,
     "tray-volume-high": icon_tray_volume_high,
