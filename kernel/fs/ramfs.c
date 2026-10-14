@@ -84,10 +84,12 @@
 // situation ramfs is here to prevent. 4096 * 8 bytes = 32 KiB.
 #define RAMFS_MAX_NODES 4096
 
-// Chunk pointers per file, grown in steps of this. Bounded by the
-// budget in practice; the array itself is one contiguous allocation,
-// which is why it is pointers and not data (a 24 MiB file's array is
-// 48 KiB, against 24 MiB if the data lived there).
+// Chunk pointers per file: the first array holds this many, and it
+// DOUBLES after that -- a fixed step re-copied the array every 128 KiB
+// of a growing file. Bounded by the budget in practice; the array itself
+// is one contiguous allocation, which is why it is pointers and not data
+// (a 24 MiB file's array is 48 KiB, against 24 MiB if the data lived
+// there).
 #define RAMFS_CHUNKS_GROW 32
 
 struct rnode {
@@ -296,7 +298,7 @@ static int has_children(struct ramfs_state *sbi, int idx) {
 static int chunks_reserve(struct ramfs_state *sbi, struct rnode *n, uint32_t want) {
     if (want <= n->chunk_cap) return 1;
     uint32_t cap = n->chunk_cap ? n->chunk_cap : RAMFS_CHUNKS_GROW;
-    while (cap < want) cap += RAMFS_CHUNKS_GROW;
+    while (cap < want) cap *= 2;
 
     uint64_t bytes = (uint64_t)cap * sizeof(uint8_t *);
     if (!budget_take(sbi, bytes - (uint64_t)n->chunk_cap * sizeof(uint8_t *))) return 0;

@@ -206,9 +206,11 @@ int     sys_gettid(void);
 // allocates it, and the kernel never grows it, so it is a fixed extent
 // like every pthread stack. `tls` is the new thread's thread pointer
 // (NULL for none); `detached` non-zero means nobody will join it.
-// Returns the new tid, or -1 with sys_errno() set.
+// `stack_size` is the stack's extent below `stack_top`: a signal handler
+// runs on it, and only inside it. Returns the new tid, or -1 with
+// sys_errno() set.
 int     sys_thread_create(void (*entry)(void *), void *stack_top, void *arg,
-                          void *tls, int detached);
+                          void *tls, int detached, unsigned stack_size);
 
 // End the calling thread. From a program's INITIAL thread this exits
 // the process instead -- see SYS_THREAD_EXIT in abi/syscall_abi.h.

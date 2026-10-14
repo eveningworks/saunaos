@@ -88,7 +88,7 @@ int pthread_create(pthread_t *out, const pthread_attr_t *attr,
 
     // The stack grows DOWN from the top of the block.
     int tid = sys_thread_create(thread_entry, stack + stacksize, t, tp,
-                                t->detached);
+                                t->detached, (unsigned)stacksize);
     if (tid < 0) {
         free(tls_raw); free(stack_raw); free(t);
         return EAGAIN;

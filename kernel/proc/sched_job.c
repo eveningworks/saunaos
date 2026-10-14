@@ -158,16 +158,24 @@ int scheduler_setpgid(int pid, int pgid) {
     return 1;
 }
 
+// A THREAD GROUP HAS ONE DISPOSITION TABLE, the leader's -- POSIX's
+// per-process dispositions, and Linux's shared sighand_struct. The
+// leader's slot outlives every thread of its group (its exit ends the
+// process), so the table is always there to read.
+static struct k_sigaction *group_actions(struct sched_process *p) {
+    return procs[leader_index((int)(p - procs))].actions;
+}
+
 int scheduler_signal_ignored(int pid, int sig) {
     struct sched_process *p = live_slot(pid);
     if (!p || !SIGNAL_VALID(sig)) return 0;
-    return p->actions[sig].handler == SIG_IGN;
+    return group_actions(p)[sig].handler == SIG_IGN;
 }
 
 int scheduler_signal_action(int pid, int sig, struct k_sigaction *out) {
     struct sched_process *p = live_slot(pid);
     if (!p || !SIGNAL_VALID(sig)) return 0;
-    if (out) *out = p->actions[sig];
+    if (out) *out = group_actions(p)[sig];
     return 1;
 }
 
@@ -175,17 +183,18 @@ int scheduler_signal_set_action(int pid, int sig, const struct k_sigaction *act,
                                 struct k_sigaction *old) {
     struct sched_process *p = live_slot(pid);
     if (!p || !SIGNAL_VALID(sig)) return -1;
-    if (old) *old = p->actions[sig];
+    struct k_sigaction *acts = group_actions(p);
+    if (old) *old = acts[sig];
     if (!act) return 0;
 
-    p->actions[sig] = *act;
+    acts[sig] = *act;
     // A SENTINEL CARRIES NO RESTORER AND NO FLAGS, and normalising here
     // rather than trusting the caller is what makes the readback
     // honest: SIG_DFL with a stale restorer left in the struct would be
     // reported back as something that looks armed and is not.
     if (!SIG_IS_HANDLER(act->handler)) {
-        p->actions[sig].restorer = 0;
-        p->actions[sig].flags    = 0;
+        acts[sig].restorer = 0;
+        acts[sig].flags    = 0;
     }
 
     // AND DROP WHAT IS ALREADY PENDING, for SIG_IGN only. A process that
@@ -201,6 +210,14 @@ int scheduler_signal_set_action(int pid, int sig, const struct k_sigaction *act,
 uint32_t scheduler_signal_pending(int pid) {
     struct sched_process *p = live_slot(pid);
     return p ? p->pending : 0;
+}
+
+int scheduler_thread_stack(int pid, uint64_t *lo, uint64_t *hi) {
+    struct sched_process *p = live_slot(pid);
+    if (!p || !p->ustack_hi) return 0;
+    *lo = p->ustack_lo;
+    *hi = p->ustack_hi;
+    return 1;
 }
 
 uint32_t scheduler_signal_blocked(int pid) {
@@ -393,7 +410,7 @@ int scheduler_signal_raise(int pid, int sig) {
     // that makes `pending != 0` mean "must die" with no policy lookup.
     // Still a successful delivery: the caller asked for an action and
     // the action was "nothing".
-    if (p->actions[sig].handler == SIG_IGN && !SIGNAL_UNIGNORABLE(sig)) return 1;
+    if (group_actions(p)[sig].handler == SIG_IGN && !SIGNAL_UNIGNORABLE(sig)) return 1;
 
     p->pending |= (1u << sig);
 

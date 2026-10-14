@@ -165,8 +165,10 @@ int signal_send_group(int pgid, int sig) {
 // resumes with interrupts disabled and the machine stops.
 #define RFLAGS_FORCED    0x0202ULL
 
-// Where a signal frame may legally live: inside this process's own
-// stack region, whole. Checked BEFORE the copy rather than relying on
+// Where a signal frame may legally live: inside the receiving THREAD's
+// own stack, whole -- the main stack's region, or the range a pthread's
+// stack was given at SYS_THREAD_CREATE (a heap block, which only the
+// thread's creator knows the size of). Checked BEFORE the copy rather than relying on
 // vmm_copy_to_user() to fault, because "the copy failed" cannot tell a
 // stack that has run out from a stack pointer that has been aimed at
 // somebody else's mapping -- and the second one is the case worth
@@ -180,7 +182,10 @@ int signal_send_group(int pgid, int sig) {
 // is what does not move. A frame landing on a reserved-but-unmapped
 // page is fine: vmm_copy_to_user() walks through the same fault hook
 // that grows the stack, so the page arrives on the way in.
-static int frame_fits(uint64_t sp) {
+static int frame_fits(int pid, uint64_t sp) {
+    uint64_t lo, hi;
+    if (scheduler_thread_stack(pid, &lo, &hi))
+        return sp >= lo && sp + sizeof(struct sigframe) <= hi;
     return sp >= UADDR_STACK_FLOOR &&
            sp + sizeof(struct sigframe) <= UADDR_STACK_VADDR + 4096;
 }
@@ -243,7 +248,7 @@ static int push_signal_frame(int pid, int sig, const struct k_sigaction *act,
     // already paid for that once, in crt0.
     sp = (sp & ~15ULL) - 8;
 
-    if (!frame_fits(sp)) {
+    if (!frame_fits(pid, sp)) {
         klog_printf(KLOG_ERR "signal: pid %d cannot take SIG%s -- no room at rsp 0x%lx\n",
                     pid, signal_name(sig), sp);
         return 0;
@@ -278,7 +283,7 @@ int signal_restore_frame(int pid, uint64_t *regs) {
     uint64_t sp = regs[SCHED_TF_RSP] - 8;
     struct sigframe f;
 
-    if (!frame_fits(sp)) return 0;
+    if (!frame_fits(pid, sp)) return 0;
     if (!vmm_copy_from_user(vmm_current_pml4(), &f, sp, sizeof f)) return 0;
     if (f.magic != SIGFRAME_MAGIC) return 0;
 

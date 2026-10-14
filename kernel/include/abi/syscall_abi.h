@@ -2245,7 +2245,10 @@ struct thread_create_msg {
     uint64_t arg;       // the SysV first argument to `entry`
     uint64_t tls;       // its thread pointer, or 0 for none
     int32_t  detached;  // non-zero: leave no zombie to join
-    int32_t  reserved;  // keeps the struct 8-byte aligned in both rings
+    // The stack's size below `stack_top`, so a signal frame can be
+    // checked against the thread's OWN stack; 0 if the caller does not
+    // say, and then no handler can run on this thread.
+    uint32_t stack_size;
 };
 
 // What SYS_OPENPTY fills in. A struct rather than two out-registers

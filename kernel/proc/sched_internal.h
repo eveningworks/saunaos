@@ -165,16 +165,23 @@ struct sched_process {
     //
     // What follows the GROUP: the address space, the fd table (keyed by
     // CR3, so shared without anything being written here), the heap and
-    // the cwd -- both read through the leader's slot, never copied --
-    // the parent link, and the process group. What stays PER SLOT: the
-    // kernel stack, the FP state, the trapframe, the signal disposition
-    // table and the thread pointer below.
+    // the cwd and the signal disposition table (`actions[]`) -- read
+    // through the leader's slot, never copied -- the parent link, and
+    // the process group. What stays PER SLOT: the kernel stack, the FP
+    // state, the trapframe, the user stack's bounds and the thread
+    // pointer below.
     int tgid;
 
     // FS.base for this thread: what %fs-relative addressing in ring 3
     // resolves against, so a `__thread` variable has somewhere to live.
     // Restored by switch_to(); 0 until SYS_SET_TLS names one.
     uint64_t fs_base;
+
+    // THIS THREAD'S OWN STACK, [lo, hi), when it is not the process's
+    // main stack: a pthread stack is a heap block, so the kernel learns
+    // its bounds at SYS_THREAD_CREATE and a signal frame is checked
+    // against THEM (signal.c's frame_fits()). Both 0 for the main stack.
+    uint64_t ustack_lo, ustack_hi;
 
     // Nobody will join this thread, so its exit frees the slot outright
     // rather than leaving a zombie for a join that is not coming.

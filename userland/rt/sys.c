@@ -180,14 +180,14 @@ int64_t sys_call(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3) {
 int sys_gettid(void) { return (int)syscall0(SYS_GETTID); }
 
 int sys_thread_create(void (*entry)(void *), void *stack_top, void *arg,
-                      void *tls, int detached) {
+                      void *tls, int detached, unsigned stack_size) {
     struct thread_create_msg msg = {
         .entry     = (uint64_t)(uintptr_t)entry,
         .stack_top = (uint64_t)(uintptr_t)stack_top,
         .arg       = (uint64_t)(uintptr_t)arg,
         .tls       = (uint64_t)(uintptr_t)tls,
         .detached  = detached ? 1 : 0,
-        .reserved  = 0,
+        .stack_size = stack_size,
     };
     return (int)err(syscall1(SYS_THREAD_CREATE, (uint64_t)(uintptr_t)&msg));
 }

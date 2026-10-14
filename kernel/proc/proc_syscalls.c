@@ -101,12 +101,8 @@ int sys_thread_create(struct syscall_ctx *c) {
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;
         return 0;
     }
-    if (msg.reserved != 0) { // an unset field is the only legal value
-        c->regs[14] = (uint64_t)(int64_t)-EINVAL;
-        return 0;
-    }
     int64_t rc = scheduler_thread_create(msg.entry, msg.stack_top, msg.arg,
-                                          msg.tls, msg.detached);
+                                          msg.tls, msg.detached, msg.stack_size);
     c->regs[14] = (uint64_t)rc;
     return 0;
 }

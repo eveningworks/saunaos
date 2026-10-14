@@ -184,9 +184,10 @@ int scheduler_tgid(int pid);
 // stacks, remembers return values and runs destructors lives in ring 3
 // (userland/libc/pthread.c) where it belongs. `fs_base` is the new
 // thread's thread pointer, 0 for none. A `detached` thread leaves no
-// zombie for anybody to join.
+// zombie for anybody to join. `stack_size` bytes below `user_rsp` are
+// the thread's own stack, where its signal frames go; 0 if not said.
 int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
-                             uint64_t fs_base, int detached);
+                             uint64_t fs_base, int detached, uint32_t stack_size);
 
 // fork(): a second process from the calling one -- its address space
 // shared copy-on-write, its descriptors, cwd, group, signal
@@ -894,6 +895,9 @@ int scheduler_signal_take(int pid);
 // mask, because sigreturn restores it from a struct on the user stack
 // and a program that corrupts its own frame must not become unkillable.
 uint32_t scheduler_signal_blocked(int pid);
+// THIS THREAD'S OWN STACK, [lo, hi), when it is not the main one -- what
+// SYS_THREAD_CREATE was told. 1 with the range, 0 for a main-stack slot.
+int scheduler_thread_stack(int pid, uint64_t *lo, uint64_t *hi);
 void scheduler_signal_set_blocked(int pid, uint32_t mask);
 
 // --- sigsuspend: a mask installed for the length of one wait -----------

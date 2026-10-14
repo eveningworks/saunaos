@@ -352,6 +352,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     procs[slot].tgid     = procs[slot].pid;
     procs[slot].fs_base  = 0;
     procs[slot].detached = 0;
+    procs[slot].ustack_lo = procs[slot].ustack_hi = 0;
 
     // THE CHILD'S FILE DESCRIPTORS, built here because this is where
     // its address space first exists. It inherits the caller's whole
@@ -501,7 +502,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
 // pthread_create()'s -- the library half lives in ring 3 where it
 // belongs (userland/libc/pthread.c).
 int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
-                             uint64_t fs_base, int detached) {
+                             uint64_t fs_base, int detached, uint32_t stack_size) {
     // The kernel context has no address space to share, and the legacy
     // loader has no slot to lead a group -- both are "not a process".
     if (current_index < 0) return -EPERM;
@@ -556,6 +557,8 @@ int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
     procs[slot].tgid     = procs[leader].pid;
     procs[slot].fs_base  = fs_base;
     procs[slot].detached = detached ? 1 : 0;
+    procs[slot].ustack_hi = user_rsp;
+    procs[slot].ustack_lo = stack_size <= user_rsp ? user_rsp - stack_size : 0;
     // Its parent is its leader, which is what makes `ps --tree` show a
     // thread under the process it belongs to. Every walk over a
     // process's CHILDREN skips threads, so this is a display fact and
@@ -565,13 +568,9 @@ int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
     sched_class_reset(slot, caller);
     procs[slot].vruntime = g_min_vruntime;
     signal_state_reset(slot);
-    // DISPOSITIONS ARE INHERITED, which is as close to POSIX's
-    // per-process disposition as a per-thread table gets: a thread
-    // created after signal(SIGINT, h) runs the same handler its creator
-    // would. `pending` is not inherited -- a signal raised before this
-    // thread existed was not raised at it.
-    for (int i = 0; i <= SIGNAL_MAX; i++)
-        procs[slot].actions[i] = procs[caller].actions[i];
+    // DISPOSITIONS ARE THE GROUP'S, read through the leader (sched_job.c's
+    // group_actions()), so nothing is copied. `pending` is not inherited
+    // -- a signal raised before this thread existed was not raised at it.
     // THE MASK TOO, POSIX's rule for pthread_create(): blocking a signal
     // around the create is how a program keeps it off a worker.
     procs[slot].blocked = procs[caller].blocked;
@@ -658,13 +657,16 @@ int scheduler_fork(const uint64_t *regs) {
     procs[slot].tgid     = procs[slot].pid;
     procs[slot].fs_base  = procs[caller].fs_base;
     procs[slot].detached = 0;
+    // The child runs on the stack the forking THREAD was on.
+    procs[slot].ustack_lo = procs[caller].ustack_lo;
+    procs[slot].ustack_hi = procs[caller].ustack_hi;
     fd_clone(as, procs[leader].pml4_phys);
     procs[slot].ppid = procs[leader].pid;
     sched_class_reset(slot, caller);
     procs[slot].vruntime = g_min_vruntime;
     signal_state_reset(slot);
     for (int i = 0; i <= SIGNAL_MAX; i++)
-        procs[slot].actions[i] = procs[caller].actions[i];
+        procs[slot].actions[i] = procs[leader].actions[i];   // the group's
     procs[slot].blocked = procs[caller].blocked;
     procs[slot].syscall_reissue = 0;
     procs[slot].ready   = 0;
@@ -737,12 +739,14 @@ int scheduler_exec(const char *path, const char *argvec, size_t argvec_len,
 
     // A caught signal goes back to its default; an ignored one stays
     // ignored (POSIX). The pending set and the blocked mask are kept.
+    struct k_sigaction *acts = procs[leader_index(me)].actions;
     for (int i = 0; i <= SIGNAL_MAX; i++)
-        if (procs[me].actions[i].handler > SIG_IGN)
-            procs[me].actions[i] = (struct k_sigaction){ 0, 0, 0, 0 };
+        if (acts[i].handler > SIG_IGN)
+            acts[i] = (struct k_sigaction){ 0, 0, 0, 0 };
     procs[me].syscall_reissue = 0;
     procs[me].ready = 0;
     procs[me].fs_base = 0;
+    procs[me].ustack_lo = procs[me].ustack_hi = 0;   // the new image's main stack
     arch_set_fs_base(0);            // this return does not go through switch_to()
     fpu_init_state(procs[me].fpu);
     fpu_restore(procs[me].fpu);     // ...so the CPU's state is loaded here too

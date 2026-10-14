@@ -156,6 +156,30 @@ static void *mask_worker(void *arg) {
     return 0;
 }
 
+// A HANDLER INSTALLED AFTER A THREAD EXISTS, run on THAT thread. Each
+// thread kept its own copy of the disposition table from its creation,
+// and a frame was refused anywhere but the main stack -- so the worker
+// died of SIGUSR1's default action and took the process with it.
+static volatile int g_sig_tid, g_worker_tid, g_worker_done;
+static volatile uintptr_t g_sig_sp, g_worker_sp;
+
+static void on_usr1(int sig) {
+    (void)sig;
+    volatile int here = 0;
+    g_sig_tid = sys_gettid();
+    g_sig_sp = (uintptr_t)&here;
+}
+
+static void *sig_worker(void *arg) {
+    (void)arg;
+    volatile int here = 0;
+    g_worker_sp = (uintptr_t)&here;
+    g_worker_tid = sys_gettid();
+    for (int i = 0; i < 4000 && !g_sig_tid; i++) sys_yield();
+    g_worker_done = 1;
+    return 0;
+}
+
 static void *forever(void *arg) {
     (void)arg;
     for (;;) sys_yield();
@@ -278,6 +302,24 @@ int main(void) {
     sigprocmask(SIG_SETMASK, &old, 0);
     if (made) pthread_join(mt, NULL);
     utest_check(made && g_mask_int == 1, "a thread starts with its creator's signal mask");
+
+    {
+        pthread_t st;
+        int ok = pthread_create(&st, NULL, sig_worker, NULL) == 0;
+        for (int i = 0; ok && i < 4000 && !g_worker_tid; i++) sys_yield();
+        struct sigaction sa;
+        memset(&sa, 0, sizeof sa);
+        sa.sa_handler = on_usr1;
+        sigaction(SIGUSR1, &sa, 0);          // AFTER the worker exists
+        if (ok && g_worker_tid) kill(g_worker_tid, SIGUSR1);
+        if (ok) pthread_join(st, NULL);
+        utest_check(ok && g_worker_done && g_sig_tid == g_worker_tid,
+                    "a handler set after a thread started runs on that thread");
+        uintptr_t d = g_sig_sp > g_worker_sp ? g_sig_sp - g_worker_sp : g_worker_sp - g_sig_sp;
+        utest_check(g_sig_sp && d < 64 * 1024,
+                    "...on the thread's own stack, not the main one");
+        signal(SIGUSR1, SIG_DFL);
+    }
 
     // A THREAD LEFT RUNNING AT EXIT, on purpose and never joined.
     // Without it nothing here reaches the group teardown at all: every
