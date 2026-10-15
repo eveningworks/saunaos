@@ -58,8 +58,10 @@ What it proves, and what a broken version would still pass:
     corner make Colour 1 a full green (G 255, little R or B); R typed as 200 changes only the red; a
     stroke paints exactly that colour.
   * PASTE: Copy picture writes a picture file for the clipboard; Ctrl+V
-    of it onto a 256 x 256 picture asks, Expand canvas makes 800 x 600
-    with the stroke where it was, and ONE Ctrl+Z takes both; Keep floats
+    of it onto a 256 x 256 picture asks, Expand canvas makes 800 x 600;
+    a 48-step drag of it lands within a second (a paste that rewrote the
+    layer per motion took 2.1 s), the stroke where it was dragged, and
+    ONE Ctrl+Z takes both; Keep floats
     it and its frame drags it 60 left; a corner handle scales it to 700
     x 525 and the stroke lands where that puts it; Ctrl+Shift+V then Esc
     leaves one layer.
@@ -80,7 +82,9 @@ UPIX_BLEND_OVER fails both highlighter checks (black turns yellow); a
 tools_tick() that never sprays fails the spray check (10 dots, then 20);
 the colour square reading saturation backwards fails the green check
 (Colour 1 white); Expand without upixundo_join() fails the one-Ctrl+Z
-check (the canvas stays 800 x 600).
+check (the canvas stays 800 x 600); the paste before b1c561d3, which
+rewrote the layer on every motion, takes 2.1 s over the drag that must
+land within a second.
 
 Usage (the VM must already be up):
 
@@ -1087,18 +1091,33 @@ def check_paste(dbg, qmp, res, tmp):
     res.check("Ctrl+V of a bigger picture asks, and Expand canvas grows it to fit, the paste floating at 0,0",
               bool(asked) and st.get("w") == 800 and st.get("h") == 600 and box == [0, 0, 800, 600],
               f"asked {asked}, {st}, box {box}")
-    dbg.key("0x0d")
+    # IT KEEPS UP WITH THE POINTER: a 48-step drag of the whole 800 x 600
+    # paste lands well inside a second (0.12 s measured; 2.1 s when every
+    # motion rewrote the layer). Where it ends is not enough -- a lagging
+    # one ends in the same place.
     scr.refresh()   # the picture is 800 x 600 now, and laid out again
+    p0, p1 = scr.at(400, 300), scr.at(300, 250)
+    t0 = time.time()
+    dbg.drag(p0[0], p0[1], p1[0], p1[1], settle=False, steps=48)
+    landed = None
+    while time.time() - t0 < 30:
+        if paste_box(dbg) == [-100, -50, 800, 600]:
+            landed = time.time() - t0
+            break
+        time.sleep(0.05)
+    res.check("a 48-step drag of an 800 x 600 paste lands within a second", landed is not None and landed < 1.0,
+              f"{landed and round(landed, 2)} s, box {paste_box(dbg)}")
+    dbg.key("0x0d")
     scr.shoot()
-    res.check("Enter places it: the stroke where it was, white above it",
-              scr.pixel(200, 100) == BLACK and scr.pixel(200, 90) == WHITE and paste_box(dbg) is None,
-              f"{scr.pixel(200, 100)} {scr.pixel(200, 90)}, box {paste_box(dbg)}")
+    res.check("Enter places it where it was dragged: the stroke 100 left and 50 up, white above it",
+              scr.pixel(100, 50) == BLACK and scr.pixel(100, 40) == WHITE and paste_box(dbg) is None,
+              f"{scr.pixel(100, 50)} {scr.pixel(100, 40)}, box {paste_box(dbg)}")
     dbg.key(CTRL["z"], mods="ctrl")
     scr.refresh()
     st = state(dbg)
     res.check("ONE Ctrl+Z takes the paste and the bigger canvas", st.get("w") == 256 and st.get("h") == 256, f"{st}")
     scr.shoot()
-    res.check("...back to white", scr.pixel(200, 100) == WHITE, f"{scr.pixel(200, 100)}")
+    res.check("...back to white", scr.pixel(100, 50) == WHITE, f"{scr.pixel(100, 50)}")
 
     # Keep canvas size: floating over the edge; its frame drags it left.
     dbg.key(CTRL["v"], mods="ctrl")

@@ -706,3 +706,23 @@ phase was drawn; the kept frames said the screen never changed. A call
 made during a draw proves the draw RAN, not that it reached the pixels:
 ask once per state change, whoever drew in between
 (`tools/caret_hostcheck.py`).
+
+## Anything dragged is TIMED, not just checked for where it ends (2026-10-15)
+
+Paint's floating paste shipped with green pixel checks -- moved 60 px
+left, scaled to 700 x 525, the stroke where the box put it -- and the
+maintainer found it "really slow and laggy" on the laptop at once. Every
+motion rewrote the layer: the old box restored from the undo copy, the
+whole picture rescaled with a 64-bit division per pixel, blended,
+recomposited. A check of the END STATE passes that; so does a 64 px
+test picture. Measured under TCG, 800 x 600, a 48-step drag: 2.1 s to
+land, against 0.12 s once the paste was drawn as an overlay and written
+into the layer only when placed (b1c561d3).
+
+The rule: drive every drag, move, resize, slider and live preview the
+way a person does, on a REALISTIC size, and time it -- `dbg.drag(...,
+steps=48, settle=False)`, then poll the layout log until the end state
+appears -- beside a cheap baseline (a brush stroke). Put the number in
+the hand-over. Per-motion work should be proportional to what changed on
+SCREEN, never to the whole picture: draw the moving thing over the view,
+commit once.
