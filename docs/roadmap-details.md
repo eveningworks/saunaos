@@ -1784,7 +1784,7 @@ Chosen 2026-09-28. Offset, bytes and ASCII columns over
 with go-to-offset and find-bytes. Editing is a second step: it needs an
 undo log and a decision about writing in place.
 
-### Paint: BUILT through text, layers, shapes, brush kinds, paste and selection; gradient next
+### Paint: BUILT through text, layers, shapes, brush kinds, paste, selection and gradients
 
 Put on the roadmap 2026-09-28; layout P3 and the whole v1 scope chosen
 2026-10-14. **Stage 1 is built**: the window (`gui/apps/paint.c`), the
@@ -1826,9 +1826,15 @@ Manager. Left to build, in order:
   inside it; a drag inside moves it; Cut, Copy, Delete, Crop, Invert,
   Select all, Deselect, on a right-click too. The mask is
   `lib/upixel.h`'s. Changing a selection is not an undo step.
-- **Next**: a gradient fill; a brush outline as the pointer, sized to the
-  brush; an ellipse selection, and selection changes in the history
-  (Paint.NET has both).
+- **Gradients are built** (2026-10-15, G1 and G2): the Gradient tool (G)
+  with Linear, Reflected, Radial, Diamond and Conical, Colour or
+  Transparency, Dithered, its ends draggable until let go; and the
+  bucket's Solid | Gradient, filling the region a click would. The
+  renderer is `lib/upixel.h`'s, rendered once a frame however many
+  motions arrive.
+- **Next**: a brush outline as the pointer, sized to the brush; an
+  ellipse selection, and selection changes in the history (Paint.NET has
+  both).
 - **Stage 3, what is left**: the status bar's selection pane (its size
   and place), and a selection's own handles to scale it in place.
 - **Not v1**: zoom past the wheel's steps by a typed value; layer

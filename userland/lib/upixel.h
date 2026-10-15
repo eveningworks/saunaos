@@ -140,6 +140,37 @@ void upix_stroke_end(struct upix_stroke *s);
 void upix_spray(struct uimg *im, int cx, int cy, int size, int n, uint32_t colour, uint32_t *seed,
                 struct upix_rect *dirty);
 
+// --- gradients ---------------------------------------------------------------
+//
+// A GRADIENT from `c0` at (x0, y0) to `c1` at (x1, y1), each pixel laid
+// OVER what is there (so an opaque gradient replaces, and one fading to
+// a transparent end fades into the picture -- Paint.NET's Transparency
+// mode). Its position at a pixel's centre, 0 at the start and 1 at the
+// end, is the shape's:
+//   LINEAR     along the line, flat past either end
+//   REFLECTED  the same mirrored at the start
+//   RADIAL     the distance from the start over the line's length
+//   DIAMOND    the same in the line's own axes' sum (a square turned to it)
+//   CONICAL    the angle from the line, 0 on it and 1 opposite
+// With `dither`, a 4x4 Bayer threshold below one step of 8 bits, so a
+// long gentle gradient shows no bands (GIMP's Dithering).
+
+enum upix_grad { UPIX_GRAD_LINEAR, UPIX_GRAD_REFLECTED, UPIX_GRAD_RADIAL, UPIX_GRAD_DIAMOND, UPIX_GRAD_CONICAL };
+
+struct upix_gradient {
+    enum upix_grad shape;
+    float x0, y0, x1, y1;
+    uint32_t c0, c1;   // 0xAARRGGBB
+    int dither;
+};
+
+// Over `r` of `im` (clipped), where `mask` -- im->w * im->h bytes, or
+// NULL for everywhere -- is set.
+void upix_gradient_fill(struct uimg *im, const struct upix_gradient *g, const uint8_t *mask,
+                        const struct upix_rect *r, struct upix_rect *dirty);
+// The position (0..1) of the pixel centre (px, py), for a test.
+float upix_gradient_at(const struct upix_gradient *g, float px, float py);
+
 // --- selections ------------------------------------------------------------
 //
 // A SELECTION IS A MASK the picture's size, one byte a pixel, 0 (out) or

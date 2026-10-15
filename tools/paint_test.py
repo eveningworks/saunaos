@@ -73,6 +73,11 @@ What it proves, and what a broken version would still pass:
     lasso drag and a 48-step move each land within a second; the move
     leaves Colour 2 and one Ctrl+Z undoes it; Ctrl+Shift+X crops;
     Ctrl+A and Ctrl+D.
+  * GRADIENT: G and its bar; a drag lays one with its ends open; a
+    48-step drag of an end lands within a second; Colour 1 before the
+    start and Colour 2 past the end exactly, the middle halfway; one
+    Ctrl+Z; Transparency fades into the white; a selection keeps it
+    inside; the bucket's gradient fills its region only.
   * TEXT EDITING: Home, Shift+Left, Ctrl+X/V and a click change the
     text and caret the box reports; its frame dragged moves it, leaving
     WHITE behind (a move that forgot to restore would leave the old
@@ -94,7 +99,9 @@ check (the canvas stays 800 x 600); the paste before b1c561d3, which
 rewrote the layer on every motion, takes 2.1 s over the drag that must
 land within a second; select_clip() doing nothing fails the brush-inside
 check (black outside the selection); an on_tick() without tips_tick()
-fails the tooltip check (no cream at either button).
+fails the tooltip check (no cream at either button); a gradient rendered
+on every motion fails the end-drag timing and, its drags landing short,
+six checks after it.
 
 Usage (the VM must already be up):
 
@@ -313,6 +320,7 @@ def run(dbg, qmp, res, tmp):
     check_colours(dbg, qmp, res, tmp)
     check_paste(dbg, qmp, res, tmp)
     check_select(dbg, qmp, res, tmp)
+    check_gradient(dbg, qmp, res, tmp)
 
 
 def rect(dbg, part):
@@ -1332,6 +1340,113 @@ def check_select(dbg, qmp, res, tmp):
     dbg.key("0x04", mods="ctrl")                 # Ctrl+D
     res.check("Ctrl+A selects all, Ctrl+D lets it go", on == 1 and box == [0, 0, 300, 200] and selection(dbg)[0] == 0,
               f"{on} {box} then {selection(dbg)}")
+    close_all(dbg)
+
+
+def gradient_line(dbg):
+    for line in reversed(dbg.logs("paint: layout gradient.open ", clear=False)):
+        p = line.split("gradient.open ", 1)[1].split()
+        return [int(v) for v in p[2:4] + p[5:7]] if p[0] == "1" else None
+    return None
+
+
+def check_gradient(dbg, qmp, res, tmp):
+    """The Gradient tool and the bucket's gradient, by pixels: exact ends,
+    the middle between them, an end dragged (timed), one Ctrl+Z,
+    Transparency fading into the white, a selection keeping it inside,
+    and the bucket filling only its region."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Gradient: Paint opens", False, "no window")
+        return
+
+    def click(part, right=False):
+        r = rect(dbg, part)
+        if r:
+            (dbg.rclick if right else dbg.click)(scr.cx + r[0] + r[2] // 2, scr.cy + r[1] + r[3] // 2)
+            dbg.settle()
+        return r
+
+    def drag(x0, y0, x1, y1, steps=16):
+        a, b = scr.at(x0, y0), scr.at(x1, y1)
+        dbg.drag(a[0], a[1], b[0], b[1], steps=steps)
+        dbg.settle()
+
+    c1, c2 = (0x3F, 0x48, 0xCC), (0xFF, 0xC9, 0x0E)
+    click("palette.cell 8")
+    click("palette.cell 14", right=True)
+    dbg.key("g")
+    dbg.settle()
+    res.check("G is the Gradient tool, and its bar shows", state(dbg).get("tool") == 8 and rect(dbg, "gradientshape"),
+              f"{state(dbg)}")
+    drag(100, 300, 700, 300)
+    res.check("a drag lays a gradient, its ends open", gradient_line(dbg) == [100, 300, 700, 300], f"{gradient_line(dbg)}")
+    # AN END DRAGGED KEEPS UP: 48 steps land within a second (7.2 s when
+    # every motion rendered the whole layer).
+    h = rect(dbg, "gradient.handle 1")
+    landed = None
+    if h:
+        a, b = (scr.cx + h[0] + h[2] // 2, scr.cy + h[1] + h[3] // 2), scr.at(600, 300)
+        t0 = time.time()
+        dbg.drag(a[0], a[1], b[0], b[1], settle=False, steps=48)
+        while time.time() - t0 < 30:
+            if gradient_line(dbg) == [100, 300, 600, 300]:
+                landed = time.time() - t0
+                break
+            time.sleep(0.05)
+    res.check("a 48-step drag of a gradient's end lands within a second", landed is not None and landed < 1.0,
+              f"{landed and round(landed, 2)} s, line {gradient_line(dbg)}")
+    dbg.key("0x0d")
+    dbg.move(10, 700)
+    scr.shoot()
+    mid = scr.pixel(350, 300)
+    want = [(a + b) / 2 for a, b in zip(c1, c2)]
+    res.check("Colour 1 before its start, Colour 2 past its end, halfway between them in the middle",
+              scr.pixel(50, 300) == c1 and scr.pixel(700, 300) == c2 and all(abs(m - w) <= 4 for m, w in zip(mid, want)),
+              f"{scr.pixel(50, 300)} {mid} {scr.pixel(700, 300)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    scr.shoot()
+    res.check("...and one Ctrl+Z takes it", scr.pixel(350, 300) == WHITE, f"{scr.pixel(350, 300)}")
+    # Transparency: Colour 1 fading into the white.
+    click("gradientmode.slot 1")
+    drag(100, 300, 700, 300)
+    dbg.key("0x0d")
+    scr.shoot()
+    res.check("Transparency fades Colour 1 into what is there", scr.pixel(50, 300) == c1 and scr.pixel(700, 300) == WHITE,
+              f"{scr.pixel(50, 300)} {scr.pixel(700, 300)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    click("gradientmode.slot 0")
+    # A selection keeps it inside.
+    dbg.key("m")
+    click("selectkind.button 0")
+    drag(200, 200, 400, 400)
+    dbg.key("g")
+    drag(100, 300, 700, 300)
+    dbg.key("0x0d")
+    dbg.key("0x04", mods="ctrl")
+    scr.shoot()
+    res.check("a selection keeps the gradient inside it", scr.pixel(150, 300) == WHITE and scr.pixel(450, 300) == WHITE
+              and scr.pixel(300, 300) != WHITE, f"{scr.pixel(150, 300)} {scr.pixel(300, 300)} {scr.pixel(450, 300)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    # THE BUCKET'S GRADIENT: a black band at x 400, a click left of it.
+    click("palette.cell 0")
+    dbg.key("b")
+    sz = rect(dbg, "size")
+    if sz:
+        dbg.click(scr.cx + sz[0] + sz[2] * 20 // 64, scr.cy + sz[1] + sz[3] // 2)
+    drag(400, 0, 400, 599, steps=24)
+    click("palette.cell 8")
+    dbg.key("f")
+    click("fillkind.slot 1")
+    dbg.click(*scr.at(100, 300))
+    dbg.settle()
+    scr.shoot()
+    left, right = scr.pixel(2, 300), scr.pixel(600, 300)
+    res.check("the bucket's gradient fills the region a click would, Colour 1 at its left, and no more",
+              all(abs(a - b) <= 2 for a, b in zip(left, c1)) and right == WHITE and scr.pixel(400, 300) == BLACK,
+              f"left {left}, right {right}, band {scr.pixel(400, 300)}")
     close_all(dbg)
 
 

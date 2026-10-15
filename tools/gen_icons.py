@@ -430,6 +430,47 @@ def icon_tb_crop():
     return p.done()
 
 
+# --- Paint's gradient (gui/apps/paint.c's Gradient tool and the bucket's bar) ---
+
+def _ramp(t_of):
+    """The ink at the strength t_of(x, y) gives, 0..1, inside a rounded square."""
+    p = _Pen()
+    r, g, b, _ = TB_INK
+    n = SIZE * 4
+    px = p.im.load()
+    for y in range(n):
+        for x in range(n):
+            gx, gy = x / _K, y / _K
+            if 3.5 <= gx <= 20.5 and 3.5 <= gy <= 20.5:
+                px[x, y] = (r, g, b, int(255 * max(0.0, min(1.0, t_of(gx, gy)))))
+    p.rrect(3.5, 3.5, 17, 17, 2.5)
+    return p.done()
+
+
+def icon_tb_gradient():
+    return _ramp(lambda x, y: 1 - (x - 3.5) / 17)
+
+
+def icon_grad_linear():
+    return _ramp(lambda x, y: 1 - (x - 3.5) / 17)
+
+
+def icon_grad_reflected():
+    return _ramp(lambda x, y: abs(x - 12) / 8.5)
+
+
+def icon_grad_radial():
+    return _ramp(lambda x, y: 1 - math.hypot(x - 12, y - 12) / 9)
+
+
+def icon_grad_diamond():
+    return _ramp(lambda x, y: 1 - (abs(x - 12) + abs(y - 12)) / 9)
+
+
+def icon_grad_conical():
+    return _ramp(lambda x, y: abs(math.atan2(y - 12, x - 12)) / math.pi)
+
+
 def icon_tb_smooth():
     # Smooth edges: a curve, soft, over its own stair-stepped shadow.
     p = _Pen()
@@ -1729,6 +1770,8 @@ ICONS = {
     "br-spray": icon_br_spray, "br-highlighter": icon_br_highlighter,
     "tb-select": icon_tb_select, "sel-rect": icon_sel_rect, "sel-lasso": icon_sel_lasso,
     "sel-wand": icon_sel_wand, "tb-crop": icon_tb_crop,
+    "tb-gradient": icon_tb_gradient, "grad-linear": icon_grad_linear, "grad-reflected": icon_grad_reflected,
+    "grad-radial": icon_grad_radial, "grad-diamond": icon_grad_diamond, "grad-conical": icon_grad_conical,
     "tb-plus": icon_tb_plus,
     "tb-merge-down": icon_tb_merge_down,
     "tb-bold": icon_tb_bold,

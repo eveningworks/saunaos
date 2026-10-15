@@ -56,6 +56,8 @@ int select_any(void) {
     return g_sel.a && g_layer && g_sel.w == g_layer->w && g_sel.h == g_layer->h && upix_sel_any(&g_sel);
 }
 
+const struct upix_sel *select_get(void) { return select_any() ? &g_sel : 0; }
+
 static void changed(void) {
     struct upix_sel *s = &g_sel;
     ulogf("paint: selection %d,%d %dx%d\n", s->box.x, s->box.y, s->box.w, s->box.h);

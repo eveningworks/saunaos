@@ -17,7 +17,7 @@
 #include "lib/uora.h"
 
 enum paint_tool { TOOL_PENCIL, TOOL_BRUSH, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_TEXT, TOOL_SHAPES, TOOL_SELECT,
-                  TOOL_COUNT };
+                  TOOL_GRADIENT, TOOL_COUNT };
 
 // The shape bar's gallery, in its order.
 enum paint_shape { SHAPE_LINE, SHAPE_CURVE, SHAPE_RECT, SHAPE_ROUNDED, SHAPE_ELLIPSE, SHAPE_POLYGON,
@@ -107,6 +107,7 @@ extern int g_sel_kind;                     // enum paint_sel_kind
 extern int g_sel_mode;                     // enum upix_sel_op: the bar's New / Add / Subtract
 extern int g_sel_tol;                      // the wand's tolerance, percent
 int  select_any(void);
+const struct upix_sel *select_get(void);   // the mask while something is selected, else NULL
 void select_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods);
 // A tool painted `r` inside an open undo step: everything outside the
 // selection in `r` put back from the step's copy. Nothing when none is.
@@ -120,6 +121,22 @@ int  select_copy(int cut);                 // onto the clipboard; 1 when there w
 int  select_key(int key, unsigned mods);   // Esc deselects, Delete deletes: 1 when taken
 void select_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
 void select_log_layout(const struct uui_paintcanvas *c);
+
+// --- paint_gradient.c: the Gradient tool, and the bucket's gradient -------------
+extern int g_grad_shape;                   // enum upix_grad: the bar's row, in its order
+extern int g_grad_clear;                   // Transparency: Colour 1 fading to nothing
+extern int g_grad_dither;
+extern int g_fill_gradient;                // the bucket fills with the gradient, not Colour 1
+int  gradient_active(void);                // ends still draggable
+void gradient_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods);
+// The bucket's gradient: the region it would fill, the press to the release.
+void gradient_bucket(enum uui_paint_phase phase, int x, int y, int slot);
+int  gradient_key(int key);                // Enter keeps it, Esc drops it
+void gradient_commit(void);                // into the layer, one undo step
+void gradient_restyle(void);               // the bar or the colours changed
+void gradient_flush(void);                 // the frame's render of what moved: from on_draw
+void gradient_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
+void gradient_log_layout(const struct uui_paintcanvas *c);
 
 // --- paint_frame.c: a box being edited, its dashed frame and handles ------------
 #define PAINT_HANDLE_PX 8                  // a handle, screen pixels

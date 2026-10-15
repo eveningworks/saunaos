@@ -3447,7 +3447,9 @@ window without going through it will find its layout polls timing out.
   -- reddens the fills, the composites, the strokes and the selections.
   Selections: rectangles, wand picks and lassos with New/Add/Subtract
   against a set reference, invert, the cut-out copy, Delete and
-  keep-outside. In `ondemand_sweep.py`.
+  keep-outside. Gradients: every shape's position against floats, the
+  fill within a step and inside its mask, dithering unbiased. In
+  `ondemand_sweep.py`.
 
 - **`ora_hostcheck.py`** -- `lib/uora` (OpenRaster, Paint's layered
   save) and `lib/uzip` compiled on the HOST against Python's zipfile,

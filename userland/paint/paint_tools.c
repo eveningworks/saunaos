@@ -141,6 +141,7 @@ void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned 
         brush_pointer(phase, x, y, slot);
         return;
     case TOOL_FILL:
+        if (g_fill_gradient) { gradient_bucket(phase, x, y, slot); return; }
         if (phase != UUI_PAINT_DOWN) return;
         if (x < 0 || y < 0 || x >= g_layer->w || y >= g_layer->h) return;
         begin(slot);
@@ -158,6 +159,9 @@ void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned 
         return;
     case TOOL_SELECT:
         select_pointer(phase, x, y, mods);
+        return;
+    case TOOL_GRADIENT:
+        gradient_pointer(phase, x, y, mods);
         return;
     case TOOL_PICK:
         // WHAT SHOWS, every layer together -- Windows 11 Paint's picker.

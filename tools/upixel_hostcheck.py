@@ -40,6 +40,10 @@ What it asserts, on seeded random pictures:
     the box their bounds; invert the rest; the copy the selected pixels
     in their box, transparent elsewhere; paint and keep-outside touching
     only what they should
+  - GRADIENTS: every shape's position against floats; a fill within a
+    step of the reference at every pixel, nothing outside its mask moved;
+    a dithered ramp differs from the plain one and each 4x4 block
+    averages to the true colour
   - UNDO: after a run of strokes and fills, each recorded with begin and
     commit, undoing all of them gives back the first picture exactly,
     redoing all gives back the last, and the state number comes back to
@@ -238,6 +242,19 @@ int main(void) {
             if (scanf("%d %d %d %d", &a, &b, &c, &d) != 4) return 2;
             struct upix_rect r = { a, b, c, d };
             upix_sel_keep_outside(&sel, &ims[0], &ims[1], &r);
+        } else if (!strcmp(cmd, "grad")) {          // grad SHAPE x0 y0 x1 y1 C0 C1 DITHER MASKED
+            struct upix_gradient gr;
+            unsigned c0, c1;
+            if (scanf("%d %f %f %f %f %x %x %d %d", &a, &gr.x0, &gr.y0, &gr.x1, &gr.y1, &c0, &c1, &b, &c) != 9) return 2;
+            gr.shape = (enum upix_grad)a; gr.c0 = c0; gr.c1 = c1; gr.dither = b;
+            struct upix_rect all = { 0, 0, im.w, im.h };
+            upix_gradient_fill(&im, &gr, c ? sel.a : 0, &all, &dirty);
+        } else if (!strcmp(cmd, "gat")) {           // gat SHAPE x0 y0 x1 y1 PX PY
+            struct upix_gradient gr = { 0 };
+            float px, py;
+            if (scanf("%d %f %f %f %f %f %f", &a, &gr.x0, &gr.y0, &gr.x1, &gr.y1, &px, &py) != 7) return 2;
+            gr.shape = (enum upix_grad)a;
+            printf("t %.6f\n", upix_gradient_at(&gr, px, py));
         } else if (!strcmp(cmd, "dump")) {
             dump();
         } else return 2;
@@ -682,6 +699,89 @@ def selection_checks(rng, d, fails):
     return n
 
 
+# --- gradients -------------------------------------------------------------------
+
+def ref_t(shape, x0, y0, x1, y1, px, py):
+    import math
+    dx, dy = x1 - x0, y1 - y0
+    l2 = dx * dx + dy * dy
+    if l2 <= 0:
+        return 1.0
+    vx, vy = px - x0, py - y0
+    along, across = (vx * dx + vy * dy) / l2, (vx * -dy + vy * dx) / l2
+    t = [along, abs(along), math.hypot(vx, vy) / math.sqrt(l2), abs(along) + abs(across),
+         abs(math.atan2(across, along)) / math.pi][shape]
+    return min(1.0, max(0.0, t))
+
+
+def lerp_px(c0, c1, t):
+    return [chan(c0, sh) + (chan(c1, sh) - chan(c0, sh)) * t for sh in (16, 8, 0, 24)]
+
+
+def gradient_checks(rng, d, fails):
+    n = 0
+    # The position, every shape, against floats.
+    for case in range(200):
+        shape = case % 5
+        x0, y0, x1, y1 = (rng.uniform(-10, 60) for _ in range(4))
+        px, py = rng.uniform(-20, 80), rng.uniform(-20, 80)
+        got = float(d.ask(f"gat {shape} {x0} {y0} {x1} {y1} {px} {py}")[1])
+        want = ref_t(shape, x0, y0, x1, y1, px, py)
+        n += 1
+        # Near a conical seam the two sides of the line are a step apart.
+        if abs(got - want) > 2e-3 and not (shape == 4 and abs(abs(want) - 1) < 1e-2):
+            fails.append(f"gradient shape {shape}: t at ({px:.1f},{py:.1f}) is {got:.4f}, floats {want:.4f}")
+    # The fill: opaque ends, no dither, every pixel within a step of the
+    # reference at its position; masked, nothing outside the mask moves.
+    for case in range(20):
+        w, h = rng.randrange(8, 40), rng.randrange(8, 40)
+        shape = case % 5
+        c0, c1 = 0xFF000000 | rng.randrange(1 << 24), 0xFF000000 | rng.randrange(1 << 24)
+        x0, y0, x1, y1 = rng.uniform(0, w), rng.uniform(0, h), rng.uniform(0, w), rng.uniform(0, h)
+        masked = case % 2
+        d.send(f"new {w} {h} ff808080")
+        d.send("sinit")
+        d.send(f"srect {w // 4} {h // 4} {w * 3 // 4} {h * 3 // 4} 0")
+        d.send(f"grad {shape} {x0} {y0} {x1} {y1} {c0:x} {c1:x} 0 {masked}")
+        got = d.dump()[2]
+        inside = {y * w + x for y in range(h // 4, h * 3 // 4) for x in range(w // 4, w * 3 // 4)}
+        n += 1
+        bad = None
+        for i in range(w * h):
+            if masked and i not in inside:
+                if got[i] != 0xFF808080:
+                    bad = f"outside the mask at {i % w},{i // w}: {got[i]:08x}"
+                    break
+                continue
+            want = lerp_px(c0, c1, ref_t(shape, x0, y0, x1, y1, i % w + 0.5, i // w + 0.5))
+            g_ = [chan(got[i], 16), chan(got[i], 8), chan(got[i], 0), got[i] >> 24]
+            # A pixel near a conical seam may be on either side of it.
+            if any(abs(a - b) > 1.6 for a, b in zip(g_, want)) and shape != 4:
+                bad = f"at {i % w},{i // w}: {got[i]:08x}, want {[round(v, 1) for v in want]}"
+                break
+        if bad:
+            fails.append(f"gradient fill case {case} shape {shape} masked {masked}: {bad}")
+    # DITHERED: a gentle ramp, each 4x4 block's mean on the reference's
+    # mean, and some pixels a step off the plain one -- the dither did
+    # something and nothing it did is bias.
+    d.send("new 64 8 ff000000")
+    d.send("grad 0 0 4 64 4 ff101010 ff141414 1 0")
+    dith = d.dump()[2]
+    d.send("new 64 8 ff000000")
+    d.send("grad 0 0 4 64 4 ff101010 ff141414 0 0")
+    plain = d.dump()[2]
+    n += 2
+    if dith == plain:
+        fails.append("a dithered gradient is the plain one")
+    for bx in range(0, 64, 4):
+        mean = sum(chan(dith[y * 64 + x], 16) for y in range(4) for x in range(bx, bx + 4)) / 16
+        want = sum(lerp_px(0xFF101010, 0xFF141414, ref_t(0, 0, 4, 64, 4, x + 0.5, 0))[0] for x in range(bx, bx + 4)) / 4
+        if abs(mean - want) > 0.6:
+            fails.append(f"the dithered ramp's block at x {bx} averages {mean:.2f}, the true colour {want:.2f}")
+            break
+    return n
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--positive-control", action="store_true",
@@ -998,6 +1098,7 @@ def main():
         brush_checks(rng, d, fails)
         checks += BRUSH_CHECKS[0]
         checks += selection_checks(rng, d, fails)
+        checks += gradient_checks(rng, d, fails)
 
         # JOINED STEPS: a custom step then a stroke joined to it undo as one
         # and redo as one; the step before them is untouched by either.

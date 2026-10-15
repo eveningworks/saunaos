@@ -544,6 +544,81 @@ void upix_spray(struct uimg *im, int cx, int cy, int size, int n, uint32_t colou
     }
 }
 
+// --- gradients --------------------------------------------------------------
+
+#define GRAD_STEPS 4096   // the table's positions: 16x finer than 8 bits, for the dither
+
+float upix_gradient_at(const struct upix_gradient *g, float px, float py) {
+    float dx = g->x1 - g->x0, dy = g->y1 - g->y0, l2 = dx * dx + dy * dy;
+    if (l2 <= 0) return 1;
+    float vx = px - g->x0, vy = py - g->y0, t;
+    switch (g->shape) {
+    case UPIX_GRAD_REFLECTED: t = fabsf((vx * dx + vy * dy) / l2); break;
+    case UPIX_GRAD_RADIAL:    t = sqrtf((vx * vx + vy * vy) / l2); break;
+    case UPIX_GRAD_DIAMOND:   t = (fabsf(vx * dx + vy * dy) + fabsf(vx * -dy + vy * dx)) / l2; break;
+    case UPIX_GRAD_CONICAL: {
+        // The angle between (vx, vy) and the line, over pi.
+        float a = (float)atan2(vx * -dy + vy * dx, vx * dx + vy * dy);
+        t = fabsf(a) / 3.14159265f;
+        break;
+    }
+    default: t = (vx * dx + vy * dy) / l2; break;
+    }
+    return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
+static const uint8_t BAYER[4][4] = { { 0, 8, 2, 10 }, { 12, 4, 14, 6 }, { 3, 11, 1, 9 }, { 15, 7, 13, 5 } };
+
+void upix_gradient_fill(struct uimg *im, const struct upix_gradient *g, const uint8_t *mask,
+                        const struct upix_rect *r, struct upix_rect *dirty) {
+    if (!im->px || !r) return;
+    struct upix_rect c = { 0, 0, 0, 0 };
+    upix_rect_add(&c, im, r->x, r->y, r->w, r->h);
+    if (c.w <= 0 || c.h <= 0) return;
+    // A TABLE of the colour at each of GRAD_STEPS positions, each channel
+    // in 8.8 fixed point, so a pixel costs its position and a lookup.
+    static uint16_t lut[GRAD_STEPS][4];
+    for (int i = 0; i < GRAD_STEPS; i++) {
+        float t = (float)i / (GRAD_STEPS - 1);
+        for (int ch = 0; ch < 4; ch++) {
+            float a = (float)((g->c0 >> (8 * ch)) & 0xFF), b = (float)((g->c1 >> (8 * ch)) & 0xFF);
+            lut[i][ch] = (uint16_t)((a + (b - a) * t) * 256.0f + 0.5f);
+        }
+    }
+    int linear = g->shape == UPIX_GRAD_LINEAR || g->shape == UPIX_GRAD_REFLECTED;
+    float dx = g->x1 - g->x0, dy = g->y1 - g->y0, l2 = dx * dx + dy * dy;
+    for (int y = c.y; y < c.y + c.h; y++) {
+        uint32_t *row = im->px + (size_t)y * im->w;
+        const uint8_t *m = mask ? mask + (size_t)y * im->w : 0;
+        // A LINE'S POSITION IS LINEAR ALONG A ROW: one add a pixel.
+        float t = 0, step = 0;
+        if (linear && l2 > 0) {
+            t = (((float)c.x + 0.5f - g->x0) * dx + ((float)y + 0.5f - g->y0) * dy) / l2;
+            step = dx / l2;
+        }
+        for (int x = c.x; x < c.x + c.w; x++, t += step) {
+            if (m && !m[x]) continue;
+            float u;
+            if (linear && l2 > 0) {
+                u = g->shape == UPIX_GRAD_REFLECTED ? fabsf(t) : t;
+                u = u < 0 ? 0 : u > 1 ? 1 : u;
+            } else {
+                u = upix_gradient_at(g, (float)x + 0.5f, (float)y + 0.5f);
+            }
+            const uint16_t *e = lut[(int)(u * (GRAD_STEPS - 1) + 0.5f)];
+            // The dither: a threshold under one 8-bit step, a 4x4 Bayer.
+            unsigned d = g->dither ? (unsigned)BAYER[y & 3][x & 3] * 16 + 8 : 128;
+            uint32_t sp = 0;
+            for (int ch = 0; ch < 4; ch++) {
+                unsigned v = ((unsigned)e[ch] + d) >> 8;
+                sp |= (v > 255 ? 255u : v) << (8 * ch);
+            }
+            row[x] = over_px(row[x], sp, 255);
+        }
+    }
+    upix_rect_add(dirty, im, c.x, c.y, c.w, c.h);
+}
+
 // --- selections -------------------------------------------------------------
 
 int upix_sel_init(struct upix_sel *s, int w, int h) {

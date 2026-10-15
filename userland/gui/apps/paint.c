@@ -62,6 +62,7 @@ enum {
     ID_PTABS, ID_LBAR, ID_LAYERS, ID_LOPACITY,
     ID_SHGAL, ID_SHOUT, ID_SHFILL, ID_SHWIDTH, ID_SHAA,
     ID_SELKIND, ID_SELMODE, ID_SELTOL, ID_SELACT, ID_CTX,
+    ID_GFILL, ID_GSHAPE, ID_GMODE, ID_GDITHER,
     ID_PICK = 40,   // .. + UUI_COLOURPICK_IDS
     ID_NEW_SIZE = 50,   // .. + UUI_SIZEPICK_IDS
     ID_FONT = 80,       // .. + UUI_FONTPICK_IDS
@@ -263,6 +264,7 @@ static const struct uui_menu_item tool_items[] = {
     UUI_MENU_ICON("Text", CMD_TOOL + TOOL_TEXT, "T", "tb-text", 0),
     UUI_MENU_ICON("Shapes", CMD_TOOL + TOOL_SHAPES, "S", "tb-shapes", 0),
     UUI_MENU_ICON("Select", CMD_TOOL + TOOL_SELECT, "M", "tb-select", 0),
+    UUI_MENU_ICON("Gradient", CMD_TOOL + TOOL_GRADIENT, "G", "tb-gradient", 0),
 };
 static const struct uui_menu_item colour_items[] = {
     UUI_MENU("Swap the two colours", CMD_SWAP, "X"),
@@ -302,6 +304,7 @@ static const struct uui_toolbar_item rail_items[] = {
     { "tb-eraser", "Eraser (E)",        CMD_TOOL + TOOL_ERASER, 0, 0, 0, 0 },
     UUI_TOOLBAR_SEP,
     { "tb-fill",   "Fill (F)",          CMD_TOOL + TOOL_FILL,   0, 0, 0, 0 },
+    { "tb-gradient", "Gradient (G)",    CMD_TOOL + TOOL_GRADIENT, 0, 0, 0, 0 },
     { "tb-picker", "Colour picker (I)", CMD_TOOL + TOOL_PICK,   0, 0, 0, 0 },
     UUI_TOOLBAR_SEP,
     { "tb-select", "Select (M)",        CMD_TOOL + TOOL_SELECT, 0, 0, 0, 0 },
@@ -362,6 +365,18 @@ static const struct uui_toolbar_item selact_items[] = {
     { "tb-crop",   "Crop to selection (Ctrl+Shift+X)", CMD_CROP,       "Crop",   0, 0, 0 },
     { "tb-delete", "Delete selection (Del)",           CMD_SEL_DELETE, "Delete", UUI_TB_END, 0, UTHEME_ACT_DANGER },
 };
+// THE GRADIENT BAR (G1, and the bucket's G2): the shape, Colour or
+// Transparency, Dithered -- and, on the bucket, Solid | Gradient first.
+static struct uui_custom g_gradbar_card;
+static struct uui_segmented g_gfill, g_gmode;
+static struct uui_togglebar g_gshape, g_gdither;
+static const char *const GFILL[] = { "Solid", "Gradient" };
+static const char *const GMODE[] = { "Colour", "Transparency" };
+static const struct uui_toggle gshape_items[] = {
+    { 0, "Linear", "grad-linear", 0 },   { 0, "Reflected", "grad-reflected", 0 }, { 0, "Radial", "grad-radial", 0 },
+    { 0, "Diamond", "grad-diamond", 0 }, { 0, "Conical", "grad-conical", 0 },
+};
+static const struct uui_toggle gdither_items[] = { { "Dithered", "Dither, so a gentle gradient shows no bands", 0, 0 } };
 static struct uui_custom g_shapebar_card;
 static struct uui_togglebar g_shgal, g_shaa;
 static struct uui_dropdown g_shout, g_shfill, g_shwidth;
@@ -407,6 +422,11 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_segmented_ops,     .widget = &g_selmode,   .id = ID_SELMODE, .name = "selectmode", .hidden = 1 },
     { .ops = &uui_dropdown_ops,      .widget = &g_seltol,    .id = ID_SELTOL,  .name = "selecttolerance", .hidden = 1 },
     { .ops = &uui_toolbar_ops,       .widget = &g_selact,    .id = ID_SELACT,  .name = "selectactions", .hidden = 1 },
+    { .ops = &uui_custom_ops,        .widget = &g_gradbar_card, .name = "gradientbar", .hidden = 1 },
+    { .ops = &uui_segmented_ops,     .widget = &g_gfill,     .id = ID_GFILL,   .name = "fillkind", .hidden = 1 },
+    { .ops = &uui_togglebar_ops,     .widget = &g_gshape,    .id = ID_GSHAPE,  .name = "gradientshape", .hidden = 1 },
+    { .ops = &uui_segmented_ops,     .widget = &g_gmode,     .id = ID_GMODE,   .name = "gradientmode", .hidden = 1 },
+    { .ops = &uui_togglebar_ops,     .widget = &g_gdither,   .id = ID_GDITHER, .name = "gradientdither", .hidden = 1 },
     // The menu bar after the bars: its popups must be on top of them.
     { .ops = &uui_menubar_ops,       .widget = &g_menu,      .id = ID_MENU,    .name = "menu" },
     { .ops = &uui_menubar_ops,       .widget = &g_ctx,       .id = ID_CTX,     .name = "ctxmenu" },
@@ -416,7 +436,7 @@ static struct uui_item g_widgets[] = {
 };
 enum { W_PICK = 3, W_PANEL_FIRST = 3, W_PANEL_LAST = 7, W_TEXTBAR = 9, W_FONTPICK = 10, W_TEXTFILL = 11,
        W_PTABS = 12, W_LAYERS_FIRST = 13, W_LAYERS_LAST = 16, W_SHAPE_FIRST = 17, W_SHAPE_LAST = 22,
-       W_SEL_FIRST = 23, W_SEL_LAST = 27 };
+       W_SEL_FIRST = 23, W_SEL_LAST = 27, W_GRAD_CARD = 28, W_GFILL = 29, W_GRAD_LAST = 32 };
 
 // --- small things -------------------------------------------------------------
 
@@ -605,7 +625,8 @@ void paint_timer(int on) {
 static int tips_tick(void) {
     int r = 0;
     struct uui_toolbar *bars[] = { &g_bar, &g_rail, &g_lbar, &g_selact };
-    struct uui_togglebar *rows[] = { &g_kinds, &g_shgal, &g_shaa, &g_selkind, &g_textfill, &g_fontpick.style };
+    struct uui_togglebar *rows[] = { &g_kinds, &g_shgal, &g_shaa, &g_selkind, &g_textfill, &g_fontpick.style,
+                                     &g_gshape, &g_gdither };
     for (unsigned i = 0; i < sizeof bars / sizeof bars[0]; i++) r |= uui_toolbar_tick(bars[i]);
     for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; i++) r |= uui_togglebar_tick(rows[i]);
     return r;
@@ -613,7 +634,8 @@ static int tips_tick(void) {
 
 static int tips_waiting(void) {
     struct uui_toolbar *bars[] = { &g_bar, &g_rail, &g_lbar, &g_selact };
-    struct uui_togglebar *rows[] = { &g_kinds, &g_shgal, &g_shaa, &g_selkind, &g_textfill, &g_fontpick.style };
+    struct uui_togglebar *rows[] = { &g_kinds, &g_shgal, &g_shaa, &g_selkind, &g_textfill, &g_fontpick.style,
+                                     &g_gshape, &g_gdither };
     for (unsigned i = 0; i < sizeof bars / sizeof bars[0]; i++) if (uui_tip_waiting(&bars[i]->tip)) return 1;
     for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; i++) if (uui_togglebar_tip_waiting(rows[i])) return 1;
     return 0;
@@ -638,6 +660,7 @@ static void set_tool(int t) {
     if (t < 0 || t >= TOOL_COUNT || tools_busy()) return;
     if (t != TOOL_TEXT) text_commit();
     if (t != TOOL_SHAPES) shapes_commit();
+    if (t != TOOL_GRADIENT) gradient_commit();
     if (t == TOOL_PICK && g_tool != TOOL_PICK) g_tool_before_pick = g_tool;
     g_tool = t;
     ulogf("paint: tool %d\n", t);
@@ -1056,6 +1079,7 @@ static void command(int code) {
         code != CMD_PANEL) {
         text_commit();
         shapes_commit();
+        gradient_commit();
         paste_commit();
     }
     if (code >= CMD_COPY && code <= CMD_CROP) {
@@ -1093,6 +1117,7 @@ static void command(int code) {
         sync_pick();
         if (text_active()) text_restyle();
         if (shapes_active()) shapes_restyle();
+        if (gradient_active()) gradient_restyle();
         break;
     }
     default: break;
@@ -1141,6 +1166,7 @@ static void canvas_draw_over(void *ctx, struct ugfx_surface *s, const struct uui
     (void)ctx;
     text_draw_over(s, c);
     shapes_draw_over(s, c);
+    gradient_draw_over(s, c);
     select_draw_over(s, c);
     paste_draw_over(s, c);
 }
@@ -1253,6 +1279,37 @@ static void layout(int cw, int ch) {
     }
     uui_menubar_set_bounds(&g_ctx, 0, 0, cw, ch);
 
+    // THE GRADIENT BAR: the tool's, and the bucket's with Solid | Gradient
+    // before it -- whose gradient settings show only once it is chosen.
+    int show_grad = g_tool == TOOL_GRADIENT || g_tool == TOOL_FILL;
+    int grad_parts = g_tool == TOOL_GRADIENT || g_fill_gradient;
+    for (int i = W_GRAD_CARD; i <= W_GRAD_LAST; i++) g_widgets[i].hidden = !show_grad || (i > W_GFILL && !grad_parts);
+    g_widgets[W_GFILL].hidden = g_tool != TOOL_FILL;
+    if (show_grad) {
+        int fw = 0, fh = 0, sw, sh, mw, mh, dw, dh;
+        if (g_tool == TOOL_FILL) uui_segmented_ops.natural_size(&g_gfill, &fw, &fh);
+        uui_togglebar_ops.natural_size(&g_gshape, &sw, &sh);
+        uui_segmented_ops.natural_size(&g_gmode, &mw, &mh);
+        uui_togglebar_ops.natural_size(&g_gdither, &dw, &dh);
+        int h = sh, gap = pad / 2;
+        int barw = pad / 2 + (fw ? fw + (grad_parts ? pad : 0) : 0) + (grad_parts ? sw + pad + mw + gap + dw : 0) + pad / 2;
+        int x = rw + pad, y = top + pad;
+        g_gradbar_card = (struct uui_custom){ .x = x, .y = y, .w = barw, .h = h + pad, .draw = draw_card };
+        int cx = x + pad / 2, cy = y + pad / 2;
+        if (fw) { uui_segmented_set_geometry(&g_gfill, cx, cy + (h - fh) / 2); cx += fw + pad; }
+        if (grad_parts) {
+            uui_togglebar_ops.set_geometry(&g_gshape, cx, cy, sw, h);
+            cx += sw + pad;
+            uui_segmented_set_geometry(&g_gmode, cx, cy + (h - mh) / 2);
+            cx += mw + gap;
+            uui_togglebar_ops.set_geometry(&g_gdither, cx, cy, dw, h);
+        }
+        g_gfill.selected = g_fill_gradient;
+        g_gshape.on = 1u << g_grad_shape;
+        g_gmode.selected = g_grad_clear;
+        g_gdither.on = (unsigned)g_grad_dither;
+    }
+
     g_pw = g_panel ? pad * 30 : 0;
     g_px = cw - g_pw;
     int tab = g_ptabs.selected;
@@ -1344,6 +1401,7 @@ static void colour_box(struct ugfx_surface *s, int i) {
 
 static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     struct ugfx_surface *s = dr->surface;
+    gradient_flush();   // what the motions since the last frame moved
     layout(s->w, s->h);
     status();
     g_recent.selected = -1;
@@ -1358,6 +1416,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     shapes_log_layout(&g_canvas);
     paste_log_layout(&g_canvas);
     select_log_layout(&g_canvas);
+    gradient_log_layout(&g_canvas);
     uapp_logf_layout("paint: layout layerstack %d current %d opacity %d tab %d text %d\n", layers_count(),
                      layers_active(), layers_opacity(layers_active()), g_ptabs.selected,
                      layers_text(layers_active()) != 0);
@@ -1414,8 +1473,19 @@ static void on_widget(struct uapp *a, int id, int reason) {
         if (uui_colourpick_on_widget(&g_pick, id)) {
             g_colour[g_edit] = g_pick.rgb | 0xFF000000u;
             if (text_active()) text_restyle();
-        if (shapes_active()) shapes_restyle();   // the open box takes the colour, Windows 11 Paint's
+            if (shapes_active()) shapes_restyle();   // the open box takes the colour, Windows 11 Paint's
+            if (gradient_active()) gradient_restyle();
         }
+        uapp_redraw(a);
+        return;
+    }
+    if (id >= ID_GFILL && id <= ID_GDITHER) {
+        int i;
+        if (id == ID_GFILL && g_gfill.selected >= 0) g_fill_gradient = g_gfill.selected;
+        else if (id == ID_GSHAPE && (i = uui_togglebar_take(&g_gshape)) >= 0) g_grad_shape = i;
+        else if (id == ID_GMODE && g_gmode.selected >= 0) g_grad_clear = g_gmode.selected;
+        else if (id == ID_GDITHER && uui_togglebar_take(&g_gdither) == 0) g_grad_dither = !g_grad_dither;
+        gradient_restyle();
         uapp_redraw(a);
         return;
     }
@@ -1478,11 +1548,13 @@ static void on_widget(struct uapp *a, int id, int reason) {
         if (uui_swatches_take(&g_recent, &rgb)) { g_colour[g_edit] = rgb | 0xFF000000u; sync_pick(); }
         if (text_active()) text_restyle();
         if (shapes_active()) shapes_restyle();
+        if (gradient_active()) gradient_restyle();
         break;
     case ID_PALETTE:
         if (uui_swatches_take(&g_palette, &rgb)) { g_colour[g_edit] = rgb | 0xFF000000u; sync_pick(); }
         if (text_active()) text_restyle();
         if (shapes_active()) shapes_restyle();
+        if (gradient_active()) gradient_restyle();
         break;
     case ID_SIZE:
         *size_slot() = (int)uui_scale_value(&g_size);
@@ -1559,6 +1631,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     if (g_edit == 1) sync_pick();
     if (text_active()) text_restyle();
     if (shapes_active()) shapes_restyle();
+    if (gradient_active()) gradient_restyle();
     uapp_redraw(a);
 }
 
@@ -1615,6 +1688,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     if (text_active() && g_focus.current < 0 && text_key(key, mods)) { uapp_redraw(a); return; }
     if (shapes_active() && shapes_key(key)) { uapp_redraw(a); return; }
     if (paste_active() && paste_key(key)) { uapp_redraw(a); return; }
+    if (gradient_active() && gradient_key(key)) { uapp_redraw(a); return; }
     if (uui_menubar_key(&g_ctx, key, &code)) {
         if (code > 0) command(code);
         uapp_redraw(a);
@@ -1668,6 +1742,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     case 't': set_tool(TOOL_TEXT); break;
     case 's': set_tool(TOOL_SHAPES); break;
     case 'm': set_tool(TOOL_SELECT); break;
+    case 'g': set_tool(TOOL_GRADIENT); break;
     case 'x': command(CMD_SWAP); break;
     case '[': step_brush(-1); break;
     case ']': step_brush(1); break;
@@ -1724,6 +1799,11 @@ int main(int argc, char **argv) {
     sync_brush();
     g_shapebar_card = (struct uui_custom){ .draw = draw_card };
     g_selbar_card = (struct uui_custom){ .draw = draw_card };
+    g_gradbar_card = (struct uui_custom){ .draw = draw_card };
+    uui_segmented_init(&g_gfill, GFILL, 2, g_fill_gradient);
+    uui_segmented_init(&g_gmode, GMODE, 2, g_grad_clear);
+    uui_togglebar_init(&g_gshape, gshape_items, (int)(sizeof gshape_items / sizeof gshape_items[0]));
+    uui_togglebar_init(&g_gdither, gdither_items, 1);
     uui_togglebar_init(&g_selkind, selkind_items, SEL_KIND_COUNT);
     uui_segmented_init(&g_selmode, SELMODES, 3, g_sel_mode);
     uui_dropdown_init(&g_seltol, 0, 0, 0, 0, SELTOL_TEXT, NSELTOL);
