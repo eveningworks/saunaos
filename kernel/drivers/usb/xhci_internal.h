@@ -45,6 +45,8 @@
 #define XHCI_ADDR_LIMIT 0x100000000ull
 
 #define TRBS_PER_RING 256   // 4096 / sizeof(struct xhci_trb)
+#define BULK_TRB_LAST 0x01
+#define BULK_TRB_SKIP 0x02
 
 struct xhci_port_state {
     uint8_t connected;
@@ -103,6 +105,7 @@ struct xhci_hc {
     // Found by the walk, used by the handoff.
     uint32_t legsup_off;
     uint32_t cap_len;    // bytes BAR0 decodes: the bound on every register offset
+    uint16_t hci_version;    // HCIVERSION: 0x96, 0x100, 0x110, 0x120
     uint8_t  ac64;
     uint32_t page_size;
 
@@ -334,8 +337,14 @@ struct xhci_ep {
     uint8_t  is_bulk;
     void (*bulk_done)(void *ctx, uint64_t phys, uint32_t bytes, int ok);
     void    *bulk_ctx;
-    uint64_t buf_of_trb_phys[TRBS_PER_RING];  // which buffer a TRB carried
-    uint32_t bulk_len_of_trb[TRBS_PER_RING];  // ...and how much was asked for
+    uint64_t buf_of_trb_phys[TRBS_PER_RING];  // which buffer a TRB's TD carried
+    uint32_t bulk_len_of_trb[TRBS_PER_RING];  // ...this TRB's share of it
+    uint32_t bulk_off_of_trb[TRBS_PER_RING];  // ...starting this far in
+    // BULK_TRB_LAST marks a TD's last TRB. BULK_TRB_SKIP marks one whose
+    // TD already completed SHORT on an earlier TRB: the TD ended there,
+    // and an event some controllers still send for the last TRB is
+    // dropped rather than delivered as a second completion.
+    uint8_t  bulk_flags_of_trb[TRBS_PER_RING];
 
     // ISOCHRONOUS, either direction. Nothing above is used by one: the
     // driver owns the buffer (there is no `buf` to allocate) and takes

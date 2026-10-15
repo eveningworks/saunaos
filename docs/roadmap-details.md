@@ -4141,7 +4141,7 @@ Listed with the honest reason each is or isn't attractive.
 
 - [ ] Path MTU Discovery -- RFC 1191: set DF, treat ICMP "fragmentation needed" as the next hop's MTU, cache it per destination, and size TCP's MSS and UDP's fragments from it. NOT built on purpose with fragmentation (2026-09-30), because DF without it is a black hole on any smaller link; `docs/decisions/kernel.md`, "IPv4 fragments are reassembled in a bitmap". Needs the ICMP error path above first: an arriving Frag Needed is dropped today.
 
-- [ ] Download over a USB NIC -- **measured 2026-09-30** with `speedtest` (4 streams, RETN Helsinki, 7.5 ms): the ASUS over its RTL8153 downloads 199-233 Mbit/s and uploads 50, where Linux on the dev host, same line, same server, 4 `curl` streams, gets ~810 down and ~53 up. Upload is the LINE's; download is this machine's. What is known: raising `NET_RX_QUEUE` from 64 to 256 took it from 161 to ~230 and the queue's drops from 1753 to 43 a test, so the software receive queue was one limit and is no longer the main one. What is NOT established: which of the remaining suspects is -- the RTL8153's 16 receive buffers of 4 KiB (`rtl_usb.h`), the wake-to-run latency of the reader (a blocked process resumes at the next tick), or per-segment CPU in `tcp_input()` on one core. Measure before choosing: `ifconfig`'s drop counter after a run, and the same test with `-n 1` and `-n 6`.
+- [ ] Download over a USB NIC -- **measured 2026-09-30** with `speedtest` (4 streams, RETN Helsinki, 7.5 ms): the ASUS over its RTL8153 downloads 199-233 Mbit/s and uploads 50, where Linux on the dev host, same line, same server, 4 `curl` streams, gets ~810 down and ~53 up. Upload is the LINE's; download is this machine's. What is known: raising `NET_RX_QUEUE` from 64 to 256 took it from 161 to ~230 and the queue's drops from 1753 to 43 a test, so the software receive queue was one limit and is no longer the main one. What is NOT established: which of the remaining suspects is -- the RTL8153's receive buffers were one (4 KiB, one frame each; receive aggregation in 48 KiB took a LAN `wget` from ~30.6 to ~38.4 MB/s on 2026-10-15), then the wake-to-run latency of the reader (a blocked process resumes at the next tick), or per-segment CPU in `tcp_input()` on one core. Measure before choosing: `ifconfig`'s drop counter after a run, and the same test with `-n 1` and `-n 6`.
 
   **Narrowed the same day: it is the USB adapter's path, not the stack.** The maintainer measured 907 Mbit/s down in QEMU under KVM with virtio-net, and the Lenovo's ONBOARD r8169 (booted without the kernel debugger via `reboot --entry`) did 660-667 Mbit/s with 0 drops, same server, where USB adapters stay near 230. What remains is the RTL8153/RTL8156 receive side in `rtl_usb.c`, or the xHCI completions feeding it.
 
@@ -6971,15 +6971,14 @@ stream is a bulk transfer completing.
 
 **What is NOT proven.**
 
-- **Aggregation.** `USB_USB_CTRL`'s `RX_AGG_DISABLE` is SET, where
-  ure(4) clears it, so the device sends one frame per transfer. The
-  walk handles a packed transfer and its KTESTs feed it one, but no
-  device has produced one here. **MEASURED 2026-09-10, and it is the
-  throughput ceiling**: a 16 MB fetch over the RTL8156 moved ~33,900
-  frames in ~70 s -- about 450 frames a second, or ~2.2 ms per frame,
-  which is a USB bulk round trip and not a link at 2.5 Gb/s. `--kvm`
-  changed it by under 8%, so the guest's emulated CPU is not the bound;
-  one frame per transfer is.
+- ~~**Aggregation.**~~ ON since 2026-10-15, in 48 KiB buffers, with
+  `rtl_agg=off` to compare: a 12 MB LAN `wget` on the ASUS went from
+  ~30.6 to ~38.4 MB/s (`docs/decisions/drivers.md`, "Why receive
+  aggregation is ON"). The figure that prompted it -- a 16 MB fetch over
+  the RTL8156 moving ~33,900 frames in ~70 s, about 450 a second -- was
+  a passthrough GUEST's; bare metal was never capped there. The same
+  guest on the RTL8156B, re-measured under `--kvm`: 3.1-3.3 MB/s off,
+  4.0-4.2 on, 3.05 frames a transfer.
 - **Anything but a 5C20 stepping among the 8153s.** The version gate
   REFUSES an RTL8153B and an RTL8152: those want a different init
   sequence and there is nothing here to test one against. (The RTL8156
@@ -7307,11 +7306,10 @@ The same server-side fragility is why fetches from toy-os's own `httpd`
 truncated on BOTH the e1000 path (3.8 MB of 8) and this one: the
 in-order stack on either end.
 
-**What is NOT proven.** Receive aggregation is OFF here where the
-reference turns it on, so throughput is bounded by one frame per bulk
-transfer -- a roadmap item with a before/after, and the likely cure for
-the receive-side loss above (larger transfers, fewer of them). The
-RTL8156 "A" (`0x7020`/`0x7030`) path is written from the reference and
+**What is NOT proven.** Receive aggregation is ON since 2026-10-15
+(the 8153's heading above has the measurement); whether it cures the
+receive-side loss above (larger transfers, fewer of them) is not
+measured. The RTL8156 "A" (`0x7020`/`0x7030`) path is written from the reference and
 has had no device. Hot unplug of a bound 8156, and the 8156 on the
 bare-metal laptops (neither has one plugged in).
 

@@ -232,3 +232,75 @@ KTEST("xhci", "a failed SuperSpeed link, and only that, wants a warm reset") {
     KTEST_ASSERT(!xhci_portsc_needs_warm(0x00001203));   // U0, a working SS device
     KTEST_ASSERT(!xhci_portsc_needs_warm(0x00000a03));   // a USB2 low-speed device
 }
+
+KTEST("xhci-ring", "a TRB's span stops at the next 64 KiB boundary") {
+    KTEST_ASSERT_EQ(xhci_trb_span(0x20000, 0xC000), 0xC000u);       // fits
+    KTEST_ASSERT_EQ(xhci_trb_span(0x2B000, 0xC000), 0x5000u);       // crosses 0x30000
+    KTEST_ASSERT_EQ(xhci_trb_span(0x30000, 0x7000), 0x7000u);       // ...the rest fits
+    KTEST_ASSERT_EQ(xhci_trb_span(0x1FFFF, 0x10), 1u);              // one byte short
+    KTEST_ASSERT_EQ(xhci_trb_span(0x40000, 0x10000), 0x10000u);     // exactly one span
+    KTEST_ASSERT_EQ(xhci_trb_span(0x40000, 0x10001), 0x10000u);
+}
+
+KTEST("xhci-ring", "TD Size counts what follows, in the controller's unit") {
+    KTEST_ASSERT_EQ(xhci_td_size(0, 1024, 0x100), 0u);
+    KTEST_ASSERT_EQ(xhci_td_size(0x7000, 1024, 0x100), 28u);
+    KTEST_ASSERT_EQ(xhci_td_size(0x7001, 1024, 0x100), 29u);        // a partial packet counts
+    KTEST_ASSERT_EQ(xhci_td_size(0x7000, 512, 0x100), 31u);         // capped
+    KTEST_ASSERT_EQ(xhci_td_size(0x7000, 512, 0x96), 28u);          // 0.96: KiB
+}
+
+// A TD's tail must never be visible without its head and vice versa:
+// the head is written NOT owned and handed over last.
+KTEST("xhci-ring", "a TD is chained, and live only once committed") {
+    struct xhci_ring r;
+    xhci_ring_init(&r, g_seg, FAKE_PHYS, TEST_TRBS, 0);
+    struct xhci_trb td[2] = {
+        { 0x1000, 0, 0x100, XHCI_TRB_SET_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_CH },
+        { 0x2000, 0, 0x200, XHCI_TRB_SET_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_IOC },
+    };
+    uint32_t idx[2];
+    uint64_t first = xhci_ring_push_td(&r, td, 2, idx);
+    KTEST_ASSERT_EQ(first, FAKE_PHYS);
+    KTEST_ASSERT_EQ(idx[0], 0u);
+    KTEST_ASSERT_EQ(idx[1], 1u);
+    KTEST_ASSERT_EQ(g_seg[0].control & XHCI_TRB_CYCLE, 0u);         // head not yet live
+    KTEST_ASSERT(g_seg[1].control & XHCI_TRB_CYCLE);                // tail ready behind it
+    KTEST_ASSERT(g_seg[0].control & XHCI_TRB_CH);
+    KTEST_ASSERT_EQ(g_seg[1].status, 0x200u);
+    xhci_ring_commit_td(&r, first);
+    KTEST_ASSERT(g_seg[0].control & XHCI_TRB_CYCLE);
+    KTEST_ASSERT(g_seg[0].control & XHCI_TRB_CH);                   // nothing else touched
+}
+
+// The trap: a Link TRB in the middle of a TD without CH ends the TD at
+// the wrap, and the tail becomes a TD of its own.
+KTEST("xhci-ring", "a TD that wraps chains through the Link TRB") {
+    struct xhci_ring r;
+    xhci_ring_init(&r, g_seg, FAKE_PHYS, TEST_TRBS, 0);
+    for (uint32_t i = 0; i < TEST_TRBS - 2; i++)
+        xhci_ring_push(&r, i, 0, XHCI_TRB_SET_TYPE(XHCI_TRB_NORMAL));
+    KTEST_ASSERT_EQ(r.enqueue, (uint32_t)(TEST_TRBS - 2));          // one slot before the link
+
+    struct xhci_trb td[2] = {
+        { 0x1000, 0, 0x100, XHCI_TRB_SET_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_CH },
+        { 0x2000, 0, 0x200, XHCI_TRB_SET_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_IOC },
+    };
+    uint32_t idx[2];
+    uint64_t first = xhci_ring_push_td(&r, td, 2, idx);
+    KTEST_ASSERT_EQ(idx[0], (uint32_t)(TEST_TRBS - 2));
+    KTEST_ASSERT_EQ(idx[1], 0u);                                    // past the link
+    KTEST_ASSERT(g_seg[TEST_TRBS - 1].control & XHCI_TRB_CH);       // the link chains
+    KTEST_ASSERT(g_seg[TEST_TRBS - 1].control & XHCI_TRB_CYCLE);    // old lap's cycle
+    KTEST_ASSERT_EQ(g_seg[0].control & XHCI_TRB_CYCLE, 0u);         // new lap's cycle
+    KTEST_ASSERT_EQ(r.cycle, 0);
+    xhci_ring_commit_td(&r, first);
+    KTEST_ASSERT(g_seg[TEST_TRBS - 2].control & XHCI_TRB_CYCLE);
+
+    // A TD that ENDS exactly at the link leaves the link unchained.
+    xhci_ring_init(&r, g_seg, FAKE_PHYS, TEST_TRBS, 0);
+    for (uint32_t i = 0; i < TEST_TRBS - 3; i++)
+        xhci_ring_push(&r, i, 0, XHCI_TRB_SET_TYPE(XHCI_TRB_NORMAL));
+    xhci_ring_push_td(&r, td, 2, idx);
+    KTEST_ASSERT_EQ(g_seg[TEST_TRBS - 1].control & XHCI_TRB_CH, 0u);
+}

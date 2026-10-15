@@ -86,4 +86,27 @@ uint32_t xhci_ring_room(const struct xhci_ring *r);
 // it. A pointer outside the segment is ignored.
 void xhci_ring_consumed(struct xhci_ring *r, uint64_t trb_phys);
 
+// --- a TD of several TRBs ------------------------------------------------
+//
+// A TRB's buffer MAY NOT CROSS A 64 KiB BOUNDARY (xHCI 4.11.7.1), so a
+// buffer that does is described as several TRBs chained into one TD.
+// How many bytes of `len` at `phys` the first TRB may carry:
+uint32_t xhci_trb_span(uint64_t phys, uint32_t len);
+
+// The Normal TRB's TD Size field: packets still to come in the TD AFTER
+// this TRB, capped at 31 -- in max packets from xHCI 1.0, in KiB on a
+// 0.96 controller. 0 on the last TRB.
+uint32_t xhci_td_size(uint32_t remaining, uint16_t mps, uint16_t hci_version);
+
+// Enqueues `n` TRBs as ONE TD and returns where the first went, with
+// each TRB's ring index in `idx`. THE TD IS NOT LIVE YET: the first TRB
+// carries the cycle bit the controller does not own, so a running
+// endpoint cannot start a TD whose tail is still being written --
+// xhci_ring_commit_td() hands the whole TD over in one store. Every TRB
+// but the last must carry CH; a Link TRB crossed mid-TD gets CH too, or
+// the controller ends the TD at the wrap.
+uint64_t xhci_ring_push_td(struct xhci_ring *r, const struct xhci_trb *td,
+                           uint32_t n, uint32_t *idx);
+void     xhci_ring_commit_td(struct xhci_ring *r, uint64_t first);
+
 #endif

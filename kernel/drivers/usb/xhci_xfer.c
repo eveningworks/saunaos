@@ -711,6 +711,31 @@ int xhci_add_isoch_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     return (ep_addr & 0x80) ? add_isoch(slot, ep_addr, mps, interval, done, ctx) : -1;
 }
 
+// One Transfer Event on a bulk endpoint, as the TD it ends. An event
+// on a TRB that is not its TD's last is a SHORT packet (or an error)
+// part-way through: the TD ends there, so it is delivered now and the
+// last TRB is marked to swallow the event a controller may still send
+// for it. The byte count is the TRBs before this one plus this one's.
+static void bulk_event(struct xhci_ep *e, uint32_t idx, uint32_t code, uint32_t resid) {
+    uint8_t fl = e->bulk_flags_of_trb[idx];
+    if (fl & BULK_TRB_SKIP) { e->bulk_flags_of_trb[idx] = (uint8_t)(fl & ~BULK_TRB_SKIP); return; }
+
+    uint32_t piece = e->bulk_len_of_trb[idx];
+    uint32_t got = e->bulk_off_of_trb[idx] + (resid <= piece ? piece - resid : 0);
+    if (!(fl & BULK_TRB_LAST)) {
+        uint32_t j = idx;
+        for (int k = 0; k < TRBS_PER_RING; k++) {
+            j = j + 1 >= TRBS_PER_RING - 1 ? 0 : j + 1;   // the Link TRB's slot is no TRB
+            if (e->bulk_flags_of_trb[j] & BULK_TRB_LAST) {
+                e->bulk_flags_of_trb[j] |= BULK_TRB_SKIP;
+                break;
+            }
+        }
+    }
+    int ok = (code == XHCI_CC_SUCCESS || code == XHCI_CC_SHORT_PACKET);
+    if (e->bulk_done) e->bulk_done(e->bulk_ctx, e->buf_of_trb_phys[idx], got, ok);
+}
+
 // A BULK endpoint, either direction. The xHCI endpoint type is the only
 // thing that differs from an interrupt one -- 2 for OUT, 6 for IN -- so
 // this is `ep_configure()` with a different code and a callback instead
@@ -737,22 +762,46 @@ int xhci_add_bulk(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     return 0;
 }
 
-// Queue one buffer. Returns 0 when the TRB went on the ring; the
-// callback runs later, from the event drain.
+// Queue one buffer as one TD. Returns 0 when it went on the ring; the
+// callback runs later, from the event drain, once per TD however many
+// TRBs carried it. A buffer that crosses a 64 KiB boundary is split
+// there (xhci_trb_span()), so a driver may post any contiguous buffer.
+#define BULK_TD_MAX 3                     // 0x1FFFF bytes cross at most two boundaries
 int xhci_bulk_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
                    uint32_t len) {
     struct xhci_ep *e = ep_find(slot, ep_addr);
     if (!e || !e->is_bulk || len > 0x1FFFFu) return -1;
     if (e->halted) return -1;
 
-    uint64_t at = xhci_ring_push(&e->ring, buf_phys, len,
-                                 XHCI_TRB_SET_TYPE(XHCI_TRB_NORMAL) |
-                                 XHCI_TRB_IOC | XHCI_TRB_ISP);
-    uint32_t idx = (uint32_t)((at - e->ring.phys) / sizeof(struct xhci_trb));
-    if (idx < TRBS_PER_RING) {
-        e->buf_of_trb_phys[idx] = buf_phys;
-        e->bulk_len_of_trb[idx] = len;
+    struct xhci_trb td[BULK_TD_MAX];
+    uint32_t piece[BULK_TD_MAX], off[BULK_TD_MAX], idx[BULK_TD_MAX];
+    uint32_t n = 0, at = 0;
+    do {
+        uint32_t p = xhci_trb_span(buf_phys + at, len - at);
+        uint64_t a = buf_phys + at;
+        int last = at + p == len;
+        piece[n] = p;
+        off[n] = at;
+        td[n].p0 = (uint32_t)a;
+        td[n].p1 = (uint32_t)(a >> 32);
+        td[n].status = p | (xhci_td_size(len - at - p, e->mps, g_xhci.hci_version) << 17);
+        td[n].control = XHCI_TRB_SET_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_ISP |
+                        (last ? XHCI_TRB_IOC : XHCI_TRB_CH);
+        at += p;
+        n++;
+    } while (at < len && n < BULK_TD_MAX);
+
+    uint64_t first = xhci_ring_push_td(&e->ring, td, n, idx);
+    // Recorded BEFORE the commit: the commit is what lets the controller
+    // start the TD, and its completion reads these.
+    for (uint32_t i = 0; i < n; i++) {
+        if (idx[i] >= TRBS_PER_RING) continue;
+        e->buf_of_trb_phys[idx[i]]   = buf_phys;
+        e->bulk_len_of_trb[idx[i]]   = piece[i];
+        e->bulk_off_of_trb[idx[i]]   = off[i];
+        e->bulk_flags_of_trb[idx[i]] = (uint8_t)(i + 1 == n ? BULK_TRB_LAST : 0);
     }
+    xhci_ring_commit_td(&e->ring, first);
     ring_doorbell(e->slot, dci_of(e->ep_addr));
     return 0;
 }
@@ -1079,12 +1128,7 @@ void xhci_service(void) {
                     // came back -- a receive ring is exactly that.
                     uint32_t idx = (uint32_t)((src - e->ring.phys) /
                                               sizeof(struct xhci_trb));
-                    uint64_t phys = idx < TRBS_PER_RING ? e->buf_of_trb_phys[idx] : 0;
-                    uint32_t want = idx < TRBS_PER_RING ? e->bulk_len_of_trb[idx] : 0;
-                    uint32_t resid = ev.status & 0xFFFFFFu;
-                    uint32_t got = resid <= want ? want - resid : 0;
-                    int ok = (code == XHCI_CC_SUCCESS || code == XHCI_CC_SHORT_PACKET);
-                    if (e->bulk_done) e->bulk_done(e->bulk_ctx, phys, got, ok);
+                    if (idx < TRBS_PER_RING) bulk_event(e, idx, code, ev.status & 0xFFFFFFu);
                 } else if (e && e->is_iso) {
                     // How far the controller has provably got, which is
                     // what xhci_isoch_post() measures its room against.

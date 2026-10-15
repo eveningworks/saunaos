@@ -131,27 +131,18 @@ static void rtl8153_init(struct rtl_usb *d) {
 
     nic_reset(d);
 
-    // RECEIVE AGGREGATION STAYS OFF, where ure(4) turns it on. One frame
-    // per transfer is what makes a first bring-up legible: with it on, a
-    // bug in the descriptor walk and a dead receive path look the same.
-    // The walk handles a packed transfer anyway, so this costs only
-    // throughput.
-    rtl_set2(USB_USB_CTRL, MCU_USB, RX_AGG_DISABLE);
-    rtl_clr2(USB_USB_CTRL, MCU_USB, RX_ZERO_EN);
+    rtl_rx_agg_apply(d);
 
     if (v == VER_5C00 || v == VER_5C10) rtl_clr2(USB_U2P3_CTRL, MCU_USB, U2P3_ENABLE);
     else                                rtl_set2(USB_U2P3_CTRL, MCU_USB, U2P3_ENABLE);
     rtl_tolerance(0xFF);
 }
 
-// ure_init()'s thresholds for this part. How much room the host buffer
-// has left before the device should stop filling it is sized from OUR
-// buffer, not ure(4)'s 32 KiB, or the device would happily overrun a
-// 4 KiB one.
+// ure_init()'s thresholds for this part.
 static void rtl8153_start(struct rtl_usb *d) {
     // How much room the host buffer has left before the device should
-    // stop filling it. Sized from OUR buffer, not ure(4)'s 32 KiB, or
-    // the device would happily overrun a 4 KiB one.
+    // stop filling it -- sized from OUR buffer, never a constant, or
+    // the device overruns a smaller one.
     uint32_t coalesce = d->speed == XHCI_SPEED_SUPER ? COALESCE_SUPER
                       : d->speed == XHCI_SPEED_HIGH  ? COALESCE_HIGH
                                                           : COALESCE_SLOW;

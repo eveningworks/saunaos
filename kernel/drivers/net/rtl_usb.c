@@ -21,6 +21,7 @@
 #include "string.h"
 #include "timer.h"
 #include "errno.h"
+#include "multiboot.h"   // multiboot_cmdline_value() -- the `rtl_agg=off` flag
 
 static struct rtl_usb g_rtl;
 
@@ -230,6 +231,25 @@ void rtl_tolerance(uint8_t fill) {
 
 int rtl_link_up_now(void) {
     return (rtl_read2(PLA_PHYSTATUS, MCU_PLA) & PHYSTATUS_LINK) ? 1 : 0;
+}
+
+// RX_ZERO_EN stays clear either way, as the reference leaves it: a
+// transfer ends on a short packet or the early-size threshold, never a
+// zero-length one.
+void rtl_rx_agg_apply(struct rtl_usb *d) {
+    if (d->rx_agg) rtl_clr2(USB_USB_CTRL, MCU_USB, RX_AGG_DISABLE | RX_ZERO_EN);
+    else {
+        rtl_set2(USB_USB_CTRL, MCU_USB, RX_AGG_DISABLE);
+        rtl_clr2(USB_USB_CTRL, MCU_USB, RX_ZERO_EN);
+    }
+}
+
+// `rtl_agg=off`: one frame per transfer, the A/B for a receive path that
+// goes quiet -- a dead path and a broken walk of a packed transfer look
+// the same, and this tells them apart in one boot.
+static int rx_agg_wanted(void) {
+    char v[8];
+    return !(multiboot_cmdline_value("rtl_agg=", v, sizeof v) && k_strcmp(v, "off") == 0);
 }
 
 // ure(4)'s ure_init(): what the interface needs to actually pass
@@ -474,6 +494,7 @@ int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
     d->ep_out = ep_out;
     d->mps = mps;
     d->speed = info->speed;
+    d->rx_agg = (uint8_t)rx_agg_wanted();
 
     // WAIT FOR THE CHIP'S AUTOLOAD BEFORE READING ANYTHING. A cold boot
     // probes this adapter a third of a second in, before its firmware
@@ -510,7 +531,8 @@ int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
                     "-- not bound\n", info->slot, d->version);
         return 0;
     }
-    klog_printf("usb-net: %s version 0x%04x\n", d->ops->name, d->version);
+    klog_printf("usb-net: %s version 0x%04x, receive aggregation %s\n", d->ops->name,
+                d->version, d->rx_agg ? "on" : "off (rtl_agg=off)");
     log_mac("PLA_IDR", idr);
 
     uint64_t need = (uint64_t)RTL_BUFS * (RTL_RX_BUF + RTL_TX_BUF);

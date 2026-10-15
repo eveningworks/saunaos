@@ -243,9 +243,16 @@
 // third of its transmits with four (every buffer still on the wire
 // waiting for its completion), the peer read the silence as loss and
 // retransmitted 40% of the data, and a long fetch wedged. Sixteen of
-// each is 96 KiB of DMA32 memory, which is nothing.
+// each is under a MiB of DMA32 memory, the receive batches nearly all
+// of it.
 #define RTL_BUFS          16
-#define RTL_RX_BUF      4096
+// RECEIVE AGGREGATION packs as many frames as fit into one bulk
+// transfer, so a buffer is a batch, not a frame: ure(4)'s 48 KiB, about
+// thirty full frames, sized into USB_RX_EARLY_SIZE by each chip's
+// `start`. It crosses a 64 KiB boundary wherever it lands, which
+// xhci_bulk_post() splits for. `rtl_agg=off` on the boot line keeps one
+// frame per transfer.
+#define RTL_RX_BUF      (48u * 1024u)
 #define RTL_TX_BUF      2048
 
 #define TIMEOUT_MS        2000
@@ -329,6 +336,7 @@ struct rtl_usb {
     uint16_t mps;
     uint16_t version;
     uint8_t speed;                 // XHCI_SPEED_*
+    uint8_t rx_agg;                // receive aggregation on (`rtl_agg=off` clears)
     const struct rtl_usb_ops *ops;
 
     uint64_t mem_phys;
@@ -392,5 +400,6 @@ uint16_t rtl_phy_status(uint16_t desired);      // waits; 0 = any settled state
 void     rtl_wait_autoload(void);
 void     rtl_tolerance(uint8_t fill);
 int      rtl_link_up_now(void);                 // PLA_PHYSTATUS's link bit
+void     rtl_rx_agg_apply(struct rtl_usb *d);   // USB_USB_CTRL per d->rx_agg
 
 #endif

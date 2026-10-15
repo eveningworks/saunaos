@@ -12,8 +12,6 @@
 // power bit toggled by the negotiated speed each time the link comes
 // up, which is what `link_changed` is for.
 //
-// RECEIVE AGGREGATION STAYS OFF here as on the 8153, where the reference
-// turns it on: one frame per transfer keeps a bring-up legible.
 #include "rtl_usb.h"
 #include "xhci_regs.h"
 #include "klog.h"
@@ -150,9 +148,7 @@ static void rtl8156_init(struct rtl_usb *d) {
     rtl_write2(PLA_MAC_PWR_CTRL2, MCU_PLA, (uint32_t)((pc2 & ~0xFF) | MAC_CLK_SPDWN_EN | 0x03));
     rtl_clr2(PLA_MAC_PWR_CTRL3, MCU_PLA, PLA_MCU_SPDWN_EN);
 
-    // Aggregation OFF (the reference clears RX_AGG_DISABLE here).
-    rtl_set2(USB_USB_CTRL, MCU_USB, RX_AGG_DISABLE);
-    rtl_clr2(USB_USB_CTRL, MCU_USB, RX_ZERO_EN);
+    rtl_rx_agg_apply(d);
     if (!b) rtl_set1(0xD4B4, MCU_USB, 0x02);
 
     rtl_set2(PLA_RSTTALLY, MCU_USB, TALLY_RESET);

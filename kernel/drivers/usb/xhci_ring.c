@@ -126,3 +126,55 @@ void xhci_ring_consumed(struct xhci_ring *r, uint64_t trb_phys) {
     if (idx >= r->count - 1) return;              // outside, or the Link TRB
     r->dequeue = idx + 1 == r->count - 1 ? 0 : (uint32_t)idx + 1;
 }
+
+uint32_t xhci_trb_span(uint64_t phys, uint32_t len) {
+    uint32_t to_boundary = 0x10000u - (uint32_t)(phys & 0xFFFFu);
+    return len < to_boundary ? len : to_boundary;
+}
+
+uint32_t xhci_td_size(uint32_t remaining, uint16_t mps, uint16_t hci_version) {
+    uint32_t n;
+    if (hci_version < 0x100) n = remaining >> 10;
+    else n = mps ? (remaining + mps - 1u) / mps : 0;
+    return n > 31 ? 31 : n;
+}
+
+uint64_t xhci_ring_push_td(struct xhci_ring *r, const struct xhci_trb *td,
+                           uint32_t n, uint32_t *idx) {
+    if (!r || r->is_event || r->count < 2 || !td || n == 0) return 0;
+
+    uint64_t first = 0;
+    for (uint32_t i = 0; i < n; i++) {
+        volatile struct xhci_trb *t = &r->trb[r->enqueue];
+        if (idx) idx[i] = r->enqueue;
+        if (i == 0) first = r->phys + (uint64_t)r->enqueue * sizeof(struct xhci_trb);
+
+        t->p0     = td[i].p0;
+        t->p1     = td[i].p1;
+        t->status = td[i].status;
+        uint32_t own = r->cycle ? XHCI_TRB_CYCLE : 0;
+        kbarrier();
+        t->control = (td[i].control & ~(uint32_t)XHCI_TRB_CYCLE) |
+                     (i == 0 ? own ^ XHCI_TRB_CYCLE : own);
+
+        r->enqueue++;
+        if (r->enqueue == r->count - 1) {
+            volatile struct xhci_trb *link = &r->trb[r->count - 1];
+            uint32_t ch = (i + 1 < n) ? XHCI_TRB_CH : 0;
+            kbarrier();
+            link->control = XHCI_TRB_SET_TYPE(XHCI_TRB_LINK) | XHCI_TRB_TC | ch |
+                            (r->cycle ? XHCI_TRB_CYCLE : 0);
+            r->cycle  = (uint8_t)!r->cycle;
+            r->enqueue = 0;
+        }
+    }
+    return first;
+}
+
+void xhci_ring_commit_td(struct xhci_ring *r, uint64_t first) {
+    if (!r || r->is_event || first < r->phys) return;
+    uint64_t i = (first - r->phys) / sizeof(struct xhci_trb);
+    if (i >= r->count - 1) return;
+    kbarrier();
+    r->trb[i].control ^= XHCI_TRB_CYCLE;
+}

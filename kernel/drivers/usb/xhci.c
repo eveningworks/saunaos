@@ -587,6 +587,7 @@ static int usb_probe(const struct pci_device *d) {
     pci_command_update(d, PCI_CMD_INTX_DISABLE, 0);
 
     uint8_t  caplen = mr8(g_xhci.cap, XHCI_CAPLENGTH);
+    g_xhci.hci_version = (uint16_t)(mr32(g_xhci.cap, XHCI_CAPLENGTH) >> 16);
     uint32_t hcs1   = mr32(g_xhci.cap, XHCI_HCSPARAMS1);
     uint32_t hcc1   = mr32(g_xhci.cap, XHCI_HCCPARAMS1);
 
@@ -607,7 +608,8 @@ static int usb_probe(const struct pci_device *d) {
     // by everything that builds a context.
     g_xhci.csz64 = (uint8_t)XHCI_HCC1_CSZ(hcc1);
 
-    klog_printf("usb: xHCI controller %04x:%04x at %02x:%02x.%u, BAR0 0x%llx (0x%x bytes)\n",
+    klog_printf("usb: xHCI %x.%02x controller %04x:%04x at %02x:%02x.%u, BAR0 0x%llx (0x%x bytes)\n",
+                g_xhci.hci_version >> 8, g_xhci.hci_version & 0xFF,
                 d->vendor_id, d->device_id, d->bus, d->device, d->function,
                 (unsigned long long)bar0, g_xhci.cap_len);
 

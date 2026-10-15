@@ -2219,15 +2219,38 @@ notice for them. The practical rule for a future session: a datasheet
 fact is free, somebody's code is not, and "I only read it for reference"
 is not a distinction a licence makes.
 
-**Why receive aggregation is OFF, where ure(4) turns it on.** The device
-can pack several frames into one bulk transfer, and the receive path
-walks a packed transfer correctly (`usb_r8153_rx_step`, with KTESTs that
-feed it two frames neither of which is 8-aligned). It is still disabled,
-because with it on a bug in the walk and a dead receive path produce the
-same symptom -- nothing arrives -- and this driver was written against
-hardware that had just spent a day producing exactly that symptom for a
-different reason. It costs throughput and nothing else, and turning it
-on is one line once somebody wants the throughput.
+**Why receive aggregation is ON, with a boot word to turn it off.** The
+device can pack several frames into one bulk transfer, and the receive
+path walks a packed transfer (`usb_r8153_rx_step`, with KTESTs that feed
+it two frames neither of which is 8-aligned). It was OFF for the first
+year of this driver, deliberately: with it on, a bug in the walk and a
+dead receive path produce the same symptom -- nothing arrives -- and the
+driver was written against hardware that had just spent a day producing
+exactly that symptom for a different reason. Since 2026-10-15 it is on,
+in 48 KiB buffers as ure(4) sizes them, and `rtl_agg=off`
+(`docs/boot-flags.md`) is what keeps the two failures distinguishable:
+one boot with the word, and a path that comes back points at the walk.
+A boot word rather than a build option for the reason `noncq` and
+`notrim` are -- the A/B has to be reachable on the machine that shows
+the fault, without a rebuild.
+
+**What it measured.** On the ASUS's RTL8153 on bare metal, a 12 MB
+`wget` from the development host: 30.5-30.8 MB/s on the build before,
+29.6-30.6 with `rtl_agg=off` on the new one, 38.3-38.4 with aggregation
+on -- five runs each, SHA-256 checked, so the gain is the aggregation
+and not the xHCI change that came with it. The roadmap's figure that
+prompted it, ~450 frames a second on the RTL8156, was measured in a
+QEMU guest with the adapter passed through, and bare metal was never
+capped there -- the same ASUS moved ~20,000 full frames a second with
+aggregation off -- which is why the gain on hardware is a quarter and
+not a multiple. Re-measured on the RTL8156B passed through to a `--kvm`
+guest, same build, same file: 3.1-3.3 MB/s with `rtl_agg=off`, where
+receive transfers equalled frames exactly, and 4.0-4.2 MB/s with it on,
+at 3.05 frames a transfer. That guest is no longer capped at 450
+frames a second either way -- the figure predates sixteen buffers per
+direction -- and what bounds it now is not the receive side: it sends
+more ACKs than it receives data frames, each its own bulk OUT. Under
+TCG neither arm moves.
 
 ## A driver lives with the class it registers with, not the bus it sits on
 
@@ -3277,6 +3300,32 @@ ASUS, whose network adapter is itself on USB. The next step Linux's
 shape implies -- root ports driven by the hub driver through a virtual
 root hub -- is on the roadmap and waits for both laptops, because it
 does change behaviour.
+
+## A bulk buffer may cross a 64 KiB boundary: the xHCI layer chains TRBs, the driver does not align
+
+**2026-10-15**, for the RTL815x's 48 KiB receive batches. An xHCI TRB's
+buffer may not cross a 64 KiB boundary (xHCI 4.11.7.1), and
+`xhci_bulk_post()` used to push exactly one TRB -- so a driver could
+post only a buffer it had placed to avoid one, and `pmm` promises page
+alignment, nothing more. Linux's `xhci-ring.c` and FreeBSD's `xhci.c`
+both split a transfer at every boundary into chained TRBs, so a USB
+driver hands the host controller any contiguous buffer and never learns
+the rule; toy-os follows. **Declined: aligning in the driver** (a
+power-of-two buffer on its own size), which worked for this one driver
+and left the trap armed for the next.
+
+**Three things it costs, each with a KTEST in `xhci_ring_test.c`.** A TD
+is enqueued with its FIRST TRB not yet owned by the controller and handed
+over in one store afterwards (`xhci_ring_commit_td()`), as Linux's
+`giveback_first_trb()` does -- a running endpoint must never start a TD
+whose tail is still being written. A Link TRB crossed in the middle of a
+TD carries CH, or the controller ends the TD at the wrap. And a SHORT
+packet in a TRB that is not the TD's last ends the TD THERE: the event
+names that TRB, the byte count is the earlier TRBs plus its share, and
+an event some controllers still send for the last TRB is swallowed
+(`bulk_event()`; Linux's `XHCI_SPURIOUS_SUCCESS` is the same symptom).
+The TD Size field differs by controller version -- packets from 1.0,
+KiB on 0.96 -- so `HCIVERSION` is now read and logged at bring-up.
 
 ## The ring-3 sound driver starts as a service, and a card keeps its kernel name whichever ring drives it
 
