@@ -23,14 +23,20 @@ enum paint_shape { SHAPE_LINE, SHAPE_CURVE, SHAPE_RECT, SHAPE_ROUNDED, SHAPE_ELL
                    SHAPE_TRIANGLE, SHAPE_ARROW, SHAPE_STAR, SHAPE_COUNT };
 enum paint_shape_ink { SHAPE_INK_NONE, SHAPE_INK_1, SHAPE_INK_2 };   // an outline's Colour 1 is the fill's Colour 2
 
+// The Brush tool's kinds, the panel's row in its order.
+enum paint_brush { BRUSH_ROUND, BRUSH_SQUARE, BRUSH_SOFT, BRUSH_SPRAY, BRUSH_HIGHLIGHT, BRUSH_COUNT };
+
 extern struct uimg *g_layer;           // the current layer's pixels: what every tool paints on
 extern struct upixundo g_undo;
 extern struct uui_paintcanvas g_canvas;
 extern int g_tool;
 extern int g_tool_before_pick;         // the picker hands back to this one
 extern uint32_t g_colour[2];           // 0xAARRGGBB: primary (left button), secondary (right)
-extern int g_brush;                    // brush and eraser size, in pixels
-extern enum upix_shape g_shape;
+extern int g_brush_kind;               // enum paint_brush
+extern int g_brush_size[BRUSH_COUNT];  // each kind keeps its own, pixels
+extern int g_soft_hard;                // the soft brush's hardness, percent
+extern int g_spray_density;            // percent
+extern int g_erase_size, g_erase_hard; // hardness 100: MS Paint's hard square eraser
 extern struct uui_fontpick g_fontpick;  // the text tool's face, in its floating bar
 extern int g_text_fill;                 // text drawn on a Colour 2 box
 extern int g_shape_kind;                // enum paint_shape
@@ -42,6 +48,7 @@ extern int g_shape_aa;                  // smooth edges
 // (0 left, 1 right). DOWN starts a change, UP ends it.
 void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned mods);   // HOVER too
 int  tools_busy(void);                 // a stroke is under way
+int  tools_tick(void);                 // the spray, held still: 1 when it painted
 
 // What the window must hear back. Defined in paint.c.
 void paint_changed(const struct upix_rect *r);   // pixels changed: the view, redraw, title (NULL: all)
@@ -50,6 +57,7 @@ void paint_ask_rasterize(void);                  // a tool pressed on a text lay
 void paint_colour_used(int slot);                // into Recent colours
 void paint_colour_picked(int slot);              // the picker set a colour
 void paint_tool_changed(void);
+void paint_timer(int on);                        // the spray's ticks, while it is held
 void paint_text_changed(void);                   // a text box opened, closed or moved
 
 // --- paint_text.c: the text tool ---------------------------------------------

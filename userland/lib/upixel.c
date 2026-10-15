@@ -394,3 +394,136 @@ int upix_figure(enum upix_figure f, float x0, float y0, float x1, float y1, stru
 #undef PT
     return n;
 }
+
+// --- brushes ----------------------------------------------------------------
+
+int upix_stroke_begin(struct upix_stroke *s, struct uimg *im, uint32_t colour, enum upix_blend blend) {
+    memset(s, 0, sizeof *s);
+    if (!im->px) return -EINVAL;
+    size_t n = (size_t)im->w * im->h;
+    s->cov = calloc(n, 1);
+    s->before = malloc(n * 4);
+    if (!s->cov || !s->before) { upix_stroke_end(s); return -ENOMEM; }
+    s->im = im;
+    s->colour = colour;
+    s->blend = blend;
+    return 0;
+}
+
+void upix_stroke_end(struct upix_stroke *s) {
+    free(s->cov);
+    free(s->before);
+    memset(s, 0, sizeof *s);
+}
+
+// A pixel that held `d` before the stroke, at coverage `c`.
+static uint32_t blend_px(const struct upix_stroke *s, uint32_t d, unsigned c) {
+    uint32_t col = s->colour;
+    switch (s->blend) {
+    case UPIX_BLEND_ERASE: {
+        unsigned a = ((d >> 24) * (255 - c) + 127) / 255;
+        return a ? (d & 0xFFFFFF) | a << 24 : 0;
+    }
+    case UPIX_BLEND_MULTIPLY: {
+        // What is there, darkened by the colour; WHERE NOTHING IS THERE
+        // (an empty layer) there is nothing to darken, so the uncovered
+        // part takes the colour at half strength beneath it.
+        uint32_t m = d & 0xFF000000u;
+        for (int sh = 0; sh <= 16; sh += 8) {
+            unsigned cd = (d >> sh) & 0xFF, cm = (cd * ((col >> sh) & 0xFF) + 127) / 255;
+            m |= (cd - ((cd - cm) * c + 127) / 255) << sh;
+        }
+        uint32_t under = (col & 0xFFFFFF) | ((c * 128 + 127) / 255) << 24;
+        return over_px(under, m, 255);
+    }
+    default: {
+        unsigned a = ((col >> 24) * c + 127) / 255;
+        return over_px(d, (col & 0xFFFFFF) | a << 24, 255);
+    }
+    }
+}
+
+// Coverage at pixel `i` raised to `c`, and the pixel redone if it rose.
+static void cover(struct upix_stroke *s, size_t i, unsigned c) {
+    unsigned was = s->cov[i];
+    if (c <= was) return;
+    if (!was) s->before[i] = s->im->px[i];
+    s->cov[i] = (uint8_t)c;
+    s->im->px[i] = blend_px(s, s->before[i], c);
+}
+
+void upix_stroke_round(struct upix_stroke *s, float x0, float y0, float x1, float y1, float size,
+                       int hardness, struct upix_rect *dirty) {
+    if (!s->cov || size <= 0) return;
+    struct uimg *im = s->im;
+    if (hardness < 0) hardness = 0;
+    if (hardness > 100) hardness = 100;
+    float r = size / 2, soft = r * (float)(100 - hardness) / 100;
+    if (soft < 1) soft = 1;
+    float inner = r - soft;
+    int bx0 = (int)floorf((x0 < x1 ? x0 : x1) - r), by0 = (int)floorf((y0 < y1 ? y0 : y1) - r);
+    int bx1 = (int)ceilf((x0 > x1 ? x0 : x1) + r), by1 = (int)ceilf((y0 > y1 ? y0 : y1) + r);
+    struct upix_rect box = { 0, 0, 0, 0 };
+    upix_rect_add(&box, im, bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1);
+    struct upix_pt a = { x0, y0 }, b = { x1, y1 };
+    for (int y = box.y; y < box.y + box.h; y++) {
+        for (int x = box.x; x < box.x + box.w; x++) {
+            float d = seg_dist((float)x + 0.5f, (float)y + 0.5f, a, b);
+            if (d >= r) continue;
+            unsigned c = 255;
+            if (d > inner) {
+                float t = (d - inner) / soft;   // 0 at the full part's edge, 1 at the rim
+                c = (unsigned)((1 - t * t * (3 - 2 * t)) * 255 + 0.5f);
+            }
+            if (c) cover(s, (size_t)y * im->w + x, c);
+        }
+    }
+    upix_rect_add(dirty, im, box.x, box.y, box.w, box.h);
+}
+
+void upix_stroke_chisel(struct upix_stroke *s, int x0, int y0, int x1, int y1, int w, int h,
+                        struct upix_rect *dirty) {
+    if (!s->cov || w < 1 || h < 1) return;
+    struct uimg *im = s->im;
+    int dx = x1 > x0 ? x1 - x0 : x0 - x1, sx = x0 < x1 ? 1 : -1;
+    int dy = y1 > y0 ? y0 - y1 : y1 - y0, sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+    for (;;) {
+        struct upix_rect tip = { 0, 0, 0, 0 };
+        upix_rect_add(&tip, im, x0 - (w - 1) / 2, y0 - (h - 1) / 2, w, h);
+        for (int y = tip.y; y < tip.y + tip.h; y++)
+            for (int x = tip.x; x < tip.x + tip.w; x++) cover(s, (size_t)y * im->w + x, 255);
+        upix_rect_add(dirty, im, tip.x, tip.y, tip.w, tip.h);
+        if (x0 == x1 && y0 == y1) break;
+        int e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+}
+
+static uint32_t xorshift(uint32_t *s) {
+    uint32_t x = *s ? *s : 0x9E3779B9u;
+    x ^= x << 13; x ^= x >> 17; x ^= x << 5;
+    return *s = x;
+}
+
+void upix_spray(struct uimg *im, int cx, int cy, int size, int n, uint32_t colour, uint32_t *seed,
+                struct upix_rect *dirty) {
+    if (!im->px || size < 1) return;
+    // One of the pixels upix_stamp's disc would cover, each as likely:
+    // a cell of the size x size box, in its doubled coordinates.
+    int x0 = cx - (size - 1) / 2, y0 = cy - (size - 1) / 2, r2 = size * size;
+    while (n-- > 0) {
+        int i, j, dx, dy;
+        do {
+            i = (int)(xorshift(seed) % (unsigned)size);
+            j = (int)(xorshift(seed) % (unsigned)size);
+            dx = 2 * i - (size - 1);
+            dy = 2 * j - (size - 1);
+        } while (size > 2 && dx * dx + dy * dy > r2);
+        int x = x0 + i, y = y0 + j;
+        if (x < 0 || y < 0 || x >= im->w || y >= im->h) continue;
+        im->px[(size_t)y * im->w + x] = colour;
+        upix_rect_add(dirty, im, x, y, 1, 1);
+    }
+}

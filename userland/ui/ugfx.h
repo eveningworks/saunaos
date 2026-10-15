@@ -271,6 +271,11 @@ int ugfx_font_recheck(void);
 // fonts, by design" from a mapping that disagrees with its source.
 const char *ugfx_font_session_face(void);
 
+// The session UI font's em size in pixels -- what a page drawn by
+// another engine (a web view's CSS) sets its body text to, so it matches
+// the windows around it. From the line height when no fontd publishes.
+int ugfx_font_session_px(void);
+
 // The kernel's BAKED face (the `builtin` choice) at the session size,
 // whichever face the session uses -- for showing it beside the others.
 // NULL when the kernel will not hand it over.

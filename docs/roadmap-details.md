@@ -1784,7 +1784,7 @@ Chosen 2026-09-28. Offset, bytes and ASCII columns over
 with go-to-offset and find-bytes. Editing is a second step: it needs an
 undo log and a decision about writing in place.
 
-### Paint: stage 1 BUILT 2026-10-14 (pencil, brush, eraser, fill, picker, files, undo, zoom); shapes + text, then selection
+### Paint: BUILT through text, layers, shapes and brush kinds; lasso/wand and gradient next, then selection
 
 Put on the roadmap 2026-09-28; layout P3 and the whole v1 scope chosen
 2026-10-14. **Stage 1 is built**: the window (`gui/apps/paint.c`), the
@@ -1811,16 +1811,24 @@ Manager. Left to build, in order:
   rounded rectangle, ellipse, polygon, triangle, arrow and star on a
   floating bar with outline, fill, width and Smooth; editable by handles
   until let go.
-- **Next**: the spray can, a highlighter and a soft brush; lasso and
-  magic wand; a gradient fill.
+- **Brush kinds are built** (2026-10-15, B1): the panel's row of
+  Round, Square, Soft, Spray and Highlighter, each with its own size;
+  Hardness for the soft brush and the eraser, Density for the spray,
+  which keeps spraying while held still; the highlighter multiplies.
+  Soft strokes are painted from one coverage buffer per stroke
+  (`lib/upixel.h`), so a stroke never darkens itself. On an EMPTY layer
+  the highlighter has nothing to darken and lays its colour at half
+  strength -- layer blend modes (a Multiply layer, `.ora`'s
+  `composite-op`) are what would let it darken the layers below.
+- **Next**: lasso and magic wand; a gradient fill; a brush outline as
+  the pointer, sized to the brush.
 - **Stage 3, selection and the picture's size**: a rectangle selection
   that moves, cuts, copies and pastes within Paint (an IMAGE kind on the
   clipboard, for other apps, is a separate item), Crop to selection,
   Resize (through `uimg_scale`) and the canvas size; the status bar's
   selection pane comes with it.
-- **Not v1**: zoom past the wheel's steps by a typed value, and
-  a soft (anti-aliased) brush -- `lib/upixel.h` replaces rather than
-  blends on purpose.
+- **Not v1**: zoom past the wheel's steps by a typed value; layer
+  blend modes.
 
 ### Clock: timer, stopwatch, alarms through `soundd`, and a world clock over the timezone city list
 

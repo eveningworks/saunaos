@@ -47,6 +47,13 @@ What it proves, and what a broken version would still pass:
     exact on its edge, inside and out; a corner handle resizing it; a
     click away keeping it as one step (and drawing nothing itself); an
     ellipse smoothed has grey edge pixels the hard one lacks.
+  * BRUSHES: the highlighter across a black stroke keeps the black
+    BLACK and turns the white EXACTLY its yellow (an "over" blend would
+    yellow the black), and a second stroke deepens it by multiplying; a
+    soft stroke at hardness 0 has many in-between colours and white past
+    its rim, where the Round stroke has none; the spray held still keeps
+    adding dots inside its disc (a spray only on motion adds a handful),
+    and one Ctrl+Z takes a hold away.
   * TEXT EDITING: Home, Shift+Left, Ctrl+X/V and a click change the
     text and caret the box reports; its frame dragged moves it, leaving
     WHITE behind (a move that forgot to restore would leave the old
@@ -59,7 +66,9 @@ What it proves, and what a broken version would still pass:
 Positive control (2026-10-14): `paint_tools.c`'s fill painting the
 primary colour as the SECOND (`g_colour[!slot]`) reddens the fill, the
 undo/redo, the right-click (judged against the red fill beside it) and
-the reopened checks -- 4 of 14.
+the reopened checks -- 4 of 14. (2026-10-15) The highlighter blending
+UPIX_BLEND_OVER fails both highlighter checks (black turns yellow); a
+tools_tick() that never sprays fails the spray check (10 dots, then 20).
 
 Usage (the VM must already be up):
 
@@ -272,6 +281,7 @@ def run(dbg, qmp, res, tmp):
     check_layers(dbg, qmp, res, tmp)
     check_text_layers(dbg, qmp, res, tmp)
     check_shapes(dbg, qmp, res, tmp)
+    check_brushes(dbg, qmp, res, tmp)
 
 
 def rect(dbg, part):
@@ -832,6 +842,130 @@ def check_shapes(dbg, qmp, res, tmp):
     soft = greys(330, 95, 160)
     res.check("Smooth gives an ellipse soft edges a hard one does not have", hard == 0 and soft > 2,
               f"hard {hard} in-between pixels, smooth {soft}, style {shape_style(dbg)}")
+    close_all(dbg)
+
+
+def brush_state(dbg):
+    """The brush size and kind, and the brush settings line's numbers."""
+    out = {}
+    for line in reversed(dbg.logs("paint: layout tool ", clear=False)):
+        p = line.split("layout ", 1)[1].split()
+        out.update(size=int(p[6]), kind=int(p[8]))
+        break
+    for line in reversed(dbg.logs("paint: layout brushset ", clear=False)):
+        p = line.split("layout ", 1)[1].split()
+        out.update(hardness=int(p[2]), density=int(p[4]))
+        break
+    return out
+
+
+def check_brushes(dbg, qmp, res, tmp):
+    """Brush kinds: the highlighter over a black stroke, the soft brush's
+    edge, the spray held still -- each judged by pixels."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Brushes: Paint opens", False, "no window")
+        return
+    # Where everything is, read once: a line that does not change is not
+    # logged again, and the log is a window.
+    parts = {p: rect(dbg, p) for p in ["size", "palette.cell 0", "palette.cell 5", "palette.cell 6",
+                                       "palette.cell 8"] + [f"brushkind.button {i}" for i in range(5)]}
+    res.check("Brushes: the panel has the five kinds and a Size row", all(parts.values()), f"{parts}")
+    if not all(parts.values()):
+        close_all(dbg)
+        return
+
+    def click(part, frac=0.5):
+        r = parts[part]
+        dbg.click(scr.cx + r[0] + max(1, int(r[2] * frac)), scr.cy + r[1] + r[3] // 2)
+        dbg.settle()
+
+    def drag(*pts):
+        for a, b in zip(pts, pts[1:]):
+            p0, p1 = scr.at(*a), scr.at(*b)
+            dbg.drag(p0[0], p0[1], p1[0], p1[1], steps=16)
+            dbg.settle()
+
+    dbg.move(10, 10)
+    drag((100, 100), (500, 100))                 # the default Round brush, black, 3 px
+    # HIGHLIGHTER, the palette's yellow, about 24 px, across the black
+    # stroke. (One stroke crossing itself is upixel_hostcheck's: a
+    # scripted drag is a straight line.) A second stroke over the first
+    # deepens it, as a real highlighter does.
+    click("palette.cell 5")
+    click("brushkind.button 4")
+    click("size", 24 / 64)
+    n = brush_state(dbg).get("size", 0)
+    drag((150, 100), (450, 100))
+    scr.shoot()
+    yellow = (0xFF, 0xF2, 0x00)
+    under, band, out = scr.pixel(300, 100), scr.pixel(300, 100 - n // 2 + 2), scr.pixel(300, 100 + n)
+    res.check("the highlighter keeps black black and turns white exactly its colour",
+              brush_state(dbg).get("kind") == 4 and n >= 16 and under == BLACK and band == yellow and out == WHITE,
+              f"size {n}, under {under}, band {band}, outside {out}")
+    drag((200, 100), (300, 100))
+    scr.shoot()
+    twice, once = scr.pixel(250, 100 - n // 2 + 2), scr.pixel(350, 100 - n // 2 + 2)
+    deeper = (0xFF, round(0xF2 * 0xF2 / 255), 0)
+    res.check("...and a second stroke over it deepens it, multiplied",
+              all(abs(a - b) <= 1 for a, b in zip(twice, deeper)) and once == yellow and scr.pixel(250, 100) == BLACK,
+              f"twice {twice} (want {deeper}), once {once}, under {scr.pixel(250, 100)}")
+
+    # SOFT, indigo, hardness 0: a soft edge has many in-between values,
+    # where the Round brush's black stroke has none.
+    click("palette.cell 8")
+    click("brushkind.button 2")
+    extra = rect(dbg, "brushextra")
+    res.check("Soft shows a Hardness row", bool(extra), "no brushextra line")
+    if extra:
+        parts["brushextra"] = extra
+        click("brushextra", 0.0)
+    click("size", 24 / 64)
+    st = brush_state(dbg)
+    drag((100, 300), (500, 300))
+    scr.shoot()
+    r = st.get("size", 0) // 2
+    col = [scr.pixel(300, y) for y in range(300 - r - 3, 300 + r + 4)]
+    mids = {c for c in col if c not in (WHITE, (0x3F, 0x48, 0xCC))}
+    hard_mids = {scr.pixel(120, y) for y in range(96, 105)} - {WHITE, BLACK}
+    centre = scr.pixel(300, 300)
+    res.check("a soft stroke fades out: many in-between colours, white past its rim; the hard one none",
+              st.get("hardness") == 0 and len(mids) >= 6 and col[0] == WHITE and col[-1] == WHITE
+              and abs(centre[2] - 0xCC) <= 3 and not hard_mids,
+              f"state {st}, {len(mids)} in-between, rim {col[0]} {col[-1]}, centre {centre}, hard {hard_mids}")
+
+    # SPRAY, green, held still: a short hold, then a long one at the same
+    # place -- the dots keep coming with nothing moving.
+    click("palette.cell 6")
+    click("brushkind.button 3")
+    click("size", 30 / 64)
+    n = brush_state(dbg).get("size", 0)
+    green = (0x22, 0xB1, 0x4C)
+    cx, cy = 650, 450
+
+    def hold(seconds):
+        dbg.warp_cursor(qmp, *scr.at(cx, cy))
+        qmp.mouse_down()
+        time.sleep(seconds)
+        qmp.mouse_up()
+        dbg.settle()
+        scr.shoot()
+        pts = [(x, y) for y in range(cy - n, cy + n + 1) for x in range(cx - n, cx + n + 1)
+               if scr.pixel(x, y) == green]
+        return pts
+
+    first = hold(0.3)
+    second = hold(1.8)
+    outside = [p for p in second if (p[0] - cx) ** 2 + (p[1] - cy) ** 2 > (n / 2 + 1.5) ** 2]
+    res.check("the spray keeps spraying while held still, inside its disc",
+              n >= 20 and len(first) > 0 and len(second) > len(first) + 100 and not outside,
+              f"size {n}, after 0.3 s {len(first)} dots, after 1.8 s more {len(second)}, outside {outside[:3]}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    scr.shoot()
+    back = sum(1 for y in range(cy - n, cy + n + 1) for x in range(cx - n, cx + n + 1) if scr.pixel(x, y) == green)
+    res.check("...and Ctrl+Z takes one hold away", back == len(first), f"{back} dots, {len(first)} before the hold")
     close_all(dbg)
 
 

@@ -3412,8 +3412,12 @@ window without going through it will find its layout polls timing out.
   button; Ctrl+S on an untitled picture saves where it is told
   (`imginfo` says PNG 800x600); a fresh Paint on that file shows the
   stroke, the fill and the dot; Ctrl++ zooms to 150% with the picture
-  rect. Its positive control -- the fill painting the second colour --
-  reddens the fill, undo/redo and reopened checks. In `gui_regress.py`.
+  rect; the brush kinds -- the highlighter keeping black black and white
+  exactly its yellow, a soft stroke's in-between colours, the spray
+  adding dots while held still. Its positive controls -- the fill
+  painting the second colour; the highlighter blending "over"; the spray
+  with no timer -- redden the fill, highlighter and spray checks. In
+  `gui_regress.py`.
 
 - **`upixel_hostcheck.py`** -- `lib/upixel` and `lib/upixundo` compiled
   on the host against a reference in Python: every brush size and both
@@ -3425,10 +3429,14 @@ window without going through it will find its layout polls timing out.
   last, with a small byte limit dropping the oldest steps; ONE history
   over two pictures and custom steps undoing step by step to each state
   before; and source-over (`upix_over`, `upix_over_at`) within an
-  alpha-scaled tolerance of a floating-point Porter-Duff. Its positive
-  control -- a fill that never seeds the row below, and a source-over
-  that forgets to scale the picture below -- reddens the fills and the
-  composites. In `ondemand_sweep.py`.
+  alpha-scaled tolerance of a floating-point Porter-Duff; brush strokes
+  (`upix_stroke_*`) run forward and back over themselves against a float
+  reference, for over, multiply and erase at any hardness, the chisel
+  tip's exact cover, and the spray staying in its disc and repeating
+  for one seed. Its positive control -- a fill that never seeds the row
+  below, a source-over that forgets to scale the picture below, and a
+  stroke blending onto what it already painted -- reddens the fills,
+  the composites and the strokes. In `ondemand_sweep.py`.
 
 - **`ora_hostcheck.py`** -- `lib/uora` (OpenRaster, Paint's layered
   save) and `lib/uzip` compiled on the HOST against Python's zipfile,

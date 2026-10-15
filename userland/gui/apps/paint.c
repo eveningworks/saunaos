@@ -41,7 +41,6 @@
 #include "ui/uui_tabs.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_sizepick.h"
-#include "ui/uui_slider.h"
 #include "ui/uui_statusbar.h"
 #include "ui/uui_swatches.h"
 #include "ui/uui_toolbar.h"
@@ -57,7 +56,7 @@
 #define RECENT_MAX 10
 
 enum {
-    ID_MENU = 1, ID_BAR, ID_RAIL, ID_CANVAS, ID_RECENT, ID_PALETTE, ID_SIZE, ID_SHAPE,
+    ID_MENU = 1, ID_BAR, ID_RAIL, ID_CANVAS, ID_RECENT, ID_PALETTE, ID_SIZE, ID_KIND, ID_EXTRA,
     ID_STATUS, ID_ASK, ID_NEWDLG, ID_NEW_BG, ID_RESIZE, ID_TEXTFILL,
     ID_PTABS, ID_LBAR, ID_LAYERS, ID_LOPACITY,
     ID_SHGAL, ID_SHOUT, ID_SHFILL, ID_SHWIDTH, ID_SHAA,
@@ -87,8 +86,10 @@ struct uui_paintcanvas g_canvas;
 int g_tool = TOOL_BRUSH;
 int g_tool_before_pick = TOOL_BRUSH;
 uint32_t g_colour[2] = { 0xFF000000u, 0xFFFFFFFFu };
-int g_brush = 3;
-enum upix_shape g_shape = UPIX_ROUND;
+int g_brush_kind = BRUSH_ROUND;
+int g_brush_size[BRUSH_COUNT] = { 3, 3, 20, 24, 16 };
+int g_soft_hard = 30, g_spray_density = 30;
+int g_erase_size = 8, g_erase_hard = 100;
 struct uui_fontpick g_fontpick;
 int g_text_fill;
 
@@ -99,8 +100,24 @@ static struct uui_menubar g_menu;
 static struct uui_toolbar g_bar, g_rail;
 static struct uui_colourpick g_pick;
 static struct uui_swatches g_recent, g_palette;
-static struct uui_slider g_size;
-static struct uui_segmented g_shape_seg;
+// THE BRUSH SECTION (B1 from the mockups): the kinds as a row, then Size
+// and the kind's own setting as captioned rows, the colour picker's Hue
+// and Saturation style.
+static struct uui_togglebar g_kinds;
+static const struct uui_toggle kind_items[BRUSH_COUNT] = {
+    { 0, "Round brush", "br-round", 0 },   { 0, "Square brush", "br-square", 0 },
+    { 0, "Soft brush", "br-soft", 0 },     { 0, "Spray", "br-spray", 0 },
+    { 0, "Highlighter", "br-highlighter", 0 },
+};
+static const char *const KIND_NAMES[BRUSH_COUNT] = { "Round", "Square", "Soft", "Spray", "Highlighter" };
+static struct uui_scale g_size, g_extra;
+static struct uui_custom g_size_l, g_size_v, g_extra_l, g_extra_v;
+static char g_size_val[12], g_extra_val[12];
+static const char *g_extra_word = "Hardness";
+static struct uui_item g_size_it[3], g_extra_it[3], g_brush_it[2];
+static struct uui_layout g_size_row, g_extra_row, g_brush_col;
+#define BRUSH_MAX 64
+static const int BRUSH_STEPS[] = { 1, 2, 3, 5, 8, 12, 20, 32, 48, 64 };
 static struct uui_statusbar g_sb;
 static struct uui_dialog g_ask;
 
@@ -125,7 +142,7 @@ static struct uui_layout g_bg_row, g_new_col;
 static int g_last_w = NEW_W, g_last_h = NEW_H, g_last_bg;
 static struct uui_filedialog g_fd;
 static struct uui_focus g_focus;
-static struct uui_focusable g_ring[8];
+static struct uui_focusable g_ring[10];
 static int g_ring_font;   // where the text bar's font list sits in the ring; the size follows
 
 static char g_path[PATH_MAX_LEN];        // "" for a picture never saved
@@ -152,10 +169,8 @@ static const uint32_t PALETTE[] = {
     0x000000, 0x7F7F7F, 0x880015, 0xED1C24, 0xFF7F27, 0xFFF200, 0x22B14C, 0x00A2E8, 0x3F48CC, 0xA349A4,
     0xFFFFFF, 0xC3C3C3, 0xB97A57, 0xFFAEC9, 0xFFC90E, 0xEFE4B0, 0xB5E61D, 0x99D9EA, 0x7092BE, 0xC8BFE7,
 };
-static const char *const SIZES[] = { "1", "2", "3", "5", "8", "12", "20", "32" };
 static const int SIZE_PX[] = { 1, 2, 3, 5, 8, 12, 20, 32 };
 #define NSIZES ((int)(sizeof SIZE_PX / sizeof SIZE_PX[0]))
-static const char *const SHAPES[] = { "Round", "Square" };
 
 // Where the panel's pieces went this frame -- for on_draw's headings and
 // the two colour boxes' hit test.
@@ -317,8 +332,8 @@ static struct uui_item g_widgets[] = {
     { 0 },   // the colour picker: uui_colourpick_item(), set in main()
     { .ops = &uui_swatches_ops,      .widget = &g_recent,    .id = ID_RECENT,  .name = "recent" },
     { .ops = &uui_swatches_ops,      .widget = &g_palette,   .id = ID_PALETTE, .name = "palette" },
-    { .ops = &uui_slider_ops,        .widget = &g_size,      .id = ID_SIZE,    .name = "size" },
-    { .ops = &uui_segmented_ops,     .widget = &g_shape_seg, .id = ID_SHAPE,   .name = "shape" },
+    { .ops = &uui_layout_ops,        .widget = &g_brush_col, .name = "brushrows" },
+    { .ops = &uui_togglebar_ops,     .widget = &g_kinds,     .id = ID_KIND,    .name = "brushkind" },
     { .ops = &uui_statusbar_ops,     .widget = &g_sb,        .id = ID_STATUS,  .name = "status" },
     // The text bar: over the canvas, so after it; hidden with no box open.
     { .ops = &uui_custom_ops,        .widget = &g_textbar_card, .name = "textbar", .hidden = 1 },
@@ -363,8 +378,65 @@ static void set_title(void) {
 
 static void note(const char *s) { snprintf(g_st_note, sizeof g_st_note, "%s", s); }
 
-static void sync_size_text(void) {
-    snprintf(g_size_text, sizeof g_size_text, "Brush size \xb7 %d px", g_brush);
+// The size the panel's Size row sets: the eraser's own while it is the
+// tool, otherwise the brush kind's.
+static int *size_slot(void) {
+    return g_tool == TOOL_ERASER ? &g_erase_size : &g_brush_size[g_brush_kind];
+}
+
+// The section from the state: its heading, the two rows' values, and
+// which second row the tool has -- Hardness for the soft brush and the
+// eraser, Density for the spray, none for the rest.
+static void sync_brush(void) {
+    int eraser = g_tool == TOOL_ERASER;
+    if (eraser) snprintf(g_size_text, sizeof g_size_text, "Eraser");
+    else snprintf(g_size_text, sizeof g_size_text, "Brush \xb7 %s", KIND_NAMES[g_brush_kind]);
+    int *sz = size_slot();
+    if (!g_size.dragging) uui_scale_set_value(&g_size, *sz);
+    snprintf(g_size_val, sizeof g_size_val, "%d px", *sz);
+    int *extra = eraser ? &g_erase_hard : g_brush_kind == BRUSH_SOFT ? &g_soft_hard
+               : g_brush_kind == BRUSH_SPRAY ? &g_spray_density : 0;
+    g_brush_it[1].hidden = !extra;
+    if (!extra) return;
+    g_extra_word = !eraser && g_brush_kind == BRUSH_SPRAY ? "Density" : "Hardness";
+    uui_scale_set_range(&g_extra, !eraser && g_brush_kind == BRUSH_SPRAY ? 1 : 0, 100);
+    if (!g_extra.dragging) uui_scale_set_value(&g_extra, *extra);
+    snprintf(g_extra_val, sizeof g_extra_val, "%d%%", *extra);
+}
+
+static void draw_cell(struct ugfx_surface *s, const struct uui_custom *cu) {
+    const char *t = cu->state == &g_extra_word ? g_extra_word : (const char *)cu->state;
+    ugfx_draw_string_clipped(s, cu->x, cu->y + (cu->h - ugfx_char_h()) / 2, cu->w, t, UTHEME_TEXT,
+                             UGFX_TRANSPARENT);
+}
+
+static void brush_rows_init(void) {
+    // THE CAPTION AND READOUT WIDTHS ARE THE COLOUR PICKER'S, so these
+    // scales line up with Hue, Saturation and Lightness above them.
+    int ch = ugfx_char_h(), lw = ugfx_text_width("Saturation") + ch / 2, vw = ugfx_text_width("359%") + ch / 2;
+    if (ugfx_text_width("64 px") + ch / 2 > vw) vw = ugfx_text_width("64 px") + ch / 2;
+    g_size_l = (struct uui_custom){ .w = lw, .h = utheme_control_h(), .draw = draw_cell, .state = (void *)"Size" };
+    g_size_v = (struct uui_custom){ .w = vw, .h = utheme_control_h(), .draw = draw_cell, .state = g_size_val };
+    g_extra_l = (struct uui_custom){ .w = lw, .h = utheme_control_h(), .draw = draw_cell, .state = &g_extra_word };
+    g_extra_v = (struct uui_custom){ .w = vw, .h = utheme_control_h(), .draw = draw_cell, .state = g_extra_val };
+    uui_scale_init(&g_size, 1, BRUSH_MAX, 3);
+    g_size.step = 1;
+    uui_scale_init(&g_extra, 0, 100, 30);
+    g_extra.step = 1;
+    g_size_it[0] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_size_l };
+    g_size_it[1] = (struct uui_item){ .ops = &uui_scale_ops, .widget = &g_size, .id = ID_SIZE, .flags = UUI_FILL_W,
+                                      .name = "size" };
+    g_size_it[2] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_size_v };
+    g_extra_it[0] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_extra_l };
+    g_extra_it[1] = (struct uui_item){ .ops = &uui_scale_ops, .widget = &g_extra, .id = ID_EXTRA, .flags = UUI_FILL_W,
+                                       .name = "brushextra" };
+    g_extra_it[2] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_extra_v };
+    g_size_row = (struct uui_layout){ .dir = UUI_ROW, .items = g_size_it, .count = 3 };
+    g_extra_row = (struct uui_layout){ .dir = UUI_ROW, .items = g_extra_it, .count = 3 };
+    g_brush_it[0] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_size_row, .flags = UUI_FILL_W };
+    g_brush_it[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_extra_row, .flags = UUI_FILL_W };
+    g_brush_col = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_brush_it, .count = 2 };
+    uui_togglebar_init(&g_kinds, kind_items, BRUSH_COUNT);
 }
 
 static void sync_pick(void) {
@@ -376,10 +448,13 @@ static int size_index(int px) {
     return NSIZES - 1;
 }
 
-static void set_brush(int px) {
-    g_brush = px < 1 ? 1 : px > SIZE_PX[NSIZES - 1] ? SIZE_PX[NSIZES - 1] : px;
-    g_size.selected = size_index(g_brush);
-    sync_size_text();
+// [ and ]: the next size down or up the usual steps, Krita's and Photoshop's keys.
+static void step_brush(int dir) {
+    int *sz = size_slot(), n = (int)(sizeof BRUSH_STEPS / sizeof BRUSH_STEPS[0]), i = 0;
+    if (dir > 0) { while (i < n - 1 && BRUSH_STEPS[i] <= *sz) i++; }
+    else { i = n - 1; while (i > 0 && BRUSH_STEPS[i] >= *sz) i--; }
+    *sz = BRUSH_STEPS[i];
+    sync_brush();
 }
 
 // --- what paint.h asks of the window -------------------------------------------
@@ -452,7 +527,21 @@ void paint_tool_changed(void) {
     // A crosshair to aim with; the fill and the picker act at a point;
     // an I-beam where text goes.
     g_canvas.cursor = g_tool == TOOL_TEXT ? WIN_CURSOR_TEXT : WIN_CURSOR_CROSSHAIR;
+    sync_brush();
     if (g_app) uapp_redraw(g_app);
+}
+
+// THE SPRAY'S CLOCK: ticks while it is held, and an idle Paint is woken
+// once a minute rather than not at all (uapp_set_tick takes no 0).
+#define SPRAY_TICK_MS 40
+#define IDLE_TICK_MS 60000
+void paint_timer(int on) {
+    if (g_app) uapp_set_tick(g_app, on ? SPRAY_TICK_MS : IDLE_TICK_MS);
+}
+
+static int on_tick(struct uapp *a) {
+    (void)a;
+    return tools_tick();
 }
 
 static void set_tool(int t) {
@@ -1036,11 +1125,13 @@ static void layout(int cw, int ch) {
     y += sh + pad;
     g_brush_head_y = y;
     y += lh + pad / 2;
-    int slw, slh;
-    uui_slider_natural_size(&g_size, &slw, &slh);
-    uui_slider_set_geometry(&g_size, x, y, w, slh);
-    y += slh + pad / 2;
-    uui_segmented_set_geometry(&g_shape_seg, x, y);
+    int kw, kh, rw2, rh2;
+    g_kinds.on = 1u << g_brush_kind;
+    uui_togglebar_ops.natural_size(&g_kinds, &kw, &kh);
+    uui_togglebar_ops.set_geometry(&g_kinds, x, y, kw, kh);
+    y += kh + pad / 2;
+    uui_layout_ops.natural_size(&g_brush_col, &rw2, &rh2);
+    uui_layout_ops.set_geometry(&g_brush_col, x, y, w, rh2);
 }
 
 static void status(void) {
@@ -1072,8 +1163,10 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     status();
     g_recent.selected = -1;
     uapp_log_layout(a, "paint");
-    uapp_logf_layout("paint: layout tool %d colour %08X %08X brush %d shape %d zoom %d\n", g_tool,
-                     (unsigned)g_colour[0], (unsigned)g_colour[1], g_brush, (int)g_shape, g_canvas.zoom);
+    uapp_logf_layout("paint: layout tool %d colour %08X %08X brush %d kind %d zoom %d\n", g_tool,
+                     (unsigned)g_colour[0], (unsigned)g_colour[1], *size_slot(), g_brush_kind, g_canvas.zoom);
+    uapp_logf_layout("paint: layout brushset hardness %d density %d eraser %d %d\n", g_soft_hard,
+                     g_spray_density, g_erase_size, g_erase_hard);
     uapp_logf_layout("paint: layout image %d %d dirty %d path %s\n", g_layer->w, g_layer->h, dirty(),
                      g_path[0] ? g_path : "-");
     text_log_layout();
@@ -1191,11 +1284,28 @@ static void on_widget(struct uapp *a, int id, int reason) {
         if (shapes_active()) shapes_restyle();
         break;
     case ID_SIZE:
-        if (g_size.selected >= 0) { g_brush = SIZE_PX[g_size.selected]; sync_size_text(); }
+        *size_slot() = (int)uui_scale_value(&g_size);
+        sync_brush();
         break;
-    case ID_SHAPE:
-        g_shape = g_shape_seg.selected == 1 ? UPIX_SQUARE : UPIX_ROUND;
+    case ID_EXTRA: {
+        int v = (int)uui_scale_value(&g_extra);
+        if (g_tool == TOOL_ERASER) g_erase_hard = v;
+        else if (g_brush_kind == BRUSH_SPRAY) g_spray_density = v;
+        else g_soft_hard = v;
+        sync_brush();
         break;
+    }
+    case ID_KIND: {
+        // A KIND IS A BRUSH: picking one with another tool in hand takes
+        // the brush up too -- Windows 11 Paint's Brushes gallery.
+        int i = uui_togglebar_take(&g_kinds);
+        if (i >= 0 && !tools_busy()) {
+            g_brush_kind = i;
+            if (g_tool != TOOL_BRUSH) set_tool(TOOL_BRUSH);
+            sync_brush();
+        }
+        break;
+    }
     case ID_ASK:
         if ((code = uui_dialog_take_code(&g_ask)) > 0) ask_answer(code);
         break;
@@ -1327,8 +1437,8 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     case 't': set_tool(TOOL_TEXT); break;
     case 's': set_tool(TOOL_SHAPES); break;
     case 'x': command(CMD_SWAP); break;
-    case '[': set_brush(SIZE_PX[size_index(g_brush) > 0 ? size_index(g_brush) - 1 : 0]); break;
-    case ']': set_brush(SIZE_PX[size_index(g_brush) + 1 < NSIZES ? size_index(g_brush) + 1 : NSIZES - 1]); break;
+    case '[': step_brush(-1); break;
+    case ']': step_brush(1); break;
     default: return;
     }
     uapp_redraw(a);
@@ -1378,9 +1488,8 @@ int main(int argc, char **argv) {
     g_widgets[W_PICK].name = "picker";
     uui_swatches_init(&g_recent, g_recent_c, 0, RECENT_MAX);
     uui_swatches_init(&g_palette, PALETTE, (int)(sizeof PALETTE / sizeof PALETTE[0]), 10);
-    uui_slider_init(&g_size, SIZES, NSIZES);
-    uui_segmented_init(&g_shape_seg, SHAPES, 2, 0);
-    set_brush(g_brush);
+    brush_rows_init();
+    sync_brush();
     g_shapebar_card = (struct uui_custom){ .draw = draw_card };
     uui_togglebar_init(&g_shgal, shgal_items, SHAPE_COUNT);
     uui_togglebar_init(&g_shaa, shaa_items, 1);
@@ -1417,8 +1526,8 @@ int main(int argc, char **argv) {
     int n = uui_colourpick_focusables(&g_pick, g_ring, 6);
     g_ring_font = n;
     n += uui_fontpick_focusables(&g_fontpick, g_ring + n, 8 - n);
-    g_ring[n++] = (struct uui_focusable){ &g_size, &uui_slider_ops };
-    g_ring[n++] = (struct uui_focusable){ &g_shape_seg, &uui_segmented_ops };
+    g_ring[n++] = (struct uui_focusable){ &g_size, &uui_scale_focus_ops };
+    g_ring[n++] = (struct uui_focusable){ &g_extra, &uui_scale_focus_ops };
     uui_focus_init(&g_focus, g_ring, n);
     uui_focus_set(&g_focus, -1);
 
@@ -1443,6 +1552,8 @@ int main(int argc, char **argv) {
         .on_motion    = on_motion,
         .on_release   = on_release,
         .on_close     = on_close,
+        .on_tick      = on_tick,
+        .tick_ms      = IDLE_TICK_MS,
     };
     return uapp_run(&desc);
 }

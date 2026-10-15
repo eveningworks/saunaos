@@ -10,8 +10,10 @@
 //
 // PAINT REPLACES, IT DOES NOT BLEND: the colour written is the colour
 // the pixel holds afterwards, alpha and all -- MS Paint's and
-// KolourPaint's pencil, and what makes a fill's edge exact. Every call
-// clips to the picture, so a stroke may run off its edge.
+// KolourPaint's pencil, and what makes a fill's edge exact. The calls
+// that blend say so: a layer laid over (upix_over), a shape's mask, a
+// brush stroke's coverage. Every call clips to the picture, so a stroke
+// may run off its edge.
 //
 // Each call GROWS a dirty rect (when one is given) by what it touched,
 // which is what a redraw and an undo step want to know.
@@ -94,5 +96,48 @@ int  upix_figure(enum upix_figure f, float x0, float y0, float x1, float y1, str
 // A cubic Bezier from p0 to p3 flattened into `n` + 1 points.
 int  upix_bezier(struct upix_pt p0, struct upix_pt p1, struct upix_pt p2, struct upix_pt p3,
                  struct upix_pt *out, int n);
+
+// --- brushes: one stroke's coverage --------------------------------------
+//
+// A SOFT OR SEE-THROUGH STROKE IS PAINTED FROM ITS COVERAGE, NOT DAB BY
+// DAB. Each segment raises a pixel's coverage to the most any part of the
+// stroke gave it, and the pixel is worked out again from what it held
+// before the stroke began -- so a stroke that crosses itself never
+// darkens itself, and the result does not depend on how many motion
+// events it arrived in (Krita's "wash" mode).
+
+enum upix_blend {
+    UPIX_BLEND_OVER,       // the colour laid over what was there
+    UPIX_BLEND_MULTIPLY,   // a highlighter's: darkens, never covers
+    UPIX_BLEND_ERASE,      // takes the alpha away
+};
+
+struct upix_stroke {
+    struct uimg *im;
+    uint32_t colour;
+    enum upix_blend blend;
+    uint8_t *cov;          // im->w * im->h; 0 is "not touched yet"
+    uint32_t *before;      // a pixel as it was, kept when its coverage first rises
+};
+
+// 0 or -ENOMEM. The picture must keep its size until the stroke ends.
+int  upix_stroke_begin(struct upix_stroke *s, struct uimg *im, uint32_t colour, enum upix_blend blend);
+// A round tip `size` across, swept from (x0, y0) to (x1, y1) -- pixel
+// coordinates, a pixel's centre at +0.5. Full inside `hardness` percent of
+// the radius and falling smoothly to nothing at the edge; at 100 the edge
+// is one pixel of anti-aliasing.
+void upix_stroke_round(struct upix_stroke *s, float x0, float y0, float x1, float y1, float size,
+                       int hardness, struct upix_rect *dirty);
+// A `w` x `h` chisel tip, centred on each pixel step from (x0, y0) to
+// (x1, y1): a highlighter's, so a sideways stroke is `h` tall.
+void upix_stroke_chisel(struct upix_stroke *s, int x0, int y0, int x1, int y1, int w, int h,
+                        struct upix_rect *dirty);
+void upix_stroke_end(struct upix_stroke *s);
+
+// SPRAY: `n` single pixels at random inside the disc `size` across around
+// (cx, cy), painted as paint is (replacing). `seed` is the caller's
+// xorshift state, never 0, and is advanced -- so a test can repeat it.
+void upix_spray(struct uimg *im, int cx, int cy, int size, int n, uint32_t colour, uint32_t *seed,
+                struct upix_rect *dirty);
 
 #endif

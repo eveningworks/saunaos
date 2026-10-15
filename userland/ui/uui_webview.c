@@ -545,23 +545,28 @@ char *uui_webview_markdown_page(const char *title, const char *md, int md_len,
     char *page = malloc((size_t)cap);
     if (!page) return NULL;
     struct umd_out out = { page, cap, 0, 0 };
+    // THE PAGE'S TEXT IS THE DESKTOP'S SIZE, and its headings scale with
+    // it: a fixed 15px read smaller than the window around it on a
+    // machine whose font is larger.
+    int px = ugfx_font_session_px();
+    if (px < 8) px = 8;
     int n = snprintf(page, (size_t)cap,
         "<!DOCTYPE html><html><head><meta charset=\"utf-8\"><title>%s</title><style>"
-        "body{margin:0;background:%s;color:%s;font-family:sans-serif;font-size:15px;line-height:1.55}"
+        "body{margin:0;background:%s;color:%s;font-family:sans-serif;font-size:%dpx;line-height:1.55}"
         "main{max-width:40em;padding:18px 30px 30px}"
-        "h1{font-family:serif;font-size:30px;font-weight:normal;line-height:1.2;"
+        "h1{font-family:serif;font-size:2em;font-weight:normal;line-height:1.2;"
         "border-bottom:1px solid %s;padding-bottom:6px;margin:0 0 12px}"
-        "h2{font-family:serif;font-size:21px;font-weight:normal;margin:20px 0 6px}"
-        "h3{font-size:16px;margin:16px 0 4px}"
+        "h2{font-family:serif;font-size:1.4em;font-weight:normal;margin:20px 0 6px}"
+        "h3{font-size:1.07em;margin:16px 0 4px}"
         "a{color:%s}"
-        "code,pre{font-family:monospace;font-size:13px;background:%s}"
-        "pre{padding:8px 10px;line-height:1.4}"
+        "code,pre{font-family:monospace;font-size:0.87em;background:%s}"
+        "pre{padding:8px 10px;line-height:1.4}pre code{font-size:1em}"
         "table{border-collapse:collapse;margin:8px 0}"
         "th,td{border:1px solid %s;padding:3px 8px;text-align:left;vertical-align:top}"
         "th{background:%s}"
         "p.fold{background:%s;border:1px solid %s;padding:8px 12px}"
         "</style></head><body><main>",
-        title ? title : "", bg, text, rule, link, code, rule, panel, panel, rule);
+        title ? title : "", bg, text, px, rule, link, code, rule, panel, panel, rule);
     (void)muted;
     out.len = n < cap ? n : cap - 1;
     umd_html(md, md_len, opts, &out);

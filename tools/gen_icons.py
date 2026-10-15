@@ -42,7 +42,7 @@ import os
 import sys
 
 try:
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageFilter
 except ImportError:
     sys.exit("gen_icons.py needs Pillow: pip install --user pillow")
 
@@ -327,6 +327,61 @@ def icon_sh_star():
 def icon_tb_shapes():
     # The rail's Shapes: a square behind a circle, Windows 11 Paint's.
     p = _Pen(); p.line((3.5, 3.5), (13.5, 3.5), (13.5, 13.5), (3.5, 13.5), (3.5, 3.5)); p.circle(15, 15, 5.5); return p.done()
+
+
+# --- Paint's brush kinds (gui/apps/paint.c), one per enum paint_brush ------
+
+def _brush_path():
+    # The same S-bend for each kind, so the row compares the tips alone.
+    return [(4 + 16 * i / 16, 15 - 6 * math.sin(i / 16 * 2 * math.pi) * (0.6 + 0.4 * i / 16)) for i in range(17)]
+
+
+def icon_br_round():
+    p = _Pen(); p.w = 3.4 * _K; p.line(*_brush_path()); return p.done()
+
+
+def icon_br_square():
+    p = _Pen()
+    pts = [(4, 16), (9, 8), (14, 15), (20, 7)]
+    p.d.line([p._p(x, y) for x, y in pts], fill=TB_INK, width=round(3.4 * _K), joint=None)
+    for x, y in pts:   # square corners and ends
+        h = 1.7 * _K
+        cx, cy = p._p(x, y)
+        p.d.rectangle([cx - h, cy - h, cx + h, cy + h], fill=TB_INK)
+    return p.done()
+
+
+def icon_br_soft():
+    # Wide and faint outside, narrow and solid inside: a soft edge.
+    p = _Pen()
+    r, g, b, _ = TB_INK
+    for wid, a in ((7.5, 40), (6, 70), (4.5, 120), (3, 255)):
+        p.d.line([p._p(x, y) for x, y in _brush_path()], fill=(r, g, b, a), width=round(wid * _K), joint="curve")
+    return p.done().filter(ImageFilter.GaussianBlur(0.6))
+
+
+def icon_br_spray():
+    import random
+    rnd = random.Random(24)
+    p = _Pen()
+    for _ in range(26):
+        while True:
+            x, y = rnd.uniform(-8, 8), rnd.uniform(-8, 8)
+            if x * x + y * y < 64:
+                break
+        cx, cy = p._p(12 + x, 12 + y)
+        r = 0.75 * _K
+        p.d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=TB_INK)
+    return p.done()
+
+
+def icon_br_highlighter():
+    # A flat band at half strength: what a highlighter leaves.
+    p = _Pen()
+    r, g, b, _ = TB_INK
+    band = [(4, 17), (20, 8)]
+    p.d.line([p._p(x, y) for x, y in band], fill=(r, g, b, 110), width=round(7 * _K))
+    return p.done()
 
 
 def icon_tb_smooth():
@@ -1624,6 +1679,8 @@ ICONS = {
     "sh-rounded": icon_sh_rounded, "sh-ellipse": icon_sh_ellipse, "sh-polygon": icon_sh_polygon,
     "sh-triangle": icon_sh_triangle, "sh-arrow": icon_sh_arrow, "sh-star": icon_sh_star,
     "tb-shapes": icon_tb_shapes, "tb-smooth": icon_tb_smooth,
+    "br-round": icon_br_round, "br-square": icon_br_square, "br-soft": icon_br_soft,
+    "br-spray": icon_br_spray, "br-highlighter": icon_br_highlighter,
     "tb-plus": icon_tb_plus,
     "tb-merge-down": icon_tb_merge_down,
     "tb-bold": icon_tb_bold,

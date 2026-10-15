@@ -551,6 +551,13 @@ const char *ugfx_font_session_face(void) {
     return h->face;
 }
 
+int ugfx_font_session_px(void) {
+    const struct font_shm *h =
+        (const struct font_shm *)g_map_base[UGFX_FONT_SLOT_UI_REGULAR];
+    if (g_from_fontd[UGFX_FONT_SLOT_UI_REGULAR] && h && h->px) return (int)h->px;
+    return ugfx_char_h() * 3 / 4;   // Liberation's line is about 1.15 em, the baked set's a little more
+}
+
 uint32_t ugfx_font_generation(void) { return g_seen_beacon; }
 
 int ugfx_font_recheck(void) {

@@ -146,7 +146,7 @@ TOOLS = [
     ("placesmenu", "fm_places_menu_test.py", "left-pane menus: one per row kind, move/rename/unpin/hide, a volume's Properties ring, its details card"),
     ("fmthumb",    "fm_thumb_drag_test.py", "icons view: a thumb drag after a click scrolls, carries no file"),
     ("archivegui", "archive_gui_test.py", ".zip and .tar.gz as folders, Extract all, open a member; Compress to ZIP and Compress..."),
-    ("paint",      "paint_test.py",      "Paint: brush, palette + fill, undo/redo, right-button colour 2, the rail, save + reopen by pixels, zoom"),
+    ("paint",      "paint_test.py",      "Paint: brush, palette + fill, undo/redo, right-button colour 2, the rail, save + reopen by pixels, zoom, brush kinds"),
     ("renamegui",  "rename_gui_test.py", "Rename many: F2 on a set, a chain through temp names, one Undo, Esc"),
     ("recentgui",  "recent_gui_test.py", "Recent: open records the app, recent:/ in day bands, Delete forgets, Open folder, Clear"),
     ("forcequit", "forcequit_test.py", "not-responding detection and force quit"),

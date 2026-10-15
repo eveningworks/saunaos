@@ -25,6 +25,13 @@ What it asserts, on seeded random pictures:
     ink within 2% of the area), the plain fill pixel-exact against centre
     sampling; a stroke's coverage full inside, empty outside its width;
     every figure closed and inside its box
+  - BRUSHES: a coverage stroke (soft round tip, any hardness, over,
+    multiply or erase) within 3 of a floating-point reference at every
+    pixel, after running its path forward and back again -- so crossing
+    itself must not darken it; the highlighter keeps black black and
+    turns white into its colour; a chisel tip covers exactly its rects;
+    a spray stays inside its disc, repeats for one seed, and with enough
+    dots covers all of it
   - UNDO: after a run of strokes and fills, each recorded with begin and
     commit, undoing all of them gives back the first picture exactly,
     redoing all gives back the last, and the state number comes back to
@@ -66,6 +73,7 @@ static void num_drop(void *p) { free(p); g_drops++; }
 static const struct upixundo_custom NUM = { num_apply, num_drop };
 static struct upix_rect dirty;
 static struct upixundo u;
+static struct upix_stroke stroke;
 
 static void dump(void) {
     printf("img %d %d", im.w, im.h);
@@ -162,6 +170,22 @@ int main(void) {
             printf("figure %d", n);
             for (int i = 0; i < n; i++) printf(" %.4f %.4f", pts[i].x, pts[i].y);
             printf("\n");
+        } else if (!strcmp(cmd, "sbegin")) {        // sbegin COLOUR BLEND: a coverage stroke on this picture
+            if (scanf("%x %d", &col, &a) != 2) return 2;
+            if (upix_stroke_begin(&stroke, &im, col, (enum upix_blend)a)) return 3;
+        } else if (!strcmp(cmd, "sround")) {        // sround x0 y0 x1 y1 SIZE HARDNESS
+            float x0, y0, x1, y1, sz;
+            if (scanf("%f %f %f %f %f %d", &x0, &y0, &x1, &y1, &sz, &a) != 6) return 2;
+            upix_stroke_round(&stroke, x0, y0, x1, y1, sz, a, &dirty);
+        } else if (!strcmp(cmd, "schisel")) {       // schisel x0 y0 x1 y1 W H
+            if (scanf("%d %d %d %d %d %d", &a, &b, &c, &d, &e, &f) != 6) return 2;
+            upix_stroke_chisel(&stroke, a, b, c, d, e, f, &dirty);
+        } else if (!strcmp(cmd, "send")) {
+            upix_stroke_end(&stroke);
+        } else if (!strcmp(cmd, "spray")) {         // spray CX CY SIZE N COLOUR SEED
+            unsigned seed;
+            if (scanf("%d %d %d %d %x %u", &a, &b, &c, &d, &col, &seed) != 6) return 2;
+            upix_spray(&im, a, b, c, d, col, &seed, &dirty);
         } else if (!strcmp(cmd, "dump")) {
             dump();
         } else return 2;
@@ -179,12 +203,15 @@ def build(tmp, poison=False):
     # The control: a fill that looks at 8 neighbours' rows but forgets to
     # seed the row BELOW -- a region reached only by going down stays.
     # The second: source-over that forgets to scale the picture below by
-    # what the one on top leaves of it.
+    # what the one on top leaves of it. The third: a stroke that blends
+    # onto what it has already painted, so crossing itself darkens.
     src = hostcheck.stage(tmp, "userland/lib/upixel.c", apply=poison, tool="upixel_hostcheck",
                           edits=[("for (int dyi = -1; dyi <= 1; dyi += 2) {",
                                   "for (int dyi = -1; dyi <= -1; dyi += 2) {"),
                                  ("unsigned da = ((dp >> 24) * (255 - sa) + 127) / 255, oa = sa + da;",
-                                  "unsigned da = dp >> 24, oa = sa + da > 255 ? 255 : sa + da;")])
+                                  "unsigned da = dp >> 24, oa = sa + da > 255 ? 255 : sa + da;"),
+                                 ("s->im->px[i] = blend_px(s, s->before[i], c);",
+                                  "s->im->px[i] = blend_px(s, s->im->px[i], c);")])
     und = hostcheck.stage(tmp, "userland/lib/upixundo.c")
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
     return hostcheck.compile(tmp, "upixel_host", [src, und, drv, "-lm"], includes=[tmp],
@@ -316,6 +343,178 @@ def diff(a, b):
 def covers(rect, w, idxs):
     x, y, rw, rh = rect
     return all(x <= i % w < x + rw and y <= i // w < y + rh for i in idxs)
+
+
+# --- brushes: the coverage stroke and the spray -------------------------------
+
+BRUSH_CHECKS = [0]
+
+
+def seg_dist(px, py, a, b):
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    l2 = dx * dx + dy * dy
+    t = ((px - a[0]) * dx + (py - a[1]) * dy) / l2 if l2 > 0 else 0
+    t = min(1.0, max(0.0, t))
+    ex, ey = a[0] + t * dx - px, a[1] + t * dy - py
+    return (ex * ex + ey * ey) ** 0.5
+
+
+def round_cov(d, size, hard):
+    r = size / 2
+    soft = max(1.0, r * (100 - hard) / 100)
+    inner = r - soft
+    if d >= r:
+        return 0
+    if d <= inner:
+        return 255
+    t = (d - inner) / soft
+    return int((1 - t * t * (3 - 2 * t)) * 255 + 0.5)
+
+
+def chan(c, sh):
+    return (c >> sh) & 0xFF
+
+
+def ref_blend(d, col, c, blend):
+    """Floating point: the pixel `d` at coverage c/255 of `col`."""
+    k = c / 255
+    da = (d >> 24) / 255
+    if blend == 2:   # erase
+        a = da * (1 - k)
+        return [chan(d, 16), chan(d, 8), chan(d, 0), a * 255]
+    if blend == 1:   # multiply, over half the colour where there is nothing
+        m = [chan(d, sh) - (chan(d, sh) - chan(d, sh) * chan(col, sh) / 255) * k for sh in (16, 8, 0)]
+        ua = 0.5 * k
+        oa = da + ua * (1 - da)
+        if oa <= 0:
+            return [0, 0, 0, 0]
+        rgb = [(m[i] * da + chan(col, sh) * ua * (1 - da)) / oa for i, sh in enumerate((16, 8, 0))]
+        return rgb + [oa * 255]
+    sa = (col >> 24) / 255 * k   # over
+    oa = sa + da * (1 - sa)
+    if oa <= 0:
+        return [0, 0, 0, 0]
+    rgb = [(chan(col, sh) * sa + chan(d, sh) * da * (1 - sa)) / oa for sh in (16, 8, 0)]
+    return rgb + [oa * 255]
+
+
+def near_px(got, want, tol):
+    g = [chan(got, 16), chan(got, 8), chan(got, 0), got >> 24]
+    if want[3] < 0.5 and g[3] == 0:
+        return True
+    if abs(g[3] - want[3]) > tol:
+        return False
+    # Colour means little where alpha is nearly nothing.
+    t = tol if want[3] >= 8 else 255
+    return all(abs(g[i] - want[i]) <= t for i in range(3))
+
+
+def brush_checks(rng, d, fails):
+    n = 0
+    colours = [0xFFFFFFFF, 0xFF000000, 0xFF2040C0, 0x80FF8000, 0x00000000, 0xFFFFF200]
+    for case in range(40):
+        w, h = rng.randrange(12, 40), rng.randrange(12, 40)
+        pic = [rng.choice(colours) for _ in range(w * h)]
+        d.send(f"new {w} {h} 0")
+        for i, c in enumerate(pic):
+            d.send(f"set {i % w} {i // w} {c:x}")
+        blend = case % 3
+        col = rng.choice([0xFFFFF200, 0xFF3F48CC, 0xC0ED1C24])
+        size, hard = rng.uniform(1, 14), rng.choice([0, 30, 50, 100, rng.randrange(101)])
+        pts = [(rng.uniform(-3, w + 3), rng.uniform(-3, h + 3)) for _ in range(rng.randrange(2, 5))]
+        # Crossing back over itself: the same path forward, then backward.
+        path = pts + pts[-2::-1]
+        d.send("clean")
+        d.send(f"sbegin {col:x} {blend}")
+        for a, b in zip(path, path[1:]):
+            d.send(f"sround {a[0]} {a[1]} {b[0]} {b[1]} {size} {hard}")
+        d.send("send")
+        _, _, got = d.dump()
+        rect = [int(v) for v in d.ask("dirty")[1:]]
+        n += 2
+        what = f"stroke case {case} blend {blend} size {size:.2f} hardness {hard}"
+        bad = None
+        for i in range(w * h):
+            X, Y = i % w + 0.5, i // w + 0.5
+            dm = min(seg_dist(X, Y, a, b) for a, b in zip(pts, pts[1:]))
+            c = max(round_cov(dm - 1e-4, size, hard), 0), round_cov(dm + 1e-4, size, hard)
+            ok = any(near_px(got[i], ref_blend(pic[i], col, cv, blend), 3) if cv else got[i] == pic[i]
+                     for cv in set(c))
+            if not ok:
+                bad = (i % w, i // w, dm, got[i], pic[i])
+                break
+        if bad:
+            fails.append(f"{what}: pixel {bad[0]},{bad[1]} at distance {bad[2]:.2f} is {bad[3]:08x} "
+                         f"(was {bad[4]:08x})")
+        if not covers(rect, w, diff(pic, got)):
+            fails.append(f"{what}: dirty {rect} misses a changed pixel")
+
+    # THE HIGHLIGHTER'S PROMISES: black stays black, white takes the full
+    # colour, an empty pixel takes the colour at half strength.
+    d.send("new 3 1 0")
+    d.send("set 0 0 ff000000")
+    d.send("set 1 0 ffffffff")
+    d.send("sbegin fffff200 1")
+    d.send("sround -5 0.5 9 0.5 6 100")
+    d.send("send")
+    _, _, got = d.dump()
+    n += 1
+    if got[0] != 0xFF000000 or got[1] != 0xFFFFF200 or (got[2] >> 24) not in (127, 128) \
+            or got[2] & 0xFFFFFF != 0xFFF200:
+        fails.append("highlighter over black, white, nothing: " + " ".join(f"{v:08x}" for v in got))
+
+    # The chisel covers exactly its rects along the Bresenham points.
+    for case in range(20):
+        w, h = rng.randrange(10, 40), rng.randrange(10, 40)
+        d.send(f"new {w} {h} ffffffff")
+        tw, th = rng.randrange(1, 6), rng.randrange(1, 12)
+        x0, y0, x1, y1 = (rng.randrange(-4, w + 4), rng.randrange(-4, h + 4),
+                          rng.randrange(-4, w + 4), rng.randrange(-4, h + 4))
+        d.send("sbegin ff22b14c 0")
+        d.send(f"schisel {x0} {y0} {x1} {y1} {tw} {th}")
+        d.send("send")
+        _, _, got = d.dump()
+        want = set()
+        for px, py in bresenham(x0, y0, x1, y1):
+            for j in range(th):
+                for i in range(tw):
+                    x, y = px - (tw - 1) // 2 + i, py - (th - 1) // 2 + j
+                    if 0 <= x < w and 0 <= y < h:
+                        want.add(y * w + x)
+        have = {i for i, v in enumerate(got) if v == 0xFF22B14C}
+        n += 1
+        if have != want or any(v not in (0xFF22B14C, 0xFFFFFFFF) for v in got):
+            fails.append(f"chisel case {case} ({x0},{y0})-({x1},{y1}) {tw}x{th}: "
+                         f"{len(have ^ want)} pixel(s) differ")
+
+    # Spray: only inside the brush's disc, at most N, the same for the same seed.
+    for case in range(20):
+        w, h = rng.randrange(10, 40), rng.randrange(10, 40)
+        size, cnt, seed = rng.randrange(1, 16), rng.randrange(1, 200), rng.randrange(1, 1 << 31)
+        cx, cy = rng.randrange(-3, w + 3), rng.randrange(-3, h + 3)
+        disc = Pic(w, h, 0)
+        ref_stamp(disc, cx, cy, size, 0, 1)
+        runs = []
+        for _ in range(2):
+            d.send(f"new {w} {h} ffffffff")
+            d.send(f"spray {cx} {cy} {size} {cnt} ff00a2e8 {seed}")
+            runs.append(d.dump()[2])
+        hit = [i for i, v in enumerate(runs[0]) if v != 0xFFFFFFFF]
+        n += 2
+        if any(not disc.px[i] for i in hit) or len(hit) > cnt:
+            fails.append(f"spray case {case}: {len(hit)} pixel(s), some outside the {size}-px disc or over {cnt}")
+        if runs[0] != runs[1]:
+            fails.append(f"spray case {case}: the same seed sprayed differently")
+    # Enough dots fill the disc: a test that the offsets reach every cell.
+    d.send("new 20 20 ffffffff")
+    d.send("spray 10 10 9 4000 ff000000 77")
+    got = d.dump()[2]
+    disc = Pic(20, 20, 0)
+    ref_stamp(disc, 10, 10, 9, 0, 1)
+    n += 1
+    if [v == 0xFF000000 for v in got] != [bool(v) for v in disc.px]:
+        fails.append("4000 dots of a 9-px spray do not cover exactly its disc")
+    BRUSH_CHECKS[0] = n
 
 
 def main():
@@ -630,6 +829,9 @@ def main():
                 if n < 3 or any(not (x0 - 0.01 <= xy[k] <= x1 + 0.01) for k in range(0, 2 * n, 2)) or \
                         any(not (y0 - 0.01 <= xy[k] <= y1 + 0.01) for k in range(1, 2 * n, 2)):
                     fails.append(f"figure {f} case {case}: {n} points, not all inside the box")
+
+        brush_checks(rng, d, fails)
+        checks += BRUSH_CHECKS[0]
 
         # A small byte limit keeps the newest steps and drops the oldest.
         d.send("new 20 20 ffffffff")
