@@ -7895,3 +7895,45 @@ corner field whose unset value means "the theme's", and an app that
 wants a sharp-cornered control sets it to 0 and keeps it whatever the
 theme says. A theme with square corners makes every UNSET control
 square; it never rounds what an app made square on purpose.
+
+## ARP entries that age out
+
+From the 2026-10-04 network review, still true on 2026-10-15: `arp.c`
+keeps every resolved entry ("NO RESOLVED ENTRY EXPIRES"), so a peer that
+changes its MAC under an IP -- a replaced router, a VM moved between
+hosts -- is unreachable until the cache is flushed by a reconfiguration.
+Linux ages an entry to STALE and revalidates on use (neighbour
+reachability); the smallest shape here is an age and one re-ARP before
+trusting an entry older than it. The remaining review items that were
+not fixed on 2026-10-15 are the four below and three entries in
+`docs/bugs.md` (NET-05, NET-08, NET-09 in the review's numbering).
+
+## A network timer service
+
+`tcp.c`'s header says it: retransmission and orphan reclaim run from
+`tcp_tick()` inside `net_poll()`, which a blocked reader or the idle loop
+calls. A busy machine with nobody reading a connection delays both.
+Linux runs them from timers in softirq context. Not measured under load.
+
+## A work budget for receive drains
+
+`e1000.c`'s `drain_rx()`, `r8169.c`, `virtio_net_drain()` and
+`net_poll()` drain until empty, so a queue refilled as fast as it drains
+holds the interrupt or idle path. Linux's NAPI gives each poll a budget
+and reschedules. No saturation test has been run.
+
+## `SYS_SEND`/`SYS_RECV` on a stream socket, and `sendto` refused on one
+
+`net_syscalls.c`'s `send_recv` rejects every `SYS_SEND`/`SYS_RECV`,
+even on an established TCP socket, while `read`/`write` and stream
+`recvfrom` work; and `net_sock_sendto()` falls past the ICMP case into
+UDP output for a TCP socket. Dispatch stream calls to the stream helpers
+and refuse `sendto` on a stream socket (`-EISCONN`/`-EOPNOTSUPP`).
+
+## `net_register()` refuses an MTU the stack's 1500-byte frame and datagram buffers cannot carry
+
+`net_register()` defaults a zero MTU and accepts anything else, while
+`ipv4.c`'s datagram buffer is 1500 bytes and `eth.c`'s frame 1518. No
+driver exceeds them today (CDC-ECM clamps to `NET_MTU`), so this is
+hardening, not a live overflow.
+

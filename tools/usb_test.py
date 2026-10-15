@@ -487,6 +487,88 @@ def phase_net_replug(instance, kvm=False):
         g.cleanup()
 
 
+def phase_netd(instance, kvm=False):
+    """netd follows USB NICs that come and go: a named card gets its name
+    back after a replug, and a fifth distinct card is still leased.
+
+    Each card is QEMU's usb-net on its OWN user-mode network (10.0.5.0/24),
+    so its lease cannot be confused with the e1000's 10.0.2.x. Two faults
+    this catches: a renamed card replugged came back under the kernel's
+    own name while netd went on leasing the old one, and netd's table of
+    four cards filled with ones long unplugged and refused every newcomer.
+    """
+    print("\nphase 8: netd and USB NICs that come and go")
+    g = Guest(instance, "xhci", kvm)
+    conf = None
+    try:
+        if not g.start():
+            return check("guest boots for the netd test", False)
+        # BEFORE the console is opened: `vm.py put` drives the guest's
+        # serial console itself, and a second connection is refused.
+        t = tempfile.NamedTemporaryFile("w", suffix=".conf", delete=False)
+        t.write("52:54:00:aa:00:01 = lab0\n")
+        t.close()
+        conf = t.name
+        g._run("put", conf, "/etc/net.conf")
+        d = g.console()
+        qmp = g.qmp()
+        qmp._cmd({"execute": "netdev_add", "arguments": {
+            "type": "user", "id": "un0", "net": "10.0.5.0/24"}})
+        if not check("the naming rule reached the guest",
+                     "lab0" in (d.send("sh cat /etc/net.conf") or "")):
+            return False
+
+        def leased(name_or_mac, timeout=40.0):
+            """The card's netctl block once it holds a 10.0.5.x address."""
+            end = time.time() + timeout
+            while time.time() < end:
+                out = d.send("sh netctl") or ""
+                blocks = re.split(r"\n(?=\S)", out)
+                for b in blocks:
+                    if name_or_mac in b and "inet 10.0.5." in b:
+                        return b
+                time.sleep(2.0)
+            return None
+
+        def plug(mac):
+            qmp.device_add("usb-net", "hotnet", bus="xhci.0", netdev="un0", mac=mac)
+
+        def unplug():
+            qmp.device_del("hotnet")
+            time.sleep(3.0)
+
+        plug("52:54:00:aa:00:01")
+        b = leased("lab0")
+        check("a card a rule names comes up under that name, leased", b is not None,
+              (d.send("sh netctl") or "")[-400:] if b is None else "")
+        unplug()
+        # Back at once -- quicker than netd's pass, so it never sees the
+        # card gone and has to recognise the kernel's name for it.
+        plug("52:54:00:aa:00:01")
+        b = leased("lab0")
+        check("replugged, it gets its name back and a lease", b is not None,
+              (d.send("sh netctl") or "")[-300:] if b is None else "")
+        unplug()
+
+        got = 0
+        for n in range(2, 7):
+            mac = f"52:54:00:aa:00:0{n}"
+            plug(mac)
+            if leased(mac):
+                got += 1
+            unplug()
+        check("five more cards in turn are each leased (netd's table recycles)",
+              got == 5, f"{got} of 5")
+        return True
+    finally:
+        if conf:
+            try:
+                os.unlink(conf)
+            except OSError:
+                pass
+        g.cleanup()
+
+
 def phase_hub(instance, kvm=False):
     """A keyboard and mouse BEHIND A HUB both work -- the route-string path.
 
@@ -570,7 +652,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--instance", default="auto")
     ap.add_argument("--phase", choices=("all", "keyboard", "wrap", "mouse",
-                                        "hotplug", "hub", "wide", "netreplug"),
+                                        "hotplug", "hub", "wide", "netreplug", "netd"),
                     default="all")
     # The INTx storm class this driver's acknowledge path guards against
     # is INVISIBLE under TCG -- virtio-input's version of it hung 3 boots
@@ -608,6 +690,8 @@ def main():
         phase_wide(inst, args.kvm)
     if args.phase in ("all", "netreplug"):
         phase_net_replug(inst, args.kvm)
+    if args.phase in ("all", "netd"):
+        phase_netd(inst, args.kvm)
 
     failed = [n for n, ok, _ in results if not ok]
     print(f"\nusb_test: {len(results) - len(failed)}/{len(results)} checks passed")

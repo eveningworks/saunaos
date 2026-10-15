@@ -4831,7 +4831,7 @@ window without going through it will find its layout polls timing out.
 
 - **`usb_test.py`** -- an xHCI controller and a HID boot keyboard and
   mouse (`vm.py --usb xhci` / `--usb xhci+mouse` / `--usb xhci+hub`, or
-  `make run USB=xhci+mouse`). Seven phases: keyboard, ring wrap, mouse,
+  `make run USB=xhci+mouse`). Eight phases: keyboard, ring wrap, mouse,
   HOT-PLUG (QMP `device_add`/`device_del` on the running guest -- the
   only headless stand-in for a human plugging a mouse in, and the
   detach check must scope its lsdev assertion to the Input sources
@@ -4848,7 +4848,13 @@ window without going through it will find its layout polls timing out.
   over it -- and the frame allocator's free count after each unplug
   must not fall, where a driver keeping its DMA buffers falls four
   frames a replug. A leak check that passes because nothing bound is
-  why the bind count is asserted too).
+  why the bind count is asserted too), and NETD (usb-net cards on their
+  own `10.0.5.0/24` user network: one named by an `/etc/net.conf` rule
+  is replugged faster than netd's pass and must come back under that
+  name with a lease, then five more distinct MACs in turn must each be
+  leased -- netd's table of four used to fill with departed cards. The
+  rule is put BEFORE the test opens the debug console, since `vm.py put`
+  drives that console itself and a second connection is refused).
 
   **It is self-controlling, and that was measured before a line of the
   driver was written.** QEMU activates a keyboard handler the moment

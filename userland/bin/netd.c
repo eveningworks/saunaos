@@ -52,6 +52,7 @@ struct card {
     // request it refuses is said once, not every pass.
     struct net_linkcfg link_asked;
     struct udhcp dhcp;
+    int seen;                      // present in this pass's device list
 };
 
 static struct card g_cards[MAX_CARDS];
@@ -125,6 +126,10 @@ static struct card *card_for(uint64_t mac) {
     // and matching on the name would make it a new one every time.
     for (int i = 0; i < g_count; i++)
         if (g_cards[i].known && g_cards[i].mac == mac) return &g_cards[i];
+    // A slot a departed card gave back first (end of each pass), so four
+    // adapters plugged one after another do not fill the table for good.
+    for (int i = 0; i < g_count; i++)
+        if (!g_cards[i].known) { memset(&g_cards[i], 0, sizeof g_cards[i]); return &g_cards[i]; }
     if (g_count >= MAX_CARDS) return 0;
     return &g_cards[g_count++];
 }
@@ -269,12 +274,25 @@ int main(int argc, char **argv) {
 
         uint64_t next = sys_monotonic_ns() + 10ull * 1000000000ull;
 
+        for (int i = 0; i < g_count; i++) g_cards[i].seen = 0;
+        int listed = 0;
         struct query_netdev d;
         for (unsigned i = 0; ; i++) {
             if (sys_query_record(QUERY_NETDEV, i, &d, sizeof d) < (int)sizeof d) break;
+            listed = 1;
 
             struct card *c = card_for(d.mac);
             if (!c) continue;
+            // BACK UNDER THE KERNEL'S NAME: only this daemon renames, so
+            // a known card whose name differs was unplugged and returned
+            // quicker than a pass -- registered afresh, under the name the
+            // kernel gives every new card. It is rediscovered: its rule
+            // applies again and its lease starts over under that name.
+            if (c->known && strcmp(c->name, d.name) != 0) {
+                printf("netd: %s came back as %s\n", c->name, d.name);
+                memset(c, 0, sizeof *c);
+            }
+            c->seen = 1;
 
             if (!c->known) {
                 c->mac = d.mac;
@@ -320,7 +338,10 @@ int main(int argc, char **argv) {
             // ten seconds, which is right for a command and would here
             // stall every other card behind a port with no cable in it.
             // A driver that cannot report carrier is not "down".
-            if (d.link_known && !d.link_up) continue;
+            if (d.link_known && !d.link_up) {
+                udhcp_expire(&c->dhcp, sys_monotonic_ns());
+                continue;
+            }
             if (d.ip && c->dhcp.state == UDHCP_INIT && !c->dhcp.lease.seconds && !c->forced)
                 continue;   // addressed by hand: leave it alone
 
@@ -328,6 +349,15 @@ int main(int argc, char **argv) {
             if (c->dhcp.state == UDHCP_BOUND) c->forced = 0;
             if (due < next) next = due;
         }
+
+        // A card no longer listed has gone: its record is given back for
+        // the next one. Its lease is on disk, so a return loses nothing.
+        // An empty listing is a failed query, not every card leaving.
+        for (int i = 0; listed && i < g_count; i++)
+            if (g_cards[i].known && !g_cards[i].seen) {
+                printf("netd: %s is gone\n", g_cards[i].name);
+                g_cards[i].known = 0;
+            }
 
         // Never longer than ten seconds even with nothing due, because a
         // card appearing or a cable going in is not an event this can

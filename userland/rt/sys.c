@@ -692,6 +692,17 @@ int sys_net_config(const char *dev, uint32_t ip, uint32_t netmask, uint32_t gate
     return (int)err(syscall1(SYS_NET_CONFIG, (uint64_t)(uintptr_t)&req));
 }
 
+int sys_net_config_replace(const char *dev, uint32_t ip, uint32_t netmask, uint32_t gateway) {
+    struct net_ifconfig req;
+    for (unsigned i = 0; i < sizeof req.name; i++) req.name[i] = 0;
+    for (unsigned i = 0; dev && dev[i] && i < sizeof req.name - 1; i++) req.name[i] = dev[i];
+    req.ip = ip;
+    req.netmask = netmask;
+    req.gateway = gateway;
+    req.flags = NET_IFC_CLEAR;
+    return (int)err(syscall1(SYS_NET_CONFIG, (uint64_t)(uintptr_t)&req));
+}
+
 int sys_net_admin(const char *dev, unsigned flags) {
     struct net_ifconfig req;
     for (unsigned i = 0; i < sizeof req.name; i++) req.name[i] = 0;

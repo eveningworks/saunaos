@@ -68,6 +68,12 @@ uint64_t udhcp_step(struct udhcp *u, uint64_t now_ns);
 // until the earliest.
 uint64_t udhcp_due(const struct udhcp *u);
 
+// A BOUND lease past its end is given up -- the address taken off the
+// card -- and 1 returned. udhcp_step() does this itself; a caller that
+// is NOT stepping (netd, while the cable is out) asks with this, since
+// an address does not stay ours because nobody could ask for it.
+int udhcp_expire(struct udhcp *u, uint64_t now_ns);
+
 // One blocking attempt, for a caller that wants an answer rather than a
 // schedule -- `dhcp <card>` typed at a prompt. Waits for carrier first,
 // falls back to a link-local address when nothing answers. Returns 1 if

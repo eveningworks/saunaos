@@ -351,7 +351,7 @@ static int link_local(const char *dev, const uint8_t *mac) {
 
         // No gateway: a link-local address routes to its own segment
         // and nowhere else, which is the whole of what it promises.
-        if (sys_net_config(dev, ip, LL_MASK, 0) < 0) {
+        if (sys_net_config_replace(dev, ip, LL_MASK, 0) < 0) {
             cmd_fail("dhcp", dev);
             return 0;
         }
@@ -544,7 +544,7 @@ static void write_resolv(uint32_t dns) {
 static int apply(const struct query_netdev *dev, const struct udhcp_lease *lp,
                  struct udhcp_lease *got) {
     struct udhcp_lease l = *lp;
-    if (sys_net_config(dev->name, l.ip, l.mask, l.router) < 0) {
+    if (sys_net_config_replace(dev->name, l.ip, l.mask, l.router) < 0) {
         cmd_fail("dhcp", dev->name);
         return 0;
     }
@@ -750,7 +750,7 @@ static int renew_once(const struct query_netdev *dev, const uint8_t *mac,
         say("dhcp: %s: moved from %s to %s\n", dev->name, a, b);
     }
     if (l->ip != was || l->mask != was_mask || l->router != was_router) {
-        if (sys_net_config(dev->name, l->ip, l->mask, l->router) < 0)
+        if (sys_net_config_replace(dev->name, l->ip, l->mask, l->router) < 0)
             cmd_fail("dhcp", dev->name);
     }
     if (l->dns && l->dns != was_dns) write_resolv(l->dns);
@@ -790,6 +790,27 @@ void udhcp_init(struct udhcp *u, const char *dev, const uint8_t *mac) {
 
 uint64_t udhcp_due(const struct udhcp *u) { return u->due_ns; }
 
+// THE ADDRESS GOES WITH THE LEASE. Forgetting only the lease left the
+// card holding an address another machine may now be given -- and netd
+// then read "an address and no lease" as one set by hand, and never
+// asked again.
+static void give_up(struct udhcp *u, uint64_t now_ns) {
+    sys_net_admin(u->dev, NET_IFC_CLEAR);
+    u->lease.seconds = 0;
+    u->state = UDHCP_INIT;
+    u->backoff_ms = RETRY_MIN_MS;
+    u->due_ns = now_ns;
+}
+
+int udhcp_expire(struct udhcp *u, uint64_t now_ns) {
+    if (u->state != UDHCP_BOUND || !u->lease.seconds) return 0;
+    uint32_t elapsed = (uint32_t)((now_ns - u->acked_ns) / 1000000000ull);
+    if (elapsed < u->lease.seconds) return 0;
+    say("dhcp: %s: lease expired, address removed\n", u->dev);
+    give_up(u, now_ns);
+    return 1;
+}
+
 void udhcp_release(struct udhcp *u) {
     forget_lease(u->dev);
     u->lease.seconds = 0;
@@ -826,9 +847,9 @@ uint64_t udhcp_step(struct udhcp *u, uint64_t now_ns) {
 
     struct query_netdev dev;
     if (!find_dev(u->dev, &dev)) {
-        // The card is gone. Nothing to do and nothing to give up: if it
-        // comes back it comes back under the same name, holding the
-        // lease this still remembers.
+        // The card is gone. Nothing to do and nothing to give up here:
+        // netd notices the absence and starts the card over when it
+        // returns, under whatever name it comes back with.
         u->due_ns = now_ns + (uint64_t)RETRY_MAX_MS * 1000000ull;
         return u->due_ns;
     }
@@ -850,16 +871,8 @@ uint64_t udhcp_step(struct udhcp *u, uint64_t now_ns) {
         return u->due_ns;
     }
 
+    if (udhcp_expire(u, now_ns)) return u->due_ns;
     uint32_t elapsed = (uint32_t)((now_ns - u->acked_ns) / 1000000000ull);
-    if (elapsed >= u->lease.seconds) {
-        // The address is not ours any more, whatever the interface still
-        // says -- the one place giving it up is right.
-        say("dhcp: %s: lease expired, starting over\n", u->dev);
-        u->lease.seconds = 0;
-        u->state = UDHCP_INIT;
-        u->due_ns = now_ns;
-        return u->due_ns;
-    }
     if (elapsed < u->lease.t1) {
         u->due_ns = u->acked_ns + (uint64_t)u->lease.t1 * 1000000000ull;
         return u->due_ns;
@@ -878,11 +891,9 @@ uint64_t udhcp_step(struct udhcp *u, uint64_t now_ns) {
         return u->due_ns;
     }
     if (rc < 0) {
-        say("dhcp: %s: server refused the lease\n", u->dev);
+        say("dhcp: %s: server refused the lease, address removed\n", u->dev);
         forget_lease(u->dev);
-        u->lease.seconds = 0;
-        u->state = UDHCP_INIT;
-        u->due_ns = now_ns;
+        give_up(u, now_ns);
         return u->due_ns;
     }
 

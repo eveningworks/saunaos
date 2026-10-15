@@ -34,7 +34,20 @@ ten seconds for the wire, which is right for a command typed at a
 prompt. Here it would stall every other card behind a port with no cable
 in it, so netd simply does not step a card whose driver reports the link
 down. A driver that cannot report carrier is not "down" and is stepped
-normally.
+normally. A lease that runs out while the cable is out is still given
+up on time.
+
+**A lease that ends takes its address with it.** Expiry, or a server
+refusing a renewal, removes the address from the card and starts over
+with a DISCOVER; a lease or a link-local address REPLACES the card's
+address, netmask and gateway together, so a gateway from an earlier one
+cannot outlive it.
+
+**Cards come and go.** A card absent from a pass is forgotten (its
+lease stays on disk), so a fifth adapter is not refused because four
+others were once plugged in. One unplugged and put back quicker than a
+pass reappears under the kernel's own name, and is treated as new: its
+naming rule applies again and its lease starts over under that name.
 
 ## The rules file
 
