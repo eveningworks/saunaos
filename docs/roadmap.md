@@ -791,7 +791,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] The edit menu in the WM's own fields (Start search, desktop rename), which have the keys only
 - [ ] Drag to select in a read-only text view (its menu has Select All only)
 - [ ] A clipboard that survives `clipboardd` restarting
-- [ ] Typed clipboard formats (an image kind), beyond files and text
+- [ ] Typed clipboard formats beyond files, text and a picture (the picture kind BUILT 2026-10-15: a file the page names)
 - [ ] A clipboard history ring
 
 ### Desktop productivity apps

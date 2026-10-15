@@ -59,7 +59,7 @@ int upixundo_begin(struct upixundo *u, const struct uimg *im) {
     return 0;
 }
 
-void upixundo_cancel(struct upixundo *u) { u->snapped = 0; }
+void upixundo_cancel(struct upixundo *u) { u->snapped = 0; u->join_next = 0; }
 
 static uint32_t *cut(const uint32_t *px, int stride, int x, int y, int w, int h) {
     uint32_t *out = malloc((size_t)w * h * 4);
@@ -99,12 +99,15 @@ static int make_room(struct upixundo *u) {
 
 int upixundo_push(struct upixundo *u, const struct upixundo_custom *ops, void *payload, size_t bytes) {
     u->snapped = 0;
+    int join = u->join_next;
+    u->join_next = 0;   // spent by THIS step, whether or not it is recorded
     if (make_room(u) != 0) { if (ops->drop) ops->drop(payload); return -ENOMEM; }
     struct upixundo_step s = { 0 };
     s.custom = ops;
     s.payload = payload;
     s.custom_bytes = bytes;
     s.id = u->next_id++;
+    s.joined = join && u->count > 0;
     u->bytes += bytes;
     u->steps[u->count++] = s;
     u->at = u->count;
@@ -113,6 +116,8 @@ int upixundo_push(struct upixundo *u, const struct upixundo_custom *ops, void *p
 }
 
 int upixundo_commit(struct upixundo *u, struct uimg *im, const struct upix_rect *dirty) {
+    int join = u->join_next;
+    u->join_next = 0;   // spent by THIS step, whether or not it is recorded
     if (!u->snapped) return 0;
     u->snapped = 0;
     int whole = !dirty || im->w != u->snap.w || im->h != u->snap.h;
@@ -122,6 +127,7 @@ int upixundo_commit(struct upixundo *u, struct uimg *im, const struct upix_rect 
     s.im = im;
     s.whole = whole;
     s.id = u->next_id++;
+    s.joined = join && u->count > 0;
     if (whole) {
         s.bw = u->snap.w; s.bh = u->snap.h; s.aw = im->w; s.ah = im->h;
         s.before = dup_px(u->snap.px, (size_t)s.bw * s.bh);
@@ -169,15 +175,43 @@ static int apply(const struct upixundo_step *s, int after, struct upix_rect *cha
     return 1;
 }
 
+void upixundo_join(struct upixundo *u) { u->join_next = 1; }
+
+// Two steps' changed rects as one; an empty one means "the whole of a
+// picture", and stays that.
+static void merge(struct upix_rect *into, const struct upix_rect *r, int first) {
+    if (first) { *into = *r; return; }
+    if (into->w <= 0 || r->w <= 0) { *into = (struct upix_rect){ 0, 0, 0, 0 }; return; }
+    int x1 = into->x + into->w > r->x + r->w ? into->x + into->w : r->x + r->w;
+    int y1 = into->y + into->h > r->y + r->h ? into->y + into->h : r->y + r->h;
+    if (r->x < into->x) into->x = r->x;
+    if (r->y < into->y) into->y = r->y;
+    into->w = x1 - into->x;
+    into->h = y1 - into->y;
+}
+
 int upixundo_undo(struct upixundo *u, struct upix_rect *changed) {
-    if (!u->at || !apply(&u->steps[u->at - 1], 0, changed)) return 0;
-    u->at--;
+    int first = 1, joined;
+    do {
+        struct upix_rect r;
+        if (!u->at || !apply(&u->steps[u->at - 1], 0, &r)) return !first;
+        joined = u->steps[u->at - 1].joined;
+        u->at--;
+        if (changed) merge(changed, &r, first);
+        first = 0;
+    } while (joined);
     return 1;
 }
 
 int upixundo_redo(struct upixundo *u, struct upix_rect *changed) {
-    if (u->at >= u->count || !apply(&u->steps[u->at], 1, changed)) return 0;
-    u->at++;
+    int first = 1;
+    do {
+        struct upix_rect r;
+        if (u->at >= u->count || !apply(&u->steps[u->at], 1, &r)) return !first;
+        u->at++;
+        if (changed) merge(changed, &r, first);
+        first = 0;
+    } while (u->at < u->count && u->steps[u->at].joined);
     return 1;
 }
 

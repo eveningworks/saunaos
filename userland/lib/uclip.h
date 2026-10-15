@@ -25,7 +25,10 @@
 // will one day forget the terminator on the last entry, or read a
 // half-written clipboard.
 //
-// **TWO KINDS: FILES AND TEXT.** Files are absolute paths, the shape
+// **THREE KINDS: FILES, TEXT AND A PICTURE.** A picture is the path of
+// a file the copier wrote under CLIP_IMAGE_DIR -- 64 KiB holds no
+// pixels (docs/decisions.md, "A copied picture is a file the clipboard
+// names"). Files are absolute paths, the shape
 // `text/uri-list` has on a real desktop; text is one run of characters.
 // A commit replaces whatever was there, so copying text discards a
 // pending file cut -- one clipboard, as X11, Wayland and Win32 all have
@@ -64,6 +67,7 @@ struct uclip {
 
 #define UCLIP_KIND_FILES CLIP_KIND_FILES
 #define UCLIP_KIND_TEXT  CLIP_KIND_TEXT
+#define UCLIP_KIND_IMAGE CLIP_KIND_IMAGE
 
 // The largest text a copy can carry. A selection past it is REFUSED --
 // see uclip_set_text() -- so an app can say so rather than paste short.
@@ -128,6 +132,19 @@ int uclip_set_text(const char *s, int n);
 // check -- a file list read as text is a path pasted into a document).
 // `*out_len` gets the length without the NUL. Points into `c`.
 const char *uclip_text(const struct uclip *c, int *out_len);
+
+// --- a picture ---------------------------------------------------------
+
+struct uimg;
+
+// Puts `im` on the clipboard as a PICTURE: written as QOI under
+// CLIP_IMAGE_DIR, then named. 0 when it could not be written (no room)
+// or the server refused -- say so, as for text.
+int uclip_set_image(const struct uimg *im);
+
+// The picture's file, or NULL when the clipboard holds something else.
+// Points into `c`.
+const char *uclip_image(const struct uclip *c);
 
 // --- the drag slot (uclip_page.h) ------------------------------------
 //

@@ -123,6 +123,8 @@ static void brush_pointer(enum uui_paint_phase phase, int x, int y, int slot) {
 
 void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned mods) {
     if (!g_layer->px) return;
+    // A PASTED PICTURE STILL FLOATING has the pointer, whatever the tool.
+    if (paste_active()) { paste_pointer(phase, x, y, mods); return; }
     // A TEXT LAYER IS ITS WORDS until it is made pixels, and a brush on it
     // would be lost on its next edit: ask first, GIMP's "discard the text
     // information?".

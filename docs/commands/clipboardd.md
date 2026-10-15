@@ -20,6 +20,12 @@ only to see what it says.
 
 It takes no options.
 
+A copied picture is a file, not bytes in the page: the program that
+copies writes it as QOI under `/tmp/clipboard/` and the page names it.
+Once a second, `clipboardd` deletes the files there that the page no
+longer names and that are more than ten seconds old (a `.part` left by a
+copier that died, after a minute).
+
 ## Why it is a program and not part of the kernel
 
 The clipboard used to be a buffer inside `kernel/proc/win_server.c`,

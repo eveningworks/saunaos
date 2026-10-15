@@ -7382,8 +7382,8 @@ extension.
 ## A copied picture is a file the clipboard names, not pixels in the page
 
 A picture on the clipboard is a third KIND beside files and text: one
-entry, the path of a QOI file in `/var/tmp/clipboard/` that the copier
-wrote, and `/bin/clipboardd` deletes the ones no clipboard names any
+entry, the path of a QOI file in `/tmp/clipboard/` (RAM) that the
+copier wrote, and `/bin/clipboardd` deletes the ones no clipboard names any
 more. Paint's Copy picture and the Image Viewer's Copy put one there;
 Paint's Paste takes that, or a copied picture FILE (Screenshot's and the
 File Manager's Copy), which needed no new kind at all.

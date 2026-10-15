@@ -28,10 +28,15 @@
 // to paper over it.
 //
 // IT BLOCKS ON TIME, NEVER ON ITS CLIENTS. There is nothing to serve,
-// so the loop exists only to notice a stuck lock.
+// so the loop exists to notice a stuck lock -- and to delete the files of
+// pictures no clipboard names any more (CLIP_IMAGE_DIR).
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <unistd.h>
 #include "rt/sys.h"
 #include "lib/uclip_page.h"
 #include "syscall_abi.h"
@@ -73,6 +78,56 @@ static void break_stale_lock(void) {
     g_page->lock_ms = 0;
     g_page->lock_pid = 0;
     __atomic_store_n(&g_page->lock, 0u, __ATOMIC_RELEASE);
+}
+
+// THE PICTURE FILES: every one but the page's is deleted once it is a
+// few seconds old -- a copier renames its file into place a moment
+// BEFORE the page names it, and must not lose it in between.
+#define IMAGE_GRACE_S 10
+
+static int page_image(char *out, size_t cap) {
+    for (int tries = 0; tries < 8; tries++) {
+        uint32_t seq = __atomic_load_n(&g_page->seq, __ATOMIC_ACQUIRE);
+        if (seq & 1u) continue;
+        int is_image = g_page->op != CLIP_OP_NONE && g_page->kind == CLIP_KIND_IMAGE && g_page->count;
+        size_t i = 0;
+        if (is_image)
+            for (; i + 1 < cap && i < CLIP_BYTES && g_page->data[i]; i++) out[i] = g_page->data[i];
+        out[i] = '\0';
+        if (__atomic_load_n(&g_page->seq, __ATOMIC_ACQUIRE) == seq) return is_image;
+    }
+    out[0] = '\0';
+    return -1;   // never settled: sweep nothing this time
+}
+
+static void sweep_images(void) {
+    static uint32_t swept_serial = ~0u;
+    static time_t swept_at;
+    time_t now = time(0);
+    // Once per new clipboard, and again after the grace for what it
+    // left too young to go.
+    if (g_page->serial == swept_serial && now - swept_at < IMAGE_GRACE_S * 2) return;
+    char keep[256];
+    if (page_image(keep, sizeof keep) < 0) return;
+    DIR *d = opendir(CLIP_IMAGE_DIR);
+    if (!d) return;
+    struct dirent *e;
+    char path[320];
+    while ((e = readdir(d)) != NULL) {
+        size_t n = strlen(e->d_name);
+        int part = n > 5 && !strcmp(e->d_name + n - 5, ".part");
+        if (!part && (n < 5 || strcmp(e->d_name + n - 4, ".qoi") != 0)) continue;
+        snprintf(path, sizeof path, "%s/%s", CLIP_IMAGE_DIR, e->d_name);
+        struct stat st;
+        // A .part is a copy still being written -- or one whose writer
+        // died, which a minute tells apart.
+        int grace = part ? IMAGE_GRACE_S * 6 : IMAGE_GRACE_S;
+        if (!strcmp(path, keep) || stat(path, &st) != 0 || now - st.st_mtime < grace) continue;
+        unlink(path);
+    }
+    closedir(d);
+    swept_serial = g_page->serial;
+    swept_at = now;
 }
 
 int main(void) {
@@ -120,5 +175,6 @@ int main(void) {
     for (;;) {
         sys_sleep_ms(TICK_MS);
         break_stale_lock();
+        sweep_images();
     }
 }

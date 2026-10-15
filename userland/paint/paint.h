@@ -58,6 +58,10 @@ void paint_colour_used(int slot);                // into Recent colours
 void paint_colour_picked(int slot);              // the picker set a colour
 void paint_tool_changed(void);
 void paint_timer(int on);                        // the spray's ticks, while it is held
+// A pasted picture is bigger than the canvas (`w` x `h`): ask Expand /
+// Keep / Cancel, answered through paste_answer().
+void paint_ask_paste(const char *name, int w, int h);
+void paint_undo(void);                           // Ctrl+Z, as the menu does it
 void paint_text_changed(void);                   // a text box opened, closed or moved
 
 // --- paint_text.c: the text tool ---------------------------------------------
@@ -94,6 +98,35 @@ void shapes_commit(void);                  // the shape into the picture, one un
 void shapes_restyle(void);                 // the bar changed: drawn again
 void shapes_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
 void shapes_log_layout(const struct uui_paintcanvas *c);
+
+// --- paint_frame.c: a box being edited, its dashed frame and handles ------------
+#define PAINT_HANDLE_PX 8                  // a handle, screen pixels
+float paint_handle_band(void);             // a handle's reach, picture pixels at this zoom
+// A box's eight handles: the corners clockwise from top-left, then the
+// sides' middles from the top. Returns 8.
+int  paint_box_handles(float x0, float y0, float x1, float y1, struct upix_pt *out);
+int  paint_handle_at(const struct upix_pt *h, int n, float x, float y);   // -1: none
+int  paint_handle_cursor(int h);           // a box handle's WIN_CURSOR_*
+void paint_draw_frame(struct ugfx_surface *s, const struct uui_paintcanvas *c, float x0, float y0, float x1, float y1);
+void paint_draw_handles(struct ugfx_surface *s, const struct uui_paintcanvas *c, const struct upix_pt *h, int n);
+// "paint: layout <what>.handle i x y w h", screen pixels, for a test.
+void paint_log_handles(const struct uui_paintcanvas *c, const char *what, const struct upix_pt *h, int n);
+
+// --- paint_paste.c: a pasted picture, floating until it is let go ---------------
+int  paste_active(void);
+// Ctrl+V / Ctrl+Shift+V: the clipboard's picture, or the first picture
+// file on it. Bigger than the canvas, it asks first (paint_ask_paste()).
+void paste_from_clipboard(int new_layer);
+void paste_from_file(const char *path, int new_layer);
+// The question's answer: PASTE_EXPAND grows the canvas to fit, PASTE_KEEP
+// floats it over the edge, PASTE_CANCEL forgets it.
+enum paste_fit { PASTE_EXPAND, PASTE_KEEP, PASTE_CANCEL };
+void paste_answer(enum paste_fit fit);
+void paste_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods);
+int  paste_key(int key);                   // Enter keeps it, Esc drops it
+void paste_commit(void);                   // into the layer, one undo step
+void paste_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
+void paste_log_layout(const struct uui_paintcanvas *c);
 
 // --- paint_layers.c: the layer stack -----------------------------------------
 // Bottom first. Every change to the stack is one undo step; choosing the

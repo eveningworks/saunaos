@@ -45,6 +45,11 @@
 
 #define CLIP_KIND_FILES 0
 #define CLIP_KIND_TEXT  1
+#define CLIP_KIND_IMAGE 2   // one entry: a QOI file under CLIP_IMAGE_DIR
+
+// Where a copied picture's file lives: the copier writes it, the page
+// names it, and clipboardd deletes the ones no page names any more.
+#define CLIP_IMAGE_DIR "/tmp/clipboard"   // in RAM: a clipboard does not outlive a boot
 
 // Written LAST when the daemon initialises the page, and checked by
 // every client: a mapping whose magic is unset is one whose other

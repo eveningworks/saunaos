@@ -32,6 +32,8 @@ What it asserts, on seeded random pictures:
     turns white into its colour; a chisel tip covers exactly its rects;
     a spray stays inside its disc, repeats for one seed, and with enough
     dots covers all of it
+  - JOINED steps (a custom step and a stroke) undo and redo as one, and
+    the step before them still undoes alone
   - UNDO: after a run of strokes and fills, each recorded with begin and
     commit, undoing all of them gives back the first picture exactly,
     redoing all gives back the last, and the state number comes back to
@@ -139,6 +141,8 @@ int main(void) {
             struct num *n = malloc(sizeof *n);
             n->before = g_val; n->after = a; g_val = a;
             if (upixundo_push(&u, &NUM, n, sizeof *n)) return 3;
+        } else if (!strcmp(cmd, "join")) {          // the next step joins the one before it
+            upixundo_join(&u);
         } else if (!strcmp(cmd, "val")) {
             printf("val %d %d\n", g_val, g_drops);
         } else if (!strcmp(cmd, "over")) {           // over OPACITY: picture 1 laid on picture 0
@@ -832,6 +836,32 @@ def main():
 
         brush_checks(rng, d, fails)
         checks += BRUSH_CHECKS[0]
+
+        # JOINED STEPS: a custom step then a stroke joined to it undo as one
+        # and redo as one; the step before them is untouched by either.
+        d.send("new 16 16 ffffffff")
+        d.send("begin")
+        d.send("stamp 3 3 3 1 ff0000ff")
+        d.send("commit")
+        after_a = d.dump()
+        val0 = d.ask("val")[1]
+        d.send("custom 41")
+        d.send("join")
+        d.send("begin")
+        d.send("stamp 10 10 3 1 ff00ff00")
+        d.send("commit")
+        both = d.dump()
+        d.ask("undo")
+        checks += 3
+        if d.dump() != after_a or d.ask("val")[1] != val0:
+            fails.append("one undo of two joined steps did not take back both")
+        d.ask("redo")
+        if d.dump() != both or d.ask("val")[1] != "41":
+            fails.append("one redo of two joined steps did not put back both")
+        d.ask("undo")
+        d.ask("undo")
+        if d.dump()[2] != [0xFFFFFFFF] * 256:
+            fails.append("the step before a joined pair did not undo on its own")
 
         # A small byte limit keeps the newest steps and drops the oldest.
         d.send("new 20 20 ffffffff")

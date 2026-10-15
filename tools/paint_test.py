@@ -57,6 +57,12 @@ What it proves, and what a broken version would still pass:
   * COLOURS: the hue strip a third along and the square's top-right
     corner make Colour 1 a full green (G 255, little R or B); R typed as 200 changes only the red; a
     stroke paints exactly that colour.
+  * PASTE: Copy picture writes a picture file for the clipboard; Ctrl+V
+    of it onto a 256 x 256 picture asks, Expand canvas makes 800 x 600
+    with the stroke where it was, and ONE Ctrl+Z takes both; Keep floats
+    it and its frame drags it 60 left; a corner handle scales it to 700
+    x 525 and the stroke lands where that puts it; Ctrl+Shift+V then Esc
+    leaves one layer.
   * TEXT EDITING: Home, Shift+Left, Ctrl+X/V and a click change the
     text and caret the box reports; its frame dragged moves it, leaving
     WHITE behind (a move that forgot to restore would leave the old
@@ -73,7 +79,8 @@ the reopened checks -- 4 of 14. (2026-10-15) The highlighter blending
 UPIX_BLEND_OVER fails both highlighter checks (black turns yellow); a
 tools_tick() that never sprays fails the spray check (10 dots, then 20);
 the colour square reading saturation backwards fails the green check
-(Colour 1 white).
+(Colour 1 white); Expand without upixundo_join() fails the one-Ctrl+Z
+check (the canvas stays 800 x 600).
 
 Usage (the VM must already be up):
 
@@ -94,7 +101,7 @@ from harness import Results  # noqa: E402
 
 PAINT = "/bin/wm/apps/paint"
 SAVED = "/var/tmp/paint_test.png"
-CTRL = {"a": "0x01", "s": "0x13", "v": "0x16", "x": "0x18", "y": "0x19", "z": "0x1a"}
+CTRL = {"a": "0x01", "c": "0x03", "s": "0x13", "v": "0x16", "x": "0x18", "y": "0x19", "z": "0x1a"}
 K_HOME, K_END, K_SHIFT_LEFT = "0xf786", "0xf787", "0xf78b"
 BLACK, WHITE, RED = (0, 0, 0), (255, 255, 255), (0xED, 0x1C, 0x24)
 K_DOWN = "0xf781"   # KEY_ARROW_DOWN
@@ -137,7 +144,9 @@ class Screen:
 
     def refresh(self):
         self.dbg.settle()
-        w = self.dbg.window(self.title)
+        # A changed picture's title gains a "*", and a refresh that did not
+        # find the window would silently keep the old offsets.
+        w = self.dbg.window(self.title) or self.dbg.window("*" + self.title)
         pic = layout(self.dbg, "canvas.picture")
         self.ok = bool(w and pic)
         if self.ok:
@@ -288,6 +297,7 @@ def run(dbg, qmp, res, tmp):
     check_shapes(dbg, qmp, res, tmp)
     check_brushes(dbg, qmp, res, tmp)
     check_colours(dbg, qmp, res, tmp)
+    check_paste(dbg, qmp, res, tmp)
 
 
 def rect(dbg, part):
@@ -1016,6 +1026,123 @@ def check_colours(dbg, qmp, res, tmp):
     px = scr.pixel(250, 100)
     res.check("...and the brush paints it", px == ((c1 >> 16) & 0xFF, (c1 >> 8) & 0xFF, c1 & 0xFF),
               f"{px} for {c1:08X}")
+    close_all(dbg)
+
+
+def paste_box(dbg):
+    for line in reversed(dbg.logs("paint: layout paste.open ", clear=False)):
+        p = line.split("paste.open ", 1)[1].split()
+        return [int(v) for v in p[2:6]] if p[0] == "1" else None
+    return None
+
+
+def check_paste(dbg, qmp, res, tmp):
+    """Copy picture, then Paste onto a smaller picture: Expand grows the
+    canvas and one Ctrl+Z takes both; Keep floats it, its frame moves it
+    and a corner handle scales it; Esc drops a paste into a new layer
+    and the layer with it -- judged by the size, the layer count and
+    pixels."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Paste: Paint opens", False, "no window")
+        return
+
+    def drag(x0, y0, x1, y1):
+        a, b = scr.at(x0, y0), scr.at(x1, y1)
+        dbg.drag(a[0], a[1], b[0], b[1], steps=16)
+        dbg.settle()
+
+    def click(part):
+        r = rect(dbg, part)
+        if r:
+            dbg.click(scr.cx + r[0] + r[2] // 2, scr.cy + r[1] + r[3] // 2)
+            dbg.settle()
+        return r
+
+    drag(100, 100, 300, 100)                    # black, 3 px, across an 800 x 600 picture
+    dbg.key(CTRL["c"], mods="ctrl")
+    dbg.settle()
+    files = dbg.send("sh ls /tmp/clipboard") or ""
+    res.check("Copy picture puts a picture file on the clipboard", ".qoi" in files, files.strip()[-120:])
+    # A new 256 x 256 picture (Icon), not saving this one.
+    dbg.key("0x0e", mods="ctrl")
+    dbg.settle()
+    click("ask.button 1")                        # Don't save
+    click("sizes.card 6")
+    click("newdlg.button 1")
+    scr.refresh()
+    st = state(dbg)
+    if not res.check("...and a new 256 x 256 picture to paste it on", st.get("w") == 256 and st.get("h") == 256,
+                     f"{st}"):
+        close_all(dbg)
+        return
+    # Bigger than the canvas: it asks. Expand canvas.
+    dbg.key(CTRL["v"], mods="ctrl")
+    dbg.settle()
+    asked = click("ask.button 1")
+    scr.refresh()
+    st, box = state(dbg), paste_box(dbg)
+    res.check("Ctrl+V of a bigger picture asks, and Expand canvas grows it to fit, the paste floating at 0,0",
+              bool(asked) and st.get("w") == 800 and st.get("h") == 600 and box == [0, 0, 800, 600],
+              f"asked {asked}, {st}, box {box}")
+    dbg.key("0x0d")
+    scr.refresh()   # the picture is 800 x 600 now, and laid out again
+    scr.shoot()
+    res.check("Enter places it: the stroke where it was, white above it",
+              scr.pixel(200, 100) == BLACK and scr.pixel(200, 90) == WHITE and paste_box(dbg) is None,
+              f"{scr.pixel(200, 100)} {scr.pixel(200, 90)}, box {paste_box(dbg)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    scr.refresh()
+    st = state(dbg)
+    res.check("ONE Ctrl+Z takes the paste and the bigger canvas", st.get("w") == 256 and st.get("h") == 256, f"{st}")
+    scr.shoot()
+    res.check("...back to white", scr.pixel(200, 100) == WHITE, f"{scr.pixel(200, 100)}")
+
+    # Keep canvas size: floating over the edge; its frame drags it left.
+    dbg.key(CTRL["v"], mods="ctrl")
+    dbg.settle()
+    click("ask.button 0")
+    drag(128, 128, 68, 128)
+    box = paste_box(dbg)
+    dbg.key("0x0d")
+    scr.shoot()
+    st = state(dbg)
+    res.check("Keep canvas size floats it; its frame moves it 60 left, and Enter keeps it there",
+              box == [-60, 0, 800, 600] and st.get("w") == 256 and scr.pixel(140, 100) == BLACK
+              and scr.pixel(140, 90) == WHITE, f"box {box}, {st}, {scr.pixel(140, 100)} {scr.pixel(140, 90)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+
+    # A corner handle scales it: the top-left one from 0,0 to 100,75.
+    dbg.key(CTRL["v"], mods="ctrl")
+    dbg.settle()
+    click("ask.button 0")
+    h = rect(dbg, "paste.handle 0")
+    if h:
+        a, b = (scr.cx + h[0] + h[2] // 2, scr.cy + h[1] + h[3] // 2), scr.at(100, 75)
+        dbg.drag(a[0], a[1], b[0], b[1], steps=16)
+        dbg.settle()
+    box = paste_box(dbg)
+    dbg.key("0x0d")
+    scr.shoot()
+    # The stroke, 100..300 at y 100 of 800 x 600, lands at 187..362 and y 162 of the 700 x 525 box.
+    dark = min(scr.pixel(220, y)[0] for y in range(160, 166))
+    res.check("a corner handle scales it: the stroke lands where the smaller box puts it",
+              box == [100, 75, 700, 525] and dark < 120 and scr.pixel(220, 140) == WHITE
+              and scr.pixel(150, 100) == WHITE, f"box {box}, darkest {dark}, {scr.pixel(220, 140)} {scr.pixel(150, 100)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+
+    # Into a new layer, then Esc: the paste and the layer both go.
+    dbg.key(CTRL["v"], mods="ctrl shift")
+    dbg.settle()
+    click("ask.button 0")
+    during = layer_stack(dbg)
+    dbg.key("0x1b")
+    dbg.settle()
+    res.check("Ctrl+Shift+V pastes into a new layer, and Esc drops it and the layer",
+              during[0] == 2 and layer_stack(dbg)[0] == 1 and paste_box(dbg) is None,
+              f"during {during}, after {layer_stack(dbg)}")
     close_all(dbg)
 
 

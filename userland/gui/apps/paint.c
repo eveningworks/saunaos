@@ -48,6 +48,7 @@
 #include "lib/ufile.h"
 #include "query_abi.h"
 #include "lib/uimg.h"
+#include "lib/uclip.h"
 #include "paint/paint.h"
 
 #define PATH_MAX_LEN 256
@@ -72,10 +73,12 @@ enum {
     CMD_SWAP,
     CMD_LAYER_NEW, CMD_LAYER_DUP, CMD_LAYER_DEL, CMD_LAYER_MERGE, CMD_LAYER_FLATTEN,
     CMD_LAYER_UP, CMD_LAYER_DOWN, CMD_LAYER_RENAME, CMD_LAYER_HIDE,
+    CMD_COPY, CMD_PASTE, CMD_PASTE_LAYER, CMD_PASTE_FILE,
     CMD_TOOL = 200,   // + enum paint_tool
     // The unsaved-changes question's answers.
     ASK_SAVE = 300, ASK_DISCARD, ASK_CANCEL,
     ASK_RASTERIZE, ASK_KEEP_TEXT,
+    ASK_EXPAND, ASK_PASTE_KEEP, ASK_PASTE_CANCEL,
     NEW_CREATE = 310, NEW_CANCEL,
 };
 
@@ -191,6 +194,12 @@ static const struct uui_menu_item file_items[] = {
 static const struct uui_menu_item edit_items[] = {
     UUI_MENU_ICON("Undo", CMD_UNDO, "Ctrl+Z", "tb-undo", 0),
     UUI_MENU_ICON("Redo", CMD_REDO, "Ctrl+Y", "tb-redo", 0),
+    UUI_MENU_SEP,
+    UUI_MENU_ICON("Copy picture", CMD_COPY, "Ctrl+C", "tb-copy", 0),
+    UUI_MENU_ICON("Paste", CMD_PASTE, "Ctrl+V", "tb-paste", 0),
+    UUI_MENU("Paste into new layer", CMD_PASTE_LAYER, "Ctrl+Shift+V"),
+    UUI_MENU_SEP,
+    UUI_MENU("Paste from file...", CMD_PASTE_FILE, 0),
 };
 static const struct uui_menu_item view_items[] = {
     UUI_MENU_ICON("Zoom in", CMD_ZOOM_IN, "Ctrl++", "tb-zoom-in", UTHEME_ACT_VIEW),
@@ -761,8 +770,27 @@ void paint_ask_rasterize(void) {
     uui_dialog_open(&g_ask, "Paint", g_ask_rows, 2, btns, 2, 0, ASK_KEEP_TEXT);
 }
 
+// P2 from the mockups: Paint.NET's three choices.
+void paint_ask_paste(const char *name, int w, int h) {
+    static const struct uui_dialog_button btns[] = {
+        { "Keep canvas size", ASK_PASTE_KEEP, 0 }, { "Expand canvas", ASK_EXPAND, UUI_DLG_PRIMARY },
+        { "Cancel", ASK_PASTE_CANCEL, 0 },
+    };
+    static char line2[96];
+    snprintf(g_ask_line, sizeof g_ask_line, "The pasted picture is bigger than the canvas.");
+    snprintf(line2, sizeof line2, "%s is %d \xd7 %d; the canvas is %d \xd7 %d.", name, w, h, g_layer->w, g_layer->h);
+    g_ask_rows[0] = g_ask_line;
+    g_ask_rows[1] = line2;
+    uui_dialog_set_bounds(&g_ask, 0, 0, uapp_width(g_app), uapp_height(g_app));
+    uui_dialog_open(&g_ask, "Paint", g_ask_rows, 2, btns, 3, 1, ASK_PASTE_CANCEL);
+}
+
 static void ask_answer(int code) {
     uui_dialog_close(&g_ask);
+    if (code == ASK_EXPAND || code == ASK_PASTE_KEEP || code == ASK_PASTE_CANCEL) {
+        paste_answer(code == ASK_EXPAND ? PASTE_EXPAND : code == ASK_PASTE_KEEP ? PASTE_KEEP : PASTE_CANCEL);
+        return;
+    }
     if (code == ASK_RASTERIZE) { layers_rasterize(layers_active()); return; }
     if (code == ASK_KEEP_TEXT) return;
     if (code == ASK_SAVE) do_save();
@@ -865,6 +893,32 @@ static void undo_redo(int redo) {
     paint_changed(r.w ? &r : 0);
 }
 
+void paint_undo(void) { undo_redo(0); }
+
+// COPY PICTURE: what shows, every layer together -- there is no selection
+// yet, so the whole picture, as Windows 11 Paint copies with none.
+static void copy_picture(void) {
+    const struct uimg *v = layers_view();
+    note(v && uclip_set_image(v) ? "Copied the picture" : "The clipboard refused the picture");
+}
+
+static void paste_file_chosen(void *ctx, const char *path) {
+    (void)ctx;
+    if (path) paste_from_file(path, 0);
+    if (g_app) uapp_redraw(g_app);
+}
+
+static void paste_file_dialog(void) {
+    if (uui_filedialog_is_open(&g_fd)) return;
+    char dir[PATH_MAX_LEN];
+    start_dir(dir, sizeof dir);
+    struct uui_filedialog_opts o = {
+        .mode = UUI_FILEDIALOG_OPEN, .title = "Paste from file", .start_dir = dir,
+        .filters = uui_imagetypes_open, .filter_count = uui_imagetypes_open_count,
+    };
+    uui_filedialog_open(g_app, &g_fd, &o, paste_file_chosen, 0);
+}
+
 static void zoom_to(int z) {
     uui_paintcanvas_set_zoom(&g_canvas, z, -1, -1);
 }
@@ -901,6 +955,13 @@ static void (*const LAYER_CMD[])(void) = {
 _Static_assert(sizeof LAYER_CMD / sizeof LAYER_CMD[0] == CMD_LAYER_HIDE - CMD_LAYER_NEW + 1,
                "one handler per CMD_LAYER_*, in their order");
 
+// Edit's copy and paste commands, in CMD_COPY's order.
+static void paste_plain(void) { paste_from_clipboard(0); }
+static void paste_layer(void) { paste_from_clipboard(1); }
+static void (*const EDIT_CMD[])(void) = { copy_picture, paste_plain, paste_layer, paste_file_dialog };
+_Static_assert(sizeof EDIT_CMD / sizeof EDIT_CMD[0] == CMD_PASTE_FILE - CMD_COPY + 1,
+               "one handler per Edit command, in their order");
+
 static void command(int code) {
     if (code >= CMD_TOOL && code < CMD_TOOL + TOOL_COUNT) { set_tool(code - CMD_TOOL); return; }
     if (tools_busy()) return;
@@ -910,6 +971,12 @@ static void command(int code) {
         code != CMD_PANEL) {
         text_commit();
         shapes_commit();
+        paste_commit();
+    }
+    if (code >= CMD_COPY && code <= CMD_PASTE_FILE) {
+        EDIT_CMD[code - CMD_COPY]();
+        if (g_app) uapp_redraw(g_app);
+        return;
     }
     if (code >= CMD_LAYER_NEW && code < CMD_LAYER_NEW + (int)(sizeof LAYER_CMD / sizeof LAYER_CMD[0])) {
         LAYER_CMD[code - CMD_LAYER_NEW]();
@@ -954,6 +1021,8 @@ static unsigned item_flags(int code) {
     switch (code) {
     case CMD_UNDO:  return upixundo_can_undo(&g_undo) ? 0 : UUI_MI_DISABLED;
     case CMD_REDO:  return upixundo_can_redo(&g_undo) ? 0 : UUI_MI_DISABLED;
+    case CMD_PASTE: case CMD_PASTE_LAYER:
+        return uclip_peek_op() == UCLIP_NONE ? UUI_MI_DISABLED : 0;
     case CMD_PANEL: return g_panel ? UUI_MI_CHECKED : 0;
     case CMD_LAYER_DEL:   return layers_count() > 1 ? 0 : UUI_MI_DISABLED;
     case CMD_LAYER_MERGE: return layers_active() > 0 ? 0 : UUI_MI_DISABLED;
@@ -985,6 +1054,7 @@ static void canvas_draw_over(void *ctx, struct ugfx_surface *s, const struct uui
     (void)ctx;
     text_draw_over(s, c);
     shapes_draw_over(s, c);
+    paste_draw_over(s, c);
 }
 
 static void canvas_handle_resize(void *ctx, int w, int h) {
@@ -1171,6 +1241,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
                      g_path[0] ? g_path : "-");
     text_log_layout();
     shapes_log_layout(&g_canvas);
+    paste_log_layout(&g_canvas);
     uapp_logf_layout("paint: layout layerstack %d current %d opacity %d tab %d text %d\n", layers_count(),
                      layers_active(), layers_opacity(layers_active()), g_ptabs.selected,
                      layers_text(layers_active()) != 0);
@@ -1398,6 +1469,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     // is Paint's, below.
     if (text_active() && g_focus.current < 0 && text_key(key, mods)) { uapp_redraw(a); return; }
     if (shapes_active() && shapes_key(key)) { uapp_redraw(a); return; }
+    if (paste_active() && paste_key(key)) { uapp_redraw(a); return; }
     switch (key) {
     case 0x0E: command(shift ? CMD_LAYER_NEW : CMD_NEW); return;     // Ctrl+N, Ctrl+Shift+N
     case 0x0F: command(CMD_OPEN); return;                            // Ctrl+O
@@ -1405,6 +1477,8 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     case 0x12: command(shift ? CMD_CANVAS : CMD_RESIZE); return;     // Ctrl+R
     case 0x1A: command(CMD_UNDO); return;                            // Ctrl+Z
     case 0x19: command(CMD_REDO); return;                            // Ctrl+Y
+    case 0x03: command(CMD_COPY); return;                            // Ctrl+C
+    case 0x16: command(shift ? CMD_PASTE_LAYER : CMD_PASTE); return; // Ctrl+V, Ctrl+Shift+V
     case 0x05: command(CMD_LAYER_MERGE); return;                     // Ctrl+E, Photoshop's
     case 0x04: if (shift) { command(CMD_LAYER_DUP); return; } break; // Ctrl+Shift+D
     case 0x06: if (shift) { command(CMD_LAYER_FLATTEN); return; } break;   // Ctrl+Shift+F

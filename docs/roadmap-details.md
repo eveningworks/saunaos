@@ -1823,8 +1823,8 @@ Manager. Left to build, in order:
 - **Next**: lasso and magic wand; a gradient fill; a brush outline as
   the pointer, sized to the brush.
 - **Stage 3, selection and the picture's size**: a rectangle selection
-  that moves, cuts, copies and pastes within Paint (an IMAGE kind on the
-  clipboard, for other apps, is a separate item), Crop to selection,
+  that moves, cuts, copies and pastes (Copy picture and Paste, floating
+  with handles, are built: 2026-10-15), Crop to selection,
   Resize (through `uimg_scale`) and the canvas size; the status bar's
   selection pane comes with it.
 - **Not v1**: zoom past the wheel's steps by a typed value; layer

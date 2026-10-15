@@ -418,7 +418,7 @@ def run(dbg, qmp, tmp, res, inst):
     res.check("the letterbox bars are the stage's ground, not the picture", sym,
               f"picture at {pxr},{pyr} in a box at {ix},{iy}, mirrored pairs {mirror}")
 
-    open_menu_item(dbg, content, 1, 6)    # View > Actual size
+    open_menu_item(dbg, content, 2, 6)    # View > Actual size (File, Edit, View)
     lay2, _ = wait_layout(dbg, content,
                           lambda l: l.has("image.picture") and l.rect("image.picture")[3] >= ih)
     res.check("Actual size fills the box and crops",
@@ -427,7 +427,7 @@ def run(dbg, qmp, tmp, res, inst):
               f"picture {lay2.rect('image.picture') if lay2.has('image.picture') else None} "
               f"in a {iw}x{ih} box -- a 1280x720 image at 1:1 must fill it")
 
-    open_menu_item(dbg, content, 1, 5)    # View > Fit to window
+    open_menu_item(dbg, content, 2, 5)    # View > Fit to window
     wait_layout(dbg, content, lambda l: l.has("image.picture") and l.rect("image.picture")[3] < ih)
 
     # --- 5. selecting the other image ---------------------------------
@@ -489,7 +489,7 @@ def run(dbg, qmp, tmp, res, inst):
 
 
     # --- 6. set as wallpaper, and the DESKTOP picks it up -------------
-    open_menu_item(dbg, content, 2, 0)    # Desktop > Set as wallpaper (fill)
+    open_menu_item(dbg, content, 3, 0)    # Desktop > Set as wallpaper (fill)
     conf = ""
     deadline = time.time() + 10
     while time.time() < deadline:

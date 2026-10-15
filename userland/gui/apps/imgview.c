@@ -50,6 +50,7 @@
 #include "ui/ulog.h"
 #include "ui/utheme.h"
 #include "keyboard.h"
+#include "lib/uclip.h"
 
 #define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
                                  // buffers; the shared widgets it uses
@@ -66,7 +67,7 @@ enum {
     CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_FIT, CMD_ACTUAL,
     CMD_ROT_L, CMD_ROT_R,
     CMD_WALLPAPER, CMD_WALLPAPER_FIT, CMD_WALLPAPER_FILL, CMD_WALLPAPER_NONE,
-    CMD_SLIDESHOW, CMD_PROPS,
+    CMD_SLIDESHOW, CMD_PROPS, CMD_COPY,
 };
 
 enum { USER_DECODED = 1, USER_THUMB };
@@ -542,6 +543,10 @@ static const struct uui_menu_item file_items[] = {
     UUI_MENU("Exit",   CMD_EXIT,   "Alt+F4"),
 };
 
+static const struct uui_menu_item edit_items[] = {
+    UUI_MENU("Copy", CMD_COPY, "Ctrl+C"),
+};
+
 static const struct uui_menu_item view_items[] = {
     UUI_MENU("Previous",      CMD_PREV,     "Left"),
     UUI_MENU("Next",          CMD_NEXT,     "Right"),
@@ -567,6 +572,7 @@ static const struct uui_menu_item desktop_items[] = {
 
 static const struct uui_menu_item menu_items[] = {
     UUI_SUBMENU("File",    file_items),
+    UUI_SUBMENU("Edit",    edit_items),
     UUI_SUBMENU("View",    view_items),
     UUI_SUBMENU("Desktop", desktop_items),
 };
@@ -870,6 +876,13 @@ static void do_command(struct uapp *a, int code) {
     case CMD_WALLPAPER_FIT:  set_wallpaper(a, "fit");  return;
     case CMD_WALLPAPER_NONE: set_wallpaper(a, NULL);   return;
     case CMD_SLIDESHOW: slideshow(a, !g_slide); break;
+    case CMD_COPY:
+        // THE PICTURE AS SHOWN, turned if it is: Windows Photos' Copy.
+        if (!g_have_img) break;
+        snprintf(g_stat_note, sizeof g_stat_note, "%s",
+                 uclip_set_image(g_rot && g_rimg.px ? &g_rimg : &g_img) ? "Copied the picture"
+                                                                        : "The clipboard refused the picture");
+        break;
     case CMD_PROPS:
         g_props = !g_props;
         g_widgets[W_FILL].hidden = g_widgets[W_FIT].hidden = !g_props || g_slide;
@@ -995,6 +1008,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         return;
     }
     if (key == 0x0F) { do_command(a, CMD_OPEN); return; }   // Ctrl-O, a control code
+    if (key == 0x03) { do_command(a, CMD_COPY); return; }   // Ctrl-C
     if (uui_key_is_shortcut(key, mods)) return;
     // THE KEYS ARE A TABLE: every one is "this key runs that command",
     // the same commands the menu and the bar run.

@@ -25,7 +25,6 @@
 #include "lib/udclick.h"
 #include "rt/sys.h"
 
-#define HANDLE_PX 8                 // a handle, screen pixels
 #define POLY_MAX 64
 #define PATH_MAX_PTS 1024
 
@@ -168,25 +167,15 @@ static int handles(struct upix_pt *out) {
     if (g_building) return 0;
     float x0, y0, x1, y1;
     box(&x0, &y0, &x1, &y1);
-    float mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
-    struct upix_pt h[8] = { { x0, y0 }, { x1, y0 }, { x1, y1 }, { x0, y1 },
-                            { mx, y0 }, { x1, my }, { mx, y1 }, { x0, my } };
-    memcpy(out, h, sizeof h);
-    return 8;
+    return paint_box_handles(x0, y0, x1, y1, out);
 }
 
-static float band(void) {
-    int z = g_canvas.zoom > 0 ? g_canvas.zoom : 100;
-    return (float)HANDLE_PX * 100.0f / (float)z;
-}
+static float band(void) { return paint_handle_band(); }
 
 static int handle_at(float x, float y) {
     struct upix_pt h[8];
     int n = handles(h);
-    float b = band() * 0.75f;
-    for (int i = 0; i < n; i++)
-        if (x >= h[i].x - b && x <= h[i].x + b && y >= h[i].y - b && y <= h[i].y + b) return i;
-    return -1;
+    return paint_handle_at(h, n, x, y);
 }
 
 static int inside_frame(float x, float y) {
@@ -298,8 +287,7 @@ void shapes_pointer(enum uui_paint_phase phase, int ix, int iy, unsigned mods) {
     if (phase == UUI_PAINT_HOVER) {
         if (g_building) { g_canvas.cursor = WIN_CURSOR_CROSSHAIR; return; }
         int h = g_open ? handle_at(x, y) : -1;
-        g_canvas.cursor = h >= 0 ? (is_line() || is_curve() ? WIN_CURSOR_MOVE : h >= 4 && h % 2 ? WIN_CURSOR_RESIZE_H
-                                    : h >= 4 ? WIN_CURSOR_RESIZE_V : WIN_CURSOR_MOVE)
+        g_canvas.cursor = h >= 0 ? (is_line() || is_curve() ? WIN_CURSOR_MOVE : paint_handle_cursor(h))
                         : g_open && inside_frame(x, y) && !is_line() && !is_curve() ? WIN_CURSOR_MOVE
                         : WIN_CURSOR_CROSSHAIR;
         return;
@@ -309,6 +297,9 @@ void shapes_pointer(enum uui_paint_phase phase, int ix, int iy, unsigned mods) {
         return;
     }
     if (phase == UUI_PAINT_UP) {
+        // WHERE IT WAS LET GO: a busy loop can drop the last motions of a
+        // drag, and the release still says where the pointer ended.
+        if (g_drag == D_MOVE || g_drag == D_HANDLE || (g_drag == D_CREATE && !is_poly())) drag_to(x, y, mods);
         if (g_drag == D_CREATE && is_poly()) {
             // The first side is down; each click from here is a corner.
             g_drag = D_NONE;
@@ -369,17 +360,7 @@ void shapes_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c) {
     if (!is_line() && !is_curve() && !g_building) {
         float x0, y0, x1, y1;
         box(&x0, &y0, &x1, &y1);
-        int sx0, sy0, sx1, sy1;
-        uui_paintcanvas_to_screen(c, (int)x0, (int)y0, &sx0, &sy0);
-        uui_paintcanvas_to_screen(c, (int)(x1 + 0.999f), (int)(y1 + 0.999f), &sx1, &sy1);
-        for (int i = sx0; i < sx1; i += 6) {
-            ugfx_fill_rect(s, i, sy0 - 1, i + 3 < sx1 ? 3 : sx1 - i, 1, UTHEME_ACCENT);
-            ugfx_fill_rect(s, i, sy1, i + 3 < sx1 ? 3 : sx1 - i, 1, UTHEME_ACCENT);
-        }
-        for (int i = sy0; i < sy1; i += 6) {
-            ugfx_fill_rect(s, sx0 - 1, i, 1, i + 3 < sy1 ? 3 : sy1 - i, UTHEME_ACCENT);
-            ugfx_fill_rect(s, sx1, i, 1, i + 3 < sy1 ? 3 : sy1 - i, UTHEME_ACCENT);
-        }
+        paint_draw_frame(s, c, x0, y0, x1, y1);
     }
     if (is_curve()) {
         // The controls' arms, dotted, from each end.
@@ -394,15 +375,7 @@ void shapes_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c) {
         }
     }
     struct upix_pt h[8];
-    int n = handles(h);
-    for (int i = 0; i < n; i++) {
-        int hx, hy;
-        uui_paintcanvas_to_screen(c, (int)h[i].x, (int)h[i].y, &hx, &hy);
-        hx -= HANDLE_PX / 2;
-        hy -= HANDLE_PX / 2;
-        ugfx_fill_rect(s, hx, hy, HANDLE_PX, HANDLE_PX, UTHEME_ACCENT);
-        ugfx_fill_rect(s, hx + 1, hy + 1, HANDLE_PX - 2, HANDLE_PX - 2, UTHEME_WHITE);
-    }
+    paint_draw_handles(s, c, h, handles(h));
 }
 
 // "paint: layout shape ...": open, kind, the box, the corners; each handle.
@@ -415,11 +388,5 @@ void shapes_log_layout(const struct uui_paintcanvas *c) {
     uapp_logf_layout("paint: layout shape.open 1 kind %d box %d %d %d %d building %d points %d\n", g_shape_kind,
                      (int)x0, (int)y0, (int)x1, (int)y1, g_building, g_npts);
     struct upix_pt h[8];
-    int n = handles(h);
-    for (int i = 0; i < n; i++) {
-        int hx, hy;
-        uui_paintcanvas_to_screen(c, (int)h[i].x, (int)h[i].y, &hx, &hy);
-        uapp_logf_layout("paint: layout shape.handle %d %d %d %d %d\n", i, hx - HANDLE_PX / 2, hy - HANDLE_PX / 2,
-                         HANDLE_PX, HANDLE_PX);
-    }
+    paint_log_handles(c, "shape", h, handles(h));
 }

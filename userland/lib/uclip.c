@@ -2,9 +2,13 @@
 // see lib/uclip.h for the API and lib/uclip_page.h for why the kernel
 // is not in this any more.
 #include "lib/uclip.h"
+#include "lib/uimg.h"
 #include "rt/sys.h"
 #include "syscall_abi.h"
+#include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <unistd.h>
 
 static volatile struct clip_page *g_page;
 static int g_out_is_drag;   // uclip_add() stages for the drag slot
@@ -272,4 +276,34 @@ int uclip_set_text(const char *s, int n) {
     memcpy(g_out.data, s, (size_t)n);
     g_out.data[n] = '\0';
     return commit();
+}
+
+// --- a picture ------------------------------------------------------------
+
+int uclip_set_image(const struct uimg *im) {
+    if (!im || !im->px || im->w <= 0 || im->h <= 0) return 0;
+    // A NAME NOTHING ELSE USES: this process and a count, so two apps
+    // copying at once cannot write the same file.
+    static unsigned n;
+    char part[96], path[96];
+    snprintf(path, sizeof path, "%s/%d-%u.qoi", CLIP_IMAGE_DIR, (int)getpid(), ++n);
+    snprintf(part, sizeof part, "%s.part", path);
+    mkdir(CLIP_IMAGE_DIR, 0777);
+    // WRITTEN, THEN RENAMED, THEN NAMED: a paster never opens a file
+    // half written, and clipboardd's sweep leaves a .part alone.
+    if (uimg_save(part, im, "qoi") != 0) { unlink(part); return 0; }
+    if (rename(part, path) != 0) { unlink(part); return 0; }
+    memset(&g_out, 0, sizeof g_out);
+    g_out.op = UCLIP_COPY;
+    g_out.kind = UCLIP_KIND_IMAGE;
+    g_out.count = 1;
+    g_out.len = (uint32_t)strlen(path) + 1;
+    memcpy(g_out.data, path, g_out.len);
+    if (!commit()) { unlink(path); return 0; }
+    return 1;
+}
+
+const char *uclip_image(const struct uclip *c) {
+    if (!c || c->op == UCLIP_NONE || c->kind != UCLIP_KIND_IMAGE || !c->count) return 0;
+    return c->data;
 }

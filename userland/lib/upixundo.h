@@ -45,6 +45,7 @@ struct upixundo_step {
     int bw, bh, aw, ah;      // a whole step's sizes before and after
     uint32_t *before, *after;
     unsigned id;             // what upixundo_state() reports at this step
+    int joined;              // undone and redone with the step before it
 };
 
 struct upixundo {
@@ -54,6 +55,7 @@ struct upixundo {
     unsigned next_id;
     struct uimg snap;        // begin()'s copy
     int snapped;
+    int join_next;           // upixundo_join(): the next step joins the last
 };
 
 void upixundo_init(struct upixundo *u, size_t limit_bytes);
@@ -73,6 +75,10 @@ int upixundo_commit(struct upixundo *u, struct uimg *im, const struct upix_rect 
 // against the limit. The redo list is gone. On -ENOMEM the step is not
 // kept and `drop` has already been called.
 int upixundo_push(struct upixundo *u, const struct upixundo_custom *ops, void *payload, size_t bytes);
+// ONE CHANGE MADE OF TWO STEPS -- the canvas grown and a picture pasted
+// into it, a layer added and filled: the next step committed or pushed
+// is undone and redone together with the one before it, as one Ctrl+Z.
+void upixundo_join(struct upixundo *u);
 
 int upixundo_can_undo(const struct upixundo *u);
 int upixundo_can_redo(const struct upixundo *u);
