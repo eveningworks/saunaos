@@ -210,9 +210,6 @@ int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
 
 // Releases the device on `slot`, if it is the bound one.
 void usb_net_unbind(uint8_t slot);
-// Frees its DMA buffers -- ONLY after xhci_disable_slot() confirmed the
-// slot off, because until then the controller may still write them.
-void usb_net_release(uint8_t slot);
 
 // --- Realtek USB Ethernet, the vendor protocol (drivers/net/rtl_usb.c) --
 
@@ -229,7 +226,6 @@ int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
                    uint32_t total);
 
 void usb_r8153_unbind(uint8_t slot);
-void usb_r8153_release(uint8_t slot);   // as usb_net_release()
 
 // The framing, exported for the KTESTs -- a bulk transfer is not a
 // frame here, and this is the part that can be tested without the

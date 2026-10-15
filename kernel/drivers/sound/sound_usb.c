@@ -871,19 +871,14 @@ void usb_audio_unbind(uint8_t slot) {
     a->running = 0;
     a->in_use = 0;         // unpublished before the core can call start()
     sound_unregister(&a->dev);
-    // The page stays: the feedback endpoint's posted TDs still WRITE into
-    // it until Disable Slot, and a claim unbinds a device that keeps
-    // running. usb_audio_release() frees it once the slot is off.
-}
-
-void usb_audio_release(uint8_t slot) {
-    for (int i = 0; i < USB_AUDIO_MAX; i++) {
-        struct audio_dev *a = &g_audio[i];
-        if (a->in_use || a->slot != slot || !a->pkt_phys) continue;
-        pmm_free_contiguous(a->pkt_phys, 1);
-        a->pkt = 0;
-        a->pkt_phys = 0;
-    }
+    // THE FEEDBACK ENDPOINT WRITES INTO THIS PAGE, and a claim unbinds a
+    // device that keeps running: the page goes back only once both
+    // endpoints have let go of what is posted, and is kept otherwise.
+    int data = xhci_cancel_endpoint(slot, a->s.ep);
+    int fb = a->fb_ep ? xhci_cancel_endpoint(slot, a->fb_ep) : 0;
+    if (data == 0 && fb == 0) pmm_free_contiguous(a->pkt_phys, 1);
+    a->pkt = 0;
+    a->pkt_phys = 0;
 }
 
 int usb_audio_bound(void) {

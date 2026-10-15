@@ -22,9 +22,6 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
 // Releases the device on `slot`, if it is the bound one. The sound core
 // publishes `device_gone` to whoever held the stream.
 void usb_audio_unbind(uint8_t slot);
-// Frees the packet page -- ONLY after xhci_disable_slot() confirmed the
-// slot off; unbind keeps it, since a claimed device keeps running.
-void usb_audio_release(uint8_t slot);
 
 // Is a USB audio device bound? The KTESTs' skip condition.
 int usb_audio_bound(void);

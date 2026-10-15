@@ -3327,6 +3327,27 @@ an event some controllers still send for the last TRB is swallowed
 The TD Size field differs by controller version -- packets from 1.0,
 KiB on 0.96 -- so `HCIVERSION` is now read and logged at bring-up.
 
+## A USB driver cancels its own transfers in unbind, and frees there
+
+**2026-10-15.** A USB driver's DMA buffers may be freed only once the
+controller will not touch them again, and unbind runs while the slot is
+still enabled -- on an unplug, and on a ring-3 claim of a device that
+keeps running. Linux's answer is the driver's own `usb_kill_urb()` in
+`disconnect()`: each in-flight transfer is cancelled and handed back
+before the driver frees. toy-os had no per-transfer cancel, so the
+first fix (6e72bafe) freed after a confirmed Disable Slot instead,
+through release hooks `usb_detach_slot()` called by name. **Declined
+on review**: the bus core named each class driver in a fourth list beside
+bind, unbind and the claim's unbind, a fifth driver would have to join
+all four, and the claim path -- no Disable Slot -- could never free.
+`xhci_cancel_endpoint()` is the cancel: Stop Endpoint, then Set TR
+Dequeue past everything queued, returning 0 only when the controller
+confirmed both (or says the endpoint was not running). Each driver's
+unbind cancels its endpoints and frees; a refusal keeps the buffers for
+good, as Disable Slot's quarantine does. A claimed device's isochronous
+frames (`isoch_close()`) go back the same way. The core still names its
+drivers in the bind and unbind lists; a driver table is the roadmap's.
+
 ## The ring-3 sound driver starts as a service, and a card keeps its kernel name whichever ring drives it
 
 `snddrv` became the default on 2026-10-07: a `/etc/services.d/snddrv`

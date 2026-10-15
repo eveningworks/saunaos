@@ -1055,6 +1055,7 @@ run on, not by order.
 - [x] ~~Out-of-order reassembly -- hold a segment past `rcv_nxt`~~ DONE 2026-09-10 -- held in `rcv` at its own offset
 - [ ] A transmit the driver refuses is a DROPPED frame (`rtl_usb` says -ENOSPC with every buffer busy) -- queue it in the stack
 - [ ] A watchdog for a USB NIC whose link stays up while traffic stops -- Linux's `dev_watchdog`; wait for a second sighting
+- [ ] A USB class-driver table -- bind and unbind still name each driver in `usb_enum.c` and `usb_claim.c`
 - [x] ~~**A passive open: listen and accept**, so something can connect TO toy-os~~ DONE 2026-08-29 -- `/bin/httpd` serves the filesystem
 - [x] ~~**A connection per child process**~~ DONE 2026-08-29 -- `/bin/inetd`; the spawn NAMES fd 0/1, so `inetd -p 7 /bin/cat` echoes
 - [x] ~~An RTL8111/8168 driver, for the Ethernet built into most laptops~~ DONE 2026-09-05 -- `r8169.c`; DHCP and 5.5 MB of TFTP

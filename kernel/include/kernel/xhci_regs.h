@@ -188,6 +188,7 @@ static inline int xhci_portsc_needs_warm(uint32_t sc) {
 #define XHCI_TRB_CONFIGURE_ENDPOINT 12
 #define XHCI_TRB_EVALUATE_CONTEXT   13
 #define XHCI_TRB_RESET_ENDPOINT     14
+#define XHCI_TRB_STOP_ENDPOINT      15
 #define XHCI_TRB_SET_TR_DEQUEUE     16
 #define XHCI_TRB_NOOP_CMD           23
 // Event ring TRB types
@@ -214,6 +215,12 @@ static inline int xhci_portsc_needs_warm(uint32_t sc) {
 #define XHCI_CC_RING_UNDERRUN       14
 #define XHCI_CC_RING_OVERRUN        15
 #define XHCI_CC_MISSED_SERVICE      23
+// Stop Endpoint on an endpoint that was not Running, and the transfer
+// events a Stop leaves for the TD it interrupted -- expected, not errors.
+#define XHCI_CC_CONTEXT_STATE_ERR   19
+#define XHCI_CC_STOPPED             26
+#define XHCI_CC_STOPPED_LEN_INVALID 27
+#define XHCI_CC_STOPPED_SHORT       28
 
 // --- extended capabilities (xECP) ------------------------------------
 #define XHCI_XECP_ID(v)     ((v) & 0xFFu)

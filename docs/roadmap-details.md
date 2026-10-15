@@ -7937,3 +7937,14 @@ and refuse `sendto` on a stream socket (`-EISCONN`/`-EOPNOTSUPP`).
 driver exceeds them today (CDC-ECM clamps to `NET_MTU`), so this is
 hardening, not a live overflow.
 
+## A USB class-driver table
+
+`usb_bind_drivers()` binds in a hard-coded order and `usb_detach_slot()`
+and `usb_claim_take()` each call every driver's unbind by name, so a new
+USB class driver joins three lists and missing one fails silently.
+Linux's `struct usb_driver` (probe, disconnect, an id table) walked by
+the core is the shape; `configuration_is_driveable()`'s class list
+would become each driver's own "can I drive this?". Named in the
+2026-10-15 review of the NIC-buffer fix (`docs/decisions/drivers.md`,
+"A USB driver cancels its own transfers in unbind").
+

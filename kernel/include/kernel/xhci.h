@@ -46,11 +46,18 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
 // and every interrupt endpoint configured on it. The one door out, used
 // by detach and by enumeration's own failure path -- a failed
 // enumeration used to leak its slot, which is what made a retry
-// impossible. Returns 0 once the controller CONFIRMED the slot off --
-// the point after which nothing of the slot's is a DMA target, so a
-// driver's own buffers may go back (usb_detach_slot()) -- and -1 when it
-// did not answer and the slot's frames stay quarantined.
-int xhci_disable_slot(uint8_t slot);
+// impossible.
+void xhci_disable_slot(uint8_t slot);
+
+// TAKE BACK EVERYTHING POSTED TO ONE ENDPOINT: Stop Endpoint, then the
+// dequeue moved past whatever was queued. 0 means the controller will
+// not touch a buffer posted there again, so its owner may free them --
+// what usb_kill_urb() guarantees a Linux driver before it frees in
+// disconnect(). -1 means it did not confirm, and the buffers must be
+// kept: a late DMA into a frame that has become a page table is an
+// unlogged reset (xhci_disable_slot()). An interrupted TD's event still
+// arrives, with ok == 0, and a driver that has unbound ignores it.
+int xhci_cancel_endpoint(uint8_t slot, uint8_t ep_addr);
 
 // Marks the slot a HUB in its input slot context (hub flag, port count,
 // and TT think time for a high-speed hub). Takes effect with the next

@@ -711,6 +711,46 @@ int xhci_add_isoch_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     return (ep_addr & 0x80) ? add_isoch(slot, ep_addr, mps, interval, done, ctx) : -1;
 }
 
+int xhci_cancel_endpoint(uint8_t slot, uint8_t ep_addr) {
+    struct xhci_ep *e = ep_find(slot, ep_addr);
+    if (!e) return 0;                    // never configured: nothing in flight
+    struct xhci_slot *sl = &g_xhci_slots[slot];
+    uint32_t dci = dci_of(ep_addr);
+
+    int cc = cmd_submit(0, XHCI_TRB_SET_TYPE(XHCI_TRB_STOP_ENDPOINT) |
+                           ((uint32_t)slot << 24) | (dci << 16), 0);
+    if (cc == XHCI_CC_CONTEXT_STATE_ERR && sl->out_ctx) {
+        // NOT RUNNING ALREADY -- halted on an unplug, stopped, never
+        // started -- which is the state Stop asks for. Believed from the
+        // controller's own context, not from the error.
+        uint32_t st = ctx_at(sl->out_ctx, dci)[0] & 7u;
+        if (st == 2 || st == 3) cc = XHCI_CC_SUCCESS;     // halted, stopped
+    }
+    if (cc != XHCI_CC_SUCCESS) {
+        klog_printf(KLOG_ERR "usb: stop endpoint 0x%x (slot %u): %s -- its "
+                    "buffers stay, the controller may still use them\n",
+                    ep_addr, slot, xhci_completion_name((uint32_t)cc));
+        return -1;
+    }
+    // Past every queued TD, so a later doorbell -- a rebind posting
+    // afresh -- cannot resume one whose buffer has been freed.
+    uint64_t deq = e->ring.phys + (uint64_t)e->ring.enqueue * sizeof(struct xhci_trb);
+    cc = cmd_submit(deq | (e->ring.cycle ? 1u : 0u),
+                    XHCI_TRB_SET_TYPE(XHCI_TRB_SET_TR_DEQUEUE) |
+                    ((uint32_t)slot << 24) | (dci << 16), 0);
+    if (cc != XHCI_CC_SUCCESS) {
+        // Stopped, but pointing at abandoned TDs: refuse posts until the
+        // halt recovery moves the dequeue, and keep the buffers.
+        e->halted = 1;
+        klog_printf(KLOG_ERR "usb: endpoint 0x%x (slot %u) stopped but its "
+                    "dequeue did not move: %s\n", ep_addr, slot,
+                    xhci_completion_name((uint32_t)cc));
+        return -1;
+    }
+    e->ring.dequeue = e->ring.enqueue;   // nothing outstanding (xhci_ring_room())
+    return 0;
+}
+
 // One Transfer Event on a bulk endpoint, as the TD it ends. An event
 // on a TRB that is not its TD's last is a SHORT packet (or an error)
 // part-way through: the TD ends there, so it is delivered now and the
@@ -882,8 +922,8 @@ int xhci_take_report(uint8_t slot, uint8_t ep_addr, void *buf, uint32_t cap) {
     return (int)len;
 }
 
-int xhci_disable_slot(uint8_t slot) {
-    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return -1;
+void xhci_disable_slot(uint8_t slot) {
+    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return;
     struct xhci_slot *sl = &g_xhci_slots[slot];
 
     // The controller first: Disable Slot stops every endpoint, so the
@@ -928,7 +968,6 @@ int xhci_disable_slot(uint8_t slot) {
         if (sl->ep0.phys)     pmm_free_contiguous(sl->ep0.phys, 1);
     }
     k_memset(sl, 0, sizeof *sl);
-    return quarantine ? -1 : 0;
 }
 
 // --- interrupts -------------------------------------------------------
@@ -1106,7 +1145,11 @@ void xhci_service(void) {
             } else {
                 struct xhci_ep *e = ep_owning(src);
                 if (!e) g_xhci.xfer_orphan++;
-                else if (code != XHCI_CC_SUCCESS && code != XHCI_CC_SHORT_PACKET) {
+                else if (code == XHCI_CC_STOPPED || code == XHCI_CC_STOPPED_LEN_INVALID ||
+                         code == XHCI_CC_STOPPED_SHORT) {
+                    // A TD that xhci_cancel_endpoint() interrupted: asked
+                    // for, not a fault. Still delivered below, as not ok.
+                } else if (code != XHCI_CC_SUCCESS && code != XHCI_CC_SHORT_PACKET) {
                     g_xhci.xfer_bad++; g_xhci.last_bad_code = code;
                     // These four HALT the endpoint: it will ignore its
                     // doorbell until Reset Endpoint. Marked here, fixed

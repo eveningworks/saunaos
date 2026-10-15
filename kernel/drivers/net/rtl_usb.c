@@ -617,11 +617,10 @@ void usb_r8153_unbind(uint8_t slot) {
     if (!d->in_use || d->slot != slot) return;
     d->in_use = 0;   // unpublished before the core can call transmit()
     net_unregister(&d->dev);
-}
-
-void usb_r8153_release(uint8_t slot) {
-    struct rtl_usb *d = &g_rtl;
-    if (d->in_use || d->slot != slot || !d->mem_phys) return;
-    pmm_free_contiguous(d->mem_phys, d->mem_pages);
+    // The buffers go back only once both endpoints have given up what
+    // they hold; a controller that did not confirm keeps them for good.
+    int in = xhci_cancel_endpoint(slot, d->ep_in);
+    int out = xhci_cancel_endpoint(slot, d->ep_out);
+    if (in == 0 && out == 0) pmm_free_contiguous(d->mem_phys, d->mem_pages);
     d->mem_phys = 0;
 }

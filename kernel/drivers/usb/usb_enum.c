@@ -494,14 +494,7 @@ void usb_detach_slot(uint8_t slot) {
     usb_net_unbind(slot);
     usb_r8153_unbind(slot);
     usb_hub_forget(slot);
-    // Unbind stops new transfers; only a CONFIRMED Disable Slot stops the
-    // ones in flight, so a driver's buffers go back after it -- and a
-    // slot the controller never answered for keeps them, quarantined.
-    if (xhci_disable_slot(slot) == 0) {
-        usb_audio_release(slot);
-        usb_net_release(slot);
-        usb_r8153_release(slot);
-    }
+    xhci_disable_slot(slot);
     if (d->cfg_phys) pmm_free_contiguous(d->cfg_phys, 1);
     d->cfg = 0; d->cfg_phys = 0; d->cfg_len = 0;
     char id[24];

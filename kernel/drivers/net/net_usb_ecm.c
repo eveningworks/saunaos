@@ -431,12 +431,10 @@ void usb_net_unbind(uint8_t slot) {
     if (!d->in_use || d->slot != slot) return;
     d->in_use = 0;   // unpublished before the core can call transmit()
     net_unregister(&d->dev);
-}
-
-void usb_net_release(uint8_t slot) {
-    struct ecm_dev *d = &g_ecm;
-    if (d->in_use || d->slot != slot || !d->mem_phys) return;
-    pmm_free_contiguous(d->mem_phys, d->mem_pages);
+    // As rtl_usb.c: freed once both endpoints have let go, else kept.
+    int in = xhci_cancel_endpoint(slot, d->ep_in);
+    int out = xhci_cancel_endpoint(slot, d->ep_out);
+    if (in == 0 && out == 0) pmm_free_contiguous(d->mem_phys, d->mem_pages);
     d->mem_phys = 0;
 }
 

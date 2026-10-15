@@ -221,7 +221,8 @@ static void isoch_close(struct isoch *q) {
     // allocator pages the holder still has a live writable PTE for.
     if (q->dma_base)
         mmap_drop_dma_region(q->dma_base, q->dma_pages);
-    if (q->dma_phys)
+    // And the frames only once the endpoint has let go of its TDs.
+    if (q->dma_phys && xhci_cancel_endpoint(q->slot, q->ep) == 0)
         pmm_free_contiguous(q->dma_phys, q->dma_pages);
     k_memset(q, 0, sizeof *q);
 }
