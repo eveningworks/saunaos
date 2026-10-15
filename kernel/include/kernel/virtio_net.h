@@ -11,6 +11,9 @@
 struct pci_device;
 void virtio_net_attach(const struct pci_device *pci);
 int  virtio_net_present(void);
+// Did attach get MSI-X or an INTx line? 0 means nothing will drain the
+// receive queue unless the adapter polls it.
+int  virtio_net_has_irq(void);
 const uint8_t *virtio_net_mac(void);
 
 // One complete Ethernet frame, no virtio header (this adds it) and no

@@ -7,6 +7,7 @@
 #include "driver.h" // DRIVER_DECLARE -- `lsdrv`
 #include "pci_driver.h"
 #include "virtio.h"
+#include "klog.h"
 
 DRIVER_DECLARE("virtio-net", "net", "virtio network device");
 
@@ -26,6 +27,11 @@ static void vnet_rx(const void *frame, uint32_t len) {
     net_rx(&VIRTIO_NET_DEV, frame, len);
 }
 
+static void vnet_poll(struct net_device *dev) {
+    (void)dev;
+    virtio_net_drain();
+}
+
 static const struct pci_match net_virtio_matches[] = {
     VIRTIO_PCI_MATCH_MODERN(VIRTIO_ID_NET), PCI_MATCH_ID(VIRTIO_PCI_VENDOR, 0x1000),
 };
@@ -38,6 +44,13 @@ static int net_virtio_probe(const struct pci_device *pci) {
     k_memcpy(VIRTIO_NET_DEV.mac, virtio_net_mac(), NET_MAC_LEN);
     VIRTIO_NET_DEV.transmit = vnet_transmit;
     virtio_net_set_rx(vnet_rx);
+    // No MSI-X and no INTx line: nothing would ever drain the receive
+    // queue, so the core polls it -- e1000.c's fallback.
+    if (!virtio_net_has_irq()) {
+        VIRTIO_NET_DEV.poll = vnet_poll;
+        VIRTIO_NET_DEV.poll_ms = 10;
+        klog_write("virtio-net: no usable interrupt -- receiving by poll\n");
+    }
     net_register(&VIRTIO_NET_DEV);
     return 0;
 }

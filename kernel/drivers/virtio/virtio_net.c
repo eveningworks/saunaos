@@ -52,6 +52,7 @@ _Static_assert(sizeof(struct virtio_net_hdr) == 12, "virtio-net header is 12 byt
 static struct virtio_device g_vdev;
 static struct virtqueue g_rxq, g_txq;
 static int g_present;
+static int g_has_irq;
 static uint8_t g_mac[6];
 static void (*g_sink)(const void *, uint32_t);
 
@@ -181,12 +182,16 @@ void virtio_net_attach(const struct pci_device *pci) {
     g_present = 1;
     virtio_driver_ok(&g_vdev);
 
+    g_has_irq = msix;
     if (!msix) {
         uint8_t line = virtio_intx_line(&g_vdev);
         if (line) {
             irq_register_handler(line, net_irq);
             pic_clear_mask(line);
             virtio_intx_enable(&g_vdev);
+            g_has_irq = 1;
         }
     }
 }
+
+int virtio_net_has_irq(void) { return g_has_irq; }

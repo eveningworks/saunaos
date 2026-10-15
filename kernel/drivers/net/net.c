@@ -179,8 +179,9 @@ int net_register(struct net_device *dev) {
 // uniprocessor for the reason input_unregister_source() gives: the
 // unregister runs FROM a driver's own teardown, so the walk merely sees
 // a shorter list on its next index. What it must not leave behind is a
-// pointer to the departed device, and there are exactly two -- frames
-// already in the receive queue, and the ARP entries it resolved.
+// pointer to the departed device, and there are exactly three -- frames
+// already in the receive queue, the ARP entries it resolved, and the
+// datagrams it started reassembling.
 void net_unregister(struct net_device *dev) {
     int idx = -1;
     for (int i = 0; i < g_count; i++) if (g_devs[i] == dev) { idx = i; break; }
@@ -193,6 +194,7 @@ void net_unregister(struct net_device *dev) {
         if (g_rxq[i].dev == dev) g_rxq[i].len = 0;
 
     arp_flush_device(dev);
+    ipv4_frag_flush_device(dev);
     dev->ip = dev->netmask = dev->gateway = 0;
     dev->link_known = dev->link_up = 0;
     dev->link_bps = 0;
@@ -263,6 +265,10 @@ void net_rx(struct net_device *dev, const void *frame, uint32_t len) {
 // queues behind a stopped driver (the qdisc); this waits for the ring,
 // which the device's completion interrupt drains in well under this.
 #define NET_TX_FULL_WAIT_NS 5000000ull
+// ...and how many retries, whatever the clock says: a tick-driven
+// clocksource (the PIT) stands still with interrupts off, so the time
+// limit alone never expires there.
+#define NET_TX_FULL_RETRIES 100000u
 
 int net_tx(struct net_device *dev, const void *frame, uint32_t len) {
     if (!dev || !frame) return -EINVAL;
@@ -272,7 +278,8 @@ int net_tx(struct net_device *dev, const void *frame, uint32_t len) {
     int rc = dev->transmit(dev, frame, len);
     if (rc == -ENOSPC) {
         uint64_t until = clocksource_now_ns() + NET_TX_FULL_WAIT_NS;
-        while (rc == -ENOSPC && clocksource_now_ns() < until) {
+        for (uint32_t n = 0; rc == -ENOSPC && n < NET_TX_FULL_RETRIES &&
+                             clocksource_now_ns() < until; n++) {
             cpu_relax();
             rc = dev->transmit(dev, frame, len);
         }

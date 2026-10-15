@@ -311,7 +311,9 @@ static void rx_done(void *ctx, uint64_t phys, uint32_t bytes, int ok) {
 
 static void tx_done(void *ctx, uint64_t phys, uint32_t bytes, int ok) {
     struct rtl_usb *d = ctx;
-    (void)bytes; (void)ok;
+    // The zero-length TD after a frame: its slot was freed by the frame's
+    // own completion and may already carry the next one.
+    if (ok && !bytes) return;
     for (int i = 0; i < RTL_BUFS; i++)
         if (d->tx_phys[i] == phys) { d->tx_busy[i] = 0; return; }
 }

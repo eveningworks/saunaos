@@ -387,7 +387,11 @@ int net_sock_sendto(int sock, uint32_t dst_ip, uint16_t dst_port,
         if (!s->local_port) return -ENOSPC;
     }
 
+    // A socket bound to a device that has GONE fails: a NULL here would
+    // mean "route it anywhere", and the datagram would leave through
+    // another card while receives still filter on the old name.
     struct net_device *dev = s->dev[0] ? net_device_by_name(s->dev) : 0;
+    if (s->dev[0] && !dev) return -ENODEV;
     int rc = udp_output(dev, dst_ip, dst_port, s->local_port, buf, len);
     if (rc < 0) return rc;
     log_flow(s, IP_PROTO_UDP, dst_ip, dst_port);

@@ -106,6 +106,11 @@ void ipv4_frag_flush(void) {
         if (g_slots[i].in_use) slot_free(&g_slots[i]);
 }
 
+void ipv4_frag_flush_device(const struct net_device *dev) {
+    for (int i = 0; i < FRAG_SLOTS; i++)
+        if (g_slots[i].in_use && g_slots[i].dev == dev) slot_free(&g_slots[i]);
+}
+
 // The matching slot, or a fresh one. When all are busy the OLDEST is
 // evicted (Linux's LRU evictor): refusing the newcomer instead would
 // let four stalled datagrams block every other one for 30 seconds.

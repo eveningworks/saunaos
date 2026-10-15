@@ -109,6 +109,9 @@ void ipv4_frag_expire(uint64_t now_ns);
 // Datagrams in progress, and forgetting them all -- for the KTESTs.
 int ipv4_frag_pending(void);
 void ipv4_frag_flush(void);
+// Forget every datagram `dev` started: a slot keeps the device for its
+// timeout report, and the device is going away (net_unregister()).
+void ipv4_frag_flush_device(const struct net_device *dev);
 
 // Route, resolve and transmit one datagram. Returns 0, or a negative
 // errno -- notably -EAGAIN when the next hop's MAC is not cached yet,

@@ -136,8 +136,10 @@ static int ecm_parse(const uint8_t *cfg, uint32_t total, struct ecm_info *out) {
             out->have_union = 1;
         } else if (in_ecm_ctrl && btype == DESC_CS_INTERFACE && blen >= 13 &&
                    cfg[o + 2] == CDC_FUNC_ETHERNET) {
+            // iMACAddress, bmEthernetStatistics (4), wMaxSegmentSize (2),
+            // then the multicast and power filter counts.
             out->mac_str = cfg[o + 3];
-            out->segment = (uint16_t)(cfg[o + 11] | ((uint16_t)cfg[o + 12] << 8));
+            out->segment = (uint16_t)(cfg[o + 8] | ((uint16_t)cfg[o + 9] << 8));
         } else if (in_ecm_ctrl && btype == DESC_ENDPOINT && blen >= 7 &&
                    (cfg[o + 3] & 0x03) == 3 && (cfg[o + 2] & 0x80)) {
             // The control interface's interrupt IN. This is the only
@@ -223,7 +225,9 @@ static void rx_done(void *ctx, uint64_t phys, uint32_t bytes, int ok) {
 
 static void tx_done(void *ctx, uint64_t phys, uint32_t bytes, int ok) {
     struct ecm_dev *e = ctx;
-    (void)bytes; (void)ok;
+    // The zero-length TD after a frame: its slot was freed by the frame's
+    // own completion and may already carry the next one.
+    if (ok && !bytes) return;
     for (int i = 0; i < NET_BUFS; i++)
         if (e->tx_phys[i] == phys) { e->tx_busy[i] = 0; return; }
 }
@@ -292,6 +296,11 @@ static int ecm_transmit(struct net_device *dev, const void *frame, uint32_t len)
         e->tx_busy[slot] = 0;
         return -EIO;
     }
+    // A frame that is an exact multiple of the packet size does not END
+    // until a short packet follows, so the device waits for more of it --
+    // rtl_usb.c's zero-length TD, FreeBSD's force_short_xfer.
+    if (e->mps && len % e->mps == 0)
+        xhci_bulk_post(e->slot, e->ep_out, e->tx_phys[slot], 0);
     return 0;
 }
 
@@ -429,4 +438,39 @@ void usb_net_release(uint8_t slot) {
     if (d->in_use || d->slot != slot || !d->mem_phys) return;
     pmm_free_contiguous(d->mem_phys, d->mem_pages);
     d->mem_phys = 0;
+}
+
+// --- KTESTs: the descriptor walk, device-free -------------------------
+#include "ktest.h"
+
+// An ECM function laid out by the CDC ECM 1.2 tables, with the filter
+// counts NONZERO: the segment size used to be read from bytes 11-12,
+// which are those counts, and a fixture with them zero (QEMU's) reads
+// 0 either way and falls back to the default MTU unnoticed.
+static const uint8_t ECM_CFG[] = {
+    0x09, 0x02, 0x50, 0x00, 0x02, 0x01, 0x00, 0xc0, 0x32,
+    0x09, 0x04, 0x00, 0x00, 0x01, 0x02, 0x06, 0x00, 0x00,   // control: CDC / ECM
+    0x05, 0x24, 0x00, 0x10, 0x01,                           // header
+    0x05, 0x24, 0x06, 0x00, 0x01,                           // union: 0 -> 1
+    0x0d, 0x24, 0x0f, 0x04, 0x00, 0x00, 0x00, 0x00,         // ethernet: iMAC 4, stats
+          0xa0, 0x05,                                       //   wMaxSegmentSize 1440
+          0x40, 0x81,                                       //   wNumberMCFilters
+          0x03,                                             //   bNumberPowerFilters
+    0x07, 0x05, 0x81, 0x03, 0x10, 0x00, 0x20,               // notify: interrupt IN
+    0x09, 0x04, 0x01, 0x00, 0x00, 0x0a, 0x00, 0x00, 0x00,   // data alt 0: none
+    0x09, 0x04, 0x01, 0x01, 0x02, 0x0a, 0x00, 0x00, 0x00,   // data alt 1
+    0x07, 0x05, 0x82, 0x02, 0x00, 0x02, 0x00,               // bulk IN, 512
+    0x07, 0x05, 0x02, 0x02, 0x00, 0x02, 0x00,               // bulk OUT
+};
+
+KTEST("usb-ecm", "the segment size comes from wMaxSegmentSize, not the filter counts") {
+    struct ecm_info e;
+    KTEST_ASSERT(ecm_parse(ECM_CFG, sizeof ECM_CFG, &e));
+    KTEST_ASSERT_EQ(e.segment, 1440);
+    KTEST_ASSERT_EQ(e.mac_str, 4);
+    KTEST_ASSERT_EQ(e.data_ifnum, 1);
+    KTEST_ASSERT_EQ(e.data_alt, 1);
+    KTEST_ASSERT_EQ(e.ep_in, 0x82);
+    KTEST_ASSERT_EQ(e.ep_out, 0x02);
+    KTEST_ASSERT_EQ(e.mps, 512);
 }

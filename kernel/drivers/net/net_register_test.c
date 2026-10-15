@@ -12,6 +12,7 @@
 #include "ktest.h"
 #include "string.h"
 #include "errno.h"
+#include "irqflags.h"
 
 static int g_tx_calls;
 static int fake_tx(struct net_device *dev, const void *frame, uint32_t len) {
@@ -192,4 +193,72 @@ KTEST("net-registry", "a card set down neither sends nor receives") {
     KTEST_ASSERT_EQ(g_fixture.rx_packets, rx + 1);
     net_poll();   // drain it while the device is still registered
     net_unregister(&g_fixture);
+}
+
+// NET-06: a slot reassembling a datagram keeps its device for the timeout
+// report; a device that goes away must take those slots with it.
+KTEST("net-registry", "removing a card drops the datagrams it was reassembling") {
+    fixture_init(0x06, 0x06, 0x06);
+    g_fixture.ip = 0x0A630002u;                    // 10.99.0.2
+    KTEST_ASSERT(net_register(&g_fixture));
+    uint8_t pkt[28];
+    k_memset(pkt, 0, sizeof pkt);
+    pkt[0] = 0x45; pkt[3] = 28;                    // 20 + 8
+    pkt[4] = 0x66; pkt[5] = 0x06;                  // id
+    pkt[6] = 0x20;                                 // MF, offset 0
+    pkt[8] = 64; pkt[9] = 17;
+    pkt[12] = 10; pkt[13] = 99; pkt[15] = 1;       // from 10.99.0.1
+    pkt[16] = 10; pkt[17] = 99; pkt[19] = 2;
+    int before = ipv4_frag_pending();
+    ipv4_frag_input(&g_fixture, pkt, 20, sizeof pkt, 1);
+    int held = ipv4_frag_pending();
+    net_unregister(&g_fixture);
+    int after = ipv4_frag_pending();
+    KTEST_ASSERT_EQ(held, before + 1);
+    KTEST_ASSERT_EQ(after, before);
+}
+
+// NET-10: a socket bound to a card that has gone must not send through
+// whichever card the route picks instead.
+KTEST("net-registry", "a send on a socket bound to a removed card fails") {
+    fixture_init(0x10, 0x10, 0x10);
+    g_fixture.ip = 0x0A640002u;                    // 10.100.0.2/24
+    g_fixture.netmask = 0xFFFFFF00u;
+    KTEST_ASSERT(net_register(&g_fixture));
+    char name[NET_NAME_MAX];
+    k_strlcpy(name, g_fixture.name, sizeof name);
+    int s = net_sock_open(NET_AF_INET, NET_SOCK_DGRAM, IP_PROTO_UDP);
+    int bound = net_sock_bind(s, 0, 7811, name);
+    net_unregister(&g_fixture);
+    g_tx_calls = 0;
+    int rc = net_sock_sendto(s, 0x0A640001u, 9, "x", 1);
+    net_sock_close(s);
+    KTEST_ASSERT_EQ(bound, 7811);
+    KTEST_ASSERT_EQ(rc, -ENODEV);
+}
+
+// NET-07: a ring that never drains, with interrupts off. On a clock that
+// only moves on the tick (boot with clocksource=pit) the time limit alone
+// never expired and this never returned.
+static int full_tx(struct net_device *dev, const void *frame, uint32_t len) {
+    (void)dev; (void)frame; (void)len;
+    g_tx_calls++;
+    return -ENOSPC;
+}
+
+KTEST("net-registry", "a transmit ring that never drains is given up on, interrupts off") {
+    fixture_init(0x07, 0x07, 0x07);
+    g_fixture.transmit = full_tx;
+    KTEST_ASSERT(net_register(&g_fixture));
+    uint8_t frame[60];
+    k_memset(frame, 0xFF, sizeof frame);
+    g_tx_calls = 0;
+    uint64_t f = irq_save();
+    int rc = net_tx(&g_fixture, frame, sizeof frame);
+    irq_restore(f);
+    int dropped = (int)g_fixture.tx_dropped;
+    net_unregister(&g_fixture);
+    KTEST_ASSERT_EQ(rc, -ENOSPC);
+    KTEST_ASSERT_EQ(dropped, 1);
+    KTEST_ASSERT(g_tx_calls > 1);                  // it did wait before giving up
 }

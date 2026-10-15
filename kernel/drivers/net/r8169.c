@@ -244,7 +244,13 @@ static int alloc_rings(void) {
     uint64_t tx_ring = pmm_alloc_contiguous(1, PMM_ZONE_DMA32);
     uint64_t rx_bufs = pmm_alloc_contiguous((RX_DESCS * BUF_SIZE) / 4096, PMM_ZONE_DMA32);
     uint64_t tx_bufs = pmm_alloc_contiguous((TX_DESCS * BUF_SIZE) / 4096, PMM_ZONE_DMA32);
-    if (!rx_ring || !tx_ring || !rx_bufs || !tx_bufs) return 0;
+    if (!rx_ring || !tx_ring || !rx_bufs || !tx_bufs) {
+        if (rx_ring) pmm_free_contiguous(rx_ring, 1);
+        if (tx_ring) pmm_free_contiguous(tx_ring, 1);
+        if (rx_bufs) pmm_free_contiguous(rx_bufs, (RX_DESCS * BUF_SIZE) / 4096);
+        if (tx_bufs) pmm_free_contiguous(tx_bufs, (TX_DESCS * BUF_SIZE) / 4096);
+        return 0;
+    }
 
     // A page is 256-byte aligned, which is what both ring registers
     // require of their base address.
