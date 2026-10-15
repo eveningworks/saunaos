@@ -557,7 +557,7 @@ int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
     uint8_t mac[NET_MAC_LEN];
     if (rtl_reg_read_mem(PLA_BACKUP, MCU_PLA, g_reg_buf, 8) < 8) {
         klog_printf("usb: slot %u: %s MAC unreadable -- not bound\n", info->slot, d->ops->name);
-        pmm_free_contiguous(d->mem_phys, d->mem_pages);
+        pmm_free_contiguous(d->mem_phys, d->mem_pages); d->mem_phys = 0;
         return 0;
     }
     for (int i = 0; i < NET_MAC_LEN; i++) mac[i] = g_reg_buf[i];
@@ -570,7 +570,7 @@ int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
         // hardware does not answer to is worse than no adapter.
         klog_printf("usb: slot %u: %s MAC is not a unicast address "
                     "-- not bound\n", info->slot, d->ops->name);
-        pmm_free_contiguous(d->mem_phys, d->mem_pages);
+        pmm_free_contiguous(d->mem_phys, d->mem_pages); d->mem_phys = 0;
         return 0;
     }
     for (int i = 0; i < NET_MAC_LEN; i++) d->dev.mac[i] = mac[i];
@@ -581,7 +581,7 @@ int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
         xhci_add_bulk(info->slot, ep_out, mps, tx_done, d) < 0) {
         klog_printf("usb: slot %u: %s bulk endpoints 0x%02x/0x%02x not "
                     "configured\n", info->slot, d->ops->name, ep_in, ep_out);
-        pmm_free_contiguous(d->mem_phys, d->mem_pages);
+        pmm_free_contiguous(d->mem_phys, d->mem_pages); d->mem_phys = 0;
         return 0;
     }
 
@@ -597,7 +597,7 @@ int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
     usb_device_id(info, d->dev.device_id, sizeof d->dev.device_id);
     if (!net_register(&d->dev)) {
         d->in_use = 0;
-        pmm_free_contiguous(d->mem_phys, d->mem_pages);
+        pmm_free_contiguous(d->mem_phys, d->mem_pages); d->mem_phys = 0;
         return 0;
     }
 
@@ -615,4 +615,11 @@ void usb_r8153_unbind(uint8_t slot) {
     if (!d->in_use || d->slot != slot) return;
     d->in_use = 0;   // unpublished before the core can call transmit()
     net_unregister(&d->dev);
+}
+
+void usb_r8153_release(uint8_t slot) {
+    struct rtl_usb *d = &g_rtl;
+    if (d->in_use || d->slot != slot || !d->mem_phys) return;
+    pmm_free_contiguous(d->mem_phys, d->mem_pages);
+    d->mem_phys = 0;
 }

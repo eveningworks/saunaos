@@ -69,6 +69,7 @@ struct ecm_dev {
     uint16_t mps;
 
     uint64_t mem_phys;
+    uint32_t mem_pages;
     uint8_t *rx[NET_BUFS];
     uint8_t *tx[NET_BUFS];
     uint64_t rx_phys[NET_BUFS], tx_phys[NET_BUFS];
@@ -331,6 +332,7 @@ int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
     uint64_t need = (uint64_t)NET_BUFS * 2 * NET_BUF_SIZE;
     uint64_t pages = (need + 4095) / 4096;
     d->mem_phys = pmm_alloc_contiguous(pages, PMM_ZONE_DMA32);
+    d->mem_pages = (uint32_t)pages;
     if (!d->mem_phys) {
         klog_write("usb: no contiguous frames for the CDC-ECM buffers\n");
         return 0;
@@ -348,7 +350,7 @@ int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
     if (set_interface(info->slot, e.data_ifnum, e.data_alt) < 0) {
         klog_printf(KLOG_ERR "usb: slot %u: set interface %u alt %u failed\n",
                     info->slot, e.data_ifnum, e.data_alt);
-        pmm_free_contiguous(d->mem_phys, pages);
+        pmm_free_contiguous(d->mem_phys, pages); d->mem_phys = 0;
         return 0;
     }
     d->ep_notify = e.ep_notify;
@@ -364,7 +366,7 @@ int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
         xhci_add_bulk(info->slot, e.ep_out, e.mps, tx_done, d) < 0) {
         klog_printf("usb: slot %u: bulk endpoints 0x%02x/0x%02x not "
                     "configured\n", info->slot, e.ep_in, e.ep_out);
-        pmm_free_contiguous(d->mem_phys, pages);
+        pmm_free_contiguous(d->mem_phys, pages); d->mem_phys = 0;
         return 0;
     }
 
@@ -394,7 +396,7 @@ int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
     usb_device_id(info, d->dev.device_id, sizeof d->dev.device_id);
     if (!net_register(&d->dev)) {
         d->in_use = 0;
-        pmm_free_contiguous(d->mem_phys, pages);
+        pmm_free_contiguous(d->mem_phys, pages); d->mem_phys = 0;
         return 0;
     }
 
@@ -420,4 +422,11 @@ void usb_net_unbind(uint8_t slot) {
     if (!d->in_use || d->slot != slot) return;
     d->in_use = 0;   // unpublished before the core can call transmit()
     net_unregister(&d->dev);
+}
+
+void usb_net_release(uint8_t slot) {
+    struct ecm_dev *d = &g_ecm;
+    if (d->in_use || d->slot != slot || !d->mem_phys) return;
+    pmm_free_contiguous(d->mem_phys, d->mem_pages);
+    d->mem_phys = 0;
 }

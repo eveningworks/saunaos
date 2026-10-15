@@ -29,6 +29,7 @@ and the serial console does not care who owns the keyboard.
 """
 import argparse
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -437,6 +438,55 @@ def phase_hotplug(instance, kvm=False):
         g.cleanup()
 
 
+NET_REPLUGS = 5
+
+
+def phase_net_replug(instance, kvm=False):
+    """A USB NIC plugged and unplugged over and over gives its memory back.
+
+    QEMU's usb-net offers RNDIS FIRST and CDC-ECM second, so binding at
+    all proves the configuration picker passes over RNDIS. The oracle is
+    the frame allocator's free count after each unplug: the driver's
+    DMA buffers (four frames for ECM) leaked on every detach until they
+    were released after Disable Slot, so a leak shows as a staircase.
+    """
+    print("\nphase 7: USB NIC replug")
+    g = Guest(instance, "xhci", kvm)
+    try:
+        if not g.start():
+            return check("guest boots for the NIC replug test", False)
+        d = g.console()
+        qmp = g.qmp()
+        qmp._cmd({"execute": "netdev_add", "arguments": {"type": "user", "id": "un0"}})
+
+        def free_frames():
+            m = re.search(r"free:\s+(\d+)", d.send("sh meminfo") or "")
+            return int(m.group(1)) if m else None
+
+        frees = []
+        for _ in range(NET_REPLUGS + 1):
+            qmp.device_add("usb-net", "hotnet", bus="xhci.0", netdev="un0")
+            time.sleep(3.0)      # deferred work runs at idle; generous
+            qmp.device_del("hotnet")
+            time.sleep(3.0)
+            frees.append(free_frames())
+
+        log = d.send("sh dmesg") or ""
+        binds = log.count("bound as cdc-ecm")
+        check("QEMU's usb-net bound as CDC-ECM on every plug (RNDIS passed over)",
+              binds == NET_REPLUGS + 1, f"{binds} of {NET_REPLUGS + 1}")
+        check("every plug was detached again",
+              log.count("RNDIS/QEMU USB Network Device\" detached") == NET_REPLUGS + 1)
+        # The first cycle settles one-off allocations; after it, a leak
+        # of even one buffer set per replug is NET_REPLUGS * 4 frames.
+        ok = None not in frees and frees[0] - frees[-1] <= 2
+        check("replugging the NIC does not leak frames",
+              ok, f"free after each unplug: {frees}")
+        return True
+    finally:
+        g.cleanup()
+
+
 def phase_hub(instance, kvm=False):
     """A keyboard and mouse BEHIND A HUB both work -- the route-string path.
 
@@ -520,7 +570,7 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--instance", default="auto")
     ap.add_argument("--phase", choices=("all", "keyboard", "wrap", "mouse",
-                                        "hotplug", "hub", "wide"),
+                                        "hotplug", "hub", "wide", "netreplug"),
                     default="all")
     # The INTx storm class this driver's acknowledge path guards against
     # is INVISIBLE under TCG -- virtio-input's version of it hung 3 boots
@@ -556,6 +606,8 @@ def main():
         phase_hub(inst, args.kvm)
     if args.phase in ("all", "wide"):
         phase_wide(inst, args.kvm)
+    if args.phase in ("all", "netreplug"):
+        phase_net_replug(inst, args.kvm)
 
     failed = [n for n, ok, _ in results if not ok]
     print(f"\nusb_test: {len(results) - len(failed)}/{len(results)} checks passed")

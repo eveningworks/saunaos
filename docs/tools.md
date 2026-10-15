@@ -4831,7 +4831,7 @@ window without going through it will find its layout polls timing out.
 
 - **`usb_test.py`** -- an xHCI controller and a HID boot keyboard and
   mouse (`vm.py --usb xhci` / `--usb xhci+mouse` / `--usb xhci+hub`, or
-  `make run USB=xhci+mouse`). Six phases: keyboard, ring wrap, mouse,
+  `make run USB=xhci+mouse`). Seven phases: keyboard, ring wrap, mouse,
   HOT-PLUG (QMP `device_add`/`device_del` on the running guest -- the
   only headless stand-in for a human plugging a mouse in, and the
   detach check must scope its lsdev assertion to the Input sources
@@ -4841,7 +4841,14 @@ window without going through it will find its layout polls timing out.
   full-speed, so the TT path stays hardware-only), and WIDE (`--usb
   xhci+wide`: a 30-port controller with the keyboard on port 20, since
   `XHCI_MAX_PORTS` was 16 and a Kaby Lake PCH's SuperSpeed ports are
-  17..22 -- QEMU numbers USB3 first, so its USB2 ports land at 16..30).
+  17..22 -- QEMU numbers USB3 first, so its USB2 ports land at 16..30),
+  and NETREPLUG (QEMU's `usb-net` plugged and unplugged six times
+  behind a QMP `netdev_add`: it must bind as CDC-ECM every time --
+  it offers RNDIS first, so this proves the configuration picker passes
+  over it -- and the frame allocator's free count after each unplug
+  must not fall, where a driver keeping its DMA buffers falls four
+  frames a replug. A leak check that passes because nothing bound is
+  why the bind count is asserted too).
 
   **It is self-controlling, and that was measured before a line of the
   driver was written.** QEMU activates a keyboard handler the moment

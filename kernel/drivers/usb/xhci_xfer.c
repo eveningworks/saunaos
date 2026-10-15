@@ -882,8 +882,8 @@ int xhci_take_report(uint8_t slot, uint8_t ep_addr, void *buf, uint32_t cap) {
     return (int)len;
 }
 
-void xhci_disable_slot(uint8_t slot) {
-    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return;
+int xhci_disable_slot(uint8_t slot) {
+    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return -1;
     struct xhci_slot *sl = &g_xhci_slots[slot];
 
     // The controller first: Disable Slot stops every endpoint, so the
@@ -928,6 +928,7 @@ void xhci_disable_slot(uint8_t slot) {
         if (sl->ep0.phys)     pmm_free_contiguous(sl->ep0.phys, 1);
     }
     k_memset(sl, 0, sizeof *sl);
+    return quarantine ? -1 : 0;
 }
 
 // --- interrupts -------------------------------------------------------

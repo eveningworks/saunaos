@@ -738,6 +738,7 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
         klog_printf(KLOG_ERR "usb: slot %u: set interface %u alt %u failed\n",
                     info->slot, s.ifnum, s.alt);
         pmm_free_contiguous(a->pkt_phys, 1);
+        a->pkt_phys = 0;
         return 0;
     }
     if (xhci_add_isoch_out(info->slot, s.ep, mps, s.interval,
@@ -745,6 +746,7 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
         klog_printf("usb: slot %u: isochronous endpoint 0x%x not configured\n",
                     info->slot, s.ep);
         pmm_free_contiguous(a->pkt_phys, 1);
+        a->pkt_phys = 0;
         return 0;
     }
     // THE FEEDBACK ENDPOINT, when the stream is asynchronous. Every
@@ -777,6 +779,7 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
                     info->slot, (unsigned)SND_RATE);
         a->in_use = 0;
         pmm_free_contiguous(a->pkt_phys, 1);
+        a->pkt_phys = 0;
         return 0;
     }
 
@@ -838,6 +841,7 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
     if (!sound_register(&a->dev, (void *)a->ring, 0)) {
         a->in_use = 0;
         pmm_free_contiguous(a->pkt_phys, 1);
+        a->pkt_phys = 0;
         return 0;
     }
     usb_mark_bound(info, "usb-audio");
@@ -867,9 +871,19 @@ void usb_audio_unbind(uint8_t slot) {
     a->running = 0;
     a->in_use = 0;         // unpublished before the core can call start()
     sound_unregister(&a->dev);
-    pmm_free_contiguous(a->pkt_phys, 1);
-    a->pkt = 0;
-    a->pkt_phys = 0;
+    // The page stays: the feedback endpoint's posted TDs still WRITE into
+    // it until Disable Slot, and a claim unbinds a device that keeps
+    // running. usb_audio_release() frees it once the slot is off.
+}
+
+void usb_audio_release(uint8_t slot) {
+    for (int i = 0; i < USB_AUDIO_MAX; i++) {
+        struct audio_dev *a = &g_audio[i];
+        if (a->in_use || a->slot != slot || !a->pkt_phys) continue;
+        pmm_free_contiguous(a->pkt_phys, 1);
+        a->pkt = 0;
+        a->pkt_phys = 0;
+    }
 }
 
 int usb_audio_bound(void) {

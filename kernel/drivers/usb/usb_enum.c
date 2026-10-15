@@ -236,7 +236,14 @@ static int configuration_is_driveable(const uint8_t *cfg, uint32_t total,
         if (cfg[o + 1] == DESC_INTERFACE && blen >= 9) {
             uint8_t cls = cfg[o + 5];
             if (cls == USB_CLASS_HID || cls == USB_CLASS_HUB ||
-                cls == USB_CLASS_AUDIO || cls == USB_CLASS_CDC)
+                cls == USB_CLASS_AUDIO)
+                return 1;
+            // CDC is a family, and only ECM (subclass 6) has a driver.
+            // RNDIS (2/2/0xff) counted as driveable kept every device
+            // that offers it FIRST -- QEMU's usb-net, many phones -- off
+            // its ECM configuration; Linux's usb_choose_configuration()
+            // passes over RNDIS the same way.
+            if (cls == USB_CLASS_CDC && cfg[o + 6] == 0x06)
                 return 1;
             if (cls == USB_CLASS_VENDOR && usb_r8153_claims(vid, pid))
                 return 1;
@@ -487,7 +494,14 @@ void usb_detach_slot(uint8_t slot) {
     usb_net_unbind(slot);
     usb_r8153_unbind(slot);
     usb_hub_forget(slot);
-    xhci_disable_slot(slot);
+    // Unbind stops new transfers; only a CONFIRMED Disable Slot stops the
+    // ones in flight, so a driver's buffers go back after it -- and a
+    // slot the controller never answered for keeps them, quarantined.
+    if (xhci_disable_slot(slot) == 0) {
+        usb_audio_release(slot);
+        usb_net_release(slot);
+        usb_r8153_release(slot);
+    }
     if (d->cfg_phys) pmm_free_contiguous(d->cfg_phys, 1);
     d->cfg = 0; d->cfg_phys = 0; d->cfg_len = 0;
     char id[24];
