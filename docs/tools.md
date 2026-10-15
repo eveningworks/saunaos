@@ -4084,6 +4084,13 @@ window without going through it will find its layout polls timing out.
   and a 35-check suite passed it: every check asserted on the app's LOG,
   and the widgets were live, hit-testable and simply never painted. In
   `gui_regress.py`.
+- **`caption_corner_test.py`** -- a maximized window's close button
+  owns the screen's top-right corner (`title_btn_at()`). Probes the
+  corner and the top row, then clicks the corner with the REAL pointer
+  -- press arms, release commits -- because a probe alone could agree
+  with a copy of the hit test rather than the click. Controls: a
+  restored window's corner is its frame, and the column below the title
+  bar is content. In `gui_regress.py`.
 - **`window_geometry_test.py`** -- windows come back where you left
   them (`userland/wm/wm_geometry.c`). Most of it drives the RESTORE half
   from a hand-written `/etc/windows.conf` rather than from a previous

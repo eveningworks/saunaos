@@ -100,6 +100,25 @@ static int title_tab_hit(const struct window *w, int mx, int my, int *out_tab) {
     return -1;
 }
 
+// See wm_internal.h. A MAXIMIZED window's buttons reach the screen
+// edges they sit against -- the top row for all three, the right
+// column for close -- so a flick into the top-right corner closes it,
+// as on Windows and KWin. Drawing is unchanged: those pixels are the
+// hairline's.
+int title_btn_at(const struct window *w, int mx, int my) {
+    struct btn_rects r = title_buttons(w);
+    int top = r.y, close_w = r.w;
+    if (w->state == WIN_MAXIMIZED) {
+        top = w->y;
+        close_w = w->x + w->w - r.close_x;
+    }
+    int h = r.y + r.h - top;
+    if (uui_hit(r.min_x, top, r.w, h, mx, my)) return 0;
+    if (uui_hit(r.max_x, top, r.w, h, mx, my)) return 1;
+    if (uui_hit(r.close_x, top, close_w, h, mx, my)) return 2;
+    return -1;
+}
+
 static int title_btn_hit_test(int mx, int my, int *out_kind) {
     for (int i = window_count - 1; i >= 0; i--) {
         struct window *w = &windows[i];
@@ -107,10 +126,8 @@ static int title_btn_hit_test(int mx, int my, int *out_kind) {
         if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;
         if (!window_has_chrome(w)) return -1;      // fullscreen: nothing to press
         if (my >= w->y + WM_TITLEBAR_H) return -1; // topmost window here, but below its title bar
-        struct btn_rects r = title_buttons(w);
-        if (uui_hit(r.min_x, r.y, r.w, r.h, mx, my)) { *out_kind = 0; return i; }
-        if (uui_hit(r.max_x, r.y, r.w, r.h, mx, my)) { *out_kind = 1; return i; }
-        if (uui_hit(r.close_x, r.y, r.w, r.h, mx, my)) { *out_kind = 2; return i; }
+        int kind = title_btn_at(w, mx, my);
+        if (kind >= 0) { *out_kind = kind; return i; }
         int tab;
         int k = title_tab_hit(w, mx, my, &tab);
         if (k >= 0) { *out_kind = k; title_tab_idx = tab; return i; }
@@ -313,7 +330,6 @@ void wm_handle_left_click(int mx, int my) {
         }
 
         if (window_has_chrome(w) && my < w->y + WM_TITLEBAR_H) {
-            struct btn_rects r = title_buttons(w);
             // Windows/KDE-style delayed commit: mouse-down here only
             // ARMS the button (shows a pressed visual) -- the actual
             // minimize/maximize/close only happens on release, and only
@@ -326,30 +342,11 @@ void wm_handle_left_click(int mx, int my) {
             // a window with a modal dialog is brought forward by
             // wm_request_close(), and such a window never reaches this
             // press -- the blocker check above takes it.)
-            if (uui_hit(r.min_x, r.y, r.w, r.h, mx, my)) {
+            int kind = title_btn_at(w, mx, my);
+            if (kind >= 0) {
                 title_btn_armed_win = i;
                 damage_title_buttons(i);   // the pressed look arrives
-                title_btn_armed_kind = 0;
-                title_btn_pressed_active = 1;
-                title_hover_win = -1;
-                title_hover_kind = -1;
-                redraw_pending = 1;
-                return;
-            }
-            if (uui_hit(r.max_x, r.y, r.w, r.h, mx, my)) {
-                title_btn_armed_win = i;
-                damage_title_buttons(i);   // the pressed look arrives
-                title_btn_armed_kind = 1;
-                title_btn_pressed_active = 1;
-                title_hover_win = -1;
-                title_hover_kind = -1;
-                redraw_pending = 1;
-                return;
-            }
-            if (uui_hit(r.close_x, r.y, r.w, r.h, mx, my)) {
-                title_btn_armed_win = i;
-                damage_title_buttons(i);   // the pressed look arrives
-                title_btn_armed_kind = 2;
+                title_btn_armed_kind = kind;
                 title_btn_pressed_active = 1;
                 title_hover_win = -1;
                 title_hover_kind = -1;
@@ -1280,11 +1277,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
 void wm_update_title_btn_press(int mx, int my, uint8_t buttons) {
     if (title_btn_armed_win < 0) return;
     struct window *w = &windows[title_btn_armed_win];
-    struct btn_rects r = title_buttons(w);
-    int bx = (title_btn_armed_kind == 0) ? r.min_x
-           : (title_btn_armed_kind == 1) ? r.max_x
-           : r.close_x;
-    int now_over = uui_hit(bx, r.y, r.w, r.h, mx, my);
+    int now_over = title_btn_at(w, mx, my) == title_btn_armed_kind;
     if (title_btn_armed_kind >= 4) {   // a tab's close box, or the "+"
         int tab = -1;
         now_over = title_tab_hit(w, mx, my, &tab) == title_btn_armed_kind &&

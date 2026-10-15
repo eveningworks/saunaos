@@ -156,6 +156,7 @@ TOOLS = [
     ("sched", "sched_gui_test.py", "the desktop stays live while a process runs"),
     ("blank", "blank_window_test.py", "no app opens a blank window"),
     ("wingeom", "window_geometry_test.py", "windows come back where you left them"),
+    ("capcorner", "caption_corner_test.py", "a maximized window closes from the top-right screen corner"),
     ("compositor", "compositor_test.py", "raw input to a ring-3 compositor"),
     ("screen", "screen_surface_test.py", "a ring-3 compositor's screen surface"),
     ("compdeath", "compositor_death_test.py", "the compositor death path (R7)"),

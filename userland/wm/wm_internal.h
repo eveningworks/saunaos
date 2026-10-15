@@ -563,6 +563,10 @@ int  wm_damage_verify_enabled(void);
 // the same square for discs, the bar's full height for rectangles.
 struct btn_rects { int min_x, max_x, close_x, y, size, w, h; };
 struct btn_rects title_buttons(const struct window *win);
+// A point on a window's caption buttons: 0 minimize, 1 maximize, 2
+// close, -1 none. THE ONE HIT TEST -- hover, press, release and `gui
+// probe` -- which is not title_buttons()'s drawn rects (wm_input.c).
+int title_btn_at(const struct window *w, int mx, int my);
 
 // A window's title-bar TABS, laid out ONCE for drawing, hit-testing and
 // `gui windows --json` -- three callers that must not disagree.

@@ -5412,6 +5412,18 @@ and the clamps correctly refuse -- which reads as five broken
 directions. `tools/resize_edges_test.py` resets, and asserts the reset
 worked, so a fixture failure says so instead of blaming the WM.
 
+## A MAXIMIZED WINDOW'S CAPTION BUTTONS REACH THE SCREEN EDGE, AND ONE `title_btn_at()` HIT-TESTS THEM
+
+`title_buttons()` is where the buttons are DRAWN; `title_btn_at()` is
+where they are HIT, and the two differ on a maximized window: all three
+reach up to the top row and close reaches the right column, so a flick
+into the top-right corner closes it (Fitts -- Windows and KWin do the
+same). The drawing stays put; the corner pixels are the hairline's.
+Hover, press, release and `gui probe` all call it -- a fifth caller
+that re-derives the rects from `title_buttons()` gets the drawn ones and
+a dead corner. `tools/caption_corner_test.py` clicks the corner with the
+real pointer.
+
 ### A long alpha run is one span, not a loop of `ugfx_blend_pixel()`
 
 `ugfx_blend_pixel()` re-checks the surface, the bounds and the clip and
