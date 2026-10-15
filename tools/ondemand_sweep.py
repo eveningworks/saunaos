@@ -97,6 +97,9 @@ TOOLS = [
     # -- against a reference written in Python; gcc and the stdlib only.
     ("upixel_host", "upixel_hostcheck.py",     "paint stamps, fills and undo against Python", False,
      None,                                                                                   False),
+    # lib/ucolour -- HSV and HSL for the colour picker -- against colorsys.
+    ("ucolour_host", "ucolour_hostcheck.py",   "colour HSV/HSL conversions against colorsys", False,
+     None,                                                                                   False),
     # lib/uora -- OpenRaster, Paint's layered save -- against zipfile,
     # ElementTree and Pillow, both ways; gcc and Pillow.
     ("ora_host", "ora_hostcheck.py",           "OpenRaster both ways against Python and Pillow", False,

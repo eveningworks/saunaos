@@ -560,6 +560,7 @@ int main(int argc, char **argv) {
     g_ins_desc.rows = 2;
     uui_label_set_wrap(&g_ins_desc, 2);
     uui_colourpick_init(&g_pick, ID_PICK, 0);
+    uui_colourpick_show_swatch(&g_pick, 1);
     g_contrast = (struct uui_custom){ .w = cw * 22, .h = (ch + 4) * 4, .draw = draw_contrast };
     int n = 0;
     g_ins_items[n++] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_ins_title, .flags = UUI_FILL_W,

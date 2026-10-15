@@ -45,6 +45,42 @@ uint32_t ucolour_from_hsl(const struct ucolour_hsl *c) {
            byte(hue_part(p, q, h - 1.0f / 3));
 }
 
+void ucolour_to_hsv(uint32_t rgb, struct ucolour_hsv *io) {
+    float r = chan(rgb, 16), g = chan(rgb, 8), b = chan(rgb, 0);
+    float mx = r > g ? (r > b ? r : b) : (g > b ? g : b);
+    float mn = r < g ? (r < b ? r : b) : (g < b ? g : b);
+    float d = mx - mn;
+    io->v = mx;
+    if (mx <= 0) return;   // black: hue and saturation stay what they were
+    io->s = d / mx;
+    if (d <= 0) return;    // a grey: the hue stays
+    float h;
+    if (mx == r)      h = (g - b) / d + (g < b ? 6.0f : 0.0f);
+    else if (mx == g) h = (b - r) / d + 2.0f;
+    else              h = (r - g) / d + 4.0f;
+    h *= 60.0f;
+    io->h = h >= 360.0f ? h - 360.0f : h;
+}
+
+uint32_t ucolour_from_hsv(const struct ucolour_hsv *c) {
+    float h = c->h, s = c->s < 0 ? 0 : c->s > 1 ? 1 : c->s, v = c->v < 0 ? 0 : c->v > 1 ? 1 : c->v;
+    while (h < 0) h += 360.0f;
+    while (h >= 360.0f) h -= 360.0f;
+    float f = h / 60.0f;
+    int i = (int)f;
+    f -= (float)i;
+    float p = v * (1 - s), q = v * (1 - s * f), t = v * (1 - s * (1 - f)), r, g, b;
+    switch (i) {
+    case 0:  r = v; g = t; b = p; break;
+    case 1:  r = q; g = v; b = p; break;
+    case 2:  r = p; g = v; b = t; break;
+    case 3:  r = p; g = q; b = v; break;
+    case 4:  r = t; g = p; b = v; break;
+    default: r = v; g = p; b = q; break;
+    }
+    return byte(r) << 16 | byte(g) << 8 | byte(b);
+}
+
 // sRGB to linear, WCAG's own formula.
 static float lin(float c) {
     return c <= 0.03928f ? c / 12.92f : (float)pow((c + 0.055) / 1.055, 2.4);

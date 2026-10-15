@@ -3419,6 +3419,14 @@ window without going through it will find its layout polls timing out.
   with no timer -- redden the fill, highlighter and spray checks. In
   `gui_regress.py`.
 
+- **`ucolour_hostcheck.py`** -- `lib/ucolour`'s HSV and HSL conversions
+  against Python's `colorsys`, over a 17-step RGB grid and random
+  colours: to_hsv within 0.2 degrees and 0.002, keeping the caller's hue
+  for a grey and saturation for black; from_hsv to the byte and back to
+  the same colour exactly; HSL within a percent. Its positive control --
+  a hue sector from the wrong channels -- fails thousands of colours. In
+  `ondemand_sweep.py`.
+
 - **`upixel_hostcheck.py`** -- `lib/upixel` and `lib/upixundo` compiled
   on the host against a reference in Python: every brush size and both
   shapes stamped and stroked off every edge (the disc computed in floats,

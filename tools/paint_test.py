@@ -54,6 +54,9 @@ What it proves, and what a broken version would still pass:
     its rim, where the Round stroke has none; the spray held still keeps
     adding dots inside its disc (a spray only on motion adds a handful),
     and one Ctrl+Z takes a hold away.
+  * COLOURS: the hue strip a third along and the square's top-right
+    corner make Colour 1 a full green (G 255, little R or B); R typed as 200 changes only the red; a
+    stroke paints exactly that colour.
   * TEXT EDITING: Home, Shift+Left, Ctrl+X/V and a click change the
     text and caret the box reports; its frame dragged moves it, leaving
     WHITE behind (a move that forgot to restore would leave the old
@@ -68,7 +71,9 @@ primary colour as the SECOND (`g_colour[!slot]`) reddens the fill, the
 undo/redo, the right-click (judged against the red fill beside it) and
 the reopened checks -- 4 of 14. (2026-10-15) The highlighter blending
 UPIX_BLEND_OVER fails both highlighter checks (black turns yellow); a
-tools_tick() that never sprays fails the spray check (10 dots, then 20).
+tools_tick() that never sprays fails the spray check (10 dots, then 20);
+the colour square reading saturation backwards fails the green check
+(Colour 1 white).
 
 Usage (the VM must already be up):
 
@@ -282,6 +287,7 @@ def run(dbg, qmp, res, tmp):
     check_text_layers(dbg, qmp, res, tmp)
     check_shapes(dbg, qmp, res, tmp)
     check_brushes(dbg, qmp, res, tmp)
+    check_colours(dbg, qmp, res, tmp)
 
 
 def rect(dbg, part):
@@ -966,6 +972,50 @@ def check_brushes(dbg, qmp, res, tmp):
     scr.shoot()
     back = sum(1 for y in range(cy - n, cy + n + 1) for x in range(cx - n, cx + n + 1) if scr.pixel(x, y) == green)
     res.check("...and Ctrl+Z takes one hold away", back == len(first), f"{back} dots, {len(first)} before the hold")
+    close_all(dbg)
+
+
+def check_colours(dbg, qmp, res, tmp):
+    """The colour picker: the hue strip, the square's corner, a typed R,
+    each judged by Colour 1 and then by a stroke's pixels."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    parts = {p: rect(dbg, p) for p in ("colour_square", "colour_hue", "colour_r")}
+    if not res.check("Colours: the panel has the square, the hue strip and the R field", scr.ok and all(parts.values()),
+                     f"{parts}"):
+        close_all(dbg)
+        return
+    sx, sy, sw, sh = parts["colour_square"]
+    hx, hy, hw, hh = parts["colour_hue"]
+    # Hue 120 (green) on the strip, then the square's top-right corner:
+    # full saturation and brightness.
+    # A third of the way along is about 120 degrees; the strip's ends are
+    # inset by half its thumb, so "about" is all a click can promise.
+    dbg.click(scr.cx + hx + hw // 3, scr.cy + hy + hh // 2)
+    dbg.click(scr.cx + sx + sw - 2, scr.cy + sy + 1)
+    dbg.settle()
+    c1 = int(state(dbg).get("c1", "0"), 16)
+    r, g, b = (c1 >> 16) & 0xFF, (c1 >> 8) & 0xFF, c1 & 0xFF
+    res.check("the strip's green and the square's corner make Colour 1 a full green", g == 255 and max(r, b) < 50
+              and min(r, b) == 0, f"c1 {c1:08X}")
+    # A typed R: the field takes the number whole.
+    rx, ry, rw, rh = parts["colour_r"]
+    dbg.click(scr.cx + rx + rw // 2, scr.cy + ry + rh // 2)
+    dbg.key(CTRL["a"], mods="ctrl")
+    for ch in "200":
+        dbg.key(ch)
+    dbg.settle()
+    c1 = int(state(dbg).get("c1", "0"), 16)
+    res.check("R typed as 200 sets Colour 1's red, the rest kept", c1 & 0xFFFFFF == (200 << 16 | 0xFF00 | (c1 & 0xFF))
+              and (c1 >> 16) & 0xFF == 200 and (c1 >> 8) & 0xFF == 255, f"c1 {c1:08X}")
+    dbg.key("0x1b")
+    a, z = scr.at(100, 100), scr.at(400, 100)
+    dbg.drag(a[0], a[1], z[0], z[1], steps=12)
+    scr.shoot()
+    px = scr.pixel(250, 100)
+    res.check("...and the brush paints it", px == ((c1 >> 16) & 0xFF, (c1 >> 8) & 0xFF, c1 & 0xFF),
+              f"{px} for {c1:08X}")
     close_all(dbg)
 
 

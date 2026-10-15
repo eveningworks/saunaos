@@ -33,7 +33,7 @@
 | `uclip.h` | uclip -- the system clipboard, for a ring-3 app. |
 | `uclip_page.h` | The clipboard's shared page: the contract between every app's lib/uclip.c and /bin/clipboardd, and between no other two things. |
 | `uclock.h` | The smallest non-zero gap the monotonic clock will actually show. |
-| `ucolour.h` | COLOUR ARITHMETIC for a picker and a contrast check: 0xRRGGBB to and from hue, saturation and lightness (CSS's HSL), and WCAG 2's contrast ratio between two colours. |
+| `ucolour.h` | COLOUR ARITHMETIC for a picker and a contrast check: 0xRRGGBB to and from hue, saturation and lightness (CSS's HSL) or value (HSV, what a colour square shows), and WCAG 2's contrast ratio between t... |
 | `ucomplete.h` | `/bin/tosh`'s completion ENVIRONMENT -- the ring-3 half of api/completion.h, whose engine is kernel/lib/completion.c compiled into libuapp.a. |
 | `uconf.h` | /etc access for a ring-3 program: reading and writing `name=value` documents. |
 | `ucookie.h` | ucookie -- an HTTP cookie jar, RFC 6265: what /bin/webnet keeps for the Web Browser (docs/browser-design.md, stage 5). |
@@ -157,7 +157,8 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_chart.h` | chart -- a value over TIME, which is the one thing uui_meter cannot show. |
 | `uui_checkbox.h` | The ring-3 checkbox, an OBJECT -- it holds its own geometry, checked state and hover, like uui_button/uui_listbox. |
 | `uui_clip.h` | uui_clip -- one child, drawn and clickable only inside a VIEWPORT the caller names: a panel placed in a scrolling pane that is not itself a uui_scrollview (Device Manager's uui_props), so it scroll... |
-| `uui_colourpick.h` | uui_colourpick -- ONE COLOUR, picked: a swatch, its hex value in a field, and hue, saturation and lightness on three scales that follow each other. |
+| `uui_colourfield.h` | uui_colourfield -- PICKING A COLOUR BY EYE: a square of saturation (left to right) and brightness (top to bottom) at one hue, or the hue strip under it -- GTK's custom colour editor, KDE's and Krit... |
+| `uui_colourpick.h` | uui_colourpick -- ONE COLOUR, picked: by eye on a saturation and brightness square over a hue strip (ui/uui_colourfield.h), or exactly in a hex field and R, G and B fields, all following each other. |
 | `uui_confetti.h` | A CONFETTI BURST: pieces thrown up from a point, tumbling and falling under gravity, fading out at the end -- what a game shows when it is won (Microsoft Minesweeper, Google's, a Solitaire cascade'... |
 | `uui_describe.h` | uui_describe.h -- a widget REPORTS ITS OWN GEOMETRY, by name. |
 | `uui_dialog.h` | A MODAL over the app's own window: a title, some lines, and a row of buttons. |

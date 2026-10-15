@@ -7379,6 +7379,31 @@ target learns of before the release -- the clipboard's typed formats
 are the vocabulary for that, and it is a roadmap item, not a toolkit
 extension.
 
+## A copied picture is a file the clipboard names, not pixels in the page
+
+A picture on the clipboard is a third KIND beside files and text: one
+entry, the path of a QOI file in `/var/tmp/clipboard/` that the copier
+wrote, and `/bin/clipboardd` deletes the ones no clipboard names any
+more. Paint's Copy picture and the Image Viewer's Copy put one there;
+Paint's Paste takes that, or a copied picture FILE (Screenshot's and the
+File Manager's Copy), which needed no new kind at all.
+
+The obvious ways are each worse here. **Pixels in the page**: the page
+is 64 KiB, and a Full HD picture is 8 MB, so the page would grow two
+hundredfold for every client mapping it, to hold something most copies
+are not. **A shared-memory object per copy**: right on a desktop that
+copies pictures all day (Windows' `CF_DIB` lives in a global handle),
+but it is a create, size, map and hand-over protocol in clipboardd for a
+feature two apps use, and it still dies with the service. **Served on
+demand by the source** (X11, Wayland): the reason the clipboard is a
+copy at all -- see the entry above.
+
+A file is the copy this design already makes, at the size a picture
+needs, with the cost paid only by a picture: the copier encodes once,
+the paster decodes once. QOI because it is lossless and the fastest
+codec here both ways. It dies with the page, as everything on the
+clipboard does; the sweep is what keeps the files from piling up.
+
 ## Cross-window drag is the compositor's, carried by a drag slot in the clipboard page
 
 Dragging a file from the File Manager onto the desktop, or a desktop

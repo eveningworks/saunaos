@@ -5,7 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
-enum { ID_HEX, ID_H, ID_S, ID_L };
+enum { ID_HEX, ID_SQUARE, ID_HUE, ID_R, ID_G, ID_B };
 
 static void draw_swatch(struct ugfx_surface *s, const struct uui_custom *cu) {
     const struct uui_colourpick *c = cu->state;
@@ -14,16 +14,16 @@ static void draw_swatch(struct ugfx_surface *s, const struct uui_custom *cu) {
     uui_fill_round_rect(s, cu->x + 1, cu->y + 1, cu->w - 2, cu->h - 2, r > 1 ? r - 1 : 0, c->rgb);
 }
 
-// The texts and the scales from `rgb`/`hsl`, whichever was not just moved.
-static void show(struct uui_colourpick *c, int from_field) {
+// The fields from `rgb`, all but the one being typed in (`typing`, an
+// ID_ or -1): rewriting a field under its caret would fight the typist.
+static void show(struct uui_colourpick *c, int typing) {
     snprintf(c->hex_text, sizeof c->hex_text, "%06X", (unsigned)(c->rgb & 0xFFFFFF));
-    if (!from_field) uui_textbox_set_text(&c->hex, c->hex_text);
-    uui_scale_set_value(&c->h, c->hsl.h);
-    uui_scale_set_value(&c->s, c->hsl.s);
-    uui_scale_set_value(&c->l, c->hsl.l);
-    snprintf(c->h_text, sizeof c->h_text, "%d", c->hsl.h);
-    snprintf(c->s_text, sizeof c->s_text, "%d%%", c->hsl.s);
-    snprintf(c->l_text, sizeof c->l_text, "%d%%", c->hsl.l);
+    if (typing != ID_HEX) uui_textbox_set_text(&c->hex, c->hex_text);
+    struct uui_textbox *f[3] = { &c->r, &c->g, &c->b };
+    for (int i = 0; i < 3; i++) {
+        snprintf(c->rgb_text[i], sizeof c->rgb_text[i], "%u", (unsigned)(c->rgb >> (16 - 8 * i)) & 0xFF);
+        if (typing != ID_R + i) uui_textbox_set_text(f[i], c->rgb_text[i]);
+    }
 }
 
 static void draw_text(struct ugfx_surface *s, const struct uui_custom *cu) {
@@ -31,50 +31,63 @@ static void draw_text(struct ugfx_surface *s, const struct uui_custom *cu) {
                              (const char *)cu->state, UTHEME_TEXT, UGFX_TRANSPARENT);
 }
 
-static struct uui_custom text_cell(const char *text, int w) {
-    return (struct uui_custom){ .w = w, .h = utheme_control_h(), .draw = draw_text, .state = (void *)text };
-}
-
-static void row(struct uui_layout *l, struct uui_item *it, struct uui_custom *lab, const char *text,
-                struct uui_scale *sc, long max, int id, struct uui_custom *val, char *val_text) {
-    int ch = ugfx_char_h();
-    *lab = text_cell(text, ugfx_text_width("Saturation") + ch / 2);
-    uui_scale_init(sc, 0, max, 0);
-    *val = text_cell(val_text, ugfx_text_width("359%") + ch / 2);
-    it[0] = (struct uui_item){ .ops = &uui_custom_ops, .widget = lab };
-    it[1] = (struct uui_item){ .ops = &uui_scale_ops, .widget = sc, .id = id, .flags = UUI_FILL_W };
-    it[2] = (struct uui_item){ .ops = &uui_custom_ops, .widget = val };
-    *l = (struct uui_layout){ .dir = UUI_ROW, .items = it, .count = 3 };
+static struct uui_custom text_cell(const char *text) {
+    return (struct uui_custom){ .w = ugfx_text_width(text) + ugfx_char_w() / 2, .h = utheme_control_h(),
+                                .draw = draw_text, .state = (void *)text };
 }
 
 void uui_colourpick_init(struct uui_colourpick *c, int id_base, uint32_t rgb) {
     memset(c, 0, sizeof *c);
     c->id_base = id_base;
-    int ch = ugfx_char_h();
+    int ch = ugfx_char_h(), pad = ugfx_char_w();
     c->swatch = (struct uui_custom){ .w = ch * 10, .h = ch * 3, .draw = draw_swatch, .state = c };
-    c->hex_l = text_cell("Colour", ugfx_text_width("Saturation") + ch / 2);
+    uui_colourfield_init(&c->square, UUI_CF_SQUARE, &c->hsv);
+    uui_colourfield_init(&c->hue, UUI_CF_HUE, &c->hsv);
+    c->hex_l = text_cell("Hex");
+    c->r_l = text_cell("R");
+    c->g_l = text_cell("G");
+    c->b_l = text_cell("B");
     uui_textbox_init(&c->hex, "");
-    c->hex_it[0] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &c->hex_l };
-    c->hex_it[1] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &c->hex, .id = id_base + ID_HEX,
-                                      .flags = UUI_FILL_W, .name = "colour_hex" };
-    c->hex_row = (struct uui_layout){ .dir = UUI_ROW, .items = c->hex_it, .count = 2 };
-    row(&c->h_row, c->h_it, &c->h_l, "Hue", &c->h, 359, id_base + ID_H, &c->h_v, c->h_text);
-    row(&c->s_row, c->s_it, &c->s_l, "Saturation", &c->s, 100, id_base + ID_S, &c->s_v, c->s_text);
-    row(&c->l_row, c->l_it, &c->l_l, "Lightness", &c->l, 100, id_base + ID_L, &c->l_v, c->l_text);
+    uui_textbox_init(&c->r, "");
+    uui_textbox_init(&c->g, "");
+    uui_textbox_init(&c->b, "");
+    int num_w = ugfx_text_width("255") + pad * 2;
+    struct uui_item *f = c->field_it;
+    f[0] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &c->hex_l };
+    f[1] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &c->hex, .id = id_base + ID_HEX, .flags = UUI_FILL_W,
+                              .main_size = ugfx_text_width("FFFFFF") + pad * 2, .name = "colour_hex" };
+    f[2] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &c->r_l };
+    f[3] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &c->r, .id = id_base + ID_R, .main_size = num_w,
+                              .name = "colour_r" };
+    f[4] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &c->g_l };
+    f[5] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &c->g, .id = id_base + ID_G, .main_size = num_w,
+                              .name = "colour_g" };
+    f[6] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &c->b_l };
+    f[7] = (struct uui_item){ .ops = &uui_textbox_ops, .widget = &c->b, .id = id_base + ID_B, .main_size = num_w,
+                              .name = "colour_b" };
+    c->field_row = (struct uui_layout){ .dir = UUI_ROW, .items = c->field_it, .count = 8, .gap = pad / 2 };
     c->col_it[0] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &c->swatch, .flags = UUI_FILL_W,
-                                      .name = "colour_swatch" };
-    c->col_it[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &c->hex_row, .flags = UUI_FILL_W };
-    c->col_it[2] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &c->h_row, .flags = UUI_FILL_W };
-    c->col_it[3] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &c->s_row, .flags = UUI_FILL_W };
-    c->col_it[4] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &c->l_row, .flags = UUI_FILL_W };
-    c->col = (struct uui_layout){ .dir = UUI_COLUMN, .items = c->col_it, .count = 5 };
+                                      .hidden = 1, .name = "colour_swatch" };
+    c->col_it[1] = (struct uui_item){ .ops = &uui_colourfield_ops, .widget = &c->square, .id = id_base + ID_SQUARE,
+                                      .flags = UUI_FILL_W, .name = "colour_square" };
+    c->col_it[2] = (struct uui_item){ .ops = &uui_colourfield_ops, .widget = &c->hue, .id = id_base + ID_HUE,
+                                      .flags = UUI_FILL_W, .name = "colour_hue" };
+    c->col_it[3] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &c->field_row, .flags = UUI_FILL_W };
+    c->col = (struct uui_layout){ .dir = UUI_COLUMN, .items = c->col_it, .count = 4 };
     uui_colourpick_set(c, rgb);
+}
+
+void uui_colourpick_show_swatch(struct uui_colourpick *c, int on) { c->col_it[0].hidden = !on; }
+
+void uui_colourpick_free(struct uui_colourpick *c) {
+    uui_colourfield_free(&c->square);
+    uui_colourfield_free(&c->hue);
 }
 
 void uui_colourpick_set(struct uui_colourpick *c, uint32_t rgb) {
     c->rgb = rgb & 0xFFFFFF;
-    ucolour_to_hsl(c->rgb, &c->hsl);
-    show(c, 0);
+    ucolour_to_hsv(c->rgb, &c->hsv);
+    show(c, -1);
 }
 
 struct uui_item uui_colourpick_item(struct uui_colourpick *c) {
@@ -82,12 +95,24 @@ struct uui_item uui_colourpick_item(struct uui_colourpick *c) {
 }
 
 int uui_colourpick_focusables(struct uui_colourpick *c, struct uui_focusable *out, int max) {
-    if (max < 4) return 0;
-    out[0] = (struct uui_focusable){ &c->hex, &uui_textbox_focus_ops };
-    out[1] = (struct uui_focusable){ &c->h, &uui_scale_focus_ops };
-    out[2] = (struct uui_focusable){ &c->s, &uui_scale_focus_ops };
-    out[3] = (struct uui_focusable){ &c->l, &uui_scale_focus_ops };
-    return 4;
+    if (max < 6) return 0;
+    out[0] = (struct uui_focusable){ &c->square, &uui_colourfield_ops };
+    out[1] = (struct uui_focusable){ &c->hue, &uui_colourfield_ops };
+    out[2] = (struct uui_focusable){ &c->hex, &uui_textbox_focus_ops };
+    out[3] = (struct uui_focusable){ &c->r, &uui_textbox_focus_ops };
+    out[4] = (struct uui_focusable){ &c->g, &uui_textbox_focus_ops };
+    out[5] = (struct uui_focusable){ &c->b, &uui_textbox_focus_ops };
+    return 6;
+}
+
+// 0..255 written in full, or -1.
+static int byte_field(const char *t) {
+    int v = 0, n = 0;
+    for (; t[n]; n++) {
+        if (t[n] < '0' || t[n] > '9' || n >= 3) return -1;
+        v = v * 10 + (t[n] - '0');
+    }
+    return n && v <= 255 ? v : -1;
 }
 
 int uui_colourpick_on_widget(struct uui_colourpick *c, int id) {
@@ -106,14 +131,18 @@ int uui_colourpick_on_widget(struct uui_colourpick *c, int id) {
         }
         if (i != 6 || t[6]) return 0;
         c->rgb = v;
-        ucolour_to_hsl(v, &c->hsl);
-        show(c, 1);
+        ucolour_to_hsv(v, &c->hsv);
+    } else if (k >= ID_R) {
+        struct uui_textbox *f[3] = { &c->r, &c->g, &c->b };
+        int v = byte_field(uui_textbox_text(f[k - ID_R]));
+        if (v < 0) return 0;
+        int sh = 16 - 8 * (k - ID_R);
+        c->rgb = (c->rgb & ~(0xFFu << sh)) | (uint32_t)v << sh;
+        ucolour_to_hsv(c->rgb, &c->hsv);
     } else {
-        c->hsl.h = (int)c->h.value;
-        c->hsl.s = (int)c->s.value;
-        c->hsl.l = (int)c->l.value;
-        c->rgb = ucolour_from_hsl(&c->hsl);
-        show(c, 0);
+        // The square or the strip moved hsv itself.
+        c->rgb = ucolour_from_hsv(&c->hsv);
     }
+    show(c, k);
     return c->rgb != was;
 }
