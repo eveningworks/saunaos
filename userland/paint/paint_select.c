@@ -1,4 +1,4 @@
-// Paint's selection: a rectangle dragged, a lasso drawn, or a magic wand's
+// Paint's selection: a rectangle or an ellipse dragged, a lasso drawn, or a magic wand's
 // pick (L1 from the mockups), combined New / Add / Subtract as
 // Paint.NET's are -- Shift adds and Alt subtracts whatever the bar says.
 // What is selected can be moved by dragging it (lifted into a float, as
@@ -8,7 +8,8 @@
 //
 // THE MASK IS lib/upixel.h's: the picture's size, a byte a pixel. It
 // belongs to the picture, not a layer, and goes when the picture's size
-// changes. Changing it is not an undo step (MS Paint's, KolourPaint's).
+// changes. EVERY CHANGE TO IT IS AN UNDO STEP, Paint.NET's history: the
+// mask before and after, kept whole.
 //
 // DRAWN EACH FRAME FROM THE MASK, only over the selection's box where
 // the view shows it: a light accent wash inside, and marching ants
@@ -64,14 +65,70 @@ static void changed(void) {
     paint_text_changed();   // a redraw
 }
 
+// --- the history's steps -------------------------------------------------------
+
+struct sel_step { int w, h; uint8_t *before, *after; };
+
+static void step_apply(void *p, int redo) {
+    struct sel_step *st = p;
+    if (!g_sel.a || g_sel.w != st->w || g_sel.h != st->h) return;   // the picture's size moved on
+    upix_sel_load(&g_sel, redo ? st->after : st->before);
+    changed();
+}
+
+static void step_drop(void *p) {
+    struct sel_step *st = p;
+    free(st->before);
+    free(st->after);
+    free(st);
+}
+
+static const struct upixundo_custom SEL_STEP = { step_apply, step_drop };
+
+// The mask as it is, before a change; NULL on no memory (the change then
+// is not undoable, as a pixel step without its copy is not).
+static uint8_t *before_change(void) {
+    struct upix_sel *s = mask();
+    if (!s) return 0;
+    uint8_t *b = malloc((size_t)s->w * s->h);
+    if (b) memcpy(b, s->a, (size_t)s->w * s->h);
+    return b;
+}
+
+// ...and after it: one step, unless nothing changed.
+static void record(uint8_t *before) {
+    if (!before) return;
+    size_t n = (size_t)g_sel.w * g_sel.h;
+    uint8_t *after = g_sel.a && !memcmp(before, g_sel.a, n) ? 0 : malloc(n);
+    struct sel_step *st = after ? malloc(sizeof *st) : 0;
+    if (!st) { free(before); free(after); return; }
+    memcpy(after, g_sel.a, n);
+    *st = (struct sel_step){ g_sel.w, g_sel.h, before, after };
+    upixundo_push(&g_undo, &SEL_STEP, st, sizeof *st + 2 * n);
+}
+
 void select_clip(const struct upix_rect *r) {
     if (!select_any() || !r) return;
     upix_sel_keep_outside(&g_sel, g_layer, &g_undo.snap, r);
 }
 
-void select_all(void) { struct upix_sel *s = mask(); if (s) { upix_sel_all(s); changed(); } }
-void select_none(void) { if (g_sel.a) { upix_sel_clear(&g_sel); changed(); } }
-void select_invert(void) { struct upix_sel *s = mask(); if (s) { upix_sel_invert(s); changed(); } }
+void select_all(void) {
+    uint8_t *b = before_change();
+    struct upix_sel *s = mask();
+    if (s) { upix_sel_all(s); record(b); changed(); } else free(b);
+}
+void select_none(void) {
+    if (!select_any()) return;
+    uint8_t *b = before_change();
+    upix_sel_clear(&g_sel);
+    record(b);
+    changed();
+}
+void select_invert(void) {
+    uint8_t *b = before_change();
+    struct upix_sel *s = mask();
+    if (s) { upix_sel_invert(s); record(b); changed(); } else free(b);
+}
 
 // What a cleared pixel becomes: Colour 2 on the bottom layer, nothing on
 // the ones above -- the eraser's rule.
@@ -143,14 +200,28 @@ static void lift(int x, int y) {
     struct uimg im;
     if (upix_sel_copy(&g_sel, g_layer, &im) != 0) { paint_note("Not enough memory to move it"); return; }
     int bx = g_sel.box.x, by = g_sel.box.y;
+    // ONE CTRL+Z PUTS IT ALL BACK: the place cleared, the selection's
+    // going, and the float placed are three steps joined. The pixels go
+    // FIRST: clearing them needs the selection still there.
     if (!clear_selected()) { uimg_free(&im); return; }
+    uint8_t *b = before_change();
     upix_sel_clear(&g_sel);
+    upixundo_join(&g_undo);
+    record(b);
     paste_float(&im, bx, by);
     // The press that began it, then where the pointer is now: the float's
     // frame takes the drag from here.
     paste_pointer(UUI_PAINT_DOWN, g_ax, g_ay, 0);
     paste_pointer(UUI_PAINT_MOVE, x, y, 0);
 }
+
+// THE ELLIPSE inside the dragged box, as a polygon (lib/upixel.h's
+// figure) -- the shapes tool's own ellipse.
+static struct upix_pt g_eps[512];
+static int ellipse_pts(void) {
+    return upix_figure(UPIX_FIG_ELLIPSE, (float)g_ax, (float)g_ay, (float)g_bx, (float)g_by, g_eps, 512);
+}
+static void ellipse(struct upix_sel *s, enum upix_sel_op op) { upix_sel_poly(s, g_eps, ellipse_pts(), op); }
 
 static void lasso_add(int x, int y) {
     if (g_npts && (int)g_pts[g_npts - 1].x == x && (int)g_pts[g_npts - 1].y == y) return;
@@ -183,7 +254,9 @@ void select_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods) {
             return;
         }
         if (g_sel_kind == SEL_WAND) {
+            uint8_t *b = before_change();
             int n = upix_sel_wand(s, g_layer, x, y, g_sel_tol * 255 / 100, g_op);
+            record(b);
             ulogf("paint: wand at %d,%d tolerance %d%% -> %d pixels\n", x, y, g_sel_tol, n);
             changed();
             return;
@@ -206,6 +279,7 @@ void select_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods) {
     // UP.
     enum drag d = g_drag;
     g_drag = D_NONE;
+    uint8_t *b = d != D_NONE ? before_change() : 0;
     if (d == D_PRESSED_IN) {
         // A CLICK INSIDE: the wand picks again; the others let it go.
         if (g_sel_kind == SEL_WAND) upix_sel_wand(s, g_layer, x, y, g_sel_tol * 255 / 100, UPIX_SEL_NEW);
@@ -216,6 +290,7 @@ void select_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods) {
         g_by = y;
         // A click is not a rectangle: with New it lets the selection go.
         if (g_ax == g_bx || g_ay == g_by) { if (g_op == UPIX_SEL_NEW) upix_sel_clear(s); }
+        else if (g_sel_kind == SEL_ELLIPSE) ellipse(s, g_op);
         else upix_sel_rect(s, g_ax, g_ay, g_bx, g_by, g_op);
         changed();
     } else if (d == D_LASSO) {
@@ -225,6 +300,7 @@ void select_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods) {
         g_npts = 0;
         changed();
     }
+    record(b);
 }
 
 int select_key(int key, unsigned mods) {
@@ -316,7 +392,17 @@ static void ant_line(struct ugfx_surface *s, int x0, int y0, int x1, int y1) {
 
 void select_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c) {
     if (select_any()) draw_mask(s, c);
-    if (g_drag == D_RECT) {
+    if (g_drag == D_RECT && g_sel_kind == SEL_ELLIPSE) {
+        int n = ellipse_pts(), px, py;
+        uui_paintcanvas_to_screen(c, (int)g_eps[n - 1].x, (int)g_eps[n - 1].y, &px, &py);
+        for (int i = 0; i < n; i++) {
+            int qx, qy;
+            uui_paintcanvas_to_screen(c, (int)g_eps[i].x, (int)g_eps[i].y, &qx, &qy);
+            ant_line(s, px, py, qx, qy);
+            px = qx;
+            py = qy;
+        }
+    } else if (g_drag == D_RECT) {
         int ax, ay, bx, by;
         uui_paintcanvas_to_screen(c, g_ax < g_bx ? g_ax : g_bx, g_ay < g_by ? g_ay : g_by, &ax, &ay);
         uui_paintcanvas_to_screen(c, g_ax > g_bx ? g_ax : g_bx, g_ay > g_by ? g_ay : g_by, &bx, &by);
@@ -332,6 +418,17 @@ void select_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c) {
             px = qx;
             py = qy;
         }
+    }
+}
+
+void select_status(char *out, int cap) {
+    if (g_drag == D_RECT) {
+        snprintf(out, (size_t)cap, "Selecting %d \xd7 %d", abs(g_bx - g_ax), abs(g_by - g_ay));
+    } else if (select_any()) {
+        snprintf(out, (size_t)cap, "Selection %d \xd7 %d at %d, %d", g_sel.box.w, g_sel.box.h, g_sel.box.x,
+                 g_sel.box.y);
+    } else {
+        out[0] = '\0';
     }
 }
 

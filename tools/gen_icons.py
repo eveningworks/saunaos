@@ -407,6 +407,15 @@ def icon_sel_rect():
     p = _Pen(); _dashed_rect(p, 4, 6, 16, 12); return p.done()
 
 
+def icon_sel_ellipse():
+    # An ellipse's outline in dashes, as the rectangle's.
+    p = _Pen()
+    pts = [(12 + 8 * math.cos(a / 48 * 2 * math.pi), 12 + 6 * math.sin(a / 48 * 2 * math.pi)) for a in range(49)]
+    for i in range(0, 48, 4):
+        p.line(pts[i], pts[i + 1], pts[i + 2])
+    return p.done()
+
+
 def icon_sel_lasso():
     # A loop, and the cord hanging from it.
     p = _Pen()
@@ -1768,7 +1777,8 @@ ICONS = {
     "tb-shapes": icon_tb_shapes, "tb-smooth": icon_tb_smooth,
     "br-round": icon_br_round, "br-square": icon_br_square, "br-soft": icon_br_soft,
     "br-spray": icon_br_spray, "br-highlighter": icon_br_highlighter,
-    "tb-select": icon_tb_select, "sel-rect": icon_sel_rect, "sel-lasso": icon_sel_lasso,
+    "tb-select": icon_tb_select, "sel-rect": icon_sel_rect, "sel-ellipse": icon_sel_ellipse,
+    "sel-lasso": icon_sel_lasso,
     "sel-wand": icon_sel_wand, "tb-crop": icon_tb_crop,
     "tb-gradient": icon_tb_gradient, "grad-linear": icon_grad_linear, "grad-reflected": icon_grad_reflected,
     "grad-radial": icon_grad_radial, "grad-diamond": icon_grad_diamond, "grad-conical": icon_grad_conical,

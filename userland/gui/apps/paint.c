@@ -159,6 +159,7 @@ static int g_slot_down = -1;             // the right button's stroke, while hel
 static char g_title[PATH_MAX_LEN + 16];
 static char g_zoom_text[12], g_st_pos[32], g_st_size[32], g_st_note[128];
 static char g_size_text[24];
+static char g_st_tool[32], g_st_sel[64];
 static char g_ask_line[PATH_MAX_LEN + 48];
 static const char *g_ask_rows[3];
 
@@ -354,7 +355,8 @@ static struct uui_toolbar g_selact;
 static struct uui_menubar g_ctx;          // the right-click menu: no bar of its own
 static int g_ctx_armed, g_ctx_x, g_ctx_y;
 static const struct uui_toggle selkind_items[SEL_KIND_COUNT] = {
-    { 0, "Rectangle", "sel-rect", 0 }, { 0, "Lasso", "sel-lasso", 0 }, { 0, "Magic wand", "sel-wand", 0 },
+    { 0, "Rectangle", "sel-rect", 0 }, { 0, "Ellipse", "sel-ellipse", 0 }, { 0, "Lasso", "sel-lasso", 0 },
+    { 0, "Magic wand", "sel-wand", 0 },
 };
 static const char *const SELMODES[] = { "New", "Add", "Subtract" };
 static const int SELTOL[] = { 0, 8, 16, 32, 50, 75, 100 };
@@ -1151,11 +1153,27 @@ static unsigned item_flags(int code) {
 
 // --- the canvas's pointer, both buttons ------------------------------------------
 
+// THE BRUSH'S OUTLINE IS THE POINTER (C1 from the mockups, Windows 11
+// Paint's and Paint.NET's): the tip's size at the zoom, and no system
+// pointer over it -- unless it would be only a few pixels, where the
+// crosshair shows the point better.
+#define OUTLINE_MIN_PX 4
+static int outline_px(int *sw, int *sh, int *round) {
+    int w, h;
+    if (!tools_outline(&w, &h, round)) return 0;
+    *sw = (int)((long long)w * g_canvas.zoom / 100);
+    *sh = (int)((long long)h * g_canvas.zoom / 100);
+    return *sw >= OUTLINE_MIN_PX || *sh >= OUTLINE_MIN_PX;
+}
+
 static void canvas_pointer(void *ctx, enum uui_paint_phase ph, int x, int y, unsigned mods) {
     (void)ctx;
     if (g_canvas.hovering) snprintf(g_st_pos, sizeof g_st_pos, "%d, %d px", x, y);
     else g_st_pos[0] = '\0';
     if (ph == UUI_PAINT_DOWN) uui_focus_set(&g_focus, -1);   // typed letters are tools again
+    int sw, sh, round;
+    if (tools_outline(&sw, &sh, &round) && !paste_active())
+        g_canvas.cursor = outline_px(&sw, &sh, &round) ? WIN_CURSOR_NONE : WIN_CURSOR_CROSSHAIR;
     tools_pointer(ph, x, y, 0, mods);
     if (g_app) uapp_redraw(g_app);
 }
@@ -1169,6 +1187,17 @@ static void canvas_draw_over(void *ctx, struct ugfx_surface *s, const struct uui
     gradient_draw_over(s, c);
     select_draw_over(s, c);
     paste_draw_over(s, c);
+    int sw, sh, round;
+    if (c->hovering && !paste_active() && outline_px(&sw, &sh, &round)) {
+        int px, py;
+        uui_paintcanvas_to_screen(c, c->hover_x, c->hover_y, &px, &py);
+        // Centred on the pixel under the pointer, as the stamp is: white
+        // outside dark, so it reads on any colour.
+        int z = c->zoom, cx = px + z / 200, cy = py + z / 200;
+        int x0 = cx - sw / 2, y0 = cy - sh / 2, r = round ? (sw < sh ? sw : sh) / 2 : 0;
+        uui_stroke_round_rect(s, x0 - 1, y0 - 1, sw + 2, sh + 2, r ? r + 1 : 0, UTHEME_WHITE);
+        uui_stroke_round_rect(s, x0, y0, sw, sh, r, 0x141414);
+    }
 }
 
 static void canvas_handle_resize(void *ctx, int w, int h) {
@@ -1379,6 +1408,12 @@ static void layout(int cw, int ch) {
 static void status(void) {
     snprintf(g_zoom_text, sizeof g_zoom_text, "%d%%", g_canvas.zoom);
     snprintf(g_st_size, sizeof g_st_size, "%d \xd7 %d px", g_layer->w, g_layer->h);
+    // The tool in hand and its size -- for the tools that have one.
+    int w, h, round;
+    static const char *const NAMES[] = { [TOOL_PENCIL] = "Pencil", [TOOL_BRUSH] = "Brush", [TOOL_ERASER] = "Eraser" };
+    if (tools_outline(&w, &h, &round)) snprintf(g_st_tool, sizeof g_st_tool, "%s \xb7 %d px", NAMES[g_tool], h);
+    else g_st_tool[0] = '\0';
+    select_status(g_st_sel, sizeof g_st_sel);
 }
 
 static void heading(struct ugfx_surface *s, int y, const char *text) {
@@ -1416,6 +1451,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     shapes_log_layout(&g_canvas);
     paste_log_layout(&g_canvas);
     select_log_layout(&g_canvas);
+    uapp_logf_layout("paint: layout statustext %s|%s\n", g_st_tool, g_st_sel);
     gradient_log_layout(&g_canvas);
     uapp_logf_layout("paint: layout layerstack %d current %d opacity %d tab %d text %d\n", layers_count(),
                      layers_active(), layers_opacity(layers_active()), g_ptabs.selected,
@@ -1842,11 +1878,13 @@ int main(int argc, char **argv) {
         g_presets[0].h = (int)qd.height;
     }
     uui_statusbar_init(&g_sb);
-    g_sb.count = 4;
+    g_sb.count = 6;
     g_sb.panes[0].text = g_st_note; g_sb.panes[0].chars = 0;
-    g_sb.panes[1].text = g_st_pos;  g_sb.panes[1].chars = 14;
-    g_sb.panes[2].text = g_st_size; g_sb.panes[2].chars = 16;
-    g_sb.panes[3].text = g_zoom_text; g_sb.panes[3].chars = 7;
+    g_sb.panes[1].text = g_st_tool; g_sb.panes[1].chars = 14;
+    g_sb.panes[2].text = g_st_sel;  g_sb.panes[2].chars = 30;
+    g_sb.panes[3].text = g_st_pos;  g_sb.panes[3].chars = 14;
+    g_sb.panes[4].text = g_st_size; g_sb.panes[4].chars = 16;
+    g_sb.panes[5].text = g_zoom_text; g_sb.panes[5].chars = 7;
     int n = uui_colourpick_focusables(&g_pick, g_ring, 6);
     g_ring_font = n;
     n += uui_fontpick_focusables(&g_fontpick, g_ring + n, 8 - n);

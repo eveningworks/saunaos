@@ -65,11 +65,15 @@ What it proves, and what a broken version would still pass:
     it and its frame drags it 60 left; a corner handle scales it to 700
     x 525 and the stroke lands where that puts it; Ctrl+Shift+V then Esc
     leaves one layer.
+  * POINTER: a 3 px brush keeps the crosshair, a 24 px one hides it and
+    draws its outline (a dark ring at its radius).
   * SELECT: M and the bar; hovering a rail button and a select kind
     shows each tooltip after the delay (cream below it, none at once); the magic wand picks the sky above a black
     band and no more; a brush across the band paints only the selected
     side (a brush that ignored it would cross); a dragged rectangle,
-    Delete to Colour 2 and Ctrl+Z; Add spans two rectangles; a 48-step
+    Delete to Colour 2; Ctrl+Z brings back a deselected selection and
+    then the pixels; the status bar names the selection's size and place;
+    an ellipse selection deletes its centre and not its corner; Add spans two rectangles; a 48-step
     lasso drag and a 48-step move each land within a second; the move
     leaves Colour 2 and one Ctrl+Z undoes it; Ctrl+Shift+X crops;
     Ctrl+A and Ctrl+D.
@@ -101,7 +105,8 @@ land within a second; select_clip() doing nothing fails the brush-inside
 check (black outside the selection); an on_tick() without tips_tick()
 fails the tooltip check (no cream at either button); a gradient rendered
 on every motion fails the end-drag timing and, its drags landing short,
-six checks after it.
+six checks after it; record() keeping no selection steps fails both
+selection-undo checks.
 
 Usage (the VM must already be up):
 
@@ -927,6 +932,25 @@ def check_brushes(dbg, qmp, res, tmp):
             dbg.drag(p0[0], p0[1], p1[0], p1[1], steps=16)
             dbg.settle()
 
+    # THE BRUSH'S OUTLINE IS THE POINTER: at 3 px it is a crosshair still
+    # (an outline of 3 would hide the point), at 24 px the pointer goes
+    # and a dark ring 12 px out is drawn instead.
+    def ring_at(cx, cy, r):
+        dbg.warp_cursor(qmp, *scr.at(cx, cy))
+        time.sleep(0.4)
+        path = os.path.join(tmp, "ring.png")
+        qmp.screenshot(path)
+        from PIL import Image
+        im = Image.open(path).convert("RGB")
+        x, y = scr.at(cx, cy)
+        dark = sum(1 for dx in range(r - 3, r + 3) if max(im.getpixel((x + dx, y))) < 60)
+        return dbg.cursor_shape(), dark
+    small = ring_at(600, 500, 1)
+    click("size", 24 / 64)
+    big = ring_at(600, 500, 12)
+    click("size", 3 / 64)
+    res.check("a 3 px brush keeps the crosshair; a 24 px one hides the pointer and draws its outline",
+              small[0] == 10 and big[0] == 13 and big[1] >= 1, f"3 px {small}, 24 px {big}")
     dbg.move(10, 10)
     drag((100, 100), (500, 100))                 # the default Round brush, black, 3 px
     # HIGHLIGHTER, the palette's yellow, about 24 px, across the black
@@ -1242,8 +1266,8 @@ def check_select(dbg, qmp, res, tmp):
     res.check("M is the Select tool, and its bar shows", state(dbg).get("tool") == 7 and rect(dbg, "selectkind"),
               f"{state(dbg)}")
     # TOOLTIPS, by their cream (255, 252, 220) by the button: a rail
-    # button (a toolbar) and a select kind (a toggle row), each after the
-    # delay and not before. Paint idles on a minute's tick, so this also
+    # button (a toolbar) and a select kind (a toggle row), on a hover and
+    # not without one. Paint idles on a minute's tick, so this also
     # proves the tick speeds up while one is waited for.
     from PIL import Image
 
@@ -1261,15 +1285,20 @@ def check_select(dbg, qmp, res, tmp):
             qmp.screenshot(path)
             return sum(1 for p in Image.open(path).convert("RGB").crop(box).getdata()
                        if abs(p[0] - 255) < 6 and abs(p[1] - 252) < 6 and abs(p[2] - 220) < 8)
-        dbg.warp_cursor(qmp, scr.cx + r[0] + r[2] // 2, scr.cy + r[1] + r[3] // 2)
+        # BEFORE WITH THE POINTER PARKED: a settled screenshot can take
+        # longer than the tooltip's delay, so one taken after arriving races
+        # the tip it is meant to precede.
+        dbg.warp_cursor(qmp, 1270, 700)
+        time.sleep(0.6)
         before = count()
+        dbg.warp_cursor(qmp, scr.cx + r[0] + r[2] // 2, scr.cy + r[1] + r[3] // 2)
         time.sleep(1.4)
         return before, count()
-    tips = {part: cream_below(part) for part in ("rail.button 0", "selectkind.button 2")}
-    res.check("hovering a rail button and a select kind shows each one's tooltip, after the delay",
+    tips = {part: cream_below(part) for part in ("rail.button 0", "selectkind.button 3")}
+    res.check("hovering a rail button and a select kind shows each one's tooltip",
               all(b is not None and b < 20 and a > 40 for b, a in tips.values()), f"cream before/after {tips}")
     dbg.warp_cursor(qmp, 1270, 700)
-    click("selectkind.button 2")                 # the magic wand
+    click("selectkind.button 3")                 # the magic wand
     dbg.click(*scr.at(100, 50))
     dbg.settle()
     on, box = selection(dbg)
@@ -1298,18 +1327,29 @@ def check_select(dbg, qmp, res, tmp):
     res.check("a rectangle dragged selects it, and Delete clears it to Colour 2",
               box == [500, 400, 200, 200 - 50] and deleted == WHITE and scr.pixel(450, 475) == blue,
               f"box {box}, inside {deleted}, beside {scr.pixel(450, 475)}")
+    # SELECTION CHANGES ARE STEPS: the first Ctrl+Z brings the selection
+    # back, the second the pixels.
     dbg.key(CTRL["z"], mods="ctrl")
+    back = selection(dbg)
+    dbg.key(CTRL["z"], mods="ctrl")
+    dbg.key("0x04", mods="ctrl")
     scr.shoot()
-    res.check("...and Ctrl+Z puts it back", scr.pixel(600, 475) == blue, f"{scr.pixel(600, 475)}")
-    # Add, from the bar (a scripted drag holds no Shift): the box is both.
+    res.check("Ctrl+Z after Ctrl+D brings the selection back, and the next one the deleted pixels",
+              back == (1, [500, 400, 200, 150]) and scr.pixel(600, 475) == blue, f"{back} {scr.pixel(600, 475)}")
     drag(500, 400, 700, 550)
+    text = next((ln.split("statustext ", 1)[1] for ln in reversed(dbg.logs("paint: layout statustext ", clear=False))),
+                "")
+    res.check("the status bar shows the selection's size and place", "Selection 200" in text and "150 at 500, 400" in text,
+              repr(text))
+    # Add, from the bar (a scripted drag holds no Shift): the box is both
+    # -- the rectangle above still selected.
     click("selectmode.slot 1")
     drag(100, 400, 200, 450)
     on, both = selection(dbg)
     click("selectmode.slot 0")
     res.check("Add joins a second rectangle: the box spans both", both == [100, 400, 600, 150], f"{both}")
     # THE LASSO KEEPS UP: a 48-step drag's selection lands within a second.
-    click("selectkind.button 1")
+    click("selectkind.button 2")
     was = selection(dbg)
     t = timed(150, 100, 350, 250, lambda: selection(dbg) != was)
     res.check("a 48-step lasso drag lands within a second", t is not None and t < 1.0, f"{t and round(t, 2)} s")
@@ -1326,8 +1366,24 @@ def check_select(dbg, qmp, res, tmp):
               and scr.pixel(650, 450) == blue, f"{t and round(t, 2)} s, box {box}, left {scr.pixel(550, 450)}, "
               f"moved {scr.pixel(650, 450)}")
     dbg.key(CTRL["z"], mods="ctrl")
+    restored = selection(dbg)
+    dbg.key("0x04", mods="ctrl")
     scr.shoot()
-    res.check("...and one Ctrl+Z puts it back where it was", scr.pixel(550, 450) == blue, f"{scr.pixel(550, 450)}")
+    res.check("...and one Ctrl+Z puts it back where it was, selected again", scr.pixel(550, 450) == blue
+              and restored == (1, [500, 400, 100, 100]), f"{scr.pixel(550, 450)} {restored}")
+    # AN ELLIPSE: its box the drag's, its corners not selected.
+    click("selectkind.button 1")
+    drag(100, 100, 300, 200)
+    on, ebox = selection(dbg)
+    dbg.key("0xf788")
+    dbg.key("0x04", mods="ctrl")
+    scr.shoot()
+    res.check("an ellipse selection: the dragged box, its centre deleted and its corner not",
+              on == 1 and ebox and abs(ebox[0] - 100) <= 1 and abs(ebox[2] - 200) <= 2 and scr.pixel(200, 150) == WHITE
+              and scr.pixel(104, 104) == blue, f"{ebox} centre {scr.pixel(200, 150)} corner {scr.pixel(104, 104)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    dbg.key(CTRL["z"], mods="ctrl")
+    click("selectkind.button 0")
     # Crop to a rectangle.
     drag(100, 100, 400, 300)
     dbg.key(CTRL["x"], mods="ctrl shift")
@@ -1429,7 +1485,8 @@ def check_gradient(dbg, qmp, res, tmp):
     scr.shoot()
     res.check("a selection keeps the gradient inside it", scr.pixel(150, 300) == WHITE and scr.pixel(450, 300) == WHITE
               and scr.pixel(300, 300) != WHITE, f"{scr.pixel(150, 300)} {scr.pixel(300, 300)} {scr.pixel(450, 300)}")
-    dbg.key(CTRL["z"], mods="ctrl")
+    for _ in range(3):   # the deselect, the gradient, the selection: each a step
+        dbg.key(CTRL["z"], mods="ctrl")
     # THE BUCKET'S GRADIENT: a black band at x 400, a click left of it.
     click("palette.cell 0")
     dbg.key("b")

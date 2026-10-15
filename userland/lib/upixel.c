@@ -680,6 +680,12 @@ void upix_sel_all(struct upix_sel *s) {
     s->box = (struct upix_rect){ 0, 0, s->w, s->h };
 }
 
+void upix_sel_load(struct upix_sel *s, const uint8_t *a) {
+    if (!s->a || !a) return;
+    memcpy(s->a, a, (size_t)s->w * s->h);
+    sel_bounds(s);
+}
+
 void upix_sel_invert(struct upix_sel *s) {
     if (!s->a) return;
     for (size_t i = 0; i < (size_t)s->w * s->h; i++) s->a[i] = (uint8_t)(255 - s->a[i]);

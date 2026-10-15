@@ -50,6 +50,9 @@ extern int g_shape_aa;                  // smooth edges
 void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned mods);   // HOVER too
 int  tools_busy(void);                 // a stroke is under way
 int  tools_tick(void);                 // the spray, held still: 1 when it painted
+// The tool's tip, for the pointer's outline: w x h picture pixels, round
+// or square. 0 for a tool with no tip (the fill, the picker...).
+int  tools_outline(int *w, int *h, int *round);
 
 // What the window must hear back. Defined in paint.c.
 void paint_changed(const struct upix_rect *r);   // pixels changed: the view, redraw, title (NULL: all)
@@ -102,7 +105,7 @@ void shapes_log_layout(const struct uui_paintcanvas *c);
 
 // --- paint_select.c: the selection ---------------------------------------------
 // The Select tool's kinds, its bar's row in that order.
-enum paint_sel_kind { SEL_RECT, SEL_LASSO, SEL_WAND, SEL_KIND_COUNT };
+enum paint_sel_kind { SEL_RECT, SEL_ELLIPSE, SEL_LASSO, SEL_WAND, SEL_KIND_COUNT };
 extern int g_sel_kind;                     // enum paint_sel_kind
 extern int g_sel_mode;                     // enum upix_sel_op: the bar's New / Add / Subtract
 extern int g_sel_tol;                      // the wand's tolerance, percent
@@ -121,6 +124,9 @@ int  select_copy(int cut);                 // onto the clipboard; 1 when there w
 int  select_key(int key, unsigned mods);   // Esc deselects, Delete deletes: 1 when taken
 void select_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
 void select_log_layout(const struct uui_paintcanvas *c);
+// The status bar's pane: "Selection 241 x 141 at 180, 220", the size of
+// one being dragged out, or empty.
+void select_status(char *out, int cap);
 
 // --- paint_gradient.c: the Gradient tool, and the bucket's gradient -------------
 extern int g_grad_shape;                   // enum upix_grad: the bar's row, in its order

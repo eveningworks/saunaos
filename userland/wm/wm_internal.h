@@ -623,7 +623,7 @@ const struct uimg *start_icon(int *out_x, int *out_y, int *out_size);
 enum wm_cursor_kind { WM_CURSOR_NORMAL, WM_CURSOR_H, WM_CURSOR_V, WM_CURSOR_DIAG,
                        WM_CURSOR_TEXT, WM_CURSOR_WAIT, WM_CURSOR_DIAG2,
                        WM_CURSOR_HAND, WM_CURSOR_MOVE, WM_CURSOR_NOT_ALLOWED,
-                       WM_CURSOR_CROSSHAIR, WM_CURSOR_GRAB, WM_CURSOR_GRABBING };
+                       WM_CURSOR_CROSSHAIR, WM_CURSOR_GRAB, WM_CURSOR_GRABBING, WM_CURSOR_NONE };
 
 // Finds which window (if any) the point (mx, my) is over a resize edge
 // of -- the same topmost-window-wins hit-testing wm_handle_left_click()

@@ -1832,11 +1832,14 @@ Manager. Left to build, in order:
   bucket's Solid | Gradient, filling the region a click would. The
   renderer is `lib/upixel.h`'s, rendered once a frame however many
   motions arrive.
-- **Next**: a brush outline as the pointer, sized to the brush; an
-  ellipse selection, and selection changes in the history (Paint.NET has
-  both).
-- **Stage 3, what is left**: the status bar's selection pane (its size
-  and place), and a selection's own handles to scale it in place.
+- **Polish is built** (2026-10-15): the brush's outline as the pointer
+  (the system pointer hidden through `WIN_CURSOR_NONE`); an ellipse
+  selection; selection changes in the history; the status bar's tool,
+  size and selection panes.
+- **Next**: a selection's own handles, to scale what is selected in
+  place; an animated (marching) edge.
+- **Stage 3, what is left**: a selection's own handles, to scale it in
+  place.
 - **Not v1**: zoom past the wheel's steps by a typed value; layer
   blend modes.
 

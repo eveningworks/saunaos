@@ -768,6 +768,7 @@ static enum wm_cursor_kind client_cursor_at(int mx, int my) {
         case WIN_CURSOR_CROSSHAIR: return WM_CURSOR_CROSSHAIR;
         case WIN_CURSOR_GRAB:     return WM_CURSOR_GRAB;
         case WIN_CURSOR_GRABBING: return WM_CURSOR_GRABBING;
+        case WIN_CURSOR_NONE:     return WM_CURSOR_NONE;
         default: break;
         }
         break;
@@ -995,6 +996,13 @@ static void draw_cursor_at(int x, int y) {
     }
     enum wm_cursor_kind kind = resolve_cursor_kind(x, y);
     if ((int)kind != drawn_cursor_kind) wm_screenshot_cursor_changed();
+    // NO POINTER: the client draws its own where it is. Nothing saved,
+    // nothing drawn, the plane off -- the screensaver's path, tracked.
+    if (kind == WM_CURSOR_NONE) {
+        wm_hwcursor_hide();
+        drawn_cursor_kind = (int)kind;
+        return;
+    }
     if (wm_hwcursor_sync(kind)) {
         // The plane shows the pointer: nothing saved, nothing drawn.
         // drawn_cursor_kind still tracks, so a shape change is still

@@ -132,6 +132,7 @@ int cursor_theme_load(const char *theme) {
 }
 
 const struct cursor_shape *cursor_theme_shape(enum wm_cursor_kind kind) {
+    if (kind == WM_CURSOR_NONE) return 0;   // nothing to draw: wm_render.c skips it
     const struct cursor_shape *s = &g_shapes[kind_to_index(kind)];
     if (s->loaded) return s;
     if (kind == WM_CURSOR_HAND || kind == WM_CURSOR_MOVE || kind == WM_CURSOR_NOT_ALLOWED ||

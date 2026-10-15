@@ -194,6 +194,8 @@ int  upix_sel_at(const struct upix_sel *s, int x, int y);
 void upix_sel_clear(struct upix_sel *s);
 void upix_sel_all(struct upix_sel *s);
 void upix_sel_invert(struct upix_sel *s);
+// The mask set to `a` (s->w * s->h bytes, a copy taken of it) -- an undo.
+void upix_sel_load(struct upix_sel *s, const uint8_t *a);
 // The box with corners (x0, y0) and (x1, y1), x1 and y1 outside it.
 void upix_sel_rect(struct upix_sel *s, int x0, int y0, int x1, int y1, enum upix_sel_op op);
 // The closed polygon `p` (a lasso), pixels whose centres are inside. 0 or -ENOMEM.

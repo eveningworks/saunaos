@@ -903,7 +903,9 @@ struct win_event {
 #define WIN_CURSOR_CROSSHAIR 8 // a point or region is picked here
 #define WIN_CURSOR_GRAB     9 // a drag here pans the view: an open hand
 #define WIN_CURSOR_GRABBING 10 // ...and that drag is under way: a closed one
-#define WIN_CURSOR_COUNT    11
+#define WIN_CURSOR_NONE     11 // no pointer: the app draws its own (Paint's brush outline) --
+                               // Wayland's set_cursor with no surface
+#define WIN_CURSOR_COUNT    12
 
 // THE CLIPBOARD IS NOT HERE ANY MORE. It was a buffer in
 // kernel/proc/win_server.c reached by SYS_WIN_CLIP, holding untrusted

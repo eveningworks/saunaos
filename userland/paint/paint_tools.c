@@ -31,6 +31,16 @@ static int size_of(void) {
     return g_tool == TOOL_ERASER ? g_erase_size : g_brush_size[g_brush_kind];
 }
 
+int tools_outline(int *w, int *h, int *round) {
+    if (g_tool != TOOL_PENCIL && g_tool != TOOL_BRUSH && g_tool != TOOL_ERASER) return 0;
+    int size = size_of();
+    *w = *h = size;
+    *round = g_tool == TOOL_ERASER ? g_erase_hard < 100
+           : g_tool == TOOL_BRUSH && g_brush_kind != BRUSH_SQUARE && g_brush_kind != BRUSH_HIGHLIGHT;
+    if (g_tool == TOOL_BRUSH && g_brush_kind == BRUSH_HIGHLIGHT) *w = size / 4 > 1 ? size / 4 : 1;
+    return 1;
+}
+
 // A brush painted from its coverage (lib/upixel.h's stroke) rather than
 // by stamping exact pixels: soft edges, the highlighter, a soft eraser.
 static int by_coverage(void) {
