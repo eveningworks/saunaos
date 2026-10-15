@@ -183,6 +183,8 @@ int udp_output(struct net_device *dev, uint32_t dst_ip, uint16_t dst_port,
 
 int  tcp_open(uint16_t local_port);      // a connection block, or -errno
 int  tcp_blocks_in_use(void);             // live connection blocks -- for tests
+// RFC 9293's segment acceptability, pure -- exported for the KTESTs.
+int  tcp_seg_acceptable(uint32_t seq, uint32_t len, uint32_t rcv_nxt, uint32_t wnd);
 void tcp_release(int idx);
 int  tcp_state(int idx);
 int  tcp_error(int idx);   // -ECONNREFUSED / -ECONNRESET, or 0

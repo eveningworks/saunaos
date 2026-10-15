@@ -108,12 +108,16 @@ struct tcp_conn {
     // sent -- with no socket in front of it, so tcp_release() is what
     // happens if the listener closes before accepting it.
     uint8_t pending;
+    int parent;            // the listener's idx + 1 while pending, else 0
     uint32_t remote_ip;
     uint16_t remote_port, local_port;
 
     uint32_t iss, snd_una, snd_nxt;
     uint32_t irs, rcv_nxt;
     uint32_t snd_wnd;      // what the peer said it will take
+    // The segment the window last came from (RFC 9293's SND.WL1/WL2): an
+    // older segment arriving late must not undo a newer window.
+    uint32_t snd_wl1, snd_wl2;
     uint32_t snd_mss;      // the peer's MSS: its option, or RFC 1122's 536
 
     uint8_t *snd;          // a ring of snd_cap bytes; NULL until the connection opens
@@ -142,6 +146,11 @@ struct tcp_conn {
 
     uint64_t rto_at_ns;    // 0 when nothing is outstanding
     uint32_t rto_ms;
+    // THE PERSIST TIMER: data waiting behind a ZERO window with nothing
+    // in flight has no retransmission to wake it, so a lost window
+    // update would leave both ends waiting for ever (RFC 9293 3.8.6.1).
+    uint64_t persist_at_ns; // 0 when not probing
+    uint32_t persist_ms;
     int retries;
     uint8_t fin_queued;    // the caller closed; send FIN once the data is out
     uint8_t peer_fin;      // the peer is done sending
@@ -417,6 +426,17 @@ static void arm_timer(struct tcp_conn *c) {
     }
 }
 
+// Probe a zero window only while data waits behind it and nothing is in
+// flight -- anything in flight has the retransmission timer already.
+static void arm_persist(struct tcp_conn *c) {
+    int need = (c->state == TCP_STATE_ESTABLISHED || c->state == TCP_STATE_CLOSE_WAIT) &&
+               c->snd_wnd == 0 && c->snd_nxt == c->snd_una && c->snd_len > 0;
+    if (!need) { c->persist_at_ns = 0; c->persist_ms = 0; return; }
+    if (c->persist_at_ns) return;
+    if (!c->persist_ms) c->persist_ms = TCP_RTO_MIN_MS;
+    c->persist_at_ns = clocksource_now_ns() + (uint64_t)c->persist_ms * 1000000ull;
+}
+
 // The connection just reached ESTABLISHED: RFC 5681's starting point.
 static void cc_init(struct tcp_conn *c) {
     c->cwnd = TCP_INIT_CWND_SEGS * c->snd_mss;
@@ -436,7 +456,10 @@ static void cc_halve(struct tcp_conn *c) {
 // lesser of the peer's window and cwnd allows. Returns the bytes put on
 // the wire.
 static uint32_t send_pending(struct tcp_conn *c) {
-    if (c->state != TCP_STATE_ESTABLISHED && c->state != TCP_STATE_CLOSE_WAIT) return 0;
+    if (c->state != TCP_STATE_ESTABLISHED && c->state != TCP_STATE_CLOSE_WAIT) {
+        arm_persist(c);
+        return 0;
+    }
 
     uint32_t limit = c->snd_wnd < c->cwnd ? c->snd_wnd : c->cwnd;
     uint32_t sent = 0;
@@ -452,6 +475,7 @@ static uint32_t send_pending(struct tcp_conn *c) {
         sent += n;
     }
     if (sent) arm_timer(c);
+    arm_persist(c);
     return sent;
 }
 
@@ -576,9 +600,10 @@ static int tcp_accept_locked(int idx) {
     for (int i = 0; i < kslots_cap(&g_conns); i++) {
         struct tcp_conn *k = conn_at(i);
         if (!k || !k->pending) continue;
-        if (k->local_port != conn_at(idx)->local_port) continue;
+        if (k->parent != idx + 1) continue;
         if (k->state != TCP_STATE_ESTABLISHED && k->state != TCP_STATE_CLOSE_WAIT) continue;
         k->pending = 0;      // it has an owner now
+        k->parent = 0;
         return i;
     }
     return -EAGAIN;
@@ -628,6 +653,20 @@ static int tcp_recv_locked(int idx, void *buf, uint32_t cap) {
 static void tcp_close_locked(int idx) {
     if (!conn_at(idx)) return;
     struct tcp_conn *c = conn_at(idx);
+    if (c->state == TCP_STATE_LISTEN) {
+        // THE UNACCEPTED CONNECTIONS GO WITH IT. Nobody can accept them
+        // now and nothing else would ever close them: each is reset and
+        // given back, as Linux's inet_csk_listen_stop() does.
+        for (int i = 0; i < kslots_cap(&g_conns); i++) {
+            struct tcp_conn *k = conn_at(i);
+            if (!k || !k->pending || k->parent != idx + 1) continue;
+            if (k->state != TCP_STATE_CLOSED)
+                send_segment(k, TH_RST | TH_ACK, k->snd_nxt, 0, 0);
+            tcp_release_locked(i);
+        }
+        tcp_release_locked(idx);
+        return;
+    }
     if (c->state == TCP_STATE_SYN_SENT || c->state == TCP_STATE_CLOSED) {
         tcp_release_locked(idx);
         return;
@@ -654,6 +693,8 @@ uint64_t tcp_next_deadline(void) {
         const struct tcp_conn *c = conn_at(i);
         if (!c) continue;
         uint64_t when = c->rto_at_ns;
+        if (c->persist_at_ns && (!when || c->persist_at_ns < when))
+            when = c->persist_at_ns;
         if (c->orphan && (!when || c->linger_at_ns < when))
             when = c->linger_at_ns;
         if (!when) continue;
@@ -675,6 +716,18 @@ static void tcp_tick_locked(void) {
         if (c->orphan && (c->state == TCP_STATE_CLOSED || now >= c->linger_at_ns)) {
             tcp_release_locked(i);
             continue;
+        }
+
+        // A ZERO-WINDOW PROBE is a bare ACK one byte BEHIND snd_una:
+        // unacceptable to the peer, which therefore answers with an ACK
+        // carrying its window -- Linux's tcp_xmit_probe_skb(). Backed off
+        // like a retransmission, and never given up while the peer can
+        // answer; a peer that has gone is the linger's or the RTO's to end.
+        if (c->persist_at_ns && now >= c->persist_at_ns) {
+            send_segment(c, TH_ACK, c->snd_una - 1, 0, 0);
+            c->persist_ms = c->persist_ms * 2 > TCP_RTO_MAX_MS ? TCP_RTO_MAX_MS
+                                                                : c->persist_ms * 2;
+            c->persist_at_ns = now + (uint64_t)c->persist_ms * 1000000ull;
         }
 
         // An -EAGAIN from ARP left the segment unsent; retrying is the
@@ -770,11 +823,11 @@ static struct tcp_conn *find_listener(uint16_t dst_port) {
 // How many connections a listener has produced that nobody has accepted
 // yet. This IS the backlog: there is no separate queue, because a
 // half-finished connection needs a full block anyway.
-static int backlog_depth(uint16_t port) {
+static int backlog_depth(const struct tcp_conn *lis) {
     int n = 0;
     for (int i = 0; i < kslots_cap(&g_conns); i++) {
         struct tcp_conn *c = conn_at(i);
-        if (c && c->pending && c->local_port == port) n++;
+        if (c && c->pending && c->parent == lis->idx + 1) n++;
     }
     return n;
 }
@@ -785,7 +838,7 @@ static int backlog_depth(uint16_t port) {
 static void passive_open(struct tcp_conn *lis, uint32_t src_ip, uint16_t src_port,
                          uint32_t seq, uint16_t window,
                          const uint8_t *opt, uint32_t optlen) {
-    if (backlog_depth(lis->local_port) >= TCP_BACKLOG) {
+    if (backlog_depth(lis) >= TCP_BACKLOG) {
         // FULL: say nothing. The client's own SYN retransmission brings
         // it back when a slot frees, so a brief burst succeeds slightly
         // later instead of failing -- Linux's default, and the reason
@@ -799,6 +852,7 @@ static void passive_open(struct tcp_conn *lis, uint32_t src_ip, uint16_t src_por
     if (!bufs_alloc(c)) { tcp_release_locked(idx); return; }  // silence, as above
     settle_wscale(c, peer_wscale(opt, optlen));
     c->pending = 1;
+    c->parent = lis->idx + 1;
     c->remote_ip = src_ip;
     c->remote_port = src_port;
     c->irs = seq;
@@ -813,6 +867,19 @@ static void passive_open(struct tcp_conn *lis, uint32_t src_ip, uint16_t src_por
 
     send_segment(c, TH_SYN | TH_ACK, c->iss, 0, 0);
     arm_timer(c);
+}
+
+// RFC 9293's four cases: a segment of `len` sequence numbers at `seq` is
+// acceptable when any of it falls in [rcv_nxt, rcv_nxt + wnd); with
+// nothing in it, its sequence must; with a zero window, only an empty
+// segment exactly at rcv_nxt is.
+int tcp_seg_acceptable(uint32_t seq, uint32_t len, uint32_t rcv_nxt, uint32_t wnd) {
+    if (!wnd) return len == 0 && seq == rcv_nxt;
+    uint32_t first = seq - rcv_nxt;
+    if (first < wnd) return 1;
+    if (!len) return 0;
+    uint32_t last = seq + len - 1 - rcv_nxt;
+    return last < wnd;
 }
 
 static int tcp_input_locked(struct net_device *dev, uint32_t src_ip, uint32_t dst_ip,
@@ -876,6 +943,8 @@ static int tcp_input_locked(struct net_device *dev, uint32_t src_ip, uint32_t ds
         c->rcv_nxt = seq + 1;
         c->snd_una = ack;
         c->snd_wnd = net_ntohs(h.window);          // a SYN's window is unscaled
+        c->snd_wl1 = seq;
+        c->snd_wl2 = ack;
         c->snd_mss = peer_mss(pkt + sizeof h, doff - (uint32_t)sizeof h);
         settle_wscale(c, peer_wscale(pkt + sizeof h, doff - (uint32_t)sizeof h));
         c->state = TCP_STATE_ESTABLISHED;
@@ -900,9 +969,41 @@ static int tcp_input_locked(struct net_device *dev, uint32_t src_ip, uint32_t ds
             c->rto_at_ns = 0;
             c->retries = 0;
             c->rto_ms = TCP_RTO_MIN_MS;
-        } else if (!(h.flags & TH_ACK)) {
+            c->snd_wl1 = seq;
+            c->snd_wl2 = ack;
+        } else {
+            // A third leg acking the wrong thing is not one: nothing in
+            // it -- data, FIN -- is the application's until the
+            // handshake is real.
             return 1;
         }
+    }
+
+    // SEGMENT ACCEPTABILITY FIRST (RFC 9293 3.10.7.4): nothing in a
+    // segment outside the receive window is believed -- not its data,
+    // not its ACK, which would otherwise free send-buffer bytes the peer
+    // never had. It is answered with an ACK saying where we are, which is
+    // also what a retransmitted FIN whose ACK was lost needs, and what a
+    // zero-window probe is for. A SYN and a FIN each occupy a number.
+    uint32_t seg_len = data_len + ((h.flags & TH_SYN) ? 1u : 0u) + ((h.flags & TH_FIN) ? 1u : 0u);
+    uint32_t rwnd = c->rcv_cap - c->rcv_len;
+    int refused = 0;
+    if (!tcp_seg_acceptable(seq, seg_len, c->rcv_nxt, rwnd)) {
+        // A ZERO WINDOW STILL TAKES THE ACK of a segment at rcv_nxt --
+        // only its data is refused -- or a full receiver stops hearing
+        // about its own sends (RFC 9293's "special allowance").
+        if (rwnd || seq != c->rcv_nxt) {
+            send_segment(c, TH_ACK, c->snd_nxt, 0, 0);
+            return 1;
+        }
+        data_len = 0;
+        h.flags &= (uint8_t)~(TH_FIN | TH_SYN);
+        refused = 1;
+    }
+    // An ACK of something never sent is answered and dropped too.
+    if ((h.flags & TH_ACK) && seq_lt(c->snd_nxt, ack)) {
+        send_segment(c, TH_ACK, c->snd_nxt, 0, 0);
+        return 1;
     }
 
     if (h.flags & TH_ACK) {
@@ -964,7 +1065,12 @@ static int tcp_input_locked(struct net_device *dev, uint32_t src_ip, uint32_t ds
                 c->cwnd += c->snd_mss;
             }
         }
-        c->snd_wnd = new_wnd;
+        if (seq_lt(c->snd_wl1, seq) ||
+            (c->snd_wl1 == seq && seq_le(c->snd_wl2, ack))) {
+            c->snd_wnd = new_wnd;
+            c->snd_wl1 = seq;
+            c->snd_wl2 = ack;
+        }
     }
 
     // The window is the free space in `rcv`, so a byte the window admits
@@ -1018,7 +1124,7 @@ static int tcp_input_locked(struct net_device *dev, uint32_t src_ip, uint32_t ds
             c->state = TCP_STATE_CLOSED;
     }
 
-    if (took || data_len) send_segment(c, TH_ACK, c->snd_nxt, 0, 0);
+    if (took || data_len || refused) send_segment(c, TH_ACK, c->snd_nxt, 0, 0);
     send_pending(c);
     maybe_send_fin(c);
     return 1;

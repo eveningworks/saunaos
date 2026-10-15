@@ -1692,6 +1692,10 @@ KTEST("tcp", "a stream socket refuses the wrong protocol, and a datagram refuses
 // Does NOT accept -- the caller decides when, which is what lets the
 // backlog test fill the queue without needing a socket per connection.
 // Returns 1, or 0 having already failed the test.
+// What the listener's side expects acknowledged next, after the last
+// handshake_from_outside() -- a segment acking anything else is dropped.
+static uint32_t g_hs_server_next;
+
 static int handshake_from_outside(struct net_device *dev, struct ktest_ctx *ctx,
                                   uint16_t client_port, uint32_t *out_client_seq) {
     uint32_t peer_seq = 0x60000000u + client_port;
@@ -1718,6 +1722,7 @@ static int handshake_from_outside(struct net_device *dev, struct ktest_ctx *ctx,
                     peer_seq + 1, their_seq + 1, 0, 0);
     eth_input(dev, g_frame, len);
     if (out_client_seq) *out_client_seq = peer_seq + 1;
+    g_hs_server_next = their_seq + 1;
     return 1;
 }
 
@@ -1802,7 +1807,7 @@ KTEST("tcp", "a passive open completes, and the listener keeps listening") {
     KTEST_ASSERT_EQ(port_out, 40001);
 
     // Data goes to the ACCEPTED socket, never to the listener.
-    len = tcp_frame(dev, 40001, 8081, 0x18, client_seq, 0, 6, 0);
+    len = tcp_frame(dev, 40001, 8081, 0x18, client_seq, g_hs_server_next, 6, 0);
     eth_input(dev, g_frame, len);
     uint8_t buf[16];
     KTEST_ASSERT_EQ(net_sock_stream_recv(conn, buf, sizeof buf), 6);
@@ -1871,6 +1876,200 @@ KTEST("tcp", "a full backlog drops the SYN rather than refusing it") {
 // wide. Past that both must keep working AND keep their rules: a port
 // bound by socket 15 is still taken for socket 21, which a table that
 // grew without its walks growing too would forget.
+
+KTEST("tcp", "segment acceptability follows RFC 9293's four cases") {
+    KTEST_ASSERT(tcp_seg_acceptable(1000, 0, 1000, 100));      // empty, at rcv_nxt
+    KTEST_ASSERT(tcp_seg_acceptable(1099, 0, 1000, 100));      // empty, last slot
+    KTEST_ASSERT(!tcp_seg_acceptable(1100, 0, 1000, 100));     // empty, past it
+    KTEST_ASSERT(!tcp_seg_acceptable(999, 0, 1000, 100));      // empty, behind
+    KTEST_ASSERT(tcp_seg_acceptable(990, 20, 1000, 100));      // overlaps the start
+    KTEST_ASSERT(!tcp_seg_acceptable(990, 10, 1000, 100));     // wholly old
+    KTEST_ASSERT(!tcp_seg_acceptable(999, 1, 1000, 100));      // a retransmitted FIN
+    KTEST_ASSERT(!tcp_seg_acceptable(0x100000u, 5, 1000, 100)); // far ahead
+    KTEST_ASSERT(tcp_seg_acceptable(1000, 0, 1000, 0));        // zero window: only this
+    KTEST_ASSERT(!tcp_seg_acceptable(1000, 1, 1000, 0));
+    KTEST_ASSERT(tcp_seg_acceptable(0xFFFFFFF0u, 0x20, 0xFFFFFFF8u, 100));  // wraps
+}
+
+// NET-02: an ACK riding a segment from outside the window used to free
+// send-buffer bytes -- which were then never retransmitted.
+KTEST("tcp", "an ACK on an out-of-window segment frees nothing, and is answered") {
+    struct net_device *dev = addressed_device();
+    if (!dev) KTEST_SKIP("no network device with an address");
+    struct fake_peer p;
+    if (!establish(dev, &p, ctx)) return;
+    const uint32_t base = p.our_seq;
+    upload_pattern();
+
+    peer_ack(dev, &p, 0, 32768);
+    capture_begin(dev);
+    net_sock_stream_send(p.sock, g_upload, 536);
+    g_sent_count = 0;
+    uint32_t len = tcp_frame_full(dev, 8080, p.our_port, 0x10, p.peer_seq + 0x100000u,
+                                  base + 536, 0, 0, 0, 0, 0, 32768);
+    eth_input(dev, g_frame, len);
+    int answered = g_sent_count;
+    uint32_t answer_ack = answered ? sent_tcp_ack() : 0;
+    scheduler_preempt_disable();
+    uint64_t until = clocksource_now_ns() + 300000000ull;
+    while (clocksource_now_ns() < until) {}
+    g_sent_count = 0;
+    tcp_tick();
+    scheduler_preempt_enable();
+    int resent = g_sent_count;
+    uint32_t seq = resent ? txlog_seq(0) : 0;
+    capture_end(dev);
+
+    ack_all_sent(dev, &p, 536, 536);
+    finish_close(dev, &p);
+    KTEST_ASSERT_EQ(answered, 1);                 // told where we are
+    KTEST_ASSERT_EQ(answer_ack, p.peer_seq);
+    KTEST_ASSERT_EQ(resent, 1);                   // the bytes were still owed
+    KTEST_ASSERT_EQ(seq, base);
+}
+
+// NET-12: the first FIN's ACK lost, the peer sends it again -- and must
+// be answered, or it never finishes closing.
+KTEST("tcp", "a retransmitted FIN is acknowledged again") {
+    struct net_device *dev = addressed_device();
+    if (!dev) KTEST_SKIP("no network device with an address");
+    struct fake_peer p;
+    if (!establish(dev, &p, ctx)) return;
+
+    capture_begin(dev);
+    uint32_t len = tcp_frame(dev, 8080, p.our_port, 0x11, p.peer_seq, p.our_seq, 0, 0);
+    eth_input(dev, g_frame, len);
+    int first = g_sent_count;
+    g_sent_count = 0;
+    eth_input(dev, g_frame, len);
+    int second = g_sent_count;
+    uint32_t ack2 = second ? sent_tcp_ack() : 0;
+    uint8_t flags2 = second ? sent_tcp_flags() : 0;
+    capture_end(dev);
+
+    // peer_seq stays AT the FIN: finish_close() sends it once more, and
+    // its reset must land on rcv_nxt, one past, or it is ignored and the
+    // block lingers into the next test.
+    finish_close(dev, &p);
+    KTEST_ASSERT_EQ(first, 1);
+    KTEST_ASSERT_EQ(second, 1);
+    KTEST_ASSERT_EQ(ack2, p.peer_seq + 1);
+    KTEST_ASSERT_EQ(flags2 & 0x10, 0x10);
+}
+
+// NET-11: data behind a zero window, nothing in flight, and the window
+// update lost -- only a probe gets it moving again.
+KTEST("tcp", "a zero window is probed, and the data goes once it opens") {
+    struct net_device *dev = addressed_device();
+    if (!dev) KTEST_SKIP("no network device with an address");
+    int blocks0 = tcp_blocks_in_use();
+    struct fake_peer p;
+    if (!establish(dev, &p, ctx)) return;
+    const uint32_t base = p.our_seq;
+    upload_pattern();
+
+    // A pure ACK from the peer slides the window to zero. Its segment
+    // must be newer than the SYN+ACK's for the window to be believed.
+    peer_ack(dev, &p, 0, 0);
+    capture_begin(dev);
+    int took = net_sock_stream_send(p.sock, g_upload, 100);
+    int sent_closed = g_sent_count;
+    int armed = tcp_next_deadline() != 0;
+    scheduler_preempt_disable();
+    uint64_t until = clocksource_now_ns() + 300000000ull;
+    while (clocksource_now_ns() < until) {}
+    g_sent_count = 0;
+    tcp_tick();
+    scheduler_preempt_enable();
+    int probes = g_sent_count;
+    uint32_t probe_seq = probes ? sent_tcp_seq() : 0;
+    uint32_t probe_len = probes ? tcp_payload_of(g_sent, g_sent_len) : 99;
+    // The peer answers the probe with its window open.
+    g_sent_count = 0;
+    peer_ack(dev, &p, 0, 8192);
+    uint32_t data = 0;
+    for (int f = 0; f < g_sent_count && f < TXLOG_MAX; f++)
+        data += tcp_payload_of(g_txlog[f], g_txlog_len[f]);
+    capture_end(dev);
+
+    ack_all_sent(dev, &p, 100, 100);
+    finish_close(dev, &p);
+    KTEST_ASSERT_EQ(tcp_blocks_in_use(), blocks0);   // nothing left lingering
+    KTEST_ASSERT_EQ(took, 100);
+    KTEST_ASSERT_EQ(sent_closed, 0);              // nothing past a zero window
+    KTEST_ASSERT(armed);                          // ...but a deadline to come back
+    KTEST_ASSERT_EQ(probes, 1);
+    KTEST_ASSERT_EQ(probe_seq, base - 1);         // one behind: unacceptable, answered
+    KTEST_ASSERT_EQ(probe_len, 0u);
+    KTEST_ASSERT_EQ(data, 100u);
+}
+
+// NET-03: the third leg acking the wrong number is not a handshake, and
+// the data it carries must not reach anyone.
+KTEST("tcp", "a third leg with the wrong ACK delivers nothing") {
+    struct net_device *dev = addressed_device();
+    if (!dev) KTEST_SKIP("no network device with an address");
+    uint32_t len = arp_request(dev, dev->ip, 0);
+    eth_input(dev, g_frame, len);
+    int lis = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
+    KTEST_ASSERT_EQ(net_sock_bind(lis, 0, 8081, 0), 8081);
+    KTEST_ASSERT_EQ(net_sock_listen(lis), 0);
+
+    const uint32_t cseq = 0x62000000u;
+    capture_begin(dev);
+    len = tcp_frame(dev, 40011, 8081, 0x02, cseq, 0, 0, 0);
+    eth_input(dev, g_frame, len);
+    uint32_t server_next = sent_tcp_seq() + 1;
+    g_sent_count = 0;
+    // ACK|PSH with 6 bytes, acknowledging one less than was sent.
+    len = tcp_frame(dev, 40011, 8081, 0x18, cseq + 1, server_next - 1, 6, 0);
+    eth_input(dev, g_frame, len);
+    int acked_data = g_sent_count && sent_tcp_ack() == cseq + 1 + 6;
+    capture_end(dev);
+    int offered = net_sock_accept(lis);
+
+    abort_from_peer(dev, 40011, 8081, cseq + 1);
+    net_sock_close(lis);
+    tcp_tick();
+    KTEST_ASSERT(!acked_data);
+    KTEST_ASSERT_EQ(offered, -EAGAIN);            // still not a connection
+}
+
+// NET-04: a listener closed with a connection nobody accepted used to
+// leave that connection holding a block for ever.
+KTEST("tcp", "closing a listener resets and frees what it never handed out") {
+    struct net_device *dev = addressed_device();
+    if (!dev) KTEST_SKIP("no network device with an address");
+    uint32_t len = arp_request(dev, dev->ip, 0);
+    eth_input(dev, g_frame, len);
+    int before = tcp_blocks_in_use();
+
+    int lis = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
+    KTEST_ASSERT_EQ(net_sock_bind(lis, 0, 8081, 0), 8081);
+    KTEST_ASSERT_EQ(net_sock_listen(lis), 0);
+    uint32_t cseq = 0;
+    if (!handshake_from_outside(dev, ctx, 40012, &cseq)) { net_sock_close(lis); return; }
+    int during = tcp_blocks_in_use();
+
+    capture_begin(dev);
+    net_sock_close(lis);
+    uint8_t flags = g_sent_count ? sent_tcp_flags() : 0;
+    capture_end(dev);
+    int after = tcp_blocks_in_use();
+
+    // And a new listener on the same port inherits nothing.
+    int lis2 = net_sock_open(NET_AF_INET, NET_SOCK_STREAM, IP_PROTO_TCP);
+    KTEST_ASSERT_EQ(net_sock_bind(lis2, 0, 8081, 0), 8081);
+    KTEST_ASSERT_EQ(net_sock_listen(lis2), 0);
+    int inherited = net_sock_accept(lis2);
+    net_sock_close(lis2);
+
+    KTEST_ASSERT_EQ(during, before + 2);          // the listener and its child
+    KTEST_ASSERT_EQ(after, before);               // both given back at once
+    KTEST_ASSERT_EQ(flags & 0x04, 0x04);          // the child was reset
+    KTEST_ASSERT_EQ(inherited, -EAGAIN);
+}
+
 KTEST("net", "more than eight sockets and eight TCP blocks, and ports stay exclusive") {
     int udp[20], tcp[12];
     for (int i = 0; i < 20; i++) {
