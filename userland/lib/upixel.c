@@ -548,23 +548,40 @@ void upix_spray(struct uimg *im, int cx, int cy, int size, int n, uint32_t colou
 
 #define GRAD_STEPS 4096   // the table's positions: 16x finer than 8 bits, for the dither
 
+// atan2(y, x) / pi in [-1, 1], to about 1e-5 of a half turn: a 9th-order
+// minimax atan on [0, 1] and the octant folded in -- libm's atan2 per
+// pixel made a conical gradient lag the pointer.
+static float atan2_turns(float y, float x) {
+    float ax = fabsf(x), ay = fabsf(y);
+    if (ax == 0 && ay == 0) return 0;
+    float a = ax > ay ? ay / ax : ax / ay, s2 = a * a;
+    float r = a * (0.9998660f + s2 * (-0.3302995f + s2 * (0.1801410f + s2 * (-0.0851330f + s2 * 0.0208351f))));
+    if (ay > ax) r = 1.57079633f - r;
+    if (x < 0) r = 3.14159265f - r;
+    if (y < 0) r = -r;
+    return r / 3.14159265f;
+}
+
+// A shape's position from the pixel's place ALONG the line and ACROSS it,
+// each in the line's lengths -- (along, across) is the pixel in the
+// line's own axes.
+static float grad_shape_t(enum upix_grad shape, float along, float across) {
+    float t;
+    switch (shape) {
+    case UPIX_GRAD_REFLECTED: t = fabsf(along); break;
+    case UPIX_GRAD_RADIAL:    t = sqrtf(along * along + across * across); break;
+    case UPIX_GRAD_DIAMOND:   t = fabsf(along) + fabsf(across); break;
+    case UPIX_GRAD_CONICAL:   t = fabsf(atan2_turns(across, along)); break;
+    default:                  t = along; break;
+    }
+    return t < 0 ? 0 : t > 1 ? 1 : t;
+}
+
 float upix_gradient_at(const struct upix_gradient *g, float px, float py) {
     float dx = g->x1 - g->x0, dy = g->y1 - g->y0, l2 = dx * dx + dy * dy;
     if (l2 <= 0) return 1;
-    float vx = px - g->x0, vy = py - g->y0, t;
-    switch (g->shape) {
-    case UPIX_GRAD_REFLECTED: t = fabsf((vx * dx + vy * dy) / l2); break;
-    case UPIX_GRAD_RADIAL:    t = sqrtf((vx * vx + vy * vy) / l2); break;
-    case UPIX_GRAD_DIAMOND:   t = (fabsf(vx * dx + vy * dy) + fabsf(vx * -dy + vy * dx)) / l2; break;
-    case UPIX_GRAD_CONICAL: {
-        // The angle between (vx, vy) and the line, over pi.
-        float a = (float)atan2(vx * -dy + vy * dx, vx * dx + vy * dy);
-        t = fabsf(a) / 3.14159265f;
-        break;
-    }
-    default: t = (vx * dx + vy * dy) / l2; break;
-    }
-    return t < 0 ? 0 : t > 1 ? 1 : t;
+    float vx = px - g->x0, vy = py - g->y0;
+    return grad_shape_t(g->shape, (vx * dx + vy * dy) / l2, (vx * -dy + vy * dx) / l2);
 }
 
 static const uint8_t BAYER[4][4] = { { 0, 8, 2, 10 }, { 12, 4, 14, 6 }, { 3, 11, 1, 9 }, { 15, 7, 13, 5 } };
@@ -585,26 +602,19 @@ void upix_gradient_fill(struct uimg *im, const struct upix_gradient *g, const ui
             lut[i][ch] = (uint16_t)((a + (b - a) * t) * 256.0f + 0.5f);
         }
     }
-    int linear = g->shape == UPIX_GRAD_LINEAR || g->shape == UPIX_GRAD_REFLECTED;
     float dx = g->x1 - g->x0, dy = g->y1 - g->y0, l2 = dx * dx + dy * dy;
+    if (l2 <= 0) l2 = 1e-6f;   // a point: everything past its end
     for (int y = c.y; y < c.y + c.h; y++) {
         uint32_t *row = im->px + (size_t)y * im->w;
         const uint8_t *m = mask ? mask + (size_t)y * im->w : 0;
-        // A LINE'S POSITION IS LINEAR ALONG A ROW: one add a pixel.
-        float t = 0, step = 0;
-        if (linear && l2 > 0) {
-            t = (((float)c.x + 0.5f - g->x0) * dx + ((float)y + 0.5f - g->y0) * dy) / l2;
-            step = dx / l2;
-        }
-        for (int x = c.x; x < c.x + c.w; x++, t += step) {
+        // THE PIXEL IN THE LINE'S AXES IS LINEAR ALONG A ROW: two adds a
+        // pixel, then the shape's own cheap step.
+        float vx = (float)c.x + 0.5f - g->x0, vy = (float)y + 0.5f - g->y0;
+        float along = (vx * dx + vy * dy) / l2, across = (vx * -dy + vy * dx) / l2;
+        float s_along = dx / l2, s_across = -dy / l2;
+        for (int x = c.x; x < c.x + c.w; x++, along += s_along, across += s_across) {
             if (m && !m[x]) continue;
-            float u;
-            if (linear && l2 > 0) {
-                u = g->shape == UPIX_GRAD_REFLECTED ? fabsf(t) : t;
-                u = u < 0 ? 0 : u > 1 ? 1 : u;
-            } else {
-                u = upix_gradient_at(g, (float)x + 0.5f, (float)y + 0.5f);
-            }
+            float u = grad_shape_t(g->shape, along, across);
             const uint16_t *e = lut[(int)(u * (GRAD_STEPS - 1) + 0.5f)];
             // The dither: a threshold under one 8-bit step, a 4x4 Bayer.
             unsigned d = g->dither ? (unsigned)BAYER[y & 3][x & 3] * 16 + 8 : 128;
