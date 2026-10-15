@@ -140,4 +140,46 @@ void upix_stroke_end(struct upix_stroke *s);
 void upix_spray(struct uimg *im, int cx, int cy, int size, int n, uint32_t colour, uint32_t *seed,
                 struct upix_rect *dirty);
 
+// --- selections ------------------------------------------------------------
+//
+// A SELECTION IS A MASK the picture's size, one byte a pixel, 0 (out) or
+// 255 (in) -- what a rectangle, a lasso and a magic wand make, and what
+// keeps a brush inside it. NEW replaces what was selected, ADD joins it,
+// SUB takes from it (Paint.NET's modes). `box` is the selected pixels'
+// bounds, kept current by every call here; w 0 means none.
+
+enum upix_sel_op { UPIX_SEL_NEW, UPIX_SEL_ADD, UPIX_SEL_SUB };
+
+struct upix_sel {
+    int w, h;
+    uint8_t *a;
+    struct upix_rect box;
+};
+
+int  upix_sel_init(struct upix_sel *s, int w, int h);   // nothing selected; 0 or -ENOMEM
+void upix_sel_free(struct upix_sel *s);
+int  upix_sel_any(const struct upix_sel *s);
+int  upix_sel_at(const struct upix_sel *s, int x, int y);
+void upix_sel_clear(struct upix_sel *s);
+void upix_sel_all(struct upix_sel *s);
+void upix_sel_invert(struct upix_sel *s);
+// The box with corners (x0, y0) and (x1, y1), x1 and y1 outside it.
+void upix_sel_rect(struct upix_sel *s, int x0, int y0, int x1, int y1, enum upix_sel_op op);
+// The closed polygon `p` (a lasso), pixels whose centres are inside. 0 or -ENOMEM.
+int  upix_sel_poly(struct upix_sel *s, const struct upix_pt *p, int n, enum upix_sel_op op);
+// THE MAGIC WAND: the 4-connected region around (x, y) of `im` within
+// `tolerance` of its colour -- exactly what upix_fill() would fill.
+// Returns its pixels, or -ENOMEM.
+int  upix_sel_wand(struct upix_sel *s, const struct uimg *im, int x, int y, int tolerance, enum upix_sel_op op);
+// The selected pixels of `im`, cut out to the box, transparent where not
+// selected -- a copy, a cut, a lift to move. 0, -EINVAL (nothing
+// selected) or -ENOMEM.
+int  upix_sel_copy(const struct upix_sel *s, const struct uimg *im, struct uimg *out);
+// Every selected pixel set to `colour` -- a Delete.
+void upix_sel_paint(const struct upix_sel *s, struct uimg *im, uint32_t colour, struct upix_rect *dirty);
+// Within `r`, every pixel NOT selected put back from `before` (the same
+// size) -- what keeps a brush, a fill or a shape inside the selection.
+void upix_sel_keep_outside(const struct upix_sel *s, struct uimg *im, const struct uimg *before,
+                           const struct upix_rect *r);
+
 #endif

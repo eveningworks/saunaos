@@ -16,7 +16,8 @@
 #include "ui/uui_layerlist.h"
 #include "lib/uora.h"
 
-enum paint_tool { TOOL_PENCIL, TOOL_BRUSH, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_TEXT, TOOL_SHAPES, TOOL_COUNT };
+enum paint_tool { TOOL_PENCIL, TOOL_BRUSH, TOOL_ERASER, TOOL_FILL, TOOL_PICK, TOOL_TEXT, TOOL_SHAPES, TOOL_SELECT,
+                  TOOL_COUNT };
 
 // The shape bar's gallery, in its order.
 enum paint_shape { SHAPE_LINE, SHAPE_CURVE, SHAPE_RECT, SHAPE_ROUNDED, SHAPE_ELLIPSE, SHAPE_POLYGON,
@@ -99,6 +100,27 @@ void shapes_restyle(void);                 // the bar changed: drawn again
 void shapes_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
 void shapes_log_layout(const struct uui_paintcanvas *c);
 
+// --- paint_select.c: the selection ---------------------------------------------
+// The Select tool's kinds, its bar's row in that order.
+enum paint_sel_kind { SEL_RECT, SEL_LASSO, SEL_WAND, SEL_KIND_COUNT };
+extern int g_sel_kind;                     // enum paint_sel_kind
+extern int g_sel_mode;                     // enum upix_sel_op: the bar's New / Add / Subtract
+extern int g_sel_tol;                      // the wand's tolerance, percent
+int  select_any(void);
+void select_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods);
+// A tool painted `r` inside an open undo step: everything outside the
+// selection in `r` put back from the step's copy. Nothing when none is.
+void select_clip(const struct upix_rect *r);
+void select_all(void);
+void select_none(void);
+void select_invert(void);
+void select_delete(void);                  // the selected pixels cleared, one step
+void select_crop(void);                    // the canvas cut to the selection's box, one step
+int  select_copy(int cut);                 // onto the clipboard; 1 when there was a selection
+int  select_key(int key, unsigned mods);   // Esc deselects, Delete deletes: 1 when taken
+void select_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c);
+void select_log_layout(const struct uui_paintcanvas *c);
+
 // --- paint_frame.c: a box being edited, its dashed frame and handles ------------
 #define PAINT_HANDLE_PX 8                  // a handle, screen pixels
 float paint_handle_band(void);             // a handle's reach, picture pixels at this zoom
@@ -122,6 +144,9 @@ void paste_from_file(const char *path, int new_layer);
 // floats it over the edge, PASTE_CANCEL forgets it.
 enum paste_fit { PASTE_EXPAND, PASTE_KEEP, PASTE_CANCEL };
 void paste_answer(enum paste_fit fit);
+// A selection lifted to move: `im` (taken) floats at (x, y), the step that
+// cleared it joined to the one that places it.
+void paste_float(struct uimg *im, int x, int y);
 void paste_pointer(enum uui_paint_phase phase, int x, int y, unsigned mods);
 int  paste_key(int key);                   // Enter keeps it, Esc drops it
 void paste_commit(void);                   // into the layer, one undo step

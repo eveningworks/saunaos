@@ -120,6 +120,7 @@ static void render(void) {
                         exact, &g_drawn);
         upix_mask_free(&m);
     }
+    select_clip(&g_drawn);   // a selection keeps the shape inside it
     struct upix_rect both = was;
     upix_rect_add(&both, g_layer, g_drawn.x, g_drawn.y, g_drawn.w, g_drawn.h);
     paint_changed(&both);

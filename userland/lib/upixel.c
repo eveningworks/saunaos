@@ -75,19 +75,19 @@ static int near(uint32_t a, uint32_t b, int tol) {
     return 1;
 }
 
-// A SCANLINE FILL over a stack of seeds: each pop fills the whole run of
+// A SCANLINE FLOOD over a stack of seeds: each pop takes the whole run of
 // its row, then seeds the rows above and below once per run they touch.
-// The bitmap is what ends it when the fill colour itself matches: with a
-// tolerance, a pixel already filled can still look like the target.
-int upix_fill(struct uimg *im, int x, int y, uint32_t colour, int tolerance,
-              struct upix_rect *dirty) {
-    if (!im->px || x < 0 || y < 0 || x >= im->w || y >= im->h) return 0;
+// The bitmap is what ends it when the run's own action makes a pixel
+// still match: with a tolerance, a pixel already filled can still look
+// like the target. `run` is told each run, after it is marked.
+typedef void (*flood_run)(void *ctx, int l, int r, int y);
+
+static int flood(const struct uimg *im, int x, int y, int tolerance, flood_run run, void *ctx) {
     uint32_t target = im->px[(size_t)y * im->w + x];
-    if (target == colour && tolerance == 0) return 0;
     size_t n = (size_t)im->w * im->h;
     uint8_t *seen = calloc((n + 7) / 8, 1);
     if (!seen) return -ENOMEM;
-    int cap = 1024, top = 0, changed = 0;
+    int cap = 1024, top = 0, count = 0;
     int *stack = malloc(sizeof(int) * 2 * (size_t)cap);
     if (!stack) { free(seen); return -ENOMEM; }
 #define BIT(X, Y) ((size_t)(Y) * im->w + (size_t)(X))
@@ -102,10 +102,9 @@ int upix_fill(struct uimg *im, int x, int y, uint32_t colour, int tolerance,
         int l = sx, r = sx;
         while (l > 0 && MATCH(l - 1, sy)) l--;
         while (r + 1 < im->w && MATCH(r + 1, sy)) r++;
-        uint32_t *row = im->px + (size_t)sy * im->w;
-        for (int i = l; i <= r; i++) { row[i] = colour; MARK(i, sy); }
-        changed += r - l + 1;
-        upix_rect_add(dirty, im, l, sy, r - l + 1, 1);
+        for (int i = l; i <= r; i++) MARK(i, sy);
+        run(ctx, l, r, sy);
+        count += r - l + 1;
         for (int dyi = -1; dyi <= 1; dyi += 2) {
             int ny = sy + dyi;
             if (ny < 0 || ny >= im->h) continue;
@@ -132,7 +131,24 @@ int upix_fill(struct uimg *im, int x, int y, uint32_t colour, int tolerance,
 #undef MATCH
     free(stack);
     free(seen);
-    return changed;
+    return count;
+}
+
+struct fill_ctx { struct uimg *im; uint32_t colour; struct upix_rect *dirty; };
+
+static void fill_run(void *p, int l, int r, int y) {
+    struct fill_ctx *f = p;
+    uint32_t *row = f->im->px + (size_t)y * f->im->w;
+    for (int i = l; i <= r; i++) row[i] = f->colour;
+    upix_rect_add(f->dirty, f->im, l, y, r - l + 1, 1);
+}
+
+int upix_fill(struct uimg *im, int x, int y, uint32_t colour, int tolerance,
+              struct upix_rect *dirty) {
+    if (!im->px || x < 0 || y < 0 || x >= im->w || y >= im->h) return 0;
+    if (im->px[(size_t)y * im->w + x] == colour && tolerance == 0) return 0;
+    struct fill_ctx f = { im, colour, dirty };
+    return flood(im, x, y, tolerance, fill_run, &f);
 }
 
 // One pixel of `s` at `opacity` over `d`.
@@ -525,5 +541,152 @@ void upix_spray(struct uimg *im, int cx, int cy, int size, int n, uint32_t colou
         if (x < 0 || y < 0 || x >= im->w || y >= im->h) continue;
         im->px[(size_t)y * im->w + x] = colour;
         upix_rect_add(dirty, im, x, y, 1, 1);
+    }
+}
+
+// --- selections -------------------------------------------------------------
+
+int upix_sel_init(struct upix_sel *s, int w, int h) {
+    memset(s, 0, sizeof *s);
+    s->a = calloc((size_t)w * h, 1);
+    if (!s->a) return -ENOMEM;
+    s->w = w;
+    s->h = h;
+    return 0;
+}
+
+void upix_sel_free(struct upix_sel *s) {
+    free(s->a);
+    memset(s, 0, sizeof *s);
+}
+
+// The selected pixels' bounds, found again after a change.
+static void sel_bounds(struct upix_sel *s) {
+    int x0 = s->w, y0 = s->h, x1 = -1, y1 = -1;
+    for (int y = 0; y < s->h; y++) {
+        const uint8_t *row = s->a + (size_t)y * s->w;
+        int l = 0, r = s->w - 1;
+        while (l < s->w && !row[l]) l++;
+        if (l == s->w) continue;
+        while (!row[r]) r--;
+        if (l < x0) x0 = l;
+        if (r > x1) x1 = r;
+        if (y < y0) y0 = y;
+        y1 = y;
+    }
+    s->box = x1 < 0 ? (struct upix_rect){ 0, 0, 0, 0 } : (struct upix_rect){ x0, y0, x1 - x0 + 1, y1 - y0 + 1 };
+}
+
+int upix_sel_any(const struct upix_sel *s) { return s->a && s->box.w > 0; }
+
+int upix_sel_at(const struct upix_sel *s, int x, int y) {
+    return s->a && x >= 0 && y >= 0 && x < s->w && y < s->h && s->a[(size_t)y * s->w + x];
+}
+
+void upix_sel_clear(struct upix_sel *s) {
+    if (!s->a) return;
+    memset(s->a, 0, (size_t)s->w * s->h);
+    s->box = (struct upix_rect){ 0, 0, 0, 0 };
+}
+
+void upix_sel_all(struct upix_sel *s) {
+    if (!s->a) return;
+    memset(s->a, 255, (size_t)s->w * s->h);
+    s->box = (struct upix_rect){ 0, 0, s->w, s->h };
+}
+
+void upix_sel_invert(struct upix_sel *s) {
+    if (!s->a) return;
+    for (size_t i = 0; i < (size_t)s->w * s->h; i++) s->a[i] = (uint8_t)(255 - s->a[i]);
+    sel_bounds(s);
+}
+
+// NEW starts from nothing; ADD sets what the shape covers, SUB clears it.
+static uint8_t sel_value(enum upix_sel_op op) { return op == UPIX_SEL_SUB ? 0 : 255; }
+
+void upix_sel_rect(struct upix_sel *s, int x0, int y0, int x1, int y1, enum upix_sel_op op) {
+    if (!s->a) return;
+    if (op == UPIX_SEL_NEW) memset(s->a, 0, (size_t)s->w * s->h);
+    if (x1 < x0) { int t = x0; x0 = x1; x1 = t; }
+    if (y1 < y0) { int t = y0; y0 = y1; y1 = t; }
+    struct upix_rect r = { 0, 0, 0, 0 };
+    struct uimg dims = { .w = s->w, .h = s->h };
+    upix_rect_add(&r, &dims, x0, y0, x1 - x0, y1 - y0);
+    for (int y = r.y; y < r.y + r.h; y++) memset(s->a + (size_t)y * s->w + r.x, sel_value(op), (size_t)r.w);
+    sel_bounds(s);
+}
+
+int upix_sel_poly(struct upix_sel *s, const struct upix_pt *p, int n, enum upix_sel_op op) {
+    if (!s->a) return 0;
+    struct upix_mask m;
+    if (upix_mask_fill(&m, p, n, s->w, s->h, 0) != 0) return -ENOMEM;
+    if (op == UPIX_SEL_NEW) memset(s->a, 0, (size_t)s->w * s->h);
+    uint8_t v = sel_value(op);
+    for (int y = 0; y < m.h; y++)
+        for (int x = 0; x < m.w; x++)
+            if (m.a[(size_t)y * m.w + x]) s->a[(size_t)(m.y + y) * s->w + m.x + x] = v;
+    upix_mask_free(&m);
+    sel_bounds(s);
+    return 0;
+}
+
+struct wand_ctx { struct upix_sel *s; uint8_t v; };
+
+static void wand_run(void *p, int l, int r, int y) {
+    struct wand_ctx *w = p;
+    memset(w->s->a + (size_t)y * w->s->w + l, w->v, (size_t)(r - l + 1));
+}
+
+int upix_sel_wand(struct upix_sel *s, const struct uimg *im, int x, int y, int tolerance, enum upix_sel_op op) {
+    if (!s->a || !im->px || im->w != s->w || im->h != s->h) return 0;
+    if (x < 0 || y < 0 || x >= im->w || y >= im->h) return 0;
+    if (op == UPIX_SEL_NEW) memset(s->a, 0, (size_t)s->w * s->h);
+    struct wand_ctx w = { s, sel_value(op) };
+    int n = flood(im, x, y, tolerance, wand_run, &w);
+    sel_bounds(s);
+    return n;
+}
+
+int upix_sel_copy(const struct upix_sel *s, const struct uimg *im, struct uimg *out) {
+    memset(out, 0, sizeof *out);
+    if (!upix_sel_any(s) || !im->px || im->w != s->w || im->h != s->h) return -EINVAL;
+    const struct upix_rect *b = &s->box;
+    out->px = malloc((size_t)b->w * b->h * 4);
+    if (!out->px) return -ENOMEM;
+    out->w = b->w;
+    out->h = b->h;
+    out->has_alpha = 1;
+    for (int y = 0; y < b->h; y++) {
+        const uint32_t *src = im->px + (size_t)(b->y + y) * im->w + b->x;
+        const uint8_t *m = s->a + (size_t)(b->y + y) * s->w + b->x;
+        uint32_t *dst = out->px + (size_t)y * b->w;
+        for (int x = 0; x < b->w; x++) dst[x] = m[x] ? src[x] : 0;
+    }
+    return 0;
+}
+
+void upix_sel_paint(const struct upix_sel *s, struct uimg *im, uint32_t colour, struct upix_rect *dirty) {
+    if (!upix_sel_any(s) || !im->px || im->w != s->w || im->h != s->h) return;
+    const struct upix_rect *b = &s->box;
+    for (int y = b->y; y < b->y + b->h; y++) {
+        uint32_t *row = im->px + (size_t)y * im->w;
+        const uint8_t *m = s->a + (size_t)y * s->w;
+        for (int x = b->x; x < b->x + b->w; x++) if (m[x]) row[x] = colour;
+    }
+    upix_rect_add(dirty, im, b->x, b->y, b->w, b->h);
+}
+
+void upix_sel_keep_outside(const struct upix_sel *s, struct uimg *im, const struct uimg *before,
+                           const struct upix_rect *r) {
+    if (!upix_sel_any(s) || !im->px || !before->px || im->w != s->w || im->h != s->h ||
+        before->w != im->w || before->h != im->h || !r || r->w <= 0 || r->h <= 0)
+        return;
+    struct upix_rect c = { 0, 0, 0, 0 };
+    upix_rect_add(&c, im, r->x, r->y, r->w, r->h);
+    for (int y = c.y; y < c.y + c.h; y++) {
+        uint32_t *row = im->px + (size_t)y * im->w;
+        const uint32_t *was = before->px + (size_t)y * im->w;
+        const uint8_t *m = s->a + (size_t)y * s->w;
+        for (int x = c.x; x < c.x + c.w; x++) if (!m[x]) row[x] = was[x];
     }
 }

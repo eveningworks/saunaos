@@ -34,6 +34,12 @@ What it asserts, on seeded random pictures:
     dots covers all of it
   - JOINED steps (a custom step and a stroke) undo and redo as one, and
     the step before them still undoes alone
+  - SELECTIONS: runs of rectangles, magic-wand picks and lassos with New,
+    Add and Subtract against a set reference (the wand exactly the
+    region the fill reference fills, the lasso centre-sampled even-odd),
+    the box their bounds; invert the rest; the copy the selected pixels
+    in their box, transparent elsewhere; paint and keep-outside touching
+    only what they should
   - UNDO: after a run of strokes and fills, each recorded with begin and
     commit, undoing all of them gives back the first picture exactly,
     redoing all gives back the last, and the state number comes back to
@@ -76,6 +82,13 @@ static const struct upixundo_custom NUM = { num_apply, num_drop };
 static struct upix_rect dirty;
 static struct upixundo u;
 static struct upix_stroke stroke;
+static struct upix_sel sel;
+
+static void sel_dump(void) {
+    printf("sel %d %d %d %d", sel.box.x, sel.box.y, sel.box.w, sel.box.h);
+    for (int i = 0; i < sel.w * sel.h; i++) printf(" %d", sel.a[i] ? 1 : 0);
+    printf("\n");
+}
 
 static void dump(void) {
     printf("img %d %d", im.w, im.h);
@@ -190,6 +203,41 @@ int main(void) {
             unsigned seed;
             if (scanf("%d %d %d %d %x %u", &a, &b, &c, &d, &col, &seed) != 6) return 2;
             upix_spray(&im, a, b, c, d, col, &seed, &dirty);
+        } else if (!strcmp(cmd, "sinit")) {         // a selection the picture's size
+            upix_sel_free(&sel);
+            if (upix_sel_init(&sel, im.w, im.h)) return 3;
+        } else if (!strcmp(cmd, "srect")) {         // srect x0 y0 x1 y1 OP
+            if (scanf("%d %d %d %d %d", &a, &b, &c, &d, &e) != 5) return 2;
+            upix_sel_rect(&sel, a, b, c, d, (enum upix_sel_op)e);
+        } else if (!strcmp(cmd, "swand")) {         // swand X Y TOL OP
+            if (scanf("%d %d %d %d", &a, &b, &c, &d) != 4) return 2;
+            printf("wand %d\n", upix_sel_wand(&sel, &im, a, b, c, (enum upix_sel_op)d));
+        } else if (!strcmp(cmd, "spoly")) {         // spoly OP N x y ...
+            if (scanf("%d %d", &a, &c) != 2) return 2;
+            struct upix_pt *pts = malloc(sizeof *pts * (size_t)(c ? c : 1));
+            for (int i = 0; i < c; i++) if (scanf("%f %f", &pts[i].x, &pts[i].y) != 2) return 2;
+            if (upix_sel_poly(&sel, pts, c, (enum upix_sel_op)a)) return 3;
+            free(pts);
+        } else if (!strcmp(cmd, "sinv")) {
+            upix_sel_invert(&sel);
+        } else if (!strcmp(cmd, "sall")) {
+            upix_sel_all(&sel);
+        } else if (!strcmp(cmd, "sdump")) {
+            sel_dump();
+        } else if (!strcmp(cmd, "scopy")) {         // the cut-out, as an image
+            struct uimg o;
+            int rc = upix_sel_copy(&sel, &im, &o);
+            printf("copy %d %d %d", rc, o.w, o.h);
+            for (int i = 0; i < o.w * o.h; i++) printf(" %x", o.px[i]);
+            printf("\n");
+            free(o.px);
+        } else if (!strcmp(cmd, "spaint")) {        // spaint COLOUR
+            if (scanf("%x", &col) != 1) return 2;
+            upix_sel_paint(&sel, &im, col, &dirty);
+        } else if (!strcmp(cmd, "skeep")) {         // skeep X Y W H: picture 0 kept outside from picture 1
+            if (scanf("%d %d %d %d", &a, &b, &c, &d) != 4) return 2;
+            struct upix_rect r = { a, b, c, d };
+            upix_sel_keep_outside(&sel, &ims[0], &ims[1], &r);
         } else if (!strcmp(cmd, "dump")) {
             dump();
         } else return 2;
@@ -208,14 +256,16 @@ def build(tmp, poison=False):
     # seed the row BELOW -- a region reached only by going down stays.
     # The second: source-over that forgets to scale the picture below by
     # what the one on top leaves of it. The third: a stroke that blends
-    # onto what it has already painted, so crossing itself darkens.
+    # onto what it has already painted, so crossing itself darkens. The
+    # fourth: a Subtract that adds.
     src = hostcheck.stage(tmp, "userland/lib/upixel.c", apply=poison, tool="upixel_hostcheck",
                           edits=[("for (int dyi = -1; dyi <= 1; dyi += 2) {",
                                   "for (int dyi = -1; dyi <= -1; dyi += 2) {"),
                                  ("unsigned da = ((dp >> 24) * (255 - sa) + 127) / 255, oa = sa + da;",
                                   "unsigned da = dp >> 24, oa = sa + da > 255 ? 255 : sa + da;"),
                                  ("s->im->px[i] = blend_px(s, s->before[i], c);",
-                                  "s->im->px[i] = blend_px(s, s->im->px[i], c);")])
+                                  "s->im->px[i] = blend_px(s, s->im->px[i], c);"),
+                                 ("return op == UPIX_SEL_SUB ? 0 : 255;", "return op == UPIX_SEL_SUB ? 255 : 255;")])
     und = hostcheck.stage(tmp, "userland/lib/upixundo.c")
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
     return hostcheck.compile(tmp, "upixel_host", [src, und, drv, "-lm"], includes=[tmp],
@@ -519,6 +569,117 @@ def brush_checks(rng, d, fails):
     if [v == 0xFF000000 for v in got] != [bool(v) for v in disc.px]:
         fails.append("4000 dots of a 9-px spray do not cover exactly its disc")
     BRUSH_CHECKS[0] = n
+
+
+# --- selections ------------------------------------------------------------------
+
+def ask_sel(d, w, h):
+    r = d.ask("sdump")
+    box = [int(v) for v in r[1:5]]
+    return box, {i for i, v in enumerate(r[5:]) if v == "1"}
+
+
+def box_of(cells, w):
+    if not cells:
+        return [0, 0, 0, 0]
+    xs, ys = [i % w for i in cells], [i // w for i in cells]
+    return [min(xs), min(ys), max(xs) - min(xs) + 1, max(ys) - min(ys) + 1]
+
+
+def inside_poly(px, py, pts):
+    # Even-odd, at the pixel's centre.
+    n, c = len(pts), False
+    for i in range(n):
+        (x0, y0), (x1, y1) = pts[i], pts[(i + 1) % n]
+        if (y0 > py) != (y1 > py) and px < x0 + (py - y0) * (x1 - x0) / (y1 - y0):
+            c = not c
+    return c
+
+
+def combine(have, new, op):
+    return new if op == 0 else have | new if op == 1 else have - new
+
+
+def selection_checks(rng, d, fails):
+    n = 0
+    for case in range(30):
+        w, h = rng.randrange(8, 30), rng.randrange(8, 30)
+        pic = random_picture(rng, d, w, h)
+        d.send("sinit")
+        want = set()
+        for step in range(rng.randrange(1, 5)):
+            op = 0 if step == 0 else rng.randrange(3)
+            kind = rng.randrange(3)
+            if kind == 0:
+                x0, y0, x1, y1 = (rng.randrange(-3, w + 3), rng.randrange(-3, h + 3),
+                                  rng.randrange(-3, w + 3), rng.randrange(-3, h + 3))
+                d.send(f"srect {x0} {y0} {x1} {y1} {op}")
+                lx, hx, ly, hy = min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1)
+                new = {y * w + x for y in range(max(0, ly), min(h, hy)) for x in range(max(0, lx), min(w, hx))}
+                what = f"rect ({x0},{y0})-({x1},{y1})"
+            elif kind == 1:
+                x, y, tol = rng.randrange(w), rng.randrange(h), rng.choice([0, 0, 40, 255])
+                got_n = int(d.ask(f"swand {x} {y} {tol} {op}")[1])
+                q = pic.copy()
+                ref_fill(q, x, y, 0x12345678, tol)
+                new = {i for i in range(w * h) if q.px[i] != pic.px[i]}
+                n += 1
+                if got_n != len(new):
+                    fails.append(f"selection case {case}: the wand at {x},{y} tol {tol} took {got_n}, the fill {len(new)}")
+                what = f"wand ({x},{y}) tol {tol}"
+            else:
+                pts = [(rng.uniform(-2, w + 2), rng.uniform(-2, h + 2)) for _ in range(rng.randrange(3, 7))]
+                d.send(f"spoly {op} {len(pts)} " + " ".join(f"{x} {y}" for x, y in pts))
+                new = {y * w + x for y in range(h) for x in range(w) if inside_poly(x + 0.5, y + 0.5, pts)}
+                what = f"lasso of {len(pts)}"
+            want = combine(want, new, op)
+            box, got = ask_sel(d, w, h)
+            n += 2
+            if got != want:
+                fails.append(f"selection case {case} step {step} {what} op {op}: {len(got ^ want)} pixel(s) differ")
+                break
+            if box != box_of(want, w):
+                fails.append(f"selection case {case} step {step}: box {box}, the pixels' {box_of(want, w)}")
+        d.send("sinv")
+        box, got = ask_sel(d, w, h)
+        n += 1
+        if got != set(range(w * h)) - want or box != box_of(set(range(w * h)) - want, w):
+            fails.append(f"selection case {case}: invert is not the rest")
+        d.send("sinv")
+        # The cut-out: the box's size, the pixels where selected, nothing elsewhere.
+        r = d.ask("scopy")
+        n += 1
+        if want:
+            bx, by, bw, bh = box_of(want, w)
+            px = [int(v, 16) for v in r[4:]]
+            ok = int(r[1]) == 0 and [int(r[2]), int(r[3])] == [bw, bh] and all(
+                px[j * bw + i] == (pic.px[(by + j) * w + bx + i] if (by + j) * w + bx + i in want else 0)
+                for j in range(bh) for i in range(bw))
+            if not ok:
+                fails.append(f"selection case {case}: the copy is not the selected pixels in their box")
+        elif int(r[1]) == 0:
+            fails.append(f"selection case {case}: a copy of nothing succeeded")
+        # Delete paints the selected pixels only; keep_outside puts back the rest.
+        d.send("spaint ff00ff00")
+        got = d.dump()[2]
+        n += 1
+        if any(got[i] != (0xFF00FF00 if i in want else pic.px[i]) for i in range(w * h)):
+            fails.append(f"selection case {case}: paint touched a pixel outside, or missed one inside")
+    # KEEP OUTSIDE: picture 0 painted all over, picture 1 the before.
+    d.send("on 1")
+    d.send("new 10 10 ffffffff")
+    d.send("on 0")
+    d.send("new 10 10 ffffffff")
+    d.send("sinit")
+    d.send("srect 2 2 6 6 0")
+    d.send("stamp 5 5 10 1 ff000000")
+    d.send("skeep 0 0 10 10")
+    got = d.dump()[2]
+    n += 1
+    inside = {y * 10 + x for y in range(2, 6) for x in range(2, 6)}
+    if any(got[i] != (0xFF000000 if i in inside else 0xFFFFFFFF) for i in range(100)):
+        fails.append("keep_outside left a pixel painted outside the selection, or undid one inside")
+    return n
 
 
 def main():
@@ -836,6 +997,7 @@ def main():
 
         brush_checks(rng, d, fails)
         checks += BRUSH_CHECKS[0]
+        checks += selection_checks(rng, d, fails)
 
         # JOINED STEPS: a custom step then a stroke joined to it undo as one
         # and redo as one; the step before them is untouched by either.

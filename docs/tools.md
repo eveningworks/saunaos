@@ -3442,9 +3442,12 @@ window without going through it will find its layout polls timing out.
   reference, for over, multiply and erase at any hardness, the chisel
   tip's exact cover, and the spray staying in its disc and repeating
   for one seed. Its positive control -- a fill that never seeds the row
-  below, a source-over that forgets to scale the picture below, and a
-  stroke blending onto what it already painted -- reddens the fills,
-  the composites and the strokes. In `ondemand_sweep.py`.
+  below, a source-over that forgets to scale the picture below, a
+  stroke blending onto what it already painted, and a Subtract that adds
+  -- reddens the fills, the composites, the strokes and the selections.
+  Selections: rectangles, wand picks and lassos with New/Add/Subtract
+  against a set reference, invert, the cut-out copy, Delete and
+  keep-outside. In `ondemand_sweep.py`.
 
 - **`ora_hostcheck.py`** -- `lib/uora` (OpenRaster, Paint's layered
   save) and `lib/uzip` compiled on the HOST against Python's zipfile,

@@ -78,6 +78,7 @@ int tools_tick(void) {
     if (!g_spraying || !g_stroke) return 0;
     struct upix_rect seg = { 0, 0, 0, 0 };
     spray(&seg);
+    select_clip(&seg);
     upix_rect_add(&g_dirty, g_layer, seg.x, seg.y, seg.w, seg.h);
     paint_changed(&seg);
     return 1;
@@ -117,6 +118,7 @@ static void brush_pointer(enum uui_paint_phase phase, int x, int y, int slot) {
     } else {
         return;
     }
+    select_clip(&seg);   // a selection keeps the stroke inside it
     upix_rect_add(&g_dirty, g_layer, seg.x, seg.y, seg.w, seg.h);
     paint_changed(&seg);
 }
@@ -143,6 +145,7 @@ void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned 
         if (x < 0 || y < 0 || x >= g_layer->w || y >= g_layer->h) return;
         begin(slot);
         int n = upix_fill(g_layer, x, y, g_colour[slot], 0, &g_dirty);
+        select_clip(&g_dirty);
         ulogf("paint: fill at %d,%d -> %d pixels\n", x, y, n);
         paint_colour_used(slot);
         end();
@@ -152,6 +155,9 @@ void tools_pointer(enum uui_paint_phase phase, int x, int y, int slot, unsigned 
         return;
     case TOOL_SHAPES:
         shapes_pointer(phase, x, y, mods);
+        return;
+    case TOOL_SELECT:
+        select_pointer(phase, x, y, mods);
         return;
     case TOOL_PICK:
         // WHAT SHOWS, every layer together -- Windows 11 Paint's picker.

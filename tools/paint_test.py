@@ -65,6 +65,13 @@ What it proves, and what a broken version would still pass:
     it and its frame drags it 60 left; a corner handle scales it to 700
     x 525 and the stroke lands where that puts it; Ctrl+Shift+V then Esc
     leaves one layer.
+  * SELECT: M and the bar; the magic wand picks the sky above a black
+    band and no more; a brush across the band paints only the selected
+    side (a brush that ignored it would cross); a dragged rectangle,
+    Delete to Colour 2 and Ctrl+Z; Add spans two rectangles; a 48-step
+    lasso drag and a 48-step move each land within a second; the move
+    leaves Colour 2 and one Ctrl+Z undoes it; Ctrl+Shift+X crops;
+    Ctrl+A and Ctrl+D.
   * TEXT EDITING: Home, Shift+Left, Ctrl+X/V and a click change the
     text and caret the box reports; its frame dragged moves it, leaving
     WHITE behind (a move that forgot to restore would leave the old
@@ -84,7 +91,8 @@ the colour square reading saturation backwards fails the green check
 (Colour 1 white); Expand without upixundo_join() fails the one-Ctrl+Z
 check (the canvas stays 800 x 600); the paste before b1c561d3, which
 rewrote the layer on every motion, takes 2.1 s over the drag that must
-land within a second.
+land within a second; select_clip() doing nothing fails the brush-inside
+check (black outside the selection).
 
 Usage (the VM must already be up):
 
@@ -302,6 +310,7 @@ def run(dbg, qmp, res, tmp):
     check_brushes(dbg, qmp, res, tmp)
     check_colours(dbg, qmp, res, tmp)
     check_paste(dbg, qmp, res, tmp)
+    check_select(dbg, qmp, res, tmp)
 
 
 def rect(dbg, part):
@@ -1162,6 +1171,137 @@ def check_paste(dbg, qmp, res, tmp):
     res.check("Ctrl+Shift+V pastes into a new layer, and Esc drops it and the layer",
               during[0] == 2 and layer_stack(dbg)[0] == 1 and paste_box(dbg) is None,
               f"during {during}, after {layer_stack(dbg)}")
+    close_all(dbg)
+
+
+def selection(dbg):
+    """(any, [x, y, w, h]) from `paint: layout selection`."""
+    for line in reversed(dbg.logs("paint: layout selection ", clear=False)):
+        p = line.split("selection ", 1)[1].split()
+        return int(p[1]), [int(v) for v in p[3:7]]
+    return 0, None
+
+
+def check_select(dbg, qmp, res, tmp):
+    """Selection: the wand's pick, a brush kept inside it, a rectangle
+    deleted and undone, Shift adding, a drag moving what is selected, a
+    crop -- by the selection's box, the picture's size and pixels -- and
+    the lasso's and the move's drags timed."""
+    dbg.spawn(PAINT, "Untitled - Paint")
+    time.sleep(1)
+    scr = Screen(dbg, qmp, tmp, "Untitled - Paint")
+    if not scr.ok:
+        res.check("Select: Paint opens", False, "no window")
+        return
+
+    def click(part):
+        r = rect(dbg, part)
+        if r:
+            dbg.click(scr.cx + r[0] + r[2] // 2, scr.cy + r[1] + r[3] // 2)
+            dbg.settle()
+        return r
+
+    def drag(x0, y0, x1, y1, steps=16):
+        a, b = scr.at(x0, y0), scr.at(x1, y1)
+        dbg.drag(a[0], a[1], b[0], b[1], steps=steps)
+        dbg.settle()
+
+    def timed(x0, y0, x1, y1, done):
+        a, b = scr.at(x0, y0), scr.at(x1, y1)
+        t0 = time.time()
+        dbg.drag(a[0], a[1], b[0], b[1], settle=False, steps=48)
+        while time.time() - t0 < 30:
+            if done():
+                return time.time() - t0
+            time.sleep(0.05)
+        return None
+
+    blue = (0x00, 0xA2, 0xE8)
+    # A blue picture cut in two by a black band at y 300, 20 px.
+    click("palette.cell 7")
+    dbg.key("f")
+    dbg.click(*scr.at(400, 300))
+    click("palette.cell 0")
+    dbg.key("b")
+    sz = rect(dbg, "size")
+    if sz:
+        dbg.click(scr.cx + sz[0] + sz[2] * 20 // 64, scr.cy + sz[1] + sz[3] // 2)
+    drag(0, 300, 799, 300, steps=24)
+    dbg.key("m")
+    dbg.settle()
+    res.check("M is the Select tool, and its bar shows", state(dbg).get("tool") == 7 and rect(dbg, "selectkind"),
+              f"{state(dbg)}")
+    click("selectkind.button 2")                 # the magic wand
+    dbg.click(*scr.at(100, 50))
+    dbg.settle()
+    on, box = selection(dbg)
+    res.check("the wand picks the sky above the band, and no more", on == 1 and box and box[:3] == [0, 0, 800]
+              and 280 <= box[3] <= 295, f"{on} {box}")
+    # A brush across the band stays in the selection.
+    dbg.key("b")
+    drag(100, 500, 400, 100)
+    dbg.move(10, 700)
+    scr.shoot()
+    # The stroke from (100, 500) to (400, 100) passes (325, 200) above the
+    # band and (137, 450) below it.
+    inside, outside = scr.pixel(325, 200), scr.pixel(137, 450)
+    res.check("a brush with a selection paints only inside it", max(inside) < 60 and outside == blue,
+              f"inside {inside}, outside {outside}")
+    # A rectangle, deleted: Colour 2 (white) inside it, then Ctrl+Z.
+    dbg.key("m")
+    click("selectkind.button 0")
+    drag(500, 400, 700, 550)
+    on, box = selection(dbg)
+    dbg.key("0xf788")                            # Delete
+    dbg.key("0x04", mods="ctrl")                 # Ctrl+D: the wash off, to read the pixels
+    dbg.move(10, 700)
+    scr.shoot()
+    deleted = scr.pixel(600, 475)
+    res.check("a rectangle dragged selects it, and Delete clears it to Colour 2",
+              box == [500, 400, 200, 200 - 50] and deleted == WHITE and scr.pixel(450, 475) == blue,
+              f"box {box}, inside {deleted}, beside {scr.pixel(450, 475)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    scr.shoot()
+    res.check("...and Ctrl+Z puts it back", scr.pixel(600, 475) == blue, f"{scr.pixel(600, 475)}")
+    # Add, from the bar (a scripted drag holds no Shift): the box is both.
+    drag(500, 400, 700, 550)
+    click("selectmode.slot 1")
+    drag(100, 400, 200, 450)
+    on, both = selection(dbg)
+    click("selectmode.slot 0")
+    res.check("Add joins a second rectangle: the box spans both", both == [100, 400, 600, 150], f"{both}")
+    # THE LASSO KEEPS UP: a 48-step drag's selection lands within a second.
+    click("selectkind.button 1")
+    was = selection(dbg)
+    t = timed(150, 100, 350, 250, lambda: selection(dbg) != was)
+    res.check("a 48-step lasso drag lands within a second", t is not None and t < 1.0, f"{t and round(t, 2)} s")
+    # DRAGGED INSIDE, IT MOVES, and keeps up.
+    click("selectkind.button 0")
+    drag(500, 400, 600, 500)
+    t = timed(550, 450, 650, 450, lambda: (paste_box(dbg) or [0])[0] == 600)
+    box = paste_box(dbg)
+    dbg.key("0x0d")
+    dbg.move(10, 700)
+    scr.shoot()
+    res.check("a drag inside the selection moves it, within a second, leaving Colour 2 behind",
+              t is not None and t < 1.0 and box == [600, 400, 100, 100] and scr.pixel(550, 450) == WHITE
+              and scr.pixel(650, 450) == blue, f"{t and round(t, 2)} s, box {box}, left {scr.pixel(550, 450)}, "
+              f"moved {scr.pixel(650, 450)}")
+    dbg.key(CTRL["z"], mods="ctrl")
+    scr.shoot()
+    res.check("...and one Ctrl+Z puts it back where it was", scr.pixel(550, 450) == blue, f"{scr.pixel(550, 450)}")
+    # Crop to a rectangle.
+    drag(100, 100, 400, 300)
+    dbg.key(CTRL["x"], mods="ctrl shift")
+    dbg.settle()
+    st = state(dbg)
+    res.check("Ctrl+Shift+X crops to the selection", st.get("w") == 300 and st.get("h") == 200 and selection(dbg)[0] == 0,
+              f"{st}, selection {selection(dbg)}")
+    dbg.key(CTRL["a"], mods="ctrl")
+    on, box = selection(dbg)
+    dbg.key("0x04", mods="ctrl")                 # Ctrl+D
+    res.check("Ctrl+A selects all, Ctrl+D lets it go", on == 1 and box == [0, 0, 300, 200] and selection(dbg)[0] == 0,
+              f"{on} {box} then {selection(dbg)}")
     close_all(dbg)
 
 

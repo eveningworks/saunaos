@@ -152,6 +152,25 @@ void paste_from_clipboard(int new_layer) {
                                           : "The clipboard holds text, not a picture");
 }
 
+// A LIFTED SELECTION floats as a paste does, from where it was: the step
+// that cleared it is joined to the one that places it.
+void paste_float(struct uimg *im, int x, int y) {
+    if (g_open) paste_commit();
+    forget();
+    g_src = *im;
+    memset(im, 0, sizeof *im);
+    snprintf(g_name, sizeof g_name, "the selection");
+    g_before = 1;
+    upixundo_join(&g_undo);
+    g_x = x;
+    g_y = y;
+    g_w = g_src.w;
+    g_h = g_src.h;
+    g_open = 1;
+    g_drag = D_NONE;
+    redraw();
+}
+
 void paste_commit(void) {
     if (!g_open) return;
     g_open = 0;

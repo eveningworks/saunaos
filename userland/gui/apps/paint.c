@@ -61,6 +61,7 @@ enum {
     ID_STATUS, ID_ASK, ID_NEWDLG, ID_NEW_BG, ID_RESIZE, ID_TEXTFILL,
     ID_PTABS, ID_LBAR, ID_LAYERS, ID_LOPACITY,
     ID_SHGAL, ID_SHOUT, ID_SHFILL, ID_SHWIDTH, ID_SHAA,
+    ID_SELKIND, ID_SELMODE, ID_SELTOL, ID_SELACT, ID_CTX,
     ID_PICK = 40,   // .. + UUI_COLOURPICK_IDS
     ID_NEW_SIZE = 50,   // .. + UUI_SIZEPICK_IDS
     ID_FONT = 80,       // .. + UUI_FONTPICK_IDS
@@ -74,6 +75,7 @@ enum {
     CMD_LAYER_NEW, CMD_LAYER_DUP, CMD_LAYER_DEL, CMD_LAYER_MERGE, CMD_LAYER_FLATTEN,
     CMD_LAYER_UP, CMD_LAYER_DOWN, CMD_LAYER_RENAME, CMD_LAYER_HIDE,
     CMD_COPY, CMD_PASTE, CMD_PASTE_LAYER, CMD_PASTE_FILE,
+    CMD_CUT, CMD_SELECT_ALL, CMD_DESELECT, CMD_INVERT, CMD_SEL_DELETE, CMD_CROP,
     CMD_TOOL = 200,   // + enum paint_tool
     // The unsaved-changes question's answers.
     ASK_SAVE = 300, ASK_DISCARD, ASK_CANCEL,
@@ -195,11 +197,28 @@ static const struct uui_menu_item edit_items[] = {
     UUI_MENU_ICON("Undo", CMD_UNDO, "Ctrl+Z", "tb-undo", 0),
     UUI_MENU_ICON("Redo", CMD_REDO, "Ctrl+Y", "tb-redo", 0),
     UUI_MENU_SEP,
-    UUI_MENU_ICON("Copy picture", CMD_COPY, "Ctrl+C", "tb-copy", 0),
+    UUI_MENU_ICON("Cut", CMD_CUT, "Ctrl+X", "tb-cut", 0),
+    UUI_MENU_ICON("Copy", CMD_COPY, "Ctrl+C", "tb-copy", 0),
     UUI_MENU_ICON("Paste", CMD_PASTE, "Ctrl+V", "tb-paste", 0),
     UUI_MENU("Paste into new layer", CMD_PASTE_LAYER, "Ctrl+Shift+V"),
-    UUI_MENU_SEP,
     UUI_MENU("Paste from file...", CMD_PASTE_FILE, 0),
+    UUI_MENU_SEP,
+    UUI_MENU("Select all", CMD_SELECT_ALL, "Ctrl+A"),
+    UUI_MENU("Deselect", CMD_DESELECT, "Ctrl+D"),
+    UUI_MENU("Invert selection", CMD_INVERT, "Ctrl+I"),
+    UUI_MENU_ICON("Delete selection", CMD_SEL_DELETE, "Del", "tb-delete", UTHEME_ACT_DANGER),
+};
+// THE RIGHT-CLICK MENU of the Select tool (L1): Windows 11 Paint's.
+static const struct uui_menu_item ctx_items[] = {
+    UUI_MENU_ICON("Cut", CMD_CUT, "Ctrl+X", "tb-cut", 0),
+    UUI_MENU_ICON("Copy", CMD_COPY, "Ctrl+C", "tb-copy", 0),
+    UUI_MENU_ICON("Paste", CMD_PASTE, "Ctrl+V", "tb-paste", 0),
+    UUI_MENU_ICON("Delete", CMD_SEL_DELETE, "Del", "tb-delete", UTHEME_ACT_DANGER),
+    UUI_MENU_SEP,
+    UUI_MENU_ICON("Crop to selection", CMD_CROP, "Ctrl+Shift+X", "tb-crop", 0),
+    UUI_MENU("Invert selection", CMD_INVERT, "Ctrl+I"),
+    UUI_MENU("Select all", CMD_SELECT_ALL, "Ctrl+A"),
+    UUI_MENU("Deselect", CMD_DESELECT, "Ctrl+D"),
 };
 static const struct uui_menu_item view_items[] = {
     UUI_MENU_ICON("Zoom in", CMD_ZOOM_IN, "Ctrl++", "tb-zoom-in", UTHEME_ACT_VIEW),
@@ -212,6 +231,7 @@ static const struct uui_menu_item view_items[] = {
 static const struct uui_menu_item image_items[] = {
     UUI_MENU("Resize...", CMD_RESIZE, "Ctrl+R"),
     UUI_MENU("Canvas size...", CMD_CANVAS, "Ctrl+Shift+R"),
+    UUI_MENU_ICON("Crop to selection", CMD_CROP, "Ctrl+Shift+X", "tb-crop", 0),
     UUI_MENU_SEP,
     UUI_MENU_ICON("Rotate right", CMD_ROT_RIGHT, 0, "tb-rotate-right", 0),
     UUI_MENU_ICON("Rotate left", CMD_ROT_LEFT, 0, "tb-rotate-left", 0),
@@ -242,6 +262,7 @@ static const struct uui_menu_item tool_items[] = {
     UUI_MENU_ICON("Colour picker", CMD_TOOL + TOOL_PICK, "I", "tb-picker", 0),
     UUI_MENU_ICON("Text", CMD_TOOL + TOOL_TEXT, "T", "tb-text", 0),
     UUI_MENU_ICON("Shapes", CMD_TOOL + TOOL_SHAPES, "S", "tb-shapes", 0),
+    UUI_MENU_ICON("Select", CMD_TOOL + TOOL_SELECT, "M", "tb-select", 0),
 };
 static const struct uui_menu_item colour_items[] = {
     UUI_MENU("Swap the two colours", CMD_SWAP, "X"),
@@ -283,6 +304,7 @@ static const struct uui_toolbar_item rail_items[] = {
     { "tb-fill",   "Fill (F)",          CMD_TOOL + TOOL_FILL,   0, 0, 0, 0 },
     { "tb-picker", "Colour picker (I)", CMD_TOOL + TOOL_PICK,   0, 0, 0, 0 },
     UUI_TOOLBAR_SEP,
+    { "tb-select", "Select (M)",        CMD_TOOL + TOOL_SELECT, 0, 0, 0, 0 },
     { "tb-text",   "Text (T)",          CMD_TOOL + TOOL_TEXT,   0, 0, 0, 0 },
     { "tb-shapes", "Shapes (S)",        CMD_TOOL + TOOL_SHAPES, 0, 0, 0, 0 },
 };
@@ -319,6 +341,27 @@ static const struct uui_toolbar_item lbar_items[] = {
 
 // THE SHAPE BAR (S2 from the mockups): the gallery, outline, fill, the
 // width and smoothing, on a card over the picture while Shapes is the tool.
+// THE SELECT BAR (L1 from the mockups): the kind, how it combines, the
+// wand's tolerance, Crop and Delete -- the shape bar's card.
+static struct uui_custom g_selbar_card;
+static struct uui_togglebar g_selkind;
+static struct uui_segmented g_selmode;
+static struct uui_dropdown g_seltol;
+static struct uui_toolbar g_selact;
+static struct uui_menubar g_ctx;          // the right-click menu: no bar of its own
+static int g_ctx_armed, g_ctx_x, g_ctx_y;
+static const struct uui_toggle selkind_items[SEL_KIND_COUNT] = {
+    { 0, "Rectangle", "sel-rect", 0 }, { 0, "Lasso", "sel-lasso", 0 }, { 0, "Magic wand", "sel-wand", 0 },
+};
+static const char *const SELMODES[] = { "New", "Add", "Subtract" };
+static const int SELTOL[] = { 0, 8, 16, 32, 50, 75, 100 };
+#define NSELTOL ((int)(sizeof SELTOL / sizeof SELTOL[0]))
+static const char *const SELTOL_TEXT[NSELTOL] = { "Tolerance 0%", "Tolerance 8%", "Tolerance 16%", "Tolerance 32%",
+                                                 "Tolerance 50%", "Tolerance 75%", "Tolerance 100%" };
+static const struct uui_toolbar_item selact_items[] = {
+    { "tb-crop",   "Crop to selection (Ctrl+Shift+X)", CMD_CROP,       "Crop",   0, 0, 0 },
+    { "tb-delete", "Delete selection (Del)",           CMD_SEL_DELETE, "Delete", UUI_TB_END, 0, UTHEME_ACT_DANGER },
+};
 static struct uui_custom g_shapebar_card;
 static struct uui_togglebar g_shgal, g_shaa;
 static struct uui_dropdown g_shout, g_shfill, g_shwidth;
@@ -359,14 +402,21 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_dropdown_ops,      .widget = &g_shfill,    .id = ID_SHFILL,  .name = "shapefill", .hidden = 1 },
     { .ops = &uui_dropdown_ops,      .widget = &g_shwidth,   .id = ID_SHWIDTH, .name = "shapewidth", .hidden = 1 },
     { .ops = &uui_togglebar_ops,     .widget = &g_shaa,      .id = ID_SHAA,    .name = "shapesmooth", .hidden = 1 },
+    { .ops = &uui_custom_ops,        .widget = &g_selbar_card, .name = "selectbar", .hidden = 1 },
+    { .ops = &uui_togglebar_ops,     .widget = &g_selkind,   .id = ID_SELKIND, .name = "selectkind", .hidden = 1 },
+    { .ops = &uui_segmented_ops,     .widget = &g_selmode,   .id = ID_SELMODE, .name = "selectmode", .hidden = 1 },
+    { .ops = &uui_dropdown_ops,      .widget = &g_seltol,    .id = ID_SELTOL,  .name = "selecttolerance", .hidden = 1 },
+    { .ops = &uui_toolbar_ops,       .widget = &g_selact,    .id = ID_SELACT,  .name = "selectactions", .hidden = 1 },
     // The menu bar after the bars: its popups must be on top of them.
     { .ops = &uui_menubar_ops,       .widget = &g_menu,      .id = ID_MENU,    .name = "menu" },
+    { .ops = &uui_menubar_ops,       .widget = &g_ctx,       .id = ID_CTX,     .name = "ctxmenu" },
     { .ops = &uui_dialog_ops,        .widget = &g_ask,       .id = ID_ASK,     .name = "ask" },
     { .ops = &uui_dialog_ops,        .widget = &g_newdlg,    .id = ID_NEWDLG,  .name = "newdlg" },
     { 0 },   // Resize: paint_resize.c's dialog, set in main()
 };
 enum { W_PICK = 3, W_PANEL_FIRST = 3, W_PANEL_LAST = 7, W_TEXTBAR = 9, W_FONTPICK = 10, W_TEXTFILL = 11,
-       W_PTABS = 12, W_LAYERS_FIRST = 13, W_LAYERS_LAST = 16, W_SHAPE_FIRST = 17, W_SHAPE_LAST = 22 };
+       W_PTABS = 12, W_LAYERS_FIRST = 13, W_LAYERS_LAST = 16, W_SHAPE_FIRST = 17, W_SHAPE_LAST = 22,
+       W_SEL_FIRST = 23, W_SEL_LAST = 27 };
 
 // --- small things -------------------------------------------------------------
 
@@ -898,6 +948,7 @@ void paint_undo(void) { undo_redo(0); }
 // COPY PICTURE: what shows, every layer together -- there is no selection
 // yet, so the whole picture, as Windows 11 Paint copies with none.
 static void copy_picture(void) {
+    if (select_copy(0)) return;   // the selection, when there is one
     const struct uimg *v = layers_view();
     note(v && uclip_set_image(v) ? "Copied the picture" : "The clipboard refused the picture");
 }
@@ -958,8 +1009,11 @@ _Static_assert(sizeof LAYER_CMD / sizeof LAYER_CMD[0] == CMD_LAYER_HIDE - CMD_LA
 // Edit's copy and paste commands, in CMD_COPY's order.
 static void paste_plain(void) { paste_from_clipboard(0); }
 static void paste_layer(void) { paste_from_clipboard(1); }
-static void (*const EDIT_CMD[])(void) = { copy_picture, paste_plain, paste_layer, paste_file_dialog };
-_Static_assert(sizeof EDIT_CMD / sizeof EDIT_CMD[0] == CMD_PASTE_FILE - CMD_COPY + 1,
+static void cut_selection(void) { if (!select_copy(1)) note("Select something to cut"); }
+static void (*const EDIT_CMD[])(void) = { copy_picture, paste_plain, paste_layer, paste_file_dialog,
+                                         cut_selection, select_all, select_none, select_invert, select_delete,
+                                         select_crop };
+_Static_assert(sizeof EDIT_CMD / sizeof EDIT_CMD[0] == CMD_CROP - CMD_COPY + 1,
                "one handler per Edit command, in their order");
 
 static void command(int code) {
@@ -973,7 +1027,7 @@ static void command(int code) {
         shapes_commit();
         paste_commit();
     }
-    if (code >= CMD_COPY && code <= CMD_PASTE_FILE) {
+    if (code >= CMD_COPY && code <= CMD_CROP) {
         EDIT_CMD[code - CMD_COPY]();
         if (g_app) uapp_redraw(g_app);
         return;
@@ -1023,6 +1077,8 @@ static unsigned item_flags(int code) {
     case CMD_REDO:  return upixundo_can_redo(&g_undo) ? 0 : UUI_MI_DISABLED;
     case CMD_PASTE: case CMD_PASTE_LAYER:
         return uclip_peek_op() == UCLIP_NONE ? UUI_MI_DISABLED : 0;
+    case CMD_CUT: case CMD_DESELECT: case CMD_INVERT: case CMD_SEL_DELETE: case CMD_CROP:
+        return select_any() ? 0 : UUI_MI_DISABLED;
     case CMD_PANEL: return g_panel ? UUI_MI_CHECKED : 0;
     case CMD_LAYER_DEL:   return layers_count() > 1 ? 0 : UUI_MI_DISABLED;
     case CMD_LAYER_MERGE: return layers_active() > 0 ? 0 : UUI_MI_DISABLED;
@@ -1054,6 +1110,7 @@ static void canvas_draw_over(void *ctx, struct ugfx_surface *s, const struct uui
     (void)ctx;
     text_draw_over(s, c);
     shapes_draw_over(s, c);
+    select_draw_over(s, c);
     paste_draw_over(s, c);
 }
 
@@ -1137,6 +1194,33 @@ static void layout(int cw, int ch) {
         g_shgal.on = 1u << g_shape_kind;
         g_shaa.on = (unsigned)g_shape_aa;
     }
+
+    // THE SELECT BAR, in the same place while Select is the tool.
+    int show_sel = g_tool == TOOL_SELECT;
+    for (int i = W_SEL_FIRST; i <= W_SEL_LAST; i++) g_widgets[i].hidden = !show_sel;
+    if (show_sel) {
+        int kw, kh, mw, mh, tw, th, aw, ah;
+        uui_togglebar_ops.natural_size(&g_selkind, &kw, &kh);
+        uui_segmented_ops.natural_size(&g_selmode, &mw, &mh);
+        uui_dropdown_ops.natural_size(&g_seltol, &tw, &th);
+        uui_toolbar_natural_size(&g_selact, &aw, &ah);
+        int h = kh, gap = pad / 2;
+        int barw = pad / 2 + kw + pad + mw + gap + tw + pad + aw + pad / 2, barh = h + pad;
+        int x = rw + pad, y = top + pad;
+        g_selbar_card = (struct uui_custom){ .x = x, .y = y, .w = barw, .h = barh, .draw = draw_card };
+        int cx = x + pad / 2, cy = y + pad / 2;
+        uui_togglebar_ops.set_geometry(&g_selkind, cx, cy, kw, h);
+        cx += kw + pad;
+        uui_segmented_set_geometry(&g_selmode, cx, cy + (h - mh) / 2);
+        cx += mw + gap;
+        uui_dropdown_ops.set_geometry(&g_seltol, cx, cy, tw, h);
+        cx += tw + pad;
+        uui_toolbar_ops.set_geometry(&g_selact, cx, cy + (h - ah) / 2, aw, ah);
+        uui_toolbar_set_bounds(&g_selact, 0, 0, cw, ch);
+        g_selkind.on = 1u << g_sel_kind;
+        g_selmode.selected = g_sel_mode;
+    }
+    uui_menubar_set_bounds(&g_ctx, 0, 0, cw, ch);
 
     g_pw = g_panel ? pad * 30 : 0;
     g_px = cw - g_pw;
@@ -1242,6 +1326,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
     text_log_layout();
     shapes_log_layout(&g_canvas);
     paste_log_layout(&g_canvas);
+    select_log_layout(&g_canvas);
     uapp_logf_layout("paint: layout layerstack %d current %d opacity %d tab %d text %d\n", layers_count(),
                      layers_active(), layers_opacity(layers_active()), g_ptabs.selected,
                      layers_text(layers_active()) != 0);
@@ -1300,6 +1385,20 @@ static void on_widget(struct uapp *a, int id, int reason) {
             if (text_active()) text_restyle();
         if (shapes_active()) shapes_restyle();   // the open box takes the colour, Windows 11 Paint's
         }
+        uapp_redraw(a);
+        return;
+    }
+    if (id >= ID_SELKIND && id <= ID_SELACT) {
+        int i;
+        if (id == ID_SELKIND && (i = uui_togglebar_take(&g_selkind)) >= 0) g_sel_kind = i;
+        else if (id == ID_SELMODE && g_selmode.selected >= 0) g_sel_mode = g_selmode.selected;
+        else if (id == ID_SELTOL && (i = uui_dropdown_selected(&g_seltol)) >= 0) g_sel_tol = SELTOL[i];
+        else if (id == ID_SELACT && (code = uui_toolbar_take_code(&g_selact)) > 0) command(code);
+        uapp_redraw(a);
+        return;
+    }
+    if (id == ID_CTX) {
+        if ((code = uui_menubar_take_code(&g_ctx)) > 0) command(code);
         uapp_redraw(a);
         return;
     }
@@ -1396,6 +1495,14 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     unsigned b = WIN_MOUSE_BUTTONS(buttons);
     if (uui_dialog_is_open(&g_ask) || uui_dialog_is_open(&g_newdlg) || resize_is_open() ||
         uui_menubar_is_open(&g_menu)) return;
+    // THE SELECT TOOL'S RIGHT BUTTON is its menu, opened on the release.
+    if ((b & 0x2) && g_tool == TOOL_SELECT && uui_hit(g_canvas.x, g_canvas.y, g_canvas.w, g_canvas.h, x, y)) {
+        if (uui_menubar_is_open(&g_ctx)) { uui_menubar_close(&g_ctx); uapp_redraw(a); return; }
+        g_ctx_armed = 1;
+        g_ctx_x = x;
+        g_ctx_y = y;
+        return;
+    }
     if (b & 0x1) {
         // The two colour wells choose which one the picker edits.
         for (int i = 0; i < 2 && g_panel && g_ptabs.selected == 0; i++)
@@ -1434,6 +1541,12 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
 
 static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     (void)buttons;
+    if (g_ctx_armed) {
+        g_ctx_armed = 0;
+        uui_menubar_open_at(&g_ctx, ctx_items, (int)(sizeof ctx_items / sizeof ctx_items[0]), g_ctx_x, g_ctx_y);
+        uapp_redraw(a);
+        return;
+    }
     if (g_slot_down < 0) return;
     g_slot_down = -1;
     int px, py;
@@ -1470,6 +1583,14 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     if (text_active() && g_focus.current < 0 && text_key(key, mods)) { uapp_redraw(a); return; }
     if (shapes_active() && shapes_key(key)) { uapp_redraw(a); return; }
     if (paste_active() && paste_key(key)) { uapp_redraw(a); return; }
+    if (uui_menubar_key(&g_ctx, key, &code)) {
+        if (code > 0) command(code);
+        uapp_redraw(a);
+        return;
+    }
+    if (g_focus.current < 0 && select_key(key, mods)) { uapp_redraw(a); return; }
+    // CTRL+I IS TAB'S CODE: only the Ctrl held tells them apart.
+    if (key == 0x09 && ctrl) { command(CMD_INVERT); return; }
     switch (key) {
     case 0x0E: command(shift ? CMD_LAYER_NEW : CMD_NEW); return;     // Ctrl+N, Ctrl+Shift+N
     case 0x0F: command(CMD_OPEN); return;                            // Ctrl+O
@@ -1477,10 +1598,14 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     case 0x12: command(shift ? CMD_CANVAS : CMD_RESIZE); return;     // Ctrl+R
     case 0x1A: command(CMD_UNDO); return;                            // Ctrl+Z
     case 0x19: command(CMD_REDO); return;                            // Ctrl+Y
-    case 0x03: command(CMD_COPY); return;                            // Ctrl+C
-    case 0x16: command(shift ? CMD_PASTE_LAYER : CMD_PASTE); return; // Ctrl+V, Ctrl+Shift+V
+    // THE CLIPBOARD'S AND THE SELECTION'S KEYS are a focused field's own
+    // (the hex value's Ctrl+A, Ctrl+C), never the picture's as well.
+    case 0x03: if (g_focus.current < 0) command(CMD_COPY); return;                            // Ctrl+C
+    case 0x18: if (g_focus.current < 0) command(shift ? CMD_CROP : CMD_CUT); return;          // Ctrl+X
+    case 0x01: if (g_focus.current < 0) command(CMD_SELECT_ALL); return;                      // Ctrl+A
+    case 0x16: if (g_focus.current < 0) command(shift ? CMD_PASTE_LAYER : CMD_PASTE); return; // Ctrl+V
     case 0x05: command(CMD_LAYER_MERGE); return;                     // Ctrl+E, Photoshop's
-    case 0x04: if (shift) { command(CMD_LAYER_DUP); return; } break; // Ctrl+Shift+D
+    case 0x04: if (shift) command(CMD_LAYER_DUP); else if (g_focus.current < 0) command(CMD_DESELECT); return;
     case 0x06: if (shift) { command(CMD_LAYER_FLATTEN); return; } break;   // Ctrl+Shift+F
     default: break;
     }
@@ -1510,6 +1635,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     case 'i': set_tool(TOOL_PICK); break;
     case 't': set_tool(TOOL_TEXT); break;
     case 's': set_tool(TOOL_SHAPES); break;
+    case 'm': set_tool(TOOL_SELECT); break;
     case 'x': command(CMD_SWAP); break;
     case '[': step_brush(-1); break;
     case ']': step_brush(1); break;
@@ -1565,6 +1691,14 @@ int main(int argc, char **argv) {
     brush_rows_init();
     sync_brush();
     g_shapebar_card = (struct uui_custom){ .draw = draw_card };
+    g_selbar_card = (struct uui_custom){ .draw = draw_card };
+    uui_togglebar_init(&g_selkind, selkind_items, SEL_KIND_COUNT);
+    uui_segmented_init(&g_selmode, SELMODES, 3, g_sel_mode);
+    uui_dropdown_init(&g_seltol, 0, 0, 0, 0, SELTOL_TEXT, NSELTOL);
+    for (int i = 0; i < NSELTOL; i++) if (SELTOL[i] == g_sel_tol) uui_dropdown_set_selected(&g_seltol, i);
+    uui_toolbar_init(&g_selact, selact_items, (int)(sizeof selact_items / sizeof selact_items[0]));
+    uui_menubar_init(&g_ctx, 0, 0);   // no bar of its own: open_at() supplies the rows
+    g_ctx.item_flags = item_flags;
     uui_togglebar_init(&g_shgal, shgal_items, SHAPE_COUNT);
     uui_togglebar_init(&g_shaa, shaa_items, 1);
     uui_dropdown_init(&g_shout, 0, 0, 0, 0, SHOUT, 3);

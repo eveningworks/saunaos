@@ -384,6 +384,52 @@ def icon_br_highlighter():
     return p.done()
 
 
+# --- Paint's selection (gui/apps/paint.c's Select tool and bar) ----------------
+
+def _dashed_rect(p, x, y, w, h, dash=3.2, gap=2.8):
+    """A rectangle's outline in dashes -- a selection's edge."""
+    for (x0, y0), (x1, y1) in (((x, y), (x + w, y)), ((x + w, y), (x + w, y + h)),
+                               ((x + w, y + h), (x, y + h)), ((x, y + h), (x, y))):
+        length = math.hypot(x1 - x0, y1 - y0)
+        t = 0.0
+        while t < length:
+            e = min(t + dash, length)
+            p.line((x0 + (x1 - x0) * t / length, y0 + (y1 - y0) * t / length),
+                   (x0 + (x1 - x0) * e / length, y0 + (y1 - y0) * e / length))
+            t = e + gap
+
+
+def icon_tb_select():
+    p = _Pen(); _dashed_rect(p, 4.5, 4.5, 15, 15); return p.done()
+
+
+def icon_sel_rect():
+    p = _Pen(); _dashed_rect(p, 4, 6, 16, 12); return p.done()
+
+
+def icon_sel_lasso():
+    # A loop, and the cord hanging from it.
+    p = _Pen()
+    p.line(*[(12 + 8 * math.cos(a / 24 * 2 * math.pi), 9.5 + 5.5 * math.sin(a / 24 * 2 * math.pi)) for a in range(25)])
+    p.line((8, 14), (7, 17), (8.5, 20))
+    return p.done()
+
+
+def icon_sel_wand():
+    # A wand and the sparkle at its tip.
+    p = _Pen()
+    p.line((4, 20), (14, 10))
+    p.line((16, 3.5), (16, 6.5)); p.line((19.5, 8), (16.5, 8)); p.line((18.5, 4.5), (17, 6)); p.line((12, 5), (13.5, 6.5))
+    return p.done()
+
+
+def icon_tb_crop():
+    p = _Pen()
+    p.line((7, 3), (7, 17), (21, 17))
+    p.line((3, 7), (17, 7), (17, 21))
+    return p.done()
+
+
 def icon_tb_smooth():
     # Smooth edges: a curve, soft, over its own stair-stepped shadow.
     p = _Pen()
@@ -1681,6 +1727,8 @@ ICONS = {
     "tb-shapes": icon_tb_shapes, "tb-smooth": icon_tb_smooth,
     "br-round": icon_br_round, "br-square": icon_br_square, "br-soft": icon_br_soft,
     "br-spray": icon_br_spray, "br-highlighter": icon_br_highlighter,
+    "tb-select": icon_tb_select, "sel-rect": icon_sel_rect, "sel-lasso": icon_sel_lasso,
+    "sel-wand": icon_sel_wand, "tb-crop": icon_tb_crop,
     "tb-plus": icon_tb_plus,
     "tb-merge-down": icon_tb_merge_down,
     "tb-bold": icon_tb_bold,

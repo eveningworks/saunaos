@@ -1784,7 +1784,7 @@ Chosen 2026-09-28. Offset, bytes and ASCII columns over
 with go-to-offset and find-bytes. Editing is a second step: it needs an
 undo log and a decision about writing in place.
 
-### Paint: BUILT through text, layers, shapes and brush kinds; lasso/wand and gradient next, then selection
+### Paint: BUILT through text, layers, shapes, brush kinds, paste and selection; gradient next
 
 Put on the roadmap 2026-09-28; layout P3 and the whole v1 scope chosen
 2026-10-14. **Stage 1 is built**: the window (`gui/apps/paint.c`), the
@@ -1820,13 +1820,17 @@ Manager. Left to build, in order:
   the highlighter has nothing to darken and lays its colour at half
   strength -- layer blend modes (a Multiply layer, `.ora`'s
   `composite-op`) are what would let it darken the layers below.
-- **Next**: lasso and magic wand; a gradient fill; a brush outline as
-  the pointer, sized to the brush.
-- **Stage 3, selection and the picture's size**: a rectangle selection
-  that moves, cuts, copies and pastes (Copy picture and Paste, floating
-  with handles, are built: 2026-10-15), Crop to selection,
-  Resize (through `uimg_scale`) and the canvas size; the status bar's
-  selection pane comes with it.
+- **Selection is built** (2026-10-15, L1): the Select tool (M) and its
+  bar -- Rectangle, Lasso, Magic wand with a tolerance; New / Add (Shift)
+  / Subtract (Alt); marching ants and a light wash; every tool paints
+  inside it; a drag inside moves it; Cut, Copy, Delete, Crop, Invert,
+  Select all, Deselect, on a right-click too. The mask is
+  `lib/upixel.h`'s. Changing a selection is not an undo step.
+- **Next**: a gradient fill; a brush outline as the pointer, sized to the
+  brush; an ellipse selection, and selection changes in the history
+  (Paint.NET has both).
+- **Stage 3, what is left**: the status bar's selection pane (its size
+  and place), and a selection's own handles to scale it in place.
 - **Not v1**: zoom past the wheel's steps by a typed value; layer
   blend modes.
 
