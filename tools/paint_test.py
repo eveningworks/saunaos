@@ -65,7 +65,8 @@ What it proves, and what a broken version would still pass:
     it and its frame drags it 60 left; a corner handle scales it to 700
     x 525 and the stroke lands where that puts it; Ctrl+Shift+V then Esc
     leaves one layer.
-  * SELECT: M and the bar; the magic wand picks the sky above a black
+  * SELECT: M and the bar; hovering a rail button and a select kind
+    shows each tooltip after the delay (cream below it, none at once); the magic wand picks the sky above a black
     band and no more; a brush across the band paints only the selected
     side (a brush that ignored it would cross); a dragged rectangle,
     Delete to Colour 2 and Ctrl+Z; Add spans two rectangles; a 48-step
@@ -92,7 +93,8 @@ the colour square reading saturation backwards fails the green check
 check (the canvas stays 800 x 600); the paste before b1c561d3, which
 rewrote the layer on every motion, takes 2.1 s over the drag that must
 land within a second; select_clip() doing nothing fails the brush-inside
-check (black outside the selection).
+check (black outside the selection); an on_tick() without tips_tick()
+fails the tooltip check (no cream at either button).
 
 Usage (the VM must already be up):
 
@@ -1231,6 +1233,34 @@ def check_select(dbg, qmp, res, tmp):
     dbg.settle()
     res.check("M is the Select tool, and its bar shows", state(dbg).get("tool") == 7 and rect(dbg, "selectkind"),
               f"{state(dbg)}")
+    # TOOLTIPS, by their cream (255, 252, 220) by the button: a rail
+    # button (a toolbar) and a select kind (a toggle row), each after the
+    # delay and not before. Paint idles on a minute's tick, so this also
+    # proves the tick speeds up while one is waited for.
+    from PIL import Image
+
+    def cream_below(part):
+        r = rect(dbg, part)
+        if not r:
+            return None, None
+        if part.startswith("rail"):   # a vertical strip's tip is beside it
+            box = (scr.cx + r[0] + r[2], scr.cy + r[1] - 8, scr.cx + r[0] + r[2] + 140, scr.cy + r[1] + r[3] + 8)
+        else:
+            box = (scr.cx + r[0], scr.cy + r[1] + r[3], scr.cx + r[0] + 140, scr.cy + r[1] + r[3] + 34)
+
+        def count():
+            path = os.path.join(tmp, "tip.png")
+            qmp.screenshot(path)
+            return sum(1 for p in Image.open(path).convert("RGB").crop(box).getdata()
+                       if abs(p[0] - 255) < 6 and abs(p[1] - 252) < 6 and abs(p[2] - 220) < 8)
+        dbg.warp_cursor(qmp, scr.cx + r[0] + r[2] // 2, scr.cy + r[1] + r[3] // 2)
+        before = count()
+        time.sleep(1.4)
+        return before, count()
+    tips = {part: cream_below(part) for part in ("rail.button 0", "selectkind.button 2")}
+    res.check("hovering a rail button and a select kind shows each one's tooltip, after the delay",
+              all(b is not None and b < 20 and a > 40 for b, a in tips.values()), f"cream before/after {tips}")
+    dbg.warp_cursor(qmp, 1270, 700)
     click("selectkind.button 2")                 # the magic wand
     dbg.click(*scr.at(100, 50))
     dbg.settle()

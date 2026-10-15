@@ -41,6 +41,7 @@ void uui_toolbar_init(struct uui_toolbar *t,
     t->hot = -1;
     t->armed = -1;
     t->committed = -1;
+    uui_tip_init(&t->tip);
     // The theme's, resolved at draw (ui/utheme.h's UUI_COLOR).
     t->bg = t->fg = t->border = t->tip_bg = t->tip_fg = UUI_COLOR_UNSET;
     t->more = (struct uui_toolbar_item){ "tb-more", "See more", -1, 0, UUI_TB_MENU, 0, 0 };
@@ -205,56 +206,20 @@ int uui_toolbar_take_code(struct uui_toolbar *t) {
     return code;
 }
 
-// The tip's size, and the button it hangs off. Both the open site and
-// the in-window draw need these and must agree, or the surface is sized
-// for one tip and painted with another.
-static int tip_metrics(const struct uui_toolbar *t, int *w, int *h,
-                       int *bx, int *by, int *bw, int *bh) {
+// The hot item's tip, and the button it hangs off; NULL when it has none
+// or is no longer in the strip.
+static const char *tip_of(const struct uui_toolbar *t, int *bx, int *by, int *bw, int *bh) {
     if (t->hot < 0 || !item_at(t, t->hot)->tip) return 0;
     if (!uui_toolbar_item_rect(t, t->hot, bx, by, bw, bh) || *bw == 0) return 0;
-    *w = ugfx_text_width(item_at(t, t->hot)->tip) + UUI_TIP_PAD * 2;
-    *h = ugfx_char_h() + UUI_TIP_PAD * 2;
-    return 1;
+    return item_at(t, t->hot)->tip;
 }
 
-static void tip_hide(struct uui_toolbar *t) {
-    if (t->tip_popup) {
-        uui_popup_close(t->tip_popup);
-        t->tip_popup = 0;
-    }
-    t->tip_shown = 0;
-}
-
-// The compositor swept this client's popups -- it does that for ALL of
-// them when a GRABBING one is dismissed, so a tooltip up beside an open
-// menu goes with it. The id is already dead; just forget it.
-static void tip_done(void *owner) {
-    struct uui_toolbar *t = (struct uui_toolbar *)owner;
-    t->tip_popup = 0;
-    t->tip_shown = 0;
-}
+static void tip_hide(struct uui_toolbar *t) { uui_tip_hide(&t->tip); }
 
 int uui_toolbar_tick(struct uui_toolbar *t) {
-    // tip_metrics() also refuses a hot item no longer in the strip.
-    int w, h, bx, by, bw, bh;
-    int want = !uui_menubar_is_open(&t->menu) &&
-                tip_metrics(t, &w, &h, &bx, &by, &bw, &bh) &&
-                sys_ticks() - t->hot_since >= UUI_TOOLTIP_DELAY_TICKS;
-    if (want == t->tip_shown) return 0;
-    if (!want) { tip_hide(t); return 1; }
-
-    t->tip_shown = 1;
-    {
-        int px, py;
-        // NO GRAB. The compositor flips it above the button when there
-        // is no room below, which is the clamp this widget used to do
-        // against the surface -- and could only ever do against its
-        // OWN window.
-        t->tip_popup = uui_popup_open(bx, by, bw, bh, w, h,
-                                      t->vertical ? UUI_POPUP_RIGHT : UUI_POPUP_BELOW,
-                                      0, tip_done, t, &px, &py);
-    }
-    return 1;
+    int bx = 0, by = 0, bw = 0, bh = 0;
+    const char *tip = uui_menubar_is_open(&t->menu) ? 0 : tip_of(t, &bx, &by, &bw, &bh);
+    return uui_tip_tick(&t->tip, tip, bx, by, bw, bh, t->vertical);
 }
 
 // The item's icon: its own ink, or its tint as a symbolic icon -- in the
@@ -288,7 +253,7 @@ static void draw_icon(struct ugfx_surface *s, const struct uui_toolbar *t,
 static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
     ugfx_fill_rect(s, t->x, t->y, t->w, t->h, c_bg(t));
     if (t->vertical) ugfx_fill_rect(s, t->x + t->w - 1, t->y, 1, t->h, c_border(t));
-    else if (!t->compact) ugfx_fill_rect(s, t->x, t->y + t->h - 1, t->w, 1, c_border(t));
+    else if (!t->compact && !t->edgeless) ugfx_fill_rect(s, t->x, t->y + t->h - 1, t->w, 1, c_border(t));
 
     for (int i = 0; i <= t->count; i++) {
         int x, y, w, h;
@@ -364,37 +329,11 @@ static void tb_draw(struct ugfx_surface *s, const struct uui_toolbar *t) {
 }
 
 // The tooltip, painted by the ROUTER's overlay pass so it lands above
-// whatever sits under the strip. Below the button, slid inward at the
-// surface's edges -- a tip that clips is a tip nobody can read.
+// whatever sits under the strip.
 static void tb_draw_tip(struct ugfx_surface *s, const struct uui_toolbar *t) {
-    if (!t->tip_shown || t->hot < 0 || !item_at(t, t->hot)->tip) return;
-    const char *tip = item_at(t, t->hot)->tip;
-
-    int w, h, bx, by, bw, bh;
-    if (!tip_metrics(t, &w, &h, &bx, &by, &bw, &bh)) return;
-
-    int x, y;
-    struct ugfx_surface *ps = t->tip_popup ? uui_popup_surface(t->tip_popup) : 0;
-    if (ps) {
-        // Its own surface: the compositor placed it, so the tip sits at
-        // that surface's origin and nothing here clamps.
-        s = ps;
-        x = y = 0;
-    } else {
-        // In-window fallback -- the only clamp this widget can do, and
-        // the reason a tooltip near the window edge used to be cut off
-        // rather than moved.
-        x = t->vertical ? bx + bw + UUI_TIP_GAP : bx;
-        y = t->vertical ? by + (bh - h) / 2 : by + bh + UUI_TIP_GAP;
-        if (x + w > s->w) x = s->w - w;
-        if (x < 0) x = 0;
-        if (y + h > s->h) y = by - h - UUI_TIP_GAP; // no room below: flip above
-    }
-
-    ugfx_fill_rect(s, x, y, w, h, c_tip_bg(t));
-    ugfx_draw_rect(s, x, y, w, h, c_border(t));
-    ugfx_draw_string_clipped(s, x + UUI_TIP_PAD, y + UUI_TIP_PAD,
-                              w - UUI_TIP_PAD * 2, tip, c_tip_fg(t), c_tip_bg(t));
+    int bx, by, bw, bh;
+    const char *tip = tip_of(t, &bx, &by, &bw, &bh);
+    if (tip) uui_tip_draw(s, &t->tip, tip, bx, by, bw, bh, t->vertical, c_tip_bg(t), c_tip_fg(t), c_border(t));
 }
 
 // --- the ops table ----------------------------------------------------
@@ -469,8 +408,7 @@ static int tb_motion_op(void *w, int cx, int cy, unsigned buttons) {
     int over = uui_toolbar_hit_item(t, cx, cy);
     if (over == t->hot) return 0;
     t->hot = over;
-    t->hot_since = sys_ticks();
-    tip_hide(t);   // a new button means a new tip, and the old SURFACE goes
+    uui_tip_hover(&t->tip, over);
     return 1;
 }
 

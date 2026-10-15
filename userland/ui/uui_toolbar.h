@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include "ui/ugfx.h"
 #include "ui/uui_menubar.h" // UUI_MI_* -- see item_flags below
+#include "ui/uui_tip.h"     // its tooltips, and UUI_TOOLTIP_DELAY_TICKS
 
 // uui_toolbar -- a strip of icon buttons under the menu bar.
 //
@@ -85,11 +86,6 @@ struct uui_toolbar_item {
 // Rows the overflow menu can hold. Past it, the last items are unreachable.
 #define UUI_TOOLBAR_MENU_MAX 24
 
-// ~500ms at the PIT's 100 Hz -- every desktop delays about this long.
-#define UUI_TOOLTIP_DELAY_TICKS 50
-
-#define UUI_TIP_PAD 4 // inset around the tip's text
-#define UUI_TIP_GAP 3 // between the button and the tip, in-window only
 
 struct uui_toolbar {
     int x, y, w, h;
@@ -109,21 +105,18 @@ struct uui_toolbar {
     // release slot can only say "changed", the menu bar's arrangement.
     int committed;
 
-    // Tooltip state -- see the header comment.
-    unsigned long hot_since; // sys_ticks() when `hot` last changed
-    int tip_shown;           // OWNED; flipped by uui_toolbar_tick()
-
-    // The tooltip's own popup surface (ui/uui_popup.h), or 0 when it is
-    // drawn in-window instead. Opened WITHOUT a grab: a tooltip that
-    // took the pointer would eat the click meant for the button it is
-    // describing. Opened from tick()/motion(), never from the draw op,
-    // which is const.
-    int tip_popup;
+    // The tooltip (ui/uui_tip.h), keyed by the hot item. Its popup is
+    // opened WITHOUT a grab: a tooltip that took the pointer would eat
+    // the click meant for the button it describes. OWNED.
+    struct uui_tip tip;
 
     uint32_t bg, fg, border, tip_bg, tip_fg;   // UUI_COLOR_UNSET = the theme's; or a UUI_ROLE()
     // Icons at the text's height and no strip border -- for a toolbar
     // living inside a status bar. Set after init.
     int compact;
+    // No strip edge, at the full height -- for a toolbar on a card of its
+    // own (Paint's Select bar), whose edge is the card's. Set after init.
+    int edgeless;
     // Latched items FILLED in the theme's accent with its text colour,
     // rather than washed pressed-in -- for a strip whose latches are a
     // selection to read at a glance (Shapes' scene and view toggles),

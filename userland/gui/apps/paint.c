@@ -593,14 +593,45 @@ void paint_tool_changed(void) {
 // THE SPRAY'S CLOCK: ticks while it is held, and an idle Paint is woken
 // once a minute rather than not at all (uapp_set_tick takes no 0).
 #define SPRAY_TICK_MS 40
+#define TIP_TICK_MS 100
 #define IDLE_TICK_MS 60000
+static int g_spray_ticks, g_tip_ticks;
 void paint_timer(int on) {
-    if (g_app) uapp_set_tick(g_app, on ? SPRAY_TICK_MS : IDLE_TICK_MS);
+    g_spray_ticks = on;
+    if (g_app) uapp_set_tick(g_app, on ? SPRAY_TICK_MS : g_tip_ticks ? TIP_TICK_MS : IDLE_TICK_MS);
+}
+
+// THE TOOLTIPS of every strip and button row (ui/uui_tip.h).
+static int tips_tick(void) {
+    int r = 0;
+    struct uui_toolbar *bars[] = { &g_bar, &g_rail, &g_lbar, &g_selact };
+    struct uui_togglebar *rows[] = { &g_kinds, &g_shgal, &g_shaa, &g_selkind, &g_textfill, &g_fontpick.style };
+    for (unsigned i = 0; i < sizeof bars / sizeof bars[0]; i++) r |= uui_toolbar_tick(bars[i]);
+    for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; i++) r |= uui_togglebar_tick(rows[i]);
+    return r;
+}
+
+static int tips_waiting(void) {
+    struct uui_toolbar *bars[] = { &g_bar, &g_rail, &g_lbar, &g_selact };
+    struct uui_togglebar *rows[] = { &g_kinds, &g_shgal, &g_shaa, &g_selkind, &g_textfill, &g_fontpick.style };
+    for (unsigned i = 0; i < sizeof bars / sizeof bars[0]; i++) if (uui_tip_waiting(&bars[i]->tip)) return 1;
+    for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; i++) if (uui_togglebar_tip_waiting(rows[i])) return 1;
+    return 0;
+}
+
+// AN IDLE PAINT TICKS ONCE A MINUTE: while the pointer rests on a button
+// whose tip is not up yet, ten times a second until it is.
+static void tips_pace(struct uapp *a) {
+    int want = tips_waiting();
+    if (want == g_tip_ticks) return;
+    g_tip_ticks = want;
+    if (!g_spray_ticks) uapp_set_tick(a, want ? TIP_TICK_MS : IDLE_TICK_MS);
 }
 
 static int on_tick(struct uapp *a) {
-    (void)a;
-    return tools_tick();
+    int r = tools_tick() | tips_tick();
+    tips_pace(a);
+    return r;
 }
 
 static void set_tool(int t) {
@@ -1532,6 +1563,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
 }
 
 static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
+    tips_pace(a);
     if (g_slot_down < 0 || !(WIN_MOUSE_BUTTONS(buttons) & 0x2)) return;
     int px, py;
     uui_paintcanvas_to_picture(&g_canvas, x, y, &px, &py);
@@ -1697,6 +1729,10 @@ int main(int argc, char **argv) {
     uui_dropdown_init(&g_seltol, 0, 0, 0, 0, SELTOL_TEXT, NSELTOL);
     for (int i = 0; i < NSELTOL; i++) if (SELTOL[i] == g_sel_tol) uui_dropdown_set_selected(&g_seltol, i);
     uui_toolbar_init(&g_selact, selact_items, (int)(sizeof selact_items / sizeof selact_items[0]));
+    // ON THE BAR'S CARD, not a strip of its own: the card's white, and no
+    // strip edge under it.
+    g_selact.bg = UUI_ROLE(field_bg);
+    g_selact.edgeless = 1;
     uui_menubar_init(&g_ctx, 0, 0);   // no bar of its own: open_at() supplies the rows
     g_ctx.item_flags = item_flags;
     uui_togglebar_init(&g_shgal, shgal_items, SHAPE_COUNT);

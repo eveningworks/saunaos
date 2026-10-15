@@ -238,6 +238,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_themepreview.h` | A THEME, drawn small: a desktop with a taskbar and one window -- title bar and caption buttons, a sidebar with a selected row, a field, a control and the accent button -- in a palette that is NOT t... |
 | `uui_thumbstrip.h` | uui_thumbstrip -- a row of thumbnails with one selected: a filmstrip, Windows Photos' and Gwenview's thumbnail bar. |
 | `uui_tiles.h` | The pictures a uui_gallery's cards show for a cursor set and for a wallpaper -- System Settings' and First-boot setup's, from one place. |
+| `uui_tip.h` | uui_tip -- A TOOLTIP for one widget's parts: shown once the pointer has rested on one of them for UUI_TOOLTIP_DELAY_TICKS, in a popup surface the compositor places beside it (below, or to the right... |
 | `uui_toast.h` | A TOAST: one short line in a dark pill that rises into view at the bottom of a box the app names, over its content -- Android's Toast, the "Solved in 0:37" note a game shows. |
 | `uui_togglebar.h` | uui_togglebar -- A ROW OF LATCHING BUTTONS: B I U S, Windows 11 Paint's and every word processor's text bar. |
 | `uui_toolbar.h` | uui_toolbar -- a strip of icon buttons under the menu bar. |

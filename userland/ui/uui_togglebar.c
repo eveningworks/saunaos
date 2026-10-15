@@ -46,6 +46,7 @@ void uui_togglebar_init(struct uui_togglebar *t, const struct uui_toggle *items,
     t->items = items;
     t->count = count < UUI_TOGGLEBAR_MAX ? count : UUI_TOGGLEBAR_MAX;
     t->hot = t->armed = t->picked = -1;
+    uui_tip_init(&t->tooltip);
 }
 
 int uui_togglebar_take(struct uui_togglebar *t) {
@@ -122,7 +123,26 @@ static int tb_motion(void *w, int cx, int cy, unsigned buttons) {
     int h = item_at(t, cx, cy);
     if (h == t->hot) return 0;
     t->hot = h;
+    uui_tip_hover(&t->tooltip, h);
     return 1;
+}
+
+int uui_togglebar_tick(struct uui_togglebar *t) {
+    if (t->hot < 0 || t->hot >= t->count) return uui_tip_tick(&t->tooltip, 0, 0, 0, 0, 0, 0);
+    return uui_tip_tick(&t->tooltip, t->items[t->hot].tip, item_x(t, t->hot), t->y, item_w(t, t->hot), t->h, 0);
+}
+
+int uui_togglebar_tip_waiting(const struct uui_togglebar *t) {
+    return uui_tip_waiting(&t->tooltip) && t->hot >= 0 && t->items[t->hot].tip;
+}
+
+// The tooltip, in the router's overlay pass: above whatever is below.
+static void tb_overlay(struct ugfx_surface *s, const void *w) {
+    const struct uui_togglebar *t = w;
+    if (t->hot < 0 || t->hot >= t->count || !t->items[t->hot].tip) return;
+    const struct utheme *th = utheme_current();
+    uui_tip_draw(s, &t->tooltip, t->items[t->hot].tip, item_x(t, t->hot), t->y, item_w(t, t->hot), t->h, 0,
+                 th->tooltip_bg, th->tooltip_text, th->outline);
 }
 
 static int tb_release(void *w, int cx, int cy) {
@@ -145,6 +165,7 @@ const struct uui_widget_ops uui_togglebar_ops = {
     .set_geometry = tb_geometry,
     .bounds       = tb_bounds,
     .draw         = tb_draw,
+    .draw_overlay = tb_overlay,
     .hit          = tb_hit,
     .press        = tb_press,
     .motion       = tb_motion,
