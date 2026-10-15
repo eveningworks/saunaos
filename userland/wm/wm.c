@@ -1130,6 +1130,10 @@ void wm_run(void) {
                 int fw = wm_flash_wait_ms();
                 if (fw >= 0 && (uint32_t)fw < wait_ms) wait_ms = (uint32_t)fw;
             }
+            {
+                int gw = taskbar_glide_wait_ms();
+                if (gw >= 0 && (uint32_t)gw < wait_ms) wait_ms = (uint32_t)gw;
+            }
             // The search field's caret blinks: wake for its next flip.
             {
                 int cw = start_menu_wait_ms();
@@ -1158,6 +1162,7 @@ void wm_run(void) {
 
         wmwd_phase("anim");
         wm_anim_step();   // advance the ghosts; damages, sets redraw_pending
+        taskbar_glide_step();   // the same, for the taskbar's buttons
 
         // Picks up a cursor theme or size changed from Control Panel or
         // by editing /etc/toyos.conf. One generation compare per frame
@@ -1705,6 +1710,7 @@ void wm_run(void) {
             redraw_pending = 0;
             wm_render_frame(mx, my);
             rendered = 1;
+            wm_maximize_frame_done();
         } else if (mouse_moved || wm_cursor_shape_changed(mx, my)) {
             // The shape moves while the mouse does not: a client answers
             // a motion event frames later, by which time the pointer has

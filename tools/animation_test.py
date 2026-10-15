@@ -24,6 +24,7 @@ later tool (CLAUDE.md).
 
 import argparse
 import os
+import re
 import sys
 import time
 
@@ -424,6 +425,78 @@ def run_effects(dbg, qmp, tmp, res):
         dbg.settle(0.8)
 
 
+def run_glide_pacing(dbg, qmp, res):
+    """THE TASKBAR GLIDE MUST NOT STARVE THE CLIENTS. A floating taskbar
+    deflates when a window maximizes, so its buttons glide for 150 ms.
+    Unpaced, the WM rendered back to back for all of it and the app's
+    new-size frame waited the glide out -- ~180 ms against ~30 ms with
+    animations off, on the ASUS. `maximize_ms.present` is click to the
+    app's present at the new size, timed inside the WM."""
+    app = "System Settings"
+    dbg.send("sh config set desktop.taskbar_float on")
+    try:
+        dbg.close_window(app)
+        dbg.open_app(app)
+        deadline = time.time() + 20
+        w = None
+        while time.time() < deadline and not w:
+            dbg.settle()
+            w = dbg.window(app)
+        if not res.check("glide pacing: System Settings opens", w is not None):
+            return
+        time.sleep(1.0)
+        band = (w["content"]["y"] - w["y"]) // 2
+        off = None   # the button's distance from the right edge, which maximize keeps
+        for x in range(w["x"] + w["w"] - 2, w["x"], -2):
+            if dbg.probe(x, w["y"] + band).get("region") == "maximize-button":
+                off = w["x"] + w["w"] - x + 3
+                break
+        if not res.check("glide pacing: the window has a maximize button", off is not None):
+            return
+
+        def glides():
+            t = dbg.send("gui taskbar --json") or ""
+            m = re.findall(r'"glide_frames":(\d+)', t)
+            return int(m[0]) if m else -1
+
+        times = {"on": [], "off": []}
+        glided = 0
+        for setting in ("on", "off", "on", "off", "on", "off"):
+            dbg.send(f"sh config set desktop.animations {setting}")
+            time.sleep(1.0)
+            # RE-AIMED EVERY TIME: the button moves with the window.
+            w = dbg.window(app)
+            dbg.warp_cursor(qmp, w["x"] + w["w"] - off, w["y"] + band)
+            n0 = dbg.json("gui state --json")["maximize_ms"]["n"]
+            g0 = glides()
+            qmp.click()
+            m = None
+            deadline = time.time() + 6
+            while time.time() < deadline:
+                time.sleep(0.2)
+                m = dbg.json("gui state --json")["maximize_ms"]
+                if m["n"] != n0:
+                    break
+            time.sleep(0.5)   # let the glide finish before the next toggle
+            if setting == "on" and glides() > g0:
+                glided += 1
+            times[setting].append(m["present"] if m and m["n"] != n0 else None)
+        # THE FIXTURE FIRST: no glide means the data never reached the code.
+        res.check("glide pacing: maximizing glides the floating taskbar",
+                  glided > 0, f"{glided} of 3 maximizes glided (none: the check below proves nothing)")
+        if not res.check("glide pacing: every click maximized or restored the window",
+                         None not in times["on"] + times["off"],
+                         f"on {times['on']} off {times['off']}"):
+            return
+        on, off = sorted(times["on"])[1], sorted(times["off"])[1]
+        res.check("glide pacing: the app's maximized frame is not held back by the glide",
+                  on - off < 75, f"present ms on {times['on']} vs off {times['off']}")
+        dbg.close_window(app)
+    finally:
+        dbg.send("sh config set desktop.taskbar_float off")
+        dbg.send("sh config set desktop.animations on")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     port_guard.add_instance_args(ap)
@@ -443,6 +516,7 @@ def main():
         run(dbg, qmp, tmp, res)
         run_speed(dbg, res)
         run_effects(dbg, qmp, tmp, res)
+        run_glide_pacing(dbg, qmp, res)
     finally:
         try:
             dbg.send("sh config set desktop.animations on")

@@ -2541,6 +2541,18 @@ real scanout hardware does. Do not write a pixel assertion for one.
   `DebugConsole.settle()` waits them out -- a frame compared while one
   runs is a frame of a ghost. `desktop.animations` turns all of it off.
 
+- **ANYTHING THE WM ANIMATES ASKS FOR ITS NEXT FRAME FROM THE LOOP,
+  PACED, NEVER FROM ITS OWN DRAW.** Setting `redraw_pending` while
+  drawing makes the loop's next wait 0, so the WM renders back to back
+  for the whole animation and its clients get no CPU. The taskbar's
+  button glide did exactly that: a floating panel deflates when a window
+  maximizes, and the app's new-size frame waited out the 150 ms glide --
+  ~180 ms against ~30 ms with animations off, on the ASUS. The shape is
+  a `*_wait_ms()` the loop's wait is capped by and a `*_step()` after
+  the wait that damages once the frame is due (`taskbar_glide_step()`,
+  `wm_anim_step()`). `animation_test.py`'s glide-pacing check times it
+  through `gui state`'s `maximize_ms`.
+
 - **AN EFFECT THAT PAINTS SOMETHING OTHER THAN ITS LERPED RECT MUST
   DAMAGE THE WHOLE TRAVEL.** The genie fills a tube from the window's
   top edge to the taskbar button; `shatter` strings staggered tiles

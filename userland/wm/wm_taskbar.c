@@ -1156,6 +1156,7 @@ static struct glide {
 static uint64_t g_frame;
 static int g_gliding, g_gliding_prev;
 static uint32_t g_glide_frames;   // frames that drew a glide, ever -- a test's counter
+static uint64_t g_glide_drawn_ns; // when the last glide frame was drawn
 
 int taskbar_gliding(void) { return g_gliding_prev; }
 uint32_t taskbar_glide_frames(void) { return g_glide_frames; }
@@ -1192,12 +1193,27 @@ int taskbar_draw_x(const struct taskbar_button *b) {
 }
 
 // Called once per strip draw: whether anything glided this frame decides
-// whether the strip asks for the next one.
+// whether the strip wants another. It does NOT ask for it here --
+// see taskbar_glide_step().
 void taskbar_glide_frame_done(void) {
     g_gliding_prev = g_gliding;
-    if (g_gliding) g_glide_frames++;
+    if (g_gliding) {
+        g_glide_frames++;
+        g_glide_drawn_ns = sys_monotonic_ns();
+    }
     g_gliding = 0;
-    if (g_gliding_prev) damage_strip();
+}
+
+static int glide_due_in_ms(void) {
+    if (!g_gliding_prev) return -1;
+    uint64_t since = (sys_monotonic_ns() - g_glide_drawn_ns) / 1000000;
+    return since >= WM_ANIM_FRAME_MS ? 0 : (int)(WM_ANIM_FRAME_MS - since);
+}
+
+int taskbar_glide_wait_ms(void) { return glide_due_in_ms(); }
+
+void taskbar_glide_step(void) {
+    if (glide_due_in_ms() == 0) damage_strip();
 }
 
 int taskbar_handle_right_click(int mx, int my) {

@@ -3052,7 +3052,12 @@ window without going through it will find its layout polls timing out.
   something in between, not one of them. Off: `anims` stays 0 and the
   first frame after the change already equals the settled one. The
   close is the client being killed, which is the case the ghost exists
-  to outlive. Puts the setting back to `on` in a `finally`.
+  to outlive. Puts the setting back to `on` in a `finally`. Then GLIDE
+  PACING: with the floating taskbar on, maximize/restore with animations
+  on and off, and the app's new-size present (`gui state`'s
+  `maximize_ms`, timed inside the WM) must not trail by the 150 ms glide
+  -- an unpaced glide starved the client. Checks first that the taskbar
+  glided at all, or the comparison proves nothing.
 
 - **`damage_sweep.py`'s positive control injects its miss.** `gui damage
   shrink <n>` (a test lever in `wm_render.c`) insets every

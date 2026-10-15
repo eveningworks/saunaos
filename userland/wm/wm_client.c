@@ -724,6 +724,7 @@ static void on_window_present(int pid, uint32_t id, int front, uint32_t gen,
         adopt_content_size(win, w, h);
         wm_damage_window_rect(win->x, win->y, win->w, win->h);
         win->client_damage_all = 0;   // the whole window, just now
+        wm_maximize_presented(idx);
         if (first) wm_anim_open(idx);
         redraw_pending = 1;
         // An interactive resize sends its next proposal now: one FRAME

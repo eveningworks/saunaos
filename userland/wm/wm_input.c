@@ -551,9 +551,38 @@ static void ctx_minimize_window(void *ctx) {
 // fixed. So a client is PROPOSED the new content size, the same
 // configure/ack the grip uses, and wm_client.c's on_window_resized()
 // adopts w/h when the client answers.
+unsigned max_present_ms, max_shown_ms, max_count;
+static uint64_t max_ask_ns;
+static int max_ask_pid;
+static uint32_t max_ask_win;
+static int max_stage;   // 0 idle, 1 waiting for the present, 2 for the frame
+
+void wm_maximize_presented(int idx) {
+    if (max_stage != 1 || windows[idx].client_pid != max_ask_pid ||
+        windows[idx].client_win != max_ask_win) return;
+    max_present_ms = (unsigned)((sys_monotonic_ns() - max_ask_ns) / 1000000);
+    max_stage = 2;
+}
+
+void wm_maximize_frame_done(void) {
+    if (max_stage != 2) return;
+    max_shown_ms = (unsigned)((sys_monotonic_ns() - max_ask_ns) / 1000000);
+    max_stage = 0;
+    max_count++;
+    if (max_shown_ms > 100)   // a slow one only: the ring is evidence, not a trace
+        wm_logf("wm: slow maximize/restore: client presented after %ums, on screen "
+                "after %ums\n", max_present_ms, max_shown_ms);
+}
+
 static void wm_toggle_maximize(int i) {
     if (!windows[i].resizable) return; // same rule for both entry points
     int is_client = wm_client_is_client_window(&windows[i]);
+    if (is_client) {
+        max_ask_ns = sys_monotonic_ns();
+        max_ask_pid = windows[i].client_pid;
+        max_ask_win = windows[i].client_win;
+        max_stage = 1;
+    }
 
     // Damage the rect the window is leaving, in both directions: the
     // window is about to move and resize, and nothing else repaints the

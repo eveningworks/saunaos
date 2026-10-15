@@ -1324,6 +1324,8 @@ static void cmd_state(struct dbg_out *o, int json) {
                      resize_outline_mode ? "outline" : "live",
                      move_outline_mode ? "outline" : "live");
         dbg_out_printf(o, "\"resize_lag_ms\":%u,", resize_lag_ms);
+        dbg_out_printf(o, "\"maximize_ms\":{\"present\":%u,\"shown\":%u,\"n\":%u},",
+                     max_present_ms, max_shown_ms, max_count);
         dbg_out_printf(o, "\"redraw_pending\":%s,\"frame_owed\":%s,\"pending\":%d,",
                      redraw_pending ? "true" : "false",
                      wm_overlay_close_pending() ? "true" : "false", wm_debug_input_pending());

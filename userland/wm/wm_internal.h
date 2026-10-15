@@ -261,6 +261,13 @@ extern int move_outline_mode;
 extern int resize_outline_mode;
 extern int resize_auto;
 extern unsigned resize_lag_ms;
+// THE LAST MAXIMIZE OR RESTORE, timed from the click (wm_input.c): to
+// the client's present at the new size, and to the frame that showed it.
+// The split is the point -- the client's repaint and the compositor's
+// frame are different suspects. `gui state` reports both.
+extern unsigned max_present_ms, max_shown_ms, max_count;   // count: completed
+void wm_maximize_presented(int idx);   // the present that adopts the size
+void wm_maximize_frame_done(void);     // after a rendered frame
 
 // The client has PRESENTED a frame at the size it was asked for: send
 // the next proposal if the drag has moved on. Called from wm_client.c's

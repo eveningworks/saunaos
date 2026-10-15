@@ -242,9 +242,17 @@ int taskbar_gliding(void);
 // glide can begin and end between two samples of taskbar_gliding(); a
 // counter cannot miss one.
 uint32_t taskbar_glide_frames(void);
-// draw_taskbar() calls this after drawing the buttons: it damages the
-// strip for the next frame while a glide is still in flight.
+// draw_taskbar() calls this after drawing the buttons: it notes whether
+// a glide is still in flight.
 void taskbar_glide_frame_done(void);
+// THE GLIDE IS PACED LIKE A GHOST, one frame per WM_ANIM_FRAME_MS. Asking
+// for the next frame from the draw made the loop's wait 0, so the WM
+// rendered back to back for the whole glide and the clients got no CPU:
+// a maximize's new-size frame waited out the 150 ms. The loop caps its
+// wait at taskbar_glide_wait_ms() (-1: nothing gliding) and, after the
+// wait, taskbar_glide_step() damages the strip once the frame is due.
+int  taskbar_glide_wait_ms(void);
+void taskbar_glide_step(void);
 void taskbar_update_hover(int mx, int my, uint8_t buttons);
 int taskbar_hover(void);
 
