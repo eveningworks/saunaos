@@ -19,6 +19,7 @@
 // interrupt handler: every path does synchronous control transfers.
 // xhci_poll_source() is the one caller of usb_hub_service().
 #include "usb.h"
+#include "usb_driver.h"
 #include "clocksource.h" // clocksource_delay_ms -- a delay that needs no interrupt
 #include "xhci.h"
 #include "xhci_regs.h"
@@ -203,7 +204,7 @@ static void hub_port_change(struct usb_hub *h, uint8_t port) {
 
 // --- the class driver's three entry points ------------------------------
 
-int usb_hub_bind(struct usb_device_info *d) {
+static int usb_hub_bind(struct usb_device_info *d) {
     if (!d) return 0;
     if (d->speed == XHCI_SPEED_SUPER) {
         klog_printf("usb: slot %u is a USB3 hub -- not supported, skipping\n",
@@ -286,7 +287,6 @@ int usb_hub_bind(struct usb_device_info *d) {
     wait_ms((uint32_t)hd[5] * 2 + 100);
 
     klog_printf("usb: slot %u: hub with %u port(s)\n", d->slot, n);
-    usb_mark_bound(d, "hub");
 
     for (uint8_t p = 1; p <= n; p++) {
         int64_t st = hub_port_status(d->slot, p);
@@ -327,8 +327,22 @@ void usb_hub_service(void) {
     }
 }
 
-void usb_hub_forget(uint8_t slot) {
+static void usb_hub_forget(uint8_t slot) {
     for (int i = 0; i < USB_HUB_MAX; i++)
         if (g_hubs[i].in_use && g_hubs[i].slot == slot)
             g_hubs[i].in_use = 0;
 }
+
+static int hub_bind(struct usb_device_info *d, int iface, const uint8_t *cfg,
+                    uint32_t total) {
+    (void)iface; (void)cfg; (void)total;
+    return usb_hub_bind(d);
+}
+
+static void hub_unbind(struct usb_device_info *d, int iface) {
+    (void)iface;
+    usb_hub_forget(d->slot);
+}
+
+static const struct usb_match hub_matches[] = { USB_MATCH_IF(9, USB_ANY, USB_ANY) };
+USB_DRIVER("hub", hub_matches, hub_bind, hub_unbind);

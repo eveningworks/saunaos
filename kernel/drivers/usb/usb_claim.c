@@ -3,8 +3,7 @@
 // driver-none: it drives nothing; it records who holds what
 #include "usb_claim.h"
 #include "usb.h"
-#include "usb_audio.h"
-#include "usb_hid.h"
+#include "usb_driver.h"
 #include "scheduler.h"
 #include "errno.h"
 #include "klog.h"
@@ -20,7 +19,7 @@
 #include "devevent.h"
 #include "barrier.h"
 
-#define USB_CLASS_HUB 9   // usb_enum.c's, and the same value the spec gives
+#define USB_CLASS_HUB 9   // the spec's value for a hub interface
 
 static struct {
     uint8_t  slot;      // 0 = free
@@ -125,19 +124,9 @@ int usb_claim_take(uint8_t slot, uint64_t pml4, int pid) {
     // THE UNBIND COMES FIRST, and it is what the claim is FOR: the
     // class driver has the device's endpoints configured, and two
     // owners posting to one transfer ring is not a thing to recover
-    // from. Every unbind here is a no-op on a device that driver does
-    // not hold, which is why they are simply all called.
-    usb_hid_unbind(slot);
-    usb_audio_unbind(slot);
-    usb_net_unbind(slot);
-    usb_r8153_unbind(slot);
-    // `bound` IS SET BY EVERY BIND AND WAS CLEARED BY NOTHING -- it
-    // only ever went true, so `lsusb` and QUERY_USB reported a device
-    // no driver holds as bound. Cleared here because this is the one
-    // place that unbinds a device which then stays present; a DETACH
-    // takes the whole entry away.
-    ((struct usb_device_info *)d)->bound = 0;
-    ((struct usb_device_info *)d)->driver = 0;
+    // from. Every interface's driver lets go, and `bound`/`driver` go
+    // with them, so lsusb no longer reports the device as driven.
+    usb_unbind_drivers((struct usb_device_info *)d);
 
     g_claims[free_slot].slot = slot;
     g_claims[free_slot].pml4 = pml4;

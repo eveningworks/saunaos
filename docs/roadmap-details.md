@@ -7939,6 +7939,10 @@ hardening, not a live overflow.
 
 ## A USB class-driver table
 
+**BUILT 2026-10-15**, per interface -- `docs/decisions/drivers.md`, "USB
+class drivers bind per interface, from a table". What follows is the
+item as it was written.
+
 `usb_bind_drivers()` binds in a hard-coded order and `usb_detach_slot()`
 and `usb_claim_take()` each call every driver's unbind by name, so a new
 USB class driver joins three lists and missing one fails silently.

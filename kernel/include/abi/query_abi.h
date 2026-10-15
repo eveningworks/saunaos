@@ -599,6 +599,13 @@ struct query_remotelog {
 #define QUERY_REMOTESESS 52
 #define QUERY_REMOTESESS_STATUS_MAX 64
 
+// EVERY INTERFACE OF EVERY USB DEVICE, and the driver holding it. LIST,
+// in QUERY_USB's device order and interface order within each, keyed by
+// `slot`. A driver binds an INTERFACE (kernel/include/kernel/usb_driver.h),
+// so a composite device -- a DAC with buttons -- is driven by two, and
+// QUERY_USB's one `driver` is only the first of them.
+#define QUERY_USB_IF 53
+
 struct query_remotesess {
     uint64_t pid;           // the session leader: signal it to act on the session
     uint64_t remote_ip;     // host byte order
@@ -1251,6 +1258,20 @@ struct query_usb {
     char     manufacturer[32];
     char     product[32];
     char     driver[16];    // which one, as QUERY_DRIVER names it; "" if none
+};
+
+// QUERY_USB_IF's record -- one interface (alternate setting 0).
+struct query_usb_if {
+    uint64_t slot;          // which device: QUERY_USB's `slot`
+    uint64_t ifnum;         // bInterfaceNumber
+    uint64_t if_class;
+    uint64_t if_subclass;
+    uint64_t if_protocol;
+    // 1 when the driver took it as a SIBLING of an interface it was bound
+    // through -- CDC-ECM's data interface, audio's streaming one -- and
+    // was never offered it on its own.
+    uint64_t claimed;
+    char     driver[16];    // as QUERY_DRIVER names it; "" if none
 };
 
 // QUERY_USB's speed values. Named rather than passing the xHCI protocol

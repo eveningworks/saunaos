@@ -217,6 +217,8 @@ whenever a headline here tells you something you did not already know.
   switch re-arms the timer; a deadline wake preempts after 1 ms
 - **A VIRTIO DEVICE TAKES MSI-X ONLY, ITS QUEUE VECTORS ARE WRITTEN BY
   `virtqueue_setup()`, AND ITS ARMING WRITE IS `DRIVER_OK`**
+- **A USB CLASS DRIVER IS A `USB_DRIVER()` ENTRY, AND IT BINDS ONE
+  INTERFACE**
 - **A USB ETHERNET ADAPTER IS A `net_device`, AND ITS CONFIGURATION IS A
   CHOICE**
 - **A VENDOR CONFIGURATION NEEDS A DRIVER THAT NAMES THE DEVICE, AND AN

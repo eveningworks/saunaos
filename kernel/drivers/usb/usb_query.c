@@ -143,7 +143,58 @@ static const struct query_provider usb_provider = {
     .field_count = 0,
 };
 
+// --- QUERY_USB_IF: every interface, and who holds it --------------------
+
+// A flat index, device by device: the same walk for count and fill.
+static int iface_at(int index, const struct usb_device_info **out_d, int *out_i) {
+    for (int i = 0; i < usb_device_count(); i++) {
+        const struct usb_device_info *d = usb_device_at(i);
+        if (!d) continue;
+        if (index < d->if_count) { *out_d = d; *out_i = index; return 1; }
+        index -= d->if_count;
+    }
+    return 0;
+}
+
+static int usbif_q_count(void) {
+    int n = 0;
+    for (int i = 0; i < usb_device_count(); i++) {
+        const struct usb_device_info *d = usb_device_at(i);
+        if (d) n += d->if_count;
+    }
+    return n;
+}
+
+static int usbif_q_fill(int index, void *out) {
+    const struct usb_device_info *d;
+    int i;
+    if (!iface_at(index, &d, &i)) return 0;
+    const struct usb_interface_info *ifc = &d->ifs[i];
+    struct query_usb_if *q = out;
+    k_memset(q, 0, sizeof *q);
+    q->slot        = d->slot;
+    q->ifnum       = ifc->ifnum;
+    q->if_class    = ifc->if_class;
+    q->if_subclass = ifc->if_subclass;
+    q->if_protocol = ifc->if_protocol;
+    q->claimed     = ifc->driver && !ifc->bound_by;
+    if (ifc->driver) k_strlcpy(q->driver, ifc->driver, sizeof q->driver);
+    return 1;
+}
+
+static const struct query_provider usbif_provider = {
+    .cls = QUERY_USB_IF,
+    .name = "usb_if",
+    .record_size = sizeof(struct query_usb_if),
+    .flags = QUERY_F_LIST,
+    .count = usbif_q_count,
+    .fill = usbif_q_fill,
+    .fields = 0,
+    .field_count = 0,
+};
+
 void usb_query_init(void) {
     query_register(&usb_provider);
     query_register(&usbdesc_provider);
+    query_register(&usbif_provider);
 }

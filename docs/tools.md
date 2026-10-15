@@ -4843,7 +4843,8 @@ window without going through it will find its layout polls timing out.
   `XHCI_MAX_PORTS` was 16 and a Kaby Lake PCH's SuperSpeed ports are
   17..22 -- QEMU numbers USB3 first, so its USB2 ports land at 16..30),
   and NETREPLUG (QEMU's `usb-net` plugged and unplugged six times
-  behind a QMP `netdev_add`: it must bind as CDC-ECM every time --
+  behind a QMP `netdev_add`: it must bind as CDC-ECM every time, the
+  control interface bound and the data interface claimed with it --
   it offers RNDIS first, so this proves the configuration picker passes
   over it -- and the frame allocator's free count after each unplug
   must not fall, where a driver keeping its DMA buffers falls four

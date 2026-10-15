@@ -23,6 +23,7 @@
 // does for the same reason, and it is where the width is narrowed.
 #include "usb.h"
 #include "usb_audio.h"
+#include "usb_driver.h"
 #include "xhci.h"
 #include "xhci_regs.h"
 #include "sound.h"
@@ -667,8 +668,8 @@ static void audio_label(struct audio_dev *a, const struct usb_device_info *info)
               info->vendor_id, info->product_id);
 }
 
-int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
-                   uint32_t total) {
+static int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
+                          uint32_t total) {
     if (!info) return 0;
 
     // A FREE SLOT, AND SAYING SO WHEN THERE IS NONE. Every other
@@ -844,7 +845,7 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
         a->pkt_phys = 0;
         return 0;
     }
-    usb_mark_bound(info, "usb-audio");
+    usb_interface_claim(info, s.ifnum, "usb-audio");    // the streaming half
     char fbs[24] = ", no feedback";
     if (a->fb_ep) k_snprintf(fbs, sizeof fbs, ", feedback ep 0x%x", a->fb_ep);
     klog_printf("usb: slot %u: bound as usb-audio, UAC%u, if %u alt %u, "
@@ -863,7 +864,7 @@ int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
     return 1;
 }
 
-void usb_audio_unbind(uint8_t slot) {
+static void usb_audio_unbind(uint8_t slot) {
     struct audio_dev *a = 0;
     for (int i = 0; i < USB_AUDIO_MAX; i++)
         if (g_audio[i].in_use && g_audio[i].slot == slot) { a = &g_audio[i]; break; }
@@ -880,6 +881,22 @@ void usb_audio_unbind(uint8_t slot) {
     a->pkt = 0;
     a->pkt_phys = 0;
 }
+
+static int audio_bind(struct usb_device_info *d, int iface, const uint8_t *cfg,
+                      uint32_t total) {
+    (void)iface;
+    return usb_audio_bind(d, cfg, total);
+}
+
+static void audio_unbind(struct usb_device_info *d, int iface) {
+    (void)iface;
+    usb_audio_unbind(d->slot);
+}
+
+// AudioControl, the interface a UAC function is addressed through; the
+// streaming interface it plays on is claimed.
+static const struct usb_match audio_matches[] = { USB_MATCH_IF(0x01, 0x01, USB_ANY) };
+USB_DRIVER("usb-audio", audio_matches, audio_bind, audio_unbind);
 
 int usb_audio_bound(void) {
     for (int i = 0; i < USB_AUDIO_MAX; i++)

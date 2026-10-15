@@ -127,6 +127,17 @@ SECTIONS
         __pci_drivers_end = .;
     } :rodata
 
+    /* USB class drivers. USB_DRIVER() (kernel/include/kernel/usb_driver.h)
+       drops one struct usb_driver -- a match table, bind and unbind --
+       per driver, and usb_bind_drivers() offers each interface to them. */
+    . = ALIGN(32);
+    .usb_drivers :
+    {
+        __usb_drivers_start = .;
+        KEEP(*(.usb_drivers))
+        __usb_drivers_end = .;
+    } :rodata
+
     /* The module export table. EXPORT_SYMBOL() (kernel/include/kernel/
        kexport.h) drops one struct kexport -- a name and an address --
        per exported symbol, and the module loader resolves a .ko's

@@ -40,6 +40,8 @@
 // mouse second -- is several of these on one slot, and a driver that
 // looks only at the first binds the keyboard half and leaves the mouse
 // dead.
+struct usb_driver;
+
 struct usb_interface_info {
     uint8_t  ifnum;
     uint8_t  if_class;
@@ -48,6 +50,11 @@ struct usb_interface_info {
     uint8_t  ep;            // bEndpointAddress, so 0x81 is IN endpoint 1
     uint8_t  interval;
     uint16_t mps;
+    // WHO HOLDS IT (usb_driver.c): the name `lsdrv` knows, or NULL, and
+    // the table entry whose bind took it -- NULL on a sibling that driver
+    // claimed, which goes back with the interface it was bound through.
+    const char *driver;
+    const struct usb_driver *bound_by;
 };
 
 // What a device reported about itself, for `lsusb` and the debug
@@ -100,13 +107,6 @@ struct usb_device_info {
     uint32_t cfg_len;
 };
 
-// A class driver took `d`: what lsusb, QUERY_USB and the Device Manager
-// report. `driver` is the name its DRIVER_DECLARE uses, so a caller can
-// join the device to QUERY_DRIVER.
-static inline void usb_mark_bound(struct usb_device_info *d, const char *driver) {
-    d->bound = 1;
-    d->driver = driver;
-}
 
 // Finds and brings up an xHCI controller, enumerates what is attached,
 // and registers any HID keyboard or mouse with the input core.
@@ -130,11 +130,6 @@ int usb_controller_present(void);
 // Returns 0 when there is none.
 int usb_controller_summary(char *buf, uint32_t cap);
 
-// Offers one device to every class driver, in the dispatch order
-// enumeration uses. Public because a CLAIM released with a rebind runs
-// the same pass.
-void usb_bind_drivers(struct usb_device_info *d, const uint8_t *cfg,
-                      uint32_t total);
 
 int usb_device_count(void);
 const struct usb_device_info *usb_device_at(int index);
@@ -198,34 +193,7 @@ const uint8_t *usb_device_config(int index, uint32_t *len);
 // which is the only place it is written down.
 void usb_read_string(uint8_t slot, uint8_t index, char *out, uint32_t cap);
 
-// --- CDC Ethernet (drivers/net/net_usb_ecm.c) -------------------------
-
-// Binds an enumerated CDC-ECM adapter and registers a `net_device`.
-// `cfg`/`total` is the configuration already read, because the MAC, the
-// data interface and the segment size all live in CLASS-SPECIFIC
-// descriptors the interface walk does not keep -- the same reason
-// usb_audio_bind() takes them. Returns 1 when it took the device.
-int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
-                 uint32_t total);
-
-// Releases the device on `slot`, if it is the bound one.
-void usb_net_unbind(uint8_t slot);
-
 // --- Realtek USB Ethernet, the vendor protocol (drivers/net/rtl_usb.c) --
-
-// Is this a device the Realtek driver claims? Asked by enumeration
-// BEFORE a configuration is chosen, because the vendor configuration is
-// only driveable when this says so -- a vendor-specific interface says
-// nothing about what is behind it.
-int usb_r8153_claims(uint16_t vid, uint16_t pid);
-
-// Binds the vendor configuration of an RTL8153 or RTL8156 and registers a
-// `net_device`. Takes the raw configuration for the same reason
-// usb_net_bind() does. Returns 1 when it took the device.
-int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
-                   uint32_t total);
-
-void usb_r8153_unbind(uint8_t slot);
 
 // The framing, exported for the KTESTs -- a bulk transfer is not a
 // frame here, and this is the part that can be tested without the
@@ -241,18 +209,10 @@ void usb_r8153_tx_desc(uint8_t out[8], uint32_t len);
 
 // --- hubs (usb_hub.c) -------------------------------------------------
 
-// Binds an enumerated hub: reads its hub descriptor, powers its ports,
-// scans them, and configures the status-change endpoint so later
-// connects and disconnects are seen. Returns 1 when it took the device.
-int usb_hub_bind(struct usb_device_info *d);
-
 // Processes any queued hub status-change reports: resets and enumerates
 // new devices, detaches unplugged ones. Deferred work only -- it does
 // control transfers, so it must never run from the interrupt handler.
 void usb_hub_service(void);
-
-// Forgets the hub state for `slot` (called by the detach path).
-void usb_hub_forget(uint8_t slot);
 
 // Diagnostic counters. These exist so a test can distinguish "the
 // driver never ran" from "the driver ran and decoded nothing", which

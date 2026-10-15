@@ -2203,10 +2203,11 @@ fit. The class driver STAYS, for an adapter whose ECM works.
 **Why the vendor configuration is gated on an id table.** Class 0xFF
 describes nothing at all, so "a vendor interface is driveable" would
 have made enumeration pick the vendor configuration of every device that
-has one and then write to its registers. `usb_r8153_claims()` is the
-gate: a device nobody names keeps configuration 0 and whatever class
-driver can take it. This is why the id table lives in the DRIVER and is
-asked by enumeration, rather than enumeration carrying a list.
+has one and then write to its registers. The driver's `USB_DRIVER()`
+table is the gate (`USB_MATCH_ID_IF(vid, pid, 0xFF)`): a device nobody
+names keeps configuration 0 and whatever class driver can take it. This
+is why the id table lives in the DRIVER and is asked by enumeration,
+rather than enumeration carrying a list.
 
 **Why BSD rather than Linux.** Both describe this chip. `r8152.c` is
 GPL-2.0 and transcribing it into an MIT repository would relicense the
@@ -2286,11 +2287,11 @@ sentence, where before it was the bus plus four unrelated devices that
 happened to be on it.
 
 **Symbol names did NOT follow the files.** `usb_hid_bind()`,
-`usb_audio_bind()`, `usb_net_bind()` and `usb_r8153_bind()` keep their
-names, declared in `usb.h`, because they name what the function IS --
-the entry point a USB class driver exposes to enumeration -- and
-enumeration is the caller. Renaming them to match a directory would
-make the seam harder to see, not easier.
+`usb_audio_bind()`, `usb_net_bind()` and `usb_r8153_bind()` kept their
+names because they named the entry point enumeration called. Since
+2026-10-15 the seam is each file's `USB_DRIVER()` entry instead and
+those functions are static ("USB class drivers bind per interface, from
+a table").
 
 **And the USB drivers do not get virtio's adapter split.**
 `virtio/virtio_net.c` plus `net/net_virtio.c` is a real dependency
@@ -3345,8 +3346,44 @@ Dequeue past everything queued, returning 0 only when the controller
 confirmed both (or says the endpoint was not running). Each driver's
 unbind cancels its endpoints and frees; a refusal keeps the buffers for
 good, as Disable Slot's quarantine does. A claimed device's isochronous
-frames (`isoch_close()`) go back the same way. The core still names its
-drivers in the bind and unbind lists; a driver table is the roadmap's.
+frames (`isoch_close()`) go back the same way. The bind and unbind lists
+the core still carried went the same day ("USB class drivers bind per
+interface, from a table").
+
+## USB class drivers bind per interface, from a table
+
+**2026-10-15.** The core named five class drivers in four places --
+`usb_bind_drivers()`'s order, `configuration_is_driveable()`'s class
+list plus `usb_r8153_claims()`, and the unbind lists of a detach and a
+claim -- so a sixth driver had four lists to join, and missing the
+unbind ones failed silently.
+
+**What real systems do.** Linux's `struct usb_driver` carries `probe`,
+`disconnect` and an id table (`USB_DEVICE`, `USB_INTERFACE_INFO`); the
+core matches and binds per INTERFACE, a driver takes a sibling with
+`usb_driver_claim_interface()` (cdc_ether its data interface, snd-usb-
+audio its streaming ones), and hubs are drivers like any other. Windows
+matches hardware and compatible ids and splits a composite device per
+interface (usbccgp). toy-os follows, in `PCI_DRIVER()`'s shape:
+`USB_DRIVER()` drops an entry in `.usb_drivers`, `usb_driver.c` offers
+each interface nobody holds to the first entry whose table matches, and
+the same tables answer which configuration is driveable.
+
+**Per interface, chosen over per device**, because a composite device
+is common and per-device binding reported it wrongly: the ASUS's
+Logitech receiver is a keyboard, a mouse and a third HID interface on
+one plug, and `lsusb -v` now says which interface each driver holds and
+that the third has none. `QUERY_USB_IF` carries that; `QUERY_USB`'s one
+`driver` stays, as the first held interface's, so nothing that read it
+changes. **Declined: a per-driver `match()` callback** -- the
+configuration choice would have had to call every driver's, and a table
+is data a KTEST can check for two drivers claiming one interface.
+
+**CDC-ECM receives.** Testing this with QEMU's usb-net, which binds as
+ECM since its RNDIS-first configuration stopped counting as driveable,
+carried DHCP leases through `net_usb_ecm.c`'s receive path -- the half a
+UE300's ECM configuration had never shown working, under Linux's
+`cdc_ether` either. The adapter, not the driver, then.
 
 ## The ring-3 sound driver starts as a service, and a card keeps its kernel name whichever ring drives it
 

@@ -12,6 +12,7 @@
 //
 // driver-none: the transport core; rtl8153.c and rtl8156.c declare the drivers
 #include "rtl_usb.h"
+#include "usb_driver.h"
 #include "clocksource.h" // clocksource_delay_ms -- a delay that needs no interrupt
 #include "xhci.h"
 #include "xhci_regs.h"
@@ -424,24 +425,19 @@ static void rtl_poll(struct net_device *dev) {
 // nothing about what is behind it, so an unlisted device is left alone
 // rather than probed -- the cost of being wrong is claiming somebody
 // else's hardware and writing to its registers.
-struct rtl_id { uint16_t vid, pid; };
-static const struct rtl_id g_ids[] = {
-    { 0x0BDA, 0x8152 },   // Realtek RTL8152
-    { 0x0BDA, 0x8153 },   // Realtek RTL8153
-    { 0x0BDA, 0x8156 },   // Realtek RTL8156 / RTL8156B, 2.5G
-    { 0x2357, 0x0601 },   // TP-Link UE300
+// It is the USB_DRIVER() table at the end of this file: a vendor
+// interface (class 0xFF) on one of these.
+static const struct usb_match rtl_matches[] = {
+    USB_MATCH_ID_IF(0x0BDA, 0x8152, 0xFF),   // Realtek RTL8152
+    USB_MATCH_ID_IF(0x0BDA, 0x8153, 0xFF),   // Realtek RTL8153
+    USB_MATCH_ID_IF(0x0BDA, 0x8156, 0xFF),   // Realtek RTL8156 / RTL8156B, 2.5G
+    USB_MATCH_ID_IF(0x2357, 0x0601, 0xFF),   // TP-Link UE300
 };
 
 const struct rtl_usb_ops *rtl_usb_chip_for(uint16_t version) {
     static const struct rtl_usb_ops *const chips[] = { &rtl8153_ops, &rtl8156_ops };
     for (unsigned i = 0; i < sizeof chips / sizeof chips[0]; i++)
         if (chips[i]->match(version)) return chips[i];
-    return 0;
-}
-
-int usb_r8153_claims(uint16_t vid, uint16_t pid) {
-    for (unsigned i = 0; i < sizeof g_ids / sizeof g_ids[0]; i++)
-        if (g_ids[i].vid == vid && g_ids[i].pid == pid) return 1;
     return 0;
 }
 
@@ -476,10 +472,9 @@ static void log_mac(const char *what, const uint8_t *m) {
                 m[0], m[1], m[2], m[3], m[4], m[5]);
 }
 
-int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
-                   uint32_t total) {
+static int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
+                          uint32_t total) {
     if (!info || g_rtl.in_use) return 0;
-    if (!usb_r8153_claims(info->vendor_id, info->product_id)) return 0;
 
     uint8_t ep_in, ep_out;
     uint16_t mps;
@@ -606,13 +601,12 @@ int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
     for (int i = 0; i < RTL_BUFS; i++)
         xhci_bulk_post(info->slot, ep_in, d->rx_phys[i], RTL_RX_BUF);
 
-    usb_mark_bound(info, d->ops->name);
     klog_printf("usb: slot %u: bound as %s, ep in 0x%02x out 0x%02x, "
                 "%u B/packet\n", info->slot, d->ops->name, ep_in, ep_out, mps);
     return 1;
 }
 
-void usb_r8153_unbind(uint8_t slot) {
+static void usb_r8153_unbind(uint8_t slot) {
     struct rtl_usb *d = &g_rtl;
     if (!d->in_use || d->slot != slot) return;
     d->in_use = 0;   // unpublished before the core can call transmit()
@@ -624,3 +618,18 @@ void usb_r8153_unbind(uint8_t slot) {
     if (in == 0 && out == 0) pmm_free_contiguous(d->mem_phys, d->mem_pages);
     d->mem_phys = 0;
 }
+
+// Named by the CHIP, not the table entry: `lsdrv` knows r8153 and r8156.
+static int rtl_bind(struct usb_device_info *d, int iface, const uint8_t *cfg,
+                    uint32_t total) {
+    if (!usb_r8153_bind(d, cfg, total)) return 0;
+    d->ifs[iface].driver = g_rtl.ops->name;
+    return 1;
+}
+
+static void rtl_unbind(struct usb_device_info *d, int iface) {
+    (void)iface;
+    usb_r8153_unbind(d->slot);
+}
+
+USB_DRIVER("rtl-usb", rtl_matches, rtl_bind, rtl_unbind);

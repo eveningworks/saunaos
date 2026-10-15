@@ -31,7 +31,13 @@
 #define PRODUCT_NAME_MAX 64
                                // at SYS_WRITE_MAX, far above this
 
+#define MAX_IFS          (MAX_DEVS * 8)
+
 static struct query_usb g_dev[MAX_DEVS];
+// QUERY_USB_IF: a driver binds an interface, so a composite device can
+// be driven by several and QUERY_USB's `driver` names only the first.
+static struct query_usb_if g_if[MAX_IFS];
+static int  g_if_count;
 static char g_vendor_name[MAX_DEVS][VENDOR_NAME_MAX];
 static char g_product_name[MAX_DEVS][PRODUCT_NAME_MAX];
 static int  g_count;
@@ -285,6 +291,27 @@ static void decode_desc(const uint8_t *cfg, unsigned total) {
     }
 }
 
+// "driver usb-audio, usb-hid": every distinct driver holding one of the
+// device's interfaces, in interface order; "no driver" when none does.
+static const char *drivers_of(const struct query_usb *d) {
+    static char out[80];
+    int n = 0, any = 0;
+    out[0] = 0;
+    for (int k = 0; k < g_if_count; k++) {
+        const struct query_usb_if *f = &g_if[k];
+        if (f->slot != d->slot || !f->driver[0]) continue;
+        int seen = 0;
+        for (int j = 0; j < k; j++)
+            if (g_if[j].slot == d->slot && !strcmp(g_if[j].driver, f->driver)) seen = 1;
+        if (seen) continue;
+        n += snprintf(out + n, sizeof out - (size_t)n, "%s%s",
+                      any ? ", " : "driver ", f->driver);
+        if (n >= (int)sizeof out) break;
+        any = 1;
+    }
+    return any ? out : "no driver";
+}
+
 int main(int argc, char **argv) {
     int verbose = 0, dump = 0;
     for (int i = 1; i < argc; i++) {
@@ -311,6 +338,11 @@ int main(int argc, char **argv) {
     }
 
     load_names();
+    for (int i = 0; i < MAX_IFS; i++) {
+        if (sys_query_record(QUERY_USB_IF, (unsigned)i, &g_if[i],
+                             sizeof g_if[i]) < (int)sizeof g_if[i]) break;
+        g_if_count++;
+    }
 
     for (int i = 0; i < g_count; i++) {
         struct query_usb *d = &g_dev[i];
@@ -318,10 +350,9 @@ int main(int argc, char **argv) {
                (unsigned)d->port, (unsigned)d->slot,
                (unsigned)d->vendor_id, (unsigned)d->product_id,
                g_vendor_name[i][0] ? g_vendor_name[i] : "(unknown vendor)");
-        printf("  %s, %sb/s, %s%s\n",
+        printf("  %s, %sb/s, %s\n",
                g_product_name[i][0] ? g_product_name[i] : "(unknown product)",
-               speed_name(d->speed), d->driver[0] ? "driver " : "",
-               d->driver[0] ? d->driver : d->bound ? "bound" : "no driver");
+               speed_name(d->speed), drivers_of(d));
         printf("  Class %02x %s%s\n",
                (unsigned)d->if_class, class_name(d->if_class),
                hid_protocol_name(d->if_class, d->if_subclass,
@@ -334,9 +365,15 @@ int main(int argc, char **argv) {
             printf("  iProduct       %s\n",
                    d->product[0] ? d->product : "(none)");
             printf("  bDeviceClass   %02x\n", (unsigned)d->dev_class);
-            printf("  Interface      class %02x subclass %02x protocol %02x\n",
-                   (unsigned)d->if_class, (unsigned)d->if_subclass,
-                   (unsigned)d->if_protocol);
+            for (int k = 0; k < g_if_count; k++) {
+                const struct query_usb_if *f = &g_if[k];
+                if (f->slot != d->slot) continue;
+                printf("  Interface %-4u class %02x subclass %02x protocol %02x  %s%s\n",
+                       (unsigned)f->ifnum, (unsigned)f->if_class,
+                       (unsigned)f->if_subclass, (unsigned)f->if_protocol,
+                       f->driver[0] ? f->driver : "no driver",
+                       f->claimed ? " (claimed with its function)" : "");
+            }
         }
         if (dump) {
             unsigned n = load_desc(d->slot);

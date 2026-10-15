@@ -464,9 +464,12 @@ def phase_net_replug(instance, kvm=False):
             return int(m.group(1)) if m else None
 
         frees = []
-        for _ in range(NET_REPLUGS + 1):
+        ifaces = ""
+        for n in range(NET_REPLUGS + 1):
             qmp.device_add("usb-net", "hotnet", bus="xhci.0", netdev="un0")
             time.sleep(3.0)      # deferred work runs at idle; generous
+            if n == 0:
+                ifaces = d.send("sh lsusb -v") or ""
             qmp.device_del("hotnet")
             time.sleep(3.0)
             frees.append(free_frames())
@@ -475,6 +478,14 @@ def phase_net_replug(instance, kvm=False):
         binds = log.count("bound as cdc-ecm")
         check("QEMU's usb-net bound as CDC-ECM on every plug (RNDIS passed over)",
               binds == NET_REPLUGS + 1, f"{binds} of {NET_REPLUGS + 1}")
+        # A DRIVER BINDS AN INTERFACE: the ECM control interface is
+        # offered to cdc-ecm, and its data interface is CLAIMED with it
+        # rather than left looking driverless.
+        check("the control interface is bound to cdc-ecm",
+              re.search(r"Interface 0 +class 02 subclass 06 .*cdc-ecm", ifaces) is not None)
+        check("...and its data interface claimed with it",
+              re.search(r"class 0a subclass 00 protocol 00 +cdc-ecm \(claimed", ifaces) is not None,
+              ifaces[-300:])
         check("every plug was detached again",
               log.count("RNDIS/QEMU USB Network Device\" detached") == NET_REPLUGS + 1)
         # The first cycle settles one-off allocations; after it, a leak

@@ -14,8 +14,7 @@
 // rather than invents.
 #include "usb.h"
 #include "xhci.h"
-#include "usb_hid.h"
-#include "usb_audio.h"
+#include "usb_driver.h"
 #include "xhci_regs.h"
 #include "klog.h"
 #include "kfmt.h"
@@ -35,11 +34,6 @@
 #define DESC_INTERFACE  4
 #define DESC_ENDPOINT   5
 
-#define USB_CLASS_CDC   2
-#define USB_CLASS_HID   3
-#define USB_CLASS_HUB   9
-#define USB_CLASS_AUDIO 1
-#define USB_CLASS_VENDOR 0xFF
 
 // bmRequestType
 #define DIR_IN          0x80
@@ -222,37 +216,6 @@ static int read_configuration(uint8_t slot, uint8_t index,
     return total >= 9;
 }
 
-// Does this configuration hold an interface a driver here could take?
-//
-// A VENDOR-SPECIFIC interface counts only when a driver has said, BY
-// DEVICE ID, that it knows what is behind it -- class 0xFF describes
-// nothing, so treating it as driveable in general would claim the
-// vendor configuration of every device that has one.
-static int configuration_is_driveable(const uint8_t *cfg, uint32_t total,
-                                      uint16_t vid, uint16_t pid) {
-    for (uint32_t o = 0; o + 2 <= total; ) {
-        uint32_t blen = cfg[o];
-        if (blen < 2 || o + blen > total) return 0;
-        if (cfg[o + 1] == DESC_INTERFACE && blen >= 9) {
-            uint8_t cls = cfg[o + 5];
-            if (cls == USB_CLASS_HID || cls == USB_CLASS_HUB ||
-                cls == USB_CLASS_AUDIO)
-                return 1;
-            // CDC is a family, and only ECM (subclass 6) has a driver.
-            // RNDIS (2/2/0xff) counted as driveable kept every device
-            // that offers it FIRST -- QEMU's usb-net, many phones -- off
-            // its ECM configuration; Linux's usb_choose_configuration()
-            // passes over RNDIS the same way.
-            if (cls == USB_CLASS_CDC && cfg[o + 6] == 0x06)
-                return 1;
-            if (cls == USB_CLASS_VENDOR && usb_r8153_claims(vid, pid))
-                return 1;
-        }
-        o += blen;
-    }
-    return 0;
-}
-
 // WHICH CONFIGURATION. Index 0 unless a LATER one holds a class this
 // build can actually drive and index 0 does not -- which is not a
 // preference but the only way to reach some devices at all: a TP-Link
@@ -273,12 +236,12 @@ static uint8_t pick_configuration(uint8_t slot, uint8_t configs,
 
     uint32_t total = 0;
     if (read_configuration(slot, 0, &total, 0, patient) &&
-        configuration_is_driveable(g_desc_buf, total, vid, pid))
+        usb_config_driveable(g_desc_buf, total, vid, pid))
         return 0;
 
     for (uint8_t i = 1; i < configs && i < 8; i++) {
         if (!read_configuration(slot, i, &total, 0, patient)) continue;
-        if (!configuration_is_driveable(g_desc_buf, total, vid, pid)) continue;
+        if (!usb_config_driveable(g_desc_buf, total, vid, pid)) continue;
         klog_printf("usb: port %u: %u configurations, choosing %u "
                     "(the first this build can drive)\n", port, configs, i);
         return i;
@@ -421,50 +384,6 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
     return (int)(d - g_devs);
 }
 
-// OFFERING ONE DEVICE TO EVERY CLASS DRIVER, factored out of the walk
-// above because a CLAIM RELEASED WITH REBIND runs exactly this again --
-// and a second copy of the dispatch order is a second thing to keep
-// true. `cfg` is the raw configuration; a re-bind passes the device's
-// own saved copy rather than re-reading it off the wire.
-void usb_bind_drivers(struct usb_device_info *d, const uint8_t *cfg,
-                      uint32_t total) {
-    if (d->dev_class == USB_CLASS_HUB ||
-        (d->if_count && d->ifs[0].if_class == USB_CLASS_HUB)) {
-        usb_hub_bind(d);
-    } else {
-        // The vendor driver first: a device it claims is in its vendor
-        // configuration BECAUSE this driver exists (see
-        // configuration_is_driveable), so nothing else is offered it.
-        for (int i = 0; i < d->if_count; i++) {
-            if (d->ifs[i].if_class != USB_CLASS_VENDOR) continue;
-            if (!usb_r8153_bind(d, cfg, total)) continue;
-            break;
-        }
-        for (int i = 0; i < d->if_count; i++) {
-            if (d->ifs[i].if_class != USB_CLASS_CDC) continue;
-            // CDC is a family; only the Ethernet model is driven here.
-            if (d->ifs[i].if_subclass != 0x06) continue;
-            usb_net_bind(d, cfg, total);
-            break;
-        }
-        for (int i = 0; i < d->if_count; i++) {
-            if (d->ifs[i].if_class != USB_CLASS_AUDIO) continue;
-            // The raw configuration goes with it: an audio device's
-            // format and its volume control are CLASS-SPECIFIC
-            // descriptors sitting between the standard ones, and the
-            // interface walk above keeps neither.
-            usb_audio_bind(d, cfg, total);
-            break;
-        }
-        usb_hid_bind(d);   // no-op on a device with no HID boot interface
-    }
-    char id[24];
-    usb_device_id(d, id, sizeof id);
-    if (d->bound) devevent_add(QUERY_DEVEV_BOUND, id, d->driver ? d->driver : "",
-                               "Driven by %s", d->driver ? d->driver : "a driver");
-    else devevent_add(QUERY_DEVEV_NO_DRIVER, id, "", "No driver in this build takes it");
-}
-
 int usb_enumerate_port(uint8_t port, uint8_t speed, int patient) {
     return usb_enumerate_device(port, port, 0, 0, speed, 0, 0, 0, patient);
 }
@@ -489,11 +408,7 @@ void usb_detach_slot(uint8_t slot) {
         if (g_devs[i].in_use && g_devs[i].parent_slot == slot)
             usb_detach_slot(g_devs[i].slot);
 
-    usb_hid_unbind(slot);
-    usb_audio_unbind(slot);
-    usb_net_unbind(slot);
-    usb_r8153_unbind(slot);
-    usb_hub_forget(slot);
+    usb_unbind_drivers(d);
     xhci_disable_slot(slot);
     if (d->cfg_phys) pmm_free_contiguous(d->cfg_phys, 1);
     d->cfg = 0; d->cfg_phys = 0; d->cfg_len = 0;

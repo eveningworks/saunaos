@@ -20,6 +20,7 @@
 // none, exactly as an AudioStreaming interface does. A driver that
 // binds alt 0 configures nothing and receives nothing.
 #include "usb.h"
+#include "usb_driver.h"
 #include "xhci.h"
 #include "xhci_regs.h"
 #include "netdev.h"
@@ -306,8 +307,8 @@ static int ecm_transmit(struct net_device *dev, const void *frame, uint32_t len)
 
 // --- binding -----------------------------------------------------------
 
-int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
-                 uint32_t total) {
+static int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
+                        uint32_t total) {
     if (!info || g_ecm.in_use) return 0;
 
     struct ecm_info e;
@@ -415,7 +416,7 @@ int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
     for (int i = 0; i < NET_BUFS; i++)
         xhci_bulk_post(info->slot, e.ep_in, d->rx_phys[i], NET_BUF_SIZE);
 
-    usb_mark_bound(info, "cdc-ecm");
+    usb_interface_claim(info, e.data_ifnum, "cdc-ecm");   // its data half
     klog_printf("usb: slot %u: bound as cdc-ecm, if %u alt %u, "
                 "ep in 0x%02x out 0x%02x, %u B/packet, mtu %u\n",
                 info->slot, e.data_ifnum, e.data_alt, e.ep_in, e.ep_out,
@@ -426,7 +427,7 @@ int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
     return 1;
 }
 
-void usb_net_unbind(uint8_t slot) {
+static void usb_net_unbind(uint8_t slot) {
     struct ecm_dev *d = &g_ecm;
     if (!d->in_use || d->slot != slot) return;
     d->in_use = 0;   // unpublished before the core can call transmit()
@@ -437,6 +438,21 @@ void usb_net_unbind(uint8_t slot) {
     if (in == 0 && out == 0) pmm_free_contiguous(d->mem_phys, d->mem_pages);
     d->mem_phys = 0;
 }
+
+static int ecm_bind(struct usb_device_info *d, int iface, const uint8_t *cfg,
+                    uint32_t total) {
+    (void)iface;
+    return usb_net_bind(d, cfg, total);
+}
+
+static void ecm_unbind(struct usb_device_info *d, int iface) {
+    (void)iface;
+    usb_net_unbind(d->slot);
+}
+
+// The CONTROL interface of the Ethernet model; the data one is claimed.
+static const struct usb_match ecm_matches[] = { USB_MATCH_IF(0x02, 0x06, USB_ANY) };
+USB_DRIVER("cdc-ecm", ecm_matches, ecm_bind, ecm_unbind);
 
 // --- KTESTs: the descriptor walk, device-free -------------------------
 #include "ktest.h"

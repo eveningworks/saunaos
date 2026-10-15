@@ -1018,7 +1018,7 @@ run on, not by order.
 - [x] ~~Receive aggregation on the RTL8156 (and RTL8153)~~ DONE 2026-10-15 -- 48 KiB batches, +25-27% measured; `rtl_agg=off` compares
 - [x] ~~The ASUS needed two presses to start after a toy-os power-off~~ DONE 2026-10-09 -- the ACPI-mode switch
 - [x] ~~The UAC2 feedback endpoint~~ DONE 2026-10-14 -- both USB audio drivers, UAC1 and UAC2, followed within 0.1%
-- [x] ~~USB Ethernet (CDC-ECM), and the BULK transfer type it needed~~ DONE 2026-08-31 -- `net_usb_ecm.c`; RX untested, see `docs/bugs.md`
+- [x] ~~USB Ethernet (CDC-ECM), and the BULK transfer type it needed~~ DONE 2026-08-31 -- `net_usb_ecm.c`; RX shown on QEMU usb-net
 - [x] ~~Remote access: a shell and file transfer over the network~~ DONE 2026-08-31 -- `telnetd`, `tftpd`, `tools/remote.py`
 - [x] ~~`/bin/update`: a machine updates itself from an HTTP manifest~~ DONE 2026-09-30 -- plus System Update and `update_server.py`
 - [ ] An update server list fetched from GitHub, with `update.server` as the override
@@ -1055,7 +1055,7 @@ run on, not by order.
 - [x] ~~Out-of-order reassembly -- hold a segment past `rcv_nxt`~~ DONE 2026-09-10 -- held in `rcv` at its own offset
 - [ ] A transmit the driver refuses is a DROPPED frame (`rtl_usb` says -ENOSPC with every buffer busy) -- queue it in the stack
 - [ ] A watchdog for a USB NIC whose link stays up while traffic stops -- Linux's `dev_watchdog`; wait for a second sighting
-- [ ] A USB class-driver table -- bind and unbind still name each driver in `usb_enum.c` and `usb_claim.c`
+- [x] ~~A USB class-driver table~~ DONE 2026-10-15 -- `USB_DRIVER()`, bound per interface; `lsusb -v` names each interface's driver
 - [x] ~~**A passive open: listen and accept**, so something can connect TO toy-os~~ DONE 2026-08-29 -- `/bin/httpd` serves the filesystem
 - [x] ~~**A connection per child process**~~ DONE 2026-08-29 -- `/bin/inetd`; the spawn NAMES fd 0/1, so `inetd -p 7 /bin/cat` echoes
 - [x] ~~An RTL8111/8168 driver, for the Ethernet built into most laptops~~ DONE 2026-09-05 -- `r8169.c`; DHCP and 5.5 MB of TFTP

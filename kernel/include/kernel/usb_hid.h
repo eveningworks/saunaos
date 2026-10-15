@@ -28,15 +28,6 @@ void usb_hid_mouse_diff(uint8_t *buttons, const uint8_t *report, uint32_t len);
 // The evdev keycode for a HID usage, or 0 when this build maps none.
 uint16_t usb_hid_keycode(uint8_t usage);
 
-// Binds EVERY boot keyboard/mouse interface the enumerated device
-// carries (a composite receiver is two on one plug) and registers each
-// with the input core. Marks `info` bound. Returns how many it took.
-int usb_hid_bind(struct usb_device_info *info);
-
-// Unbinds everything bound on `slot` and unregisters its input
-// sources. The detach path; safe against an interrupt mid-way.
-void usb_hid_unbind(uint8_t slot);
-
 // Decodes whatever reports have arrived. Called from the controller's
 // interrupt handler, and from the input core's poll when there is no
 // usable IRQ line.

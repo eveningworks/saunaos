@@ -1451,6 +1451,30 @@ answers "was it me?" for a shared line, and a vector is never shared.
 See the LAPIC entry above for what a control measured about the ISR
 under MSI-X, which is not what the spec would lead you to expect.
 
+## A USB CLASS DRIVER IS A `USB_DRIVER()` ENTRY, AND IT BINDS ONE INTERFACE
+
+`kernel/include/kernel/usb_driver.h`. The core (`usb_driver.c`) names no
+driver: enumeration, a claim and a detach all go through
+`usb_bind_drivers()`/`usb_unbind_drivers()`. Four things:
+
+- **A MATCH TABLE, NOT A CHECK IN THE CORE.** `USB_MATCH_IF(class, sub,
+  proto)` or `USB_MATCH_ID_IF(vid, pid, class)`, with `USB_ANY`. The
+  same table decides which CONFIGURATION is driveable
+  (`usb_config_driveable()`), so a driver that matches nothing in
+  configuration 0 is what moves a device to its next one. A vendor
+  interface (class 0xFF) matches only an entry naming the device's ids.
+- **bind TAKES ONE INTERFACE** (an index into `d->ifs`) and returns 1 or
+  0; first match in link order wins, and a KTEST looks for two drivers
+  matching one interface. **A sibling the function needs** -- CDC-ECM's
+  data interface, audio's streaming one -- is taken with
+  `usb_interface_claim()` inside bind, so nobody else is offered it.
+- **unbind STOPS ITS TRANSFERS BEFORE IT FREES** (`xhci_cancel_endpoint()`):
+  the slot is still enabled, on an unplug and on a claim of a device
+  that keeps running. A refusal keeps the buffers for good.
+- **WHO HOLDS WHAT IS PER INTERFACE**: `ifs[i].driver` (a chip-specific
+  name if bind sets one, as rtl_usb does) and `QUERY_USB_IF`; the
+  device's `bound`/`driver` are a summary -- the first held interface.
+
 ## A USB ETHERNET ADAPTER IS A `net_device`, AND ITS CONFIGURATION IS A CHOICE
 
 `kernel/drivers/net/net_usb_ecm.c` binds CDC Ethernet (ECM) and registers a
@@ -1463,8 +1487,9 @@ under MSI-X, which is not what the spec would lead you to expect.
   frame is 1514 bytes and the interrupt path's slices are 64.
 - **THE CONFIGURATION IS CHOSEN, NOT ASSUMED.** A device may offer
   several, and the useful one need not be first.
-  `pick_configuration()` takes index 0 unless a LATER one holds a class
-  this build can drive and 0 does not, and it is BIASED TOWARDS 0 --
+  `pick_configuration()` takes index 0 unless a LATER one holds an
+  interface some `USB_DRIVER()` table matches and 0 does not, and it is
+  BIASED TOWARDS 0 --
   a first configuration that is already driveable is kept -- because the
   cost of being wrong is a device that used to work and stops. (This is
   what used to route a UE300 to its ECM configuration. It routes it to
@@ -1498,8 +1523,8 @@ another register map, as Linux and FreeBSD also keep them. Seven
 things:
 
 - **CLASS 0xFF DESCRIBES NOTHING, so an id table is the gate.** A
-  vendor-specific interface counts as driveable only when
-  `usb_r8153_claims(vid, pid)` says a driver knows what is behind it.
+  vendor-specific interface counts as driveable only when a driver's
+  `USB_MATCH_ID_IF(vid, pid, 0xFF)` entry names the device.
   Treating class 0xFF as driveable in general would claim the vendor
   configuration of every device that has one, and then write to its
   registers.

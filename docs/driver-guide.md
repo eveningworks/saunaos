@@ -243,8 +243,9 @@ is how to prove it before fixing it.
 
 ## What this does not cover
 
-USB devices bind through the enumerator rather than a PCI match table —
-see `usb_r8153_bind()` and `docs/conventions/kernel.md`'s USB entries.
+USB devices bind through `USB_DRIVER()` (`kernel/include/kernel/usb_driver.h`),
+PCI_DRIVER()'s shape per INTERFACE — see `rtl_usb.c`'s and
+`net_usb_ecm.c`'s, and `docs/conventions/kernel.md`'s USB entries.
 virtio devices sit on a shared transport and register with their class
 separately; `net_virtio.c` is forty lines because `virtio_net.c` does
 the work. Neither changes anything above about DMA, interrupts or

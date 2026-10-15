@@ -13,8 +13,11 @@ lsusb [-v] [-D] [--update]
 ## Options
 
 - `-v`, `--verbose` -- also print what the device says about itself: its
-  `iManufacturer` and `iProduct` strings, its device class, and the
-  interface class, subclass and protocol.
+  `iManufacturer` and `iProduct` strings and its device class -- and one
+  line per INTERFACE: its class, subclass and protocol and the driver
+  holding it, `(claimed with its function)` when that driver took it as
+  a sibling of the interface it bound (CDC-ECM's data interface, a sound
+  card's streaming one), or `no driver`.
 - `-D`, `--descriptors` -- hex-dump each device's configuration
   descriptor and decode it, one line per descriptor.
 - `--update` -- refresh the id database from the internet and exit,
@@ -57,9 +60,19 @@ they also paste straight into a KTEST fixture, which is how a device
 nobody here owns gets tested at all (`sound_usb.c`'s fixture is QEMU's,
 captured exactly this way).
 
-After the speed comes the driver that took the device, by the name
-`lsdrv` uses (`, driver usb-hid`, `, driver r8153`, `, driver hub`), so
-the two listings join -- the way `lspci -k` names a PCI device's driver.
+After the speed come the drivers holding the device, by the name `lsdrv`
+uses (`, driver usb-hid`, `, driver r8153`, `, driver hub`), so the two
+listings join -- the way `lspci -k` names a PCI device's driver. **A
+DRIVER BINDS AN INTERFACE, NOT A DEVICE**, so a composite one lists each
+(`, driver usb-audio, usb-hid` for a DAC with buttons), and `-v` shows
+which interface each holds:
+
+    Port 1 Device 1: ID 046d:c53f Logitech, Inc.
+      (unknown product), 12Mb/s, driver usb-hid
+      ...
+      Interface 0    class 03 subclass 01 protocol 01  usb-hid
+      Interface 1    class 03 subclass 01 protocol 02  usb-hid
+      Interface 2    class 03 subclass 00 protocol 00  no driver
 
 `, no driver` after the speed means the device was enumerated and
 described but nothing in this build claimed it. That is not an error —

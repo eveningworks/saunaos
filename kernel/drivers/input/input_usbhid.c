@@ -18,6 +18,7 @@
 // keyboard already speaks.
 #include "usb.h"
 #include "usb_hid.h"
+#include "usb_driver.h"
 #include "xhci.h"
 #include "xhci_regs.h"
 #include "input.h"
@@ -110,6 +111,7 @@ struct hid_dev {
     uint8_t in_use;
     uint8_t is_mouse;
     uint8_t slot;
+    uint8_t ifnum;
     uint8_t ep;
     uint8_t prev[8];        // the last keyboard report, for the differ
     uint8_t buttons;        // the mouse's held mask
@@ -449,100 +451,100 @@ static int hid_set_idle_and_boot(uint8_t slot, uint8_t ifnum) {
     return 0;
 }
 
-// Binds EVERY boot keyboard/mouse interface an enumerated device
-// carries -- a composite wireless receiver is a keyboard interface
-// followed by a mouse interface on one plug, and binding only the
-// first is a receiver whose mouse half is silently dead. Returns how
-// many it took.
-int usb_hid_bind(struct usb_device_info *info) {
-    if (!info) return 0;
-    int took = 0;
-    for (int i = 0; i < info->if_count; i++) {
-        const struct usb_interface_info *ifc = &info->ifs[i];
+// One HID interface. A composite wireless receiver is a keyboard
+// interface and a mouse interface on one plug, and the core offers each
+// separately -- binding only the first was a receiver whose mouse half
+// was silently dead.
+static int hid_bind(struct usb_device_info *info, int iface, const uint8_t *cfg,
+                    uint32_t total) {
+    (void)cfg; (void)total;
+    const struct usb_interface_info *ifc = &info->ifs[iface];
 
-        // SAY WHY AN INTERFACE WAS PASSED OVER. This filter used to drop
-        // one in silence, so a mouse this driver cannot drive and a
-        // mouse that failed to enumerate produced the same dmesg --
-        // nothing. A HID interface is worth a line either way; a
-        // non-HID one is not, since every composite device has several.
-        if (ifc->if_class != 3) continue;
-        if (ifc->if_subclass != HID_SUB_BOOT ||
-            (ifc->if_protocol != HID_IF_KEYBOARD &&
-             ifc->if_protocol != HID_IF_MOUSE)) {
-            klog_printf("usb: slot %u if %u: HID 3/%u/%u -- not a boot "
-                        "keyboard or mouse, skipped\n",
-                        info->slot, ifc->ifnum, ifc->if_subclass, ifc->if_protocol);
-            continue;
-        }
-        if (!ifc->ep) {
-            klog_printf("usb: slot %u if %u: boot HID with no interrupt "
-                        "endpoint, skipped\n", info->slot, ifc->ifnum);
-            continue;
-        }
-
-        struct hid_dev *d = hid_alloc();
-        if (!d) break;
-        k_memset(d, 0, sizeof *d);
-        d->slot     = info->slot;
-        d->ep       = ifc->ep;
-        d->is_mouse = (ifc->if_protocol == HID_IF_MOUSE);
-
-        // THE DESCRIPTOR FIRST, THE BOOT PROTOCOL AS THE FALLBACK.
-        // Asking a device for its own format is the only way to reach
-        // what the boot format has no room for -- a fourth and fifth
-        // button, 16-bit axes, horizontal scroll. A descriptor this
-        // does not understand simply leaves use_report clear and the
-        // device is driven exactly as it was before.
-        d->use_report = hid_try_report_protocol(d, info->slot, ifc->ifnum);
-        if (!d->use_report && hid_set_idle_and_boot(info->slot, ifc->ifnum) < 0) {
-            klog_printf(KLOG_ERR "usb: slot %u if %u: set protocol(boot) failed\n",
-                        info->slot, ifc->ifnum);
-            continue;
-        }
-        if (xhci_add_interrupt_in(info->slot, ifc->ep,
-                                  ifc->mps, ifc->interval) < 0) {
-            klog_printf("usb: slot %u if %u: no interrupt endpoint for "
-                        "ep 0x%x (mps %u, interval %u)\n",
-                        info->slot, ifc->ifnum, ifc->ep, ifc->mps, ifc->interval);
-            continue;
-        }
-
-        k_snprintf(d->name, sizeof d->name, "usb-%s",
-                   d->is_mouse ? "mouse" : "keyboard");
-        d->src.name = d->name;
-        d->src.driver = "usb-hid";
-        d->src.caps = d->is_mouse ? (INPUT_CAP_REL | INPUT_CAP_WHEEL)
-                                  : INPUT_CAP_KEYS;
-        // An interrupt-driven source leaves poll NULL -- its decode
-        // rides the controller's own always-on poll; a polled one gets
-        // its thunk, indexed by the slot it landed in.
-        d->src.irq  = usb_controller_irq();
-        d->src.msi_vector = usb_controller_msi_vector();
-        // Interrupt-driven if the controller is, WHICHEVER way it is
-        // signalled -- reading `irq` alone made every HID device on an
-        // MSI controller install a poll thunk and report itself polled.
-        d->src.poll = (d->src.irq || d->src.msi_vector) ? 0 : POLLS[d - g_hid];
-
-        d->in_use = 1;          // published before the source can be polled
-        input_register_source(&d->src);
-
-        if (!info->hid_ep) info->hid_ep = ifc->ep;
-        usb_mark_bound(info, "usb-hid");
-        took++;
-        klog_printf("usb: slot %u: bound as %s on endpoint 0x%x\n",
-                    info->slot, d->name, ifc->ep);
+    // SAY WHY AN INTERFACE WAS PASSED OVER. This filter used to drop
+    // one in silence, so a mouse this driver cannot drive and a
+    // mouse that failed to enumerate produced the same dmesg --
+    // nothing. A HID interface is worth a line either way; a
+    // non-HID one is not, since every composite device has several.
+    if (ifc->if_subclass != HID_SUB_BOOT ||
+        (ifc->if_protocol != HID_IF_KEYBOARD &&
+         ifc->if_protocol != HID_IF_MOUSE)) {
+        klog_printf("usb: slot %u if %u: HID 3/%u/%u -- not a boot "
+                    "keyboard or mouse, skipped\n",
+                    info->slot, ifc->ifnum, ifc->if_subclass, ifc->if_protocol);
+        return 0;
     }
-    return took;
+    if (!ifc->ep) {
+        klog_printf("usb: slot %u if %u: boot HID with no interrupt "
+                    "endpoint, skipped\n", info->slot, ifc->ifnum);
+        return 0;
+    }
+
+    struct hid_dev *d = hid_alloc();
+    if (!d) return 0;
+    k_memset(d, 0, sizeof *d);
+    d->slot     = info->slot;
+    d->ifnum    = ifc->ifnum;
+    d->ep       = ifc->ep;
+    d->is_mouse = (ifc->if_protocol == HID_IF_MOUSE);
+
+    // THE DESCRIPTOR FIRST, THE BOOT PROTOCOL AS THE FALLBACK.
+    // Asking a device for its own format is the only way to reach
+    // what the boot format has no room for -- a fourth and fifth
+    // button, 16-bit axes, horizontal scroll. A descriptor this
+    // does not understand simply leaves use_report clear and the
+    // device is driven exactly as it was before.
+    d->use_report = hid_try_report_protocol(d, info->slot, ifc->ifnum);
+    if (!d->use_report && hid_set_idle_and_boot(info->slot, ifc->ifnum) < 0) {
+        klog_printf(KLOG_ERR "usb: slot %u if %u: set protocol(boot) failed\n",
+                    info->slot, ifc->ifnum);
+        return 0;
+    }
+    if (xhci_add_interrupt_in(info->slot, ifc->ep,
+                              ifc->mps, ifc->interval) < 0) {
+        klog_printf("usb: slot %u if %u: no interrupt endpoint for "
+                    "ep 0x%x (mps %u, interval %u)\n",
+                    info->slot, ifc->ifnum, ifc->ep, ifc->mps, ifc->interval);
+        return 0;
+    }
+
+    k_snprintf(d->name, sizeof d->name, "usb-%s",
+               d->is_mouse ? "mouse" : "keyboard");
+    d->src.name = d->name;
+    d->src.driver = "usb-hid";
+    d->src.caps = d->is_mouse ? (INPUT_CAP_REL | INPUT_CAP_WHEEL)
+                              : INPUT_CAP_KEYS;
+    // An interrupt-driven source leaves poll NULL -- its decode
+    // rides the controller's own always-on poll; a polled one gets
+    // its thunk, indexed by the slot it landed in.
+    d->src.irq  = usb_controller_irq();
+    d->src.msi_vector = usb_controller_msi_vector();
+    // Interrupt-driven if the controller is, WHICHEVER way it is
+    // signalled -- reading `irq` alone made every HID device on an
+    // MSI controller install a poll thunk and report itself polled.
+    d->src.poll = (d->src.irq || d->src.msi_vector) ? 0 : POLLS[d - g_hid];
+
+    d->in_use = 1;          // published before the source can be polled
+    input_register_source(&d->src);
+
+    if (!info->hid_ep) info->hid_ep = ifc->ep;
+    klog_printf("usb: slot %u: bound as %s on endpoint 0x%x\n",
+                info->slot, d->name, ifc->ep);
+    return 1;
 }
 
-// Unbinds every interface bound on `slot` -- the detach path. The slot
-// is cleared BEFORE the source unregisters, so an interrupt landing in
-// between decodes nothing rather than touching a dying endpoint.
-void usb_hid_unbind(uint8_t slot) {
+// One interface's source goes. Cleared BEFORE the source unregisters,
+// so an interrupt landing in between decodes nothing rather than
+// touching a dying endpoint.
+static void hid_unbind(struct usb_device_info *info, int iface) {
     for (int i = 0; i < MAX_HID; i++) {
         struct hid_dev *d = &g_hid[i];
-        if (!d->in_use || d->slot != slot) continue;
+        if (!d->in_use || d->slot != info->slot || d->ifnum != info->ifs[iface].ifnum) continue;
         d->in_use = 0;
         input_unregister_source(&d->src);
     }
 }
+
+// Every HID interface: hid_bind() says, per interface, why a non-boot
+// one is passed over.
+static const struct usb_match hid_matches[] = { USB_MATCH_IF(0x03, USB_ANY, USB_ANY) };
+USB_DRIVER("usb-hid", hid_matches, hid_bind, hid_unbind);
