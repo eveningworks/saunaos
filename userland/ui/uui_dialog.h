@@ -76,6 +76,11 @@ struct uui_dialog {
     // thumbnail or type icon. NULL for none. Cleared by every open; set
     // it after with uui_dialog_set_picture().
     const struct uimg *picture;
+    // The body spans the card's width under the note, left-aligned with
+    // it, instead of the text column right of the picture: a form of
+    // fields (ui/uui_signin.h) rather than more of the message. Cleared
+    // by every open.
+    int body_full;
     // A tinted line under the rows -- the consequence worth reading
     // before answering ("there is no Recycle Bin"). NULL for none;
     // cleared by every open, set with uui_dialog_set_note().

@@ -613,7 +613,7 @@ static enum attempt open_conn(struct uhttp_request *req, const struct uhttp_url 
     c->port = u->port;
     c->tls_on = u->tls;
     c->insecure = req->insecure;
-    if (sys_connect(c->fd, ip, u->port, 0) < 0) {
+    if (sys_connect(c->fd, ip, u->port, req->connect_timeout_ms) < 0) {
         // The REASON, as wget and curl print it: refused and timed out
         // are different faults with different fixes.
         fail(req, "cannot connect to %s port %u: %s", u->host, (unsigned)u->port, strerror(errno));

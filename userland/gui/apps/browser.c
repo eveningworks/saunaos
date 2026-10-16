@@ -9,11 +9,13 @@
 // laid out and painted by its own /bin/webcontent (NetSurf, GPL-2.0); the
 // network is /bin/webnet, started below, one per browser. This program
 // links neither and is MIT. What it keeps itself: the tabs and their
-// chrome, bookmarks and history (browser/ns_marks.c), and the downloads
-// list webnet reports (browser/ns_net.c).
+// chrome, bookmarks and history (browser/ns_marks.c), the downloads list
+// webnet reports (browser/ns_net.c), and the open tabs across a restart
+// (browser/ns_session.c).
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 
 #include "browser/ns_addr.h"
@@ -22,6 +24,7 @@
 #include "browser/ns_download.h"
 #include "browser/ns_marks.h"
 #include "browser/ns_net.h"
+#include "browser/ns_session.h"
 #include "browser/ns_site.h"
 
 #include "ui/uapp.h"
@@ -31,10 +34,12 @@
 #include "ui/uui_focus.h"
 #include "ui/uui_menubar.h"
 #include "ui/uui_segmented.h"
+#include "ui/uui_signin.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
 #include "ui/uui_webview.h"
 #include "ui/ulog.h"
+#include "rt/sys.h"
 #include "win_proto.h"   // WIN_TAB_*, WIN_TABS_MAX, WIN_TITLE_LEN
 
 #define HOME_URL "file:///usr/share/netsurf/start.html"
@@ -44,7 +49,7 @@
 #define STATE_DIR    "/var/lib/browser"
 
 enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND, ID_ADDRBAR, ID_CARD,
-       ID_DLPANEL, ID_DLLIST, ID_SIDE_TABS, ID_SIDE_SEARCH, ID_SIDE_LIST };
+       ID_DLPANEL, ID_DLLIST, ID_SIDE_TABS, ID_SIDE_SEARCH, ID_SIDE_LIST, ID_DIALOG };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_RELOAD, CMD_HOME, CMD_DOWNLOADS, CMD_MENU,
        CMD_NEWTAB, CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_RESET, CMD_FIND,
        CMD_BOOKMARK, CMD_SIDE_BOOKMARKS, CMD_SIDE_HISTORY };
@@ -61,6 +66,18 @@ static char g_label[WIN_TABS_MAX][WIN_TITLE_LEN];
 static int g_zoom_logged[WIN_TABS_MAX];
 
 static struct uui_webview *active(void) { return g_cur >= 0 ? g_tabs[g_cur] : NULL; }
+
+// The session is saved a moment after it changes, not on every change:
+// a page's title and address arrive one after another.
+#define SESSION_SAVE_NS 2000000000ull
+static int g_session_dirty;
+static unsigned long long g_session_saved_ns;
+
+static void session_save(void) {
+    if (ns_session_save(STATE_DIR, g_tabs, g_ntabs, g_cur) != 0) ulogf("browser: session not saved\n");
+    g_session_dirty = 0;
+    g_session_saved_ns = sys_monotonic_ns();
+}
 
 static const char *tab_name(const struct uui_webview *v) {
     if (v->title[0]) return v->title;
@@ -140,8 +157,8 @@ static unsigned tool_flags(int code) {
     struct uui_webview *v = active();
     if (!v) return UUI_MI_DISABLED;
     switch (code) {
-    case CMD_BACK:      return v->st.can_back ? 0 : UUI_MI_DISABLED;
-    case CMD_FORWARD:   return v->st.can_forward ? 0 : UUI_MI_DISABLED;
+    case CMD_BACK:      return v->can_back ? 0 : UUI_MI_DISABLED;
+    case CMD_FORWARD:   return v->can_forward ? 0 : UUI_MI_DISABLED;
     case CMD_DOWNLOADS: return g_dlp.open ? UUI_MI_CHECKED : 0;
     }
     return 0;
@@ -196,6 +213,7 @@ static void wv_changed(struct uui_webview *v, unsigned what) {
         if (what & UUI_WV_FIND) find_report();
     }
     if (what & (UUI_WV_TITLE | UUI_WV_URL | UUI_WV_STOPPED)) sync_tabs();
+    if (what & (UUI_WV_TITLE | UUI_WV_URL)) g_session_dirty = 1;
     if (g_app) uapp_redraw(g_app);
 }
 
@@ -211,10 +229,34 @@ static void wv_visited(struct uui_webview *v, const char *url, const char *title
     ns_marks_visited(url, title);
 }
 
+// Hosts whose https did not answer this session (WV_DOWNGRADED): tried
+// over http first from then on, as Chrome keeps its fallback list.
+#define HTTP_HOSTS_MAX 32
+static char g_http_hosts[HTTP_HOSTS_MAX][128];
+static int g_nhttp_hosts;
+// `--upgrade-local`: a test's way to have an address and port tried over
+// https too, against a server on this machine that speaks only http.
+static int g_upgrade_local;
+
+static int http_host(const char *in) {
+    size_t n = strcspn(in, "/?#");
+    for (int i = 0; i < g_nhttp_hosts; i++)
+        if (strlen(g_http_hosts[i]) == n && !strncasecmp(g_http_hosts[i], in, n)) return 1;
+    return 0;
+}
+
+static void wv_downgraded(struct uui_webview *v, const char *host) {
+    (void)v;
+    ulogf("browser: https fallback %s\n", host);
+    if (http_host(host) || g_nhttp_hosts == HTTP_HOSTS_MAX) return;
+    snprintf(g_http_hosts[g_nhttp_hosts++], sizeof g_http_hosts[0], "%s", host);
+}
+
 static const struct uui_webview_host HOST = {
     .changed = wv_changed,
     .open_tab = wv_open_tab,
     .visited = wv_visited,
+    .downgraded = wv_downgraded,
 };
 
 // --- navigation ---------------------------------------------------------------
@@ -272,11 +314,13 @@ static void search_url(const char *words, char *out, size_t cap) {
 
 // What was typed, as a URL: a path is a file, anything with a scheme is
 // taken as it is, a host is https (http for a local one or an explicit
-// port other than 443 -- libhttp's own guess), and anything else is a
-// search. The content process parses it; a URL it cannot make goes
-// nowhere.
-static const char *typed_url(const char *in) {
+// port other than 443 -- libhttp's own guess -- or one whose https did not
+// answer before), and anything else is a search. `*upgraded` says the
+// https was this function's choice, which may fall back. The content
+// process parses it; a URL it cannot make goes nowhere.
+static const char *typed_url(const char *in, int *upgraded) {
     static char url[WEBVIEW_URL_MAX];   // static: past the ring-3 frame budget
+    *upgraded = 0;
     while (*in == ' ') in++;
     if (strstr(in, "://") || !strncmp(in, "about:", 6) || !strncmp(in, "data:", 5) ||
         !strncmp(in, "resource:", 9)) {
@@ -286,7 +330,8 @@ static const char *typed_url(const char *in) {
     } else if (looks_like_host(in)) {
         const char *colon = strchr(in, ':');
         int odd_port = colon && strncmp(colon, ":443", 4) != 0;
-        snprintf(url, sizeof url, "%s://%s", local_host(in) || odd_port ? "http" : "https", in);
+        *upgraded = !http_host(in) && (g_upgrade_local || !(local_host(in) || odd_port));
+        snprintf(url, sizeof url, "%s://%s", *upgraded ? "https" : "http", in);
     } else {
         search_url(in, url, sizeof url);
     }
@@ -296,18 +341,22 @@ static const char *typed_url(const char *in) {
 static void go(const char *text) {
     struct uui_webview *v = active();
     if (!v) return;
-    const char *url = typed_url(text);
+    int upgraded;
+    const char *url = typed_url(text, &upgraded);
     // about:crash TYPED, never followed from a page: the engine faults on
     // purpose, as chrome://crash does -- how the stopped page is tried.
     if (!strcmp(url, "about:crash")) {
         uui_webview_crash(v);
         return;
     }
-    uui_webview_navigate(v, url);
+    if (upgraded) uui_webview_navigate_upgraded(v, url);
+    else uui_webview_navigate(v, url);
 }
 
 static void place_page(void);
 static void find_close(void);
+static void login_show_next(void);
+static void login_hide(void);
 
 static void select_tab(int i) {
     if (i < 0 || i >= g_ntabs) return;
@@ -316,10 +365,13 @@ static void select_tab(int i) {
     struct uui_webview *old = active();
     g_cur = i;
     if (old && old != g_tabs[i]) uui_webview_set_visible(old, 0);
+    if (old != g_tabs[i]) login_hide();   // a tab's sign-in waits for the tab
     place_page();
     uui_webview_set_visible(g_tabs[i], 1);
+    login_show_next();
     g_shown_loading = -1;
     g_address.active = 0;
+    g_session_dirty = 1;
     sync_chrome();
     sync_tabs();
     if (g_app) uapp_redraw(g_app);
@@ -387,8 +439,8 @@ static void place_find(void) {
     uui_findbar_set_geometry(&g_find, v->x + pw - 8 - fw, v->y + 6, fw, fh);
 }
 
-static struct uui_item g_widgets[5];
-enum { W_CTX, W_ROOT, W_FIND, W_CARD, W_DLP };
+enum { W_CTX, W_ROOT, W_FIND, W_CARD, W_DLP, W_DIALOG, W_COUNT };
+static struct uui_item g_widgets[W_COUNT];
 
 // ONE POPUP AT A TIME, as a Wayland popup grab allows and every
 // desktop's menus behave: opening the menu, the lock's card or the
@@ -495,10 +547,11 @@ static void card_toggle(void) {
     struct uui_webview *v = active();
     if (!v) return;
     struct ns_site site;
-    ns_site_from(&site, &v->site, ns_net_cookies(v->site.host));
+    int logins, cookies = ns_net_cookies(v->site.host, &logins);
+    ns_site_from(&site, &v->site, cookies, logins);
     ns_card_open(&g_card, &site, x, y + h + 4, uapp_width(g_app), uapp_height(g_app));
-    ulogf("browser: card %d cookies %d chain %d tls %s\n", site.state, site.cookies,
-          site.chain_depth, site.version[0] ? site.version : "-");
+    ulogf("browser: card %d cookies %d chain %d tls %s logins %d\n", site.state, site.cookies,
+          site.chain_depth, site.version[0] ? site.version : "-", site.logins);
 }
 
 static void card_clear(void) {
@@ -507,10 +560,11 @@ static void card_clear(void) {
     int n = ns_net_cookies_clear(v->site.host);
     ulogf("browser: cookies cleared %d\n", n < 0 ? 0 : n);
     struct ns_site site;
-    ns_site_from(&site, &v->site, ns_net_cookies(v->site.host));
+    int logins, cookies = ns_net_cookies(v->site.host, &logins);
+    ns_site_from(&site, &v->site, cookies, logins);
     ns_card_open(&g_card, &site, g_card.x, g_card.y, uapp_width(g_app), uapp_height(g_app));
-    ulogf("browser: card %d cookies %d chain %d tls %s\n", site.state, site.cookies,
-          site.chain_depth, site.version[0] ? site.version : "-");
+    ulogf("browser: card %d cookies %d chain %d tls %s logins %d\n", site.state, site.cookies,
+          site.chain_depth, site.version[0] ? site.version : "-", site.logins);
 }
 
 static void open_menu(void) {
@@ -590,9 +644,125 @@ static void place_page(void) {
     if (g_app) uui_layout_run(&ROOT_L, 0, 0, uapp_width(g_app), uapp_height(g_app));
 }
 
+// --- HTTP logins: webnet asks (ns_net.h), a sign-in over the tab answers --------
+
+// Asks not yet answered, oldest first; the dialog shows the first one
+// whose tab is in front.
+#define LOGINS_MAX 8
+static struct login { uint32_t id; int pid, retry, secure; char host[128], realm[128]; } g_login[LOGINS_MAX];
+static int g_nlogin;
+static uint32_t g_login_shown;   // the ask the dialog is up for; 0 when none
+// The user name last given, and for which host: a retry starts with it,
+// so only the password is typed again. Never the password.
+static char g_login_user[128], g_login_user_host[128];
+static struct uui_dialog g_dialog;
+static struct uui_signin g_signin;
+
+static void login_drop(uint32_t id) {
+    for (int i = 0; i < g_nlogin; i++)
+        if (g_login[i].id == id) {
+            memmove(&g_login[i], &g_login[i + 1], (size_t)(g_nlogin - i - 1) * sizeof g_login[0]);
+            g_nlogin--;
+            return;
+        }
+}
+
+static int tab_of_pid(int pid) {
+    for (int i = 0; i < g_ntabs; i++) if (pid && g_tabs[i]->pid == pid) return i;
+    return -1;
+}
+
+static void login_hide(void) {
+    if (!g_login_shown) return;
+    uui_dialog_set_body(&g_dialog, NULL, 0, 0);
+    uui_dialog_close(&g_dialog);
+    g_login_shown = 0;
+}
+
+static void login_show_next(void) {
+    if (g_login_shown || uui_dialog_is_open(&g_dialog)) return;
+    for (int i = 0; i < g_nlogin; i++) {
+        struct login *l = &g_login[i];
+        int t = tab_of_pid(l->pid);
+        if (t < 0) {   // its page is gone: nobody to sign in for
+            ns_net_login_answer(l->id, NULL, NULL);
+            login_drop(l->id);
+            i--;
+            continue;
+        }
+        if (t != g_cur) continue;
+        char asks[192], area[192];
+        snprintf(asks, sizeof asks, "%s asks for a user name and password.", l->host);
+        snprintf(area, sizeof area, "It calls this area \"%s\".", l->realm);
+        struct uui_signin_spec spec = {
+            .title = "Sign in",
+            .lines = { asks, l->realm[0] ? area : "Remembered for this site until the browser closes.",
+                       l->realm[0] ? "Remembered for this site until the browser closes." : NULL },
+            .user = strcmp(g_login_user_host, l->host) ? NULL : g_login_user,
+            .note = l->secure ? NULL : "Not secure: the password crosses the network unencrypted.",
+            .error = l->retry ? "Wrong user name or password." : NULL,
+        };
+        struct uui_webview *v = active();
+        uui_dialog_set_bounds(&g_dialog, v->x, v->y, v->w, v->h);
+        uui_signin_open(&g_signin, &g_dialog, &spec);
+        g_login_shown = l->id;
+        ulogf("browser: signin open %s retry %d secure %d\n", l->host, l->retry, l->secure);
+        if (g_app) uapp_redraw(g_app);
+        return;
+    }
+}
+
+void nsapp_login_ask(uint32_t id, int pid, int retry, int secure, const char *host, const char *realm) {
+    if (g_nlogin == LOGINS_MAX) {
+        ns_net_login_answer(id, NULL, NULL);
+        return;
+    }
+    struct login *l = &g_login[g_nlogin++];
+    l->id = id;
+    l->pid = pid;
+    l->retry = retry;
+    l->secure = secure;
+    snprintf(l->host, sizeof l->host, "%s", host);
+    snprintf(l->realm, sizeof l->realm, "%s", realm);
+    login_show_next();
+}
+
+void nsapp_login_gone(uint32_t id) {
+    if (id == g_login_shown) login_hide();
+    login_drop(id);
+    login_show_next();
+    if (g_app) uapp_redraw(g_app);
+}
+
+static void login_answer(int code) {
+    char user[128], pass[256];
+    int keep;
+    int r = uui_signin_answer(&g_signin, code, user, sizeof user, pass, sizeof pass, &keep);
+    if (r == UUI_SIGNIN_REASKED) return;
+    uint32_t id = g_login_shown;
+    g_login_shown = 0;
+    if (r == UUI_SIGNIN_GIVEN)
+        for (int i = 0; i < g_nlogin; i++)
+            if (g_login[i].id == id) {
+                snprintf(g_login_user, sizeof g_login_user, "%s", user);
+                snprintf(g_login_user_host, sizeof g_login_user_host, "%s", g_login[i].host);
+            }
+    ns_net_login_answer(id, r == UUI_SIGNIN_GIVEN ? user : NULL, pass);
+    memset(pass, 0, sizeof pass);
+    ulogf("browser: signin %s\n", r == UUI_SIGNIN_GIVEN ? "given" : "cancelled");
+    login_drop(id);
+    login_show_next();
+}
+
 static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     int code = 0;
+    if (id == ID_DIALOG) {
+        int c = uui_dialog_take_code(&g_dialog);
+        if (c > 0 && g_login_shown) login_answer(c);
+        uapp_redraw(a);
+        return;
+    }
     if (id == ID_TOOLS) code = uui_toolbar_take_code(&g_tools);
     else if (id == ID_TOOLS_R) code = uui_toolbar_take_code(&g_tools_r);
     else if (id == ID_CTX) code = uui_menubar_take_code(&g_ctx);
@@ -644,6 +814,14 @@ static void on_widget(struct uapp *a, int id, int reason) {
 }
 
 static void on_key(struct uapp *a, int key, unsigned mods) {
+    // The sign-in first, and every key is its: behind it is a page.
+    if (uui_dialog_is_open(&g_dialog)) {
+        uui_dialog_key(&g_dialog, key);
+        int c = uui_dialog_take_code(&g_dialog);
+        if (c > 0 && g_login_shown) login_answer(c);
+        uapp_redraw(a);
+        return;
+    }
     struct uui_webview *v = active();
     int ctrl = (mods & KEY_MOD_CTRL) != 0;
     // An open find bar with the keyboard: the query, Enter, Esc -- and
@@ -716,9 +894,11 @@ static void on_tab(struct uapp *a, int tab, int action) {
     else if (action == WIN_TAB_NEW) open_tab(HOME_URL);
 }
 
-// Tooltips: the toolbars' hover is timed (uui_toolbar_tick()).
+// Tooltips: the toolbars' hover is timed (uui_toolbar_tick()); and the
+// session, saved once it has been still for a moment.
 static int on_tick(struct uapp *a) {
     (void)a;
+    if (g_session_dirty && sys_monotonic_ns() - g_session_saved_ns >= SESSION_SAVE_NS) session_save();
     return uui_toolbar_tick(&g_tools) | uui_toolbar_tick(&g_tools_r);
 }
 
@@ -747,7 +927,24 @@ static void on_resize(struct uapp *a, int w, int h) {
 }
 
 static int g_weak;
-static const char *g_first_url = HOME_URL;
+static const char *g_first_url;   // a page named on the command line
+
+// The tabs of last time, each unloaded on its page until it is shown --
+// only the one in front starts a content process. 1 if there were any.
+static int session_restore(void) {
+    static struct ns_session_tab tabs[WIN_TABS_MAX];   // 50 entries each: off the stack
+    int front, n = ns_session_load(STATE_DIR, tabs, WIN_TABS_MAX, &front);
+    for (int i = 0; i < n; i++) {
+        struct uui_webview *v = i ? new_tab() : active();
+        if (v) uui_webview_history_set(v, tabs[i].e, tabs[i].n, tabs[i].at);
+    }
+    ns_session_free(tabs, n);
+    if (n) {
+        ulogf("browser: %d tabs restored\n", n);
+        select_tab(front);
+    }
+    return n > 0;
+}
 
 static void on_open(struct uapp *a) {
     g_app = a;
@@ -755,12 +952,17 @@ static void on_open(struct uapp *a) {
     if (uui_webview_setup(a, POST_WEBVIEW) != 0) ulogf("browser: no page channel\n");
     if (!ns_net_start(a, POST_NET, g_weak)) ulogf("browser: no network -- local pages only\n");
     place_page();
-    uui_webview_navigate(active(), g_first_url);
+    // A page asked for opens in a tab of its own beside the restored ones,
+    // as Chrome and Firefox do.
+    int restored = session_restore();
+    if (g_first_url && restored) open_tab(g_first_url);
+    else if (!restored) uui_webview_navigate(active(), g_first_url ? g_first_url : HOME_URL);
     uui_focus_set(&g_focus, 1);
 }
 
 static int on_close(struct uapp *a) {
     (void)a;
+    session_save();
     ns_marks_fini();
     for (int i = 0; i < g_ntabs; i++) uui_webview_destroy(g_tabs[i]);
     return 1;
@@ -778,9 +980,11 @@ int main(int argc, char **argv) {
     if (!ugfx_font_init()) return 2;
     // `--weak-entropy` is https on a test guest with no virtio-rng, as
     // wget's flag; `--search-url` points searches at a server on this
-    // machine. Anything else is a page to open.
+    // machine, `--upgrade-local` tries such a server over https first.
+    // Anything else is a page to open.
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--weak-entropy")) g_weak = 1;
+        else if (!strcmp(argv[i], "--upgrade-local")) g_upgrade_local = 1;
         else if (!strcmp(argv[i], "--search-url") && i + 1 < argc && strstr(argv[i + 1], "%s"))
             g_search = argv[++i];
         else if (argv[i][0] != '-') g_first_url = argv[i];
@@ -841,6 +1045,10 @@ int main(int argc, char **argv) {
     ns_dlpanel_init(&g_dlp, ID_DLLIST);
     g_widgets[W_DLP] = (struct uui_item){ .ops = &ns_dlpanel_ops, .widget = &g_dlp, .id = ID_DLPANEL,
                                           .name = "dlpanel" };
+    // LAST: a modal is offered every press first, and draws over all.
+    uui_dialog_init(&g_dialog);
+    g_widgets[W_DIALOG] = (struct uui_item){ .ops = &uui_dialog_ops, .widget = &g_dialog, .id = ID_DIALOG,
+                                             .name = "dialog" };
     uui_menubar_init(&g_ctx, 0, 0);   // no bar of its own: open_below() supplies the rows
     uui_findbar_init(&g_find);
     g_find.pill = 1;
@@ -851,7 +1059,7 @@ int main(int argc, char **argv) {
         .on_size      = on_size,
         .layout       = &ROOT_L,
         .widgets      = g_widgets,
-        .widget_count = 5,
+        .widget_count = W_COUNT,
         .on_widget    = on_widget,
         .on_key       = on_key,
         .on_tab       = on_tab,

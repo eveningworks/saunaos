@@ -1174,10 +1174,12 @@ WEBCONTENT_OBJS = $(patsubst userland/%.c,%,$(WEBCONTENT_SRCS))
 EXTRA_OBJS_webcontent = $(WEBCONTENT_OBJS) $(NS_BACKEND_OBJS) $(NS_CORE_OBJS)
 # Link-time hooks, not edits to the vendored source: find in page counts
 # NetSurf's matches as they are added (ns_find.c), box_coords() survives
-# a float with no container (ns_boxfix.c), and an accepted certificate is
-# told to the network process (wc_net.c).
+# a float with no container (ns_boxfix.c), an accepted certificate is
+# told to the network process (wc_net.c), and a committed page is told to
+# the app, whose back/forward list it is (wc_window.c).
 $(BUILD)/userland/bin/webcontent.elf: DYN_LINK += --wrap=content_textsearch_add_match \
-        --wrap=box_coords --wrap=urldb_set_cert_permissions
+        --wrap=box_coords --wrap=urldb_set_cert_permissions \
+        --wrap=browser_window_history_add
 $(BUILD)/userland/webcontent/%.o $(BUILD)/userland/bin/webcontent.o: USERLAND_CFLAGS += \
         -nostdinc -isystem $(GCC_FREESTANDING_INC) -Uunix -U__unix -U__unix__ -U__linux__ \
         -U__gnu_linux__ -D_ALIGNED='__attribute__((aligned))' -DSTMTEXPR=1 \

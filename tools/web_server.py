@@ -29,6 +29,9 @@ What it serves, beside the files of a corpus directory:
   /big.html?kb=N          an HTML page of N KiB of numbered paragraphs, titled
                           "Big N" -- more than the browser's network ring
                           (lib/ubulk.h) holds, so the page waits for room
+  /auth/<path>            HTTP Basic in realm "toy-os test": 401 until the
+                          request carries toy / secret, then a page titled
+                          "signed in /auth/<path>"
   /stats                  "connections=N requests=M" since the last /reset
   /reset                  zeroes those counters
 
@@ -44,6 +47,7 @@ server presents whichever leaf a test asks for.
     python3 tools/web_server.py --root data/tests/web --tls DIR --port 18443
 """
 import argparse
+import base64
 import gzip
 import http.server
 import os
@@ -193,6 +197,15 @@ def _handler(root, stats, image_delay=0.0):
                 return self._send(200, ("<html><head><title>Big %d</title></head><body>%s"
                                         "<p id=end>The end.</p></body></html>"
                                         % (kb, "".join(rows))).encode(), "text/html")
+            if path.startswith("/auth/"):
+                # HTTP Basic (RFC 7617), realm "toy-os test", user toy,
+                # password secret: what the browser's sign-in is tested on.
+                want = "Basic " + base64.b64encode(b"toy:secret").decode()
+                if self.headers.get("Authorization") == want:
+                    return self._send(200, ("<html><title>signed in %s</title><p>yes</p></html>"
+                                            % path).encode(), "text/html")
+                return self._send(401, b"<html><title>auth refused</title><p>No.</p></html>",
+                                  "text/html", headers=[("WWW-Authenticate", 'Basic realm="toy-os test"')])
             if path == "/ua":
                 return self._send(200, (self.headers.get("User-Agent", "") + "\n").encode())
             name = os.path.normpath(path.lstrip("/")) or "index.html"

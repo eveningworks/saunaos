@@ -33,7 +33,6 @@
 #include "content/handlers/html/box_inspect.h"
 #include "content/handlers/html/private.h"
 #include "desktop/browser_private.h"   // loading_parameters: where a load is going
-#include "desktop/browser_history.h"
 
 #include "rt/sys.h"
 #include "syscall_abi.h"
@@ -66,6 +65,22 @@ static int g_line = 16;
 static int g_await_ack;    // a FRAME the app has not copied yet
 static uint32_t g_seq;
 static int g_dx, g_dy;     // scrolled since the last FRAME, not yet blitted
+
+// A WV_GO's load: its commit REPLACES the app's current entry instead of
+// adding one, and once THAT load has finished the page scrolls to where
+// the entry was left -- not at the first throbber stop, which a new
+// process sees before its first page. A go that failed leaves g_going,
+// so the next page committed replaces the entry that never loaded.
+static int g_going, g_go_committed, g_restore, g_restore_x, g_restore_y;
+
+static int scroll_to(struct gui_window *gw, int x, int y);
+
+static void restore_scroll(void *p) {
+    struct gui_window *gw = p;
+    if (g_restore && gw == g_wc_win) scroll_to(gw, g_restore_x, g_restore_y);
+    g_restore = 0;
+}
+
 // What must be painted, in VIEW pixels; x1 <= x0 for nothing.
 static int g_dirty_x0, g_dirty_y0, g_dirty_x1, g_dirty_y1;
 
@@ -299,8 +314,6 @@ void wc_window_flush(void) {
     struct wv_state st;
     memset(&st, 0, sizeof st);
     st.loading = gw->loading;
-    st.can_back = gw->bw && browser_window_back_available(gw->bw);
-    st.can_forward = gw->bw && browser_window_forward_available(gw->bw);
     st.ext_w = gw->ext_w;
     st.ext_h = gw->ext_h;
     st.sx = gw->sx;
@@ -455,6 +468,10 @@ static nserror gw_event(struct gui_window *gw, enum gui_window_event ev) {
         // it to the next motion; one held still would keep the ring.
         if (gw->pointer == WIN_CURSOR_WAIT) gw->pointer = WIN_CURSOR_DEFAULT;
         report_visited(gw);
+        // NetSurf sets ITS history's scroll right after this event, so
+        // the app's entry's goes in a moment later.
+        if (g_restore && g_go_committed) ns_schedule(0, restore_scroll, gw);
+        g_go_committed = 0;
         break;
     case GW_EVENT_NEW_CONTENT:
     case GW_EVENT_SCROLL_START:
@@ -728,6 +745,33 @@ static void str_of(const struct ubulk_msg *m, size_t skip, char *out, size_t cap
     out[n] = '\0';
 }
 
+// --- back/forward: the app's list (lib/webview_proto.h, WV_COMMIT) ---------------
+
+// NetSurf adding a page to ITS history is the moment a page is committed;
+// a link-time hook (as box_coords), never an edit to the vendored source.
+nserror __real_browser_window_history_add(struct browser_window *bw, struct hlcache_handle *content,
+                                          lwc_string *frag_id);
+nserror __wrap_browser_window_history_add(struct browser_window *bw, struct hlcache_handle *content,
+                                          lwc_string *frag_id) {
+    nserror err = __real_browser_window_history_add(bw, content, frag_id);
+    struct gui_window *gw = g_wc_win;
+    if (!gw || bw != gw->bw || !content) return err;
+    struct nsurl *u = hlcache_handle_get_url(content), *full = NULL;
+    if (frag_id && nsurl_refragment(u, frag_id, &full) == NSERROR_OK) u = full;
+    static char buf[sizeof(struct wv_commit) + WC_URL_MAX];
+    struct wv_commit c = { g_going };
+    size_t n = strlen(nsurl_access(u));
+    if (n > WC_URL_MAX) n = WC_URL_MAX;
+    memcpy(buf, &c, sizeof c);
+    memcpy(buf + sizeof c, nsurl_access(u), n);
+    wc_send(WV_COMMIT, buf, (uint32_t)(sizeof c + n));
+    if (full) nsurl_unref(full);
+    if (!g_going) g_restore = 0;
+    g_go_committed = g_going;
+    g_going = 0;
+    return err;
+}
+
 static void navigate(const char *url) {
     struct gui_window *gw = g_wc_win;
     struct nsurl *u;
@@ -739,6 +783,27 @@ static void navigate(const char *url) {
     nsurl_unref(u);
 }
 
+static char g_downgrade[WC_URL_MAX];
+
+static void downgrade_now(void *p) {
+    (void)p;
+    navigate(g_downgrade);
+}
+
+void wc_window_downgrade(const char *https_url) {
+    // https://host[:443]/rest -> http://host/rest: the default port goes
+    // with the scheme.
+    const char *rest = https_url + (strncmp(https_url, "https://", 8) ? 0 : 8);
+    size_t hl = strcspn(rest, "/?#");
+    char host[256];
+    snprintf(host, sizeof host, "%.*s", (int)hl, rest);
+    size_t n = strlen(host);
+    if (n > 4 && !strcmp(host + n - 4, ":443")) host[n - 4] = '\0';
+    snprintf(g_downgrade, sizeof g_downgrade, "http://%s%s", host, rest + hl);
+    wc_send_str(WV_DOWNGRADED, host);
+    ns_schedule(0, downgrade_now, NULL);   // not from inside NetSurf's fetch poll
+}
+
 void wc_window_handle(const struct ubulk_msg *m) {
     struct gui_window *gw = g_wc_win;
     int ready = gw && gw->bw;
@@ -746,13 +811,39 @@ void wc_window_handle(const struct ubulk_msg *m) {
     case WV_NAVIGATE: {
         static char url[WC_URL_MAX];
         str_of(m, 0, url, sizeof url);
+        g_going = g_go_committed = g_restore = 0;
+        wc_net_upgrade(NULL);
+        navigate(url);
+        break;
+    }
+    case WV_NAVIGATE_UPGRADED: {
+        static char url[WC_URL_MAX];
+        str_of(m, 0, url, sizeof url);
+        g_going = g_go_committed = g_restore = 0;
+        struct nsurl *u;
+        if (nsurl_create(url, &u) == NSERROR_OK) {   // as the fetcher will be asked for it
+            wc_net_upgrade(nsurl_access(u));
+            nsurl_unref(u);
+        }
+        navigate(url);
+        break;
+    }
+    case WV_GO: {
+        static char url[WC_URL_MAX];
+        struct wv_go g;
+        if (m->len < sizeof g) break;
+        memcpy(&g, m->data, sizeof g);
+        str_of(m, sizeof g, url, sizeof url);
+        g_going = g_restore = 1;
+        g_go_committed = 0;
+        wc_net_upgrade(NULL);
+        g_restore_x = g.sx;
+        g_restore_y = g.sy;
         navigate(url);
         break;
     }
     case WV_RELOAD:  if (ready) browser_window_reload(gw->bw, true); break;
     case WV_STOP:    if (ready) browser_window_stop(gw->bw); break;
-    case WV_BACK:    if (ready) browser_window_history_back(gw->bw, false); break;
-    case WV_FORWARD: if (ready) browser_window_history_forward(gw->bw, false); break;
     case WV_RESIZE: {
         struct wv_size s;
         if (m->len < sizeof s) break;

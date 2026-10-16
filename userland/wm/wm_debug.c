@@ -317,9 +317,9 @@ static void cmd_windows(struct dbg_out *o, int json) {
             if (o->overflow) break;
             int mark = dbg_out_mark(o);
             const struct window *w = &windows[i];
-            dbg_out_printf(o, "%s{\"z\":%d,\"title\":\"%s\",\"app\":\"%s\",",
+            dbg_out_printf(o, "%s{\"z\":%d,\"title\":\"%s\",\"app\":\"%s\",\"app_id\":\"%s\",",
                          i ? "," : "", i, w->title,
-                         w->app ? w->app->name : "");
+                         w->app ? w->app->name : "", w->app_id);
             dbg_out_printf(o, "\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,",
                          w->x, w->y, w->w, w->h);
             dbg_out_printf(o, "\"content\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d},",

@@ -121,9 +121,10 @@ def state(dbg):
         m = re.search(r"browser: site (\d+) zoom (\d+)$", line)
         if m:
             _st["site"] = int(m.group(1))
-        m = re.search(r"browser: card (\d+) cookies (\d+) chain (\d+) tls (\S+)$", line)
+        m = re.search(r"browser: card (\d+) cookies (\d+) chain (\d+) tls (\S+) logins (\d+)$", line)
         if m:
             _st["cardinfo"] = (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4))
+            _st["card_logins"] = int(m.group(5))
         m = re.search(r"browser: cookies cleared (\d+)$", line)
         if m:
             _st["cleared"] = int(m.group(1))
@@ -158,6 +159,18 @@ def state(dbg):
         m = re.search(r"browser: layout side-list\.(row|remove) (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
         if m:
             _st.setdefault("side_" + m.group(1), {})[int(m.group(2))] = tuple(int(v) for v in m.groups()[2:])
+        m = re.search(r"browser: signin open (\S+) retry (\d) secure (\d)$", line)
+        if m:
+            # "login", not "signin": the form's own layout line is "layout signin".
+            _st["login"] = (m.group(1), int(m.group(2)), int(m.group(3)))
+            _st["logins"] = _st.get("logins", 0) + 1
+        m = re.search(r"browser: signin (given|cancelled)$", line)
+        if m:
+            _st["login_done"] = m.group(1)
+        m = re.search(r"browser: https fallback (\S+)$", line)
+        if m:
+            _st["fallback"] = m.group(1)
+            _st["fallbacks"] = _st.get("fallbacks", 0) + 1
         m = re.search(r"browser: zoom (\d+)$", line)
         if m:
             _st["zoom"] = int(m.group(1))
@@ -185,7 +198,8 @@ def wait(dbg, ok, timeout=12.0):
 
 
 def window(dbg):
-    wins = [w for w in dbg.windows() if w["title"].endswith("Web Browser")]
+    # By app_id: a long page title cuts "Web Browser" off the window's.
+    wins = [w for w in dbg.windows() if w.get("app_id") == "browser" or w["title"].endswith("Web Browser")]
     return wins[-1] if wins else None
 
 
@@ -261,11 +275,21 @@ def main():
             shutil.rmtree(net["dir"], ignore_errors=True)
 
 
+SESSION = "/var/lib/browser/session.tsv"
+
+
+def forget_session(dbg):
+    """A launch restores the tabs of the last one (browser/ns_session.c):
+    a check that wants the start page starts without them."""
+    dbg.send(f"sh rm {SESSION}")
+
+
 def run(dbg, qmp, args, net):
     old = window(dbg)
     if old:
         dbg.send(f"gui close {old['z']}")
         dbg.settle(1.0)
+    forget_session(dbg)
     dbg.logs("browser:", clear=True)
     # By SUFFIX, after the page has loaded: the title is "Web Browser"
     # only until the first page names itself ("Start - Web Browser"),
@@ -367,6 +391,7 @@ def run(dbg, qmp, args, net):
     stopped_page(dbg, page, at, shot)
     if net:
         network(dbg, net, page, at, shot)
+    history_survives(dbg, page)
     return finish()
 
 
@@ -712,6 +737,76 @@ def stopped_page(dbg, page, at, shot):
           f"stopped {st.get('page.stopped')} url {st.get('url')}")
 
 
+def history_survives(dbg, page):
+    """Back/forward is the APP's list (uui_webview's hist[]), so a page
+    whose content process died still has it, each entry comes back
+    scrolled where it was left, and the browser's next launch reopens
+    its tabs with their lists (browser/ns_session.c). What a broken
+    version still passes: NetSurf's own history would be lost with the
+    killed process (Back would do nothing), a list without scroll
+    positions comes back at the top, and no session opens the start
+    page."""
+    a, b, d = ("file:///tests/web/" + n for n in ("table.html", "text.html", "links.html"))
+    win = window(dbg)
+    c = win["content"]
+    go(dbg, "/tests/web/table.html")
+    wait(dbg, loaded(a))
+    go(dbg, "/tests/web/text.html")
+    wait(dbg, loaded(b))
+    dbg.move(c["x"] + page[0] + page[2] // 2, c["y"] + page[1] + page[3] // 2)
+    for _ in range(4):
+        dbg.wheel(-1)
+    st = wait(dbg, lambda s: s.get("sy", 0) > 0, timeout=4)
+    dbg.settle(1.0)
+    sy = state(dbg).get("sy", 0)
+    go(dbg, "/tests/web/links.html")
+    st = wait(dbg, lambda s: loaded(d)(s) and s.get("page.pid", 0) > 0)
+    pid = st.get("page.pid", 0)
+    check("history: three pages visited, the second scrolled (control)", sy > 0 and loaded(d)(st),
+          f"scrolled {sy} url {st.get('url')} pid {pid}")
+
+    dbg.send(f"sh kill -KILL {pid}")
+    st = wait(dbg, lambda s: s.get("page.stopped") == 1, 10)
+    dbg.send("gui key 0xF784 alt")     # Alt+Left
+    st = wait(dbg, lambda s: s.get("page.stopped") == 0 and loaded(b)(s) and
+              s.get("page.pid", 0) not in (0, pid) and s.get("sy", 0) > 0, 15)
+    check("Back on a stopped page goes back, in a new process", loaded(b)(st) and
+          st.get("page.pid", 0) not in (0, pid), f"url {st.get('url')} pid {st.get('page.pid')} (was {pid})")
+    check("...to where that page was scrolled", st.get("sy") == sy, f"scroll {st.get('sy')}, left at {sy}")
+    dbg.send("gui key 0xF784 alt")
+    st = wait(dbg, lambda s: loaded(a)(s) and s.get("sy", -1) == 0)
+    check("...and again, to the page before", loaded(a)(st), f"url {st.get('url')}")
+    dbg.send("gui key 0xF785 alt")     # Alt+Right
+    st = wait(dbg, lambda s: loaded(b)(s) and s.get("sy", 0) > 0)
+    check("Forward returns, scrolled as it was", loaded(b)(st) and st.get("sy") == sy,
+          f"url {st.get('url')} scroll {st.get('sy')}")
+
+    # The session: closed with the middle page in front, Forward ahead of it.
+    dbg.send(f"gui close {win['z']}")
+    gone = False
+    for _ in range(40):
+        if not window(dbg):
+            gone = True
+            break
+        time.sleep(0.25)
+    saved = dbg.send(f"sh cat {SESSION}") or ""
+    check("closing the window saves its tabs' lists", gone and "tests/web/links.html" in saved and
+          "tests/web/table.html" in saved, saved.strip()[-200:])
+    _st.clear()
+    dbg.spawn(APP)
+    st = wait(dbg, lambda s: loaded(b)(s) and s.get("sy", 0) > 0, 30)
+    check("the next launch reopens the tab on the page it showed, scrolled",
+          loaded(b)(st) and st.get("tabs") == 1 and st.get("sy") == sy,
+          f"url {st.get('url')} tabs {st.get('tabs')} scroll {st.get('sy')}")
+    dbg.send("gui key 0xF785 alt")
+    st = wait(dbg, loaded(d))
+    check("...with its Forward", loaded(d)(st), f"url {st.get('url')}")
+    dbg.send("gui key 0xF784 alt")
+    dbg.send("gui key 0xF784 alt")
+    st = wait(dbg, loaded(a))
+    check("...and its Back", loaded(a)(st), f"url {st.get('url')}")
+
+
 def labels(dbg):
     return [t.get("label") for t in (window(dbg) or {}).get("tabs", [])]
 
@@ -856,6 +951,7 @@ def network(dbg, net, page, at, shot):
     # Clear, from the card, in a new window (the jar above is checked
     # first): the cookie must then no longer be SENT.
     _st.clear()
+    forget_session(dbg)
     dbg.spawn(APP + " --weak-entropy")
     wait(dbg, lambda s: "page" in s and loaded(HOME)(s), 30)
     go(dbg, f"{host}/cookie/show")
@@ -876,6 +972,124 @@ def network(dbg, net, page, at, shot):
           card and card[1] >= 1 and st.get("cleared", 0) >= 1 and after and after[1] == 0
           and "cookie toy=yes" not in labels(dbg),
           f"card {card} cleared {st.get('cleared')} then {after} tabs {labels(dbg)}")
+    logins(dbg, host, at, shot)
+    https_fallback(dbg, host)
+
+
+def https_fallback(dbg, host):
+    """A host typed without a scheme is tried over https first and falls
+    back to http when https cannot be reached (Chrome's HTTPS-Upgrades;
+    lib/webview_proto.h, WV_NAVIGATE_UPGRADED). The test server speaks
+    only http, so the TLS handshake fails at once; `--upgrade-local` has
+    the browser try an address and port over https, which it otherwise
+    never does. What a broken version still passes: no upgrade at all
+    loads the page over http too -- so the fallback's own log line is
+    asserted -- and a fallback for everything would also follow the
+    https:// typed out, which must stay an error."""
+    win = window(dbg)
+    if win:
+        dbg.send(f"gui close {win['z']}")
+        dbg.settle(1.0)
+    forget_session(dbg)
+    _st.clear()
+    dbg.spawn(APP + " --weak-entropy --upgrade-local")
+    wait(dbg, lambda s: "page" in s and loaded(HOME)(s), 30)
+    go(dbg, f"{host}/net.html")
+    url = f"http://{host}/net.html"
+    st = wait(dbg, lambda s: loaded(url)(s) and s.get("fallback"), 30)
+    check("a typed host whose https does not answer falls back to http", loaded(url)(st) and
+          st.get("fallback") == host, f"url {st.get('url')} fallback {st.get('fallback')}")
+    st = wait(dbg, lambda s: s.get("site") == SITE_INSECURE, 5)
+    check("...and the address field says Not secure", st.get("site") == SITE_INSECURE, f"site {st.get('site')}")
+
+    go(dbg, f"{host}/table.html")
+    url = f"http://{host}/table.html"
+    st = wait(dbg, loaded(url), 20)
+    dbg.settle(1.0)
+    st = state(dbg)
+    check("...and the host is tried over http first from then on", loaded(url)(st) and
+          st.get("fallbacks") == 1, f"url {st.get('url')} fallbacks {st.get('fallbacks')}")
+
+    go(dbg, f"https://{host}/text.html")
+    st = wait(dbg, lambda s: s.get("loading") == 0 and "text.html" in s.get("url", ""), 20)
+    dbg.settle(2.0)
+    st = state(dbg)
+    check("an https:// typed out never falls back", st.get("fallbacks") == 1 and
+          not st.get("url", "").startswith("http:"), f"url {st.get('url')} fallbacks {st.get('fallbacks')}")
+
+
+def logins(dbg, host, at, shot):
+    """HTTP Basic, answered in the app and kept by /bin/webnet
+    (lib/webnet_proto.h, WN_AUTH_ASK): the 401 is held while the sign-in
+    is up, a wrong password asks again, the right one loads the page,
+    another tab -- another content process -- is let in without asking,
+    the lock card's Clear forgets it, and Cancel shows the 401's own page.
+    What a broken version still passes: NetSurf's in-page form would log
+    no sign-in at all; a login kept per content process would ask again
+    in the second tab."""
+    _st.pop("login", None)
+    _st.pop("logins", None)
+    go(dbg, f"{host}/auth/a.html")
+    st = wait(dbg, lambda s: s.get("login"), 20)
+    check("a 401 opens the sign-in, saying the page is not secure", st.get("login") and
+          st["login"][1] == 0 and st["login"][2] == 0, f"login {st.get('login')}")
+    # Drawn, not just logged: the form's white fields, and the accent of
+    # Sign in, the default button, in the row just below the form.
+    form = _st.get("signin")
+    box = (form[0], form[1], form[2], form[3] + 70) if form else None
+    im = shot("signin")
+    white = count(im, at(box), lambda p: min(p) > 245) if box else 0
+    blue = count(im, at(box), near(ACCENT, 16)) if box else 0
+    check("...and it is drawn: white fields, an accent Sign in", box and white > 2000 and blue > 300,
+          f"box {box} white {white} accent {blue}")
+    type_text(dbg, "toy")
+    dbg.send("gui key 0x09")
+    type_text(dbg, "wrong")
+    dbg.send("gui key 0x0d")
+    st = wait(dbg, lambda s: s.get("logins", 0) >= 2, 20)
+    check("...a wrong password asks again", st.get("login", (0, 0))[1] == 1, f"login {st.get('login')}")
+    type_text(dbg, "secret")      # the user name is kept, the password focused
+    dbg.send("gui key 0x0d")
+    url = f"http://{host}/auth/a.html"
+    st = wait(dbg, loaded(url), 20)
+    dbg.settle(1.0)
+    check("...and the right one loads the page", loaded(url)(st) and "signed in /auth/a.html" in labels(dbg),
+          f"url {st.get('url')} tabs {labels(dbg)}")
+
+    n = _st.get("logins", 0)
+    dbg.send("gui key 0x14 ctrl")      # Ctrl+T: another content process
+    wait(dbg, lambda s: s.get("tabs") == 2 and loaded(HOME)(s))
+    go(dbg, f"{host}/auth/b.html")
+    url = f"http://{host}/auth/b.html"
+    st = wait(dbg, loaded(url), 20)
+    dbg.settle(1.0)
+    check("another tab is let in without asking: webnet kept the login",
+          loaded(url)(st) and _st.get("logins", 0) == n and "signed in /auth/b.html" in labels(dbg),
+          f"url {st.get('url')} sign-ins {_st.get('logins')} (was {n}) tabs {labels(dbg)}")
+
+    card = open_card(dbg, at)
+    kept = _st.get("card_logins")
+    clear = _st.get("card.clear")
+    check("the lock card lists the sign-in among the site's data, with Clear", kept == 1 and clear,
+          f"logins {kept} clear {clear}")
+    if clear:
+        x, y, w, h = clear
+        dbg.send("gui click %d %d" % (at((x + w // 2, y + h // 2, 0, 0))[:2]))
+        dbg.settle(1.0)
+    dbg.send("gui key 0x1b")
+    go(dbg, f"{host}/auth/c.html")
+    st = wait(dbg, lambda s: s.get("logins", 0) > n, 20)
+    check("the lock card's Clear forgets the login: the next page asks", card and st.get("logins", 0) > n,
+          f"card {card} sign-ins {st.get('logins')}")
+    dbg.send("gui key 0x1b")           # Esc: Cancel
+    url = f"http://{host}/auth/c.html"
+    st = wait(dbg, lambda s: loaded(url)(s) and s.get("login_done") == "cancelled", 20)
+    dbg.settle(1.0)
+    check("...and Cancel shows the server's own 401 page", loaded(url)(st) and "auth refused" in labels(dbg),
+          f"url {st.get('url')} done {st.get('login_done')} tabs {labels(dbg)}")
+    if state(dbg).get("tabs") == 2:    # never the last tab: that closes the window
+        dbg.send("gui key 0x17 ctrl")  # Ctrl+W
+        wait(dbg, lambda s: s.get("tabs") == 1, 6)
 
 
 def dl_event(ev, name):

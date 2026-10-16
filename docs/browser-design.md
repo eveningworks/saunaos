@@ -533,8 +533,8 @@ writer) and a stylesheet from the theme.
 stopped-page icon.
 
 What is per content process and therefore lost on a crash or an unload:
-the back/forward list (NetSurf's), HTTP authentication answered on the
-page, and `:visited` colouring for pages visited in other tabs.
+`:visited` colouring for pages visited in other tabs. The back/forward
+list and HTTP logins were too, until the next section moved them out.
 
 **What a test reads.** A page drawn in another process has no geometry
 the app could report -- so the content process reports its LINKS (each
@@ -574,6 +574,56 @@ eight.
 - **A uchan service name with a dot cannot be found again**: a client
   finds its server by the part of its ring's name before the first dot.
   The names are `wv<pid>` and `wn<pid>`, and uchan refuses a dotted one.
+
+### After stage 5 -- what outlives a content process -- BUILT 2026-10-16
+
+Chosen 2026-10-16 (canvas A1/A2, H1/H2): stage 5 put each tab's engine
+in a process, and three things still died with it or were missing.
+
+**Back/forward is the app's list** (`uui_webview`'s `hist[]`), as
+Chrome's NavigationController and Firefox's session history in the
+parent keep it, not NetSurf's: a list in the engine dies with the
+engine. The content process reports each page it commits (`WV_COMMIT`,
+from a link-time wrap of NetSurf's `browser_window_history_add()`); Back
+and Forward are `WV_GO`, which loads an entry without adding one and,
+once that load has finished, scrolls to where the entry was left --
+after NetSurf's own scroll restore, which would otherwise put it at the
+top. The scroll noted for an entry is the last one reported while the
+page was at REST: a navigation resets the scroll as it starts, before
+its commit arrives. 50 entries, Chrome's `kMaxSessionHistoryEntries`. A
+stopped or unloaded view goes Back by starting a process for the entry.
+
+**The tabs survive a restart** (`browser/ns_session.c`, Firefox's
+sessionstore): `/var/lib/browser/session.tsv`, every tab's list and
+which was in front, rewritten two seconds after a title or address
+changes and when the window closes. Restored tabs start unloaded but
+the one in front; a page named on the command line opens in a tab of
+its own beside them, as Chrome and Firefox do.
+
+**HTTP logins are webnet's** (canvas A2), as Chrome's network service
+and its LoginHandler hold them: a 401 with a Basic challenge is held,
+not forwarded, while webnet asks the app (`WN_AUTH_ASK`), which shows
+`uui_signin` over the tab whose content process asked; the answer goes
+from the app to webnet and never through a content process, which drops
+any Authorization it is sent and no longer runs NetSurf's in-page form
+(whose strings were never installed: it showed `LoginTitle`). Fetches
+for one origin and realm wait on one ask. The credential is memory-only,
+per origin and realm, sent unasked within the directory it was given
+for (RFC 7617's protection space); a refused one asks again with
+"Wrong user name or password", three tries, and the lock card's Clear
+forgets the host's logins with its cookies. Cancel releases the held
+401 and the page shows its body. Basic only: Digest is on the roadmap.
+
+**A typed host falls back to http** (canvas H1), Chrome's
+HTTPS-Upgrades rather than its opt-in HTTPS-First page: only a host
+typed without a scheme on the default port, only when https cannot be
+reached at all -- no connection within 3 s (`uhttp_request`'s
+`connect_timeout_ms`, set by webnet for a `WN_FETCH_UPGRADED` fetch), a
+failed handshake, a refused certificate -- and never for a link or an
+`https://` typed out. The content process swallows the failure before
+NetSurf draws an error page and loads the http twin itself; the app
+tries that host over http first for the rest of the session, and the
+address field's red "Not secure" says what happened.
 
 ### Stage 6 -- JavaScript -- PLANNED
 

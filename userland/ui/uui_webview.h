@@ -50,6 +50,17 @@ struct uui_webview_host {
     void (*external)(struct uui_webview *v, const char *url);
     // An app: URL to answer, with uui_webview_scheme_reply().
     void (*scheme)(struct uui_webview *v, uint32_t id, const char *url);
+    // An upgraded navigation's https did not answer, and `host` was loaded
+    // over http instead (uui_webview_navigate_upgraded()).
+    void (*downgraded)(struct uui_webview *v, const char *host);
+};
+
+// One page of a view's back/forward list. 50 at most, Chrome's
+// kMaxSessionHistoryEntries: the oldest falls off the front.
+#define UUI_WV_HISTORY_MAX 50
+struct uui_wv_entry {
+    char *url, *title;   // malloc'd; title may be ""
+    int sx, sy;          // where the page was scrolled when left
 };
 
 struct uui_webview {
@@ -67,15 +78,25 @@ struct uui_webview {
     char url[WEBVIEW_URL_MAX];
     char status[512];
     struct wv_state st;
+    int can_back, can_forward;     // from hist[], below
     struct wv_site site;
     struct wv_find_result find;
     char report[96];               // the crash report, when the kernel wrote one
+    // BACK/FORWARD IS KEPT HERE, NOT IN THE ENGINE, so a crashed or
+    // unloaded page still has its history (lib/webview_proto.h, WV_COMMIT).
+    // uui_webview_history_set() replaces it -- a restored session.
+    struct uui_wv_entry hist[UUI_WV_HISTORY_MAX];
+    int nhist, hist_at;
 
     // --- OWNED ---
     int ready;                     // the content process said hello
     int visible;
     unsigned long long shown_ns;   // when last shown, for unloading the oldest
     char *pending_nav;             // a URL to load once ready
+    int pending_upgraded;          // ...as uui_webview_navigate_upgraded() asked
+    int pending_go;                // ...or hist[hist_at], once ready
+    int hist_live;                 // live_s* are hist[hist_at]'s page's
+    int live_sx, live_sy;          // its scroll when last at rest
     uint32_t *copy;                // the page as last copied: what is drawn
     int cw, ch;
     const uint32_t *buf;           // the content process's buffer, mapped read-only
@@ -111,11 +132,23 @@ void uui_webview_destroy(struct uui_webview *v);
 
 // Loads `url`, starting the content process if the view has none.
 void uui_webview_navigate(struct uui_webview *v, const char *url);
+// An https URL made from a host typed without a scheme: one that cannot
+// be reached at all falls back to http by itself (Chrome's HTTPS-Upgrades;
+// lib/webview_proto.h, WV_NAVIGATE_UPGRADED), and host->downgraded hears.
+void uui_webview_navigate_upgraded(struct uui_webview *v, const char *url);
 // Reloads -- and restarts a stopped or unloaded view on its last URL.
 void uui_webview_reload(struct uui_webview *v);
 void uui_webview_stop(struct uui_webview *v);
+// A step through the view's own list; works on a stopped or unloaded
+// view too, which starts a content process for the page.
 void uui_webview_back(struct uui_webview *v);
 void uui_webview_forward(struct uui_webview *v);
+// Replaces the view's list with copies of `n` entries, `at` current, and
+// leaves the view unloaded on that page: it loads when shown.
+void uui_webview_history_set(struct uui_webview *v, const struct uui_wv_entry *e, int n, int at);
+// Notes where the current page is scrolled, so hist[] is up to date
+// before the app saves it.
+void uui_webview_history_snapshot(struct uui_webview *v);
 void uui_webview_zoom(struct uui_webview *v, int dir);   // +1, -1, 0 resets
 // Find in page: `dir` 0 searches afresh, +1/-1 step; the answer arrives
 // as UUI_WV_FIND in v->find.

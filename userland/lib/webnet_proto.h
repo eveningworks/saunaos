@@ -32,7 +32,13 @@ struct wn_fetch {
     int32_t method;
     int32_t url_len, headers_len;
     int32_t body_len;          // the whole body; what does not fit follows as WN_BODY
+    int32_t flags;             // WN_FETCH_*
 };
+
+// The https try of a host typed without a scheme: its connect gets 3 s,
+// so the page can fall back to http quickly (lib/webview_proto.h,
+// WV_NAVIGATE_UPGRADED).
+#define WN_FETCH_UPGRADED 1
 
 // --- webnet -> content process ---------------------------------------
 
@@ -62,9 +68,29 @@ enum {
     WN_COOKIES,        // webnet -> app: struct wn_cookies
     WN_DL_CANCEL,      // app -> webnet: id = the download
     WN_DL,             // webnet -> app: struct wn_dl then the name, the path, the URL
+    WN_AUTH_ASK,       // webnet -> app: struct wn_auth_ask then the host, then the realm
+    WN_AUTH_ANSWER,    // app -> webnet: "user\0password", or nothing for Cancel
+    WN_AUTH_DONE,      // webnet -> app: nobody waits for the ask any more (the page let go)
 };
 
-struct wn_cookies { int32_t count, cleared; };
+// HTTP AUTHENTICATION IS WEBNET'S, so no content process sees a password
+// (Chrome's network service and its LoginHandler). A 401 with a Basic
+// challenge is HELD, not forwarded: webnet asks the app (`id` numbers the
+// ask; fetches for the same origin and realm wait on one ask), the app
+// shows its sign-in dialog over the tab whose content process is `pid`,
+// and the answer comes straight back here. The credential is kept in
+// memory only, for that origin and realm -- sent before being asked for
+// anything in the directory it was given for, RFC 7617's protection
+// space -- and the lock card's Clear forgets it with the cookies. A
+// Cancel releases the 401 as it was, and the page shows its body.
+struct wn_auth_ask {
+    int32_t pid;               // the content process whose fetch asked
+    int32_t retry;             // the last answer was refused
+    int32_t secure;            // https: the password does not cross in clear
+    int32_t host_len, realm_len;
+};
+
+struct wn_cookies { int32_t count, cleared, logins; };   // logins: kept for the host after
 
 enum { WN_DL_RUNNING, WN_DL_DONE, WN_DL_FAILED, WN_DL_CANCELLED };
 struct wn_dl {

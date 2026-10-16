@@ -215,6 +215,9 @@ TESTS = [
     # end: never short, operands summed, junk refused. SPAWNED, since it
     # spawns /bin/sleep and waits for it.
     ("duration_test", None, None, None),
+    # lib/ubase64.h against RFC 4648's vectors; a short buffer is refused
+    # untouched.
+    ("base64_test", 0, None, None),
     # lib/uclock.h: the clock's granularity is a real number, never 0.
     # Discriminates only on a `clocksource=pit` boot (the file says why).
     ("uclock_test", 0, None, None),

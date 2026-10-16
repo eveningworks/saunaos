@@ -153,8 +153,35 @@ const char *ns_net_service(void) { return g_service; }
 static struct wn_cookies g_answer;
 static int g_answered;
 
+static void on_auth_ask(const struct ubulk_msg *m) {
+    struct wn_auth_ask h;
+    if (m->len < sizeof h) return;
+    memcpy(&h, m->data, sizeof h);
+    if (h.host_len < 0 || h.realm_len < 0 || sizeof h + (size_t)h.host_len + (size_t)h.realm_len > m->len)
+        return;
+    char host[128], realm[128];
+    const char *p = (const char *)m->data + sizeof h;
+    snprintf(host, sizeof host, "%.*s", h.host_len, p);
+    snprintf(realm, sizeof realm, "%.*s", h.realm_len, p + h.host_len);
+    nsapp_login_ask(m->id, h.pid, h.retry, h.secure, host, realm);
+}
+
+void ns_net_login_answer(uint32_t id, const char *user, const char *pass) {
+    if (!g_up) return;
+    static char buf[512];
+    size_t n = 0;
+    if (user) {
+        n = (size_t)snprintf(buf, sizeof buf, "%s%c%s", user, 0, pass ? pass : "");
+        if (n >= sizeof buf) n = 0;   // too long to be a login: Cancel
+    }
+    ubulk_send(&g_net, WN_AUTH_ANSWER, id, buf, (uint32_t)n, 1000);
+    memset(buf, 0, sizeof buf);
+}
+
 static void handle(const struct ubulk_msg *m) {
     if (m->type == WN_DL) on_dl(m);
+    if (m->type == WN_AUTH_ASK) on_auth_ask(m);
+    if (m->type == WN_AUTH_DONE) nsapp_login_gone(m->id);
     if (m->type == WN_COOKIES && m->len >= sizeof g_answer) {
         memcpy(&g_answer, m->data, sizeof g_answer);
         g_answered = 1;
@@ -188,9 +215,11 @@ static int ask(uint32_t type, const char *host, struct wn_cookies *out) {
     return 0;
 }
 
-int ns_net_cookies(const char *host) {
+int ns_net_cookies(const char *host, int *logins) {
     struct wn_cookies c;
-    return ask(WN_COOKIES_COUNT, host, &c) == 0 ? c.count : -1;
+    int ok = ask(WN_COOKIES_COUNT, host, &c) == 0;
+    if (logins) *logins = ok ? c.logins : 0;
+    return ok ? c.count : -1;
 }
 
 int ns_net_cookies_clear(const char *host) {

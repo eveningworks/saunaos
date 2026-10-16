@@ -7039,6 +7039,22 @@ runs first**: a `doom1.wad` with one
   160-byte log line cut by vsnprintf() loses its newline); shown red by
   dropping the field's `uui_textbox_set_max()`.
 
+  **What outlives a content process** (`docs/browser-design.md`, after
+  stage 5): a page's process is killed and Back goes back, in a new
+  process, scrolled where the page was left, and Forward returns; the
+  window closed and opened again restores the tab, scroll and both
+  directions from `/var/lib/browser/session.tsv` (`forget_session()`
+  deletes it before any check that wants the start page). An HTTP Basic
+  page on `web_server.py`'s `/auth/` opens the app's sign-in, a wrong
+  password asks again, the right one loads it, a second tab is let in
+  without asking (the login is webnet's, not the content process's),
+  the lock card's Clear forgets it, and Cancel shows the server's own
+  401 page. A window spawned with `--upgrade-local` tries a typed
+  `10.0.2.2:PORT` over https first and falls back to http (the test
+  server speaks only http), remembers the host, and never falls back
+  from an https:// typed out. Back shown red by making it do nothing;
+  the scroll restore went red on two real faults while it was built.
+
   **`/tests/web/photos.html`** checks PNG and JPEG by pixels -- each
   quadrant of a progressive JPEG and each band of a 2-bit palette Adam7
   PNG its own colour, with the page beside them white -- decoded in a

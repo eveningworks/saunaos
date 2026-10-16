@@ -5,7 +5,8 @@
 //
 // It owns what a content process must not: the sockets and TLS (through
 // libhttp and its connection pool), the cookie jar (lib/ucookie.h), the
-// certificates a person accepted anyway, and downloads -- so a download
+// certificates a person accepted anyway, HTTP logins (asked of the app,
+// lib/webnet_proto.h's WN_AUTH_ASK), and downloads -- so a download
 // outlives the tab that started it. Content processes fetch through it
 // with lib/webnet_proto.h's records; the browser app asks it about
 // cookies and hears about downloads.
@@ -30,6 +31,7 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "lib/ubase64.h"
 #include "lib/ubulk.h"
 #include "lib/ucookie.h"
 #include "lib/uargs.h"
@@ -47,6 +49,9 @@
 #define REPLAY_MAX    (1024 * 1024)
 #define SEND_WAIT_MS  60000                      // a content process that stopped reading
 #define SAVE_EVERY_MS 10000
+#define HELD_MAX      (64 * 1024)                // a 401's body kept back while the app is asked
+#define AUTH_TRIES    3                          // answers refused before the 401 goes to the page
+#define UPGRADE_CONNECT_MS 3000                  // WN_FETCH_UPGRADED: Chrome's fallback delay
 
 struct nfetch {
     struct nfetch *next;
@@ -54,6 +59,7 @@ struct nfetch {
     uint32_t id;              // its number for the fetch
     char *url;
     int post;
+    int upgraded;             // WN_FETCH_UPGRADED
     char **headers;           // NULL-terminated, ours
     int nheaders;
     char *body;
@@ -68,6 +74,17 @@ struct nfetch {
     char *replay;
     size_t replay_len;
     int replay_over;          // the response outgrew REPLAY_MAX
+
+    // A 401 held back while the app is asked for a login: its header
+    // lines and as much of its body as HELD_MAX allows.
+    int hold;                 // this attempt may hold a 401
+    int held;                 // ...and did
+    char **held_lines;
+    int nheld;
+    char *held_body;
+    size_t held_len;
+    char realm[128];          // its Basic challenge's; "" when none
+    int auth_hdr;             // the Authorization line's index in headers, -1 when none
 
     // A download: set by the main thread, acted on by the worker.
     char *dl_name;            // asked for; NULL when not
@@ -96,6 +113,33 @@ static uint32_t g_next_dl = 1;
 static struct ucookie_jar g_jar;
 static char *g_allow[64];     // hosts whose certificate was accepted anyway
 static int g_nallow;
+
+// --- logins (lib/webnet_proto.h, WN_AUTH_ASK) ---
+// What a person gave, per origin and realm, for `dir` and below. Memory
+// only: a browser's HTTP logins last as long as it does.
+#define AUTH_MAX 32
+struct authent {
+    char origin[UHTTP_HOST_MAX + 16];
+    char realm[128];
+    char dir[256];
+    char *cred;               // "Basic <base64>"
+};
+static struct authent g_auth[AUTH_MAX];
+static int g_nauth;
+// An ask the app has not answered; the fetches waiting on it.
+struct authask {
+    struct authask *next;
+    uint32_t id;
+    char origin[UHTTP_HOST_MAX + 16];
+    char realm[128];
+    char dir[256];
+    int state;                // ASK_*
+    int waiters;
+};
+enum { ASK_WAITING, ASK_ANSWERED, ASK_CANCELLED };
+static struct authask *g_asks;
+static uint32_t g_next_ask = 1;
+static pthread_cond_t g_auth_cv = PTHREAD_COND_INITIALIZER;   // with g_mu
 
 static struct ubulk_server g_srv;
 static struct uhttp_pool *g_pool;
@@ -135,6 +179,65 @@ static struct urlbits *url_bits(const char *url) {
     b->secure = u->tls;
     free(u);
     return b;
+}
+
+// "scheme://host:port" and the directory of the path (up to its last
+// '/'), the two halves of RFC 7617's protection space. 0 when `url` does
+// not parse.
+static int space_of(const char *url, char *origin, size_t ocap, char *dir, size_t dcap) {
+    struct uhttp_url *u = malloc(sizeof *u);
+    if (!u || uhttp_parse_url(url, u) != 0) {
+        free(u);
+        return 0;
+    }
+    snprintf(origin, ocap, "%s://%s:%u", u->tls ? "https" : "http", u->host, (unsigned)u->port);
+    if (dir) {
+        snprintf(dir, dcap, "%s", u->path[0] ? u->path : "/");
+        dir[strcspn(dir, "?#")] = '\0';
+        char *slash = strrchr(dir, '/');
+        if (slash) slash[1] = '\0';
+        else snprintf(dir, dcap, "/");
+    }
+    free(u);
+    return 1;
+}
+
+// The login for `url`: in its realm when one is named, else any whose
+// directory holds the URL's. Under g_mu.
+static struct authent *auth_find(const char *url, const char *realm) {
+    char origin[UHTTP_HOST_MAX + 16], dir[256];
+    if (!space_of(url, origin, sizeof origin, dir, sizeof dir)) return NULL;
+    for (int i = 0; i < g_nauth; i++) {
+        struct authent *a = &g_auth[i];
+        if (strcmp(a->origin, origin)) continue;
+        if (realm ? !strcmp(a->realm, realm) : !strncmp(dir, a->dir, strlen(a->dir))) return a;
+    }
+    return NULL;
+}
+
+static void auth_remove(struct authent *a) {
+    free(a->cred);
+    *a = g_auth[--g_nauth];
+}
+
+// Is login i for `host`, on any port and either scheme?
+static int auth_is_for(int i, const char *host) {
+    char h[UHTTP_HOST_MAX];
+    const char *p = strstr(g_auth[i].origin, "://");
+    snprintf(h, sizeof h, "%s", p ? p + 3 : "");
+    h[strcspn(h, ":")] = '\0';
+    return !strcasecmp(h, host);
+}
+
+// Every login for `host` forgotten (`forget`), or counted. Under g_mu.
+static int auth_for_host(const char *host, int forget) {
+    int n = 0;
+    for (int i = g_nauth - 1; i >= 0; i--) {
+        if (!auth_is_for(i, host)) continue;
+        if (forget) auth_remove(&g_auth[i]);
+        n++;
+    }
+    return n;
 }
 
 static int host_allowed(const char *url) {
@@ -236,7 +339,10 @@ static void dl_end(struct download *d, int state) {
 
 // --- one fetch ---------------------------------------------------------------
 
+static void held_free(struct nfetch *f);
+
 static void fetch_free(struct nfetch *f) {
+    held_free(f);
     for (int i = 0; i < f->nheaders; i++) free(f->headers[i]);
     free(f->headers);
     free(f->body);
@@ -296,6 +402,62 @@ static int drawn_type(const char *v) {
     return 0;
 }
 
+// Keeps a held 401's header line back for later.
+static void held_line(struct nfetch *f, const char *line, size_t len) {
+    char **g = realloc(f->held_lines, (size_t)(f->nheld + 1) * sizeof *g);
+    if (!g) return;
+    f->held_lines = g;
+    char *l = malloc(len + 2);
+    if (!l) return;
+    memcpy(l, line, len);
+    memcpy(l + len, "\r\n", 2);
+    f->held_lines[f->nheld++] = l;
+}
+
+static void held_free(struct nfetch *f) {
+    for (int i = 0; i < f->nheld; i++) free(f->held_lines[i]);
+    free(f->held_lines);
+    free(f->held_body);
+    f->held_lines = NULL;
+    f->held_body = NULL;
+    f->nheld = 0;
+    f->held_len = 0;
+    f->held = 0;
+}
+
+// `needle` in `hay`, in any case.
+static const char *find_ci(const char *hay, const char *needle) {
+    size_t n = strlen(needle);
+    for (; *hay; hay++)
+        if (!strncasecmp(hay, needle, n)) return hay;
+    return NULL;
+}
+
+// The first Basic challenge's realm, from a WWW-Authenticate line.
+static void basic_realm(const char *v, size_t len, char *out, size_t cap) {
+    char buf[512];
+    snprintf(buf, sizeof buf, "%.*s", (int)len, v);
+    for (const char *p = buf; (p = find_ci(p, "basic")); p += 5) {
+        if (p != buf && p[-1] != ' ' && p[-1] != ',') continue;
+        const char *r = find_ci(p, "realm=");
+        if (!r) {
+            snprintf(out, cap, "%s", "");
+            return;
+        }
+        r += 6;
+        size_t n = 0;
+        if (*r == '"') {
+            r++;
+            while (r[n] && r[n] != '"') n++;
+        } else {
+            while (r[n] && r[n] != ',' && r[n] != ' ') n++;
+        }
+        snprintf(out, cap, "%.*s", (int)n, r);
+        if (!out[0]) snprintf(out, cap, " ");   // a Basic challenge with an empty realm still is one
+        return;
+    }
+}
+
 static void w_header(void *ctx, const char *line, size_t len) {
     struct nfetch *f = ctx;
     if (len > 9 && !strncmp(line, "HTTP/1.", 7)) {
@@ -305,6 +467,14 @@ static void w_header(void *ctx, const char *line, size_t len) {
         f->replay_len = 0;
         f->replay_over = 0;
         pthread_mutex_unlock(&g_mu);
+        const char *sp = memchr(line, ' ', len);
+        if (f->hold && sp && len - (size_t)(sp - line) >= 4 && !strncmp(sp + 1, "401", 3)) {
+            held_free(f);
+            f->held = 1;
+            f->realm[0] = '\0';
+        }
+    } else if (f->held && len > 17 && !strncasecmp(line, "WWW-Authenticate:", 17) && !f->realm[0]) {
+        basic_realm(line + 17, len - 17, f->realm, sizeof f->realm);
     } else if (len > 13 && !strncasecmp(line, "Content-Type:", 13)) {
         char v[96];
         snprintf(v, sizeof v, "%.*s", (int)(len - 13), line + 13);
@@ -320,6 +490,10 @@ static void w_header(void *ctx, const char *line, size_t len) {
         free(b);
         free(v);
     }
+    if (f->held) {
+        held_line(f, line, len);
+        return;
+    }
     char *buf = malloc(len + 2);   // with its CRLF, as curl hands NetSurf a header
     if (!buf) return;
     memcpy(buf, line, len);
@@ -330,6 +504,16 @@ static void w_header(void *ctx, const char *line, size_t len) {
 
 static int w_data(void *ctx, const void *data, size_t len) {
     struct nfetch *f = ctx;
+    if (f->held) {
+        size_t n = f->held_len + len > HELD_MAX ? HELD_MAX - f->held_len : len;
+        char *g = n ? realloc(f->held_body, f->held_len + n) : f->held_body;
+        if (g) {
+            memcpy(g + f->held_len, data, n);
+            f->held_body = g;
+            f->held_len += n;
+        }
+        return 0;
+    }
     pthread_mutex_lock(&g_mu);
     if (maybe_become_download(f) != 0) f->cancel = 1;
     struct download *d = f->dl ? dl_find((uint32_t)f->dl) : NULL;
@@ -399,11 +583,100 @@ static void w_connect(void *ctx, uint32_t ip, const char *version, const char *c
     to_client(ctx, WN_TLS, buf, (uint32_t)(a + b));
 }
 
+// The held 401 to the page, as it would have gone: the person cancelled,
+// or there was nobody to ask.
+static void held_release(struct nfetch *f) {
+    for (int i = 0; i < f->nheld; i++)
+        to_client(f, WN_HEADER, f->held_lines[i], (uint32_t)strlen(f->held_lines[i]));
+    for (size_t off = 0; off < f->held_len;) {
+        uint32_t n = f->held_len - off > UBULK_REC_MAX ? UBULK_REC_MAX : (uint32_t)(f->held_len - off);
+        if (to_client(f, WN_DATA, f->held_body + off, n) != 0) break;
+        off += n;
+    }
+    held_free(f);
+}
+
+// The Authorization line, put in or replaced. Under g_mu.
+static void set_auth_header(struct nfetch *f, const char *cred) {
+    char *h = malloc(strlen(cred) + 16);
+    if (!h) return;
+    sprintf(h, "Authorization: %s", cred);
+    if (f->auth_hdr >= 0) {
+        free(f->headers[f->auth_hdr]);
+        f->headers[f->auth_hdr] = h;
+    } else {
+        f->auth_hdr = f->nheaders;
+        f->headers[f->nheaders++] = h;
+        f->headers[f->nheaders] = NULL;
+    }
+}
+
+// Asks the app for a login for the held 401's realm and waits for the
+// answer -- or joins an ask already out for the same origin and realm.
+// 1 when one was given (it is in g_auth), 0 on Cancel or when the page
+// let go.
+static int ask_login(struct nfetch *f, int retry) {
+    char origin[UHTTP_HOST_MAX + 16], dir[256], host[UHTTP_HOST_MAX];
+    if (!space_of(f->url, origin, sizeof origin, dir, sizeof dir)) return 0;
+    const char *p = strstr(origin, "://");
+    snprintf(host, sizeof host, "%s", p ? p + 3 : origin);
+    const char *def = !strncmp(origin, "https:", 6) ? ":443" : ":80";   // goes without saying
+    size_t hl = strlen(host), dl = strlen(def);
+    if (hl > dl && !strcmp(host + hl - dl, def)) host[hl - dl] = '\0';
+    pthread_mutex_lock(&g_mu);
+    struct authask *a = g_asks;
+    while (a && (a->state != ASK_WAITING || strcmp(a->origin, origin) || strcmp(a->realm, f->realm)))
+        a = a->next;
+    int send = !a;
+    if (!a && (a = calloc(1, sizeof *a))) {
+        a->id = g_next_ask++;
+        snprintf(a->origin, sizeof a->origin, "%s", origin);
+        snprintf(a->realm, sizeof a->realm, "%s", f->realm);
+        snprintf(a->dir, sizeof a->dir, "%s", dir);
+        a->next = g_asks;
+        g_asks = a;
+    }
+    if (!a) {
+        pthread_mutex_unlock(&g_mu);
+        return 0;
+    }
+    a->waiters++;
+    uint32_t id = a->id;
+    pthread_mutex_unlock(&g_mu);
+    if (send) {
+        const char *realm = strcmp(f->realm, " ") ? f->realm : "";
+        char buf[sizeof(struct wn_auth_ask) + UHTTP_HOST_MAX + 128];
+        struct wn_auth_ask h = { f->pid, retry, !strncmp(origin, "https:", 6), (int32_t)strlen(host),
+                                 (int32_t)strlen(realm) };
+        memcpy(buf, &h, sizeof h);
+        memcpy(buf + sizeof h, host, (size_t)h.host_len);
+        memcpy(buf + sizeof h + h.host_len, realm, (size_t)h.realm_len);
+        printf("webnet: login asked for %s realm \"%s\"%s\n", host, realm, retry ? " again" : "");
+        ubulk_server_send(&g_srv, g_app_client, WN_AUTH_ASK, id,
+                          buf, (uint32_t)(sizeof h + h.host_len + h.realm_len), 1000);
+    }
+    pthread_mutex_lock(&g_mu);
+    while (a->state == ASK_WAITING && !f->cancel && g_app_client) pthread_cond_wait(&g_auth_cv, &g_mu);
+    int ok = a->state == ASK_ANSWERED;
+    int gone = --a->waiters == 0;
+    int tell = gone && a->state == ASK_WAITING;   // every page that asked let go
+    if (gone) {
+        for (struct authask **q = &g_asks; *q; q = &(*q)->next)
+            if (*q == a) { *q = a->next; break; }
+        free(a);
+    }
+    pthread_mutex_unlock(&g_mu);
+    if (tell && g_app_client) ubulk_server_send(&g_srv, g_app_client, WN_AUTH_DONE, id, NULL, 0, 1000);
+    return ok;
+}
+
 static void *worker(void *arg) {
     struct nfetch *f = arg;
     struct uhttp_request *req = calloc(1, sizeof *req);
     int rc = -1;
-    if (req) {
+    for (int attempt = 0; req; attempt++) {
+        memset(req, 0, sizeof *req);
+        f->hold = g_app_client && attempt < AUTH_TRIES;
         req->url = f->url;
         req->method = f->post ? "POST" : "GET";
         req->body = f->body;
@@ -414,13 +687,35 @@ static void *worker(void *arg) {
         req->insecure = host_allowed(f->url);
         req->allow_weak_entropy = g_weak;
         req->max_redirects = 0;          // NetSurf follows them itself
+        req->connect_timeout_ms = f->upgraded ? UPGRADE_CONNECT_MS : 0;
         req->sink = w_data;
         req->sink_ctx = f;
         req->on_header = w_header;
         req->on_certs = w_certs;
         req->on_connect = w_connect;
         rc = uhttp_fetch(req);
+        if (rc != 0 || !f->held) break;
+        // A 401 held back. A Basic challenge is asked about; a retry after
+        // a credential was sent means that credential was refused.
+        int sent = f->auth_hdr >= 0;
+        if (!f->realm[0] || !ask_login(f, sent)) {
+            if (sent) {   // refused and not replaced: never sent again
+                pthread_mutex_lock(&g_mu);
+                struct authent *a = auth_find(f->url, f->realm);
+                if (a) auth_remove(a);
+                pthread_mutex_unlock(&g_mu);
+            }
+            held_release(f);
+            break;
+        }
+        held_free(f);
+        pthread_mutex_lock(&g_mu);
+        struct authent *a = auth_find(f->url, f->realm);
+        if (a) set_auth_header(f, a->cred);
+        pthread_mutex_unlock(&g_mu);
+        if (!a) break;
     }
+    if (f->held) held_release(f);   // a 401 still held when the tries ran out
     // A request for a download that arrived after the body ended.
     pthread_mutex_lock(&g_mu);
     if (rc == 0 && maybe_become_download(f) != 0) f->cancel = 1;
@@ -466,6 +761,8 @@ static void fetch_start(struct nfetch *f) {
         }
     }
     free(b);
+    struct authent *a = auth_find(f->url, NULL);
+    if (a) set_auth_header(f, a->cred);
     pthread_attr_t at;
     pthread_attr_init(&at);
     pthread_attr_setstacksize(&at, FETCH_STACK);
@@ -524,15 +821,18 @@ static void on_fetch(const struct ubulk_msg *m) {
     f->pid = m->pid;
     f->id = m->id;
     f->post = h.method == WN_METHOD_POST;
+    f->upgraded = (h.flags & WN_FETCH_UPGRADED) != 0;
     f->url = strndup(p, (size_t)h.url_len);
     f->refs = 1;
     int nh = 0;
     for (int i = 0; i < h.headers_len; i++) nh += p[h.url_len + i] == '\0';
-    f->headers = calloc((size_t)nh + 2, sizeof *f->headers);   // + Cookie + NULL
+    f->auth_hdr = -1;
+    f->headers = calloc((size_t)nh + 3, sizeof *f->headers);   // + Cookie + Authorization + NULL
     for (int i = 0, at = h.url_len; f->headers && i < nh; i++) {
         const char *line = p + at;
         at += (int)strlen(line) + 1;
-        if (!strncasecmp(line, "Cookie:", 7)) continue;
+        // Both are webnet's to add: a page has no logins and no jar.
+        if (!strncasecmp(line, "Cookie:", 7) || !strncasecmp(line, "Authorization:", 14)) continue;
         f->headers[f->nheaders++] = strdup(line);
     }
     f->body_len = (size_t)h.body_len;
@@ -572,6 +872,7 @@ static void on_abort(const struct ubulk_msg *m) {
     if (f && !f->freed) {
         f->freed = 1;
         if (!f->dl && !f->dl_name) f->cancel = 1;   // a download goes on without the page
+        pthread_cond_broadcast(&g_auth_cv);         // one waiting on a login stops
         if (f->finished && f->keep_replay && f->replay && !f->replay_over && !f->dl)
             f->linger_until = sys_monotonic_ns() + LINGER_NS;   // the list's reference, kept
         else
@@ -586,7 +887,8 @@ static void refetch_as_download(const char *url, const char *name) {
     struct nfetch *f = calloc(1, sizeof *f);
     if (!f) return;
     f->url = strdup(url);
-    f->headers = calloc(2, sizeof *f->headers);
+    f->headers = calloc(3, sizeof *f->headers);
+    f->auth_hdr = -1;
     f->refs = 1;
     f->freed = 1;              // no content process is waiting on it
     f->keep_replay = 0;
@@ -645,11 +947,57 @@ static void on_cookies(const struct ubulk_msg *m, int clear) {
     char host[UHTTP_HOST_MAX];
     snprintf(host, sizeof host, "%.*s", (int)m->len, (const char *)m->data);
     pthread_mutex_lock(&g_mu);
-    struct wn_cookies r = { 0, 0 };
-    if (clear) r.cleared = ucookie_clear(&g_jar, host);
+    struct wn_cookies r = { 0, 0, 0 };
+    if (clear) {
+        r.cleared = ucookie_clear(&g_jar, host);
+        int n = auth_for_host(host, 1);
+        if (n) printf("webnet: %d logins forgotten for %s\n", n, host);
+    }
     r.count = ucookie_count(&g_jar, host, now_s());
+    r.logins = auth_for_host(host, 0);
     pthread_mutex_unlock(&g_mu);
     ubulk_server_send(&g_srv, m->pid, WN_COOKIES, m->id, &r, sizeof r, 1000);
+}
+
+// The app's answer to ask `id`: a login, kept for the ask's origin and
+// realm, or (empty) Cancel. Either wakes every fetch waiting on it.
+static void on_auth_answer(const struct ubulk_msg *m) {
+    if (m->pid != g_app_client) return;
+    static char up[512];   // the main thread's; static, off the ring-3 frame, and wiped
+    size_t n = m->len < sizeof up - 1 ? m->len : sizeof up - 1;
+    memcpy(up, m->data, n);
+    up[n] = '\0';
+    size_t ul = strlen(up);
+    pthread_mutex_lock(&g_mu);
+    struct authask *a = g_asks;
+    while (a && a->id != m->id) a = a->next;
+    if (a && a->state == ASK_WAITING) {
+        a->state = ASK_CANCELLED;
+        if (n && ul < n) {
+            up[ul] = ':';   // "user:password", RFC 7617
+            static char b64[UBASE64_LEN(sizeof up) + 1], cred[sizeof b64 + 8];
+            if (ubase64_encode(up, n, b64, sizeof b64) > 0) {
+                snprintf(cred, sizeof cred, "Basic %s", b64);
+                struct authent *e = NULL;
+                for (int i = 0; i < g_nauth && !e; i++)
+                    if (!strcmp(g_auth[i].origin, a->origin) && !strcmp(g_auth[i].realm, a->realm)) e = &g_auth[i];
+                if (!e && g_nauth == AUTH_MAX) auth_remove(&g_auth[0]);
+                if (!e) e = &g_auth[g_nauth++];
+                else free(e->cred);
+                snprintf(e->origin, sizeof e->origin, "%s", a->origin);
+                snprintf(e->realm, sizeof e->realm, "%s", a->realm);
+                snprintf(e->dir, sizeof e->dir, "%s", a->dir);
+                e->cred = strdup(cred);
+                if (e->cred) a->state = ASK_ANSWERED;
+                else auth_remove(e);
+                memset(b64, 0, sizeof b64);
+                memset(cred, 0, sizeof cred);
+            }
+        }
+        pthread_cond_broadcast(&g_auth_cv);
+    }
+    pthread_mutex_unlock(&g_mu);
+    memset(up, 0, sizeof up);
 }
 
 static void on_dl_cancel(const struct ubulk_msg *m) {
@@ -673,6 +1021,7 @@ static void handle(const struct ubulk_msg *m) {
     case WN_COOKIES_COUNT: on_cookies(m, 0); break;
     case WN_COOKIES_CLEAR: on_cookies(m, 1); break;
     case WN_DL_CANCEL:     on_dl_cancel(m); break;
+    case WN_AUTH_ANSWER:   on_auth_answer(m); break;
     }
 }
 
@@ -687,6 +1036,7 @@ static void client_gone(int pid) {
         if (!f->dl) f->cancel = 1;
         fetch_unref(f);
     }
+    pthread_cond_broadcast(&g_auth_cv);
     pthread_mutex_unlock(&g_mu);
 }
 
@@ -765,6 +1115,10 @@ int main(int argc, char **argv) {
         // The browser closed -- or never arrived to say hello.
         if (app_gone || (!g_app_client && now - started > 15000000000ull)) break;
     }
+    pthread_mutex_lock(&g_mu);
+    g_app_client = 0;
+    pthread_cond_broadcast(&g_auth_cv);
+    pthread_mutex_unlock(&g_mu);
     save_jar();
     printf("webnet: the Web Browser is gone; exiting\n");
     return 0;

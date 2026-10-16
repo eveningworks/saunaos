@@ -15,12 +15,27 @@
 
 #define SEND_WAIT_MS 5000
 
+// The upgraded navigation's URL, and its fetch once started (wc_net_upgrade()).
+static char g_upgrade[WC_URL_MAX];
+static uint32_t g_upgrade_rid;
+static int g_upgrade_answered;   // a header came: https was reached
+
+void wc_net_upgrade(const char *url) {
+    snprintf(g_upgrade, sizeof g_upgrade, "%s", url ? url : "");
+    g_upgrade_rid = 0;
+    g_upgrade_answered = 0;
+}
+
 static int remote_start(uint32_t id, const char *url, int post, const char *const *headers,
                         const void *body, size_t body_len) {
     if (!g_wc_has_net) return -1;
     static char rec[UBULK_REC_MAX];
     struct wn_fetch h = { post ? WN_METHOD_POST : WN_METHOD_GET, (int32_t)strlen(url), 0,
-                          (int32_t)body_len };
+                          (int32_t)body_len, 0 };
+    if (g_upgrade[0] && !g_upgrade_rid && !strcmp(url, g_upgrade)) {
+        h.flags = WN_FETCH_UPGRADED;
+        g_upgrade_rid = id;
+    }
     size_t n = sizeof h;
     if (n + (size_t)h.url_len > sizeof rec) return -1;
     memcpy(rec + n, url, (size_t)h.url_len);
@@ -78,6 +93,7 @@ void wc_net_pump(void) {
     while (ubulk_client_recv(&g_wc_net, &m, buf, UBULK_REC_MAX)) {
         switch (m.type) {
         case WN_HEADER:
+            if (m.id == g_upgrade_rid) g_upgrade_answered = 1;
             ns_fetch_http_remote_header(m.id, m.data, m.len);
             break;
         case WN_DATA:
@@ -98,6 +114,18 @@ void wc_net_pump(void) {
             if (m.len < sizeof d) break;
             memcpy(&d, m.data, sizeof d);
             buf[m.len] = '\0';
+            if (g_upgrade_rid && m.id == g_upgrade_rid) {
+                int fall = d.rc != 0 && !g_upgrade_answered;
+                static char url[WC_URL_MAX];   // off the ring-3 frame
+                snprintf(url, sizeof url, "%s", g_upgrade);
+                wc_net_upgrade(NULL);
+                // Not handed to NetSurf: no error page, the http twin
+                // replaces the load (which aborts this fetch).
+                if (fall) {
+                    wc_window_downgrade(url);
+                    break;
+                }
+            }
             ns_fetch_http_remote_done(m.id, d.rc, d.cert_err, buf + sizeof d);
             break;
         }

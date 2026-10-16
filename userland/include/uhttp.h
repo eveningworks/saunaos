@@ -105,6 +105,11 @@ struct uhttp_request {
     int allow_weak_entropy;
 
     const char *ca_dir; // NULL = UTLS_DEFAULT_CA_DIR
+    // How long a TCP connect may take before the fetch fails; 0 = the
+    // kernel's own. A browser trying https on a host typed without a
+    // scheme gives it 3 s and falls back to http (Chrome's HTTPS-Upgrades).
+    unsigned connect_timeout_ms;
+
     // How many 301/302/303/307/308 hops to follow -- 0, the default,
     // follows none and hands the redirect to the caller as its status
     // (curl without -L). Never from https to http: a downgrade the

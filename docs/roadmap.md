@@ -861,7 +861,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Browser stage 0: vendor NetSurf at pinned SHAs, fill the libc gaps~~ DONE 2026-10-12 -- `/tests/nsmonkey` links
 - [x] ~~Browser stage 1: NetSurf's headless front end on `file:` pages, diffed against the host build~~ DONE 2026-10-12 -- 10/10 identical
 - [x] ~~Browser stage 2: HTTP/1.1 in `libhttp` and a threaded NetSurf fetcher over it~~ DONE 2026-10-12 -- the web, over http and https
-- [ ] Browser: a typed host goes to https with no fallback to http when 443 does not answer
+- [x] ~~Browser: a typed host goes to https with no fallback to http~~ DONE 2026-10-16 -- quietly, within 3 s
 - [ ] Browser: NetSurf's disk cache, under `/var/cache/browser` -- the cache is memory-only today
 - [ ] Browser: a search-engine setting -- DuckDuckGo's no-JavaScript page is the only one
 - [x] ~~Browser stage 3: the Web Browser window (W1), drawing local pages~~ DONE 2026-10-12 -- tabs, links, history, scrolling
@@ -869,8 +869,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Browser: the address field holds 127 bytes (`UUI_TEXTBOX_MAX`), and real addresses run longer~~ DONE 2026-10-12 -- 8 KiB
 - [x] ~~Browser stage 4: the lock's connection card, Downloads, find in page, zoom, bookmarks and history~~ DONE 2026-10-13
 - [x] ~~Browser stage 5: `uui_webview`, the engine as a content process~~ DONE 2026-10-13 -- a process per tab, `/bin/webnet`, Help on it
-- [ ] Browser: a tab's back/forward list survives its content process -- it is NetSurf's, in the process that died
-- [ ] Browser: HTTP authentication kept by `/bin/webnet`, not per content process
+- [x] ~~Browser: a tab's back/forward list survives its content process~~ DONE 2026-10-16 -- tabs restored at launch too
+- [ ] Browser: a startup setting -- the last tabs (today, always) or the start page, Chrome's "On startup"
+- [x] ~~Browser: HTTP authentication kept by `/bin/webnet`, not per content process~~ DONE 2026-10-16 -- `uui_signin`
+- [ ] Browser: HTTP Digest authentication -- webnet answers Basic only
 - [ ] Browser: a sandboxed content process -- with no per-process sandbox, stage 5 isolates crashes, not compromise
 - [ ] Browser stage 6: JavaScript through Duktape, off by default until measured
 - [x] ~~Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans~~ DONE 2026-10-13

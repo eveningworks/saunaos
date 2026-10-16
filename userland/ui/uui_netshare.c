@@ -6,7 +6,6 @@
 #include <string.h>
 #include "ui/ugfx.h"
 #include "lib/unetmount.h"
-#include "lib/icon_cache.h"
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "userfs_abi.h"
@@ -28,9 +27,6 @@ static void open_dialog(struct uui_netshare *n, const char *ok_label) {
     uui_form_ops.natural_size(&n->form, &w, &h);
     uui_dialog_set_body(n->dlg, &n->item, ugfx_char_w() * 44, h);
     uui_dialog_focus(n->dlg, &n->item);
-    // A padlock beside Sign in's title; Add has none, so its fields keep
-    // the dialog's whole width.
-    if (n->kind == KIND_SIGNIN) uui_dialog_set_picture(n->dlg, icon_get("lock", ugfx_char_h() * 3));
 }
 
 static void prepare(struct uui_netshare *n, struct uui_dialog *d, int kind) {
@@ -63,26 +59,34 @@ void uui_netshare_signin(struct uui_netshare *n, struct uui_dialog *d, const cha
     const char *name = strrchr(point, '/');
     snprintf(n->row, sizeof n->row, "%s on %s needs a user name and password.",
              name && name[1] ? name + 1 : point, n->server);
-    n->f_user = uui_form_add_text(&n->form, "User name", user ? user : "", NULL);
-    n->f_pass = uui_form_add_password(&n->form, "Password", NULL);
-    n->f_remember = uui_form_add_check(&n->form, "Remember password", 0,
-                                       "Saved as a hash, never as text.");
-    open_dialog(n, "Sign in");
-    uui_form_focus(&n->form, user && user[0] ? n->f_pass : n->f_user);
+    struct uui_signin_spec spec = {
+        .title = n->title,
+        .lines = { n->row },
+        .user = user,
+        .remember = "Remember password",
+        .remember_hint = "Saved as a hash, never as text.",
+    };
+    uui_signin_open(&n->si, d, &spec);
 }
 
-struct uui_item *uui_netshare_item(struct uui_netshare *n) { return &n->item; }
+struct uui_item *uui_netshare_item(struct uui_netshare *n) {
+    return n->kind == KIND_SIGNIN ? uui_signin_item(&n->si) : &n->item;
+}
 
 int uui_netshare_is_open(const struct uui_netshare *n) {
+    if (n->kind == KIND_SIGNIN) return uui_signin_is_open(&n->si);
     return n->dlg && uui_dialog_is_open(n->dlg) && n->dlg->body == &n->item;
 }
 
 static void reopen_with(struct uui_netshare *n, const char *error, int focus_row) {
+    if (n->kind == KIND_SIGNIN) {
+        uui_signin_reask(&n->si, error);
+        return;
+    }
     snprintf(n->error, sizeof n->error, "%s", error);
     uui_form_set_error(&n->form, n->error);
-    open_dialog(n, n->kind == KIND_ADD ? "Add" : "Sign in");
-    if (n->kind == KIND_ADD)
-        uui_dialog_set_note(n->dlg, "Read-only. You are asked to sign in the first time it opens.");
+    open_dialog(n, "Add");
+    uui_dialog_set_note(n->dlg, "Read-only. You are asked to sign in the first time it opens.");
     uui_form_focus(&n->form, focus_row);
 }
 
@@ -101,21 +105,18 @@ static void *signin_thread(void *arg) {
 static pthread_t g_thread;   // one sign-in at a time, for the process
 
 static void answer_signin(struct uui_netshare *n, int code) {
-    if (code != NS_OK) {
-        uui_form_wipe_passwords(&n->form);
-        n->state = UUI_NETSHARE_CLOSED;
-        return;
+    char user[128], pass[256];
+    int keep;
+    switch (uui_signin_answer(&n->si, code, user, sizeof user, pass, sizeof pass, &keep)) {
+    case UUI_SIGNIN_REASKED: return;
+    case UUI_SIGNIN_CANCELLED: n->state = UUI_NETSHARE_CLOSED; return;
     }
-    const char *user = uui_form_text(&n->form, n->f_user);
-    if (!user[0]) { reopen_with(n, "Enter a user name.", n->f_user); return; }
     struct userfs_ctl *c = calloc(1, sizeof *c);
-    if (!c) { reopen_with(n, "Out of memory.", n->f_pass); return; }
+    if (!c) { memset(pass, 0, sizeof pass); reopen_with(n, "Out of memory.", 0); return; }
     snprintf(c->point, sizeof c->point, "%s", n->point);
-    int len = snprintf((char *)c->data, sizeof c->data, "%s%c%c%s%c%d", user, 0, 0,
-                       uui_form_text(&n->form, n->f_pass), 0,
-                       uui_form_checked(&n->form, n->f_remember) ? 1 : 0);
-    uui_form_wipe_passwords(&n->form);
-    if (len < 0 || len + 1 > (int)sizeof c->data) { free(c); reopen_with(n, "Too long.", n->f_user); return; }
+    int len = snprintf((char *)c->data, sizeof c->data, "%s%c%c%s%c%d", user, 0, 0, pass, 0, keep ? 1 : 0);
+    memset(pass, 0, sizeof pass);
+    if (len < 0 || len + 1 > (int)sizeof c->data) { free(c); reopen_with(n, "Too long.", 0); return; }
     c->code = USERFS_CTL_LOGIN;
     c->len = (uint32_t)len + 1;
     n->ctl = c;
@@ -214,7 +215,7 @@ int uui_netshare_poll(struct uui_netshare *n, char *out, size_t cap) {
     }
     reopen_with(n, n->result == -EACCES ? "Wrong user name or password."
                  : n->result == -ETIMEDOUT ? "The server did not answer."
-                 : "Could not sign in.", n->f_pass);
+                 : "Could not sign in.", 0);
     n->state = UUI_NETSHARE_IDLE;
     return UUI_NETSHARE_IDLE;
 }

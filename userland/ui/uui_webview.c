@@ -156,6 +156,7 @@ static void unload_oldest(struct uui_webview *keep) {
             if (v->pid && v != keep && !v->visible && (!old || v->shown_ns < old->shown_ns)) old = v;
         if (!old) return;
         ulogf("webview: unloaded %d (%s)\n", old->pid, old->url);
+        uui_webview_history_snapshot(old);
         end_process(old);
         old->unloaded = 1;
     }
@@ -206,8 +207,17 @@ void uui_webview_init(struct uui_webview *v, const struct uui_webview_host *host
     g_views = v;
 }
 
+static void hist_clear(struct uui_webview *v) {
+    for (int i = 0; i < v->nhist; i++) {
+        free(v->hist[i].url);
+        free(v->hist[i].title);
+    }
+    v->nhist = v->hist_at = 0;
+}
+
 void uui_webview_destroy(struct uui_webview *v) {
     end_process(v);
+    hist_clear(v);
     free(v->copy);
     free(v->pending_nav);
     v->copy = NULL;
@@ -222,24 +232,152 @@ static void changed(struct uui_webview *v, unsigned what) {
 
 // --- what the app asks for -------------------------------------------------
 
-void uui_webview_navigate(struct uui_webview *v, const char *url) {
+static void navigate_as(struct uui_webview *v, const char *url, int upgraded) {
+    uint32_t type = upgraded ? WV_NAVIGATE_UPGRADED : WV_NAVIGATE;
     // A live page keeps ITS address until its content process reports
     // the new one: an app shown the new address beside the old page's
     // finished state would take the old page for the new.
     if (!v->ready) snprintf(v->url, sizeof v->url, "%s", url);
     if (v->ready) {
-        send_rec(v, WV_NAVIGATE, url, (uint32_t)strlen(url));
+        send_rec(v, type, url, (uint32_t)strlen(url));
         return;
     }
     free(v->pending_nav);
     v->pending_nav = strdup(url);
+    v->pending_upgraded = upgraded;
+    v->pending_go = 0;
     if (!v->pid) start_process(v);
     if (v->stopped) changed(v, UUI_WV_STOPPED);
 }
 
+void uui_webview_navigate(struct uui_webview *v, const char *url) { navigate_as(v, url, 0); }
+void uui_webview_navigate_upgraded(struct uui_webview *v, const char *url) { navigate_as(v, url, 1); }
+
+// --- back/forward ---------------------------------------------------------------
+
+static void hist_sync(struct uui_webview *v) {
+    v->can_back = v->hist_at > 0;
+    v->can_forward = v->hist_at < v->nhist - 1;
+}
+
+static char *dup_or_empty(const char *s) { return strdup(s ? s : ""); }
+
+void uui_webview_history_snapshot(struct uui_webview *v) {
+    if (!v->nhist || !v->hist_live) return;
+    v->hist[v->hist_at].sx = v->live_sx;
+    v->hist[v->hist_at].sy = v->live_sy;
+}
+
+static void send_go(struct uui_webview *v) {
+    const struct uui_wv_entry *e = &v->hist[v->hist_at];
+    static char buf[sizeof(struct wv_go) + WEBVIEW_URL_MAX];
+    struct wv_go g = { e->sx, e->sy };
+    size_t n = strlen(e->url);
+    if (n > WEBVIEW_URL_MAX) n = WEBVIEW_URL_MAX;
+    memcpy(buf, &g, sizeof g);
+    memcpy(buf + sizeof g, e->url, n);
+    send_rec(v, WV_GO, buf, (uint32_t)(sizeof g + n));
+}
+
+// Loads hist[hist_at] without adding an entry -- through a content
+// process that is alive, or one started for it.
+static void go_entry(struct uui_webview *v) {
+    const struct uui_wv_entry *e = &v->hist[v->hist_at];
+    snprintf(v->url, sizeof v->url, "%s", e->url);
+    snprintf(v->title, sizeof v->title, "%s", e->title);
+    v->hist_live = 0;
+    v->unloaded = 0;
+    hist_sync(v);
+    if (v->ready) {
+        send_go(v);
+    } else {
+        free(v->pending_nav);
+        v->pending_nav = NULL;
+        v->pending_go = 1;
+        if (v->stopped) {
+            v->stopped = 0;
+            changed(v, UUI_WV_STOPPED);
+        }
+        if (!v->pid) start_process(v);
+    }
+    changed(v, UUI_WV_TITLE | UUI_WV_URL | UUI_WV_STATE);
+}
+
+static void step(struct uui_webview *v, int delta) {
+    int to = v->hist_at + delta;
+    if (to < 0 || to >= v->nhist) return;
+    uui_webview_history_snapshot(v);
+    v->hist_at = to;
+    go_entry(v);
+}
+
+void uui_webview_back(struct uui_webview *v) { step(v, -1); }
+void uui_webview_forward(struct uui_webview *v) { step(v, +1); }
+
+// The engine committed a page. A new one truncates what was ahead of the
+// current entry, as every browser does; the same address again is the
+// current entry, not a step (Chrome makes it a replacement).
+static void hist_commit(struct uui_webview *v, const char *url, int replace) {
+    if (!replace && v->nhist && !strcmp(v->hist[v->hist_at].url, url)) replace = 1;
+    if (replace && v->nhist) {
+        free(v->hist[v->hist_at].url);
+        v->hist[v->hist_at].url = dup_or_empty(url);
+    } else {
+        uui_webview_history_snapshot(v);
+        while (v->nhist > v->hist_at + 1) {
+            v->nhist--;
+            free(v->hist[v->nhist].url);
+            free(v->hist[v->nhist].title);
+        }
+        if (v->nhist == UUI_WV_HISTORY_MAX) {
+            free(v->hist[0].url);
+            free(v->hist[0].title);
+            memmove(v->hist, v->hist + 1, (UUI_WV_HISTORY_MAX - 1) * sizeof v->hist[0]);
+            v->nhist--;
+        }
+        struct uui_wv_entry *e = &v->hist[v->nhist++];
+        e->url = dup_or_empty(url);
+        e->title = dup_or_empty("");
+        e->sx = e->sy = 0;
+        v->hist_at = v->nhist - 1;
+    }
+    v->hist_live = 0;
+    hist_sync(v);
+}
+
+void uui_webview_history_set(struct uui_webview *v, const struct uui_wv_entry *e, int n, int at) {
+    hist_clear(v);
+    if (n > UUI_WV_HISTORY_MAX) {
+        at -= n - UUI_WV_HISTORY_MAX;
+        e += n - UUI_WV_HISTORY_MAX;
+        n = UUI_WV_HISTORY_MAX;
+    }
+    for (int i = 0; i < n; i++) {
+        v->hist[i].url = dup_or_empty(e[i].url);
+        v->hist[i].title = dup_or_empty(e[i].title);
+        v->hist[i].sx = e[i].sx;
+        v->hist[i].sy = e[i].sy;
+    }
+    v->nhist = n;
+    v->hist_at = at < 0 ? 0 : at >= n ? n - 1 : at;
+    v->hist_live = 0;
+    hist_sync(v);
+    if (!n) return;
+    snprintf(v->url, sizeof v->url, "%s", v->hist[v->hist_at].url);
+    snprintf(v->title, sizeof v->title, "%s", v->hist[v->hist_at].title);
+    if (!v->pid) v->unloaded = 1;
+    changed(v, UUI_WV_TITLE | UUI_WV_URL | UUI_WV_STATE);
+}
+
+// Reloads -- and a stopped or unloaded view goes back to its current
+// entry, scrolled where it was, rather than adding the page again.
 void uui_webview_reload(struct uui_webview *v) {
     if (v->pid && v->ready && !v->stopped) {
         send_rec(v, WV_RELOAD, NULL, 0);
+        return;
+    }
+    if (v->nhist) {
+        go_entry(v);
         return;
     }
     if (v->stopped) {
@@ -250,8 +388,6 @@ void uui_webview_reload(struct uui_webview *v) {
 }
 
 void uui_webview_stop(struct uui_webview *v) { send_rec(v, WV_STOP, NULL, 0); }
-void uui_webview_back(struct uui_webview *v) { send_rec(v, WV_BACK, NULL, 0); }
-void uui_webview_forward(struct uui_webview *v) { send_rec(v, WV_FORWARD, NULL, 0); }
 void uui_webview_zoom(struct uui_webview *v, int dir) { send_int(v, WV_ZOOM, dir); }
 void uui_webview_crash(struct uui_webview *v) { send_rec(v, WV_CRASH, NULL, 0); }
 void uui_webview_find_clear(struct uui_webview *v) { send_rec(v, WV_FIND_CLEAR, NULL, 0); }
@@ -272,7 +408,8 @@ void uui_webview_set_visible(struct uui_webview *v, int visible) {
         v->shown_ns = sys_monotonic_ns();
         if (v->unloaded && v->url[0]) {
             v->unloaded = 0;
-            uui_webview_navigate(v, v->url);
+            if (v->nhist) go_entry(v);
+            else uui_webview_navigate(v, v->url);
         }
     }
     send_int(v, WV_VISIBLE, visible);
@@ -385,10 +522,14 @@ static void on_hello(struct uui_webview *v) {
     send_size(v);
     send_int(v, WV_VISIBLE, v->visible);
     if (v->pending_nav) {
-        send_rec(v, WV_NAVIGATE, v->pending_nav, (uint32_t)strlen(v->pending_nav));
+        send_rec(v, v->pending_upgraded ? WV_NAVIGATE_UPGRADED : WV_NAVIGATE, v->pending_nav,
+                 (uint32_t)strlen(v->pending_nav));
         free(v->pending_nav);
         v->pending_nav = NULL;
+    } else if (v->pending_go && v->nhist) {
+        send_go(v);
     }
+    v->pending_go = 0;
 }
 
 static void handle(const struct ubulk_msg *m) {
@@ -404,8 +545,22 @@ static void handle(const struct ubulk_msg *m) {
         break;
     case WV_TITLE:
         copy_str(v->title, sizeof v->title, m, 0, m->len);
+        if (v->nhist) {
+            free(v->hist[v->hist_at].title);
+            v->hist[v->hist_at].title = dup_or_empty(v->title);
+        }
         changed(v, UUI_WV_TITLE);
         break;
+    case WV_COMMIT: {
+        struct wv_commit c;
+        if (m->len < sizeof c) break;
+        memcpy(&c, m->data, sizeof c);
+        static char url[WEBVIEW_URL_MAX];
+        copy_str(url, sizeof url, m, sizeof c, m->len - sizeof c);
+        hist_commit(v, url, c.replace);
+        changed(v, UUI_WV_STATE);
+        break;
+    }
     case WV_URL:
         copy_str(v->url, sizeof v->url, m, 0, m->len);
         v->nlinks = 0;   // a new page's links come after it
@@ -419,6 +574,13 @@ static void handle(const struct ubulk_msg *m) {
         if (m->len >= sizeof v->st) {
             int was = v->st.pointer;
             memcpy(&v->st, m->data, sizeof v->st);
+            // Only a page at rest says where it was left: a navigation
+            // resets the scroll as it starts, before its commit arrives.
+            if (!v->st.loading) {
+                v->hist_live = 1;
+                v->live_sx = v->st.sx;
+                v->live_sy = v->st.sy;
+            }
             // The shape arrives a moment after the motion that asked for
             // it, and the toolkit asks a widget only ON a motion: a
             // pointer held still over text would keep the arrow.
@@ -442,6 +604,12 @@ static void handle(const struct ubulk_msg *m) {
             changed(v, UUI_WV_FIND);
         }
         break;
+    case WV_DOWNGRADED: {
+        char host[256];
+        copy_str(host, sizeof host, m, 0, m->len);
+        if (v->host && v->host->downgraded) v->host->downgraded(v, host);
+        break;
+    }
     case WV_OPEN_TAB:
     case WV_EXTERNAL: {
         static char url[WEBVIEW_URL_MAX];
@@ -493,6 +661,7 @@ static void handle(const struct ubulk_msg *m) {
 static void died(int pid) {
     struct uui_webview *v = by_pid(pid);
     if (!v) return;
+    uui_webview_history_snapshot(v);
     v->pid = 0;
     v->ready = 0;
     unmap_buf(v);

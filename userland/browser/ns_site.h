@@ -27,9 +27,10 @@ struct ns_site {
     int have_leaf;
     struct utls_cert_info leaf;    // the site's own certificate
     int cookies;                   // stored for this host and its parents
+    int logins;                    // HTTP sign-ins webnet keeps for it
 };
 
 // The content process's account of the page, in the card's terms.
-void ns_site_from(struct ns_site *out, const struct wv_site *in, int cookies);
+void ns_site_from(struct ns_site *out, const struct wv_site *in, int cookies, int logins);
 
 #endif

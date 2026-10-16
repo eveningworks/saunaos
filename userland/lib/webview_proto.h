@@ -15,7 +15,7 @@
 
 #define WEBVIEW_SERVICE_FMT "wv%d"       // the embedding app's pid (no dot: lib/uchan.h)
 #define WEBVIEW_BUF_FMT     "wvb.%d.%u"  // the content process's pid, a generation
-#define WEBVIEW_VERSION     1
+#define WEBVIEW_VERSION     2
 #define WEBVIEW_URL_MAX     8192         // a URL as long as browsers meet in practice
 
 // --- app -> content --------------------------------------------------
@@ -24,8 +24,7 @@ enum {
     WV_NAVIGATE = 1,   // string: a URL, already made from what was typed
     WV_RELOAD,
     WV_STOP,
-    WV_BACK,
-    WV_FORWARD,
+    WV_GO,             // struct wv_go then a URL: an entry of the APP's back/forward list
     WV_RESIZE,         // struct wv_size: the page area, without the scrollbar
     WV_MOUSE,          // struct wv_mouse
     WV_WHEEL,          // struct wv_wheel
@@ -38,7 +37,15 @@ enum {
     WV_SCHEME_DATA,    // id: the request; struct wv_scheme then bytes (see below)
     WV_CRASH,          // the about:crash a person TYPED (Chrome's chrome://crash)
     WV_VISIBLE,        // struct wv_int: 0 when the view's tab is in the background
+    WV_NAVIGATE_UPGRADED, // string: an https URL made from a host typed with no scheme
 };
+
+// A HOST TYPED WITHOUT A SCHEME IS TRIED OVER HTTPS AND QUIETLY FALLS BACK
+// TO HTTP when https cannot be reached at all -- no connection within 3 s,
+// no handshake, a certificate refused -- Chrome's HTTPS-Upgrades. Never for
+// a link or an https:// typed out. The engine loads the http twin itself
+// and says so with WV_DOWNGRADED (the host), so the app tries http first
+// for that host from then on; the address field's "Not secure" says the rest.
 
 // --- content -> app --------------------------------------------------
 
@@ -57,7 +64,19 @@ enum {
     WV_SCHEME_GET,     // id: the request; string: an app: URL to answer
     WV_EXTERNAL,       // string: an http(s) link in a view with no network
     WV_LINKS,          // the links in view: struct wv_link each, its href after it
+    WV_COMMIT,         // struct wv_commit then a URL: the page now shown, for back/forward
+    WV_DOWNGRADED,     // string: a host whose https did not answer, loaded over http instead
 };
+
+// BACK/FORWARD IS THE APP'S LIST, not NetSurf's: it must outlive the
+// content process (Chrome's NavigationController, Firefox's session
+// history in the parent). The engine reports each page it commits --
+// `replace` 0 a new entry after the current one, 1 the current one's
+// own address (a redirect, or the page a WV_GO landed on) -- and the app
+// answers Back with WV_GO, which loads an entry WITHOUT adding one and
+// scrolls to (sx, sy) once the page has finished loading.
+struct wv_commit { int32_t replace; };
+struct wv_go     { int32_t sx, sy; };
 
 // A link on the page, in VIEW pixels (outside the view when scrolled
 // off) -- what a test clicks, and an accessibility tree's hyperlinks in
@@ -97,7 +116,7 @@ struct wv_frame {
 
 // The little things that change together, sent whole whenever any does.
 struct wv_state {
-    int32_t loading, can_back, can_forward;
+    int32_t loading;
     int32_t ext_w, ext_h;      // the laid-out page
     int32_t sx, sy;            // its scroll offset
     int32_t caret_x, caret_y, caret_h;   // view pixels; caret_h 0 = none

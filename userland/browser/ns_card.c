@@ -94,9 +94,16 @@ static int build(const struct ns_card *c, struct line *L) {
     }
     if (s->state != NS_SITE_FILE && s->state != NS_SITE_INTERNAL && s->state != NS_SITE_NONE) {
         L[n].gap_before = 1;
-        L[n].caption = "Cookies";
-        if (s->cookies) snprintf(L[n].text, sizeof L[n].text, "%d stored for this site", s->cookies);
+        // Chrome's "Cookies and site data": what Clear deletes.
+        L[n].caption = "Site data";
+        char cookies[32] = "", logins[32] = "";
+        if (s->cookies) snprintf(cookies, sizeof cookies, "%d cookie%s", s->cookies, s->cookies == 1 ? "" : "s");
+        if (s->logins == 1) snprintf(logins, sizeof logins, "a sign-in");
+        else if (s->logins) snprintf(logins, sizeof logins, "%d sign-ins", s->logins);
+        if (cookies[0] && logins[0]) snprintf(L[n].text, sizeof L[n].text, "%s and %s", cookies, logins);
+        else if (cookies[0] || logins[0]) snprintf(L[n].text, sizeof L[n].text, "%s", cookies[0] ? cookies : logins);
         else snprintf(L[n].text, sizeof L[n].text, "None stored for this site");
+        if (!cookies[0] && logins[0]) L[n].text[0] = 'A';   // a sentence's capital
         L[n++].color = UTHEME_TEXT;
     }
     return n;
@@ -123,7 +130,7 @@ static void layout(struct ns_card *c, int ax, int ay, int bw, int bh) {
     if (w < min) w = min;
     if (w > bw - 8) w = bw - 8;
     c->clear_w = 0;
-    if (L[n - 1].caption && !strcmp(L[n - 1].caption, "Cookies") && c->site.cookies) {
+    if (L[n - 1].caption && !strcmp(L[n - 1].caption, "Site data") && (c->site.cookies || c->site.logins)) {
         c->clear_w = ugfx_text_width("Clear") + 2 * pad();
         c->clear_h = line_h();
     }
@@ -285,7 +292,7 @@ const struct uui_widget_ops ns_card_ops = {
     .describe       = c_describe,
 };
 
-void ns_site_from(struct ns_site *out, const struct wv_site *in, int cookies) {
+void ns_site_from(struct ns_site *out, const struct wv_site *in, int cookies, int logins) {
     memset(out, 0, sizeof *out);
     out->state = in->state;
     snprintf(out->host, sizeof out->host, "%s", in->host);
@@ -303,4 +310,5 @@ void ns_site_from(struct ns_site *out, const struct wv_site *in, int cookies) {
     out->leaf.not_after.year = c->na_year, out->leaf.not_after.mon = c->na_mon;
     out->leaf.not_after.day = c->na_day;
     out->cookies = cookies < 0 ? 0 : cookies;
+    out->logins = logins < 0 ? 0 : logins;
 }

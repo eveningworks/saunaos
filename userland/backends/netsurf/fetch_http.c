@@ -360,7 +360,8 @@ static bool fh_start(void *vf) {
         add_header(f, "Cookie: %s%s", cookie, "");
         free(cookie);
     }
-    const char *auth = urldb_get_auth_details(f->url, NULL);
+    // Remote, logins are webnet's: the page never holds one.
+    const char *auth = g_remote ? NULL : urldb_get_auth_details(f->url, NULL);
     if (auth) {
         uint8_t *b64 = NULL;
         size_t n = 0;
@@ -482,7 +483,9 @@ static bool process_headers(struct hfetch *f) {
         fetch_send_callback(&msg, f->parent);
         return true;
     }
-    if (code == HTTP_RESPONSE_UNAUTHORIZED) {
+    // Remote, a 401 that reaches here is one the person cancelled: its
+    // body is the page.
+    if (code == HTTP_RESPONSE_UNAUTHORIZED && !g_remote) {
         msg.type = FETCH_AUTH;
         msg.data.auth.realm = f->realm;
         fetch_send_callback(&msg, f->parent);

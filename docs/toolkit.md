@@ -20,6 +20,7 @@
 | `uappentry.h` | The desktop's application entries -- /usr/wm/applications/*.desktop -- read one, walk them, or find the one that launches a given program. |
 | `uarchive.h` | AN ARCHIVE, WHICHEVER KIND IT IS -- .zip (lib/uzip.h), .tar, .tar.gz or .tgz, and a lone .gz (lib/utar.h) -- listed, a member taken out, or a new one made from files and folders. |
 | `uargs.h` | A /bin program's arguments from a DECLARED TABLE: one table is both what the parser accepts and what -h/--help prints, so the help cannot list an option the program does not take (clap's, argparse'... |
+| `ubase64.h` | ubase64 -- RFC 4648 base64, the standard alphabet with '=' padding: what an HTTP Basic credential, a data: URL or a MIME part carries. |
 | `ubookmarks.h` | ubookmarks -- a list of bookmarked pages, kept in one file: a line per bookmark, "URL<tab>title", in the order they were added, readable with `less`. |
 | `ubootcfg.h` | GRUB's grub.cfg as an EDITABLE model: parse, change one thing, check, save -- for `bootcfg`, the Boot Manager and the Startup settings page. |
 | `ubootlayout.h` | Where GRUB's files are on the boot volume, and the one-time move from the layout before this one. |
@@ -220,6 +221,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_segmented.h` | A SEGMENTED CONTROL: two to four mutually-exclusive choices as one row of joined buttons, the chosen one filled -- macOS's NSSegmentedControl, Windows' and KDE's view switchers. |
 | `uui_setting_row.h` | ONE SETTING AS A CARD: its name and a line or two of description on the left, its control on the right -- or, for a control too wide to sit beside the text (a radio list, a long field), under it. |
 | `uui_sidebar.h` | A NAVIGATION SIDEBAR: bold section headings with selectable items under them. |
+| `uui_signin.h` | A SIGN-IN DIALOG for any app with a uui_dialog: a title, a line or two saying who is asking, a user name, a password, and optionally a Remember row -- the form, its checks, and the wiping. |
 | `uui_sizepick.h` | uui_sizepick -- A PICTURE'S SIZE, CHOSEN: preset cards that each show their size's SHAPE, and a width and a height beside them -- Photoshop's New Document and Paint.NET's presets. |
 | `uui_slider.h` | A slider with DISCRETE STOPS -- one per option, not a continuous range. |
 | `uui_sndformat.h` | uui_sndformat -- one sound card's output FORMAT as a panel: a Sample rate list (Match what plays, then each rate the card takes), the rates Match may switch to as checkboxes, a Bit depth list (Auto... |

@@ -50,6 +50,9 @@ void wc_window_handle(const struct ubulk_msg *m);
 // Paints what is dirty into the buffer and sends a FRAME, unless the last
 // one is not acked yet; then sends the state and site if they changed.
 void wc_window_flush(void);
+// An upgraded navigation's https could not be reached: load its http twin
+// (lib/webview_proto.h, WV_NAVIGATE_UPGRADED). Later, from the main loop.
+void wc_window_downgrade(const char *https_url);
 
 // --- wc_site.c -----------------------------------------------------------
 void wc_site_get(struct gui_window *gw, struct wv_site *out);
@@ -62,6 +65,9 @@ void wc_net_init(void);
 void wc_net_pump(void);
 // Tells the network process to save fetch `id`'s response as `name`.
 void wc_net_download(uint32_t id, const char *name);
+// The https URL of an upgraded navigation, or NULL for none: its fetch is
+// flagged for webnet, and a failure before any header falls back.
+void wc_net_upgrade(const char *url);
 
 // --- wc_scheme.c ---------------------------------------------------------
 // The app: scheme, answered by the embedding app.

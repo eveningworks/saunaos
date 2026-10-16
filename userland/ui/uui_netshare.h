@@ -13,7 +13,8 @@
 // answer must not freeze the window -- and the dialog says "Signing
 // in…" until it does. The password goes from the field to the worker
 // and is wiped here; only its hash is ever saved, and only by the
-// worker, and only when Remember is ticked.
+// worker, and only when Remember is ticked. The Sign in form itself is
+// the toolkit's (ui/uui_signin.h); what is done with it is this file's.
 //
 //     uui_netshare_add(&ns, &dlg);             // or _signin(&ns, &dlg, "/net/media", ...)
 //     ... the dialog's body item is uui_netshare_item(&ns) ...
@@ -22,6 +23,7 @@
 #include <stddef.h>
 #include "ui/uui_dialog.h"
 #include "ui/uui_form.h"
+#include "ui/uui_signin.h"
 #include "ui/uui_widget.h"
 
 enum {
@@ -47,7 +49,7 @@ struct uui_netshare {
     char error[128];
     char suggested[32];             // add: the name last suggested from the address
     int f_addr, f_name, f_open;     // add's rows
-    int f_user, f_pass, f_remember; // sign-in's rows
+    struct uui_signin si;           // sign-in's dialog
     unsigned long long since;       // add: when the file was written (ms)
     volatile int done;              // the sign-in thread's
     int result;                     // and its answer (0 or -errno)

@@ -103,7 +103,7 @@ static void layout(struct uui_dialog *d) {
     if (d->y < d->by) d->y = d->by;
 
     if (d->body && d->body->ops && d->body->ops->set_geometry) {
-        int tx = text_x(d);
+        int tx = d->body_full ? d->x + pad() : text_x(d);
         d->body->ops->set_geometry(d->body->widget, tx,
                                    d->y + pad() + head_h(d) + note_h(d) + gap,
                                    d->x + d->w - pad() - tx, body_h - gap * 2);
@@ -157,6 +157,7 @@ void uui_dialog_open(struct uui_dialog *d, const char *title,
     d->default_button = default_button;
     d->cancel_code = cancel_code;
     d->picture = NULL;
+    d->body_full = 0;
     d->note = NULL;
     d->tab_count = 0;
     d->committed = -1;
