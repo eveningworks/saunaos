@@ -73,6 +73,7 @@ struct uui_webview {
     // --- read-only to the app ---
     int pid;                       // the content process, 0 when none
     int stopped;                   // the engine died: C3
+    int nomem;                     // ...because the page ran out of memory
     int unloaded;                  // let go to save memory; reloads when shown
     char title[256];
     char url[WEBVIEW_URL_MAX];

@@ -866,6 +866,14 @@ int sys_getpriority(int which, int who) {
     return is_err(r) ? (int)err(r) : 20 - (int)r;
 }
 
+int sys_getrlimit(int resource, struct sys_rlimit *out) {
+    return (int)err(syscall2(SYS_GETRLIMIT, (uint64_t)resource, (uint64_t)(uintptr_t)out));
+}
+
+int sys_setrlimit(int resource, const struct sys_rlimit *in) {
+    return (int)err(syscall2(SYS_SETRLIMIT, (uint64_t)resource, (uint64_t)(uintptr_t)in));
+}
+
 int sys_sched_setscheduler(int pid, int policy, int prio) {
     return (int)err(syscall3(SYS_SCHED_SETSCHEDULER, (uint64_t)pid, (uint64_t)policy,
                              (uint64_t)prio));

@@ -445,6 +445,7 @@ def run(dbg, qmp, args, net):
     bookmarks_and_history(dbg, page, at, shot)
     stopped_page(dbg, page, at, shot)
     javascript_local(dbg, page, at, shot)
+    out_of_memory(dbg)
     if net:
         network(dbg, net, page, at, shot)
     history_survives(dbg, page)
@@ -911,6 +912,7 @@ def sandboxed(dbg, host, page, at, shot):
 # RED <noscript> row shows instead. Each state is the other's control.
 JS_GREEN, JS_RED = (48, 160, 64), (192, 48, 48)
 SCRIPT_PAGE = "/tests/web/script.html"
+OOM_PAGE = "/tests/web/oom.html"
 
 
 def script_bands(im, page, at):
@@ -972,6 +974,32 @@ def javascript_local(dbg, page, at, shot):
         st = wait(dbg, lambda s: s.get("ask.open") == 0, 4)
         check("...and Esc closes it", st.get("ask.open") == 0, f"ask.open {st.get('ask.open')}")
     js_global(dbg, "on")
+
+
+def out_of_memory(dbg):
+    """A page's engine is held to its memory limit (RLIMIT_DATA, set from
+    the app's --memory) and ENDS when its scripts run out, saying so --
+    rather than taking the machine's last frame, or spinning in Duktape's
+    garbage collector. What a broken version still passes: without the
+    limit the script stops at the heap's ceiling with a JavaScript error
+    and the page stays up (stopped 0); without the exit code carried
+    through, the bar says "stopped" (nomem 0)."""
+    go(dbg, OOM_PAGE)
+    st = wait(dbg, lambda s: s.get("page.stopped") == 1, 60)
+    check("a page whose script allocates without end is ended", st.get("page.stopped") == 1,
+          f"stopped {st.get('page.stopped')} pid {st.get('page.pid')}")
+    check("...and the bar says it ran out of memory", st.get("page.nomem") == 1,
+          f"nomem {st.get('page.nomem')}")
+    dmesg = dbg.send("sh dmesg") or ""
+    check("...at its data limit, refused by the kernel", "reached its data limit" in dmesg,
+          dmesg.strip()[-200:])
+    check("...and no process lost a page to an empty machine", "no frame for user page" not in dmesg,
+          "a 'no frame' line was logged")
+    check("...and the app is still there", window(dbg) is not None, "no browser window")
+    go(dbg, SCRIPT_PAGE)
+    st = wait(dbg, lambda s: s.get("page.stopped") == 0 and loaded("file://" + SCRIPT_PAGE)(s), 15)
+    check("...and the next page loads, in a new process", st.get("page.stopped") == 0 and
+          loaded("file://" + SCRIPT_PAGE)(st), f"stopped {st.get('page.stopped')} url {st.get('url')}")
 
 
 def javascript_sites(dbg, host, page, at, shot):

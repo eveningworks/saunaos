@@ -48,6 +48,9 @@ SYSCALL_ROW(SYS_USB_ISOCH_REAP, "usb_isoch_reap", sys_usb_isoch_reap, A_HEX, A_E
 SYSCALL_ROW(SYS_SND_RING_MAP, "snd_ring_map", sys_snd_ring_map, A_HEX, A_END, A_END, R_DEC, PROMISE_DEVICE)
 SYSCALL_ROW(SYS_SETPRIORITY, "setpriority", sys_setpriority, A_INT, A_INT, A_INT, R_DEC, PROMISE_PROC)
 SYSCALL_ROW(SYS_GETPRIORITY, "getpriority", sys_getpriority, A_INT, A_INT, A_END, R_DEC, PROMISE_PROC)
+// STDIO: the caller's own memory, and raising past `max` is init's alone.
+SYSCALL_ROW(SYS_GETRLIMIT, "getrlimit", sys_getrlimit, A_INT, A_HEX, A_END, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW(SYS_SETRLIMIT, "setrlimit", sys_setrlimit, A_INT, A_HEX, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SND_REGISTER, "snd_register", sys_snd_register, A_HEX, A_END, A_END, R_DEC, PROMISE_DEVICE)
 SYSCALL_ROW(SYS_SND_PERIOD, "snd_period", sys_snd_period, A_INT, A_END, A_END, R_DEC, PROMISE_DEVICE)
 SYSCALL_ROW(SYS_SND_OPEN, "snd_open", sys_snd_open, A_END, A_END, A_END, R_DEC, PROMISE_DEVICE)

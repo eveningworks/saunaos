@@ -251,6 +251,7 @@ static void mm_reset(int slot, uint64_t image_end) {
     procs[slot].mm.heap_base    = heap_base;
     procs[slot].mm.brk          = heap_base;
     procs[slot].mm.stack_bottom = UADDR_STACK_INIT_BOTTOM;
+    procs[slot].mm.data_refused = 0;
     // Frees any list a previous occupant of this slot left behind:
     // the teardown path should have, and a slot recycled without one
     // must not leak. Idempotent, so both calling is correct.
@@ -451,6 +452,13 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     // below ELF_IMAGE_BASE, but a heap starting under the floor would be
     // a silent aliasing bug rather than a loud one.
     mm_reset(slot, image_end);
+    // The data limit is the spawner's, as setrlimit(2)'s are across
+    // fork and exec; the kernel context spawns with none.
+    {
+        const struct sched_mm *pm = scheduler_current_mm();
+        procs[slot].mm.data_cur = pm ? pm->data_cur : SYS_RLIM_INFINITY;
+        procs[slot].mm.data_max = pm ? pm->data_max : SYS_RLIM_INFINITY;
+    }
     // INHERITED, unlike the name and the CPU time above: the cwd is the
     // one piece of a parent's state a child is supposed to start with,
     // which is what makes `mkdir docs` from a shell standing in /tmp

@@ -6982,6 +6982,13 @@ runs first**: a `doom1.wad` with one
   no matches and by dropping the scale call: exactly the three count
   checks and the zoom check failed.
 
+  **Out of memory**: `/tests/web/oom.html` doubles a string it keeps
+  until the engine's `RLIMIT_DATA`; the page must END with the view's
+  `nomem` set, the kernel's `reached its data limit` line in `dmesg`, no
+  `no frame for user page` line, and the next page loading in a new
+  process. Shown red by dropping webcontent's `setrlimit()`: four checks
+  failed -- without the limit the page stays up at its heap's ceiling.
+
   **The sandbox** (over the network): on `fileref.html`, served over
   http, the page's engine shows its four promises in `ps --sandbox`; the
   page's own image over http is drawn (the control) while the same file

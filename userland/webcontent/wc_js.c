@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include <dom/dom.h>
 #include "utils/errors.h"
@@ -79,6 +80,60 @@ struct content *__wrap_content_factory_create_content(struct llcache_handle *llc
     nsoption_set_bool(enable_javascript, wc_js_allowed(u ? nsurl_access(u) : NULL));
     return __real_content_factory_create_content(llcache, fallback_charset, quirks,
                                                  effective_type);
+}
+
+// OUT OF MEMORY ENDS THE PAGE, after one garbage collection: V8's
+// last-resort GC and then "Aw, Snap! Out of memory". Duktape answers a
+// failed allocation by collecting and retrying, and from its later
+// retries COMPACTING every live object, each compaction an allocation
+// that fails too -- a heap the page filled at its data limit then spins
+// for minutes. So the first failure is Duktape's to rescue with a GC,
+// and a second in a row ends the process with WEBVIEW_EXIT_NOMEM, which
+// the app's stopped bar puts in words. Wraps duk_create_heap() for the
+// allocator only: dukky.c's udata (its jsheap, which its timeout reads
+// back) passes through untouched. Duktape runs on the main thread alone.
+typedef void *(*duk_alloc_fn)(void *udata, size_t size);
+typedef void *(*duk_realloc_fn)(void *udata, void *ptr, size_t size);
+typedef void (*duk_free_fn)(void *udata, void *ptr);
+typedef void (*duk_fatal_fn)(void *udata, const char *msg);
+
+static int g_alloc_failed;   // failures in a row
+
+static void *succeeded(void *p, size_t size) {
+    if (p || !size) {
+        g_alloc_failed = 0;
+        return p;
+    }
+    if (++g_alloc_failed < 2) return NULL;
+    printf("webcontent: the page ran out of memory -- ending it\n");
+    fflush(stdout);
+    _exit(WEBVIEW_EXIT_NOMEM);
+}
+
+static void *js_alloc(void *udata, size_t size) {
+    (void)udata;
+    return size ? succeeded(malloc(size), size) : NULL;
+}
+
+static void *js_realloc(void *udata, void *ptr, size_t size) {
+    (void)udata;
+    if (!size) {   // dukky.c's rule: realloc to 0 frees
+        free(ptr);
+        return NULL;
+    }
+    return succeeded(realloc(ptr, size), size);
+}
+
+static void js_free(void *udata, void *ptr) {
+    (void)udata;
+    free(ptr);
+}
+
+void *__real_duk_create_heap(duk_alloc_fn, duk_realloc_fn, duk_free_fn, void *, duk_fatal_fn);
+void *__wrap_duk_create_heap(duk_alloc_fn a, duk_realloc_fn r, duk_free_fn f, void *udata,
+                             duk_fatal_fn fatal) {
+    (void)a, (void)r, (void)f;
+    return __real_duk_create_heap(js_alloc, js_realloc, js_free, udata, fatal);
 }
 
 // The page's <script> elements: what a page whose scripts were blocked

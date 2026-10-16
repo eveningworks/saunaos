@@ -3816,6 +3816,18 @@ subtraction) is in.
 
 **Needs:** Demand paging & shared memory -- swap is demand paging with a backing store.
 
+- [ ] **An out-of-memory killer.** toy-os overcommits, so the machine
+  running out is found at a page fault, and `map_zeroed_user_page()`
+  ends THE PROCESS THAT FAULTED -- measured 2026-10-16, a page's engine
+  on a 1 GiB guest; on a busy desktop it could be `toywm`. Linux picks
+  the process with the highest `oom_badness()` (its resident size,
+  adjusted by `oom_score_adj`, -1000 exempting one) and kills it while
+  the faulter waits; a service here would want an `OOMScoreAdjust=`.
+  After direct reclaim (stage 4), which is what should be tried first.
+  `RLIMIT_DATA` (`docs/decisions/kernel.md`, "A process's memory is
+  limited where it asks") keeps a program that sets one from getting
+  here; nothing else does.
+
 ## SMP
 
 **Needs:** Scheduler: blocking, priorities, classes (a scheduler that can block), ACPI + real power/timer
@@ -4317,6 +4329,14 @@ staging.*
 
 *Wants the TFS3 inode layer's inode layer first -- per-file owner/mode bits
 belong on an inode, not on a path-keyed record.*
+
+- [ ] **A memory limit for the other parsers of untrusted input.** The
+  Web Browser's engine takes `RLIMIT_DATA` from the app's `--memory`
+  before its sandbox (`bin/webcontent.c`); `/bin/fontd` and `/bin/thumb`
+  parse hostile files too and take none, and a service has no way to be
+  given one. systemd's `MemoryMax=` is a cgroup; here the line in
+  `services.d` would be `setrlimit()` in the child before its exec,
+  which init can do because it spawns it.
 
 ## Layer 6 -- Userland runtime
 

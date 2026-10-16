@@ -380,6 +380,8 @@ int sys_snd_period(struct syscall_ctx *c);
 int sys_snd_ring_map(struct syscall_ctx *c);
 int sys_setpriority(struct syscall_ctx *c);
 int sys_getpriority(struct syscall_ctx *c);    // beside it
+int sys_getrlimit(struct syscall_ctx *c);      // beside them
+int sys_setrlimit(struct syscall_ctx *c);
 int sys_sched_setscheduler(struct syscall_ctx *c);  // beside them
 int sys_sched_getscheduler(struct syscall_ctx *c);
 // A ring-3 sound driver's registration dies with its address space --

@@ -182,6 +182,7 @@ is the bookkeeping that makes any other kind of mapping possible.
 - [ ] Stage 2: page-out, driven by a debug command rather than by pressure
 - [ ] Stage 3: page-in on fault, with a control proving a missing one FAULTS rather than reading zeroes
 - [ ] Stage 4: direct reclaim on frame exhaustion, clock/second-chance over the Accessed bit
+- [ ] An out-of-memory killer -- the machine running out ends the biggest process, not whoever faults next
 - [ ] Stage 5: swap usage in `meminfo` and Task Manager, and a swap FILE via extents
 - [ ] Stage 6: ramfs off the kernel heap, which is the only thing that makes `/tmp` swappable
 
@@ -224,6 +225,8 @@ only expensive part of it.
 - [ ] A service's sandbox from its descriptor -- `Sandbox=` in `services.d`, systemd's `SystemCallFilter=`; fontd pledges itself today
 - [ ] The other parsers of untrusted input sandboxed -- smbfsd, webnet, and the decoders apps run in-process
 - [ ] The sandbox in Task Manager -- `ps --sandbox` is the only view of it
+- [x] ~~A per-process memory limit~~ DONE 2026-10-16 -- `RLIMIT_DATA`; the Web Browser's engine holds to it
+- [ ] A memory limit for the other parsers of untrusted input -- fontd, thumb, and `MemoryMax=` in `services.d`
 
 ## Phase 4 -- the userland runtime
 
@@ -881,7 +884,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Browser: a form's file upload read by the app -- the engine opens the chosen path itself, and has no picker yet
 - [x] ~~Browser stage 6: JavaScript through Duktape~~ DONE 2026-10-16 -- on by default; per-site Allow/Block, a Scripts blocked badge
 - [ ] Browser: a script's DOM change after the page loaded is not laid out -- NetSurf builds its box tree once
-- [ ] Browser: Duktape's heap per content process, measured against the tab cap's 160 MiB
+- [x] ~~Browser: Duktape's heap per content process, measured against the tab cap's 160 MiB~~ DONE 2026-10-16 -- a few MiB
 - [ ] Browser: images, pop-ups and autoplay as site permissions, on `uui_siteperm`
 - [x] ~~Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans~~ DONE 2026-10-13
 

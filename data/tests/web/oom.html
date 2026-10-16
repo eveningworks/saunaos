@@ -1,0 +1,13 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Out of memory</title></head><body>
+<!-- tools/browser_test.py's out_of_memory(): a script that keeps every
+     string it doubles, so it reaches the engine's memory limit in a few
+     seconds even under TCG -- and the page must END, with the view
+     saying it ran out of memory. Not for browser_hostcheck.py: the host
+     build has no limit, and this takes what it is given. -->
+<p>This page allocates until its engine's memory limit.</p>
+<script>
+var kept = [], s = "0123456789abcdef";
+for (;;) { s = s + s; kept.push(s); }
+</script>
+</body></html>

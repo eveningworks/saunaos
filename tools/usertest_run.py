@@ -174,6 +174,10 @@ TESTS = [
     # parent's rather than whatever its reused slot last held. SPAWNED:
     # the second needs a real slot to reuse.
     ("prio_test", None, None, None),
+    # RLIMIT_DATA: the heap and private writable mappings count, a
+    # read-only one does not, only init raises a hard limit, and a child
+    # is HELD to its parent's limit, not just told it. SPAWNED: it spawns.
+    ("rlimit_test", None, None, None),
     # SPAWN_FD_LOG: a child's stdout landing in the application log,
     # tagged with the CHILD's name. SPAWNED (exit code None) because the
     # thing under test is a spawn -- it waits for two children, which the

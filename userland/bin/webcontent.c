@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <unistd.h>
 
 #include "utils/errors.h"
@@ -140,7 +141,7 @@ static int engine_init(int argc, char **argv, int scheme) {
     return 1;
 }
 
-static const char *f_app, *f_net;
+static const char *f_app, *f_net, *f_memory;
 static int f_scheme, f_files;
 
 // The pid in a "wv<pid>" service name: the app that started this
@@ -156,8 +157,18 @@ static int app_pid(const char *service) {
 // the filesystem to what the engine reads itself, and the shm namespace
 // to the two services it was started for (their beacons are reopened to
 // see whether the server lives).
+//
+// And a DATA LIMIT first -- the app's --memory, both soft and hard so the
+// page cannot raise it back: a script that allocates in a loop gets
+// malloc()'s NULL (and the page ends, wc_js.c) rather than taking the
+// machine's last frame and with it whichever process faults next.
+#define WC_MEMORY_DEFAULT_MIB 512
+
 static int sandbox(void) {
     char shm[8 + UCHAN_NAME_MAX];
+    unsigned long mib = f_memory ? strtoul(f_memory, NULL, 10) : WC_MEMORY_DEFAULT_MIB;
+    struct rlimit data = { (rlim_t)mib << 20, (rlim_t)mib << 20 };
+    if (!mib || setrlimit(RLIMIT_DATA, &data) != 0) return 0;
     if (unveil(WC_OWN_FILES, "r") != 0 || unveil("/usr/share/fonts", "r") != 0) return 0;
     // Read as FILES in ring 3, not through SYS_SETTING: libc's locale
     // (libc/locale.c) and the browser's own settings, whose schema names
@@ -178,6 +189,7 @@ static int sandbox(void) {
 static const struct uargs_opt OPTS[] = {
     { "app", 0, "SERVICE", "the embedding app's channel (wv<pid>)", 0, &f_app },
     { "net", 0, "SERVICE", "the network process's channel (wn<pid>); none: local pages only", 0, &f_net },
+    { "memory", 0, "MIB", "the most the page may hold (RLIMIT_DATA); default 512", 0, &f_memory },
     { "scheme", 0, 0, "ask the embedding app for app: pages", &f_scheme, 0 },
     { "files", 0, 0, "started for a local page: one leaving for the web gets a fresh process",
       &f_files, 0 },
@@ -186,7 +198,7 @@ static const struct uargs_opt OPTS[] = {
 
 static const struct uargs_prog PROG = {
     .name = "webcontent",
-    .usage = "--app SERVICE [--net SERVICE] [--scheme] [--files]",
+    .usage = "--app SERVICE [--net SERVICE] [--memory MIB] [--scheme] [--files]",
     .summary = "A web page's engine, one process per view: NetSurf painting into shared\n"
                "memory for the app that embeds it. Started by ui/uui_webview, not by hand.",
     .opts = OPTS,

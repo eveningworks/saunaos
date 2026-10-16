@@ -1,9 +1,11 @@
 #ifndef ULIB_SYS_RESOURCE_H
 #define ULIB_SYS_RESOURCE_H
 
-// Per-process resource limits. **THIS SYSTEM IMPOSES NONE**, so every
-// limit reads back as RLIM_INFINITY and setrlimit() refuses to lower
-// one rather than accepting a number it will not enforce.
+// Per-process resource limits. **RLIMIT_DATA IS THE ONE ENFORCED** --
+// the heap plus private writable mmap()s, Linux's meaning since 4.7;
+// past it malloc() returns NULL. Every other limit reads back as
+// RLIM_INFINITY and setrlimit() refuses to lower it rather than
+// accepting a number it will not enforce.
 //
 // That refusal is the interesting half. A setrlimit() that returned 0
 // and did nothing would let a shell's `ulimit -f 100` print success and
@@ -26,9 +28,10 @@ struct rlimit {
     rlim_t rlim_max;  // the ceiling the soft limit may be raised to
 };
 
-// The resources POSIX names. All of them read RLIM_INFINITY; they exist
-// so that code naming one compiles, and so a future limit has a number
-// already allocated rather than shifting everything below it.
+// The resources POSIX names. All but RLIMIT_DATA read RLIM_INFINITY;
+// they exist so that code naming one compiles, and so a future limit
+// has a number already allocated rather than shifting everything below
+// it. The numbers are Linux's.
 // setpriority()/getpriority(): nice, -20..19, LOWER gets MORE of the
 // CPU -- a weight within SCHED_OTHER, never a rank (that is <sched.h>).
 // Anyone may raise its own; only init may lower one, or touch another
@@ -51,14 +54,17 @@ int getpriority(int which, int who);
 #define RLIMIT_MEMLOCK 8
 #define RLIMIT_NLIMITS 9
 
-// Fills *rlp with RLIM_INFINITY for both fields. Returns 0, or -1 with
-// EINVAL for a resource number this system does not name.
+// Fills *rlp: RLIMIT_DATA's limits, RLIM_INFINITY for any other. Returns
+// 0, or -1 with EINVAL for a resource number this system does not name.
 int getrlimit(int resource, struct rlimit *rlp);
 
-// Returns 0 if the request leaves both fields RLIM_INFINITY -- setting
-// a limit to the value it already has is not a change, the same rule
-// the settings registry follows. Otherwise -1 with EPERM: this system
-// cannot enforce it and will not say it has.
+// RLIMIT_DATA: anyone may lower either limit, and raise `rlim_cur` up
+// to `rlim_max`; raising `rlim_max` is init's alone (EPERM), and a
+// `rlim_cur` above `rlim_max` is EINVAL. Inherited by spawn, fork and
+// exec. Any other resource: 0 if the request leaves both fields
+// RLIM_INFINITY -- setting a limit to the value it already has is not a
+// change -- otherwise -1 with EPERM: this system cannot enforce it and
+// will not say it has.
 int setrlimit(int resource, const struct rlimit *rlp);
 
 #endif

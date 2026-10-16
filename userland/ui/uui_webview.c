@@ -56,7 +56,8 @@ static volatile int g_posted;
 // Deaths the reapers saw, for the main thread: a small ring of pids.
 #define DEATHS 32
 static pthread_mutex_t g_death_mu = PTHREAD_MUTEX_INITIALIZER;
-static int g_death[DEATHS], g_ndeath;
+static struct death { int pid, code; } g_death[DEATHS];
+static int g_ndeath;
 
 static void post(void) {
     // One post outstanding at a time: on_post drains everything.
@@ -73,9 +74,10 @@ static void *listener(void *arg) {
 
 static void *reaper(void *arg) {
     int pid = (int)(intptr_t)arg;
-    sys_waitpid(pid, NULL);
+    int code = -1;
+    sys_waitpid(pid, &code);
     pthread_mutex_lock(&g_death_mu);
-    if (g_ndeath < DEATHS) g_death[g_ndeath++] = pid;
+    if (g_ndeath < DEATHS) g_death[g_ndeath++] = (struct death){ pid, code };
     pthread_mutex_unlock(&g_death_mu);
     g_posted = 0;   // a death must not be swallowed by a post in flight
     post();
@@ -134,17 +136,29 @@ static int live_count(void) {
     return n;
 }
 
+static uint64_t ram_mib(void) {
+    struct query_meminfo m;
+    memset(&m, 0, sizeof m);
+    if (sys_query_record(QUERY_MEMINFO, 0, &m, sizeof m) > 0 && m.frame_bytes)
+        return m.frame_total * m.frame_bytes >> 20;
+    return 2048;
+}
+
 // The machine's share: a content process laying out a heavy page holds
 // tens of MiB, and the rest of the desktop needs room too.
 static int limit(void) {
     if (g_limit > 0) return g_limit;
-    struct query_meminfo m;
-    memset(&m, 0, sizeof m);
-    uint64_t mib = 2048;
-    if (sys_query_record(QUERY_MEMINFO, 0, &m, sizeof m) > 0 && m.frame_bytes)
-        mib = m.frame_total * m.frame_bytes >> 20;
+    uint64_t mib = ram_mib();
     int n = (int)((mib > 512 ? mib - 512 : 0) / 160);
     return n < 2 ? 2 : n;
+}
+
+// The most ONE page may hold (its RLIMIT_DATA, bin/webcontent.c): a
+// quarter of the machine, at most 512 MiB -- V8 sizes its heap limit
+// from physical memory too. An ordinary page is tens of MiB.
+static unsigned engine_memory_mib(void) {
+    uint64_t mib = ram_mib() / 4;
+    return (unsigned)(mib < 512 ? mib : 512);
 }
 
 void uui_webview_set_limit(int max_live) { g_limit = max_live; }
@@ -190,10 +204,10 @@ static void unload_oldest(struct uui_webview *keep) {
 
 static void start_process(struct uui_webview *v) {
     if (v->pid || !g_open) return;
-    char args[176];
-    snprintf(args, sizeof args, "--app " WEBVIEW_SERVICE_FMT "%s%s%s%s", sys_getpid(),
-             v->net ? " --net " : "", v->net ? v->net : "", v->scheme ? " --scheme" : "",
-             v->files ? " --files" : "");
+    char args[192];
+    snprintf(args, sizeof args, "--app " WEBVIEW_SERVICE_FMT " --memory %u%s%s%s%s", sys_getpid(),
+             engine_memory_mib(), v->net ? " --net " : "", v->net ? v->net : "",
+             v->scheme ? " --scheme" : "", v->files ? " --files" : "");
     extern char **environ;
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
@@ -225,6 +239,11 @@ static void start_process(struct uui_webview *v) {
     unload_oldest(v);
 }
 
+#define STOPPED_TEXT "This page stopped. What you see is its last picture; links and scrolling no " \
+                     "longer work."
+#define NOMEM_TEXT   "This page ran out of memory. What you see is its last picture; links and " \
+                     "scrolling no longer work."
+
 void uui_webview_init(struct uui_webview *v, const struct uui_webview_host *host, void *user) {
     memset(v, 0, sizeof *v);
     v->host = host;
@@ -232,10 +251,7 @@ void uui_webview_init(struct uui_webview *v, const struct uui_webview_host *host
     v->hover_x = v->hover_y = -1;
     v->st.zoom = 100;
     uui_sbar_init(&v->sb);
-    uui_infobar_init(&v->bar, NULL,
-                     "This page stopped. What you see is its last picture; links and scrolling no "
-                     "longer work.",
-                     "Reload");
+    uui_infobar_init(&v->bar, NULL, STOPPED_TEXT, "Reload");
     uui_infobar_set_second(&v->bar, "View report");
     v->bar.error = 1;
     v->next = g_views;
@@ -859,8 +875,9 @@ static void handle(const struct ubulk_msg *m) {
 }
 
 // A content process ended. Deliberately (unloaded, closed) is nothing;
-// otherwise the page STOPPED and the C3 view goes up over its last frame.
-static void died(int pid) {
+// otherwise the page STOPPED and the C3 view goes up over its last frame,
+// saying whether it ran out of memory -- Chrome's "Out of Memory" page.
+static void died(int pid, int code) {
     struct uui_webview *v = by_pid(pid);
     if (!v) return;
     uui_webview_history_snapshot(v);
@@ -868,12 +885,15 @@ static void died(int pid) {
     v->ready = 0;
     unmap_buf(v);
     v->stopped = 1;
+    v->nomem = code == WEBVIEW_EXIT_NOMEM;
+    v->bar.text = v->nomem ? NOMEM_TEXT : STOPPED_TEXT;
     char path[96];
     snprintf(path, sizeof path, REPORT_FMT, pid);
     struct stat st;
     v->report[0] = '\0';
     if (stat(path, &st) == 0) snprintf(v->report, sizeof v->report, "%s", path);
-    ulogf("webview: content %d stopped%s%s\n", pid, v->report[0] ? ", report " : "", v->report);
+    ulogf("webview: content %d stopped%s%s%s\n", pid, v->nomem ? ", out of memory" : "",
+          v->report[0] ? ", report " : "", v->report);
     changed(v, UUI_WV_STOPPED);
 }
 
@@ -887,13 +907,14 @@ int uui_webview_on_post(struct uapp *a, int a0, int a1) {
     static char buf[UBULK_REC_MAX];
     struct ubulk_msg m;
     while (ubulk_server_recv(&g_srv, &m, buf, sizeof buf)) handle(&m);
-    int deaths[DEATHS], n;
+    struct death deaths[DEATHS];
+    int n;
     pthread_mutex_lock(&g_death_mu);
     n = g_ndeath;
     memcpy(deaths, g_death, (size_t)n * sizeof deaths[0]);
     g_ndeath = 0;
     pthread_mutex_unlock(&g_death_mu);
-    for (int i = 0; i < n; i++) died(deaths[i]);
+    for (int i = 0; i < n; i++) died(deaths[i].pid, deaths[i].code);
     return 1;
 }
 
@@ -1168,6 +1189,7 @@ static void ops_describe(const void *w, const struct uui_describe *d) {
     const struct uui_webview *v = w;
     uui_describe_int(d, "pid", v->pid);
     uui_describe_int(d, "stopped", v->stopped);
+    uui_describe_int(d, "nomem", v->stopped && v->nomem);
     char url[96];
     snprintf(url, sizeof url, "%s", v->url[0] ? v->url : "-");
     uui_describe_str(d, "url", url);

@@ -9416,3 +9416,62 @@ from reading it (the roadmap's KPTI line). The engine still asks the app
 and webnet for whatever they give any page. And it is the sandbox of a
 system with no users: when users arrive, a uid sits beside it the way
 Linux has both permissions and seccomp.
+
+## A process's memory is limited where it asks
+
+Chosen 2026-10-16, measuring Duktape's heap against the Web Browser's
+per-tab budget (the roadmap's "Duktape's heap per content process"). An
+ordinary page's scripts cost little -- jQuery, React, moment with every
+locale, Bootstrap and lodash together add about 1 MiB to the content
+process on toy-os, 4 MiB on the host build -- but a HOSTILE one has no
+bound: a loop keeping what it allocates reached 1.1 GiB in one tab on a
+2 GiB guest within NetSurf's 10 s script timeout, and on a 1 GiB guest
+it took the last frame. toy-os overcommits (`sbrk` reserves; a page
+arrives on first touch), so the machine running out is found at a page
+fault, and the process that faults dies -- the page's own engine that
+time, but the desktop's compositor just as well.
+
+**What real systems do.** Linux has `RLIMIT_DATA` (since 4.7 the heap
+PLUS private writable mappings -- `is_data_mapping()`), `RLIMIT_AS`, and
+cgroup v2's `memory.max`, which reclaims and then OOM-kills inside the
+group. Windows has job objects' `JOB_OBJECT_LIMIT_PROCESS_MEMORY`.
+Chromium's sandbox applies ONE figure (`kDataSizeLimit`,
+`sandbox/constants.h`) as `RLIMIT_DATA` on POSIX and as the job's memory
+limit on Windows, raised for renderers on a machine with more RAM; V8
+sizes its own heap limit from physical memory too, and a renderer that
+runs out is ended -- the tab shows "Aw, Snap! Out of memory".
+
+**What toy-os does: `RLIMIT_DATA`, refused at the call that asks.**
+- **The limit lives in `struct sched_mm`**, beside the break it bounds,
+  and is checked in `sys_sbrk()` and a private writable `sys_mmap()`:
+  past it sbrk answers -1 and mmap -ENOMEM, so `malloc()` returns NULL
+  and the program decides. Not at the fault, which is too late to say
+  no to anything but the whole process. Usage is COUNTED when asked (the
+  break, plus a walk of the regions), paid only by a process that set a
+  limit.
+- **Not `RLIMIT_AS`**: it would count the read-only font and `/lib`
+  mappings and the shm window buffers, none of which a runaway grows.
+  **Not a cgroup**: one process is the unit here, and toy-os has no
+  reclaim for a group limit to trigger (the roadmap's direct reclaim).
+  **Not a cap inside Duktape's allocator alone**: a loop creating DOM
+  nodes grows libdom's heap, not Duktape's, just as fast.
+- **setrlimit(2)'s rules**: anyone lowers either limit and raises the
+  soft one to the hard one; raising the hard one is init's alone, as
+  lowering a nice value is. Inherited by spawn, fork and exec.
+- **The PROGRAM sets it on itself, from a figure its parent passes**
+  (`webcontent --memory`): the app reads RAM and picks a quarter of it,
+  at most 512 MiB; the engine applies it, soft and hard, before its
+  sandbox. A `prlimit` on another process would need a permission rule
+  toy-os has no user to hang on.
+- **A page out of memory ENDS** (`wc_js.c`). Duktape answers a failed
+  allocation by collecting and retrying, and from its later retries
+  compacts every live object, each compaction another allocation that
+  fails -- a heap filled at the limit spun for minutes. So one failure
+  gets a garbage collection; a second in a row exits with
+  `WEBVIEW_EXIT_NOMEM`, and the stopped bar says "This page ran out of
+  memory." V8's last-resort GC, then Chrome's page.
+
+**What it does not do.** Choose a better victim when the machine runs
+out anyway -- that is still whoever faults (the roadmap's "an
+out-of-memory killer"). Limit any other resource: every other
+`RLIMIT_*` still reads unlimited, and setrlimit() refuses to pretend.

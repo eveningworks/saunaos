@@ -372,6 +372,15 @@ struct sched_mm {
     // struct cannot let a teardown forget.
     struct mmap_region *regions;
     int region_cap;
+
+    // SYS_RLIMIT_DATA's soft and hard limit, in bytes; SYS_RLIM_INFINITY
+    // for none. NOT reset by mm_reset() -- a limit survives exec -- so
+    // every path that makes an address space sets them: spawn from the
+    // spawner, fork by the struct copy, the legacy loader to none.
+    uint64_t data_cur, data_max;
+    // Requests refused at data_cur since this image started; the first
+    // is logged, the rest only counted (a runaway asks thousands of times).
+    uint32_t data_refused;
 };
 
 // A process's CURRENT DIRECTORY -- a normalized absolute path, exactly

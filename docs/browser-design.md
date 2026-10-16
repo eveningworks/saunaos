@@ -713,12 +713,36 @@ which is what the site's Block is for.
 **The widgets are the toolkit's** (`ui/uui_siteperm.h`): the row and the
 ask, as images, pop-ups and autoplay would use them.
 
+**What scripts cost, measured 2026-10-16** -- the content process's
+memory with scripts off and on, on a corpus of real script-heavy pages
+(`nsmonkey`, the same pinned Duktape on both sides):
+
+| Page | Host build | toy-os, 2 GiB |
+|---|---|---|
+| Wikipedia's "Operating system" article; Hacker News | +0-1 MiB | +0 MiB |
+| jQuery 3.7.1 / moment with every locale / React 18 | +0-1 MiB | +0.2 / +0.7 / +0.3 MiB |
+| jQuery, Bootstrap 3, lodash, moment and React together | +4 MiB | +1 MiB |
+
+So the default On costs nothing against the tab budget. A HOSTILE page
+is another matter: a script keeping what it allocates reached 1.1 GiB in
+one tab within NetSurf's 10 s script timeout (its heap's ceiling, past
+which `sbrk` refuses), and on a 1 GiB machine took the last frame -- and
+toy-os kills whichever process faults next. So **a page's engine is held
+to a data limit** (`RLIMIT_DATA`, the app's `--memory`: a quarter of the
+machine, at most 512 MiB), and **a page that runs out of it ends**:
+Duktape gets one garbage collection, and a second failure in a row exits
+the process, the stopped bar saying "This page ran out of memory."
+Duktape left alone would compact every live object on each failed
+allocation and spin for minutes. Chrome's "Out of Memory" page;
+`docs/decisions/kernel.md`, "A process's memory is limited where it
+asks", has the kernel half. A DOM loop is stopped by the script timeout
+first (300 MiB); a string doubled past the limit ends the page too.
+
 ## Open questions
 
 - The memory budget: what a Wikipedia article costs in NetSurf's
   caches, measured in stage 3, against the RAM toy-os is usually run
-  with. Stage 6's Duktape heap per content process is NOT yet measured
-  against the live cap's 160 MiB a tab.
+  with. Stage 6's scripts were measured (above) and cost a few MiB.
 
 ## The case against
 

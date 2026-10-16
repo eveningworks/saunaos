@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    webcontent --app SERVICE [--net SERVICE] [--scheme] [--files]
+    webcontent --app SERVICE [--net SERVICE] [--memory MIB] [--scheme] [--files]
 
 ## Options
 
@@ -14,6 +14,9 @@
 - `--net SERVICE` -- the network process's channel (`wn<pid>`). Without
   it the page reaches only local pages -- `file:`, `resource:`, `data:`
   -- and an http(s) link is handed back to the app instead.
+- `--memory MIB` -- the most the page may hold, as its own `RLIMIT_DATA`
+  (heap and private writable mappings); 512 if absent. The app passes a
+  quarter of the machine's memory, at most 512.
 - `--scheme` -- ask the embedding app for `app:` pages (Help's).
 - `--files` -- started for a LOCAL page: the app reads `file:` pages
   for it, and a link from one to the web is handed back to be loaded in
@@ -44,6 +47,13 @@ itself sent to a local file; a web page asking for one is told "A web
 page cannot open files on this computer." A process that cannot enter
 its sandbox loads no pages. `ps --sandbox` shows it, and a syscall
 outside its promises ends it with a crash report naming the call.
+
+**A page that runs out of its memory ends.** Its scripts' allocations
+are refused at `--memory`; after one garbage collection a second refusal
+in a row ends the process with exit code 3, and the view says "This page
+ran out of memory." instead of "stopped" -- Chrome's "Out of Memory" page.
+`dmesg` has the kernel's `mm: pid N reached its data limit` line and the
+application log `webcontent: the page ran out of memory`.
 
 Typing `about:crash` in the Web Browser's address field makes the page's
 engine fault on purpose (Chrome's `chrome://crash`), to see that.

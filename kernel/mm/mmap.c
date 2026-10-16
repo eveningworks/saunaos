@@ -151,6 +151,28 @@ static uint64_t arena_pick(struct sched_mm *mm, uint64_t npages) {
 // business mmapping.
 static struct sched_mm *caller_mm(void) { return scheduler_current_mm(); }
 
+// Linux's is_data_mapping(): private and writable. A read-only file
+// mapping or an shm object is not the process's own growth.
+static int is_data(const struct mmap_region *r) {
+    return (r->kind == MMAP_KIND_ANON || r->kind == MMAP_KIND_FILE) &&
+           (r->prot & SYS_PROT_WRITE);
+}
+
+int mm_data_allows(struct sched_mm *mm, uint64_t more) {
+    if (mm->data_cur == SYS_RLIM_INFINITY) return 1;
+    uint64_t used = mm->brk - mm->heap_base;
+    for (int i = 0; i < mm->region_cap; i++)
+        if (mm->regions[i].base && is_data(&mm->regions[i]))
+            used += mm->regions[i].npages * 4096ULL;
+    if (used <= mm->data_cur && more <= mm->data_cur - used) return 1;
+    if (mm->data_refused++ == 0)
+        klog_printf(KLOG_WARN "mm: pid %d reached its data limit (%lu KiB in use, "
+                    "%lu KiB asked) -- refused, and later refusals are not logged\n",
+                    scheduler_current_tgid(), (unsigned long)(used >> 10),
+                    (unsigned long)(more >> 10));
+    return 0;
+}
+
 int sys_mmap(struct syscall_ctx *c) {
     struct sched_mm *mm = caller_mm();
     struct mmap_msg m;
@@ -180,6 +202,9 @@ int sys_mmap(struct syscall_ctx *c) {
     if (!m.length || (m.offset & 0xFFF)) { ret = -EINVAL; goto out; }
 
     uint64_t npages = (m.length + 4095) / 4096;
+    if (!shared && (m.prot & SYS_PROT_WRITE) && !mm_data_allows(mm, npages * 4096ULL)) {
+        ret = -ENOMEM; goto out;
+    }
 
     struct open_file *f = 0;
     int shm_idx = -1;

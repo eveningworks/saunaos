@@ -18,6 +18,12 @@ struct sched_mm;
 // both stay fatal to the toucher.
 int mmap_fault_in(struct sched_mm *mm, uint64_t pml4_phys, uint64_t vaddr);
 
+// 1 if `more` bytes of heap or private writable mapping still fit under
+// `mm`'s SYS_RLIMIT_DATA, else 0 -- and the process's first refusal is
+// logged. Counted on demand: a walk of the regions, paid only by a
+// process that set a limit.
+int mm_data_allows(struct sched_mm *mm, uint64_t more);
+
 // Drop any cached /lib image pages for this path. Called when the file
 // is rewritten, because the cache's "immutable within a boot" premise
 // is false the moment a build is pushed onto a running machine.

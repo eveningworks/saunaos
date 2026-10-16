@@ -119,7 +119,7 @@ static inline int   tcsetpgrp(int fd, pid_t pgid) { return sys_tcsetpgrp(fd, pgi
 // Exit WITHOUT running atexit handlers or flushing streams -- which is
 // what makes it different from exit(), and the reason a child that has
 // inherited a parent's buffered output should call this one.
-static inline void _exit(int code) { sys_exit(code); }
+static inline __attribute__((noreturn)) void _exit(int code) { sys_exit(code); }
 
 // --- does this path exist? --------------------------------------------
 //

@@ -2664,6 +2664,31 @@ struct usb_control_msg {
                          // -EPERM once locked, -E2BIG past UNVEIL_MAX,
                          // -ENAMETOOLONG, -EFAULT.
 
+// RESOURCE LIMITS: getrlimit(2)/setrlimit(2), on the caller alone.
+// SYS_RLIMIT_DATA is the one enforced, Linux's RLIMIT_DATA since 4.7:
+// the heap (SYS_SBRK) plus every PRIVATE WRITABLE SYS_MMAP mapping, in
+// bytes. Past it sbrk answers -1 and mmap -ENOMEM, so a process that
+// runs away gets malloc()'s NULL instead of taking the machine's last
+// frame -- which kills whoever faults next (docs/decisions/kernel.md,
+// "A process's memory is limited where it asks"). Inherited by fork,
+// spawn and exec; a new process starts with no limit.
+#define SYS_GETRLIMIT 149  // RDI = a SYS_RLIMIT_*, RSI = a `struct
+                           // sys_rlimit *` to fill. 0, or -EINVAL for
+                           // another resource, -EFAULT.
+#define SYS_SETRLIMIT 150  // RDI = a SYS_RLIMIT_*, RSI = the new
+                           // `struct sys_rlimit *`. `cur` may not
+                           // exceed `max`; anyone may lower `max`, only
+                           // init may raise it (-EPERM), as only init
+                           // may lower a nice value. A limit below what
+                           // is already in use is taken: the next
+                           // request fails. 0, or -EINVAL/-EPERM/-EFAULT.
+#define SYS_RLIMIT_DATA 2          // <sys/resource.h>'s RLIMIT_DATA
+#define SYS_RLIM_INFINITY (~0ULL)  // no limit
+struct sys_rlimit {
+    uint64_t cur;   // what is enforced
+    uint64_t max;   // the most `cur` may be raised to
+};
+
 // THE SOUND RING, READ-ONLY, TO THE DRIVER THAT ASKS.
 //
 // **THIS IS THE ONE PLACE A DRIVER SEES THE SAMPLES, AND IT IS OPT-IN.**

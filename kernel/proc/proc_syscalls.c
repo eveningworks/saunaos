@@ -50,6 +50,8 @@ void syscall_reset_mm(uint64_t pml4_phys, uint64_t image_end) {
     g_legacy_mm.heap_base    = heap_base;
     g_legacy_mm.brk          = heap_base;
     g_legacy_mm.stack_bottom = UADDR_STACK_INIT_BOTTOM;
+    g_legacy_mm.data_cur     = SYS_RLIM_INFINITY;
+    g_legacy_mm.data_max     = SYS_RLIM_INFINITY;
 }
 
 SYSCALL_HANDLER sys_do_proc_info(uint64_t *regs, uint64_t rdi, uint64_t rsi) {
@@ -217,6 +219,8 @@ int sys_sbrk(struct syscall_ctx *c) {
         // large enough inc and the comparison then passes.
         klog_write(KLOG_ERR "syscall: sbrk() rejected -- would grow into the stack guard\n");
         c->regs[14] = (uint64_t)-1;
+    } else if (!mm_data_allows(hp, inc)) {
+        c->regs[14] = (uint64_t)-1;   // SYS_RLIMIT_DATA; mm_data_allows() logged it
     } else {
         // THE BREAK IS A RESERVATION. Nothing is mapped here: the frame
         // for a heap page arrives when something first touches it, via
@@ -1077,6 +1081,37 @@ int sys_getpriority(struct syscall_ctx *c) {
     int value = 0;
     ret = scheduler_get_priority(who, &value);
     if (ret == 0) ret = 20 - value;   // syscall_abi.h: never negative
+out:
+    c->regs[14] = (uint64_t)ret;
+    return 0;
+}
+
+// abi/syscall_abi.h has the rules: the caller's own limit, and only
+// init may raise a hard one -- CAP_SYS_RESOURCE, as init holds
+// CAP_SYS_NICE above.
+int sys_getrlimit(struct syscall_ctx *c) {
+    struct sched_mm *mm = scheduler_current_mm();
+    int64_t ret = 0;
+    if (!mm) { ret = -EPERM; goto out; }
+    if (c->a0 != SYS_RLIMIT_DATA) { ret = -EINVAL; goto out; }
+    struct sys_rlimit rl = { mm->data_cur, mm->data_max };
+    if (!vmm_copy_to_user(c->pml4, c->a1, &rl, sizeof rl)) ret = -EFAULT;
+out:
+    c->regs[14] = (uint64_t)ret;
+    return 0;
+}
+
+int sys_setrlimit(struct syscall_ctx *c) {
+    struct sched_mm *mm = scheduler_current_mm();
+    struct sys_rlimit rl;
+    int64_t ret = 0;
+    if (!mm) { ret = -EPERM; goto out; }
+    if (c->a0 != SYS_RLIMIT_DATA) { ret = -EINVAL; goto out; }
+    if (!vmm_copy_from_user(c->pml4, &rl, c->a1, sizeof rl)) { ret = -EFAULT; goto out; }
+    if (rl.cur > rl.max) { ret = -EINVAL; goto out; }
+    if (rl.max > mm->data_max && !caller_is_init()) { ret = -EPERM; goto out; }
+    mm->data_cur = rl.cur;
+    mm->data_max = rl.max;
 out:
     c->regs[14] = (uint64_t)ret;
     return 0;

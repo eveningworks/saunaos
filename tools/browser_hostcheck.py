@@ -74,6 +74,7 @@ HOST_TIMEOUT_S = 20
 HOST_LACKS = {
     "photos.html": "the host build has no libpng or libjpeg (netsurf_vendor.py's flags)",
     "fileref.html": "it names the GUEST's file:///tests/web/bands.png, which the host has not got",
+    "oom.html": "it allocates until the engine's memory limit, and the host build has none",
 }
 
 ADDR = re.compile(r"0x[0-9a-fA-F]+")

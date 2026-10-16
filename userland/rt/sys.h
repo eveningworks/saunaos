@@ -521,6 +521,10 @@ int sys_setpriority(int which, int who, int value);
 int sys_getpriority(int which, int who);
 int sys_sched_setscheduler(int pid, int policy, int prio);
 int sys_sched_getscheduler(int pid);
+// SYS_RLIMIT_DATA, the one limit enforced; <sys/resource.h>'s
+// getrlimit()/setrlimit() are the names to use. 0, or -1 with errno.
+int sys_getrlimit(int resource, struct sys_rlimit *out);
+int sys_setrlimit(int resource, const struct sys_rlimit *in);
 
 int sys_usb_claim(int slot);
 int sys_usb_release(int slot, unsigned flags);
