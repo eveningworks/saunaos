@@ -165,6 +165,20 @@ The rest -- memory, `kline_free()`, ANSI decoding, history -- is in
 - The full rules (lock drops, tfs3 inode locks, config reads) are in
   `kernel/fs/CLAUDE.md`.
 
+### The sandbox
+
+- **A sandboxed process's missing file is usually its unveil list**:
+  `sandbox: pid N refused path X` in `dmesg` (the first 8 per sandbox).
+  Ring 3 reads locale and settings data as FILES too, so a sandbox that
+  reads settings unveils `/etc/settings.d` and the setting's `File=`.
+  A syscall from a group it gave up kills it (SIGSYS, a crash report
+  naming the call). `ps --sandbox` shows what each process kept.
+- **A program parsing hostile input pledges before the first byte, and
+  refuses to run if it cannot** (webcontent, fontd, `thumb`);
+  `docs/conventions/kernel.md` has the rule, `abi/sandbox_abi.h` the API.
+- **`shm_unlink` is the CREATOR's alone** (-EPERM otherwise), and a
+  uchan server adopts a ring only from the pid that made it.
+
 ### The static checks that fail the build
 
 Each waives with a named comment, and the reason is the mechanism, not
@@ -536,8 +550,9 @@ socket or `kernel/net/` work), `trace-design.md` (`strace` decoding in
 ring 3 and a debugger's stop, stages 1-3 BUILT -- before `strace.c` or
 `ptrace` work), `input-policy-design.md` (keymaps in the compositor, the pointer
 kept, stage 1 BUILT -- before `keyboard_layout.c` or `WIN_EV_RAW_KEY`
-work), `browser-design.md` (a NetSurf port, PLANNED -- before
-NetSurf, `uui_webview` or HTTP/1.1 work in `libhttp`).
+work), `browser-design.md` (a NetSurf port, stages 0-5 and the
+sandbox BUILT -- before NetSurf, `uui_webview` or HTTP/1.1 work in
+`libhttp`).
 
 **Rules for editing docs/:**
 

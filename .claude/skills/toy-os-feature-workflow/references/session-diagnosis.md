@@ -1542,3 +1542,17 @@ not arithmetic**: another process's `net_poll()` released (zeroed) a
 TCP block mid-`tcp_input()`, and the zeroed `cwnd` reached congestion
 avoidance. `flake_hunt.py ktest -n 10 --keep` caught it; the fix is the
 guard over every TCP entry point.
+
+## A sandboxed program's failed read is in the kernel log, by path (2026-10-16)
+
+A process under `unveil` (webcontent, fontd, `thumb`) gets ENOENT for a
+hidden path, which looks exactly like a missing file. The kernel logs the
+first 8 refusals of each sandbox as `sandbox: pid N refused path X (not
+unveiled)` -- read `dmesg` (through `vm.py exec "dmesg"`, the debug
+console's `sh` does not pipe) before guessing. **Ring 3 reads settings
+and locale data as FILES, not only through SYS_SETTING**: libc's locale
+(`/etc/locale.conf`, `/etc/locales`) and a schema setting's backing file
+(`/etc/browser.conf`, named by its `settings.d` descriptor's `File=`). The
+engine lost its User-Agent setting silently that way until the log line
+named the file. A violation (a syscall group given up) is louder: SIGSYS,
+a crash report whose fault reads `Sandbox: <call> needs '<promise>'`.

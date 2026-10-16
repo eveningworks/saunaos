@@ -683,3 +683,16 @@ refactor?" was answered with file sizes and duplication counts; the
 better answer came on the second question -- which seams carry a REAL
 bug class (two present paths, a copied options cycle, two port state
 machines) -- so ask that one first.
+
+
+**2026-10-16 (a per-process sandbox).** The roadmap's "sandboxed content
+process", chosen in one question round (pledge+unveil shape, `file:` read
+by the app, OpenBSD's kill/ENOENT split, scope widened to fontd, the
+thumbnailer and uchan peer checks). Built in two commits (f499b7de kernel,
+9ab7f01a browser). Lessons: copy a real system's SEMANTICS, not only its
+names -- `unveil` is open until locked on OpenBSD, and a shrink-only
+version broke the second unveil call (the ring-3 test caught it); a
+"cheap" research agent's survey (file reads, channels, spawn flags) was
+worth it before proposing; and the first in-situ run, not the tests, found
+what the sandbox hid (locale and settings files) -- boot it and read the
+refusals before calling a sandbox done.

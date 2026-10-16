@@ -3110,6 +3110,24 @@ count the thing the check's POWER depends on (moved frames), not the
 work done to get it. And a FIXTURE step (homing a window) may retry --
 it is not under test -- where a checked step may not.
 
+## A state that says "at rest" before the work's process exists (2026-10-16)
+
+Seven `browser_test` failures after the sandbox's process swap were ONE
+fault, and it was the app's, not the test's. A navigation that started a
+FRESH content process set the view's URL at once (correct) but left
+`loading` at the old page's 0 -- so `loaded(url)` was true before the new
+process had loaded anything, the test typed its next address, and
+`navigate_as()` REPLACED the pending navigation unseen: the page was never
+committed, its title never arrived, Back skipped it. The fix was in the
+widget (`v->st.loading = 1` whenever a navigation waits for its process),
+not a longer wait in the test. **When a test races ahead, ask what state
+the app REPORTED in the gap**: a state that claims rest while work is
+queued is a bug any client hits, and a person typing fast is one.
+
+And on the gate the same day: two GUI tools red once under the full
+parallel run, green alone on the same build -- recorded in
+`docs/bugs.md` with "1 in 1 full run, green alone", not explained away.
+
 ## A sampler whose period is the signal's sees one phase (2026-10-14)
 
 `start_menu_test.py`'s `the caret blinks` took six raw frames with a

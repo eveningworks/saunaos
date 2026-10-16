@@ -811,6 +811,22 @@ UTF-8 overlong check) turned it red on the named check, and the second
 needed a test added first -- `C0 80` is refused by the lead-byte table,
 so only a three-byte overlong reaches the minimum check.
 
+## Stage 11 -- `pledge()` and `unveil()` (2026-10-16)
+
+OpenBSD's two calls, with OpenBSD's strings, over `SYS_PLEDGE` and
+`SYS_UNVEIL` (`abi/sandbox_abi.h`; `userland/libc/pledge.c`). Not
+POSIX and not glibc's: Linux has no `pledge`, and a ported program that
+calls one under `#ifdef __OpenBSD__` will not find it here unless that
+test is widened. The promise words are `PROMISE_WORDS`, one list the
+kernel's log, `ps --sandbox` and this parser all read; `"exec"` is
+accepted as OpenBSD's name for what `proc` covers here. **Two
+deliberate differences**: an unknown word is EINVAL rather than
+ignored (a typo would otherwise give nothing up), and a non-NULL
+`execpromises` is EINVAL, because toy-os keeps ONE set that survives
+exec as it is -- a second set would have nowhere to live.
+`userland/tests/sandbox_test.c` covers both calls through these
+wrappers.
+
 ## Open questions
 
 - ~~**The environment.**~~ BUILT -- see Stage 8 above.

@@ -6978,6 +6978,13 @@ runs first**: a `doom1.wad` with one
   no matches and by dropping the scale call: exactly the three count
   checks and the zoom check failed.
 
+  **The sandbox** (over the network): on `fileref.html`, served over
+  http, the page's engine shows its four promises in `ps --sandbox`; the
+  page's own image over http is drawn (the control) while the same file
+  as a `file:` URL is not, and the app logged refusing it; and `dmesg`
+  holds no refusal of an `/etc` path for that engine -- the check that
+  found the locale and settings files a ring-3 sandbox must unveil.
+
   **The address field and the lock's card**: the start page's chip says
   File (drawn ink in the reported rect); a zoomed page shows its badge
   and a click on it resets to 100%; an http page's chip is red (Not
