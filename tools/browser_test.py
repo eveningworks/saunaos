@@ -368,6 +368,23 @@ def run(dbg, qmp, args, net):
         dbg.send("gui key 0xF784 alt")     # Alt+Left
         wait(dbg, loaded(HOME))
 
+    # Focused, the bar's border is 2 px, and the field inside it must not
+    # paint its ground over the inner row (it once did, along its width).
+    dbg.send("gui key 0x0c ctrl")
+    type_text(dbg, "abc")
+    st = state(dbg)
+    bar, fld = st.get("addressbar"), st.get("address")
+    if check("the address bar and its field report their rects", bar and fld, f"{bar} {fld}"):
+        im = shot("addr_focus")
+        fx = c["x"] + fld[0] + fld[2] // 2
+        outer, inner = im.getpixel((fx, c["y"] + bar[1])), im.getpixel((fx, c["y"] + bar[1] + 1))
+        bot = im.getpixel((fx, c["y"] + bar[1] + bar[3] - 2))
+        ground = im.getpixel((fx, c["y"] + bar[1] + 3))
+        check("focused, the bar's 2 px border is whole across the field",
+              near(outer, 8)(inner) and near(outer, 8)(bot) and min(outer) < 200,
+              f"outer {outer} inner {inner} bottom {bot}")
+        check("...and the field's ground inside it is white (control)", min(ground) > 245, f"{ground}")
+
     go(dbg, "/tests/web/table.html")
     st = wait(dbg, loaded("file:///tests/web/table.html"))
     check("an address typed after Ctrl+L is followed", st.get("url") == "file:///tests/web/table.html",

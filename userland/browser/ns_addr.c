@@ -75,7 +75,7 @@ void ns_addr_sync(struct ns_addr *a) {
 void ns_addr_init(struct ns_addr *a, struct uui_textbox *field, int field_id, const char *field_name) {
     memset(a, 0, sizeof *a);
     field->bare = 1;
-    field->border = UUI_ROLE(field_bg);   // the frame is this widget's: no box inside it
+    field->frameless = 1;   // the frame and ground are this widget's, 2 px when focused
     a->field = (struct uui_item){ .ops = &uui_textbox_ops, .widget = field, .id = field_id,
                                   .name = field_name };
     a->zoom = 100;
