@@ -739,7 +739,7 @@ allocation and spin for minutes. Chrome's "Out of Memory" page;
 asks", has the kernel half. A DOM loop is stopped by the script timeout
 first (300 MiB); a string doubled past the limit ends the page too.
 
-### SVG, and an invisible form control -- BUILT 2026-10-16
+### SVG, an invisible form control, two-value overflow -- BUILT 2026-10-16
 
 Wikipedia's Main Page, on the ASUS, showed its logo as alt text and an
 empty square beside "View history". **SVG**: the logo, wordmark and
@@ -759,6 +759,14 @@ parses `opacity` but never paints by it. ONLY a form control: content at
 `opacity: 0` still draws, because a script's fade-in is never laid out
 here (Stage 6) and would leave it blank for good. A partial opacity is
 still drawn opaque.
+
+**`overflow` takes two keywords** -- `overflow: hidden auto` is
+overflow-x then overflow-y (CSS Overflow 3), and libcss's shorthand took
+one, so the declaration was dropped. Wikipedia hides its dropdowns as
+zero-height boxes clipped that way; dropped, the 349-language menu
+stretched the Main Page from 5,376 px to 17,817 -- 12,000 px of blank
+under the footer. The second port patch, in libcss
+(`userland/backends/libcss/patches/`).
 
 **What Wikipedia still shows wrong, and why** (each NetSurf's, measured
 against the host build):

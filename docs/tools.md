@@ -6979,7 +6979,10 @@ runs first**: a `doom1.wad` with one
   same-way squares fill their overlap (nonzero, not even-odd), a curved
   stroke is drawn, a checkbox at opacity 0 leaves its green label
   green while one at full opacity draws and a plain box at opacity 0
-  still does -- shown red by the patch's test changed to `opacity == -1`
+  still does; `/tests/web/overflow.html`'s zero-height `overflow: hidden
+  auto` menu of 300 items leaves the page no taller than the view -- shown
+  red by the libcss patch never reading the second keyword; and the
+  opacity check by the patch's test changed to `opacity == -1`
   and the path fill switched to even-odd, each turning only its own
   check red.
 

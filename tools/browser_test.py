@@ -55,6 +55,10 @@ WHAT IT CHECKS, and what a broken version would still pass:
     even-odd), a curved stroke is drawn, and a checkbox at opacity 0 over
     a green label leaves the label green while one at full opacity draws
     (control) and a plain box at opacity 0 still draws;
+  - /tests/web/overflow.html: a zero-height box with "overflow: hidden
+    auto" holding 300 items leaves the page no taller than the view --
+    the two-value shorthand libcss dropped, which gave Wikipedia's Main
+    Page 12,000 px of blank below its footer;
   - /tests/web/photos.html's progressive JPEG (four colour quadrants)
     and 2-bit palette Adam7 PNG (four bands) are DRAWN, each region its
     own colour in the pixels -- decoded by lib/uimg.h in a thread, as
@@ -444,6 +448,7 @@ def run(dbg, qmp, args, net):
 
     photos(dbg, page, at, shot)
     svg_and_opacity(dbg, page, at, shot)
+    overflow_two_values(dbg, page)
     fonts(dbg, page, at, shot)
     text_cursor(dbg, qmp, page, at)
     zoom_and_find(dbg, page, at, shot, c)
@@ -486,6 +491,17 @@ def photos(dbg, page, at, shot):
     check("the 2-bit Adam7 PNG is drawn, each band its colour", min(got) > 900, f"{got} of 1200 px")
     white = count(im, box(8 + 320 + 60, 8 + 60), lambda p: min(p) > 245)
     check("...and the page beside them stays white (control)", white > 1100, f"{white} px")
+
+
+def overflow_two_values(dbg, page):
+    go(dbg, "/tests/web/overflow.html")
+    url = "file:///tests/web/overflow.html"
+    st = wait(dbg, loaded(url))
+    # 300 list items are ~6000 px; clipped by "overflow: hidden auto" in
+    # a zero-height box they add nothing, so the page is the view.
+    check("two-value overflow clips a hidden list: the page does not scroll",
+          st.get("url") == url and 0 < st.get("ext_h", 0) <= page[3] + 40,
+          f"extent {st.get('ext_h')} for a view {page[3]} high")
 
 
 def svg_and_opacity(dbg, page, at, shot):

@@ -16,3 +16,5 @@ serves.
   (the tool's) lists the translation units -- not every `.c` here is one. Generated
   sources are the host build's output, vendored with the rest.
 - **Licence**: `COPYING`, upstream's own file.
+- **Patched, by toy-os**, from `userland/backends/libcss/patches/` (applied to the checkout before the host build and the copy):
+  - `0001-overflow-two-values.patch` -- overflow takes two keywords, overflow-x then overflow-y (Wikipedia's hidden menus no longer stretch the page).

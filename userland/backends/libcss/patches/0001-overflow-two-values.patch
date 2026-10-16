@@ -1,0 +1,93 @@
+overflow takes two keywords, overflow-x then overflow-y (Wikipedia's hidden menus no longer stretch the page).
+
+--- a/src/parse/properties/overflow.c
++++ b/src/parse/properties/overflow.c
+@@ -13,6 +13,34 @@
+ #include "parse/properties/properties.h"
+ #include "parse/properties/utils.h"
+ 
++/* Changed for toy-os, 2026-10-16: TWO keywords are overflow-x then
++ * overflow-y (CSS Overflow 3, "overflow: hidden auto"); one is both,
++ * as before. A second token that is not one of them is left for the
++ * declaration's trailing-junk check, which discards it. */
++static bool overflow_keyword(css_language *c, const css_token *token,
++		uint16_t *value)
++{
++	bool match;
++
++	if (token == NULL || token->type != CSS_TOKEN_IDENT)
++		return false;
++	if (lwc_string_caseless_isequal(token->idata,
++			c->strings[VISIBLE], &match) == lwc_error_ok && match)
++		*value = OVERFLOW_VISIBLE;
++	else if (lwc_string_caseless_isequal(token->idata,
++			c->strings[HIDDEN], &match) == lwc_error_ok && match)
++		*value = OVERFLOW_HIDDEN;
++	else if (lwc_string_caseless_isequal(token->idata,
++			c->strings[SCROLL], &match) == lwc_error_ok && match)
++		*value = OVERFLOW_SCROLL;
++	else if (lwc_string_caseless_isequal(token->idata,
++			c->strings[AUTO], &match) == lwc_error_ok && match)
++		*value = OVERFLOW_AUTO;
++	else
++		return false;
++	return true;
++}
++
+ /**
+  * Parse overflow shorthand
+  *
+@@ -35,7 +63,7 @@
+ 	css_error error1, error2 = CSS_OK;
+ 	const css_token *token;
+ 	enum flag_value flag_value;
+-	bool match;
++	uint16_t x, y;
+ 
+ 	token = parserutils_vector_iterate(vector, ctx);
+ 	if ((token == NULL) || ((token->type != CSS_TOKEN_IDENT))) {
+@@ -51,37 +79,15 @@
+ 		error2 = css_stylesheet_style_flag_value(result, flag_value,
+ 				CSS_PROP_OVERFLOW_Y);
+ 
+-	} else if ((lwc_string_caseless_isequal(token->idata,
+-			c->strings[VISIBLE], &match) == lwc_error_ok &&
+-			match)) {
+-		error1 = css__stylesheet_style_appendOPV(result,
+-				CSS_PROP_OVERFLOW_X, 0, OVERFLOW_VISIBLE);
+-		error2 = css__stylesheet_style_appendOPV(result,
+-				CSS_PROP_OVERFLOW_Y, 0, OVERFLOW_VISIBLE);
+-
+-	} else if ((lwc_string_caseless_isequal(token->idata,
+-			c->strings[HIDDEN], &match) == lwc_error_ok &&
+-			match)) {
+-		error1 = css__stylesheet_style_appendOPV(result,
+-				CSS_PROP_OVERFLOW_X, 0, OVERFLOW_HIDDEN);
+-		error2 = css__stylesheet_style_appendOPV(result,
+-				CSS_PROP_OVERFLOW_Y, 0, OVERFLOW_HIDDEN);
+-
+-	} else if ((lwc_string_caseless_isequal(token->idata,
+-			c->strings[SCROLL], &match) == lwc_error_ok &&
+-			match)) {
+-		error1 = css__stylesheet_style_appendOPV(result,
+-				CSS_PROP_OVERFLOW_X, 0, OVERFLOW_SCROLL);
+-		error2 = css__stylesheet_style_appendOPV(result,
+-				CSS_PROP_OVERFLOW_Y, 0, OVERFLOW_SCROLL);
+-
+-	} else if ((lwc_string_caseless_isequal(token->idata,
+-			c->strings[AUTO], &match) == lwc_error_ok &&
+-			match)) {
++	} else if (overflow_keyword(c, token, &x)) {
++		y = x;
++		consumeWhitespace(vector, ctx);
++		if (overflow_keyword(c, parserutils_vector_peek(vector, *ctx), &y))
++			parserutils_vector_iterate(vector, ctx);
+ 		error1 = css__stylesheet_style_appendOPV(result,
+-				CSS_PROP_OVERFLOW_X, 0, OVERFLOW_AUTO);
++				CSS_PROP_OVERFLOW_X, 0, x);
+ 		error2 = css__stylesheet_style_appendOPV(result,
+-				CSS_PROP_OVERFLOW_Y, 0, OVERFLOW_AUTO);
++				CSS_PROP_OVERFLOW_Y, 0, y);
+ 
+ 	} else {
+ 		error1 = CSS_INVALID;

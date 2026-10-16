@@ -887,6 +887,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Browser: Duktape's heap per content process, measured against the tab cap's 160 MiB~~ DONE 2026-10-16 -- a few MiB
 - [ ] Browser: images, pop-ups and autoplay as site permissions, on `uui_siteperm`
 - [x] ~~Browser: SVG images~~ DONE 2026-10-16 -- libsvgtiny over expat; paths nonzero and anti-aliased
+- [x] ~~Browser: `overflow` with two keywords~~ DONE 2026-10-16 -- a libcss patch; Wikipedia's hidden menus had stretched its page
 - [ ] Browser: CSS custom properties (`var()`) -- libcss drops the declaration; Wikipedia's Codex buttons draw black borders
 - [ ] Browser: CSS grid -- Wikipedia's Vector 2022 header and sidebar stack instead
 - [ ] Browser: `::before`/`::after` on inline boxes -- NetSurf generates them for block boxes only
