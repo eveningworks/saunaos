@@ -132,6 +132,15 @@ def state(dbg):
         m = re.search(r"browser: cookies cleared (\d+)$", line)
         if m:
             _st["cleared"] = int(m.group(1))
+        # The page's links in view, a fresh set from each link 0.
+        m = re.search(r"browser: layout page\.link (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+        if m:
+            if m.group(1) == "0":
+                _st["links"], _st["hrefs"] = {}, {}
+            _st.setdefault("links", {})[int(m.group(1))] = tuple(int(v) for v in m.groups()[1:])
+        m = re.search(r"browser: layout page\.href\.(\d+) (\S+)$", line)
+        if m:
+            _st.setdefault("hrefs", {})[int(m.group(1))] = m.group(2)
         # A widget's scalar ("layout page.pid 123", "page.stopped 1").
         m = re.search(r"browser: layout (\S+) (-?\d+)$", line)
         if m:
@@ -339,6 +348,25 @@ def run(dbg, qmp, args, net):
     check("the start page's header band is drawn in its blue", blue > 2000, f"{blue} px")
     check("...with its heading in white text on it", white > 80, f"{white} px")
     check("...and the body below it has none of that blue (control)", ctl < 50, f"{ctl} px")
+
+    # The start page is the engine's own file and its test pages are not:
+    # a click between them is the page's navigation, not the app's.
+    text = "file:///tests/web/text.html"
+    st = wait(dbg, lambda s: text in s.get("hrefs", {}).values())
+    i = next((k for k, h in st.get("hrefs", {}).items() if h == text), None)
+    r = st.get("links", {}).get(i)
+    if check("the start page reports its Text card's link", r is not None, f"hrefs {st.get('hrefs')}"):
+        dbg.send("gui click %d %d" % (c["x"] + r[0] + r[2] // 2, c["y"] + r[1] + r[3] // 2))
+        st = wait(dbg, loaded(text))
+        check("...and a click on it loads the test page", st.get("url") == text,
+              f"url={st.get('url')} loading={st.get('loading')}")
+        im = shot("start_click")
+        ink = count(im, at(page), lambda p: max(p) < 90)
+        tabs = [t.get("label") for t in (window(dbg) or {}).get("tabs", [])]
+        check("...drawn, not an error page", "Text" in " ".join(map(str, tabs)) and ink > 300,
+              f"tabs {tabs} ink {ink}")
+        dbg.send("gui key 0xF784 alt")     # Alt+Left
+        wait(dbg, loaded(HOME))
 
     go(dbg, "/tests/web/table.html")
     st = wait(dbg, loaded("file:///tests/web/table.html"))

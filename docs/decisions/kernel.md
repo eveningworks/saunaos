@@ -9385,7 +9385,9 @@ local files, and only for a navigation the user made.
   exploit gets no second try, while an engine asking for a file that is
   not there is ordinary and must not cost the page.
 - **`file:` pages are read by the APP (`uui_webview`), and only for a
-  process started for a local page the app navigated to** (`--files`).
+  process started for a local page the app navigated to** (`--files`) --
+  any `file:` page, the engine's own start page included, whose links
+  lead to local pages.
   A web page's request is refused (403), so is a web page opening a
   local file in a new tab, and a local page leaving for the web goes to
   a fresh process (`WV_SWAP`, Chrome's process swap) -- file access

@@ -641,7 +641,9 @@ list", has the comparison with seccomp, Capsicum and Windows.
   engine's own directory arrives as `WV_SCHEME_GET`, like `app:`, and the
   widget answers it -- a file, or a folder as a page of links -- only for
   a process it started with `--files` for a local page the APP navigated
-  to. A web page's request is a 403 ("A web page cannot open files on
+  to. Every `file:` page is a local page, the start page included: its
+  cards link to the test pages, and a click is the PAGE's navigation.
+  A web page's request is a 403 ("A web page cannot open files on
   this computer."), and so is a web page opening a local file in a new
   tab. A view moving between a local page and the web gets a fresh
   process: the app swaps on its own navigations and Back/Forward, and

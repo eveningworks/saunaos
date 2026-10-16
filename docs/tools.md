@@ -6960,7 +6960,9 @@ runs first**: a `doom1.wad` with one
 - **`browser_test.py`** -- the Web Browser app in `gui_regress.py`: it
   opens on its start page and reports it loaded; the page's header band
   is DRAWN in its own blue with white text on it, against a control rect
-  of bare body grey; a typed address is followed and names the tab; Back
+  of bare body grey; a click on its Text card loads that test page, not
+  an error page (the start page is the engine's own file and the test
+  pages are not); a typed address is followed and names the tab; Back
   returns; a click on `/tests/web/links.html`'s block link (a known band,
   so no guessed coordinates) follows it; the wheel scrolls; Ctrl+T and
   Ctrl+W open and close a tab. **The window is found by its title's

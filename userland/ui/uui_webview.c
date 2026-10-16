@@ -254,15 +254,12 @@ static void changed(struct uui_webview *v, unsigned what) {
 
 // --- local pages ----------------------------------------------------------------
 
-// A file: URL the engine cannot read for itself: anything outside its own
-// resources. A URL that does not even parse counts -- it is refused
-// below, by a process that was never a web page's.
+// A page whose process may read files through this widget: every file:
+// URL, the engine's own start page INCLUDED -- its links go to local
+// pages, and a click on one is the page's navigation, which only a local
+// page's process may make.
 static int local_page(const char *url) {
-    if (strncasecmp(url, "file:", 5) != 0) return 0;
-    static char path[4096];
-    if (ufileurl_to_path(url, path, sizeof path) != 0) return 1;
-    size_t n = sizeof WEBVIEW_ENGINE_FILES - 1;
-    return strncmp(path, WEBVIEW_ENGINE_FILES, n) != 0 || (path[n] && path[n] != '/');
+    return strncasecmp(url, "file:", 5) == 0;
 }
 
 // ONE KIND OF PAGE PER PROCESS: a local page's process reads files
