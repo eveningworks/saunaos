@@ -1260,7 +1260,9 @@ page table carrying only the entry stubs; PCID keeps the switch cheap)
 and retpolines or IBRS for Spectre v2; Windows with KVA Shadow. Nothing
 in the tree does either -- `cpu_features.h` only names the CPUID bits.
 Until there is more than one user the attacker is already the owner, so
-this lands with the user model; the honest alternative is a decision in
+this lands with the user model -- except that a SANDBOXED process (the
+browser's engine, since 2026-10-16) is an attacker who is not the owner,
+and on such a CPU it can still read kernel memory; the honest alternative is a decision in
 `docs/decisions/` saying why not, and what that leaves exposed.
 
 ### Encryption at rest

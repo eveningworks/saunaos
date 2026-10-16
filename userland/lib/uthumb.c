@@ -2,6 +2,8 @@
 // Manager's icons view (fm_thumbs.c) and the Image Viewer's filmstrip
 // draw through it.
 #include "lib/uthumb.h"
+#include <unistd.h>
+#include "sandbox_abi.h"
 #include "lib/ufile.h"
 #include "lib/uvid.h"
 #include "lib/uduration.h"
@@ -452,4 +454,32 @@ int uthumb_load_cached(const char *path, const struct rtc_time *mtime, int px, s
     int rc = uimg_codec_qoi.probe(d, n) ? uimg_codec_qoi.decode(d, n, out) : -1;
     free(d);
     return rc == 0 ? 0 : -1;
+}
+
+int uthumb_sandbox(char *const *files, int n) {
+    sys_mkdir("/var/cache");
+    sys_mkdir(THUMB_CACHE_DIR);
+    static char dirs[UNVEIL_MAX - 2][256];
+    int nd = 0, all = 0;
+    for (int i = 0; i < n && !all; i++) {
+        char d[256];
+        if (snprintf(d, sizeof d, "%s", files[i]) >= (int)sizeof d) { all = 1; break; }
+        char *slash = strrchr(d, '/');
+        if (!slash) snprintf(d, sizeof d, ".");
+        else if (slash == d) d[1] = '\0';
+        else *slash = '\0';
+        int seen = 0;
+        for (int k = 0; k < nd && !seen; k++) seen = !strcmp(dirs[k], d);
+        if (seen) continue;
+        if (nd == UNVEIL_MAX - 2) { all = 1; break; }
+        snprintf(dirs[nd++], sizeof dirs[0], "%s", d);
+    }
+    if (unveil(THUMB_CACHE_DIR, "rwc") != 0) return -1;
+    if (all) {
+        if (unveil("/", "r") != 0) return -1;
+    } else {
+        for (int k = 0; k < nd; k++)
+            if (unveil(dirs[k], "r") != 0) return -1;
+    }
+    return unveil(NULL, NULL) == 0 && pledge("stdio rpath wpath cpath", NULL) == 0 ? 0 : -1;
 }

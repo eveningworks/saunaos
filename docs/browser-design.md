@@ -469,12 +469,10 @@ Chosen 2026-10-13 (the Browser stage 5 canvas and two question rounds).
 
 - **The app links no NetSurf**, so the Web Browser, Help and System
   Update are MIT programs; `/bin/webcontent` is the one GPL binary.
-- **Isolation here is CRASH ISOLATION, not containment.** Chrome's,
-  Firefox's and WebKit's content processes are sandboxed; toy-os has no
-  per-process sandbox, so a compromised content process can do what any
-  process can. What the split buys is that a page that crashes NetSurf
-  costs one tab, the licence boundary, and the shape a sandbox would
-  later slot into. `umdf-design.md` says the same of its drivers.
+- **Isolation was CRASH ISOLATION at first, and is containment now.**
+  Stage 5 alone bought a crashed page costing one tab and the licence
+  boundary; since 2026-10-16 the content process is SANDBOXED as well
+  (below, "The sandbox"), as Chrome's, Firefox's and WebKit's are.
 - **The network leaves the content process** (WebKit's NetworkProcess,
   Chrome's Network Service). `/bin/webnet` owns the sockets, TLS, the
   connection pool, the cookie jar (`lib/ucookie.h`, RFC 6265, MIT --
@@ -624,6 +622,38 @@ failed handshake, a refused certificate -- and never for a link or an
 NetSurf draws an error page and loads the http twin itself; the app
 tries that host over http first for the rest of the session, and the
 address field's red "Not secure" says what happened.
+
+### The sandbox -- BUILT 2026-10-16
+
+Chosen 2026-10-16: OpenBSD's `pledge`/`unveil` shape in the kernel, the
+app reading `file:` pages, a broken promise killing the process, and
+fontd and the thumbnailer sandboxed in the same change.
+`docs/decisions/kernel.md`, "A sandbox is a promise set and a path
+list", has the comparison with seccomp, Capsicum and Windows.
+
+- **`uui_webview` spawns `/bin/webcontent` with `SPAWN_SANDBOX`**,
+  keeping `stdio rpath shm settings`: no socket, no spawn, no window, no
+  writing a file. Before NetSurf starts, the engine unveils its own
+  resources (`WEBVIEW_ENGINE_FILES`), the fonts, the settings and locale
+  files ring 3 reads as files, and the `shm:` beacons of its app and its
+  webnet, then locks the list. `ps --sandbox` shows the four promises.
+- **Local files are the app's to read.** A `file:` URL outside the
+  engine's own directory arrives as `WV_SCHEME_GET`, like `app:`, and the
+  widget answers it -- a file, or a folder as a page of links -- only for
+  a process it started with `--files` for a local page the APP navigated
+  to. A web page's request is a 403 ("A web page cannot open files on
+  this computer."), and so is a web page opening a local file in a new
+  tab. A view moving between a local page and the web gets a fresh
+  process: the app swaps on its own navigations and Back/Forward, and
+  the engine hands a page-initiated one over as `WV_SWAP` before
+  parsing a byte of it.
+- **The engine trusts only its own app as its page channel's server**
+  (`ubulk_client_open_from()`, the pid in `wv<pid>`), and every `uchan`
+  server adopts a ring only from the pid that created it -- so an engine
+  cannot post to webnet as the Browser.
+- **Not covered:** form file uploads (`<input type=file>`) open the chosen
+  file in the engine, and NetSurf here has no picker that would choose
+  one; the roadmap carries it.
 
 ### Stage 6 -- JavaScript -- PLANNED
 

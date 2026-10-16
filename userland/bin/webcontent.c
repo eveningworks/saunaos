@@ -13,10 +13,18 @@
 // given none -- Help -- reaches only local pages and the `app:` scheme.
 // It has no window: input arrives as the app's records, and the page
 // leaves as a pixel buffer and FRAMEs.
+//
+// **IT RUNS SANDBOXED** (abi/sandbox_abi.h): started with SPAWN_SANDBOX,
+// it unveils its fonts, its own resources and its two channels, locks
+// that list and pledges the rest away before NetSurf parses anything.
+// A page that takes over NetSurf can draw, and ask the app and webnet
+// for what they would give any page -- it cannot open a socket, spawn,
+// write a file or read one outside that list (wc_file.c has the files).
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "utils/errors.h"
 #include "webcontent/ns_bitmap.h"
@@ -133,18 +141,52 @@ static int engine_init(int argc, char **argv, int scheme) {
 }
 
 static const char *f_app, *f_net;
-static int f_scheme;
+static int f_scheme, f_files;
+
+// The pid in a "wv<pid>" service name: the app that started this
+// process, the only server its page channel may be.
+static int app_pid(const char *service) {
+    int pid = 0;
+    if (sscanf(service, WEBVIEW_SERVICE_FMT, &pid) != 1) return 0;
+    return pid;
+}
+
+// THE SANDBOX, after the channels are open and before any page. The
+// spawn already took everything but these (uui_webview.c); this narrows
+// the filesystem to what the engine reads itself, and the shm namespace
+// to the two services it was started for (their beacons are reopened to
+// see whether the server lives).
+static int sandbox(void) {
+    char shm[8 + UCHAN_NAME_MAX];
+    if (unveil(WC_OWN_FILES, "r") != 0 || unveil("/usr/share/fonts", "r") != 0) return 0;
+    // Read as FILES in ring 3, not through SYS_SETTING: libc's locale
+    // (libc/locale.c) and the browser's own settings, whose schema names
+    // /etc/browser.conf (lib/usetting_schema.c). Settings, nothing more.
+    static const char *const etc[] = { "/etc/locale.conf", "/etc/locales", "/etc/settings.d",
+                                       "/etc/browser.conf" };
+    for (unsigned i = 0; i < sizeof etc / sizeof etc[0]; i++)
+        if (unveil(etc[i], "r") != 0) return 0;
+    snprintf(shm, sizeof shm, "shm:%s", f_app);
+    if (unveil(shm, "r") != 0) return 0;
+    if (f_net) {
+        snprintf(shm, sizeof shm, "shm:%s", f_net);
+        if (unveil(shm, "r") != 0) return 0;
+    }
+    return unveil(NULL, NULL) == 0 && pledge("stdio rpath shm settings", NULL) == 0;
+}
 
 static const struct uargs_opt OPTS[] = {
     { "app", 0, "SERVICE", "the embedding app's channel (wv<pid>)", 0, &f_app },
     { "net", 0, "SERVICE", "the network process's channel (wn<pid>); none: local pages only", 0, &f_net },
     { "scheme", 0, 0, "ask the embedding app for app: pages", &f_scheme, 0 },
+    { "files", 0, 0, "started for a local page: one leaving for the web gets a fresh process",
+      &f_files, 0 },
     { 0 },
 };
 
 static const struct uargs_prog PROG = {
     .name = "webcontent",
-    .usage = "--app SERVICE [--net SERVICE] [--scheme]",
+    .usage = "--app SERVICE [--net SERVICE] [--scheme] [--files]",
     .summary = "A web page's engine, one process per view: NetSurf painting into shared\n"
                "memory for the app that embeds it. Started by ui/uui_webview, not by hand.",
     .opts = OPTS,
@@ -155,12 +197,19 @@ int main(int argc, char **argv) {
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
     setvbuf(stdout, NULL, _IOLBF, 0);   // the application log is a pipe: a line at a time
     if (!f_app) return uargs_error(&PROG, "--app SERVICE is required");
-    if (ubulk_client_open(&g_wc_app, f_app) != 0) {
+    if (ubulk_client_open_from(&g_wc_app, f_app, app_pid(f_app)) != 0) {
         fprintf(stderr, "webcontent: no app at %s\n", f_app);
         return 1;
     }
+    g_wc_files = f_files;
     if (f_net) snprintf(g_net_service, sizeof g_net_service, "%s", f_net);
     if (g_net_service[0] && !net_connect()) printf("webcontent: no network process at %s\n", f_net);
+    // A sandbox that could not be set up is not run without: no page
+    // is safer than a page with the whole machine behind it.
+    if (!sandbox()) {
+        printf("webcontent: could not enter its sandbox -- not loading pages\n");
+        return 1;
+    }
     struct wv_int hello = { WEBVIEW_VERSION };
     wc_send(WV_HELLO, &hello, sizeof hello);
     if (!ns_font_init()) printf("webcontent: no page fonts -- text draws as boxes\n");

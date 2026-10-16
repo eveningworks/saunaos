@@ -13,6 +13,9 @@
 // (abi/font_shm.h). Then it watches the settings and republishes when
 // they move.
 //
+// IT RUNS SANDBOXED (sandbox() below): the fonts, its settings, its
+// shared memory and nothing else, as fontdrvhost runs in an AppContainer.
+//
 // WHAT IT DELIBERATELY DOES NOT DO. It does not serve the KERNEL. Ring 0
 // draws its console, its shell and its panics from the baked tables
 // compiled into the image, and must: those have to work before any
@@ -24,6 +27,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <unistd.h>
 #include "rt/sys.h"
 #include "ttf.h"
 #include "font_atlas.h"
@@ -335,8 +339,25 @@ static void publish_mask(int mask) {
     }
 }
 
+// THE SANDBOX, before the first font is read (abi/sandbox_abi.h): the
+// fonts to read, the settings that name them, shared memory to publish
+// the atlases in and the diag name to answer on. A font that takes over
+// the parser gets that and no more -- no network, no spawn, no writing.
+static int sandbox(void) {
+    return unveil("/usr/share/fonts", "r") == 0 && unveil("/etc/settings.d", "r") == 0 &&
+           unveil("shm:" FONT_BEACON_NAME, "r") == 0 && unveil(NULL, NULL) == 0 &&
+           pledge("stdio rpath shm publish settings diag", NULL) == 0;
+}
+
 int main(void) {
     for (int i = 0; i < FONT_SHM_SLOT_COUNT; i++) { g_pub[i].fd = -1; }
+    // Refused, not run without: a font service with the machine behind
+    // it is the thing this exists to avoid. The desktop falls back to
+    // the baked tables, as it does with no fontd at all.
+    if (!sandbox()) {
+        printf("fontd: could not enter its sandbox -- not parsing fonts\n");
+        return 1;
+    }
 
     // The diagnostic name, claimed once. A service that cannot be asked
     // what it is doing is one whose failures get guessed at.

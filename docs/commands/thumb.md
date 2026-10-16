@@ -38,10 +38,18 @@ reads back only the finished QOI. A file that crashes a decoder ends
 this program, not the desktop -- Windows' out-of-process thumbnail
 handlers and GNOME's sandboxed thumbnailers make the same split.
 
+**IT DECODES SANDBOXED** (`pledge`/`unveil`, `abi/sandbox_abi.h`): before
+the first decode it can read only the folders of the FILEs it was given
+and write only `/var/cache/thumbnails`, and it keeps no promise but
+files -- no network, no spawn. Given files in more folders than the
+unveil list holds, it reads everything instead, still writing only the
+cache. `ps --sandbox` shows it while it runs.
+
 ## Exit status
 
 `0` every FILE has a thumbnail, `1` some FILE is not a picture or a
-video (or could not be read), `2` a usage error.
+video (or could not be read), `2` a usage error, or the sandbox could not
+be entered (it then decodes nothing).
 
 ## See also
 

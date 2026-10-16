@@ -73,6 +73,18 @@ void wc_net_upgrade(const char *url);
 // The app: scheme, answered by the embedding app.
 int wc_scheme_register(void);
 void wc_scheme_data(const struct ubulk_msg *m);
+// The same fetcher, for a scheme the APP answers on our behalf -- the
+// local files wc_file.c sends there.
+struct fetcher_operation_table;
+const struct fetcher_operation_table *wc_scheme_ops(void);
+
+// --- wc_file.c -----------------------------------------------------------
+// Set by --files: this process was started for a LOCAL page, and a page
+// leaving for the web goes to a fresh process (WV_SWAP).
+extern int g_wc_files;
+// THE SANDBOX'S PATHS: what this process reads itself, under the unveil
+// list. Every other file: URL is the app's to read (WV_SCHEME_GET).
+#define WC_OWN_FILES WEBVIEW_ENGINE_FILES
 
 // --- wc_download.c -------------------------------------------------------
 extern struct gui_download_table *wc_download_table;

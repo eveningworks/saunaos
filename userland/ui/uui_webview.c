@@ -13,11 +13,15 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
+#include <dirent.h>
 #include <sys/stat.h>
 
 #include "lib/ubulk.h"
+#include "lib/ufileurl.h"
 #include "lib/umd.h"
 #include "query_abi.h"
+#include "sandbox_abi.h"
 #include "rt/sys.h"
 #include "signal_abi.h"
 #include "syscall_abi.h"
@@ -30,6 +34,15 @@
 #include "keyboard.h"    // KEY_*
 
 #define ENGINE      "/bin/webcontent"
+// WHAT THE ENGINE KEEPS, from its first instruction (SPAWN_SANDBOX): its
+// own memory and threads, reading files (narrowed again to its fonts and
+// resources by its own unveil), shared memory for its buffers and
+// channels, and reading settings. No network, no spawn, no windows, no
+// writing anywhere.
+#define ENGINE_PROMISES (PROMISE_STDIO | PROMISE_RPATH | PROMISE_SHM | PROMISE_SETTINGS)
+// The most of a local file the widget reads for a page -- the engine's
+// own cap on a scheme answer (webcontent/wc_scheme.c).
+#define FILE_MAX    (8u * 1024 * 1024)
 #define SEND_MS     50     // the UI thread never waits longer on a busy engine
 #define REPORT_FMT  "/var/crash/webcontent-%d.crash"
 
@@ -164,10 +177,19 @@ static void unload_oldest(struct uui_webview *keep) {
 
 static void start_process(struct uui_webview *v) {
     if (v->pid || !g_open) return;
-    char args[160];
-    snprintf(args, sizeof args, "--app " WEBVIEW_SERVICE_FMT "%s%s%s", sys_getpid(),
-             v->net ? " --net " : "", v->net ? v->net : "", v->scheme ? " --scheme" : "");
-    int pid = sys_spawn(ENGINE, args, SPAWN_FD_LOG);
+    char args[176];
+    snprintf(args, sizeof args, "--app " WEBVIEW_SERVICE_FMT "%s%s%s%s", sys_getpid(),
+             v->net ? " --net " : "", v->net ? v->net : "", v->scheme ? " --scheme" : "",
+             v->files ? " --files" : "");
+    extern char **environ;
+    struct sys_spawn_opts o;
+    sys_spawn_opts_init(&o);
+    o.args = args;
+    o.env = environ;
+    o.stdout_fd = SPAWN_FD_LOG;
+    o.flags = SPAWN_SANDBOX;
+    o.promises = ENGINE_PROMISES;
+    int pid = sys_spawn_opts(ENGINE, &o);
     v->stopped = v->unloaded = 0;
     v->report[0] = '\0';
     if (pid <= 0) {
@@ -230,10 +252,38 @@ static void changed(struct uui_webview *v, unsigned what) {
     if (v->host && v->host->changed) v->host->changed(v, what);
 }
 
+// --- local pages ----------------------------------------------------------------
+
+// A file: URL the engine cannot read for itself: anything outside its own
+// resources. A URL that does not even parse counts -- it is refused
+// below, by a process that was never a web page's.
+static int local_page(const char *url) {
+    if (strncasecmp(url, "file:", 5) != 0) return 0;
+    static char path[4096];
+    if (ufileurl_to_path(url, path, sizeof path) != 0) return 1;
+    size_t n = sizeof WEBVIEW_ENGINE_FILES - 1;
+    return strncmp(path, WEBVIEW_ENGINE_FILES, n) != 0 || (path[n] && path[n] != '/');
+}
+
+// ONE KIND OF PAGE PER PROCESS: a local page's process reads files
+// through this widget and a web page's never does, so a view moving
+// between the two starts a fresh content process (Chrome's process swap
+// across a site boundary). Called before anything is sent for `url`.
+static void match_kind(struct uui_webview *v, const char *url) {
+    int want = local_page(url);
+    if (want == v->files) return;
+    if (v->pid) {
+        uui_webview_history_snapshot(v);
+        end_process(v);
+    }
+    v->files = want;
+}
+
 // --- what the app asks for -------------------------------------------------
 
 static void navigate_as(struct uui_webview *v, const char *url, int upgraded) {
     uint32_t type = upgraded ? WV_NAVIGATE_UPGRADED : WV_NAVIGATE;
+    match_kind(v, url);
     // A live page keeps ITS address until its content process reports
     // the new one: an app shown the new address beside the old page's
     // finished state would take the old page for the new.
@@ -246,8 +296,14 @@ static void navigate_as(struct uui_webview *v, const char *url, int upgraded) {
     v->pending_nav = strdup(url);
     v->pending_upgraded = upgraded;
     v->pending_go = 0;
+    // LOADING FROM HERE, not from the engine's first word: a page waiting
+    // for its process (a fresh one after a swap, say) is not the old
+    // page at rest, and an app told it was would act on a page that has
+    // not arrived -- its next navigation then replaces this one unseen.
+    v->st.loading = 1;
     if (!v->pid) start_process(v);
     if (v->stopped) changed(v, UUI_WV_STOPPED);
+    changed(v, UUI_WV_STATE);
 }
 
 void uui_webview_navigate(struct uui_webview *v, const char *url) { navigate_as(v, url, 0); }
@@ -283,6 +339,7 @@ static void send_go(struct uui_webview *v) {
 // process that is alive, or one started for it.
 static void go_entry(struct uui_webview *v) {
     const struct uui_wv_entry *e = &v->hist[v->hist_at];
+    match_kind(v, e->url);
     snprintf(v->url, sizeof v->url, "%s", e->url);
     snprintf(v->title, sizeof v->title, "%s", e->title);
     v->hist_live = 0;
@@ -294,6 +351,7 @@ static void go_entry(struct uui_webview *v) {
         free(v->pending_nav);
         v->pending_nav = NULL;
         v->pending_go = 1;
+        v->st.loading = 1;   // as navigate_as() says
         if (v->stopped) {
             v->stopped = 0;
             changed(v, UUI_WV_STOPPED);
@@ -435,6 +493,125 @@ void uui_webview_scheme_reply(struct uui_webview *v, uint32_t id, int status, co
         ml = 0;
         mime = NULL;
     } while (len);
+}
+
+// THE ENGINE'S LOCAL FILES, read here because it cannot. Only for a
+// process started for a local page; a web page's gets 403 and the engine
+// shows "A web page cannot open files on this computer."
+static int html_put(char **buf, size_t *len, size_t *cap, const char *s, size_t n) {
+    if (*len + n + 1 > *cap) {
+        size_t c = *cap ? *cap * 2 : 4096;
+        while (c < *len + n + 1) c *= 2;
+        char *g = realloc(*buf, c);
+        if (!g) return 0;
+        *buf = g;
+        *cap = c;
+    }
+    memcpy(*buf + *len, s, n);
+    *len += n;
+    (*buf)[*len] = '\0';
+    return 1;
+}
+
+static int html_puts(char **buf, size_t *len, size_t *cap, const char *s) {
+    return html_put(buf, len, cap, s, strlen(s));
+}
+
+// `s` as HTML text, or (as_url) percent-escaped for an href.
+static int html_put_escaped(char **buf, size_t *len, size_t *cap, const char *s, int as_url) {
+    for (const unsigned char *p = (const unsigned char *)s; *p; p++) {
+        char e[8];
+        const char *out = e;
+        if (as_url) {
+            if (*p <= ' ' || *p >= 0x7F || strchr("%#?\"'<>&", *p)) snprintf(e, sizeof e, "%%%02X", *p);
+            else e[0] = (char)*p, e[1] = 0;
+        } else {
+            out = *p == '&' ? "&amp;" : *p == '<' ? "&lt;" : *p == '>' ? "&gt;" : *p == '"' ? "&quot;" : 0;
+            if (!out) e[0] = (char)*p, e[1] = 0, out = e;
+        }
+        if (!html_put(buf, len, cap, out, strlen(out))) return 0;
+    }
+    return 1;
+}
+
+static int dirent_order(const void *a, const void *b) {
+    const struct dirent *x = *(const struct dirent *const *)a, *y = *(const struct dirent *const *)b;
+    if ((x->d_type == DT_DIR) != (y->d_type == DT_DIR)) return x->d_type == DT_DIR ? -1 : 1;
+    return strcasecmp(x->d_name, y->d_name);
+}
+
+// A folder as a page of links, folders first: what a browser shows for a
+// file: URL naming a directory.
+static char *dir_page(const char *path, size_t *out_len) {
+    DIR *d = opendir(path);
+    if (!d) return NULL;
+    struct dirent **ents = NULL;
+    size_t n = 0, cap_e = 0;
+    for (struct dirent *e; (e = readdir(d)); ) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        if (n == cap_e) {
+            cap_e = cap_e ? cap_e * 2 : 64;
+            struct dirent **g = realloc(ents, cap_e * sizeof *ents);
+            if (!g) break;
+            ents = g;
+        }
+        ents[n] = malloc(sizeof **ents);
+        if (!ents[n]) break;
+        memcpy(ents[n++], e, sizeof **ents);
+    }
+    closedir(d);
+    qsort(ents, n, sizeof *ents, dirent_order);
+    char *buf = NULL;
+    size_t len = 0, cap = 0;
+    int ok = html_puts(&buf, &len, &cap, "<!doctype html><html><head><meta charset=\"utf-8\"><title>") &&
+             html_put_escaped(&buf, &len, &cap, path, 0) &&
+             html_puts(&buf, &len, &cap, "</title></head><body><h1>") &&
+             html_put_escaped(&buf, &len, &cap, path, 0) &&
+             html_puts(&buf, &len, &cap, "</h1><ul>");
+    if (ok && strcmp(path, "/")) ok = html_puts(&buf, &len, &cap, "<li><a href=\"../\">..</a></li>");
+    for (size_t i = 0; ok && i < n; i++) {
+        int dir = ents[i]->d_type == DT_DIR;
+        ok = html_puts(&buf, &len, &cap, "<li><a href=\"") &&
+             html_put_escaped(&buf, &len, &cap, ents[i]->d_name, 1) &&
+             html_puts(&buf, &len, &cap, dir ? "/\">" : "\">") &&
+             html_put_escaped(&buf, &len, &cap, ents[i]->d_name, 0) &&
+             html_puts(&buf, &len, &cap, dir ? "/</a></li>" : "</a></li>");
+    }
+    if (ok) ok = html_puts(&buf, &len, &cap, "</ul></body></html>");
+    for (size_t i = 0; i < n; i++) free(ents[i]);
+    free(ents);
+    if (!ok) { free(buf); return NULL; }
+    *out_len = len;
+    return buf;
+}
+
+static void serve_file(struct uui_webview *v, uint32_t id, const char *url) {
+    static char path[4096];
+    if (!v->files) {
+        ulogf("webview: refused %s to a web page (content %d)\n", url, v->pid);
+        uui_webview_scheme_reply(v, id, 403, NULL, NULL, 0, 1);
+        return;
+    }
+    struct stat st;
+    if (ufileurl_to_path(url, path, sizeof path) != 0 || stat(path, &st) != 0) {
+        uui_webview_scheme_reply(v, id, 404, NULL, NULL, 0, 1);
+        return;
+    }
+    char *body = NULL;
+    size_t len = 0;
+    const char *mime = "text/html";
+    if (S_ISDIR(st.st_mode)) {
+        body = dir_page(path, &len);
+    } else if ((uint64_t)st.st_size <= FILE_MAX) {
+        FILE *f = fopen(path, "rb");
+        body = f ? malloc((size_t)st.st_size + 1) : NULL;
+        if (body) len = fread(body, 1, (size_t)st.st_size, f);
+        if (f) fclose(f);
+        mime = ufileurl_mime(path);
+    }
+    if (body) uui_webview_scheme_reply(v, id, 200, mime, body, (uint32_t)len, 1);
+    else uui_webview_scheme_reply(v, id, 404, NULL, NULL, 0, 1);
+    free(body);
 }
 
 // --- what the content process says ---------------------------------------------
@@ -614,6 +791,12 @@ static void handle(const struct ubulk_msg *m) {
     case WV_EXTERNAL: {
         static char url[WEBVIEW_URL_MAX];
         copy_str(url, sizeof url, m, 0, m->len);
+        // A web page cannot reach a local file by opening it in a new
+        // tab either: that tab would be started as a local page's.
+        if (m->type == WV_OPEN_TAB && !v->files && local_page(url)) {
+            ulogf("webview: refused to open %s from a web page\n", url);
+            break;
+        }
         if (m->type == WV_OPEN_TAB && v->host && v->host->open_tab) v->host->open_tab(v, url);
         if (m->type == WV_EXTERNAL && v->host && v->host->external) v->host->external(v, url);
         break;
@@ -646,10 +829,18 @@ static void handle(const struct ubulk_msg *m) {
         changed(v, UUI_WV_LINKS);
         break;
     }
+    case WV_SWAP: {
+        // Only a local page's process has anything to leave behind.
+        static char url[WEBVIEW_URL_MAX];
+        copy_str(url, sizeof url, m, 0, m->len);
+        if (v->files && !local_page(url)) uui_webview_navigate(v, url);
+        break;
+    }
     case WV_SCHEME_GET: {
         static char url[WEBVIEW_URL_MAX];
         copy_str(url, sizeof url, m, 0, m->len);
-        if (v->host && v->host->scheme) v->host->scheme(v, m->id, url);
+        if (!strncasecmp(url, "file:", 5)) serve_file(v, m->id, url);
+        else if (v->host && v->host->scheme) v->host->scheme(v, m->id, url);
         else uui_webview_scheme_reply(v, m->id, 404, NULL, NULL, 0, 1);
         break;
     }

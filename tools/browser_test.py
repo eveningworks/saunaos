@@ -71,7 +71,11 @@ nobody:
     it at the same server, so nothing leaves the machine);
   - the server saw FEWER connections than requests: they were reused;
   - https with a test CA (fetched into /etc/ssl/certs by wget) loads, and
-    an expired certificate stops at NetSurf's "Privacy error" page.
+    an expired certificate stops at NetSurf's "Privacy error" page;
+  - the page's engine runs SANDBOXED (`ps --sandbox` shows its four
+    promises), an http page's file: image is refused by the app while
+    the same image over http draws, and the engine is refused nothing
+    from /etc at start.
 
 Geometry and state are the app's own report (`browser: layout page ...`,
 `browser: tab ...`), never re-derived here.
@@ -811,6 +815,46 @@ def labels(dbg):
     return [t.get("label") for t in (window(dbg) or {}).get("tabs", [])]
 
 
+ENGINE_PLEDGE = "stdio rpath shm settings"
+
+
+def sandboxed(dbg, host, page, at, shot):
+    """The engine runs sandboxed (abi/sandbox_abi.h), and a web page's
+    gets no local file. What a broken version would still pass: an
+    engine that never pledged loads every page just the same, so its
+    promises are read from `ps --sandbox`; a refusal that broke images
+    altogether would also leave the file: one blank, so the SAME image
+    over http, above it on the page, must draw (the control)."""
+    url = f"http://{host}/fileref.html"
+    dbg.logs("webview:", clear=True)
+    go(dbg, url)
+    st = wait(dbg, lambda s: loaded(url)(s) and s.get("page.pid", 0) > 0, timeout=20)
+    pid = st.get("page.pid", 0)
+    row = [ln for ln in dbg.send("sh ps --sandbox").splitlines()
+           if ln.split()[:1] == [str(pid)]]
+    check("the page's engine runs sandboxed, with only its four promises",
+          bool(row) and row[0].rstrip().endswith(ENGINE_PLEDGE), f"pid {pid}: {row}")
+    sx, sy = st.get("sx", 0), st.get("sy", 0)
+
+    def box(x, y):
+        return at((page[0] + x - sx - 20, page[1] + y - sy - 15, 40, 30))
+    im = None
+    for _ in range(20):
+        im = shot("fileref")
+        if count(im, box(8 + 160, 8 + 30), near((200, 40, 160), 30)) > 900:
+            break
+        time.sleep(0.5)
+    http_img = count(im, box(8 + 160, 8 + 30), near((200, 40, 160), 30))
+    file_img = count(im, box(8 + 160, 248 + 30), near((200, 40, 160), 30))
+    check("an http page's image over http is drawn (control)", http_img > 900, f"{http_img} px")
+    check("...and the same image as a file: URL is not", file_img < 20, f"{file_img} px")
+    refused = [ln for ln in dbg.logs("webview:") if "refused file:///tests/web/bands.png" in ln]
+    check("...because the app refused it to a web page", bool(refused), f"{refused[:1]}")
+    log = dbg.send("sh dmesg")
+    check("the engine read nothing its sandbox hid at start (locale, settings)",
+          f"sandbox: pid {pid} refused path /etc/" not in log, f"pid {pid}")
+
+
 def network(dbg, net, page, at, shot):
     srv = net["http"]
     srv.reset()
@@ -828,6 +872,8 @@ def network(dbg, net, page, at, shot):
     ctl = count(im, at((page[0], page[1] + 150, page[2], 120)), near(NET_RED, 40))
     check("...with its stylesheet, a SEPARATE request, applied", red > 100, f"{red} red px")
     check("...and none of its red lower down (control)", ctl < 20, f"{ctl} px")
+
+    sandboxed(dbg, host, page, at, shot)
 
     # A page bigger than the network process's ring (lib/ubulk.h): it
     # arrives in pieces as the content process makes room. A broken wait

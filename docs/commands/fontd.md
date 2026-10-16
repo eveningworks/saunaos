@@ -52,6 +52,14 @@ spent a decade of GDI font CVEs on before Windows 10 moved it out to
 `fontdrvhost`, a sandboxed user-mode process. A malformed font here now
 crashes a restartable service instead of the machine.
 
+**And it is sandboxed too** (`pledge`/`unveil`, `abi/sandbox_abi.h`):
+before reading a font it narrows itself to reading `/usr/share/fonts`
+and its settings, publishing shared memory, and answering `diag font`
+-- no network, no spawn, no writing a file. `ps --sandbox` shows
+`stdio rpath shm publish settings diag`. A fontd that cannot enter its
+sandbox exits rather than parse; the desktop then draws with the baked
+tables, as with no fontd at all.
+
 The atlas is one shared object rather than a copy per client for two
 reasons, and the second is the one that bites. It is tens to hundreds of
 kilobytes, so a copy each is large — and it is free to **drift**: a

@@ -90,6 +90,7 @@ struct uui_webview {
 
     // --- OWNED ---
     int ready;                     // the content process said hello
+    int files;                     // ...was started for a local page (--files)
     int visible;
     unsigned long long shown_ns;   // when last shown, for unloading the oldest
     char *pending_nav;             // a URL to load once ready

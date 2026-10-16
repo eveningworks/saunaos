@@ -220,6 +220,10 @@ only expensive part of it.
 - [ ] Home directories + `~` expansion
 - [ ] `umask`-equivalent default permissions
 - [ ] uid/gid carried in the process control block, checked by the syscall layer rather than by each caller
+- [x] ~~A per-process sandbox~~ DONE 2026-10-16 -- `pledge`/`unveil`, `SPAWN_SANDBOX`; webcontent, fontd and thumb use it
+- [ ] A service's sandbox from its descriptor -- `Sandbox=` in `services.d`, systemd's `SystemCallFilter=`; fontd pledges itself today
+- [ ] The other parsers of untrusted input sandboxed -- smbfsd, webnet, and the decoders apps run in-process
+- [ ] The sandbox in Task Manager -- `ps --sandbox` is the only view of it
 
 ## Phase 4 -- the userland runtime
 
@@ -873,7 +877,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Browser: a startup setting -- the last tabs (today, always) or the start page, Chrome's "On startup"
 - [x] ~~Browser: HTTP authentication kept by `/bin/webnet`, not per content process~~ DONE 2026-10-16 -- `uui_signin`
 - [ ] Browser: HTTP Digest authentication -- webnet answers Basic only
-- [ ] Browser: a sandboxed content process -- with no per-process sandbox, stage 5 isolates crashes, not compromise
+- [x] ~~Browser: a sandboxed content process~~ DONE 2026-10-16 -- pledge/unveil; `file:` read by the app
+- [ ] Browser: a form's file upload read by the app -- the engine opens the chosen path itself, and has no picker yet
 - [ ] Browser stage 6: JavaScript through Duktape, off by default until measured
 - [x] ~~Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans~~ DONE 2026-10-13
 

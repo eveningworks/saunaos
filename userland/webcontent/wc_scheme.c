@@ -95,7 +95,9 @@ static void sc_poll(lwc_string *scheme) {
             fetch_msg msg;
             if (f->status != 200) {
                 msg.type = FETCH_ERROR;
-                msg.data.error = "The app has no such page.";
+                msg.data.error = f->status == 403
+                    ? "A web page cannot open files on this computer."
+                    : "There is no such page.";
                 send_msg(f, &msg);
             } else {
                 fetch_set_http_code(f->parent, 200);
@@ -152,18 +154,21 @@ static bool sc_initialise(lwc_string *scheme) { (void)scheme; return true; }
 static void sc_finalise(lwc_string *scheme) { (void)scheme; }
 static bool sc_acceptable(const nsurl *url) { (void)url; return true; }
 
+static const struct fetcher_operation_table g_ops = {
+    .initialise = sc_initialise,
+    .acceptable = sc_acceptable,
+    .setup = sc_setup,
+    .start = sc_start,
+    .abort = sc_abort,
+    .free = sc_free,
+    .poll = sc_poll,
+    .finalise = sc_finalise,
+};
+
+const struct fetcher_operation_table *wc_scheme_ops(void) { return &g_ops; }
+
 int wc_scheme_register(void) {
-    static const struct fetcher_operation_table ops = {
-        .initialise = sc_initialise,
-        .acceptable = sc_acceptable,
-        .setup = sc_setup,
-        .start = sc_start,
-        .abort = sc_abort,
-        .free = sc_free,
-        .poll = sc_poll,
-        .finalise = sc_finalise,
-    };
     lwc_string *s;
     if (lwc_intern_string("app", 3, &s) != lwc_error_ok) return -1;
-    return fetcher_add(s, &ops) == NSERROR_OK ? 0 : -1;
+    return fetcher_add(s, &g_ops) == NSERROR_OK ? 0 : -1;
 }

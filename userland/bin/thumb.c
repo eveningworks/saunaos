@@ -6,10 +6,10 @@
 // (lib/uthumb.h), Windows' out-of-process thumbnail handlers' shape. A
 // file that crashes a decoder takes this program with it, not the
 // desktop. Anything else may run it too -- it fills the File Manager's
-// cache ahead of a visit.
+// cache ahead of a visit. It decodes SANDBOXED (uthumb_sandbox()).
 //
 // Exit status: 0 every FILE has a thumbnail, 1 some FILE is not a
-// picture or a video (or cannot be read), 2 a usage error.
+// picture or a video (or cannot be read), 2 a usage error or no sandbox.
 #include <stdio.h>
 #include <stdlib.h>
 #include "lib/uargs.h"
@@ -30,7 +30,8 @@ static const struct uargs_prog PROG = {
     .summary = "Make each FILE's thumbnail in /var/cache/thumbnails, or confirm the one\n"
                "there is newer than the file. Pictures (QOI, PNG, JPEG, BMP, GIF) and videos.",
     .opts = OPTS,
-    .notes = "Exit status: 0 every FILE has one, 1 some FILE is not a picture or a video.",
+    .notes = "Exit status: 0 every FILE has one, 1 some FILE is not a picture or a video,\n"
+             "2 a usage error, or the sandbox it decodes in could not be entered.",
 };
 
 int main(int argc, char **argv) {
@@ -39,6 +40,12 @@ int main(int argc, char **argv) {
     int px = g_size ? atoi(g_size) : 64;
     if (px < 16 || px > 256) return uargs_error(&PROG, "a size of %s is not 16..256", g_size);
     if (a.argc < 1) return uargs_error(&PROG, "no FILE");
+    // SANDBOXED before the first decode: a picture that takes over a
+    // decoder can read the folders it was given and write thumbnails.
+    if (uthumb_sandbox(a.argv, a.argc) != 0) {
+        fprintf(stderr, "thumb: could not enter its sandbox -- not decoding\n");
+        return 2;
+    }
     int bad = 0;
     for (int i = 0; i < a.argc; i++) {
         int rc = uthumb_make(a.argv[i], px);

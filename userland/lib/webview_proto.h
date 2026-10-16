@@ -17,6 +17,9 @@
 #define WEBVIEW_BUF_FMT     "wvb.%d.%u"  // the content process's pid, a generation
 #define WEBVIEW_VERSION     2
 #define WEBVIEW_URL_MAX     8192         // a URL as long as browsers meet in practice
+// The one directory the sandboxed engine reads ITSELF -- its stylesheets
+// and the start page; every other file: URL is the app's to read.
+#define WEBVIEW_ENGINE_FILES "/usr/share/netsurf"
 
 // --- app -> content --------------------------------------------------
 
@@ -61,12 +64,20 @@ enum {
     WV_FIND_RESULT,    // struct wv_find_result
     WV_OPEN_TAB,       // string: a link that asked for a new window
     WV_VISITED,        // struct wv_visited then the URL's bytes
-    WV_SCHEME_GET,     // id: the request; string: an app: URL to answer
+    WV_SCHEME_GET,     // id: the request; string: an app: or file: URL to answer
     WV_EXTERNAL,       // string: an http(s) link in a view with no network
     WV_LINKS,          // the links in view: struct wv_link each, its href after it
     WV_COMMIT,         // struct wv_commit then a URL: the page now shown, for back/forward
     WV_DOWNGRADED,     // string: a host whose https did not answer, loaded over http instead
+    WV_SWAP,           // string: a page leaving a --files process for the web, to load fresh
 };
+
+// LOCAL FILES ARE THE APP'S TO READ. The engine runs sandboxed and sees
+// only its own resources, so any other file: URL arrives as WV_SCHEME_GET
+// like an app: one -- and the widget answers it itself, 403 unless this
+// process was started for a local page the APP navigated to (`--files`).
+// A web page never gets a file; a local page that links to the web goes
+// to a fresh process (WV_SWAP), so file access never meets a web page.
 
 // BACK/FORWARD IS THE APP'S LIST, not NetSurf's: it must outlive the
 // content process (Chrome's NavigationController, Firefox's session

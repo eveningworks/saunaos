@@ -18,6 +18,7 @@
 #include "webcontent/ns_plot.h"
 #include "webcontent/ns_sched.h"
 #include "webcontent/wc.h"
+#include "lib/ufileurl.h"
 
 #include "netsurf/browser_window.h"
 #include "netsurf/fetch.h"
@@ -460,6 +461,18 @@ static nserror gw_event(struct gui_window *gw, enum gui_window_event ev) {
                 browser_window_stop(gw->bw);
             }
         }
+        // A process started for a LOCAL page can read files through the
+        // app; a page it leaves for the web must not inherit that, so the
+        // app loads it in a fresh process (Chrome's process swap). Before
+        // a byte of the new page is parsed: the load is stopped here.
+        if (g_wc_files && gw == g_wc_win) {
+            const char *url = loading_url(gw->bw);
+            if (url && strncmp(url, "file:", 5) && strncmp(url, "about:", 6) &&
+                strncmp(url, "resource:", 9) && strncmp(url, "data:", 5)) {
+                wc_send_str(WV_SWAP, url);
+                browser_window_stop(gw->bw);
+            }
+        }
         break;
     case GW_EVENT_STOP_THROBBER:
         gw->loading = 0;
@@ -557,21 +570,9 @@ struct gui_misc_table *wc_misc_table = &g_misc;
 
 // What a file: URL is, by its extension -- what monkey and every other
 // front end answer from a table; NetSurf sniffs the content where it may.
-static const char *ft_filetype(const char *path) {
-    static const struct { const char *ext, *type; } T[] = {
-        { "html", "text/html" }, { "htm", "text/html" }, { "xhtml", "application/xhtml+xml" },
-        { "css", "text/css" }, { "js", "application/javascript" },
-        { "png", "image/png" }, { "jpg", "image/jpeg" }, { "jpeg", "image/jpeg" },
-        { "gif", "image/gif" }, { "bmp", "image/bmp" }, { "ico", "image/x-icon" },
-        { "svg", "image/svg+xml" }, { "qoi", "image/qoi" },
-        { "txt", "text/plain" }, { "md", "text/plain" }, { "conf", "text/plain" },
-    };
-    const char *dot = strrchr(path, '.'), *slash = strrchr(path, '/');
-    if (dot && (!slash || dot > slash))
-        for (size_t i = 0; i < sizeof T / sizeof T[0]; i++)
-            if (!strcasecmp(dot + 1, T[i].ext)) return T[i].type;
-    return "text/plain";
-}
+// THE SAME TABLE the app uses for the local files it reads for us
+// (lib/ufileurl.h), so a page and its own subresources are one type.
+static const char *ft_filetype(const char *path) { return ufileurl_mime(path); }
 
 // resource:<name> -- NetSurf's own stylesheets and pages, at
 // /usr/share/netsurf (docs/filesystem-layout.md).
