@@ -249,6 +249,10 @@ TOOLS = [
     # and without it this is a skip -- tools/netsurf_vendor.py makes it.
     ("browser_host", "browser_hostcheck.py",   "NetSurf's layout, toy-os vs the host build", True,
      ("netsurf_oracle", "needs the host NetSurf build: tools/netsurf_vendor.py --no-copy"),  False),
+    # The same with JavaScript on, both sides (stage 6): Duktape over
+    # tolibc against the same pinned Duktape on the host.
+    ("browser_host_js", "browser_hostcheck.py --js", "the same, JavaScript on both sides", True,
+     ("netsurf_oracle", "needs the host NetSurf build: tools/netsurf_vendor.py --no-copy"),  False),
     ("live_boot",   "live_boot_test.py",       "the Live CD's RAM image",            True,
      ("live_iso", "no toy-os-live.iso -- run `make live-iso` first"),                        False),
     # Two disks on two drivers -- the one configuration no other tool

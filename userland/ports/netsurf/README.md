@@ -18,5 +18,7 @@ new pin. `docs/browser-design.md` is the plan this serves.
   that main.c named. `generated/testament.h` is the tool's, not upstream's
   (upstream's records the build host). The four stylesheets under
   `resources/` and `generated/res/Messages` are run-time resources,
-  staged on the image at `/usr/share/netsurf/`.
+  staged on the image at `/usr/share/netsurf/`. `generated/duktape/` is
+  nsgenbind's output on the host: the DOM bindings for Duktape, from
+  the `.bnd` files and the WebIDL beside `dukky.c`.
 - **Licence**: `COPYING`, upstream's own file.

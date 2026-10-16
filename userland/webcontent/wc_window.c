@@ -324,6 +324,7 @@ void wc_window_flush(void) {
     st.caret_h = gw->caret_h;
     st.pointer = gw->pointer;
     st.zoom = wc_zoom_pct();
+    st.loads = gw->loads;
     if (!g_state_valid || memcmp(&st, &g_sent_state, sizeof st)) {
         g_sent_state = st;
         g_state_valid = 1;
@@ -477,6 +478,11 @@ static nserror gw_event(struct gui_window *gw, enum gui_window_event ev) {
     case GW_EVENT_STOP_THROBBER:
         gw->loading = 0;
         g_links_dirty = 1;
+        if (gw == g_wc_win) {
+            gw->loads++;
+            gw->js = wc_js_allowed(gw->url);
+            gw->scripts = wc_js_count_scripts(gw->bw);
+        }
         // NetSurf sets the busy pointer for a load and leaves resetting
         // it to the next motion; one held still would keep the ring.
         if (gw->pointer == WIN_CURSOR_WAIT) gw->pointer = WIN_CURSOR_DEFAULT;
@@ -901,6 +907,9 @@ void wc_window_handle(const struct ubulk_msg *m) {
         break;
     case WV_SCHEME_DATA:
         wc_scheme_data(m);
+        break;
+    case WV_PERMS:
+        wc_js_set_perms((const char *)m->data, m->len);
         break;
     case WV_CRASH:
         // What a person typed as about:crash (Chrome's chrome://crash):

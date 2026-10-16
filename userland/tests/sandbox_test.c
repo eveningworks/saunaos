@@ -18,6 +18,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <signal.h>
+#include <time.h>
 #include <unistd.h>
 #include "rt/sys.h"
 #include "syscall_abi.h"
@@ -54,6 +55,22 @@ static int stdio_then_socket(void) {
     if (getpid() <= 0) return 2;                 // STDIO still answers
     sys_socket(NET_ABI_AF_INET, NET_ABI_SOCK_DGRAM, NET_ABI_IPPROTO_UDP);           // INET: never returns
     return 3;
+}
+
+// The wall clock is a query record that `stdio` reads; any other record
+// is the registry's, `query`.
+static int clock_is_stdio(void) {
+    if (pledge("stdio", NULL) != 0) return 1;
+    struct timespec ts;
+    if (clock_gettime(CLOCK_REALTIME, &ts) != 0 || ts.tv_sec < 1700000000) return 2;
+    return 0;
+}
+
+static int other_query_needs_query(void) {
+    if (pledge("stdio", NULL) != 0) return 1;
+    struct query_proclimits q;
+    sys_query_record(QUERY_PROCLIMITS, 0, &q, sizeof q);     // never returns
+    return 2;
 }
 
 static int no_widening(void) {
@@ -210,6 +227,12 @@ int main(int argc, char **argv) {
     int s = sys_socket(NET_ABI_AF_INET, NET_ABI_SOCK_DGRAM, NET_ABI_IPPROTO_UDP);
     utest_check(s >= 0, "the parent, which never pledged, still opens a socket");
     if (s >= 0) close(s);
+
+    code = in_child(clock_is_stdio);
+    utest_checkf(code == 0, "stdio reads the wall clock, a query record (%d)", code);
+    code = in_child(other_query_needs_query);
+    utest_checkf(code == KILLED_BY_SIGSYS, "...and any other query record needs query (%d)", code);
+    utest_check(last_crash_says("Sandbox: query needs 'query'"), "...named in the crash record");
 
     code = in_child(no_widening);
     utest_checkf(code == 0, "a pledge only narrows; a word nobody knows is EINVAL (%d)", code);

@@ -113,10 +113,21 @@ float ceilf(float x) { return (float)ceil(x); }
 float truncf(float x) { return (float)trunc(x); }
 float roundf(float x) { return (float)round(x); }
 float fabsf(float x) { return (float)fabs(x); }
-// NOT through <math.h>'s sqrt(): in this file GCC follows the hardware
-// sqrtsd with a call to an out-of-line sqrt() for a negative argument
-// (to set errno), and no such symbol exists -- the header's is inline.
-// sqrtss, and EDOM written here, instead.
+// THE OUT-OF-LINE sqrt() GCC CALLS: <math.h>'s is inline, but with
+// errno semantics GCC follows its sqrtsd with a call to `sqrt` for a
+// negative argument, to set errno -- so every caller that cannot prove
+// its argument non-negative needs this symbol (Duktape's Math.sqrt).
+// Under an asm label, as the header's inline owns the C name here.
+double sqrt_out_of_line(double x) __asm__("sqrt");
+double sqrt_out_of_line(double x) {
+    if (x < 0.0) { errno = EDOM; return __builtin_nan(""); }
+    double r;
+    __asm__("sqrtsd %1, %0" : "=x"(r) : "x"(x));
+    return r;
+}
+
+// NOT through <math.h>'s sqrt(), which in this file would call the
+// function above for a negative argument: sqrtss, and EDOM written here.
 float sqrtf(float x) {
     if (x < 0.0f) { errno = EDOM; return __builtin_nanf(""); }
     float r;

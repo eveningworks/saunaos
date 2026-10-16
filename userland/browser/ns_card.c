@@ -117,6 +117,12 @@ static int caption_w(void) { return ugfx_text_width("Issued by") + ugfx_char_adv
 // ring 3's stack-frame budget, and only the UI thread draws.
 static struct line g_lines[LINES_MAX];
 
+// A web page's: what runs on it is the site's to choose.
+static int web_page(const struct ns_site *s) {
+    return s->host[0] && s->state != NS_SITE_FILE && s->state != NS_SITE_INTERNAL &&
+           s->state != NS_SITE_NONE;
+}
+
 static void layout(struct ns_card *c, int ax, int ay, int bw, int bh) {
     struct line *L = g_lines;
     int n = build(c, L), w = 0, h = 2 * pad();
@@ -124,6 +130,12 @@ static void layout(struct ns_card *c, int ax, int ay, int bw, int bh) {
         int lw = ugfx_text_width(L[i].text) + (L[i].caption ? caption_w() : 0);
         if (lw > w) w = lw;
         h += line_h() + (L[i].gap_before ? pad() : 0);
+    }
+    int lines_h = h, rw = 0, rh = 0;
+    if (c->has_js) {
+        uui_siteperm_natural_size(&c->js, caption_w(), &rw, &rh);
+        if (rw > w) w = rw;
+        h += pad() + rh;
     }
     w += 2 * pad();
     int min = ugfx_char_advance('n') * 34;
@@ -141,15 +153,20 @@ static void layout(struct ns_card *c, int ax, int ay, int bw, int bh) {
     if (c->x < 4) c->x = 4;
     if (c->y < 4) c->y = 4;
     c->clear_x = c->x + w - pad() - c->clear_w;
-    c->clear_y = c->y + h - pad() - line_h();
+    c->clear_y = c->y + lines_h - pad() - line_h();
+    if (c->has_js) uui_siteperm_set_geometry(&c->js, c->x + pad(), c->y + lines_h, caption_w());
 }
 
 void ns_card_open(struct ns_card *c, const struct ns_site *site, int ax, int ay, int bw, int bh) {
     c->site = *site;
     c->open = 1;
     c->armed = c->hot = 0;
+    c->has_js = web_page(site);
+    if (c->has_js) uui_siteperm_init(&c->js, "JavaScript", site->js_perm, site->js_default_on);
     layout(c, ax, ay, bw, bh);
 }
+
+int ns_card_js(const struct ns_card *c) { return uui_siteperm_value(&c->js); }
 
 void ns_card_close(struct ns_card *c) {
     if (c->open) c->event = NS_CARD_CLOSED;
@@ -206,8 +223,12 @@ static void c_draw(struct ugfx_surface *s, const void *w) {
         }
         y += line_h();
     }
+    if (c->has_js) {
+        ugfx_fill_rect(s, c->x + 1, c->js.y - pad() / 2 - 1, c->w - 2, 1, UTHEME_SEPARATOR);
+        uui_siteperm_draw(s, &c->js, uui_popup_bg());
+    }
     if (c->clear_w) {
-        uint32_t bg = c->armed ? uui_state_bg(UTHEME_BUTTON_BG, UUI_STATE_PRESSED)
+        uint32_t bg = c->armed == 1 ? uui_state_bg(UTHEME_BUTTON_BG, UUI_STATE_PRESSED)
                     : c->hot ? uui_state_bg(UTHEME_BUTTON_BG, UUI_STATE_HOVER) : UTHEME_BUTTON_BG;
         uui_fill_round_rect(s, c->clear_x, c->clear_y, c->clear_w, c->clear_h, uui_control_radius(4), bg);
         ugfx_draw_string(s, c->clear_x + pad(), c->clear_y + 3, "Clear", UTHEME_TEXT, bg);
@@ -227,7 +248,6 @@ static int c_hit(const void *w, int cx, int cy) {
 // the card and is declined, so it reaches what is under it -- a click on
 // a link while the card is up follows the link.
 static int c_press(void *w, int cx, int cy, unsigned mods) {
-    (void)mods;
     struct ns_card *c = w;
     if (!c->open) return 0;
     if (!c_hit(c, cx, cy)) {
@@ -235,21 +255,27 @@ static int c_press(void *w, int cx, int cy, unsigned mods) {
         return 0;
     }
     c->armed = on_clear(c, cx, cy);
+    if (!c->armed && c->has_js && uui_siteperm_ops.press(&c->js, cx, cy, mods)) c->armed = 2;
     return 1;
 }
 
 static int c_motion(void *w, int cx, int cy, unsigned buttons) {
-    (void)buttons;
     struct ns_card *c = w;
+    int moved = c->open && c->has_js && uui_siteperm_ops.motion(&c->js, cx, cy, buttons);
     int hot = c->open && on_clear(c, cx, cy);
-    if (hot == c->hot) return 0;
+    if (hot == c->hot) return moved;
     c->hot = hot;
     return 1;
 }
 
 static int c_release(void *w, int cx, int cy) {
     struct ns_card *c = w;
-    if (c->armed && on_clear(c, cx, cy)) c->event = NS_CARD_CLEAR;
+    if (c->armed == 1 && on_clear(c, cx, cy)) c->event = NS_CARD_CLEAR;
+    if (c->armed == 2) {
+        int was = uui_siteperm_value(&c->js);
+        uui_siteperm_ops.release(&c->js, cx, cy);
+        if (uui_siteperm_value(&c->js) != was) c->event = NS_CARD_JS;
+    }
     c->armed = 0;
     return 1;
 }
@@ -274,6 +300,13 @@ static void c_describe(const void *w, const struct uui_describe *d) {
     const struct ns_card *c = w;
     uui_describe_int(d, "open", c->open);
     if (c->open && c->clear_w) uui_describe_rect(d, "clear", c->clear_x, c->clear_y, c->clear_w, c->clear_h);
+    if (c->open && c->has_js) {   // "card.js.slot i ..." and "card.js.selected"
+        char name[48];
+        snprintf(name, sizeof name, "%s.js", d->name);
+        struct uui_describe row = *d;
+        row.name = name;
+        uui_siteperm_ops.describe(&c->js, &row);
+    }
 }
 
 const struct uui_widget_ops ns_card_ops = {
@@ -311,4 +344,6 @@ void ns_site_from(struct ns_site *out, const struct wv_site *in, int cookies, in
     out->leaf.not_after.day = c->na_day;
     out->cookies = cookies < 0 ? 0 : cookies;
     out->logins = logins < 0 ? 0 : logins;
+    out->js = in->js;
+    out->scripts = in->scripts;
 }

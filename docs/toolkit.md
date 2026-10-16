@@ -103,6 +103,7 @@
 | `usetting_text.h` | The human-facing text for a setting: its description, and a display name per choice. |
 | `ushortcuts.h` | The desktop's global keyboard shortcuts. |
 | `ushot.h` | Taking a screenshot, from the asking side of WIN_REQ_SCREENSHOT. |
+| `usiteperm.h` | usiteperm -- PER-SITE PERMISSIONS: for a host and a kind ("javascript"), Allow or Block, or nothing kept and the global setting decides -- Chrome's content-settings exceptions, Firefox's permission... |
 | `usnd.h` | usnd -- decoding and playing audio files, in RING 3. |
 | `usnd_mp3_tables.h` | usnd_mp3_tables.h -- the data ISO/IEC 11172-3 defines for Layer III. |
 | `usnd_sf2.h` | A SoundFont 2 bank, parsed and FLATTENED. |
@@ -223,6 +224,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_setting_row.h` | ONE SETTING AS A CARD: its name and a line or two of description on the left, its control on the right -- or, for a control too wide to sit beside the text (a radio list, a long field), under it. |
 | `uui_sidebar.h` | A NAVIGATION SIDEBAR: bold section headings with selectable items under them. |
 | `uui_signin.h` | A SIGN-IN DIALOG for any app with a uui_dialog: a title, a line or two saying who is asking, a user name, a password, and optionally a Remember row -- the form, its checks, and the wiping. |
+| `uui_siteperm.h` | uui_siteperm -- A SITE'S PERMISSION, SHOWN TWO WAYS: as a ROW to set it (a caption, then Default / Allow / Block -- Chrome's page-info rows), and as an ASK when something was refused (a card under... |
 | `uui_sizepick.h` | uui_sizepick -- A PICTURE'S SIZE, CHOSEN: preset cards that each show their size's SHAPE, and a width and a height beside them -- Photoshop's New Document and Paint.NET's presets. |
 | `uui_slider.h` | A slider with DISCRETE STOPS -- one per option, not a continuous range. |
 | `uui_sndformat.h` | uui_sndformat -- one sound card's output FORMAT as a panel: a Sample rate list (Match what plays, then each rate the card takes), the rates Match may switch to as checkboxes, a Bit depth list (Auto... |

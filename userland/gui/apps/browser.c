@@ -38,7 +38,10 @@
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
 #include "ui/uui_webview.h"
+#include "ui/uui_siteperm.h"
 #include "ui/ulog.h"
+#include "lib/usiteperm.h"
+#include "lib/usetting.h"
 #include "rt/sys.h"
 #include "win_proto.h"   // WIN_TAB_*, WIN_TABS_MAX, WIN_TITLE_LEN
 
@@ -49,7 +52,7 @@
 #define STATE_DIR    "/var/lib/browser"
 
 enum { ID_TOOLS = 1, ID_ADDRESS, ID_TOOLS_R, ID_PAGE, ID_CTX, ID_FIND, ID_ADDRBAR, ID_CARD,
-       ID_DLPANEL, ID_DLLIST, ID_SIDE_TABS, ID_SIDE_SEARCH, ID_SIDE_LIST, ID_DIALOG };
+       ID_DLPANEL, ID_DLLIST, ID_SIDE_TABS, ID_SIDE_SEARCH, ID_SIDE_LIST, ID_DIALOG, ID_ASK };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_RELOAD, CMD_HOME, CMD_DOWNLOADS, CMD_MENU,
        CMD_NEWTAB, CMD_ZOOM_IN, CMD_ZOOM_OUT, CMD_ZOOM_RESET, CMD_FIND,
        CMD_BOOKMARK, CMD_SIDE_BOOKMARKS, CMD_SIDE_HISTORY };
@@ -128,6 +131,7 @@ static int g_shown_loading = -1;
 // badge -- and the lock's card (P1), drawn over the page.
 static struct ns_addr g_addr;
 static struct ns_card g_card;
+static struct uui_permask g_ask;   // "Scripts blocked", under its badge
 // The Downloads flyout (D1), under the down arrow.
 static struct ns_dlpanel g_dlp;
 
@@ -178,12 +182,19 @@ static void sync_chrome(void) {
     }
     int state = v ? v->site.state : NS_SITE_NONE, zoom = v ? v->st.zoom : 100;
     int starred = v && ns_bookmarked(v->url);
-    if (state != g_addr.state || zoom != g_addr.zoom || starred != g_addr.starred) {
+    int blocked = v && !v->st.loading && !v->site.js && v->site.scripts > 0;
+    int js = v ? v->site.js : 1, scripts = v ? v->site.scripts : 0;
+    static int logged_js = -1, logged_scripts = -1;
+    if (state != g_addr.state || zoom != g_addr.zoom || starred != g_addr.starred ||
+        blocked != g_addr.scripts_blocked || js != logged_js || scripts != logged_scripts) {
         g_addr.state = state;
         g_addr.zoom = zoom;
         g_addr.starred = starred;
+        g_addr.scripts_blocked = blocked;
+        logged_js = js;
+        logged_scripts = scripts;
         ns_addr_sync(&g_addr);
-        ulogf("browser: site %d zoom %d\n", state, zoom);
+        ulogf("browser: site %d zoom %d scripts %d %d\n", state, zoom, js, scripts);
     }
 }
 
@@ -439,7 +450,7 @@ static void place_find(void) {
     uui_findbar_set_geometry(&g_find, v->x + pw - 8 - fw, v->y + 6, fw, fh);
 }
 
-enum { W_CTX, W_ROOT, W_FIND, W_CARD, W_DLP, W_DIALOG, W_COUNT };
+enum { W_CTX, W_ROOT, W_FIND, W_CARD, W_ASK, W_DLP, W_DIALOG, W_COUNT };
 static struct uui_item g_widgets[W_COUNT];
 
 // ONE POPUP AT A TIME, as a Wayland popup grab allows and every
@@ -448,6 +459,7 @@ static struct uui_item g_widgets[W_COUNT];
 static void popups_close(void) {
     uui_menubar_close(&g_ctx);
     ns_card_close(&g_card);
+    uui_permask_close(&g_ask);
     ns_dlpanel_close(&g_dlp);
 }
 
@@ -535,6 +547,74 @@ static void zoom(int dir) {
     if (active()) uui_webview_zoom(active(), dir);
 }
 
+// --- JavaScript, per site (J2 + J3 on the JavaScript canvas) ------------------
+//
+// The exceptions are kept here (lib/usiteperm.h) and pushed whole to every
+// content process, which decides each page itself (lib/webview_proto.h's
+// WV_PERMS); a change reloads the page it was made on.
+
+static struct usiteperm g_perms;
+
+static int js_default_on(void) {
+    char v[8];
+    return usetting_get("browser.javascript", v, sizeof v) < 0 || strcmp(v, "off") != 0;
+}
+
+static void perms_push(void) {
+    static char list[16384];
+    if (usiteperm_list(&g_perms, "javascript", list, sizeof list) < 0) list[0] = '\0';
+    uui_webview_set_perms(list);
+}
+
+static void js_set(const char *host, int value) {
+    struct uui_webview *v = active();
+    if (!host[0] || usiteperm_set(&g_perms, host, "javascript", value) != 0) {
+        ulogf("browser: javascript for %s not saved\n", host);
+        return;
+    }
+    ulogf("browser: javascript %s %d\n", host, value);
+    perms_push();
+    if (v) uui_webview_reload(v);
+}
+
+static void site_of(struct ns_site *site, const struct uui_webview *v) {
+    int logins, cookies = ns_net_cookies(v->site.host, &logins);
+    ns_site_from(site, &v->site, cookies, logins);
+    site->js_perm = usiteperm_get(&g_perms, v->site.host, "javascript");
+    site->js_default_on = js_default_on();
+}
+
+// "Scripts blocked", under its badge: why, and Allow on this site.
+static void ask_toggle(void) {
+    int x, y, w, h;
+    if (g_ask.open) {
+        uui_permask_close(&g_ask);
+        return;
+    }
+    struct uui_webview *v = active();
+    if (!v || !ns_addr_part_rect(&g_addr, NS_ADDR_SCRIPTS, &x, &y, &w, &h)) return;
+    popups_close();
+    char count[64];
+    snprintf(count, sizeof count, "This page has %d script%s.", v->site.scripts,
+             v->site.scripts == 1 ? "" : "s");
+    int blocked_here = usiteperm_get(&g_perms, v->site.host, "javascript") == USITEPERM_BLOCK;
+    const char *why = blocked_here ? "JavaScript is blocked on this site."
+                                   : "JavaScript is off in System Settings.";
+    // A page with no host (a file) has no site to allow it on.
+    uui_permask_open(&g_ask, "Scripts on this page were blocked", count, why,
+                     v->site.host[0] ? "Settings" : "", v->site.host[0] ? "Allow on this site" : "Settings",
+                     x + w, y + h + 4, uapp_width(g_app), uapp_height(g_app));
+    ulogf("browser: ask open %d\n", v->site.scripts);
+}
+
+static void ask_answer(int e) {
+    struct uui_webview *v = active();
+    if (!v) return;
+    int settings = e == UUI_PERMASK_SECONDARY || (e == UUI_PERMASK_PRIMARY && !v->site.host[0]);
+    if (settings) uapp_spawn(g_app, "/bin/wm/system/settings", "browser.javascript");
+    else if (e == UUI_PERMASK_PRIMARY) js_set(v->site.host, USITEPERM_ALLOW);
+}
+
 // The lock's card, under the chip; a second click on the chip closes it.
 static void card_toggle(void) {
     int x, y, w, h;
@@ -547,8 +627,7 @@ static void card_toggle(void) {
     struct uui_webview *v = active();
     if (!v) return;
     struct ns_site site;
-    int logins, cookies = ns_net_cookies(v->site.host, &logins);
-    ns_site_from(&site, &v->site, cookies, logins);
+    site_of(&site, v);
     ns_card_open(&g_card, &site, x, y + h + 4, uapp_width(g_app), uapp_height(g_app));
     ulogf("browser: card %d cookies %d chain %d tls %s logins %d\n", site.state, site.cookies,
           site.chain_depth, site.version[0] ? site.version : "-", site.logins);
@@ -560,8 +639,7 @@ static void card_clear(void) {
     int n = ns_net_cookies_clear(v->site.host);
     ulogf("browser: cookies cleared %d\n", n < 0 ? 0 : n);
     struct ns_site site;
-    int logins, cookies = ns_net_cookies(v->site.host, &logins);
-    ns_site_from(&site, &v->site, cookies, logins);
+    site_of(&site, v);
     ns_card_open(&g_card, &site, g_card.x, g_card.y, uapp_width(g_app), uapp_height(g_app));
     ulogf("browser: card %d cookies %d chain %d tls %s logins %d\n", site.state, site.cookies,
           site.chain_depth, site.version[0] ? site.version : "-", site.logins);
@@ -779,6 +857,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         case NS_ADDR_CHIP: card_toggle(); break;
         case NS_ADDR_ZOOM: zoom(0); break;
         case NS_ADDR_STAR: bookmark_toggle(); break;
+        case NS_ADDR_SCRIPTS: ask_toggle(); break;
         }
     } else if (id == ID_SIDE_TABS || id == ID_SIDE_SEARCH) {
         side_refresh();
@@ -805,7 +884,14 @@ static void on_widget(struct uapp *a, int id, int reason) {
         case UUI_XFER_EV_RETRY:  go(ns_download_url(row)); break;
         }
     } else if (id == ID_CARD) {
-        if (ns_card_take(&g_card) == NS_CARD_CLEAR) card_clear();
+        switch (ns_card_take(&g_card)) {
+        case NS_CARD_CLEAR: card_clear(); break;
+        case NS_CARD_JS:
+            if (active()) js_set(active()->site.host, ns_card_js(&g_card));
+            break;
+        }
+    } else if (id == ID_ASK) {
+        ask_answer(uui_permask_take(&g_ask));
     } else if (id == ID_PAGE && g_find_open) {
         uui_textbox_set_active(&g_find.field, 0);   // the page took the keyboard back
     }
@@ -910,9 +996,9 @@ static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
         // The LENGTH, and at most 72 bytes of the address: a layout line
         // is 160 bytes, and one cut by vsnprintf() loses its newline and
         // runs into the next. A test reads the real length from `len`.
-        uapp_logf_layout("browser: tab %d/%d loading %d extent %d %d scroll %d %d len %d url %.72s\n",
-                         g_cur, g_ntabs, v->st.loading, v->st.ext_w, v->st.ext_h, v->st.sx, v->st.sy,
-                         (int)strlen(v->url), v->url);
+        uapp_logf_layout("browser: tab %d/%d loading %d extent %d %d scroll %d %d len %d loads %d "
+                         "url %.72s\n", g_cur, g_ntabs, v->st.loading, v->st.ext_w, v->st.ext_h,
+                         v->st.sx, v->st.sy, (int)strlen(v->url), v->st.loads, v->url);
 }
 
 static void on_size(int *w, int *h) {
@@ -990,6 +1076,9 @@ int main(int argc, char **argv) {
         else if (argv[i][0] != '-') g_first_url = argv[i];
     }
     if (!ns_marks_init(STATE_DIR)) ulogf("browser: bookmarks could not be loaded\n");
+    if (usiteperm_load(&g_perms, STATE_DIR "/permissions") != 0)
+        ulogf("browser: site permissions could not be loaded\n");
+    perms_push();   // before the first tab's content process says hello
 
     uui_toolbar_init(&g_tools, TOOLS, (int)(sizeof TOOLS / sizeof TOOLS[0]));
     g_tools.item_flags = tool_flags;
@@ -1042,6 +1131,8 @@ int main(int argc, char **argv) {
                                            .name = "find", .hidden = 1 };
     g_widgets[W_CARD] = (struct uui_item){ .ops = &ns_card_ops, .widget = &g_card, .id = ID_CARD,
                                            .name = "card" };
+    g_widgets[W_ASK] = (struct uui_item){ .ops = &uui_permask_ops, .widget = &g_ask, .id = ID_ASK,
+                                          .name = "ask" };
     ns_dlpanel_init(&g_dlp, ID_DLLIST);
     g_widgets[W_DLP] = (struct uui_item){ .ops = &ns_dlpanel_ops, .widget = &g_dlp, .id = ID_DLPANEL,
                                           .name = "dlpanel" };

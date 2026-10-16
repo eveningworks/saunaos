@@ -26,7 +26,8 @@ host and it records the builder's user name, host name and checkout
 path. A neutral one is written instead (userland/ports/netsurf/
 generated/testament.h) carrying only the pinned revision.
 
-Needs on the host: git, gcc, make, perl, python3, gperf, pkg-config.
+Needs on the host: git, gcc, make, perl, python3, gperf, pkg-config, and
+bison and flex for nsgenbind.
 Reaches github.com (the netsurf-browser organisation's mirrors).
 
     python3 tools/netsurf_vendor.py                 # clone, build, vendor
@@ -67,18 +68,23 @@ PINS = [
     ("libnsutils",     "0bd39060740b6163bd50875326654a722df97eb2"),  # 2026-01-05
     ("libnspsl",       "82815c2bc7fd70d1b6afccfa89a9a0f3fa73db8a"),  # 2026-01-05
     ("netsurf",        "39da3c3a40af4566d86500ff3052dfdc7f9a0378"),  # 2026-02-19
+    ("nsgenbind",      "44c6736937ae17d4065d02959b82813b8f06a51e"),  # 2026-01-03
 ]
-LIBS = [n for n, _ in PINS if n not in ("buildsystem", "netsurf")]
+# Host tools: built and run on the host, never vendored. nsgenbind turns
+# NetSurf's .bnd files and the WebIDL into the Duktape DOM bindings, whose
+# OUTPUT is vendored (generated/duktape/).
+HOST_TOOLS = ("buildsystem", "nsgenbind")
+LIBS = [n for n, _ in PINS if n not in HOST_TOOLS + ("netsurf",)]
 
 # The configuration: what the toy-os build will have. curl, OpenSSL,
 # libpng and libjpeg are replaced by toy-os's own (libhttp, uimg) in later
-# stages; JavaScript (Duktape) is stage 6; SVG needs an XML parser
+# stages; JavaScript is Duktape (stage 6); SVG needs an XML parser
 # (expat), which is not vendored. utf8proc only normalises IDN hosts.
 NETSURF_FLAGS = [
     "TARGET=monkey",
     "NETSURF_USE_CURL=NO", "NETSURF_USE_OPENSSL=NO",
     "NETSURF_USE_JPEG=NO", "NETSURF_USE_PNG=NO", "NETSURF_USE_WEBP=NO",
-    "NETSURF_USE_JPEGXL=NO", "NETSURF_USE_DUKTAPE=NO",
+    "NETSURF_USE_JPEGXL=NO", "NETSURF_USE_DUKTAPE=YES",
     "NETSURF_USE_UTF8PROC=NO", "NETSURF_USE_NSLOG=NO",
     "NETSURF_USE_NSSVG=NO", "NETSURF_USE_RSVG=NO", "NETSURF_USE_ROSPRITE=NO",
     "NETSURF_USE_HARU_PDF=NO",
@@ -143,10 +149,17 @@ def host_build(work):
     src = os.path.join(work, "src")
     prefix = os.path.join(work, "prefix")
     shared = os.path.join(prefix, "share", "netsurf-buildsystem")
-    env = dict(os.environ, PKG_CONFIG_PATH=os.path.join(prefix, "lib", "pkgconfig"))
+    env = dict(os.environ, PKG_CONFIG_PATH=os.path.join(prefix, "lib", "pkgconfig"),
+               PATH=os.path.join(prefix, "bin") + os.pathsep + os.environ.get("PATH", ""))
+    # A build directory left by another configuration names ITS sources in
+    # its dependency files, which are what decides the vendored set.
+    for d in glob.glob(os.path.join(src, "netsurf", "build*")):
+        shutil.rmtree(d)
     with open(os.path.join(work, "build.log"), "w") as log:
         run(["make", "-C", os.path.join(src, "buildsystem"), "install",
              f"PREFIX={prefix}"], env=env, log=log)
+        run(["make", "-C", os.path.join(src, "nsgenbind"), "install", f"PREFIX={prefix}",
+             f"NSSHARED={shared}"], env=env, log=log)
         for lib in LIBS:
             run(["make", "-C", os.path.join(src, lib), "install", f"PREFIX={prefix}",
                  f"NSSHARED={shared}"], env=env, log=log)
@@ -180,13 +193,19 @@ def vendored_set(root, name):
     the public include/ tree (other components include it through the
     installed copy, so their dependency files name the prefix instead)."""
     root = os.path.normpath(root)
-    keep = set()
+    keep, generated = set(), {}
     paths, compiled = dep_files(root)
     for p in paths:
         if not p.startswith(root + os.sep):
             continue
         rel = os.path.relpath(p, root)
         if rel.startswith("build"):
+            # nsgenbind's output, under the build's OBJROOT/duktape/: kept
+            # at generated/duktape/, which is on the core's include path
+            # as OBJROOT is upstream's.
+            parts = rel.split(os.sep)
+            if name == "netsurf" and "duktape" in parts:
+                generated[rel] = os.path.join("generated", *parts[parts.index("duktape"):])
             continue
         if rel.startswith(NOT_VENDORED.get(name, ())):
             continue
@@ -195,9 +214,11 @@ def vendored_set(root, name):
     for p in glob.glob(os.path.join(inc, "**", "*.h"), recursive=True):
         keep.add(os.path.relpath(p, root))
     keep.add(LICENCE_FILE)
-    units = sorted(os.path.relpath(c, root) for c in compiled
-                   if os.path.relpath(c, root) in keep)
-    return sorted(keep), units
+    units = sorted([os.path.relpath(c, root) for c in compiled
+                    if os.path.relpath(c, root) in keep] +
+                   [generated[os.path.relpath(c, root)] for c in compiled
+                    if os.path.relpath(c, root) in generated])
+    return sorted(keep), units, generated
 
 
 TESTAMENT = """\
@@ -249,7 +270,9 @@ EXTRA = {
                "  that main.c named. `generated/testament.h` is the tool's, not upstream's\n"
                "  (upstream's records the build host). The four stylesheets under\n"
                "  `resources/` and `generated/res/Messages` are run-time resources,\n"
-               "  staged on the image at `/usr/share/netsurf/`.",
+               "  staged on the image at `/usr/share/netsurf/`. `generated/duktape/` is\n"
+               "  nsgenbind's output on the host: the DOM bindings for Duktape, from\n"
+               "  the `.bnd` files and the WebIDL beside `dukky.c`.",
     "libdom": "\n- **Not taken**: `bindings/xml/` -- the XML parser binding, over\n"
               "  expat, which NetSurf does not use in this configuration.",
     "libnsutils": "\n- **Not taken**: `src/unistd.c` -- `nsu_pread()`/`nsu_pwrite()`, whose\n"
@@ -260,16 +283,27 @@ EXTRA = {
 
 def vendor(work):
     for name, sha in PINS:
-        if name == "buildsystem":
+        if name in HOST_TOOLS:
             continue
         root = os.path.join(work, "src", name)
-        files, units = vendored_set(root, name)
+        files, units, generated = vendored_set(root, name)
         dest = os.path.join(PORTS, name)
         if os.path.isdir(dest):
             shutil.rmtree(dest)
         for rel in files:
             os.makedirs(os.path.dirname(os.path.join(dest, rel)), exist_ok=True)
             shutil.copy2(os.path.join(root, rel), os.path.join(dest, rel))
+        for src_rel, rel in generated.items():
+            os.makedirs(os.path.dirname(os.path.join(dest, rel)), exist_ok=True)
+            # nsgenbind spells its includes with the output directory it
+            # was given ("build/Linux-monkey/duktape/binding.h"); ours is
+            # generated/, on the include path, so they become "duktape/...".
+            with open(os.path.join(root, src_rel), encoding="latin-1") as f:
+                text = f.read()
+            obj = os.path.join(*src_rel.split(os.sep)[:src_rel.split(os.sep).index("duktape")])
+            text = text.replace(f'"{obj}/duktape/', '"duktape/')
+            with open(os.path.join(dest, rel), "w", encoding="latin-1") as f:
+                f.write(text)
         date = subprocess.run(["git", "-C", root, "log", "-1", "--format=%cs"],
                               capture_output=True, text=True).stdout.strip()
         with open(os.path.join(dest, "README.md"), "w") as f:
@@ -302,7 +336,7 @@ def main():
     ap.add_argument("--no-copy", action="store_true",
                     help="build the host oracle only; leave userland/ports/ alone")
     a = ap.parse_args()
-    for tool in ("git", "make", "perl", "gperf", "pkg-config"):
+    for tool in ("git", "make", "perl", "gperf", "pkg-config", "bison", "flex"):
         if not shutil.which(tool):
             raise SystemExit(f"netsurf_vendor: needs `{tool}` on the host")
     work = os.path.abspath(a.work)

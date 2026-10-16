@@ -50,6 +50,8 @@ void wc_site_get(struct gui_window *gw, struct wv_site *out) {
     memset(out, 0, sizeof *out);
     out->state = state_of(gw);
     if (!gw || !gw->bw) return;
+    out->js = gw->js;
+    out->scripts = gw->scripts;
     host_of(gw, out->host, sizeof out->host);
     ns_fetch_http_tls_info(out->host, out->version, sizeof out->version, out->cipher,
                            sizeof out->cipher);

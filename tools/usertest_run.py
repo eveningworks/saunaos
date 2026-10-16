@@ -355,6 +355,9 @@ TESTS = [
     # lib/rubberband: the desktop's and the File Manager's drag selection.
     # A KTEST until the module left the kernel, its bodies unchanged.
     ("rubberband_test", 0, None, None),
+    # lib/usiteperm: the Web Browser's per-site JavaScript choices, read
+    # back from a fresh load of the file each time.
+    ("usiteperm_test", 0, None, None),
     # The keyboard translator's SECOND compilation, on the shipped Finnish
     # layout: what the on-screen keyboard types with. input_test's KTESTs
     # pass whether or not ring 3 links a byte of it.

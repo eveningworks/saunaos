@@ -9380,6 +9380,14 @@ local files, and only for a navigation the user made.
   thinks, still starts without a socket -- Chrome's renderers start
   sandboxed for the same reason. Armed and consumed like the strace arm,
   since a spawn sleeps loading its ELF.
+- **`query` is asked by CLASS: the wall clock is `stdio`'s, every other
+  record `query`'s** (2026-10-16). `clock_gettime(CLOCK_REALTIME)` reads
+  the `QUERY_CLOCK` record, and "time" is in `stdio` by the ABI's own
+  definition -- OpenBSD's too, where `sysctl` under pledge is allowed
+  for a short list of MIBs and refused for the rest. So the row is
+  `stdio` and `sys_query()` asks for `query` unless the record is the
+  clock. Found when Duktape's `Date` killed the engine; `time()` had
+  never noticed, as it reads the RTC call.
 - **A broken promise KILLS (SIGSYS, with a crash report naming the call
   and the promise); a hidden path is ENOENT.** OpenBSD's split: an
   exploit gets no second try, while an engine asking for a file that is

@@ -776,8 +776,9 @@ it does not. **Three of the gaps were gaps in C itself, found only now**:
 - **`strtof()` and the float forms of the exact maths** (`floorf`,
   `ceilf`, `sqrtf` and the rest). `sqrtf` cannot go through the header's
   inline `sqrt()`: in `math.c`, GCC follows `sqrtsd` with a call to an
-  out-of-line `sqrt()` to set `errno` for a negative argument, and the
-  header's is inline, so no such symbol exists. It uses `sqrtss`.
+  out-of-line `sqrt()` to set `errno` for a negative argument. It uses
+  `sqrtss`. **That out-of-line `sqrt()` did not exist until stage 12**:
+  every caller that cannot prove its argument non-negative needs it.
 
 What was added, each POSIX: `<iconv.h>` (`iconv.c` -- UTF-8, ASCII,
 Latin-1, Windows-1252, UTF-16 and UTF-32; anything else refused at
@@ -826,6 +827,26 @@ ignored (a typo would otherwise give nothing up), and a non-NULL
 exec as it is -- a second set would have nowhere to live.
 `userland/tests/sandbox_test.c` covers both calls through these
 wrappers.
+
+## Stage 12 -- what Duktape needed (2026-10-16)
+
+The browser's JavaScript engine (`docs/browser-design.md`, stage 6) is
+the first caller of two things:
+
+- **The out-of-line `sqrt()` GCC calls** for a negative argument, to
+  set `errno` (`Math.sqrt` cannot prove its argument). `math.c` defines
+  it under an asm label, as the header's inline owns the C name there;
+  it writes `EDOM` and returns a NaN, as glibc's does.
+- **`<endian.h>`**: glibc's and the BSDs' byte-order macros
+  (`BYTE_ORDER`, `__BYTE_ORDER`) and conversions (`htobe32`, `le64toh`,
+  ...), which POSIX 2024 adopted. Duktape's platform header includes it
+  on every Unix; it takes its byte order from GCC's own predefines.
+
+And one below the C library: `clock_gettime(CLOCK_REALTIME)` -- which
+Duktape's `Date` reads through `gettimeofday()` -- killed a sandboxed
+process holding only `stdio`, as the clock is a query record. The
+kernel now asks `query` by record class (`docs/decisions/kernel.md`,
+the sandbox entry).
 
 ## Open questions
 

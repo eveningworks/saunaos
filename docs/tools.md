@@ -7087,6 +7087,15 @@ runs first**: a `doom1.wad` with one
   "not loaded within N s", never as a layout difference. Shown red by
   breaking Windows-1252's euro in libparserutils' table.
 
+  **`--js`** runs both engines with NetSurf's `--enable_javascript=1`
+  (each monkey is off by default, as upstream's is): `script.html` is the
+  page whose drawing depends on it, so a difference there is the Duktape
+  port's -- tolibc's maths and clock, the `-nostdinc` build
+  (`ondemand_sweep.py`'s `browser_host_js`). The flag goes BEFORE the
+  guest's `--weak-entropy`: NetSurf's option parser takes the word after
+  a bare `--flag` as its value. `fileref.html` is skipped in both modes:
+  it names the guest's own `file:///tests/web/bands.png`.
+
   **`--scheme http` or `https`** has the GUEST read the same pages from
   `web_server.py` (https with a test CA put in its `/etc/ssl/certs`)
   while the host still reads files: layout does not depend on how the

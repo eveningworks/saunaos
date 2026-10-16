@@ -2153,3 +2153,17 @@ C-library bug, not an engine one. The work directory lives outside
 **One generated file is never copied**: `testament.h`, which upstream
 writes from the build host and which records the builder's user name,
 host name and checkout path. The tool writes a neutral one.
+
+**A host TOOL is pinned and built, never vendored** (stage 6,
+2026-10-16): `nsgenbind` turns NetSurf's `.bnd` files and the WebIDL into
+the Duktape DOM bindings. It is a bison and flex program, so it is the
+generated sources' case again -- the vendoring tool needs bison and flex,
+the build does not -- and its OUTPUT is vendored under
+`generated/duktape/`, read off the same dependency files. nsgenbind
+spells each include with the output directory it was given
+(`"build/Linux-monkey/duktape/binding.h"`); the tool rewrites that to
+`"duktape/..."`, which `generated/` on the include path resolves -- one
+textual rewrite of generated code, where the alternative was the host
+build's directory name baked into 669 includes. A host build left by
+another configuration is removed first, as its `.d` files would still
+name sources this one does not compile (`javascript/none/`).

@@ -3,8 +3,9 @@
 
 // The address field as the toolbar shows it -- S1 on the stage 4 canvas:
 // one frame holding the page's SECURITY CHIP (a lock; a red "Not secure";
-// "File"), the address itself, and at the right a zoom badge ("125%",
-// shown only off 100%) and the bookmark star.
+// "File"), the address itself, and at the right a "Scripts blocked" badge
+// (J3 on the JavaScript canvas: a page whose scripts did not run), a zoom
+// badge ("125%", shown only off 100%) and the bookmark star.
 //
 // A CONTAINER, not a text field: the field is the app's own uui_textbox,
 // drawn `bare` inside this frame as the router's child, so it keeps its
@@ -14,7 +15,7 @@
 #include "ui/uui_textbox.h"
 #include "ui/uui_widget.h"
 
-enum { NS_ADDR_NONE, NS_ADDR_CHIP, NS_ADDR_ZOOM, NS_ADDR_STAR, NS_ADDR_PARTS };
+enum { NS_ADDR_NONE, NS_ADDR_CHIP, NS_ADDR_ZOOM, NS_ADDR_STAR, NS_ADDR_SCRIPTS, NS_ADDR_PARTS };
 
 struct ns_addr {
     int x, y, w, h;
@@ -23,6 +24,7 @@ struct ns_addr {
     int state;                 // enum ns_site_state
     int zoom;                  // percent
     int show_star, starred;
+    int scripts_blocked;       // the page has scripts that did not run
     // OWNED: the parts' rects (w 0 = absent), and the pointer.
     int part_x[NS_ADDR_PARTS], part_w[NS_ADDR_PARTS];
     int armed, hot, event;

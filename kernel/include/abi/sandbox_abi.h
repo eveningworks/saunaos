@@ -39,7 +39,7 @@
 #define PROMISE_TTY            (1u << 9)  // change a terminal: termios, ptys, its group
 #define PROMISE_SETTINGS       (1u << 10) // read settings
 #define PROMISE_SETTINGS_WRITE (1u << 11) // change them
-#define PROMISE_QUERY          (1u << 12) // the query registry, PCI and CPU information
+#define PROMISE_QUERY          (1u << 12) // the query registry (its wall clock is stdio's), PCI, CPUs
 #define PROMISE_DEVICE         (1u << 13) // a driver's calls: BARs, IRQs, DMA, USB, sound rings
 #define PROMISE_ADMIN          (1u << 14) // the machine's: mount, mkfs, time, modules, power
 #define PROMISE_DIAG           (1u << 15) // the diagnostic registry: answer, or ASK, `diag NAME`.

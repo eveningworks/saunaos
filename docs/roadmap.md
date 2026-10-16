@@ -879,7 +879,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Browser: HTTP Digest authentication -- webnet answers Basic only
 - [x] ~~Browser: a sandboxed content process~~ DONE 2026-10-16 -- pledge/unveil; `file:` read by the app
 - [ ] Browser: a form's file upload read by the app -- the engine opens the chosen path itself, and has no picker yet
-- [ ] Browser stage 6: JavaScript through Duktape, off by default until measured
+- [x] ~~Browser stage 6: JavaScript through Duktape~~ DONE 2026-10-16 -- on by default; per-site Allow/Block, a Scripts blocked badge
+- [ ] Browser: a script's DOM change after the page loaded is not laid out -- NetSurf builds its box tree once
+- [ ] Browser: Duktape's heap per content process, measured against the tab cap's 160 MiB
+- [ ] Browser: images, pop-ups and autoplay as site permissions, on `uui_siteperm`
 - [x] ~~Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans~~ DONE 2026-10-13
 
 ## Hardware

@@ -1,0 +1,29 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Script</title>
+<style>
+body { font-family: sans-serif; margin: 8px; background: white; }
+.row { height: 40px; margin: 0 0 8px; padding: 0 8px; line-height: 40px; color: white; }
+.ran { background: #30a040; }
+#off { background: #c03030; }
+</style>
+</head><body>
+<!-- A script that ran adds three GREEN rows, each with text it worked
+     out; a page whose scripts were blocked shows the RED <noscript> row
+     instead. NetSurf lays out what scripts did WHILE THE PAGE PARSED --
+     elements they made -- and neither restyles an element that already
+     had its style nor lays out a later change (a timer, an event), so
+     nothing here depends on either. -->
+<noscript><div class="row" id="off">noscript: scripts are off</div></noscript>
+<div id="list"></div>
+<script>
+function row(text) {
+  var r = document.createElement("div");
+  r.className = "row ran";
+  r.appendChild(document.createTextNode(text));
+  document.getElementById("list").appendChild(r);
+}
+row("text: " + [1, 2, 3].map(function (x) { return x * x; }).join(","));
+row("math: " + Math.sqrt(2).toFixed(4) + " " + JSON.stringify({ d: new Date(0).toISOString() }));
+row("dom: " + document.getElementsByTagName("script").length + " script");
+</script>
+</body></html>

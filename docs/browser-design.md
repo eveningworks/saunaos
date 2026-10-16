@@ -9,7 +9,8 @@ libraries are vendored, lay out a set of test pages identically to the
 same source built on the host -- read from files, over http and over
 https -- and the Web Browser app (Start -> Internet) browses the web.
 Stage 4 was built on 2026-10-13, and stage 5 -- the engine in a
-content process per view, the network in its own -- the same day. **The choices were made the same day**: port NetSurf
+content process per view, the network in its own -- the same day;
+stage 6, JavaScript, on 2026-10-16. **The choices were made the same day**: port NetSurf
 (GPL-2.0, C) from a PINNED MASTER COMMIT rather than its last release;
 the W1 window (a tab strip over a toolbar, the Web Browser mockup
 canvas); and the page view as a reusable `uui_webview` widget. The
@@ -657,17 +658,67 @@ list", has the comparison with seccomp, Capsicum and Windows.
   file in the engine, and NetSurf here has no picker that would choose
   one; the roadmap carries it.
 
-### Stage 6 -- JavaScript -- PLANNED
+### Stage 6 -- JavaScript -- BUILT 2026-10-16
 
-Duktape, with NetSurf's bindings generated on the host by `nsgenbind`
-in the vendoring tool. Off by default until it is measured on the
-corpus, with a setting to turn it on.
+Chosen 2026-10-16 on the "Browser JavaScript setting" canvas: J2 + J3
+-- a global switch in System Settings (Network > Web Browser), a
+site's own Default / Allow / Block in the connection card, and a
+"Scripts blocked" badge in the address bar whose card offers "Allow on
+this site" -- with the switch **On** by default (the maintainer's call
+over this plan's "off until measured": every browser ships it on, and a
+site's Block is one click away). Chrome's page-info row and its
+blocked-content omnibox icon; Firefox has the switch alone, in
+about:config.
+
+**The engine.** NetSurf's own Duktape 2.7 (MIT, an ES5.1 interpreter
+with some ES2015) and its DOM bindings, which `nsgenbind` generates on
+the host from the `.bnd` files and the WebIDL. The vendoring tool pins
+and builds `nsgenbind` as a host tool, never vendored, and vendors its
+OUTPUT under `generated/duktape/` (its includes spelled with the
+output directory, which the tool rewrites to `duktape/...`). No JIT, so
+the content process's sandbox is unchanged: nothing is ever writable and
+executable at once, which a V8 or SpiderMonkey sandbox has to allow.
+Two gaps it found below the engine: tolibc had no out-of-line `sqrt()`
+(GCC calls one for a negative argument, to set errno), and the wall
+clock, `stdio`'s by the sandbox's own definition, was behind `query`
+(`docs/decisions/kernel.md`, the sandbox entry).
+
+**Decided per page, by the engine.** NetSurf reads one global option
+when it creates an HTML content, so `wc_js.c` wraps
+`content_factory_create_content()` (`--wrap`, like the other link-time
+hooks) and sets it for THAT content's own host: the site's exception,
+else `browser.javascript`. An iframe is decided by its own site --
+NoScript's rule; Chrome keys on the top frame's. The exceptions are the
+APP's (`/var/lib/browser/permissions`, `lib/usiteperm.h`), pushed whole
+to every content process (`WV_PERMS`) after HELLO and on each change; a
+change reloads the page it was made on. The engine reports whether its
+page's scripts ran and how many `<script>` elements it has
+(`wv_site.js`, `.scripts`), counted through libdom when a load ends --
+NetSurf drops a blocked script without counting it.
+
+**What NetSurf's JavaScript does, measured against the host build**
+(`browser_hostcheck.py --js`, identical): scripts that run WHILE THE
+PAGE PARSES -- `document.write`, `textContent`, `innerHTML`, elements
+created and appended, `JSON`, `Date`, `Math`. **It does not lay out a
+change made after the page has loaded** -- NetSurf builds its box tree
+once, so a timer's or an event handler's DOM change runs and is never
+drawn -- **nor restyle an element that already had its style** (a new
+`className` on it), and it has no `querySelector`, no
+`XMLHttpRequest` and no `fetch`. 1539 of the WebIDL's bindings are
+unimplemented (nsgenbind's own count). So: the menus and `document.write`s of
+older sites work; anything that builds its page after load does not,
+and with scripts on such a site also loses its `<noscript>` fallback --
+which is what the site's Block is for.
+
+**The widgets are the toolkit's** (`ui/uui_siteperm.h`): the row and the
+ask, as images, pop-ups and autoplay would use them.
 
 ## Open questions
 
 - The memory budget: what a Wikipedia article costs in NetSurf's
   caches, measured in stage 3, against the RAM toy-os is usually run
-  with.
+  with. Stage 6's Duktape heap per content process is NOT yet measured
+  against the live cap's 160 MiB a tab.
 
 ## The case against
 

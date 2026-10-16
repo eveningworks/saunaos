@@ -15,7 +15,7 @@
 
 #define WEBVIEW_SERVICE_FMT "wv%d"       // the embedding app's pid (no dot: lib/uchan.h)
 #define WEBVIEW_BUF_FMT     "wvb.%d.%u"  // the content process's pid, a generation
-#define WEBVIEW_VERSION     2
+#define WEBVIEW_VERSION     3
 #define WEBVIEW_URL_MAX     8192         // a URL as long as browsers meet in practice
 // The one directory the sandboxed engine reads ITSELF -- its stylesheets
 // and the start page; every other file: URL is the app's to read.
@@ -41,7 +41,13 @@ enum {
     WV_CRASH,          // the about:crash a person TYPED (Chrome's chrome://crash)
     WV_VISIBLE,        // struct wv_int: 0 when the view's tab is in the background
     WV_NAVIGATE_UPGRADED, // string: an https URL made from a host typed with no scheme
+    WV_PERMS,          // string: the sites' JavaScript exceptions, "host\tallow|block\n" each
 };
+
+// JAVASCRIPT IS DECIDED BY THE ENGINE, PER PAGE: a site's exception from
+// the app's last WV_PERMS (sent whole, after HELLO and on every change),
+// else the browser.javascript setting. It applies to pages created after
+// it arrives -- the app reloads to apply a change to the page shown.
 
 // A HOST TYPED WITHOUT A SCHEME IS TRIED OVER HTTPS AND QUIETLY FALLS BACK
 // TO HTTP when https cannot be reached at all -- no connection within 3 s,
@@ -133,6 +139,9 @@ struct wv_state {
     int32_t caret_x, caret_y, caret_h;   // view pixels; caret_h 0 = none
     int32_t pointer;           // WIN_CURSOR_*
     int32_t zoom;              // percent
+    // Loads FINISHED in this process, reloads included: a fast load
+    // starts and ends between two of these, so `loading` may never be 1.
+    int32_t loads;
 };
 
 // What the address field and the lock's card say (ns_site.h's states).
@@ -147,6 +156,9 @@ struct wv_cert {
 };
 struct wv_site {
     int32_t state;
+    // Whether the page's scripts ran, and how many <script> elements it
+    // has -- what was blocked when `js` is 0. Both as of its last load.
+    int32_t js, scripts;
     char host[128];
     char version[24], cipher[64];   // empty when unknown
     int32_t chain_depth;

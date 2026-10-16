@@ -18,6 +18,8 @@ static uint32_t mix(uint32_t a, uint32_t b, int pct_b) {
     return ugfx_rgb(r / 100, g / 100, bl / 100);
 }
 
+#define SCRIPTS_TEXT "Scripts blocked"
+
 static int pad(void) { return ugfx_char_advance('n') / 2 + 2; }
 static int icon(void) { return ugfx_char_h() * 2 / 3; }
 
@@ -57,6 +59,13 @@ void ns_addr_sync(struct ns_addr *a) {
         right -= w;
         a->part_x[NS_ADDR_STAR] = right;
         a->part_w[NS_ADDR_STAR] = w;
+        right -= gap;
+    }
+    if (a->scripts_blocked) {
+        int w = icon() * 3 / 2 + gap + ugfx_text_width(SCRIPTS_TEXT) + 2 * p;
+        right -= w;
+        a->part_x[NS_ADDR_SCRIPTS] = right;
+        a->part_w[NS_ADDR_SCRIPTS] = w;
         right -= gap;
     }
     if (a->zoom && a->zoom != 100) {
@@ -121,6 +130,17 @@ static void draw_warning(struct ugfx_surface *s, int x, int cy, int sz, uint32_t
     int t = sz >= 12 ? 2 : 1;
     ugfx_fill_rect(s, x + sz / 2 - t / 2, cy - sz / 6, t, sz / 3, bg);
     ugfx_fill_rect(s, x + sz / 2 - t / 2, cy + sz / 3 - t, t, t, bg);
+}
+
+// "</>" struck through: code that did not run. `sz` tall, 1.5 sz wide.
+static void draw_code_off(struct ugfx_surface *s, int x, int cy, int sz, uint32_t c, uint32_t strike) {
+    int h = sz / 2, w = sz * 3 / 2;
+    int lx[3] = { x + sz / 3, x, x + sz / 3 }, ly[3] = { cy - h, cy, cy + h };
+    int rx[3] = { x + w - sz / 3, x + w, x + w - sz / 3 };
+    ugfx_draw_polyline(s, lx, ly, 3, 1, c, GEOM_AA);
+    ugfx_draw_polyline(s, rx, ly, 3, 1, c, GEOM_AA);
+    int sx[2] = { x + 2, x + w - 2 }, sy[2] = { cy + h, cy - h };
+    ugfx_draw_polyline(s, sx, sy, 2, 2, strike, GEOM_AA);
 }
 
 // A five-pointed star in a 20-unit box, scaled to `sz`.
@@ -215,6 +235,17 @@ static void a_begin(struct ugfx_surface *s, void *w) {
         ugfx_draw_string(s, x + p, cy - ugfx_char_h() / 2, z, UTHEME_TEXT,
                          a->hot == NS_ADDR_ZOOM ? mix(UTHEME_PANEL_BG, UTHEME_TEXT, 8) : UTHEME_PANEL_BG);
     }
+    if (a->part_w[NS_ADDR_SCRIPTS]) {
+        int x, y, w, h;
+        ns_addr_part_rect(a, NS_ADDR_SCRIPTS, &x, &y, &w, &h);
+        draw_part_bg(s, a, NS_ADDR_SCRIPTS, UTHEME_PANEL_BG);
+        uint32_t under = a->hot == NS_ADDR_SCRIPTS || a->armed == NS_ADDR_SCRIPTS
+                       ? mix(UTHEME_PANEL_BG, UTHEME_TEXT, a->armed == NS_ADDR_SCRIPTS ? 16 : 8)
+                       : UTHEME_PANEL_BG;
+        draw_code_off(s, x + p, cy, sz, UTHEME_TEXT, danger);
+        ugfx_draw_string(s, x + p + sz * 3 / 2 + gap, cy - ugfx_char_h() / 2, SCRIPTS_TEXT,
+                         UTHEME_TEXT, under);
+    }
     if (a->part_w[NS_ADDR_STAR]) {
         draw_part_bg(s, a, NS_ADDR_STAR, UTHEME_WHITE);
         draw_star(s, a->part_x[NS_ADDR_STAR] + gap, cy, sz,
@@ -254,7 +285,7 @@ static int a_cursor(const void *w, int cx, int cy) {
 // The parts' rects, for a test that clicks the chip or reads its state.
 static void a_describe(const void *w, const struct uui_describe *d) {
     const struct ns_addr *a = w;
-    static const char *const NAMES[NS_ADDR_PARTS] = { 0, "chip", "zoom", "star" };
+    static const char *const NAMES[NS_ADDR_PARTS] = { 0, "chip", "zoom", "star", "scripts" };
     int x, y, wd, h;
     for (int p = NS_ADDR_CHIP; p < NS_ADDR_PARTS; p++)
         if (ns_addr_part_rect(a, p, &x, &y, &wd, &h)) uui_describe_rect(d, NAMES[p], x, y, wd, h);

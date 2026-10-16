@@ -218,6 +218,12 @@ int sys_query(struct syscall_ctx *c) {
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;
         return 0;
     }
+    // The wall clock is `stdio`'s (abi/sandbox_abi.h: "time"), and it is
+    // a query record: clock_gettime(CLOCK_REALTIME) reads it. Every other
+    // class is the registry's -- OpenBSD's sysctl under pledge, by MIB.
+    if (!(msg.op == QUERY_OP_RECORD && msg.cls == QUERY_CLOCK) &&
+        sandbox_require(PROMISE_QUERY, "query", c->regs))
+        return 0;
 
     int err = 0;
     switch (msg.op) {

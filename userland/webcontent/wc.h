@@ -26,6 +26,8 @@ struct gui_window {
     char title[WC_TITLE_MAX];
     char url[WC_URL_MAX];
     char status[WC_STATUS_MAX];
+    int js, scripts;               // as of the last finished load (wv_site)
+    int loads;                     // loads finished (wv_state)
 };
 
 // The process's one window, or NULL before NetSurf made it.
@@ -56,6 +58,14 @@ void wc_window_downgrade(const char *https_url);
 
 // --- wc_site.c -----------------------------------------------------------
 void wc_site_get(struct gui_window *gw, struct wv_site *out);
+
+// --- wc_js.c -------------------------------------------------------------
+// The app's exceptions (WV_PERMS), kept for the contents created after.
+void wc_js_set_perms(const char *list, size_t len);
+// Whether a page at `url` runs scripts: its site's exception, else the
+// browser.javascript setting.
+int wc_js_allowed(const char *url);
+int wc_js_count_scripts(struct browser_window *bw);
 
 // --- wc_net.c ------------------------------------------------------------
 // The remote transport for backends/netsurf/fetch_http.c, over g_wc_net.

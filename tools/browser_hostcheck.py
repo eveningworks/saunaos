@@ -31,6 +31,12 @@ AS THAT -- "not loaded within N s" -- never as a layout difference.
     python3 tools/browser_hostcheck.py                # every page
     python3 tools/browser_hostcheck.py -k table       # pages matching
     python3 tools/browser_hostcheck.py --show text    # print both streams
+    python3 tools/browser_hostcheck.py --js -k script # JavaScript on, both sides
+
+JAVASCRIPT (`--js`) runs both engines with NetSurf's own
+`--enable_javascript=1`: Duktape on toy-os (tolibc's maths, its clock,
+the -nostdinc build) against the same pinned Duktape on the host. Each
+side's monkey is off by default, as upstream's is.
 
 OVER THE NETWORK: `--scheme http` or `https` has the GUEST load the same
 pages from tools/web_server.py on this machine (10.0.2.2 through SLIRP;
@@ -67,6 +73,7 @@ HOST_TIMEOUT_S = 20
 # tools/browser_test.py instead.
 HOST_LACKS = {
     "photos.html": "the host build has no libpng or libjpeg (netsurf_vendor.py's flags)",
+    "fileref.html": "it names the GUEST's file:///tests/web/bands.png, which the host has not got",
 }
 
 ADDR = re.compile(r"0x[0-9a-fA-F]+")
@@ -76,11 +83,16 @@ def commands(url):
     return [f"WINDOW NEW {url}", "WINDOW REDRAW 0", "QUIT"]
 
 
+# ["--enable_javascript=1"] under --js. BEFORE the guest's --weak-entropy:
+# NetSurf's option parser takes the word after a bare --flag as its value.
+JS_ARGS = []
+
+
 def host_run(monkey, url):
     """Drives the host build interactively: each command waits for the
     line that says its work is done."""
     env = dict(os.environ, LANGUAGE="en", LANG="C")
-    p = subprocess.Popen([monkey], cwd=os.path.dirname(monkey), env=env,
+    p = subprocess.Popen([monkey] + JS_ARGS, cwd=os.path.dirname(monkey), env=env,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.DEVNULL, text=True, bufsize=1)
     out = []
@@ -147,7 +159,7 @@ def guest_runs(args, names, base):
     for n in names:
         new, redraw, quit_ = commands(f"{base}/{n}")
         script.append(f'(echo "{new}"; sleep {args.load_s}; echo "{redraw}"; '
-                      f'sleep {args.redraw_s}; echo "{quit_}") | /tests/nsmonkey --weak-entropy'
+                      f'sleep {args.redraw_s}; echo "{quit_}") | /tests/nsmonkey {" ".join(JS_ARGS)} --weak-entropy'
                       f' > /tmp/ns-{n}.out')
     with tempfile.NamedTemporaryFile("w", suffix=".sh", delete=False) as f:
         f.write("\n".join(script) + "\n")
@@ -175,11 +187,14 @@ def main():
                     help="seconds a page gets to load in the guest (default 5; 12 for https, "
                          "whose handshakes under TCG cost seconds)")
     ap.add_argument("--redraw-s", type=int, default=3, help="seconds the guest's redraw gets")
+    ap.add_argument("--js", action="store_true", help="JavaScript on, on both sides")
     ap.add_argument("--show", metavar="PAGE", help="print both sides' summaries for one page")
     ap.add_argument("--scheme", choices=("file", "http", "https"), default="file",
                     help="how the GUEST reads the pages (the host always reads files)")
     ap.add_argument("--port", type=int, default=18090, help="the page server's port")
     args = ap.parse_args()
+    if args.js:
+        JS_ARGS.append("--enable_javascript=1")
     if not args.load_s:
         args.load_s = 12 if args.scheme == "https" else 5
 

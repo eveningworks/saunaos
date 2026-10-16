@@ -164,6 +164,11 @@ void uui_webview_set_visible(struct uui_webview *v, int visible);
 // The most content processes this app keeps; past it, the view shown
 // longest ago is unloaded. 0 derives it from the machine's memory.
 void uui_webview_set_limit(int max_live);
+// The sites' JavaScript exceptions, for every view: "host\tallow|block\n"
+// lines (lib/usiteperm.h's usiteperm_list()), copied. A page created after
+// it follows it; a view's `site.js` and `site.scripts` say what its page
+// did. NULL or "" is none -- the browser.javascript setting alone.
+void uui_webview_set_perms(const char *list);
 
 // The answer to host->scheme: `status` 200 with `mime` and the bytes, or
 // 404 with none. May be called in pieces; `done` on the last.

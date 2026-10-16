@@ -149,6 +149,19 @@ static int limit(void) {
 
 void uui_webview_set_limit(int max_live) { g_limit = max_live; }
 
+static char *g_perms;   // the last uui_webview_set_perms(), or NULL
+
+static void send_perms(struct uui_webview *v) {
+    send_rec(v, WV_PERMS, g_perms ? g_perms : "", g_perms ? (uint32_t)strlen(g_perms) : 0);
+}
+
+void uui_webview_set_perms(const char *list) {
+    free(g_perms);
+    g_perms = list && list[0] ? strdup(list) : NULL;
+    for (struct uui_webview *v = g_views; v; v = v->next)
+        if (v->ready) send_perms(v);
+}
+
 static void unmap_buf(struct uui_webview *v) {
     if (v->buf) sys_munmap((void *)v->buf, v->bbytes);
     v->buf = NULL;
@@ -695,6 +708,7 @@ static void on_hello(struct uui_webview *v) {
     v->ready = 1;
     send_size(v);
     send_int(v, WV_VISIBLE, v->visible);
+    send_perms(v);   // before the page it applies to
     if (v->pending_nav) {
         send_rec(v, v->pending_upgraded ? WV_NAVIGATE_UPGRADED : WV_NAVIGATE, v->pending_nav,
                  (uint32_t)strlen(v->pending_nav));

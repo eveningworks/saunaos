@@ -108,7 +108,7 @@ SYSCALL_ROW(SYS_STAT, "stat", sys_stat, A_PATH, A_HEX, A_END, R_DEC, PROMISE_RPA
 SYSCALL_ROW(SYS_LINK, "link", sys_link, A_PATH, A_PATH, A_END, R_DEC, PROMISE_CPATH)
 SYSCALL_ROW(SYS_SYNC, "sync", sys_sync, A_END, A_END, A_END, R_DEC, PROMISE_WPATH)
 SYSCALL_ROW(SYS_FSYNC, "fsync", sys_fsync, A_FD, A_END, A_END, R_DEC, PROMISE_WPATH)
-SYSCALL_ROW(SYS_QUERY, "query", sys_query, A_HEX, A_END, A_END, R_DEC, PROMISE_QUERY)
+SYSCALL_ROW(SYS_QUERY, "query", sys_query, A_HEX, A_END, A_END, R_DEC, PROMISE_STDIO)  // QUERY by class: sys_query()
 // The offset traces as a signed decimal and the whence as a plain
 // one: SEEK_SET/CUR/END would want a third argument formatter for
 // three values, and `lseek(3, -16, 2)` is already readable.

@@ -122,9 +122,11 @@ def state(dbg):
         m = re.search(r"browser: layout menu\.item 0 (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
         if m:
             _st.setdefault("menu_items", {})[int(m.group(1))] = tuple(int(v) for v in m.groups()[1:])
-        m = re.search(r"browser: site (\d+) zoom (\d+)$", line)
+        m = re.search(r"browser: site (\d+) zoom (\d+)(?: scripts (\d+) (\d+))?$", line)
         if m:
             _st["site"] = int(m.group(1))
+            if m.group(3) is not None:
+                _st["js"], _st["scripts"] = int(m.group(3)), int(m.group(4))
         m = re.search(r"browser: card (\d+) cookies (\d+) chain (\d+) tls (\S+) logins (\d+)$", line)
         if m:
             _st["cardinfo"] = (int(m.group(1)), int(m.group(2)), int(m.group(3)), m.group(4))
@@ -132,6 +134,10 @@ def state(dbg):
         m = re.search(r"browser: cookies cleared (\d+)$", line)
         if m:
             _st["cleared"] = int(m.group(1))
+        # The card's JavaScript row: a segment per value (USITEPERM_*).
+        m = re.search(r"browser: layout card\.js\.slot (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+        if m:
+            _st.setdefault("js_slot", {})[int(m.group(1))] = tuple(int(v) for v in m.groups()[1:])
         # The page's links in view, a fresh set from each link 0.
         m = re.search(r"browser: layout page\.link (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
         if m:
@@ -191,13 +197,13 @@ def state(dbg):
         if m:
             _st["found"] = (int(m.group(1)), int(m.group(2)))
         m = re.search(r"browser: tab (\d+)/(\d+) loading (\d) extent (\d+) (\d+) "
-                      r"scroll (-?\d+) (-?\d+) len (\d+) url (\S*)", line)
+                      r"scroll (-?\d+) (-?\d+) len (\d+) loads (\d+) url (\S*)", line)
         if m:
             g = m.groups()
             # The app reports at most 72 bytes of the address: `url` is
             # then a prefix, and `urllen` its real length.
             _st.update(cur=int(g[0]), tabs=int(g[1]), loading=int(g[2]), ext_w=int(g[3]),
-                       ext_h=int(g[4]), sx=int(g[5]), sy=int(g[6]), urllen=int(g[7]), url=g[8])
+                       ext_h=int(g[4]), sx=int(g[5]), sy=int(g[6]), urllen=int(g[7]), loads=int(g[8]), url=g[9])
     return _st
 
 
@@ -438,6 +444,7 @@ def run(dbg, qmp, args, net):
     popups(dbg, page, at, c)
     bookmarks_and_history(dbg, page, at, shot)
     stopped_page(dbg, page, at, shot)
+    javascript_local(dbg, page, at, shot)
     if net:
         network(dbg, net, page, at, shot)
     history_survives(dbg, page)
@@ -900,6 +907,129 @@ def sandboxed(dbg, host, page, at, shot):
           f"sandbox: pid {pid} refused path /etc/" not in log, f"pid {pid}")
 
 
+# /tests/web/script.html: a script that ran adds GREEN rows; blocked, the
+# RED <noscript> row shows instead. Each state is the other's control.
+JS_GREEN, JS_RED = (48, 160, 64), (192, 48, 48)
+SCRIPT_PAGE = "/tests/web/script.html"
+
+
+def script_bands(im, page, at):
+    box = at((page[0], page[1], page[2], min(page[3], 200)))
+    return count(im, box, near(JS_GREEN, 20)), count(im, box, near(JS_RED, 20))
+
+
+def js_global(dbg, value):
+    out = dbg.send(f"sh config set browser.javascript {value}")
+    check(f"browser.javascript set {value}", "error" not in out.lower() and "refus" not in out.lower(),
+          out.strip()[-120:])
+
+
+def reload_until(dbg, url, ok, timeout=15):
+    # The reload must be SEEN to finish: a page whose state is the same
+    # after it would otherwise pass on the state from before.
+    n = state(dbg).get("loads", 0)
+    dbg.send("gui key 0x12 ctrl")      # Ctrl+R
+    st = wait(dbg, lambda s: s.get("loads", 0) > n and loaded(url)(s) and ok(s), timeout)
+    check("...(the reload finished)", st.get("loads", 0) > n, f"loads {n} -> {st.get('loads')}")
+    return st
+
+
+def javascript_local(dbg, page, at, shot):
+    """Stage 6: a page's scripts run by default, and the global switch
+    blocks them. What a broken version would still pass: an engine that
+    never ran scripts would draw the page too -- so the GREEN rows only a
+    script makes must be there, and the RED <noscript> row must not; and
+    off, the opposite, on the same page, so neither count is a fluke of
+    where the page drew."""
+    url = "file://" + SCRIPT_PAGE
+    js_global(dbg, "on")
+    go(dbg, SCRIPT_PAGE)
+    st = wait(dbg, lambda s: loaded(url)(s) and s.get("scripts", 0) > 0)
+    im = shot("js_on")
+    green, red = script_bands(im, page, at)
+    check("a page's scripts run: the rows only a script adds are drawn",
+          st.get("js") == 1 and green > 3000, f"js {st.get('js')} green {green}")
+    check("...and its <noscript> row is not (control)", red < 50, f"red {red}")
+
+    js_global(dbg, "off")
+    st = reload_until(dbg, url, lambda s: s.get("js") == 0)
+    im = shot("js_off")
+    green, red = script_bands(im, page, at)
+    check("browser.javascript off: the page's <noscript> row is drawn", red > 1000, f"red {red}")
+    check("...and its script rows are not", green < 50, f"green {green}")
+    st = state(dbg)
+    badge = st.get("addressbar.scripts")
+    check("...and the address bar says its 1 script was blocked",
+          st.get("scripts") == 1 and badge is not None, f"scripts {st.get('scripts')} badge {badge}")
+    if badge:
+        ink = count(im, at(badge), lambda p: max(p) < 150)
+        check("...in a badge that is drawn", ink > 30, f"{ink} dark px")
+        click_rect(dbg, at, badge)
+        st = wait(dbg, lambda s: s.get("ask.open") == 1, 4)
+        check("a click on the badge opens the Scripts blocked card", st.get("ask.open") == 1,
+              f"ask.open {st.get('ask.open')}")
+        dbg.send("gui key 0x1b")
+        st = wait(dbg, lambda s: s.get("ask.open") == 0, 4)
+        check("...and Esc closes it", st.get("ask.open") == 0, f"ask.open {st.get('ask.open')}")
+    js_global(dbg, "on")
+
+
+def javascript_sites(dbg, host, page, at, shot):
+    """A site's own choice, over the global switch: "Allow on this site"
+    in the Scripts blocked card, and the connection card's Default /
+    Allow / Block. What a broken version would still pass: a choice that
+    reached nothing still reloads the page -- so each one is read from the
+    page's own pixels, and from the file it is kept in."""
+    url = f"http://{host}/script.html"   # the server's root is data/tests/web
+    js_global(dbg, "off")
+    go(dbg, url)
+    st = wait(dbg, lambda s: loaded(url)(s) and s.get("js") == 0 and s.get("scripts", 0) > 0, 20)
+    badge = st.get("addressbar.scripts")
+    check("an http page, JavaScript off: its scripts are blocked and the badge shows",
+          st.get("js") == 0 and badge is not None, f"js {st.get('js')} badge {badge}")
+    if not badge:
+        js_global(dbg, "on")
+        return
+    click_rect(dbg, at, badge)
+    st = wait(dbg, lambda s: s.get("ask.open") == 1 and "ask.primary" in s, 4)
+    if check("...whose card offers Allow on this site", "ask.primary" in st, f"{st.get('ask.primary')}"):
+        click_rect(dbg, at, st["ask.primary"])
+        st = wait(dbg, lambda s: loaded(url)(s) and s.get("js") == 1, 15)
+        green, red = script_bands(shot("js_allowed"), page, at)
+        check("Allow on this site reloads the page with its scripts run",
+              st.get("js") == 1 and green > 3000 and red < 50, f"js {st.get('js')} green {green} red {red}")
+        kept = dbg.send("sh cat /var/lib/browser/permissions")
+        check("...and keeps the choice", f"{GATEWAY}\tjavascript\tallow" in kept, kept.strip()[-120:])
+
+    def card_choose(value):
+        st = state(dbg)
+        click_rect(dbg, at, st["addressbar.chip"])
+        st = wait(dbg, lambda s: s.get("card_open") == 1 and value in s.get("js_slot", {}), 4)
+        slot = st.get("js_slot", {}).get(value)
+        if slot:
+            click_rect(dbg, at, slot)
+        return slot
+
+    if card_choose(2):                  # Block
+        st = wait(dbg, lambda s: loaded(url)(s) and s.get("js") == 0, 15)
+        green, red = script_bands(shot("js_blocked"), page, at)
+        js_global(dbg, "on")
+        st = reload_until(dbg, url, lambda s: s.get("js") is not None)
+        green2, red2 = script_bands(shot("js_blocked_on"), page, at)
+        check("the card's Block blocks the site's scripts",
+              green < 50 and red > 1000, f"green {green} red {red}")
+        check("...even with JavaScript on everywhere else", st.get("js") == 0 and red2 > 1000,
+              f"js {st.get('js')} red {red2}")
+    else:
+        check("the connection card shows a JavaScript row on a web page", False, f"{state(dbg).get('js_slot')}")
+    if card_choose(0):                  # Default: the global switch, on
+        st = wait(dbg, lambda s: loaded(url)(s) and s.get("js") == 1, 15)
+        kept = dbg.send("sh cat /var/lib/browser/permissions")
+        check("Default forgets the site's choice and follows the switch",
+              st.get("js") == 1 and "javascript" not in kept, f"js {st.get('js')} kept {kept.strip()[-80:]}")
+    js_global(dbg, "on")
+
+
 def network(dbg, net, page, at, shot):
     srv = net["http"]
     srv.reset()
@@ -919,6 +1049,7 @@ def network(dbg, net, page, at, shot):
     check("...and none of its red lower down (control)", ctl < 20, f"{ctl} px")
 
     sandboxed(dbg, host, page, at, shot)
+    javascript_sites(dbg, host, page, at, shot)
 
     # A page bigger than the network process's ring (lib/ubulk.h): it
     # arrives in pieces as the content process makes room. A broken wait
