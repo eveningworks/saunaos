@@ -1,0 +1,8 @@
+# Programs that are not services but may ask init for realtime when
+# started by hand (chrt). One file per program:
+#
+#   Exec=/bin/myprog            the absolute path, matched exactly
+#   CPUSchedulingPolicy=fifo    fifo or rr
+#   CPUSchedulingPriority=10    1..99, the ceiling
+#
+# This file lists nothing. `doc chrt` has the rest.

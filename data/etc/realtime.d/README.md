@@ -22,5 +22,7 @@ request**, so an entry counts the moment it is written and nothing needs
 a reload. A malformed entry is said in `dmesg` and lists nothing.
 
 This README is not copied to the image; every other file here is
-(`Makefile`, beside `services.d`). None ships today: nothing that is
-not a service has needed one yet.
+(`Makefile`, beside `services.d`). What ships is `README`, a
+comment-only file that lists nothing: System Update delivers FILES, so
+a directory that shipped empty would never reach an updated machine.
+No entry ships: nothing that is not a service has needed one yet.
