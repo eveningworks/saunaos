@@ -30,8 +30,8 @@
 
 static inline int64_t sc3(uint64_t n, uint64_t a, uint64_t b, uint64_t c) {
     int64_t ret;
-    __asm__ volatile ("int $0x80" : "=a"(ret)
-                      : "a"(n), "D"(a), "S"(b), "d"(c) : "memory");
+    __asm__ volatile ("syscall" : "=a"(ret)
+                      : "a"(n), "D"(a), "S"(b), "d"(c) : "rcx", "r11", "memory");
     return ret;
 }
 static inline int64_t sc1(uint64_t n, uint64_t a) { return sc3(n, a, 0, 0); }

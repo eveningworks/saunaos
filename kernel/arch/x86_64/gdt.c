@@ -40,15 +40,19 @@ struct gdt_ptr {
 
 // index: 0 null, 1 kernel code, 2 kernel data, 3 user data, 4 user code,
 // 5-6 TSS (a system-segment descriptor is 16 bytes -- two slots).
+// SYSRET derives its selectors from this ORDER: user data then user
+// code, 8 apart (idt.c's syscall_insn_init()).
 static uint64_t gdt[7];
 static struct gdt_ptr gdtp;
-static struct tss tss;
+// Not static: syscall_entry.asm loads the kernel stack from gdt_tss.rsp0,
+// since SYSCALL, unlike an interrupt, does not.
+struct tss gdt_tss;
 
 // A dedicated kernel stack used only for the switch back to ring 0 when
 // an interrupt/exception fires while running in ring 3.
 static uint8_t kernel_stack0[8192] __attribute__((aligned(16)));
 
-// The DOUBLE FAULT stack (IST slot 1, i.e. tss.ist[0]).
+// The DOUBLE FAULT stack (IST slot 1, i.e. gdt_tss.ist[0]).
 //
 // A #DF is raised when the CPU cannot deliver a fault -- and the case
 // that matters here is a kernel stack overflow: RSP walks onto the
@@ -61,6 +65,11 @@ static uint8_t kernel_stack0[8192] __attribute__((aligned(16)));
 // Its own stack rather than kernel_stack0: the whole point is that it
 // must be usable when the current stack is not.
 static uint8_t df_stack[8192] __attribute__((aligned(16)));
+
+// The NMI stack (IST slot 2). An NMI is the one thing that can arrive
+// while syscall_entry.asm runs ring 0 on the USER's stack, which would
+// otherwise take the NMI's frame -- Linux runs NMI on an IST for this.
+static uint8_t nmi_stack[8192] __attribute__((aligned(16)));
 
 static void set_tss_descriptor(uint64_t *desc_lo, uint64_t *desc_hi, uint64_t base, uint32_t limit) {
     uint64_t low = 0;
@@ -82,14 +91,15 @@ void gdt_init(void) {
     gdt[3] = USER_DATA_DESC;
     gdt[4] = USER_CODE_DESC;
 
-    for (size_t i = 0; i < sizeof(tss); i++) ((uint8_t *)&tss)[i] = 0;
-    tss.rsp0 = (uint64_t)(kernel_stack0 + sizeof(kernel_stack0));
+    for (size_t i = 0; i < sizeof(gdt_tss); i++) ((uint8_t *)&gdt_tss)[i] = 0;
+    gdt_tss.rsp0 = (uint64_t)(kernel_stack0 + sizeof(kernel_stack0));
     // IST slot 1 (the descriptor's IST field is 1-based, this array is
     // not). idt_init() points the #DF gate at it.
-    tss.ist[0] = (uint64_t)(df_stack + sizeof(df_stack));
-    tss.iomap_base = sizeof(struct tss); // beyond the limit => no IO bitmap
+    gdt_tss.ist[0] = (uint64_t)(df_stack + sizeof(df_stack));
+    gdt_tss.ist[1] = (uint64_t)(nmi_stack + sizeof(nmi_stack));
+    gdt_tss.iomap_base = sizeof(struct tss); // beyond the limit => no IO bitmap
 
-    set_tss_descriptor(&gdt[5], &gdt[6], (uint64_t)&tss, sizeof(struct tss) - 1);
+    set_tss_descriptor(&gdt[5], &gdt[6], (uint64_t)&gdt_tss, sizeof(struct tss) - 1);
 
     gdtp.limit = sizeof(gdt) - 1;
     gdtp.base = (uint64_t)&gdt;
@@ -124,5 +134,5 @@ void gdt_init(void) {
 }
 
 void gdt_set_kernel_stack(uint64_t rsp0) {
-    tss.rsp0 = rsp0;
+    gdt_tss.rsp0 = rsp0;
 }

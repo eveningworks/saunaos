@@ -221,6 +221,17 @@ this the obvious way), not from how much history it accumulated.
   wrong address. And **adding a code needs a handler that genuinely
   distinguishes it** -- not because POSIX has a name for it.
   `/tests/errno_test` is the check. See `docs/errno-design.md`.
+- **RING 3 ENTERS THROUGH `syscall`, AND AN INLINE STUB CLOBBERS RCX AND
+  R11.** The instruction writes the return address into RCX and RFLAGS
+  into R11, so a stub that leaves them out of its clobber list corrupts
+  whatever the compiler kept there -- and only under optimisation.
+  Reach for `rt/sys.c`'s wrappers; the few stubs that cannot
+  (`stack_chk.c`, `sigtramp.c`, `ugfx.c`, `ldso.c`) say the same
+  clobbers. `int $0x80` takes the same registers, clobbers nothing and
+  is accepted for good: both arrive at `isr_dispatch()` with ONE frame
+  (`kernel/arch/x86_64/syscall_entry.asm`), so nothing past the entry
+  may care which came in. `/tests/syscall_bench` compares them.
+  `docs/decisions/kernel.md`, "System calls enter through SYSCALL".
 - **FILE DESCRIPTORS ARE TWO LEVELS, AND 0/1/2 ARE ORDINARY ENTRIES.**
   A DESCRIPTION is what a stream is (file, pipe end, console, kernel
   log) and is refcounted; a DESCRIPTOR is a number one address space

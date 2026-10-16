@@ -295,13 +295,13 @@ int strace_wait_for_room(uint64_t *regs) {
         return 0;
     }
     ring_hdr(g_trace[t].ring)->stalls++;
-    // RE-ISSUE THE CALL rather than hold it: back over the 2-byte
-    // `int $0x80`, sleep, and RAX (which a wake writes) back to the
+    // RE-ISSUE THE CALL rather than hold it: back over the syscall
+    // instruction, sleep, and RAX (which a wake writes) back to the
     // number -- so it runs again once there is room for both its
     // records. Nothing has run, so nothing is lost; the signal path
     // rewinds the same way for SA_RESTART.
     uint64_t nr = regs[SCHED_TF_RAX];
-    regs[SCHED_TF_RIP] -= 2;
+    regs[SCHED_TF_RIP] -= SYSCALL_INSN_LEN;
     scheduler_sleep_current(regs, clocksource_now_ns() + 1000000ull);
     regs[SCHED_TF_RAX] = nr;
     return 1;

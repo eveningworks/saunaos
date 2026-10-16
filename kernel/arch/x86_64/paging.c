@@ -1,4 +1,5 @@
 #include "paging.h"
+#include "msr.h"
 #include "multiboot.h"
 #include "pmm.h"
 #include "uaddr.h"
@@ -481,17 +482,6 @@ int paging_smep_smap_state(void) {
 #define PAGE_PAT_HUGE (1ULL << 12)
 #define PAGE_PAT_4K   (1ULL << 7)
 
-static uint64_t read_msr_local(uint32_t msr) {
-    uint32_t lo, hi;
-    __asm__ volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
-    return ((uint64_t)hi << 32) | lo;
-}
-
-static void write_msr_local(uint32_t msr, uint64_t val) {
-    __asm__ volatile ("wrmsr" :: "c"(msr), "a"((uint32_t)val),
-                                  "d"((uint32_t)(val >> 32)));
-}
-
 static uint32_t cpuid_edx1(void) {
     uint32_t eax = 0, ebx = 0, ecx = 0, edx = 0;
     __asm__ volatile ("cpuid" : "=a"(eax), "=b"(ebx), "=c"(ecx), "=d"(edx)
@@ -523,10 +513,10 @@ static int nopat_requested(void) {
 // exactly the meaning it had. Slot 4 is selected by PAT=1, PCD=0, PWT=0,
 // which is why the PDE writes below set one bit and clear two.
 static void pat_install_wc_slot(void) {
-    uint64_t pat = read_msr_local(MSR_IA32_PAT);
+    uint64_t pat = rdmsr(MSR_IA32_PAT);
     pat &= ~(0xFFULL << 32);            // slot 4 lives in byte 4
     pat |= (PAT_TYPE_WC << 32);
-    write_msr_local(MSR_IA32_PAT, pat);
+    wrmsr(MSR_IA32_PAT, pat);
 }
 
 // Tables for 2 MiB pages a write-combined range only PARTLY covers.
@@ -678,7 +668,7 @@ int paging_clear_write_combining(uint64_t phys, uint64_t size) {
 #define MTRR_MAX_USED 8
 
 static int mtrr_apply(uint64_t phys, uint64_t size) {
-    uint64_t cap = read_msr_local(MSR_IA32_MTRRCAP);
+    uint64_t cap = rdmsr(MSR_IA32_MTRRCAP);
     uint32_t vcnt = (uint32_t)(cap & 0xFFu);
     if (vcnt == 0) return PAGING_WC_NONE;
     if (vcnt > MTRR_MAX_USED) vcnt = MTRR_MAX_USED;
@@ -724,16 +714,16 @@ static int mtrr_apply(uint64_t phys, uint64_t size) {
     __asm__ volatile ("wbinvd" ::: "memory");
     flush_tlb();
 
-    uint64_t def = read_msr_local(MSR_IA32_MTRR_DEF);
-    write_msr_local(MSR_IA32_MTRR_DEF, def & ~(1ULL << 11));   // E = 0
+    uint64_t def = rdmsr(MSR_IA32_MTRR_DEF);
+    wrmsr(MSR_IA32_MTRR_DEF, def & ~(1ULL << 11));   // E = 0
 
     for (uint32_t i = 0; i < n; i++) {
-        write_msr_local(MSR_IA32_MTRR_BASE + 2 * i, base[i] | MTRR_TYPE_WC);
-        write_msr_local(MSR_IA32_MTRR_BASE + 2 * i + 1,
+        wrmsr(MSR_IA32_MTRR_BASE + 2 * i, base[i] | MTRR_TYPE_WC);
+        wrmsr(MSR_IA32_MTRR_BASE + 2 * i + 1,
                         ((~(len[i] - 1)) & mask_hi) | (1ULL << 11)); // V = 1
     }
 
-    write_msr_local(MSR_IA32_MTRR_DEF, def | (1ULL << 11));    // E = 1
+    wrmsr(MSR_IA32_MTRR_DEF, def | (1ULL << 11));    // E = 1
 
     __asm__ volatile ("wbinvd" ::: "memory");
     flush_tlb();

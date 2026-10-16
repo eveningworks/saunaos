@@ -40,14 +40,14 @@
 #define STR(x) STR2(x)
 
 __attribute__((naked, used)) void __sigrestore(void) {
-    // `int $0x80` does not return -- the trapframe it returns through is
+    // The syscall does not return -- the trapframe it returns through is
     // the interrupted one, not this one. `ud2` rather than a fallthrough
     // into whatever the linker put next: if it ever DOES return, the
     // kernel rejected the frame, and stopping here is more useful than
     // executing a neighbouring function's first instruction.
     __asm__ volatile (
         "mov $" STR(SYS_SIGRETURN) ", %eax\n\t"
-        "int $0x80\n\t"
+        "syscall\n\t"
         "ud2"
     );
 }

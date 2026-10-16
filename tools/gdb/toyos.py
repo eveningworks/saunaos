@@ -14,7 +14,8 @@ WinDbg (`!process`) put these on the debugger's side too:
                   ld-toy and /lib libraries -- run it again after
                   `thread N` to switch programs
   (unwinder)      `bt` goes on PAST isr_common: the trap frame isr.asm
-                  pushed is read, and the frame it interrupted is next.
+                  pushed is read, and the frame it interrupted is next
+                  -- and past syscall_entry, which pushes the same one.
                   A ring-3 frame ends it (user code has no symbols
                   here), and so does kernel_main (boot.asm has no CFI).
 
@@ -251,26 +252,36 @@ class TrapFrameUnwinder(gdb.unwinder.Unwinder):
 
     def __init__(self):
         super().__init__("toy-os trap frame")
-        self.lo = self.hi = self.resume = None
+        self.lo = self.hi = self.resume = self.sys_lo = self.sys_hi = None
         # (sp, pc) of every RING-3 frame this produced. User code has no
         # symbols here, so GDB's fallback would walk its stack into
         # garbage; asked about one of these, this ends the backtrace.
         self.user = set()
 
+    @staticmethod
+    def _after_frame_built(lo, hi, arch):
+        """[the `mov rdi, rsp` in lo..hi, hi): where the frame is whole."""
+        ready = [i["addr"] for i in arch.disassemble(lo, hi - 1)
+                 if re.search(r"\bmov\s+(%rsp,\s*%rdi|rdi,\s*rsp)\b", i["asm"])]
+        # Not found: claim none of it rather than guess.
+        return (ready[0], hi) if ready else (hi, hi)
+
     def _bounds(self, arch=None):
         if self.lo is None:
-            lo, hi = addr("isr_common"), addr("isr_return_to")
             arch = arch or gdb.selected_inferior().architecture()
-            ready = [i["addr"] for i in arch.disassemble(lo, hi - 1)
-                     if re.search(r"\bmov\s+(%rsp,\s*%rdi|rdi,\s*rsp)\b", i["asm"])]
-            # Not found: claim no part of isr_common rather than guess.
-            self.lo, self.hi = (ready[0], hi) if ready else (hi, hi)
+            self.lo, self.hi = self._after_frame_built(
+                addr("isr_common"), addr("isr_return_to"), arch)
             self.resume = addr("isr_resume_frame")
+            # SYSCALL's entry builds the same frame (syscall_entry.asm),
+            # whole from its `mov rdi, rsp` until the exit starts popping.
+            self.sys_lo, self.sys_hi = self._after_frame_built(
+                addr("syscall_entry"), addr("syscall_exit_pops"), arch)
 
     def claims(self, pc, arch=None):
         """Whether RSP at `pc` points at a whole trap frame."""
         self._bounds(arch)
-        return self.lo <= pc < self.hi or pc == self.resume
+        return (self.lo <= pc < self.hi or self.sys_lo <= pc < self.sys_hi
+                or pc == self.resume)
 
     # A ring-3 frame goes on only once toy-symbols has loaded its program:
     # without them GDB's fallback walks the user stack into garbage.

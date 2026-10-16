@@ -4,9 +4,12 @@
 // thin typed shell around one of these three.
 #include "rt/sys.h"
 
-// `int $0x80` with the SysV-ish register convention the kernel's
+// SYSCALL with the SysV-ish register convention the kernel's
 // dispatcher uses: number in RAX, arguments in RDI/RSI/RDX, result in
-// RAX (see kernel/proc/syscall.c).
+// RAX (see kernel/proc/syscall.c). The instruction itself overwrites
+// RCX (the return address) and R11 (RFLAGS), hence the clobbers;
+// `int $0x80` takes the same registers and stays accepted
+// (kernel/arch/x86_64/syscall_entry.asm).
 //
 // "memory" in the clobber list is not decoration: several of these hand
 // the kernel a pointer it writes THROUGH (sys_read, sys_listdir,
@@ -17,10 +20,10 @@
 static inline int64_t syscall3(uint64_t num, uint64_t a1, uint64_t a2, uint64_t a3) {
     int64_t ret;
     __asm__ volatile (
-        "int $0x80"
+        "syscall"
         : "=a"(ret)
         : "a"(num), "D"(a1), "S"(a2), "d"(a3)
-        : "memory"
+        : "rcx", "r11", "memory"
     );
     return ret;
 }

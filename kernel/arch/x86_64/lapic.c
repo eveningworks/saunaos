@@ -1,6 +1,7 @@
 // The Local APIC. See kernel/lapic.h for what this is for and for the
 // one trap in it (enabling it moves the 8259's wire).
 #include "lapic.h"
+#include "msr.h"
 #include "acpi.h"
 #include "multiboot.h"
 #include "klog.h"
@@ -52,17 +53,6 @@ static volatile uint8_t *g_base;
 static uint8_t g_id;
 static void (*g_vector_handlers[LAPIC_VECTOR_COUNT])(uint64_t *regs);
 static uint32_t g_delivered;
-
-static uint64_t rdmsr(uint32_t msr) {
-    uint32_t lo, hi;
-    __asm__ volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
-    return ((uint64_t)hi << 32) | lo;
-}
-
-static void wrmsr(uint32_t msr, uint64_t val) {
-    __asm__ volatile ("wrmsr" :: "c"(msr), "a"((uint32_t)val),
-                                 "d"((uint32_t)(val >> 32)));
-}
 
 static uint32_t lapic_read(uint32_t reg) {
     return *(volatile uint32_t *)(g_base + reg);

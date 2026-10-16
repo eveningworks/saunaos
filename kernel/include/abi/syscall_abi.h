@@ -1776,17 +1776,12 @@ struct sys_stat {
                           // A program with no handler is unaffected:
                           // SIGWINCH's default action is to be ignored.
 
-// HOW MANY BYTES `int $0x80` IS, so that a restart can rewind over it.
-//
-// It is 0xCD 0x80 -- the two-byte form, because 0x80 does not fit the
-// one-byte `int3`. Named rather than written as a literal 2 in the two
-// places that rewind (api/scheduler.h's signal wake and signal.c's
-// SA_RESTART), since a bare `-= 2` next to an instruction pointer is
-// unreadable and this is the ONE fact both of them depend on.
-//
-// It would change if this kernel ever moved to `syscall`/`sysret`, which
-// is also two bytes (0x0F 0x05) -- so the number survives that, and the
-// name is what makes the coincidence obvious rather than lucky.
+// HOW MANY BYTES A SYSCALL INSTRUCTION IS, so that a restart can rewind
+// over it: `syscall` (0x0F 0x05), what ring 3 uses, and `int $0x80`
+// (0xCD 0x80), still accepted, are BOTH two -- which is why one constant
+// serves a frame that came in by either. Named rather than a literal 2
+// at the places that rewind (the signal wake, SA_RESTART, strace's
+// stall), since this is the one fact all of them depend on.
 #define SYSCALL_INSN_LEN 2
 
 #define SYS_SIGRETURN 67 // No arguments. Unwinds the signal frame the

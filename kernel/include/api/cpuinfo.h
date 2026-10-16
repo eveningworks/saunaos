@@ -62,6 +62,7 @@ enum cpu_feature_word {
 #define CPU_EN_LONG_MODE  (1u << 10) // EFER.LMA -- 64-bit mode active (always, here)
 #define CPU_EN_PAGING     (1u << 11) // CR0.PG
 #define CPU_EN_WP         (1u << 12) // CR0.WP -- ring 0 honors read-only pages
+#define CPU_EN_SYSCALL    (1u << 13) // EFER.SCE -- ring 3 enters through SYSCALL
 
 // One level of the cache hierarchy, from CPUID leaf 4.
 enum cpu_cache_type {

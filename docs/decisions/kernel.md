@@ -9376,6 +9376,56 @@ not by which program asked.
 hand-started program; the maintainer asked for it now. What it costs is
 a verb, two small lists and a spawn flag, and the kernel's two RT guards
 already bound what a mistaken grant can do.
+
+## System calls enter through SYSCALL; `int 0x80` stays
+
+Until 2026-10-16 every system call was `int $0x80`: an interrupt gate,
+the CPU's full interrupt delivery on the way in and an `iretq` out.
+Ring 3 now uses the `syscall` instruction, and the kernel still accepts
+`int $0x80`.
+
+**What real systems do.** Linux on x86-64 enters through `syscall`
+(`entry_SYSCALL_64`) and keeps `int 0x80` only for 32-bit binaries;
+Windows x64 uses `syscall` too. `sysenter` is no option for 64-bit code
+on AMD CPUs. Linux builds the same `pt_regs` an interrupt would, so
+signals and ptrace never ask how a call came in, and it leaves through
+`sysret` only when that frame is still what `syscall` made -- RCX ==
+RIP, R11 == RFLAGS, a canonical RIP, user selectors, no TF/RF --
+falling back to `iret` otherwise. NMI, #DB and #MC run on IST stacks,
+because for a few instructions at each end the kernel is on the user's
+stack.
+
+**What toy-os does: Linux's shape, one CPU's worth of it.**
+- **One frame for both entries** (`kernel/arch/x86_64/syscall_entry.asm`):
+  ss, rsp, rflags, cs, rip, error 0, vector 128 and the fifteen registers
+  in `isr_common`'s order, then the same `isr_dispatch()`. Signal
+  delivery, restarts (both instructions are two bytes:
+  `SYSCALL_INSN_LEN`), exec, strace and the crash report are unchanged,
+  and a context switched away inside a call returns through whichever
+  entry's tail it came in by.
+- **SYSRET under Linux's conditions, iretq otherwise.** A frame something
+  rewrote -- a signal, sigreturn, exec, a restart's rewind -- fails
+  RCX == RIP and goes out through `isr_resume_frame`. The canonical check
+  is the user half (RIP below 2^47), which also closes Intel's SYSRET
+  #GP-in-ring-0 (CVE-2012-0217).
+- **The kernel stack comes from `gdt_tss.rsp0`**, which the scheduler
+  already sets per process; the user RSP waits in one scratch word for
+  two instructions. One CPU and IF clear make that safe, and it is
+  per-CPU state the day SMP starts a second core (`docs/smp-design.md`),
+  where Linux uses `swapgs` and per-CPU data.
+- **FMASK clears IF, TF, DF, AC and NT.** IF keeps the `0xEE` gate's
+  rule -- IF clear for the whole call -- so the two entries cannot
+  differ in what may preempt a call. **Only NMI moves to an IST stack**:
+  with TF masked nothing single-steps the window, and #MC is not enabled.
+- **No run-time choice and no boot word.** Every x86-64 CPU has SYSCALL,
+  so an indirect call per syscall would buy a fallback nothing needs;
+  `int $0x80` staying accepted is the fallback for old binaries.
+
+**Measured 2026-10-16**, KVM, `/tests/syscall_bench` (a million
+`getpid`s through each instruction in one process, two runs): `int 0x80`
+710-851 ns, 2555-3065 cycles; `syscall` 267-355 ns, 961-1277 cycles --
+2.4-2.7x. About a thousand cycles is still several times Linux's; what
+is left is `isr_dispatch()`'s own work on every trap, not the entry.
 ## A sandbox is a promise set and a path list
 
 Chosen 2026-10-16, for the Web Browser's content process (the roadmap's

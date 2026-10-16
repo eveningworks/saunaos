@@ -84,6 +84,7 @@ counted in the tree on 2026-08-26.
 | | today | why SMP breaks it |
 |---|---|---|
 | GDT, TSS, `kernel_stack0` | one of each (`kernel/arch/x86_64/gdt.c`) | `TSS.RSP0` is per CPU: two cores sharing one would land two ring-3 traps on one stack |
+| SYSCALL entry | `syscall_entry.asm` reads `gdt_tss.rsp0` and parks the user RSP in one scratch word, `syscall_user_rsp` | both per CPU: Linux's `swapgs` and per-CPU area are the shape. The MSRs (`STAR`/`LSTAR`/`FMASK`/`EFER.SCE`) are per core too and each AP must write them |
 | IDT | one, loaded once | shareable as-is -- the IDT is read-only to the CPU. Each core must still `lidt` it |
 | interrupt controller | 8259 PIC, 16 lines, handler chain per line (`irq.c`, 75 lines) | the PIC delivers to one CPU. MSI and IPIs both need a Local APIC, which this kernel has none of |
 | timer | LAPIC timer at 100 Hz, PIT as fallback (2026-09-06) | this row is DONE for the BSP -- `kernel/clockevent.h`. Each AP still needs its own, which is what `per_cpu` on the device marks |

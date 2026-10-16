@@ -94,6 +94,7 @@ whenever a headline here tells you something you did not already know.
 - **A kernel panic prints enough to diagnose from a pasted log**
 - **Kernel stacks are 16 KiB, have a GUARD PAGE, and carry a CANARY**
 - **A FAILED SYSCALL RETURNS `-ERRNO`, AND `-1` IS `-EPERM`.**
+- **RING 3 ENTERS THROUGH `syscall`, AND AN INLINE STUB CLOBBERS RCX AND R11**
 - **FILE DESCRIPTORS ARE TWO LEVELS, AND 0/1/2 ARE ORDINARY ENTRIES.**
 - **A KIND OF STREAM IS A `struct fd_ops`, DEFINED BESIDE ITS OWNER.**
 - **A FULL PIPE BLOCKS ITS WRITER, AND A CHILD INHERITS ONLY 0/1/2.**

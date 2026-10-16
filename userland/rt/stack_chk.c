@@ -28,10 +28,10 @@ uintptr_t __stack_chk_guard = 0x5A3CC5AA9900DEB1ULL;
 static inline int64_t syscall3(uint64_t num, uint64_t arg1, uint64_t arg2, uint64_t arg3) {
     int64_t ret;
     __asm__ volatile (
-        "int $0x80"
+        "syscall"
         : "=a"(ret)
         : "a"(num), "D"(arg1), "S"(arg2), "d"(arg3)
-        : "memory"
+        : "rcx", "r11", "memory"
     );
     return ret;
 }

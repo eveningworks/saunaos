@@ -568,6 +568,9 @@ EXCLUDED = [
                           "with `spawn /tests/stdio_bench` and read its log with "
                           "`cat /var/tmp/stdio_bench.log` -- it outlives a console "
                           "capture, which is why it writes one"),
+    ("syscall_bench",    "a benchmark, not a test: ns and cycles per syscall through "
+                          "int 0x80 and through SYSCALL; read a KVM run. `vm.py --kvm "
+                          "exec \"/tests/syscall_bench\"`"),
     ("fslat_bench",      "a benchmark, not a test: per-call fs latency, for "
                           "tools/fs_isolation.py -- a timing number would make the gate flap"),
     ("crash_test",       "faults on purpose; the point is the kernel's recovery"),

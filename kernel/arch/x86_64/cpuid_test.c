@@ -86,6 +86,7 @@ KTEST("cpuid", "no control bit is enabled for an unsupported feature") {
         { CPU_EN_UMIP,      CPU_WORD_7_0_ECX,   2 },
         { CPU_EN_NX,        CPU_WORD_EXT1_EDX, 20 },
         { CPU_EN_LONG_MODE, CPU_WORD_EXT1_EDX, 29 },
+        { CPU_EN_SYSCALL,   CPU_WORD_EXT1_EDX, 11 },
     };
     for (unsigned i = 0; i < sizeof(PREREQ) / sizeof(PREREQ[0]); i++) {
         if (ci.enabled & PREREQ[i].en) {

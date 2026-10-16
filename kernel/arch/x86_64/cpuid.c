@@ -6,12 +6,13 @@
 // control registers are all x86 instructions with no portable
 // equivalent -- a different CPU would replace this file, not adapt it.
 #include "cpuinfo.h"
+#include "msr.h"
 #include "timer.h"
 #include "string.h"
 
-// MSR 0xC0000080. Read with RDMSR, which is ring 0 only -- part of why
+// MSR_EFER (msr.h). Read with RDMSR, which is ring 0 only -- part of why
 // the "enabled" half of this header can't come from userland.
-#define MSR_EFER      0xC0000080u
+#define EFER_SCE      (1u << 0)
 #define EFER_NXE      (1u << 11)
 #define EFER_LMA      (1u << 10)
 
@@ -45,12 +46,6 @@ static uint64_t read_cr0(void) {
 
 static uint64_t read_cr4(void) {
     uint64_t v; __asm__ volatile ("mov %%cr4, %0" : "=r"(v)); return v;
-}
-
-static uint64_t read_msr(uint32_t msr) {
-    uint32_t lo, hi;
-    __asm__ volatile ("rdmsr" : "=a"(lo), "=d"(hi) : "c"(msr));
-    return ((uint64_t)hi << 32) | lo;
 }
 
 static uint64_t read_tsc(void) {
@@ -262,7 +257,7 @@ static void fill_caches(struct cpu_info *out, uint32_t max_leaf, uint32_t max_ex
 static uint32_t read_enabled(void) {
     uint64_t cr0 = read_cr0();
     uint64_t cr4 = read_cr4();
-    uint64_t efer = read_msr(MSR_EFER);
+    uint64_t efer = rdmsr(MSR_EFER);
     uint32_t en = 0;
 
     if (cr0 & CR0_PG) en |= CPU_EN_PAGING;
@@ -283,6 +278,7 @@ static uint32_t read_enabled(void) {
 
     if (efer & EFER_NXE) en |= CPU_EN_NX;
     if (efer & EFER_LMA) en |= CPU_EN_LONG_MODE;
+    if (efer & EFER_SCE) en |= CPU_EN_SYSCALL;
 
     return en;
 }

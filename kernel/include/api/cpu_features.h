@@ -138,7 +138,7 @@ static const struct cpu_feature_desc CPU_FEATURES[] = {
     { "ssbd",      CPU_WORD_7_0_EDX, 31, 0 },
 
     // ---- CPUID.80000001H:EDX ------------------------------------------
-    { "syscall",   CPU_WORD_EXT1_EDX, 11, 0 },
+    { "syscall",   CPU_WORD_EXT1_EDX, 11, CPU_EN_SYSCALL },
     { "nx",        CPU_WORD_EXT1_EDX, 20, CPU_EN_NX },
     { "pdpe1gb",   CPU_WORD_EXT1_EDX, 26, 0 },
     { "rdtscp",    CPU_WORD_EXT1_EDX, 27, 0 },
@@ -177,6 +177,7 @@ static const struct cpu_enable_desc CPU_ENABLES[] = {
     { "umip",         CPU_EN_UMIP,      "CR4.UMIP" },
     { "nx",           CPU_EN_NX,        "EFER.NXE" },
     { "long-mode",    CPU_EN_LONG_MODE, "EFER.LMA" },
+    { "syscall",      CPU_EN_SYSCALL,   "EFER.SCE" },
 };
 
 #define CPU_ENABLE_COUNT ((int)(sizeof(CPU_ENABLES) / sizeof(CPU_ENABLES[0])))

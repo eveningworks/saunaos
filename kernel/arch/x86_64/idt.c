@@ -1,4 +1,6 @@
 #include "idt.h"
+#include "msr.h"
+#include "gdt.h"   // the selectors MSR_STAR names
 #include "panic.h"
 #include "vga.h"
 #include "klog.h"
@@ -149,6 +151,33 @@ static void mouse_irq_handler(uint64_t *regs) {
 // trap gate. See the comment at the call site.
 #define SYSCALL_GATE 0xEE
 
+// THE SYSCALL INSTRUCTION, beside the gate: ring 3 enters through it
+// (userland/rt/sys.c), and `int 0x80` stays accepted for anything built
+// before. Both reach isr_dispatch() with the same frame
+// (syscall_entry.asm). Every x86-64 CPU has SYSCALL, so there is no
+// fallback to choose at run time.
+//
+// STAR: SYSCALL loads CS from bits 47:32 and SS 8 above it; SYSRET loads
+// SS from bits 63:48 + 8 and CS from + 16 -- gdt.c's user data then user
+// code. FMASK clears IF as the 0xEE gate does, TF so nothing single-steps
+// the stack switch, DF for the C ABI, AC and NT as Linux does.
+extern void syscall_entry(void);
+
+#define RFLAGS_TF (1u << 8)
+#define RFLAGS_IF (1u << 9)
+#define RFLAGS_DF (1u << 10)
+#define RFLAGS_NT (1u << 14)
+#define RFLAGS_AC (1u << 18)
+#define EFER_SCE  (1u << 0)
+
+static void syscall_insn_init(void) {
+    wrmsr(MSR_STAR, (uint64_t)(SEL_USER_DATA - 8) << 48 | (uint64_t)SEL_KERNEL_CODE << 32);
+    wrmsr(MSR_LSTAR, (uint64_t)(uintptr_t)syscall_entry);
+    wrmsr(MSR_FMASK, RFLAGS_TF | RFLAGS_IF | RFLAGS_DF | RFLAGS_NT | RFLAGS_AC);
+    wrmsr(MSR_EFER, rdmsr(MSR_EFER) | EFER_SCE);
+    klog_printf("idt: SYSCALL/SYSRET entry enabled\n");
+}
+
 void idt_init(void) {
     for (int i = 0; i < 72; i++) {
         idt_set_gate(i, isr_table[i], 0, 0x8E); // present, ring0, 64-bit interrupt gate
@@ -166,6 +195,9 @@ void idt_init(void) {
     // broken stack -- so without a known-good stack to switch to, the
     // CPU triple-faults and the machine reboots with nothing printed.
     idt_set_gate(8, isr_table[8], 1, 0x8E);
+    // NMI on IST slot 2: the one interrupt that can land in
+    // syscall_entry.asm's windows on the user's stack (gdt.c's nmi_stack).
+    idt_set_gate(2, isr_table[2], 2, 0x8E);
 
     // Syscall gate needs DPL=3 (0xEF, not 0x8F) -- otherwise ring-3 code
     // executing `int 0x80` gets a #GP instead of reaching the handler,
@@ -185,6 +217,10 @@ void idt_init(void) {
     // Nothing at 0xEE can exercise such a path, so a flip is tested by
     // booting it repeatedly under load, not by the suite alone.
     //
+    // **A FLIP MUST ALSO TAKE IF OUT OF syscall_insn_init()'s FMASK**:
+    // ring 3 enters through SYSCALL, which never sees this gate, and
+    // would go on running every call with IF clear.
+    //
     // LOGGED, because which gate a boot is running decides whether a
     // syscall can be preempted -- and a build that did not pick up a
     // change to it looks exactly like the change not working.
@@ -192,6 +228,7 @@ void idt_init(void) {
     klog_printf("idt: syscall gate 0x%x (%s)\n", SYSCALL_GATE,
                 SYSCALL_GATE == 0xEF ? "trap -- syscalls are preemptible"
                                      : "interrupt -- IF clear for the whole call");
+    syscall_insn_init();
 
     idtp.limit = sizeof(idt) - 1;
     idtp.base = (uint64_t)&idt;

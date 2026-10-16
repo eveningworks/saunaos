@@ -14,10 +14,10 @@
 static inline int64_t syscall2(uint64_t num, uint64_t arg1, uint64_t arg2) {
     int64_t ret;
     __asm__ volatile (
-        "int $0x80"
+        "syscall"
         : "=a"(ret)
         : "a"(num), "D"(arg1), "S"(arg2)
-        : "memory"
+        : "rcx", "r11", "memory"
     );
     return ret;
 }
