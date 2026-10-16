@@ -9,12 +9,18 @@
 //
 // `prio_test child` is the child: it exits with 20 - its nice, the
 // same offset the syscall uses, so every level is a positive code.
+//
+// REALTIME FOR A PROGRAM STARTED BY HAND (INITCTL_REALTIME) is here too:
+// the test lists ITSELF in /etc/realtime.d for the length of the run, so
+// the refusal before and the grant after differ only by that entry.
 #include <errno.h>
 #include <sched.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/resource.h>
+#include <unistd.h>
 #include "rt/sys.h"
+#include "lib/uinitctl.h"
 
 #include "lib/utest.h"
 
@@ -27,7 +33,77 @@ static int child_level(void) {
     return code < 0 ? -99 : 20 - code;
 }
 
+#define SELF     "/tests/prio_test"
+#define RT_ENTRY "/etc/realtime.d/prio_test"
+
+static int write_entry(void) {
+    FILE *f = fopen(RT_ENTRY, "w");
+    if (!f) return 0;
+    fputs("Exec=" SELF "\nCPUSchedulingPolicy=rr\nCPUSchedulingPriority=5\n", f);
+    return fclose(f) == 0;
+}
+
+// Asks init for realtime, then execs itself as `class`: the exit code is
+// the policy the exec'd image started with, or 90+ when a step failed.
+static int child_rt_then_exec(void) {
+    if (uinitctl_realtime(0, 0, 0, 0, 0) != INITCTL_OK) return 90;
+    if (sched_getscheduler(0) != SCHED_RR) return 91;
+    char *av[] = { SELF, "class", 0 };
+    execv(SELF, av);
+    return 92;
+}
+
+static void realtime_by_hand(void) {
+    unlink(RT_ENTRY);   // a run that died half-way left it behind
+    int got_policy = -1, got_prio = -1;
+    int r = uinitctl_realtime(0, 0, 0, 0, 0);
+    utest_checkf(r == INITCTL_NOT_LISTED, "an unlisted program is refused realtime (got %d)", r);
+    utest_check(sched_getscheduler(0) == SCHED_OTHER, "and stays SCHED_OTHER");
+
+    if (!write_entry()) {
+        utest_check(0, "could not write " RT_ENTRY);
+        return;
+    }
+    r = uinitctl_realtime(0, SCHED_RR, 6, 0, 0);
+    utest_checkf(r == INITCTL_TOO_HIGH, "above the listed priority is refused, not lowered (got %d)", r);
+    utest_check(sched_getscheduler(0) == SCHED_OTHER, "and leaves us SCHED_OTHER");
+    r = uinitctl_realtime(0, 0, 0, &got_policy, &got_prio);
+    utest_checkf(r == INITCTL_OK && got_policy == SCHED_RR && got_prio == 5,
+                 "listed, the listed class is granted (got %d: %d %d)", r, got_policy, got_prio);
+    struct sched_param sp = { 0 };
+    utest_check(sched_getscheduler(0) == SCHED_RR && sched_getparam(0, &sp) == 0 &&
+                sp.sched_priority == 5, "and reads back SCHED_RR 5");
+    sp.sched_priority = 0;
+    sched_setscheduler(0, SCHED_OTHER, &sp);
+
+    // What init granted was a PROGRAM; an exec replaces it.
+    int pid = sys_spawn(SELF, "rtexec", -1), code = -1;
+    if (pid > 0) sys_waitpid(pid, &code);
+    utest_checkf(code == SCHED_OTHER, "an exec ends a granted realtime class (got %d)", code);
+    unlink(RT_ENTRY);
+}
+
+// SPAWN_STOPPED: the child runs nothing until a SIGCONT.
+static void spawn_stopped(void) {
+    char *av[] = { SELF, "child", 0 };
+    struct sys_spawn_opts o;
+    sys_spawn_opts_init(&o);
+    o.argv = av;
+    o.flags = SPAWN_STOPPED;
+    int pid = sys_spawn_opts(SELF, &o), code = -1;
+    utest_checkf(pid > 0, "SPAWN_STOPPED spawns (got %d)", pid);
+    if (pid <= 0) return;
+    sys_sleep_ms(300);
+    utest_check(sys_waitpid_nohang(pid, &code) != pid, "a SPAWN_STOPPED child has not run after 300 ms");
+    sys_kill(pid, SIGCONT);
+    sys_waitpid(pid, &code);
+    int want = 20 - getpriority(PRIO_PROCESS, 0);
+    utest_checkf(code == want, "and runs to completion once continued (got %d, want %d)", code, want);
+}
+
 int main(int argc, char **argv) {
+    if (argc > 1 && !strcmp(argv[1], "rtexec")) return child_rt_then_exec();
+    if (argc > 1 && !strcmp(argv[1], "class")) return sched_getscheduler(0);
     if (argc > 1 && !strcmp(argv[1], "child")) {
         int mine = getpriority(PRIO_PROCESS, 0);
         // The leak's victim: a child that changes itself and exits leaves
@@ -85,5 +161,8 @@ int main(int argc, char **argv) {
     sp.sched_priority = -1;
     utest_check(sched_getparam(1, &sp) == 0 && sp.sched_priority == 0,
                 "init itself is SCHED_OTHER, read through sched_getparam");
+
+    realtime_by_hand();
+    spawn_stopped();
     return utest_end();
 }

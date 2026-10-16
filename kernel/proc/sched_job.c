@@ -376,6 +376,37 @@ int scheduler_continue(int pid) {
     return 1;
 }
 
+#define STOP_ARMS 8
+static int g_stop_arm[STOP_ARMS];   // the arming process's tgid, 0 = free
+
+int scheduler_arm_spawn_stopped(void) {
+    for (int i = 0; i < STOP_ARMS; i++) {
+        if (g_stop_arm[i]) continue;
+        g_stop_arm[i] = scheduler_current_tgid();
+        return 0;
+    }
+    return -EBUSY;
+}
+
+void scheduler_disarm_spawn_stopped(void) {
+    int me = scheduler_current_tgid();
+    for (int i = 0; i < STOP_ARMS; i++)
+        if (g_stop_arm[i] == me) g_stop_arm[i] = 0;
+}
+
+// The spawn path's half: `slot` is the new child. Already REPORTED, so a
+// waitpid(WUNTRACED) in the parent does not hear of a stop it asked for.
+void sched_spawn_stop_if_armed(int slot) {
+    int me = scheduler_current_tgid();
+    for (int i = 0; me && i < STOP_ARMS; i++) {
+        if (g_stop_arm[i] != me) continue;
+        procs[slot].stopped = 1;
+        procs[slot].stop_sig = SIGSTOP;
+        procs[slot].stop_reported = 1;
+        return;
+    }
+}
+
 int scheduler_stopped(int pid) {
     struct sched_process *p = live_slot(pid);
     return p && p->stopped;

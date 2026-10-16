@@ -31,16 +31,30 @@
 // is unused. The reply comes BEFORE any of that starts.
 #define INITCTL_REBOOT   3
 #define INITCTL_POWEROFF 4
+// REALTIME FOR A PROGRAM STARTED BY HAND -- rtkit's MakeThreadRealtime,
+// since only init may grant RT. `pid` (0 = the asker) gets `policy` at
+// `prio`, or with both 0 the class its listing gives. Granted only when
+// that pid's PROGRAM (its exec path, never its say-so) is a loaded
+// service's Exec= with a realtime CPUSchedulingPolicy=, or an
+// /etc/realtime.d entry's; the listed priority is a CEILING, and a
+// request above it is refused, not lowered. `name` is unused. The reply
+// carries what was granted in `policy` and `prio`.
+#define INITCTL_REALTIME 5
 
 // A reply's `result`.
 #define INITCTL_OK        0
-#define INITCTL_NO_SUCH   1  // no service by that name
+#define INITCTL_NO_SUCH   1  // no service by that name / no such pid
 #define INITCTL_REFUSED   2  // known, but the verb could not be applied
+#define INITCTL_NOT_LISTED 3 // REALTIME: that program is on no list
+#define INITCTL_TOO_HIGH  4  // REALTIME: above what its listing allows
 
 struct initctl_msg {
     uint32_t verb;
     uint32_t result;   // reply only; a request leaves it 0
     char     name[40];
+    int32_t  pid;      // INITCTL_REALTIME only, like the two below
+    int32_t  policy;   // SCHED_FIFO / SCHED_RR, or 0 for the listed one
+    int32_t  prio;     // 1..99, or 0 for the listed one
 };
 
 _Static_assert(sizeof(struct initctl_msg) <= UCHAN_SLOT_BYTES,
@@ -54,5 +68,10 @@ _Static_assert(sizeof(struct initctl_msg) <= UCHAN_SLOT_BYTES,
 // that failed too. `reboot --force` is the one caller that skips init
 // on purpose -- systemd's `reboot -f`.
 int uinitctl_shutdown(int reboot);
+
+// INITCTL_REALTIME for `pid` (0 = the caller). Returns an INITCTL_*
+// result, or -1 when init could not be asked; on INITCTL_OK the granted
+// class is in *got_policy / *got_prio (either may be NULL).
+int uinitctl_realtime(int pid, int policy, int prio, int *got_policy, int *got_prio);
 
 #endif

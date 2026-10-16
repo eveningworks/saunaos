@@ -337,8 +337,11 @@ systemd's three keys, with its meanings: `CPUSchedulingPolicy=fifo` or
 `rr` with a `CPUSchedulingPriority=` of 1..99 puts the service in the
 realtime class, which runs before every ordinary process; `Nice=` is its
 weight among ordinary ones. **Init is the only process allowed to ask**,
-so these keys are the only way a service becomes realtime -- a program
-started by hand runs as an ordinary process whatever it would like.
+so these keys are the only way a service becomes realtime. They also
+LIST its program: the same binary started by hand may ask init for
+this class, at no more than this priority (`chrt`, or
+`uinitctl_realtime()` in the program) -- a program that is no service
+is listed in `/etc/realtime.d` instead (`docs/commands/chrt.md`).
 
 **Only for a service that BLOCKS PROMPTLY** -- a driver refilling a
 buffer, the compositor between frames. One that runs a second without

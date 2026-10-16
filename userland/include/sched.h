@@ -6,9 +6,11 @@
 // weight; SCHED_FIFO and SCHED_RR at 1..99 run before ALL of it, for a
 // process that blocks promptly -- abi/syscall_abi.h has the guards.
 //
-// ONLY INIT MAY ASK FOR RT (a service's `CPUSchedulingPolicy=`); anyone
-// may drop itself to SCHED_OTHER, and anything else is EPERM. What an
-// RT process creates starts SCHED_OTHER: SCHED_RESET_ON_FORK, always.
+// ONLY INIT MAY ASK FOR RT (a service's `CPUSchedulingPolicy=`, or
+// lib/uinitctl.h's uinitctl_realtime() for a listed program started by
+// hand); anyone may drop itself to SCHED_OTHER, and anything else is
+// EPERM. What an RT process creates starts SCHED_OTHER, and an exec
+// ends it: SCHED_RESET_ON_FORK, always.
 
 #include <sys/types.h>
 #include <syscall_abi.h>   // SCHED_OTHER, SCHED_FIFO, SCHED_RR

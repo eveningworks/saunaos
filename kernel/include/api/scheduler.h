@@ -964,6 +964,12 @@ int scheduler_stop(int pid, int sig);
 // running.
 int scheduler_continue(int pid);
 
+// SPAWN_STOPPED's arm, the shape of SPAWN_SANDBOX's: armed by the
+// spawning process, consumed by its next spawn, disarmed after it.
+// -EBUSY when every arm is taken.
+int scheduler_arm_spawn_stopped(void);
+void scheduler_disarm_spawn_stopped(void);
+
 // NICE (-20..19, a SCHED_OTHER weight) and the SCHEDULING CLASS
 // (SCHED_OTHER, or SCHED_FIFO/SCHED_RR at 1..99) -- abi/syscall_abi.h's
 // SYS_SETPRIORITY and SYS_SCHED_SETSCHEDULER have the rules. 0, or

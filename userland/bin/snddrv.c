@@ -38,6 +38,7 @@
 #include "sound_abi.h"
 #include "syscall_abi.h"
 #include "query_abi.h"
+#include "lib/uinitctl.h"
 #include "lib/uargs.h"
 
 #define PLUGIN_DIR "/lib/snd"
@@ -268,13 +269,19 @@ int main(int argc, char **argv) {
     // process is on the CPU (scheduler_trap_exit()). As an ordinary
     // process a woken driver waited out every slice ahead of it -- a USB
     // endpoint ran dry every 40 ms while four processes were busy.
-    // Only init may grant it, so a hand-started snddrv runs SCHED_OTHER
-    // and the serving line says so. `--no-rt` is that, for an A/B by ear.
+    // Only init may grant it, so a hand-started snddrv ASKS for its
+    // service's class (uinitctl_realtime()); the serving line says what
+    // it got. `--no-rt` drops it either way, for an A/B by ear.
 
     setsid();
     if (o_no_rt) {
         struct sched_param sp = { 0 };
         sched_setscheduler(0, SCHED_OTHER, &sp);
+    } else if (sched_getscheduler(0) == SCHED_OTHER) {
+        int r = uinitctl_realtime(0, 0, 0, 0, 0);
+        if (r != INITCTL_OK)
+            fprintf(stderr, "snddrv: init did not grant realtime (%s)\n",
+                    r < 0 ? "no answer" : r == INITCTL_NOT_LISTED ? "not listed" : "refused");
     }
     signal(SIGHUP, on_term);
     signal(SIGTERM, on_term);

@@ -9320,16 +9320,62 @@ blocks was throttled at 950 ms and demoted at 1003 ms, while init's own
 "started" line waited for the throttle -- which is the class doing what
 it says.
 
-**Not done, deliberately.** No rtkit: a program started by hand cannot
-become realtime at all, so a hand-started `snddrv` runs ordinary and
-its serving line says so (the roadmap's "Realtime for a program started
-by hand"). No deadline class, no idle class, no per-process
+**Not done, deliberately.** No deadline class, no idle class, no per-process
 `RLIMIT_RTTIME` (one machine-wide figure until a second caller wants a
 different one). And no plugin interface -- a seam with one
 implementation behind it is unvalidated (`struct win_transport`); two
 concrete classes with two real users is the honest version of the same
 idea.
 
+
+## Realtime for a program started by hand: init checks the PROGRAM
+
+Until 2026-10-16 only a service could be realtime, through its
+descriptor; a `snddrv` started by hand for a USB DAC A/B ran ordinary
+whatever it wanted. Now a program ASKS init (`INITCTL_REALTIME` on its
+control channel; `uinitctl_realtime()`, `chrt`), and init grants it
+when the target pid's program is listed.
+
+**What real systems do.** Linux has three routes past `CAP_SYS_NICE`:
+`RLIMIT_RTPRIO` from `limits.conf` (the "audio group"), file
+capabilities (`setcap cap_sys_nice+ep`, recomputed at every `exec`), and
+rtkit -- a privileged D-Bus daemon PipeWire asks with
+`MakeThreadRealtime`, which caps the priority, wants `RLIMIT_RTTIME`
+set first, rate-limits per user and demotes everyone if its canary
+starves. Windows' MMCSS raises a thread that names a task CATEGORY
+(`AvSetMmThreadCharacteristics("Pro Audio")`), bounded by the category,
+not by which program asked.
+
+**What toy-os does: rtkit's shape, keyed on the program.**
+- **The PROGRAM is checked, never the asker's say-so**: init reads the
+  target pid's exec path (`QUERY_PROCPATH`, the kernel's record of what
+  it was spawned or exec'd from) and matches it exactly. Matching the
+  24-byte name would let any copy called `snddrv` qualify. There are no
+  users, so this keeps a program from going realtime by ACCIDENT; it is
+  not a security boundary, since anything may write `/bin`.
+- **Two lists, one vocabulary.** A loaded service whose `Exec=` is the
+  program and whose `CPUSchedulingPolicy=` is realtime lists it at that
+  class -- so the service and the same binary by hand cannot disagree,
+  and nothing needs a second file. `/etc/realtime.d` lists a program
+  that is no service, with the same three keys. Both are read per
+  request: an edit counts at once.
+- **The listed priority is a CEILING, and above it is REFUSED**, not
+  lowered -- a parser rejects rather than guesses.
+- **AN EXEC ENDS RT** (`scheduler_exec()` resets the class, keeping
+  nice). The grant was for a program; kept, a listed program could exec
+  an unlisted one into RT. Linux keeps the class across exec, but its
+  equivalent right -- a file capability -- is recomputed there, which is
+  the same rule seen from the other end.
+- **`SPAWN_STOPPED`**, Windows' `CREATE_SUSPENDED`: `chrt PRIO PROGRAM`
+  spawns the program stopped, asks, then continues it or kills it, so a
+  refused program never runs (Linux's `chrt` fails before its exec). A
+  stop sent after an ordinary spawn could lose the race to the child's
+  first slice. Armed and consumed like `SPAWN_SANDBOX`.
+
+**The case against, recorded.** The roadmap said to wait for a second
+hand-started program; the maintainer asked for it now. What it costs is
+a verb, two small lists and a spawn flag, and the kernel's two RT guards
+already bound what a mistaken grant can do.
 ## A sandbox is a promise set and a path list
 
 Chosen 2026-10-16, for the Web Browser's content process (the roadmap's

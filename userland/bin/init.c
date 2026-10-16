@@ -413,6 +413,31 @@ static int read_file(const char *path, struct etc_config_buf *buf) {
     return 1;
 }
 
+// CPUSchedulingPolicy=/CPUSchedulingPriority= from g_cfg, for a service
+// descriptor and an /etc/realtime.d entry alike: *policy is SCHED_*, or
+// -1 when absent or bad (said, naming `who`), and *prio 1..99 under RT.
+static void parse_sched_keys(const char *who, int *policy, int *prio) {
+    char sp[16];
+    *policy = -1;
+    *prio = 0;
+    if (etc_config_buf_get(&g_cfg, "CPUSchedulingPolicy", sp, sizeof sp)) {
+        if (k_strcmp(sp, "fifo") == 0)       *policy = SCHED_FIFO;
+        else if (k_strcmp(sp, "rr") == 0)    *policy = SCHED_RR;
+        else if (k_strcmp(sp, "other") == 0) *policy = SCHED_OTHER;
+        else logf1("init: %s has an unknown CPUSchedulingPolicy=, ignoring it\n", who);
+    }
+    if (*policy == SCHED_FIFO || *policy == SCHED_RR) {
+        char *end = 0;
+        *prio = etc_config_buf_get(&g_cfg, "CPUSchedulingPriority", sp, sizeof sp)
+                ? (int)strtol(sp, &end, 10) : 0;
+        if (!end || *end || *prio < SCHED_RT_PRIO_MIN || *prio > SCHED_RT_PRIO_MAX) {
+            logf1("init: %s needs a CPUSchedulingPriority= of 1..99, ignoring its policy\n", who);
+            *policy = -1;
+            *prio = 0;
+        }
+    }
+}
+
 static void load_service(const char *file) {
     char path[96];
     snprintf(path, sizeof path, SERVICES_DIR "/%s", file);
@@ -560,25 +585,8 @@ static void load_service(const char *file) {
     // systemd's three CPU keys. A bad value is said and ignored, like every
     // key here: the service then simply runs as an ordinary process.
     char sp[16];
-    s->sched_policy = -1;
-    s->sched_prio = 0;
+    parse_sched_keys(s->name, &s->sched_policy, &s->sched_prio);
     s->has_nice = 0;
-    if (etc_config_buf_get(&g_cfg, "CPUSchedulingPolicy", sp, sizeof sp)) {
-        if (k_strcmp(sp, "fifo") == 0)       s->sched_policy = SCHED_FIFO;
-        else if (k_strcmp(sp, "rr") == 0)    s->sched_policy = SCHED_RR;
-        else if (k_strcmp(sp, "other") == 0) s->sched_policy = SCHED_OTHER;
-        else logf1("init: %s has an unknown CPUSchedulingPolicy=, ignoring it\n", s->name);
-    }
-    if (s->sched_policy == SCHED_FIFO || s->sched_policy == SCHED_RR) {
-        char *end = 0;
-        s->sched_prio = etc_config_buf_get(&g_cfg, "CPUSchedulingPriority", sp, sizeof sp)
-                        ? (int)strtol(sp, &end, 10) : 0;
-        if (!end || *end || s->sched_prio < SCHED_RT_PRIO_MIN || s->sched_prio > SCHED_RT_PRIO_MAX) {
-            logf1("init: %s needs a CPUSchedulingPriority= of 1..99, ignoring its policy\n",
-                  s->name);
-            s->sched_policy = -1;
-        }
-    }
     if (etc_config_buf_get(&g_cfg, "Nice", sp, sizeof sp)) {
         char *end = 0;
         s->nice = (int)strtol(sp, &end, 10);
@@ -1180,6 +1188,111 @@ static int control_stop(const char *name) {
     return INITCTL_OK;
 }
 
+// --- realtime for a program started by hand ----------------------------
+//
+// rtkit's job, done by the one process allowed to grant RT. WHAT IS
+// CHECKED IS THE PROGRAM -- the kernel's record of what the target pid
+// was spawned or exec'd from (QUERY_PROCPATH), never anything the asker
+// says -- against two lists: a loaded service with a realtime
+// CPUSchedulingPolicy=, which is the class that program runs as anyway,
+// and /etc/realtime.d for one that is not a service. Both are read per
+// request, so an edit counts at once. The listed priority is a CEILING.
+// There are no users, so this keeps a program from going realtime by
+// accident; it is not a security boundary (anything may write /bin).
+#define REALTIME_DIR "/etc/realtime.d"
+
+static char g_rt_msg[384];
+
+static int pid_exec_path(int pid, char *out, unsigned cap) {
+    struct query_procpath r;
+    QUERY_FOREACH(QUERY_PROCPATH, r, i) {
+        if (r.pid != pid) continue;
+        k_strlcpy(out, r.path, cap);
+        return out[0] != '\0';
+    }
+    return 0;
+}
+
+// The class `exec` may have: 1 with *policy and *prio (and what listed
+// it in `from`), or 0 when nothing does.
+static int realtime_listing(const char *exec, int *policy, int *prio,
+                            char *from, unsigned from_cap) {
+    for (int i = 0; i < g_svc_count; i++) {
+        struct service *sv = &g_svc[i];
+        if (sv->disabled || k_strcmp(sv->exec, exec) != 0) continue;
+        if (sv->sched_policy != SCHED_FIFO && sv->sched_policy != SCHED_RR) continue;
+        *policy = sv->sched_policy;
+        *prio = sv->sched_prio;
+        snprintf(from, from_cap, "service %s", sv->name);
+        return 1;
+    }
+    int n = sys_listdir(REALTIME_DIR, g_ents, (int)(sizeof g_ents / sizeof g_ents[0]));
+    for (int i = 0; i < n; i++) {
+        if (g_ents[i].is_dir) continue;
+        char path[128], want[QUERY_PROCPATH_MAX];
+        snprintf(path, sizeof path, REALTIME_DIR "/%s", g_ents[i].name);
+        if (!read_file(path, &g_cfg)) continue;
+        if (!etc_config_buf_get(&g_cfg, "Exec", want, sizeof want) ||
+            k_strcmp(want, exec) != 0)
+            continue;
+        int p, q;
+        parse_sched_keys(path, &p, &q);
+        if (p != SCHED_FIFO && p != SCHED_RR) continue;
+        *policy = p;
+        *prio = q;
+        snprintf(from, from_cap, "%s", path);
+        return 1;
+    }
+    return 0;
+}
+
+static const char *policy_name(int policy) {
+    return policy == SCHED_FIFO ? "SCHED_FIFO" : policy == SCHED_RR ? "SCHED_RR" : "SCHED_OTHER";
+}
+
+// INITCTL_REALTIME from `asker` (lib/uinitctl.h has the contract). The
+// granted class goes back in `reply`.
+static int control_realtime(int asker, const struct initctl_msg *m,
+                            struct initctl_msg *reply) {
+    int pid = m->pid ? m->pid : asker;
+    char exec[QUERY_PROCPATH_MAX], from[96];
+    if (!pid_exec_path(pid, exec, sizeof exec)) {
+        snprintf(g_rt_msg, sizeof g_rt_msg,
+                 "init: realtime: no process %d (asked by %d)\n", pid, asker);
+        sys_eprint(g_rt_msg);
+        return INITCTL_NO_SUCH;
+    }
+    int policy = 0, ceiling = 0;
+    if (!realtime_listing(exec, &policy, &ceiling, from, sizeof from)) {
+        snprintf(g_rt_msg, sizeof g_rt_msg,
+                 "init: realtime refused for pid %d (%s) -- no service or "
+                 REALTIME_DIR " entry lists it\n", pid, exec);
+        sys_eprint(g_rt_msg);
+        return INITCTL_NOT_LISTED;
+    }
+    // 0 means "what the listing says", for either half.
+    if (m->policy == SCHED_FIFO || m->policy == SCHED_RR) policy = m->policy;
+    else if (m->policy != 0) return INITCTL_REFUSED;
+    int prio = m->prio ? m->prio : ceiling;
+    if (prio < SCHED_RT_PRIO_MIN || prio > ceiling) {
+        snprintf(g_rt_msg, sizeof g_rt_msg,
+                 "init: realtime refused for pid %d (%s) -- priority %d, %s allows 1..%d\n",
+                 pid, exec, prio, from, ceiling);
+        sys_eprint(g_rt_msg);
+        return INITCTL_TOO_HIGH;
+    }
+    struct sched_param sp = { prio };
+    if (sched_setscheduler(pid, policy, &sp) != 0) return INITCTL_REFUSED;
+    snprintf(g_rt_msg, sizeof g_rt_msg,
+             "init: realtime %s %d for pid %d (%s, from %s), asked by pid %d\n",
+             policy_name(policy), prio, pid, exec, from, asker);
+    sys_eprint(g_rt_msg);
+    reply->pid = pid;
+    reply->policy = policy;
+    reply->prio = prio;
+    return INITCTL_OK;
+}
+
 // One pass: adopt any new client, answer everything queued. Returns how
 // many requests it acted on, so the caller knows the pass did work.
 // How long until the soonest thing init has scheduled, or CHAN_WAIT_MS
@@ -1305,7 +1418,10 @@ static int serve_channel(void) {
         g_publish = 1;
         int r = INITCTL_REFUSED;
         m.name[sizeof m.name - 1] = '\0';
+        struct initctl_msg reply;
+        k_memset(&reply, 0, sizeof reply);
         if (m.verb == INITCTL_START)      r = control_start(m.name);
+        else if (m.verb == INITCTL_REALTIME) r = control_realtime(from, &m, &reply);
         else if (m.verb == INITCTL_STOP)  r = control_stop(m.name);
         else if (m.verb == INITCTL_REBOOT || m.verb == INITCTL_POWEROFF) {
             // ANSWERED FIRST, acted on by the loop: the caller is waiting
@@ -1315,8 +1431,6 @@ static int serve_channel(void) {
         }
         else logf1("init: unknown control verb over the channel\n", "");
 
-        struct initctl_msg reply;
-        k_memset(&reply, 0, sizeof reply);
         reply.verb = m.verb;
         reply.result = (uint32_t)r;
         uchan_server_reply(&g_chan, from, &reply, sizeof reply);

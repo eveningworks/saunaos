@@ -439,6 +439,7 @@ void vr_place(int rot);
 // A new slot's class: `nice` from `parent` (a slot, or -1 for the
 // kernel context), SCHED_OTHER regardless -- see `policy` above.
 void sched_class_reset(int slot, int parent);
+void sched_spawn_stop_if_armed(int slot);   // sched_job.c, SPAWN_STOPPED
 int find_next_runnable(int start);
 void trace_sched(const char *what, int idx);
 void proc_start_context(int slot, const uint64_t *tf);

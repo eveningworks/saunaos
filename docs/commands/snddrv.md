@@ -36,8 +36,10 @@ snddrv [-d INDEX] [--driver NAME] [--pci] [--usb-id VID:PID] [--usb-clock ID] [-
   a woken driver preempts whatever ordinary process is on the CPU; this
   is how it behaved before, which is the A/B that shows the difference
   by ear -- a busy machine makes a USB DAC run dry and crackle. Only
-  init can make a process realtime, so a snddrv started by hand is
-  already ordinary; the serving line says which class a run has.
+  init can make a process realtime, so a snddrv started by hand ASKS
+  init for its service's class (`SCHED_FIFO 20`) and gets it, since the
+  service descriptor lists `/bin/snddrv`; the serving line says which
+  class a run has (`docs/commands/chrt.md`).
 - `-v`, `--verbose` -- say which plugins loaded, and which devices were
   declined.
 - `-h`, `--help` -- the options.

@@ -784,16 +784,21 @@ int sys_spawn(struct syscall_ctx *c) {
         // spawn (kernel/sandbox.h): the child is narrowed before it runs.
         int sb_arm = (arm < 0 || !(msg.flags & SPAWN_SANDBOX)) ? 0
                    : sandbox_arm_spawn(msg.promises);
+        int stop_arm = (arm < 0 || sb_arm < 0 || !(msg.flags & SPAWN_STOPPED)) ? 0
+                     : scheduler_arm_spawn_stopped();
         if (arm < 0)
             spawn_rc = arm;
         else if (sb_arm < 0)
             spawn_rc = sb_arm;
+        else if (stop_arm < 0)
+            spawn_rc = stop_arm;
         else
             pid = scheduler_spawn_group(a.path, a.args, a.args_len, stdout_desc,
                                         stdin_desc, stderr_desc, a.env, msg.pgid,
                                         c->pml4);
         strace_disarm();
         sandbox_disarm();
+        scheduler_disarm_spawn_stopped();
         if (pid > 0) spawn_rc = pid;
         // SPAWN_FOREGROUND: the child's group in front of OUR fd 0,
         // before the child can possibly read -- it is this syscall

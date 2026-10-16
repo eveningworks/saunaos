@@ -1019,10 +1019,17 @@ struct spawn_msg {
 // a socket. Chrome starts a renderer sandboxed for the same reason.
 #define SPAWN_SANDBOX 256
 
+// The child is created STOPPED, as by a SIGSTOP nobody is told about,
+// and runs nothing until a SIGCONT -- Windows' CREATE_SUSPENDED. For a
+// parent that must do something to the child before its first
+// instruction (`chrt` asking init for realtime); a stop sent after the
+// spawn could lose the race to the child's first slice.
+#define SPAWN_STOPPED 512
+
 // Every flag this kernel knows. Anything outside it is -EINVAL.
 #define SPAWN_FLAGS_ALL (SPAWN_TRACE | SPAWN_FOREGROUND | SPAWN_ARGV | SPAWN_SETSID | \
                          SPAWN_STDERR | SPAWN_DETACH | SPAWN_TRACE_RING | \
-                         SPAWN_TRACE_FOLLOW | SPAWN_SANDBOX)
+                         SPAWN_TRACE_FOLLOW | SPAWN_SANDBOX | SPAWN_STOPPED)
 
 // The most an environment blob may be, including its terminator. It has
 // to fit the child's single argv/env stack page alongside the strings
@@ -2803,9 +2810,13 @@ struct sys_rlimit {
 //
 // ONLY INIT MAY ASK FOR RT, or touch another process; anyone may drop
 // ITSELF to SCHED_OTHER (-EPERM otherwise). A service asks through its
-// descriptor's `CPUSchedulingPolicy=` (data/etc/services.d/README.md).
+// descriptor's `CPUSchedulingPolicy=` (data/etc/services.d/README.md);
+// a program started by hand asks init (lib/uinitctl.h's
+// uinitctl_realtime(), `chrt`), which grants it only to a program a
+// service or /etc/realtime.d names -- rtkit's shape.
 // NEVER INHERITED: whatever an RT process creates starts SCHED_OTHER
-// (Linux's SCHED_RESET_ON_FORK, here always on).
+// (Linux's SCHED_RESET_ON_FORK, here always on), and an EXEC ends it
+// too, since what init granted was the program that is being replaced.
 #define SCHED_OTHER 0
 #define SCHED_FIFO  1
 #define SCHED_RR    2

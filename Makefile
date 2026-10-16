@@ -2238,6 +2238,13 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	    if [ "$$(basename $$f)" != "README.md" ]; then \
 	        cp $$f $(SEED_DIR)/sync/etc/services.d/; fi; \
 	done
+	# Programs that are not services but may ask init for realtime when
+	# started by hand (data/etc/realtime.d/README.md). Same rule.
+	mkdir -p $(SEED_DIR)/sync/etc/realtime.d
+	@for f in data/etc/realtime.d/*; do \
+	    if [ "$$(basename $$f)" != "README.md" ]; then \
+	        cp $$f $(SEED_DIR)/sync/etc/realtime.d/; fi; \
+	done
 	# Config files that live directly in /etc rather than in a directory
 	# of their own. net.conf is the naming and addressing rules /bin/netd
 	# reads; it is seeded rather than compiled in for the same reason

@@ -408,6 +408,7 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     // either (an ignored signal is the documented exception there, and
     // this kernel has no fork/exec pair to make that distinction from).
     signal_state_reset(slot);
+    sched_spawn_stop_if_armed(slot);
     // Nothing has announced anything yet. See the field's comment: this
     // is the same slot-reuse hazard signal_state_reset() covers.
     procs[slot].ready = 0;
@@ -770,6 +771,11 @@ int scheduler_exec(const char *path, const char *argvec, size_t argvec_len,
     mm_reset(me, image_end);
     proc_name_from_path(procs[me].name, sizeof procs[me].name, path);
     k_strlcpy(procs[me].ext->exec_path, path ? path : "", sizeof procs[me].ext->exec_path);
+    // REALTIME ENDS AT EXEC; nice is kept. Init grants RT to a PROGRAM
+    // (a service's, or one /etc/realtime.d lists) -- kept, a listed
+    // program could exec an unlisted one into RT. Linux keeps the class
+    // but recomputes file capabilities here, which is the same rule.
+    sched_class_reset(me, me);
 
     // The caller's own trapframe, rewritten: it resumes at the new
     // image's entry with every register clear, as a spawn's first frame.
