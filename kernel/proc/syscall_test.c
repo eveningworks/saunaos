@@ -15,6 +15,7 @@
 #include "ktest.h"
 #include "syscall_table.h"
 #include "syscall_abi.h"
+#include "sandbox_abi.h"
 #include "strace.h"  // kernel-internal now: `strace` is a ring-3 program
 #include "kapi.h"
 
@@ -100,4 +101,21 @@ KTEST("syscall", "an argument list ends at A_END") {
     // `ret` exists at all.
     KTEST_ASSERT(syscall_desc_at(SYS_SBRK)->ret == R_HEX);
     KTEST_ASSERT(syscall_desc_at(SYS_WRITE)->ret == R_DEC);
+}
+
+KTEST("syscall", "every row names exactly one sandbox group") {
+    // The dispatcher tests `(promises & row) == row`, so a row of 0 would
+    // be reachable from ANY sandbox and a row of two bits would demand
+    // both: either is a group nobody chose. The macro makes the column
+    // compulsory; this makes it mean something.
+    for (uint64_t i = 1; syscall_desc_at(i); i++) {
+        const struct syscall_desc *d = syscall_desc_at(i);
+        if (!d->fn) continue;
+        KTEST_ASSERT(d->promise != 0 && (d->promise & (d->promise - 1)) == 0);
+        KTEST_ASSERT((d->promise & ~PROMISE_ALL) == 0);
+    }
+    // The two that give something up need nothing to call.
+    KTEST_ASSERT(syscall_desc_at(SYS_PLEDGE)->promise == PROMISE_STDIO);
+    KTEST_ASSERT(syscall_desc_at(SYS_UNVEIL)->promise == PROMISE_STDIO);
+    KTEST_ASSERT(syscall_desc_at(SYS_SOCKET)->promise == PROMISE_INET);
 }

@@ -318,7 +318,8 @@ int signal_restore_frame(int pid, uint64_t *regs) {
 // "Core"). A process killed by one gets the crash report a fault would
 // have written, so `kill -SEGV` and abort() leave the same evidence.
 int signal_dumps_core(int sig) {
-    return sig == SIGSEGV || sig == SIGILL || sig == SIGFPE || sig == SIGABRT;
+    return sig == SIGSEGV || sig == SIGILL || sig == SIGFPE || sig == SIGABRT ||
+           sig == SIGSYS;
 }
 
 static void do_default_action(int pid, int sig, uint64_t *regs) {

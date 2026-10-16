@@ -2,6 +2,7 @@
 // loader under all of them -- including `#!`, which is the loader's job.
 // Split out of scheduler.c; sched_internal.h has the map.
 
+#include "sandbox.h"   // a child inherits it, at spawn and at fork
 #include "sched_internal.h"
 #include "futex.h"
 #include "mmap.h"   // a fork's view of the mmap arena
@@ -458,6 +459,12 @@ int spawn_from_fs(const char *path, const char *argvec, size_t argvec_len,
     // this needs no special case for a process the shell's `spawn`
     // started.
     k_strlcpy(procs[slot].ext->cwd.path, scheduler_cwd(), sizeof procs[slot].ext->cwd.path);
+    // So is the sandbox, narrowed by SPAWN_SANDBOX if the spawn armed it.
+    // Set in place rather than refusing here, which is past the point a
+    // failure can be unwound: a child the kernel could not narrow gets
+    // NOTHING -- an empty promise set ends it at its first syscall.
+    if (sandbox_for_child(&procs[slot].ext->sandbox) < 0)
+        sandbox_lockout(&procs[slot].ext->sandbox);
 
     // WHAT A REMOTE SESSION STARTS IS RECORDED, auditd's execve shape --
     // here rather than in sys_spawn() because every spawn funnels
@@ -585,6 +592,7 @@ int scheduler_thread_create(uint64_t entry, uint64_t user_rsp, uint64_t arg,
     // that drifts.
     k_memset(&procs[slot].mm, 0, sizeof procs[slot].mm);
     procs[slot].ext->cwd.path[0] = '\0';
+    procs[slot].ext->sandbox = 0;   // the leader's is the group's
     procs[slot].state = SCHED_READY;
     slot_unclaim(slot);
     alive_count++;
@@ -694,6 +702,7 @@ int scheduler_fork(const uint64_t *regs) {
         return -1;
     }
     k_memcpy(&procs[slot].ext->cwd, &procs[leader].ext->cwd, sizeof procs[slot].ext->cwd);
+    procs[slot].ext->sandbox = sandbox_get(procs[leader].ext->sandbox);
     strace_fork(procs[leader].pml4_phys, as);   // past the last failure path
     procs[slot].state = SCHED_READY;
     slot_unclaim(slot);

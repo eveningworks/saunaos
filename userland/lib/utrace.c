@@ -10,7 +10,7 @@
 // used is never looked up, so `fn` names nothing here.
 struct desc { const char *name; enum sc_arg args[3]; enum sc_ret ret; };
 static const struct desc ROWS[] = {
-#define SYSCALL_ROW(nr, name, fn, a0, a1, a2, r) [nr] = { name, { a0, a1, a2 }, r },
+#define SYSCALL_ROW(nr, name, fn, a0, a1, a2, r, pr) [nr] = { name, { a0, a1, a2 }, r },
 #include "syscall_rows.h"
 #undef SYSCALL_ROW
 };

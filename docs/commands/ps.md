@@ -6,7 +6,7 @@
 
 ## Synopsis
 
-    ps [--tree] [--threads] [--sched]
+    ps [--tree] [--threads] [--sched] [--sandbox]
 
 ## Options
 
@@ -18,6 +18,9 @@
   `CLS` (`TS` an ordinary process, `FF`/`RR` realtime `SCHED_FIFO`/
   `SCHED_RR`), `RTPRIO` (1..99, `-` for an ordinary one) and `NI`, the
   nice value.
+- `--sandbox`, `-s` -- add a `PLEDGE` column after the name: the
+  promises a sandboxed process kept (`abi/sandbox_abi.h`, OpenBSD's
+  `ps -o pledge`), or `-` for one with no sandbox.
 - `-h`, `--help` -- the options.
 
 ## Description
@@ -33,6 +36,14 @@ sound driver run realtime because their service descriptors say so
         1     0     1 block(futex)     0.08      188  TS      -   0  init
        12     1    12 block(futex)     0.03      720  FF     20   0  snddrv
        14     1     1 block(futex)     0.55    14216  RR      1   0  toywm
+
+**`--sandbox` is how to see what a page's engine can still do.** Every
+Web Browser tab's `webcontent` runs sandboxed; nearly everything else
+prints `-`:
+
+      PID  PPID  PGID STATE          CPU(s)   MEM(K)  NAME  PLEDGE
+       41    14     1 block(event)     0.21     5120  browser  -
+       44    41     1 block(futex)     0.40    21304  webcontent  stdio rpath shm settings
 
 **Threads are hidden unless you ask** (`--threads`, or `-T`), as in
 every Unix `ps`: a program's threads are that program's business, and a

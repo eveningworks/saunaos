@@ -21,6 +21,8 @@
 //
 // driver-none: a memory object, not a device
 
+#include "sandbox.h"     // a sandbox reaches public objects through its unveil list
+#include "sandbox_abi.h"
 #include "syscalls.h"
 #include "syscall_abi.h"
 #include "errno.h"
@@ -118,12 +120,15 @@ static void obj_free(struct shm_object *o) {
 
 // May `pid` open object `i`? The creator always may; a public object is
 // open to everyone; otherwise the creator must have said so.
-static int may_open(int i, int pid) {
+static int granted_to(int i, int pid) {
     struct shm_object *o = &g_obj[i];
-    if (o->pub) return 1;
-    if (o->creator == pid) return 1;
     for (int g = 0; g < o->ngrants; g++) if (o->granted[g] == pid) return 1;
     return 0;
+}
+
+static int may_open(int i, int pid) {
+    struct shm_object *o = &g_obj[i];
+    return o->pub || o->creator == pid || granted_to(i, pid);
 }
 
 int shm_lookup(const char *name) {
@@ -310,7 +315,11 @@ int sys_shm_open(struct syscall_ctx *c) {
     if (!vmm_copy_string_from_user(c->pml4, name, (uint64_t)(uintptr_t)m.name,
                                    sizeof name)) { ret = -EFAULT; goto out; }
     if (!name_ok(name)) { ret = -EINVAL; goto out; }
-    if (m.flags & ~(SHM_CREATE | SHM_EXCL | SHM_PUBLIC)) { ret = -EINVAL; goto out; }
+    if (m.flags & ~(SHM_CREATE | SHM_EXCL | SHM_PUBLIC | SHM_FROM)) { ret = -EINVAL; goto out; }
+    // FROM names who must ALREADY have made it; creating is the opposite.
+    if ((m.flags & SHM_FROM) && ((m.flags & SHM_CREATE) || m.from_pid < 1)) {
+        ret = -EINVAL; goto out;
+    }
 
     int pid = scheduler_current_tgid();   // the PROCESS: a thread opens what its process may
     int idx = shm_lookup(name);
@@ -323,9 +332,22 @@ int sys_shm_open(struct syscall_ctx *c) {
         // errno table's "not allowed to ask"; there is no EACCES here
         // and one caller does not earn one.
         if (!may_open(idx, pid)) { ret = -EPERM; goto out; }
+        if ((m.flags & SHM_FROM) && g_obj[idx].creator != m.from_pid) { ret = -EPERM; goto out; }
+        // A SANDBOXED process reaches a public object -- a service's
+        // beacon -- only through its unveil list; its own objects and
+        // ones granted to it are capabilities already (sandbox_abi.h).
+        if (g_obj[idx].pub && g_obj[idx].creator != pid && !granted_to(idx, pid) &&
+            !sandbox_shm_public(name)) {
+            ret = -ENOENT; goto out;
+        }
         shm_get(idx);
     } else {
         if (!(m.flags & SHM_CREATE)) { ret = -ENOENT; goto out; }
+        // A beacon is a NAME others will trust, so making one is the
+        // sandbox's PUBLISH: a sandboxed page must not squat a service.
+        if ((m.flags & SHM_PUBLIC) &&
+            sandbox_require(PROMISE_PUBLISH, "shm_open of a public object", c->regs))
+            return 0;
         uint64_t npages = (m.length + 4095) / 4096;
         if (!npages || npages > SHM_PAGES_MAX) { ret = -EINVAL; goto out; }
         idx = obj_create(name, npages, pid, c->pml4);
@@ -380,6 +402,13 @@ int sys_shm_unlink(struct syscall_ctx *c) {
     }
     int idx = shm_lookup(name);
     if (idx < 0) { ret = -ENOENT; goto out; }
+    // THE CREATOR'S NAME TO TAKE BACK, nobody else's. Otherwise any
+    // process could unlink a running server's beacon and publish its own
+    // under the name -- every later client would trust the impostor. A
+    // dead creator's names are already gone (shm_process_gone()), so the
+    // "previous run's leftover" every server unlinks at start is still
+    // its own to clear or not there at all.
+    if (g_obj[idx].creator != scheduler_current_tgid()) { ret = -EPERM; goto out; }
     // The name goes now; the frames go with the last holder. An object
     // somebody is still using survives its own unlink, which is what
     // makes "no new openers" expressible.

@@ -76,6 +76,9 @@ static void notify_parent(int ppid) {
 static void reap_audit(int idx, const char *who) {
     int ppid = procs[idx].ppid;
     if (ppid < 1) return;
+    // A THREAD is nobody's child to wait for -- its "parent" is its own
+    // leader -- and whoever kills the process frees it.
+    if (procs[idx].tgid != procs[idx].pid) return;
     // **A CHILD IS REAPED BY ITS PARENT, AND BY NOBODY ELSE.** Checking
     // the parent's STATE instead was the first version of this and it
     // never fired: the window is between the parent's poll and its

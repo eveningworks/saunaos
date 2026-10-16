@@ -199,6 +199,11 @@ TESTS = [
     # (exit code None) because it blocks in waitpid for /tests/shm_child,
     # which the legacy `run` loader has no scheduler slot to do.
     ("shm_test", None, None, None),
+    # The sandbox (abi/sandbox_abi.h): pledge both ways per group, unveil's
+    # ENOENT/EACCES and its narrowing, SPAWN_SANDBOX, the shm rules, and
+    # the crash record a violation leaves. SPAWNED: every check runs in a
+    # forked child so the one meant to die is the only one that does.
+    ("sandbox_test", None, None, None),
     # A futex parking and waking ACROSS two processes, through a shared
     # page. The KTESTs beside sys_futex_wait() cover key derivation and
     # every refusal and cannot cover this -- they run on the kernel

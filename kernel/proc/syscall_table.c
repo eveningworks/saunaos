@@ -13,6 +13,7 @@
 // is a registry -- there is no init call to forget.
 #include "syscalls.h"
 #include "syscall_abi.h"
+#include "sandbox_abi.h"     // the rows' PROMISE_* groups
 #include "scheduler.h"      // SCHED_KSTACK_SYSCALL_MAX -- asserted against below
 #include "syscall_stall.h"  // SYSCALL_STALL_MAX -- likewise
 #include <stddef.h>
@@ -39,7 +40,7 @@ static int sys_removed(struct syscall_ctx *c) {
 }
 
 static const struct syscall_desc SYSCALL_TABLE[] = {
-#define SYSCALL_ROW(nr, name, fn, a0, a1, a2, r) [nr] = { name, fn, { a0, a1, a2 }, r },
+#define SYSCALL_ROW(nr, name, fn, a0, a1, a2, r, pr) [nr] = { name, fn, { a0, a1, a2 }, r, pr },
 #include "syscall_rows.h"
 #undef SYSCALL_ROW
 };

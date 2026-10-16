@@ -88,6 +88,7 @@
 // syscall.c) is completely untouched by this file, exactly as before --
 // only the mechanism that used to keep it that way (a flag flipped
 // off) changed to a different one (an empty table).
+#include "sandbox.h"   // slot_free() drops the slot's reference
 #include "sched_internal.h"
 #include "vmm.h"
 #include "process.h" // process_context_is_armed() -- see kernel_slot_runnable()
@@ -264,6 +265,8 @@ void slot_unclaim(int slot) {
 // find a reused slot under the pid of what was there before.
 void slot_free(int slot) {
     int pid = procs[slot].pid;
+    sandbox_put(procs[slot].ext->sandbox);
+    procs[slot].ext->sandbox = 0;
     if (pid > 0 && pid < SCHED_PID_MAX && g_pid_slot[pid] == slot + 1) g_pid_slot[pid] = 0;
     procs[slot].state = SCHED_UNUSED;
     procs[slot].pid = 0;
@@ -1782,6 +1785,11 @@ const char *scheduler_cwd(void) {
 void scheduler_set_kernel_cwd(const char *path) {
     if (!path || path[0] != '/') return; // callers pass an already-resolved path
     k_strlcpy(kernel_cwd.path, path, sizeof kernel_cwd.path);
+}
+
+struct sandbox **scheduler_current_sandbox(void) {
+    if (current_index < 0) return 0;
+    return &procs[leader_index(current_index)].ext->sandbox;
 }
 
 struct sched_cwd *scheduler_current_cwd(void) {

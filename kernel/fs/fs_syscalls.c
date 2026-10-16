@@ -23,6 +23,8 @@
 #include "ata.h"       // the ATA write-back cache SYS_SYNC writes back
 #include "kfmt.h"      // klog_printf
 #include "heap.h"      // fd_bounce_alloc()'s buffers are kfree()d
+#include "sandbox.h"   // every path asks the unveil list (resolve_user_path)
+#include "sandbox_abi.h"
 #include <stddef.h>
 
 // SYS_LISTDIR's per-call state, handed to fs_list() as its context and
@@ -111,9 +113,22 @@ int sys_open(struct syscall_ctx *c) {
     // would get rejected here even if the real string is safely
     // NUL-terminated well before the end -- an acceptable tradeoff
     // for a path buffer this small.
+    // THE SANDBOX'S SECOND BITS, by flag, as pledge's open reads them:
+    // the row only promised RPATH.
+    uint32_t oflags = (uint32_t)c->a1;
+    unsigned need = UNVEIL_R;
+    if (oflags & (SYS_O_WRITE | SYS_O_TRUNC | SYS_O_APPEND)) {
+        if (sandbox_require(PROMISE_WPATH, "open for writing", c->regs)) return 0;
+        need = UNVEIL_W;   // a write open is write-only here (SYS_O_WRITE)
+    }
+    if (oflags & SYS_O_CREAT) {
+        if (sandbox_require(PROMISE_CPATH, "open to create", c->regs)) return 0;
+        need |= UNVEIL_C;
+    }
+
     char *name = kpath_get();
     if (!name) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int perr = resolve_user_path(pml4, c->a0, name);
+    int perr = resolve_user_path(pml4, c->a0, name, need);
     if (perr) {
         klog_write(KLOG_ERR "syscall: open() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)perr;
@@ -279,7 +294,7 @@ int sys_unlink(struct syscall_ctx *c) {
     uint64_t pml4 = c->pml4;
     char *name = kpath_get();
     if (!name) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(pml4, c->a0, name);
+    int err = resolve_user_path(pml4, c->a0, name, UNVEIL_C);
     if (err) {
         // 0 success / -errno failure since the polarity flip -- the
         // last of the boolean-returning syscalls converted, with every
@@ -315,7 +330,7 @@ static int listdir_common(struct syscall_ctx *c, uint64_t path_ptr,
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
     if (!vmm_validate_user_range(pml4, out, (uint64_t)max * sizeof(struct sys_dirent)) ||
-        resolve_user_path(pml4, path_ptr, path)) {
+        resolve_user_path(pml4, path_ptr, path, UNVEIL_R)) {
         klog_write(KLOG_ERR "syscall: listdir() rejected -- invalid pointer\n");
         c->regs[14] = (uint64_t)(int64_t)-EFAULT;
     } else {
@@ -387,7 +402,7 @@ int sys_fs_watch(struct syscall_ctx *c) {
     }
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int rc = resolve_user_path(c->pml4, c->a0, path);
+    int rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);
     if (!rc) rc = fswatch_add(scheduler_current_tgid(), path);
     kpath_put(path);
     c->regs[14] = (uint64_t)(int64_t)rc;
@@ -397,7 +412,7 @@ int sys_fs_watch(struct syscall_ctx *c) {
 int sys_fs_generation_of(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int rc = resolve_user_path(c->pml4, c->a0, path);   // the VFS's own spelling
+    int rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);   // the VFS's own spelling
     c->regs[14] = rc ? (uint64_t)(int64_t)rc : fs_generation_of(path);
     kpath_put(path);
     return 0;
@@ -438,7 +453,13 @@ int sys_fs_generation(struct syscall_ctx *c) {
 // so running a binary printed `Syntax error: ")" unexpected` and an
 // exit status of 2. It is not static any more, and the claim above is
 // true again.
-int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out) {
+//
+// **`need` IS THE SANDBOX'S QUESTION** (UNVEIL_*, kernel/sandbox.h): a
+// path the caller's unveil list hides answers -ENOENT, or -EACCES when
+// it is there without that right. A parameter rather than a separate
+// call so no path-taking syscall can forget to ask; 0 asks nothing, for
+// SYS_UNVEIL itself.
+int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out, unsigned need) {
     // Three buffers, none of them a local: the raw copy, the scratch
     // k_path_resolve() joins into, and the caller's `out`. At
     // FS_PATH_MAX = 4096 that is 16 KiB, a whole kernel stack.
@@ -455,6 +476,8 @@ int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out) {
         // path names a different file, which is the failure mode worth
         // avoiding.
         rc = -ENAMETOOLONG;
+    } else if (need) {
+        rc = sandbox_path(out, need);
     }
     kpath_scratch_put(&sc);
     kpath_put(raw);
@@ -464,7 +487,7 @@ int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out) {
 int sys_chdir(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);
     if (err) {
         klog_write(KLOG_ERR "syscall: chdir() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -513,7 +536,7 @@ int sys_getcwd(struct syscall_ctx *c) {
 int sys_mkdir(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C);
     if (err) {
         klog_write(KLOG_ERR "syscall: mkdir() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -565,8 +588,8 @@ static int rename_common(struct syscall_ctx *c, uint64_t flags) {
     if (!from) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
     char *to = kpath_get();
     if (!to) { kpath_put(from); c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, from);
-    if (!err) err = resolve_user_path(c->pml4, c->a1, to);
+    int err = resolve_user_path(c->pml4, c->a0, from, UNVEIL_C);
+    if (!err) err = resolve_user_path(c->pml4, c->a1, to, UNVEIL_C);
     if (err) {
         klog_write(KLOG_ERR "syscall: rename() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -588,7 +611,7 @@ int sys_rename2(struct syscall_ctx *c) {
 int sys_truncate(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_W);
     if (err) {
         klog_write(KLOG_ERR "syscall: truncate() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -609,7 +632,7 @@ int sys_truncate(struct syscall_ctx *c) {
 int sys_stat(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);
     if (err) {
         klog_write(KLOG_ERR "syscall: stat() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -669,7 +692,7 @@ int sys_stat(struct syscall_ctx *c) {
 int sys_chmod(struct syscall_ctx *c) {
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, path);
+    int err = resolve_user_path(c->pml4, c->a0, path, UNVEIL_C);
     if (err) {
         klog_write(KLOG_ERR "syscall: chmod() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;
@@ -688,8 +711,8 @@ int sys_link(struct syscall_ctx *c) {
     if (!from) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
     char *to = kpath_get();
     if (!to) { kpath_put(from); c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int err = resolve_user_path(c->pml4, c->a0, from);
-    if (!err) err = resolve_user_path(c->pml4, c->a1, to);
+    int err = resolve_user_path(c->pml4, c->a0, from, UNVEIL_C);
+    if (!err) err = resolve_user_path(c->pml4, c->a1, to, UNVEIL_C);
     if (err) {
         klog_write(KLOG_ERR "syscall: link() rejected -- bad path\n");
         c->regs[14] = (uint64_t)(int64_t)err;

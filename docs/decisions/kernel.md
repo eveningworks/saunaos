@@ -9329,3 +9329,80 @@ different one). And no plugin interface -- a seam with one
 implementation behind it is unvalidated (`struct win_transport`); two
 concrete classes with two real users is the honest version of the same
 idea.
+
+## A sandbox is a promise set and a path list
+
+Chosen 2026-10-16, for the Web Browser's content process (the roadmap's
+"a sandboxed content process"): stage 5 had split NetSurf into a process
+per tab, which isolated a crash and nothing else -- a page that took the
+engine over could open sockets, spawn, write anywhere and read `/home`.
+toy-os had no per-process restriction of any kind and no users.
+
+**What real systems do.** OpenBSD's `pledge(2)` drops named GROUPS of
+syscalls (`"stdio rpath inet"`) and kills a process that steps outside
+them; `unveil(2)` hides every path not listed and answers ENOENT for
+it; both only shrink, and a program unveils its few paths and locks.
+Linux's seccomp-bpf filters syscall NUMBERS and register arguments but
+cannot see a path behind a pointer, which is why Chrome's Linux renderer
+sends every open to a BROKER process and adds namespaces (and Landlock
+exists now) for the filesystem. FreeBSD's Capsicum `cap_enter()` removes
+every global namespace -- nothing can be opened by name, only used
+through descriptors already held. Windows runs Chrome's renderer with a
+restricted token at Untrusted integrity, in a job object that forbids
+child processes, with win32k syscalls disabled. Every browser keeps
+`file:` away from the renderer: the browser or network process reads
+local files, and only for a navigation the user made.
+
+**What toy-os does: OpenBSD's shape, plus a parent's word.**
+- **One `PROMISE_*` bit per group, in every row of
+  `abi/syscall_rows.h`.** The dispatcher tests the row's bit, so the
+  check is one pointer test for an unsandboxed process and needs nothing
+  per handler; a call that does two things asks for its second bit by
+  argument (`open` for writing, a setting write, `kill` of another pid,
+  creating a beacon). seccomp's numbers were rejected because they would
+  need a broker for every file the engine reads -- its fonts on every
+  page; Capsicum's because NetSurf opens by name and toy-os has no
+  `openat` family.
+- **An unveil list of up to 16 paths, checked in
+  `resolve_user_path()`**, which every path-taking syscall already
+  called -- so a new one cannot skip it. On the resolved STRING: sound
+  while no symlink is followed (`tfs3.c` follows none); one that is
+  must be checked again at its target, as OpenBSD's `namei` does.
+- **Shared memory is in the list too, as `shm:<name>`.** A public
+  object is how a process reaches a SERVICE (a beacon), so once
+  anything is unveiled a sandboxed process opens only the beacons it
+  names. An object it created, or one GRANTED to it, needs nothing --
+  a grant already names this process. Creating a public object is its
+  own promise (`publish`): a page must not squat a service's name.
+- **`SPAWN_SANDBOX` narrows a child before its first instruction.**
+  pledge is self-applied on OpenBSD; here the spawner can apply it as
+  well, so a child that forgets, or is not the program the parent
+  thinks, still starts without a socket -- Chrome's renderers start
+  sandboxed for the same reason. Armed and consumed like the strace arm,
+  since a spawn sleeps loading its ELF.
+- **A broken promise KILLS (SIGSYS, with a crash report naming the call
+  and the promise); a hidden path is ENOENT.** OpenBSD's split: an
+  exploit gets no second try, while an engine asking for a file that is
+  not there is ordinary and must not cost the page.
+- **`file:` pages are read by the APP (`uui_webview`), and only for a
+  process started for a local page the app navigated to** (`--files`).
+  A web page's request is refused (403), so is a web page opening a
+  local file in a new tab, and a local page leaving for the web goes to
+  a fresh process (`WV_SWAP`, Chrome's process swap) -- file access
+  never meets a web page. The engine reads its own stylesheets and start
+  page itself (`WEBVIEW_ENGINE_FILES`), through NetSurf's own fetcher
+  behind a `--wrap=fetcher_add` dispatcher.
+- **Channels are checked both ways.** `SHM_FROM` opens an object only
+  if a given pid created it: a `uchan` client refuses a beacon whose
+  `server_pid` is not its creator, the engine accepts only its own app
+  as server, and a server adopts a ring only from the pid in its name.
+  `shm_unlink` became the creator's alone -- before, any process could
+  unlink a running server's beacon and publish its own.
+
+**What it does not buy.** Without KPTI a ring-3 process on a
+Meltdown-affected CPU (the ASUS's Broadwell) can read kernel memory, so
+there the sandbox stops a compromised page from USING the system, not
+from reading it (the roadmap's KPTI line). The engine still asks the app
+and webnet for whatever they give any page. And it is the sandbox of a
+system with no users: when users arrive, a uid sits beside it the way
+Linux has both permissions and seccomp.

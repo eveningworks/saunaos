@@ -20,6 +20,7 @@
 #include "string.h"
 #include "vmm.h"
 #include "kpath_buf.h" // kpath_get(): a path may not be a kernel local
+#include "sandbox_abi.h"  // UNVEIL_R for fs_check's path
 
 // Turns a refusal reason into an errno. mount_add() answers in ENGLISH
 // because the string is what a person needs; this is the same fact for
@@ -209,7 +210,7 @@ int sys_fs_check(struct syscall_ctx *c) {
     }
     char *path = kpath_get();
     if (!path) { c->regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
-    int rc = resolve_user_path(c->pml4, c->a0, path);
+    int rc = resolve_user_path(c->pml4, c->a0, path, UNVEIL_R);
     if (!rc && f == FSCK_PROGRESS) {
         struct fs_check_progress p;
         rc = fs_check_progress_at(path, &p);

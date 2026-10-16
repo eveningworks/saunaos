@@ -334,6 +334,15 @@ int sys_munmap(void *addr, uint64_t length);
 // function with that name would take arguments meaning something else.
 // See docs/roadmap.md's IPC track.
 int sys_shm_open(const char *name, uint64_t length, int flags);
+// Opens an EXISTING object only if `pid` created it (SHM_FROM): the
+// kernel vouches for who made a beacon, not the beacon itself.
+int sys_shm_open_from(const char *name, int pid);
+
+// The sandbox (abi/sandbox_abi.h): keep only PROMISE_* `promises`, and
+// unveil `path` with UNVEIL_* `rights` (NULL locks the list, which is
+// open until then). libc's pledge()/unveil() take OpenBSD's strings.
+int sys_pledge(unsigned promises);
+int sys_unveil(const char *path, unsigned rights);
 
 // Park until somebody changes *word and says so, or `timeout_ms` passes
 // (0 = no deadline). Returns 0 when woken, -EAGAIN if *word already
@@ -1045,6 +1054,10 @@ struct sys_spawn_opts {
     // With SPAWN_TRACE: an shm object of ours to receive the trace as
     // records (abi/trace_abi.h), or NULL for the text trace alone.
     const char *trace_ring;
+    // With SPAWN_SANDBOX: the PROMISE_* bits the child keeps
+    // (abi/sandbox_abi.h) -- it starts sandboxed, before its first
+    // instruction.
+    unsigned    promises;
 };
 
 // The -1s that a zeroed struct would get wrong. Call it, then override.

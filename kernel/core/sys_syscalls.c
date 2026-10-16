@@ -4,6 +4,8 @@
 //
 // What unites them is that none of them is about a process, a file or a
 // window -- they answer questions about, or act on, the machine.
+#include "sandbox.h"      // a setting write is a second promise
+#include "sandbox_abi.h"
 #include "syscalls.h"
 #include "syscall_abi.h"
 #include "setting_abi.h"
@@ -164,6 +166,14 @@ int sys_getrandom(struct syscall_ctx *c) {
 }
 
 int sys_setting(struct syscall_ctx *c) {
+    // The row promised SETTINGS, which reads; what CHANGES one is the
+    // sandbox's second bit.
+    struct setting_msg msg;
+    if (sandbox_active() && vmm_copy_from_user(c->pml4, &msg, c->a0, sizeof msg) &&
+        (msg.op == SETTING_OP_SET || msg.op == SETTING_OP_UNSET || msg.op == SETTING_OP_RELOAD ||
+         msg.op == SETTING_OP_TOUCH) &&
+        sandbox_require(PROMISE_SETTINGS_WRITE, "setting write", c->regs))
+        return 0;
     sys_do_setting(c->regs, c->a0);
     return 0;
 }

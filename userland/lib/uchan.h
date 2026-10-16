@@ -113,7 +113,17 @@ int uchan_server_room(struct uchan_server *s, int pid);
 // Finds `name`'s beacon and publishes this process's ring. Returns 0, or
 // -1 when there is no server -- which a caller must report rather than
 // treat as success, the same rule lib/uclip.h states.
+//
+// **THE KERNEL VOUCHES FOR THE SERVER, NOT THE BEACON**: a beacon whose
+// `server_pid` is not the pid that created it is refused (SHM_FROM), so
+// a process cannot publish a beacon that sends clients' rings to
+// somebody else. Each side checks the other: a server adopts a ring only
+// from the pid in its name.
 int uchan_client_open(struct uchan_client *c, const char *name);
+
+// The same, accepting only a server that IS `pid` -- what a client that
+// knows who started it says (a page's engine: the app that spawned it).
+int uchan_client_open_from(struct uchan_client *c, const char *name, int pid);
 
 // Queues one message (UCHAN_SLOT_BYTES) and wakes the server. Returns 0,
 // or -1 if the ring is FULL -- which is a real outcome, not an error to

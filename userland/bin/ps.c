@@ -28,12 +28,13 @@
 #include <string.h>
 #include <stdio.h>
 #include "proc_info.h"
+#include "sandbox_abi.h"
 #include <unistd.h>
 #include <stdlib.h>
 #include <sched.h>
 #include "lib/uargs.h"
 
-static int o_tree, o_threads, o_sched;
+static int o_tree, o_threads, o_sched, o_sandbox;
 
 static void put(const char *s) { write(1, s, strlen(s)); }
 
@@ -133,11 +134,31 @@ static void print_row(const struct proc_info *p, const char *prefix) {
     // it carries its leader's, so `tosh` twice in a listing would look
     // like two shells rather than one with a thread. `htop` colours
     // them instead, which a text column cannot.
-    snprintf(line, sizeof line, "%5s %5s %5s %-12s %8s %8s%s  %s%s%s%s\n",
+    snprintf(line, sizeof line, "%5s %5s %5s %-12s %8s %8s%s  %s%s%s%s",
              pid, ppid, pgid, state, cpu, mem, sched, prefix ? prefix : "",
              p->tgid == p->pid ? "" : "{", p->name,
              p->tgid == p->pid ? "" : "}");
     put(line);
+    // LAST, after the name, because it is the one column with no width:
+    // OpenBSD's `ps -o pledge` prints the words the same way.
+    if (o_sandbox) {
+        static const char *const words[] = PROMISE_WORDS;
+        put("  ");
+        if (p->promises == PROMISE_ALL) {
+            put("-");
+        } else if (!p->promises) {
+            put("(nothing)");
+        } else {
+            int first = 1;
+            for (unsigned i = 0; i < sizeof words / sizeof words[0]; i++) {
+                if (!(p->promises & (1u << i))) continue;
+                if (!first) put(" ");
+                put(words[i]);
+                first = 0;
+            }
+        }
+    }
+    put("\n");
 }
 
 static void header(void) {
@@ -149,8 +170,9 @@ static void header(void) {
     // STATE is twelve wide because the longest thing it holds is
     // `block(child)` -- widened rather than truncated, since it is the
     // one column here whose tail is the whole content.
-    put(o_sched ? "  PID  PPID  PGID STATE          CPU(s)   MEM(K) CLS RTPRIO  NI  NAME\n"
-                : "  PID  PPID  PGID STATE          CPU(s)   MEM(K)  NAME\n");
+    put(o_sched ? "  PID  PPID  PGID STATE          CPU(s)   MEM(K) CLS RTPRIO  NI  NAME"
+                : "  PID  PPID  PGID STATE          CPU(s)   MEM(K)  NAME");
+    put(o_sandbox ? "  PLEDGE\n" : "\n");
 }
 
 // Reads the whole table once. A snapshot rather than a slot-at-a-time
@@ -220,12 +242,13 @@ static const struct uargs_opt OPTS[] = {
     { "tree",    't', 0, "show the parent/child structure", &o_tree, 0 },
     { "threads", 'T', 0, "include threads as rows of their own", &o_threads, 0 },
     { "sched",   'c', 0, "add the scheduling class, realtime priority and nice", &o_sched, 0 },
+    { "sandbox", 's', 0, "add a sandboxed process's promises; - for one with no sandbox", &o_sandbox, 0 },
     { 0 }
 };
 
 static const struct uargs_prog PROG = {
     .name = "ps",
-    .usage = "[--tree] [--threads] [--sched]",
+    .usage = "[--tree] [--threads] [--sched] [--sandbox]",
     .summary = "What is running, and who started it.",
     .opts = OPTS,
 };

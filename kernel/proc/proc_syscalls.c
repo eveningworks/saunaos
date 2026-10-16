@@ -3,6 +3,8 @@
 #include "syscalls.h"
 #include "heap.h"  // the environment blob, kept off syscall_dispatch()'s frame
 #include "syscall.h"   // syscall_reset_mm()'s own declaration
+#include "sandbox.h"   // SPAWN_SANDBOX, and kill() of another pid wants PROC
+#include "sandbox_abi.h"
 #include "syscall_abi.h"
 #include "errno.h"
 #include "klog.h"
@@ -443,6 +445,11 @@ int sys_kill(struct syscall_ctx *c) {
     // on the way back to ring 3).
     int target = (int)(int32_t)c->a0;
     int sig    = (int)(int32_t)c->a1;
+    // The row is STDIO so a sandboxed process can still raise() and
+    // abort(); anyone else is PROC's.
+    if (target != scheduler_current_tgid() &&
+        sandbox_require(PROMISE_PROC, "kill of another process", c->regs))
+        return 0;
 
     // A NEGATIVE TARGET IS A GROUP, POSIX's `kill(-pgid, sig)`. Pids are
     // 1-based, so this cannot collide with one -- which is exactly why
@@ -578,7 +585,7 @@ static int spawn_args_collect(uint64_t pml4, const struct spawn_msg *msg,
     // directory holding it -- and a shell answers a failed exec by
     // trying the file as a script, which is why running a binary
     // printed a syntax error rather than "not found".
-    int perr = resolve_user_path(pml4, (uint64_t)(uintptr_t)msg->path, a->path);
+    int perr = resolve_user_path(pml4, (uint64_t)(uintptr_t)msg->path, a->path, UNVEIL_X);
     if (perr < 0) {
         klog_printf(KLOG_ERR "syscall: %s() rejected -- bad path (%d)\n", who, perr);
         spawn_args_free(a);
@@ -686,6 +693,11 @@ int sys_spawn(struct syscall_ctx *c) {
         }
     }
 
+    if ((msg.flags & SPAWN_SANDBOX) && (msg.promises & ~PROMISE_ALL)) {
+        c->regs[14] = (uint64_t)(int64_t)-EINVAL;
+        return 0;
+    }
+
     struct spawn_args a;
     int rc = spawn_args_collect(pml4, &msg, &a, "spawn");
     if (rc < 0) {
@@ -764,13 +776,20 @@ int sys_spawn(struct syscall_ctx *c) {
         int pid = 0;
         int arm = trace_ring < 0 ? 0
                 : strace_arm_for_current(trace_ring, (msg.flags & SPAWN_TRACE_FOLLOW) != 0);
+        // SPAWN_SANDBOX is armed the same way, and consumed by the same
+        // spawn (kernel/sandbox.h): the child is narrowed before it runs.
+        int sb_arm = (arm < 0 || !(msg.flags & SPAWN_SANDBOX)) ? 0
+                   : sandbox_arm_spawn(msg.promises);
         if (arm < 0)
             spawn_rc = arm;
+        else if (sb_arm < 0)
+            spawn_rc = sb_arm;
         else
             pid = scheduler_spawn_group(a.path, a.args, a.args_len, stdout_desc,
                                         stdin_desc, stderr_desc, a.env, msg.pgid,
                                         c->pml4);
         strace_disarm();
+        sandbox_disarm();
         if (pid > 0) spawn_rc = pid;
         // SPAWN_FOREGROUND: the child's group in front of OUR fd 0,
         // before the child can possibly read -- it is this syscall

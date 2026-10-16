@@ -556,9 +556,22 @@ int sys_futex_wake(volatile uint32_t *word, int count) {
 
 int sys_shm_open(const char *name, uint64_t length, int flags) {
     struct shm_open_msg m = {
-        .name = name, .length = length, .flags = flags, .reserved = 0,
+        .name = name, .length = length, .flags = flags, .from_pid = 0,
     };
     return (int)err(syscall1(SYS_SHM_OPEN, (uint64_t)(uintptr_t)&m));
+}
+
+int sys_shm_open_from(const char *name, int pid) {
+    struct shm_open_msg m = { .name = name, .length = 0, .flags = SHM_FROM, .from_pid = pid };
+    return (int)err(syscall1(SYS_SHM_OPEN, (uint64_t)(uintptr_t)&m));
+}
+
+int sys_pledge(unsigned promises) {
+    return (int)err(syscall1(SYS_PLEDGE, promises));
+}
+
+int sys_unveil(const char *path, unsigned rights) {
+    return (int)err(syscall2(SYS_UNVEIL, (uint64_t)(uintptr_t)path, rights));
 }
 
 int sys_shm_unlink(const char *name) {
@@ -1122,6 +1135,8 @@ int sys_spawn_opts(const char *path, const struct sys_spawn_opts *o) {
         msg.trace_ring = o->trace_ring;
         flags |= SPAWN_TRACE_RING;
     }
+    msg.promises = o->promises;
+    msg.reserved_sandbox = 0;
     msg.flags = flags;
     int64_t rc = syscall1(SYS_SPAWN, (uint64_t)(uintptr_t)&msg);
 

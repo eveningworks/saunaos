@@ -140,6 +140,11 @@ struct proc_info {
     uint8_t  policy;      // SCHED_OTHER / SCHED_FIFO / SCHED_RR
     uint8_t  rt_prio;     // 1..99 under FIFO/RR, 0 otherwise
     uint8_t  reserved_sched;
+    // THE SANDBOX'S PROMISES (abi/sandbox_abi.h), the LEADER's: PROMISE_ALL
+    // for a process that never pledged, which is nearly all of them.
+    // `ps` marks a sandboxed one. Grows the struct one aligned step.
+    uint32_t promises;
+    uint32_t reserved_sandbox;
 };
 
 // `wait_reason` went into the hole after `name`; `ready` then grew the
@@ -147,7 +152,7 @@ struct proc_info {
 // reshuffle, because every offset here is a contract with a ring-3
 // binary. The assert is the thing that notices, so update it
 // deliberately when a field is added and never to make a build pass.
-_Static_assert(sizeof(struct proc_info) == 80,
+_Static_assert(sizeof(struct proc_info) == 88,
                "struct proc_info must grow append-only -- existing fields never move");
 _Static_assert(__builtin_offsetof(struct proc_info, name) == 36,
                "struct proc_info's name must stay where ring-3 binaries expect it");

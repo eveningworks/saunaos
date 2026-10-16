@@ -929,6 +929,11 @@ struct spawn_msg {
     // created, shaped as abi/trace_abi.h says, which the kernel fills
     // with the child's syscalls as records. Not read without the flag.
     const char *trace_ring;
+
+    // With SPAWN_SANDBOX: the PROMISE_* bits the child keeps. Not read
+    // without the flag.
+    uint32_t promises;
+    uint32_t reserved_sandbox;
 };
 
 // The child is TRACED: every syscall it makes is written as records into
@@ -1006,9 +1011,18 @@ struct spawn_msg {
 #define SPAWN_TRACE_FOLLOW 128
 
 // Every flag this kernel knows. Anything outside it is -EINVAL.
+// The child starts SANDBOXED: its promises are this process's AND
+// `promises` (abi/sandbox_abi.h), before its first instruction runs.
+// Pledging in its own main() would do the same a few calls later; the
+// flag is what makes the PARENT's word the guarantee, so a child that
+// forgets -- or is not the program the parent thinks -- still cannot open
+// a socket. Chrome starts a renderer sandboxed for the same reason.
+#define SPAWN_SANDBOX 256
+
+// Every flag this kernel knows. Anything outside it is -EINVAL.
 #define SPAWN_FLAGS_ALL (SPAWN_TRACE | SPAWN_FOREGROUND | SPAWN_ARGV | SPAWN_SETSID | \
                          SPAWN_STDERR | SPAWN_DETACH | SPAWN_TRACE_RING | \
-                         SPAWN_TRACE_FOLLOW)
+                         SPAWN_TRACE_FOLLOW | SPAWN_SANDBOX)
 
 // The most an environment blob may be, including its terminator. It has
 // to fit the child's single argv/env stack page alongside the strings
@@ -2226,6 +2240,12 @@ struct sys_stat {
                         // every name, so before this any process could
                         // open another's audio ring or window buffer.
 
+#define SHM_FROM   0x8 // open it only if `from_pid` created it: the
+                        // KERNEL says who made a beacon, not the beacon.
+                        // A client that knows its server's pid asks for
+                        // exactly that one, and a squatter holding the
+                        // name answers -EPERM (lib/uchan.h).
+
 struct shm_open_msg {
     const char *name;   // no '/' and no '..'; SHM_NAME_MAX bytes
     uint64_t    length; // bytes, rounded up to whole pages. Ignored
@@ -2233,7 +2253,9 @@ struct shm_open_msg {
                         // its size was fixed at creation, which is why
                         // there is no ftruncate() here.
     int32_t     flags;  // SHM_*
-    int32_t     reserved;
+    // With SHM_FROM: the pid that must have CREATED the object, or the
+    // open is -EPERM. Otherwise 0.
+    int32_t     from_pid;
 };
 
 // What SYS_THREAD_CREATE takes. A struct because the call needs five
@@ -2625,6 +2647,22 @@ struct usb_control_msg {
                                  // (up to `max`, at most 64), or
                                  // -EACCES/-EINVAL (not an IN endpoint
                                  // you opened)/-EFAULT.
+
+// THE SANDBOX (abi/sandbox_abi.h): what this process may still do, and
+// what it can still see. Promises only shrink; the unveil list is open
+// until locked. Both are inherited by fork, spawn and exec, and neither
+// call needs a promise -- giving something up is always allowed.
+#define SYS_PLEDGE 147   // RDI = PROMISE_* bits to KEEP. The new set is
+                         // the old one AND this; asking for a bit already
+                         // given up is -EPERM, not a silent no-op, so a
+                         // caller that thinks it holds something learns
+                         // it does not. Returns 0.
+#define SYS_UNVEIL 148   // RDI = a path (or "shm:<name>"), RSI = UNVEIL_*
+                         // rights. The first call hides everything not
+                         // unveiled; later ones add paths or change a
+                         // path's rights until RDI = 0 LOCKS the list.
+                         // -EPERM once locked, -E2BIG past UNVEIL_MAX,
+                         // -ENAMETOOLONG, -EFAULT.
 
 // THE SOUND RING, READ-ONLY, TO THE DRIVER THAT ASKS.
 //

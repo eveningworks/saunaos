@@ -11,6 +11,7 @@
 // frame. Keep it thin: a local added HERE is paid for by every syscall,
 // which is exactly how this function's frame reached 4832 bytes on a
 // 16 KiB per-process kernel stack. It is 96 bytes now.
+#include "sandbox.h"
 #include "syscall.h"
 #include "mmap.h" // mmap_release_regions -- the region list is allocated
 #include "syscall_stall.h"
@@ -142,6 +143,14 @@ void syscall_dispatch(uint64_t *regs) {
     // RAX alone handed the caller the number it asked for, which a
     // program probing for a call reads as success (abi/syscall_abi.h).
     const struct syscall_desc *d = syscall_desc_at(nr);
+    // THE SANDBOX'S GATE (kernel/sandbox.h): a group the process gave up
+    // ends it here, before the handler can act on anything. Unsandboxed,
+    // which is almost every process, this is one pointer test.
+    if (d && d->fn && !sandbox_allows(d->promise)) {
+        if (traced) strace_end_noreturn(nr);
+        sandbox_violation(d->name, d->promise, regs);
+        return;
+    }
     // Brackets the HANDLER only, which is the stretch that runs with
     // interrupts off and therefore the stall everything else feels.
     // Disarmed this is one global compare; armed it is two clocksource

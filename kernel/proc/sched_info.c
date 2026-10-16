@@ -3,6 +3,8 @@
 // reach the table through. Split out of scheduler.c; sched_internal.h
 // has the map.
 
+#include "sandbox.h"
+#include "sandbox_abi.h"
 #include "sched_internal.h"
 #include "vmm.h"
 #include "process.h" // process_context_is_armed() -- see kernel_slot_runnable()
@@ -199,6 +201,8 @@ int scheduler_proc_info(int index, struct proc_info *out) {
     out->policy = 0;
     out->rt_prio = 0;
     out->reserved_sched = 0;
+    out->promises = PROMISE_ALL;
+    out->reserved_sandbox = 0;
 
     if (p->state == SCHED_UNUSED) return 1; // a real answer: slot empty
 
@@ -211,6 +215,8 @@ int scheduler_proc_info(int index, struct proc_info *out) {
     out->policy = p->policy;
     out->rt_prio = p->rt_prio;
     k_strlcpy(out->name, p->name, sizeof out->name);
+    int lead = pid_slot(p->tgid);
+    if (lead >= 0) out->promises = sandbox_promises(procs[lead].ext->sandbox);
 
     // A zombie's address space is already gone, so asking for its memory
     // would report whatever now lives at that PML4 address. Report 0.

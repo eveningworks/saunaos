@@ -55,6 +55,7 @@ struct syscall_desc {
     syscall_fn fn;       // NULL for a number nothing implements
     enum sc_arg args[3];
     enum sc_ret ret;
+    uint32_t promise;    // the PROMISE_* group a sandbox must hold (abi/sandbox_abi.h)
 };
 
 // The row for `nr`, or NULL if the number is out of range. A row that

@@ -342,7 +342,7 @@ int sys_getcwd(struct syscall_ctx *c);
 // Every syscall that takes a path must use this, and that includes the
 // ones outside the filesystem: spawn and exec take one, and copying it
 // raw is what made `./prog` fail from the directory holding it.
-int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out);
+int resolve_user_path(uint64_t pml4, uint64_t uaddr, char *out, unsigned need);
 int sys_mkdir(struct syscall_ctx *c);
 int sys_rename(struct syscall_ctx *c);
 int sys_rename2(struct syscall_ctx *c);
@@ -395,6 +395,8 @@ int sys_shm_unlink(struct syscall_ctx *c);
 int sys_futex_wait(struct syscall_ctx *c);
 int sys_kdfile(struct syscall_ctx *c);      // kernel/debug/kdebug_files.c
 int sys_userfs(struct syscall_ctx *c);      // kernel/fs/userfs.c
+int sys_pledge(struct syscall_ctx *c);      // kernel/proc/sandbox.c
+int sys_unveil(struct syscall_ctx *c);      // kernel/proc/sandbox.c
 int sys_futex_wake(struct syscall_ctx *c);
 int sys_wakeword(struct syscall_ctx *c);
 int sys_shm_grant(struct syscall_ctx *c); // kernel/mm/shm.c

@@ -91,6 +91,10 @@ struct sched_slot_ext {
     // `mkdir docs` typed in a subdirectory mean the same thing to a
     // /bin program as to a shell builtin.
     struct sched_cwd cwd;
+    // THE SANDBOX (kernel/sandbox.h), a LEADER's only, like the cwd:
+    // threads read their leader's. NULL = unrestricted. A reference this
+    // slot owns, taken at spawn or fork and dropped by slot_free().
+    struct sandbox *sandbox;
 };
 
 struct sched_process {

@@ -72,6 +72,11 @@
 #define SIGWINCH 28 // the terminal's size changed. Default action:
                     // IGNORE, as on Unix -- a program that does not
                     // redraw must not die of a window drag
+#define SIGSYS  31  // a SANDBOXED process made a syscall it promised not
+                    // to (abi/sandbox_abi.h). Sent by the kernel alone and
+                    // fatal however it is handled -- a process that broke
+                    // its sandbox does not get to run its own code after.
+                    // Linux's number, and seccomp's signal.
 
 // The highest signal number this kernel accepts. The pending set is a
 // uint32_t bitmask, so 31 is the ceiling the representation allows and

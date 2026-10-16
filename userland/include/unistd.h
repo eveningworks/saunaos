@@ -135,6 +135,16 @@ static inline void _exit(int code) { sys_exit(code); }
 // Returns 0 if the path exists, -1 with errno ENOENT if it does not.
 int access(const char *path, int mode);
 
+// THE SANDBOX, OpenBSD's two calls and strings (abi/sandbox_abi.h).
+// pledge() keeps only the named promises -- "stdio rpath shm", the words
+// in libc/pledge.c -- and a syscall outside them ENDS the process with
+// SIGSYS. unveil() hides every path not unveiled ("r", "w", "c", "x"),
+// which then answers ENOENT; unveil(NULL, NULL) locks the list, which
+// is open until then. Promises only shrink, and both survive fork, spawn
+// and exec, so `execpromises` must be NULL (EINVAL otherwise).
+int pledge(const char *promises, const char *execpromises);
+int unveil(const char *path, const char *permissions);
+
 // --- who we are -------------------------------------------------------
 //
 // **ALL FIVE ANSWER 0 OR EMPTY, AND THAT IS A FACT RATHER THAN A STUB.**

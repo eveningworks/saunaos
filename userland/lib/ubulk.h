@@ -73,6 +73,8 @@ struct ubulk_client {
 // Opens `service`'s channel and publishes this process's rings. 0, or -1
 // when there is no such server.
 int  ubulk_client_open(struct ubulk_client *c, const char *service);
+// Only if the server IS `pid` (lib/uchan.h, uchan_client_open_from()).
+int  ubulk_client_open_from(struct ubulk_client *c, const char *service, int pid);
 void ubulk_client_close(struct ubulk_client *c);
 
 // Queues one record and rings the server. WAITS for room while the ring

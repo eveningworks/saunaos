@@ -35,6 +35,7 @@ static const struct {
     { SIGTTIN, "TTIN" },
     { SIGTTOU, "TTOU" },
     { SIGWINCH,"WINCH"},
+    { SIGSYS,  "SYS"  },
 };
 // tools/check_signals.py fails the gate on a signal the header defines
 // and this table does not name.

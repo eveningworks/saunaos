@@ -4826,3 +4826,38 @@ holding a pointer across another `kslots_alloc()` is fine; holding the
 INDEX ARRAY is not, which is why there is no accessor for it. Walk with
 `for (i = 0; i < kslots_cap(t); i++) if ((x = kslots_at(t, i)))`.
 `docs/decisions/kernel.md` has why it never frees.
+
+## A SYSCALL ROW NAMES ITS SANDBOX GROUP, AND A HANDLER ASKS FOR A SECOND BY ARGUMENT
+
+Every row of `abi/syscall_rows.h` ends with one `PROMISE_*`
+(`abi/sandbox_abi.h`) -- the macro will not compile without it, and the
+KTEST `every row names exactly one sandbox group` rejects 0 or two
+bits. Pick the narrowest group that says what the call can REACH: STDIO
+only for the caller's own memory, threads, clocks, signals and held
+descriptors; a call that can touch another process, the network, a
+device or the machine is never STDIO. The dispatcher kills a sandboxed
+caller of a group it gave up before the handler runs.
+
+When one number does two things -- `open` reading or writing, `setting`
+reading or changing, `kill` of itself or of another, `shm_open` of a
+private object or a beacon -- the row names the harmless half and the
+handler calls `sandbox_require()` for the other. **It returns 1 when it
+ended the process, and the handler must then return at once**: the
+trapframe is the next process's, as after `SYS_EXIT`.
+
+A new path-taking syscall gets its rights from `resolve_user_path()`'s
+`need` argument (UNVEIL_R/W/C/X); there is no separate check to forget.
+
+## A PROGRAM THAT PARSES UNTRUSTED INPUT ENTERS A SANDBOX BEFORE THE FIRST BYTE
+
+A page engine, a font server, a thumbnailer: `unveil()` the paths it
+reads (and the `shm:` beacons it talks to), `unveil(NULL, NULL)` to
+lock, then `pledge()` down to what it uses -- before it opens the input,
+and REFUSING to run when either fails (`webcontent.c`, `fontd.c`,
+`uthumb_sandbox()`). A parent that starts one passes `SPAWN_SANDBOX`
+too, so the guarantee is the parent's and not only the child's good
+behaviour (`uui_webview.c`). Find what it reads from the kernel log:
+the first refusals of each sandbox are logged as `sandbox: pid N
+refused path ...` -- a ring-3 library may read settings or locale data
+as FILES (libc's locale, a schema setting's `/etc/<app>.conf`).
+`ps --sandbox` shows what each process kept.

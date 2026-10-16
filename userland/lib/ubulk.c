@@ -111,8 +111,12 @@ static void *map_page(const char *name, int create) {
 // --- client ----------------------------------------------------------
 
 int ubulk_client_open(struct ubulk_client *c, const char *service) {
+    return ubulk_client_open_from(c, service, 0);
+}
+
+int ubulk_client_open_from(struct ubulk_client *c, const char *service, int pid) {
     memset(c, 0, sizeof *c);
-    if (uchan_client_open(&c->ch, service) != 0) return -1;
+    if (uchan_client_open_from(&c->ch, service, pid) != 0) return -1;
     snprintf(c->name, sizeof c->name, "%sb", c->ch.ring_name);
     sys_shm_unlink(c->name);   // a previous holder of this pid
     c->pg = map_page(c->name, 1);
@@ -233,7 +237,14 @@ int ubulk_server_poll(struct ubulk_server *s, int *gone, int gone_cap) {
         if (peer_index(s, pid) >= 0 || s->npeers >= UBULK_PEERS) continue;
         char nm[40];
         snprintf(nm, sizeof nm, "%s.%db", s->ch.name, pid);
-        struct ubulk_page *pg = map_page(nm, 0);
+        // Only the client's OWN page, as uchan adopts only its own ring.
+        int fd = sys_shm_open_from(nm, pid);
+        struct ubulk_page *pg = 0;
+        if (fd >= 0) {
+            void *p = sys_mmap(0, PAGE_BYTES, SYS_PROT_READ | SYS_PROT_WRITE, SYS_MAP_SHARED, fd, 0);
+            sys_close(fd);
+            if (p != (void *)-1) pg = p;
+        }
         if (!pg) continue;
         if (pg->magic != UBULK_MAGIC || pg->client_pid != pid) {
             sys_munmap(pg, PAGE_BYTES);

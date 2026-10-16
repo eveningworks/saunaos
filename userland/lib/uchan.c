@@ -32,6 +32,15 @@ static void *map_public(const char *name, uint64_t bytes) {
     return p == (void *)-1 ? 0 : p;
 }
 
+// An EXISTING object, only if `pid` created it -- the kernel's word.
+static void *map_from(const char *name, uint64_t bytes, int pid) {
+    int fd = sys_shm_open_from(name, pid);
+    if (fd < 0) return 0;
+    void *p = sys_mmap(0, bytes, SYS_PROT_READ | SYS_PROT_WRITE, SYS_MAP_SHARED, fd, 0);
+    sys_close(fd);
+    return p == (void *)-1 ? 0 : p;
+}
+
 static void *map_object(const char *name, uint64_t bytes, int create) {
     int fd = sys_shm_open(name, create ? bytes : 0, create ? SHM_CREATE : 0);
     if (fd < 0) return 0;
@@ -87,8 +96,12 @@ int uchan_server_scan(struct uchan_server *s, int *gone, int gone_cap) {
             pid = pid * 10 + (*p - '0');
         if (pid <= 0 || ring_index(s, pid) >= 0) continue;
         if ((int)(sizeof s->ring / sizeof s->ring[0]) <= s->count) continue;
+        // **A RING SPEAKS FOR THE PID IN ITS NAME ONLY IF THAT PID MADE
+        // IT.** Otherwise one client could post as another -- a page's
+        // engine as the Browser itself, to /bin/webnet.
+        if (rec.creator_pid != pid) continue;
 
-        struct uchan_ring *r = map_object(rec.name, RING_BYTES, 0);
+        struct uchan_ring *r = map_from(rec.name, RING_BYTES, pid);
         if (!r) continue;
         // A ring whose header does not agree is one this build cannot
         // read. Dropped rather than guessed at -- the client is still
@@ -224,12 +237,24 @@ void uchan_server_close(struct uchan_server *s) {
 // --- client ----------------------------------------------------------
 
 int uchan_client_open(struct uchan_client *c, const char *name) {
+    return uchan_client_open_from(c, name, 0);
+}
+
+int uchan_client_open_from(struct uchan_client *c, const char *name, int pid) {
     memset(c, 0, sizeof *c);
     if (!name || !*name || strlen(name) >= UCHAN_NAME_MAX || strchr(name, '.')) return -1;
 
-    c->beacon = map_object(name, sizeof(struct uchan_beacon), 0);
-    if (!c->beacon) return -1;              // no server
-    if (c->beacon->magic != UCHAN_MAGIC) {
+    c->beacon = pid > 0 ? map_from(name, sizeof(struct uchan_beacon), pid)
+                        : map_object(name, sizeof(struct uchan_beacon), 0);
+    if (!c->beacon) return -1;              // no server (or not that one)
+    int vouched = 0;
+    if (c->beacon->magic == UCHAN_MAGIC && c->beacon->server_pid > 0 &&
+        (pid <= 0 || c->beacon->server_pid == pid)) {
+        int fd = sys_shm_open_from(name, c->beacon->server_pid);
+        vouched = fd >= 0;
+        if (fd >= 0) sys_close(fd);
+    }
+    if (!vouched) {
         unmap(c->beacon, sizeof(struct uchan_beacon));
         c->beacon = 0;
         return -1;
