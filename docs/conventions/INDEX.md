@@ -1052,6 +1052,9 @@ whenever a headline here tells you something you did not already know.
 
 - **A VENDORED PORT DECLARES ITS LICENCE IN THE MAKEFILE, AND A
   GPL-ONLY ONE THE PROGRAMS BUILT FROM IT** -- what `NOGPL=1` decides by
+- **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
+  PATCH FILE** -- `userland/backends/<port>/patches/`, applied before
+  the host build
 - **A `.d` FILE MUST NEVER BE REMAKEABLE, OR make BUILDS THE WRONG FILE
   AND STILL EXITS 0**
 - **mtools DOES NOT READ stdin -- IT OPENS `/dev/tty`, so a CAPTURED

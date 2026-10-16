@@ -2167,3 +2167,71 @@ textual rewrite of generated code, where the alternative was the host
 build's directory name baked into 669 includes. A host build left by
 another configuration is removed first, as its `.d` files would still
 name sources this one does not compile (`javascript/none/`).
+
+## Our changes to a vendored port are patch files, applied before the host build
+
+**2026-10-16.** A change toy-os makes INSIDE a vendored port is a patch
+file under `userland/backends/<port>/patches/`. `tools/netsurf_vendor.py`
+resets each checkout to its pin, applies the port's patches in name
+order, builds the host oracle from that, and copies the result. The
+first was NetSurf's `html_redraw_box()` leaving a form control at
+`opacity: 0` undrawn.
+
+**Why not edit in place, with a list of edits (Chromium's
+`README.chromium`).** The tool `rmtree`s every port directory it owns
+before copying, so an in-place edit disappears at the next re-vendor
+and nothing says so. A patch that no longer applies stops the tool
+instead -- the stale change is found at the re-vendor, by the person
+re-vendoring, not weeks later as a regression. That is FreeBSD's ports
+(`files/patch-*`), Debian's `debian/patches/` and Firefox's
+`mach vendor` with `moz.yaml` patches.
+
+**Why before the host build, not after the copy.** The host build is
+stage 1's oracle (`browser_hostcheck.py`). Patching only the copy made
+the oracle unpatched NetSurf, so every patched behaviour would read as
+a port bug. Applying to the checkout gives both sides the same source,
+and the copy carries the patch with no second application.
+
+**Why not move NetSurf out of `userland/ports/` and own it.** That is
+a fork: the right shape for a library we stop following, the wrong one
+for an engine whose upstream fixes we want at the next pin. The licence
+was never the obstacle -- MIT and GPL-2.0 both allow changes; GPL-2.0
+asks that a changed file say so, which each hunk does ("Changed for
+toy-os, <date>").
+
+**The link-time hooks stay.** Seven `--wrap` hooks replace whole
+functions from outside (`ns_boxfix.c` and the rest). A patch is for a
+change INSIDE a function -- `html_redraw_box()` recurses through
+`html_redraw_box_children()` in the same object file, and `--wrap`
+redirects only undefined references, so it never sees the recursion.
+They are not converted until one is touched.
+
+## SVG is libsvgtiny over expat, drawn by our own path plotter
+
+**2026-10-16.** NetSurf's `svg.c` handler over libsvgtiny (NetSurf's own,
+MIT), which parses through libdom's XML binding, which needs expat (MIT,
+vendored at its release tag by the same tool). libsvgtiny flattens arcs
+to curves and gradients to flat triangles, and hands the front end
+paths: `p_path()` in `userland/webcontent/ns_plot.c` flattens the curves
+and fills each path as ONE shape under the NONZERO rule through
+`upix_mask_fill_rule()`, then strokes each contour, both anti-aliased.
+
+**Why not librsvg**, NetSurf's other SVG option: LGPL, Rust, and cairo
+under it -- a toolchain and a graphics library the tree has neither of,
+for a renderer whose extra fidelity (filters, text on paths) is not what
+a page's logo and icons need. libsvgtiny is upstream's default and is
+what NetSurf's own builds ship.
+
+**Why expat and not libxml2**, libdom's other XML binding: expat is the
+size of the job (a few files), MIT, and fuzzed for decades; libxml2 is
+an order of magnitude more code for features (XPath, validation) nothing
+here calls. Its hash salt comes from `getentropy()`, added to tolibc over
+`SYS_GETRANDOM` for it -- without one expat seeds from the clock and is
+open to hash flooding from a hostile document.
+
+**Why nonzero, and why one shape.** SVG's default `fill-rule` is
+nonzero, and libsvgtiny does not pass the rule on: a letter's counter or
+a ring's hole is a contour wound the other way, which nonzero cuts and
+two same-way contours fill where they overlap. The old plotter joined
+every subpath into one even-odd polygon of chords, which drew a hole
+there and a seam between subpaths everywhere.

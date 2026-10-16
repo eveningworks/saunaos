@@ -112,6 +112,8 @@ float floorf(float x) { return (float)floor(x); }
 float ceilf(float x) { return (float)ceil(x); }
 float truncf(float x) { return (float)trunc(x); }
 float roundf(float x) { return (float)round(x); }
+long lround(double x) { return (long)round(x); }
+long lroundf(float x) { return (long)round(x); }
 float fabsf(float x) { return (float)fabs(x); }
 // THE OUT-OF-LINE sqrt() GCC CALLS: <math.h>'s is inline, but with
 // errno semantics GCC follows its sqrtsd with a call to `sqrt` for a

@@ -2,6 +2,7 @@
 # build compiled from this port, which is not every .c in it.
 NS_SRCS_libdom = \
 	userland/ports/libdom/bindings/hubbub/parser.c \
+	userland/ports/libdom/bindings/xml/expat_xmlparser.c \
 	userland/ports/libdom/src/core/attr.c \
 	userland/ports/libdom/src/core/cdatasection.c \
 	userland/ports/libdom/src/core/characterdata.c \

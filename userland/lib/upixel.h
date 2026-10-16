@@ -64,7 +64,7 @@ void upix_over_at(struct uimg *dst, int x, int y, const struct uimg *src);
 // picture in a colour. Anti-aliased, a fill takes four sub-rows per pixel
 // with exact span ends and a stroke the distance to its path; without,
 // a pixel is in or out at its centre and painted exactly, as the pencil
-// is. The fill rule is even-odd.
+// is. A polygon's fill rule is even-odd; several contours name theirs.
 
 struct upix_pt { float x, y; };
 
@@ -76,6 +76,13 @@ struct upix_mask {
 // The interior of the closed polygon `p`, clipped to a cw x ch picture.
 // 0 or -ENOMEM; an empty mask (w 0) is not an error.
 int  upix_mask_fill(struct upix_mask *m, const struct upix_pt *p, int n, int cw, int ch, int aa);
+// SEVERAL closed contours as one shape -- a letter with its counters, a
+// ring: contour i is p[ends[i-1]] .. p[ends[i] - 1] (from p[0] for the
+// first). NONZERO is SVG's default and lets a contour wound the other
+// way cut a hole; EVEN-ODD makes every overlap one.
+enum upix_rule { UPIX_EVENODD, UPIX_NONZERO };
+int  upix_mask_fill_rule(struct upix_mask *m, const struct upix_pt *p, const int *ends, int nc,
+                         enum upix_rule rule, int cw, int ch, int aa);
 // The path `p` stroked `width` wide, with round joins and caps; `closed`
 // joins the last point back to the first.
 int  upix_mask_stroke(struct upix_mask *m, const struct upix_pt *p, int n, int closed, float width,

@@ -20,6 +20,9 @@ What it asserts, on seeded random pictures:
     on straight alpha, at full, half, near-zero and random opacity; and a
     stamp at an OFFSET (upix_over_at) clipped at every edge, leaving
     every pixel outside it untouched
+  - CONTOURS: two or three overlapping polygons, some wound backwards,
+    filled as one shape under NONZERO and EVEN-ODD -- against the winding
+    number at each pixel centre, and at samples when anti-aliased
   - SHAPES: a random polygon's anti-aliased fill against 16 x 16 samples
     a pixel (full is 255, empty 0, partial within a sub-row's error, the
     ink within 2% of the area), the plain fill pixel-exact against centre
@@ -183,6 +186,20 @@ int main(void) {
             printf("\n");
             upix_mask_free(&m);
             free(pts);
+        } else if (!strcmp(cmd, "mrule")) {         // mrule RULE AA NC end... N x y ...: contours
+            int nc, ends[8];
+            if (scanf("%d %d %d", &a, &b, &nc) != 3 || nc < 1 || nc > 8) return 2;
+            for (int i = 0; i < nc; i++) if (scanf("%d", &ends[i]) != 1) return 2;
+            if (scanf("%d", &c) != 1) return 2;
+            struct upix_pt *pts = malloc(sizeof *pts * (size_t)(c ? c : 1));
+            for (int i = 0; i < c; i++) if (scanf("%f %f", &pts[i].x, &pts[i].y) != 2) return 2;
+            struct upix_mask m;
+            int rc = upix_mask_fill_rule(&m, pts, ends, nc, (enum upix_rule)a, 64, 64, b);
+            printf("mask %d %d %d %d %d", rc, m.x, m.y, m.w, m.h);
+            for (int i = 0; i < m.w * m.h; i++) printf(" %d", m.a[i]);
+            printf("\n");
+            upix_mask_free(&m);
+            free(pts);
         } else if (!strcmp(cmd, "figure")) {        // figure KIND x0 y0 x1 y1
             float x0, y0, x1, y1;
             if (scanf("%d %f %f %f %f", &a, &x0, &y0, &x1, &y1) != 5) return 2;
@@ -274,7 +291,8 @@ def build(tmp, poison=False):
     # The second: source-over that forgets to scale the picture below by
     # what the one on top leaves of it. The third: a stroke that blends
     # onto what it has already painted, so crossing itself darkens. The
-    # fourth: a Subtract that adds.
+    # fourth: a Subtract that adds. The fifth: a nonzero fill that ends a
+    # span where the winding goes from 1 to 2, as even-odd would.
     src = hostcheck.stage(tmp, "userland/lib/upixel.c", apply=poison, tool="upixel_hostcheck",
                           edits=[("for (int dyi = -1; dyi <= 1; dyi += 2) {",
                                   "for (int dyi = -1; dyi <= -1; dyi += 2) {"),
@@ -282,7 +300,9 @@ def build(tmp, poison=False):
                                   "unsigned da = dp >> 24, oa = sa + da > 255 ? 255 : sa + da;"),
                                  ("s->im->px[i] = blend_px(s, s->before[i], c);",
                                   "s->im->px[i] = blend_px(s, s->im->px[i], c);"),
-                                 ("return op == UPIX_SEL_SUB ? 0 : 255;", "return op == UPIX_SEL_SUB ? 255 : 255;")])
+                                 ("return op == UPIX_SEL_SUB ? 0 : 255;", "return op == UPIX_SEL_SUB ? 255 : 255;"),
+                                 ("int is = rule == UPIX_NONZERO ? wind != 0 : (wind & 1);",
+                                  "int is = (wind & 1);")])
     und = hostcheck.stage(tmp, "userland/lib/upixundo.c")
     drv = hostcheck.write(tmp, "driver.c", DRIVER)
     return hostcheck.compile(tmp, "upixel_host", [src, und, drv, "-lm"], includes=[tmp],
@@ -1058,6 +1078,59 @@ def main():
                     fails.append(f"fill case {case} aa {aa}: {bad}")
                 elif aa and abs(sum(cov) / 255 - area(pts)) > 0.02 * area(pts) + 1:
                     fails.append(f"fill case {case}: {sum(cov) / 255:.1f} px of ink for an area of {area(pts):.1f}")
+        # CONTOURS: two or three polygons as one shape, some wound the other
+        # way and overlapping, under each rule -- against the winding
+        # number at each pixel centre (plain) and at 16 x 16 samples (AA).
+        def winding(px, py, contours):
+            w = 0
+            for c in contours:
+                for i in range(len(c)):
+                    (ax, ay), (bx, by) = c[i], c[(i + 1) % len(c)]
+                    if (ay <= py) != (by <= py) and px < ax + (py - ay) * (bx - ax) / (by - ay):
+                        w += 1 if by > ay else -1
+            return w
+
+        def in_rule(px, py, contours, rule):
+            w = winding(px, py, contours)
+            return w != 0 if rule == 1 else (w & 1) == 1
+
+        for case in range(12):
+            contours = []
+            for _ in range(rng.randrange(2, 4)):
+                n = rng.randrange(3, 7)
+                cx, cy, rad = rng.uniform(22, 42), rng.uniform(22, 42), rng.uniform(8, 18)
+                c = [(cx + rad * rng.uniform(0.6, 1) * math.cos(2 * math.pi * k / n),
+                      cy + rad * rng.uniform(0.6, 1) * math.sin(2 * math.pi * k / n)) for k in range(n)]
+                contours.append(c[::-1] if rng.randrange(2) else c)
+            ends, flat = [], []
+            for c in contours:
+                flat += c
+                ends.append(len(flat))
+            for rule in (0, 1):
+                for aa in (0, 1):
+                    r = d.ask(f"mrule {rule} {aa} {len(ends)} " + " ".join(map(str, ends)) +
+                              f" {len(flat)} " + " ".join(f"{x} {y}" for x, y in flat))
+                    mx, my, mw, mh = map(int, r[2:6])
+                    cov = list(map(int, r[6:]))
+                    checks += 1
+                    bad = None
+                    for j in range(mh):
+                        for i in range(mw):
+                            X, Y = mx + i, my + j
+                            v = cov[j * mw + i]
+                            if not aa:
+                                want = 255 if in_rule(X + 0.5, Y + 0.5, contours, rule) else 0
+                                if v != want:
+                                    bad = f"pixel {X},{Y} is {v}, its centre says {want}"
+                                continue
+                            k = sum(in_rule(X + (a + 0.5) / S, Y + (b + 0.5) / S, contours, rule)
+                                    for a in range(0, S, 2) for b in range(0, S, 2)) * 4
+                            if (k == S * S and v < 239) or (k == 0 and v > 16) or abs(v - k * 255 / (S * S)) > 72:
+                                bad = f"pixel {X},{Y} is {v}, the samples say {k * 255 // (S * S)}"
+                        if bad:
+                            break
+                    if bad:
+                        fails.append(f"contours case {case} rule {'nonzero' if rule else 'even-odd'} aa {aa}: {bad}")
         for case in range(10):
             pts = [(rng.uniform(10, 54), rng.uniform(10, 54)) for _ in range(rng.randrange(1, 5))]
             width, closed = rng.choice((1.0, 2.5, 5.0, rng.uniform(1, 9))), rng.randrange(2)

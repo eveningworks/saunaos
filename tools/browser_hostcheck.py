@@ -92,7 +92,9 @@ JS_ARGS = []
 def host_run(monkey, url):
     """Drives the host build interactively: each command waits for the
     line that says its work is done."""
-    env = dict(os.environ, LANGUAGE="en", LANG="C")
+    # LC_ALL, not LANG: an inherited LC_NUMERIC outranks LANG, and a
+    # comma-decimal locale writes a path's "WIDTH 1,000000".
+    env = dict(os.environ, LANGUAGE="en", LANG="C", LC_ALL="C")
     p = subprocess.Popen([monkey] + JS_ARGS, cwd=os.path.dirname(monkey), env=env,
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                          stderr=subprocess.DEVNULL, text=True, bufsize=1)

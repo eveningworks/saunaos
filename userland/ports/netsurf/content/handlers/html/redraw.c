@@ -1253,6 +1253,17 @@ bool html_redraw_box(const html_content *html, struct box *box,
 	if (html_redraw_printing && (box->flags & PRINTED))
 		return true;
 
+	/* Changed for toy-os, 2026-10-16: a FORM CONTROL at opacity 0 is
+	 * not drawn -- the native control laid invisibly over a styled
+	 * label. Other content at opacity 0 still draws: a script's fade-in
+	 * is never laid out here, and would leave it blank for good. */
+	if (box->gadget != NULL && box->style != NULL) {
+		css_fixed opacity;
+		if (css_computed_opacity(box->style, &opacity) ==
+				CSS_OPACITY_SET && opacity == 0)
+			return true;
+	}
+
 	if (box->style != NULL) {
 		overflow_x = css_computed_overflow_x(box->style);
 		overflow_y = css_computed_overflow_y(box->style);

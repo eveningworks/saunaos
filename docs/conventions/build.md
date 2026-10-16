@@ -637,7 +637,8 @@ this the obvious way), not from how much history it accumulated.
 - **A VENDORED PORT DECLARES ITS LICENCE IN THE MAKEFILE, AND A
   GPL-ONLY ONE THE PROGRAMS BUILT FROM IT.** `PORT_LICENSE_<name>` (SPDX
   ids joined by OR) and `PORT_PROGRAMS_<name>` sit in the Makefile's
-  NOGPL block, because the vendored trees stay byte for byte.
+  NOGPL block, because the vendored trees are upstream's files (plus
+  our patches, below), never a place to keep our own.
   `NOGPL=1` drops the programs of every port whose alternatives are all
   GPL or AGPL; LGPL and a dual licence with a permissive option stay.
   The programs are DECLARED rather than read off `EXTRA_OBJS_<name>`,
@@ -651,6 +652,21 @@ this the obvious way), not from how much history it accumulated.
   which is what catches a program left off the list. An image needs
   `make clean && make clean-disk` first: staging and `disk.img` only ever
   add, so an earlier build's DOOM would stay.
+- **A VENDORED PORT IS NEVER EDITED IN PLACE: OUR CHANGE TO IT IS A
+  PATCH FILE.** `tools/netsurf_vendor.py` deletes and recopies every
+  port directory it owns, so an edit under `userland/ports/<port>/` is
+  lost silently at the next re-vendor. A change is
+  `userland/backends/<port>/patches/NNNN-name.patch`: first line one
+  sentence (the port's README lists it), then a `-p1` diff against the
+  port's root. The tool resets each checkout to its pin and applies the
+  patches in name order BEFORE the host build, so `browser_hostcheck.py`'s
+  oracle runs the same patched source the copy carries; a patch that no
+  longer applies stops the re-vendor. A GPL file's hunk says "Changed for
+  toy-os, <date>" (GPL-2.0 2(a)). A link-time `--wrap` hook stays the
+  answer where a whole function is replaced from outside; a patch is for
+  a change INSIDE one (`html_redraw_box()` calls itself, which no wrap
+  reaches). A hand-vendored port (dash, mbedTLS, cJSON, DOOM) takes the
+  same directory the day it first needs a change.
 - **Versioning is semver + a `-dev` suffix, not a per-change build
   number.** `VERSION` only changes via `tools/set_version.sh <version>`:
   `0.2.0-dev` starts a new dev round, `0.2.0` (no `-dev`) cuts a

@@ -3446,7 +3446,10 @@ window without going through it will find its layout polls timing out.
   (`upix_stroke_*`) run forward and back over themselves against a float
   reference, for over, multiply and erase at any hardness, the chisel
   tip's exact cover, and the spray staying in its disc and repeating
-  for one seed. Its positive control -- a fill that never seeds the row
+  for one seed; two or three overlapping contours, some wound backwards,
+  filled as one shape (`upix_mask_fill_rule()`) against the winding
+  number under NONZERO and EVEN-ODD -- shown red by a nonzero span that
+  ends where the winding goes from 1 to 2. Its positive control -- a fill that never seeds the row
   below, a source-over that forgets to scale the picture below, a
   stroke blending onto what it already painted, and a Subtract that adds
   -- reddens the fills, the composites, the strokes and the selections.
@@ -6971,7 +6974,14 @@ runs first**: a `doom1.wad` with one
   SUFFIX after the page loads** -- "Web Browser" becomes "Start - Web
   Browser" as soon as the page names itself, and a fast load renamed it
   before `spawn()`'s exact match looked. Shown red by swapping red and
-  blue in the plotters' colour conversion.
+  blue in the plotters' colour conversion. `/tests/web/svg.html` reads
+  SVG and opacity in pixels: a ring's inner contour is a HOLE, two
+  same-way squares fill their overlap (nonzero, not even-odd), a curved
+  stroke is drawn, a checkbox at opacity 0 leaves its green label
+  green while one at full opacity draws and a plain box at opacity 0
+  still does -- shown red by the patch's test changed to `opacity == -1`
+  and the path fill switched to even-odd, each turning only its own
+  check red.
 
   **Menu, zoom and find**: the ☰ menu reports its rows (the menu's own
   describe op) and its Zoom in is clicked by that rect: the extent grows
@@ -7092,7 +7102,12 @@ runs first**: a `doom1.wad` with one
   (`--load-s`, `--redraw-s`), because the debug console cannot feed a
   running program's stdin; a page that did not finish is reported as
   "not loaded within N s", never as a layout difference. Shown red by
-  breaking Windows-1252's euro in libparserutils' table.
+  breaking Windows-1252's euro in libparserutils' table. The host side
+  runs under `LC_ALL=C`: an inherited comma-decimal `LC_NUMERIC` writes
+  a path's "WIDTH 1,000000", which `svg.html` was the first page to
+  print. `nsmonkey` names a local file's type with `ufileurl_mime()`, the
+  table `/bin/webcontent` uses -- toy-os has no `/etc/mime.types`, and
+  monkey's built-in fallback knows no `.svg`.
 
   **`--js`** runs both engines with NetSurf's `--enable_javascript=1`
   (each monkey is off by default, as upstream's is): `script.html` is the
@@ -7116,8 +7131,9 @@ runs first**: a `doom1.wad` with one
   host cannot judge (`photos.html`: it is built without libpng and
   libjpeg), each with its reason.
 
-- **`netsurf_vendor.py`** -- vendors NetSurf and its nine libraries into
-  `userland/ports/` at the commits pinned in its `PINS` table
+- **`netsurf_vendor.py`** -- vendors NetSurf and the libraries it is
+  built from into `userland/ports/` at the commits pinned in its `PINS`
+  table, and expat at its release tag (`EXPAT`)
   (`docs/browser-design.md`). Clones each from the netsurf-browser
   GitHub mirrors, builds them ON THE HOST with upstream's own Makefiles
   (the libraries, then NetSurf's headless `monkey` front end), and copies
@@ -7134,8 +7150,18 @@ runs first**: a `doom1.wad` with one
   (`~/.cache/toy-os/netsurf-host` by default): the Makefile includes
   every `.d` file it finds there, and the host build leaves hundreds,
   one of which is not make syntax. The host `nsmonkey` it leaves behind
-  is stage 1's oracle. Host tools: `gperf`, `perl`, `pkg-config` (see
-  the host-tools list). Reaches github.com.
+  is stage 1's oracle. Host tools: `gperf`, `perl`, `pkg-config`,
+  `patch` and the host's expat (see the host-tools list). Reaches
+  github.com.
+
+  **OUR CHANGES ARE PATCHES** (`userland/backends/<port>/patches/*.patch`,
+  `-p1`, first line a sentence the port's README lists). Each checkout is
+  reset to its pin and patched in name order BEFORE the host build, so
+  the oracle and the copy are the same source; a patch that no longer
+  applies stops the run. **expat is not built on the host** -- the host
+  oracle links the host's own -- so its file set is `lib/Makefile.am`'s
+  unconditional sources plus `random_getentropy.c`, headers by `gcc
+  -MM` against our `userland/backends/expat/expat_config.h`.
 
 - **`libc_diff.py`** -- tolibc's formatter and number parsers against
   glibc, case by case. No guest: it compiles `kernel/lib/kfmt.c` and
@@ -8073,8 +8099,9 @@ to. Arch package names; all are in the official repos.
 
 - **`docker`** — `qemu_matrix.py` needs it, and nothing else does.
 
-- **`gperf`, `perl`, `pkg-config`** — `netsurf_vendor.py` needs them to
-  run upstream's generators, and nothing else does. The generated
+- **`gperf`, `perl`, `pkg-config`, `patch`, expat** — `netsurf_vendor.py`
+  needs them to run upstream's generators, apply our patches and link
+  libdom's XML binding on the host, and nothing else does. The generated
   sources are committed, so the BUILD needs none of them.
 
 Deliberately NOT used: `gcovr`/`lcov` (coverage needs runtime support a

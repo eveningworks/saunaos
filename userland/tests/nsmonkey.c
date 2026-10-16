@@ -39,15 +39,16 @@
 #include "monkey/dispatch.h"
 #include "monkey/browser.h"
 #include "monkey/401login.h"
-#include "monkey/filetype.h"
+#include "netsurf/fetch.h"
 #include "monkey/fetch.h"
 #include "monkey/schedule.h"
 #include "monkey/bitmap.h"
 #include "monkey/layout.h"
 #include "backends/netsurf/fetch_http.h"
 #include "backends/netsurf/image_uimg.h"
+#include "lib/ufileurl.h"
 
-// Where NetSurf's resources (Messages, default.css, mime.types) live on
+// Where NetSurf's resources (Messages, default.css) live on
 // the image, then a directory named by $NETSURFRES for a test's own.
 #define NSMONKEY_RESPATH "${NETSURFRES}:/usr/share/netsurf/"
 
@@ -77,8 +78,12 @@ static void options_handler(int argc, char **argv) {
 static void monkey_quit(void) {
     urldb_save_cookies(nsoption_charp(cookie_jar));
     urldb_save(nsoption_charp(url_file));
-    monkey_fetch_filetype_fin();
 }
+
+// A local file's type from the table /bin/webcontent uses, not monkey's
+// mime.types reader: toy-os has no /etc/mime.types, and monkey's own
+// fallback knows no .svg.
+static const char *ns_filetype(const char *path) { return ufileurl_mime(path); }
 
 static nserror launch_url(struct nsurl *url) {
     moutf(MOUT_GENERIC, "LAUNCH URL %s", nsurl_access(url));
@@ -143,6 +148,7 @@ static void die(const char *why) {
 }
 
 int main(int argc, char **argv) {
+    monkey_fetch_table->filetype = ns_filetype;
     struct netsurf_table table = {
         .misc = &misc_table,
         .window = monkey_window_table,
@@ -184,9 +190,6 @@ int main(int argc, char **argv) {
     if (ns_fetch_http_register() != 0) die("the http fetcher failed to register");
     if (ns_image_uimg_register() != NSERROR_OK) die("the PNG/JPEG handler failed to register");
 
-    static char buf[PATH_MAX];
-    filepath_sfinddef(respaths, buf, "mime.types", "/etc/");
-    monkey_fetch_filetype_init(buf);
 
     if (monkey_register_handler("QUIT", quit_handler) != NSERROR_OK ||
         monkey_register_handler("WINDOW", monkey_window_handle_command) != NSERROR_OK ||

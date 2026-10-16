@@ -79,6 +79,9 @@ indexed by headline in the next section.
 - **`userland/wm/wm.h` is a second, peer-level boundary** -- the
   GUI-specific equivalent, included by GUI apps for `window_*` helpers.
   `kapi.h` never includes `wm/wm.h` or `gui_apps.h`.
+- **`userland/ports/` IS NEVER EDITED IN PLACE** -- the vendoring tool
+  deletes and recopies it; a change to a port is a patch in
+  `userland/backends/<port>/patches/` (`docs/conventions/build.md`).
 - **`kernel/include/` is split by audience and the build enforces it** --
   `api/` (what `apps/` may use), `abi/` (the kernel<->userland contract
   `userland/` shares), `kernel/` (internal, NOT on `apps/`'s include

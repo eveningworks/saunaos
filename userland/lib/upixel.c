@@ -221,34 +221,76 @@ static int mask_alloc(struct upix_mask *m, const struct upix_pt *p, int n, float
     return 0;
 }
 
-static int cmp_float(const void *a, const void *b) {
-    float x = *(const float *)a, y = *(const float *)b;
+struct fill_edge { float x0, y0, x1, y1; int dir; };   // y0 < y1
+struct fill_cross { float x; int dir; };
+
+static int cmp_edge_y0(const void *a, const void *b) {
+    float x = ((const struct fill_edge *)a)->y0, y = ((const struct fill_edge *)b)->y0;
+    return x < y ? -1 : x > y;
+}
+
+static int cmp_cross(const void *a, const void *b) {
+    float x = ((const struct fill_cross *)a)->x, y = ((const struct fill_cross *)b)->x;
     return x < y ? -1 : x > y;
 }
 
 #define SUBROWS 4
 
 int upix_mask_fill(struct upix_mask *m, const struct upix_pt *p, int n, int cw, int ch, int aa) {
+    return upix_mask_fill_rule(m, p, &n, 1, UPIX_EVENODD, cw, ch, aa);
+}
+
+int upix_mask_fill_rule(struct upix_mask *m, const struct upix_pt *p, const int *ends, int nc,
+                        enum upix_rule rule, int cw, int ch, int aa) {
+    int n = nc > 0 ? ends[nc - 1] : 0;
     int rc = mask_alloc(m, p, n, 1, cw, ch);
     if (rc || !m->a || n < 3) return rc;
-    float *xs = malloc(sizeof *xs * (size_t)n);
+    // Every non-horizontal edge, each contour closed back on itself,
+    // sorted by its top so a sub-row walks only the edges it crosses.
+    struct fill_edge *e = malloc(sizeof *e * (size_t)n);
+    int *act = malloc(sizeof *act * (size_t)n);
+    struct fill_cross *xs = malloc(sizeof *xs * (size_t)n);
     int *acc = malloc(sizeof *acc * (size_t)(m->w + 1));
-    if (!xs || !acc) { free(xs); free(acc); upix_mask_free(m); return -ENOMEM; }
-    int subs = aa ? SUBROWS : 1;
+    if (!e || !act || !xs || !acc) {
+        free(e); free(act); free(xs); free(acc);
+        upix_mask_free(m);
+        return -ENOMEM;
+    }
+    int ne = 0;
+    for (int c = 0, start = 0; c < nc; start = ends[c], c++) {
+        for (int i = start; i < ends[c]; i++) {
+            struct upix_pt a = p[i], b = p[i + 1 < ends[c] ? i + 1 : start];
+            if (a.y == b.y) continue;
+            e[ne++] = a.y < b.y ? (struct fill_edge){ a.x, a.y, b.x, b.y, 1 }
+                                : (struct fill_edge){ b.x, b.y, a.x, a.y, -1 };
+        }
+    }
+    qsort(e, (size_t)ne, sizeof *e, cmp_edge_y0);
+    int subs = aa ? SUBROWS : 1, next = 0, na = 0;
     for (int row = 0; row < m->h; row++) {
         memset(acc, 0, sizeof *acc * (size_t)(m->w + 1));
         for (int s = 0; s < subs; s++) {
-            // A sub-row's centre, and where every edge crosses it.
+            // A sub-row's centre; an edge crosses it when y0 <= sy < y1,
+            // half-open, so a vertex shared by two edges counts once.
             float sy = (float)(m->y + row) + (aa ? (s + 0.5f) / SUBROWS : 0.5f);
+            while (next < ne && e[next].y0 <= sy) act[na++] = next++;
             int k = 0;
-            for (int i = 0; i < n; i++) {
-                struct upix_pt a = p[i], b = p[(i + 1) % n];
-                if ((a.y <= sy) == (b.y <= sy)) continue;   // half-open: a vertex counts once
-                xs[k++] = a.x + (sy - a.y) * (b.x - a.x) / (b.y - a.y);
+            for (int i = 0; i < na;) {
+                const struct fill_edge *g = &e[act[i]];
+                if (g->y1 <= sy) { act[i] = act[--na]; continue; }
+                xs[k++] = (struct fill_cross){ g->x0 + (sy - g->y0) * (g->x1 - g->x0) / (g->y1 - g->y0),
+                                               g->dir };
+                i++;
             }
-            qsort(xs, (size_t)k, sizeof *xs, cmp_float);
-            for (int i = 0; i + 1 < k; i += 2) {
-                float l = xs[i] - (float)m->x, r = xs[i + 1] - (float)m->x;
+            qsort(xs, (size_t)k, sizeof *xs, cmp_cross);
+            float l = 0;
+            for (int i = 0, wind = 0; i < k; i++) {
+                int was = rule == UPIX_NONZERO ? wind != 0 : (wind & 1);
+                wind += xs[i].dir;
+                int is = rule == UPIX_NONZERO ? wind != 0 : (wind & 1);
+                if (!was && is) l = xs[i].x - (float)m->x;
+                if (!was || is) continue;
+                float r = xs[i].x - (float)m->x;
                 if (!aa) {   // a pixel is in when its centre is
                     int a = (int)ceilf(l - 0.5f), b = (int)ceilf(r - 0.5f);
                     if (a < 0) a = 0;
@@ -256,17 +298,16 @@ int upix_mask_fill(struct upix_mask *m, const struct upix_pt *p, int n, int cw, 
                     for (int x = a; x < b; x++) acc[x] = 255;
                     continue;
                 }
-                if (l < 0) l = 0;
-                if (r > (float)m->w) r = (float)m->w;
-                if (r <= l) continue;
+                float cl = l < 0 ? 0 : l, cr = r > (float)m->w ? (float)m->w : r;
+                if (cr <= cl) continue;
                 // EXACT ENDS: a partly covered first and last pixel get
                 // their share; the run between them all of a sub-row.
-                int a = (int)l, b = (int)r;
+                int a = (int)cl, b = (int)cr;
                 int unit = 255 * 64 / SUBROWS;   // one sub-row's worth, in 1/64ths
-                if (a == b) { acc[a] += (int)((r - l) * (float)unit); continue; }
-                acc[a] += (int)(((float)(a + 1) - l) * (float)unit);
+                if (a == b) { acc[a] += (int)((cr - cl) * (float)unit); continue; }
+                acc[a] += (int)(((float)(a + 1) - cl) * (float)unit);
                 for (int x = a + 1; x < b; x++) acc[x] += unit;
-                if (b < m->w) acc[b] += (int)((r - (float)b) * (float)unit);
+                if (b < m->w) acc[b] += (int)((cr - (float)b) * (float)unit);
             }
         }
         uint8_t *dst = m->a + (size_t)row * m->w;
@@ -275,6 +316,8 @@ int upix_mask_fill(struct upix_mask *m, const struct upix_pt *p, int n, int cw, 
             dst[x] = (uint8_t)(v > 255 ? 255 : v);
         }
     }
+    free(e);
+    free(act);
     free(xs);
     free(acc);
     return 0;

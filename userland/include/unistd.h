@@ -89,6 +89,15 @@ static inline int isatty(int fd) {
 static inline pid_t getpid(void)                  { return sys_getpid(); }
 pid_t getppid(void);   // 0 for a process the kernel started
 
+// --- entropy ------------------------------------------------------------
+
+// POSIX 2024's getentropy(): `len` bytes from the kernel's generator
+// (SYS_GETRANDOM), all or nothing; 0, or -1 with EINVAL for more than
+// GETENTROPY_MAX. Unguessable, unlike rand() -- the hash salt a parser of
+// hostile input wants (expat's).
+#define GETENTROPY_MAX 256
+int getentropy(void *buf, size_t len);
+
 // fork() and exec*() exist for the program that cannot be written any
 // other way -- a ported POSIX shell. Everything else should keep using
 // sys_spawn()/posix_spawn(): one syscall, no address-space copy, and the

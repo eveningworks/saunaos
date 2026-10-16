@@ -80,7 +80,8 @@ refreshes them deliberately with the vendoring tool (stage 0).
 The risk is the bus factor of a three-person project, not abandonment.
 
 What NetSurf does NOT do, and nobody should expect after the port: CSS
-grid, modern JavaScript (Duktape is ES5, and NetSurf's DOM bindings are
+grid, CSS custom properties (`var()` -- libcss drops the declaration),
+modern JavaScript (Duktape is ES5, and NetSurf's DOM bindings are
 partial), WebAssembly, video. Wikipedia, Hacker News, old.reddit,
 documentation sites and most text-first sites render; GitHub's UI,
 YouTube and Gmail do not.
@@ -737,6 +738,40 @@ allocation and spin for minutes. Chrome's "Out of Memory" page;
 `docs/decisions/kernel.md`, "A process's memory is limited where it
 asks", has the kernel half. A DOM loop is stopped by the script timeout
 first (300 MiB); a string doubled past the limit ends the page too.
+
+### SVG, and an invisible form control -- BUILT 2026-10-16
+
+Wikipedia's Main Page, on the ASUS, showed its logo as alt text and an
+empty square beside "View history". **SVG**: the logo, wordmark and
+tagline are SVG files, and the build had no SVG decoder. Now NetSurf's
+`svg.c` handler over **libsvgtiny**, through libdom's XML binding over
+**expat**, both vendored (`docs/decisions/build.md`, "SVG is libsvgtiny
+over expat"). `p_path()` in the content process draws what it hands
+over: curves flattened, every contour one shape under the NONZERO rule
+(`upix_mask_fill_rule()`), strokes round-joined, all anti-aliased. An SVG
+in a CSS `background-image` takes the same path; an SVG's own `opacity`,
+`<text>` styling and filters do not exist in libsvgtiny.
+
+**`opacity: 0` on a form control is not drawn** -- the first patch to a
+vendored port (`userland/backends/netsurf/patches/`): a native checkbox
+laid invisibly over a styled label is a common pattern, and NetSurf
+parses `opacity` but never paints by it. ONLY a form control: content at
+`opacity: 0` still draws, because a script's fade-in is never laid out
+here (Stage 6) and would leave it blank for good. A partial opacity is
+still drawn opaque.
+
+**What Wikipedia still shows wrong, and why** (each NetSurf's, measured
+against the host build):
+
+- **Black squares where its Codex buttons are** -- `border-color:
+  var(--border-color-transparent, transparent)`: libcss has no custom
+  properties, drops the declaration, and the border falls back to
+  `currentColor`. Every `var()` on the page goes the same way.
+- **No sidebar; the header stacked** -- Vector 2022 lays out with CSS
+  grid.
+- **No icons** -- `mask-image`.
+- **No `·` between "Ongoing" items** -- `li::after { content: " · " }`:
+  NetSurf generates `::before`/`::after` for block boxes only.
 
 ## Open questions
 

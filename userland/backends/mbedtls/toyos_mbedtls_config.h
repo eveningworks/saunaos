@@ -57,6 +57,14 @@
 
 #define MBEDTLS_PSA_CRYPTO_C
 #define MBEDTLS_USE_PSA_CRYPTO   // TLS 1.3 is built on PSA in 3.6
+// THE KEY SLOTS ARE ONE TABLE PER PROCESS, AND A FULL ONE FAILS A
+// HANDSHAKE AS "Memory allocation failed" with the heap nowhere near
+// full. Each live TLS 1.3 connection holds its traffic keys in slots,
+// a pooled idle one included: /bin/webnet's pool (16 idle) at upstream's
+// 32 left nothing for the next handshake, and Wikipedia's thumbnails
+// failed from the second connection on. Sized for the pool plus every
+// fetch NetSurf runs at once, mid-handshake.
+#define MBEDTLS_PSA_KEY_SLOT_COUNT 256
 
 // --- symmetric: AEAD ONLY ------------------------------------------
 //

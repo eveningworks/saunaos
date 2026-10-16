@@ -260,6 +260,8 @@ double pow(double x, double y) {
     return exp(y * log(x));
 }
 
+float powf(float x, float y) { return (float)pow(x, y); }
+
 // --- inverse trig -----------------------------------------------------
 
 double atan(double x) {

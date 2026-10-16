@@ -1,9 +1,12 @@
 # netsurf -- vendored, not written here
 
 **This directory is third-party source, copied by
-`tools/netsurf_vendor.py`. Do not edit it**: change the C library, or
-our front end in `userland/backends/netsurf/`, or re-run the tool at a
-new pin. `docs/browser-design.md` is the plan this serves.
+`tools/netsurf_vendor.py`, and the tool deletes and recopies it. Do not
+edit it in place**: a change is a patch under
+`userland/backends/netsurf/patches/`, which the tool applies to the
+checkout before every copy; or change the C library, or our front end in
+`userland/backends/netsurf/`. `docs/browser-design.md` is the plan this
+serves.
 
 - **Upstream**: https://github.com/netsurf-browser/netsurf
 - **Commit**: `39da3c3a40af4566d86500ff3052dfdc7f9a0378` (2026-02-19)
@@ -22,3 +25,5 @@ new pin. `docs/browser-design.md` is the plan this serves.
   nsgenbind's output on the host: the DOM bindings for Duktape, from
   the `.bnd` files and the WebIDL beside `dukky.c`.
 - **Licence**: `COPYING`, upstream's own file.
+- **Patched, by toy-os**, from `userland/backends/netsurf/patches/` (applied to the checkout before the host build and the copy):
+  - `0001-opacity-zero-form-control.patch` -- A form control at opacity 0 is not drawn (Wikipedia's Tools and menu checkboxes).

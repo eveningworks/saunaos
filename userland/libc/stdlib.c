@@ -366,6 +366,13 @@ int rand(void) {
 
 void srand(unsigned seed) { g_seed = seed; }
 
+int getentropy(void *buf, size_t len) {
+    if (len > GETENTROPY_MAX) { errno = EINVAL; return -1; }
+    if (len == 0) return 0;
+    if (sys_getrandom(buf, len) != (int)len) { errno = EFAULT; return -1; }
+    return 0;
+}
+
 // --- strtod -----------------------------------------------------------
 //
 // The same accuracy caveat as printf's float side, and for the same

@@ -16,8 +16,10 @@
 //   * an oversized count is refused, and a zero count is a legal no-op
 //     rather than an error.
 #include "rt/sys.h"
+#include <errno.h>
 #include <stdio.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "lib/utest.h"
 
@@ -57,6 +59,22 @@ int main(void) {
     utest_check(sys_getrandom((void *)0x10, 16) == -1, "refuses an unmapped pointer");
     utest_check(sys_getrandom(buf, 100000) == -1, "refuses a count over the maximum");
     utest_check(sys_getrandom(buf, 0) == 0, "a zero-length request is a no-op, not an error");
+
+    // --- getentropy(), the libc face -------------------------------
+    // All or nothing at GETENTROPY_MAX, EINVAL one past it with the
+    // buffer left alone -- POSIX 2024's contract, which OpenBSD's EIO
+    // predates.
+    unsigned char e[GETENTROPY_MAX + 8];
+    memset(e, 0xAA, sizeof e);
+    utest_check(getentropy(e, GETENTROPY_MAX) == 0, "getentropy fills GETENTROPY_MAX bytes");
+    int e_tail = 1;
+    for (unsigned i = GETENTROPY_MAX; i < sizeof e; i++) if (e[i] != 0xAA) e_tail = 0;
+    utest_check(e_tail, "getentropy writes nothing past the length");
+    memset(e, 0xAA, sizeof e);
+    errno = 0;
+    utest_check(getentropy(e, GETENTROPY_MAX + 1) == -1 && errno == EINVAL,
+                "getentropy refuses GETENTROPY_MAX + 1 with EINVAL");
+    utest_check(e[0] == 0xAA, "a refused getentropy leaves the buffer alone");
 
     return utest_end();
 }

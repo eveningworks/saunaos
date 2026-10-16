@@ -389,6 +389,8 @@ PORT_LICENSE_libnsbmp       = MIT
 PORT_LICENSE_libnsgif       = MIT
 PORT_LICENSE_libnspsl       = MIT
 PORT_LICENSE_libnsutils     = MIT
+PORT_LICENSE_libsvgtiny     = MIT
+PORT_LICENSE_expat          = MIT
 PORT_LICENSE_libparserutils = MIT
 PORT_LICENSE_libwapcaplet   = MIT
 
@@ -1089,9 +1091,12 @@ $(BUILD)/userland/backends/doom/%.o: USERLAND_CFLAGS += -Iuserland/ports/doom \
 
 # --- NetSurf, the web browser's engine --------------------------------
 #
-# TEN PORTS: NetSurf itself (GPL-2.0-only) and the nine MIT libraries it
-# is built from, each vendored byte for byte by tools/netsurf_vendor.py.
-# userland/backends/netsurf/ is OURS. docs/browser-design.md is the plan.
+# NetSurf itself (GPL-2.0-only) and the MIT libraries it is built from
+# (expat among them, under libsvgtiny), each vendored by
+# tools/netsurf_vendor.py: upstream's files, plus OUR patches from
+# userland/backends/<port>/patches/, applied by the tool -- never an edit
+# in place, which the next re-vendor deletes. userland/backends/netsurf/
+# is OURS. docs/browser-design.md is the plan.
 #
 # **NOT WILDCARDED, unlike DOOM, and for DOOM's own reason.** The file
 # list is upstream's, so it comes from upstream's build: the vendoring
@@ -1103,7 +1108,7 @@ $(BUILD)/userland/backends/doom/%.o: USERLAND_CFLAGS += -Iuserland/ports/doom \
 # lacks must fail here, not resolve to the host's /usr/include -- zlib.h
 # and iconv.h both exist there.
 NS_LIBS  = libwapcaplet libparserutils libhubbub libdom libcss libnsgif \
-           libnsbmp libnsutils libnspsl
+           libnsbmp libnsutils libnspsl libsvgtiny expat
 NS_PORTS = $(NS_LIBS) netsurf
 include $(wildcard $(patsubst %,userland/ports/%/sources.mk,$(NS_PORTS)))
 
@@ -1118,6 +1123,11 @@ NS_BASE_CFLAGS = $(subst -Wframe-larger-than=2048,-Wframe-larger-than=16384,\
 # to, and then decodes with its own codecs instead -- which know more
 # charsets than tolibc's iconv() does.
 NS_LIB_CFLAGS_libparserutils = -DWITHOUT_ICONV_FILTER
+# expat has no include/ of its own: its lib/ is the include path, for
+# libdom's XML binding (libsvgtiny's parser) as for expat itself, and
+# expat_config.h is ours.
+NS_LIB_CFLAGS_expat  = -Iuserland/ports/expat/lib -Iuserland/backends/expat
+NS_LIB_CFLAGS_libdom = -Iuserland/ports/expat/lib
 # NetSurf's core: upstream's include roots and the defines its Makefiles
 # pass for this configuration (tools/netsurf_vendor.py's NETSURF_FLAGS),
 # and OUR platform switches in place of its utils/config.h.
@@ -1126,7 +1136,7 @@ NS_CORE_CFLAGS = -include userland/backends/netsurf/toyos_config.h \
                  -Iuserland/ports/netsurf/content/handlers \
                  -Iuserland/ports/netsurf/frontends \
                  -Iuserland/ports/netsurf/generated \
-                 -Dmonkey -Dnsmonkey -DWITH_BMP -DWITH_GIF -DWITH_NSPSL -DDUK_OPT_HAVE_CUSTOM_H \
+                 -Dmonkey -Dnsmonkey -DWITH_BMP -DWITH_GIF -DWITH_NSPSL -DWITH_NS_SVG -DDUK_OPT_HAVE_CUSTOM_H \
                  -D_POSIX_C_SOURCE=200809L -D_XOPEN_SOURCE=700 -D_DEFAULT_SOURCE
 
 $(BUILD)/userland/ports/netsurf/%.o: userland/ports/netsurf/%.c $(BUILD)/.sanitize-flag

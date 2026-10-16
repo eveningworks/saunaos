@@ -56,6 +56,7 @@ NS_SRCS_netsurf = \
 	userland/ports/netsurf/content/handlers/image/ico.c \
 	userland/ports/netsurf/content/handlers/image/image.c \
 	userland/ports/netsurf/content/handlers/image/image_cache.c \
+	userland/ports/netsurf/content/handlers/image/svg.c \
 	userland/ports/netsurf/content/handlers/javascript/content.c \
 	userland/ports/netsurf/content/handlers/javascript/duktape/dukky.c \
 	userland/ports/netsurf/content/handlers/javascript/duktape/duktape.c \

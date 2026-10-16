@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html><head><title>SVG and opacity</title>
+<style>
+body { margin: 0; background: #fff; }
+.abs { position: absolute; margin: 0; padding: 0; border: 0; }
+#ring { left: 8px; top: 8px; width: 160px; height: 160px; }
+#overlap { left: 184px; top: 8px; width: 160px; height: 160px; }
+#label { left: 8px; top: 200px; width: 120px; height: 40px; background: #3cb43c; }
+#hidden { left: 8px; top: 200px; width: 120px; height: 40px; opacity: 0; }
+#shown { left: 184px; top: 200px; width: 40px; height: 40px; }
+#faded { left: 360px; top: 200px; width: 120px; height: 40px; opacity: 0; background: #1e3cdc; }
+</style></head>
+<body>
+<!-- SVG through libsvgtiny, drawn by the content process's path plotter. -->
+<img class="abs" id="ring" src="ring.svg" alt="ring">
+<img class="abs" id="overlap" src="overlap.svg" alt="overlap">
+<!-- A checkbox at opacity 0 over a styled label is NOT drawn (the patch
+     in userland/backends/netsurf/patches/); one at full opacity is; and a
+     plain box at opacity 0 still is, as a script's fade-in never runs. -->
+<div class="abs" id="label"></div>
+<input class="abs" id="hidden" type="checkbox">
+<input class="abs" id="shown" type="checkbox">
+<div class="abs" id="faded"></div>
+</body></html>

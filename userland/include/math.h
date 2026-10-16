@@ -21,8 +21,8 @@
 //
 // Still absent, and these are omissions of the ordinary kind rather
 // than decisions: the long-double forms, the float forms of the
-// approximate functions (sinf and friends -- the exact ones' float forms
-// are here), lgamma/tgamma/erf, and the C99 rounding-mode functions.
+// approximate functions but powf (sinf and friends -- the exact ones'
+// float forms are here), lgamma/tgamma/erf, and the C99 rounding-mode functions.
 //
 // **Not to be confused with kernel/include/api/fixed.h**, which is the
 // kernel's Q16.16 fixed-point maths and exists precisely BECAUSE the
@@ -124,5 +124,11 @@ float roundf(float x);
 float fabsf(float x);
 float sqrtf(float x);
 float fmodf(float x, float y);
+// round() and roundf() to a long; out of range is undefined, as in C.
+long lround(double x);
+long lroundf(float x);
+// The one float form of an APPROXIMATE function: pow() and back, so as
+// accurate as pow() and no more (libsvgtiny's stroke widths).
+float powf(float x, float y);
 
 #endif

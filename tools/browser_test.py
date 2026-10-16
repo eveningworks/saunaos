@@ -50,6 +50,11 @@ WHAT IT CHECKS, and what a broken version would still pass:
     up (the last frame greyed under a danger-tinted bar), Reload brings
     the page back in a new process; about:crash leaves a crash report
     that View report opens (stage 5);
+  - /tests/web/svg.html: an SVG ring is drawn with its inner contour a
+    HOLE (nonzero), two same-way squares fill their overlap (not
+    even-odd), a curved stroke is drawn, and a checkbox at opacity 0 over
+    a green label leaves the label green while one at full opacity draws
+    (control) and a plain box at opacity 0 still draws;
   - /tests/web/photos.html's progressive JPEG (four colour quadrants)
     and 2-bit palette Adam7 PNG (four bands) are DRAWN, each region its
     own colour in the pixels -- decoded by lib/uimg.h in a thread, as
@@ -438,6 +443,7 @@ def run(dbg, qmp, args, net):
         check("...in a chip that is drawn", ink > 20, f"{ink} dark px")
 
     photos(dbg, page, at, shot)
+    svg_and_opacity(dbg, page, at, shot)
     fonts(dbg, page, at, shot)
     text_cursor(dbg, qmp, page, at)
     zoom_and_find(dbg, page, at, shot, c)
@@ -480,6 +486,50 @@ def photos(dbg, page, at, shot):
     check("the 2-bit Adam7 PNG is drawn, each band its colour", min(got) > 900, f"{got} of 1200 px")
     white = count(im, box(8 + 320 + 60, 8 + 60), lambda p: min(p) > 245)
     check("...and the page beside them stays white (control)", white > 1100, f"{white} px")
+
+
+def svg_and_opacity(dbg, page, at, shot):
+    go(dbg, "/tests/web/svg.html")
+    url = "file:///tests/web/svg.html"
+    st = wait(dbg, loaded(url))
+    check("a page of SVG images and opacity-0 boxes loads", st.get("url") == url,
+          f"url={st.get('url')}")
+    sx, sy = st.get("sx", 0), st.get("sy", 0)
+
+    def box(x, y, w=8, h=8):   # page coordinates, centred on (x, y)
+        return at((page[0] + x - sx - w // 2, page[1] + y - sy - h // 2, w, h))
+    red, blue, green = near((200, 40, 40), 30), near((30, 60, 220), 30), near((20, 160, 60), 30)
+    white = lambda p: min(p) > 245     # noqa: E731
+    im = None
+    for _ in range(20):                # the SVGs are fetched after the page
+        im = shot("svg")
+        if count(im, box(88 + 52, 88), red) > 50:
+            break
+        time.sleep(0.5)
+    # ring.svg at (8, 8) 160 px: a band from r 32 to r 72 about (88, 88).
+    got = [count(im, box(88 + 52, 88), red), count(im, box(88, 88 - 52), red)]
+    check("an SVG path is drawn: ring.svg's band is red", min(got) > 56, f"{got} of 64 px")
+    hole = count(im, box(88, 88, 16, 16), white)
+    check("...with a HOLE where its inner contour runs the other way (nonzero)", hole > 240,
+          f"{hole} of 256 px white")
+    out = count(im, box(14, 14), white)
+    check("...and nothing outside the circle (control)", out > 60, f"{out} of 64 px white")
+    # overlap.svg at (184, 8), scale 1.6: squares 5-55 and 30-80 in one path.
+    over = count(im, box(184 + 68, 8 + 68), blue)
+    one = count(im, box(184 + 24, 8 + 24), blue)
+    check("two squares wound the same way fill their OVERLAP (nonzero, not even-odd)",
+          over > 56 and one > 56, f"overlap {over}, one square {one} of 64 px")
+    stroke = count(im, box(184 + 80, 8 + 121, 6, 6), green)
+    check("a curved stroke 8 units wide is drawn along its curve", stroke > 30, f"{stroke} of 36 px")
+    # A checkbox at opacity 0 over a green label: the label all green.
+    label = count(im, box(68, 220, 120, 40), near((60, 180, 60), 30))
+    check("a checkbox at opacity 0 is NOT drawn over its label", label > 4700,
+          f"{label} of 4800 px green")
+    shown = count(im, box(204, 220, 40, 40), lambda p: max(p) < 200)
+    check("...one at full opacity is (control)", shown > 40, f"{shown} dark px")
+    faded = count(im, box(420, 220, 120, 40), blue)
+    check("...and a plain box at opacity 0 still draws (no script will fade it in)", faded > 4700,
+          f"{faded} of 4800 px blue")
 
 
 # /tests/web/fonts.html: one 48 px row per style, the same word in each.

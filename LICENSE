@@ -63,8 +63,8 @@ with the font.
 
 Third-party code
 
-This repository vendors five third-party programs and the nine
-libraries the fifth is built from. None is covered by the MIT License
+This repository vendors five third-party programs and the libraries
+the fifth is built from. None is covered by the MIT License
 above, and each keeps its own license file in its own directory.
 A built image carries each of those license files, and this file, in
 /usr/share/licenses/ (<port>.txt and toy-os.txt), so the notices travel
@@ -193,7 +193,7 @@ with the binaries as their licenses require.
         binary is distributable under GPL-2.0. docs/browser-design.md
         has the plan.
 
-  The nine libraries NetSurf is built from, each under the MIT License,
+  The libraries NetSurf is built from, each under the MIT License,
   each with its own COPYING in its directory, whose copyright notice is
   separate from toy-os's and must be preserved:
 
@@ -206,9 +206,15 @@ with the binaries as their licenses require.
   userland/ports/libnsbmp/        Copyright 2006 Richard Wilson, 2008 Sean Fox
   userland/ports/libnsutils/      Copyright 2014 Vincent Sanders
   userland/ports/libnspsl/        Copyright 2016 Vincent Sanders
+  userland/ports/libsvgtiny/      Copyright 2007 James Bursa
+  userland/ports/expat/           Copyright 1998-2000 Thai Open Source
+                                  Software Center Ltd and Clark Cooper,
+                                  2001-2025 Expat maintainers
 
-        tools/netsurf_vendor.py copies all ten from upstream at pinned
-        commits; each directory's README.md names its commit.
+        tools/netsurf_vendor.py copies them from upstream at pinned
+        commits (expat at its release tag); each directory's README.md
+        names its commit, and any patch toy-os applies to it, from
+        userland/backends/<port>/patches/.
 
 ---
 
