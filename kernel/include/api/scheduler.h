@@ -172,6 +172,31 @@ int scheduler_current_pid(void);
 // owner, a child's parent, getpid.
 int scheduler_current_tgid(void);
 
+// --- per-process I/O, Linux's /proc/<pid>/io --------------------------
+//
+// Charged to the PROCESS on the CPU (its leader, so threads add up), or
+// to a kernel bucket when none is. Two kinds, because they answer
+// different questions: DISK is what reached a block device (`read_bytes`
+// and `write_bytes`), so /tmp and a network share cost nothing; FILE is
+// every byte a program read() or write()s through a file (`rchar` and
+// `wchar`). A deferred journal commit is charged to whoever was running
+// when it was written. QUERY_PROCIO reads them.
+enum sched_io_kind {
+    SCHED_IO_DISK_READ, SCHED_IO_DISK_WRITE,
+    SCHED_IO_FILE_READ, SCHED_IO_FILE_WRITE,
+    SCHED_IO_KINDS
+};
+
+struct sched_io {
+    uint64_t bytes[SCHED_IO_KINDS];
+    uint64_t ops[SCHED_IO_KINDS];
+};
+
+void scheduler_io_charge(enum sched_io_kind kind, uint64_t bytes);
+// Slot `slot`'s totals (a leader's are its process's); -1 = the kernel's.
+// 0 for a slot that is not a process.
+int scheduler_io_get(int slot, struct sched_io *out);
+
 // The group `pid` belongs to, or 0 if that slot is empty.
 int scheduler_tgid(int pid);
 

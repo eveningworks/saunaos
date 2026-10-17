@@ -109,6 +109,7 @@
 #include "input.h"     // input_poll_sources() -- ditto, for a device with no IRQ
 #include "string.h" // k_strlcpy -- proc_name_from_path()
 #include "pmm.h"    // the table and the stack chunks
+#include "irqflags.h" // per-process I/O counters, charged from any context
 
 // The thread pointer belonging to the KERNEL CONTEXT -- which in
 // practice means a ring-3 process the legacy elf_run.c loader is
@@ -267,6 +268,7 @@ void slot_free(int slot) {
     int pid = procs[slot].pid;
     sandbox_put(procs[slot].ext->sandbox);
     procs[slot].ext->sandbox = 0;
+    k_memset(&procs[slot].ext->io, 0, sizeof procs[slot].ext->io);
     if (pid > 0 && pid < SCHED_PID_MAX && g_pid_slot[pid] == slot + 1) g_pid_slot[pid] = 0;
     procs[slot].state = SCHED_UNUSED;
     procs[slot].pid = 0;
@@ -1736,6 +1738,33 @@ int scheduler_current_pid(void) {
 int scheduler_current_tgid(void) {
     if (current_index < 0) return 0;
     return procs[current_index].tgid;
+}
+
+// I/O charged with no process on the CPU: boot, the idle loop's work,
+// a writeback from kernel context.
+static struct sched_io g_kernel_io;
+
+void scheduler_io_charge(enum sched_io_kind kind, uint64_t bytes) {
+    if ((unsigned)kind >= SCHED_IO_KINDS) return;
+    uint64_t f = irq_save();
+    struct sched_io *io = &g_kernel_io;
+    if (current_index >= 0) {
+        int lead = pid_slot(procs[current_index].tgid);
+        io = &procs[lead >= 0 ? lead : current_index].ext->io;
+    }
+    io->bytes[kind] += bytes;
+    io->ops[kind]++;
+    irq_restore(f);
+}
+
+int scheduler_io_get(int slot, struct sched_io *out) {
+    if (!out) return 0;
+    if (slot == -1) { *out = g_kernel_io; return 1; }
+    if (slot < 0 || slot >= g_slots_ready || procs[slot].state == SCHED_UNUSED) return 0;
+    uint64_t f = irq_save();
+    *out = procs[slot].ext->io;
+    irq_restore(f);
+    return 1;
 }
 
 int scheduler_tgid(int pid) {

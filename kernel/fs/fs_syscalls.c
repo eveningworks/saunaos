@@ -821,7 +821,10 @@ static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
     // of an emptied file is its end.
     uint64_t at = f->file.append ? fs_size(f->file.name) : f->file.pos;
     int ok = fs_write_range(f->file.name, at, tmp, (uint32_t)len);
-    if (ok) f->file.pos = at + len;
+    if (ok) {
+        f->file.pos = at + len;
+        scheduler_io_charge(SCHED_IO_FILE_WRITE, len);
+    }
     // The COUNT IS NOW HONEST. Reporting `len` unconditionally is what
     // let the truncation go unnoticed: every caller checked its return
     // value and every one of them was told it had succeeded.
@@ -862,6 +865,7 @@ static int file_fd_read(struct syscall_ctx *c, struct open_file *f,
         return 0;
     }
     f->file.pos += n;
+    scheduler_io_charge(SCHED_IO_FILE_READ, n);
     regs[14] = n;
     kfree(kbuf);
     return 0;

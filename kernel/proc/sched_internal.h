@@ -95,6 +95,9 @@ struct sched_slot_ext {
     // threads read their leader's. NULL = unrestricted. A reference this
     // slot owns, taken at spawn or fork and dropped by slot_free().
     struct sandbox *sandbox;
+    // I/O charged to this process (scheduler.h's struct sched_io). A
+    // LEADER's only, like the sandbox: a thread charges its leader.
+    struct sched_io io;
 };
 
 struct sched_process {

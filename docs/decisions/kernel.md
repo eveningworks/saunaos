@@ -9571,3 +9571,30 @@ runs out is ended -- the tab shows "Aw, Snap! Out of memory".
 out anyway -- that is still whoever faults (the roadmap's "an
 out-of-memory killer"). Limit any other resource: every other
 `RLIMIT_*` still reads unlimited, and setrlimit() refuses to pretend.
+
+## Per-process I/O is counted twice: what reached a disk, and what a program asked for
+
+`QUERY_PROCIO` is Linux's `/proc/<pid>/io`, always on, and it keeps the
+same two kinds Linux does rather than one number, because they answer
+different questions. **DISK** (`read_bytes`/`write_bytes`) is charged in
+the block layer to whichever process is on the CPU when a transfer
+completes, metadata included -- so `/tmp` (ramfs) and a network share cost
+nothing, and a `stat()` poller that never `read()`s still shows. **FILE**
+(`rchar`/`wchar`) is charged in the file `read()`/`write()` syscalls --
+what the program asked for, whatever it cost. Task Manager's Read and
+Write columns are the disk kind (iotop's, Resource Monitor's); its details
+pane shows both.
+
+**Charged to the LEADER**, so a process's threads add up and a thread
+exiting loses nothing; a slot's counters are cleared in `slot_free()`.
+With no process on the CPU the charge goes to a kernel bucket, reported as
+pid 0. **A deferred journal commit is charged to whoever is running when
+it is written** -- under `storage.sync = batched` that is often not the
+program that dirtied the data. Linux charges writes at page dirtying for
+exactly this reason, which needs a page cache this kernel does not have;
+the misattribution is stated in the ABI rather than hidden.
+
+Why not `cachesim -t`'s tables, which already attributed reads by process:
+those are bounded heavy-hitter tables that drop light readers and exist
+only with the `cachesim` boot word. A column in Task Manager has to be
+exact for every process on every boot, which a per-slot counter is.

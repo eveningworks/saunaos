@@ -638,8 +638,25 @@ struct query_cachesim {
 // file pages read -- filetop's view.
 #define QUERY_CACHESIM_PROC 55
 #define QUERY_CACHESIM_PATH 56
+
+// EACH PROCESS'S I/O SINCE IT STARTED -- Linux's /proc/<pid>/io, always
+// on. A LIST, one record per process (threads are their leader's), and
+// one for the kernel itself with pid 0. Cumulative: a rate is two reads
+// and a difference (lib/uprocio.h). `disk_*` reached a block device;
+// `file_*` is every read()/write() through a file, /tmp and network
+// shares included (api/scheduler.h's struct sched_io).
+#define QUERY_PROCIO 57
 #define QUERY_CACHESIM_NAME 16
 #define QUERY_CACHESIM_PATH_MAX 96
+
+struct query_procio {
+    int32_t  pid;        // 0 = the kernel
+    int32_t  pad;
+    uint64_t disk_read_bytes, disk_write_bytes;
+    uint64_t disk_reads, disk_writes;     // commands
+    uint64_t file_read_bytes, file_write_bytes;
+    uint64_t file_reads, file_writes;     // calls
+};
 
 struct query_cachesim_proc {
     uint64_t pid;

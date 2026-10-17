@@ -10,6 +10,7 @@
 #include "driver.h" // driver_bound() -- `lsdrv`
 #include "block_stat.h"
 #include "cachesim.h"     // what a block cache would have hit, when measuring
+#include "scheduler.h"    // who the I/O is charged to
 #include "clocksource.h" // clocksource_now_ns() -- the stat timers
 #include "heap.h"        // the partial-block bounce buffer
 #include "devevent.h"
@@ -240,6 +241,14 @@ static int aligned(const struct block_device *dev, uint64_t lba, uint32_t count,
 // A FAILED CALL IS STILL TIMED. A command that timed out is the most
 // expensive one the layer ever issues, and dropping it from the total
 // would make a disk look faster the worse it was behaving.
+// A transfer that reached the device: the process it is charged to
+// (api/scheduler.h's per-process I/O) and, when measuring, the ghost
+// caches. Every successful read and write passes here once.
+static void account(const struct block_device *dev, uint64_t lba, uint32_t count, int write) {
+    scheduler_io_charge(write ? SCHED_IO_DISK_WRITE : SCHED_IO_DISK_READ, (uint64_t)count * 512);
+    cachesim_block_io(dev, lba, count, write);
+}
+
 static int io_read(const struct block_device *dev, uint64_t lba,
                    int count, void *buf) {
     if (fault_should_fail_block_read()) return 0;
@@ -248,7 +257,7 @@ static int io_read(const struct block_device *dev, uint64_t lba,
     int ok = dev->read_sectors(dev, lba, count, buf);
     blk_stat_add(BLK_STAT_READ, (uint32_t)(count < 0 ? 0 : count),
                  clocksource_now_ns() - t0, ok);
-    if (ok && count > 0) cachesim_block_io(dev, lba, (uint32_t)count, 0);
+    if (ok && count > 0) account(dev, lba, (uint32_t)count, 0);
     return ok;
 }
 
@@ -260,7 +269,7 @@ static int io_write(const struct block_device *dev, uint64_t lba,
     int ok = dev->write_sectors(dev, lba, count, buf);
     blk_stat_add(BLK_STAT_WRITE, (uint32_t)(count < 0 ? 0 : count),
                  clocksource_now_ns() - t0, ok);
-    if (ok && count > 0) cachesim_block_io(dev, lba, (uint32_t)count, 1);
+    if (ok && count > 0) account(dev, lba, (uint32_t)count, 1);
     return ok;
 }
 
@@ -356,7 +365,7 @@ int blkdev_submit_batch(const struct block_device *dev, struct blk_io *io, int n
                 : dev->read_sectors(dev, io[i].lba, io[i].count, io[i].buf));
             blk_stat_add(io[i].write ? BLK_STAT_WRITE : BLK_STAT_READ, io[i].count,
                          clocksource_now_ns() - t0, io[i].ok);
-            if (io[i].ok) cachesim_block_io(dev, io[i].lba, io[i].count, io[i].write);
+            if (io[i].ok) account(dev, io[i].lba, io[i].count, io[i].write);
             if (!io[i].ok) all = 0;
         }
         return all;
@@ -370,7 +379,7 @@ int blkdev_submit_batch(const struct block_device *dev, struct blk_io *io, int n
     for (int i = 0; i < n; i++) {
         blk_stat_add(io[i].write ? BLK_STAT_WRITE : BLK_STAT_READ,
                      io[i].count, share, io[i].ok);
-        if (io[i].ok) cachesim_block_io(dev, io[i].lba, io[i].count, io[i].write);
+        if (io[i].ok) account(dev, io[i].lba, io[i].count, io[i].write);
     }
     return all;
 }
