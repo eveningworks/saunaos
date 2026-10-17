@@ -2,5 +2,5 @@
 Name=Web Browser
 Exec=/bin/wm/apps/browser
 Category=network
-Comment=Web pages, with NetSurf's engine -- local pages for now
+Comment=Websites and local pages, with NetSurf's engine
 Icon=browser
