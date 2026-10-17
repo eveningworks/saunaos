@@ -300,6 +300,28 @@ Imperative subject under ~72 characters, prefixed with the area
 every changed file is still listed with a one-line note, because that is
 what makes a commit skimmable without the diff.
 
+## A release is a minor version, and 0.9 is followed by 0.10
+
+Settled 2026-10-17, at the 0.5.0 release, when the maintainer worried
+the numbers were "going too fast for version 1.0.0" and proposed
+counting releases in patch steps (0.5.1, 0.5.2) instead.
+
+**What real projects do.** SemVer reserves the patch number for fixes,
+so 0.5.1 reads as a bugfix release. Pre-1.0 projects do not stop at 0.9:
+Zig is at 0.13, Hyprland at 0.45, Neovim at 0.11, and Rust went from
+0.12 to 1.0. In each, 1.0 is a declared promise -- a stable interface,
+something you can depend on -- not the number after 0.9. Ubuntu and
+Windows avoid the question with dates (24.04, 24H2).
+
+**What toy-os does.** Each release bumps the MINOR number and the next
+dev round opens one above it: 0.5.0, then `0.6.0-dev`, ... 0.9.0, then
+0.10.0. The patch number stays free for a fix to a release that has
+already shipped (0.5.1), which the patch-step scheme would have left
+with no number of its own. **1.0 waits for a criterion written down
+here**, not for the count to reach it; none is written yet.
+`tools/set_version.sh` takes any string, so nothing enforces this --
+this entry is the rule.
+
 ## A dev build shows its commit; a release shows only its version
 
 `VERSION` changes about twice a milestone, so for the hundreds of builds
