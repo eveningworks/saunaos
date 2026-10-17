@@ -7,6 +7,7 @@
 // File Manager's and System Settings' arrangement (userland/fm/,
 // userland/settings/).
 
+#include "lib/uprocio.h"
 #include <stdint.h>
 #include "rt/sys.h"
 #include "lib/umemcomp.h"
@@ -31,6 +32,9 @@ struct uui_menubar;
 
 enum { TM_GROUP_APPS, TM_GROUP_BACKGROUND, TM_GROUP_SYSTEM, TM_GROUPS };
 
+// Task Manager's own options: the Processes columns (docs/filesystem-layout.md).
+#define TM_CONF "/etc/taskmgr.conf"
+
 #define TM_PATH_MAX 96
 #define TM_NAME_MAX 32
 
@@ -46,6 +50,7 @@ struct tm_proc {
     char name[PROC_NAME_MAX]; // the process's own
     char title[TM_NAME_MAX];  // what the table shows: the entry's Name, else `name`
     char path[TM_PATH_MAX];   // "" when the kernel does not know
+    struct uprocio_rate io;   // disk and file I/O, rates and totals (lib/uprocio.h)
 };
 
 // Sized from sys_proc_max() at startup; g_proc_cap is that size.
@@ -57,6 +62,8 @@ extern unsigned g_cpu_pm;          // the whole machine, per mille
 extern unsigned long long g_mem_used, g_mem_total;
 extern struct umem_comp g_mem_comp;  // where g_mem_used is, in four rows
 extern int g_threads;              // every thread, the processes' included
+extern struct uprocio g_io;        // the I/O sampler: every process, per refresh
+extern struct uprocio_rate g_kernel_io;   // the kernel's own (pid 0)
 
 int tm_proc_row(int pid);          // g_proc index of `pid`, or -1
 const char *tm_status_text(const struct tm_proc *p);

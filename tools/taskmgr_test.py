@@ -535,6 +535,14 @@ def main():
                     check("...in meminfo's proportions (each part within 4 px)",
                           all(abs(w - x) <= 4 for w, x in zip(widths, want)),
                           f"widths={widths} want={[round(x) for x in want]}")
+            # Disk: bytes AND operations, and who is doing it (lib/uprocio.h).
+            click((dv[0] + dv[2] // 2, dv[1] + 2 * ih + ih // 2))
+            lay = wait_layout(dbg, lambda l: l.get("device", (0,))[0] == 2
+                              and "perfops" in l and "topdisk" in l)
+            ops, top = lay.get("perfops", (0, 0, 0, 0)), lay.get("topdisk", (0, 0, 0, 0))
+            check("Disk shows an Operations chart beside Bytes, and its top users",
+                  lay.get("device") == (2, "Disk") and ops[2] > 0 and top[2] > 0 and top[3] > 0,
+                  f"device={lay.get('device')} perfops={ops} topdisk={top}")
             click((dv[0] + dv[2] // 2, dv[1] + 3 * ih + ih // 2))
             lay = wait_layout(dbg, lambda l: l.get("device", (0,))[0] == 3 and "connlog" in l)
             check("selecting the card shows Ethernet and its connection log",
@@ -585,6 +593,47 @@ def main():
         else:
             check(f"{SERVICE} is listed and running, to stop and start", False, f"{names}")
 
+    # --- COLUMNS: chosen from the header's menu, dragged, remembered --------
+    #
+    # The menu is driven by the KEYBOARD (Down, Enter): its rows are not in
+    # the layout log, and a menu the keys cannot drive is a bug of its own.
+    # The drag uses the REAL pointer (DebugConsole.drag_real): a client
+    # never sees `gui drag`'s injected motion. The result is read back from
+    # /etc/taskmgr.conf, the app's own saved layout (uui_table.h), and
+    # after the restart below from the table's geometry.
+    def conf():
+        return dbg.send("sh cat /etc/taskmgr.conf") or ""
+
+    rail = _layout.get("rail")
+    rh = _layout.get("rail.row_h")
+    if rail and rh:
+        click((rail[0] + rail[2] // 2, rail[1] + rh // 2))
+    lay = wait_layout(dbg, lambda l: l.get("page") == 0 and "table.col7" in l)
+    if check("back on Processes, with the Read and Write columns",
+             "table.col7" in lay and lay["table.col6"][2] > 0 and lay["table.col7"][2] > 0,
+             f"col6={lay.get('table.col6')} col7={lay.get('table.col7')}"):
+        t, hh = lay["table"], lay["table.header_h"]
+        head_y = t[1] + hh // 2
+        pid = lay["table.col1"]
+        dbg.rclick(cx + pid[0] + pid[2] // 2, cy + head_y)
+        dbg.settle()
+        dbg.key(K_DOWN)
+        dbg.key("0x0a")
+        dbg.settle()
+        c = conf()
+        check("the header's menu hides PID (Down skips the locked Name), and it is saved",
+              "-pid" in c and "name," in c, c.strip())
+        cpu, wr = lay["table.col3"], lay["table.col7"]
+        dbg.drag_real(qmp, cx + cpu[0] + cpu[2] // 2, cy + head_y,
+                      cx + wr[0] + wr[2] + 10, cy + head_y, steps=8)
+        c = conf()
+        order = [w.lstrip("-") for w in c.strip().split("=", 1)[-1].split(",")]
+        check("dragging CPU past Write moves it there, and it is saved",
+              "cpu" in order and "write" in order and order.index("cpu") == order.index("write") + 1,
+              c.strip())
+        check("...and the drag did not sort by CPU",
+              _layout.get("sort", (0, 0))[0] != 3, f"sort={_layout.get('sort')}")
+
     # --- NARROW: the Name column keeps its room ----------------------------
     #
     # The details pane steps aside when the table would squeeze Name. A
@@ -622,6 +671,12 @@ def main():
     check("...and Force Quit is inside the window",
           w is not None and bk[0] + bk[2] <= w["content"]["w"],
           f"Force Quit ends at {bk[0] + bk[2]} of {w and w['content']['w']}")
+    # The columns chosen above came back with it: PID still hidden, CPU
+    # still after Write.
+    pid, cpu, wr = (narrow.get(f"table.col{i}", (0, 0, 0, 0)) for i in (1, 3, 7))
+    check("a reopened Task Manager keeps its columns: PID hidden, CPU after Write",
+          pid[2] == 0 and cpu[2] > 0 and cpu[0] >= wr[0] + wr[2],
+          f"pid={pid} cpu={cpu} write={wr}")
 
     # --- it survived its own operation -----------------------------------
     check("Task Manager is still running", window(dbg) is not None)

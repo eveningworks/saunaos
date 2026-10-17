@@ -23,6 +23,7 @@
 // for a confirmation dialog. Stop and Continue are SIGSTOP/SIGCONT and
 // need no confirmation: each undoes the other.
 #include <stdint.h>
+#include "lib/uconf.h"   // the saved column layout
 #include <string.h>
 #include <strings.h>
 #include <stdio.h>
@@ -96,6 +97,7 @@ static void fill_kinds(void) {
         p->group = TM_GROUP_SYSTEM;
         p->app = -1;
         p->private_bytes = bytes[k];
+        if (k == KIND_KERNEL) p->io = g_kernel_io;
         strlcpy(p->name, KIND_NAME[k], sizeof p->name);
         strlcpy(p->title, KIND_NAME[k], sizeof p->title);
     }
@@ -126,22 +128,60 @@ static void toggle_fold(int pid) {
 
 // --- the table ----------------------------------------------------------
 
-enum { COL_NAME = 0, COL_PID, COL_STATUS, COL_CPU, COL_PRIVATE, COL_SHARED };
+enum { COL_NAME = 0, COL_PID, COL_STATUS, COL_CPU, COL_PRIVATE, COL_SHARED,
+       COL_READ, COL_WRITE, COL_THREADS, COL_CPUTIME, COL_READ_TOTAL, COL_WRITE_TOTAL,
+       COL_FILE_READ, COL_FILE_WRITE, COL_PATH };
 // The machine's totals are the status bar's, not the headers': a title
 // that grows a digit when the load does is clipped by the sort arrow.
+// Columns are CHOSEN (right-click the header) and MOVED (drag one), and
+// the layout is kept in /etc/taskmgr.conf by these ids -- so an id is
+// never renamed, and a new column takes a new one.
 static const struct uui_table_column COLUMNS[] = {
-    { "Name",   0, UUI_TALIGN_LEFT  },
-    { "PID",    6, UUI_TALIGN_RIGHT },
-    { "Status", 18, UUI_TALIGN_LEFT },
-    { "CPU",    7, UUI_TALIGN_RIGHT },
+    { "Name",   0, UUI_TALIGN_LEFT, "name", UUI_TCOL_LOCKED },
+    { "PID",    6, UUI_TALIGN_RIGHT, "pid", 0 },
+    { "Status", 18, UUI_TALIGN_LEFT, "status", 0 },
+    { "CPU",    7, UUI_TALIGN_RIGHT, "cpu", 0 },
     // PRIVATE sums to the memory in use; SHARED is what it maps that
     // another owner holds (abi/proc_info.h), so it is not summed.
-    { "Private", 10, UUI_TALIGN_RIGHT },
-    { "Shared", 10, UUI_TALIGN_RIGHT },
+    { "Private", 10, UUI_TALIGN_RIGHT, "private", 0 },
+    { "Shared", 10, UUI_TALIGN_RIGHT, "shared", 0 },
+    // DISK I/O, a second's worth: what reached a block device (Linux's
+    // read_bytes/write_bytes), so /tmp and a network share are not in it.
+    { "Read", 10, UUI_TALIGN_RIGHT, "read", 0 },
+    { "Write", 10, UUI_TALIGN_RIGHT, "write", 0 },
+    // Hidden until chosen.
+    { "Threads", 8, UUI_TALIGN_RIGHT, "threads", UUI_TCOL_HIDDEN },
+    { "CPU time", 10, UUI_TALIGN_RIGHT, "cputime", UUI_TCOL_HIDDEN },
+    { "Read, total", 11, UUI_TALIGN_RIGHT, "read_total", UUI_TCOL_HIDDEN },
+    { "Written, total", 11, UUI_TALIGN_RIGHT, "write_total", UUI_TCOL_HIDDEN },
+    // FILE I/O: every read()/write() on a file, /tmp and shares included.
+    { "File read", 11, UUI_TALIGN_RIGHT, "file_read", UUI_TCOL_HIDDEN },
+    { "File write", 11, UUI_TALIGN_RIGHT, "file_write", UUI_TCOL_HIDDEN },
+    { "Path", 20, UUI_TALIGN_LEFT, "path", UUI_TCOL_HIDDEN },
 };
 #define COL_COUNT ((int)(sizeof COLUMNS / sizeof COLUMNS[0]))
 
 static struct uui_table g_table;
+
+// A rate: "0 B/s", "18.6 MiB/s" -- the Disk page's units.
+static void rate_cell(char *out, int cap, unsigned long long bps) {
+    char n[24];
+    human_size_iec(n, (int)sizeof n, bps);
+    snprintf(out, (size_t)cap, "%s/s", n);
+}
+
+// The I/O columns, shared by processes and the Kernel row.
+static int io_cell(const struct tm_proc *p, int col, char *out, int cap) {
+    switch (col) {
+    case COL_READ:        rate_cell(out, cap, p->io.read_bps); return 1;
+    case COL_WRITE:       rate_cell(out, cap, p->io.write_bps); return 1;
+    case COL_READ_TOTAL:  human_size_iec(out, cap, p->io.total.disk_read_bytes); return 1;
+    case COL_WRITE_TOTAL: human_size_iec(out, cap, p->io.total.disk_write_bytes); return 1;
+    case COL_FILE_READ:   rate_cell(out, cap, p->io.file_read_bps); return 1;
+    case COL_FILE_WRITE:  rate_cell(out, cap, p->io.file_write_bps); return 1;
+    default:              return 0;
+    }
+}
 
 static void cell(void *ctx, int row, int col, char *out, int cap) {
     (void)ctx;
@@ -152,8 +192,10 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
         if (col == COL_NAME) strlcpy(out, p->title, (size_t)cap);
         else if (col == COL_STATUS) strlcpy(out, KIND_NOTE[-1 - p->pid], (size_t)cap);
         else if (col == COL_PRIVATE) human_size_iec(out, cap, p->private_bytes);
+        else if (p->pid == -1 - KIND_KERNEL) io_cell(p, col, out, cap);   // the kernel's own I/O
         return;
     }
+    if (io_cell(p, col, out, cap)) return;
     switch (col) {
     case COL_NAME:   strlcpy(out, p->title[0] ? p->title : "(unnamed)", (size_t)cap); break;
     case COL_PID:    snprintf(out, (size_t)cap, "%d", p->pid); break;
@@ -167,9 +209,18 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
         break;
     case COL_PRIVATE:    human_size_iec(out, cap, p->private_bytes); break;
     case COL_SHARED: human_size_iec(out, cap, p->shared_bytes); break;
+    case COL_THREADS: snprintf(out, (size_t)cap, "%d", p->threads); break;
+    case COL_CPUTIME: {
+        unsigned long long sec = p->cpu_ns / 1000000000ULL;
+        snprintf(out, (size_t)cap, "%llu:%02llu:%02llu", sec / 3600, sec / 60 % 60, sec % 60);
+        break;
+    }
+    case COL_PATH: strlcpy(out, p->path, (size_t)cap); break;
     default: break;
     }
 }
+
+static int cmp_u64(unsigned long long a, unsigned long long b) { return a < b ? -1 : a > b; }
 
 // On the REAL values, never the formatted cells (uui_table.h).
 static int compare_rows(void *ctx, int a, int b, int col) {
@@ -195,6 +246,15 @@ static int compare_rows(void *ctx, int a, int b, int col) {
     case COL_SHARED:
         if (x->shared_bytes < y->shared_bytes) return -1;
         return x->shared_bytes > y->shared_bytes ? 1 : 0;
+    case COL_READ:        return cmp_u64(x->io.read_bps, y->io.read_bps);
+    case COL_WRITE:       return cmp_u64(x->io.write_bps, y->io.write_bps);
+    case COL_THREADS:     return x->threads - y->threads;
+    case COL_CPUTIME:     return cmp_u64(x->cpu_ns, y->cpu_ns);
+    case COL_READ_TOTAL:  return cmp_u64(x->io.total.disk_read_bytes, y->io.total.disk_read_bytes);
+    case COL_WRITE_TOTAL: return cmp_u64(x->io.total.disk_write_bytes, y->io.total.disk_write_bytes);
+    case COL_FILE_READ:   return cmp_u64(x->io.file_read_bps, y->io.file_read_bps);
+    case COL_FILE_WRITE:  return cmp_u64(x->io.file_write_bps, y->io.file_write_bps);
+    case COL_PATH:        return strcmp(x->path, y->path);
     default:         return 0;
     }
 }
@@ -229,6 +289,13 @@ static int heat_of(void *ctx, int row, int col) {
     if (col == COL_PRIVATE && g_mem_total) {
         unsigned long long pm = p->private_bytes * 1000ULL / g_mem_total;
         return pm < 2 ? 0 : pm < 10 ? 60 : pm < 30 ? 120 : pm < 100 ? 180 : 255;
+    }
+    if (col == COL_READ || col == COL_WRITE) {
+        // A second's disk traffic, in bands: an idle poller (a few KiB/s)
+        // shows faintly, a copy (tens of MiB/s) stands out.
+        unsigned long long b = col == COL_READ ? p->io.read_bps : p->io.write_bps;
+        return b < 1024 ? 0 : b < 100 * 1024 ? 60 : b < 1024 * 1024 ? 120 :
+               b < 10 * 1024 * 1024 ? 180 : 255;
     }
     return 0;
 }
@@ -269,13 +336,16 @@ static void set_labels(void) {
 
 // --- the details pane ------------------------------------------------------
 
-#define DETAIL_ROWS 9
+#define DETAIL_ROWS 11
 static struct uui_label g_d_title, g_d_sub;
 static struct uui_label g_d_key[DETAIL_ROWS], g_d_val[DETAIL_ROWS];
 static char g_d_title_text[TM_NAME_MAX], g_d_sub_text[48];
 static char g_d_val_text[DETAIL_ROWS][TM_PATH_MAX];
 static const char *const DETAIL_KEYS[DETAIL_ROWS] = {
     "Path", "Parent", "Group", "Threads", "Status", "CPU time", "Private", "Shared", "Service",
+    // The rates only: the totals are columns (Read, total; Written,
+    // total), and a taller pane made the default window too tall to grow.
+    "Disk", "File I/O",
 };
 static struct uui_chart g_pcpu, g_pmem;
 static int g_tracked;   // the pid the two charts are for
@@ -321,6 +391,7 @@ static void fill_details(void) {
         strlcpy(g_d_sub_text, KIND_DETAIL[-1 - p->pid], sizeof g_d_sub_text);
         for (int i = 0; i < DETAIL_ROWS; i++) strlcpy(g_d_val_text[i], "-", TM_PATH_MAX);
         human_size_iec(g_d_val_text[6], TM_PATH_MAX, p->private_bytes);
+        if (p->pid == -1 - KIND_KERNEL) goto io;
         return;
     }
     snprintf(g_d_sub_text, sizeof g_d_sub_text, "%s, pid %d", p->name, p->pid);
@@ -338,6 +409,16 @@ static void fill_details(void) {
     human_size_iec(g_d_val_text[7], TM_PATH_MAX, p->shared_bytes);
     int s = tm_service_of_pid(p->pid);
     strlcpy(g_d_val_text[8], s >= 0 ? g_svc[s].name : "-", TM_PATH_MAX);
+io:;
+    // Both kinds: what reached a disk (the columns' own), and every
+    // read()/write() on a file, /tmp and network shares included.
+    char r[24], w[24];
+    rate_cell(r, (int)sizeof r, p->io.read_bps);
+    rate_cell(w, (int)sizeof w, p->io.write_bps);
+    snprintf(g_d_val_text[9], TM_PATH_MAX, "R %s  W %s", r, w);
+    rate_cell(r, (int)sizeof r, p->io.file_read_bps);
+    rate_cell(w, (int)sizeof w, p->io.file_write_bps);
+    snprintf(g_d_val_text[10], TM_PATH_MAX, "R %s  W %s", r, w);
 }
 
 // --- the status bar --------------------------------------------------------
@@ -582,6 +663,17 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
 // A button names itself on press, motion AND release; it has committed
 // only on the release (or a key). Acting on every report sent each
 // signal three or four times.
+// The Processes table's columns, as the header's menu and a drag left
+// them -- /etc/taskmgr.conf's `columns`, ids in order (uui_table.h).
+static void save_columns(void) {
+    char layout[256];
+    if (!uui_table_columns_save(&g_table, layout, sizeof layout)) return;
+    if (!uconf_set(TM_CONF, "columns", layout))
+        ulogf("taskmgr: could not save the columns to %s\n", TM_CONF);
+    else
+        ulogf("taskmgr: columns %s\n", layout);
+}
+
 static int on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     menu_closed_check();
@@ -596,6 +688,7 @@ static int on_widget(struct uapp *a, int id, int reason) {
         // rows, so only a fold rebuilds them (a rebuild per pointer move
         // was the flicker).
         int t = uui_table_take_toggled(&g_table);
+        if (uui_table_take_layout_changed(&g_table)) save_columns();
         const struct tm_proc *hp = row_proc(g_table.hovered);
         g_hover_pid = hp ? hp->pid : 0;
         const struct tm_proc *p = row_proc(g_table.selected);
@@ -705,6 +798,12 @@ void tm_procs_init(struct tm_page *page) {
     uui_table_set_sort(&g_table, COL_NAME, 1);
     uui_table_set_heat(&g_table, heat_of);
     uui_table_set_icon(&g_table, icon_of);
+    // Columns chosen from the header's menu and dragged, the whole
+    // column lifting (C3); the layout is the one saved last time.
+    uui_table_set_columns_mode(&g_table, UUI_TABLE_COLS_COLUMN);
+    char layout[256];
+    if (uconf_get(TM_CONF, "columns", layout, sizeof layout)) uui_table_columns_load(&g_table, layout);
+    uui_table_take_layout_changed(&g_table);
     apply_view();
 
     uui_textbox_init(&g_search, "");
@@ -805,12 +904,18 @@ int tm_procs_fit(void) {
     return 0;
 }
 
-// The narrowest the page can be with its whole toolbar showing: the
-// bar's natural width (the filter asks for none) plus a usable filter.
+// The narrowest the page can be: its whole toolbar showing -- the bar's
+// natural width (the filter asks for none) plus a usable filter -- and
+// the SHOWN columns with Name keeping tm_procs_fit()'s twelve digits.
+// There is no horizontal scroll, so a minimum below that squeezed Name to
+// its title; hiding columns from the header's menu lowers it again.
 int tm_procs_min_width(void) {
     int w = 0, h = 0;
     uui_layout_natural_size(&BAR, &w, &h);
-    return w + ugfx_char_advance('0') * 10;
+    int bar = w + ugfx_char_advance('0') * 10;
+    uui_table_natural_size(&g_table, &w, &h);
+    int table = w + ugfx_char_advance('0') * 12;
+    return bar > table ? bar : table;
 }
 
 // The details pane's width, pinned: a pane that sized itself to the

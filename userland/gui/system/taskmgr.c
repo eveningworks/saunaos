@@ -48,6 +48,8 @@ unsigned g_cpu_pm;
 unsigned long long g_mem_used, g_mem_total;
 struct umem_comp g_mem_comp;
 int g_threads;
+struct uprocio g_io;
+struct uprocio_rate g_kernel_io;
 
 // Last tick's CPU totals, BY PID: rows move as processes come and go, so
 // indexing by row would charge one process's time to whichever landed
@@ -215,6 +217,12 @@ static void refresh_model(void) {
         apps += pm.private_bytes;
         int r = tm_proc_row(pm.pid);
         if (r >= 0) { g_proc[r].private_bytes = pm.private_bytes; g_proc[r].shared_bytes = pm.shared_bytes; }
+    }
+    // I/O per process: two reads of QUERY_PROCIO a refresh apart.
+    if (uprocio_update(&g_io) >= 0) {
+        for (int i = 0; i < n; i++)
+            if (!uprocio_rate(&g_io, g_proc[i].pid, &g_proc[i].io)) memset(&g_proc[i].io, 0, sizeof g_proc[i].io);
+        if (!uprocio_rate(&g_io, 0, &g_kernel_io)) memset(&g_kernel_io, 0, sizeof g_kernel_io);
     }
     classify();
 
@@ -385,8 +393,10 @@ static void on_size(int *w, int *h) {
     tm_procs_size();
     int nw = 0, nh = 0;
     uui_layout_natural_size(&LAYOUT, &nw, &nh);
-    // Names, and the filter box, which asks for no width of its own.
-    *w = nw + ugfx_char_advance('0') * (18 + 16);
+    // Room for names beyond the Name title the table asks for. Not for
+    // the filter box as well: the Read and Write columns took that width,
+    // and a default wider than the screen leaves nothing to resize into.
+    *w = nw + ugfx_char_advance('0') * 14;
     *h = ugfx_char_h() * 34;
     if (*h < nh) *h = nh;
 

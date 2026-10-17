@@ -39,7 +39,7 @@
 #include "query_abi.h"
 #include "taskmgr/tm_internal.h"
 
-enum { ID_DEVICES = TM_ID_PERF, ID_CHART, ID_CONNS };
+enum { ID_DEVICES = TM_ID_PERF, ID_CHART, ID_CONNS, ID_OPS, ID_TOP };
 
 enum dev_kind { DEV_CPU, DEV_MEM, DEV_DISK, DEV_NET };
 #define NET_MAX 4
@@ -67,6 +67,66 @@ static int g_sel;   // selected device index
 
 static unsigned long long g_disk_r, g_disk_w, g_disk_rrate, g_disk_wrate;
 static int g_disk_seen;
+// Operations as well as bytes, and what each took: QUERY_BLKSTAT's calls
+// and nanoseconds, so a second's average is the change in both (iostat's
+// r/s, w/s, r_await, w_await). Rates in thousandths, for "0.4".
+static unsigned long long g_disk_rc, g_disk_wc, g_disk_rns, g_disk_wns;
+static unsigned long long g_disk_rops_m, g_disk_wops_m, g_disk_rwait_us, g_disk_wwait_us;
+static struct uui_chart g_ops_chart;
+static char g_ops_val[24];
+
+// --- the Disk page's top users (lib/uprocio.h, sampled with the model) ---
+
+#define TOP_ROWS 5
+static struct { int pid; char name[TM_NAME_MAX]; struct uprocio_rate r; } g_top[TOP_ROWS];
+static int g_ntop;
+static struct uui_table g_toptable;
+static struct uui_label g_toplabel;
+static const struct uui_table_column TOP_COLS[] = {
+    { "Name", 0, UUI_TALIGN_LEFT },
+    { "PID", 6, UUI_TALIGN_RIGHT },
+    { "Read", 11, UUI_TALIGN_RIGHT },
+    { "Write", 11, UUI_TALIGN_RIGHT },
+    { "Reads/s", 8, UUI_TALIGN_RIGHT },
+    { "Writes/s", 8, UUI_TALIGN_RIGHT },
+};
+
+static void top_cell(void *ctx, int row, int col, char *out, int cap);
+
+// The busiest by bytes a second, read + write; an idle second lists
+// nobody rather than five zeros.
+static void read_top(void) {
+    g_ntop = 0;
+    struct uprocio_rate r;
+    for (int i = 0; uprocio_rate_at(&g_io, i, &r); i++) {
+        unsigned long long b = r.read_bps + r.write_bps;
+        if (!b) continue;
+        int at = g_ntop;
+        while (at > 0 && g_top[at - 1].r.read_bps + g_top[at - 1].r.write_bps < b) at--;
+        if (at >= TOP_ROWS) continue;
+        int last = g_ntop < TOP_ROWS ? g_ntop : TOP_ROWS - 1;
+        for (int k = last; k > at; k--) g_top[k] = g_top[k - 1];
+        g_top[at].pid = r.pid;
+        g_top[at].r = r;
+        int pr = r.pid ? tm_proc_row(r.pid) : -1;
+        strlcpy(g_top[at].name, r.pid == 0 ? "Kernel" : pr >= 0 ? g_proc[pr].title : "?",
+                sizeof g_top[at].name);
+        if (g_ntop < TOP_ROWS) g_ntop++;
+    }
+    uui_table_set_rows(&g_toptable, g_ntop);
+}
+
+// A per-second count in thousandths, as "301" or "0.4".
+static void ops_str(char *out, int cap, unsigned long long m) {
+    if (m < 10000) snprintf(out, (size_t)cap, "%llu.%llu", m / 1000, m / 100 % 10);
+    else snprintf(out, (size_t)cap, "%llu", m / 1000);
+}
+
+// An average in microseconds, as "0.21 ms" or "-" when nothing ran.
+static void wait_str(char *out, int cap, unsigned long long us, unsigned long long ops_m) {
+    if (!ops_m) { snprintf(out, (size_t)cap, "-"); return; }
+    snprintf(out, (size_t)cap, "%llu.%02llu ms", us / 1000, us / 10 % 100);
+}
 
 static void rate_str(char *out, int cap, unsigned long long bps) {
     char h[16];
@@ -125,17 +185,29 @@ void tm_perf_sample(void) {
 
     // Disk: every block transfer, read and written -- QUERY_BLKSTAT is
     // the whole machine's, not per device.
-    unsigned long long r = 0, w = 0;
+    unsigned long long r = 0, w = 0, rc = 0, wc = 0, rns = 0, wns = 0;
     struct query_blkstat bs;
     QUERY_FOREACH(QUERY_BLKSTAT, bs, i) {
-        if (!strcmp(bs.name, "read"))  r += bs.sectors * 512ULL;
-        if (!strcmp(bs.name, "write")) w += bs.sectors * 512ULL;
+        if (!strcmp(bs.name, "read"))  { r += bs.sectors * 512ULL; rc += bs.calls; rns += bs.ns; }
+        if (!strcmp(bs.name, "write")) { w += bs.sectors * 512ULL; wc += bs.calls; wns += bs.ns; }
     }
     if (g_disk_seen) {
         g_disk_rrate = per_second(r, g_disk_r);
         g_disk_wrate = per_second(w, g_disk_w);
+        g_disk_rops_m = per_second(rc * 1000, g_disk_rc * 1000);
+        g_disk_wops_m = per_second(wc * 1000, g_disk_wc * 1000);
+        g_disk_rwait_us = rc > g_disk_rc ? (rns - g_disk_rns) / (rc - g_disk_rc) / 1000 : 0;
+        g_disk_wwait_us = wc > g_disk_wc ? (wns - g_disk_wns) / (wc - g_disk_wc) / 1000 : 0;
     }
     g_disk_r = r; g_disk_w = w; g_disk_seen = 1;
+    g_disk_rc = rc; g_disk_wc = wc; g_disk_rns = rns; g_disk_wns = wns;
+    uui_chart_push_split(&g_ops_chart, (uint32_t)((g_disk_rops_m + g_disk_wops_m) / 1000),
+                         (uint32_t)(g_disk_wops_m / 1000));
+    {
+        char o[16];
+        ops_str(o, sizeof o, g_disk_rops_m + g_disk_wops_m);
+        snprintf(g_ops_val, sizeof g_ops_val, "%s /s", o);
+    }
     struct dev *disk = &g_dev[DEV_DISK];
     uui_chart_push_split(&disk->chart, (uint32_t)(g_disk_rrate + g_disk_wrate),
                          (uint32_t)g_disk_wrate);
@@ -375,6 +447,22 @@ static void add_stat(const char *k, const char *fmt, ...) {
     g_nstats++;
 }
 
+static void top_cell(void *ctx, int row, int col, char *out, int cap) {
+    (void)ctx;
+    out[0] = '\0';
+    if (row < 0 || row >= g_ntop) return;
+    const struct uprocio_rate *r = &g_top[row].r;
+    switch (col) {
+    case 0: strlcpy(out, g_top[row].name, (size_t)cap); break;
+    case 1: if (g_top[row].pid) snprintf(out, (size_t)cap, "%d", g_top[row].pid); break;
+    case 2: rate_str(out, cap, r->read_bps); break;
+    case 3: rate_str(out, cap, r->write_bps); break;
+    case 4: ops_str(out, cap, r->read_mops); break;
+    case 5: ops_str(out, cap, r->write_mops); break;
+    default: break;
+    }
+}
+
 static void ip_str(char *out, int cap, unsigned long long ip) {
     snprintf(out, (size_t)cap, "%llu.%llu.%llu.%llu", (ip >> 24) & 255, (ip >> 16) & 255,
              (ip >> 8) & 255, ip & 255);
@@ -436,6 +524,14 @@ static void fill_stats(void) {
         add_stat("Read", "%s", a);
         rate_str(a, sizeof a, g_disk_wrate);
         add_stat("Write", "%s", a);
+        ops_str(a, sizeof a, g_disk_rops_m);
+        add_stat("Reads per second", "%s", a);
+        ops_str(a, sizeof a, g_disk_wops_m);
+        add_stat("Writes per second", "%s", a);
+        wait_str(a, sizeof a, g_disk_rwait_us, g_disk_rops_m);
+        add_stat("Average read", "%s", a);
+        wait_str(a, sizeof a, g_disk_wwait_us, g_disk_wops_m);
+        add_stat("Average write", "%s", a);
         human_size_iec(a, sizeof a, g_disk_r);
         add_stat("Read since boot", "%s", a);
         human_size_iec(a, sizeof a, g_disk_w);
@@ -449,6 +545,7 @@ static void fill_stats(void) {
             snprintf(k, sizeof k, "%s (%s)", fs.point, fs.name);
             add_stat(k, "%s of %s", a, b);
         }
+        read_top();
         break;
     }
     case DEV_NET: {
@@ -507,7 +604,9 @@ static struct uui_item HEAD_ITEMS[3];
 static struct uui_layout HEAD;
 static struct uui_item STAT_ITEMS[STATS * 2];
 static struct uui_layout STATS_GRID;
-static struct uui_item SIDE_ITEMS[5];
+static struct uui_item CHART_ITEMS[2];
+static struct uui_layout CHART_ROW;
+static struct uui_item SIDE_ITEMS[7];
 static struct uui_layout SIDE;
 static struct uui_item PAGE_ITEMS[2];
 static struct uui_layout PAGE;
@@ -516,9 +615,12 @@ static struct uui_item g_root = { .ops = &uui_layout_ops, .widget = &PAGE, .name
 static void select_dev(int i) {
     if (i < 0 || i >= g_ndev) return;
     g_sel = i;
-    SIDE_ITEMS[1].widget = &g_dev[i].chart;
+    int disk = g_dev[i].kind == DEV_DISK;
+    CHART_ITEMS[0].widget = &g_dev[i].chart;
+    CHART_ITEMS[1].hidden = !disk;   // Operations, beside Bytes
     SIDE_ITEMS[2].hidden = g_dev[i].kind != DEV_MEM;
     SIDE_ITEMS[4].hidden = g_dev[i].kind != DEV_NET;
+    SIDE_ITEMS[5].hidden = SIDE_ITEMS[6].hidden = !disk;
     if (!SIDE_ITEMS[4].hidden) read_conns();
     fill_stats();
     // A different chart and a shown/hidden log: lay out NOW, or both
@@ -530,7 +632,7 @@ static void select_dev(int i) {
 static int on_widget(struct uapp *a, int id, int reason) {
     (void)a; (void)reason;
     if (id == ID_DEVICES) return 1;   // select_dev() already ran from the press or key
-    if (id == ID_CHART) return 1;
+    if (id == ID_CHART || id == ID_OPS || id == ID_TOP) return 1;
     return 0;
 }
 
@@ -598,8 +700,21 @@ void tm_perf_init(struct tm_page *page) {
     uui_table_set_seek_col(&g_conntable, 3);
 
     SIDE_ITEMS[0] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &HEAD, .flags = UUI_FILL_W };
-    SIDE_ITEMS[1] = (struct uui_item){ .ops = &uui_chart_ops, .widget = &g_dev[0].chart,
-                                        .id = ID_CHART, .name = "perfchart", .flags = UUI_FILL_W };
+    // The chart slot is a ROW: one chart, and on the Disk page a second
+    // beside it -- operations a second, which bytes alone do not show (a
+    // poller reading 4 KiB 300 times a second is 1.2 MB/s and 300 ops).
+    uui_chart_init(&g_ops_chart, "Operations (darker: write)");
+    uui_chart_set_interval(&g_ops_chart, TM_REFRESH_MS);
+    uui_chart_set_scale(&g_ops_chart, 0);
+    uui_chart_set_value(&g_ops_chart, g_ops_val);
+    CHART_ITEMS[0] = (struct uui_item){ .ops = &uui_chart_ops, .widget = &g_dev[0].chart,
+                                         .id = ID_CHART, .name = "perfchart", .flags = UUI_FILL_W };
+    CHART_ITEMS[1] = (struct uui_item){ .ops = &uui_chart_ops, .widget = &g_ops_chart,
+                                         .id = ID_OPS, .name = "perfops", .flags = UUI_FILL_W,
+                                         .hidden = 1 };
+    CHART_ROW = (struct uui_layout){ .dir = UUI_ROW, .items = CHART_ITEMS, .count = 2 };
+    SIDE_ITEMS[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &CHART_ROW,
+                                        .flags = UUI_FILL_W };
     uui_stackbar_init(&g_comp, 2);
     uui_stackbar_add(&g_comp, "Apps and services", 0);
     uui_stackbar_add(&g_comp, "Shared (window buffers)", 0);
@@ -611,6 +726,15 @@ void tm_perf_init(struct tm_page *page) {
                                         .name = "perfstats", .flags = UUI_FILL_W };
     SIDE_ITEMS[4] = (struct uui_item){ .ops = &uui_table_ops, .widget = &g_conntable,
                                         .id = ID_CONNS, .name = "connlog",
+                                        .flags = UUI_FILL_W | UUI_FILL_H, .hidden = 1 };
+    uui_label_init(&g_toplabel, "Top disk users");
+    g_toplabel.font = ugfx_font_session(UGFX_FONT_BOLD);
+    uui_table_init(&g_toptable, 0, 0, 100, 100, TOP_COLS,
+                   (int)(sizeof TOP_COLS / sizeof TOP_COLS[0]), top_cell, 0);
+    SIDE_ITEMS[5] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_toplabel,
+                                        .name = "toplabel", .hidden = 1 };
+    SIDE_ITEMS[6] = (struct uui_item){ .ops = &uui_table_ops, .widget = &g_toptable,
+                                        .id = ID_TOP, .name = "topdisk",
                                         .flags = UUI_FILL_W | UUI_FILL_H, .hidden = 1 };
     SIDE = (struct uui_layout){ .dir = UUI_COLUMN, .items = SIDE_ITEMS,
                                 .count = (int)(sizeof SIDE_ITEMS / sizeof SIDE_ITEMS[0]) };
