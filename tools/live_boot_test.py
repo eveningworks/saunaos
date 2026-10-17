@@ -356,10 +356,18 @@ def main():
             ok = want in got if want else len(got.split()) > 2
             res.check(f"{d} survived the image build", ok, got.strip()[:200])
 
-        # 3. and its data blocks really are reachable
-        out = sh.run("sh run libc_test")
-        res.check("a binary from the live image runs",
-                  "PASS" in out or "pass" in out, out.strip()[:200])
+        # 3. and its data blocks really are reachable. A /bin program,
+        # not one from /tests: a release live image leaves /tests out
+        # (the Makefile's LIVE_TESTS).
+        # Dynamic, so spawned: its effect is the evidence, polled for.
+        sh.run("sh spawn /bin/mkdir /tmp/live_ran")
+        out = ""
+        for _ in range(20):
+            out = sh.run("sh ls /tmp")
+            if "live_ran" in out:
+                break
+            time.sleep(0.5)
+        res.check("a binary from the live image runs", "live_ran" in out, out.strip()[:200])
 
         # 4. and it says so honestly
         # In df's own words: "RAM-only -- won't survive reboot". A live

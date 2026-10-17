@@ -361,3 +361,13 @@ in 15 call-site substitutions plus one include. TFS2 kept its 24 direct
 **Still out of scope, unchanged:** a writable overlay, compression, and
 USB-bootable hybrid ISO layout. (Installing to disk from a live session
 has since been built -- `docs/commands/install.md`.)
+
+**What a release live image carries (2026-10-17).** GRUB reads and
+gunzips the whole image before the kernel runs, so its size IS the boot
+time on a slow host -- in a browser-hosted VM about 105 of 137 s to the
+desktop. Two cuts: every staged program loses its DWARF
+(`tools/strip_staged.py`, unless `STRIP=0`), which was 131 of 186 MiB,
+and a release image (`DEBUGCON=0`, or `LIVE_TESTS=0` named) leaves out
+`/tests` except `/tests/web`, the Web Browser start page's demos. The
+image went from 240 to 61 MiB and the ISO from 119 to 61 MB; GRUB's
+phase under TCG on the development host from ~27 s to ~12.5 s.

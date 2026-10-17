@@ -6005,6 +6005,13 @@ runs first**: a `doom1.wad` with one
   move. Use whichever writer matches the image's magic (both refuse
   the other's images; `trim` before gzipping a release image means
   the MATCHING tool's trim).
+- **`strip_staged.py`** -- `objcopy --strip-debug` over every program
+  and shared library in `seed/sync`, run by the Makefile's `seed` unless
+  `STRIP=0`. The copies under `build/` keep their DWARF for gdb and
+  `panic_resolve.py`; the staged ones were 131 of 186 MiB of the tree,
+  read off a CD by GRUB on every live boot. Keeps `.symtab` (crash
+  reports name functions from it) and leaves kernel modules alone.
+
 - **`seed_disk.py`** -- the format-aware seeding front-end the
   Makefile's `seed` target calls: probes the image's magic, delegates
   `sync` to the matching writer, and formats a blank image with the

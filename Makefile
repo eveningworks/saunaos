@@ -721,7 +721,8 @@ $(BUILD)/kernel/core/kversion.o: FORCE
 
 # --- STRIP and COMPRESS: the two build axes, both ON by default -------
 #
-# STRIP=0 keeps the kernel's debug information IN build/kernel.bin
+# STRIP=0 keeps the kernel's debug information IN build/kernel.bin, and
+# the staged programs' in seed/sync (tools/strip_staged.py),
 # instead of splitting it into build/kernel.debug, for a debugging
 # session that would rather carry one file than two -- gdb against a
 # kernel copied somewhere else, or a machine where kernel.debug cannot
@@ -1914,7 +1915,9 @@ $(KERNEL): $(ASM_OBJECTS) $(C_OBJECTS) $(KRELOCS_O) $(KRELOCS_C) $(KSYMS_O) $(KS
 # to date" and stops the search.
 %.d: ;
 
--include $(shell find $(BUILD) -name '*.d' 2>/dev/null)
+# FILES only, and not the live image's staging copy: a seeded /etc has
+# directories named services.d and mounts.d, which make cannot include.
+-include $(shell find $(BUILD) -path $(BUILD)/live-seed -prune -o -name '*.d' -type f -print 2>/dev/null)
 
 # Only created if it doesn't already exist -- see DISK_IMG's comment
 # above for why this must never overwrite an existing image.
@@ -2332,6 +2335,11 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	else \
 		echo "seed: xkbcli not found -- skipping /usr/share/kbs regeneration (apt-get install libxkbcommon-tools to enable; kernel falls back to compiled-in US regardless)"; \
 	fi
+	# DEBUG INFO STAYS IN build/, for gdb and panic_resolve.py; the staged
+	# copies lose it (STRIP=0 keeps it), which was 131 of 186 MiB of the
+	# tree. Nothing on toy-os reads DWARF; .symtab, which crash reports
+	# name functions from, is kept. tools/strip_staged.py says what is.
+	$(if $(filter 0,$(STRIP)),@echo "  STRIP=0: staged programs keep their debug info",python3 tools/strip_staged.py $(SEED_DIR)/sync)
 	python3 tools/seed_disk.py $(DISK_IMG) $(SEED_DIR) --fbs-done
 	# THE KERNEL GOES ON THE DISK TOO. GRUB cannot read TFS3, so
 	# /boot is a FAT32 partition in front of it and GRUB's core.img
@@ -2398,7 +2406,22 @@ LIVE_IMG    = $(BUILD)/live.img
 # table's own overhead (the 1 MiB alignment gap at the front and GPT's
 # backup structures at the back). Deferred (`=`), so it is measured
 # when the recipe runs -- which is after `seed` has populated the tree.
-LIVE_IMG_MB = $(shell echo $$(( $$(du -sm --apparent-size $(SEED_DIR)/sync 2>/dev/null | cut -f1) * 5 / 4 + 8 )))
+#
+# A SHELL EXPRESSION, run by the recipe line that uses it: the tree it
+# measures may be $(LIVE_SEED), which the recipe itself builds, and make
+# expands a whole recipe before running its first line.
+LIVE_IMG_MB = $$(( $$(du -sm --apparent-size $(LIVE_SEED)/sync | cut -f1) * 5 / 4 + 8 ))
+
+# /tests IS LEFT OUT OF A RELEASE LIVE IMAGE: 85 MiB of the tree, every
+# byte gunzipped by GRUB before the kernel runs (157 s -> 101 s to the
+# desktop in a browser-hosted VM, measured). The test programs are driven
+# through the debug console, so an image without one (DEBUGCON=0, how
+# release media are built) cannot run them anyway -- LIVE_TESTS follows
+# it unless named. /tests/web stays: the Web Browser's start page links
+# its demo pages there. A hard-linked copy, so leaving files out of it
+# touches nothing in $(SEED_DIR).
+LIVE_TESTS ?= $(DEBUGCON)
+LIVE_SEED   = $(if $(filter 0,$(LIVE_TESTS)),$(BUILD)/live-seed,$(SEED_DIR))
 
 # PARTITIONED, like every other volume this OS mounts. The kernel takes
 # a root from a partition and refuses a whole-disk volume (kernel/fs/
@@ -2414,8 +2437,10 @@ LIVE_IMG_MB = $(shell echo $$(( $$(du -sm --apparent-size $(SEED_DIR)/sync 2>/de
 $(LIVE_IMG): $(USERLAND_ELVES) seed
 	@mkdir -p $(BUILD)
 	rm -f $(LIVE_IMG)
+	$(if $(filter 0,$(LIVE_TESTS)),rm -rf $(BUILD)/live-seed && cp -al $(SEED_DIR) $(BUILD)/live-seed && \
+	    find $(BUILD)/live-seed/sync/tests -mindepth 1 -maxdepth 1 ! -name web -exec rm -rf {} +)
 	truncate -s $$(( $(LIVE_IMG_MB) * 1024 * 1024 )) $(LIVE_IMG)
-	python3 tools/seed_disk.py $(LIVE_IMG) $(SEED_DIR) --layout rest
+	python3 tools/seed_disk.py $(LIVE_IMG) $(LIVE_SEED) --layout rest
 	V=`python3 tools/mkpart_test.py $(LIVE_IMG) --print-volume`; \
 	python3 tools/tfs3_writer.py trim $(LIVE_IMG) \
 	    --at-lba $${V%% *} --sectors $${V##* }
