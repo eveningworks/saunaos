@@ -320,20 +320,6 @@ int main(void) {
     uint64_t nr = SYS_KILL;   // in/out: the call returns in RAX
     __asm__ volatile (
         "mov %2, %%r12\n\t"
-        "int $0x80\n\t"        // sys_kill(me, SIGINT) -- inline, so no
-        "mov %%r12, %0"        // call boundary is allowed to spill r12
-        : "=r"(after), "+a"(nr)
-        : "r"(before), "D"((uint64_t)me),
-          "S"((uint64_t)SIGINT)
-        : "r12", "rcx", "r11", "memory"
-    );
-    check("a general register survives the round trip", after == before, 0);
-    // The same through SYSCALL, which ring 3 uses -- its delivery leaves
-    // through iretq rather than sysret, and int 0x80 above stays covered.
-    after = 0;
-    nr = SYS_KILL;
-    __asm__ volatile (
-        "mov %2, %%r12\n\t"
         "syscall\n\t"
         "mov %%r12, %0"
         : "=r"(after), "+a"(nr)
@@ -341,7 +327,7 @@ int main(void) {
           "S"((uint64_t)SIGINT)
         : "r12", "rcx", "r11", "memory"
     );
-    check("...and through SYSCALL too", after == before, 0);
+    check("a general register survives the round trip", after == before, 0);
 
     // NESTING IS BLOCKED WHILE A HANDLER RUNS -- POSIX's default, and
     // what stops a repeated signal walking the 4-page user stack into

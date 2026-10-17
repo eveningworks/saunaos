@@ -1,8 +1,8 @@
-; SYSCALL's entry and SYSRET's exit: the fast way into the same
-; isr_dispatch() `int 0x80` reaches. idt.c's syscall_insn_init() points
-; MSR_LSTAR here.
+; SYSCALL's entry and SYSRET's exit: the ONE way ring 3 reaches
+; isr_dispatch() for a syscall (`int 0x80` was the other, retired
+; 2026-10-17). idt.c's syscall_insn_init() points MSR_LSTAR here.
 ;
-; THE FRAME IS `int 0x80`'s, FIELD FOR FIELD -- ss, rsp, rflags, cs, rip,
+; THE FRAME IS AN INTERRUPT'S, FIELD FOR FIELD -- ss, rsp, rflags, cs, rip,
 ; error 0, vector 128, then the fifteen registers in isr_common's order
 ; -- so signals, restarts, exec, strace and the crash report never learn
 ; which instruction a call came in by. Linux's entry_SYSCALL_64 builds
@@ -62,7 +62,7 @@ syscall_entry:
     push qword SEL_USER_CODE          ; cs
     push rcx                          ; rip, as SYSCALL saved it
     push qword 0                      ; error code
-    push qword 128                    ; vector: a syscall, as for int 0x80
+    push qword 128                    ; vector: a syscall (isr_dispatch's 128)
 
     push rax
     push rbx

@@ -677,7 +677,7 @@ const void *scheduler_wait_chan_pid(int pid);
 #define SCHED_WAIT_FUTEX 9 // a word in memory another process has
 
 // A signal, and ONLY this one is never restarted. Every other wait here
-// is woken by rewinding RIP back over the `int $0x80` so the call
+// is woken by rewinding RIP back over the `syscall` so the call
 // re-runs; sigsuspend re-run re-parks with the same mask, and the caller
 // never gets to look at what its handler set. Linux's ERESTARTNOHAND.
 #define SCHED_WAIT_SIGNAL 10
@@ -873,7 +873,7 @@ int scheduler_kill(int pid, int exit_code);
 //     the strong reading.
 
 // Sets `sig`'s bit on `pid` and, if that process is parked in a
-// blocking syscall, REWINDS it to its own `int $0x80` so it re-enters
+// blocking syscall, REWINDS it to its own `syscall` so it re-enters
 // the kernel at a delivery point with the call not yet run.
 //
 // The rewind rather than an -EINTR return is what makes SA_RESTART

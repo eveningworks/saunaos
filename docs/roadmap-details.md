@@ -5818,14 +5818,15 @@ The same-volume probe waits on the volume, not on the gate (fslock stage 5's ter
 
 **Re-measured 2026-09-23 and NOT flipped.** With the sleeping lock and the sleeping disk waits in, `0xEF` costs nothing it used to -- the compositor's loaded wake latency matches `0xEE` (5.1-6.2 ms avg against 5.9-7.4) where it was 300-400 ms before -- and wins nothing measurable either, because a disk wait already yields under the interrupt gate. The one new cost seen was the console: `usertest_run.py` missed one test's banner per run (the test itself passed), torn by another process's line -- the kernel-side single-write fix `docs/bugs.md` asks for would take that away. Full numbers: `docs/blocking-design.md`, stage 4.
 
-`int 0x80` runs through an INTERRUPT gate (`idt_set_gate(128, isr128, 0,
-0xEE)`), so IF is clear for the whole syscall and a ring-3 process
+A syscall runs with IF clear (SYSCALL's FMASK; until 2026-10-16 the
+`int 0x80` interrupt gate, `0xEE`), so a ring-3 process
 cannot be preempted inside one. That is what actually freezes the
 machine during disk I/O -- not `vfs.c`'s preemption guard -- and it is
 why `ata.c`'s `wait_dma_irq()` polls the Bus-Master status register
 instead of blocking.
 
-The work is a trap gate (`0xEF`, leaving IF set) plus the reason that was
+The work is leaving IF set (taking `RFLAGS_IF` out of FMASK; the trap
+gate `0xEF` in the `int 0x80` days) plus the reason that was
 unsafe before: `g_next_kernel_rsp` (idt.c) is a single global "where to
 resume" pointer, so a nested interrupt overwrites it while an outer
 `int 0x80` handler is still on the stack. That bug has been hit twice

@@ -1346,7 +1346,7 @@ static void scheduler_rotate(uint64_t *regs) {
 // Parks the calling process on `reason` and hands the CPU to whatever
 // is next in the rotation. `regs` is the syscall's own trapframe --
 // the same pointer isr_dispatch was handed -- so the process resumes
-// from the instruction after its `int 0x80` when woken, with
+// from the instruction after its `syscall` when woken, with
 // scheduler_wake()'s value already in RAX.
 //
 // The obvious implementation of a blocking syscall -- `sti`, then spin

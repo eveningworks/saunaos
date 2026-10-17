@@ -209,7 +209,7 @@ static int push_signal_frame(int pid, int sig, const struct k_sigaction *act,
     // the live frame, so it takes effect at sigreturn -- after the
     // handler has run, which is the order POSIX describes.
     //
-    // Rewinding RIP re-executes `int $0x80` with RAX still holding the
+    // Rewinding RIP re-executes `syscall` with RAX still holding the
     // syscall number (nothing has written a return value into this frame
     // -- idt.c delivers before the dispatcher runs), so the call is made
     // again from scratch. Without the flag the call fails instead, with
@@ -219,7 +219,7 @@ static int push_signal_frame(int pid, int sig, const struct k_sigaction *act,
         if (act->flags & SA_RESTART) f.regs[SCHED_TF_RIP] -= SYSCALL_INSN_LEN;
         else f.regs[SCHED_TF_RAX] = (uint64_t)(int64_t)-EINTR;
     } else if (restartable == SIG_BEFORE_REISSUE) {
-        // RIP already sits ON the `int $0x80` (the wake put it there).
+        // RIP already sits ON the `syscall` (the wake put it there).
         // SA_RESTART leaves it to execute; -EINTR must STEP OVER it, or
         // the handler returns straight into the call it was meant to
         // have failed. Either way the window is closed.

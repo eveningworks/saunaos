@@ -227,10 +227,11 @@ this the obvious way), not from how much history it accumulated.
   whatever the compiler kept there -- and only under optimisation.
   Reach for `rt/sys.c`'s wrappers; the few stubs that cannot
   (`stack_chk.c`, `sigtramp.c`, `ugfx.c`, `ldso.c`) say the same
-  clobbers. `int $0x80` takes the same registers, clobbers nothing and
-  is accepted for good: both arrive at `isr_dispatch()` with ONE frame
-  (`kernel/arch/x86_64/syscall_entry.asm`), so nothing past the entry
-  may care which came in. `/tests/syscall_bench` compares them.
+  clobbers. It is the ONLY entry: `int $0x80` has no gate since
+  2026-10-17, and a program still using it faults with a crash report
+  that says so (`/tests/int80_test`). The frame `syscall_entry.asm`
+  builds is an interrupt's, so everything past the entry treats a
+  syscall like any trap. `/tests/syscall_bench` times it.
   `docs/decisions/kernel.md`, "System calls enter through SYSCALL".
 - **FILE DESCRIPTORS ARE TWO LEVELS, AND 0/1/2 ARE ORDINARY ENTRIES.**
   A DESCRIPTION is what a stream is (file, pipe end, console, kernel
@@ -2263,14 +2264,14 @@ CR3 to the kernel's before killing.
 THE RE-ISSUE IS A WINDOW** (found 2026-09-10, when the I/O APIC
 changed interrupt timing enough to land in it about one full suite in
 two). A signal that wakes a parked process puts its RIP back on the
-`int $0x80` so the syscall-entry trap can fail the call with `-EINTR`
+`syscall` so the syscall-entry trap can fail the call with `-EINTR`
 or restart it. A hardware interrupt arriving before that instruction
 executes reaches the OTHER delivery site, where a trap is "finished"
 -- and a handler pushed there returns into the syscall, which then
 runs as if nothing had happened. `sched_proc.syscall_reissue` records
 the window: set by the wake, cleared at the next syscall entry, and
 honoured by `SIG_BEFORE_REISSUE` in `push_signal_frame()`, which steps
-RIP OVER the pending `int $0x80` for `-EINTR` and leaves it for
+RIP OVER the pending `syscall` for `-EINTR` and leaves it for
 `SA_RESTART`. `signal_test`'s "without it: the interrupted read fails
 with EINTR" is the check, and only the full suite reaches the window.
 
@@ -2369,7 +2370,7 @@ alternative was not taken.
 
 **AND `SA_RESTART` IS THE ONLY REASON THE WAKE PATH LOOKS ODD.** A
 signal wakes a process parked in a syscall by rewinding RIP over the
-`int $0x80`, not by returning `-EINTR` -- so the handler runs BEFORE the
+`syscall`, not by returning `-EINTR` -- so the handler runs BEFORE the
 call reports anything, which is the order POSIX describes and the only
 order in which a restart can exist. Only the syscall-ENTRY delivery
 point may restart; the trap-tail one must not, or a completed syscall
@@ -2405,7 +2406,7 @@ do nothing, the worst available answer.
 per call into the ring the tracer created (`abi/trace_abi.h`), with a
 path copied to its terminator and a buffer's first bytes copied AT THE
 CALL. With no room for both records the call is RE-ISSUED -- RIP back
-over `int $0x80`, a 1 ms sleep on `clocksource_now_ns()` (NOT
+over `syscall`, a 1 ms sleep on `clocksource_now_ns()` (NOT
 `ktime_now_ns()`, which is wall time: a deadline on it never comes), RAX
 restored -- so nothing has run and nothing is lost. A parked call's exit
 is written when it resumes, with the woken value.
@@ -3048,7 +3049,7 @@ stack and a program that scribbles its own frame must not become
 unkillable.
 
 **The trap is the restart.** Every other blocking call is woken by
-rewinding RIP over the `int $0x80` so it re-runs; `sigsuspend` re-run
+rewinding RIP over the `syscall` so it re-runs; `sigsuspend` re-run
 re-parks with the same mask and its caller never gets to look at what
 the handler set -- a shell's wait loop hangs there, in a
 legitimate-looking `block(signal)`, with nothing in the log.

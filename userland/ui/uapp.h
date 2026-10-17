@@ -22,7 +22,7 @@
 // Shapes -- including the comment explaining them, re-typed each time.
 //
 // That is the same duplication crt0.asm and libsys already removed one
-// layer down, where twenty programs each hand-rolled an `int $0x80`.
+// layer down, where twenty programs each hand-rolled a syscall.
 //
 // THE PROPERTY WORTH THE ABSTRACTION
 // ----------------------------------

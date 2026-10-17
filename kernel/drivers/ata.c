@@ -70,7 +70,7 @@ DRIVER_DECLARE("ata", "block", "ATA/IDE disk, PIO and busmaster DMA");
 //
 // IT WAS 100000, AND THAT IS THE WHOLE BUDGET WHENEVER INTERRUPTS ARE
 // OFF -- which is most of the kernel test suite, and every syscall,
-// because `int 0x80` is an interrupt gate. The wall-clock bounds below
+// because the syscall entry clears IF. The wall-clock bounds below
 // look like the real limits and are unreachable in exactly the cases
 // that matter: coarse_ticks() cannot advance with interrupts disabled, so
 // the code falls back to this count.
@@ -142,7 +142,7 @@ static int spin_not_busy(void) {
 //
 // Bounded two different ways for the same reason wait_dma_irq() is: a
 // wall-clock budget needs coarse_ticks() to advance, and it doesn't inside
-// a syscall, because `int 0x80` is an interrupt gate so IF stays clear
+// a syscall, because the syscall entry clears IF and it stays clear
 // for the whole handler (see idt.h's isr_in_progress()). So this spends
 // real time when it can and falls back to the fixed spin when it can't.
 //
@@ -584,8 +584,8 @@ static int sleep_dma_irq(uint64_t budget_ticks) {
 //     idle-until-any-interrupt pattern keyboard_getchar() uses) and the
 //     CPU goes idle instead of spinning until IRQ14 actually fires.
 //   - Called from inside a syscall (SYS_WRITE/SYS_READ, e.g. the
-//     ring-3 *_test.c programs) -- isr_dispatch() runs `int 0x80`
-//     through an interrupt gate, which means interrupts are OFF for the
+//     ring-3 *_test.c programs) -- the syscall entry clears IF
+//     (FMASK), which means interrupts are OFF for the
 //     whole syscall, and `hlt` here would just park forever with no way
 //     to wake (not even the timer can tick). Worse, `sti`-then-block
 //     would be actively unsafe, not just ineffective -- see idt.h's

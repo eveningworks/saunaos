@@ -385,7 +385,7 @@ this the obvious way), not from how much history it accumulated.
   provides `_start` (reads argc/argv off the stack per SysV, calls
   `main`, passes its return to `sys_exit`) and `userland/rt/sys.c` is
   libsys -- one typed wrapper per syscall. **Never hand-roll an
-  `int $0x80` stub in a new program**; that duplication across twenty
+  `syscall` stub in a new program**; that duplication across twenty
   files is exactly what libsys replaced. **A program names no other
   objects either** -- `build/userland/libuapp.a` is linked into every
   ELF with `--gc-sections`, so each binary gets exactly the members it

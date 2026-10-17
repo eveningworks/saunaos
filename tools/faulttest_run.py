@@ -80,6 +80,11 @@ TESTS = [
     ("nx_test",
      ["RING-3 CRASH: Page fault"],
      ["Stack overflow"]),
+    # The retired syscall gate: a ring-3 `int $0x80` faults, and the
+    # report names the cause rather than a bare "Segment not present".
+    ("int80_test",
+     ["RING-3 CRASH:", "no longer a syscall entry"],
+     ["Stack overflow"]),
     # THE CRASH REPORT needs a pid, which the legacy `run` loader has
     # not got -- so this entry spawns. The kernel names the file it
     # wrote; the forbidden string is the refusal the legacy path logs.

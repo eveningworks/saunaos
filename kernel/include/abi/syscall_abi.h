@@ -312,7 +312,7 @@ struct sys_dirent {
                             // entries) and /tests (101) both exceed it.
 
 // SYS_LISTDIR_AT's request. A struct because this call needs FOUR
-// arguments and `int 0x80` carries three -- the same answer SYS_MKPART
+// arguments and a syscall carries three -- the same answer SYS_MKPART
 // and SYS_SPAWN already give.
 struct listdir_request {
     uint64_t path;      // user pointer to a NUL-terminated path
@@ -1776,10 +1776,8 @@ struct sys_stat {
                           // A program with no handler is unaffected:
                           // SIGWINCH's default action is to be ignored.
 
-// HOW MANY BYTES A SYSCALL INSTRUCTION IS, so that a restart can rewind
-// over it: `syscall` (0x0F 0x05), what ring 3 uses, and `int $0x80`
-// (0xCD 0x80), still accepted, are BOTH two -- which is why one constant
-// serves a frame that came in by either. Named rather than a literal 2
+// HOW MANY BYTES THE SYSCALL INSTRUCTION IS, so that a restart can
+// rewind over it: `syscall` is 0x0F 0x05. Named rather than a literal 2
 // at the places that rewind (the signal wake, SA_RESTART, strace's
 // stall), since this is the one fact all of them depend on.
 #define SYSCALL_INSN_LEN 2

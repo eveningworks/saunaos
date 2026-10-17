@@ -111,7 +111,7 @@ written in the tracee's own context.
 
 **A full ring stops the tracee BEFORE the call, not after it** (choice
 2A, as built): at entry, with no room for an entry and an exit record,
-the dispatcher rewinds RIP over the 2-byte `int $0x80`, sleeps the
+the dispatcher rewinds RIP over the 2-byte `syscall`, sleeps the
 tracee a millisecond and puts RAX back, so the call is re-issued once
 the tracer has drained -- the signal path's SA_RESTART rewind. Nothing
 has run, so nothing is lost, and nothing parks with interrupts off.

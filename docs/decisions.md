@@ -229,7 +229,7 @@ first before re-litigating it from scratch.
 - [A reboot asks init; SYS_POWEROFF stays a plain stop](decisions/kernel.md#a-reboot-asks-init-sys_poweroff-stays-a-plain-stop)
 - [Two scheduling classes: realtime above fair, and nice is a share](decisions/kernel.md#two-scheduling-classes-realtime-above-fair-and-nice-is-a-share)
 - [Realtime for a program started by hand: init checks the PROGRAM](decisions/kernel.md#realtime-for-a-program-started-by-hand-init-checks-the-program)
-- [System calls enter through SYSCALL; `int 0x80` stays](decisions/kernel.md#system-calls-enter-through-syscall-int-0x80-stays)
+- [System calls enter through SYSCALL; `int 0x80` is retired](decisions/kernel.md#system-calls-enter-through-syscall-int-0x80-is-retired)
 - [A sandbox is a promise set and a path list](decisions/kernel.md#a-sandbox-is-a-promise-set-and-a-path-list)
 - [A process's memory is limited where it asks](decisions/kernel.md#a-processs-memory-is-limited-where-it-asks)
 - [Per-process I/O is counted twice: what reached a disk, and what a program asked for](decisions/kernel.md#per-process-io-is-counted-twice-what-reached-a-disk-and-what-a-program-asked-for)

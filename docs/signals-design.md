@@ -307,7 +307,7 @@ everything that turned out to be decidable.
   return. That reaches a delivery point just as reliably, and it puts
   the events in the WRONG ORDER: ring 3 sees the call fail first and
   runs the handler at some later trap, by which time there is nothing
-  left to restart. Rewinding RIP over the two bytes of `int $0x80`
+  left to restart. Rewinding RIP over the two bytes of `syscall`
   instead means the process re-enters the kernel at the same syscall
   with its arguments untouched, and delivery happens there -- the one
   moment at which "restart it" and "fail it with -EINTR" are both still

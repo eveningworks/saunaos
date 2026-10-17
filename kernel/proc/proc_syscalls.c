@@ -437,7 +437,7 @@ int sys_ticks(struct syscall_ctx *c) {
 int sys_monotonic_ns(struct syscall_ctx *c) {
     // The clocksource, not the tick counter -- see syscall_abi.h.
     // Safe with interrupts off, which is the state every syscall
-    // handler runs in (the int 0x80 gate clears IF).
+    // handler runs in (the syscall entry clears IF).
     c->regs[14] = clocksource_now_ns();
     return 0;
 }

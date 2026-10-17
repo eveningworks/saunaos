@@ -272,7 +272,7 @@ struct sched_process {
     uint64_t rt_run_ns;
     // A SYSCALL REWOUND TO BE RE-ISSUED, NOT RUN YET. Set when a signal
     // wakes this process out of a park (its RIP is put back on the
-    // `int $0x80`), cleared when it next enters a syscall. A signal
+    // `syscall`), cleared when it next enters a syscall. A signal
     // delivered at ANY trap in between -- a tick landing on the one
     // instruction before the re-issue -- must treat the syscall as not
     // run: without this a handler ran there and the read then completed

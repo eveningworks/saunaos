@@ -254,7 +254,7 @@ them has its own checks:
   `win_event` messages, links `crt0.asm` + `sys.c`). Calculator,
   Notepad and Terminal exist on BOTH sides deliberately, so name which
   one you changed.
-- **Never hand-roll an `int $0x80` stub** in a new userland program --
+- **Never hand-roll a `syscall` stub** in a new userland program --
   `userland/sys.h` has a typed wrapper per syscall. `sys_call()` is the
   raw hatch and is only for the `/tests` diagnostics that poke the ABI
   on purpose.

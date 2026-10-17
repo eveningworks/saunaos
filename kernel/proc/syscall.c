@@ -1,6 +1,6 @@
 // The syscall dispatcher: entry and exit plumbing, and nothing else.
 //
-// Every ring-3 `int 0x80` arrives here. What happens next is one
+// Every ring-3 `syscall` arrives here. What happens next is one
 // bounds-checked call through the table in syscall_table.c; the
 // handlers themselves live with the subsystem that owns them
 // (syscall_fd.c, ../fs/fs_syscalls.c, ../net/net_syscalls.c, proc_syscalls.c,

@@ -114,8 +114,8 @@ static uint32_t measure_mhz(void) {
 // Calibrates once, at boot. **This cannot be done lazily on first use,
 // and that isn't a preference -- it deadlocks.** measure_mhz() spins
 // waiting for coarse_ticks() to advance, and coarse_ticks() only advances
-// from the timer IRQ. Every interrupt gate in this kernel (including
-// the int 0x80 syscall gate) clears IF on entry, so a lazy calibration
+// from the timer IRQ. Every interrupt gate in this kernel, and the
+// syscall entry (FMASK), clears IF on entry, so a lazy calibration
 // reached through SYS_CPU_INFO waits forever for a tick that cannot
 // arrive while it holds the CPU. Found exactly that way: /bin/lscpu
 // hung with no output and no fault.

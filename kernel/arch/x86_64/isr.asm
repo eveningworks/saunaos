@@ -81,12 +81,6 @@ ISR_NOERR i
 ; precisely when something has already gone slightly wrong.
 ISR_NOERR 255
 
-; Syscall entry: software interrupt (int 0x80), raised deliberately by
-; ring-3 code, not a hardware IRQ -- its IDT gate gets DPL=3 (see
-; idt_init() in idt.c) so ring 3 is actually allowed to invoke it. No
-; error code, so it uses the same ISR_NOERR shape as everything else.
-ISR_NOERR 128
-
 isr_common:
     push rax
     push rbx

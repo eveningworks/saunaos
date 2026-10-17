@@ -4,16 +4,15 @@
 #include <stdint.h>
 #include "syscall_abi.h"
 
-// Called from isr_dispatch (idt.c) for vector 0x80 (int 0x80) -- i.e.
-// any software interrupt a ring-3 process raises to ask the kernel to
-// do something. `regs` is the same saved-register array isr_dispatch
+// Called from isr_dispatch (idt.c) for vector 128 -- what
+// syscall_entry.asm pushes for a ring-3 SYSCALL. `regs` is the same saved-register array isr_dispatch
 // already has (see its comment for the exact layout: regs[14] = rax,
 // regs[9] = rdi, regs[10] = rsi, regs[11] = rdx).
 //
 // What it does with the number is look it up in the syscall table
 // (kernel/proc/syscall_table.c) and call that row's handler; see
 // kernel/include/kernel/syscall_table.h. An unknown number is a no-op
-// that returns normally, resuming ring 3 right after its `int 0x80`.
+// that returns normally, resuming ring 3 right after its `syscall`.
 //
 // SYS_EXIT is the one call that may never return here: under the legacy
 // loader it jumps straight back into whichever kernel code called

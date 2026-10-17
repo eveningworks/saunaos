@@ -7,9 +7,9 @@
 // SYSCALL with the SysV-ish register convention the kernel's
 // dispatcher uses: number in RAX, arguments in RDI/RSI/RDX, result in
 // RAX (see kernel/proc/syscall.c). The instruction itself overwrites
-// RCX (the return address) and R11 (RFLAGS), hence the clobbers;
-// `int $0x80` takes the same registers and stays accepted
-// (kernel/arch/x86_64/syscall_entry.asm).
+// RCX (the return address) and R11 (RFLAGS), hence the clobbers. It is
+// the kernel's only syscall entry: `int $0x80` was retired, and a program
+// still using it dies with a crash report that says so (idt.c).
 //
 // "memory" in the clobber list is not decoration: several of these hand
 // the kernel a pointer it writes THROUGH (sys_read, sys_listdir,

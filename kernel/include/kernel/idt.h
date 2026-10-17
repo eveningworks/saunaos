@@ -23,9 +23,9 @@ typedef void (*ring3_fault_hook_fn)(uint64_t vector, uint64_t error_code, uint64
 void idt_set_ring3_fault_hook(ring3_fault_hook_fn hook);
 
 // True while isr_dispatch() is anywhere on the current call stack --
-// i.e. we're inside a hardware-IRQ handler OR a syscall (int 0x80),
-// both of which run with interrupts disabled (IF=0, an interrupt
-// gate's automatic behavior -- see idt_init()'s idt_set_gate() calls).
+// i.e. we're inside a hardware-IRQ handler OR a syscall, both of
+// which run with interrupts disabled (IF=0: an interrupt gate's
+// automatic behaviour, and FMASK's for SYSCALL -- see idt.c).
 // Exists so a driver that wants to genuinely block-with-interrupts-on
 // (build 430's ata.c, waiting on a DMA-completion IRQ) can tell whether
 // doing so here would be safe.

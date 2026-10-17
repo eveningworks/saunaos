@@ -141,7 +141,7 @@ int sys_sigaction(struct syscall_ctx *c) {
 }
 
 // THE ONE SYSCALL THAT DOES NOT RETURN TO ITS CALLER. It rewrites the
-// trapframe it was called through, so the `int $0x80` in the restorer
+// trapframe it was called through, so the `syscall` in the restorer
 // resumes as whatever the handler interrupted -- which is why nothing
 // below writes regs[14] on the success path: RAX is part of the restored
 // state, and overwriting it with a return value would corrupt the very

@@ -47,7 +47,7 @@ import install_grub  # noqa: E402
 from harness import Results, copy_disk  # noqa: E402
 
 VM = [sys.executable, os.path.join(TOOLS, "vm.py")]
-BOOT_MARK = "\nidt: syscall gate"        # a boot's raw line; dmesg's echo has a [stamp]
+BOOT_MARK = "\nidt: syscall entry"        # a boot's raw line; dmesg's echo has a [stamp]
 PANIC_MARK = "panic: restarting in"
 
 

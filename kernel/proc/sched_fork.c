@@ -656,7 +656,7 @@ int scheduler_fork(const uint64_t *regs) {
     }
 
     // The caller's trapframe, verbatim, on the child's own kernel stack
-    // -- so the child resumes at the instruction after the `int $0x80`
+    // -- so the child resumes at the instruction after the `syscall`
     // with every register the parent had, except the one that tells
     // them apart.
     uint64_t *tf = (uint64_t *)(kernel_stack_top(slot) - TRAPFRAME_WORDS * 8);

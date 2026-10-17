@@ -53,9 +53,9 @@ ctx_restore:
     mov eax, esi           ; value (2nd arg) becomes the "return value"
     ; The sti entry bypasses isr_common's normal epilogue entirely,
     ; which would otherwise `iretq` and -- as part of that -- restore
-    ; RFLAGS from the interrupt frame, re-enabling interrupts (our
-    ; int 0x80 gate, like every other interrupt gate here, clears IF on
-    ; entry). Skipping that means interrupts would stay off forever
+    ; RFLAGS from the interrupt frame, re-enabling interrupts (the
+    ; syscall entry clears IF, as FMASK and every interrupt gate here
+    ; do). Skipping that means interrupts would stay off forever
     ; after an exit syscall, since nothing else re-enables them.
     test r8d, r8d
     jz .go

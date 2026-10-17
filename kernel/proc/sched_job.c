@@ -457,7 +457,7 @@ int scheduler_signal_raise(int pid, int sig) {
     // FIRST and runs the handler at some later trap, by which time
     // there is nothing left to restart and SA_RESTART cannot exist.
     //
-    // Rewinding RIP over the two bytes of `int $0x80` means the process
+    // Rewinding RIP over the two bytes of `syscall` means the process
     // re-enters the kernel at the same syscall with its arguments
     // untouched (RAX still holds the number -- nothing has written a
     // return value into this frame). idt.c's syscall-entry check sees

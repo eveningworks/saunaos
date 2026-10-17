@@ -160,7 +160,7 @@ struct k_sigaction {
 // always promised.
 //
 // **WHAT IT CANNOT DO: restart a call that already finished.** The
-// restart rewinds RIP over the `int $0x80` and re-runs the syscall, so
+// restart rewinds RIP over the `syscall` and re-runs it, so
 // it is only ever applied where the signal was taken BEFORE the call ran
 // -- which is exactly the case that matters, because a process parked in
 // a blocking syscall is rewound to its own `int` when the signal wakes

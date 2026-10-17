@@ -9377,7 +9377,21 @@ hand-started program; the maintainer asked for it now. What it costs is
 a verb, two small lists and a spawn flag, and the kernel's two RT guards
 already bound what a mistaken grant can do.
 
-## System calls enter through SYSCALL; `int 0x80` stays
+## System calls enter through SYSCALL; `int 0x80` is retired
+
+**`int 0x80` RETIRED 2026-10-17.** It was kept as a fallback for
+binaries built before this entry, and a day later nothing in the tree
+executed it but a benchmark and one register test -- System Update
+replaces `/bin`, `/lib` and `/tests` together, so no installed program
+needs it. Its DPL-3 gate was one more door ring 3 could open into the
+kernel (Linux's `ia32_emulation=0` closes the same one), so the gate
+and its `isr128` stub are gone. A stray `int $0x80` now faults on the
+empty IDT slot, error code 0x402, and the crash report names it rather
+than leaving a bare "Segment not present" (`idt.c`'s
+`INT80_FAULT_CODE`, `/tests/int80_test` under `faulttest_run.py`).
+Vector 128 lives on as `isr_dispatch()`'s number for a syscall, pushed
+by `syscall_entry.asm`. What follows is the entry as it was decided
+the day before, with both instructions accepted.
 
 Until 2026-10-16 every system call was `int $0x80`: an interrupt gate,
 the CPU's full interrupt delivery on the way in and an `iretq` out.

@@ -80,10 +80,6 @@ extern void isr70(void);
 extern void isr71(void);
 extern void isr255(void);
 
-// Syscall entry (int 0x80) -- see isr.asm's comment there for why it's
-// separate from the vectors 0-47 above.
-extern void isr128(void);
-
 void idt_set_gate(uint8_t vector, void (*handler)(void), uint8_t ist, uint8_t type_attr) {
     uint64_t addr = (uint64_t)handler;
     idt[vector].offset_low = addr & 0xFFFF;
@@ -147,15 +143,15 @@ static void mouse_irq_handler(uint64_t *regs) {
     i8042_poll();
 }
 
-// 0xEE is an interrupt gate (IF clear for the whole syscall), 0xEF a
-// trap gate. See the comment at the call site.
-#define SYSCALL_GATE 0xEE
+// What `int 0x80` faults with now: the IDT's (bit 1) entry 0x80.
+#define INT80_FAULT_CODE ((0x80u << 3) | 2u)
 
-// THE SYSCALL INSTRUCTION, beside the gate: ring 3 enters through it
-// (userland/rt/sys.c), and `int 0x80` stays accepted for anything built
-// before. Both reach isr_dispatch() with the same frame
+// THE SYSCALL INSTRUCTION IS THE ONLY WAY IN (userland/rt/sys.c). It
+// reaches isr_dispatch() as vector 128 with an interrupt's frame
 // (syscall_entry.asm). Every x86-64 CPU has SYSCALL, so there is no
-// fallback to choose at run time.
+// fallback to choose at run time. `int 0x80`, the entry before it, has
+// no gate since 2026-10-17: a ring-3 caller faults, and the crash report
+// names it (INT80_FAULT_CODE below) -- Linux's `ia32_emulation=0`.
 //
 // STAR: SYSCALL loads CS from bits 47:32 and SS 8 above it; SYSRET loads
 // SS from bits 63:48 + 8 and CS from + 16 -- gdt.c's user data then user
@@ -170,12 +166,27 @@ extern void syscall_entry(void);
 #define RFLAGS_AC (1u << 18)
 #define EFER_SCE  (1u << 0)
 
+// **IF STAYS CLEAR FOR THE WHOLE SYSCALL, BY MEASUREMENT: LETTING IT
+// THROUGH IS SAFE AND BUYS NOTHING YET.** With disk waits asleep and the
+// filesystem locked per mount, a disk-bound syscall already yields, and
+// neither the compositor's wake latency nor fs_isolation.py's probe
+// improved with interrupts on. "Interruptible syscalls" in
+// docs/roadmap-details.md has the numbers and what would make it pay.
+//
+// **EVERY FLIP SO FAR HAS FOUND A PATH THAT SWITCHED WITH IF SET** --
+// most recently scheduler_rotate() reached from a syscall's exit. So a
+// flip (RFLAGS_IF out of FMASK) is tested by booting it repeatedly under
+// load, not by the suite alone.
+//
+// LOGGED, because whether a syscall can be preempted is decided here --
+// and a build that did not pick up a change to it looks exactly like the
+// change not working.
 static void syscall_insn_init(void) {
     wrmsr(MSR_STAR, (uint64_t)(SEL_USER_DATA - 8) << 48 | (uint64_t)SEL_KERNEL_CODE << 32);
     wrmsr(MSR_LSTAR, (uint64_t)(uintptr_t)syscall_entry);
     wrmsr(MSR_FMASK, RFLAGS_TF | RFLAGS_IF | RFLAGS_DF | RFLAGS_NT | RFLAGS_AC);
     wrmsr(MSR_EFER, rdmsr(MSR_EFER) | EFER_SCE);
-    klog_printf("idt: SYSCALL/SYSRET entry enabled\n");
+    klog_printf("idt: syscall entry SYSCALL/SYSRET only (IF clear for the whole call)\n");
 }
 
 void idt_init(void) {
@@ -199,35 +210,6 @@ void idt_init(void) {
     // syscall_entry.asm's windows on the user's stack (gdt.c's nmi_stack).
     idt_set_gate(2, isr_table[2], 2, 0x8E);
 
-    // Syscall gate needs DPL=3 (0xEF, not 0x8F) -- otherwise ring-3 code
-    // executing `int 0x80` gets a #GP instead of reaching the handler,
-    // since a software interrupt's DPL is the *minimum* privilege
-    // allowed to invoke it via the `int` instruction.
-    //
-    // **STILL AN INTERRUPT GATE (0xEE), BY MEASUREMENT: THE TRAP GATE
-    // (0xEF) IS SAFE TO FLIP AND BUYS NOTHING YET.** The one bit is
-    // whether IF survives the syscall. With disk waits asleep and the
-    // filesystem locked per mount, a disk-bound syscall already yields,
-    // and neither the compositor's wake latency nor fs_isolation.py's
-    // probe improves at 0xEF. "Interruptible syscalls" in
-    // docs/roadmap-details.md has the numbers and what would make it pay.
-    //
-    // **EVERY FLIP SO FAR HAS FOUND A PATH THAT SWITCHED WITH IF SET** --
-    // most recently scheduler_rotate() reached from a syscall's exit.
-    // Nothing at 0xEE can exercise such a path, so a flip is tested by
-    // booting it repeatedly under load, not by the suite alone.
-    //
-    // **A FLIP MUST ALSO TAKE IF OUT OF syscall_insn_init()'s FMASK**:
-    // ring 3 enters through SYSCALL, which never sees this gate, and
-    // would go on running every call with IF clear.
-    //
-    // LOGGED, because which gate a boot is running decides whether a
-    // syscall can be preempted -- and a build that did not pick up a
-    // change to it looks exactly like the change not working.
-    idt_set_gate(128, isr128, 0, SYSCALL_GATE);
-    klog_printf("idt: syscall gate 0x%x (%s)\n", SYSCALL_GATE,
-                SYSCALL_GATE == 0xEF ? "trap -- syscalls are preemptible"
-                                     : "interrupt -- IF clear for the whole call");
     syscall_insn_init();
 
     idtp.limit = sizeof(idt) - 1;
@@ -487,22 +469,22 @@ static void isr_dispatch_body(uint64_t *regs) {
         // handlers landed: `pending` counts signals BLOCKED by a running
         // handler, so a handler's own SYS_SIGRETURN took this branch,
         // delivered nothing, and was never dispatched -- the restorer
-        // returned from an `int $0x80` that had done nothing and ran
+        // returned from a `syscall` that had done nothing and ran
         // into its own `ud2`. Falling through to the syscall when
         // nothing was delivered makes that unreachable rather than
         // merely fixed.
         //
         // THE `1` IS SA_RESTART, and this is the only call site that
         // may pass it: the syscall has not run yet, so the frame saved
-        // here can be rewound over the `int $0x80` and the call made
+        // here can be rewound over the `syscall` and the call made
         // again after the handler returns. See kernel/signal.h.
         if (sig_pid) scheduler_syscall_entered(sig_pid); // the re-issue window is closed
         if (sig_pid && scheduler_signal_deliverable(sig_pid) &&
             signal_deliver_pending(sig_pid, regs, SIG_AT_SYSCALL_ENTRY)) {
             sig_pid = 0; // acted on; the check at the bottom must not repeat it
         } else {
-            // Software interrupt from ring 3 (int 0x80) -- not a hardware
-            // IRQ, so no PIC EOI. syscall_dispatch() may not return (see
+            // A ring-3 SYSCALL (syscall_entry.asm) -- not a hardware IRQ,
+            // so no PIC EOI. syscall_dispatch() may not return (see
             // syscall.h): the exit syscall jumps straight back into
             // whichever kernel code called process_run_ring3() instead of
             // rejoining isr_common's normal epilogue below.
@@ -682,6 +664,13 @@ static void isr_dispatch_body(uint64_t *regs) {
                      kstack_overflow ? "Kernel stack overflow"
                                      : stack_overflow ? "Stack overflow"
                                                       : exception_names[vector]);
+        // A program built before SYSCALL calls through the retired gate,
+        // which reads as a bare "Segment not present" without this.
+        if (recoverable && (vector == 11 || vector == 13) && error_code == INT80_FAULT_CODE) {
+            vga_printf("It called the kernel with `int 0x80`, retired 2026-10-17: rebuild it.\n");
+            klog_printf("  it called the kernel with `int 0x80`, which is no longer a "
+                        "syscall entry -- a program built before SYSCALL; rebuild it\n");
+        }
         if (kstack_overflow) {
             if (kstack_legacy) {
                 klog_printf("  the LEGACY loader's %d KiB kernel stack overran "

@@ -221,7 +221,7 @@ KTEST("signal", "starting to ignore a signal drops one already pending") {
 KTEST("signal", "a BLOCKED process is woken by REWINDING its syscall") {
     // Delivery happens on the way back to ring 3, and a parked process
     // is not on its way anywhere. It used to be woken with -EINTR in its
-    // RAX; it is rewound over its own `int $0x80` instead, so it
+    // RAX; it is rewound over its own `syscall` instead, so it
     // re-enters the kernel at a delivery point with the call NOT YET RUN
     // -- which is the only state in which SA_RESTART can exist at all
     // (kernel/proc/sched_job.c has the full argument).

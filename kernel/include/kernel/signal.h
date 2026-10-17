@@ -60,7 +60,7 @@ int signal_send_group(int pgid, int sig);
 // code with a different stack.
 //
 // **`at_syscall_entry` IS THE WHOLE OF SA_RESTART**, and getting it
-// wrong is silent. It means "the interrupted trap is an `int $0x80`
+// wrong is silent. It means "the interrupted trap is a `syscall`
 // whose handler has not run yet", which is true at exactly one of the
 // two call sites (idt.c's pre-dispatch check) and false at the other
 // (the tail of a trap, where any syscall has already produced its
@@ -82,9 +82,9 @@ int signal_send_group(int pgid, int sig);
 // WHERE THE TRAP STANDS relative to the interrupted syscall -- the
 // third argument. TRAP_DONE: whatever it was has produced its result.
 // AT_SYSCALL_ENTRY: the syscall has not run, and the frame can be
-// rewound over the `int $0x80` (SA_RESTART) or given -EINTR.
+// rewound over the `syscall` (SA_RESTART) or given -EINTR.
 // BEFORE_REISSUE: a signal wake already rewound the frame onto the
-// `int $0x80` and a hardware interrupt landed before it executed --
+// `syscall` and a hardware interrupt landed before it executed --
 // the syscall has not run either, but the frame must be stepped
 // FORWARD for -EINTR and left alone for SA_RESTART.
 #define SIG_TRAP_DONE        0
