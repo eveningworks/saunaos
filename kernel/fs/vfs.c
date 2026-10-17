@@ -140,6 +140,7 @@ struct resolved {
 };
 
 static int resolve(const char *path, struct resolved *r) {
+    cachesim_lookup(path);
     r->m = mount_resolve(path, &r->sub);
     if (r->m) r->gen = __atomic_load_n(&r->m->gen, __ATOMIC_ACQUIRE);
     return r->m != NULL;

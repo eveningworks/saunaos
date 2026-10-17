@@ -176,6 +176,15 @@ int scheduler_slot_pid(int slot) {
     return procs[slot].pid;
 }
 
+int scheduler_name_of(int pid, char *out, unsigned cap) {
+    if (!out || cap == 0) return 0;
+    out[0] = '\0';
+    int s = pid_slot(pid);
+    if (s < 0) return 0;
+    k_strlcpy(out, procs[s].name, cap);
+    return 1;
+}
+
 int scheduler_proc_info_pid(int pid, struct proc_info *out) {
     int s = pid_slot(pid);
     return s >= 0 && scheduler_proc_info(s, out) && out->pid == pid;

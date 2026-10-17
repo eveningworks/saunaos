@@ -11,6 +11,7 @@
 #include "multiboot.h"
 #include "irqflags.h"
 #include "fswatch.h"
+#include "scheduler.h" // who is reading: the attribution tables
 #include "initcall.h"
 #include <stddef.h>
 
@@ -104,9 +105,89 @@ static uint64_t mix(uint64_t a, uint64_t b) {
     return z ^ (z >> 31);
 }
 
-static void touch_all(int lvl, uint64_t key, uint32_t gen, int count) {
+// Returns whether the LARGEST tier held the key: "this page was read
+// before", the repeat the attribution tables below count. One page per
+// irq_save(): a 20 MB read is thousands of pages, and must not hold
+// interrupts off for all of them.
+static int touch_all(int lvl, uint64_t key, uint32_t gen, int count) {
+    int hit = 0;
     uint64_t f = irq_save();
-    for (unsigned t = 0; t < TIERS; t++) cachesim_lru_touch(&g_lru[lvl][t], key, gen, count);
+    for (unsigned t = 0; t < TIERS; t++) hit = cachesim_lru_touch(&g_lru[lvl][t], key, gen, count);
+    irq_restore(f);
+    return hit;
+}
+
+// ---- who reads: two heavy-hitter tables -----------------------------------
+//
+// Bounded, so a newcomer replaces the entry with the least traffic: a
+// steady poller stays, a one-off read may vanish -- the ranking is
+// right at the top and lossy at the bottom, which is what finding a
+// poller needs. Linear scans, each under its own irq_save().
+
+#define TOP_PROCS 32
+#define TOP_PATHS 128
+
+struct top_proc {
+    int pid;
+    char name[QUERY_CACHESIM_NAME];
+    uint64_t pages, repeats;
+};
+
+struct top_path {
+    uint64_t key;       // mix(path hash, pid)
+    int pid;
+    char name[QUERY_CACHESIM_NAME];
+    char path[QUERY_CACHESIM_PATH_MAX];
+    uint64_t lookups, pages, repeats;
+};
+
+static struct top_proc *g_tproc;
+static struct top_path *g_tpath;
+static int g_ntproc, g_ntpath;
+
+static void name_pid(int pid, char *out, unsigned cap) {
+    if (!pid || !scheduler_name_of(pid, out, cap)) k_strlcpy(out, pid ? "?" : "kernel", cap);
+}
+
+static struct top_proc *proc_slot(int pid) {
+    struct top_proc *min = 0;
+    for (int i = 0; i < g_ntproc; i++) {
+        if (g_tproc[i].pid == pid) return &g_tproc[i];
+        if (!min || g_tproc[i].pages < min->pages) min = &g_tproc[i];
+    }
+    struct top_proc *e = g_ntproc < TOP_PROCS ? &g_tproc[g_ntproc++] : min;
+    k_memset(e, 0, sizeof *e);
+    e->pid = pid;
+    name_pid(pid, e->name, sizeof e->name);
+    return e;
+}
+
+static struct top_path *path_slot(int pid, uint64_t path_hash, const char *path) {
+    uint64_t key = mix(path_hash, (uint64_t)pid);
+    struct top_path *min = 0;
+    for (int i = 0; i < g_ntpath; i++) {
+        if (g_tpath[i].key == key) return &g_tpath[i];
+        if (!min || g_tpath[i].lookups + g_tpath[i].pages < min->lookups + min->pages)
+            min = &g_tpath[i];
+    }
+    struct top_path *e = g_ntpath < TOP_PATHS ? &g_tpath[g_ntpath++] : min;
+    k_memset(e, 0, sizeof *e);
+    e->key = key;
+    e->pid = pid;
+    name_pid(pid, e->name, sizeof e->name);
+    k_strlcpy(e->path, path, sizeof e->path);
+    return e;
+}
+
+// ---- the hooks --------------------------------------------------------------
+
+void cachesim_lookup(const char *path) {
+    if (!g_on || !path) return;
+    uint64_t h;
+    fswatch_hash(path, &h, 0);
+    int pid = scheduler_current_tgid();
+    uint64_t f = irq_save();
+    path_slot(pid, h, path)->lookups++;
     irq_restore(f);
 }
 
@@ -115,8 +196,17 @@ void cachesim_file_read(const char *path, uint64_t offset, uint32_t len) {
     uint64_t path_hash;
     fswatch_hash(path, &path_hash, 0);
     uint32_t gen = g_file_gen[path_hash % FILE_GENS];
-    for (uint64_t p = offset / PAGE; p <= (offset + len - 1) / PAGE; p++)
-        touch_all(LVL_FILE, mix(path_hash, p), gen, 1);
+    uint64_t pages = 0, repeats = 0;
+    for (uint64_t p = offset / PAGE; p <= (offset + len - 1) / PAGE; p++) {
+        pages++;
+        repeats += (uint64_t)touch_all(LVL_FILE, mix(path_hash, p), gen, 1);
+    }
+    int pid = scheduler_current_tgid();
+    uint64_t f = irq_save();
+    struct top_path *who = path_slot(pid, path_hash, path);
+    who->pages += pages;
+    who->repeats += repeats;
+    irq_restore(f);
 }
 
 void cachesim_file_changed(uint64_t path_hash) {
@@ -127,8 +217,18 @@ void cachesim_block_io(const void *dev, uint64_t lba, uint32_t count, int write)
     if (!g_on || count == 0) return;
     uint64_t first = lba * 512 / PAGE;
     uint64_t last = ((lba + count) * 512 - 1) / PAGE;
-    for (uint64_t p = first; p <= last; p++)
-        touch_all(LVL_BLOCK, mix((uint64_t)(uintptr_t)dev, p), 0, !write);
+    uint64_t pages = 0, repeats = 0;
+    for (uint64_t p = first; p <= last; p++) {
+        pages++;
+        repeats += (uint64_t)touch_all(LVL_BLOCK, mix((uint64_t)(uintptr_t)dev, p), 0, !write);
+    }
+    if (write) return;
+    int pid = scheduler_current_tgid();
+    uint64_t f = irq_save();
+    struct top_proc *who = proc_slot(pid);
+    who->pages += pages;
+    who->repeats += repeats;
+    irq_restore(f);
 }
 
 static void cachesim_init(void) {
@@ -146,6 +246,12 @@ static void cachesim_init(void) {
             }
             cachesim_lru_init(&g_lru[l][t], e, b, cap);
         }
+    }
+    g_tproc = kzalloc(TOP_PROCS * sizeof *g_tproc);
+    g_tpath = kzalloc(TOP_PATHS * sizeof *g_tpath);
+    if (!g_tproc || !g_tpath) {
+        klog_printf(KLOG_ERR "cachesim: no memory for the attribution tables -- off\n");
+        return;
     }
     g_on = 1;
     klog_printf(KLOG_INFO "cachesim: ghost caches on (file and block, 4..256 MiB)\n");
@@ -189,8 +295,79 @@ static const struct query_provider cachesim_provider = {
     .field_count = sizeof cachesim_fields / sizeof cachesim_fields[0],
 };
 
+static int tproc_count(void) { return g_on ? g_ntproc : 0; }
+
+static int tproc_fill(int index, void *out) {
+    if (!g_on || index < 0 || index >= g_ntproc) return 0;
+    struct query_cachesim_proc *r = out;
+    k_memset(r, 0, sizeof *r);
+    uint64_t f = irq_save();
+    const struct top_proc *e = &g_tproc[index];
+    r->pid = (uint64_t)e->pid;
+    k_strlcpy(r->name, e->name, sizeof r->name);
+    r->pages = e->pages;
+    r->repeats = e->repeats;
+    irq_restore(f);
+    return 1;
+}
+
+static const struct query_field tproc_fields[] = {
+    QUERY_FIELD(struct query_cachesim_proc, pid,     QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_cachesim_proc, pages,   QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_cachesim_proc, repeats, QUERY_TYPE_U64),
+};
+
+static const struct query_provider tproc_provider = {
+    .cls = QUERY_CACHESIM_PROC,
+    .name = "cachesim_proc",
+    .record_size = sizeof(struct query_cachesim_proc),
+    .flags = QUERY_F_LIST,
+    .count = tproc_count,
+    .fill = tproc_fill,
+    .fields = tproc_fields,
+    .field_count = sizeof tproc_fields / sizeof tproc_fields[0],
+};
+
+static int tpath_count(void) { return g_on ? g_ntpath : 0; }
+
+static int tpath_fill(int index, void *out) {
+    if (!g_on || index < 0 || index >= g_ntpath) return 0;
+    struct query_cachesim_path *r = out;
+    k_memset(r, 0, sizeof *r);
+    uint64_t f = irq_save();
+    const struct top_path *e = &g_tpath[index];
+    r->pid = (uint64_t)e->pid;
+    k_strlcpy(r->name, e->name, sizeof r->name);
+    k_strlcpy(r->path, e->path, sizeof r->path);
+    r->lookups = e->lookups;
+    r->pages = e->pages;
+    r->repeats = e->repeats;
+    irq_restore(f);
+    return 1;
+}
+
+static const struct query_field tpath_fields[] = {
+    QUERY_FIELD(struct query_cachesim_path, pid,     QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_cachesim_path, lookups, QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_cachesim_path, pages,   QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_cachesim_path, repeats, QUERY_TYPE_U64),
+};
+
+static const struct query_provider tpath_provider = {
+    .cls = QUERY_CACHESIM_PATH,
+    .name = "cachesim_path",
+    .record_size = sizeof(struct query_cachesim_path),
+    .flags = QUERY_F_LIST,
+    .count = tpath_count,
+    .fill = tpath_fill,
+    .fields = tpath_fields,
+    .field_count = sizeof tpath_fields / sizeof tpath_fields[0],
+};
+
 void cachesim_query_init(void) {
     cachesim_init();
     query_register(&cachesim_provider);
+    query_register(&tproc_provider);
+    query_register(&tpath_provider);
 }
 INITCALL(cachesim_query_init, INIT_QUERY);

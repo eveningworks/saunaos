@@ -375,6 +375,15 @@ First reading, QEMU, a default desktop boot with nothing launched
 repeats, which a 4 KiB block cache would really serve. **What decides
 stage 1 is the laptop's numbers over a real session**, not this one.
 
+**The laptop's first reading found a bug instead of a cache**
+(2026-10-17). At idle it re-read 52 file pages and ~300 block pages a
+second, 100% repeats; `cachesim -t` named `soundd`, which mistook
+snddrv's page for a client and re-parsed `/etc/sound.conf` every 20 ms
+pass, and polled it with `stat()`, one inode read from the disk each.
+Fixed, idle block reads fell ~13x. **The residue is the case for a
+cache**: every `stat()` or `open()` of an unchanged file still costs a
+disk read here, because nothing caches inodes or blocks.
+
 ### Stage 1 -- one cache, above the VFS, read-only first
 
 **Demoted by the re-measure.** Reads are 25-31% of block time now and

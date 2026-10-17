@@ -1139,6 +1139,11 @@ int scheduler_proc_info(int index, struct proc_info *out);
 // is NOT a slot index -- never call scheduler_proc_info(pid - 1).
 int scheduler_proc_info_pid(int pid, struct proc_info *out);
 
+// Just the NAME of `pid` (its program, truncated to `cap`): 1, or 0 and
+// "" for a pid not in use. O(1) and lock-free, for a hook too hot for
+// scheduler_proc_info_pid(), which sizes the address space.
+int scheduler_name_of(int pid, char *out, unsigned cap);
+
 // pid <-> slot, for a kernel table kept per slot (futex.c's wakewords):
 // the slot holding `pid` or -1, and the pid in `slot` or 0 when it is free.
 int scheduler_pid_slot(int pid);

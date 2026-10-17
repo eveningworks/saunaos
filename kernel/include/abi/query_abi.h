@@ -625,6 +625,37 @@ struct query_cachesim {
     uint64_t resident;   // pages it holds now -- below capacity, the working set
 };
 
+// WHO MAKES THOSE READS, while `cachesim` is on: the heaviest readers
+// kept in bounded tables (the smallest entry gives way to a newcomer),
+// so a steady poller stays and a one-off read may not. LIST, empty when
+// off. A "repeat" is a read of a page the 256 MiB ghost already held.
+//
+// QUERY_CACHESIM_PROC: per process, the BLOCK reads made while it was
+// current -- iotop's view, metadata included. pid 0 is the kernel.
+// QUERY_CACHESIM_PATH: per process and path, the filesystem lookups
+// (any fs call: a stat and a listing count, not only a read) and the
+// file pages read -- filetop's view.
+#define QUERY_CACHESIM_PROC 55
+#define QUERY_CACHESIM_PATH 56
+#define QUERY_CACHESIM_NAME 16
+#define QUERY_CACHESIM_PATH_MAX 96
+
+struct query_cachesim_proc {
+    uint64_t pid;
+    char name[QUERY_CACHESIM_NAME];
+    uint64_t pages;      // 4 KiB block pages read
+    uint64_t repeats;
+};
+
+struct query_cachesim_path {
+    uint64_t pid;
+    char name[QUERY_CACHESIM_NAME];
+    char path[QUERY_CACHESIM_PATH_MAX];  // truncated, still NUL-terminated
+    uint64_t lookups;
+    uint64_t pages;      // 4 KiB file pages read
+    uint64_t repeats;
+};
+
 struct query_remotesess {
     uint64_t pid;           // the session leader: signal it to act on the session
     uint64_t remote_ip;     // host byte order

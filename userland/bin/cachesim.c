@@ -15,15 +15,17 @@
 #define ROWS 16
 
 static const char *g_interval;
+static int g_top;
 
 static const struct uargs_opt OPTS[] = {
     { "interval", 'i', "SECONDS", "count only what is read during the next SECONDS", 0, &g_interval },
+    { "top", 't', 0, "who reads: the heaviest processes and paths, instead of the sizes", &g_top, 0 },
     { 0 }
 };
 
 static const struct uargs_prog PROG = {
     .name = "cachesim",
-    .usage = "[-i SECONDS]",
+    .usage = "[-t] [-i SECONDS]",
     .summary = "How many 4 KiB reads a cache of each size would have served, measured\n"
                "by ghost caches that keep keys and no data. 'file' is a page cache above\n"
                "the filesystem; 'block' is a cache under it, metadata included.",
@@ -31,6 +33,85 @@ static const struct uargs_prog PROG = {
     .notes = "Needs a kernel booted with the word 'cachesim' (bootcfg try 0 +cachesim).\n"
              "Exit status: 0 printed, 1 the kernel is not measuring, 2 a usage error.",
 };
+
+// ---- --top --------------------------------------------------------------
+
+#define TOP_PROCS 32
+#define TOP_PATHS 128
+#define SHOW_PROCS 10
+#define SHOW_PATHS 20
+
+static struct query_cachesim_proc g_p0[TOP_PROCS], g_p1[TOP_PROCS];
+static struct query_cachesim_path g_f0[TOP_PATHS], g_f1[TOP_PATHS];
+static int g_np0, g_np1, g_nf0, g_nf1;
+
+static int take_procs(struct query_cachesim_proc *out) {
+    int n = 0;
+    struct query_cachesim_proc r;
+    QUERY_FOREACH(QUERY_CACHESIM_PROC, r, i) { if (n == TOP_PROCS) break; out[n++] = r; }
+    return n;
+}
+
+static int take_paths(struct query_cachesim_path *out) {
+    int n = 0;
+    struct query_cachesim_path r;
+    QUERY_FOREACH(QUERY_CACHESIM_PATH, r, i) { if (n == TOP_PATHS) break; out[n++] = r; }
+    return n;
+}
+
+// The interval's share of one row: the same row in the first sample, or
+// none. A row the kernel replaced in between restarted from zero, so a
+// count that went DOWN is all new.
+static uint64_t since(uint64_t now, uint64_t then) { return now >= then ? now - then : now; }
+
+static void top_procs(void) {
+    for (int i = 0; i < g_np1; i++) {
+        for (int j = 0; j < g_np0; j++) {
+            if (g_p0[j].pid != g_p1[i].pid || strcmp(g_p0[j].name, g_p1[i].name)) continue;
+            g_p1[i].pages = since(g_p1[i].pages, g_p0[j].pages);
+            g_p1[i].repeats = since(g_p1[i].repeats, g_p0[j].repeats);
+            break;
+        }
+    }
+    printf("Block reads, by process:\n%7s %-16s %10s %10s\n", "pid", "name", "pages", "repeats");
+    for (int shown = 0; shown < SHOW_PROCS; shown++) {
+        int best = -1;
+        for (int i = 0; i < g_np1; i++)
+            if (g_p1[i].pages && (best < 0 || g_p1[i].pages > g_p1[best].pages)) best = i;
+        if (best < 0) break;
+        printf("%7llu %-16s %10llu %10llu\n", (unsigned long long)g_p1[best].pid, g_p1[best].name,
+               (unsigned long long)g_p1[best].pages, (unsigned long long)g_p1[best].repeats);
+        g_p1[best].pages = 0;
+    }
+}
+
+static void top_paths(void) {
+    for (int i = 0; i < g_nf1; i++) {
+        for (int j = 0; j < g_nf0; j++) {
+            if (g_f0[j].pid != g_f1[i].pid || strcmp(g_f0[j].path, g_f1[i].path)) continue;
+            g_f1[i].lookups = since(g_f1[i].lookups, g_f0[j].lookups);
+            g_f1[i].pages = since(g_f1[i].pages, g_f0[j].pages);
+            g_f1[i].repeats = since(g_f1[i].repeats, g_f0[j].repeats);
+            break;
+        }
+    }
+    printf("\nFilesystem calls, by process and path:\n%7s %-16s %8s %8s %8s  %s\n",
+           "pid", "name", "lookups", "pages", "repeats", "path");
+    for (int shown = 0; shown < SHOW_PATHS; shown++) {
+        int best = -1;
+        uint64_t bw = 0;
+        for (int i = 0; i < g_nf1; i++) {
+            uint64_t w = g_f1[i].lookups + g_f1[i].pages;
+            if (w && (best < 0 || w > bw)) { best = i; bw = w; }
+        }
+        if (best < 0) break;
+        struct query_cachesim_path *e = &g_f1[best];
+        printf("%7llu %-16s %8llu %8llu %8llu  %s\n", (unsigned long long)e->pid, e->name,
+               (unsigned long long)e->lookups, (unsigned long long)e->pages,
+               (unsigned long long)e->repeats, e->path);
+        e->lookups = e->pages = 0;
+    }
+}
 
 static int sample(struct query_cachesim *rows) {
     int n = 0;
@@ -56,6 +137,21 @@ int main(int argc, char **argv) {
 
     static struct query_cachesim before[ROWS], after[ROWS];
     int n = sample(before);
+    if (n && g_top) {
+        if (secs) {
+            g_np0 = take_procs(g_p0);
+            g_nf0 = take_paths(g_f0);
+            sleep((unsigned)secs);
+        }
+        g_np1 = take_procs(g_p1);
+        g_nf1 = take_paths(g_f1);
+        printf(secs ? "Over %d s:\n" : "Since boot:\n", secs);
+        top_procs();
+        top_paths();
+        printf("(4 KiB pages; a repeat is a page read before. The tables keep the heaviest\n"
+               " readers only, so a light one may be missing.)\n");
+        return 0;
+    }
     if (n == 0) {
         fprintf(stderr, "cachesim: not measuring -- boot with the word 'cachesim' "
                         "(bootcfg try 0 +cachesim)\n");
