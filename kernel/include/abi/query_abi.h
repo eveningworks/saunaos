@@ -606,6 +606,25 @@ struct query_remotelog {
 // QUERY_USB's one `driver` is only the first of them.
 #define QUERY_USB_IF 53
 
+// WHAT A CACHE WOULD HAVE HIT, measured without one: a GHOST cache that
+// keeps only keys, at two levels and four sizes. LIST, one record per
+// (level, size); EMPTY unless the kernel booted with `cachesim`, since
+// the keys cost ~5 MiB. `file` is what a page cache above the VFS would
+// see -- 4 KiB of a file, dropped when anything changes that file;
+// `block` is what a block cache under the filesystem would see,
+// metadata included, kept current by writes (write-through).
+// docs/pagecache-design.md says what the numbers decide.
+#define QUERY_CACHESIM 54
+#define QUERY_CACHESIM_LEVEL 8
+
+struct query_cachesim {
+    char level[QUERY_CACHESIM_LEVEL]; // "file" or "block"
+    uint64_t size_kib;   // the simulated cache's size
+    uint64_t lookups;    // 4 KiB pages read through this level since boot
+    uint64_t hits;       // of those, ones a cache of this size held
+    uint64_t resident;   // pages it holds now -- below capacity, the working set
+};
+
 struct query_remotesess {
     uint64_t pid;           // the session leader: signal it to act on the session
     uint64_t remote_ip;     // host byte order

@@ -992,7 +992,7 @@ run on, not by order.
 - [ ] Reuse the read/write bounce buffer instead of a `kmalloc` per syscall -- `fd_bounce_alloc()` allocates and frees up to 256 KiB a call
 - [ ] Scatter-gather in `ata.c`, so legacy ATA can exceed 64 KiB per command -- one PRD's byte count is 16-bit and it uses a single entry
 - [ ] Read-ahead on sequential reads -- wants the asynchronous `block_device` split first, to issue a read while the last is consumed
-- [ ] A write-back page cache -- `docs/pagecache-design.md`, DEMOTED there by measurement: the workload is not read-bound
+- [ ] A write-back page cache -- `docs/pagecache-design.md`, DEMOTED by a benchmark; `cachesim` now measures a real session
 - [ ] A second drive, which needs a block layer whose active device is not singular
 - [ ] A sector cache shared with ATA, if one is ever measured to be worth it
 - [ ] A fault-injection hook that makes the DRIVE refuse a command, so `port_recover()` is exercised

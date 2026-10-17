@@ -34,6 +34,7 @@
 #include "scheduler.h"
 #include "kmutex.h"  // the step table's lock; the mounts' are in mount.h
 #include "fswatch.h" // a mutation tells whoever watches its path
+#include "cachesim.h" // what a page cache would have hit, when measuring
 #include "initcall.h"
 
 // EVERY backend call runs inside its MOUNT's lock, and a contender SLEEPS.
@@ -534,6 +535,7 @@ static int changed(int ok, const char *path) {
     fswatch_hash(path, &self, &parent);
     fswatch_note(self, parent);
     dirgen_note(self, parent);
+    cachesim_file_changed(self);
     return ok;
 }
 
@@ -544,6 +546,7 @@ static int changed2(int ok, const char *a, const char *b) {
     fswatch_hash(b, &self, &parent);
     fswatch_note(self, parent);
     dirgen_note(self, parent);
+    cachesim_file_changed(self);
     return ok;
 }
 
@@ -606,6 +609,7 @@ uint32_t fs_read_into(const char *path, void *buf, uint32_t cap) {
         got += n;
     }
     dst[got] = '\0';
+    cachesim_file_read(path, 0, got);
     return got;
 }
 
@@ -618,7 +622,9 @@ uint64_t fs_size(const char *path) {
 uint32_t fs_read_range(const char *path, uint64_t offset, void *buf, uint32_t len) {
     struct resolved r;
     if (!resolve(path, &r)) return 0;
-    return FS_OP(r.m, r.gen, read_range, r.sub, offset, buf, len);
+    uint32_t n = FS_OP(r.m, r.gen, read_range, r.sub, offset, buf, len);
+    cachesim_file_read(path, offset, n);
+    return n;
 }
 
 int fs_write_range(const char *path, uint64_t offset, const void *buf, uint32_t len) {
@@ -691,14 +697,20 @@ enum fs_step_result fs_write_range_step(void *handle) {
     // per step would wake a watcher repeatedly through a single save.
     // This path is the one Notepad saves through, so without it editing
     // a file in the editor would not be seen by anything watching.
-    if (r == FS_STEP_DONE) { g_generation++; fswatch_note(self, parent); dirgen_note(self, parent); }
+    if (r == FS_STEP_DONE) {
+        g_generation++; fswatch_note(self, parent); dirgen_note(self, parent);
+        cachesim_file_changed(self);
+    }
     return r;
 }
 
 void *fs_read_range_begin(const char *path, uint64_t offset, void *buf, uint32_t len) {
     struct resolved r;
     if (!resolve(path, &r)) return 0;
-    return step_wrap(&r, FS_OP(r.m, r.gen, read_range_begin, r.sub, offset, buf, len));
+    void *h = step_wrap(&r, FS_OP(r.m, r.gen, read_range_begin, r.sub, offset, buf, len));
+    // Counted at begin, the whole range: the steps carry no path.
+    if (h) cachesim_file_read(path, offset, len);
+    return h;
 }
 
 enum fs_step_result fs_read_range_step(void *handle, uint32_t *out_total) {

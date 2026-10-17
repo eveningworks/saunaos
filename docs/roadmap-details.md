@@ -285,6 +285,12 @@ so reducing them further needs per-transaction journal staging -- a
 change to the journal, not a cache above it. **The workload is no longer
 read-bound, and a page cache does not sit where the cost is.**
 
+That measurement was a linear benchmark, which has no repeats. The
+boot word `cachesim` and `/bin/cachesim` measure what a page cache
+(and a block cache under the filesystem) would hit on the machine's
+real workload, at four sizes, without building either; the laptop's
+numbers over a real session are what re-decide stage 1.
+
 The number it chases is measured rather than guessed: on the bare-metal
 laptop, `storage.sync = lazy` (barriers off entirely) gives 36.55 MB/s
 sequential against strict's 14.68, and 4.01 against 1.09 at 4 KiB. That

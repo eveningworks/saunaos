@@ -33,6 +33,11 @@ const char *multiboot_cmdline(void);
 // NUL-terminated copy, or 0 when absent, empty, or too long for `out`.
 int multiboot_cmdline_value(const char *key, char *out, uint32_t out_size);
 
+// Whether the bare `word` is on the command line, as a WHOLE word: it
+// starts the line or follows a space, and ends it or meets a space --
+// so `cachesim` is not `nocachesim` and not `cachesim=1`.
+int multiboot_cmdline_has(const char *word);
+
 // The ACPI Root System Description Pointer, as GRUB found it: tag 15
 // (ACPI 2.0+, has an XSDT) if present, else tag 14 (ACPI 1.0, RSDT
 // only). Returns 0 when neither tag is there, which is the answer on a

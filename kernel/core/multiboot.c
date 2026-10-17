@@ -155,6 +155,17 @@ int multiboot_cmdline_value(const char *key, char *out, uint32_t out_size) {
     return 0;
 }
 
+int multiboot_cmdline_has(const char *word) {
+    const char *cmdline = multiboot_cmdline();
+    if (!cmdline || !word || !*word) return 0;
+    uint32_t wlen = (uint32_t)k_strlen(word);
+    for (const char *p = cmdline; (p = k_strstr(p, word)) != 0; p += wlen) {
+        if (p != cmdline && p[-1] != ' ') continue;
+        if (p[wlen] == 0 || p[wlen] == ' ') return 1;
+    }
+    return 0;
+}
+
 void multiboot_mmap_foreach(void (*cb)(const struct multiboot_mmap_region *region)) {
     if (mb_info_addr == 0) return;
 

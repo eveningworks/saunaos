@@ -9,6 +9,7 @@
 #include <stddef.h>
 #include "driver.h" // driver_bound() -- `lsdrv`
 #include "block_stat.h"
+#include "cachesim.h"     // what a block cache would have hit, when measuring
 #include "clocksource.h" // clocksource_now_ns() -- the stat timers
 #include "heap.h"        // the partial-block bounce buffer
 #include "devevent.h"
@@ -247,6 +248,7 @@ static int io_read(const struct block_device *dev, uint64_t lba,
     int ok = dev->read_sectors(dev, lba, count, buf);
     blk_stat_add(BLK_STAT_READ, (uint32_t)(count < 0 ? 0 : count),
                  clocksource_now_ns() - t0, ok);
+    if (ok && count > 0) cachesim_block_io(dev, lba, (uint32_t)count, 0);
     return ok;
 }
 
@@ -258,6 +260,7 @@ static int io_write(const struct block_device *dev, uint64_t lba,
     int ok = dev->write_sectors(dev, lba, count, buf);
     blk_stat_add(BLK_STAT_WRITE, (uint32_t)(count < 0 ? 0 : count),
                  clocksource_now_ns() - t0, ok);
+    if (ok && count > 0) cachesim_block_io(dev, lba, (uint32_t)count, 1);
     return ok;
 }
 
@@ -353,6 +356,7 @@ int blkdev_submit_batch(const struct block_device *dev, struct blk_io *io, int n
                 : dev->read_sectors(dev, io[i].lba, io[i].count, io[i].buf));
             blk_stat_add(io[i].write ? BLK_STAT_WRITE : BLK_STAT_READ, io[i].count,
                          clocksource_now_ns() - t0, io[i].ok);
+            if (io[i].ok) cachesim_block_io(dev, io[i].lba, io[i].count, io[i].write);
             if (!io[i].ok) all = 0;
         }
         return all;
@@ -363,9 +367,11 @@ int blkdev_submit_batch(const struct block_device *dev, struct blk_io *io, int n
     // batch: the per-command averages `blkstat` reports stay comparable
     // with the one-at-a-time path, and the share is what overlap bought.
     uint64_t share = (clocksource_now_ns() - t0) / (uint64_t)n;
-    for (int i = 0; i < n; i++)
+    for (int i = 0; i < n; i++) {
         blk_stat_add(io[i].write ? BLK_STAT_WRITE : BLK_STAT_READ,
                      io[i].count, share, io[i].ok);
+        if (io[i].ok) cachesim_block_io(dev, io[i].lba, io[i].count, io[i].write);
+    }
     return all;
 }
 

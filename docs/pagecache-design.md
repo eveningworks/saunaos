@@ -6,7 +6,8 @@ measurements of 2026-09-04 left open: **toy-os pays for durability on
 every write, and Linux pays for it only when asked. What would it take
 to do the same?**
 
-**Status: DESIGNED, NOT BUILT.**
+**Status: stages 0, 1a, 3 and 4 are BUILT; stages 1 and 2 are demoted
+by measurement, and `cachesim` (below) is what re-decides them.**
 
 ## Why this exists, in one measurement
 
@@ -344,6 +345,35 @@ So the honest state of stages 1 and 2 is: **the workload that motivated
 them is not read-bound any more, and the remaining cost is in a place a
 page cache does not sit.** They stay designed and unbuilt, and the
 reason is a measurement rather than a preference.
+
+### Measuring stage 1 before building it -- `cachesim`  [BUILT]
+
+The demotion above was measured on a linear benchmark, which has no
+repeats by construction. What a cache would buy on the machine's REAL
+workload -- app launches, config reads, a desktop session -- had not
+been measured, so it was built as a measurement first:
+`kernel/fs/cachesim.c` keeps GHOST caches (keys, no data, an LRU each)
+at 4, 16, 64 and 256 MiB, at two levels, and `/bin/cachesim` prints
+them. ZFS's ARC keeps ghost lists for the same reason, and Linux's
+`mm/workingset.c` keeps shadow entries to measure refault distance.
+
+- `file` is THIS stage: every read through `fs_read_range()`,
+  `fs_read_into()` and `fs_read_range_begin()`, keyed by path hash and
+  4 KiB page, invalidated wherever the VFS already tells `fswatch` a
+  path changed. That is the hole named below, closed by construction:
+  every mutating entry point already reaches `changed()`.
+- `block` is a write-through cache UNDER the filesystem -- the roadmap's
+  "block/buffer cache" -- which also sees bitmap, inode-table and
+  pointer-table reads.
+
+**Behind a boot word (`cachesim`)**, because the keys cost ~5 MiB.
+
+First reading, QEMU, a default desktop boot with nothing launched
+(2026-10-17): `file` 13% of 3,487 page reads, with a working set of
+~3,000 pages; `block` 74% of 12,190, with ~3,100. Both saturate at
+16 MiB. The block figure counts sub-page reads of one 4 KiB page as
+repeats, which a 4 KiB block cache would really serve. **What decides
+stage 1 is the laptop's numbers over a real session**, not this one.
 
 ### Stage 1 -- one cache, above the VFS, read-only first
 

@@ -195,6 +195,7 @@ a command), and the `gui3`/`nano` aliases.
 
 ### Diagnostics
 
+- [`cachesim`](cachesim.md)
 - [`diskbench`](diskbench.md)
 - [`kdfiled`](kdfiled.md)
 - [`log`](log.md)
