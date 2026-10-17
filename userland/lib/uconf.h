@@ -37,12 +37,14 @@
 // or larger than the buffer -- the last of which is REFUSED rather than
 // truncated, since a truncated config file parses as a valid one with
 // entries missing.
+//
+// ANSWERED FROM A PER-PROCESS CACHE while the path's fs_generation_of()
+// has not moved, so asking again costs a syscall and a copy, not a read.
+// A write through a hard link to the file is NOT seen (uconf.c).
 int uconf_load(const char *path, struct etc_config_buf *buf);
 
-// One key from a file. Prefer uconf_load() + etc_config_buf_get() when
-// asking a file more than one question: this re-reads the whole
-// document per call, which is what made a nine-entry desktop reload
-// cost 54 whole-file reads before anyone measured it.
+// One key from a file -- a uconf_load() and a parse per call. Prefer
+// uconf_load() + etc_config_buf_get() when asking several questions.
 int uconf_get(const char *path, const char *key, char *out, uint32_t out_size);
 
 // The same, scoped to `[section]` -- NULL or "" is top level, which is

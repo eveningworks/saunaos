@@ -16,6 +16,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <stdio.h>    // rename()
 #include <unistd.h>
 
 void uhist_init(struct uhistory *h) {
@@ -118,17 +119,55 @@ void uhist_persist(const char *line) {
     close(fd);
 }
 
-void uhist_load(struct uhistory *h) {
-    int fd = open(UHIST_FILE, O_RDONLY);
+// ONLY THE TAIL IS READ: the last UHIST_MAX lines fit in UHIST_MAX
+// longest lines, so nothing before that can reach the ring. Reading the
+// whole file cost a 3.3 MB history 6,500 reads at every shell start --
+// every Terminal tab and every remote command.
+#define UHIST_TAIL ((long)UHIST_MAX * TOSH_HIST_LINE_MAX)
+
+// THE FILE IS TRIMMED once it passes UHIST_FILE_MAX, to its last
+// UHIST_FILE_KEEP bytes (both in the header), through a temporary and an
+// atomic rename -- bash's HISTFILESIZE. A line another shell appends
+// between the read and the rename is lost, as with bash; a trim that
+// fails leaves the file as it was.
+static void trim(int fd, long size, const char *path) {
+    static char tail[UHIST_FILE_KEEP];
+    if (lseek(fd, size - UHIST_FILE_KEEP, SEEK_SET) < 0) return;
+    long got = 0;
+    while (got < UHIST_FILE_KEEP) {
+        long n = read(fd, tail + got, (size_t)(UHIST_FILE_KEEP - got));
+        if (n <= 0) return;
+        got += n;
+    }
+    const char *start = memchr(tail, '\n', (size_t)got);   // a whole line first
+    if (!start) return;
+    start++;
+    char tmp[128];
+    snprintf(tmp, sizeof tmp, "%s.new", path);
+    int out = open(tmp, O_WRONLY | O_CREAT | O_TRUNC);
+    if (out < 0) return;
+    long n = (long)(tail + got - start);
+    int ok = write(out, start, (size_t)n) == n;
+    close(out);
+    if (!ok || rename(tmp, path) != 0) unlink(tmp);
+}
+
+void uhist_load(struct uhistory *h) { uhist_load_from(h, UHIST_FILE); }
+
+void uhist_load_from(struct uhistory *h, const char *path) {
+    int fd = open(path, O_RDONLY);
     if (fd < 0) return;
 
-    // STREAMED, not read whole: the file grows by a line per command
-    // forever and nothing trims it, so a buffer sized for "the history"
-    // would be sized for a guess. What is kept is the LAST UHIST_MAX
-    // lines, which uhist_add()'s own ring does for free -- every line is
-    // added and the early ones fall off the back.
-    static char chunk[512], line[TOSH_HIST_LINE_MAX];
+    long size = lseek(fd, 0, SEEK_END);
+    long from = size > UHIST_TAIL ? size - UHIST_TAIL : 0;
+    if (size < 0 || lseek(fd, from, SEEK_SET) < 0) { close(fd); return; }
+
+    // What is kept is the LAST UHIST_MAX lines, which uhist_add()'s own
+    // ring does for free -- every line is added and the early ones fall
+    // off the back.
+    static char chunk[4096], line[TOSH_HIST_LINE_MAX];
     int len = 0;
+    int skip = from > 0;   // started mid-line: that part line is not a command
     for (;;) {
         long n = read(fd, chunk, sizeof chunk);
         if (n <= 0) break;
@@ -136,8 +175,9 @@ void uhist_load(struct uhistory *h) {
             char c = chunk[i];
             if (c == '\n') {
                 line[len] = '\0';
-                if (len) uhist_add(h, line);
+                if (len && !skip) uhist_add(h, line);
                 len = 0;
+                skip = 0;
             } else if (len < (int)sizeof line - 1) {
                 line[len++] = c;
             }
@@ -146,7 +186,8 @@ void uhist_load(struct uhistory *h) {
             // ring as if it were a whole one.
         }
     }
-    if (len) { line[len] = '\0'; uhist_add(h, line); }
+    if (len && !skip) { line[len] = '\0'; uhist_add(h, line); }
+    if (size > UHIST_FILE_MAX) trim(fd, size, path);
     close(fd);
     uhist_reset(h);
 }

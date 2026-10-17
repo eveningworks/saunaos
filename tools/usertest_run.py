@@ -361,6 +361,13 @@ TESTS = [
     # every one would pass whether or not libuapp.a linked a byte of it
     # -- which is what /bin/netd and the File Manager read /etc through.
     ("etc_config_test", 0, None, None),
+    # lib/uconf's cache: an unchanged file is not read again, a change
+    # behind its back is seen. SPAWNED: the read count is its own
+    # QUERY_PROCIO row, and `run` gives a process no row.
+    ("uconf_cache_test", None, None, None),
+    # lib/uhistory: a shell start reads only the history's tail, and a
+    # history past its bound is trimmed to whole lines. SPAWNED, as above.
+    ("uhist_test", None, None, None),
     # lib/rubberband: the desktop's and the File Manager's drag selection.
     # A KTEST until the module left the kernel, its bodies unchanged.
     ("rubberband_test", 0, None, None),

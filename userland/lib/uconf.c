@@ -24,18 +24,99 @@ static uint32_t read_into(const char *path, void *buf, uint32_t cap) {
     return total;
 }
 
+// ---- the per-process cache ---------------------------------------------
+//
+// A file is re-read only when its fs_generation_of() moved: one syscall
+// and a copy instead of an open, the reads and a close -- and a disk read
+// each, with no page cache under them. Per key, that was toywm re-reading
+// /etc/desktop.conf ~35 times per window opened, and System Settings a
+// settings.d file 248 times per launch (the dconf shape: readers keep the
+// document and a cheap "is it stale" check). A missing file is cached
+// too: creating it moves its generation.
+//
+// THE GENERATION IS THE PATH'S, NOT THE FILE'S: a write through a HARD
+// LINK to the same file moves only the link's, and this keeps answering
+// the old text -- the blind spot every fs_generation_of() watcher has.
+// The generation is read BEFORE the file, so a write in between is
+// cached under the old number and re-read next time, never the reverse.
+#define UCONF_SLOTS 8
+#define UCONF_PATH_MAX 96   // longer paths are simply not cached
+
+struct uconf_slot {
+    char path[UCONF_PATH_MAX];
+    long long gen;          // 0 = empty
+    uint32_t stamp;         // LRU: the smallest goes
+    struct etc_config_buf buf;
+};
+
+static struct uconf_slot *g_slots;   // malloc'd on first use: most programs never ask
+static uint32_t g_stamp;
+static volatile int g_lock;          // a process may ask from two threads (webcontent)
+
+static void lock(void) {
+    while (__atomic_exchange_n(&g_lock, 1, __ATOMIC_ACQUIRE)) sys_yield();
+}
+
+static void unlock(void) { __atomic_store_n(&g_lock, 0, __ATOMIC_RELEASE); }
+
+static void copy_out(struct etc_config_buf *dst, const struct etc_config_buf *src) {
+    memcpy(dst->data, src->data, src->size);
+    dst->data[src->size < sizeof dst->data ? src->size : sizeof dst->data - 1] = '\0';
+    dst->size = src->size;
+    dst->valid = src->valid;
+}
+
+// 1 = answered from the cache into `buf`.
+static int cache_get(const char *path, long long gen, struct etc_config_buf *buf) {
+    int hit = 0;
+    lock();
+    for (int i = 0; g_slots && i < UCONF_SLOTS; i++) {
+        struct uconf_slot *s = &g_slots[i];
+        if (s->gen == gen && !strcmp(s->path, path)) {
+            s->stamp = ++g_stamp;
+            copy_out(buf, &s->buf);
+            hit = 1;
+            break;
+        }
+    }
+    unlock();
+    return hit;
+}
+
+static void cache_put(const char *path, long long gen, const struct etc_config_buf *buf) {
+    lock();
+    if (!g_slots) g_slots = calloc(UCONF_SLOTS, sizeof *g_slots);
+    if (g_slots) {
+        struct uconf_slot *v = &g_slots[0];
+        for (int i = 0; i < UCONF_SLOTS; i++) {
+            struct uconf_slot *s = &g_slots[i];
+            if (s->gen && !strcmp(s->path, path)) { v = s; break; }   // its stale copy
+            if (s->stamp < v->stamp) v = s;
+        }
+        strlcpy(v->path, path, sizeof v->path);
+        v->gen = gen;
+        v->stamp = ++g_stamp;
+        copy_out(&v->buf, buf);
+    }
+    unlock();
+}
+
 int uconf_load(const char *path, struct etc_config_buf *buf) {
     if (!buf) return 0;
     buf->valid = 0;
     buf->size = 0;
     buf->data[0] = '\0';
 
-    uint32_t n = read_into(path, buf->data, (uint32_t)sizeof buf->data);
-    if (n == 0) return 0;
+    long long gen = path && strlen(path) < UCONF_PATH_MAX ? sys_fs_generation_of(path) : 0;
+    if (gen > 0 && cache_get(path, gen, buf)) return buf->valid;
 
-    buf->size = n;
-    buf->valid = 1;
-    return 1;
+    uint32_t n = read_into(path, buf->data, (uint32_t)sizeof buf->data);
+    if (n > 0) {
+        buf->size = n;
+        buf->valid = 1;
+    }
+    if (gen > 0) cache_put(path, gen, buf);
+    return buf->valid;
 }
 
 // HEAP, NOT THE STACK, and that is what lets ETC_CONFIG_BUF_MAX be

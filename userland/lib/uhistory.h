@@ -71,13 +71,14 @@ const char *uhist_at(const struct uhistory *h, int i);
 
 // --- the file -----------------------------------------------------------
 //
-// **EACH SHELL APPENDS ITS OWN LINES; NOBODY REWRITES THE FILE.** The
+// **EACH SHELL APPENDS ITS OWN LINES; ONLY A TRIM REWRITES THE FILE.** The
 // kernel shell rewrites /etc/history wholesale, which is safe for one
 // console and would silently lose lines the moment a second shell did
 // it -- and there are as many ring-3 shells as there are Terminal tabs.
 // Appending one line at a time is `shopt -s histappend` plus bash's
 // `history -a`, the arrangement every multi-window bash user ends up
-// with, and it needs no locking because a line is one write.
+// with, and it needs no locking because a line is one write. Past a
+// size bound uhist_load() trims it to its tail (bash's HISTFILESIZE).
 //
 // A DIFFERENT FILE FROM THE KERNEL SHELL'S, for the same reason bash and
 // zsh keep separate ones: they are different shells with different
@@ -93,8 +94,15 @@ const char *uhist_at(const struct uhistory *h, int i);
 #define TOSH_HIST_LINE_MAX 1024
 
 // Fills the ring from UHIST_FILE, oldest first, keeping the last
-// UHIST_MAX lines. Missing file is not an error -- it is a fresh disk.
+// UHIST_MAX lines -- reading only the file's tail. Missing file is not
+// an error -- it is a fresh disk.
 void uhist_load(struct uhistory *h);
+
+// The same from another file, and the trim's bounds with it -- for a test,
+// which must not rewrite the real history.
+void uhist_load_from(struct uhistory *h, const char *path);
+#define UHIST_FILE_MAX  (256L * 1024)
+#define UHIST_FILE_KEEP (64L * 1024)
 
 // Appends one line. Called per accepted line rather than at exit,
 // because a Terminal tab is closed by a signal and has no exit to run at.
