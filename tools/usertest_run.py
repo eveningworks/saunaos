@@ -368,6 +368,7 @@ TESTS = [
     # lib/uhistory: a shell start reads only the history's tail, and a
     # history past its bound is trimmed to whole lines. SPAWNED, as above.
     ("uhist_test", None, None, None),
+    ("append_test", None, None, None),
     # lib/rubberband: the desktop's and the File Manager's drag selection.
     # A KTEST until the module left the kernel, its bodies unchanged.
     ("rubberband_test", 0, None, None),

@@ -65,10 +65,19 @@ to the end, because half a repair is a volume in a state nobody chose.
 which of two files keeps a shared block destroys the other's data.
 Delete one of the files instead.
 
+**Every kind of problem is a line of the summary, and "clean" means all
+of them are zero**: besides the block counts, free counts that disagree
+with the bitmaps and link counts that disagree with the names found
+(both fixed by `-r`), and names that reach a record failing its
+checksum or a broken directory (`.`/`..` wrong, a corrupt entry chain,
+a directory with two names). Those last two are never repaired --
+each fix deletes a name -- and `dmesg` lists every one.
+
 ## Exit status
 
 e2fsck's: `0` clean, `1` problems were found and all of them fixed, `4`
-problems are left (always, for a double allocation), `8` the check
+problems are left (always, for a double allocation, a damaged name or
+a directory error), `8` the check
 itself failed -- a repair of a read-only mount or a filesystem that can
 only report (`ramfs`, `fat32`), `32` stopped by Ctrl-C (e2fsck's "canceled
 by user request"). `2` is a usage error.

@@ -338,33 +338,25 @@ void cmd_fputest(void) {
 // data-destroying guess). Report-only by default on purpose: this walks
 // every record's block tree and, in repair mode, writes to the bitmap,
 // so "see what it would do" should not require committing to it.
-// Writes out everything the disk cache is still holding, and SAYS WHAT
-// IT WROTE. The count is the point: a `sync` that prints nothing is
-// indistinguishable from one that did nothing, and with a write-back
-// cache underneath the difference is somebody's file.
+// What /bin/sync does, through the same fs_sync(): every mount's
+// deferred journal commit, any driver write-back cache, then a device
+// flush. It asked the ATA cache alone and told every AHCI and virtio
+// machine "writes already go straight to the disk" with commits queued.
 void cmd_sync(const char *args) {
     (void)args;
-    if (!ata_cache_active()) {
-        vga_write("sync: no disk cache active -- writes already go straight to the disk.\n");
-        return;
-    }
-
-    uint32_t wrote = 0, pending = 0;
-    int ok = ata_sync(&wrote, &pending);
-
-    vga_printf("sync: wrote %u", (uint32_t)wrote);
-    vga_write(wrote == 1 ? " sector" : " sectors");
-    vga_write(" back to disk");
-    if (wrote == 0 && ok) vga_write(" (nothing was pending)");
-    vga_write(".\n");
-
-    if (!ok) {
+    uint32_t wrote = 0;
+    if (!fs_sync(&wrote)) {
         // Loud, and specific about what to do: the data still exists,
         // in RAM only, and powering off is what would lose it.
-        vga_printf("sync: FAILED -- %u", (uint32_t)pending);
-        vga_write(" sector(s) could NOT be written and are still pending.\n");
-        vga_write("      Do not power off yet; that data is in memory only.\n");
+        vga_write("sync: FAILED -- some sectors could NOT be written and\n"
+                  "      are still in memory only. Do not power off yet.\n");
+        return;
     }
+    if (wrote)
+        vga_printf("sync: wrote %u sector%s back, then flushed every mounted disk\n",
+                   (uint32_t)wrote, wrote == 1 ? "" : "s");
+    else
+        vga_write("sync: flushed every mounted disk (nothing was buffered in RAM)\n");
 }
 
 void cmd_fsck(const char *args) {
@@ -391,6 +383,10 @@ void cmd_fsck(const char *args) {
     vga_printf("  referenced but free:   %u\n", (uint32_t)r.referenced_but_free);
     vga_printf("  double-allocated:      %u\n", (uint32_t)r.double_allocated);
     vga_printf("  out-of-range pointers: %u\n", (uint32_t)r.out_of_range);
+    vga_printf("  free counts wrong:     %u\n", (uint32_t)r.counts_wrong);
+    vga_printf("  link counts wrong:     %u\n", (uint32_t)r.links_wrong);
+    vga_printf("  names to bad records:  %u\n", (uint32_t)r.bad_names);
+    vga_printf("  directory errors:      %u\n", (uint32_t)r.dir_errors);
 
     if (repair) {
         vga_write("  -- repaired --\n");
@@ -398,7 +394,9 @@ void cmd_fsck(const char *args) {
         vga_printf(" (%u KB)\n", (uint32_t)(r.reclaimed * 4));
         vga_printf("  marked allocated:      %u\n", (uint32_t)r.marked_allocated);
         vga_printf("  pointers cleared:      %u\n", (uint32_t)r.pointers_cleared);
-    } else if (r.leaked || r.referenced_but_free || r.out_of_range) {
+        vga_printf("  free counts fixed:     %u\n", (uint32_t)r.counts_fixed);
+        vga_printf("  link counts fixed:     %u\n", (uint32_t)r.links_fixed);
+    } else if (r.leaked || r.referenced_but_free || r.out_of_range || r.counts_wrong || r.links_wrong) {
         vga_write("Run `fsck repair` to reclaim ");
         vga_printf("%u leaked block(s) (", (uint32_t)r.leaked);
         vga_printf("%u KB) and fix the rest.\n", (uint32_t)(r.leaked * 4));
@@ -412,7 +410,12 @@ void cmd_fsck(const char *args) {
         vga_write("other's data. Delete one of the affected files to resolve it.\n");
     }
 
-    if (!r.leaked && !r.referenced_but_free && !r.double_allocated && !r.out_of_range) {
+    if (r.bad_names || r.dir_errors) {
+        vga_write("WARNING: damaged directory entries. `fsck repair` will NOT fix these;\n");
+        vga_write("`dmesg` lists each one.\n");
+    }
+
+    if (!fs_check_problems(&r)) {
         vga_write("fsck: clean.\n");
     }
 }

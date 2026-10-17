@@ -142,16 +142,24 @@ void t3_free_inode_bit(struct t3_state *sbi, uint64_t ino) {
 // that makes a free unreachable (clear-after-persist), so a crash at
 // any point costs a leaked block/inode -- never a double allocation.
 // TFS2's exact metadata-ordering rule, see docs/decisions.md.
+//
+// "Before" means BEFORE A BARRIER, not before in issue order: a drive
+// with a write cache may put the committed journal header on the media
+// first, and replay does not look at bitmaps, so a crash there left a
+// replayed inode on space marked free. alloc_unfenced makes the next
+// commit flush first (txn_commit_raw()).
 int t3_flush_alloc_state(struct t3_state *sbi) {
     int ok = 1;
     for (uint32_t g = 0; g < sbi->sb.gc; g++) {
         if (test_dirty(sbi->bbm_dirty, g)) {
             if (!t3_write_block(sbi, t3_group_base(sbi, g), sbi->bbm + g * T3_BLOCK)) ok = 0;
             clear_dirty(sbi->bbm_dirty, g);
+            sbi->alloc_unfenced = 1;
         }
         if (test_dirty(sbi->ibm_dirty, g)) {
             if (!t3_write_block(sbi, t3_group_base(sbi, g) + 1, sbi->ibm + g * T3_BLOCK)) ok = 0;
             clear_dirty(sbi->ibm_dirty, g);
+            sbi->alloc_unfenced = 1;
         }
     }
     // GDT blocks: rebuild each dirty block from the RAM free counts.
@@ -175,6 +183,7 @@ int t3_flush_alloc_state(struct t3_state *sbi) {
             clear_dirty(sbi->gdt_dirty, g);
         }
         if (!t3_write_block(sbi, sbi->gdt_block + tb, sbi->blk)) ok = 0;
+        sbi->alloc_unfenced = 1;
     }
     return ok;
 }

@@ -392,6 +392,7 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~GPT/MBR partition table parsing~~ done
 - [x] ~~Mounting a filesystem from a partition, and writing a table (`mkpart`)~~ done
 - [ ] LBA48 addressing
+- [ ] TFS3's bitmap barrier, traded for replay reconciling the bitmaps -- a create pays one extra disk flush, a batch one
 - [x] ~~Disks past 2 TiB~~ DONE 2026-10-07 -- 64-bit block layer, AHCI/NVMe/virtio, GPT and TFS3; `bigdisk_test.py`
 - [x] ~~AHCI drives only the FIRST SATA drive it finds~~ DONE 2026-10-07 -- every drive, every HBA; `rootdisk_test.py`
 - [x] ~~A blank disk on a higher-precedence controller takes the root~~ DONE 2026-10-07 -- `bootpart=`, else the first bootable disk

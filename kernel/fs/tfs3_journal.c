@@ -166,9 +166,10 @@ static int write_journal_header(struct t3_state *sbi, int commit) {
 
 // A journal barrier, or a no-op under `storage.sync = lazy`.
 //
-// BOTH of t3_txn_commit()'s barriers go through here, because neither is
-// the optional one: the first orders the journal against the targets so
-// a crash mid-target-write can be replayed, the second orders the
+// EVERY barrier of t3_txn_commit()'s goes through here, because none is
+// the optional one: barrier 0 orders the bitmaps against the journal,
+// barrier 1 orders the journal against the targets so a crash
+// mid-target-write can be replayed, and barrier 2 orders the
 // targets against clearing the commit flag so a crash cannot leave the
 // journal saying "nothing to do" over work that never landed. Turning
 // them off trades crash recoverability for throughput, which is ext4's
@@ -240,6 +241,13 @@ static int write_targets(struct t3_state *sbi) {
 
 static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
     if (sbi->txn_count == 0) return T3_COMMIT_OK;
+    // BARRIER 0, only when allocation state went out since the last one:
+    // the bitmaps this transaction depends on must be on the media
+    // before a header that replay will act on (t3_flush_alloc_state()).
+    if (sbi->alloc_unfenced) {
+        if (!txn_barrier(sbi)) { t3_txn_reset(sbi); return T3_COMMIT_ABORTED; }
+        sbi->alloc_unfenced = 0;
+    }
     sbi->jrn_seq++;
     if (!write_journal_images(sbi)) { t3_txn_reset(sbi); return T3_COMMIT_ABORTED; }
     if (!write_journal_header(sbi, 1)) { t3_txn_reset(sbi); return T3_COMMIT_ABORTED; }
@@ -258,6 +266,7 @@ static enum t3_commit txn_commit_raw(struct t3_state *sbi) {
         t3_txn_reset(sbi);
         return T3_COMMIT_ABORTED;
     }
+    sbi->alloc_unfenced = 0;   // that barrier covered anything since, too
 
     int ok = write_targets(sbi);
 

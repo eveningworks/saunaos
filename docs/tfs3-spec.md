@@ -205,6 +205,9 @@ descriptors, data blocks and indirect-pointer blocks are deliberately
 NOT journaled: allocation state follows the set-before-use /
 clear-after-persist ordering, so a crash costs a leaked block that
 `fsck` reclaims, never a double allocation (TFS2's rule, inherited).
+"Before" is enforced with a barrier: a commit that follows bitmap or
+group-descriptor writes flushes the device before its journal writes,
+since replay does not reconcile the bitmaps.
 
 Header (block 9, first sector):
 

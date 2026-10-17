@@ -64,6 +64,7 @@
 #include "heap.h"
 #include "klog.h"
 #include "kfmt.h"
+#include "errno.h"   // -EEXIST from create_excl
 #include "string.h"
 #include "pmm.h"
 #include "tz.h"
@@ -455,6 +456,18 @@ static int ramfs_init(void *st, const struct block_device *dev, uint64_t size_by
     return 0;
 }
 
+static int ramfs_create_excl(void *st, const char *path) {
+    struct ramfs_state *sbi = st;
+    if (!sbi->mounted) return 0;
+    if (find(sbi, path) >= 0) return -EEXIST;
+    int parent; const char *leaf; int len;
+    if (!resolve_new(sbi, path, &parent, &leaf, &len)) return 0;
+    char name[RAMFS_NAME_MAX];
+    k_memcpy(name, leaf, (size_t)len);
+    name[len] = 0;
+    return node_alloc(sbi, name, parent, 0) >= 0;
+}
+
 static int ramfs_touch(void *st, const char *path) {
     struct ramfs_state *sbi = st;
     if (!sbi->mounted) return 0;
@@ -540,6 +553,7 @@ static int ramfs_write_range(void *st, const char *path, uint64_t offset, const 
         if (idx < 0) return 0;
     }
     if (sbi->nodes[idx]->is_dir) return 0;
+    if (offset == FS_OFFSET_END) offset = sbi->nodes[idx]->size;
     if (len == 0) return 1;
     return write_at(sbi, sbi->nodes[idx], offset, buf, len);
 }
@@ -779,6 +793,7 @@ const struct fs_ops ramfs_ops = {
     .format = ramfs_format,
     .init = ramfs_init,
     .touch = ramfs_touch,
+    .create_excl = ramfs_create_excl,
     .write = ramfs_write,
     .mkdir = ramfs_mkdir,
     .del = ramfs_del,

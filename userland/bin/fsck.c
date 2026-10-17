@@ -48,9 +48,6 @@ static const struct uargs_prog PROG = {
              "Exit status: 0 clean, 1 all problems fixed, 4 problems left, 8 the check failed.",
 };
 
-static int problems(const struct fs_check_result *r) {
-    return r->leaked || r->referenced_but_free || r->double_allocated || r->out_of_range;
-}
 
 static const char *g_path;
 static struct fs_check_result g_r;
@@ -182,13 +179,20 @@ int main(int argc, char **argv) {
     printf("  referenced but free:   %u\n", g_r.referenced_but_free);
     printf("  double-allocated:      %u\n", g_r.double_allocated);
     printf("  out-of-range pointers: %u\n", g_r.out_of_range);
+    printf("  free counts wrong:     %u\n", g_r.counts_wrong);
+    printf("  link counts wrong:     %u\n", g_r.links_wrong);
+    printf("  names to bad records:  %u\n", g_r.bad_names);
+    printf("  directory errors:      %u\n", g_r.dir_errors);
 
     if (g_repair) {
         printf("  -- repaired --\n");
         printf("  blocks reclaimed:      %u (%u KB)\n", g_r.reclaimed, g_r.reclaimed * 4);
         printf("  marked allocated:      %u\n", g_r.marked_allocated);
         printf("  pointers cleared:      %u\n", g_r.pointers_cleared);
-    } else if (g_r.leaked || g_r.referenced_but_free || g_r.out_of_range) {
+        printf("  free counts fixed:     %u\n", g_r.counts_fixed);
+        printf("  link counts fixed:     %u\n", g_r.links_fixed);
+    } else if (g_r.leaked || g_r.referenced_but_free || g_r.out_of_range ||
+               g_r.counts_wrong || g_r.links_wrong) {
         printf("Run `fsck -r %s` to reclaim %u leaked block(s) (%u KB) and fix the rest.\n",
                path, g_r.leaked, g_r.leaked * 4);
     }
@@ -199,12 +203,18 @@ int main(int argc, char **argv) {
         printf("WARNING: blocks claimed by more than one file. `fsck -r` will NOT fix\n"
                "this; delete one of the affected files to resolve it.\n");
     }
+    if (g_r.bad_names || g_r.dir_errors) {
+        // Never repaired either: each fix is a name deleted. The kernel
+        // log (`dmesg`) names every one.
+        printf("WARNING: damaged directory entries. `fsck -r` will NOT fix these;\n"
+               "`dmesg` lists each one.\n");
+    }
 
-    if (!problems(&g_r)) {
+    if (!fs_check_problems(&g_r)) {
         printf("fsck: clean.\n");
         return FSCK_CLEAN;
     }
     // A repair pass reports what it FOUND; it fixed all of it unless a
-    // double allocation, which it never touches, was among it.
-    return g_repair && !g_r.double_allocated ? FSCK_CORRECTED : FSCK_LEFT;
+    // kind it never touches was among it.
+    return g_repair && !fs_check_unfixed(&g_r) ? FSCK_CORRECTED : FSCK_LEFT;
 }

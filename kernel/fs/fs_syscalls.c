@@ -154,11 +154,12 @@ int sys_open(struct syscall_ctx *c) {
         // SYS_FSTAT have no answer for.
         int exists = fs_exists(name) && !fs_is_dir(name);
 
-        // **O_EXCL: EXISTS IS THE FAILURE.** Checked HERE, inside the
-        // syscall, because the whole value of the flag is that no other
-        // process can create the file between the test and the open --
-        // a caller doing fs_exists() then open() has exactly that
-        // window, which is why it cannot build a lock file.
+        // **O_EXCL: EXISTS IS THE FAILURE.** Answered by the CREATE
+        // below (fs_create_excl(), one backend call), because the whole
+        // value of the flag is that no other process can create the file
+        // between the test and the open -- fs_exists() here is only the
+        // early answer, and on its own is the window that cannot build a
+        // lock file.
         //
         // Refused WITHOUT O_CREAT rather than ignored: POSIX leaves the
         // combination undefined, and a caller who wrote it meant
@@ -232,8 +233,12 @@ int sys_open(struct syscall_ctx *c) {
                         // parent, and working out which one is two more
                         // path walks -- a cost every create paid when the
                         // check came first.
-                        if (fs_touch(name)) {
+                        int made = (flags & SYS_O_EXCL) ? fs_create_excl(name)
+                                                        : fs_touch(name);
+                        if (made > 0) {
                             created = 1;
+                        } else if (made == -EEXIST) {
+                            ferr = -EEXIST;   // created by someone else since
                         } else {
                             ferr = parent_dir_err(name);
                             if (ferr)
@@ -257,7 +262,7 @@ int sys_open(struct syscall_ctx *c) {
                 }
                 if (ferr) {
                     fd_close(pml4, fd);
-                    klog_printf(KLOG_ERR "syscall: open() rejected -- %s\n", why);
+                    if (why) klog_printf(KLOG_ERR "syscall: open() rejected -- %s\n", why);
                     c->regs[14] = (uint64_t)(int64_t)ferr;
                     kpath_put(name);
                     return 0;
@@ -812,19 +817,21 @@ static int file_fd_write(struct syscall_ctx *c, struct open_file *f,
     // AT THE FD'S POSITION, which is what write(2) means -- this used
     // to append unconditionally and ignore the position the read path
     // maintained, and a position that writes ignore is not a position
-    // to seek. SYS_O_APPEND is how a caller asks for the old behaviour;
-    // it re-reads the size on every write rather than trusting a cached
-    // end, because that is what makes two appenders to one file
-    // interleave whole writes instead of overwriting each other.
+    // to seek. SYS_O_APPEND is how a caller asks for the old behaviour:
+    // FS_OFFSET_END, resolved by the backend under the lock it writes
+    // under, so two appenders interleave whole writes instead of both
+    // reading one size and overwriting each other.
     //
     // Nothing that opens with SYS_O_TRUNC changes behaviour: position 0
     // of an emptied file is its end.
-    uint64_t at = f->file.append ? fs_size(f->file.name) : f->file.pos;
+    kmutex_lock(&f->file.pos_lock);
+    uint64_t at = f->file.append ? FS_OFFSET_END : f->file.pos;
     int ok = fs_write_range(f->file.name, at, tmp, (uint32_t)len);
     if (ok) {
-        f->file.pos = at + len;
+        f->file.pos = f->file.append ? fs_size(f->file.name) : at + len;
         scheduler_io_charge(SCHED_IO_FILE_WRITE, len);
     }
+    kmutex_unlock(&f->file.pos_lock);
     // The COUNT IS NOW HONEST. Reporting `len` unconditionally is what
     // let the truncation go unnoticed: every caller checked its return
     // value and every one of them was told it had succeeded.
@@ -854,24 +861,27 @@ static int file_fd_read(struct syscall_ctx *c, struct open_file *f,
     // fabricate data or fault. It fills a KERNEL buffer which is then
     // copied out; handing it the user pointer directly is what SMAP
     // forbids (vmm.h). len is capped at SYS_WRITE_MAX by the caller.
-    uint64_t off = f->file.pos;
     char *kbuf = fd_bounce_alloc(&len);
     if (!kbuf) { regs[14] = (uint64_t)(int64_t)-ENOMEM; return 0; }
+    kmutex_lock(&f->file.pos_lock);
+    uint64_t off = f->file.pos;
     uint32_t n = fs_read_range(f->file.name, off, kbuf, (uint32_t)len);
     if (!vmm_copy_to_user(pml4, buf_ptr, kbuf, n)) {
+        kmutex_unlock(&f->file.pos_lock);
         klog_write(KLOG_ERR "syscall: read() rejected -- invalid buffer pointer\n");
         regs[14] = (uint64_t)(int64_t)-EFAULT;
         kfree(kbuf);
         return 0;
     }
     f->file.pos += n;
+    kmutex_unlock(&f->file.pos_lock);
     scheduler_io_charge(SCHED_IO_FILE_READ, n);
     regs[14] = n;
     kfree(kbuf);
     return 0;
 }
 
-static int64_t file_fd_seek(struct open_file *f, int64_t off, uint64_t whence) {
+static int64_t seek_locked(struct open_file *f, int64_t off, uint64_t whence) {
     // SIGNED arithmetic all the way, in 64 bits, because SEEK_END with
     // a negative offset is the ordinary way to read a file's tail and
     // an unsigned base would wrap it into a seek past the end -- which
@@ -894,6 +904,13 @@ static int64_t file_fd_seek(struct open_file *f, int64_t off, uint64_t whence) {
     }
     f->file.pos = (uint64_t)want;
     return want;
+}
+
+static int64_t file_fd_seek(struct open_file *f, int64_t off, uint64_t whence) {
+    kmutex_lock(&f->file.pos_lock);
+    int64_t r = seek_locked(f, off, whence);
+    kmutex_unlock(&f->file.pos_lock);
+    return r;
 }
 
 static void file_fd_stat(struct open_file *f, struct sys_stat *out) {

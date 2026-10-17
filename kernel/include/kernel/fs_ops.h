@@ -230,6 +230,10 @@ struct fs_ops {
     int (*init)(void *st, const struct block_device *dev, uint64_t size_bytes);
 
     int (*touch)(void *st, const char *path);
+    // Create an empty file only if NOTHING has the name: 1 created, 0
+    // failed, -EEXIST. One op, so no other create lands between the
+    // test and the create (O_EXCL). NULL: the backend cannot create.
+    int (*create_excl)(void *st, const char *path);
     int (*write)(void *st, const char *path, const char *data, int append);
     int (*mkdir)(void *st, const char *path);
     int (*del)(void *st, const char *path); // backs fs_delete() -- named del, not delete, to read fine if this header is ever pulled into a C++ tool

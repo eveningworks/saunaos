@@ -13,6 +13,7 @@
 #include "tfs3.h" // the caps-declaration test below reads tfs3_ops directly
 #include "block.h" // blkdev_sector_count(blk_root()) -- the geometry test at the bottom
 #include "storage_config.h" // storage_sync_batched() -- the deferred-commit test
+#include "errno.h" // -EEXIST from fs_create_excl()
 #include "mount.h" // mount_at()/MNT_RDONLY -- the read-only transition is a MOUNT fact
 
 
@@ -1477,4 +1478,15 @@ KTEST("fs", "a path past FS_PATH_MAX is refused, not truncated") {
     static char prefix[FS_PATH_MAX];
     k_strlcpy(prefix, toolong, sizeof prefix);
     KTEST_ASSERT_EQ(fs_exists(prefix), 0);
+}
+
+KTEST("fs", "an exclusive create makes a new file and refuses a taken name") {
+    const char *p = "/var/tmp/ktest_excl.txt";
+    FRESH(p);
+    KTEST_ASSERT_EQ(fs_create_excl(p), 1);
+    KTEST_ASSERT(fs_exists(p));
+    KTEST_ASSERT_EQ(fs_create_excl(p), -EEXIST);
+    KTEST_ASSERT_EQ(fs_create_excl("/var/tmp"), -EEXIST);   // a directory is a taken name too
+    KTEST_ASSERT_EQ(fs_create_excl("/var/tmp/no/such/dir"), 0);
+    fs_delete(p);
 }

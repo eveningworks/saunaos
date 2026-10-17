@@ -565,6 +565,15 @@ int fs_write(const char *path, const char *data, int append) {
     return changed(FS_OP(r.m, r.gen, write, r.sub, data, append), path);
 }
 
+int fs_create_excl(const char *path) {
+    struct resolved r;
+    if (!resolve(path, &r) || !writable(&r, "create", path)) return 0;
+    if (!r.m->fs->create_excl) return 0;
+    int rc = FS_OP(r.m, r.gen, create_excl, r.sub);
+    if (rc > 0) changed(1, path);
+    return rc;
+}
+
 int fs_mkdir(const char *path) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "mkdir", path)) return 0;

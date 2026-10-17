@@ -62,6 +62,11 @@ void fs_init(void);
 int fs_touch(const char *path);
 int fs_write(const char *path, const char *data, int append);
 
+// Creates an empty FILE only if nothing has that name: 1 created, 0
+// failed, -EEXIST. The test and the create are one backend call under
+// the mount's lock, which is what makes O_EXCL a lock file.
+int fs_create_excl(const char *path);
+
 // Creates an empty directory. The parent must already exist (or be the
 // implicit root "/"). Returns 1 on success, 0 on failure.
 int fs_mkdir(const char *path);
@@ -182,8 +187,10 @@ void fs_idle(void);
 // Streaming write -- writes exactly `len` bytes from `buf` starting at
 // byte `offset`, extending the file (allocating new blocks as needed)
 // if `offset + len` goes past the current end. NOT the same as
-// fs_write(path, data, 1)'s append flag -- pass the file's current
-// fs_size() as `offset` to append; passing an `offset` past the
+// fs_write(path, data, 1)'s append flag -- pass FS_OFFSET_END to
+// append, which the backend resolves to the size under the same lock
+// as the write, so two appenders never land on one offset (O_APPEND);
+// a size read first is stale by the write. Passing an `offset` past the
 // current end zero-fills the gap. Returns 1 on success, 0 on failure
 // (bad path, a directory, or the disk ran out of free blocks -- the
 // file's size/content on partial failure is whatever blocks were
@@ -193,6 +200,7 @@ void fs_idle(void);
 // (e.g. a saved video, per the feature this was built for) actually
 // wants, written a chunk at a time rather than needing the whole file
 // in memory first.
+#define FS_OFFSET_END ((uint64_t)-1)
 int fs_write_range(const char *path, uint64_t offset, const void *buf, uint32_t len);
 
 // Steppable write -- Phase 2 of the async-I/O roadmap item (see

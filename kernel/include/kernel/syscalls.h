@@ -5,6 +5,7 @@
 #include "syscall_table.h"
 #include "fs.h" // FS_PATH_MAX -- struct open_file's name
 #include "scheduler.h"
+#include "kmutex.h" // open_file.file.pos_lock
 
 struct tty; // kernel/tty.h -- fd_tty() below, without dragging it in here
 
@@ -175,6 +176,10 @@ struct open_file {
             // fs_read_range()/fs_write_range() take a 64-bit offset --
             // the old uint32_t was a 4 GiB ceiling nothing announced.
             uint64_t pos;
+            // Held from reading `pos` to moving it, so two holders of one
+            // description cannot both read, write and seek from the same
+            // position -- Linux's f_pos_lock. Zeroed is unlocked.
+            struct kmutex pos_lock;
             uint8_t append; // SYS_O_APPEND: every write goes to the end
         } file;
         struct {

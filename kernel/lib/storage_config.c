@@ -11,12 +11,15 @@
 // built on ("prefer a leak to a double-allocation").
 //
 // WHAT `lazy` ACTUALLY GIVES UP, because a durability knob whose
-// description is vague is worse than no knob. Both of txn_commit()'s
-// barriers are load-bearing and neither is merely an optimisation:
+// description is vague is worse than no knob. Every one of txn_commit()'s
+// barriers is load-bearing and none is merely an optimisation:
 //
-//   * the first orders the JOURNAL against the targets, so a crash
+//   * one, issued only after bitmap writes, orders the ALLOCATION STATE
+//     against the journal, so a replayed inode never sits on space the
+//     bitmap calls free;
+//   * the next orders the JOURNAL against the targets, so a crash
 //     while the targets are half-written can be replayed;
-//   * the second orders the TARGETS against clearing the commit flag,
+//   * the last orders the TARGETS against clearing the commit flag,
 //     so a crash cannot leave the journal saying "nothing to do" over
 //     work that never landed.
 //

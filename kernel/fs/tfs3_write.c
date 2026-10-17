@@ -7,6 +7,7 @@
 #include "storage_config.h" // storage.sync -- whether the barriers are real
 #include "klog.h"
 #include "heap.h"
+#include "errno.h"   // -EEXIST from create_excl
 
 // ---- write core ------------------------------------------------------------
 
@@ -827,6 +828,15 @@ int tfs3_touch(void *st, const char *path) {
     return node.type == T3_TYPE_FILE;
 }
 
+int tfs3_create_excl(void *st, const char *path) {
+    struct t3_state *sbi = st;
+    char *const norm = sbi->pb.tfs3_create_excl_norm;
+    if (!sbi->mounted || !t3_normalize(sbi, path, norm)) return 0;
+    uint64_t ino;
+    if (create_entry_ex(sbi, path, T3_TYPE_FILE, 0, &ino)) return 1;
+    return ino ? -EEXIST : 0;
+}
+
 int tfs3_mkdir(void *st, const char *path) {
     struct t3_state *sbi = st;
     char *const norm = sbi->pb.tfs3_mkdir_norm; // per-function, see t3_normalize()
@@ -847,6 +857,7 @@ int tfs3_write_range(void *st, const char *path, uint64_t offset, const void *bu
     }
     if (!t3_lock(sbi, ino, 1)) return 0;
     if (!t3_read_inode(sbi, ino, &node) || node.type != T3_TYPE_FILE) return 0;
+    if (offset == FS_OFFSET_END) offset = node.size;   // under the inode's lock
     if (len == 0) return 1;
     return do_write(sbi, ino, &node, offset, buf, len);
 }

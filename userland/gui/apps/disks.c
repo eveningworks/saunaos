@@ -497,7 +497,7 @@ static void check_done(struct uapp *a) {
         return;
     }
     if (g_job.rc < 0) { say("Could not check %s: %s", g_check_point, strerror(g_job.err)); return; }
-    unsigned bad = g_check.leaked + g_check.referenced_but_free + g_check.double_allocated + g_check.out_of_range;
+    unsigned bad = fs_check_problems(&g_check);
     ulogf("disks: check %s %s -> %u problems in %u ms\n", g_check_point, flags ? "repair" : "read-only", bad, ms);
     snprintf(g_ask_line[0], sizeof g_ask_line[0], "%s on %s: %u records, %u blocks in use.", g_check.fstype,
              g_check_point, g_check.records_used, g_check.blocks_referenced);
@@ -511,9 +511,14 @@ static void check_done(struct uapp *a) {
     }
     snprintf(g_ask_line[1], sizeof g_ask_line[1], "%u leaked, %u in use but free, %u twice used, %u out of range.",
              g_check.leaked, g_check.referenced_but_free, g_check.double_allocated, g_check.out_of_range);
+    int rows = 2;
+    if (g_check.counts_wrong + g_check.links_wrong + g_check.bad_names + g_check.dir_errors)
+        snprintf(g_ask_line[rows++], sizeof g_ask_line[2],
+                 "%u free counts wrong, %u link counts wrong, %u damaged names, %u directory errors.",
+                 g_check.counts_wrong, g_check.links_wrong, g_check.bad_names, g_check.dir_errors);
     btns[0] = (struct uui_dialog_button){ "Repair", ASK_REPAIR, UUI_DLG_PRIMARY };
     btns[1] = (struct uui_dialog_button){ "Close", ASK_CANCEL, 0 };
-    ask(a, "Check found problems", 2, btns, 2, 0);
+    ask(a, "Check found problems", rows, btns, 2, 0);
 }
 
 // Every tick while a pass runs: read it, show the dialog once it has
@@ -983,7 +988,7 @@ static int on_user(struct uapp *a, int a0, int a1) {
     g_job.finished = 1;
     g_job.ms = (unsigned)((uui_anim_now_ns() - g_job.started_ns) / 1000000ull);
     if (g_job.shown && g_job.rc == 0) {
-        unsigned bad = g_check.leaked + g_check.referenced_but_free + g_check.double_allocated + g_check.out_of_range;
+        unsigned bad = fs_check_problems(&g_check);
         uui_stages_set(&g_stages, g_stages.count, 1000);
         g_stages.line[0] = 0;
         if (g_stages.count)

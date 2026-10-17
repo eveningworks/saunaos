@@ -15,6 +15,8 @@
 #include "fs.h"     // fs_sync_path(), fs_lock_held_at()
 #include "block_stat.h" // blk_stat_get() -- the device reads a create costs
 #include "kfmt.h"   // k_snprintf, klog_printf
+#include "tfs3_internal.h"  // the ordering test reads the volume's layout
+#include "storage_config.h" // ...and skips under `lazy`
 
 #define VOL_SECTORS 8192u           // 4 MiB
 #define VOL_BYTES   (VOL_SECTORS * 512u)
@@ -627,4 +629,165 @@ KTEST("tfs3", "a stepped write's pointers survive another stream between its ste
     KTEST_ASSERT_EQ((int)r, (int)FS_STEP_DONE);
     KTEST_ASSERT_EQ((int)got, (int)sizeof back);
     KTEST_ASSERT_EQ(holes, 0);
+}
+
+// ---- allocation state is on the media before a commit ----------------
+
+// A DEVICE WITH A VOLATILE WRITE CACHE: a write is PENDING until the next
+// flush, and a pending write may reach the media after a later one. So at
+// the moment a COMMITTED journal header is written, no bitmap or GDT block
+// may be pending -- or a crash there replays an inode onto space its
+// bitmap calls free, and the allocator hands it out again.
+#define ORDER_POINT "/var/tmp/.ktest_ordermnt"
+#define ORDER_BLOCKS (VOL_SECTORS / T3_SPB)
+
+static uint8_t g_pend[ORDER_BLOCKS];
+static struct t3_state *g_order_sbi;
+static int g_order_commits, g_order_alloc_writes, g_order_bad;
+
+static int is_alloc_block(struct t3_state *sbi, uint32_t b) {
+    if (b >= sbi->gdt_block && b < sbi->gdt_block + T3_GDT_BLOCKS) return 1;
+    for (uint32_t g = 0; g < sbi->sb.gc; g++)
+        if (b == t3_group_base(sbi, g) || b == t3_group_base(sbi, g) + 1) return 1;
+    return 0;
+}
+
+static int order_write(const struct block_device *self, uint64_t lba, int n, const void *b) {
+    struct t3_state *sbi = g_order_sbi;
+    const uint8_t *p = b;
+    if (sbi && lba == T3_JH_BLOCK * T3_SPB && p[0] == 'J' && p[3] == '3' && p[4]) {
+        g_order_commits++;
+        for (uint32_t k = 0; k < ORDER_BLOCKS; k++)
+            if (g_pend[k] && is_alloc_block(sbi, k)) g_order_bad++;
+    }
+    for (uint64_t s = lba; s < lba + (uint64_t)n; s++) {
+        uint32_t blk = (uint32_t)(s / T3_SPB);
+        if (blk >= ORDER_BLOCKS) continue;
+        g_pend[blk] = 1;
+        if (sbi && s % T3_SPB == 0 && is_alloc_block(sbi, blk)) g_order_alloc_writes++;
+    }
+    return v0_write(self, lba, n, b);
+}
+
+static int order_flush(const struct block_device *self) {
+    (void)self;
+    k_memset(g_pend, 0, sizeof g_pend);
+    return 1;
+}
+
+static const struct block_device ORDER_DEV = {
+    .name = "t3order", .sector_count = vol_count, .read_sectors = v0_read,
+    .write_sectors = order_write, .max_sectors_per_xfer = vol_xfer,
+    .caps = BLK_CAP_FLUSH, .flush = order_flush,
+};
+
+KTEST("tfs3", "a commit flushes the bitmaps it depends on before its journal header") {
+    if (!storage_sync_strict()) KTEST_SKIP("storage.sync = lazy issues no barriers");
+    if (!g_vol[0]) g_vol[0] = kmalloc(VOL_BYTES);
+    if (!g_vol[0]) KTEST_SKIP("could not allocate a 4 MiB volume");
+    k_memset(g_vol[0], 0, VOL_BYTES);
+
+    struct fs_scratch sc;
+    int ok = mount_scratch_begin(T(), &sc);
+    if (ok) {
+        ok = T()->format(sc.st, &ORDER_DEV);
+        mount_scratch_end(&sc);
+    }
+    fs_mkdir(ORDER_POINT);
+    const char *why = 0;
+    int mounted = ok && mount_add(&ORDER_DEV, "tfs3", ORDER_POINT, 0, 0, &why);
+    const struct mount *m = mounted ? mount_resolve(ORDER_POINT "/x", 0) : 0;
+    g_order_sbi = m ? m->state : 0;
+    k_memset(g_pend, 0, sizeof g_pend);
+    g_order_commits = g_order_alloc_writes = g_order_bad = 0;
+
+    // A file, a directory, a file in it, and a write that allocates.
+    int did = g_order_sbi && fs_write(ORDER_POINT "/a", "one", 0) &&
+              fs_mkdir(ORDER_POINT "/d") && fs_write(ORDER_POINT "/d/b", "two", 0) &&
+              fs_write(ORDER_POINT "/a", "more", 1) && fs_sync(0);
+    int commits = g_order_commits, alloc_writes = g_order_alloc_writes, bad = g_order_bad;
+    g_order_sbi = 0;
+
+    if (mounted) mount_remove(ORDER_POINT, &why);
+    fs_delete(ORDER_POINT);
+    kfree(g_vol[0]);
+    g_vol[0] = 0;
+
+    KTEST_ASSERT(did);
+    KTEST_ASSERT(commits >= 3);        // the fixture reached the journal...
+    KTEST_ASSERT(alloc_writes >= 3);   // ...and the bitmaps
+    KTEST_ASSERT_EQ(bad, 0);
+}
+
+// ---- fsck reports every kind of problem it finds ---------------------
+
+// Three kinds that were only kernel log lines, so a pass that found them
+// still printed "clean": a group's free count, a link count, and a name
+// whose record fails its checksum.
+#define FSCK_POINT "/var/tmp/.ktest_fsckmnt"
+
+KTEST("tfs3", "fsck counts wrong free counts, link counts and damaged names") {
+    if (!g_vol[0]) g_vol[0] = kmalloc(VOL_BYTES);
+    if (!g_vol[0]) KTEST_SKIP("could not allocate a 4 MiB volume");
+    k_memset(g_vol[0], 0, VOL_BYTES);
+
+    struct fs_scratch sc;
+    int ok = mount_scratch_begin(T(), &sc);
+    if (ok) {
+        ok = T()->format(sc.st, &FLUSH_DEV);
+        mount_scratch_end(&sc);
+    }
+    fs_mkdir(FSCK_POINT);
+    const char *why = 0;
+    int mounted = ok && mount_add(&FLUSH_DEV, "tfs3", FSCK_POINT, 0, 0, &why);
+    int made = mounted && fs_write(FSCK_POINT "/a", "a", 0) && fs_write(FSCK_POINT "/b", "b", 0) &&
+               fs_sync(0);
+    const struct mount *m = made ? mount_resolve(FSCK_POINT "/a", 0) : 0;
+    struct t3_state *sbi = m ? m->state : 0;
+
+    struct fs_check_result clean, found, fixed;
+    k_memset(&clean, 0, sizeof clean);
+    k_memset(&found, 0, sizeof found);
+    k_memset(&fixed, 0, sizeof fixed);
+    int checked = sbi && fs_check_at(FSCK_POINT, 0, &clean) == 0;
+
+    int broke = 0;
+    if (checked) {
+        mount_lock(m);
+        uint64_t a = 0, b = 0, lba;
+        uint32_t off;
+        struct t3_inode node;
+        sbi->gd[0].free_blocks++;
+        if (t3_resolve(sbi, "/a", &a) && t3_read_inode(sbi, a, &node)) {
+            node.links = 3;
+            if (t3_txn_begin(sbi, 1) && t3_txn_stage_inode(sbi, a, &node) && t3_txn_commit(sbi)) broke++;
+        }
+        // A byte of /b's record changed on the media: its checksum fails.
+        if (t3_resolve(sbi, "/b", &b) && t3_inode_pos(sbi, b, &lba, &off)) {
+            g_vol[0][lba * 512 + off + 4] ^= 0x5a;
+            t3_rcache_drop(sbi);
+            t3_icache_drop(sbi);
+            broke++;
+        }
+        mount_unlock(m);
+    }
+    int found_ok = broke == 2 && fs_check_at(FSCK_POINT, 0, &found) == 0;
+    int fixed_ok = found_ok && fs_check_at(FSCK_POINT, FSCK_REPAIR, &fixed) == 0;
+
+    if (mounted) mount_remove(FSCK_POINT, &why);
+    fs_delete(FSCK_POINT);
+    kfree(g_vol[0]);
+    g_vol[0] = 0;
+
+    KTEST_ASSERT(made && checked);
+    KTEST_ASSERT_EQ(fs_check_problems(&clean), 0u);
+    KTEST_ASSERT(found_ok);
+    KTEST_ASSERT(found.counts_wrong >= 1);
+    KTEST_ASSERT_EQ(found.links_wrong, 1u);
+    KTEST_ASSERT_EQ(found.bad_names, 1u);
+    KTEST_ASSERT(fs_check_problems(&found) >= 3);
+    KTEST_ASSERT(fixed_ok);
+    KTEST_ASSERT_EQ(fixed.links_fixed, 1u);
+    KTEST_ASSERT(fixed.counts_fixed >= 1);
+    KTEST_ASSERT_EQ(fs_check_unfixed(&fixed), 1u);   // the damaged name stays
 }

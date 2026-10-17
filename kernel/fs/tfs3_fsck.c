@@ -144,6 +144,7 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
             uint16_t rec_len = rd16(dirblk + off + 4);
             uint8_t nl = dirblk[off + 6];
             if (rec_len < 8 || off + rec_len > T3_BLOCK) {
+                fk->r->dir_errors++;
                 klog_write(KLOG_ERR "tfs3 fsck: corrupt dirent chain in inode ");
                 klog_write_dec((uint32_t)dir_ino); klog_write("\n");
                 break;
@@ -157,20 +158,29 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
                     if (*nc < 255) (*nc)++;
                 }
                 if (is_dot) {
-                    if (child != dir_ino) klog_write("tfs3 fsck: `.` points away from its own directory\n");
+                    if (child != dir_ino) {
+                        fk->r->dir_errors++;
+                        klog_write("tfs3 fsck: `.` points away from its own directory\n");
+                    }
                 } else if (is_dotdot) {
-                    if (child != parent_ino) klog_write("tfs3 fsck: `..` points away from the parent\n");
+                    if (child != parent_ino) {
+                        fk->r->dir_errors++;
+                        klog_write("tfs3 fsck: `..` points away from the parent\n");
+                    }
                 } else {
                     struct t3_inode cn;
                     if (!t3_read_inode(sbi, child, &cn)) {
+                        fk->r->bad_names++;
                         klog_write(KLOG_ERR "tfs3 fsck: dirent -> inode ");
                         klog_write_dec((uint32_t)child);
                         klog_write(" whose checksum fails (not repaired -- deleting a name is data loss)\n");
                     } else if (fsck_ino_reached(sbi, fk, child)) {
                         // Already visited: fine for files (hardlink),
                         // never for dirs.
-                        if (cn.type == T3_TYPE_DIR)
+                        if (cn.type == T3_TYPE_DIR) {
+                            fk->r->dir_errors++;
                             klog_write("tfs3 fsck: directory reachable by two names\n");
+                        }
                     } else {
                         fsck_mark_ino(sbi, fk, child);
                         if (cn.type == T3_TYPE_DIR) {
@@ -303,7 +313,9 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         }
 
         if (sbi->gd[g].free_blocks != free_b || sbi->gd[g].free_inodes != free_i) {
+            r->counts_wrong++;
             if (repair) {
+                r->counts_fixed++;
                 sbi->gd[g].free_blocks = free_b;
                 sbi->gd[g].free_inodes = free_i;
                 t3_mark_dirty(sbi->gdt_dirty, g);
@@ -333,13 +345,17 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         uint16_t want = fk.names[ino];
         if (node.links != want && fk.names[ino] < 255) {
             fk.link_mismatches++;
+            r->links_wrong++;
             klog_write("tfs3 fsck: inode "); klog_write_dec((uint32_t)ino);
             klog_write(" links="); klog_write_dec(node.links);
             klog_write(" but "); klog_write_dec(want);
             klog_write(" name(s) observed");
             if (repair) {
                 node.links = want;
-                if (t3_txn_begin(sbi, 1) && t3_txn_stage_inode(sbi, ino, &node) && t3_txn_commit(sbi)) klog_write(" -- repaired");
+                if (t3_txn_begin(sbi, 1) && t3_txn_stage_inode(sbi, ino, &node) && t3_txn_commit(sbi)) {
+                    r->links_fixed++;
+                    klog_write(" -- repaired");
+                }
                 else t3_txn_reset(sbi);
             }
             klog_write("\n");

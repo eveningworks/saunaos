@@ -1633,6 +1633,7 @@ const struct fs_ops tfs3_ops = {
     .format = tfs3_format_inner,
     .init = tfs3_init,
     .touch = tfs3_touch,
+    .create_excl = tfs3_create_excl,
     .write = tfs3_write,
     .mkdir = tfs3_mkdir,
     .del = tfs3_delete,

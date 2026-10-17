@@ -106,7 +106,29 @@ struct fs_check_result {
     // pass, so a caller need not resolve the path a second time.
     char fstype[MOUNT_FSTYPE_MAX];  // "tfs3"
     char point[MOUNT_POINT_MAX];    // "/" -- the mount the path resolved to
+    // Not blocks. Each was only a kernel log line, so a pass that found
+    // them still printed "clean".
+    uint32_t counts_wrong;        // groups whose stored free counts disagree with the bitmaps
+    uint32_t links_wrong;         // records whose link count is not the names that reach them
+    uint32_t bad_names;           // names reaching a record that fails its checksum (never repaired)
+    uint32_t dir_errors;          // corrupt entry chains, wrong `.`/`..`, a directory with two names
+    uint32_t counts_fixed;        // repair: free counts recomputed
+    uint32_t links_fixed;         // repair: link counts rewritten
 };
+
+// Everything the pass found, of every kind -- what "clean" means. ONE
+// sum, so a reader cannot leave a kind out of it.
+static inline uint32_t fs_check_problems(const struct fs_check_result *r) {
+    return r->leaked + r->referenced_but_free + r->double_allocated + r->out_of_range +
+           r->counts_wrong + r->links_wrong + r->bad_names + r->dir_errors;
+}
+
+// What a repair pass leaves behind: the kinds it never touches, and any
+// link count it could not rewrite.
+static inline uint32_t fs_check_unfixed(const struct fs_check_result *r) {
+    return r->double_allocated + r->bad_names + r->dir_errors +
+           (r->links_wrong - r->links_fixed);
+}
 
 // Also fix what can be fixed without guessing (fs.h's fs_check()).
 // Refused with -ENOTSUP by a backend that can only report.

@@ -265,7 +265,10 @@ struct t3_state {
     // operation; changed blocks are written through, UNJOURNALED, with
     // the set-before-use / clear-after-persist ordering that makes a
     // crash cost a leak, never a double allocation -- TFS2's exact
-    // discipline, inherited deliberately (see the journal section).
+    // discipline, inherited deliberately (see the journal section). The
+    // "before" holds only across a BARRIER: a drive may write the
+    // committed journal header ahead of a bitmap it was handed first
+    // (alloc_unfenced).
     uint8_t *bbm;
     uint8_t *ibm;
     uint32_t *rotor;           // per-group scan start (ext2's trick)
@@ -366,6 +369,7 @@ struct t3_state {
     int txn_count;
     int txn_credits;             // what t3_txn_begin() promised; see t3_txn_stage()
     int txn_deferred;            // batched: open across writes (t3_txn_begin())
+    int alloc_unfenced;          // bitmap/GDT written since the last barrier (txn_commit_raw)
     uint64_t txn_staged_tick;    // when the deferred txn last grew
 
     struct {
@@ -402,6 +406,7 @@ struct t3_state {
         char tfs3_stat_norm[T3_PATH_BUF];
         char create_entry_inner_norm[T3_PATH_BUF];
         char tfs3_touch_norm[T3_PATH_BUF];
+        char tfs3_create_excl_norm[T3_PATH_BUF];
         char tfs3_mkdir_norm[T3_PATH_BUF];
         char tfs3_write_range_norm[T3_PATH_BUF];
         char tfs3_write_norm[T3_PATH_BUF];
@@ -512,6 +517,7 @@ int tfs3_mkdir(void *st, const char *path);
 int tfs3_rename(void *st, const char *oldpath, const char *newpath);
 int tfs3_rename_replace(void *st, const char *oldpath, const char *newpath);
 int tfs3_touch(void *st, const char *path);
+int tfs3_create_excl(void *st, const char *path);
 int tfs3_truncate(void *st, const char *path, uint64_t size);
 int tfs3_write(void *st, const char *path, const char *data, int append);
 int tfs3_write_range(void *st, const char *path, uint64_t offset, const void *buf,

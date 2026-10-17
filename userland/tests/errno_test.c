@@ -101,6 +101,25 @@ int main(void) {
     check_errno(sys_errno(), ENOTDIR, "open(O_CREAT) with a file as the parent");
     if (fd >= 0) sys_close(fd);
 
+    // --- O_EXCL: the name being taken is the error ----------------------
+    // The create itself answers it (fs_create_excl()), so a name taken
+    // between a test and a create cannot be opened twice.
+    char excl[64];
+    strncpy(excl, utest_path(TMP_VOLATILE, "errno_excl.txt"), sizeof excl - 1);
+    excl[sizeof excl - 1] = 0;
+    sys_unlink(excl);
+    fd = sys_open(excl, SYS_O_WRITE | SYS_O_CREAT | SYS_O_EXCL);
+    utest_check(fd >= 0, "open(O_CREAT|O_EXCL) of a new name creates it");
+    if (fd >= 0) sys_close(fd);
+    fd = sys_open(excl, SYS_O_WRITE | SYS_O_CREAT | SYS_O_EXCL);
+    utest_check(fd < 0, "open(O_CREAT|O_EXCL) of that name again fails");
+    check_errno(sys_errno(), EEXIST, "open(O_CREAT|O_EXCL) of an existing file");
+    if (fd >= 0) sys_close(fd);
+    sys_unlink(excl);
+    fd = sys_open("/tmp", SYS_O_WRITE | SYS_O_CREAT | SYS_O_EXCL);
+    check_errno(fd < 0 ? sys_errno() : 0, EEXIST, "open(O_CREAT|O_EXCL) of a directory");
+    if (fd >= 0) sys_close(fd);
+
     // mkdir() answers the same two, having previously guessed ENOENT
     // for every refusal.
     utest_check(sys_mkdir("/definitely/not/here") == -1 && sys_errno() == ENOENT,

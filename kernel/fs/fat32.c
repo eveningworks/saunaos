@@ -1613,6 +1613,18 @@ static int fat32_touch(void *st, const char *path) {
     return fat_sync(sbi);
 }
 
+static int fat32_create_excl(void *st, const char *path) {
+    struct fat32_state *sbi = st;
+    if (!sbi->v.mounted) return 0;
+    uint32_t dir;
+    const char *leaf;
+    if (!resolve_parent(sbi, path, &dir, &leaf) || !leaf[0]) return 0;
+    struct dirent_info e;
+    if (dir_find(sbi, dir, leaf, &e)) return -EEXIST;
+    if (!dir_create(sbi, dir, leaf, ATTR_ARCHIVE, 0)) return 0;
+    return fat_sync(sbi);
+}
+
 static int fat32_mkdir(void *st, const char *path) {
     struct fat32_state *sbi = st;
     if (!sbi->v.mounted) return 0;
@@ -1634,6 +1646,7 @@ static int fat32_write_range(void *st, const char *path, uint64_t offset, const 
         if (!lookup(sbi, path, &e)) return 0;
     }
     if (e.attr & ATTR_DIRECTORY) return 0;
+    if (offset == FS_OFFSET_END) offset = e.size;   // under the mount's lock
     if (offset + len > 0xFFFFFFFFull) return 0; // FAT's size field is 32 bits
 
     uint32_t start = e.cluster;
@@ -1990,6 +2003,7 @@ const struct fs_ops fat32_ops = {
     .init = fat32_init,
     .umount = fat32_umount,
     .touch = fat32_touch,
+    .create_excl = fat32_create_excl,
     .write = fat32_write,
     .mkdir = fat32_mkdir,
     .del = fat32_del,
