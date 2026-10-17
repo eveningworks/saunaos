@@ -160,6 +160,33 @@ int main(void) {
         utest_notef("(got %d bytes: \"%s\")", fn, fbuf);
     }
 
+    // --- close-on-exec belongs to the NUMBER while it is open ----------
+    // Closing, dup'ing onto or reusing a number clears the mark; a fork
+    // copies it. It was set once and never cleared, so the next file
+    // given a marked number vanished at the next exec.
+    int ce = sys_open(child_path, 0);
+    utest_check(ce >= 0 && sys_fd_cloexec(ce, 1) == 0, "marked a descriptor close-on-exec");
+    sys_close(ce);
+    int again = sys_open(child_path, 0);
+    utest_checkf(again == ce && sys_fd_cloexec(again, -1) == 0,
+                 "the same number reused is not marked (fd %d, then %d)", ce, again);
+    sys_fd_cloexec(again, 1);
+    int cd = sys_dup(again);
+    utest_check(cd >= 0 && sys_fd_cloexec(cd, -1) == 0, "dup() of a marked descriptor is not marked");
+    int c2 = sys_open(child_path, 0);
+    sys_fd_cloexec(c2, 1);
+    utest_check(sys_dup2(again, c2) == c2 && sys_fd_cloexec(c2, -1) == 0,
+                "dup2() onto a marked number clears it");
+    sys_fd_cloexec(c2, 1);
+    int fk = sys_fork();
+    if (fk == 0) sys_exit(sys_fd_cloexec(c2, -1) == 1 ? 0 : 1);
+    int fk_code = -1;
+    if (fk > 0) sys_waitpid(fk, &fk_code);
+    utest_checkf(fk > 0 && fk_code == 0, "a forked child keeps the mark (exit %d)", fk_code);
+    sys_close(again);
+    sys_close(cd);
+    sys_close(c2);
+
     // A REFUSAL IS NOT A SILENT FALLBACK. An fd that is neither the
     // right pipe end nor a socket must fail the spawn, or the child
     // starts with the console on fd 0 and the parent never learns.

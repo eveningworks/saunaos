@@ -94,7 +94,9 @@ struct fd_space {
     // the description and is shared by every dup; close-on-exec is the
     // opposite and has to be, because a dup made precisely to survive an
     // exec must not inherit the flag from the handle it was copied from.
-    // Same split as Linux's.
+    // Same split as Linux's. AND IT BELONGS TO THE NUMBER WHILE IT IS
+    // OPEN: closing, reusing or dup'ing onto a number clears it, or the
+    // next file given that number inherits a stranger's mark.
     uint8_t  cloexec[FD_MAX];
 };
 // Grown by doubling, as g_desc is, up to the process limit plus the
@@ -202,6 +204,7 @@ int fd_space_open(uint64_t pml4) {
 
     sp->pml4 = pml4;
     for (int i = 0; i < FD_MAX; i++) sp->d[i] = -1;
+    k_memset(sp->cloexec, 0, sizeof sp->cloexec);   // a reused table's are a dead process's
 
     // The three a process starts with: ALL THREE ON THE CONSOLE, one
     // description named three times -- what login(1) hands a shell on a
@@ -241,6 +244,7 @@ int fd_install(uint64_t pml4, int di) {
     for (int i = 0; i < FD_MAX; i++) {
         if (sp->d[i] >= 0) continue;
         sp->d[i] = (short)di;
+        sp->cloexec[i] = 0;
         return i;
     }
     return -1;
@@ -288,6 +292,7 @@ int fd_close(uint64_t pml4, int fd) {
     int di = sp->d[fd];
     if (di < 0) return -1;
     sp->d[fd] = -1;
+    sp->cloexec[fd] = 0;
     fd_desc_unref(di);
     return 0;
 }
@@ -328,6 +333,7 @@ int fd_dup2(uint64_t pml4, int oldfd, int newfd) {
     if (sp->d[newfd] >= 0) fd_desc_unref(sp->d[newfd]);
     fd_desc_at(di)->refs++;
     sp->d[newfd] = (short)di;
+    sp->cloexec[newfd] = 0;   // POSIX: the copy survives an exec
     return newfd;
 }
 
@@ -339,6 +345,7 @@ int fd_set_desc(uint64_t pml4, int fd, int di) {
     if (sp->d[fd] >= 0) fd_desc_unref(sp->d[fd]);
     fd_desc_at(di)->refs++;
     sp->d[fd] = (short)di;
+    sp->cloexec[fd] = 0;
     return fd;
 }
 
@@ -371,6 +378,7 @@ void fd_inherit(uint64_t child, uint64_t parent) {
     // the parent's private business.
     for (int i = 0; i <= FD_STDERR; i++) {
         if (cs->d[i] >= 0) { fd_desc_unref(cs->d[i]); cs->d[i] = -1; }
+        cs->cloexec[i] = 0;
         int di = ps->d[i];
         if (di < 0 || !fd_desc_at(di)->refs) continue;
         fd_desc_at(di)->refs++;
@@ -386,10 +394,12 @@ void fd_clone(uint64_t child, uint64_t parent) {
     if (!cs || !ps) return;
     for (int i = 0; i < FD_MAX; i++) {
         if (cs->d[i] >= 0) { fd_desc_unref(cs->d[i]); cs->d[i] = -1; }
+        cs->cloexec[i] = 0;
         int di = ps->d[i];
         if (di < 0 || !fd_desc_at(di)->refs) continue;
         fd_desc_at(di)->refs++;
         cs->d[i] = (short)di;
+        cs->cloexec[i] = ps->cloexec[i];   // fork copies the marks; the exec reads them
     }
 }
 
@@ -413,7 +423,6 @@ void fd_close_on_exec(uint64_t pml4) {
     for (int fd = 0; fd < FD_MAX; fd++) {
         if (!sp->cloexec[fd] || sp->d[fd] < 0) continue;
         fd_close(pml4, fd);
-        sp->cloexec[fd] = 0;
     }
 }
 

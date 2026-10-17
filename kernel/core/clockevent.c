@@ -214,9 +214,8 @@ int clockevent_summary(char *buf, uint32_t cap) {
 
 // --- the PIT ---------------------------------------------------------
 
-// Programming the hardware is pit_init()'s; this only decides whether
-// the line is unmasked, because that is what "is this device driving
-// the tick" means for something routed through the 8259.
+// Programming the hardware is pit_init()'s and pit_stop()'s; these pair
+// each with the line's mask, since the PIT is routed through the 8259.
 static int pit_ce_start(uint32_t hz) {
     pit_init(hz);
     irq_unmask(0);
@@ -224,10 +223,12 @@ static int pit_ce_start(uint32_t hz) {
 }
 
 static void pit_ce_stop(void) {
-    // Masked, not stopped. Channel 0 keeps counting so that anything
-    // calibrating against the PIT still can, and re-taking the tick is
-    // one write rather than a reprogram.
+    // STOPPED, not only masked: a masked channel 0 still pulsed at the
+    // tick rate. Every calibration against it (LAPIC timer, TSC) runs
+    // while it is still the tick, nothing reads its counter after, and
+    // pit_ce_start() reprograms it from scratch.
     irq_mask(0);
+    pit_stop();
 }
 
 static const struct clockevent g_pit_ce = {

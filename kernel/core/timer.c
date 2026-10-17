@@ -22,6 +22,14 @@ void pit_init(uint32_t frequency_hz) {
     outb(PIT_CHANNEL0, (uint8_t)((divisor >> 8) & 0xFF));
 }
 
+void pit_stop(void) {
+    // Masking the line left it pulsing at the tick rate -- unseen by the
+    // kernel, but a timer callback per pulse for an emulator.
+    outb(PIT_COMMAND, 0x30); // channel 0, lobyte/hibyte, mode 0
+    outb(PIT_CHANNEL0, 0);
+    outb(PIT_CHANNEL0, 0);
+}
+
 void timer_tick_advance(void) {
     ticks++;
     serial_tx_poll(); // a queued log line still moves with nothing printing

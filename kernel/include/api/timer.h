@@ -18,6 +18,9 @@
 #define TICK_NS (1000000000ull / CONFIG_HZ)
 
 void pit_init(uint32_t frequency_hz);
+// Channel 0 stops pulsing: one-shot mode, counted out once and then
+// silent, as Linux's pit_shutdown(). pit_init() starts it again.
+void pit_stop(void);
 // Advances the tick counter coarse_ticks() returns, and drains the queued
 // kernel log. Called from clockevent_tick(), NOT from an interrupt
 // handler directly -- which device is interrupting is the clockevent's

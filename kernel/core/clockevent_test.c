@@ -8,6 +8,8 @@
 #include "clocksource.h"
 #include "scheduler.h"
 #include "multiboot.h"
+#include "io.h"       // the PIT read-back below
+#include "irqflags.h"
 
 // How long to wait for the tick to advance. A COUNT rather than a
 // deadline, because the thing under test IS the clock: bounding a wait
@@ -165,4 +167,19 @@ KTEST("clockevent", "the time slice refuses what it cannot honour") {
     KTEST_ASSERT_EQ(scheduler_set_timeslice_ms(7), 1);
     KTEST_ASSERT_EQ(scheduler_timeslice_ms(), 7u);
     scheduler_set_timeslice_ms(was);
+}
+
+// Once a better device holds the tick, the PIT is STOPPED, not merely
+// masked: a masked channel 0 kept pulsing at the tick rate, and an
+// emulator paid a timer callback per pulse. The 8254's read-back
+// command latches channel 0's status, whose bits 1-3 are its mode:
+// 2 (rate generator) while it ticks, 0 (one-shot) once stopped.
+KTEST("clockevent", "the PIT is stopped once another device holds the tick") {
+    const struct clockevent *ce = clockevent_current();
+    if (!ce || !k_strcmp(ce->name, "pit")) KTEST_SKIP("the PIT still holds the tick");
+    uint64_t f = irq_save();
+    outb(0x43, 0xE2);   // read-back: latch STATUS only, channel 0
+    uint8_t status = inb(0x40);
+    irq_restore(f);
+    KTEST_ASSERT_EQ((status >> 1) & 7, 0);
 }
