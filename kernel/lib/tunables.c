@@ -38,6 +38,7 @@
 #include "intel_display.h" // intel_display_pipe_cycle()/_link_retrain() -- kernel.intel_cycle
 #include "crashtest.h"     // crash_trigger() -- kernel.crash
 #include "panic_store.h"   // panic_store_clear() -- kernel.panic_record
+#include "block_cache.h"   // bcache_drop() -- kernel.drop_caches
 
 #define TUNABLE_CATEGORY "Kernel"
 
@@ -718,7 +719,40 @@ static const struct setting panic_record_setting = {
     .apply = panic_record_apply,
 };
 
+// ---- kernel.drop_caches ----------------------------------------------
+//
+// Write-only `drop`: empties the disk cache (block_cache.h), so the next
+// read of anything is the device's -- Linux's `vm.drop_caches`. diskbench
+// sets it before each read profile, or it would time memory.
+
+static void drop_caches_get(char *out, uint32_t cap) { k_strlcpy(out, "off", cap); }
+
+static int drop_caches_choice(int index, char *out, uint32_t cap) {
+    if (index == 0) { k_strlcpy(out, "off", cap); return 1; }
+    if (index == 1) { k_strlcpy(out, "drop", cap); return 1; }
+    return 0;
+}
+
+static int drop_caches_apply(const char *value) {
+    if (k_strcmp(value, "off") == 0) return SETTING_SAVED;
+    if (k_strcmp(value, "drop") == 0) { bcache_drop(); return SETTING_SAVED; }
+    return SETTING_INVALID;
+}
+
+static const struct setting drop_caches_setting = {
+    .name = "drop_caches",
+    .label = "Empty the disk cache now",
+    .type = SETTING_TYPE_ENUM,
+    .file = CONFIG_PATH_RUNTIME,
+    .category = TUNABLE_CATEGORY,
+    .group = "Diagnostics",
+    .choice = drop_caches_choice,
+    .get = drop_caches_get,
+    .apply = drop_caches_apply,
+};
+
 void tunables_register(void) {
+    setting_register(&drop_caches_setting);
     setting_register(&crash_setting);
     setting_register(&panic_record_setting);
     setting_register(&intel_cycle_setting);

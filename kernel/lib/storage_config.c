@@ -40,11 +40,13 @@
 #include "tmppath.h"
 #include "fs.h"      // FS_PATH_MAX, fs_mkdir()
 #include "string.h"  // k_strlcpy
+#include "block_cache.h" // storage.disk_cache resizes it
 
 #define STORAGE_CONFIG_FILE "/etc/storage.conf"
 #define SYNC_KEY "sync"
 #define WRITEBACK_KEY "writeback_interval"
 #define RAMFS_SIZE_KEY "ramfs_size"
+#define DISK_CACHE_KEY "disk_cache"
 #define TMPDIR_KEY     "tmpdir"
 #define VARTMPDIR_KEY  "vartmpdir"
 #define LOG_MAX_KEY    "log_max"
@@ -77,6 +79,14 @@
 #define RAMFS_SIZE_MIN 0
 #define RAMFS_SIZE_MAX 4096
 #define RAMFS_SIZE_DEFAULT 0
+
+// MiB the disk cache may hold (block_cache.h). 0 = automatic: a 32nd of
+// RAM, 4 to 64 MiB. Unlike ramfs's budget this one is LIVE -- applying
+// it empties the cache and resizes it -- and the memory is only taken as
+// pages are read, so a large value costs nothing until the disk is.
+#define DISK_CACHE_MIN 0
+#define DISK_CACHE_MAX 1024
+#define DISK_CACHE_DEFAULT 0
 
 // MiB the persistent log may occupy, counting the current file and the
 // one rotated behind it. 0 turns logging off entirely, which is the
@@ -147,6 +157,7 @@ static int g_strict = 1;    // 0 only in `lazy`: whether barriers are issued
 static int g_batched = 1;   // 1 only in `batched`: whether commits defer
 static int g_writeback_s = WRITEBACK_DEFAULT;
 static int g_ramfs_size_mib = RAMFS_SIZE_DEFAULT;
+static int g_disk_cache_mib = DISK_CACHE_DEFAULT;
 static int g_log_max_mib = LOG_MAX_DEFAULT;
 static int g_log_keep = LOG_KEEP_DEFAULT;
 
@@ -300,6 +311,34 @@ static const struct setting g_ramfs_size_setting = {
     .apply = ramfs_size_apply,
 };
 
+static void disk_cache_get(char *out, uint32_t out_size) {
+    k_snprintf(out, out_size, "%d", g_disk_cache_mib);
+}
+
+static int disk_cache_apply(const char *value) {
+    uint32_t n = 0;
+    if (!value || !k_parse_u32(value, &n) || n > DISK_CACHE_MAX) return SETTING_INVALID;
+    g_disk_cache_mib = (int)n;
+    bcache_set_budget_mib(n);
+    return etc_config_set(STORAGE_CONFIG_FILE, DISK_CACHE_KEY, value)
+               ? SETTING_SAVED : SETTING_UNSAVED;
+}
+
+static const struct setting g_disk_cache_setting = {
+    .name  = DISK_CACHE_KEY,
+    .label = "Disk cache size",
+    .type  = SETTING_TYPE_INT,
+    .file  = STORAGE_CONFIG_FILE,
+    .category = "Storage",
+    .group    = "Filesystem",
+    .min   = DISK_CACHE_MIN,
+    .max   = DISK_CACHE_MAX,
+    .step  = 16,
+    .unit  = "MiB",
+    .get   = disk_cache_get,
+    .apply = disk_cache_apply,
+};
+
 static void log_max_get(char *out, uint32_t out_size) {
     k_snprintf(out, out_size, "%d", g_log_max_mib);
 }
@@ -433,6 +472,7 @@ void storage_config_setting_register(void) {
     setting_register(&g_sync_setting);
     setting_register(&g_writeback_setting);
     setting_register(&g_ramfs_size_setting);
+    setting_register(&g_disk_cache_setting);
     setting_register(&g_tmpdir_setting);
     setting_register(&g_vartmpdir_setting);
     setting_register(&g_log_max_setting);
@@ -462,6 +502,12 @@ void storage_config_init(void) {
             if (*p < '0' || *p > '9') ok = 0; else n = n * 10 + (*p - '0');
         }
         if (ok && n >= RAMFS_SIZE_MIN && n <= RAMFS_SIZE_MAX) g_ramfs_size_mib = n;
+    }
+    uint32_t mib = 0;
+    if (etc_config_buf_get(&g_cfg, DISK_CACHE_KEY, value, sizeof value) &&
+        k_parse_u32(value, &mib) && mib <= DISK_CACHE_MAX && mib) {
+        g_disk_cache_mib = (int)mib;
+        bcache_set_budget_mib(mib);   // boot built it automatic; rebuilt at this size
     }
     // THE DIRECTORIES ARE READ HERE AND CREATED HERE. This runs at
     // INIT_CONFIG, after fs_init()'s layout pass has already made the

@@ -53,8 +53,10 @@ static int xfer_page(uint32_t slot, uint64_t phys, int write) {
     int left = SWAP_SECTORS_PER_PAGE;
     while (left > 0) {
         int n = left < cap ? left : cap;
-        int ok = write ? g_dev->write_sectors(g_dev, lba, n, buf)
-                       : g_dev->read_sectors(g_dev, lba, n, buf);
+        // Through the block layer, not the driver: a sector written past
+        // it would leave the disk cache serving what was there before.
+        int ok = write ? blkdev_write_sectors(g_dev, lba, n, buf)
+                       : blkdev_read_sectors(g_dev, lba, n, buf);
         if (!ok) return 0;
         lba  += (uint64_t)n;
         buf  += (uint32_t)n * 512;

@@ -6,8 +6,10 @@ measurements of 2026-09-04 left open: **toy-os pays for durability on
 every write, and Linux pays for it only when asked. What would it take
 to do the same?**
 
-**Status: stages 0, 1a, 3 and 4 are BUILT; stages 1 and 2 are demoted
-by measurement, and `cachesim` (below) is what re-decides them.**
+**Status: stages 0, 1a, 1b, 3 and 4 are BUILT.** 1b is a write-through
+DISK CACHE under the filesystem, chosen over stage 1 by `cachesim`'s
+measurement of a real session; stage 1 (a page cache above the VFS) is
+re-scoped by what 1b left, and stage 2 stays demoted.
 
 ## Why this exists, in one measurement
 
@@ -47,8 +49,9 @@ changed the plan.
   files' metadata in one transaction needs no format change -- it needs
   callers that batch. The ceiling is 32 distinct blocks per transaction,
   which is a real bound a writeback pass has to split against.
-- **Nothing caches file data.** `read_range_impl()` goes to the block
-  device every call. The three caches that exist are narrow and
+- **Nothing caches file data ABOVE the filesystem.** `read_range_impl()`
+  goes to the block layer every call -- which since stage 1b answers
+  most of those reads from its disk cache. The three caches that exist are narrow and
   unrelated: `rcache` (3 slots, indirect-table blocks), `pcache` (one
   block, the write-side leaf table), and `ncache` (16 directory-entry
   names).
@@ -384,7 +387,75 @@ Fixed, idle block reads fell ~13x. **The residue is the case for a
 cache**: every `stat()` or `open()` of an unchanged file still costs a
 disk read here, because nothing caches inodes or blocks.
 
+### Stage 1b -- a disk cache under the filesystem  [BUILT]
+
+`kernel/drivers/block/block_cache.c`, called from `block.c`'s `io_*()`:
+4 KiB pages of a whole disk, keyed by the disk and the ABSOLUTE sector,
+WRITE-THROUGH, two lists (inactive/active, Linux's shape), a budget of a
+32nd of RAM clamped to 4..64 MiB (`storage.disk_cache` overrides it).
+Linux's buffer cache, which is the block device's own page cache there.
+
+**Why under the filesystem rather than above it (this stage's stage 1).**
+A real session on the ASUS -- boot, then twelve apps opened and closed
+twice -- measured both places with ghost caches. Block level: 90% hits
+at 16 MiB, 95% at 64. File level: 74% and 85%. The block level also sees
+what the file level cannot: the inode-table read under every `stat()`
+and `open()`, the bitmaps, the pointer tables. And one hook covers TFS3,
+FAT32 and anything after them.
+
+**What it bought, the same session on the same machine:**
+
+| | before | pollers fixed | + disk cache |
+|---|---|---|---|
+| block pages read from the disk | 228,674 | 126,200 | 11,355 |
+| reads answered from memory | -- | -- | 95% |
+| toywm ready at boot (`nodiskcache` A/B) | -- | 746 ms | 154-177 ms |
+| System Settings, open to window | 1,137 ms | 1,124 ms | ~705 ms |
+
+The middle column is the cachesim session's other finding: four
+programs re-reading unchanged files (lib/uconf per key, tosh's whole
+history per start) -- fixed first, so the cache was not measured
+against bugs it would merely hide.
+
+**THREE THINGS IT RESTS ON**, each a bug when missed:
+
+- **The key is the whole disk.** A partition forwards to its parent's
+  driver without coming back through `io_*()`, so a cache keyed by the
+  device a call arrived on lets a raw-disk write miss the partition's
+  copy. `block.c` resolves (disk, base) from the device table, and only
+  REGISTERED, PERSISTENT devices are cached: a KTEST's scratch disk can
+  be freed and its address reused, and a RAM image's I/O is a memcpy.
+- **Every path that writes or discards sectors brackets the device call**
+  (`cache_write_begin`/`_end` in `block.c`): single writes, partial
+  writes, the batch (the journal), trims. `swap.c` wrote the driver
+  directly and was moved onto `blkdev_*()` for this.
+- **A read that raced a write is not inserted.** A device read issued
+  before a write can return the old bytes after the write updated the
+  cache. Per-page write generations, bumped by the write's begin and
+  again WITH its update, make the late fill see a different sum and drop
+  itself.
+
+**Write-through is what made the block layer a safe home.** `ata_cache.h`
+argues a WRITE-BACK cache must sit under the driver because a bypass
+loses data; with nothing ever dirty here, the worst a bypass can do is
+serve a stale read -- and `diskcache=verify` exists to catch exactly
+that, re-reading every hit from the device. It found the one bug the
+cache's own KTESTs passed (a key computed after it was used, in C's
+unspecified argument order); the KTESTs now go through `block.c` too.
+
+**What it does not do:** cache anything above the filesystem (stage 1),
+defer a write (stage 2), or give memory back under pressure -- its
+budget is fixed like ramfs's, which is why it is a 32nd of RAM and not
+"what is free".
+
 ### Stage 1 -- one cache, above the VFS, read-only first
+
+**Re-scoped by 1b.** After the disk cache, the same session still read
+48,270 file pages through the VFS, 77% of them repeats -- but they are
+memory copies now, not disk reads. What this stage would remove is the
+CPU of walking TFS3 for them, at the price of caching file data TWICE
+(here and in 1b) unless 1b stops holding data blocks. Measure that CPU
+before building it.
 
 **Demoted by the re-measure.** Reads are 25-31% of block time now and
 the ones that remain are bitmap, group-descriptor and inode-table

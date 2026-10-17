@@ -1,0 +1,2 @@
+Description=Memory kept for recently read disk data; 0 means automatic, a 32nd of RAM up to 64 MiB
+Widget=spinbox

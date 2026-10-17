@@ -625,6 +625,26 @@ zero and the profiler reports that nothing costs anything. Measure with
 `vm.py --kvm --cpu host,+invtsc`, and check the `clock-granularity-ns`
 line before quoting any microsecond figure.
 
+## THE DISK CACHE ANSWERS MOST READS: SECTORS ARE WRITTEN THROUGH `blkdev_*()`, NEVER A DRIVER'S OPS, AND A DISK MEASUREMENT SAYS WHETHER IT WAS ON
+
+`block.c`'s `io_*()` consult a write-through cache of whole-disk pages
+(`kernel/include/kernel/block_cache.h`). Three consequences:
+
+- **A write or discard that calls `dev->write_sectors`/`dev->trim`
+  directly leaves the cache serving the old bytes.** Go through
+  `blkdev_write_sectors()`, `_partial()`, `blkdev_submit_batch()` or
+  `blkdev_trim*()`; a NEW path inside `block.c` brackets its device call
+  with `cache_write_begin()`/`cache_write_end()`. Reads through a driver's
+  op are merely uncached. `swap.c` was the one bypass, and moved.
+- **`QUERY_BLKSTAT`, `QUERY_PROCIO`'s disk counters and `cachesim`'s
+  `block` level count only what REACHED the device.** A cache hit is
+  none of them. A read benchmark that re-reads a file measures memory --
+  `diskbench` writes its file first, then reads it back, so its read
+  phase is mostly hits unless the file outgrows the cache. Boot with
+  `nodiskcache` to measure the disk, and say which you measured.
+- **`diskcache=verify` is the oracle** when anything looks stale: every
+  hit is re-read from the device and a difference logged with its sector.
+
 
 ## A PARTITION IS A BLOCK DEVICE, AND THE FILESYSTEM NEVER LEARNS ITS OFFSET
 

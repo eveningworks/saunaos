@@ -217,6 +217,22 @@ int main(int argc, char **argv) {
     snprintf(line, sizeof line, "Kernel heap\n  used:  %s of %s\n", u, t);
     sys_print(line);
 
+    // Part of the kernel's share below, and the one part it gives back.
+    struct query_diskcache dc;
+    if (sys_query_record(QUERY_DISKCACHE, 0, &dc, sizeof dc) >= (int)sizeof dc) {
+        if (!dc.on) {
+            sys_print("Disk cache\n  off (nodiskcache)\n");
+        } else {
+            human_size(u, sizeof u, dc.pages * 4096);
+            human_size(t, sizeof t, dc.cap_pages * 4096);
+            uint64_t asks = dc.hits + dc.misses;
+            unsigned pct = asks ? (unsigned)(dc.hits * 100 / asks) : 0;
+            snprintf(line, sizeof line, "Disk cache\n  holds: %s of %s\n  reads: %llu, %u%% from memory\n",
+                     u, t, (unsigned long long)asks, pct);
+            sys_print(line);
+        }
+    }
+
     // The four rows Task Manager draws, summing to `used` above.
     struct umem_comp c;
     if (umem_comp_read(&c)) {

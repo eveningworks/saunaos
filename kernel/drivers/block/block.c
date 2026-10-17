@@ -10,6 +10,7 @@
 #include "driver.h" // driver_bound() -- `lsdrv`
 #include "block_stat.h"
 #include "cachesim.h"     // what a block cache would have hit, when measuring
+#include "block_cache.h"  // the disk cache io_*() consult
 #include "scheduler.h"    // who the I/O is charged to
 #include "clocksource.h" // clocksource_now_ns() -- the stat timers
 #include "heap.h"        // the partial-block bounce buffer
@@ -99,6 +100,7 @@ int blk_untrack(const struct block_device *dev) {
         // Compacted rather than tombstoned, so blk_device_at() stays a
         // plain walk and a name is never answered from a dead row. The
         // entries are values, and nothing holds an index across a call.
+        if (g_table[i].parent == dev) bcache_forget(dev);   // a disk going away
         for (int j = i; j < g_count - 1; j++) g_table[j] = g_table[j + 1];
         g_count--;
         return 1;
@@ -249,27 +251,98 @@ static void account(const struct block_device *dev, uint64_t lba, uint32_t count
     cachesim_block_io(dev, lba, count, write);
 }
 
+// ---- the disk cache's key ------------------------------------------
+//
+// THE WHOLE DISK AND THE ABSOLUTE SECTOR, from the device table: a
+// partition forwards to its parent's DRIVER without coming back through
+// here, so keying by the device a call arrived on would let a raw-disk
+// write miss a partition's cached copy (block_cache.h). NULL = not
+// cached: an unregistered device (a KTEST's scratch disk, whose address
+// may be reused) or one whose I/O is already memory (a RAM image).
+static const struct block_device *cache_key(const struct block_device *dev, uint64_t lba,
+                                            uint64_t *alba) {
+    for (int i = 0; i < g_count; i++) {
+        if (g_table[i].dev != dev) continue;
+        const struct block_device *disk = g_table[i].parent;
+        if (!disk || !disk->persistent) return NULL;
+        *alba = g_table[i].base_lba + lba;
+        return disk;
+    }
+    return NULL;
+}
+
+// `diskcache=verify`: every hit is read from the device too and
+// compared -- the oracle a cache bug cannot fake. Slow; a diagnostic.
+static int g_verify_logged;
+
+static void verify_hit(const struct block_device *dev, uint64_t lba, int count,
+                       const void *cached, uint64_t alba) {
+    uint8_t *real = kmalloc((size_t)count * 512);
+    if (!real) return;
+    if (dev->read_sectors(dev, lba, count, real)) {
+        for (int k = 0; k < count; k++) {
+            if (k_memcmp(real + k * 512, (const uint8_t *)cached + k * 512, 512) == 0) continue;
+            if (g_verify_logged++ < 16)
+                klog_printf(KLOG_ERR "block: disk cache served STALE data -- %s sector %llu (disk %llu) of %d\n",
+                            blk_device_name(dev), (unsigned long long)(lba + (uint64_t)k),
+                            (unsigned long long)(alba + (uint64_t)k), count);
+            break;
+        }
+    }
+    kfree(real);
+}
+
+// A cache hit is not device I/O: no stat, no charge, no ghost-cache
+// lookup -- the counters keep meaning what reached the disk.
 static int io_read(const struct block_device *dev, uint64_t lba,
                    int count, void *buf) {
     if (fault_should_fail_block_read()) return 0;
     if (!dev || !aligned(dev, lba, (uint32_t)count, "read")) return 0;
+    uint64_t alba = 0, ticket = 0;
+    const struct block_device *disk = cache_key(dev, lba, &alba);
+    if (disk) {
+        if (bcache_read(disk, alba, count, buf)) {
+            if (!bcache_verify()) return 1;
+            verify_hit(dev, lba, count, buf, alba);
+            return 1;
+        }
+        ticket = bcache_ticket(disk, alba, count);
+    }
     uint64_t t0 = clocksource_now_ns();
     int ok = dev->read_sectors(dev, lba, count, buf);
     blk_stat_add(BLK_STAT_READ, (uint32_t)(count < 0 ? 0 : count),
                  clocksource_now_ns() - t0, ok);
     if (ok && count > 0) account(dev, lba, (uint32_t)count, 0);
+    if (ok && disk) bcache_fill(disk, alba, count, buf, ticket);
     return ok;
+}
+
+// Every path that WRITES or DISCARDS sectors brackets the device call
+// with these two, or the cache keeps serving what was there before.
+static const struct block_device *cache_write_begin(const struct block_device *dev, uint64_t lba,
+                                                    int count, uint64_t *alba) {
+    const struct block_device *disk = cache_key(dev, lba, alba);
+    if (disk) bcache_write_begin(disk, *alba, count);
+    return disk;
+}
+
+static void cache_write_end(const struct block_device *disk, uint64_t alba, int count,
+                            const void *buf, int ok) {
+    if (disk) bcache_write_end(disk, alba, count, buf, ok);
 }
 
 static int io_write(const struct block_device *dev, uint64_t lba,
                     int count, const void *buf) {
     if (fault_should_fail_block_write()) return 0;
     if (!dev || !aligned(dev, lba, (uint32_t)count, "write")) return 0;
+    uint64_t alba = 0;
+    const struct block_device *disk = cache_write_begin(dev, lba, count, &alba);
     uint64_t t0 = clocksource_now_ns();
     int ok = dev->write_sectors(dev, lba, count, buf);
     blk_stat_add(BLK_STAT_WRITE, (uint32_t)(count < 0 ? 0 : count),
                  clocksource_now_ns() - t0, ok);
     if (ok && count > 0) account(dev, lba, (uint32_t)count, 1);
+    cache_write_end(disk, alba, count, buf, ok);
     return ok;
 }
 
@@ -283,9 +356,12 @@ static int io_flush(const struct block_device *dev) {
 
 static int io_trim(const struct block_device *dev, uint64_t lba, uint32_t count) {
     if (!aligned(dev, lba, count, "trim")) return 0;
+    uint64_t alba = 0;
+    const struct block_device *disk = cache_write_begin(dev, lba, (int)count, &alba);
     uint64_t t0 = clocksource_now_ns();
     int ok = dev->trim(dev, lba, count);
     blk_stat_add(BLK_STAT_TRIM, count, clocksource_now_ns() - t0, ok);
+    cache_write_end(disk, alba, (int)count, NULL, 0);   // a discarded sector reads as anything
     return ok;
 }
 
@@ -337,6 +413,17 @@ int blkdev_write_sectors(const struct block_device *dev, uint64_t lba, int count
     return io_write(dev, lba, count, buf);
 }
 
+static void batch_write_end(const struct block_device *dev, const struct blk_io *io, int n) {
+    for (int i = 0; i < n; i++) {
+        uint64_t alba = 0;
+        if (!io[i].write) continue;
+        // The key FIRST: as one call's arguments, `alba` may be read
+        // before cache_key() has set it -- C fixes no order.
+        const struct block_device *disk = cache_key(dev, io[i].lba, &alba);
+        cache_write_end(disk, alba, io[i].count, io[i].buf, io[i].ok > 0);
+    }
+}
+
 int blkdev_submit_batch(const struct block_device *dev, struct blk_io *io, int n) {
     if (!dev || !io || n <= 0) return 0;
     // THE FALLBACK IS THE ORDINARY PATH, one transfer at a time -- and
@@ -353,6 +440,12 @@ int blkdev_submit_batch(const struct block_device *dev, struct blk_io *io, int n
         int fail = io[i].write ? fault_should_fail_block_write() : fault_should_fail_block_read();
         if (fail) { io[i].ok = -1; injected = 1; }
     }
+    // The cache sees a batch's WRITES like any other; its reads go to the
+    // device and are not kept (the journal, the one caller, only writes).
+    for (int i = 0; i < n; i++) {
+        uint64_t alba;
+        if (io[i].write) cache_write_begin(dev, io[i].lba, io[i].count, &alba);
+    }
     if (!dev->submit_batch || injected) {
         int all = 1;
         for (int i = 0; i < n; i++) {
@@ -368,6 +461,7 @@ int blkdev_submit_batch(const struct block_device *dev, struct blk_io *io, int n
             if (io[i].ok) account(dev, io[i].lba, io[i].count, io[i].write);
             if (!io[i].ok) all = 0;
         }
+        batch_write_end(dev, io, n);
         return all;
     }
     uint64_t t0 = clocksource_now_ns();
@@ -381,6 +475,7 @@ int blkdev_submit_batch(const struct block_device *dev, struct blk_io *io, int n
                      io[i].count, share, io[i].ok);
         if (io[i].ok) account(dev, io[i].lba, io[i].count, io[i].write);
     }
+    batch_write_end(dev, io, n);
     return all;
 }
 
@@ -423,11 +518,20 @@ int blkdev_trim_ranges(const struct block_device *dev, const struct blk_range *r
         if (!aligned(dev, r[i].lba, r[i].count, "trim")) return 0;
         sectors += r[i].count;
     }
+    for (int i = 0; i < n; i++) {
+        uint64_t alba = 0;
+        cache_write_begin(dev, r[i].lba, (int)r[i].count, &alba);
+    }
     uint64_t t0 = clocksource_now_ns();
     int ok = 1;
     if (dev->trim_ranges) ok = dev->trim_ranges(dev, r, n);
     else for (int i = 0; i < n; i++) ok &= dev->trim(dev, r[i].lba, r[i].count) ? 1 : 0;
     blk_stat_add(BLK_STAT_TRIM, sectors, clocksource_now_ns() - t0, ok);
+    for (int i = 0; i < n; i++) {
+        uint64_t alba = 0;
+        const struct block_device *disk = cache_key(dev, r[i].lba, &alba);   // before alba is read
+        cache_write_end(disk, alba, (int)r[i].count, NULL, 0);
+    }
     return ok;
 }
 

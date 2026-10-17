@@ -21,10 +21,10 @@ cachesim [-t] [-i SECONDS]
 
 ## Description
 
-How many 4 KiB reads a cache would have served, if toy-os had one, for
-caches of 4, 16, 64 and 256 MiB. There is no page cache
-(`docs/pagecache-design.md`); this measures whether building one is
-worth it, on the workload the machine actually runs.
+How many 4 KiB reads a cache would have served, for caches of 4, 16, 64
+and 256 MiB. It measured the case for the DISK CACHE that now exists
+(`docs/pagecache-design.md`, "Stage 1b"), and still measures what a page
+cache above the VFS would add on the workload the machine actually runs.
 
 The kernel keeps **ghost caches**: LRU lists of keys with no data
 behind them, so their hit counts are exactly a real cache's and they
@@ -35,7 +35,9 @@ cost ~5 MiB rather than 256. Two levels:
   file. What a `read()`, a program's image and a config load would hit.
 - `block` -- a cache UNDER the filesystem: every read the block layer
   sends to a device, metadata included (bitmaps, inode tables, pointer
-  tables), kept current by writes.
+  tables), kept current by writes. **Only what the real disk cache
+  missed reaches it**, so its hits are what a bigger one would add; boot
+  with `nodiskcache` as well to measure from no cache at all.
 
 **It needs the `cachesim` boot word**, because the keys cost memory a
 normal boot should not pay. Without it the command says so and exits 1.

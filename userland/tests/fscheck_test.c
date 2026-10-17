@@ -19,6 +19,7 @@
 #include <pthread.h>
 #include "rt/sys.h"
 #include "lib/utest.h"
+#include "lib/usetting.h"   // kernel.drop_caches
 
 static struct fs_check_result r;
 
@@ -40,7 +41,10 @@ static void *bg_check(void *flags) {
 }
 
 // Starts one and waits, bounded, until a progress read sees it running.
+// THE DISK CACHE IS EMPTIED FIRST: warm, a pass over this volume ends
+// before the first progress read, and there is nothing to catch.
 static int start_bg(pthread_t *th, unsigned flags, struct fs_check_progress *p) {
+    usetting_set("kernel.drop_caches", "drop");
     g_bg_done = 0;
     if (pthread_create(th, 0, bg_check, (void *)(unsigned long)flags)) return 0;
     for (int i = 0; i < 5000 && !__atomic_load_n(&g_bg_done, __ATOMIC_ACQUIRE); i++) {

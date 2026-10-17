@@ -77,6 +77,9 @@ with the reason, unless `faultinject` is on the GRUB line.
 (`QUERY_PANIC`, `kernel/panic_store.h`); logd sets it once it has
 appended the record to the dead boot's log, which is what deleting a file
 under Linux's `/sys/fs/pstore` does.
+`kernel.drop_caches=drop` empties the disk cache (`block_cache.h`), so
+the next read of anything goes to the device -- Linux's `vm.drop_caches`.
+`diskbench` sets it before each read pass, or it would time memory.
 
 `kernel.usb_reset` takes a PORT NUMBER and forces that root port
 through a real reset and re-enumeration, without anyone touching the

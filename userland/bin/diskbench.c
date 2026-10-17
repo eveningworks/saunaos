@@ -77,6 +77,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "tmppath.h"
+#include "lib/usetting.h"   // kernel.drop_caches
 
 // WHERE THE REPORT GOES. Default stdout, so a shell run reads normally;
 // `--out FILE` writes it to a file instead.
@@ -320,6 +321,10 @@ static int run_profile(int profile, const char *path, uint64_t total, int first)
     // real blocks -- a different measurement wearing the same label.
     int flags = writing ? O_WRONLY : 0;
     if (first) flags |= O_CREAT | O_TRUNC;
+    // A READ PASS STARTS FROM AN EMPTY DISK CACHE: the file was just
+    // written, so without this the pass times memory, not the disk --
+    // what fio's invalidate=1 and CrystalDiskMark's unbuffered I/O avoid.
+    if (!writing) usetting_set("kernel.drop_caches", "drop");
     int fd = open(path, flags);
     if (fd < 0) { fail("could-not-open-the-test-file"); return 0; }
 

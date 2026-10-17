@@ -81,6 +81,13 @@ per-syscall cost is visible. Measured at **29-66% of all block reads**
 depending on profile, which is why `docs/pagecache-design.md` puts
 caching it first.
 
+**Each READ pass starts from an empty disk cache** (`kernel.drop_caches`),
+because the file it reads was just written and would otherwise be read
+back from memory -- fio's `invalidate=1`, CrystalDiskMark's unbuffered
+reads. Within a pass, a page read twice is served from memory, as it
+would be for any program; the random passes read an eighth of the file
+in 4 KiB pieces, so a block's neighbours can be hits.
+
 **`clock-granularity-ns` says whether to believe the `io` microseconds.**
 The kernel times each call with its clocksource, and in every default
 QEMU configuration that is the PIT: a guest is not offered an invariant

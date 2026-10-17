@@ -404,8 +404,8 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~Refuse a whole-disk volume: a drive's root must be a partition, and a flat image says so and boots to ramfs~~ done
 - [ ] The live CD unpacks into ramfs rather than mounting a RAM block device, retiring `block_ram.c`
 - [x] ~~Run the kernel suite on AHCI too~~ DONE 2026-10-08 -- `ktest_run.py --ahci-disk`, a CI step; 977 pass
-- [ ] A sector cache on the AHCI and virtio paths -- `ata_cache.c` is wired only into `ata.c`, and `atac_ops` is already the seam
-- [ ] A block/buffer cache with write-back
+- [x] ~~A read cache on the AHCI, NVMe and virtio paths~~ DONE 2026-10-17 -- the block layer's disk cache serves every driver
+- [ ] Write-back for the disk cache -- it is write-through; `ata_cache.c` is still the only write-back, and ATA's alone
 - [ ] The cache's write-back sends one sector per command -- `atac_flush()` walks slots, not LBAs, and never merges neighbours
 - [ ] Directory index
 - [x] ~~`fs_rename()`~~ done
@@ -993,7 +993,7 @@ run on, not by order.
 - [ ] Reuse the read/write bounce buffer instead of a `kmalloc` per syscall -- `fd_bounce_alloc()` allocates and frees up to 256 KiB a call
 - [ ] Scatter-gather in `ata.c`, so legacy ATA can exceed 64 KiB per command -- one PRD's byte count is 16-bit and it uses a single entry
 - [ ] Read-ahead on sequential reads -- wants the asynchronous `block_device` split first, to issue a read while the last is consumed
-- [ ] A write-back page cache -- `docs/pagecache-design.md`, DEMOTED by a benchmark; `cachesim` now measures a real session
+- [ ] A write-back page cache -- `docs/pagecache-design.md`; the disk cache (1b) BUILT, the cache above the VFS waits on a CPU measurement
 - [ ] A second drive, which needs a block layer whose active device is not singular
 - [ ] A sector cache shared with ATA, if one is ever measured to be worth it
 - [ ] A fault-injection hook that makes the DRIVE refuse a command, so `port_recover()` is exercised

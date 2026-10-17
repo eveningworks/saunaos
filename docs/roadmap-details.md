@@ -272,9 +272,11 @@ strictly more: skipping the barriers alone still performs every commit's
 four block writes, and measuring showed that batching beats `lazy` --
 which does skip the barriers -- by more than 2x on hardware.
 
-A write-back page cache -- **stages 0, 1a, 3 and 4 are BUILT; stages 1
-and 2 are demoted by measurement.** `docs/pagecache-design.md` has the
-detail. `fsync()` arrived early, scoped to the volume rather than the
+A write-back page cache -- **stages 0, 1a, 1b, 3 and 4 are BUILT; stage 1
+is re-scoped and stage 2 demoted, both by measurement.** Stage 1b is the
+write-through DISK CACHE under the filesystem (2026-10-17): on the ASUS
+it took a real session from 126,200 block pages read off the disk to
+11,355. `docs/pagecache-design.md` has the detail. `fsync()` arrived early, scoped to the volume rather than the
 file, because `batched` needed it.
 
 What the last measurement says about the rest: with everything built, a
@@ -286,10 +288,10 @@ change to the journal, not a cache above it. **The workload is no longer
 read-bound, and a page cache does not sit where the cost is.**
 
 That measurement was a linear benchmark, which has no repeats. The
-boot word `cachesim` and `/bin/cachesim` measure what a page cache
+boot word `cachesim` and `/bin/cachesim` measured what a page cache
 (and a block cache under the filesystem) would hit on the machine's
-real workload, at four sizes, without building either; the laptop's
-numbers over a real session are what re-decide stage 1.
+real workload; the laptop's session chose the block cache (stage 1b).
+What stage 1 has left is CPU, not disk -- measure it before building.
 
 The number it chases is measured rather than guessed: on the bare-metal
 laptop, `storage.sync = lazy` (barriers off entirely) gives 36.55 MB/s

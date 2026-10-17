@@ -3958,3 +3958,39 @@ and `dd`-style safety: a typed name rather than a y); flags and
 `confirm` skip every question, and off a terminal nothing is asked, so
 scripts and tests are unchanged. A full-screen text UI (bsdinstall,
 archinstall) was the larger alternative and waits for a text toolkit.
+
+## The first read cache is a write-through DISK cache in the block layer, not a page cache above the VFS
+
+`docs/pagecache-design.md` planned a page cache above the VFS first
+(its stage 1) and demoted it on a linear benchmark. Ghost caches over a
+real desktop session on the ASUS (`cachesim`) decided it the other way:
+the block level hit 95% at 64 MiB against the file level's 85%, and it
+sees the reads the file level cannot -- the inode-table read under every
+`stat()`/`open()`, bitmaps, pointer tables. One hook in `block.c`'s
+`io_*()` covers TFS3, FAT32 and every later filesystem, and its
+invalidation is the write itself rather than every mutating VFS entry
+point (the hole stage 1 names). Linux's buffer cache is this layer --
+the block device's own page cache -- and NT caches metadata through the
+Cache Manager on a stream for the volume; both cache metadata, which a
+file-level-only cache would not.
+
+**Why the block layer may hold it when `ata_cache.h` says a cache must
+sit under the driver:** that argument is about WRITE-BACK, where a
+bypass loses data. This cache is never dirty, so a bypass can only serve
+a stale read; the rule that replaces "no bypass can exist" is that every
+path writing or discarding sectors brackets the device call, the key is
+the whole disk and absolute sector (a partition forwards to its parent's
+driver without coming back through `io_*()`), and `diskcache=verify`
+checks every hit against the device. `swap.c` was the one bypass, and
+now goes through `blkdev_*()`.
+
+**A fixed budget, not "free memory".** The kernel has no reclaim, so a
+cache that grew into free memory would be the first thing able to
+starve the allocator. A 32nd of RAM, 4..64 MiB, is ramfs's precedent of
+a budget fixed at a size the machine can afford, and 64 MiB covered the
+measured 46 MiB working set. `storage.disk_cache` resizes it live.
+
+**The page cache above it is not built, and the reason is a measurement
+too:** after the disk cache, the file reads it would serve are memory
+copies already; what it would remove is TFS3's CPU, at the price of
+caching data twice. Measure that before building it.

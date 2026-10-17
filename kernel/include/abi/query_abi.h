@@ -658,6 +658,22 @@ struct query_procio {
     uint64_t file_reads, file_writes;     // calls
 };
 
+// THE DISK CACHE (kernel/include/kernel/block_cache.h): one record. A
+// hit is a read the block layer answered from memory, so it never
+// reaches QUERY_PROCIO's disk counters or QUERY_BLKSTAT. `on` is 0 for
+// a `nodiskcache` boot. Pages are 4 KiB.
+#define QUERY_DISKCACHE 58
+
+struct query_diskcache {
+    uint64_t on;
+    uint64_t pages;        // resident now
+    uint64_t cap_pages;    // the budget (storage.disk_cache, or automatic)
+    uint64_t active;       // of `pages`, read at least twice
+    uint64_t hits, misses; // read CALLS since boot
+    uint64_t hit_sectors;  // 512-byte sectors the hits carried
+    uint64_t fills, dropped_fills, evictions;
+};
+
 struct query_cachesim_proc {
     uint64_t pid;
     char name[QUERY_CACHESIM_NAME];
