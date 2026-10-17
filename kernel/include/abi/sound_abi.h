@@ -329,6 +329,8 @@ struct snd_register_msg {
 // A client's own ring is "snd." plus its pid -- unique without a
 // registry, and the pid is what QUERY_SHM already reports, so the
 // daemon can tell a live client from a stale name.
+// Nothing else under "snd." is a client: snd.server is the beacon and
+// snd.drv.<pid> snddrv's page, so a reader checks for the digits.
 #define SND_CLIENT_PREFIX "snd."
 
 // SYS_SND_CTL ops (RDI).

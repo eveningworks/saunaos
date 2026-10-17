@@ -35,6 +35,7 @@ There are no unix sockets here and no fd passing, so the rendezvous is a
 |---|---|
 | `snd.server` | The beacon. It exists exactly while a daemon is running. |
 | `snd.<pid>` | One client's ring, created by that client. |
+| `snd.drv.<pid>` | `snddrv`'s page, when a ring-3 driver plays the card. NOT a client: only `snd.` and DIGITS is one. |
 
 A program calling `usnd_init()` (`userland/lib/usnd.h`) opens the beacon;
 if it is there it creates its own ring and becomes a client, and if it is

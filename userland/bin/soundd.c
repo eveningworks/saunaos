@@ -35,7 +35,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>   // atoi -- the pid out of the ring's name
-#include <sys/stat.h>
 #include "lib/uconf.h"   // /etc in ring 3, over the shared parser
 #include "lib/usndfmt.h" // each card's rate policy and width
 #include "rt/sys.h"
@@ -244,9 +243,14 @@ static int32_t clamp32(int64_t v) {
     return (int32_t)v;
 }
 
+// "snd." AND ONLY DIGITS, as sound_abi.h defines a client's ring. The
+// prefix alone also matched snddrv's "snd.drv.<pid>", which failed to
+// adopt on every pass and forced a sound.conf reload 50 times a second.
 static int name_is_client(const char *n) {
-    return strncmp(n, SND_CLIENT_PREFIX, sizeof SND_CLIENT_PREFIX - 1) == 0 &&
-           strcmp(n, SND_SERVER_NAME) != 0;
+    const char *d = n + sizeof SND_CLIENT_PREFIX - 1;
+    if (strncmp(n, SND_CLIENT_PREFIX, sizeof SND_CLIENT_PREFIX - 1) != 0 || !*d) return 0;
+    for (; *d; d++) if (*d < '0' || *d > '9') return 0;
+    return 1;
 }
 
 static struct client *find(const char *name) {
@@ -261,16 +265,17 @@ static void drop(struct client *c) {
     memset(c, 0, sizeof *c);
 }
 
-static void adopt(const char *name) {
+// 1 when the ring is now a client; 0 to look again next pass.
+static int adopt(const char *name) {
     struct client *c = 0;
     for (int i = 0; i < MAX_CLIENTS; i++) if (!g_cl[i].ctl) { c = &g_cl[i]; break; }
-    if (!c) return; // full: the client writes into a ring nobody reads
+    if (!c) return 0; // full: the client writes into a ring nobody reads
 
     int fd = sys_shm_open(name, 0, 0);
-    if (fd < 0) return;
+    if (fd < 0) return 0;
     void *p = sys_mmap(0, SND_CLIENT_BYTES, SYS_PROT_READ | SYS_PROT_WRITE,
                        SYS_MAP_SHARED, fd, 0);
-    if (p == (void *)-1) { sys_close(fd); return; }
+    if (p == (void *)-1) { sys_close(fd); return 0; }
 
     volatile struct snd_ctl_page *ctl = p;
     // The magic is written LAST by the client, so an unset one means
@@ -281,7 +286,7 @@ static void adopt(const char *name) {
         ctl->sample_bits != SND_SAMPLE_BITS) {
         sys_munmap(p, SND_CLIENT_BYTES);
         sys_close(fd);
-        return;
+        return 0;
     }
     strlcpy(c->name, name, sizeof c->name);
     strlcpy(c->app, (const char *)ctl->app, sizeof c->app);
@@ -293,6 +298,7 @@ static void adopt(const char *name) {
     c->ctl = ctl; // last: a non-null ctl is what makes the slot live
     fprintf(stderr, "soundd: client %s as \"%s\"\n", name,
             c->app[0] ? c->app : "(unnamed)");
+    return 1;
 }
 
 // --- per-application volume ------------------------------------------
@@ -304,10 +310,12 @@ static void adopt(const char *name) {
 //
 // RELOADED ON CHANGE, NOT ON A TIMER. The main loop runs every 20 ms,
 // and parsing the file at that rate is 50 reads a second for a value
-// that changes when a human drags something. `stat` is one syscall and
-// answers "has it changed" from the size and mtime, so the parse is
+// that changes when a human drags something. SYS_FS_GENERATION_OF
+// answers "has it changed" from a counter in memory, so the parse is
 // paid only when it actually did -- which also makes a slider feel
-// immediate rather than sampled.
+// immediate rather than sampled. Not `stat`: that reads the inode from
+// the disk, and at this rate was 50 disk reads a second on an idle
+// machine (`cachesim -t` found it).
 static uint64_t g_cfg_stamp;
 
 // ONE READ, MANY KEYS -- uconf_load() rather than uconf_get() per
@@ -341,12 +349,11 @@ static void apply_gains(void) {
 }
 
 // Cheap enough for the 20 ms loop, and the only thing that triggers a
-// parse. A file that does not exist is a stamp of 0, which is also what
-// it reads as before anything has ever set a per-app volume.
+// parse. The counter moves when the file is created, written, renamed
+// or deleted, so a file that appears later is still noticed.
 static void gains_poll(int force) {
-    struct stat st;
-    uint64_t stamp = (stat(SND_CONFIG_FILE, &st) == 0)
-                   ? ((uint64_t)st.st_mtime << 32) ^ (uint64_t)st.st_size : 0;
+    long long gen = sys_fs_generation_of(SND_CONFIG_FILE);
+    uint64_t stamp = gen > 0 ? (uint64_t)gen : 0;
     if (!force && stamp == g_cfg_stamp) return;
     g_cfg_stamp = stamp;
     apply_gains();
@@ -424,9 +431,10 @@ static void rescan(void) {
     }
     int adopted = 0;
     for (int j = 0; j < nseen; j++)
-        if (!find(seen[j])) { adopt(seen[j]); adopted = 1; }
+        if (!find(seen[j]) && adopt(seen[j])) adopted = 1;
     // A NEW CLIENT NEEDS ITS GAIN BEFORE ITS FIRST CHUNK, and the file
-    // has not changed, so the mtime poll would not have looked.
+    // has not changed, so the mtime poll would not have looked. Only a
+    // SUCCESSFUL adoption: a ring not ready yet is retried every pass.
     if (adopted) gains_poll(1);
 }
 
