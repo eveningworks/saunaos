@@ -131,23 +131,67 @@ static void identity(const struct uremote_conf *c) {
         }
         rd_log("remoted: vnc: certificate for %s-- %s\n", key, fp);
     }
-    // Checked every pass, not only when made: a file written whole (a
-    // restore, an editor) loses the key until remoted puts it back.
+    // Checked whenever this runs, not only when made: a file written whole
+    // (a restore, an editor) loses the key until remoted puts it back --
+    // and such a write moves the file's generation, which runs this.
     if (fp[0] && strcmp(fp, c->vnc.fingerprint) != 0)
         uconf_set_in(UREMOTE_CONF, "vnc", "fingerprint", fp);
 }
 
+// This machine's addresses, as one string: what the certificate names
+// besides the hostname. QUERY_NETDEV is in memory, so asking every pass
+// costs no disk read -- unlike the hostname, which is a setting and so a
+// file (identity()).
+static void addresses(char *out, size_t cap) {
+    out[0] = 0;
+    struct query_netdev d;
+    QUERY_FOREACH(QUERY_NETDEV, d, i) {
+        if (!d.ip) continue;
+        char ip[16];
+        uremote_fmt_ip((uint32_t)d.ip, ip, sizeof ip);
+        strncat(out, ip, cap - strlen(out) - 1);
+        strncat(out, " ", cap - strlen(out) - 1);
+    }
+}
+
+// How often the certificate is checked against the hostname when nothing
+// else changed: a renamed machine's certificate catches up within this.
+#define IDENTITY_RECHECK_NS (60ull * 1000000000ull)
+
 static int serve(void) {
     struct listener vnc = { -1, 0 };
     int live = 0;
+    // THE CONFIG IS RE-READ WHEN IT CHANGED, not every pass: the loop runs
+    // every second, and a whole-file read each time was the machine's
+    // steadiest idle disk reader once soundd's was gone (Task Manager's
+    // Disk page showed it). SYS_FS_GENERATION_OF moves on any write,
+    // rename or delete of the file, so a switch in System Settings still
+    // applies on the next pass.
+    long long seen_gen = -1;
+    static char seen_addr[UTLS_NAMES_MAX * 16];
+    unsigned long long id_ns = 0;
     for (;;) {
         int code;
         while (sys_waitpid_nohang(-1, &code) > 0) if (live > 0) live--;
 
         static struct uremote_conf c;   // static: kilobytes, and one loop
-        uremote_load(&c);
+        long long gen = sys_fs_generation_of(UREMOTE_CONF);
+        int reloaded = gen <= 0 || gen != seen_gen;
+        if (reloaded) {
+            uremote_load(&c);
+            seen_gen = gen;
+        }
         reconcile(&vnc, c.vnc.enabled ? c.vnc.port : 0, "vnc");
-        if (c.vnc.enabled && c.vnc.encryption != UREMOTE_ENC_OFF) identity(&c);
+        if (c.vnc.enabled && c.vnc.encryption != UREMOTE_ENC_OFF) {
+            static char addr[sizeof seen_addr];
+            addresses(addr, sizeof addr);
+            unsigned long long now = sys_monotonic_ns();
+            if (reloaded || strcmp(addr, seen_addr) || now - id_ns >= IDENTITY_RECHECK_NS) {
+                strlcpy(seen_addr, addr, sizeof seen_addr);
+                id_ns = now;
+                identity(&c);
+            }
+        }
         if (vnc.fd < 0) {
             sys_sleep_ms(SLICE_MS * 2);
             continue;
