@@ -91,6 +91,7 @@
 | `upixel.h` | upixel -- PAINTING ON A PICTURE: a brush stamp, a stroke of them, a flood fill, on a struct uimg's 0xAARRGGBB pixels. |
 | `upixundo.h` | upixundo -- UNDO FOR A PICTURE BEING PAINTED: Paint.NET's history shape. |
 | `uprefs.h` | uprefs -- an app's options file described as a TABLE: one row per key names the field it fills, its type, its range or words and its default, and load, save and Defaults all walk that one table --... |
+| `uprocio.h` | Each process's I/O RATE, from two reads of QUERY_PROCIO (Linux's /proc/<pid>/io) and the time between them -- what iotop and Windows' Resource Monitor show. |
 | `uprogress.h` | A one-line transfer meter, redrawn in place with `\r`. |
 | `urecent.h` | RECENT FILES: what was opened lately, by any app, and in which -- freedesktop's recently-used.xbel and Windows' Recent Items, as one plain-text list in /var/lib/recent. |
 | `uregion.h` | A REGION: a bounded list of disjoint rectangles, cut by subtraction -- what the compositor draws each window inside once the opaque windows above it are taken away (pixman's region32, which wlroots... |
@@ -163,6 +164,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_colourfield.h` | uui_colourfield -- PICKING A COLOUR BY EYE: a square of saturation (left to right) and brightness (top to bottom) at one hue, or the hue strip under it -- GTK's custom colour editor, KDE's and Krit... |
 | `uui_colourpick.h` | uui_colourpick -- ONE COLOUR, picked: by eye on a saturation and brightness square over a hue strip (ui/uui_colourfield.h), or exactly in a hex field and R, G and B fields, all following each other. |
 | `uui_confetti.h` | A CONFETTI BURST: pieces thrown up from a point, tumbling and falling under gravity, fading out at the end -- what a game shows when it is won (Microsoft Minesweeper, Google's, a Solitaire cascade'... |
+| `uui_ctxmenu.h` | uui_ctxmenu -- a WIDGET'S OWN right-click menu, hosted by uapp: a table header's column chooser is the first. |
 | `uui_describe.h` | uui_describe.h -- a widget REPORTS ITS OWN GEOMETRY, by name. |
 | `uui_dialog.h` | A MODAL over the app's own window: a title, some lines, and a row of buttons. |
 | `uui_diskplan.h` | uui_diskplan -- what a disk holds NOW and what it will hold AFTER an operation, as two labelled partition maps one above the other: an installer's or a partitioner's before-and-after (Calamares' pa... |

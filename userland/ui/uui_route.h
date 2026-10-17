@@ -216,6 +216,11 @@ void uui_router_draw(struct uui_router *r, struct ugfx_surface *s);
 // edit_target answers, back to front through containers, as a press
 // would find it -- filling `out` and its item's id. 0 for none.
 struct uui_edit_target;
+// The widget at (cx, cy) with a menu of its own (ui/uui_ctxmenu.h),
+// innermost first; 1 and `out` filled, or 0.
+struct uui_ctxmenu_src;
+int uui_router_ctx_at(const struct uui_router *r, int cx, int cy,
+                      struct uui_ctxmenu_src *out, int *out_id);
 int uui_router_edit_at(const struct uui_router *r, int cx, int cy,
                        struct uui_edit_target *out, int *out_id);
 

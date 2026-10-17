@@ -1189,6 +1189,33 @@ this the obvious way), not from how much history it accumulated.
   rename) have the keys but not the menu, because the compositor is not
   a uapp client.
 
+- **A WIDGET'S OWN RIGHT-CLICK MENU IS `uui_widget_ops.context_menu`,
+  HOSTED BY uapp LIKE THE EDIT MENU.** The widget fills a
+  `struct uui_ctxmenu_src` (`ui/uui_ctxmenu.h`) -- its rows, a `flags`
+  callback for ticks and greying, a `run` callback -- for the point it
+  owns, and returns 0 elsewhere so the app's own `on_press` still hears
+  that click. One menu per process on the router's `extra` slot, asked
+  only when no editable text answered first. A row that changed the
+  widget reaches the app as `UUI_REASON_RELEASE` with `changed` set on
+  the widget's id, which is where it saves. A table header's column
+  chooser is the first (Qt's `contextMenuEvent`, `QHeaderView`'s menu).
+
+- **TABLE COLUMNS ARE CHOSEN AND MOVED IN `uui_table`, AND EVERY PUBLIC
+  COLUMN INDEX STAYS THE APP'S.** `uui_table_set_columns_mode()` turns on
+  the header's checklist and the drag -- `UUI_TABLE_COLS_COLUMN` lifts
+  the whole column (Task Manager), `_HEADER` floats only the title --
+  and the table keeps its own display order and hidden set, so `cell`,
+  `heat`, `compare` and `sort_col` never learn a column moved, as rows
+  work through `order`. Column 0 is locked first and shown. **AN ID IS A
+  SAVED FORMAT**: the layout saves as ids (`uui_table_columns_save()`),
+  so a column is never renamed in its id, and a new column takes a new
+  one; a string from an older version loads with the new columns after
+  it. Only a drag glides (`uui_anim_ms()`, the user's animation speed);
+  a resize or a menu choice moves columns at once. **THERE IS NO
+  HORIZONTAL SCROLL**, so an app whose window minimum is narrower than
+  its shown columns squeezes the stretch column -- size the minimum from
+  `uui_table_natural_size()`, which counts shown columns only.
+
 - **`uui_splitter` IS THE DRAGGABLE DIVIDER, AND IT OWNS A FRACTION
   RATHER THAN A PIXEL COLUMN.** Qt's `QSplitter`, GTK's `GtkPaned`,
   Explorer's navigation-pane divider. The value is per mille of the

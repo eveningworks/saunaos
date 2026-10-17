@@ -54,7 +54,7 @@ void dlg_flush(struct uapp_window *w) {
         if (w->desc.layout) log_items(w->desc.log_prefix, w->desc.layout->items,
                                       w->desc.layout->count);
         if (w->top.router.count) log_items(w->desc.log_prefix, w->top.router.items, w->top.router.count);
-        if (w->top.router.extra && uui_editmenu_is_open()) log_items(w->desc.log_prefix, w->top.router.extra, 1);
+        if (w->top.router.extra && (uui_editmenu_is_open() || uui_ctxmenu_is_open())) log_items(w->desc.log_prefix, w->top.router.extra, 1);
         if (w->desc.on_log_layout) w->desc.on_log_layout(w);
     }
     top_paint(&w->top, &s->surface, w->desc.layout, 0);
@@ -210,8 +210,11 @@ static struct uui_router *g_menu_router;
 // Is there anything to route? The app's widgets, or the menu, which an
 // app that hand-routes everything (no widgets at all) still gets.
 int top_routes(const struct uapp_top *t) {
-    return t->router.count || (t->router.extra && uui_editmenu_is_open());
+    return t->router.count || (t->router.extra && (uui_editmenu_is_open() || uui_ctxmenu_is_open()));
 }
+
+// Either toolkit menu's router id: both are caught here, never the app's.
+static int menu_id(int id) { return id == UUI_EDITMENU_ID || id == UUI_CTXMENU_ID; }
 
 static void top_size(const struct uapp_top *t, int *w, int *h) {
     if (t == &g_app.top) { *w = g_app.w; *h = g_app.h; return; }
@@ -226,6 +229,17 @@ static void menu_open(struct uapp_top *t, const struct uui_edit_target *tg, int 
     int w, h;
     top_size(t, &w, &h);
     uui_editmenu_open(tg, id, x, y, w, h);
+    t->dirty = 1;
+}
+
+// A widget's own menu (ui/uui_ctxmenu.h), on the same `extra` slot.
+static void ctx_open(struct uapp_top *t, const struct uui_ctxmenu_src *src, int id, int x, int y) {
+    if (g_menu_router && g_menu_router != &t->router) g_menu_router->extra = 0;
+    g_menu_router = &t->router;
+    t->router.extra = uui_ctxmenu_item();
+    int w, h;
+    top_size(t, &w, &h);
+    uui_ctxmenu_open(src, id, x, y, w, h);
     t->dirty = 1;
 }
 
@@ -261,13 +275,27 @@ static int edit_at(struct uapp_top *t, int x, int y, struct uui_edit_target *tg)
 static struct uapp_top *g_armed;
 static struct uui_edit_target g_armed_tg;
 static int g_armed_id;
+// NOT editable text but a widget with a menu of its own: armed the same
+// way, opened on the release.
+static int g_armed_ctx;
+static struct uui_ctxmenu_src g_armed_src;
 
 int top_secondary(struct uapp_top *t, int x, int y, int up) {
     if (!up) {
         g_armed = 0;
+        g_armed_ctx = 0;
         if (uui_editmenu_is_open()) uui_editmenu_close();
+        if (uui_ctxmenu_is_open()) uui_ctxmenu_close();
         int id = edit_at(t, x, y, &g_armed_tg);
-        if (!id) return 0;
+        if (!id) {
+            int cid = 0;
+            if (!t->router.count || !uui_router_ctx_at(&t->router, x, y, &g_armed_src, &cid))
+                return 0;
+            g_armed = t;
+            g_armed_ctx = 1;
+            g_armed_id = cid;
+            return 1;
+        }
         if (t->focus && uui_focus_click(t->focus, x, y)) t->dirty = 1;
         g_armed = t;
         g_armed_id = id > 0 ? id : 0;
@@ -275,6 +303,14 @@ int top_secondary(struct uapp_top *t, int x, int y, int up) {
     }
     if (g_armed != t) return 0;
     g_armed = 0;
+    if (g_armed_ctx) {
+        g_armed_ctx = 0;
+        struct uui_ctxmenu_src src;
+        int cid = 0;
+        if (uui_router_ctx_at(&t->router, x, y, &src, &cid)) ctx_open(t, &src, cid, x, y);
+        else ctx_open(t, &g_armed_src, g_armed_id, x, y);
+        return 1;
+    }
     // Re-asked at the release: the press may have moved focus, and a
     // widget answers again with the state it is in now.
     struct uui_edit_target tg;
@@ -314,6 +350,15 @@ void top_key(struct uapp_top *t, const struct win_event *ev) {
             return;
         }
     }
+    if (g_menu_router == &t->router && uui_ctxmenu_is_open()) {
+        int tid = 0;
+        int r = uui_ctxmenu_key(ev->a, &tid);
+        if (r) {
+            t->dirty = 1;
+            if (r == 2 && tid) t->ops->tell(t, tid, UUI_REASON_RELEASE, 1);
+            return;
+        }
+    }
     if ((ev->a == KEY_MENU || (ev->a == KEY_F10 && (ev->mods & KEY_MOD_SHIFT))) && menu_key(t))
         return;
     if (uui_key_is_shortcut(ev->a, ev->mods)) { t->ops->key(t, ev->a, ev->mods); return; }
@@ -344,7 +389,7 @@ void top_press(struct uapp_top *t, int x, int y, unsigned kmods) {
     int changed = 0;
     int id = top_routes(t) ? uui_router_press(&t->router, x, y, kmods, &changed) : 0;
     if (changed) t->dirty = 1;
-    if (id == UUI_EDITMENU_ID) return;   // a row armed; the release commits
+    if (menu_id(id)) return;   // a row armed; the release commits
     t->ops->tell(t, id, UUI_REASON_PRESS, 0);
     if (t->focus && !g_press_slot && uui_focus_click(t->focus, x, y)) t->dirty = 1;
 }
@@ -357,7 +402,7 @@ void top_motion(struct uapp_top *t, int x, int y, unsigned held, unsigned kmods)
     int changed = 0;
     int id = uui_router_motion(&t->router, x, y, held, kmods, &changed);
     if (changed) t->dirty = 1;
-    if (id == UUI_EDITMENU_ID) return;
+    if (menu_id(id)) return;
     if (motion_wanted(&t->router, id, held)) t->ops->tell(t, id, UUI_REASON_MOTION, 0);
 }
 
@@ -372,6 +417,14 @@ void top_release(struct uapp_top *t, int x, int y) {
         t->dirty = 1;
         return;
     }
+    if (id == UUI_CTXMENU_ID) {
+        // The widget changed itself (a column shown or hidden): the app
+        // hears it as that widget's own change, so it can save.
+        int tid = 0;
+        if (uui_ctxmenu_take(&tid) && tid) t->ops->tell(t, tid, UUI_REASON_RELEASE, 1);
+        t->dirty = 1;
+        return;
+    }
     t->ops->tell(t, id, UUI_REASON_RELEASE, changed);
 }
 
@@ -382,7 +435,7 @@ int top_wheel(struct uapp_top *t, int notches) {
     int changed = 0;
     int id = uui_router_wheel(&t->router, t->mouse_x, t->mouse_y, notches, &changed);
     if (changed) t->dirty = 1;
-    if (id == UUI_EDITMENU_ID) return id;   // the menu ate it: nobody else scrolls
+    if (menu_id(id)) return id;   // the menu ate it: nobody else scrolls
     t->ops->tell(t, id, UUI_REASON_WHEEL, 0);
     return id;
 }

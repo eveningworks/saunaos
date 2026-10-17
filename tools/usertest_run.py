@@ -302,6 +302,11 @@ TESTS = [
     # app's array would fail rather than pass by coincidence.
     ("table_tree_test", None,   # spawned: it draws, so it needs the font
      None, None),
+    # uui_table's chosen and moved columns: defaults, hide, the locked
+    # first column, move, save/load (unknown ids, columns added since),
+    # a drag through the OPS table in both modes, and the header menu.
+    ("table_columns_test", None,  # spawned: column widths are the font's
+     None, None),
     # The scrollbar state every scrolling widget embeds (ui/uui_sbar.h):
     # no jump on grab, an absolute clamped drag, trough paging, the
     # thumb at the right END -- read back through the painter's own

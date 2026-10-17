@@ -1,0 +1,158 @@
+// uui_table's chosen and moved columns -- what Task Manager's header menu
+// and column drag are built on. Logic through the widget's own ops table,
+// the way the router calls it, so a drag that only works when an app
+// forwards it by hand would fail here.
+//
+// Prints one line per check and exits with the number of failures.
+#include <stdint.h>
+#include "rt/sys.h"
+#include <string.h>
+#include <stdio.h>
+#include "ui/ugfx.h"
+#include "ui/uui_table.h"
+#include "ui/uui_ctxmenu.h"
+#include "lib/utest.h"
+
+static void ok(const char *name, int cond, const char *detail) {
+    utest_check_detail(cond, name, detail);
+}
+static void oks(const char *name, const char *got, const char *want) {
+    char d[200];
+    snprintf(d, sizeof d, "got '%s', want '%s'", got, want);
+    ok(name, strcmp(got, want) == 0, d);
+}
+
+static const struct uui_table_column COLS[] = {
+    { "Name", 0, UUI_TALIGN_LEFT, "name", 0 },
+    { "PID", 6, UUI_TALIGN_RIGHT, "pid", 0 },
+    { "CPU", 6, UUI_TALIGN_RIGHT, "cpu", 0 },
+    { "Read", 8, UUI_TALIGN_RIGHT, "read", 0 },
+    { "Extra", 8, UUI_TALIGN_RIGHT, "extra", UUI_TCOL_HIDDEN },
+};
+#define NC ((int)(sizeof COLS / sizeof COLS[0]))
+
+static void cell(void *ctx, int row, int col, char *out, int cap) {
+    (void)ctx;
+    snprintf(out, cap, "%d.%d", row, col);
+}
+static int cmp(void *ctx, int a, int b, int col) { (void)ctx; (void)col; return a - b; }
+
+static const char *layout(struct uui_table *t) {
+    static char buf[200];
+    if (!uui_table_columns_save(t, buf, sizeof buf)) strcpy(buf, "(refused)");
+    return buf;
+}
+
+// The header's middle over app column `col`, at its settled place.
+static void header_at(struct uui_table *t, int col, int *x, int *y) {
+    int cx, cw;
+    uui_table_column_rect(t, col, &cx, &cw);
+    *x = cx + cw / 2;
+    *y = t->y + uui_table_header_h(t) / 2;
+}
+
+// Press on a header, move to `to_x` in small steps, release: what the
+// router does with a real drag.
+static void drag(struct uui_table *t, int col, int to_x) {
+    int x, y;
+    header_at(t, col, &x, &y);
+    uui_table_ops.press(t, x, y, 0);
+    int step = to_x > x ? 7 : -7;
+    for (int px = x + step; step > 0 ? px < to_x : px > to_x; px += step)
+        uui_table_ops.motion(t, px, y, 1);
+    uui_table_ops.motion(t, to_x, y, 1);
+    uui_table_ops.release(t, to_x, y);
+}
+
+int main(int argc, char **argv) {
+    (void)argc; (void)argv;
+    ugfx_font_init();
+    utest_begin("table_columns_test", "uui_table: choosing and moving columns", UTEST_VERDICT_FILE);
+    ok("the font loaded, so widths are real", ugfx_char_h() > 0, "char_h is 0");
+
+    static struct uui_table t;
+    uui_table_init(&t, 0, 0, 600, 300, COLS, NC, cell, 0);
+    uui_table_set_compare(&t, cmp);
+    uui_table_set_rows(&t, 5);
+
+    // --- defaults, off ---
+    oks("a declared-hidden column starts hidden", layout(&t), "name,pid,cpu,read,-extra");
+    struct uui_ctxmenu_src src;
+    ok("no menu while the mode is off", !uui_table_ops.context_menu(&t, 10, 2, &src), "");
+    int x, y;
+    header_at(&t, 2, &x, &y);
+    uui_table_ops.press(&t, x, y, 0);
+    ok("with the mode off a header PRESS still sorts at once", t.sort_col == 2, "");
+    uui_table_ops.release(&t, x, y);
+
+    uui_table_set_columns_mode(&t, UUI_TABLE_COLS_COLUMN);
+    uui_table_take_layout_changed(&t);
+
+    // --- widths ---
+    int ex, ew, rx, rw;
+    uui_table_column_rect(&t, 4, &ex, &ew);
+    ok("a hidden column is 0 wide", ew == 0, "");
+    uui_table_column_show(&t, 4, 1);
+    uui_table_column_rect(&t, 4, &ex, &ew);
+    uui_table_column_rect(&t, 3, &rx, &rw);
+    ok("shown, it takes its width after Read", ew > 0 && ex == rx + rw, "");
+    ok("...and showing it is a layout change", uui_table_take_layout_changed(&t), "");
+    uui_table_column_show(&t, 0, 0);
+    ok("the first column cannot be hidden", uui_table_column_shown(&t, 0), "");
+
+    // --- moving ---
+    uui_table_column_move(&t, 3, 1);
+    oks("move Read to the front (after Name)", layout(&t), "name,read,pid,cpu,extra");
+    uui_table_column_move(&t, 0, 3);
+    oks("Name does not move", layout(&t), "name,read,pid,cpu,extra");
+    uui_table_columns_reset(&t);
+    oks("reset puts every column back, hidden ones hidden", layout(&t), "name,pid,cpu,read,-extra");
+
+    // --- save and load ---
+    char tiny[8];
+    ok("a save that does not fit writes nothing", uui_table_columns_save(&t, tiny, sizeof tiny) == 0 && !tiny[0], tiny);
+    uui_table_columns_load(&t, "cpu,-pid,bogus,name");
+    oks("load: order, hidden, an unknown id skipped, the unnamed kept after",
+        layout(&t), "name,cpu,-pid,read,-extra");
+    uui_table_columns_load(&t, "");
+    oks("an empty string changes nothing", layout(&t), "name,cpu,-pid,read,-extra");
+    uui_table_columns_reset(&t);
+
+    // --- a drag through the ops table, the whole column ---
+    uui_table_column_rect(&t, 3, &rx, &rw);
+    t.sort_col = 0;
+    drag(&t, 1, rx + rw + 20);   // PID past Read, to the end
+    oks("dragging PID past Read moves it there", layout(&t), "name,cpu,read,pid,-extra");
+    ok("...and a drag does not sort", t.sort_col == 0, "");
+    ok("...and the app is told the layout changed", uui_table_take_layout_changed(&t), "");
+    header_at(&t, 2, &x, &y);
+    uui_table_ops.press(&t, x, y, 0);
+    ok("a press alone does not sort while columns move", t.sort_col == 0, "");
+    uui_table_ops.release(&t, x, y);
+    ok("a press and release without moving sorts", t.sort_col == 2, "");
+    drag(&t, 2, 2);   // CPU to the very left: it must stop after Name
+    oks("nothing lands before the locked first column", layout(&t), "name,cpu,read,pid,-extra");
+
+    // --- the header-only mode moves the same way ---
+    uui_table_columns_reset(&t);
+    uui_table_set_columns_mode(&t, UUI_TABLE_COLS_HEADER);
+    uui_table_column_rect(&t, 3, &rx, &rw);
+    drag(&t, 2, rx + rw + 20);
+    oks("HEADER mode: the drop reorders as COLUMN mode does", layout(&t), "name,pid,read,cpu,-extra");
+
+    // --- the menu ---
+    uui_table_columns_reset(&t);
+    ok("a right-click on the header has a menu", uui_table_ops.context_menu(&t, 10, 2, &src), "");
+    ok("...one row per column, a separator and Reset", src.count == NC + 2, "");
+    ok("...on a row it has none", !uui_table_ops.context_menu(&t, 10, uui_table_header_h(&t) + 5, &src), "");
+    uui_table_ops.context_menu(&t, 10, 2, &src);
+    ok("Name is ticked and greyed", (src.flags(src.w, 1) & UUI_MI_CHECKED) && (src.flags(src.w, 1) & UUI_MI_DISABLED), "");
+    ok("Extra is not ticked", !(src.flags(src.w, 5) & UUI_MI_CHECKED), "");
+    ok("choosing Extra shows it", src.run(src.w, 5) && uui_table_column_shown(&t, 4), "");
+    ok("choosing PID hides it", src.run(src.w, 2) && !uui_table_column_shown(&t, 1), "");
+    ok("choosing Name does nothing", !src.run(src.w, 1) && uui_table_column_shown(&t, 0), "");
+    src.run(src.w, src.items[src.count - 1].code);
+    oks("Reset columns", layout(&t), "name,pid,cpu,read,-extra");
+
+    return utest_end();
+}

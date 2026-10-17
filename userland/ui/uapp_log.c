@@ -269,6 +269,6 @@ void uapp_log_layout(struct uapp *a, const char *prefix) {
     if (a->top.router.count) log_items(prefix, a->top.router.items, a->top.router.count);
     // The shared edit menu, while it is up: its rows, by the same
     // describe lines any menu reports (ui/uui_editmenu.h).
-    if (a->top.router.extra && uui_editmenu_is_open()) log_items(prefix, a->top.router.extra, 1);
+    if (a->top.router.extra && (uui_editmenu_is_open() || uui_ctxmenu_is_open())) log_items(prefix, a->top.router.extra, 1);
 }
 

@@ -56,6 +56,7 @@ struct uui_drag {
 };
 
 struct uui_edit_target;   // ui/uui_edit.h
+struct uui_ctxmenu_src;   // ui/uui_ctxmenu.h
 
 struct uui_widget_ops {
     // The preferred minimum -- see uui_primitives.h. 0 in either axis
@@ -104,6 +105,16 @@ struct uui_widget_ops {
     // with no app code. A COMPOSITE (a find bar, a spinbox) delegates to
     // its inner field.
     int (*edit_target)(void *w, int cx, int cy, struct uui_edit_target *out);
+
+    // --- a widget's OWN right-click menu ------------------------------
+    //
+    // "Is there a menu of mine at (cx, cy)?" Fill `out` (ui/uui_ctxmenu.h:
+    // the rows, a flags callback for ticks and greying, a run callback)
+    // and return 1, or 0 for none here. Asked on a secondary click that
+    // found no editable text; uapp owns the one menu, as it does the edit
+    // menu, so a table's column chooser needs no app code. A widget that
+    // answers 0 leaves the click to the app's own on_press.
+    int (*context_menu)(void *w, int cx, int cy, struct uui_ctxmenu_src *out);
 
     // --- pointer input, routed by uui_route.h -----------------------
     //

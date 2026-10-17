@@ -30,6 +30,7 @@
 #include "ui/uui_button.h"  // a lone button commits through on_action
 #include "ui/uui_dialog.h"  // uapp_question_open()
 #include "ui/uui_editmenu.h" // the right-click menu every text field gets
+#include "ui/uui_ctxmenu.h"  // and a widget's own one (a table header's columns)
 #include "ui/ulog.h"        // uapp_log_layout()
 #include "setting_abi.h" // desktop.layout_log -- the gate below
 #include "lib/usetting.h" // ...and the MERGED registry that can see it

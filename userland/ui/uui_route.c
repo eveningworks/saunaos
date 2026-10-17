@@ -1,6 +1,7 @@
 // Pointer routing -- see ui/uui_route.h for why this exists and the two
 // rules it implements.
 #include "ui/uui_route.h"
+#include "ui/uui_ctxmenu.h"
 #include "ui/uui_layout.h"
 #include "keyboard.h"   // KEY_MOD_CTRL -- the drag's copy/move bit
 #include <stddef.h>
@@ -644,6 +645,32 @@ static struct uui_item *edit_item(struct uui_item *it, int cx, int cy,
     }
     if (!it->ops || !it->ops->edit_target) return NULL;
     return it->ops->edit_target(it->widget, cx, cy, out) ? it : NULL;
+}
+
+// The same walk for a widget's own menu (ui/uui_ctxmenu.h).
+static struct uui_item *ctx_item(struct uui_item *it, int cx, int cy,
+                                 struct uui_ctxmenu_src *out) {
+    if (it->hidden) return NULL;
+    int n = 0;
+    struct uui_item *sub = nested(it, &n);
+    if (sub) {
+        if (!container_admits(it, cx, cy)) return NULL;
+        for (int i = n - 1; i >= 0; i--) {
+            struct uui_item *hit = ctx_item(&sub[i], cx, cy, out);
+            if (hit) return hit;
+        }
+    }
+    if (!it->ops || !it->ops->context_menu) return NULL;
+    return it->ops->context_menu(it->widget, cx, cy, out) ? it : NULL;
+}
+
+int uui_router_ctx_at(const struct uui_router *r, int cx, int cy,
+                      struct uui_ctxmenu_src *out, int *out_id) {
+    for (int i = r->count - 1; i >= 0; i--) {
+        struct uui_item *hit = ctx_item(&r->items[i], cx, cy, out);
+        if (hit) { if (out_id) *out_id = hit->id; return 1; }
+    }
+    return 0;
 }
 
 int uui_router_edit_at(const struct uui_router *r, int cx, int cy,

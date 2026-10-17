@@ -7,6 +7,8 @@
 #include "ui/uui_sbar.h"
 #include "ui/uui_seek.h"
 #include "ui/uui_scrollanim.h"
+#include "ui/uui_menubar.h"     // the column chooser's rows
+#include "lib/utween.h"
 
 // --- table: rows in columns, with a header ---------------------------
 //
@@ -166,7 +168,39 @@ struct uui_table_column {
                       // columns did not use. More than one stretch
                       // column splits the remainder evenly.
     int align;       // UUI_TALIGN_*
+    // Only read when the columns can be chosen and moved (below):
+    const char *id;  // the saved layout's name for it; NULL = the title
+    int flags;       // UUI_TCOL_*
 };
+
+// --- choosing and moving columns ------------------------------------------
+//
+// OFF unless an app turns it on (uui_table_set_columns_mode()). Then a
+// right-click on the header is a checklist of the columns
+// (uui_widget_ops.context_menu, hosted by uapp -- no app code), and a
+// header dragged sideways moves its column, the others gliding aside
+// with a tween as taskbar buttons do. Windows Task Manager's and Qt's
+// QHeaderView's movable sections.
+//
+// **EVERY PUBLIC COLUMN INDEX STAYS THE APP'S.** The table keeps a
+// display order and a hidden set of its own, so `cell`, `heat`, `meter`,
+// `compare` and sort_col never learn a column moved -- the same split as
+// rows (`order`). Column 0 is LOCKED: always first and always shown, as
+// Name is in every task manager, and it is where the tree and icons are.
+//
+// The layout is SAVED BY THE APP as a string (uui_table_columns_save()),
+// column ids in display order with hidden ones marked `-` -- ids, not
+// indices, so a column added in a later version does not scramble a saved
+// layout. The app learns it changed from uui_table_take_layout_changed()
+// after the table's own widget event.
+#define UUI_TCOL_HIDDEN 0x01 // hidden until chosen (and after a reset)
+#define UUI_TCOL_LOCKED 0x02 // never hidden or moved (column 0 always is)
+
+#define UUI_TABLE_COLS_FIXED  0 // neither (the default)
+#define UUI_TABLE_COLS_HEADER 1 // the dragged HEADER floats; cells move on the drop
+#define UUI_TABLE_COLS_COLUMN 2 // the whole column lifts and travels
+
+#define UUI_TABLE_MAX_COLS 24
 
 struct uui_table {
     int x, y, w, h;
@@ -242,6 +276,29 @@ struct uui_table {
 
     uint32_t bg, fg, sel_bg, sel_fg;
     uint32_t head_bg, head_fg, grid;
+
+    // --- columns, when they can be chosen and moved. OWNED ---
+    int col_mode;                                  // UUI_TABLE_COLS_*
+    unsigned char col_order[UUI_TABLE_MAX_COLS];   // display position -> app column
+    unsigned char col_hidden[UUI_TABLE_MAX_COLS];  // per app column
+    int layout_changed;                            // see take_layout_changed()
+    struct {
+        int armed, active;   // a header press; past the drag threshold
+        int col;             // the app column under it
+        int press_x, press_y, x, grab_dx;
+        int settle;          // the drop's glide is still running
+        int drop_x;          // where it would land: the marker, this frame
+    } cdrag;
+    // The glide: each column's drawn x eases to where the layout puts it.
+    struct utween col_tw[UUI_TABLE_MAX_COLS];
+    int col_tw_to[UUI_TABLE_MAX_COLS];
+    unsigned char col_tw_on[UUI_TABLE_MAX_COLS];
+    unsigned col_glide_ms;
+    // This frame's drawn rects per app column, header and body (they
+    // differ only in UUI_TABLE_COLS_HEADER mid-drag).
+    short hx[UUI_TABLE_MAX_COLS], hw[UUI_TABLE_MAX_COLS];
+    short bx[UUI_TABLE_MAX_COLS], bw[UUI_TABLE_MAX_COLS];
+    struct uui_menu_item col_menu[UUI_TABLE_MAX_COLS + 2];
 };
 
 void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
@@ -281,6 +338,29 @@ int  uui_table_view_count(const struct uui_table *t);
 // The group whose CAPTION is at view position `view_row`, or -1 for an
 // ordinary row.
 int  uui_table_caption_at(const struct uui_table *t, int view_row);
+
+// Turns choosing and moving columns on (UUI_TABLE_COLS_HEADER or
+// _COLUMN, the drag's look) or off (_FIXED). Resets nothing: an app sets
+// the mode, then loads its saved layout.
+void uui_table_set_columns_mode(struct uui_table *t, int mode);
+// Every column back to its declared place and visibility.
+void uui_table_columns_reset(struct uui_table *t);
+// The layout as `id,id,-id` in display order. Returns the length, or 0
+// when it did not fit (nothing is written then).
+int  uui_table_columns_save(const struct uui_table *t, char *out, int cap);
+// A saved layout. Unknown ids are skipped and columns it does not name
+// keep their declared place after it, so an older string still loads.
+// Returns 1 if it read anything.
+int  uui_table_columns_load(struct uui_table *t, const char *s);
+int  uui_table_column_shown(const struct uui_table *t, int col);
+void uui_table_column_show(struct uui_table *t, int col, int shown);
+// Moves app column `col` to display position `pos` (1.. -- 0 is locked).
+void uui_table_column_move(struct uui_table *t, int col, int pos);
+// App column at display position `pos`, or -1.
+int  uui_table_column_at(const struct uui_table *t, int pos);
+// The layout changed (a column chosen, hidden or moved) since the last
+// take. Taking clears it. The app saves then.
+int  uui_table_take_layout_changed(struct uui_table *t);
 
 // Shows or hides the header row. On by default; a table with it off
 // still sorts if it has a comparator, it just has nothing to click.

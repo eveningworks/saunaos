@@ -5,6 +5,9 @@
 #include "ui/uui_route.h"   // UUI_NOWHERE
 #include <string.h>
 #include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
+#include "ui/uui_ctxmenu.h" // the header's column chooser
+#include "ui/uui_anim.h"    // the column glide: uui_anim_ms(), uui_anim_request()
+#include "rt/sys.h"         // sys_monotonic_ns() -- the glide's clock
 
 // Left/right inset inside a column. Hoisted so natural_size() reserves
 // exactly what the draw uses -- the "one geometry, shared" rule the
@@ -82,6 +85,175 @@ void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
     t->head_bg = UUI_COLOR_UNSET;
     t->head_fg = UUI_COLOR_UNSET;
     t->grid = UUI_COLOR_UNSET;
+
+    t->col_mode = UUI_TABLE_COLS_FIXED;
+    t->cdrag.armed = t->cdrag.active = 0;
+    t->layout_changed = 0;
+    memset(t->col_tw_on, 0, sizeof t->col_tw_on);
+    uui_table_columns_reset(t);
+    t->layout_changed = 0;
+}
+
+// --- the column layout ----------------------------------------------------
+//
+// A table with more columns than UUI_TABLE_MAX_COLS keeps its declared
+// order and every column shown: the arrays below are fixed, as `order` is.
+static int layout_ok(const struct uui_table *t) {
+    return t->col_count > 0 && t->col_count <= UUI_TABLE_MAX_COLS;
+}
+
+static int col_locked(const struct uui_table *t, int c) {
+    return c == 0 || (t->cols[c].flags & UUI_TCOL_LOCKED);
+}
+
+static const char *col_id(const struct uui_table *t, int c) {
+    return t->cols[c].id ? t->cols[c].id : (t->cols[c].title ? t->cols[c].title : "");
+}
+
+void uui_table_columns_reset(struct uui_table *t) {
+    if (!layout_ok(t)) return;
+    for (int c = 0; c < t->col_count; c++) {
+        t->col_order[c] = (unsigned char)c;
+        t->col_hidden[c] = !col_locked(t, c) && (t->cols[c].flags & UUI_TCOL_HIDDEN);
+    }
+    t->layout_changed = 1;
+}
+
+void uui_table_set_columns_mode(struct uui_table *t, int mode) {
+    t->col_mode = layout_ok(t) ? mode : UUI_TABLE_COLS_FIXED;
+}
+
+int uui_table_column_shown(const struct uui_table *t, int col) {
+    if (col < 0 || col >= t->col_count) return 0;
+    return !layout_ok(t) || !t->col_hidden[col];
+}
+
+void uui_table_column_show(struct uui_table *t, int col, int shown) {
+    if (!layout_ok(t) || col < 0 || col >= t->col_count || col_locked(t, col)) return;
+    if (t->col_hidden[col] == !shown) return;
+    t->col_hidden[col] = !shown;
+    t->layout_changed = 1;
+}
+
+int uui_table_column_at(const struct uui_table *t, int pos) {
+    if (pos < 0 || pos >= t->col_count) return -1;
+    return layout_ok(t) ? t->col_order[pos] : pos;
+}
+
+static int col_pos(const struct uui_table *t, int col) {
+    if (!layout_ok(t)) return col;
+    for (int p = 0; p < t->col_count; p++) if (t->col_order[p] == col) return p;
+    return col;
+}
+
+void uui_table_column_move(struct uui_table *t, int col, int pos) {
+    if (!layout_ok(t) || col < 0 || col >= t->col_count || col_locked(t, col)) return;
+    if (pos < 1) pos = 1;
+    if (pos >= t->col_count) pos = t->col_count - 1;
+    int from = col_pos(t, col);
+    if (from == pos) return;
+    if (from < pos) for (int p = from; p < pos; p++) t->col_order[p] = t->col_order[p + 1];
+    else            for (int p = from; p > pos; p--) t->col_order[p] = t->col_order[p - 1];
+    t->col_order[pos] = (unsigned char)col;
+    t->layout_changed = 1;
+}
+
+int uui_table_take_layout_changed(struct uui_table *t) {
+    int c = t->layout_changed;
+    t->layout_changed = 0;
+    return c;
+}
+
+int uui_table_columns_save(const struct uui_table *t, char *out, int cap) {
+    if (!out || cap <= 0) return 0;
+    int n = 0;
+    out[0] = '\0';
+    for (int p = 0; p < t->col_count; p++) {
+        int c = uui_table_column_at(t, p);
+        const char *id = col_id(t, c);
+        int len = (int)strlen(id) + (p ? 1 : 0) + (uui_table_column_shown(t, c) ? 0 : 1);
+        if (n + len >= cap) { out[0] = '\0'; return 0; }   // refused, not truncated
+        if (p) out[n++] = ',';
+        if (!uui_table_column_shown(t, c)) out[n++] = '-';
+        memcpy(out + n, id, strlen(id));
+        n += (int)strlen(id);
+        out[n] = '\0';
+    }
+    return n;
+}
+
+int uui_table_columns_load(struct uui_table *t, const char *s) {
+    if (!layout_ok(t) || !s || !*s) return 0;
+    unsigned char seen[UUI_TABLE_MAX_COLS] = { 0 };
+    unsigned char order[UUI_TABLE_MAX_COLS], hidden[UUI_TABLE_MAX_COLS];
+    int n = 0, any = 0;
+    order[n++] = 0;
+    seen[0] = 1;
+    for (int c = 0; c < t->col_count; c++)
+        hidden[c] = !col_locked(t, c) && (t->cols[c].flags & UUI_TCOL_HIDDEN);
+    while (*s) {
+        const char *e = strchr(s, ',');
+        int len = e ? (int)(e - s) : (int)strlen(s);
+        int hide = len > 0 && s[0] == '-';
+        const char *name = s + hide;
+        int nlen = len - hide;
+        for (int c = 0; c < t->col_count; c++) {
+            const char *id = col_id(t, c);
+            if (seen[c] || (int)strlen(id) != nlen || strncmp(id, name, (size_t)nlen)) continue;
+            seen[c] = 1;
+            order[n++] = (unsigned char)c;
+            if (!col_locked(t, c)) hidden[c] = (unsigned char)hide;
+            any = 1;
+            break;
+        }
+        // Column 0 named in the string is skipped above (seen): it is
+        // first whatever the string says.
+        if (!e) break;
+        s = e + 1;
+    }
+    // Columns the string does not name -- added since it was saved --
+    // keep their declared order after it.
+    for (int c = 0; c < t->col_count; c++) if (!seen[c]) order[n++] = (unsigned char)c;
+    memcpy(t->col_order, order, (size_t)t->col_count);
+    memcpy(t->col_hidden, hidden, (size_t)t->col_count);
+    return any;
+}
+
+// The order a frame shows: the committed one, or mid-drag the dragged
+// column lifted out and put back in the slot its centre is over -- the
+// taskbar's live reorder (wm_taskbar.c's apply_drag()), with columns
+// that are not all one width. Writes t->col_count entries.
+static void live_order(const struct uui_table *t, unsigned char *out) {
+    memcpy(out, t->col_order, (size_t)t->col_count);
+    if (!t->cdrag.active) return;
+    int d = t->cdrag.col, n = 0;
+    unsigned char rest[UUI_TABLE_MAX_COLS];
+    for (int p = 0; p < t->col_count; p++) if (t->col_order[p] != d) rest[n++] = t->col_order[p];
+    // Where the dragged column's centre is, against the others' centres
+    // laid out without it. Its own width is what it will take.
+    int dx0, dw;
+    uui_table_column_rect(t, d, &dx0, &dw);
+    int centre = t->cdrag.x - t->cdrag.grab_dx + dw / 2;
+    int x = t->x, slot = n;
+    for (int i = 0; i < n; i++) {
+        int c = rest[i], cx, cw;
+        uui_table_column_rect(t, c, &cx, &cw);
+        if (i > 0 && cw > 0 && centre < x + cw / 2) { slot = i; break; }
+        x += cw;
+    }
+    if (slot < 1) slot = 1;   // never before the locked first column
+    // NOR AMONG THE HIDDEN ONES at the end: dropped past the last shown
+    // column it lands right after it, so a hidden column chosen later
+    // comes back after the one that was moved, not before it.
+    int last_shown = 0;
+    for (int i = 0; i < n; i++) if (uui_table_column_shown(t, rest[i])) last_shown = i;
+    if (slot > last_shown + 1) slot = last_shown + 1;
+    int k = 0;
+    for (int i = 0; i < n; i++) {
+        if (i == slot) out[k++] = (unsigned char)d;
+        out[k++] = rest[i];
+    }
+    if (slot >= n) out[k++] = (unsigned char)d;
 }
 
 
@@ -390,14 +562,13 @@ static int table_content_w(const struct uui_table *t) {
     return t->w - (uui_table_scrollbar_visible(t) ? uui_sbar_width() : 0);
 }
 
-void uui_table_column_rect(const struct uui_table *t, int col,
-                            int *out_x, int *out_w) {
-    if (out_x) *out_x = t->x;
-    if (out_w) *out_w = 0;
-    if (col < 0 || col >= t->col_count) return;
-
+// Every column's x and width for one display order: hidden ones are 0
+// wide, at the x where they would be. The one geometry everything uses.
+static void layout_cols(const struct uui_table *t, const unsigned char *order,
+                        int *xs, int *ws) {
     int fixed = 0, stretch = 0;
     for (int i = 0; i < t->col_count; i++) {
+        if (!uui_table_column_shown(t, i)) continue;
         if (t->cols[i].width_chars > 0) fixed += col_fixed_w(t->cols[i].width_chars);
         else stretch++;
     }
@@ -409,19 +580,120 @@ void uui_table_column_rect(const struct uui_table *t, int col,
     // width rather than leaving a one-pixel gap that looks like a bug.
     int each = stretch > 0 ? spare / stretch : 0;
 
-    int x = t->x, seen_stretch = 0, width = 0;
-    for (int i = 0; i <= col; i++) {
-        if (t->cols[i].width_chars > 0) {
-            width = col_fixed_w(t->cols[i].width_chars);
-        } else {
+    int x = t->x, seen_stretch = 0;
+    for (int p = 0; p < t->col_count; p++) {
+        int c = order ? order[p] : p;
+        int width;
+        if (!uui_table_column_shown(t, c)) width = 0;
+        else if (t->cols[c].width_chars > 0) width = col_fixed_w(t->cols[c].width_chars);
+        else {
             seen_stretch++;
             width = (seen_stretch == stretch) ? spare - each * (stretch - 1) : each;
         }
-        if (i < col) x += width;
+        xs[c] = x;
+        ws[c] = width;
+        x += width;
     }
+}
 
-    if (out_x) *out_x = x;
-    if (out_w) *out_w = width;
+// The SETTLED place of app column `col`: the committed order, no drag,
+// no glide -- what a hit test and a test tool use.
+void uui_table_column_rect(const struct uui_table *t, int col,
+                            int *out_x, int *out_w) {
+    if (out_x) *out_x = t->x;
+    if (out_w) *out_w = 0;
+    if (col < 0 || col >= t->col_count) return;
+    if (!layout_ok(t)) {
+        // Past the fixed arrays: declared order, nothing hidden.
+        int x = t->x, fixed = 0, stretch = 0;
+        for (int i = 0; i < t->col_count; i++) {
+            if (t->cols[i].width_chars > 0) fixed += col_fixed_w(t->cols[i].width_chars);
+            else stretch++;
+        }
+        int spare = table_content_w(t) - fixed;
+        if (spare < 0) spare = 0;
+        int each = stretch > 0 ? spare / stretch : 0, seen = 0, width = 0;
+        for (int i = 0; i <= col; i++) {
+            if (t->cols[i].width_chars > 0) width = col_fixed_w(t->cols[i].width_chars);
+            else { seen++; width = (seen == stretch) ? spare - each * (stretch - 1) : each; }
+            if (i < col) x += width;
+        }
+        if (out_x) *out_x = x;
+        if (out_w) *out_w = width;
+        return;
+    }
+    int xs[UUI_TABLE_MAX_COLS], ws[UUI_TABLE_MAX_COLS];
+    layout_cols(t, t->col_order, xs, ws);
+    if (out_x) *out_x = xs[col];
+    if (out_w) *out_w = ws[col];
+}
+
+// This frame's drawn rects, into t->hx/hw (header) and t->bx/bw (body):
+// the live order eased by each column's glide, the dragged column at the
+// pointer. In HEADER mode the body keeps the committed order until the
+// drop. Called once at the top of draw; the glide is the draw's own state.
+static void frame_cols(struct uui_table *t) {
+    int n = t->col_count;
+    if (!layout_ok(t)) {
+        for (int c = 0; c < n && c < UUI_TABLE_MAX_COLS; c++) {
+            int x, w;
+            uui_table_column_rect(t, c, &x, &w);
+            t->hx[c] = t->bx[c] = (short)x;
+            t->hw[c] = t->bw[c] = (short)w;
+        }
+        return;
+    }
+    unsigned char live[UUI_TABLE_MAX_COLS];
+    int lx[UUI_TABLE_MAX_COLS], lw[UUI_TABLE_MAX_COLS];
+    int cx[UUI_TABLE_MAX_COLS], cw[UUI_TABLE_MAX_COLS];
+    live_order(t, live);
+    layout_cols(t, live, lx, lw);
+    layout_cols(t, t->col_order, cx, cw);
+    unsigned long long now = sys_monotonic_ns();
+    int gliding = 0;
+    // ONLY A DRAG GLIDES. A resize or a column chosen from the menu
+    // moves the columns at once, as it always did; a glide there would
+    // read as the table drifting on its own.
+    int glide = (t->cdrag.active || t->cdrag.settle) && t->col_glide_ms;
+    t->cdrag.drop_x = t->cdrag.active ? lx[t->cdrag.col] : -1;
+    for (int c = 0; c < n; c++) {
+        int target = lx[c], x;
+        if (t->cdrag.active && c == t->cdrag.col) {
+            // Under the pointer, exactly; recorded as the resting value so
+            // the drop glides FROM here into its slot.
+            int px = t->cdrag.x - t->cdrag.grab_dx;
+            int lo = t->x + lw[0], hi = t->x + table_content_w(t) - lw[c];
+            if (px > hi) px = hi;
+            if (px < lo) px = lo;
+            utween_start(&t->col_tw[c], px, px, 0, now);
+            t->col_tw_to[c] = px;
+            t->col_tw_on[c] = 1;
+            x = px;
+        } else if (!t->col_tw_on[c] || !glide) {
+            utween_start(&t->col_tw[c], target, target, 0, now);
+            t->col_tw_to[c] = target;
+            t->col_tw_on[c] = 1;
+            x = target;
+        } else {
+            if (t->col_tw_to[c] != target) {
+                t->col_tw_to[c] = target;
+                utween_retarget(&t->col_tw[c], target, t->col_glide_ms, now);
+            }
+            x = utween_value(&t->col_tw[c], now);
+            if (utween_active(&t->col_tw[c])) gliding = 1;
+        }
+        t->hx[c] = (short)x;
+        t->hw[c] = (short)lw[c];
+        if (t->col_mode == UUI_TABLE_COLS_HEADER && t->cdrag.active) {
+            t->bx[c] = (short)cx[c];
+            t->bw[c] = (short)cw[c];
+        } else {
+            t->bx[c] = (short)x;
+            t->bw[c] = (short)lw[c];
+        }
+    }
+    if (gliding) uui_anim_request();
+    else t->cdrag.settle = 0;
 }
 
 // One tree level's indent, which is also the expander's box.
@@ -480,8 +752,7 @@ static void draw_cell(struct ugfx_surface *s, const struct uui_table *t,
     if (t->cell) t->cell(t->ctx, row, col, buf, (int)sizeof buf);
     if (!buf[0]) return;
 
-    int cx, cw;
-    uui_table_column_rect(t, col, &cx, &cw);
+    int cx = t->bx[col], cw = t->bw[col];
     int avail = cw - UUI_TABLE_PAD_X * 2;
     if (avail <= 0) return;
 
@@ -527,13 +798,71 @@ static void draw_cell(struct ugfx_surface *s, const struct uui_table *t,
 // them. Split out because it is skipped ENTIRELY when the header is
 // hidden (uui_table_set_header()) -- the rule below would otherwise
 // land one pixel above the widget's own rect.
+// One column's title and sort arrow, in a header cell at (cx, cw) drawn
+// in `fg` on `bg` -- the strip's own, or a dragged column's lift.
+static void header_cell(struct ugfx_surface *s, const struct uui_table *t, int c,
+                        int cx, int cw, int hh, uint32_t fg, uint32_t bg);
+
 static void table_draw_header(struct ugfx_surface *s, const struct uui_table *t, int hh) {
     ugfx_fill_rect(s, t->x, t->y, t->w, hh, uui_table_c_head_bg(t));
-    for (int c = 0; c < t->col_count; c++) {
-        int cx, cw;
-        uui_table_column_rect(t, c, &cx, &cw);
+    int lifted = t->cdrag.active ? t->cdrag.col : -1;
+    for (int c = 0; c < t->col_count && c < UUI_TABLE_MAX_COLS; c++) {
+        if (c == lifted) continue;   // drawn last, over the others
+        int cx = t->hx[c], cw = t->hw[c];
+        if (cw <= 0) continue;
+        header_cell(s, t, c, cx, cw, hh, uui_table_c_head_fg(t), uui_table_c_head_bg(t));
+        // Column separator, header only -- a full grid turns a dense
+        // table into graph paper, and every desktop table draws the
+        // header rule and leaves the body clean.
+        if (cx > t->x) ugfx_fill_rect(s, cx, t->y, 1, hh, uui_table_c_grid(t));
+    }
+    ugfx_fill_rect(s, t->x, t->y + hh - 1, t->w, 1, uui_table_c_grid(t));
+}
+
+// THE HELD COLUMN, over everything else: where it would land (a bar in
+// the accent), then its header lifted -- an accent fill with a shadow --
+// and in COLUMN mode its cells with it, on a tint of the accent. Drawn
+// last so the gliding columns pass under it.
+static void draw_lift(struct ugfx_surface *s, const struct uui_table *t, int hh,
+                      int first, int count, int disp) {
+    int d = t->cdrag.col, rh = uui_table_row_h(t);
+    int cx = t->hx[d], cw = t->hw[d];
+    struct ugfx_clip saved;
+    ugfx_clip_save(s, &saved);
+    ugfx_clip_intersect(s, t->x, t->y, t->w, t->h);
+    if (t->cdrag.drop_x >= 0)
+        ugfx_fill_rect(s, t->cdrag.drop_x - 1, t->y, 2, t->h, UTHEME_ACCENT);
+    int bottom = hh;
+    uint32_t ground = ugfx_blend(uui_table_c_bg(t), UTHEME_ACCENT, 25);
+    if (t->col_mode == UUI_TABLE_COLS_COLUMN) {
+        int last = t->y + hh + (first - t->top + count) * rh + disp;
+        bottom = (last < t->y + t->h ? last : t->y + t->h) - t->y;
+        if (bottom < hh) bottom = hh;
+    }
+    uint32_t shadow = ugfx_blend(uui_table_c_bg(t), 0xFF000000u, 60);
+    ugfx_fill_rect(s, cx + 3, t->y + 3, cw, bottom, shadow);
+    ugfx_fill_rect(s, cx, t->y, cw, bottom, ground);
+    ugfx_fill_rect(s, cx, t->y, cw, hh, UTHEME_ACCENT);
+    header_cell(s, t, d, cx, cw, hh, UTHEME_ACCENT_TEXT, UTHEME_ACCENT);
+    if (t->col_mode == UUI_TABLE_COLS_COLUMN) {
+        ugfx_clip_intersect(s, cx, t->y + hh, cw, t->h - hh);
+        for (int i = 0; i < count; i++) {
+            int view = first + i;
+            if (view < 0 || view >= vcount(t)) continue;
+            int idx = uui_table_source_row(t, view);
+            if (idx < 0) continue;
+            draw_cell(s, t, d, idx, t->y + hh + (view - t->top) * rh + disp,
+                      uui_table_c_fg(t), ground);
+        }
+    }
+    ugfx_clip_restore(s, &saved);
+}
+
+static void header_cell(struct ugfx_surface *s, const struct uui_table *t, int c,
+                        int cx, int cw, int hh, uint32_t fg, uint32_t bg) {
+    {
         int avail = cw - UUI_TABLE_PAD_X * 2;
-        if (avail <= 0) continue;
+        if (avail <= 0) return;
 
         // The arrow's reservation is taken out FIRST, before the title
         // is positioned -- not after. Computing it afterwards is what
@@ -548,7 +877,7 @@ static void table_draw_header(struct ugfx_surface *s, const struct uui_table *t,
             arrow = ugfx_char_w() + UUI_TABLE_PAD_X; // glyph plus a gap
         }
         int text_avail = avail - arrow;
-        if (text_avail <= 0) continue; // no room for a title at all
+        if (text_avail <= 0) return; // no room for a title at all
 
         int tx = cx + UUI_TABLE_PAD_X;
         const char *title = t->cols[c].title ? t->cols[c].title : "";
@@ -557,7 +886,7 @@ static void table_draw_header(struct ugfx_surface *s, const struct uui_table *t,
             if (tw < text_avail) tx = cx + cw - UUI_TABLE_PAD_X - arrow - tw;
         }
         ugfx_draw_string_clipped(s, tx, t->y + (hh - ugfx_char_h()) / 2,
-                                  text_avail, title, uui_table_c_head_fg(t), uui_table_c_head_bg(t));
+                                  text_avail, title, fg, bg);
         if (arrow) {
             // Drawn as stacked rows rather than a glyph: the baked font
             // has no arrow character, and a triangle built from the
@@ -574,15 +903,10 @@ static void table_draw_header(struct ugfx_surface *s, const struct uui_table *t,
                 int inset = (ah - 1 - row) * aw / (2 * ah);
                 int rw = aw - 2 * inset;
                 if (rw < 1) rw = 1;
-                ugfx_fill_rect(s, ax + inset, ay + r, rw, 1, uui_table_c_head_fg(t));
+                ugfx_fill_rect(s, ax + inset, ay + r, rw, 1, fg);
             }
         }
-        // Column separator, header only -- a full grid turns a dense
-        // table into graph paper, and every desktop table draws the
-        // header rule and leaves the body clean.
-        if (c > 0) ugfx_fill_rect(s, cx, t->y, 1, hh, uui_table_c_grid(t));
     }
-    ugfx_fill_rect(s, t->x, t->y + hh - 1, t->w, 1, uui_table_c_grid(t));
 }
 
 void uui_table_draw(struct ugfx_surface *s, const struct uui_table *t) {
@@ -592,6 +916,10 @@ void uui_table_draw(struct ugfx_surface *s, const struct uui_table *t) {
     int bar = uui_table_scrollbar_visible(t) ? uui_sbar_width() : 0;
 
     ugfx_fill_rect(s, t->x, t->y, t->w, t->h, uui_table_c_bg(t));
+    // This frame's column rects (the glide is the draw's own state, like
+    // the scroll's below); every cell and title reads them.
+    frame_cols((struct uui_table *)t);
+    int lifted = t->cdrag.active ? t->cdrag.col : -1;
 
     // --- header ---
     if (hh > 0) table_draw_header(s, t, hh);
@@ -633,23 +961,24 @@ void uui_table_draw(struct ugfx_surface *s, const struct uui_table *t) {
         if (t->fade && t->fade(t->ctx, idx)) rfg = ugfx_blend(rfg, rbg, 128);
 
         if (rbg != uui_table_c_bg(t)) ugfx_fill_rect(s, t->x, ry, t->w - bar, rh, rbg);
-        for (int c = 0; c < t->col_count; c++) {
-            uint32_t cbg = rbg;
+        for (int c = 0; c < t->col_count && c < UUI_TABLE_MAX_COLS; c++) {
+            if (c == lifted && t->col_mode == UUI_TABLE_COLS_COLUMN) continue;  // it travels
+            uint32_t cbg = rbg, cfg = rfg;
+            // A header-only drag leaves its cells behind until the drop:
+            // faded, so it is plain which column is on the move.
+            if (c == lifted) cfg = ugfx_blend(rfg, rbg, 140);
             int heat = (t->heat && idx != t->selected) ? t->heat(t->ctx, idx, c) : 0;
             if (heat > 0) {
                 // At most ~40% accent, so black text stays readable on
                 // the hottest cell.
                 if (heat > 255) heat = 255;
                 cbg = ugfx_blend(rbg, UTHEME_ACCENT, (uint8_t)(heat * 100 / 255));
-                int hx, hw;
-                uui_table_column_rect(t, c, &hx, &hw);
-                ugfx_fill_rect(s, hx, ry, hw, rh, cbg);
+                ugfx_fill_rect(s, t->bx[c], ry, t->bw[c], rh, cbg);
             }
-            draw_cell(s, t, c, idx, ry, rfg, cbg);
+            draw_cell(s, t, c, idx, ry, cfg, cbg);
             int pm = t->meter ? t->meter(t->ctx, idx, c) : -1;
-            if (pm >= 0) {
-                int mx, mw;
-                uui_table_column_rect(t, c, &mx, &mw);
+            if (pm >= 0 && t->bw[c] > 12) {
+                int mx = t->bx[c], mw = t->bw[c];
                 mx += 6; mw -= 12;
                 if (pm > 1000) pm = 1000;
                 int fill = mw * pm / 1000;
@@ -660,6 +989,7 @@ void uui_table_draw(struct ugfx_surface *s, const struct uui_table *t) {
         }
     }
     ugfx_clip_restore(s, &saved);
+    if (lifted >= 0) draw_lift(s, t, hh, first, vis + 1 + extra, disp);
 
     if (bar) {
         // Beside the ROWS, not the header -- a bar that started at the
@@ -693,6 +1023,7 @@ void uui_table_natural_size(const struct uui_table *t, int *out_w, int *out_h) {
     if (out_w) {
         int total = 0;
         for (int i = 0; i < t->col_count; i++) {
+            if (!uui_table_column_shown(t, i)) continue;   // a hidden column asks for nothing
             int chars = t->cols[i].width_chars;
             if (chars <= 0) {
                 // A stretch column has no width of its own; ask for
@@ -994,6 +1325,11 @@ static void tb_ops_set_focused(void *w, int focused) {
     ((struct uui_table *)w)->focused = focused;
 }
 
+// Pixels a header press must travel before it is a drag, not a sort
+// click: the taskbar's TB_DRAG_START, Windows' SM_CXDRAG.
+#define COL_DRAG_START 4
+#define COL_GLIDE_MS 150
+
 static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
     (void)mods;
     struct uui_table *t = (struct uui_table *)w;
@@ -1001,11 +1337,38 @@ static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
     // column, so a press there has to be offered to the bar first or it
     // reaches nothing at all.
     if (uui_table_press(t, cx, cy)) return 1;
+    // MOVABLE COLUMNS ARM ON THE PRESS: what it becomes -- a drag, or a
+    // sort click -- is decided by the motion after it, as a taskbar
+    // button's is. Without them the header still sorts on the press.
+    int col = t->col_mode ? uui_table_header_hit(t, cx, cy) : -1;
+    if (col >= 0) {
+        int colx, colw;
+        uui_table_column_rect(t, col, &colx, &colw);
+        t->cdrag.armed = 1;
+        t->cdrag.active = 0;
+        t->cdrag.col = col;
+        t->cdrag.press_x = t->cdrag.x = cx;
+        t->cdrag.press_y = cy;
+        t->cdrag.grab_dx = cx - colx;
+        return 1;
+    }
     return uui_table_click(t, cx, cy);
 }
 
 static int tb_ops_motion(void *w, int cx, int cy, unsigned buttons) {
     struct uui_table *t = (struct uui_table *)w;
+    if ((buttons & 1) && t->cdrag.armed) {
+        int dx = cx - t->cdrag.press_x;
+        if (!t->cdrag.active && (dx > COL_DRAG_START || dx < -COL_DRAG_START) &&
+            !col_locked(t, t->cdrag.col)) {
+            t->cdrag.active = 1;
+            // Read once per drag: two registry reads, not one a frame.
+            t->col_glide_ms = uui_anim_ms(COL_GLIDE_MS);
+        }
+        if (!t->cdrag.active || cx == t->cdrag.x) return 0;
+        t->cdrag.x = cx;
+        return 1;
+    }
     if (buttons & 1) return uui_table_drag(t, cx, cy);
     int on = 0, redraw = uui_table_bar_hover(t, cx, cy, &on);
     if (on) return uui_table_hover(t, UUI_NOWHERE, UUI_NOWHERE) | redraw;
@@ -1014,8 +1377,66 @@ static int tb_ops_motion(void *w, int cx, int cy, unsigned buttons) {
 
 static int tb_ops_release(void *w, int cx, int cy) {
     (void)cx; (void)cy;
-    uui_table_drag_end((struct uui_table *)w);
+    struct uui_table *t = (struct uui_table *)w;
+    if (t->cdrag.armed) {
+        t->cdrag.armed = 0;
+        if (!t->cdrag.active)   // never moved: it was a click on the title
+            return uui_table_click(t, t->cdrag.press_x, t->cdrag.press_y);
+        // THE DROP: the order the drag showed becomes the order, and
+        // the columns glide from where they were drawn into it.
+        unsigned char live[UUI_TABLE_MAX_COLS];
+        live_order(t, live);
+        t->cdrag.active = 0;
+        t->cdrag.settle = 1;
+        if (memcmp(live, t->col_order, (size_t)t->col_count)) {
+            memcpy(t->col_order, live, (size_t)t->col_count);
+            t->layout_changed = 1;
+        }
+        return 1;
+    }
+    uui_table_drag_end(t);
     return 0;
+}
+
+// --- the column chooser: the header's own right-click menu ---------------
+
+#define COL_MENU_RESET 1000
+
+static unsigned col_menu_flags(void *w, int code) {
+    const struct uui_table *t = (const struct uui_table *)w;
+    if (code == COL_MENU_RESET) return 0;
+    int c = code - 1;
+    if (c < 0 || c >= t->col_count) return UUI_MI_DISABLED;
+    return (uui_table_column_shown(t, c) ? UUI_MI_CHECKED : 0) |
+           (col_locked(t, c) ? UUI_MI_DISABLED : 0);
+}
+
+static int col_menu_run(void *w, int code) {
+    struct uui_table *t = (struct uui_table *)w;
+    if (code == COL_MENU_RESET) { uui_table_columns_reset(t); return 1; }
+    int c = code - 1;
+    if (c < 0 || c >= t->col_count || col_locked(t, c)) return 0;
+    uui_table_column_show(t, c, !uui_table_column_shown(t, c));
+    return 1;
+}
+
+static int tb_ops_context_menu(void *w, int cx, int cy, struct uui_ctxmenu_src *out) {
+    struct uui_table *t = (struct uui_table *)w;
+    if (!t->col_mode || uui_table_header_h(t) <= 0) return 0;
+    if (!uui_hit(t->x, t->y, t->w, uui_table_header_h(t), cx, cy)) return 0;
+    // EVERY column, in the order the app declared them -- Windows' list
+    // and Dolphin's -- ticked when shown; the locked ones greyed.
+    int n = 0;
+    for (int c = 0; c < t->col_count; c++)
+        t->col_menu[n++] = (struct uui_menu_item)UUI_MENU(t->cols[c].title, c + 1, 0);
+    t->col_menu[n++] = (struct uui_menu_item)UUI_MENU_SEP;
+    t->col_menu[n++] = (struct uui_menu_item)UUI_MENU("Reset columns", COL_MENU_RESET, 0);
+    out->w = t;
+    out->items = t->col_menu;
+    out->count = n;
+    out->flags = col_menu_flags;
+    out->run = col_menu_run;
+    return 1;
 }
 
 static int tb_ops_wheel(void *w, int notches) {
@@ -1036,6 +1457,12 @@ static void tb_ops_describe(const void *w, const struct uui_describe *d) {
     }
     uui_describe_int(d, "selected", t->selected);
     uui_describe_int(d, "shown", vcount(t));
+    // The display order and what is hidden, by app column, so a test
+    // reads a drop or a menu choice rather than inferring it from pixels.
+    char layout[256];
+    if (t->col_mode && uui_table_columns_save(t, layout, (int)sizeof layout))
+        uui_describe_str(d, "columns", layout);
+    uui_describe_int(d, "col_dragging", t->cdrag.active);
 }
 
 static void tb_ops_bounds(const void *w, int *x, int *y, int *ow, int *oh) {
@@ -1054,6 +1481,7 @@ const struct uui_widget_ops uui_table_ops = {
     .press = tb_ops_press,
     .motion = tb_ops_motion,
     .release = tb_ops_release,
+    .context_menu = tb_ops_context_menu,
     .wheel = tb_ops_wheel,
     .describe = tb_ops_describe,
     .bounds = tb_ops_bounds,
