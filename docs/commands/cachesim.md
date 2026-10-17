@@ -54,9 +54,11 @@ file      4 MiB       5120       3300  64.4%       1024
 the ghost caches -- Windows Resource Monitor's Disk tab, or Linux's
 `iotop` beside `filetop`:
 
-- *Block reads, by process*: every page read from a disk while that
-  process was running, so a `stat` or a directory listing that cost
-  disk reads counts, not only a `read()`. pid 0 is the kernel itself.
+- *Block I/O, by process*: every page read from or written to a disk
+  while that process was running, so a `stat` or a directory listing
+  that cost disk reads counts, not only a `read()`. pid 0 is the kernel
+  itself; a deferred journal commit is charged to whoever was running
+  when it was written.
 - *Filesystem calls, by process and path*: `lookups` counts every
   filesystem call naming that path (open, stat, list, read...), `pages`
   the file pages it read, `repeats` those read before.
@@ -77,7 +79,8 @@ Filesystem calls, by process and path:
 ...
 ```
 
-That is the real output that found its first bug, on the ASUS laptop at
+That is the real output that found its first bug (printed before the
+block table gained its `written` column), on the ASUS laptop at
 idle: `soundd` mistook snddrv's page for a client, failed to adopt it
 on every 20 ms pass, and re-read its config each time -- 95% of the
 machine's idle disk reads.

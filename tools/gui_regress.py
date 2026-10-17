@@ -225,6 +225,7 @@ TOOLS = [
     ("focusstate", "focus_state_test.py", "clients hear the WM's focus; minimize/restore keeps maximized"),
     ("badpresent", "bad_present_test.py", "a refused buffer replacement keeps the last frame and the WM alive"),
     ("npoptions", "notepad_options_test.py", "Notepad Options: saved, applied, remembered across runs"),
+    ("idleio", "idle_io_test.py", "an idle desktop with a ring-3 sound driver stays off the disk"),
 ]
 
 # Roughly how long each tool takes, in seconds, used ONLY to decide what
@@ -254,6 +255,10 @@ EXTRA_VM_ARGS = {
     # A card's Format panel exists only for a card: QEMU's HDA, whose
     # seven rates the test expects by name.
     "sndformat": ["--audio", "hda"],
+    # snddrv runs only on a PCI sound card, and soundd's poll of its
+    # page is the idle-disk bug this tool was written for (b93b62c9).
+    # --reboot: it reboots once to turn on the `cachesim` boot word.
+    "idleio": ["--audio", "hda", "--reboot"],
     # The Start menu's favourites have to SURVIVE A REBOOT, and the
     # default launch answers a reboot by ending QEMU (-no-reboot, so a
     # triple-faulting guest stops rather than looping). This tool is the
@@ -334,6 +339,7 @@ COST_S = {
     "uiclient": 9,
     "dialog": 9,
     "compositor": 8,
+    "idleio": 65,   # 2026-10-17: two boots and a 30 s window
 }
 COST_UNKNOWN_S = 90
 

@@ -70,18 +70,25 @@ static void top_procs(void) {
             if (g_p0[j].pid != g_p1[i].pid || strcmp(g_p0[j].name, g_p1[i].name)) continue;
             g_p1[i].pages = since(g_p1[i].pages, g_p0[j].pages);
             g_p1[i].repeats = since(g_p1[i].repeats, g_p0[j].repeats);
+            g_p1[i].written = since(g_p1[i].written, g_p0[j].written);
             break;
         }
     }
-    printf("Block reads, by process:\n%7s %-16s %10s %10s\n", "pid", "name", "pages", "repeats");
+    printf("Block I/O, by process:\n%7s %-16s %10s %10s %10s\n",
+           "pid", "name", "read", "repeats", "written");
     for (int shown = 0; shown < SHOW_PROCS; shown++) {
         int best = -1;
-        for (int i = 0; i < g_np1; i++)
-            if (g_p1[i].pages && (best < 0 || g_p1[i].pages > g_p1[best].pages)) best = i;
+        uint64_t bw = 0;
+        for (int i = 0; i < g_np1; i++) {
+            uint64_t w = g_p1[i].pages + g_p1[i].written;
+            if (w && (best < 0 || w > bw)) { best = i; bw = w; }
+        }
         if (best < 0) break;
-        printf("%7llu %-16s %10llu %10llu\n", (unsigned long long)g_p1[best].pid, g_p1[best].name,
-               (unsigned long long)g_p1[best].pages, (unsigned long long)g_p1[best].repeats);
-        g_p1[best].pages = 0;
+        struct query_cachesim_proc *e = &g_p1[best];
+        printf("%7llu %-16s %10llu %10llu %10llu\n", (unsigned long long)e->pid, e->name,
+               (unsigned long long)e->pages, (unsigned long long)e->repeats,
+               (unsigned long long)e->written);
+        e->pages = e->written = 0;
     }
 }
 

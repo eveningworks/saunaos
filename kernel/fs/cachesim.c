@@ -130,7 +130,7 @@ static int touch_all(int lvl, uint64_t key, uint32_t gen, int count) {
 struct top_proc {
     int pid;
     char name[QUERY_CACHESIM_NAME];
-    uint64_t pages, repeats;
+    uint64_t pages, repeats, written;
 };
 
 struct top_path {
@@ -153,7 +153,8 @@ static struct top_proc *proc_slot(int pid) {
     struct top_proc *min = 0;
     for (int i = 0; i < g_ntproc; i++) {
         if (g_tproc[i].pid == pid) return &g_tproc[i];
-        if (!min || g_tproc[i].pages < min->pages) min = &g_tproc[i];
+        if (!min || g_tproc[i].pages + g_tproc[i].written < min->pages + min->written)
+            min = &g_tproc[i];
     }
     struct top_proc *e = g_ntproc < TOP_PROCS ? &g_tproc[g_ntproc++] : min;
     k_memset(e, 0, sizeof *e);
@@ -222,12 +223,15 @@ void cachesim_block_io(const void *dev, uint64_t lba, uint32_t count, int write)
         pages++;
         repeats += (uint64_t)touch_all(LVL_BLOCK, mix((uint64_t)(uintptr_t)dev, p), 0, !write);
     }
-    if (write) return;
     int pid = scheduler_current_tgid();
     uint64_t f = irq_save();
     struct top_proc *who = proc_slot(pid);
-    who->pages += pages;
-    who->repeats += repeats;
+    if (write) {
+        who->written += pages;
+    } else {
+        who->pages += pages;
+        who->repeats += repeats;
+    }
     irq_restore(f);
 }
 
@@ -307,6 +311,7 @@ static int tproc_fill(int index, void *out) {
     k_strlcpy(r->name, e->name, sizeof r->name);
     r->pages = e->pages;
     r->repeats = e->repeats;
+    r->written = e->written;
     irq_restore(f);
     return 1;
 }
@@ -315,6 +320,7 @@ static const struct query_field tproc_fields[] = {
     QUERY_FIELD(struct query_cachesim_proc, pid,     QUERY_TYPE_U64),
     QUERY_FIELD(struct query_cachesim_proc, pages,   QUERY_TYPE_U64),
     QUERY_FIELD(struct query_cachesim_proc, repeats, QUERY_TYPE_U64),
+    QUERY_FIELD(struct query_cachesim_proc, written, QUERY_TYPE_U64),
 };
 
 static const struct query_provider tproc_provider = {

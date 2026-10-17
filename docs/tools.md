@@ -8110,6 +8110,35 @@ to. Arch package names; all are in the official repos.
 Deliberately NOT used: `gcovr`/`lcov` (coverage needs runtime support a
 freestanding kernel does not have) and `valgrind` (same reason).
 
+## `tools/idle_io_test.py` -- does an idle machine stay off the DISK?
+
+Boots a guest with an HDA card (so snddrv and soundd run, as on the
+laptops), turns on the `cachesim` boot word with `bootcfg` and one
+reboot, waits for boot's own I/O to settle, and measures idle block
+reads and writes per second over 30 s. Fails over a budget (15 reads,
+10 writes a second), naming the heaviest process and path in the
+window from `cachesim -t`. In `gui_regress.py` (`idleio`, which boots
+the guest with `EXTRA_VM_ARGS`); by hand it boots its own.
+
+    python3 tools/idle_io_test.py [--instance N] [--window S] [--max-reads R] [--max-writes W]
+
+**Why it exists.** soundd re-read its config 50 times a second on any
+machine running snddrv -- 95% of the laptop's idle disk reads -- and no
+functional test could see it, because everything still worked
+(b93b62c9). QEMU never showed it either: `vm.py` boots without a sound
+card, and snddrv runs only on a PCI one. **A guest that lacks the
+hardware a bug needs passes for that reason**, so the test asserts
+snddrv is running rather than assuming it.
+
+**THE PROBE IS NOT FREE.** Each `cachesim` spawn loads `/bin/cachesim`
+from the disk -- 79 block pages, more than the whole idle machine in a
+second -- so the test measures one probe's cost back to back, takes it
+off every interval, and never names the probe's binary. The first
+version did not, never "settled", and reported 7.8 reads/s for a
+machine doing 2.4. Measured idle with HDA: ~2.4 reads/s, ~0 writes/s;
+with soundd's reload forced every pass (the positive control), 51.7/s
+naming soundd and `/etc/sound.conf`.
+
 ## `tools/idle_cpu.py` -- how much CPU does toy-os burn doing NOTHING?
 
 Boots a VM, lets the desktop settle, and measures the **host's** CPU

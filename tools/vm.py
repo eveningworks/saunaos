@@ -866,7 +866,7 @@ def cmd_stop(args):
 
 def _uptime_s(timeout):
     """The guest's uptime in seconds, or None. The kernel shell says
-    "up 2 min 30 sec" and /bin/uptime "up 1:02:03", so both are read."""
+    "up 2 min 30.5 sec" and /bin/uptime "up 1:02:03", so both are read."""
     out = _exec_one("sh uptime", timeout=timeout) or ""
     m = re.search(r"up\s+(?:(\d+)d\s+)?(\d+):(\d+):(\d+)", out)
     if m:
@@ -874,8 +874,10 @@ def _uptime_s(timeout):
         return ((d * 24 + h) * 60 + mi) * 60 + s
     unit = {"d": 86400, "day": 86400, "days": 86400, "h": 3600, "hr": 3600, "hour": 3600,
             "hours": 3600, "min": 60, "mins": 60, "sec": 1, "secs": 1, "s": 1}
-    parts = re.findall(r"(\d+)\s*([a-z]+)", out.split("up", 1)[-1]) if "up" in out else []
-    known = [(int(n), unit[u]) for n, u in parts if u in unit]
+    # A FRACTION IS PART OF THE NUMBER: the kernel says "up 38.3 sec",
+    # and a bare \d+ read that as "3 sec".
+    parts = re.findall(r"(\d+(?:\.\d+)?)\s*([a-z]+)", out.split("up", 1)[-1]) if "up" in out else []
+    known = [(float(n), unit[u]) for n, u in parts if u in unit]
     return sum(n * k for n, k in known) if known else None
 
 
@@ -883,9 +885,13 @@ def cmd_reboot(args):
     """Reboot the guest and wait until the NEW boot answers.
 
     "The console answers" is not enough -- the old boot answers too, for
-    the moment before the reset lands -- so this waits for the uptime to
-    go BACKWARDS. A guest started without --reboot has -no-reboot on its
-    QEMU line and would simply exit, so that is refused up front.
+    the moment before the reset lands -- so this waits for a boot that
+    STARTED after the request: host time minus the guest's uptime. Not
+    "uptime went backwards": a guest rebooted a few seconds after it came
+    up answers again only once its new uptime has passed the old one, and
+    that wait failed about half the time (tools/idle_io_test.py). A guest
+    started without --reboot has -no-reboot on its QEMU line and would
+    simply exit, so that is refused up front.
     """
     pid = _read_pid()
     if not pid:
@@ -900,6 +906,7 @@ def cmd_reboot(args):
     except OSError:
         pass
     before = _uptime_s(args.timeout)
+    sent = time.time()
     # Sent without waiting for an answer: the old boot never gives one.
     with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as s:
         s.settimeout(args.timeout)
@@ -917,7 +924,10 @@ def cmd_reboot(args):
             now = _uptime_s(3.0)
         except OSError:
             continue
-        if now is not None and (before is None or now < before):
+        # The new boot began after `sent`; the old one began `before`
+        # seconds before it. A second of slack covers the console's
+        # rounding and the time a query takes.
+        if now is not None and (before is None or time.time() - now > sent - 1.0):
             print(f"vm: rebooted and ready (up {now}s)")
             return 0
     print(f"vm: the guest did not come back within {args.timeout}s")

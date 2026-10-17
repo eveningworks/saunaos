@@ -3144,3 +3144,18 @@ frame is not the caret's repaint"), and the aliasing fix alone still
 failed 1 run in 24 -- with 19 identical frames over 7 s, which aliasing
 cannot produce. Fix the harness, then measure again before believing
 the product is clean.
+
+## A guest without the bug's hardware passes for that reason; a probe that loads a binary measures itself (2026-10-17)
+
+soundd re-read its config 50 times a second -- 95% of the ASUS's idle
+disk reads -- for as long as the machine ran, and every test was green.
+Two reasons. Nothing measured idle I/O. And `vm.py` boots with no sound
+card, while the bug needed snddrv, which runs only on a PCI one: QEMU
+did not have the bug at all. `idle_io_test.py` boots with HDA and
+ASSERTS snddrv is running before it believes a clean number.
+
+Its first version also measured itself. With no page cache, every
+`sh cachesim` loads `/bin/cachesim` from disk (79 block pages); probing
+twice every 5 s while waiting to "settle" was more I/O than the idle
+machine, so it never settled and reported 7.8 reads/s for 2.4. Measure
+one probe's cost back to back and subtract it, or sample in-process.

@@ -630,8 +630,9 @@ struct query_cachesim {
 // so a steady poller stays and a one-off read may not. LIST, empty when
 // off. A "repeat" is a read of a page the 256 MiB ghost already held.
 //
-// QUERY_CACHESIM_PROC: per process, the BLOCK reads made while it was
-// current -- iotop's view, metadata included. pid 0 is the kernel.
+// QUERY_CACHESIM_PROC: per process, the BLOCK pages read and written
+// while it was current -- iotop's view, metadata included. pid 0 is the
+// kernel; a deferred journal commit is charged to whoever was running.
 // QUERY_CACHESIM_PATH: per process and path, the filesystem lookups
 // (any fs call: a stat and a listing count, not only a read) and the
 // file pages read -- filetop's view.
@@ -645,6 +646,7 @@ struct query_cachesim_proc {
     char name[QUERY_CACHESIM_NAME];
     uint64_t pages;      // 4 KiB block pages read
     uint64_t repeats;
+    uint64_t written;    // 4 KiB block pages written
 };
 
 struct query_cachesim_path {
