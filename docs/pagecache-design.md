@@ -415,7 +415,10 @@ FAT32 and anything after them.
 The middle column is the cachesim session's other finding: four
 programs re-reading unchanged files (lib/uconf per key, tosh's whole
 history per start) -- fixed first, so the cache was not measured
-against bugs it would merely hide.
+against bugs it would merely hide. The last of them, the kernel's own
+per-key read (`etc_config_get()`, 1,241 lookups of `/etc/toyos.conf` by
+toywm's setting queries), was fixed after: `etc_config_load()` answers
+an unchanged file from memory, checked by `fs_generation_of()`.
 
 **THREE THINGS IT RESTS ON**, each a bug when missed:
 

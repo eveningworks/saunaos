@@ -399,8 +399,9 @@ uint64_t fs_generation(void);
 // changes (a create, delete, rename, write or truncate there). No
 // registry and no lifetime -- a small table indexed by the path's hash,
 // so a collision can make an unrelated change look like one (a false
-// positive, never a missed change). `path` must be absolute and
-// normalized, as every fs_*() caller's is. Never 0.
+// positive, never a missed change). Every mount and unmount moves it for
+// every path. `path` must be absolute and normalized, as every fs_*()
+// caller's is. Never 0.
 uint64_t fs_generation_of(const char *path);
 
 // Reformat the disk with the named backend ("tfs3") and

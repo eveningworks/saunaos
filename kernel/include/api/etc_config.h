@@ -54,7 +54,8 @@ int etc_config_get_in(const char *path, const char *section, const char *key,
 
 // ---- reading several keys out of ONE file --------------------------
 //
-// etc_config_get() re-reads the whole file on EVERY call, which is the
+// etc_config_get() loads the whole file on EVERY call (from memory in
+// the kernel while it is unchanged, a disk read otherwise), which is the
 // right shape for the one-key callers it was written for (tz.c asking
 // for `timezone`) and quietly quadratic for anything asking a file
 // several questions. The desktop was the case that mattered: each
@@ -86,11 +87,16 @@ struct etc_config_buf {
 };
 
 // Reads `path` into `buf`. Returns 1 if the file was read and fits.
+// An unchanged file is copied from memory (etc_config_file.c), so the
+// per-key etc_config_get() costs a copy and a parse, not a read.
 // A file too large to fit is a REFUSAL (0, buf invalid), not a
 // truncation: half a config file parses as a valid config file whose
 // later keys have silently vanished, which is the failure mode this
 // project's formatter/parser conventions exist to avoid.
 int etc_config_load(const char *path, struct etc_config_buf *buf);
+
+// Loads answered from memory since boot; for the KTESTs.
+uint64_t etc_config_cache_hits(void);
 
 // Same contract as etc_config_get(), answered from an already-loaded
 // buffer instead of from disk. Returns 0 with `out` emptied if the

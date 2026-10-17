@@ -24,6 +24,7 @@
 #include "vga.h"
 #include "fs.h"
 #include "string.h"
+#include "mount.h"  // the mount-epoch test
 
 // Scratch, under /tmp -- deliberately NOT /etc/toyos.conf, which holds
 // the live machine's real settings and which a test has no business
@@ -225,4 +226,56 @@ KTEST("etc_config", "a sectioned file round-trips through the disk") {
     KTEST_ASSERT_EQ(etc_config_unset_in(SCRATCH, "ipv4", "mtu"), 0); // gone already
 
     fs_delete(SCRATCH);
+}
+
+KTEST("etc_config", "an unchanged file is answered from memory, and a change is seen") {
+    fs_delete(SCRATCH);
+    KTEST_ASSERT_EQ(etc_config_set(SCRATCH, "colour", "amber"), 1);
+    char v[16];
+    KTEST_ASSERT_EQ(etc_config_get(SCRATCH, "colour", v, sizeof v), 1);
+    uint64_t hits = etc_config_cache_hits();
+    KTEST_ASSERT_EQ(etc_config_get(SCRATCH, "colour", v, sizeof v), 1);
+    KTEST_ASSERT_EQ(k_strcmp(v, "amber"), 0);
+    KTEST_ASSERT_EQ(etc_config_cache_hits(), hits + 1);
+
+    // Same length, so only the generation can tell the two apart.
+    KTEST_ASSERT_EQ(etc_config_set(SCRATCH, "colour", "green"), 1);
+    KTEST_ASSERT_EQ(etc_config_get(SCRATCH, "colour", v, sizeof v), 1);
+    KTEST_ASSERT_EQ(k_strcmp(v, "green"), 0);
+
+    // Renamed over, then deleted: neither writes the path itself.
+    char other[FS_PATH_MAX];
+    tmppath(other, sizeof other, TMP_PERSISTENT, "ktest_etc_other.conf");
+    KTEST_ASSERT_EQ(etc_config_set(other, "colour", "white"), 1);
+    KTEST_ASSERT_EQ(fs_rename_replace(other, SCRATCH), 1);
+    KTEST_ASSERT_EQ(etc_config_get(SCRATCH, "colour", v, sizeof v), 1);
+    KTEST_ASSERT_EQ(k_strcmp(v, "white"), 0);
+    fs_delete(SCRATCH);
+    KTEST_ASSERT_EQ(etc_config_get(SCRATCH, "colour", v, sizeof v), 0);
+}
+
+KTEST("etc_config", "a mount over a cached file's directory hides it, an unmount shows it") {
+    char dir[FS_PATH_MAX], file[FS_PATH_MAX];
+    const char *why;
+    tmppath(dir, sizeof dir, TMP_PERSISTENT, "ktest_etc_mnt");
+    k_strlcpy(file, dir, sizeof file);
+    k_strlcat(file, "/a.conf", sizeof file);
+    fs_mkdir(dir);
+    KTEST_ASSERT_EQ(etc_config_set(file, "k", "disk"), 1);
+    char v[16];
+    KTEST_ASSERT_EQ(etc_config_get(file, "k", v, sizeof v), 1);   // now cached
+
+    // Asserted after the cleanup: a failure must not leave the directory
+    // on the image, where check_layout.py would then fail the gate.
+    int mounted = mount_add(0, "ramfs", dir, 0, 0, &why);
+    int hidden = mounted && !etc_config_get(file, "k", v, sizeof v);
+    int unmounted = mounted && mount_remove(dir, &why);
+    int shown = unmounted && etc_config_get(file, "k", v, sizeof v) &&
+                k_strcmp(v, "disk") == 0;
+    fs_delete(file);
+    fs_delete(dir);
+    KTEST_ASSERT(mounted);
+    KTEST_ASSERT(hidden);
+    KTEST_ASSERT(unmounted);
+    KTEST_ASSERT(shown);
 }

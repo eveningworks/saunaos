@@ -43,4 +43,5 @@ which keeps the rules that bite callers elsewhere.
   `kmalloc`'d at `fs_size()` by its caller or streamed with
   `fs_read_range()`. The same shape exists for config files:
   `etc_config_load()` + `etc_config_buf_get()` read once and answer many
-  keys, because `etc_config_get()` re-reads the whole file PER KEY.
+  keys, because `etc_config_get()` loads and parses the whole file PER
+  KEY (a copy from memory while it is unchanged).

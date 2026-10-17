@@ -327,9 +327,16 @@ void fs_exclusive_end(void) {
     kmutex_unlock(&g_excl);
 }
 
+// Moves at every mount and unmount, so fs_generation_of() moves for every
+// path: what a path names may have changed with no write to it.
+static uint32_t g_epoch;
+
+uint32_t mount_epoch(void) { return g_epoch; }
+
 // Empty a slot. NOT a memset: the lock may have callers queued on it,
 // and `gen` is how they find out the mount they resolved has gone.
 static void slot_clear(struct mount *m) {
+    if (m->used) g_epoch++;
     struct kmutex lock = m->lock;
     uint32_t gen = m->gen + 1;
     k_memset(m, 0, sizeof *m);
@@ -439,6 +446,7 @@ static void record(struct mount *slot, const struct fs_ops *fs,
     // persistent whatever the device says.
     slot->persistent = (r == 1) && dev && dev->persistent;
     __atomic_store_n(&slot->used, 1, __ATOMIC_RELEASE);
+    g_epoch++;
     klog_printf("fs: %s mounted at %s on %s%s%s\n", fs->name, slot->point,
                 dev ? dev->name : "(no device)",
                 (flags & MNT_RDONLY) ? ", read-only" : "",

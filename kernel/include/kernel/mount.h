@@ -189,6 +189,9 @@ const struct mount *mount_resolve(const char *path, const char **out_sub);
 // answer for, since every caller that predates mounts means the root.
 const struct mount *mount_root(void);
 
+// Bumped by every mount and unmount; folded into fs_generation_of().
+uint32_t mount_epoch(void);
+
 // Iteration, for `df`, `/bin/mount` and the QUERY_FSINFO provider.
 // mount_at() returns NULL past the end; the order is the order they
 // were mounted, root first.

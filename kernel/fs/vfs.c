@@ -365,7 +365,8 @@ static void dirgen_note(uint64_t self, uint64_t parent) {
 uint64_t fs_generation_of(const char *path) {
     uint64_t h;
     fswatch_hash(path, &h, 0);
-    return g_dirgen[h % DIRGEN_BUCKETS] + 1;   // never 0: "not sampled yet"
+    // + the mount epoch: a mount over a path changes what it names.
+    return g_dirgen[h % DIRGEN_BUCKETS] + mount_epoch() + 1;   // never 0: "not sampled yet"
 }
 
 // Everything buffered anywhere on the way to a platter, on EVERY
