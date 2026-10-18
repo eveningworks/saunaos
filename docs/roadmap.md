@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- glass DONE 2026-10-18, the rest next  *(`fork()`/`exec()`-style process model)*
+- [ ] SIMD: the blur's `box_h` pass two rows a step -- the last glass pass still a pixel at a time  *(`fork()`/`exec()`-style process model)*
 <!-- END next-up -->
 
 
@@ -203,7 +203,11 @@ only expensive part of it.
 
 - [x] ~~Hardware floating point / SSE for ring-3 processes~~ done
 - [ ] A `kernel_fpu_begin()`/`kernel_fpu_end()` bracket
-- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- glass DONE 2026-10-18, the rest next **NEXT**
+- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- glass DONE 2026-10-18; what is left is the SIMD lines below
+- [ ] SIMD: the blur's `box_h` pass two rows a step -- the last glass pass still a pixel at a time **NEXT**
+- [ ] SIMD: `upix_over`, Paint's layer composite, paste and text layers -- measure on the ASUS first
+- [ ] SIMD: the scaled image draw (`ugfx_blit_scaled_alpha`, `uimg_scale`) -- Image Viewer, thumbnails, the wallpaper
+- [ ] SIMD: the JPEG and MPEG-1 IDCTs (`uimg_jpeg.c`, `uvid_mpeg1.c`)
 - [ ] AVX/XSAVE support -- AVX/AVX2 fault today (FXSAVE state only, CR4.OSXSAVE off); all three test machines have AVX2
 - [x] ~~`memcpy`/`memset`/`memmove` a byte at a time, in both rings~~ DONE 2026-10-18 -- `rep movsb`/`stosb`, `cld` on every entry
 - [x] ~~`fork()`-style address-space duplication (copy-on-write)~~ DONE 2026-09-11 -- `SYS_FORK`, `/tests/fork_test`
@@ -733,6 +737,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Remember where the floating on-screen keyboard was put, and whether it was docked
 - [x] ~~Decide whether transparency ships ON~~ OFF for now (2026-10-18) -- ASUS glass 8.5 -> 2.3 ms a dragged frame after SIMD
 - [ ] Full dirty-rect compositor
+- [ ] Frame-time percentiles in `gui compositor`: p50/p99 and missed vblanks over a window, not only stage means
 - [x] ~~The desktop stage costs 3.9 ms of a full ASUS frame~~ DONE 2026-10-18 -- a fill under the wallpaper + a scalar copy: now 2.2
 - [x] ~~Taskbar notification area (tray)~~ done
 - [x] ~~A modern taskbar~~ DONE 2026-09-29 -- labelled or centred, floating or not, dark or light (`desktop.taskbar_*`)
@@ -935,6 +940,7 @@ run on, not by order.
 - [ ] The calendar, context menu and confirm dialog should declare their own damage, as the Start menu already does
 - [ ] Intel modesetting: external outputs on DDI B-D, a second EDID and hotplug -- waits for a laptop with a usable port
 - [x] ~~Intel gen9 on the Kaby Lake desktop over HDMI: readout, adopt, GMBUS EDID, scaler modes, HDMI modeset~~ DONE 2026-10-04
+- [ ] Compose late in the vblank interval -- Mutter's dynamic max render time: read input later, a drag lags less
 - [ ] Intel blitter acceleration on the BCS ring -- declined 2026-09-03; the 2026-09-17 frame time reopens it
 - [x] ~~A fullscreen state, and direct scanout for a fullscreen client~~ DONE 2026-09-11 -- a lease, `docs/scanout-design.md`
 - [ ] The Broadwell sprite plane: a MAXIMIZED window scanned out, the desktop composed around it -- `docs/scanout-design.md` stage 4
@@ -1330,7 +1336,7 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [ ] Record the execution mode with every number (TCG vs KVM), because they are not comparable
 - [ ] Syscall round-trip cost, the number that matters most once real programs run
 - [ ] Context-switch cost between two scheduled processes
-- [ ] Frame time for a full desktop repaint, and for a damage-only one
+- [ ] Frame time for a full desktop repaint, and for a damage-only one -- a window drag under KVM against a stored stage baseline, a report
 - [ ] A stable machine description in the output (CPU, RAM, mode) so two recorded runs can be told apart
 
 ### Fuzzing & property-based testing
