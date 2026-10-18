@@ -1012,6 +1012,21 @@ struct win_event {
 // because every key would otherwise cost every client a second event it
 // never reads.
 #define WIN_HINT_PHYS_KEYS 0x08
+// The client draws its OWN frame -- xdg-decoration's client-side mode: the
+// server draws no title bar, border or rounded corners, the content is the
+// whole window, and the client starts moves and resizes itself with
+// WIN_REQ_MOVE_START. The taskbar button, focus and Alt+F4 stay the server's.
+#define WIN_HINT_NO_DECOR  0x10
+
+// `window`: which one; a: 0 to MOVE it, else WIN_EDGE_* bits to RESIZE it
+// from those edges -- xdg_toplevel.move/.resize. Honoured only while a
+// button is held on that window (a press the client is answering), and
+// the server then runs the drag as if its own frame had been pressed.
+#define WIN_REQ_MOVE_START 43
+#define WIN_EDGE_LEFT   0x1
+#define WIN_EDGE_RIGHT  0x2
+#define WIN_EDGE_TOP    0x4
+#define WIN_EDGE_BOTTOM 0x8
 
 // --- popup surfaces (WIN_REQ_POPUP) ------------------------------------
 //

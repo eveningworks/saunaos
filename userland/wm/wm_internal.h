@@ -240,6 +240,12 @@ extern int resize_start_w, resize_start_h;
 // drag has to remember where it started from -- deriving it from the
 // live x/y accumulates the rounding every clamp does.
 extern int resize_start_x, resize_start_y;
+// The pointer as wm_update_drag_resize() last saw it, for a drag a client
+// starts (WIN_REQ_MOVE_START) rather than a press toywm handled itself.
+extern int wm_ptr_x, wm_ptr_y;
+extern uint8_t wm_ptr_buttons;
+void wm_begin_move(int i, int mx, int my);
+void wm_begin_resize(int i, int edges, int mx, int my);
 
 // The interactive resize's ask (see wm.c). resize_ask_idx is -1 when
 // there is none; the pid/id pair beside it is what makes a stale index

@@ -307,6 +307,10 @@ const struct uui_drag *uapp_drag(struct uapp *a) {
     return uui_router_dropped(&a->top.router);
 }
 
+void uapp_move_start(struct uapp *a, unsigned edges) {
+    wmchan_send(WIN_REQ_MOVE_START, a->window, (int)edges, 0, 0, 0);
+}
+
 void uapp_set_cursor(struct uapp *a, int cursor) {
     if (cursor < 0 || cursor >= WIN_CURSOR_COUNT) return;
     if (a->motion_cursor >= 0) { a->motion_cursor = cursor; return; }

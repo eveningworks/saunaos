@@ -162,8 +162,8 @@ int wm_geometry_restore(int idx) {
     // that would have carried the truth matched `client_w/h`, which
     // this had not touched.
     if (wm_client_is_client_window(win)) {
-        int content_w = w - 2;
-        int content_h = h - WM_TITLEBAR_H - 2;
+        int content_w = w - wm_chrome_w(win);
+        int content_h = h - wm_chrome_h(win);
         if (content_w > 0 && content_h > 0 &&
             (content_w != win->client_w || content_h != win->client_h)) {
             wm_client_send_resize(win, content_w, content_h);
@@ -182,7 +182,7 @@ int wm_geometry_restore(int idx) {
 void wm_geometry_fit(int idx) {
     if (idx < 0 || idx >= window_count) return;
     struct window *win = &windows[idx];
-    if (!window_has_chrome(win)) return;    // a popup: its client places it
+    if (win->popup || win->fullscreen) return;    // its client places it
 
     int work_w = screen_w, work_h = screen_h - taskbar_h;
     int w = win->w < work_w ? win->w : work_w;
@@ -198,7 +198,7 @@ void wm_geometry_fit(int idx) {
     // Too big for the work area: a REQUEST, as in wm_geometry_restore()
     // -- the client owns its buffer, and a fixed-size one declines.
     if (wm_client_is_client_window(win)) {
-        int content_w = w - 2, content_h = h - WM_TITLEBAR_H - 2;
+        int content_w = w - wm_chrome_w(win), content_h = h - wm_chrome_h(win);
         if (content_w > 0 && content_h > 0) wm_client_send_resize(win, content_w, content_h);
     } else {
         win->w = w; win->h = h;

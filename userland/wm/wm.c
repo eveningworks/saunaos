@@ -173,7 +173,11 @@ void *window_get_state(struct window *win) { return win->app_state; }
 // lives: the blit, the hit-tests, the damage and the client coordinate
 // translation all go through them, so nothing else needs to know.
 // A FULLSCREEN window has none either.
-int window_has_chrome(const struct window *win) { return !win->popup && !win->fullscreen; }
+int window_has_chrome(const struct window *win) {
+    return !win->popup && !win->fullscreen && !win->no_decor;
+}
+int wm_chrome_w(const struct window *win) { return window_has_chrome(win) ? 2 : 0; }
+int wm_chrome_h(const struct window *win) { return window_has_chrome(win) ? WM_TITLEBAR_H + 2 : 0; }
 int window_content_x(const struct window *win) { return window_has_chrome(win) ? win->x + 1 : win->x; }
 int window_content_y(const struct window *win) { return window_has_chrome(win) ? win->y + WM_TITLEBAR_H + 1 : win->y; }
 int window_content_w(const struct window *win) { return window_has_chrome(win) ? win->w - 2 : win->w; }
@@ -911,7 +915,8 @@ void wm_layout_changed(void) {
         if (wm_window_maximized(w)) {
             w->x = 0; w->y = 0;
             if (is_client)
-                wm_client_send_resize(w, screen_w - 2, screen_h - taskbar_h - WM_TITLEBAR_H - 2);
+                wm_client_send_resize(w, screen_w - wm_chrome_w(w),
+                                      screen_h - taskbar_h - wm_chrome_h(w));
             else { w->w = screen_w; w->h = screen_h - taskbar_h; }
             continue;
         }

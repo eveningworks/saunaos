@@ -1083,7 +1083,7 @@ int wm_cursor_shape_changed(int mx, int my) {
 #define FRAME_OUTLINE UTHEME_BORDER
 
 static int corner_radius(const struct window *win) {
-    if (win->state == WIN_MAXIMIZED || win->fullscreen) return 0;
+    if (win->state == WIN_MAXIMIZED || win->fullscreen || win->no_decor) return 0;
     // A POPUP is the toolkit's card (ui/uui_popup.h): its widget paints
     // it square and the corners are cut here, as a window's are. Each
     // radius is its desktop.corners group's (ui/utheme.h); Square is 0.
@@ -1426,7 +1426,7 @@ void wm_render_window_into(struct ugfx_surface *dst, struct window *ghost, int f
 
 static void draw_resize_grip(const struct window *win) {
     if (win->state == WIN_MAXIMIZED) return;
-    if (!win->resizable) return;
+    if (!win->resizable || win->no_decor) return;   // a client's own frame has its own
 
     // The corner the dots are anchored to. Everything below counts
     // INWARD from here, so the shape cannot drift off the frame when a

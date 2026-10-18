@@ -911,6 +911,19 @@ static void on_window_hints(int pid, uint32_t id, unsigned flags, int min_w, int
     windows[idx].min_w = min_w;
     windows[idx].min_h = min_h;
 
+    // Drawing its own frame changes what the window's rect means: keep the
+    // CONTENT where it is and let the frame toywm drew go.
+    int no_decor = (flags & WIN_HINT_NO_DECOR) ? 1 : 0;
+    if (no_decor != windows[idx].no_decor) {
+        struct window *w = &windows[idx];
+        wm_damage_window_rect(w->x, w->y, w->w, w->h);
+        int cx = window_content_x(w), cy = window_content_y(w);
+        w->no_decor = no_decor;
+        w->x = no_decor ? cx : cx - 1;
+        w->y = no_decor ? cy : cy - WM_TITLEBAR_H - 1;
+        adopt_content_size(w, w->client_w, w->client_h);
+    }
+
     // The resize grip appears or disappears with this, so the chrome
     // has to be repainted -- the frame only, not the content.
     wm_damage_window_rect(windows[idx].x, windows[idx].y, windows[idx].w, windows[idx].h);
@@ -1471,6 +1484,28 @@ static void req_pong(int from, struct wmchan_msg *m) {
     on_window_pong(from, m->window, (uint32_t)m->a);
 }
 
+_Static_assert(WIN_EDGE_LEFT == WM_EDGE_LEFT && WIN_EDGE_RIGHT == WM_EDGE_RIGHT &&
+               WIN_EDGE_TOP == WM_EDGE_TOP && WIN_EDGE_BOTTOM == WM_EDGE_BOTTOM,
+               "WIN_REQ_MOVE_START's edges are toywm's own");
+
+// A client that draws its own frame asks toywm to run a move or resize
+// (xdg_toplevel.move). ONLY while a button is down on that same window:
+// a request with no press behind it would let a client drag itself
+// around under a still pointer.
+static void req_move_start(int from, struct wmchan_msg *m) {
+    int idx = find_client_window(from, m->window);
+    if (idx < 0 || !windows[idx].no_decor || !(wm_ptr_buttons & 0x1)) return;
+    if (content_pressed != idx) return;
+    // The drag is toywm's now: the client hears its button come up here,
+    // as a Wayland client hears wl_pointer.leave, or it stays pressed.
+    wm_client_send_mouse(&windows[idx], WIN_EV_MOUSE_UP, wm_ptr_x, wm_ptr_y, 0x1);
+    content_pressed = -1;
+    unsigned edges = (unsigned)m->a & (WIN_EDGE_LEFT | WIN_EDGE_RIGHT | WIN_EDGE_TOP | WIN_EDGE_BOTTOM);
+    if (!edges) wm_begin_move(idx, wm_ptr_x, wm_ptr_y);
+    else if (windows[idx].resizable && windows[idx].state != WIN_MAXIMIZED)
+        wm_begin_resize(idx, (int)edges, wm_ptr_x, wm_ptr_y);
+}
+
 static void req_close_pid(int from, struct wmchan_msg *m) {
     // NOT about the sender's own window: it names another
     // process. Unprivileged, as it was through the kernel, and
@@ -1505,6 +1540,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_TABS] = req_tabs,
     [WIN_REQ_TAB] = req_tab,
     [WIN_REQ_HINTS] = req_hints,
+    [WIN_REQ_MOVE_START] = req_move_start,
     [WIN_REQ_FULLSCREEN] = req_fullscreen,
     [WIN_REQ_CURSOR] = req_cursor,
     [WIN_REQ_DRAG_START] = req_drag_start,

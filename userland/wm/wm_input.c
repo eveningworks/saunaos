@@ -152,7 +152,7 @@ int wm_find_resize_zone(int mx, int my, int *out_edges) {
         // there, as it always did -- but it must not reach past its own
         // frame, or a fixed-size popup would silently swallow the resize
         // border of the window underneath it.
-        int no_resize = (w->state == WIN_MAXIMIZED || w->fullscreen ||
+        int no_resize = (w->state == WIN_MAXIMIZED || w->fullscreen || w->no_decor ||
                          !w->resizable || wm_dialog_blocker(i) >= 0);
         if (no_resize) {
             if (inside) return -1;
@@ -211,6 +211,60 @@ static void wm_toggle_maximize(int i);
 static int title_click_pid = 0;
 static uint32_t title_click_win = 0;
 static unsigned long title_click_tick = 0;
+
+// An edge resize of window ri begins, from the pointer at mx,my: a press
+// in toywm's own resize zone, or a client asking (WIN_REQ_MOVE_START).
+void wm_begin_resize(int ri, int edges, int mx, int my) {
+    bring_to_front(ri);
+    dragging = -1;
+    resizing = window_count - 1;
+    resize_edges = edges;
+    resize_start_mx = mx;
+    resize_start_my = my;
+    resize_start_w = windows[resizing].w;
+    resize_start_h = windows[resizing].h;
+    resize_start_x = windows[resizing].x;
+    resize_start_y = windows[resizing].y;
+    // WHAT THIS DRAG SHOWS, decided once, here.
+    //
+    // `auto` ASKS WHAT HAPPENED LAST TIME. A window already
+    // measured as slow is outlined from the first pixel; one
+    // that has never been measured starts live and is watched
+    // (see wm_resize_shown()), which is the only way a window
+    // nobody has dragged yet can be judged at all. Both
+    // directions self-correct, because even an outlined drag
+    // measures its one resize on release.
+    resize_outline_mode = mode_is_outline("desktop.resize_mode");
+    resize_auto = !resize_outline_mode && mode_is_auto("desktop.resize_mode");
+    if (resize_auto && windows[resizing].resize_lag_ms > RESIZE_AUTO_LAG_MS)
+        resize_outline_mode = 1;
+    // A NEW DRAG FORGETS THE LAST ONE'S ASK. The ask outlives
+    // the drag that made it (see resize_pump()), and anything
+    // that resized this window since -- maximize, a restored
+    // geometry -- did not go through it, so the remembered
+    // "already sent" size can no longer be trusted.
+    resize_sent_w = resize_sent_h = -1;
+    resize_inflight = 0;
+    redraw_pending = 1;
+}
+
+// A move of window i begins, the pointer at mx,my: a press on its title
+// bar, or a client that draws its own asking (WIN_REQ_MOVE_START). A
+// maximized window is only raised.
+void wm_begin_move(int i, int mx, int my) {
+    struct window *w = &windows[i];
+    if (w->state != WIN_MAXIMIZED) {
+        bring_to_front(i);
+        resizing = -1;
+        dragging = window_count - 1;
+        drag_off_x = mx - windows[dragging].x;
+        drag_off_y = my - windows[dragging].y;
+        move_outline_mode = mode_is_outline("desktop.move_mode");
+    } else {
+        bring_to_front(i);
+    }
+    redraw_pending = 1;
+}
 
 void wm_handle_left_click(int mx, int my) {
     if (wm_setup_hold_active()) return;   // nothing is shown to click (wm_setup_hold.h)
@@ -276,37 +330,7 @@ void wm_handle_left_click(int mx, int my) {
         int edges = 0;
         int ri = wm_find_resize_zone(mx, my, &edges);
         if (ri >= 0) {
-            bring_to_front(ri);
-            dragging = -1;
-            resizing = window_count - 1;
-            resize_edges = edges;
-            resize_start_mx = mx;
-            resize_start_my = my;
-            resize_start_w = windows[resizing].w;
-            resize_start_h = windows[resizing].h;
-            resize_start_x = windows[resizing].x;
-            resize_start_y = windows[resizing].y;
-            // WHAT THIS DRAG SHOWS, decided once, here.
-            //
-            // `auto` ASKS WHAT HAPPENED LAST TIME. A window already
-            // measured as slow is outlined from the first pixel; one
-            // that has never been measured starts live and is watched
-            // (see wm_resize_shown()), which is the only way a window
-            // nobody has dragged yet can be judged at all. Both
-            // directions self-correct, because even an outlined drag
-            // measures its one resize on release.
-            resize_outline_mode = mode_is_outline("desktop.resize_mode");
-            resize_auto = !resize_outline_mode && mode_is_auto("desktop.resize_mode");
-            if (resize_auto && windows[resizing].resize_lag_ms > RESIZE_AUTO_LAG_MS)
-                resize_outline_mode = 1;
-            // A NEW DRAG FORGETS THE LAST ONE'S ASK. The ask outlives
-            // the drag that made it (see resize_pump()), and anything
-            // that resized this window since -- maximize, a restored
-            // geometry -- did not go through it, so the remembered
-            // "already sent" size can no longer be trusted.
-            resize_sent_w = resize_sent_h = -1;
-            resize_inflight = 0;
-            redraw_pending = 1;
+            wm_begin_resize(ri, edges, mx, my);
             return;
         }
     }
@@ -417,17 +441,7 @@ void wm_handle_left_click(int mx, int my) {
             title_click_win = w->client_win;
             title_click_tick = now;
 
-            if (w->state != WIN_MAXIMIZED) {
-                bring_to_front(i);
-                resizing = -1;
-                dragging = window_count - 1;
-                drag_off_x = mx - windows[dragging].x;
-                drag_off_y = my - windows[dragging].y;
-                move_outline_mode = mode_is_outline("desktop.move_mode");
-            } else {
-                bring_to_front(i);
-            }
-            redraw_pending = 1;
+            wm_begin_move(i, mx, my);
             return;
         }
 
@@ -593,8 +607,8 @@ static void wm_toggle_maximize(int i) {
         windows[i].x = windows[i].saved_x; windows[i].y = windows[i].saved_y;
         windows[i].state = WIN_NORMAL;
         if (is_client) {
-            wm_client_send_resize(&windows[i], windows[i].saved_w - 2,
-                                   windows[i].saved_h - WM_TITLEBAR_H - 2);
+            wm_client_send_resize(&windows[i], windows[i].saved_w - wm_chrome_w(&windows[i]),
+                                   windows[i].saved_h - wm_chrome_h(&windows[i]));
         } else {
             windows[i].w = windows[i].saved_w; windows[i].h = windows[i].saved_h;
         }
@@ -604,8 +618,8 @@ static void wm_toggle_maximize(int i) {
         windows[i].x = 0; windows[i].y = 0;
         windows[i].state = WIN_MAXIMIZED;
         if (is_client) {
-            wm_client_send_resize(&windows[i], screen_w - 2,
-                                   screen_h - taskbar_h - WM_TITLEBAR_H - 2);
+            wm_client_send_resize(&windows[i], screen_w - wm_chrome_w(&windows[i]),
+                                   screen_h - taskbar_h - wm_chrome_h(&windows[i]));
         } else {
             windows[i].w = screen_w; windows[i].h = screen_h - taskbar_h;
         }
@@ -650,13 +664,14 @@ void wm_set_fullscreen(int i, int on) {
             w->state = WIN_MAXIMIZED;
             w->x = 0; w->y = 0;
             if (is_client)
-                wm_client_send_resize(w, screen_w - 2, screen_h - taskbar_h - WM_TITLEBAR_H - 2);
+                wm_client_send_resize(w, screen_w - wm_chrome_w(w),
+                                      screen_h - taskbar_h - wm_chrome_h(w));
             else { w->w = screen_w; w->h = screen_h - taskbar_h; }
         } else {
             w->state = WIN_NORMAL;
             w->x = w->saved_x; w->y = w->saved_y;
             if (is_client)
-                wm_client_send_resize(w, w->saved_w - 2, w->saved_h - WM_TITLEBAR_H - 2);
+                wm_client_send_resize(w, w->saved_w - wm_chrome_w(w), w->saved_h - wm_chrome_h(w));
             else { w->w = w->saved_w; w->h = w->saved_h; }
         }
     }
@@ -1068,7 +1083,13 @@ void wm_resize_client(int idx, int w, int h) {
     resize_ask(idx, w, h);
 }
 
+int wm_ptr_x, wm_ptr_y;
+uint8_t wm_ptr_buttons;
+
 void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
+    wm_ptr_x = mx;
+    wm_ptr_y = my;
+    wm_ptr_buttons = buttons;
     if (dragging >= 0) {
         if (buttons & 0x1) {
             struct window *w = &windows[dragging];
@@ -1144,8 +1165,8 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
             int dy = my - resize_start_my;
             int neww = w->w, newh = w->h;
             int newx = w->x, newy = w->y;
-            int min_w = MIN_CONTENT_W + 2;
-            int min_h = MIN_CONTENT_H + WM_TITLEBAR_H + 2;
+            int min_w = MIN_CONTENT_W + wm_chrome_w(w);
+            int min_h = MIN_CONTENT_H + wm_chrome_h(w);
 
             if (resize_edges & WM_EDGE_RIGHT) {
                 neww = resize_start_w + dx;
@@ -1204,7 +1225,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
                 // when the client presents a frame at the new one, so it
                 // follows the pointer at the client's own latency
                 // instead of jumping on release.
-                resize_ask(resizing, neww - 2, newh - WM_TITLEBAR_H - 2);
+                resize_ask(resizing, neww - wm_chrome_w(w), newh - wm_chrome_h(w));
             } else {
                 w->w = neww;
                 w->h = newh;
@@ -1232,7 +1253,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
                     redraw_pending = 1;
                 }
                 if (is_client) {
-                    resize_ask(resizing, fw - 2, fh - WM_TITLEBAR_H - 2);
+                    resize_ask(resizing, fw - wm_chrome_w(w), fh - wm_chrome_h(w));
                 } else {
                     wm_damage_window_rect(w->x, w->y, w->w, w->h);
                     w->w = fw;

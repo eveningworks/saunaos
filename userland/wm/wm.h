@@ -84,6 +84,9 @@ struct window {
     int scanout_ok;
     // The client asked for keys by position too (WIN_HINT_PHYS_KEYS).
     int phys_keys;
+    // The client draws its own frame (WIN_HINT_NO_DECOR): no title bar,
+    // border or rounded corners from toywm, and no resize band of its own.
+    int no_decor;
 
     // Can the user resize this window? A property of the WINDOW, not of
     // whatever created it -- which is the whole point of it living here.
@@ -323,6 +326,10 @@ void *window_get_state(struct window *win);
 
 // The content area is everything below the title bar, inset by the 1px
 // border. All four are in screen coordinates / pixels.
+// What toywm's frame adds around a window's content: 0 for one that
+// draws its own (a popup, fullscreen, WIN_HINT_NO_DECOR).
+int wm_chrome_w(const struct window *win);
+int wm_chrome_h(const struct window *win);
 int window_content_x(const struct window *win);
 int window_content_y(const struct window *win);
 int window_content_w(const struct window *win);

@@ -11626,3 +11626,38 @@ byte shuffle, so SSSE3 would be a second copy of the SSE2 code; SSE2
 itself is part of x86-64, so the chain needs no CPUID test until AVX2,
 which needs the kernel to save YMM state (XSAVE) first
 (`docs/roadmap.md`, "AVX/XSAVE support").
+
+## A client may draw its own frame and ask the compositor to run its drags
+
+**Decision.** `WIN_HINT_NO_DECOR` declares that a client draws its own
+title bar and border: toywm draws no chrome, cuts no rounded corners,
+keeps its own resize band off the window, and the content is the whole
+window. `WIN_REQ_MOVE_START` hands the drag of a press in progress to
+toywm -- `a` 0 to move, `WIN_EDGE_*` bits to resize -- honoured only
+while the button is down on that window, and the client then hears the
+button come up. uapp exposes both as `UAPP_NO_DECOR` and
+`uapp_move_start()`. The taskbar button, focus and Alt+F4 stay the
+compositor's. Built for w16 (`docs/w16-design.md`), whose windows look
+like Windows 3.1's.
+
+**What real systems do.** Wayland's `xdg-decoration` lets a client ask
+for client-side decoration, and `xdg_toplevel.move`/`.resize(edges)`
+with the serial of a press is how a client-drawn frame starts a drag the
+compositor then runs -- GTK's header bars live on it, and KWin and
+Mutter honour it. X11 had no such request until `_NET_WM_MOVERESIZE`;
+before it, client-drawn frames moved themselves and fought the window
+manager. Windows draws the non-client area in the application's own
+process (`WM_NCPAINT`), which is why a Win16 program could own it.
+
+**Why not let toywm draw the 3.1 frame.** It would make the WM carry a
+second decoration style per client, and the frame's buttons (the
+control-menu box, minimize, maximize) mean things only the program's
+USER layer knows. Client-side with a compositor-run drag keeps every
+moving window on one drag path -- snapping, the reachability clamp,
+outline mode, `desktop.move_mode` -- whatever drew its frame.
+
+**The trap it found.** The resize, maximize and fit paths converted a
+window size to a content size with the chrome hard-coded (`- 2`,
+`- WM_TITLEBAR_H - 2`), so the first undecorated window grew 34 pixels
+short of every drag. They go through `wm_chrome_w()`/`wm_chrome_h()`
+now, next to `window_content_*()`, which already knew.

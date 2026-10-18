@@ -65,6 +65,11 @@ struct uui_focus;   // ui/uui_focus.h -- desc.focus is a pointer, so a
 // which are write-combining memory (docs/scanout-design.md). A widget
 // app must not set this: blending reads the destination.
 #define UAPP_SCANOUT   0x04
+// This app draws its OWN frame -- title bar, border, buttons -- and the
+// compositor draws none (WIN_HINT_NO_DECOR, xdg-decoration's client-side
+// mode). It then starts moves and resizes itself, uapp_move_start(), from
+// a press in what it drew. The taskbar button and Alt+F4 stay the WM's.
+#define UAPP_NO_DECOR  0x10
 
 // Only one copy of this app at a time. With this set (and an `app_id`
 // given), uapp_run() asks TWS whether a window already carries that id
@@ -623,6 +628,12 @@ void uapp_display_name(const struct uapp *a, char *out, int cap);
 // over its own toolbar. Repeats send nothing. Runs after the widget
 // tree, so an app has the last word over its own window.
 void uapp_set_cursor(struct uapp *a, int cursor);
+
+// UAPP_NO_DECOR only: hand the drag of the press in progress to the
+// compositor -- edges 0 moves the window, WIN_EDGE_* bits resize it from
+// those edges (xdg_toplevel.move/.resize). Call it from on_press; the
+// app then hears its button come up, and nothing more of this drag.
+void uapp_move_start(struct uapp *a, unsigned edges);
 
 // The drag in progress, or -- inside on_widget(id, UUI_REASON_DROP) --
 // the one that just dropped. NULL for neither. What a drop handler
