@@ -170,6 +170,13 @@ static void load_round(void) {
     g_round_loaded = 1;
 }
 
+int utheme_radius_preset(const char *preset, enum utheme_round which) {
+    if (which < 0 || which >= UTHEME_R_COUNT) return -2;
+    for (int i = 0; i < 4; i++)
+        if (preset && !strcmp(preset, PRESET_NAME[i])) return PRESET[i][which];
+    return -2;
+}
+
 int utheme_radius(enum utheme_round which) {
     if (!g_round_loaded) load_round();
     return which >= 0 && which < UTHEME_R_COUNT ? g_radius[which] : 0;

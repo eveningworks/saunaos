@@ -35,6 +35,7 @@ struct uui_gallery {
     int disabled;
     int armed_prev;              // the selection before the press in flight, -1 none
     int min_w;                   // a card's least width, px; 0 for the default (13 lines)
+    int tile_h;                  // the picture's height, px; 0 for the default (4 lines)
 
     // The tile's painter, and what it is handed back. NULL draws no picture.
     void (*draw_tile)(struct ugfx_surface *s, int index, int x, int y, int w, int h,

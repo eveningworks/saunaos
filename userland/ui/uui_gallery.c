@@ -9,9 +9,9 @@
 static int gap(void)      { return ugfx_char_h() * 3 / 4; }
 static int pad(void)      { return ugfx_char_h() / 3 + 1; }
 static int min_card(void) { return ugfx_char_h() * 13; }
-static int tile_h(void)   { return ugfx_char_h() * 4 + 4; }
+static int tile_h(const struct uui_gallery *g) { return g->tile_h > 0 ? g->tile_h : ugfx_char_h() * 4 + 4; }
 static int label_h(void)  { return ugfx_char_h() + 8; }
-static int card_h(void)   { return 2 * pad() + tile_h() + label_h(); }
+static int card_h(const struct uui_gallery *g) { return 2 * pad() + tile_h(g) + label_h(); }
 static int radius(void)   { return uui_select_radius(0); }   // the Selection group (ui/utheme.h)
 
 void uui_gallery_init(struct uui_gallery *g, const char *const *labels, int count,
@@ -39,16 +39,16 @@ int uui_gallery_card_rect(const struct uui_gallery *g, int i, int *x, int *y, in
     int c = uui_gallery_cols(g);
     int cw = g->w > 0 ? (g->w - (c - 1) * gap()) / c : card_min(g);
     *x = g->x + (i % c) * (cw + gap());
-    *y = g->y + (i / c) * (card_h() + gap());
+    *y = g->y + (i / c) * (card_h(g) + gap());
     *w = cw;
-    *h = card_h();
+    *h = card_h(g);
     return 1;
 }
 
 int uui_gallery_tile_rect(const struct uui_gallery *g, int i, int *x, int *y, int *w, int *h) {
     int cx, cy, cw, ch;
     if (!uui_gallery_card_rect(g, i, &cx, &cy, &cw, &ch)) return 0;
-    *x = cx + pad(); *y = cy + pad(); *w = cw - 2 * pad(); *h = tile_h();
+    *x = cx + pad(); *y = cy + pad(); *w = cw - 2 * pad(); *h = tile_h(g);
     return 1;
 }
 
@@ -124,7 +124,7 @@ static void natural_size(const void *w, int *ow, int *oh) {
     const struct uui_gallery *g = w;
     int c = uui_gallery_cols(g), r = rows(g);
     *ow = c * card_min(g) + (c - 1) * gap();
-    *oh = r > 0 ? r * card_h() + (r - 1) * gap() : 0;
+    *oh = r > 0 ? r * card_h(g) + (r - 1) * gap() : 0;
 }
 
 static void set_geometry(void *w, int x, int y, int width, int height) {

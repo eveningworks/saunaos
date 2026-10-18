@@ -584,14 +584,14 @@ static void draw_monitor(struct ugfx_surface *s, const struct uui_custom *c) {
 static struct uui_custom g_screen;
 static struct preview_screen g_screen_ps;
 
-static struct slot *slot_named(const char *name) {
+struct slot *slot_find(const char *name) {
     for (int i = 0; i < g_slot_count; i++)
         if (g_slot[i].setting >= 0 && !strcmp(g_name[g_slot[i].setting], name)) return &g_slot[i];
     return 0;
 }
 
 static void draw_screen(struct ugfx_surface *s, const struct uui_custom *c) {
-    struct slot *res = slot_named(SET_RESOLUTION), *sc = slot_named(SET_SCALING);
+    struct slot *res = slot_find(SET_RESOLUTION), *sc = slot_find(SET_SCALING);
     if (!res) return;
     char *e;
     const char *v = staged_value(res);
@@ -605,6 +605,33 @@ static void draw_screen(struct ugfx_surface *s, const struct uui_custom *c) {
     g_screen_ps.scaling = sc ? staged_value(sc) : "full";
     preview_screen(s, c->x, c->y, c->w, c->h, &g_screen_ps);
     uapp_logf_layout("settings: screen %s\n", g_screen_ps.caption);
+}
+
+// APPEARANCE > TRANSPARENCY'S SAMPLE, under the switch (mockup T1), and
+// under Desktop's Placement the line that says when its two cards match.
+#define SET_GLASS     "desktop.transparency"
+#define SET_PLACEMENT "desktop.wallpaper_mode"
+static struct uui_custom g_glass;
+static struct uui_label g_place_note;
+
+static void draw_glass(struct ugfx_surface *s, const struct uui_custom *c) {
+    preview_glass(s, c->x, c->y, c->w, c->h);
+}
+
+static int emit_page_previews(struct uui_item *out, int n, int i) {
+    const char *nm = g_slot[i].setting >= 0 ? g_name[g_slot[i].setting] : "";
+    if (!strcmp(nm, SET_GLASS)) {
+        g_glass = (struct uui_custom){ .w = 0, .h = ugfx_char_h() * 12, .draw = draw_glass };
+        out[n++] = (struct uui_item){ .ops = &uui_custom_ops, .widget = &g_glass,
+                                      .flags = UUI_FILL_W, .name = "glass_sample" };
+    }
+    if (!strcmp(nm, SET_PLACEMENT) && preview_placement_same()) {
+        uui_label_init(&g_place_note, "This picture is the screen's shape, so both look the same.");
+        uui_label_set_wrap(&g_place_note, 2);
+        out[n++] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_place_note,
+                                      .flags = UUI_FILL_W, .name = "placement_note" };
+    }
+    return n;
 }
 
 static void emit_screen(struct uui_item *out, int *n) {
@@ -666,7 +693,7 @@ void relayout_page(void) {
     // An effect's options live in its Settings... dialog, not on the page.
     int page_slots = (g_saver_slot >= 0 && owner_uses_dialog(g_page_owner_kind))
                      ? g_saver_slot : g_slot_count;
-    if (slot_named(SET_RESOLUTION)) emit_screen(PAGE, &n);   // the page's top, as D1
+    if (slot_find(SET_RESOLUTION)) emit_screen(PAGE, &n);   // the page's top, as D1
     for (int i = 0; i < page_slots; i++) {
         struct slot *sl = &g_slot[i];
         if (slot_hidden(i)) continue;
@@ -684,6 +711,7 @@ void relayout_page(void) {
         n = mouse_emit_after(PAGE, n, i);
         n = trash_emit_after(PAGE, n, i);
         n = theme_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
+        n = emit_page_previews(PAGE, n, i);
         // Test, under the saver it previews (Windows puts Preview there).
         if (g_test_has && sl->setting >= 0 && strcmp(g_name[sl->setting], OWNER_SAVER) == 0) {
             PAGE[n++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_test_btn,
@@ -700,7 +728,8 @@ void relayout_page(void) {
         }
     }
     PAGE[n++] = (struct uui_item){ .ops = &uui_checkbox_ops, .widget = &g_advanced_cb,
-                                   .id = ID_ADVANCED, .hidden = !g_advanced_has };
+                                   .id = ID_ADVANCED, .hidden = !g_advanced_has,
+                                   .name = "advanced" };
     if (g_advanced_has)
         FOCUS[FOCUS_COUNT++] = (struct uui_focusable){ &g_advanced_cb, &uui_checkbox_ops };
     PAGE_COUNT = n;
@@ -742,6 +771,9 @@ int control_changed(int slot_index) {
         g_prose_fitted = 0;
         relayout = 1;
     }
+    // A NEW PICTURE may be the screen's shape or not: the line under
+    // Placement comes or goes.
+    if (sl->setting >= 0 && !strcmp(g_name[sl->setting], "desktop.wallpaper")) relayout = 1;
     // PICKING A SAVER CHANGES WHAT IS BELOW IT.
     if (sl->setting >= 0 && !opt_of(sl->setting) && owner_kind(sl->setting)) {
         rebuild_owner_options(owner_kind(sl->setting), staged_value(sl));

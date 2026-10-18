@@ -46,6 +46,19 @@ MONITOR (Display > Screen):
  11. the Screen page shows its monitor, captioned with the mode on
      screen, with the desktop in miniature inside it.
 
+ROUND 3 (`placement`, `iconsize`, `menuspacing`, `corners`, Transparency's
+sample, the format labels):
+ 12. Placement draws the wallpaper in both cards -- not the desktop's
+     plain colour -- and, the built-in pictures being the screen's shape,
+     the same in both, with the line under them saying so;
+ 13. Icon size's folder grows Small < Medium < Large; Menu spacing shows
+     more rows of text the denser it is; Corners' title colour fills a
+     Square card's corners and fewer of Small's and Round's;
+ 14. Transparency's sample taskbar is the solid taskbar colour with
+     effects off (the control) and the wallpaper through it with them on;
+ 15. the Date dropdown's "Region default" names today's date as the
+     region writes it, matching the preview line.
+
 POSITIVE CONTROL, run when this was written: the cursor painter drawing
 the backdrop and no shapes (`if (!c->loaded) continue;` made
 unconditional) -> check 2's "amber ink" goes red and nothing else does.
@@ -376,7 +389,8 @@ def settled_shot(dbg, qmp, win, tmp, name, key, cards):
     report still moves, so every rect sampled is where the frame drew it."""
     for _ in range(4):
         img = shot(dbg, qmp, win, tmp, name)
-        after = gallery_cards(dbg.logs(clear=False), key)
+        # Nothing reported since: a page that never moved re-reports nothing.
+        after = gallery_cards(dbg.logs(clear=False), key) or cards
         if after == cards:
             break
         cards = after
@@ -516,6 +530,169 @@ def run_screen(dbg, qmp, tmp, res):
         dbg.send("sh config set desktop.layout_log off")
 
 
+def card_box(c, ox, oy):
+    """A card's picture, roughly: inset from its edge and above its label."""
+    return {"x": c["x"] + ox + 8, "y": c["y"] + oy + 8, "w": c["w"] - 16, "h": c["h"] * 3 // 5}
+
+
+def crop_pixels(img, b):
+    return [img.getpixel((x, y)) for y in range(b["y"], b["y"] + b["h"]) for x in range(b["x"], b["x"] + b["w"])]
+
+
+def run_round3(dbg, qmp, tmp, res):
+    """Round 3's galleries (set_preview.c: placement, iconsize, menuspacing,
+    corners), Transparency's sample and the format labels -- each asserted
+    on what its picture shows, against a control drawn the other way."""
+    dbg.send("sh config set desktop.layout_log on")
+    try:
+        # PLACEMENT: the wallpaper itself in both cards. The built-in
+        # pictures are the screen's shape, so Fill and Fit draw the same
+        # and the page says so; a card showing only the desktop's colour
+        # is the bug where the wallpaper's name never reached the painter.
+        key = "desktop.wallpaper_mode"
+        names = {"Fill the screen (crop)", "Fit the whole picture"}
+        win, got = open_page(dbg, key, {key: names}, [key])
+        cards = scroll_to(dbg, qmp, win, key, "Fit the whole picture") if win else {}
+        if res.check("Placement is a gallery of Fill and Fit", names <= set(cards), f"{sorted(cards)}"):
+            ox, oy = win["content"]["x"], win["content"]["y"]
+            img, cards = settled_shot(dbg, qmp, win, tmp, "placement.png", key, cards)
+            fill, fit = (card_box(cards[n], ox, oy) for n in ("Fill the screen (crop)", "Fit the whole picture"))
+            plain = tile_count(img, fill, lambda p: p == DESKTOP, box=False)
+            res.check("the Fill card shows the wallpaper, not the desktop's plain colour", plain < 200,
+                      f"{plain} plain px")
+            # The SCREEN only: the cards' grounds differ (one is selected).
+            def screen(b):
+                return {"x": b["x"] + b["w"] * 3 // 8, "y": b["y"] + b["h"] // 5,
+                        "w": b["w"] // 4, "h": b["h"] // 4}
+            fill_px, fit_px = crop_pixels(img, screen(fill)), crop_pixels(img, screen(fit))
+            same = sum(1 for a, b in zip(fill_px, fit_px) if a != b)
+            res.check("a picture of the screen's shape draws Fill and Fit the same", same < len(fill_px) // 20,
+                      f"{same} of {len(fill_px)} differ")
+            note = any("settings: layout placement_note " in l for l in dbg.logs(clear=False))
+            res.check("...and the page says so under them", note)
+
+        # ICON SIZE: the folder's yellow grows Small < Medium < Large.
+        key = "desktop.icon_size"
+        names = {"Small", "Medium", "Large"}
+        win, got = open_page(dbg, key, {key: names}, [key])
+        cards = (scroll_to(dbg, qmp, win, key, "Large") or got[key]) if win else {}
+        if res.check("Icon size is a gallery of three", names <= set(cards), f"{sorted(cards)}"):
+            ox, oy = win["content"]["x"], win["content"]["y"]
+            img, cards = settled_shot(dbg, qmp, win, tmp, "iconsize.png", key, cards)
+            gold = {n: tile_count(img, card_box(cards[n], ox, oy),
+                                  lambda p: p[0] > 200 and p[1] > 140 and p[2] < 110, box=False)
+                    for n in names}
+            res.check("the icons are drawn at their size: Small < Medium < Large",
+                      0 < gold["Small"] < gold["Medium"] < gold["Large"], f"{gold}")
+
+        # MENU SPACING: the same menu at each row height, so Dense shows
+        # the most rows of text and Comfortable the fewest.
+        key = "desktop.menu_spacing"
+        names = {"Comfortable", "Compact", "Dense"}
+        win, got = open_page(dbg, key, {key: names}, [key])
+        cards = scroll_to(dbg, qmp, win, key, "Dense") if win else {}
+        if res.check("Menu spacing is a gallery of three", names <= set(cards), f"{sorted(cards)}"):
+            ox, oy = win["content"]["x"], win["content"]["y"]
+            img, cards = settled_shot(dbg, qmp, win, tmp, "menuspacing.png", key, cards)
+
+            def text_rows(c):
+                # Rows INSIDE the menu (its light ground at the right of the
+                # sampled span): the dark wallpaper around it is not text.
+                x0, x1 = c["x"] + ox + 30, c["x"] + ox + c["w"] // 2
+                rows, inside = 0, False
+                for y in range(c["y"] + oy + 6, c["y"] + oy + c["h"] - 30):
+                    ink = sum(img.getpixel((x1 + 4, y))) > 600 and \
+                        any(sum(img.getpixel((x, y))) < 200 for x in range(x0, x1))
+                    rows += ink and not inside
+                    inside = ink
+                return rows
+            n = {k: text_rows(cards[k]) for k in names}
+            res.check("each spacing draws its real rows: Comfortable < Compact < Dense",
+                      0 < n["Comfortable"] < n["Compact"] < n["Dense"], f"{n}")
+
+        # CORNERS (an Advanced setting): the window's title colour fills a
+        # Square card's corners and not a Round one's.
+        key = "desktop.corners"
+        win, _ = open_page(dbg, "desktop.menu_spacing", {}, [])
+        # The checkbox ends the page: scrolled to first, or its rect is
+        # below the window and the click lands on nothing.
+        if win:
+            scroll_to(dbg, qmp, win, "desktop.menu_spacing", "Dense")
+        adv = (dbg.widgets("System Settings").get("advanced") or {}).get("screen") if win else None
+        if adv:
+            dbg.click(adv["x"] + 8, adv["y"] + 8)
+            dbg.settle(1.0)
+        names = {"Square", "Small", "Round"}
+        cards = scroll_to(dbg, qmp, win, key, "Round") if win else {}
+        if res.check("Corners (advanced) is a gallery with Square, Small and Round", names <= set(cards),
+                     f"{sorted(cards)} advanced={adv is not None}"):
+            ox, oy = win["content"]["x"], win["content"]["y"]
+            img, cards = settled_shot(dbg, qmp, win, tmp, "corners.png", key, cards)
+            title = {n: tile_count(img, card_box(cards[n], ox, oy), lambda p: p == (50, 90, 160), box=False)
+                     for n in names}
+            res.check("rounder presets cut more of the title's corners: Square > Small > Round",
+                      title["Square"] > title["Small"] > title["Round"] > 0, f"{title}")
+            if adv:   # put it back: the checkbox is remembered
+                dbg.click(adv["x"] + 8, adv["y"] + 8)
+                dbg.settle(0.6)
+
+        # TRANSPARENCY'S SAMPLE: its taskbar is the plain taskbar colour
+        # with transparency off (the control) and lets the wallpaper
+        # through with it on.
+        def taskbar_strip(on):
+            dbg.send(f"sh config set desktop.transparency {'on' if on else 'off'}")
+            dbg.close_window("System Settings")
+            dbg.logs()
+            w = dbg.spawn("/bin/wm/system/settings desktop.transparency", "System Settings")
+            rect = None
+            for _ in range(30):
+                for line in dbg.logs(clear=False):
+                    m = re.search(r"settings: layout glass_sample (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+                    if m:
+                        rect = tuple(int(v) for v in m.groups())
+                if rect:
+                    break
+                time.sleep(0.3)
+            if not w or not rect:
+                return None
+            img = shot(dbg, qmp, w, tmp, f"glass_{int(on)}.png")
+            x, y, rw, rh = rect
+            y0 = w["content"]["y"] + y + rh - 4
+            px = [img.getpixel((w["content"]["x"] + x + rw // 2 + k, y0)) for k in range(rw // 3)]
+            dbg.close_window("System Settings")
+            return sum(1 for p in px if p == (31, 37, 46)), len(px)
+        try:
+            off, on = taskbar_strip(False), taskbar_strip(True)
+        finally:
+            dbg.send("sh config set desktop.transparency off")
+        res.check("Transparency's sample: the taskbar is solid with effects off and lets the "
+                  "wallpaper through with them on",
+                  off is not None and on is not None and off[0] == off[1] and on[0] < on[1] // 4,
+                  f"off={off} on={on}")
+
+        # THE FORMAT LABELS: "Region default" names today's date as the
+        # region writes it -- the preview line's first field.
+        dbg.close_window("System Settings")
+        dbg.logs()
+        win = dbg.spawn("/bin/wm/system/settings locale.region", "System Settings")
+        dflt, prev = None, None
+        for _ in range(30):
+            for line in dbg.logs(clear=False):
+                m = re.search(r"settings: date region default (\S+)", line)
+                if m:
+                    dflt = m.group(1)
+                m = re.search(r"settings: preview \S+ -> (\S+)", line)
+                if m:
+                    prev = m.group(1)
+            if dflt and prev:
+                break
+            time.sleep(0.3)
+        res.check("the Date dropdown's Region default shows today's date in the region's format",
+                  dflt is not None and dflt == prev, f"default={dflt} preview={prev}")
+    finally:
+        dbg.send("sh config set desktop.layout_log off")
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
@@ -538,6 +715,8 @@ def main():
         run_windows(dbg, qmp, tmp, res)
         run_effects(dbg, qmp, tmp, res)
         run_screen(dbg, qmp, tmp, res)
+        dbg.close_window("System Settings")
+        run_round3(dbg, qmp, tmp, res)
     finally:
         dbg.close()
     print(f"\nsettings_gallery_test: {len(res.passes)} passed, {len(res.fails)} failed")

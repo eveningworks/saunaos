@@ -223,6 +223,10 @@ enum utheme_round {
     UTHEME_R_COUNT
 };
 int  utheme_radius(enum utheme_round which);
+// A `desktop.corners` preset's radius for one kind, in the same units --
+// what a picture of a preset (Settings' Corners cards) draws, whatever
+// is in force. -2 for a word that is not a preset ("custom").
+int  utheme_radius_preset(const char *preset, enum utheme_round which);
 // desktop.scrollbars: 1 for Always (the groove and handle drawn at rest),
 // 0 for the thin handle that widens when pointed at.
 int  utheme_scrollbars_always(void);

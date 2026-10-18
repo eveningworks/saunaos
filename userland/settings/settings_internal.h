@@ -293,6 +293,8 @@ int page_changes(void);
 extern int g_page_captions;
 void open_group(int g);
 const char *staged_value(struct slot *sl);
+// The slot showing setting `name` on this page, or NULL.
+struct slot *slot_find(const char *name);
 int apply_page(void);
 extern struct uui_item PAGE[PAGE_ITEMS];
 extern int PAGE_COUNT;
@@ -316,6 +318,12 @@ void preview_attach(struct slot *sl, int idx);
 void preview_reset(void);
 // The chosen saver's picture on a monitor, filling (x, y, w, h).
 void preview_monitor(struct ugfx_surface *s, int x, int y, int w, int h, const char *saver);
+// Appearance > Transparency's sample (mockup T1): the taskbar, Start, a
+// menu and a window at the page's staged opacities and glass.
+void preview_glass(struct ugfx_surface *s, int x, int y, int w, int h);
+// 1 when the wallpaper on this page is the screen's shape, so Fill and
+// Fit draw the same; Desktop says so under the two cards.
+int preview_placement_same(void);
 // Display > Screen's monitor: the panel, and the mode placed on it as
 // `scaling` ("aspect", "full", "center") places it. panel_w 0 = no EDID.
 struct preview_screen {

@@ -50,11 +50,16 @@ static void read_spacing(void) {
     else if (!strcmp(v, "dense")) g_spacing = SPACING_DENSE;
 }
 
-static int air(void) {   // card padding, pill inset
+static int spacing_of(const char *word) {
+    return !word ? g_spacing : !strcmp(word, "compact") ? SPACING_COMPACT
+         : !strcmp(word, "dense") ? SPACING_DENSE : SPACING_COMFORTABLE;
+}
+static int air_for(int sp) {
     int c = ugfx_char_h();
-    int a = g_spacing == SPACING_DENSE ? c / 5 : g_spacing == SPACING_COMPACT ? c / 4 : c / 3;
+    int a = sp == SPACING_DENSE ? c / 5 : sp == SPACING_COMPACT ? c / 4 : c / 3;
     return a < 3 ? 3 : a;
 }
+static int air(void) { return air_for(g_spacing); }   // card padding, pill inset
 static int row_pad(void)  { return unit() + unit() / 4; } // inside the pill, either side
 static int icon_px(void)  {
     int c = ugfx_char_h();
@@ -67,9 +72,16 @@ static int pill_r(void)   { return air(); }
 
 // 38 px at the default 16 px line; compact is about Windows 11's mouse
 // menus (28), dense about Windows 10's classic ones (24).
-static int row_height(void) {
+static int row_height_for(int sp) {
     int c = ugfx_char_h();
-    return g_spacing == SPACING_DENSE ? c + 8 : g_spacing == SPACING_COMPACT ? c + 12 : c * 2 + 6;
+    return sp == SPACING_DENSE ? c + 8 : sp == SPACING_COMPACT ? c + 12 : c * 2 + 6;
+}
+static int row_height(void) { return row_height_for(g_spacing); }
+
+void uui_menu_spacing_metrics(const char *spacing, int *row_h, int *air_px) {
+    int sp = spacing_of(spacing);
+    if (row_h) *row_h = row_height_for(sp);
+    if (air_px) *air_px = air_for(sp);
 }
 
 // A separator is a hairline with air above and below it, not a row.

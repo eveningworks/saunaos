@@ -702,13 +702,13 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Live wallpaper previews in Settings that move -- the gallery shows one still frame per effect
 - [ ] Audit every app for square controls -- the rounded look of Paint's New picture dialog is the default
 - [x] ~~A thin-at-rest scrollbar that costs no column~~ DONE 2026-10-10 -- the Terminal; lists keep their strip
-- [ ] Settings previews: transparency glass -- clear, frosted and wallpaper drawn over a crop of the real wallpaper
+- [x] ~~Settings previews: transparency glass over the real wallpaper~~ DONE 2026-10-18 -- one live sample, following the sliders
 - [ ] Settings previews: Start and taskbar layout as mini diagrams per choice -- Windows 11's Start-layout pictures
 - [ ] Settings previews: the minimize effects as looping thumbnails -- KDE's desktop-effect previews
-- [ ] Settings previews: wallpaper Fill vs Fit, drawn with the chosen wallpaper
+- [x] ~~Settings previews: wallpaper Fill vs Fit, drawn with the chosen wallpaper~~ DONE 2026-10-18
 - [ ] Settings previews: cursor size, reusing the cursor-theme gallery's cards
-- [ ] Settings previews: icon size, sample icons at each size
-- [ ] Settings previews: menu spacing -- comfortable, compact and dense as a mini menu
+- [x] ~~Settings previews: icon size, sample icons at each size~~ DONE 2026-10-18 -- at their real pixel size
+- [x] ~~Settings previews: menu spacing as a mini menu~~ DONE 2026-10-18 -- real row heights; Corners got cards too
 - [ ] Terminal Options: colour schemes as swatches, each a small sample of the terminal
 - [ ] Dropdown lists sized to the room they have -- `uui_dropdown` scrolls past six rows; Qt shows 10, Windows 11 about 20
 - [x] ~~Desktop icon repositioning/dragging~~ done

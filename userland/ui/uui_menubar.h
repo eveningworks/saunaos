@@ -330,4 +330,9 @@ int uui_menubar_item_rect(const struct uui_menubar *m, int level, int index,
                            int *x, int *y, int *w, int *h);
 int uui_menubar_depth(const struct uui_menubar *m);
 
+// A menu row's height and its card's padding (the hover pill's inset)
+// under a `desktop.menu_spacing` word -- NULL for the one in force -- so a
+// picture of a menu, Settings' spacing cards, measures as menus do.
+void uui_menu_spacing_metrics(const char *spacing, int *row_h, int *air_px);
+
 #endif

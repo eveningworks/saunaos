@@ -5082,7 +5082,18 @@ window without going through it will find its layout polls timing out.
   None's bodies are solid and All's are not, and Display > Screen's
   monitor is captioned with the mode on screen and holds the desktop in
   miniature. **A card's miniature is found by its DESKTOP colour's
-  bounding box**, so the card's white margin is never counted. In
+  bounding box**, so the card's white margin is never counted. Then
+  round 3 (8 checks): Placement's cards show the wallpaper (not the plain
+  desktop colour) and, the built-in pictures being the screen's shape,
+  the same in both, with the line saying so; Icon size's folder grows
+  Small < Medium < Large; Menu spacing shows more rows the denser it is
+  (rows counted only on the menu's light ground); Corners, after ticking
+  Show advanced settings (**scroll to it first: it ends the page**),
+  keeps more title colour in its corners the squarer the preset;
+  Transparency's sample taskbar is solid with effects off and lets the
+  wallpaper through with them on; and the Date dropdown's Region default
+  matches the preview line's date. **A page too short to scroll
+  re-reports no cards**: the opening report is used. In
   `gui_regress.py`.
 - **`settings_test.py`** -- the ring-3 System Settings app and, through
   it, the settings registry. Run it after touching

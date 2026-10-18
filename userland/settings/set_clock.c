@@ -145,8 +145,64 @@ static void build_preview(void) {
     ulogf("settings: preview %s -> %s\n", name, g_preview_text);
 }
 
+// THE FORMAT CHOICES SAY WHAT THEY GIVE TODAY: a date or time row is
+// now in that format, and "Region default" adds what the staged region
+// gives -- Windows' Region page and GNOME's Formats show the same. The
+// registry's own labels are kept to build from: a time row keeps its
+// "(24-hour)", and a row whose locale will not load keeps its label.
+#define FMT_ROWS 16
+static const char *const FMT_SETTING[3] = { "locale.date_format", "locale.time_format",
+                                            "locale.number_format" };
+static const char *const FMT_KEY[3] = { "date", "time", "number" };
+static char g_fmt_label[3][FMT_ROWS][SETTING_ABI_VALUE_MAX];
+
+static void formats_remember(void) {
+    for (int f = 0; f < 3; f++) {
+        int sl = slot_named(FMT_SETTING[f]);
+        for (int i = 0; sl >= 0 && i < g_slot[sl].choice_count && i < FMT_ROWS; i++)
+            strlcpy(g_fmt_label[f][i], g_slot[sl].choice[i], sizeof g_fmt_label[f][i]);
+    }
+}
+
+static void formats_relabel(void) {
+    int r = slot_named(SET_REGION);
+    if (r < 0) return;
+    const char *region = staged_value(&g_slot[r]);
+    time_t now = time(0);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    for (int f = 0; f < 3; f++) {
+        int sl = slot_named(FMT_SETTING[f]);
+        for (int i = 0; sl >= 0 && i < g_slot[sl].choice_count && i < FMT_ROWS; i++) {
+            struct slot *s = &g_slot[sl];
+            const char *orig = g_fmt_label[f][i], *raw = s->choice_raw[i];
+            int dflt = !strcmp(raw, "region");
+            if (f == 2 && !dflt) continue;   // a number row's label is its sample already
+            char name[96], sample[48];
+            if (dflt) strlcpy(name, region, sizeof name);
+            else snprintf(name, sizeof name, "%s@%s=%s", region, FMT_KEY[f], raw);
+            if (!setlocale(LC_ALL, name)) continue;
+            if (f == 2) {
+                strlcpy(sample, "1234567.89", sizeof sample);
+                unum_localize(sample, sizeof sample, UNUM_GROUP);
+            } else {
+                udate_format_tm(sample, sizeof sample, &tm, f == 0 ? UDATE_DATE : UDATE_TIME);
+            }
+            const char *paren = strstr(orig, " (");
+            if (dflt) {
+                snprintf(s->choice[i], sizeof s->choice[i], "%s (%s)", orig, sample);
+                ulogf("settings: %s region default %s\n", FMT_KEY[f], sample);
+            }
+            else snprintf(s->choice[i], sizeof s->choice[i], "%s%s", sample, paren ? paren : "");
+        }
+    }
+    setlocale(LC_ALL, "");
+}
+
 void region_preview_refresh(void) {
-    if (g_region_page) build_preview();
+    if (!g_region_page) return;
+    build_preview();
+    formats_relabel();
 }
 
 // --- the page hooks -------------------------------------------------------
@@ -161,6 +217,7 @@ void clock_page_opened(void) {
     g_ntp_on = ntp >= 0 && strcmp(g_value[g_slot[ntp].setting], "on") == 0;
     g_clock_btn.disabled = g_ntp_on;
     g_clock_row.disabled = g_ntp_on;
+    if (g_region_page) formats_remember();
     strlcpy(g_clock_desc, g_ntp_on ? "Unavailable while the time is set automatically"
                                    : "Step the clock to a date and time you enter",
             sizeof g_clock_desc);
