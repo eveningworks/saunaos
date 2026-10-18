@@ -268,7 +268,7 @@ struct sched_process {
     uint64_t rt_seq;
     // RT time since this process last BLOCKED: the per-process watchdog
     // (RLIMIT_RTTIME's shape) demotes it to SCHED_OTHER past
-    // kernel.sched_rt_watchdog_ms. A yield does not reset it.
+    // kernel.sched.rt.watchdog_ms. A yield does not reset it.
     uint64_t rt_run_ns;
     // A SYSCALL REWOUND TO BE RE-ISSUED, NOT RUN YET. Set when a signal
     // wakes this process out of a park (its RIP is put back on the

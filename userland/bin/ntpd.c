@@ -121,20 +121,20 @@ static int ntp_enabled(void) {
 
 // A SERVER NAMED ON THE COMMAND LINE OUTRANKS THE SETTING AND IS NOT
 // PERSISTED. `ntpd -q time.example.com` is a question about that host,
-// not a decision about this machine -- `config set system.ntp_server`
+// not a decision about this machine -- `config set system.ntp.server`
 // is how the machine is configured, and a command that quietly did both
 // would make the visible one wrong.
 static const char *g_server_override;
 
 static void ntp_server_name(char *out, unsigned cap) {
     if (g_server_override) { strlcpy(out, g_server_override, cap); return; }
-    if (!setting_str("system.ntp_server", out, cap))
+    if (!setting_str("system.ntp.server", out, cap))
         strlcpy(out, NTP_DEFAULT_SERVER, cap);
 }
 
 static int ntp_interval_minutes(void) {
     char v[SETTING_ABI_VALUE_MAX];
-    if (!setting_str("system.ntp_interval", v, sizeof v)) return NTP_DEFAULT_INTERVAL;
+    if (!setting_str("system.ntp.interval", v, sizeof v)) return NTP_DEFAULT_INTERVAL;
     int n = atoi(v);
     // The registry bounds this, so an out-of-range value here means the
     // /etc file was hand-edited past it. Clamped rather than refused: a
@@ -453,8 +453,8 @@ static const struct uargs_prog PROG = {
     .usage = "[-1 | -q] [-p PORT] [SERVER]",
     .summary = "Set this machine's clock from a network time server.",
     .opts = OPTS,
-    .notes = "With no SERVER, `system.ntp_server` is used. Resident syncing obeys\n"
-             "`system.ntp` and `system.ntp_interval`; -1 and -q do not.",
+    .notes = "With no SERVER, `system.ntp.server` is used. Resident syncing obeys\n"
+             "`system.ntp` and `system.ntp.interval`; -1 and -q do not.",
 };
 
 int main(int argc, char **argv) {

@@ -311,7 +311,7 @@ def check_keyboard_layout_names(problems):
     is dead text. Needs no xkbcli -- LAYOUTS is plain data."""
     sys.path.insert(0, os.path.join(REPO, "tools"))
     import gen_kbs
-    rel = "data/etc/settings.d/system.keyboard_layout"
+    rel = "data/etc/settings.d/system.keyboard.layout"
     have = {}
     for line in read(rel).splitlines():
         if line.startswith("Choice.") and "=" in line:

@@ -1072,7 +1072,7 @@ def icon_tray_network_limited():
     return im
 
 
-# No network device at all. Only reachable with `desktop.tray_network =
+# No network device at all. Only reachable with `desktop.tray.network =
 # always`, since `auto` hides the item outright in this case -- it
 # exists so that pinning the item never shows a state it has no icon
 # for.

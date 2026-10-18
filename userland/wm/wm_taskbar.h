@@ -3,7 +3,7 @@
 
 // The height the strip may take, and what it is with nothing written.
 // **THE BOUNDS ARE THE DECLARATION'S TWIN** -- /etc/settings.d/
-// desktop.taskbar_height carries the same Min/Max/Step/Default, because
+// desktop.taskbar.height carries the same Min/Max/Step/Default, because
 // that is what bounds a value arriving from System Settings or a hand
 // edit. These are what the code clamps with; change both together.
 //
@@ -13,7 +13,7 @@
 //
 // This is the BAR's thickness. `taskbar_h` (wm_internal.h) is the BAND
 // the strip reserves, which is the bar plus TASKBAR_FLOAT_GAP while
-// `desktop.taskbar_float` is on -- see struct taskbar_geom.
+// `desktop.taskbar.float` is on -- see struct taskbar_geom.
 #define TASKBAR_H_MIN  24
 #define TASKBAR_H_MAX  96
 #define TASKBAR_H_STEP 2
@@ -36,7 +36,7 @@
 // not fit, windows of the same application COLLAPSE into one button
 // carrying a count. Clicking a collapsed button opens a list of its
 // windows (Windows' jump list; KDE Plasma's grouped-task popup).
-// `desktop.taskbar_combine` moves that point -- always, when full (the
+// `desktop.taskbar.combine` moves that point -- always, when full (the
 // above), never -- as Windows 11's "Combine taskbar buttons" does. Past
 // it, the buttons that do not fit go behind an OVERFLOW button at the
 // end of the row, a count that opens a list of them (Windows 11's
@@ -45,7 +45,7 @@
 // obvious next step and is deliberately not taken -- `taskbar_h` is a
 // constant that the desktop icon area, the Start menu's anchor, the
 // context-menu clamp and every damage rect all derive from -- and now
-// a SETTING, `desktop.taskbar_height`, adopted through
+// a SETTING, `desktop.taskbar.height`, adopted through
 // taskbar_poll_config() and relaid through wm_layout_changed().
 //
 // GROUPING KEY: `struct window.app_id` -- the client's own name for what
@@ -76,7 +76,7 @@ struct taskbar_button {
     char label[32];
 };
 
-// THE GROUP COUNT on an icons-only button (`desktop.taskbar_buttons` =
+// THE GROUP COUNT on an icons-only button (`desktop.taskbar.buttons` =
 // icons) that stands for two or more windows: the badge's rect when the
 // button is drawn at `x`, and its text ("3", "9+") in `num`. 0 for a
 // labelled strip, whose label carries the count instead, or a single
@@ -116,14 +116,14 @@ int taskbar_icon_size(void);
 #define TB_PAD      12
 #define TB_ICON_GAP 8
 
-// The strip's height with `desktop.taskbar_height` unset -- the
+// The strip's height with `desktop.taskbar.height` unset -- the
 // declaration's twin above, NOT a font formula: the
 // two rings' fonts do not share a line height.
 int taskbar_default_h(void);
 
 // HOW THE START BUTTON LOOKS: the word, the mark, or both --
-// `desktop.start_button`, an enum DECLARED in
-// /etc/settings.d/desktop.start_button. XFCE's Whisker Menu offers this
+// `desktop.start.button`, an enum DECLARED in
+// /etc/settings.d/desktop.start.button. XFCE's Whisker Menu offers this
 // same three-way (Icon / Title / Icon and title) and KDE's launcher the
 // same choice against an icon-only default; a boolean cannot express
 // `both`, which is what Windows 95 through 7 shipped.
@@ -147,10 +147,10 @@ enum start_button_mode taskbar_start_mode(void);
 int start_icon_size(void);
 
 // FOUR INDEPENDENT SETTINGS, as Plasma keeps them (Windows has only the
-// alignment): what a window button shows -- `desktop.taskbar_buttons`,
-// labelled | icons; where the buttons sit -- `desktop.taskbar_align`,
-// left | center; where Start sits -- `desktop.start_position`, left |
-// center; and whether the panel floats -- `desktop.taskbar_float`. One
+// alignment): what a window button shows -- `desktop.taskbar.buttons`,
+// labelled | icons; where the buttons sit -- `desktop.taskbar.align`,
+// left | center; where Start sits -- `desktop.start.position`, left |
+// center; and whether the panel floats -- `desktop.taskbar.float`. One
 // layout function places every combination (taskbar_layout()), and it
 // and the draw function ask taskbar_geom() below, so none of them is a
 // second taskbar.
@@ -163,7 +163,7 @@ int taskbar_align_centered(void);
 int taskbar_start_centered(void);  // the Start MENU opens centred when this is
 int taskbar_float_on(void);
 
-// The strip's colours -- `desktop.taskbar_theme` (dark | light), apart
+// The strip's colours -- `desktop.taskbar.theme` (dark | light), apart
 // from the window theme because Windows and KDE both let the panel be
 // dark over light windows. `accent` follows utheme's, lightened on dark
 // so an indicator three pixels tall still reads.
@@ -196,7 +196,7 @@ struct taskbar_geom {
 };
 void taskbar_geom(struct taskbar_geom *g);
 int taskbar_floating(void);   // drawn detached right now (set, and not deflated)
-int taskbar_bar_h(void);      // `desktop.taskbar_height`, clamped
+int taskbar_bar_h(void);      // `desktop.taskbar.height`, clamped
 
 // The Start button's box (btn_y/btn_h tall). Its HIT rect is this
 // widened to the band's height -- and to the screen's left edge when
@@ -256,8 +256,8 @@ void taskbar_glide_step(void);
 void taskbar_update_hover(int mx, int my, uint8_t buttons);
 int taskbar_hover(void);
 
-// Re-reads `desktop.taskbar_height`, `_style`, `_theme` and
-// `desktop.start_button` if anything on the filesystem has changed, and
+// Re-reads `desktop.taskbar.height`, `_style`, `_theme` and
+// `desktop.start.button` if anything on the filesystem has changed, and
 // every frame re-asks whether a floating panel should deflate. Called once per frame from wm.c, beside desktop_poll_config()
 // and for the same reason -- there is no inotify here, so a generation
 // counter is what says "ask again". The idle cost is one compare.
@@ -268,7 +268,7 @@ void taskbar_poll_config(void);
 // width (and, when combining, grouping) does not fit them.
 int taskbar_hidden(void);
 
-// WHEN WINDOWS OF ONE APP SHARE A BUTTON: `desktop.taskbar_combine`.
+// WHEN WINDOWS OF ONE APP SHARE A BUTTON: `desktop.taskbar.combine`.
 enum taskbar_combine {
     TASKBAR_COMBINE_FULL,     // only when the floor width does not fit -- the DEFAULT
     TASKBAR_COMBINE_ALWAYS,   // one button per app from the first window

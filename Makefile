@@ -878,6 +878,7 @@ LIBUAPP_OBJS = $(patsubst userland/%.c,$(BUILD)/userland/%.o,$(LIBUAPP_SRCS)) \
                $(BUILD)/userland/shared/geom.o \
                $(BUILD)/userland/shared/keyboard_layout.o \
                $(BUILD)/userland/shared/etc_config.o \
+               $(BUILD)/userland/shared/etc_renamed.o \
                $(BUILD)/userland/shared/fixed.o \
                $(BUILD)/userland/shared/ansi.o \
                $(BUILD)/userland/shared/klineedit.o \

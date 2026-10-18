@@ -158,7 +158,7 @@ def descriptor_name_problems():
     (SETTING_ABI_NS_MAX, SETTING_ABI_NAME_MAX), and an over-long one fails
     quietly: the declaration still shows, but its text never matches it,
     so its page row arrives with no label, choices or Widget= -- as
-    `desktop.transparency_window_opacity` did under the old 24-byte cap,
+    `desktop.transparency.window.opacity` did under the old 24-byte cap,
     a bare dropdown of raw numbers sorted first on its page.
     """
     src = open(SETTING_ABI).read()

@@ -37,13 +37,13 @@ WHAT IT ASSERTS
    goes back to naming its peers by hand.
 
 6. THE ITEM HIDES ITSELF when there is no backlight, and the strip
-   REFLOWS -- `desktop.tray_brightness` is `auto` | `always` | `never`,
+   REFLOWS -- `desktop.tray.brightness` is `auto` | `always` | `never`,
    and `auto` consults the hardware. The evidence for a hidden item can
    only be an absence, so it is taken two ways: the compositor's own
    `tray_hidden`, and `gui taskbar --json`'s `tray_x` moving by the
    icon's width, which is the half a mere flag cannot fake.
 
-THIS TOOL PINS `desktop.tray_brightness` TO `always` FOR EVERYTHING
+THIS TOOL PINS `desktop.tray.brightness` TO `always` FOR EVERYTHING
 ELSE IT DOES, and that is load-bearing rather than tidy. Every GUI tool
 here runs under QEMU, where no adapter has a backlight, so on the
 default `auto` the sun is not in the tray at all and checks 1-5 would
@@ -93,14 +93,14 @@ def panel_box(g):
 
 
 def tray_mode(dbg, mode, want_hidden, tries=25):
-    """Set `desktop.tray_brightness` and WAIT ON THE OBSERVABLE.
+    """Set `desktop.tray.brightness` and WAIT ON THE OBSERVABLE.
 
     Through the console's own `sh`, never a second tool: a DebugConsole
     holds .vm.serial, and `vm.py exec` wants the same socket -- two
     readers steal each other's replies, and the write silently does not
     happen (which reads exactly like the feature being broken).
     """
-    dbg.send(f"sh config set desktop.tray_brightness {mode}")
+    dbg.send(f"sh config set desktop.tray.brightness {mode}")
     for _ in range(tries):
         if bri(dbg)["tray_hidden"] == want_hidden:
             return True
@@ -297,10 +297,10 @@ def main():
 
     # RESTORED, and it matters: an extra tray item shifts the taskbar
     # geometry that other tools measure.
-    dbg.send("sh config set desktop.tray_brightness auto")
+    dbg.send("sh config set desktop.tray.brightness auto")
     check("the setting is put back to its default on the way out",
-          (setting(dbg, "desktop.tray_brightness") or "").endswith("auto"),
-          setting(dbg, "desktop.tray_brightness"))
+          (setting(dbg, "desktop.tray.brightness") or "").endswith("auto"),
+          setting(dbg, "desktop.tray.brightness"))
     return report()
 
 

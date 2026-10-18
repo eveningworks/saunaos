@@ -140,7 +140,7 @@ validates, applies AND persists; a kernel tunable is a setting whose
 `apply` writes a live kernel variable, in a namespace like `kernel`
 from its own `/etc/sysctl.conf`. `config set kernel.foo` then works
 with no new mechanism, Control Panel grows a row for free, and the
-value is restored at boot exactly as `font_size` is. This is sysctl's
+value is restored at boot exactly as `font.size` is. This is sysctl's
 split precisely: `/etc/sysctl.conf` persists, `sysctl -w` writes live,
 and readings live somewhere else entirely.
 
@@ -210,7 +210,7 @@ Four things came out of building it that the plan did not have:
   half nobody has validated. It also means a program needs to know
   exactly ONE number to discover every other class.
 - **`config get` needed named fields.** A record has several fields, so
-  `config get mem.frame_free` cannot work without a way to name one.
+  `config get mem.frame.free` cannot work without a way to name one.
   `struct query_field` (name, type, offset) declares them, `QUERY_FIELD()`
   derives the offset from the member so nobody maintains a number, and
   the FIELD ops carry names and values across the syscall boundary while
@@ -462,7 +462,7 @@ scalar is the only one of the three that can say which.
 
 **Named fields on the scalar, none on the lists**, per the registry's
 own rule -- and the scalar's fields are the reason `config get
-acpi.slp_typ_a` answers at all, which is the cheapest way to ask why a
+acpi.slp_typ.a` answers at all, which is the cheapest way to ask why a
 shutdown did not take.
 
 **Nothing here is recomputed.** Every field was decoded once at

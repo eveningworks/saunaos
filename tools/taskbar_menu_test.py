@@ -139,7 +139,7 @@ def run(dbg, res):
         close_menu(dbg)
 
     # --- 2. a choice, round trip -----------------------------------------
-    before = setting(dbg, "desktop.taskbar_combine")
+    before = setting(dbg, "desktop.taskbar.combine")
     dbg.rclick(sx, sy)
     sub = open_sub(dbg, dbg.ctxmenu(), "Combine buttons")
     ticked = [r["label"] for r in sub.get("rows", []) if r.get("checked")]
@@ -160,14 +160,14 @@ def run(dbg, res):
             break
         time.sleep(0.2)
     res.check(f"...choosing {target} writes the setting and the taskbar adopts it",
-              setting(dbg, "desktop.taskbar_combine") == word and adopted == word,
-              f"setting={setting(dbg, 'desktop.taskbar_combine')!r} taskbar={adopted!r}")
+              setting(dbg, "desktop.taskbar.combine") == word and adopted == word,
+              f"setting={setting(dbg, 'desktop.taskbar.combine')!r} taskbar={adopted!r}")
     dbg.rclick(sx, sy)
     sub = open_sub(dbg, dbg.ctxmenu(), "Combine buttons")
     ticked = [x["label"] for x in sub.get("rows", []) if x.get("checked")]
     res.check("...and the reopened menu has moved its tick", ticked == [target], f"ticked={ticked}")
     close_menu(dbg)
-    dbg.send(f"sh config set desktop.taskbar_combine {before or 'full'}")
+    dbg.send(f"sh config set desktop.taskbar.combine {before or 'full'}")
 
     # --- 3. the floating panel toggle -----------------------------------
     was = dbg.taskbar().get("float")

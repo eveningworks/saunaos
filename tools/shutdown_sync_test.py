@@ -114,25 +114,25 @@ def run(inst, res, control):
         return
 
     # --- an EXISTING config file, updated then rebooted ---------------
-    guest(inst, "config set storage.log_keep 9", "sync")
-    if not set_and_reboot(inst, "config set storage.log_keep 33"):
+    guest(inst, "config set storage.log.keep 9", "sync")
+    if not set_and_reboot(inst, "config set storage.log.keep 33"):
         res.check("the guest came back after the first reboot", False)
         return
-    out = read_back(inst, "config get storage.log_keep", "33")
+    out = read_back(inst, "config get storage.log.keep", "33")
     res.check("a setting written just before reboot survives it",
               "33" in out, f"config get answered: {out.strip()[-80:]!r}")
 
     # ...and the PREVIOUS value must not have been destroyed either.
-    out = read_back(inst, "cat " + CONF, "log_keep")
+    out = read_back(inst, "cat " + CONF, "log.keep")
     res.check("...and the config file is not left empty",
-              "log_keep" in out, f"{CONF} reads: {out.strip()[-80:]!r}")
+              "log.keep" in out, f"{CONF} reads: {out.strip()[-80:]!r}")
 
     # --- a config file that did not EXIST -----------------------------
     guest(inst, "rm " + CONF, "sync")
-    if not set_and_reboot(inst, "config set storage.log_keep 17"):
+    if not set_and_reboot(inst, "config set storage.log.keep 17"):
         res.check("the guest came back after the second reboot", False)
         return
-    out = read_back(inst, "config get storage.log_keep", "17")
+    out = read_back(inst, "config get storage.log.keep", "17")
     res.check("a setting that had to CREATE its file survives too",
               "17" in out, f"config get answered: {out.strip()[-80:]!r}")
 
@@ -144,9 +144,9 @@ def run(inst, res, control):
     if not set_and_reboot(inst, f"cp {CONF} {scratch}"):
         res.check("the guest came back after the third reboot", False)
         return
-    out = read_back(inst, "cat " + scratch, "log_keep")
+    out = read_back(inst, "cat " + scratch, "log.keep")
     res.check("an ordinary file written just before reboot survives",
-              "log_keep" in out, f"{scratch} reads: {out.strip()[-80:]!r}")
+              "log.keep" in out, f"{scratch} reads: {out.strip()[-80:]!r}")
 
 
 def main():
@@ -162,7 +162,7 @@ def main():
         run(args.instance, res, args.positive_control)
     finally:
         try:
-            guest(args.instance, "config set storage.log_keep 10", "sync")
+            guest(args.instance, "config set storage.log.keep 10", "sync")
         except Exception:
             pass
         vm(args.instance, "stop")

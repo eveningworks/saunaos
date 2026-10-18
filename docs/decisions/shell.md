@@ -112,7 +112,7 @@ and Alt reach a window as bits, and a game reads keys by position".
 Typing a bare `nx_test` runs `/bin/nx_test`; the `run` prefix is
 optional now. Three decisions in that, each with a real alternative:
 
-**PATH is shell state.** `timezone` and `font_size` live in
+**PATH is shell state.** `timezone` and `font.size` live in
 `/etc/toyos.conf` behind small kernel-side modules (`tz.c`,
 `font_config.c`) because the kernel itself consults them. Nothing in the
 kernel has any use for PATH -- it's a question about how a command line
@@ -987,7 +987,7 @@ would be trading the point for the metric.
 
 **The fix is not a syscall per toggle.** `struct setting` already
 crosses the ring boundary in both directions -- `SYS_SETTING` is how
-`config set system.font_size 16` works from ring 3 -- so a toggle wants
+`config set system.font.size 16` works from ring 3 -- so a toggle wants
 to be a setting. The only thing missing is that these three must not
 survive a reboot, which is exactly the non-persisting flavour
 (`docs/query-design.md`'s stage 3). With it, each command moves whole:

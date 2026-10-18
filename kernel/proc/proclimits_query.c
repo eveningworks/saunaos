@@ -20,8 +20,8 @@ static int proclimits_fill(int index, void *out) {
 }
 
 static const struct query_field proclimits_fields[] = {
-    QUERY_FIELD(struct query_proclimits, max_procs, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_proclimits, pid_max,   QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_proclimits, max_procs, "max", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_proclimits, pid_max, "pid.max", QUERY_TYPE_U64),
     QUERY_FIELD(struct query_proclimits, live,      QUERY_TYPE_U64),
 };
 

@@ -1,4 +1,4 @@
-# /etc/settings.d/browser.user_agent_custom -- the User-Agent sent when
+# /etc/settings.d/browser.user_agent.custom -- the User-Agent sent when
 # browser.user_agent is Custom.
 Type=string
 File=/etc/browser.conf

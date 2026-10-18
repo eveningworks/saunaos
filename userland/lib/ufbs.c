@@ -67,11 +67,11 @@ int ufbs_rearm(void) {
 // Each page's settings, as the wizard writes them.
 static const struct { const char *id, *title, *settings[6]; } PAGES[UFBS_PAGES] = {
     { "region",   "Region & formats", { "locale.region", "locale.time_format" } },
-    { "keyboard", "Keyboard",  { "system.keyboard_layout", "system.keyboard_layouts",
-                                 "system.keyboard_dead_keys" } },
+    { "keyboard", "Keyboard",  { "system.keyboard.layout", "system.keyboard.layouts",
+                                 "system.keyboard.dead_keys" } },
     { "time",     "Time zone", { "system.timezone", "system.ntp" } },
-    { "look",     "Appearance", { "desktop.wallpaper", "desktop.wallpaper_type", "system.cursor_theme",
-                                  "desktop.taskbar_theme", "desktop.transparency" } },
+    { "look",     "Appearance", { "desktop.wallpaper", "desktop.wallpaper.type", "system.cursor.theme",
+                                  "desktop.taskbar.theme", "desktop.transparency" } },
     { "name",     "Computer name", { "system.hostname" } },
     { "net",      "Network",   { "update.server" } },
 };

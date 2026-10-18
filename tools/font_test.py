@@ -213,11 +213,11 @@ def set_font_setting(dbg, key, value, timeout=10.0):
 
 
 def set_face(dbg, name, timeout=10.0):
-    return set_font_setting(dbg, "system.font_face", name, timeout)
+    return set_font_setting(dbg, "system.font.face", name, timeout)
 
 
 def set_size(dbg, px, timeout=10.0):
-    return set_font_setting(dbg, "system.font_size", px, timeout)
+    return set_font_setting(dbg, "system.font.size", px, timeout)
 
 
 def set_setting(dbg, key, value):
@@ -647,8 +647,8 @@ def main():
     # face behind was why consecutive runs failed more and more checks
     # (docs/bugs.md).
     orig = {k: config_get(dbg, k) for k in
-            ("system.font_face", "system.font_size", "desktop.wallpaper_type")}
-    set_setting(dbg, "desktop.wallpaper_type", "colour")
+            ("system.font.face", "system.font.size", "desktop.wallpaper.type")}
+    set_setting(dbg, "desktop.wallpaper.type", "colour")
     set_size(dbg, 14)
     set_face(dbg, PROP)
     mono_rep = set_face(dbg, MONO)
@@ -712,7 +712,7 @@ def main():
     # was asked for rather than the console's snapped size -- 18 above
     # is on the baked ladder and would pass either way.
     odd = set_size(dbg, 13)
-    got = config_get(dbg, "system.font_size")
+    got = config_get(dbg, "system.font.size")
     check("a size nobody baked (13) is accepted and rasterized at 13",
           odd.get("px") == 13 and got == "13", f"fontd {odd.get('px')}px, setting {got!r}")
 
@@ -752,12 +752,12 @@ def main():
 
     # Put back what was there.
     close_font_demo(dbg)
-    if orig["desktop.wallpaper_type"]:
-        set_setting(dbg, "desktop.wallpaper_type", orig["desktop.wallpaper_type"])
-    if orig["system.font_size"]:
-        set_size(dbg, orig["system.font_size"])
-    if orig["system.font_face"]:
-        set_face(dbg, orig["system.font_face"])
+    if orig["desktop.wallpaper.type"]:
+        set_setting(dbg, "desktop.wallpaper.type", orig["desktop.wallpaper.type"])
+    if orig["system.font.size"]:
+        set_size(dbg, orig["system.font.size"])
+    if orig["system.font.face"]:
+        set_face(dbg, orig["system.font.face"])
 
     passed = sum(1 for _, ok in checks if ok)
     failed = len(checks) - passed

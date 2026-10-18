@@ -39,7 +39,7 @@ static int tile_for(const char *stem) {
     struct utheme_bundle b;
     strlcpy(g_tile[i].stem, stem, sizeof g_tile[i].stem);
     utheme_load(stem, &g_tile[i].t, &b);
-    g_tile[i].light_bar = !strcmp(b.value[1], "light");     // desktop.taskbar_theme
+    g_tile[i].light_bar = !strcmp(b.value[1], "light");     // desktop.taskbar.theme
     g_tile[i].corner = corner_of(b.value[0][0] ? b.value[0] : "small");
     return i;
 }

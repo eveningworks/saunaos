@@ -408,8 +408,8 @@ this the obvious way), not from how much history it accumulated.
 
 - **THERE ARE TWO FONT FAMILIES: A PROPORTIONAL ONE FOR THE INTERFACE
   AND A FIXED-CELL ONE FOR TERMINALS AND CODE.**
-  `system.font_face` and `system.font_mono`, both a face name, both
-  rasterized by `/bin/fontd` at the one shared `system.font_size`. GNOME
+  `system.font.face` and `system.font.mono`, both a face name, both
+  rasterized by `/bin/fontd` at the one shared `system.font.size`. GNOME
   keeps `font-name` beside `monospace-font-name` and Windows pairs its
   UI font with Consolas, for the same reason: no face is good at both
   jobs, and a grid of cells drawn in a proportional face does not line
@@ -1731,7 +1731,7 @@ this the obvious way), not from how much history it accumulated.
   pixels, so tests were clicking beside the buttons they aimed at.
   Buttons shrink to a font-derived floor, then windows of one
   APPLICATION collapse into one counted button whose click opens a list
-  of them -- `desktop.taskbar_combine` (`always` | `full`, the default |
+  of them -- `desktop.taskbar.combine` (`always` | `full`, the default |
   `never`) moves that point, Windows 11's "Combine taskbar buttons".
   Anything that still will not fit goes behind an OVERFLOW button at the
   end of the row (`taskbar_overflow()`, counted by `taskbar_hidden()`),
@@ -1742,10 +1742,10 @@ this the obvious way), not from how much history it accumulated.
   identity groups by client pid instead. See
   `docs/decisions.md`, and `tools/taskbar_test.py` for the thresholds.
 - **THE TASKBAR'S LAYOUT IS FOUR INDEPENDENT SETTINGS, AND EVERY RECT
-  COMES FROM `taskbar_geom()`.** `desktop.taskbar_buttons` = `labelled` |
-  `icons`, `desktop.taskbar_align` and `desktop.start_position` (shown
-  on the Desktop > Start page) = `left` | `center`, `desktop.taskbar_float` = `off` | `on` -- Plasma's shape,
-  where each is its own control -- and `desktop.taskbar_theme` = `dark` |
+  COMES FROM `taskbar_geom()`.** `desktop.taskbar.buttons` = `labelled` |
+  `icons`, `desktop.taskbar.align` and `desktop.start.position` (shown
+  on the Desktop > Start page) = `left` | `center`, `desktop.taskbar.float` = `off` | `on` -- Plasma's shape,
+  where each is its own control -- and `desktop.taskbar.theme` = `dark` |
   `light` picks `taskbar_palette()`. ONE `taskbar_layout()` places every
   combination: Start first, taking its room out of the strip, then the
   buttons sized for what is left and placed by alignment; a centred
@@ -1904,7 +1904,7 @@ this the obvious way), not from how much history it accumulated.
   wlroots holds surface pointers with destroy listeners instead; the
   array is why this is needed here. `tools/window_identity_test.py`.
 - **TASKBAR PEEK IS AN OVERLAY THAT HOLDS WINDOWS BY `open_seq`.**
-  `userland/wm/wm_peek.c`, `desktop.taskbar_peek` = `off` | `preview` |
+  `userland/wm/wm_peek.c`, `desktop.taskbar.peek` = `off` | `preview` |
   `highlight`: a card of box-averaged CONTENT thumbnails (no chrome),
   rescaled on the client's present and at most every 200 ms, never per
   frame. It opens after the tooltip's delay, switches between buttons at
@@ -2001,7 +2001,7 @@ this the obvious way), not from how much history it accumulated.
   (the first version shipped loading 0 of 6 and looked right).
   **Scaling is integer nearest-neighbour** where there is no rendering
   for the size, and the size is its own setting, not derived from
-  `font_size`. And **every SHIPPED theme is an image theme** (Classic
+  `font.size`. And **every SHIPPED theme is an image theme** (Classic
   and Classic bold since 2026-10-01; the default is Graphite,
   `CURSOR_THEME_DEFAULT`), painted over ONE geometry in
   `tools/gen_cursors.py` -- the masks are the format's and the
@@ -2210,7 +2210,7 @@ this the obvious way), not from how much history it accumulated.
   privileged, not drawing. The one thing a client can't produce for
   itself is the font, which `WIN_REQ_FONT` maps READ-ONLY out of the
   kernel's own tables rather than copying (one instance in memory, and
-  client text can't drift from the desktop's when `font_size` changes).
+  client text can't drift from the desktop's when `font.size` changes).
   Two widgets have no kernel-side ancestor and were written here first:
   **`uui_menubar`** (submenus nested to any depth -- a menu is const
   arrays pointing at each other, which is still the right shape now that
@@ -2299,7 +2299,7 @@ this the obvious way), not from how much history it accumulated.
   when something is in it" rule the categories follow. By default the
   menu opens on the first of them, so it opens on what you use
   (Kickoff's default) and on All Apps on a machine where nothing has
-  been pinned or launched yet; `desktop.start_opens` can name Recent,
+  been pinned or launched yet; `desktop.start.opens` can name Recent,
   All Apps or the last folder used instead.
 - **WHAT IS PINNED AND WHAT HAS BEEN LAUNCHED IS KEYED BY APP ID**, in
   `/etc/start-menu.conf` (`userland/wm/start_store.h`). Not by name and
@@ -2324,7 +2324,7 @@ this the obvious way), not from how much history it accumulated.
   `uui_scrollbar_*` helpers rather than a second implementation, and it
   counts LINES, so a grid scrolls by its rows.
 - **THE START MENU'S SETTINGS ARE READ ONCE PER OPEN**
-  (`read_settings()`, the Desktop > Start page): `desktop.start_list`
+  (`read_settings()`, the Desktop > Start page): `desktop.start.list`
   (detailed | compact | grid), `start_opens`, `start_recent`,
   `start_hover`, `start_power`. A change applies at the next open, so
   nothing re-lays-out under the pointer. Every list style keeps the
@@ -2541,7 +2541,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   colour ROLES read through `utheme_current()` (the `UTHEME_*` macros are
   now accessors into it, so existing sites are theme-driven for free), and
   METRICS (`utheme_pad/gap/indicator/control_h`) are functions of the font
-  so chrome scales with `font_size`. A new colour is a role, not a fresh
+  so chrome scales with `font.size`. A new colour is a role, not a fresh
   `ugfx_rgb()`; a control's default size is a metric, not a literal. The
   split (palette vs metrics) is Qt's QPalette vs QStyle -- see
   `docs/decisions/gui.md`. A dark mode / accent is a `utheme_set()` swap.
@@ -3179,7 +3179,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 
 - **THE WALLPAPER IS A REGISTERED SETTING, AND ITS VALUE IS A NAME.**
   `desktop.wallpaper` (a filename stem under `/usr/share/wallpapers`, or
-  `none`) and `desktop.wallpaper_mode` (`fill`/`fit`), DECLARED by
+  `none`) and `desktop.wallpaper.mode` (`fill`/`fit`), DECLARED by
   `/etc/settings.d/desktop.wallpaper*` -- a file says what the setting
   is, the ring-3 desktop owns the behaviour and notices through the
   generation counter. So `config set
@@ -3196,8 +3196,8 @@ real scanout hardware does. Do not write a pixel assertion for one.
   the assertion.
 
 - **THE TASKBAR'S THICKNESS IS A REGISTERED SETTING:
-  `desktop.taskbar_height`, in PIXELS, 24..96, default 48.** DECLARED
-  by `/etc/settings.d/desktop.taskbar_height` as an `int`, beside the
+  `desktop.taskbar.height`, in PIXELS, 24..96, default 48.** DECLARED
+  by `/etc/settings.d/desktop.taskbar.height` as an `int`, beside the
   Start button and the wallpaper in `/etc/desktop.conf`, so
   System Settings shows it as a spinbox with no app edit. A pixel count
   rather than small/medium/large because that is XFCE's "Row size
@@ -3227,8 +3227,8 @@ real scanout hardware does. Do not write a pixel assertion for one.
   process table.
 
 - **THE START BUTTON'S APPEARANCE IS A REGISTERED SETTING:
-  `desktop.start_button` = `text` | `icon` | `both`.** DECLARED by
-  `/etc/settings.d/desktop.start_button`, sharing `/etc/desktop.conf`
+  `desktop.start.button` = `text` | `icon` | `both`.** DECLARED by
+  `/etc/settings.d/desktop.start.button`, sharing `/etc/desktop.conf`
   with the wallpaper -- which is what makes
   it `desktop.`-namespaced, since a namespace is the registered name of
   the FILE. Three choices rather than a boolean because that is XFCE's
@@ -3466,7 +3466,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   there is one icon file per state.
 - **THE TRAY SAYS WHEN SOMEBODY IS ON THIS MACHINE OVER THE NETWORK, AND
   THE KERNEL DERIVES THAT -- `userland/wm/remote_popup.c`.**
-  `desktop.tray_remote` = `auto` | `always` | `never`, where `auto` means
+  `desktop.tray.remote` = `auto` | `always` | `never`, where `auto` means
   "while a remote session is open": krfb's shape, and the reason the item
   exists at all is that the owner must never have to guess whether
   somebody else is acting on their machine. The flyout lists the last ten
@@ -3492,7 +3492,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   hit-testing and `gui brightness --json` -- and it talks to nothing
   but `system.brightness` over `SYS_SETTING`. Three things to know.
   **It is REGISTERED whether or not the display has a backlight and
-  then hidden in its slot**, so `desktop.tray_brightness = always`
+  then hidden in its slot**, so `desktop.tray.brightness = always`
   brings it back on a machine that has none -- which is how
   `brightness_test.py` covers the flyout in QEMU at all. When it IS
   shown without a backlight the panel shows the registry's
@@ -3630,7 +3630,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 - **THE CALENDAR'S WEEK -- ITS FIRST DAY AND ITS NUMBERS -- IS THE
   LOCALE'S.** `calendar_poll_config()` reads
   `nl_langinfo(_NL_TIME_FIRST_WEEKDAY)` and `_TOY_WEEK_NUMBERS`, which
-  fold the region and its `locale.week_start`/`locale.week_numbers`
+  fold the region and its `locale.week.start`/`locale.week.numbers`
   overrides together (`userland/libc/locale.c`); it never reads a
   setting itself. The WM is not a uapp, so **`wm_locale_sync()`
   (`wm_tray.c`) is what re-runs `tzset()` and `setlocale()`** when the
@@ -5631,7 +5631,7 @@ System Settings' disclosure is shown when the open page declares an
 `Advanced=1` setting, not whenever `g_show_advanced` is set: that flag
 is global, and testing it put the checkbox on every page once it had
 been ticked on one. No stock setting is `Advanced=1` now --
-`system.cursor_style`, the only one, is a plain setting on the Console
+`system.cursor.style`, the only one, is a plain setting on the Console
 page -- so the checkbox appears only for a setting a user adds.
 
 ## `uui_table` GROUPS AND ITS TREE ARE ORDERINGS, AND THE FOLDED STATE IS THE APP'S

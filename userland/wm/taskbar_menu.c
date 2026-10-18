@@ -42,24 +42,24 @@ static void set_choice(void *ctx) {
 }
 
 static const struct choice COMBINE[] = {
-    { "desktop.taskbar_combine", "always" },
-    { "desktop.taskbar_combine", "full" },
-    { "desktop.taskbar_combine", "never" },
+    { "desktop.taskbar.combine", "always" },
+    { "desktop.taskbar.combine", "full" },
+    { "desktop.taskbar.combine", "never" },
 };
 static const struct choice ALIGN[] = {
-    { "desktop.taskbar_align", "left" },
-    { "desktop.taskbar_align", "center" },
+    { "desktop.taskbar.align", "left" },
+    { "desktop.taskbar.align", "center" },
 };
 static const struct choice BUTTONS[] = {
-    { "desktop.taskbar_buttons", "labelled" },
-    { "desktop.taskbar_buttons", "icons" },
+    { "desktop.taskbar.buttons", "labelled" },
+    { "desktop.taskbar.buttons", "icons" },
 };
-static const struct choice FLOAT_ON  = { "desktop.taskbar_float", "on" };
-static const struct choice FLOAT_OFF = { "desktop.taskbar_float", "off" };
+static const struct choice FLOAT_ON  = { "desktop.taskbar.float", "on" };
+static const struct choice FLOAT_OFF = { "desktop.taskbar.float", "off" };
 
 static void open_taskbar_settings(void *ctx) {
     (void)ctx;
-    open_settings_at("desktop.taskbar_combine");
+    open_settings_at("desktop.taskbar.combine");
 }
 
 // Static: context_menu_open_at() keeps the caller's rows while it is up.

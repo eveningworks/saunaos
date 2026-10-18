@@ -73,11 +73,11 @@ def main():
 
     with DebugConsole(args.sock) as dbg:
         dbg.settle()
-        for k in ("taskbar_buttons", "taskbar_align", "start_position", "taskbar_float",
-                  "taskbar_peek", "animations", "taskbar_combine"):
+        for k in ("taskbar.buttons", "taskbar.align", "start.position", "taskbar.float",
+                  "taskbar.peek", "animations", "taskbar.combine"):
             dbg.send(f"sh config unset desktop.{k}")
         # Peek off: its card would open over the strip during the slow moves.
-        dbg.send("sh config set desktop.taskbar_peek off")
+        dbg.send("sh config set desktop.taskbar.peek off")
         for app in ("File Manager", "Task Manager", "Notepad"):
             dbg.open_app(app)
             time.sleep(1.5)
@@ -213,7 +213,7 @@ def main():
         else:
             res.check("the desktop shows the test file", False, str([i["name"] for i in icons]))
         dbg.send(f"sh rm {DESK_FILE}")
-        dbg.send("sh config unset desktop.taskbar_peek")
+        dbg.send("sh config unset desktop.taskbar.peek")
 
     n_ok, n_bad = len(res.passes), len(res.fails)
     print(f"\ntaskbar_drag_test: {n_ok} passed, {n_bad} failed")

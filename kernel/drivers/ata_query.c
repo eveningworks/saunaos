@@ -37,7 +37,7 @@ static int ata_fill(int index, void *out) {
 static const struct query_field ata_fields[] = {
     QUERY_FIELD(struct query_ata, flags,            QUERY_TYPE_U64),
     QUERY_FIELD(struct query_ata, max_sectors_xfer, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_ata, sector_count,     QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_ata, sector_count, "sectors", QUERY_TYPE_U64),
     QUERY_FIELD(struct query_ata, dma_sleeps,       QUERY_TYPE_U64),
 };
 

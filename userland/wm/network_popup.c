@@ -413,7 +413,7 @@ int network_handle_click(int mx, int my) {
         { int pid_ = sys_spawn("/bin/wm/system/taskmgr", "", -1); if (pid_ > 0) wm_track_launched(pid_); }   // reaped by the poll
     } else if (hit(g.gear_x, g.gear_w, &g, mx, my)) {
         network_close();
-        { int pid_ = sys_spawn("/bin/wm/system/settings", "system.net_recover", -1); if (pid_ > 0) wm_track_launched(pid_); }   // reaped by the poll
+        { int pid_ = sys_spawn("/bin/wm/system/settings", "system.net.recover", -1); if (pid_ > 0) wm_track_launched(pid_); }   // reaped by the poll
     }
     return 1;   // anything else inside the card is swallowed
 }

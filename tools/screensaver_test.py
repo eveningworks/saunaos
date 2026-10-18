@@ -162,7 +162,7 @@ def main():
     # way it did for filemanager_test's two-pane state. Restored at the
     # end, since `make iso` re-seeds by SYNC and a left-behind timeout
     # follows every later run.
-    set_setting(dbg, "desktop.screensaver_idle", "10")
+    set_setting(dbg, "desktop.screensaver.idle", "10")
     # WAIT ON THE COMPOSITOR HAVING TAKEN IT, not on a clock: the write
     # goes through /bin/config and the compositor picks it up on its own
     # schedule, so a fixed sleep here read the OLD value and failed the
@@ -258,7 +258,7 @@ def main():
         wait_pid(dbg, False)
 
     # --- off means off --------------------------------------------------
-    set_setting(dbg, "desktop.screensaver_idle", "0")
+    set_setting(dbg, "desktop.screensaver.idle", "0")
     st = idle(dbg)
     check("a zero timeout is what turns it off",
           st is not None and st["minutes"] == 0, f"{st}")
@@ -268,7 +268,7 @@ def main():
     check("...and nothing starts while it is off",
           st is not None and st["pid"] == 0, f"{st}")
 
-    set_setting(dbg, "desktop.screensaver_idle", "10")
+    set_setting(dbg, "desktop.screensaver.idle", "10")
     set_setting(dbg, "desktop.screensaver", "starfield")
 
     # --- EVERY saver in the directory actually draws -------------------
@@ -309,7 +309,7 @@ def main():
     test_button(dbg, qmp, args)
 
     # Back to the shipped default -- see the note where it was set.
-    set_setting(dbg, "desktop.screensaver_idle", "0")
+    set_setting(dbg, "desktop.screensaver.idle", "0")
     dbg.close()
     return report()
 

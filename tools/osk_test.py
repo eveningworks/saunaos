@@ -219,7 +219,7 @@ def main():
         k = dbg.json("gui osk --json")
         check("the bar names the layout", k.get("layout") == "English (US)",
               f"layout={k.get('layout')!r}")
-        dbg.send("sh config set system.keyboard_layout fi")
+        dbg.send("sh config set system.keyboard.layout fi")
         dbg.settle()
         time.sleep(0.6)
         k = dbg.json("gui osk --json")
@@ -244,7 +244,7 @@ def main():
         after = listed(dbg, "x\ufffdy/")
         check("dead acute then e composes to one character", "x\ufffdy/" in after,
               "x\ufffdey/ means it never composed, xey/ that the accent was lost")
-        dbg.send("sh config set system.keyboard_layout us")
+        dbg.send("sh config set system.keyboard.layout us")
         dbg.settle()
         time.sleep(0.6)
 

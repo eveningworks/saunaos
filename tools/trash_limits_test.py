@@ -5,12 +5,12 @@ and how long it keeps things.
 WHAT THIS IS
 ------------
 Storage > Recycle Bin in System Settings (data/etc/settings.d/
-desktop.show_trash, system.trash_max_age, system.trash_max_size), kept
+desktop.show_trash, system.trash.max_age, system.trash.max_size), kept
 by `trash expire` (lib/utrash.h), which the desktop runs:
 
   1. `desktop.show_trash off` takes the bin's icon off the desktop and
      `on` brings it back -- and brings back a bin whose entry was deleted.
-  2. With `system.trash_max_age 30`, an item deleted in 2020 goes from
+  2. With `system.trash.max_age 30`, an item deleted in 2020 goes from
      the bin within seconds of the change, by the desktop's own run of
      `trash expire`; one deleted now stays (the control). With no limit,
      `trash expire` deletes nothing.
@@ -88,11 +88,11 @@ def run(dbg, qmp):
     out = sh("trash expire")
     check("with no limit, `trash expire` deletes nothing", "no limits set" in out and "old.txt" in sh("trash list"),
           out[-200:])
-    sh("config set system.trash_max_age 30")
+    sh("config set system.trash.max_age 30")
     gone = wait_for(lambda: "old.txt" not in sh("trash list"), timeout=20)
     check("a 30-day limit: the desktop deletes the 2020 item", bool(gone), sh("trash list")[-300:])
     check("...and keeps the one deleted now", "fresh.txt" in sh("trash list"))
-    sh("config set system.trash_max_age never")
+    sh("config set system.trash.max_age never")
 
     # 3. The bin's menu, and the page it opens.
     b = icons(dbg)["Recycle Bin"]

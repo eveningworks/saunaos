@@ -24,7 +24,7 @@
 // attempts, then it gives up and says so.
 //
 // OFF BY DEFAULT, and one switch rather than two: the service is always
-// started and idles until `system.net_recover` is on, which is ntpd's
+// started and idles until `system.net.recover` is on, which is ntpd's
 // shape in this same directory. A desktop that reboots itself unasked
 // would be alarming; this is for a headless test machine.
 
@@ -82,14 +82,14 @@ static void attempts_write(int v) {
 
 int main(void) {
     char on[16] = {0};
-    if (!usetting_get("system.net_recover", on, sizeof on) ||
+    if (!usetting_get("system.net.recover", on, sizeof on) ||
         strcmp(on, "on") != 0) {
         return 0;   // idle, like ntpd with system.ntp off
     }
 
     int wait_s = DEFAULT_WAIT;
     int v = 0;
-    if (usetting_get_int("system.net_recover_wait", &v) && v >= 5 && v <= 600)
+    if (usetting_get_int("system.net.recover.wait", &v) && v >= 5 && v <= 600)
         wait_s = v;
 
     // POLL RATHER THAN SLEEP THE WHOLE WAIT. DHCP usually lands in the

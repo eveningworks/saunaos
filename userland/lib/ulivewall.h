@@ -30,7 +30,7 @@
 #define LIVEWALL_DESC_DIR  "/usr/wm/wallpapers"
 #define LIVEWALL_CONF_DIR  "/etc/wallpapers"
 #define LIVEWALL_DEFAULT   "aurora"
-// ANIMATED PICTURES are live wallpapers too: `desktop.wallpaper_live`
+// ANIMATED PICTURES are live wallpapers too: `desktop.wallpaper.live`
 // lists this directory's GIFs beside the effects, and the player plays
 // one (argv[1], its name). The player is in a SUBDIRECTORY so it is not
 // a choice itself -- a ChoiceDir lists files only.

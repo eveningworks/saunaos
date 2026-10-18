@@ -7,7 +7,7 @@ Clicking the tray clock opens a panel above it (userland/wm/calendar_popup.c):
 a clock card, the current month with today highlighted, `<`/`>` to page
 months, a title that snaps back to today, ISO week numbers when the
 locale shows them, and a link to System Settings' Date & time. The week's
-first column is the locale's (`locale.week_start`, else the region's).
+first column is the locale's (`locale.week.start`, else the region's).
 
 THREE THINGS THIS ASSERTS THAT AN "IT OPENED" CHECK WOULD NOT
 -------------------------------------------------------------
@@ -25,7 +25,7 @@ THREE THINGS THIS ASSERTS THAT AN "IT OPENED" CHECK WOULD NOT
    implementation. The year-boundary case (paging back past January) is
    included because "month - 1" without a wrap is the obvious bug.
 
-3. `locale.week_start` ACTUALLY MOVES THE COLUMNS. Setting it to sunday
+3. `locale.week.start` ACTUALLY MOVES THE COLUMNS. Setting it to sunday
    must shift the reported first column by exactly one and repaint the
    header row; a popup that read the setting and ignored it passes every
    other check here. The setting is restored at the end --
@@ -254,12 +254,12 @@ def main():
     header_box = (g4["grid_x"], g4["grid_y"],
                   g4["grid_x"] + 7 * g4["cell_w"], g4["grid_y"] + g4["cell_h"])
     header_mon = qmp.stable_pixels(shot("cal_hdr_mon.png"), box=header_box)
-    was = (dbg.send("sh config get locale.week_start") or "").strip().splitlines()
+    was = (dbg.send("sh config get locale.week.start") or "").strip().splitlines()
     was = was[-1].strip() if was else "region"
-    dbg.send("sh config set locale.week_start sunday")
+    dbg.send("sh config set locale.week.start sunday")
     dbg.settle(); time.sleep(1.2)
     g5 = cal(dbg)
-    check("locale.week_start=sunday is adopted", g5["week_start"] == "sunday",
+    check("locale.week.start=sunday is adopted", g5["week_start"] == "sunday",
           g5["week_start"])
     check("...and the 1st moves one column right",
           g5["view"]["first_col"] == (mon_first + 1) % 7,
@@ -267,7 +267,7 @@ def main():
     header_sun = qmp.stable_pixels(shot("cal_hdr_sun.png"), box=header_box)
     check("...and the weekday header was actually repainted",
           header_sun != header_mon)
-    dbg.send(f"sh config set locale.week_start {was}")   # leave the machine as found
+    dbg.send(f"sh config set locale.week.start {was}")   # leave the machine as found
     dbg.settle(); time.sleep(1.2)
     check("restored", cal(dbg)["week_start"] == g4["week_start"],
           f'{was} -> {cal(dbg)["week_start"]}')
@@ -275,24 +275,24 @@ def main():
     # --- 6b. week numbers follow their setting ------------------------
     # The column's own pixels, not the flag: a popup that reported the
     # setting and drew nothing would pass a flag check.
-    wn = (dbg.send("sh config get locale.week_numbers") or "").strip().splitlines()
+    wn = (dbg.send("sh config get locale.week.numbers") or "").strip().splitlines()
     wn = wn[-1].strip() if wn else "region"
-    dbg.send("sh config set locale.week_numbers on")
+    dbg.send("sh config set locale.week.numbers on")
     dbg.settle(); time.sleep(1.2)
     g_on = cal(dbg)
-    on_ok = check("locale.week_numbers=on shows the column",
+    on_ok = check("locale.week.numbers=on shows the column",
                   g_on["week_numbers"] and g_on["week_x"] >= 0, str(g_on["week_x"]))
     if on_ok:
         wbox = (g_on["week_x"], g_on["grid_y"] + g_on["cell_h"],
                 g_on["week_x"] + g_on["week_w"], g_on["grid_y"] + 7 * g_on["cell_h"])
         col_on = qmp.stable_pixels(shot("cal_wk_on.png"), box=wbox)
-        dbg.send("sh config set locale.week_numbers off")
+        dbg.send("sh config set locale.week.numbers off")
         dbg.settle(); time.sleep(1.2)
         g_off = cal(dbg)
         check("...and =off hides it", not g_off["week_numbers"] and g_off["week_x"] < 0)
         col_off = qmp.stable_pixels(shot("cal_wk_off.png"), box=wbox)
         check("...and the pixels where it was changed", col_on != col_off)
-    dbg.send(f"sh config set locale.week_numbers {wn}")
+    dbg.send(f"sh config set locale.week.numbers {wn}")
     dbg.settle(); time.sleep(1.2)
 
     # --- 7. a second click on the clock CLOSES it ---------------------

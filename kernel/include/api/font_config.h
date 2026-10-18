@@ -4,20 +4,20 @@
 #include "font_ttf.h" // enum font_size
 
 // Font size persistence, layered on top of gfx_set_font_size()
-// (kernel/drivers/gfx.c) -- a "font_size=<n>" key in the shared
+// (kernel/drivers/gfx.c) -- a "font.size=<n>" key in the shared
 // /etc/toyos.conf every setting lives in by default (see
 // etc_config.h), read/applied once at boot. See
 // kernel/lib/font_config.c's top comment for the exact key.
 
 // Call once at boot, after fs_init()/fs_mkdir("/etc") (same ordering as
-// an INIT_CONFIG initcall, see kernel.c) -- loads the persisted font_size key if
+// an INIT_CONFIG initcall, see kernel.c) -- loads the persisted font.size key if
 // present and applies it via gfx_set_font_size(). Does nothing (keeps
 // gfx.c's compiled-in default) if no config exists yet or its value
 // isn't one of the recognized size names (the point-size numbers
 // font_ttf.h bakes in -- see its own top comment).
 void font_config_init(void);
 
-// Persists `size` as /etc/toyos.conf's "font_size=<n>" key so it
+// Persists `size` as /etc/toyos.conf's "font.size=<n>" key so it
 // survives a reboot. Does NOT call gfx_set_font_size() itself -- same
 // split as a setting's apply (selects + persists) vs a plain read
 // (applies); callers that want to change the active size call
@@ -41,7 +41,7 @@ int font_config_apply_face(const char *name);
 
 int font_config_save_px(int px);
 
-// The size the desktop draws at, as `system.font_size` reports it --
+// The size the desktop draws at, as `system.font.size` reports it --
 // any size with a face loaded, a baked one without (gfx_font_px() is
 // always baked: the console's).
 int font_config_px(void);

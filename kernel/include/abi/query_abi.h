@@ -22,7 +22,7 @@
 
 // "<provider>.<field>" plus its NUL -- the qualified name `config` takes,
 // deliberately the same (namespace, name) shape a setting has, so
-// `mem.frame_free` and `system.font_size` read alike even though only one
+// `mem.frame_free` and `system.font.size` read alike even though only one
 // of them can be written.
 #define QUERY_FIELD_PATH_MAX 48
 
@@ -38,7 +38,7 @@ enum {
     QUERY_OP_FIELD_COUNT = 1,
     // In: cls, index. Out: `name` and `type` for that field.
     QUERY_OP_FIELD_INFO  = 2,
-    // In: `name`, qualified ("mem.frame_free"). Out: `value` and `type`.
+    // In: `name`, qualified ("mem.frame.free"). Out: `value` and `type`.
     QUERY_OP_FIELD_GET   = 3,
 };
 

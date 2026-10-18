@@ -3,8 +3,8 @@
 
 WHAT IS UNDER TEST
 ------------------
-`userland/wm/wm_background.c` spawns the program `desktop.wallpaper_type`
-and `desktop.wallpaper_live` name, maps its frames, and draws them where
+`userland/wm/wm_background.c` spawns the program `desktop.wallpaper.type`
+and `desktop.wallpaper.live` name, maps its frames, and draws them where
 the picture would go (desktop.c); it withholds the client's timer while
 the desktop is hidden. `gui background` reports its state as JSON.
 
@@ -47,8 +47,8 @@ from harness import Results  # noqa: E402
 _res = Results()
 check = _res.check
 
-SETTINGS = ("desktop.wallpaper_type", "desktop.wallpaper_live", "desktop.wallpaper",
-            "desktop.background_colour", "desktop.screensaver_idle")
+SETTINGS = ("desktop.wallpaper.type", "desktop.wallpaper.live", "desktop.wallpaper",
+            "desktop.background_colour", "desktop.screensaver.idle")
 PLUM = (0x4a, 0x2d, 0x4f)   # lib/ulivewall.c's PLAIN table
 
 
@@ -100,15 +100,15 @@ def raw(qmp, shot, name, box):
 
 def run(dbg, qmp, shot):
     sample, strip = boxes(dbg)
-    set_setting(dbg, "desktop.wallpaper_type", "picture")
+    set_setting(dbg, "desktop.wallpaper.type", "picture")
     set_setting(dbg, "desktop.wallpaper", "aurora")
     st = wait_bg(dbg, lambda s: s.get("pid") == 0)
     check("a picture background runs no client", st.get("pid") == 0, f"{st}")
     picture = qmp.stable_pixels(shot("lw_picture.png"), box=sample)
 
     # --- 2/3. live: started, drawn, moving -----------------------------
-    set_setting(dbg, "desktop.wallpaper_live", "aurora")
-    set_setting(dbg, "desktop.wallpaper_type", "live")
+    set_setting(dbg, "desktop.wallpaper.live", "aurora")
+    set_setting(dbg, "desktop.wallpaper.type", "live")
     st = wait_bg(dbg, lambda s: s.get("shown") == 1)
     check("Live starts /bin/wm/wallpapers/aurora and shows its frames",
           st.get("shown") == 1 and st.get("program") == "/bin/wm/wallpapers/aurora", f"{st}")
@@ -120,7 +120,7 @@ def run(dbg, qmp, shot):
     check("...and it is not the picture", a != picture and b != picture)
 
     # --- 4. paused under a screensaver, resumed after -----------------
-    set_setting(dbg, "desktop.screensaver_idle", "5")
+    set_setting(dbg, "desktop.screensaver.idle", "5")
     f0 = bg(dbg).get("frames", 0)
     dbg.send("gui idle start")
     st = wait_bg(dbg, lambda s: s.get("paused") == 1, timeout=8)
@@ -160,7 +160,7 @@ def run(dbg, qmp, shot):
         dbg.send(f"sh kill {p['pid']}")
 
     # --- 6. an animated picture is a LIVE choice, played by the player ---
-    set_setting(dbg, "desktop.wallpaper_live", "rain")
+    set_setting(dbg, "desktop.wallpaper.live", "rain")
     st = wait_bg(dbg, lambda s: s.get("shown") == 1 and "players/gif" in s.get("program", ""))
     check("Live `rain` (a GIF in /usr/share/wallpapers/animated) plays through the player",
           st.get("program") == "/bin/wm/wallpapers/players/gif" and st.get("shown") == 1, f"{st}")
@@ -170,7 +170,7 @@ def run(dbg, qmp, shot):
     check("...and it moves", a != b)
 
     # --- 6b. so is a VIDEO, played silent and looping ------------------
-    set_setting(dbg, "desktop.wallpaper_live", "dusk")
+    set_setting(dbg, "desktop.wallpaper.live", "dusk")
     st = wait_bg(dbg, lambda s: s.get("shown") == 1 and "players/video" in s.get("program", ""))
     check("Live `dusk` (a video in /usr/share/wallpapers/animated) plays through the video player",
           st.get("program") == "/bin/wm/wallpapers/players/video" and st.get("shown") == 1, f"{st}")
@@ -178,14 +178,14 @@ def run(dbg, qmp, shot):
     time.sleep(1.0)
     b = raw(qmp, shot, "lw_video_b.png", sample)
     check("...and it moves", a != b)
-    set_setting(dbg, "desktop.wallpaper_type", "picture")
+    set_setting(dbg, "desktop.wallpaper.type", "picture")
     st = wait_bg(dbg, lambda s: s.get("pid") == 0)
     check("...and Picture stops it", st.get("pid") == 0, f"{st}")
 
     # --- 7. plain colour ----------------------------------------------
     # THE TYPE FIRST: a colour written while the type is not colour is
     # refused (its Requires= is unmet), as Settings' Apply order avoids.
-    set_setting(dbg, "desktop.wallpaper_type", "colour")
+    set_setting(dbg, "desktop.wallpaper.type", "colour")
     set_setting(dbg, "desktop.background_colour", "plum")
     px = qmp.stable_pixels(shot("lw_colour.png"), box=sample)
     want = bytes(PLUM)
@@ -217,12 +217,12 @@ def main():
         # RESTORED WHATEVER HAPPENED: every one persists to /etc.
         dbg.send("gui idle stop")
         # Each value while its own type is selected, then the type.
-        for t, k in (("colour", "desktop.background_colour"), ("live", "desktop.wallpaper_live"),
+        for t, k in (("colour", "desktop.background_colour"), ("live", "desktop.wallpaper.live"),
                      ("picture", "desktop.wallpaper")):
             if orig.get(k):
-                set_setting(dbg, "desktop.wallpaper_type", t)
+                set_setting(dbg, "desktop.wallpaper.type", t)
                 set_setting(dbg, k, orig[k])
-        for k in ("desktop.screensaver_idle", "desktop.wallpaper_type"):
+        for k in ("desktop.screensaver.idle", "desktop.wallpaper.type"):
             if orig.get(k):
                 set_setting(dbg, k, orig[k])
     passed = sum(1 for _, ok, _ in _res.rows if ok)

@@ -21,7 +21,7 @@ static int g_have_frame;          // a frame at the screen's size is mapped
 static char g_want[96];           // the program the settings ask for, "" for none
 static char g_running[96];        // the program g_pid is
 static char g_arg[64];            // its argument: the animated picture's name, or ""
-static int g_pause_on = 1;        // `desktop.wallpaper_pause`
+static int g_pause_on = 1;        // `desktop.wallpaper.pause`
 static int g_paused;
 static unsigned g_frames;
 static int g_failures;            // deaths before a first frame, in a row
@@ -67,11 +67,11 @@ static void start(void) {
 // animated picture it plays, or nothing.
 static void read_settings(void) {
     char type[16] = "picture", v[64];
-    usetting_get("desktop.wallpaper_type", type, sizeof type);
+    usetting_get("desktop.wallpaper.type", type, sizeof type);
     g_want[0] = '\0';
     g_arg[0] = '\0';
     k_strlcpy(v, LIVEWALL_DEFAULT, sizeof v);
-    usetting_get("desktop.wallpaper_live", v, sizeof v);
+    usetting_get("desktop.wallpaper.live", v, sizeof v);
     // A NAME, never a path: a value with a slash would reach outside the
     // directories whose contents are trusted with the role.
     if (!strcmp(type, "live") && v[0] && !strchr(v, '/') && v[0] != '.') {
@@ -98,7 +98,7 @@ static void read_settings(void) {
             }
         }
     }
-    g_pause_on = !(usetting_get("desktop.wallpaper_pause", v, sizeof v) && !strcmp(v, "off"));
+    g_pause_on = !(usetting_get("desktop.wallpaper.pause", v, sizeof v) && !strcmp(v, "off"));
 }
 
 void wm_bg_poll(void) {

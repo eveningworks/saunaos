@@ -966,8 +966,8 @@ def main():
           f"{mouse_page}" if mouse_page else "no page line")
 
     check("...gathered from more than one kernel file",
-          any("mouse_" in s["name"] for s in page_slots) and
-          any("cursor_" in s["name"] for s in page_slots),
+          any("mouse." in s["name"] for s in page_slots) and
+          any("cursor." in s["name"] for s in page_slots),
           f"{[s['name'] for s in page_slots]}")
 
     # --- the control TYPE follows the choice count / the text file ----
@@ -1002,7 +1002,7 @@ def main():
     # choices to be short. cursor_size is the short ENUM on this page,
     # and it is what this check was always about.
     # Three short names fit side by side: a segmented control.
-    mouse_speed = [s for s in page_slots if "cursor_size" in s["name"]]
+    mouse_speed = [s for s in page_slots if "cursor.size" in s["name"]]
     check("...while a few short names sit side by side, segmented",
           bool(mouse_speed) and mouse_speed[-1]["kind"] == "segmented",
           f"kind={mouse_speed[-1]['kind'] if mouse_speed else '?'}")
@@ -1162,7 +1162,7 @@ def main():
     # threshold -- and asks for a SLIDER, because its values are ordered
     # levels. So this checks the FILE's word beating the count, which is
     # the whole point of the hint.
-    accel = [s for s in page_slots if "mouse_accel" in s["name"]]
+    accel = [s for s in page_slots if "mouse.accel" in s["name"]]
     check("a setting can ask for a slider, and /etc's word wins",
           bool(accel) and accel[-1]["kind"] == "slider",
           f"kind={accel[-1]['kind'] if accel else '?'}, choices="
@@ -1178,12 +1178,12 @@ def main():
     # "None -> None" passes the unchanged check vacuously, which is
     # exactly the shape of a test that measures nothing.
     mark = len(drain(dbg))
-    dbg.send("sh config set system.mouse_speed normal")
+    dbg.send("sh config set system.mouse.speed normal")
     wait_refresh(dbg, mark)
     mark = len(drain(dbg))
     open_row(mouse_row)
     page_slots = slots(dbg, mark)
-    before = stored_value(dbg, "mouse_speed")
+    before = stored_value(dbg, "mouse.speed")
     # A NUMBER NOW, not a named level. mouse_speed became
     # SETTING_TYPE_INT -- a percentage with a registry-enforced range --
     # so the baseline is whatever digits are on disk, or None when the
@@ -1192,13 +1192,13 @@ def main():
     if not check("the baseline is on disk or absent, and numeric if present",
                  before is None or before.isdigit(), f"stored={before!r}"):
         return report()
-    speed = [s for s in page_slots if "mouse_speed" in s["name"]]
+    speed = [s for s in page_slots if "mouse.speed" in s["name"]]
     if not check("the Mouse page has the speed control", bool(speed)):
         return report()
 
     # The CONTROL's own rect, reported by the app after the layout ran.
     ctls = controls(dbg, mark)
-    speed_ctl = ctls.get("system.mouse_speed")
+    speed_ctl = ctls.get("system.mouse.speed")
     if not check("the app reported the speed control's rect", speed_ctl is not None,
                  f"controls={sorted(ctls)}"):
         return report()
@@ -1219,7 +1219,7 @@ def main():
     # pushed this control below the fold at the default window size --
     # where a click at its reported rect lands on whatever the scroll
     # view left there instead (it staged the TIMEZONE, one page up).
-    speed_ctl = reveal("system.mouse_speed", speed_ctl)
+    speed_ctl = reveal("system.mouse.speed", speed_ctl)
 
     click_y = speed_ctl["y"] + speed_ctl["h"] // 4
     click(speed_ctl["x"] + speed_ctl["w"] - 7, click_y)
@@ -1228,7 +1228,7 @@ def main():
     # never appears, so it failed while the app was working perfectly.
     staged = last(r"settings: staged (\S+) (\S+)")
     check("stepping the spinbox reaches the control",
-          staged is not None and "mouse_speed" in staged,
+          staged is not None and "mouse.speed" in staged,
           f"rect={speed_ctl}, clicked ({speed_ctl['x'] + speed_ctl['w'] - 7}, "
           f"{click_y}), staged: {staged or 'nothing'}")
     # ...and it staged a NUMBER IN RANGE. A spinbox that reported an
@@ -1245,7 +1245,7 @@ def main():
 
     # THE LOAD-BEARING CHECK. Selecting must STAGE, not write. A staged
     # model that quietly still applied would look identical on screen.
-    mid = stored_value(dbg, "mouse_speed")
+    mid = stored_value(dbg, "mouse.speed")
     check("selecting a choice does NOT write it yet",
           mid == before, f"{before!r} -> {mid!r} (should be unchanged)")
     check("...and the app staged it rather than applying it",
@@ -1256,7 +1256,7 @@ def main():
     press("apply")
     time.sleep(0.5)
     drain(dbg)
-    after = stored_value(dbg, "mouse_speed")
+    after = stored_value(dbg, "mouse.speed")
     check("Apply writes the staged change",
           after is not None and after != before, f"{before!r} -> {after!r}")
     said = last(r"settings: set (\S+) (\S+) result (\d+)")
@@ -1285,9 +1285,9 @@ def main():
         dbg.send("gui wheel 1")
     dbg.settle()
     time.sleep(0.4)
-    at_top = (controls(dbg, mark_scroll).get("system.mouse_accel")
-              or ctls.get("system.mouse_accel"))
-    accel_ctl = reveal("system.mouse_accel", at_top)
+    at_top = (controls(dbg, mark_scroll).get("system.mouse.accel")
+              or ctls.get("system.mouse.accel"))
+    accel_ctl = reveal("system.mouse.accel", at_top)
     qmp.screenshot(f"{args.tmp}/settings_slider.png")
     # WHOLLY INSIDE THE VIEWPORT, scrolled there if it was not: a press
     # outside the view is clipped away. (The Mouse page fits the default
@@ -1306,7 +1306,7 @@ def main():
         drain(dbg)
         dragged = None
         for m in _since(mark3, r"settings: staged (\S+) (\S+)"):
-            if "mouse_accel" in m.group(1):
+            if "mouse.accel" in m.group(1):
                 dragged = m.group(2)
         check("dragging the slider stages a new value", dragged is not None,
               f"staged {dragged!r} from a drag across the track")
@@ -1320,7 +1320,7 @@ def main():
 
     # --- THE CONSOLE PAGE SHOWS CURSOR STYLE, WITH NO DISCLOSURE ---------
     #
-    # system.cursor_style was the only Advanced=1 setting, so Console was
+    # system.cursor.style was the only Advanced=1 setting, so Console was
     # the only page with a "Show advanced settings" toggle -- and once
     # checked it appeared on EVERY page, because the toggle was shown
     # whenever the global flag was set. The setting is plain now and the
@@ -1334,7 +1334,7 @@ def main():
         open_row(appearance)
         page = slots(dbg, mark)
         check("cursor style is on the Console page without a toggle",
-              any("cursor_style" in s["name"] for s in page),
+              any("cursor.style" in s["name"] for s in page),
               f"{[s['name'] for s in page]}")
         adv = advanced_toggle(dbg, mark)
         check("...and no page shows a 'Show advanced settings' toggle",
@@ -1501,10 +1501,10 @@ def main():
         mark = len(drain(dbg))
         ntp_page = select_page("Network Time")
         ntp_ctls = controls(dbg, mark) if ntp_page else {}
-        server_ctl = ntp_ctls.get("system.ntp_server")
+        server_ctl = ntp_ctls.get("system.ntp.server")
         # BY NAME, not by count: three controls from the page that was
         # already open satisfies a count just as well as the right page.
-        want_ntp = ("system.ntp_server", "system.ntp_interval")
+        want_ntp = ("system.ntp.server", "system.ntp.interval")
         check("the page carries the server and the interval",
               ntp_page is not None and all(n in ntp_ctls for n in want_ntp),
               f"page={ntp_page and ntp_page['page']!r} controls={sorted(ntp_ctls)}")
@@ -1519,7 +1519,7 @@ def main():
             check("...and the field has a real width to type into",
                   server_ctl["w"] > 40, f"w={server_ctl['w']}")
 
-            before_server = stored_value(dbg, "ntp_server")
+            before_server = stored_value(dbg, "ntp.server")
             # CLICK TO FOCUS, THEN TYPE. The click both places the caret
             # and moves the keyboard focus ring (uui_focus_click), which
             # is what makes the field the widget keys go to -- and it
@@ -1533,7 +1533,7 @@ def main():
             mark_key = len(drain(dbg))
             dbg.key(ord("z"))
             time.sleep(0.3)
-            staged_server = staged_for(dbg, mark_key, "system.ntp_server")
+            staged_server = staged_for(dbg, mark_key, "system.ntp.server")
             check("typing into the field stages a value",
                   staged_server is not None,
                   f"staged: {staged_server or 'nothing'}")
@@ -1547,13 +1547,13 @@ def main():
             # The same load-bearing rule as every other control: staging
             # must not write.
             check("typing does NOT write it yet",
-                  stored_value(dbg, "ntp_server") == before_server,
+                  stored_value(dbg, "ntp.server") == before_server,
                   f"{before_server!r} -> {stored_value(dbg, 'ntp_server')!r}")
 
             press("apply")
             time.sleep(0.5)
             drain(dbg)
-            after_server = stored_value(dbg, "ntp_server")
+            after_server = stored_value(dbg, "ntp.server")
             check("Apply writes the typed value to /etc",
                   after_server is not None and after_server.endswith("z")
                   and after_server != before_server,
@@ -1867,9 +1867,9 @@ def main():
     # --- Reset discards; leaving a changed page asks ------------------
     mark = len(drain(dbg))
     open_row(mouse_row)
-    speed_ctl = reveal("system.mouse_speed",
-                        controls(dbg, mark).get("system.mouse_speed", speed_ctl))
-    on_disk = stored_value(dbg, "mouse_speed")
+    speed_ctl = reveal("system.mouse.speed",
+                        controls(dbg, mark).get("system.mouse.speed", speed_ctl))
+    on_disk = stored_value(dbg, "mouse.speed")
 
     def stage_down():
         """Step the speed DOWN -- a value different from what Apply left,
@@ -1878,7 +1878,7 @@ def main():
         as well by a click that never reached the control."""
         mk = len(drain(dbg))
         click(speed_ctl["x"] + speed_ctl["w"] - 7, speed_ctl["y"] + speed_ctl["h"] * 3 // 4)
-        return staged_for(dbg, mk, "system.mouse_speed")
+        return staged_for(dbg, mk, "system.mouse.speed")
 
     staged_down = stage_down()
     check("the step down stages a change for Reset to discard",
@@ -1890,14 +1890,14 @@ def main():
     drain(dbg)
     check("Reset discards the staged change and writes nothing",
           bool(_since(mark, r"settings: reset$")) and
-          stored_value(dbg, "mouse_speed") == on_disk,
+          stored_value(dbg, "mouse.speed") == on_disk,
           f"{on_disk!r} still on disk, staged was {staged_down!r}")
 
     # LEAVING A PAGE WITH A CHANGE ASKS, and Discard goes on without
     # writing. The question is asserted on the app's own line, the
     # answer on the disk and on which page then opened.
-    speed_ctl = reveal("system.mouse_speed",
-                        controls(dbg, 0).get("system.mouse_speed", speed_ctl))
+    speed_ctl = reveal("system.mouse.speed",
+                        controls(dbg, 0).get("system.mouse.speed", speed_ctl))
     staged_again = stage_down()
     mark = len(drain(dbg))
     open_row(tz_row)
@@ -1914,7 +1914,7 @@ def main():
         click(x + w // 2, y + h // 2)
         went = wait_page(dbg, mark, "Date & time")
         check("Discard goes on to the page asked for, writing nothing",
-              went is not None and stored_value(dbg, "mouse_speed") == on_disk,
+              went is not None and stored_value(dbg, "mouse.speed") == on_disk,
               f"page {went and went['page']!r}, on disk "
               f"{stored_value(dbg, 'mouse_speed')!r} (was {on_disk!r})")
 
@@ -1959,13 +1959,13 @@ def main():
     # which can move its scroll position, and a row aimed at through the
     # position from before lands on its neighbour.
     mark = len(drain(dbg))
-    dbg.send("sh config set desktop.start_position center")
+    dbg.send("sh config set desktop.start.position center")
     wait_refresh(dbg, mark)
     tb_page = select_page("Taskbar")
     if tb_page:
-        ctl = controls(dbg, 0).get("desktop.taskbar_align")
+        ctl = controls(dbg, 0).get("desktop.taskbar.align")
         if ctl:
-            ctl = reveal("desktop.taskbar_align", ctl)
+            ctl = reveal("desktop.taskbar.align", ctl)
         if ctl and ctl["kind"] == "segmented":
             half = ctl["w"] // 2            # Left | Centre: Centre is the second
             rect = (cx + ctl["x"] + half + 4, cy + ctl["y"] + 3, half - 8, ctl["h"] - 6)
@@ -1978,15 +1978,15 @@ def main():
             check("the Taskbar page has Button position as a segmented control", False,
                   f"{ctl}")
     mark = len(drain(dbg))
-    dbg.send("sh config unset desktop.start_position")
+    dbg.send("sh config unset desktop.start.position")
     wait_refresh(dbg, mark)
 
     # A PAGE WITH A CHANGE STAYS LISTED under a filter that excludes it:
     # the filter may not navigate away from staged work, so hiding its row
     # left the sidebar highlighting some other page beside it.
     if select_page("Mouse"):
-        speed_ctl = reveal("system.mouse_speed",
-                            controls(dbg, 0).get("system.mouse_speed", speed_ctl))
+        speed_ctl = reveal("system.mouse.speed",
+                            controls(dbg, 0).get("system.mouse.speed", speed_ctl))
         held = stage_down()
         click(sx + sw // 2, sy + sh // 2)
         mark = len(drain(dbg))

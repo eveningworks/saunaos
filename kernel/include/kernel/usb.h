@@ -237,7 +237,7 @@ uint32_t usb_irqs_seen(void);
 // debugged, so it exists from the start rather than being retrofitted.
 void usb_dump(void);
 
-// `config set kernel.usb_reset <port>`: force a root port through a
+// `config set kernel.usb.reset <port>`: force a root port through a
 // real reset and re-enumerate it, without touching the cable. A
 // DIAGNOSTIC for the intermittent enumeration failure in docs/bugs.md,
 // whose known cure is a replug -- and a replug both re-connects the
@@ -246,7 +246,7 @@ void usb_dump(void);
 // Returns 1 if the device enumerated. Ports are 1-based, as logged.
 int usb_diag_reset_port(unsigned port);
 
-// `config set kernel.usb_replug <port>`: the SOFTWARE REPLUG of that
+// `config set kernel.usb.replug <port>`: the SOFTWARE REPLUG of that
 // port's socket -- drop its power and bring it back where the
 // controller allows that (HCCPARAMS1.PPC), and otherwise un-route and
 // re-route it through the Intel port mux, which is the only such lever
@@ -257,7 +257,7 @@ int usb_diag_reset_port(unsigned port);
 // ran, and whether the machine has one at all, is in the log.
 int usb_diag_replug_port(unsigned port);
 
-// `kernel.usb_attach_delay`: how long a freshly connected port is left
+// `kernel.usb.attach_delay`: how long a freshly connected port is left
 // alone before it is RESET, in milliseconds. The USB2 attach debounce
 // (TATTDB), and a DIAGNOSTIC lever: resetting a port whose connection
 // has not settled is the documented way to lose the high-speed chirp,
@@ -274,7 +274,7 @@ unsigned usb_attach_delay_ms(void);
 // lever docs/bugs.md's enumeration failure had never been given.
 void usb_shutdown(void);
 
-// Re-initialise the whole controller (kernel.usb_hcreset). See xhci_port.c.
+// Re-initialise the whole controller (kernel.usb.hcreset). See xhci_port.c.
 int usb_controller_reinit(void);
 
 // `system.usb_recover`: may a lost port reset the whole controller?

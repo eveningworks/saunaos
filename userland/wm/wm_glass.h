@@ -59,7 +59,7 @@ uint32_t wm_glass_ink_bg(enum wm_glass_surface surf, uint32_t bg, uint32_t groun
 // A WIN_POPUP_GLASS client's content, in place of wm_client_draw().
 void wm_glass_draw_client(const struct window *w);
 
-// Glass title bars (`desktop.transparency_windows=titlebars`).
+// Glass title bars (`desktop.transparency.windows=titlebars`).
 int wm_glass_titlebars(void);
 
 // How opaque window `i` is drawn, 255 when solid: an inactive or every

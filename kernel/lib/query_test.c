@@ -158,9 +158,9 @@ KTEST("query", "the memory provider's fields read the record's own numbers") {
     KTEST_ASSERT(query_read(QUERY_MEMINFO, 0, &m, sizeof m) > 0);
     uint64_t v = 0;
     uint32_t t = 0;
-    KTEST_ASSERT_EQ(query_field_get("mem.frame_bytes", &v, &t), 0);
+    KTEST_ASSERT_EQ(query_field_get("mem.frame.bytes", &v, &t), 0);
     KTEST_ASSERT_EQ((int)v, (int)m.frame_bytes);
-    KTEST_ASSERT_EQ(query_field_get("mem.frame_total", &v, &t), 0);
+    KTEST_ASSERT_EQ(query_field_get("mem.frame.total", &v, &t), 0);
     KTEST_ASSERT_EQ((int)v, (int)m.frame_total);
 }
 

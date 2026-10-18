@@ -3,8 +3,8 @@
 
 WHAT THIS IS
 ------------
-`system.cursor_theme` is a `Widget=gallery` setting with `Preview=cursor`
-(data/etc/settings.d/system.cursor_theme): a uui_gallery of cards, one
+`system.cursor.theme` is a `Widget=gallery` setting with `Preview=cursor`
+(data/etc/settings.d/system.cursor.theme): a uui_gallery of cards, one
 per theme directory, each tile painted by set_preview.c from the
 theme's own shape files through lib/ucursor. This drives it from the
 app's own report (`settings: gallery ... card i x y w h tile 1 shown
@@ -77,7 +77,7 @@ from qmp_test import QMPSession                      # noqa: E402
 import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
-KEY = "system.cursor_theme"
+KEY = "system.cursor.theme"
 CONF = "/etc/toyos.conf"
 WANT = {"Classic", "Classic bold", "Graphite", "Accent", "Amber", "Aurora"}
 CARD_RE = re.compile(r"settings: gallery \d+ " + re.escape(KEY) +
@@ -97,7 +97,7 @@ def cards(dbg, logs):
 
 def stored(dbg):
     for line in (dbg.send(f"sh cat {CONF}") or "").splitlines():
-        if line.strip().startswith("cursor_theme="):
+        if line.strip().startswith("cursor.theme="):
             return line.split("=", 1)[1].strip()
     return None
 
@@ -239,7 +239,7 @@ def warning_ink(img, c):
 def run_fonts(dbg, qmp, tmp, res):
     from PIL import Image
     dbg.logs()
-    dbg.send("gui spawn /bin/wm/system/settings system.font_face")
+    dbg.send("gui spawn /bin/wm/system/settings system.font.face")
     win = None
     for _ in range(30):
         win = dbg.window("System Settings")
@@ -252,7 +252,7 @@ def run_fonts(dbg, qmp, tmp, res):
     ui, mono, logs = {}, {}, []
     for _ in range(30):
         logs = dbg.logs(clear=False)
-        ui, mono = font_cards(logs, "system.font_face"), font_cards(logs, "system.font_mono")
+        ui, mono = font_cards(logs, "system.font.face"), font_cards(logs, "system.font.mono")
         if FONT_WANT <= set(ui) and FONT_WANT <= set(mono):
             break
         time.sleep(0.3)
@@ -289,7 +289,7 @@ def run_fonts(dbg, qmp, tmp, res):
     mono = {}
     for _ in range(20):
         time.sleep(0.3)
-        mono = font_cards(dbg.logs(clear=False), "system.font_mono")
+        mono = font_cards(dbg.logs(clear=False), "system.font.mono")
         if "Liberation Sans" in mono and "DejaVu Sans Mono" in mono:
             break
     dbg.warp_cursor(qmp, win["x"] + 20, win["y"] + win["h"] - 20)
@@ -474,7 +474,7 @@ def run_effects(dbg, qmp, tmp, res):
 
     dbg.send("sh config set desktop.transparency on")   # the gallery Requires= it
     try:
-        key = "desktop.transparency_windows"
+        key = "desktop.transparency.windows"
         names = {"None", "Title bars", "Inactive", "All"}
         win, got = open_page(dbg, key, {key: names}, [key])
         cards = scroll_to(dbg, qmp, win, key, "All") if win else {}
@@ -549,7 +549,7 @@ def run_round3(dbg, qmp, tmp, res):
         # pictures are the screen's shape, so Fill and Fit draw the same
         # and the page says so; a card showing only the desktop's colour
         # is the bug where the wallpaper's name never reached the painter.
-        key = "desktop.wallpaper_mode"
+        key = "desktop.wallpaper.mode"
         names = {"Fill the screen (crop)", "Fit the whole picture"}
         win, got = open_page(dbg, key, {key: names}, [key])
         cards = scroll_to(dbg, qmp, win, key, "Fit the whole picture") if win else {}

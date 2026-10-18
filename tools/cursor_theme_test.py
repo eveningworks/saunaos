@@ -175,10 +175,10 @@ def main():
     # Both cursor checks saturated at the full patch (7744 = 88x88) the
     # day a default wallpaper shipped, which reads exactly like the theme
     # switch doing nothing.
-    set_setting(dbg, "desktop.wallpaper_type", "colour")
-    set_setting(dbg, "cursor_size", "normal")
-    set_setting(dbg, "cursor_theme", "bold")
-    set_setting(dbg, "cursor_theme", "default")
+    set_setting(dbg, "desktop.wallpaper.type", "colour")
+    set_setting(dbg, "system.cursor.size", "normal")
+    set_setting(dbg, "system.cursor.theme", "bold")
+    set_setting(dbg, "system.cursor.theme", "default")
     want = expected_shapes()
     theme, n = loaded_count(dbg)
     check("the default theme loads every shape", n == want,
@@ -191,7 +191,7 @@ def main():
     check("the pointer is drawn", ink_default > 40, f"{ink_default} px")
 
     # --- a different THEME changes the drawn shape --------------------
-    set_setting(dbg, "cursor_theme", "bold")
+    set_setting(dbg, "system.cursor.theme", "bold")
     theme, n = loaded_count(dbg)
     check("the bold theme loads every shape", n == want,
           f'theme="{theme}" loaded={n} of {want}')
@@ -206,8 +206,8 @@ def main():
           ink_bold > ink_default, f"default={ink_default} bold={ink_bold}")
 
     # --- SIZE scales it, by roughly the right amount ------------------
-    set_setting(dbg, "cursor_theme", "default")
-    set_setting(dbg, "cursor_size", "large")
+    set_setting(dbg, "system.cursor.theme", "default")
+    set_setting(dbg, "system.cursor.size", "large")
     DebugConsole.warp_cursor(dbg, qmp, PARK_X, PARK_Y)
     time.sleep(0.5)
     ink_large = cursor_ink(qmp, "large")
@@ -219,7 +219,7 @@ def main():
           f"default={ink_default} large={ink_large} ratio={ratio:.2f}")
 
     # --- and it is a ROUND TRIP ---------------------------------------
-    set_setting(dbg, "cursor_size", "normal")
+    set_setting(dbg, "system.cursor.size", "normal")
     DebugConsole.warp_cursor(dbg, qmp, PARK_X, PARK_Y)
     time.sleep(0.5)
     ink_back = cursor_ink(qmp, "back")
@@ -251,14 +251,14 @@ def main():
             check(f"control: a theme disjoint from {t}'s colours exists", False)
             continue
         distinct[t] = owns[t] - owns[ctl] - bw
-        set_setting(dbg, "cursor_theme", ctl)
+        set_setting(dbg, "system.cursor.theme", ctl)
         DebugConsole.warp_cursor(dbg, qmp, PARK_X, PARK_Y)
         time.sleep(0.5)
         stray = colour_hits(qmp, f"control_{t}", distinct[t])
         check(f"control: the {ctl} pointer shows none of {t}'s colours", stray == 0,
               f"{stray} px")
     for t in themes:
-        set_setting(dbg, "cursor_theme", t)
+        set_setting(dbg, "system.cursor.theme", t)
         theme, n = loaded_count(dbg)
         check(f"the {t} theme loads every shape", theme == t and n == want,
               f'theme="{theme}" loaded={n} of {want}')
@@ -268,7 +268,7 @@ def main():
         check(f"the {t} pointer paints its own colours", hits >= 20, f"{hits} px")
         # large reloads the 2x RENDERING; its ink grows about fourfold
         ink1 = cursor_ink(qmp, f"img1_{t}")
-        set_setting(dbg, "cursor_size", "large")
+        set_setting(dbg, "system.cursor.size", "large")
         DebugConsole.warp_cursor(dbg, qmp, PARK_X, PARK_Y)
         time.sleep(0.5)
         ink2 = cursor_ink(qmp, f"img2_{t}")
@@ -282,10 +282,10 @@ def main():
         check(f"{t} at large loaded its 2x renderings",
               bool(m) and m.group(1) == m.group(2) and int(m.group(1)) == want,
               rep[-1].strip() if rep else "no report")
-        set_setting(dbg, "cursor_size", "normal")
+        set_setting(dbg, "system.cursor.size", "normal")
     bad = [line for line in dbg.logs() if "did not decode" in line or "-- refused" in line]
     check("no image file failed to decode or was refused", not bad, bad[0] if bad else "")
-    set_setting(dbg, "cursor_theme", "default")
+    set_setting(dbg, "system.cursor.theme", "default")
 
     # --- a theme nobody installed is REFUSED --------------------------
     #
@@ -311,7 +311,7 @@ def main():
     # path the compositor is not on.
     out = dbg.send("sh cat /etc/toyos.conf") or ""
     check("...and /etc still names a theme that exists",
-          "cursor_theme=broken" not in out, out[-200:])
+          "cursor.theme=broken" not in out, out[-200:])
 
     DebugConsole.warp_cursor(dbg, qmp, PARK_X + 40, PARK_Y + 40)
     time.sleep(0.5)
@@ -336,15 +336,15 @@ def main():
     time.sleep(0.5)
     conf = "\n".join(dbg.logs())
     check("the settings persisted to /etc/toyos.conf",
-          "cursor_theme" in conf and "cursor_size" in conf,
-          "both keys present" if "cursor_theme" in conf else "missing")
+          "cursor.theme" in conf and "cursor.size" in conf,
+          "both keys present" if "cursor.theme" in conf else "missing")
 
     # Leave the desktop as it was found. These settings persist to the
     # disk image, so a test that ends on "broken" hands the next one a
     # themeless pointer -- the same rule this file's own baseline check
     # had to learn.
-    set_setting(dbg, "cursor_theme", "default")
-    set_setting(dbg, "cursor_size", "normal")
+    set_setting(dbg, "system.cursor.theme", "default")
+    set_setting(dbg, "system.cursor.size", "normal")
 
     failed = sum(1 for _, ok in checks if not ok)
     print(f"\ncursor_theme_test: {len(checks) - failed} passed, {failed} failed")

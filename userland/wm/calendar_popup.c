@@ -30,7 +30,7 @@ static int g_card_now_ok;
 // showing tomorrow -- the same call every desktop's clock applet makes.
 static int view_year = 1970, view_month = 1;
 
-// The LC_TIME locale's first weekday (`locale.week_start`, or the
+// The LC_TIME locale's first weekday (`locale.week.start`, or the
 // region's), adopted by calendar_poll_config().
 static int week_start_monday = 1;
 

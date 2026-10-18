@@ -70,7 +70,7 @@ static void apply_user_agent(void) {
     char which[16], ua[256];
     if (usetting_get("browser.user_agent", which, sizeof which) < 0) strcpy(which, "toyos");
     if (!strcmp(which, "custom") &&
-        usetting_get("browser.user_agent_custom", ua, sizeof ua) >= 0 && ua[0]) {
+        usetting_get("browser.user_agent.custom", ua, sizeof ua) >= 0 && ua[0]) {
         ns_fetch_http_set_user_agent(ua);
         return;
     }

@@ -48,8 +48,8 @@ shipped one of the same stem -- `/etc` over `/usr`, as everywhere. The
     titlebar_pad=8            # px added to the font height, 4..20
 
     [apply]                   # settings applied with the theme
-    desktop.taskbar_theme=dark
-    system.cursor_theme=graphite
+    desktop.taskbar.theme=dark
+    system.cursor.theme=graphite
 
 - **A role the file leaves out is Light's.** A partial theme draws;
   a broken one degrades role by role, the cursor themes' rule.

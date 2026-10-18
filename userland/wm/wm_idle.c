@@ -27,7 +27,7 @@ static void adopt_settings(void) {
     char v[64];
     if (wm_conf_get(DESKTOP_CONF, "screensaver", v, sizeof v) && v[0])
         strlcpy(g_saver, v, sizeof g_saver);
-    if (wm_conf_get(DESKTOP_CONF, "screensaver_idle", v, sizeof v) && v[0]) {
+    if (wm_conf_get(DESKTOP_CONF, "screensaver.idle", v, sizeof v) && v[0]) {
         int n = 0;
         for (const char *p = v; *p >= '0' && *p <= '9'; p++) n = n * 10 + (*p - '0');
         if (n >= 0 && n <= SCREENSAVER_IDLE_MAX) g_idle_minutes = n;

@@ -202,7 +202,8 @@ int query_field_get(const char *qualified, uint64_t *out_value, uint32_t *out_ty
         return -ENOTSUP;
     }
     for (uint32_t i = 0; i < p->field_count; i++) {
-        if (k_strcmp(p->fields[i].name, field) != 0) continue;
+        const struct query_field *f = &p->fields[i];
+        if (k_strcmp(f->name, field) != 0 && !(f->was && k_strcmp(f->was, field) == 0)) continue;
 
         // Read the whole record into a local and take the field out of
         // it. Not a pointer into provider-owned memory: a provider

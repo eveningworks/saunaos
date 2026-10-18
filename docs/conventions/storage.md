@@ -135,7 +135,7 @@ this the obvious way), not from how much history it accumulated.
   not on a count it read earlier. **A provider is stored BY POINTER**,
   so it must be static; a stack local leaves a dangling pointer reading
   as plausible garbage. **Field OFFSETS never cross the syscall
-  boundary** -- names and values do (`config get mem.frame_free`), which
+  boundary** -- names and values do (`config get mem.frame.free`), which
   is what keeps a record free to grow. And **a LIST class has no field
   table on purpose**: `-ENOTSUP`, distinct from `-ENOENT`, because "that
   fact is a table" and "no such fact" send a reader to different places.
@@ -196,7 +196,7 @@ this the obvious way), not from how much history it accumulated.
   it from ring 3. One without `Type=` only describes a setting the
   kernel registered, which is what that directory did before. The test
   for which kind a new setting is: **does ring 0 do anything with the
-  value?** `system.font_size` does (the kernel rasterises with it), so
+  value?** `system.font.size` does (the kernel rasterises with it), so
   it stays a `struct setting` with an `apply`. The wallpaper does not --
   the compositor reads it on its generation poll -- so registering it in
   the kernel bought a validator and a file write, which is exactly what
@@ -211,8 +211,20 @@ this the obvious way), not from how much history it accumulated.
   quietly -- the declaration still shows, but its text never matches it,
   so the row arrives without its label, choices or `Widget=`, sorted
   first on its page. `tools/check_config_size.py` refuses it.
-  `desktop.transparency_window_opacity` did exactly that under the old
-  24-byte cap, which is why the cap is 48 now.
+  `desktop.transparency_window_opacity` (as it was named then) did
+  exactly that under the old 24-byte cap, which is why the cap is 48 now.
+- **A SETTING'S NAME IS A PATH: A FAMILY SHARES A BRANCH, AND A BRANCH
+  MAY HOLD A VALUE.** `desktop.transparency.taskbar`, not
+  `desktop.transparency_taskbar`: dots after the namespace make the tree
+  `config get desktop.transparency` lists, and the family's switch keeps
+  the branch's own name (`desktop.transparency` = on/off). A word pair
+  that is one idea is one key (`browser.user_agent`). **A RENAMED KEY
+  GOES IN `api/etc_renamed.h`'s TABLE**, which every `/etc` reader
+  consults, so old files and old scripts keep working; a program with a
+  private `/etc` parser must ask for the old key itself (`libc/locale.c`).
+  A fact's field takes a dotted name with `QUERY_FIELD_AS()`, which keeps
+  the member's name as the old one. `docs/settings-and-queries.md`,
+  "Names", has the rest.
 - **A CLIENT SIZES ITS SETTINGS TABLES FROM `SETTING_OP_COUNT`, AT EVERY
   READ -- THERE IS NO CAP TO MIRROR.** System Settings grows its tables
   in `reload_settings()` and the declared-settings list grows as the
@@ -450,8 +462,8 @@ outstanding. **NCQ and 64-bit addressing are REPORTED, not used**, and
     reporting "applied" as "saved" is a lie the user only finds after a
     reboot.
   - **A setting's identity is (NAMESPACE, name), and the namespace is
-    the registered name of its FILE** -- `system.font_size` for
-    `font_size` in `/etc/toyos.conf`. Derived, not declared. **A bare
+    the registered name of its FILE** -- `system.font.size` for
+    `font.size` in `/etc/toyos.conf`. Derived, not declared. **A bare
     name works only when exactly one setting has it and is REFUSED when
     several do** -- never resolved by registration order, which would
     make the answer depend on boot sequence.

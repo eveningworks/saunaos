@@ -1027,7 +1027,7 @@ at all. The baked tables are the same idea done at build time, and
 better for it: five sizes, anti-aliased, and six Latin-1 letters ASCII
 does not have.
 
-**What ring 0 kept is the SETTING, not the font.** `system.font_face`
+**What ring 0 kept is the SETTING, not the font.** `system.font.face`
 lives in /etc/toyos.conf like every other one, and the registry needs a
 list of valid choices -- so `font_faces.c` lists a directory and
 validates a name against it. It opens no file. Whether a `.ttf` actually
@@ -1225,7 +1225,7 @@ merges those declarations with the kernel's registry so a client sees
 one list. The kernel keeps the settings it can actually turn.
 
 **The test is "does ring 0 do anything with the value?"** -- not "is it
-a system setting". `system.font_size` stays registered because the
+a system setting". `system.font.size` stays registered because the
 kernel rasterises glyphs with it. `desktop.wallpaper` does not, and
 never did.
 
@@ -4470,7 +4470,7 @@ length.
 
 ## `config get` reads facts, and named fields are how
 
-A record has several fields, so `config get mem.frame_free` needs a way
+A record has several fields, so `config get mem.frame.free` needs a way
 to name one -- without it a fact has no flat name at all and nothing
 could read a single value or list facts beside settings.
 
@@ -9293,12 +9293,12 @@ experimentation, not how Linux schedules.
   three ways a slot is made. A realtime compositor spawns every app; an
   inheriting class would have made the whole desktop realtime.
 - **Two guards, because a spinning RT process owns the machine.** A
-  WATCHDOG: one that runs `kernel.sched_rt_watchdog_ms` (1000) without
+  WATCHDOG: one that runs `kernel.sched.rt.watchdog_ms` (1000) without
   BLOCKING -- a yield does not count -- is moved to `SCHED_OTHER` and
   logged, MMCSS's demotion rather than `RLIMIT_RTTIME`'s SIGKILL, since
   the processes this protects (the compositor, the sound driver) are
   ones nobody wants killed. And a THROTTLE: all RT together gets
-  `kernel.sched_rt_runtime_ms` (950) of each second while an ordinary
+  `kernel.sched.rt.runtime_ms` (950) of each second while an ordinary
   process wants the CPU. Unlike Linux's it is WORK-CONSERVING -- a
   throttled RT process still runs when nothing ordinary is READY, since
   idling then helps nobody -- and the kernel context does not count as

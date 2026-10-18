@@ -1421,7 +1421,7 @@ so a failed `pthread_create` decoded the image and then dropped it.
 ~~Real wallpaper images~~ -- done: `/usr/share/wallpapers` holds one
 JPEG per background and two REGISTERED SETTINGS choose between them --
 `desktop.wallpaper` (a filename stem, or `none`) and
-`desktop.wallpaper_mode` (`fill`/`fit`). So `config set
+`desktop.wallpaper.mode` (`fill`/`fit`). So `config set
 desktop.wallpaper dusk` works from any shell, System Settings gets a row
 with no edit to it, and Image Viewer's Desktop menu goes through the
 same registry rather than writing a private key. The desktop notices
@@ -1740,7 +1740,7 @@ opened by clicking the tray clock, showing a month grid with today in
 the accent, `<`/`>` paging and a title that snaps back to today
 (`userland/wm/calendar_popup.c`). Days are not clickable -- there are no
 events to select one for. The week's first column is the locale's
-(`locale.week_start`, else the region's). Redesigned 2026-10-01 from
+(`locale.week.start`, else the region's). Redesigned 2026-10-01 from
 mockups: a clock card (time, long date, zone) on top, the neighbouring
 months' days greyed to fill six rows, ISO week numbers where the locale
 shows them, and a "Date & time settings..." link.

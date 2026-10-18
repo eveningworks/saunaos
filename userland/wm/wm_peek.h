@@ -6,7 +6,7 @@
 // preview, Plasma's task tooltip. A grouped button shows one entry per
 // window. Clicking an entry activates that window and closes the card;
 // its x asks the window to close and leaves the card up, so a group can
-// be closed one x after another. `desktop.taskbar_peek`:
+// be closed one x after another. `desktop.taskbar.peek`:
 //
 //   off        the plain title tooltip, as before
 //   preview    the card (the DEFAULT)

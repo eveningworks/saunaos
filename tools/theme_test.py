@@ -52,6 +52,16 @@ def sh(dbg, cmd):
     return lines[-1].strip() if lines else ""
 
 
+def value(dbg, name):
+    """A setting's value: `config get`'s FIRST plain line. A name that is
+    also a branch (desktop.corners) prints the names under it after it."""
+    for ln in (dbg.send(f"sh config get {name}") or "").splitlines():
+        ln = ln.strip()
+        if ln and " " not in ln and "=" not in ln and not ln.startswith("("):
+            return ln
+    return ""
+
+
 def shot(qmp, tmp, name):
     p = os.path.join(tmp, name)
     qmp.screenshot(p)
@@ -90,9 +100,9 @@ def layout(dbg, app):
 
 
 def run(dbg, qmp, tmp, res):
-    keep = {k: sh(dbg, f"config get {k}") for k in
-            ("desktop.theme", "desktop.corners", "desktop.taskbar_theme", "desktop.layout_log",
-             "desktop.wallpaper", "desktop.wallpaper_type")}
+    keep = {k: value(dbg, k) for k in
+            ("desktop.theme", "desktop.corners", "desktop.taskbar.theme", "desktop.layout_log",
+             "desktop.wallpaper", "desktop.wallpaper.type")}
     try:
         phase_switch(dbg, qmp, tmp, res)
         phase_editor(dbg, qmp, tmp, res)
@@ -215,8 +225,8 @@ def phase_editor(dbg, qmp, tmp, res):
     qmp.click()
     time.sleep(2.5)
     res.check("Apply made it the desktop's theme", sh(dbg, "config get desktop.theme") == STEM)
-    res.check("...with Paper's bundled settings", sh(dbg, "config get desktop.corners") == "round" and
-              sh(dbg, "config get desktop.taskbar_theme") == "light")
+    res.check("...with Paper's bundled settings", value(dbg, "desktop.corners") == "round" and
+              value(dbg, "desktop.taskbar.theme") == "light")
     title = next((x["title"] for x in dbg.windows() or [] if "Theme Editor" in x.get("title", "")), None)
     ww = dbg.window(title) if title else None
     if res.check("the editor is still up", ww is not None):

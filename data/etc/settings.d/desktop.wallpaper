@@ -10,5 +10,5 @@ Description=From /usr/share/wallpapers
 Widget=gallery
 Preview=picture
 Order=2
-Requires=desktop.wallpaper_type=picture
+Requires=desktop.wallpaper.type=picture
 WhenUnmet=hide

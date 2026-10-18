@@ -51,4 +51,4 @@ titlebar_pad=8
 
 [apply]
 desktop.corners=small
-desktop.taskbar_theme=dark
+desktop.taskbar.theme=dark

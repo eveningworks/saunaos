@@ -16,7 +16,7 @@
 struct uui_themepreview {
     int x, y, w, h;
     const struct utheme *theme;   // borrowed; NULL draws the live one
-    int taskbar_light;            // the bundle's desktop.taskbar_theme
+    int taskbar_light;            // the bundle's desktop.taskbar.theme
     int corner;                   // the window's corner radius, px at full size
     uint32_t desk;                // the desktop behind the window
 };

@@ -43,5 +43,5 @@ window already open keeps the metrics it mapped at startup.
 
 ## See also
 
-`fontface`, `config set system.font_size <n>` (the same setting through
+`fontface`, `config set system.font.size <n>` (the same setting through
 the settings registry), `kernel/lib/font_config.c`.

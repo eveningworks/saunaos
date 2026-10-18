@@ -7,7 +7,7 @@
 //
 // HIDDEN WITH ONE LAYOUT, as Windows and KDE hide theirs: an indicator
 // for a choice that does not exist is noise. The list and the active
-// layout are kernel settings (system.keyboard_layouts / _layout); this
+// layout are kernel settings (system.keyboard.layouts / _layout); this
 // switches by SETTING the active one, which loads it and is never
 // persisted -- a boot starts with the list's first.
 //

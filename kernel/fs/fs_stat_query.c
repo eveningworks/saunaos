@@ -19,9 +19,9 @@ static int fsstat_fill(int index, void *out) {
 }
 
 static const struct query_field fsstat_fields[] = {
-    QUERY_FIELD(struct query_fsstat, lookup_calls, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_fsstat, lookup_reads, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_fsstat, lookup_ns,    QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_fsstat, lookup_calls, "lookup.calls", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_fsstat, lookup_reads, "lookup.reads", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_fsstat, lookup_ns, "lookup.ns", QUERY_TYPE_U64),
 };
 
 static const struct query_provider fsstat_provider = {

@@ -48,17 +48,17 @@ static int meminfo_fill(int index, void *out) {
 // how a doc and a header drift, and there is no reason for the wire name
 // to differ from the field a reader will grep for.
 static const struct query_field meminfo_fields[] = {
-    QUERY_FIELD(struct query_meminfo, frame_total,      QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_meminfo, frame_free,       QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_meminfo, frame_bytes,      QUERY_TYPE_BYTES),
-    QUERY_FIELD(struct query_meminfo, heap_total_bytes, QUERY_TYPE_BYTES),
-    QUERY_FIELD(struct query_meminfo, heap_used_bytes,  QUERY_TYPE_BYTES),
-    QUERY_FIELD(struct query_meminfo, phys_usable_bytes, QUERY_TYPE_BYTES),
-    QUERY_FIELD(struct query_meminfo, frame_total_high, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_meminfo, frame_free_high,  QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_meminfo, frame_reserve_dma32, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_meminfo, shm_bytes,        QUERY_TYPE_BYTES),
-    QUERY_FIELD(struct query_meminfo, graphics_bytes,   QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_meminfo, frame_total, "frame.total", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, frame_free, "frame.free", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, frame_bytes, "frame.bytes", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_meminfo, heap_total_bytes, "heap.total", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_meminfo, heap_used_bytes, "heap.used", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_meminfo, phys_usable_bytes, "phys.usable", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_meminfo, frame_total_high, "frame.high.total", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, frame_free_high, "frame.high.free", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, frame_reserve_dma32, "frame.reserve.dma32", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_meminfo, shm_bytes, "shm", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_meminfo, graphics_bytes, "graphics", QUERY_TYPE_BYTES),
 };
 
 static const struct query_provider meminfo_provider = {

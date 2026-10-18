@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/taskbar_peek_test.py -- the taskbar's window preview
-(`desktop.taskbar_peek`, userland/wm/wm_peek.h): it opens, it shows the
+(`desktop.taskbar.peek`, userland/wm/wm_peek.h): it opens, it shows the
 window, it follows the pointer, it acts, and it can be switched off.
 
 WHAT THIS ASSERTS THAT "IT OPENS" WOULD NOT
@@ -80,8 +80,8 @@ def main():
 
     with DebugConsole(args.sock) as dbg:
         dbg.settle()
-        for k in ("taskbar_buttons", "taskbar_align", "taskbar_float", "taskbar_peek", "start_position",
-                  "taskbar_combine"):
+        for k in ("taskbar.buttons", "taskbar.align", "taskbar.float", "taskbar.peek", "start.position",
+                  "taskbar.combine"):
             dbg.send(f"sh config unset desktop.{k}")
         for app in ("Task Manager", "Notepad", "Notepad"):
             dbg.open_app(app)
@@ -156,7 +156,7 @@ def main():
 
         # --- highlight -------------------------------------------------
         print("highlight")
-        dbg.send("sh config set desktop.taskbar_peek highlight")
+        dbg.send("sh config set desktop.taskbar.peek highlight")
         wait_for(lambda: peek().get("mode") == "highlight", 6)
         dbg.warp_cursor(qmp, 640, 250)
         time.sleep(0.8)
@@ -205,8 +205,8 @@ def main():
         # next is one more click -- and goes with its last entry. The two
         # Notepads are empty, so neither asks before closing.
         print("group")
-        dbg.send("sh config set desktop.taskbar_peek preview")
-        dbg.send("sh config set desktop.taskbar_combine always")
+        dbg.send("sh config set desktop.taskbar.peek preview")
+        dbg.send("sh config set desktop.taskbar.combine always")
         wait_for(lambda: peek().get("mode") == "preview", 6)
         dbg.warp_cursor(qmp, 640, 250)
         grp = wait_for(lambda: next((b for b in dbg.json("gui taskbar --json")["buttons"]
@@ -241,11 +241,11 @@ def main():
                     shut = wait_for(lambda: not peek().get("open"), 2)
                     res.check("...and the last x takes the card with it", bool(gone) and bool(shut),
                               f"closed={bool(gone)} peek: {peek()}")
-        dbg.send("sh config unset desktop.taskbar_combine")
+        dbg.send("sh config unset desktop.taskbar.combine")
 
         # --- off -------------------------------------------------------
         print("off")
-        dbg.send("sh config set desktop.taskbar_peek off")
+        dbg.send("sh config set desktop.taskbar.peek off")
         wait_for(lambda: peek().get("mode") == "off", 6)
         dbg.warp_cursor(qmp, 640, 250)
         time.sleep(0.4)
@@ -254,7 +254,7 @@ def main():
         res.check("off opens no preview", not peek().get("open"), f"peek: {peek()}")
 
         dbg.warp_cursor(qmp, 640, 250)
-        dbg.send("sh config unset desktop.taskbar_peek")
+        dbg.send("sh config unset desktop.taskbar.peek")
     return report(res)
 
 

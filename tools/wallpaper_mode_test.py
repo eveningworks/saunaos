@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""`desktop.wallpaper_mode`: does fit differ from fill, and is the
+"""`desktop.wallpaper.mode`: does fit differ from fill, and is the
 picture decoded only when it actually changes?
 
 WHY THIS TOOL SETS A RESOLUTION
@@ -126,7 +126,7 @@ def run(dbg, qmp, shot):
     # ESTABLISH the picture and the mode rather than inheriting whatever
     # the last tool left: wallpaper and wallpaper_mode both persist.
     set_setting(dbg, "desktop.wallpaper", "aurora")
-    set_setting(dbg, "desktop.wallpaper_mode", "fill")
+    set_setting(dbg, "desktop.wallpaper.mode", "fill")
 
     # --- 1. the premise: at 16:9 the two modes are INDISTINGUISHABLE --
     # Asserted, not assumed. If a future wallpaper or default mode makes
@@ -134,11 +134,11 @@ def run(dbg, qmp, shot):
     # gone and the next reader should be told so here.
     w, h = screen_size(dbg)
     same_fill = qmp.stable_pixels(shot("wpm_16x9_fill.png"), box=wallpaper_box(w, h))
-    set_setting(dbg, "desktop.wallpaper_mode", "fit")
+    set_setting(dbg, "desktop.wallpaper.mode", "fit")
     same_fit = qmp.stable_pixels(shot("wpm_16x9_fit.png"), box=wallpaper_box(w, h))
     check("at the boot mode fit and fill are pixel-identical (why this tool sets a mode)",
           same_fill == same_fit, f"{w}x{h}")
-    set_setting(dbg, "desktop.wallpaper_mode", "fill")
+    set_setting(dbg, "desktop.wallpaper.mode", "fill")
 
     # --- the real measurement, at an aspect the picture does not match -
     set_res(dbg, *TARGET)
@@ -148,13 +148,13 @@ def run(dbg, qmp, shot):
     w, h = now
     wbox, tbox = wallpaper_box(w, h), taskbar_box(w, h)
 
-    set_setting(dbg, "desktop.wallpaper_mode", "fill")
+    set_setting(dbg, "desktop.wallpaper.mode", "fill")
     fill = qmp.stable_pixels(shot("wpm_fill.png"), box=wbox)
     fill_tb = qmp.stable_pixels(shot("wpm_fill_tb.png"), box=tbox)
 
     # --- 2/3. fit differs from fill, and only in the wallpaper --------
     dbg.logs()   # clear, so `decoded()` sees only this change
-    set_setting(dbg, "desktop.wallpaper_mode", "fit")
+    set_setting(dbg, "desktop.wallpaper.mode", "fit")
     time.sleep(1.2)
     dec_mode = decoded(dbg)
     fit = qmp.stable_pixels(shot("wpm_fit.png"), box=wbox)
@@ -167,7 +167,7 @@ def run(dbg, qmp, shot):
           not dec_mode, "; ".join(dec_mode)[:110])
 
     # --- 5. and it is reversible, byte for byte -----------------------
-    set_setting(dbg, "desktop.wallpaper_mode", "fill")
+    set_setting(dbg, "desktop.wallpaper.mode", "fill")
     back = qmp.stable_pixels(shot("wpm_back.png"), box=wbox)
     check("fit -> fill restores the original pixels exactly", back == fill)
 
@@ -204,7 +204,7 @@ def main():
 
     orig_res = screen_size(dbg)
     orig_name = setting(dbg, "desktop.wallpaper")
-    orig_mode = setting(dbg, "desktop.wallpaper_mode")
+    orig_mode = setting(dbg, "desktop.wallpaper.mode")
     try:
         run(dbg, qmp, shot)
     finally:
@@ -213,7 +213,7 @@ def main():
         if orig_name:
             set_setting(dbg, "desktop.wallpaper", orig_name)
         if orig_mode:
-            set_setting(dbg, "desktop.wallpaper_mode", orig_mode)
+            set_setting(dbg, "desktop.wallpaper.mode", orig_mode)
         if screen_size(dbg) != orig_res:
             set_res(dbg, *orig_res)
     return report()

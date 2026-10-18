@@ -1,5 +1,5 @@
 // Persists the console's font size selection across reboots, the same
-// way tz.c persists the timezone city -- a small "font_size=<n>" key
+// way tz.c persists the timezone city -- a small "font.size=<n>" key
 // inside the shared /etc/toyos.conf every setting lives in by default,
 // read/applied once at boot (see kernel.c's kernel_main():
 // fs_mkdir("/etc") runs before any INIT_CONFIG initcall),
@@ -23,9 +23,9 @@
 #include "initcall.h"
 
 #define FONT_CONFIG_FILE "/etc/toyos.conf"
-#define FONT_CONFIG_KEY "font_size"
-#define FACE_CONFIG_KEY "font_face"
-#define MONO_CONFIG_KEY "font_mono"
+#define FONT_CONFIG_KEY "font.size"
+#define FACE_CONFIG_KEY "font.face"
+#define MONO_CONFIG_KEY "font.mono"
 
 // The name a face-less machine reports and persists. Not a face name --
 // no file may be called this -- so "the baked font" is a value the

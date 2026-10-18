@@ -78,14 +78,14 @@ int utrash_restore_to(const char *files_path, const char *dest);
 
 // --- how long and how much a bin keeps -------------------------------------
 //
-// `system.trash_max_age` (days) and `system.trash_max_size` (a share of
+// `system.trash.max_age` (days) and `system.trash.max_size` (a share of
 // each bin's volume, in percent), System Settings' Storage > Recycle Bin.
 // 0 is no limit, and both are 0 out of the box -- GNOME's age purge and
 // Windows' size limit ship off too. ENFORCED IN ONE PLACE, `trash
 // expire`, which the desktop runs -- not by every utrash_put() caller.
 
-#define UTRASH_SET_AGE  "system.trash_max_age"
-#define UTRASH_SET_SIZE "system.trash_max_size"
+#define UTRASH_SET_AGE  "system.trash.max_age"
+#define UTRASH_SET_SIZE "system.trash.max_size"
 
 struct utrash_limits {
     int max_age_days;   // 0: none

@@ -433,7 +433,7 @@ def run_glide_pacing(dbg, qmp, res):
     animations off, on the ASUS. `maximize_ms.present` is click to the
     app's present at the new size, timed inside the WM."""
     app = "System Settings"
-    dbg.send("sh config set desktop.taskbar_float on")
+    dbg.send("sh config set desktop.taskbar.float on")
     try:
         dbg.close_window(app)
         dbg.open_app(app)
@@ -493,7 +493,7 @@ def run_glide_pacing(dbg, qmp, res):
                   on - off < 75, f"present ms on {times['on']} vs off {times['off']}")
         dbg.close_window(app)
     finally:
-        dbg.send("sh config set desktop.taskbar_float off")
+        dbg.send("sh config set desktop.taskbar.float off")
         dbg.send("sh config set desktop.animations on")
 
 

@@ -12,7 +12,7 @@ WHAT IT CHECKS, and what a broken version would still pass:
     tray sits opens no flyout -- the closed-overlay fix in wm_overlay.c
     (the network flyout used to open over a fullscreen app);
   - a layout chosen with the ARROW KEY is saved at once: `config get` (an
-    independent reader) shows the new system.keyboard_layout -- a wizard
+    independent reader) shows the new system.keyboard.layout -- a wizard
     that only stored the choice for later passes everything else here;
   - an invalid computer name ("bad name") keeps Next on its step, and a
     valid one moves on and lands in system.hostname;
@@ -151,10 +151,10 @@ def main():
     # Keyboard: the arrow key's choice is saved.
     click_widget(dbg, "next")
     check("Next moves to the Keyboard step", step_seen(dbg, 1))
-    before = setting(dbg, "system.keyboard_layout")
+    before = setting(dbg, "system.keyboard.layout")
     dbg.key(K_DOWN)
     time.sleep(1)
-    after = setting(dbg, "system.keyboard_layout")
+    after = setting(dbg, "system.keyboard.layout")
     check("a layout chosen with the arrow key is saved (config get)", after and after != before,
           f"{before!r} -> {after!r}")
 

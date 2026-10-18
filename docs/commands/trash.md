@@ -23,8 +23,8 @@
   re-created.
 - `empty` -- delete everything in the bins for good.
 - `expire` -- delete for good what the bin's limits say must go: every
-  item deleted more than `system.trash_max_age` days ago, then, in each bin
-  holding more than `system.trash_max_size` percent of its volume, the oldest
+  item deleted more than `system.trash.max_age` days ago, then, in each bin
+  holding more than `system.trash.max_size` percent of its volume, the oldest
   items until it does not -- never a bin's newest. Both limits are off
   by default (System Settings, Storage > Recycle Bin), and with neither
   set this deletes nothing. The desktop runs it at startup, every hour,

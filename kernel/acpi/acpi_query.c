@@ -47,19 +47,19 @@ static int acpi_count(void) { return 1; }
 
 static const struct query_field acpi_fields[] = {
     QUERY_FIELD(struct query_acpi, flags,         QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, rsdp_source,   QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, rsdp_revision, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, table_count,   QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, rsdp_source, "rsdp.source", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, rsdp_revision, "rsdp.revision", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, table_count, "tables", QUERY_TYPE_U64),
     QUERY_FIELD(struct query_acpi, pm1a_cnt,      QUERY_TYPE_U64),
     QUERY_FIELD(struct query_acpi, pm1b_cnt,      QUERY_TYPE_U64),
     QUERY_FIELD(struct query_acpi, smi_cmd,       QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, slp_typ_a,     QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, slp_typ_b,     QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, reset_addr,    QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, reset_value,   QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, lapic_phys,    QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, ioapic_count,  QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_acpi, cpu_count,     QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, slp_typ_a, "slp_typ.a", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, slp_typ_b, "slp_typ.b", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, reset_addr, "reset.addr", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, reset_value, "reset.value", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, lapic_phys, "lapic.phys", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, ioapic_count, "ioapic.count", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_acpi, cpu_count, "cpu.count", QUERY_TYPE_U64),
 };
 
 static const struct query_provider acpi_provider = {

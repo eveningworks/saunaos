@@ -30,7 +30,7 @@ that can tell the difference.
      itself reports, with the title shifted clear of it -- and clicking
      it opens the window menu, as Windows' system-menu icon and
      Plasma's window-menu button do.
-  6. The Start button honours `desktop.start_button` (text | icon |
+  6. The Start button honours `desktop.start.button` (text | icon |
      both): the mark is the start.qoi file, and the STRIP RE-LAYS OUT
      around it -- which is the half a screenshot of the button alone
      cannot tell you.
@@ -430,7 +430,7 @@ def run(dbg, qmp, tmp, res):
         # icon sits TB_PAD (12px) in from its left edge, vertically
         # centred, and taskbar_icon_size() is half the bar (wm_taskbar.c)
         # -- the bar being the panel's height, so this tracks a
-        # `desktop.taskbar_height` change instead of assuming one.
+        # `desktop.taskbar.height` change instead of assuming one.
         bar_h = tbj["panel"]["h"] if tbj.get("floating") else strip_h
         size = max(8, min(32, bar_h // 2))
         want = host_icon("notepad", size)
@@ -576,7 +576,7 @@ def run(dbg, qmp, tmp, res):
     # passed only while the default happened to BE the first mode tested
     # (it was `text` until 2026-09-07), which is a fixture the test did
     # not establish wearing the costume of a working check.
-    dbg.send("sh config set desktop.start_button icon")
+    dbg.send("sh config set desktop.start.button icon")
     prev = None
     deadline = time.time() + 8
     while time.time() < deadline:
@@ -590,7 +590,7 @@ def run(dbg, qmp, tmp, res):
 
     widths = {}
     for mode in ("text", "icon", "both"):
-        dbg.send(f"sh config set desktop.start_button {mode}")
+        dbg.send(f"sh config set desktop.start.button {mode}")
         # The WM adopts it on its next generation poll, so wait for the
         # OBSERVABLE (the strip moved) rather than sleeping a guess. All
         # three widths differ, so "changed from the previous one" is a
@@ -617,7 +617,7 @@ def run(dbg, qmp, tmp, res):
     # The mark itself is the file, checked the same way every other icon
     # here is. Left in `icon` mode for it, since that is where the mark
     # is centred and easiest to locate from the reported geometry alone.
-    dbg.send("sh config set desktop.start_button icon")
+    dbg.send("sh config set desktop.start.button icon")
     time.sleep(2.0)
     im5 = shot(qmp, tmp, "icons-start.png")
     p5 = im5.load()
@@ -653,7 +653,7 @@ def run(dbg, qmp, tmp, res):
 
     # AND `text` MODE REPORTS NO MARK, which is the half that proves the
     # setting reaches the drawing rather than only the width.
-    dbg.send("sh config set desktop.start_button text")
+    dbg.send("sh config set desktop.start.button text")
     deadline = time.time() + 8
     while time.time() < deadline:
         tj = taskbar_json()
@@ -668,7 +668,7 @@ def run(dbg, qmp, tmp, res):
     # `make iso` re-seeds disk.img by SYNC and never reformats, so a
     # setting written here outlives the run and every later tool would
     # inherit it (CLAUDE.md's dirty-fixture rule).
-    dbg.send("sh config unset desktop.start_button")
+    dbg.send("sh config unset desktop.start.button")
 
     # --- 7. the cache is a cache -------------------------------------
     #

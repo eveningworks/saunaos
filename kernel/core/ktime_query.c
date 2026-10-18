@@ -40,16 +40,16 @@ static int clock_fill(int index, void *out) {
 
 static const struct query_field clock_fields[] = {
     QUERY_FIELD(struct query_clock, utc, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, utc_ns, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, monotonic_ns, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, last_step, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, steps, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, tick_hz, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, tick_mode, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, tick_events, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, tick_ticks, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, tick_idle_stops, QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_clock, tick_stopped_ns, QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, utc_ns, "utc.ns", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, monotonic_ns, "monotonic.ns", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, last_step, "step.last", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, steps, "step.count", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, tick_hz, "tick.hz", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, tick_mode, "tick.mode", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, tick_events, "tick.events", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, tick_ticks, "tick.ticks", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, tick_idle_stops, "tick.idle_stops", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_clock, tick_stopped_ns, "tick.stopped_ns", QUERY_TYPE_U64),
 };
 
 static const struct query_provider clock_provider = {

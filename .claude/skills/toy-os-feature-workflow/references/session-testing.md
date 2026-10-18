@@ -941,7 +941,7 @@ after and passed -- with both readings `None`, because the key had never
 been written. `None -> None` satisfies "unchanged" perfectly.
 
 Establish the baseline rather than inherit it: the test now does
-`sh config set system.mouse_speed normal` first and ASSERTS the value is
+`sh config set system.mouse.speed normal` first and ASSERTS the value is
 on disk before going near the staging checks. Same family as this repo's
 existing rule about a fixture whose data never reaches the branch under
 test.

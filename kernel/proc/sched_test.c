@@ -484,14 +484,14 @@ KTEST("sched", "an RT process that does not block is moved to SCHED_OTHER") {
     scheduler_preempt_enable();
 
     if (a < 0 || b < 0) KTEST_SKIP("no free process slots to fabricate");
-    if (!wd) KTEST_SKIP("kernel.sched_rt_watchdog_ms is 0");
+    if (!wd) KTEST_SKIP("kernel.sched.rt.watchdog_ms is 0");
     KTEST_ASSERT_EQ(policy_short, SCHED_FIFO);   // just under: kept
     KTEST_ASSERT_EQ(policy_long, SCHED_OTHER);   // at the limit: demoted
     KTEST_ASSERT_EQ(rt_prio, 0);
 }
 
 KTEST("sched", "throttled RT yields to a READY fair process") {
-    // Past kernel.sched_rt_runtime_ms in this second, RT is passed over
+    // Past kernel.sched.rt.runtime_ms in this second, RT is passed over
     // while an ordinary process is READY. (That it still runs when none
     // is cannot be fabricated here: real processes may be READY too.)
     static uint64_t tf[2][SCHED_TF_SLOTS];
@@ -519,7 +519,7 @@ KTEST("sched", "throttled RT yields to a READY fair process") {
     scheduler_preempt_enable();
 
     if (r < 0 || f < 0) KTEST_SKIP("no free process slots to fabricate");
-    if (rt >= 1000) KTEST_SKIP("kernel.sched_rt_runtime_ms is unlimited");
+    if (rt >= 1000) KTEST_SKIP("kernel.sched.rt.runtime_ms is unlimited");
     KTEST_ASSERT_EQ(fresh, r);
     KTEST_ASSERT_EQ(throttled, f);
 }

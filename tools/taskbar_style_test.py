@@ -5,9 +5,9 @@ where it is reported.
 
 WHAT THIS IS
 ------------
-`desktop.taskbar_buttons` labelled | icons, `desktop.taskbar_align` and
-`desktop.start_position` left | center, `desktop.taskbar_float` off | on
-and `desktop.taskbar_theme` dark | light (userland/wm/wm_taskbar.h). One
+`desktop.taskbar.buttons` labelled | icons, `desktop.taskbar.align` and
+`desktop.start.position` left | center, `desktop.taskbar.float` off | on
+and `desktop.taskbar.theme` dark | light (userland/wm/wm_taskbar.h). One
 layout function and one draw function serve all of them, reading
 taskbar_geom(), so each check pairs the WM's report (`gui taskbar
 --json`, from that same function) with a pixel the report could not
@@ -114,8 +114,8 @@ def main():
     with DebugConsole(args.sock) as dbg:
         dbg.settle()
         # A clean fixture: nothing a previous tool left behind.
-        for k in ("taskbar_buttons", "taskbar_align", "taskbar_float", "start_position", "taskbar_theme",
-                  "taskbar_height", "start_button", "taskbar_peek", "taskbar_combine"):
+        for k in ("taskbar.buttons", "taskbar.align", "taskbar.float", "start.position", "taskbar.theme",
+                  "taskbar.height", "start.button", "taskbar.peek", "taskbar.combine"):
             dbg.send(f"sh config unset desktop.{k}")
         dbg.settle()
         for app in ("Terminal", "Notepad"):
@@ -127,7 +127,7 @@ def main():
 
         # --- classic, the default ------------------------------------
         print("classic (the default)")
-        tb = set_and_wait(dbg, "desktop.taskbar_buttons", None,
+        tb = set_and_wait(dbg, "desktop.taskbar.buttons", None,
                           lambda t: t.get("buttons_kind") == "labelled")
         sh = tb["y"] + tb["h"]
         res.check("the defaults are labelled, left, Start left, dark, 48px",
@@ -150,7 +150,7 @@ def main():
 
         # --- floating ------------------------------------------------
         print("floating")
-        tb = set_and_wait(dbg, "desktop.taskbar_float", "on",
+        tb = set_and_wait(dbg, "desktop.taskbar.float", "on",
                           lambda t: t.get("float") is True)
         p = tb["panel"]
         res.check("the band grows by the gap and the panel stands off the edges",
@@ -202,13 +202,13 @@ def main():
 
         # --- icons, centred with Start (Windows 11) ---------------------
         print("icons, centred with Start")
-        set_and_wait(dbg, "desktop.taskbar_float", None, lambda t: t.get("float") is False)
+        set_and_wait(dbg, "desktop.taskbar.float", None, lambda t: t.get("float") is False)
         # The tooltip half below is the peek-OFF behaviour; peek has its
         # own tool (taskbar_peek_test.py).
-        dbg.send("sh config set desktop.taskbar_peek off")
-        dbg.send("sh config set desktop.taskbar_buttons icons")
-        dbg.send("sh config set desktop.taskbar_align center")
-        tb = set_and_wait(dbg, "desktop.start_position", "center",
+        dbg.send("sh config set desktop.taskbar.peek off")
+        dbg.send("sh config set desktop.taskbar.buttons icons")
+        dbg.send("sh config set desktop.taskbar.align center")
+        tb = set_and_wait(dbg, "desktop.start.position", "center",
                           lambda t: t.get("buttons_kind") == "icons" and t.get("align_center")
                           and t.get("start_center"))
         btns = tb["buttons"]
@@ -251,7 +251,7 @@ def main():
 
         # START LEFT: x=0, and the buttons still centred on their own,
         # clear of it.
-        tb = set_and_wait(dbg, "desktop.start_position", None,
+        tb = set_and_wait(dbg, "desktop.start.position", None,
                           lambda t: t.get("start_center") is False)
         btns = tb["buttons"]
         left = btns[0]["x"] if btns else 0
@@ -261,16 +261,16 @@ def main():
                   and left > tb["start"]["w"],
                   f"start {tb['start']}, buttons {left}..{right}")
         # AND IT FLOATS: the two settings are independent.
-        tb = set_and_wait(dbg, "desktop.taskbar_float", "on",
+        tb = set_and_wait(dbg, "desktop.taskbar.float", "on",
                           lambda t: t.get("floating") is True)
         corner = pixel(qmp, tmp, "centred-float", 2, sh - 4)
         res.check("the centred icons float too",
                   tb["buttons_kind"] == "icons" and tb["panel"]["x"] == 8 and corner != rgb(tb["bar"]),
                   f"buttons {tb['buttons_kind']} panel {tb['panel']} corner {corner}")
-        set_and_wait(dbg, "desktop.taskbar_float", None, lambda t: t.get("float") is False)
+        set_and_wait(dbg, "desktop.taskbar.float", None, lambda t: t.get("float") is False)
 
         # ICONS FROM THE LEFT (Plasma's default): packed straight after Start.
-        tb = set_and_wait(dbg, "desktop.taskbar_align", None,
+        tb = set_and_wait(dbg, "desktop.taskbar.align", None,
                           lambda t: t.get("align_center") is False)
         btns = tb["buttons"]
         packed = all(btns[k + 1]["x"] - btns[k]["x"] == btns[k]["w"] + 4 for k in range(len(btns) - 1))
@@ -282,23 +282,23 @@ def main():
         # Requires= a left Start, so meanwhile it READS `center` (its
         # Otherwise=), a write of `left` is refused with the reason, and
         # the stored value comes back when Start does.
-        tb = set_and_wait(dbg, "desktop.start_position", "center",
+        tb = set_and_wait(dbg, "desktop.start.position", "center",
                           lambda t: t.get("start_center") is True)
-        reply = dbg.send("sh config set desktop.taskbar_align left") or ""
+        reply = dbg.send("sh config set desktop.taskbar.align left") or ""
         time.sleep(1.0)
         tb = taskbar(dbg)
-        got = dbg.send("sh config get desktop.taskbar_align") or ""
+        got = dbg.send("sh config get desktop.taskbar.align") or ""
         res.check("a centred Start keeps the buttons centred and refuses 'left'",
                   tb.get("align_center") is True and "Start button" in reply and "center" in got,
                   f"align_center={tb.get('align_center')} set->{reply.strip()!r} get->{got.strip()!r}")
-        tb = set_and_wait(dbg, "desktop.start_position", None,
+        tb = set_and_wait(dbg, "desktop.start.position", None,
                           lambda t: t.get("start_center") is False)
         res.check("...and Start back on the left brings the stored alignment back",
                   tb.get("align_center") is False, f"align_center={tb.get('align_center')}")
 
         # LABELLED AND CENTRED: the labels survive, the group centres.
-        dbg.send("sh config unset desktop.taskbar_buttons")
-        tb = set_and_wait(dbg, "desktop.taskbar_align", "center",
+        dbg.send("sh config unset desktop.taskbar.buttons")
+        tb = set_and_wait(dbg, "desktop.taskbar.align", "center",
                           lambda t: t.get("align_center") and t.get("buttons_kind") == "labelled")
         btns = tb["buttons"]
         left = btns[0]["x"] if btns else 0
@@ -307,19 +307,19 @@ def main():
                   btns and all(b["label"] == b["title"] for b in btns)
                   and abs((left + right) / 2 - sw / 2) <= 3,
                   f"buttons {left}..{right} on {sw}, labels {[b['label'] for b in btns]}")
-        set_and_wait(dbg, "desktop.taskbar_align", None, lambda t: t.get("align_center") is False)
-        dbg.send("sh config unset desktop.taskbar_peek")
+        set_and_wait(dbg, "desktop.taskbar.align", None, lambda t: t.get("align_center") is False)
+        dbg.send("sh config unset desktop.taskbar.peek")
 
         # --- the light theme -------------------------------------------
         print("light")
-        tb = set_and_wait(dbg, "desktop.taskbar_theme", "light",
+        tb = set_and_wait(dbg, "desktop.taskbar.theme", "light",
                           lambda t: t.get("theme") == "light")
         spot = pixel(qmp, tmp, "light", tb["tray_x"] - 10, tb["btn_y"] + 2)
         res.check("the light theme draws the light strip",
                   tb["bar"] == 0xECECEC and spot == (236, 236, 236), f"bar {tb['bar']:06x}, pixel {spot}")
 
         # Back to the defaults for every later tool.
-        set_and_wait(dbg, "desktop.taskbar_theme", None, lambda t: t.get("theme") == "dark")
+        set_and_wait(dbg, "desktop.taskbar.theme", None, lambda t: t.get("theme") == "dark")
 
         # --- the group count ---------------------------------------------
         #
@@ -328,8 +328,8 @@ def main():
         # which is the case the old doubled pill went missing in.
         print("the group count")
         dbg.open_app("Notepad")
-        set_and_wait(dbg, "desktop.taskbar_combine", "always", lambda t: t.get("combine") == "always")
-        tb = set_and_wait(dbg, "desktop.taskbar_buttons", "icons",
+        set_and_wait(dbg, "desktop.taskbar.combine", "always", lambda t: t.get("combine") == "always")
+        tb = set_and_wait(dbg, "desktop.taskbar.buttons", "icons",
                           lambda t: t.get("buttons_kind") == "icons"
                           and any(b["count"] == 2 for b in t.get("buttons", [])))
         grp = next((b for b in tb["buttons"] if b["count"] == 2), None)
@@ -351,15 +351,15 @@ def main():
             res.check("...drawn in the strip's ink, while its window has the focus",
                       im.getpixel(spot) == rgb(tb["ink"]) and im.getpixel(off) != rgb(tb["ink"]),
                       f"badge {im.getpixel(spot)}, single {im.getpixel(off)}, ink {rgb(tb['ink'])}")
-        tb = set_and_wait(dbg, "desktop.taskbar_buttons", None,
+        tb = set_and_wait(dbg, "desktop.taskbar.buttons", None,
                           lambda t: t.get("buttons_kind") == "labelled")
         grp = next((b for b in tb["buttons"] if b["count"] == 2), None)
         res.check("a labelled group is named after the app, with its count",
                   grp is not None and grp["label"] == "Notepad (2)" and grp.get("badge") is None,
                   f"label {grp and grp['label']!r}, badge {grp and grp.get('badge')}")
 
-        for k in ("taskbar_buttons", "taskbar_align", "start_position", "taskbar_float",
-                  "taskbar_combine"):
+        for k in ("taskbar.buttons", "taskbar.align", "start.position", "taskbar.float",
+                  "taskbar.combine"):
             dbg.send(f"sh config unset desktop.{k}")
 
     n_ok, n_bad = len(res.passes), len(res.fails)

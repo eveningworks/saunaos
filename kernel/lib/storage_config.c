@@ -52,8 +52,8 @@
 #define DISK_CACHE_KEY "disk_cache"
 #define TMPDIR_KEY     "tmpdir"
 #define VARTMPDIR_KEY  "vartmpdir"
-#define LOG_MAX_KEY    "log_max"
-#define LOG_KEEP_KEY   "log_keep"
+#define LOG_MAX_KEY    "log.max"
+#define LOG_KEEP_KEY   "log.keep"
 
 // SECONDS OF QUIET before a deferred commit is forced. The visible half
 // of what ext4 spells `commit=5` and Linux spells

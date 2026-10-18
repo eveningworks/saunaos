@@ -5,7 +5,7 @@
 #include "wm_taskbar.h"   // struct taskbar_geom, struct taskbar_palette
 
 // What the WM compares a tray item's visibility setting against
-// (`desktop.tray_brightness` and its neighbours). `auto` is the only
+// (`desktop.tray.brightness` and its neighbours). `auto` is the only
 // one that consults the hardware. The three are the declaration files'
 // `Choices=` spelled for the code that reads them.
 #define TRAY_SHOW_AUTO   "auto"

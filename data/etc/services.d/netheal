@@ -1,6 +1,6 @@
 # Reboot once if this machine came up with no network at all.
 #
-# STARTED ALWAYS, and IDLE until `system.net_recover` is on -- which
+# STARTED ALWAYS, and IDLE until `system.net.recover` is on -- which
 # ships off, so a stock machine never reboots itself. One switch, not
 # two, exactly as ntpd beside it is arranged.
 #

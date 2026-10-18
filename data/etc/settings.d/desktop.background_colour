@@ -9,7 +9,7 @@ Description=The whole desktop in one colour
 Widget=gallery
 Preview=colour
 Order=6
-Requires=desktop.wallpaper_type=colour
+Requires=desktop.wallpaper.type=colour
 WhenUnmet=hide
 Choice.blue=Blue
 Choice.teal=Teal

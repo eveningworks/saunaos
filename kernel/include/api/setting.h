@@ -44,7 +44,7 @@
 #define SETTING_MAX        96 // registered kernel settings
 // 48, not the 24 it was: a family of settings shares a prefix
 // (`transparency_window_opacity`), and 23 bytes left no room for one.
-#define SETTING_NAME_MAX   48 // the /etc key, e.g. "font_size"
+#define SETTING_NAME_MAX   48 // the /etc key, e.g. "font.size"
 
 // What a setting with no `category` is filed under. Named rather than
 // spelled in three places -- a UI, the ABI default and a test would
@@ -61,7 +61,7 @@
 // The namespace is the registered NAME OF THE FILE it persists to
 // (api/config_file.h) -- `system` for /etc/toyos.conf, `desktop` for
 // /etc/desktop.conf -- so it is DERIVED rather than declared, and no
-// existing `struct setting` had to change. Written `system.font_size`.
+// existing `struct setting` had to change. Written `system.font.size`.
 //
 // The problem it fixes: identity used to be a bare global name, and
 // registering a second `theme` was refused silently, first-wins. That
@@ -82,7 +82,7 @@
 #define SETTING_QUALIFIED_MAX (CONFIG_NAME_MAX + SETTING_NAME_MAX + 1)
 _Static_assert(SETTING_QUALIFIED_MAX == SETTING_ABI_QUALIFIED_MAX,
                "a qualified name must fit the ABI message's `name` field, or "
-               "a client's `config set system.font_size` arrives truncated");
+               "a client's `config set system.font.size` arrives truncated");
 #define SETTING_LABEL_MAX  40 // what a settings UI shows, e.g. "Font size"
 #define SETTING_VALUE_MAX  64 // a value, as written to its file
 

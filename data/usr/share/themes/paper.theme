@@ -51,6 +51,6 @@ titlebar_pad=14
 
 [apply]
 desktop.corners=round
-desktop.taskbar_theme=light
-desktop.wallpaper_type=picture
+desktop.taskbar.theme=light
+desktop.wallpaper.type=picture
 desktop.wallpaper=ember

@@ -346,8 +346,8 @@ is listed in `/etc/realtime.d` instead (`docs/commands/chrt.md`).
 **Only for a service that BLOCKS PROMPTLY** -- a driver refilling a
 buffer, the compositor between frames. One that runs a second without
 blocking is moved to the ordinary class and logged
-(`kernel.sched_rt_watchdog_ms`), and all realtime work together gets
-`kernel.sched_rt_runtime_ms` of each second while anything ordinary
+(`kernel.sched.rt.watchdog_ms`), and all realtime work together gets
+`kernel.sched.rt.runtime_ms` of each second while anything ordinary
 wants the CPU. What the service starts is ordinary: realtime is never
 inherited. `docs/decisions/kernel.md`, "Two scheduling classes", has
 why.

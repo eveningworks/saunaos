@@ -118,16 +118,16 @@ static void adopt(void) {
     static const char *const KINDS[] = { "clear", "frosted", "wallpaper" };
     static const char *const WINS[] = { "none", "titlebars", "inactive", "all" };
     g_on = read_word("desktop.transparency", ONOFF, 2, 0);
-    static const char *const KIND[] = { "desktop.transparency_taskbar_glass",
-                                        "desktop.transparency_start_glass",
-                                        "desktop.transparency_menus_glass",
-                                        "desktop.transparency_window_glass" };
+    static const char *const KIND[] = { "desktop.transparency.taskbar.glass",
+                                        "desktop.transparency.start.glass",
+                                        "desktop.transparency.menus.glass",
+                                        "desktop.transparency.window.glass" };
     for (int i = 0; i < 4; i++) g_kind[i] = read_word(KIND[i], KINDS, 3, GLASS_FROSTED);
-    g_windows = read_word("desktop.transparency_windows", WINS, 4, GW_TITLEBARS);
-    g_moving = read_word("desktop.transparency_moving", ONOFF, 2, 0);
-    static const char *const PCT[] = { "desktop.transparency_taskbar", "desktop.transparency_start",
-                                       "desktop.transparency_menus",
-                                       "desktop.transparency_window_opacity" };
+    g_windows = read_word("desktop.transparency.windows", WINS, 4, GW_TITLEBARS);
+    g_moving = read_word("desktop.transparency.moving", ONOFF, 2, 0);
+    static const char *const PCT[] = { "desktop.transparency.taskbar", "desktop.transparency.start",
+                                       "desktop.transparency.menus",
+                                       "desktop.transparency.window.opacity" };
     static const int DFLT[] = { 75, 85, 85, 85 };
     for (int i = 0; i < 4; i++) g_alpha[i] = (uint8_t)(read_pct(PCT[i], DFLT[i]) * 255 / 100);
     uui_popup_set_glass(g_on && g_alpha[WM_GLASS_MENU] < 255 ? menu_painter : 0);

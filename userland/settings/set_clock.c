@@ -105,8 +105,8 @@ int clock_tick(void) {
 static void build_preview(void) {
     static const struct { const char *setting, *key; } MODS[] = {
         { "locale.date_format", "date" }, { "locale.time_format", "time" },
-        { "locale.number_format", "number" }, { "locale.week_start", "week" },
-        { "locale.week_numbers", "weeknum" },
+        { "locale.number_format", "number" }, { "locale.week.start", "week" },
+        { "locale.week.numbers", "weeknum" },
     };
     int r = slot_named(SET_REGION);
     if (r < 0) return;

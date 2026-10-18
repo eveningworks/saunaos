@@ -13,7 +13,7 @@ for the thing they mean.
 | Term | What it is | Registry | Writable | Survives a reboot |
 |---|---|---|---|---|
 | **Fact** | Read-only, computed fresh on every read — `mem_free`, the process list, a PCI device | query | no | it does not EXIST between boots |
-| **Setting** | Read/write, persisted to `/etc` — `font_size`, `timezone`, `PATH` | setting | yes | yes |
+| **Setting** | Read/write, persisted to `/etc` — `font.size`, `timezone`, `PATH` | setting | yes | yes |
 | **Tunable** | A setting whose `apply` also writes a live kernel variable — a scheduler slice, a cache depth | setting | yes | optionally |
 
 Two distinctions the table is making precise, both of which were live
@@ -81,7 +81,7 @@ under Linux's `/sys/fs/pstore` does.
 the next read of anything goes to the device -- Linux's `vm.drop_caches`.
 `diskbench` sets it before each read pass, or it would time memory.
 
-`kernel.usb_reset` takes a PORT NUMBER and forces that root port
+`kernel.usb.reset` takes a PORT NUMBER and forces that root port
 through a real reset and re-enumeration, without anyone touching the
 cable. It exists to settle one question: the intermittent USB
 enumeration failure in `docs/bugs.md` is cured by REPLUGGING the
@@ -92,7 +92,7 @@ argument. The result is in the kernel log, not in the setting's answer,
 because "the port was refused" and "the device would not come back" are
 both "we tried" and only one of them is an invalid value.
 
-`kernel.usb_replug` is the OTHER half of that replug, added
+`kernel.usb.replug` is the OTHER half of that replug, added
 2026-09-17 when the question above got its answer: the reset half has
 never rescued a wedged device, and the power half is what a replug does
 that nothing in software could. It takes a port number and takes that
@@ -109,7 +109,7 @@ failure. Refused, in the log, on a controller whose HCCPARAMS1 says port
 power is not software-controllable -- the boot line says which kind a
 machine is (`port power software-controlled (PPC)` or `always on`).
 
-`kernel.usb_attach_delay` is the third of that family and the odd one
+`kernel.usb.attach_delay` is the third of that family and the odd one
 out, because it READS BACK: it is a state rather than an action. It is
 the USB2 attach debounce (TATTDB) in milliseconds -- how long a freshly
 connected port is left alone before it is reset -- and it defaults to
@@ -138,20 +138,50 @@ at the data** — one that returns early on `off` cannot tell you when
 ## Names
 
 Every name is `namespace.name`. The namespace is the registered name of
-the file the setting lives in, so `font_size` in `/etc/toyos.conf` is
-`system.font_size`. It is derived, never declared.
+the file the setting lives in, so `font.size` in `/etc/toyos.conf` is
+`system.font.size`. It is derived, never declared.
 
 A **bare name works when exactly one setting has it** and is REFUSED
 when several do — never resolved by registration order, which would make
 the answer depend on boot sequence. A read reports the ambiguity; a
 write refuses it.
 
+**A NAME IS A PATH.** After the namespace, dots make a tree:
+`desktop.transparency.taskbar` is a setting under the branch
+`desktop.transparency`, and a FAMILY of settings shares one -- the
+taskbar's, the Start menu's, the cursor's. **A branch may hold a value
+of its own**: `desktop.transparency` is the on/off switch and the parent
+of everything about transparency, the Windows registry's shape (a key
+with a default value) rather than sysctl's, where a node is a value or a
+branch, never both. Facts live in the same tree -- `mem.frame.free`,
+`clock.tick.hz` -- as BSD sysctl puts `hw.ncpu` beside `kern.maxproc`;
+the registries stay two, the namespace is one.
+
+Name a new setting into its family's branch, and give a word pair that
+is one idea one key: `browser.user_agent` is a leaf, not
+`browser.user.agent`.
+
+**The names before the dotted ones still work** (2026-10-18,
+`api/etc_renamed.h`). Every reader of `/etc` -- the kernel, the
+toolkit, `/bin/config` -- shares one table of what each key was called:
+a file written before the rename reads under its old keys, a write
+replaces the old key's line where it stands, and `config get
+desktop.transparency_taskbar` answers with a note that the name is now
+`desktop.transparency.taskbar`. A fact's old field name (`mem.frame_free`)
+is kept the same way, by `QUERY_FIELD_AS()`. A program with its own
+`/etc` parser does not get this for free -- `libc/locale.c` passes the
+old key itself.
+
 ## At the shell
 
 ```
 config list                  # every setting, its value and its file
-config get system.font_size  # one value
-config set system.font_size 16
+config get                   # every namespace, one level
+config get desktop           # desktop's branches and settings, one level, with counts
+config get -r desktop        # everything under desktop
+config get desktop.transparency   # the switch's value, then every name under it
+config get system.font.size  # one value
+config set system.font.size 16
 config unset system.timezone # back to the default
 config diff                  # live vs what the files say
 config reload                # re-read /etc after a hand edit
@@ -170,7 +200,7 @@ the half `/etc` cannot provide about itself.
 the answer** so it cannot be mistaken for an `/etc` key:
 
 ```
-config get mem.frame_free
+config get mem.frame.free
 514887
   (kernel fact, read-only -- a count, not stored in any file)
 
@@ -191,7 +221,7 @@ kernel's settings and the declared ones as one list:
 
 ```c
 struct setting_msg m = { .op = SETTING_OP_SET };
-strlcpy(m.name,  "system.font_size", sizeof m.name);
+strlcpy(m.name,  "system.font.size", sizeof m.name);
 strlcpy(m.value, "16",               sizeof m.value);
 usetting_dispatch(&m);
 // m.result: SETTING_INVALID / SETTING_SAVED / SETTING_UNSAVED
@@ -224,7 +254,7 @@ struct query_meminfo m;
 sys_query_record(QUERY_MEMINFO, 0, &m, sizeof m);   // a whole record
 
 unsigned long long v; unsigned type;
-sys_query_field_get("mem.frame_free", &v, &type);   // one named field
+sys_query_field_get("mem.frame.free", &v, &type);   // one named field
 ```
 
 **Class 0 is the registry describing itself**, so a program that knows
@@ -254,7 +284,7 @@ them — *does ring 0 do anything with the value?*
 | Who validates and persists | `lib/usetting_schema.h`, in ring 3 | the registry, in ring 0 |
 | Who applies it | nobody — the owning process notices | the setting's own `apply` |
 | Use it when | the value is read by a ring-3 program (the desktop, the toolkit, an app) | the kernel itself acts on the value |
-| Examples | `desktop.wallpaper`, `desktop.taskbar_height`, `shortcuts.terminal` | `system.font_size`, `system.mouse_speed`, `storage.*`, `kernel.*` |
+| Examples | `desktop.wallpaper`, `desktop.taskbar.height`, `shortcuts.terminal` | `system.font.size`, `system.mouse.speed`, `storage.*`, `kernel.*` |
 
 Most new settings are the first kind, and adding one is **writing a
 file** — no C, no rebuild. `data/etc/settings.d/README.md` is the key
@@ -348,7 +378,7 @@ them (`docs/decisions/storage.md`), and a directory of small descriptors
 is what removes the need for one here.
 
 ```
-# /etc/settings.d/system.mouse_accel
+# /etc/settings.d/system.mouse.accel
 Description=Move faster, and the pointer travels further still
 Widget=slider
 Applies=now

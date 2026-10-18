@@ -44,11 +44,11 @@ from harness import Results                      # noqa: E402
 
 SURFACES = ("taskbar", "start", "menus", "window")
 DEFAULTS = {"transparency": "off",
-            **{f"transparency_{k}_glass": "frosted" for k in SURFACES},
-            "transparency_taskbar": "75", "transparency_start": "85",
-            "transparency_menus": "85", "transparency_windows": "titlebars",
-            "transparency_window_opacity": "85", "transparency_moving": "off",
-            "taskbar_float": "off"}
+            **{f"transparency.{k}.glass": "frosted" for k in SURFACES},
+            "transparency.taskbar": "75", "transparency.start": "85",
+            "transparency.menus": "85", "transparency.windows": "titlebars",
+            "transparency.window.opacity": "85", "transparency.moving": "off",
+            "taskbar.float": "off"}
 
 
 def lum(px):
@@ -62,8 +62,8 @@ class Glass:
 
     def glass(self, kind, **only):
         """Every surface's glass to `kind`, then any named one otherwise."""
-        kv = {f"transparency_{k}_glass": kind for k in SURFACES}
-        kv.update({f"transparency_{k}_glass": v for k, v in only.items()})
+        kv = {f"transparency.{k}.glass": kind for k in SURFACES}
+        kv.update({f"transparency.{k}.glass": v for k, v in only.items()})
         self.set(**kv)
 
     def set(self, **kv):

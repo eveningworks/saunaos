@@ -6,7 +6,7 @@
 // host. A malformed font now crashes a restartable service instead of
 // the kernel.
 //
-// WHAT IT DOES. Reads `system.font_face` and `system.font_size`, loads
+// WHAT IT DOES. Reads `system.font.face` and `system.font.size`, loads
 // the face from /usr/share/fonts, rasterizes both weights with
 // api/font_atlas.h -- the same implementation the kernel used to run --
 // and publishes each as a public shm object every client maps read-only
@@ -250,14 +250,14 @@ static void drop_family(int family) {
 // must republish only its own.
 static int settings_changed(void) {
     static const char *const KEY[FONT_FAMILY_COUNT] = {
-        "system.font_face", "system.font_mono",
+        "system.font.face", "system.font.mono",
     };
     char face[FONT_FAMILY_COUNT][FACE_MAX] = {{0}};
     int px = 0;
 
     for (int f = 0; f < FONT_FAMILY_COUNT; f++)
         if (usetting_get(KEY[f], face[f], sizeof face[f]) <= 0) return 0;
-    if (usetting_get_int("system.font_size", &px) < 0 || px <= 0) return 0;
+    if (usetting_get_int("system.font.size", &px) < 0 || px <= 0) return 0;
 
     // THE SIZE IS SHARED, so a change to it dirties every family that
     // has a face at all.

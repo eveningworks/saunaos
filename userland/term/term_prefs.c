@@ -181,7 +181,7 @@ static int shell_index(const char *path) {
 static void to_controls(void) {
     g_schemes.selected = scheme_index(g_edit.scheme);
     int sys_px = 14;
-    usetting_get_int("system.font_size", &sys_px);
+    usetting_get_int("system.font.size", &sys_px);
     g_sysfont.checked = g_edit.font_size == 0;
     uui_spinbox_set_value(&g_font, g_edit.font_size ? g_edit.font_size : sys_px);
     g_font.disabled = g_sysfont.checked;

@@ -15,7 +15,7 @@
   wins and the clock is left alone.
 - `-p <port>` -- the server's UDP port, 1..65535; 123 by default.
 - `-h`, `--help` -- every option and what it does.
-- `<server>` -- the host to ask, outranking `system.ntp_server` for this
+- `<server>` -- the host to ask, outranking `system.ntp.server` for this
   run only. Both `-1` and `-q` ignore `system.ntp`.
 
 ## Description
@@ -52,15 +52,15 @@ System Settings under **Time & Locale → Network Time** and with `config`:
 | Setting | Default | What it is |
 |---|---|---|
 | `system.ntp` | `off` | whether the resident service syncs at all |
-| `system.ntp_server` | `pool.ntp.org` | the host to ask |
-| `system.ntp_interval` | `60` | minutes between syncs, 1–1440 |
+| `system.ntp.server` | `pool.ntp.org` | the host to ask |
+| `system.ntp.interval` | `60` | minutes between syncs, 1–1440 |
 
 **They are re-read every cycle**, so changing one in System Settings
 takes effect without restarting the service.
 
 **A server named on the command line outranks the setting and is not
 persisted.** `ntpd -q time.example.com` is a question about that host,
-not a decision about this machine; `config set system.ntp_server` is how
+not a decision about this machine; `config set system.ntp.server` is how
 the machine is configured.
 
 **`-1` and `-q` ignore `system.ntp`.** The setting governs the
@@ -157,7 +157,7 @@ which reads the hardware back through `rtc_read()`.
 bare-metal test laptop). Its RTC was running 2h 59m fast; one `ntpd -1`
 against a server on the local network brought it to the second, and
 after a reboot `clock.utc` still matched that server exactly while
-`clock.steps` read **0** — nothing had set the clock since boot, so the
+`clock.step.count` read **0** — nothing had set the clock since boot, so the
 time came from the CMOS. The kernel's own boot line agreed:
 `rtc: hardware clock reads 2026-09-03 11:09:11 UTC`, where before the
 sync it would have read three hours later. That is the half QEMU cannot

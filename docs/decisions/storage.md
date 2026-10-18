@@ -815,8 +815,8 @@ being fine the moment two programs own configuration: the loser has no
 way to know it lost, and the winner depends on boot order.
 
 **The namespace is the registered NAME OF THE FILE the setting persists
-to** (`api/config_file.h`), so `font_size` in `/etc/toyos.conf` is
-`system.font_size`. That choice is what made this cheap: the namespace
+to** (`api/config_file.h`), so `font.size` in `/etc/toyos.conf` is
+`system.font.size`. That choice is what made this cheap: the namespace
 is DERIVED, not declared, so **not one `struct setting` had to change**
 and the /etc files are untouched. It also means a ring-3 program that
 registers its own config file with a `/etc/config.d` descriptor gets a
@@ -2761,7 +2761,7 @@ then flattens them: its API is one namespace, `section.key`. That was
 the cheaper option here by a wide margin — no new entry points, no call
 sites touched — and it was rejected because this project already spends
 the dot. `/etc/settings.d` files carry `Choice.losangeles=Los Angeles`
-and a setting is addressed `system.font_size`, so a flattened parser
+and a setting is addressed `system.font.size`, so a flattened parser
 makes `[Choice] losangeles` and a literal `Choice.losangeles` the same
 query, with a precedence rule invisible at the call site. Identity here
 is `(section, key)`, and it is spelled that way: `etc_config_get_in`.
@@ -3279,7 +3279,7 @@ worth naming because "allocate it" is not always right:
 
 `logd` kept exactly two files until 2026-09-19: `toyos.log` for the
 current boot and `toyos.log.1` for the previous one, half the
-`storage.log_max` budget each. That answers "what did it say before I
+`storage.log.max` budget each. That answers "what did it say before I
 rebooted it", which is the right question after a machine has been
 rebooted once to recover it -- and the wrong one for a fault that
 appears on one boot in several. The USB NIC wedge on the bare-metal
@@ -3304,7 +3304,7 @@ logger -- the concrete case: a driver polling a device that had gone
 away, one line a second -- flush every older boot out of the retention
 window. Losing the history to the very fault the history exists to
 diagnose is the worst available outcome. So each boot gets
-`storage.log_max / (storage.log_keep + 1)`, and one that reaches it
+`storage.log.max / (storage.log.keep + 1)`, and one that reaches it
 writes a line saying so and stops. The tail of a chatty boot is the
 cheaper half to lose: an enumeration fault is in the first few KiB, and
 the in-memory ring still has the tail for as long as the machine is up.
@@ -3340,7 +3340,7 @@ setting silently back at its default. Losing the new value is the
 obvious half; the destructive half is that `fs_write()` truncates before
 it writes, and the truncation DID reach the platter while the data did
 not -- so the file's previous contents went too. It was found because a
-40-boot soak ran at `storage.log_keep 10` while `config get` answered 50
+40-boot soak ran at `storage.log.keep 10` while `config get` answered 50
 the whole time, from memory, and pruned the boot logs the soak existed
 to collect.
 
@@ -3994,3 +3994,47 @@ measured 46 MiB working set. `storage.disk_cache` resizes it live.
 too:** after the disk cache, the file reads it would serve are memory
 copies already; what it would remove is TFS3's CPU, at the price of
 caching data twice. Measure that before building it.
+
+## A setting's name is a dotted path, a branch may hold a value, and old names stay aliases in the /etc parser
+
+**Decision (2026-10-18).** After the namespace, a name is a PATH:
+`desktop.transparency.taskbar`, `system.font.size`, `mem.frame.free`.
+`config get <branch>` prints everything under it, `config get <namespace>`
+one level with counts, and settings and kernel facts share the one tree.
+71 settings and 56 fact fields were renamed; the old names keep working.
+
+**What real systems do.** sysctl is a dotted tree (`net.ipv4.tcp_syncookies`;
+`sysctl net.ipv4` lists the subtree) where a node is a value or a branch,
+never both. dconf is a path tree (`dconf list` one level, `dconf dump` a
+subtree). The Windows registry lets a key hold a default value AND
+subkeys. GSettings and macOS `defaults` are two-level (schema or domain,
+then a flat key) -- what toy-os was. BSD's sysctl puts read-only `hw.ncpu`
+beside writable `kern.maxproc` in one tree.
+
+**Why the registry's shape for branches, not sysctl's.** Eleven settings
+were already both a value and a family head -- `desktop.transparency` is
+the on/off switch of everything under it. sysctl's rule would rename each
+to `.enabled` or `.name`, breaking more names to say less; a branch that
+holds its own value reads the way the setting is used.
+
+**Why facts in the same tree and not a separate command.** "What is this
+machine's state" is one question whether the answer is writable or not;
+the registries stay two (a fact has no stored form, and `config set` on
+one still fails for want of a setting), but `config get mem` and `config
+get desktop` are the same verb on the same addressing, marked `(fact)`.
+
+**Why the aliases live in the /etc parser, not in each program.** A key
+is read by the kernel's subsystems (`font_config.c` reads its own key),
+by the ring-3 toolkit and by the desktop directly through `uconf_get()`.
+One table (`api/etc_renamed.h`) compiled into both rings, consulted by
+the shared `name=value` parser, gives every one of them the old file's
+value and the in-place migration on write without a case of its own;
+per-program aliases would have been a hundred places to forget. The cost
+is a reader with its own parser -- `libc/locale.c` -- which has to ask
+for the old key itself.
+
+**Why rename at all, rather than only list by prefix.** A listing over
+the old names would have had to treat `_` as structure, which it is not
+(`font_size` is a family, `boot_messages` is not), and would have
+printed names that are not the tree it claimed to show. The rename makes
+the name and the tree the same thing.

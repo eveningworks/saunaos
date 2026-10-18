@@ -13,7 +13,7 @@
 Reboot once if this machine came up with no network at all.
 
 Started by init from `/etc/services.d/netheal` and **idle unless
-`system.net_recover` is on**, which ships off. One switch, not two --
+`system.net.recover` is on**, which ships off. One switch, not two --
 the same arrangement `ntpd` has beside it.
 
 ## What it is for
@@ -57,5 +57,5 @@ was already known.
 
 | Setting | Default | What it does |
 |---|---|---|
-| `system.net_recover` | `off` | Whether to reboot at all |
-| `system.net_recover_wait` | `45` (s) | How long to wait for an address first |
+| `system.net.recover` | `off` | Whether to reboot at all |
+| `system.net.recover.wait` | `45` (s) | How long to wait for an address first |

@@ -495,7 +495,7 @@ static struct uui_sbar *term_sbar(int win_w, int win_h, const struct session *se
 // selection moves.
 //
 // `font_size = 0`, the default, rasterizes nothing and follows the
-// desktop's monospace family (`system.font_mono`, ui/ugfx.h). That is
+// desktop's monospace family (`system.font.mono`, ui/ugfx.h). That is
 // the pair this window needs: the desktop's SIZE, in a face whose
 // cells line up.
 static struct umonofont g_font;   // the grid's face at the configured size

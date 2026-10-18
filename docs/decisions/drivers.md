@@ -3076,10 +3076,10 @@ claiming BLK_CAP_FLUSH would only add a command that does nothing.
 ## The keyboard's active layout is a live setting; the LIST is what persists
 
 **Decided 2026-10-05**, with several layouts and Super+Space. Three
-settings in Input > Keyboard: `system.keyboard_layouts` (the ordered
+settings in Input > Keyboard: `system.keyboard.layouts` (the ordered
 list, `fi,us,de`, persisted, the FIRST is what a boot starts with),
-`system.keyboard_layout` (the ACTIVE one -- applying it loads the tables
-and writes NOTHING), and `system.keyboard_dead_keys` (on/off, for every
+`system.keyboard.layout` (the ACTIVE one -- applying it loads the tables
+and writes NOTHING), and `system.keyboard.dead_keys` (on/off, for every
 layout).
 
 **Why the active one is not persisted.** Super+Space is pressed many

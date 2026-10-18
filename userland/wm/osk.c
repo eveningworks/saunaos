@@ -36,9 +36,9 @@ static int g_pressed = -1;
 // a cap cannot show one character and type another. Reloaded when the
 // settings generation moves -- Super+Space, Settings, `config set`.
 #define OSK_ROWS 5
-#define SET_ACTIVE "system.keyboard_layout"
-#define SET_DEAD   "system.keyboard_dead_keys"
-#define NAMES_FILE "/etc/settings.d/system.keyboard_layout"
+#define SET_ACTIVE "system.keyboard.layout"
+#define SET_DEAD   "system.keyboard.dead_keys"
+#define NAMES_FILE "/etc/settings.d/system.keyboard.layout"
 
 static struct ukeymap g_map;
 static struct uui_keymap g_board;

@@ -73,7 +73,7 @@ enum term_newtab_dir { TERM_NEWTAB_HERE = 0, TERM_NEWTAB_HOME };
 struct term_conf {
     char scheme[TERM_NAME_MAX];
     char shell[TERM_SHELL_MAX]; // "" = the system shell (`system.shell`)
-    int font_size;        // 0 = follow the desktop's system.font_size
+    int font_size;        // 0 = follow the desktop's system.font.size
     int scrollback;       // lines kept above the screen
     int cursor;           // enum term_cursor_shape
     int cursor_blink;

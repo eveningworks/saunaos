@@ -106,12 +106,12 @@ int tray_register_icon(const char *icon) {
     return id;
 }
 
-// `desktop.tray_<key>` resolved against whether the hardware behind the
+// `desktop.tray.<key>` resolved against whether the hardware behind the
 // item exists: `auto` asks the hardware, the other two outrank it.
 // Unknown or unset reads as `auto`, which is the registry's default.
 int tray_want_shown(const char *key, int hardware_present) {
     char name[SETTING_ABI_QUALIFIED_MAX];
-    k_snprintf(name, sizeof name, "desktop.tray_%s", key);
+    k_snprintf(name, sizeof name, "desktop.tray.%s", key);
 
     // usetting_get(), not sys_setting(): these are DECLARED settings
     // (/etc/settings.d), which the syscall alone cannot see.

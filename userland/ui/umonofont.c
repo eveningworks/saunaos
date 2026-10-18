@@ -15,7 +15,7 @@ const struct ugfx_font *umonofont_get(struct umonofont *m, int px, const char *w
         void *arena = 0;
         if (px) {
             char face[48], path[96];
-            if (!usetting_get("system.font_mono", face, sizeof face) || !face[0]
+            if (!usetting_get("system.font.mono", face, sizeof face) || !face[0]
                 || strcmp(face, "builtin") == 0)
                 strlcpy(face, "dejavu-sans-mono", sizeof face);
             snprintf(path, sizeof path, "%s/%s.ttf", FONT_FACE_DIR, face);

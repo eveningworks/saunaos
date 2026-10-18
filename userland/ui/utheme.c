@@ -147,8 +147,8 @@ static const int PRESET[][UTHEME_R_COUNT] = {
 };
 static const char *const PRESET_NAME[] = { "square", "small", "medium", "round" };
 static const char *const GROUP_KEY[UTHEME_R_COUNT] = {
-    "desktop.corners_controls", "desktop.corners_popups", "desktop.corners_windows",
-    "desktop.corners_selection", "desktop.corners_scrollbars",
+    "desktop.corners.controls", "desktop.corners.popups", "desktop.corners.windows",
+    "desktop.corners.selection", "desktop.corners.scrollbars",
 };
 static int g_radius[UTHEME_R_COUNT];
 static int g_sb_always = 1;

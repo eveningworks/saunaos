@@ -734,7 +734,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~The desktop stage costs 3.9 ms of a full ASUS frame~~ DONE 2026-10-18 -- a fill under the wallpaper + a scalar copy: now 2.2
 - [x] ~~Taskbar notification area (tray)~~ done
 - [x] ~~A modern taskbar~~ DONE 2026-09-29 -- labelled or centred, floating or not, dark or light (`desktop.taskbar_*`)
-- [x] ~~Taskbar window previews (peek)~~ DONE 2026-09-29 -- `desktop.taskbar_peek`, with a highlight mode
+- [x] ~~Taskbar window previews (peek)~~ DONE 2026-09-29 -- `desktop.taskbar.peek`, with a highlight mode
 - [x] ~~Drag taskbar buttons to reorder~~ DONE 2026-09-29 -- live, gliding; a drag resting on a button raises its window
 - [ ] Pinned taskbar apps -- a launcher that stays on the strip, and the order that should then persist
 - [ ] Close-all follow-ups: dialogs-first in close_batch, deferred close order, refusal logging, Boot Manager raise, sweep skips
@@ -790,7 +790,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A scrollbar on the Terminal, so the scrollback is visible~~ DONE 2026-09-07 -- a reserved gutter, Konsole's shape
 - [x] ~~Terminal preferences: schemes, its own font size, scrollback, cursor~~ DONE 2026-09-14 -- `/etc/terminal.conf` and a modal
 - [x] ~~Terminal redesign: one bar, find, a Session panel, an Options window~~ DONE 2026-10-02 -- menu bar behind ☰
-- [x] ~~A monospace font family separate from the interface's~~ DONE 2026-09-14 -- `system.font_mono`, `ugfx_font_mono()`
+- [x] ~~A monospace font family separate from the interface's~~ DONE 2026-09-14 -- `system.font.mono`, `ugfx_font_mono()`
 - [x] ~~A proportional interface face by default, once labels and hit-testing are checked against one~~ DONE 2026-09-14 -- `liberation-sans`
 - [ ] A per-tab colour scheme, which is what a Konsole profile really is
 - [ ] Preferences for Notepad and the File Manager, on whatever `userland/term/`'s config half generalises into
@@ -959,7 +959,7 @@ run on, not by order.
 - [ ] PS/2 LED writes with no 8042 busy-wait per Caps Lock -- probe like Linux's i8042 (retried CTR read, process context)
 - [x] ~~Settings shows a picture of the chosen keyboard layout~~ DONE 2026-10-05 -- `uui_keymap`, with a Try it field
 - [x] ~~Several layouts at once, switched with a shortcut and shown in the tray~~ DONE 2026-10-05 -- Super+Space, `layout_popup.c`
-- [x] ~~Dead keys on or off~~ DONE 2026-10-05 -- `system.keyboard_dead_keys`, for every layout at once
+- [x] ~~Dead keys on or off~~ DONE 2026-10-05 -- `system.keyboard.dead_keys`, for every layout at once
 - [x] ~~The on-screen keyboard should draw the CONFIGURED layout, not its own copy of US QWERTY~~ DONE 2026-10-09 -- the shared translator
 - [ ] A virtual-keyboard protocol, so the on-screen keyboard can be a ring-3 app instead of compositor code
 - [x] ~~The keyboard translator in ring 3 too, for the on-screen keyboard~~ DONE 2026-10-09 -- `docs/input-policy-design.md` stage 1

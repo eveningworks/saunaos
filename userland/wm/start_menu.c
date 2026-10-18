@@ -44,15 +44,15 @@ static int setting_is(const char *name, const char *want) {
 }
 
 static void read_settings(void) {
-    g_cfg.list = setting_is("desktop.start_list", "compact") ? SM_LIST_COMPACT
-               : setting_is("desktop.start_list", "grid") ? SM_LIST_GRID : SM_LIST_DETAILED;
-    g_cfg.opens = setting_is("desktop.start_opens", "recent") ? SM_OPENS_RECENT
-                : setting_is("desktop.start_opens", "all") ? SM_OPENS_ALL
-                : setting_is("desktop.start_opens", "last") ? SM_OPENS_LAST : SM_OPENS_FAVOURITES;
-    g_cfg.hover = setting_is("desktop.start_hover", "on");
+    g_cfg.list = setting_is("desktop.start.list", "compact") ? SM_LIST_COMPACT
+               : setting_is("desktop.start.list", "grid") ? SM_LIST_GRID : SM_LIST_DETAILED;
+    g_cfg.opens = setting_is("desktop.start.opens", "recent") ? SM_OPENS_RECENT
+                : setting_is("desktop.start.opens", "all") ? SM_OPENS_ALL
+                : setting_is("desktop.start.opens", "last") ? SM_OPENS_LAST : SM_OPENS_FAVOURITES;
+    g_cfg.hover = setting_is("desktop.start.hover", "on");
     start_menu_recent_on();   // off: forgets, so Recent is not a folder
-    g_cfg.power = setting_is("desktop.start_power", "restart") ? SM_POWER_RESTART
-                : setting_is("desktop.start_power", "shutdown") ? SM_POWER_SHUTDOWN : SM_POWER_ALL;
+    g_cfg.power = setting_is("desktop.start.power", "restart") ? SM_POWER_RESTART
+                : setting_is("desktop.start.power", "shutdown") ? SM_POWER_SHUTDOWN : SM_POWER_ALL;
 }
 
 // RECENT IS ON unless the setting says off -- and OFF FORGETS: the
@@ -60,7 +60,7 @@ static void read_settings(void) {
 // items" clears its list. Asked fresh, because a launch from a desktop
 // icon records without the menu ever having opened.
 int start_menu_recent_on(void) {
-    if (!setting_is("desktop.start_recent", "off")) return 1;
+    if (!setting_is("desktop.start.recent", "off")) return 1;
     start_store_forget_launches();
     return 0;
 }
@@ -86,7 +86,7 @@ const struct start_action wm_system_actions[] = {
 const int wm_system_action_count = sizeof(wm_system_actions) / sizeof(wm_system_actions[0]);
 
 // THE ACTIONS THE MENU OFFERS -- the footer's buttons and what search
-// finds -- are a TAIL of wm_system_actions[] (desktop.start_power):
+// finds -- are a TAIL of wm_system_actions[] (desktop.start.power):
 // all three, Restart and Shutdown, or Shutdown alone. Slot `i` of the
 // footer is action foot_action(i).
 static int foot_count(void) {
@@ -111,7 +111,7 @@ static uint64_t flash_until = 0;
 // menu was open (60 ms a move at 1280x720).
 static int hover_token = 0;
 
-// OPEN FOLDERS ON HOVER (desktop.start_hover): the folder under a pointer
+// OPEN FOLDERS ON HOVER (desktop.start.hover): the folder under a pointer
 // that has RESTED on it HOVER_DWELL_MS opens. The dwell is what lets a
 // hand cross other folders on its way to the app column.
 #define HOVER_DWELL_MS 150
@@ -1023,7 +1023,7 @@ void start_menu_toggle_pin(const char *app_id) {
 // --- open / close -----------------------------------------------------
 
 // The folder open when the menu last closed, BY LABEL -- an index shifts
-// when Favourites or Recent comes or goes. For desktop.start_opens=last.
+// when Favourites or Recent comes or goes. For desktop.start.opens=last.
 static char g_last_folder[GUI_APP_ICON_MAX];
 
 static int folder_of_kind(enum folder_kind k) {

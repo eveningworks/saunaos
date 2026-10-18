@@ -40,11 +40,11 @@ static const struct shortcut_action ACTIONS[] = {
     // The same program told what to do, GNOME's three screenshot
     // actions. Screenshot's Options shows the Print Screen keys as a
     // view onto these bindings, so the keys stay in this one file.
-    { "screenshot_screen", "Screenshot of the screen", "Save the whole screen at once",
+    { "screenshot.screen", "Screenshot of the screen", "Save the whole screen at once",
       "/bin/wm/apps/screenshot", "Shift+Print Screen", "--now screen" },
-    { "screenshot_window", "Screenshot of a window",   "Save the active window at once",
+    { "screenshot.window", "Screenshot of a window",   "Save the active window at once",
       "/bin/wm/apps/screenshot", "Alt+Print Screen", "--now window" },
-    { "screenshot_region", "Screenshot of a region",   "Open the screenshot tool ready to drag an area",
+    { "screenshot.region", "Screenshot of a region",   "Open the screenshot tool ready to drag an area",
       "/bin/wm/apps/screenshot", "", "--mode region" },
     { "task_manager", "Task Manager",  "Open the task manager",
       "/bin/wm/system/taskmgr",  "Ctrl+Alt+Delete", 0 },

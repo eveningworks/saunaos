@@ -12,7 +12,7 @@
 // a panic report draw from the tables baked into the image, because they
 // have to work before any process exists.
 //
-// What ring 0 still legitimately owns is the SETTING. `system.font_face`
+// What ring 0 still legitimately owns is the SETTING. `system.font.face`
 // lives in /etc/toyos.conf like every other one, the settings registry
 // needs a list of valid choices for it, and `fontface` at the shell
 // needs the same list. Both are answered by listing a directory -- no

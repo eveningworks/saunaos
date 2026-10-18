@@ -4,14 +4,14 @@
 // Keyboard layout configuration in /etc/toyos.conf, layered on top of
 // keyboard_layout_load() (kernel/lib/keyboard_layout.c), which owns the
 // tables. Three registry settings, all in Input > Keyboard:
-//   system.keyboard_layouts   the list Super+Space cycles, "fi,us,de";
+//   system.keyboard.layouts   the list Super+Space cycles, "fi,us,de";
 //                             the FIRST is what a boot starts with
-//   system.keyboard_layout    the ACTIVE one -- live, never persisted
-//   system.keyboard_dead_keys on|off, for every layout at once
+//   system.keyboard.layout    the ACTIVE one -- live, never persisted
+//   system.keyboard.dead_keys on|off, for every layout at once
 
 // Call once at boot, after the /etc readers' prerequisites (kernel.c):
 // the dead-keys switch, then the list (or a pre-list machine's single
-// `keyboard_layout` key), then the `kbd=` override or the list's first.
+// `keyboard.layout` key), then the `kbd=` override or the list's first.
 void keyboard_config_init(void);
 
 // The live list, comma-separated. Never NULL or empty after init.

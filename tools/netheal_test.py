@@ -74,13 +74,13 @@ def run(inst, res, control):
     if not wait_for_guest(inst):
         res.check("the guest came up to arm the setting", False)
         return
-    guest(inst, "config set system.net_recover on",
-          f"config set system.net_recover_wait {WAIT_S}")
+    guest(inst, "config set system.net.recover on",
+          f"config set system.net.recover.wait {WAIT_S}")
     if control:
         # POSITIVE CONTROL: with the feature OFF, nothing should reboot
         # and the counter should never appear. If this tool reports a
         # clean run in that state it is not watching anything.
-        guest(inst, "config set system.net_recover off")
+        guest(inst, "config set system.net.recover off")
     vm(inst, "stop")
 
     # --- no network at all --------------------------------------------
@@ -151,7 +151,7 @@ def main():
         run(args.instance, res, args.positive_control)
     finally:
         try:
-            guest(args.instance, "config set system.net_recover off")
+            guest(args.instance, "config set system.net.recover off")
         except Exception:
             pass
         vm(args.instance, "stop")

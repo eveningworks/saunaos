@@ -97,7 +97,7 @@ Where the project stands now, so a session does not re-derive it:
   `kill 1` until init took pid 1 (docs/init-design.md stage 1), which is
   the argument for looking a pid up rather than assuming one.
 - **Settings are namespaced**: identity is (namespace, name), the
-  namespace being the registered name of the file, so `system.font_size`.
+  namespace being the registered name of the file, so `system.font.size`.
   A bare name works when unique and is REFUSED when ambiguous.
 - **Kernel stacks are 16 KiB with a guard page, a canary, and a build-
   time frame budget** (`-Wframe-larger-than`). `kstack` at the shell

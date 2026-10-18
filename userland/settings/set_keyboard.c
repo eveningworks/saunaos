@@ -3,13 +3,13 @@
 // a page whose settings need more than their generic rows.
 //
 // THREE SLOTS, ONE CARD EACH, BUT NOT THE GENERIC ONES:
-//   system.keyboard_layouts  -> the Layouts card. It EDITS THE SLOT'S OWN
+//   system.keyboard.layouts  -> the Layouts card. It EDITS THE SLOT'S OWN
 //                               TEXT ("fi,us,de"), so Apply, Reset and
 //                               the changed marker work as for any field
-//   system.keyboard_layout   -> nothing: the ACTIVE layout is the
+//   system.keyboard.layout   -> nothing: the ACTIVE layout is the
 //                               taskbar's and Super+Space's, not a setting
 //                               a person stages
-//   system.keyboard_dead_keys-> its generic switch, then the Preview card
+//   system.keyboard.dead_keys-> its generic switch, then the Preview card
 #include "settings/settings_internal.h"
 #include "lib/usetting.h"
 #include "lib/ukeymap.h"
@@ -17,9 +17,9 @@
 #include "ui/uui_listbox.h"
 #include <ctype.h>
 
-#define SET_KB_LIST   "system.keyboard_layouts"
-#define SET_KB_ACTIVE "system.keyboard_layout"
-#define SET_KB_DEAD   "system.keyboard_dead_keys"
+#define SET_KB_LIST   "system.keyboard.layouts"
+#define SET_KB_ACTIVE "system.keyboard.layout"
+#define SET_KB_DEAD   "system.keyboard.dead_keys"
 #define KB_MAX        8     // keyboard_config.c's KB_LAYOUTS_MAX
 #define KB_ALL        32    // every layout file there is
 

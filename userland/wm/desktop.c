@@ -532,7 +532,7 @@ static char wallpaper_name[SETTING_ABI_VALUE_MAX];
 static char wallpaper_mode[16];
 static int wallpaper_loaded;
 static uint32_t g_background_gen;   // desktop_background_gen()
-// `desktop.wallpaper_type` is colour: the picture stays loaded (a switch
+// `desktop.wallpaper.type` is colour: the picture stays loaded (a switch
 // back costs no decode) but is not drawn.
 static int g_plain_only;
 static uint32_t g_plain_rgb = 0x183c5a;   // `desktop.background_colour`
@@ -559,13 +559,13 @@ static void wallpaper_reload(void) {
     char v[SETTING_ABI_VALUE_MAX];
     if (usetting_get("desktop.wallpaper", v, sizeof v) && v[0])
         k_strlcpy(name, v, sizeof name);
-    if (usetting_get("desktop.wallpaper_mode", v, sizeof v) && v[0])
+    if (usetting_get("desktop.wallpaper.mode", v, sizeof v) && v[0])
         k_strlcpy(mode, v, sizeof mode);
 
     // THE TYPE AND THE PLAIN COLOUR. "none" is what a plain background
     // was before the type existed, and still reads as one.
     char type[16] = "picture";
-    if (usetting_get("desktop.wallpaper_type", v, sizeof v) && v[0])
+    if (usetting_get("desktop.wallpaper.type", v, sizeof v) && v[0])
         k_strlcpy(type, v, sizeof type);
     uint32_t plain = ulivewall_colour(
         usetting_get("desktop.background_colour", v, sizeof v) ? v : "blue");

@@ -34,7 +34,7 @@
 #include "keyboard_tap.h" // kbdtap_enabled()/_set_enabled() -- kernel.kbdtap
 #include "syscall_stall.h" // syscall_stall_get()/_set() -- kernel.syscall_stall
 #include "sound.h"        // hda_diag_tone() -- kernel.hda_tone
-#include "usb.h"          // usb_diag_reset_port() -- kernel.usb_reset
+#include "usb.h"          // usb_diag_reset_port() -- kernel.usb.reset
 #include "intel_display.h" // intel_display_pipe_cycle()/_link_retrain() -- kernel.intel_cycle
 #include "crashtest.h"     // crash_trigger() -- kernel.crash
 #include "panic_store.h"   // panic_store_clear() -- kernel.panic_record
@@ -303,7 +303,7 @@ static const struct setting hda_tone_setting = {
     .apply = hda_tone_apply,
 };
 
-// ---- kernel.usb_reset ------------------------------------------------
+// ---- kernel.usb.reset ------------------------------------------------
 //
 // Write-only, like hda_tone: a PORT NUMBER forces that root port through
 // a real reset and re-enumerates it, and it reads back as "off". The
@@ -336,7 +336,7 @@ static int usb_reset_apply(const char *value) {
 }
 
 static const struct setting usb_reset_setting = {
-    .name = "usb_reset",
+    .name = "usb.reset",
     .label = "Force a USB port reset",
     .type = SETTING_TYPE_STRING,
     .file = CONFIG_PATH_RUNTIME,
@@ -346,7 +346,7 @@ static const struct setting usb_reset_setting = {
     .apply = usb_reset_apply,
 };
 
-// ---- kernel.usb_replug -----------------------------------------------
+// ---- kernel.usb.replug -----------------------------------------------
 //
 // The other half of a replug, and the sibling of usb_reset above: that
 // one re-connects the port, this one takes the port AWAY from the
@@ -376,7 +376,7 @@ static int usb_replug_apply(const char *value) {
 }
 
 static const struct setting usb_replug_setting = {
-    .name = "usb_replug",
+    .name = "usb.replug",
     .label = "Replug a USB port in software",
     .type = SETTING_TYPE_STRING,
     .file = CONFIG_PATH_RUNTIME,
@@ -386,7 +386,7 @@ static const struct setting usb_replug_setting = {
     .apply = usb_replug_apply,
 };
 
-// ---- kernel.usb_attach_delay -------------------------------------------
+// ---- kernel.usb.attach_delay -------------------------------------------
 //
 // How long a freshly connected port is left alone before it is RESET,
 // in milliseconds -- the USB2 attach debounce (TATTDB). Unlike the two
@@ -415,7 +415,7 @@ static int usb_attach_delay_apply(const char *value) {
 }
 
 static const struct setting usb_attach_delay_setting = {
-    .name = "usb_attach_delay",
+    .name = "usb.attach_delay",
     .label = "USB attach debounce (ms)",
     .type = SETTING_TYPE_STRING,
     .file = CONFIG_PATH_RUNTIME,
@@ -458,7 +458,7 @@ static const struct setting timeslice_setting = {
     .apply = timeslice_apply,
 };
 
-// ---- kernel.sched_rt_runtime_ms / kernel.sched_rt_watchdog_ms ----------
+// ---- kernel.sched.rt.runtime_ms / kernel.sched.rt.watchdog_ms ----------
 //
 // The two realtime guards (api/scheduler.h): Linux's sched_rt_runtime_us
 // in milliseconds of a 1 s period, and RLIMIT_RTTIME's shape as one
@@ -486,7 +486,7 @@ static int rt_runtime_apply(const char *value) {
 }
 
 static const struct setting rt_runtime_setting = {
-    .name = "sched_rt_runtime_ms",
+    .name = "sched.rt.runtime_ms",
     .label = "Realtime share per second (ms)",
     .type = SETTING_TYPE_STRING,
     .file = CONFIG_PATH_RUNTIME,
@@ -507,7 +507,7 @@ static int rt_watchdog_apply(const char *value) {
 }
 
 static const struct setting rt_watchdog_setting = {
-    .name = "sched_rt_watchdog_ms",
+    .name = "sched.rt.watchdog_ms",
     .label = "Realtime watchdog (ms, 0 = off)",
     .type = SETTING_TYPE_STRING,
     .file = CONFIG_PATH_RUNTIME,
@@ -525,7 +525,7 @@ static const struct setting rt_watchdog_setting = {
 // for a moment -- on a laptop that is the keyboard and the trackpad.
 //
 // It is on for the machine with the fault (docs/bugs.md) and off
-// everywhere else, the same shape `system.net_recover` has: a headless
+// everywhere else, the same shape `system.net.recover` has: a headless
 // test machine wants a recovery a desktop would find alarming.
 //
 // READ WHEN THE LEVER FIRES, not cached at boot: USB enumeration gives
@@ -568,7 +568,7 @@ int usb_recover_enabled(void) {
     return k_strcmp(v, "on") == 0;
 }
 
-// ---- kernel.usb_hcreset -----------------------------------------------
+// ---- kernel.usb.hcreset -----------------------------------------------
 // The last recovery lever: re-initialise the whole controller. A knob
 // for the reason usb_replug is one -- the mechanism can be checked on
 // a machine where everything currently works.
@@ -591,7 +591,7 @@ static int usb_hcreset_apply(const char *value) {
 }
 
 static const struct setting g_usb_hcreset_setting = {
-    .name = "usb_hcreset", .label = "Re-initialise the USB controller",
+    .name = "usb.hcreset", .label = "Re-initialise the USB controller",
     .type = SETTING_TYPE_ENUM, .file = CONFIG_PATH_RUNTIME,
     .category = TUNABLE_CATEGORY, .group = "Diagnostics",
     .choice = usb_hcreset_choice, .unavailable = usb_hcreset_unavailable,

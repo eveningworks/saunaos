@@ -45,7 +45,7 @@ static uint8_t red_pos, red_size, green_pos, green_size, blue_pos, blue_size;
 // preferred way to locate anything now.
 //
 // A user can still override this per-machine: `fontsize` in the shell,
-// or Control Panel, persisted as font_size in /etc/toyos.conf
+// or Control Panel, persisted as font.size in /etc/toyos.conf
 // (kernel/lib/font_config.c).
 static enum font_size cur_font_size = FONT_SIZE_14;
 

@@ -11,9 +11,9 @@
 #include "initcall.h"
 
 #define KEYBOARD_CONFIG_FILE "/etc/toyos.conf"
-#define KEYBOARD_CONFIG_KEY "keyboard_layout"
-#define KEYBOARD_LAYOUTS_KEY "keyboard_layouts"
-#define KEYBOARD_DEADKEYS_KEY "keyboard_dead_keys"
+#define KEYBOARD_CONFIG_KEY "keyboard.layout"
+#define KEYBOARD_LAYOUTS_KEY "keyboard.layouts"
+#define KEYBOARD_DEADKEYS_KEY "keyboard.dead_keys"
 #define KB_LAYOUTS_MAX 8
 
 // Finds `kbd=<name>` on the kernel command line -- the layout override
@@ -50,7 +50,7 @@ static int cmdline_layout(char *out, uint32_t out_size) {
     return 0;
 }
 
-// THE LIST, `keyboard_layouts=fi,us,de`: every layout Super+Space and
+// THE LIST, `keyboard.layouts=fi,us,de`: every layout Super+Space and
 // the taskbar indicator switch between, the FIRST being the one a boot
 // starts with. Held here as the live copy; keyboard_layout_current() is
 // which of them is active, and switching does not touch the file.

@@ -70,8 +70,8 @@ int main(void) {
     }
 
     char face[64] = {0};
-    if (usetting_get("system.font_face", face, sizeof face) <= 0 || !face[0]) {
-        utest_check(0, "system.font_face is readable");
+    if (usetting_get("system.font.face", face, sizeof face) <= 0 || !face[0]) {
+        utest_check(0, "system.font.face is readable");
         return utest_end();
     }
     utest_notef("face=%s px=%u weight=%u", face, k0.px, k0.weight);

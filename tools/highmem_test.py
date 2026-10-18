@@ -98,7 +98,7 @@ def ring3_phase(mem):
         con = DebugConsole(".vm.serial", timeout=60.0)
 
         def free_high():
-            out = con.send("sh config get mem.frame_free_high")
+            out = con.send("sh config get mem.frame.high.free")
             for ln in out.splitlines():
                 if re.fullmatch(r"\d+", ln.strip()):
                     return int(ln.strip())

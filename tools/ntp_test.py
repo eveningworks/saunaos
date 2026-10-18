@@ -269,9 +269,9 @@ def main():
         out = vm("exec", "config list", disk=disk)
         check("system.ntp is registered and ships off",
               re.search(r"system\.ntp\s+off", out) is not None, out[-300:])
-        check("system.ntp_server has a default",
+        check("system.ntp.server has a default",
               "pool.ntp.org" in out, out[-300:])
-        check("system.ntp_interval has a default",
+        check("system.ntp.interval has a default",
               re.search(r"system\.ntp_interval\s+\d+", out) is not None, out[-300:])
 
         # --- phase 2: -q asks, and changes nothing ---------------------
@@ -316,7 +316,7 @@ def main():
         out = vm("exec", "dmesg", disk=disk)
         check("the kernel logged the step", "clock stepped by" in out,
               out[-300:])
-        out = vm("exec", "config get clock.steps", disk=disk)
+        out = vm("exec", "config get clock.step.count", disk=disk)
         check("the clock reports having been stepped",
               re.search(r"^\s*[1-9]\d*\s*$", out, re.M) is not None, out[-200:])
 

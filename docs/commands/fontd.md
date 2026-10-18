@@ -24,9 +24,9 @@ It reads three settings and republishes whenever one moves:
 
 | setting | meaning |
 |---|---|
-| `system.font_face` | the UI face (menus, labels, titles): the filename without the extension, or `builtin` |
-| `system.font_mono` | the monospace face (terminals, code), the same way |
-| `system.font_size` | the em size in pixels, shared by both |
+| `system.font.face` | the UI face (menus, labels, titles): the filename without the extension, or `builtin` |
+| `system.font.mono` | the monospace face (terminals, code), the same way |
+| `system.font.size` | the em size in pixels, shared by both |
 
 Ask it what it is doing with `diag font` at the serial console:
 

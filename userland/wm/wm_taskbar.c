@@ -176,13 +176,13 @@ static void setting_get(const char *name, struct setting_msg *msg) {
     if (!usetting_get(name, msg->value, sizeof msg->value)) msg->value[0] = 0;
 }
 
-// `desktop.taskbar_height` as the registry answers it, or the default
+// `desktop.taskbar.height` as the registry answers it, or the default
 // if the registry could not be asked. The registry bounds a WRITTEN
 // value; the clamp here covers a hand-edited file, since a 4px strip
 // has no button left to recover from.
 static int read_height(void) {
     struct setting_msg msg;
-    setting_get("desktop.taskbar_height", &msg);
+    setting_get("desktop.taskbar.height", &msg);
     int64_t v;
     if (!msg.value[0] || !k_parse_i64(msg.value, &v)) return taskbar_default_h();
     if (v < TASKBAR_H_MIN) v = TASKBAR_H_MIN;
@@ -216,23 +216,23 @@ void taskbar_poll_config(void) {
     // anchor. wm_layout_changed() re-derives all of that, the same walk
     // a screen-size change makes.
     struct setting_msg msg;
-    setting_get("desktop.taskbar_buttons", &msg);
+    setting_get("desktop.taskbar.buttons", &msg);
     enum taskbar_buttons buttons = k_strcmp(msg.value, "icons") == 0
         ? TASKBAR_BUTTONS_ICONS : TASKBAR_BUTTONS_LABELLED;
-    setting_get("desktop.taskbar_align", &msg);
+    setting_get("desktop.taskbar.align", &msg);
     int ac = k_strcmp(msg.value, "center") == 0;
-    setting_get("desktop.taskbar_float", &msg);
+    setting_get("desktop.taskbar.float", &msg);
     int fl = k_strcmp(msg.value, "on") == 0;
-    setting_get("desktop.start_position", &msg);
+    setting_get("desktop.start.position", &msg);
     int sc = k_strcmp(msg.value, "center") == 0;
-    setting_get("desktop.taskbar_theme", &msg);
+    setting_get("desktop.taskbar.theme", &msg);
     int dark = k_strcmp(msg.value, "light") != 0;
     // Every value named, the default included (see start_button below).
-    setting_get("desktop.taskbar_combine", &msg);
+    setting_get("desktop.taskbar.combine", &msg);
     enum taskbar_combine combine =
         k_strcmp(msg.value, "always") == 0 ? TASKBAR_COMBINE_ALWAYS :
         k_strcmp(msg.value, "never") == 0  ? TASKBAR_COMBINE_NEVER : TASKBAR_COMBINE_FULL;
-    setting_get("desktop.taskbar_peek", &msg);
+    setting_get("desktop.taskbar.peek", &msg);
     wm_peek_set_mode(k_strcmp(msg.value, "off") == 0 ? WM_PEEK_OFF :
                      k_strcmp(msg.value, "highlight") == 0 ? WM_PEEK_HIGHLIGHT :
                      WM_PEEK_PREVIEW);
@@ -259,7 +259,7 @@ void taskbar_poll_config(void) {
     }
 
     // The default when nothing is written; it must match Default= in
-    // /etc/settings.d/desktop.start_button, which is what the registry
+    // /etc/settings.d/desktop.start.button, which is what the registry
     // answers with and what System Settings shows.
     //
     // **EVERY MODE IS NAMED, including the default one.** This tested
@@ -270,7 +270,7 @@ void taskbar_poll_config(void) {
     // three values. Found by icons_test, which had been passing that
     // case for the wrong reason.
     enum start_button_mode want = START_BUTTON_ICON;
-    setting_get("desktop.start_button", &msg);
+    setting_get("desktop.start.button", &msg);
     if (k_strcmp(msg.value, "text") == 0)      want = START_BUTTON_TEXT;
     else if (k_strcmp(msg.value, "icon") == 0) want = START_BUTTON_ICON;
     else if (k_strcmp(msg.value, "both") == 0) want = START_BUTTON_BOTH;
@@ -600,7 +600,7 @@ static void apply_drag(struct taskbar_button *out, int count, int w) {
 //   Start centre   Start leads the centred group (Windows 11). The
 //                  buttons cannot be left of a centred Start: the
 //                  declaration's Requires=/Otherwise= makes
-//                  `desktop.taskbar_align` read `center` meanwhile.
+//                  `desktop.taskbar.align` read `center` meanwhile.
 void taskbar_overflow_label(char *buf, int cap, int hidden) {
     k_snprintf(buf, cap, hidden > 99 ? "99+" : "%d", hidden);
 }
@@ -669,7 +669,7 @@ int taskbar_layout(struct taskbar_button *out, int max) {
     int listed = listed_count();
     if (!out || max <= 0 || listed <= 0 || avail <= 0) { g_hidden = listed; return 0; }
 
-    // THE WIDTH, and whether to group -- `desktop.taskbar_combine`.
+    // THE WIDTH, and whether to group -- `desktop.taskbar.combine`.
     // `full`: labelled buttons shrink first and group only if shrinking
     // is not enough, since grouping is a response to pressure. `always`
     // groups from the first window, `never` not at all. An icon button

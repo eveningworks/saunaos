@@ -446,13 +446,13 @@ static int dc_fill(int index, void *out) {
 static const struct query_field dc_fields[] = {
     QUERY_FIELD(struct query_diskcache, on,            QUERY_TYPE_U64),
     QUERY_FIELD(struct query_diskcache, pages,         QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_diskcache, cap_pages,     QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_diskcache, cap_pages, "pages.cap", QUERY_TYPE_U64),
     QUERY_FIELD(struct query_diskcache, active,        QUERY_TYPE_U64),
     QUERY_FIELD(struct query_diskcache, hits,          QUERY_TYPE_U64),
     QUERY_FIELD(struct query_diskcache, misses,        QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_diskcache, hit_sectors,   QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_diskcache, hit_sectors, "hits.sectors", QUERY_TYPE_U64),
     QUERY_FIELD(struct query_diskcache, fills,         QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_diskcache, dropped_fills, QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_diskcache, dropped_fills, "fills.dropped", QUERY_TYPE_U64),
     QUERY_FIELD(struct query_diskcache, evictions,     QUERY_TYPE_U64),
 };
 

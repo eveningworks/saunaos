@@ -5,7 +5,7 @@
 
 const char OWNER_SAVER[]  = "desktop.screensaver";
 const char OWNER_EFFECT[] = "desktop.minimize_effect";
-const char OWNER_LIVE[]   = "desktop.wallpaper_live";
+const char OWNER_LIVE[]   = "desktop.wallpaper.live";
 
 // THE SELECTED SCREENSAVER'S OPTIONS, as rows past the registry's.
 //

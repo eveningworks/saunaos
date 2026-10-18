@@ -306,7 +306,7 @@ struct window {
 };
 
 // Height of a window's title bar in pixels. NOT the taskbar's, which is
-// a setting (`desktop.taskbar_height`, wm_taskbar.h) -- a panel and a
+// a setting (`desktop.taskbar.height`, wm_taskbar.h) -- a panel and a
 // title bar are separate measurements on every desktop.
 // A macro rather than a cached variable so it always reflects whatever
 // font size is currently active -- gfx_char_h() is cheap (just an array

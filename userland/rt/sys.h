@@ -676,7 +676,7 @@ int sys_query_record(unsigned cls, unsigned index, void *out, unsigned len);
 int sys_query_field_count(unsigned cls);
 // Fills `name` (at least QUERY_FIELD_PATH_MAX bytes) and `*out_type`.
 int sys_query_field_info(unsigned cls, unsigned index, char *name, unsigned *out_type);
-// `qualified` is "<provider>.<field>", e.g. "mem.frame_free". Fails with
+// `qualified` is "<provider>.<field>", e.g. "mem.frame.free". Fails with
 // errno ENOTSUP when the class is a LIST and so has no single value --
 // which is a different answer from ENOENT ("no such fact").
 int sys_query_field_get(const char *qualified, unsigned long long *out_value,

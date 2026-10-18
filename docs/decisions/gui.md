@@ -3244,7 +3244,7 @@ where even the floor width (and, when combining, grouping) will not fit,
 the extras go behind an OVERFLOW button at the end of the row: an
 up-chevron and a count, whose list raises any of them. Until 2026-10-04
 they were DROPPED and counted through `taskbar_hidden()` alone, which a
-test could see and a user could not -- with `desktop.taskbar_combine`
+test could see and a user could not -- with `desktop.taskbar.combine`
 set to `never` the shortfall arrives at a dozen windows instead of
 thirty, and a window with no handle at all is not an answer. KDE scrolls
 or wraps; a second row was the tempting fix and is still not taken,
@@ -3253,7 +3253,7 @@ menu's anchor, the context-menu clamp and every `wm_damage_rect(0,
 screen_h - taskbar_h, ...)` all derive from. Drawing off-screen was the
 bug.
 
-**When to combine is the user's: `desktop.taskbar_combine`** -- `always`,
+**When to combine is the user's: `desktop.taskbar.combine`** -- `always`,
 `full` (the default, the policy above) or `never`, Windows 11's "Combine
 taskbar buttons" with its three values. `always` groups from the first
 window; `never` shrinks to the floor and then overflows. Plasma's
@@ -3744,7 +3744,7 @@ the descriptor, reported over the ABI as `imin`/`imax`/`istep`, and a
 
 **The range lives in code and is enforced by the REGISTRY.** A spinbox
 knows the bounds and will not offer a value outside them, but `config
-set system.mouse_speed 0` and a hand-edited `/etc/toyos.conf` reach
+set system.mouse.speed 0` and a hand-edited `/etc/toyos.conf` reach
 `setting_set()` without passing through any UI. `/etc/settings.d` may
 already override a setting's *presentation* (which widget to use, and
 its word wins) -- a range is not presentation, and letting a file widen
@@ -3980,7 +3980,7 @@ protocol between two programs for something this system already has a
 mechanism for.
 
 It is two registered settings now -- `desktop.wallpaper` and
-`desktop.wallpaper_mode` (declared in `/etc/settings.d`) -- and that
+`desktop.wallpaper.mode` (declared in `/etc/settings.d`) -- and that
 buys four things a private key could not:
 
 - `config set desktop.wallpaper dusk` works from any shell, and
@@ -4361,7 +4361,7 @@ instead of a reopen.
 
 ## The Start button's appearance is three choices, not two
 
-`desktop.start_button` takes `text`, `icon` or `both`. A boolean was the
+`desktop.start.button` takes `text`, `icon` or `both`. A boolean was the
 obvious shape and is wrong: it cannot express `both`, which is what
 Windows 95 through 7 actually shipped and what most people picture when
 they hear "Start button". XFCE's Whisker Menu offers exactly these three
@@ -7717,7 +7717,7 @@ application's appearance, which is the boundary `kapi.h` and
 `userland/` exist to hold. Nothing about a colour scheme needs a
 privilege level.
 
-The second is what the registry is FOR. `system.font_size` reflows every
+The second is what the registry is FOR. `system.font.size` reflows every
 window on the desktop; `desktop.wallpaper` is the machine's. Those are
 the system's, and putting them somewhere a person can find them without
 knowing which app owns them is the whole value of one registry. A
@@ -7824,7 +7824,7 @@ does not line up. Every system that has both keeps both -- GNOME's
 `font-name` beside `monospace-font-name`, Windows' UI font beside
 Consolas, macOS's system font beside SF Mono.
 
-toy-os had one, `system.font_face`, and it had to be monospace because
+toy-os had one, `system.font.face`, and it had to be monospace because
 the Terminal used it. So the whole desktop looked like a terminal, and
 the fix was never "pick a nicer face" -- it was that one setting could
 not express the requirement.
@@ -7858,7 +7858,7 @@ the comment beside the field records that it was a choice.
 **NOTHING REFUSES A PROPORTIONAL FACE IN THE MONOSPACE SLOT.** Whether
 every advance is equal is knowable only after rasterizing, which
 happens in ring 3; the setting's `apply` is in ring 0 and can validate
-existence and nothing more -- the same honest limit `system.font_face`
+existence and nothing more -- the same honest limit `system.font.face`
 already had. fontd logs it instead, and the published header carries a
 `monospace` flag, so the condition is reportable rather than silent.
 
@@ -8304,7 +8304,7 @@ somebody is acting on it. KDE's krfb raises a tray indicator for as long
 as a remote party is connected, every Wayland screen-share portal does
 the same, and Windows shows a session notification -- because the one
 thing the owner must never have to guess is whether they are alone on
-their own machine. `desktop.tray_remote` = `auto` therefore means "while
+their own machine. `desktop.tray.remote` = `auto` therefore means "while
 a session is open", which is this item's version of the tray's
 ask-the-hardware rule.
 
@@ -8871,9 +8871,9 @@ control. The rasteriser is `uui_fill_round_rect()`.
 
 ## The taskbar's layout is four independent settings over one layout function, and a floating panel deflates rather than the band moving
 
-`desktop.taskbar_buttons` is `labelled` | `icons`, `desktop.taskbar_align`
-and `desktop.start_position` are `left` | `center`, `desktop.taskbar_float`
-is `off` | `on`, and `desktop.taskbar_theme` is `dark` | `light`. The
+`desktop.taskbar.buttons` is `labelled` | `icons`, `desktop.taskbar.align`
+and `desktop.start.position` are `left` | `center`, `desktop.taskbar.float`
+is `off` | `on`, and `desktop.taskbar.theme` is `dark` | `light`. The
 maintainer chose from three mockups -- labelled buttons (Windows 10 /
 Plasma's labelled task manager), centred icons (Windows 11), a floating
 panel (Plasma 6) -- with the first as the default.
@@ -8932,7 +8932,7 @@ the tray stays per-item in every layout (`docs/roadmap.md`).
 ## Taskbar peek is content thumbnails, rescaled on present, held by open order
 
 Resting on a taskbar button shows a card of the window (Windows 11's
-preview, Plasma's task tooltip): `desktop.taskbar_peek` = `off` |
+preview, Plasma's task tooltip): `desktop.taskbar.peek` = `off` |
 `preview` (default) | `highlight`, the last dimming the desktop under the
 window while the pointer is on its entry (Plasma's "Highlight windows",
 Windows' Aero Peek). The maintainer chose Windows' card shape -- title,

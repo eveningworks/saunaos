@@ -51,7 +51,7 @@ KEY_ESC = "0x1b"
 KEY_DOWN = "0xf781"
 KEY_UP = "0xf780"
 KEY_RIGHT = "0xf785"
-KEYS = ("start_list", "start_opens", "start_recent", "start_hover", "start_power")
+KEYS = ("start.list", "start.opens", "start.recent", "start.hover", "start.power")
 
 
 def rows_of(menu, kind):
@@ -114,7 +114,7 @@ def run(dbg, qmp, tmp, res):
     foot = (m["w"], m["h"])
     res.check("Detailed (the default) is one column",
               len(det) > 1 and len({r["x"] for r in det}) == 1, f"{[(r['x'], r['h']) for r in det[:3]]}")
-    set_key(dbg, "start_list", "compact")
+    set_key(dbg, "start.list", "compact")
     m = reopen(dbg)
     comp = rows_of(m, "app")
     res.check("Compact is one column of shorter rows, more of them",
@@ -126,7 +126,7 @@ def run(dbg, qmp, tmp, res):
               m["w"] < foot[0] - 100 and m["h"] == foot[1] and len(acts) == 3
               and all(m["x"] <= r["x"] and r["x"] + r["w"] <= m["x"] + m["w"] for r in acts),
               f"{(m['w'], m['h'])} vs {foot}, actions {[(r['x'], r['w']) for r in acts]}")
-    set_key(dbg, "start_list", "grid")
+    set_key(dbg, "start.list", "grid")
     m = reopen(dbg)
     grid = rows_of(m, "app")
     cols = len({r["x"] for r in grid})
@@ -156,12 +156,12 @@ def run(dbg, qmp, tmp, res):
     after = selected_folder(dbg.menu())
     res.check("...Up from the top line leaves the cells, and Right moves the folder",
               none and after and after != before, f"no selection {none}, folder {before} -> {after}")
-    set_key(dbg, "start_list", None)
+    set_key(dbg, "start.list", None)
 
     # --- start_power ---------------------------------------------------
     for value, want in (("shutdown", ["Shutdown"]), ("restart", ["Restart", "Shutdown"]),
                         (None, ["Exit to shell", "Restart", "Shutdown"])):
-        set_key(dbg, "start_power", value)
+        set_key(dbg, "start.power", value)
         m = reopen(dbg)
         got = [r["label"] for r in rows_of(m, "action")]
         res.check(f"Power buttons {value or 'all'}: the footer is {want}", got == want, f"{got}")
@@ -170,14 +170,14 @@ def run(dbg, qmp, tmp, res):
     # mean something.
     found = {}
     for value in (None, "shutdown"):
-        set_key(dbg, "start_power", value)
+        set_key(dbg, "start.power", value)
         reopen(dbg)
         for ch in "exit":
             dbg.key(ch)
         found[value] = [r["label"] for r in rows_of(dbg.menu(), "app")]
     res.check("...and search finds only the actions offered",
               "Exit to shell" in found[None] and "Exit to shell" not in found["shutdown"], f"{found}")
-    set_key(dbg, "start_power", None)
+    set_key(dbg, "start.power", None)
 
     # --- start_recent, then start_opens --------------------------------
     close_menu(dbg)
@@ -188,20 +188,20 @@ def run(dbg, qmp, tmp, res):
     conf = dbg.send("sh cat /etc/start-menu.conf") or ""
     res.check("a launch makes a Recent folder, recorded in the file",
               "Recent" in cats and "run.calculator" in conf, f"{cats} {conf.strip()[:200]!r}")
-    set_key(dbg, "start_opens", "all")
+    set_key(dbg, "start.opens", "all")
     res.check("Opens on All Apps", selected_folder(reopen(dbg)) == "All Apps",
               f"{selected_folder(dbg.menu())}")
-    set_key(dbg, "start_opens", "recent")
+    set_key(dbg, "start.opens", "recent")
     res.check("Opens on Recent", selected_folder(reopen(dbg)) == "Recent",
               f"{selected_folder(dbg.menu())}")
-    set_key(dbg, "start_opens", "last")
+    set_key(dbg, "start.opens", "last")
     reopen(dbg)
     dbg.menu_select_folder("Games")
     res.check("Opens on the last folder used",
               selected_folder(reopen(dbg)) == "Games", f"{selected_folder(dbg.menu())}")
-    set_key(dbg, "start_opens", None)
+    set_key(dbg, "start.opens", None)
 
-    set_key(dbg, "start_recent", "off")
+    set_key(dbg, "start.recent", "off")
     m = reopen(dbg)
     cats = [c["label"] for c in rows_of(m, "category")]
     conf = dbg.send("sh cat /etc/start-menu.conf") or ""
@@ -213,11 +213,11 @@ def run(dbg, qmp, tmp, res):
     time.sleep(0.5)
     conf = dbg.send("sh cat /etc/start-menu.conf") or ""
     res.check("...and a launch while off is not recorded", "run." not in conf, f"{conf.strip()[:200]!r}")
-    set_key(dbg, "start_recent", None)
+    set_key(dbg, "start.recent", None)
 
     # --- start_hover ---------------------------------------------------
     for value in ("on", None):
-        set_key(dbg, "start_hover", value)
+        set_key(dbg, "start.hover", value)
         m = reopen(dbg)
         start = selected_folder(m)
         target = next((c for c in rows_of(m, "category") if c["label"] not in (start, "Recent")), None)

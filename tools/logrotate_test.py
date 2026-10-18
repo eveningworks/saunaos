@@ -15,7 +15,7 @@ is to still be there after the machine was rebooted:
   - `log -p N` reaches the Nth boot back, and REFUSES a number it does
     not have instead of printing the wrong boot's log. Reading boot 3
     while believing it is boot 5 is worse than an error.
-  - lowering `storage.log_keep` actually DELETES, rather than stranding
+  - lowering `storage.log.keep` actually DELETES, rather than stranding
     the files above the new limit forever.
   - a boot that fills its share STOPS and says so -- the property that
     stops one runaway logger flushing every older boot.
@@ -103,12 +103,12 @@ def cycle(inst, n):
 def run(inst, res, control):
     vm(inst, "stop")
     vm(inst, "--reboot", "start")
-    guest(inst, "config set storage.log_keep 4", "config set storage.log_max 8")
+    guest(inst, "config set storage.log.keep 4", "config set storage.log.max 8")
     if control:
         # POSITIVE CONTROL: keep=1 is the OLD behaviour -- one rotated
         # file. Every assertion below about depth must then fail. If this
         # tool still reports clean, it is not watching the retention.
-        guest(inst, "config set storage.log_keep 1")
+        guest(inst, "config set storage.log.keep 1")
     vm(inst, "stop")
 
     cycle(inst, 4)
@@ -174,17 +174,17 @@ def run(inst, res, control):
     # boot's row is the LAST line of the capture and a reply that is cut
     # one line short reads exactly like a missing file. What this
     # assertion is about is the directory anyway.
-    guest(inst, "config set storage.log_keep 2")
+    guest(inst, "config set storage.log.keep 2")
     vm(inst, "stop")
     cycle(inst, 1)
     vm(inst, "start")
     kept = poll_kept(inst, 2)
-    res.check("lowering storage.log_keep deletes, rather than stranding",
+    res.check("lowering storage.log.keep deletes, rather than stranding",
               len(kept) == 2, f"log_keep 2 left {len(kept)}: {kept}")
 
     # A BOOT THAT FILLS ITS SHARE STOPS. 1 MiB over keep+1 is a small
     # enough share that a few straces reach it.
-    guest(inst, "config set storage.log_max 1", "config set storage.log_keep 50")
+    guest(inst, "config set storage.log.max 1", "config set storage.log.keep 50")
     vm(inst, "stop")
     vm(inst, "--reboot", "start")
     # Under `spawn` strace's stderr -- its trace -- is the kernel log,
@@ -195,7 +195,7 @@ def run(inst, res, control):
         guest(inst, "spawn /bin/strace ls /bin", "sleep 2")
     out = guest(inst, "log -n 2")
     res.check("a boot that fills its share stops, and says so",
-              "share of storage.log_max" in out,
+              "share of storage.log.max" in out,
               f"no cap line in: {out.strip()[-200:]!r}")
 
 
@@ -211,12 +211,12 @@ def main():
     try:
         run(args.instance, res, args.positive_control)
     finally:
-        # RESTORE THE DEFAULTS. A tool that leaves storage.log_max at 1
+        # RESTORE THE DEFAULTS. A tool that leaves storage.log.max at 1
         # MiB makes every later tool's logs stop mid-boot, and that reads
         # as the machine hanging.
         try:
-            guest(args.instance, "config set storage.log_max 8",
-                  "config set storage.log_keep 10")
+            guest(args.instance, "config set storage.log.max 8",
+                  "config set storage.log.keep 10")
         except Exception:
             pass
         vm(args.instance, "stop")

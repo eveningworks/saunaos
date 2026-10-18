@@ -42,5 +42,5 @@ checksum, reports `no EDID`.
 ## See also
 
 `lscpu`, `lspci`, `lsusb` for the same shape of question about other
-hardware; `config get display.native_width` for one number of it;
+hardware; `config get display.native.width` for one number of it;
 `gfxbench` for how fast the framebuffer is.

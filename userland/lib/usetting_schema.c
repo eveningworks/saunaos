@@ -12,6 +12,7 @@
 #include <string.h>
 #include <dirent.h>
 #include "lib/usetting_schema.h"
+#include "etc_renamed.h"
 #include "lib/uconf.h"
 #include "lib/ushortcuts.h" // shortcut_value_valid: see uschema_validate
 
@@ -100,7 +101,7 @@ static void str_key(const struct etc_config_buf *buf, const char *key,
 // metadata that changes when the machine is flashed; a VALUE is read
 // from /etc every time and is never held here, which is the line that
 // makes one cache entry safe.
-int uschema_find(const char *qualified, struct uschema *out) {
+static int find_exact(const char *qualified, struct uschema *out) {
     if (!out) return 0;
     memset(out, 0, sizeof *out);
     if (!qualified || !qualified[0]) return 0;
@@ -184,6 +185,14 @@ int uschema_find(const char *qualified, struct uschema *out) {
     g_cached = *out;
     strlcpy(g_cached_name, qualified, sizeof g_cached_name);
     return 1;
+}
+
+// A name from before the dotted names (api/etc_renamed.h) finds the
+// declaration it became.
+int uschema_find(const char *qualified, struct uschema *out) {
+    if (find_exact(qualified, out)) return 1;
+    char now[SETTING_ABI_NS_MAX + SETTING_ABI_NAME_MAX + 1];
+    return etc_renamed_now(qualified, now, sizeof now) && find_exact(now, out);
 }
 
 int uschema_count(void) { ensure_names(); return g_name_count; }

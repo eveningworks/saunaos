@@ -290,18 +290,18 @@ def check_pixels(dbg, qmp, tb, res):
 
 
 def check_height(dbg, qmp, res):
-    """`desktop.taskbar_height` moves the strip, live, and `unset` puts
+    """`desktop.taskbar.height` moves the strip, live, and `unset` puts
     the font-derived default back. Checked against the WM's own report
     AND a pixel: the strip's top row is its background colour at the new
     y and the row above is not, which a stale report could not fake."""
     base = strip(dbg)
     sh = dbg.state()["screen"]["h"]
     want = 60 if base["h"] != 60 else 64
-    dbg.send(f"sh config set desktop.taskbar_height {want}")
+    dbg.send(f"sh config set desktop.taskbar.height {want}")
     dbg.settle()
     time.sleep(0.5)
     tb = strip(dbg)
-    res.check("desktop.taskbar_height re-lays the strip live",
+    res.check("desktop.taskbar.height re-lays the strip live",
               tb["h"] == want and tb["y"] == sh - want,
               f"asked {want}, got h={tb['h']} y={tb['y']} (screen h {sh})")
     from PIL import Image
@@ -318,7 +318,7 @@ def check_height(dbg, qmp, res):
     res.check("the strip's top edge is drawn where it is reported",
               top == edge and above != edge,
               f"row {sh - want} = {top} (edge {edge}), row above = {above}")
-    dbg.send("sh config unset desktop.taskbar_height")
+    dbg.send("sh config unset desktop.taskbar.height")
     dbg.settle()
     time.sleep(0.5)
     back = strip(dbg)
@@ -331,7 +331,7 @@ def check_height(dbg, qmp, res):
 
 # Every setting a section below changes; unset at the end whatever happens,
 # since a setting outlives the tool (CLAUDE.md).
-TOUCHED = ("desktop.taskbar_combine", "desktop.taskbar_buttons", "desktop.taskbar_height")
+TOUCHED = ("desktop.taskbar.combine", "desktop.taskbar.buttons", "desktop.taskbar.height")
 SECTIONS = ("height", "combine", "closeall", "join", "names", "draghidden", "overflow")
 
 
@@ -386,11 +386,11 @@ def dismiss_menu(dbg):
 
 
 def check_combine(dbg, res):
-    """`desktop.taskbar_combine`: always groups from the second window,
+    """`desktop.taskbar.combine`: always groups from the second window,
     when-full (the default) does not until the floor, never does not at
     all -- and then the overflow button holds the rest."""
     close_everything(dbg)
-    tb = set_and_wait(dbg, "desktop.taskbar_combine", "always", "combine", "always")
+    tb = set_and_wait(dbg, "desktop.taskbar.combine", "always", "combine", "always")
     spawn_notepads(dbg, 2)
     tb = strip(dbg)
     counts = [b["count"] for b in tb["buttons"]]
@@ -408,7 +408,7 @@ def check_combine(dbg, res):
         dismiss_menu(dbg)
 
     # THE CONTROL: the same two windows, the default mode -- two buttons.
-    tb = set_and_wait(dbg, "desktop.taskbar_combine", None, "combine", "full")
+    tb = set_and_wait(dbg, "desktop.taskbar.combine", None, "combine", "full")
     counts = [b["count"] for b in tb["buttons"]]
     res.check("combine=full (the default): the same two get a button each",
               counts == [1, 1], f"combine={tb.get('combine')} counts={counts}")
@@ -416,9 +416,9 @@ def check_combine(dbg, res):
     # NEVER, PAST THE FLOOR. Icon buttons on the thickest strip are the
     # widest a button gets, so a dozen windows overflow it -- rather than
     # the thirty-odd floor-width labelled buttons a 1280 strip holds.
-    set_and_wait(dbg, "desktop.taskbar_buttons", "icons", "buttons_kind", "icons")
-    set_and_wait(dbg, "desktop.taskbar_height", "96")
-    tb = set_and_wait(dbg, "desktop.taskbar_combine", "never", "combine", "never")
+    set_and_wait(dbg, "desktop.taskbar.buttons", "icons", "buttons_kind", "icons")
+    set_and_wait(dbg, "desktop.taskbar.height", "96")
+    tb = set_and_wait(dbg, "desktop.taskbar.combine", "never", "combine", "never")
     opened = 2
     while opened < 16 and (tb.get("overflow") is None or tb["overflow"]["count"] < 2):
         spawn_notepads(dbg, 1)
@@ -557,9 +557,9 @@ def check_drag_hidden(dbg, qmp, res):
     their older ranks they sorted first, and the row the user had just
     arranged went into the overflow list instead."""
     close_everything(dbg)
-    set_and_wait(dbg, "desktop.taskbar_buttons", "icons", "buttons_kind", "icons")
-    set_and_wait(dbg, "desktop.taskbar_height", "96")
-    tb = set_and_wait(dbg, "desktop.taskbar_combine", "never", "combine", "never")
+    set_and_wait(dbg, "desktop.taskbar.buttons", "icons", "buttons_kind", "icons")
+    set_and_wait(dbg, "desktop.taskbar.height", "96")
+    tb = set_and_wait(dbg, "desktop.taskbar.combine", "never", "combine", "never")
     opened = 0
     while opened < 20 and (tb.get("overflow") is None or tb["overflow"]["count"] < 3):
         spawn_notepads(dbg, 1)

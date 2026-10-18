@@ -10,7 +10,7 @@ Description=A moving effect, or an animated picture or video from /usr/share/wal
 Widget=gallery
 Preview=live
 Order=4
-Requires=desktop.wallpaper_type=live
+Requires=desktop.wallpaper.type=live
 WhenUnmet=hide
 Choice.aurora=Aurora
 Choice.drift=Drift

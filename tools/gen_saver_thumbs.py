@@ -56,7 +56,7 @@ def main():
     names = args.names or listed
     was = next((ln.strip() for ln in (dbg.send("sh config get desktop.screensaver") or "").splitlines()
                 if ln.strip() and " " not in ln.strip() and ":" not in ln and "=" not in ln), None)
-    savers.set_setting(dbg, "desktop.screensaver_idle", "5")
+    savers.set_setting(dbg, "desktop.screensaver.idle", "5")
     st = dbg.state()
     qmp.goto(st["screen"]["w"] - 2, 2)   # the pointer is in a screendump, not a capture
     tmp = os.path.join(ROOT, "build", "saver_thumb.png")

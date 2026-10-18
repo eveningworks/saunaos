@@ -100,11 +100,11 @@ check("...and the newest report is still readable as evidence",
 # --- 3. a page is confirmed before its controls are read ---------------
 reset()
 OPEN_MOUSE = ["settings: page Input/Mouse slots 6 advanced 0 captions 6 disabled 0",
-              "settings: control 4 system.mouse_speed 187 492 66 24 rows 0 kind spin"]
+              "settings: control 4 system.mouse.speed 187 492 66 24 rows 0 kind spin"]
 OPEN_NTP = ["settings: page Time & Locale/Network Time slots 3 advanced 0 captions 2 disabled 0",
             "settings: control 0 system.ntp 187 84 100 24 rows 2 kind radio",
-            "settings: control 1 system.ntp_server 187 150 445 24 rows 0 kind text",
-            "settings: control 2 system.ntp_interval 187 200 66 24 rows 0 kind spin"]
+            "settings: control 1 system.ntp.server 187 150 445 24 rows 0 kind text",
+            "settings: control 2 system.ntp.interval 187 200 66 24 rows 0 kind spin"]
 dbg = FakeDbg([OPEN_MOUSE])
 st.drain(dbg)
 mark = len(st._log)
@@ -122,9 +122,9 @@ check("the page that did open is confirmed by name",
       got is not None and got["page"] == "Time & Locale/Network Time", f"{got}")
 ctls = st.controls(dbg, mark)
 check("...and its controls are the ones read",
-      sorted(ctls) == ["system.ntp", "system.ntp_interval", "system.ntp_server"],
+      sorted(ctls) == ["system.ntp", "system.ntp.interval", "system.ntp.server"],
       f"{sorted(ctls)}")
-check("...with the rect the app reported", ctls["system.ntp_server"]["w"] == 445)
+check("...with the rect the app reported", ctls["system.ntp.server"]["w"] == 445)
 
 # --- 4. a control straddling the viewport is not 'in view' -------------
 #

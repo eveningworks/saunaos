@@ -332,7 +332,7 @@ static void shadow_tile(struct ugfx_surface *s, int i, int x, int y, int w, int 
     window_pair(s, x, y, w, h, f, f);
 }
 
-// desktop.transparency_windows: which of the two lets the desktop through.
+// desktop.transparency.windows: which of the two lets the desktop through.
 static void seethrough_tile(struct ugfx_surface *s, int i, int x, int y, int w, int h, void *ctx) {
     const char *c = choice_word(ctx, i);
     int title = MW_GLASS_TITLE, all = MW_GLASS_TITLE | MW_GLASS_BODY, back = 0, front = 0;
@@ -462,7 +462,7 @@ static void desktop_backdrop(struct ugfx_surface *s, struct uui_picture_tiles *c
         uui_picture_tile(s, c, i, stem, x, y, w, h, uui_tile_load_dir, (void *)WALLPAPERS);
 }
 
-// desktop.wallpaper_mode: the wallpaper on a screen of this screen's
+// desktop.wallpaper.mode: the wallpaper on a screen of this screen's
 // shape, covering it or whole on the desktop's colour.
 static void placement_tile(struct ugfx_surface *s, int i, int x, int y, int w, int h, void *ctx) {
     int sx, sy, sw, sh;
@@ -564,8 +564,8 @@ static void menuspacing_tile(struct ugfx_surface *s, int i, int x, int y, int w,
 // menu at the preset's radii, in pixels; Custom at the five custom values.
 static int corner_radius(const char *preset, enum utheme_round k) {
     static const char *const KEY[UTHEME_R_COUNT] = {
-        "desktop.corners_controls", "desktop.corners_popups", "desktop.corners_windows",
-        "desktop.corners_selection", "desktop.corners_scrollbars",
+        "desktop.corners.controls", "desktop.corners.popups", "desktop.corners.windows",
+        "desktop.corners.selection", "desktop.corners.scrollbars",
     };
     int r = utheme_radius_preset(preset, k);
     if (r != -2) return r;
@@ -653,22 +653,22 @@ void preview_glass(struct ugfx_surface *s, int x, int y, int w, int h) {
         g_glass_h = g_glass_buf ? s->h : 0;
     }
     int on = stage_is("desktop.transparency", "on");
-    static const char *const PCT[] = { "desktop.transparency_taskbar", "desktop.transparency_start",
-                                       "desktop.transparency_menus",
-                                       "desktop.transparency_window_opacity" };
-    static const char *const KIND[] = { "desktop.transparency_taskbar_glass",
-                                        "desktop.transparency_start_glass",
-                                        "desktop.transparency_menus_glass",
-                                        "desktop.transparency_window_glass" };
+    static const char *const PCT[] = { "desktop.transparency.taskbar", "desktop.transparency.start",
+                                       "desktop.transparency.menus",
+                                       "desktop.transparency.window.opacity" };
+    static const char *const KIND[] = { "desktop.transparency.taskbar.glass",
+                                        "desktop.transparency.start.glass",
+                                        "desktop.transparency.menus.glass",
+                                        "desktop.transparency.window.glass" };
     static const int DFLT[] = { 75, 85, 85, 85 };   // wm_glass.c's
     int a[4], fr[4];
     for (int k = 0; k < 4; k++) {
         a[k] = on ? stage_pct(PCT[k], DFLT[k]) * 255 / 100 : 255;
         fr[k] = !stage_is(KIND[k], "clear");
     }
-    int wins_title = on && (stage_is("desktop.transparency_windows", "titlebars") ||
-                            stage_is("desktop.transparency_windows", "all"));
-    int wins_body = on && stage_is("desktop.transparency_windows", "all");
+    int wins_title = on && (stage_is("desktop.transparency.windows", "titlebars") ||
+                            stage_is("desktop.transparency.windows", "all"));
+    int wins_body = on && stage_is("desktop.transparency.windows", "all");
 
     int ch = ugfx_char_h(), r = utheme_radius(UTHEME_R_POPUP);
     desktop_backdrop(s, &g_pv_glass, 0, x, y, w, h);

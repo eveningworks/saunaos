@@ -3,7 +3,7 @@
 
 // Persists the console's cursor style across reboots, exactly the way
 // font_config.c persists the font size and tz.c the timezone: one
-// `cursor_style=<name>` key inside the shared /etc/toyos.conf, read and
+// `cursor.style=<name>` key inside the shared /etc/toyos.conf, read and
 // applied once at boot, written back when the shell's `cursor` command
 // changes it.
 //
@@ -17,7 +17,7 @@
 // is absent or names a style that doesn't exist.
 void cursor_config_init(void);
 
-// Persists `style` as /etc/toyos.conf's "cursor_style=<name>" key.
+// Persists `style` as /etc/toyos.conf's "cursor.style=<name>" key.
 // Returns an `enum setting_result` (etc_config.h): SETTING_INVALID for
 // an out-of-range style, SETTING_SAVED if written, SETTING_UNSAVED if
 // the write failed.

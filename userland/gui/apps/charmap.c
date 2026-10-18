@@ -151,8 +151,8 @@ static void load_faces(void) {
 static char g_ui_face[48], g_term_face[48];
 
 static void read_usage(void) {
-    if (!usetting_get("system.font_face", g_ui_face, sizeof g_ui_face)) g_ui_face[0] = '\0';
-    if (!usetting_get("system.font_mono", g_term_face, sizeof g_term_face)) g_term_face[0] = '\0';
+    if (!usetting_get("system.font.face", g_ui_face, sizeof g_ui_face)) g_ui_face[0] = '\0';
+    if (!usetting_get("system.font.mono", g_term_face, sizeof g_term_face)) g_term_face[0] = '\0';
 }
 
 static struct face *cur(void) { return g_nfaces ? &g_faces[g_cur] : 0; }
@@ -604,7 +604,7 @@ static void on_action(struct uapp *a, int code) {
     case ID_CLEAR:    g_ntext = 0; break;
     case ID_USE_UI:
     case ID_USE_MONO: {
-        const char *key = code == ID_USE_UI ? "system.font_face" : "system.font_mono";
+        const char *key = code == ID_USE_UI ? "system.font.face" : "system.font.mono";
         int rc = usetting_set(key, cur()->ff.stem);
         snprintf(g_note, sizeof g_note, rc == SETTING_SAVED ? "%s now use %s" : "Could not change what %s use",
                  code == ID_USE_UI ? "The interface" : "Terminals", cur()->ff.family);

@@ -49,8 +49,8 @@ DEFAULTS = [
     ("terminal",     "Ctrl+Alt+T",    "gui key 0x14 ctrl alt",  "/bin/wm/apps/uterm"),
     ("screenshot",   "Shift+Super+S", "gui key S shift super",  "/bin/wm/apps/screenshot"),
     ("screenshot",   "Print Screen",  "gui key 0xf888",           "/bin/wm/apps/screenshot"),
-    ("screenshot_screen", "Shift+Print Screen", "gui key 0xf888 shift", "/bin/wm/apps/screenshot"),
-    ("screenshot_window", "Alt+Print Screen",   "gui key 0xf888 alt",   "/bin/wm/apps/screenshot"),
+    ("screenshot.screen", "Shift+Print Screen", "gui key 0xf888 shift", "/bin/wm/apps/screenshot"),
+    ("screenshot.window", "Alt+Print Screen",   "gui key 0xf888 alt",   "/bin/wm/apps/screenshot"),
     ("task_manager", "Ctrl+Alt+Del",  "gui key 0xf788 ctrl alt",  "/bin/wm/system/taskmgr"),
 ]
 

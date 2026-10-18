@@ -35,6 +35,13 @@ const struct etc_config_get_case etc_get_cases[] = {
       "[" LONG_NAME "]\na=1\n", 0, "a", "1" },
     { "a section holds keys of the same name as another's",
       "[a]\nx=1\n[b]\nx=2\n", "b", "x", "2" },
+    // The dotted names (api/etc_renamed.h): font.size was font_size.
+    { "a renamed key is read under its old name when the new is absent",
+      "font_size=16\n", 0, "font.size", "16" },
+    { "...and the new key wins when both are there",
+      "font_size=16\nfont.size=20\n", 0, "font.size", "20" },
+    { "an old name is not an alias in the other direction",
+      "font.size=20\n", 0, "font_size", 0 },
 };
 const int etc_get_case_count = (int)(sizeof etc_get_cases / sizeof etc_get_cases[0]);
 
@@ -73,6 +80,12 @@ const struct etc_config_set_case etc_set_cases[] = {
       "[a]\nx=1\n", "b", "x", 0, 0 },
     { "a section name that could not be read back is refused",
       "[a]\nx=1\n", "a]b", "z", "3", 0 },
+    { "a write replaces a renamed key's OLD line where it stands",
+      "a=1\nfont_size=16\nb=2\n", 0, "font.size", "20", "a=1\nfont.size=20\nb=2\n" },
+    { "...and drops the old line when the new one is there too",
+      "font_size=16\nfont.size=18\n", 0, "font.size", "20", "font.size=20\n" },
+    { "removing a renamed key removes its old line",
+      "a=1\nfont_size=16\n", 0, "font.size", 0, "a=1\n" },
 };
 const int etc_set_case_count = (int)(sizeof etc_set_cases / sizeof etc_set_cases[0]);
 

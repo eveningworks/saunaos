@@ -88,8 +88,8 @@ def main():
     failures = []
     try:
         con = DebugConsole(".vm.serial", timeout=60.0)
-        total_high = fact(con, "mem.frame_total_high")
-        free_high0 = fact(con, "mem.frame_free_high")
+        total_high = fact(con, "mem.frame.high.total")
+        free_high0 = fact(con, "mem.frame.high.free")
         if not total_high:
             failures.append("the guest reports no frames above 4 GiB")
             raise SystemExit
@@ -116,7 +116,7 @@ def main():
         deadline = time.time() + 300
         passed = failed = 0
         while time.time() < deadline:
-            now = fact(con, "mem.frame_free_high")
+            now = fact(con, "mem.frame.high.free")
             if now is not None and now < low_free_high:
                 low_free_high = now
             log = con.send("sh dmesg")
@@ -152,7 +152,7 @@ def main():
             failures.append("meminfo audit did not report a clean result")
 
         # And the machine gives the memory back.
-        back = fact(con, "mem.frame_free_high")
+        back = fact(con, "mem.frame.high.free")
         if back is not None and back < free_high0 - (total_high // 100):
             failures.append("high frames were not returned: %d free before, %d after"
                             % (free_high0, back))

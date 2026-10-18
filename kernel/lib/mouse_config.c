@@ -33,10 +33,10 @@
 #include "initcall.h"
 
 #define MOUSE_CONFIG_FILE "/etc/toyos.conf"
-#define MOUSE_SPEED_KEY "mouse_speed"
-#define MOUSE_ACCEL_KEY "mouse_accel"
-#define SCROLL_STEP_KEY "scroll_step"
-#define SCROLL_DIR_KEY  "scroll_dir"
+#define MOUSE_SPEED_KEY "mouse.speed"
+#define MOUSE_ACCEL_KEY "mouse.accel"
+#define SCROLL_STEP_KEY "scroll.step"
+#define SCROLL_DIR_KEY  "scroll.dir"
 
 // The wheel's multiplier: 1 is one notch per notch. 5 is the useful
 // ceiling -- past it a single click of the wheel jumps a whole page in

@@ -248,7 +248,7 @@ static void walk_xecp(uint32_t hcc1) {
 // it is deadline-capable, advances with interrupts off, where a counter
 // the timer INTERRUPT increments does not.
 //
-// That difference is not academic. It is why `kernel.usb_reset` froze a
+// That difference is not academic. It is why `kernel.usb.reset` froze a
 // laptop on its first outing: a syscall runs with interrupts off, and
 // the coarse_ticks() loop there could never end. The PIT path is kept for
 // a machine whose clocksource cannot be trusted with a deadline, and

@@ -106,12 +106,20 @@ static int conf_get(const char *path, const char *key, char *out, size_t cap) {
 // A locale.* setting as the registry would answer it: the stored value,
 // else the declaration's Default= -- read from the declaration itself,
 // so the default has one home.
-static void setting_value(const char *name, char *out, size_t cap) {
+// `was` is the key's name before the dotted names, or NULL: this file
+// has its own reader, so it does not get the shared parser's fallback
+// (api/etc_renamed.h) and has to ask for the old key itself.
+static void setting_value_was(const char *name, const char *was, char *out, size_t cap) {
     if (conf_get(LOCALE_CONF, name, out, cap)) return;
+    if (was && conf_get(LOCALE_CONF, was, out, cap)) return;
     char decl[64];
     snprintf(decl, sizeof decl, SETTINGS_DIR "/locale.%s", name);
     if (conf_get(decl, "Default", out, cap)) return;
     strlcpy(out, strcmp(name, "region") == 0 ? "iso" : "region", cap);
+}
+
+static void setting_value(const char *name, char *out, size_t cap) {
+    setting_value_was(name, 0, out, cap);
 }
 
 // A region's words, from its /etc/locales row. 0 when no row names
@@ -224,8 +232,8 @@ static int load_system(struct time_loc *t, struct num_loc *nl) {
     setting_value("date_format", date, sizeof date);
     setting_value("time_format", time, sizeof time);
     setting_value("number_format", number, sizeof number);
-    setting_value("week_start", week, sizeof week);
-    setting_value("week_numbers", weeknum, sizeof weeknum);
+    setting_value_was("week.start", "week_start", week, sizeof week);
+    setting_value_was("week.numbers", "week_numbers", weeknum, sizeof weeknum);
     struct region r;
     if (!region_row(region, &r)) return 0;
     return build(region, &r, date, time, number, week, weeknum, t, nl);

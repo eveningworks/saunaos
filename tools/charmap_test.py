@@ -20,7 +20,7 @@ where "it is drawn" is the claim, against pixels:
      without opening it, and the grid lists that block.
   6. The Fonts page: a card picks a different font, and the size ladder
      is drawn in it -- the waterfall before and after must differ.
-  7. "Use for terminals" writes system.font_mono (put back afterwards:
+  7. "Use for terminals" writes system.font.mono (put back afterwards:
      a setting outlives the tool, CLAUDE.md).
 
     python3 tools/vm.py start
@@ -122,7 +122,7 @@ def typed(dbg, text):
 
 
 def run(dbg, qmp, tmp, res):
-    face = dbg.send("sh config get system.font_face").strip().splitlines()[-1].strip()
+    face = dbg.send("sh config get system.font.face").strip().splitlines()[-1].strip()
     dbg.send("gui spawn /bin/wm/apps/charmap")
     win = None
     for _ in range(50):
@@ -247,14 +247,14 @@ def run(dbg, qmp, tmp, res):
     chk(res, diff > 200, f"the ladder is redrawn in it ({diff} sampled pixels differ)")
 
     # 7. Use for terminals, then put the setting back.
-    mono = dbg.send("sh config get system.font_mono").strip().splitlines()[-1].strip()
+    mono = dbg.send("sh config get system.font.mono").strip().splitlines()[-1].strip()
     try:
         dbg.click(*lay.centre("usemono"))
         time.sleep(0.5)
-        now = dbg.send("sh config get system.font_mono").strip().splitlines()[-1].strip()
-        chk(res, now and now != mono, f"Use for terminals writes system.font_mono ({mono} -> {now})")
+        now = dbg.send("sh config get system.font.mono").strip().splitlines()[-1].strip()
+        chk(res, now and now != mono, f"Use for terminals writes system.font.mono ({mono} -> {now})")
     finally:
-        dbg.send(f"sh config set system.font_mono {mono}")
+        dbg.send(f"sh config set system.font.mono {mono}")
 
 
 def main():

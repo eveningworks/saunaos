@@ -27,7 +27,7 @@
 // this OS already teaches with /etc/services.d, /etc/config.d and
 // /usr/wm/applications.
 //
-//   /etc/settings.d/system.mouse_speed
+//   /etc/settings.d/system.mouse.speed
 //     Description=How far the pointer moves for a given hand movement
 //     Choice.slow=Slow
 //     Choice.normal=Normal

@@ -40,12 +40,12 @@ static int heap_fill(int index, void *out) {
 }
 
 static const struct query_field heap_fields[] = {
-    QUERY_FIELD(struct query_heap, total_bytes,       QUERY_TYPE_BYTES),
-    QUERY_FIELD(struct query_heap, used_bytes,        QUERY_TYPE_BYTES),
-    QUERY_FIELD(struct query_heap, free_bytes,        QUERY_TYPE_BYTES),
-    QUERY_FIELD(struct query_heap, quarantined_bytes, QUERY_TYPE_BYTES),
-    QUERY_FIELD(struct query_heap, rz_checks,         QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_heap, violations,        QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_heap, total_bytes, "total", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_heap, used_bytes, "used", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_heap, free_bytes, "free", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_heap, quarantined_bytes, "quarantined", QUERY_TYPE_BYTES),
+    QUERY_FIELD_AS(struct query_heap, rz_checks, "redzone.checks", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_heap, violations, "redzone.violations", QUERY_TYPE_U64),
     QUERY_FIELD(struct query_heap, debug,             QUERY_TYPE_U64),
 };
 

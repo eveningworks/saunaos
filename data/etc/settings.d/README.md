@@ -1,7 +1,7 @@
 # `/etc/settings.d` — what a setting IS, and what it says
 
 One file per setting, named by its **qualified name** —
-`<namespace>.<name>`, e.g. `system.mouse_speed` — because a setting's
+`<namespace>.<name>`, e.g. `system.mouse.speed` — because a setting's
 identity is that pair and two programs may each own a `theme`.
 
 A file here does one of two jobs, told apart by a single key:
@@ -37,7 +37,7 @@ Choices=small,medium,large
 Description=How big the desktop icons are drawn
 Choice.small=Small
 
-# /etc/settings.d/system.mouse_speed -- only TEXT; the kernel owns it
+# /etc/settings.d/system.mouse.speed -- only TEXT; the kernel owns it
 Description=How far the pointer moves for a given hand movement
 Widget=radio
 Choice.slow=Slow
@@ -54,7 +54,7 @@ Choice.slow=Slow
 | `Applies` | `now` (default) or `reboot` — whether the change takes effect immediately. |
 | `Advanced` | `1` keeps it behind a disclosure in a UI that has one. |
 | `Order` | An integer, lower first, for where the setting sits on its page. Unordered settings follow. |
-| `Sort` | `label` lists an enum's choices A to Z by display name -- for an UNORDERED set whose registry order means nothing (`system.keyboard_layout`, whose order is `/usr/share/kbs`'s directory order). Applied in `lib/usetting.c`, so System Settings and `config` list the same order. An ordered enum (off/low/high) never carries it. |
+| `Sort` | `label` lists an enum's choices A to Z by display name -- for an UNORDERED set whose registry order means nothing (`system.keyboard.layout`, whose order is `/usr/share/kbs`'s directory order). Applied in `lib/usetting.c`, so System Settings and `config` list the same order. An ordered enum (off/low/high) never carries it. |
 | `Label` | **Group files only** (`group.<category>.<group>`), which carry a `Label` and a `Description` for the PAGE rather than for a setting. |
 
 A file named `group.<category>.<group>` describes the page itself —
@@ -108,7 +108,7 @@ existing ones without renumbering.
 | `Min` / `Max` / `Step` / `Unit` | `int`: the inclusive range, the stepper increment, and what the number means (`px`, `min`, `%`). |
 | `Requires` | `<qualified name>=<value>`: the setting only applies while that OTHER DECLARED setting has that value. Meanwhile it is UNAVAILABLE -- a UI greys it and shows `RequiresReason`, and a write is refused (an unset is not). Naming a kernel setting does nothing: `/etc` cannot disable what the kernel owns. |
 | `RequiresReason` | The sentence shown in place of the description while `Requires` is unmet. |
-| `Otherwise` | The value the setting READS as while `Requires` is unmet -- what GET answers and a UI shows. The file keeps the stored choice, so meeting the requirement again brings it back. `desktop.taskbar_align` is the example: centred while Start is. |
+| `Otherwise` | The value the setting READS as while `Requires` is unmet -- what GET answers and a UI shows. The file keeps the stored choice, so meeting the requirement again brings it back. `desktop.taskbar.align` is the example: centred while Start is. |
 | `WhenUnmet` | `hide`: while `Requires` names a setting ON THE SAME PAGE, System Settings shows this row only while that setting's STAGED value meets it -- so a switch swaps the rows under it as it is clicked, before Apply (the Wallpaper page's Background). Without it an unmet row greys. Apply writes the page in `Order`, so give the switch the lowest. |
 
 `Choices` and `ChoiceDir` **compose**, in that order: the

@@ -66,13 +66,14 @@
 // from ring 3. What ring 3 sees is a name, a type and a number.
 //
 // This is what makes a fact addressable the way a setting is --
-// `config get mem.frame_free` beside `config get system.font_size`.
+// `config get mem.frame_free` beside `config get system.font.size`.
 // Without it a fact has no flat name at all, and nothing could list
 // facts or read one value.
 struct query_field {
-    const char *name;   // "frame_free" -- the part after the dot
+    const char *name;   // "frame.free" -- the part after the provider's dot
     uint32_t    type;   // QUERY_TYPE_*
     uint32_t    offset; // into the class's record
+    const char *was;    // the name it had before the dotted names, or NULL
 };
 
 // Declares a u64 field of `rec` by its member name, so the offset is
@@ -80,7 +81,14 @@ struct query_field {
 // somebody has to keep true when a struct changes -- exactly the shape
 // this project deletes wherever it finds it.
 #define QUERY_FIELD(rec, member, ty) \
-    { #member, (ty), (uint32_t)__builtin_offsetof(rec, member) }
+    { #member, (ty), (uint32_t)__builtin_offsetof(rec, member), 0 }
+
+// The same under a DOTTED name -- `mem.frame.free` -- the tree `config
+// get mem` walks (docs/settings-and-queries.md, "Names"). The member's
+// own name is kept as `was`, so a script that asked for mem.frame_free
+// still gets its answer.
+#define QUERY_FIELD_AS(rec, member, dotted, ty) \
+    { (dotted), (ty), (uint32_t)__builtin_offsetof(rec, member), #member }
 
 struct query_provider {
     uint32_t    cls;          // QUERY_* (abi/query_abi.h)

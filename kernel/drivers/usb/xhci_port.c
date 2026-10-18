@@ -107,7 +107,7 @@ static void reset_port(uint32_t p, int force) {
     // the intermittent enumeration failures is NOT established (an
     // always-skipped reset should fail every boot, and it does not), so
     // the behaviour is UNCHANGED and the skip is merely reported. See
-    // docs/bugs.md, and `config set kernel.usb_reset <port>` for the
+    // docs/bugs.md, and `config set kernel.usb.reset <port>` for the
     // experiment that would settle it.
     if ((sc & XHCI_PORTSC_PED) && !force) {
         klog_printf("usb: port %u: arrived ENABLED (portsc 0x%x) -- "
@@ -497,7 +497,7 @@ static void attach_root_port(uint32_t p);
 // the high-speed chirp is lost, and a device that loses it comes up
 // FULL-speed -- docs/bugs.md's signature exactly. Linux waits for a
 // STABLE connection (hub_port_debounce_be_stable) before it touches
-// reset. Settable to 0 through kernel.usb_attach_delay, which is what
+// reset. Settable to 0 through kernel.usb.attach_delay, which is what
 // lets the failure be provoked rather than waited for at 1 boot in 50.
 static unsigned g_attach_delay_ms = 100;
 
@@ -762,7 +762,7 @@ static void attach_root_port(uint32_t p) {
     }
 }
 
-// THE EXPERIMENT `kernel.usb_reset` RUNS. Force a port through a real
+// THE EXPERIMENT `kernel.usb.reset` RUNS. Force a port through a real
 // reset and re-enumerate it, without anyone touching the cable.
 //
 // It exists to settle one question and it is worth stating so that the
@@ -803,7 +803,7 @@ int usb_diag_replug_port(unsigned port) {
 int usb_diag_reset_port(unsigned port) {
     if (!g_xhci.running) return 0;
     if (port < 1 || port > g_xhci.max_ports || port > XHCI_MAX_PORTS) return 0;
-    // QUEUED, NEVER DONE HERE. The caller is a syscall (kernel.usb_reset)
+    // QUEUED, NEVER DONE HERE. The caller is a syscall (kernel.usb.reset)
     // and this work spins on coarse_ticks(), which only the timer interrupt
     // advances -- see diag_reset_pending. Returns 1 for "accepted"; the
     // OUTCOME is in the log a moment later, because there is nobody left
@@ -1009,7 +1009,7 @@ void xhci_deferred_work(void) {
             pend_clear(&g_xhci.warm_pending, p);
             link_recover(p);
         }
-        // The forced diagnostic reset (kernel.usb_reset). Before the
+        // The forced diagnostic reset (kernel.usb.reset). Before the
         // attach below, so a port that is pending both is reset once
         // deliberately rather than attached and then reset under it.
         if (g_xhci.diag_power_pending & (1u << p)) {

@@ -85,9 +85,9 @@ uint32_t scheduler_timeslice_ms(void);
 int scheduler_set_timeslice_ms(uint32_t ms);
 
 // The realtime guards (abi/syscall_abi.h, SYS_SCHED_SETSCHEDULER):
-// kernel.sched_rt_runtime_ms, RT's share of each second while an
+// kernel.sched.rt.runtime_ms, RT's share of each second while an
 // ordinary process wants the CPU (1000 = no limit), and
-// kernel.sched_rt_watchdog_ms, how long one RT process may run without
+// kernel.sched.rt.watchdog_ms, how long one RT process may run without
 // blocking before it is moved to SCHED_OTHER (0 = never). Setters return
 // 0 and change nothing outside the range.
 #define SCHED_RT_RUNTIME_DEFAULT_MS  950

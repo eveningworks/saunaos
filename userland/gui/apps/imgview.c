@@ -504,7 +504,7 @@ static int set_setting(const char *name, const char *value) {
 
 static void set_wallpaper(struct uapp *a, const char *mode) {
     if (!mode) {
-        int ok = set_setting("desktop.wallpaper_type", "colour");
+        int ok = set_setting("desktop.wallpaper.type", "colour");
         strlcpy(g_stat_note, ok ? "wallpaper cleared" : "could not clear wallpaper",
                 sizeof g_stat_note);
         ulogf("imgview: wallpaper none -- %s\n", ok ? "ok" : "FAILED");
@@ -523,10 +523,10 @@ static void set_wallpaper(struct uapp *a, const char *mode) {
     char *dot = strrchr(stem, '.');
     if (dot) *dot = '\0';
     int ok = set_setting("desktop.wallpaper", stem);
-    ok = set_setting("desktop.wallpaper_mode", mode) && ok;
+    ok = set_setting("desktop.wallpaper.mode", mode) && ok;
     // A picture chosen here is meant to be SEEN: over a live or plain
     // background it would otherwise be stored and not shown.
-    ok = set_setting("desktop.wallpaper_type", "picture") && ok;
+    ok = set_setting("desktop.wallpaper.type", "picture") && ok;
     snprintf(g_stat_note, sizeof g_stat_note, "%s wallpaper: %s, %s",
              ok ? "set" : "could not set", stem, mode);
     ulogf("imgview: wallpaper %s mode %s -- %s\n", stem, mode, ok ? "ok" : "FAILED");
@@ -739,7 +739,7 @@ static void draw_props(struct ugfx_surface *s) {
     y += lh;
     char cur[64] = "", wp[32] = "", mode[16] = "";
     if (usetting_get("desktop.wallpaper", wp, sizeof wp) > 0) {
-        usetting_get("desktop.wallpaper_mode", mode, sizeof mode);
+        usetting_get("desktop.wallpaper.mode", mode, sizeof mode);
         snprintf(cur, sizeof cur, "Now: %s%s%s", wp, mode[0] ? ", " : "", mode);
     }
     text_at(s, x, y, w, cur, dim, bg);

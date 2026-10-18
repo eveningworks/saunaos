@@ -3,7 +3,7 @@
 the tray indicator, Super+Space, and Settings > Input > Keyboard.
 
 WHAT IT CHECKS
-  1. The list (system.keyboard_layouts) refuses a layout with no file,
+  1. The list (system.keyboard.layouts) refuses a layout with no file,
      and switching the ACTIVE layout is never written to /etc.
   2. The tray item is hidden with one layout and shown with several.
   3. Super+Space with Super HELD walks a pick and Super's release takes
@@ -83,20 +83,20 @@ def main():
     print("keyboard layouts: list, tray item, Super+Space, Settings page")
 
     # --- 1. the settings -----------------------------------------------
-    sh(dbg, "config set system.keyboard_layouts us")
-    sh(dbg, "config set system.keyboard_layout us")
+    sh(dbg, "config set system.keyboard.layouts us")
+    sh(dbg, "config set system.keyboard.layout us")
     check("with one layout the tray item is hidden",
           wait(lambda: lay(dbg)["tray_hidden"]), str(lay(dbg)))
-    out = sh(dbg, "config set system.keyboard_layouts us,fi,xx")
+    out = sh(dbg, "config set system.keyboard.layouts us,fi,xx")
     check("a layout with no file is refused", "does not accept" in out, out.strip()[:120])
-    sh(dbg, "config set system.keyboard_layouts us,fi,de")
+    sh(dbg, "config set system.keyboard.layouts us,fi,de")
     shown = wait(lambda: not lay(dbg)["tray_hidden"] and lay(dbg)["codes"] == ["us", "fi", "de"])
     check("with three the item is shown and lists them in order", shown, str(lay(dbg)))
-    sh(dbg, "config set system.keyboard_layout fi")
+    sh(dbg, "config set system.keyboard.layout fi")
     conf = sh(dbg, "cat /etc/toyos.conf")
     check("switching the active layout is not written to /etc",
-          "keyboard_layouts=us,fi,de" in conf and "keyboard_layout=fi" not in conf, conf[-200:])
-    sh(dbg, "config set system.keyboard_layout us")
+          "keyboard.layouts=us,fi,de" in conf and "keyboard.layout=fi" not in conf, conf[-200:])
+    sh(dbg, "config set system.keyboard.layout us")
     wait(lambda: active_code(dbg) == "us")
 
     # --- 2. Super+Space -----------------------------------------------
@@ -137,7 +137,7 @@ def main():
           str(lay(dbg)))
 
     # --- 4. the Settings page ------------------------------------------
-    dbg.send("gui spawn /bin/wm/system/settings system.keyboard_layouts")
+    dbg.send("gui spawn /bin/wm/system/settings system.keyboard.layouts")
     w = wait(lambda: dbg.widgets(TITLE).get("kb_list"), tries=40, delay=0.25)
     check("Settings opens on the Keyboard page with the layout list", bool(w), "no kb_list")
     if not w:
@@ -180,9 +180,9 @@ def main():
     dbg.click(up["screen"]["x"] + up["w"] // 2, up["screen"]["y"] + up["h"] // 2); dbg.settle()
     ap_ = dbg.widgets(TITLE).get("apply")
     dbg.click(ap_["screen"]["x"] + ap_["w"] // 2, ap_["screen"]["y"] + ap_["h"] // 2); dbg.settle()
-    stored = wait(lambda: "us,de,fi" in sh(dbg, "config get system.keyboard_layouts"), tries=20)
+    stored = wait(lambda: "us,de,fi" in sh(dbg, "config get system.keyboard.layouts"), tries=20)
     check("Move up then Apply stores the new order", stored,
-          sh(dbg, "config get system.keyboard_layouts").strip())
+          sh(dbg, "config get system.keyboard.layouts").strip())
 
     # --- 5. Add a layout...: its search field takes a CLICK -------------
     # Tab first, so focus is on the list and only a working click-to-focus
@@ -206,15 +206,15 @@ def main():
         check("...Enter closes it", not dbg.window("Add a layout"), "still open")
         ap_ = dbg.widgets(TITLE).get("apply")
         dbg.click(ap_["screen"]["x"] + ap_["w"] // 2, ap_["screen"]["y"] + ap_["h"] // 2); dbg.settle()
-        got = wait(lambda: "us,de,fi,ch" in sh(dbg, "config get system.keyboard_layouts"), tries=20)
+        got = wait(lambda: "us,de,fi,ch" in sh(dbg, "config get system.keyboard.layouts"), tries=20)
         check("a click into its search field, \"switz\" and Enter add German (Switzerland)", got,
-              sh(dbg, "config get system.keyboard_layouts").strip())
+              sh(dbg, "config get system.keyboard.layouts").strip())
     return report(dbg)
 
 
 def report(dbg):
-    sh(dbg, "config set system.keyboard_layouts us")
-    sh(dbg, "config set system.keyboard_layout us")
+    sh(dbg, "config set system.keyboard.layouts us")
+    sh(dbg, "config set system.keyboard.layout us")
     passed = sum(1 for _, ok, _ in checks if ok)
     print(f"\nkeyboard_layouts_test: {passed} passed, {len(checks) - passed} failed")
     return 0 if passed == len(checks) else 1

@@ -11,5 +11,5 @@ Preview=placement
 Order=3
 Choice.fill=Fill the screen (crop)
 Choice.fit=Fit the whole picture
-Requires=desktop.wallpaper_type=picture
+Requires=desktop.wallpaper.type=picture
 WhenUnmet=hide

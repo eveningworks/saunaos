@@ -55,8 +55,8 @@ uint32_t *utheme_role_ptr(struct utheme *t, int role) {
 }
 
 const char *const utheme_bundle_names[UTHEME_BUNDLE_COUNT] = {
-    "desktop.corners", "desktop.taskbar_theme", "system.cursor_theme",
-    "desktop.wallpaper_type", "desktop.wallpaper", "desktop.background_colour",
+    "desktop.corners", "desktop.taskbar.theme", "system.cursor.theme",
+    "desktop.wallpaper.type", "desktop.wallpaper", "desktop.background_colour",
     "desktop.transparency", "desktop.shadows",
 };
 

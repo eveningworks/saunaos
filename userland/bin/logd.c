@@ -26,7 +26,7 @@
 //
 // ONE FILE PER BOOT. /var/log/toyos.log is this boot; the completed ones
 // are /var/log/boot/<n>.log, numbered by a counter in /var/lib/logd.seq
-// that survives the reboot, oldest deleted past `storage.log_keep`. It
+// that survives the reboot, oldest deleted past `storage.log.keep`. It
 // kept a single rotated file until 2026-09-19, which answers "what did
 // the LAST boot say" and nothing further back -- no use at all for a
 // fault that shows up on one boot in several, which is what the USB NIC
@@ -121,13 +121,13 @@ static void log_sync(void) {
 // that is filling up should take effect without restarting the daemon.
 static unsigned long long cap_bytes(void) {
     int mib = 0;
-    if (!usetting_get_int("storage.log_max", &mib)) mib = 8;
+    if (!usetting_get_int("storage.log.max", &mib)) mib = 8;
     return (unsigned long long)mib * 1024 * 1024;
 }
 
 static int keep_count(void) {
     int n = 0;
-    if (!usetting_get_int("storage.log_keep", &n) || n < 1) n = KEEP_DEFAULT;
+    if (!usetting_get_int("storage.log.keep", &n) || n < 1) n = KEEP_DEFAULT;
     return n;
 }
 
@@ -176,7 +176,7 @@ static void budget_check(void) {
     char note[128];
     int n = snprintf(note, sizeof note,
                      "logd: boot %llu reached its %llu KiB share of "
-                     "storage.log_max -- no further lines are persisted",
+                     "storage.log.max -- no further lines are persisted",
                      g_boot, budget / 1024);
     if (n > 0) emit("logd", note, (unsigned)n);
     g_capped = 1;
@@ -441,7 +441,7 @@ int main(void) {
         // is the honest answer -- init reports a one-shot that returned
         // 0 as `done`, and a daemon that stayed up doing nothing would
         // read as working.
-        sys_eprint("logd: storage.log_max is 0 -- logging disabled\n");
+        sys_eprint("logd: storage.log.max is 0 -- logging disabled\n");
         return 0;
     }
 
@@ -468,7 +468,7 @@ int main(void) {
     g_boot = last + 1;
     seq_write(g_boot);
 
-    // PRUNE DOWNWARDS, a few past the boundary, so LOWERING storage.log_keep
+    // PRUNE DOWNWARDS, a few past the boundary, so LOWERING storage.log.keep
     // takes effect instead of stranding the files above the new limit
     // forever -- there is no directory walk here on purpose, since the
     // numbering already says which file is which.

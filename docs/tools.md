@@ -1575,7 +1575,7 @@ manual steps to be worth automating:
   collapsing windows of one application into a counted button with a
   jump-list popup. Slow (each window is a real process, so budget a
   couple of minutes), deliberately NOT in `gui_regress.py`.
-  Also `desktop.taskbar_combine` (always groups two windows, `full`
+  Also `desktop.taskbar.combine` (always groups two windows, `full`
   does not, `never` overflows into the overflow button and its list
   raises a hidden window) and "Close all N windows" (offered only past
   one window; closes three; with one refusing, the notice after the 5 s
@@ -2460,7 +2460,7 @@ window without going through it will find its layout polls timing out.
   arrow (UTF-8) and for e-acute (one Latin-1 byte); a double-click adds
   to the text line and Backspace removes it; "G" on the focused Block
   list shows Greek; the Fonts page's card switch redraws the size
-  ladder; "Use for terminals" writes `system.font_mono`, put back
+  ladder; "Use for terminals" writes `system.font.mono`, put back
   after. **It caught the grid drawing nothing after any search** (a
   refill cleared the cell callback): the drawn-after-search check is
   red on that build.
@@ -3682,7 +3682,7 @@ window without going through it will find its layout polls timing out.
   `gui_regress.py`: `desktop.show_trash` hiding and showing the bin's
   icon and bringing back a deleted entry, a hand-made item dated 2020
   deleted by the desktop's own `trash expire` within seconds of
-  `system.trash_max_age 30` while one deleted now stays (and `trash
+  `system.trash.max_age 30` while one deleted now stays (and `trash
   expire` with no limit deleting nothing), and the bin's "Recycle Bin
   settings..." row opening System Settings on the page with its usage
   card (`settings: trash usage`). The SIZE limit's trimming is not
@@ -3747,7 +3747,7 @@ window without going through it will find its layout polls timing out.
   it produces -- because `gui click`s sent back to back are lost
   (`docs/bugs.md`). In `gui_regress.py`.
 - **`calendar_test.py`** -- the tray clock's calendar popup: opening,
-  the grid, paging, `locale.week_start`, `locale.week_numbers` (the
+  the grid, paging, `locale.week.start`, `locale.week.numbers` (the
   column's own pixels, not the flag) and the "Date & time settings..."
   link (System Settings must report the Date & time page). **The grid is checked
   against the HOST's `datetime`**, which shares no code with the guest's
@@ -3775,9 +3775,9 @@ window without going through it will find its layout polls timing out.
   the ORIGINAL LOCAL time back under Helsinki, which only lands on the
   original UTC if the local-to-UTC conversion is right. The NTP lock is
   checked by clicking Change... and requiring that no dialog appears;
-  `system.ntp_server` is pointed at 127.0.0.1 first, so turning NTP on
+  `system.ntp.server` is pointed at 127.0.0.1 first, so turning NTP on
   sends nothing off the machine. Restores `system.ntp`,
-  `system.ntp_server`, `system.timezone` and the clock. A dialog
+  `system.ntp.server`, `system.timezone` and the clock. A dialog
   publishes no widget map, so its controls come from its
   `settings.clock: layout` lines. It also checks
   `desktop.clock_seconds`: on, the taskbar clock's pixels change within
@@ -3822,8 +3822,8 @@ window without going through it will find its layout polls timing out.
   hover (`docs/decisions.md`). Skips cleanly with no Pillow. In
   `gui_regress.py`.
 - **`taskbar_style_test.py`** -- the taskbar's independent layout
-  settings (`desktop.taskbar_buttons`, `_align`, `desktop.start_position`,
-  `desktop.taskbar_float`) and its two themes, each checked in the WM's
+  settings (`desktop.taskbar.buttons`, `_align`, `desktop.start.position`,
+  `desktop.taskbar.float`) and its two themes, each checked in the WM's
   report (`gui taskbar --json`) AND in a pixel the report could not
   fake: the defaults fill the band and the screen's corner is the strip;
   floating's band grows by the gap, the corner pixel is NOT the strip,
@@ -3847,7 +3847,7 @@ window without going through it will find its layout polls timing out.
   label check alone. Unsets every taskbar setting on the way out. In
   `gui_regress.py`.
 - **`taskbar_peek_test.py`** -- the taskbar's window preview
-  (`desktop.taskbar_peek`, `userland/wm/wm_peek.h`) against `gui peek
+  (`desktop.taskbar.peek`, `userland/wm/wm_peek.h`) against `gui peek
   --json`: resting on a button opens a card over it; **the thumbnail is
   a picture** -- 49 samples of its rect must be neither near-black nor
   flat, which is the check the first build failed (every thumbnail
@@ -3880,7 +3880,7 @@ window without going through it will find its layout polls timing out.
   and the slider and the wheel WRITE NOTHING -- checked against `config
   get`, since a build that skipped the availability check would push a
   value the registry refuses and show a level the hardware never took.
-  It also drives `desktop.tray_brightness` through all three values:
+  It also drives `desktop.tray.brightness` through all three values:
   `auto` must HIDE the sun on this backlight-less guest, `never` must
   too, and `always` must show it anyway. An absence is weak evidence, so
   it is taken twice -- the compositor's `tray_hidden` AND `gui taskbar
@@ -3899,7 +3899,7 @@ window without going through it will find its layout polls timing out.
   laptop by hand: `config set brightness 40` reads the PWM back. In
   `gui_regress.py`.
 - **`keyboard_layouts_test.py`** -- several keyboard layouts end to end:
-  `system.keyboard_layouts` refuses a layout with no file, switching the
+  `system.keyboard.layouts` refuses a layout with no file, switching the
   active layout writes nothing to `/etc`, the tray item hides with one
   layout, Super+Space walks with Super HELD and commits on its release
   (a tap is the next layout, Esc cancels), a click switches, and the
@@ -4031,7 +4031,7 @@ window without going through it will find its layout polls timing out.
   GIF player, reads a plain colour back from pixels, and shows that the same
   program started by hand is an ordinary window. Every setting it
   touches is restored. In `gui_regress.py` as `livewall`.
-- **`wallpaper_mode_test.py`** -- `desktop.wallpaper_mode`, at a screen
+- **`wallpaper_mode_test.py`** -- `desktop.wallpaper.mode`, at a screen
   mode where the setting can actually be seen. **It sets 1024x768
   because at the default it would measure nothing**: both stock
   wallpapers are exactly 1280x720 and so is the boot mode, and at a
@@ -4824,7 +4824,7 @@ window without going through it will find its layout polls timing out.
   mean the tool is watching nothing.
 
 - **`logrotate_test.py`** -- `logd`'s per-boot retention:
-  `/var/log/boot/<n>.log`, `storage.log_keep`, and `log -p N`.
+  `/var/log/boot/<n>.log`, `storage.log.keep`, and `log -p N`.
   **REBOOTS ITS GUEST FIVE TIMES ON PURPOSE**, because retention across
   boots cannot be checked inside one, so it needs `vm.py --reboot` and
   lives in the sweep rather than the gate. Four assertions, each aimed
@@ -4834,9 +4834,9 @@ window without going through it will find its layout polls timing out.
   DIFFERENT text, which a resolver ignoring `N` could not; `log -p 99`
   is refused rather than answering with the wrong boot; `log -p -n 2`
   still honours `-n`, since the optional count could swallow it; and
-  lowering `storage.log_keep` actually deletes rather than stranding
+  lowering `storage.log.keep` actually deletes rather than stranding
   the files above the new limit. It finishes by squeezing
-  `storage.log_max` to 1 MiB and checking a boot that fills its share
+  `storage.log.max` to 1 MiB and checking a boot that fills its share
   stops and says so. Its positive control sets `log_keep 1` -- the old
   two-file behaviour -- where a clean report would mean it is not
   watching the depth. It RESTORES the two settings in a `finally`,
@@ -7820,7 +7820,7 @@ runs first**: a `doom1.wad` with one
   back through `rtc_read()`.
 
   **On the bare-metal laptop it does survive, measured 2026-09-03**: a
-  sync, a reboot, and `clock.steps` back at 0 with the time still
+  sync, a reboot, and `clock.step.count` back at 0 with the time still
   correct -- so the clock had come from the CMOS rather than from
   anything that ran after boot. Boots one guest against a COPY of
   `disk.img`; on demand.

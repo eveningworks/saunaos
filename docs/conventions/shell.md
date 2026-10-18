@@ -321,7 +321,7 @@ this the obvious way), not from how much history it accumulated.
 
   **The answer is not a syscall per toggle.** `struct setting` already
   crosses the boundary in BOTH directions -- `SYS_SETTING` is how
-  `config set system.font_size 16` works from ring 3 -- so a toggle
+  `config set system.font.size 16` works from ring 3 -- so a toggle
   wants to be a setting, and a toggle that must not survive a reboot
   wants the non-persisting flavour, a TUNABLE. Then the whole command
   moves: read a provider, write a tunable, no new syscall. See

@@ -7,5 +7,5 @@ Default=on
 Choices=on,off
 Description=Stop drawing while a window fills the screen or a screensaver runs
 Order=5
-Requires=desktop.wallpaper_type=live
+Requires=desktop.wallpaper.type=live
 WhenUnmet=hide

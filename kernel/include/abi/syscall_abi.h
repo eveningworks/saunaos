@@ -2796,9 +2796,9 @@ struct sys_rlimit {
 // driver refilling a buffer, the compositor between frames.
 //
 // **TWO GUARDS, BECAUSE A SPINNING RT PROCESS OWNS THE MACHINE.** One
-// that runs kernel.sched_rt_watchdog_ms without blocking is moved to
+// that runs kernel.sched.rt.watchdog_ms without blocking is moved to
 // SCHED_OTHER and logged (RLIMIT_RTTIME's shape, demoted rather than
-// killed); and all RT together gets kernel.sched_rt_runtime_ms of each
+// killed); and all RT together gets kernel.sched.rt.runtime_ms of each
 // second while an ordinary process wants the CPU (sched_rt_runtime_us).
 //
 // ONLY INIT MAY ASK FOR RT, or touch another process; anyone may drop

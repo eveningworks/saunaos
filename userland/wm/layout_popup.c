@@ -13,9 +13,9 @@
 #include "lib/uconf.h"
 #include "wm/wm_conf.h"   // wm_setting_generation()
 
-#define SET_LIST   "system.keyboard_layouts"
-#define SET_ACTIVE "system.keyboard_layout"
-#define NAMES_FILE "/etc/settings.d/system.keyboard_layout"
+#define SET_LIST   "system.keyboard.layouts"
+#define SET_ACTIVE "system.keyboard.layout"
+#define NAMES_FILE "/etc/settings.d/system.keyboard.layout"
 #define FOOT_LABEL "Keyboard settings..."
 
 int layout_open = 0;

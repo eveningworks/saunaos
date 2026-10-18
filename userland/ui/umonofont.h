@@ -6,7 +6,7 @@
 // text document draws in. One rasterized atlas per holder, rebuilt only
 // when the size changes.
 //
-// **THE MONOSPACE FACE (`system.font_mono`), never `system.font_face`.**
+// **THE MONOSPACE FACE (`system.font.mono`), never `system.font.face`.**
 // A configured size must not undo the family split: the windows that
 // most need a fixed cell would be the ones drawing in the interface's.
 // A face that will not rasterize falls back to the session's font and

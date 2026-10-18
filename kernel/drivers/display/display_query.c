@@ -56,12 +56,12 @@ static const struct query_field display_q_fields[] = {
     QUERY_FIELD(struct query_display, caps,          QUERY_TYPE_U64),
     QUERY_FIELD(struct query_display, scanouts,      QUERY_TYPE_U64),
     QUERY_FIELD(struct query_display, flags,         QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_display, native_width,  QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_display, native_height, QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_display, native_width, "native.width", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_display, native_height, "native.height", QUERY_TYPE_U64),
     QUERY_FIELD(struct query_display, pixel_khz,     QUERY_TYPE_U64),
     QUERY_FIELD(struct query_display, refresh_mhz,   QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_display, width_mm,      QUERY_TYPE_U64),
-    QUERY_FIELD(struct query_display, height_mm,     QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_display, width_mm, "physical.width_mm", QUERY_TYPE_U64),
+    QUERY_FIELD_AS(struct query_display, height_mm, "physical.height_mm", QUERY_TYPE_U64),
 };
 
 static const struct query_provider display_provider = {

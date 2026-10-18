@@ -5,7 +5,7 @@
 
 char     (*g_label)[SETTING_ABI_LABEL_MAX];
 char     (*g_desc)[SETTING_ABI_DESC_MAX];
-// The QUALIFIED name ("system.font_size"): a setting's identity is
+// The QUALIFIED name ("system.font.size"): a setting's identity is
 // (namespace, name), so the bare key is not necessarily usable alone.
 char     (*g_name)[SETTING_ABI_QUALIFIED_MAX];
 char     (*g_ns)[SETTING_ABI_NS_MAX];

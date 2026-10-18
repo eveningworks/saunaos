@@ -24,8 +24,8 @@
 // broken control.
 //
 // The week's first column is the locale's first weekday
-// (`locale.week_start`, else the region's), polled the same way the
-// taskbar polls `desktop.start_button`.
+// (`locale.week.start`, else the region's), polled the same way the
+// taskbar polls `desktop.start.button`.
 
 // Whether the popup is currently open -- read by wm_render.c (draw or
 // not, and to force the full-screen overlay repaint) and wm_input.c.

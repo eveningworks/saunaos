@@ -94,14 +94,19 @@ int main(void) {
     // --- named fields, resolved kernel-side ---------------------------
     unsigned long long v = 0;
     unsigned type = 99;
-    utest_check(sys_query_field_get("mem.frame_total", &v, &type) == 0,
+    utest_check(sys_query_field_get("mem.frame.total", &v, &type) == 0,
           "read a field by qualified name");
     // Compared against the RECORD, not merely nonzero: a field table
     // with two offsets swapped passes any "is it plausible" check.
     utest_check(v == m.frame_total, "the field agrees with the whole record");
     utest_check(type == QUERY_TYPE_U64, "and reports its type");
-    utest_check(sys_query_field_get("mem.heap_total_bytes", &v, &type) == 0 &&
+    utest_check(sys_query_field_get("mem.heap.total", &v, &type) == 0 &&
           type == QUERY_TYPE_BYTES, "a byte-count field says it is bytes");
+
+    // A name from before the dotted ones still answers, and the same.
+    unsigned long long old = 0;
+    utest_check(sys_query_field_get("mem.frame_total", &old, &type) == 0 && old == m.frame_total,
+          "a field's old name (mem.frame_total) still reads it");
 
     utest_check(sys_query_field_get("providers.anything", &v, &type) < 0,
           "a LIST class has no single value");
@@ -117,7 +122,7 @@ int main(void) {
         char name[QUERY_FIELD_PATH_MAX];
         unsigned t = 0;
         if (sys_query_field_info(QUERY_MEMINFO, i, name, &t) != 0) break;
-        if (strcmp(name, "frame_free") == 0) named = 1;
+        if (strcmp(name, "frame.free") == 0) named = 1;
     }
     utest_check(named, "enumerating the fields finds one by name");
 

@@ -8,6 +8,7 @@
 // time.
 #include "splash.h"   // splash_setting_register()
 #include "setting.h"
+#include "etc_renamed.h"   // an old name means the setting it became
 #include "string.h"
 #include "klog.h"
 #include "kfmt.h" // klog_printf -- a refusal says which limit it hit
@@ -191,34 +192,57 @@ static int match(const struct setting *s, const char *want_ns, const char *bare)
     return k_strcmp(setting_namespace(s), want_ns) == 0;
 }
 
+// How `name` reads, and how many settings it matches that way. A
+// dotted KEY made a bare name and a qualified one look alike --
+// `font.size` is not namespace `font` -- so a name that matches nothing
+// split at its first dot is tried WHOLE, as a bare key. Each reading is
+// exact; neither guesses.
+struct reading { char ns[CONFIG_NAME_MAX]; const char *bare; };
+
+static int count_as(const struct reading *r) {
+    int n = 0;
+    for (int i = 0; i < g_count; i++)
+        if (match(g_settings[i], r->ns, r->bare)) n++;
+    return n;
+}
+
+static int read_name(const char *name, struct reading *r) {
+    r->bare = name;
+    if (split_qualified(name, r->ns, sizeof r->ns, &r->bare)) {
+        int n = count_as(r);
+        if (n) return n;
+        r->ns[0] = '\0';
+        r->bare = name;
+    }
+    return count_as(r);
+}
+
+// A name from before the dotted names (api/etc_renamed.h) means the
+// setting it became -- but only when nothing has that name now.
+static const char *current(const char *name, char *buf, uint32_t cap) {
+    struct reading r;
+    if (read_name(name, &r)) return name;
+    return etc_renamed_now(name, buf, cap) ? buf : name;
+}
+
 int setting_matches(const char *name) {
     if (!name || !*name) return 0;
-    char ns[CONFIG_NAME_MAX];
-    const char *bare = name;
-    split_qualified(name, ns, sizeof ns, &bare);
-    int n = 0;
-    for (int i = 0; i < g_count; i++) {
-        if (match(g_settings[i], ns, bare)) n++;
-    }
-    return n;
+    char now[SETTING_QUALIFIED_MAX];
+    struct reading r;
+    return read_name(current(name, now, sizeof now), &r);
 }
 
 const struct setting *setting_find(const char *name) {
     if (!name || !*name) return 0;
-    char ns[CONFIG_NAME_MAX];
-    const char *bare = name;
-    split_qualified(name, ns, sizeof ns, &bare);
-
-    const struct setting *hit = 0;
-    for (int i = 0; i < g_count; i++) {
-        if (!match(g_settings[i], ns, bare)) continue;
-        // AMBIGUOUS: refuse rather than return the first. Returning one
-        // would make which setting a bare name means depend on
-        // registration order, i.e. on boot sequence.
-        if (hit) return 0;
-        hit = g_settings[i];
-    }
-    return hit;
+    char now[SETTING_QUALIFIED_MAX];
+    struct reading r;
+    // AMBIGUOUS: refuse rather than return the first. Returning one
+    // would make which setting a bare name means depend on
+    // registration order, i.e. on boot sequence.
+    if (read_name(current(name, now, sizeof now), &r) != 1) return 0;
+    for (int i = 0; i < g_count; i++)
+        if (match(g_settings[i], r.ns, r.bare)) return g_settings[i];
+    return 0;
 }
 
 int setting_get(const char *name, char *out, uint32_t out_size) {
@@ -236,7 +260,7 @@ int setting_get(const char *name, char *out, uint32_t out_size) {
 //
 // **THE REGISTRY IS THE GATE, NOT THE UI.** A spinbox knows the range
 // and will not offer a value outside it, but `config set
-// system.mouse_speed 0` and a hand-edited /etc/toyos.conf reach this
+// system.mouse.speed 0` and a hand-edited /etc/toyos.conf reach this
 // same function without passing through any widget -- and one of those
 // used to be able to freeze the pointer, which is the reason
 // mouse_config.c made speed an ENUM of named levels in the first place.

@@ -100,7 +100,7 @@ static int restore(int argc, char **argv) {
     return rc;
 }
 
-// The limits are System Settings' (system.trash_max_age, _max_size); the
+// The limits are System Settings' (system.trash.max_age, _max_size); the
 // desktop runs this at startup, hourly, and after the bin changes.
 static int expire(void) {
     struct utrash_limits l;

@@ -11,7 +11,7 @@ Two Notepads, A under B, and three checks, each with its control:
     The control is the burst itself -- `culled_total` must be non-zero,
     or no frame ever touched A and the check measured nothing.
   - SEE-THROUGH: B restored and set over A's title bar, every window glass
-    (`desktop.transparency_windows all`, Clear). A pixel of B's white body
+    (`desktop.transparency.windows all`, Clear). A pixel of B's white body
     over A must differ from the same pixel with A elsewhere -- A shows
     through, so it was drawn -- and be pure white with transparency off
     (the control that the pixel is B's body at all).
@@ -55,10 +55,10 @@ from qmp_test import QMPSession                  # noqa: E402
 import port_guard                                # noqa: E402
 from harness import Results                      # noqa: E402
 
-GLASS = {"transparency": "on", "transparency_windows": "all",
-         "transparency_window_glass": "clear", "transparency_window_opacity": "60"}
-DEFAULTS = {"transparency": "off", "transparency_windows": "titlebars",
-            "transparency_window_glass": "frosted", "transparency_window_opacity": "85"}
+GLASS = {"transparency": "on", "transparency.windows": "all",
+         "transparency.window.glass": "clear", "transparency.window.opacity": "60"}
+DEFAULTS = {"transparency": "off", "transparency.windows": "titlebars",
+            "transparency.window.glass": "frosted", "transparency.window.opacity": "85"}
 
 
 def notepads(dbg):

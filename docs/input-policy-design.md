@@ -57,11 +57,11 @@ sits ABOVE evdev.
 | the translator | `kernel/lib/keyboard_layout.c`, 369 lines: four levels per evdev keycode, Latin-1 symbols, dead keys composed from per-layout pairs |
 | who calls it | `keyboard.c`'s `key_event_body()` (Caps, Ctrl folding to 0x01-0x1A, the dead-key state), `input_inject.c` (VNC's characters, typed through the active layout) |
 | what the compositor gets | `WIN_EV_RAW_KEY`: a TRANSLATED Latin-1 byte or a `KEY_*` code plus modifier bits; and, beside it, `WIN_EV_RAW_KEY_PHYS` with the evdev keycode. The WM routes; it never translates |
-| layout switching | Super+Space sets `system.keyboard_layout` through the settings registry; the kernel reloads its table |
+| layout switching | Super+Space sets `system.keyboard.layout` through the settings registry; the kernel reloads its table |
 | ring 3's copy | `userland/lib/ukeymap.c`, 110 lines -- reads a layout to SHOW it (`uui_keymap`); no compose pairs, no Caps, 128 keycodes where the kernel has 256 |
 | a third copy | the on-screen keyboard (`userland/wm/osk.c`) typed its own US QWERTY whatever was configured -- stage 1 removed it |
 | the 8-bit ceiling | symbols are Latin-1; "Keyboard layout files emitting codepoints" is an open roadmap item, and the console's tty is bytes |
-| the pointer | `mouse_feed_rel()` scales by `system.mouse_speed` and adds a per-event linear boost (`system.mouse_accel`); the compositor gets an absolute, clamped SCREEN position, never a delta |
+| the pointer | `mouse_feed_rel()` scales by `system.mouse.speed` and adds a per-event linear boost (`system.mouse.accel`); the compositor gets an absolute, clamped SCREEN position, never a delta |
 | autorepeat | PS/2 repeats in hardware (typematic). No software repeat was FOUND for USB or virtio keyboards -- to check on hardware before anything here relies on it |
 
 ## The choices

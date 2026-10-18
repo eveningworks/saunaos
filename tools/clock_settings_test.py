@@ -22,7 +22,7 @@ WHAT A BROKEN VERSION WOULD STILL PASS, AND WHY THIS DOES NOT
 - "Change... is disabled under NTP" is a flag; the check clicks it and
   requires that NO dialog appears.
 
-It touches `system.ntp`, `system.ntp_server` (pointed at 127.0.0.1, so
+It touches `system.ntp`, `system.ntp.server` (pointed at 127.0.0.1, so
 turning NTP on sends nothing off this machine), `system.timezone` and the
 clock, and restores all four.
 
@@ -56,6 +56,16 @@ def sh(dbg, cmd):
 def last_line(text):
     lines = [ln.strip() for ln in text.splitlines() if ln.strip()]
     return lines[-1] if lines else ""
+
+
+def value(dbg, name):
+    """A setting's value: `config get`'s FIRST plain line. A name that is
+    also a branch (desktop.corners) prints the names under it after it."""
+    for ln in (dbg.send(f"sh config get {name}") or "").splitlines():
+        ln = ln.strip()
+        if ln and " " not in ln and "=" not in ln and not ln.startswith("("):
+            return ln
+    return ""
 
 
 def utc(dbg):
@@ -144,8 +154,8 @@ def main():
     dbg = DebugConsole(args.sock)
     print("Date & time: Change..., time -s, and the NTP lock")
 
-    saved = {k: last_line(sh(dbg, f"config get {k}"))
-             for k in ("system.ntp", "system.ntp_server", "system.timezone",
+    saved = {k: value(dbg, k)
+             for k in ("system.ntp", "system.ntp.server", "system.timezone",
                        "desktop.clock_seconds")}
     sh(dbg, "config set system.ntp off")
     sh(dbg, "config set system.timezone helsinki")
@@ -214,7 +224,7 @@ def run(dbg, start_utc):
     check("`time -s` refuses 30 February", "not a date" in bad, last_line(bad))
 
     # --- 4. network time locks both ways out ----------------------------
-    sh(dbg, "config set system.ntp_server 127.0.0.1")   # nothing leaves the machine
+    sh(dbg, "config set system.ntp.server 127.0.0.1")   # nothing leaves the machine
     sh(dbg, "config set system.ntp on")
     dbg.settle(); time.sleep(1.0)
     refused = sh(dbg, 'time -s "2026-10-01 12:00"')

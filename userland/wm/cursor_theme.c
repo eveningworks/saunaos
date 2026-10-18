@@ -163,7 +163,7 @@ uint32_t cursor_shape_argb(const struct cursor_shape *s, int dx, int dy,
 // apply callback here would have to be undone then.
 
 // The two settings' DESCRIPTORS are data files
-// (/etc/settings.d/system.cursor_theme and system.cursor_size). Both
+// (/etc/settings.d/system.cursor.theme and system.cursor.size). Both
 // are persist-only: the registry validates and writes to /etc, and this
 // file notices by watching setting_generation() below. The registry
 // owns the DESCRIPTION, the compositor owns the BEHAVIOUR.
@@ -189,14 +189,14 @@ static void adopt_settings(void) {
     int have = wm_conf_load(CURSOR_CONFIG_FILE, &conf);
 
     int scale = 1;
-    if (have && etc_config_buf_get(&conf, "cursor_size", val, sizeof val)) {
+    if (have && etc_config_buf_get(&conf, "cursor.size", val, sizeof val)) {
         if (k_strcmp(val, "large") == 0) scale = 2;
         else if (k_strcmp(val, "huge") == 0) scale = 3;
     }
     int rescaled = scale != g_scale;
     g_scale = scale;
 
-    if (!have || !etc_config_buf_get(&conf, "cursor_theme", val, sizeof val) || !val[0])
+    if (!have || !etc_config_buf_get(&conf, "cursor.theme", val, sizeof val) || !val[0])
         k_strlcpy(val, CURSOR_THEME_DEFAULT, sizeof val);
     // A new SIZE reloads too: an image theme's rendering for 2x is a
     // different file from its 1x one.

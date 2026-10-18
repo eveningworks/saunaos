@@ -63,14 +63,14 @@ clock is wrong and what each one does here.
 
 **One file per boot.** `/var/log/toyos.log` is the current boot; when
 `logd` starts it files the previous one under its own number as
-`/var/log/boot/<n>.log` and deletes anything past `storage.log_keep` (10).
+`/var/log/boot/<n>.log` and deletes anything past `storage.log.keep` (10).
 The counter lives in `/var/lib/logd.seq` and is `fsync`ed, for netheal's
 reason — a number still in the write-back cache when the power goes is a
 number that never happened, and the next boot would overwrite the log it
 was meant to keep. journald's shape, minus the binary store and the query
 language; `log --list` and `log -p N` are the readers.
 
-**Size** is `storage.log_max`, in MiB, shared across every retained boot:
+**Size** is `storage.log.max`, in MiB, shared across every retained boot:
 each gets `log_max / (log_keep + 1)`, the `+1` being the live one. Setting
 it to **0 disables logging**, and `logd` then exits cleanly rather than
 staying up doing nothing.
@@ -84,4 +84,4 @@ half to lose — a fault during enumeration is in the first few KiB.
 ## See also
 
 `log`, `log --list`, `dmesg`, `service status logd`,
-`config set storage.log_max <MiB>`, `config set storage.log_keep <N>`.
+`config set storage.log.max <MiB>`, `config set storage.log.keep <N>`.

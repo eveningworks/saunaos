@@ -132,21 +132,21 @@ struct xhci_hc {
     // A USB3 port whose link failed (xhci_portsc_needs_warm()): warm-reset
     // it from the deferred work, which can wait for the reset to finish.
     volatile uint32_t warm_pending;
-    // kernel.usb_reset, one bit per port. DEFERRED for the same reason
+    // kernel.usb.reset, one bit per port. DEFERRED for the same reason
     // hot-plug is, plus a sharper one: the tunable is written from a
     // SYSCALL, which runs with interrupts off, and reset_port()'s
     // recovery wait spins on coarse_ticks() -- a counter the timer
     // interrupt advances. Done inline it never returns, which is how it
     // froze a laptop the first time it was tried.
     volatile uint32_t diag_reset_pending;
-    // kernel.usb_hcreset / the give-up chain's last lever. DEFERRED for
+    // kernel.usb.hcreset / the give-up chain's last lever. DEFERRED for
     // BOTH reasons above at once: it is written from a syscall, and it
     // re-enumerates, which is synchronous control transfers that need
     // the events a disabled interrupt cannot deliver. Run inline it
     // stops dead on the first port that HAS a device -- measured, and
     // it looked exactly like the controller failing to come back.
     volatile uint32_t hcreset_pending;
-    // kernel.usb_replug, same deferral and for the same reason.
+    // kernel.usb.replug, same deferral and for the same reason.
     // Separate from the reset: they are different levers and the point
     // of having both is to tell which one a device needs.
     volatile uint32_t diag_power_pending;

@@ -610,7 +610,7 @@ static void draw_screen(struct ugfx_surface *s, const struct uui_custom *c) {
 // APPEARANCE > TRANSPARENCY'S SAMPLE, under the switch (mockup T1), and
 // under Desktop's Placement the line that says when its two cards match.
 #define SET_GLASS     "desktop.transparency"
-#define SET_PLACEMENT "desktop.wallpaper_mode"
+#define SET_PLACEMENT "desktop.wallpaper.mode"
 static struct uui_custom g_glass;
 static struct uui_label g_place_note;
 

@@ -359,7 +359,7 @@ void places_command(struct uapp *a, int code) {
         break;
     case CMD_PL_CLEAR_RECENT: recent_clear(); break;
     case CMD_PL_BIN_SETTINGS: {
-        char *const argv[] = { "settings", "system.trash_max_size", 0 };
+        char *const argv[] = { "settings", "system.trash.max_size", 0 };
         spawn_argv(SETTINGS_EXEC, argv, "Settings");
         break;
     }

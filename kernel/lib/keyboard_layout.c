@@ -282,7 +282,7 @@ int keyboard_layout_spacing(int sym) {
     return idx < g_dead_count ? g_dead[idx].spacing : 0;
 }
 
-// system.keyboard_dead_keys. Off, a dead key types its accent at once
+// system.keyboard.dead_keys. Off, a dead key types its accent at once
 // -- XKB's `nodeadkeys` variants, for every layout at once.
 static int g_dead_keys = 1;
 void keyboard_layout_set_dead_keys(int on) { g_dead_keys = on ? 1 : 0; g_pending = 0; }

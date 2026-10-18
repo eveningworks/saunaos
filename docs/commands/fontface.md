@@ -22,7 +22,7 @@ in a proportional face does not line up; the listing marks it
 `<- monospace`. This command sets only the interface face, and the
 other one is
 
-    config set system.font_mono <name>
+    config set system.font.mono <name>
 
 rather than a second verb here -- the setting registry already does
 this, and two ways to change one thing is how they drift. Both default

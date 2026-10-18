@@ -27,6 +27,7 @@
 #include <stdint.h>
 #include "rt/sys.h"
 #include <string.h>
+#include <stdlib.h>   // qsort -- the tree, by name
 #include <ctype.h>
 #include <stdio.h>
 #include "setting_abi.h" // enum setting_result, struct setting_msg
@@ -34,6 +35,8 @@
 #include <unistd.h>
 #include "lib/usetting.h" // the MERGED registry -- see the header
 #include "lib/uargs.h"
+#include "etc_renamed.h"   // the names from before the dotted ones
+#include "query_abi.h"     // walking the facts for a branch
 
 static void put(const char *s) { sys_print(s); }
 
@@ -93,8 +96,8 @@ static int read_file(const char *path, char *buf, int cap) {
 // --- qualified names -------------------------------------------------
 //
 // A setting's identity is (namespace, name) -- the namespace being the
-// registered name of the file it lives in, so `font_size` in
-// /etc/toyos.conf is `system.font_size` (api/setting.h). A bare name
+// registered name of the file it lives in, so `font.size` in
+// /etc/toyos.conf is `system.font.size` (api/setting.h). A bare name
 // still works when only one setting has it; when several do, this tool
 // REFUSES and lists them rather than picking, because picking would
 // make the answer depend on registration order.
@@ -104,16 +107,24 @@ static int read_file(const char *path, char *buf, int cap) {
 // name, and what a user needs on top of that refusal is "did you mean
 // these two?" -- which needs the list this tool already reads for
 // `config list`.
-static int name_matches(const struct setting_msg *m, const char *want) {
+// `bare` set: `want` is read WHOLE as the key, the second reading a
+// dotted key needs (`font.size` is not namespace `font`) -- the same
+// two readings, in the same order, as the kernel's setting_find().
+static int name_matches_as(const struct setting_msg *m, const char *want, int bare) {
     const char *dot = 0;
     for (const char *p = want; *p; p++) if (*p == '.') { dot = p; break; }
-    if (!dot) return strcmp(m->name, want) == 0;
+    if (!dot || bare) return strcmp(m->name, want) == 0;
 
     // Qualified: both halves must match. A namespace-less setting (its
     // file has no descriptor) can only ever be addressed bare.
     if (strncmp(m->ns, want, (size_t)(dot - want)) != 0) return 0;
     if (m->ns[dot - want] != '\0') return 0;
     return strcmp(m->name, dot + 1) == 0;
+}
+
+static int g_read_bare;   // which reading resolve_exact() settled on
+static int name_matches(const struct setting_msg *m, const char *want) {
+    return name_matches_as(m, want, g_read_bare);
 }
 
 // Fills `out` with "<ns>.<name>", or the bare name when there is no
@@ -126,7 +137,37 @@ static void qualified(const struct setting_msg *m, char *out, int cap) {
 // How many registered settings `want` matches, writing the first one
 // into `first` (if given) and printing all of them when there is more
 // than one. Returns the count.
+static int resolve_exact(const char *want, struct setting_msg *first, int complain);
+
+// The name a setting has NOW for one it had before the dotted names
+// (api/etc_renamed.h), with a line saying so; else `want` itself.
+static const char *renamed_note(const char *want, char *buf, int cap) {
+    if (resolve_exact(want, 0, 0) || !etc_renamed_now(want, buf, (uint32_t)cap)) return want;
+    char line[160];
+    snprintf(line, sizeof line, "  (%s is now %s)", want, buf);
+    sys_eprint(line);
+    sys_eprint("\n");
+    return buf;
+}
+
 static int resolve(const char *want, struct setting_msg *first, int complain) {
+    char now[SETTING_ABI_QUALIFIED_MAX];
+    return resolve_exact(renamed_note(want, now, sizeof now), first, complain);
+}
+
+static int resolve_reading(const char *want, struct setting_msg *first, int complain);
+
+static int resolve_exact(const char *want, struct setting_msg *first, int complain) {
+    g_read_bare = 0;
+    int hits = resolve_reading(want, first, complain);
+    if (hits != 0 || !strchr(want, '.')) return hits;
+    g_read_bare = 1;
+    hits = resolve_reading(want, first, complain);
+    if (hits <= 0) g_read_bare = 0;
+    return hits;
+}
+
+static int resolve_reading(const char *want, struct setting_msg *first, int complain) {
     struct setting_msg m;
     memset(&m, 0, sizeof m);
     if (!op(&m, SETTING_OP_COUNT)) return -1;
@@ -236,7 +277,168 @@ static int try_fact(const char *name) {
     return 0;
 }
 
+// --- branches: `config get desktop.transparency` ----------------------
+//
+// A dotted name is a PATH (docs/settings-and-queries.md, "Names"):
+// `desktop.transparency.taskbar` is a setting under the branch
+// `desktop.transparency`, which may hold a value of its own -- the
+// Windows registry's shape, a key with a default value -- and settings
+// and kernel facts share the one tree, BSD sysctl's arrangement. A
+// branch prints every name under it; a bare namespace prints ONE level
+// with counts, dconf list's shape, unless --recursive.
+
+#define TREE_MAX 512
+static struct tree_ent {
+    char name[SETTING_ABI_QUALIFIED_MAX];
+    char value[SETTING_ABI_VALUE_MAX];
+    char fact;               // a kernel fact: read-only, never stored
+} g_tree[TREE_MAX];
+static int g_tree_n;
+static int g_recursive;
+
+static void tree_add(const char *name, const char *value, int fact) {
+    if (g_tree_n >= TREE_MAX) return;
+    struct tree_ent *e = &g_tree[g_tree_n++];
+    strlcpy(e->name, name, sizeof e->name);
+    strlcpy(e->value, value, sizeof e->value);
+    e->fact = (char)fact;
+}
+
+static int by_name(const void *a, const void *b) {
+    return strcmp(((const struct tree_ent *)a)->name, ((const struct tree_ent *)b)->name);
+}
+
+static void tree_collect(void) {
+    static struct setting_msg m;
+    g_tree_n = 0;
+    memset(&m, 0, sizeof m);
+    if (op(&m, SETTING_OP_COUNT)) {
+        int n = (int)m.count;
+        for (int i = 0; i < n; i++) {
+            memset(&m, 0, sizeof m);
+            m.op = SETTING_OP_INFO;
+            m.index = (uint32_t)i;
+            if (usetting_dispatch(&m) != 0) continue;
+            char q[SETTING_ABI_QUALIFIED_MAX];
+            qualified(&m, q, sizeof q);
+            tree_add(q, m.value, 0);
+        }
+    }
+    // Every SCALAR provider's named fields; a list has no single value.
+    struct query_provider_info p;
+    QUERY_FOREACH(QUERY_PROVIDERS, p, i) {
+        if (p.flags & QUERY_F_LIST) continue;
+        int nf = sys_query_field_count(p.cls);
+        for (int f = 0; f < nf; f++) {
+            char field[QUERY_FIELD_PATH_MAX], q[SETTING_ABI_QUALIFIED_MAX], v[32];
+            unsigned type = 0;
+            unsigned long long val = 0;
+            if (sys_query_field_info(p.cls, (unsigned)f, field, &type) != 0) continue;
+            snprintf(q, sizeof q, "%s.%s", p.name, field);
+            if (sys_query_field_get(q, &val, &type) != 0) continue;
+            snprintf(v, sizeof v, "%llu", val);
+            tree_add(q, v, 1);
+        }
+    }
+    // By NAME, as dconf lists: registry order is an accident of
+    // registration and of the directory, and differs between machines.
+    qsort(g_tree, (size_t)g_tree_n, sizeof g_tree[0], by_name);
+}
+
+static int under(const char *name, const char *branch, size_t blen) {
+    return (!blen || (!strncmp(name, branch, blen) && name[blen] == '.'));
+}
+
+static void tree_row(const char *name, const char *value, int fact, const char *more) {
+    char line[200];
+    snprintf(line, sizeof line, "%-38s %s%s%s", name, value, fact ? "  (fact)" : "", more);
+    putline(line);
+}
+
+// Prints `branch`'s subtree and returns how many names were under it
+// (0: not a branch, nothing printed). An empty branch is the root.
+static int cmd_tree(const char *branch) {
+    tree_collect();
+    size_t blen = strlen(branch);
+    int n = 0;
+    for (int i = 0; i < g_tree_n; i++) n += under(g_tree[i].name, branch, blen) != 0;
+    if (!n) return 0;
+
+    int one_level = !g_recursive && !strchr(branch, '.');
+    if (!one_level) {
+        for (int i = 0; i < g_tree_n; i++)
+            if (under(g_tree[i].name, branch, blen))
+                tree_row(g_tree[i].name, g_tree[i].value, g_tree[i].fact, "");
+        return n;
+    }
+    // ONE LEVEL: each child once, in first-seen order, with its own
+    // value if it has one and how many names sit under it.
+    for (int i = 0; i < g_tree_n; i++) {
+        const char *name = g_tree[i].name;
+        if (!under(name, branch, blen)) continue;
+        const char *seg = name + (blen ? blen + 1 : 0);
+        size_t slen = strcspn(seg, ".");
+        char child[SETTING_ABI_QUALIFIED_MAX];
+        snprintf(child, sizeof child, "%.*s", (int)(seg - name + slen), name);
+        int seen = 0;
+        for (int k = 0; k < i && !seen; k++)
+            seen = under(g_tree[k].name, branch, blen) && (!strcmp(g_tree[k].name, child) ||
+                   (!strncmp(g_tree[k].name, child, strlen(child)) && g_tree[k].name[strlen(child)] == '.'));
+        if (seen) continue;
+        const struct tree_ent *own = 0;
+        int below = 0, facts = 0;
+        size_t clen = strlen(child);
+        for (int k = 0; k < g_tree_n; k++) {
+            if (!strcmp(g_tree[k].name, child)) own = &g_tree[k];
+            else if (under(g_tree[k].name, child, clen)) { below++; facts += g_tree[k].fact; }
+        }
+        char more[48] = "";
+        if (below) snprintf(more, sizeof more, "  (+%d under it)", below);
+        if (own) tree_row(child, own->value, own->fact, more);
+        else {
+            char label[SETTING_ABI_QUALIFIED_MAX + 2], what[40];
+            snprintf(label, sizeof label, "%s.*", child);
+            snprintf(what, sizeof what, "%d %s%s", below, facts == below ? "fact" : "setting",
+                     below == 1 ? "" : "s");
+            tree_row(label, what, 0, "");
+        }
+    }
+    return n;
+}
+
+static int cmd_get_one(const char *name);
+
 static int cmd_get(const char *name) {
+    char now[SETTING_ABI_QUALIFIED_MAX];
+    const char *n = name;
+    if (resolve_exact(name, 0, 0) == 0) {
+        unsigned long long v;
+        unsigned t;
+        if (sys_query_field_get(name, &v, &t) != 0 && etc_renamed_now(name, now, sizeof now)) {
+            n = now;   // an old name of a SETTING; a branch never had one
+            char line[160];
+            snprintf(line, sizeof line, "  (%s is now %s)\n", name, now);
+            sys_eprint(line);
+        }
+    }
+    // A branch, or a name that is both a value and a branch: the tree.
+    // A leaf keeps the one-value answer below, which scripts read.
+    tree_collect();
+    size_t len = strlen(n);
+    int kids = 0, own = 0;
+    for (int i = 0; i < g_tree_n; i++) {
+        kids |= under(g_tree[i].name, n, len);
+        own |= !strcmp(g_tree[i].name, n);
+    }
+    if (!kids) return cmd_get_one(n);
+    // A NAME WITH A VALUE AND CHILDREN prints the value FIRST, exactly
+    // as a leaf does -- the bare line a script reads (`config get
+    // desktop.transparency` is still `off`) -- and then what is under it.
+    if (own && cmd_get_one(n) != 0) return 1;
+    return cmd_tree(n) ? 0 : 1;
+}
+
+static int cmd_get_one(const char *name) {
     // STATIC, NOT LOCAL. `struct setting_msg` is over a kilobyte, and
     // the resolve-then-act commands hold two at once -- against
     // USERLAND_CFLAGS' 2048-byte frame budget and a 16 KiB ring-3 stack
@@ -691,7 +893,7 @@ static int cmd_unregister(const char *name) {
 static const struct uargs_cmd CMDS[] = {
     { 0, 0, "Settings (typed, validated, applied)" },
     { "list",       0,                         "every setting, its value, and its file" },
-    { "get",        "NAME",                    "one value" },
+    { "get",        "[NAME]",                  "one value, or every name under a branch" },
     { "set",        "NAME VALUE",              "validate, apply and persist (also NAME=VALUE)" },
     { "unset",      "NAME",                    "forget it, so the built-in default returns" },
     { "where",      "NAME",                    "just the file holding it" },
@@ -707,8 +909,14 @@ static const struct uargs_cmd CMDS[] = {
     { 0 },
 };
 
+static const struct uargs_opt OPTS[] = {
+    { "recursive", 'r', 0, "with get: everything under a namespace, not one level", &g_recursive, 0 },
+    { 0 },
+};
+
 static const struct uargs_prog PROG = {
     .name = "config",
+    .opts = OPTS,
     .usage = "COMMAND [ARG]...",
     .summary = "Read, change and find this machine's configuration.",
     .cmds = CMDS,
@@ -729,7 +937,12 @@ int main(int argc, char **argv) {
     if (!strcmp(cmd, "reload")) return cmd_reload();
     if (!strcmp(cmd, "files"))  return cmd_files();
 
-    if (!strcmp(cmd, "get") && n >= 2)   return cmd_get(v[1]);
+    if (!strcmp(cmd, "get")) {
+        int k = 1;
+        if (k < n && (!strcmp(v[k], "-r") || !strcmp(v[k], "--recursive"))) { g_recursive = 1; k++; }
+        if (k >= n) return cmd_tree("") ? 0 : 1;    // every namespace, one level
+        return cmd_get(v[k]);
+    }
     if (!strcmp(cmd, "where") && n >= 2) return cmd_where(v[1]);
     if (!strcmp(cmd, "unset") && n >= 2) return cmd_unset(v[1]);
     if (!strcmp(cmd, "show") && n >= 2)  return cmd_show(v[1]);

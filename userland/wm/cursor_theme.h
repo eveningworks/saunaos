@@ -34,7 +34,7 @@
 // `crosshair`, `grab` and `grabbing` are its own names.
 // An unknown name in a theme directory is ignored.
 // The theme a machine with no `cursor_theme` stored gets. MUST MATCH
-// /etc/settings.d/system.cursor_theme's Default=: the WM reads the conf
+// /etc/settings.d/system.cursor.theme's Default=: the WM reads the conf
 // file directly and never sees the descriptor, so the two only agree by
 // being written the same.
 #define CURSOR_THEME_DEFAULT "graphite"

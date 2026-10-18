@@ -33,7 +33,7 @@
   a log deleted by hand leaves a hole rather than shifting everything
   along. Only a leading digit is taken as the count, so `log -p -n 50`
   still means "the previous boot, last 50 lines". A depth past the
-  counter and a depth that lands on a boot `storage.log_keep` has
+  counter and a depth that lands on a boot `storage.log.keep` has
   already pruned are DIFFERENT answers -- "no boot N back" and "boot N
   is no longer retained" -- because they send you looking in different
   places.
@@ -42,7 +42,7 @@
   and appended by logd, since logd itself died with the machine.
 - `--list` -- print the retained boot logs: number, size, and when each
   one started. What is actually on disk, which is not the same as
-  `storage.log_keep` -- a machine that has booted three times has three.
+  `storage.log.keep` -- a machine that has booted three times has three.
   A log written before logd wrote headers shows `(no header)`, and a
   boot whose clock reads EARLIER than its predecessor's is marked
   `< clock went back` -- see **Which boot is which** below.
@@ -84,7 +84,7 @@ boot's log inside five minutes.
 exactly one rotated file was kept, which answers that question for the
 LAST boot and nothing further back -- no use for a fault that appears on
 one boot in several, which is what the USB NIC wedge is. Ten are kept
-now (`storage.log_keep`), so a bad boot can be compared against the good
+now (`storage.log.keep`), so a bad boot can be compared against the good
 ones around it:
 
     $ log --list
@@ -120,7 +120,7 @@ the identity and the realtime stamp is a hint, which is why `journalctl
 --list-boots` can show times that do not sort.
 
 **A boot that fills its share STOPS rather than evicting the history.**
-Each boot gets `storage.log_max / (storage.log_keep + 1)`, and one that
+Each boot gets `storage.log.max / (storage.log.keep + 1)`, and one that
 reaches it says so on its last line. journald rotates within a boot
 instead, which lets one runaway logger flush every older boot -- exactly
 the failure the retention exists to survive.
@@ -145,5 +145,5 @@ look again. It never returns; Ctrl-C ends it.
 ## See also
 
 `dmesg` (the in-memory ring), `logd` (the daemon that writes the file),
-`config get storage.log_max` (the total budget; 0 disables logging),
-`config get storage.log_keep` (how many completed boots are kept).
+`config get storage.log.max` (the total budget; 0 disables logging),
+`config get storage.log.keep` (how many completed boots are kept).

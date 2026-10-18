@@ -75,9 +75,9 @@ or could not be asked; 2 a usage error.
 **Realtime only.** A process drops ITSELF to `SCHED_OTHER` with
 `sched_setscheduler()`; dropping another one, and Linux's `-o`, `-b`,
 `-i`, `-a` and `-m`, are not here. A granted process is still under the
-kernel's two realtime guards: `kernel.sched_rt_watchdog_ms` moves one
+kernel's two realtime guards: `kernel.sched.rt.watchdog_ms` moves one
 that runs without blocking back to `SCHED_OTHER`, and
-`kernel.sched_rt_runtime_ms` caps all realtime together.
+`kernel.sched.rt.runtime_ms` caps all realtime together.
 
 Not reachable from the kernel shell with a bare name; at a `#` prompt
 use `spawn /bin/chrt ...`, where its output lands in `dmesg`.

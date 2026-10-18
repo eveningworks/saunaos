@@ -6,7 +6,7 @@ click selects, and how far a field has scrolled is pure arithmetic over
 per-glyph advances. It is also arithmetic that was WRONG in every widget
 for as long as the interface face was monospace -- because on a
 monospace face `n * char_w` and a real measurement are the same number,
-so the bug was perfectly invisible until `system.font_face` became
+so the bug was perfectly invisible until `system.font.face` became
 Liberation Sans. A screenshot can show that a caret looks wrong; only a
 sweep can show that it is right for every string, at every scroll
 position, with kerning on.

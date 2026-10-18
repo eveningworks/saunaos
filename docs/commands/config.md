@@ -12,6 +12,8 @@
 
 - `-h`, `--help` -- every command and what it does; `config help` and a
   bare `config` print the same.
+- `-r`, `--recursive` -- with `get`: everything under a namespace rather
+  than one level (`config get -r desktop`).
 
 ## Description
 
@@ -25,7 +27,7 @@ directory of text cannot provide about itself. See
 | Command | Notes |
 |---|---|
 | `config list` | Every registered setting, its value, and **the file it lives in**. Flags any whose file no longer matches what is live. |
-| `config get <name>` | One value. Falls back to the FACT registry when no setting has that name, so `config get mem.frame_free` answers — **labelled as read-only kernel state**, since a setting survives a reboot and a fact does not exist between them. A list-shaped fact says so and names a tool that can show it. |
+| `config get [<name>]` | One value -- or, for a BRANCH, every name under it: `config get desktop.transparency` prints the switch's own value and then every transparency setting. A bare namespace (`config get desktop`) prints ONE level, each child with its value and how many names sit under it; `-r` prints all of them; no name at all lists every namespace. Kernel facts are in the same tree (`config get mem`), marked `(fact)`. A leaf falls back to the FACT registry when no setting has that name, so `config get mem.frame.free` answers — **labelled as read-only kernel state**, since a setting survives a reboot and a fact does not exist between them. A list-shaped fact says so and names a tool that can show it. |
 | `config set <name> <value>` | Validate, apply and persist. `name=value` works too. A refusal says what WOULD be accepted — the named choices for an enum, the range and step for a number (`try 25..300 % (in steps of 25)`); a value that applied but did **not** save says so rather than reporting success. |
 | `config unset <name>` | Removes the key, so the built-in default applies at the next boot. |
 | `config where <name>` | Just the owning file's path — scriptable. |
@@ -48,10 +50,34 @@ settings only, not facts: it is the "what can I change" screen, and
 read-only counters would bury the settings.
 
 **Settings are named `<namespace>.<name>`** — the namespace being the
-registered name of the file the setting lives in, so `font_size` in
-`/etc/toyos.conf` is `system.font_size`. A bare name still works when
+registered name of the file the setting lives in, so `font.size` in
+`/etc/toyos.conf` is `system.font.size`. A bare name still works when
 only one setting has it; when several do, `config` lists them and
 refuses rather than picking. `config set` and `config unset` refuse an
 ambiguous name outright, because writing the wrong setting changes
 something you did not mean to change. `config list` prints the qualified
 form, which is the one that always works.
+
+**A name is a path** (`docs/settings-and-queries.md`, "Names"). A name
+with a value of its own prints that value FIRST, alone on its line as a
+leaf's does, so a script reading the first line still reads the value:
+
+    $ config get desktop
+    desktop.corners                        small  (+5 under it)
+    desktop.taskbar.*                      7 settings
+    desktop.transparency                   off  (+10 under it)
+    ...
+    $ config get desktop.transparency
+    off
+    desktop.transparency.menus             85
+    ...
+    desktop.transparency.taskbar           75
+    desktop.transparency.taskbar.glass     frosted
+    ...
+    $ config get desktop.transparency.taskbar
+    75
+
+A name from before the dotted names (`desktop.transparency_taskbar`)
+still works for every command, with a note on stderr saying what it is
+called now, and a file still holding the old keys reads as it did and
+is rewritten under the new ones as each setting is saved.

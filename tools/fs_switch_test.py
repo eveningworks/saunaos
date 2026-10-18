@@ -126,7 +126,7 @@ def main():
         # Any setting a KERNEL-side command persists answers the question.
         out = vm_exec("fontsize 20", "rescue cat /etc/toyos.conf")
         check("a setting persists after a live reformat",
-              "font_size=20" in out and "NOT saved" not in out, out[-300:])
+              "font.size=20" in out and "NOT saved" not in out, out[-300:])
 
         vm_exec("write /switch.txt made-after-reformat")
         out = vm_exec("rescue cat /switch.txt")

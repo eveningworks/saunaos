@@ -334,8 +334,8 @@ whenever a headline here tells you something you did not already know.
   DRAWS `/bin/fontd`'s ATLAS**
 - **THERE ARE TWO FONT TIERS, AND THE SHARED ONE CANNOT GROW TO COVER
   THE OTHER.**
-- **THERE ARE TWO FONT FAMILIES -- `system.font_face` IS PROPORTIONAL
-  AND `system.font_mono` IS THE FIXED CELL -- AND A WIDGET SAYS NOTHING:
+- **THERE ARE TWO FONT FAMILIES -- `system.font.face` IS PROPORTIONAL
+  AND `system.font.mono` IS THE FIXED CELL -- AND A WIDGET SAYS NOTHING:
   `ugfx_font_session()` IS THE UI FAMILY, `ugfx_font_mono()` IS THE
   OTHER**
 - **BOLD IS A WEIGHT OF A FAMILY, AND A FAMILY IS A FILENAME RULE.**
@@ -470,7 +470,7 @@ whenever a headline here tells you something you did not already know.
 - **`uui_radio_list` arms on press and COMMITS ON RELEASE**
 - **A WINDOW'S APPLICATION IDENTITY IS THE KERNEL'S, not the app's**
 - **The TASKBAR'S LAYOUT IS ONE FUNCTION, and past a floor it groups by
-  app** (`desktop.taskbar_combine`), then overflows into a button
+  app** (`desktop.taskbar.combine`), then overflows into a button
 - **THE TASKBAR'S LAYOUT IS FOUR INDEPENDENT SETTINGS, AND EVERY RECT
   COMES FROM `taskbar_geom()`**
 - **EVERY PART OF THE TASKBAR ANSWERS A RIGHT-CLICK, EXCEPT THE TRAY**
@@ -630,7 +630,7 @@ whenever a headline here tells you something you did not already know.
 - **A NAME IS EDITED WHERE IT IS, AND THE APP DOES THE RENAME**
 - **THE WALLPAPER IS A REGISTERED SETTING, AND ITS VALUE IS A NAME**
 - **THE TASKBAR'S THICKNESS IS A REGISTERED SETTING:
-  `desktop.taskbar_height`, in PIXELS, 24..96, default 48.**
+  `desktop.taskbar.height`, in PIXELS, 24..96, default 48.**
 - **THE START BUTTON'S APPEARANCE IS A REGISTERED SETTING**
 - **DIAGNOSTICS ARE A NAMED REGISTRY, AND THE COMPOSITOR IS THE PROVIDER
   `gui`**
@@ -887,6 +887,8 @@ whenever a headline here tells you something you did not already know.
   REGISTERED IN C.**
 - **A SETTING'S NAME FITS THE ABI: `<namespace>.<name>`, under
   `SETTING_ABI_NS_MAX` (23 bytes) and `SETTING_ABI_NAME_MAX` (47).**
+- **A SETTING'S NAME IS A PATH: A FAMILY SHARES A BRANCH, AND A BRANCH
+  MAY HOLD A VALUE** -- a rename goes in `api/etc_renamed.h`
 - **A CLIENT SIZES ITS SETTINGS TABLES FROM `SETTING_OP_COUNT`, AT EVERY
   READ -- THERE IS NO CAP TO MIRROR.**
 - **A RING-3 WRITE TO A SETTING'S FILE MUST ANNOUNCE ITSELF**, with

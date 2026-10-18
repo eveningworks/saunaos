@@ -75,7 +75,7 @@ void wm_render_window_into(struct ugfx_surface *dst, struct window *ghost, int f
 // regions) and wm_render.c (drawing them), which is why they live here
 // instead of being static in just one of those files.
 #define START_LABEL "Start"
-// The Start button's mark, when `desktop.start_button` asks for one --
+// The Start button's mark, when `desktop.start.button` asks for one --
 // a NAME under /usr/share/icons like any other icon, not a path.
 #define START_ICON  "start"
 #define WIN_LABEL_MAX_CHARS 14 // how many chars of a window's title a labelled taskbar button budgets for

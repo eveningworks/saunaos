@@ -169,7 +169,7 @@ static void started_at(const char *path, char *out, unsigned cap) {
     snprintf(out, cap, "%s", m);
 }
 
-// WHAT IS ACTUALLY THERE, which is not what storage.log_keep says: a
+// WHAT IS ACTUALLY THERE, which is not what storage.log.keep says: a
 // machine that has booted three times has three, and one whose setting
 // was just lowered still holds what the next boot will prune.
 //
@@ -251,11 +251,11 @@ int main(int argc, char **argv) {
             // PRUNED IS NOT THE SAME AS NEVER EXISTED, and the reader
             // should hear about the BOOT rather than about a filename:
             // `-p 99` on a machine that has booted 122 times names a
-            // real boot that storage.log_keep has already dropped.
+            // real boot that storage.log.keep has already dropped.
             struct stat st;
             if (stat(prev, &st) != 0) {
                 fprintf(stderr, "log: boot %llu is no longer retained "
-                                "(storage.log_keep) -- try log --list\n",
+                                "(storage.log.keep) -- try log --list\n",
                         seq - back);
                 return 1;
             }

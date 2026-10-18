@@ -995,7 +995,7 @@ void cmd_fontface(const char *args) {
         // TWO SELECTIONS TO REPORT NOW, and a listing marking only one
         // of them would say the other family is unset. `fontface <name>`
         // still sets the INTERFACE one; the monospace face is
-        // `config set system.font_mono`, because a second positional
+        // `config set system.font.mono`, because a second positional
         // verb here would be a second way to do what the registry
         // already does.
         const char *ui = font_faces_selected();

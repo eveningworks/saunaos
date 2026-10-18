@@ -137,10 +137,19 @@ KTEST("setting", "the kernel's own settings are registered") {
     // failure in an unrelated file.
     KTEST_ASSERT(setting_count() >= 4);
     KTEST_ASSERT(setting_find("timezone") != 0);
-    KTEST_ASSERT(setting_find("font_size") != 0);
-    KTEST_ASSERT(setting_find("cursor_style") != 0);
-    KTEST_ASSERT(setting_find("keyboard_layout") != 0);
+    KTEST_ASSERT(setting_find("font.size") != 0);
+    KTEST_ASSERT(setting_find("cursor.style") != 0);
+    KTEST_ASSERT(setting_find("keyboard.layout") != 0);
     KTEST_ASSERT(setting_find("no_such_setting") == 0);
+}
+
+KTEST("setting", "a name from before the dotted names finds the setting it became") {
+    // api/etc_renamed.h: system.font_size is system.font.size now.
+    const struct setting *now = setting_find("system.font.size");
+    KTEST_ASSERT(now != 0);
+    KTEST_ASSERT(setting_find("system.font_size") == now);
+    KTEST_ASSERT(setting_find("font_size") == now);       // bare, too
+    KTEST_ASSERT(setting_matches("system.font_size") == 1);
 }
 
 KTEST("setting", "every registered setting reports a value and a home") {
@@ -652,7 +661,7 @@ KTEST("setting", "a real setting's value matches its subsystem") {
     // agree until someone hand-edits, and reporting the file would make
     // a settings UI show a value that is not in effect.
     char v[SETTING_VALUE_MAX];
-    KTEST_ASSERT_EQ(setting_get("font_size", v, sizeof v), 1);
+    KTEST_ASSERT_EQ(setting_get("font.size", v, sizeof v), 1);
     char want[16];
     k_snprintf(want, sizeof want, "%d", font_config_px());
     KTEST_ASSERT_EQ(k_strcmp(v, want), 0);
@@ -695,14 +704,14 @@ KTEST("setting", "setting a value it already has does no work at all") {
 
 KTEST("setting", "an INT setting is bounded by the REGISTRY, not by a widget") {
     // THE POINT OF THE TYPE. A spinbox knows the range and will not
-    // offer a value outside it, but `config set system.mouse_speed 0`
+    // offer a value outside it, but `config set system.mouse.speed 0`
     // and a hand-edited /etc file reach setting_set() without passing
     // through any UI -- and 0 freezes the pointer. Speed was an ENUM of
     // named levels precisely to avoid that (see mouse_config.c's own
     // comment), so this is the check that let the workaround go.
     char before[SETTING_VALUE_MAX];
     before[0] = 0;
-    const struct setting *s = setting_find("system.mouse_speed");
+    const struct setting *s = setting_find("system.mouse.speed");
     if (!s) return; // not registered on this build
     KTEST_ASSERT_EQ((int)s->type, SETTING_TYPE_INT);
     s->get(before, sizeof before);
@@ -712,11 +721,11 @@ KTEST("setting", "an INT setting is bounded by the REGISTRY, not by a widget") {
 
     // REFUSED, not clamped: a caller told "saved" whose value then reads
     // back different has been lied to.
-    KTEST_ASSERT_EQ((int)setting_set("system.mouse_speed", "0"), SETTING_INVALID);
-    KTEST_ASSERT_EQ((int)setting_set("system.mouse_speed", "-5"), SETTING_INVALID);
-    KTEST_ASSERT_EQ((int)setting_set("system.mouse_speed", "99999"), SETTING_INVALID);
-    KTEST_ASSERT_EQ((int)setting_set("system.mouse_speed", "abc"), SETTING_INVALID);
-    KTEST_ASSERT_EQ((int)setting_set("system.mouse_speed", ""), SETTING_INVALID);
+    KTEST_ASSERT_EQ((int)setting_set("system.mouse.speed", "0"), SETTING_INVALID);
+    KTEST_ASSERT_EQ((int)setting_set("system.mouse.speed", "-5"), SETTING_INVALID);
+    KTEST_ASSERT_EQ((int)setting_set("system.mouse.speed", "99999"), SETTING_INVALID);
+    KTEST_ASSERT_EQ((int)setting_set("system.mouse.speed", "abc"), SETTING_INVALID);
+    KTEST_ASSERT_EQ((int)setting_set("system.mouse.speed", ""), SETTING_INVALID);
     // ...including the LEGACY NAMES, which the boot reader still accepts
     // for migration but the registry must not: they are not numbers, and
     // a setting that took both would have two spellings of one value.
@@ -730,7 +739,7 @@ KTEST("setting", "an INT setting is bounded by the REGISTRY, not by a widget") {
     // two layers disagree about: apply ACCEPTS it, so only the registry
     // can refuse it. Verified by removing that gate and watching exactly
     // this assertion redden.
-    KTEST_ASSERT_EQ((int)setting_set("system.mouse_speed", "slow"), SETTING_INVALID);
+    KTEST_ASSERT_EQ((int)setting_set("system.mouse.speed", "slow"), SETTING_INVALID);
 
     // A refusal must leave the live value ALONE -- the failure mode that
     // matters is "rejected the value and applied it anyway".
@@ -742,15 +751,15 @@ KTEST("setting", "an INT setting is bounded by the REGISTRY, not by a widget") {
     // Both ends inclusive, and one step in from each.
     char buf[SETTING_VALUE_MAX];
     k_snprintf(buf, sizeof buf, "%d", s->min);
-    KTEST_ASSERT(setting_set("system.mouse_speed", buf) != SETTING_INVALID);
+    KTEST_ASSERT(setting_set("system.mouse.speed", buf) != SETTING_INVALID);
     k_snprintf(buf, sizeof buf, "%d", s->max);
-    KTEST_ASSERT(setting_set("system.mouse_speed", buf) != SETTING_INVALID);
+    KTEST_ASSERT(setting_set("system.mouse.speed", buf) != SETTING_INVALID);
     k_snprintf(buf, sizeof buf, "%d", s->min - 1);
-    KTEST_ASSERT_EQ((int)setting_set("system.mouse_speed", buf), SETTING_INVALID);
+    KTEST_ASSERT_EQ((int)setting_set("system.mouse.speed", buf), SETTING_INVALID);
     k_snprintf(buf, sizeof buf, "%d", s->max + 1);
-    KTEST_ASSERT_EQ((int)setting_set("system.mouse_speed", buf), SETTING_INVALID);
+    KTEST_ASSERT_EQ((int)setting_set("system.mouse.speed", buf), SETTING_INVALID);
 
-    setting_set("system.mouse_speed", before);
+    setting_set("system.mouse.speed", before);
 }
 
 KTEST("setting", "a legacy named speed in /etc still migrates") {
@@ -760,7 +769,7 @@ KTEST("setting", "a legacy named speed in /etc still migrates") {
     // away a choice the user made. The BOOT reader accepts the old names
     // (the registry does not -- see the test above), and the next write
     // stores a number, so this is a one-way migration.
-    const struct setting *s = setting_find("system.mouse_speed");
+    const struct setting *s = setting_find("system.mouse.speed");
     if (!s) return;
     char before[SETTING_VALUE_MAX];
     before[0] = 0;
@@ -768,21 +777,21 @@ KTEST("setting", "a legacy named speed in /etc still migrates") {
 
     // Written straight to the file, bypassing the registry -- which is
     // exactly how an old disk or a hand edit presents it.
-    if (!etc_config_set("/etc/toyos.conf", "mouse_speed", "slow")) {
-        setting_set("system.mouse_speed", before);
+    if (!etc_config_set("/etc/toyos.conf", "mouse.speed", "slow")) {
+        setting_set("system.mouse.speed", before);
         return; // no writable /etc on this image
     }
     mouse_config_init();
     KTEST_ASSERT_EQ(mouse_config_speed_pct(), 50); // "slow" was half speed
 
     // ...and the next set rewrites it as a number.
-    KTEST_ASSERT(setting_set("system.mouse_speed", "125") != SETTING_INVALID);
+    KTEST_ASSERT(setting_set("system.mouse.speed", "125") != SETTING_INVALID);
     char on_disk[SETTING_VALUE_MAX];
     on_disk[0] = 0;
-    KTEST_ASSERT(etc_config_get("/etc/toyos.conf", "mouse_speed", on_disk, sizeof on_disk));
+    KTEST_ASSERT(etc_config_get("/etc/toyos.conf", "mouse.speed", on_disk, sizeof on_disk));
     KTEST_ASSERT_EQ(k_strcmp(on_disk, "125"), 0);
 
-    setting_set("system.mouse_speed", before);
+    setting_set("system.mouse.speed", before);
 }
 
 // A LABEL TOO LONG IS REFUSED, and says so. It used to be refused

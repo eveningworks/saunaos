@@ -140,8 +140,8 @@ const char *const SHOT_KEY_LABEL[SHOT_KEY_CHOICES] = {
     "Selects a region", "Does nothing",
 };
 static const char *const ACTION[SHOT_KEY_NONE] = {
-    "shortcuts.screenshot", "shortcuts.screenshot_screen", "shortcuts.screenshot_window",
-    "shortcuts.screenshot_region",
+    "shortcuts.screenshot", "shortcuts.screenshot.screen", "shortcuts.screenshot.window",
+    "shortcuts.screenshot.region",
 };
 
 static int same(const struct keycombo *a, const struct keycombo *b) {

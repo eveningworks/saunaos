@@ -69,7 +69,7 @@ def netctl(dbg):
 
 
 def tray_mode(dbg, mode, want_hidden, tries=25):
-    dbg.send(f"sh config set desktop.tray_network {mode}")
+    dbg.send(f"sh config set desktop.tray.network {mode}")
     for _ in range(tries):
         if net(dbg)["tray_hidden"] == want_hidden:
             return True

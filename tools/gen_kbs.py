@@ -12,7 +12,7 @@ re-deriving that by hand is exactly the busywork tools/ exists to avoid.
 THE SHIPPED SET IS `LAYOUTS` BELOW, AND IT IS THE ONLY LIST. `--all`
 generates every one of them (the Makefile's seed step calls that); the
 display names Settings shows live in data/etc/settings.d/
-system.keyboard_layout as `Choice.<name>=` lines, which `--choices`
+system.keyboard.layout as `Choice.<name>=` lines, which `--choices`
 prints from the same table (tools/check_docs.py fails when the two
 disagree). A layout is in the set when everything its base and Shift
 levels type is Latin-1 (toy-os's encoding, see docs/decisions/drivers.md)
@@ -67,7 +67,7 @@ import sys
 import unicodedata
 
 # The shipped layouts: XKB name -> the display name Settings shows. ONE
-# place; keep data/etc/settings.d/system.keyboard_layout in step
+# place; keep data/etc/settings.d/system.keyboard.layout in step
 # (`--choices` prints its lines). NOT here, measured by --check, until
 # the UTF-8 migration: `ee` (s/z-caron, its base TLDE is a dead caron),
 # `lv`, `pl` and `ro`, whose national letters are all outside Latin-1.

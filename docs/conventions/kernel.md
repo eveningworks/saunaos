@@ -73,7 +73,7 @@ this the obvious way), not from how much history it accumulated.
   the write itself is proved in-boot by a KTEST reading the hardware back.
   **On real hardware it survives** -- measured on the test laptop
   2026-09-03: after a sync and a reboot the clock was still right with
-  `clock.steps` at 0, so it had come from the CMOS.
+  `clock.step.count` at 0, so it had come from the CMOS.
 - **SETTING THE CLOCK IS `SYS_SETTIME`, AND SPEAKING NTP IS A RING-3
   PROGRAM'S JOB.** The kernel exposes one verb for the clock and knows
   nothing about servers, intervals or protocols -- the same split that
@@ -1403,7 +1403,7 @@ earliest of a blocked process's `wake_at_ns`, the running slice's end
 and the next periodic tick -- Linux's hrtimer mode. In the kernel
 context's idle wait the tick drops out of that minimum (NO_HZ_IDLE).
 `clockevent_select_mode()` logs which mode it took, and why not the
-other; `config get clock.tick_mode` answers it from ring 3.
+other; `config get clock.tick.mode` answers it from ring 3.
 
 - **ONLY `scheduler_idle_halt()` STOPS THE TICK.** A bare `hlt` in some
   other wait loop keeps it running, which is the safe default for a loop
@@ -4761,7 +4761,7 @@ number like 4000 is a real pid on a machine that has run long enough.
 **Ring 3 has no compile-time process count**: walk `sys_proc_info()` until
 it refuses an index (an empty slot is pid 0 -- skip it), and size a
 per-process table from `sys_proc_max()` (`QUERY_PROCLIMITS`,
-`config get proc.max_procs`) at startup.
+`config get proc.max`) at startup.
 
 ## A CONTEXT PARKED MID-CALL DIES ON ITS WAY OUT, NOT WHERE IT SLEEPS
 

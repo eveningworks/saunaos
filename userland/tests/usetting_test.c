@@ -43,8 +43,8 @@ int main(void) {
 
     // --- it is in the merged list at all -----------------------------
     struct setting_msg info;
-    int idx = usetting_find("desktop.taskbar_height", &info);
-    utest_check(idx >= 0, "desktop.taskbar_height is in the merged registry");
+    int idx = usetting_find("desktop.taskbar.height", &info);
+    utest_check(idx >= 0, "desktop.taskbar.height is in the merged registry");
     if (idx < 0) return utest_end();
 
     utest_check(info.type == SETTING_ABI_TYPE_INT, "it is an INT");
@@ -70,24 +70,24 @@ int main(void) {
     // absent" makes the run independent of what ran before, and is what
     // the dirty-fixture rule in CLAUDE.md is about.
     char was[SETTING_ABI_VALUE_MAX];
-    int had = uconf_get(DESKTOP_CONF, "taskbar_height", was, sizeof was) && was[0];
-    if (had) uconf_unset(DESKTOP_CONF, "taskbar_height");
+    int had = uconf_get(DESKTOP_CONF, "taskbar.height", was, sizeof was) && was[0];
+    if (had) uconf_unset(DESKTOP_CONF, "taskbar.height");
 
     // --- validation --------------------------------------------------
-    utest_check(usetting_set("desktop.taskbar_height", "3") == SETTING_INVALID,
+    utest_check(usetting_set("desktop.taskbar.height", "3") == SETTING_INVALID,
                 "a value below the range is refused");
-    utest_check(usetting_set("desktop.taskbar_height", "900") == SETTING_INVALID,
+    utest_check(usetting_set("desktop.taskbar.height", "900") == SETTING_INVALID,
                 "and one above it");
     utest_check(usetting_set("desktop.icon_size", "enormous") == SETTING_INVALID,
                 "an enum value that is not a choice is refused");
 
     // --- the round trip, through an independent path -----------------
     uint32_t before = generation();
-    int rc = usetting_set("desktop.taskbar_height", "56");
+    int rc = usetting_set("desktop.taskbar.height", "56");
     utest_check(rc == SETTING_SAVED, "a legal value is accepted and saved");
 
     char on_disk[SETTING_ABI_VALUE_MAX];
-    utest_check(uconf_get(DESKTOP_CONF, "taskbar_height", on_disk, sizeof on_disk) &&
+    utest_check(uconf_get(DESKTOP_CONF, "taskbar.height", on_disk, sizeof on_disk) &&
                 strcmp(on_disk, "56") == 0,
                 "and the FILE says so, read without the settings library");
 
@@ -101,7 +101,7 @@ int main(void) {
     // a slider applying on every pointer motion wakes every consumer,
     // which is a measured freeze rather than a theory.
     uint32_t again_before = generation();
-    utest_check(usetting_set("desktop.taskbar_height", "56") == SETTING_SAVED,
+    utest_check(usetting_set("desktop.taskbar.height", "56") == SETTING_SAVED,
                 "setting it to what it already is still succeeds");
     utest_checkf(generation() == again_before,
                  "and does not move the generation (%u)", again_before);
@@ -110,13 +110,13 @@ int main(void) {
     struct setting_msg m;
     memset(&m, 0, sizeof m);
     m.op = SETTING_OP_UNSET;
-    strlcpy(m.name, "desktop.taskbar_height", sizeof m.name);
+    strlcpy(m.name, "desktop.taskbar.height", sizeof m.name);
     utest_check(usetting_dispatch(&m) == 0 && m.result == SETTING_SAVED,
                 "unset removes the key");
-    utest_check(!uconf_get(DESKTOP_CONF, "taskbar_height", on_disk, sizeof on_disk) ||
+    utest_check(!uconf_get(DESKTOP_CONF, "taskbar.height", on_disk, sizeof on_disk) ||
                 !on_disk[0], "and the file no longer carries it");
     char now[SETTING_ABI_VALUE_MAX];
-    utest_check(usetting_get("desktop.taskbar_height", now, sizeof now) &&
+    utest_check(usetting_get("desktop.taskbar.height", now, sizeof now) &&
                 strcmp(now, "48") == 0, "so the declared default answers");
 
     // --- the schema half is reachable directly -----------------------
@@ -129,15 +129,15 @@ int main(void) {
         if (uschema_choice(&s, i, c, sizeof c) && strcmp(c, "aurora") == 0) aurora = 1;
     }
     utest_check(aurora, "as stems: aurora.jpg is the choice `aurora`");
-    utest_check(!uschema_find("system.font_size", &s),
+    utest_check(!uschema_find("system.font.size", &s),
                 "a KERNEL setting is not declared by a file");
 
     // --- settings that left the kernel stay settings -------------------
     // Declared by a file AND gone from SYS_SETTING: both halves, since a
     // setting in both places would answer from whichever merged first.
     static const char *const moved[] = {
-        "system.ntp", "system.ntp_server", "system.ntp_interval",
-        "system.net_recover", "system.net_recover_wait",
+        "system.ntp", "system.ntp.server", "system.ntp.interval",
+        "system.net.recover", "system.net.recover.wait",
     };
     for (unsigned i = 0; i < sizeof moved / sizeof moved[0]; i++) {
         static struct setting_msg km;   // past the 2 KB frame cap
@@ -149,7 +149,7 @@ int main(void) {
     }
 
     // --- a declared value must read back as written ------------------
-    utest_check(uschema_find("system.ntp_server", &s) &&
+    utest_check(uschema_find("system.ntp.server", &s) &&
                 uschema_validate(&s, "time.example.com"),
                 "a plain declared string is accepted");
     utest_check(!uschema_validate(&s, "x\nntp=on"),
@@ -160,7 +160,7 @@ int main(void) {
     // ALWAYS, and before the verdict -- including the case where the key
     // was NOT there to begin with, which an earlier version of this test
     // got wrong and left 56 on disk for every later tool.
-    if (had) usetting_set("desktop.taskbar_height", was);
-    else uconf_unset(DESKTOP_CONF, "taskbar_height");
+    if (had) usetting_set("desktop.taskbar.height", was);
+    else uconf_unset(DESKTOP_CONF, "taskbar.height");
     return utest_end();
 }

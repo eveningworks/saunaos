@@ -59,7 +59,7 @@ SCREEN_H = 720
 # These track the DEFAULT FONT and have been re-measured three times
 # now, once per change to it: gfx_char_h()=18 (TASKBAR_H 32, ITEM_H 24),
 # then 21 (29, 27), and now 16 at the FONT_SIZE_14 default (24, 22).
-# TASKBAR_H is TASKBAR_H_DEFAULT unless `desktop.taskbar_height` says
+# TASKBAR_H is TASKBAR_H_DEFAULT unless `desktop.taskbar.height` says
 # otherwise; ITEM_H is gfx_char_h()+6.
 #
 # The lesson those three re-measurements teach is not "keep them
@@ -70,7 +70,7 @@ SCREEN_H = 720
 # and pixel-scan for the top border row and the divider row between the
 # app list and the system actions -- both draw in THEME_BORDER, a solid
 # distinctive colour run, unlike the surrounding text glyph rows.
-TASKBAR_H = 48       # desktop.taskbar_height's default (wm_taskbar.h's TASKBAR_H_DEFAULT)
+TASKBAR_H = 48       # desktop.taskbar.height's default (wm_taskbar.h's TASKBAR_H_DEFAULT)
 ITEM_H = 22           # Start menu row height (gfx_char_h() + 6 -- see above)
 START_BTN = (20, 706)  # inside the taskbar's Start button (icon-only by default), off any edge
 

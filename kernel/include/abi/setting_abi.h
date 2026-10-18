@@ -89,7 +89,7 @@ enum setting_result {
 // a fixed SETTING_ABI_MAX ran out three times, each time dropping the last
 // settings without a word, and was removed on 2026-10-03.
 
-#define SETTING_ABI_NAME_MAX  48 // the /etc key, e.g. "font_size"; = SETTING_NAME_MAX
+#define SETTING_ABI_NAME_MAX  48 // the /etc key, e.g. "font.size"; = SETTING_NAME_MAX
 #define SETTING_ABI_LABEL_MAX 40 // human-facing, e.g. "Font size"
 #define SETTING_ABI_VALUE_MAX 64 // a value, as stored
 #define SETTING_ABI_FILE_MAX  40 // e.g. "/etc/toyos.conf"

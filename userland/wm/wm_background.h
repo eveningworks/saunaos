@@ -21,7 +21,7 @@
 //
 // IT DRAWS WHEN THE DESKTOP CAN BE SEEN. Its frames are paced by the
 // compositor's timer, and the timer is withheld while a window fills
-// the screen or a screensaver runs (`desktop.wallpaper_pause`), so a
+// the screen or a screensaver runs (`desktop.wallpaper.pause`), so a
 // hidden background costs nothing -- the shape of Wayland's frame
 // callbacks, which a compositor does not send to a hidden surface.
 
