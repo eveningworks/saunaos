@@ -2703,6 +2703,9 @@ void wm_render_frame(int mx, int my) {
     // that knows whether this frame was limited -- and the verify mode
     // is excluded because it renders the scene two or three times.
     if (!verify_enabled) {
+        static unsigned long long last_start;
+        if (last_start && t0_ns - last_start < FRAME_BUDGET_US * 1000ull) g_cull.frames_soon++;
+        last_start = t0_ns;
         frame_record(has_damage ? &g_frame_partial : &g_frame_full,
                      (sys_monotonic_ns() - t0_ns) / 1000,
                      __builtin_ia32_rdtsc() - t0_cyc);

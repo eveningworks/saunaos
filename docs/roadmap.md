@@ -948,7 +948,7 @@ run on, not by order.
 - [ ] The calendar, context menu and confirm dialog should declare their own damage, as the Start menu already does
 - [ ] Intel modesetting: external outputs on DDI B-D, a second EDID and hotplug -- waits for a laptop with a usable port
 - [x] ~~Intel gen9 on the Kaby Lake desktop over HDMI: readout, adopt, GMBUS EDID, scaler modes, HDMI modeset~~ DONE 2026-10-04
-- [ ] Compose late in the vblank interval -- Mutter's dynamic max render time: read input later, a drag lags less
+- [ ] Pace composing to the vblank -- saves the frames a mailbox flip discards (CPU), not latency; count them first
 - [ ] Intel blitter acceleration on the BCS ring -- declined 2026-09-03; the 2026-09-17 frame time reopens it
 - [x] ~~A fullscreen state, and direct scanout for a fullscreen client~~ DONE 2026-09-11 -- a lease, `docs/scanout-design.md`
 - [ ] The Broadwell sprite plane: a MAXIMIZED window scanned out, the desktop composed around it -- `docs/scanout-design.md` stage 4

@@ -561,6 +561,10 @@ struct wm_cull_stats {
     // The two copies most of a frame is: client pixels into the back
     // buffer, and the back buffer to the display.
     unsigned long long client_px, present_px;
+    // Frames composed less than one refresh after the one before: the
+    // display latches only the newest (mailbox), so these are work the
+    // panel never shows -- what pacing to the vblank would save.
+    unsigned frames_soon;
 };
 void wm_cull_stats(struct wm_cull_stats *out);
 void wm_note_client_px(unsigned long long n);

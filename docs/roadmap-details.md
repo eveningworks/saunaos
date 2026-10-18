@@ -6710,9 +6710,13 @@ virglrenderer. Within reach of the existing virtio-gpu driver, but it
 runs only under QEMU, so it speeds up no real machine -- a test bed for
 routes 2 and 3 at most.
 
-### Compose late in the vblank interval
+### Pace composing to the vblank
 
-A frame composed early in the refresh interval shows input that is up to a refresh old by the time the flip lands. Mutter's "dynamic max render time" and KWin's latency policy start each frame just before the flip deadline, using a measured render time plus a margin, so the pointer and a dragged window are sampled as late as possible. Only meaningful on a page-flipping driver (Intel, virtio-gpu); needs the frame-time percentiles first, since the deadline is a p99 render time, and a miss costs a whole refresh. First establish when `wm_run()` composes today, relative to the vblank.
+**WHAT IT BUYS HERE IS CPU, NOT LATENCY -- this entry first promised the latter, and the code said otherwise (2026-10-18).** Mutter's "dynamic max render time" and KWin's latency policy start each frame just before the flip deadline because those compositors are paced to the vblank: one frame per refresh, composed right after the vblank, so input arriving later in the refresh misses it. toywm is not paced. It composes as soon as damage arrives and flips in MAILBOX mode (the Intel driver writes `DSPSURF`, latched at the next vblank; a later write replaces it), so the newest input is always what the next vblank shows -- already the least latency there is. What it costs instead is every frame composed between two vblanks except the last: work the panel never shows.
+
+`gui compositor` now counts those ("composed within a refresh of the frame before"). An injected `guictl drag` composed 180 of 183 frames inside a refresh of the previous, but injected input arrives as fast as toywm takes it, so that is an upper bound; a real mouse (125 Hz and up) should show roughly every other frame discarded at 60 Hz, each ~1.8 ms on the ASUS. MEASURE A REAL DRAG FIRST, by hand, and build this only if the number is large enough to matter on battery.
+
+Building it needs the kernel to say where the beam is -- the pipe's scanline register (`PIPEDSL`) and the mode's timings give the time to the next vblank, which is how i915 computes vblank timestamps -- exposed to the compositor, with QEMU's displays answering "unknown"; then toywm composes at the next vblank minus the p99 render time, folding the input that arrives meanwhile into that one frame.
 
 ### Intel blitter acceleration on the BCS ring
 

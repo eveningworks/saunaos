@@ -596,7 +596,8 @@ gui compositor [--json]  the registered compositor pid, queue depth, drops,
                          desktop's wallpaper pixels and the client and present
                          copies' pixels, to set against `/tests/membw`'s GB/s;
                          p50/p90/p99 of each bucket's last 1024 frames, and the
-                         frames past one 60 Hz refresh (16.7 ms)
+                         frames past one 60 Hz refresh (16.7 ms), and those
+                         composed within a refresh of the frame before
 gui compositor reset     zero the frame-cost stats, to scope a measurement to an
                          interval instead of averaging since boot
 gui simd [off|sse2|auto] which pixel loops the compositor runs (ui/ugfx_pix.h);

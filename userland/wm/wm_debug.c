@@ -1719,8 +1719,8 @@ static void cmd_compositor(struct dbg_out *o, int json) {
                     wm_client_presents_unchanged(), wm_client_presents_full());
         dbg_out_printf(o, "\"desktop\":{\"passes\":%u,\"px_drawn\":%llu},", cs.desk_passes,
                     cs.desk_px_drawn);
-        dbg_out_printf(o, "\"copies\":{\"client_px\":%llu,\"present_px\":%llu}}\r\n",
-                    cs.client_px, cs.present_px);
+        dbg_out_printf(o, "\"copies\":{\"client_px\":%llu,\"present_px\":%llu},"
+                          "\"frames_soon\":%u}\r\n", cs.client_px, cs.present_px, cs.frames_soon);
     } else if (!pid) {
         dbg_out_write(o, "compositor: none registered\r\n");
     } else {
@@ -1735,6 +1735,8 @@ static void cmd_compositor(struct dbg_out *o, int json) {
                     pf.p50, pf.p90, pf.p99, pf.n, pp.p50, pp.p90, pp.p99, pp.n);
         dbg_out_printf(o, "  past one 60 Hz refresh (%u us): %u full, %u damage-limited\r\n",
                     pf.budget_us, pf.over, pp.over);
+        dbg_out_printf(o, "  composed within a refresh of the frame before: %u of %u "
+                          "(the display shows only the newest)\r\n", cs.frames_soon, cs.frames);
         dbg_out_printf(o, "  windows drawn/culled: last frame %u/%u, %u/%u over %u frames\r\n",
                     cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames);
         dbg_out_printf(o, "  desktop: %u wallpaper passes, %llu px\r\n",
