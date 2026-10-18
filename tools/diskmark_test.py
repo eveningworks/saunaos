@@ -26,6 +26,10 @@ samples and phase marks it holds, the finished run must be a line in
 /var/lib/diskmark/history that F9 shows, and a second run stopped with
 Esc must be killed, reaped and leave no files.
 
+THE SIZE AND THE LOCATION: a custom size through its dialog, and a
+folder through "Choose folder..." -- run in, remembered, and refused or
+dropped once it can no longer hold a disk test.
+
 GEOMETRY COMES FROM THE CLIENT (`diskmark: layout ...`), never
 re-derived here. Hand-computed coordinates cost two build-and-test
 cycles while this app was being written -- the click landed inside the
@@ -367,6 +371,84 @@ def main():
         choose_size_row(0)
         conf = con.send("sh cat /etc/diskmark.conf")
         check("the first preset puts it back to 16 MiB", "size=16" in conf, conf.strip()[-60:])
+
+    # THE LOCATION: "Choose folder...", the location dropdown's last row,
+    # opens the shared chooser; the folder chosen is where the run's test
+    # file goes, it is remembered, and one that can no longer hold a test
+    # is refused at Run and dropped at the next start. The name has a
+    # SPACE: a string spawn splits on whitespace, and diskbench would then
+    # refuse the second half as an unexpected argument.
+    folder = "/home/Documents/dm test"
+    con.send(f'sh mkdir "{folder}"')
+
+    def said(what):
+        return [l.split(what, 1)[1].strip() for l in con.send("sh dmesg").splitlines() if what in l]
+
+    loc = last_rect("location")
+    check("the location is a dropdown the client reported", loc is not None)
+    if loc:
+        con.click(*centre(loc))
+        for _ in range(12):
+            con.key("0xf781", settle=False)   # Down saturates on the last row
+        con.key("0x0d")
+        con.settle()
+        opened = said("diskmark: folder chooser open at ")
+        check("Choose folder... opens the chooser at Documents", opened[-1:] == ["/home/Documents"],
+              f"{opened[-2:]}")
+        # The listing opens on "..": Down is the folder, Enter chooses it.
+        con.key("0xf781")
+        con.key("0x0d")
+        con.settle()
+        chosen = said("diskmark: location ")
+        check("...and the folder chosen there is the location", chosen[-1:] == [folder], f"{chosen[-2:]}")
+        conf = con.send("sh cat /etc/diskmark.conf")
+        check("...remembered as the newest folder", f"folder1={folder}" in conf and
+              f"location={folder}" in conf, conf.strip()[-120:])
+
+        con.click(ox + rx + rw // 2, oy + ry + rh // 2)
+        deadline = time.time() + RUN_TIMEOUT_S
+        log = ""
+        while time.time() < deadline:
+            time.sleep(2)
+            log = this_run(con.send("sh dmesg"))
+            if "diskmark: all four passes complete" in log or "diskbench failed" in log:
+                break
+        check("Run puts the test file in the folder, its path whole",
+              f"file {folder}/diskmark-" in log.split("\n", 1)[0], log.split("\n", 1)[0][-100:])
+        res = results_of(log)
+        check("...and the run there completes with four results",
+              len(res) == 4 and all(v > 0 for v, _ in res.values()), f"{sorted(res)}")
+        ls = con.send(f'sh ls "{folder}"')
+        check("...and leaves nothing in the folder", "diskmark-" not in ls, ls.strip()[-80:])
+
+        # Deleted since it was chosen: refused at Run with the reason.
+        con.send(f'sh rm -r "{folder}"')
+        con.click(ox + rx + rw // 2, oy + ry + rh // 2)
+        con.settle()
+        refused = said("diskmark: run refused: ")
+        check("a folder deleted since is refused at Run", refused and "no longer exists" in refused[-1],
+              f"{refused[-1:]}")
+
+        # ...and dropped at the next start, with one in RAM beside it.
+        con.send("sh mkdir /tmp/dmram")
+        con.send('sh tosh -c "echo folder2=/tmp/dmram >> /etc/diskmark.conf"')
+        con.close_window(TITLE)
+        con.open_app(TITLE)
+        con.settle()
+        w = con.window(TITLE)
+        if w:
+            ox, oy = w["content"]["x"], w["content"]["y"]
+        dropped = said("diskmark: folder dropped: ")
+        check("a missing folder is dropped at start", any(d.startswith(folder) and "no longer exists" in d
+                                                         for d in dropped), f"{dropped[-2:]}")
+        check("...and a folder in RAM", any(d.startswith("/tmp/dmram is in memory") for d in dropped),
+              f"{dropped[-2:]}")
+        conf = con.send("sh cat /etc/diskmark.conf")
+        check("...and the file no longer names them, back on the root volume",
+              folder not in conf and "/tmp/dmram" not in conf and
+              re.search(r"^location=/\s*$", conf, re.M) is not None,
+              conf.strip()[-120:])
+        con.send("sh rm -r /tmp/dmram")
 
     out = con.send("sh diskbench --size 100T")
     check("diskbench refuses a size the volume cannot hold", "error does-not-fit" in out, out.strip()[-80:])

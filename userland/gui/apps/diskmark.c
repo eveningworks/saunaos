@@ -1,6 +1,6 @@
 // Disk Mark -- sequential and random throughput, CrystalDiskMark's four
 // readings with GNOME Disks' graph of the run (mockup D2, 2026-10-03):
-// a command bar (Run, Stop, the size, the volume), four meter cards, the
+// a command bar (Run, Stop, the size, the location), four meter cards, the
 // throughput over the run with its four phases marked, and every run
 // kept in a history compared with the one before.
 //
@@ -30,11 +30,14 @@
 #include "ui/uui_table.h"
 #include "ui/uui_dialog.h"
 #include "ui/uui_sizefield.h"
+#include "ui/uui_droprows.h"
+#include "ui/uui_filedialog.h"
 #include "lib/uprefs.h"
 #include "lib/uvolinfo.h"
 #include "lib/human.h"
 #include "lib/uclip.h"
 #include "lib/udate.h"
+#include "lib/udirs.h"
 #include <stdio.h>
 #include "lib/unum.h"
 #include <string.h>
@@ -91,15 +94,29 @@ static const int PRESET_MIB[] = { 16, 64, 256, 512, 1024 };
 #define PRESETS 5
 #define CUSTOM_MAX_MIB (1 << 24)   // 16 TiB; the volume's room bounds it first
 
-// The one remembered choice, in the app's own options file
-// (docs/conventions/gui.md) -- a size picked once is the size next time.
+// The remembered choices, in the app's own options file
+// (docs/conventions/gui.md) -- a size or a place picked once is the one
+// next time. `location` is a volume's mount point or one of the folders.
 #define DISKMARK_CONF "/etc/diskmark.conf"
-struct dm_prefs { int size_mib; };
+#define FOLDERS_MAX 3
+#define DIR_MAX UUI_DROPROWS_LABEL
+struct dm_prefs { int size_mib; char location[DIR_MAX]; char folder[FOLDERS_MAX][DIR_MAX]; };
 static const struct upref PREF_KEYS[] = {
     UPREF_INT_KEY("size", struct dm_prefs, size_mib, 1, CUSTOM_MAX_MIB, 16),
+    UPREF_TEXT_KEY("location", struct dm_prefs, location, "", 0),
+    UPREF_TEXT_KEY("folder1", struct dm_prefs, folder[0], "", 0),
+    UPREF_TEXT_KEY("folder2", struct dm_prefs, folder[1], "", 0),
+    UPREF_TEXT_KEY("folder3", struct dm_prefs, folder[2], "", 0),
 };
-static const struct uprefs PREFS = { DISKMARK_CONF, PREF_KEYS, 1 };
-static struct dm_prefs g_prefs;
+static const struct uprefs PREFS = { DISKMARK_CONF, PREF_KEYS, 5 };
+// Static, and so is every copy of it: 1 KiB of paths against the ring-3
+// frame budget of 2 KiB.
+static struct dm_prefs g_prefs, g_prefs_was;
+
+static void prefs_save(void) {
+    uprefs_save(&PREFS, &g_prefs, &g_prefs_was);
+    g_prefs_was = g_prefs;
+}
 
 enum { ST_IDLE, ST_RUNNING, ST_STOPPING, ST_DONE, ST_FAILED };
 
@@ -115,7 +132,7 @@ static time_t g_run_when;
 
 static char g_value[PROFILES][24];
 static char g_detail[PROFILES][48];
-static char g_status[96];
+static char g_status[DIR_MAX + 96];
 static char g_size_pane[16], g_call_pane[24], g_free_pane[24], g_when_pane[24];
 
 // The child's output, re-read whole each tick. Static: the ring-3 frame
@@ -127,11 +144,14 @@ static char g_out[4096];
 static struct ugfx_font g_big;
 static int g_big_ok;
 
-// --- volumes ----------------------------------------------------------
+// --- where the test file goes ----------------------------------------
 //
+// THE LOCATION: a volume, or a folder the person chose. The volumes are
 // ANY MOUNTED, PERSISTENT, WRITABLE filesystem. A RAM-only one is
 // refused (it would measure memcpy) and a read-only one -- /boot by
-// policy (kernel/fs/mount.c) -- cannot hold the scratch file.
+// policy (kernel/fs/mount.c) -- cannot hold the scratch file. A folder
+// is held to the same rules by folder_usable(), except that a network
+// share is allowed: it measures the share, and says so.
 #define VOL_MAX 6
 struct vol { char point[64]; char label[80]; char dev[16]; char fs[16]; int root; };
 static struct vol g_vols[VOL_MAX];
@@ -157,22 +177,115 @@ static void scan_volumes(void) {
     }
 }
 
+// The volumes, then the chosen folders, then "Choose folder...".
 static struct uui_dropdown g_vol;
+static struct uui_droprows g_locs;
+static struct uui_filedialog g_chooser;   // ~20 KB: file scope, never a local
 
 static const struct vol *chosen_vol(void) {
-    int i = uui_dropdown_selected(&g_vol);
-    return (i >= 0 && i < g_nvols) ? &g_vols[i] : NULL;
+    int i = g_locs.sel_index;
+    return g_locs.sel_kind == UUI_DROPROW_FIXED && i >= 0 && i < g_nvols ? &g_vols[i] : NULL;
+}
+static const char *chosen_folder(void) {
+    return g_locs.sel_kind == UUI_DROPROW_OWN ? uui_droprows_own(&g_locs, g_locs.sel_index) : NULL;
 }
 
-// The scratch file: the root keeps the persistent temp directory; any
-// other volume gets one at its top.
-static const char *work_path_for(const struct vol *v) {
-    static char p[96];
-    if (!v || v->root) return root_work_path();
-    if (!k_path_join(v->point, "diskmark.tmp", p, sizeof p)) return root_work_path();
+// The scratch file: the root keeps the persistent temp directory, which
+// is this app's alone; a volume's top or a chosen folder is the
+// PERSON'S, so the name there is this run's own -- diskbench removes
+// whatever is at its path first, and a fixed name would take a file of
+// theirs with it. "" when there is no location.
+static const char *work_path(void) {
+    static char p[DIR_MAX + 32];
+    const struct vol *v = chosen_vol();
+    const char *dir = chosen_folder();
+    if (v && v->root) return root_work_path();
+    if (v) dir = v->point;
+    char name[32];
+    snprintf(name, sizeof name, "diskmark-%d.tmp", sys_getpid());
+    if (!dir || !k_path_join(dir, name, p, sizeof p)) p[0] = 0;
     return p;
 }
-static char g_work[96];   // the one the running child was given
+static char g_work[DIR_MAX + 32];   // the one the running child was given
+
+// Can the test file go in `dir`? 1, or 0 with the reason in `why`.
+static int folder_usable(const char *dir, char *why, int cap) {
+    struct sys_stat st;
+    struct uvolinfo vi;
+    const char *says = NULL;
+    if (sys_stat(dir, &st) != 0 || !st.is_dir) says = "no longer exists";
+    else if (!uvolinfo_of(dir, &vi)) says = "is not on a mounted volume";
+    else if (vi.readonly) says = "is read-only";
+    else if (!vi.persistent && !vi.remote) says = "is in memory, not on a disk";
+    if (!says) return 1;
+    snprintf(why, (unsigned)cap, "%s %s -- choose another folder.", dir, says);
+    return 0;
+}
+
+// The volume the chosen location is on; 0 when there is none, or its
+// size is not known (a size that cannot be judged is not refused).
+static int chosen_volinfo(struct uvolinfo *vi) {
+    const char *w = work_path();
+    return w[0] && uvolinfo_of(w, vi) && vi->total;
+}
+static int chosen_is_share(void) {
+    struct uvolinfo vi;
+    const char *w = work_path();
+    return w[0] && uvolinfo_of(w, &vi) && vi.remote;
+}
+
+// The history's key for the location: its volume's mount point, as one
+// word of its field's width. A folder is measured as its volume.
+static void chosen_point(char *out, int cap) {
+    struct uvolinfo vi;
+    const struct vol *v = chosen_vol();
+    const char *w = work_path();
+    if (w[0] && uvolinfo_of(w, &vi)) strlcpy(out, vi.point, (unsigned)cap);
+    else strlcpy(out, v ? v->point : "/", (unsigned)cap);
+    for (char *q = out; *q; q++) if (*q == ' ') *q = '_';
+}
+
+static void location_save(void) {
+    const struct vol *v = chosen_vol();
+    const char *f = chosen_folder();
+    strlcpy(g_prefs.location, f ? f : v ? v->point : "", sizeof g_prefs.location);
+    for (int i = 0; i < FOLDERS_MAX; i++) {
+        const char *o = uui_droprows_own(&g_locs, i);
+        strlcpy(g_prefs.folder[i], o ? o : "", sizeof g_prefs.folder[i]);
+    }
+    prefs_save();
+}
+
+// The remembered folders that still pass, oldest first so the newest
+// ends on top; then the remembered location, else the root volume.
+static void location_load(void) {
+    uui_droprows_init(&g_locs, &g_vol, FOLDERS_MAX, "Choose folder...");
+    uui_droprows_set_fixed(&g_locs, g_vol_items, g_nvols);
+    int dropped = 0;
+    for (int i = FOLDERS_MAX - 1; i >= 0; i--) {
+        char why[DIR_MAX + 64];
+        if (!g_prefs.folder[i][0]) continue;
+        if (folder_usable(g_prefs.folder[i], why, sizeof why)) {
+            uui_droprows_add_own(&g_locs, g_prefs.folder[i]);
+        } else {
+            ulogf("diskmark: folder dropped: %s\n", why);
+            dropped = 1;
+        }
+    }
+    int at = uui_droprows_find_own(&g_locs, g_prefs.location);
+    if (at >= 0) {
+        uui_droprows_select(&g_locs, UUI_DROPROW_OWN, at);
+    } else {
+        int pick = -1;
+        for (int i = 0; i < g_nvols; i++) {
+            if (!strcmp(g_vols[i].point, g_prefs.location)) pick = i;
+            if (pick < 0 && g_vols[i].root) pick = i;
+        }
+        if (pick < 0 && g_nvols) pick = 0;
+        if (pick >= 0) uui_droprows_select(&g_locs, UUI_DROPROW_FIXED, pick);
+    }
+    if (dropped) location_save();
+}
 
 // --- widgets ----------------------------------------------------------
 
@@ -192,6 +305,7 @@ static char g_work[96];   // the one the running child was given
 #define CMD_EXIT    5
 #define CMD_SIZE_0  10   // ..14, the presets
 #define CMD_CUSTOM  20
+#define CMD_FOLDER  21
 #define DLG_OK      1
 #define DLG_CANCEL  2
 
@@ -223,6 +337,8 @@ static const struct uui_menu_item test_items[] = {
     UUI_MENU("512 MiB", CMD_SIZE_0 + 3, 0),
     UUI_MENU("1 GiB",   CMD_SIZE_0 + 4, 0),
     UUI_MENU("Custom size...", CMD_CUSTOM, 0),
+    UUI_MENU_SEP,
+    UUI_MENU("Choose folder...", CMD_FOLDER, 0),
 };
 static const struct uui_menu_item view_items[] = {
     UUI_MENU("History", CMD_HISTORY, "F9"),
@@ -251,7 +367,7 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_statusbar_ops, .widget = &g_sb,       .id = ID_STATUS,  .name = "status" },
     // AFTER everything they can open over: their popups are drawn last.
     { .ops = &uui_dropdown_ops,  .widget = &g_size,     .id = ID_SIZE,    .name = "size" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_vol,      .id = ID_VOL,     .name = "volume" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_vol,      .id = ID_VOL,     .name = "location" },
     // A container, drawn in the items pass: last, so it is on top.
     { .ops = &uui_dialog_ops,    .widget = &g_dlg,      .id = ID_DIALOG,  .name = "dialog" },
 };
@@ -262,9 +378,7 @@ static struct uui_item g_widgets[] = {
 // then "Custom...". The size itself is g_size_mib; the rows only show it.
 static int g_size_mib = 16;
 static int g_custom_mib;              // 0: no custom row
-static char g_custom_label[16];
-static const char *g_size_items[PRESETS + 2];
-static int g_size_rows;
+static struct uui_droprows g_sizes;
 
 // "1 GiB" when it is a whole number of them, else "1536 MiB".
 static void fmt_size(char *out, int cap, int mib) {
@@ -279,35 +393,33 @@ static int preset_of(int mib) {
 
 static int size_mib(void) { return g_size_mib; }
 
-// Rebuilds the rows for g_size_mib and selects it.
-static void size_rows(void) {
+static void size_rows_init(void) {
     static char labels[PRESETS][16];
-    int n = 0;
+    static const char *rows[PRESETS];
     for (int i = 0; i < PRESETS; i++) {
         fmt_size(labels[i], sizeof labels[i], PRESET_MIB[i]);
-        g_size_items[n++] = labels[i];
+        rows[i] = labels[i];
     }
-    if (g_custom_mib) {
-        fmt_size(g_custom_label, sizeof g_custom_label, g_custom_mib);
-        g_size_items[n++] = g_custom_label;
-    }
-    g_size_items[n++] = "Custom...";
-    g_size_rows = n;
-    uui_dropdown_set_items(&g_size, g_size_items, n);
-    int p = preset_of(g_size_mib);
-    uui_dropdown_set_selected(&g_size, p >= 0 ? p : PRESETS);
+    uui_droprows_init(&g_sizes, &g_size, 1, "Custom...");
+    uui_droprows_set_fixed(&g_sizes, rows, PRESETS);
 }
 
 static void set_size(int mib) {
     if (mib < 1) mib = 1;
     if (mib > CUSTOM_MAX_MIB) mib = CUSTOM_MAX_MIB;
     g_size_mib = mib;
-    if (preset_of(mib) < 0) g_custom_mib = mib;
-    size_rows();
+    int p = preset_of(mib);
+    if (p < 0) {
+        char label[16];
+        g_custom_mib = mib;
+        fmt_size(label, sizeof label, mib);
+        uui_droprows_add_own(&g_sizes, label);   // the one custom row, replaced
+    } else {
+        uui_droprows_select(&g_sizes, UUI_DROPROW_FIXED, p);
+    }
     if (g_prefs.size_mib != mib) {
-        struct dm_prefs was = g_prefs;
         g_prefs.size_mib = mib;
-        uprefs_save(&PREFS, &g_prefs, &was);
+        prefs_save();
     }
 }
 
@@ -413,13 +525,6 @@ static void set_status(const char *s) { strlcpy(g_status, s, sizeof g_status); }
 
 // --- will it fit, and how long -----------------------------------------
 
-// The chosen volume's facts, for the scratch file's own path; 0 when
-// they are not known (a size that cannot be judged is not refused).
-static int chosen_volinfo(struct uvolinfo *vi) {
-    const struct vol *v = chosen_vol();
-    return v && uvolinfo_of(work_path_for(v), vi) && vi->total;
-}
-
 // The largest size the chosen volume has room for, in MiB, or -1.
 // uvolinfo_fits() is the test diskbench applies too.
 static long long room_mib(void) {
@@ -437,11 +542,9 @@ static int size_fits(int mib) {
 // eighth of the file (bin/diskbench.c). Seconds, or -1 with nothing to
 // go by.
 static long long estimate_s(int mib) {
-    const struct vol *v = chosen_vol();
-    if (!v) return -1;
+    if (!work_path()[0]) return -1;
     char point[32];
-    strlcpy(point, v->point, sizeof point);
-    for (char *q = point; *q; q++) if (*q == ' ') *q = '_';
+    chosen_point(point, sizeof point);
     for (int i = 0; i < g_nruns; i++) {
         const struct run *r = &g_runs[i];
         if (strcmp(r->point, point)) continue;
@@ -463,25 +566,27 @@ static void fmt_duration(char *out, int cap, long long s) {
     else snprintf(out, (unsigned)cap, "about %lld h %lld min", m / 60, m % 60);
 }
 
-// The idle status line for the size and volume chosen: refused when it
-// does not fit, else how long it should take, when a run says.
+// The idle status line for the size and location chosen: refused when
+// it does not fit, else how long it should take, when a run says -- and
+// that a share is a share, since its numbers are the network's.
 static void size_status(void) {
-    if (g_pid > 0 || !g_nvols) return;
+    if (g_pid > 0 || !work_path()[0]) return;
     char sz[16];
     fmt_size(sz, sizeof sz, g_size_mib);
     struct uvolinfo vi;
     if (!size_fits(g_size_mib) && chosen_volinfo(&vi)) {
         char f[24];
         human_size_iec(f, sizeof f, uvolinfo_free(&vi));
-        snprintf(g_status, sizeof g_status, "%s does not fit: %s has %s free.", sz, chosen_vol()->point, f);
+        snprintf(g_status, sizeof g_status, "%s does not fit: %s has %s free.", sz, vi.point, f);
         return;
     }
+    const char *share = chosen_is_share() ? "a network share" : NULL;
     long long est = estimate_s(g_size_mib);
-    if (est < 0) { set_status("Ready."); return; }
     char d[32];
-    fmt_duration(d, sizeof d, est);
+    if (est >= 0) fmt_duration(d, sizeof d, est);
     // The size is in the pane beside it.
-    snprintf(g_status, sizeof g_status, "Ready -- %s.", d);
+    if (est < 0) snprintf(g_status, sizeof g_status, "Ready%s%s.", share ? " -- " : "", share ? share : "");
+    else snprintf(g_status, sizeof g_status, "Ready -- %s%s%s.", share ? share : "", share ? ", " : "", d);
 }
 
 // --- Custom size... -------------------------------------------------------
@@ -490,13 +595,13 @@ static char g_dlg_line[2][96];
 static const char *g_dlg_rows[2] = { g_dlg_line[0], g_dlg_line[1] };
 
 static void dialog_lines(void) {
-    const struct vol *v = chosen_vol();
     struct uvolinfo vi;
     g_dlg_line[0][0] = g_dlg_line[1][0] = 0;
-    if (v && chosen_volinfo(&vi)) {
+    if (chosen_volinfo(&vi)) {
         char f[24];
         human_size_iec(f, sizeof f, uvolinfo_free(&vi));
-        snprintf(g_dlg_line[0], sizeof g_dlg_line[0], "%s on %s has %s free.", v->point, v->dev, f);
+        snprintf(g_dlg_line[0], sizeof g_dlg_line[0], "%s on %s has %s free.", vi.point,
+                 vi.device[0] ? vi.device : vi.remote ? vi.server : vi.fs, f);
     }
     long long est = estimate_s((int)uui_sizefield_mib(&g_sf));
     if (est >= 0) {
@@ -537,9 +642,50 @@ static void custom_answer(int code) {
         set_size((int)uui_sizefield_mib(&g_sf));
         ulogf("diskmark: size %d MiB\n", g_size_mib);
     } else {
-        size_rows();   // the dropdown back on the size it had
+        uui_droprows_reselect(&g_sizes);   // the dropdown back on the size it had
     }
     size_status();
+}
+
+// --- Choose folder... -------------------------------------------------------
+
+static void folder_chosen(void *ctx, const char *path) {
+    struct uapp *a = ctx;
+    char why[DIR_MAX + 64];
+    if (!path) {
+        ulogf("diskmark: folder chooser cancelled\n");
+    } else if (g_pid > 0) {
+        // started from the keyboard while the chooser was up: keep the run's
+    } else if (!folder_usable(path, why, sizeof why)) {
+        set_status(why);
+        ulogf("diskmark: folder refused: %s\n", why);
+    } else {
+        int vol = -1;
+        for (int i = 0; i < g_nvols; i++) if (!strcmp(g_vols[i].point, path)) vol = i;
+        if (vol >= 0) uui_droprows_select(&g_locs, UUI_DROPROW_FIXED, vol);   // a volume's top is its row
+        else uui_droprows_add_own(&g_locs, path);
+        location_save();
+        ulogf("diskmark: location %s\n", g_prefs.location);
+        size_status();
+    }
+    uapp_redraw(a);
+}
+
+// Opens at the folder in force, else the person's Documents.
+static void open_chooser(struct uapp *a) {
+    if (g_pid > 0 || uui_filedialog_is_open(&g_chooser)) return;
+    const char *start = chosen_folder();
+    if (!start) start = udir_path(UDIR_DOCUMENTS);
+    struct uui_filedialog_opts o = {
+        .mode = UUI_FILEDIALOG_FOLDER,
+        .title = "Choose Test Folder",
+        .start_dir = start,
+    };
+    if (!uui_filedialog_open(a, &g_chooser, &o, folder_chosen, a)) {
+        set_status("Could not open the folder chooser");
+        return;
+    }
+    ulogf("diskmark: folder chooser open at %s\n", start ? start : "/");
 }
 
 // Each bar against the FASTEST of this run: a ceiling picked for an SSD
@@ -694,8 +840,13 @@ static void reset_readings(void) {
 static void begin_run(struct uapp *a) {
     if (g_pid > 0) return;   // running, or a stopped child not yet reaped
     const struct vol *v = chosen_vol();
-    if (!v) {
-        set_status("no writable disk volume is mounted -- RAM would measure memcpy");
+    const char *folder = chosen_folder();
+    char why[DIR_MAX + 64];
+    if (!work_path()[0] || (folder && !folder_usable(folder, why, sizeof why))) {
+        // A folder can go between choosing it and running: an unplugged
+        // disk, a share gone, the folder deleted in the File Manager.
+        set_status(folder ? why : "no writable disk volume is mounted -- RAM would measure memcpy");
+        ulogf("diskmark: run refused: %s\n", g_status);
         g_state = ST_FAILED;
         uapp_redraw(a);
         return;
@@ -706,15 +857,19 @@ static void begin_run(struct uapp *a) {
         return;
     }
     reset_readings();
-    strlcpy(g_work, work_path_for(v), sizeof g_work);
+    strlcpy(g_work, work_path(), sizeof g_work);
     cleanup();
 
     // THE CHILD WRITES THE REPORT ITSELF (`--out`) with no stdout: a pipe
     // would couple the two (a pipe holds 4 KiB), so a window
     // slow to drain would block the benchmark it is timing.
-    static char args[200];
-    snprintf(args, sizeof args, "--size %d --path %s --out %s", size_mib(), g_work, RESULT_PATH);
-    g_pid = sys_spawn(BENCH_PATH, args, -1);
+    // A VECTOR, not sys_spawn()'s string: that splits on whitespace, and
+    // a chosen folder may have a space in its name.
+    char size[16];
+    snprintf(size, sizeof size, "%d", size_mib());
+    char *const argv[] = { BENCH_PATH, "--size", size, "--path", g_work,
+                           "--out", (char *)RESULT_PATH, NULL };
+    g_pid = sys_spawn_argv(BENCH_PATH, argv);
     if (g_pid < 0) {
         set_status("could not start " BENCH_PATH);
         g_state = ST_FAILED;
@@ -723,14 +878,19 @@ static void begin_run(struct uapp *a) {
         g_state = ST_RUNNING;
         g_run_mib = size_mib();
         // As the history will read it back: one word, its field's width.
-        strlcpy(g_run_vol, v->point, sizeof g_run_vol);
-        for (char *q = g_run_vol; *q; q++) if (*q == ' ') *q = '_';
-        strlcpy(g_run_dev, v->dev, sizeof g_run_dev);
+        // A share has no device; its filesystem stands in ("smb").
+        struct uvolinfo vi;
+        chosen_point(g_run_vol, sizeof g_run_vol);
+        strlcpy(g_run_dev, v ? v->dev : "-", sizeof g_run_dev);
+        if (!v && uvolinfo_of(g_work, &vi))
+            strlcpy(g_run_dev, vi.device[0] ? vi.device : vi.fs[0] ? vi.fs : "-", sizeof g_run_dev);
         g_run_when = time(NULL);
         char sz[16];
         fmt_size(sz, sizeof sz, size_mib());
-        snprintf(g_status, sizeof g_status, "Running %s on %s...", sz, v->point);
-        ulogf("diskmark: spawned %s as pid %d\n", BENCH_PATH, g_pid);
+        if (v) snprintf(g_status, sizeof g_status, "Running %s on %s...", sz, v->point);
+        else snprintf(g_status, sizeof g_status, "Running %s in %s%s...", sz, folder,
+                      chosen_is_share() ? " (a network share)" : "");
+        ulogf("diskmark: spawned %s as pid %d, file %s\n", BENCH_PATH, g_pid, g_work);
     }
     uapp_redraw(a);
 }
@@ -767,6 +927,7 @@ static unsigned item_flags(int code) {
     switch (code) {
     case CMD_RUN:     return busy || !size_fits(size_mib()) ? UUI_MI_DISABLED : 0;
     case CMD_CUSTOM:  return (preset_of(g_size_mib) < 0 ? UUI_MI_CHECKED : 0) | (busy ? UUI_MI_DISABLED : 0);
+    case CMD_FOLDER:  return (chosen_folder() ? UUI_MI_CHECKED : 0) | (busy ? UUI_MI_DISABLED : 0);
     case CMD_STOP:    return g_state == ST_RUNNING ? 0 : UUI_MI_DISABLED;
     case CMD_COPY:    return (g_result[0] || g_result[3]) ? 0 : UUI_MI_DISABLED;
     case CMD_HISTORY: return g_show_hist ? UUI_MI_CHECKED : 0;
@@ -788,6 +949,7 @@ static void do_command(struct uapp *a, int code) {
     case CMD_HISTORY: g_show_hist = !g_show_hist; if (g_show_hist) history_load(); break;
     case CMD_EXIT:    on_close(a); uapp_quit(a, 0); break;
     case CMD_CUSTOM:  open_custom(a); break;
+    case CMD_FOLDER:  open_chooser(a); break;
     default:
         if (code >= CMD_SIZE_0 && code < CMD_SIZE_0 + PRESETS && g_pid <= 0) {
             set_size(PRESET_MIB[code - CMD_SIZE_0]);
@@ -953,20 +1115,35 @@ static void on_widget(struct uapp *a, int id, int reason) {
         int code = uui_toolbar_take_code(&g_tb);
         if (code > 0) do_command(a, code);
     } else if (id == ID_SIZE) {
-        int i = uui_dropdown_selected(&g_size);
-        if (g_size.open || i < 0 || g_pid > 0) {
-            // still choosing, or nothing to change
-        } else if (i == g_size_rows - 1) {
-            size_rows();   // the box shows the size in force, not "Custom...", behind the dialog
+        int i, kind = uui_droprows_picked(&g_sizes, &i);
+        if (g_size.open || kind == UUI_DROPROW_NONE) {
+            // still choosing
+        } else if (g_pid > 0) {
+            uui_droprows_reselect(&g_sizes);   // a run's size is the one it started with
+        } else if (kind == UUI_DROPROW_MORE) {
+            uui_droprows_reselect(&g_sizes);   // the size in force, not "Custom...", behind the dialog
             open_custom(a);
-        } else if (i < PRESETS) {
+        } else if (kind == UUI_DROPROW_FIXED) {
             if (PRESET_MIB[i] != g_size_mib) { set_size(PRESET_MIB[i]); size_status(); }
         } else if (g_custom_mib && g_custom_mib != g_size_mib) {
             set_size(g_custom_mib);
             size_status();
         }
     } else if (id == ID_VOL) {
-        if (!g_vol.open) size_status();
+        int i, kind = uui_droprows_picked(&g_locs, &i);
+        if (g_vol.open || kind == UUI_DROPROW_NONE) {
+            // still choosing
+        } else if (g_pid > 0) {
+            uui_droprows_reselect(&g_locs);
+        } else if (kind == UUI_DROPROW_MORE) {
+            uui_droprows_reselect(&g_locs);
+            open_chooser(a);
+        } else if (kind != g_locs.sel_kind || i != g_locs.sel_index) {
+            uui_droprows_select(&g_locs, kind, i);
+            location_save();
+            ulogf("diskmark: location %s\n", g_prefs.location);
+            size_status();
+        }
     } else if (id == ID_DIALOG) {
         int code = uui_dialog_take_code(&g_dlg);
         if (code > 0) custom_answer(code);
@@ -1002,6 +1179,7 @@ static int on_close(struct uapp *a) {
     // scratch file AND an orphan still writing to the disk.
     if (g_pid > 0) sys_kill(g_pid, 9);
     cleanup();
+    if (uui_filedialog_is_open(&g_chooser)) uui_filedialog_close_window(&g_chooser);
     return 1;
 }
 
@@ -1015,7 +1193,7 @@ static void on_open(struct uapp *a) {
     if (uapp_width(a) < dw || uapp_height(a) < dh)
         uapp_resize(a, uapp_width(a) > dw ? uapp_width(a) : dw,
                     uapp_height(a) > dh ? uapp_height(a) : dh);
-    if (!g_nvols) set_status("no writable disk volume is mounted -- RAM would measure memcpy");
+    if (!work_path()[0]) set_status("no writable disk volume is mounted -- RAM would measure memcpy");
     else size_status();
     layout(uapp_width(a), uapp_height(a));
     log_layout(a);
@@ -1059,13 +1237,13 @@ int main(void) {
     g_tb.accent_latch = 1;
     // 16 MiB by default: an emulated disk makes 64 MiB a multi-minute run.
     uprefs_load(&PREFS, &g_prefs);
-    uui_dropdown_init(&g_size, 0, 0, 0, 0, g_size_items, 0);
-    g_size_mib = g_prefs.size_mib;
-    if (preset_of(g_size_mib) < 0) g_custom_mib = g_size_mib;
-    size_rows();
+    g_prefs_was = g_prefs;
+    uui_dropdown_init(&g_size, 0, 0, 0, 0, NULL, 0);
+    size_rows_init();
+    set_size(g_prefs.size_mib);
     uui_dialog_init(&g_dlg);
-    uui_dropdown_init(&g_vol, 0, 0, 0, 0, g_vol_items, g_nvols);
-    for (int i = 0; i < g_nvols; i++) if (g_vols[i].root) uui_dropdown_set_selected(&g_vol, i);
+    uui_dropdown_init(&g_vol, 0, 0, 0, 0, NULL, 0);
+    location_load();
 
     for (int i = 0; i < PROFILES; i++) {
         uui_meter_init(&g_meter[i]);

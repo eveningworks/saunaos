@@ -4135,7 +4135,11 @@ window without going through it will find its layout polls timing out.
   dialog bounded by the volume's room, `3`, `g`, Enter sets 3 GiB and
   `/etc/diskmark.conf` keeps it across a restart, a size over the room
   is refused, and the first preset puts it back to 16 MiB so no later
-  tool inherits a GiB run; `diskbench` itself refuses `100T`
+  tool inherits a GiB run. Then the LOCATION: Choose folder... opens the
+  chooser at Documents, a folder with a SPACE in its name is chosen,
+  remembered and RUN IN (the path reaches diskbench whole), deleted it
+  is refused at Run, and at the next start it and a folder in RAM are
+  dropped from the file; `diskbench` itself refuses `100T`
   (`does-not-fit`) and `1Gx`. **The load-bearing check is the NUMBERS, not the run
   finishing**: a build whose throughput arithmetic truncated to zero
   logged "all four passes complete" and drew four tiles reading

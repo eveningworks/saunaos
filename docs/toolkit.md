@@ -170,6 +170,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_dialog.h` | A MODAL over the app's own window: a title, some lines, and a row of buttons. |
 | `uui_diskplan.h` | uui_diskplan -- what a disk holds NOW and what it will hold AFTER an operation, as two labelled partition maps one above the other: an installer's or a partitioner's before-and-after (Calamares' pa... |
 | `uui_dropdown.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
+| `uui_droprows.h` | A DROPDOWN'S ROWS IN THREE PARTS: the fixed choices, then a few the person added (a custom size, a folder they chose), newest first, then one row that opens a dialog to add another ("Custom...", "C... |
 | `uui_edit.h` | uui_edit -- what EDITING TEXT means, in one place. |
 | `uui_editmenu.h` | uui_editmenu -- THE right-click menu of every editable text: Undo, Redo / Cut, Copy, Paste, Delete / Select All, run through the edit core on whatever widget answered uui_widget_ops.edit_target. |
 | `uui_entrylist.h` | uui_entrylist -- a scrolling list of ENTRIES, each a title with a dim line under it (a page and its address, a file and its folder), grouped under HEADINGS ("Today", "Yesterday"): a click opens an... |
