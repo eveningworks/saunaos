@@ -29,14 +29,14 @@ Terminal both drew `<cwd>> `, and the kernel shell introduced itself as
 it is what sits behind the desktop and what *Exit to shell* returns to;
 on a `text` boot init starts `/bin/tosh` on the console instead and this
 one stands down, staying reachable as `sh <cmd>` over the serial debug
-console. `/bin/tosh` is a much smaller shell -- **six builtins: `cd`,
-`pwd`, `help`, and the job-control three (`jobs`, `fg`, `bg`), plus
-anything on `PATH`** -- and none of the kernel-introspection commands
-below exist there.
+console. `/bin/tosh` is a much smaller shell -- **seven builtins: `cd`,
+`pwd`, `help`, `exit`, and the job-control three (`jobs`, `fg`, `bg`),
+plus anything on `PATH`** -- and none of the kernel-introspection
+commands below exist there.
 
-**ALL SIX HAVE TO BE BUILTINS.** `cd` changes the SHELL's own
-directory, so a program could not do it; `pwd` and `help` have no
-`/bin` twin; and `jobs`/`fg`/`bg` read and write the shell's own job
+**ALL SEVEN HAVE TO BE BUILTINS.** `cd` changes the SHELL's own
+directory, so a program could not do it; `exit` ends the shell itself;
+`pwd` and `help` have no `/bin` twin; and `jobs`/`fg`/`bg` read and write the shell's own job
 table, which a separate process could neither see nor act on -- a
 `/bin/fg` could not take the terminal on its parent's behalf. POSIX
 makes the same three special builtins for the same reason. `cat`, `ls` and `echo` were builtins there and all three

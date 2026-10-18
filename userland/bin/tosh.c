@@ -224,7 +224,7 @@ static void accept_line(void) {
         tosh_run_line(&g_sh, g_ed.buf);
         sys_tty_raw(0);
     }
-    fresh_prompt();
+    if (!g_sh.exit_requested) fresh_prompt();
 }
 
 // Ctrl-R. THE LOOP IS SHARED (kernel/lib/histsearch.c) -- the kernel
@@ -419,6 +419,7 @@ int main(int argc, char **argv) {
         // and a stopped one higher still -- and anything negative
         // reaches ring 0 as PROCESS_CRASHED.
         int code = tosh_run_line(&g_sh, line);
+        if (g_sh.exit_requested) return g_sh.exit_code;
         return code < 0 ? TOSH_ST_NOEXEC : code & 0xff;
     }
 
@@ -583,6 +584,7 @@ int main(int argc, char **argv) {
 
             case KLINE_ACCEPT:
                 accept_line();
+                if (g_sh.exit_requested) return g_sh.exit_code;   // `exit`
                 break;
 
             case KLINE_CANCEL:

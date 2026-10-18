@@ -718,7 +718,9 @@ manual steps to be worth automating:
   as its control). On demand: it boots its own guest
   and ENABLES services that ship disabled, so it leaves `disk.img` with
   a network shell turned on -- `make clean-disk && make iso` afterwards
-  if that matters. **Its lossy puts drop one block on purpose**
+  if that matters. A session must END from the client's side: `exit 3`
+  and Ctrl-D each close the connection, with `exit now` (refused, the
+  session up) as the control. **Its lossy puts drop one block on purpose**
   (`do_put(drop_once=...)`) -- the last of a window, the first of one,
   and the final block -- and must recover inside `tftpd`'s give-up.
 

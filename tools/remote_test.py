@@ -29,6 +29,9 @@ WHAT IT CHECKS
      one check reads the server's own log for the negotiated values.
   7. A LOST DATAGRAM IS RECOVERED inside tftpd's give-up time, wherever
      in a window it falls -- `remote.py flash` used to die on one.
+  8. `exit` ends a telnet session from the client's side -- the server
+     closes the connection -- while `exit now` (not a number) does not;
+     Ctrl-D at an empty prompt closes it too.
 
 WHY SLIRP IS ENOUGH. TFTP's reply normally comes from a fresh ephemeral
 port, which no NAT forwards back -- but the shipped service runs with
@@ -453,6 +456,47 @@ def main():
                     repr((after or {}).get("rows"))[:300])
         finally:
             dbg.close()
+
+        # 8. `exit` ENDS THE SESSION FROM THE CLIENT'S SIDE: the shell
+        #    exits and telnetd closes the socket, which the client sees as
+        #    end of file. `exit now` first, as the control: a typo must
+        #    leave the session up, so a server that hung up on ANY line
+        #    fails here rather than passing the next check.
+        sess = socket.create_connection(("127.0.0.1", TELNET_PORT), timeout=10)
+        try:
+            def drain(secs):
+                got, end = b"", time.time() + secs
+                sess.settimeout(0.5)
+                while time.time() < end:
+                    try:
+                        chunk = sess.recv(4096)
+                    except socket.timeout:
+                        continue
+                    if not chunk:
+                        return got, True        # the server closed it
+                    got += chunk
+                return got, False
+            drain(2.0)                          # the banner and prompt
+            sess.sendall(b"exit now\r\n")
+            said, closed = drain(3.0)
+            r.check("`exit now` is refused and the session stays up",
+                    not closed and b"not a number" in said, repr(said[-200:]))
+            sess.sendall(b"exit 3\r\n")
+            said, closed = drain(10.0)
+            r.check("`exit 3` ends the shell and the server closes the connection",
+                    closed, repr(said[-200:]))
+        finally:
+            sess.close()
+        # ...and Ctrl-D at an empty prompt, the other way out, which hung
+        # the same way until the session ended with its shell.
+        sess = socket.create_connection(("127.0.0.1", TELNET_PORT), timeout=10)
+        try:
+            drain(2.0)
+            sess.sendall(b"\x04")
+            said, closed = drain(10.0)
+            r.check("Ctrl-D at an empty prompt closes the connection too", closed, repr(said[-200:]))
+        finally:
+            sess.close()
     finally:
         vm("stop")
         os.unlink(DISK)

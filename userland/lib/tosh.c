@@ -36,6 +36,7 @@
 #include "lib/usetting.h"  // system.shell -- who interprets a bare script
 #include "rt/sys.h"
 #include <string.h>   // strcmp -- the script-shell fallback
+#include <stdlib.h>   // strtol -- `exit N`
 #include <ksignal.h> // signal_name() -- one table, shared with the kernel
 #include "lib/tosh_jobs.h"
 #include "lib/upath.h"  // upath_find_program() -- shared with /bin/strace
@@ -751,7 +752,7 @@ static const char *tosh_script_shell(char *buf, size_t cap) {
 // The command word of a stage, for deciding builtin vs external.
 static int stage_is_builtin(const char *w) {
     return seq(w, "cd") || seq(w, "pwd") || seq(w, "help") ||
-           seq(w, "jobs") || seq(w, "fg") || seq(w, "bg");
+           seq(w, "jobs") || seq(w, "fg") || seq(w, "bg") || seq(w, "exit");
 }
 
 // A stage is a run of words between `|`s: its argv, and the pipe ends
@@ -871,6 +872,27 @@ static int run_simple(struct tosh *sh, const char **argv, int argc,
         return TOSH_ST_ERROR;
     }
 
+    if (seq(cmd, "exit")) {
+        // POSIX's: N, else the last command's status. A word that is not
+        // a number ends nothing -- the session staying up is the safe
+        // reading of a typo.
+        int code = sh->last_status;
+        if (arg1) {
+            char *end = 0;
+            long v = strtol(arg1, &end, 10);
+            if (end == arg1 || *end) {
+                emit(sh, "exit: ");
+                emit(sh, arg1);
+                emit(sh, ": not a number\n");
+                sh->last_status = TOSH_ST_ERROR;
+                return TOSH_ST_ERROR;
+            }
+            code = (int)v;
+        }
+        sh->exit_requested = 1;
+        sh->exit_code = code & 0xff;   // a status is a byte
+        return 0;
+    }
     if (seq(cmd, "cd"))   { bi_cd(sh, arg1);  return 0; }
     if (seq(cmd, "jobs")) { bi_jobs(sh);       return 0; }
     if (seq(cmd, "fg"))   { return bi_fg(sh, arg1); }
@@ -894,6 +916,7 @@ static int run_simple(struct tosh *sh, const char **argv, int argc,
                  "  fg [N]        bring job N to the foreground (the latest by default)\n"
                  "  bg [N]        resume stopped job N in the background\n"
                  "  help          show this text\n"
+                 "  exit [N]      end the session, with status N (the last one's by default)\n"
                  "\n"
                  "Command lines:\n"
                  "  a | b         send a's output to b (up to four stages)\n"
@@ -1077,6 +1100,10 @@ static int run_pipeline(struct tosh *sh, struct tosh_stage *st, int n,
             st[i].out_fd = -1;
         }
     }
+    // `exit | cat` ends nothing: in bash every stage of a pipeline is a
+    // subshell, and leaving the session from the middle of one would be
+    // a surprise that shell never springs.
+    if (n > 1) sh->exit_requested = 0;
 
     // THE SPAWNED STAGES, in pipeline order. A stage that failed to
     // start has no pid and is skipped -- it produced nothing and there

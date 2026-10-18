@@ -35,6 +35,13 @@ session from a local one. `Ctrl-C` interrupts a job, `Ctrl-Z` suspends
 it, `jobs`/`fg`/`bg` work, and `less` and `edit` size themselves to
 your actual window.
 
+**Ending a session.** `exit` (or Ctrl-D at an empty prompt) ends the
+shell, and the session ends with it: `telnetd` hangs up anything the
+shell left running and closes the connection, so the client sees it
+close. From the client's side, `telnet`'s own escape (Ctrl+], then
+`quit`) works as with any server; on a Nordic layout ^] is usually
+Ctrl+¨ or Ctrl+5, or pick another with `telnet -e`.
+
 ## The protocol, and what is negotiated
 
 `telnetd` offers **ECHO** and **SGA** (suppress go-ahead) and asks for

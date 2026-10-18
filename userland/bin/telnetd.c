@@ -113,10 +113,15 @@ static void *shell_to_client(void *arg) {
         }
         sock_write(out, o);
     }
-    // The shell is gone: closing our end is what makes the client's
-    // read return, so it sees the session end rather than hanging.
-    close(g_sock_out);
-    return 0;
+    // THE SHELL IS GONE (`exit`, Ctrl-D), so the session is: the client
+    // sees the connection close only when EVERY descriptor on the socket
+    // is -- and it is fd 0 as well as fd 1, held by main()'s read of the
+    // client, so closing this end alone sent nothing and the session
+    // hung. Ending the PROCESS closes both (SYS_EXIT is exit_group,
+    // abi/syscall_abi.h), after the same hangup main() gives a job left
+    // running in the session's group.
+    sys_kill(-g_child, SIGHUP);
+    exit(0);
 }
 
 // --- the client's input -----------------------------------------------

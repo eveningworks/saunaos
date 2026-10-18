@@ -63,6 +63,11 @@ struct tosh {
     tosh_out_fn out;
     void *ctx;
     int last_status; // exit code of the last external command
+    // `exit [N]` was run: the FRONT END ends the session after this
+    // line, with `exit_code`. The library cannot end it -- it is a loop
+    // of the front end's, in the front end's process.
+    int exit_requested;
+    int exit_code;
     // The first line of `help`, or NULL: the PROGRAM's, since it knows
     // the build -- this library is in libuapp.so, and a version compiled
     // in here would change the library on every commit.
