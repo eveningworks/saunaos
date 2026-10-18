@@ -39,10 +39,12 @@
 // the nearest free cell instead (desktop.c's nearest_free_cell()) --
 // icons never silently overlap.
 
-// Fills the area below the taskbar with the desktop background and
-// draws the icon grid + hover/select highlight -- called from
-// wm_render_frame() in place of its old bare gfx_clear() fill.
-void desktop_draw(void);
+// The desktop, in two halves the compositor calls separately: the
+// background (wallpaper or colour) under the current clip, as often as
+// it has visible pieces, then the icon grid with its hover and selection
+// highlight once over them all (wm_render.c's draw_desktop_visible()).
+void desktop_draw_background(void);
+void desktop_draw_icons(void);
 
 // The BACKGROUND alone -- wallpaper or plain colour, no icons -- into a
 // screen-sized `dst`, for wm_glass.c's blurred-wallpaper cache; and a
@@ -65,7 +67,7 @@ void desktop_poll_config(void);
 // wm_run() loop every tick, same shape as wm_input.c's
 // wm_update_drag_resize(): while the left button stays held, the
 // dragged icon's live pixel position follows the cursor (drawn by
-// desktop_draw() at that position instead of its cell); on release,
+// desktop_draw_icons() at that position instead of its cell); on release,
 // the icon snaps to and commits whichever cell is nearest the drop
 // point and its new position is persisted. A no-op when no drag is in
 // progress (armed by desktop_handle_click() below).

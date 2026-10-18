@@ -591,7 +591,7 @@ gui compositor [--json]  the registered compositor pid, queue depth, drops,
                          the client ping round trip, and WHAT A FRAME COST --
                          full-screen and damage-limited kept apart, since they
                          differ by an order of magnitude -- and where it went:
-                         desktop, shadow, glass, chrome, client, taskbar,
+                         desktop, icons, shadow, glass, chrome, client, taskbar,
                          overlay, cursor, present (userland/wm/wm_prof.h)
 gui compositor reset     zero the frame-cost stats, to scope a measurement to an
                          interval instead of averaging since boot

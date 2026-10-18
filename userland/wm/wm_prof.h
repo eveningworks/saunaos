@@ -13,7 +13,8 @@
 
 enum wm_stage {
     WMS_OTHER,     // what no stage below claims: damage, culling, bookkeeping
-    WMS_DESKTOP,   // the wallpaper and the icon grid
+    WMS_DESKTOP,   // the wallpaper
+    WMS_ICONS,     // the desktop's icon grid over it
     WMS_SHADOW,
     WMS_GLASS,     // blur and tint behind see-through surfaces
     WMS_CHROME,    // title bars, frames, corners, the resize grip

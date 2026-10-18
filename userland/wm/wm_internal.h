@@ -549,7 +549,12 @@ unsigned wm_clock_ticks(void);
 // them left nothing of them visible in the frame's damage (wm_render.c's
 // visible regions) -- in the last scene frame and since `gui compositor
 // reset`, over `frames` frames. A window outside the damage is neither.
-struct wm_cull_stats { unsigned drawn, culled, drawn_total, culled_total, frames; };
+struct wm_cull_stats {
+    unsigned drawn, culled, drawn_total, culled_total, frames;
+    // The desktop stage: its wallpaper passes and the pixels they drew.
+    unsigned desk_passes;
+    unsigned long long desk_px_drawn;
+};
 void wm_cull_stats(struct wm_cull_stats *out);
 // Client presents whose damage list named nothing on screen, since boot
 // (wm_client.c): each drew NO frame.

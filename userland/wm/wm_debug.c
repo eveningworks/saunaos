@@ -1708,9 +1708,11 @@ static void cmd_compositor(struct dbg_out *o, int json) {
         }
         dbg_out_printf(o, "\"windows\":{\"drawn\":%u,\"culled\":%u,\"drawn_total\":%u,"
                           "\"culled_total\":%u,\"frames\":%u,\"presents_unchanged\":%u,"
-                          "\"presents_full\":%u}}\r\n",
+                          "\"presents_full\":%u},",
                     cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames,
                     wm_client_presents_unchanged(), wm_client_presents_full());
+        dbg_out_printf(o, "\"desktop\":{\"passes\":%u,\"px_drawn\":%llu}}\r\n",
+                    cs.desk_passes, cs.desk_px_drawn);
     } else if (!pid) {
         dbg_out_write(o, "compositor: none registered\r\n");
     } else {
@@ -1722,6 +1724,8 @@ static void cmd_compositor(struct dbg_out *o, int json) {
                     fp_last, fp_max, fp_avg, fp_n);
         dbg_out_printf(o, "  windows drawn/culled: last frame %u/%u, %u/%u over %u frames\r\n",
                     cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames);
+        dbg_out_printf(o, "  desktop: %u wallpaper passes, %llu px\r\n",
+                    cs.desk_passes, cs.desk_px_drawn);
         dbg_out_printf(o, "  pixel loops: %s\r\n", ugfx_simd());
         for (int b = 1; b >= 0; b--) {
             dbg_out_printf(o, "  stages us %s:", b ? "full" : "damage-limited");

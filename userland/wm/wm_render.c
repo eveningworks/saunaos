@@ -2157,9 +2157,11 @@ static void draw_one_window(int i, int focus, int covered, int has_damage, int l
     apply_scene_clip(has_damage);
 }
 
-// The wallpaper and the icons, where no opaque window covers them --
-// in passes as a window is, but with fewer: every pass draws every icon.
-#define DESKTOP_PASS_MAX 4
+// The wallpaper and the icons, where no opaque window covers them. The
+// WALLPAPER goes rect by rect, however many -- each is a copy -- and the
+// ICONS once, clipped to the rects' bounding box: an icon drawn where a
+// window then paints over it costs a few pixels, but the box for the
+// wallpaper cost a dragged frame on the ASUS 40x the desktop it showed.
 static void draw_desktop_visible(int focus, int covered, int has_damage) {
     struct urect box;
     scene_box(has_damage, &box);
@@ -2167,18 +2169,20 @@ static void draw_desktop_visible(int focus, int covered, int has_damage) {
     uregion_init_rect(&vis, box.x, box.y, box.w, box.h);
     if (!g_cull_off && wm_peek_highlight_index() < 0) subtract_occluders(&vis, -1, focus, covered);
     if (uregion_is_empty(&vis)) return;
-    if (vis.n > DESKTOP_PASS_MAX) {
-        uregion_bbox(&vis, &vis.r[0]);
-        vis.n = 1;
-    }
+    g_cull.desk_passes += (unsigned)vis.n;
+    g_cull.desk_px_drawn += (unsigned long long)uregion_area(&vis);
+    int was = wm_stage(WMS_DESKTOP);
     for (int k = 0; k < vis.n; k++) {
         g_pass = vis.r[k];
         g_pass_on = 1;
         apply_scene_clip(has_damage);
-        int was = wm_stage(WMS_DESKTOP);
-        desktop_draw();   // background + icon grid, see desktop.h
-        wm_stage(was);
+        desktop_draw_background();
     }
+    uregion_bbox(&vis, &g_pass);
+    apply_scene_clip(has_damage);
+    wm_stage(WMS_ICONS);
+    desktop_draw_icons();
+    wm_stage(was);
     g_pass_on = 0;
     apply_scene_clip(has_damage);
 }
@@ -2426,7 +2430,7 @@ void wm_frame_stats_reset(void) {
     struct frame_stats z = { 0, 0, 0, 0, 0, 0 };
     g_frame_full = z;
     g_frame_partial = z;
-    struct wm_cull_stats c = { 0, 0, 0, 0, 0 };
+    struct wm_cull_stats c = { 0 };
     g_cull = c;
 }
 

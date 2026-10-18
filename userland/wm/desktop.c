@@ -125,7 +125,7 @@ static int positions_loaded = 0;
 // The active icon drag, if any -- armed by desktop_handle_click() on
 // mouse-down over an icon, driven by desktop_update_drag() each tick,
 // ended on mouse-up. drag_px/drag_py are the dragged icon's live pixel
-// position while drag.active (desktop_draw() reads them instead of the
+// position while drag.active (desktop_draw_icons() reads them instead of the
 // icon's cell position); see ui_icon_grid.h for the reusable geometry/
 // session this is built on.
 static struct icon_drag drag = { .active = 0, .index = -1 };
@@ -198,12 +198,12 @@ static void spawn_argv(char *const *argv);
 // ~144px pitch driven solely by "Task Manager" in column 0 row 2, while
 // the row-0 icons that were actually adjacent needed ~94px. A fixed
 // pitch is the standard real-desktop tradeoff (Windows/GNOME both do
-// it), and it is what desktop_draw() clips labels against.
+// it), and it is what desktop_draw_icons() clips labels against.
 //
 // The value used to be DESKTOP_ICON_ROW_H -- square 76px cells. That
 // was survivable only while the desktop was one column deep: a long
 // label ran off to the right over empty background and stayed readable,
-// which desktop_draw()'s comment recorded as an accepted quirk. Adding
+// which desktop_draw_icons()'s comment recorded as an accepted quirk. Adding
 // a second column ended that -- the overflow landed on the neighbouring
 // column's labels and both became unreadable. Clipping alone was not
 // the fix either: at 76px only ~7 characters fit, turning "Control
@@ -1122,11 +1122,21 @@ static void draw_peeks(int i, int x, int y, int px) {
     }
 }
 
-void desktop_draw(void) {
+void desktop_draw_background(void) { draw_background(); }
+
+// Does x,y,w,h meet the surface's clip? An icon's glyphs, its glass and
+// its label are composed before clipping discards them, so the icon
+// pass asks first: a dragged window's damage rarely reaches the icons,
+// and drawing all of them anyway was most of the desktop stage's time.
+static int meets_clip(int x, int y, int w, int h) {
+    struct ugfx_clip c;
+    ugfx_clip_save(wm_surface(), &c);
+    return !c.active || (x < c.x1 && y < c.y1 && x + w > c.x0 && y + h > c.y0);
+}
+
+void desktop_draw_icons(void) {
     desktop_load_positions();
     struct icon_grid g = current_grid();
-
-    draw_background();
 
     // White on the wallpaper whatever the theme: a label is drawn over a
     // picture, not a page, and UTHEME_WHITE is the theme's FIELD colour --
@@ -1160,6 +1170,14 @@ void desktop_draw(void) {
         // The cell's x is the column's left; the icon sits centred.
         int cell_x = x;
         int px = icon_px();
+        {   // the cell and its highlight, a few pixels more for the shadow
+            int hx, hy, hw, hh;
+            icon_hl_rect(cell_x, y, &hx, &hy, &hw, &hh);
+            int x0 = hx < cell_x ? hx : cell_x, y0 = hy < y ? hy : y;
+            int x1 = hx + hw > cell_x + g.cell_w ? hx + hw : cell_x + g.cell_w;
+            int y1 = hy + hh > y + g.cell_h ? hy + hh : y + g.cell_h;
+            if (!meets_clip(x0 - 4, y0 - 4, x1 - x0 + 8, y1 - y0 + 8)) continue;
+        }
         x += icon_dx();
 
         int selected = rb_is_selected(&sel, i);
@@ -1271,7 +1289,10 @@ void desktop_draw(void) {
         // Bottom line sits one line above the taskbar; the block grows
         // UPWARDS, so adding a third line later moves nothing.
         int base_y = (screen_h - taskbar_h) - line_h - 8;
-        for (int i = 0; i < 2; i++) {
+        int widest = ugfx_text_width(lines[0]) > ugfx_text_width(lines[1])
+                   ? ugfx_text_width(lines[0]) : ugfx_text_width(lines[1]);
+        int skip = !meets_clip(screen_w - widest - 16, base_y - line_h - 4, widest + 16, 2 * line_h + 8);
+        for (int i = 0; i < 2 && !skip; i++) {
             int w = ugfx_text_width(lines[i]);
             // Each line right-aligned on its own width, so the two stay
             // flush to the same edge whatever the font or the strings.
@@ -1523,9 +1544,9 @@ static void reflow_overflow(void) {
 }
 
 // Extra top margin damage_icon_row()/desktop_update_drag() pad their
-// strip by -- desktop_draw()'s selection-highlight rect
+// strip by -- desktop_draw_icons()'s selection-highlight rect
 // (icon_selected_bg) draws 4px ABOVE an icon's own y (`y - 4`, see
-// desktop_draw()), which a strip anchored exactly at y wouldn't
+// desktop_draw_icons()), which a strip anchored exactly at y wouldn't
 // otherwise cover, leaving a thin stale sliver of highlight behind
 // mid-drag (found by actually dragging an icon and looking, not by
 // inspection -- see docs/decisions.md).

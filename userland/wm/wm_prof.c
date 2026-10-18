@@ -3,7 +3,7 @@
 #include <stdint.h>
 
 static const char *const NAME[WMS_COUNT] = {
-    "other", "desktop", "shadow", "glass", "chrome", "client",
+    "other", "desktop", "icons", "shadow", "glass", "chrome", "client",
     "taskbar", "overlay", "cursor", "present",
 };
 
