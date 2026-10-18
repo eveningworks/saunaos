@@ -121,6 +121,7 @@ and job control is what a terminal on that TTY makes possible.
 - [x] ~~A standalone `/bin/tosh`, so the ring-3 shell is a program and not only a library~~ DONE 2026-08-19
 - [x] ~~stdin redirection in `SYS_SPAWN`~~ DONE 2026-08-19 -- by INHERITANCE, so every fd carries over, not just 0
 - [x] ~~init starting `/bin/tosh` on the `text` target, in place of the kernel shell~~ DONE 2026-08-19
+- [x] ~~An `exit` builtin in `/bin/tosh`~~ DONE 2026-10-18 -- and `telnetd` closes the session when its shell ends
 - [x] ~~**`dup`/`dup2`-style fd plumbing**, so the shell can wire an arbitrary fd to 0/1/2~~ DONE 2026-08-19
 - [x] ~~A per-process cwd~~ DONE 2026-08-19 -- in the kernel, inherited across spawn; every path syscall resolves against it
 - [x] ~~`/bin/tosh` still has `ls`/`echo` builtins beside the `/bin` programs~~ DONE 2026-08-22 -- three left, and each has to be one
@@ -204,6 +205,7 @@ only expensive part of it.
 - [ ] A `kernel_fpu_begin()`/`kernel_fpu_end()` bracket
 - [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- glass DONE 2026-10-18, the rest next **NEXT**
 - [ ] AVX/XSAVE support -- AVX/AVX2 fault today (FXSAVE state only, CR4.OSXSAVE off); all three test machines have AVX2
+- [x] ~~`memcpy`/`memset`/`memmove` a byte at a time, in both rings~~ DONE 2026-10-18 -- `rep movsb`/`stosb`, `cld` on every entry
 - [x] ~~`fork()`-style address-space duplication (copy-on-write)~~ DONE 2026-09-11 -- `SYS_FORK`, `/tests/fork_test`
 - [x] ~~`exec()`-style in-place process replacement~~ DONE 2026-09-11 -- `SYS_EXEC` takes `struct spawn_msg`; loads before it tears down
 - [x] ~~`wait()`/exit-status reporting for a parent process~~ DONE -- `SYS_WAITPID` takes an out-parameter for the exit code
@@ -1451,6 +1453,7 @@ this to be better?".
 - [ ] A ramfs root is EMPTY -- no `/bin`, so a diskless boot has a filesystem and no programs
 - [x] ~~The shell's command dispatch is a long `if/else` chain, and the fix is not the obvious one~~ DONE 2026-10-07 -- `SHELL_BUILTINS`
 - [ ] Settings: a ring-3 settings daemon (stage 2)
+- [x] ~~Setting names as a tree, kernel facts in it too~~ DONE 2026-10-18 -- dotted paths, `config get <branch>`, old names aliased
 - [x] ~~The ring-3 WM busy-waits instead of sleeping~~ DONE 2026-08-29 -- `SYS_WAIT_READY`, a wait with a deadline that consumes nothing
 - [x] ~~There is no `uui_grid` widget until a second grid-shaped app wants one~~ DONE 2026-10-09 -- the Character Map
 - [x] ~~The kernel ships ~62 KB of `.eh_frame` unwind tables nothing can ever read~~ DONE 2026-09-12

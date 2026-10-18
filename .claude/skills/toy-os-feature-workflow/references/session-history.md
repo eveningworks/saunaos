@@ -696,3 +696,31 @@ version broke the second unveil call (the ring-3 test caught it); a
 worth it before proposing; and the first in-situ run, not the tests, found
 what the sandbox hid (locale and settings files) -- boot it and read the
 refusals before calling a sandbox done.
+
+**2026-10-18 (glass SIMD, the copies under it, System Update, `exit`, a
+settings tree).** Glass in SSE2 behind a per-process `ugfx_pix` table,
+byte-identical to C (5a9bc2f5); then the ASUS's stage timer pointed past
+the SIMD at `memcpy` being a byte loop in both rings (6a5c0670), then at
+the desktop filling the screen under an opaque wallpaper (4acc2a5f) --
+a dragged frame 13.6 -> 5.9 ms. System Update's server dialog with Test
+and the channel times (S3 + C2 from a canvas); tosh's `exit`, which
+found telnetd never closing a session its shell had left (310ac808);
+dotted setting names with a tree `config get` and facts beside them,
+old names aliased in the shared /etc parser (447eac07). Lessons:
+- **Measure on the hardware after the SIMD, not just the SIMD**: 6x on
+  the host was 2x on the ASUS because two plain copies a frame were byte
+  loops -- `gui simd off/auto` in one boot made the gap visible.
+- **A suite that fails more after a change gets a baseline run of the
+  old code, and a suspected mechanism gets a measurement** -- "rep movsb
+  is slow under TCG" was disproven in a minute with `qemu-x86_64`.
+- **A rename across the tree has four reference shapes, and a string
+  replace finds two**: qualified literals and bare quoted keys, but not
+  key PREFIXES in file-content checks (`"cursor_theme="`), substring
+  tests (`"mouse_" in name`), names built at runtime (`"desktop.tray_%s"`,
+  f-strings), or a program with its OWN /etc parser (`libc/locale.c`).
+  The full suite found the rest; budget a second round.
+- **A name that becomes a value AND a branch changes what `config get`
+  prints**, and callers read its first or LAST line -- keep the bare
+  value as the first line and fix the last-line readers.
+- **`seed/sync` kept the renamed descriptors' old files** (the CLAUDE.md
+  trap): every renamed setting showed twice until `make clean`.
