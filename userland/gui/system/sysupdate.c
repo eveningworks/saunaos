@@ -12,7 +12,13 @@
 // the one in use and Change channel... opens it as a dialog (the U3
 // mockup, 2026-10-18). A channel BEHIND this machine is never installed
 // silently: choosing one asks to go back or to wait, and a check of one
-// that is behind says it is waiting (V_WAITING).
+// that is behind says it is waiting (V_WAITING). Each row says whether its
+// build is newer than this machine's, the same, or older.
+//
+// THE SERVER is Change server...'s dialog (the S3 mockup, 2026-10-18): the
+// address, the recent ones as rows, and Test, which asks the address for
+// its channel list WITHOUT changing a setting -- Ubuntu's "Select Best
+// Server" shape -- so a typo is found before Use.
 //
 // THREADS: a check or an install runs on a worker, which owns the plan
 // while it runs and talks to this thread ONLY through uapp_post() and
@@ -41,10 +47,10 @@
 #include "update/upd.h"
 
 enum { EV_LOG = 1, EV_PROGRESS, EV_DONE, EV_WEB };
-enum { JOB_NONE, JOB_CHECK, JOB_APPLY };
+enum { JOB_NONE, JOB_CHECK, JOB_APPLY, JOB_TEST };
 
 enum {
-    ID_CHANGE = 1, ID_SERVER_EDIT, ID_RECENT, ID_USE, ID_EDIT_CANCEL,
+    ID_CHANGE = 1, ID_SERVER_EDIT, ID_TEST, ID_SERVERS,
     ID_TABLE, ID_LOGVIEW, ID_TABS, ID_NOTES, ID_CHECK, ID_MAIN, ID_CHANNEL, ID_DIALOG,
     ID_CHOICES,
 };
@@ -70,6 +76,13 @@ static int g_go_back;               // installing a build older than this machin
 static int g_job;                   // JOB_*, set here, cleared here on EV_DONE
 static volatile int g_cancel;
 static int g_job_rc;
+// Test's question and answer (JOB_TEST): the address as typed, and what it said.
+static char g_test_url[UPD_URL_MAX];
+static struct upd_channels g_test_chs;
+static char g_test_err[200];
+static int g_test_rc;
+static unsigned long long g_test_ns;
+static int g_check_after_test;      // Use was pressed while Test was out
 
 // Log lines cross threads through this queue; EV_LOG says "drain it".
 #define LOGQ 64
@@ -87,23 +100,52 @@ static char g_title_text[64], g_detail_text[200], g_amount_text[64], g_rate_text
 static struct uui_label g_title, g_detail, g_server_key, g_server_val, g_amount, g_rate, g_spacer;
 static struct uui_label g_chan_key, g_chan_val;
 static char g_chan_text[40];
-static struct uui_button g_change, g_use, g_edit_cancel, g_check, g_main, g_chan_btn;
+static struct uui_button g_change, g_check, g_main, g_chan_btn;
 static char g_main_label[48];
 static struct uui_dialog g_dlg;
 static struct uui_choicelist g_choices;
 static struct uui_choice g_choice[UPD_CHANNELS_MAX];
 static int g_choice_ch[UPD_CHANNELS_MAX];   // channel index per row
 static char g_choice_tags[UPD_CHANNELS_MAX][24], g_choice_val[UPD_CHANNELS_MAX][64];
+static const char *g_choice_badge[UPD_CHANNELS_MAX];
 static char g_dlg_line[3][160];
 static const char *g_dlg_rows[3] = { g_dlg_line[0], g_dlg_line[1], g_dlg_line[2] };
 static int g_back_to = -1;                 // the channel the going-back question is about
 static int g_log_dialog;                   // report the open dialog's rects at the next tick
 static struct uui_item g_choices_item = { .ops = &uui_choicelist_ops, .widget = &g_choices,
                                           .id = ID_CHOICES, .name = "channels" };
+
+// The server dialog's body: the address and Test, the recent ones, and
+// what Test found.
 static struct uui_textbox g_edit;
-static struct uui_dropdown g_recent;
-static char g_recent_urls[UPD_RECENT_MAX][UPD_URL_MAX];
-static const char *g_recent_items[UPD_RECENT_MAX + 1];
+static struct uui_button g_test;
+static struct uui_label g_addr_key, g_recent_key, g_test_line, g_test_line2;
+static char g_test_text[200], g_test_text2[160];
+static struct uui_choicelist g_servers;
+static struct uui_choice g_server_rows[UPD_RECENT_MAX + 1];
+static char g_recent_urls[UPD_RECENT_MAX + 1][UPD_URL_MAX];
+static struct uui_item g_addr_items[] = {
+    // FILL_H: the field takes the row's height, the Test button's.
+    { .ops = &uui_textbox_ops, .widget = &g_edit, .id = ID_SERVER_EDIT, .name = "serveredit",
+      .flags = UUI_FILL_W | UUI_FILL_H },
+    { .ops = &uui_button_ops,  .widget = &g_test, .id = ID_TEST, .name = "test" },
+};
+static struct uui_layout g_addr_row = {
+    .dir = UUI_ROW, .items = g_addr_items, .count = sizeof g_addr_items / sizeof g_addr_items[0],
+};
+static struct uui_item g_srv_items[] = {
+    { .ops = &uui_label_ops,      .widget = &g_addr_key },
+    { .ops = &uui_layout_ops,     .widget = &g_addr_row, .flags = UUI_FILL_W },
+    { .ops = &uui_label_ops,      .widget = &g_recent_key },
+    { .ops = &uui_choicelist_ops, .widget = &g_servers, .id = ID_SERVERS, .name = "servers",
+      .flags = UUI_FILL_W },
+    { .ops = &uui_label_ops,      .widget = &g_test_line, .name = "testresult", .flags = UUI_FILL_W },
+    { .ops = &uui_label_ops,      .widget = &g_test_line2, .name = "testdetail", .flags = UUI_FILL_W },
+};
+static struct uui_layout g_srv_col = {
+    .dir = UUI_COLUMN, .gap = 4, .items = g_srv_items, .count = sizeof g_srv_items / sizeof g_srv_items[0],
+};
+static struct uui_item g_srv_item = { .ops = &uui_layout_ops, .widget = &g_srv_col, .name = "server" };
 static struct uui_progress g_bar;
 static struct uui_table g_table;
 static struct uui_textview g_log;
@@ -149,16 +191,6 @@ static struct uui_layout g_server_row = {
     .dir = UUI_ROW, .items = g_server_items,
     .count = sizeof g_server_items / sizeof g_server_items[0],
 };
-static struct uui_item g_edit_items[] = {
-    { .ops = &uui_textbox_ops,  .widget = &g_edit, .id = ID_SERVER_EDIT, .name = "serveredit",
-      .flags = UUI_FILL_W },
-    { .ops = &uui_dropdown_ops, .widget = &g_recent, .id = ID_RECENT, .name = "recent" },
-    { .ops = &uui_button_ops,   .widget = &g_use, .id = ID_USE, .name = "use" },
-    { .ops = &uui_button_ops,   .widget = &g_edit_cancel, .id = ID_EDIT_CANCEL, .name = "editcancel" },
-};
-static struct uui_layout g_edit_row = {
-    .dir = UUI_ROW, .items = g_edit_items, .count = sizeof g_edit_items / sizeof g_edit_items[0],
-};
 static struct uui_item g_amount_items[] = {
     { .ops = &uui_label_ops, .widget = &g_amount, .name = "amount", .flags = UUI_FILL_W },
     { .ops = &uui_label_ops, .widget = &g_rate, .name = "rate" },
@@ -193,13 +225,10 @@ static struct uui_layout g_page = {
     .count = sizeof g_page_items / sizeof g_page_items[0],
 };
 
-// Indices into g_items for the row that comes and goes.
-enum { ITEM_EDIT = 3 };
 static struct uui_item g_items[] = {
     { .ops = &uui_label_ops,    .widget = &g_title, .name = "title" },
     { .ops = &uui_label_ops,    .widget = &g_detail, .name = "detail", .flags = UUI_FILL_W },
     { .ops = &uui_layout_ops,   .widget = &g_server_row, .flags = UUI_FILL_W },
-    { .ops = &uui_layout_ops,   .widget = &g_edit_row, .flags = UUI_FILL_W, .hidden = 1 },
     { .ops = &uui_progress_ops, .widget = &g_bar, .name = "bar", .flags = UUI_FILL_W },
     { .ops = &uui_layout_ops,   .widget = &g_amount_row, .flags = UUI_FILL_W },
     { .ops = &uui_layout_ops,   .widget = &g_page, .flags = UUI_FILL_W | UUI_FILL_H },
@@ -215,10 +244,6 @@ static struct uui_layout g_root = {
 static struct uui_focusable g_focusables[] = {
     { &g_chan_btn, &uui_button_ops },
     { &g_change, &uui_button_ops },
-    { &g_edit, &uui_textbox_ops },
-    { &g_recent, &uui_dropdown_ops },
-    { &g_use, &uui_button_ops },
-    { &g_edit_cancel, &uui_button_ops },
     { &g_table, &uui_table_ops },
     { &g_check, &uui_button_ops },
     { &g_main, &uui_button_ops },
@@ -254,7 +279,12 @@ static const struct upd_hooks HOOKS = {
 
 static void *worker(void *arg) {
     int job = (int)(long)arg;
-    if (job == JOB_CHECK) {
+    if (job == JOB_TEST) {
+        unsigned long long t0 = sys_monotonic_ns();
+        g_test_err[0] = 0;
+        g_test_rc = upd_channels_fetch(g_test_url, &g_test_chs, g_test_err, sizeof g_test_err);
+        g_test_ns = sys_monotonic_ns() - t0;
+    } else if (job == JOB_CHECK) {
         upd_plan_free(&g_plan);
         char err[200] = "";
         if (upd_resolve(g_server, g_want[0] ? g_want : NULL, g_url, sizeof g_url, &g_chs,
@@ -576,8 +606,14 @@ static void drain_log(void) {
     pthread_mutex_unlock(&g_logq_lock);
 }
 
+static void test_done(struct uapp *a);
+
 static void job_done(struct uapp *a, int job) {
     g_job = JOB_NONE;
+    if (job == JOB_TEST) {
+        test_done(a);
+        return;
+    }
     if (job == JOB_CHECK) {
         upd_server_get(g_server, sizeof g_server);   // an old .../stable may have been split
         g_want[0] = '\0';
@@ -611,35 +647,147 @@ static void job_done(struct uapp *a, int job) {
     uapp_log_layout(a, "sysupdate");   // the tab slots, for a test to click (ui/uui_describe.h)
 }
 
-// ---- the server editor --------------------------------------------------------
+// ---- the server dialog ----------------------------------------------------------
 
-static void show_editor(struct uapp *a, int on) {
-    g_items[ITEM_EDIT].hidden = !on;
-    if (on) {
-        uui_textbox_set_text(&g_edit, g_server);
-        int n = upd_recent(g_recent_urls, UPD_RECENT_MAX);
-        g_recent_items[0] = "Recent";
-        for (int i = 0; i < n; i++) g_recent_items[i + 1] = g_recent_urls[i];
-        uui_dropdown_init(&g_recent, 0, 0, 0, 0, g_recent_items, n + 1);
-        uui_focus_set(&g_focus, 1);
-    }
-    relayout(a);
-    uapp_redraw(a);
+static void open_dialog(struct uapp *a, const char *title, int rows,
+                        const struct uui_dialog_button *b, int n, int dflt);
+
+static void test_say(const char *line1, const char *line2) {
+    snprintf(g_test_text, sizeof g_test_text, "%s", line1);
+    snprintf(g_test_text2, sizeof g_test_text2, "%s", line2);
+    uui_label_set_text(&g_test_line, g_test_text);
+    uui_label_set_text(&g_test_line2, g_test_text2);
 }
 
-static void use_server(struct uapp *a) {
-    const char *url = uui_textbox_text(&g_edit);
-    if (upd_server_set(url) != 0) {
-        snprintf(g_detail_text, sizeof g_detail_text,
-                 "Not saved: the address must start with http:// and fit in 63 characters");
-        uui_label_set_text(&g_detail, g_detail_text);
+// The recent addresses as rows, the one in use badged; the field's
+// address selected when it is one of them.
+static void server_rows(void) {
+    int n = upd_recent(g_recent_urls, UPD_RECENT_MAX), have = 0;
+    for (int i = 0; i < n; i++) have |= !strcmp(g_recent_urls[i], g_server);
+    if (!have && g_server[0]) {   // in use but never Used here: an image's default
+        memmove(g_recent_urls[1], g_recent_urls[0], (size_t)n * sizeof g_recent_urls[0]);
+        snprintf(g_recent_urls[0], sizeof g_recent_urls[0], "%s", g_server);
+        n++;
+    }
+    int sel = -1;
+    for (int i = 0; i < n; i++) {
+        int cur = !strcmp(g_recent_urls[i], g_server);
+        g_server_rows[i] = (struct uui_choice){ .title = g_recent_urls[i], .badge = cur ? "in use" : 0 };
+        if (!strcmp(g_recent_urls[i], uui_textbox_text(&g_edit))) sel = i;
+    }
+    uui_choicelist_init(&g_servers, g_server_rows, n, sel);
+}
+
+// Up, with the field, rows and result as they are: a commit closes the
+// dialog, so a refused Use puts it back this way.
+static void show_server(struct uapp *a) {
+    snprintf(g_dlg_line[0], sizeof g_dlg_line[0],
+             "The address this machine checks for updates, starting http:// or https://.");
+    static const struct uui_dialog_button b[] = {
+        { "Cancel", DLG_CANCEL, 0 }, { "Use", DLG_USE, UUI_DLG_PRIMARY },
+    };
+    open_dialog(a, "Update server", 1, b, 2, 1);
+    int bw, bh;
+    uui_layout_ops.natural_size(&g_srv_col, &bw, &bh);
+    if (bw < ugfx_char_w() * 60) bw = ugfx_char_w() * 60;
+    uui_dialog_set_body(&g_dlg, &g_srv_item, bw, bh);
+    struct uui_item *tabs[] = { &g_addr_items[0], &g_addr_items[1], &g_srv_items[3] };
+    uui_dialog_set_tabs(&g_dlg, tabs, 3);
+    uui_dialog_focus(&g_dlg, &g_addr_items[0]);
+}
+
+static void open_server(struct uapp *a) {
+    if (g_job != JOB_NONE) return;
+    uui_textbox_set_text(&g_edit, g_server);
+    server_rows();
+    test_say("Test asks the address what it offers, without changing anything.", "");
+    show_server(a);
+    ulogf("sysupdate: server dialog, %d rows\n", g_servers.count);
+}
+
+static void start_test(struct uapp *a) {
+    if (g_job != JOB_NONE) return;
+    snprintf(g_test_url, sizeof g_test_url, "%s", uui_textbox_text(&g_edit));
+    size_t n = strlen(g_test_url);
+    while (n && g_test_url[n - 1] == '/') g_test_url[--n] = '\0';
+    if (strncmp(g_test_url, "http://", 7) && strncmp(g_test_url, "https://", 8)) {
+        test_say("Not tested: the address must start with http:// or https://", "");
         uapp_redraw(a);
         return;
     }
+    char line[200];
+    snprintf(line, sizeof line, "Testing %s ...", g_test_url);
+    test_say(line, "");
+    g_job = JOB_TEST;
+    pthread_attr_t at;
+    pthread_attr_init(&at);
+    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+    pthread_t th;
+    if (pthread_create(&th, &at, worker, (void *)(long)JOB_TEST) != 0) worker((void *)(long)JOB_TEST);
+    refresh(a);
+}
+
+// "Release, Main and Dev" -- the channels this machine would list.
+static void channel_names(const struct upd_channels *c, char *out, size_t cap) {
+    int shown[UPD_CHANNELS_MAX], n = 0, internal = upd_show_internal();
+    for (int i = 0; i < c->count; i++)
+        if (!c->ch[i].internal || internal) shown[n++] = i;
+    out[0] = 0;
+    for (int k = 0; k < n; k++) {
+        size_t l = strlen(out);
+        snprintf(out + l, cap - l, "%s%s", k == 0 ? "" : k == n - 1 ? " and " : ", ", c->ch[shown[k]].title);
+    }
+}
+
+static void test_done(struct uapp *a) {
+    unsigned ms = (unsigned)(g_test_ns / 1000000ULL);
+    char l1[200], l2[160] = "";
+    if (g_test_rc < 0) {
+        snprintf(l1, sizeof l1, "No answer from %s: %s", g_test_url, g_test_err);
+    } else if (g_test_rc == 0) {
+        snprintf(l1, sizeof l1, "Reached in %u ms. It lists no channels, so the address itself is checked.", ms);
+    } else {
+        char names[120];
+        channel_names(&g_test_chs, names, sizeof names);
+        snprintf(l1, sizeof l1, "Reached in %u ms. Offers %s.", ms, names);
+        // The channel this machine would check there: its setting, else
+        // the server's default.
+        char want[24] = "";
+        upd_channel_get(want, sizeof want);
+        int i = -1;
+        for (int k = 0; k < g_test_chs.count && want[0]; k++)
+            if (!strcmp(g_test_chs.ch[k].id, want)) i = k;
+        if (i < 0) i = g_test_chs.dflt >= 0 ? g_test_chs.dflt : 0;
+        const struct upd_channel *c = &g_test_chs.ch[i];
+        if (c->version[0])
+            snprintf(l2, sizeof l2, "%s's newest: %s%s%s", c->title, c->version,
+                     c->built[0] ? ", built " : "", c->built);
+        else
+            snprintf(l2, sizeof l2, "%s has nothing published yet.", c->title);
+    }
+    test_say(l1, l2);
+    ulogf("sysupdate: test %s rc %d channels %d\n", g_test_url, g_test_rc,
+          g_test_rc > 0 ? g_test_chs.count : 0);
+    if (g_check_after_test) {
+        g_check_after_test = 0;
+        start_job(a, JOB_CHECK);
+        return;
+    }
+    refresh(a);
+}
+
+// 1 when the field's address was saved; 0 with the dialog saying why.
+static int use_server(struct uapp *a) {
+    const char *url = uui_textbox_text(&g_edit);
+    if (upd_server_set(url) != 0) {
+        test_say("Not saved: the address must start with http:// or https:// and fit in 63 characters", "");
+        ulogf("sysupdate: server refused\n");
+        uapp_redraw(a);
+        return 0;
+    }
     snprintf(g_server, sizeof g_server, "%s", url);
     ulogf("sysupdate: server %s\n", g_server);
-    show_editor(a, 0);
-    start_job(a, JOB_CHECK);
+    return 1;
 }
 
 // ---- the channel dialog, and going back ---------------------------------------
@@ -658,24 +806,42 @@ static void open_dialog(struct uapp *a, const char *title, int rows,
 static void open_channels(struct uapp *a) {
     if (g_job != JOB_NONE || !g_chs.count) return;
     int n = 0, sel = 0, internal = upd_show_internal();
+    char mv[48], mb[48];
+    upd_machine_build(mv, sizeof mv, mb, sizeof mb);
     for (int i = 0; i < g_chs.count && n < UPD_CHANNELS_MAX; i++) {
         const struct upd_channel *c = &g_chs.ch[i];
         if (c->internal && !internal && i != g_chs.chosen) continue;
         snprintf(g_choice_tags[n], sizeof g_choice_tags[n], "%s%s%s", i == g_chs.dflt ? "default" : "",
                  i == g_chs.dflt && c->internal ? " " : "", c->internal ? "internal" : "");
-        if (c->version[0])
-            snprintf(g_choice_val[n], sizeof g_choice_val[n], "%s%s%.10s", c->version,
+        // The date AND time: two builds a day on one channel are normal.
+        int tone = UUI_BADGE_PLAIN;
+        g_choice_badge[n] = 0;
+        if (c->version[0]) {
+            snprintf(g_choice_val[n], sizeof g_choice_val[n], "%s%s%s", c->version,
                      c->built[0] ? " - " : "", c->built);
-        else
+            if (mv[0]) {
+                int cmp = upd_build_cmp(c->version, c->built, mv, mb);
+                g_choice_badge[n] = cmp > 0 ? "newer" : cmp < 0 ? "older" : "this build";
+                tone = cmp > 0 ? UUI_BADGE_ACCENT : cmp < 0 ? UUI_BADGE_WARN : UUI_BADGE_PLAIN;
+            }
+        } else {
             snprintf(g_choice_val[n], sizeof g_choice_val[n], "nothing yet");
-        g_choice[n] = (struct uui_choice){ c->title, g_choice_tags[n], c->desc, g_choice_val[n] };
+        }
+        g_choice[n] = (struct uui_choice){ c->title, g_choice_tags[n], c->desc, g_choice_val[n],
+                                           g_choice_badge[n], tone };
+        ulogf("sysupdate: channel row %d %s '%s' %s\n", n, c->id, g_choice_val[n],
+              g_choice_badge[n] ? g_choice_badge[n] : "-");
         g_choice_ch[n] = i;
         if (i == g_chs.chosen) sel = n;
         n++;
     }
     uui_choicelist_init(&g_choices, g_choice, n, sel);
-    snprintf(g_dlg_line[0], sizeof g_dlg_line[0], "%s offers %d channel%s.", g_server, n,
-             n == 1 ? "" : "s");
+    if (mv[0])
+        snprintf(g_dlg_line[0], sizeof g_dlg_line[0], "%s offers %d channel%s. This machine runs %s%s%s.",
+                 g_server, n, n == 1 ? "" : "s", mv, mb[0] ? ", built " : "", mb);
+    else
+        snprintf(g_dlg_line[0], sizeof g_dlg_line[0], "%s offers %d channel%s.", g_server, n,
+                 n == 1 ? "" : "s");
     static const struct uui_dialog_button b[] = {
         { "Cancel", DLG_CANCEL, 0 }, { "Use", DLG_USE, UUI_DLG_PRIMARY },
     };
@@ -729,6 +895,18 @@ static void channel_chosen(struct uapp *a, int i) {
 }
 
 static void dialog_answer(struct uapp *a, int code) {
+    if (g_dlg.body == &g_srv_item) {
+        // A refused address keeps the dialog up, saying why.
+        if (code == DLG_USE && !use_server(a)) { show_server(a); return; }
+        uui_dialog_close(&g_dlg);
+        uui_dialog_set_body(&g_dlg, 0, 0, 0);
+        if (code == DLG_USE) {
+            if (g_job == JOB_TEST) g_check_after_test = 1;
+            else start_job(a, JOB_CHECK);
+        }
+        refresh(a);
+        return;
+    }
     int chooser = g_dlg.body == &g_choices_item;
     uui_dialog_close(&g_dlg);
     uui_dialog_set_body(&g_dlg, 0, 0, 0);
@@ -762,19 +940,25 @@ static void on_widget(struct uapp *a, int id, int reason) {
         uapp_redraw(a);
         return;
     }
-    if (id == ID_RECENT && reason == UUI_REASON_RELEASE) {
-        int s = uui_dropdown_selected(&g_recent);
-        if (s > 0) uui_textbox_set_text(&g_edit, g_recent_items[s]);
+    if (id == ID_SERVERS) {
+        if (reason == UUI_REASON_PRESS) uui_dialog_focus(&g_dlg, &g_srv_items[3]);
+        int r = g_servers.selected;
+        if (r >= 0 && r < g_servers.count) uui_textbox_set_text(&g_edit, g_recent_urls[r]);
+        uapp_redraw(a);
+        return;
+    }
+    if (id == ID_SERVER_EDIT && reason == UUI_REASON_PRESS) {
+        uui_dialog_focus(&g_dlg, &g_addr_items[0]);
+        uapp_redraw(a);
         return;
     }
 }
 
 static void on_action(struct uapp *a, int code) {
     switch (code) {
-    case ID_CHANGE:      if (g_job == JOB_NONE) show_editor(a, g_items[ITEM_EDIT].hidden); break;
+    case ID_CHANGE:      open_server(a); break;
     case ID_CHANNEL:     open_channels(a); break;
-    case ID_USE:         use_server(a); break;
-    case ID_EDIT_CANCEL: show_editor(a, 0); break;
+    case ID_TEST:        start_test(a); break;
     case ID_CHECK:       start_job(a, JOB_CHECK); break;
     case ID_MAIN:
         if (g_view == V_CHECKING || g_view == V_INSTALLING) g_cancel = 1;
@@ -792,9 +976,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         int step = key == KEY_PAGE_DOWN ? 1 : PAGE_COUNT - 1;
         show_page(a, (g_tabs.selected + step) % PAGE_COUNT);
         return;
-    }
-    if ((key == '\n' || key == '\r') && !g_items[ITEM_EDIT].hidden) use_server(a);
-}
+    }}
 
 static int on_user(struct uapp *a, int kind, int arg) {
     if (kind == EV_WEB) return uui_webview_on_post(a, kind, arg);
@@ -863,15 +1045,16 @@ int main(void) {
     uui_label_init(&g_rate, g_rate_text);
     uui_label_init(&g_spacer, "");
     uui_button_init(&g_change, 0, 0, 0, 0, "Change server...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CHANGE);
-    uui_button_init(&g_use, 0, 0, 0, 0, "Use", UUI_ROLE(control_bg), UUI_ROLE(text), ID_USE);
-    uui_button_init(&g_edit_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), ID_EDIT_CANCEL);
+    uui_button_init(&g_test, 0, 0, 0, 0, "Test", UUI_ROLE(control_bg), UUI_ROLE(text), ID_TEST);
     uui_button_init(&g_check, 0, 0, 0, 0, "Check again", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CHECK);
     uui_button_init(&g_main, 0, 0, 0, 0, "Restart now", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_MAIN);
-    g_change.outlined = g_use.outlined = g_edit_cancel.outlined = 1;
+    g_change.outlined = g_test.outlined = 1;
     g_check.outlined = 1;
     uui_textbox_init(&g_edit, g_server);
-    g_recent_items[0] = "Recent";
-    uui_dropdown_init(&g_recent, 0, 0, 0, 0, g_recent_items, 1);
+    uui_label_init(&g_addr_key, "Address");
+    uui_label_init(&g_recent_key, "Recent");
+    uui_label_init(&g_test_line, g_test_text);
+    uui_label_init(&g_test_line2, g_test_text2);
     uui_progress_init(&g_bar);
     uui_table_init(&g_table, 0, 0, 0, 0, COLS, (int)(sizeof COLS / sizeof COLS[0]), cell, 0);
     uui_table_set_tint(&g_table, tint);

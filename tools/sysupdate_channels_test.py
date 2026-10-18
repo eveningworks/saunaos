@@ -15,7 +15,13 @@ WHAT IT CHECKS, and what a broken version would still pass:
     question names it, and Wait leaves the machine's file as it was while
     the view says it is waiting -- a window that went back without asking
     passes neither;
-  - Go back then installs it, and `sum` reads the older file.
+  - Go back then installs it, and `sum` reads the older file;
+  - each channel row's build has its TIME and a newer/this build/older
+    badge against this machine (Release's is older);
+  - Change server... is a dialog: Test finds the server's three channels
+    without touching /etc/update.conf, reports an address nothing answers,
+    Use refuses an ftp:// address with the dialog left up, and a recent
+    row plus Use saves and checks it.
 
 The server is tools/update_server.py's handler in this process, three
 channels on an ephemeral loopback port the guest reaches as 10.0.2.2:
@@ -105,6 +111,95 @@ def summed(dbg, path):
     return None
 
 
+def type_text(dbg, text):
+    """Replaces the focused field's text: Ctrl+A (its control code, as a
+    keyboard sends it), then each character."""
+    dbg.key("0x01")
+    for ch in text:
+        dbg.key(ch if ch.isalnum() else f"0x{ord(ch):02x}", settle=False)
+    dbg.settle()
+
+
+def press(dbg, cx, cy, key):
+    r = layout_rect(dbg, key)
+    if r:
+        dbg.click(cx + r[0] + r[2] // 2, cy + r[1] + r[3] // 2)
+    return r
+
+
+def server_dialog(dbg, qmp, out_dir, base, cx, cy):
+    """Change server...: a dialog with the recent rows; Test asks without
+    saving; a bad address is refused with the dialog left up; a row and
+    Use save it and check."""
+    from PIL import Image
+    w = dbg.widgets(TITLE)
+    btn = w.get("change")
+    check("the window has a Change server... button", btn is not None)
+    if not btn:
+        return
+    shut = os.path.join(out_dir, "sysupd_srv_closed.png")
+    qmp.screenshot(shut)   # the same boxes with no dialog over them
+    mark = len(LINES)
+    dbg.click(btn["screen"]["x"] + btn["w"] // 2, btn["screen"]["y"] + btn["h"] // 2)
+    m = wait_for(dbg, r"sysupdate: server dialog, (\d+) rows", mark, timeout=20)
+    check("Change server... opens a dialog listing the recent servers",
+          m is not None and int(m.group(1)) >= 1, m and m.group(0))
+    dbg.settle()
+    logs(dbg)
+    result = layout_rect(dbg, "testresult")
+    if not (result and layout_rect(dbg, "test") and layout_rect(dbg, "servers.row 0")):
+        check("...with the field, Test, the rows and the result line laid out", False)
+        return
+    box = (cx + result[0], cy + result[1], cx + result[0] + result[2], cy + result[1] + result[3])
+    shot0 = os.path.join(out_dir, "sysupd_srv_open.png")
+    qmp.screenshot(shot0)
+
+    conf0 = dbg.send("sh cat /etc/update.conf")
+    mark = len(LINES)
+    press(dbg, cx, cy, "test")
+    m = wait_for(dbg, r"sysupdate: test (\S+) rc (-?\d+) channels (\d+)", mark, timeout=30)
+    check("Test reaches the server and finds its three channels",
+          m is not None and m.group(1) == base and m.group(2) == "1" and m.group(3) == "3", m and m.group(0))
+    dbg.settle()
+    shot1 = os.path.join(out_dir, "sysupd_srv_tested.png")
+    qmp.screenshot(shot1)
+    a, b = Image.open(shot0).convert("RGB"), Image.open(shot1).convert("RGB")
+    check("...and the result is DRAWN (the result line changed)",
+          a.crop(box).tobytes() != b.crop(box).tobytes())
+    check("...without saving anything", dbg.send("sh cat /etc/update.conf") == conf0)
+
+    press(dbg, cx, cy, "serveredit")
+    type_text(dbg, "http://10.0.2.2:9")
+    mark = len(LINES)
+    press(dbg, cx, cy, "test")
+    m = wait_for(dbg, r"sysupdate: test (\S+) rc (-?\d+)", mark, timeout=60)
+    check("Test of an address nothing answers says so",
+          m is not None and m.group(1) == "http://10.0.2.2:9" and m.group(2) == "-1", m and m.group(0))
+
+    type_text(dbg, "ftp://example")
+    mark = len(LINES)
+    press(dbg, cx, cy, "dialog.button 1")
+    m = wait_for(dbg, r"sysupdate: server refused", mark, timeout=10)
+    dbg.settle()
+    # PIXELS, not the layout log (it repeats nothing unchanged): the result
+    # line differs from that box with no dialog up AND from Test's text.
+    refused = os.path.join(out_dir, "sysupd_srv_refused.png")
+    qmp.screenshot(refused)
+    c = Image.open(refused).convert("RGB").crop(box).tobytes()
+    up = c != Image.open(shut).convert("RGB").crop(box).tobytes() and c != b.crop(box).tobytes()
+    check("Use refuses an address that is not http(s), and the dialog stays up saying so",
+          m is not None and up, m and m.group(0))
+    check("...saving nothing", dbg.send("sh cat /etc/update.conf") == conf0)
+
+    mark = len(LINES)
+    press(dbg, cx, cy, "servers.row 0")
+    press(dbg, cx, cy, "dialog.button 1")
+    m = wait_for(dbg, r"sysupdate: server (\S+)$", mark, timeout=10)
+    check("a recent row and Use save that server", m is not None and m.group(1) == base, m and m.group(0))
+    m = wait_for(dbg, r"sysupdate: view (\d+)", mark, timeout=120)
+    check("...and check it", m is not None, m and m.group(0))
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     port_guard.add_instance_args(ap)
@@ -160,6 +255,17 @@ def main():
         m = wait_for(dbg, r"sysupdate: channel dialog, (\d+) rows", mark, timeout=20)
         check("Change channel... opens the list, Dev included on a -dev build",
               m is not None and m.group(1) == "3", m and m.group(0))
+        rows = {}
+        for ln in logs(dbg):
+            r = re.search(r"sysupdate: channel row \d+ (\S+) '([^']*)' (.+)$", ln)
+            if r:
+                rows[r.group(1)] = (r.group(2), r.group(3).strip())
+        check("each row's build carries its TIME, not the date alone",
+              len(rows) == 3 and all(re.search(r"\d{4}-\d\d-\d\d \d\d:\d\d$", v) for v, _ in rows.values()),
+              str(rows))
+        check("...and says how it stands against this machine: Release older, Main not",
+              rows.get("release", ("", ""))[1] == "older"
+              and rows.get("main", ("", ""))[1] in ("newer", "this build"), str(rows))
         dbg.settle()
         logs(dbg)
         row0 = layout_rect(dbg, "channels.row 0")
@@ -212,6 +318,7 @@ def main():
               m and m.group(0))
         check("...and sum reads the older file",
               summed(dbg, Older.PATH) == (zlib.crc32(Older.BODY), len(Older.BODY)))
+        server_dialog(dbg, qmp, out_dir, base, cx, cy)
         dbg.close_window(TITLE)
         # Back to Main, so no later tool inherits Release's file.
         dbg.send("sh update --channel main")

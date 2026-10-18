@@ -161,7 +161,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_caret.h` | THE TEXT CARET'S BLINK -- one phase for the whole process, asked by every widget that draws a caret (uui_textbox, utext, so uui_textview). |
 | `uui_chart.h` | chart -- a value over TIME, which is the one thing uui_meter cannot show. |
 | `uui_checkbox.h` | The ring-3 checkbox, an OBJECT -- it holds its own geometry, checked state and hover, like uui_button/uui_listbox. |
-| `uui_choicelist.h` | ONE CHOICE OUT OF A FEW, EACH A ROW THAT SAYS WHAT IT IS: a radio, a bold title with small tags beside it ("default", "internal"), a line of description under it and a value at the right -- System... |
+| `uui_choicelist.h` | ONE CHOICE OUT OF A FEW, EACH A ROW THAT SAYS WHAT IT IS: a radio, a bold title with small tags beside it ("default", "internal"), a line of description under it, a value at the right and a badge u... |
 | `uui_clip.h` | uui_clip -- one child, drawn and clickable only inside a VIEWPORT the caller names: a panel placed in a scrolling pane that is not itself a uui_scrollview (Device Manager's uui_props), so it scroll... |
 | `uui_colourfield.h` | uui_colourfield -- PICKING A COLOUR BY EYE: a square of saturation (left to right) and brightness (top to bottom) at one hue, or the hue strip under it -- GTK's custom colour editor, KDE's and Krit... |
 | `uui_colourpick.h` | uui_colourpick -- ONE COLOUR, picked: by eye on a saturation and brightness square over a hue strip (ui/uui_colourfield.h), or exactly in a hex field and R, G and B fields, all following each other. |

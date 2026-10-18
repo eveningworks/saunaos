@@ -46,6 +46,7 @@ void uui_choicelist_natural_size(const struct uui_choicelist *l, int *out_w, int
         ugfx_set_font(was);
         top += tags_w(c->tags);
         int desc = c->desc ? ugfx_text_width(c->desc) : 0;
+        if (c->badge) desc += ugfx_text_width(c->badge) + ugfx_char_w() * 2;
         int line = top > desc ? top : desc;
         if (c->value) line += ugfx_text_width(c->value) + ugfx_char_w() * 2;
         if (line > w) w = line;
@@ -123,8 +124,24 @@ void uui_choicelist_draw(struct ugfx_surface *s, const struct uui_choicelist *l)
                                      muted, bg);
             px += ww + pad();
         }
+        int desc_right = right;
+        if (c->badge) {
+            int bw = ugfx_text_width(c->badge) + ugfx_char_w(), by = ty + ugfx_char_h() + 4;
+            uint32_t fill = bg, ink = muted, ring = muted;
+            if (c->badge_tone == UUI_BADGE_ACCENT) { fill = ring = UTHEME_ACCENT; ink = UTHEME_ACCENT_TEXT; }
+            else if (c->badge_tone == UUI_BADGE_WARN) {
+                ink = ring = utheme_severity(UTHEME_SEV_WARNING);
+                fill = ugfx_blend(bg, ink, 40);
+            }
+            if (l->disabled) ink = ring = uui_state_bg(fg, UUI_STATE_DISABLED);
+            uui_fill_round_rect(s, right - bw, by, bw, ugfx_char_h(), UUI_CAPSULE, ring);
+            uui_fill_round_rect(s, right - bw + 1, by + 1, bw - 2, ugfx_char_h() - 2, UUI_CAPSULE, fill);
+            ugfx_draw_string_clipped(s, right - bw + ugfx_char_w() / 2, by, bw - ugfx_char_w() / 2, c->badge,
+                                     ink, fill);
+            desc_right = right - bw - ugfx_char_w();
+        }
         if (c->desc)
-            ugfx_draw_string_clipped(s, tx, ty + ugfx_char_h() + 4, right - tx, c->desc, muted, bg);
+            ugfx_draw_string_clipped(s, tx, ty + ugfx_char_h() + 4, desc_right - tx, c->desc, muted, bg);
         if (l->focused && sel && !l->disabled) uui_focus_ring(s, l->x, y, l->w, h);
     }
 }

@@ -5517,8 +5517,14 @@ window without going through it will find its layout polls timing out.
   rows are DRAWN (the first row's rect changed against a screenshot
   before it, the title bar the control); choosing Release asks first,
   Wait leaves the file alone with the view waiting, and Go back installs
-  it, `sum` reading the older file. Puts the guest back on main after. In
-  `gui_regress.py`.
+  it, `sum` reading the older file. Each row's build must carry its TIME
+  and a newer/this build/older badge (Release older). CHANGE SERVER... is
+  a dialog: Test finds the three channels without touching
+  `/etc/update.conf`, says so for an address nothing answers, Use refuses
+  `ftp://` with the dialog left up (PIXELS: the result line against the
+  same box with no dialog, since the layout log repeats nothing
+  unchanged), and a recent row plus Use saves and checks. Puts the guest
+  back on main after. In `gui_regress.py`.
 - **`sysupdate_test.py`** -- the System Update window
   (`userland/gui/system/sysupdate.c`) against `update_server.py`'s handler
   in-process on an ephemeral port, THROTTLED so an install has a middle:

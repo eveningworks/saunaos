@@ -175,7 +175,10 @@ version, then by build date), `update` says so and changes nothing;
 `--go-back` installs it -- only the files that differ, `/etc` and `/home`
 kept as always. The System Update window asks the same question when
 such a channel is chosen: go back now, or wait until it passes this
-build.
+build. Its Change channel... list says, for each channel, whether its
+newest build is newer than this machine's, the same, or older, with the
+build's date and time; Change server... has a Test that asks an address
+for its channel list without saving anything.
 
     update --channels
     update --channel release

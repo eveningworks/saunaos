@@ -6,7 +6,8 @@
 
 // ONE CHOICE OUT OF A FEW, EACH A ROW THAT SAYS WHAT IT IS: a radio, a
 // bold title with small tags beside it ("default", "internal"), a line of
-// description under it and a value at the right -- System Update's
+// description under it, a value at the right and a badge under that
+// ("newer", "in use") -- System Update's
 // channels, Windows' Insider channel picker. uui_radio_list is the same
 // choice with one line per option; this is for options a word does not
 // explain.
@@ -14,11 +15,16 @@
 // Arrowing moves the selection itself, as a radio group does, so the
 // focus ring is on the selected row and there is no separate cursor.
 
+// A badge's tone: how much it should draw the eye.
+enum { UUI_BADGE_PLAIN, UUI_BADGE_ACCENT, UUI_BADGE_WARN };
+
 struct uui_choice {
     const char *title;
     const char *tags;    // space-separated words, each drawn as a pill; NULL for none
     const char *desc;    // NULL for none
     const char *value;   // right-aligned, muted; NULL for none
+    const char *badge;   // ONE pill, right-aligned under the value, may hold spaces; NULL for none
+    int badge_tone;      // UUI_BADGE_*
 };
 
 struct uui_choicelist {
