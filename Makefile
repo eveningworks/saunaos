@@ -1046,7 +1046,7 @@ EXTRA_OBJS_doom = doom/doom_wad doom/doom_front $(DOOM_BACKEND_OBJS) $(DOOM_PORT
 # /bin/w16 runs 16-bit Windows programs (docs/w16-design.md); its main() is
 # userland/bin/w16.c and its parts live in userland/w16/, listed rather
 # than wildcarded for the reason the WM's are.
-EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names
+EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names w16/cpu16
 
 # VENDORED CODE IS COMPILED WITH ITS WARNINGS OFF, on purpose.
 #

@@ -6,7 +6,7 @@ implements the Win16 API it calls -- KERNEL, USER, GDI -- on top of
 toywm. It answers "can toy-os run a Windows 3.11 program, and what is
 the smallest honest route there?"
 
-**NOTHING IS BUILT YET (2026-10-18).** Chosen that day: the emulated
+**STAGES 0 AND 1 ARE BUILT (2026-10-18)**: `w16 --info` reads a program and names its imports, and the CPU interpreter matches the host's own CPU on random instructions (`tools/cpu16_hostcheck.py`). Chosen that day: the emulated
 CPU in ring 3 (W1 below), the Windows 3.1 look all the way (L3 on the
 "Win16 windows in toywm" mockup canvas), the code in `userland/w16/`,
 and the name **w16** -- not WOW, which is Microsoft's term. "Win16" is

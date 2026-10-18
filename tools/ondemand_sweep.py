@@ -101,6 +101,10 @@ TOOLS = [
     # ASan/UBSan (docs/w16-design.md); gcc and nasm.
     ("w16_host",    "w16_hostcheck.py",        "w16's NE parser vs gen_ne --dump, fuzzed", False,
      None,                                                                                   False),
+    # w16's 16-bit CPU against the host's own, in an LDT segment; and
+    # random code under ASan. gcc and a kernel with modify_ldt.
+    ("cpu16_host",  "cpu16_hostcheck.py",      "w16's 16-bit CPU vs the real CPU, fuzzed", False,
+     None,                                                                                   False),
     # lib/ucolour -- HSV and HSL for the colour picker -- against colorsys.
     ("ucolour_host", "ucolour_hostcheck.py",   "colour HSV/HSL conversions against colorsys", False,
      None,                                                                                   False),

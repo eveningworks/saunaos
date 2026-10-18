@@ -5111,7 +5111,7 @@ Runtime font loading & text metrics (fonts). This is the leaf the three of them 
 
 The whole plan, the routes and the case against each are in `docs/w16-design.md`; these entries carry only what the one-line items cannot.
 
-- [ ] **Stage 1: the 16-bit CPU interpreter.** The foreign check needs the host kernel's `modify_ldt` (`CONFIG_MODIFY_LDT_SYSCALL`); a host without it skips the check and says so, it does not pass.
+- [x] ~~**Stage 1: the 16-bit CPU interpreter.** The foreign check needs the host kernel's `modify_ldt` (`CONFIG_MODIFY_LDT_SYSCALL`); a host without it skips the check and says so, it does not pass.~~ DONE 2026-10-18: about 600k random instructions match the host CPU, undefined flags masked; x87 is not emulated (a fault that says so).
 - [ ] **Stage 2: toywm's undecorated windows and client-started move/resize.** A new layer boundary: the client, not the WM, draws the frame of such a window, and asks the WM to run the drag. The taskbar button, focus and Alt+F4 stay the WM's.
 - [ ] **Several top-level windows per uapp process.** `uapp_window_open()` opens only widget dialogs owned by the main window, one level deep, with no pixel `on_draw`; a Win16 program may create any number of top-level windows and owned popups.
 

@@ -915,8 +915,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 ### Running 16-bit Windows programs (w16)
 **Needs:** nothing -- a ring-3 program; `docs/w16-design.md` is the plan.
 
-- [ ] Stage 0: `tools/gen_ne.py` builds NE test programs from NASM; `w16 --info` lists a program's segments and imports
-- [ ] Stage 1: the 16-bit CPU interpreter, checked against the real CPU in a 16-bit LDT segment on the host
+- [x] ~~Stage 0: NE test programs from NASM (`gen_ne.py`); `w16 --info` lists a program's imports~~ DONE 2026-10-18 (d2cb617e)
+- [x] ~~Stage 1: the 16-bit CPU interpreter, checked against the real CPU~~ DONE 2026-10-18 -- `cpu16_hostcheck.py`
 - [ ] Stage 2: toywm's undecorated windows and client-started move/resize (`xdg-decoration`, `xdg_toplevel.move`)
 - [ ] Stage 2: a first window -- KERNEL start-up, USER classes and messages, GDI text, the Windows 3.1 frame
 - [ ] Stage 3: standard controls, menus and dialogs from resources; files, INI profiles, timers

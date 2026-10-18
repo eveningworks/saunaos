@@ -7456,6 +7456,20 @@ runs first**: a `doom1.wad` with one
   (the fuzz must go red, a heap-buffer-overflow) and reads relocation
   sites from the wrong word (the comparison must go red). In
   `ondemand_sweep.py`; w16 is a side project and in no gate.
+- **`cpu16_hostcheck.py`** -- w16's 16-bit CPU interpreter
+  (`userland/w16/cpu16.c`) against THE HOST'S OWN CPU. Its driver,
+  `tools/w16/cpu16_check.c`, puts 16-bit code, data and stack segments in
+  the process's LDT (`modify_ldt`, Wine's route), and runs each random
+  instruction in the interpreter and natively, entered from 64-bit mode
+  by a far call (built `-no-pie`: the return address and the saved stack
+  are 32-bit). Registers, flags (each instruction's UNDEFINED flags
+  masked) and both segments' bytes must match, over three seeds of 200k
+  cases; then random bytes run as code under ASan/UBSan must fault or
+  finish and never reach host memory. Far transfers, segment loads and
+  interrupts are not in the oracle's set. `--positive-control` breaks
+  ADC's carry-in and SAR's sign (the oracle goes red) and `mem()`'s limit
+  check (the fuzz goes red). A host without `modify_ldt` prints SKIPPED,
+  never PASS. In `ondemand_sweep.py`.
 - **`gen_ne.py`** -- builds a Win16 (NE) executable from ONE NASM source
   written with `userland/w16/samples/ne16.inc`, so w16's test programs
   need no foreign toolchain and no Microsoft binary. The source is
