@@ -225,11 +225,11 @@ def build(src, out):
         if recs:
             flags |= SEG_RELOCS
         length = len(data)
+        # The automatic data segment's minalloc is its data alone, as
+        # Microsoft's linker wrote it: the loader adds the heap and stack.
         minalloc = length
-        if n == d["autodata"]:
-            minalloc = length + d["stack"] + d["heap"]
-            if minalloc > 0x10000:
-                sys.exit("gen_ne: the automatic data segment overflows 64 KiB")
+        if n == d["autodata"] and length + d["stack"] + d["heap"] > 0x10000:
+            sys.exit("gen_ne: the automatic data segment overflows 64 KiB")
         seg_entries.append(struct.pack("<HHHH", pos >> ALIGN_SHIFT, length & 0xFFFF, flags,
                                        minalloc & 0xFFFF))
         body += data

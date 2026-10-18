@@ -160,6 +160,7 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
     *undef = 0;
     unsigned kind = rnd() % 16;
     int w = rnd() & 1;
+    // dispatch-ok: one case per instruction family the oracle covers, bounded by the ISA.
     switch (kind) {
     case 0: case 1: {                                     // ALU reg,reg / reg,mem
         unsigned op = (rnd() % 8) << 3 | (rnd() % 4);

@@ -67,8 +67,8 @@
 // **AN SHM NAME IS UNVEILED WITH THIS PREFIX**, "shm:<name>" -- an
 // object name never starts with '/', so it cannot collide with a path.
 // Once a process has unveiled anything, it may open a PUBLIC object only
-// if that object's name (or a prefix of it ending the string) is
-// unveiled: a beacon is how a process reaches a SERVICE, and a sandboxed
+// if that object's name is unveiled EXACTLY, or up to a '/' in it --
+// "shm:font" does not cover "font.0" -- or "shm:" itself is: a beacon is how a process reaches a SERVICE, and a sandboxed
 // page must reach only the two it was started for. An object created by
 // the process, or GRANTED to it, needs no unveil -- the grant is already
 // a capability naming this process.

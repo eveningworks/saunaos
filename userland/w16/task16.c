@@ -1,0 +1,282 @@
+// task16.c -- one Win16 program: loading it into the CPU's segments,
+// dispatching its imports, its thread, and its message queue.
+//
+// LOADING (what Windows' KERNEL did at LoadModule): every NE segment gets
+// a host buffer and a selector; the automatic data segment (DGROUP) is
+// its data plus the local heap plus the stack, at most 64 KiB; each
+// imported module gets a THUNK selector whose offsets are its ordinals;
+// then every relocation is applied, following the chain a non-additive
+// one heads. The task starts with the registers Windows gave it.
+#include "w16_internal.h"
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include "ui/uapp.h"
+
+struct w16 g_w16;
+pthread_mutex_t g_w16_text_lock = PTHREAD_MUTEX_INITIALIZER;
+
+#define SYSDATA_SIZE 0x1000
+
+static int load_fail(const char *path, const char *why) {
+    fprintf(stderr, "w16: %s: %s\n", path, why);
+    return -1;
+}
+
+static int apply_value(uint8_t *mem, uint32_t len, uint16_t at, uint8_t src, int additive,
+                       uint16_t sel, uint16_t off) {
+    unsigned need = src == NE_SRC_FARPTR ? 4 : src == NE_SRC_LOBYTE ? 1 : 2;
+    if ((uint32_t)at + need > len) return -1;
+    uint8_t *p = mem + at;
+    uint16_t cur = (uint16_t)(p[0] | (need > 1 ? p[1] << 8 : 0));
+    switch (src) {
+    case NE_SRC_LOBYTE: p[0] = (uint8_t)(additive ? p[0] + off : off); break;
+    case NE_SRC_SEGMENT: p[0] = (uint8_t)sel; p[1] = (uint8_t)(sel >> 8); break;
+    case NE_SRC_OFFSET: {
+        uint16_t v = additive ? (uint16_t)(cur + off) : off;
+        p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
+        break;
+    }
+    case NE_SRC_FARPTR: {
+        uint16_t v = additive ? (uint16_t)(cur + off) : off;
+        p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
+        p[2] = (uint8_t)sel; p[3] = (uint8_t)(sel >> 8);
+        break;
+    }
+    default: return -1;
+    }
+    return 0;
+}
+
+// One relocation record of segment `n`: its target, then every site of
+// its chain (just the one when additive).
+static int relocate(struct w16 *w, unsigned n, const struct ne_reloc *r, uint8_t *mem, uint32_t len) {
+    uint16_t sel, off;
+    char why[96];
+    switch (r->flags & 3) {
+    case NE_REL_INTERNAL: {
+        unsigned seg = r->a & 0xFF;
+        off = r->b;
+        if (seg == 0xFF) {                  // a movable segment: through the entry table
+            uint16_t s16;
+            if (ne_entry(&w->ne, r->b, &s16, &off) < 0)
+                return load_fail(w->path, "a relocation names a missing entry point");
+            seg = s16;
+        }
+        if (seg < 1 || seg > w->ne.nseg) return load_fail(w->path, "a relocation names no segment");
+        sel = w->seg_sel[seg];
+        break;
+    }
+    case NE_REL_IMPORT_ORD:
+        if (r->a < 1 || r->a > w->ne.nmod) return load_fail(w->path, "an import names no module");
+        sel = w->thunk_sel[r->a];
+        off = r->b;
+        break;
+    case NE_REL_IMPORT_NAME:
+        snprintf(why, sizeof why, "imports from %s by name, which w16 does not resolve yet",
+                 r->a >= 1 && r->a <= w->ne.nmod ? w->modname[r->a] : "?");
+        return load_fail(w->path, why);
+    default:
+        return load_fail(w->path, "uses floating-point fixups, which w16 does not support yet");
+    }
+    int additive = (r->flags & NE_REL_ADDITIVE) != 0;
+    uint16_t at = r->site;
+    for (unsigned guard = 0; guard < 0x10000; guard++) {
+        uint16_t next = (uint32_t)at + 2 <= len ? (uint16_t)(mem[at] | mem[at + 1] << 8) : 0xFFFF;
+        if (apply_value(mem, len, at, r->src, additive, sel, off) < 0) {
+            snprintf(why, sizeof why, "a relocation in segment %u lies outside it", n);
+            return load_fail(w->path, why);
+        }
+        if (additive || next == 0xFFFF) return 0;
+        at = next;
+    }
+    return load_fail(w->path, "a relocation chain loops");
+}
+
+int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path) {
+    w->path = path;
+    int err = ne_parse(img, size, &w->ne);
+    if (err < 0) return load_fail(path, ne_strerror(err));
+    if (w->ne.flags & 0x8000) return load_fail(path, "is a library (DLL), not a program");
+    if (!w->ne.autodata) return load_fail(path, "has no automatic data segment");
+
+    w->desc = calloc(CPU16_MAX_DESC, sizeof *w->desc);
+    if (!w->desc) return load_fail(path, "out of memory");
+    struct cpu16 *c = &w->cpu;
+    memset(c, 0, sizeof *c);
+    c->desc = w->desc;
+
+    // Segments: data copied in, the rest zero, DGROUP grown by heap+stack.
+    for (unsigned n = 1; n <= w->ne.nseg; n++) {
+        const struct ne_segment *s = &w->ne.seg[n - 1];
+        uint32_t want = s->minalloc > s->length ? s->minalloc : s->length;
+        if (n == w->ne.autodata) want += (uint32_t)w->ne.heap + w->ne.stack;
+        if (want > 0x10000) {
+            if (n == w->ne.autodata) return load_fail(path, "its data, heap and stack exceed 64 KiB");
+            want = 0x10000;
+        }
+        if (want == 0) want = 16;
+        uint8_t *mem = calloc(1, 0x10000);   // a whole segment: a later resize needs no move
+        if (!mem) return load_fail(path, "out of memory");
+        if (s->file_off) memcpy(mem, img + s->file_off, s->length);
+        int data = (s->flags & NE_SEG_DATA) != 0;
+        w->seg_sel[n] = cpu16_alloc(c, data ? D_DATA : D_CODE, mem, want - 1, (uint16_t)n);
+        if (!w->seg_sel[n]) return load_fail(path, "too many segments");
+    }
+    // Imported modules: a thunk selector each.
+    for (unsigned i = 1; i <= w->ne.nmod; i++) {
+        if (ne_module_name(&w->ne, i, w->modname[i], sizeof w->modname[i]) < 0)
+            return load_fail(path, "an imported module's name is malformed");
+        w->thunk_sel[i] = cpu16_alloc(c, D_THUNK, 0, 0xFFFF, 0);
+    }
+    for (unsigned n = 1; n <= w->ne.nseg; n++) {
+        const struct ne_segment *s = &w->ne.seg[n - 1];
+        uint8_t *mem = w->desc[cpu16_index(w->seg_sel[n])].base;
+        uint32_t len = w->desc[cpu16_index(w->seg_sel[n])].limit + 1;
+        for (unsigned i = 0; i < s->nrelocs; i++) {
+            struct ne_reloc r;
+            if (ne_reloc_at(&w->ne, n, i, &r) < 0 || relocate(w, n, &r, mem, len) < 0) return -1;
+        }
+    }
+
+    // The PSP (ES at start): an empty command tail.
+    uint8_t *psp = calloc(1, 256);
+    w->sysmem = calloc(1, SYSDATA_SIZE);
+    if (!psp || !w->sysmem) return load_fail(path, "out of memory");
+    psp[0] = 0xCD; psp[1] = 0x20;
+    psp[0x80] = 0; psp[0x81] = 0x0D;
+    w->psp = cpu16_alloc(c, D_DATA, psp, 255, 0);
+    w->sysdata = cpu16_alloc(c, D_DATA, w->sysmem, SYSDATA_SIZE - 1, 0);
+    w->dgroup = w->seg_sel[w->ne.autodata];
+
+    // The registers a Windows task starts with.
+    const struct cpu16_desc *dg = &w->desc[cpu16_index(w->dgroup)];
+    c->sreg[S_CS] = w->seg_sel[w->ne.entry_cs];
+    c->ip = w->ne.entry_ip;
+    c->sreg[S_SS] = w->seg_sel[w->ne.ss ? w->ne.ss : w->ne.autodata];
+    c->r[R_SP] = w->ne.sp ? w->ne.sp : (uint16_t)((dg->limit + 1) & 0xFFFE);
+    c->sreg[S_DS] = w->dgroup;
+    c->sreg[S_ES] = w->psp;
+    c->r[R_BX] = w->ne.stack;
+    c->r[R_CX] = w->ne.heap;
+    c->r[R_DI] = w->dgroup;          // hInstance is the DGROUP selector
+    c->r[R_SI] = 0;                  // no previous instance
+    c->flags = F_IF | 0x0002;
+    c->user = w;
+    c->thunk = 0;                    // set by the task thread
+    c->intr = w16_int;
+
+    pthread_mutex_init(&w->lock, 0);
+    pthread_cond_init(&w->cond, 0);
+    w->text_color = 0x000000;
+    w->bk_color = 0xFFFFFF;
+    w->bk_mode = 2;                  // OPAQUE
+    return 0;
+}
+
+// --- imports -------------------------------------------------------------
+
+uint16_t w16_arg16(struct w16_args *a) {
+    a->pos -= 2;
+    return cpu16_arg(a->c, a->pos);
+}
+
+uint32_t w16_arg32(struct w16_args *a) {
+    a->pos -= 4;
+    return (uint32_t)cpu16_arg(a->c, a->pos) | (uint32_t)cpu16_arg(a->c, a->pos + 2) << 16;
+}
+
+static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
+    struct w16 *w = c->user;
+    unsigned mod = 0;
+    for (unsigned i = 1; i <= w->ne.nmod; i++)
+        if (w->thunk_sel[i] == sel) mod = i;
+    const char *name = mod ? w->modname[mod] : "?";
+    const struct w16_name *n = w16_name_lookup(name, ordinal);
+    struct w16_args a = { c, n && n->argbytes > 0 ? (unsigned)n->argbytes : 0 };
+    int r = -1;
+    if (!strcmp(name, "KERNEL") || !strcmp(name, "KRNL386")) r = w16_kernel(w, ordinal, &a);
+    else if (!strcmp(name, "USER")) r = w16_user(w, ordinal, &a);
+    else if (!strcmp(name, "GDI")) r = w16_gdi(w, ordinal, &a);
+    if (r == -2 || (r < 0 && !c->fault)) {
+        char why[96];
+        snprintf(why, sizeof why, "%s.%u (%s) is not implemented", name, ordinal,
+                 n ? n->name : "unknown");
+        cpu16_set_fault(c, FAULT_API, why);
+        return -1;
+    }
+    return r;
+}
+
+uint16_t w16_sys_alloc(struct w16 *w, unsigned len) {
+    // One structure at a time is all stage 2 hands over (a CREATESTRUCT),
+    // so the area is reused from 0; a ring comes with nested ones.
+    if (len > SYSDATA_SIZE) len = SYSDATA_SIZE;
+    memset(w->sysmem, 0, len);
+    return 0;
+}
+
+uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,
+                          uint16_t msg, uint16_t wparam, uint32_t lparam) {
+    struct cpu16 *c = &w->cpu;
+    uint16_t saved[8], ss[4], flags = c->flags;
+    memcpy(saved, c->r, sizeof saved);
+    memcpy(ss, c->sreg, sizeof ss);
+    cpu16_push(c, hwnd);
+    cpu16_push(c, msg);
+    cpu16_push(c, wparam);
+    cpu16_push(c, (uint16_t)(lparam >> 16));
+    cpu16_push(c, (uint16_t)lparam);
+    c->sreg[S_DS] = w->dgroup;       // what an instance thunk gave a window procedure
+    c->r[R_AX] = w->dgroup;
+    cpu16_call_far(c, sel, off);
+    uint32_t result = (uint32_t)c->r[R_DX] << 16 | c->r[R_AX];
+    memcpy(c->r, saved, sizeof saved);
+    c->sreg[S_ES] = ss[S_ES];
+    c->sreg[S_DS] = ss[S_DS];
+    c->sreg[S_SS] = ss[S_SS];
+    c->flags = flags;
+    return result;
+}
+
+// --- the queue -------------------------------------------------------------
+
+void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam) {
+    pthread_mutex_lock(&w->lock);
+    unsigned next = (w->qtail + 1) % W16_QUEUE;
+    if (next != w->qhead) {
+        w->q[w->qtail] = (struct w16_msg){ hwnd, msg, wparam, lparam };
+        w->qtail = next;
+    }
+    pthread_cond_signal(&w->cond);
+    pthread_mutex_unlock(&w->lock);
+}
+
+void w16_task_post(struct w16 *w, int code) {
+    pthread_mutex_lock(&w->lock);
+    struct uapp *a = w->app;
+    pthread_mutex_unlock(&w->lock);
+    if (a) uapp_post(a, code, 0);
+}
+
+void *w16_task_main(void *arg) {
+    struct w16 *w = arg;
+    struct cpu16 *c = &w->cpu;
+    c->thunk = thunk;
+    cpu16_run(c, 0);
+    if (c->fault) {
+        const struct cpu16_desc *d = &w->desc[cpu16_index(c->fault_cs) % CPU16_MAX_DESC];
+        fprintf(stderr, "w16: %s: %s at %u:%04x -- %s\n", w->path, cpu16_fault_name(c->fault),
+                d->owner, c->fault_ip, c->fault_why);
+        w->exit_code = 1;
+    } else {
+        w->exit_code = c->exit_code;
+    }
+    pthread_mutex_lock(&w->lock);
+    w->task_done = 1;
+    pthread_cond_broadcast(&w->cond);
+    pthread_mutex_unlock(&w->lock);
+    w16_task_post(w, W16_POST_DONE);
+    return 0;
+}

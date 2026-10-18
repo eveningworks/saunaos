@@ -659,6 +659,7 @@ static void step(struct cpu16 *c) {
         }
     }
 
+    // dispatch-ok: one case per x86 opcode, a set the 286 fixed in 1982.
     switch (op) {
     case 0x06: case 0x0E: case 0x16: case 0x1E:
         cpu16_push(c, c->sreg[op >> 3]);

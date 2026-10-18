@@ -36,9 +36,10 @@ start:
 
     mov ax, [hInstance]
     mov [wc_hInstance], ax
-    push word 0
+    push word 0                     ; LoadCursor(NULL, MAKEINTRESOURCE(IDC_ARROW)):
+    push word 0                     ;   the name is a far pointer, 0000:7F00
     push word IDC_ARROW
-    W16_CALL "USER", 173            ; LoadCursor(NULL, IDC_ARROW)
+    W16_CALL "USER", 173
     mov [wc_hCursor], ax
     push ds
     push word wc

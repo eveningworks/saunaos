@@ -138,7 +138,7 @@ def main():
                                 apply=args.positive_control, tool="w16_hostcheck"),
                 hostcheck.stage(tmp, "userland/w16/ne_info.c", dest="w16/ne_info.c"),
                 hostcheck.stage(tmp, "userland/w16/w16_names.c", dest="w16/w16_names.c")]
-        for h in ("ne.h", "w16_internal.h", "w16_names.h"):
+        for h in ("ne.h", "w16_internal.h", "w16_names.h", "cpu16.h"):
             hostcheck.stage(tmp, f"userland/w16/{h}", dest=f"w16/{h}")
         flags = ["-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
                  "-fno-sanitize-recover=all", "-I" + tmp, "-I" + os.path.join(tmp, "w16")]

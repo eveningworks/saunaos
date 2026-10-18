@@ -6,7 +6,7 @@ implements the Win16 API it calls -- KERNEL, USER, GDI -- on top of
 toywm. It answers "can toy-os run a Windows 3.11 program, and what is
 the smallest honest route there?"
 
-**STAGES 0 AND 1 ARE BUILT (2026-10-18)**: `w16 --info` reads a program and names its imports, and the CPU interpreter matches the host's own CPU on random instructions (`tools/cpu16_hostcheck.py`). Chosen that day: the emulated
+**STAGES 0-2 ARE BUILT (2026-10-18)**: `w16 --info` reads a program and names its imports, the CPU interpreter matches the host's own CPU on random instructions (`tools/cpu16_hostcheck.py`), and `w16 /usr/share/w16/hello.exe` opens a Windows 3.1 window in toywm that paints, moves, resizes and closes. Chosen that day: the emulated
 CPU in ring 3 (W1 below), the Windows 3.1 look all the way (L3 on the
 "Win16 windows in toywm" mockup canvas), the code in `userland/w16/`,
 and the name **w16** -- not WOW, which is Microsoft's term. "Win16" is
@@ -57,12 +57,15 @@ LOUDLY and by name (below), never as a silent zero.
         |  16-bit code, far calls to imported ordinals
   +-----v------------------------------------------------+
   | /bin/w16  (ring 3, pledged)                          |
-  |   ne.c       NE loader: segments, relocations,       |
-  |              entry table, resources                  |
+  |  TASK thread                                         |
+  |   ne.c       the NE format                           |
+  |   task16.c   loading, the imports, the message queue |
   |   cpu16.c    the interpreter: 8086/186/286 integer,  |
   |              a selector table instead of an LDT      |
-  |   kernel16.c USER16.c GDI16.c  the API, in C         |
+  |   kernel16.c user16.c gdi16.c  the API, in C         |
+  |  MAIN thread (uapp)                                  |
   |   frame16.c  the 3.1 caption, frame and buttons (L3) |
+  |   w16.c      input -> messages, client pixels shown  |
   +-----|------------------------------------------------+
         |  uapp: one window, pixels drawn by w16
   +-----v------+        toywm: an UNDECORATED window,
@@ -83,10 +86,20 @@ LOUDLY and by name (below), never as a silent zero.
 - **Callbacks re-enter the CPU.** DispatchMessage calls the program's
   window procedure: the C side pushes a far return to a sentinel
   selector and runs the interpreter until it returns there.
-- **An unimplemented import is resolved to a stub that NAMES it**
-  (`w16: HELLO.EXE called USER.123 (unimplemented)` in the log, then a
-  crash report), so the first run of a new program prints its to-do
-  list.
+- **An unimplemented import ends the program, NAMING it**: `w16: FILE:
+  Windows call failed at 1:00bb -- USER.123 (Foo) is not implemented`
+  on stderr, exit status 1. The first run of a new program prints the
+  next thing on its to-do list.
+- **Two threads.** The program -- interpreter, message loop, GDI -- runs
+  on a TASK thread, so a modal loop inside a window procedure simply
+  blocks there; the uapp MAIN thread owns the window, draws the frame,
+  copies the client pixels and turns input into messages. They share
+  the queue and the client buffer under one lock, and the task wakes
+  the main thread with `uapp_post()`.
+- **The sandbox** (`userland/bin/w16.c`): the program file, `/usr/share`
+  and `/etc` read-only, the compositor's and fontd's beacons by exact
+  name, and `stdio rpath shm window settings query`; `--info` keeps
+  only the file and `stdio rpath`.
 - **Far pointers are translated at the boundary.** An API taking an
   `LPSTR` gets segment:offset, checked against the selector's limit
   before C reads a byte -- the same bounds discipline as `ttf.h`.
