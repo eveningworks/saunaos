@@ -912,6 +912,17 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Browser: opacity between 0 and 1 -- drawn opaque; 0 hides only a form control
 - [x] ~~Liberation Serif and the italic faces, so a page's serif and `<em>` text are not drawn in upright sans~~ DONE 2026-10-13
 
+### Running 16-bit Windows programs (w16)
+**Needs:** nothing -- a ring-3 program; `docs/w16-design.md` is the plan.
+
+- [ ] Stage 0: `tools/gen_ne.py` builds NE test programs from NASM; `w16 --info` lists a program's segments and imports
+- [ ] Stage 1: the 16-bit CPU interpreter, checked against the real CPU in a 16-bit LDT segment on the host
+- [ ] Stage 2: toywm's undecorated windows and client-started move/resize (`xdg-decoration`, `xdg_toplevel.move`)
+- [ ] Stage 2: a first window -- KERNEL start-up, USER classes and messages, GDI text, the Windows 3.1 frame
+- [ ] Stage 3: standard controls, menus and dialogs from resources; files, INI profiles, timers
+- [ ] Stage 4: real programs (the user's own copies), each run's unimplemented-import list worked through
+- [ ] Several top-level windows per uapp process, which real Win16 programs need
+
 ## Hardware
 
 Each is self-contained: one device, one driver. Pick by what you want to
