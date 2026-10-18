@@ -1,6 +1,7 @@
 // ugfx -- see ugfx.h for what this is and why the font arrives the way
 // it does.
 #include "ui/ugfx.h"
+#include "ui/ugfx_pix.h" // the blend loops, per CPU tier
 #include "lib/ufile.h"
 #include "syscall_abi.h"
 #include "rt/sys.h" // sys_sbrk, sys_win_request -- the screen half, below
@@ -1073,14 +1074,11 @@ void ugfx_blend_hspan(struct ugfx_surface *s, int x, int y, int w,
     if (x1 <= x0) return;
     uint32_t *p = &s->pixels[(uint32_t)y * (uint32_t)s->w + (uint32_t)x0];
     if (cov) {
-        const uint8_t *c = cov + (x0 - x);   // clipping skipped that much coverage too
-        for (int i = 0; i < x1 - x0; i++) {
-            unsigned al = c[i];
-            if (al) p[i] = (al >= 255) ? color : blend(color, p[i], al);
-        }
+        // clipping skipped that much coverage too
+        ugfx_pix()->blend_cov(p, color, cov + (x0 - x), x1 - x0);
     } else if (alpha) {
         if (alpha >= 255) for (int i = 0; i < x1 - x0; i++) p[i] = color;
-        else              for (int i = 0; i < x1 - x0; i++) p[i] = blend(color, p[i], alpha);
+        else              ugfx_pix()->blend_const(p, color, alpha, x1 - x0);
     } else {
         return;                              // nothing drawn, so nothing dirtied
     }

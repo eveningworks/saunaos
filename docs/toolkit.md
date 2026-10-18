@@ -141,6 +141,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uapp.h` | uapp -- Toykit's application layer: describe your app, supply callbacks, and let the library own the window handshake and the event loop. |
 | `ucrt.h` | A CRT SCREEN EFFECT, as CPU passes over one rect of a surface: phosphor glow, scanlines, a phosphor mask, a vignette, flicker, static noise, and a curved tube in a bezel. |
 | `ugfx.h` | ugfx -- the userland drawing runtime for ring-3 window clients. |
+| `ugfx_pix.h` | ugfx_pix -- the pixel loops under ugfx's glass and blending, one table per CPU tier (C, SSE2), chosen ONCE (pixman's implementation chain). |
 | `ugfx_tex.h` | ugfx_tex.h -- a perspective-correct textured triangle. |
 | `uglyph.h` | ANY character of a font file, drawn at any size -- what the session font cannot do: it carries ASCII and Latin-1 only (font_ttf.h's 191 slots), and a character map needs the arrow, the Greek and th... |
 | `ulog.h` | Toolkit diagnostics: one line to the app's stderr, which the kernel routes to its log and to a QMP test's console (CLAUDE.md's "diagnostics go to stderr"). |

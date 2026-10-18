@@ -595,6 +595,10 @@ gui compositor [--json]  the registered compositor pid, queue depth, drops,
                          overlay, cursor, present (userland/wm/wm_prof.h)
 gui compositor reset     zero the frame-cost stats, to scope a measurement to an
                          interval instead of averaging since boot
+gui simd [off|sse2|auto] which pixel loops the compositor runs (ui/ugfx_pix.h);
+                         every tier draws the same bytes, so time `gui
+                         compositor` with each in one boot. Programs started
+                         after it inherit the choice
 gui fb [--json]          the framebuffer grant: scanouts, back index, flips
 gui layout [--json]      the keyboard-layout tray item: the list, the active one,
                          the Super+Space pick, and where to click

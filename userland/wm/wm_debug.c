@@ -1,6 +1,7 @@
 // See wm_debug.h for what this is for and why it lives here.
 #include "wm_internal.h"
 #include "wm_prof.h"
+#include "wm_glass.h"   // wm_glass_forget() -- `gui simd`
 #include "wm_anim.h"
 #include "wm_idle.h"
 #include "wm_background.h"
@@ -30,6 +31,7 @@
 #include "kapi.h"
 #include "win_role.h"
 #include <stdarg.h> // dbg_out_printf()'s varargs
+#include <stdlib.h> // setenv() -- `gui simd`
 #include "rt/sys.h"
 #include "wm/wm_rawin.h"
 
@@ -1687,10 +1689,11 @@ static void cmd_compositor(struct dbg_out *o, int json) {
     }
 
     if (json) {
-        dbg_out_printf(o, "{\"pid\":%d,\"pending\":%d,\"dropped\":%d,"
+        dbg_out_printf(o, "{\"pid\":%d,\"pending\":%d,\"dropped\":%d,\"simd\":\"%s\","
                           "\"pings\":%u,\"ping_us_last\":%llu,\"ping_us_max\":%llu,\"ping_us_avg\":%llu,"
                           "\"ping_cyc_last\":%llu,\"ping_cyc_max\":%llu,\"ping_cyc_avg\":%llu,",
-                    pid, pending, dropped, pings, last_us, max_us, avg_us, last_cyc, max_cyc, avg_cyc);
+                    pid, pending, dropped, ugfx_simd(), pings, last_us, max_us, avg_us, last_cyc,
+                    max_cyc, avg_cyc);
         dbg_out_printf(o, "\"frame_full\":{\"n\":%u,\"us_last\":%llu,\"us_max\":%llu,"
                           "\"us_avg\":%llu,\"cyc_avg\":%llu},",
                     ff_n, ff_last, ff_max, ff_avg, ff_cyc);
@@ -1719,6 +1722,7 @@ static void cmd_compositor(struct dbg_out *o, int json) {
                     fp_last, fp_max, fp_avg, fp_n);
         dbg_out_printf(o, "  windows drawn/culled: last frame %u/%u, %u/%u over %u frames\r\n",
                     cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames);
+        dbg_out_printf(o, "  pixel loops: %s\r\n", ugfx_simd());
         for (int b = 1; b >= 0; b--) {
             dbg_out_printf(o, "  stages us %s:", b ? "full" : "damage-limited");
             for (int k = 0; k < WMS_COUNT; k++)
@@ -2088,6 +2092,25 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         }
         p = save;
         cmd_compositor(o, wants_json(p));
+        return 1;
+    }
+    if (k_strcmp(sub, "simd") == 0) {
+        // `gui simd [off|sse2|auto]`: which pixel loops this compositor
+        // runs (ui/ugfx_pix.h). Every tier draws the same bytes, so this
+        // is for timing `gui compositor` both ways in one boot; programs
+        // started after it inherit the choice.
+        char *arg = next_tok(&p);
+        if (arg) {
+            if (ugfx_simd_set(arg) != 0) {
+                dbg_out_printf(o, "simd: unknown tier '%s' (off, sse2, auto)\r\n", arg);
+                return 1;
+            }
+            setenv("UGFX_SIMD", ugfx_simd(), 1);
+            wm_glass_forget();
+            wm_damage_rect(0, 0, screen_w, screen_h);
+            redraw_pending = 1;
+        }
+        dbg_out_printf(o, "simd: %s\r\n", ugfx_simd());
         return 1;
     }
     if (k_strcmp(sub, "fb") == 0)           { cmd_fb(o, wants_json(p)); return 1; }

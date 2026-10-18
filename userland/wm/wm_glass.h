@@ -32,6 +32,9 @@ enum wm_glass_surface { WM_GLASS_TASKBAR, WM_GLASS_START, WM_GLASS_MENU, WM_GLAS
 // (ui/uui_popup.h's uui_popup_set_glass()), and damages a window whose
 // drag starts or ends while "while moving" is on.
 void wm_glass_poll_config(void);
+// Drops every cached blur and finished ground, so the next frame makes
+// them again -- after `gui simd`, which must time the loops it switched to.
+void wm_glass_forget(void);
 
 // Is that surface glass right now? (On, and its opacity below 100 %.)
 int wm_glass_on(enum wm_glass_surface surf);

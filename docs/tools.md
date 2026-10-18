@@ -7425,6 +7425,17 @@ runs first**: a `doom1.wad` with one
   grew every shape by half a sample, a systematic +8 per edge pixel that
   looked like this file's error. `--positive-control` rounds the alphas
   to 0/255 (an aliased fill) and must go red. In `ondemand_sweep.py`.
+- **`ugfx_pix_hostcheck.py`** -- compiles `userland/ui/ugfx_pix.c` (the
+  C reference), `ugfx_pix_sse2.c` and `ugfx_blur.c` with the host gcc
+  and requires every SIMD op to produce the SAME BYTES as C: mix and
+  blend exhaustively over every channel triple, the box passes and the
+  2x resample on random pictures of every small size and radius (past
+  r = 128 the SIMD tier falls back to C), and `ugfx_blur_rect()` end to
+  end with each tier selected. "Within one" fails, because a tier's
+  +-1 is a seam on screen and a blur cache that misses after a switch.
+  `--positive-control` drops the box average's carry and the /255's +1
+  and must go red in both groups; `--bench` prints ns/pixel per tier.
+  About a second; in `preflight.sh`.
 - **`ugfx_text_hostcheck.py`** -- compiles the real
   `userland/ui/ugfx_text.c` and `userland/ui/uui_textbox.c` with the
   host gcc against a SYNTHETIC proportional face and sweeps ~4,400

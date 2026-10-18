@@ -636,6 +636,12 @@ void ugfx_blit_genie(struct ugfx_surface *s, int y0, int h,
 void ugfx_blur_rect(const struct ugfx_surface *s, int x, int y, int w, int h,
                     int radius, uint32_t *out);
 
+// The surface's own pixels in the rect laid at `alpha` OVER `backdrop`
+// (a surface-sized buffer, as above) -- a see-through window over what
+// was beneath it. Honours the clip.
+void ugfx_fade_over(struct ugfx_surface *s, int x, int y, int w, int h,
+                    const uint32_t *backdrop, uint8_t alpha);
+
 // A GLASS CLIENT's pixels at (x, y), each one either copied or, when its
 // top byte is set, shown as GLASS: its low 24 bits blended at `alpha`
 // over `backdrop` (NULL: over what the surface already holds). abi/
@@ -643,6 +649,14 @@ void ugfx_blur_rect(const struct ugfx_surface *s, int x, int y, int w, int h,
 void ugfx_blit_glass(struct ugfx_surface *s, int x, int y, int w, int h,
                      const uint32_t *src, int src_pitch_px,
                      const uint32_t *backdrop, uint8_t alpha);
+
+// WHICH PIXEL LOOPS this process runs (ugfx_pix.h): "sse2", or "c" when
+// UGFX_SIMD=off was in its environment or ugfx_simd_set("off") was
+// called. Every tier draws the same bytes, so this changes speed only.
+const char *ugfx_simd(void);
+// "off" (or "c"), "sse2", or "auto" (the best this CPU runs); -1 for
+// a word it does not know.
+int ugfx_simd_set(const char *name);
 
 // --- the screen -------------------------------------------------------
 //

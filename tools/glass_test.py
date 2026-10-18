@@ -16,6 +16,8 @@ looking different:
   - the desktop's menu and an app's menu (a WIN_POPUP_GLASS client):
     their ground darkens toward the wallpaper behind them when on, and is
     the plain menu colour when off.
+  - the pixel-loop tiers: the same glass under `gui simd off` and
+    `auto` is one picture, byte for byte (ui/ugfx_pix.h's contract)
   - window modes: which window bodies stay pure white -- none, the
     focused one, or neither -- and the title bar against its solid colour;
     "while moving" holds a real button down and looks mid-drag.
@@ -330,6 +332,43 @@ def windows(g, res):
               f"body={body(im, moved)}")
 
 
+def tiers(g, res):
+    # EVERY PIXEL-LOOP TIER DRAWS THE SAME BYTES (ui/ugfx_pix.h): the same
+    # glass under `gui simd off` and `auto` must be one picture. `auto`
+    # twice is the control -- a scene that changes by itself (a caret, the
+    # clock) would differ there too, and the check would mean nothing.
+    from PIL import ImageChops, ImageDraw
+    g.set(transparency_moving="off", transparency_windows="all")
+    g.click_away()   # nothing focused: no caret blinks in either Notepad
+    clock = g.dbg.json("gui calendar --json")["clock"]   # it shows seconds
+
+    def still(im):
+        if clock:
+            ImageDraw.Draw(im).rectangle((clock["x"], clock["y"], clock["x"] + clock["w"],
+                                          clock["y"] + clock["h"]), fill=(0, 0, 0))
+        return im
+    for kind in ("frosted", "wallpaper"):
+        g.glass(kind)
+        shots, said = {}, {}
+        for tier in ("auto", "off", "auto"):
+            said[tier] = g.dbg.send(f"gui simd {tier}")
+            g.dbg.settle(1.0)
+            shots.setdefault(tier, []).append(still(g.shot(f"simd_{kind}_{tier}")))
+        res.check(f"{kind}: the C frame was drawn by the C loops", "simd: c" in said["off"],
+                  said["off"].strip())
+        a0, a1, c = shots["auto"][0], shots["auto"][1], shots["off"][0]
+        res.check(f"{kind}: the scene is still, the clock aside (auto twice is one picture)",
+                  ImageChops.difference(a0, a1).getbbox() is None,
+                  f"differs in {ImageChops.difference(a0, a1).getbbox()}")
+        res.check(f"{kind}: the C loops draw the same pixels as SSE2",
+                  ImageChops.difference(a0, c).getbbox() is None,
+                  f"differs in {ImageChops.difference(a0, c).getbbox()}")
+    now = g.dbg.send("gui simd")
+    res.check("`gui simd` reports SSE2 back after auto", "simd: sse2" in now, now.strip())
+    bad = g.dbg.send("gui simd avx9")
+    res.check("...and refuses a tier it does not know", "unknown tier" in bad, bad.strip())
+
+
 def run(dbg, qmp, tmp, res):
     g = Glass(dbg, qmp, tmp, res)
     dbg.damage_verify(True)
@@ -340,6 +379,7 @@ def run(dbg, qmp, tmp, res):
         g.set(transparency="on")
         app_menu(g, res)
         windows(g, res)
+        tiers(g, res)
         bugs = dbg.damage_bugs()
         res.check("the damage verifier saw nothing stale", bugs == [], "; ".join(bugs)[:400])
     finally:

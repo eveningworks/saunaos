@@ -2,6 +2,7 @@
 // see ui/uui_primitives.h.
 #include "ui/uui_primitives.h"
 #include "ui/utheme.h"
+#include "ui/ugfx_pix.h"
 
 #define UUI_PRESSED_NUDGE 1
 
@@ -184,12 +185,23 @@ void uui_backdrop_round_rect(struct ugfx_surface *s, int x, int y, int w, int h,
     }
     if (x1 <= x0 || y1 <= y0) return;
     uint32_t stride = (uint32_t)s->w;
+    const struct ugfx_pix_ops *pix = ugfx_pix();
     for (int py = y0; py < y1; py++) {
         int j = py - y;
         int cy = j < r ? j : (j >= h - r ? h - 1 - j : -1);
         uint32_t *row = s->pixels + (uint32_t)py * stride;
         const uint32_t *brow = backdrop ? backdrop + (uint32_t)py * stride : row;
+        // The run between the corners is one tint; a corner pixel also
+        // blends its arc against what was there.
+        int m0 = x0, m1 = x1;
+        if (cy >= 0) {
+            if (m0 < x + r) m0 = x + r;
+            if (m1 > x + w - r) m1 = x + w - r;
+            if (m1 < m0) m1 = m0;
+        }
+        if (m1 > m0) pix->mix_const(row + m0, brow + m0, c, tint_a, m1 - m0);
         for (int px = x0; px < x1; px++) {
+            if (px == m0 && m1 > m0) { px = m1 - 1; continue; }
             int i = px - x;
             uint32_t v = mix(brow[px], c, tint_a);
             int cx = i < r ? i : (i >= w - r ? w - 1 - i : -1);

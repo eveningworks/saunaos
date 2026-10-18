@@ -168,13 +168,30 @@ static int clipped(int *x, int *y, int *w, int *h);
 // what painted them), so an unchanged frame is a copy and nothing more.
 static unsigned g_clock;
 
+// FNV-1a in four lanes, a column in four to each: one lane's chain of
+// multiplies stalls on its own latency, four keep the multiplier busy.
 static uint64_t region_hash(const struct ugfx_surface *s, int x, int y, int w, int h) {
-    uint64_t hv = 1469598103934665603ull ^ (uint64_t)blur_radius();
+    const uint64_t P = 1099511628211ull;
+    uint64_t h0 = 1469598103934665603ull ^ (uint64_t)blur_radius(), h1 = h0 ^ 1, h2 = h0 ^ 2, h3 = h0 ^ 3;
     for (int j = y; j < y + h; j++) {
         const uint32_t *row = s->pixels + (size_t)j * s->w + x;
-        for (int i = 0; i < w; i++) hv = (hv ^ row[i]) * 1099511628211ull;
+        int i = 0;
+        for (; i + 4 <= w; i += 4) {
+            h0 = (h0 ^ row[i]) * P;     h1 = (h1 ^ row[i + 1]) * P;
+            h2 = (h2 ^ row[i + 2]) * P; h3 = (h3 ^ row[i + 3]) * P;
+        }
+        for (; i < w; i++) h0 = (h0 ^ row[i]) * P;
     }
-    return hv;
+    return (((h0 * P ^ h1) * P ^ h2) * P ^ h3) * P;
+}
+
+void wm_glass_forget(void) {
+    for (int i = 0; i < BLUR_CACHE; i++) {
+        free(g_cache[i].ground);
+        g_cache[i].ground = 0;
+        g_cache[i].hash = ~(uint64_t)0 ^ 1;   // as a fresh slot: nothing matches
+    }
+    g_wall_gen = 0xFFFFFFFFu;
 }
 
 static struct blur_entry *cache_slot(int x, int y, int w, int h) {
@@ -394,20 +411,7 @@ static void window_end(int x, int y, int w, int h, uint8_t alpha) {
     if (!g_under) return;
     const uint32_t *u = window_backdrop(x, y, w, h);
     if (!u || !clipped(&x, &y, &w, &h)) return;
-    struct ugfx_surface *s = wm_surface();
-    unsigned a = alpha;
-    for (int j = y; j < y + h; j++) {
-        uint32_t *row = s->pixels + (size_t)j * s->w;
-        const uint32_t *ur = u + (size_t)j * s->w;
-        for (int i = x; i < x + w; i++) {
-            uint32_t o = row[i], b = ur[i];
-            unsigned rr = (((o >> 16) & 0xFF) * a + ((b >> 16) & 0xFF) * (255 - a) + 127) / 255;
-            unsigned gg = (((o >> 8) & 0xFF) * a + ((b >> 8) & 0xFF) * (255 - a) + 127) / 255;
-            unsigned bb = ((o & 0xFF) * a + (b & 0xFF) * (255 - a) + 127) / 255;
-            row[i] = rr << 16 | gg << 8 | bb;
-        }
-    }
-    ugfx_mark_dirty_rect(s, x, y, w, h);
+    ugfx_fade_over(wm_surface(), x, y, w, h, u, alpha);
 }
 
 void wm_glass_window_end(int x, int y, int w, int h, uint8_t alpha) {

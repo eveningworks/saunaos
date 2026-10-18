@@ -11586,3 +11586,43 @@ The decisions inside it, each one a thing a later session would ask:
   in or out at its centre, as the pencil is -- the brush, the pencil and
   the fill stay exact either way, so "Paint replaces pixels" still holds
   for everything but a smoothed shape's edge.
+
+## The pixel loops are one table per CPU tier, chosen once, and every tier draws the same bytes
+
+**Decision.** The loops under the glass and the blends live in
+`userland/ui/ugfx_pix.h`: a table of row-level operations (box passes,
+2x resample, mix, blend) with a C implementation and an SSE2 one, and a
+single pointer chosen on a process's first draw. The SIMD tier must be
+**byte-identical** to C, not "within one", and
+`tools/ugfx_pix_hostcheck.py` holds it there in `preflight.sh`.
+`simd=off` (a boot word, passed to clients as `UGFX_SIMD=off`) and
+`gui simd off` select C.
+
+**What real systems do.** pixman builds an implementation chain at
+startup (AVX2, SSSE3, SSE2, then generic C as the fallback that always
+exists), each with fast paths for the operations it accelerates, and
+`PIXMAN_DISABLE` turns a tier off; Skia's `SkOpts` and glibc's IFUNC
+make the same choice once rather than per call. toy-os copies the
+shape at the size it needs: one table, two tiers, a row per call so the
+indirect call is paid per row and never per pixel.
+
+**Why byte-identical.** The blur cache keys a rect by a hash of the
+pixels it was made from (`wm_glass.c`); a tier that rounds differently
+would make glass from one tier and glass from the other disagree, which
+shows as a seam where two frosted rects meet and as cache misses after
+a switch. It also makes the A/B honest: `gui simd off` then `auto` in
+one boot changes the time and nothing else, so a `gui compositor`
+difference is the loops and not what they drew. Exactness turned out
+cheap: every formula has an exact 16-bit form (the box average as
+multiply-high plus the low half's carry; `/255` as
+`(y + 1 + (y >> 8)) >> 8`, exact for `y <= 65534`; the 2x upsample's
+weights are only ever 0, 64 and 192), and the one input range that has
+none -- a box sum past 16 bits, radius over 128 -- hands the call to C.
+`ucrt` (2026-10-03) settled for within-one against a model; that was a
+private effect with no cache, which is the difference.
+
+**Why no SSSE3 or AVX2 tier yet.** None of these loops needs a
+byte shuffle, so SSSE3 would be a second copy of the SSE2 code; SSE2
+itself is part of x86-64, so the chain needs no CPUID test until AVX2,
+which needs the kernel to save YMM state (XSAVE) first
+(`docs/roadmap.md`, "AVX/XSAVE support").

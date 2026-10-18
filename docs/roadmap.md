@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- glass first, byte-exact against C  *(`fork()`/`exec()`-style process model)*
+- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- glass DONE 2026-10-18, the rest next  *(`fork()`/`exec()`-style process model)*
 <!-- END next-up -->
 
 
@@ -202,7 +202,7 @@ only expensive part of it.
 
 - [x] ~~Hardware floating point / SSE for ring-3 processes~~ done
 - [ ] A `kernel_fpu_begin()`/`kernel_fpu_end()` bracket
-- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- glass first, byte-exact against C **NEXT**
+- [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- glass DONE 2026-10-18, the rest next **NEXT**
 - [ ] AVX/XSAVE support -- AVX/AVX2 fault today (FXSAVE state only, CR4.OSXSAVE off); all three test machines have AVX2
 - [x] ~~`fork()`-style address-space duplication (copy-on-write)~~ DONE 2026-09-11 -- `SYS_FORK`, `/tests/fork_test`
 - [x] ~~`exec()`-style in-place process replacement~~ DONE 2026-09-11 -- `SYS_EXEC` takes `struct spawn_msg`; loads before it tears down

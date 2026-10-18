@@ -243,6 +243,11 @@ python3 tools/genttf.py --check || fail "generated font header check"
 step "tfs3_writer_test.py (the host seeder returns every block it frees)"
 python3 tools/tfs3_writer_test.py || fail "tfs3_writer overwrite check"
 
+# A SIMD tier that rounds one way where C rounds the other draws a seam no
+# GUI test is sharp enough to see. Host-only, about a second.
+step "ugfx_pix_hostcheck.py (every SIMD pixel loop byte-identical to C)"
+python3 tools/ugfx_pix_hostcheck.py || fail "ugfx_pix SIMD vs C"
+
 step "boot_smoke_test.py"
 python3 tools/boot_smoke_test.py || fail "boot smoke test"
 
