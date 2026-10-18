@@ -232,7 +232,22 @@ commit and hands both front ends one short Markdown text (`uui_markdown`
 in the window, `umd` in the terminal). Why trailers rather than subjects
 or a note written at publish: `docs/decisions/build.md`.
 
-**Two channels, and `stable` is a copy.** The server runs as a systemd
+**Channels are the SERVER'S, and a machine names the server** (2026-10-18).
+`GET /channels` lists `release`, `main` and `dev` with a default; the
+machine keeps `update.channel`. OSTree's remote with the refs its summary
+lists is the shape, rather than Windows Insider's or ChromeOS's channels
+compiled into the client: a channel added or retired on the server needs
+no client change, and a channel the server no longer has falls back to
+its default without losing the setting. `release` is a `main` build
+PROMOTED (`--promote NAME --to release`) -- WSUS's approval -- so what
+was released is byte-for-byte what was tested. A channel whose build is
+OLDER than the machine's asks before going back, where ChromeOS waits
+and Windows wants a clean install: here only the differing files move
+and /etc and /home are kept, so going back is cheap enough to offer.
+Snapshots hard-link the files that did not change, so a store of many
+builds costs what changed between them.
+
+**Two channels, and `stable` is a copy** (2026-09-30; `stable` is `main` now). The server runs as a systemd
 user service with `/dev` -- the checkout's staging tree, live -- and
 `/stable`, the snapshot a `--publish` copied out and an atomically
 swapped `current` link names. A machine somebody uses tracks `stable`,

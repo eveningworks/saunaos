@@ -8,6 +8,12 @@
 // Log as tabs (the mockups chosen 2026-09-30 and 2026-10-02). What's new
 // is the release notes the engine cut at this machine's build.
 //
+// THE CHANNEL is the server's own list (upd_resolve()): the heading names
+// the one in use and Change channel... opens it as a dialog (the U3
+// mockup, 2026-10-18). A channel BEHIND this machine is never installed
+// silently: choosing one asks to go back or to wait, and a check of one
+// that is behind says it is waiting (V_WAITING).
+//
 // THREADS: a check or an install runs on a worker, which owns the plan
 // while it runs and talks to this thread ONLY through uapp_post() and
 // the log queue below. Everything drawn is touched here.
@@ -28,6 +34,8 @@
 #include "lib/umd.h"
 #include "ui/uui_table.h"
 #include "ui/uui_tabs.h"
+#include "ui/uui_dialog.h"
+#include "ui/uui_choicelist.h"
 #include "ui/ulog.h"
 #include "ui/utheme.h"
 #include "update/upd.h"
@@ -37,20 +45,28 @@ enum { JOB_NONE, JOB_CHECK, JOB_APPLY };
 
 enum {
     ID_CHANGE = 1, ID_SERVER_EDIT, ID_RECENT, ID_USE, ID_EDIT_CANCEL,
-    ID_TABLE, ID_LOGVIEW, ID_TABS, ID_NOTES, ID_CHECK, ID_MAIN,
+    ID_TABLE, ID_LOGVIEW, ID_TABS, ID_NOTES, ID_CHECK, ID_MAIN, ID_CHANNEL, ID_DIALOG,
+    ID_CHOICES,
 };
+// What the two dialogs answer.
+enum { DLG_CANCEL = 1, DLG_USE, DLG_WAIT, DLG_BACK };
 enum { PAGE_NOTES, PAGE_FILES, PAGE_LOG, PAGE_COUNT };
 
 // What the window is showing, which decides the heading and the buttons.
 enum view {
     V_CHECKING, V_AVAILABLE, V_UPTODATE, V_INSTALLING, V_INSTALLED, V_RESTART, V_BLOCKED,
     V_FAILED, V_CANCELLED,
+    V_WAITING,   // the channel's build is older than this machine's; nothing is offered
 };
 
 // ---- state shared with the worker -------------------------------------------
 
 static struct upd_plan g_plan;
 static char g_server[UPD_URL_MAX];
+static struct upd_channels g_chs;   // the server's list; chosen -1 for a server without one
+static char g_url[UPD_URL_MAX + 32]; // the channel's own address, what was checked
+static char g_want[24];             // a channel to check before the setting is changed, or ""
+static int g_go_back;               // installing a build older than this machine's was agreed
 static int g_job;                   // JOB_*, set here, cleared here on EV_DONE
 static volatile int g_cancel;
 static int g_job_rc;
@@ -69,7 +85,21 @@ static unsigned long long g_last_post_ns;
 static enum view g_view = V_CHECKING;
 static char g_title_text[64], g_detail_text[200], g_amount_text[64], g_rate_text[64];
 static struct uui_label g_title, g_detail, g_server_key, g_server_val, g_amount, g_rate, g_spacer;
-static struct uui_button g_change, g_use, g_edit_cancel, g_check, g_main;
+static struct uui_label g_chan_key, g_chan_val;
+static char g_chan_text[40];
+static struct uui_button g_change, g_use, g_edit_cancel, g_check, g_main, g_chan_btn;
+static char g_main_label[48];
+static struct uui_dialog g_dlg;
+static struct uui_choicelist g_choices;
+static struct uui_choice g_choice[UPD_CHANNELS_MAX];
+static int g_choice_ch[UPD_CHANNELS_MAX];   // channel index per row
+static char g_choice_tags[UPD_CHANNELS_MAX][24], g_choice_val[UPD_CHANNELS_MAX][64];
+static char g_dlg_line[3][160];
+static const char *g_dlg_rows[3] = { g_dlg_line[0], g_dlg_line[1], g_dlg_line[2] };
+static int g_back_to = -1;                 // the channel the going-back question is about
+static int g_log_dialog;                   // report the open dialog's rects at the next tick
+static struct uui_item g_choices_item = { .ops = &uui_choicelist_ops, .widget = &g_choices,
+                                          .id = ID_CHOICES, .name = "channels" };
 static struct uui_textbox g_edit;
 static struct uui_dropdown g_recent;
 static char g_recent_urls[UPD_RECENT_MAX][UPD_URL_MAX];
@@ -104,9 +134,15 @@ static const struct uui_table_column COLS[] = {
     { "Status", 12, UUI_TALIGN_LEFT },
 };
 
+// The labels FILL the row's height, which centres their text on the
+// buttons beside them (uui_label draws centred in a stretched box).
 static struct uui_item g_server_items[] = {
-    { .ops = &uui_label_ops,  .widget = &g_server_key, .name = "serverkey" },
-    { .ops = &uui_label_ops,  .widget = &g_server_val, .name = "server", .flags = UUI_FILL_W },
+    { .ops = &uui_label_ops,  .widget = &g_server_key, .name = "serverkey", .flags = UUI_FILL_H },
+    { .ops = &uui_label_ops,  .widget = &g_server_val, .name = "server",
+      .flags = UUI_FILL_W | UUI_FILL_H },
+    { .ops = &uui_label_ops,  .widget = &g_chan_key, .name = "channelkey", .flags = UUI_FILL_H },
+    { .ops = &uui_label_ops,  .widget = &g_chan_val, .name = "channel", .flags = UUI_FILL_H },
+    { .ops = &uui_button_ops, .widget = &g_chan_btn, .id = ID_CHANNEL, .name = "changechannel" },
     { .ops = &uui_button_ops, .widget = &g_change, .id = ID_CHANGE, .name = "change" },
 };
 static struct uui_layout g_server_row = {
@@ -168,12 +204,16 @@ static struct uui_item g_items[] = {
     { .ops = &uui_layout_ops,   .widget = &g_amount_row, .flags = UUI_FILL_W },
     { .ops = &uui_layout_ops,   .widget = &g_page, .flags = UUI_FILL_W | UUI_FILL_H },
     { .ops = &uui_layout_ops,   .widget = &g_button_row, .flags = UUI_FILL_W },
+    // NOT LAID OUT -- the layout's count stops before it -- but routed,
+    // and last so it draws over the page.
+    { .ops = &uui_dialog_ops,   .widget = &g_dlg, .id = ID_DIALOG, .name = "dialog" },
 };
 static struct uui_layout g_root = {
-    .dir = UUI_COLUMN, .items = g_items, .count = sizeof g_items / sizeof g_items[0],
+    .dir = UUI_COLUMN, .items = g_items, .count = sizeof g_items / sizeof g_items[0] - 1,
 };
 
 static struct uui_focusable g_focusables[] = {
+    { &g_chan_btn, &uui_button_ops },
     { &g_change, &uui_button_ops },
     { &g_edit, &uui_textbox_ops },
     { &g_recent, &uui_dropdown_ops },
@@ -216,7 +256,16 @@ static void *worker(void *arg) {
     int job = (int)(long)arg;
     if (job == JOB_CHECK) {
         upd_plan_free(&g_plan);
-        g_job_rc = upd_check(g_server, &g_plan, &HOOKS);
+        char err[200] = "";
+        if (upd_resolve(g_server, g_want[0] ? g_want : NULL, g_url, sizeof g_url, &g_chs,
+                        err, sizeof err) != 0) {
+            memset(&g_plan, 0, sizeof g_plan);
+            snprintf(g_plan.error, sizeof g_plan.error, "%s", err);
+            w_log(0, err);
+            g_job_rc = -1;
+        } else {
+            g_job_rc = upd_check(g_url, &g_plan, &HOOKS);
+        }
     } else {
         g_job_rc = upd_apply(&g_plan, &HOOKS);
     }
@@ -451,14 +500,38 @@ static void refresh(struct uapp *a) {
         snprintf(g_detail_text, sizeof g_detail_text, "Nothing was changed");
         uui_progress_set(&g_bar, 0);
         break;
+    case V_WAITING: {
+        const struct upd_channel *c = g_chs.chosen >= 0 ? &g_chs.ch[g_chs.chosen] : 0;
+        char mv[48], mb[48];
+        upd_machine_build(mv, sizeof mv, mb, sizeof mb);
+        snprintf(g_title_text, sizeof g_title_text, "Waiting for %s to reach %s",
+                 c ? c->title : "the server", mv);
+        title = g_title_text;
+        snprintf(g_detail_text, sizeof g_detail_text,
+                 "Its newest build, %s%s%s, is older than this machine's. Nothing is installed "
+                 "until it passes this build.", g_plan.version[0] ? g_plan.version : "?",
+                 g_plan.built[0] ? " of " : "", g_plan.built);
+        uui_progress_set(&g_bar, 1000);
+        break;
+    }
     case V_FAILED:
         title = "Update failed";
         snprintf(g_detail_text, sizeof g_detail_text, "%s", g_plan.error[0] ? g_plan.error : "see the log");
         uui_progress_set(&g_bar, 0);
         break;
     }
-    snprintf(g_title_text, sizeof g_title_text, "%s", title);
+    // THE HEADING NAMES THE CHANNEL -- "Up to date on Main" -- for a
+    // server that declares them.
+    const char *on = g_chs.chosen >= 0 && g_view != V_WAITING && g_view != V_CHECKING
+                     ? g_chs.ch[g_chs.chosen].title : 0;
+    if (title != g_title_text) {
+        if (on) snprintf(g_title_text, sizeof g_title_text, "%s on %s", title, on);
+        else snprintf(g_title_text, sizeof g_title_text, "%s", title);
+    }
     uui_label_set_text(&g_title, g_title_text);
+    snprintf(g_chan_text, sizeof g_chan_text, "%s",
+             g_chs.chosen >= 0 ? g_chs.ch[g_chs.chosen].title : "-");
+    uui_label_set_text(&g_chan_val, g_chan_text);
     uui_label_set_text(&g_detail, g_detail_text);
     uui_label_set_text(&g_amount, g_amount_text);
     uui_label_set_text(&g_rate, g_rate_text);
@@ -466,10 +539,22 @@ static void refresh(struct uapp *a) {
 
     int busy = g_job != JOB_NONE;
     set_button(&g_check, "Check again", !busy);
-    set_button(&g_change, "Change...", !busy);
+    set_button(&g_change, "Change server...", !busy);
+    set_button(&g_chan_btn, "Change channel...", !busy && g_chs.count > 0);
     switch (g_view) {
     case V_CHECKING: case V_INSTALLING: set_button(&g_main, "Cancel", 1); break;
-    case V_AVAILABLE:                   set_button(&g_main, "Install", 1); break;
+    case V_AVAILABLE:
+        if (g_plan.behind) {
+            snprintf(g_main_label, sizeof g_main_label, "Go back to %s", g_plan.version);
+            set_button(&g_main, g_main_label, 1);
+        } else {
+            set_button(&g_main, "Install", 1);
+        }
+        break;
+    case V_WAITING:
+        snprintf(g_main_label, sizeof g_main_label, "Go back to %s", g_plan.version);
+        set_button(&g_main, g_main_label, g_plan.changed || g_plan.removals);
+        break;
     case V_RESTART:                     set_button(&g_main, "Restart now", 1); break;
     default:                            set_button(&g_main, "Install", 0); break;
     }
@@ -494,12 +579,25 @@ static void drain_log(void) {
 static void job_done(struct uapp *a, int job) {
     g_job = JOB_NONE;
     if (job == JOB_CHECK) {
+        upd_server_get(g_server, sizeof g_server);   // an old .../stable may have been split
+        g_want[0] = '\0';
         collect_rows();
+        int changes = g_plan.changed || g_plan.removals;
         if (g_job_rc != 0) g_view = g_cancel ? V_CANCELLED : V_FAILED;
         else if (g_plan.staged_for_boot) g_view = V_RESTART;
         else if (g_plan.kernel_blocked) g_view = V_BLOCKED;
-        else g_view = (g_plan.changed || g_plan.removals) ? V_AVAILABLE : V_UPTODATE;
+        else if (g_plan.behind && changes && !g_go_back) g_view = V_WAITING;
+        else g_view = changes ? V_AVAILABLE : V_UPTODATE;
+        ulogf("sysupdate: channel %s of %d, behind %d\n",
+              g_chs.chosen >= 0 ? g_chs.ch[g_chs.chosen].id : "-", g_chs.count, g_plan.behind);
+        // "Go back to X" was the answer already: install what the check found.
+        if (g_view == V_AVAILABLE && g_plan.behind && g_go_back) {
+            refresh(a);
+            start_job(a, JOB_APPLY);
+            return;
+        }
     } else {
+        g_go_back = 0;
         if (g_job_rc != 0) g_view = g_cancel ? V_CANCELLED : V_FAILED;
         else if (g_plan.at_boot || g_plan.kernel_installed) g_view = V_RESTART;
         else g_view = V_INSTALLED;
@@ -544,6 +642,106 @@ static void use_server(struct uapp *a) {
     start_job(a, JOB_CHECK);
 }
 
+// ---- the channel dialog, and going back ---------------------------------------
+
+static void open_dialog(struct uapp *a, const char *title, int rows,
+                        const struct uui_dialog_button *b, int n, int dflt) {
+    uui_dialog_set_bounds(&g_dlg, 0, 0, uapp_width(a), uapp_height(a));
+    uui_dialog_open(&g_dlg, title, g_dlg_rows, rows, b, n, dflt, DLG_CANCEL);
+    // Placed by the next frame; a test reads its rows and buttons after it.
+    g_log_dialog = 1;
+    uapp_redraw(a);
+}
+
+// The server's channels as rows: an internal one only where this machine
+// lists them, or when it is the one in use.
+static void open_channels(struct uapp *a) {
+    if (g_job != JOB_NONE || !g_chs.count) return;
+    int n = 0, sel = 0, internal = upd_show_internal();
+    for (int i = 0; i < g_chs.count && n < UPD_CHANNELS_MAX; i++) {
+        const struct upd_channel *c = &g_chs.ch[i];
+        if (c->internal && !internal && i != g_chs.chosen) continue;
+        snprintf(g_choice_tags[n], sizeof g_choice_tags[n], "%s%s%s", i == g_chs.dflt ? "default" : "",
+                 i == g_chs.dflt && c->internal ? " " : "", c->internal ? "internal" : "");
+        if (c->version[0])
+            snprintf(g_choice_val[n], sizeof g_choice_val[n], "%s%s%.10s", c->version,
+                     c->built[0] ? " - " : "", c->built);
+        else
+            snprintf(g_choice_val[n], sizeof g_choice_val[n], "nothing yet");
+        g_choice[n] = (struct uui_choice){ c->title, g_choice_tags[n], c->desc, g_choice_val[n] };
+        g_choice_ch[n] = i;
+        if (i == g_chs.chosen) sel = n;
+        n++;
+    }
+    uui_choicelist_init(&g_choices, g_choice, n, sel);
+    snprintf(g_dlg_line[0], sizeof g_dlg_line[0], "%s offers %d channel%s.", g_server, n,
+             n == 1 ? "" : "s");
+    static const struct uui_dialog_button b[] = {
+        { "Cancel", DLG_CANCEL, 0 }, { "Use", DLG_USE, UUI_DLG_PRIMARY },
+    };
+    open_dialog(a, "Update channel", 1, b, 2, 1);
+    int bw, bh;
+    uui_choicelist_natural_size(&g_choices, &bw, &bh);
+    if (bw < ugfx_char_w() * 52) bw = ugfx_char_w() * 52;
+    uui_dialog_set_body(&g_dlg, &g_choices_item, bw, bh);
+    struct uui_item *tabs[] = { &g_choices_item };
+    uui_dialog_set_tabs(&g_dlg, tabs, 1);
+    uui_dialog_focus(&g_dlg, &g_choices_item);
+    ulogf("sysupdate: channel dialog, %d rows\n", n);
+}
+
+static void check_channel(struct uapp *a, int i, int go_back) {
+    snprintf(g_want, sizeof g_want, "%s", g_chs.ch[i].id);
+    upd_channel_set(g_chs.ch[i].id);
+    g_go_back = go_back;
+    ulogf("sysupdate: channel -> %s%s\n", g_chs.ch[i].id, go_back ? " (going back)" : "");
+    start_job(a, JOB_CHECK);
+}
+
+// A channel was chosen. One whose build is OLDER than this machine's
+// asks first: ChromeOS waits for the channel to catch up, Windows wants
+// a reinstall; here only the differing files go back, so both are offered.
+static void channel_chosen(struct uapp *a, int i) {
+    const struct upd_channel *c = &g_chs.ch[i];
+    char mv[48], mb[48];
+    upd_machine_build(mv, sizeof mv, mb, sizeof mb);
+    if (i == g_chs.chosen) return;
+    if (!c->version[0] || upd_build_cmp(c->version, c->built, mv, mb) >= 0) {
+        check_channel(a, i, 0);
+        return;
+    }
+    g_back_to = i;
+    snprintf(g_dlg_line[0], sizeof g_dlg_line[0], "This machine runs %s%s%s. %s's newest is %s%s%s.",
+             mv, mb[0] ? ", built " : "", mb, c->title, c->version, c->built[0] ? " of " : "", c->built);
+    snprintf(g_dlg_line[1], sizeof g_dlg_line[1],
+             "Going back replaces only the files that differ. Your files in /etc and /home are kept.");
+    static char wait[48], back[48];
+    snprintf(wait, sizeof wait, "Wait for %s", mv);
+    snprintf(back, sizeof back, "Go back to %s", c->version);
+    static struct uui_dialog_button b[3];
+    b[0] = (struct uui_dialog_button){ "Cancel", DLG_CANCEL, 0 };
+    b[1] = (struct uui_dialog_button){ wait, DLG_WAIT, 0 };
+    b[2] = (struct uui_dialog_button){ back, DLG_BACK, UUI_DLG_PRIMARY };
+    static char title[64];
+    snprintf(title, sizeof title, "%s is behind this machine", c->title);
+    open_dialog(a, title, 2, b, 3, 1);
+    ulogf("sysupdate: %s is behind this machine\n", c->id);
+}
+
+static void dialog_answer(struct uapp *a, int code) {
+    int chooser = g_dlg.body == &g_choices_item;
+    uui_dialog_close(&g_dlg);
+    uui_dialog_set_body(&g_dlg, 0, 0, 0);
+    if (chooser) {
+        int r = g_choices.selected;
+        if (code == DLG_USE && r >= 0 && r < g_choices.count) channel_chosen(a, g_choice_ch[r]);
+    } else if (g_back_to >= 0 && (code == DLG_WAIT || code == DLG_BACK)) {
+        check_channel(a, g_back_to, code == DLG_BACK);
+        g_back_to = -1;
+    }
+    refresh(a);
+}
+
 // ---- callbacks ----------------------------------------------------------------
 
 static void on_widget(struct uapp *a, int id, int reason) {
@@ -551,6 +749,17 @@ static void on_widget(struct uapp *a, int id, int reason) {
     // reads where from the layout log (ui/uui_describe.h).
     if (id == ID_NOTES && (reason == UUI_REASON_RELEASE || reason == UUI_REASON_WHEEL)) {
         uapp_log_layout(a, "sysupdate");
+        return;
+    }
+    if (id == ID_DIALOG) {
+        int code = uui_dialog_take_code(&g_dlg);
+        if (code > 0) dialog_answer(a, code);
+        uapp_redraw(a);
+        return;
+    }
+    if (id == ID_CHOICES) {
+        if (reason == UUI_REASON_PRESS) uui_dialog_focus(&g_dlg, &g_choices_item);
+        uapp_redraw(a);
         return;
     }
     if (id == ID_RECENT && reason == UUI_REASON_RELEASE) {
@@ -563,18 +772,21 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_action(struct uapp *a, int code) {
     switch (code) {
     case ID_CHANGE:      if (g_job == JOB_NONE) show_editor(a, g_items[ITEM_EDIT].hidden); break;
+    case ID_CHANNEL:     open_channels(a); break;
     case ID_USE:         use_server(a); break;
     case ID_EDIT_CANCEL: show_editor(a, 0); break;
     case ID_CHECK:       start_job(a, JOB_CHECK); break;
     case ID_MAIN:
         if (g_view == V_CHECKING || g_view == V_INSTALLING) g_cancel = 1;
         else if (g_view == V_AVAILABLE) start_job(a, JOB_APPLY);
+        else if (g_view == V_WAITING) { g_go_back = 1; start_job(a, JOB_APPLY); }
         else if (g_view == V_RESTART) { sys_sync(); uinitctl_shutdown(1); }
         break;
     }
 }
 
 static void on_key(struct uapp *a, int key, unsigned mods) {
+    if (uui_dialog_is_open(&g_dlg)) return;
     // Ctrl+PgUp/PgDn steps the tabs, as in the Terminal.
     if ((mods & KEY_MOD_CTRL) && (key == KEY_PAGE_UP || key == KEY_PAGE_DOWN)) {
         int step = key == KEY_PAGE_DOWN ? 1 : PAGE_COUNT - 1;
@@ -600,7 +812,7 @@ static int on_user(struct uapp *a, int kind, int arg) {
 }
 
 static int on_tick(struct uapp *a) {
-    (void)a;
+    if (g_log_dialog) { g_log_dialog = 0; uapp_log_layout(a, "sysupdate"); }
     return uui_progress_tick(&g_bar);
 }
 
@@ -640,10 +852,17 @@ int main(void) {
     uui_label_set_wrap(&g_detail, 2);
     uui_label_init(&g_server_key, "Server");
     uui_label_init(&g_server_val, g_server);
+    uui_label_init(&g_chan_key, "Channel");
+    uui_label_init(&g_chan_val, g_chan_text);
+    uui_button_init(&g_chan_btn, 0, 0, 0, 0, "Change channel...", UUI_ROLE(control_bg), UUI_ROLE(text),
+                    ID_CHANNEL);
+    g_chan_btn.outlined = 1;
+    uui_dialog_init(&g_dlg);
+    g_chs.chosen = g_chs.dflt = -1;
     uui_label_init(&g_amount, g_amount_text);
     uui_label_init(&g_rate, g_rate_text);
     uui_label_init(&g_spacer, "");
-    uui_button_init(&g_change, 0, 0, 0, 0, "Change...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CHANGE);
+    uui_button_init(&g_change, 0, 0, 0, 0, "Change server...", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CHANGE);
     uui_button_init(&g_use, 0, 0, 0, 0, "Use", UUI_ROLE(control_bg), UUI_ROLE(text), ID_USE);
     uui_button_init(&g_edit_cancel, 0, 0, 0, 0, "Cancel", UUI_ROLE(control_bg), UUI_ROLE(text), ID_EDIT_CANCEL);
     uui_button_init(&g_check, 0, 0, 0, 0, "Check again", UUI_ROLE(control_bg), UUI_ROLE(text), ID_CHECK);

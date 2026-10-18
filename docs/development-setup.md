@@ -72,11 +72,12 @@ gh auth login                                  # choose SSH as the protocol
 
 # 8. Optional: the update server, so toy-os machines can PULL builds
 #    (docs/commands/update.md). A systemd USER service on port 8080:
-#    /dev serves this checkout's latest `make iso`, /stable the last
-#    build you published. Open 8080 to your LAN in the firewall.
+#    /dev serves this checkout's latest `make iso`, /main the last
+#    build you published, /release the one you promoted from it.
+#    Open 8080 to your LAN in the firewall.
 make iso && python3 tools/update_server.py --publish
 python3 tools/update_server.py --install-service
-curl -s localhost:8080/                        # lists both channels
+curl -s localhost:8080/channels                # what a machine is offered
 ```
 
 **What you do not copy.** `disk.img` is gitignored and reseeded by

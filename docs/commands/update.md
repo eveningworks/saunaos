@@ -6,17 +6,27 @@
 
 ## Synopsis
 
-    update [--check] [-v] [--from <url>] | --server [<url>] | --log
+    update [--check] [-v] [--go-back] [--from <url>] | --server [<url>] | --channel [<name>] | --channels | --log
 
 ## Options
 
 - *(none)* -- check, then fetch and install everything that differs.
 - `--check` (or `-n`) -- check and list what differs; change nothing.
 - `-v` -- with `--check`, list every file rather than the first ten.
-- `--from <url>` -- use this server for this run only.
+- `--from <url>` -- use this CHANNEL'S address (`http://<host>:8080/dev`)
+  for this run only; the server's list is not consulted.
+- `--go-back` -- install the channel's build even though it is OLDER than
+  this machine's (see Channels, below).
 - `--server` -- print the server address and the recently used ones.
 - `--server <url>` -- set it (the `update.server` setting, also on
   System Settings' Updates page) and add it to the recent list.
+- `--channels` -- list the server's channels, the one in use marked `*`,
+  with each one's version, date and description, `[default]` and
+  `[internal]`.
+- `--channel` -- print the channel this machine follows.
+- `--channel <name>` -- follow that one (the `update.channel` setting);
+  `--channel default` follows the server's default again. A name the
+  server does not list is refused.
 - `--log` -- print the last run's log, `/var/log/update.log`.
 
 ## Description
@@ -138,30 +148,50 @@ records `gzio` (`/etc/grub-core.modules`).
 A second `update` before the restart says an update is already staged
 and installs nothing.
 
-## The server, and its two channels
+## Channels: one address, the server's own list
 
-The development host runs `tools/update_server.py` as a systemd user
-service (`--install-service` sets it up) on port 8080, with two
-channels, and a machine's server address names one:
+A machine names the SERVER (`update.server`, `http://<host>:8080`) and
+follows one of the channels it lists (`update.channel`; empty is the
+server's default). `GET <server>/channels` is that list. The development
+host runs `tools/update_server.py` as a systemd user service
+(`--install-service` sets it up) on port 8080, with three:
 
-| Address | What it serves |
+| Channel | What it serves |
 |---|---|
-| `http://<host>:8080/dev` | the checkout's latest `make iso`, live |
-| `http://<host>:8080/stable` | the last build somebody PUBLISHED |
+| `release` | released versions only: a `main` build PROMOTED, never rebuilt |
+| `main` | the last build somebody PUBLISHED after its tests (the default) |
+| `dev` | the checkout's latest `make iso`, live, before any gate -- `internal` |
 
-A VM wants `dev` -- `http://10.0.2.2:8080/dev`, QEMU's host, is the
-default. A machine somebody uses wants `stable`:
+`dev` is marked internal: a development build lists it, a released one
+only when `update.show_internal` is on. An address from before the list
+that names one channel (`http://<host>:8080/stable`) is split into the
+server and that channel the first time it is used; `/stable` still
+answers as `main` for a machine whose updater predates the list, and a
+server without a list is used as one channel, as before.
 
-    update --server http://<host>:8080/stable
+**A channel BEHIND this machine is not installed silently.** When the
+channel's build is older than the one this machine last installed (by
+version, then by build date), `update` says so and changes nothing;
+`--go-back` installs it -- only the files that differ, `/etc` and `/home`
+kept as always. The System Update window asks the same question when
+such a channel is chosen: go back now, or wait until it passes this
+build.
 
-A build reaches `stable` only when it is published, after its tests:
+    update --channels
+    update --channel release
+    update --go-back
 
-    python3 tools/update_server.py --publish        # this build -> stable
-    python3 tools/update_server.py --list           # what is published
-    python3 tools/update_server.py --promote <name> # roll stable back or forward
+A build reaches `main` only when it is published, after its tests, and
+`release` only when a published one is promoted:
 
-A publish is a COPY (under `~/.local/share/toy-os/updates`), so
-rebuilding the checkout never changes what `stable` serves, and it is
+    python3 tools/update_server.py --publish                  # this build -> main
+    python3 tools/update_server.py --list                     # M = main, R = release
+    python3 tools/update_server.py --promote <name>           # roll main back or forward
+    python3 tools/update_server.py --promote <name> --to release
+
+A publish is a COPY (under `~/.local/share/toy-os/updates`), its
+unchanged files HARD-LINKED to the build before it, so rebuilding the
+checkout never changes what `main` serves, and it is
 refused unless `tools/preflight.sh` passed on exactly this tree
 (`--force` overrides). `dev` refuses (503) while `seed/sync` is older
 than the build or a `make iso` is still writing it, so a machine cannot

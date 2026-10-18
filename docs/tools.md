@@ -1008,12 +1008,18 @@ manual steps to be worth automating:
 
 - **`update_server.py`** -- the PULL half of `remote.py flash`: serves
   builds to machines running `/bin/update` or the System Update window
-  (`docs/commands/update.md`), on TWO CHANNELS: `/dev` is this checkout's
-  `seed/sync`, live, and `/stable` is the published snapshot
-  `~/.local/share/toy-os/updates/current` points at. `--publish` COPIES
-  the current build there (refusing a stale one) and flips `current`
-  atomically -- a new symlink renamed over the old -- keeping the last
-  `--keep` (5); `--list` and `--promote NAME` are the rollback. The
+  (`docs/commands/update.md`), on THREE CHANNELS it DECLARES at `GET
+  /channels` (tab-separated, a `default` line, `alias stable main`):
+  `/dev` is this checkout's `seed/sync`, live, marked `internal`; `/main`
+  (also `/stable`) is the published snapshot
+  `~/.local/share/toy-os/updates/current` points at; `/release` is the
+  one the `release` link points at. `--publish` COPIES the current build
+  into a new snapshot -- HARD-LINKING each file the main build before it
+  shipped with the same crc and size -- and flips `current` atomically, a
+  new symlink renamed over the old, keeping the last `--keep` (5) and
+  never one a link points at; `--list` (M main, R release) and
+  `--promote NAME [--to release]` are the rollback and the release;
+  `--default` names the channel `/channels` calls the default (main). The
   server re-reads the link per request, so neither needs a restart.
   `--install-service` fills in `tools/systemd/toy-os-update.service` and
   enables it under `systemd --user`; `journalctl --user -u
@@ -5484,6 +5490,17 @@ window without going through it will find its layout polls timing out.
   scrolls the pane to them (`reveal()`) as a person would. The filter and
   event checks fired on a never-hiding filter and on a claim that
   recorded no event. In `gui_regress.py`.
+- **`sysupdate_channels_test.py`** -- System Update's CHANNELS, against
+  `update_server.py`'s handler serving three in-process (Release a
+  fixture one version OLDER, with one file different): an address naming
+  `/stable` is split into the server and its channel (read from
+  `/etc/update.conf`); the check lands on Main of three; Change
+  channel... opens the list -- Dev included on a -dev build -- and its
+  rows are DRAWN (the first row's rect changed against a screenshot
+  before it, the title bar the control); choosing Release asks first,
+  Wait leaves the file alone with the view waiting, and Go back installs
+  it, `sum` reading the older file. Puts the guest back on main after. In
+  `gui_regress.py`.
 - **`sysupdate_test.py`** -- the System Update window
   (`userland/gui/system/sysupdate.c`) against `update_server.py`'s handler
   in-process on an ephemeral port, THROTTLED so an install has a middle:
@@ -6871,6 +6888,11 @@ runs first**: a `doom1.wad` with one
   CORRUPTS in transit is refused with the old file and no `.upd` left;
   a damaged LIBRARY is staged, not replaced, and the SECOND guest --
   the same disk rebooted -- applies it before init; `--server` persists.
+  **Channels**: a second in-process server lists three, Release a
+  version OLDER with one file different; `.../stable` is split into the
+  server and `main`, `--channels` lists them with Dev `[internal]`, a
+  behind channel installs nothing until `--go-back`, an unknown name is
+  refused, and main brings the newer file back.
   **Stale files**: the server's manifest can HIDE paths, so a file a
   release stopped shipping is removed (`/bin/hello`), one edited on the
   guest is kept and said so, and a stale library is staged as a `-` line

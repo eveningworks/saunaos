@@ -11,6 +11,7 @@
 #include "rt/sys.h"
 #include "lib/usetting.h"
 #include "update_abi.h"
+#include "query_abi.h"   // QUERY_VERSION, for upd_machine_build()
 #include "uhash.h"
 #include "uhttp.h"
 #include "update/upd.h"
@@ -26,7 +27,7 @@ static char g_boot_path[3][40];
 #define KERNEL_OLD   boot_path(1, "kernel.old")
 #define GRUB_CFG     boot_path(2, "grub/grub.cfg")
 #define GRUB_MODULES "/etc/grub-core.modules"
-#define DEFAULT_SERVER "http://10.0.2.2:8080/dev"
+#define DEFAULT_SERVER "http://10.0.2.2:8080"
 
 static int g_log_fd = -1;
 
@@ -633,6 +634,12 @@ int upd_check(const char *base, struct upd_plan *p, const struct upd_hooks *h) {
     progress(h, p, -1);
     fetch_notes(p, h);
 
+    char mv[48], mb[48];
+    upd_machine_build(mv, sizeof mv, mb, sizeof mb);
+    p->behind = p->version[0] && upd_build_cmp(p->version, p->built, mv, mb) < 0;
+    if (p->behind) say(h, "this build (%s, %s) is OLDER than the one installed (%s%s%s)", p->version,
+                       p->built[0] ? p->built : "no date", mv, mb[0] ? ", " : "", mb);
+
     p->staged_for_boot = exists(UPDATE_PENDING_PATH, 0) == 1;
     compare_kernel(p, h);
     char *rec = read_whole(UPD_INSTALLED_PATH);
@@ -990,4 +997,205 @@ int upd_server_set(const char *url) {
     }
     fclose(fp);
     return 0;
+}
+
+// ---- channels ------------------------------------------------------------------
+
+char *upd_channel_get(char *out, size_t cap) {
+    if (!usetting_get(UPD_CHANNEL_SETTING, out, cap)) out[0] = '\0';
+    return out;
+}
+
+int upd_channel_set(const char *id) {
+    int r = usetting_set(UPD_CHANNEL_SETTING, id);
+    return (r == SETTING_SAVED || r == SETTING_UNSAVED) ? 0 : -1;
+}
+
+int upd_show_internal(void) {
+    char v[8] = "";
+    if (usetting_get(UPD_INTERNAL_SETTING, v, sizeof v) && !strcmp(v, "on")) return 1;
+    return strstr(TOYOS_VERSION, "-") != NULL;   // a -dev build lists its own channel
+}
+
+// One tab-separated field into `out`, advancing `*s` past it.
+static void field(char **s, char *out, size_t cap) {
+    char *t = strchr(*s, '\t');
+    size_t n = t ? (size_t)(t - *s) : strlen(*s);
+    snprintf(out, cap, "%.*s", (int)n, *s);
+    *s = t ? t + 1 : *s + n;
+}
+
+// The list's text into `chs`; the aliases (`alias stable main`) into
+// `alias`/`target`, one of them, for upd_resolve()'s migration.
+static int parse_channels(char *text, struct upd_channels *chs, char *alias, char *target, size_t acap) {
+    char dflt[24] = "";
+    memset(chs, 0, sizeof *chs);
+    chs->dflt = chs->chosen = -1;
+    if (alias) alias[0] = target[0] = '\0';
+    char *save = 0;
+    for (char *l = strtok_r(text, "\n", &save); l; l = strtok_r(0, "\n", &save)) {
+        size_t len = strlen(l);
+        if (len && l[len - 1] == '\r') l[--len] = '\0';
+        if (l[0] == '#' || !l[0]) continue;
+        if (!strncmp(l, "default ", 8)) { snprintf(dflt, sizeof dflt, "%s", l + 8); continue; }
+        if (!strncmp(l, "alias ", 6)) {
+            if (alias && sscanf(l + 6, "%23s %23s", alias, target) != 2) alias[0] = '\0';
+            (void)acap;
+            continue;
+        }
+        if (chs->count == UPD_CHANNELS_MAX || !strchr(l, '\t')) continue;
+        struct upd_channel *c = &chs->ch[chs->count];
+        char flags[32];
+        char *s = l;
+        field(&s, c->id, sizeof c->id);
+        field(&s, c->title, sizeof c->title);
+        field(&s, flags, sizeof flags);
+        field(&s, c->version, sizeof c->version);
+        field(&s, c->built, sizeof c->built);
+        field(&s, c->desc, sizeof c->desc);
+        if (!c->id[0]) continue;
+        c->internal = strstr(flags, "internal") != NULL;
+        if (!strcmp(c->version, "-")) c->version[0] = '\0';
+        if (!strcmp(c->built, "-")) c->built[0] = '\0';
+        if (!c->title[0]) snprintf(c->title, sizeof c->title, "%s", c->id);
+        chs->count++;
+    }
+    for (int i = 0; i < chs->count; i++)
+        if (!strcmp(chs->ch[i].id, dflt)) chs->dflt = i;
+    return chs->count > 0;
+}
+
+static int fetch_channels(const char *server, struct upd_channels *out, char *alias, char *target,
+                          char *err, size_t errcap) {
+    char url[UPD_URL_MAX + 16];
+    snprintf(url, sizeof url, "%s/channels", server);
+    struct growbuf b = { 0 };
+    struct uhttp_request req;
+    memset(&req, 0, sizeof req);
+    req.url = url;
+    req.sink = grow_sink;
+    req.sink_ctx = &b;
+    int rc = uhttp_fetch(&req);
+    memset(out, 0, sizeof *out);
+    out->dflt = out->chosen = -1;
+    if (rc != 0 || !req.status) {
+        snprintf(err, errcap, "could not fetch %s: %s", url, req.err[0] ? req.err : "no answer");
+        free(b.p);
+        return -1;
+    }
+    int ok = req.status == 200 && b.p && parse_channels(b.p, out, alias, target, UPD_URL_MAX);
+    free(b.p);
+    return ok ? 1 : 0;
+}
+
+int upd_channels_fetch(const char *server, struct upd_channels *out, char *err, size_t errcap) {
+    char a[24], t[24];
+    return fetch_channels(server, out, a, t, err, errcap);
+}
+
+static int find_channel(const struct upd_channels *chs, const char *id) {
+    for (int i = 0; i < chs->count; i++)
+        if (!strcmp(chs->ch[i].id, id)) return i;
+    return -1;
+}
+
+int upd_resolve(const char *server_in, const char *channel, char *url, size_t cap,
+                struct upd_channels *chs, char *err, size_t errcap) {
+    char server[UPD_URL_MAX], want[24] = "", alias[24], target[24];
+    snprintf(server, sizeof server, "%s", server_in);
+    size_t sl = strlen(server);
+    while (sl && server[sl - 1] == '/') server[--sl] = '\0';
+    if (channel) snprintf(want, sizeof want, "%s", channel);
+    else upd_channel_get(want, sizeof want);
+
+    int got = fetch_channels(server, chs, alias, target, err, errcap);
+    if (got < 0) return -1;
+    if (got == 0) {
+        // No list here. An address from before it names ONE channel
+        // (".../stable"): if its parent lists that channel, or an alias
+        // of it, the setting becomes the server and the channel.
+        char *slash = strrchr(server, '/');
+        int split = 0;
+        if (slash && slash > server + 8 && !channel) {
+            char parent[UPD_URL_MAX], seg[24];
+            snprintf(seg, sizeof seg, "%s", slash + 1);
+            snprintf(parent, sizeof parent, "%.*s", (int)(slash - server), server);
+            static struct upd_channels up;   // static: the ring-3 frame budget is 2 KiB
+            if (fetch_channels(parent, &up, alias, target, err, errcap) == 1) {
+                const char *id = (alias[0] && !strcmp(seg, alias)) ? target : seg;
+                if (find_channel(&up, id) >= 0) {
+                    char cur[UPD_URL_MAX] = "";
+                    upd_server_get(cur, sizeof cur);
+                    if (!strcmp(cur, server_in) && upd_server_set(parent) == 0) upd_channel_set(id);
+                    *chs = up;
+                    snprintf(server, sizeof server, "%s", parent);
+                    snprintf(want, sizeof want, "%s", id);
+                    split = 1;
+                }
+            }
+        }
+        if (!split) {
+            chs->chosen = -1;
+            snprintf(url, cap, "%s", server);
+            return 0;
+        }
+    }
+    int i = want[0] ? find_channel(chs, want) : -1;
+    if (want[0] && i < 0 && alias[0] && !strcmp(want, alias)) i = find_channel(chs, target);
+    if (i < 0) i = chs->dflt >= 0 ? chs->dflt : 0;
+    // A channel this server no longer has: its default is checked, and
+    // the setting is kept for a server that has it again.
+    chs->chosen = i;
+    snprintf(url, cap, "%s/%s", server, chs->ch[i].id);
+    return 0;
+}
+
+// "0.6.0-dev" -> {0,6,0}, pre-release "dev". Missing parts are 0.
+static void split_version(const char *v, long n[3], const char **pre) {
+    n[0] = n[1] = n[2] = 0;
+    *pre = "";
+    for (int i = 0; i < 3 && *v; i++) {
+        n[i] = strtol(v, (char **)&v, 10);
+        if (*v == '.') v++;
+        else break;
+    }
+    if (*v == '-') *pre = v + 1;
+}
+
+int upd_build_cmp(const char *va, const char *ba, const char *vb, const char *bb) {
+    long na[3], nb[3];
+    const char *pa, *pb;
+    split_version(va, na, &pa);
+    split_version(vb, nb, &pb);
+    for (int i = 0; i < 3; i++)
+        if (na[i] != nb[i]) return na[i] < nb[i] ? -1 : 1;
+    if (!*pa != !*pb) return *pa ? -1 : 1;   // a release outranks its pre-release
+    int c = strcmp(pa, pb);
+    if (c) return c < 0 ? -1 : 1;
+    if (!ba[0] || !bb[0]) return 0;
+    c = strcmp(ba, bb);                     // "YYYY-MM-DD HH:MM" sorts as text
+    return c < 0 ? -1 : c > 0 ? 1 : 0;
+}
+
+void upd_machine_build(char *ver, size_t vcap, char *built, size_t bcap) {
+    ver[0] = built[0] = '\0';
+    char *rec = read_whole(UPD_INSTALLED_PATH);
+    if (rec) {
+        for (char *l = rec; l && *l == '#'; ) {
+            char *nl = strchr(l, '\n');
+            size_t n = nl ? (size_t)(nl - l) : strlen(l);
+            if (n > 10 && !strncmp(l, "# version ", 10)) snprintf(ver, vcap, "%.*s", (int)(n - 10), l + 10);
+            else if (n > 8 && !strncmp(l, "# built ", 8)) snprintf(built, bcap, "%.*s", (int)(n - 8), l + 8);
+            l = nl ? nl + 1 : 0;
+        }
+        free(rec);
+    }
+    if (!ver[0]) {
+        struct query_version kv;
+        if (sys_query_record(QUERY_VERSION, 0, &kv, sizeof kv) >= (int)sizeof kv)
+            snprintf(ver, vcap, "%s", kv.version);
+        else
+            snprintf(ver, vcap, "%s", TOYOS_VERSION);
+        built[0] = '\0';
+    }
 }

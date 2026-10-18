@@ -983,7 +983,8 @@ def main():
     tz_ctls = controls(dbg, mark)
     # A ONE-SETTING PAGE IS ONE CARD, and the card is titled even when
     # the page's name is the same word: a card is read on its own, as it
-    # is in Windows 11's Settings. Updates is one setting (update.server)
+    # is in Windows 11's Settings. Updates is one setting (update.server;
+    # the channel settings are Advanced -- System Update chooses them)
     # and the page is named for its group.
     one_row = row_named("Updates")
     if check("the sidebar offers an Updates page", one_row is not None):

@@ -1,0 +1,12 @@
+Type=enum
+File=/etc/update.conf
+Label=Show internal channels
+Category=System
+Group=Updates
+Default=off
+Choices=on,off
+Description=List the server's internal channels, such as Dev, on a released build
+Order=30
+Choice.on=On
+Choice.off=Off
+Advanced=1

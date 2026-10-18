@@ -15,6 +15,12 @@ WHAT IT PROVES, each against an INDEPENDENT reader (`sum`, `cat`,
      unchanged -- until the next boot, whose kernel applies it
      ("update: applied 1 staged file") before init starts.
   5. `update --server` persists the address and records it as recent.
+ 10. CHANNELS, from a server that lists them (GET /channels): an address
+     from before the list (".../stable") is split into the server and its
+     channel; `--channels` lists them with the internal Dev; a channel
+     whose build is OLDER than the machine's is not installed until
+     `--go-back` says so, and then `sum` reads the older file; an unknown
+     channel is refused.
   7. STALE FILES: a manifest that stops listing a file removes it, once
      a record of the previous manifest exists -- unless it was edited
      here, which keeps it. A stale LIBRARY waits for the boot like a
@@ -48,6 +54,7 @@ up as a pass that should have been a failure.
 import argparse
 import http.server
 import os
+import re
 import shutil
 import sys
 import tempfile
@@ -134,6 +141,88 @@ class Server:
             if len(f) >= 3 and f[2] == path:
                 return int(f[0])
         return None
+
+
+class Older:
+    """A channel whose build is OLDER than the guest's: version 0.5.0, and
+    one file different, so going back has something to install."""
+
+    PATH = "/usr/share/doc/cmd/update.md"
+    BODY = b"# update\n\nThe page as 0.5.0 shipped it.\n"
+
+    def __init__(self, inner, tmp):
+        self.inner = inner
+        self.file = os.path.join(tmp, "older-update.md")
+        with open(self.file, "wb") as fh:
+            fh.write(self.BODY)
+
+    def snapshot(self):
+        text, files = self.inner.snapshot()
+        out = []
+        for ln in text.splitlines():
+            f = ln.split(" ")
+            if ln.startswith("# version "):
+                ln = "# version 0.5.0"
+            elif len(f) >= 3 and f[2] == self.PATH:
+                ln = " ".join([str(zlib.crc32(self.BODY)), str(len(self.BODY))] + f[2:])
+            out.append(ln)
+        files = dict(files)
+        files[self.PATH] = self.file
+        return "\n".join(out) + "\n", files
+
+    def notes(self):
+        return None
+
+
+def channel_server(manifest, tmp):
+    """update_server's three channels, as the service serves them."""
+    sources = {"dev": manifest, "main": manifest, "release": Older(manifest, tmp)}
+    prefixes = {f"/{k}": v for k, v in sources.items()}
+    prefixes["/stable"] = manifest
+    base = update_server.make_handler(prefixes, default="main", declared=sources)
+
+    class Handler(base):
+        def log_message(self, *a):
+            pass
+
+        def _say(self, *a):
+            pass
+
+    srv = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    return srv
+
+
+def channel_checks(c, sh, srv, tmp):
+    chs = channel_server(srv.manifest, tmp)
+    base = f"http://{GATEWAY}:{chs.server_address[1]}"
+    try:
+        sh.run(f"update --server {base}/stable")
+        out = sh.run("update --channels", timeout=120)
+        c.ok("an address naming /stable is split into the server and its channel",
+             "* main" in out and re.search(rf"server={re.escape(base)}\s", sh.run("cat /etc/update.conf") + "\n"),
+             out.strip()[-300:])
+        c.ok("...and the setting names the channel", "main" in sh.run("update --channel"))
+        c.ok("--channels lists all three, Dev marked internal (a -dev build)",
+             "release" in out and "dev" in out and "[internal]" in out and "[default]" in out,
+             out.strip()[-300:])
+        before = summed(sh, Older.PATH)
+        out = sh.run("update --channel release")
+        c.ok("--channel release is taken", "channel is now release" in out, out.strip()[-120:])
+        out = sh.run("update", timeout=600)
+        c.ok("a channel BEHIND the machine is not installed", "older than this machine" in out
+             and summed(sh, Older.PATH) == before, out.strip()[-300:])
+        out = sh.run("update --go-back", timeout=600)
+        c.ok("--go-back installs the older build",
+             summed(sh, Older.PATH) == (zlib.crc32(Older.BODY), len(Older.BODY)), out.strip()[-300:])
+        out = sh.run("update --channel nosuch")
+        c.ok("an unknown channel is refused", "no channel nosuch" in out, out.strip()[-120:])
+        sh.run("update --channel main")
+        out = sh.run("update", timeout=600)
+        c.ok("back on main, the newer file returns", summed(sh, Older.PATH) == before,
+             out.strip()[-300:])
+    finally:
+        chs.shutdown()
 
 
 def patched_kernel(tmp):
@@ -390,6 +479,11 @@ def main():
         c.ok("--server persists the address",
              f"server={url}" in sh.run("cat /etc/update.conf"))
         c.ok("...and records it as recent", f"recent: {url}" in sh.run("update --server"))
+
+        # 10. channels
+        channel_checks(c, sh, srv, tmp)
+        sh.run(f"update --server {url}")
+        sh.run("update --channel default")
 
         # 6. the kernel
         if not shutil.which("mtype") or not shutil.which("mcopy"):

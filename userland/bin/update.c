@@ -16,7 +16,7 @@
 #include "lib/upager.h"
 #include "update/upd.h"
 
-#define USAGE "update [--check] [-v] [--from <url>] | --server [<url>] | --log"
+#define USAGE "update [--check] [-v] [--go-back] [--from <url>] | --server [<url>] | --channel [<name>] | --channels | --log"
 
 struct cli {
     int tty;          // redraw a live line for the file being fetched
@@ -120,8 +120,54 @@ static int server_cmd(const char *url) {
     return 0;
 }
 
+// The server's channels, the one in use marked `*`.
+static int channels_cmd(void) {
+    static char server[UPD_URL_MAX], url[UPD_URL_MAX + 32], err[200];
+    static struct upd_channels chs;
+    upd_server_get(server, sizeof server);
+    if (upd_resolve(server, NULL, url, sizeof url, &chs, err, sizeof err) != 0) {
+        printf("update: %s\n", err);
+        return 1;
+    }
+    if (chs.chosen < 0) { printf("update: %s declares no channels; it is one\n", server); return 0; }
+    upd_server_get(server, sizeof server);
+    printf("%s:\n", server);
+    int internal = upd_show_internal();
+    for (int i = 0; i < chs.count; i++) {
+        const struct upd_channel *c = &chs.ch[i];
+        if (c->internal && !internal && i != chs.chosen) continue;
+        printf("%c %-10s %-12s %-16s %s%s%s\n", i == chs.chosen ? '*' : ' ', c->id,
+               c->version[0] ? c->version : "(empty)", c->built, c->desc,
+               i == chs.dflt ? "  [default]" : "", c->internal ? "  [internal]" : "");
+    }
+    return 0;
+}
+
+static int channel_cmd(const char *name) {
+    char cur[32];
+    if (!name) {
+        upd_channel_get(cur, sizeof cur);
+        printf("%s\n", cur[0] ? cur : "(the server's default)");
+        return 0;
+    }
+    if (!strcmp(name, "default")) name = "";   // the server's own choice again
+    if (name[0]) {
+        static char server[UPD_URL_MAX], url[UPD_URL_MAX + 32], err[200];
+        static struct upd_channels chs;
+        upd_server_get(server, sizeof server);
+        if (upd_resolve(server, name, url, sizeof url, &chs, err, sizeof err) == 0 && chs.chosen >= 0
+            && strcmp(chs.ch[chs.chosen].id, name) != 0) {
+            printf("update: the server has no channel %s (update --channels)\n", name);
+            return 1;
+        }
+    }
+    if (upd_channel_set(name) != 0) { printf("update: refused channel %s\n", name); return 1; }
+    printf("update: channel is now %s\n", name[0] ? name : "the server's default");
+    return 0;
+}
+
 int main(int argc, char **argv) {
-    int check_only = 0, verbose = 0;
+    int check_only = 0, verbose = 0, go_back = 0;
     const char *from = 0;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--check") || !strcmp(argv[i], "-n")) check_only = 1;
@@ -129,12 +175,27 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--from") && i + 1 < argc) from = argv[++i];
         else if (!strcmp(argv[i], "--server")) return server_cmd(i + 1 < argc ? argv[i + 1] : 0);
         else if (!strcmp(argv[i], "--log")) return show_log();
+        else if (!strcmp(argv[i], "--channels")) return channels_cmd();
+        else if (!strcmp(argv[i], "--channel")) return channel_cmd(i + 1 < argc ? argv[i + 1] : 0);
+        else if (!strcmp(argv[i], "--go-back")) go_back = 1;
         else { cmd_usage(USAGE); return 1; }
     }
 
-    char server[UPD_URL_MAX];
-    if (from) snprintf(server, sizeof server, "%s", from);
-    else upd_server_get(server, sizeof server);
+    // --from names ONE channel's address, as it always did; otherwise
+    // the server's list picks it (upd_resolve()).
+    static char server[UPD_URL_MAX + 32];
+    static struct upd_channels chs;
+    if (from) {
+        snprintf(server, sizeof server, "%s", from);
+    } else {
+        static char base[UPD_URL_MAX], err[200];   // static: the ring-3 frame budget is 2 KiB
+        upd_server_get(base, sizeof base);
+        if (upd_resolve(base, NULL, server, sizeof server, &chs, err, sizeof err) != 0) {
+            printf("update: %s\n", err);
+            return 1;
+        }
+        if (chs.chosen >= 0) printf("update: channel %s\n", chs.ch[chs.chosen].id);
+    }
 
     struct cli c = { .tty = isatty(1), .verbose = verbose };
     struct upd_hooks h = { .ctx = &c, .log = on_log, .progress = on_progress };
@@ -148,6 +209,12 @@ int main(int argc, char **argv) {
                "(docs/commands/update.md)\n");
     if (!p.changed && !p.removals) {
         printf("update: up to date\n");
+        upd_plan_free(&p);
+        return 0;
+    }
+    if (p.behind && !go_back) {
+        printf("update: this channel's build (%s, %s) is older than this machine's -- waiting "
+               "until it passes it. `update --go-back` installs it now.\n", p.version, p.built);
         upd_plan_free(&p);
         return 0;
     }

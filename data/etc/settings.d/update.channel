@@ -1,0 +1,9 @@
+Type=string
+File=/etc/update.conf
+Label=Update channel
+Category=System
+Group=Updates
+Default=
+Description=Which of the server's channels to follow, such as main or release; empty for the server's default
+Order=20
+Advanced=1

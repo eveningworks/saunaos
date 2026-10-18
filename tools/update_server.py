@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-"""Serve toy-os builds to machines running /bin/update, on two channels.
+"""Serve toy-os builds to machines running /bin/update, on three channels.
 
-    python3 tools/update_server.py                  # both channels, 0.0.0.0:8080
-    python3 tools/update_server.py --publish        # this build -> `stable` (preflight-passed)
-    python3 tools/update_server.py --list           # published builds; * = current
-    python3 tools/update_server.py --promote NAME   # point `stable` at another one
+    python3 tools/update_server.py                  # every channel, 0.0.0.0:8080
+    python3 tools/update_server.py --publish        # this build -> `main` (preflight-passed)
+    python3 tools/update_server.py --list           # published builds; M = main, R = release
+    python3 tools/update_server.py --promote NAME   # point `main` at another one
+    python3 tools/update_server.py --promote NAME --to release   # release a main build
     python3 tools/update_server.py --install-service   # run it under systemd --user
     python3 tools/update_server.py --print [--channel stable]
     python3 tools/update_server.py --throttle 300   # 300 KiB/s: watch the progress bar
@@ -14,22 +15,43 @@ System Update window) and fetches from here; nothing listens on the
 machine. `remote.py flash` is the PUSH half and still the tool for a
 machine with no network configuration yet.
 
-TWO CHANNELS -- A MACHINE'S `update.server` NAMES ONE
------------------------------------------------------
-    http://<host>:8080/dev      this checkout's seed/sync, LIVE: every
-                                `make iso` is at once what a machine gets
-    http://<host>:8080/stable   the published snapshot `current` points at,
-                                under ~/.local/share/toy-os/updates
+THREE CHANNELS, DECLARED BY THE SERVER -- A MACHINE NAMES THE SERVER, THEN PICKS ONE
+------------------------------------------------------------------------------------
+    http://<host>:8080/channels  the list below, and which one is the default
+    http://<host>:8080/dev       this checkout's seed/sync, LIVE: every
+                                 `make iso` is at once what a machine gets.
+                                 Marked `internal`: a released image lists it
+                                 only when asked to (update.show_internal)
+    http://<host>:8080/main      the published snapshot `current` points at,
+                                 under ~/.local/share/toy-os/updates. `/stable`
+                                 is the same channel, for the machines whose
+                                 address still names it
+    http://<host>:8080/release   the snapshot `release` points at: a `main`
+                                 build PROMOTED, never rebuilt
 
-`dev` is what a VM wants while a build is being worked on. `stable` is
-what a machine somebody USES wants: a build only arrives there when it is
+`dev` is what a VM wants while a build is being worked on. `main` is what
+a machine somebody USES wants: a build only arrives there when it is
 published (after preflight, say), and a publish is a COPY, so rebuilding
-the checkout never reaches it. `--publish` refuses a build preflight has
+the checkout never reaches it. `release` is a version that was released:
+the same files `main` served, approved -- WSUS's approval, apt's
+suite moved between pockets. OSTree's summary file is the shape of
+`/channels`: one remote, the refs it carries listed by the remote. `--publish` refuses a build preflight has
 not passed on this exact tree (tools/preflight_stamp.py; `--force`
 overrides), and `dev` answers 503 while a `make iso` is writing it
 (build/.seeding).
 apt's published repository and WSUS's approval step are the shape. The
 last few snapshots are kept, so `--promote` is also the rollback.
+
+`/channels` is one line per channel, tab-separated, in the server's order:
+
+    # toy-os update channels
+    default main
+    alias stable main
+    <id> TAB <title> TAB <flags> TAB <version> TAB <built> TAB <description>
+
+with flags `internal` or `-`, and `-` for the version and date of a
+channel with nothing in it yet. A server from before it answers 404, and
+a machine then uses its address as one channel, as it always did.
 
 Each channel serves
     GET <channel>/manifest      one line per file:  <crc32> <size> <path> [opts]
@@ -288,23 +310,28 @@ class Manifest:
 
 
 class Published:
-    """The `stable` channel: whatever snapshot `<store>/current` points at.
+    """A published channel: whatever snapshot `<store>/<link>` points at --
+    `current` for main (its name from when it was the only one), `release`
+    for release.
 
     Re-read when the link moves, so a --publish or --promote takes effect
     without restarting the service."""
 
-    def __init__(self, store):
+    def __init__(self, store, link="current", empty="nothing published yet: run "
+                 "`update_server.py --publish`"):
         self.store = store
+        self.link = link
+        self.empty = empty
         self._cached = (None, None, None)
 
     def current(self):
-        link = os.path.join(self.store, "current")
+        link = os.path.join(self.store, self.link)
         return os.path.realpath(link) if os.path.islink(link) else None
 
     def snapshot(self):
         cur = self.current()
         if not cur or not os.path.isfile(os.path.join(cur, "manifest")):
-            raise Unavailable("nothing published yet: run `update_server.py --publish`")
+            raise Unavailable(self.empty)
         if self._cached[0] != cur:
             with open(os.path.join(cur, "manifest")) as fh:
                 text = fh.read()
@@ -321,6 +348,37 @@ class Published:
                 return fh.read()
         except OSError:
             return None
+
+
+# What `/channels` lists, in this order: (id, title, internal, description).
+CHANNELS = (
+    ("release", "Release", False, "Released versions only"),
+    ("main", "Main", False, "Every gated commit pushed to main"),
+    ("dev", "Dev", True, "The latest build, before the gate"),
+)
+ALIASES = {"stable": "main"}   # the address machines were given before /channels
+
+
+def _header(text, key):
+    return next((ln[len(key) + 3:] for ln in text.splitlines()
+                 if ln.startswith(f"# {key} ")), "")
+
+
+def channel_list(sources, default):
+    """The `/channels` text for {id: source}; a source with nothing to
+    serve is still listed, its version and date `-`."""
+    lines = ["# toy-os update channels", f"default {default}"]
+    lines += [f"alias {a} {cid}" for a, cid in ALIASES.items() if cid in sources]
+    for cid, title, internal, desc in CHANNELS:
+        if cid not in sources:
+            continue
+        try:
+            text, _files = sources[cid].snapshot()
+            ver, built = _header(text, "version") or "-", _header(text, "built") or "-"
+        except Unavailable:
+            ver, built = "-", "-"
+        lines.append("\t".join((cid, title, "internal" if internal else "-", ver, built, desc)))
+    return "\n".join(lines) + "\n"
 
 
 def _commit():
@@ -425,14 +483,43 @@ def release_notes(build_id, limit=NOTES_COMMITS):
     return "\n".join(lines) + "\n"
 
 
-def _set_current(store, name):
-    """Point `current` at builds/<name> ATOMICALLY: a new link beside it,
+LINKS = {"main": "current", "release": "release"}   # channel -> its link in the store
+
+
+def _set_current(store, name, link="current"):
+    """Point `link` at builds/<name> ATOMICALLY: a new link beside it,
     renamed over it, so the server never finds no link at all."""
-    tmp = os.path.join(store, ".current.new")
+    tmp = os.path.join(store, f".{link}.new")
     if os.path.lexists(tmp):
         os.remove(tmp)
     os.symlink(os.path.join("builds", name), tmp)
-    os.replace(tmp, os.path.join(store, "current"))
+    os.replace(tmp, os.path.join(store, link))
+
+
+def _linked(store):
+    """The build names a link points at -- never pruned."""
+    out = set()
+    for link in LINKS.values():
+        p = os.path.join(store, link)
+        if os.path.islink(p):
+            out.add(os.path.basename(os.path.realpath(p)))
+    return out
+
+
+def _by_key(text):
+    """{served key: (crc, size)} from a manifest -- the key a file is
+    fetched by, which for a kernel line is its src= and not its path."""
+    out = {}
+    for ln in text.splitlines():
+        if ln.startswith("#") or not ln.strip():
+            continue
+        parts = ln.split(" ", 3)
+        if len(parts) < 3:
+            continue
+        opts = parts[3] if len(parts) > 3 else ""
+        src = next((o[4:] for o in opts.split(",") if o.startswith("src=")), None)
+        out[src or urllib.parse.unquote(parts[2])] = (parts[0], parts[1])
+    return out
 
 
 def publish(staging, store, keep, force=False):
@@ -465,12 +552,31 @@ def publish(staging, store, keep, force=False):
     os.makedirs(builds, exist_ok=True)
     part = os.path.join(builds, f".{name}.partial")
     shutil.rmtree(part, ignore_errors=True)
-    index = {}
+    # ONE COPY OF EACH FILE THAT DID NOT CHANGE: a file the main build
+    # before this one shipped with the same crc and size is HARD-LINKED
+    # from it, so a snapshot costs what changed, not the whole system.
+    prev, prev_index = {}, {}
+    cur = Published(store).current()
+    if cur:
+        try:
+            with open(os.path.join(cur, "manifest")) as fh:
+                prev = _by_key(fh.read())
+            with open(os.path.join(cur, "index.json")) as fh:
+                prev_index = json.load(fh)
+        except (OSError, ValueError):
+            prev, prev_index = {}, {}
+    mine = _by_key(text)
+    index, linked = {}, 0
     for key, local in files.items():
         rel = key.lstrip("/")
         dst = os.path.join(part, "files", rel)
         os.makedirs(os.path.dirname(dst), exist_ok=True)
-        shutil.copy2(local, dst)
+        old = os.path.join(cur, "files", prev_index[key]) if cur and key in prev_index else None
+        if old and key in mine and prev.get(key) == mine[key] and os.path.isfile(old):
+            os.link(old, dst)
+            linked += 1
+        else:
+            shutil.copy2(local, dst)
         index[key] = rel
     with open(os.path.join(part, "manifest"), "w") as fh:
         fh.write(text)
@@ -481,10 +587,12 @@ def publish(staging, store, keep, force=False):
     os.rename(part, os.path.join(builds, name))    # complete, or not there at all
     _set_current(store, name)
     size = sum(os.path.getsize(p) for p in files.values())
-    print(f"published {name}: {len(files)} files, {size // (1024 * 1024)} MiB -> stable")
+    print(f"published {name}: {len(files)} files, {size // (1024 * 1024)} MiB -> main "
+          f"({linked} unchanged, linked to the build before)")
     names = sorted(n for n in os.listdir(builds) if not n.startswith("."))
+    keep_always = _linked(store)
     for old in names[:-keep] if keep > 0 else []:
-        if old != name:
+        if old != name and old not in keep_always:
             shutil.rmtree(os.path.join(builds, old))
             print(f"pruned {old}")
     return 0
@@ -493,6 +601,7 @@ def publish(staging, store, keep, force=False):
 def list_builds(store):
     builds = os.path.join(store, "builds")
     cur = Published(store).current()
+    rel = Published(store, "release").current()
     names = sorted(n for n in os.listdir(builds) if not n.startswith(".")) \
         if os.path.isdir(builds) else []
     if not names:
@@ -506,15 +615,17 @@ def list_builds(store):
             info = ", ".join(h for h in hdr if h.startswith(("version", "built")))
         except OSError:
             pass
-        print(f"{'*' if cur == os.path.realpath(path) else ' '} {n}   {info}")
+        real = os.path.realpath(path)
+        mark = ("M" if cur == real else " ") + ("R" if rel == real else " ")
+        print(f"{mark} {n}   {info}")
     return 0
 
 
-def promote(store, name):
+def promote(store, name, to="main"):
     if not os.path.isfile(os.path.join(store, "builds", name, "manifest")):
         sys.exit(f"update_server: no published build called {name} (see --list)")
-    _set_current(store, name)
-    print(f"stable -> {name}")
+    _set_current(store, name, LINKS[to])
+    print(f"{to} -> {name}")
     return 0
 
 
@@ -567,7 +678,7 @@ def _stale_reason(staging):
     return iso_guard.check_staging_fresh(staging=staging)
 
 
-def make_handler(channels, throttle_kib=0):
+def make_handler(channels, throttle_kib=0, default=None, declared=None):
     """`channels` maps a URL prefix ("/dev", "/stable", or "" for a lone
     source at the root) to anything with snapshot() -> (text, files)."""
     prefixes = sorted(channels, key=len, reverse=True)
@@ -605,6 +716,9 @@ def make_handler(channels, throttle_kib=0):
             self._send(200, ("\n".join(lines) + "\n").encode())
 
         def do_GET(self):
+            if self.path == "/channels" and declared:
+                self._send(200, channel_list(declared, default).encode())
+                return
             prefix = next((p for p in prefixes if self.path in (p + "/manifest", p + "/notes")
                            or self.path.startswith(p + "/files/")), None)
             if prefix is None:
@@ -666,16 +780,20 @@ def main():
     ap.add_argument("--no-kernel", action="store_true",
                     help="leave the kernel out of the dev manifest")
     ap.add_argument("--print", action="store_true", help="print a manifest and exit")
-    ap.add_argument("--channel", choices=("dev", "stable"), default="dev",
+    ap.add_argument("--channel", choices=("dev", "main", "stable", "release"), default="dev",
                     help="which one --print shows")
+    ap.add_argument("--default", choices=("dev", "main", "release"), default="main",
+                    help="the channel /channels names as the default (default main)")
     ap.add_argument("--publish", action="store_true",
-                    help="snapshot the current build and make it `stable`")
+                    help="snapshot the current build and make it `main`")
     ap.add_argument("--force", action="store_true",
                     help="with --publish: publish a build preflight has not passed")
     ap.add_argument("--keep", type=int, default=5, metavar="N",
                     help="published builds to keep (default 5)")
     ap.add_argument("--list", action="store_true", help="list published builds")
-    ap.add_argument("--promote", metavar="NAME", help="point `stable` at a published build")
+    ap.add_argument("--promote", metavar="NAME", help="point `main` at a published build")
+    ap.add_argument("--to", choices=("main", "release"), default="main",
+                    help="with --promote: which channel (release: a version was released)")
     ap.add_argument("--install-service", action="store_true",
                     help=f"install and start {UNIT_NAME} under systemd --user")
     ap.add_argument("--throttle", type=int, default=0, metavar="KIB",
@@ -687,30 +805,39 @@ def main():
     if args.list:
         return list_builds(args.store)
     if args.promote:
-        return promote(args.store, args.promote)
+        return promote(args.store, args.promote, args.to)
     if not os.path.isdir(args.staging):
         sys.exit(f"update_server: no {args.staging} -- run `make iso` first")
     if args.publish:
         return publish(args.staging, args.store, args.keep, args.force)
 
-    dev = Manifest(args.staging, kernel=not args.no_kernel)
-    stable = Published(args.store)
+    sources = {
+        "dev": Manifest(args.staging, kernel=not args.no_kernel),
+        "main": Published(args.store),
+        "release": Published(args.store, "release", "nothing released yet: run "
+                             "`update_server.py --promote NAME --to release`"),
+    }
     if args.print:
+        cid = ALIASES.get(args.channel, args.channel)
         try:
-            sys.stdout.write((dev if args.channel == "dev" else stable).snapshot()[0])
+            sys.stdout.write(sources[cid].snapshot()[0])
         except Unavailable as e:
             sys.exit(f"update_server: {args.channel}: {e}")
         return 0
-    for name, src in (("dev", dev), ("stable", stable)):
+    for name, src in sources.items():
         try:
             text, files = src.snapshot()
             print(f"{name}: {len(files)} files")
         except Unavailable as e:
             print(f"{name}: unavailable for now -- {e}")
+    prefixes = {f"/{cid}": src for cid, src in sources.items()}
+    prefixes.update({f"/{a}": sources[cid] for a, cid in ALIASES.items()})
     srv = http.server.ThreadingHTTPServer(
-        (args.bind, args.port), make_handler({"/dev": dev, "/stable": stable}, args.throttle))
-    print(f"serving http://{args.bind}:{args.port}/dev and /stable  (a QEMU guest reaches "
-          f"this host as 10.0.2.2)", flush=True)
+        (args.bind, args.port),
+        make_handler(prefixes, args.throttle, default=args.default, declared=sources))
+    print(f"serving http://{args.bind}:{args.port}/channels: dev, main (also /stable) and "
+          f"release, default {args.default}  (a QEMU guest reaches this host as 10.0.2.2)",
+          flush=True)
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

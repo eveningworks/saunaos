@@ -180,6 +180,7 @@ TOOLS = [
     ("logview", "logview_test.py", "Log Viewer: severity colours, Errors, repeats, Only this, a kept Mute"),
     ("properties", "properties_test.py", "Properties: hero by pixel, sections, chmod/rename/opens-with/SHA-256 checked outside the app"),
     ("sysupdate", "sysupdate_test.py", "System Update: finds, shows and installs a change, by pixel and by sum"),
+    ("sysupdch", "sysupdate_channels_test.py", "System Update channels: an old address split, the list drawn, going back asked then installed"),
     ("help", "help_test.py", "Help: contents, links, history and full-text search"),
     ("browser", "browser_test.py", "Web Browser: NetSurf's pages drawn, addresses, links, history, scrolling, tabs"),
     ("singleinst", "single_instance_test.py", "one copy of an app, and relaunch raises it"),

@@ -24,6 +24,8 @@
 #define UPD_PATH_MAX  192
 #define UPD_LOG_PATH  "/var/log/update.log"
 #define UPD_SETTING   "update.server"
+#define UPD_CHANNEL_SETTING  "update.channel"        // "" = the server's default
+#define UPD_INTERNAL_SETTING "update.show_internal"  // list internal channels on a released image
 #define UPD_RECENT_PATH "/var/lib/update/servers"
 #define UPD_RECENT_MAX 5
 // The manifest this machine last applied -- dpkg's file list. What it
@@ -76,7 +78,8 @@ struct upd_file {
 struct upd_plan {
     char base[UPD_URL_MAX];
     char version[48];             // "# version" in the manifest, or ""
-    char built[48];               // "# built", for a person to READ -- never compared
+    char built[48];               // "# built": read, and compared only to tell an older BUILD
+                                  // (upd_build_cmp) -- never to pick a file
     char commit[24];              // "# commit": the build this manifest is, or ""
     struct upd_file *files;       // every manifest line this machine uses
     int count;
@@ -90,6 +93,9 @@ struct upd_plan {
     char    *manifest;            // the raw text, recorded once applied
     int      staged_for_boot;     // an earlier run already staged an update (restart pending)
     int      kernel_blocked;      // the kernel changed and may not be installed: nothing will be
+    // This build is OLDER than the one the machine runs (upd_build_cmp()):
+    // installing it goes back. A caller asks before it does.
+    int      behind;
 
     // The release notes (GET <base>/notes), cut at THIS machine's build
     // as apt-listchanges cuts a changelog: Markdown for uui_markdown and
@@ -131,6 +137,61 @@ int upd_check(const char *base, struct upd_plan *p, const struct upd_hooks *h);
 int upd_apply(struct upd_plan *p, const struct upd_hooks *h);
 
 void upd_plan_free(struct upd_plan *p);
+
+// ---- channels ------------------------------------------------------------------
+//
+// ONE ADDRESS, THE SERVER'S OWN LIST OF CHANNELS: GET <server>/channels
+// names each (tools/update_server.py has the format) and which is the
+// default; the machine keeps its choice in UPD_CHANNEL_SETTING. OSTree's
+// remote and the refs its summary lists. A server with no list -- an
+// older one, or an address that already names one channel -- is used as
+// it is, one channel, as before.
+
+#define UPD_CHANNELS_MAX 8
+
+struct upd_channel {
+    char id[24];          // what the URL and the setting say: "main"
+    char title[32];       // what a person reads: "Main"
+    int  internal;        // listed only where upd_show_internal()
+    char version[48];     // its build's "# version", "" while it has none
+    char built[48];       // and "# built"
+    char desc[96];
+};
+
+struct upd_channels {
+    int count;
+    struct upd_channel ch[UPD_CHANNELS_MAX];
+    int dflt;             // index of the server's default, or -1
+    int chosen;           // index upd_resolve() used, or -1 for a server with no list
+};
+
+// The channel list of `server`. 1 with `out` filled, 0 when the server
+// declares none (an old one, or a channel's own address), -1 when it
+// could not be asked (`err` says why).
+int upd_channels_fetch(const char *server, struct upd_channels *out, char *err, size_t errcap);
+
+// The address to check: the server's chosen channel -- `channel`, else
+// the setting, else the server's default -- or the server itself when it
+// declares none. A SETTING STILL NAMING ONE CHANNEL'S ADDRESS
+// (".../stable", from before the list) is split into the server and that
+// channel, and both settings are written. 0, or -1 with `err` set.
+int upd_resolve(const char *server, const char *channel, char *url, size_t cap,
+                struct upd_channels *chs, char *err, size_t errcap);
+
+// The setting; "" for the server's default.
+char *upd_channel_get(char *out, size_t cap);
+int   upd_channel_set(const char *id);
+// List internal channels: on a development build, or when asked to.
+int   upd_show_internal(void);
+
+// Builds by (version, built): <0 when a is older than b, 0 the same, >0
+// newer. A version without a pre-release part is newer than the same
+// one with it (0.6.0 > 0.6.0-dev); equal versions go by `built`, and an
+// empty `built` compares equal to anything.
+int upd_build_cmp(const char *va, const char *ba, const char *vb, const char *bb);
+// The build this machine runs: the manifest it last applied, else its
+// kernel's version with no date.
+void upd_machine_build(char *ver, size_t vcap, char *built, size_t bcap);
 
 // The server address: the `update.server` setting, else its declared
 // default. Returns `out`.
