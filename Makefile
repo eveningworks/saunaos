@@ -1043,6 +1043,10 @@ DOOM_BACKEND_OBJS = $(patsubst userland/%.c,%,$(DOOM_BACKEND_SRCS))
 # The app's own parts -- its game data and front end (userland/doom/),
 # outside USERLAND_PROGRAM_DIRS for the reason fm/ is -- then the game.
 EXTRA_OBJS_doom = doom/doom_wad doom/doom_front $(DOOM_BACKEND_OBJS) $(DOOM_PORT_OBJS)
+# /bin/w16 runs 16-bit Windows programs (docs/w16-design.md); its main() is
+# userland/bin/w16.c and its parts live in userland/w16/, listed rather
+# than wildcarded for the reason the WM's are.
+EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names
 
 # VENDORED CODE IS COMPILED WITH ITS WARNINGS OFF, on purpose.
 #
@@ -2168,6 +2172,13 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# by tools/gen_audio.py into data/usr/share/sounds/ and tracked, so a
 	# checkout has sound without regenerating anything. Every file is in
 	# a DIFFERENT format on purpose -- see that script's header.
+	# w16's sample programs (docs/w16-design.md): NE executables BUILT here
+	# from userland/w16/samples/*.asm by tools/gen_ne.py -- the project
+	# ships no Microsoft file and tracks no generated binary for them.
+	mkdir -p $(SEED_DIR)/sync/usr/share/w16
+	for s in userland/w16/samples/*.asm; do \
+		python3 tools/gen_ne.py $$s -o $(SEED_DIR)/sync/usr/share/w16/$$(basename $$s .asm).exe || exit 1; \
+	done
 	mkdir -p $(SEED_DIR)/sync/usr/share/sounds
 	cp data/usr/share/sounds/*.wav $(SEED_DIR)/sync/usr/share/sounds/
 	# The audio FIXTURE, beside /tests/sample.txt and for the same

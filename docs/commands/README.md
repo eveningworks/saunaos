@@ -152,6 +152,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`sleep`](sleep.md)
 - [`spawn`](spawn.md)
 - [`strace`](strace.md)
+- [`w16`](w16.md)
 
 ### Appearance and the console
 

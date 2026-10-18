@@ -97,6 +97,10 @@ TOOLS = [
     # -- against a reference written in Python; gcc and the stdlib only.
     ("upixel_host", "upixel_hostcheck.py",     "paint stamps, fills and undo against Python", False,
      None,                                                                                   False),
+    # w16's NE parser against tools/gen_ne.py --dump, and fuzzed under
+    # ASan/UBSan (docs/w16-design.md); gcc and nasm.
+    ("w16_host",    "w16_hostcheck.py",        "w16's NE parser vs gen_ne --dump, fuzzed", False,
+     None,                                                                                   False),
     # lib/ucolour -- HSV and HSL for the colour picker -- against colorsys.
     ("ucolour_host", "ucolour_hostcheck.py",   "colour HSV/HSL conversions against colorsys", False,
      None,                                                                                   False),

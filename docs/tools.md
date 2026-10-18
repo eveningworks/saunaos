@@ -7445,6 +7445,32 @@ runs first**: a `doom1.wad` with one
   `--positive-control` drops the box average's carry and the /255's +1
   and must go red in both groups; `--bench` prints ns/pixel per tier.
   About a second; in `preflight.sh`.
+- **`w16_hostcheck.py`** -- w16's NE parser (`userland/w16/ne.c`,
+  `ne_info.c`) compiled with the host gcc under ASan and UBSan. For every
+  sample in `userland/w16/samples/`, `w16 --info`'s lines must EQUAL
+  `gen_ne.py --dump`'s (import names aside) -- two independent readers;
+  hello's imports must resolve to their names; and thousands of mutated
+  and truncated copies go through the parser, every relocation, entry,
+  module name and segment byte, which must parse or be refused and never
+  read outside the image. `--positive-control` drops the segment bound
+  (the fuzz must go red, a heap-buffer-overflow) and reads relocation
+  sites from the wrong word (the comparison must go red). In
+  `ondemand_sweep.py`; w16 is a side project and in no gate.
+- **`gen_ne.py`** -- builds a Win16 (NE) executable from ONE NASM source
+  written with `userland/w16/samples/ne16.inc`, so w16's test programs
+  need no foreign toolchain and no Microsoft binary. The source is
+  assembled once per segment (`-DW16_PASS=n`), the other segments laid
+  out in nobits sections from 0 so code can name its data; macros record
+  imports, internal far pointers, the entry and exports in a trailing
+  section; `;w16:` comment lines set the module, segments, stack and
+  heap. Each relocation is a chain of one (its site holds 0xFFFF).
+  `--dump FILE` is an independent reader the host check compares with.
+  `make iso` builds every sample into `/usr/share/w16/`.
+- **`gen_w16_ordinals.py`** -- writes `userland/w16/w16_names.c`, each
+  KERNEL/USER/GDI export's ordinal, name and Pascal argument bytes, from
+  Wine's 16-bit `.spec` files -- the authoritative public list, read
+  from a directory you fetched them to (`--urls` prints where), so the
+  build never reaches the network.
 - **`ugfx_text_hostcheck.py`** -- compiles the real
   `userland/ui/ugfx_text.c` and `userland/ui/uui_textbox.c` with the
   host gcc against a SYNTHETIC proportional face and sweeps ~4,400
