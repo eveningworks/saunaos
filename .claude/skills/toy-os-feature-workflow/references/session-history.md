@@ -724,3 +724,16 @@ old names aliased in the shared /etc parser (447eac07). Lessons:
   value as the first line and fix the last-line readers.
 - **`seed/sync` kept the renamed descriptors' old files** (the CLAUDE.md
   trap): every renamed setting showed twice until `make clean`.
+
+2026-10-18 evening: the roadmap split the SIMD remainder into named lines
+plus frame-time percentiles, compose-late and a KVM frame-time baseline
+(63d60f1a); an ASUS drag measurement found the chrome stage was a
+whole-body fill under each client buffer (26e177f7, chrome 1.03 -> 0.48 ms);
+a racy blkstat KTEST got the disk held quiet (1e32dfe0); published to main.
+Next: the desktop stage's bbox fallback (roadmap, **NEXT**). Lessons:
+- **After a SIMD round, read the stage split for OVERDRAW before more
+  SIMD**: three wins in one day (desktop fill, present, body fill) were
+  pixels written and then covered, not slow loops.
+- **The WM never grows a window past the client's presented size** --
+  a stopped client's resize just waits -- so a test cannot make a
+  client-smaller-than-window gap with `kill -STOP` and `gui resize`.

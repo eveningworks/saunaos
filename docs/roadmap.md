@@ -24,7 +24,7 @@ FIRST, and this is what to do first among things that are all
 buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
-- [ ] SIMD: the blur's `box_h` pass two rows a step -- the last glass pass still a pixel at a time  *(`fork()`/`exec()`-style process model)*
+- [ ] The desktop stage's overdraw under windows: past `DESKTOP_PASS_MAX` rects it draws their bounding box -- count it first  *(Desktop visual polish)*
 <!-- END next-up -->
 
 
@@ -204,7 +204,7 @@ only expensive part of it.
 - [x] ~~Hardware floating point / SSE for ring-3 processes~~ done
 - [ ] A `kernel_fpu_begin()`/`kernel_fpu_end()` bracket
 - [ ] SIMD pixel loops: SSE2 first, SSE3-SSE4.2 behind a runtime CPUID check -- glass DONE 2026-10-18; what is left is the SIMD lines below
-- [ ] SIMD: the blur's `box_h` pass two rows a step -- the last glass pass still a pixel at a time **NEXT**
+- [ ] SIMD: the blur's `box_h` pass two rows a step -- the last glass pass still a pixel at a time
 - [ ] SIMD: `upix_over`, Paint's layer composite, paste and text layers -- measure on the ASUS first
 - [ ] SIMD: the scaled image draw (`ugfx_blit_scaled_alpha`, `uimg_scale`) -- Image Viewer, thumbnails, the wallpaper
 - [ ] SIMD: the JPEG and MPEG-1 IDCTs (`uimg_jpeg.c`, `uvid_mpeg1.c`)
@@ -737,6 +737,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Remember where the floating on-screen keyboard was put, and whether it was docked
 - [x] ~~Decide whether transparency ships ON~~ OFF for now (2026-10-18) -- ASUS glass 8.5 -> 2.3 ms a dragged frame after SIMD
 - [ ] Full dirty-rect compositor
+- [ ] The desktop stage's overdraw under windows: past `DESKTOP_PASS_MAX` rects it draws their bounding box -- count it first **NEXT**
 - [ ] Frame-time percentiles in `gui compositor`: p50/p99 and missed vblanks over a window, not only stage means
 - [x] ~~The desktop stage costs 3.9 ms of a full ASUS frame~~ DONE 2026-10-18 -- a fill under the wallpaper + a scalar copy: now 2.2
 - [x] ~~Taskbar notification area (tray)~~ done
