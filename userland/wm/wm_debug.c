@@ -1,5 +1,6 @@
 // See wm_debug.h for what this is for and why it lives here.
 #include "wm_internal.h"
+#include "wm_prof.h"
 #include "wm_anim.h"
 #include "wm_idle.h"
 #include "wm_background.h"
@@ -1676,6 +1677,14 @@ static void cmd_compositor(struct dbg_out *o, int json) {
     wm_frame_stats(0, &fp_last, &fp_max, &fp_avg, &fp_cyc, &fp_n);
     struct wm_cull_stats cs;   // windows drawn and occlusion-culled (wm_render.c)
     wm_cull_stats(&cs);
+    // WHERE THE TIME WENT, per stage (wm_prof.h), in microseconds by the
+    // bucket's own cycles-per-microsecond.
+    unsigned long long st_us[2][WMS_COUNT];
+    for (int b = 0; b < 2; b++) {
+        unsigned long long cyc[WMS_COUNT], us = b ? ff_avg : fp_avg, c = b ? ff_cyc : fp_cyc;
+        wm_stage_stats(b, cyc);
+        for (int k = 0; k < WMS_COUNT; k++) st_us[b][k] = c ? cyc[k] * us / c : 0;
+    }
 
     if (json) {
         dbg_out_printf(o, "{\"pid\":%d,\"pending\":%d,\"dropped\":%d,"
@@ -1688,6 +1697,12 @@ static void cmd_compositor(struct dbg_out *o, int json) {
         dbg_out_printf(o, "\"frame_partial\":{\"n\":%u,\"us_last\":%llu,\"us_max\":%llu,"
                           "\"us_avg\":%llu,\"cyc_avg\":%llu},",
                     fp_n, fp_last, fp_max, fp_avg, fp_cyc);
+        for (int b = 1; b >= 0; b--) {
+            dbg_out_printf(o, "\"stages_%s\":{", b ? "full" : "partial");
+            for (int k = 0; k < WMS_COUNT; k++)
+                dbg_out_printf(o, "%s\"%s\":%llu", k ? "," : "", wm_stage_name(k), st_us[b][k]);
+            dbg_out_write(o, "},");
+        }
         dbg_out_printf(o, "\"windows\":{\"drawn\":%u,\"culled\":%u,\"drawn_total\":%u,"
                           "\"culled_total\":%u,\"frames\":%u,\"presents_unchanged\":%u,"
                           "\"presents_full\":%u}}\r\n",
@@ -1704,6 +1719,12 @@ static void cmd_compositor(struct dbg_out *o, int json) {
                     fp_last, fp_max, fp_avg, fp_n);
         dbg_out_printf(o, "  windows drawn/culled: last frame %u/%u, %u/%u over %u frames\r\n",
                     cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames);
+        for (int b = 1; b >= 0; b--) {
+            dbg_out_printf(o, "  stages us %s:", b ? "full" : "damage-limited");
+            for (int k = 0; k < WMS_COUNT; k++)
+                if (st_us[b][k]) dbg_out_printf(o, " %s %llu", wm_stage_name(k), st_us[b][k]);
+            dbg_out_write(o, "\r\n");
+        }
     }
 }
 
@@ -2061,6 +2082,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
         char *arg = next_tok(&p);
         if (arg && k_strcmp(arg, "reset") == 0) {
             wm_frame_stats_reset();
+            wm_stage_reset();
             dbg_out_write(o, "compositor: frame stats reset\r\n");
             return 1;
         }

@@ -6655,6 +6655,43 @@ Adapter until the vendor driver loads. The stages, one flash each:
    the DDI buffer translations, TRANS_CLK_SEL, watermarks/DDB and
    CDCLK -- a mode above it would need all four.
 
+### GPU compositing, route 1: every display plane the pipe has, one window each
+
+KWin's and Mutter's GPU compositing stands on Mesa and the kernel's
+i915 driver; toy-os's Intel driver is display-only (modesetting, the
+cursor plane, page flips). The four routes below are what that leaves,
+smallest first, and were set out on 2026-10-18 after `gui compositor`
+first split a frame by stage on the ASUS (1920x1080, transparency on: a
+full frame 29.5 ms, 18.2 ms of it glass; off: 8.3 ms, the wallpaper 3.9
+and the present 1.9). This route is the first: a gen8 pipe has a
+primary, a sprite and the cursor plane, gen9 three universal planes, so
+a few windows can be handed to the display hardware and composited by
+it -- no command submission at all. It follows the sprite-plane stage of
+`docs/scanout-design.md` and generalises it from the maximized window to
+the top few. Weeks.
+
+### GPU compositing, route 2: a minimal render path on the Intel 3D engine
+
+Batch buffers and execlists on the render ring, a GGTT/PPGTT mapping per
+client buffer, and hand-written 3D state for textured, alpha-blended
+quads (and a blur pass) -- the part of Mesa's Intel driver a compositor
+needs, done by hand for gen8 (the ASUS's Broadwell) and gen9 (the Kaby
+Lake desktop). Many months, and specific to those two generations.
+
+### GPU compositing, route 3: a Mesa port
+
+Mesa with its Intel driver over libdrm: needs the kernel's i915 uAPI
+(GEM objects, execbuffer, contexts), threads, a dynamic linker and a far
+larger POSIX surface than tolibc has. Likely the longest of the four,
+and a port Mesa's pace would keep moving.
+
+### GPU compositing, route 4: virtio-gpu 3D (virgl)
+
+The virtio-gpu 3D commands, rendered by the host's GPU through
+virglrenderer. Within reach of the existing virtio-gpu driver, but it
+runs only under QEMU, so it speeds up no real machine -- a test bed for
+routes 2 and 3 at most.
+
 ### Intel blitter acceleration on the BCS ring
 
 A ring buffer or execlist context on the blitter engine and

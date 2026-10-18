@@ -2,6 +2,7 @@
 // wm_glass.h has the model; docs/decisions/gui.md has why it is built
 // this way.
 #include "wm_internal.h"
+#include "wm_prof.h"
 #include "wm_glass.h"
 #include "wm_shadow.h"
 #include "desktop.h"
@@ -248,8 +249,8 @@ static void paint_band(struct ugfx_surface *s, const struct wm_glass_band *band)
         ugfx_blend_hspan(s, band->x, j, band->w, band->c, 0, band->a);
 }
 
-void wm_glass_paint_band(enum wm_glass_surface surf, int x, int y, int w, int h, int r,
-                         uint32_t tint, const struct wm_glass_band *band) {
+static void glass_band(enum wm_glass_surface surf, int x, int y, int w, int h, int r,
+                       uint32_t tint, const struct wm_glass_band *band) {
     struct ugfx_surface *s = wm_surface();
     // Into the scene only: a window ghost (wm_render_window_into) has
     // nothing beneath it to show through.
@@ -293,6 +294,13 @@ void wm_glass_paint_band(enum wm_glass_surface surf, int x, int y, int w, int h,
     }
 }
 
+void wm_glass_paint_band(enum wm_glass_surface surf, int x, int y, int w, int h, int r,
+                         uint32_t tint, const struct wm_glass_band *band) {
+    int was = wm_stage(WMS_GLASS);
+    glass_band(surf, x, y, w, h, r, tint, band);
+    wm_stage(was);
+}
+
 void wm_glass_paint(enum wm_glass_surface surf, int x, int y, int w, int h, int r,
                     uint32_t tint) {
     wm_glass_paint_band(surf, x, y, w, h, r, tint, 0);
@@ -303,7 +311,7 @@ uint32_t wm_glass_ink_bg(enum wm_glass_surface surf, uint32_t bg, uint32_t groun
         ? UGFX_TRANSPARENT : bg;
 }
 
-void wm_glass_draw_client(const struct window *w) {
+static void draw_client(const struct window *w) {
     int x = window_content_x(w), y = window_content_y(w);
     const uint32_t *bd = 0;
     uint8_t a = 255;
@@ -313,6 +321,12 @@ void wm_glass_draw_client(const struct window *w) {
     }
     ugfx_blit_glass(wm_surface(), x, y, w->client_w, w->client_h,
                     w->client_buf, w->client_w, bd, a);
+}
+
+void wm_glass_draw_client(const struct window *w) {
+    int was = wm_stage(WMS_GLASS);
+    draw_client(w);
+    wm_stage(was);
 }
 
 int wm_glass_titlebars(void) {
@@ -348,12 +362,18 @@ static int clipped(int *x, int *y, int *w, int *h) {
     return *w > 0 && *h > 0;
 }
 
-void wm_glass_window_begin(int x, int y, int w, int h) {
+static void window_begin(int x, int y, int w, int h) {
     uint32_t *u = screen_buf(&g_under);
     if (!u || !clipped(&x, &y, &w, &h)) return;
     const struct ugfx_surface *s = wm_surface();
     for (int j = y; j < y + h; j++)
         memcpy(u + (size_t)j * s->w + x, s->pixels + (size_t)j * s->w + x, (size_t)w * 4);
+}
+
+void wm_glass_window_begin(int x, int y, int w, int h) {
+    int was = wm_stage(WMS_GLASS);
+    window_begin(x, y, w, h);
+    wm_stage(was);
 }
 
 // What a see-through window lays itself over: the scene that was under it
@@ -370,7 +390,7 @@ static const uint32_t *window_backdrop(int x, int y, int w, int h) {
     return b ? b : g_under;
 }
 
-void wm_glass_window_end(int x, int y, int w, int h, uint8_t alpha) {
+static void window_end(int x, int y, int w, int h, uint8_t alpha) {
     if (!g_under) return;
     const uint32_t *u = window_backdrop(x, y, w, h);
     if (!u || !clipped(&x, &y, &w, &h)) return;
@@ -388,6 +408,12 @@ void wm_glass_window_end(int x, int y, int w, int h, uint8_t alpha) {
         }
     }
     ugfx_mark_dirty_rect(s, x, y, w, h);
+}
+
+void wm_glass_window_end(int x, int y, int w, int h, uint8_t alpha) {
+    int was = wm_stage(WMS_GLASS);
+    window_end(x, y, w, h, alpha);
+    wm_stage(was);
 }
 
 // --- damage -----------------------------------------------------------

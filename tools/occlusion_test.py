@@ -308,6 +308,22 @@ def unchanged_present(dbg, res):
               full1 == full0, f"presents_full {full0} -> {full1}")
 
 
+def stage_split(dbg, res):
+    """`gui compositor`'s per-stage split (userland/wm/wm_prof.c) accounts
+    for the frame: the stages of a bucket that drew frames add up to its
+    mean frame time, give or take the rounding of two divisions, and the
+    present -- which every frame does -- is one of them."""
+    c = dbg.json("gui compositor --json")
+    for b in ("full", "partial"):
+        f, st = c[f"frame_{b}"], c.get(f"stages_{b}", {})
+        if f["n"] == 0:
+            continue
+        total = sum(st.values())
+        res.check(f"the {b} frames' stages add up to their mean frame time",
+                  abs(total - f["us_avg"]) <= max(50, f["us_avg"] // 10) and st.get("present", 0) > 0,
+                  f"stages {st} sum {total} vs avg {f['us_avg']}")
+
+
 def run(dbg, qmp, tmp, res):
     try:
         submenu_shadow(dbg, qmp, tmp, res)   # turns the verifier on
@@ -412,6 +428,7 @@ def run(dbg, qmp, tmp, res):
     finally:
         dbg.damage_verify(False)
         set_conf(dbg, **DEFAULTS)
+    stage_split(dbg, res)
 
 
 def main():

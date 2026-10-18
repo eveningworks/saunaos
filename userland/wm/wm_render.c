@@ -7,6 +7,7 @@
 // this file only draws the taskbar Start BUTTON that opens it, a
 // separate piece of chrome.
 #include "wm_internal.h"
+#include "wm_prof.h"
 #include "wm_screenshot.h"   // a shared screen is told what changed
 #include "wm_idle.h"
 #include "wm_dnd.h"
@@ -2055,13 +2056,17 @@ static void paint_window(int i, int focus, int has_damage) {
                        corner_radius(&windows[i]),
                        i == focus ? WM_SHADOW_FOCUSED : WM_SHADOW_INACTIVE);
     corners_save(&windows[i]);   // what is beneath, before this window covers it
+    int st = wm_stage(WMS_CHROME);
     draw_window_chrome(&windows[i], i, i == focus);
+    wm_stage(st);
     if (windows[i].app && windows[i].app->on_draw) {
         // Only the app's own draw is confined to its content area.
         // The chrome above and the grip below are the WM's own
         // pixels and deliberately live at/outside that boundary.
         clip_to_window_content(&windows[i], has_damage);
+        st = wm_stage(WMS_CLIENT);
         windows[i].app->on_draw(&windows[i]);
+        wm_stage(st);
         apply_scene_clip(has_damage);
     } else if (wm_client_is_client_window(&windows[i])) {
         // A ring-3 client's window: its content is just the pixels
@@ -2145,7 +2150,9 @@ static void draw_desktop_visible(int focus, int covered, int has_damage) {
         g_pass = vis.r[k];
         g_pass_on = 1;
         apply_scene_clip(has_damage);
+        int was = wm_stage(WMS_DESKTOP);
         desktop_draw();   // background + icon grid, see desktop.h
+        wm_stage(was);
     }
     g_pass_on = 0;
     apply_scene_clip(has_damage);
@@ -2212,7 +2219,9 @@ static void render_scene(int mx, int my, int has_damage) {
         draw_one_window(lifted, focus, covered, has_damage, 1);
     }
 
+    int st = wm_stage(WMS_TASKBAR);
     if (!covered && !under_page) draw_taskbar();
+    wm_stage(WMS_OVERLAY);
     wm_anim_draw();   // ghosts: over the windows and the taskbar a minimize shrinks into
     // Every open overlay, LEAST modal first, from the one table that
     // also decides who gets a click (wm_overlay.h). The order used to
@@ -2220,6 +2229,7 @@ static void render_scene(int mx, int my, int has_damage) {
     // lists that had to agree and nothing that made them.
     wm_overlay_draw(mx, my);
     wm_dnd_draw(mx, my);   // the cross-window drag's ghost, above everything
+    wm_stage(st);
 
     // The cursor is always drawn full/unclipped, regardless of the scene
     // damage rect above -- it doesn't track its own screen position
@@ -2227,8 +2237,9 @@ static void render_scene(int mx, int my, int has_damage) {
     // single small sprite) that there's no real cost to always letting
     // it through.
     ugfx_clear_clip_rect(wm_surface());
+    st = wm_stage(WMS_CURSOR);
     draw_cursor_at(mx, my); // also (re)establishes cursor_under for wm_render_cursor_move()
-
+    wm_stage(st);
 }
 
 // ---- damage verification (debug) --------------------------------------
@@ -2425,6 +2436,7 @@ void wm_render_frame(int mx, int my) {
     // After the lease check, so a frame that drew nothing is not timed.
     unsigned long long t0_ns = sys_monotonic_ns();
     unsigned long long t0_cyc = __builtin_ia32_rdtsc();
+    wm_stage_frame_begin();
 
     compute_window_damage();
     // OVERLAYS DAMAGE THEIR OWN RECTS while open; a close is damaged by
@@ -2612,7 +2624,9 @@ void wm_render_frame(int mx, int my) {
                      &prev_cursor_box_w, &prev_cursor_box_h);
     }
 
+    int st = wm_stage(WMS_PRESENT);
     ugfx_screen_present(&g_wm_screen);
+    wm_stage(st);
 
     // `has_damage` is read AFTER render_scene(), which is the only place
     // that knows whether this frame was limited -- and the verify mode
@@ -2621,6 +2635,7 @@ void wm_render_frame(int mx, int my) {
         frame_record(has_damage ? &g_frame_partial : &g_frame_full,
                      (sys_monotonic_ns() - t0_ns) / 1000,
                      __builtin_ia32_rdtsc() - t0_cyc);
+        wm_stage_frame_end(!has_damage);
     }
     // A SCREEN BEING SHARED is told what this frame repainted -- the
     // damage box, or everything for a full frame (wm_screenshot.c) --

@@ -17,6 +17,7 @@
 #include "wm/wm_watch.h" // WIN_EV_FSWATCH / WIN_EV_SETTING land there
 #include <stdlib.h>   // malloc: the client widget map
 #include "wm_internal.h"
+#include "wm_prof.h"
 #include "crash_notice.h"
 #include "wm_peek.h"
 #include "wm_shadow.h"
@@ -1806,8 +1807,10 @@ int wm_client_is_client_window(const struct window *win) {
 
 void wm_client_draw(const struct window *win) {
     if (!wm_client_is_client_window(win)) return;
+    int was = wm_stage(WMS_CLIENT);
     ugfx_blit(wm_surface(), window_content_x(win), window_content_y(win),
               win->client_w, win->client_h, win->client_buf, win->client_w);
+    wm_stage(was);
 }
 
 // --- input routing ----------------------------------------------------

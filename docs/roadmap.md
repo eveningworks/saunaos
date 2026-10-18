@@ -929,6 +929,10 @@ run on, not by order.
 - [ ] Intel blitter acceleration on the BCS ring -- declined 2026-09-03; the 2026-09-17 frame time reopens it
 - [x] ~~A fullscreen state, and direct scanout for a fullscreen client~~ DONE 2026-09-11 -- a lease, `docs/scanout-design.md`
 - [ ] The Broadwell sprite plane: a MAXIMIZED window scanned out, the desktop composed around it -- `docs/scanout-design.md` stage 4
+- [ ] GPU compositing, route 1: every display plane the pipe has, one window each -- KWin's plane offload, no 3D engine
+- [ ] GPU compositing, route 2: a minimal render path on the Intel 3D engine -- batch buffers, execlists, textured quads
+- [ ] GPU compositing, route 3: a Mesa port -- needs the i915 uAPI, libdrm, threads and a dynamic linker
+- [ ] GPU compositing, route 4: virtio-gpu 3D (virgl) -- QEMU only, so it speeds up no real machine
 - [x] ~~Runtime mode switching: a display driver can set a mode after boot~~ DONE 2026-09-02 -- `config set resolution`, every QEMU adapter
 - [x] ~~Initcall levels: drivers declare a boot slot instead of being called by name from `kernel_main()`~~ DONE 2026-09-12
 - [x] ~~Loadable drivers: `modload`, one PCI driver, `/etc/modules` -- `docs/modules-design.md`~~ DONE 2026-09-10

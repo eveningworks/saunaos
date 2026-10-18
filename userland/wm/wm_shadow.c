@@ -1,5 +1,6 @@
 // See wm_shadow.h.
 #include "wm_internal.h"
+#include "wm_prof.h"
 #include "wm_shadow.h"
 #include "wm/wm_conf.h"
 #include "ui/ugfx.h"
@@ -223,7 +224,7 @@ void wm_shadow_draw_hollow(int x, int y, int w, int h, int corner_r, enum wm_sha
     g_hollow = 0;
 }
 
-void wm_shadow_draw(int x, int y, int w, int h, int corner_r, enum wm_shadow_kind kind) {
+static void shadow_draw(int x, int y, int w, int h, int corner_r, enum wm_shadow_kind kind) {
     if (!g_enabled || kind == WM_SHADOW_NONE || w <= 0 || h <= 0) return;
     int r, a, oy;
     params(kind, &r, &a, &oy);
@@ -294,6 +295,12 @@ void wm_shadow_draw(int x, int y, int w, int h, int corner_r, enum wm_shadow_kin
         outer_span(s, t, right0, bx1, py, cx0, cx1, cy0, cy1, cov);
     }
     wm_shadow_cover(x, y, w, h);   // the body painted next is opaque
+}
+
+void wm_shadow_draw(int x, int y, int w, int h, int corner_r, enum wm_shadow_kind kind) {
+    int was = wm_stage(WMS_SHADOW);
+    shadow_draw(x, y, w, h, corner_r, kind);
+    wm_stage(was);
 }
 
 void wm_damage_window_rect(int x, int y, int w, int h) {

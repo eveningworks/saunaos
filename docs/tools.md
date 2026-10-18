@@ -3140,6 +3140,9 @@ window without going through it will find its layout polls timing out.
   `presents_unchanged`, with no present charged a full frame
   (`presents_full`, not the global full-frame count, which debug
   commands move).
+  Last, `gui compositor`'s per-stage split (`userland/wm/wm_prof.c`)
+  must add up to the bucket's mean frame time, with the present among
+  the stages -- a split folded into nothing reads all zeros.
 
 - **`smooth_scroll_test.py`** -- smooth scrolling (`ui/uui_scrollanim.h`)
   in the File Manager's icon grid, and the `desktop.smooth_scroll`
