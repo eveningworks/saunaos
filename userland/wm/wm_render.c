@@ -1203,6 +1203,32 @@ static void corners_round(const struct window *win) {
             }
 }
 
+// THE BODY UNDER A CLIENT'S BUFFER IS NEVER SEEN: both callers lay the
+// buffer over it with an opaque copy straight after the chrome, so only
+// the strips it leaves -- the frame, and a client still catching up with
+// a resize -- are filled. Filling all of it cost a dragged ASUS frame
+// ~1 ms of overdraw. A ring-0 app's on_draw() covers nothing; fill it all.
+static void fill_body(const struct window *win, int x, int y, int w, int h, uint32_t c) {
+    struct ugfx_surface *s = wm_surface();
+    if (!(win->app && win->app->on_draw) && wm_client_is_client_window(win)) {
+        int cx0 = window_content_x(win), cy0 = window_content_y(win);
+        int cx1 = cx0 + (win->client_w < window_content_w(win) ? win->client_w : window_content_w(win));
+        int cy1 = cy0 + (win->client_h < window_content_h(win) ? win->client_h : window_content_h(win));
+        if (cx0 < x) cx0 = x;
+        if (cy0 < y) cy0 = y;
+        if (cx1 > x + w) cx1 = x + w;
+        if (cy1 > y + h) cy1 = y + h;
+        if (cx0 < cx1 && cy0 < cy1) {
+            if (cy0 > y) ugfx_fill_rect(s, x, y, w, cy0 - y, c);
+            if (cy1 < y + h) ugfx_fill_rect(s, x, cy1, w, y + h - cy1, c);
+            if (cx0 > x) ugfx_fill_rect(s, x, cy0, cx0 - x, cy1 - cy0, c);
+            if (cx1 < x + w) ugfx_fill_rect(s, cx1, cy0, x + w - cx1, cy1 - cy0, c);
+            return;
+        }
+    }
+    ugfx_fill_rect(s, x, y, w, h, c);
+}
+
 static void draw_window_chrome(struct window *win, int idx, int focused) {
     const struct utheme *th = utheme_current();
     uint32_t titlebar = focused ? th->titlebar : th->titlebar_inactive;
@@ -1216,10 +1242,9 @@ static void draw_window_chrome(struct window *win, int idx, int focused) {
     if (glass) {
         wm_glass_paint(WM_GLASS_WINDOW, win->x + 1, win->y + 1, win->w - 2, WM_TITLEBAR_H,
                        0, titlebar);
-        ugfx_fill_rect(wm_surface(), win->x, win->y + 1 + WM_TITLEBAR_H, win->w,
-                       win->h - 1 - WM_TITLEBAR_H, winbg);
+        fill_body(win, win->x, win->y + 1 + WM_TITLEBAR_H, win->w, win->h - 1 - WM_TITLEBAR_H, winbg);
     } else {
-        ugfx_fill_rect(wm_surface(), win->x, win->y, win->w, win->h, winbg);
+        fill_body(win, win->x, win->y, win->w, win->h, winbg);
     }
 
     // A 1px hairline in one colour, which the rounded corners continue.
