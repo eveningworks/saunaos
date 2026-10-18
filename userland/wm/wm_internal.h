@@ -525,6 +525,10 @@ void wm_client_ping_cycles(unsigned long long *last, unsigned long long *max,
 void wm_frame_stats(int full, unsigned long long *last_us, unsigned long long *max_us,
                     unsigned long long *avg_us, unsigned long long *avg_cyc, unsigned *n);
 void wm_frame_stats_reset(void);
+// Percentiles of the bucket's last frames (wm_render.c's FRAME_RING), and
+// how many frames since the reset ran past one refresh.
+struct wm_frame_pct { unsigned n, p50, p90, p99, over, budget_us; };
+void wm_frame_percentiles(int full, struct wm_frame_pct *out);
 
 const struct wmwd_dist *wm_client_ping_dist(void);
 void wm_client_ping_reset(void);

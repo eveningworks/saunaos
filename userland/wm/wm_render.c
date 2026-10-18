@@ -2410,7 +2410,20 @@ static uint32_t g_scene_frames;
 // early because a client holds the display (nothing was drawn), and any
 // frame while `gui damage verify on` is set (it renders the same scene
 // two or three times on purpose).
-struct frame_stats { unsigned long long last_us, max_us, sum_us; unsigned long long last_cyc, sum_cyc; unsigned n; };
+// The last FRAME_RING frame times per bucket, for percentiles: a mean
+// hides the one long frame a drag is felt by (Mutter's frame clock and
+// KWin's debug output keep the same). FRAME_BUDGET_US is one 60 Hz
+// refresh -- toywm does not know the mode's own rate -- and a frame
+// past it cannot make the next vblank.
+#define FRAME_RING 1024
+#define FRAME_BUDGET_US 16667
+struct frame_stats {
+    unsigned long long last_us, max_us, sum_us;
+    unsigned long long last_cyc, sum_cyc;
+    unsigned n;
+    uint32_t ring[FRAME_RING];
+    unsigned ring_n, ring_pos, over;
+};
 static struct frame_stats g_frame_full, g_frame_partial;
 
 static void frame_record(struct frame_stats *f, unsigned long long us,
@@ -2421,6 +2434,28 @@ static void frame_record(struct frame_stats *f, unsigned long long us,
     f->last_cyc = cyc;
     f->sum_cyc += cyc;
     f->n++;
+    f->ring[f->ring_pos] = us > 0xFFFFFFFFu ? 0xFFFFFFFFu : (uint32_t)us;
+    f->ring_pos = (f->ring_pos + 1) % FRAME_RING;
+    if (f->ring_n < FRAME_RING) f->ring_n++;
+    if (us > FRAME_BUDGET_US) f->over++;
+}
+
+void wm_frame_percentiles(int full, struct wm_frame_pct *out) {
+    const struct frame_stats *f = full ? &g_frame_full : &g_frame_partial;
+    static uint32_t s[FRAME_RING];
+    unsigned n = f->ring_n;
+    for (unsigned i = 0; i < n; i++) {           // insertion sort: on request, n <= 1024
+        uint32_t v = f->ring[i];
+        unsigned j = i;
+        for (; j > 0 && s[j - 1] > v; j--) s[j] = s[j - 1];
+        s[j] = v;
+    }
+    out->n = n;
+    out->p50 = n ? s[(n - 1) * 50 / 100] : 0;
+    out->p90 = n ? s[(n - 1) * 90 / 100] : 0;
+    out->p99 = n ? s[(n - 1) * 99 / 100] : 0;
+    out->over = f->over;
+    out->budget_us = FRAME_BUDGET_US;
 }
 
 void wm_frame_stats(int full, unsigned long long *last_us, unsigned long long *max_us,
@@ -2434,9 +2469,8 @@ void wm_frame_stats(int full, unsigned long long *last_us, unsigned long long *m
 }
 
 void wm_frame_stats_reset(void) {
-    struct frame_stats z = { 0, 0, 0, 0, 0, 0 };
-    g_frame_full = z;
-    g_frame_partial = z;
+    k_memset(&g_frame_full, 0, sizeof g_frame_full);
+    k_memset(&g_frame_partial, 0, sizeof g_frame_partial);
     struct wm_cull_stats c = { 0 };
     g_cull = c;
     g_present_base = g_wm_screen.presented_px;

@@ -1679,6 +1679,9 @@ static void cmd_compositor(struct dbg_out *o, int json) {
     wm_frame_stats(0, &fp_last, &fp_max, &fp_avg, &fp_cyc, &fp_n);
     struct wm_cull_stats cs;   // windows drawn and occlusion-culled (wm_render.c)
     wm_cull_stats(&cs);
+    struct wm_frame_pct pf, pp;   // the frames a mean hides
+    wm_frame_percentiles(1, &pf);
+    wm_frame_percentiles(0, &pp);
     // WHERE THE TIME WENT, per stage (wm_prof.h), in microseconds by the
     // bucket's own cycles-per-microsecond.
     unsigned long long st_us[2][WMS_COUNT];
@@ -1695,11 +1698,14 @@ static void cmd_compositor(struct dbg_out *o, int json) {
                     pid, pending, dropped, ugfx_simd(), pings, last_us, max_us, avg_us, last_cyc,
                     max_cyc, avg_cyc);
         dbg_out_printf(o, "\"frame_full\":{\"n\":%u,\"us_last\":%llu,\"us_max\":%llu,"
-                          "\"us_avg\":%llu,\"cyc_avg\":%llu},",
-                    ff_n, ff_last, ff_max, ff_avg, ff_cyc);
+                          "\"us_avg\":%llu,\"cyc_avg\":%llu,\"p50\":%u,\"p90\":%u,\"p99\":%u,"
+                          "\"over_budget\":%u},",
+                    ff_n, ff_last, ff_max, ff_avg, ff_cyc, pf.p50, pf.p90, pf.p99, pf.over);
         dbg_out_printf(o, "\"frame_partial\":{\"n\":%u,\"us_last\":%llu,\"us_max\":%llu,"
-                          "\"us_avg\":%llu,\"cyc_avg\":%llu},",
-                    fp_n, fp_last, fp_max, fp_avg, fp_cyc);
+                          "\"us_avg\":%llu,\"cyc_avg\":%llu,\"p50\":%u,\"p90\":%u,\"p99\":%u,"
+                          "\"over_budget\":%u},\"budget_us\":%u,",
+                    fp_n, fp_last, fp_max, fp_avg, fp_cyc, pp.p50, pp.p90, pp.p99, pp.over,
+                    pf.budget_us);
         for (int b = 1; b >= 0; b--) {
             dbg_out_printf(o, "\"stages_%s\":{", b ? "full" : "partial");
             for (int k = 0; k < WMS_COUNT; k++)
@@ -1724,6 +1730,11 @@ static void cmd_compositor(struct dbg_out *o, int json) {
                     ff_last, ff_max, ff_avg, ff_n);
         dbg_out_printf(o, "            damage-limited: last %llu max %llu avg %llu over %u\r\n",
                     fp_last, fp_max, fp_avg, fp_n);
+        dbg_out_printf(o, "  percentiles us  full: p50 %u p90 %u p99 %u of the last %u; "
+                          "damage-limited: p50 %u p90 %u p99 %u of the last %u\r\n",
+                    pf.p50, pf.p90, pf.p99, pf.n, pp.p50, pp.p90, pp.p99, pp.n);
+        dbg_out_printf(o, "  past one 60 Hz refresh (%u us): %u full, %u damage-limited\r\n",
+                    pf.budget_us, pf.over, pp.over);
         dbg_out_printf(o, "  windows drawn/culled: last frame %u/%u, %u/%u over %u frames\r\n",
                     cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames);
         dbg_out_printf(o, "  desktop: %u wallpaper passes, %llu px\r\n",

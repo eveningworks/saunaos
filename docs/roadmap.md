@@ -732,7 +732,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Decide whether transparency ships ON~~ OFF for now (2026-10-18) -- ASUS glass 8.5 -> 2.3 ms a dragged frame after SIMD
 - [ ] Full dirty-rect compositor
 - [x] ~~The desktop stage's overdraw under windows~~ DONE 2026-10-18 -- 40x overdraw; a dragged ASUS frame 3.3 -> 1.8 ms
-- [ ] Frame-time percentiles in `gui compositor`: p50/p99 and missed vblanks over a window, not only stage means
+- [x] ~~Frame-time percentiles in `gui compositor`~~ DONE 2026-10-18 -- p50/p90/p99 per bucket, frames past a 60 Hz refresh
 - [x] ~~The desktop stage costs 3.9 ms of a full ASUS frame~~ DONE 2026-10-18 -- a fill under the wallpaper + a scalar copy: now 2.2
 - [x] ~~Taskbar notification area (tray)~~ done
 - [x] ~~A modern taskbar~~ DONE 2026-09-29 -- labelled or centred, floating or not, dark or light (`desktop.taskbar_*`)
