@@ -82,6 +82,11 @@ ISR_NOERR i
 ISR_NOERR 255
 
 isr_common:
+    ; Ring 3 may have set the direction flag; the C below assumes it
+    ; clear (k_memcpy is `rep movsb`), as the ABI does. The iret frame
+    ; holds the interrupted RFLAGS, so this costs the interrupted code
+    ; nothing.
+    cld
     push rax
     push rbx
     push rcx

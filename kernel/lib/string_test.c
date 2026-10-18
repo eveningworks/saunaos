@@ -121,6 +121,44 @@ KTEST("string", "memcmp and overlapping memmove") {
     KTEST_ASSERT(eq(buf, "bcdef"));
 }
 
+// k_memcpy/k_memset/k_memmove switch method at STRING_REP bytes and
+// copy in words below it, so every size either side, every alignment of
+// each end and every overlap is held against a byte at a time.
+static uint8_t g_sa[600], g_sb[600], g_ref[600];
+
+static void str_seed(uint8_t *p, unsigned salt) {
+    for (int i = 0; i < 600; i++) p[i] = (uint8_t)(i * 31 + salt * 7 + (i >> 3));
+}
+
+KTEST("string", "memcpy, memset and memmove match a byte loop at every size and alignment") {
+    int bad = 0;
+    for (int n = 0; n <= 200 && !bad; n += (n < 80 ? 1 : 7)) {
+        for (int da = 0; da < 9 && !bad; da++) {
+            for (int sa = 0; sa < 9 && !bad; sa++) {
+                str_seed(g_sa, 1); str_seed(g_sb, 2); str_seed(g_ref, 2);
+                for (int i = 0; i < n; i++) g_ref[da + i] = g_sa[sa + i];
+                k_memcpy(g_sb + da, g_sa + sa, (size_t)n);
+                for (int i = 0; i < 600; i++) if (g_sb[i] != g_ref[i]) bad = 1;
+            }
+            str_seed(g_sb, 3); str_seed(g_ref, 3);
+            for (int i = 0; i < n; i++) g_ref[da + i] = 0x5C;
+            k_memset(g_sb + da, 0x5C, (size_t)n);
+            for (int i = 0; i < 600; i++) if (g_sb[i] != g_ref[i]) bad = 2;
+            // Overlapping, both ways: dst = src + shift.
+            for (int shift = -70; shift <= 70 && !bad; shift += (shift > -10 && shift < 10 ? 1 : 9)) {
+                int src = 100 + da, dst = src + shift;
+                str_seed(g_sb, 4); str_seed(g_ref, 4);
+                uint8_t tmp[300];
+                for (int i = 0; i < n; i++) tmp[i] = g_ref[src + i];
+                for (int i = 0; i < n; i++) g_ref[dst + i] = tmp[i];
+                k_memmove(g_sb + dst, g_sb + src, (size_t)n);
+                for (int i = 0; i < 600; i++) if (g_sb[i] != g_ref[i]) bad = 3;
+            }
+        }
+    }
+    KTEST_ASSERT_EQ(bad, 0);
+}
+
 KTEST("string", "character classes") {
     KTEST_ASSERT(k_isdigit('7'));
     KTEST_ASSERT(!k_isdigit('a'));

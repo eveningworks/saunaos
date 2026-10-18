@@ -19,15 +19,40 @@ int k_strncmp(const char *a, const char *b, size_t n) {
     return 0;
 }
 
+// THE BULK OF A COPY OR A FILL IS `rep movsb` / `rep stosb`, which every
+// x86-64 CPU since Ivy Bridge runs as a fast string operation (ERMS) --
+// Linux's choice too, and for the same reason: it touches no SSE state,
+// so both rings can share it. It goes by the DIRECTION FLAG, which ring 3
+// can set: every kernel entry clears it (isr.asm's `cld`, SYSCALL's
+// FMASK), as the ABI does at every function call.
+//
+// Under STRING_REP bytes the string instruction's start-up cost is more
+// than the copy; those go a word at a time.
+#define STRING_REP 64
+
+static inline uint64_t load8(const uint8_t *p) { uint64_t v; __builtin_memcpy(&v, p, 8); return v; }
+static inline void store8(uint8_t *p, uint64_t v) { __builtin_memcpy(p, &v, 8); }
+
 void k_memset(void *dst, uint8_t val, size_t n) {
     uint8_t *d = (uint8_t *)dst;
-    for (size_t i = 0; i < n; i++) d[i] = val;
+    if (n >= STRING_REP) {
+        __asm__ volatile ("rep stosb" : "+D"(d), "+c"(n) : "a"(val) : "memory");
+        return;
+    }
+    uint64_t v = 0x0101010101010101ull * val;
+    for (; n >= 8; n -= 8, d += 8) store8(d, v);
+    for (; n; n--) *d++ = val;
 }
 
 void k_memcpy(void *dst, const void *src, size_t n) {
     uint8_t *d = (uint8_t *)dst;
     const uint8_t *s = (const uint8_t *)src;
-    for (size_t i = 0; i < n; i++) d[i] = s[i];
+    if (n >= STRING_REP) {
+        __asm__ volatile ("rep movsb" : "+D"(d), "+S"(s), "+c"(n) : : "memory");
+        return;
+    }
+    for (; n >= 8; n -= 8, d += 8, s += 8) store8(d, load8(s));
+    for (; n; n--) *d++ = *s++;
 }
 
 size_t k_strlcpy(char *dst, const char *src, size_t n) {
@@ -110,11 +135,15 @@ void k_memmove(void *dst, const void *src, size_t n) {
     // Copy in whichever direction doesn't overwrite source bytes before
     // they're read -- the whole reason this exists separately from
     // k_memcpy.
-    if (d < s) {
-        for (size_t i = 0; i < n; i++) d[i] = s[i];
-    } else {
-        for (size_t i = n; i > 0; i--) d[i - 1] = s[i - 1];
+    // Forward is k_memcpy, whose every read of a byte comes before the
+    // write that could cover it when d < s. Backward goes a word at a
+    // time from the end: `std; rep movsb` is correct but not fast.
+    if (d < s || d >= s + n) {
+        k_memcpy(d, s, n);
+        return;
     }
+    for (; n >= 8; n -= 8) store8(d + n - 8, load8(s + n - 8));
+    for (; n; n--) d[n - 1] = s[n - 1];
 }
 
 int k_isdigit(char c) { return c >= '0' && c <= '9'; }

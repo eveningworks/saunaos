@@ -64,6 +64,8 @@ global _start
 extern kernel_main
 
 _start:
+    cld                 ; Multiboot2 leaves EFLAGS' other bits undefined, and
+                        ; k_memcpy is `rep movsb`
     mov esp, stack_top
     mov edi, ebx        ; save multiboot2 info pointer (passed by GRUB in ebx)
 

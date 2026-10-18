@@ -729,9 +729,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Tray flyouts on one card~~ DONE 2026-10-03 -- network, volume, brightness (`wm_flyout.c`), glass with the menus
 - [ ] The calendar, the remote-activity flyout, taskbar peek and dropdown lists on the flyout card / glass
 - [ ] Remember where the floating on-screen keyboard was put, and whether it was docked
-- [ ] Decide whether transparency ships ON (Windows 11's default) -- measured 2026-10-18: 29.5 ms a full ASUS frame, 18.2 of it glass
+- [ ] Decide whether transparency ships ON (Windows 11's default) -- ASUS glass 8.5 -> 2.3 ms a dragged frame after SIMD (2026-10-18)
 - [ ] Full dirty-rect compositor
-- [ ] The desktop stage costs 3.9 ms of a full 1080p frame on the ASUS, about twice a plain copy -- find why before SIMD-ing it
+- [ ] The desktop stage costs 3.9 ms of a full 1080p ASUS frame, about twice a plain copy, and not in memcpy -- find why
 - [x] ~~Taskbar notification area (tray)~~ done
 - [x] ~~A modern taskbar~~ DONE 2026-09-29 -- labelled or centred, floating or not, dark or light (`desktop.taskbar_*`)
 - [x] ~~Taskbar window previews (peek)~~ DONE 2026-09-29 -- `desktop.taskbar_peek`, with a highlight mode
