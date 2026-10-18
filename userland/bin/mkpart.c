@@ -23,6 +23,7 @@
 #include "rt/sys.h"
 #include "lib/cmd.h"
 #include "lib/human.h"
+#include "knum.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -52,27 +53,13 @@ static const char *USAGE =
 // REJECTS rather than guesses, and a misread size here is a partition
 // somewhere other than where it was asked for.
 static uint64_t parse_size(const char *s, uint64_t *out) {
-    if (!s || !*s) return 0;
-    uint64_t n = 0;
-    const char *p = s;
-    for (; *p >= '0' && *p <= '9'; p++) {
-        uint64_t next = n * 10 + (uint64_t)(*p - '0');
-        if (next < n) return 0; // overflow
-        n = next;
-    }
-    if (p == s) return 0; // no digits at all
-
-    uint64_t mult = 1;
-    if (*p == 'K' || *p == 'k') { mult = 1024ull; p++; }
-    else if (*p == 'M' || *p == 'm') { mult = 1024ull * 1024; p++; }
-    else if (*p == 'G' || *p == 'g') { mult = 1024ull * 1024 * 1024; p++; }
-    if (*p != '\0') return 0; // trailing junk
-
     // A bare number is SECTORS; a suffixed one is bytes. Sizes are
     // rounded DOWN to a whole sector -- rounding up would be a
     // partition slightly larger than asked for, which is how the last
     // one runs off the end of the disk.
-    *out = (mult == 1) ? n : (n * mult) / SECTOR_BYTES;
+    uint64_t bytes;
+    if (!k_parse_size(s, SECTOR_BYTES, &bytes)) return 0;
+    *out = bytes / SECTOR_BYTES;
     return *out != 0;
 }
 

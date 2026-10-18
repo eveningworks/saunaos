@@ -17,7 +17,8 @@
   of letting every one probe it. A volume that backend does not
   recognise is then refused rather than mounted as something else.
 - `-o size=<n>[K|M|G]` -- cap a ramfs mount's memory. A bare number is
-  MiB, rounded UP to a whole MiB; it is the only option there is, and a
+  MiB, rounded UP to a whole MiB; `T` works too, and `iB`/`B` may follow
+  the letter (`k_parse_size()`). It is the only option there is, and a
   disk filesystem accepts and ignores it.
 
 - `-t smb //server/share` -- a WINDOWS OR SAMBA SHARE, read-only. There

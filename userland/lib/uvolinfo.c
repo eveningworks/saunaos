@@ -112,6 +112,20 @@ void uvolinfo_space_text(const struct uvolinfo *v, char *out, int cap) {
     snprintf(out, (size_t)cap, "%s free of %s", f, t);
 }
 
+uint64_t uvolinfo_free(const struct uvolinfo *v) {
+    return v->total > v->used ? v->total - v->used : 0;
+}
+
+uint64_t uvolinfo_room(const struct uvolinfo *v) {
+    uint64_t f = uvolinfo_free(v);
+    if (!v->total || f <= (1ull << 20)) return 0;
+    return (f - (1ull << 20)) / 257 * 256;
+}
+
+int uvolinfo_fits(const struct uvolinfo *v, uint64_t bytes) {
+    return v->total && bytes <= uvolinfo_room(v);
+}
+
 int uvolinfo_used_pm(const struct uvolinfo *v) {
     if (!v->total) return -1;
     uint64_t u = v->used > v->total ? v->total : v->used;

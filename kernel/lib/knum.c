@@ -134,6 +134,33 @@ int k_parse_u64(const char *s, uint64_t *out) {
     return parse_u64_span(s, span_len(s), out);
 }
 
+int k_parse_size(const char *s, uint64_t bare_unit, uint64_t *out) {
+    if (!s) return 0;
+    size_t n = 0;
+    while (s[n] >= '0' && s[n] <= '9') n++;
+    uint64_t v;
+    if (!parse_u64_span(s, n, &v)) return 0;
+    const char *p = s + n;
+    uint64_t mul = bare_unit;
+    switch (*p) {
+    case 'K': case 'k': mul = 1ull << 10; break;
+    case 'M': case 'm': mul = 1ull << 20; break;
+    case 'G': case 'g': mul = 1ull << 30; break;
+    case 'T': case 't': mul = 1ull << 40; break;
+    case 0: break;
+    default: return 0;
+    }
+    if (*p) {
+        p++;
+        if ((*p == 'i' || *p == 'I') && (p[1] == 'B' || p[1] == 'b')) p += 2;   // "GiB"
+        else if (*p == 'B' || *p == 'b') p++;   // "GB", read as GiB like the rest
+    }
+    if (*p) return 0;
+    if (mul && v > U64_MAX / mul) return 0;
+    *out = v * mul;
+    return 1;
+}
+
 int k_parse_u32(const char *s, uint32_t *out) {
     uint64_t v;
     if (!k_parse_u64(s, &v)) return 0;

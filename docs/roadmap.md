@@ -1454,7 +1454,7 @@ this to be better?".
 - [ ] Widget-local RGB literals bypass `utheme` -- ~12 widgets unconverted, plus five colours no palette role matches
 - [x] ~~System Settings' focus ring is the PAGE's controls -- Tab reaches neither the sidebar nor the buttons~~ DONE 2026-09-28
 - [ ] Audit the bare `redraw_pending = 1` sites in `userland/wm/` for a rect they could damage -- a focus change's title colour is next
-- [ ] Disk Mark's volume dropdown cannot be typed at while CLOSED -- the app routes no keys, so only the overlay path reaches it
+- [ ] Disk Mark's size and volume dropdowns cannot be typed at while CLOSED -- the app routes no keys, so only the overlay path reaches it
 - [ ] On a machine with no invariant TSC, CPU percentages round to 0% for sub-tick work
 - [ ] `gfxbench`'s numbers are only meaningful under KVM or on real hardware
 - [ ] **Kernel-side `fsformat tfs3` writes ~73 MB of zeroed inode tables

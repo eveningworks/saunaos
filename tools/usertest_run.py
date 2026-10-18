@@ -289,6 +289,10 @@ TESTS = [
     # unconditionally.
     ("focusring_test", None,
      None, None),
+    # uui_sizefield's two unit changes, which must differ: a CLICK on
+    # GiB converts what is shown, a typed `g` reinterprets the digits.
+    ("sizefield_test", None,
+     None, None),
     # Type-ahead in uui_listbox and uui_table. Its load-bearing checks
     # are the SORTED ones: a table's rows are pulled and its app indices
     # are not the order on screen, so a search walking app order cycles

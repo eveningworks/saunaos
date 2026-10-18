@@ -4125,7 +4125,12 @@ window without going through it will find its layout polls timing out.
   asserts on it, then on its run chart (samples and four phase marks),
   its history (the run is a line in `/var/lib/diskmark/history` and F9
   shows the table) and Stop (Esc kills, reaps and cleans up a second
-  run). **The load-bearing check is the NUMBERS, not the run
+  run). Then the TEST SIZE without running one: Custom... opens a
+  dialog bounded by the volume's room, `3`, `g`, Enter sets 3 GiB and
+  `/etc/diskmark.conf` keeps it across a restart, a size over the room
+  is refused, and the first preset puts it back to 16 MiB so no later
+  tool inherits a GiB run; `diskbench` itself refuses `100T`
+  (`does-not-fit`) and `1Gx`. **The load-bearing check is the NUMBERS, not the run
   finishing**: a build whose throughput arithmetic truncated to zero
   logged "all four passes complete" and drew four tiles reading
   `0.0 MB/s`, with correct IOPS beside them, so everything an "it ran"

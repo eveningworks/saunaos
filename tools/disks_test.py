@@ -215,9 +215,9 @@ def run(dbg, qmp, res):
 
     def create(mb, name, fs_slot):
         nonlocal lay
-        press("size")
+        press("size.number")                 # the number, not its MiB/GiB switch
         dbg.key("0x01")                      # select all
-        for ch in str(mb):
+        for ch in f"{mb}m":                  # `m`: these digits are MiB
             dbg.key(ord(ch), settle=False)
         press("name")
         for ch in name:

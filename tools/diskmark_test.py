@@ -260,10 +260,16 @@ def main():
     rows = [l.split() for l in hist.splitlines() if len(l.split()) == 12 and l.split()[0].isdigit()]
     check("the finished run was added to the history", any(r[1] == "16" for r in rows),
           f"{len(rows)} rows")
+    # The WHOLE log, not its tail: the table is one line among a frame's
+    # dozens, and the items logged after it pushed it out of a last-60
+    # window. It is never shown before F9, which the first read proves.
+    def history_logged():
+        return "diskmark: layout history " in con.send("sh dmesg")
+    hidden = not history_logged()
     con.send("gui key 0xf79f")   # F9
     con.settle()
-    shown = any("diskmark: layout history " in l for l in con.send("sh dmesg").splitlines()[-60:])
-    check("F9 shows the history table", shown)
+    check("F9 shows the history table", hidden and history_logged(),
+          "already logged before F9" if not hidden else "")
     con.send("gui key 0xf79f")
     con.settle()
 
@@ -283,6 +289,91 @@ def main():
     ls = con.send("sh ls /var/tmp") + con.send("sh ls /tmp")
     check("...and the stopped run left no files", "diskmark.tmp" not in ls and "diskmark.out" not in ls)
     check("...and its child was reaped", "diskbench" not in con.send("sh ps"))
+
+    # THE TEST SIZE: the dropdown's last row, Custom..., opens a dialog
+    # bounded by the volume's room; OK sets the size, which survives a
+    # restart (/etc/diskmark.conf). Nothing here RUNS a large size -- a
+    # GiB is minutes under TCG -- so what is asserted is the choice, the
+    # bound and diskbench's own refusal.
+    def last_rect(name):
+        rect = None
+        for line in con.send("sh dmesg").splitlines():
+            if f"diskmark: layout {name} " in line:
+                nums = line.split(f"diskmark: layout {name} ", 1)[1].split()
+                if len(nums) >= 4 and all(n.lstrip("-").isdigit() for n in nums[:4]):
+                    rect = tuple(int(n) for n in nums[:4])
+        return rect
+
+    def centre(r):
+        return (ox + r[0] + r[2] // 2, oy + r[1] + r[3] // 2)
+
+    def choose_size_row(down):
+        """Open the size dropdown and walk to a row: Down `down` times
+        from the top (Up saturates there first), then Enter."""
+        con.click(*centre(last_rect("size")))
+        for _ in range(8):
+            con.key("0xf780", settle=False)   # Up
+        for _ in range(down):
+            con.key("0xf781", settle=False)   # Down
+        con.key("0x0d")
+
+    def sizes_said():
+        return re.findall(r"diskmark: size (\d+) MiB", con.send("sh dmesg"))
+
+    size_rect = last_rect("size")
+    check("the size is a dropdown the client reported", size_rect is not None)
+    if size_rect:
+        choose_size_row(8)                    # past the last row: Custom...
+        con.settle()
+        m = re.findall(r"diskmark: custom size dialog, room (-?\d+) MiB", con.send("sh dmesg"))
+        room = int(m[-1]) if m else -1
+        check("Custom... opens the dialog, bounded by the volume's room", room > 3072, f"room {room}")
+        num = last_rect("customsize.number")
+        check("...with the size field in it", num is not None)
+        if num:
+            con.click(*centre(num))
+            con.key("0x01")                   # select all
+            for ch in "3g":
+                con.key(str(ord(ch)), settle=False)
+            con.key("0x0d")                   # Enter: the field, then OK
+            said = sizes_said()
+            check("3, g, Enter sets 3 GiB", said[-1:] == ["3072"], f"{said[-3:]}")
+            conf = con.send("sh cat /etc/diskmark.conf")
+            check("...and it is remembered", "size=3072" in conf, conf.strip()[-60:])
+
+            # Over the room: the field refuses it and OK keeps 3 GiB.
+            choose_size_row(8)
+            con.settle()
+            num = last_rect("customsize.number")
+            con.click(*centre(num))
+            con.key("0x01")
+            for ch in "99999g":
+                con.key(str(ord(ch)), settle=False)
+            con.key("0x0d")
+            said = sizes_said()
+            check("a size over the volume's room is refused", said[-1:] == ["3072"], f"{said[-3:]}")
+
+            # A restart keeps it.
+            con.close_window(TITLE)
+            con.open_app(TITLE)
+            con.settle()
+            w = con.window(TITLE)
+            if w:
+                ox, oy = w["content"]["x"], w["content"]["y"]
+            ready = re.findall(r"diskmark: ready, size (\d+) MiB", con.send("sh dmesg"))
+            check("a restart opens on the remembered size", ready[-1:] == ["3072"], f"{ready[-3:]}")
+
+        # Back to the first preset, so no later tool inherits a GiB run.
+        choose_size_row(0)
+        conf = con.send("sh cat /etc/diskmark.conf")
+        check("the first preset puts it back to 16 MiB", "size=16" in conf, conf.strip()[-60:])
+
+    out = con.send("sh diskbench --size 100T")
+    check("diskbench refuses a size the volume cannot hold", "error does-not-fit" in out, out.strip()[-80:])
+    out = con.send("sh diskbench --size 1Gx")
+    check("...and one it cannot read", "error size-out-of-range" in out, out.strip()[-80:])
+    out = con.send("sh diskbench --help")
+    check("...and --help names --size", "--size SIZE" in out, out.strip()[-80:])
 
     failures = [n for n, ok in checks if not ok]
     print()

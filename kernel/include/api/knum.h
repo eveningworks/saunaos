@@ -70,6 +70,13 @@ size_t k_htoa(uint64_t v, char *out, size_t cap, unsigned min_digits);
 int k_parse_u32(const char *s, uint32_t *out);
 int k_parse_u64(const char *s, uint64_t *out);
 
+// A SIZE: decimal digits, then optionally K, M, G or T (either case),
+// optionally followed by "iB" or "B" (any case) -- binary multiples all, so "1G",
+// "1GiB" and "1GB" are each 2^30. A bare number is `bare_unit` bytes:
+// MiB for `mount size=` and `diskbench --size`, a sector for `mkpart`.
+// Rejects anything else, and a product that would overflow.
+int k_parse_size(const char *s, uint64_t bare_unit, uint64_t *out);
+
 // Signed decimal, optional leading '-'.
 int k_parse_i64(const char *s, int64_t *out);
 

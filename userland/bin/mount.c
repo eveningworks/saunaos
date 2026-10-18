@@ -24,6 +24,7 @@
 #include "rt/sys.h"
 #include "lib/cmd.h"
 #include "lib/human.h"
+#include "knum.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -43,20 +44,8 @@ static const char *USAGE =
 // "the backend decides" -- the opposite.
 static long parse_size_mib(const char *opt) {
     if (strncmp(opt, "size=", 5) != 0) return -1;
-    const char *p = opt + 5;
-    if (!*p) return -1;
-    unsigned long long bytes = 0;
-    for (; *p >= '0' && *p <= '9'; p++) {
-        bytes = bytes * 10 + (unsigned)(*p - '0');
-        if (bytes > (1ULL << 50)) return -1;
-    }
-    if (p == opt + 5) return -1;                 // no digits at all
-    unsigned long long mul = 1024 * 1024;        // a bare number is MiB
-    if (*p == 'K' || *p == 'k') { mul = 1024; p++; }
-    else if (*p == 'M' || *p == 'm') { mul = 1024 * 1024; p++; }
-    else if (*p == 'G' || *p == 'g') { mul = 1024ULL * 1024 * 1024; p++; }
-    if (*p) return -1;                           // trailing rubbish
-    unsigned long long total = bytes * mul;
+    uint64_t total;
+    if (!k_parse_size(opt + 5, 1024 * 1024, &total)) return -1;   // a bare number is MiB
     unsigned long long mib = (total + (1024 * 1024 - 1)) / (1024 * 1024);
     if (mib > 0xFFFFFFFFULL) return -1;
     return (long)mib;

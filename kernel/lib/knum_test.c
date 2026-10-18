@@ -130,3 +130,28 @@ KTEST("knum", "hex parsing, with or without the 0x prefix") {
     KTEST_ASSERT_EQ(k_hex_digit('F'), 15);
     KTEST_ASSERT_EQ(k_hex_digit('g'), -1);
 }
+
+KTEST("knum", "sizes: a bare number in the caller's unit, or a binary suffix") {
+    uint64_t v;
+    KTEST_ASSERT(k_parse_size("16", 1ull << 20, &v));
+    KTEST_ASSERT_EQ(v, 16ull << 20);
+    KTEST_ASSERT(k_parse_size("16", 512, &v));
+    KTEST_ASSERT_EQ(v, 16ull * 512);
+    KTEST_ASSERT(k_parse_size("1G", 1ull << 20, &v));
+    KTEST_ASSERT_EQ(v, 1ull << 30);
+    KTEST_ASSERT(k_parse_size("1GiB", 1ull << 20, &v));
+    KTEST_ASSERT_EQ(v, 1ull << 30);
+    KTEST_ASSERT(k_parse_size("3gb", 1ull << 20, &v));
+    KTEST_ASSERT_EQ(v, 3ull << 30);
+    KTEST_ASSERT(k_parse_size("512k", 1ull << 20, &v));
+    KTEST_ASSERT_EQ(v, 512ull << 10);
+    KTEST_ASSERT(k_parse_size("2T", 1, &v));
+    KTEST_ASSERT_EQ(v, 2ull << 40);
+    KTEST_ASSERT_EQ(k_parse_size("", 1, &v), 0);
+    KTEST_ASSERT_EQ(k_parse_size("G", 1, &v), 0);        // no digits
+    KTEST_ASSERT_EQ(k_parse_size("1X", 1, &v), 0);       // not a unit
+    KTEST_ASSERT_EQ(k_parse_size("1Gx", 1, &v), 0);      // trailing rubbish
+    KTEST_ASSERT_EQ(k_parse_size("1 G", 1, &v), 0);
+    KTEST_ASSERT_EQ(k_parse_size("-1", 1, &v), 0);
+    KTEST_ASSERT_EQ(k_parse_size("16777216T", 1, &v), 0); // 2^64: overflow
+}

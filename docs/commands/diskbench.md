@@ -6,17 +6,30 @@
 
 ## Synopsis
 
-    diskbench [--size MiB] [--path FILE] [--out FILE]
+    diskbench [--size SIZE] [--path FILE] [--out FILE]
 
 ## Options
 
-- `--size <MiB>` -- how much data each profile moves, 1 to 4096, default
-  64; outside that it refuses with `size-out-of-range`.
+- `--size <SIZE>` -- how much data each profile moves: a number of MiB
+  (`16`), or one with a binary suffix, `K`, `M`, `G` or `T`, optionally
+  followed by `iB` or `B` (`512M`, `1G`, `1GiB`), rounded up to a whole
+  MiB; default 64. A size it cannot read refuses with
+  `size-out-of-range`.
 - `--path <FILE>` -- the scratch file to write, created and removed by
   the run. The default is in the PERSISTENT scratch directory, never the
   RAM one, which a benchmark pointed at would measure `memcpy`.
 - `--out <FILE>` -- write the report to a file instead of stdout, and
   rewrite the whole current state each time rather than appending.
+- `-h`, `--help` -- every option and what it does.
+
+**The size must fit in the scratch file's volume**, with room for the
+filesystem's own records of the file (1/256 of it plus a MiB --
+`uvolinfo_room()` in `userland/lib/uvolinfo.h`, the same test Disk Mark
+applies before it offers a size). Otherwise it refuses at once with
+`does-not-fit`, before the first byte: a volume that fills at 90% of
+SEQ write has cost minutes and measured nothing. A scratch file left
+by an earlier run is removed first, so it is not counted against the
+space.
 
 ## Description
 

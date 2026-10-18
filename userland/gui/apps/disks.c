@@ -39,6 +39,7 @@
 #include "ui/uui_segbar.h"
 #include "ui/uui_diskplan.h"   // uui_diskplan_colour()
 #include "ui/uui_segmented.h"
+#include "ui/uui_sizefield.h"
 #include "ui/uui_stages.h"
 #include "ui/uui_statusbar.h"
 #include "ui/uui_textbox.h"
@@ -72,7 +73,8 @@ static struct uui_menubar g_menu;
 static struct uui_toolbar g_tb;
 static struct uui_grid g_drives;
 static struct uui_segbar g_map;
-static struct uui_textbox g_size, g_name;
+static struct uui_sizefield g_size;
+static struct uui_textbox g_name;
 static struct uui_segmented g_fs;
 static struct uui_button g_create;
 static struct uui_statusbar g_sb;
@@ -287,7 +289,8 @@ static void do_create(void) {
     int s = g_map.selected;
     if (refusal(CMD_NEW) || !d) return;
     uint64_t spb = d->block_size / 512 ? d->block_size / 512 : 1;
-    uint64_t room = g_seg_count[s], mb = strtoull(uui_textbox_text(&g_size), 0, 10);
+    uui_sizefield_commit(&g_size);
+    uint64_t room = g_seg_count[s], mb = uui_sizefield_mib(&g_size);
     uint64_t want = mb ? mb * MIB : room;
     if (want > room) want = room;
     want -= want % spb;
@@ -719,7 +722,6 @@ static void draw_details(struct ugfx_surface *s, int cw) {
         else {
             int fy = g_form_y + (g_size.h - lh) / 2;
             ugfx_draw_string(s, x, fy, "New partition", UTHEME_TEXT, UTHEME_WHITE);
-            ugfx_draw_string(s, g_size.x + g_size.w + pad / 2, fy, "MiB", UTHEME_TEXT, UTHEME_WHITE);
         }
         return;
     }
@@ -796,7 +798,7 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_toolbar_ops,   .widget = &g_tb,     .id = ID_TOOLBAR, .name = "toolbar" },
     { .ops = &uui_grid_ops,      .widget = &g_drives, .id = ID_DRIVES,  .name = "drives" },
     { .ops = &uui_segbar_ops,    .widget = &g_map,    .id = ID_MAP,     .name = "map" },
-    { .ops = &uui_textbox_ops,   .widget = &g_size,   .id = ID_SIZE,    .name = "size",   .hidden = 1 },
+    { .ops = &uui_sizefield_ops, .widget = &g_size,   .id = ID_SIZE,    .name = "size",   .hidden = 1 },
     { .ops = &uui_textbox_ops,   .widget = &g_name,   .id = ID_NAME,    .name = "name",   .hidden = 1 },
     { .ops = &uui_segmented_ops, .widget = &g_fs,     .id = ID_FS,      .name = "fs",     .hidden = 1 },
     { .ops = &uui_button_ops,    .widget = &g_create, .id = ID_CREATE,  .name = "create", .hidden = 1 },
@@ -832,8 +834,10 @@ static void layout(int cw, int ch) {
         // The facts' first row is the free space; the form is the next.
         int fy = g_map.y + g_map.h + pad * 2 + lh + 4 + pad;
         int fx = x + ugfx_text_width("New partition") + pad * 2;
-        uui_textbox_set_geometry(&g_size, fx, fy, pad * 8, bh);
-        int nx = fx + pad * 8 + ugfx_text_width("MiB") + pad * 2;
+        int zw, zh;
+        uui_sizefield_natural_size(&g_size, &zw, &zh);
+        uui_sizefield_set_geometry(&g_size, fx, fy, zw, bh);
+        int nx = fx + zw + pad * 2;
         uui_textbox_set_geometry(&g_name, nx, fy, pad * 14, bh);
         int sw, sh;
         uui_segmented_ops.natural_size(&g_fs, &sw, &sh);
@@ -878,25 +882,22 @@ static void on_draw(struct uapp *a, struct uapp_draw *dr) {
 
 // --- input --------------------------------------------------------------------
 
+// Free space opens with the whole gap offered, and nothing larger.
+static void offer_whole_gap(void) {
+    uint64_t mib = g_seg_count[g_map.selected] / MIB;
+    uui_sizefield_init(&g_size, mib, 1, mib ? mib : 1);
+}
+
 static void select_drive(int i) {
     if (i == g_cur) return;
     g_cur = i;
     g_map.selected = 0;
     build_map();
-    // Free space opens with the whole gap offered.
-    if (cur_is_free()) {
-        char mb[24];
-        snprintf(mb, sizeof mb, "%llu", (unsigned long long)(g_seg_count[g_map.selected] / MIB));
-        uui_textbox_set_text(&g_size, mb);
-    }
+    if (cur_is_free()) offer_whole_gap();
 }
 
 static void selection_changed(void) {
-    if (cur_is_free()) {
-        char mb[24];
-        snprintf(mb, sizeof mb, "%llu", (unsigned long long)(g_seg_count[g_map.selected] / MIB));
-        uui_textbox_set_text(&g_size, mb);
-    }
+    if (cur_is_free()) offer_whole_gap();
 }
 
 static void on_widget(struct uapp *a, int id, int reason) {
@@ -916,8 +917,10 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_action(struct uapp *a, int code) {
     if (code == ID_CREATE && !refusal(CMD_NEW)) {
         struct udisk *d = cur_disk();
-        uint64_t mb = strtoull(uui_textbox_text(&g_size), 0, 10);
-        snprintf(g_ask_line[0], sizeof g_ask_line[0], "Create a %llu MiB partition on %s%s%s?", (unsigned long long)mb,
+        uui_sizefield_commit(&g_size);
+        char mb[24];
+        human_size_iec(mb, sizeof mb, uui_sizefield_mib(&g_size) << 20);
+        snprintf(g_ask_line[0], sizeof g_ask_line[0], "Create a %s partition on %s%s%s?", mb,
                  d->name, g_fs.selected == 2 ? "" : ", formatted ", g_fs.selected == 2 ? "" : FS_CHOICES[g_fs.selected]);
         snprintf(g_ask_line[1], sizeof g_ask_line[1], "%s", d->kind ? "The other partitions are kept as they are."
                                                                     : "The disk gets a new GPT partition table.");
@@ -1017,7 +1020,7 @@ int main(int argc, char **argv) {
     g_drives.bg = UUI_ROLE(panel_bg);
     g_drives.cell = drive_card;
     uui_segbar_init(&g_map);
-    uui_textbox_init(&g_size, "");
+    uui_sizefield_init(&g_size, 1, 1, 1);
     uui_textbox_init(&g_name, "");
     g_name.placeholder = "Name (optional)";
     uui_segmented_init(&g_fs, FS_CHOICES, 3, 0);
@@ -1032,7 +1035,7 @@ int main(int argc, char **argv) {
     g_sb.panes[3].text = g_st_free;  g_sb.panes[3].chars = 18;
     g_ring[RING_DRIVES] = (struct uui_focusable){ &g_drives, &uui_grid_ops };
     g_ring[RING_MAP] = (struct uui_focusable){ &g_map, &uui_segbar_ops };
-    g_ring[RING_SIZE] = (struct uui_focusable){ &g_size, &uui_textbox_focus_ops };
+    g_ring[RING_SIZE] = (struct uui_focusable){ &g_size, &uui_sizefield_ops };
     g_ring[RING_NAME] = (struct uui_focusable){ &g_name, &uui_textbox_focus_ops };
     uui_focus_init(&g_focus, g_ring, 4);
     scan();

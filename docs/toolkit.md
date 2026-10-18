@@ -227,6 +227,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_sidebar.h` | A NAVIGATION SIDEBAR: bold section headings with selectable items under them. |
 | `uui_signin.h` | A SIGN-IN DIALOG for any app with a uui_dialog: a title, a line or two saying who is asking, a user name, a password, and optionally a Remember row -- the form, its checks, and the wiping. |
 | `uui_siteperm.h` | uui_siteperm -- A SITE'S PERMISSION, SHOWN TWO WAYS: as a ROW to set it (a caption, then Default / Allow / Block -- Chrome's page-info rows), and as an ASK when something was refused (a card under... |
+| `uui_sizefield.h` | A SIZE YOU CAN TYPE: a number and its unit, MiB or GiB -- Disk Mark's test size and Disks' new partition. |
 | `uui_sizepick.h` | uui_sizepick -- A PICTURE'S SIZE, CHOSEN: preset cards that each show their size's SHAPE, and a width and a height beside them -- Photoshop's New Document and Paint.NET's presets. |
 | `uui_slider.h` | A slider with DISCRETE STOPS -- one per option, not a continuous range. |
 | `uui_sndformat.h` | uui_sndformat -- one sound card's output FORMAT as a panel: a Sample rate list (Match what plays, then each rate the card takes), the rates Match may switch to as checkboxes, a Bit depth list (Auto... |

@@ -28,11 +28,17 @@
 #include "ui/uui_toolbar.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_table.h"
+#include "ui/uui_dialog.h"
+#include "ui/uui_sizefield.h"
+#include "lib/uprefs.h"
+#include "lib/uvolinfo.h"
+#include "lib/human.h"
 #include "lib/uclip.h"
 #include "lib/udate.h"
 #include <stdio.h>
 #include "lib/unum.h"
 #include <string.h>
+#include <stddef.h>
 #include <stdlib.h>
 #include <locale.h>
 #include <time.h>
@@ -79,9 +85,21 @@ static const char *WIRE_NAME[PROFILES] = { "SEQ-read", "SEQ-write", "RND4K-read"
 static const char *PHASE_LABEL[PROFILES] = { "SEQ read", "SEQ write", "RND4K read", "RND4K write" };
 static int is_write(int p) { return p == P_SEQ_WRITE || p == P_RND_WRITE; }
 
-static const char *const SIZE_ITEMS[] = { "16 MiB", "64 MiB", "256 MiB" };
-static const int SIZE_MIB[] = { 16, 64, 256 };
-#define SIZE_COUNT 3
+// The presets. A size that is none of them is the CUSTOM entry, listed
+// after them and before "Custom...".
+static const int PRESET_MIB[] = { 16, 64, 256, 512, 1024 };
+#define PRESETS 5
+#define CUSTOM_MAX_MIB (1 << 24)   // 16 TiB; the volume's room bounds it first
+
+// The one remembered choice, in the app's own options file
+// (docs/conventions/gui.md) -- a size picked once is the size next time.
+#define DISKMARK_CONF "/etc/diskmark.conf"
+struct dm_prefs { int size_mib; };
+static const struct upref PREF_KEYS[] = {
+    UPREF_INT_KEY("size", struct dm_prefs, size_mib, 1, CUSTOM_MAX_MIB, 16),
+};
+static const struct uprefs PREFS = { DISKMARK_CONF, PREF_KEYS, 1 };
+static struct dm_prefs g_prefs;
 
 enum { ST_IDLE, ST_RUNNING, ST_STOPPING, ST_DONE, ST_FAILED };
 
@@ -98,7 +116,7 @@ static time_t g_run_when;
 static char g_value[PROFILES][24];
 static char g_detail[PROFILES][48];
 static char g_status[96];
-static char g_size_pane[16], g_call_pane[24], g_when_pane[24];
+static char g_size_pane[16], g_call_pane[24], g_free_pane[24], g_when_pane[24];
 
 // The child's output, re-read whole each tick. Static: the ring-3 frame
 // budget is 2 KiB.
@@ -164,17 +182,26 @@ static char g_work[96];   // the one the running child was given
 #define ID_VOL     4
 #define ID_HIST    5
 #define ID_STATUS  6
+#define ID_DIALOG  7
+#define ID_SIZEFIELD 8
 
 #define CMD_RUN     1
 #define CMD_STOP    2
 #define CMD_COPY    3
 #define CMD_HISTORY 4
 #define CMD_EXIT    5
-#define CMD_SIZE_0  10   // ..12
+#define CMD_SIZE_0  10   // ..14, the presets
+#define CMD_CUSTOM  20
+#define DLG_OK      1
+#define DLG_CANCEL  2
 
 static struct uui_menubar g_menu;
 static struct uui_toolbar g_tb;
-static struct uui_segmented g_size;
+static struct uui_dropdown g_size;
+static struct uui_dialog g_dlg;
+static struct uui_sizefield g_sf;
+static struct uui_item g_sf_item = { .ops = &uui_sizefield_ops, .widget = &g_sf,
+                                     .id = ID_SIZEFIELD, .name = "customsize" };
 static struct uui_meter g_meter[PROFILES];
 static struct uui_chart g_chart;
 static struct uui_table g_hist;
@@ -193,6 +220,9 @@ static const struct uui_menu_item test_items[] = {
     UUI_MENU("16 MiB",  CMD_SIZE_0,     0),
     UUI_MENU("64 MiB",  CMD_SIZE_0 + 1, 0),
     UUI_MENU("256 MiB", CMD_SIZE_0 + 2, 0),
+    UUI_MENU("512 MiB", CMD_SIZE_0 + 3, 0),
+    UUI_MENU("1 GiB",   CMD_SIZE_0 + 4, 0),
+    UUI_MENU("Custom size...", CMD_CUSTOM, 0),
 };
 static const struct uui_menu_item view_items[] = {
     UUI_MENU("History", CMD_HISTORY, "F9"),
@@ -217,17 +247,68 @@ static const struct uui_toolbar_item tb_items[] = {
 static struct uui_item g_widgets[] = {
     { .ops = &uui_menubar_ops,   .widget = &g_menu,     .id = ID_MENU,    .name = "menu" },
     { .ops = &uui_toolbar_ops,   .widget = &g_tb,       .id = ID_TOOLBAR, .name = "toolbar" },
-    { .ops = &uui_segmented_ops, .widget = &g_size,     .id = ID_SIZE,    .name = "size" },
     { .ops = &uui_table_ops,     .widget = &g_hist,     .id = ID_HIST,    .name = "history", .hidden = 1 },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,       .id = ID_STATUS,  .name = "status" },
-    // AFTER everything it can open over: its popup is drawn last.
+    // AFTER everything they can open over: their popups are drawn last.
+    { .ops = &uui_dropdown_ops,  .widget = &g_size,     .id = ID_SIZE,    .name = "size" },
     { .ops = &uui_dropdown_ops,  .widget = &g_vol,      .id = ID_VOL,     .name = "volume" },
+    // A container, drawn in the items pass: last, so it is on top.
+    { .ops = &uui_dialog_ops,    .widget = &g_dlg,      .id = ID_DIALOG,  .name = "dialog" },
 };
-#define W_HIST 3
 
-static int size_mib(void) {
-    int i = g_size.selected;
-    return SIZE_MIB[(i >= 0 && i < SIZE_COUNT) ? i : 0];
+// --- the size -----------------------------------------------------------
+//
+// The dropdown's rows: the presets, the custom size when there is one,
+// then "Custom...". The size itself is g_size_mib; the rows only show it.
+static int g_size_mib = 16;
+static int g_custom_mib;              // 0: no custom row
+static char g_custom_label[16];
+static const char *g_size_items[PRESETS + 2];
+static int g_size_rows;
+
+// "1 GiB" when it is a whole number of them, else "1536 MiB".
+static void fmt_size(char *out, int cap, int mib) {
+    if (mib >= 1024 && mib % 1024 == 0) snprintf(out, (unsigned)cap, "%d GiB", mib / 1024);
+    else snprintf(out, (unsigned)cap, "%d MiB", mib);
+}
+
+static int preset_of(int mib) {
+    for (int i = 0; i < PRESETS; i++) if (PRESET_MIB[i] == mib) return i;
+    return -1;
+}
+
+static int size_mib(void) { return g_size_mib; }
+
+// Rebuilds the rows for g_size_mib and selects it.
+static void size_rows(void) {
+    static char labels[PRESETS][16];
+    int n = 0;
+    for (int i = 0; i < PRESETS; i++) {
+        fmt_size(labels[i], sizeof labels[i], PRESET_MIB[i]);
+        g_size_items[n++] = labels[i];
+    }
+    if (g_custom_mib) {
+        fmt_size(g_custom_label, sizeof g_custom_label, g_custom_mib);
+        g_size_items[n++] = g_custom_label;
+    }
+    g_size_items[n++] = "Custom...";
+    g_size_rows = n;
+    uui_dropdown_set_items(&g_size, g_size_items, n);
+    int p = preset_of(g_size_mib);
+    uui_dropdown_set_selected(&g_size, p >= 0 ? p : PRESETS);
+}
+
+static void set_size(int mib) {
+    if (mib < 1) mib = 1;
+    if (mib > CUSTOM_MAX_MIB) mib = CUSTOM_MAX_MIB;
+    g_size_mib = mib;
+    if (preset_of(mib) < 0) g_custom_mib = mib;
+    size_rows();
+    if (g_prefs.size_mib != mib) {
+        struct dm_prefs was = g_prefs;
+        g_prefs.size_mib = mib;
+        uprefs_save(&PREFS, &g_prefs, &was);
+    }
 }
 
 // --- history ----------------------------------------------------------
@@ -281,7 +362,7 @@ static void history_append(void) {
 static const struct uui_table_column HIST_COLS[] = {
     { "When",     0,  UUI_TALIGN_LEFT },
     { "Volume",   11, UUI_TALIGN_LEFT },
-    { "Size",     7,  UUI_TALIGN_RIGHT },
+    { "Size",     8,  UUI_TALIGN_RIGHT },
     { "SEQ R",    10, UUI_TALIGN_RIGHT },
     { "SEQ W",    10, UUI_TALIGN_RIGHT },
     { "RND4K R",  10, UUI_TALIGN_RIGHT },
@@ -307,7 +388,7 @@ static void hist_cell(void *ctx, int row, int col, char *out, int cap) {
         return;
     }
     case 1: snprintf(out, (unsigned)cap, "%s  %s", r->point, r->dev); return;
-    case 2: snprintf(out, (unsigned)cap, "%d MiB", r->mib); return;
+    case 2: fmt_size(out, cap, r->mib); return;
     default: {
         int p = col == 3 ? P_SEQ_READ : col == 4 ? P_SEQ_WRITE : col == 5 ? P_RND_READ : P_RND_WRITE;
         char v[16];
@@ -329,6 +410,137 @@ static void hist_cell(void *ctx, int row, int col, char *out, int cap) {
 // --- readings ---------------------------------------------------------
 
 static void set_status(const char *s) { strlcpy(g_status, s, sizeof g_status); }
+
+// --- will it fit, and how long -----------------------------------------
+
+// The chosen volume's facts, for the scratch file's own path; 0 when
+// they are not known (a size that cannot be judged is not refused).
+static int chosen_volinfo(struct uvolinfo *vi) {
+    const struct vol *v = chosen_vol();
+    return v && uvolinfo_of(work_path_for(v), vi) && vi->total;
+}
+
+// The largest size the chosen volume has room for, in MiB, or -1.
+// uvolinfo_fits() is the test diskbench applies too.
+static long long room_mib(void) {
+    struct uvolinfo vi;
+    return chosen_volinfo(&vi) ? (long long)(uvolinfo_room(&vi) >> 20) : -1;
+}
+
+static int size_fits(int mib) {
+    long long room = room_mib();
+    return room < 0 || mib <= room;
+}
+
+// From the newest run on this volume, at whatever size it was: each
+// profile's MB/s over what it would move at `mib` -- the random ones an
+// eighth of the file (bin/diskbench.c). Seconds, or -1 with nothing to
+// go by.
+static long long estimate_s(int mib) {
+    const struct vol *v = chosen_vol();
+    if (!v) return -1;
+    char point[32];
+    strlcpy(point, v->point, sizeof point);
+    for (char *q = point; *q; q++) if (*q == ' ') *q = '_';
+    for (int i = 0; i < g_nruns; i++) {
+        const struct run *r = &g_runs[i];
+        if (strcmp(r->point, point)) continue;
+        uint64_t bytes = (uint64_t)mib << 20, us = 0;
+        for (int p = 0; p < PROFILES; p++) {
+            if (!r->mb[p]) return -1;
+            uint64_t moved = (p == P_RND_READ || p == P_RND_WRITE) ? bytes / 8 : bytes;
+            us += moved * 1000 / r->mb[p];   // milli-MB/s: bytes*1000/milli is microseconds
+        }
+        return (long long)(us / 1000000);
+    }
+    return -1;
+}
+
+static void fmt_duration(char *out, int cap, long long s) {
+    if (s < 60) { snprintf(out, (unsigned)cap, "under a minute"); return; }
+    long long m = (s + 30) / 60;
+    if (m < 90) snprintf(out, (unsigned)cap, "about %lld min", m);
+    else snprintf(out, (unsigned)cap, "about %lld h %lld min", m / 60, m % 60);
+}
+
+// The idle status line for the size and volume chosen: refused when it
+// does not fit, else how long it should take, when a run says.
+static void size_status(void) {
+    if (g_pid > 0 || !g_nvols) return;
+    char sz[16];
+    fmt_size(sz, sizeof sz, g_size_mib);
+    struct uvolinfo vi;
+    if (!size_fits(g_size_mib) && chosen_volinfo(&vi)) {
+        char f[24];
+        human_size_iec(f, sizeof f, uvolinfo_free(&vi));
+        snprintf(g_status, sizeof g_status, "%s does not fit: %s has %s free.", sz, chosen_vol()->point, f);
+        return;
+    }
+    long long est = estimate_s(g_size_mib);
+    if (est < 0) { set_status("Ready."); return; }
+    char d[32];
+    fmt_duration(d, sizeof d, est);
+    // The size is in the pane beside it.
+    snprintf(g_status, sizeof g_status, "Ready -- %s.", d);
+}
+
+// --- Custom size... -------------------------------------------------------
+
+static char g_dlg_line[2][96];
+static const char *g_dlg_rows[2] = { g_dlg_line[0], g_dlg_line[1] };
+
+static void dialog_lines(void) {
+    const struct vol *v = chosen_vol();
+    struct uvolinfo vi;
+    g_dlg_line[0][0] = g_dlg_line[1][0] = 0;
+    if (v && chosen_volinfo(&vi)) {
+        char f[24];
+        human_size_iec(f, sizeof f, uvolinfo_free(&vi));
+        snprintf(g_dlg_line[0], sizeof g_dlg_line[0], "%s on %s has %s free.", v->point, v->dev, f);
+    }
+    long long est = estimate_s((int)uui_sizefield_mib(&g_sf));
+    if (est >= 0) {
+        char d[32];
+        fmt_duration(d, sizeof d, est);
+        snprintf(g_dlg_line[1], sizeof g_dlg_line[1], "%c%s, from the last run on this volume.",
+                 d[0] - 'a' + 'A', d + 1);
+    } else {
+        snprintf(g_dlg_line[1], sizeof g_dlg_line[1], "No earlier run here to estimate the time from.");
+    }
+}
+
+static void open_custom(struct uapp *a) {
+    if (g_pid > 0) return;
+    long long room = room_mib();
+    uint64_t max = room > 0 && room < CUSTOM_MAX_MIB ? (uint64_t)room : CUSTOM_MAX_MIB;
+    uui_sizefield_init(&g_sf, (uint64_t)g_size_mib, 1, max);
+    static const struct uui_dialog_button btns[] = {
+        { "Cancel", DLG_CANCEL, 0 }, { "OK", DLG_OK, UUI_DLG_PRIMARY },
+    };
+    dialog_lines();
+    uui_dialog_set_bounds(&g_dlg, 0, 0, uapp_width(a), uapp_height(a));
+    uui_dialog_open(&g_dlg, "Test size", g_dlg_rows, 2, btns, 2, 1, DLG_CANCEL);
+    int bw, bh;
+    uui_sizefield_natural_size(&g_sf, &bw, &bh);
+    uui_dialog_set_body(&g_dlg, &g_sf_item, bw, bh);
+    struct uui_item *tabs[] = { &g_sf_item };
+    uui_dialog_set_tabs(&g_dlg, tabs, 1);
+    uui_dialog_focus(&g_dlg, &g_sf_item);
+    ulogf("diskmark: custom size dialog, room %lld MiB\n", room);
+}
+
+static void custom_answer(int code) {
+    uui_dialog_close(&g_dlg);
+    uui_dialog_set_body(&g_dlg, 0, 0, 0);
+    if (code == DLG_OK) {
+        uui_sizefield_commit(&g_sf);
+        set_size((int)uui_sizefield_mib(&g_sf));
+        ulogf("diskmark: size %d MiB\n", g_size_mib);
+    } else {
+        size_rows();   // the dropdown back on the size it had
+    }
+    size_status();
+}
 
 // Each bar against the FASTEST of this run: a ceiling picked for an SSD
 // leaves every bar here empty, and one picked for an emulator lies.
@@ -488,6 +700,11 @@ static void begin_run(struct uapp *a) {
         uapp_redraw(a);
         return;
     }
+    if (!size_fits(size_mib())) {
+        size_status();   // says why, and what the volume has
+        uapp_redraw(a);
+        return;
+    }
     reset_readings();
     strlcpy(g_work, work_path_for(v), sizeof g_work);
     cleanup();
@@ -510,7 +727,9 @@ static void begin_run(struct uapp *a) {
         for (char *q = g_run_vol; *q; q++) if (*q == ' ') *q = '_';
         strlcpy(g_run_dev, v->dev, sizeof g_run_dev);
         g_run_when = time(NULL);
-        snprintf(g_status, sizeof g_status, "Running %d MiB on %s...", size_mib(), v->point);
+        char sz[16];
+        fmt_size(sz, sizeof sz, size_mib());
+        snprintf(g_status, sizeof g_status, "Running %s on %s...", sz, v->point);
         ulogf("diskmark: spawned %s as pid %d\n", BENCH_PATH, g_pid);
     }
     uapp_redraw(a);
@@ -528,9 +747,10 @@ static void stop_run(struct uapp *a) {
 
 static void copy_results(void) {
     char text[512];
-    int n = snprintf(text, sizeof text, "Disk Mark -- %s, %d MiB, Q1T1, %u KiB per call\n",
-                     g_run_vol[0] ? g_run_vol : "/", g_run_mib ? g_run_mib : size_mib(),
-                     (unsigned)(SYS_WRITE_MAX / 1024));
+    char sz[16];
+    fmt_size(sz, sizeof sz, g_run_mib ? g_run_mib : size_mib());
+    int n = snprintf(text, sizeof text, "Disk Mark -- %s, %s, Q1T1, %u KiB per call\n",
+                     g_run_vol[0] ? g_run_vol : "/", sz, (unsigned)(SYS_WRITE_MAX / 1024));
     for (int p = 0; p < PROFILES && n < (int)sizeof text; p++) {
         char v[16];
         fmt_mb(v, sizeof v, g_result[p]);
@@ -545,13 +765,14 @@ static void copy_results(void) {
 static unsigned item_flags(int code) {
     int busy = g_pid > 0;
     switch (code) {
-    case CMD_RUN:     return busy ? UUI_MI_DISABLED : 0;
+    case CMD_RUN:     return busy || !size_fits(size_mib()) ? UUI_MI_DISABLED : 0;
+    case CMD_CUSTOM:  return (preset_of(g_size_mib) < 0 ? UUI_MI_CHECKED : 0) | (busy ? UUI_MI_DISABLED : 0);
     case CMD_STOP:    return g_state == ST_RUNNING ? 0 : UUI_MI_DISABLED;
     case CMD_COPY:    return (g_result[0] || g_result[3]) ? 0 : UUI_MI_DISABLED;
     case CMD_HISTORY: return g_show_hist ? UUI_MI_CHECKED : 0;
     default:
-        if (code >= CMD_SIZE_0 && code < CMD_SIZE_0 + SIZE_COUNT)
-            return (g_size.selected == code - CMD_SIZE_0 ? UUI_MI_CHECKED : 0) |
+        if (code >= CMD_SIZE_0 && code < CMD_SIZE_0 + PRESETS)
+            return (g_size_mib == PRESET_MIB[code - CMD_SIZE_0] ? UUI_MI_CHECKED : 0) |
                    (busy ? UUI_MI_DISABLED : 0);
         return 0;
     }
@@ -566,9 +787,12 @@ static void do_command(struct uapp *a, int code) {
     case CMD_COPY:    copy_results(); break;
     case CMD_HISTORY: g_show_hist = !g_show_hist; if (g_show_hist) history_load(); break;
     case CMD_EXIT:    on_close(a); uapp_quit(a, 0); break;
+    case CMD_CUSTOM:  open_custom(a); break;
     default:
-        if (code >= CMD_SIZE_0 && code < CMD_SIZE_0 + SIZE_COUNT && g_pid <= 0)
-            g_size.selected = code - CMD_SIZE_0;
+        if (code >= CMD_SIZE_0 && code < CMD_SIZE_0 + PRESETS && g_pid <= 0) {
+            set_size(PRESET_MIB[code - CMD_SIZE_0]);
+            size_status();
+        }
         break;
     }
     uapp_redraw(a);
@@ -594,10 +818,10 @@ static void layout(int cw, int ch) {
     if (!uui_toolbar_item_rect(&g_tb, TB_COPY, &rx, &ry, &rw, &rh) || rw == 0) rx = cw;
     int gap = ugfx_char_h() / 2;
     int segw, segh;
-    uui_segmented_natural_size(&g_size, &segw, &segh);
+    uui_dropdown_natural_size(&g_size, &segw, &segh);
     int x = sx + sw + gap * 2;
-    uui_segmented_set_geometry(&g_size, x, y + (th - segh) / 2);
-    x += segw + gap * 2;
+    uui_dropdown_set_geometry(&g_size, x, y + (th - segh) / 2, segw, segh);
+    x += segw + gap;
     int dw, dh;
     uui_dropdown_natural_size(&g_vol, &dw, &dh);
     if (dw > rx - gap * 2 - x) dw = rx - gap * 2 - x;
@@ -605,6 +829,7 @@ static void layout(int cw, int ch) {
     uui_dropdown_set_geometry(&g_vol, x, y + (th - dh) / 2, dw, dh);
     y += th + 1;
 
+    uui_dialog_set_bounds(&g_dlg, 0, 0, cw, ch);
     int sbh = uui_statusbar_height(&g_sb);
     uui_statusbar_set_geometry(&g_sb, 0, ch - sbh, cw, sbh);
 
@@ -629,7 +854,10 @@ static void layout(int cw, int ch) {
     if (bottom_h < 1) bottom_h = 1;
     uui_chart_set_geometry(&g_chart, p, y, cw - 2 * p, bottom_h);
     uui_table_ops.set_geometry(&g_hist, p, y, cw - 2 * p, bottom_h);
-    g_widgets[W_HIST].hidden = !g_show_hist;
+    // By id, not by index: an index silently moves to the next widget
+    // when one is added or taken out above it.
+    for (unsigned i = 0; i < sizeof g_widgets / sizeof g_widgets[0]; i++)
+        if (g_widgets[i].id == ID_HIST) g_widgets[i].hidden = !g_show_hist;
 }
 
 static void log_layout(struct uapp *a) {
@@ -648,8 +876,15 @@ static void log_layout(struct uapp *a) {
 }
 
 static void update_panes(void) {
-    snprintf(g_size_pane, sizeof g_size_pane, "%d MiB", g_run_mib ? g_run_mib : size_mib());
+    fmt_size(g_size_pane, sizeof g_size_pane, g_run_mib ? g_run_mib : size_mib());
     snprintf(g_call_pane, sizeof g_call_pane, "%u KiB per call", (unsigned)(SYS_WRITE_MAX / 1024));
+    struct uvolinfo vi;
+    g_free_pane[0] = 0;
+    if (chosen_volinfo(&vi)) {
+        char f[16];
+        human_size_iec(f, sizeof f, uvolinfo_free(&vi));
+        snprintf(g_free_pane, sizeof g_free_pane, "%s free", f);
+    }
     if (g_run_when) {
         struct tm tm;
         time_t t = g_run_when;
@@ -664,7 +899,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     struct ugfx_surface *s = uapp_surface(d);
     layout(s->w, s->h);
     update_panes();
-    g_vol.disabled = g_pid > 0;   // the run's volume is fixed until it ends
+    g_vol.disabled = g_size.disabled = g_pid > 0;   // fixed until the run ends
     for (int i = 0; i < PROFILES; i++) {
         g_meter[i].active = (g_state == ST_RUNNING && i == g_running_p);
         uui_meter_draw(s, &g_meter[i]);
@@ -711,13 +946,34 @@ static int on_tick(struct uapp *a) {
 }
 
 static void on_widget(struct uapp *a, int id, int reason) {
-    (void)reason;
     if (id == ID_MENU) {
         int code = uui_menubar_take_code(&g_menu);
         if (code > 0) do_command(a, code);
     } else if (id == ID_TOOLBAR) {
         int code = uui_toolbar_take_code(&g_tb);
         if (code > 0) do_command(a, code);
+    } else if (id == ID_SIZE) {
+        int i = uui_dropdown_selected(&g_size);
+        if (g_size.open || i < 0 || g_pid > 0) {
+            // still choosing, or nothing to change
+        } else if (i == g_size_rows - 1) {
+            size_rows();   // the box shows the size in force, not "Custom...", behind the dialog
+            open_custom(a);
+        } else if (i < PRESETS) {
+            if (PRESET_MIB[i] != g_size_mib) { set_size(PRESET_MIB[i]); size_status(); }
+        } else if (g_custom_mib && g_custom_mib != g_size_mib) {
+            set_size(g_custom_mib);
+            size_status();
+        }
+    } else if (id == ID_VOL) {
+        if (!g_vol.open) size_status();
+    } else if (id == ID_DIALOG) {
+        int code = uui_dialog_take_code(&g_dlg);
+        if (code > 0) custom_answer(code);
+        else dialog_lines();
+    } else if (id == ID_SIZEFIELD) {
+        if (reason == UUI_REASON_PRESS) uui_dialog_focus(&g_dlg, &g_sf_item);
+        dialog_lines();
     }
     uapp_redraw(a);
 }
@@ -725,6 +981,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 static void on_key(struct uapp *a, int key, unsigned mods) {
     (void)mods;
     int code;
+    if (uui_dialog_is_open(&g_dlg)) return;   // a shortcut must not run past the modal
     if (uui_menubar_key(&g_menu, key, &code)) {
         if (code >= 0) do_command(a, code);
         uapp_redraw(a);
@@ -759,10 +1016,10 @@ static void on_open(struct uapp *a) {
         uapp_resize(a, uapp_width(a) > dw ? uapp_width(a) : dw,
                     uapp_height(a) > dh ? uapp_height(a) : dh);
     if (!g_nvols) set_status("no writable disk volume is mounted -- RAM would measure memcpy");
-    else set_status("Ready.");
+    else size_status();
     layout(uapp_width(a), uapp_height(a));
     log_layout(a);
-    ulog("diskmark: ready\n");
+    ulogf("diskmark: ready, size %d MiB\n", g_size_mib);
 }
 
 static void load_big_font(void) {
@@ -801,7 +1058,12 @@ int main(void) {
     g_tb.item_flags = item_flags;
     g_tb.accent_latch = 1;
     // 16 MiB by default: an emulated disk makes 64 MiB a multi-minute run.
-    uui_segmented_init(&g_size, SIZE_ITEMS, SIZE_COUNT, 0);
+    uprefs_load(&PREFS, &g_prefs);
+    uui_dropdown_init(&g_size, 0, 0, 0, 0, g_size_items, 0);
+    g_size_mib = g_prefs.size_mib;
+    if (preset_of(g_size_mib) < 0) g_custom_mib = g_size_mib;
+    size_rows();
+    uui_dialog_init(&g_dlg);
     uui_dropdown_init(&g_vol, 0, 0, 0, 0, g_vol_items, g_nvols);
     for (int i = 0; i < g_nvols; i++) if (g_vols[i].root) uui_dropdown_set_selected(&g_vol, i);
 
@@ -826,12 +1088,13 @@ int main(void) {
     uui_table_set_rows(&g_hist, g_nruns);
 
     uui_statusbar_init(&g_sb);
-    g_sb.count = 5;
+    g_sb.count = 6;
     g_sb.panes[0].text = g_status;    g_sb.panes[0].chars = 0;
     g_sb.panes[1].text = g_size_pane; g_sb.panes[1].chars = 8;
     g_sb.panes[2].text = g_call_pane; g_sb.panes[2].chars = 14;
     g_sb.panes[3].text = "Q1T1";      g_sb.panes[3].chars = 5;
-    g_sb.panes[4].text = g_when_pane; g_sb.panes[4].chars = 6;
+    g_sb.panes[4].text = g_free_pane; g_sb.panes[4].chars = 13;
+    g_sb.panes[5].text = g_when_pane; g_sb.panes[5].chars = 6;
 
     struct uapp_desc desc = {
         .title        = "Disk Mark",

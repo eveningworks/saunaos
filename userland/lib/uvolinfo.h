@@ -51,6 +51,16 @@ void uvolinfo_kind_text(const struct uvolinfo *v, char *out, int cap);
 int uvolinfo_rows(const struct uvolinfo *v, struct uvolinfo_row *out, int cap);
 // "1.1T free of 3.6T", or "" when the size is not known.
 void uvolinfo_space_text(const struct uvolinfo *v, char *out, int cap);
+// Bytes free; 0 when the size is not known.
+uint64_t uvolinfo_free(const struct uvolinfo *v);
+// The largest NEW file that fits, leaving room for what the filesystem
+// spends on it beside its data -- block maps, ~1/512 of it on tfs3, or a
+// FAT cluster chain -- as 1/256 plus a MiB, so "fits" cannot be the run
+// that fails at 99%. 0 when the size is not known.
+uint64_t uvolinfo_room(const struct uvolinfo *v);
+// bytes <= uvolinfo_room(v): the one test, so a window's limit and the
+// program it starts cannot disagree.
+int uvolinfo_fits(const struct uvolinfo *v, uint64_t bytes);
 // Used, per mille (0..1000), or -1 when the size is not known.
 int uvolinfo_used_pm(const struct uvolinfo *v);
 // A share: drop its connection; the next access makes a new one. 0 or -errno.

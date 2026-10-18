@@ -25,7 +25,8 @@
   either way, and MBR is where that limit comes from.
 - `<size>[K|M|G]` -- one partition of that size, in the order given. A
   bare number is sectors; a suffix is bytes, rounded down to a whole
-  sector.
+  sector. `T` works too, and `iB`/`B` may follow the letter (`2GiB`) --
+  `k_parse_size()`, the grammar `mount` and `diskbench` read as well.
 - `rest` -- a partition taking everything left over. At most one.
 - `bios:`, `esp:` -- prefix a size to type that partition: a BIOS boot
   partition for GRUB's `core.img`, or an ESP holding the kernel

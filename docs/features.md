@@ -251,8 +251,10 @@ newline on save, and how many recent files File > Recent keeps, across
 runs. **Disk Mark**
 draws the run as it happens -- four meter cards and GNOME Disks' graph
 of throughput over the run, its phases marked -- benchmarks any
-writable disk volume, can be stopped, and keeps every run in a history
-compared with the one before.
+writable disk volume at 16 MiB to 1 GiB or a custom size (refusing one
+the volume cannot hold, and estimating the time from the last run),
+can be stopped, and keeps every run in a history compared with the one
+before.
 
 **Disks** shows every drive -- model, size, partition table -- and a
 map of its partitions and free space, GNOME Disks' shape. On any disk

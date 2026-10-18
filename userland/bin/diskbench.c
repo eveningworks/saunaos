@@ -1,6 +1,6 @@
 // diskbench -- time the filesystem's read and write paths.
 //
-//   diskbench [--size MiB] [--path FILE]
+//   diskbench [--size SIZE] [--path FILE] [--out FILE]
 //
 // WHY THIS IS A PROGRAM AND NOT PART OF THE GUI. The passes take
 // minutes, and the compositor pings every client on a cadence: an app
@@ -69,7 +69,9 @@
 #include "rt/sys.h"
 #include "lib/uclock.h"
 #include "syscall_abi.h"   // SYS_WRITE_MAX -- the sequential request size
-#include "lib/cmd.h"
+#include "lib/uargs.h"
+#include "lib/uvolinfo.h"
+#include "knum.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -393,25 +395,45 @@ static int run_profile(int profile, const char *path, uint64_t total, int first)
     return 1;
 }
 
-int main(int argc, char **argv) {
-    const char *path = DEFAULT_PATH;
-    long mib = DEFAULT_MIB;
+static const char *f_size, *f_path, *f_out;
+static const struct uargs_opt OPTS[] = {
+    { "size", 0, "SIZE", "data each profile moves: 16, 512M, 1G (bare = MiB; default 64)", 0, &f_size },
+    { "path", 0, "FILE", "the scratch file, created and removed by the run", 0, &f_path },
+    { "out",  0, "FILE", "write the report to FILE, rewritten whole each time", 0, &f_out },
+    { 0 },
+};
 
-    for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "--size") && i + 1 < argc) {
-            mib = strtol(argv[++i], NULL, 10);
-        } else if (!strcmp(argv[i], "--path") && i + 1 < argc) {
-            path = argv[++i];
-        } else if (!strcmp(argv[i], "--out") && i + 1 < argc) {
-            g_out_path = argv[++i];
-            g_to_file = 1;
-        } else {
-            cmd_usage("diskbench [--size MiB] [--path FILE] [--out FILE]");
-            return 1;
-        }
-    }
-    if (mib <= 0 || mib > 4096) {
+static const struct uargs_prog PROG = {
+    .name = "diskbench",
+    .usage = "[--size SIZE] [--path FILE] [--out FILE]",
+    .summary = "Time the filesystem's sequential and random reads and writes.",
+    .opts = OPTS,
+    .notes = "The size must fit in the scratch file's volume, with room for the\n"
+             "filesystem's own records; otherwise it refuses with does-not-fit.",
+};
+
+int main(int argc, char **argv) {
+    struct uargs a;
+    if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
+    if (a.argc) return uargs_error(&PROG, "unexpected '%s'", a.argv[0]);
+    const char *path = f_path ? f_path : DEFAULT_PATH;
+    if (f_out) { g_out_path = f_out; g_to_file = 1; }
+
+    // ROUNDED UP TO A WHOLE MiB: the sequential passes move whole
+    // requests, and "1K" asked for something small, not for nothing.
+    uint64_t total = (uint64_t)DEFAULT_MIB << 20;
+    if (f_size && (!k_parse_size(f_size, 1ull << 20, &total) || !total || total > (1ull << 50))) {
         fail("size-out-of-range");
+        return 1;
+    }
+    total = (total + (1ull << 20) - 1) & ~((1ull << 20) - 1);
+    // BEFORE THE FIRST BYTE: a volume that fills at 90% of SEQ write has
+    // cost minutes and measured nothing. An earlier run's scratch file
+    // is removed first so it is not counted against the space.
+    unlink(path);
+    struct uvolinfo vol;
+    if (uvolinfo_of(path, &vol) && vol.total && !uvolinfo_fits(&vol, total)) {
+        fail("does-not-fit");
         return 1;
     }
 
@@ -424,7 +446,6 @@ int main(int argc, char **argv) {
     if (gran == UCLOCK_NEVER_MOVED) emit("diskbench: clock-granularity-ns never\n");
     else emit("diskbench: clock-granularity-ns %llu\n", (unsigned long long)gran);
 
-    uint64_t total = (uint64_t)mib * 1024u * 1024u;
     for (int step = 0; step < PROFILES; step++) {
         if (!run_profile(ORDER[step], path, total, step == 0)) {
             unlink(path);

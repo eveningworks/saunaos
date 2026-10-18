@@ -34,6 +34,7 @@
 #include "ui/uui_sidebar.h"
 #include "ui/uui_slider.h"
 #include "ui/uui_spinbox.h"
+#include "ui/uui_sizefield.h"
 #include "ui/uui_table.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_tree.h"
@@ -158,6 +159,11 @@ int main(int argc, char **argv) {
     uui_spinbox_init(&sp, 50, 0, 100, 5, "%");
     uui_spinbox_set_geometry(&sp, 10, 10, 120, 24);
     check("uui_spinbox", &uui_spinbox_ops, &sp);
+
+    static struct uui_sizefield sf;
+    uui_sizefield_init(&sf, 64, 1, 4096);
+    uui_sizefield_set_geometry(&sf, 10, 10, 200, 26);
+    check("uui_sizefield", &uui_sizefield_ops, &sf);
 
     static struct uui_listbox lb;
     uui_listbox_init(&lb, 10, 10, 200, 120, ITEMS, 4);
