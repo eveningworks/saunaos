@@ -3122,6 +3122,22 @@ real scanout hardware does. Do not write a pixel assertion for one.
   folded item's rect has zero width; a `UUI_TB_TEXT` readout never folds into the menu, so keep it
   ahead of what can. In a layout, give the strip `UUI_FILL_W`:
   `natural_size` still asks for every item.
+- **A CONTROL PLACED ON A BAR TAKES THE BAR'S HEIGHT, NOT ITS OWN; AND A
+  NEW OR REDESIGNED APP IS CHECKED FOR OVERFLOW BEFORE IT SHIPS.** A
+  dropdown's, field's or spinbox's natural height is a FORM ROW's,
+  taller than a toolbar: Disk Mark centred its two dropdowns on the
+  bar at that height and both stuck out of its top and bottom edges,
+  with every test green, until it was seen on hardware (fixed by
+  placing them on Stop's `uui_toolbar_item_rect()`, 75758eb0). So a
+  control an app places by hand on a bar, card or row is sized FROM
+  that container -- a button's rect, the row's height -- and never
+  centred at its natural size, which only looks right while it happens
+  to fit. **The check**, for every app built or redesigned: each named
+  widget's rect (`gui widgets`, `uapp_log_layout`) is either wholly
+  inside the container it is drawn on or clear of it, never part-way
+  over an edge -- and a screenshot of each bar is looked at at the
+  real machine's font size, where a taller font is what turns "fits"
+  into "overflows".
 
 - **A DETAILS VIEW DROPS COLUMNS FROM THE END, AND A COLUMN'S INDEX IS
   ITS SORT KEY.** `uui_fileview`'s columns are Name, Size, Modified,

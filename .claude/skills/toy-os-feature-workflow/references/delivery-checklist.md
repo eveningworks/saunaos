@@ -268,6 +268,12 @@ them has its own checks:
   + file round trip), `uterm_test.py` (spawn + pipes). Plus
   `uidemo_test.py` and `damage_sweep.py` for anything kernel-side that
   draws.
+- **A new or redesigned app is checked for OVERFLOW** before it ships
+  (maintainer, 2026-10-18): every control placed on a bar, card or row
+  lies wholly inside it -- compare `gui widgets` rects against their
+  container and look at a screenshot of each bar on the real machine's
+  font. Disk Mark's dropdowns stuck out of its toolbar with every test
+  green (`docs/conventions/gui.md`, "A control placed on a bar").
 - Adding a syscall means: the number and its contract in
   `abi/syscall_abi.h`, a handler, a typed wrapper in `sys.h`/`sys.c`,
   a `strace.c` table entry, and a KTEST. Missing the strace entry is
