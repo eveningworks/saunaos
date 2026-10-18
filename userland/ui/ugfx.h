@@ -728,6 +728,7 @@ struct ugfx_screen {
     int dmg_w[UGFX_DAMAGE_RING], dmg_h[UGFX_DAMAGE_RING];
     // For `gui fb`: how many presents, and how many changed the index.
     uint32_t presents, flips;
+    uint64_t presented_px;    // pixels the presents copied to the display, all told
     // The back buffer's capacity in pixels: sbrk only grows, so a smaller
     // mode keeps the larger allocation and a larger one extends it.
     uint32_t back_capacity;

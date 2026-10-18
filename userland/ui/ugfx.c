@@ -1364,6 +1364,7 @@ void ugfx_screen_present(struct ugfx_screen *sc) {
             // whose framebuffer is cached host RAM -- which is exactly why
             // this has to be measured under KVM if it is claimed at all.
             ugfx_pix()->to_screen((volatile uint32_t *)dst, src, w);
+            sc->presented_px += (uint64_t)w;
         } else {
             for (int i = 0; i < w; i++) {
                 uint32_t c = *src++;

@@ -2187,7 +2187,14 @@ static void draw_desktop_visible(int focus, int covered, int has_damage) {
     apply_scene_clip(has_damage);
 }
 
-void wm_cull_stats(struct wm_cull_stats *out) { *out = g_cull; }
+static uint64_t g_present_base;     // presented_px at the last `gui compositor reset`
+
+void wm_cull_stats(struct wm_cull_stats *out) {
+    *out = g_cull;
+    out->present_px = g_wm_screen.presented_px - g_present_base;
+}
+
+void wm_note_client_px(unsigned long long n) { g_cull.client_px += n; }
 
 static void render_scene(int mx, int my, int has_damage) {
     apply_scene_clip(has_damage);
@@ -2432,6 +2439,7 @@ void wm_frame_stats_reset(void) {
     g_frame_partial = z;
     struct wm_cull_stats c = { 0 };
     g_cull = c;
+    g_present_base = g_wm_screen.presented_px;
 }
 
 uint32_t wm_scene_frames(void) { return g_scene_frames; }

@@ -554,8 +554,12 @@ struct wm_cull_stats {
     // The desktop stage: its wallpaper passes and the pixels they drew.
     unsigned desk_passes;
     unsigned long long desk_px_drawn;
+    // The two copies most of a frame is: client pixels into the back
+    // buffer, and the back buffer to the display.
+    unsigned long long client_px, present_px;
 };
 void wm_cull_stats(struct wm_cull_stats *out);
+void wm_note_client_px(unsigned long long n);
 // Client presents whose damage list named nothing on screen, since boot
 // (wm_client.c): each drew NO frame.
 unsigned wm_client_presents_unchanged(void);

@@ -1844,9 +1844,23 @@ int wm_client_is_client_window(const struct window *win) {
 void wm_client_draw(const struct window *win) {
     if (!wm_client_is_client_window(win)) return;
     int was = wm_stage(WMS_CLIENT);
-    ugfx_blit(wm_surface(), window_content_x(win), window_content_y(win),
-              win->client_w, win->client_h, win->client_buf, win->client_w);
+    int x0 = window_content_x(win), y0 = window_content_y(win);
+    ugfx_blit(wm_surface(), x0, y0, win->client_w, win->client_h, win->client_buf, win->client_w);
     wm_stage(was);
+    struct ugfx_clip cl;                 // what the blit copied, for gui compositor
+    ugfx_clip_save(wm_surface(), &cl);
+    int x1 = x0 + win->client_w, y1 = y0 + win->client_h;
+    if (x0 < 0) x0 = 0;
+    if (y0 < 0) y0 = 0;
+    if (x1 > wm_surface()->w) x1 = wm_surface()->w;
+    if (y1 > wm_surface()->h) y1 = wm_surface()->h;
+    if (cl.active) {
+        if (x0 < cl.x0) x0 = cl.x0;
+        if (y0 < cl.y0) y0 = cl.y0;
+        if (x1 > cl.x1) x1 = cl.x1;
+        if (y1 > cl.y1) y1 = cl.y1;
+    }
+    if (x1 > x0 && y1 > y0) wm_note_client_px((unsigned long long)(x1 - x0) * (unsigned)(y1 - y0));
 }
 
 // --- input routing ----------------------------------------------------
