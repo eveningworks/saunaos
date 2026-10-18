@@ -22,6 +22,8 @@ What it asserts, compiling the REAL files with the host gcc:
   - down2 and up2 at every small width, fy in {0, 64, 192}
   - glass with random marked/unmarked pixels, its backdrop aliasing the
     destination as ugfx_blit_glass passes it
+  - fill and to_screen (the framebuffer copy, streamed where aligned) at
+    every small length and every alignment of the destination
   - ugfx_blur_rect END TO END (ugfx_blur.c compiled in) with each tier
     selected through ugfx_simd_set(): random rects, clips and radii,
     whole and half resolution
@@ -93,8 +95,9 @@ static int same(const char *name, const struct ugfx_pix_ops *t, const uint32_t *
 }
 
 #define MAXN 4096
-static uint32_t A[MAXN + 8], B[MAXN + 8], R[MAXN * 64], G[MAXN * 64], S[4 * MAXN];
-static uint32_t P[MAXN * 64];
+static uint32_t A[MAXN + 8], B[MAXN + 8], S[4 * MAXN];
+static uint32_t R[MAXN * 64] __attribute__((aligned(16))), G[MAXN * 64] __attribute__((aligned(16)));
+static uint32_t P[MAXN * 64] __attribute__((aligned(16)));
 
 static void check_mix(void) {
     // Channel r = u, g = 255 - u, b = u ^ 0x5A under; every over and alpha.
@@ -200,6 +203,27 @@ static void check_glass(void) {
         }
 }
 
+static void check_store(void) {
+    char what[48];
+    for (int t = 0; t < NT; t++)
+        for (int n = 0; n <= 70; n++)
+            for (int off = 0; off < 4; off++) {
+                uint32_t c = rnd();
+                fill(R, n + 8); memcpy(G, R, (size_t)(n + 8) * 4);
+                snprintf(what, sizeof what, "n=%d off=%d", n, off);
+                ugfx_pix_c.fill(R + off, c, n);
+                T[t]->fill(G + off, c, n);
+                same("fill", T[t], R, G, n + 8, what);
+                // to_screen at every alignment of the destination: its
+                // aligned middle is streamed, the ends are not.
+                fill(A, n + 8);
+                fill(R, n + 8); memcpy(G, R, (size_t)(n + 8) * 4);
+                ugfx_pix_c.to_screen(R + off, A + 1, n);
+                T[t]->to_screen(G + off, A + 1, n);
+                same("to_screen", T[t], R, G, n + 8, what);
+            }
+}
+
 static void check_blur(void) {
     enum { W = 300, H = 200 };
     static uint32_t px[W * H], ref[W * H], got[W * H];
@@ -265,8 +289,8 @@ static void bench(void) {
 int main(int argc, char **argv) {
     if (argc > 1 && !strcmp(argv[1], "bench")) { bench(); return 0; }
     op("mix_const"); op("mix_rows"); op("blend_const"); op("blend_cov"); op("box_h");
-    op("box_v"); op("down2"); op("up2"); op("glass"); op("blur_rect");
-    check_mix(); check_blend(); check_box(); check_glass(); check_blur();
+    op("box_v"); op("down2"); op("up2"); op("glass"); op("blur_rect"); op("fill"); op("to_screen");
+    check_mix(); check_blend(); check_box(); check_glass(); check_blur(); check_store();
     for (int i = 0; i < g_nop; i++) printf("%s %s %u\n", g_fail[i] ? "RED" : "ok", g_name[i], g_fail[i]);
     return 0;
 }

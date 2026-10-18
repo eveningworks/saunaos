@@ -139,11 +139,20 @@ static void blend_cov(uint32_t *dst, uint32_t c, const uint8_t *cov, int n) {
     }
 }
 
+static void fill(uint32_t *dst, uint32_t c, int n) {
+    for (int i = 0; i < n; i++) dst[i] = c;
+}
+
+static void to_screen(volatile uint32_t *dst, const uint32_t *src, int n) {
+    for (int i = 0; i < n; i++) dst[i] = src[i];
+}
+
 const struct ugfx_pix_ops ugfx_pix_c = {
     .name = "c",
     .box_h = box_h, .box_v = box_v, .down2 = down2, .up2 = up2,
     .mix_const = mix_const, .mix_rows = mix_rows, .glass = glass,
     .blend_const = blend_const, .blend_cov = blend_cov,
+    .fill = fill, .to_screen = to_screen,
 };
 
 // --- the choice ----------------------------------------------------------

@@ -17,6 +17,7 @@
 #include "ui/ugfx_pix.h"
 #include <emmintrin.h>
 #include <stddef.h>
+#include <stdint.h>
 
 #define RGB 0x00FFFFFF
 
@@ -281,9 +282,35 @@ static void blend_cov(uint32_t *dst, uint32_t c, const uint8_t *cov, int n) {
     }
 }
 
+// --- plain stores ---------------------------------------------------------
+
+static void fill(uint32_t *dst, uint32_t c, int n) {
+    const __m128i v = _mm_set1_epi32((int)c);
+    int i = 0;
+    for (; i + 8 <= n; i += 8) {
+        _mm_storeu_si128((__m128i *)(dst + i), v);
+        _mm_storeu_si128((__m128i *)(dst + i + 4), v);
+    }
+    for (; i < n; i++) dst[i] = c;
+}
+
+// NON-TEMPORAL 16-byte stores once the destination is aligned: write-
+// combining memory takes whole lines best, and the frame is never read
+// back through the cache. The sfence orders them before the present
+// request that tells the display to scan this out.
+static void to_screen(volatile uint32_t *dst, const uint32_t *src, int n) {
+    int i = 0;
+    for (; i < n && ((uintptr_t)(dst + i) & 15); i++) dst[i] = src[i];
+    for (; i + 4 <= n; i += 4)
+        _mm_stream_si128((__m128i *)(uintptr_t)(dst + i), _mm_loadu_si128((const __m128i *)(src + i)));
+    for (; i < n; i++) dst[i] = src[i];
+    _mm_sfence();
+}
+
 const struct ugfx_pix_ops ugfx_pix_sse2 = {
     .name = "sse2",
     .box_h = box_h, .box_v = box_v, .down2 = down2, .up2 = up2,
     .mix_const = mix_const, .mix_rows = mix_rows, .glass = glass,
     .blend_const = blend_const, .blend_cov = blend_cov,
+    .fill = fill, .to_screen = to_screen,
 };

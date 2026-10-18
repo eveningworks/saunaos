@@ -178,13 +178,17 @@ void uui_image_draw(struct ugfx_surface *s, const struct uui_image *im) {
     struct uui_image *m = (struct uui_image *)im;
     if (im->w <= 0 || im->h <= 0) return;
 
-    if (!im->transparent) ugfx_fill_rect(s, im->x, im->y, im->w, im->h, c_bg(im));
-    if (!im->img || !im->img->px) return;
-
-    int px, py, dw, dh;
-    placement(im, &px, &py, &dw, &dh);
-    int vx, vy, vw, vh;
-    if (!uui_image_drawn_rect(im, &vx, &vy, &vw, &vh)) return;
+    int px, py, dw, dh, vx, vy, vw, vh;
+    int shown = im->img && im->img->px;
+    if (shown) placement(im, &px, &py, &dw, &dh);
+    shown = shown && uui_image_drawn_rect(im, &vx, &vy, &vw, &vh);
+    // THE GROUND ONLY WHERE IT SHOWS: an opaque picture covering the
+    // whole view -- a "fill" wallpaper, every frame -- would be painted
+    // over the fill a moment later, doubling the cost of the desktop.
+    int covered = shown && !im->img->has_alpha && im->zoom < 100 &&
+                  vx == im->x && vy == im->y && vw == im->w && vh == im->h;
+    if (!im->transparent && !covered) ugfx_fill_rect(s, im->x, im->y, im->w, im->h, c_bg(im));
+    if (!shown) return;
 
     // MAGNIFIED: only the visible part of the SOURCE, nearest neighbour --
     // pixels a viewer at 400% is expected to show as squares. The source

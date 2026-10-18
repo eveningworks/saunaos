@@ -8,7 +8,8 @@
 // input (a box sum past 16 bits) hands that call to the C table.
 //
 // Pixels are 0xXXRRGGBB; every op writes 0 into the top byte unless it
-// says otherwise. Internal to userland/ui -- callers draw through ugfx.h.
+// says otherwise (fill and to_screen copy whole words). Internal to
+// userland/ui -- callers draw through ugfx.h.
 #ifndef UGFX_PIX_H
 #define UGFX_PIX_H
 
@@ -45,6 +46,14 @@ struct ugfx_pix_ops {
     void (*blend_const)(uint32_t *dst, uint32_t c, unsigned a, int n);
     // The same with a = cov[i]: 0 leaves the pixel, 255 writes c.
     void (*blend_cov)(uint32_t *dst, uint32_t c, const uint8_t *cov, int n);
+
+    // --- plain stores (the desktop, the present) -------------------------
+    // dst[i] = c, the whole word.
+    void (*fill)(uint32_t *dst, uint32_t c, int n);
+    // A row out to the FRAMEBUFFER, write-combined memory where each
+    // store is a bus transaction: whole words, never read back, and
+    // ordered before the present that follows.
+    void (*to_screen)(volatile uint32_t *dst, const uint32_t *src, int n);
 };
 
 extern const struct ugfx_pix_ops ugfx_pix_c, ugfx_pix_sse2;

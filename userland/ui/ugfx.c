@@ -11,6 +11,7 @@
 #include "ui/ulog.h"  // which source a client got its glyphs from
 #include <stdlib.h>
 #include <stdio.h>   // snprintf -- the shm object's name
+#include <string.h>
 
 static inline int64_t syscall2(uint64_t num, uint64_t arg1, uint64_t arg2) {
     int64_t ret;
@@ -209,10 +210,9 @@ void ugfx_fill_rect(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t
     // in the WM (the client computes its own layout with no help).
     if (!clip_rect(s, &x, &y, &w, &h)) return;
 
-    for (int j = 0; j < h; j++) {
-        uint32_t *row = s->pixels + (uint32_t)(y + j) * (uint32_t)s->w + (uint32_t)x;
-        for (int i = 0; i < w; i++) row[i] = color;
-    }
+    const struct ugfx_pix_ops *px = ugfx_pix();
+    for (int j = 0; j < h; j++)
+        px->fill(s->pixels + (uint32_t)(y + j) * (uint32_t)s->w + (uint32_t)x, color, w);
     dirty_mark_rect(s, x, y, w, h);
 }
 
@@ -230,7 +230,7 @@ void ugfx_blit(struct ugfx_surface *s, int x, int y, int w, int h,
     for (int j = 0; j < dh; j++) {
         const uint32_t *srow = src + (uint32_t)(sy + j) * (uint32_t)src_pitch_px + (uint32_t)sx;
         uint32_t *drow = s->pixels + (uint32_t)(dy + j) * (uint32_t)s->w + (uint32_t)dx;
-        for (int i = 0; i < dw; i++) drow[i] = srow[i];
+        memcpy(drow, srow, (size_t)dw * 4);   // rep movsb (kernel/lib/string.c)
     }
     dirty_mark_rect(s, dx, dy, dw, dh);
 }
@@ -1363,8 +1363,7 @@ void ugfx_screen_present(struct ugfx_screen *sc) {
             // pixel costs three times the whole blit. Free under TCG,
             // whose framebuffer is cached host RAM -- which is exactly why
             // this has to be measured under KVM if it is claimed at all.
-            volatile uint32_t *d32 = (volatile uint32_t *)dst;
-            for (int i = 0; i < w; i++) *d32++ = *src++;
+            ugfx_pix()->to_screen((volatile uint32_t *)dst, src, w);
         } else {
             for (int i = 0; i < w; i++) {
                 uint32_t c = *src++;

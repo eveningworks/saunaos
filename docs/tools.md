@@ -7437,7 +7437,8 @@ runs first**: a `doom1.wad` with one
   blend exhaustively over every channel triple, the box passes and the
   2x resample on random pictures of every small size and radius (past
   r = 128 the SIMD tier falls back to C), and `ugfx_blur_rect()` end to
-  end with each tier selected. "Within one" fails, because a tier's
+  end with each tier selected; `fill` and `to_screen` (the framebuffer
+  copy, streamed where aligned) at every alignment. "Within one" fails, because a tier's
   +-1 is a seam on screen and a blur cache that misses after a switch.
   `--positive-control` drops the box average's carry and the /255's +1
   and must go red in both groups; `--bench` prints ns/pixel per tier.
