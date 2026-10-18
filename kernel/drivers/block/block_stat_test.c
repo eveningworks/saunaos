@@ -15,6 +15,7 @@
 #include "fs.h"
 #include "string.h"
 #include "clocksource.h"
+#include "mount.h"
 
 // Built from the configured directory rather than spelled out
 // (api/tmppath.h), so moving scratch is a setting rather than a grep.
@@ -58,11 +59,16 @@ KTEST("blkstat", "an op name is reported for every op, and refused past the end"
     KTEST_ASSERT(!k_strcmp(blk_stat_op_name(-1), "?"));
 }
 
+// The counters are system-wide, so the disk is held quiet: another
+// process's read between the two samples would count against this test.
 KTEST("blkstat", "an out-of-range op is refused rather than counted") {
+    fs_exclusive_begin();
     uint64_t before = calls_of(BLK_STAT_READ);
     blk_stat_add(BLK_STAT_OPS, 8, 1000, 1);
     blk_stat_add(-1, 8, 1000, 1);
-    KTEST_ASSERT_EQ(calls_of(BLK_STAT_READ), before);
+    uint64_t after = calls_of(BLK_STAT_READ);
+    fs_exclusive_end();
+    KTEST_ASSERT_EQ(after, before);
     KTEST_ASSERT_EQ(blk_stat_get(BLK_STAT_OPS, NULL, NULL, NULL, NULL), 0);
     KTEST_ASSERT_EQ(blk_stat_get(-1, NULL, NULL, NULL, NULL), 0);
 }
