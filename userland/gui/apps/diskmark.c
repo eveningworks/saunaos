@@ -979,16 +979,21 @@ static void layout(int cw, int ch) {
     uui_toolbar_item_rect(&g_tb, TB_STOP, &sx, &sy, &sw, &sh);
     if (!uui_toolbar_item_rect(&g_tb, TB_COPY, &rx, &ry, &rw, &rh) || rw == 0) rx = cw;
     int gap = ugfx_char_h() / 2;
+    // THE BUTTONS' HEIGHT, not the dropdown's own: its natural height is
+    // a form row's, taller than the bar, and centred it stuck out of both
+    // edges. Placed on Stop's rect, the boxes line up with the buttons.
+    int bh = sh > 0 ? sh : th, by = sh > 0 ? sy : y;
     int segw, segh;
     uui_dropdown_natural_size(&g_size, &segw, &segh);
+    if (segh < bh) { by += (bh - segh) / 2; bh = segh; }
     int x = sx + sw + gap * 2;
-    uui_dropdown_set_geometry(&g_size, x, y + (th - segh) / 2, segw, segh);
+    uui_dropdown_set_geometry(&g_size, x, by, segw, bh);
     x += segw + gap;
     int dw, dh;
     uui_dropdown_natural_size(&g_vol, &dw, &dh);
     if (dw > rx - gap * 2 - x) dw = rx - gap * 2 - x;
     if (dw < ugfx_char_h() * 3) dw = ugfx_char_h() * 3;
-    uui_dropdown_set_geometry(&g_vol, x, y + (th - dh) / 2, dw, dh);
+    uui_dropdown_set_geometry(&g_vol, x, by, dw, bh);
     y += th + 1;
 
     uui_dialog_set_bounds(&g_dlg, 0, 0, cw, ch);
