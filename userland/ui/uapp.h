@@ -579,6 +579,15 @@ int uapp_spawn(struct uapp *a, const char *path, const char *arg);
 // flip on the app's behalf, and the app notices nothing.
 void uapp_set_fullscreen(struct uapp *a, int on);
 
+// THE WINDOW'S OWN BUTTONS, for an app drawing its frame (UAPP_NO_DECOR)
+// -- xdg_toplevel.set_minimized / set_maximized. A maximize or restore
+// comes back as a resize proposal, on_resize then seeing
+// uapp_maximized() say which; a minimized window is restored from the
+// taskbar. A fixed-size window is never maximized.
+void uapp_minimize(struct uapp *a);
+void uapp_set_maximized(struct uapp *a, int on);
+int  uapp_maximized(const struct uapp *a);    // as the last proposal said
+
 // Ask the compositor for a notice about `path`, a file this app just
 // made (WIN_REQ_NOTICE): `kind` a WIN_NOTICE_*, `flags` WIN_NOTICE_F_*.
 // The card belongs to the compositor and outlives the app. 0 when it

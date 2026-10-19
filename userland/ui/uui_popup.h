@@ -50,6 +50,9 @@
 // A CONTROL'S LIST -- a dropdown's: its corners are the Controls radius,
 // as the box's are, not the menus' (abi/win_proto.h's WIN_POPUP_CONTROL).
 #define UUI_POPUP_CONTROL 0x04u
+// THE CALLER DRAWS ITS WHOLE LOOK: no corners cut, no shadow cast
+// (abi/win_proto.h's WIN_POPUP_NO_DECOR) -- w16's Windows 3.1 menus.
+#define UUI_POPUP_NO_DECOR 0x08u
 
 struct uui_popup_ops {
     // 0 on refusal; else an id > 0 and where it landed in *out_x/*out_y.

@@ -627,6 +627,13 @@ static void wm_toggle_maximize(int i) {
     redraw_pending = 1;
 }
 
+// A client's own Maximize or Restore (WIN_REQ_WINDOW_STATE): the same
+// toggle as the title bar's, asked as a state so a repeat does nothing.
+void wm_set_maximized(int i, int on) {
+    if (windows[i].state == WIN_MINIMIZED || windows[i].fullscreen) return;
+    if ((windows[i].state == WIN_MAXIMIZED) != (on != 0)) wm_toggle_maximize(i);
+}
+
 static void ctx_toggle_maximize_window(void *ctx) {
     int i = ctx_target(ctx);
     if (i >= 0) wm_toggle_maximize(i);

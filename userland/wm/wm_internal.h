@@ -119,6 +119,7 @@ void wm_window_minimize(int i);
 void wm_window_unminimize(int i);
 // Maximized, or minimized from maximized -- the window's restore-to state.
 int wm_window_maximized(const struct window *w);
+void wm_set_maximized(int i, int on);   // WIN_REQ_WINDOW_STATE's; a repeat is a no-op
 int btn_size(void);
 
 // THE RESIZE BORDER IS MOSTLY OUTSIDE THE WINDOW, which is how

@@ -178,6 +178,7 @@ struct uapp {
     // on every move.
     int motion_cursor;
     int fullscreen;    // as last asked for -- the compositor's proposal follows
+    int maximized;     // the last WIN_EV_RESIZE's WIN_RESIZE_MAXIMIZED
     // The lease (WIN_EV_SCANOUT): the toplevel draws into the display's
     // buffer at WIN_FB_VADDR + lease_back * WIN_FB_BUFFER_STRIDE and
     // presents with WIN_REQ_FB_PRESENT, which answers the next back.

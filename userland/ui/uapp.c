@@ -399,6 +399,16 @@ void uapp_set_widgets(struct uapp *a, struct uui_item *items, int count) {
 }
 
 int uapp_fullscreen(const struct uapp *a) { return a ? a->fullscreen : 0; }
+int uapp_maximized(const struct uapp *a)  { return a ? a->maximized : 0; }
+
+void uapp_minimize(struct uapp *a) {
+    if (a && a->running) wmchan_send(WIN_REQ_WINDOW_STATE, a->window, WIN_STATE_MINIMIZE, 0, 0, 0);
+}
+
+void uapp_set_maximized(struct uapp *a, int on) {
+    if (a && a->running)
+        wmchan_send(WIN_REQ_WINDOW_STATE, a->window, on ? WIN_STATE_MAXIMIZE : WIN_STATE_RESTORE, 0, 0, 0);
+}
 int uapp_scanout(const struct uapp *a)    { return a ? a->lease_on : 0; }
 
 void uapp_display_name(const struct uapp *a, char *out, int cap) {
@@ -851,6 +861,7 @@ static void dispatch(struct uapp *a, const struct win_event *in) {
 
     case WIN_EV_RESIZE:
         a->hold_until_ms = 0;
+        a->maximized = (ev->mods & WIN_RESIZE_MAXIMIZED) != 0;
         // A PROPOSAL from TWS, answered here. Everything an app would
         // otherwise have to remember -- ask the server, rebuild the
         // surface, re-lay-out, repaint -- happens for it. An app that

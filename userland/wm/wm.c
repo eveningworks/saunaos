@@ -1626,14 +1626,16 @@ void wm_run(void) {
                     // one (wm_shortcut.c).
                     redraw_pending = 1;
                 } else if (key == ' ' && (key_mods & KEY_MOD_ALT) && f >= 0 &&
-                           !wm_shortcut_inhibited(f)) {
+                           !wm_shortcut_inhibited(f) && !windows[f].no_decor) {
                     // ALT+SPACE: the focused window's menu, at its corner --
                     // Windows' system-menu shortcut (KDE's is Alt+F3). The
                     // one way back from FULLSCREEN, which has no title bar
                     // and hides the taskbar, and whose content area's
                     // right-click belongs to the app. INHIBITABLE like any
                     // compositor shortcut (DOOM strafes + uses with it);
-                    // Alt+F4 below is the break that is not.
+                    // Alt+F4 below is the break that is not. A window that
+                    // draws its own frame (WIN_HINT_NO_DECOR) draws its own
+                    // menu too, so Alt+Space is ITS key.
                     int mx0 = windows[f].x + 8, my0 = windows[f].y + 8;
                     if (mx0 < 8) mx0 = 8;
                     if (my0 < 8) my0 = 8;

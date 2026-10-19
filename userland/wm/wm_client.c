@@ -248,7 +248,9 @@ void wm_client_flush_pending(void) {
         }
         if (win->ev_pending & WM_PEND_RESIZE) {
             ev.type = WIN_EV_RESIZE; ev.a = win->ev_resize_w; ev.b = win->ev_resize_h;
+            ev.mods = win->state == WIN_MAXIMIZED ? WIN_RESIZE_MAXIMIZED : 0;
             if (!send_state(win, &ev, WM_PEND_RESIZE)) continue;
+            ev.mods = 0;
         }
         if (win->ev_pending & WM_PEND_FOCUS) {
             ev.type = WIN_EV_FOCUS; ev.a = (wm_focus_index() == i) ? 1 : 0; ev.b = 0;
@@ -464,6 +466,7 @@ static int on_popup_created(int pid, uint32_t id, uint32_t parent_id, int w, int
     win->popup_grab = (pos->flags & WIN_POPUP_GRAB) != 0;
     win->popup_glass = (pos->flags & WIN_POPUP_GLASS) != 0;
     win->popup_control = (pos->flags & WIN_POPUP_CONTROL) != 0;
+    win->no_decor = (pos->flags & WIN_POPUP_NO_DECOR) != 0;
     win->popup_parent = parent_id;
     win->x = sx;
     win->y = sy;
@@ -1340,6 +1343,16 @@ static void req_hints(int from, struct wmchan_msg *m) {
     on_window_hints(from, m->window, (unsigned)m->a, m->b, m->c);
 }
 
+static void req_window_state(int from, struct wmchan_msg *m) {
+    int idx = find_client_window(from, m->window);
+    if (idx < 0 || windows[idx].popup) return;
+    if (m->a == WIN_STATE_MINIMIZE) {
+        if (windows[idx].state != WIN_MINIMIZED) wm_window_minimize(idx);
+    } else if (m->a == WIN_STATE_MAXIMIZE || m->a == WIN_STATE_RESTORE) {
+        wm_set_maximized(idx, m->a == WIN_STATE_MAXIMIZE);
+    }
+}
+
 static void req_fullscreen(int from, struct wmchan_msg *m) {
     int idx = find_client_window(from, m->window);
     if (idx >= 0) wm_set_fullscreen(idx, m->a);
@@ -1494,7 +1507,7 @@ _Static_assert(WIN_EDGE_LEFT == WM_EDGE_LEFT && WIN_EDGE_RIGHT == WM_EDGE_RIGHT 
 // around under a still pointer.
 static void req_move_start(int from, struct wmchan_msg *m) {
     int idx = find_client_window(from, m->window);
-    if (idx < 0 || !windows[idx].no_decor || !(wm_ptr_buttons & 0x1)) return;
+    if (idx < 0 || !windows[idx].no_decor || windows[idx].popup || !(wm_ptr_buttons & 0x1)) return;
     if (content_pressed != idx) return;
     // The drag is toywm's now: the client hears its button come up here,
     // as a Wayland client hears wl_pointer.leave, or it stays pressed.
@@ -1542,6 +1555,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_HINTS] = req_hints,
     [WIN_REQ_MOVE_START] = req_move_start,
     [WIN_REQ_FULLSCREEN] = req_fullscreen,
+    [WIN_REQ_WINDOW_STATE] = req_window_state,
     [WIN_REQ_CURSOR] = req_cursor,
     [WIN_REQ_DRAG_START] = req_drag_start,
     [WIN_REQ_DRAG_END] = req_drag_end,
@@ -1975,6 +1989,7 @@ void wm_client_send_resize(struct window *win, int w, int h) {
     ev.window = win->client_win;
     ev.a = w;
     ev.b = h;
+    ev.mods = win->state == WIN_MAXIMIZED ? WIN_RESIZE_MAXIMIZED : 0;
     win->ev_resize_w = w;
     win->ev_resize_h = h;
     send_state(win, &ev, WM_PEND_RESIZE);

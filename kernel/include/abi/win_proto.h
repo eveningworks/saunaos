@@ -100,7 +100,12 @@
 
 #define WIN_EV_CLOSE      5 // the server wants this window gone
 #define WIN_EV_RESIZE     6 // a, b: PROPOSED content size -- a configure,
-                            // not a command. See below.
+                            // not a command. See below. mods: the
+                            // window's state, as xdg_toplevel.configure
+                            // carries it -- WIN_RESIZE_MAXIMIZED, which a
+                            // client drawing its own frame (WIN_HINT_
+                            // NO_DECOR) needs to draw Restore, no border.
+#define WIN_RESIZE_MAXIMIZED 0x1u
 #define WIN_EV_WHEEL      8 // a: notches, + = up/away, - = down/toward.
                             // mods: KEY_MOD_* held (Ctrl+wheel zooms).
                             //
@@ -1015,7 +1020,8 @@ struct win_event {
 // The client draws its OWN frame -- xdg-decoration's client-side mode: the
 // server draws no title bar, border or rounded corners, the content is the
 // whole window, and the client starts moves and resizes itself with
-// WIN_REQ_MOVE_START. The taskbar button, focus and Alt+F4 stay the server's.
+// WIN_REQ_MOVE_START. The taskbar button, focus and Alt+F4 stay the server's;
+// Alt+Space is the client's, to open the window menu its own frame draws.
 #define WIN_HINT_NO_DECOR  0x10
 
 // `window`: which one; a: 0 to MOVE it, else WIN_EDGE_* bits to RESIZE it
@@ -1027,6 +1033,17 @@ struct win_event {
 #define WIN_EDGE_RIGHT  0x2
 #define WIN_EDGE_TOP    0x4
 #define WIN_EDGE_BOTTOM 0x8
+
+// `window`: one of the caller's toplevels; a: a WIN_STATE_* --
+// xdg_toplevel.set_minimized / set_maximized / unset_maximized, for a
+// client whose own buttons ask (WIN_HINT_NO_DECOR). A maximize or a
+// restore arrives as the usual WIN_EV_RESIZE proposal, its mods saying
+// which; a minimize is the server's to undo, from the taskbar. A window
+// that is not resizable is never maximized. No reply.
+#define WIN_REQ_WINDOW_STATE 44
+#define WIN_STATE_MINIMIZE 1
+#define WIN_STATE_MAXIMIZE 2
+#define WIN_STATE_RESTORE  3   // un-maximize
 
 // --- popup surfaces (WIN_REQ_POPUP) ------------------------------------
 //
@@ -1069,7 +1086,7 @@ struct win_event {
 struct win_popup_pos {
     int32_t  ax, ay, aw, ah;  // the anchor rect, in the PARENT's content coords
     uint32_t gravity;         // WIN_POPUP_*
-    uint32_t flags;           // WIN_POPUP_GRAB | WIN_POPUP_GLASS | WIN_POPUP_CONTROL; every other bit must be 0
+    uint32_t flags;           // WIN_POPUP_GRAB | _GLASS | _CONTROL | _NO_DECOR; every other bit must be 0
 };
 #define WIN_POPUP_BELOW 0 // left edges aligned, below the anchor; flips above
 #define WIN_POPUP_RIGHT 1 // top edges aligned, right of the anchor; flips left
@@ -1087,6 +1104,10 @@ struct win_popup_pos {
 // its corners at the Controls radius, like the box it drops from, rather
 // than at the menus' (ui/utheme.h's desktop.corners groups).
 #define WIN_POPUP_CONTROL 0x04u
+// THE CLIENT DRAWS ITS WHOLE LOOK, edge and shadow included: the
+// compositor cuts no corners and casts no shadow (w16's Windows 3.1
+// menus, square and hard-shadowed) -- WIN_HINT_NO_DECOR's popup twin.
+#define WIN_POPUP_NO_DECOR 0x08u
 
 // --- dialog windows (WIN_REQ_DIALOG) -----------------------------------
 //

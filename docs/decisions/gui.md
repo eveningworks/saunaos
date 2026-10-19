@@ -11661,3 +11661,17 @@ window size to a content size with the chrome hard-coded (`- 2`,
 `- WM_TITLEBAR_H - 2`), so the first undecorated window grew 34 pixels
 short of every drag. They go through `wm_chrome_w()`/`wm_chrome_h()`
 now, next to `window_content_*()`, which already knew.
+
+**Its buttons and its menu (2026-10-19).** A client-drawn frame needs
+three more things from the compositor, each Wayland's shape:
+`WIN_REQ_WINDOW_STATE` minimizes, maximizes or restores the caller's own
+window (`xdg_toplevel.set_minimized`/`set_maximized`/`unset_maximized`);
+`WIN_EV_RESIZE` carries the state in its `mods` (`WIN_RESIZE_MAXIMIZED`,
+as an xdg configure carries its states), so the client draws Restore and
+drops its border; and `WIN_POPUP_NO_DECOR` is a popup the compositor
+neither rounds nor shadows, for a menu with a look of its own. **Alt+Space
+is the CLIENT'S** on such a window: its frame has its own window menu.
+Wayland also has `xdg_toplevel.show_window_menu`, the compositor's menu
+at the client's request (GTK's header bars use it); w16 does not,
+because its control menu is the 3.1 one, and stage 3's program menus
+are drawn by the same code (`userland/w16/menu16.c`).

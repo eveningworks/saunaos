@@ -2044,7 +2044,7 @@ static void paint_window(int i, int focus, int has_damage) {
         // NO CHROME, NO CORNERS, NO GRIP.
         // A menu's small shadow, under it (wm_shadow.h); a fullscreen
         // window has nothing beside it to shadow.
-        if (windows[i].popup) {
+        if (windows[i].popup && !windows[i].no_decor) {
             // Under GLASS the body is see-through: nothing shaded beneath it.
             (windows[i].popup_glass && wm_glass_on(WM_GLASS_MENU) ? wm_shadow_draw_hollow
                                                                     : wm_shadow_draw)(
