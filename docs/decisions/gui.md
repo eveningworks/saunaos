@@ -58,7 +58,9 @@ window you had sized and placed came back wrong every launch. The
 compositor stores per-application geometry in `/etc/windows.conf` now
 and applies it at create time.
 
-**Keyed by `app_id`, not by `app_identity`.** The identity int looks
+**Keyed by `app_id`, not by `app_identity`** (until 2026-10-19: now the
+program's path plus the id, see "A window's remembered state keys on its
+program's path"). The identity int looks
 like the natural key -- it is the kernel's, which is exactly what
 CLAUDE.md says a window's application identity is -- and it is wrong
 here: `win_server.c` interns it from a spawn path into a per-boot table
@@ -11675,3 +11677,41 @@ Wayland also has `xdg_toplevel.show_window_menu`, the compositor's menu
 at the client's request (GTK's header bars use it); w16 does not,
 because its control menu is the 3.1 one, and stage 3's program menus
 are drawn by the same code (`userland/w16/menu16.c`).
+
+## A window's remembered state keys on its program's path, its app_id a sub-name
+
+Chosen 2026-10-19, after w16's programs all opened at the size of the
+last one -- each declared `app_id = "w16"` -- and three programs were
+found declaring `"wallpaper"`. Single instance and taskbar grouping had
+already moved to the kernel's path identity ("A window's application
+identity is the KERNEL's"); the declared string still keyed the
+remembered geometry and the window-to-entry match (icon, name).
+
+**Now both key on `app_key`** (`gui_apps.h`'s `wm_app_key()`): the
+program's spawn path, plus `:<app_id>` when the declared id is not just
+the path's file name. An entry's key is its Exec program plus `AppId=` by
+the same rule, so Terminal (`uterm`, `AppId=terminal`) and Shapes still
+match, and a window of a program's second mode with no entry of its own
+(Crash Reports' `crashview`) falls back to the program's entry. Two
+programs cannot collide whatever they declare; one program that is
+several apps (w16) names them.
+
+**What real systems do.** Windows gives a window an AppUserModelID,
+explicit or else derived from the executable's path -- the derived one
+is this. X11's `WM_CLASS` is an (instance, class) pair for the same
+"one binary, several apps" case. Wayland's free `app_id` is only
+dependable matched against a `.desktop` file, which is the half kept.
+
+**The price, accepted:** a program that MOVES forgets its remembered
+size, as the protocol header used to warn. Paths move with a rename or a
+new layout, rarely; an id collision was silent and cost every user of
+both programs. A line saved under the old id is still read, once, so no
+size was lost in the change. The conf separator is `:`, not `#`, which
+starts a comment in `/etc/*.conf`.
+
+**The trap it found:** a client that draws its own frame says so in its
+hints, AFTER the create that restored its geometry for a frame toywm
+would draw -- so a w16 window came back offset by the chrome, and would
+have drifted by it each launch. The geometry is restored again when the
+hint arrives before the first frame.
+

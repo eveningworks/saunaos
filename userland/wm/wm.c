@@ -274,14 +274,13 @@ const struct window *wm_get_window(int index) {
     return &windows[index];
 }
 
-// Which icon a WINDOW should show. A window knows the app_id its client
-// declared; a .desktop entry knows which app_id it launches (its AppId=
-// key, freedesktop's StartupWMClass). Matching the two is what lets a
-// window be given artwork the WM did not launch it with.
+// Which icon a WINDOW should show: its entry's, matched by key (entry_of()
+// below) -- the program's path, which the client cannot misdeclare, plus
+// the sub-app it names (AppId=, freedesktop's StartupWMClass). That is
+// what lets a window be given artwork the WM did not launch it with.
 //
-// NULL for a window whose client declared no app id, or whose app id
-// matches no entry -- a stand-alone test client, say. Those keep the
-// plain text they have always had, in the taskbar and in the title bar.
+// NULL for a window that belongs to no entry -- a stand-alone test
+// client, say. Those keep the plain text they have always had.
 //
 // It lived in wm_taskbar.c while the taskbar was the only asker. It is
 // here now because the title bar asks the same question (see
@@ -292,26 +291,36 @@ const char *wm_window_icon_name(int idx) {
     return wm_window_icon_name_of(&windows[idx]);
 }
 
-const char *wm_window_icon_name_of(const struct window *w) {
-    const char *id = w->app_id;
-    if (!id || !id[0]) return 0;
+// The entry a window belongs to, by key (wm_app_key()): the same program
+// and sub-app first, else the program's own entry -- a second window of
+// a program that names its modes (Crash Reports' "crashview") still
+// wears the program's icon. NULL for a window whose program has none.
+static const struct gui_app *entry_of(const struct window *w) {
+    const char *key = w->app_key[0] ? w->app_key : w->app_id;
+    if (!key[0]) return 0;
+    for (int i = 0; i < gui_app_registry_count; i++)
+        if (gui_app_registry[i].key && k_strcmp(gui_app_registry[i].key, key) == 0)
+            return &gui_app_registry[i];
+    const char *colon = k_strchr(key, ':');
+    if (!colon || key[0] != '/') return 0;
+    size_t n = (size_t)(colon - key);
     for (int i = 0; i < gui_app_registry_count; i++) {
-        const struct gui_app *a = &gui_app_registry[i];
-        if (a->app_id && k_strcmp(a->app_id, id) == 0) return a->icon_name;
+        const char *k = gui_app_registry[i].key;
+        if (k && k_strlen(k) == n && k_strncmp(k, key, n) == 0) return &gui_app_registry[i];
     }
     return 0;
 }
 
-// The registry's NAME for a window's app ("Notepad"), or NULL when its
-// app_id names no entry -- the same lookup as the icon's.
+const char *wm_window_icon_name_of(const struct window *w) {
+    const struct gui_app *a = entry_of(w);
+    return a ? a->icon_name : 0;
+}
+
+// The registry's NAME for a window's app ("Notepad"), or NULL when it
+// belongs to no entry -- the same lookup as the icon's.
 const char *wm_window_app_name_of(const struct window *w) {
-    const char *id = w->app_id;
-    if (!id || !id[0]) return 0;
-    for (int i = 0; i < gui_app_registry_count; i++) {
-        const struct gui_app *a = &gui_app_registry[i];
-        if (a->app_id && k_strcmp(a->app_id, id) == 0) return a->name;
-    }
-    return 0;
+    const struct gui_app *a = entry_of(w);
+    return a ? a->name : 0;
 }
 
 // ---- window lifecycle ----

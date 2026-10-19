@@ -39,9 +39,18 @@ static void geom_load(void) {
 // named nothing.
 static const char *geom_key(const struct window *win) {
     if (!win) return 0;
-    if (win->app && win->app->app_id && win->app->app_id[0]) return win->app->app_id;
+    if (win->app && win->app->key && win->app->key[0]) return win->app->key;
+    if (win->app_key[0]) return win->app_key;
     if (win->app_id[0]) return win->app_id;
     return 0;
+}
+
+// The key a size was saved under before keys were paths: the declared
+// app_id. Read once as a fallback so nobody's window sizes reset; the
+// next save writes the new key.
+static const char *legacy_key(const struct window *win) {
+    if (win->app && win->app->app_id && win->app->app_id[0]) return win->app->app_id;
+    return win->app_id[0] ? win->app_id : 0;
 }
 
 // Does this app want its geometry remembered? Looked up in the registry
@@ -53,7 +62,8 @@ static const char *geom_key(const struct window *win) {
 static int remembers(const char *key) {
     for (int i = 0; i < gui_app_registry_count; i++) {
         const struct gui_app *a = &gui_app_registry[i];
-        if (a->app_id && k_strcmp(a->app_id, key) == 0) return a->remember_geometry;
+        if ((a->key && k_strcmp(a->key, key) == 0) || (a->app_id && k_strcmp(a->app_id, key) == 0))
+            return a->remember_geometry;
     }
     return 1;
 }
@@ -109,7 +119,10 @@ int wm_geometry_restore(int idx) {
 
     geom_load();
     char value[40];
-    if (!etc_config_buf_get(&g_cfg, key, value, sizeof value)) return 0;
+    const char *old = legacy_key(win);
+    if (!etc_config_buf_get(&g_cfg, key, value, sizeof value) &&
+        !(old && etc_config_buf_get(&g_cfg, old, value, sizeof value)))
+        return 0;
 
     int x, y, w, h;
     if (!parse_geom(value, &x, &y, &w, &h)) return 0;

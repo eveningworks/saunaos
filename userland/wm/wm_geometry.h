@@ -5,13 +5,12 @@
 
 // Per-application window geometry, remembered across launches.
 //
-// KEYED BY `app_id`, NOT BY `app_identity`. The identity int is interned
-// from a spawn path per boot (kernel/proc/win_server.c), so it is an
-// index into a table built in launch order -- "identity 3" today is a
-// different app tomorrow. `app_id` is a string the app declares and the
-// registry defaults to its Exec basename, which is what makes it stable
-// across reboots. Desktop icon positions already key on a name for the
-// same reason (userland/wm/desktop.c).
+// KEYED BY THE PROGRAM'S PATH, `app_key` (gui_apps.h's wm_app_key()):
+// the spawn path, plus ":<app_id>" for one app of a host running several.
+// Not the identity int -- interned per boot in launch order, so
+// "identity 3" is a different app tomorrow -- and no longer the declared
+// app_id alone, which two programs could both choose. A line under the
+// old app_id key is still read, once, so nobody's sizes reset.
 //
 // SAVED ON CLOSE, not on every move. Geometry changes from five call
 // sites -- two drags, maximize, a client's resize ack, and the

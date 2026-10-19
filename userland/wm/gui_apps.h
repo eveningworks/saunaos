@@ -49,6 +49,12 @@ struct gui_app {
     // are the same app.
     const char *app_id;
 
+    // WHAT A WINDOW OF THIS ENTRY IS KEYED ON (wm_app_key()): Exec's
+    // program path, plus ":<AppId>" when the entry names one other than
+    // that path's file name. Two programs can never share it, whatever
+    // they declare.
+    const char *key;
+
     // Computes this app's initial content-area size in pixels, from
     // whatever font size is currently active (gfx_char_w()/gfx_char_h()
     // -- see gfx_set_font_size()). Called once, at window-open time, so
@@ -314,26 +320,15 @@ struct gui_app {
     const char *handles;
 };
 
-// Caps on the live registry. Fixed tables rather than allocation, the
-// same choice every other list in this WM makes.
-#define GUI_APP_MAX      32
-#define GUI_APP_NAME_MAX 32
-// An Icon= name or an AppId -- both are short identifiers, and sharing
-// one bound keeps the two arrays that hold them the same shape.
-#define GUI_APP_ICON_MAX 24
-#define GUI_APP_EXEC_MAX 64
-// One line about what the app is, from `Comment=`. Long enough for a
-// sentence that fits the menu's own width at the default font, and no
-// longer: this is a description, not documentation -- `help` is that.
-#define GUI_APP_COMMENT_MAX 64
-#define GUI_APP_HANDLES_MAX 96
-
 // The registry, BUILT AT STARTUP from /usr/wm/applications/ -- see
-// gui_apps.c's top comment and data/wm/applications/README.md. Not const any
-// more, and not a compiled-in list: adding an app to the desktop is
-// dropping a file there, not editing this file and rebuilding the
-// kernel.
-extern struct gui_app gui_app_registry[];
+// gui_apps.c's top comment and data/wm/applications/README.md. Adding an
+// app to the desktop is dropping a file there.
+//
+// NO CAP, on the count or on any string: the array and each entry's
+// strings are allocated to fit at every load, and a reload builds a new
+// array and frees the old -- so a pointer into it lives only until the
+// next gui_apps_load(), which wm.c holds off while a window keeps one.
+extern struct gui_app *gui_app_registry;
 extern int gui_app_registry_count;
 
 // --- which SURFACE an entry appears on --------------------------------
@@ -368,21 +363,27 @@ extern int gui_app_registry_count;
 // ONE PARSED .desktop FILE, as either surface reads it: the application
 // database builds its registry from these, and the desktop reads a
 // launcher dropped in /home/Desktop the same way (desktop.c).
+// Every string points into `mem`, ONE allocation sized to the file's
+// values, so nothing is cut short; free it with gui_app_entry_free().
 struct gui_app_entry {
-    char name[GUI_APP_NAME_MAX];
-    char exec[GUI_APP_EXEC_MAX];
-    char icon[GUI_APP_ICON_MAX];   // "" when Icon= was a bare character
+    const char *name;
+    const char *exec;
+    const char *icon;              // "" when Icon= was a bare character
     char glyph;                    // that character, else 0
-    char app_id[GUI_APP_ICON_MAX];
-    char category[16];
-    char comment[GUI_APP_COMMENT_MAX];
-    char handles[GUI_APP_HANDLES_MAX];
+    const char *app_id;
+    const char *key;               // wm_app_key() of exec and app_id
+    const char *category;
+    const char *comment;
+    const char *handles;
     unsigned show_in;
     int remember_geometry;
+    char *mem;
 };
-// Reads `path` into *e. 0 when the file is missing, has no Name= or
-// Exec=, says NoDisplay=1, or still names the retired builtin: form.
+// Reads `path` into *e, which then owns its strings. 0 when the file is
+// missing, has no Name= or Exec=, says NoDisplay=1, or still names the
+// retired builtin: form -- and *e is then empty, with nothing to free.
 int gui_app_read_entry(const char *path, struct gui_app_entry *e);
+void gui_app_entry_free(struct gui_app_entry *e);
 
 int gui_app_visible_count(unsigned surface);
 struct gui_app *gui_app_visible_at(unsigned surface, int n);
@@ -410,6 +411,17 @@ struct gui_app *gui_app_cat_at(unsigned surface, const char *key, int n);
 // PERSISTED must key on -- a name can be edited and a position moves
 // on every reload (see start_store.h).
 struct gui_app *gui_app_by_id(unsigned surface, const char *app_id);
+
+// THE KEY A WINDOW'S REMEMBERED STATE AND ITS ENTRY ARE MATCHED BY: the
+// program's PATH (QUERY_PROCPATH for a window, Exec for an entry), plus
+// ":<id>" when the declared id is not just the path's file name -- the
+// app of a host running several (w16's programs, Shapes' "gfxdemo").
+// A declared id alone was a string two programs could both choose
+// (three declared "wallpaper"); a path cannot collide. With no path, the
+// id alone, as before. Windows' default AppUserModelID is the same idea.
+// Returns the key's whole length, as snprintf does, so a caller can size
+// for it; wm.h's WM_APP_KEY_MAX fits any a window can have.
+int wm_app_key(const char *path, const char *id, char *out, int cap);
 
 // The display label for a key, for a caller that already holds one.
 // An UNKNOWN key is its own label: a typo shows up as an oddly-named

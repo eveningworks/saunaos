@@ -25,6 +25,11 @@ struct gui_app; // full definition in gui_apps.h
 // that the two agree, since a silently smaller buffer here would
 // truncate ids and make two different apps match each other.
 #define WIN_APP_ID_MAX 32
+// Mirrors abi/query_abi.h's QUERY_PROCPATH_MAX the same way (asserted in
+// wm_client.c): a window's program path is never longer, so a window's
+// key -- path, ':', app_id -- always fits WM_APP_KEY_MAX.
+#define WM_PROCPATH_MAX 252
+#define WM_APP_KEY_MAX (WM_PROCPATH_MAX + WIN_APP_ID_MAX)
 
 enum window_state { WIN_NORMAL, WIN_MINIMIZED, WIN_MAXIMIZED };
 
@@ -146,10 +151,12 @@ struct window {
     // object's reference count is what keeps the frames alive.
     // What this window IS, as its own client named it -- "taskmgr", not
     // a path and not the title. Empty for a kernel-space app window and
-    // for any client that did not give one. The saved geometry is keyed
-    // on it and the taskbar labels a group with it; nothing MATCHES on
-    // it -- see app_identity below.
+    // for any client that did not give one. Only the sub-name half of
+    // app_key below; nothing matches on it alone.
     char app_id[WIN_APP_ID_MAX];
+    // wm_app_key() of the owning program's path and app_id: what the
+    // saved geometry and the entry lookups key on. "" with neither.
+    char app_key[WM_APP_KEY_MAX];
 
     // WHAT THIS WINDOW'S APPLICATION IS, as an opaque number interned
     // from the owning process's SPAWN PATH (QUERY_PROCPATH) -- equal for

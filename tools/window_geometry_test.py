@@ -29,6 +29,12 @@ WHAT IT ASSERTS
 - a real round trip: move a window, close it, reopen it, same geometry
 - an app that has never been opened gets its own default, not another
   app's geometry
+- THE KEY IS THE PROGRAM'S PATH (wm_app_key()): a save writes
+  `/bin/wm/system/settings=`, a path-keyed line restores verbatim, and a
+  line under the old declared-id key (`settings=`, which most checks
+  above write) is still read, so nobody's sizes reset; two programs on
+  ONE executable told apart by their sub-id (w16's hello and gdi, both
+  /bin/w16) each restore their own
 
     python3 tools/vm.py start
     python3 tools/window_geometry_test.py
@@ -49,7 +55,8 @@ from harness import Results  # noqa: E402
 DEFAULT_SOCK = ".vm.serial"
 CONF = "/etc/windows.conf"
 APP = "System Settings"
-APP_ID = "settings"
+APP_ID = "settings"                      # the declared id: the legacy key
+APP_KEY = "/bin/wm/system/settings"      # the path: the key a save writes
 
 
 Result = Results
@@ -219,13 +226,38 @@ def run(dbg, qmp, res):
     close_all(dbg)
     time.sleep(0.6)
     saved = (dbg.send(f"sh cat {CONF}") or "")
-    line = [ln for ln in saved.splitlines() if ln.startswith(APP_ID + "=")]
+    line = [ln for ln in saved.splitlines() if ln.startswith(APP_KEY + "=")]
     ok = False
     if line and moved_geom:
         parts = line[0].split("=", 1)[1].split(",")
         ok = len(parts) == 4 and (int(parts[0]), int(parts[1])) == moved_geom
-    res.check("a dragged window's new position is recorded on close", ok,
-              f"window ended at {moved_geom}, file says {line}")
+    res.check("a dragged window's new position is recorded on close, keyed by its path", ok,
+              f"window ended at {moved_geom}, file says {saved.splitlines()}")
+    close_all(dbg)
+
+    # 5b. A PATH-KEYED LINE restores verbatim -- the key a save writes.
+    set_conf(dbg, f"{APP_KEY}=260,140,820,520")
+    w = open_and_read(dbg)
+    got = (w["x"], w["y"], w["w"], w["h"]) if w else None
+    res.check("a geometry saved under the program's path is restored", got == (260, 140, 820, 520),
+              f"got {got}")
+    close_all(dbg)
+
+    # 5c. ONE EXECUTABLE, TWO PROGRAMS: w16 runs both samples, and each
+    #     restores its own size, keyed path:sub-id. One shared key gave
+    #     every Win16 program the last one's size.
+    set_conf(dbg, "/bin/w16:w16-hello=100,100,420,260")
+    dbg.send("sh append /etc/windows.conf /bin/w16:w16-gditest=520,120,300,220")
+    time.sleep(0.5)
+    hello = dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", "Hello (Win16)")
+    hg = (hello["x"], hello["y"], hello["w"], hello["h"]) if hello else None
+    dbg.close_window("Hello (Win16)")
+    gdi = dbg.spawn("/bin/w16 /usr/share/w16/gdi.exe", "GDI test (Win16)")
+    gg = (gdi["x"], gdi["y"], gdi["w"], gdi["h"]) if gdi else None
+    dbg.close_window("GDI test (Win16)")
+    res.check("two programs on one executable each restore their own geometry",
+              hg == (100, 100, 420, 260) and gg == (520, 120, 300, 220),
+              f"hello {hg}, gdi {gg}")
     close_all(dbg)
 
     # 6. A FIXED-SIZE APP KEEPS ITS OWN SIZE, whatever the file says.

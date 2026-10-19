@@ -1,5 +1,7 @@
 // See start_menu.h.
 #include "start_menu.h"
+#include <stdlib.h>
+#include <string.h>
 #include "lib/utween.h"
 #include "ui/uui_caret.h"
 #include "ui/uui_textbox.h"
@@ -225,7 +227,7 @@ static int have_favourites(void) {
 // to the top under the pointer mid-click -- Windows' Recommended and
 // Kickoff's Recent both change on the next open, not this one. App ids,
 // not pointers, so an app removed while the menu is up is skipped.
-static char g_recent[SM_RECENT_MAX][GUI_APP_ICON_MAX];
+static char *g_recent[SM_RECENT_MAX];   // strdup()ed ids
 static int g_recent_n;
 
 // A SELECTION SORT over the visible apps, newest sequence first. A few
@@ -233,6 +235,7 @@ static int g_recent_n;
 static void snapshot_recent(void) {
     uint32_t ceiling = 0xFFFFFFFFu;
     int apps = gui_app_visible_count(GUI_SHOW_STARTMENU);
+    for (int i = 0; i < g_recent_n; i++) free(g_recent[i]);
     for (g_recent_n = 0; g_recent_n < SM_RECENT_MAX; g_recent_n++) {
         uint32_t best = 0;
         struct gui_app *pick = 0;
@@ -243,8 +246,7 @@ static void snapshot_recent(void) {
             best = seq;
             pick = a;
         }
-        if (!pick) break;
-        k_strlcpy(g_recent[g_recent_n], pick->app_id, sizeof g_recent[g_recent_n]);
+        if (!pick || !(g_recent[g_recent_n] = strdup(pick->app_id))) break;
         ceiling = best;
     }
 }
@@ -314,10 +316,13 @@ static const char *folder_icon_at(int n) {
     case FOLDER_ALL:    return "cat-all";
     default: break;
     }
-    static char buf[GUI_APP_ICON_MAX];
+    static char *buf;   // valid until the next call, like a static buffer
     const char *key = gui_app_cat_key(GUI_SHOW_STARTMENU, folder_cat_index(n));
     if (!key) return "";
-    k_snprintf(buf, sizeof buf, "cat-%s", key);
+    size_t len = k_strlen(key) + 5;
+    free(buf);
+    if (!(buf = malloc(len))) return "";
+    k_snprintf(buf, len, "cat-%s", key);
     return buf;
 }
 
@@ -1024,7 +1029,7 @@ void start_menu_toggle_pin(const char *app_id) {
 
 // The folder open when the menu last closed, BY LABEL -- an index shifts
 // when Favourites or Recent comes or goes. For desktop.start.opens=last.
-static char g_last_folder[GUI_APP_ICON_MAX];
+static char *g_last_folder;   // strdup()ed label, NULL before the first close
 
 static int folder_of_kind(enum folder_kind k) {
     for (int i = 0; i < pseudo_count(); i++)
@@ -1044,7 +1049,7 @@ static int opening_folder(void) {
     case SM_OPENS_RECENT: f = folder_of_kind(FOLDER_RECENT); break;
     case SM_OPENS_ALL:    f = folder_of_kind(FOLDER_ALL); break;
     case SM_OPENS_LAST:
-        for (int i = 0; i < folder_count() && g_last_folder[0]; i++)
+        for (int i = 0; i < folder_count() && g_last_folder; i++)
             if (!k_strcmp(folder_label_at(i), g_last_folder)) { f = i; break; }
         break;
     default: break;
@@ -1088,7 +1093,8 @@ void start_menu_close(void) {
 
     if (!start_menu_open) return;
     wm_tooltip_cancel();   // it describes a row that is about to not exist
-    k_strlcpy(g_last_folder, folder_label_at(sel_cat), sizeof g_last_folder);
+    free(g_last_folder);
+    g_last_folder = folder_label_at(sel_cat) ? strdup(folder_label_at(sel_cat)) : 0;
     hover_cat = -1;
     start_menu_open = 0;
     flash_row = -1;

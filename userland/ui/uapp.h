@@ -112,16 +112,13 @@ struct uapp_draw {
 struct uapp_desc {
     const char *title;
 
-    // This app's own name for what its window IS -- "taskmgr", not a
-    // path and not the title. Opaque, matched byte for byte, truncated
-    // at WIN_APP_ID_LEN. NULL for the apps that need no identity, which
-    // is most of them.
-    //
-    // Required by UAPP_SINGLE_INSTANCE and otherwise inert today, but
-    // worth setting on anything with a lasting identity: this is the
-    // field a taskbar groups by and the one a "raise that app" request
-    // names, and both want it to have been there all along rather than
-    // added later per app.
+    // WHICH APP OF THIS PROGRAM the window is, for a program that is
+    // several (w16 names each Win16 program, Crash Reports its modes).
+    // NULL for the rest, which is most: toywm keys a window's remembered
+    // size and its desktop entry on the program's PATH, and adds this
+    // as ":<app_id>" when it differs from the program's file name -- so
+    // two programs can never collide on it, whatever they declare
+    // (wm_app_key()). Truncated at WIN_APP_ID_LEN.
     const char *app_id;
 
     // The content, laid out. With this set the library sizes the window

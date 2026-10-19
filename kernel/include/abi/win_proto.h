@@ -1464,10 +1464,11 @@ struct win_shot {
 // coincidence: a separate, larger constant would silently truncate the
 // moment `text` stayed 32 bytes.
 //
-// An id is an opaque token matched byte for byte, not a path or a
-// display name -- "taskmgr", not "/bin/wm/system/taskmgr" or "Task
-// Manager". A path would break the moment a binary moved, and a display
-// name would collide with the title the user sees.
+// An id is an opaque token, not a path or a display name: it names which
+// app of the program the window is. The compositor keys on the program's
+// spawn PATH plus this id (userland/wm/gui_apps.h's wm_app_key()), so
+// two programs can never collide on an id; the price, a moved binary
+// forgetting its remembered size, is docs/decisions/gui.md's.
 #define WIN_APP_ID_LEN WIN_TITLE_LEN
 
 // Largest client window, in pixels: a CEILING, not the limit a user

@@ -71,9 +71,9 @@ the list, for whichever row the pointer or the keyboard is on, which is
 why it is a SENTENCE FRAGMENT rather than a sentence: it is read beside
 the name, not instead of it.
 
-Keep it inside `GUI_APP_COMMENT_MAX` (`userland/wm/gui_apps.h`); a
-longer one is truncated on the way in, not wrapped. Anything that needs
-a paragraph belongs in `help`, which is a whole app for that.
+Keep it to what fits the strip at the default font: nothing truncates
+it on the way in, but the strip is one line and does not wrap. Anything
+that needs a paragraph belongs in `help`, which is a whole app for that.
 
 ## Handles
 

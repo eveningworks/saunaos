@@ -126,6 +126,12 @@ a new header needs a top comment saying what it is). What bites:
   `vga_printf()`/`klog_printf()`.
 - **A formatter that doesn't fit writes NOTHING; a parser REJECTS rather
   than guesses.**
+- **SIZE IT TO THE DATA: ALLOCATE AND GROW, NEVER INVENT A CAP**
+  (2026-10-19) -- a list or string from the user, disk or network is
+  allocated to fit, not a `static x[SOME_MAX]`; mirror a bound only when
+  a protocol, ABI or the hardware sets it; the kernel keeps fixed tables
+  only where it may not allocate. A cap that must stay LOGS when hit.
+  `docs/conventions/kernel.md`.
 - **SHARED FROM THE START WHEN IT IS GENERIC BY NATURE** -- its job
   names no app's data (a desktop-entry lookup, a find bar, a path
   helper) -- even with one caller; APP-SHAPED logic stays in the app. A

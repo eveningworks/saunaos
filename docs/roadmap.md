@@ -603,6 +603,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Kernel command-line switches for the protections, not just `nokaslr`
 - [x] ~~A Live-CD boot: run from the ISO with no disk~~ done
 - [ ] Let TFS3 blocks-per-group vary for small volumes
+- [ ] toywm's fixed tables of user data, grown on demand: desktop icons, program identities, Close all's batch
 - [x] ~~Raw input to the compositor~~ DONE 2026-08-18
 - [x] ~~A ring-3 allocator, and four smaller syscalls~~ DONE 2026-08-18
 - [x] ~~An abstract transport behind that protocol~~ DONE 2026-08-18 -- `struct win_transport`, deleted 2026-09-09 unvalidated

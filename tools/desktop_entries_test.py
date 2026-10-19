@@ -49,7 +49,9 @@ ENTRY_DIR = "/usr/wm/applications"
 
 # Named so it sorts last within its category, which keeps it off the end
 # of an existing row's coordinates and makes a stray match obvious.
-TEST_NAME = "ZZ Probe"
+# Longer than the 32 bytes a Name= was cut to before the registry sized
+# its strings to fit: a truncating registry fails the exact match.
+TEST_NAME = "ZZ Probe, whose name is longer than thirty-two bytes"
 TEST_FILE = f"{ENTRY_DIR}/zzprobe.desktop"
 
 

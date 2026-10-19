@@ -2,10 +2,11 @@
 #include "kapi.h"
 #include "etc_config.h"
 #include "rt/sys.h"
-#include "wm/wm_fs.h"
+#include "lib/ulistdir.h"
 #include "wm/wm_log.h"
 #include "wm/wm_conf.h"
 #include "kpath.h"   // k_path_basename, for AppId's default
+#include <stdlib.h>
 
 // The Start menu and the desktop icons are built from DATA ON DISK --
 // one file per app in /usr/wm/applications/, scanned at desktop startup.
@@ -35,44 +36,24 @@
 
 #define DESKTOP_DIR "/usr/wm/applications"
 
-// The live registry. Not const any more: it is filled in at startup from
-// the directory above. Everything that reads it (start_menu.c,
-// desktop.c, wm.c, wm_debug.c) is unchanged -- they still see a flat
-// array and a count.
-struct gui_app gui_app_registry[GUI_APP_MAX];
+// The live registry, rebuilt whole by gui_apps_load() (gui_apps.h).
+// Each entry's strings are its own gui_app_entry's, kept beside it.
+struct gui_app *gui_app_registry;
 int gui_app_registry_count;
+static struct gui_app_entry *g_entries;
 
-// Storage for the strings the entries point at. A desktop entry's Name
-// and Exec come out of a file, so they need somewhere to live for the
-// session; there is no allocator worth using here and the counts are
-// tiny, so it is a fixed table like everything else in this WM.
-static char g_names[GUI_APP_MAX][GUI_APP_NAME_MAX];
-static char g_execs[GUI_APP_MAX][GUI_APP_EXEC_MAX];
-static char g_cats[GUI_APP_MAX][16];
-static char g_comments[GUI_APP_MAX][GUI_APP_COMMENT_MAX];
-// The Icon= name and the AppId, in the same backing store as the rest --
-// struct gui_app holds POINTERS, so these must outlive a reload.
-static char g_icons[GUI_APP_MAX][GUI_APP_ICON_MAX];
-static char g_appids[GUI_APP_MAX][GUI_APP_ICON_MAX];
-static char g_handles[GUI_APP_MAX][GUI_APP_HANDLES_MAX];
-
-// Scanning state: fs_list()'s callback carries no context pointer, so
-// the walk collects filenames here first and parses afterwards. Parsing
-// inside the callback would mean reading files while a directory walk
-// is in progress, which is a re-entrancy the filesystem does not
-// promise.
-static char g_files[GUI_APP_MAX][64];
-static int g_file_count;
-
-static void collect(const char *name, uint32_t size, int is_dir) {
-    (void)size;
-    if (is_dir || g_file_count >= GUI_APP_MAX) return;
-    // Only *.desktop, so a README or an editor's leftover is ignored
-    // rather than parsed into a blank menu row.
-    int n = (int)k_strlen(name);
-    if (n < 9 || k_strcmp(name + n - 8, ".desktop") != 0) return;
-    k_strlcpy(g_files[g_file_count], name, sizeof g_files[0]);
-    g_file_count++;
+int wm_app_key(const char *path, const char *id, char *out, int cap) {
+    if (!path || !path[0]) return k_snprintf(out, (size_t)cap, "%s", id ? id : "");
+    // The program alone: an Exec line's arguments are not its identity.
+    int n = 0;
+    while (path[n] && path[n] != ' ') n++;
+    const char *base = path;
+    for (int i = 0; i < n; i++)
+        if (path[i] == '/') base = path + i + 1;
+    int blen = n - (int)(base - path);
+    if (id && id[0] && !((int)k_strlen(id) == blen && k_strncmp(id, base, (size_t)blen) == 0))
+        return k_snprintf(out, (size_t)cap, "%.*s:%s", n, path, id);
+    return k_snprintf(out, (size_t)cap, "%.*s", n, path);
 }
 
 // THE FOLDERS THE START MENU SHOWS, in order, and what each key is
@@ -162,8 +143,37 @@ static unsigned parse_show_in(const struct etc_config_buf *cfg, const char *file
     return bits;
 }
 
+// Every value of one entry, back to back, before they are copied into
+// the entry's own allocation. No value can be longer than the file, so
+// three files' worth holds them all -- the AppId default and the key
+// repeat Exec's path.
+static char g_vals[3 * ETC_CONFIG_BUF_MAX];
+static unsigned g_used;
+
+// The value of `key` stored in g_vals; its offset, or -1 when absent.
+static int val(const struct etc_config_buf *cfg, const char *key) {
+    unsigned at = g_used;
+    if (!entry_get(cfg, key, g_vals + at, (uint32_t)(sizeof g_vals - at))) return -1;
+    g_used = at + (unsigned)k_strlen(g_vals + at) + 1;
+    return (int)at;
+}
+
+static int put(const char *v) {
+    unsigned at = g_used, n = (unsigned)k_strlen(v);
+    if (at + n + 1 > sizeof g_vals) return -1;
+    k_memcpy(g_vals + at, v, n + 1);
+    g_used = at + n + 1;
+    return (int)at;
+}
+
+void gui_app_entry_free(struct gui_app_entry *e) {
+    free(e->mem);
+    k_memset(e, 0, sizeof *e);
+}
+
 int gui_app_read_entry(const char *path, struct gui_app_entry *e) {
-    // ONE read, six questions: etc_config_get() re-reads the whole file
+    k_memset(e, 0, sizeof *e);
+    // ONE read, many questions: etc_config_get() re-reads the whole file
     // per key, and a reload runs on every filesystem change. STATIC
     // because a whole config document is 4 KiB and a ring-3 frame
     // budget is 2; safe since the WM is one event loop.
@@ -171,29 +181,53 @@ int gui_app_read_entry(const char *path, struct gui_app_entry *e) {
     if (!wm_conf_load(path, &cfg)) return 0;
     const char *file = k_path_basename(path);
 
-    char icon[GUI_APP_ICON_MAX], appid[GUI_APP_ICON_MAX], nodisplay[8], raw[16];
-    if (!entry_get(&cfg, "Name", e->name, sizeof e->name)) return 0;
-    if (!entry_get(&cfg, "Exec", e->exec, sizeof e->exec)) return 0;
-    if (!entry_get(&cfg, "Category", e->category, sizeof e->category))
-        k_strlcpy(e->category, "utility", sizeof e->category);
+    char nodisplay[8], raw[16];
+    if (entry_get(&cfg, "NoDisplay", nodisplay, sizeof nodisplay) && nodisplay[0] == '1')
+        return 0;
+    g_used = 0;
+    int name = val(&cfg, "Name"), exec = val(&cfg, "Exec");
+    if (name < 0 || exec < 0) return 0;
+    // Every app is a ring-3 binary now; the retired `builtin:` form is
+    // refused LOUDLY rather than shown as a row that does nothing.
+    if (k_strncmp(g_vals + exec, "builtin:", 8) == 0) {
+        wm_logf("wm: %s uses the retired builtin: form -- ignored\n", file);
+        return 0;
+    }
+    int cat = val(&cfg, "Category");
+    if (cat < 0) cat = put("utility");
     // OPTIONAL, and empty is a normal answer: an app with nothing to
     // say about itself shows its name alone rather than a placeholder.
-    if (!entry_get(&cfg, "Comment", e->comment, sizeof e->comment))
-        e->comment[0] = '\0';
-    if (!entry_get(&cfg, "Handles", e->handles, sizeof e->handles))
-        e->handles[0] = '\0';
-    if (!entry_get(&cfg, "Icon", icon, sizeof icon)) icon[0] = '\0';
-    if (!entry_get(&cfg, "AppId", appid, sizeof appid)) appid[0] = '\0';
-    if (entry_get(&cfg, "NoDisplay", nodisplay, sizeof nodisplay)
-        && nodisplay[0] == '1') return 0;
-
+    int comment = val(&cfg, "Comment");
+    if (comment < 0) comment = put("");
+    int handles = val(&cfg, "Handles");
+    if (handles < 0) handles = put("");
     // A one-character Icon= is a GLYPH, anything longer is a NAME. Both
     // are kept; drawing prefers the file and falls back to the character.
-    k_strlcpy(e->icon, icon[0] && icon[1] ? icon : "", sizeof e->icon);
-    e->glyph = icon[0];
+    int icon = val(&cfg, "Icon");
+    if (icon < 0) icon = put("");
+    e->glyph = g_vals[icon];
+    if (g_vals[icon] && !g_vals[icon + 1]) icon = put("");
     // AppId defaults to the basename of Exec, which is right everywhere
     // but Shapes -- see gui_apps.h on why the entry gets to say.
-    k_strlcpy(e->app_id, appid[0] ? appid : k_path_basename(e->exec), sizeof e->app_id);
+    int appid = val(&cfg, "AppId");
+    if (appid < 0) appid = put(k_path_basename(g_vals + exec));
+    unsigned room = (unsigned)sizeof g_vals - g_used;
+    int key = (int)g_used;
+    unsigned klen = (unsigned)wm_app_key(g_vals + exec, g_vals + appid, g_vals + key, (int)room);
+    if (cat < 0 || comment < 0 || handles < 0 || icon < 0 || appid < 0 || klen >= room) return 0;
+    g_used += klen + 1;
+
+    e->mem = malloc(g_used);
+    if (!e->mem) return 0;
+    k_memcpy(e->mem, g_vals, g_used);
+    e->name = e->mem + name;
+    e->exec = e->mem + exec;
+    e->category = e->mem + cat;
+    e->comment = e->mem + comment;
+    e->handles = e->mem + handles;
+    e->icon = e->mem + icon;
+    e->app_id = e->mem + appid;
+    e->key = e->mem + key;
     // DEFAULT ON, so only `RememberGeometry=false` turns it off: a typo
     // is harmless rather than silently disabling a behaviour.
     e->remember_geometry = 1;
@@ -201,46 +235,7 @@ int gui_app_read_entry(const char *path, struct gui_app_entry *e) {
         (k_strcmp(raw, "false") == 0 || k_strcmp(raw, "0") == 0 || k_strcmp(raw, "no") == 0))
         e->remember_geometry = 0;
     e->show_in = parse_show_in(&cfg, file);
-
-    // Every app is a ring-3 binary now; the retired `builtin:` form is
-    // refused LOUDLY rather than shown as a row that does nothing.
-    if (k_strncmp(e->exec, "builtin:", 8) == 0) {
-        wm_logf("wm: %s uses the retired builtin: form -- ignored\n", file);
-        return 0;
-    }
     return 1;
-}
-
-static void load_entry(const char *file) {
-    char path[64];
-    k_snprintf(path, sizeof path, "%s/%s", DESKTOP_DIR, file);
-    struct gui_app_entry e;
-    if (!gui_app_read_entry(path, &e)) return;
-
-    int i = gui_app_registry_count;
-    if (i >= GUI_APP_MAX) return;
-    k_strlcpy(g_names[i], e.name, GUI_APP_NAME_MAX);
-    k_strlcpy(g_execs[i], e.exec, GUI_APP_EXEC_MAX);
-    k_strlcpy(g_cats[i], e.category, sizeof g_cats[0]);
-    k_strlcpy(g_comments[i], e.comment, sizeof g_comments[0]);
-    k_strlcpy(g_icons[i], e.icon, sizeof g_icons[0]);
-    k_strlcpy(g_appids[i], e.app_id, sizeof g_appids[0]);
-    k_strlcpy(g_handles[i], e.handles, sizeof g_handles[0]);
-
-    struct gui_app *a = &gui_app_registry[i];
-    k_memset(a, 0, sizeof *a);
-    a->name = g_names[i];
-    a->icon = e.glyph;
-    a->icon_name = g_icons[i];
-    a->app_id = g_appids[i];
-    a->category = g_cats[i];
-    a->comment = g_comments[i];
-    a->handles = g_handles[i];
-    a->resizable = 1;
-    a->remember_geometry = e.remember_geometry;
-    a->show_in = e.show_in;
-    a->exec_path = g_execs[i];
-    gui_app_registry_count++;
 }
 
 // A cheap answer to "could anything in this directory have changed?",
@@ -281,79 +276,95 @@ static void fingerprint_cb(const char *name, uint32_t size, int is_dir) {
 
 uint64_t gui_apps_dir_fingerprint(void) {
     g_fp = 1;
-    // STATIC, not on the stack. A ring-3 stack is 16 KiB with ONE 4 KiB
-    // guard page below it, and GUI_APP_MAX entries of `struct sys_dirent` is
-    // 2,576 bytes here and 3,904 in gui_apps_load() -- a frame that large does not merely overflow, it
-    // steps clean OVER the guard into unmapped space, which is the
-    // Stack Clash shape. Found by -Wframe-larger-than the day it was
-    // added to USERLAND_CFLAGS. Safe here: the WM is one event loop and
-    // this does not recurse.
-    static struct sys_dirent ents[GUI_APP_MAX];
-    int n = wm_fs_list(DESKTOP_DIR, ents, GUI_APP_MAX);
+    struct sys_dirent *ents;
+    int n = ulistdir(DESKTOP_DIR, &ents);
     for (int i = 0; i < n; i++) fingerprint_cb(ents[i].name, ents[i].size, (int)ents[i].is_dir);
+    free(ents);
     return g_fp;
 }
 
+static int is_entry_file(const struct sys_dirent *d) {
+    // Only *.desktop, so a README or an editor's leftover is ignored
+    // rather than parsed into a blank menu row.
+    int n = (int)k_strlen(d->name);
+    return !d->is_dir && n >= 9 && k_strcmp(d->name + n - 8, ".desktop") == 0;
+}
+
+// (category rank, name): the Start menu's row order is something tests
+// and users both read, and "whatever order the filesystem felt like" is
+// not an order.
+static int entry_before(const struct gui_app_entry *a, const struct gui_app_entry *b) {
+    int ra = cat_rank(a->category), rb = cat_rank(b->category);
+    return ra != rb ? ra < rb : k_strcmp(a->name, b->name) < 0;
+}
+
 void gui_apps_load(void) {
-    gui_app_registry_count = 0;
-    g_file_count = 0;
+    struct sys_dirent *ents;
+    int n = ulistdir(DESKTOP_DIR, &ents);
+    struct gui_app_entry *entries = n > 0 ? malloc(sizeof *entries * (size_t)n) : 0;
+    struct gui_app *apps = n > 0 ? malloc(sizeof *apps * (size_t)n) : 0;
+    if (n > 0 && (!entries || !apps)) {
+        // Out of memory: keep the registry that is already there.
+        wm_logf("wm: no memory to reload " DESKTOP_DIR "\n");
+        free(entries);
+        free(apps);
+        free(ents);
+        return;
+    }
 
-    static struct sys_dirent ents[GUI_APP_MAX];
-    int n = wm_fs_list(DESKTOP_DIR, ents, GUI_APP_MAX);
-    for (int i = 0; i < n; i++) collect(ents[i].name, ents[i].size, (int)ents[i].is_dir);
-
-    // Filename order is whatever the directory hands back, so sort by
-    // (category, filename) before parsing: the Start menu's row order is
-    // something tests and users both read, and "whatever order the
-    // filesystem felt like" is not an order.
-    for (int i = 0; i < g_file_count; i++) {
+    int count = 0;
+    for (int i = 0; i < n; i++) {
+        if (!is_entry_file(&ents[i])) continue;
+        char path[sizeof DESKTOP_DIR + sizeof ents[i].name + 1];
+        k_snprintf(path, sizeof path, "%s/%s", DESKTOP_DIR, ents[i].name);
         uint64_t t = sys_ticks();
-        load_entry(g_files[i]);
+        if (gui_app_read_entry(path, &entries[count])) count++;
         uint64_t d = sys_ticks() - t;
         if (d * 10 >= 100)
-            wm_logf("wm: entry %s took %u ms\n", g_files[i], (uint32_t)(d * 10));
+            wm_logf("wm: entry %s took %u ms\n", ents[i].name, (uint32_t)(d * 10));
     }
+    free(ents);
 
-    for (int i = 1; i < gui_app_registry_count; i++) {
-        for (int j = i; j > 0; j--) {
-            int rj = cat_rank(g_cats[j]), rp = cat_rank(g_cats[j - 1]);
-            if (rj > rp || (rj == rp && k_strcmp(g_names[j], g_names[j - 1]) >= 0)) break;
-            struct gui_app ta = gui_app_registry[j];
-            gui_app_registry[j] = gui_app_registry[j - 1];
-            gui_app_registry[j - 1] = ta;
-            char tmp[GUI_APP_NAME_MAX];
-            k_strlcpy(tmp, g_names[j], sizeof tmp);
-            k_strlcpy(g_names[j], g_names[j - 1], GUI_APP_NAME_MAX);
-            k_strlcpy(g_names[j - 1], tmp, GUI_APP_NAME_MAX);
-            char tc[16];
-            k_strlcpy(tc, g_cats[j], sizeof tc);
-            k_strlcpy(g_cats[j], g_cats[j - 1], sizeof g_cats[0]);
-            k_strlcpy(g_cats[j - 1], tc, sizeof g_cats[0]);
-            // The registry entries point INTO g_names, so the swapped
-            // rows have to be re-pointed rather than carrying stale
-            // pointers to each other's storage.
-            gui_app_registry[j].name = g_names[j];
-            gui_app_registry[j - 1].name = g_names[j - 1];
-            gui_app_registry[j].category = g_cats[j];
-            gui_app_registry[j - 1].category = g_cats[j - 1];
-            char tcm[GUI_APP_COMMENT_MAX];
-            k_strlcpy(tcm, g_comments[j], sizeof tcm);
-            k_strlcpy(g_comments[j], g_comments[j - 1], sizeof g_comments[0]);
-            k_strlcpy(g_comments[j - 1], tcm, sizeof g_comments[0]);
-            gui_app_registry[j].comment = g_comments[j];
-            gui_app_registry[j - 1].comment = g_comments[j - 1];
+    for (int i = 1; i < count; i++)
+        for (int j = i; j > 0 && entry_before(&entries[j], &entries[j - 1]); j--) {
+            struct gui_app_entry t = entries[j];
+            entries[j] = entries[j - 1];
+            entries[j - 1] = t;
         }
+
+    for (int i = 0; i < count; i++) {
+        const struct gui_app_entry *e = &entries[i];
+        struct gui_app *a = &apps[i];
+        k_memset(a, 0, sizeof *a);
+        a->name = e->name;
+        a->icon = e->glyph;
+        a->icon_name = e->icon;
+        a->app_id = e->app_id;
+        a->key = e->key;
+        a->category = e->category;
+        a->comment = e->comment;
+        a->handles = e->handles;
+        a->resizable = 1;
+        a->remember_geometry = e->remember_geometry;
+        a->show_in = e->show_in;
+        a->exec_path = e->exec;
     }
 
-    if (gui_app_registry_count == 0) {
+    for (int i = 0; i < gui_app_registry_count; i++) gui_app_entry_free(&g_entries[i]);
+    free(g_entries);
+    free(gui_app_registry);
+    g_entries = entries;
+    gui_app_registry = apps;
+    gui_app_registry_count = count;
+
+    if (count == 0) {
         // No entries: a disk without /usr/wm, or a RAM-only boot with
         // nothing seeded. Say so -- an empty Start menu with no
         // explanation looks like the desktop is broken, and this is the
         // one message that distinguishes "no apps installed" from it.
         sys_eprint("wm: no desktop entries in " DESKTOP_DIR " -- Start menu is empty\n");
     } else {
-        wm_logf("wm: %d desktop entries from " DESKTOP_DIR "\n",
-                     gui_app_registry_count);
+        wm_logf("wm: %d desktop entries from " DESKTOP_DIR "\n", count);
     }
 }
 
@@ -388,20 +399,25 @@ struct gui_app *gui_app_visible_at(unsigned surface, int n) {
 
 // --- the category view (see gui_apps.h) -------------------------------
 
-// The distinct categories among the entries `surface` shows. The
-// registry is already sorted by (rank, name), so this comes out in
-// display order; it still DEDUPES against every key found rather than
-// against the previous one, because two different unknown keys share a
-// rank and interleave.
-static int cat_list(unsigned surface, const char *out[], int cap) {
+// The distinct categories among the entries `surface` shows: how many,
+// and the `want`th in *out (want -1: count only). The registry is
+// already sorted by (rank, name), so this comes out in display order; a
+// category counts at its FIRST entry, deduped against every earlier
+// entry rather than the previous one, because two different unknown keys
+// share a rank and interleave.
+static int cat_list(unsigned surface, const char **out, int want) {
     int n = 0;
     for (int i = 0; i < gui_app_registry_count; i++) {
         struct gui_app *a = &gui_app_registry[i];
         if (!gui_app_shows_in(a, surface) || !a->category) continue;
         int dup = 0;
-        for (int j = 0; j < n; j++)
-            if (k_strcmp(out[j], a->category) == 0) { dup = 1; break; }
-        if (!dup && n < cap) out[n++] = a->category;
+        for (int j = 0; j < i && !dup; j++) {
+            struct gui_app *b = &gui_app_registry[j];
+            dup = gui_app_shows_in(b, surface) && b->category && k_strcmp(b->category, a->category) == 0;
+        }
+        if (dup) continue;
+        if (n == want) *out = a->category;
+        n++;
     }
     return n;
 }
@@ -417,15 +433,14 @@ struct gui_app *gui_app_by_id(unsigned surface, const char *app_id) {
 }
 
 int gui_app_cat_count(unsigned surface) {
-    const char *keys[GUI_APP_MAX];
-    return cat_list(surface, keys, GUI_APP_MAX);
+    return cat_list(surface, 0, -1);
 }
 
 const char *gui_app_cat_key(unsigned surface, int n) {
-    const char *keys[GUI_APP_MAX];
-    int c = cat_list(surface, keys, GUI_APP_MAX);
-    if (n < 0 || n >= c) return 0;
-    return keys[n];
+    if (n < 0) return 0;
+    const char *key = 0;
+    cat_list(surface, &key, n);
+    return key;
 }
 
 const char *gui_app_cat_label(unsigned surface, int n) {

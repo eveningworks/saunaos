@@ -78,7 +78,7 @@ static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap 
 #define DESKTOP_DIR udir_path(UDIR_DESKTOP)
 #define DESKTOP_FILES_MAX DESKTOP_MAX_ICONS
 static struct sys_dirent g_files[DESKTOP_FILES_MAX];
-static struct gui_app_entry g_launch[DESKTOP_FILES_MAX];   // name[0] == 0: a plain file
+static struct gui_app_entry g_launch[DESKTOP_FILES_MAX];   // name NULL: a plain file
 static int g_file_count;
 // The plain background, shown when there is no wallpaper and behind a
 // letterboxed one.
@@ -278,7 +278,7 @@ static void format_pos(char *out, int col, int row) {
 
 // --- the item space: the folder's entries -------------------------------
 static int item_count(void) { return g_file_count; }
-static int item_is_launcher(int i) { return g_launch[i].name[0] != '\0'; }
+static int item_is_launcher(int i) { return g_launch[i].name != 0; }
 static int item_is_dir(int i) { return g_files[i].is_dir; }
 static const char *item_name(int i) {
     return item_is_launcher(i) ? g_launch[i].name : g_files[i].name;
@@ -322,12 +322,14 @@ static int is_desktop_file(const char *name) {
 // Re-reads every launcher file: when the set of names changed, when a
 // launcher's size or mtime did (desktop_files_reload), and on Refresh.
 static void desktop_files_parse(void) {
+    // Every slot, not just the current count: a shorter listing leaves
+    // the old tail's strings to free.
+    for (int i = 0; i < DESKTOP_FILES_MAX; i++) gui_app_entry_free(&g_launch[i]);
     for (int i = 0; i < g_file_count; i++) {
-        g_launch[i].name[0] = '\0';
         if (item_is_dir(i) || !is_desktop_file(g_files[i].name)) continue;
         char path[PATH_BUF];
         item_path(i, path, sizeof path);
-        if (!gui_app_read_entry(path, &g_launch[i])) g_launch[i].name[0] = '\0';
+        gui_app_read_entry(path, &g_launch[i]);
     }
 }
 

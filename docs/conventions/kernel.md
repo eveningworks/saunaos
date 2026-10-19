@@ -4873,3 +4873,40 @@ the first refusals of each sandbox are logged as `sandbox: pid N
 refused path ...` -- a ring-3 library may read settings or locale data
 as FILES (libc's locale, a schema setting's `/etc/<app>.conf`).
 `ps --sandbox` shows what each process kept.
+
+## SIZE IT TO THE DATA: ALLOCATE AND GROW, DON'T INVENT A CAP
+
+**A list or string whose size comes from the user, the disk or the
+network is allocated to fit and grown on demand -- never a fixed table
+with a number somebody chose.** A chosen cap is a bug with a date on it:
+toywm's desktop-entry registry held 32 apps, and the 32nd (Win16
+Programs, 2026-10-19) made the next one dropped without a word, while
+each entry's Name stopped at 32 bytes and its Comment at 64.
+
+How, in ring 3: `realloc` doubling for a list, ONE allocation per record
+sized to its strings (`gui_app_entry`'s `mem`), the whole thing rebuilt
+and swapped on reload with the old freed. A directory is listed with
+paging (`lib/ulistdir.h`, `opendir()`), not into an array of the
+size of one `SYS_LISTDIR` batch. Out of memory keeps the old state and
+says so in the log.
+
+**A bound is fine when it is not ours to choose**, and then it is
+MIRRORED, with an assertion where it is copied: a protocol field
+(`WIN_APP_ID_LEN`), an ABI record (`QUERY_PROCPATH_MAX`), a hardware
+ring, a file format. A DISPLAY count -- how many rows Recent shows -- is
+a UI decision, not a cap on data.
+
+**The kernel keeps fixed tables where allocating is not allowed**:
+interrupt context, under a spinlock, the GDB stub's stopped path, before
+the heap exists. Say which, in a comment by the table; anywhere else the
+kernel allocates too (`kzalloc`).
+
+**A cap that has to stay is REPORTED when it is hit** -- a log line or
+an error the caller sees -- never a silent drop. Existing fixed tables
+are converted as their code is touched (CLAUDE.md, "fix as touched");
+the ones left in toywm are on the roadmap.
+
+Real systems split the same way: Linux allocates (`kmalloc`, `krealloc`,
+`xarray`) and keeps fixed arrays to the paths that cannot sleep; GLib's
+and KDE's application lists are heap lists rebuilt when the directory
+changes.

@@ -306,6 +306,8 @@ static int find_client_window(int pid, uint32_t id) {
 // each other and raising each other's windows.
 _Static_assert(WIN_APP_ID_MAX == WIN_APP_ID_LEN,
                 "wm.h's WIN_APP_ID_MAX must match abi/win_proto.h's WIN_APP_ID_LEN");
+_Static_assert(WM_PROCPATH_MAX == QUERY_PROCPATH_MAX,
+                "wm.h's WM_PROCPATH_MAX must match abi/query_abi.h's QUERY_PROCPATH_MAX");
 
 static int map_buf(struct window *win, int b, uint32_t gen, int w, int h);
 static void unmap_client_window(struct window *win);
@@ -319,6 +321,8 @@ static void adopt_content_size(struct window *win, int w, int h) {
     win->w = window_has_chrome(win) ? w + 2 : w;
     win->h = window_has_chrome(win) ? h + WM_TITLEBAR_H + 2 : h;
 }
+
+static const char *identity_path(int identity);   // below, with the identity table
 
 static int on_window_created(int pid, uint32_t id,
                               int w, int h, int x, int y,
@@ -380,6 +384,7 @@ static int on_window_created(int pid, uint32_t id,
         for (; app_id[i] && i < WIN_APP_ID_MAX - 1; i++) win->app_id[i] = app_id[i];
         win->app_id[i] = '\0';
     }
+    wm_app_key(identity_path(app_identity), win->app_id, win->app_key, sizeof win->app_key);
 
     // A placeholder until the client sends WIN_REQ_TITLE. Deliberately
     // not left blank: an untitled window is indistinguishable from a
@@ -476,6 +481,7 @@ static int on_popup_created(int pid, uint32_t id, uint32_t parent_id, int w, int
     win->client_pid = pid;
     win->client_win = id;
     win->app_identity = parent->app_identity;
+    k_strlcpy(win->app_key, parent->app_key, sizeof win->app_key);
     if (!map_buf(win, 0, 0, w, h)) {
         wm_logf("wm: client pid %d popup %u -- cannot open its buffer\n", pid, id);
         return 0;
@@ -538,6 +544,7 @@ static int on_dialog_created(int pid, uint32_t id, uint32_t owner_id,
     win->client_pid = pid;
     win->client_win = id;
     win->app_identity = owner->app_identity;
+    k_strlcpy(win->app_key, owner->app_key, sizeof win->app_key);
     if (!map_buf(win, 0, 0, w, h)) {
         wm_logf("wm: client pid %d dialog %u -- cannot open its buffer\n", pid, id);
         return 0;
@@ -925,6 +932,10 @@ static void on_window_hints(int pid, uint32_t id, unsigned flags, int min_w, int
         w->x = no_decor ? cx : cx - 1;
         w->y = no_decor ? cy : cy - WM_TITLEBAR_H - 1;
         adopt_content_size(w, w->client_w, w->client_h);
+        // BEFORE ITS FIRST FRAME the saved geometry was restored at create,
+        // for a frame toywm was going to draw; restore it again for this
+        // one, or a client-framed window drifts by the chrome each launch.
+        if (!w->first_w) wm_geometry_restore(idx);
     }
 
     // The resize grip appears or disappears with this, so the chrome
@@ -1197,6 +1208,10 @@ void wm_client_check_timers(void) {
 
 static char g_ident_path[WM_IDENTITY_MAX][QUERY_PROCPATH_MAX];
 static int  g_ident_count;
+
+static const char *identity_path(int identity) {
+    return identity >= 0 && identity < g_ident_count ? g_ident_path[identity] : "";
+}
 
 static int intern_identity(const char *path) {
     if (!path || !path[0]) return -1;

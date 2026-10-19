@@ -306,6 +306,9 @@ whenever a headline here tells you something you did not already know.
 
 - **A CARD CAN BE SWITCHED OFF (`admin_down`), AND NETD IS ASKED OVER
   ITS CHANNEL**
+- **SIZE IT TO THE DATA: ALLOCATE AND GROW, DON'T INVENT A CAP** -- a
+  bound is mirrored only when a protocol, ABI or the hardware sets it;
+  the kernel keeps fixed tables only where it may not allocate
 
 ### GUI, Toykit and the desktop
 
