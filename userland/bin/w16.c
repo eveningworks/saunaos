@@ -420,29 +420,24 @@ static int on_tick(struct uapp *a) {
     return 0;
 }
 
+// A key's Windows virtual-key code (VK_*): letters and digits are their
+// own, the rest by table. 0 for a key with none.
+static const struct { int key, vk; } VK[] = {
+    { '\n', VK_RETURN }, { '\r', VK_RETURN }, { '\b', VK_BACK }, { '\t', VK_TAB }, { 0x1B, VK_ESCAPE },
+    { KEY_ARROW_LEFT, 0x25 }, { KEY_ARROW_UP, 0x26 }, { KEY_ARROW_RIGHT, 0x27 }, { KEY_ARROW_DOWN, 0x28 },
+    { KEY_PAGE_UP, 0x21 }, { KEY_PAGE_DOWN, 0x22 }, { KEY_END, 0x23 }, { KEY_HOME, 0x24 },
+    { KEY_DELETE, 0x2E },
+    { KEY_F1, 0x70 }, { KEY_F2, 0x71 }, { KEY_F3, 0x72 }, { KEY_F4, 0x73 }, { KEY_F5, 0x74 },
+    { KEY_F6, 0x75 }, { KEY_F7, 0x76 }, { KEY_F8, 0x77 }, { KEY_F9, 0x78 }, { KEY_F10, 0x79 },
+    { KEY_F11, 0x7A }, { KEY_F12, 0x7B },
+};
+
 static int vk_of(int key) {
     if (key >= 'a' && key <= 'z') return key - 32;
     if ((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9') || key == ' ') return key;
-    switch (key) {
-    case '\n': case '\r': return VK_RETURN;
-    case '\b': return VK_BACK;
-    case '\t': return VK_TAB;
-    case 0x1B: return VK_ESCAPE;
-    case KEY_ARROW_LEFT: return 0x25;
-    case KEY_ARROW_UP: return 0x26;
-    case KEY_ARROW_RIGHT: return 0x27;
-    case KEY_ARROW_DOWN: return 0x28;
-    case KEY_PAGE_UP: return 0x21;
-    case KEY_PAGE_DOWN: return 0x22;
-    case KEY_END: return 0x23;
-    case KEY_HOME: return 0x24;
-    case KEY_DELETE: return 0x2E;
-    case KEY_F1: return 0x70;  case KEY_F2: return 0x71;  case KEY_F3: return 0x72;
-    case KEY_F4: return 0x73;  case KEY_F5: return 0x74;  case KEY_F6: return 0x75;
-    case KEY_F7: return 0x76;  case KEY_F8: return 0x77;  case KEY_F9: return 0x78;
-    case KEY_F10: return 0x79; case KEY_F11: return 0x7A; case KEY_F12: return 0x7B;
-    default: return 0;
-    }
+    for (unsigned i = 0; i < sizeof VK / sizeof VK[0]; i++)
+        if (VK[i].key == key) return VK[i].vk;
+    return 0;
 }
 
 // toywm hands over the TRANSLATED key, so the character is known here:
