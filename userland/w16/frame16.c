@@ -104,6 +104,14 @@ void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h)
     *h = W16_CAPTION - 1;
 }
 
+void w16_draw_sysbox(struct ugfx_surface *s, int x, int y, int w, int h, int open) {
+    ugfx_fill_rect(s, x, y, w, h, open ? rgb(0x000080) : rgb(0xC0C0C0));
+    int bx = x + 3, by = y + h / 2 - 1;
+    ugfx_fill_rect(s, bx + 1, by + 1, w - 6, 3, rgb(0x808080));
+    ugfx_fill_rect(s, bx, by, w - 6, 3, rgb(0xFFFFFF));
+    ugfx_draw_rect(s, bx, by, w - 6, 3, rgb(0x000000));
+}
+
 void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int active, int pressed) {
     if (g_w16_desktop_frame) return;
     int W = win->w, H = win->h, f = frame_of(win);
@@ -136,12 +144,8 @@ void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int activ
     int left = cx, right = cx + cw;
     if (win->style & WS_SYSMENU) {                 // the control-menu box
         // Its menu open, the box is drawn in the highlight, as 3.1 did.
-        ugfx_fill_rect(s, cx, cy, BTN, ch, pressed == HIT_SYSMENU ? rgb(0x000080) : rgb(0xC0C0C0));
+        w16_draw_sysbox(s, cx, cy, BTN, ch, pressed == HIT_SYSMENU);
         ugfx_fill_rect(s, cx + BTN, cy, 1, ch, black);
-        int bx = cx + 3, by = cy + ch / 2 - 1;
-        ugfx_fill_rect(s, bx + 1, by + 1, BTN - 6, 3, rgb(0x808080));
-        ugfx_fill_rect(s, bx, by, BTN - 6, 3, rgb(0xFFFFFF));
-        ugfx_draw_rect(s, bx, by, BTN - 6, 3, black);
         left = cx + BTN + 1;
     }
     if (win->style & WS_MAXIMIZEBOX) {
@@ -161,10 +165,11 @@ void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int activ
     }
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
-    int tw = ugfx_text_width(win->title), room = right - left - 4;
+    const char *title = win->text ? win->text : "";
+    int tw = ugfx_text_width(title), room = right - left - 4;
     int tx = left + (room > tw ? (room - tw) / 2 : 2) + 2;
     int ty = cy + (ch - ugfx_char_h()) / 2;
-    ugfx_draw_string_clipped(s, tx, ty, room > 0 ? room : 0, win->title,
+    ugfx_draw_string_clipped(s, tx, ty, room > 0 ? room : 0, title,
                              active ? rgb(0xFFFFFF) : black, UGFX_TRANSPARENT);
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);

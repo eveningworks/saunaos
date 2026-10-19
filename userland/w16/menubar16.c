@@ -131,6 +131,19 @@ static int parse_items(struct reader *r, uint16_t h, int depth) {
 
 // --- the exports --------------------------------------------------------------------
 
+uint16_t w16_load_menu(struct w16 *w, const char *name, uint16_t id) {
+    struct ne_resource res;
+    uint16_t h = 0;
+    if (w16_res_find(w, NE_RT_MENU, 0, name ? 0 : id, name, &res) >= 0) {
+        pthread_mutex_lock(&w->lock);
+        struct reader r = { w->ne.img + res.off, res.len, 4, 0 };   // after the version and header size
+        h = menu_new();
+        if (h && parse_items(&r, h, 0) < 0) { menu_destroy(h); h = 0; }
+        pthread_mutex_unlock(&w->lock);
+    }
+    return h;
+}
+
 // LoadMenu(hInst, lpName)
 static int api_LoadMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
@@ -139,16 +152,7 @@ static int api_LoadMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t p = w16_arg32(a);
     char name[64] = "";
     if ((p >> 16) && cpu16_str(c, (uint16_t)(p >> 16), (uint16_t)p, name, sizeof name) < 0) return -1;
-    struct ne_resource res;
-    uint16_t h = 0;
-    if (w16_res_find(w, NE_RT_MENU, 0, (uint16_t)((p >> 16) ? 0 : p), name[0] ? name : 0, &res) >= 0) {
-        pthread_mutex_lock(&w->lock);
-        struct reader r = { w->ne.img + res.off, res.len, 4, 0 };   // after the version and header size
-        h = menu_new();
-        if (h && parse_items(&r, h, 0) < 0) { menu_destroy(h); h = 0; }
-        pthread_mutex_unlock(&w->lock);
-    }
-    c->r[R_AX] = h;
+    c->r[R_AX] = w16_load_menu(w, (p >> 16) ? name : 0, (uint16_t)p);
     return 6;
 }
 
@@ -218,27 +222,25 @@ static int api_GetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_SetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
-    uint16_t h = w16_arg16(a);
+    w16_set_menu(w, w16_arg16(a));
+    w->cpu.r[R_AX] = 1;
+    return 4;
+}
+
+void w16_set_menu(struct w16 *w, uint16_t h) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *win = &w->win;
     int had = win->menubar, has = menu_of(h) != 0;
     w->menu = has ? h : 0;
     win->menubar = has;
-    int cx, cy, cw, ch;
-    w16_client_rect(win, &cx, &cy, &cw, &ch);
-    uint32_t *fb = had != has && win->used ? calloc((size_t)cw * ch + 1, 4) : 0;
-    if (fb) {
-        free(win->fb);
-        win->fb = fb;
-        win->cw = cw;
-        win->ch = ch;
-        win->inval = win->erase = 1;
-    }
+    int resized = had != has && win->used && w16_top_fit(win) > 0;
+    int cw = win->cw, ch = win->ch;
     pthread_mutex_unlock(&w->lock);
-    if (fb) w16_post_msg(w, win->hwnd, WM_SIZE, SIZE_RESTORED, (uint32_t)ch << 16 | (uint16_t)cw);
+    if (resized) {
+        w16_invalidate(w, win, 1);
+        w16_post_msg(w, win->hwnd, WM_SIZE, SIZE_RESTORED, (uint32_t)ch << 16 | (uint16_t)cw);
+    }
     bar_changed(w);
-    w->cpu.r[R_AX] = 1;
-    return 4;
 }
 
 // GetSubMenu(hMenu, nPos)
@@ -320,7 +322,7 @@ static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_
         else
             hit = msg == WM_CHAR && key == wp;
         if (hit) {
-            struct w16_msg cm = { hwnd, WM_COMMAND, (uint16_t)cmd, 0x10000u };
+            struct w16_msg cm = { hwnd, WM_COMMAND, (uint16_t)cmd, 0x10000u, 0 };
             w16_dispatch(w, &cm);
             c->r[R_AX] = 1;
             return 8;
@@ -356,10 +358,10 @@ void w16_menu_opening(struct w16 *w, int pos, int first) {
     pthread_mutex_unlock(&w->lock);
     if (!sub) return;
     if (first) {
-        struct w16_msg im = { w->win.hwnd, 0x0116, bar, 0 };            // WM_INITMENU
+        struct w16_msg im = { w->win.hwnd, 0x0116, bar, 0, 0 };            // WM_INITMENU
         w16_dispatch(w, &im);
     }
-    struct w16_msg ip = { w->win.hwnd, 0x0117, sub, (uint32_t)(uint16_t)pos };   // WM_INITMENUPOPUP
+    struct w16_msg ip = { w->win.hwnd, 0x0117, sub, (uint32_t)(uint16_t)pos, 0 };   // WM_INITMENUPOPUP
     w16_dispatch(w, &ip);
     w16_task_post_arg(w, W16_POST_MENU_SHOW, pos);
 }

@@ -930,16 +930,20 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Stage 3, first part: resources, both heaps, GDI objects and blits, timers, capture -- Minesweeper plays~~ DONE 2026-10-19
 - [x] ~~w16: the menu bar from the MENU resource, accelerators, dialogs from DIALOG resources, MessageBox~~ DONE 2026-10-19
 - [ ] w16: a dialog placed where its template says, not centred -- toywm opens owned windows centred
-- [ ] w16: the other standard controls -- check boxes, radio buttons, group boxes, LISTBOX, COMBOBOX
+- [x] ~~w16: the other standard controls -- check boxes, radio buttons, group boxes, LISTBOX, COMBOBOX~~ DONE 2026-10-19
 - [ ] w16: the sound driver's voices played through toy-os's sound, not answered silently
 - [x] ~~w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings~~ DONE 2026-10-19
 - [ ] w16: the launcher's Run with trace -- open the trace beside the stop, in Log Viewer or Notepad
 - [x] ~~w16: a program's missing calls in a window of their own, with names and kinds for every Win16 DLL~~ DONE 2026-10-19
 - [x] ~~w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values~~ DONE 2026-10-19 -- the selector ones remain
-- [ ] Stage 3: the standard controls (BUTTON, EDIT, LISTBOX, STATIC) and file I/O
+- [x] ~~Stage 3: the standard controls (BUTTON, EDIT, LISTBOX, STATIC) and file I/O~~ DONE 2026-10-19 -- Notepad is complete
+- [ ] w16: a combo box's list reaching past its dialog's edge -- it opens upward when it cannot open down
+- [ ] w16: a file dropped on a program (WM_DROPFILES) -- DragAcceptFiles is answered, nothing is ever dropped
+- [ ] w16: printing -- PrintDlg answers "no default printer"
+- [ ] w16: a NASM sample that edits and saves, so the GUI test covers the EDIT, the files and COMMDLG without Notepad
 - [ ] Stage 4: real programs (the user's own copies), each run's unimplemented-import list worked through
 - [ ] Several top-level windows per uapp process, which real Win16 programs need -- owned dialogs done 2026-10-19
-- [ ] w16's fixed tables grown on demand: the message queue, classes, local-heap blocks, GDI objects, timers
+- [ ] w16's fixed tables grown on demand: the message queue, GDI objects, timers -- classes and local-heap blocks grow since 2026-10-19
 - [x] ~~w16: fractional scales (1.25x to 3x) with a choice of Sharp, Pixels or Smooth~~ DONE 2026-10-19
 
 ## Hardware

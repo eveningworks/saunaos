@@ -52,11 +52,22 @@ uint32_t gdi_rop2(int r2, uint32_t p, uint32_t d) {
     return out & WHITE;
 }
 
+void gdi_target_whole(struct gdi_target *t) {
+    t->ox = t->oy = 0;
+    t->x0 = t->y0 = 0;
+    t->x1 = t->w;
+    t->y1 = t->h;
+}
+
+// DC coordinates into the buffer's, cut to what the target may touch; the
+// source offsets move with a cut left or top edge.
 static int clip(const struct gdi_target *t, int *x, int *y, int *w, int *h, int *sx, int *sy) {
-    if (*x < 0) { *w += *x; if (sx) *sx -= *x; *x = 0; }
-    if (*y < 0) { *h += *y; if (sy) *sy -= *y; *y = 0; }
-    if (*x + *w > t->w) *w = t->w - *x;
-    if (*y + *h > t->h) *h = t->h - *y;
+    *x += t->ox;
+    *y += t->oy;
+    if (*x < t->x0) { int d = t->x0 - *x; *w -= d; if (sx) *sx += d; *x = t->x0; }
+    if (*y < t->y0) { int d = t->y0 - *y; *h -= d; if (sy) *sy += d; *y = t->y0; }
+    if (*x + *w > t->x1) *w = t->x1 - *x;
+    if (*y + *h > t->y1) *h = t->y1 - *y;
     return *w > 0 && *h > 0;
 }
 
@@ -79,10 +90,13 @@ void gdi_bitblt(const struct gdi_blit *b) {
     if (uses_src) {
         if (!b->src || !b->src->px) return;
         // The source rectangle clips too; the offsets move both.
-        if (sx < 0) { x -= sx; w += sx; sx = 0; }
-        if (sy < 0) { y -= sy; h += sy; sy = 0; }
-        if (sx + w > b->src->w) w = b->src->w - sx;
-        if (sy + h > b->src->h) h = b->src->h - sy;
+        const struct gdi_target *st = b->src;
+        sx += st->ox;
+        sy += st->oy;
+        if (sx < st->x0) { int d = st->x0 - sx; x += d; w -= d; sx = st->x0; }
+        if (sy < st->y0) { int d = st->y0 - sy; y += d; h -= d; sy = st->y0; }
+        if (sx + w > st->x1) w = st->x1 - sx;
+        if (sy + h > st->y1) h = st->y1 - sy;
         if (w <= 0 || h <= 0) return;
     }
     // A buffer copy first when source and destination overlap.
@@ -107,7 +121,9 @@ void gdi_bitblt(const struct gdi_blit *b) {
 }
 
 void gdi_pixel(const struct gdi_target *t, int x, int y, uint32_t px, int r2) {
-    if (!t->px || x < 0 || y < 0 || x >= t->w || y >= t->h) return;
+    x += t->ox;
+    y += t->oy;
+    if (!t->px || x < t->x0 || y < t->y0 || x >= t->x1 || y >= t->y1) return;
     uint32_t *d = t->px + (size_t)y * t->w + x;
     *d = gdi_rop2(r2, t->mono ? to_mono(px) : px, *d);
 }

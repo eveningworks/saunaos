@@ -10,10 +10,11 @@
 #include "w16_internal.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "lib/uclip.h"
 
-#define DESKTOP_HWND 0x2000
 
 uint64_t w16_now_ms(void) {
     struct timespec ts;
@@ -46,13 +47,32 @@ static int point_offset(struct w16 *w, uint32_t far, int dx, int dy) {
     return 0;
 }
 
-// The last mouse point in screen coordinates: the client origin added, as
-// ClientToScreen adds it (w16 knows the frame, not the window's place).
+// SCREEN COORDINATES are the top-level window's own: w16 knows the frame,
+// not where the compositor put the window. A client point of `x` becomes
+// one by adding x's place in its top-level window's client buffer and
+// that buffer's place in the window (the main window's frame).
+static void screen_offset(struct w16 *w, struct w16_wnd *x, int *dx, int *dy) {
+    *dx = *dy = 0;
+    if (!x) return;
+    struct w16_wnd *top = w16_wnd_top(w, x);
+    w16_wnd_origin(w, x, dx, dy);
+    if (top == &w->win) {
+        int cx, cy, cw, ch;
+        w16_client_rect(top, &cx, &cy, &cw, &ch);
+        *dx += cx;
+        *dy += cy;
+    } else if (top) {
+        *dx += w16_dlg_frame(top);
+        *dy += w16_dlg_frame(top) + w16_dlg_caption(top);
+    }
+}
+
+// The last mouse point in screen coordinates.
 void w16_cursor_screen(struct w16 *w, int16_t *x, int16_t *y) {
-    int cx, cy, cw, ch;
-    w16_client_rect(&w->win, &cx, &cy, &cw, &ch);
-    *x = (int16_t)(w->mouse_x + cx);
-    *y = (int16_t)(w->mouse_y + cy);
+    int dx, dy;
+    screen_offset(w, w16_wnd_get(w, w->mouse_hwnd ? w->mouse_hwnd : w->win.hwnd), &dx, &dy);
+    *x = (int16_t)(w->mouse_x + dx);
+    *y = (int16_t)(w->mouse_y + dy);
 }
 
 // --- wsprintf ----------------------------------------------------------------
@@ -120,15 +140,15 @@ static int wsprintf16(struct w16 *w) {
 
 // --- timers ------------------------------------------------------------------
 
-static uint16_t set_timer(struct w16 *w, uint16_t id, uint32_t ms, uint32_t proc) {
+static uint16_t set_timer(struct w16 *w, uint16_t hwnd, uint16_t id, uint32_t ms, uint32_t proc) {
     pthread_mutex_lock(&w->lock);
     struct w16_timer *t = 0;
     for (int i = 0; i < W16_TIMERS; i++)
-        if (w->timer[i].used && w->timer[i].id == id) t = &w->timer[i];
+        if (w->timer[i].used && w->timer[i].id == id && w->timer[i].hwnd == hwnd) t = &w->timer[i];
     for (int i = 0; !t && i < W16_TIMERS; i++)
         if (!w->timer[i].used) t = &w->timer[i];
     if (t) {
-        *t = (struct w16_timer){ .id = id, .proc = proc, .interval_ms = ms ? ms : 1,
+        *t = (struct w16_timer){ .hwnd = hwnd, .id = id, .proc = proc, .interval_ms = ms ? ms : 1,
                                  .due_ms = w16_now_ms() + (ms ? ms : 1), .used = 1 };
     }
     pthread_mutex_unlock(&w->lock);
@@ -143,7 +163,7 @@ void w16_timers_fire(struct w16 *w) {
         if (!t->used || t->pending || now < t->due_ms) continue;
         unsigned next = (w->qtail + 1) % W16_QUEUE;
         if (next == w->qhead) break;
-        w->q[w->qtail] = (struct w16_msg){ w->win.hwnd, WM_TIMER, t->id, t->proc };
+        w->q[w->qtail] = (struct w16_msg){ t->hwnd ? t->hwnd : w->win.hwnd, WM_TIMER, t->id, t->proc, 0 };
         w->qtail = next;
         t->pending = 1;
         t->due_ms = now + t->interval_ms;
@@ -158,9 +178,8 @@ void w16_timers_fire(struct w16 *w) {
 static int api_SetTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg16(a);
-    uint16_t id = w16_arg16(a), ms = w16_arg16(a);
-    c->r[R_AX] = set_timer(w, id, ms, w16_arg32(a));
+    uint16_t hwnd = w16_arg16(a), id = w16_arg16(a), ms = w16_arg16(a);
+    c->r[R_AX] = set_timer(w, hwnd, id, ms, w16_arg32(a));
     return 10;
 }
 
@@ -168,12 +187,14 @@ static int api_SetTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_KillTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg16(a);
-    uint16_t id = w16_arg16(a);
+    uint16_t hwnd = w16_arg16(a), id = w16_arg16(a);
     pthread_mutex_lock(&w->lock);
     int found = 0;
     for (int i = 0; i < W16_TIMERS; i++)
-        if (w->timer[i].used && w->timer[i].id == id) { w->timer[i].used = 0; found = 1; }
+        if (w->timer[i].used && w->timer[i].id == id && w->timer[i].hwnd == hwnd) {
+            w->timer[i].used = 0;
+            found = 1;
+        }
     pthread_mutex_unlock(&w->lock);
     c->r[R_AX] = (uint16_t)found;
     return 4;
@@ -208,8 +229,10 @@ static int api_GetCursorPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
 static int api_SetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
+    pthread_mutex_lock(&w->lock);
     c->r[R_AX] = w->capture;
     w->capture = w16_arg16(a);
+    pthread_mutex_unlock(&w->lock);
     return 2;
 }
 
@@ -217,7 +240,9 @@ static int api_SetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_ReleaseCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
+    pthread_mutex_lock(&w->lock);
     w->capture = 0;
+    pthread_mutex_unlock(&w->lock);
     return 0;
 }
 
@@ -230,8 +255,25 @@ static int api_GetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;
 }
 
-// SetFocus, SetActiveWindow(hwnd) -> the previous
+// SetFocus(hwnd) -> the previous
 static int api_SetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    c->r[R_AX] = w16_set_focus(w, w16_arg16(a));
+    return c->fault ? -1 : 2;
+}
+
+// GetFocus
+static int api_GetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    (void)a;
+    c->r[R_AX] = w->focus;
+    return 0;
+}
+
+// SetActiveWindow(hwnd) -> the previous: w16's one top-level window, or its dialog
+static int api_SetActiveWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     w16_arg16(a);
@@ -239,25 +281,23 @@ static int api_SetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// GetFocus, GetActiveWindow
-static int api_GetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+// GetActiveWindow: the top-level window the focus is in
+static int api_GetActiveWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     (void)a;
-    c->r[R_AX] = w->win.used ? w->win.hwnd : 0;
+    struct w16_wnd *f = w16_wnd_get(w, w->focus), *top = f ? w16_wnd_top(w, f) : 0;
+    c->r[R_AX] = top ? top->hwnd : w->win.used ? w->win.hwnd : 0;
     return 0;
 }
 
 // ClientToScreen, ScreenToClient(hwnd, lpPoint)
 static int api_ClientToScreen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    uint32_t p;
-    // The window's place on the screen is the compositor's; w16 knows
-    // only the frame, so screen coordinates are the window's own.
-    w16_arg16(a);
-    p = w16_arg32(a);
-    int cx, cy, cw, ch;
-    w16_client_rect(&w->win, &cx, &cy, &cw, &ch);
-    if (point_offset(w, p, ordinal == 28 ? cx : -cx, ordinal == 28 ? cy : -cy) < 0) return -1;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    uint32_t p = w16_arg32(a);
+    int dx, dy;
+    screen_offset(w, x, &dx, &dy);
+    if (point_offset(w, p, ordinal == 28 ? dx : -dx, ordinal == 28 ? dy : -dy) < 0) return -1;
     return 6;
 }
 
@@ -270,11 +310,19 @@ static int api_IsIconic(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// GetWindowRect(hwnd, lpRect)
+// GetWindowRect(hwnd, lpRect): in screen coordinates
 static int api_GetWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
-    int16_t wr[4] = { 0, 0, (int16_t)w->win.w, (int16_t)w->win.h };
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    int16_t wr[4] = { 0, 0, 0, 0 };
+    if (x && x->kind == W16_K_CHILD) {
+        int dx, dy, l, t, r, b;
+        screen_offset(w, x, &dx, &dy);
+        w16_wnd_insets(x, &l, &t, &r, &b);
+        wr[0] = (int16_t)(dx - l);
+        wr[1] = (int16_t)(dy - t);
+    }
+    if (x) { wr[2] = (int16_t)(wr[0] + x->w); wr[3] = (int16_t)(wr[1] + x->h); }
     if (put_rect(w, w16_arg32(a), wr) < 0) return -1;
     return 6;
 }
@@ -291,8 +339,8 @@ static int api_BringWindowToTop(struct w16 *w, unsigned ordinal, struct w16_args
 // IsWindow, IsWindowVisible(hwnd)
 static int api_IsWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
-    uint16_t h = w16_arg16(a);
-    c->r[R_AX] = w->win.used && h == w->win.hwnd && (ordinal == 47 || w->win.visible);
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    c->r[R_AX] = x && !x->destroyed && (ordinal == 47 || w16_wnd_shown(w, x));
     return 2;
 }
 
@@ -432,7 +480,7 @@ static int api_GetDesktopWindow(struct w16 *w, unsigned ordinal, struct w16_args
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     (void)a;
-    c->r[R_AX] = DESKTOP_HWND;
+    c->r[R_AX] = W16_DESKTOP;
     return 0;
 }
 
@@ -449,6 +497,154 @@ static int api_wsprintf(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
     return wsprintf16(w);
+}
+
+// --- strings -----------------------------------------------------------------
+
+// A far string, allocated; NULL after a fault.
+static char *far_dup(struct w16 *w, uint32_t far) {
+    size_t cap = 256;
+    for (;;) {
+        char *s = malloc(cap);
+        if (!s) { cpu16_set_fault(&w->cpu, FAULT_API, "out of memory for a string"); return 0; }
+        int n = cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, s, (unsigned)cap);
+        if (n < 0) { free(s); return 0; }
+        if ((size_t)n < cap - 1 || cap >= 65536) return s;
+        free(s);
+        cap *= 4;
+    }
+}
+
+static int fold(int c) { return c >= 'a' && c <= 'z' ? c - 32 : (c >= 0xE0 && c <= 0xFE && c != 0xF7) ? c - 32 : c; }
+
+// lstrcmp, lstrcmpi(lpString1, lpString2): -1, 0 or 1, in the ANSI order
+static int api_lstrcmp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint32_t p1 = w16_arg32(a), p2 = w16_arg32(a);
+    char *s = far_dup(w, p1), *t = s ? far_dup(w, p2) : 0;
+    if (!s || !t) { free(s); return -1; }
+    int r = 0;
+    for (const unsigned char *x = (unsigned char *)s, *y = (unsigned char *)t; !r; x++, y++) {
+        int cx = ordinal == 471 ? fold(*x) : *x, cy = ordinal == 471 ? fold(*y) : *y;
+        r = cx < cy ? -1 : cx > cy;
+        if (!*x || !*y) break;
+    }
+    free(s);
+    free(t);
+    w->cpu.r[R_AX] = (uint16_t)(int16_t)r;
+    return 8;
+}
+
+// AnsiUpper, AnsiLower(lpString): in place -- or, with a null selector, the
+// one character in the offset's low byte
+static int api_AnsiUpper(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint32_t far = w16_arg32(a);
+    int up = ordinal == 431;
+    if (!(far >> 16)) {
+        int ch = far & 0xFF;
+        ch = up ? fold(ch) : (ch >= 'A' && ch <= 'Z') || (ch >= 0xC0 && ch <= 0xDE && ch != 0xD7) ? ch + 32 : ch;
+        w->cpu.r[R_AX] = (uint16_t)ch;
+        w->cpu.r[R_DX] = 0;
+        return 4;
+    }
+    char *s = far_dup(w, far);
+    if (!s) return -1;
+    size_t n = strlen(s);
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (unsigned)n + 1, 1);
+    for (size_t i = 0; p && i < n; i++) {
+        int ch = p[i];
+        p[i] = (uint8_t)(up ? fold(ch) : (ch >= 'A' && ch <= 'Z') || (ch >= 0xC0 && ch <= 0xDE && ch != 0xD7) ? ch + 32 : ch);
+    }
+    free(s);
+    if (!p) return -1;
+    w->cpu.r[R_AX] = (uint16_t)far;
+    w->cpu.r[R_DX] = (uint16_t)(far >> 16);
+    return 4;
+}
+
+// AnsiNext(lpCurrent): the next character, staying on the terminator
+static int api_AnsiNext(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t far = w16_arg32(a);
+    const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 1, 0);
+    if (!p) return -1;
+    uint32_t r = *p ? far + 1 : far;
+    w->cpu.r[R_AX] = (uint16_t)r;
+    w->cpu.r[R_DX] = (uint16_t)(far >> 16);
+    return 4;
+}
+
+// AnsiPrev(lpStart, lpCurrent): the character before, never before lpStart
+static int api_AnsiPrev(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t start = w16_arg32(a), cur = w16_arg32(a);
+    uint16_t off = (uint16_t)cur > (uint16_t)start ? (uint16_t)((uint16_t)cur - 1) : (uint16_t)start;
+    w->cpu.r[R_AX] = off;
+    w->cpu.r[R_DX] = (uint16_t)(cur >> 16);
+    return 8;
+}
+
+// TabbedTextOut(hdc, x, y, lpString, nCount, nTabPositions, lpnTabStopPositions,
+// nTabOrigin) -> MAKELONG(width, height): tabs every 8 average characters,
+// or every first stop's distance when one is given
+static int api_TabbedTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    int16_t n = (int16_t)w16_arg16(a), ntabs = (int16_t)w16_arg16(a);
+    uint32_t tabs = w16_arg32(a);
+    w16_arg16(a);
+    char *text = n > 0 ? malloc((size_t)n + 1) : strdup("");
+    if (!text) return -1;
+    if (n > 0) {
+        const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (unsigned)n, 0);
+        if (!p) { free(text); return -1; }
+        memcpy(text, p, (size_t)n);
+        text[n] = 0;
+    }
+    int ave, cy, tab;
+    w16_text_size("x", &ave, &cy);
+    tab = ave * 8;
+    if (ntabs > 0 && (tabs >> 16)) {
+        const uint8_t *t = cpu16_ptr(&w->cpu, (uint16_t)(tabs >> 16), (uint16_t)tabs, 2, 0);
+        if (!t) { free(text); return -1; }
+        int16_t first = (int16_t)(t[0] | t[1] << 8);
+        if (first > 0) tab = first;
+    }
+    int width = w16_gdi_text(w, hdc, x, y, text, tab);
+    free(text);
+    w->cpu.r[R_AX] = (uint16_t)(width > 0 ? width : 0);
+    w->cpu.r[R_DX] = (uint16_t)cy;
+    return 22;
+}
+
+// --- the clipboard: the EDIT control moves its text itself (edit16.c) ------------
+
+#define CF_TEXT 1
+
+// OpenClipboard(hwnd), CloseClipboard: one clipboard, always open to us
+static int api_OpenClipboard(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    if (ordinal == 137) w16_arg16(a);
+    w->cpu.r[R_AX] = 1;
+    return ordinal == 137 ? 2 : 0;
+}
+
+// EnumClipboardFormats(fmt): CF_TEXT when there is text, then the end
+static int api_EnumClipboardFormats(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t fmt = w16_arg16(a);
+    w->cpu.r[R_AX] = fmt == 0 && uclip_peek_op() != UCLIP_NONE ? CF_TEXT : 0;
+    return 2;
+}
+
+// IsClipboardFormatAvailable(fmt)
+static int api_IsClipboardFormatAvailable(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    static struct uclip c;
+    int n;
+    uint16_t fmt = w16_arg16(a);
+    w->cpu.r[R_AX] = fmt == CF_TEXT && uclip_load(&c) && uclip_text(&c, &n) != 0;
+    return 2;
 }
 
 // WinHelp(hwnd, lpHelpFile, wCommand, dwData): there is no help viewer,
@@ -493,8 +689,8 @@ const struct w16_api g_user_misc_api[] = {
     { 47, api_IsWindow },
     { 49, api_IsWindow },
     { 50, api_FindWindow },
-    { 59, api_SetFocus },
-    { 60, api_GetFocus },
+    { 59, api_SetActiveWindow },
+    { 60, api_GetActiveWindow },
     { 69, api_SetCursor },
     { 71, api_ShowCursor },
     { 72, api_SetRect },
@@ -506,13 +702,47 @@ const struct w16_api g_user_misc_api[] = {
     { 79, api_IntersectRect },
     { 81, api_FillRect },
     { 104, api_MessageBeep },
+    { 137, api_OpenClipboard },
+    { 138, api_OpenClipboard },
+    { 144, api_EnumClipboardFormats },
     { 171, api_WinHelp },
     { 180, api_GetSysColor },
+    { 193, api_IsClipboardFormatAvailable },
+    { 196, api_TabbedTextOut },
     { 236, api_GetCapture },
     { 286, api_GetDesktopWindow },
     { 287, api_GetLastActivePopup },
     { 420, api_wsprintf },
+    { 430, api_lstrcmp },
+    { 431, api_AnsiUpper },
+    { 432, api_AnsiUpper },
+    { 471, api_lstrcmp },
+    { 472, api_AnsiNext },
+    { 473, api_AnsiPrev },
 };
+
+// KEYBOARD's AnsiToOem, OemToAnsi(src, dst): w16's DOS has no code page of
+// its own -- its file names are the program's ANSI ones -- so the two
+// sets are one and a string is copied as it is.
+static int api_AnsiToOem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t src = w16_arg32(a), dst = w16_arg32(a);
+    char *s = far_dup(w, src);
+    if (!s) return -1;
+    size_t n = strlen(s);
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(dst >> 16), (uint16_t)dst, (unsigned)n + 1, 1);
+    if (p) memmove(p, s, n + 1);
+    free(s);
+    if (!p) return -1;
+    w->cpu.r[R_AX] = 1;
+    return 8;
+}
+
+const struct w16_api g_keyboard_api[] = {
+    { 5, api_AnsiToOem },
+    { 6, api_AnsiToOem },
+};
+const unsigned g_keyboard_api_n = sizeof g_keyboard_api / sizeof g_keyboard_api[0];
 const unsigned g_user_misc_api_n = sizeof g_user_misc_api / sizeof g_user_misc_api[0];
 
 int w16_user_misc(struct w16 *w, unsigned ordinal, struct w16_args *a) {

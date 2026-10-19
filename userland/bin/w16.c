@@ -20,6 +20,7 @@
 #include "win_proto.h"
 #include "lib/uargs.h"
 #include "lib/udclick.h"
+#include "lib/uclip_page.h"   // CLIP_SHM_NAME: the clipboard an EDIT copies to
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "ui/uapp.h"
@@ -29,14 +30,11 @@
 
 #define W16_FILE_MAX (16u << 20)   // NE files are at most a few MiB
 
-#define VK_BACK   0x08
-#define VK_TAB    0x09
-#define VK_RETURN 0x0D
-#define VK_ESCAPE 0x1B
 #define MK_LBUTTON 0x0001
 #define MK_RBUTTON 0x0002
 
 static int g_info, g_check;
+static char g_tail[127];                 // the program's command line: DOS's 126 characters
 static const char *g_trace_path;
 static char g_exe[W16_PATH_MAX];         // the program, as an absolute path: its settings' key
 
@@ -51,7 +49,7 @@ static const struct uargs_opt OPTS[] = {
 
 static const struct uargs_prog PROG = {
     .name = "w16",
-    .usage = "FILE\n--info FILE\n--check FILE",
+    .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE",
     .summary = "Run a 16-bit Windows (Windows 3.x) program in a window, or with --info\n"
                "list what an NE executable holds and the Windows functions it imports.\n"
                "Only a few functions are implemented so far: a program that calls one\n"
@@ -117,10 +115,12 @@ static int mouse_is_programs(enum w16_hit hit) {
     return hit == HIT_CLIENT || g_w16.capture;
 }
 
-static uint32_t client_lparam(int x, int y) {
+// A press, a release or a move at window point (x, y), for the window
+// of the program's under it (or holding the capture).
+static void client_mouse(uint16_t msg, uint16_t wp, int x, int y) {
     int cx, cy, cw, ch;
     w16_client_rect(&g_w16.win, &cx, &cy, &cw, &ch);
-    return (uint32_t)(uint16_t)(y - cy) << 16 | (uint16_t)(x - cx);
+    w16_route_mouse(&g_w16, &g_w16.win, msg, wp, x - cx, y - cy);
 }
 
 static void syscommand(unsigned sc) {
@@ -265,7 +265,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     if (bh) w16_menubar_draw(out, &g_w16, bx, by, bw, bar_open() ? g_bar_pos : -1);
     int cx, cy, cw, ch;
     w16_client_rect(win, &cx, &cy, &cw, &ch);
-    if (win->fb) ugfx_blit(out, cx, cy, win->cw, win->ch, win->fb, win->cw);
+    if (win->fb) ugfx_blit(out, cx, cy, win->fbw, win->fbh, win->fb, win->fbw);
     if (out != s) w16_scale_blit(s, 0, 0, g_virt, win->w, win->h, win->w);
     pthread_mutex_unlock(&g_w16.lock);
     w16_menu_draw(&g_menu);
@@ -315,9 +315,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         unsigned now_down = WIN_MOUSE_BUTTONS(buttons) & 3, went = now_down & ~g_buttons;
         g_buttons = now_down;
         for (unsigned bit = 1; bit <= 2; bit <<= 1)
-            if (went & bit)
-                w16_post_msg(&g_w16, g_w16.win.hwnd, button_msg(bit, 1), mk_flags(buttons),
-                             client_lparam(x, y));
+            if (went & bit) client_mouse(button_msg(bit, 1), mk_flags(buttons), x, y);
         return;
     }
     if (!(buttons & 1)) return;
@@ -385,9 +383,7 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     g_buttons = now_down;
     if (mouse_is_programs(hit))
         for (unsigned bit = 1; bit <= 2; bit <<= 1)
-            if (went & bit)
-                w16_post_msg(&g_w16, g_w16.win.hwnd, button_msg(bit, 0), mk_flags(buttons),
-                             client_lparam(x, y));
+            if (went & bit) client_mouse(button_msg(bit, 0), mk_flags(buttons), x, y);
 }
 
 static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
@@ -411,7 +407,7 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     }
     unsigned edges;
     if (mouse_is_programs(w16_frame_hit(&g_w16.win, x, y, &edges)))
-        w16_post_msg(&g_w16, g_w16.win.hwnd, WM_MOUSEMOVE, mk_flags(buttons), client_lparam(x, y));
+        client_mouse(WM_MOUSEMOVE, mk_flags(buttons), x, y);
 }
 
 static int on_tick(struct uapp *a) {
@@ -420,29 +416,8 @@ static int on_tick(struct uapp *a) {
     return 0;
 }
 
-// A key's Windows virtual-key code (VK_*): letters and digits are their
-// own, the rest by table. 0 for a key with none.
-static const struct { int key, vk; } VK[] = {
-    { '\n', VK_RETURN }, { '\r', VK_RETURN }, { '\b', VK_BACK }, { '\t', VK_TAB }, { 0x1B, VK_ESCAPE },
-    { KEY_ARROW_LEFT, 0x25 }, { KEY_ARROW_UP, 0x26 }, { KEY_ARROW_RIGHT, 0x27 }, { KEY_ARROW_DOWN, 0x28 },
-    { KEY_PAGE_UP, 0x21 }, { KEY_PAGE_DOWN, 0x22 }, { KEY_END, 0x23 }, { KEY_HOME, 0x24 },
-    { KEY_DELETE, 0x2E },
-    { KEY_F1, 0x70 }, { KEY_F2, 0x71 }, { KEY_F3, 0x72 }, { KEY_F4, 0x73 }, { KEY_F5, 0x74 },
-    { KEY_F6, 0x75 }, { KEY_F7, 0x76 }, { KEY_F8, 0x77 }, { KEY_F9, 0x78 }, { KEY_F10, 0x79 },
-    { KEY_F11, 0x7A }, { KEY_F12, 0x7B },
-};
-
-static int vk_of(int key) {
-    if (key >= 'a' && key <= 'z') return key - 32;
-    if ((key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9') || key == ' ') return key;
-    for (unsigned i = 0; i < sizeof VK / sizeof VK[0]; i++)
-        if (VK[i].key == key) return VK[i].vk;
-    return 0;
-}
-
-// toywm hands over the TRANSLATED key, so the character is known here:
-// WM_KEYDOWN and then WM_CHAR are posted together, and TranslateMessage
-// (user16.c) has nothing left to do.
+// A key not for the frame or the menus goes to the program's window with
+// the focus (input16.c).
 static void on_key(struct uapp *a, int key, unsigned mods) {
     if (g_faulted) {
         if (w16_msgbox_key(&g_box, key)) end_faulted();
@@ -480,23 +455,19 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         pthread_mutex_unlock(&g_w16.lock);
         if (t >= 0) { bar_request(a, t, 1); return; }
     }
-    g_w16.key_mods = mods & (KEY_MOD_SHIFT | KEY_MOD_CTRL | KEY_MOD_ALT);
-    int vk = vk_of(key);
-    if (vk) w16_post_msg(&g_w16, g_w16.win.hwnd, WM_KEYDOWN, (uint16_t)vk, 1);
-    int ch = key == '\n' ? '\r' : key;
-    if ((ch >= 0x20 && ch < 0x7F) || ch == '\r' || ch == '\b' || ch == '\t' || ch == 0x1B)
-        w16_post_msg(&g_w16, g_w16.win.hwnd, WM_CHAR, (uint16_t)ch, 1);
+    w16_route_key(&g_w16, &g_w16.win, key, mods, 0);
 }
 
 static void on_key_up(struct uapp *a, int key, unsigned mods) {
     (void)a; (void)mods;
     if (g_faulted || w16_menu_open_p(&g_menu) || bar_open()) return;
-    int vk = vk_of(key);
-    if (vk) w16_post_msg(&g_w16, g_w16.win.hwnd, WM_KEYUP, (uint16_t)vk, 0xC0000001u);
+    w16_route_key(&g_w16, &g_w16.win, key, mods, 1);
 }
 
 static void on_focus(struct uapp *a, int focused) {
-    (void)focused;
+    // WM_ACTIVATE, whose DefWindowProc gives the window -- or the program,
+    // a child of it -- the keyboard focus.
+    w16_post_msg(&g_w16, g_w16.win.hwnd, W16_WM_ACTIVATE, (uint16_t)(focused != 0), 0);
     uapp_redraw(a);                      // the caption's colour follows focus
 }
 
@@ -509,19 +480,13 @@ static void on_resize(struct uapp *a, int w, int h) {
     win->h = h;
     win->maximized = uapp_maximized(a);
     int max = win->maximized;
-    int cx, cy, cw, ch;
-    w16_client_rect(win, &cx, &cy, &cw, &ch);
-    uint32_t *fb = calloc((size_t)cw * ch + 1, 4);
-    if (fb) {
-        free(win->fb);
-        win->fb = fb;
-        win->cw = cw;
-        win->ch = ch;
-        win->inval = win->erase = 1;
-    }
+    int fitted = w16_top_fit(win) > 0, cw = win->cw, ch = win->ch;
     pthread_mutex_unlock(&g_w16.lock);
-    if (fb) w16_post_msg(&g_w16, win->hwnd, WM_SIZE, max ? SIZE_MAXIMIZED : SIZE_RESTORED,
-                         (uint32_t)ch << 16 | (uint16_t)cw);
+    if (fitted) {
+        w16_invalidate(&g_w16, win, 1);
+        w16_post_msg(&g_w16, win->hwnd, WM_SIZE, max ? SIZE_MAXIMIZED : SIZE_RESTORED,
+                     (uint32_t)ch << 16 | (uint16_t)cw);
+    }
     w16_menu_close(&g_menu);
     bar_close(a);
     uapp_redraw(a);
@@ -554,6 +519,20 @@ static int on_user(struct uapp *a, int code, int arg) {
         return 1;
     }
     case W16_POST_MENU_SHOW: bar_show(arg); return 1;
+    case W16_POST_TITLE: {
+        // A top-level window's new title: the taskbar's and toywm's too.
+        pthread_mutex_lock(&g_w16.lock);
+        struct w16_wnd *x = w16_wnd_get(&g_w16, (uint16_t)arg);
+        char *t = x && x->text ? strdup(x->text) : 0;
+        struct uapp_window *u = x ? x->uwin : 0;
+        int main_win = x == &g_w16.win;
+        pthread_mutex_unlock(&g_w16.lock);
+        if (t && main_win) uapp_set_title(a, t);
+        else if (t && u) uapp_window_set_title(u, t);
+        free(t);
+        if (u) uapp_window_redraw(u);
+        return 1;
+    }
     case W16_POST_DLG_OPEN:  w16_dlgwin_open(&g_w16, a, (uint16_t)arg); return 1;
     case W16_POST_DLG_CLOSE: w16_dlgwin_close(&g_w16, (uint16_t)arg); return 1;
     case W16_POST_DLG_PAINT: w16_dlgwin_redraw(&g_w16, (uint16_t)arg); return 0;
@@ -569,7 +548,8 @@ static int on_user(struct uapp *a, int code, int arg) {
         if (!g_box.popup) end_faulted();   // no box to show (minimized, no room): end now
         return 1;
     default:
-        return 1;                        // W16_POST_PAINT: copy the new pixels
+        w16_dlgwin_redraw_all(&g_w16);   // W16_POST_PAINT: copy the new pixels
+        return 1;
     }
 }
 
@@ -587,7 +567,8 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     g_w16_q = pick_scale();
     g_w16_method = g_w16_prefs.method;
     g_w16_desktop_frame = g_w16_prefs.frame == W16_FRAME_DESKTOP;
-    if (w16_load(w, img, size, path) < 0) return 1;
+    w16_dos_start(g_exe);
+    if (w16_load(w, img, size, path, g_tail) < 0) return 1;
     ugfx_font_init();
     pthread_t task;
     if (pthread_create(&task, NULL, w16_task_main, w) != 0) {
@@ -614,7 +595,7 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     for (char *p = appid; *p; p++)
         *p = *p >= 'A' && *p <= 'Z' ? (char)(*p + 32) : (*p == ' ' || *p == '/') ? '-' : *p;
     struct uapp_desc desc = {
-        .title = w->win.title,
+        .title = w->win.text ? w->win.text : "",
         // Sized in REAL pixels: the window's 1x size times the scale.
         .app_id = appid,
         .flags = (g_w16_desktop_frame ? 0 : UAPP_NO_DECOR) |
@@ -713,7 +694,7 @@ static void mkdirs(const char *path) {
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
-    if (a.argc != 1) return uargs_error(&PROG, "expected one FILE");
+    if (a.argc < 1 || ((g_info || g_check) && a.argc != 1)) return uargs_error(&PROG, "expected one FILE");
     const char *path = a.argv[0];
     if (path[0] == '/') snprintf(g_exe, sizeof g_exe, "%s", path);
     else {
@@ -738,8 +719,12 @@ int main(int argc, char **argv) {
             w16_trace_path(g_exe, trace, sizeof trace);
             g_trace_path = trace;
         }
-        ok = unveil(path, "r") == 0 && unveil("/usr/share", "r") == 0 && unveil("/etc", "r") == 0
+        // Drive Z: is the whole tree to read, and /home to write as well
+        // (file16.c) -- what a program can reach of toy-os's files, Wine's
+        // shape with the system's own folders kept read-only.
+        ok = unveil("/", "r") == 0 && unveil("/home", "rwc") == 0
              && unveil(g_w16_drive_c, "rwc") == 0 && unveil(W16_STATE_DIR, "rwc") == 0
+             && unveil("shm:" CLIP_SHM_NAME, "rw") == 0
              && unveil("shm:toywm", "r") == 0 && unveil("shm:" FONT_BEACON_NAME, "r") == 0
              && unveil("shm:font.0", "r") == 0 && unveil("shm:font.1", "r") == 0
              && unveil("shm:font.2", "r") == 0 && unveil("shm:font.3", "r") == 0
@@ -761,6 +746,16 @@ int main(int argc, char **argv) {
         fprintf(stderr, "w16: %s: %s\n", path,
                 size == UINT32_MAX ? "larger than any NE program" : strerror(errno));
         return 1;
+    }
+    // What follows the program is its command line -- a document to open,
+    // most often -- and a toy-os path in it becomes the DOS one the
+    // program can open (Z:\tests\sample.txt).
+    for (int i = 1; i < a.argc; i++) {
+        char dos[W16_PATH_MAX * 2];
+        const char *arg = a.argv[i][0] == '/' && w16_host_to_dos(a.argv[i], dos, sizeof dos) == 0 ? dos : a.argv[i];
+        size_t len = strlen(g_tail);
+        if ((size_t)snprintf(g_tail + len, sizeof g_tail - len, "%s%s", len ? " " : "", arg) >= sizeof g_tail - len)
+            return uargs_error(&PROG, "the command line is longer than DOS's 126 characters");
     }
     if (g_check) return check(img, size);
     if (!g_info) return run(path, img, size);

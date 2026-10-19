@@ -11761,12 +11761,13 @@ item Notepad and Write need.
 
 THE CONTROLS ARE W16'S, IN C. BUTTON, STATIC and EDIT were USER's own
 window classes on Windows; w16 writes them the same way, on the task
-thread, keeping their state in the window table and telling the
-program's dialog procedure what happened with WM_COMMAND. The main
-thread only paints that state and posts input. 3.1's dialog keyboard
-(Tab, Enter, Esc, mnemonics) is the dialog manager's, so the main
-thread hands a key over RAW, Shift and Alt included, rather than as
-WM_KEYDOWN.
+thread, telling the program's dialog procedure what happened with
+WM_COMMAND. Since 2026-10-19 they are child windows of the window tree
+("A Win16 window tree...", below) that paint themselves into the
+dialog's buffer, and the main thread only copies that buffer and draws
+the frame. 3.1's dialog keyboard (Tab, Enter, Esc, mnemonics) is
+IsDialogMessage's, reading the Shift and Alt each queued key message
+carries.
 
 OPENING A MENU IS A ROUND TRIP. Windows sends WM_INITMENU and
 WM_INITMENUPOPUP before a popup shows, so a program can tick and grey
@@ -11774,3 +11775,48 @@ its items; the program runs on the task thread, so the main thread asks
 the task (a w16-internal message GetMessage consumes), the task sends
 those, and only then is the popup built from the menu as it now stands.
 Opening it straight away would show last time's ticks.
+
+## A Win16 window tree: every HWND in one table, a child painting into its top-level window
+
+Chosen 2026-10-19 from the "Win16 Notepad" canvas (one window tree,
+over letting only w16's own controls be children), when Notepad -- an
+EDIT filling its main window -- needed a child window at all.
+
+Windows 3.1 had one tree: every window had a parent (or an owner), a
+child had no surface of its own but a rectangle of its top-level's, and
+a WM_PAINT went to a parent before its children so they drew over what
+it erased. Wine keeps that shape with an X or Wayland surface per
+top-level window only. So does w16: the main window, a dialog and every
+child -- a program's class or w16's BUTTON, EDIT, LISTBOX -- are one
+table of `struct w16_wnd` with parents; a top-level window has a
+client buffer, and a child's window DC draws into that buffer at the sum
+of its ancestors' places, clipped to each one's client area. A built-in
+class is a C window procedure in the class table, called by
+SendMessage exactly where a program's far pointer would be, so a
+program cannot tell a w16 control from its own.
+
+ALL CLIENT PAINTING MOVED TO THE TASK THREAD, controls included. Before,
+the main thread drew a dialog's controls from state the task kept; now
+it only copies buffers and draws frames. The reason is the next
+paragraph: an EDIT's text lives in the program's memory, which the task
+may move (LocalReAlloc) while the main thread draws, and the main
+thread must never read it.
+
+AN EDIT KEEPS ITS TEXT IN THE PROGRAM'S LOCAL HEAP, as Windows' did.
+Notepad asks for it with EM_GETHANDLE, reads a whole file straight into
+the block, and hands it back with EM_SETHANDLE; a copy in w16's memory
+would not see a byte of that. So the local heap grew two things it
+lacked: it GROWS (it sits after the stack, and the segment's limit
+rises toward 64 KiB -- Notepad's NE header asks for a 2 KiB heap and
+counts on that), and a MOVEABLE handle is a real one, a four-byte entry
+the block's offset lives in, so a handle survives its block moving.
+
+A PROGRAM SEES DRIVE C: AND DRIVE Z:, Wine's shape: C: is the Win16
+folder (its WINDOWS holds the INI files), Z: is the whole toy-os tree.
+The sandbox follows: the tree read-only, `/home` and drive C:
+writable. Letting a Windows program change system files would buy
+nothing a user asks for and is exactly what a hostile one would want;
+Wine gives Z: full access because it has no sandbox to keep. A DOS
+handle opened for reading and writing is TWO toy-os descriptors with a
+position w16 keeps, because a toy-os descriptor reads or writes, never
+both (`fcntl.h`).

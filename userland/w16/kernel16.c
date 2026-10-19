@@ -4,6 +4,7 @@
 #include "w16/w16prefs.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define SW_SHOWNORMAL 1
@@ -176,15 +177,32 @@ static int api_FreeProcInstance(struct w16 *w, unsigned ordinal, struct w16_args
     return 4;
 }
 
+// A far string of any length (a segment's worth at most), allocated; NULL
+// after a fault.
+static char *far_dup(struct w16 *w, uint32_t far) {
+    size_t cap = 256;
+    for (;;) {
+        char *s = malloc(cap);
+        if (!s) { cpu16_set_fault(&w->cpu, FAULT_API, "out of memory for a string"); return 0; }
+        if (far_str(w, far, s, (unsigned)cap) < 0) { free(s); return 0; }
+        if (strlen(s) < cap - 1 || cap >= 65536) return s;
+        free(s);
+        cap *= 4;
+    }
+}
+
 // lstrcpy, lstrcat(dst, src) -> dst
 static int api_lstrcpy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
-    char s[256], t[256];
     uint32_t dst = w16_arg32(a), src = w16_arg32(a);
-    if (far_str(w, src, s, sizeof s) < 0) return -1;
-    if (ordinal == 89 && far_str(w, dst, t, sizeof t) < 0) return -1;
-    if (ordinal == 89) { strncat(t, s, sizeof t - strlen(t) - 1); memcpy(s, t, sizeof s); }
-    if (put_str(w, dst, s, (unsigned)strlen(s) + 1) < 0) return -1;
+    char *s = far_dup(w, src), *t = ordinal == 89 && s ? far_dup(w, dst) : 0;
+    if (!s || (ordinal == 89 && !t)) { free(s); return -1; }
+    size_t at = t ? strlen(t) : 0, n = strlen(s);
+    uint8_t *p = cpu16_ptr(c, (uint16_t)(dst >> 16), (uint16_t)((uint16_t)dst + at), (unsigned)n + 1, 1);
+    if (p) memcpy(p, s, n + 1);
+    free(s);
+    free(t);
+    if (!p) return -1;
     c->r[R_AX] = (uint16_t)dst;
     c->r[R_DX] = (uint16_t)(dst >> 16);
     return 8;
@@ -193,11 +211,24 @@ static int api_lstrcpy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // lstrlen(s)
 static int api_lstrlen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
-    char s[256];
     (void)ordinal;
-    if (far_str(w, w16_arg32(a), s, sizeof s) < 0) return -1;
+    char *s = far_dup(w, w16_arg32(a));
+    if (!s) return -1;
     c->r[R_AX] = (uint16_t)strlen(s);
+    free(s);
     return 4;
+}
+
+// GetProcAddress(hModule, lpProcName): no module but the program's own is
+// loaded, so nothing is found -- NULL, which a program asking for an
+// optional one (Pen Windows' RegisterPenApp) takes as "not here".
+static int api_GetProcAddress(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_DX] = 0;
+    return 6;
 }
 
 // DOS3Call: INT 21h by a far call, same registers
@@ -289,6 +320,7 @@ const struct w16_api g_kernel_api[] = {
     { 3, api_GetVersion },
     { 30, api_WaitEvent },
     { 47, api_GetModuleHandle },
+    { 50, api_GetProcAddress },
     { 51, api_MakeProcInstance },
     { 52, api_FreeProcInstance },
     { 88, api_lstrcpy },
@@ -309,12 +341,18 @@ int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (r != -2) return r;
     if ((r = w16_kernel_res(w, ordinal, a)) != -2) return r;
     if ((r = profile(w, ordinal, a)) != -2) return r;
+    if ((r = w16_api_call(g_file_api, g_file_api_n, w, ordinal, a)) != -2) return r;
     return w16_api_call(g_kernel_api, sizeof g_kernel_api / sizeof g_kernel_api[0], w, ordinal, a);
 }
 
 // INT 21h: the DOS calls a Windows program still makes. 4Ch ends it.
 int w16_int(struct cpu16 *c, uint8_t n) {
     if (n != 0x21) return -1;
+    if (g_w16_trace) {
+        fprintf(g_w16_trace, "INT 21h AX=%04x BX=%04x CX=%04x DX=%04x\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],
+                c->r[R_DX]);
+        fflush(g_w16_trace);
+    }
     switch (c->r[R_AX] >> 8) {
     case 0x25:                                   // set an interrupt vector: kept by nobody
         return 0;
@@ -330,6 +368,6 @@ int w16_int(struct cpu16 *c, uint8_t n) {
         c->exited = 1;
         return 0;
     default:
-        return -1;
+        return w16_dos_file(c->user, c);
     }
 }

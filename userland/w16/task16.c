@@ -117,7 +117,7 @@ static int relocate(struct w16 *w, unsigned n, const struct ne_reloc *r, uint8_t
     return load_fail(w->path, "a relocation chain loops");
 }
 
-int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path) {
+int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path, const char *tail) {
     w->path = path;
     int err = ne_parse(img, size, &w->ne);
     if (err < 0) return load_fail(path, ne_strerror(err));
@@ -163,12 +163,18 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path)
         }
     }
 
-    // The PSP (ES at start): an empty command tail.
+    // The PSP (ES at start): the command line at 81h, its length at 80h.
+    // NUL-TERMINATED AND WITH NO SPACE BEFORE IT, unlike DOS's tail: a
+    // program's lpCmdLine is this very address (InitTask's ES:BX), and
+    // Notepad opens it as a file name as it stands. Wine lays it out so.
     uint8_t *psp = calloc(1, 256);
     w->sysmem = calloc(1, SYSDATA_SIZE);
     if (!psp || !w->sysmem) return load_fail(path, "out of memory");
     psp[0] = 0xCD; psp[1] = 0x20;
-    psp[0x80] = 0; psp[0x81] = 0x0D;
+    size_t tl = tail ? strlen(tail) : 0;
+    if (tl > 126) return load_fail(path, "its command line is longer than DOS's 126 characters");
+    psp[0x80] = (uint8_t)tl;
+    if (tl) memcpy(psp + 0x81, tail, tl);
     w->psp = cpu16_alloc(c, D_DATA, psp, 255, 0);
     // The environment, whose selector the PSP holds at 2Ch: what a C
     // runtime's start-up scans. Its strings, an empty one, a count of 1,
@@ -196,7 +202,12 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path)
     c->sreg[S_CS] = w->seg_sel[w->ne.entry_cs];
     c->ip = w->ne.entry_ip;
     c->sreg[S_SS] = w->seg_sel[w->ne.ss ? w->ne.ss : w->ne.autodata];
-    c->r[R_SP] = w->ne.sp ? w->ne.sp : (uint16_t)((dg->limit + 1) & 0xFFFE);
+    // The stack sits on the data and the local heap after it, so the heap
+    // can grow (mem16.c), as Windows laid a DGROUP out.
+    const struct ne_segment *ad = &w->ne.seg[w->ne.autodata - 1];
+    uint32_t data = (ad->minalloc > ad->length ? ad->minalloc : ad->length);
+    c->r[R_SP] = w->ne.sp ? w->ne.sp : (uint16_t)((data + w->ne.stack) & 0xFFFE);
+    (void)dg;
     c->sreg[S_DS] = w->dgroup;
     c->sreg[S_ES] = w->psp;
     c->r[R_BX] = w->ne.stack;
@@ -207,13 +218,11 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path)
     c->user = w;
     c->thunk = 0;                    // set by the task thread
     c->intr = w16_int;
-    w16_local_init(w);               // InitTask's job on Windows: the heap below the stack
+    w16_local_init(w);               // InitTask's job on Windows: the heap after the stack
 
     pthread_mutex_init(&w->lock, 0);
     pthread_cond_init(&w->cond, 0);
-    w->text_color = 0x000000;
-    w->bk_color = 0xFFFFFF;
-    w->bk_mode = 2;                  // OPAQUE
+    w16_register_builtins(w);
     return 0;
 }
 
@@ -249,15 +258,19 @@ int w16_has(const char *module, unsigned ordinal) {
         return in_table(g_kernel_api, g_kernel_api_n, ordinal) ||
                in_table(g_kernel_mem_api, g_kernel_mem_api_n, ordinal) ||
                in_table(g_kernel_res_api, g_kernel_res_api_n, ordinal) ||
-               in_table(g_profile_api, g_profile_api_n, ordinal);
+               in_table(g_profile_api, g_profile_api_n, ordinal) ||
+               in_table(g_file_api, g_file_api_n, ordinal);
     if (!strcmp(module, "USER"))
         return in_table(g_user_api, g_user_api_n, ordinal) ||
                in_table(g_user_misc_api, g_user_misc_api_n, ordinal) ||
                in_table(g_dialog_api, g_dialog_api_n, ordinal) ||
-               in_table(g_menu_api, g_menu_api_n, ordinal);
+               in_table(g_menu_api, g_menu_api_n, ordinal) ||
+               in_table(g_scroll_api, g_scroll_api_n, ordinal);
     if (!strcmp(module, "GDI")) return in_table(g_gdi_api, g_gdi_api_n, ordinal);
     if (!strcmp(module, "SHELL")) return in_table(g_shell_api, g_shell_api_n, ordinal);
     if (!strcmp(module, "SOUND")) return in_table(g_sound_api, g_sound_api_n, ordinal);
+    if (!strcmp(module, "KEYBOARD")) return in_table(g_keyboard_api, g_keyboard_api_n, ordinal);
+    if (!strcmp(module, "COMMDLG")) return in_table(g_commdlg_api, g_commdlg_api_n, ordinal);
     return 0;
 }
 
@@ -296,6 +309,8 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     else if (!strcmp(name, "GDI")) r = w16_gdi(w, ordinal, &a);
     else if (!strcmp(name, "SHELL")) r = w16_api_call(g_shell_api, g_shell_api_n, w, ordinal, &a);
     else if (!strcmp(name, "SOUND")) r = w16_api_call(g_sound_api, g_sound_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "KEYBOARD")) r = w16_api_call(g_keyboard_api, g_keyboard_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "COMMDLG")) r = w16_api_call(g_commdlg_api, g_commdlg_api_n, w, ordinal, &a);
     if (r == -2 || (r < 0 && !c->fault)) {
         char why[96];
         snprintf(why, sizeof why, "%s.%u (%s) is not implemented", name, ordinal,
@@ -307,12 +322,19 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     return r;
 }
 
-uint16_t w16_sys_alloc(struct w16 *w, unsigned len) {
-    // One structure at a time is all stage 2 hands over (a CREATESTRUCT),
-    // so the area is reused from 0; a ring comes with nested ones.
-    if (len > SYSDATA_SIZE) len = SYSDATA_SIZE;
-    memset(w->sysmem, 0, len);
-    return 0;
+uint16_t w16_sys_push(struct w16 *w, unsigned len) {
+    unsigned at = (w->sys_top + 3) & ~3u;
+    if (at + len > SYSDATA_SIZE) {                // nested past any real program's depth
+        cpu16_set_fault(&w->cpu, FAULT_API, "w16's scratch area overflowed");
+        return 0;
+    }
+    memset(w->sysmem + at, 0, len);
+    w->sys_top = at + len;
+    return (uint16_t)at;
+}
+
+void w16_sys_pop(struct w16 *w, uint16_t at) {
+    if (at < w->sys_top) w->sys_top = at;
 }
 
 uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,
@@ -340,15 +362,20 @@ uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hw
 
 // --- the queue -------------------------------------------------------------
 
-void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam) {
+void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam,
+                       unsigned mods) {
     pthread_mutex_lock(&w->lock);
     unsigned next = (w->qtail + 1) % W16_QUEUE;
     if (next != w->qhead) {
-        w->q[w->qtail] = (struct w16_msg){ hwnd, msg, wparam, lparam };
+        w->q[w->qtail] = (struct w16_msg){ hwnd, msg, wparam, lparam, (uint8_t)mods };
         w->qtail = next;
     }
     pthread_cond_signal(&w->cond);
     pthread_mutex_unlock(&w->lock);
+}
+
+void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam) {
+    w16_post_msg_mods(w, hwnd, msg, wparam, lparam, 0);
 }
 
 void w16_task_post_arg(struct w16 *w, int code, int arg) {
