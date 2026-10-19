@@ -117,10 +117,10 @@ static int mouse_is_programs(enum w16_hit hit) {
 
 // A press, a release or a move at window point (x, y), for the window
 // of the program's under it (or holding the capture).
-static void client_mouse(uint16_t msg, uint16_t wp, int x, int y) {
+static int client_mouse(uint16_t msg, uint16_t wp, int x, int y) {
     int cx, cy, cw, ch;
     w16_client_rect(&g_w16.win, &cx, &cy, &cw, &ch);
-    w16_route_mouse(&g_w16, &g_w16.win, msg, wp, x - cx, y - cy);
+    return w16_route_mouse(&g_w16, &g_w16.win, msg, wp, x - cx, y - cy);
 }
 
 static void syscommand(unsigned sc) {
@@ -405,9 +405,12 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
         if (g_menu.sel != was) uapp_redraw(a);
         return;
     }
+    // The pointer takes the shape of the window under it: an edit's I-beam.
     unsigned edges;
+    int shape = WIN_CURSOR_DEFAULT;
     if (mouse_is_programs(w16_frame_hit(&g_w16.win, x, y, &edges)))
-        client_mouse(WM_MOUSEMOVE, mk_flags(buttons), x, y);
+        shape = client_mouse(WM_MOUSEMOVE, mk_flags(buttons), x, y);
+    uapp_set_cursor(a, shape);
 }
 
 static int on_tick(struct uapp *a) {
@@ -519,6 +522,7 @@ static int on_user(struct uapp *a, int code, int arg) {
         return 1;
     }
     case W16_POST_MENU_SHOW: bar_show(arg); return 1;
+    case W16_POST_CURSOR: uapp_set_cursor(a, arg); return 0;
     case W16_POST_TITLE: {
         // A top-level window's new title: the taskbar's and toywm's too.
         pthread_mutex_lock(&g_w16.lock);

@@ -155,6 +155,15 @@ static uint16_t set_timer(struct w16 *w, uint16_t hwnd, uint16_t id, uint32_t ms
     return t ? (id ? id : 1) : 0;
 }
 
+void w16_set_timer(struct w16 *w, uint16_t hwnd, uint16_t id, uint32_t ms) { set_timer(w, hwnd, id, ms, 0); }
+
+void w16_kill_timer(struct w16 *w, uint16_t hwnd, uint16_t id) {
+    pthread_mutex_lock(&w->lock);
+    for (int i = 0; i < W16_TIMERS; i++)
+        if (w->timer[i].used && w->timer[i].id == id && w->timer[i].hwnd == hwnd) w->timer[i].used = 0;
+    pthread_mutex_unlock(&w->lock);
+}
+
 void w16_timers_fire(struct w16 *w) {
     uint64_t now = w16_now_ms();
     pthread_mutex_lock(&w->lock);
@@ -353,12 +362,17 @@ static int api_FindWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// SetCursor(h) -> the previous
+// SetCursor(h) -> the previous: the pointer takes it now, until it next
+// moves over a window, whose class cursor it then takes (WM_SETCURSOR's
+// default)
 static int api_SetCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    static uint16_t current;
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg16(a);
-    c->r[R_AX] = 0;
+    uint16_t h = w16_arg16(a);
+    c->r[R_AX] = current;
+    current = h;
+    w16_task_post_arg(w, W16_POST_CURSOR, w16_cursor_shape(h));
     return 2;
 }
 

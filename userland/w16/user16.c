@@ -25,6 +25,7 @@
 #include <string.h>
 #include <time.h>
 #include "keyboard.h"
+#include "win_proto.h"   // WIN_CURSOR_*
 #include "ui/ugfx.h"
 
 #define W16_ATOM_BASE   0xC000
@@ -155,6 +156,7 @@ static int register_class(struct w16 *w, struct w16_args *a) {
     k.proc_off = (uint16_t)(wc[2] | wc[3] << 8);
     k.proc_sel = (uint16_t)(wc[4] | wc[5] << 8);
     k.wnd_extra = (uint16_t)(wc[8] | wc[9] << 8);
+    k.cursor = (uint8_t)w16_cursor_shape((uint16_t)(wc[14] | wc[15] << 8));
     k.background = (uint16_t)(wc[16] | wc[17] << 8);
     uint32_t cname = (uint32_t)(wc[22] | wc[23] << 8) | (uint32_t)(wc[24] | wc[25] << 8) << 16;
     uint32_t mname = (uint32_t)(wc[18] | wc[19] << 8) | (uint32_t)(wc[20] | wc[21] << 8) << 16;
@@ -885,12 +887,32 @@ static int api_InvalidateRect(struct w16 *w, unsigned ordinal, struct w16_args *
     return 8;
 }
 
-// LoadCursor, LoadIcon: a handle to nothing yet
+// A cursor handle names Windows' cursor: LoadCursor(NULL, IDC_*) is
+// CURSOR_BASE plus the IDC's low byte (IDC_ARROW 32512 is 0x7F00); a
+// program's own cursor resource draws as the arrow.
+#define CURSOR_BASE 0x4000
+#define CURSOR_OWN  (CURSOR_BASE | 0xFF)
+
+int w16_cursor_shape(uint16_t h) {
+    switch (h) {
+    case CURSOR_BASE | 0x01: return WIN_CURSOR_TEXT;        // IDC_IBEAM
+    case CURSOR_BASE | 0x02: return WIN_CURSOR_WAIT;        // IDC_WAIT
+    case CURSOR_BASE | 0x03: return WIN_CURSOR_CROSSHAIR;   // IDC_CROSS
+    case CURSOR_BASE | 0x80: case CURSOR_BASE | 0x86: return WIN_CURSOR_MOVE;   // IDC_SIZE, SIZEALL
+    case CURSOR_BASE | 0x84: return WIN_CURSOR_RESIZE_H;    // IDC_SIZEWE
+    case CURSOR_BASE | 0x85: return WIN_CURSOR_RESIZE_V;    // IDC_SIZENS
+    default: return WIN_CURSOR_DEFAULT;
+    }
+}
+
+// LoadCursor(hInst, lpName), LoadIcon: a handle to nothing yet
 static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
-    w16_arg16(a);
-    w16_arg32(a);
-    c->r[R_AX] = (uint16_t)(0x4000 | ordinal);
+    uint16_t inst = w16_arg16(a);
+    uint32_t name = w16_arg32(a);
+    if (ordinal == 174) c->r[R_AX] = (uint16_t)(0x4000 | ordinal);
+    else if (!inst && !(name >> 16) && (name & 0xFF00) == 0x7F00) c->r[R_AX] = (uint16_t)(CURSOR_BASE | (name & 0xFF));
+    else c->r[R_AX] = CURSOR_OWN;
     return 6;
 }
 

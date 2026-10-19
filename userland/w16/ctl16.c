@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include "keyboard.h"
+#include "win_proto.h"   // WIN_CURSOR_*
 #include "ui/ugfx.h"
 
 #define BS_TYPE           0x0F
@@ -471,7 +472,8 @@ uint32_t w16_static_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_
 void w16_register_builtins(struct w16 *w) {
     w16_class_add_host(w, "BUTTON", w16_button_proc, CS_DBLCLKS, 0);
     w16_class_add_host(w, "STATIC", w16_static_proc, 0, 0);
-    w16_class_add_host(w, "EDIT", w16_edit_proc, CS_DBLCLKS, 0);
+    int edit = w16_class_add_host(w, "EDIT", w16_edit_proc, CS_DBLCLKS, 0);
+    if (edit >= 0) w->cls[edit].cursor = WIN_CURSOR_TEXT;           // IDC_IBEAM
     w16_class_add_host(w, "LISTBOX", w16_listbox_proc, CS_DBLCLKS, 0);
     w16_class_add_host(w, "COMBOBOX", w16_combo_proc, CS_DBLCLKS, 0);
     w16_class_add_host(w, "#32770", w16_dialog_proc, 0, COLOR_WINDOW + 1);

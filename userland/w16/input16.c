@@ -10,6 +10,7 @@
 #include "w16_internal.h"
 
 #include "keyboard.h"
+#include "win_proto.h"   // WIN_CURSOR_*
 #include "lib/udclick.h"
 #include "rt/sys.h"
 
@@ -69,7 +70,7 @@ void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, i
 // The last press, for a double click: when, where and on what.
 static struct { uint64_t tick; uint16_t hwnd; int x, y; } g_last;
 
-void w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
+int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *cap = w16_wnd_get(w, w->capture), *to;
     int cx, cy, nc = 0, dbl = 0;
@@ -96,13 +97,15 @@ void w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t 
         g_last.y = cy;
     }
     int disabled = to && (to->style & WS_DISABLED);
+    int shape = to && !nc && to->cls >= 0 && to->cls < w->ncls ? w->cls[to->cls].cursor : WIN_CURSOR_DEFAULT;
     pthread_mutex_unlock(&w->lock);
-    if (!hwnd || disabled) return;
+    if (!hwnd || disabled) return WIN_CURSOR_DEFAULT;
     if (nc) {                                    // the frame of a child: its scroll bars
         if (msg == WM_LBUTTONDOWN && bar >= 0)
             w16_post_msg(w, hwnd, WM_NCLBUTTONDOWN, bar == SB_VERT ? HTVSCROLL : HTHSCROLL,
                          (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);
-        return;
+        return shape;
     }
     w16_post_msg(w, hwnd, dbl ? WM_LBUTTONDBLCLK : msg, wp, (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);
+    return shape;
 }

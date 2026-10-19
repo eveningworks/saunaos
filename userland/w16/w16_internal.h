@@ -238,6 +238,7 @@ struct w16_class {
     uint16_t background;          // an HBRUSH, or COLOR_* + 1
     uint16_t style;
     uint16_t wnd_extra;           // cbWndExtra: the bytes Get/SetWindowWord reach
+    uint8_t cursor;               // hCursor as a WIN_CURSOR_* shape: an EDIT's is the I-beam
     char *menu;                   // lpszMenuName: its windows' menu, by name...
     uint16_t menu_id;             // ...or by number (an ordinal)
 };
@@ -361,6 +362,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_DLG_CLOSE 8    // arg: a dialog's hwnd -- close it, then the task frees it
 #define W16_POST_DLG_PAINT 9    // arg: a dialog's hwnd -- redraw it
 #define W16_POST_MENU_SHOW 10   // arg: a menu-bar title -- the program has seen it open: show it
+#define W16_POST_CURSOR    11   // arg: a WIN_CURSOR_* -- SetCursor: the pointer's shape now
 
 // --- task16.c --------------------------------------------------------------
 
@@ -436,6 +438,7 @@ void w16_gdi_fill(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, uint1
 // tab > 0): its width, -1 for a bad DC.
 int w16_gdi_text(struct w16 *w, uint16_t hdc, int x, int y, const char *text, int tab);
 void w16_text_size(const char *text, int *cx, int *cy);   // in the system font
+void w16_text_size_in(uint16_t hfont, const char *text, int *cx, int *cy);
 
 // The next message for any window. `wait_ms` < 0 waits for one, 0 not at
 // all, else at most that long: 1 got one, 0 none. A dialog's modal loop
@@ -620,7 +623,10 @@ void w16_dlg_units(int *bx, int *by);
 // (input16.c) `key` is toywm's (KEY_*, or the character); (x, y) is in
 // top's client coordinates.
 void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up);
-void w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y);
+// The pointer's shape there (WIN_CURSOR_*): the class cursor of the window under it.
+int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y);
+// A cursor handle (LoadCursor's) as a WIN_CURSOR_* shape.
+int w16_cursor_shape(uint16_t hcursor);
 int w16_vk_of(int key);                           // a key's VK_* code, 0 for none
 void w16_dlgwin_redraw_all(struct w16 *w);       // every open dialog shows its buffer again
 
@@ -640,6 +646,10 @@ int w16_kernel_res(struct w16 *w, unsigned ordinal, struct w16_args *a);
 int w16_user_loadstring(struct w16 *w, struct w16_args *a);
 int w16_user_misc(struct w16 *w, unsigned ordinal, struct w16_args *a);   // usermisc16.c
 void w16_timers_fire(struct w16 *w);              // the main thread's tick
+// A timer of w16's own on a window (an EDIT's caret blink): WM_TIMER
+// with `id` every `ms` till killed; setting it again starts it over.
+void w16_set_timer(struct w16 *w, uint16_t hwnd, uint16_t id, uint32_t ms);
+void w16_kill_timer(struct w16 *w, uint16_t hwnd, uint16_t id);
 void w16_cursor_screen(struct w16 *w, int16_t *x, int16_t *y);   // MSG.pt, GetCursorPos
 uint64_t w16_now_ms(void);
 int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap);
@@ -713,6 +723,9 @@ int gdi_dib_header(const uint8_t *bmi, uint32_t bmi_len, int pal_indices, struct
 uint32_t gdi_dib_px(const struct gdi_dib *d, const uint8_t *row, int x);
 struct ugfx_font;
 const struct ugfx_font *w16_system_font(void);   // under g_w16_text_lock
+const struct ugfx_font *w16_fixed_font(void);    // Fixedsys's stand-in, likewise
+const struct ugfx_font *w16_font_of(uint16_t hfont);   // the face an HFONT draws in
+int w16_font_is_fixed(uint16_t hfont);
 
 // --- frame16.c (main thread) ---------------------------------------------------
 

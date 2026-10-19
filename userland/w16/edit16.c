@@ -110,11 +110,35 @@ struct edit {
     char *undo;                       // EM_UNDO: what was removed at undo_at...
     int undo_at, undo_ins;            // ...and how much was put in its place
     int can_undo;
+    uint16_t hfont;                   // WM_SETFONT's: Notepad's is SYSTEM_FIXED_FONT
+    int noredraw;                     // WM_SETREDRAW(FALSE): changes are not drawn till it is TRUE
+    int blink_off;                    // the caret's blink is in its off half
 };
+
+#define CARET_TIMER 0xFFF0            // the caret's blink, a timer of the edit's own
+#define CARET_MS    530               // GetCaretBlinkTime's default
 
 static int multi(const struct w16_wnd *x) { return (x->style & ES_MULTILINE) != 0; }
 
 static struct edit *ed(struct w16_wnd *x) { return x->ctl; }
+
+// Its font, for the caller holding the text lock.
+static const struct ugfx_font *efont(const struct edit *e) { return w16_font_of(e->hfont); }
+
+// A line's height in its font.
+static int line_h(const struct edit *e) {
+    pthread_mutex_lock(&g_w16_text_lock);
+    const struct ugfx_font *was = ugfx_set_font(efont(e));
+    int h = ugfx_char_h();
+    ugfx_set_font(was);
+    pthread_mutex_unlock(&g_w16_text_lock);
+    return h > 0 ? h : 16;
+}
+
+// Drawn again, unless WM_SETREDRAW said not yet.
+static void redraw(struct w16 *w, struct w16_wnd *x, struct edit *e) {
+    if (!e->noredraw) w16_invalidate(w, x, 0);
+}
 
 // --- the text ------------------------------------------------------------------
 
@@ -174,10 +198,19 @@ static int sel_hi(const struct edit *e) { return e->anchor > e->caret ? e->ancho
 
 // --- measuring, in the system font (the caller holds the text lock) ------------
 
+// 32 dialog units, eight average characters of the font being measured
+// (the caller has set it): 3.1's tab stops.
 static int tab_px(void) {
-    int bx, by;
-    w16_dlg_units(&bx, &by);
-    return bx * 8;                               // 32 dialog units: 3.1's tab stops
+    static const struct ugfx_font *of;
+    static int px;
+    const struct ugfx_font *f = ugfx_set_font(0);
+    ugfx_set_font(f);
+    if (f != of || !px) {
+        of = f;
+        px = (ugfx_text_width("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") + 26) / 52 * 8;
+        if (px < 8) px = 64;
+    }
+    return px;
 }
 
 // The width of t[from, to) drawn from x = `at` (tabs step to stops).
@@ -234,7 +267,7 @@ static void reflow(struct w16 *w, struct w16_wnd *x, struct edit *e) {
     if (!multi(x)) { add_line(e, 0, e->len, 0); return; }
     int wrap = !(x->style & (ES_AUTOHSCROLL | WS_HSCROLL)), room = x->cw - 2 * MARGIN;
     pthread_mutex_lock(&g_w16_text_lock);
-    const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+    const struct ugfx_font *was = ugfx_set_font(efont(e));
     int i = 0;
     for (;;) {
         int end = i;
@@ -273,9 +306,8 @@ static int line_of(const struct edit *e, int i) {
 }
 
 static int visible_lines(const struct w16_wnd *x) {
-    int lh = 0, bx;
-    w16_dlg_units(&bx, &lh);
-    int n = lh > 0 ? x->ch / lh : 1;
+    const struct edit *e = x->ctl;
+    int n = e ? x->ch / line_h(e) : 1;
     return n > 0 ? n : 1;
 }
 
@@ -285,7 +317,7 @@ static int widest(struct w16 *w, struct edit *e) {
     const char *t = text(w, e);
     int best = 0;
     pthread_mutex_lock(&g_w16_text_lock);
-    const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+    const struct ugfx_font *was = ugfx_set_font(efont(e));
     for (int i = 0; i < e->nlines; i++) {
         int wd = seg_width(t, e->ln[i].start, e->ln[i].start + e->ln[i].len, 0, e->pw);
         if (wd > best) best = wd;
@@ -329,7 +361,7 @@ static void show_caret(struct w16 *w, struct w16_wnd *x, struct edit *e) {
     if (!wrap) {
         const char *t = text(w, e);
         pthread_mutex_lock(&g_w16_text_lock);
-        const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+        const struct ugfx_font *was = ugfx_set_font(efont(e));
         int cx = seg_width(t, e->ln[l].start, e->caret, 0, e->pw), room = x->cw - 2 * MARGIN;
         ugfx_set_font(was);
         pthread_mutex_unlock(&g_w16_text_lock);
@@ -352,8 +384,15 @@ static void scroll_to(struct w16 *w, struct w16_wnd *x, struct edit *e, int top,
     e->top = top;
     e->xoff = xoff;
     update_bars(w, x, e);
-    w16_invalidate(w, x, 0);
+    redraw(w, x, e);
     w16_notify(w, x, vert ? EN_VSCROLL : EN_HSCROLL);
+}
+
+// The caret shown, its blink started over: what a move or a key does,
+// so it never vanishes under the typing.
+static void caret_on(struct w16 *w, struct w16_wnd *x, struct edit *e) {
+    e->blink_off = 0;
+    if (e->focused) w16_set_timer(w, x->hwnd, CARET_TIMER, CARET_MS);
 }
 
 // --- changing the text -------------------------------------------------------------
@@ -397,9 +436,10 @@ static int replace(struct w16 *w, struct w16_wnd *x, struct edit *e, int from, i
     e->len = newlen;
     e->anchor = e->caret = from + n;
     e->modified = 1;
+    caret_on(w, x, e);
     reflow(w, x, e);
     show_caret(w, x, e);
-    w16_invalidate(w, x, 0);
+    redraw(w, x, e);
     w16_notify(w, x, EN_UPDATE);
     w16_notify(w, x, EN_CHANGE);
     return 1;
@@ -486,7 +526,7 @@ static void paint(struct w16 *w, struct w16_wnd *x, struct edit *e) {
     // A single-line edit with WS_BORDER draws its frame inside its own
     // client area in a dialog template; the border style is non-client.
     pthread_mutex_lock(&g_w16_text_lock);
-    const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+    const struct ugfx_font *was = ugfx_set_font(efont(e));
     const char *t = text(w, e);
     int lh = ugfx_char_h(), vis = visible_lines(x), lo = sel_lo(e), hi = sel_hi(e);
     int show_sel = e->focused || (x->style & ES_NOHIDESEL);
@@ -528,7 +568,7 @@ static void paint(struct w16 *w, struct w16_wnd *x, struct edit *e) {
         if (show_sel && l->brk && end >= lo && end < hi)
             ugfx_fill_rect(&s, base + seg_width(t, l->start, end, 0, e->pw), y, 4, lh, navy);
     }
-    if (e->focused) {
+    if (e->focused && !e->blink_off) {
         int cl = line_of(e, e->caret);
         if (cl >= e->top && cl < e->top + vis + 1) {
             const struct line *l = &e->ln[cl];
@@ -553,7 +593,7 @@ static int caret_x(struct w16 *w, struct edit *e) {
     const char *t = text(w, e);
     const struct line *l = &e->ln[line_of(e, e->caret)];
     pthread_mutex_lock(&g_w16_text_lock);
-    const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+    const struct ugfx_font *was = ugfx_set_font(efont(e));
     int cx = seg_width(t, l->start, e->caret, 0, e->pw);
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
@@ -563,7 +603,7 @@ static int caret_x(struct w16 *w, struct edit *e) {
 static int on_line_x(struct w16 *w, struct edit *e, int line, int x) {
     const char *t = text(w, e);
     pthread_mutex_lock(&g_w16_text_lock);
-    const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+    const struct ugfx_font *was = ugfx_set_font(efont(e));
     int i = index_at(t, &e->ln[line], x, e->pw);
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
@@ -595,11 +635,12 @@ static int step(const char *t, int len, int i, int dir) {
 }
 
 static void move(struct w16 *w, struct w16_wnd *x, struct edit *e, int to, int extend, int keep_x) {
+    caret_on(w, x, e);
     e->caret = clampi(to, 0, e->len);
     if (!extend) e->anchor = e->caret;
     if (!keep_x) e->want_x = -1;
     show_caret(w, x, e);
-    w16_invalidate(w, x, 0);
+    redraw(w, x, e);
 }
 
 static void key_down(struct w16 *w, struct w16_wnd *x, struct edit *e, uint16_t vk) {
@@ -670,8 +711,7 @@ static void key_char(struct w16 *w, struct w16_wnd *x, struct edit *e, uint16_t 
 // --- the mouse ----------------------------------------------------------------------------
 
 static int index_at_point(struct w16 *w, struct w16_wnd *x, struct edit *e, int px, int py) {
-    int lh, bx;
-    w16_dlg_units(&bx, &lh);
+    int lh = line_h(e);
     int l = multi(x) ? e->top + (py < 0 ? -1 - (-py - 1) / lh : py / lh) : 0;
     l = clampi(l, 0, e->nlines - 1);
     return on_line_x(w, e, l, px - MARGIN + e->xoff);
@@ -738,16 +778,27 @@ uint32_t w16_edit_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t 
                (multi(x) && (x->style & ES_WANTRETURN) ? DLGC_WANTALLKEYS : 0);
     case WM_SETFOCUS:
         e->focused = 1;
-        w16_invalidate(w, x, 0);
+        caret_on(w, x, e);
+        redraw(w, x, e);
         w16_notify(w, x, EN_SETFOCUS);
         return 0;
     case WM_KILLFOCUS:
         e->focused = 0;
-        w16_invalidate(w, x, 0);
+        w16_kill_timer(w, x->hwnd, CARET_TIMER);
+        redraw(w, x, e);
         w16_notify(w, x, EN_KILLFOCUS);
         return 0;
+    case WM_TIMER:
+        if (wp != CARET_TIMER) return 0;
+        e->blink_off = !e->blink_off && e->focused;
+        redraw(w, x, e);
+        return 0;
+    case WM_SETREDRAW:
+        e->noredraw = !wp;
+        if (wp) w16_invalidate(w, x, 0);
+        return 0;
     case WM_ENABLE:
-        w16_invalidate(w, x, 0);
+        redraw(w, x, e);
         return 0;
     case WM_KEYDOWN:
         key_down(w, x, e, wp);
@@ -788,6 +839,9 @@ uint32_t w16_edit_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t 
         int bx, by, vis = visible_lines(x);
         w16_dlg_units(&bx, &by);
         int vert = msg == WM_VSCROLL, max = vert ? max_top(x, e) : max_xoff(w, x, e);
+        // EM_GETTHUMB as the code: where the thumb is, 3.x's way of asking --
+        // Notepad sets its own window's thumb from this after every scroll.
+        if (wp == EM_GETTHUMB) return (uint32_t)thumb(vert ? e->top : e->xoff, max);
         int pos = vert ? e->top : e->xoff, line = vert ? 1 : bx;
         int page = vert ? (vis > 1 ? vis - 1 : 1) : (x->cw > 2 * bx ? x->cw - bx : bx);
         switch (wp) {
@@ -842,7 +896,7 @@ uint32_t w16_edit_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t 
         e->anchor = at;
         e->caret = at + (int)strlen(back);
         free(back);
-        w16_invalidate(w, x, 0);
+        redraw(w, x, e);
         return 1;
     }
     case EM_CANUNDO:
@@ -854,13 +908,13 @@ uint32_t w16_edit_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t 
         return (uint32_t)sel_hi(e) << 16 | (uint16_t)sel_lo(e);
     case EM_SETSEL: {
         int a = (int16_t)(lp & 0xFFFF), b = (int16_t)(lp >> 16);
-        if (a == -1) { e->anchor = e->caret; w16_invalidate(w, x, 0); return 0; }   // no selection
+        if (a == -1) { e->anchor = e->caret; redraw(w, x, e); return 0; }   // no selection
         if (b == -1 || b > e->len) b = e->len;
         if (a > e->len) a = e->len;
         e->anchor = clampi(a, 0, e->len);
         e->caret = clampi(b, 0, e->len);
         show_caret(w, x, e);
-        w16_invalidate(w, x, 0);
+        redraw(w, x, e);
         return 1;
     }
     case EM_REPLACESEL: {
@@ -925,7 +979,7 @@ uint32_t w16_edit_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t 
         e->can_undo = 0;
         reflow(w, x, e);
         show_caret(w, x, e);
-        w16_invalidate(w, x, 0);
+        redraw(w, x, e);
         return 0;
     }
     case EM_GETFIRSTVISIBLELINE:
@@ -949,7 +1003,7 @@ uint32_t w16_edit_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t 
     case EM_SETPASSWORDCHAR:
         e->pw = (char)wp;
         reflow(w, x, e);
-        w16_invalidate(w, x, 0);
+        redraw(w, x, e);
         return 0;
     case EM_GETPASSWORDCHAR:
         return (uint8_t)e->pw;
@@ -964,14 +1018,25 @@ uint32_t w16_edit_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t 
         if (p) memcpy(p, r, 8);
         return 0;
     }
-    case EM_SETRECT: case EM_SETRECTNP: case EM_SETFONT: case WM_SETFONT:
+    case EM_SETFONT:
+    case WM_SETFONT:                             // only the system font or a fixed one, as w16 has those
+        e->hfont = wp;
+        reflow(w, x, e);
+        show_caret(w, x, e);
+        if (lp || msg == EM_SETFONT) redraw(w, x, e);
         return 0;
     case WM_GETFONT:
+        return e->hfont;
+    case EM_SETRECT: case EM_SETRECTNP:
         return 0;
     case WM_NCDESTROY:
-        // The local block is the program's (EM_GETHANDLE gave it away); it
-        // frees it, or it is part of the heap the program ends with.
+        // ITS TEXT GOES WITH IT, local block and all, as Windows' did:
+        // Notepad's Word Wrap makes a new edit, hands it a copy and
+        // destroys the old one, counting on this -- kept, two toggles
+        // filled its 64 KiB heap with sample.txt.
+        if (e->hbuf) w16_local_free(w, e->hbuf);
         if (e->captured) set_capture(w, 0);
+        w16_kill_timer(w, x->hwnd, CARET_TIMER);
         free(e->host);
         free(e->ln);
         free(e->undo);

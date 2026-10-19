@@ -57,6 +57,34 @@ const struct ugfx_font *w16_system_font(void) {
     return state > 0 ? &font : ugfx_font_session(UGFX_FONT_BOLD);
 }
 
+// THE FIXED-PITCH STOCK FONTS (OEM_FIXED_FONT, ANSI_FIXED_FONT,
+// SYSTEM_FIXED_FONT) are DejaVu Sans Mono Bold at the same 13 px: about
+// Fixedsys's 8 by 15, which is what Notepad shows its text in.
+#define OEM_FIXED_FONT    10
+#define ANSI_FIXED_FONT   11
+#define SYSTEM_FIXED_FONT 16
+const struct ugfx_font *w16_fixed_font(void) {
+    static struct ugfx_font font;
+    static int state;                            // 0 not tried, 1 loaded, -1 failed
+    if (!state) {
+        unsigned long need = ugfx_font_arena_size(SYSTEM_FONT_PX);
+        void *arena = malloc(need);
+        state = arena && ugfx_font_load("/usr/share/fonts/dejavu-sans-mono-bold.ttf",
+                                        SYSTEM_FONT_PX, 1, &font, arena, need) ? 1 : -1;
+        if (state < 0) free(arena);
+    }
+    return state > 0 ? &font : w16_system_font();
+}
+
+int w16_font_is_fixed(uint16_t hfont) {
+    return hfont == STOCK_BASE + OEM_FIXED_FONT || hfont == STOCK_BASE + ANSI_FIXED_FONT ||
+           hfont == STOCK_BASE + SYSTEM_FIXED_FONT;
+}
+
+const struct ugfx_font *w16_font_of(uint16_t hfont) {
+    return w16_font_is_fixed(hfont) ? w16_fixed_font() : w16_system_font();
+}
+
 // --- the object table --------------------------------------------------------
 
 static struct w16_gdiobj *obj(struct w16 *w, uint16_t h, int type) {
@@ -238,7 +266,7 @@ static int draw_text(struct w16 *w, uint16_t hdc, int x, int y, const char *text
     struct w16_gdiobj *dc = target(w, hdc, &t);
     int width = 0;
     pthread_mutex_lock(&g_w16_text_lock);
-    const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+    const struct ugfx_font *was = ugfx_set_font(w16_font_of(dc ? dc->font : 0));
     if (dc && t.px) {
         struct ugfx_surface s = ugfx_surface_for_pixels(t.px, t.w, t.h);
         ugfx_set_clip_rect(&s, t.x0, t.y0, t.x1 - t.x0, t.y1 - t.y0);
@@ -263,14 +291,22 @@ int w16_gdi_text(struct w16 *w, uint16_t hdc, int x, int y, const char *text, in
     return draw_text(w, hdc, x, y, text, tab);
 }
 
-// The system font's size of `text`: width, and the line's height.
-void w16_text_size(const char *text, int *cx, int *cy) {
+// `text`'s size in font `hfont` (0: the system font): width, and the
+// line's height.
+void w16_text_size_in(uint16_t hfont, const char *text, int *cx, int *cy) {
     pthread_mutex_lock(&g_w16_text_lock);
-    const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+    const struct ugfx_font *was = ugfx_set_font(w16_font_of(hfont));
     *cx = ugfx_text_width(text);
     *cy = ugfx_char_h();
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
+}
+
+void w16_text_size(const char *text, int *cx, int *cy) { w16_text_size_in(0, text, cx, cy); }
+
+static uint16_t dc_font(struct w16 *w, uint16_t hdc) {
+    struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
+    return dc ? dc->font : 0;
 }
 
 static int text_out(struct w16 *w, struct w16_args *a) {
@@ -734,13 +770,13 @@ static int api_CreateSolidBrush(struct w16 *w, unsigned ordinal, struct w16_args
 // GetTextExtent(hdc, lpString, nCount) -> MAKELONG(cx, cy)
 static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
+    uint16_t hfont = dc_font(w, w16_arg16(a));
     uint32_t far = w16_arg32(a);
     unsigned len = w16_arg16(a);
     char *text = far_text(w, far, len);
     if (!text) return -1;
     int cx, cy;
-    w16_text_size(text, &cx, &cy);
+    w16_text_size_in(hfont, text, &cx, &cy);
     free(text);
     set32(&w->cpu, (uint32_t)(uint16_t)cy << 16 | (uint16_t)cx);
     return 8;
@@ -749,11 +785,11 @@ static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a
 // GetTextMetrics(hdc, lpMetrics): the system font's, as a 31-byte TEXTMETRIC
 static int api_GetTextMetrics(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
+    uint16_t hfont = dc_font(w, w16_arg16(a));
     uint32_t far = w16_arg32(a);
     int ave, cy, maxw;
-    w16_text_size("x", &ave, &cy);
-    w16_text_size("W", &maxw, &cy);
+    w16_text_size_in(hfont, "x", &ave, &cy);
+    w16_text_size_in(hfont, "W", &maxw, &cy);
     int16_t words[8] = {
         (int16_t)cy, (int16_t)(cy * 13 / 16), (int16_t)(cy - cy * 13 / 16), 0, 0,   // height, ascent, descent, leadings
         (int16_t)ave, (int16_t)maxw, 700,                                          // widths, FW_BOLD
@@ -764,7 +800,7 @@ static int api_GetTextMetrics(struct w16 *w, unsigned ordinal, struct w16_args *
     tm[20] = 0xFF;                               // tmLastChar
     tm[21] = 0x80;                               // tmDefaultChar
     tm[22] = 0x20;                               // tmBreakChar
-    tm[23] = 0x22;                               // tmPitchAndFamily: variable pitch, FF_SWISS
+    tm[23] = w16_font_is_fixed(hfont) ? 0x30 : 0x22;   // tmPitchAndFamily: FF_MODERN fixed, or FF_SWISS variable
     tm[24] = 0;                                  // ANSI_CHARSET
     tm[27] = tm[29] = 96;                        // tmDigitizedAspectX, Y
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, sizeof tm, 1);
