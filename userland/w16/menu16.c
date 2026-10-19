@@ -88,11 +88,11 @@ void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_ke
     if (m->popup) return;
     measure(m);
     int x = ax, y = ay + ah;
-    int S = g_w16_scale;                         // the popup is real pixels; m's numbers are 1x
-    m->popup = uui_popup_open(ax * S, ay * S, aw * S, ah * S, m->w * S, m->h * S, UUI_POPUP_BELOW,
-                              UUI_POPUP_GRAB | UUI_POPUP_NO_DECOR, dismissed, m, &x, &y);
-    m->x = x / S;
-    m->y = y / S;
+    // The popup is real pixels; m's numbers are 1x.
+    m->popup = uui_popup_open(w16_up(ax), w16_up(ay), w16_up(aw), w16_up(ah), w16_up(m->w), w16_up(m->h),
+                              UUI_POPUP_BELOW, UUI_POPUP_GRAB | UUI_POPUP_NO_DECOR, dismissed, m, &x, &y);
+    m->x = w16_down(x);
+    m->y = w16_down(y);
     m->armed = 0;
     m->sel = -1;
     // Opened from the keyboard, the first item that can be chosen is lit,
@@ -126,17 +126,17 @@ static int choosable(const struct w16_menu *m, int i) {
 
 static void draw_menu(struct w16_menu *m, struct ugfx_surface *s);
 
-// At 2x the menu is drawn at 1x and every pixel doubled, as the window is.
+// Scaled, the menu is drawn at 1x and then scaled, as the window is.
 void w16_menu_draw(struct w16_menu *m) {
     if (m->popup <= 0) return;
     struct ugfx_surface *s = uui_popup_surface(m->popup);
     if (!s) return;
-    if (g_w16_scale == 1) { draw_menu(m, s); return; }
+    if (g_w16_q == 4) { draw_menu(m, s); return; }
     uint32_t *px = malloc((size_t)m->w * m->h * 4);
     if (!px) return;
     struct ugfx_surface t = ugfx_surface_for_pixels(px, m->w, m->h);
     draw_menu(m, &t);
-    w16_scale_blit(s, 0, 0, px, m->w, m->h, m->w, g_w16_scale);
+    w16_scale_blit(s, 0, 0, px, m->w, m->h, m->w);
     free(px);
 }
 

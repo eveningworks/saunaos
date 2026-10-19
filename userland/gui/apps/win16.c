@@ -69,14 +69,15 @@ static struct uapp *g_app;
 
 enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CMD_EXIT, CMD_CALLS };
 enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VERSION, ID_FRAME,
-       ID_TRACE, ID_RUN, ID_OPT_DRIVE, ID_CALLS };
+       ID_TRACE, ID_RUN, ID_OPT_DRIVE, ID_CALLS, ID_METHOD };
 
 static struct uui_menubar g_menu;
 static struct uui_toolbar g_tb;
 static struct uui_sidebar g_side;
 static struct uui_grid g_grid;
 static struct uui_statusbar g_sb;
-static struct uui_dropdown g_dd[4];          // the per-program settings: scale, version, frame, trace
+#define NSET 5                               // the per-program settings: SETTINGS below
+static struct uui_dropdown g_dd[NSET];
 static struct uui_button g_run;
 static struct uui_button g_calls;            // "Missing calls...": the calls window
 static struct uui_filedialog g_chooser;      // ~20 KB: file scope
@@ -255,20 +256,25 @@ static struct prog *cur(void) {
 
 // --- the program's own settings, in the panel ------------------------------------
 
-static const char *const SCALE_NAMES[] = { "Auto", "1x", "2x" };
+static const char *const SCALE_NAMES[W16_SCALE_COUNT] = { "Auto", "1x", "1.25x", "1.5x", "1.75x", "2x",
+                                                          "2.5x", "3x" };
+// Named for what each looks like; the canvas's R3, R1 and R2.
+static const char *const METHOD_NAMES[] = { "Sharp", "Pixels", "Smooth" };
 static const char *const VERSION_NAMES[] = { "3.10", "3.11", "3.00" };
 static const char *const FRAME_NAMES[] = { "Windows 3.1", "The desktop's" };
 static const char *const TRACE_NAMES[] = { "Off", "On" };
-static char g_dflt_label[4][48];
-static const char *g_dd_items[4][4];
+static char g_dflt_label[NSET][48];
+static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list, plus "Default"
 
 // Each dropdown: "Default (what that is)", then the values. Its key's
-// bit in w16_prefs_overridden(), and the field it sets.
-static const struct { const char *caption; const char *const *names; int n; int bit; size_t field; } SETTINGS[4] = {
-    { "Scale",          SCALE_NAMES,   3, 0, offsetof(struct w16_prefs, scale) },
-    { "Version told",   VERSION_NAMES, 3, 2, offsetof(struct w16_prefs, version) },
-    { "Window frame",   FRAME_NAMES,   2, 1, offsetof(struct w16_prefs, frame) },
-    { "Trace its calls", TRACE_NAMES,  2, 4, offsetof(struct w16_prefs, trace) },
+// bit in w16_prefs_overridden() -- its place in w16_prefs_keys -- and
+// the field it sets.
+static const struct { const char *caption; const char *const *names; int n; int bit; size_t field; } SETTINGS[NSET] = {
+    { "Scale",           SCALE_NAMES,   W16_SCALE_COUNT, 0, offsetof(struct w16_prefs, scale) },
+    { "Scaled by",       METHOD_NAMES,  3, 6, offsetof(struct w16_prefs, method) },
+    { "Version told",    VERSION_NAMES, 3, 2, offsetof(struct w16_prefs, version) },
+    { "Window frame",    FRAME_NAMES,   2, 1, offsetof(struct w16_prefs, frame) },
+    { "Trace its calls", TRACE_NAMES,   2, 4, offsetof(struct w16_prefs, trace) },
 };
 
 static int *field_of(struct w16_prefs *p, int i) { return (int *)((char *)p + SETTINGS[i].field); }
@@ -278,9 +284,14 @@ static void fill_panel(void) {
     unsigned mask = p ? w16_prefs_overridden(p->path) : 0;
     struct w16_prefs eff;
     w16_prefs_load(&eff, p ? p->path : 0);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < NSET; i++) {
         snprintf(g_dflt_label[i], sizeof g_dflt_label[i], "Default (%s)",
                  SETTINGS[i].names[*field_of(&g_def, i)]);
+        // Auto says what it comes to on this screen.
+        if (i == 0 && g_def.scale == W16_SCALE_AUTO) {
+            int q = w16_prefs_auto_q();
+            snprintf(g_dflt_label[i], sizeof g_dflt_label[i], "Default (Auto: %gx)", q / 4.0);
+        }
         g_dd_items[i][0] = g_dflt_label[i];
         for (int k = 0; k < SETTINGS[i].n; k++) g_dd_items[i][k + 1] = SETTINGS[i].names[k];
         uui_dropdown_set_items(&g_dd[i], g_dd_items[i], SETTINGS[i].n + 1);
@@ -295,7 +306,7 @@ static void save_panel(void) {
     struct w16_prefs eff;
     w16_prefs_load(&eff, p->path);
     unsigned mask = w16_prefs_overridden(p->path);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < NSET; i++) {
         int sel = uui_dropdown_selected(&g_dd[i]);
         unsigned bit = 1u << SETTINGS[i].bit;
         if (sel <= 0) mask &= ~bit;
@@ -380,7 +391,8 @@ static void open_options(void) {
     uui_prefs_choice(0, "Windows version", VERSION_NAMES, 0, 3, offsetof(struct w16_prefs, version), "version");
     uui_prefs_choice(0, "When a program fails", FAULT_NAMES, 0, 2, offsetof(struct w16_prefs, on_fault), "on_fault");
     uui_prefs_check(0, "Debugging", "Trace every program's calls to a file", offsetof(struct w16_prefs, trace), "trace");
-    uui_prefs_choice(1, "Scale", SCALE_NAMES, 0, 3, offsetof(struct w16_prefs, scale), "scale");
+    uui_prefs_choice(1, "Scale", SCALE_NAMES, 0, W16_SCALE_COUNT, offsetof(struct w16_prefs, scale), "scale");
+    uui_prefs_choice(1, "Scaled by", METHOD_NAMES, 0, 3, offsetof(struct w16_prefs, method), "method");
     uui_prefs_choice(1, "Window frame", FRAME_NAMES, 0, 2, offsetof(struct w16_prefs, frame), "frame");
     uui_textbox_set_text(&g_drive, g_def.drive_c);
     uui_prefs_row(2, "Drive C:", &uui_textbox_ops, &g_drive, ID_OPT_DRIVE, "drive", 0);
@@ -461,7 +473,7 @@ static void line(struct ugfx_surface *s, int x, int *y, int w, const char *t, ui
     *y += ugfx_char_h() + 3;
 }
 
-static int g_dd_y[4], g_calls_y;
+static int g_dd_y[NSET], g_calls_y;
 
 static void draw_panel(struct ugfx_surface *s) {
     ugfx_fill_rect(s, g_px, g_py, g_pw, g_ph, UTHEME_PANEL_BG);
@@ -514,7 +526,7 @@ static void draw_panel(struct ugfx_surface *s) {
     was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
     line(s, x, &y, w, "This program's settings", utheme_action(UTHEME_ACT_EDIT));
     ugfx_set_font(was);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < NSET; i++) {
         g_dd_y[i] = y;
         ugfx_draw_string_clipped(s, x, y + (lh + pad - lh) / 2, w / 2, SETTINGS[i].caption, UTHEME_TEXT,
                                  UTHEME_PANEL_BG);
@@ -564,14 +576,15 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_sidebar_ops,   .widget = &g_side,  .id = ID_SIDEBAR, .name = "folders" },
     { .ops = &uui_grid_ops,      .widget = &g_grid,  .id = ID_GRID,    .name = "programs" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[0], .id = ID_SCALE,   .name = "scale" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[1], .id = ID_VERSION, .name = "version" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[2], .id = ID_FRAME,   .name = "frame" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[3], .id = ID_TRACE,   .name = "trace" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[1], .id = ID_METHOD,  .name = "method" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[2], .id = ID_VERSION, .name = "version" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[3], .id = ID_FRAME,   .name = "frame" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[4], .id = ID_TRACE,   .name = "trace" },
     { .ops = &uui_button_ops,    .widget = &g_run,   .id = ID_RUN,     .name = "run" },
     { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,    .id = ID_STATUS,  .name = "status" },
 };
-#define W_PANEL 4   // ..9: the dropdowns, Run, the calls button
+#define W_PANEL 4   // then the NSET dropdowns, Run, the calls button
 
 static void layout(int cw, int ch) {
     int pad = ugfx_char_w(), lh = ugfx_char_h();
@@ -590,11 +603,11 @@ static void layout(int cw, int ch) {
     g_ph = body_h;
     uui_grid_ops.set_geometry(&g_grid, sidew + 1, top, g_px - sidew - 1, body_h);
     // The settings rows exist only beside a program.
-    for (int i = 0; i < 6; i++) g_widgets[W_PANEL + i].hidden = !g_panel || (i != 4 && !cur());
-    g_widgets[W_PANEL + 5].hidden |= g_calls_y < 0;
+    for (int i = 0; i < NSET + 2; i++) g_widgets[W_PANEL + i].hidden = !g_panel || (i != NSET && !cur());
+    g_widgets[W_PANEL + NSET + 1].hidden |= g_calls_y < 0;
     if (!g_panel) return;
     int dx = g_px + pad * 2 + pad * 14, dw = g_pw - pad * 17;
-    for (int i = 0; i < 4; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, lh + pad);
+    for (int i = 0; i < NSET; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, lh + pad);
     int bw = ugfx_text_width("Run") + pad * 6;
     uui_button_set_geometry(&g_run, g_px + pad * 2, g_py + g_ph - lh - pad * 3, bw, lh + pad);
     g_run.disabled = !(cur() && cur()->ok);
@@ -641,7 +654,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         fill_panel();
         if ((code = uui_grid_take(&g_grid)) >= 0) command(a, CMD_RUN);
         break;
-    case ID_SCALE: case ID_VERSION: case ID_FRAME: case ID_TRACE: save_panel(); break;
+    case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_TRACE: save_panel(); break;
     default: break;
     }
     uapp_redraw(a);
@@ -712,7 +725,7 @@ int main(int argc, char **argv) {
     uui_sidebar_init(&g_side, 0, 0, 0, 0, g_rows, 0);
     uui_grid_init(&g_grid, ugfx_char_w() * 12, ugfx_char_h() * 4 + 36);
     g_grid.cell = tile;
-    for (int i = 0; i < 4; i++) uui_dropdown_init(&g_dd[i], 0, 0, 0, 0, g_dd_items[i], 1);
+    for (int i = 0; i < NSET; i++) uui_dropdown_init(&g_dd[i], 0, 0, 0, 0, g_dd_items[i], 1);
     uui_button_init(&g_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
     uui_button_init(&g_calls, 0, 0, 0, 0, "Calls it imports...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_CALLS);
     uui_textbox_init(&g_drive, "");

@@ -18,7 +18,15 @@
 #define W16_FOLDERS_MAX 8
 #define W16_PATH_MAX    128
 
-enum { W16_SCALE_AUTO, W16_SCALE_1, W16_SCALE_2 };
+// The scale: Auto, then the steps, as quarters (4 = 1x, 6 = 1.5x, 12 = 3x)
+// in w16_prefs_scale_q[]. Between whole steps the METHOD says how a pixel
+// is spread over 1.5 of the screen's: hard and uneven, smoothed, or
+// doubled first and then smoothed down (sharp-bilinear) -- the three
+// DOSBox and RetroArch offer.
+enum { W16_SCALE_AUTO, W16_SCALE_1, W16_SCALE_1_25, W16_SCALE_1_5, W16_SCALE_1_75, W16_SCALE_2,
+       W16_SCALE_2_5, W16_SCALE_3, W16_SCALE_COUNT };
+extern const int w16_prefs_scale_q[W16_SCALE_COUNT];   // [W16_SCALE_AUTO] is 0
+enum { W16_METHOD_SHARP, W16_METHOD_PIXELS, W16_METHOD_SMOOTH };
 enum { W16_FRAME_31, W16_FRAME_DESKTOP };
 enum { W16_VER_310, W16_VER_311, W16_VER_300 };
 enum { W16_FAULT_BOX, W16_FAULT_REPORT };
@@ -30,6 +38,7 @@ struct w16_prefs {
     int on_fault;                    // W16_FAULT_*
     int trace;                       // log every call to w16_trace_path()
     char drive_c[W16_PATH_MAX];      // drive C:; INI files live in its WINDOWS
+    int method;                      // W16_METHOD_*: how a fractional scale is drawn
     // The launcher's alone: the folders it lists programs from.
     char folder[W16_FOLDERS_MAX][W16_PATH_MAX];
 };
@@ -55,6 +64,11 @@ unsigned w16_prefs_overridden(const char *exe);
 // Writes `exe`'s overrides file: the keys in `mask` from `p`, nothing else
 // (an empty mask removes it). 0, or -1 when it could not be written.
 int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned mask);
+
+// Auto's scale, in quarters: the step nearest this screen's width over
+// 1280, so a 3.1 program looks as big as on a 1280-wide screen -- 1920
+// gives 1.5x, 2560 2x, 3840 3x. 4 (1x) when the width is not known.
+int w16_prefs_auto_q(void);
 
 // The version words: what GetVersion's AX and the DOS version answer.
 uint16_t w16_prefs_winver(const struct w16_prefs *p);

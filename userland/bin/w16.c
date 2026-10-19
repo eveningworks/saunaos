@@ -250,7 +250,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     struct w16_wnd *win = &g_w16.win;
     pthread_mutex_lock(&g_w16.lock);
     struct ugfx_surface vs, *out = s;
-    if (g_w16_scale > 1) {
+    if (g_w16_q != 4) {
         if (g_virt_w != win->w || g_virt_h != win->h) {
             free(g_virt);
             g_virt = calloc((size_t)win->w * win->h + 1, 4);
@@ -266,7 +266,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     int cx, cy, cw, ch;
     w16_client_rect(win, &cx, &cy, &cw, &ch);
     if (win->fb) ugfx_blit(out, cx, cy, win->cw, win->ch, win->fb, win->cw);
-    if (out != s) w16_scale_blit(s, 0, 0, g_virt, win->w, win->h, win->w, g_w16_scale);
+    if (out != s) w16_scale_blit(s, 0, 0, g_virt, win->w, win->h, win->w);
     pthread_mutex_unlock(&g_w16.lock);
     w16_menu_draw(&g_menu);
     w16_menu_draw(&g_bar);
@@ -274,8 +274,8 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
 }
 
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
-    x /= g_w16_scale;
-    y /= g_w16_scale;
+    x = w16_down(x);
+    y = w16_down(y);
     if (g_faulted) {                     // modal: only the box's button
         w16_msgbox_press(&g_box, x, y);
         uapp_redraw(a);
@@ -353,8 +353,8 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
 }
 
 static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
-    x /= g_w16_scale;
-    y /= g_w16_scale;
+    x = w16_down(x);
+    y = w16_down(y);
     if (g_faulted) {
         if (w16_msgbox_release(&g_box, x, y)) end_faulted();
         uapp_redraw(a);
@@ -391,8 +391,8 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
 }
 
 static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
-    x /= g_w16_scale;
-    y /= g_w16_scale;
+    x = w16_down(x);
+    y = w16_down(y);
     if (g_faulted) return;
     if (bar_open()) {
         unsigned edges;
@@ -502,8 +502,8 @@ static void on_focus(struct uapp *a, int focused) {
 
 static void on_resize(struct uapp *a, int w, int h) {
     struct w16_wnd *win = &g_w16.win;
-    w /= g_w16_scale;
-    h /= g_w16_scale;
+    w = w16_down(w);
+    h = w16_down(h);
     pthread_mutex_lock(&g_w16.lock);
     win->w = w;
     win->h = h;
@@ -550,7 +550,7 @@ static int on_user(struct uapp *a, int code, int arg) {
         pthread_mutex_lock(&g_w16.lock);
         int ww = g_w16.win.w, wh = g_w16.win.h;
         pthread_mutex_unlock(&g_w16.lock);
-        uapp_resize(a, ww * g_w16_scale, wh * g_w16_scale);
+        uapp_resize(a, w16_up(ww), w16_up(wh));
         return 1;
     }
     case W16_POST_MENU_SHOW: bar_show(arg); return 1;
@@ -575,17 +575,17 @@ static int on_user(struct uapp *a, int code, int arg) {
 
 // The scale the settings ask for: Auto is 2x on a screen 1600 pixels wide
 // or more, where a 3.1 program's 640x480 world is otherwise a postage stamp.
+// In quarters: the step asked for, or Auto's (w16prefs.h).
 static int pick_scale(void) {
-    if (g_w16_prefs.scale == W16_SCALE_1) return 1;
-    if (g_w16_prefs.scale == W16_SCALE_2) return 2;
-    struct query_display d;
-    if (sys_query_record(QUERY_DISPLAY, 0, &d, sizeof d) >= (int)sizeof d && d.width >= 1600) return 2;
-    return 1;
+    if (g_w16_prefs.scale > W16_SCALE_AUTO && g_w16_prefs.scale < W16_SCALE_COUNT)
+        return w16_prefs_scale_q[g_w16_prefs.scale];
+    return w16_prefs_auto_q();
 }
 
 static int run(const char *path, const uint8_t *img, uint32_t size) {
     struct w16 *w = &g_w16;
-    g_w16_scale = pick_scale();
+    g_w16_q = pick_scale();
+    g_w16_method = g_w16_prefs.method;
     g_w16_desktop_frame = g_w16_prefs.frame == W16_FRAME_DESKTOP;
     if (w16_load(w, img, size, path) < 0) return 1;
     ugfx_font_init();
@@ -609,7 +609,7 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     // program the last one's size. A scaled window is another identity:
     // the size remembered at 1x would undo scale=2.
     static char appid[40];
-    if (g_w16_scale > 1) snprintf(appid, sizeof appid, "w16-%s-%dx", w->ne.name, g_w16_scale);
+    if (g_w16_q != 4) snprintf(appid, sizeof appid, "w16-%s-%gx", w->ne.name, g_w16_q / 4.0);
     else snprintf(appid, sizeof appid, "w16-%s", w->ne.name);
     for (char *p = appid; *p; p++)
         *p = *p >= 'A' && *p <= 'Z' ? (char)(*p + 32) : (*p == ' ' || *p == '/') ? '-' : *p;
@@ -619,10 +619,10 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
         .app_id = appid,
         .flags = (g_w16_desktop_frame ? 0 : UAPP_NO_DECOR) |
                  (w->win.style & WS_THICKFRAME ? UAPP_RESIZABLE : 0),
-        .w = w->win.w * g_w16_scale,
-        .h = w->win.h * g_w16_scale,
-        .min_w = 120 * g_w16_scale,
-        .min_h = (2 * W16_FRAME + W16_CAPTION + 1) * g_w16_scale,
+        .w = w16_up(w->win.w),
+        .h = w16_up(w->win.h),
+        .min_w = w16_up(120),
+        .min_h = w16_up(2 * W16_FRAME + W16_CAPTION + 1),
         .on_open = on_open,
         .on_draw = on_draw,
         .on_press = on_press,

@@ -7478,7 +7478,9 @@ runs first**: a `doom1.wad` with one
   fault.exe's one missing call under two chips, every import with Show
   all, one row after a search, and copies the rows on Ctrl+C; gdi.exe's
   opens on every import, and the details panel's button opens it.
-  `dialog.exe`: Alt+F opens its menu bar's File menu, its Checked item
+  `scale=1.5` opens gdi.exe at exactly 1.5 times, with `method=pixels`
+  leaving only pure colours across the magenta square's edge and
+  `method=smooth` blending them. `dialog.exe`: Alt+F opens its menu bar's File menu, its Checked item
   unticks itself, F2 (an accelerator) opens its dialog, whose edit field
   keeps what is typed (read back through DIALOG.INI), a right click's
   MessageBox answers No by mnemonic, and Help > About is ShellAbout's

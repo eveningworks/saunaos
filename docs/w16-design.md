@@ -176,7 +176,10 @@ shape to copy:
    "A Win16 dialog is an owned window w16 paints". The window table
    (`wnd16.c`) holds the dialogs and their controls beside the main
    window. KERNEL's constants `__AHSHIFT`, `__AHINCR` and `__WINFLAGS`
-   are patched at load; SOUND's voices play nothing yet. `w16 --trace FILE` logs every call into KERNEL, USER and
+   are patched at load; SOUND's voices play nothing yet. **Fractional
+   scales** (1.25x to 3x, `scale16.c`): a program's world is still drawn
+   at 1x and scaled once, by the method its settings name -- Sharp,
+   Pixels or Smooth. `w16 --trace FILE` logs every call into KERNEL, USER and
    GDI (Wine's `+relay`), which is how a stage-4 program's next stop is
    found.
 4. **Real programs**, the user's own copies (none ship): run each,

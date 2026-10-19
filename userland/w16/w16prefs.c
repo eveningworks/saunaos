@@ -3,12 +3,17 @@
 #include "w16/w16prefs.h"
 
 #include <stddef.h>
+#include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 #include "lib/uconf.h"
+#include "query_abi.h"
+#include "rt/sys.h"
 
-static const char *const SCALE_WORDS[] = { "auto", "1", "2" };
+static const char *const SCALE_WORDS[] = { "auto", "1", "1.25", "1.5", "1.75", "2", "2.5", "3" };
+const int w16_prefs_scale_q[W16_SCALE_COUNT] = { 0, 4, 5, 6, 7, 8, 10, 12 };
+static const char *const METHOD_WORDS[] = { "sharp", "pixels", "smooth" };
 static const char *const FRAME_WORDS[] = { "win31", "desktop" };
 static const char *const VERSION_WORDS[] = { "3.10", "3.11", "3.00" };
 static const char *const FAULT_WORDS[] = { "box", "report" };
@@ -17,19 +22,22 @@ static int is_abs_path(const char *v) { return v[0] == '/' || v[0] == 0; }
 
 #define FOLDER_KEY(n, d) UPREF_TEXT_KEY("folder" #n, struct w16_prefs, folder[n - 1], d, is_abs_path)
 
-// THE FIRST SIX ARE A PROGRAM'S TO OVERRIDE; the folders are the
-// launcher's alone. Keep w16_prefs_program_keys in step.
+// THE FIRST SEVEN ARE A PROGRAM'S TO OVERRIDE, each its bit in
+// w16_prefs_overridden() by its place here -- so a new one goes after
+// them, never between; the folders are the launcher's alone. Keep
+// w16_prefs_program_keys in step.
 const struct upref w16_prefs_keys[] = {
-    UPREF_WORD_KEY("scale", struct w16_prefs, scale, SCALE_WORDS, 3, W16_SCALE_AUTO),
+    UPREF_WORD_KEY("scale", struct w16_prefs, scale, SCALE_WORDS, W16_SCALE_COUNT, W16_SCALE_AUTO),
     UPREF_WORD_KEY("frame", struct w16_prefs, frame, FRAME_WORDS, 2, W16_FRAME_31),
     UPREF_WORD_KEY("version", struct w16_prefs, version, VERSION_WORDS, 3, W16_VER_310),
     UPREF_WORD_KEY("on_fault", struct w16_prefs, on_fault, FAULT_WORDS, 2, W16_FAULT_BOX),
     UPREF_BOOL_KEY("trace", struct w16_prefs, trace, 0),
     UPREF_TEXT_KEY("drive_c", struct w16_prefs, drive_c, "/home/Win16", is_abs_path),
+    UPREF_WORD_KEY("method", struct w16_prefs, method, METHOD_WORDS, 3, W16_METHOD_SHARP),
     FOLDER_KEY(1, "/usr/share/w16"), FOLDER_KEY(2, "/home/Win16"), FOLDER_KEY(3, ""),
     FOLDER_KEY(4, ""), FOLDER_KEY(5, ""), FOLDER_KEY(6, ""), FOLDER_KEY(7, ""), FOLDER_KEY(8, ""),
 };
-const int w16_prefs_program_keys = 6;
+const int w16_prefs_program_keys = 7;
 const struct uprefs w16_prefs_defaults = {
     W16_CONF, w16_prefs_keys, (int)(sizeof w16_prefs_keys / sizeof w16_prefs_keys[0])
 };
@@ -84,6 +92,17 @@ int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned 
         }
     }
     return ok ? 0 : -1;
+}
+
+int w16_prefs_auto_q(void) {
+    struct query_display d;
+    if (sys_query_record(QUERY_DISPLAY, 0, &d, sizeof d) < (int)sizeof d || !d.width) return 4;
+    int want = (int)(d.width * 4 + 640) / 1280, best = 4;
+    for (int i = W16_SCALE_1; i < W16_SCALE_COUNT; i++) {
+        int q = w16_prefs_scale_q[i];
+        if (abs(q - want) < abs(best - want)) best = q;
+    }
+    return best;
 }
 
 uint16_t w16_prefs_winver(const struct w16_prefs *p) {

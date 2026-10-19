@@ -439,11 +439,16 @@ enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE,
 void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch);
-extern int g_w16_scale;                           // 1 or 2 (w16prefs.h's scale)
+// scale16.c: the scale in quarters (4 = 1x, 6 = 1.5x) and how a
+// fractional one is drawn (w16prefs.h's W16_METHOD_*); a 1x length in
+// the window's real pixels, and back.
+extern int g_w16_q, g_w16_method;
+int w16_up(int v);
+int w16_down(int v);
 extern int g_w16_desktop_frame;                   // toywm's frame, not 3.1's
 void w16_frame_fit(const struct w16_wnd *win, int *w, int *h);   // a 3.1 outer size -> the window's
 void w16_scale_blit(struct ugfx_surface *dst, int dx, int dy, const uint32_t *src, int w, int h,
-                    int stride, int s);
+                    int stride);
 
 // The control-menu box, in window coordinates: what its menu drops from.
 void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h);

@@ -6,7 +6,7 @@
 // release, a drag and a key are posted to the task as messages for the
 // dialog; nothing here decides what a control does.
 //
-// Painted at 1x into a buffer and doubled at scale 2, as the program's
+// Painted at 1x into a buffer and scaled (scale16.c), as the program's
 // own window is (w16.c's on_draw).
 #include "w16_internal.h"
 
@@ -271,7 +271,7 @@ static void on_draw(struct uapp_window *u, struct uapp_draw *dr) {
             w16_dlg_paint(&g_w16, d, buf);
             ugfx_set_font(was);
             pthread_mutex_unlock(&g_w16_text_lock);
-            w16_scale_blit(s, 0, 0, buf, d->w, d->h, d->w, g_w16_scale);
+            w16_scale_blit(s, 0, 0, buf, d->w, d->h, d->w);
         }
     }
     pthread_mutex_unlock(&g_w16.lock);
@@ -285,8 +285,8 @@ static void post_mouse(struct uapp_window *u, uint16_t msg, int x, int y) {
     uint16_t h = d ? d->hwnd : 0;
     pthread_mutex_unlock(&g_w16.lock);
     if (!h) return;
-    x = x / g_w16_scale - f;
-    y = y / g_w16_scale - f - cap;
+    x = w16_down(x) - f;
+    y = w16_down(y) - f - cap;
     if (msg == WM_LBUTTONDOWN && y < 0 && y >= -cap) { uapp_window_move_start(u, 0); return; }
     w16_post_msg(&g_w16, h, msg, 0, (uint32_t)(uint16_t)y << 16 | (uint16_t)x);
 }
@@ -318,8 +318,8 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
     if (!d) return;
     struct uapp_window_desc desc = {
         .title = d->text && d->text[0] ? d->text : "Dialog",
-        .w = dw * g_w16_scale,
-        .h = dh * g_w16_scale,
+        .w = w16_up(dw),
+        .h = w16_up(dh),
         .flags = UAPP_WIN_MODAL | UAPP_WIN_NO_DECOR,
         .state = (void *)(uintptr_t)hwnd,
         .on_key = on_key,

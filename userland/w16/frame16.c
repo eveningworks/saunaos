@@ -14,7 +14,6 @@
 
 static uint32_t rgb(uint32_t v) { return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v); }
 
-int g_w16_scale = 1;              // 2: every pixel drawn twice each way (w16prefs.h's scale)
 int g_w16_desktop_frame;          // the desktop's frame instead of 3.1's
 
 // MAXIMIZED, 3.1 put the border off the screen's edges; here there is
@@ -39,21 +38,6 @@ void w16_frame_fit(const struct w16_wnd *win, int *w, int *h) {
     *h -= 2 * f + cap;
     if (*w < 1) *w = 1;
     if (*h < 1) *h = 1;
-}
-
-// `src` (w x h, `stride` pixels a row) at s times its size, each pixel a
-// square -- crisp, as an integer scale of pixel art should be.
-void w16_scale_blit(struct ugfx_surface *dst, int dx, int dy, const uint32_t *src, int w, int h,
-                    int stride, int s) {
-    uint32_t *row = malloc((size_t)w * s * 4);
-    if (!row) return;
-    for (int y = 0; y < h; y++) {
-        const uint32_t *in = src + (size_t)y * stride;
-        for (int x = 0; x < w; x++)
-            for (int k = 0; k < s; k++) row[x * s + k] = in[x];
-        for (int k = 0; k < s; k++) ugfx_blit(dst, dx, dy + y * s + k, w * s, 1, row, w * s);
-    }
-    free(row);
 }
 
 // The bar is under the caption and over the client, in the 3.1 frame

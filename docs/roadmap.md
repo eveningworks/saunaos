@@ -697,6 +697,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 
 ### Desktop visual polish
 
+- [ ] A display scale for the whole desktop -- 100% to 200% in quarter steps, text, controls, icons and borders together
+
 - [x] ~~Basic image decoder (JPEG or similar)~~ DONE 2026-08-23 -- baseline JPEG in ring 3, checked against libjpeg
 - [x] ~~Real wallpaper images~~ DONE 2026-08-23 -- `/usr/share/wallpapers`, a `Wallpaper` key, fit/fill
 - [x] ~~Progressive JPEG~~ DONE 2026-09-16 -- SOF2 end to end, and non-interleaved baseline scans with it
@@ -930,6 +932,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Stage 4: real programs (the user's own copies), each run's unimplemented-import list worked through
 - [ ] Several top-level windows per uapp process, which real Win16 programs need -- owned dialogs done 2026-10-19
 - [ ] w16's fixed tables grown on demand: the message queue, classes, local-heap blocks, GDI objects, timers
+- [x] ~~w16: fractional scales (1.25x to 3x) with a choice of Sharp, Pixels or Smooth~~ DONE 2026-10-19
 
 ## Hardware
 

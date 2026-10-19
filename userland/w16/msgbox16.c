@@ -68,11 +68,11 @@ void w16_msgbox_open(struct w16_msgbox *b, int win_w, int win_h) {
     b->h = W16_CAPTION + margin() + body + margin() + b->btn_h + margin();
     int ax = (win_w - b->w) / 2, ay = (win_h - b->h) / 2;
     int x = ax, y = ay;
-    int S = g_w16_scale;
-    b->popup = uui_popup_open(ax * S, (ay - 1) * S, b->w * S, S, b->w * S, b->h * S, UUI_POPUP_BELOW,
-                              UUI_POPUP_GRAB | UUI_POPUP_NO_DECOR, dismissed, b, &x, &y);
-    b->x = x / S;
-    b->y = y / S;
+    b->popup = uui_popup_open(w16_up(ax), w16_up(ay - 1), w16_up(b->w), w16_up(1), w16_up(b->w),
+                              w16_up(b->h), UUI_POPUP_BELOW, UUI_POPUP_GRAB | UUI_POPUP_NO_DECOR,
+                              dismissed, b, &x, &y);
+    b->x = w16_down(x);
+    b->y = w16_down(y);
     b->btn_x = (b->w - b->btn_w) / 2;
     b->btn_y = b->h - margin() - b->btn_h;
     b->pressed = 0;
@@ -130,12 +130,12 @@ void w16_msgbox_draw(struct w16_msgbox *b) {
     if (b->popup <= 0) return;
     struct ugfx_surface *s = uui_popup_surface(b->popup);
     if (!s) return;
-    if (g_w16_scale == 1) { draw_box(b, s); return; }
+    if (g_w16_q == 4) { draw_box(b, s); return; }
     uint32_t *px = malloc((size_t)b->w * b->h * 4);
     if (!px) return;
     struct ugfx_surface t = ugfx_surface_for_pixels(px, b->w, b->h);
     draw_box(b, &t);
-    w16_scale_blit(s, 0, 0, px, b->w, b->h, b->w, g_w16_scale);
+    w16_scale_blit(s, 0, 0, px, b->w, b->h, b->w);
     free(px);
 }
 

@@ -24,9 +24,10 @@ file is involved.
    GDITEST.INI (written here first, in drive C:'s WINDOWS folder) says
    Square=1, and writes Written=yes to it itself.
 5. **A program's own settings** (/etc/win16/<program>.conf, w16prefs.h):
-   scale=2 opens gdi.exe at exactly twice its size, and frame=desktop
-   gives hello.exe toywm's frame with the client still the size the
-   program asked for.
+   scale=2 opens gdi.exe at exactly twice its size, scale=1.5 at exactly
+   1.5 times with method=pixels leaving only pure colours across an edge
+   and method=smooth blending them, and frame=desktop gives hello.exe
+   toywm's frame with the client still the size the program asked for.
 6. **Win16 Programs**: the launcher lists the samples, a double click on
    one runs it, and `win16 FILE` runs a program with no launcher window
    (the File Manager's Open for an .exe).
@@ -217,6 +218,33 @@ def settings(dbg, qmp, res):
               win is not None and (win["w"], win["h"]) == (480, 300),
               f"got {win and (win['w'], win['h'])}, want (480, 300)")
     dbg.close_window(GDI_TITLE)
+    # 1.5x: the window is exactly 1.5 times the size, and the METHOD is
+    # what spreads a pixel: across the magenta square's left edge (client
+    # x 120, 1x window x 124, so 186 at 1.5x) Pixels leaves only magenta
+    # and white, and Smooth blends them.
+    strips = {}
+    for method in ("pixels", "smooth"):
+        sh(dbg, f"write {GDI_CONF} scale=1.5")
+        sh(dbg, f"append {GDI_CONF} method={method}")
+        win = dbg.spawn("/bin/w16 /usr/share/w16/gdi.exe", GDI_TITLE)
+        if not win:
+            res.check(f"scale=1.5 method={method} opens gdi.exe", False, "no window")
+            continue
+        if method == "pixels":
+            res.check("scale=1.5 makes the window exactly 1.5 times its size",
+                      (win["w"], win["h"]) == (360, 225), f"got {(win['w'], win['h'])}, want (360, 225)")
+        time.sleep(1.5)                          # the timer's square, as above
+        im = shot(qmp, f"{TMP}/w16_scale_{method}.png")
+        y = win["y"] + (24 + 54) * 3 // 2
+        strips[method] = {im.getpixel((win["x"] + x, y)) for x in range(180, 196)}
+        dbg.close_window(GDI_TITLE)
+    pure = {MAGENTA, WHITE}
+    res.check("Pixels spreads a pixel hard: only magenta and white across the edge",
+              strips.get("pixels") is not None and strips["pixels"] <= pure and MAGENTA in strips["pixels"],
+              f"colours {strips.get('pixels')}")
+    res.check("Smooth blends them across the edge",
+              strips.get("smooth") is not None and bool(strips["smooth"] - pure),
+              f"colours {strips.get('smooth')}")
     sh(dbg, f"rm {GDI_CONF}")
     # frame=desktop for hello.exe: toywm draws a frame (the content sits
     # inside the window), and the client is hello's 400x200 less the 3.1
