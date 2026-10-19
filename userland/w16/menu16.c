@@ -19,11 +19,14 @@
 
 static uint32_t rgb(uint32_t v) { return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v); }
 
-static int row_h(void) { return ugfx_char_h() + 4; }
 static int sep_h(void) { return 7; }
 
-static int item_h(const struct w16_menu_item *it) {
-    return it->flags & W16_MF_SEPARATOR ? sep_h() : row_h();
+// A row's height is the SYSTEM FONT's, measured once when the menu opens
+// and kept in `m`: the hit test runs under whatever font is current, and
+// asking ugfx_char_h() there put the pointer a row off by the time it
+// reached the bottom of a long menu.
+static int item_h(const struct w16_menu *m, const struct w16_menu_item *it) {
+    return it->flags & W16_MF_SEPARATOR ? sep_h() : m->row_h;
 }
 
 // The label without its '&', and where the mnemonic falls in it (-1 none).
@@ -54,6 +57,7 @@ static void measure(struct w16_menu *m) {
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
     int lw = 0, aw = 0, h = 4;
+    m->row_h = ugfx_char_h() + 4;
     for (int i = 0; i < m->n; i++) {
         char *t = malloc(strlen(m->item[i].text) + 1);
         if (t) plain(m->item[i].text, t, (int)strlen(m->item[i].text) + 1);
@@ -61,11 +65,12 @@ static void measure(struct w16_menu *m) {
         free(t);
         if (tw > lw) lw = tw;
         if (kw > aw) aw = kw;
-        h += item_h(&m->item[i]);
+        h += item_h(m, &m->item[i]);
     }
+    int gap = 3 * ugfx_char_w();                 // before the shortcut column, in this font too
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
-    m->w = PAD_L + lw + (aw ? 3 * ugfx_char_w() + aw : 0) + PAD_R + SHADOW;
+    m->w = PAD_L + lw + (aw ? gap + aw : 0) + PAD_R + SHADOW;
     m->h = h + SHADOW;
 }
 
@@ -108,7 +113,7 @@ static int item_at(const struct w16_menu *m, int x, int y) {
     if (x < m->x || x >= m->x + m->w - SHADOW || y < m->y) return -1;
     int top = m->y + 2;
     for (int i = 0; i < m->n; i++) {
-        int h = item_h(&m->item[i]);
+        int h = item_h(m, &m->item[i]);
         if (y >= top && y < top + h) return i;
         top += h;
     }
@@ -149,7 +154,7 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
     int y = 2, ch = ugfx_char_h();
     for (int i = 0; i < m->n; i++) {
         const struct w16_menu_item *it = &m->item[i];
-        int h = item_h(it);
+        int h = item_h(m, it);
         if (it->flags & W16_MF_SEPARATOR) {
             ugfx_fill_rect(s, 1, y + h / 2, W - 2, 1, black);
             y += h;

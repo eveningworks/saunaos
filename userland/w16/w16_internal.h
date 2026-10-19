@@ -472,6 +472,7 @@ struct w16_menu {
     int x, y, w, h;               // where it landed, window coordinates
     int sel;                      // the highlighted item, -1 none
     int armed;                    // a press began inside it
+    int row_h;                    // a row's height in the system font, set as it opens
 };
 
 void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_key);

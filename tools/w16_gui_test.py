@@ -348,6 +348,37 @@ def dialogs(dbg, res):
     titles = wait_titles(dbg, lambda t: "About Dialog test" not in t)
     res.check("...and Enter closes it", "About Dialog test" not in titles, f"windows {titles}")
     dbg.close_window(DLG_TITLE)
+    # THE POINTER LANDS ON THE ROW UNDER IT, down to the last one: File >
+    # Exit clicked by place, from the popup's own rectangle (the last row
+    # ends 2 px above the 2 px shadow). Rows hit-tested in the DESKTOP's
+    # font height drifted further each row (2026-10-19, on the ASUS); the
+    # desktop font is made larger than w16's for this, or the two match
+    # and a drift cannot show, then put back.
+    was = (sh(dbg, "config get system.font.size").strip().split() or ["16"])[-1]
+    sh(dbg, "config set system.font.size 24")
+    try:
+        drift_check(dbg, res)
+    finally:
+        sh(dbg, f"config set system.font.size {was}")
+
+
+def drift_check(dbg, res):
+    win = dbg.spawn("/bin/w16 /usr/share/w16/dialog.exe", DLG_TITLE)
+    if not win:
+        res.check("dialog.exe opens again for the menu check", False, "no window")
+        return
+    dbg.send("gui key f alt")
+    wait_titles(dbg, lambda t: "Popup" in t)
+    pop = next((w for w in dbg.windows() if w["title"] == "Popup"), None)
+    if pop:
+        x, y = pop["x"] + 30, pop["y"] + pop["h"] - 4 - 6
+        dbg.send(f"gui move {x} {y}")
+        dbg.settle(0.3)
+        dbg.click(x, y)
+    titles = wait_titles(dbg, lambda t: DLG_TITLE not in t)
+    res.check("a click on File's last row, Exit, chooses Exit", DLG_TITLE not in titles,
+              f"popup {pop and (pop['x'], pop['y'], pop['w'], pop['h'])}, windows {titles}")
+    dbg.close_window(DLG_TITLE)
 
 
 CALLS = "win16-calls: layout "
