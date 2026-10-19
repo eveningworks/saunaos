@@ -87,6 +87,10 @@ TESTS = [
     # that the generation MOVES when ring 3 writes /etc, which is the
     # only thing making the desktop notice a change.
     ("usetting_test", 0, None, None),
+    # What one setting costs, in syscalls (strace -c), against ceilings:
+    # `config set` once walked the whole registry per name. SPAWNED: it
+    # waits for its children.
+    ("settingcost_test", None, None, None),
     # The GRUB menu reader and the one-shot environment block behind
     # `reboot --entry` (lib/ubootmenu.h). Ring 3's library, so not a
     # KTEST; tools/boot_entry_test.py proves GRUB honours what it writes.

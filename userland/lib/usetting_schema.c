@@ -197,6 +197,18 @@ int uschema_find(const char *qualified, struct uschema *out) {
 
 int uschema_count(void) { ensure_names(); return g_name_count; }
 
+const char *uschema_name_at(int index) {
+    ensure_names();
+    return index >= 0 && index < g_name_count ? g_names[index] : 0;
+}
+
+int uschema_index_of(const char *qualified) {
+    ensure_names();
+    for (int i = 0; i < g_name_count; i++)
+        if (!strcmp(g_names[i], qualified)) return i;
+    return -1;
+}
+
 int uschema_at(int index, struct uschema *out) {
     ensure_names();
     if (index < 0 || index >= g_name_count) {

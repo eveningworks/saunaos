@@ -1356,6 +1356,18 @@ rather than avoided:
   `fs_generation()`; not a callback list, because the interested parties
   are in other address spaces.
 
+**A setting is LOOKED UP by its name, never found by walking the
+registry (2026-10-19).** INFO is addressed by index, and `config` and
+`usetting_find()` resolved a name by enumerating every index -- each one
+reading its declaration -- twice per command: 2,968 syscalls for one
+`config set`, seconds on a busy machine, and a GUI test timing out on
+it at a rate that moved with unrelated binaries' sizes. A kernel
+setting is now probed with GET and only the kernel's own few walked; a
+declared one is read from its one file (`usetting_info()`), its index
+taken from the cached listing only when a caller needs it for CHOICE.
+`tests/settingcost_test` counts the syscalls, because a count does not
+wobble with load the way a time does.
+
 `enum setting_result` moved from `api/etc_config.h` to
 `abi/setting_abi.h` in the same change: once ring 3 could change a
 setting, "applied but NOT saved" became part of the kernel<->userland

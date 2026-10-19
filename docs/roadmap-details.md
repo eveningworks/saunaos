@@ -3587,6 +3587,23 @@ line" text the check looks for. Red at f6bac79c too (`predates.py`). Not
 yet measured on a fresh image (`make clean-disk && make iso`), which is
 the next step; `font glyph g`'s output was not captured.
 
+## A compiled index of `/etc/settings.d`, so a new process does not parse every declaration -- GSettings' `gschemas.compiled`
+
+Every process that lists the declared settings opens all of
+`/etc/settings.d` (some 150 files) to learn which ones carry `Type=`
+(`list_names()` in `userland/lib/usetting_schema.c`). A long-running
+process does that once and then keeps what it parsed, re-reading a file
+only when its generation moves; a SHORT one -- `config`, run once per
+command -- pays it every time. `config set` and a leaf `config get` no
+longer list at all (a qualified name is looked up, 2026-10-19), but a
+branch, a bare name, `config list` and System Settings' first page still
+do. GSettings' answer is one compiled file every process maps
+(`glib-compile-schemas` rebuilds it when the schema directory changes);
+the Windows registry and macOS's `cfprefsd` keep the parsed state in one
+long-lived owner instead. The toy-os shape would be the former: an index
+file regenerated when the directory's generation moves, read with one
+open. `tests/settingcost_test` holds today's ceilings.
+
 ## Legend: the old milestone numbers
 
 Milestones are named rather than numbered as of 2026-08-18 (see
@@ -8063,4 +8080,60 @@ the core is the shape; `configuration_is_driveable()`'s class list
 would become each driver's own "can I drive this?". Named in the
 2026-10-15 review of the NIC-buffer fix (`docs/decisions/drivers.md`,
 "A USB driver cancels its own transfers in unbind").
+
+## `tools/cost_audit.py`: syscalls and disk reads of fixed commands and an idle desktop, against a stored baseline, at every release
+
+The audit below is not a one-off: anything can grow a walk or a poll
+again. So the first deliverable is the TOOL, and it is repeatable by
+construction -- boot a guest, `strace -c` a fixed list (every `/bin`
+command with typical arguments, each daemon's first minute, a minute of
+an idle desktop), and compare the counts with a baseline file in the
+repo (`tools/cost_baseline.json`). DISK TRAFFIC IS COUNTED BESIDE THE
+SYSCALLS -- bytes and requests that reached the device, after the disk
+cache, per command and per idle minute (the per-process counters Task
+Manager reads, `lib/uprocio.h`, and the block layer's own) -- because a
+reader that re-reads the same files every pass costs the disk too, and
+the disk is shared by everything else. Its output is a report of what grew
+and by how much, not a verdict: a count that rose with a feature is
+re-baselined in that feature's commit, one that rose with nothing is a
+finding. It runs at a release the way `qemu_matrix.py` does (the
+delivery checklist gains the step when the tool exists) and on demand
+from `ondemand_sweep.py`. Linux's 0-day bot, Chromium's perf bots and
+Firefox's Talos are the shape: tracking against a stored baseline, not
+a one-time hunt.
+
+## Count what every `/bin` command and daemon start costs (`strace -c`), and fix what reads far more than its job needs
+
+Found by accident on 2026-10-19: one `config set` made 2,968 syscalls --
+it enumerated the whole settings registry, reading every declaration,
+twice -- and a GUI test timed out on it at a rate that moved with
+unrelated binaries' sizes. The fix brought it to 51. The method that
+found it is cheap and repeatable: `strace -c PROGRAM` gives an exact
+count per syscall, so a command's cost can be compared with what its
+job plausibly needs (one setting: a handful of files, not 150). Walk
+`/bin` and the services init starts, record each count, and look hard at
+anything that opens or lists far more than it names. Candidates already
+seen: System Settings' first page lists every declaration; netd re-reads
+`/etc/net.conf` on every pass; `config get` of a branch builds the whole
+tree. A compiled settings index (its own item, under Runtime + interop)
+is the structural fix for the first.
+
+## Count what the idle desktop does per second -- disk reads, file opens, syscalls, wakes -- and make every poll earn its place
+
+toywm wakes for the clock, the tray polls, the pings and its clients'
+timers; each per-second poll is cheap alone and they add up, and some
+read FILES (the tray's visibility re-reads `/etc/desktop.conf` on a
+settings change). Measure an idle desktop -- syscalls and file opens per
+second by source, `idle_cpu.py` for the CPU -- and turn a poll into a
+generation compare or an event wherever the state can say it changed.
+`docs/conventions` already prefers a generation compare to a poll; this
+checks the code against it.
+
+## A ceiling test for each hot path found, as `tests/settingcost_test` does for one setting -- counted, never timed
+
+A time wobbles with whatever else the machine is doing, so a time-based
+ceiling either flakes or is set so loose it catches nothing. A syscall
+count of one command is exact. Each path the audit fixes gets a ceiling
+several times its new count and far below its old one, in a `/tests`
+program preflight already runs.
 

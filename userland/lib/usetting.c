@@ -125,7 +125,9 @@ static void ci_forget_choices(struct choice_info *e) {
 // caller answers unsorted). Checked against the registry BEFORE growing,
 // so a caller's bogus index cannot size the table.
 static struct choice_info *ci_for(int index, uint32_t gen, int kcount) {
-    if (index < 0 || index >= kcount + uschema_count()) return 0;
+    // A kernel index is in range without listing /etc/settings.d, which
+    // reads every declaration; only a declared one needs the count.
+    if (index < 0 || (index >= kcount && index >= kcount + uschema_count())) return 0;
     if (index >= g_ci_cap) {
         int cap = g_ci_cap ? g_ci_cap : 64;
         while (cap <= index) cap *= 2;   // bounded: index < the registry's size
@@ -504,27 +506,93 @@ int usetting_set(const char *name, const char *value) {
     return (int)m.result;
 }
 
-int usetting_find(const char *name, struct setting_msg *out) {
-    struct setting_msg m;
+// The full INFO for merged index `i` into `out`; 0 or -1.
+static int info_at(int i, struct setting_msg *out) {
     memset(out, 0, sizeof *out);
+    out->op = SETTING_OP_INFO;
+    out->index = (uint32_t)i;
+    return usetting_dispatch(out);
+}
+
+// The kernel's index for `name`, filling `out` with its INFO; -1 when
+// the kernel has no such setting. THE KERNEL'S FIRST, as the merged
+// order puts it: a GET says whether it has the name at all, and only
+// then are its own settings walked -- raw INFO, no declaration text
+// read per entry.
+static int kernel_find(const char *name, int kcount, struct setting_msg *out) {
+    struct setting_msg m;
     memset(&m, 0, sizeof m);
-    m.op = SETTING_OP_COUNT;
-    if (usetting_dispatch(&m) != 0) return -1;
-    int count = (int)m.count;
-    for (int i = 0; i < count; i++) {
+    m.op = SETTING_OP_GET;
+    strlcpy(m.name, name, sizeof m.name);
+    if (sys_setting(&m) != 0) return -1;
+    for (int i = 0; i < kcount; i++) {
         memset(&m, 0, sizeof m);
         m.op = SETTING_OP_INFO;
-        m.index = i;
-        if (usetting_dispatch(&m) != 0) continue;
+        m.index = (uint32_t)i;
+        if (sys_setting(&m) != 0) continue;
         // Qualified, because a bare name is only unique until something
         // else registers one.
         char qualified[SETTING_ABI_QUALIFIED_MAX];
         snprintf(qualified, sizeof qualified, "%s.%s", m.ns, m.name);
         if (strcmp(qualified, name) != 0) continue;
-        *out = m;
-        return i;
+        return info_at(i, out) == 0 ? i : -1;
     }
     return -1;
+}
+
+int usetting_find(const char *name, struct setting_msg *out) {
+    memset(out, 0, sizeof *out);
+    uint32_t gen = 0;
+    int kcount = kernel_count(&gen);
+    if (kcount < 0) return -1;
+    int i = kernel_find(name, kcount, out);
+    if (i >= 0) return i;
+    int si = uschema_index_of(name);
+    if (si >= 0 && info_at(kcount + si, out) == 0) return kcount + si;
+    memset(out, 0, sizeof *out);
+    return -1;
+}
+
+int usetting_each_name(int (*each)(int index, const char *ns, const char *name, void *ctx),
+                       void *ctx) {
+    uint32_t gen = 0;
+    int kcount = kernel_count(&gen);
+    if (kcount < 0) return -1;
+    struct setting_msg m;
+    for (int i = 0; i < kcount; i++) {
+        memset(&m, 0, sizeof m);
+        m.op = SETTING_OP_INFO;
+        m.index = (uint32_t)i;
+        if (sys_setting(&m) != 0) continue;
+        if (each(i, m.ns, m.name, ctx)) return 0;
+    }
+    for (int i = 0; i < uschema_count(); i++) {
+        const char *q = uschema_name_at(i);
+        const char *dot = q ? strchr(q, '.') : 0;
+        if (!dot || !dot[1]) continue;
+        char ns[SETTING_ABI_NS_MAX];
+        size_t len = (size_t)(dot - q);
+        if (len >= sizeof ns) continue;
+        memcpy(ns, q, len);
+        ns[len] = 0;
+        if (each(kcount + i, ns, dot + 1, ctx)) return 0;
+    }
+    return 0;
+}
+
+int usetting_info(const char *name, struct setting_msg *out) {
+    memset(out, 0, sizeof *out);
+    uint32_t gen = 0;
+    int kcount = kernel_count(&gen);
+    if (kcount < 0) return -1;
+    if (kernel_find(name, kcount, out) >= 0) return 0;
+    struct uschema s;
+    if (!uschema_find(name, &s)) { memset(out, 0, sizeof *out); return -1; }
+    memset(out, 0, sizeof *out);
+    out->op = SETTING_OP_INFO;
+    out->generation = gen;
+    fill_from_schema(&s, out);
+    return 0;
 }
 
 int usetting_set_int(const char *name, int value) {

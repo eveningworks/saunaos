@@ -141,6 +141,12 @@ int uschema_find(const char *qualified, struct uschema *out);
 // is registration rather than the filesystem.
 int uschema_count(void);
 int uschema_at(int index, struct uschema *out);
+// The index uschema_at() takes for `qualified`, from the cached listing
+// with no file read; -1 when /etc/settings.d has no such name.
+int uschema_index_of(const char *qualified);
+// The `index`th declaration's qualified name, from the same listing --
+// no file read; NULL past the end.
+const char *uschema_name_at(int index);
 
 // Forgets the cached listing. Called by usetting_dispatch() on RELOAD;
 // a file added to /etc/settings.d is otherwise invisible until then,

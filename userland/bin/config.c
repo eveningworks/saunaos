@@ -37,6 +37,8 @@
 #include "lib/uargs.h"
 #include "etc_renamed.h"   // the names from before the dotted ones
 #include "query_abi.h"     // walking the facts for a branch
+#include <dirent.h>
+#include "lib/usetting_text.h" // SETTING_TEXT_DIR
 
 static void put(const char *s) { sys_print(s); }
 
@@ -110,16 +112,20 @@ static int read_file(const char *path, char *buf, int cap) {
 // `bare` set: `want` is read WHOLE as the key, the second reading a
 // dotted key needs (`font.size` is not namespace `font`) -- the same
 // two readings, in the same order, as the kernel's setting_find().
-static int name_matches_as(const struct setting_msg *m, const char *want, int bare) {
+static int names_match_as(const char *ns, const char *name, const char *want, int bare) {
     const char *dot = 0;
     for (const char *p = want; *p; p++) if (*p == '.') { dot = p; break; }
-    if (!dot || bare) return strcmp(m->name, want) == 0;
+    if (!dot || bare) return strcmp(name, want) == 0;
 
     // Qualified: both halves must match. A namespace-less setting (its
     // file has no descriptor) can only ever be addressed bare.
-    if (strncmp(m->ns, want, (size_t)(dot - want)) != 0) return 0;
-    if (m->ns[dot - want] != '\0') return 0;
-    return strcmp(m->name, dot + 1) == 0;
+    if (strncmp(ns, want, (size_t)(dot - want)) != 0) return 0;
+    if (ns[dot - want] != '\0') return 0;
+    return strcmp(name, dot + 1) == 0;
+}
+
+static int name_matches_as(const struct setting_msg *m, const char *want, int bare) {
+    return names_match_as(m->ns, m->name, want, bare);
 }
 
 static int g_read_bare;   // which reading resolve_exact() settled on
@@ -167,42 +173,64 @@ static int resolve_exact(const char *want, struct setting_msg *first, int compla
     return hits;
 }
 
+// One INFO by merged index; 0, or -1.
+static int info_at(int index, struct setting_msg *m) {
+    memset(m, 0, sizeof *m);
+    m->op = SETTING_OP_INFO;
+    m->index = (uint32_t)index;
+    return usetting_dispatch(m);
+}
+
+struct walk {
+    const char *want;
+    int bare;
+    int hits, first;
+    int list;            // second pass: print each match with its file
+};
+
+static int walk_match(int index, const char *ns, const char *name, void *ctx) {
+    struct walk *w = ctx;
+    if (!names_match_as(ns, name, w->want, w->bare)) return 0;
+    if (w->list) {
+        static struct setting_msg m;   // static: a kilobyte, and a frame is budgeted at 2
+        if (info_at(index, &m) != 0) return 0;
+        char q[SETTING_ABI_QUALIFIED_MAX], line[160];
+        qualified(&m, q, sizeof q);
+        snprintf(line, sizeof line, "    %-24s in %s", q, m.file);
+        putline(line);
+        return 0;
+    }
+    if (w->hits++ == 0) w->first = index;
+    return 0;
+}
+
 static int resolve_reading(const char *want, struct setting_msg *first, int complain) {
     struct setting_msg m;
-    memset(&m, 0, sizeof m);
-    if (!op(&m, SETTING_OP_COUNT)) return -1;
-    int n = m.count, hits = 0;
-
-    for (int i = 0; i < n; i++) {
-        memset(&m, 0, sizeof m);
-        m.op = SETTING_OP_INFO;
-        m.index = i;
-        if (usetting_dispatch(&m) != 0) continue;
-        if (!name_matches(&m, want)) continue;
-        if (hits == 0 && first) *first = m;
-        hits++;
+    // A QUALIFIED NAME IS LOOKED UP, NOT SEARCHED FOR (usetting_info()).
+    // The walk below read every declaration file to answer one name,
+    // which was most of a second of `config set` and several under load;
+    // it stays for a bare name, a renamed one and one that is not there.
+    if (!g_read_bare && strchr(want, '.') && usetting_info(want, &m) == 0) {
+        if (first) *first = m;
+        return 1;
     }
+    // BY NAME FIRST: the walk matches names only, and the full INFO --
+    // a declaration read, a value read -- is fetched for the matches.
+    struct walk w = { want, g_read_bare, 0, -1, 0 };
+    if (usetting_each_name(walk_match, &w) < 0) return -1;
+    if (w.hits && first && info_at(w.first, first) != 0) return -1;
 
-    if (hits > 1 && complain) {
+    if (w.hits > 1 && complain) {
         char line[160];
         snprintf(line, sizeof line,
                  "config: '%s' is ambiguous -- %d settings have that name:",
-                 want, hits);
+                 want, w.hits);
         putline(line);
-        for (int i = 0; i < n; i++) {
-            memset(&m, 0, sizeof m);
-            m.op = SETTING_OP_INFO;
-            m.index = i;
-            if (usetting_dispatch(&m) != 0) continue;
-            if (!name_matches(&m, want)) continue;
-            char q[SETTING_ABI_QUALIFIED_MAX];
-            qualified(&m, q, sizeof q);
-            snprintf(line, sizeof line, "    %-24s in %s", q, m.file);
-            putline(line);
-        }
+        w.list = 1;
+        usetting_each_name(walk_match, &w);
         putline("config: name one of them in full");
     }
-    return hits;
+    return w.hits;
 }
 
 static int cmd_list(void) {
@@ -287,17 +315,24 @@ static int try_fact(const char *name) {
 // branch prints every name under it; a bare namespace prints ONE level
 // with counts, dconf list's shape, unless --recursive.
 
-#define TREE_MAX 512
+// GROWN AS THE REGISTRY IS READ: a fixed table dropped every name past
+// its size without a word.
 static struct tree_ent {
     char name[SETTING_ABI_QUALIFIED_MAX];
     char value[SETTING_ABI_VALUE_MAX];
     char fact;               // a kernel fact: read-only, never stored
-} g_tree[TREE_MAX];
-static int g_tree_n;
+} *g_tree;
+static int g_tree_n, g_tree_cap;
 static int g_recursive;
 
 static void tree_add(const char *name, const char *value, int fact) {
-    if (g_tree_n >= TREE_MAX) return;
+    if (g_tree_n == g_tree_cap) {
+        int cap = g_tree_cap ? g_tree_cap * 2 : 256;
+        struct tree_ent *t = realloc(g_tree, (size_t)cap * sizeof *t);
+        if (!t) return;
+        g_tree = t;
+        g_tree_cap = cap;
+    }
     struct tree_ent *e = &g_tree[g_tree_n++];
     strlcpy(e->name, name, sizeof e->name);
     strlcpy(e->value, value, sizeof e->value);
@@ -408,6 +443,52 @@ static int cmd_tree(const char *branch) {
 
 static int cmd_get_one(const char *name);
 
+// WHETHER ANYTHING IS NAMED UNDER `n`, by name alone: the kernel's own
+// settings (raw INFO, no declaration text), /etc/settings.d's file names
+// (listed, not opened) and the facts' field names. A leaf -- what `get`
+// is asked almost every time -- is then answered without tree_collect()
+// reading the whole registry. A hit takes the full path, so a stray file
+// costs time, never a wrong answer.
+static int any_under(const char *n) {
+    static struct setting_msg m;
+    size_t len = strlen(n);
+    memset(&m, 0, sizeof m);
+    m.op = SETTING_OP_COUNT;
+    if (sys_setting(&m) == 0) {
+        int k = (int)m.count;
+        for (int i = 0; i < k; i++) {
+            memset(&m, 0, sizeof m);
+            m.op = SETTING_OP_INFO;
+            m.index = (uint32_t)i;
+            if (sys_setting(&m) != 0) continue;
+            char q[SETTING_ABI_QUALIFIED_MAX];
+            qualified(&m, q, sizeof q);
+            if (under(q, n, len)) return 1;
+        }
+    }
+    DIR *d = opendir(SETTING_TEXT_DIR);
+    if (d) {
+        struct dirent *e;
+        int hit = 0;
+        while (!hit && (e = readdir(d))) hit = under(e->d_name, n, len);
+        closedir(d);
+        if (hit) return 1;
+    }
+    struct query_provider_info p;
+    QUERY_FOREACH(QUERY_PROVIDERS, p, i) {
+        if (p.flags & QUERY_F_LIST) continue;
+        int nf = sys_query_field_count(p.cls);
+        for (int f = 0; f < nf; f++) {
+            char field[QUERY_FIELD_PATH_MAX], q[SETTING_ABI_QUALIFIED_MAX];
+            unsigned type = 0;
+            if (sys_query_field_info(p.cls, (unsigned)f, field, &type) != 0) continue;
+            snprintf(q, sizeof q, "%s.%s", p.name, field);
+            if (under(q, n, len)) return 1;
+        }
+    }
+    return 0;
+}
+
 static int cmd_get(const char *name) {
     char now[SETTING_ABI_QUALIFIED_MAX];
     const char *n = name;
@@ -423,6 +504,7 @@ static int cmd_get(const char *name) {
     }
     // A branch, or a name that is both a value and a branch: the tree.
     // A leaf keeps the one-value answer below, which scripts read.
+    if (!any_under(n)) return cmd_get_one(n);
     tree_collect();
     size_t len = strlen(n);
     int kids = 0, own = 0;
@@ -509,7 +591,18 @@ static int cmd_set(const char *name, const char *value) {
     if (hits == 1) qualified(&found, m.name, sizeof m.name);
     else           strlcpy(m.name, name, sizeof m.name);
     strlcpy(m.value, value, sizeof m.value);
-    if (usetting_dispatch(&m) != 0) { putline("config: registry unavailable"); return 1; }
+    if (usetting_dispatch(&m) != 0) {
+        // The registry refuses a name it does not have the same way it
+        // reports being down; which one it was is known here.
+        if (hits == 0) {
+            char line[128];
+            snprintf(line, sizeof line, "config: no setting named '%s'", name);
+            putline(line);
+            return 1;
+        }
+        putline("config: registry unavailable");
+        return 1;
+    }
 
     // A rejected value is worth more than "no": the registry knows the
     // legal ones, so say what they are rather than making the user go

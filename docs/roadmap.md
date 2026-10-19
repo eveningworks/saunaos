@@ -276,6 +276,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [x] ~~A thumbnail cache that survives a reboot~~ DONE 2026-09-17 -- `/var/cache/thumbnails`, one QOI named after its source
 - [x] ~~Global keyboard shortcuts, and a way to rebind them~~ DONE 2026-09-17 -- registry settings; Super became a modifier
 - [ ] Bind a shortcut to an ARBITRARY command, not just a named action -- a second mechanism beside the registry
+- [ ] A compiled index of `/etc/settings.d`, so a new process does not parse every declaration -- GSettings' `gschemas.compiled`
 - [x] ~~Make Ctrl with a non-letter deliverable~~ DONE 2026-09-29 -- the key plus `KEY_MOD_CTRL`
 - [x] ~~The GUI Terminal reads its pty on a thread, not a 30 ms poll~~ DONE 2026-08-26 -- one reader per tab, no cadence left
 - [ ] More than eight Terminal tabs, which needs a scrolling strip rather than a wider one
@@ -382,6 +383,13 @@ Staged in `docs/dynlink-design.md`, including the case against.
 ## Tracks -- no dependency on the phases above
 
 Ordered within each track, unordered between them.
+
+### A cost audit: work nobody asked for
+
+- [ ] `tools/cost_audit.py`: syscalls and disk reads of fixed commands and an idle desktop, against a stored baseline, at every release
+- [ ] Count what every `/bin` command and daemon start costs (`strace -c`), and fix what reads far more than its job needs
+- [ ] Count what the idle desktop does per second -- disk reads, file opens, syscalls, wakes -- and make every poll earn its place
+- [ ] A ceiling test for each hot path found, as `tests/settingcost_test` does for one setting -- counted, never timed
 
 ## Storage
 

@@ -63,6 +63,25 @@ int main(void) {
                  TASKBAR_H_MIN, TASKBAR_H_MAX, TASKBAR_H_STEP);
     utest_check(strcmp(info.unit, "px") == 0, "and carries its unit");
 
+    // usetting_info() IS usetting_find() WITHOUT THE INDEX: the same
+    // record by name, for a declared setting and for a kernel one --
+    // `config` reads one in place of the other.
+    {
+        static struct setting_msg by_name, by_walk;
+        usetting_info("desktop.taskbar.height", &by_name);
+        utest_check(by_name.type == info.type && !strcmp(by_name.file, info.file) &&
+                    by_name.imax == info.imax && !strcmp(by_name.description, info.description),
+                    "usetting_info() gives the declared setting's same record");
+        int ki = usetting_find("system.font.size", &by_walk);
+        int ok = usetting_info("system.font.size", &by_name) == 0;
+        utest_checkf(ki >= 0 && ok && by_name.type == by_walk.type &&
+                     !strcmp(by_name.ns, by_walk.ns) && !strcmp(by_name.name, by_walk.name) &&
+                     !strcmp(by_name.description, by_walk.description),
+                     "...and a kernel setting's (find %d, info %d)", ki, ok);
+        utest_check(usetting_info("desktop.no_such_setting", &by_name) == -1,
+                    "...and -1 for a name nothing has");
+    }
+
     // **THE PRECONDITION IS ESTABLISHED, NOT INHERITED.** A previous run
     // of this test leaves 56 on disk, and the generation check below
     // asks whether a write MOVED it -- which a write of the value

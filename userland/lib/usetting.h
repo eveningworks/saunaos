@@ -54,11 +54,27 @@ int usetting_set(const char *name, const char *value);
 int usetting_set_int(const char *name, int value);
 
 // The INFO record for `name` -- the one op that carries the range, the
-// unit and the `unavailable` sentence beside the value. Walks the
-// registry by index (INFO is addressed that way) and returns that
-// index, which is what SETTING_OP_CHOICE then takes; -1 when no setting
-// has that qualified name. `out` is left zeroed on failure.
+// unit and the `unavailable` sentence beside the value -- and its index,
+// which is what SETTING_OP_CHOICE then takes; -1 when no setting has
+// that qualified name. `out` is left zeroed on failure. BY NAME, NOT A
+// WALK: a declared setting's index comes from the cached listing, and a
+// kernel one is looked for among the kernel's own only after a GET says
+// it exists -- a walk of the merged registry read every declaration
+// file, and made `config set` thousands of syscalls.
 int usetting_find(const char *name, struct setting_msg *out);
+
+// The same INFO record WITHOUT its index, for a caller that only reads
+// it (`config set`): a declared setting costs one file, where an index
+// needs every declaration listed first. 0, or -1 for no such setting.
+int usetting_info(const char *name, struct setting_msg *out);
+
+// The merged registry by NAME only, in index order -- the kernel's raw
+// INFO and the declarations' file names, no description or value read
+// -- for a caller matching names across all of it (`config`'s bare
+// names). `each` gets the merged index, namespace and name, and stops
+// the walk by returning nonzero. -1 when the registry is down.
+int usetting_each_name(int (*each)(int index, const char *ns, const char *name, void *ctx),
+                       void *ctx);
 
 // An enum's choices, values and labels, in the order every front end
 // lists them (Sort=label applied), and which one is current. Fills at most
