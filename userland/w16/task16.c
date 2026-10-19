@@ -17,6 +17,7 @@
 struct w16 g_w16;
 pthread_mutex_t g_w16_text_lock = PTHREAD_MUTEX_INITIALIZER;
 char g_w16_fault[1024];
+FILE *g_w16_trace;
 char g_w16_fault_box[512];
 
 #define SYSDATA_SIZE 0x1000
@@ -149,6 +150,24 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path)
     psp[0] = 0xCD; psp[1] = 0x20;
     psp[0x80] = 0; psp[0x81] = 0x0D;
     w->psp = cpu16_alloc(c, D_DATA, psp, 255, 0);
+    // The environment, whose selector the PSP holds at 2Ch: what a C
+    // runtime's start-up scans. Its strings, an empty one, a count of 1,
+    // then the program's own path -- a DOS path, as Windows had it.
+    static const char vars[] = "PATH=C:\\WINDOWS\0TEMP=C:\\TEMP\0\0\1\0";
+    char dospath[80] = "C:\\WINDOWS\\";
+    const char *base = strrchr(w->path, '/');
+    base = base ? base + 1 : w->path;
+    size_t pl = strlen(dospath);
+    for (size_t i = 0; base[i] && pl < sizeof dospath - 1; i++)
+        dospath[pl++] = base[i] >= 'a' && base[i] <= 'z' ? (char)(base[i] - 32) : base[i];
+    dospath[pl] = 0;
+    uint8_t *env = calloc(1, 256);
+    if (!env) return load_fail(path, "out of memory");
+    memcpy(env, vars, sizeof vars - 1);
+    memcpy(env + sizeof vars - 1, dospath, pl + 1);
+    uint16_t env_sel = cpu16_alloc(c, D_DATA, env, 255, 0);
+    psp[0x2C] = (uint8_t)env_sel;
+    psp[0x2D] = (uint8_t)(env_sel >> 8);
     w->sysdata = cpu16_alloc(c, D_DATA, w->sysmem, SYSDATA_SIZE - 1, 0);
     w->dgroup = w->seg_sel[w->ne.autodata];
 
@@ -168,6 +187,7 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path)
     c->user = w;
     c->thunk = 0;                    // set by the task thread
     c->intr = w16_int;
+    w16_local_init(w);               // InitTask's job on Windows: the heap below the stack
 
     pthread_mutex_init(&w->lock, 0);
     pthread_cond_init(&w->cond, 0);
@@ -178,6 +198,18 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path)
 }
 
 // --- imports -------------------------------------------------------------
+
+int w16_api_call(const struct w16_api *t, unsigned n, struct w16 *w, unsigned ordinal,
+                 struct w16_args *a) {
+    unsigned lo = 0, hi = n;
+    while (lo < hi) {
+        unsigned mid = (lo + hi) / 2;
+        if (t[mid].ordinal == ordinal) return t[mid].fn(w, ordinal, a);
+        if (t[mid].ordinal < ordinal) lo = mid + 1;
+        else hi = mid;
+    }
+    return -2;
+}
 
 uint16_t w16_arg16(struct w16_args *a) {
     a->pos -= 2;
@@ -198,6 +230,17 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     const struct w16_name *n = w16_name_lookup(name, ordinal);
     struct w16_args a = { c, n && n->argbytes > 0 ? (unsigned)n->argbytes : 0 };
     int r = -1;
+    if (g_w16_trace) {
+        // The arguments as words, first pushed first: the Pascal order.
+        char args[64] = "";
+        unsigned nw = n && n->argbytes > 0 ? (unsigned)n->argbytes / 2 : 0, len = 0;
+        for (unsigned i = 0; i < nw && i < 8 && len < sizeof args - 6; i++)
+            len += (unsigned)snprintf(args + len, sizeof args - len, "%s%04x", i ? " " : "",
+                                      cpu16_arg(c, (nw - 1 - i) * 2));
+        fprintf(g_w16_trace, "%s.%u %s(%s) from %04x:%04x\n", name, ordinal,
+                n ? n->name : "?", args, cpu16_arg(c, -4 + 2), cpu16_arg(c, -4));
+        fflush(g_w16_trace);                     // a fault ends in abort(), which flushes nothing
+    }
     if (!strcmp(name, "KERNEL") || !strcmp(name, "KRNL386")) r = w16_kernel(w, ordinal, &a);
     else if (!strcmp(name, "USER")) r = w16_user(w, ordinal, &a);
     else if (!strcmp(name, "GDI")) r = w16_gdi(w, ordinal, &a);

@@ -12,6 +12,8 @@ What it asserts:
     brackets aside: two independent readings of the same bytes
   - the names: hello's imports resolve to InitTask, CreateWindow and
     TextOut (userland/w16/w16_names.c, generated from Wine's tables)
+  - the RESOURCE table: both readers list the same resources (gdi.exe
+    has a string table and a bitmap), and the fuzz reads every one
   - HOSTILE FILES: thousands of mutated and truncated copies of each
     sample through ne_parse, every relocation, entry and module name,
     under AddressSanitizer and UBSan -- a parse either succeeds or
@@ -63,6 +65,18 @@ static void walk(const struct ne_module *m) {
             struct ne_reloc r; ne_reloc_at(m, s, i, &r);
         }
     for (unsigned o = 0; o < 300; o++) { uint16_t sg, of; ne_entry(m, o, &sg, &of); }
+    // Every resource, its bytes, and lookups by number and by name.
+    volatile unsigned rsum = 0;
+    for (unsigned i = 0; i < m->nres; i++) {
+        struct ne_resource r;
+        if (ne_resource_at(m, i, &r) == 0)
+            for (uint32_t k = 0; k < r.len; k++) rsum += m->img[r.off + k];
+    }
+    (void)rsum;
+    struct ne_resource found;
+    ne_resource_find(m, 2, 0, 1, 0, &found);
+    ne_resource_find(m, 6, 0, 1, "#1", &found);
+    ne_resource_find(m, 0, "MYTYPE", 0, "NAME", &found);
     // The segments' bytes, as the loader copies them.
     volatile unsigned sum = 0;
     for (unsigned s = 0; s < m->nseg; s++)

@@ -70,7 +70,37 @@ struct ne_module {
     uint32_t entry_table;
     uint32_t entry_len;
     uint32_t resident;
+    uint32_t resources;    // the resource table; 0 when there is none
+    uint16_t res_shift;    // its alignment shift
+    uint16_t nres;         // resources in it, all types
 };
+
+// Resource types (a type ID with 0x8000 set is one of these).
+#define NE_RT_CURSOR       1
+#define NE_RT_BITMAP       2
+#define NE_RT_ICON         3
+#define NE_RT_MENU         4
+#define NE_RT_DIALOG       5
+#define NE_RT_STRING       6
+#define NE_RT_ACCELERATOR  9
+#define NE_RT_GROUP_CURSOR 12
+#define NE_RT_GROUP_ICON   14
+
+// One resource. A type or ID is a NUMBER when its name is "" (the file's
+// 0x8000 bit), else a NAME, upper-cased as Windows compares them.
+struct ne_resource {
+    uint16_t type, id;
+    char type_name[32], name[32];
+    uint32_t off, len;     // in the file, checked against it
+};
+
+// Resource i (0-based, every type in table order). 0, or a negative NE_E_*.
+int ne_resource_at(const struct ne_module *m, unsigned i, struct ne_resource *out);
+
+// The resource of `type` and `id`: a number when the name is NULL (or
+// "#123"), else a name compared without case. Its index, or NE_E_RANGE.
+int ne_resource_find(const struct ne_module *m, uint16_t type, const char *type_name,
+                     uint16_t id, const char *name, struct ne_resource *out);
 
 // 0, or a negative NE_E_* code; ne_strerror() says which check refused it.
 int ne_parse(const uint8_t *img, uint32_t size, struct ne_module *m);
@@ -96,5 +126,6 @@ int ne_entry(const struct ne_module *m, unsigned ordinal, uint16_t *seg, uint16_
 #define NE_E_NAME      (-8)   // a name runs past its table
 #define NE_E_RANGE     (-9)   // an index out of range
 #define NE_E_ENTRY     (-10)  // the entry table is malformed or lacks the ordinal
+#define NE_E_RESOURCE  (-11)  // the resource table is malformed
 
 #endif

@@ -168,6 +168,7 @@ TOOLS = [
     ("launch",   "launch_test.py", "Running programs/scripts: the card, Terminal -e, Always, x bit, menu, open"),
     ("doomdata", "doom_data_test.py", "DOOM's game-data card, a refused tampered download, the launcher and F1's key sheet"),
     ("crash", "crashtest_test.py", "fault paths: ring-3 crashes, and the gate on kernel panics"),
+    ("w16", "w16_gui_test.py", "Win16 programs: GDI and resources by pixel, window controls, a fault"),
     ("hoversweep", "hover_sweep_test.py", "a hover over any widget of any app opens nothing"),
     ("entries", "desktop_entries_test.py", "ShowIn= and live .desktop reload"),
     ("taskmgr", "taskmgr_test.py", "the table widget, resize reflow, ending a process"),

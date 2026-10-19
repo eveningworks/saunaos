@@ -33,9 +33,12 @@
 #define MK_RBUTTON 0x0002
 
 static int g_info;
+static const char *g_trace_path;
 
 static const struct uargs_opt OPTS[] = {
     { "info", 'i', NULL, "print the program's segments and the functions it imports", &g_info, NULL },
+    { "trace", 't', "FILE", "log every Windows call the program makes to FILE (Wine's +relay)",
+      NULL, &g_trace_path },
     { 0 },
 };
 
@@ -82,6 +85,26 @@ static uint64_t g_caption_tick;          // the last press on the caption, for i
 static struct w16_menu g_menu;           // the control menu
 static struct w16_msgbox g_box;          // the Application Error box, once the program stopped
 static int g_faulted;
+static unsigned g_buttons;               // the mouse buttons down, as the program last heard
+
+// The client-area mouse message for a button: down or up.
+static uint16_t button_msg(unsigned bit, int down) {
+    if (bit == 1) return down ? WM_LBUTTONDOWN : WM_LBUTTONUP;
+    return down ? WM_RBUTTONDOWN : WM_RBUTTONUP;
+}
+
+// MK_* for wParam: the buttons down now, and Shift and Ctrl.
+static uint16_t mk_flags(unsigned buttons) {
+    unsigned b = WIN_MOUSE_BUTTONS(buttons), m = WIN_MOUSE_MODS(buttons);
+    return (uint16_t)((b & 1 ? MK_LBUTTON : 0) | (b & 2 ? MK_RBUTTON : 0) |
+                      (m & KEY_MOD_SHIFT ? 0x0004 : 0) | (m & KEY_MOD_CTRL ? 0x0008 : 0));
+}
+
+// The program hears the mouse in its client area -- or anywhere, while it
+// holds the capture (SetCapture), as Minesweeper's press on a square does.
+static int mouse_is_programs(enum w16_hit hit) {
+    return hit == HIT_CLIENT || g_w16.capture;
+}
 
 static uint32_t client_lparam(int x, int y) {
     int cx, cy, cw, ch;
@@ -167,10 +190,13 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         uapp_redraw(a);
         return;
     }
-    if (hit == HIT_CLIENT) {
-        int right = !(buttons & 1);
-        w16_post_msg(&g_w16, g_w16.win.hwnd, right ? WM_RBUTTONDOWN : WM_LBUTTONDOWN,
-                     right ? MK_RBUTTON : MK_LBUTTON, client_lparam(x, y));
+    if (mouse_is_programs(hit)) {
+        unsigned now_down = WIN_MOUSE_BUTTONS(buttons) & 3, went = now_down & ~g_buttons;
+        g_buttons = now_down;
+        for (unsigned bit = 1; bit <= 2; bit <<= 1)
+            if (went & bit)
+                w16_post_msg(&g_w16, g_w16.win.hwnd, button_msg(bit, 1), mk_flags(buttons),
+                             client_lparam(x, y));
         return;
     }
     if (!(buttons & 1)) return;
@@ -226,9 +252,13 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
         uapp_redraw(a);
         return;
     }
-    if (hit == HIT_CLIENT)
-        w16_post_msg(&g_w16, g_w16.win.hwnd, buttons & 2 ? WM_RBUTTONUP : WM_LBUTTONUP, 0,
-                     client_lparam(x, y));
+    unsigned now_down = WIN_MOUSE_BUTTONS(buttons) & 3, went = g_buttons & ~now_down;
+    g_buttons = now_down;
+    if (mouse_is_programs(hit))
+        for (unsigned bit = 1; bit <= 2; bit <<= 1)
+            if (went & bit)
+                w16_post_msg(&g_w16, g_w16.win.hwnd, button_msg(bit, 0), mk_flags(buttons),
+                             client_lparam(x, y));
 }
 
 static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
@@ -240,10 +270,14 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
         return;
     }
     unsigned edges;
-    if (w16_frame_hit(&g_w16.win, x, y, &edges) == HIT_CLIENT)
-        w16_post_msg(&g_w16, g_w16.win.hwnd, WM_MOUSEMOVE,
-                     (buttons & 1 ? MK_LBUTTON : 0) | (buttons & 2 ? MK_RBUTTON : 0),
-                     client_lparam(x, y));
+    if (mouse_is_programs(w16_frame_hit(&g_w16.win, x, y, &edges)))
+        w16_post_msg(&g_w16, g_w16.win.hwnd, WM_MOUSEMOVE, mk_flags(buttons), client_lparam(x, y));
+}
+
+static int on_tick(struct uapp *a) {
+    (void)a;
+    w16_timers_fire(&g_w16);
+    return 0;
 }
 
 static int vk_of(int key) {
@@ -343,6 +377,13 @@ static int on_user(struct uapp *a, int code, int arg) {
     case W16_POST_SYSCMD:
         do_syscmd(a, arg);
         return 1;
+    case W16_POST_SIZE: {                // MoveWindow: the surface follows the window
+        pthread_mutex_lock(&g_w16.lock);
+        int ww = g_w16.win.w, wh = g_w16.win.h;
+        pthread_mutex_unlock(&g_w16.lock);
+        uapp_resize(a, ww, wh);
+        return 1;
+    }
     case W16_POST_FAULT:
         w16_menu_close(&g_menu);
         g_pressed = 0;
@@ -376,9 +417,16 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
         if (w->cpu.fault) abort();       // the report's headline was set as it stopped
         return w->exit_code;
     }
+    // EACH PROGRAM ITS OWN IDENTITY: toywm remembers a window's size and
+    // groups the taskbar by app_id, and one shared "w16" gave every
+    // program the last one's size.
+    static char appid[40];
+    snprintf(appid, sizeof appid, "w16-%s", w->ne.name);
+    for (char *p = appid; *p; p++)
+        *p = *p >= 'A' && *p <= 'Z' ? (char)(*p + 32) : (*p == ' ' || *p == '/') ? '-' : *p;
     struct uapp_desc desc = {
         .title = w->win.title,
-        .app_id = "w16",
+        .app_id = appid,
         .flags = UAPP_NO_DECOR | (w->win.style & WS_THICKFRAME ? UAPP_RESIZABLE : 0),
         .w = w->win.w,
         .h = w->win.h,
@@ -395,6 +443,8 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
         .on_resize = on_resize,
         .on_close = on_close,
         .on_user = on_user,
+        .on_tick = on_tick,
+        .tick_ms = 50,                   // timers: 3.1's ran at 55 ms
     };
     int r = uapp_run(&desc);
     return r ? r : w->exit_code;
@@ -414,10 +464,17 @@ int main(int argc, char **argv) {
                 && unveil("shm:toywm", "r") == 0 && unveil("shm:" FONT_BEACON_NAME, "r") == 0
                 && unveil("shm:font.0", "r") == 0 && unveil("shm:font.1", "r") == 0
                 && unveil("shm:font.2", "r") == 0 && unveil("shm:font.3", "r") == 0;
+    if (g_trace_path) ok = ok && unveil(g_trace_path, "rwc") == 0;
     ok = ok && unveil(NULL, NULL) == 0
-            && pledge(g_info ? "stdio rpath" : "stdio rpath shm window settings query", NULL) == 0;
+            && pledge(g_info ? "stdio rpath"
+                      : g_trace_path ? "stdio rpath wpath cpath shm window settings query"
+                                     : "stdio rpath shm window settings query", NULL) == 0;
     if (!ok) {
         fprintf(stderr, "w16: cannot sandbox myself, so I will not read %s\n", path);
+        return 1;
+    }
+    if (g_trace_path && !(g_w16_trace = fopen(g_trace_path, "w"))) {
+        fprintf(stderr, "w16: %s: %s\n", g_trace_path, strerror(errno));
         return 1;
     }
     uint32_t size = 0;

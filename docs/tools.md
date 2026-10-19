@@ -7452,10 +7452,24 @@ runs first**: a `doom1.wad` with one
   hello's imports must resolve to their names; and thousands of mutated
   and truncated copies go through the parser, every relocation, entry,
   module name and segment byte, which must parse or be refused and never
-  read outside the image. `--positive-control` drops the segment bound
+  read outside the image -- and every RESOURCE, its bytes and lookups by
+  number and name. `--positive-control` drops the segment bound
   (the fuzz must go red, a heap-buffer-overflow) and reads relocation
-  sites from the wrong word (the comparison must go red). In
+  sites from the wrong word (the comparison must go red); dropping the
+  resource bound alone also goes red (checked with `mutate.py`). In
   `ondemand_sweep.py`; w16 is a side project and in no gate.
+- **`w16_gui_test.py`** -- w16 running the project's own samples in
+  toywm, by pixel. `gdi.exe` puts a string-table string, a bitmap
+  resource three ways (SetDIBitsToDevice; a memory DC and BitBlt SRCCOPY;
+  NOTSRCCOPY, every colour inverted), a pen line that stops short of its
+  end, a brush rectangle in a pen edge, text through the global and
+  local heaps, and a square its timer draws after three ticks, each at a
+  fixed place compared with tolerance 0; Alt+Space opens the control
+  menu, X maximizes (the border goes, the caption reaches the corner)
+  and Alt+Space, Enter restores; `fault.exe`'s click opens the
+  Application Error box and its crash report names the fault. Flipping
+  the DIB's rows or swapping P and S in the ROP3 rule turns exactly the
+  matching check red (`mutate.py`). In `gui_regress.py`.
 - **`cpu16_hostcheck.py`** -- w16's 16-bit CPU interpreter
   (`userland/w16/cpu16.c`) against THE HOST'S OWN CPU. Its driver,
   `tools/w16/cpu16_check.c`, puts 16-bit code, data and stack segments in

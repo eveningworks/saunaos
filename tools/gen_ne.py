@@ -10,6 +10,17 @@ stub, the NE header and its tables, the segments and their relocations.
     python3 tools/gen_ne.py userland/w16/samples/hello.asm -o hello.exe
     python3 tools/gen_ne.py --dump hello.exe      # print what it holds
 
+RESOURCES come from directives too, so a test program stays one text file:
+
+    ;w16: string 1 Hello from a string table      (RT_STRING, blocks of 16)
+    ;w16: bitmap 1 8x4 000000 ff0000 ffffff        (RT_BITMAP: size, palette)
+    ;w16: row 1 00112200                           (its rows, top first, one
+                                                    hex digit a pixel)
+
+A bitmap is written as Windows stored one: a packed DIB (BITMAPINFOHEADER,
+the palette, the rows bottom-up and padded to 4 bytes), 4 bits a pixel for
+up to 16 colours, else 8.
+
 THE RELOCATION CHAIN. A non-additive NE relocation names the FIRST site
 of a chain: the word at each site holds the offset of the next one, and
 0xFFFF ends it. Every site here is its own chain of one, so the word at
@@ -43,7 +54,7 @@ NE_OFFSET = 0x80         # the NE header follows a 128-byte MZ stub
 def directives(path):
     """The ;w16: lines: module, segments, autodata, stack, heap."""
     d = {"module": None, "segments": {}, "autodata": 0, "stack": 4096, "heap": 1024,
-         "description": ""}
+         "description": "", "strings": {}, "bitmaps": {}}
     for line in open(path, encoding="utf-8"):
         m = re.match(r"\s*;w16:\s*(\w+)\s*(.*?)\s*$", line)
         if not m:
@@ -56,6 +67,16 @@ def directives(path):
             d[key] = int(val, 0)
         elif key in ("module", "description"):
             d[key] = val
+        elif key == "string":
+            sid, _, text = val.partition(" ")
+            d["strings"][int(sid, 0)] = text
+        elif key == "bitmap":
+            bid, size, *pal = val.split()
+            w, h = (int(v) for v in size.split("x"))
+            d["bitmaps"][int(bid, 0)] = {"w": w, "h": h, "pal": [int(c, 16) for c in pal], "rows": []}
+        elif key == "row":
+            bid, row = val.split()
+            d["bitmaps"][int(bid, 0)]["rows"].append([int(ch, 16) for ch in row])
         else:
             sys.exit(f"gen_ne: {path}: unknown directive '{key}'")
     if not d["module"] or not d["segments"]:
@@ -114,6 +135,46 @@ def pstr(s):
     return bytes([len(b)]) + b
 
 
+def string_blocks(strings):
+    """RT_STRING: string n lives in block n // 16 + 1, as 16 counted strings."""
+    blocks = {}
+    for sid, text in strings.items():
+        blocks.setdefault(sid // 16 + 1, {})[sid % 16] = text.encode("latin-1")
+    out = {}
+    for bid, entries in blocks.items():
+        data = b""
+        for i in range(16):
+            s = entries.get(i, b"")
+            data += bytes([len(s)]) + s
+        out[bid] = data
+    return out
+
+
+def packed_dib(bm):
+    """A bitmap resource: BITMAPINFOHEADER, palette, rows bottom-up."""
+    w, h, pal, rows = bm["w"], bm["h"], bm["pal"], bm["rows"]
+    if len(rows) != h or any(len(r) != w for r in rows):
+        sys.exit(f"gen_ne: a bitmap's rows do not match its {w}x{h}")
+    bpp = 4 if len(pal) <= 16 else 8
+    ncol = 1 << bpp
+    stride = ((w * bpp + 31) // 32) * 4
+    bits = b""
+    for r in reversed(rows):
+        line = bytearray(stride)
+        for x, v in enumerate(r):
+            if v >= len(pal):
+                sys.exit("gen_ne: a bitmap row names a colour the palette lacks")
+            if bpp == 4:
+                line[x // 2] |= v << (4 if x % 2 == 0 else 0)
+            else:
+                line[x] = v
+        bits += bytes(line)
+    hdr = struct.pack("<IiiHHIIiiII", 40, w, h, 1, bpp, 0, len(bits), 0, 0, ncol, 0)
+    quads = b"".join(struct.pack("<BBBB", c & 0xFF, (c >> 8) & 0xFF, c >> 16, 0)
+                     for c in pal + [0] * (ncol - len(pal)))
+    return hdr + quads + bits
+
+
 def mz_stub():
     """A DOS stub that prints a line and exits with 1."""
     code = bytes([0x0E, 0x1F,                    # push cs; pop ds
@@ -161,7 +222,24 @@ def build(src, out):
     # references, imported names, entry; non-resident names last.
     seg_table_off = 0x40
     res_table_off = seg_table_off + 8 * nseg
-    resource_table = struct.pack("<H", ALIGN_SHIFT) + struct.pack("<H", 0)   # no resources
+    # Resources: (type, id, bytes), types in order. Their file offsets are
+    # known only once the segments are laid out, so the table is built
+    # with placeholders here and filled in below.
+    resources = [(6, bid, data) for bid, data in sorted(string_blocks(d["strings"]).items())]
+    resources += [(2, bid, packed_dib(bm)) for bid, bm in sorted(d["bitmaps"].items())]
+    resources.sort(key=lambda r: (r[0], r[1]))
+    def resource_table_with(offsets):
+        t = struct.pack("<H", ALIGN_SHIFT)
+        for rtype in sorted({r[0] for r in resources}):
+            entries = [(i, r) for i, r in enumerate(resources) if r[0] == rtype]
+            t += struct.pack("<HHI", 0x8000 | rtype, len(entries), 0)
+            for i, (_, rid, data) in entries:
+                units = (len(data) + (1 << ALIGN_SHIFT) - 1) >> ALIGN_SHIFT
+                t += struct.pack("<HHHHHH", offsets[i] >> ALIGN_SHIFT, units, 0x0030,
+                                 0x8000 | rid, 0, 0)
+        return t + struct.pack("<H", 0) + b"\0"
+    resource_table = resource_table_with([0] * len(resources)) if resources else \
+        struct.pack("<H", ALIGN_SHIFT) + struct.pack("<H", 0)
     resident = pstr(d["module"].upper()) + struct.pack("<H", 0)
     for ordinal, name, _, _ in sorted(exports):
         resident += pstr(name) + struct.pack("<H", ordinal)
@@ -239,6 +317,21 @@ def build(src, out):
             body += struct.pack("<H", nrec) + recs
             pos += 2 + len(recs)
 
+    # Resource data after the segments, each aligned.
+    res_offsets = []
+    for _, _, data in resources:
+        pad = (-pos) % (1 << ALIGN_SHIFT)
+        body += bytes(pad)
+        pos += pad
+        res_offsets.append(pos)
+        # Padded to its last unit: the table gives the length in units, and
+        # a reader checks every one of them lies inside the file.
+        data += bytes((-len(data)) % (1 << ALIGN_SHIFT))
+        body += data
+        pos += len(data)
+    if resources:
+        resource_table = resource_table_with(res_offsets)
+
     ne = bytearray(0x40)
     struct.pack_into("<2sBBHHI", ne, 0, b"NE", 5, 10, entry_off, len(entry_table), 0)
     progflags = 0x0002 | 0x0008 | 0x0020                 # multiple data, protected mode, 286
@@ -301,6 +394,26 @@ def dump(path):
                     print(f"  reloc {site:04x} src {src} internal {a & 0xFF}:{c:04x}")
                 else:
                     print(f"  reloc {site:04x} src {src} flags {fl}")
+    res_off = h(0x24, "<H")[0]
+    if res_off != res_t:
+        t = ne + res_off
+        (rshift,) = struct.unpack_from("<H", b, t)
+        p = t + 2
+        def rname(rel):
+            ln = b[t + rel]
+            return "".join(c.upper() if "a" <= c <= "z" else c
+                           for c in b[t + rel + 1:t + rel + 1 + ln].decode("latin-1"))
+        while True:
+            rtype, count = struct.unpack_from("<HH", b, p)
+            if rtype == 0:
+                break
+            p += 8
+            for _ in range(count):
+                off, ln, _, rid = struct.unpack_from("<HHHH", b, p)
+                p += 12
+                ts = str(rtype & 0x7FFF) if rtype & 0x8000 else rname(rtype)
+                ids = str(rid & 0x7FFF) if rid & 0x8000 else rname(rid)
+                print(f"resource {ts} {ids} file {off << rshift:#x} length {ln << rshift}")
 
 
 def main():

@@ -37,4 +37,14 @@ void ne_print_info(const struct ne_module *m) {
             }
         }
     }
+    for (unsigned i = 0; i < m->nres; i++) {
+        struct ne_resource r;
+        if (ne_resource_at(m, i, &r) < 0) break;
+        char type[40], id[40];
+        if (r.type_name[0]) snprintf(type, sizeof type, "%s", r.type_name);
+        else snprintf(type, sizeof type, "%u", r.type);
+        if (r.name[0]) snprintf(id, sizeof id, "%s", r.name);
+        else snprintf(id, sizeof id, "%u", r.id);
+        printf("resource %s %s file %#x length %u\n", type, id, (unsigned)r.off, (unsigned)r.len);
+    }
 }

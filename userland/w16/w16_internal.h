@@ -5,6 +5,10 @@
 //   task16.c          load the program, its thread, the message queue,
 //                     and the dispatch of its imports
 //   kernel16.c        KERNEL (and INT 21h), user16.c USER, gdi16.c GDI
+//   usermisc16.c      USER's rectangles, timers, capture, wsprintf
+//   mem16.c           KERNEL's global and local heaps
+//   res16.c           resources: FindResource, LoadResource, LoadString
+//   blit16.c          GDI's pixel work: raster ops, lines, DIBs
 //   frame16.c         the Windows 3.1 caption and frame (main thread)
 //   menu16.c          a 3.1 popup menu; the control menu is its first
 //   msgbox16.c        a 3.1 message box; the Application Error is its first
@@ -50,6 +54,7 @@ void ne_print_info(const struct ne_module *m);
 #define WM_RBUTTONDOWN   0x0204
 #define WM_RBUTTONUP     0x0205
 #define WM_SYSCOMMAND    0x0112
+#define WM_TIMER         0x0113
 
 // WM_SYSCOMMAND's wParam: what the frame, the control menu and Alt+Space
 // ask, sent through the program so that it may refuse (DefWindowProc
@@ -82,6 +87,43 @@ struct w16_msg {
 
 #define W16_QUEUE    256
 #define W16_CLASSES  32
+#define W16_LBLOCKS  512          // local-heap blocks
+#define W16_MAX_RES  512          // resources whose loaded block is remembered
+#define W16_GDI_MAX  1024         // GDI objects alive at once
+#define W16_TIMERS   16
+
+// A local-heap block, kept host-side (mem16.c).
+struct w16_lblock {
+    uint16_t off, size;
+    uint8_t used;
+};
+
+// A GDI object (gdi16.c). A DC's drawing state lives in it; a bitmap's
+// pixels are 32-bit, `mono` for a 1-bit one (black or white only).
+enum { GDI_FREE, GDI_PEN, GDI_BRUSH, GDI_BITMAP, GDI_DC, GDI_FONT };
+struct w16_gdiobj {
+    uint8_t type;
+    uint32_t color;               // pen, brush: a COLORREF
+    uint16_t style, width;        // pen, brush
+    int bw, bh, mono;             // bitmap
+    uint32_t *px;
+    uint16_t in_dc;               // bitmap: the DC it is selected into
+    // DC
+    int window;                   // draws on the window's client area
+    uint16_t bitmap, pen, brush, font;
+    uint32_t text, bk;            // COLORREFs
+    int bk_mode, rop2;
+    int16_t cx, cy;               // the current position
+};
+
+struct w16_timer {
+    uint16_t id;
+    uint32_t proc;                // a TIMERPROC far pointer, or 0 for WM_TIMER to the window
+    uint32_t interval_ms;
+    uint64_t due_ms;
+    int pending;                  // a WM_TIMER is queued and not yet retrieved
+    int used;
+};
 
 struct w16_class {
     char name[64];
@@ -137,11 +179,26 @@ struct w16 {
     int pending_syscmd;                          // an SC_* asked before the window was up
     char missing[64];                            // "USER.171 (WinHelp)": the call that is not there
 
-    uint32_t text_color, bk_color;               // GDI: one DC's worth for now
+    uint32_t text_color, bk_color;               // the window DC's, reset at BeginPaint
     int bk_mode;
+
+    struct {                                     // the local heap (mem16.c)
+        struct w16_lblock blk[W16_LBLOCKS];
+        int n;
+    } lheap;
+    uint16_t res_sel[W16_MAX_RES];               // a loaded resource's global block
+    struct w16_gdiobj gdi[W16_GDI_MAX];          // gdi16.c; handle = GDI_BASE + 4 * index
+    uint16_t window_dc;                          // the one DC of the window
+    int fb_dirty;                                // the window DC drew: post a repaint
+    struct w16_timer timer[W16_TIMERS];          // set by the task, fired by the main thread
+    uint16_t capture;                            // SetCapture's window, 0 none
+    uint16_t menu;                               // SetMenu's, not drawn yet
+    int16_t mouse_x, mouse_y;                    // the last mouse message's point, client coordinates
 };
 
 extern struct w16 g_w16;
+#include <stdio.h>
+extern FILE *g_w16_trace;                        // --trace FILE: each call into KERNEL/USER/GDI
 extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-safe
 
 // uapp_post() codes, task -> main.
@@ -150,6 +207,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_TITLE 3
 #define W16_POST_SYSCMD 4    // arg: the SC_* DefWindowProc carried out
 #define W16_POST_FAULT  5    // the program stopped: show why, then end
+#define W16_POST_SIZE   6    // MoveWindow resized the window: the surface follows
 
 // --- task16.c --------------------------------------------------------------
 
@@ -174,6 +232,17 @@ struct w16_args {
 uint16_t w16_arg16(struct w16_args *a);
 uint32_t w16_arg32(struct w16_args *a);
 
+// AN API IS A TABLE of ordinal -> handler, sorted by ordinal -- what a
+// Wine .spec file says, here in C -- so each export is a named function
+// (api_SetTimer) and a module grows by a row, not a case.
+struct w16_api {
+    uint16_t ordinal;
+    int (*fn)(struct w16 *w, unsigned ordinal, struct w16_args *a);
+};
+// The handler's result, or -2 when the table has no such ordinal.
+int w16_api_call(const struct w16_api *t, unsigned n, struct w16 *w, unsigned ordinal,
+                 struct w16_args *a);
+
 // Each module's dispatcher: the bytes to pop, or -1 after naming the
 // failure (cpu16_set_fault). `argbytes` is the generated table's.
 int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a);
@@ -189,6 +258,61 @@ uint16_t w16_sys_alloc(struct w16 *w, unsigned len);
 uint32_t w16_syscolor(unsigned index);            // COLOR_* -> ugfx colour
 uint32_t w16_brush_color(uint16_t brush);
 void w16_gdi_reset(struct w16 *w);
+uint16_t w16_gdi_window_dc(struct w16 *w);        // the window's DC, its state reset
+void w16_gdi_flush(struct w16 *w);                // post a repaint if the window DC drew
+// A brush handle's colour as a pixel (stock, COLOR_*+1 or created); fill
+// a client rectangle with it -- USER's FillRect and WM_ERASEBKGND.
+uint32_t w16_brush_px(struct w16 *w, uint16_t brush);
+void w16_gdi_fill(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, uint16_t brush);
+
+// --- mem16.c / res16.c --------------------------------------------------------
+
+uint16_t w16_global_alloc(struct w16 *w, uint32_t size, const void *init);   // a selector, or 0
+void w16_global_free(struct w16 *w, uint16_t h);
+void w16_local_init(struct w16 *w);
+int w16_kernel_mem(struct w16 *w, unsigned ordinal, struct w16_args *a);   // -2: not its own
+int w16_kernel_res(struct w16 *w, unsigned ordinal, struct w16_args *a);
+int w16_user_loadstring(struct w16 *w, struct w16_args *a);
+int w16_user_misc(struct w16 *w, unsigned ordinal, struct w16_args *a);   // usermisc16.c
+void w16_timers_fire(struct w16 *w);              // the main thread's tick
+void w16_cursor_screen(struct w16 *w, int16_t *x, int16_t *y);   // MSG.pt, GetCursorPos
+uint64_t w16_now_ms(void);
+int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap);
+uint16_t w16_res_load(struct w16 *w, unsigned index);
+int w16_res_find(struct w16 *w, uint16_t type, const char *type_name, uint16_t id,
+                 const char *name, struct ne_resource *out);
+
+// --- blit16.c -----------------------------------------------------------------
+
+struct gdi_target {
+    uint32_t *px;
+    int w, h, mono;
+};
+
+struct gdi_blit {
+    const struct gdi_target *dst, *src;  // src NULL for a pattern-only ROP
+    int x, y, w, h, sx, sy;
+    uint32_t rop;                        // a ROP3, its code in bits 16-23
+    uint32_t brush;                      // the pattern, a pixel
+    uint32_t dst_text, dst_bk;           // pixels, for a 1-bit source
+    uint32_t src_bk;                     // a pixel, for a 1-bit destination
+};
+
+struct gdi_dib {
+    int32_t w, h;                        // h < 0: rows top-down
+    unsigned bpp, ncolors;
+    uint32_t pal[256];                   // as pixels
+    uint32_t stride, header_len;         // header plus palette
+};
+
+uint32_t w16_colorref_px(uint32_t cr);
+uint32_t gdi_rop3(uint8_t code, uint32_t p, uint32_t s, uint32_t d);
+uint32_t gdi_rop2(int r2, uint32_t p, uint32_t d);
+void gdi_bitblt(const struct gdi_blit *b);
+void gdi_pixel(const struct gdi_target *t, int x, int y, uint32_t px, int r2);
+void gdi_line(const struct gdi_target *t, int x0, int y0, int x1, int y1, uint32_t px, int width, int r2);
+int gdi_dib_header(const uint8_t *bmi, uint32_t bmi_len, int pal_indices, struct gdi_dib *out);
+uint32_t gdi_dib_px(const struct gdi_dib *d, const uint8_t *row, int x);
 struct ugfx_font;
 const struct ugfx_font *w16_system_font(void);   // under g_w16_text_lock
 

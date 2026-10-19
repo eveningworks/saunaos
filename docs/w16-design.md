@@ -6,7 +6,7 @@ implements the Win16 API it calls -- KERNEL, USER, GDI -- on top of
 toywm. It answers "can toy-os run a Windows 3.11 program, and what is
 the smallest honest route there?"
 
-**STAGES 0-2 ARE BUILT (2026-10-18)**: `w16 --info` reads a program and names its imports, the CPU interpreter matches the host's own CPU on random instructions (`tools/cpu16_hostcheck.py`), and `w16 /usr/share/w16/hello.exe` opens a Windows 3.1 window in toywm that paints, moves, resizes and closes. **Since 2026-10-19** it minimizes, maximizes and opens its control menu (click the box, or Alt+Space), all through `WM_SYSCOMMAND` so a program may refuse, and a program that faults or calls something w16 lacks shows 3.1's Application Error box and leaves a crash report naming why (`/usr/share/w16/fault.exe`). Chosen that day: the emulated
+**STAGES 0-2 ARE BUILT (2026-10-18)**: `w16 --info` reads a program and names its imports, the CPU interpreter matches the host's own CPU on random instructions (`tools/cpu16_hostcheck.py`), and `w16 /usr/share/w16/hello.exe` opens a Windows 3.1 window in toywm that paints, moves, resizes and closes. **Since 2026-10-19** it minimizes, maximizes and opens its control menu (click the box, or Alt+Space), all through `WM_SYSCOMMAND` so a program may refuse, and a program that faults or calls something w16 lacks shows 3.1's Application Error box and leaves a crash report naming why (`/usr/share/w16/fault.exe`). **Minesweeper, from the maintainer's own Windows 3.11, plays** (stage 3 below); Notepad next stops at KERNEL.50, GetProcAddress. Chosen that day: the emulated
 CPU in ring 3 (W1 below), the Windows 3.1 look all the way (L3 on the
 "Win16 windows in toywm" mockup canvas), the code in `userland/w16/`,
 and the name **w16** -- not WOW, which is Microsoft's term. "Win16" is
@@ -139,7 +139,23 @@ shape to copy:
    closes.
 3. **Standard controls and menus** (BUTTON, EDIT, LISTBOX, STATIC,
    menus from resources), dialogs from resources, then files, INI
-   profiles and timers.
+   profiles and timers. **Begun 2026-10-19, aimed at Minesweeper, which
+   PLAYS**: the NE resource table (`ne.c`, fuzzed), resources and
+   LoadString (`res16.c`), the global heap (a selector a block, its
+   handle the selector) and the local heap in DGROUP (`mem16.c`), GDI's
+   objects -- DCs, bitmaps, pens, brushes -- with every ROP2 and ROP3
+   from Windows' truth tables (`gdi16.c`, `blit16.c`), timers posted by
+   the main thread's tick, the mouse capture, filtered Get/PeekMessage,
+   MSG.pt, MoveWindow, and the PSP's environment a C runtime scans.
+   **A display bitmap is 32-bit host pixels** (chosen that day over 3.1's
+   device formats): a program treats a device bitmap as opaque, and a
+   1-bit one keeps that it is one for the mask conversions. The INI
+   calls answer their defaults and accept writes without keeping them,
+   and a menu handle names its resource but draws nothing yet -- the
+   menu bar, the dialogs and real INI files are what is left of
+   Minesweeper. `w16 --trace FILE` logs every call into KERNEL, USER and
+   GDI (Wine's `+relay`), which is how a stage-4 program's next stop is
+   found.
 4. **Real programs**, the user's own copies (none ship): run each,
    read its unimplemented list, implement, repeat. Several top-level
    windows per process need uapp to grow past one main window.

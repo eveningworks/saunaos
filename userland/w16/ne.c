@@ -30,6 +30,8 @@ static int pname(const struct ne_module *m, uint32_t off, char *out, size_t cap)
     return 0;
 }
 
+static int parse_resources(struct ne_module *m, uint32_t t);
+
 int ne_parse(const uint8_t *img, uint32_t size, struct ne_module *m) {
     memset(m, 0, sizeof *m);
     m->img = img;
@@ -88,7 +90,112 @@ int ne_parse(const uint8_t *img, uint32_t size, struct ne_module *m) {
         }
     }
     for (unsigned i = 0; i < m->nmod; i++) m->modref[i] = rd16(m, modref_t + 2 * i);
-    return pname(m, m->resident, m->name, sizeof m->name);
+    int err = pname(m, m->resident, m->name, sizeof m->name);
+    if (err < 0) return err;
+    // The resource table sits between the segment table and the resident
+    // names; an offset equal to the latter's means there is none.
+    uint32_t res_t = ne + rd16(m, ne + 0x24);
+    if (res_t != m->resident) return parse_resources(m, res_t);
+    return 0;
+}
+
+// A resource-table name (a type's or a resource's) at table offset `rel`,
+// upper-cased; NE_E_RESOURCE if it runs past the image.
+static int res_name(const struct ne_module *m, uint16_t rel, char *out, size_t cap) {
+    char tmp[256];
+    if (pname(m, m->resources + rel, tmp, sizeof tmp) < 0) return NE_E_RESOURCE;
+    size_t n = 0;
+    for (; tmp[n] && n + 1 < cap; n++)
+        out[n] = tmp[n] >= 'a' && tmp[n] <= 'z' ? (char)(tmp[n] - 32) : tmp[n];
+    out[n] = '\0';
+    return 0;
+}
+
+// Walks the table once at parse time, so ne_resource_at() can trust every
+// span it was given: a type block's entries, and each resource's bytes.
+static int parse_resources(struct ne_module *m, uint32_t t) {
+    if (!span(m, t, 2)) return NE_E_RESOURCE;
+    m->resources = t;
+    m->res_shift = rd16(m, t);
+    if (m->res_shift > 16) return NE_E_RESOURCE;
+    uint32_t p = t + 2;
+    unsigned n = 0;
+    for (unsigned blocks = 0; ; blocks++) {
+        if (!span(m, p, 2) || blocks > 0x400) return NE_E_RESOURCE;
+        uint16_t type = rd16(m, p);
+        if (type == 0) break;
+        if (!span(m, p, 8)) return NE_E_RESOURCE;
+        uint16_t count = rd16(m, p + 2);
+        p += 8;
+        if (!span(m, p, 12u * count) || n + count > 0xFFFF) return NE_E_RESOURCE;
+        for (unsigned i = 0; i < count; i++) {
+            uint32_t off = (uint32_t)rd16(m, p + 12 * i) << m->res_shift;
+            uint32_t len = (uint32_t)rd16(m, p + 12 * i + 2) << m->res_shift;
+            if (!span(m, off, len)) return NE_E_RESOURCE;
+        }
+        p += 12u * count;
+        n += count;
+    }
+    m->nres = (uint16_t)n;
+    return 0;
+}
+
+int ne_resource_at(const struct ne_module *m, unsigned i, struct ne_resource *out) {
+    if (i >= m->nres) return NE_E_RANGE;
+    uint32_t p = m->resources + 2;
+    for (;;) {
+        uint16_t type = rd16(m, p), count = rd16(m, p + 2);
+        if (type == 0) return NE_E_RANGE;
+        if (i < count) {
+            uint32_t e = p + 8 + 12 * i;
+            memset(out, 0, sizeof *out);
+            if (type & 0x8000) out->type = type & 0x7FFF;
+            else if (res_name(m, type, out->type_name, sizeof out->type_name) < 0) return NE_E_RESOURCE;
+            uint16_t id = rd16(m, e + 6);
+            if (id & 0x8000) out->id = id & 0x7FFF;
+            else if (res_name(m, id, out->name, sizeof out->name) < 0) return NE_E_RESOURCE;
+            out->off = (uint32_t)rd16(m, e) << m->res_shift;
+            out->len = (uint32_t)rd16(m, e + 2) << m->res_shift;
+            return 0;
+        }
+        i -= count;
+        p += 8 + 12u * count;
+    }
+}
+
+static int same_name(const char *have, const char *want) {
+    for (; *have && *want; have++, want++) {
+        char w = *want >= 'a' && *want <= 'z' ? (char)(*want - 32) : *want;
+        if (*have != w) return 0;
+    }
+    return *have == *want;
+}
+
+// A name of the form "#123" is the number 123, as Windows reads it.
+static int hash_number(const char *name, uint16_t *out) {
+    if (!name || name[0] != '#' || !name[1]) return 0;
+    unsigned v = 0;
+    for (const char *p = name + 1; *p; p++) {
+        if (*p < '0' || *p > '9' || v > 0x7FFF) return 0;
+        v = v * 10 + (unsigned)(*p - '0');
+    }
+    *out = (uint16_t)v;
+    return 1;
+}
+
+int ne_resource_find(const struct ne_module *m, uint16_t type, const char *type_name,
+                     uint16_t id, const char *name, struct ne_resource *out) {
+    if (hash_number(type_name, &type)) type_name = 0;
+    if (hash_number(name, &id)) name = 0;
+    for (unsigned i = 0; i < m->nres; i++) {
+        if (ne_resource_at(m, i, out) < 0) return NE_E_RESOURCE;
+        int type_ok = type_name ? out->type_name[0] && same_name(out->type_name, type_name)
+                                : !out->type_name[0] && out->type == type;
+        int id_ok = name ? out->name[0] && same_name(out->name, name)
+                         : !out->name[0] && out->id == id;
+        if (type_ok && id_ok) return (int)i;
+    }
+    return NE_E_RANGE;
 }
 
 int ne_reloc_at(const struct ne_module *m, unsigned seg, unsigned i, struct ne_reloc *out) {
@@ -150,6 +257,7 @@ const char *ne_strerror(int err) {
     case NE_E_NAME:     return "a name runs past its table";
     case NE_E_RANGE:    return "an index is out of range";
     case NE_E_ENTRY:    return "the entry table is malformed or lacks the ordinal";
+    case NE_E_RESOURCE: return "the resource table is malformed";
     default:            return "unknown error";
     }
 }
