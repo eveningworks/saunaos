@@ -75,6 +75,18 @@ static int show(const char *name) {
         ucrash_sender(&r, by, sizeof by);
         snprintf(line, sizeof line, "%s (pid %d): %s%s%s\nwhere: %s\n\nbacktrace, found by scanning the stack:\n",
                  r.program, r.pid, r.fault, by[0] ? ", sent by " : "", by, where);
+        if (r.message[0]) {
+            sys_print("message:\n");
+            for (const char *m = r.message; *m; ) {
+                const char *nl = strchr(m, '\n');
+                int n = nl ? (int)(nl - m) : (int)strlen(m);
+                char ml[UCRASH_MESSAGE + 4];
+                snprintf(ml, sizeof ml, "  %.*s\n", n, m);
+                sys_print(ml);
+                m += n + (nl ? 1 : 0);
+            }
+            sys_print("\n");
+        }
         sys_print(line);
         for (int i = 0; i < r.nframe; i++) {
             const struct ucrash_frame *f = &r.frame[i];

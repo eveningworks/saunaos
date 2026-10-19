@@ -596,6 +596,7 @@ EXCLUDED = [
     ("fslat_bench",      "a benchmark, not a test: per-call fs latency, for "
                           "tools/fs_isolation.py -- a timing number would make the gate flap"),
     ("crash_test",       "faults on purpose; the point is the kernel's recovery"),
+    ("abortmsg_test",    "aborts on purpose; tools/faulttest_run.py reads its report"),
     ("nx_test",          "faults on purpose (jumps into a data page) -- see faulttest_run.py"),
     ("stack_smash_test", "faults on purpose (trips the stack canary)"),
     ("stackovf_test",    "runs off the stack on purpose; the assertion is the KERNEL's "

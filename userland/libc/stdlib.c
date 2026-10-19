@@ -18,6 +18,8 @@
 #include <errno.h>
 #include <signal.h>
 #include <float.h>
+#include <stdarg.h>
+#include <string.h>
 #include <string.h>
 #include <time.h>
 #include <unistd.h>
@@ -61,6 +63,33 @@ void exit(int code) {
     // AFTER the handlers, because a handler is entitled to print.
     fflush(0);
     sys_exit(code);
+}
+
+// The kernel is told the buffer's address once and reads it only at a
+// crash (abi/syscall_abi.h's SYS_SET_ABORT_MSG), so a later message is a
+// store. A message that does not fit is kept to its last whole line.
+static char g_abort_msg[SYS_ABORT_MSG_MAX];
+static int g_abort_msg_told;
+
+void set_abort_message(const char *fmt, ...) {
+    static char tmp[SYS_ABORT_MSG_MAX * 2];   // a dying program's, one thread at a time
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(tmp, sizeof tmp, fmt, ap);
+    va_end(ap);
+    if (n < 0 || (size_t)n >= sizeof tmp) {
+        snprintf(tmp, sizeof tmp, "(a message too long to keep)");
+        n = (int)strlen(tmp);
+    }
+    if ((size_t)n >= sizeof g_abort_msg) {
+        n = (int)sizeof g_abort_msg - 1;
+        while (n > 0 && tmp[n] != '\n') n--;
+        if (n == 0) n = (int)sizeof g_abort_msg - 1;
+    }
+    memcpy(g_abort_msg, tmp, (size_t)n);
+    g_abort_msg[n] = 0;
+    if (!g_abort_msg_told && sys_set_abort_msg(g_abort_msg, sizeof g_abort_msg) == 0)
+        g_abort_msg_told = 1;
 }
 
 void abort(void) {

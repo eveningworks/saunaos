@@ -877,6 +877,10 @@ int sys_setrlimit(int resource, const struct sys_rlimit *in) {
     return (int)err(syscall2(SYS_SETRLIMIT, (uint64_t)resource, (uint64_t)(uintptr_t)in));
 }
 
+int sys_set_abort_msg(const char *buf, size_t cap) {
+    return (int)err(syscall2(SYS_SET_ABORT_MSG, (uint64_t)(uintptr_t)buf, (uint64_t)cap));
+}
+
 int sys_sched_setscheduler(int pid, int policy, int prio) {
     return (int)err(syscall3(SYS_SCHED_SETSCHEDULER, (uint64_t)pid, (uint64_t)policy,
                              (uint64_t)prio));

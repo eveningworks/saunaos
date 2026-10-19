@@ -406,6 +406,11 @@ struct sched_mm {
     // Requests refused at data_cur since this image started; the first
     // is logged, the rest only counted (a runaway asks thousands of times).
     uint32_t data_refused;
+    // SYS_SET_ABORT_MSG's buffer, in THIS address space, read only when
+    // a crash report is written. Reset by mm_reset(): an exec'd image
+    // has none.
+    uint64_t abort_msg_va;
+    uint32_t abort_msg_len;
 };
 
 // A process's CURRENT DIRECTORY -- a normalized absolute path, exactly

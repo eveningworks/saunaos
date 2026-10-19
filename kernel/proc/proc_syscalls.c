@@ -1122,6 +1122,21 @@ out:
     return 0;
 }
 
+// Only the address: the text is read by crash_report_write(), which
+// bounds it and validates the range then (abi/syscall_abi.h).
+int sys_set_abort_msg(struct syscall_ctx *c) {
+    struct sched_mm *mm = scheduler_current_mm();
+    int64_t ret = 0;
+    if (!mm) ret = -EPERM;
+    else if (c->a0 && (c->a1 == 0 || c->a1 > SYS_ABORT_MSG_MAX)) ret = -EINVAL;
+    else {
+        mm->abort_msg_va = c->a0;
+        mm->abort_msg_len = c->a0 ? (uint32_t)c->a1 : 0;
+    }
+    c->regs[14] = (uint64_t)ret;
+    return 0;
+}
+
 int sys_sched_setscheduler(struct syscall_ctx *c) {
     int who    = (int)(int64_t)c->a0;
     int policy = (int)(int64_t)c->a1;

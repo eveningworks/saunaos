@@ -183,11 +183,17 @@ void _Exit(int code) __attribute__((noreturn));
 // so registering on one list never runs the other's.
 void quick_exit(int code) __attribute__((noreturn));
 int  at_quick_exit(void (*fn)(void));
-// Exits with 134 (128 + SIGABRT) WITHOUT flushing the buffered streams:
-// abort() means the state is not to be trusted, and committing a
-// half-written file is worse than losing it. stderr is unbuffered, so
-// anything already reported is already out.
+// Raises SIGABRT WITHOUT flushing the buffered streams: abort() means
+// the state is not to be trusted, and committing a half-written file is
+// worse than losing it. stderr is unbuffered, so anything already
+// reported is already out.
 void abort(void) __attribute__((noreturn));
+
+// toy-os's, Android's android_set_abort_message(): what a crash report
+// of a death that follows says FIRST -- its `message:` lines, the crash
+// notice's sentence. printf-formatted; the last call wins; "" forgets
+// it. Set it just before abort(): it is kept for any later crash too.
+void set_abort_message(const char *fmt, ...) __attribute__((format(printf, 1, 2)));
 
 // Runs `command` through /bin/tosh -c and waits for it. Returns the
 // child's status in <sys/wait.h>'s encoding, or -1 if the shell could

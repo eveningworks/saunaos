@@ -24,6 +24,7 @@
 #define UCRASH_MAPS   64
 #define UCRASH_FRAMES 32
 #define UCRASH_LOG    6144   // the kernel log's tail, as the report carries it
+#define UCRASH_MESSAGE 1024  // SYS_ABORT_MSG_MAX: set_abort_message()'s, as `message:` lines
 
 struct ucrash_map {
     uint64_t a, b;
@@ -53,6 +54,7 @@ struct ucrash {
     uint32_t stack_len;
     long stack_off;                   // where the stack bytes start in the file
     char log[UCRASH_LOG];
+    char message[UCRASH_MESSAGE];     // the program's own last words, its lines joined; ""
     time_t when;                      // the file's mtime
     unsigned size;
 
@@ -87,6 +89,9 @@ int ucrash_log_lines(const struct ucrash *r, char *out, int cap);
 // SIGSEGV, sent by pid 20.", "It tried to write to 0x18f, which is not
 // mapped." -- a page fault's error bits decoded.
 void ucrash_explain(const struct ucrash *r, char *out, int cap);
+// The message's first line -- what the program said it died of
+// (set_abort_message()) -- or "" when it said nothing.
+void ucrash_headline(const struct ucrash *r, char *out, int cap);
 
 // "Killed by SIGSEGV" -> "pid 20", from the log's `kill(pid N, ...) by
 // pid M` line; "" when nothing sent it.

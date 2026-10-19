@@ -9612,3 +9612,31 @@ Why not `cachesim -t`'s tables, which already attributed reads by process:
 those are bounded heavy-hitter tables that drop light readers and exist
 only with the `cachesim` boot word. A column in Task Manager has to be
 exact for every process on every boot, which a per-slot counter is.
+
+## A program's last words are an address, read at the crash
+
+Chosen 2026-10-19, for w16, whose crashes were all "Killed by SIGABRT"
+in the interpreter while the reason -- a 16-bit fault, a Windows call
+not implemented -- was one line on a stderr nobody saw.
+`set_abort_message()` (libc, `<stdlib.h>`) registers a buffer in the
+process's own memory with `SYS_SET_ABORT_MSG`; the kernel reads it only
+when it writes a crash report, as `message:` lines, and the crash notice
+and Crash Reports lead with the first one. `assert()` and UBSAN's fatal
+path set it too.
+
+**What real systems do.** Android's `android_set_abort_message()` is
+this shape: bionic maps the message, and debuggerd reads it into the
+tombstone as "Abort message:". glibc keeps `__abort_msg` for a core
+dump's reader. Windows Error Reporting lets a process add data to its
+own report (`WerRegisterMemoryBlock`) -- memory registered up front,
+read when the report is made.
+
+**Why an address and not a copy.** A copy into the kernel at set time
+would cost every process a buffer in its process-table slot (the table
+is sized from RAM, thousands of slots) for a message almost none ever
+set, and a syscall per message. The address costs twelve bytes in
+`struct sched_mm` and a store per message. **Its memory is not trusted
+at the crash**: the range is validated, the copy bounded to
+`SYS_ABORT_MSG_MAX`, and a control byte becomes a space, so a corrupt
+buffer costs a line of noise, never the report
+(`tools/faulttest_run.py`'s `abortmsg_test`). Exec forgets it.

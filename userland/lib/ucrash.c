@@ -74,6 +74,10 @@ int ucrash_load(struct ucrash *r, const char *path) {
         if (nl) *nl = '\0';
         if (!strncmp(l, "pid: ", 5)) r->pid = atoi(l + 5);
         else if (!strncmp(l, "fault: ", 7)) strlcpy(r->fault, l + 7, sizeof r->fault);
+        else if (!strncmp(l, "message: ", 9)) {
+            if (r->message[0]) strlcat(r->message, "\n", sizeof r->message);
+            strlcat(r->message, l + 9, sizeof r->message);
+        }
         else if (!strncmp(l, "kernel: ", 8)) strlcpy(r->kernel, l + 8, sizeof r->kernel);
         else if (!strncmp(l, "vector: ", 8)) {
             r->vector = (unsigned)atoi(l + 8);
@@ -270,6 +274,14 @@ void ucrash_explain(const struct ucrash *r, char *out, int cap) {
     }
     snprintf(out, (size_t)cap, "A %s stopped it.", r->fault);
     if (out[2] >= 'A' && out[2] <= 'Z') out[2] = (char)(out[2] + 32);
+}
+
+void ucrash_headline(const struct ucrash *r, char *out, int cap) {
+    const char *nl = strchr(r->message, '\n');
+    int n = nl ? (int)(nl - r->message) : (int)strlen(r->message);
+    if (n >= cap) n = cap - 1;
+    memcpy(out, r->message, (size_t)n);
+    out[n] = 0;
 }
 
 void ucrash_sender(const struct ucrash *r, char *out, int cap) {

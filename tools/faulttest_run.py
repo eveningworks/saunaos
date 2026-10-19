@@ -91,6 +91,13 @@ TESTS = [
     ("spawn /tests/crash_test",
      ["RING-3 CRASH: Page fault", "crash: report written to /var/crash/crash_test-"],
      ["crash: no report"]),
+    # THE ABORT MESSAGE (set_abort_message()): the program's own words
+    # reach its report, every line, its control byte made a space. The
+    # forbidden string is what a raw byte or a lost tail would print.
+    ("spawn /tests/abortmsg_test",
+     ["crash: report written to /var/crash/abortmsg_test-",
+      "crash: message: abortmsg_test says goodbye (+2 more lines)"],
+     ["crash: no report", "(+0 more lines)"]),
 ]
 
 # `stack_smash_test` is deliberately NOT here. Its report comes from

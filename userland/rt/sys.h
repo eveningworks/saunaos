@@ -525,6 +525,8 @@ int sys_sched_getscheduler(int pid);
 // getrlimit()/setrlimit() are the names to use. 0, or -1 with errno.
 int sys_getrlimit(int resource, struct sys_rlimit *out);
 int sys_setrlimit(int resource, const struct sys_rlimit *in);
+// SYS_SET_ABORT_MSG: libc's set_abort_message() is the name to use.
+int sys_set_abort_msg(const char *buf, size_t cap);
 
 int sys_usb_claim(int slot);
 int sys_usb_release(int slot, unsigned flags);

@@ -10,5 +10,6 @@
 
 void __assert_fail(const char *expr, const char *file, int line, const char *fn) {
     fprintf(stderr, "%s:%d: %s: assertion failed: %s\n", file, line, fn, expr);
+    set_abort_message("%s:%d: %s: assertion failed: %s", file, line, fn, expr);
     abort();
 }

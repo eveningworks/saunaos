@@ -2689,6 +2689,20 @@ struct sys_rlimit {
     uint64_t max;   // the most `cur` may be raised to
 };
 
+// THE ABORT MESSAGE: what a program says about why it is dying, carried
+// by its crash report as `message:` lines -- Android's
+// android_set_abort_message(), and glibc's __abort_msg in a core dump.
+// ONLY THE ADDRESS IS RECORDED: the text stays in the caller's memory
+// and is read when a report is written, so setting it again is a store,
+// not a syscall. libc's set_abort_message() is the caller (assert(),
+// UBSAN's fatal path, w16's 16-bit faults).
+#define SYS_SET_ABORT_MSG 151  // RDI = a NUL-terminated buffer of RSI
+                               // bytes (at most SYS_ABORT_MSG_MAX), or 0
+                               // to forget it. Per address space: threads
+                               // share it, exec forgets it. 0, or -EINVAL
+                               // past the cap.
+#define SYS_ABORT_MSG_MAX 1024
+
 // THE SOUND RING, READ-ONLY, TO THE DRIVER THAT ASKS.
 //
 // **THIS IS THE ONE PLACE A DRIVER SEES THE SAMPLES, AND IT IS OPT-IN.**

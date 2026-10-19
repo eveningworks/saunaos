@@ -252,6 +252,8 @@ static void mm_reset(int slot, uint64_t image_end) {
     procs[slot].mm.brk          = heap_base;
     procs[slot].mm.stack_bottom = UADDR_STACK_INIT_BOTTOM;
     procs[slot].mm.data_refused = 0;
+    procs[slot].mm.abort_msg_va = 0;
+    procs[slot].mm.abort_msg_len = 0;
     // Frees any list a previous occupant of this slot left behind:
     // the teardown path should have, and a slot recycled without one
     // must not leak. Idempotent, so both calling is correct.

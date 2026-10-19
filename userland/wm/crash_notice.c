@@ -22,6 +22,7 @@
 #include "rt/sys.h"   // sys_query_record(), sys_spawn(), sys_monotonic_ns()
 #include "lib/uimg.h"
 #include "lib/uclip.h"
+#include "lib/ucrash.h"   // the message a report carries
 #include "lib/uopen.h"
 #include "win_proto.h"
 #include "wm_log.h"
@@ -136,6 +137,14 @@ static void cause(const char *fault, char *out, int cap) {
     snprintf(out, (size_t)cap, "A %s stopped it.", f);
 }
 
+// The first line of the report's message, or 0 when it has none.
+static int report_headline(const char *path, char *out, int cap) {
+    static struct ucrash r;
+    if (ucrash_load(&r, path) != 0) return 0;
+    ucrash_headline(&r, out, cap);
+    return out[0] != 0;
+}
+
 static void tell(const struct query_crash *c) {
     struct notice n;
     k_memset(&n, 0, sizeof n);
@@ -146,6 +155,17 @@ static void tell(const struct query_crash *c) {
     cause(c->fault, why, sizeof why);
     snprintf(n.sub, sizeof n.sub, c->report[0] ? "%s A report was saved."
                                                 : "%s No report could be saved.", why);
+    // WHAT THE PROGRAM SAID IT DIED OF, when it said (set_abort_message()):
+    // the report is complete by the time `report` names it.
+    char said[sizeof n.sub];
+    if (c->report[0] && report_headline(c->report, said, sizeof said)) {
+        char sub[sizeof n.sub];
+        size_t l = k_strlen(said);
+        const char *stop = l && (said[l - 1] == '.' || said[l - 1] == '!' || said[l - 1] == '?') ? "" : ".";
+        snprintf(sub, sizeof sub, "%s%s A report was saved.", said, stop);
+        if (!crash_notice_sub_fits(sub)) snprintf(sub, sizeof sub, "%s", said);
+        if (crash_notice_sub_fits(sub)) k_strlcpy(n.sub, sub, sizeof n.sub);
+    }
     k_strlcpy(n.icon, a && a->icon_name && a->icon_name[0] ? a->icon_name : "crashreports",
               sizeof n.icon);
     k_strlcpy(n.report, c->report, sizeof n.report);

@@ -13,6 +13,7 @@
 #include "query.h"
 #include "initcall.h"
 #include "clocksource.h"
+#include "syscall_abi.h"   // SYS_ABORT_MSG_MAX
 
 #define CRASH_DIR        "/var/crash"
 #define HEADER_CAP       8192      // the text half, one static buffer
@@ -90,6 +91,42 @@ static const struct query_provider crash_provider = {
 static void crash_query_init(void) { query_register(&crash_provider); }
 INITCALL(crash_query_init, INIT_QUERY);
 
+// The program's own last words (SYS_SET_ABORT_MSG), one `message:` line
+// per line of it. Its memory is not to be trusted at a crash: the range
+// is validated, the copy bounded, and a control byte becomes a space, so
+// a corrupt buffer costs at most a line of noise in the report.
+static char g_abort_msg[SYS_ABORT_MSG_MAX + 1];
+static const char *g_said;          // its first line, for the log, once written; 0 none
+static int g_said_more;             // how many lines followed it
+
+static int put_abort_msg(int at, uint64_t pml4, const struct sched_mm *mm) {
+    g_said = 0;
+    g_said_more = 0;
+    uint32_t len = mm->abort_msg_len;
+    if (!mm->abort_msg_va || !len || len > SYS_ABORT_MSG_MAX) return at;
+    if (!vmm_validate_user_range(pml4, mm->abort_msg_va, len) ||
+        !vmm_copy_from_user(pml4, g_abort_msg, mm->abort_msg_va, len))
+        return at;
+    g_abort_msg[len] = 0;
+    char *line = g_abort_msg;
+    for (char *p = g_abort_msg; ; p++) {
+        if (*p && *p != '\n') {
+            if ((unsigned char)*p < 0x20 || *p == 0x7F) *p = ' ';
+            continue;
+        }
+        int end = !*p;
+        *p = 0;
+        if (*line || !end) {
+            at = hdr_put(at, "message: %s\n", line);
+            if (g_said) g_said_more++;
+            else g_said = line;
+        }
+        if (end) break;
+        line = p + 1;
+    }
+    return at;
+}
+
 uint32_t crash_report_write(const char *what, const uint64_t *regs, uint64_t cr2,
                             int stack_overflow) {
     int pid = scheduler_current_pid();
@@ -144,6 +181,7 @@ uint32_t crash_report_write(const char *what, const uint64_t *regs, uint64_t cr2
     at = hdr_put(at, "rip: 0x%lx cs: 0x%lx rflags: 0x%lx\n", rip, regs[18], regs[19]);
     at = hdr_put(at, "rsp: 0x%lx ss: 0x%lx cr2: 0x%lx\n", rsp, regs[21], cr2);
     for (int r = 0; r < 15; r++) at = hdr_put(at, "%s: 0x%lx\n", reg_names[r], regs[r]);
+    if (mm) at = put_abort_msg(at, pml4, mm);
     if (mm) {
         at = hdr_put(at, "map: image 0x%lx-0x%lx\n", (uint64_t)0x8000000000ULL /* the image base, uaddr.h */, mm->heap_base);
         at = hdr_put(at, "map: heap 0x%lx-0x%lx\n", mm->heap_base, mm->brk);
@@ -199,5 +237,7 @@ uint32_t crash_report_write(const char *what, const uint64_t *regs, uint64_t cr2
     }
     k_strlcpy(noted->report, path, sizeof noted->report);
     klog_printf("crash: report written to %s (%u bytes)\n", path, written);
+    if (g_said)
+        klog_printf("crash: message: %s (+%d more lines)\n", g_said, g_said_more);
     return written;
 }

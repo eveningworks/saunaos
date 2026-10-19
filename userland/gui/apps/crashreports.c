@@ -48,6 +48,7 @@ struct report {
     char program[64];     // the executable's path
     char name[40];        // what a person calls it: the desktop entry's Name=
     char fault[40];
+    char headline[120];   // the program's own message, its first line; ""
     char where[72];
     char build[96];
     int pid;
@@ -91,6 +92,7 @@ static int parse_report(const char *path, struct report *r) {
     strlcpy(r->file, c.file, sizeof r->file);
     strlcpy(r->program, c.program, sizeof r->program);
     strlcpy(r->fault, c.fault, sizeof r->fault);
+    ucrash_headline(&c, r->headline, sizeof r->headline);
     strlcpy(r->build, c.kernel, sizeof r->build);
     r->pid = c.pid;
     r->rip = c.rip;
@@ -299,7 +301,9 @@ static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
         ugfx_draw_string_elided(s, x, y, w, t, UTHEME_TEXT, UGFX_TRANSPARENT);
         ugfx_set_font(was);
         y += ugfx_char_h() + ugfx_char_h() / 2;
-        if (!strncmp(r->fault, "Killed by ", 10))
+        if (r->headline[0])
+            snprintf(t, sizeof t, "%s", r->headline);
+        else if (!strncmp(r->fault, "Killed by ", 10))
             snprintf(t, sizeof t, "It was killed by %s. Other windows are not affected.", r->fault + 10);
         else {
             snprintf(t, sizeof t, "A %s stopped it. Other windows are not affected.", r->fault);
@@ -413,6 +417,8 @@ static void build_doc(void) {
     g_md_len = 0;
     g_md[0] = '\0';
     md("# %s quit unexpectedly\n\n", g_one.name);
+    ucrash_headline(r, t, sizeof t);
+    if (t[0]) md("**%s**\n\n", t);
     ucrash_explain(r, t, sizeof t);
     md("%s Other windows are not affected.\n\n", t);
     ucrash_where(r, t, sizeof t);
@@ -431,6 +437,7 @@ static void build_doc(void) {
     md("- **Program:** `%s`, pid %d\n", r->program, r->pid);
     md("- **Build:** %s\n\n", r->kernel);
 
+    if (r->message[0]) md("## Message\n\n```\n%s\n```\n\n", r->message);
     md("## Backtrace\n\n");
     if (!r->nframe) {
         md("No code address was found on the saved stack.\n\n");
