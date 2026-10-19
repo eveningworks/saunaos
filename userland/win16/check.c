@@ -1,15 +1,14 @@
-// check.c -- running `w16 --check`, and the short name a program goes by
-// (win16.h).
+// check.c -- asking w16 (`--check`, `--fonts`), and the short name a
+// program goes by (win16.h).
 #include "win16/win16.h"
 
 #include <stdlib.h>
 #include <string.h>
 #include "rt/sys.h"
 
-char *win16_check(const char *path) {
+static char *ask(char **argv) {
     int fds[2];
     if (sys_pipe(fds) < 0) return 0;
-    char *argv[] = { "w16", "--check", (char *)path, 0 };
     struct sys_spawn_opts o;
     sys_spawn_opts_init(&o);
     o.argv = argv;
@@ -34,6 +33,16 @@ char *win16_check(const char *path) {
     sys_waitpid(pid, 0);
     if (out) out[n] = 0;
     return out;
+}
+
+char *win16_check(const char *path) {
+    char *argv[] = { "w16", "--check", (char *)path, 0 };
+    return ask(argv);
+}
+
+char *win16_fonts(void) {
+    char *argv[] = { "w16", "--fonts", 0 };
+    return ask(argv);
 }
 
 char *win16_short_title(const char *d) {

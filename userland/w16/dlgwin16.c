@@ -36,25 +36,24 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
     if (f > 1) {
         uint32_t band = d->active ? w16_rgb(0x000080) : w16_rgb(0xC0C0C0);
         ugfx_fill_rect(&s, 1, 1, d->w - 2, d->h - 2, band);
-        ugfx_draw_rect(&s, f - 1, top - 1, d->w - 2 * f + 2, d->h - top - f + 2, white);
-        // The white line's top edge is the caption's: with none, 3.11's frame
-        // is navy to the client there.
-        if (!cap) ugfx_fill_rect(&s, f - 1, top - 1, d->w - 2 * f + 2, 1, band);
-    }
-    if (cap) {
-        int cw = d->w - 2 * f;
-        uint32_t bar = d->active ? w16_rgb(0x000080) : white, ink = d->active ? white : black;
-        ugfx_fill_rect(&s, f, top, cw, cap - 1, bar);
-        ugfx_fill_rect(&s, f, top + cap - 1, cw, 1, black);
-        int box = cap - 1;
-        w16_draw_sysbox(&s, f, top, box, box, 0);   // the main window's own, frame16.c's
-        ugfx_fill_rect(&s, f + box, top, 1, box, black);
-        const char *t = d->text ? d->text : "";
-        int tw = ugfx_text_width(t);
-        ugfx_draw_string_clipped(&s, f + box + (cw - box - tw) / 2, top + (cap - 1 - ugfx_char_h()) / 2,
-                                 cw - box - 2, t, ink, bar);
     }
     if (d->fb) ugfx_blit(&s, f, top + cap, d->fbw, d->fbh, d->fb, d->fbw);
+    if (cap) {
+        // The caption is the client's width, edged in white on its top and
+        // sides (the line 3.11 shows round it), its bar navy within.
+        int cw = d->w - 2 * f;
+        uint32_t bar = d->active ? w16_rgb(0x000080) : white, ink = d->active ? white : black;
+        ugfx_fill_rect(&s, f, top - 1, cw, cap, white);
+        ugfx_fill_rect(&s, f + 1, top, cw - 2, cap - 1, bar);
+        ugfx_fill_rect(&s, f + 1, top + cap - 1, cw - 2, 1, black);   // inside the white edges, as 3.11's
+        int box = cap - 1;
+        w16_draw_sysbox(&s, f + 1, top, box, box, 0);   // the main window's own, frame16.c's
+        ugfx_fill_rect(&s, f + 1 + box, top, 1, box, black);
+        const char *t = d->text ? d->text : "";
+        int tw = ugfx_text_width(t), left = f + 2 + box, room = cw - box - 3;
+        ugfx_draw_string_clipped(&s, left + (room - tw) / 2, top + (cap - 1 - ugfx_char_h()) / 2,
+                                 room, t, ink, bar);
+    }
 }
 
 // --- the window -----------------------------------------------------------------

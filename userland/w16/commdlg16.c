@@ -16,6 +16,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include "lib/ufile.h"
+#include "ne.h"
 
 #define OFN_READONLY        0x0001
 #define OFN_OVERWRITEPROMPT 0x0002
@@ -169,16 +171,64 @@ static char *get_text(struct w16 *w, struct w16_wnd *c) {
 
 static struct w16_wnd *item(struct w16 *w, struct w16_wnd *d, uint16_t id) { return w16_dlg_item(w, d->hwnd, id); }
 
+// --- 3.11's own folder and drive pictures -------------------------------------------
+
+// From the user's own COMMDLG.DLL in C:\WINDOWS\SYSTEM, when it is there:
+// its bitmap 576, eight 16-by-16 pictures in a row -- open folder, the
+// current folder, a shut one, then floppy, hard disk, network, CD and RAM
+// drives -- blue (0000FF) where nothing is drawn. Read once, like any DLL,
+// by w16's NE parser; no Microsoft picture is in toy-os itself.
+#define ICON_SIZE 16
+static uint32_t g_icon[W16_ICON_COUNT][ICON_SIZE * ICON_SIZE];
+static int g_icon_state;                         // 0 not tried, 1 loaded, -1 none
+
+static void load_icons(void) {
+    g_icon_state = -1;
+    static char path[1024];
+    if (w16_dos_path("C:\\WINDOWS\\SYSTEM\\COMMDLG.DLL", path, sizeof path, 0, 0, 0) != 0) return;
+    unsigned char *img = 0;
+    size_t n = 0;
+    if (ufile_slurp(path, 1u << 20, &img, &n) != UFILE_OK) return;
+    static struct ne_module m;
+    struct ne_resource r;
+    struct gdi_dib dib;
+    if (ne_parse(img, (uint32_t)n, &m) < 0 || ne_resource_find(&m, NE_RT_BITMAP, 0, 576, 0, &r) < 0 ||
+        gdi_dib_header(img + r.off, r.len, 0, &dib) < 0 || dib.w < ICON_SIZE * W16_ICON_COUNT ||
+        (dib.h < ICON_SIZE && -dib.h < ICON_SIZE)) {
+        free(img);
+        return;
+    }
+    int rows = dib.h < 0 ? -dib.h : dib.h;
+    if (dib.header_len + (uint64_t)dib.stride * (uint64_t)rows > r.len) { free(img); return; }
+    for (int y = 0; y < ICON_SIZE; y++) {
+        const uint8_t *row = img + r.off + dib.header_len + (size_t)dib.stride * (size_t)(dib.h < 0 ? y : rows - 1 - y);
+        for (int i = 0; i < W16_ICON_COUNT; i++)
+            for (int x = 0; x < ICON_SIZE; x++) {
+                uint32_t px = gdi_dib_px(&dib, row, i * ICON_SIZE + x) & 0xFFFFFF;
+                g_icon[i][y * ICON_SIZE + x] = px == 0x0000FF ? 0 : 0xFF000000u | px;
+            }
+    }
+    free(img);
+    g_icon_state = 1;
+}
+
+const uint32_t *w16_commdlg_icon(int which) {
+    if (!g_icon_state) load_icons();
+    return g_icon_state > 0 && which >= 0 && which < W16_ICON_COUNT ? g_icon[which] : 0;
+}
+
 // --- the dialogs' shared machinery -------------------------------------------------------
 
 // A dialog unit to pixels: x per 4, y per 8.
-// In COMMDLG's own templates' units: they name FONT 8, "Helv".
-static int dx(int v) { return v * 7 / 4; }
-static int dy(int v) { return v * 13 / 8; }
+// In COMMDLG's own templates' units -- FONT 8, "Helv", 7 by 13 -- mapped
+// from the template's origin as Windows maps them (g_org: Open's 36,24,
+// Find's 30,73, from COMMDLG.DLL).
+static int g_org_x, g_org_y;
 
 static struct w16_wnd *add(struct w16 *w, struct w16_wnd *d, const char *cls, uint16_t id, uint32_t style,
                            int x, int y, int cw, int ch, const char *text) {
-    return w16_dlg_add(w, d, cls, id, style | WS_VISIBLE, dx(x), dy(y), dx(cw), dy(ch), text);
+    return w16_dlg_add(w, d, cls, id, style | WS_VISIBLE, w16_du_x(g_org_x, x, 7), w16_du_y(g_org_y, y, 13),
+                       w16_du_w(cw, 7), w16_du_h(ch, 13), text);
 }
 
 // The program's hook, when it has one: it hears the message first.
@@ -271,6 +321,9 @@ static void fill_lists(struct w16 *w, struct w16_wnd *d) {
         p += len;
         while (*p == '\\') p++;
     }
+    // The last open folder is the current one, pictured as 3.11 did (kind 4).
+    uint32_t last = (uint32_t)w16_send(w, dirs->hwnd, LB_GETITEMDATA, (uint16_t)idx, 0);
+    w16_send(w, dirs->hwnd, LB_SETITEMDATA, (uint16_t)idx, (last & ~0xFFu) | 4);
     // No selection: 3.11 lists the open folders without lighting the current
     // one (a press or the arrows choose).
     // What is in it: folders after the open ones, files that match.
@@ -313,7 +366,7 @@ static void folder_of(struct w16 *w, struct w16_wnd *d, int i, char *out, size_t
     struct ofn *o = d->dlgdata;
     struct w16_wnd *dirs = item(w, d, LST2);
     uint32_t data = (uint32_t)w16_send(w, dirs->hwnd, LB_GETITEMDATA, (uint16_t)i, 0);
-    int depth = (int)(data >> 8 & 0xFF), open = (data & 0xFF) == 1;
+    int depth = (int)(data >> 8 & 0xFF), open = (data & 0xFF) == 1 || (data & 0xFF) == 4;
     const char *name = w16_listbox_text(dirs, i);
     if (!name) { snprintf(out, cap, "%s", o->dir); return; }
     if (!open) {                                 // a folder inside the current one
@@ -536,12 +589,14 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
     const char *pat = filter_str(o, 2 * o->type + 1);
     snprintf(o->pattern, sizeof o->pattern, "%s", pat ? pat : "*.*");
 
+    g_org_x = 36;                                // FILEOPENORD's place
+    g_org_y = 24;
     struct w16_wnd *d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_DLGFRAME,
-                                    dx(266), dy(134), cap && cap[0] ? cap : save ? "Save As" : "Open", 0, ofn_proc);
+                                    w16_du_w(264, 7), w16_du_h(134, 13), cap && cap[0] ? cap : save ? "Save As" : "Open", 0, ofn_proc);
     if (!d) { g_error = CDERR_MEMALLOCFAILURE; goto out; }
     w16_dlg_set_font(d, 8);
     d->dlgdata = o;
-    add(w, d, "STATIC", STC3, 0, 6, 6, 90, 9, "File &Name:");
+    add(w, d, "STATIC", STC3, 0, 6, 6, 76, 9, "File &Name:");
     struct w16_wnd *e = add(w, d, "EDIT", EDT1, WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, 6, 16, 90, 12, "");
     struct w16_wnd *files = add(w, d, "LISTBOX", LST1, WS_BORDER | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY | LBS_SORT |
                                 LBS_DISABLENOSCROLL, 6, 32, 90, 68, "");
@@ -550,9 +605,9 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
     struct w16_wnd *dirs = add(w, d, "LISTBOX", LST2, WS_BORDER | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY |
                                LBS_DISABLENOSCROLL, 110, 32, 92, 68, "");
     add(w, d, "STATIC", STC2, 0, 6, 104, 90, 9, save ? "Save File as &Type:" : "List Files of &Type:");
-    struct w16_wnd *types = add(w, d, "COMBOBOX", CMB1, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 6, 114, 90, 52, "");
+    struct w16_wnd *types = add(w, d, "COMBOBOX", CMB1, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 6, 114, 90, 68, "");
     add(w, d, "STATIC", STC4, 0, 110, 104, 92, 9, "Dri&ves:");
-    struct w16_wnd *drives = add(w, d, "COMBOBOX", CMB2, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 110, 114, 92, 40, "");
+    struct w16_wnd *drives = add(w, d, "COMBOBOX", CMB2, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 110, 114, 92, 68, "");
     add(w, d, "BUTTON", IDOK, WS_TABSTOP | BS_DEFPUSHBUTTON, 208, 6, 50, 14, "OK");
     add(w, d, "BUTTON", IDCANCEL, WS_TABSTOP, 208, 24, 50, 14, "Cancel");
     if (o->flags & OFN_SHOWHELP) add(w, d, "BUTTON", PSH_HELP, WS_TABSTOP, 208, 46, 50, 14, "&Help");
@@ -720,8 +775,10 @@ static int api_FindText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     f->owner = rd16(p + 4);
     f->hook = flags & FR_ENABLEHOOK ? rd32(p + 28) : 0;
     f->msg = w16_atom_add(w, "commdlg_FindReplace");
-    struct w16_wnd *d = w16_dlg_new(w, f->owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_DLGFRAME, dx(236),
-                                    dy(62), "Find", 0, find_proc);
+    g_org_x = 30;                                // FINDDLGORD's place
+    g_org_y = 73;
+    struct w16_wnd *d = w16_dlg_new(w, f->owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_DLGFRAME, w16_du_w(236, 7),
+                                    w16_du_h(62, 13), "Find", 0, find_proc);
     if (!d) { free(f); free(what); g_error = CDERR_MEMALLOCFAILURE; return 4; }
     w16_dlg_set_font(d, 8);
     d->dlgdata = f;
@@ -736,8 +793,8 @@ static int api_FindText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (!(flags & FR_HIDEUPDOWN)) {
         uint32_t dis = (flags & FR_NOUPDOWN) ? WS_DISABLED : 0;
         add(w, d, "BUTTON", GRP1, BS_GROUPBOX, 107, 26, 68, 28, "Direction");
-        add(w, d, "BUTTON", RAD1, WS_TABSTOP | WS_GROUP | BS_AUTORADIOBUTTON | dis, 111, 38, 25, 12, "&Up");
-        add(w, d, "BUTTON", RAD2, BS_AUTORADIOBUTTON | dis, 138, 38, 35, 12, "&Down");
+        add(w, d, "BUTTON", RAD1, WS_TABSTOP | WS_GROUP | BS_AUTORADIOBUTTON | dis, 111, 38, 20, 12, "&Up");
+        add(w, d, "BUTTON", RAD2, BS_AUTORADIOBUTTON | dis, 138, 38, 30, 12, "&Down");
     }
     struct w16_wnd *next = add(w, d, "BUTTON", IDOK, WS_TABSTOP | WS_GROUP | BS_DEFPUSHBUTTON | (what[0] ? 0 : WS_DISABLED),
                                182, 5, 50, 14, "&Find Next");

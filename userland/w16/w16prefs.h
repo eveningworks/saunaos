@@ -30,6 +30,9 @@ enum { W16_METHOD_SHARP, W16_METHOD_PIXELS, W16_METHOD_SMOOTH };
 enum { W16_FRAME_31, W16_FRAME_DESKTOP };
 enum { W16_VER_310, W16_VER_311, W16_VER_300 };
 enum { W16_FAULT_BOX, W16_FAULT_REPORT };
+// Whose fonts a program's text is drawn in: Windows 3.11's own .FON files
+// from C:\WINDOWS\SYSTEM where they are there, else toy-os's stand-ins.
+enum { W16_FONTS_WIN311, W16_FONTS_STANDIN };
 
 struct w16_prefs {
     int scale;                       // W16_SCALE_*
@@ -39,6 +42,7 @@ struct w16_prefs {
     int trace;                       // log every call to w16_trace_path()
     char drive_c[W16_PATH_MAX];      // drive C:; INI files live in its WINDOWS
     int method;                      // W16_METHOD_*: how a fractional scale is drawn
+    int fonts;                       // W16_FONTS_*
     // The launcher's alone: the folders it lists programs from.
     char folder[W16_FOLDERS_MAX][W16_PATH_MAX];
 };

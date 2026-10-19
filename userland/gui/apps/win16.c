@@ -80,14 +80,14 @@ static struct uapp *g_app;
 
 enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CMD_EXIT, CMD_CALLS };
 enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VERSION, ID_FRAME,
-       ID_TRACE, ID_RUN, ID_OPT_DRIVE, ID_CALLS, ID_METHOD };
+       ID_TRACE, ID_RUN, ID_OPT_DRIVE, ID_CALLS, ID_METHOD, ID_FONTS, ID_OPT_FONTCARD };
 
 static struct uui_menubar g_menu;
 static struct uui_toolbar g_tb;
 static struct uui_sidebar g_side;
 static struct uui_grid g_grid;
 static struct uui_statusbar g_sb;
-#define NSET 5                               // the per-program settings: SETTINGS below
+#define NSET 6                               // the per-program settings: SETTINGS below
 static struct uui_dropdown g_dd[NSET];
 static struct uui_button g_run;
 static struct uui_button g_calls;            // "Missing calls...": the calls window
@@ -311,6 +311,7 @@ static const char *const METHOD_NAMES[] = { "Sharp", "Pixels", "Smooth" };
 static const char *const VERSION_NAMES[] = { "3.10", "3.11", "3.00" };
 static const char *const FRAME_NAMES[] = { "Windows 3.1", "The desktop's" };
 static const char *const TRACE_NAMES[] = { "Off", "On" };
+static const char *const FONTS_NAMES[] = { "Windows 3.11's own", "toy-os's stand-ins" };
 static char g_dflt_label[NSET][48];
 static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list, plus "Default"
 
@@ -322,6 +323,7 @@ static const struct { const char *caption; const char *const *names; int n; int 
     { "Scaled by",       METHOD_NAMES,  3, 6, offsetof(struct w16_prefs, method) },
     { "Version told",    VERSION_NAMES, 3, 2, offsetof(struct w16_prefs, version) },
     { "Window frame",    FRAME_NAMES,   2, 1, offsetof(struct w16_prefs, frame) },
+    { "Fonts",           FONTS_NAMES,   2, 7, offsetof(struct w16_prefs, fonts) },
     { "Trace its calls", TRACE_NAMES,   2, 4, offsetof(struct w16_prefs, trace) },
 };
 
@@ -405,7 +407,7 @@ static const struct uui_sidebar_row OPT_PAGES[] = {
 static const char *const FAULT_NAMES[] = { "Show the Error box", "Write the report only" };
 static const char *const OPT_NOTES[] = {
     "What programs are told, and what happens when one fails.",
-    "How a program's windows look.",
+    "How a program's windows look, and whose fonts its text is drawn in.",
     "Drive C: is a folder here; a program's INI files go in its WINDOWS folder.",
 };
 
@@ -442,6 +444,10 @@ static void open_options(void) {
     uui_prefs_choice(1, "Scale", SCALE_NAMES, 0, W16_SCALE_COUNT, offsetof(struct w16_prefs, scale), "scale");
     uui_prefs_choice(1, "Scaled by", METHOD_NAMES, 0, 3, offsetof(struct w16_prefs, method), "method");
     uui_prefs_choice(1, "Window frame", FRAME_NAMES, 0, 2, offsetof(struct w16_prefs, frame), "frame");
+    // 3.11's own fonts, where drive C: has them: what w16 found, asked of it now.
+    uui_prefs_choice(1, "Fonts", FONTS_NAMES, 0, 2, offsetof(struct w16_prefs, fonts), "fonts");
+    win16_fontcard_load(&g_win16_fontcard);
+    uui_prefs_row(1, "", &win16_fontcard_ops, &g_win16_fontcard, ID_OPT_FONTCARD, "fontcard", UUI_FILL_W);
     uui_textbox_set_text(&g_drive, g_def.drive_c);
     uui_prefs_row(2, "Drive C:", &uui_textbox_ops, &g_drive, ID_OPT_DRIVE, "drive", 0);
     uui_prefs_open(g_app);
@@ -670,7 +676,8 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[1], .id = ID_METHOD,  .name = "method" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[2], .id = ID_VERSION, .name = "version" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[3], .id = ID_FRAME,   .name = "frame" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[4], .id = ID_TRACE,   .name = "trace" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[4], .id = ID_FONTS,   .name = "fonts" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[5], .id = ID_TRACE,   .name = "trace" },
     { .ops = &uui_button_ops,    .widget = &g_run,   .id = ID_RUN,     .name = "run" },
     { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,    .id = ID_STATUS,  .name = "status" },
@@ -745,7 +752,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         fill_panel();
         if ((code = uui_grid_take(&g_grid)) >= 0) command(a, CMD_RUN);
         break;
-    case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_TRACE: save_panel(); break;
+    case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_FONTS: case ID_TRACE: save_panel(); break;
     default: break;
     }
     uapp_redraw(a);

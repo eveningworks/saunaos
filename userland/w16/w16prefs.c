@@ -17,12 +17,13 @@ static const char *const METHOD_WORDS[] = { "sharp", "pixels", "smooth" };
 static const char *const FRAME_WORDS[] = { "win31", "desktop" };
 static const char *const VERSION_WORDS[] = { "3.10", "3.11", "3.00" };
 static const char *const FAULT_WORDS[] = { "box", "report" };
+static const char *const FONTS_WORDS[] = { "win311", "standin" };
 
 static int is_abs_path(const char *v) { return v[0] == '/' || v[0] == 0; }
 
 #define FOLDER_KEY(n, d) UPREF_TEXT_KEY("folder" #n, struct w16_prefs, folder[n - 1], d, is_abs_path)
 
-// THE FIRST SEVEN ARE A PROGRAM'S TO OVERRIDE, each its bit in
+// THE FIRST EIGHT ARE A PROGRAM'S TO OVERRIDE, each its bit in
 // w16_prefs_overridden() by its place here -- so a new one goes after
 // them, never between; the folders are the launcher's alone. Keep
 // w16_prefs_program_keys in step.
@@ -34,10 +35,11 @@ const struct upref w16_prefs_keys[] = {
     UPREF_BOOL_KEY("trace", struct w16_prefs, trace, 0),
     UPREF_TEXT_KEY("drive_c", struct w16_prefs, drive_c, "/home/Win16", is_abs_path),
     UPREF_WORD_KEY("method", struct w16_prefs, method, METHOD_WORDS, 3, W16_METHOD_SHARP),
+    UPREF_WORD_KEY("fonts", struct w16_prefs, fonts, FONTS_WORDS, 2, W16_FONTS_WIN311),
     FOLDER_KEY(1, "/usr/share/w16"), FOLDER_KEY(2, "/home/Win16"), FOLDER_KEY(3, ""),
     FOLDER_KEY(4, ""), FOLDER_KEY(5, ""), FOLDER_KEY(6, ""), FOLDER_KEY(7, ""), FOLDER_KEY(8, ""),
 };
-const int w16_prefs_program_keys = 7;
+const int w16_prefs_program_keys = 8;
 const struct uprefs w16_prefs_defaults = {
     W16_CONF, w16_prefs_keys, (int)(sizeof w16_prefs_keys / sizeof w16_prefs_keys[0])
 };

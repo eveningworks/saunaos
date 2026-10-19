@@ -215,24 +215,40 @@ enters this repo.
 | Caption | 18 rows and a black line (W16_CAPTION 19) |
 | Menu bar | 18 rows and a black line (W16_MENU_H 19) |
 | Main frame | black, 2 grey, black: 4; notches 22 from each outer corner, on the caption buttons' edges |
-| Dialog frame | black, navy (3 rows on top under a caption, 4 elsewhere), then a white line round caption and client; no caption: navy to the client |
+| Dialog frame | black and 4 of navy all round; a caption the client's width, edged white on its top and sides, its black line stopping at the white |
 | Control-menu box | 18 square; its bar 13 by 3, 2 in, 7 down, a shadow 1 down-right |
 | Scroll-bar arrows | head 7 wide, stem 3 by 3, 7 long, centred; grey with a white shadow when there is nothing to scroll, over a white trough with no thumb |
 | A top-level window's scroll bars | share their outer edge with the frame's inner line and the menu bar's line -- no second black line |
-| Button bevel | white top and left; shadow two deep, the inner line stopping at the white |
+| Button bevel | white top and left, one deep (two on a push button); shadow two deep, the inner line stopping at the white |
+| Push button | its label centred in the face left of the edge's shadow; a disabled default button loses its thick edge; disabled text a 50% dither (GrayString), not grey |
+| Check box, radio button | 13 by 13, the label 5 past it and a row below centre; the circle 3.11's stepped one, its dot 7 wide |
+| Group box | its frame from half a line down, the label a quarter line down, the gap 7 in |
+| Mnemonic underline | a row below the baseline (ascent + 1), a blank row between it and the letters |
+| Menu bar | titles from the bar's left edge, each 8 in from its box |
+| List box | whole rows only, the foot moved up (unless LBS_NOINTEGRALHEIGHT); rows of folders or drives 16, the picture's height |
+| Combo box | shut, the font's height and 7; its button 17 wide, the arrow with a stem over a bar |
 | Colours | navy 0000A8, face grey C0C7C8, shadow grey 87888F (the VGA palette; ctl16.c's `w16_vga()`) |
 | Base units | System font 8x16; a template's `FONT 8, "Helv"` 7x13, drawn bold |
+| Units to pixels | an x from the template's own position, each end truncated; a y rounded; a width or height rounded (COMMDLG.DLL's templates: Open 264x134 at 36,24 is 462x218; Find 236x62 at 30,73 is 413x101) |
 | Font cells | System 16, Helv 8 13, Fixedsys 15 |
+| Edit text | a multi-line edit's at the client's left edge; a one-line field's 2 in |
 | CW_USEDEFAULT | 632x408 on 640x480 |
 | COMMDLG | names and the filter in lower case; "c: label" with a drive icon; the current folder not selected |
 | Menus | dropped from the keyboard: the first item lit even when grey; Esc goes back to the bar, a second Esc out |
 
-**Still different, known:** the glyphs (Liberation and DejaVu stand in
-for the System, Helv and Fixedsys bitmap fonts, which cannot ship --
-compared for size, weight and metrics, never shapes); the control
-menu's Move and Size (not built) and Switch To; a dialog's place (toywm
-centres it; 3.1 used the template's position); ShellAbout's layout; the
-other dark colours of the palette, whose mapping is not yet measured.
+**Fonts and pictures are the user's own** (the decision "Win16's fonts
+and pictures come from the user's own Windows files"): with 3.11's
+`.FON` files and COMMDLG.DLL in drive C:'s `WINDOWS\SYSTEM`, Notepad's
+text, caption and menus diff to ZERO pixels and Find to the caret and
+one label's pixel; without them, toy-os's stand-ins at 3.11's cells.
+
+**Still different, known:** the menu bar's title spacing (3.11's boxes
+are not the text plus a constant: File, Edit, Search, Game measure 40,
+40, 64, 54); a list box's top a row higher in 3.11; a disabled push
+button's label a pixel right; the control menu's Move and Size (not
+built) and Switch To; a dialog's place (toywm centres it; 3.1 used the
+template's position); ShellAbout's layout; the other dark colours of
+the palette, whose mapping is not yet measured.
 
 ## Stages
 

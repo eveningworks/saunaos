@@ -20,6 +20,7 @@
 #define LBS_NOTIFY     0x0001
 #define LBS_SORT       0x0002
 #define LBS_NOREDRAW   0x0004
+#define LBS_NOINTEGRALHEIGHT 0x0100
 #define LBS_DISABLENOSCROLL 0x1000
 #define LB_ADDSTRING   (WM_USER + 1)
 #define LB_INSERTSTRING (WM_USER + 2)
@@ -117,8 +118,13 @@ void w16_listbox_folders(struct w16_wnd *x, int on) {
     if (l) l->folders = on;
 }
 
-// A row: a line of the list's font.
-static int item_h(const struct w16_wnd *x) { return w16_font_line_h(x ? x->font : 0); }
+// A row: a line of the list's font -- or the 16 of a picture, in a list of
+// folders or drives, as 3.11's COMMDLG drew them.
+static int item_h(const struct w16_wnd *x) {
+    int h = w16_font_line_h(x ? x->font : 0);
+    const struct listbox *l = x && x->host == w16_listbox_proc ? x->ctl : 0;
+    return l && l->folders && h < 16 ? 16 : h;
+}
 
 static int rows(const struct w16_wnd *x) {
     int n = x->ch / item_h(x);
@@ -246,19 +252,47 @@ static void drive(struct ugfx_surface *s, int x, int y) {
 
 // What goes before an item's text in a folder or drive list: its icon, and
 // how far the text moves right. Item data is indent << 8 | kind: 1 an open
-// folder, 2 a shut one, 3 a drive.
+// folder, 2 a shut one, 3 a drive, 4 the open folder that is current.
 static int item_icon(struct ugfx_surface *s, const struct listbox *l, int i, int x, int y, int ih);
 
 // A folder for the common dialogs' folder list: open, or shut.
-static void folder(struct ugfx_surface *s, int x, int y, int open) {
-    uint32_t black = w16_rgb(0x000000), pale = w16_rgb(0xFFFF80), dark = w16_rgb(0xC0C000);
-    ugfx_fill_rect(s, x, y + 1, 6, 2, pale);
-    ugfx_draw_rect(s, x, y + 1, 6, 2, black);
-    ugfx_fill_rect(s, x, y + 2, 15, 10, pale);
-    ugfx_draw_rect(s, x, y + 2, 15, 10, black);
-    if (open) {
-        for (int i = 0; i < 6; i++) ugfx_fill_rect(s, x + 3 - i / 2, y + 6 + i, 12, 1, dark);
-        ugfx_fill_rect(s, x, y + 11, 15, 1, black);
+// toy-os's own folder, for when drive C: holds no COMMDLG.DLL to take 3.11's
+// from: drawn here, in the same manner -- a yellow and white dither, a grey
+// foot, a black edge -- but its own shapes, not traced from Microsoft's.
+// `kind` 1 an open folder, 2 a shut one, 4 the open one that is current
+// (its back darkened).
+static void dither(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t a, uint32_t b) {
+    for (int j = 0; j < h; j++)
+        for (int i = 0; i < w; i++) ugfx_fill_rect(s, x + i, y + j, 1, 1, ((x + i + y + j) & 1) ? a : b);
+}
+
+static void folder(struct ugfx_surface *s, int x, int y, int kind) {
+    uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF), yellow = w16_rgb(0xFFFF00),
+             grey = w16_rgb(0x808080);
+    // The tab: 7 by 3 on the back's top-left corner.
+    dither(s, x + 1, y + 1, 5, 2, yellow, white);
+    ugfx_fill_rect(s, x + 1, y, 5, 1, black);
+    ugfx_fill_rect(s, x, y + 1, 1, 2, black);
+    ugfx_fill_rect(s, x + 6, y + 1, 1, 1, black);
+    if (kind == 2) {                             // shut: the body, 15 by 10
+        dither(s, x + 1, y + 3, 13, 7, yellow, white);
+        ugfx_draw_rect(s, x, y + 2, 15, 10, black);
+        ugfx_fill_rect(s, x + 1, y + 10, 13, 1, grey);
+        return;
+    }
+    // Open: the back, darkened when it is the current folder, then a front
+    // flap leaning out past the back's right edge.
+    ugfx_fill_rect(s, x, y + 2, 14, 1, black);
+    ugfx_fill_rect(s, x, y + 2, 1, 10, black);
+    ugfx_fill_rect(s, x + 13, y + 2, 1, 3, black);
+    dither(s, x + 1, y + 3, 12, 2, kind == 4 ? black : yellow, white);
+    for (int r = 0; r < 7; r++) {
+        int yy = y + 5 + r, l = x + 3 - (r + 1) / 2, rt = x + 15 - (r + 1) / 2;
+        if (r == 0 || r == 6) { ugfx_fill_rect(s, l, yy, rt - l + 1, 1, black); continue; }
+        ugfx_fill_rect(s, l, yy, 1, 1, black);
+        ugfx_fill_rect(s, rt, yy, 1, 1, black);
+        if (r == 5) ugfx_fill_rect(s, l + 1, yy, rt - l - 1, 1, grey);
+        else dither(s, l + 1, yy, rt - l - 1, 1, yellow, white);
     }
 }
 
@@ -283,10 +317,14 @@ static void paint_listbox(struct w16 *w, struct w16_wnd *x, struct ugfx_surface 
 static int item_icon(struct ugfx_surface *s, const struct listbox *l, int i, int x, int y, int ih) {
     if (!l->folders || i < 0 || i >= l->n) return 0;
     int indent = (int)(l->it[i].data >> 8 & 0xFF), kind = (int)(l->it[i].data & 0xFF);
-    x += indent * 8;
-    if (kind == 3) drive(s, x, y + (ih - 9) / 2);
-    else if (kind) folder(s, x, y + (ih - 13) / 2, kind == 1);
-    return indent * 8 + 19;
+    x += indent * 4;
+    // 3.11's own pictures when the user's COMMDLG.DLL is on drive C:, else ours.
+    static const int REAL[] = { -1, W16_ICON_OPEN, W16_ICON_SHUT, W16_ICON_DISK, W16_ICON_CURRENT };
+    const uint32_t *px = kind > 0 && kind < 5 ? w16_commdlg_icon(REAL[kind]) : 0;
+    if (px) ugfx_blit_alpha(s, x, y + (ih - 16) / 2, 16, 16, px, 16);
+    else if (kind == 3) drive(s, x, y + (ih - 9) / 2);
+    else if (kind) folder(s, x, y + (ih - 12) / 2, kind);
+    return indent * 4 + 19;
 }
 
 static int lb_index_at(const struct w16_wnd *x, struct listbox *l, int y) {
@@ -413,6 +451,12 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
         x->keep_sb = (x->style & LBS_DISABLENOSCROLL) != 0;
         x->sb[SB_VERT] = (struct w16_sbar){ 0, 0, 0 };
         w16_wnd_set_geometry(w, x, x->x, x->y, x->w, x->h);
+        // Whole rows only, the foot moved up, unless LBS_NOINTEGRALHEIGHT --
+        // 3.11's Open lists are 106 tall where their template asks 111.
+        if (!(x->style & LBS_NOINTEGRALHEIGHT)) {
+            int ih = item_h(x), frame = x->h - x->ch, rows = x->ch / ih;
+            if (rows > 0 && rows * ih != x->ch) w16_wnd_set_geometry(w, x, x->x, x->y, x->w, rows * ih + frame);
+        }
         return 1;
     }
     if (!l) return w16_def_window_proc(w, x, msg, wp, lp);
@@ -525,7 +569,7 @@ struct combo {
 
 static struct combo *cb_of(struct w16_wnd *x) { return x->ctl; }
 
-static int shut_h(const struct w16_wnd *x) { return item_h(x) + 6; }
+static int shut_h(const struct w16_wnd *x) { return item_h(x) + 7; }   // 3.11's: 20 in a Helv 8 dialog
 
 static struct w16_wnd *cb_list(struct w16 *w, struct combo *c) { return w16_wnd_get(w, c->list); }
 
@@ -574,7 +618,7 @@ static void drop(struct w16 *w, struct w16_wnd *x, struct combo *c, int open) {
 static void paint_combo(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int ox, int oy) {
     struct combo *c = cb_of(x);
     uint32_t white = w16_rgb(0xFFFFFF), black = w16_rgb(0x000000), navy = w16_rgb(0x000080);
-    int bw = W16_SB + 1, h = x->ch;
+    int bw = W16_SB, h = x->ch;                  // the button 17 wide, 3.11's
     ugfx_fill_rect(s, ox, oy, x->cw, h, w16_parent_bg(w, x));
     if (cb_type(x) == CBS_DROPDOWNLIST) {
         ugfx_fill_rect(s, ox, oy, x->cw - bw, h, white);
@@ -619,14 +663,14 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
         int lh = c->open_h - sh > item_h(x) * 2 + 2 ? c->open_h - sh : item_h(x) * 4 + 2;
         uint32_t ls = WS_CHILD | WS_BORDER | WS_VSCROLL | ((x->style & CBS_SORT) ? LBS_SORT : 0);
         if (cb_type(x) == CBS_SIMPLE) ls |= WS_VISIBLE;
-        struct w16_wnd *lw = w16_wnd_create(w, k, "", ls, x->x, x->y + sh, x->w - (cb_type(x) == CBS_SIMPLE ? 0 : W16_SB + 1),
+        struct w16_wnd *lw = w16_wnd_create(w, k, "", ls, x->x, x->y + sh, x->w - (cb_type(x) == CBS_SIMPLE ? 0 : W16_SB),
                                             lh, x->parent, LIST_ID, x->inst, 0);
         if (!lw) return 0xFFFFFFFFu;
         c->list = lw->hwnd;
         lb_of(lw)->combo = x->hwnd;
         if (cb_type(x) != CBS_DROPDOWNLIST && ek >= 0) {
             struct w16_wnd *e = w16_wnd_create(w, ek, "", WS_CHILD | WS_VISIBLE | WS_BORDER | 0x0080, 0, 0,
-                                               x->w - (cb_type(x) == CBS_SIMPLE ? 0 : W16_SB + 1), sh, x->hwnd, 1001,
+                                               x->w - (cb_type(x) == CBS_SIMPLE ? 0 : W16_SB), sh, x->hwnd, 1001,
                                                x->inst, 0);
             if (e) c->edit = e->hwnd;
         }

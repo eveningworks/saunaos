@@ -87,7 +87,10 @@
 
 #define LMEM_MOVEABLE  0x0002
 #define LIMIT_DEFAULT  30000          // EM_LIMITTEXT's default, Windows 3.1's
-#define MARGIN         2              // the text's inset from the client's left edge
+// The text's inset from the client's left edge: 3.11's multi-line edit has
+// none (Notepad's text starts at its edge); a one-line field, which draws
+// its frame inside its client area, keeps two.
+#define MARGIN (multi(x) ? 0 : 2)
 
 struct line {
     int start, len, brk;              // brk: the line break's characters after it (0 a wrap)

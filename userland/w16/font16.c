@@ -1,0 +1,359 @@
+// font16.c -- the fonts a Win16 program's text is drawn in: the stock
+// ones (System, Fixedsys, Terminal...), a dialog template's FONT, and
+// whatever CreateFont asks for. Each comes from Windows 3.11's own bitmap
+// fonts -- the .FON files in C:\WINDOWS\SYSTEM, read with lib/winfnt --
+// when the `fonts` setting allows and the file is there, else from a
+// toy-os stand-in (Liberation Sans, Serif, DejaVu Sans Mono). Split from
+// gdi16.c: what draws is there, what a font IS is here.
+//
+// THE FONT FILES ARE THE PROGRAM'S INPUT, untrusted like the program:
+// lib/winfnt checks every offset, and w16 reads them inside its sandbox.
+//
+// Every call here runs under g_w16_text_lock (the drawing does too), so
+// the caches below need no lock of their own.
+#include "w16_internal.h"
+
+#include <dirent.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <strings.h>
+#include <sys/stat.h>
+#include "font_ttf.h"                            // the glyph slots a ugfx font holds
+#include "lib/ufile.h"
+#include "lib/winfnt.h"
+#include "w16/w16prefs.h"
+#include "ui/ugfx.h"
+
+int g_w16_fonts = W16_FONTS_WIN311;              // w16.c sets it from the program's settings
+
+#define STOCK_BASE        0x5000
+#define OEM_FIXED_FONT    10
+#define ANSI_FIXED_FONT   11
+#define ANSI_VAR_FONT     12
+#define SYSTEM_FONT       13
+#define DEVICE_DEFAULT_FONT 14
+#define SYSTEM_FIXED_FONT 16
+#define FW_BOLD_FROM      600                    // a weight GDI draws bold
+
+// --- 3.11's own fonts, found once ---------------------------------------------
+
+struct real {
+    struct winfnt f;
+    char file[16];                               // its .FON's name, for --fonts
+};
+static struct real *g_real;
+static int g_nreal, g_scanned;
+static uint8_t **g_files;                         // the files' bytes, which the fonts point into
+static int g_nfiles;
+
+static int is_fon(const char *n) {
+    size_t l = strlen(n);
+    return l > 4 && !strcasecmp(n + l - 4, ".fon");
+}
+
+static void scan(void) {
+    if (g_scanned) return;
+    g_scanned = 1;
+    static char dir[1024], path[1400];           // once, on the one thread that scans
+    if (w16_dos_path("C:\\WINDOWS\\SYSTEM", dir, sizeof dir, 0, 0, 0) != 0) return;
+    DIR *d = opendir(dir);
+    struct dirent *de;
+    while (d && (de = readdir(d))) {
+        if (!is_fon(de->d_name)) continue;
+        snprintf(path, sizeof path, "%s/%s", dir, de->d_name);
+        unsigned char *bytes = 0;
+        size_t n = 0;
+        if (ufile_slurp(path, 4ul * 1024 * 1024, &bytes, &n) != UFILE_OK) continue;
+        uint8_t **gf = realloc(g_files, sizeof *g_files * (size_t)(g_nfiles + 1));
+        if (!gf) { free(bytes); continue; }
+        g_files = gf;
+        g_files[g_nfiles++] = bytes;
+        int count = winfnt_count(bytes, n);
+        for (int i = 0; i < count; i++) {
+            struct winfnt f;
+            if (winfnt_get(bytes, n, i, &f) < 0 || f.vector) continue;
+            struct real *g = realloc(g_real, sizeof *g_real * (size_t)(g_nreal + 1));
+            if (!g) break;
+            g_real = g;
+            g_real[g_nreal].f = f;
+            snprintf(g_real[g_nreal].file, sizeof g_real[g_nreal].file, "%s", de->d_name);
+            g_nreal++;
+        }
+    }
+    if (d) closedir(d);
+}
+
+// 3.1's names for the same faces, and TrueType ones a 3.0 program never
+// saw: each to the raster font Windows 3.11 would have drawn instead.
+static const char *alias(const char *face) {
+    static const struct { const char *from, *to; } A[] = {
+        { "Helv", "MS Sans Serif" }, { "Arial", "MS Sans Serif" }, { "Tms Rmn", "MS Serif" },
+        { "Times New Roman", "MS Serif" }, { "Courier New", "Courier" },
+    };
+    for (unsigned i = 0; i < sizeof A / sizeof A[0]; i++)
+        if (!strcasecmp(face, A[i].from)) return A[i].to;
+    return face;
+}
+
+// The raster font for `face` nearest `height` (a cell height when positive,
+// a character height -- the cell less its internal leading -- when
+// negative, 3.11's default when 0), or -1 when 3.11's fonts have no face
+// of that name.
+static int match(const char *face, int height) {
+    scan();
+    face = alias(face);
+    int best = -1, best_d = 0;
+    for (int i = 0; i < g_nreal; i++) {
+        const struct winfnt *f = &g_real[i].f;
+        if (strcasecmp(f->face, face)) continue;
+        int have = height < 0 ? f->pix_height - f->internal_leading : f->pix_height;
+        int want = height ? (height < 0 ? -height : height) : 13;
+        int d = have > want ? (have - want) * 2 + 1 : (want - have) * 2;   // a smaller size wins a tie
+        if (best < 0 || d < best_d) { best = i; best_d = d; }
+    }
+    return best;
+}
+
+// --- fonts as drawn: a ugfx font, and the metrics GetTextMetrics tells ---------
+
+struct inst {
+    int real;                                    // into g_real, or -1 for a stand-in
+    int standin;                                 // which stand-in face (STAND_*)
+    int px, bold;
+    struct ugfx_font uf;
+    void *mem;
+    struct w16_fontinfo info;
+};
+static struct inst **g_inst;                    // each its own allocation: a font in use never moves
+static int g_ninst;
+
+// A 3.11 raster font as a ugfx font: its glyphs in toy-os's slots, at its
+// own cell, emboldened as GDI did a raster font -- each row smeared one
+// pixel right, the advance one wider.
+static int from_real(struct inst *in) {
+    const struct winfnt *f = &g_real[in->real].f;
+    int extra = in->bold ? 1 : 0, cw = 1, h = f->pix_height;
+    for (int s = 0; s < FONT_TTF_GLYPH_COUNT; s++) {
+        int w = winfnt_width(f, font_ttf_slot_codepoint(s));
+        if (w + extra > cw) cw = w + extra;
+    }
+    if (cw > 255) cw = 255;                       // ugfx keeps an advance in a byte
+    size_t cell = (size_t)cw * (size_t)h;
+    unsigned char *mem = calloc(cell * FONT_TTF_GLYPH_COUNT + FONT_TTF_GLYPH_COUNT, 1);
+    if (!mem) return -1;
+    unsigned char *adv = mem + cell * FONT_TTF_GLYPH_COUNT;
+    long sum = 0;
+    for (int s = 0; s < FONT_TTF_GLYPH_COUNT; s++) {
+        unsigned char *g = mem + cell * (size_t)s;
+        int w = winfnt_glyph(f, font_ttf_slot_codepoint(s), g, cw, cw - extra);
+        if (w < 0) w = 0;
+        if (extra)
+            for (int y = 0; y < h; y++)
+                for (int x = w; x > 0; x--)
+                    if (g[y * cw + x - 1]) g[y * cw + x] = 255;
+        adv[s] = (unsigned char)(w + extra < cw ? w + extra : cw);
+        sum += adv[s];
+    }
+    in->mem = mem;
+    in->uf = (struct ugfx_font){ .glyphs = mem, .advances = adv, .kern = 0, .char_w = cw,
+                                 .char_h = h, .line_h = h, .count = FONT_TTF_GLYPH_COUNT };
+    struct w16_fontinfo *i = &in->info;
+    i->height = h;
+    i->ascent = f->ascent;
+    i->internal_leading = f->internal_leading;
+    i->external_leading = f->external_leading;
+    i->ave = f->avg_width + extra;
+    i->maxw = f->max_width + extra;
+    i->weight = in->bold ? 700 : f->weight;
+    i->italic = f->italic;
+    i->pitch_family = f->pitch_family;
+    i->charset = f->charset;
+    i->first = f->first;
+    i->last = f->last;
+    i->def = f->first + f->default_char;
+    i->ave = (int)(sum / FONT_TTF_GLYPH_COUNT) > 0 && !f->avg_width ? (int)(sum / FONT_TTF_GLYPH_COUNT) : i->ave;
+    return 0;
+}
+
+enum { STAND_SANS, STAND_SERIF, STAND_MONO };
+
+static int from_standin(struct inst *in) {
+    static const char *const FILES[3][2] = {
+        { "/usr/share/fonts/liberation-sans.ttf", "/usr/share/fonts/liberation-sans-bold.ttf" },
+        { "/usr/share/fonts/liberation-serif.ttf", "/usr/share/fonts/liberation-serif-bold.ttf" },
+        { "/usr/share/fonts/dejavu-sans-mono.ttf", "/usr/share/fonts/dejavu-sans-mono-bold.ttf" },
+    };
+    int px = in->px < 6 ? 6 : in->px > 96 ? 96 : in->px;
+    unsigned long need = ugfx_font_arena_size(px);
+    void *arena = malloc(need);
+    if (!arena || !ugfx_font_load(FILES[in->standin][in->bold], px, 0, &in->uf, arena, need)) {
+        free(arena);
+        return -1;
+    }
+    in->mem = arena;
+    struct w16_fontinfo *i = &in->info;
+    int h = in->uf.line_h;
+    i->height = h;
+    i->ascent = h * 4 / 5;
+    i->internal_leading = h / 8;
+    const struct ugfx_font *was = ugfx_set_font(&in->uf);
+    i->ave = ugfx_text_width("x");
+    i->maxw = ugfx_text_width("W");
+    ugfx_set_font(was);
+    i->weight = in->bold ? 700 : 400;
+    i->pitch_family = in->standin == STAND_MONO ? 0x30 : in->standin == STAND_SERIF ? 0x11 : 0x21;   // bit 0: variable
+    i->first = 0x20;
+    i->last = 0xFF;
+    i->def = 0x80;
+    return 0;
+}
+
+// The font instance for a real font or a stand-in, made once and kept.
+static struct inst *instance(int real, int standin, int px, int bold) {
+    for (int i = 0; i < g_ninst; i++) {
+        struct inst *in = g_inst[i];
+        if (in->real == real && (real >= 0 || (in->standin == standin && in->px == px)) && in->bold == bold)
+            return in;
+    }
+    struct inst **g = realloc(g_inst, sizeof *g_inst * (size_t)(g_ninst + 1));
+    if (!g) return 0;
+    g_inst = g;
+    struct inst *in = calloc(1, sizeof *in);
+    if (!in) return 0;
+    in->real = real;
+    in->standin = standin;
+    in->px = px;
+    in->bold = bold;
+    if ((real >= 0 ? from_real(in) : from_standin(in)) < 0) { free(in); return 0; }
+    in->info.uf = &in->uf;
+    g_inst[g_ninst++] = in;
+    return in;
+}
+
+// What a font request comes to: 3.11's face when allowed and present, else
+// the stand-in -- `cell` the stand-in's line, `px` its size.
+static const struct w16_fontinfo *resolve(const char *face, int height, int weight, int standin, int px, int cell) {
+    int bold = weight >= FW_BOLD_FROM;
+    if (g_w16_fonts == W16_FONTS_WIN311) {
+        int r = match(face, height);
+        if (r >= 0) {
+            struct inst *in = instance(r, 0, 0, bold && g_real[r].f.weight < FW_BOLD_FROM);
+            if (in) return &in->info;
+        }
+    }
+    struct inst *in = instance(-1, standin, px, bold);
+    if (!in) return 0;
+    if (cell) in->info.height = cell;            // a stock font keeps 3.11's cell over the stand-in's own
+    return &in->info;
+}
+
+// --- what an HFONT is ---------------------------------------------------------
+
+
+static const struct w16_fontinfo *stock(unsigned i) {
+    switch (i) {
+    case SYSTEM_FIXED_FONT: return resolve("Fixedsys", 15, 400, STAND_MONO, 13, 15);
+    case OEM_FIXED_FONT:    return resolve("Terminal", 12, 400, STAND_MONO, 13, 15);
+    case ANSI_FIXED_FONT:   return resolve("Courier", 13, 400, STAND_MONO, 13, 15);
+    case ANSI_VAR_FONT:     return resolve("MS Sans Serif", 13, 400, STAND_SANS, 11, 13);
+    default:                return resolve("System", 16, 700, STAND_SANS, 13, 16);
+    }
+}
+
+static const struct w16_fontinfo *of(uint16_t hfont) {
+    if (hfont == W16_FONT_DIALOG) return resolve("MS Sans Serif", 13, 700, STAND_SANS, 11, 13);
+    if (hfont >= STOCK_BASE && hfont < STOCK_BASE + 32) return stock(hfont - STOCK_BASE);
+    const struct w16_logfont *lf = w16_gdi_logfont(&g_w16, hfont);
+    if (!lf) return stock(SYSTEM_FONT);
+    int fixed = (lf->pitch_family & 3) == 1;
+    int family = lf->pitch_family & 0xF0;
+    int standin = fixed || family == 0x30 ? STAND_MONO : family == 0x10 ? STAND_SERIF : STAND_SANS;
+    if (!lf->face[0]) {
+        // No face named: the family's raster font, as 3.11's mapper chose.
+        const char *face = fixed || family == 0x30 ? "Courier" : family == 0x10 ? "MS Serif"
+                          : family == 0x20 ? "MS Sans Serif" : "System";
+        int px = lf->height < 0 ? -lf->height : lf->height ? lf->height * 4 / 5 : 13;
+        return resolve(face, lf->height, lf->weight, standin, px, 0);
+    }
+    if (strcasestr(lf->face, "courier") || strcasestr(lf->face, "fixedsys") || strcasestr(lf->face, "terminal"))
+        standin = STAND_MONO;
+    else if (strcasestr(lf->face, "serif") && !strcasestr(lf->face, "sans")) standin = STAND_SERIF;
+    else if (strcasestr(lf->face, "roman") || strcasestr(lf->face, "tms")) standin = STAND_SERIF;
+    int px = lf->height < 0 ? -lf->height : lf->height ? lf->height * 4 / 5 : 13;
+    return resolve(lf->face, lf->height, lf->weight, standin, px, 0);
+}
+
+const struct w16_fontinfo *w16_font_info(uint16_t hfont) {
+    const struct w16_fontinfo *i = of(hfont);
+    static struct w16_fontinfo none;
+    if (i) return i;
+    // Nothing would load at all: the session's own face, so text still shows.
+    none.uf = 0;
+    none.height = 16;
+    return &none;
+}
+
+const struct ugfx_font *w16_font_of(uint16_t hfont) {
+    const struct w16_fontinfo *i = w16_font_info(hfont);
+    return i->uf ? i->uf : ugfx_font_session(UGFX_FONT_BOLD);
+}
+
+int w16_font_line_h(uint16_t hfont) {
+    pthread_mutex_lock(&g_w16_text_lock);
+    int h = w16_font_info(hfont)->height;
+    pthread_mutex_unlock(&g_w16_text_lock);
+    return h > 0 ? h : 16;
+}
+
+int w16_font_ascent(const struct ugfx_font *uf) {
+    for (int i = 0; i < g_ninst; i++)
+        if (&g_inst[i]->uf == uf) return g_inst[i]->info.ascent;
+    return uf ? uf->line_h * 13 / 16 : 13;
+}
+
+const struct ugfx_font *w16_system_font(void) { return w16_font_of(STOCK_BASE + SYSTEM_FONT); }
+const struct ugfx_font *w16_fixed_font(void) { return w16_font_of(STOCK_BASE + SYSTEM_FIXED_FONT); }
+const struct ugfx_font *w16_dialog_font(void) { return w16_font_of(W16_FONT_DIALOG); }
+
+int w16_font_is_fixed(uint16_t hfont) {
+    return hfont == STOCK_BASE + OEM_FIXED_FONT || hfont == STOCK_BASE + ANSI_FIXED_FONT ||
+           hfont == STOCK_BASE + SYSTEM_FIXED_FONT;
+}
+
+// `w16 --fonts`: 3.11's fonts as found -- what the launcher's Options
+// show, since the launcher parses no font itself. A line per font,
+// "font FILE POINTS PIXELS WEIGHT<tab>FACE"; then per face a sample of its
+// size nearest 13 pixels, "sample W H<tab>FACE" and H rows of W 0s and 1s.
+#define SAMPLE "The quick brown fox"
+void w16_fonts_list(FILE *out) {
+    scan();
+    for (int i = 0; i < g_nreal; i++) {
+        const struct winfnt *f = &g_real[i].f;
+        fprintf(out, "font %s %d %d %d\t%s\n", g_real[i].file, f->points, f->pix_height, f->weight, f->face);
+    }
+    for (int i = 0; i < g_nreal; i++) {
+        int seen = 0;
+        for (int k = 0; k < i; k++) seen |= !strcasecmp(g_real[k].f.face, g_real[i].f.face);
+        if (seen) continue;
+        const struct winfnt *f = &g_real[match(g_real[i].f.face, 13)].f;
+        int w = 0, h = f->pix_height;
+        for (const char *p = SAMPLE; *p; p++) w += winfnt_width(f, (unsigned char)*p) > 0 ? winfnt_width(f, (unsigned char)*p) : 0;
+        uint8_t *px = calloc((size_t)w * (size_t)h + 1, 1), *g = calloc(256u * (size_t)h, 1);
+        if (!px || !g) { free(px); free(g); return; }
+        int x = 0;
+        for (const char *p = SAMPLE; *p; p++) {
+            int gw = winfnt_glyph(f, (unsigned char)*p, g, 256, 256);
+            for (int y = 0; gw > 0 && y < h; y++)
+                for (int c = 0; c < gw && x + c < w; c++) px[y * w + x + c] = g[y * 256 + c];
+            x += gw > 0 ? gw : 0;
+        }
+        fprintf(out, "sample %d %d\t%s\n", w, h, f->face);
+        for (int y = 0; y < h; y++) {
+            for (int c = 0; c < w; c++) fputc(px[y * w + c] ? '1' : '0', out);
+            fputc('\n', out);
+        }
+        free(px);
+        free(g);
+    }
+}

@@ -11820,3 +11820,33 @@ Wine gives Z: full access because it has no sandbox to keep. A DOS
 handle opened for reading and writing is TWO toy-os descriptors with a
 position w16 keeps, because a toy-os descriptor reads or writes, never
 both (`fcntl.h`).
+
+## Win16's fonts and pictures come from the user's own Windows files, else toy-os's own
+
+Chosen 2026-10-20, from the "Win16 real fonts option" canvas (A + B,
+every .FON), after a pixel comparison with a real Windows for Workgroups
+3.11 showed text and COMMDLG's folder pictures as the last differences.
+
+Windows 3.x drew in bitmap fonts -- VGASYS.FON's System, VGAFIX.FON's
+Fixedsys, SSERIFE.FON's MS Sans Serif -- and its Open dialog's folders
+and drives came from a bitmap in COMMDLG.DLL. Wine does what this does:
+it uses a Windows folder's own fonts when they are there (through
+FreeType, whose `winfnt` driver reads .FON) and draws its own otherwise.
+
+**No Microsoft font or picture is in toy-os, not even as code that
+reproduces it.** A pixel-for-pixel copy is still a copy of the artwork,
+however it is stored or generated. So w16 reads the user's own files
+from drive C:'s `WINDOWS\SYSTEM` at run time -- `.FON` through
+`lib/winfnt` (checked against FreeType by `tools/winfnt_hostcheck.py`),
+COMMDLG.DLL's bitmap 576 through w16's own NE parser -- inside its
+sandbox, since both are input from outside. Without them it draws
+toy-os's own: Liberation and DejaVu at 3.11's cells (16, 13, 15) and
+units (8x16, 7x13), and folders in the same manner (a yellow dither, a
+grey foot, a black edge) but of its own shapes. The comparison
+measurements behind every other pixel are facts about how 3.11 laid
+things out -- sizes, places, rules -- which w16 follows; they are not
+artwork.
+
+Each missing font falls back on its own: a drive C: with only
+VGASYS.FON still gets the real System font. The `fonts` setting (global
+and per program) chooses stand-ins outright.

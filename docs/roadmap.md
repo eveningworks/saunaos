@@ -938,6 +938,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values~~ DONE 2026-10-19 -- the selector ones remain
 - [x] ~~Stage 3: the standard controls (BUTTON, EDIT, LISTBOX, STATIC) and file I/O~~ DONE 2026-10-19 -- Notepad is complete
 - [ ] w16: a combo box's list reaching past its dialog's edge -- it opens upward when it cannot open down
+- [ ] w16: the last pixels from real 3.11 -- the menu bar's title spacing, a list box's top, Switch To... on the control menu
 - [ ] w16: a file dropped on a program (WM_DROPFILES) -- DragAcceptFiles is answered, nothing is ever dropped
 - [ ] w16: printing -- PrintDlg answers "no default printer"
 - [ ] w16: a NASM sample that edits and saves, so the GUI test covers the EDIT, the files and COMMDLG without Notepad

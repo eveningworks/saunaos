@@ -33,7 +33,7 @@
 #define MK_LBUTTON 0x0001
 #define MK_RBUTTON 0x0002
 
-static int g_info, g_check;
+static int g_info, g_check, g_fonts;
 static char g_tail[127];                 // the program's command line: DOS's 126 characters
 static const char *g_trace_path;
 static char g_exe[W16_PATH_MAX];         // the program, as an absolute path: its settings' key
@@ -42,6 +42,8 @@ static const struct uargs_opt OPTS[] = {
     { "info", 'i', NULL, "print the program's segments and the functions it imports", &g_info, NULL },
     { "check", 'c', NULL, "list what the program imports, which of it w16 has, its kind, and the icon",
       &g_check, NULL },
+    { "fonts", 'f', NULL, "list Windows 3.11's own fonts found on drive C:, with a sample of each face",
+      &g_fonts, NULL },
     { "trace", 't', "FILE", "log every Windows call the program makes to FILE (Wine's +relay)",
       NULL, &g_trace_path },
     { 0 },
@@ -49,7 +51,7 @@ static const struct uargs_opt OPTS[] = {
 
 static const struct uargs_prog PROG = {
     .name = "w16",
-    .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE",
+    .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE\n--fonts",
     .summary = "Run a 16-bit Windows (Windows 3.x) program in a window, or with --info\n"
                "list what an NE executable holds and the Windows functions it imports.\n"
                "Only a few functions are implemented so far: a program that calls one\n"
@@ -615,6 +617,7 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     struct w16 *w = &g_w16;
     g_w16_q = pick_scale();
     g_w16_method = g_w16_prefs.method;
+    g_w16_fonts = g_w16_prefs.fonts;
     g_w16_desktop_frame = g_w16_prefs.frame == W16_FRAME_DESKTOP;
     w16_dos_start(g_exe);
     if (w16_load(w, img, size, path, g_tail) < 0) return 1;
@@ -757,6 +760,17 @@ static void mkdirs(const char *path) {
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
+    if (g_fonts) {                               // drive C:'s WINDOWS\SYSTEM, read in the sandbox
+        if (a.argc) return uargs_error(&PROG, "--fonts takes no FILE");
+        w16_prefs_load(&g_w16_prefs, 0);
+        snprintf(g_w16_drive_c, sizeof g_w16_drive_c, "%s", g_w16_prefs.drive_c);
+        if (unveil(g_w16_drive_c, "r") != 0 || unveil(NULL, NULL) != 0 || pledge("stdio rpath", NULL) != 0) {
+            fprintf(stderr, "w16: cannot sandbox myself, so I will not read the fonts\n");
+            return 1;
+        }
+        w16_fonts_list(stdout);
+        return 0;
+    }
     if (a.argc < 1 || ((g_info || g_check) && a.argc != 1)) return uargs_error(&PROG, "expected one FILE");
     const char *path = a.argv[0];
     if (path[0] == '/') snprintf(g_exe, sizeof g_exe, "%s", path);

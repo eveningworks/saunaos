@@ -209,6 +209,12 @@ int main(void) {
     utest_check(sqrtf(2.0f) == 1.41421354f && fabsf(-3.0f) == 3.0f && fmodf(7.0f, 3.0f) == 1.0f,
                 "sqrtf/fabsf/fmodf");
     utest_check(strncasecmp("NetSurf", "netsURF browser", 7) == 0, "strncasecmp: reachable from <string.h>");
+    {
+        const char *s = "Microsoft MS Sans Serif";
+        utest_check(strcasestr(s, "sans serif") == s + 13, "strcasestr: found ignoring case, at the match");
+        utest_check(strcasestr(s, "courier") == 0, "strcasestr: absent is NULL");
+        utest_check(strcasestr(s, "") == s, "strcasestr: an empty needle is the start, as glibc's");
+    }
     utest_check(isascii(0x7f) && !isascii(0x80), "isascii");
     utest_check(EXIT_SUCCESS == 0 && EXIT_FAILURE == 1, "the exit-status macros are 0 and 1");  // not named: the runner forbids that word
 

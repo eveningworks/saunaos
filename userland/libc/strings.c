@@ -16,6 +16,13 @@ int strncasecmp(const char *a, const char *b, size_t n) {
     return tolower((unsigned char)*a) - tolower((unsigned char)*b);
 }
 
+char *strcasestr(const char *hay, const char *needle) {
+    size_t n = strlen(needle);
+    for (; *hay; hay++)
+        if (!strncasecmp(hay, needle, n)) return (char *)hay;
+    return n ? 0 : (char *)hay;                  // an empty needle is found at once, as glibc's is
+}
+
 void bzero(void *p, size_t n) { memset(p, 0, n); }
 
 // Declared in <string.h>, defined here beside bzero because that is

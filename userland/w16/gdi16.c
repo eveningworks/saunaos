@@ -38,83 +38,7 @@
 #define NULL_PEN     8
 #define SYSTEM_FONT  13
 
-// THE SYSTEM FONT AT A FIXED SIZE. A Windows program lays its window out
-// for the 3.1 System font's metrics (a 16-pixel cell), so the face does
-// not follow the desktop's font size: at 1080p that would overflow every
-// window a program sized for itself. Liberation Sans Bold at 13 px is
-// about as wide. Loaded once; the caller holds g_w16_text_lock.
-#define SYSTEM_FONT_PX 13
-const struct ugfx_font *w16_system_font(void) {
-    static struct ugfx_font font;
-    static int state;                            // 0 not tried, 1 loaded, -1 failed
-    if (!state) {
-        unsigned long need = ugfx_font_arena_size(SYSTEM_FONT_PX);
-        void *arena = malloc(need);
-        // The bold FILE, not emboldened again: ugfx_font_load's `bold` thickens
-        // whatever it is given, and both together were heavier than 3.11's.
-        state = arena && ugfx_font_load("/usr/share/fonts/liberation-sans-bold.ttf",
-                                        SYSTEM_FONT_PX, 0, &font, arena, need) ? 1 : -1;
-        if (state < 0) free(arena);
-    }
-    return state > 0 ? &font : ugfx_font_session(UGFX_FONT_BOLD);
-}
-
-// THE FIXED-PITCH STOCK FONTS (OEM_FIXED_FONT, ANSI_FIXED_FONT,
-// SYSTEM_FIXED_FONT) are DejaVu Sans Mono Bold at the same 13 px: about
-// Fixedsys's 8 by 15, which is what Notepad shows its text in.
-#define OEM_FIXED_FONT    10
-#define ANSI_FIXED_FONT   11
-#define SYSTEM_FIXED_FONT 16
-const struct ugfx_font *w16_fixed_font(void) {
-    static struct ugfx_font font;
-    static int state;                            // 0 not tried, 1 loaded, -1 failed
-    if (!state) {
-        unsigned long need = ugfx_font_arena_size(SYSTEM_FONT_PX);
-        void *arena = malloc(need);
-        state = arena && ugfx_font_load("/usr/share/fonts/dejavu-sans-mono-bold.ttf",
-                                        SYSTEM_FONT_PX, 0, &font, arena, need) ? 1 : -1;
-        if (state < 0) free(arena);
-    }
-    return state > 0 ? &font : w16_system_font();
-}
-
-// Liberation Sans Bold at 11 px stands in for MS Sans Serif 8 ("Helv"),
-// BOLD as Windows 3.x made a dialog's font (Windows 95's 3D look dropped
-// it). The units are 3.11's measured ones, so a dialog comes out the size
-// it was, whatever this face's own widths.
-#define DIALOG_FONT_PX 11
-const struct ugfx_font *w16_dialog_font(void) {
-    static struct ugfx_font font;
-    static int state;                            // 0 not tried, 1 loaded, -1 failed
-    if (!state) {
-        unsigned long need = ugfx_font_arena_size(DIALOG_FONT_PX);
-        void *arena = malloc(need);
-        state = arena && ugfx_font_load("/usr/share/fonts/liberation-sans-bold.ttf",
-                                        DIALOG_FONT_PX, 0, &font, arena, need) ? 1 : -1;
-        if (state < 0) free(arena);
-    }
-    return state > 0 ? &font : w16_system_font();
-}
-
-// The cells of 3.11's own fonts at VGA, which a row of text steps by
-// whatever face stands in: Fixedsys 15, Helv 8 13, System 16.
-int w16_font_line_h(uint16_t hfont) {
-    if (hfont == W16_FONT_DIALOG) return 13;
-    if (w16_font_is_fixed(hfont)) return 15;
-    int bx, by;
-    w16_dlg_units(&bx, &by);
-    return by;
-}
-
-int w16_font_is_fixed(uint16_t hfont) {
-    return hfont == STOCK_BASE + OEM_FIXED_FONT || hfont == STOCK_BASE + ANSI_FIXED_FONT ||
-           hfont == STOCK_BASE + SYSTEM_FIXED_FONT;
-}
-
-const struct ugfx_font *w16_font_of(uint16_t hfont) {
-    if (hfont == W16_FONT_DIALOG) return w16_dialog_font();
-    return w16_font_is_fixed(hfont) ? w16_fixed_font() : w16_system_font();
-}
+// The fonts -- stock, a dialog's, CreateFont's -- are font16.c's.
 
 // --- the object table --------------------------------------------------------
 
@@ -566,6 +490,7 @@ static void delete_object(struct w16 *w, uint16_t h) {
         if (o->in_dc) return;                    // still selected: Windows refuses
         free(o->px);
     }
+    if (t == GDI_FONT) free(o->lf);
     if (t == GDI_DC) {
         if (o->hwnd) return;
         struct w16_gdiobj *bm = obj(w, o->bitmap, GDI_BITMAP);
@@ -813,32 +738,93 @@ static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 8;
 }
 
-// GetTextMetrics(hdc, lpMetrics): the system font's, as a 31-byte TEXTMETRIC
+// GetTextMetrics(hdc, lpMetrics): the DC's font's, as a 31-byte TEXTMETRIC
 static int api_GetTextMetrics(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hfont = dc_font(w, w16_arg16(a));
     uint32_t far = w16_arg32(a);
-    int ave, cy, maxw;
-    w16_text_size_in(hfont, "x", &ave, &cy);
-    w16_text_size_in(hfont, "W", &maxw, &cy);
+    pthread_mutex_lock(&g_w16_text_lock);
+    struct w16_fontinfo f = *w16_font_info(hfont);
+    pthread_mutex_unlock(&g_w16_text_lock);
     int16_t words[8] = {
-        (int16_t)cy, (int16_t)(cy * 13 / 16), (int16_t)(cy - cy * 13 / 16), 0, 0,   // height, ascent, descent, leadings
-        (int16_t)ave, (int16_t)maxw, 700,                                          // widths, FW_BOLD
+        (int16_t)f.height, (int16_t)f.ascent, (int16_t)(f.height - f.ascent),
+        (int16_t)f.internal_leading, (int16_t)f.external_leading,
+        (int16_t)f.ave, (int16_t)f.maxw, (int16_t)f.weight,
     };
     uint8_t tm[31] = { 0 };
     memcpy(tm, words, sizeof words);
-    tm[19] = 0x20;                               // tmFirstChar
-    tm[20] = 0xFF;                               // tmLastChar
-    tm[21] = 0x80;                               // tmDefaultChar
+    tm[16] = (uint8_t)f.italic;
+    tm[19] = (uint8_t)f.first;                   // tmFirstChar
+    tm[20] = (uint8_t)f.last;                    // tmLastChar
+    tm[21] = (uint8_t)f.def;                     // tmDefaultChar
     tm[22] = 0x20;                               // tmBreakChar
-    tm[23] = w16_font_is_fixed(hfont) ? 0x30 : 0x22;   // tmPitchAndFamily: FF_MODERN fixed, or FF_SWISS variable
-    tm[24] = 0;                                  // ANSI_CHARSET
+    tm[23] = (uint8_t)f.pitch_family;            // bit 0 set: VARIABLE pitch, as in the FNT
+    tm[24] = (uint8_t)f.charset;
     tm[27] = tm[29] = 96;                        // tmDigitizedAspectX, Y
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, sizeof tm, 1);
     if (!p) return -1;
     memcpy(p, tm, sizeof tm);
     w->cpu.r[R_AX] = 1;
     return 6;
+}
+
+const struct w16_logfont *w16_gdi_logfont(struct w16 *w, uint16_t hfont) {
+    struct w16_gdiobj *o = obj(w, hfont, GDI_FONT);
+    return o ? o->lf : 0;
+}
+
+static uint16_t new_font(struct w16 *w, const struct w16_logfont *lf) {
+    struct w16_gdiobj *o;
+    struct w16_logfont *copy = malloc(sizeof *copy);
+    if (!copy) return 0;
+    *copy = *lf;
+    copy->face[sizeof copy->face - 1] = 0;
+    uint16_t h = new_obj(w, GDI_FONT, &o);
+    if (!o) { free(copy); return 0; }
+    o->lf = copy;
+    return h;
+}
+
+// CreateFont(height, width, escapement, orientation, weight, italic, underline,
+// strikeout, charset, outprecision, clipprecision, quality, pitchandfamily, face)
+static int api_CreateFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_logfont lf = { 0 };
+    lf.height = (int16_t)w16_arg16(a);
+    lf.width = (int16_t)w16_arg16(a);
+    w16_arg16(a); w16_arg16(a);                  // escapement, orientation: raster fonts do not turn
+    lf.weight = (int16_t)w16_arg16(a);
+    lf.italic = (uint8_t)w16_arg16(a);
+    lf.underline = (uint8_t)w16_arg16(a);
+    lf.strikeout = (uint8_t)w16_arg16(a);
+    lf.charset = (uint8_t)w16_arg16(a);
+    w16_arg16(a); w16_arg16(a); w16_arg16(a);    // precisions and quality
+    lf.pitch_family = (uint8_t)w16_arg16(a);
+    uint32_t face = w16_arg32(a);
+    if ((face >> 16) && cpu16_str(&w->cpu, (uint16_t)(face >> 16), (uint16_t)face, lf.face, sizeof lf.face) < 0)
+        lf.face[0] = 0;
+    w->cpu.r[R_AX] = new_font(w, &lf);
+    return 30;
+}
+
+// CreateFontIndirect(lpLogFont): a LOGFONT -- five words, eight bytes, the face
+static int api_CreateFontIndirect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t far = w16_arg32(a);
+    const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 18, 0);
+    if (!p) return -1;
+    struct w16_logfont lf = { 0 };
+    lf.height = (int16_t)(p[0] | p[1] << 8);
+    lf.width = (int16_t)(p[2] | p[3] << 8);
+    lf.weight = (int16_t)(p[8] | p[9] << 8);
+    lf.italic = p[10];
+    lf.underline = p[11];
+    lf.strikeout = p[12];
+    lf.charset = p[13];
+    lf.pitch_family = p[17];
+    if (cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)(far + 18), lf.face, sizeof lf.face) < 0) lf.face[0] = 0;
+    w->cpu.r[R_AX] = new_font(w, &lf);
+    return 4;
 }
 
 // CreateDC(driver, device, output, lpInitData): only a printer asks this
@@ -914,6 +900,8 @@ const struct w16_api g_gdi_api[] = {
     { 51, api_CreateCompatibleBitmap },
     { 52, api_CreateCompatibleDC },
     { 53, api_CreateDC },
+    { 56, api_CreateFont },
+    { 57, api_CreateFontIndirect },
     { 61, api_CreatePen },
     { 66, api_CreateSolidBrush },
     { 68, api_DeleteDC },

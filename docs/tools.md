@@ -3443,6 +3443,16 @@ window without going through it will find its layout polls timing out.
   a hue sector from the wrong channels -- fails thousands of colours. In
   `ondemand_sweep.py`.
 
+- **`winfnt_hostcheck.py FOLDER|FILE...`** -- `lib/winfnt`, the reader of
+  Windows' bitmap fonts (.FON/.FNT) that w16 draws a program's text with,
+  against FreeType's own winfnt driver compiled on the host: every raster
+  font in every file given, every character 32..255, advance and bitmap
+  bit for bit. The fonts are the maintainer's own Windows 3.11 ones, never
+  in this repo, so it takes their folder as an argument and is in
+  `ondemand_sweep.py`'s exclusions for that reason. Needs FreeType's
+  headers (`pkg-config freetype2`). Its positive control -- a glyph's
+  bits read right to left -- fails nearly every glyph.
+
 - **`upixel_hostcheck.py`** -- `lib/upixel` and `lib/upixundo` compiled
   on the host against a reference in Python: every brush size and both
   shapes stamped and stroked off every edge (the disc computed in floats,

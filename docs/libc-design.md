@@ -739,7 +739,9 @@ looks exactly like the call underneath working, which it is.
   things on different systems is the cost of the convenient version.
 - **`<sys/types.h>`, `<strings.h>`.** Type names in one place, guarded
   so `<unistd.h>`'s existing `ssize_t`/`off_t` keep working whichever
-  header arrives first; `strncasecmp`, `bzero`, `bcopy`. `strcasecmp` is
+  header arrives first; `strncasecmp`, `bzero`, `bcopy`, and GNU's
+  `strcasestr` (declared in `<string.h>`, as glibc and musl do; added
+  for w16's font matching). `strcasecmp` is
   NOT duplicated -- `<string.h>` already has it over `kernel/lib`'s
   `k_strcasecmp`, and a second implementation is what the shared-source
   rule exists to prevent.

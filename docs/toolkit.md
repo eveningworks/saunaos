@@ -130,6 +130,7 @@
 | `uzip.h` | Reading ONE member out of a .zip archive into a file or memory, and writing a new archive -- PKWARE's APPNOTE, the subset every archiver writes: stored (method 0) and deflated (method 8) members, n... |
 | `webnet_proto.h` | The contract between /bin/webnet -- the network process, one per Web Browser (docs/browser-design.md, stage 5) -- and its clients: each content process, which fetches through it, and the browser ap... |
 | `webview_proto.h` | The contract between ui/uui_webview.h (in the embedding app) and /bin/webcontent (the engine, one process per view) -- docs/browser-design.md, stage 5. |
+| `winfnt.h` | Windows' bitmap fonts: a .FON -- an NE module whose RT_FONT resources are FNT 2.0 or 3.0 raster fonts, one face at one size each -- or a bare .FNT. |
 
 Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal.h`, `uvid_internal.h`.
 

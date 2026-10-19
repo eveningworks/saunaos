@@ -204,6 +204,7 @@ struct w16_gdiobj {
     int bw, bh, mono;             // bitmap
     uint32_t *px;
     uint16_t in_dc;               // bitmap: the DC it is selected into
+    struct w16_logfont *lf;       // font: what CreateFont asked for, allocated
     // DC
     uint16_t hwnd;                // a window's DC: it draws on that window's client area
     uint16_t bitmap, pen, brush, font;
@@ -583,6 +584,12 @@ int w16_dlg_frame(const struct w16_wnd *d);
 int w16_dlg_frame_top(const struct w16_wnd *d);
 // A dialog's template FONT, `pt` points: W16_FONT_DIALOG and its units.
 void w16_dlg_set_font(struct w16_wnd *d, int pt);
+// Dialog units to pixels as 3.11 mapped them (dialog16.c): a place from the
+// template's origin `org`, a size on its own.
+int w16_du_x(int org, int x, int bx);
+int w16_du_y(int org, int y, int by);
+int w16_du_w(int cx, int bx);
+int w16_du_h(int cy, int by);
 int w16_dlg_caption(const struct w16_wnd *d);
 // IsDialogMessage: the dialog keyboard for a message meant for dialog d
 // or one of its controls -- 1 when handled (or dispatched) there.
@@ -730,6 +737,11 @@ void gdi_bitblt(const struct gdi_blit *b);
 void gdi_pixel(const struct gdi_target *t, int x, int y, uint32_t px, int r2);
 void gdi_line(const struct gdi_target *t, int x0, int y0, int x1, int y1, uint32_t px, int width, int r2);
 int gdi_dib_header(const uint8_t *bmi, uint32_t bmi_len, int pal_indices, struct gdi_dib *out);
+// commdlg16.c: a 16x16 ARGB picture from the user's own COMMDLG.DLL, or NULL
+// when drive C: has none -- the caller then draws its own.
+enum { W16_ICON_OPEN, W16_ICON_CURRENT, W16_ICON_SHUT, W16_ICON_FLOPPY, W16_ICON_DISK, W16_ICON_NET,
+       W16_ICON_CD, W16_ICON_RAM, W16_ICON_COUNT };
+const uint32_t *w16_commdlg_icon(int which);
 uint32_t gdi_dib_px(const struct gdi_dib *d, const uint8_t *row, int x);
 struct ugfx_font;
 const struct ugfx_font *w16_system_font(void);   // under g_w16_text_lock
@@ -741,6 +753,27 @@ const struct ugfx_font *w16_font_of(uint16_t hfont);   // the face an HFONT draw
 #define W16_FONT_DIALOG 0x5020
 const struct ugfx_font *w16_dialog_font(void);   // under g_w16_text_lock
 int w16_font_line_h(uint16_t hfont);              // a row of text in it, in pixels
+
+// font16.c: what an HFONT draws in and what GetTextMetrics tells of it --
+// 3.11's own raster font when `fonts` allows and C:\WINDOWS\SYSTEM has it,
+// else a stand-in. Under g_w16_text_lock; the pointers stay valid.
+struct w16_fontinfo {
+    const struct ugfx_font *uf;
+    int height, ascent, internal_leading, external_leading;
+    int ave, maxw, weight, italic, pitch_family, charset;
+    int first, last, def;
+};
+const struct w16_fontinfo *w16_font_info(uint16_t hfont);
+int w16_font_ascent(const struct ugfx_font *uf);   // pixels above its baseline
+extern int g_w16_fonts;                            // W16_FONTS_*: the program's setting
+struct w16_logfont {                               // a CreateFont's request
+    int16_t height, width, weight;
+    uint8_t italic, underline, strikeout, charset, pitch_family;
+    char face[32];
+};
+const struct w16_logfont *w16_gdi_logfont(struct w16 *w, uint16_t hfont);   // NULL: not a created font
+#include <stdio.h>
+void w16_fonts_list(FILE *out);                    // `w16 --fonts`
 // The base units x is laid out in: its dialog's, else the System font's.
 void w16_units_of(struct w16 *w, const struct w16_wnd *x, int *bx, int *by);
 int w16_font_is_fixed(uint16_t hfont);

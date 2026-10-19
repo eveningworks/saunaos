@@ -91,6 +91,9 @@ static inline int strcasecmp(const char *a, const char *b) { return k_strcasecmp
 // <strings.h>'s, declared here as well because strcasecmp is: code that
 // found one through <string.h> -- glibc's default -- expects both.
 int strncasecmp(const char *a, const char *b, size_t n);
+// strstr without regard to ASCII case: a GNU extension glibc and musl both
+// keep in <string.h>, defined beside strncasecmp (libc/strings.c).
+char *strcasestr(const char *hay, const char *needle);
 
 // --- the rest of C's set (real symbols, userland/libc/string.c) ------
 //

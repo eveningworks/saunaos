@@ -533,6 +533,9 @@ DIRTIES_IMAGE = {"console_bleed"}
 #   libvnc_check.py -- needs Docker and pulls an image, and boots nothing:
 #                     it connects the real libvncclient to a guest you
 #                     started (--port, --password, --ca).
+#   winfnt_hostcheck.py -- needs the maintainer's own Windows .FON fonts as
+#                     arguments, which this repo never holds; run it by
+#                     hand with their folder (docs/tools.md).
 #   mkpart_test.py -- despite the name, a WRITER: it takes a disk image
 #                     argument and patches a table onto it. Running it
 #                     bare is an argparse error, not a result. Its

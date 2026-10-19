@@ -90,14 +90,15 @@ static void set_text(struct w16 *w, struct w16_wnd *x, const char *t) {
 
 // --- a dialog and its controls ---------------------------------------------------------
 
-// 3.11's dialog frame, measured at VGA: a black line, navy (4 rows at the
-// sides and foot, 3 at the head), then a white line round the caption and
-// client. A plain WS_BORDER is the black line alone.
+// 3.11's dialog frame, measured at VGA: a black line and 4 of navy all
+// round. A caption sits on the client's width, its top row white (so the
+// head shows 3 navy and a white line). A plain WS_BORDER is the black
+// line alone.
 static int dlgframe(uint32_t style) { return (style & (WS_DLGFRAME | 0x00800000u)) != 0; }
-static int frame_of(uint32_t style) { return dlgframe(style) ? 6 : 1; }
+static int frame_of(uint32_t style) { return dlgframe(style) ? 5 : 1; }
 
 int w16_dlg_frame(const struct w16_wnd *d) { return frame_of(d->style); }
-int w16_dlg_frame_top(const struct w16_wnd *d) { return dlgframe(d->style) ? 5 : 1; }
+int w16_dlg_frame_top(const struct w16_wnd *d) { return frame_of(d->style); }
 int w16_dlg_caption(const struct w16_wnd *d) {
     return (d->style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0;   // 18 rows and the line under them
 }
@@ -146,6 +147,18 @@ struct w16_wnd *w16_dlg_add(struct w16 *w, struct w16_wnd *d, const char *cls, u
     if (k < 0) return 0;
     return w16_wnd_create(w, k, text, style | WS_CHILD, x, y, cw, ch, d->hwnd, id, d->inst, 0);
 }
+
+// Dialog units to pixels AS 3.11 MAPPED THEM, measured off its Open and
+// Find (docs/w16-design.md): an x from the template's own position, each
+// end truncated -- Find Next (182 at 30) at 371 - 52 = 319, Open's name
+// field (6 at 36) at 73 - 63 = 10, half a pixel each going opposite ways;
+// a y rounded, as MulDiv rounds (Find's Cancel at 37, its radio buttons at
+// 62); a width or height rounded likewise -- Find is 413 by 101, a button
+// 88 by 23. Every place measured fits these, and no single rule fits both axes.
+int w16_du_x(int org, int x, int bx) { return (org + x) * bx / 4 - org * bx / 4; }
+int w16_du_y(int org, int y, int by) { (void)org; return (y * by + 4) / 8; }
+int w16_du_w(int cx, int bx) { return (cx * bx + 2) / 4; }
+int w16_du_h(int cy, int by) { return (cy * by + 4) / 8; }
 
 // A template's control, then WM_SETFONT with the dialog's font when it has
 // one, as 3.1's CreateDialog sent it.
@@ -208,7 +221,6 @@ static struct w16_wnd *from_template(struct w16 *w, const uint8_t *p, uint32_t n
     unsigned count = rd8(&r);
     int16_t dx = (int16_t)rd16(&r), dy = (int16_t)rd16(&r);
     int16_t dw = (int16_t)rd16(&r), dh = (int16_t)rd16(&r);
-    (void)dx; (void)dy;
     unsigned ord;
     char *menu = rd_name(&r, &ord), *cls = rd_name(&r, &ord), *caption = rd_str(&r);
     // A FONT (DS_SETFONT): its size sets the units; whatever the face, w16
@@ -221,7 +233,7 @@ static struct w16_wnd *from_template(struct w16 *w, const uint8_t *p, uint32_t n
     int bx, by;
     w16_dlg_units(&bx, &by);
     if (pt) { bx = (7 * pt + 4) / 8; by = (13 * pt + 4) / 8; }
-    struct w16_wnd *d = r.bad ? 0 : w16_dlg_new(w, owner, inst, style, dw * bx / 4, dh * by / 8, caption,
+    struct w16_wnd *d = r.bad ? 0 : w16_dlg_new(w, owner, inst, style, w16_du_w(dw, bx), w16_du_h(dh, by), caption,
                                                 dlgproc, hostdlg);
     if (d && pt) w16_dlg_set_font(d, pt);
     int ok = d && menu && cls && !(menu[0] || cls[0]);
@@ -245,7 +257,8 @@ static struct w16_wnd *from_template(struct w16 *w, const uint8_t *p, uint32_t n
         if (w16_class_find(w, klass) < 0) {
             snprintf(why, why_cap, "a dialog control of class %s is not supported yet", klass);
             ok = 0;
-        } else if (!add_with_font(w, d, klass, id, cs, x * bx / 4, y * by / 8, cw * bx / 4, ch * by / 8,
+        } else if (!add_with_font(w, d, klass, id, cs, w16_du_x(dx, x, bx), w16_du_y(dy, y, by),
+                                  w16_du_w(cw, bx), w16_du_h(ch, by),
                                   ord ? "" : text)) {
             if (!w->cpu.fault) snprintf(why, why_cap, "a %s control of the dialog was refused", klass);
             ok = 0;

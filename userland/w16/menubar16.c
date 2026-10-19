@@ -368,7 +368,7 @@ void w16_menu_opening(struct w16 *w, int pos, int first) {
 
 // --- the bar: the main thread's half, under `lock` -------------------------------------
 
-static int pad(void) { return 7; }
+static int pad(void) { return 8; }             // 3.11's: a title's text 8 in from its box
 
 // A title without its '&' markers (allocated), and where the marked
 // letter falls in it, -1 none; "&&" is a plain '&'.
@@ -387,7 +387,7 @@ static char *plain_text(const char *t, int *mark) {
 
 // Each title's place along the bar, in the bar's 1x pixels; its count.
 static int titles(const struct w16_hmenu *m, int *xs, int *ws, int cap) {
-    int x = 2, n = 0;
+    int x = 0, n = 0;                            // the first box starts at the bar's edge
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
     for (int i = 0; m && i < m->n && n < cap; i++, n++) {
@@ -439,7 +439,7 @@ int w16_menubar_mnemonic(struct w16 *w, int ch) {
 }
 
 void w16_menubar_draw(struct ugfx_surface *s, struct w16 *w, int x, int y, int width, int open) {
-    uint32_t black = ugfx_rgb(0, 0, 0), white = ugfx_rgb(255, 255, 255), navy = ugfx_rgb(0, 0, 0x80);
+    uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF), navy = w16_rgb(0x000080);
     ugfx_fill_rect(s, x, y, width, W16_MENU_H - 1, white);
     ugfx_fill_rect(s, x, y + W16_MENU_H - 1, width, 1, black);
     struct w16_hmenu *m = menu_of(w->menu);
@@ -449,10 +449,11 @@ void w16_menubar_draw(struct ugfx_surface *s, struct w16 *w, int x, int y, int w
     int n = titles(m, xs, ws, m->n);
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
-    int ch = ugfx_char_h(), ty = y + (W16_MENU_H - 1 - ch) / 2;
+    // The cell's top on the bar's: 3.11's 16-row System font in its 18 rows.
+    int ch = ugfx_char_h(), ty = y + (W16_MENU_H - 1 - ch - 2) / 2;
     for (int i = 0; i < n && xs[i] < width; i++) {
         int lit = i == open, grey = m->it[i].flags & (MF_GRAYED | MF_DISABLED);
-        uint32_t fg = grey ? ugfx_rgb(0x80, 0x80, 0x80) : lit ? white : black;
+        uint32_t fg = grey ? w16_rgb(0x808080) : lit ? white : black;
         if (lit) ugfx_fill_rect(s, x + xs[i], y, ws[i], W16_MENU_H - 1, navy);
         int mark;
         char *plain = plain_text(m->it[i].text, &mark);
@@ -460,7 +461,7 @@ void w16_menubar_draw(struct ugfx_surface *s, struct w16 *w, int x, int y, int w
         int tx = x + xs[i] + pad();
         ugfx_draw_string_clipped(s, tx, ty, width - xs[i], plain, fg, UGFX_TRANSPARENT);
         if (mark >= 0)
-            ugfx_fill_rect(s, tx + ugfx_text_width_n(plain, mark), ty + ch - 2, ugfx_text_width_n(plain + mark, 1), 1, fg);
+            ugfx_fill_rect(s, tx + ugfx_text_width_n(plain, mark), ty + w16_font_ascent(ugfx_font_current()) + 1, ugfx_text_width_n(plain + mark, 1), 1, fg);
         free(plain);
     }
     ugfx_set_font(was);
