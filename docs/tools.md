@@ -7478,6 +7478,12 @@ runs first**: a `doom1.wad` with one
   fault.exe's one missing call under two chips, every import with Show
   all, one row after a search, and copies the rows on Ctrl+C; gdi.exe's
   opens on every import, and the details panel's button opens it.
+  `dialog.exe`: Alt+F opens its menu bar's File menu, its Checked item
+  unticks itself, F2 (an accelerator) opens its dialog, whose edit field
+  keeps what is typed (read back through DIALOG.INI), a right click's
+  MessageBox answers No by mnemonic, and Help > About is ShellAbout's
+  box; breaking GetDlgItemInt or TranslateAccelerator turns exactly its
+  check red.
   Flipping the DIB's rows or swapping P and S in the ROP3 rule turns
   exactly the matching check red, as do ignoring the INI value, a
   launcher that never spawns and a calls list that ignores "missing"
@@ -7503,7 +7509,9 @@ runs first**: a `doom1.wad` with one
   out in nobits sections from 0 so code can name its data; macros record
   imports, internal far pointers, the entry and exports in a trailing
   section; `;w16:` comment lines set the module, segments, stack and
-  heap. Each relocation is a chain of one (its site holds 0xFFFF).
+  heap, and the resources -- strings, bitmaps, dialogs and their
+  controls, menus, accelerators -- so a test program stays one text
+  file. Each relocation is a chain of one (its site holds 0xFFFF).
   `--dump FILE` is an independent reader the host check compares with.
   `make iso` builds every sample into `/usr/share/w16/`.
 - **`gen_w16_ordinals.py`** -- writes `userland/w16/w16_names.c`, each

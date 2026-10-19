@@ -395,6 +395,9 @@ struct uapp_window;
 // The owner takes no input while this is up; a press on it raises this
 // instead. Leave it off for a peer window -- a palette, a find bar.
 #define UAPP_WIN_MODAL 0x01
+// The window draws its OWN frame (WIN_HINT_NO_DECOR), as UAPP_NO_DECOR
+// does for the main window: w16's dialogs, in Windows 3.1's frame.
+#define UAPP_WIN_NO_DECOR 0x02
 
 struct uapp_window_desc {
     const char *title;
@@ -426,6 +429,15 @@ struct uapp_window_desc {
     // opens on the release -- uui_menubar_open_at()'s rule.
     void (*on_button)(struct uapp_window *w, int x, int y, unsigned buttons, int up);
 
+    // A window that DRAWS ITS OWN PIXELS, as uapp_desc.on_draw: called each
+    // frame before its widgets are drawn over. And the primary button,
+    // as uapp_desc's on_press/on_motion/on_release: every press, after
+    // the widgets have seen it. NULL for a widget dialog, which is most.
+    void (*on_draw)(struct uapp_window *w, struct uapp_draw *d);
+    void (*on_press)(struct uapp_window *w, int x, int y, unsigned buttons);
+    void (*on_motion)(struct uapp_window *w, int x, int y, unsigned buttons);
+    void (*on_release)(struct uapp_window *w, int x, int y, unsigned buttons);
+
     // What the layout log calls this window (ui/uui_describe.h's
     // vocabulary). Set it and the toolkit emits the report itself each
     // frame -- a dialog has no on_draw for an app to call
@@ -454,6 +466,10 @@ int uapp_window_width(const struct uapp_window *w);
 int uapp_window_height(const struct uapp_window *w);
 // Its title, re-sent to the compositor. The string is copied.
 void uapp_window_set_title(struct uapp_window *w, const char *title);
+// UAPP_WIN_NO_DECOR only: hand the drag of the press in progress to the
+// compositor, as uapp_move_start() does for the main window -- a dialog
+// whose caption the program draws.
+void uapp_window_move_start(struct uapp_window *w, unsigned edges);
 
 // --- from inside a callback ------------------------------------------
 

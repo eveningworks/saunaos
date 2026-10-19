@@ -12,6 +12,10 @@
 //   frame16.c         the Windows 3.1 caption and frame (main thread)
 //   menu16.c          a 3.1 popup menu; the control menu is its first
 //   msgbox16.c        a 3.1 message box; the Application Error is its first
+//   wnd16.c           the window table: dialogs and their controls
+//   dialog16.c        DialogBox and the dialog manager, BUTTON/STATIC/EDIT,
+//                     MessageBox (task thread)
+//   dlgwin16.c        a dialog's own window: its 3.1 look and input (main thread)
 //
 // TWO THREADS. The program -- interpreter, message loop, GDI -- runs on
 // the TASK thread, so a modal loop inside a window procedure simply
@@ -55,6 +59,20 @@ void ne_print_info(const struct ne_module *m);
 #define WM_RBUTTONUP     0x0205
 #define WM_SYSCOMMAND    0x0112
 #define WM_TIMER         0x0113
+#define WM_SETFOCUS      0x0007
+#define WM_KILLFOCUS     0x0008
+#define WM_SETTEXT       0x000C
+#define WM_GETTEXT       0x000D
+#define WM_INITDIALOG    0x0110
+#define WM_COMMAND       0x0111
+// w16's own, never a program's: a key for a dialog, raw (KEY_* in
+// wParam, KEY_MOD_* in lParam), which the dialog manager turns into 3.1's
+// keyboard interface before any control hears it.
+#define W16_WM_DLGKEY    0x7F00
+// Also w16's own: the main thread asks the task to open menu-bar title
+// wParam (lParam 1: the first since none was open). Handled inside
+// GetMessage, so the program never sees it.
+#define W16_WM_MENUOPEN  0x7F01
 
 // WM_SYSCOMMAND's wParam: what the frame, the control menu and Alt+Space
 // ask, sent through the program so that it may refuse (DefWindowProc
@@ -77,6 +95,7 @@ void ne_print_info(const struct ne_module *m);
 #define WS_MAXIMIZEBOX   0x00010000u
 
 #define W16_CW_USEDEFAULT ((int16_t)0x8000)
+#define W16_HWND         0x2001                   // the main window; wnd16.c numbers the rest
 
 // --- the shared state ------------------------------------------------------
 
@@ -132,9 +151,13 @@ struct w16_class {
     uint16_t style;
 };
 
-// The program's one top-level window (stage 2: one per program). Its
-// RECT is the toywm window: frame16.c draws the non-client part around
-// the client buffer.
+// A window. `g_w16.win` is the program's main one, whose RECT is the
+// toywm window (frame16.c draws the non-client part around its client
+// buffer); the table (wnd16.c) holds the rest -- a dialog, whose own
+// toywm window dlgwin16.c draws, and each of its controls, which paint
+// into their dialog's pixels as a Windows child window does.
+enum w16_kind { W16_K_MAIN, W16_K_DIALOG, W16_K_BUTTON, W16_K_STATIC, W16_K_EDIT };
+struct uapp_window;
 struct w16_wnd {
     int used;
     uint16_t hwnd;
@@ -147,6 +170,23 @@ struct w16_wnd {
     int visible;
     int maximized;                // toywm's last proposal said so; under `lock`
     int inval, erase;             // a pending WM_PAINT, and whether it erases
+
+    // A dialog or one of its controls; the rest under `lock`.
+    int kind;                     // enum w16_kind
+    uint16_t parent;              // a control's dialog; a dialog's owner
+    uint16_t id;                  // a control's id
+    int x, y;                     // a control's place in its dialog's client
+    char *text;                   // a control's text, a dialog's caption: allocated
+    int pressed, focused, is_default;
+    int caret, anchor, scroll;    // an EDIT's caret, selection's other end, first shown char
+    uint32_t dlgproc;             // a dialog's DLGPROC, a far pointer
+    uint16_t focus;               // a dialog's focused control
+    uint16_t capture;             // a dialog's control that took the press
+    int ended;                    // EndDialog was called
+    int16_t result;
+    struct uapp_window *uwin;     // a dialog's toywm window (main thread's)
+    int active;                   // a dialog's window has the focus (main thread's)
+    int menubar;                  // the main window has a menu bar (SetMenu); under `lock`
 };
 
 struct w16 {
@@ -170,6 +210,8 @@ struct w16 {
     struct w16_class cls[W16_CLASSES];
     int ncls;
     struct w16_wnd win;
+    struct w16_wnd **wnds;                       // wnd16.c: dialogs and controls, grown
+    int nwnds;
 
     struct uapp *app;                            // the main thread's, once open
     int window_ready;                            // the first window exists (main waits)
@@ -192,7 +234,8 @@ struct w16 {
     int fb_dirty;                                // the window DC drew: post a repaint
     struct w16_timer timer[W16_TIMERS];          // set by the task, fired by the main thread
     uint16_t capture;                            // SetCapture's window, 0 none
-    uint16_t menu;                               // SetMenu's, not drawn yet
+    uint16_t menu;                               // SetMenu's HMENU, the bar under the caption
+    unsigned key_mods;                           // Shift 1, Ctrl 2, Alt 4 as the last key was sent
     int16_t mouse_x, mouse_y;                    // the last mouse message's point, client coordinates
 };
 
@@ -208,6 +251,10 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_SYSCMD 4    // arg: the SC_* DefWindowProc carried out
 #define W16_POST_FAULT  5    // the program stopped: show why, then end
 #define W16_POST_SIZE   6    // MoveWindow resized the window: the surface follows
+#define W16_POST_DLG_OPEN  7    // arg: a dialog's hwnd -- open its window
+#define W16_POST_DLG_CLOSE 8    // arg: a dialog's hwnd -- close it, then the task frees it
+#define W16_POST_DLG_PAINT 9    // arg: a dialog's hwnd -- redraw it
+#define W16_POST_MENU_SHOW 10   // arg: a menu-bar title -- the program has seen it open: show it
 
 // --- task16.c --------------------------------------------------------------
 
@@ -271,6 +318,50 @@ void w16_gdi_flush(struct w16 *w);                // post a repaint if the windo
 // a client rectangle with it -- USER's FillRect and WM_ERASEBKGND.
 uint32_t w16_brush_px(struct w16 *w, uint16_t brush);
 void w16_gdi_fill(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, uint16_t brush);
+
+// user16.c: the next message for any window (waiting), and handing one to
+// its window -- what a dialog's modal loop does with the program's own.
+int w16_get_msg(struct w16 *w, struct w16_msg *m);
+uint32_t w16_dispatch(struct w16 *w, const struct w16_msg *m);
+
+// --- wnd16.c / dialog16.c / dlgwin16.c -------------------------------------------
+
+// The window an HWND names -- the main one or a table entry -- or NULL.
+struct w16_wnd *w16_wnd_get(struct w16 *w, uint16_t hwnd);
+struct w16_wnd *w16_wnd_new(struct w16 *w, int kind);   // zeroed, its hwnd set; under no lock
+void w16_wnd_free(struct w16 *w, struct w16_wnd *x);
+// The control of dialog `dlg` with id `id`, or NULL.
+struct w16_wnd *w16_dlg_item(struct w16 *w, uint16_t dlg, uint16_t id);
+// The control at (x, y) of a dialog's client, or NULL.
+struct w16_wnd *w16_dlg_item_at(struct w16 *w, uint16_t dlg, int x, int y);
+// A dialog's frame and caption, in its window's 1x pixels.
+int w16_dlg_frame(const struct w16_wnd *d);
+int w16_dlg_caption(const struct w16_wnd *d);
+extern const struct w16_api g_dialog_api[], g_shell_api[], g_sound_api[], g_menu_api[];
+extern const unsigned g_menu_api_n;
+// menubar16.c: the task's half of opening a bar title, and the main
+// thread's -- the bar drawn, a title found, its popup built. Main-thread
+// calls hold `lock`.
+void w16_menu_opening(struct w16 *w, int pos, int first);
+struct w16_menu;
+struct ugfx_surface;
+int w16_menubar_count(struct w16 *w);
+int w16_menubar_title_at(struct w16 *w, int x, int *tx, int *tw);   // x < 0: title -x-1's place
+int w16_menubar_mnemonic(struct w16 *w, int ch);
+void w16_menubar_draw(struct ugfx_surface *s, struct w16 *w, int x, int y, int width, int open);
+void w16_menubar_build(struct w16 *w, int pos, struct w16_menu *out);
+// A 3.1 message box, modal over `owner`: MB_* `type`, the IDOK... chosen.
+int16_t w16_message_box(struct w16 *w, uint16_t owner, const char *text, const char *caption,
+                        unsigned type);
+extern const unsigned g_dialog_api_n, g_shell_api_n, g_sound_api_n;
+// Main thread: a dialog's window, from the W16_POST_DLG_* codes.
+void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd);
+void w16_dlgwin_close(struct w16 *w, uint16_t hwnd);
+void w16_dlgwin_redraw(struct w16 *w, uint16_t hwnd);
+// A dialog's whole 1x picture, frame included, into `px` (d->w * d->h).
+void w16_dlg_paint(struct w16 *w, const struct w16_wnd *d, uint32_t *px);
+// The DLU -> pixel base units of the dialog font: x per 4, y per 8.
+void w16_dlg_units(int *bx, int *by);
 
 // --- mem16.c / res16.c --------------------------------------------------------
 
@@ -342,7 +433,10 @@ struct ugfx_surface;
 void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int active, int pressed);
 // What a point of the window is: the client, the caption, a button, or a
 // sizing edge (WIN_EDGE_* bits in *edges).
-enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE, HIT_NONE };
+enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE, HIT_MENU, HIT_NONE };
+#define W16_MENU_H     18                         // the menu bar, its bottom line included (SM_CYMENU)
+// The menu bar's rectangle in window coordinates (zero height: none).
+void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch);
 extern int g_w16_scale;                           // 1 or 2 (w16prefs.h's scale)
@@ -360,20 +454,20 @@ void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h)
 // square, hard-shadowed and its own), so they may reach past a small
 // window. Input arrives in WINDOW coordinates, as uapp hands it on.
 
-#define W16_MENU_MAX 16
 #define W16_MF_GRAYED    0x1
 #define W16_MF_SEPARATOR 0x2
+#define W16_MF_CHECKED   0x4
 
 struct w16_menu_item {
-    char text[40];                // "&Restore": & marks the mnemonic
-    char accel[16];               // "Alt+F4", right-aligned; "" none
+    char *text;                   // "&Restore": & marks the mnemonic; allocated
+    char *accel;                  // "Alt+F4", right-aligned; "" none; allocated
     unsigned flags;               // W16_MF_*
     unsigned id;                  // what choosing it returns (an SC_* here)
 };
 
 struct w16_menu {
-    struct w16_menu_item item[W16_MENU_MAX];
-    int n;
+    struct w16_menu_item *item;   // as many as it has: w16_menu_add()
+    int n, cap;
     int popup;                    // the uui_popup id; 0 closed
     int x, y, w, h;               // where it landed, window coordinates
     int sel;                      // the highlighted item, -1 none
@@ -384,7 +478,10 @@ void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_ke
 void w16_menu_close(struct w16_menu *m);
 void w16_menu_draw(struct w16_menu *m);
 // Each returns the chosen item's id, 0 for nothing chosen yet, and -1
-// once the menu has closed without a choice.
+// once the menu has closed without a choice. w16_menu_key also returns
+// W16_MENU_LEFT or W16_MENU_RIGHT for an arrow a menu bar moves on.
+#define W16_MENU_LEFT  ((unsigned)-2)
+#define W16_MENU_RIGHT ((unsigned)-3)
 unsigned w16_menu_motion(struct w16_menu *m, int x, int y);
 int w16_menu_press(struct w16_menu *m, int x, int y);    // 1: inside, 0: outside (now closed)
 unsigned w16_menu_release(struct w16_menu *m, int x, int y);
@@ -393,6 +490,9 @@ int w16_menu_open_p(const struct w16_menu *m);
 
 // The control menu of `win`, its items enabled as its style and state allow.
 void w16_sysmenu_build(struct w16_menu *m, const struct w16_wnd *win);
+// Empties `m` (closed or not); then items are added one by one.
+void w16_menu_clear(struct w16_menu *m);
+void w16_menu_add(struct w16_menu *m, const char *text, const char *accel, unsigned id, unsigned flags);
 
 struct w16_msgbox {
     char caption[48];
@@ -411,5 +511,7 @@ void w16_msgbox_close(struct w16_msgbox *b);
 int w16_msgbox_press(struct w16_msgbox *b, int x, int y);
 int w16_msgbox_release(struct w16_msgbox *b, int x, int y);
 int w16_msgbox_key(struct w16_msgbox *b, int key);
+// 3.1's STOP sign, 32 pixels square: the Error box's and MB_ICONHAND's.
+void w16_stop_sign(struct ugfx_surface *s, int x, int y);
 
 #endif

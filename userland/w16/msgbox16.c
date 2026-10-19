@@ -83,7 +83,7 @@ void w16_msgbox_close(struct w16_msgbox *b) {
     b->popup = 0;
 }
 
-static void stop_sign(struct ugfx_surface *s, int x, int y) {
+void w16_stop_sign(struct ugfx_surface *s, int x, int y) {
     // An octagon, its corners cut a third of the way along each edge.
     int c = ICON * 3 / 10;
     for (int r = 0; r < ICON; r++) {
@@ -153,7 +153,7 @@ static void draw_box(struct w16_msgbox *b, struct ugfx_surface *s) {
     ugfx_draw_string_clipped(s, (b->w - cw) / 2 > 4 ? (b->w - cw) / 2 : 4, 1 + (ch_h - 1 - ugfx_char_h()) / 2,
                              b->w - 8, b->caption, white, UGFX_TRANSPARENT);
     int top = W16_CAPTION + margin();
-    stop_sign(s, margin(), top);
+    w16_stop_sign(s, margin(), top);
     char lines[MAX_LINES][96];
     int n = wrap_lines(b->text, lines, MAX_LINES);
     for (int i = 0; i < n; i++)

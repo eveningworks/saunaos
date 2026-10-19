@@ -16,6 +16,17 @@ RESOURCES come from directives too, so a test program stays one text file:
     ;w16: bitmap 1 8x4 000000 ff0000 ffffff        (RT_BITMAP: size, palette)
     ;w16: row 1 00112200                           (its rows, top first, one
                                                     hex digit a pixel)
+    ;w16: dialog 100 0 0 120 60 0x80c00000 "Caption"   (RT_DIALOG: x y w h in
+                                                    dialog units, its style)
+    ;w16: control 100 EDIT 10 8 8 50 12 0x50810000 ""  (a control of dialog 100:
+                                                    class, id, x y w h, style, text)
+    ;w16: menu 200                                  (RT_MENU, then its parts,
+    ;w16: popup 200 "&Game"                         a popup's items after it)
+    ;w16: item 200 510 "&New\tF2"                   (an id; "checked" or
+    ;w16: separator 200                             "grayed" may follow)
+    ;w16: accel 210 0x71 300 virtkey                (RT_ACCELERATOR: a key --
+                                                    with virtkey, shift, control,
+                                                    alt as it needs -- and its id)
 
 A bitmap is written as Windows stored one: a packed DIB (BITMAPINFOHEADER,
 the palette, the rows bottom-up and padded to 4 bytes), 4 bits a pixel for
@@ -34,6 +45,7 @@ w16's own parser (userland/w16/ne.c) is checked against it.
 import argparse
 import os
 import re
+import shlex
 import struct
 import subprocess
 import sys
@@ -54,7 +66,7 @@ NE_OFFSET = 0x80         # the NE header follows a 128-byte MZ stub
 def directives(path):
     """The ;w16: lines: module, segments, autodata, stack, heap."""
     d = {"module": None, "segments": {}, "autodata": 0, "stack": 4096, "heap": 1024,
-         "description": "", "strings": {}, "bitmaps": {}}
+         "description": "", "strings": {}, "bitmaps": {}, "dialogs": {}, "menus": {}, "accels": {}}
     for line in open(path, encoding="utf-8"):
         m = re.match(r"\s*;w16:\s*(\w+)\s*(.*?)\s*$", line)
         if not m:
@@ -77,6 +89,31 @@ def directives(path):
         elif key == "row":
             bid, row = val.split()
             d["bitmaps"][int(bid, 0)]["rows"].append([int(ch, 16) for ch in row])
+        elif key == "dialog":
+            did, x, y, w, h, style, caption = shlex.split(val)
+            d["dialogs"][int(did, 0)] = {"rect": [int(v, 0) for v in (x, y, w, h)],
+                                         "style": int(style, 0), "caption": caption, "controls": []}
+        elif key == "control":
+            did, cls, cid, x, y, w, h, style, text = shlex.split(val)
+            d["dialogs"][int(did, 0)]["controls"].append(
+                (cls.upper(), int(cid, 0), [int(v, 0) for v in (x, y, w, h)], int(style, 0), text))
+        elif key == "accel":
+            aid, k, cmd, *flags = val.split()
+            bits = {"virtkey": 0x01, "shift": 0x04, "control": 0x08, "alt": 0x10}
+            d["accels"].setdefault(int(aid, 0), []).append(
+                (sum(bits[f] for f in flags), int(k, 0), int(cmd, 0)))
+        elif key in ("menu", "popup", "item", "separator"):
+            parts = shlex.split(val)
+            mid = int(parts[0], 0)
+            if key == "menu":
+                d["menus"][mid] = []
+            elif key == "popup":
+                d["menus"][mid].append(("popup", parts[1], []))
+            elif key == "item":
+                d["menus"][mid][-1][2].append((int(parts[1], 0), parts[2].replace("\\t", "\t"),
+                                               parts[3:]))
+            else:
+                d["menus"][mid][-1][2].append((0, "", []))
         else:
             sys.exit(f"gen_ne: {path}: unknown directive '{key}'")
     if not d["module"] or not d["segments"]:
@@ -175,6 +212,39 @@ def packed_dib(bm):
     return hdr + quads + bits
 
 
+CLASSES = {"BUTTON": 0x80, "EDIT": 0x81, "STATIC": 0x82, "LISTBOX": 0x83, "SCROLLBAR": 0x84,
+           "COMBOBOX": 0x85}
+
+
+def dialog_template(dlg):
+    """RT_DIALOG, 3.x's DLGTEMPLATE: the style, the count, the rectangle in
+    dialog units, no menu or class, the caption; then each control's
+    rectangle, id, style, class byte and text."""
+    x, y, w, h = dlg["rect"]
+    out = struct.pack("<IBhhhh", dlg["style"], len(dlg["controls"]), x, y, w, h)
+    out += b"\0\0" + dlg["caption"].encode("latin-1") + b"\0"
+    for cls, cid, (cx, cy, cw, ch), style, text in dlg["controls"]:
+        if cls not in CLASSES:
+            sys.exit(f"gen_ne: a dialog control's class {cls} is not one of {sorted(CLASSES)}")
+        out += struct.pack("<hhhhHIB", cx, cy, cw, ch, cid, style, CLASSES[cls])
+        out += text.encode("latin-1") + b"\0" + b"\0"
+    return out
+
+
+def menu_template(menu):
+    """RT_MENU, 3.x's: a header, then each top-level popup (MF_POPUP) and
+    its items, MF_END on the last of each list."""
+    out = struct.pack("<HH", 0, 0)
+    for i, (_, title, items) in enumerate(menu):
+        out += struct.pack("<H", 0x10 | (0x80 if i == len(menu) - 1 else 0))
+        out += title.encode("latin-1") + b"\0"
+        for j, (iid, text, flags) in enumerate(items):
+            f = (0x08 if "checked" in flags else 0) | (0x01 if "grayed" in flags else 0)
+            f |= 0x80 if j == len(items) - 1 else 0
+            out += struct.pack("<HH", f, iid) + text.encode("latin-1") + b"\0"
+    return out
+
+
 def mz_stub():
     """A DOS stub that prints a line and exits with 1."""
     code = bytes([0x0E, 0x1F,                    # push cs; pop ds
@@ -227,6 +297,11 @@ def build(src, out):
     # with placeholders here and filled in below.
     resources = [(6, bid, data) for bid, data in sorted(string_blocks(d["strings"]).items())]
     resources += [(2, bid, packed_dib(bm)) for bid, bm in sorted(d["bitmaps"].items())]
+    resources += [(4, mid, menu_template(m)) for mid, m in sorted(d["menus"].items())]
+    resources += [(5, did, dialog_template(dl)) for did, dl in sorted(d["dialogs"].items())]
+    resources += [(9, aid, b"".join(struct.pack("<BHH", f | (0x80 if i == len(acc) - 1 else 0), k, c)
+                                   for i, (f, k, c) in enumerate(acc)))
+                  for aid, acc in sorted(d["accels"].items())]
     resources.sort(key=lambda r: (r[0], r[1]))
     def resource_table_with(offsets):
         t = struct.pack("<H", ALIGN_SHIFT)

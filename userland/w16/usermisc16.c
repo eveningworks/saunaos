@@ -13,8 +13,6 @@
 #include <string.h>
 #include <time.h>
 
-#define HMENU_BASE 0x7800
-#define HACCEL     0x7F01
 #define DESKTOP_HWND 0x2000
 
 uint64_t w16_now_ms(void) {
@@ -418,94 +416,6 @@ static int api_MessageBeep(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// LoadMenu(hInst, lpName): a handle naming the resource
-static int api_LoadMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    uint32_t p;
-    (void)ordinal;
-    w16_arg16(a);
-    p = w16_arg32(a);
-    char name[32] = "";
-    uint16_t id = (p >> 16) ? 0 : (uint16_t)p;
-    if ((p >> 16) && cpu16_str(c, (uint16_t)(p >> 16), (uint16_t)p, name, sizeof name) < 0) return -1;
-    struct ne_resource res;
-    int i = w16_res_find(w, NE_RT_MENU, 0, id, name[0] ? name : 0, &res);
-    c->r[R_AX] = i < 0 ? 0 : (uint16_t)(HMENU_BASE + i);
-    return 6;
-}
-
-// CheckMenuItem, EnableMenuItem -> the previous state
-static int api_CheckMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    w16_arg16(a); w16_arg16(a); w16_arg16(a);
-    c->r[R_AX] = 0;
-    return 6;
-}
-
-// GetSystemMenu(hwnd, revert)
-static int api_GetSystemMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    w16_arg16(a); w16_arg16(a);
-    c->r[R_AX] = HMENU_BASE + 0x7F;
-    return 4;
-}
-
-// GetMenu(hwnd)
-static int api_GetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    w16_arg16(a);
-    c->r[R_AX] = w->menu;
-    return 2;
-}
-
-// SetMenu(hwnd, hmenu)
-static int api_SetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    w16_arg16(a);
-    w->menu = w16_arg16(a);
-    c->r[R_AX] = 1;
-    return 4;
-}
-
-// GetSubMenu(hmenu, pos)
-static int api_GetSubMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    w16_arg16(a);
-    c->r[R_AX] = (uint16_t)(HMENU_BASE + 0x40 + w16_arg16(a));
-    return 4;
-}
-
-// DrawMenuBar(hwnd)
-static int api_DrawMenuBar(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)ordinal;
-    (void)w;
-    w16_arg16(a);
-    return 2;
-}
-
-// LoadAccelerators(hInst, lpName)
-static int api_LoadAccelerators(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    w16_arg16(a); w16_arg32(a);
-    c->r[R_AX] = HACCEL;
-    return 6;
-}
-
-// TranslateAccelerator(hwnd, hAccel, lpMsg): none yet
-static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    w16_arg16(a); w16_arg16(a); w16_arg32(a);
-    c->r[R_AX] = 0;
-    return 8;
-}
-
 // GetSysColor(index) -> a COLORREF
 static int api_GetSysColor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
@@ -546,11 +456,22 @@ static int api_wsprintf(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // it closes (Minesweeper does, on WM_DESTROY), succeeds.
 static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
-    w16_arg32(a);
+    uint16_t owner = w16_arg16(a);
+    uint32_t file = w16_arg32(a);
     uint16_t cmd = w16_arg16(a);
     w16_arg32(a);
-    w->cpu.r[R_AX] = cmd == 2;                   // HELP_QUIT
+    // Asked for help, not just closing it (HELP_QUIT): say what is missing
+    // rather than nothing, and report it shown -- the program has no
+    // better thing to do with a failure.
+    if (cmd != 2) {
+        char name[80] = "", text[200];
+        if (file >> 16) cpu16_str(&w->cpu, (uint16_t)(file >> 16), (uint16_t)file, name, sizeof name);
+        const char *base = strrchr(name, '\\');
+        snprintf(text, sizeof text, "%s is a Windows Help file, and w16 cannot show Help files yet.",
+                 base ? base + 1 : name[0] ? name : "This program's help");
+        w16_message_box(w, owner, text, "Help", 0x40);   // MB_ICONASTERISK
+    }
+    w->cpu.r[R_AX] = 1;
     return 12;
 }
 
@@ -585,17 +506,7 @@ const struct w16_api g_user_misc_api[] = {
     { 79, api_IntersectRect },
     { 81, api_FillRect },
     { 104, api_MessageBeep },
-    { 150, api_LoadMenu },
-    { 154, api_CheckMenuItem },
-    { 155, api_CheckMenuItem },
-    { 156, api_GetSystemMenu },
-    { 157, api_GetMenu },
-    { 158, api_SetMenu },
-    { 159, api_GetSubMenu },
-    { 160, api_DrawMenuBar },
     { 171, api_WinHelp },
-    { 177, api_LoadAccelerators },
-    { 178, api_TranslateAccelerator },
     { 180, api_GetSysColor },
     { 236, api_GetCapture },
     { 286, api_GetDesktopWindow },

@@ -27,6 +27,7 @@ static int item_h(const struct w16_menu_item *it) {
 }
 
 // The label without its '&', and where the mnemonic falls in it (-1 none).
+// `out` holds strlen(text) + 1.
 static int plain(const char *text, char *out, int cap) {
     int n = 0, at = -1;
     for (const char *p = text; *p && n < cap - 1; p++) {
@@ -41,9 +42,11 @@ static int plain(const char *text, char *out, int cap) {
 static char lower(char c) { return c >= 'A' && c <= 'Z' ? (char)(c + 32) : c; }
 
 static int mnemonic(const struct w16_menu_item *it) {
-    char t[sizeof it->text];
-    int at = plain(it->text, t, sizeof t);
-    return at >= 0 ? lower(t[at]) : 0;
+    char *t = malloc(strlen(it->text) + 1);
+    if (!t) return 0;
+    int at = plain(it->text, t, (int)strlen(it->text) + 1), c = at >= 0 ? lower(t[at]) : 0;
+    free(t);
+    return c;
 }
 
 // Measured in the system font, under the text lock the task's GDI shares.
@@ -52,9 +55,10 @@ static void measure(struct w16_menu *m) {
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
     int lw = 0, aw = 0, h = 4;
     for (int i = 0; i < m->n; i++) {
-        char t[sizeof m->item[i].text];
-        plain(m->item[i].text, t, sizeof t);
-        int tw = ugfx_text_width(t), kw = ugfx_text_width(m->item[i].accel);
+        char *t = malloc(strlen(m->item[i].text) + 1);
+        if (t) plain(m->item[i].text, t, (int)strlen(m->item[i].text) + 1);
+        int tw = t ? ugfx_text_width(t) : 0, kw = ugfx_text_width(m->item[i].accel);
+        free(t);
         if (tw > lw) lw = tw;
         if (kw > aw) aw = kw;
         h += item_h(&m->item[i]);
@@ -154,9 +158,15 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
         int lit = i == m->sel;
         uint32_t fg = it->flags & W16_MF_GRAYED ? rgb(0x808080) : lit ? white : black;
         if (lit) ugfx_fill_rect(s, 1, y, W - 2, h, rgb(0x000080));
-        char t[sizeof it->text];
-        int at = plain(it->text, t, sizeof t);
+        char *t = malloc(strlen(it->text) + 1);
+        if (!t) { y += h; continue; }
+        int at = plain(it->text, t, (int)strlen(it->text) + 1);
         int ty = y + (h - ch) / 2;
+        if (it->flags & W16_MF_CHECKED) {       // 3.1's tick, in the room left of the text
+            int cx = 5, cy = ty + ch / 2;
+            for (int k = 0; k < 3; k++) ugfx_fill_rect(s, cx + k, cy - 1 + k, 1, 2, fg);
+            for (int k = 0; k < 5; k++) ugfx_fill_rect(s, cx + 3 + k, cy + 1 - k, 1, 2, fg);
+        }
         ugfx_draw_string_clipped(s, PAD_L, ty, W - PAD_L - PAD_R, t, fg, UGFX_TRANSPARENT);
         if (at >= 0) {
             int ux = PAD_L + ugfx_text_width_n(t, at), uw = ugfx_text_width_n(t + at, 1);
@@ -165,6 +175,7 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
         if (it->accel[0])
             ugfx_draw_string(s, W - PAD_R - ugfx_text_width(it->accel), ty, it->accel, fg,
                              UGFX_TRANSPARENT);
+        free(t);
         y += h;
     }
     ugfx_set_font(was);
@@ -202,6 +213,8 @@ unsigned w16_menu_release(struct w16_menu *m, int x, int y) {
 unsigned w16_menu_key(struct w16_menu *m, int key) {
     if (m->popup <= 0) return 0;
     if (key == 0x1B) { w16_menu_close(m); return (unsigned)-1; }
+    if (key == KEY_ARROW_LEFT) return W16_MENU_LEFT;
+    if (key == KEY_ARROW_RIGHT) return W16_MENU_RIGHT;
     if (key == KEY_ARROW_DOWN || key == KEY_ARROW_UP) {
         int step = key == KEY_ARROW_DOWN ? 1 : -1;
         for (int k = 1; k <= m->n; k++) {
@@ -229,24 +242,40 @@ unsigned w16_menu_key(struct w16_menu *m, int key) {
 
 // --- the control menu ---------------------------------------------------------
 
-static void add(struct w16_menu *m, const char *text, const char *accel, unsigned id, int grayed) {
-    if (m->n >= W16_MENU_MAX) return;
+void w16_menu_clear(struct w16_menu *m) {
+    for (int i = 0; i < m->n; i++) { free(m->item[i].text); free(m->item[i].accel); }
+    m->n = 0;
+    m->sel = -1;
+}
+
+// An empty `text` is a separator. An item that cannot be added (out of
+// memory) is left off.
+void w16_menu_add(struct w16_menu *m, const char *text, const char *accel, unsigned id, unsigned flags) {
+    if (m->n == m->cap) {
+        int cap = m->cap ? m->cap * 2 : 16;
+        struct w16_menu_item *g = realloc(m->item, sizeof *g * (size_t)cap);
+        if (!g) return;
+        m->item = g;
+        m->cap = cap;
+    }
+    char *t = strdup(text), *k = strdup(accel ? accel : "");
+    if (!t || !k) { free(t); free(k); return; }
     struct w16_menu_item *it = &m->item[m->n++];
-    memset(it, 0, sizeof *it);
-    strlcpy(it->text, text, sizeof it->text);
-    strlcpy(it->accel, accel, sizeof it->accel);
+    it->text = t;
+    it->accel = k;
     it->id = id;
-    it->flags = (text[0] ? 0 : W16_MF_SEPARATOR) | (grayed ? W16_MF_GRAYED : 0);
+    it->flags = flags | (text[0] ? 0 : W16_MF_SEPARATOR);
+}
+
+static void add(struct w16_menu *m, const char *text, const char *accel, unsigned id, int grayed) {
+    w16_menu_add(m, text, accel, id, grayed ? W16_MF_GRAYED : 0);
 }
 
 // Move and Size are 3.1's KEYBOARD move and size, which need toywm to run
 // a drag without a held button; until it can, they are shown grey rather
 // than dropped, so the menu is the one a 3.1 user knows.
 void w16_sysmenu_build(struct w16_menu *m, const struct w16_wnd *win) {
-    int popup = m->popup, x = m->x, y = m->y, w = m->w, h = m->h;
-    memset(m, 0, sizeof *m);
-    m->popup = popup; m->x = x; m->y = y; m->w = w; m->h = h;
-    m->sel = -1;
+    w16_menu_clear(m);
     int max = win->maximized;
     add(m, "&Restore", "", SC_RESTORE, !max);
     add(m, "&Move", "", SC_MOVE, 1);

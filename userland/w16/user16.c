@@ -15,7 +15,6 @@
 #include <time.h>
 #include "ui/ugfx.h"
 
-#define W16_HWND        0x2001
 #define W16_ATOM_BASE   0xC000
 #define W16_DEFAULT_W   480
 #define W16_DEFAULT_H   320
@@ -206,8 +205,22 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
                         struct w16_msg *m) {
     pthread_mutex_lock(&w->lock);
     for (;;) {
-        int found = 0;
+        int found = 0, again = 0;
         for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % W16_QUEUE) {
+            // w16's own request (menubar16.c), never the program's: taken
+            // out wherever it sits, whatever the filter, and handled here
+            // between messages; then the queue is read again from the top.
+            if (w->q[i].message == W16_WM_MENUOPEN) {
+                struct w16_msg req = w->q[i];
+                for (unsigned j = i; (j + 1) % W16_QUEUE != w->qtail; j = (j + 1) % W16_QUEUE)
+                    w->q[j] = w->q[(j + 1) % W16_QUEUE];
+                w->qtail = (w->qtail + W16_QUEUE - 1) % W16_QUEUE;
+                pthread_mutex_unlock(&w->lock);
+                w16_menu_opening(w, req.wparam, (int)req.lparam);
+                pthread_mutex_lock(&w->lock);
+                again = 1;
+                break;
+            }
             if (!wanted(f, w->q[i].hwnd, w->q[i].message)) continue;
             *m = w->q[i];
             if (remove) {
@@ -220,6 +233,7 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
             found = 1;
             break;
         }
+        if (again) continue;
         if (found) break;
         if (w->quit_posted && wanted(f, 0, WM_QUIT)) {
             *m = (struct w16_msg){ 0, WM_QUIT, w->quit_code, 0 };
@@ -562,22 +576,31 @@ static int api_TranslateMessage(struct w16 *w, unsigned ordinal, struct w16_args
     return 4;
 }
 
+uint32_t w16_dispatch(struct w16 *w, const struct w16_msg *m) {
+    if (m->message == WM_TIMER && m->lparam) {   // a TIMERPROC: called, not the window procedure
+        uint32_t t = (uint32_t)w16_now_ms();
+        w16_call_wndproc(w, (uint16_t)(m->lparam >> 16), (uint16_t)m->lparam, m->hwnd, m->message,
+                         m->wparam, t);
+        return 0;
+    }
+    return m->hwnd == w->win.hwnd && w->win.used ? send(w, m->message, m->wparam, m->lparam) : 0;
+}
+
+int w16_get_msg(struct w16 *w, struct w16_msg *m) {
+    struct msg_filter f = { 0, 0, 0 };
+    return next_message(w, &f, 1, 1, m);
+}
+
 // DispatchMessage(lpMsg)
 static int api_DispatchMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint8_t m[10];
     if (get_bytes(w, w16_arg32(a), m, sizeof m) < 0) return -1;
-    uint16_t hwnd = (uint16_t)(m[0] | m[1] << 8), msg = (uint16_t)(m[2] | m[3] << 8);
-    uint16_t wp = (uint16_t)(m[4] | m[5] << 8);
-    uint32_t lp = (uint32_t)(m[6] | m[7] << 8 | m[8] << 16 | (uint32_t)m[9] << 24);
-    if (msg == WM_TIMER && lp) {             // a TIMERPROC: called, not the window procedure
-        uint32_t t = (uint32_t)w16_now_ms();
-        w16_call_wndproc(w, (uint16_t)(lp >> 16), (uint16_t)lp, hwnd, msg, wp, t);
-        set_result(c, 0);
-        return 4;
-    }
-    set_result(c, hwnd == w->win.hwnd && w->win.used ? send(w, msg, wp, lp) : 0);
+    struct w16_msg msg = { (uint16_t)(m[0] | m[1] << 8), (uint16_t)(m[2] | m[3] << 8),
+                           (uint16_t)(m[4] | m[5] << 8),
+                           (uint32_t)(m[6] | m[7] << 8 | m[8] << 16 | (uint32_t)m[9] << 24) };
+    set_result(c, w16_dispatch(w, &msg));
     return 4;
 }
 
@@ -656,7 +679,11 @@ const struct w16_api g_user_api[] = {
 const unsigned g_user_api_n = sizeof g_user_api / sizeof g_user_api[0];
 
 int w16_user(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    int r = w16_user_misc(w, ordinal, a);
+    int r = w16_api_call(g_dialog_api, g_dialog_api_n, w, ordinal, a);
+    if (r != -2) return r;
+    r = w16_api_call(g_menu_api, g_menu_api_n, w, ordinal, a);
+    if (r != -2) return r;
+    r = w16_user_misc(w, ordinal, a);
     if (r != -2) return r;
     return w16_api_call(g_user_api, sizeof g_user_api / sizeof g_user_api[0], w, ordinal, a);
 }

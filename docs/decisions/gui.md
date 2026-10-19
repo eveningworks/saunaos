@@ -11717,3 +11717,35 @@ would draw -- so a w16 window came back offset by the chrome, and would
 have drifted by it each launch. The geometry is restored again when the
 hint arrives before the first frame.
 
+
+## A Win16 dialog is an owned window w16 paints, its controls w16's own
+
+Chosen 2026-10-19 from the "Minesweeper in w16" mockups, over drawing
+it in a toolkit popup as the Application Error box is.
+
+A 3.1 dialog was a top-level window OWNED by the program's: above it,
+the owner frozen while it was up, a click elsewhere doing nothing, no
+taskbar entry. Wine keeps that shape, and so does w16: a dialog is a
+uapp dialog window (`UAPP_WIN_MODAL`, toywm's owned windows) with no
+chrome of toywm's (`UAPP_WIN_NO_DECOR`), and w16 paints the dialog frame
+and the controls itself, as it paints the program's own frame. A popup
+would have been less code, but a press outside it dismisses it -- a
+Cancel 3.1 never did -- and it cannot be moved. The owned window is also
+the first half of the "several top-level windows per uapp process"
+item Notepad and Write need.
+
+THE CONTROLS ARE W16'S, IN C. BUTTON, STATIC and EDIT were USER's own
+window classes on Windows; w16 writes them the same way, on the task
+thread, keeping their state in the window table and telling the
+program's dialog procedure what happened with WM_COMMAND. The main
+thread only paints that state and posts input. 3.1's dialog keyboard
+(Tab, Enter, Esc, mnemonics) is the dialog manager's, so the main
+thread hands a key over RAW, Shift and Alt included, rather than as
+WM_KEYDOWN.
+
+OPENING A MENU IS A ROUND TRIP. Windows sends WM_INITMENU and
+WM_INITMENUPOPUP before a popup shows, so a program can tick and grey
+its items; the program runs on the task thread, so the main thread asks
+the task (a w16-internal message GetMessage consumes), the task sends
+those, and only then is the popup built from the menu as it now stands.
+Opening it straight away would show last time's ticks.

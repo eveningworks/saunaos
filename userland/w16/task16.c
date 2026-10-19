@@ -54,6 +54,23 @@ static int apply_value(uint8_t *mem, uint32_t len, uint16_t at, uint8_t src, int
     return 0;
 }
 
+// KERNEL's CONSTANTS: imported by ordinal like a function, but the loader
+// patches the VALUE in (Wine's krnl386 spec gives each). The selector ones
+// (__0040H and the rest) need real-mode memory w16 does not map, so they
+// stay unresolved -- counted missing, never patched with a guess.
+static const struct { uint16_t ordinal, value; } KERNEL_EQUATES[] = {
+    { 113, 3 },        // __AHSHIFT: a huge pointer's selector step is 1 << 3
+    { 114, 8 },        // __AHINCR
+    { 178, 0x0413 },   // __WINFLAGS: protected mode, a 386, enhanced mode
+};
+
+static int kernel_equate(const char *module, unsigned ordinal, uint16_t *value) {
+    if (strcmp(module, "KERNEL") && strcmp(module, "KRNL386")) return 0;
+    for (unsigned i = 0; i < sizeof KERNEL_EQUATES / sizeof KERNEL_EQUATES[0]; i++)
+        if (KERNEL_EQUATES[i].ordinal == ordinal) { *value = KERNEL_EQUATES[i].value; return 1; }
+    return 0;
+}
+
 // One relocation record of segment `n`: its target, then every site of
 // its chain (just the one when additive).
 static int relocate(struct w16 *w, unsigned n, const struct ne_reloc *r, uint8_t *mem, uint32_t len) {
@@ -77,6 +94,7 @@ static int relocate(struct w16 *w, unsigned n, const struct ne_reloc *r, uint8_t
         if (r->a < 1 || r->a > w->ne.nmod) return load_fail(w->path, "an import names no module");
         sel = w->thunk_sel[r->a];
         off = r->b;
+        if (kernel_equate(w->modname[r->a], r->b, &off)) sel = off;
         break;
     case NE_REL_IMPORT_NAME:
         snprintf(why, sizeof why, "imports from %s by name, which w16 does not resolve yet",
@@ -225,6 +243,8 @@ static int in_table(const struct w16_api *t, unsigned n, unsigned ordinal) {
 }
 
 int w16_has(const char *module, unsigned ordinal) {
+    uint16_t v;
+    if (kernel_equate(module, ordinal, &v)) return 1;
     if (!strcmp(module, "KERNEL") || !strcmp(module, "KRNL386"))
         return in_table(g_kernel_api, g_kernel_api_n, ordinal) ||
                in_table(g_kernel_mem_api, g_kernel_mem_api_n, ordinal) ||
@@ -232,8 +252,12 @@ int w16_has(const char *module, unsigned ordinal) {
                in_table(g_profile_api, g_profile_api_n, ordinal);
     if (!strcmp(module, "USER"))
         return in_table(g_user_api, g_user_api_n, ordinal) ||
-               in_table(g_user_misc_api, g_user_misc_api_n, ordinal);
+               in_table(g_user_misc_api, g_user_misc_api_n, ordinal) ||
+               in_table(g_dialog_api, g_dialog_api_n, ordinal) ||
+               in_table(g_menu_api, g_menu_api_n, ordinal);
     if (!strcmp(module, "GDI")) return in_table(g_gdi_api, g_gdi_api_n, ordinal);
+    if (!strcmp(module, "SHELL")) return in_table(g_shell_api, g_shell_api_n, ordinal);
+    if (!strcmp(module, "SOUND")) return in_table(g_sound_api, g_sound_api_n, ordinal);
     return 0;
 }
 
@@ -270,6 +294,8 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     if (!strcmp(name, "KERNEL") || !strcmp(name, "KRNL386")) r = w16_kernel(w, ordinal, &a);
     else if (!strcmp(name, "USER")) r = w16_user(w, ordinal, &a);
     else if (!strcmp(name, "GDI")) r = w16_gdi(w, ordinal, &a);
+    else if (!strcmp(name, "SHELL")) r = w16_api_call(g_shell_api, g_shell_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "SOUND")) r = w16_api_call(g_sound_api, g_sound_api_n, w, ordinal, &a);
     if (r == -2 || (r < 0 && !c->fault)) {
         char why[96];
         snprintf(why, sizeof why, "%s.%u (%s) is not implemented", name, ordinal,

@@ -49,6 +49,10 @@ void dlg_flush(struct uapp_window *w) {
     struct uapp_surf *s = &g_surf[w->top.slot];
     if (!surf_back(s)) { w->top.dirty = 1; return; }   // drawn once a buffer is back
     if (w->desc.layout) uui_layout_run(w->desc.layout, 0, 0, s->w, s->h);
+    if (w->desc.on_draw) {
+        struct uapp_draw d = { &s->surface, UTHEME_TEXT, UTHEME_PANEL_BG };
+        w->desc.on_draw(w, &d);
+    }
     if (w->desc.log_prefix && layout_log_enabled()) {
         g_log_seen_n = 0;
         if (w->desc.layout) log_items(w->desc.log_prefix, w->desc.layout->items,
@@ -111,9 +115,15 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
             !buttons_heard(&d->top.router, desc->on_action != 0, desc->title))
             d->top.router.count = 0;
     }
+    if (desc->flags & UAPP_WIN_NO_DECOR)
+        wmchan_send(WIN_REQ_HINTS, (uint32_t)slot, WIN_HINT_NO_DECOR, 0, 0, 0);
     d->top.dirty = 1;
     dlg_flush(d);
     return d;
+}
+
+void uapp_window_move_start(struct uapp_window *w, unsigned edges) {
+    if (w && w->top.slot) wmchan_send(WIN_REQ_MOVE_START, (uint32_t)w->top.slot, (int)edges, 0, 0, 0);
 }
 
 void uapp_window_close(struct uapp_window *w) {
@@ -515,9 +525,10 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
     case WIN_EV_MOUSE_DOWN:
         w->top.mouse_x = ev->a;
         w->top.mouse_y = ev->b;
-        if (WIN_MOUSE_BUTTONS(ev->mods) & 0x1)
+        if (WIN_MOUSE_BUTTONS(ev->mods) & 0x1) {
             top_press(&w->top, ev->a, ev->b, WIN_MOUSE_MODS(ev->mods));
-        else if (WIN_MOUSE_BUTTONS(ev->mods) &&
+            if (d->on_press) d->on_press(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods));
+        } else if (WIN_MOUSE_BUTTONS(ev->mods) &&
                  !((WIN_MOUSE_BUTTONS(ev->mods) & 0x2) && top_secondary(&w->top, ev->a, ev->b, 0)) &&
                  d->on_button) {
             g_secondary = w;
@@ -528,6 +539,7 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         if (ev->a < 0 || ev->b < 0) return;   // a leave carries no position
         w->top.mouse_x = ev->a;
         w->top.mouse_y = ev->b;
+        if (d->on_motion) d->on_motion(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods));
         if (!top_routes(&w->top)) return;
         top_motion(&w->top, ev->a, ev->b, ev->mods & 0x1, WIN_MOUSE_MODS(ev->mods));
         int want = uui_router_cursor(&w->top.router, ev->a, ev->b);
@@ -547,6 +559,7 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
             return;
         }
         top_release(&w->top, ev->a, ev->b);
+        if (d->on_release) d->on_release(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods));
         return;
     case WIN_EV_WHEEL:
         top_wheel(&w->top, (int)ev->a);

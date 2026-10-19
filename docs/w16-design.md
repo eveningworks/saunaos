@@ -165,14 +165,24 @@ shape to copy:
    **A display bitmap is 32-bit host pixels** (chosen that day over 3.1's
    device formats): a program treats a device bitmap as opaque, and a
    1-bit one keeps that it is one for the mask conversions. The INI
-   calls read and write real files on drive C: (2026-10-19), and a menu
-   handle names its resource but draws nothing yet -- the menu bar and
-   the dialogs are what is left of Minesweeper. `w16 --trace FILE` logs every call into KERNEL, USER and
+   calls read and write real files on drive C: (2026-10-19). **Menus and
+   dialogs, 2026-10-19 -- Minesweeper complete**: the menu bar from a
+   MENU resource (`menubar16.c`, drawn under the caption, its popups
+   menu16.c's), TranslateAccelerator, and the dialog manager
+   (`dialog16.c`): DialogBox from a DIALOG resource, BUTTON, STATIC and
+   EDIT as w16's own classes, 3.1's dialog keyboard, MessageBox and
+   ShellAbout; a dialog is an owned, modal toywm window of its own
+   (`dlgwin16.c`, uapp's pixel dialog windows) -- `docs/decisions/gui.md`,
+   "A Win16 dialog is an owned window w16 paints". The window table
+   (`wnd16.c`) holds the dialogs and their controls beside the main
+   window. KERNEL's constants `__AHSHIFT`, `__AHINCR` and `__WINFLAGS`
+   are patched at load; SOUND's voices play nothing yet. `w16 --trace FILE` logs every call into KERNEL, USER and
    GDI (Wine's `+relay`), which is how a stage-4 program's next stop is
    found.
 4. **Real programs**, the user's own copies (none ship): run each,
-   read its unimplemented list, implement, repeat. Several top-level
-   windows per process need uapp to grow past one main window.
+   read its unimplemented list (the launcher's calls window), implement,
+   repeat. A second top-level window that is not a dialog still needs
+   uapp to grow past one main window.
 
 ## Not planned
 

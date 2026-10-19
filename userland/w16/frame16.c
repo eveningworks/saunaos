@@ -56,12 +56,22 @@ void w16_scale_blit(struct ugfx_surface *dst, int dx, int dy, const uint32_t *sr
     free(row);
 }
 
-void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch) {
-    int f = frame_of(win), cap = has_caption(win) ? W16_CAPTION : 0;
+// The bar is under the caption and over the client, in the 3.1 frame
+// and the desktop's alike: it is the program's, so w16 draws it.
+void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h) {
+    int f = frame_of(win);
     *x = f;
-    *y = f + cap;
+    *y = f + (has_caption(win) ? W16_CAPTION : 0);
+    *w = win->w - 2 * f;
+    *h = win->menubar ? W16_MENU_H : 0;
+}
+
+void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch) {
+    int f = frame_of(win), cap = has_caption(win) ? W16_CAPTION : 0, bar = win->menubar ? W16_MENU_H : 0;
+    *x = f;
+    *y = f + cap + bar;
     *cw = win->w - 2 * f;
-    *ch = win->h - 2 * f - cap;
+    *ch = win->h - 2 * f - cap - bar;
     if (*cw < 1) *cw = 1;
     if (*ch < 1) *ch = 1;
 }
@@ -180,6 +190,9 @@ enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *ed
     int W = win->w, H = win->h, f = frame_of(win);
     *edges = 0;
     if (x < 0 || y < 0 || x >= W || y >= H) return HIT_NONE;
+    int bx, by, bw, bh;
+    w16_frame_menubar(win, &bx, &by, &bw, &bh);
+    if (bh && y >= by && y < by + bh && x >= bx && x < bx + bw) return HIT_MENU;
     if (g_w16_desktop_frame) return HIT_CLIENT;
     if ((win->style & WS_THICKFRAME) && !win->maximized) {
         int n = W16_CAPTION + f;                   // a corner reaches this far along an edge

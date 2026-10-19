@@ -30,6 +30,11 @@ file is involved.
 6. **Win16 Programs**: the launcher lists the samples, a double click on
    one runs it, and `win16 FILE` runs a program with no launcher window
    (the File Manager's Open for an .exe).
+8. **Dialogs and the menu bar** (dialog.exe): Alt+F, C ticks File >
+   Checked off (CheckMenuItem; Checked=0 lands in DIALOG.INI), F2 is an
+   accelerator for File > Number..., whose dialog starts at 42 and keeps
+   what is typed over it (Value=), a right click's MessageBox answers No
+   with its mnemonic (Box=7), and Help > About is ShellAbout's box.
 7. **A program's calls** (`win16 --calls FILE`, win16/calls.c): fault.exe
    lacks exactly USER.7 ExitWindows, so its window lists that one row
    under two chips (All, USER); Show all imports lists every import
@@ -281,6 +286,70 @@ def launcher(dbg, res):
               f"the file: {last!r}")
 
 
+DLG_TITLE = "Dialog test (Win16)"
+DLG_INI = "/home/Win16/WINDOWS/DIALOG.INI"
+
+
+def wait_titles(dbg, pred, t=8.0):
+    end = time.time() + t
+    while time.time() < end:
+        titles = [w["title"] for w in dbg.windows()]
+        if pred(titles):
+            return titles
+        time.sleep(0.3)
+    return [w["title"] for w in dbg.windows()]
+
+
+def ini_has(dbg, line, t=6.0):
+    end = time.time() + t
+    while time.time() < end:
+        if line in sh(dbg, f"cat {DLG_INI}"):
+            return True
+        time.sleep(0.3)
+    return False
+
+
+def dialogs(dbg, res):
+    sh(dbg, f"rm {DLG_INI}")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/dialog.exe", DLG_TITLE)
+    res.check("dialog.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    dbg.send("gui key f alt")
+    titles = wait_titles(dbg, lambda t: "Popup" in t)
+    res.check("Alt+F opens the File menu from the bar", "Popup" in titles, f"windows {titles}")
+    dbg.send("gui key c")
+    res.check("File > Checked unticks itself (CheckMenuItem): Checked=0", ini_has(dbg, "Checked=0"),
+              sh(dbg, f"cat {DLG_INI}"))
+    dbg.send("gui key 0xF789")                    # F2
+    titles = wait_titles(dbg, lambda t: "Number" in t)
+    res.check("F2, an accelerator, opens the dialog", "Number" in titles, f"windows {titles}")
+    for ch in "57":
+        dbg.send(f"gui key {ch}")
+        dbg.settle(0.1)
+    dbg.send("gui key 0x0a")
+    res.check("what is typed over 42 is what GetDlgItemInt reads on OK: Value=57", ini_has(dbg, "Value=57"),
+              sh(dbg, f"cat {DLG_INI}"))
+    titles = wait_titles(dbg, lambda t: "Number" not in t)
+    res.check("EndDialog closes it", "Number" not in titles, f"windows {titles}")
+    win = dbg.window(DLG_TITLE)
+    dbg.rclick(win["x"] + win["w"] // 2, win["y"] + win["h"] - 20)
+    titles = wait_titles(dbg, lambda t: t.count(DLG_TITLE) == 2)
+    res.check("a right click's MessageBox opens, captioned as the program asked", titles.count(DLG_TITLE) == 2,
+              f"windows {titles}")
+    dbg.send("gui key n")
+    res.check("its No answers by mnemonic: Box=7 (IDNO)", ini_has(dbg, "Box=7"), sh(dbg, f"cat {DLG_INI}"))
+    dbg.send("gui key h alt")
+    wait_titles(dbg, lambda t: "Popup" in t)
+    dbg.send("gui key a")
+    titles = wait_titles(dbg, lambda t: "About Dialog test" in t)
+    res.check("Help > About is ShellAbout's box", "About Dialog test" in titles, f"windows {titles}")
+    dbg.send("gui key 0x0a")
+    titles = wait_titles(dbg, lambda t: "About Dialog test" not in t)
+    res.check("...and Enter closes it", "About Dialog test" not in titles, f"windows {titles}")
+    dbg.close_window(DLG_TITLE)
+
+
 CALLS = "win16-calls: layout "
 
 
@@ -382,6 +451,7 @@ def main():
         settings(dbg, qmp, res)
         launcher(dbg, res)
         calls(dbg, res)
+        dialogs(dbg, res)
     finally:
         dbg.close()
     print(f"\nw16_gui_test: {len(res.passes)} passed, {len(res.fails)} failed")

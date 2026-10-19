@@ -918,15 +918,18 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: a fault or an unimplemented call as a crash report~~ DONE 2026-10-19 -- the Application Error box, then `set_abort_message()`
 - [ ] w16: Move and Size on the control menu -- 3.1's keyboard move and size, which need toywm to run a drag with no button held
 - [x] ~~Stage 3, first part: resources, both heaps, GDI objects and blits, timers, capture -- Minesweeper plays~~ DONE 2026-10-19
-- [ ] w16: the menu bar, drawn from the MENU resource with menu16.c's popups -- Minesweeper's Game menu
-- [ ] w16: dialogs from DIALOG resources (Minesweeper's Custom Field and Best Times)
+- [x] ~~w16: the menu bar from the MENU resource, accelerators, dialogs from DIALOG resources, MessageBox~~ DONE 2026-10-19
+- [ ] w16: a dialog placed where its template says, not centred -- toywm opens owned windows centred
+- [ ] w16: the other standard controls -- check boxes, radio buttons, group boxes, LISTBOX, COMBOBOX
+- [ ] w16: the sound driver's voices played through toy-os's sound, not answered silently
 - [x] ~~w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings~~ DONE 2026-10-19
 - [ ] w16: the launcher's Run with trace -- open the trace beside the stop, in Log Viewer or Notepad
 - [x] ~~w16: a program's missing calls in a window of their own, with names and kinds for every Win16 DLL~~ DONE 2026-10-19
-- [ ] w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values, not counted missing
+- [x] ~~w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values~~ DONE 2026-10-19 -- the selector ones remain
 - [ ] Stage 3: the standard controls (BUTTON, EDIT, LISTBOX, STATIC) and file I/O
 - [ ] Stage 4: real programs (the user's own copies), each run's unimplemented-import list worked through
-- [ ] Several top-level windows per uapp process, which real Win16 programs need
+- [ ] Several top-level windows per uapp process, which real Win16 programs need -- owned dialogs done 2026-10-19
+- [ ] w16's fixed tables grown on demand: the message queue, classes, local-heap blocks, GDI objects, timers
 
 ## Hardware
 
