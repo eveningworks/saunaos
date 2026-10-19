@@ -372,9 +372,13 @@ static int rtl_transmit(struct net_device *dev, const void *frame, uint32_t len)
 // which is precisely the "a probe that outruns the log destroys the
 // evidence" trap CLAUDE.md warns about, arrived at from the driver side.
 //
-// Nothing has to un-latch this: a replug re-enumerates the adapter and
-// binds a fresh rtl_usb, which is where the state lives.
+// AND SILENCE IS NOT "DOWN". The ASUS's r8153 stopped answering its
+// PHYSTATUS reads 54 s into a boot and went on carrying traffic for
+// hours, so the latch reports the link UNKNOWN -- not down, which the
+// desktop reads as a pulled cable -- and asks again every 30 s, at a
+// thirtieth of the cost, in case it answers again.
 #define RTL_LINK_FAILS_MAX 3
+#define RTL_LINK_RETRY_TICKS 3000
 
 #define RTL_POWER_KEEP 0
 #define RTL_POWER_OFF  1
@@ -389,7 +393,7 @@ static int rtl_set_admin(struct net_device *dev, int on) {
 
 static void rtl_poll(struct net_device *dev) {
     struct rtl_usb *d = dev->drv;
-    if (!d->in_use || d->link_gone) return;
+    if (!d->in_use) return;
     uint8_t want = d->want_power;
     if (want != RTL_POWER_KEEP) {
         // OFF powers the PHY down, so the link drops at both ends; ON is
@@ -401,24 +405,28 @@ static void rtl_poll(struct net_device *dev) {
         d->link_checked = 0;   // read what it did on this call
     }
     uint64_t now = coarse_ticks();
-    if (d->link_checked && now - d->link_checked < 100) return;
+    uint64_t every = d->link_gone ? RTL_LINK_RETRY_TICKS : 100;
+    if (d->link_checked && now - d->link_checked < every) return;
     d->link_checked = now;
 
     uint16_t st;
     if (!rtl_read2_ok(PLA_PHYSTATUS, MCU_PLA, &st)) {
-        if (++d->link_fails < RTL_LINK_FAILS_MAX) return;
+        if (d->link_gone || ++d->link_fails < RTL_LINK_FAILS_MAX) return;
         d->link_gone = 1;
         // ONCE, and it says what stopped as well as why -- a link that
         // simply goes down is a different event from one nobody is
         // watching any more.
-        klog_printf("usb-net: %s not answering after %u tries -- link "
-                    "polling stopped; replug to recover\n",
-                    dev->name, (unsigned)RTL_LINK_FAILS_MAX);
+        klog_printf("usb-net: %s not answering after %u tries -- link state "
+                    "unknown; asking again every %u s\n",
+                    dev->name, (unsigned)RTL_LINK_FAILS_MAX,
+                    (unsigned)(RTL_LINK_RETRY_TICKS / 100));
         dev->link_up = 0;
         dev->link_bps = 0;
-        dev->link_known = 1;
+        dev->link_known = 0;
         return;
     }
+    if (d->link_gone) klog_printf("usb-net: %s answering again\n", dev->name);
+    d->link_gone = 0;
     d->link_fails = 0;
     uint8_t up = (st & PHYSTATUS_LINK) ? 1 : 0;
     uint32_t bps = !up ? 0

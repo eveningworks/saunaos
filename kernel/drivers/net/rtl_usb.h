@@ -350,9 +350,11 @@ struct rtl_usb {
     uint8_t tx_next;
 
     uint64_t link_checked;         // coarse_ticks() of the last PHY read
-    // Consecutive failed link reads, and the latch that stops them. A
-    // device that has gone away without a detach event is polled
-    // forever otherwise -- see rtl_poll().
+    // Consecutive failed link reads, and the latch that SLOWS them to
+    // one every 30 s and reports the link unknown: a device gone without
+    // a detach event would be polled at full rate for ever otherwise,
+    // and one that merely stopped answering may answer again -- see
+    // rtl_poll().
     uint8_t  link_fails;
     uint8_t  link_gone;
     // The adapter switch (set_admin), queued for rtl_poll(): a register
