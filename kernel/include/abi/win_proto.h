@@ -910,7 +910,9 @@ struct win_event {
 #define WIN_CURSOR_GRABBING 10 // ...and that drag is under way: a closed one
 #define WIN_CURSOR_NONE     11 // no pointer: the app draws its own (Paint's brush outline) --
                                // Wayland's set_cursor with no surface
-#define WIN_CURSOR_COUNT    12
+#define WIN_CURSOR_RESIZE_NWSE 12 // a corner dragged along \ (top-left, bottom-right)
+#define WIN_CURSOR_RESIZE_NESW 13 // ...and along / (top-right, bottom-left)
+#define WIN_CURSOR_COUNT    14
 
 // THE CLIPBOARD IS NOT HERE ANY MORE. It was a buffer in
 // kernel/proc/win_server.c reached by SYS_WIN_CLIP, holding untrusted

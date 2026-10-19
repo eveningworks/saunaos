@@ -763,6 +763,8 @@ static enum wm_cursor_kind client_cursor_at(int mx, int my) {
         // same one rather than for a second drawing of the same idea.
         case WIN_CURSOR_RESIZE_H: return WM_CURSOR_H;
         case WIN_CURSOR_RESIZE_V: return WM_CURSOR_V;
+        case WIN_CURSOR_RESIZE_NWSE: return WM_CURSOR_DIAG;
+        case WIN_CURSOR_RESIZE_NESW: return WM_CURSOR_DIAG2;
         case WIN_CURSOR_HAND:     return WM_CURSOR_HAND;
         case WIN_CURSOR_MOVE:     return WM_CURSOR_MOVE;
         case WIN_CURSOR_NOT_ALLOWED: return WM_CURSOR_NOT_ALLOWED;

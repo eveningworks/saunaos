@@ -1450,8 +1450,10 @@ void wm_update_content_hover(int mx, int my, uint8_t buttons) {
             if (w->state == WIN_MINIMIZED) continue;
             if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;
             if (owner && w->client_pid != owner) break;
-            // Over this window, but the title bar isn't app content.
-            if (w->popup || my >= w->y + WM_TITLEBAR_H) now = i;
+            // Over this window, but the title bar isn't app content -- and a
+            // window without toywm's frame has none: its top rows are the
+            // client's (w16's 3.1 caption and resize border).
+            if (w->popup || !window_has_chrome(w) || my >= w->y + WM_TITLEBAR_H) now = i;
             break; // topmost hit wins either way -- windows below are covered
         }
     }

@@ -386,6 +386,13 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
             if (went & bit) client_mouse(button_msg(bit, 0), mk_flags(buttons), x, y);
 }
 
+static int edge_cursor(unsigned edges) {
+    int h = edges & (WIN_EDGE_LEFT | WIN_EDGE_RIGHT), v = edges & (WIN_EDGE_TOP | WIN_EDGE_BOTTOM);
+    if (h && v)                          // top-left and bottom-right drag along \, the others /
+        return !(edges & WIN_EDGE_LEFT) == !(edges & WIN_EDGE_TOP) ? WIN_CURSOR_RESIZE_NWSE : WIN_CURSOR_RESIZE_NESW;
+    return h ? WIN_CURSOR_RESIZE_H : v ? WIN_CURSOR_RESIZE_V : WIN_CURSOR_DEFAULT;
+}
+
 static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     x = w16_down(x);
     y = w16_down(y);
@@ -405,11 +412,14 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
         if (g_menu.sel != was) uapp_redraw(a);
         return;
     }
-    // The pointer takes the shape of the window under it: an edit's I-beam.
+    // The pointer takes the shape of the window under it: an edit's I-beam,
+    // or over the 3.1 frame's border -- which toywm cannot see -- the
+    // resize arrow for the way that edge or corner drags.
     unsigned edges;
     int shape = WIN_CURSOR_DEFAULT;
-    if (mouse_is_programs(w16_frame_hit(&g_w16.win, x, y, &edges)))
-        shape = client_mouse(WM_MOUSEMOVE, mk_flags(buttons), x, y);
+    enum w16_hit hit = w16_frame_hit(&g_w16.win, x, y, &edges);
+    if (mouse_is_programs(hit)) shape = client_mouse(WM_MOUSEMOVE, mk_flags(buttons), x, y);
+    else if (hit == HIT_EDGE && !maximized()) shape = edge_cursor(edges);
     uapp_set_cursor(a, shape);
 }
 
