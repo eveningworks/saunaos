@@ -404,7 +404,9 @@ static void far_call(struct cpu16 *c, uint16_t sel, uint16_t off) {
 static void interrupt(struct cpu16 *c, uint8_t n) {
     if (!c->intr || c->intr(c, n) < 0) {
         char why[48];
-        snprintf(why, sizeof why, "INT %02Xh is not implemented", n);
+        // AH names the function for the DOS and BIOS services, so a
+        // missing one says which.
+        snprintf(why, sizeof why, "INT %02Xh function %02Xh is not implemented", n, c->r[R_AX] >> 8);
         cpu16_set_fault(c, FAULT_INT, why);
     }
 }
