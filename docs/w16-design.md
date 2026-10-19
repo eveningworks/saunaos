@@ -159,6 +159,81 @@ shape to copy:
   the WM to take over the drag, so moving a 3.1 window feels like
   moving any other.
 
+### Comparing with real Windows 3.11
+
+**The reference is a real Windows for Workgroups 3.11, measured, never
+remembered.** It runs in QEMU on MS-DOS 6.22 (640x480 VGA, 16 colours,
+no network card, no printer), built from the maintainer's own disks in
+the local-only assets folder (`local_info.txt`), which also holds its
+driver script (`win311vm.py`: `start`, `key`, `type`, `shot [--to]`,
+`floppy`, `stop`) and a screenshot of every install step. None of it
+enters this repo.
+
+**How:**
+
+1. **The same data on both.** One test file -- a heading, a blank line,
+   a line longer than the window, punctuation -- copied onto the
+   reference's C: (mtools, the VM stopped) and into `/home/Win16`.
+2. **A fresh toy-os image every run.** toywm remembers each app's last
+   size (`/etc/windows.conf`), so a reused image opens the program at
+   whatever size it was left, not at its own default.
+3. **The same keystrokes on both, one state per screenshot.** Keys, not
+   the mouse: the reference's pointer is relative and Windows
+   accelerates it, so a click cannot be aimed.
+4. **Close programs by APP ID between runs, never by title** -- a wrong
+   title leaves the old window open and the next run's keys go into it
+   (Minesweeper's Esc is its boss key: it minimises).
+5. **w16 at 1x** (`scale=1`): it reports a 640x480 screen, as the
+   reference has, so a default-sized window is the same size on both
+   and a pixel is a pixel.
+6. **Diff, then dump.** Crop each pair to the window, take a PIL
+   `ImageChops.difference` and count differing pixels per region
+   (caption, menu bar, each scroll bar, client) -- the regions that are
+   not zero say where to look. Then dump the region as a character map,
+   one character per pixel class (`#` black, `.` white, `o` face grey,
+   `+` shadow grey, `N` navy), from both, and compare row by row.
+7. Fix, re-shoot on a fresh image, diff again; then the GUI test
+   (`w16_gui_test.py`), whose expected colours and frame sizes are
+   3.11's too.
+
+**What to compare** -- each state, each of these:
+
+| Area | Look at |
+|---|---|
+| The window as it opens | its default size; frame rows and columns; the corner notches; the caption's height, title, control-menu box, minimise/maximise buttons |
+| The menu bar and each menu | bar height and its line; item rows, separators, check marks, grey items, accelerators; which item is lit when it drops from the keyboard |
+| Scroll bars | arrows (head and stem), the button bevel, the thumb, the trough; a bar with nothing to scroll; where the bar meets the frame and the menu bar |
+| Each dialog (Open, Save As, Find, About, the program's own) | outer size (it gives the base units), frame and caption, every control's font and place, list contents and case, combo buttons, drive and folder icons, which item is selected |
+| The control menu (Alt+Space) | items, which are grey, which is lit |
+| Text | the client's font, its row height and left margin; the caret; a selection's colours |
+| The keyboard | Alt+letter, arrows across the bar, Esc from a menu (once, then again), F10, Enter on a grey item |
+
+**3.11 at VGA, measured -- what w16 now follows:**
+
+| Thing | 3.11 |
+|---|---|
+| Caption | 18 rows and a black line (W16_CAPTION 19) |
+| Menu bar | 18 rows and a black line (W16_MENU_H 19) |
+| Main frame | black, 2 grey, black: 4; notches 22 from each outer corner, on the caption buttons' edges |
+| Dialog frame | black, navy (3 rows on top under a caption, 4 elsewhere), then a white line round caption and client; no caption: navy to the client |
+| Control-menu box | 18 square; its bar 13 by 3, 2 in, 7 down, a shadow 1 down-right |
+| Scroll-bar arrows | head 7 wide, stem 3 by 3, 7 long, centred; grey with a white shadow when there is nothing to scroll, over a white trough with no thumb |
+| A top-level window's scroll bars | share their outer edge with the frame's inner line and the menu bar's line -- no second black line |
+| Button bevel | white top and left; shadow two deep, the inner line stopping at the white |
+| Colours | navy 0000A8, face grey C0C7C8, shadow grey 87888F (the VGA palette; ctl16.c's `w16_vga()`) |
+| Base units | System font 8x16; a template's `FONT 8, "Helv"` 7x13, drawn bold |
+| Font cells | System 16, Helv 8 13, Fixedsys 15 |
+| CW_USEDEFAULT | 632x408 on 640x480 |
+| COMMDLG | names and the filter in lower case; "c: label" with a drive icon; the current folder not selected |
+| Menus | dropped from the keyboard: the first item lit even when grey; Esc goes back to the bar, a second Esc out |
+
+**Still different, known:** the glyphs (Liberation and DejaVu stand in
+for the System, Helv and Fixedsys bitmap fonts, which cannot ship --
+compared for size, weight and metrics, never shapes); the control
+menu's Move and Size (not built) and Switch To; a dialog's place (toywm
+centres it; 3.1 used the template's position); ShellAbout's layout; the
+other dark colours of the palette, whose mapping is not yet measured.
+
 ## Stages
 
 0. **The format.** `tools/gen_ne.py` builds NE executables from

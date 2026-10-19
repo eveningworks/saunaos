@@ -92,6 +92,10 @@ static struct w16_menu g_bar;            // the menu bar's open title, its popup
 static int g_bar_pos = -1;               // that title, or -1
 static int g_bar_pending;                // asked of the task, not shown yet
 static int g_bar_by_key;
+// 3.1's menu-bar mode: a title lit with nothing dropped -- after Esc closes
+// a menu opened from the keyboard, or after F10. Arrows move it, Down or
+// Enter drops it, a second Esc leaves. -1 when the bar is not in it.
+static int g_bar_hot = -1;
 static struct w16_msgbox g_box;          // the Application Error box, once the program stopped
 static int g_faulted;
 static unsigned g_buttons;               // the mouse buttons down, as the program last heard
@@ -236,7 +240,12 @@ static void on_open(struct uapp *a) {
     g_w16.app = a;
     int pending = g_w16.pending_syscmd;
     g_w16.pending_syscmd = 0;
+    // The title as it is NOW: a program that retitled its window before
+    // this one was up (Notepad's "Notepad - FILE.TXT") posted to no one.
+    char *title = g_w16.win.text ? strdup(g_w16.win.text) : 0;
     pthread_mutex_unlock(&g_w16.lock);
+    if (title) uapp_set_title(a, title);
+    free(title);
     if (pending) do_syscmd(a, pending);   // ShowWindow(SW_MAXIMIZE) before the window was up
 }
 
@@ -262,7 +271,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     w16_frame_draw(out, win, uapp_focused(a), w16_menu_open_p(&g_menu) ? HIT_SYSMENU : g_pressed);
     int bx, by, bw, bh;
     w16_frame_menubar(win, &bx, &by, &bw, &bh);
-    if (bh) w16_menubar_draw(out, &g_w16, bx, by, bw, bar_open() ? g_bar_pos : -1);
+    if (bh) w16_menubar_draw(out, &g_w16, bx, by, bw, bar_open() ? g_bar_pos : g_bar_hot);
     int cx, cy, cw, ch;
     w16_client_rect(win, &cx, &cy, &cw, &ch);
     if (win->fb) ugfx_blit(out, cx, cy, win->fbw, win->fbh, win->fb, win->fbw);
@@ -281,6 +290,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         uapp_redraw(a);
         return;
     }
+    if (g_bar_hot >= 0) { g_bar_hot = -1; uapp_redraw(a); }   // a press leaves menu-bar mode
     unsigned edges;
     enum w16_hit hit = w16_frame_hit(&g_w16.win, x, y, &edges);
     uint64_t now = sys_ticks();
@@ -444,7 +454,9 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
             pthread_mutex_unlock(&g_w16.lock);
             if (n) bar_request(a, (g_bar_pos + (id == W16_MENU_LEFT ? n - 1 : 1)) % n, 1);
         } else if (id == (unsigned)-1) {
+            int was = g_bar_pos;
             bar_close(a);
+            g_bar_hot = g_bar_by_key ? was : -1;   // Esc steps back to the bar, not out of it
         } else if (id) {
             bar_choose(a, id);
         }
@@ -457,14 +469,36 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         uapp_redraw(a);
         return;
     }
+    if (g_bar_hot >= 0) {
+        pthread_mutex_lock(&g_w16.lock);
+        int n = w16_menubar_count(&g_w16);
+        int t = key > ' ' && key < 0x7F ? w16_menubar_mnemonic(&g_w16, key) : -1;
+        pthread_mutex_unlock(&g_w16.lock);
+        int hot = g_bar_hot;
+        g_bar_hot = -1;
+        if (n && key == KEY_ARROW_LEFT) g_bar_hot = (hot + n - 1) % n;
+        else if (n && key == KEY_ARROW_RIGHT) g_bar_hot = (hot + 1) % n;
+        else if (key == KEY_ARROW_DOWN || key == KEY_ARROW_UP || key == '\n' || key == '\r') bar_request(a, hot, 1);
+        else if (t >= 0) bar_request(a, t, 1);
+        else if (key != 0x1B) g_bar_hot = hot;   // anything else is ignored, as 3.1 beeped and stayed
+        uapp_redraw(a);
+        return;
+    }
     if (key == ' ' && (mods & KEY_MOD_ALT)) {   // Alt+Space: the control menu, through the program
         syscommand(SC_KEYMENU);
         return;
     }
-    // Alt and a title's letter, or F10, opens the menu bar from the keyboard.
-    if (g_w16.win.menubar && (key == KEY_F10 || ((mods & KEY_MOD_ALT) && key > ' ' && key < 0x7F))) {
+    // F10 lights the bar's first title; Alt and a title's letter drops that menu.
+    if (g_w16.win.menubar && key == KEY_F10) {
         pthread_mutex_lock(&g_w16.lock);
-        int t = key == KEY_F10 ? (w16_menubar_count(&g_w16) ? 0 : -1) : w16_menubar_mnemonic(&g_w16, key);
+        g_bar_hot = w16_menubar_count(&g_w16) ? 0 : -1;
+        pthread_mutex_unlock(&g_w16.lock);
+        uapp_redraw(a);
+        return;
+    }
+    if (g_w16.win.menubar && (mods & KEY_MOD_ALT) && key > ' ' && key < 0x7F) {
+        pthread_mutex_lock(&g_w16.lock);
+        int t = w16_menubar_mnemonic(&g_w16, key);
         pthread_mutex_unlock(&g_w16.lock);
         if (t >= 0) { bar_request(a, t, 1); return; }
     }
@@ -473,11 +507,12 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 
 static void on_key_up(struct uapp *a, int key, unsigned mods) {
     (void)a; (void)mods;
-    if (g_faulted || w16_menu_open_p(&g_menu) || bar_open()) return;
+    if (g_faulted || w16_menu_open_p(&g_menu) || bar_open() || g_bar_hot >= 0) return;
     w16_route_key(&g_w16, &g_w16.win, key, mods, 1);
 }
 
 static void on_focus(struct uapp *a, int focused) {
+    if (!focused) g_bar_hot = -1;
     // WM_ACTIVATE, whose DefWindowProc gives the window -- or the program,
     // a child of it -- the keyboard focus.
     w16_post_msg(&g_w16, g_w16.win.hwnd, W16_WM_ACTIVATE, (uint16_t)(focused != 0), 0);
@@ -608,8 +643,14 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     else snprintf(appid, sizeof appid, "w16-%s", w->ne.name);
     for (char *p = appid; *p; p++)
         *p = *p >= 'A' && *p <= 'Z' ? (char)(*p + 32) : (*p == ' ' || *p == '/') ? '-' : *p;
+    // A COPY, taken under the lock: the program runs on, and a SetWindowText
+    // frees win.text -- the pointer itself once named whatever reused it.
+    pthread_mutex_lock(&w->lock);
+    static char *first_title;
+    first_title = strdup(w->win.text ? w->win.text : "");
+    pthread_mutex_unlock(&w->lock);
     struct uapp_desc desc = {
-        .title = w->win.text ? w->win.text : "",
+        .title = first_title ? first_title : "",
         // Sized in REAL pixels: the window's 1x size times the scale.
         .app_id = appid,
         .flags = (g_w16_desktop_frame ? 0 : UAPP_NO_DECOR) |

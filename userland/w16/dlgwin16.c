@@ -16,20 +16,12 @@
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 
+// The System font's base units: 3.11's at VGA, 8 by 16 -- fixed rather
+// than measured off the stand-in face, so a program's dialogs come out the
+// size they were whatever face draws them.
 void w16_dlg_units(int *bx, int *by) {
-    static int x, y;
-    pthread_mutex_lock(&g_w16_text_lock);
-    if (!x) {
-        const struct ugfx_font *was = ugfx_set_font(w16_system_font());
-        x = (ugfx_text_width("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz") + 26) / 52;
-        y = ugfx_char_h();
-        ugfx_set_font(was);
-        if (x < 1) x = 8;
-        if (y < 1) y = 16;
-    }
-    pthread_mutex_unlock(&g_w16_text_lock);
-    *bx = x;
-    *by = y;
+    *bx = 8;
+    *by = 16;
 }
 
 // The frame and caption round the client buffer (under the w16 lock and
@@ -39,27 +31,30 @@ void w16_dlg_units(int *bx, int *by) {
 static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
     struct ugfx_surface s = ugfx_surface_for_pixels(px, d->w, d->h);
     uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF);
-    int f = w16_dlg_frame(d), cap = w16_dlg_caption(d);
+    int f = w16_dlg_frame(d), top = w16_dlg_frame_top(d), cap = w16_dlg_caption(d);
     ugfx_fill_rect(&s, 0, 0, d->w, d->h, black);
     if (f > 1) {
         uint32_t band = d->active ? w16_rgb(0x000080) : w16_rgb(0xC0C0C0);
         ugfx_fill_rect(&s, 1, 1, d->w - 2, d->h - 2, band);
-        if (cap) ugfx_fill_rect(&s, f - 1, f - 1, d->w - 2 * f + 2, d->h - 2 * f + 2, black);
+        ugfx_draw_rect(&s, f - 1, top - 1, d->w - 2 * f + 2, d->h - top - f + 2, white);
+        // The white line's top edge is the caption's: with none, 3.11's frame
+        // is navy to the client there.
+        if (!cap) ugfx_fill_rect(&s, f - 1, top - 1, d->w - 2 * f + 2, 1, band);
     }
     if (cap) {
         int cw = d->w - 2 * f;
         uint32_t bar = d->active ? w16_rgb(0x000080) : white, ink = d->active ? white : black;
-        ugfx_fill_rect(&s, f, f, cw, cap - 1, bar);
-        ugfx_fill_rect(&s, f, f + cap - 1, cw, 1, black);
+        ugfx_fill_rect(&s, f, top, cw, cap - 1, bar);
+        ugfx_fill_rect(&s, f, top + cap - 1, cw, 1, black);
         int box = cap - 1;
-        w16_draw_sysbox(&s, f, f, box, box, 0);   // the main window's own, frame16.c's
-        ugfx_fill_rect(&s, f + box, f, 1, box, black);
+        w16_draw_sysbox(&s, f, top, box, box, 0);   // the main window's own, frame16.c's
+        ugfx_fill_rect(&s, f + box, top, 1, box, black);
         const char *t = d->text ? d->text : "";
         int tw = ugfx_text_width(t);
-        ugfx_draw_string_clipped(&s, f + box + (cw - box - tw) / 2, f + (cap - 1 - ugfx_char_h()) / 2,
+        ugfx_draw_string_clipped(&s, f + box + (cw - box - tw) / 2, top + (cap - 1 - ugfx_char_h()) / 2,
                                  cw - box - 2, t, ink, bar);
     }
-    if (d->fb) ugfx_blit(&s, f, f + cap, d->fbw, d->fbh, d->fb, d->fbw);
+    if (d->fb) ugfx_blit(&s, f, top + cap, d->fbw, d->fbh, d->fb, d->fbw);
 }
 
 // --- the window -----------------------------------------------------------------
@@ -94,11 +89,11 @@ static void on_draw(struct uapp_window *u, struct uapp_draw *dr) {
 static void post_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsigned buttons) {
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
-    int f = d ? w16_dlg_frame(d) : 0, cap = d ? w16_dlg_caption(d) : 0;
+    int f = d ? w16_dlg_frame(d) : 0, top = d ? w16_dlg_frame_top(d) : 0, cap = d ? w16_dlg_caption(d) : 0;
     pthread_mutex_unlock(&g_w16.lock);
     if (!d) return;
     x = w16_down(x) - f;
-    y = w16_down(y) - f - cap;
+    y = w16_down(y) - top - cap;
     if (msg == WM_LBUTTONDOWN && y < 0 && y >= -cap && !g_w16.capture) { uapp_window_move_start(u, 0); return; }
     w16_route_mouse(&g_w16, d, msg, (uint16_t)(buttons & 1 ? 0x0001 : 0), x, y);
 }

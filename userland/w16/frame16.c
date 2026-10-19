@@ -12,7 +12,7 @@
 
 #define BTN 18                                    // a caption button's width
 
-static uint32_t rgb(uint32_t v) { return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v); }
+static uint32_t rgb(uint32_t v) { return w16_rgb(v); }
 
 int g_w16_desktop_frame;          // the desktop's frame instead of 3.1's
 
@@ -106,10 +106,10 @@ void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h)
 
 void w16_draw_sysbox(struct ugfx_surface *s, int x, int y, int w, int h, int open) {
     ugfx_fill_rect(s, x, y, w, h, open ? rgb(0x000080) : rgb(0xC0C0C0));
-    int bx = x + 3, by = y + h / 2 - 1;
-    ugfx_fill_rect(s, bx + 1, by + 1, w - 6, 3, rgb(0x808080));
-    ugfx_fill_rect(s, bx, by, w - 6, 3, rgb(0xFFFFFF));
-    ugfx_draw_rect(s, bx, by, w - 6, 3, rgb(0x000000));
+    int bx = x + 2, by = y + (h - 4) / 2;           // 13 by 3 in an 18-pixel box, as 3.11 has it
+    ugfx_fill_rect(s, bx + 1, by + 1, w - 5, 3, rgb(0x808080));
+    ugfx_fill_rect(s, bx, by, w - 5, 3, rgb(0xFFFFFF));
+    ugfx_draw_rect(s, bx, by, w - 5, 3, rgb(0x000000));
 }
 
 void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int active, int pressed) {
@@ -125,7 +125,8 @@ void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int activ
         ugfx_fill_rect(s, W - f + 1, 1, f - 2, H - 2, border);
         ugfx_draw_rect(s, f - 1, f - 1, W - 2 * f + 2, H - 2 * f + 2, black);
         // The corner notches: where a drag stops sizing one edge and
-        // starts sizing two.
+        // starts sizing two: on the line under the caption and on the
+        // caption buttons' edges, as 3.11 had them.
         int n = W16_CAPTION + f - 1;
         ugfx_fill_rect(s, n, 0, 1, f, black);
         ugfx_fill_rect(s, W - n - 1, 0, 1, f, black);

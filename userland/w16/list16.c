@@ -117,14 +117,11 @@ void w16_listbox_folders(struct w16_wnd *x, int on) {
     if (l) l->folders = on;
 }
 
-static int item_h(void) {
-    int bx, by;
-    w16_dlg_units(&bx, &by);
-    return by;
-}
+// A row: a line of the list's font.
+static int item_h(const struct w16_wnd *x) { return w16_font_line_h(x ? x->font : 0); }
 
 static int rows(const struct w16_wnd *x) {
-    int n = x->ch / item_h();
+    int n = x->ch / item_h(x);
     return n > 0 ? n : 1;
 }
 
@@ -233,6 +230,25 @@ static void lb_select(struct w16 *w, struct w16_wnd *x, struct listbox *l, int i
     if (changed && notify) lb_notify(w, x, l, LBN_SELCHANGE);
 }
 
+// A hard disk for the common dialogs' drive list, 16 by 9 as 3.11 drew it.
+static void drive(struct ugfx_surface *s, int x, int y) {
+    uint32_t black = w16_rgb(0x000000), white = w16_rgb(0xFFFFFF), grey = w16_rgb(0x808080);
+    ugfx_fill_rect(s, x, y, 16, 9, black);
+    ugfx_fill_rect(s, x + 1, y + 1, 14, 7, w16_rgb(0xC0C0C0));
+    ugfx_fill_rect(s, x + 1, y + 1, 13, 1, white);
+    ugfx_fill_rect(s, x + 1, y + 1, 1, 6, white);
+    ugfx_fill_rect(s, x + 14, y + 1, 1, 7, grey);
+    ugfx_fill_rect(s, x + 1, y + 7, 14, 1, grey);
+    ugfx_fill_rect(s, x + 2, y + 3, 12, 1, black);
+    ugfx_fill_rect(s, x + 2, y + 5, 12, 1, black);
+    ugfx_fill_rect(s, x + 2, y + 6, 2, 1, black);
+}
+
+// What goes before an item's text in a folder or drive list: its icon, and
+// how far the text moves right. Item data is indent << 8 | kind: 1 an open
+// folder, 2 a shut one, 3 a drive.
+static int item_icon(struct ugfx_surface *s, const struct listbox *l, int i, int x, int y, int ih);
+
 // A folder for the common dialogs' folder list: open, or shut.
 static void folder(struct ugfx_surface *s, int x, int y, int open) {
     uint32_t black = w16_rgb(0x000000), pale = w16_rgb(0xFFFF80), dark = w16_rgb(0xC0C000);
@@ -252,16 +268,11 @@ static void paint_listbox(struct w16 *w, struct w16_wnd *x, struct ugfx_surface 
     uint32_t white = w16_rgb(0xFFFFFF), black = w16_rgb(0x000000), navy = w16_rgb(0x000080);
     ugfx_fill_rect(s, ox, oy, x->cw, x->ch, white);
     if (!l) return;
-    int ih = item_h();
+    int ih = item_h(x);
     for (int i = l->top; i < l->n && (i - l->top) * ih < x->ch; i++) {
         int y = oy + (i - l->top) * ih, tx = ox + 2;
         int sel = i == l->sel;
-        if (l->folders) {
-            int indent = (int)(l->it[i].data >> 8 & 0xFF), kind = (int)(l->it[i].data & 0xFF);
-            tx += indent * 8;
-            if (kind) folder(s, tx, y + (ih - 13) / 2, kind == 1);
-            tx += 19;
-        }
+        tx += item_icon(s, l, i, tx, y, ih);
         int tw = ugfx_text_width(l->it[i].text);
         if (sel) ugfx_fill_rect(s, tx - 1, y, (tw + 2 < ox + x->cw - tx + 1 ? tw + 2 : ox + x->cw - tx + 1), ih, navy);
         ugfx_draw_string_clipped(s, tx, y, ox + x->cw - tx, l->it[i].text, sel ? white : black, UGFX_TRANSPARENT);
@@ -269,8 +280,17 @@ static void paint_listbox(struct w16 *w, struct w16_wnd *x, struct ugfx_surface 
     }
 }
 
-static int lb_index_at(struct listbox *l, int y) {
-    int i = l->top + (y < 0 ? -1 : y / item_h());
+static int item_icon(struct ugfx_surface *s, const struct listbox *l, int i, int x, int y, int ih) {
+    if (!l->folders || i < 0 || i >= l->n) return 0;
+    int indent = (int)(l->it[i].data >> 8 & 0xFF), kind = (int)(l->it[i].data & 0xFF);
+    x += indent * 8;
+    if (kind == 3) drive(s, x, y + (ih - 9) / 2);
+    else if (kind) folder(s, x, y + (ih - 13) / 2, kind == 1);
+    return indent * 8 + 19;
+}
+
+static int lb_index_at(const struct w16_wnd *x, struct listbox *l, int y) {
+    int i = l->top + (y < 0 ? -1 : y / item_h(x));
     return l->n ? clampi(i, 0, l->n - 1) : -1;
 }
 
@@ -353,11 +373,11 @@ static uint32_t lb_message(struct w16 *w, struct w16_wnd *x, struct listbox *l, 
         if (i >= 0 && i < l->n) { l->caret = i; lb_show(w, x, l, i); w16_invalidate(w, x, 0); }
         return 0;
     case LB_GETITEMHEIGHT:
-        return (uint32_t)item_h();
+        return (uint32_t)item_h(x);
     case LB_SETITEMHEIGHT:
         return 0;
     case LB_GETITEMRECT: {
-        int16_t r[4] = { 0, (int16_t)((i - l->top) * item_h()), (int16_t)x->cw, (int16_t)((i - l->top + 1) * item_h()) };
+        int16_t r[4] = { 0, (int16_t)((i - l->top) * item_h(x)), (int16_t)x->cw, (int16_t)((i - l->top + 1) * item_h(x)) };
         uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(lp >> 16), (uint16_t)lp, 8, 1);
         if (p) memcpy(p, r, 8);
         return 1;
@@ -428,14 +448,14 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
         if (!l->combo) w16_set_focus(w, x->hwnd);
         l->captured = 1;
         lb_capture(w, x->hwnd);
-        lb_select(w, x, l, lb_index_at(l, my), 1);
+        lb_select(w, x, l, lb_index_at(x, l, my), 1);
         if (msg == WM_LBUTTONDBLCLK) lb_notify(w, x, l, LBN_DBLCLK);
         return 0;
     }
     case WM_MOUSEMOVE:
         if (l->captured || (l->combo && (wp & 1))) {
             int16_t my = (int16_t)(lp >> 16);
-            int i = lb_index_at(l, my);
+            int i = lb_index_at(x, l, my);
             if (my < 0 && l->top > 0) lb_scroll_to(w, x, l, l->top - 1);
             if (my >= x->ch) lb_scroll_to(w, x, l, l->top + 1);
             lb_select(w, x, l, i, 1);
@@ -505,7 +525,7 @@ struct combo {
 
 static struct combo *cb_of(struct w16_wnd *x) { return x->ctl; }
 
-static int shut_h(void) { return item_h() + 6; }
+static int shut_h(const struct w16_wnd *x) { return item_h(x) + 6; }
 
 static struct w16_wnd *cb_list(struct w16 *w, struct combo *c) { return w16_wnd_get(w, c->list); }
 
@@ -563,9 +583,10 @@ static void paint_combo(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s
         struct listbox *lb = l ? lb_of(l) : 0;
         if (lb && lb->sel >= 0) {
             const char *t = lb->it[lb->sel].text;
-            int tw = ugfx_text_width(t), ty = oy + (h - item_h()) / 2;
-            if (c->focused) ugfx_fill_rect(s, ox + 2, ty, tw + 4 < x->cw - bw - 4 ? tw + 4 : x->cw - bw - 4, item_h(), navy);
-            ugfx_draw_string_clipped(s, ox + 4, ty, x->cw - bw - 6, t, c->focused ? white : black, UGFX_TRANSPARENT);
+            int tw = ugfx_text_width(t), ty = oy + (h - item_h(x)) / 2;
+            int ix = item_icon(s, lb, lb->sel, ox + 4, ty, item_h(x)), tx = ox + 4 + ix;
+            if (c->focused) ugfx_fill_rect(s, tx - 2, ty, tw + 4 < x->cw - bw - 4 - ix ? tw + 4 : x->cw - bw - 4 - ix, item_h(x), navy);
+            ugfx_draw_string_clipped(s, tx, ty, x->cw - bw - 6 - ix, t, c->focused ? white : black, UGFX_TRANSPARENT);
         }
     }
     if (cb_type(x) != CBS_SIMPLE) {             // the button: a down arrow over a bar, 3.1's
@@ -573,6 +594,7 @@ static void paint_combo(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s
         ugfx_draw_rect(s, bx, oy, bw, h, black);
         w16_draw_bevel(s, bx + 1, oy + 1, bw - 2, h - 2, c && c->dropped);
         int cx = bx + bw / 2, cy = oy + h / 2 - 2;
+        ugfx_fill_rect(s, cx - 1, cy - 3, 3, 3, black);      // the stem, the head, then the bar
         for (int i = 0; i < 4; i++) ugfx_fill_rect(s, cx - 3 + i, cy + i, 7 - 2 * i, 1, black);
         ugfx_fill_rect(s, cx - 3, cy + 5, 7, 1, black);
     }
@@ -591,10 +613,10 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
         pthread_mutex_lock(&w->lock);
         x->style &= ~(WS_VSCROLL | WS_HSCROLL);
         pthread_mutex_unlock(&w->lock);
-        int sh = cb_type(x) == CBS_SIMPLE ? x->h : shut_h();
+        int sh = cb_type(x) == CBS_SIMPLE ? x->h : shut_h(x);
         w16_wnd_set_geometry(w, x, x->x, x->y, x->w, sh);
         int k = w16_class_find(w, "LISTBOX"), ek = w16_class_find(w, "EDIT");
-        int lh = c->open_h - sh > item_h() * 2 + 2 ? c->open_h - sh : item_h() * 4 + 2;
+        int lh = c->open_h - sh > item_h(x) * 2 + 2 ? c->open_h - sh : item_h(x) * 4 + 2;
         uint32_t ls = WS_CHILD | WS_BORDER | WS_VSCROLL | ((x->style & CBS_SORT) ? LBS_SORT : 0);
         if (cb_type(x) == CBS_SIMPLE) ls |= WS_VISIBLE;
         struct w16_wnd *lw = w16_wnd_create(w, k, "", ls, x->x, x->y + sh, x->w - (cb_type(x) == CBS_SIMPLE ? 0 : W16_SB + 1),

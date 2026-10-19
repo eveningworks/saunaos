@@ -65,11 +65,12 @@ GDI_CONF = "/etc/win16/usr_share_w16_gdi.exe.conf"
 HELLO_CONF = "/etc/win16/usr_share_w16_hello.exe.conf"
 LAST = "/var/lib/win16/usr_share_w16_{}.exe.last"   # what the launcher's "Last run" reads
 FAULT_TITLE = "Fault (Win16)"
-FRAME, CAPTION = 4, 20     # userland/w16/w16_internal.h's W16_FRAME, W16_CAPTION
+FRAME, CAPTION = 4, 19     # userland/w16/w16_internal.h's W16_FRAME, W16_CAPTION
 
 RED, GREEN, BLUE, WHITE = (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255)
 YELLOW, CYAN, MAGENTA, BLACK = (255, 255, 0), (0, 255, 255), (255, 0, 255), (0, 0, 0)
-NAVY = (0, 0, 128)
+# w16 shows 3.11's colours as VGA did (ctl16.c's w16_vga): navy and the face grey shift.
+NAVY, FACE = (0, 0, 168), (192, 199, 200)
 
 
 def shot(qmp, path):
@@ -163,7 +164,7 @@ def window_controls(dbg, qmp, res, win):
     dbg.settle()
     im = shot(qmp, f"{TMP}/w16_max.png")
     res.check("maximized, the frame has no border: the caption reaches the top-left pixel",
-              im.getpixel((cur["x"] + 2, cur["y"] + 2)) == (192, 192, 192)
+              im.getpixel((cur["x"] + 2, cur["y"] + 2)) == FACE
               and im.getpixel((cur["x"] + 40, cur["y"] + 4)) == NAVY,
               f"corner {im.getpixel((cur['x'] + 2, cur['y'] + 2))} "
               f"caption {im.getpixel((cur['x'] + 40, cur['y'] + 4))}")
@@ -250,12 +251,12 @@ def settings(dbg, qmp, res):
     sh(dbg, f"rm {GDI_CONF}")
     # frame=desktop for hello.exe: toywm draws a frame (the content sits
     # inside the window), and the client is hello's 400x200 less the 3.1
-    # frame it was sized for (2*4 by 2*4 + 20).
+    # frame it was sized for (2*4 by 2*4 + 19).
     sh(dbg, f"write {HELLO_CONF} frame=desktop")
     win = dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", HELLO_TITLE)
     c = win and win["content"]
     res.check("frame=desktop gives toywm's frame, the client the size the program asked for",
-              bool(win) and c["y"] > win["y"] and (c["w"], c["h"]) == (400 - 8, 200 - 28),
+              bool(win) and c["y"] > win["y"] and (c["w"], c["h"]) == (400 - 8, 200 - 27),
               f"window {win and (win['x'], win['y'], win['w'], win['h'])} content {c}")
     dbg.close_window(HELLO_TITLE)
     sh(dbg, f"rm {HELLO_CONF}")

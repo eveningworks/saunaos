@@ -17,7 +17,7 @@
 #define PAD_R   14
 #define SHADOW  2
 
-static uint32_t rgb(uint32_t v) { return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v); }
+static uint32_t rgb(uint32_t v) { return w16_rgb(v); }
 
 static int sep_h(void) { return 7; }
 
@@ -95,11 +95,12 @@ void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_ke
     m->y = w16_down(y);
     m->armed = 0;
     m->sel = -1;
-    // Opened from the keyboard, the first item that can be chosen is lit,
-    // as 3.1's Alt+Space did; opened by the pointer, nothing until it moves.
+    // Opened from the keyboard, the first item is lit even when it is grey
+    // (3.11's Edit > Undo, its control menu's Restore); opened by the
+    // pointer, nothing until it moves.
     if (by_key)
         for (int i = 0; i < m->n; i++)
-            if (!(m->item[i].flags & (W16_MF_SEPARATOR | W16_MF_GRAYED))) { m->sel = i; break; }
+            if (!(m->item[i].flags & W16_MF_SEPARATOR)) { m->sel = i; break; }
 }
 
 void w16_menu_close(struct w16_menu *m) {
@@ -120,8 +121,13 @@ static int item_at(const struct w16_menu *m, int x, int y) {
     return -1;
 }
 
+// The bar can rest on a grey item, as 3.1's did; only an enabled one acts.
+static int selectable(const struct w16_menu *m, int i) {
+    return i >= 0 && i < m->n && !(m->item[i].flags & W16_MF_SEPARATOR);
+}
+
 static int choosable(const struct w16_menu *m, int i) {
-    return i >= 0 && i < m->n && !(m->item[i].flags & (W16_MF_SEPARATOR | W16_MF_GRAYED));
+    return selectable(m, i) && !(m->item[i].flags & W16_MF_GRAYED);
 }
 
 static void draw_menu(struct w16_menu *m, struct ugfx_surface *s);
@@ -190,7 +196,7 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
 unsigned w16_menu_motion(struct w16_menu *m, int x, int y) {
     if (m->popup <= 0) return 0;
     int i = item_at(m, x, y);
-    int sel = choosable(m, i) ? i : -1;
+    int sel = selectable(m, i) ? i : -1;
     if (sel != m->sel && (sel >= 0 || m->armed)) m->sel = sel;
     return 0;
 }
@@ -224,7 +230,7 @@ unsigned w16_menu_key(struct w16_menu *m, int key) {
         int step = key == KEY_ARROW_DOWN ? 1 : -1;
         for (int k = 1; k <= m->n; k++) {
             int i = ((m->sel < 0 ? (step > 0 ? -1 : 0) : m->sel) + step * k + m->n * 2) % m->n;
-            if (choosable(m, i)) { m->sel = i; break; }
+            if (selectable(m, i)) { m->sel = i; break; }
         }
         return 0;
     }

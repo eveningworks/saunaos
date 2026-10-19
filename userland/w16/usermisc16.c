@@ -63,7 +63,7 @@ static void screen_offset(struct w16 *w, struct w16_wnd *x, int *dx, int *dy) {
         *dy += cy;
     } else if (top) {
         *dx += w16_dlg_frame(top);
-        *dy += w16_dlg_frame(top) + w16_dlg_caption(top);
+        *dy += w16_dlg_frame_top(top) + w16_dlg_caption(top);
     }
 }
 

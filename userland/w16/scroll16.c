@@ -28,9 +28,12 @@ enum { PART_NONE = -1, PART_UP, PART_PAGEUP, PART_THUMB, PART_PAGEDOWN, PART_DOW
 // The one bar being tracked, and the part held down: how it is drawn.
 static struct { uint16_t hwnd; int bar, part, down; } g_track = { 0, 0, PART_NONE, 0 };
 
+// A top-level window's bars reach one pixel past its buffer, onto the
+// frame's inner black line, which is their outer edge -- 3.11 drew no second
+// line beside it. The buffer clips that pixel; the frame draws it.
 static void window_size(const struct w16_wnd *x, int *ww, int *wh) {
-    *ww = x->kind == W16_K_CHILD ? x->w : x->fbw;
-    *wh = x->kind == W16_K_CHILD ? x->h : x->fbh;
+    *ww = x->kind == W16_K_CHILD ? x->w : x->fbw + 1;
+    *wh = x->kind == W16_K_CHILD ? x->h : x->fbh + 1;
 }
 
 int w16_sbar_shown(const struct w16_wnd *x, int bar) {
@@ -42,13 +45,14 @@ int w16_sbar_shown(const struct w16_wnd *x, int bar) {
 static int bar_rect(const struct w16_wnd *x, int bar, int *x0, int *y0, int *x1, int *y1) {
     int ww, wh, vs = w16_sbar_shown(x, SB_VERT), hs = w16_sbar_shown(x, SB_HORZ);
     window_size(x, &ww, &wh);
+    int near = x->kind == W16_K_CHILD ? 0 : -1;   // and onto the line above or left of the buffer
     if (bar == SB_VERT && vs) {
         *x0 = ww - W16_SB; *x1 = ww;
-        *y0 = 0; *y1 = wh - (hs ? W16_SB - 1 : 0);
+        *y0 = near; *y1 = wh - (hs ? W16_SB - 1 : 0);
         return 1;
     }
     if (bar == SB_HORZ && hs) {
-        *x0 = 0; *x1 = ww - (vs ? W16_SB - 1 : 0);
+        *x0 = near; *x1 = ww - (vs ? W16_SB - 1 : 0);
         *y0 = wh - W16_SB; *y1 = wh;
         return 1;
     }
@@ -65,6 +69,7 @@ static int thumb_at(const struct w16_wnd *x, int bar, int len) {
 }
 
 static int part_at(const struct w16_wnd *x, int bar, int along, int len) {
+    if (x->sb[bar].max <= x->sb[bar].min) return PART_NONE;   // greyed: nothing answers
     if (along < W16_SB) return PART_UP;
     if (along >= len - W16_SB) return PART_DOWN;
     int t = thumb_at(x, bar, len);
@@ -83,18 +88,30 @@ int w16_sbar_hit(const struct w16_wnd *x, int wx, int wy) {
 
 // --- drawing (task thread, under the paint lock) ----------------------------------
 
-static void arrow_button(struct ugfx_surface *s, int x, int y, int dir, int pressed) {
+// 3.1's arrows have a stem: a head 7 wide over a shaft 3 wide, 7 long in
+// all, centred in the button -- measured off real Windows 3.11 at VGA.
+// A disabled one is drawn grey with a white shadow, as 3.1 greyed it.
+static void arrow_button(struct ugfx_surface *s, int x, int y, int dir, int pressed, int disabled) {
     uint32_t black = w16_rgb(0x000000);
     ugfx_draw_rect(s, x, y, W16_SB, W16_SB, black);
     w16_draw_bevel(s, x + 1, y + 1, W16_SB - 2, W16_SB - 2, pressed);
     int cx = x + W16_SB / 2 + pressed, cy = y + W16_SB / 2 + pressed;
-    for (int i = 0; i < 4; i++) {                // a solid triangle, 7 wide at its base
-        int half = i;
-        switch (dir) {
-        case 0: ugfx_fill_rect(s, cx - half, cy - 2 + i, 2 * half + 1, 1, black); break;   // up
-        case 1: ugfx_fill_rect(s, cx - half, cy + 1 - i, 2 * half + 1, 1, black); break;   // down
-        case 2: ugfx_fill_rect(s, cx - 2 + i, cy - half, 1, 2 * half + 1, black); break;   // left
-        default: ugfx_fill_rect(s, cx + 1 - i, cy - half, 1, 2 * half + 1, black); break;  // right
+    for (int pass = disabled ? 0 : 1; pass < 2; pass++) {
+        uint32_t ink = pass ? (disabled ? w16_rgb(0x808080) : black) : w16_rgb(0xFFFFFF);
+        int ax = cx + !pass, ay = cy + !pass;    // the white shadow sits one pixel down-right
+        for (int i = 0; i < 4; i++) {            // the head
+            switch (dir) {
+            case 0: ugfx_fill_rect(s, ax - i, ay - 3 + i, 2 * i + 1, 1, ink); break;      // up
+            case 1: ugfx_fill_rect(s, ax - 3 + i, ay + i, 7 - 2 * i, 1, ink); break;      // down
+            case 2: ugfx_fill_rect(s, ax - 3 + i, ay - i, 1, 2 * i + 1, ink); break;      // left
+            default: ugfx_fill_rect(s, ax + i, ay - 3 + i, 1, 7 - 2 * i, ink); break;     // right
+            }
+        }
+        switch (dir) {                           // the stem
+        case 0: ugfx_fill_rect(s, ax - 1, ay + 1, 3, 3, ink); break;
+        case 1: ugfx_fill_rect(s, ax - 1, ay - 3, 3, 3, ink); break;
+        case 2: ugfx_fill_rect(s, ax + 1, ay - 1, 3, 3, ink); break;
+        default: ugfx_fill_rect(s, ax - 3, ay - 1, 3, 3, ink); break;
         }
     }
 }
@@ -106,14 +123,18 @@ static void draw_bar(struct w16_wnd *x, int bar, struct ugfx_surface *s, int ox,
     uint32_t black = w16_rgb(0x000000), trough = w16_rgb(0xC0C0C0);
     int vert = bar == SB_VERT, len = vert ? y1 - y0 : x1 - x0;
     int held = g_track.hwnd == x->hwnd && g_track.bar == bar && g_track.down ? g_track.part : PART_NONE;
+    // Nothing to scroll, kept on screen (LBS_DISABLENOSCROLL): 3.1 greys
+    // the arrows over a white trough and shows no thumb.
+    int off = x->sb[bar].max <= x->sb[bar].min;
+    if (off) trough = w16_rgb(0xFFFFFF);
     ugfx_fill_rect(s, x0, y0, x1 - x0, y1 - y0, trough);
     ugfx_draw_rect(s, x0, y0, x1 - x0, y1 - y0, black);
     if (vert) {
-        arrow_button(s, x0, y0, 0, held == PART_UP);
-        arrow_button(s, x0, y1 - W16_SB, 1, held == PART_DOWN);
+        arrow_button(s, x0, y0, 0, held == PART_UP, off);
+        arrow_button(s, x0, y1 - W16_SB, 1, held == PART_DOWN, off);
     } else {
-        arrow_button(s, x0, y0, 2, held == PART_UP);
-        arrow_button(s, x1 - W16_SB, y0, 3, held == PART_DOWN);
+        arrow_button(s, x0, y0, 2, held == PART_UP, off);
+        arrow_button(s, x1 - W16_SB, y0, 3, held == PART_DOWN, off);
     }
     int t = thumb_at(x, bar, len);
     if (t >= 0) {

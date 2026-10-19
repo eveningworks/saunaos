@@ -82,10 +82,14 @@ struct w16_wnd *w16_wnd_top(struct w16 *w, struct w16_wnd *x) {
 }
 
 void w16_wnd_insets(const struct w16_wnd *x, int *l, int *t, int *r, int *b) {
-    int border = x->kind == W16_K_CHILD && (x->style & (WS_BORDER | WS_DLGFRAME)) ? 1 : 0;
+    int child = x->kind == W16_K_CHILD;
+    int border = child && (x->style & (WS_BORDER | WS_DLGFRAME)) ? 1 : 0;
     *l = *t = *r = *b = border;
-    if (w16_sbar_shown(x, SB_VERT)) *r += W16_SB - border;   // the bar's own edge is the border's
-    if (w16_sbar_shown(x, SB_HORZ)) *b += W16_SB - border;
+    // The bar's outer edge is the border's -- a top-level window's frame
+    // line, just outside its buffer, when it has no border of its own.
+    int shared = child ? border : 1;
+    if (w16_sbar_shown(x, SB_VERT)) *r += W16_SB - shared;
+    if (w16_sbar_shown(x, SB_HORZ)) *b += W16_SB - shared;
 }
 
 int w16_top_fit(struct w16_wnd *win) {
@@ -424,6 +428,10 @@ struct w16_wnd *w16_wnd_create(struct w16 *w, int cls, const char *title, uint32
     c->text = strdup(title ? title : "");
     c->extra = k->wnd_extra ? calloc(1, k->wnd_extra) : 0;
     c->sb[SB_HORZ] = c->sb[SB_VERT] = (struct w16_sbar){ 0, 100, 0 };
+    // A dialog's controls start in its font, before WM_CREATE: a combo box
+    // sizes its closed box from it there. WM_SETFONT follows, as 3.1's
+    // dialog manager sent it.
+    if (p->kind == W16_K_DIALOG || p->font == W16_FONT_DIALOG) c->font = p->font;
     if (!c->text || (k->wnd_extra && !c->extra)) { w16_wnd_free(w, c); return 0; }
     if (x == W16_CW_USEDEFAULT) x = y = 0;
     if (cx == W16_CW_USEDEFAULT) cx = cy = 0;

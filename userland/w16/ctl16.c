@@ -51,7 +51,24 @@
 #define CS_DBLCLKS        0x0008
 #define COLOR_WINDOW      5
 
-uint32_t w16_rgb(uint32_t v) { return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v); }
+// THE COLOURS 3.11 SHOWED AT VGA. Its driver programs the 16-colour
+// palette, so navy, the face grey and the shadow grey reach the screen
+// shifted -- measured off the reference (docs/w16-design.md). The other
+// dark colours shift too, but which nominal became which is not
+// established, so they pass through.
+uint32_t w16_vga(uint32_t v) {
+    switch (v & 0xFFFFFF) {
+    case 0x000080: return 0x0000A8;
+    case 0xC0C0C0: return 0xC0C7C8;
+    case 0x808080: return 0x87888F;
+    default:       return v & 0xFFFFFF;
+    }
+}
+
+uint32_t w16_rgb(uint32_t v) {
+    v = w16_vga(v);
+    return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v);
+}
 
 // --- drawing, shared by every control (the caller holds the text lock) -----------
 
@@ -63,10 +80,14 @@ void w16_draw_bevel(struct ugfx_surface *s, int x, int y, int w, int h, int pres
         ugfx_fill_rect(s, x, y, 1, h, lo);
         return;
     }
+    // 3.11's: white along the top and left, then a shadow two deep -- the
+    // inner line stops at the white, the outer runs the whole edge.
     ugfx_fill_rect(s, x, y, w - 1, 1, hi);
     ugfx_fill_rect(s, x, y, 1, h - 1, hi);
-    ugfx_fill_rect(s, x, y + h - 2, w, 2, lo);
-    ugfx_fill_rect(s, x + w - 2, y, 2, h, lo);
+    ugfx_fill_rect(s, x + 1, y + h - 2, w - 1, 1, lo);
+    ugfx_fill_rect(s, x + w - 2, y + 1, 1, h - 1, lo);
+    ugfx_fill_rect(s, x, y + h - 1, w, 1, lo);
+    ugfx_fill_rect(s, x + w - 1, y, 1, h, lo);
 }
 
 // `t` without its '&' markers, allocated, and where the marked letter falls.
@@ -175,7 +196,7 @@ void w16_ctl_paint(struct w16 *w, struct w16_wnd *x,
     w16_paint_begin(w, x);
     if (!w16_wnd_paint(w, x, &s, &ox, &oy)) return;
     pthread_mutex_lock(&g_w16_text_lock);
-    const struct ugfx_font *was = ugfx_set_font(w16_system_font());
+    const struct ugfx_font *was = ugfx_set_font(w16_font_of(x->font));
     fn(w, x, &s, ox, oy);
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);

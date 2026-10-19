@@ -125,15 +125,8 @@ static struct edit *ed(struct w16_wnd *x) { return x->ctl; }
 // Its font, for the caller holding the text lock.
 static const struct ugfx_font *efont(const struct edit *e) { return w16_font_of(e->hfont); }
 
-// A line's height in its font.
-static int line_h(const struct edit *e) {
-    pthread_mutex_lock(&g_w16_text_lock);
-    const struct ugfx_font *was = ugfx_set_font(efont(e));
-    int h = ugfx_char_h();
-    ugfx_set_font(was);
-    pthread_mutex_unlock(&g_w16_text_lock);
-    return h > 0 ? h : 16;
-}
+// A line's height: its font's 3.11 cell, not the stand-in face's own.
+static int line_h(const struct edit *e) { return w16_font_line_h(e->hfont); }
 
 // Drawn again, unless WM_SETREDRAW said not yet.
 static void redraw(struct w16 *w, struct w16_wnd *x, struct edit *e) {
@@ -528,7 +521,7 @@ static void paint(struct w16 *w, struct w16_wnd *x, struct edit *e) {
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(efont(e));
     const char *t = text(w, e);
-    int lh = ugfx_char_h(), vis = visible_lines(x), lo = sel_lo(e), hi = sel_hi(e);
+    int lh = line_h(e), vis = visible_lines(x), lo = sel_lo(e), hi = sel_hi(e);
     int show_sel = e->focused || (x->style & ES_NOHIDESEL);
     int y0 = multi(x) ? oy : oy + (x->ch - lh) / 2;
     struct ugfx_clip saved;
@@ -760,6 +753,7 @@ uint32_t w16_edit_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t 
         if (!x->ctl && !(x->ctl = calloc(1, sizeof(struct edit)))) return 0;
         e = ed(x);
         e->want_x = -1;
+        e->hfont = x->font;                      // its dialog's, when it is in one
         if (x->style & ES_PASSWORD) e->pw = '*';
         return 1;
     case WM_CREATE:

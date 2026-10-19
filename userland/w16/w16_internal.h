@@ -278,6 +278,7 @@ struct w16_wnd {
     int keep_sb;                  // an empty range leaves its bars shown (LBS_DISABLENOSCROLL)
     void *ctl;                    // a built-in class's own state, freed with the window
     int destroyed;                // WM_DESTROY was sent
+    uint16_t font;                // the HFONT a built-in control draws in (WM_SETFONT); 0 the System font
 
     // A dialog's; the rest under `lock`.
     uint32_t dlgproc;             // the program's DLGPROC, a far pointer...
@@ -285,6 +286,7 @@ struct w16_wnd {
     void *dlgdata;                // w16's own dialog's state
     uint16_t focus;               // the control that last had the focus
     uint16_t defid;               // its default push button's id (DM_SETDEFID)
+    int bx, by;                   // its base units: its template's FONT's, else 0 for the System font's
     int modal, ended;             // EndDialog was called (2: its window is gone)
     int16_t result;
     struct uapp_window *uwin;     // its toywm window (main thread's)
@@ -539,7 +541,8 @@ void w16_draw_focus(struct ugfx_surface *s, int x, int y, int w, int h);
 // A message box's icon (1 hand, 2 question, 3 exclamation, 4 asterisk),
 // or 0xFF: the program's own.
 void w16_draw_icon(struct ugfx_surface *s, struct w16 *w, int kind, int x, int y);
-uint32_t w16_rgb(uint32_t rgb);                   // 0xRRGGBB -> a ugfx colour
+uint32_t w16_rgb(uint32_t rgb);                   // 0xRRGGBB -> a ugfx colour, as VGA showed it
+uint32_t w16_vga(uint32_t rgb);                   // 0xRRGGBB as 3.11 at VGA showed it
 // Paint a control's client area with `fn` (surface, origin), the system
 // font set and the window validated; and the colour its parent shows.
 void w16_ctl_paint(struct w16 *w, struct w16_wnd *x,
@@ -577,6 +580,9 @@ extern const unsigned g_scroll_api_n;
 struct w16_wnd *w16_dlg_item(struct w16 *w, uint16_t dlg, uint16_t id);
 // A dialog's frame and caption, in its window's 1x pixels.
 int w16_dlg_frame(const struct w16_wnd *d);
+int w16_dlg_frame_top(const struct w16_wnd *d);
+// A dialog's template FONT, `pt` points: W16_FONT_DIALOG and its units.
+void w16_dlg_set_font(struct w16_wnd *d, int pt);
 int w16_dlg_caption(const struct w16_wnd *d);
 // IsDialogMessage: the dialog keyboard for a message meant for dialog d
 // or one of its controls -- 1 when handled (or dispatched) there.
@@ -729,19 +735,27 @@ struct ugfx_font;
 const struct ugfx_font *w16_system_font(void);   // under g_w16_text_lock
 const struct ugfx_font *w16_fixed_font(void);    // Fixedsys's stand-in, likewise
 const struct ugfx_font *w16_font_of(uint16_t hfont);   // the face an HFONT draws in
+// A dialog template's FONT (3.11's "Helv" 8, MS Sans Serif, bold as 3.x
+// drew it): units of 7 by 13 rather than the System font's 8 by 16. The handle
+// controls are given by WM_SETFONT; GetObject knows nothing of it.
+#define W16_FONT_DIALOG 0x5020
+const struct ugfx_font *w16_dialog_font(void);   // under g_w16_text_lock
+int w16_font_line_h(uint16_t hfont);              // a row of text in it, in pixels
+// The base units x is laid out in: its dialog's, else the System font's.
+void w16_units_of(struct w16 *w, const struct w16_wnd *x, int *bx, int *by);
 int w16_font_is_fixed(uint16_t hfont);
 
 // --- frame16.c (main thread) ---------------------------------------------------
 
 #define W16_FRAME      4                          // the sizing border
-#define W16_CAPTION    20                         // the caption, its bottom line included
+#define W16_CAPTION    19   // the caption, its bottom line included: 18 rows and a line, as 3.11 at VGA
 
 struct ugfx_surface;
 void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int active, int pressed);
 // What a point of the window is: the client, the caption, a button, or a
 // sizing edge (WIN_EDGE_* bits in *edges).
 enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE, HIT_MENU, HIT_NONE };
-#define W16_MENU_H     18                         // the menu bar, its bottom line included (SM_CYMENU)
+#define W16_MENU_H     19                         // the menu bar, its bottom line included: 18 rows and a line, as 3.11
 // The menu bar's rectangle in window coordinates (zero height: none).
 void w16_frame_menubar(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);

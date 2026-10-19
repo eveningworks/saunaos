@@ -90,11 +90,32 @@ static void set_text(struct w16 *w, struct w16_wnd *x, const char *t) {
 
 // --- a dialog and its controls ---------------------------------------------------------
 
-static int frame_of(uint32_t style) { return style & (WS_DLGFRAME | 0x00800000u) ? 4 : 1; }
+// 3.11's dialog frame, measured at VGA: a black line, navy (4 rows at the
+// sides and foot, 3 at the head), then a white line round the caption and
+// client. A plain WS_BORDER is the black line alone.
+static int dlgframe(uint32_t style) { return (style & (WS_DLGFRAME | 0x00800000u)) != 0; }
+static int frame_of(uint32_t style) { return dlgframe(style) ? 6 : 1; }
 
 int w16_dlg_frame(const struct w16_wnd *d) { return frame_of(d->style); }
+int w16_dlg_frame_top(const struct w16_wnd *d) { return dlgframe(d->style) ? 5 : 1; }
 int w16_dlg_caption(const struct w16_wnd *d) {
-    return (d->style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION - 2 : 0;
+    return (d->style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0;   // 18 rows and the line under them
+}
+
+void w16_dlg_set_font(struct w16_wnd *d, int pt) {
+    if (pt <= 0) pt = 8;
+    d->font = W16_FONT_DIALOG;
+    d->bx = (7 * pt + 4) / 8;
+    d->by = (13 * pt + 4) / 8;
+}
+
+void w16_units_of(struct w16 *w, const struct w16_wnd *x, int *bx, int *by) {
+    for (int depth = 0; x && depth < 64; depth++) {
+        if (x->kind == W16_K_DIALOG && x->bx) { *bx = x->bx; *by = x->by; return; }
+        if (x->kind != W16_K_CHILD) break;
+        x = w16_wnd_get(w, x->parent);
+    }
+    w16_dlg_units(bx, by);
 }
 
 struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32_t style, int cw, int ch,
@@ -112,7 +133,7 @@ struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32
     d->cw = d->fbw = cw > 1 ? cw : 1;
     d->ch = d->fbh = ch > 1 ? ch : 1;
     d->w = d->cw + 2 * frame_of(style);
-    d->h = d->ch + 2 * frame_of(style) + w16_dlg_caption(d);
+    d->h = d->ch + w16_dlg_frame_top(d) + w16_dlg_caption(d) + frame_of(style);
     d->text = strdup(caption ? caption : "");
     d->fb = calloc((size_t)d->fbw * d->fbh + 1, 4);
     if (!d->text || !d->fb) { w16_wnd_free(w, d); return 0; }
@@ -124,6 +145,19 @@ struct w16_wnd *w16_dlg_add(struct w16 *w, struct w16_wnd *d, const char *cls, u
     int k = w16_class_find(w, cls);
     if (k < 0) return 0;
     return w16_wnd_create(w, k, text, style | WS_CHILD, x, y, cw, ch, d->hwnd, id, d->inst, 0);
+}
+
+// A template's control, then WM_SETFONT with the dialog's font when it has
+// one, as 3.1's CreateDialog sent it.
+static struct w16_wnd *add_with_font(struct w16 *w, struct w16_wnd *d, const char *cls, uint16_t id,
+                                     uint32_t style, int x, int y, int cw, int ch, const char *text) {
+    struct w16_wnd *c = w16_dlg_add(w, d, cls, id, style, x, y, cw, ch, text);
+    if (c && d->font) {
+        uint16_t h = c->hwnd;
+        w16_send(w, h, WM_SETFONT, d->font, 0);
+        c = w16_wnd_get(w, h);
+    }
+    return c;
 }
 
 struct reader {
@@ -177,14 +211,19 @@ static struct w16_wnd *from_template(struct w16 *w, const uint8_t *p, uint32_t n
     (void)dx; (void)dy;
     unsigned ord;
     char *menu = rd_name(&r, &ord), *cls = rd_name(&r, &ord), *caption = rd_str(&r);
+    // A FONT (DS_SETFONT): its size sets the units; whatever the face, w16
+    // draws it in its one stand-in for MS Sans Serif.
+    int pt = 0;
     if (style & DS_SETFONT) {
-        rd16(&r);
-        free(rd_str(&r));                        // the font: w16 has one
+        pt = (int)rd16(&r);
+        free(rd_str(&r));
     }
     int bx, by;
     w16_dlg_units(&bx, &by);
+    if (pt) { bx = (7 * pt + 4) / 8; by = (13 * pt + 4) / 8; }
     struct w16_wnd *d = r.bad ? 0 : w16_dlg_new(w, owner, inst, style, dw * bx / 4, dh * by / 8, caption,
                                                 dlgproc, hostdlg);
+    if (d && pt) w16_dlg_set_font(d, pt);
     int ok = d && menu && cls && !(menu[0] || cls[0]);
     if (d && !ok) snprintf(why, why_cap, "a dialog with its own class or menu is not supported yet");
     free(menu); free(cls); free(caption);
@@ -206,8 +245,8 @@ static struct w16_wnd *from_template(struct w16 *w, const uint8_t *p, uint32_t n
         if (w16_class_find(w, klass) < 0) {
             snprintf(why, why_cap, "a dialog control of class %s is not supported yet", klass);
             ok = 0;
-        } else if (!w16_dlg_add(w, d, klass, id, cs, x * bx / 4, y * by / 8, cw * bx / 4, ch * by / 8,
-                                ord ? "" : text)) {
+        } else if (!add_with_font(w, d, klass, id, cs, x * bx / 4, y * by / 8, cw * bx / 4, ch * by / 8,
+                                  ord ? "" : text)) {
             if (!w->cpu.fault) snprintf(why, why_cap, "a %s control of the dialog was refused", klass);
             ok = 0;
         }
@@ -711,13 +750,13 @@ static int api_DefDlgProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // MapDialogRect(hDlg, lpRect): dialog units to pixels
 static int api_MapDialogRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
+    uint16_t hdlg = w16_arg16(a);
     uint32_t far = w16_arg32(a);
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 1);
     if (!p) return -1;
     int16_t r[4];
     int bx, by;
-    w16_dlg_units(&bx, &by);
+    w16_units_of(w, w16_wnd_get(w, hdlg), &bx, &by);
     memcpy(r, p, 8);
     r[0] = (int16_t)(r[0] * bx / 4); r[2] = (int16_t)(r[2] * bx / 4);
     r[1] = (int16_t)(r[1] * by / 8); r[3] = (int16_t)(r[3] * by / 8);

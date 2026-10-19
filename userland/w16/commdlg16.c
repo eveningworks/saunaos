@@ -148,8 +148,18 @@ static void set_text(struct w16 *w, struct w16_wnd *c, const char *t) {
 }
 
 // The name field set to `t`, all of it selected so typing replaces it.
+// 3.1's dialogs show names in lower case -- FAT's are upper -- and w16
+// resolves a name without regard to case, so the lowered one still opens.
+static const char *lowered(const char *s, char *out, size_t cap) {
+    size_t n = 0;
+    for (; s[n] && n + 1 < cap; n++) out[n] = s[n] >= 'A' && s[n] <= 'Z' ? (char)(s[n] + 32) : s[n];
+    out[n] = 0;
+    return out;
+}
+
 static void set_name(struct w16 *w, struct w16_wnd *e, const char *t) {
-    set_text(w, e, t);
+    char low[160];
+    set_text(w, e, lowered(t, low, sizeof low));
     w16_send(w, e->hwnd, EM_SETSEL, 0, 0xFFFF0000u);
 }
 
@@ -162,8 +172,9 @@ static struct w16_wnd *item(struct w16 *w, struct w16_wnd *d, uint16_t id) { ret
 // --- the dialogs' shared machinery -------------------------------------------------------
 
 // A dialog unit to pixels: x per 4, y per 8.
-static int dx(int v) { int bx, by; w16_dlg_units(&bx, &by); return v * bx / 4; }
-static int dy(int v) { int bx, by; w16_dlg_units(&bx, &by); return v * by / 8; }
+// In COMMDLG's own templates' units: they name FONT 8, "Helv".
+static int dx(int v) { return v * 7 / 4; }
+static int dy(int v) { return v * 13 / 8; }
 
 static struct w16_wnd *add(struct w16 *w, struct w16_wnd *d, const char *cls, uint16_t id, uint32_t style,
                            int x, int y, int cw, int ch, const char *text) {
@@ -260,8 +271,8 @@ static void fill_lists(struct w16 *w, struct w16_wnd *d) {
         p += len;
         while (*p == '\\') p++;
     }
-    int cur = depth;
-    w16_send(w, dirs->hwnd, LB_SETCURSEL, (uint16_t)cur, 0);
+    // No selection: 3.11 lists the open folders without lighting the current
+    // one (a press or the arrows choose).
     // What is in it: folders after the open ones, files that match.
     if (w16_dos_path(o->dir, host, sizeof host, 0, 0, 0) != 0) return;
     DIR *dir = opendir(host);
@@ -275,10 +286,12 @@ static void fill_lists(struct w16 *w, struct w16_wnd *d) {
         if (stat(path, &st) != 0) continue;
         if (S_ISDIR(st.st_mode)) {
             char **g = realloc(subs, sizeof *g * (size_t)(nsubs + 1));
-            if (g && (g[nsubs] = strdup(de->d_name))) { subs = g; nsubs++; }
+            char low[256];
+            if (g && (g[nsubs] = strdup(lowered(de->d_name, low, sizeof low)))) { subs = g; nsubs++; }
             else if (g) subs = g;
         } else if (matches(o->pattern, de->d_name)) {
-            w16_listbox_str(w, files, LB_ADDSTRING, 0, de->d_name);
+            char low[256];
+            w16_listbox_str(w, files, LB_ADDSTRING, 0, lowered(de->d_name, low, sizeof low));
         }
     }
     if (dir) closedir(dir);
@@ -526,6 +539,7 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
     struct w16_wnd *d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_DLGFRAME,
                                     dx(266), dy(134), cap && cap[0] ? cap : save ? "Save As" : "Open", 0, ofn_proc);
     if (!d) { g_error = CDERR_MEMALLOCFAILURE; goto out; }
+    w16_dlg_set_font(d, 8);
     d->dlgdata = o;
     add(w, d, "STATIC", STC3, 0, 6, 6, 90, 9, "File &Name:");
     struct w16_wnd *e = add(w, d, "EDIT", EDT1, WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, 6, 16, 90, 12, "");
@@ -557,12 +571,18 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
     if (tl) w16_send(w, tl->hwnd, LB_SETCURSEL, (uint16_t)o->type, 0);
     w16_combo_changed(w, types);
     if (dl) {
-        w16_listbox_str(w, dl, LB_ADDSTRING, 0, "c: [win16]");
-        w16_listbox_str(w, dl, LB_ADDSTRING, 0, "z: [toy-os]");
+        // 3.1's "letter: volume label", a drive icon before it; C: is the Win16
+        // folder and Z: the whole toy-os tree, so those are their labels.
+        w16_listbox_folders(dl, 1);
+        w16_send(w, dl->hwnd, LB_SETITEMDATA, (uint16_t)w16_listbox_str(w, dl, LB_ADDSTRING, 0, "c: win16"), 3);
+        w16_send(w, dl->hwnd, LB_SETITEMDATA, (uint16_t)w16_listbox_str(w, dl, LB_ADDSTRING, 0, "z: toy-os"), 3);
         w16_send(w, dl->hwnd, LB_SETCURSEL, (o->dir[0] | 0x20) == 'z', 0);
     }
     w16_combo_changed(w, drives);
-    set_text(w, e, initial && initial[0] ? initial : o->pattern);
+    {
+        char low[160];
+        set_text(w, e, lowered(initial && initial[0] ? initial : o->pattern, low, sizeof low));
+    }
     fill_lists(w, d);
     {
         struct w16_wnd *ro = item(w, d, CHX1);
@@ -703,6 +723,7 @@ static int api_FindText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_wnd *d = w16_dlg_new(w, f->owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_DLGFRAME, dx(236),
                                     dy(62), "Find", 0, find_proc);
     if (!d) { free(f); free(what); g_error = CDERR_MEMALLOCFAILURE; return 4; }
+    w16_dlg_set_font(d, 8);
     d->dlgdata = f;
     add(w, d, "STATIC", -1, 0, 4, 8, 42, 8, "Fi&nd What:");
     struct w16_wnd *e = add(w, d, "EDIT", EDT1, WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, 47, 7, 128, 12, what);

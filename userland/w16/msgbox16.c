@@ -17,7 +17,7 @@
 #define BOX_W   380
 #define ICON    32
 
-static uint32_t rgb(uint32_t v) { return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v); }
+static uint32_t rgb(uint32_t v) { return w16_rgb(v); }
 
 static int margin(void) { return 16; }
 static int text_x(void) { return margin() + ICON + 14; }

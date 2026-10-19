@@ -29,8 +29,11 @@
 #include "ui/ugfx.h"
 
 #define W16_ATOM_BASE   0xC000
-#define W16_DEFAULT_W   480
-#define W16_DEFAULT_H   320
+// CW_USEDEFAULT's size on the 640x480 screen GetSystemMetrics reports:
+// what 3.11 gave Notepad there -- the width less the frame's inset, the
+// height less the row of icons at the foot.
+#define W16_DEFAULT_W   632
+#define W16_DEFAULT_H   408
 #define GWL_WNDPROC     (-4)
 #define GWL_STYLE       (-16)
 #define GWL_EXSTYLE     (-20)
@@ -552,6 +555,12 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
         if (wp != WA_INACTIVE && w->focus != x->hwnd && !w16_wnd_is_child(w, x->hwnd, w->focus))
             w16_set_focus(w, x->hwnd);
         return 0;
+    case WM_SETFONT:                             // the built-in controls draw in it
+        x->font = wp;
+        if (lp) w16_invalidate(w, x, 1);
+        return 0;
+    case WM_GETFONT:
+        return x->font;
     case WM_SETTEXT: {
         char *t = dup_far(w, lp);
         if (!t) return 0;

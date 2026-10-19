@@ -50,8 +50,10 @@ const struct ugfx_font *w16_system_font(void) {
     if (!state) {
         unsigned long need = ugfx_font_arena_size(SYSTEM_FONT_PX);
         void *arena = malloc(need);
+        // The bold FILE, not emboldened again: ugfx_font_load's `bold` thickens
+        // whatever it is given, and both together were heavier than 3.11's.
         state = arena && ugfx_font_load("/usr/share/fonts/liberation-sans-bold.ttf",
-                                        SYSTEM_FONT_PX, 1, &font, arena, need) ? 1 : -1;
+                                        SYSTEM_FONT_PX, 0, &font, arena, need) ? 1 : -1;
         if (state < 0) free(arena);
     }
     return state > 0 ? &font : ugfx_font_session(UGFX_FONT_BOLD);
@@ -70,10 +72,38 @@ const struct ugfx_font *w16_fixed_font(void) {
         unsigned long need = ugfx_font_arena_size(SYSTEM_FONT_PX);
         void *arena = malloc(need);
         state = arena && ugfx_font_load("/usr/share/fonts/dejavu-sans-mono-bold.ttf",
-                                        SYSTEM_FONT_PX, 1, &font, arena, need) ? 1 : -1;
+                                        SYSTEM_FONT_PX, 0, &font, arena, need) ? 1 : -1;
         if (state < 0) free(arena);
     }
     return state > 0 ? &font : w16_system_font();
+}
+
+// Liberation Sans Bold at 11 px stands in for MS Sans Serif 8 ("Helv"),
+// BOLD as Windows 3.x made a dialog's font (Windows 95's 3D look dropped
+// it). The units are 3.11's measured ones, so a dialog comes out the size
+// it was, whatever this face's own widths.
+#define DIALOG_FONT_PX 11
+const struct ugfx_font *w16_dialog_font(void) {
+    static struct ugfx_font font;
+    static int state;                            // 0 not tried, 1 loaded, -1 failed
+    if (!state) {
+        unsigned long need = ugfx_font_arena_size(DIALOG_FONT_PX);
+        void *arena = malloc(need);
+        state = arena && ugfx_font_load("/usr/share/fonts/liberation-sans-bold.ttf",
+                                        DIALOG_FONT_PX, 0, &font, arena, need) ? 1 : -1;
+        if (state < 0) free(arena);
+    }
+    return state > 0 ? &font : w16_system_font();
+}
+
+// The cells of 3.11's own fonts at VGA, which a row of text steps by
+// whatever face stands in: Fixedsys 15, Helv 8 13, System 16.
+int w16_font_line_h(uint16_t hfont) {
+    if (hfont == W16_FONT_DIALOG) return 13;
+    if (w16_font_is_fixed(hfont)) return 15;
+    int bx, by;
+    w16_dlg_units(&bx, &by);
+    return by;
 }
 
 int w16_font_is_fixed(uint16_t hfont) {
@@ -82,6 +112,7 @@ int w16_font_is_fixed(uint16_t hfont) {
 }
 
 const struct ugfx_font *w16_font_of(uint16_t hfont) {
+    if (hfont == W16_FONT_DIALOG) return w16_dialog_font();
     return w16_font_is_fixed(hfont) ? w16_fixed_font() : w16_system_font();
 }
 

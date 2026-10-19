@@ -17,7 +17,7 @@
 #define WHITE 0xFFFFFFu
 
 uint32_t w16_colorref_px(uint32_t cr) {
-    return (cr & 0xFF) << 16 | (cr & 0xFF00) | (cr >> 16 & 0xFF);
+    return w16_vga((cr & 0xFF) << 16 | (cr & 0xFF00) | (cr >> 16 & 0xFF));
 }
 
 static uint32_t to_mono(uint32_t px) {
@@ -184,7 +184,7 @@ int gdi_dib_header(const uint8_t *bmi, uint32_t bmi_len, int pal_indices, struct
             out->pal[i] = v << 16 | v << 8 | v;
         } else {
             const uint8_t *q = p + pal_entry * i;
-            out->pal[i] = (uint32_t)q[2] << 16 | (uint32_t)q[1] << 8 | q[0];
+            out->pal[i] = w16_vga((uint32_t)q[2] << 16 | (uint32_t)q[1] << 8 | q[0]);
         }
     }
     out->stride = (((uint32_t)out->w * out->bpp + 31) / 32) * 4;
@@ -198,6 +198,6 @@ uint32_t gdi_dib_px(const struct gdi_dib *d, const uint8_t *row, int x) {
     case 1:  return d->pal[(row[x >> 3] >> (7 - (x & 7))) & 1];
     case 4:  return d->pal[(row[x >> 1] >> (x & 1 ? 0 : 4)) & 15];
     case 8:  return d->pal[row[x] < d->ncolors ? row[x] : 0];
-    default: return (uint32_t)row[3 * x + 2] << 16 | (uint32_t)row[3 * x + 1] << 8 | row[3 * x];
+    default: return w16_vga((uint32_t)row[3 * x + 2] << 16 | (uint32_t)row[3 * x + 1] << 8 | row[3 * x]);
     }
 }
