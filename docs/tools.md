@@ -3923,6 +3923,14 @@ window without going through it will find its layout polls timing out.
   `/bin/netctl`'s output, which walks the same `QUERY_NETDEV` class
   through a completely different program -- a compositor reporting its
   own view back to a test proves only that it is self-consistent.
+  **Connecting** is driven for real: QMP's `set_link` cuts the guest's
+  wire and `netctl address DEV none` takes the address off, so netd
+  asks and nobody answers. The tray item must show several DIFFERENT
+  pictures over unsettled screenshots (an animation never settles), one
+  with `desktop.animations = off`, and one again past 30 s while netd
+  still asks behind its 169.254 address; with the wire back it must bind
+  WITHOUT a Renew. Positive controls: netd treating 169.254 as set by
+  hand, and a tray that never advances a frame.
   It also pins the rule the widget exists for: `link_known` is
   THREE-valued, a driver that cannot answer is not a driver saying
   "down", and the e1000 in a default QEMU guest is exactly that case --

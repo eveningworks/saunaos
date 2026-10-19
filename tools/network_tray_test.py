@@ -31,6 +31,21 @@ WHAT IT ASSERTS
    reflows; `auto` brings it back on a guest that has a device.
 6. IT IS MUTUALLY EXCLUSIVE with the other tray flyouts, through the
    overlay table's `close` op rather than by naming its peers.
+7. CONNECTING MOVES, AND STOPS. With QEMU's link cut and the address
+   taken off (`netctl address DEV none`), netd says the card is asking
+   (lib/unetctl.h's watch) and the tray icon steps through frames --
+   several DIFFERENT pictures of the same rect, which a still icon
+   cannot give. With `desktop.animations = off` it is one picture. Past
+   30 s it stops moving while netd keeps asking -- also behind the
+   self-assigned 169.254 address, which netd once mistook for one set
+   by hand and stopped asking for good. Link back, it binds WITHOUT a
+   Renew.
+8. SWITCHED ON IS NOT CONNECTED UNTIL netd SAYS SO. With nobody to
+   answer, the switch off and on leaves the card holding its old
+   address while netd asks -- and the item must say connecting, never
+   connected: before 2026-10-19 it said Connected the moment the flag
+   flipped. (A cable the driver KNOWS is out cannot be faked here: the
+   e1000 reports no link state. That half is checked on hardware.)
 
 Usage (the VM must already be up):
 
@@ -267,7 +282,113 @@ def main():
     back = tray_mode(dbg, "auto", False)
     check("`auto` brings it back on a guest that has a device", back,
           f"tray_x {dbg.json('gui taskbar --json')['tray_x']}")
+
+    connecting(qmp, dbg, dev, shot)
+    switched_on(qmp, dbg, dev)
     return report()
+
+
+def user_netdev(qmp):
+    info = qmp.hmp("info network")
+    return next((ln.split(":")[0].strip(" \\") for ln in info.splitlines()
+                 if "type=user" in ln), None)
+
+
+def switched_on(qmp, dbg, dev):
+    # --- 10. the switch: on is not connected until netd confirms ------
+    netdev = user_netdev(qmp)
+    if not netdev:
+        return
+
+    def wait_for(pred, secs):
+        end = time.time() + secs
+        while time.time() < end:
+            m = net(dbg)
+            if pred(m):
+                return m
+            time.sleep(0.5)
+        return net(dbg)
+
+    qmp.hmp(f"set_link {netdev} off")
+    try:
+        dbg.timeout = 25
+        dbg.send(f"sh netctl down {dev}")
+        dbg.send(f"sh netctl up {dev} --no-wait")
+        dbg.timeout = 6.0
+        m = wait_for(lambda m: m["asking"], 15)
+        check("switched on with nobody answering: netd asks, and the item is NOT connected",
+              m["asking"] and not m["connected"] and m["connecting"],
+              f"asking={m['asking']} connected={m['connected']} connecting={m['connecting']} ip={m['ip']}")
+    finally:
+        dbg.timeout = 6.0
+        qmp.hmp(f"set_link {netdev} on")
+    m = wait_for(lambda m: m["connected"], 90)
+    check("...and connected once netd has its answer", m["connected"] and not m["asking"],
+          f"ip={m['ip']} asking={m['asking']}")
+
+
+def tray_pictures(qmp, dbg, path, count, gap=0.06):
+    """How many DIFFERENT pictures the tray item showed over `count`
+    unsettled shots -- an animation never settles, so a settled one
+    would wait it out."""
+    from PIL import Image
+    t = net(dbg)["tray"]
+    seen = set()
+    for _ in range(count):
+        qmp.screenshot(path, stable=False)
+        im = Image.open(path).convert("RGB")
+        seen.add(im.crop((t["x"], t["y"], t["x"] + t["w"], t["y"] + t["h"])).tobytes())
+        time.sleep(gap)
+    return len(seen)
+
+
+def connecting(qmp, dbg, dev, shot):
+    # --- 9. connecting: netd asking, the icon moving, and stopping ----
+    netdev = user_netdev(qmp)
+    if not check("the guest has a user-mode netdev to cut", netdev, qmp.hmp("info network")[:160]):
+        return
+
+    def wait_for(pred, secs):
+        end = time.time() + secs
+        while time.time() < end:
+            m = net(dbg)
+            if pred(m):
+                return m
+            time.sleep(0.5)
+        return net(dbg)
+
+    qmp.hmp(f"set_link {netdev} off")
+    try:
+        out = dbg.send(f"sh netctl address {dev} none") or ""
+        check("`netctl address DEV none` takes the address off", "(unconfigured)" in out,
+              out.strip()[:120])
+        # netd sees the card bare on its next pass, ten seconds at most.
+        m = wait_for(lambda m: m["connecting"], 20)
+        check("netd says it is asking, and the item is connecting",
+              m["asking"] and m["connecting"], f"asking={m['asking']} connecting={m['connecting']}")
+        n = tray_pictures(qmp, dbg, shot("net_connecting.png"), 14)
+        check("...and the tray icon MOVES: several different pictures", n >= 3, f"{n} pictures")
+
+        dbg.send("sh config set desktop.animations off")
+        time.sleep(1.5)
+        n = tray_pictures(qmp, dbg, shot("net_connecting_still.png"), 6)
+        check("with animations off it is one still picture", n == 1, f"{n} pictures")
+        dbg.send("sh config set desktop.animations on")
+
+        m = wait_for(lambda m: not m["connecting"], 45)
+        check("past 30 s it stops moving, while netd still asks",
+              not m["connecting"] and m["asking"] and m["asking_ms"] >= 30000,
+              f"connecting={m['connecting']} asking={m['asking']} ip={m['ip']} "
+              f"asking_ms={m['asking_ms']}")
+        n = tray_pictures(qmp, dbg, shot("net_asking.png"), 6)
+        check("...one picture again", n == 1, f"{n} pictures")
+    finally:
+        dbg.send("sh config set desktop.animations on")
+        qmp.hmp(f"set_link {netdev} on")
+    # NO RENEW: a card behind a self-assigned address keeps asking.
+    m = wait_for(lambda m: m["connected"], 90)
+    check("link back, it binds by itself -- no Renew",
+          m["connected"] and not m["asking"], f"ip={m['ip']} asking={m['asking']}")
 
 
 def report():

@@ -3454,11 +3454,15 @@ real scanout hardware does. Do not write a pixel assertion for one.
   **`link_known` IS THREE-VALUED AND A DRIVER THAT CANNOT ANSWER IS NOT
   ONE REPORTING "DOWN"** (`abi/query_abi.h`) -- the e1000 in a default
   QEMU guest is exactly that case, so "connected" is decided by the
-  ADDRESS and never by the link flag. **DHCP STATE IS NOT READABLE**:
-  `/bin/netd` keeps its lease in its own memory and publishes none of
-  it, so the panel distinguishes only an address, a link-local one
-  (the 169.254/16 prefix `udhcp.c` falls back to) and none -- it must
-  not claim "leased". **THE DEVICE IS POLLED ON A CADENCE, THE
+  ADDRESS and never by the link flag. **WHETHER A CARD IS STILL ASKING IS
+  netd's TO SAY**: it pushes each card's phase to a `NETCTL_WATCH`
+  client's inbox (`lib/unetctl.h`), and the item reads it rather than
+  guessing from the address -- never by a status call, because netd
+  blocks for seconds inside a DHCP exchange. **CONNECTED NEEDS A LINK
+  NOT KNOWN TO BE DOWN AND AN ADDRESS netd IS NOT STILL ASKING
+  ABOUT** -- a card keeps its address with the cable out ("Cable
+  unplugged") and through a switch-on ("Connecting"). The icon moves
+  only for the first 30 s of asking (`tray_set_anim()`). **THE DEVICE IS POLLED ON A CADENCE, THE
   VISIBILITY ON THE SETTINGS GENERATION**, and the two cannot share a
   clock: there is no netdev generation in the ABI (the read is a
   memcpy with no I/O, so a 1 Hz read is affordable), while

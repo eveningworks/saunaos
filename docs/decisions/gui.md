@@ -6457,14 +6457,39 @@ guest is exactly that case, so reading the link flag would paint a
 disconnected icon on the machine this is most often looked at. An
 address is evidence; a flag that may not exist is not.
 
-**It does not say "DHCP".** `/bin/netd` holds `enum udhcp_state` in its
-own process memory and publishes none of it, and a lease file on disk
-records a REMEMBERED address with no expiry -- present after a release.
-A static address set by `netctl` is also indistinguishable from a
-leased one at the query layer. So the panel distinguishes only what the
-ABI supports: an address, a self-assigned 169.254/16 one, or none.
-Naming the source would need netd to publish its state, which is the
-honest way to add it later.
+**Whether a card is still ASKING is netd's to say (2026-10-19).** The
+address alone cannot tell "connecting" from "nobody will ever answer",
+and a lease file records a REMEMBERED address with no expiry. So netd
+publishes each card's phase -- unmanaged, off, no cable, asking, bound,
+gone -- and "connecting" is asking with no usable address. It is
+PUSHED to a watcher's uchan inbox (`NETCTL_WATCH`, NetworkManager's
+`StateChanged`), not answered to a status call: netd blocks for seconds
+inside a DHCP exchange, so a compositor asking would either freeze or
+time out exactly when the answer matters, and a once-a-second question
+would wake netd -- which re-reads `/etc/net.conf` every pass -- for
+nothing. It says "asking" BEFORE each exchange starts.
+
+**"Connected" needs a link not known to be down AND an address netd
+is not still asking about (2026-10-19).** The address alone said
+Connected with the cable pulled -- a card keeps its address -- and right
+after the switch went on, before netd had asked the server anything.
+A link the driver KNOWS is down reads "Cable unplugged", except for 20
+seconds after the switch goes on (a 2.5G card took 8 to renegotiate), when it is renegotiating and reads
+"Connecting... Waiting for the link". An address held while netd asks
+is shown "(not confirmed)". The switch itself now reaches the hardware
+(`set_admin`, docs/driver-guide.md): off powers the PHY down, as
+Linux's `ip link set down` does, so on is a real renegotiation of a few
+seconds rather than a flag flipped back.
+
+**Connecting moves for 30 seconds, then stops.** The icon's links draw
+in (the change it is waiting for, drawn as it happens); after
+`NET_CONNECTING_S` it goes still and the card says "No address, Nobody
+answered", while netd keeps asking with backoff. A machine left
+unplugged must not animate for ever -- Windows likewise gives up the
+"Identifying" state for a still "No internet". A moving tray icon is
+`wm_tray.c`'s ability, not the network item's (`tray_set_anim()`):
+frames named like any icon, only the item's box redrawn, a still frame
+for `desktop.animations = off` -- for the next item that needs one.
 
 **Two clocks, deliberately.** The device is read once a second, which
 is the one poll in `wm.c` that is not a generation compare: there is no

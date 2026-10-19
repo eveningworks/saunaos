@@ -109,6 +109,16 @@ struct net_device {
     // tickless idle wakes for it. 0: it only needs the wakes it gets.
     uint32_t poll_ms;
 
+    // Optional. The adapter switch reaching the hardware, Linux's
+    // ndo_stop/ndo_open: OFF takes the PHY down, so the far end sees the
+    // link go (a switch port's light goes out); ON brings it back and
+    // renegotiates, a few seconds. Called from a syscall, never an
+    // interrupt, BEFORE `admin_down` changes; a driver whose registers
+    // are safe only from its poll (USB control transfers) queues it
+    // there. Returns 0 or a negative errno, and a refusal leaves the
+    // flag as it was. NULL: the flag alone, and the link stays up.
+    int (*set_admin)(struct net_device *dev, int on);
+
     void *drv;                // driver private state
 
     // --- per-device L3 configuration (host byte order) ----------------

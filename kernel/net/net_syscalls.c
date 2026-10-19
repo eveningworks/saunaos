@@ -443,6 +443,12 @@ int sys_net_config(struct syscall_ctx *c) {
         c->regs[14] = (uint64_t)(int64_t)-EINVAL;
         return 0;
     }
+    int turning = ((req.flags & NET_IFC_DOWN) && !d->admin_down) ||
+                  ((req.flags & NET_IFC_UP) && d->admin_down);
+    if (turning && d->set_admin) {
+        int r = d->set_admin(d, (req.flags & NET_IFC_UP) != 0);
+        if (r < 0) { c->regs[14] = (uint64_t)(int64_t)r; return 0; }
+    }
     if (req.flags & NET_IFC_DOWN) d->admin_down = 1;
     if (req.flags & NET_IFC_UP)   d->admin_down = 0;
     if (req.flags & NET_IFC_CLEAR) d->ip = d->netmask = d->gateway = 0;

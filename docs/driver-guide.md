@@ -181,6 +181,17 @@ moderation alone (its ITR register), which is also what lets
 `eee_active` when the link says EEE was negotiated; the request alone
 does not decide it.
 
+**The adapter switch** (`netctl down|up`, the network flyout's switch)
+reaches the hardware through `set_admin(dev, on)`: off powers the PHY
+down so the far end sees the link go, on powers it back and restarts
+autonegotiation -- Linux's `ndo_stop`/`ndo_open`. It runs from the
+syscall before `admin_down` changes; a driver that may touch its
+registers only from its poll (a USB NIC's control transfers,
+`rtl_usb.c`) queues it there and returns 0. Leave it NULL and the switch
+is the core's flag alone: frames refused, the link up. `r8169.c` and
+`e1000.c` write the MII control register, `aq.c` asks its firmware for
+link shutdown.
+
 ## 8. Make the untestable half testable
 
 **QEMU emulates almost nothing you will want to drive.** The split that

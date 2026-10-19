@@ -16,14 +16,22 @@
 - `address DEVICE ADDRESS [NETMASK [GATEWAY]]` -- set an address by
   hand. A field left out is left alone, so `netctl address net-718ebf
   10.0.2.20` moves an address without restating the netmask.
+- `address DEVICE none` -- take the address, netmask and gateway off
+  the card (`ip addr flush`). A card netd leases asks for one again on
+  its next pass, within ten seconds -- and the taskbar's network icon
+  shows it connecting meanwhile.
 - `renew DEVICE` -- ask for the lease again, the remembered address
   first (Windows' `ipconfig /renew`, networkctl's `renew`).
 - `down DEVICE` -- switch the card off: nothing is sent or received
   whatever the cable says, and nothing is routed through it; its
-  address stays, unused, for `up`.
-- `up DEVICE` -- switch it back on; netd leases it at once, asking for
-  the address it had. A card nobody leases (addressed by hand, or
-  `dhcp = no`) is simply back, with the address it kept.
+  address stays, unused, for `up`. Where the driver can (`r8153`,
+  `r8156`, `r8169`, `aq`, `e1000`) the PHY is powered down as well, so
+  the other end sees the link go -- a switch port's light goes out.
+- `up DEVICE` -- switch it back on: the link renegotiates (a few
+  seconds on real hardware) and netd leases the card again, asking for
+  the address it had. Until netd has that answer the taskbar says
+  Connecting, not Connected. A card nobody leases (addressed by hand,
+  or `dhcp = no`) is simply back, with the address it kept.
 - `link DEVICE [SETTING VALUE]... | DEVICE defaults` -- the card's
   ADAPTER settings: with no pair, show them; with pairs, change them --
   applied at once and saved in the card's own `/etc/net.conf` section,
@@ -69,8 +77,11 @@ that netd is still asking.
 
 **Down is the kernel's switch** (Linux's `ip link set DEVICE down`): a
 flag on the device, separate from carrier, that stops every frame both
-ways and takes the address with it so nothing routes to a card that
-will not answer. netd stops leasing a card that is down. The lease FILE
+ways; the address stays on the card, unused, and nothing routes through
+a card that is down. A driver with a `set_admin` op also powers the PHY
+down (Linux's `ndo_stop`), and `up` powers it back and renegotiates
+(`ndo_open`); without one, the flag is all there is and the link stays
+up. netd stops leasing a card that is down. The lease FILE
 stays, which is why `up` gets the same address back. With netd not
 running, `down` and `up` still flip the switch -- only nothing leases
 the card afterwards -- and `renew` refuses.

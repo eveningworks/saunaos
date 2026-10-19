@@ -35,9 +35,10 @@ static const struct uargs_opt OPTS[] = {
 
 static const struct uargs_cmd CMDS[] = {
     { "status",  "[DEVICE]", "every card, or one: address, link, lease, counters (also a bare netctl)" },
-    { "address", "DEVICE ADDRESS [NETMASK [GATEWAY]]", "set an address by hand" },
+    { "address", "DEVICE ADDRESS [NETMASK [GATEWAY]] | DEVICE none",
+                 "set an address by hand, or take it off the card" },
     { "renew",   "DEVICE",   "ask for the lease again, the same address first" },
-    { "down",    "DEVICE",   "switch the card off: nothing sent or received, address cleared" },
+    { "down",    "DEVICE",   "switch the card off: nothing sent or received, address kept for up" },
     { "up",      "DEVICE",   "switch it back on and lease at once" },
     { "link",    "DEVICE [SETTING VALUE]... | DEVICE defaults",
                  "the card's adapter settings: show, change and save, or restore its driver's" },
@@ -211,6 +212,11 @@ static int cmd_status(const char *only) {
 
 static int cmd_address(char **v, int n) {
     uint32_t ip = 0, mask = 0, gw = 0;
+    // `ip addr flush`: a card netd leases asks again on its next pass.
+    if (n == 2 && !strcmp(v[1], "none")) {
+        if (sys_net_admin(v[0], NET_IFC_CLEAR) < 0) { printf("netctl: no such device: %s\n", v[0]); return 1; }
+        return cmd_status(v[0]);
+    }
     if (!parse_ip(v[1], &ip))            { printf("netctl: not an address: %s\n", v[1]); return 1; }
     if (n > 2 && !parse_ip(v[2], &mask)) { printf("netctl: not a netmask: %s\n", v[2]); return 1; }
     if (n > 3 && !parse_ip(v[3], &gw))   { printf("netctl: not a gateway: %s\n", v[3]); return 1; }

@@ -162,6 +162,18 @@ static int e1000_set_link(struct net_device *dev, const struct net_link_values *
     return 0;
 }
 
+// The adapter switch (net_device.set_admin), through the PHY's MII
+// control register: powered down, or up again to renegotiate. QEMU
+// models the renegotiation and ignores the power bit.
+static int e1000_set_admin(struct net_device *dev, int on) {
+    (void)dev;
+    uint16_t bmcr = on ? (BMCR_ANENABLE | BMCR_ANRESTART) : BMCR_PDOWN;
+    reg_write(REG_MDIC, MDIC_OP_WRITE | MDIC_PHY1 | ((uint32_t)PHY_BMCR << 16) | bmcr);
+    for (int i = 0; i < 10000; i++)
+        if (reg_read(REG_MDIC) & MDIC_READY) return 0;
+    return -EIO;
+}
+
 static int e1000_probe(const struct pci_device *pci) {
     if (g_probed) return pci_probe_decline(pci, "a second card; one is driven");
     g_probed = 1;
@@ -229,6 +241,7 @@ static int e1000_probe(const struct pci_device *pci) {
     g_dev.link_caps = NET_LINK_MODERATION;
     g_dev.link.moderation = NET_MOD_OFF;
     g_dev.set_link = e1000_set_link;
+    g_dev.set_admin = e1000_set_admin;
 
     net_location_pci(&g_dev, pci->bus, pci->device, pci->function);
     g_dev.driver = "e1000";

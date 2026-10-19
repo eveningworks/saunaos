@@ -115,18 +115,33 @@ static int mdio_read(uint8_t reg, uint16_t *out) {
 // read first and this runs only when there is no link: it costs a boot
 // nothing on a machine whose firmware did the work, and is the whole
 // difference between working and dead on one that did not.
-static void phy_kick(void) {
+static int phy_power_up(void) {
     uint16_t bmcr;
-    if (!mdio_read(PHY_BMCR, &bmcr)) {
-        klog_write("r8169: the PHY does not answer -- link state is the chip's\n");
-        return;
-    }
+    if (!mdio_read(PHY_BMCR, &bmcr)) return 0;
     bmcr &= (uint16_t)~(BMCR_PDOWN | BMCR_ISOLATE);
     mdio_write(PHY_BMCR, bmcr);
     mdio_write(PHY_ADVERTISE, ADVERTISE_ALL);
     mdio_write(PHY_CTRL1000, CTRL1000_FDX);
     mdio_write(PHY_BMCR, (uint16_t)(bmcr | BMCR_ANENABLE | BMCR_ANRESTART));
+    return 1;
+}
+
+static void phy_kick(void) {
+    if (!phy_power_up()) {
+        klog_write("r8169: the PHY does not answer -- link state is the chip's\n");
+        return;
+    }
     klog_write("r8169: no link at probe -- PHY powered up, autonegotiation restarted\n");
+}
+
+// The adapter switch (net_device.set_admin): the PHY powered down, so
+// the far end sees the link go, or up again to renegotiate. The link
+// interrupt reports what follows.
+static int r8169_set_admin(struct net_device *dev, int on) {
+    (void)dev;
+    if (on) return phy_power_up() ? 0 : -EIO;
+    mdio_write(PHY_BMCR, BMCR_PDOWN);
+    return 0;
 }
 
 static void update_link(struct net_device *dev) {
@@ -371,6 +386,7 @@ static int r8169_probe(const struct pci_device *pci) {
     net_location_pci(&g_dev, pci->bus, pci->device, pci->function);
     g_dev.driver = "r8169";
     g_dev.transmit = r8169_transmit;
+    g_dev.set_admin = r8169_set_admin;
     g_dev.drv = &g_r;
 
     // Everything the handler reads is built before the commit point, so

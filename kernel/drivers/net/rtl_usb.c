@@ -376,9 +376,30 @@ static int rtl_transmit(struct net_device *dev, const void *frame, uint32_t len)
 // binds a fresh rtl_usb, which is where the state lives.
 #define RTL_LINK_FAILS_MAX 3
 
+#define RTL_POWER_KEEP 0
+#define RTL_POWER_OFF  1
+#define RTL_POWER_ON   2
+
+static int rtl_set_admin(struct net_device *dev, int on) {
+    struct rtl_usb *d = dev->drv;
+    if (!d->in_use || d->link_gone) return -ENODEV;
+    d->want_power = on ? RTL_POWER_ON : RTL_POWER_OFF;
+    return 0;
+}
+
 static void rtl_poll(struct net_device *dev) {
     struct rtl_usb *d = dev->drv;
     if (!d->in_use || d->link_gone) return;
+    uint8_t want = d->want_power;
+    if (want != RTL_POWER_KEEP) {
+        // OFF powers the PHY down, so the link drops at both ends; ON is
+        // the chip's own advertise, which restarts autonegotiation with
+        // the power bit clear.
+        d->want_power = RTL_POWER_KEEP;
+        if (want == RTL_POWER_OFF) rtl_ocp_write(OCP_BASE_MII, BMCR_PDOWN);
+        else d->ops->advertise(d);
+        d->link_checked = 0;   // read what it did on this call
+    }
     uint64_t now = coarse_ticks();
     if (d->link_checked && now - d->link_checked < 100) return;
     d->link_checked = now;
@@ -588,6 +609,8 @@ static int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
     d->dev.transmit = rtl_transmit;
     d->dev.poll = rtl_poll;        // link state only; receive is pushed
     d->dev.poll_ms = 1000;         // rtl_poll()'s own cadence
+    d->dev.set_admin = rtl_set_admin;
+    d->want_power = RTL_POWER_KEEP;
     d->dev.drv = d;
 
     net_location_usb(&d->dev, info->root_port, info->port);

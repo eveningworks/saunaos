@@ -48,6 +48,27 @@ int  tray_is_hidden(int tray_id);
 // called every frame without repainting the taskbar.
 void tray_set_icon(int tray_id, const char *icon);
 
+// An icon item that MOVES: `frames` (icon names) shown in turn, one
+// every `frame_ms`, and `still` standing in for them with
+// `desktop.animations = off`. All static storage, like an icon name.
+// Only the item's own box is redrawn, and only when its frame changes.
+struct tray_anim {
+    const char *const *frames;
+    int count, frame_ms;
+    const char *still;
+};
+
+// Starts `a` on an icon item, or stops it (NULL) and shows its icon
+// again. A no-op when unchanged; tray_set_icon() also stops it.
+void tray_set_anim(int tray_id, const struct tray_anim *a);
+// The icon an item is showing now: its animation's frame, or its icon.
+const char *tray_icon_now(int tray_id);
+// Once per loop iteration: moves animated items on a frame, damaging
+// only those that changed.
+void tray_animate(void);
+// Milliseconds to the next frame of any animated item; -1 when none moves.
+int tray_wait_ms(void);
+
 // Lights an icon item -- an accent square behind it -- or puts it out.
 // A no-op when unchanged.
 void tray_set_accent(int tray_id, int on);

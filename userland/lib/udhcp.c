@@ -338,8 +338,11 @@ static int ll_taken(const char *dev, uint32_t ip) {
     return 0;
 }
 
-// Claim an address nobody answers for. Returns 1 on success.
-static int link_local(const char *dev, const uint8_t *mac) {
+// Claim an address nobody answers for. Returns 1 on success. A card
+// that already HOLDS one (`have`) keeps it: a daemon asks again every
+// minute behind it, and re-probing each time would move nothing.
+static int link_local(const char *dev, const uint8_t *mac, uint32_t have) {
+    if ((have & 0xFFFF0000u) == 0xA9FE0000u) return 1;
     for (int attempt = 0; attempt < LL_TRIES; attempt++) {
         uint32_t ip = ll_candidate(mac, attempt);
         int taken = ll_taken(dev, ip);
@@ -573,7 +576,7 @@ static int configure(const struct query_netdev *dev, struct udhcp_lease *got) {
 
     // Before the socket, before the DISCOVER: there is nothing to ask
     // on a dead wire, and asking anyway is what made this a coin flip.
-    if (!udhcp_carrier_wait(dev->name)) return link_local(dev->name, mac);
+    if (!udhcp_carrier_wait(dev->name)) return link_local(dev->name, mac, (uint32_t)dev->ip);
 
     int fd = sys_socket(NET_ABI_AF_INET, NET_ABI_SOCK_DGRAM, NET_ABI_IPPROTO_UDP);
     if (fd < 0) { cmd_fail("dhcp", "socket"); return 0; }
@@ -657,7 +660,7 @@ static int configure(const struct query_netdev *dev, struct udhcp_lease *got) {
     if (len <= 0) {
         close(fd);
         say("dhcp: no offer on %s\n", dev->name);
-        return link_local(dev->name, mac);
+        return link_local(dev->name, mac, (uint32_t)dev->ip);
     }
 
     l.ip = get32(in.yiaddr);
@@ -676,7 +679,7 @@ static int configure(const struct query_netdev *dev, struct udhcp_lease *got) {
         char a[20];
         ip_str(a, l.ip);
         say("dhcp: %s offered %s and did not acknowledge it\n", dev->name, a);
-        return link_local(dev->name, mac);
+        return link_local(dev->name, mac, (uint32_t)dev->ip);
     }
     // The ACK is authoritative, not the offer: a server may acknowledge
     // something other than what it offered.

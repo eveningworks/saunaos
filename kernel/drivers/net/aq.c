@@ -432,6 +432,11 @@ static int aq_set_link(struct net_device *dev, const struct net_link_values *v) 
     moderation_apply(v->moderation);
     return 0;
 }
+// The adapter switch (net_device.set_admin): the firmware's link
+// SHUTDOWN, or the card's own settings asked for again.
+static int aq_set_admin(struct net_device *dev, int on) {
+    return link_apply(on ? &dev->link : 0);
+}
 static uint64_t link_bps(void) { return g_aq.a2 ? aq2_link_bps(rd(AQ2_FW_OUT_LINK_STATUS_REG)) : aq1_link_bps(); }
 
 // --- the MAC: filters, buffers, rings ----------------------------------
@@ -887,6 +892,7 @@ static int aq_probe(const struct pci_device *pci) {
     g_dev.rates_supported = g_aq.rates;
     g_dev.link_caps = (g_aq.a2 || fw1_major() >= 2) ? NET_LINK_ALL : NET_LINK_RATES | NET_LINK_MODERATION;
     g_dev.set_link = aq_set_link;
+    g_dev.set_admin = aq_set_admin;
     link_apply(&g_dev.link);
 
     // --- up (the BSDs' aq_up) ---

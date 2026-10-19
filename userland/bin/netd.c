@@ -33,9 +33,11 @@
 #include "lib/unetctl.h"
 #include "lib/unetlink.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define NET_CONF "/etc/net.conf"
+#define NO_CABLE_FAST_NS (30ull * 1000000000ull)
 #define MAX_CARDS 4          // NET_MAX_DEVS; more would be a kernel change
 
 // The whole of this daemon's per-card state. `known` is what stops a
@@ -53,6 +55,11 @@ struct card {
     struct net_linkcfg link_asked;
     struct udhcp dhcp;
     int seen;                      // present in this pass's device list
+    // What watchers were last told (lib/unetctl.h's NETCTL_PHASE_*), and
+    // since when. Starts UNMANAGED, so a card that is never leased costs
+    // no event.
+    uint32_t phase;
+    uint64_t since_ns;
 };
 
 static struct card g_cards[MAX_CARDS];
@@ -144,6 +151,52 @@ static struct card *card_for(uint64_t mac) {
 static struct uchan_server g_chan;
 static int g_chan_open;
 
+// NETCTL_WATCH clients -- the desktop's network item, and anything else
+// that wants to see a card start asking. Grown as they come; a pid
+// whose ring has gone is dropped by the scan or by a refused send.
+static int *g_watch;
+static int g_watch_n, g_watch_cap;
+
+static void tell(int pid, const struct card *c, uint32_t phase) {
+    struct netctl_event e;
+    memset(&e, 0, sizeof e);
+    memcpy(e.dev, c->name, sizeof e.dev);
+    e.phase = phase;
+    e.since_ns = c->since_ns;
+    // A FULL INBOX DROPS THE EVENT: the watcher is a compositor that
+    // drains once a second, and 64 slots is minutes of card changes.
+    uchan_server_send(&g_chan, pid, &e, sizeof e);
+}
+
+static void unwatch(int pid) {
+    for (int i = 0; i < g_watch_n; i++)
+        if (g_watch[i] == pid) g_watch[i--] = g_watch[--g_watch_n];
+}
+
+static void watch(int pid) {
+    unwatch(pid);   // a watcher that asks again is told everything again, once
+    if (g_watch_n == g_watch_cap) {
+        int cap = g_watch_cap ? g_watch_cap * 2 : 4;
+        int *w = realloc(g_watch, sizeof *w * (size_t)cap);
+        if (!w) return;
+        g_watch = w;
+        g_watch_cap = cap;
+    }
+    g_watch[g_watch_n++] = pid;
+    for (int i = 0; i < g_count; i++)
+        if (g_cards[i].known) tell(pid, &g_cards[i], g_cards[i].phase);
+}
+
+// SAID THE MOMENT IT CHANGES, before the exchange that follows: an
+// exchange blocks this loop for seconds, and "asking" is exactly what a
+// watcher wants to know during it.
+static void set_phase(struct card *c, uint32_t phase) {
+    if (c->phase == phase) return;
+    c->phase = phase;
+    c->since_ns = sys_monotonic_ns();
+    for (int i = 0; i < g_watch_n; i++) tell(g_watch[i], c, phase);
+}
+
 static struct card *card_named(const char *name) {
     for (int i = 0; i < g_count; i++)
         if (g_cards[i].known && !strcmp(g_cards[i].name, name)) return &g_cards[i];
@@ -159,7 +212,8 @@ static void restart_lease(struct card *c) {
 
 // Every verb is a syscall or two, so it is applied HERE and answered at
 // once; the lease it starts is the next pass's (lib/unetctl.h).
-static int control(const struct netctl_msg *m) {
+static int control(int from, const struct netctl_msg *m) {
+    if (m->verb == NETCTL_WATCH) { watch(from); return NETCTL_OK; }
     struct card *c = card_named(m->dev);
     if (!c) return NETCTL_NO_SUCH;
     struct query_netdev d;
@@ -193,7 +247,9 @@ static int control(const struct netctl_msg *m) {
 
 static void serve_channel(void) {
     if (!g_chan_open) return;
-    uchan_server_scan(&g_chan, 0, 0);
+    int gone[8];
+    int n = uchan_server_scan(&g_chan, gone, 8);
+    for (int i = 0; i < n && i < 8; i++) unwatch(gone[i]);
     int from;
     struct netctl_msg m;
     memset(&m, 0, sizeof m);   // a short message leaves no stack bytes behind
@@ -202,7 +258,7 @@ static void serve_channel(void) {
         struct netctl_msg reply;
         memset(&reply, 0, sizeof reply);
         reply.verb = m.verb;
-        reply.result = (uint32_t)control(&m);
+        reply.result = (uint32_t)control(from, &m);
         memcpy(reply.dev, m.dev, sizeof reply.dev);
         uchan_server_reply(&g_chan, from, &reply, sizeof reply);
     }
@@ -321,8 +377,8 @@ int main(int argc, char **argv) {
 
             if (have_conf) apply_link(c, &conf, &d);
 
-            if (!wants_dhcp(&conf, &d, want_dhcp)) continue;
-            if (d.admin_down) continue;   // `netctl down`: switched off on purpose
+            if (!wants_dhcp(&conf, &d, want_dhcp)) { set_phase(c, NETCTL_PHASE_UNMANAGED); continue; }
+            if (d.admin_down) { set_phase(c, NETCTL_PHASE_OFF); continue; }   // switched off on purpose
 
             // A card holding a lease whose kernel-side address is gone
             // is a card that LEFT AND CAME BACK -- its driver was
@@ -340,12 +396,29 @@ int main(int argc, char **argv) {
             // A driver that cannot report carrier is not "down".
             if (d.link_known && !d.link_up) {
                 udhcp_expire(&c->dhcp, sys_monotonic_ns());
+                set_phase(c, NETCTL_PHASE_NO_CABLE);
+                // A LINK THAT JUST WENT IS LOOKED AT EVERY SECOND for a
+                // while: a card switched on renegotiates for seconds, and
+                // its lease should not then wait out a ten-second pass.
+                uint64_t now_ns = sys_monotonic_ns();
+                if (now_ns - c->since_ns < NO_CABLE_FAST_NS && now_ns + 1000000000ull < next)
+                    next = now_ns + 1000000000ull;
                 continue;
             }
-            if (d.ip && c->dhcp.state == UDHCP_INIT && !c->dhcp.lease.seconds && !c->forced)
+            // 169.254/16 IS NOT "BY HAND": it is udhcp's own fallback when
+            // nobody answered, and asking stops there only if it is
+            // mistaken for one -- a card up before its DHCP server stayed
+            // self-assigned until somebody pressed Renew.
+            int link_local = ((uint32_t)d.ip & 0xFFFF0000u) == 0xA9FE0000u;
+            if (d.ip && !link_local && c->dhcp.state == UDHCP_INIT && !c->dhcp.lease.seconds &&
+                !c->forced) {
+                set_phase(c, NETCTL_PHASE_UNMANAGED);
                 continue;   // addressed by hand: leave it alone
+            }
 
+            if (c->dhcp.state != UDHCP_BOUND) set_phase(c, NETCTL_PHASE_ASKING);
             uint64_t due = udhcp_step(&c->dhcp, sys_monotonic_ns());
+            set_phase(c, c->dhcp.state == UDHCP_BOUND ? NETCTL_PHASE_BOUND : NETCTL_PHASE_ASKING);
             if (c->dhcp.state == UDHCP_BOUND) c->forced = 0;
             if (due < next) next = due;
         }
@@ -356,6 +429,7 @@ int main(int argc, char **argv) {
         for (int i = 0; listed && i < g_count; i++)
             if (g_cards[i].known && !g_cards[i].seen) {
                 printf("netd: %s is gone\n", g_cards[i].name);
+                set_phase(&g_cards[i], NETCTL_PHASE_GONE);
                 g_cards[i].known = 0;
             }
 

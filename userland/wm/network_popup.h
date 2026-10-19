@@ -26,11 +26,14 @@
 // is exactly that case. So the icon says "connected" only on the
 // evidence of an ADDRESS, never on a link flag it may not have.
 //
-// AND DHCP STATE IS NOT READABLE. /bin/netd holds its lease state in
-// its own process memory and publishes none of it, so this cannot say
-// "leased" -- it distinguishes only what the ABI supports: an address,
-// a link-local address (the 169.254/16 prefix udhcp.c falls back to),
-// or none.
+// WHETHER A CARD IS STILL ASKING IS netd's TO SAY, not this file's to
+// guess: it pushes each card's phase (lib/unetctl.h, NETCTL_WATCH), and
+// an address held while netd ASKS is not a connection -- nor is one on
+// a link the driver KNOWS is down. "Connecting" is asking (for the
+// first NET_CONNECTING_S seconds, then the icon stops moving and the
+// card says "No address") or a link renegotiating just after the
+// switch went on. Everything else still comes from QUERY_NETDEV: an address, a
+// link-local one (the 169.254/16 prefix udhcp.c falls back to), or none.
 
 // Whether the panel is currently open -- read by wm_render.c and
 // wm_input.c, as with every other overlay.
@@ -89,8 +92,17 @@ struct network_view {
     unsigned long long link_bps;
     unsigned long long rx_rate, tx_rate;   // bytes a second, the last sample
     int  device_count;
+    int  cable_out;          // the driver KNOWS the link is down
+    int  negotiating;        // ...but the card was switched on moments ago
+    int  asking;             // netd is asking for a lease: any address is unconfirmed
+    int  connecting;         // negotiating, or asking for under NET_CONNECTING_S
+    unsigned long long asking_ms;   // for how long
 };
 void network_view(struct network_view *v);
+// The open card's busy bar, while connecting: damage it when it has
+// moved, and when the loop should next wake for it (-1: no need).
+void network_animate(void);
+int  network_wait_ms(void);
 int  network_tray_hidden(void);
 
 #endif

@@ -1148,6 +1148,14 @@ void wm_run(void) {
                 int gw = taskbar_glide_wait_ms();
                 if (gw >= 0 && (uint32_t)gw < wait_ms) wait_ms = (uint32_t)gw;
             }
+            // A moving tray icon (the network asking), and the open
+            // network card's busy bar.
+            {
+                int tw = tray_wait_ms();
+                if (tw >= 0 && (uint32_t)tw < wait_ms) wait_ms = (uint32_t)tw;
+                int nw = network_wait_ms();
+                if (nw >= 0 && (uint32_t)nw < wait_ms) wait_ms = (uint32_t)nw;
+            }
             // The search field's caret blinks: wake for its next flip.
             {
                 int cw = start_menu_wait_ms();
@@ -1466,6 +1474,9 @@ void wm_run(void) {
         wm_update_drag_resize(mx, my, buttons);
         desktop_update_drag(mx, my, buttons); // desktop icon drag, if one's in progress -- see desktop.h
         if (mouse_moved) desktop_update_hover(mx, my, !(buttons & 0x1) && wm_point_on_desktop(mx, my));
+
+        tray_animate();
+        network_animate();
 
         static uint64_t last_second = (uint64_t)-1;
         uint64_t ticks = sys_ticks();

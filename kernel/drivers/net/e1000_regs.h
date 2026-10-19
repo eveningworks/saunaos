@@ -14,6 +14,7 @@
 #define REG_CTRL   0x0000
 #define REG_STATUS 0x0008
 #define REG_EERD   0x0014
+#define REG_MDIC   0x0020   // the PHY's registers, one at a time
 #define REG_ICR    0x00C0
 #define REG_ITR    0x00C4   // interrupt throttling: the minimum gap, in 256 ns units
 #define REG_IMS    0x00D0
@@ -36,6 +37,14 @@
 #define REG_RAH    0x5404
 
 #define CTRL_SLU   (1u << 6)   // set link up
+
+#define MDIC_PHY1     (1u << 21)  // PHY address 1, the 8254x's internal PHY
+#define MDIC_OP_WRITE (1u << 26)
+#define MDIC_READY    (1u << 28)
+#define PHY_BMCR      0           // MII control: power, autonegotiation
+#define BMCR_PDOWN    0x0800
+#define BMCR_ANRESTART 0x0200
+#define BMCR_ANENABLE 0x1000
 #define CTRL_RST   (1u << 26)  // global reset; clears itself when done
 #define CTRL_ASDE  (1u << 5)   // auto-speed detection
 

@@ -95,12 +95,29 @@ netd answers on a control channel (`lib/unetctl.h`, uchan -- the shape
 init's `service` channel has), the way networkd answers `networkctl`.
 **`renew`** starts the card's lease over, asking for the remembered
 address first; **`down`** switches the card off in the kernel (nothing
-sent or received) and clears its address, and netd then leaves it
-alone; **`up`** switches it back on and leases at once. Each is
+sent or received), keeping its address for `up`, and netd then
+leaves it alone; **`up`** switches it back on and leases at once. Each is
 answered "accepted" immediately and carried out on the next pass,
 because a DHCP exchange can block for seconds and every card shares one
 loop -- `netctl` watches the card for the outcome. A card renewed by
 hand also stops counting as "addressed by hand" until its lease binds.
+
+## Being watched: what each card is doing
+
+A client that sends `NETCTL_WATCH` is told every card's PHASE at once,
+then each change as it happens, in its uchan inbox (`struct
+netctl_event`): `unmanaged` (`dhcp = no`, or an address set by hand),
+`off`, `no cable` (a driver that knows the link is down), `asking` (no
+lease yet), `bound`, or `gone`, with when it began. It is pushed, not
+polled -- NetworkManager's `StateChanged`, not a status call -- because
+a DHCP exchange blocks this loop for seconds and "asking" is said
+BEFORE the exchange starts. The taskbar's network item is the watcher
+today: asking is what makes its icon move.
+
+A card whose link just went -- switched on and renegotiating, or a
+cable pulled -- is looked at every second for 30 seconds rather than
+every ten, so the lease follows the link within a second of it coming
+back.
 
 ## What it deliberately does not do
 

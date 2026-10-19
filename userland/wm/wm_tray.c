@@ -20,6 +20,7 @@
 #include "lib/icon_cache.h"
 #include "kapi.h"
 #include "wm_glass.h"
+#include "wm_anim.h"        // wm_anim_enabled(): a still frame with animations off
 #include "ui/uui_primitives.h" // uui_state_bg(), uui_fill_round_rect()
 
 // Eight: the clock, the on-screen keyboard, volume, brightness, the
@@ -49,6 +50,11 @@ struct tray_item {
     // remote desktop session). Colour may carry it here because the
     // square is the panel's drawing, not the icon file's.
     int accent;
+    // MOVING (tray_set_anim): drawn as anim->frames[frame] instead of
+    // `icon`, which stays set -- it is what gives the item its width.
+    const struct tray_anim *anim;
+    uint64_t anim_t0;
+    int frame;
 };
 
 static struct tray_item tray_items[TRAY_MAX_ITEMS];
@@ -146,9 +152,65 @@ void tray_set_accent(int tray_id, int on) {
 void tray_set_icon(int tray_id, const char *icon) {
     if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return;
     if (!tray_items[tray_id].active) return;
+    tray_set_anim(tray_id, 0);
     if (tray_items[tray_id].icon == icon) return;   // nothing to repaint
     tray_items[tray_id].icon = icon;
     tray_damage();
+}
+
+void tray_set_anim(int tray_id, const struct tray_anim *a) {
+    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return;
+    struct tray_item *it = &tray_items[tray_id];
+    if (!it->active || it->anim == a) return;
+    it->anim = a;
+    it->anim_t0 = sys_monotonic_ns();
+    it->frame = 0;
+    tray_damage();
+}
+
+const char *tray_icon_now(int tray_id) {
+    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return 0;
+    const struct tray_item *it = &tray_items[tray_id];
+    if (!it->anim) return it->icon;
+    return wm_anim_enabled() ? it->anim->frames[it->frame] : it->anim->still;
+}
+
+// The frame `it` should show at `now`, from its own start so two
+// animated items never drift into step with each other's waits.
+static int frame_at(const struct tray_item *it, uint64_t now) {
+    uint64_t ms = (now - it->anim_t0) / 1000000ull;
+    return (int)(ms / (uint64_t)it->anim->frame_ms % (uint64_t)it->anim->count);
+}
+
+void tray_animate(void) {
+    if (!wm_anim_enabled()) return;
+    uint64_t now = sys_monotonic_ns();
+    for (int i = 0; i < TRAY_MAX_ITEMS; i++) {
+        struct tray_item *it = &tray_items[i];
+        if (!it->active || it->hidden || !it->anim) continue;
+        int f = frame_at(it, now);
+        if (f == it->frame) continue;
+        it->frame = f;
+        int x, y, w, h;
+        if (tray_item_rect(i, &x, &y, &w, &h)) {
+            redraw_pending = 1;
+            wm_damage_rect(x, y, w, h);
+        }
+    }
+}
+
+int tray_wait_ms(void) {
+    if (!wm_anim_enabled()) return -1;
+    uint64_t now = sys_monotonic_ns();
+    int best = -1;
+    for (int i = 0; i < TRAY_MAX_ITEMS; i++) {
+        const struct tray_item *it = &tray_items[i];
+        if (!it->active || it->hidden || !it->anim) continue;
+        uint64_t ms = (now - it->anim_t0) / 1000000ull;
+        int left = it->anim->frame_ms - (int)(ms % (uint64_t)it->anim->frame_ms);
+        if (best < 0 || left < best) best = left;
+    }
+    return best;
 }
 
 int tray_register(const char *initial_text) {
@@ -415,7 +477,7 @@ static void tray_draw_item(int id, int x, int w, void *vctx) {
         uui_fill_round_rect(wm_surface(), x - TRAY_PAD, g->btn_y, w + 2 * TRAY_PAD,
                             g->btn_h, g->btn_r, bg);
     if (tray_items[id].icon) {
-        const struct uimg *ico = icon_get(tray_items[id].icon, w);
+        const struct uimg *ico = icon_get(tray_icon_now(id), w);
         // No letter-tile fallback here, unlike an app icon: a tray item
         // with no file draws NOTHING rather than a lone initial, which
         // would read as a control the panel invented.

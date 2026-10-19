@@ -1072,6 +1072,38 @@ def icon_tray_network_limited():
     return im
 
 
+# Connecting: netd is asking for an address. The tray steps from the
+# limited icon through these four to the connected one (network_popup.c
+# holds the sequence), the links drawing outward from the top node.
+def _icon_tray_network_growing(k):
+    def draw():
+        im, d = _tb()
+        # Across the GAP between the nodes, not centre to centre: the
+        # first fifth of a centre line is hidden under the top node.
+        (x0, y0) = NET_NODES[0]
+        for (cx, cy) in NET_NODES[1:]:
+            length = ((cx - x0) ** 2 + (cy - y0) ** 2) ** 0.5
+            t = (8 + (length - 16) * k / 5) / length
+            d.line([(x0, y0), (round(x0 + (cx - x0) * t), round(y0 + (cy - y0) * t))],
+                   fill=TB_INK, width=6)
+        _net_nodes(d, lines=False)
+        return im
+    return draw
+
+
+# The same with `desktop.animations = off`: dotted links, GNOME's
+# "acquiring" -- a fourth shape, so it still reads without motion.
+def icon_tray_network_connecting():
+    im, d = _tb()
+    (x0, y0) = NET_NODES[0]
+    for (cx, cy) in NET_NODES[1:]:
+        for t in (2, 3):
+            px, py = x0 + (cx - x0) * t // 5, y0 + (cy - y0) * t // 5
+            d.ellipse([px - 3, py - 3, px + 3, py + 3], fill=TB_INK)
+    _net_nodes(d, lines=False)
+    return im
+
+
 # No network device at all. Only reachable with `desktop.tray.network =
 # always`, since `auto` hides the item outright in this case -- it
 # exists so that pinning the item never shows a state it has no icon
@@ -1798,6 +1830,8 @@ ICONS = {
     "tray-network": icon_tray_network,
     "tray-network-limited": icon_tray_network_limited,
     "tray-network-off": icon_tray_network_off,
+    "tray-network-connecting": icon_tray_network_connecting,
+    **{f"tray-network-connecting-{k}": _icon_tray_network_growing(k) for k in range(1, 5)},
     "tray-remote": icon_tray_remote,
 }
 

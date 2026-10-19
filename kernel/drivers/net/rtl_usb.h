@@ -355,6 +355,10 @@ struct rtl_usb {
     // forever otherwise -- see rtl_poll().
     uint8_t  link_fails;
     uint8_t  link_gone;
+    // The adapter switch (set_admin), queued for rtl_poll(): a register
+    // write is a CONTROL TRANSFER, and only the poll may put one on
+    // endpoint 0 (see there). RTL_POWER_*.
+    volatile uint8_t want_power;
 
     struct net_device dev;
 };
