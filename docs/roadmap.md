@@ -922,6 +922,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: dialogs from DIALOG resources (Minesweeper's Custom Field and Best Times)
 - [x] ~~w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings~~ DONE 2026-10-19
 - [ ] w16: the launcher's Run with trace -- open the trace beside the stop, in Log Viewer or Notepad
+- [x] ~~w16: a program's missing calls in a window of their own, with names and kinds for every Win16 DLL~~ DONE 2026-10-19
+- [ ] w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values, not counted missing
 - [ ] Stage 3: the standard controls (BUTTON, EDIT, LISTBOX, STATIC) and file I/O
 - [ ] Stage 4: real programs (the user's own copies), each run's unimplemented-import list worked through
 - [ ] Several top-level windows per uapp process, which real Win16 programs need

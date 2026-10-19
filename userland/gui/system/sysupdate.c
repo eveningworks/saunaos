@@ -150,8 +150,8 @@ static struct uui_progress g_bar;
 static struct uui_table g_table;
 static struct uui_textview g_log;
 static char g_log_buf[32768];
-static int g_rows[UUI_TABLE_MAX_ROWS];   // plan index per table row
-static int g_row_count;
+static int *g_rows;                      // plan index per table row, grown to the plan
+static int g_row_count, g_row_cap;
 static struct uui_markdown g_notes;
 // What's new as a web page when the engine is installed (ui/uui_webview.h):
 // app:notes/<gen> is the notes, the "Under the hood" fold a link to
@@ -364,7 +364,11 @@ static uint32_t tint(void *ctx, int row) {
 
 static void collect_rows(void) {
     g_row_count = 0;
-    for (int i = 0; i < g_plan.count && g_row_count < UUI_TABLE_MAX_ROWS; i++) {
+    if (g_plan.count > g_row_cap) {
+        int *g = realloc(g_rows, sizeof *g_rows * (size_t)g_plan.count);
+        if (g) { g_rows = g; g_row_cap = g_plan.count; }
+    }
+    for (int i = 0; i < g_plan.count && g_row_count < g_row_cap; i++) {
         int c = g_plan.files[i].change;
         if (c == UPD_CHANGED || c == UPD_NEW || c == UPD_REMOVE) g_rows[g_row_count++] = i;
     }

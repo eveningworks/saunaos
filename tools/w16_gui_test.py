@@ -30,11 +30,18 @@ file is involved.
 6. **Win16 Programs**: the launcher lists the samples, a double click on
    one runs it, and `win16 FILE` runs a program with no launcher window
    (the File Manager's Open for an .exe).
+7. **A program's calls** (`win16 --calls FILE`, win16/calls.c): fault.exe
+   lacks exactly USER.7 ExitWindows, so its window lists that one row
+   under two chips (All, USER); Show all imports lists every import
+   `w16 --check` counts; a search narrows it to one; Ctrl+C copies the
+   rows shown; gdi.exe, which lacks nothing, opens on every import; and
+   the launcher's details panel opens the window for the selected program.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
 """
 import argparse
+import re
 import sys
 import time
 
@@ -242,6 +249,24 @@ def launcher(dbg, res):
                   f"new windows {new}")
         for t in new:
             dbg.close_window(t)
+        # The selected program's "missing calls" button opens its window.
+        # Polled: the launcher republishes its widgets when it redraws on
+        # getting the focus back from the program just closed.
+        btn, end = None, time.time() + 5
+        while not btn and time.time() < end:
+            btn = dbg.widgets("Win16 Programs").get("calls")
+            time.sleep(0.3)
+        if btn:
+            dbg.click(btn["screen"]["x"] + 10, btn["screen"]["y"] + 8)
+        end = time.time() + 10
+        cw = None
+        while time.time() < end and not cw:
+            cw = next((w["title"] for w in dbg.windows() if w["title"].endswith(" - calls")), None)
+            time.sleep(0.3)
+        res.check("the details panel's button opens the program's calls window", cw is not None,
+                  f"button {btn and btn['screen']}, windows {[w['title'] for w in dbg.windows()]}")
+        if cw:
+            dbg.close_window(cw)
     dbg.close_window("Win16 Programs")
     dbg.send("gui spawn /bin/wm/apps/win16 /usr/share/w16/hello.exe")
     end = time.time() + 10
@@ -254,6 +279,81 @@ def launcher(dbg, res):
     last = sh(dbg, f"cat {LAST.format('hello')}")
     res.check("closing it records the run as ended, before the window goes", " ended" in last,
               f"the file: {last!r}")
+
+
+CALLS = "win16-calls: layout "
+
+
+def calls_log(dbg):
+    """The calls window's report since the last read: its `rows` line and
+    the parts it describes, by name."""
+    out = {}
+    for line in dbg.logs("win16-calls:", clear=True):
+        m = re.search(r"rows (\d+) all (\d) first (\S+) (\S+) copied (-?\d+)", line)
+        if m:
+            out["rows"], out["all"] = int(m.group(1)), int(m.group(2))
+            out["first"], out["copied"] = f"{m.group(3)} {m.group(4)}", int(m.group(5))
+        m = re.search(CALLS + r"(\w+)\.(\w+) (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+        if m:
+            out[f"{m.group(1)}.{m.group(2)}{m.group(3)}"] = tuple(int(v) for v in m.groups()[3:])
+        m = re.search(CALLS + r"(\w+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
+        if m:
+            out[m.group(1)] = tuple(int(v) for v in m.groups()[1:])
+    return out
+
+
+def wait_calls(dbg, pred, t=8.0):
+    end, got = time.time() + t, {}
+    while time.time() < end:
+        got.update(calls_log(dbg))
+        if pred(got):
+            return got
+        time.sleep(0.3)
+    return got
+
+
+def calls(dbg, res):
+    dbg.logs("win16-calls:", clear=True)
+    win = dbg.spawn("/bin/wm/apps/win16 --calls /usr/share/w16/fault.exe", "Fault test - calls")
+    res.check("`win16 --calls` opens the program's calls window", win is not None,
+              f"windows {[w['title'] for w in dbg.windows()]}")
+    if not win:
+        return
+    lay = wait_calls(dbg, lambda l: "rows" in l and "modules.slot1" in l)
+    res.check("fault.exe's one missing call is the one row: USER.7 ExitWindows",
+              lay.get("rows") == 1 and lay.get("all") == 0 and lay.get("first") == "USER.7 ExitWindows",
+              f"{ {k: lay.get(k) for k in ('rows', 'all', 'first')} }")
+    res.check("two chips, All and USER", "modules.slot1" in lay and "modules.slot2" not in lay,
+              f"slots {[k for k in lay if k.startswith('modules.slot')]}")
+    imports = int(re.search(r"imports (\d+)", sh(dbg, "w16 --check /usr/share/w16/fault.exe")).group(1))
+    cx, cy = win["content"]["x"], win["content"]["y"]
+    b = lay.get("toolbar.button3")
+    if b:
+        dbg.click(cx + b[0] + b[2] // 2, cy + b[1] + b[3] // 2)
+    lay = wait_calls(dbg, lambda l: l.get("all") == 1)
+    res.check("Show all imports lists every import w16 --check counts",
+              lay.get("all") == 1 and lay.get("rows") == imports, f"rows {lay.get('rows')} of {imports}")
+    s = lay.get("search")
+    if s:
+        dbg.click(cx + s[0] + 10, cy + s[1] + s[3] // 2)
+    for ch in "Exit":
+        dbg.send(f"gui key {ch}")
+        dbg.settle(0.1)
+    lay = wait_calls(dbg, lambda l: l.get("rows") == 1)
+    res.check("a search narrows the list to what matches", lay.get("rows") == 1, f"rows {lay.get('rows')}")
+    t = lay.get("calls")
+    if t:
+        dbg.click(cx + t[0] + 40, cy + t[1] + 40)
+    dbg.send("gui key 0x03")
+    lay = wait_calls(dbg, lambda l: l.get("copied", -1) >= 0)
+    res.check("Ctrl+C copies the rows shown", lay.get("copied") == 1, f"copied {lay.get('copied')}")
+    dbg.close_window("Fault test - calls")
+
+    win = dbg.spawn("/bin/wm/apps/win16 --calls /usr/share/w16/gdi.exe", "GDI test - calls")
+    lay = wait_calls(dbg, lambda l: "rows" in l)
+    res.check("a program that lacks nothing opens on every import",
+              win is not None and lay.get("all") == 1 and lay.get("rows", 0) > 0, f"{lay}")
+    dbg.close_window("GDI test - calls")
 
 
 TMP = "/tmp"
@@ -281,6 +381,7 @@ def main():
         fault(dbg, res)
         settings(dbg, qmp, res)
         launcher(dbg, res)
+        calls(dbg, res)
     finally:
         dbg.close()
     print(f"\nw16_gui_test: {len(res.passes)} passed, {len(res.fails)} failed")

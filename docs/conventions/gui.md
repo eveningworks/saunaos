@@ -222,9 +222,11 @@ this the obvious way), not from how much history it accumulated.
   too (`uui_loglist`'s cross-in-a-disc and bar-in-a-triangle), so colour
   is never the only signal. A log or a list of results reaches for
   `ui/uui_loglist.h` over `lib/ulogset.h` before drawing its own rows --
-  and `uui_table` is NOT a merge: it sorts at most `UUI_TABLE_MAX_ROWS`
-  and leaves the rest unsorted, which put a long log's program lines out
-  of time order before the Log Viewer sorted its lines itself.
+  and `uui_table` is NOT a merge: its stable insertion sort is
+  quadratic, right for a few hundred rows and wrong for a long log --
+  the Log Viewer sorts its own lines (when the table also stopped
+  sorting at 256 rows, a long log's program lines came out of time
+  order).
 - **A HELD BUTTON FREEZES THE HOVERED WINDOW: no leave, no enter, until
   the release** (`wm_update_content_hover()`). Wayland's implicit grab.
   A leave reaches a client as a move to (-1,-1) with NO button held,

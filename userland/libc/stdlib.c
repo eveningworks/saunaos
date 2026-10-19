@@ -308,7 +308,7 @@ static void swap_bytes(char *a, char *b, size_t n) {
 // Insertion sort over a byte-swap, NOT a quicksort.
 //
 // The honest reasons, in order. Every array anything here sorts is
-// bounded and small (SYS_LISTDIR_MAX entries, UUI_TABLE_MAX_ROWS rows).
+// small in practice (a directory page, a table's rows, a program's imports).
 // A quicksort needs a pivot strategy or it is quadratic on sorted
 // input, which is the common case in a file manager. And a recursive
 // one needs stack this ring-3 frame budget (2 KiB) does not have to

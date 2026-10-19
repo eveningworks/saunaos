@@ -139,13 +139,12 @@ typedef int (*uui_table_collapsed_fn)(void *ctx, int row); // 1 = children hidde
 
 #define UUI_TABLE_MAX_GROUPS 8
 
-// The permutation is a fixed array because Toykit has no allocator.
-// Past this many rows the table shows the first UUI_TABLE_MAX_ROWS in
-// sorted order and the rest unsorted after them, rather than silently
-// dropping any -- see uui_table.c; groups and the tree are off in that
-// case. Task Manager's ceiling is the process limit (sys_proc_max()).
-#define UUI_TABLE_MAX_ROWS 256
-#define UUI_TABLE_MAX_VIEW (UUI_TABLE_MAX_ROWS + UUI_TABLE_MAX_GROUPS)
+// THE ROW ARRAYS GROW WITH THE ROWS: uui_table_set_rows() makes room for
+// every row there is, so there is no row limit. They are allocated on
+// first use and kept for the table's life, which is why a table's struct
+// must START ZEROED -- static or file scope, as every table here is, or
+// calloc. If memory runs out the rows show in the app's own order, with
+// no groups or tree, rather than any dropped.
 
 #define UUI_TABLE_UNSORTED (-1)
 
@@ -235,15 +234,16 @@ struct uui_table {
     // built for, so a count that changed without a rebuild is detectable
     // rather than silently indexing stale positions. `view_count` is the
     // rows ON SCREEN: captions in, collapsed children out.
-    int order[UUI_TABLE_MAX_VIEW];
+    int *order;     // OWNED, rows_cap + UUI_TABLE_MAX_GROUPS of them
     int order_rows;
     int view_count;
 
     // Per APP row, from the last rebuild: its depth in the tree, whether
     // it has children, and its effective parent (-1 = a root). OWNED.
-    unsigned char depth[UUI_TABLE_MAX_ROWS];
-    unsigned char kids[UUI_TABLE_MAX_ROWS];
-    short up[UUI_TABLE_MAX_ROWS];
+    unsigned char *depth;
+    unsigned char *kids;
+    int *up;
+    int rows_cap;   // how many rows these arrays hold; OWNED
     int toggled;    // app row whose expander was used, or -1; see take_toggled()
     int structured; // OWNED: groups or a tree are in force this rebuild
 

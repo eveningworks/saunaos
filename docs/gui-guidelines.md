@@ -81,6 +81,7 @@ app; one shaped around an app's data stays in that app (CLAUDE.md).
 | `uui_switch` | An on/off STATE that takes effect -- a setting (Windows 11's toggle) |
 | `uui_radio_list` | A few mutually-exclusive options, all visible |
 | `uui_segmented` | Two to four SHORT mutually-exclusive choices side by side; a view switch |
+| `uui_chips` | A FILTER over a list, one chip per group with its count ("All 50", "USER 26"), as many as the data has; they wrap |
 | `uui_dropdown` | Many mutually-exclusive options, one visible |
 | `uui_slider` | An ORDERED enum, where "more" and "less" is the point |
 | `uui_gallery` | A few choices whose difference is SEEN -- a card per choice, its picture painted by the caller (a cursor theme's shapes; a wallpaper) |

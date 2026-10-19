@@ -42,7 +42,7 @@ static char g_exe[W16_PATH_MAX];         // the program, as an absolute path: it
 
 static const struct uargs_opt OPTS[] = {
     { "info", 'i', NULL, "print the program's segments and the functions it imports", &g_info, NULL },
-    { "check", 'c', NULL, "say how much of what the program imports w16 has, and its icon",
+    { "check", 'c', NULL, "list what the program imports, which of it w16 has, its kind, and the icon",
       &g_check, NULL },
     { "trace", 't', "FILE", "log every Windows call the program makes to FILE (Wine's +relay)",
       NULL, &g_trace_path },
@@ -525,6 +525,11 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
 // `--check`: what the launcher shows of a program, as lines -- its module
 // and description, how many of the Windows functions it imports w16 has
 // and which it lacks, and its icon as rows of AARRGGBB.
+static int cmp_u32(const void *a, const void *b) {
+    uint32_t x = *(const uint32_t *)a, y = *(const uint32_t *)b;
+    return x < y ? -1 : x > y;
+}
+
 static int check(const uint8_t *img, uint32_t size) {
     static struct ne_module m;
     int err = ne_parse(img, size, &m);
@@ -534,28 +539,39 @@ static int check(const uint8_t *img, uint32_t size) {
     if (ne_description(&m, desc, sizeof desc) == 0 && desc[0]) printf("description %s\n", desc);
     for (unsigned i = 1; i <= m.nmod; i++)
         if (ne_module_name(&m, i, mods[i - 1], sizeof mods[0]) < 0) snprintf(mods[i - 1], sizeof mods[0], "?");
-    static uint32_t seen[2048];                  // module << 16 | ordinal, each import once
-    unsigned nseen = 0, has = 0, by_name = 0;
+    // Each import once: module << 16 | ordinal, collected then sorted.
+    uint32_t *seen = 0;
+    unsigned nseen = 0, cap = 0, has = 0, by_name = 0;
     for (unsigned s = 1; s <= m.nseg; s++)
         for (unsigned i = 0; i < m.seg[s - 1].nrelocs; i++) {
             struct ne_reloc r;
             if (ne_reloc_at(&m, s, i, &r) < 0) continue;
             if ((r.flags & 3) == NE_REL_IMPORT_NAME) { by_name++; continue; }
             if ((r.flags & 3) != NE_REL_IMPORT_ORD || r.a < 1 || r.a > m.nmod) continue;
-            uint32_t key = (uint32_t)r.a << 16 | r.b;
-            unsigned k = 0;
-            while (k < nseen && seen[k] != key) k++;
-            if (k == nseen && nseen < sizeof seen / sizeof seen[0]) seen[nseen++] = key;
+            if (nseen == cap) {
+                uint32_t *g = realloc(seen, sizeof *seen * (cap = cap ? cap * 2 : 256));
+                if (!g) { printf("error out of memory\n"); return 1; }
+                seen = g;
+            }
+            seen[nseen++] = (uint32_t)r.a << 16 | r.b;
         }
+    qsort(seen, nseen, sizeof *seen, cmp_u32);
+    unsigned u = 0;
+    for (unsigned k = 0; k < nseen; k++)
+        if (!u || seen[u - 1] != seen[k]) seen[u++] = seen[k];
+    nseen = u;
     for (unsigned k = 0; k < nseen; k++) has += w16_has(mods[(seen[k] >> 16) - 1], seen[k] & 0xFFFF);
     printf("imports %u\nhas %u\n", nseen + by_name, has);
+    // "call missing USER.1 MessageBox Dialogs": whether w16 has it, the
+    // import, its name ("?" unknown) and its kind, which may hold spaces.
     for (unsigned k = 0; k < nseen; k++) {
         const char *mod = mods[(seen[k] >> 16) - 1];
         unsigned ord = seen[k] & 0xFFFF;
-        if (w16_has(mod, ord)) continue;
         const struct w16_name *n = w16_name_lookup(mod, ord);
-        printf("missing %s.%u %s\n", mod, ord, n ? n->name : "?");
+        printf("call %s %s.%u %s %s\n", w16_has(mod, ord) ? "has" : "missing", mod, ord,
+               n ? n->name : "?", w16_kind_names[n ? n->kind : w16_kind_other]);
     }
+    free(seen);
     static uint32_t px[32 * 32];
     int iw, ih;
     if (w16_icon(&m, px, &iw, &ih) == 0) {

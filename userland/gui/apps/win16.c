@@ -13,6 +13,8 @@
 //
 // `win16 FILE` runs that program and exits without a window: what the
 // File Manager's Open does for an .exe (Handles= in its desktop entry).
+// `win16 --calls FILE` is the window listing what it imports
+// (win16/calls.c), which the details panel's button opens.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -36,38 +38,38 @@
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
 #include "w16/w16prefs.h"
+#include "win16/win16.h"
 
-#define W16_BIN    "/bin/w16"
-#define MAX_PROGS  128
-#define MISSING_SHOWN 3
+#define MISSING_SHOWN 3                      // the panel names this many; the window lists all
 
+// Every string is allocated (prog_free()); `icon` is w16_icon()'s largest.
 struct prog {
-    char path[W16_PATH_MAX];
-    char name[64];                   // its description, else its file name
-    char title[40];                  // what its tile says: the name, its maker's prefix off
-    char module[16];
+    char *path;
+    char *name;                      // its description, else its file name
+    char *title;                     // what its tile says: win16_short_title()
+    char *module;
     int folder;                      // which folder it was found in
     int checked;                     // `w16 --check` has answered
     int ok;                          // ...and it is a Win16 program
     int imports, has;
-    char missing[MISSING_SHOWN][40];
+    char *missing[MISSING_SHOWN];
     int nmissing;
     uint32_t icon[32 * 32];
     int iw, ih;
     int last;                        // 0 never run, 1 ended, 2 stopped
     long last_when;
-    char last_text[120];
+    char *last_text;
 };
 
-static struct prog g_prog[MAX_PROGS];
+static struct prog *g_prog;
 static int g_nprog, g_next_check;
-static int g_view[MAX_PROGS], g_nview;      // the programs the sidebar's choice shows
+static int *g_view, g_nview;                 // the programs the sidebar's choice shows
 static struct w16_prefs g_def;               // the defaults, and the folders
 static struct uapp *g_app;
 
-enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CMD_EXIT };
+enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CMD_EXIT, CMD_CALLS };
 enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VERSION, ID_FRAME,
-       ID_TRACE, ID_RUN, ID_OPT_DRIVE };
+       ID_TRACE, ID_RUN, ID_OPT_DRIVE, ID_CALLS };
 
 static struct uui_menubar g_menu;
 static struct uui_toolbar g_tb;
@@ -76,6 +78,7 @@ static struct uui_grid g_grid;
 static struct uui_statusbar g_sb;
 static struct uui_dropdown g_dd[4];          // the per-program settings: scale, version, frame, trace
 static struct uui_button g_run;
+static struct uui_button g_calls;            // "Missing calls...": the calls window
 static struct uui_filedialog g_chooser;      // ~20 KB: file scope
 static int g_panel = 1;                      // the details panel is open
 static int g_px, g_py, g_pw, g_ph;           // where it is
@@ -83,49 +86,51 @@ static char g_st_count[40], g_st_runs[40], g_st_need[48];
 
 // --- reading what w16 says -----------------------------------------------------
 
-static void file_name(const char *path, char *out, size_t cap) {
+static const char *file_name(const char *path) {
     const char *b = strrchr(path, '/');
-    snprintf(out, cap, "%s", b ? b + 1 : path);
+    return b ? b + 1 : path;
+}
+
+// `*to` = a copy of `s`, the old one freed; an allocation that fails
+// leaves "" rather than NULL, so a draw never checks.
+static void set_str(char **to, const char *s) {
+    free(*to);
+    *to = strdup(s ? s : "");
+}
+
+static const char *str(const char *s) { return s ? s : ""; }
+
+static void prog_free(struct prog *p) {
+    free(p->path); free(p->name); free(p->title); free(p->module); free(p->last_text);
+    for (int i = 0; i < p->nmissing; i++) free(p->missing[i]);
+    memset(p, 0, sizeof *p);
 }
 
 static void read_last(struct prog *p) {
-    char path[W16_PATH_MAX + 32], line[200];
+    char path[W16_PATH_MAX + 32];
     w16_prog_last(p->path, path, sizeof path);
     p->last = 0;
     FILE *f = fopen(path, "r");
     if (!f) return;
-    if (fgets(line, sizeof line, f)) {
+    char *line = 0;
+    size_t cap = 0;
+    if (getline(&line, &cap, f) > 0) {
         char *rest;
         p->last_when = strtol(line, &rest, 10);
         while (*rest == ' ') rest++;
         rest[strcspn(rest, "\n")] = 0;
         p->last = !strncmp(rest, "stopped", 7) ? 2 : 1;
-        snprintf(p->last_text, sizeof p->last_text, "%s", p->last == 2 ? rest + (rest[7] ? 8 : 7) : "");
+        set_str(&p->last_text, p->last == 2 ? rest + (rest[7] ? 8 : 7) : "");
     }
+    free(line);
     fclose(f);
 }
 
-// `w16 --check PATH`'s lines into `p`. Its output is bounded by what we
-// read, and every field is cut to its buffer.
+// `w16 --check PATH`'s lines into `p`.
 static void check(struct prog *p) {
     p->checked = 1;
-    int fds[2];
-    if (sys_pipe(fds) < 0) return;
-    char *argv[] = { "w16", "--check", p->path, 0 };
-    struct sys_spawn_opts o;
-    sys_spawn_opts_init(&o);
-    o.argv = argv;
-    o.stdout_fd = fds[1];
-    o.stderr_fd = SPAWN_FD_LOG;
-    int pid = sys_spawn_opts(W16_BIN, &o);
-    sys_close(fds[1]);
-    if (pid < 0) { sys_close(fds[0]); return; }
-    static char out[16384];
-    int n = 0, got;
-    while (n < (int)sizeof out - 1 && (got = sys_read(fds[0], out + n, (int)sizeof out - 1 - n)) > 0) n += got;
-    sys_close(fds[0]);
-    sys_waitpid(pid, 0);
-    out[n] = 0;
+    char *out = win16_check(p->path);
+    if (!out) return;
     int icon_row = -1;
     for (char *line = out; line && *line; ) {
         char *nl = strchr(line, '\n');
@@ -139,21 +144,24 @@ static void check(struct prog *p) {
             }
             icon_row++;
         } else if (!strncmp(line, "module ", 7)) {
-            snprintf(p->module, sizeof p->module, "%s", line + 7);
+            set_str(&p->module, line + 7);
             p->ok = 1;
         } else if (!strncmp(line, "description ", 12)) {
-            snprintf(p->name, sizeof p->name, "%s", line + 12);
+            set_str(&p->name, line + 12);
         } else if (!strncmp(line, "imports ", 8)) {
             p->imports = atoi(line + 8);
         } else if (!strncmp(line, "has ", 4)) {
             p->has = atoi(line + 4);
-        } else if (!strncmp(line, "missing ", 8)) {
+        } else if (!strncmp(line, "call missing ", 13)) {
             if (p->nmissing < MISSING_SHOWN) {
-                // "missing USER.150 LoadMenu": the name, else MODULE.n
-                char *sp = strchr(line + 8, ' ');
-                snprintf(p->missing[p->nmissing++], sizeof p->missing[0], "%s",
-                         sp && sp[1] && sp[1] != '?' ? sp + 1 : line + 8);
-                if (sp && !(sp[1] && sp[1] != '?')) *strchr(p->missing[p->nmissing - 1], ' ') = 0;
+                // "call missing USER.150 LoadMenu Menus": the name, else USER.150
+                char *imp = line + 13, *name = strchr(imp, ' ');
+                char *end = name ? strchr(name + 1, ' ') : 0;
+                if (end) *end = 0;
+                if (name && name[1] != '?') imp = name + 1;
+                else if (name) *name = 0;
+                p->missing[p->nmissing] = 0;
+                set_str(&p->missing[p->nmissing++], imp);
             }
         } else if (!strncmp(line, "icon ", 5)) {
             int w = 0, h = 0;
@@ -162,26 +170,12 @@ static void check(struct prog *p) {
         }
         line = nl ? nl + 1 : 0;
     }
-    if (!p->name[0]) file_name(p->path, p->name, sizeof p->name);
-    // A tile is narrow: "Microsoft Windows Notepad Application" says
-    // "Notepad Application" there, and the panel keeps the whole name.
-    const char *t = p->name;
-    for (int again = 1; again; ) {
-        again = 0;
-        static const char *const PREFIX[] = { "Microsoft ", "Windows " };
-        for (int i = 0; i < 2; i++)
-            if (!strncmp(t, PREFIX[i], strlen(PREFIX[i])) && t[strlen(PREFIX[i])]) { t += strlen(PREFIX[i]); again = 1; }
-    }
-    snprintf(p->title, sizeof p->title, "%s", t);
-    // ...and stops before a copyright or a version: "Notepad Application
-    // (c)1990", "Minesweeper v3.0a".
-    for (char *c = p->title; *c; c++)
-        if (c > p->title && c[-1] == ' ' &&
-            (!strncmp(c, "(c)", 3) || !strncmp(c, "(C)", 3) || !strncmp(c, "Copyright", 9) ||
-             (c[0] == 'v' && c[1] >= '0' && c[1] <= '9'))) {
-            c[-1] = 0;
-            break;
-        }
+    free(out);
+    if (!p->name || !p->name[0]) set_str(&p->name, file_name(p->path));
+    // A tile is narrow: "Microsoft Windows Notepad Application (c)1990"
+    // says "Notepad Application" there, and the panel keeps the whole name.
+    free(p->title);
+    p->title = win16_short_title(p->name);
     read_last(p);
 }
 
@@ -192,19 +186,32 @@ static int is_exe(const char *name) {
 }
 
 static void find_programs(void) {
+    for (int i = 0; i < g_nprog; i++) prog_free(&g_prog[i]);
     g_nprog = g_next_check = 0;
+    static int cap;
     for (int f = 0; f < W16_FOLDERS_MAX; f++) {
         if (!g_def.folder[f][0]) continue;
         struct sys_dirent *ents;
         int n = ulistdir(g_def.folder[f], &ents);
-        for (int i = 0; i < n && g_nprog < MAX_PROGS; i++) {
+        for (int i = 0; i < n; i++) {
             if (!is_exe(ents[i].name)) continue;
+            if (g_nprog == cap) {
+                int c = cap ? cap * 2 : 64;
+                struct prog *g = realloc(g_prog, sizeof *g_prog * (size_t)c);
+                if (g) g_prog = g;
+                int *v = g ? realloc(g_view, sizeof *g_view * (size_t)c) : 0;
+                if (v) g_view = v;
+                if (!g || !v) break;
+                cap = c;
+            }
             struct prog *p = &g_prog[g_nprog++];
             memset(p, 0, sizeof *p);
-            snprintf(p->path, sizeof p->path, "%s/%s", g_def.folder[f], ents[i].name);
-            file_name(p->path, p->name, sizeof p->name);
-            snprintf(p->title, sizeof p->title, "%s", p->name);
+            size_t len = strlen(g_def.folder[f]) + strlen(ents[i].name) + 2;
+            if ((p->path = malloc(len))) snprintf(p->path, len, "%s/%s", g_def.folder[f], ents[i].name);
+            set_str(&p->name, ents[i].name);
+            set_str(&p->title, ents[i].name);
             p->folder = f;
+            if (!p->path) g_nprog--;
         }
         free(n >= 0 ? ents : 0);
     }
@@ -217,8 +224,7 @@ static char g_row_label[W16_FOLDERS_MAX][48];
 
 static void folder_label(int f, char *out, size_t cap) {
     const char *path = g_def.folder[f];
-    if (!strcmp(path, "/usr/share/w16")) { snprintf(out, cap, "Samples"); return; }
-    file_name(path, out, cap);
+    snprintf(out, cap, "%s", !strcmp(path, "/usr/share/w16") ? "Samples" : file_name(path));
 }
 
 static void build_sidebar(void) {
@@ -305,6 +311,12 @@ static void run(const char *path) {
     uapp_spawn(g_app, W16_BIN, path);
 }
 
+// The calls window, its own process: `win16 --calls PATH`.
+static void show_calls(const char *path) {
+    char *args[] = { "win16", "--calls", (char *)path, 0 };
+    sys_spawn_argv("/bin/wm/apps/win16", args);
+}
+
 static void folder_chosen(void *ctx, const char *path) {
     (void)ctx;
     if (!path) return;
@@ -379,6 +391,7 @@ static void command(struct uapp *a, int cmd) {
     struct prog *p = cur();
     switch (cmd) {
     case CMD_RUN:     if (p && p->ok) run(p->path); break;
+    case CMD_CALLS:   if (p && p->ok) show_calls(p->path); break;
     case CMD_PROPS:   g_panel = !g_panel; break;
     case CMD_ADD: {
         if (uui_filedialog_is_open(&g_chooser)) break;
@@ -429,8 +442,8 @@ static void tile(struct ugfx_surface *s, void *ctx, int index, int x, int y, int
     ugfx_fill_rect(s, ix + 28, iy + 28, 9, 9, ground);
     ugfx_fill_rect(s, ix + 29, iy + 29, 7, 7, badge);
     int ty = iy + 32 + lh / 3;
-    int tw = ugfx_text_width(p->title);
-    ugfx_draw_string_clipped(s, x + (tw < w ? (w - tw) / 2 : 2), ty, w - 4, p->title, ink, ground);
+    int tw = ugfx_text_width(str(p->title));
+    ugfx_draw_string_clipped(s, x + (tw < w ? (w - tw) / 2 : 2), ty, w - 4, str(p->title), ink, ground);
     char st[48];
     if (!p->checked) snprintf(st, sizeof st, "Checking...");
     else if (p->last == 2) snprintf(st, sizeof st, "Stopped last time");
@@ -448,7 +461,7 @@ static void line(struct ugfx_surface *s, int x, int *y, int w, const char *t, ui
     *y += ugfx_char_h() + 3;
 }
 
-static int g_dd_y[4];
+static int g_dd_y[4], g_calls_y;
 
 static void draw_panel(struct ugfx_surface *s) {
     ugfx_fill_rect(s, g_px, g_py, g_pw, g_ph, UTHEME_PANEL_BG);
@@ -456,17 +469,18 @@ static void draw_panel(struct ugfx_surface *s) {
     const struct prog *p = cur();
     int pad = ugfx_char_w(), x = g_px + pad * 2, w = g_pw - pad * 3, y = g_py + pad, lh = ugfx_char_h();
     uint32_t dim = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    g_calls_y = -1;
     if (!p) {
         line(s, x, &y, w, g_nview ? "Pick a program." : "No programs here. Add a folder of them.", dim);
         return;
     }
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-    line(s, x, &y, w, p->name, UTHEME_TEXT);
+    line(s, x, &y, w, str(p->name), UTHEME_TEXT);
     ugfx_set_font(was);
     line(s, x, &y, w, p->path, dim);
     char t[160];
     if (p->ok) {
-        snprintf(t, sizeof t, "Module %s", p->module);
+        snprintf(t, sizeof t, "Module %s", str(p->module));
         line(s, x, &y, w, t, dim);
         y += lh / 2;
         snprintf(t, sizeof t, "w16 has %d of the %d calls it imports", p->has, p->imports);
@@ -476,11 +490,12 @@ static void draw_panel(struct ugfx_surface *s) {
         ugfx_fill_rect(s, x, y, fill, 5, utheme_action(UTHEME_ACT_CREATE));
         y += 10;
         for (int i = 0; i < p->nmissing; i++) {
-            snprintf(t, sizeof t, "Missing: %s%s", p->missing[i],
+            snprintf(t, sizeof t, "Missing: %s%s", str(p->missing[i]),
                      i == p->nmissing - 1 && p->imports - p->has > p->nmissing ? ", ..." : "");
             line(s, x, &y, w, t, dim);
         }
-        y += lh / 2;
+        g_calls_y = y + 2;                       // the calls button, placed by layout()
+        y += lh + pad + pad / 2;
         if (p->last) {
             char when[32] = "";
             time_t tt = (time_t)p->last_when;
@@ -488,7 +503,7 @@ static void draw_panel(struct ugfx_surface *s) {
             if (tm) strftime(when, sizeof when, "%Y-%m-%d %H:%M", tm);
             snprintf(t, sizeof t, "Last run %s: %s", when, p->last == 2 ? "stopped" : "ended normally");
             line(s, x, &y, w, t, p->last == 2 ? utheme_severity(UTHEME_SEV_ERROR) : UTHEME_TEXT);
-            if (p->last == 2 && p->last_text[0]) line(s, x, &y, w, p->last_text, dim);
+            if (p->last == 2 && p->last_text && p->last_text[0]) line(s, x, &y, w, p->last_text, dim);
         } else {
             line(s, x, &y, w, "Not run yet", dim);
         }
@@ -509,6 +524,7 @@ static void draw_panel(struct ugfx_surface *s) {
 
 static struct uui_menu_item program_items[] = {
     UUI_MENU("Run", CMD_RUN, "Enter"),
+    UUI_MENU("Calls it imports...", CMD_CALLS, 0),
     UUI_MENU("Details panel", CMD_PROPS, "F4"),
     UUI_MENU_SEP,
     UUI_MENU("Add folder...", CMD_ADD, 0),
@@ -536,7 +552,7 @@ static struct uui_toolbar_item tb_items[] = {
 
 static unsigned item_flags(int code) {
     const struct prog *p = cur();
-    if (code == CMD_RUN && !(p && p->ok)) return UUI_MI_DISABLED;
+    if ((code == CMD_RUN || code == CMD_CALLS) && !(p && p->ok)) return UUI_MI_DISABLED;
     if (code == CMD_REMOVE && uui_sidebar_selected_id(&g_side) < 0) return UUI_MI_DISABLED;
     if (code == CMD_PROPS && g_panel) return UUI_MI_CHECKED;
     return 0;
@@ -552,9 +568,10 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[2], .id = ID_FRAME,   .name = "frame" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[3], .id = ID_TRACE,   .name = "trace" },
     { .ops = &uui_button_ops,    .widget = &g_run,   .id = ID_RUN,     .name = "run" },
+    { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,    .id = ID_STATUS,  .name = "status" },
 };
-#define W_PANEL 4   // ..8
+#define W_PANEL 4   // ..9: the dropdowns, Run, the calls button
 
 static void layout(int cw, int ch) {
     int pad = ugfx_char_w(), lh = ugfx_char_h();
@@ -573,13 +590,19 @@ static void layout(int cw, int ch) {
     g_ph = body_h;
     uui_grid_ops.set_geometry(&g_grid, sidew + 1, top, g_px - sidew - 1, body_h);
     // The settings rows exist only beside a program.
-    for (int i = 0; i < 5; i++) g_widgets[W_PANEL + i].hidden = !g_panel || (i < 4 && !cur());
+    for (int i = 0; i < 6; i++) g_widgets[W_PANEL + i].hidden = !g_panel || (i != 4 && !cur());
+    g_widgets[W_PANEL + 5].hidden |= g_calls_y < 0;
     if (!g_panel) return;
     int dx = g_px + pad * 2 + pad * 14, dw = g_pw - pad * 17;
     for (int i = 0; i < 4; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, lh + pad);
     int bw = ugfx_text_width("Run") + pad * 6;
     uui_button_set_geometry(&g_run, g_px + pad * 2, g_py + g_ph - lh - pad * 3, bw, lh + pad);
     g_run.disabled = !(cur() && cur()->ok);
+    // The missing calls, or the whole list when none are.
+    const struct prog *p = cur();
+    g_calls.label = p && p->imports > p->has ? "Missing calls..." : "Calls it imports...";
+    int cw2 = ugfx_text_width(g_calls.label) + pad * 4;
+    if (g_calls_y >= 0) uui_button_set_geometry(&g_calls, g_px + pad * 2, g_calls_y, cw2, lh + pad);
 }
 
 static void status(void) {
@@ -626,6 +649,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 
 static void on_action(struct uapp *a, int code) {
     if (code == ID_RUN) command(a, CMD_RUN);
+    if (code == ID_CALLS) command(a, CMD_CALLS);
     uapp_redraw(a);
 }
 
@@ -673,6 +697,7 @@ static void default_size(int *w, int *h) {
 }
 
 int main(int argc, char **argv) {
+    if (argc == 3 && !strcmp(argv[1], "--calls")) return win16_calls_main(argv[2]);
     if (argc == 2 && argv[1][0] != '-') {        // the File Manager's Open: run it, no window
         char *args[] = { "w16", argv[1], 0 };
         return sys_spawn_argv(W16_BIN, args) < 0 ? 1 : 0;
@@ -689,6 +714,7 @@ int main(int argc, char **argv) {
     g_grid.cell = tile;
     for (int i = 0; i < 4; i++) uui_dropdown_init(&g_dd[i], 0, 0, 0, 0, g_dd_items[i], 1);
     uui_button_init(&g_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
+    uui_button_init(&g_calls, 0, 0, 0, 0, "Calls it imports...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_CALLS);
     uui_textbox_init(&g_drive, "");
     uui_statusbar_init(&g_sb);
     g_sb.count = 3;

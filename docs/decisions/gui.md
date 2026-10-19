@@ -875,10 +875,12 @@ every public row index on the widget stay an APP row: a selection
 survives a re-sort instead of jumping to whatever landed in that slot,
 and an app that sorts is otherwise unchanged.
 
-The cost is a fixed `int order[UUI_TABLE_MAX_ROWS]` (256), because
-Toykit has no allocator. Past that the tail shows unsorted rather than
-being dropped -- a visible oddity beats a silent one, and Task
-Manager's ceiling is `SYS_PROC_MAX` (64).
+The mapping was a fixed `int order[256]` while Toykit had no
+allocator, the tail past it shown unsorted. Since 2026-10-19 it grows
+with the rows (`docs/conventions/kernel.md`, "Size it to the data"):
+a Win16 program's 262 imports was the table that crossed it. Out of
+memory, the rows show in the app's own order -- a visible oddity
+rather than a dropped row.
 
 **The insertion sort is deliberate**, not a placeholder: it is STABLE,
 which is what makes a second sort on another column keep the previous

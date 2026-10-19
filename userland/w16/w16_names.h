@@ -9,11 +9,18 @@
 struct w16_name {
     uint16_t ordinal;
     int16_t argbytes;      // Pascal argument bytes popped; -1 not Pascal, -2 registers
+    uint8_t kind;          // what it is for: w16_kind_names[kind]
     const char *name;
 };
 
+// "Dialogs", "Files", "Clipboard"...: what a function is for, from the
+// generator's KIND_RULES. w16_kind_other is the kind of an import with
+// no entry at all.
+extern const char *const w16_kind_names[];
+extern const unsigned w16_kind_count, w16_kind_other;
+
 struct w16_name_module {
-    const char *module;    // "KERNEL", "USER", "GDI"
+    const char *module;    // "KERNEL", "USER", "COMMDLG"...
     const struct w16_name *names;   // sorted by ordinal
     unsigned count;
 };

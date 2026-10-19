@@ -4,6 +4,7 @@
 #include "ui/uui_widget.h"
 #include "ui/uui_route.h"   // UUI_NOWHERE
 #include <string.h>
+#include <stdlib.h>
 #include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
 #include "ui/uui_ctxmenu.h" // the header's column chooser
 #include "ui/uui_anim.h"    // the column glide: uui_anim_ms(), uui_anim_request()
@@ -328,11 +329,32 @@ static int vcount(const struct uui_table *t) {
 
 int uui_table_view_count(const struct uui_table *t) { return vcount(t); }
 
-// Scratch for a rebuild. Static because a rebuild is never re-entered
-// and a table's struct is already large; nothing survives the call.
-static int   s_sorted[UUI_TABLE_MAX_ROWS];
-static short s_stk[UUI_TABLE_MAX_ROWS], s_pos[UUI_TABLE_MAX_ROWS];
-static unsigned char s_grp[UUI_TABLE_MAX_ROWS];
+// Scratch for a rebuild, shared by every table: a rebuild is never
+// re-entered, and nothing survives the call. Grown with the largest
+// table, like each table's own arrays (fit_rows()).
+static int *s_sorted, *s_stk, *s_pos;
+static unsigned char *s_grp;
+static int s_cap;
+
+#define GROW(p, n) do { void *q_ = realloc((p), sizeof *(p) * (size_t)(n)); \
+                        if (!q_) return 0; (p) = q_; } while (0)
+
+// Room for `n` rows in this table's arrays and the shared scratch; 0 when
+// memory ran out, which leaves both at what they held.
+static int fit_rows(struct uui_table *t, int n) {
+    if (n > s_cap) {
+        int cap = n + 64;
+        GROW(s_sorted, cap); GROW(s_stk, cap); GROW(s_pos, cap); GROW(s_grp, cap);
+        s_cap = cap;
+    }
+    if (n > t->rows_cap || !t->order) {
+        int cap = n + 16;
+        GROW(t->order, cap + UUI_TABLE_MAX_GROUPS);
+        GROW(t->depth, cap); GROW(t->kids, cap); GROW(t->up, cap);
+        t->rows_cap = cap;
+    }
+    return 1;
+}
 
 static int row_collapsed(const struct uui_table *t, int r) {
     return t->collapsed && t->collapsed(t->ctx, r);
@@ -348,9 +370,8 @@ static void sort_rows(struct uui_table *t, int n) {
     // Insertion sort: STABLE, which is what makes a second sort on a
     // different column keep the previous column's order within ties --
     // the behaviour every desktop table has. Also correct at n = 0 and
-    // 1 with no special cases, and n is bounded by UUI_TABLE_MAX_ROWS,
-    // so the quadratic worst case is 256 rows of a handful of
-    // comparisons. There is no qsort in this toolkit.
+    // 1 with no special cases. Quadratic in the worst case, which a few
+    // hundred rows of a handful of comparisons each does not notice.
     for (int i = 1; i < n; i++) {
         int v = s_sorted[i];
         int j = i - 1;
@@ -371,7 +392,7 @@ static void link_rows(struct uui_table *t, int n) {
     for (int r = 0; r < n; r++) {
         int p = t->parent ? t->parent(t->ctx, r) : -1;
         if (p < 0 || p >= n || p == r || s_grp[p] != s_grp[r]) p = -1;
-        t->up[r] = (short)p;
+        t->up[r] = p;
         t->kids[r] = 0;
         t->depth[r] = 0;
     }
@@ -387,33 +408,33 @@ static void link_rows(struct uui_table *t, int n) {
 }
 
 // A root and every OPEN descendant, depth-first, children in sorted
-// order. Iterative: a chain of 256 nested rows is a legal input.
+// order. Iterative: a chain of thousands of nested rows is a legal input.
 static int emit_subtree(struct uui_table *t, int n, int root, int v) {
     t->order[v++] = root;
     int sp = 0;
-    if (t->kids[root] && !row_collapsed(t, root)) { s_stk[sp] = (short)root; s_pos[sp++] = 0; }
+    if (t->kids[root] && !row_collapsed(t, root)) { s_stk[sp] = root; s_pos[sp++] = 0; }
     while (sp > 0) {
         int top = s_stk[sp - 1], found = -1, j;
         for (j = s_pos[sp - 1]; j < n; j++)
             if (t->up[s_sorted[j]] == top) { found = s_sorted[j]; break; }
         if (found < 0) { sp--; continue; }
-        s_pos[sp - 1] = (short)(j + 1);
+        s_pos[sp - 1] = j + 1;
         int d = t->depth[top] + 1;
         t->depth[found] = (unsigned char)(d > 255 ? 255 : d);
         t->order[v++] = found;
-        if (t->kids[found] && !row_collapsed(t, found)) { s_stk[sp] = (short)found; s_pos[sp++] = 0; }
+        if (t->kids[found] && !row_collapsed(t, found)) { s_stk[sp] = found; s_pos[sp++] = 0; }
     }
     return v;
 }
 
 static void order_rebuild(struct uui_table *t) {
+    // Out of memory: the app's own order, flat. order_rows that matches
+    // no row count is what every reader takes as "identity".
+    if (!fit_rows(t, t->row_count)) { t->order_rows = -1; t->structured = 0; return; }
     int n = t->row_count;
-    if (n > UUI_TABLE_MAX_ROWS) n = UUI_TABLE_MAX_ROWS;
     sort_rows(t, n);
     t->order_rows = t->row_count;
-    // Past capacity the rows beyond it show unsorted after the rest, and
-    // a caption or a nesting would have nowhere to go -- so plain order.
-    t->structured = (t->group || t->parent) && t->row_count <= UUI_TABLE_MAX_ROWS;
+    t->structured = t->group || t->parent;
 
     if (!t->structured) {
         for (int i = 0; i < n; i++) {
@@ -462,7 +483,7 @@ int uui_table_source_row(const struct uui_table *t, int view_row) {
     if (t->order_rows != t->row_count) return view_row < t->row_count ? view_row : -1;
     if (view_row >= t->view_count) return -1;
     // Past the permutation's capacity, in plain order only.
-    if (!t->structured && view_row >= UUI_TABLE_MAX_ROWS) return view_row;
+    if (!t->structured && view_row >= t->rows_cap) return view_row;
     int e = t->order[view_row];
     return e >= 0 ? e : -1;   // a caption has no app row
 }
@@ -470,8 +491,9 @@ int uui_table_source_row(const struct uui_table *t, int view_row) {
 int uui_table_view_row(const struct uui_table *t, int source_row) {
     if (source_row < 0 || source_row >= t->row_count) return -1;
     if (t->order_rows != t->row_count) return source_row;
-    if (!t->structured && source_row >= UUI_TABLE_MAX_ROWS) return source_row;
-    int n = t->view_count < UUI_TABLE_MAX_VIEW ? t->view_count : UUI_TABLE_MAX_VIEW;
+    if (!t->structured && source_row >= t->rows_cap) return source_row;
+    int n = t->view_count < t->rows_cap + UUI_TABLE_MAX_GROUPS ? t->view_count
+                                                               : t->rows_cap + UUI_TABLE_MAX_GROUPS;
     for (int i = 0; i < n; i++) {
         if (t->order[i] == source_row) return i;
     }
@@ -1218,7 +1240,7 @@ static int skip_caption(const struct uui_table *t, int view, int dir) {
 // steps to the parent. Opening and closing are the APP's (`toggled`).
 static int tree_key(struct uui_table *t, int key) {
     int r = t->selected;
-    if (r < 0 || r >= t->row_count || r >= UUI_TABLE_MAX_ROWS) return 0;
+    if (r < 0 || r >= t->row_count || r >= t->rows_cap) return 0;
     if (key == KEY_ARROW_RIGHT) {
         if (!t->kids[r]) return 0;
         if (row_collapsed(t, r)) { t->toggled = r; return 1; }

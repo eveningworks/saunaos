@@ -7474,10 +7474,14 @@ runs first**: a `doom1.wad` with one
   `frame=desktop` gives hello.exe toywm's frame round a client of the
   size it asked for. The Win16 Programs launcher runs a tile on a double
   click, `win16 FILE` runs a program with no launcher window, and closing
-  it records `ended`. Flipping the DIB's rows or swapping P and S in the
-  ROP3 rule turns exactly the matching check red, as do ignoring the INI
-  value and a launcher that never spawns (`mutate.py`). In
-  `gui_regress.py`.
+  it records `ended`. A program's calls window (`win16 --calls`) lists
+  fault.exe's one missing call under two chips, every import with Show
+  all, one row after a search, and copies the rows on Ctrl+C; gdi.exe's
+  opens on every import, and the details panel's button opens it.
+  Flipping the DIB's rows or swapping P and S in the ROP3 rule turns
+  exactly the matching check red, as do ignoring the INI value, a
+  launcher that never spawns and a calls list that ignores "missing"
+  (`mutate.py`). In `gui_regress.py`.
 - **`cpu16_hostcheck.py`** -- w16's 16-bit CPU interpreter
   (`userland/w16/cpu16.c`) against THE HOST'S OWN CPU. Its driver,
   `tools/w16/cpu16_check.c`, puts 16-bit code, data and stack segments in
@@ -7503,10 +7507,14 @@ runs first**: a `doom1.wad` with one
   `--dump FILE` is an independent reader the host check compares with.
   `make iso` builds every sample into `/usr/share/w16/`.
 - **`gen_w16_ordinals.py`** -- writes `userland/w16/w16_names.c`, each
-  KERNEL/USER/GDI export's ordinal, name and Pascal argument bytes, from
-  Wine's 16-bit `.spec` files -- the authoritative public list, read
-  from a directory you fetched them to (`--urls` prints where), so the
-  build never reaches the network.
+  Win16 export's ordinal, name, Pascal argument bytes and KIND (what it
+  is for: Dialogs, Files, Clipboard...), for KERNEL, USER, GDI and the
+  other DLLs a 3.x program imports (COMMDLG, SHELL, KEYBOARD, OLECLI,
+  MMSYSTEM...), from Wine's 16-bit `.spec` files -- the authoritative
+  public list, read from a directory you fetched them to (`--urls`
+  prints where), so the build never reaches the network. Kinds come
+  from `KIND_RULES`, first match wins, with a default per module so
+  "Other" means only an import with no name at all.
 - **`ugfx_text_hostcheck.py`** -- compiles the real
   `userland/ui/ugfx_text.c` and `userland/ui/uui_textbox.c` with the
   host gcc against a SYNTHETIC proportional face and sweeps ~4,400
