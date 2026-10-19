@@ -1,6 +1,7 @@
 // user16.c -- USER's exports: window classes, the window, the message
-// loop and painting. Stage 2 holds ONE top-level window per program; a
-// second, or a child window, ends the program with a fault that says so.
+// loop and painting. CreateWindow makes ONE top-level window per program;
+// a second, or a child window, ends the program with a fault that says
+// so. Dialogs and their controls are dialog16.c's, in wnd16.c's table.
 //
 // GetMessage's order is Windows': posted messages first, then WM_QUIT,
 // then a synthesized WM_PAINT while the window has an invalid region --
