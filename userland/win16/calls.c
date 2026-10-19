@@ -1,9 +1,11 @@
-// calls.c -- "<program> - calls": every Windows function a
-// Win16 program imports that w16 does not have yet, or all of them, in a
-// table of module, ordinal, name and what it is for, a chip per module to
-// narrow it, and a search. Dependency Walker's shape; the "Win16 missing
-// calls" canvas's M2. Its own window and process, `win16 --calls PATH`,
-// so it stays open beside the program it describes.
+// calls.c -- "<program> - calls": every Windows function a Win16
+// program imports, in a table of module, ordinal, name, what it is for,
+// whether w16 has it (works, partly -- a stand-in -- or missing) and what
+// w16 does for it; chips for the status and per module to narrow it, and a
+// search. Dependency Walker's shape; the "Win16 missing calls" canvas's M2
+// and the "Win16 calls: works, partly, missing" canvas's B. Its own window
+// and process, `win16 --calls PATH`, so it stays open beside the program
+// it describes.
 //
 // Like the launcher it parses no program: `w16 --check` names each import
 // ("call missing USER.1 MessageBox Dialogs") and this reads those lines.
@@ -31,40 +33,52 @@ struct call {
     unsigned ordinal;
     char *name;            // "MessageBox", "?" when w16 has no name for it
     char *kind;            // "Dialogs"
-    int has;               // w16 implements it
+    int status;            // ST_WORKS, ST_PARTLY or ST_MISSING
+    char *note;            // a stand-in's: what w16 does instead; else ""
 };
+
+// The status chips' order, and a call's status: ST_ALL is only a chip.
+enum { ST_ALL, ST_WORKS, ST_PARTLY, ST_MISSING, ST_COUNT };
+static const char *const ST_NAMES[ST_COUNT] = { "All", "Works", "Partly", "Missing" };
 
 static const char *g_path;
 static char *g_name;                         // "Notepad": win16_short_title()
 static char *g_title;                        // "Notepad - calls"
 static struct call *g_calls;
-static int g_ncalls, g_imports, g_has;
-static int g_all;                            // every import, not just the missing
+static int g_ncalls, g_imports;
+static int g_st_counts[ST_COUNT];
 
 static char **g_mods;                        // the chips: "All", then each module shown
 static int *g_mod_counts, g_nmods;
 static int *g_rows, g_nrows;                 // the calls on screen, into g_calls
 
-enum { CMD_COPY = 1, CMD_SAVE, CMD_ALL };
-enum { ID_TOOLBAR = 1, ID_CHIPS, ID_SEARCH, ID_TABLE, ID_STATUS };
+enum { CMD_COPY = 1, CMD_SAVE };
+enum { ID_TOOLBAR = 1, ID_SHOW, ID_CHIPS, ID_SEARCH, ID_TABLE, ID_STATUS };
 
 static struct uapp *g_app;
 static struct uui_toolbar g_tb;
-static struct uui_chips g_chips;
+static struct uui_chips g_show;              // All, Works, Partly, Missing
+static struct uui_chips g_chips;             // All, then each module
 static struct uui_textbox g_search;
 static struct uui_table g_table;
 static struct uui_statusbar g_sb;
 static struct uui_filedialog g_saver;        // ~20 KB: file scope
-static char g_st_count[64], g_st_note[64];
+static char g_st_count[80], g_st_note[64];
 static int g_copied = -1;                    // rows the last Copy put on the clipboard, for the log
 
 static const struct uui_table_column COLS[] = {
-    { "Module",   10, UUI_TALIGN_LEFT,  0, 0 },
-    { "Ordinal",   8, UUI_TALIGN_RIGHT, 0, 0 },
-    { "Function",  0, UUI_TALIGN_LEFT,  0, 0 },
-    { "Kind",     16, UUI_TALIGN_LEFT,  0, 0 },
-    { "w16",       9, UUI_TALIGN_LEFT,  0, 0 },
+    { "Module",        11, UUI_TALIGN_LEFT,  0, 0 },
+    { "Ordinal",        8, UUI_TALIGN_RIGHT, 0, 0 },
+    { "Function",      20, UUI_TALIGN_LEFT,  0, 0 },
+    { "Kind",          14, UUI_TALIGN_LEFT,  0, 0 },
+    { "Status",        10, UUI_TALIGN_LEFT,  0, 0 },
+    { "What w16 does",  0, UUI_TALIGN_LEFT,  0, 0 },
 };
+enum { COL_STATUS = 4, COL_NOTE };
+
+static const char *note_of(const struct call *c) {
+    return c->status == ST_MISSING ? "not yet: the program stops if it calls this" : c->note;
+}
 
 // --- what w16 says ------------------------------------------------------------
 
@@ -75,8 +89,11 @@ static char *dup_n(const char *s, size_t n) {
 }
 
 // "call missing USER.1 MessageBox Dialogs": the kind is the rest of the
-// line, and may hold spaces.
+// line, and may hold spaces; a stand-in's ("call partly ...") ends in a
+// tab and what w16 does.
 static int parse_call(char *l, struct call *c) {
+    char *tab = strchr(l, '\t');
+    if (tab) *tab++ = 0;
     char *has = l + 5, *imp = strchr(has, ' ');
     if (!imp) return 0;
     char *dot = strchr(++imp, '.'), *name = strchr(imp, ' ');
@@ -84,12 +101,13 @@ static int parse_call(char *l, struct call *c) {
     char *kind = strchr(++name, ' ');
     if (!kind) return 0;
     kind++;
-    c->has = !strncmp(has, "has ", 4);
+    c->status = !strncmp(has, "has ", 4) ? ST_WORKS : !strncmp(has, "partly ", 7) ? ST_PARTLY : ST_MISSING;
+    c->note = strdup(tab ? tab : "");
     c->ordinal = (unsigned)strtoul(dot + 1, 0, 10);
     c->module = dup_n(imp, (size_t)(dot - imp));
     c->name = dup_n(name, (size_t)(kind - 1 - name));
     c->kind = strdup(kind);
-    return c->module && c->name && c->kind;
+    return c->module && c->name && c->kind && c->note;
 }
 
 static int load(void) {
@@ -102,18 +120,18 @@ static int load(void) {
         if (nl) *nl = 0;
         if (!strncmp(l, "description ", 12)) desc = l + 12;
         else if (!strncmp(l, "imports ", 8)) g_imports = atoi(l + 8);
-        else if (!strncmp(l, "has ", 4)) g_has = atoi(l + 4);
         else if (!strncmp(l, "call ", 5)) {
             if (g_ncalls == cap) {
                 struct call *g = realloc(g_calls, sizeof *g_calls * (size_t)(cap = cap ? cap * 2 : 128));
                 if (!g) break;
                 g_calls = g;
             }
-            if (parse_call(l, &g_calls[g_ncalls])) g_ncalls++;
+            if (parse_call(l, &g_calls[g_ncalls])) g_st_counts[g_calls[g_ncalls++].status]++;
         }
         l = nl ? nl + 1 : 0;
     }
-    if (g_has >= g_imports) g_all = 1;           // nothing missing: the whole list
+    // Calls imported BY NAME are counted but not listed: All is the total.
+    g_st_counts[ST_ALL] = g_imports;
     const char *base = strrchr(g_path, '/');
     g_name = win16_short_title(desc && *desc ? desc : base ? base + 1 : g_path);
     free(out);
@@ -129,7 +147,7 @@ static void make_title(void) {
 
 // --- what is on screen ----------------------------------------------------------
 
-static int shown(const struct call *c) { return g_all || !c->has; }
+static int shown(const struct call *c) { return g_show.selected <= ST_ALL || c->status == g_show.selected; }
 
 // The chips: All, then each module among the calls shown, in the order
 // they first appear (w16 lists them sorted by module number).
@@ -183,11 +201,12 @@ static void build_rows(void) {
         if (!contains(c->name, q) && !contains(c->kind, q) && !contains(imp, q)) continue;
         g_rows[g_nrows++] = i;
     }
-    g_table.col_count = g_all ? 5 : 4;
     uui_table_set_rows(&g_table, g_nrows);
-    int missing = g_imports - g_has;
-    snprintf(g_st_count, sizeof g_st_count, "%d missing of %d imported", missing, g_imports);
-    if (g_nrows != (g_all ? g_ncalls : missing))
+    snprintf(g_st_count, sizeof g_st_count, "%d work \xb7 %d partly \xb7 %d missing of %d",
+             g_st_counts[ST_WORKS], g_st_counts[ST_PARTLY], g_imports - g_st_counts[ST_WORKS] - g_st_counts[ST_PARTLY],
+             g_imports);
+    int all = g_show.selected <= ST_ALL ? g_ncalls : g_st_counts[g_show.selected];
+    if (g_nrows != all)
         snprintf(g_st_note, sizeof g_st_note, "%d shown", g_nrows);
     else
         g_st_note[0] = 0;
@@ -202,8 +221,18 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
     case 1: snprintf(out, (size_t)cap, "%u", c->ordinal); break;
     case 2: snprintf(out, (size_t)cap, "%s", c->name); break;
     case 3: snprintf(out, (size_t)cap, "%s", c->kind); break;
-    default: snprintf(out, (size_t)cap, "%s", c->has ? "Has it" : "Missing"); break;
+    case COL_STATUS: snprintf(out, (size_t)cap, "%s", ST_NAMES[c->status]); break;
+    default: snprintf(out, (size_t)cap, "%s", note_of(c)); break;
     }
+}
+
+static uint32_t dot(void *ctx, int row, int col) {
+    (void)ctx;
+    if (col != COL_STATUS || row < 0 || row >= g_nrows) return 0;
+    int st = g_calls[g_rows[row]].status;
+    return st == ST_WORKS ? utheme_action(UTHEME_ACT_CREATE)
+         : st == ST_PARTLY ? utheme_severity(UTHEME_SEV_WARNING)
+         : uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
 }
 
 static int compare(void *ctx, int a, int b, int col) {
@@ -215,7 +244,8 @@ static int compare(void *ctx, int a, int b, int col) {
     case 1: r = (x->ordinal > y->ordinal) - (x->ordinal < y->ordinal); break;
     case 2: r = strcmp(x->name, y->name); break;
     case 3: r = strcmp(x->kind, y->kind); break;
-    default: r = x->has - y->has; break;
+    case COL_STATUS: r = x->status - y->status; break;
+    default: r = strcmp(note_of(x), note_of(y)); break;
     }
     if (r || col == 0) return r ? r : (x->ordinal > y->ordinal) - (x->ordinal < y->ordinal);
     return strcmp(x->module, y->module);
@@ -223,12 +253,13 @@ static int compare(void *ctx, int a, int b, int col) {
 
 // --- Copy and Save ----------------------------------------------------------------
 
-// The rows on screen, in their order, a line each: "USER.1<tab>MessageBox<tab>Dialogs".
+// The rows on screen, in their order, a line each:
+// "USER.1<tab>MessageBox<tab>Dialogs<tab>Works<tab>" and what w16 does.
 static char *as_text(size_t *len) {
     size_t cap = 1;
     for (int i = 0; i < g_nrows; i++) {
         const struct call *c = &g_calls[g_rows[i]];
-        cap += strlen(c->module) + strlen(c->name) + strlen(c->kind) + 32;
+        cap += strlen(c->module) + strlen(c->name) + strlen(c->kind) + strlen(note_of(c)) + 40;
     }
     char *t = malloc(cap);
     if (!t) return 0;
@@ -237,8 +268,8 @@ static char *as_text(size_t *len) {
         int r = uui_table_source_row(&g_table, v);
         if (r < 0) continue;
         const struct call *c = &g_calls[g_rows[r]];
-        n += (size_t)snprintf(t + n, cap - n, "%s.%u\t%s\t%s%s\n", c->module, c->ordinal, c->name,
-                              c->kind, g_all ? (c->has ? "\thas it" : "\tmissing") : "");
+        n += (size_t)snprintf(t + n, cap - n, "%s.%u\t%s\t%s\t%s\t%s\n", c->module, c->ordinal, c->name,
+                              c->kind, ST_NAMES[c->status], note_of(c));
     }
     *len = n;
     return t;
@@ -279,30 +310,19 @@ static void command(struct uapp *a, int cmd) {
         uui_filedialog_open(a, &g_saver, &o, saved, 0);
         break;
     }
-    case CMD_ALL:
-        g_all = !g_all;
-        build_chips();
-        build_rows();
-        make_title();
-        if (g_title) uapp_set_title(a, g_title);
-        break;
     default: break;
     }
 }
 
-static unsigned item_flags(int code) { return code == CMD_ALL && g_all ? UUI_MI_CHECKED : 0; }
-
 static struct uui_toolbar_item TB[] = {
     { "tb-copy", "Copy the list (Ctrl+C)", CMD_COPY, "Copy",          0, "Ctrl+C", UTHEME_ACT_VIEW },
     { "tb-save", "Save the list as text",  CMD_SAVE, "Save as text...", 0, 0,      UTHEME_ACT_EDIT },
-    UUI_TOOLBAR_SEP,
-    { "tb-show", "List every call it imports, not just the missing", CMD_ALL, "Show all imports", 0, 0,
-      UTHEME_ACT_VIEW },
 };
 
 static struct uui_focusable g_ring[] = {
     { &g_table,  &uui_table_ops },
     { &g_search, &uui_textbox_focus_ops },
+    { &g_show,   &uui_chips_ops },
     { &g_chips,  &uui_chips_ops },
 };
 enum { RING_TABLE = 0, RING_SEARCH };
@@ -310,6 +330,7 @@ static struct uui_focus g_focus;
 
 static struct uui_item g_widgets[] = {
     { .ops = &uui_toolbar_ops,   .widget = &g_tb,     .id = ID_TOOLBAR, .name = "toolbar" },
+    { .ops = &uui_chips_ops,     .widget = &g_show,   .id = ID_SHOW,    .name = "show" },
     { .ops = &uui_chips_ops,     .widget = &g_chips,  .id = ID_CHIPS,   .name = "modules" },
     { .ops = &uui_textbox_ops,   .widget = &g_search, .id = ID_SEARCH,  .name = "search" },
     { .ops = &uui_table_ops,     .widget = &g_table,  .id = ID_TABLE,   .name = "calls" },
@@ -324,10 +345,14 @@ static void layout(int cw, int ch) {
     uui_toolbar_ops.set_geometry(&g_tb, 0, 0, cw, th);
     int sbh = uui_statusbar_height(&g_sb);
     uui_statusbar_set_geometry(&g_sb, 0, ch - sbh, cw, sbh);
-    int sw = pad * 22, y = th + pad / 2;
-    int chips_w = cw - 3 * pad - sw;
+    // The status chips, then the modules' wrapping in what is left.
+    int sw = pad * 22, y = th + pad / 2, show_w, show_h;
+    uui_chips_natural_size(&g_show, &show_w, &show_h);
+    uui_chips_set_geometry(&g_show, pad, y, show_w, show_h);
+    int chips_x = pad + show_w + pad * 2, chips_w = cw - pad - sw - pad - chips_x;
     int chips_h = uui_chips_height_for(&g_chips, chips_w);
-    uui_chips_set_geometry(&g_chips, pad, y, chips_w, chips_h);
+    uui_chips_set_geometry(&g_chips, chips_x, y, chips_w, chips_h);
+    if (show_h > chips_h) chips_h = show_h;
     uui_textbox_set_geometry(&g_search, cw - pad - sw, y, sw, lh + 8);
     y += (chips_h > lh + 8 ? chips_h : lh + 8) + pad / 2;
     uui_table_ops.set_geometry(&g_table, 0, y, cw, ch - sbh - y);
@@ -337,11 +362,11 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     layout(d->surface->w, d->surface->h);
     ugfx_fill_rect(d->surface, 0, g_table.y - 1, d->surface->w, 1, UTHEME_SEPARATOR);
     uapp_log_layout(a, "win16-calls");
-    // What a test asks: how many rows, the first in table order, whether
-    // every import is listed, and what the last Copy took.
+    // What a test asks: how many rows, the first in table order, which
+    // status chip is chosen, and what the last Copy took.
     int r = uui_table_source_row(&g_table, 0);
     const struct call *c = r >= 0 ? &g_calls[g_rows[r]] : 0;
-    uapp_logf_layout("win16-calls: layout rows %d all %d first %s.%u %s copied %d\n", g_nrows, g_all,
+    uapp_logf_layout("win16-calls: layout rows %d show %d first %s.%u %s copied %d\n", g_nrows, g_show.selected,
                      c ? c->module : "-", c ? c->ordinal : 0, c ? c->name : "-", g_copied);
 }
 
@@ -350,6 +375,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     int code;
     switch (id) {
     case ID_TOOLBAR: if ((code = uui_toolbar_take_code(&g_tb)) > 0) command(a, code); break;
+    case ID_SHOW: build_chips(); build_rows(); break;
     case ID_CHIPS: case ID_SEARCH: build_rows(); break;
     default: break;
     }
@@ -369,7 +395,7 @@ static int on_tick(struct uapp *a) { (void)a; return uui_toolbar_tick(&g_tb); }
 static void on_open(struct uapp *a) { g_app = a; }
 
 static void default_size(int *w, int *h) {
-    *w = ugfx_char_w() * 72;
+    *w = ugfx_char_w() * 108;
     *h = ugfx_char_h() * 32;
 }
 
@@ -378,16 +404,19 @@ int win16_calls_main(const char *path) {
     if (!ugfx_font_init()) return 2;
     if (!load()) return 1;
     uui_toolbar_init(&g_tb, TB, (int)(sizeof TB / sizeof TB[0]));
-    g_tb.item_flags = item_flags;
     g_tb.overflow = 1;
+    // Opens on what most needs saying: the missing, else the stand-ins.
+    uui_chips_init(&g_show, ST_NAMES, g_st_counts, ST_COUNT,
+                   g_st_counts[ST_MISSING] ? ST_MISSING : g_st_counts[ST_PARTLY] ? ST_PARTLY : ST_ALL);
     uui_chips_init(&g_chips, 0, 0, 0, 0);
     uui_textbox_init(&g_search, "");
     g_search.placeholder = "Search";
-    uui_table_init(&g_table, 0, 0, 0, 0, COLS, 4, cell, 0);
+    uui_table_init(&g_table, 0, 0, 0, 0, COLS, (int)(sizeof COLS / sizeof COLS[0]), cell, 0);
     uui_table_set_compare(&g_table, compare);
+    uui_table_set_dot(&g_table, dot);
     uui_statusbar_init(&g_sb);
     g_sb.count = 2;
-    g_sb.panes[0].text = g_st_count; g_sb.panes[0].chars = 26;
+    g_sb.panes[0].text = g_st_count; g_sb.panes[0].chars = 40;
     g_sb.panes[1].text = g_st_note;
     build_chips();
     build_rows();

@@ -34,6 +34,7 @@
 #include "ui/uui_menubar.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_sidebar.h"
+#include "ui/uui_stackbar.h"
 #include "ui/uui_statusbar.h"
 #include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
@@ -41,6 +42,13 @@
 #include "win16/win16.h"
 
 #define MISSING_SHOWN 3                      // the panel names this many; the window lists all
+
+// A stand-in's note and the calls w16 answers that way: "CreateDC, Escape"
+// share "no printer to draw on" when w16 says the same of both.
+struct partly {
+    char *names;
+    char *note;
+};
 
 // Every string is allocated (prog_free()); `icon` is w16_icon()'s largest.
 struct prog {
@@ -51,7 +59,10 @@ struct prog {
     int folder;                      // which folder it was found in
     int checked;                     // `w16 --check` has answered
     int ok;                          // ...and it is a Win16 program
-    int imports, has;
+    int imports, has;                // `has` counts the stand-ins too
+    int partly;                      // ...this many of it
+    struct partly *part;             // by note, `npart` of them
+    int npart;
     char *missing[MISSING_SHOWN];
     int nmissing;
     uint32_t icon[32 * 32];
@@ -104,6 +115,8 @@ static const char *str(const char *s) { return s ? s : ""; }
 static void prog_free(struct prog *p) {
     free(p->path); free(p->name); free(p->title); free(p->module); free(p->last_text);
     for (int i = 0; i < p->nmissing; i++) free(p->missing[i]);
+    for (int i = 0; i < p->npart; i++) { free(p->part[i].names); free(p->part[i].note); }
+    free(p->part);
     memset(p, 0, sizeof *p);
 }
 
@@ -125,6 +138,37 @@ static void read_last(struct prog *p) {
     }
     free(line);
     fclose(f);
+}
+
+// "call partly GDI.38 Escape Printing<tab>a printer's call; refused": the
+// name joins the row for its note, or starts one.
+static void add_partly(struct prog *p, char *line) {
+    char *note = strchr(line, '\t'), *name = strchr(line + 12, ' ');
+    if (!note || !name || name > note) return;
+    *note++ = 0;
+    char *end = strchr(++name, ' ');
+    if (end) *end = 0;
+    int i = 0;
+    while (i < p->npart && strcmp(p->part[i].note, note)) i++;
+    if (i == p->npart) {
+        struct partly *g = realloc(p->part, sizeof *p->part * (size_t)(p->npart + 1));
+        if (!g) return;
+        p->part = g;
+        p->part[i].names = strdup(name);
+        p->part[i].note = strdup(note);
+        if (!p->part[i].names || !p->part[i].note) {
+            free(p->part[i].names); free(p->part[i].note);
+            return;
+        }
+        p->npart++;
+        return;
+    }
+    size_t n = strlen(p->part[i].names) + strlen(name) + 3;
+    char *joined = malloc(n);
+    if (!joined) return;
+    snprintf(joined, n, "%s, %s", p->part[i].names, name);
+    free(p->part[i].names);
+    p->part[i].names = joined;
 }
 
 // `w16 --check PATH`'s lines into `p`.
@@ -153,6 +197,10 @@ static void check(struct prog *p) {
             p->imports = atoi(line + 8);
         } else if (!strncmp(line, "has ", 4)) {
             p->has = atoi(line + 4);
+        } else if (!strncmp(line, "partly ", 7)) {
+            p->partly = atoi(line + 7);
+        } else if (!strncmp(line, "call partly ", 12)) {
+            add_partly(p, line);
         } else if (!strncmp(line, "call missing ", 13)) {
             if (p->nmissing < MISSING_SHOWN) {
                 // "call missing USER.150 LoadMenu Menus": the name, else USER.150
@@ -445,11 +493,14 @@ static void tile(struct ugfx_surface *s, void *ctx, int index, int x, int y, int
         const struct uimg *ico = icon_get("win16", 32);
         if (ico) ugfx_blit_alpha(s, ix, iy, ico->w, ico->h, ico->px, ico->w);
     }
-    // The how-far badge: green when it ran to the end last time or lacks
-    // nothing, red when it last stopped, amber when it lacks calls.
+    // The how-far badge: red when it last stopped, green when it ran to
+    // the end last time or w16 has every call in full, amber when some are
+    // stand-ins, grey when some are missing.
+    int missing = p->imports - p->has;
     uint32_t badge = !p->checked ? UTHEME_OUTLINE
                    : p->last == 2 ? utheme_severity(UTHEME_SEV_ERROR)
-                   : p->last == 1 || p->has == p->imports ? utheme_action(UTHEME_ACT_CREATE)
+                   : p->last == 1 || (!missing && !p->partly) ? utheme_action(UTHEME_ACT_CREATE)
+                   : missing ? uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED)
                    : utheme_severity(UTHEME_SEV_WARNING);
     ugfx_fill_rect(s, ix + 28, iy + 28, 9, 9, ground);
     ugfx_fill_rect(s, ix + 29, iy + 29, 7, 7, badge);
@@ -459,10 +510,9 @@ static void tile(struct ugfx_surface *s, void *ctx, int index, int x, int y, int
     char st[48];
     if (!p->checked) snprintf(st, sizeof st, "Checking...");
     else if (p->last == 2) snprintf(st, sizeof st, "Stopped last time");
-    else if (p->last == 1) snprintf(st, sizeof st, "Ran last time");
-    else if (p->has == p->imports) snprintf(st, sizeof st, "w16 has every call");
-    else snprintf(st, sizeof st, p->imports - p->has == 1 ? "%d call missing" : "%d calls missing",
-                  p->imports - p->has);
+    else if (missing) snprintf(st, sizeof st, p->last == 1 ? "Ran last time" : "%d missing", missing);
+    else if (p->partly) snprintf(st, sizeof st, "Runs \xb7 %d partly", p->partly);
+    else snprintf(st, sizeof st, "Runs");
     int sw = ugfx_text_width(st);
     ugfx_draw_string_clipped(s, x + (sw < w ? (w - sw) / 2 : 2), ty + lh, w - 4, st,
                              sel ? ink : uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), ground);
@@ -474,6 +524,20 @@ static void line(struct ugfx_surface *s, int x, int *y, int w, const char *t, ui
 }
 
 static int g_dd_y[NSET], g_calls_y;
+static struct uui_stackbar g_bar;            // works, partly, missing
+
+// The settings block under the panel's details, and the Run button below
+// it: what the "Partly there" list must leave room for.
+static int settings_h(void) {
+    int pad = ugfx_char_w(), lh = ugfx_char_h();
+    return lh / 2 + lh + 3 + NSET * (lh + pad + pad / 2) + lh + pad * 3;
+}
+
+static void bold_line(struct ugfx_surface *s, int x, int *y, int w, const char *t, uint32_t col) {
+    const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
+    line(s, x, y, w, t, col);
+    ugfx_set_font(was);
+}
 
 static void draw_panel(struct ugfx_surface *s) {
     ugfx_fill_rect(s, g_px, g_py, g_pw, g_ph, UTHEME_PANEL_BG);
@@ -486,25 +550,54 @@ static void draw_panel(struct ugfx_surface *s) {
         line(s, x, &y, w, g_nview ? "Pick a program." : "No programs here. Add a folder of them.", dim);
         return;
     }
-    const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-    line(s, x, &y, w, str(p->name), UTHEME_TEXT);
-    ugfx_set_font(was);
+    bold_line(s, x, &y, w, str(p->name), UTHEME_TEXT);
     line(s, x, &y, w, p->path, dim);
     char t[160];
     if (p->ok) {
         snprintf(t, sizeof t, "Module %s", str(p->module));
         line(s, x, &y, w, t, dim);
         y += lh / 2;
-        snprintf(t, sizeof t, "w16 has %d of the %d calls it imports", p->has, p->imports);
-        line(s, x, &y, w, t, UTHEME_TEXT);
-        int bw = w, fill = p->imports ? bw * p->has / p->imports : bw;
-        ugfx_fill_rect(s, x, y, bw, 5, UTHEME_SEPARATOR);
-        ugfx_fill_rect(s, x, y, fill, 5, utheme_action(UTHEME_ACT_CREATE));
-        y += 10;
+        snprintf(t, sizeof t, "The %d calls it imports", p->imports);
+        bold_line(s, x, &y, w, t, utheme_action(UTHEME_ACT_EDIT));
+        int missing = p->imports - p->has, bh;
+        uui_stackbar_set(&g_bar, 0, (uint64_t)(p->has - p->partly), 0);
+        uui_stackbar_set(&g_bar, 1, (uint64_t)p->partly, 0);
+        uui_stackbar_set(&g_bar, 2, (uint64_t)missing, 0);
+        snprintf(g_bar.seg[0].value, sizeof g_bar.seg[0].value, "%d", p->has - p->partly);
+        snprintf(g_bar.seg[1].value, sizeof g_bar.seg[1].value, "%d", p->partly);
+        snprintf(g_bar.seg[2].value, sizeof g_bar.seg[2].value, "%d", missing);
+        g_bar.seg[0].color = utheme_action(UTHEME_ACT_CREATE);
+        g_bar.seg[1].color = utheme_severity(UTHEME_SEV_WARNING);
+        g_bar.seg[2].color = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+        uui_stackbar_natural_size(&g_bar, &(int){ 0 }, &bh);
+        g_bar.x = x; g_bar.y = y; g_bar.w = w; g_bar.h = bh;
+        uui_stackbar_draw(s, &g_bar);
+        y += bh + lh / 2;
         for (int i = 0; i < p->nmissing; i++) {
             snprintf(t, sizeof t, "Missing: %s%s", str(p->missing[i]),
-                     i == p->nmissing - 1 && p->imports - p->has > p->nmissing ? ", ..." : "");
+                     i == p->nmissing - 1 && missing > p->nmissing ? ", ..." : "");
             line(s, x, &y, w, t, dim);
+        }
+        // What w16 answers without doing: as many as leave the settings
+        // their room, then how many more the calls window lists.
+        if (p->npart) {
+            y += lh / 3;
+            bold_line(s, x, &y, w, "Partly there", utheme_action(UTHEME_ACT_EDIT));
+            // Below it: the calls button and a line of the last run, two
+            // when it stopped and says why.
+            int last_lines = p->last == 2 && p->last_text && p->last_text[0] ? 2 : 1;
+            int bottom = g_py + g_ph - settings_h() - (lh + pad + pad / 2) - last_lines * (lh + 3);
+            int room = (bottom - y) / (lh + 3);
+            int shown = p->npart <= room ? p->npart : room > 1 ? room - 1 : 0;
+            int nw = w * 2 / 5;
+            for (int i = 0; i < shown; i++) {
+                bold_line(s, x, &(int){ y }, nw - pad, str(p->part[i].names), UTHEME_TEXT);
+                line(s, x + nw, &y, w - nw, str(p->part[i].note), dim);
+            }
+            if (shown < p->npart) {
+                snprintf(t, sizeof t, "and %d more: see the calls", p->npart - shown);
+                line(s, x, &y, w, t, dim);
+            }
         }
         g_calls_y = y + 2;                       // the calls button, placed by layout()
         y += lh + pad + pad / 2;
@@ -523,9 +616,7 @@ static void draw_panel(struct ugfx_surface *s) {
         line(s, x, &y, w, "Not a Windows 3.x program w16 can read.", dim);
     }
     y += lh / 2;
-    was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-    line(s, x, &y, w, "This program's settings", utheme_action(UTHEME_ACT_EDIT));
-    ugfx_set_font(was);
+    bold_line(s, x, &y, w, "This program's settings", utheme_action(UTHEME_ACT_EDIT));
     for (int i = 0; i < NSET; i++) {
         g_dd_y[i] = y;
         ugfx_draw_string_clipped(s, x, y + (lh + pad - lh) / 2, w / 2, SETTINGS[i].caption, UTHEME_TEXT,
@@ -623,7 +714,7 @@ static void status(void) {
     for (int i = 0; i < g_nprog; i++) {
         if (!g_prog[i].ok) continue;
         ok++;
-        if (g_prog[i].last == 1 || g_prog[i].has == g_prog[i].imports) runs++;
+        if (g_prog[i].last == 1 || g_prog[i].has == g_prog[i].imports) runs++;   // stand-ins run
         else need++;
     }
     snprintf(g_st_count, sizeof g_st_count, "%d programs", ok);
@@ -706,7 +797,7 @@ static void on_open(struct uapp *a) { g_app = a; }
 
 static void default_size(int *w, int *h) {
     *w = ugfx_char_w() * 110;
-    *h = ugfx_char_h() * 34;
+    *h = ugfx_char_h() * 40;
 }
 
 int main(int argc, char **argv) {
@@ -729,6 +820,10 @@ int main(int argc, char **argv) {
     uui_button_init(&g_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
     uui_button_init(&g_calls, 0, 0, 0, 0, "Calls it imports...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_CALLS);
     uui_textbox_init(&g_drive, "");
+    uui_stackbar_init(&g_bar, 3);
+    uui_stackbar_add(&g_bar, "Work", 0);
+    uui_stackbar_add(&g_bar, "Partly", 0);
+    uui_stackbar_add(&g_bar, "Missing", 0);
     uui_statusbar_init(&g_sb);
     g_sb.count = 3;
     g_sb.panes[0].text = g_st_count; g_sb.panes[0].chars = 14;

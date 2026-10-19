@@ -274,6 +274,36 @@ int w16_has(const char *module, unsigned ordinal) {
     return 0;
 }
 
+// The stand-ins, by module and ordinal. A handler that stops being one
+// leaves this table in the same change, or the launcher goes on calling
+// it partly.
+static const struct { const char *module; uint16_t ordinal; const char *note; } PARTLY[] = {
+    { "COMMDLG", 20,  "says there is no printer" },                     // PrintDlg
+    { "GDI",     38,  "a printer's call; refused" },                    // Escape
+    { "GDI",     53,  "no printer to make a DC for" },                  // CreateDC
+    { "KERNEL",  50,  "finds nothing: no DLLs are loaded" },            // GetProcAddress
+    { "SHELL",   9,   "nothing can be dropped on a program yet" },      // DragAcceptFiles
+    { "SHELL",   11,  "answers no files" },                             // DragQueryFile
+    { "SHELL",   12,  "does nothing" },                                 // DragFinish
+    { "SOUND",   1,   "a voice that plays nothing" },                   // OpenSound
+    { "SOUND",   4,   "plays nothing" },                                // SetVoiceNote
+    { "SOUND",   5,   "plays nothing" },                                // SetVoiceAccent
+    { "SOUND",   9,   "plays nothing" },                                // StartSound
+    { "SOUND",   10,  "plays nothing" },                                // StopSound
+    { "USER",    31,  "always no, even when minimised" },       // IsIconic
+    { "USER",    50,  "finds no other program's window" },              // FindWindow
+    { "USER",    104, "silent" },                                       // MessageBeep
+    { "USER",    171, "says the Help file cannot be shown" },           // WinHelp
+};
+
+const char *w16_partly(const char *module, unsigned ordinal) {
+    if (!strcmp(module, "KRNL386")) module = "KERNEL";
+    for (unsigned i = 0; i < sizeof PARTLY / sizeof PARTLY[0]; i++)
+        if (PARTLY[i].ordinal == ordinal && !strcmp(PARTLY[i].module, module))
+            return w16_has(module, ordinal) ? PARTLY[i].note : 0;
+    return 0;
+}
+
 uint16_t w16_arg16(struct w16_args *a) {
     a->pos -= 2;
     return cpu16_arg(a->c, a->pos);

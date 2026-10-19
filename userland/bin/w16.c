@@ -664,16 +664,24 @@ static int check(const uint8_t *img, uint32_t size) {
     for (unsigned k = 0; k < nseen; k++)
         if (!u || seen[u - 1] != seen[k]) seen[u++] = seen[k];
     nseen = u;
-    for (unsigned k = 0; k < nseen; k++) has += w16_has(mods[(seen[k] >> 16) - 1], seen[k] & 0xFFFF);
-    printf("imports %u\nhas %u\n", nseen + by_name, has);
-    // "call missing USER.1 MessageBox Dialogs": whether w16 has it, the
-    // import, its name ("?" unknown) and its kind, which may hold spaces.
+    unsigned partly = 0;
+    for (unsigned k = 0; k < nseen; k++) {
+        const char *mod = mods[(seen[k] >> 16) - 1];
+        has += w16_has(mod, seen[k] & 0xFFFF);
+        partly += w16_partly(mod, seen[k] & 0xFFFF) != 0;
+    }
+    // `has` counts the stand-ins too: `partly` is how many of it are one.
+    printf("imports %u\nhas %u\npartly %u\n", nseen + by_name, has, partly);
+    // "call missing USER.1 MessageBox Dialogs": whether w16 has it (has,
+    // partly, missing), the import, its name ("?" unknown) and its kind,
+    // which may hold spaces -- then, for a stand-in, a tab and what it does.
     for (unsigned k = 0; k < nseen; k++) {
         const char *mod = mods[(seen[k] >> 16) - 1];
         unsigned ord = seen[k] & 0xFFFF;
         const struct w16_name *n = w16_name_lookup(mod, ord);
-        printf("call %s %s.%u %s %s\n", w16_has(mod, ord) ? "has" : "missing", mod, ord,
-               n ? n->name : "?", w16_kind_names[n ? n->kind : w16_kind_other]);
+        const char *note = w16_partly(mod, ord);
+        printf("call %s %s.%u %s %s%s%s\n", note ? "partly" : w16_has(mod, ord) ? "has" : "missing", mod, ord,
+               n ? n->name : "?", w16_kind_names[n ? n->kind : w16_kind_other], note ? "\t" : "", note ? note : "");
     }
     free(seen);
     static uint32_t px[32 * 32];

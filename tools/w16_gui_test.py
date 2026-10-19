@@ -37,11 +37,13 @@ file is involved.
    what is typed over it (Value=), a right click's MessageBox answers No
    with its mnemonic (Box=7), and Help > About is ShellAbout's box.
 7. **A program's calls** (`win16 --calls FILE`, win16/calls.c): fault.exe
-   lacks exactly USER.7 ExitWindows, so its window lists that one row
-   under two chips (All, USER); Show all imports lists every import
-   `w16 --check` counts; a search narrows it to one; Ctrl+C copies the
-   rows shown; gdi.exe, which lacks nothing, opens on every import; and
-   the launcher's details panel opens the window for the selected program.
+   lacks exactly USER.7 ExitWindows and has one stand-in, MessageBeep
+   (`w16 --check` says `partly 1` and why), so its window opens on the
+   Missing chip with that one row under two module chips (All, USER);
+   Partly lists MessageBeep; All lists every import `w16 --check` counts;
+   a search narrows it to one; Ctrl+C copies the rows shown; gdi.exe,
+   which lacks nothing, opens on All; and the launcher's details panel
+   opens the window for the selected program.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -417,9 +419,9 @@ def calls_log(dbg):
     the parts it describes, by name."""
     out = {}
     for line in dbg.logs("win16-calls:", clear=True):
-        m = re.search(r"rows (\d+) all (\d) first (\S+) (\S+) copied (-?\d+)", line)
+        m = re.search(r"rows (\d+) show (-?\d) first (\S+) (\S+) copied (-?\d+)", line)
         if m:
-            out["rows"], out["all"] = int(m.group(1)), int(m.group(2))
+            out["rows"], out["show"] = int(m.group(1)), int(m.group(2))
             out["first"], out["copied"] = f"{m.group(3)} {m.group(4)}", int(m.group(5))
         m = re.search(CALLS + r"(\w+)\.(\w+) (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
         if m:
@@ -447,20 +449,34 @@ def calls(dbg, res):
               f"windows {[w['title'] for w in dbg.windows()]}")
     if not win:
         return
-    lay = wait_calls(dbg, lambda l: "rows" in l and "modules.slot1" in l)
-    res.check("fault.exe's one missing call is the one row: USER.7 ExitWindows",
-              lay.get("rows") == 1 and lay.get("all") == 0 and lay.get("first") == "USER.7 ExitWindows",
-              f"{ {k: lay.get(k) for k in ('rows', 'all', 'first')} }")
-    res.check("two chips, All and USER", "modules.slot1" in lay and "modules.slot2" not in lay,
+    lay = wait_calls(dbg, lambda l: "rows" in l and "modules.slot1" in l and "show.slot3" in l)
+    res.check("fault.exe opens on Missing, its one row USER.7 ExitWindows",
+              lay.get("rows") == 1 and lay.get("show") == 3 and lay.get("first") == "USER.7 ExitWindows",
+              f"{ {k: lay.get(k) for k in ('rows', 'show', 'first')} }")
+    res.check("two module chips, All and USER", "modules.slot1" in lay and "modules.slot2" not in lay,
               f"slots {[k for k in lay if k.startswith('modules.slot')]}")
-    imports = int(re.search(r"imports (\d+)", sh(dbg, "w16 --check /usr/share/w16/fault.exe")).group(1))
+    check = sh(dbg, "w16 --check /usr/share/w16/fault.exe")
+    imports = int(re.search(r"imports (\d+)", check).group(1))
+    res.check("w16 --check names MessageBeep a stand-in, and why",
+              "partly 1" in check and "call partly USER.104 MessageBeep" in check and "\tsilent" in check,
+              f"{[l for l in check.splitlines() if 'partly' in l]}")
     cx, cy = win["content"]["x"], win["content"]["y"]
-    b = lay.get("toolbar.button3")
-    if b:
-        dbg.click(cx + b[0] + b[2] // 2, cy + b[1] + b[3] // 2)
-    lay = wait_calls(dbg, lambda l: l.get("all") == 1)
-    res.check("Show all imports lists every import w16 --check counts",
-              lay.get("all") == 1 and lay.get("rows") == imports, f"rows {lay.get('rows')} of {imports}")
+
+    def chip(i):
+        c = lay.get(f"show.slot{i}")
+        if c:
+            dbg.click(cx + c[0] + c[2] // 2, cy + c[1] + c[3] // 2)
+        return c
+
+    chip(2)
+    lay.update(wait_calls(dbg, lambda l: l.get("show") == 2))
+    res.check("the Partly chip lists the stand-in, USER.104 MessageBeep",
+              lay.get("show") == 2 and lay.get("rows") == 1 and lay.get("first") == "USER.104 MessageBeep",
+              f"{ {k: lay.get(k) for k in ('rows', 'show', 'first')} }")
+    chip(0)
+    lay.update(wait_calls(dbg, lambda l: l.get("show") == 0))
+    res.check("the All chip lists every import w16 --check counts",
+              lay.get("show") == 0 and lay.get("rows") == imports, f"rows {lay.get('rows')} of {imports}")
     s = lay.get("search")
     if s:
         dbg.click(cx + s[0] + 10, cy + s[1] + s[3] // 2)
@@ -479,8 +495,8 @@ def calls(dbg, res):
 
     win = dbg.spawn("/bin/wm/apps/win16 --calls /usr/share/w16/gdi.exe", "GDI test - calls")
     lay = wait_calls(dbg, lambda l: "rows" in l)
-    res.check("a program that lacks nothing opens on every import",
-              win is not None and lay.get("all") == 1 and lay.get("rows", 0) > 0, f"{lay}")
+    res.check("a program that lacks nothing, with no stand-ins, opens on All",
+              win is not None and lay.get("show") == 0 and lay.get("rows", 0) > 0, f"{lay}")
     dbg.close_window("GDI test - calls")
 
 

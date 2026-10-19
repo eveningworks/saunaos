@@ -404,6 +404,10 @@ extern const unsigned g_kernel_api_n, g_kernel_mem_api_n, g_kernel_res_api_n, g_
                       g_user_api_n, g_user_misc_api_n, g_gdi_api_n;
 // Does w16 implement MODULE.ordinal? What `w16 --check` counts.
 int w16_has(const char *module, unsigned ordinal);
+// A STAND-IN's note: a call w16 answers without doing what Windows did (a
+// beep that is silent, a printer that is not there), in the words the
+// launcher shows as "Partly". NULL for a call w16 has in full, or lacks.
+const char *w16_partly(const char *module, unsigned ordinal);
 
 // The handler's result, or -2 when the table has no such ordinal.
 int w16_api_call(const struct w16_api *t, unsigned n, struct w16 *w, unsigned ordinal,

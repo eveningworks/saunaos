@@ -62,6 +62,7 @@ void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
     t->icon = 0;
     t->heat = 0;
     t->meter = 0;
+    t->dot = 0;
     t->group = 0;
     t->group_title = 0;
     t->parent = 0;
@@ -520,6 +521,10 @@ void uui_table_set_meter(struct uui_table *t, uui_table_meter_fn meter) {
     t->meter = meter;
 }
 
+void uui_table_set_dot(struct uui_table *t, uui_table_dot_fn dot) {
+    t->dot = dot;
+}
+
 void uui_table_set_heat(struct uui_table *t, uui_table_heat_fn heat) {
     t->heat = heat;
 }
@@ -803,6 +808,14 @@ static void draw_cell(struct ugfx_surface *s, const struct uui_table *t,
         tx += px + UUI_TABLE_PAD_X;
         avail -= px + UUI_TABLE_PAD_X;
         if (avail <= 0) return;
+    }
+    uint32_t dot = t->dot ? t->dot(t->ctx, row, col) : 0;
+    if (dot) {
+        int r = ugfx_char_h() / 4 > 2 ? ugfx_char_h() / 4 : 2;
+        if (avail <= 2 * r + UUI_TABLE_PAD_X) return;
+        ugfx_fill_circle(s, tx + r, ry + uui_table_row_h(t) / 2, r, dot);
+        tx += 2 * r + UUI_TABLE_PAD_X;
+        avail -= 2 * r + UUI_TABLE_PAD_X;
     }
     if (t->cols[col].align == UUI_TALIGN_RIGHT) {
         int tw = ugfx_text_width(buf);

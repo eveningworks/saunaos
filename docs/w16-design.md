@@ -133,6 +133,12 @@ LOUDLY and by name (below), never as a silent zero.
   prints every import with both, and the launcher's calls window
   (`userland/win16/calls.c`) is that list -- what a program needs next,
   by module or by kind.
+- **A stand-in is not a whole call.** A handler that answers without
+  doing what Windows did (MessageBeep silent, PrintDlg with no printer,
+  the SHELL drag calls) is listed in `task16.c`'s `PARTLY` table with
+  what it does instead, which `--check` prints as `call partly` and the
+  launcher shows as Partly -- so "has every call" never overstates how
+  far a program runs. A handler that stops being one leaves the table.
 - **Far pointers are translated at the boundary.** An API taking an
   `LPSTR` gets segment:offset, checked against the selector's limit
   before C reads a byte -- the same bounds discipline as `ttf.h`.
