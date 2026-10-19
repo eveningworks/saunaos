@@ -37,8 +37,6 @@
 #include "lib/uargs.h"
 #include "etc_renamed.h"   // the names from before the dotted ones
 #include "query_abi.h"     // walking the facts for a branch
-#include <dirent.h>
-#include "lib/usetting_text.h" // SETTING_TEXT_DIR
 
 static void put(const char *s) { sys_print(s); }
 
@@ -443,37 +441,14 @@ static int cmd_tree(const char *branch) {
 
 static int cmd_get_one(const char *name);
 
-// WHETHER ANYTHING IS NAMED UNDER `n`, by name alone: the kernel's own
-// settings (raw INFO, no declaration text), /etc/settings.d's file names
-// (listed, not opened) and the facts' field names. A leaf -- what `get`
-// is asked almost every time -- is then answered without tree_collect()
-// reading the whole registry. A hit takes the full path, so a stray file
-// costs time, never a wrong answer.
+// WHETHER ANYTHING IS NAMED UNDER `n`, by name alone: the settings
+// library's names-only answer (usetting_has_under()) and the facts' field
+// names. A leaf -- what `get` is asked almost every time -- is then
+// answered without tree_collect() reading the whole registry. A yes takes
+// the full path, so a stray file costs time, never a wrong answer.
 static int any_under(const char *n) {
-    static struct setting_msg m;
     size_t len = strlen(n);
-    memset(&m, 0, sizeof m);
-    m.op = SETTING_OP_COUNT;
-    if (sys_setting(&m) == 0) {
-        int k = (int)m.count;
-        for (int i = 0; i < k; i++) {
-            memset(&m, 0, sizeof m);
-            m.op = SETTING_OP_INFO;
-            m.index = (uint32_t)i;
-            if (sys_setting(&m) != 0) continue;
-            char q[SETTING_ABI_QUALIFIED_MAX];
-            qualified(&m, q, sizeof q);
-            if (under(q, n, len)) return 1;
-        }
-    }
-    DIR *d = opendir(SETTING_TEXT_DIR);
-    if (d) {
-        struct dirent *e;
-        int hit = 0;
-        while (!hit && (e = readdir(d))) hit = under(e->d_name, n, len);
-        closedir(d);
-        if (hit) return 1;
-    }
+    if (usetting_has_under(n)) return 1;
     struct query_provider_info p;
     QUERY_FOREACH(QUERY_PROVIDERS, p, i) {
         if (p.flags & QUERY_F_LIST) continue;

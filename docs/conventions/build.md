@@ -358,6 +358,15 @@ this the obvious way), not from how much history it accumulated.
   And **it REFUSES an oversized file rather than reading a prefix**, the
   same rule as `fs_read_into()` in the kernel: a truncated JPEG decodes,
   to a grey-tailed picture that reads as a decoder bug.
+- **A COST CEILING IS COUNTED, NEVER TIMED.** A test that guards
+  against something getting expensive asserts a COUNT -- syscalls from
+  `strace -c`, files opened, bytes read -- because a time wobbles with
+  whatever else the machine does: a time ceiling either flakes or is set
+  so loose it catches nothing. Set it several times today's count and
+  far below the bad one, and say both in the check's line
+  (`tests/settingcost_test`). A `/tests` program that spawns and waits
+  is registered SPAWNED (exit code `None`) in `tools/usertest_run.py`:
+  under the legacy `run` loader its `waitpid` returns at once.
 - **A SELF-CHECKING `/tests` PROGRAM REPORTS THROUGH `userland/lib/utest.h`,
   AND ITS EPILOGUE IS ONE LINE IN ONE SHAPE.** `utest_begin(name, title,
   flags)`, `utest_check(ok, what)` (or `_check_detail` / `_checkf` for a

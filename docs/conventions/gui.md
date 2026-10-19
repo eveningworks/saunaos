@@ -3445,10 +3445,11 @@ real scanout hardware does. Do not write a pixel assertion for one.
   runs under QEMU, where no adapter has a backlight, so on `auto` the
   sun is not in the tray at all -- and a setting left behind changes the
   taskbar geometry every later tool measures.
-- **THE TRAY HAS A NETWORK ITEM, IT READS `QUERY_NETDEV`, AND IT
-  WRITES NOTHING -- `userland/wm/network_popup.c`.** A state-shaped
-  icon left of the speaker opens a read-only panel: interface,
-  address, netmask, gateway, link. Windows 11, GNOME and Plasma all
+- **THE TRAY HAS A NETWORK ITEM, IT READS `QUERY_NETDEV` AND netd's
+  PHASES, AND ITS ACTIONS ARE `netctl`'s -- `userland/wm/network_popup.c`.**
+  A state-shaped icon left of the speaker opens a card: interface,
+  address, netmask, gateway, link, traffic; its switch and Renew run
+  `/bin/netctl` as a child, and it writes nothing itself. Windows 11, GNOME and Plasma all
   keep the address one CLICK away rather than in the strip, and the
   panel width is the taskbar's. Four things to know.
   **`link_known` IS THREE-VALUED AND A DRIVER THAT CANNOT ANSWER IS NOT
@@ -3470,6 +3471,17 @@ real scanout hardware does. Do not write a pixel assertion for one.
   **STATE IS CARRIED BY SHAPE, NEVER COLOUR** -- a tray icon is blitted
   TINTED to the panel's ink, so a red "disconnected" does not exist;
   there is one icon file per state.
+- **A TRAY ICON MOVES ONLY WHILE SOMETHING IS UNDER WAY, AND STOPS BY
+  ITSELF -- `tray_set_anim()` in `userland/wm/wm_tray.h`.** An item is
+  given frames (icon names, like any icon), an interval and a STILL
+  frame for `desktop.animations = off`; only the item's own box is
+  redrawn, and only when its frame changes, so a moving icon costs a
+  few small repaints a second rather than the strip. The OWNER bounds
+  it: the network item moves for the first 30 s of asking and then
+  stills, because an icon animating for an hour says "busy" about a
+  machine that has given up -- Windows' "Identifying" ends the same
+  way. A new moving item names its bound in the same place it starts
+  the animation.
 - **THE TRAY SAYS WHEN SOMEBODY IS ON THIS MACHINE OVER THE NETWORK, AND
   THE KERNEL DERIVES THAT -- `userland/wm/remote_popup.c`.**
   `desktop.tray.remote` = `auto` | `always` | `never`, where `auto` means

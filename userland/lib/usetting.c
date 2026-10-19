@@ -5,6 +5,7 @@
 #include "knum.h"
 #include "lib/uconf.h"
 #include "lib/usetting_text.h"
+#include <dirent.h>
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
@@ -578,6 +579,33 @@ int usetting_each_name(int (*each)(int index, const char *ns, const char *name, 
         if (each(kcount + i, ns, dot + 1, ctx)) return 0;
     }
     return 0;
+}
+
+static int under_branch(const char *q, const char *branch, size_t len) {
+    return !strncmp(q, branch, len) && q[len] == '.';
+}
+
+int usetting_has_under(const char *branch) {
+    size_t len = strlen(branch);
+    uint32_t gen = 0;
+    int kcount = kernel_count(&gen);
+    struct setting_msg m;
+    for (int i = 0; i < kcount; i++) {
+        memset(&m, 0, sizeof m);
+        m.op = SETTING_OP_INFO;
+        m.index = (uint32_t)i;
+        if (sys_setting(&m) != 0) continue;
+        char q[SETTING_ABI_QUALIFIED_MAX];
+        snprintf(q, sizeof q, "%s.%s", m.ns, m.name);
+        if (under_branch(q, branch, len)) return 1;
+    }
+    DIR *d = opendir(SETTING_TEXT_DIR);
+    if (!d) return 0;
+    struct dirent *e;
+    int hit = 0;
+    while (!hit && (e = readdir(d))) hit = under_branch(e->d_name, branch, len);
+    closedir(d);
+    return hit;
 }
 
 int usetting_info(const char *name, struct setting_msg *out) {

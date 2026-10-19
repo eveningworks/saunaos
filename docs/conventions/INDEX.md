@@ -228,6 +228,8 @@ whenever a headline here tells you something you did not already know.
   CHOICE**
 - **A VENDOR CONFIGURATION NEEDS A DRIVER THAT NAMES THE DEVICE, AND AN
   RTL8153 IS FRAMED RATHER THAN RAW**
+- **A DRIVER THAT CANNOT READ ITS LINK SAYS UNKNOWN, NEVER DOWN**
+- **THE ADAPTER SWITCH REACHES THE HARDWARE THROUGH `set_admin`**
 - **A DEVICE CANNOT REGISTER BEFORE ITS CORE'S init(), AND NOW IT IS
   TOLD SO**
 - **USB AUDIO IS A SOUND DEVICE ON AN ISOCHRONOUS ENDPOINT, UAC1 OR
@@ -649,8 +651,10 @@ whenever a headline here tells you something you did not already know.
 - **THE TRAY HAS A VOLUME FLYOUT, AND THE PANEL OWNS IT TOO**
 - **A TRAY ITEM'S VISIBILITY IS A SETTING, `desktop.tray_<item>` =
   `auto` | `always` | `never`, AND `auto` ASKS THE HARDWARE**
-- **THE TRAY HAS A NETWORK ITEM, IT READS `QUERY_NETDEV`, AND IT WRITES
-  NOTHING**
+- **THE TRAY HAS A NETWORK ITEM, IT READS `QUERY_NETDEV` AND netd's
+  PHASES, AND ITS ACTIONS ARE `netctl`'s**
+- **A TRAY ICON MOVES ONLY WHILE SOMETHING IS UNDER WAY, AND STOPS BY
+  ITSELF -- `tray_set_anim()`**
 - **THE TRAY SAYS WHEN SOMEBODY IS ON THIS MACHINE OVER THE NETWORK, AND
   THE KERNEL DERIVES THAT**
 - **THE TRAY HAS A BRIGHTNESS FLYOUT, HIDDEN BY DEFAULT WHERE THERE IS
@@ -902,6 +906,8 @@ whenever a headline here tells you something you did not already know.
 - **ENUMERATION GOES THROUGH `usetting_dispatch()`, NEVER `sys_setting()`
   directly** -- it is the MERGED registry, kernel settings then declared
   ones.
+- **A SETTING IS LOOKED UP BY NAME; WALKING THE REGISTRY IS FOR LISTING
+  IT**
 - **A CONFIG FILE CAN HAVE `[SECTIONS]`, THE SECTION IS AN ARGUMENT, AND
   A NEW KEY LANDS AT THE END OF ITS OWN SECTION**
 - **A `.desktop` OR `mimeapps.conf` FILE READS WITH ITS HEADER OR
@@ -1100,6 +1106,7 @@ whenever a headline here tells you something you did not already know.
   image.**
 - **READING A WHOLE FILE IS `lib/ufile.h`, AND THE PART IT EXISTS FOR IS
   THE LOOP**
+- **A COST CEILING IS COUNTED, NEVER TIMED**
 - **A SELF-CHECKING `/tests` PROGRAM REPORTS THROUGH
   `userland/lib/utest.h`, AND ITS EPILOGUE IS ONE LINE IN ONE SHAPE**
 - **Every ring-3 program is just a `main()`.**

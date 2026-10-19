@@ -267,6 +267,14 @@ this the obvious way), not from how much history it accumulated.
   source of truth this registry exists to remove. System Settings and
   `config` want the whole record rather than a name, and they get it
   from there.
+- **A SETTING IS LOOKED UP BY NAME; WALKING THE REGISTRY IS FOR LISTING
+  IT.** `usetting_info()` gives one setting's record, `usetting_find()`
+  the record and its index (what CHOICE takes), `usetting_has_under()`
+  whether a name has children, `usetting_each_name()` a names-only walk
+  for matching a bare name -- each a few syscalls or one file. A loop of
+  INFO over every index reads every declaration and value file: one
+  `config set` made 2,968 syscalls that way, and a GUI test timed out on
+  it. `tests/settingcost_test` holds the ceilings.
 - **A CONFIG FILE CAN HAVE `[SECTIONS]`, THE SECTION IS AN ARGUMENT, AND
   A NEW KEY LANDS AT THE END OF ITS OWN SECTION.** `etc_config_get_in`/
   `_set_in`/`_unset_in` and their `_buf_`/`uconf_` twins take a section;

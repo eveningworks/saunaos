@@ -1568,6 +1568,30 @@ things:
   adapted from someone's driver carries their notice, which is in
   `LICENSE`.
 
+## A DRIVER THAT CANNOT READ ITS LINK SAYS UNKNOWN, NEVER DOWN
+
+`net_device.link_known` is three-valued with `link_up`: up, down, and
+"cannot say". A driver whose status reads FAIL reports the third --
+`link_known = 0` -- because the desktop reads a known-down link as a
+pulled cable and stops calling the card connected. The ASUS's r8153
+stopped answering its PHY-status reads 54 s into a boot and carried
+traffic for hours; reporting that as down showed "Cable unplugged" on a
+working connection (`rtl_poll()`, which now also keeps asking, slowly).
+A driver that has never been able to ask (the e1000, virtio-net) leaves
+it 0 from the start.
+
+## THE ADAPTER SWITCH REACHES THE HARDWARE THROUGH `set_admin`
+
+`netctl down|up` and the network card's switch set `admin_down` in the
+core; a driver with `net_device.set_admin` is called first and takes the
+PHY down or brings it back (Linux's `ndo_stop`/`ndo_open`), so the far
+end sees the link go and switching on is a real renegotiation. It runs
+from the syscall; a driver that may touch registers only from its poll
+queues the request there. Without the op the switch is the flag alone.
+**A NEW ONE IS PROVED OFF AND BACK ON, ON THE HARDWARE, FIRST**: the
+RTL8153's BMCR power-down left it dead until a replug, so `rtl_usb.c`
+has none. `docs/driver-guide.md` has the per-driver detail.
+
 ## A DEVICE CANNOT REGISTER BEFORE ITS CORE'S init(), AND NOW IT IS TOLD SO
 
 `net_init()` zeroes the device table, and it used to run AFTER

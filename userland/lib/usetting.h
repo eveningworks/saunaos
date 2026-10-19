@@ -76,6 +76,12 @@ int usetting_info(const char *name, struct setting_msg *out);
 int usetting_each_name(int (*each)(int index, const char *ns, const char *name, void *ctx),
                        void *ctx);
 
+// Whether any setting is named under `branch` ("desktop.transparency"
+// has children) -- from the kernel's names and /etc/settings.d's file
+// NAMES, no file opened. A YES MAY BE A DESCRIPTION FILE rather than a
+// declaration, so a caller takes yes as "walk properly" and no as final.
+int usetting_has_under(const char *branch);
+
 // An enum's choices, values and labels, in the order every front end
 // lists them (Sort=label applied), and which one is current. Fills at most
 // `max`; returns how many, or -1 for no such setting. `*current` is -1
