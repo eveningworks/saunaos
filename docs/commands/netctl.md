@@ -24,9 +24,10 @@
   first (Windows' `ipconfig /renew`, networkctl's `renew`).
 - `down DEVICE` -- switch the card off: nothing is sent or received
   whatever the cable says, and nothing is routed through it; its
-  address stays, unused, for `up`. Where the driver can (`r8153`,
-  `r8156`, `r8169`, `aq`, `e1000`) the PHY is powered down as well, so
-  the other end sees the link go -- a switch port's light goes out.
+  address stays, unused, for `up`. Where the driver can (`r8169`, `aq`,
+  `e1000`) the PHY is powered down as well, so the other end sees the
+  link go -- a switch port's light goes out. A USB adapter (`r8153`,
+  `r8156`) keeps its link up while switched off, for now.
 - `up DEVICE` -- switch it back on: the link renegotiates (a few
   seconds on real hardware) and netd leases the card again, asking for
   the address it had. Until netd has that answer the taskbar says

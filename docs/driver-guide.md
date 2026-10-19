@@ -186,11 +186,15 @@ reaches the hardware through `set_admin(dev, on)`: off powers the PHY
 down so the far end sees the link go, on powers it back and restarts
 autonegotiation -- Linux's `ndo_stop`/`ndo_open`. It runs from the
 syscall before `admin_down` changes; a driver that may touch its
-registers only from its poll (a USB NIC's control transfers,
-`rtl_usb.c`) queues it there and returns 0. Leave it NULL and the switch
-is the core's flag alone: frames refused, the link up. `r8169.c` and
-`e1000.c` write the MII control register, `aq.c` asks its firmware for
-link shutdown.
+registers only from its poll (a USB NIC's control transfers) queues it
+there and returns 0. Leave it NULL and the switch is the core's flag
+alone: frames refused, the link up. `r8169.c` and `e1000.c` write the
+MII control register, `aq.c` asks its firmware for link shutdown.
+**PROVE THE WAY BACK ON THE HARDWARE BEFORE SHIPPING ONE**: `rtl_usb.c`
+powered the RTL8153's PHY down through BMCR and the chip then passed no
+frames after power-up -- through a full rebind, until a replug -- so it
+has no `set_admin` until it is done the way r8152's `rtl8153_down()`
+and `_up()` do it.
 
 ## 8. Make the untestable half testable
 

@@ -8137,3 +8137,19 @@ count of one command is exact. Each path the audit fixes gets a ceiling
 several times its new count and far below its old one, in a `/tests`
 program preflight already runs.
 
+## The adapter switch on the Realtek USB NICs, as r8152 takes the chip down and up -- a PHY power-down left the 8153 dead
+
+`net_device.set_admin` takes the PHY down on `r8169`, `aq` and `e1000`.
+`rtl_usb.c` had one for a day (2026-10-19): it wrote BMCR's power-down
+bit from its poll and restarted autonegotiation on the way back, and on
+the ASUS's UE300 (RTL8153) the link came back UP at 1000M but no frame
+passed -- DHCP unanswered through a `devctl disable`/`enable` rebind,
+cured only by a replug. So the chip needs more than its PHY: Linux's
+r8152 brings it down with `rtl8153_down()` (RX/TX off, the FIFO
+drained, its own power sequence) and back with `rtl8153_up()`, and
+FreeBSD's ure(4) re-enables RX/TX on every link-up, which the 8153 chip
+file does not do today (the 8156's `link_changed` does). Proving it
+needs the adapter in reach of hands: switching it off cuts any remote
+session through it, so test it with a detached script that rebinds the
+device if no traffic returns (`devctl`) -- and keep a replug ready.
+

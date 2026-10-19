@@ -793,6 +793,12 @@ void udhcp_init(struct udhcp *u, const char *dev, const uint8_t *mac) {
 
 uint64_t udhcp_due(const struct udhcp *u) { return u->due_ns; }
 
+void udhcp_ask_now(struct udhcp *u, uint64_t now_ns) {
+    if (u->state == UDHCP_BOUND) return;
+    u->backoff_ms = RETRY_MIN_MS;
+    u->due_ns = now_ns;
+}
+
 // THE ADDRESS GOES WITH THE LEASE. Forgetting only the lease left the
 // card holding an address another machine may now be given -- and netd
 // then read "an address and no lease" as one set by hand, and never

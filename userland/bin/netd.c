@@ -60,6 +60,10 @@ struct card {
     // no event.
     uint32_t phase;
     uint64_t since_ns;
+    // MEDIA SENSE, BY POLLING: what this pass saw, to notice a link that
+    // came up and a card that re-registered (its counters start again).
+    uint64_t last_rx, last_tx;
+    int link_was_up;
 };
 
 static struct card g_cards[MAX_CARDS];
@@ -376,6 +380,23 @@ int main(int argc, char **argv) {
             }
 
             if (have_conf) apply_link(c, &conf, &d);
+
+            // A LINK THAT CAME UP ASKS NOW. Windows and dhclient restart
+            // DHCP on the link-up event; ring 3 has no such event, so the
+            // edge is seen from here -- a link that was down and is not,
+            // or counters that went BACKWARDS, which only a card replugged
+            // and registered afresh does. Without it a card that had been
+            // failing sat out a backoff of up to a minute with its cable
+            // back in.
+            {
+                int up_now = !(d.link_known && !d.link_up);
+                int replugged = d.rx_packets < c->last_rx || d.tx_packets < c->last_tx;
+                if ((replugged || (up_now && !c->link_was_up)) && !d.admin_down)
+                    udhcp_ask_now(&c->dhcp, sys_monotonic_ns());
+                c->link_was_up = up_now;
+                c->last_rx = d.rx_packets;
+                c->last_tx = d.tx_packets;
+            }
 
             if (!wants_dhcp(&conf, &d, want_dhcp)) { set_phase(c, NETCTL_PHASE_UNMANAGED); continue; }
             if (d.admin_down) { set_phase(c, NETCTL_PHASE_OFF); continue; }   // switched off on purpose

@@ -117,7 +117,12 @@ today: asking is what makes its icon move.
 A card whose link just went -- switched on and renegotiating, or a
 cable pulled -- is looked at every second for 30 seconds rather than
 every ten, so the lease follows the link within a second of it coming
-back.
+back. **A LINK THAT COMES UP ASKS AT ONCE**, the way Windows and
+dhclient restart DHCP on a link-up event: netd notices the edge by
+polling -- a link it saw down and now sees up, or a card whose packet
+counters went backwards, which only one replugged and registered afresh
+does -- and a card still asking stops sitting out its backoff (up to a
+minute).
 
 ## What it deliberately does not do
 

@@ -1158,6 +1158,7 @@ run on, not by order.
 - [ ] `netctl` editing naming rules live -- `/etc/net.conf` is still a file netd re-reads, not something netctl writes
 - [ ] An `arp` command -- the cache is diagnosable only from inside the kernel today
 - [ ] A routing table -- routing is "my subnet, or the gateway", per device
+- [ ] The adapter switch on the Realtek USB NICs, as r8152 takes the chip down and up -- a PHY power-down left the 8153 dead
 - [ ] `/etc/hosts`, and a resolver cache -- every lookup goes to the wire
 - [x] ~~An HTTP client (`wget`-shaped), the first thing that makes the stack useful rather than demonstrable~~ DONE 2026-08-29
 - [x] ~~HTTPS: a TLS client~~ DONE 2026-09-07 -- mbedTLS 3.6 vendored; `/lib/libssl.so` and `/lib/libhttp.so`; TLS 1.3, chain verification

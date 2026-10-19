@@ -68,6 +68,11 @@ uint64_t udhcp_step(struct udhcp *u, uint64_t now_ns);
 // until the earliest.
 uint64_t udhcp_due(const struct udhcp *u);
 
+// The link has just come (back): a card still asking asks on the next
+// step instead of at the end of its backoff, which can be a minute.
+// A bound lease is left alone.
+void udhcp_ask_now(struct udhcp *u, uint64_t now_ns);
+
 // A BOUND lease past its end is given up -- the address taken off the
 // card -- and 1 returned. udhcp_step() does this itself; a caller that
 // is NOT stepping (netd, while the cable is out) asks with this, since
