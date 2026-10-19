@@ -1,0 +1,7 @@
+# Win16 Programs -- see this directory's README.md for the format.
+Name=Win16 Programs
+Exec=/bin/wm/apps/win16
+Category=utility
+Comment=Run Windows 3.x programs, and set how each one runs
+Icon=win16
+Handles=.exe

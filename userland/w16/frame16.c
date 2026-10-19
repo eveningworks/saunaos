@@ -6,6 +6,7 @@
 // which is why the main thread can draw it while the task runs.
 #include "w16_internal.h"
 
+#include <stdlib.h>
 #include "win_proto.h"
 #include "ui/ugfx.h"
 
@@ -13,12 +14,47 @@
 
 static uint32_t rgb(uint32_t v) { return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v); }
 
+int g_w16_scale = 1;              // 2: every pixel drawn twice each way (w16prefs.h's scale)
+int g_w16_desktop_frame;          // the desktop's frame instead of 3.1's
+
 // MAXIMIZED, 3.1 put the border off the screen's edges; here there is
-// none, and the caption is the window's top.
+// none, and the caption is the window's top. Under the desktop's frame,
+// toywm draws it all and the window is the client.
 static int frame_of(const struct w16_wnd *win) {
+    if (g_w16_desktop_frame) return 0;
     return win->maximized ? 0 : win->style & WS_THICKFRAME ? W16_FRAME : 1;
 }
-static int has_caption(const struct w16_wnd *win) { return (win->style & WS_CAPTION) == WS_CAPTION; }
+static int has_caption(const struct w16_wnd *win) {
+    return !g_w16_desktop_frame && (win->style & WS_CAPTION) == WS_CAPTION;
+}
+
+// A program sizes its window for 3.1's frame (GetSystemMetrics says so);
+// under the desktop's, only the client is w16's, so the 3.1 frame comes
+// off and the program's client area keeps the size it asked for.
+void w16_frame_fit(const struct w16_wnd *win, int *w, int *h) {
+    if (!g_w16_desktop_frame) return;
+    int f = win->style & WS_THICKFRAME ? W16_FRAME : 1;
+    int cap = (win->style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0;
+    *w -= 2 * f;
+    *h -= 2 * f + cap;
+    if (*w < 1) *w = 1;
+    if (*h < 1) *h = 1;
+}
+
+// `src` (w x h, `stride` pixels a row) at s times its size, each pixel a
+// square -- crisp, as an integer scale of pixel art should be.
+void w16_scale_blit(struct ugfx_surface *dst, int dx, int dy, const uint32_t *src, int w, int h,
+                    int stride, int s) {
+    uint32_t *row = malloc((size_t)w * s * 4);
+    if (!row) return;
+    for (int y = 0; y < h; y++) {
+        const uint32_t *in = src + (size_t)y * stride;
+        for (int x = 0; x < w; x++)
+            for (int k = 0; k < s; k++) row[x * s + k] = in[x];
+        for (int k = 0; k < s; k++) ugfx_blit(dst, dx, dy + y * s + k, w * s, 1, row, w * s);
+    }
+    free(row);
+}
 
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch) {
     int f = frame_of(win), cap = has_caption(win) ? W16_CAPTION : 0;
@@ -75,6 +111,7 @@ void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h)
 }
 
 void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int active, int pressed) {
+    if (g_w16_desktop_frame) return;
     int W = win->w, H = win->h, f = frame_of(win);
     uint32_t black = rgb(0x000000);
     if (f) ugfx_draw_rect(s, 0, 0, W, H, black);
@@ -143,6 +180,7 @@ enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *ed
     int W = win->w, H = win->h, f = frame_of(win);
     *edges = 0;
     if (x < 0 || y < 0 || x >= W || y >= H) return HIT_NONE;
+    if (g_w16_desktop_frame) return HIT_CLIENT;
     if ((win->style & WS_THICKFRAME) && !win->maximized) {
         int n = W16_CAPTION + f;                   // a corner reaches this far along an edge
         if (x < f) *edges |= WIN_EDGE_LEFT;

@@ -12,11 +12,15 @@
 ;   y 56..71    a blue rectangle with a black edge, x 16..47
 ;   y 80        text copied through a global block into a local one
 ;   x 100..107, y 50..57  green, once the timer has fired three times
+;   x 120..127, y 50..57  magenta, when GDITEST.INI says [GdiTest] Square=1
+;
+; and at start-up it writes [GdiTest] Written=yes to GDITEST.INI (drive
+; C:'s WINDOWS folder), so both directions of the profile calls are seen.
 ;
 ; Build: tools/gen_ne.py.
 ;
 ;w16: module GDITEST
-;w16: description w16 test program: resources, heaps, GDI objects, a timer
+;w16: description GDI test
 ;w16: segment 1 code
 ;w16: segment 2 data
 ;w16: autodata 2
@@ -180,6 +184,25 @@ wndproc:
     push word 64
     W16_CALL "USER", 176            ; LoadString
     mov [strlen_], ax
+    ; The INI file, both ways.
+    push ds                         ; WritePrivateProfileString("GdiTest", "Written", "yes", "GDITEST.INI")
+    push word ini_app
+    push ds
+    push word ini_written
+    push ds
+    push word ini_yes
+    push ds
+    push word ini_file
+    W16_CALL "KERNEL", 129
+    push ds                         ; GetPrivateProfileInt("GdiTest", "Square", 0, "GDITEST.INI")
+    push word ini_app
+    push ds
+    push word ini_square
+    push word 0
+    push ds
+    push word ini_file
+    W16_CALL "KERNEL", 127
+    mov [square], ax
     ; The timer: 100 ms, to the window.
     push word [bp+14]
     push word 1
@@ -349,6 +372,30 @@ wndproc:
     push word heaps_len
     W16_CALL "GDI", 33
 
+    ; Magenta, when the INI file said so.
+    cmp word [square], 1
+    jne .nosquare
+    push word 0x00FF                ; CreateSolidBrush(RGB(255,0,255))
+    push word 0x00FF
+    W16_CALL "GDI", 66
+    mov [hsquare], ax
+    push word [hdc]
+    push ax
+    W16_CALL "GDI", 45
+    push word [hdc]                 ; PatBlt(hdc, 120, 50, 8, 8, PATCOPY)
+    push word 120
+    push word 50
+    push word 8
+    push word 8
+    push word 0x00F0
+    push word 0x0021
+    W16_CALL "GDI", 29
+    push word [hdc]
+    push word [hbrush]
+    W16_CALL "GDI", 45              ; the blue one back, for what follows
+    push word [hsquare]
+    W16_CALL "GDI", 69
+.nosquare:
     ; Green, once the timer has fired three times.
     cmp word [ticks], 3
     jb .nogreen
@@ -421,6 +468,8 @@ bmi_seg:    dw 0
 hglobal:    dw 0
 hlocal:     dw 0
 ticks:      dw 0
+square:     dw 0
+hsquare:    dw 0
 strlen_:    dw 0
 
 wc:
@@ -447,3 +496,8 @@ classname:  db "GdiTestClass", 0
 title:      db "GDI test (Win16)", 0
 heaps_text: db "Through both heaps.", 0
 heaps_len   equ $ - heaps_text - 1
+ini_app:    db "GdiTest", 0
+ini_written: db "Written", 0
+ini_yes:    db "yes", 0
+ini_square: db "Square", 0
+ini_file:   db "GDITEST.INI", 0

@@ -97,9 +97,17 @@ LOUDLY and by name (below), never as a silent zero.
   the queue and the client buffer under one lock, and the task wakes
   the main thread with `uapp_post()`.
 - **The sandbox** (`userland/bin/w16.c`): the program file, `/usr/share`
-  and `/etc` read-only, the compositor's and fontd's beacons by exact
-  name, and `stdio rpath shm window settings query`; `--info` keeps
-  only the file and `stdio rpath`.
+  and `/etc` read-only, drive C: and `/var/lib/win16` read-write, the
+  compositor's and fontd's beacons by exact name, and `stdio rpath wpath
+  cpath shm window settings query`; `--info` and `--check` keep only the
+  file and `stdio rpath`. Settings are read BEFORE the sandbox, which is
+  what decides drive C:.
+- **Settings** (`userland/w16/w16prefs.c`): `/etc/win16.conf` the
+  defaults, `/etc/win16/<program>.conf` one program's overrides, keyed by
+  its path -- the shape of Windows' per-executable compatibility
+  settings. The Win16 Programs launcher edits both and reads programs
+  only through `w16 --check`, so the one parser of hostile files stays
+  sandboxed.
 - **Far pointers are translated at the boundary.** An API taking an
   `LPSTR` gets segment:offset, checked against the selector's limit
   before C reads a byte -- the same bounds discipline as `ttf.h`.
@@ -150,10 +158,9 @@ shape to copy:
    **A display bitmap is 32-bit host pixels** (chosen that day over 3.1's
    device formats): a program treats a device bitmap as opaque, and a
    1-bit one keeps that it is one for the mask conversions. The INI
-   calls answer their defaults and accept writes without keeping them,
-   and a menu handle names its resource but draws nothing yet -- the
-   menu bar, the dialogs and real INI files are what is left of
-   Minesweeper. `w16 --trace FILE` logs every call into KERNEL, USER and
+   calls read and write real files on drive C: (2026-10-19), and a menu
+   handle names its resource but draws nothing yet -- the menu bar and
+   the dialogs are what is left of Minesweeper. `w16 --trace FILE` logs every call into KERNEL, USER and
    GDI (Wine's `+relay`), which is how a stage-4 program's next stop is
    found.
 4. **Real programs**, the user's own copies (none ship): run each,

@@ -1,11 +1,11 @@
 ; fault.asm -- w16's test program for a program that goes wrong: a click
 ; in its window loads the null selector and writes through it (a general
-; protection fault), a right click calls WinHelp, which w16 does not
+; protection fault), a right click calls ExitWindows, which w16 does not
 ; implement. Either ends in the Application Error box and a crash report.
 ; Build: tools/gen_ne.py.
 ;
 ;w16: module FAULT
-;w16: description w16 test program: faults on a click
+;w16: description Fault test
 ;w16: segment 1 code
 ;w16: segment 2 data
 ;w16: autodata 2
@@ -22,7 +22,6 @@
 %define WS_OVERLAPPEDWINDOW 0x00CF0000
 %define COLOR_WINDOW   5
 %define IDC_ARROW      32512
-%define HELP_CONTENTS  3
 
 ; ---------------------------------------------------------------- code
 W16_SEGMENT 1
@@ -158,13 +157,10 @@ wndproc:
     mov [es:0], ax                  ; ...and a general protection fault to use
     jmp .zero
 .help:
-    push word [bp+14]               ; WinHelp(hwnd, "FAULT.HLP", HELP_CONTENTS, 0)
-    push ds
-    push word helpfile
-    push word HELP_CONTENTS
+    push word 0                     ; ExitWindows(0, 0)
     push word 0
     push word 0
-    W16_CALL "USER", 171
+    W16_CALL "USER", 7
     jmp .zero
 .destroy:
     push word 0
@@ -211,8 +207,7 @@ ps:         times 32 db 0
 
 classname:  db "FaultClass", 0
 title:      db "Fault (Win16)", 0
-helpfile:   db "FAULT.HLP", 0
 line1:      db "Click: a general protection fault."
 line1_len   equ $ - line1
-line2:      db "Right-click: WinHelp, which w16 does not have."
+line2:      db "Right-click: ExitWindows, which w16 does not have."
 line2_len   equ $ - line2

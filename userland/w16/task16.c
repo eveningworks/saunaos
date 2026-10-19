@@ -13,11 +13,13 @@
 #include <stdlib.h>
 #include <string.h>
 #include "ui/uapp.h"
+#include "w16/w16prefs.h"
 
 struct w16 g_w16;
 pthread_mutex_t g_w16_text_lock = PTHREAD_MUTEX_INITIALIZER;
 char g_w16_fault[1024];
 FILE *g_w16_trace;
+struct w16_prefs g_w16_prefs;
 char g_w16_fault_box[512];
 
 #define SYSDATA_SIZE 0x1000
@@ -209,6 +211,30 @@ int w16_api_call(const struct w16_api *t, unsigned n, struct w16 *w, unsigned or
         else hi = mid;
     }
     return -2;
+}
+
+static int in_table(const struct w16_api *t, unsigned n, unsigned ordinal) {
+    unsigned lo = 0, hi = n;
+    while (lo < hi) {
+        unsigned mid = (lo + hi) / 2;
+        if (t[mid].ordinal == ordinal) return 1;
+        if (t[mid].ordinal < ordinal) lo = mid + 1;
+        else hi = mid;
+    }
+    return 0;
+}
+
+int w16_has(const char *module, unsigned ordinal) {
+    if (!strcmp(module, "KERNEL") || !strcmp(module, "KRNL386"))
+        return in_table(g_kernel_api, g_kernel_api_n, ordinal) ||
+               in_table(g_kernel_mem_api, g_kernel_mem_api_n, ordinal) ||
+               in_table(g_kernel_res_api, g_kernel_res_api_n, ordinal) ||
+               in_table(g_profile_api, g_profile_api_n, ordinal);
+    if (!strcmp(module, "USER"))
+        return in_table(g_user_api, g_user_api_n, ordinal) ||
+               in_table(g_user_misc_api, g_user_misc_api_n, ordinal);
+    if (!strcmp(module, "GDI")) return in_table(g_gdi_api, g_gdi_api_n, ordinal);
+    return 0;
 }
 
 uint16_t w16_arg16(struct w16_args *a) {

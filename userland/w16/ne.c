@@ -211,6 +211,15 @@ int ne_reloc_at(const struct ne_module *m, unsigned seg, unsigned i, struct ne_r
     return 0;
 }
 
+int ne_description(const struct ne_module *m, char *out, size_t cap) {
+    out[0] = 0;
+    uint32_t off = rd32(m, m->ne + 0x2C);
+    uint16_t len = rd16(m, m->ne + 0x20);
+    if (!off || !len) return 0;
+    if (!span(m, off, len)) return NE_E_NAME;
+    return pname(m, off, out, cap);
+}
+
 int ne_module_name(const struct ne_module *m, unsigned idx, char *out, size_t cap) {
     if (idx < 1 || idx > m->nmod) return NE_E_RANGE;
     return pname(m, m->imported + m->modref[idx - 1], out, cap);

@@ -1,6 +1,7 @@
 // kernel16.c -- KERNEL's exports and the DOS calls (INT 21h) a Windows
 // program makes. Stage 2: what a program needs to start and to end.
 #include "w16_internal.h"
+#include "w16/w16prefs.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -51,118 +52,264 @@ static int put_str(struct w16 *w, uint32_t far, const char *s, unsigned cap) {
     return (int)n;
 }
 
-// THE PROFILE (INI) CALLS ANSWER THEIR DEFAULTS: no file is read or
-// written yet, so a program starts as on a first run and a write is
-// accepted and dropped. Real INI files are stage 3's.
-static int profile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    switch (ordinal) {
-    case 57: case 127: {                         // Get[Private]ProfileInt(app, key, default[, file])
-        w16_arg32(a); w16_arg32(a);
-        c->r[R_AX] = w16_arg16(a);
-        if (ordinal == 127) w16_arg32(a);
-        return ordinal == 57 ? 10 : 14;
-    }
-    case 58: case 128: {                         // Get[Private]ProfileString(app, key, default, buf, size[, file])
-        w16_arg32(a); w16_arg32(a);
-        uint32_t def = w16_arg32(a), buf = w16_arg32(a);
-        uint16_t size = w16_arg16(a);
-        if (ordinal == 128) w16_arg32(a);
-        char d[256];
-        if (far_str(w, def, d, sizeof d) < 0) return -1;
-        int n = put_str(w, buf, d, size);
-        if (n < 0) return -1;
-        c->r[R_AX] = (uint16_t)n;
-        return ordinal == 58 ? 18 : 22;
-    }
-    case 59: case 129:                           // Write[Private]ProfileString: accepted
-        c->r[R_AX] = 1;
-        return ordinal == 59 ? 12 : 16;
-    default:
-        return -2;
-    }
+// THE PROFILE (INI) CALLS, over real INI files on drive C: (ini16.c).
+// GetProfile* and WriteProfile* are WIN.INI's; the Private ones name
+// their file. An argument may be NULL where Windows let it be: a NULL
+// section or key asks for the names, a NULL value removes a key.
+
+static int ini_file(struct w16 *w, unsigned ordinal, unsigned private_ord, uint32_t far,
+                    char *out, unsigned cap) {
+    if (ordinal != private_ord) { snprintf(out, cap, "WIN.INI"); return 0; }
+    return far_str(w, far, out, cap);
 }
 
-int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+// Get[Private]ProfileInt(app, key, default[, file]): the value's leading
+// digits as Windows read them, or the default when the key is absent.
+static int api_GetProfileInt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
+    uint32_t app = w16_arg32(a), key = w16_arg32(a);
+    uint16_t dflt = w16_arg16(a);
+    uint32_t file = ordinal == 127 ? w16_arg32(a) : 0;
+    char sec[96], k[96], f[128], v[256];
+    if (far_str(w, app, sec, sizeof sec) < 0 || far_str(w, key, k, sizeof k) < 0 ||
+        ini_file(w, ordinal, 127, file, f, sizeof f) < 0)
+        return -1;
+    c->r[R_AX] = dflt;
+    if (w16_ini_get(f, sec, k, v, sizeof v)) {
+        unsigned n = 0;
+        for (const char *p = v; *p >= '0' && *p <= '9'; p++) n = n * 10 + (unsigned)(*p - '0');
+        c->r[R_AX] = (uint16_t)n;
+    }
+    return ordinal == 57 ? 10 : 14;
+}
+
+// Get[Private]ProfileString(app, key, default, buf, size[, file]): the
+// characters copied. A NULL app lists the sections, a NULL key the keys.
+static int api_GetProfileString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    uint32_t app = w16_arg32(a), key = w16_arg32(a), def = w16_arg32(a), buf = w16_arg32(a);
+    uint16_t size = w16_arg16(a);
+    uint32_t file = ordinal == 128 ? w16_arg32(a) : 0;
+    char sec[96], k[96], f[128], d[256], v[1024];
+    if (far_str(w, app, sec, sizeof sec) < 0 || far_str(w, key, k, sizeof k) < 0 ||
+        far_str(w, def, d, sizeof d) < 0 || ini_file(w, ordinal, 128, file, f, sizeof f) < 0)
+        return -1;
+    int n;
+    if (!(app >> 16) || !(key >> 16)) {
+        size_t got = w16_ini_names(f, (app >> 16) ? sec : 0, v, size < sizeof v ? size : sizeof v);
+        uint8_t *p = size ? cpu16_ptr(c, (uint16_t)(buf >> 16), (uint16_t)buf, size, 1) : 0;
+        if (size && !p) return -1;
+        if (p) memcpy(p, v, got + 1 < size ? got + 1 : size);
+        n = (int)got;
+    } else {
+        if (!w16_ini_get(f, sec, k, v, sizeof v)) snprintf(v, sizeof v, "%s", d);
+        n = put_str(w, buf, v, size);
+        if (n < 0) return -1;
+    }
+    c->r[R_AX] = (uint16_t)n;
+    return ordinal == 58 ? 18 : 22;
+}
+
+// Write[Private]ProfileString(app, key, value[, file]): 1 when written.
+static int api_WriteProfileString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    uint32_t app = w16_arg32(a), key = w16_arg32(a), val = w16_arg32(a);
+    uint32_t file = ordinal == 129 ? w16_arg32(a) : 0;
+    char sec[96], k[96], v[256], f[128];
+    if (far_str(w, app, sec, sizeof sec) < 0 || far_str(w, key, k, sizeof k) < 0 ||
+        far_str(w, val, v, sizeof v) < 0 || ini_file(w, ordinal, 129, file, f, sizeof f) < 0)
+        return -1;
+    c->r[R_AX] = (uint16_t)w16_ini_set(f, sec, (key >> 16) ? k : 0, (val >> 16) ? v : 0);
+    return ordinal == 59 ? 12 : 16;
+}
+
+const struct w16_api g_profile_api[] = {
+    { 57, api_GetProfileInt },
+    { 58, api_GetProfileString },
+    { 59, api_WriteProfileString },
+    { 127, api_GetProfileInt },
+    { 128, api_GetProfileString },
+    { 129, api_WriteProfileString },
+};
+const unsigned g_profile_api_n = sizeof g_profile_api / sizeof g_profile_api[0];
+
+static int profile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    return w16_api_call(g_profile_api, sizeof g_profile_api / sizeof g_profile_api[0], w, ordinal, a);
+}
+
+// FatalExit(code)
+static int api_FatalExit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    char s[256];
+    (void)ordinal;
+    (void)a;
+    snprintf(s, sizeof s, "the program called FatalExit(%u)", cpu16_arg(c, 0));
+    cpu16_set_fault(c, FAULT_API, s);
+    return -1;
+}
+
+// GetModuleHandle(name): this program's
+static int api_GetModuleHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg32(a);
+    c->r[R_AX] = w->dgroup;
+    return 4;
+}
+
+// MakeProcInstance(lpProc, hInst): the proc itself
+static int api_MakeProcInstance(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint32_t p = w16_arg32(a);                // -- every callback is entered with DS = DGROUP
+    w16_arg16(a);
+    c->r[R_AX] = (uint16_t)p;
+    c->r[R_DX] = (uint16_t)(p >> 16);
+    return 6;
+}
+
+// FreeProcInstance(lpProc)
+static int api_FreeProcInstance(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)w;
+    w16_arg32(a);
+    return 4;
+}
+
+// lstrcpy, lstrcat(dst, src) -> dst
+static int api_lstrcpy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    char s[256], t[256];
+    uint32_t dst = w16_arg32(a), src = w16_arg32(a);
+    if (far_str(w, src, s, sizeof s) < 0) return -1;
+    if (ordinal == 89 && far_str(w, dst, t, sizeof t) < 0) return -1;
+    if (ordinal == 89) { strncat(t, s, sizeof t - strlen(t) - 1); memcpy(s, t, sizeof s); }
+    if (put_str(w, dst, s, (unsigned)strlen(s) + 1) < 0) return -1;
+    c->r[R_AX] = (uint16_t)dst;
+    c->r[R_DX] = (uint16_t)(dst >> 16);
+    return 8;
+}
+
+// lstrlen(s)
+static int api_lstrlen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    char s[256];
+    (void)ordinal;
+    if (far_str(w, w16_arg32(a), s, sizeof s) < 0) return -1;
+    c->r[R_AX] = (uint16_t)strlen(s);
+    return 4;
+}
+
+// DOS3Call: INT 21h by a far call, same registers
+static int api_DOS3Call(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    (void)a;
+    return w16_int(c, 0x21) < 0 ? -1 : 0;
+}
+
+// SetErrorMode(mode)
+static int api_SetErrorMode(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    c->r[R_AX] = 0;
+    return 2;
+}
+
+// OutputDebugString(s): to stderr
+static int api_OutputDebugString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    char s[256];
+    (void)ordinal;
+    if (far_str(w, w16_arg32(a), s, sizeof s) < 0) return -1;
+    fprintf(stderr, "w16: %s: debug: %s\n", w->path, s);
+    return 4;
+}
+
+// GetWinFlags: protected mode, enhanced, a 386
+static int api_GetWinFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    (void)a;
+    c->r[R_AX] = 0x0001 | 0x0020 | 0x0004;
+    c->r[R_DX] = 0;
+    return 0;
+}
+
+// FatalAppExit(action, lpMessage)
+static int api_FatalAppExit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    char s[256], t[256];
+    (void)ordinal;
+    w16_arg16(a);
+    if (far_str(w, w16_arg32(a), s, sizeof s) < 0) return -1;
+    snprintf(t, sizeof t, "the program called FatalAppExit: %s", s);
+    cpu16_set_fault(c, FAULT_API, t);
+    return -1;
+}
+
+// IsDBCSLeadByte(b): no double-byte sets
+static int api_IsDBCSLeadByte(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    c->r[R_AX] = 0;
+    return 2;
+}
+
+// GetVersion: Windows 3.10 on DOS 5.0
+static int api_GetVersion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    (void)a;
+    c->r[R_AX] = w16_prefs_winver(&g_w16_prefs);   // the version the program is told
+    c->r[R_DX] = 0x0500;
+    return 0;
+}
+
+// WaitEvent(hTask)
+static int api_WaitEvent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    c->r[R_AX] = 0;
+    return 2;
+}
+
+// InitTask
+static int api_InitTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    init_task(w);
+    return 0;
+}
+
+const struct w16_api g_kernel_api[] = {
+    { 1, api_FatalExit },
+    { 3, api_GetVersion },
+    { 30, api_WaitEvent },
+    { 47, api_GetModuleHandle },
+    { 51, api_MakeProcInstance },
+    { 52, api_FreeProcInstance },
+    { 88, api_lstrcpy },
+    { 89, api_lstrcpy },
+    { 90, api_lstrlen },
+    { 91, api_InitTask },
+    { 102, api_DOS3Call },
+    { 107, api_SetErrorMode },
+    { 115, api_OutputDebugString },
+    { 132, api_GetWinFlags },
+    { 137, api_FatalAppExit },
+    { 207, api_IsDBCSLeadByte },
+};
+const unsigned g_kernel_api_n = sizeof g_kernel_api / sizeof g_kernel_api[0];
+
+int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int r = w16_kernel_mem(w, ordinal, a);
     if (r != -2) return r;
     if ((r = w16_kernel_res(w, ordinal, a)) != -2) return r;
     if ((r = profile(w, ordinal, a)) != -2) return r;
-    char s[256], t[256];
-    switch (ordinal) {
-    case 1:                                      // FatalExit(code)
-        snprintf(s, sizeof s, "the program called FatalExit(%u)", cpu16_arg(c, 0));
-        cpu16_set_fault(c, FAULT_API, s);
-        return -1;
-    case 47:                                     // GetModuleHandle(name): this program's
-        w16_arg32(a);
-        c->r[R_AX] = w->dgroup;
-        return 4;
-    case 51: {                                   // MakeProcInstance(lpProc, hInst): the proc itself
-        uint32_t p = w16_arg32(a);                // -- every callback is entered with DS = DGROUP
-        w16_arg16(a);
-        c->r[R_AX] = (uint16_t)p;
-        c->r[R_DX] = (uint16_t)(p >> 16);
-        return 6;
-    }
-    case 52:                                     // FreeProcInstance(lpProc)
-        w16_arg32(a);
-        return 4;
-    case 88: case 89: {                          // lstrcpy, lstrcat(dst, src) -> dst
-        uint32_t dst = w16_arg32(a), src = w16_arg32(a);
-        if (far_str(w, src, s, sizeof s) < 0) return -1;
-        if (ordinal == 89 && far_str(w, dst, t, sizeof t) < 0) return -1;
-        if (ordinal == 89) { strncat(t, s, sizeof t - strlen(t) - 1); memcpy(s, t, sizeof s); }
-        if (put_str(w, dst, s, (unsigned)strlen(s) + 1) < 0) return -1;
-        c->r[R_AX] = (uint16_t)dst;
-        c->r[R_DX] = (uint16_t)(dst >> 16);
-        return 8;
-    }
-    case 90: {                                   // lstrlen(s)
-        if (far_str(w, w16_arg32(a), s, sizeof s) < 0) return -1;
-        c->r[R_AX] = (uint16_t)strlen(s);
-        return 4;
-    }
-    case 102:                                    // DOS3Call: INT 21h by a far call, same registers
-        return w16_int(c, 0x21) < 0 ? -1 : 0;
-    case 107:                                    // SetErrorMode(mode)
-        w16_arg16(a);
-        c->r[R_AX] = 0;
-        return 2;
-    case 115:                                    // OutputDebugString(s): to stderr
-        if (far_str(w, w16_arg32(a), s, sizeof s) < 0) return -1;
-        fprintf(stderr, "w16: %s: debug: %s\n", w->path, s);
-        return 4;
-    case 132:                                    // GetWinFlags: protected mode, enhanced, a 386
-        c->r[R_AX] = 0x0001 | 0x0020 | 0x0004;
-        c->r[R_DX] = 0;
-        return 0;
-    case 137: {                                  // FatalAppExit(action, lpMessage)
-        w16_arg16(a);
-        if (far_str(w, w16_arg32(a), s, sizeof s) < 0) return -1;
-        snprintf(t, sizeof t, "the program called FatalAppExit: %s", s);
-        cpu16_set_fault(c, FAULT_API, t);
-        return -1;
-    }
-    case 207:                                    // IsDBCSLeadByte(b): no double-byte sets
-        w16_arg16(a);
-        c->r[R_AX] = 0;
-        return 2;
-    case 3:                                      // GetVersion: Windows 3.10 on DOS 5.0
-        c->r[R_AX] = 0x0A03;
-        c->r[R_DX] = 0x0500;
-        return 0;
-    case 30:                                     // WaitEvent(hTask)
-        w16_arg16(a);
-        c->r[R_AX] = 0;
-        return 2;
-    case 91:                                     // InitTask
-        init_task(w);
-        return 0;
-    default:
-        return -2;
-    }
+    return w16_api_call(g_kernel_api, sizeof g_kernel_api / sizeof g_kernel_api[0], w, ordinal, a);
 }
 
 // INT 21h: the DOS calls a Windows program still makes. 4Ch ends it.

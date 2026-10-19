@@ -7,6 +7,7 @@
 // caller turns that into a message (WM_SYSCOMMAND for the control menu).
 #include "w16_internal.h"
 
+#include <stdlib.h>
 #include <string.h>
 #include "keyboard.h"
 #include "ui/ugfx.h"
@@ -78,10 +79,11 @@ void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_ke
     if (m->popup) return;
     measure(m);
     int x = ax, y = ay + ah;
-    m->popup = uui_popup_open(ax, ay, aw, ah, m->w, m->h, UUI_POPUP_BELOW,
+    int S = g_w16_scale;                         // the popup is real pixels; m's numbers are 1x
+    m->popup = uui_popup_open(ax * S, ay * S, aw * S, ah * S, m->w * S, m->h * S, UUI_POPUP_BELOW,
                               UUI_POPUP_GRAB | UUI_POPUP_NO_DECOR, dismissed, m, &x, &y);
-    m->x = x;
-    m->y = y;
+    m->x = x / S;
+    m->y = y / S;
     m->armed = 0;
     m->sel = -1;
     // Opened from the keyboard, the first item that can be chosen is lit,
@@ -113,10 +115,23 @@ static int choosable(const struct w16_menu *m, int i) {
     return i >= 0 && i < m->n && !(m->item[i].flags & (W16_MF_SEPARATOR | W16_MF_GRAYED));
 }
 
+static void draw_menu(struct w16_menu *m, struct ugfx_surface *s);
+
+// At 2x the menu is drawn at 1x and every pixel doubled, as the window is.
 void w16_menu_draw(struct w16_menu *m) {
     if (m->popup <= 0) return;
     struct ugfx_surface *s = uui_popup_surface(m->popup);
     if (!s) return;
+    if (g_w16_scale == 1) { draw_menu(m, s); return; }
+    uint32_t *px = malloc((size_t)m->w * m->h * 4);
+    if (!px) return;
+    struct ugfx_surface t = ugfx_surface_for_pixels(px, m->w, m->h);
+    draw_menu(m, &t);
+    w16_scale_blit(s, 0, 0, px, m->w, m->h, m->w, g_w16_scale);
+    free(px);
+}
+
+static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
     uint32_t black = rgb(0x000000), white = rgb(0xFFFFFF);
     int W = m->w - SHADOW, H = m->h - SHADOW;
     // The shadow is the surface's black right and bottom bands: an opaque

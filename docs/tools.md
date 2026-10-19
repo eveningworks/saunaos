@@ -7467,9 +7467,17 @@ runs first**: a `doom1.wad` with one
   fixed place compared with tolerance 0; Alt+Space opens the control
   menu, X maximizes (the border goes, the caption reaches the corner)
   and Alt+Space, Enter restores; `fault.exe`'s click opens the
-  Application Error box and its crash report names the fault. Flipping
-  the DIB's rows or swapping P and S in the ROP3 rule turns exactly the
-  matching check red (`mutate.py`). In `gui_regress.py`.
+  Application Error box, its crash report names the fault and its
+  `.last` file says it stopped. GDITEST.INI written on drive C: first
+  turns gdi.exe's magenta square on and gets its own Written=yes;
+  `scale=2` in gdi.exe's own settings opens it at twice the size, and
+  `frame=desktop` gives hello.exe toywm's frame round a client of the
+  size it asked for. The Win16 Programs launcher runs a tile on a double
+  click, `win16 FILE` runs a program with no launcher window, and closing
+  it records `ended`. Flipping the DIB's rows or swapping P and S in the
+  ROP3 rule turns exactly the matching check red, as do ignoring the INI
+  value and a launcher that never spawns (`mutate.py`). In
+  `gui_regress.py`.
 - **`cpu16_hostcheck.py`** -- w16's 16-bit CPU interpreter
   (`userland/w16/cpu16.c`) against THE HOST'S OWN CPU. Its driver,
   `tools/w16/cpu16_check.c`, puts 16-bit code, data and stack segments in

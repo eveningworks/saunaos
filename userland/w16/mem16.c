@@ -176,99 +176,195 @@ static void set32(struct cpu16 *c, uint32_t v) {
     c->r[R_DX] = (uint16_t)(v >> 16);
 }
 
-int w16_kernel_mem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+// LocalAlloc(flags, bytes)
+static int api_LocalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
-    switch (ordinal) {
-    case 5: {                                    // LocalAlloc(flags, bytes)
-        uint16_t flags = w16_arg16(a), size = w16_arg16(a);
-        c->r[R_AX] = local_alloc(w, flags, size);
-        return 4;
-    }
-    case 6: {                                    // LocalReAlloc(h, bytes, flags)
-        uint16_t h = w16_arg16(a), size = w16_arg16(a), flags = w16_arg16(a);
-        c->r[R_AX] = local_realloc(w, h, size, flags);
-        return 6;
-    }
-    case 7: {                                    // LocalFree(h): 0 on success
-        uint16_t h = w16_arg16(a);
-        int i = lfind(w, h);
-        if (i >= 0) local_free(w, i);
-        c->r[R_AX] = i >= 0 ? 0 : h;
-        return 2;
-    }
-    case 8:                                      // LocalLock(h): the handle is the pointer
-        c->r[R_AX] = w16_arg16(a);
-        return 2;
-    case 9:                                      // LocalUnlock(h)
-        w16_arg16(a);
-        c->r[R_AX] = 0;
-        return 2;
-    case 10: {                                   // LocalSize(h)
-        int i = lfind(w, w16_arg16(a));
-        c->r[R_AX] = i >= 0 ? w->lheap.blk[i].size : 0;
-        return 2;
-    }
-    case 13:                                     // LocalCompact(min): the largest free
-        w16_arg16(a);
-        c->r[R_AX] = local_free_bytes(w);
-        return 2;
-    case 15: {                                   // GlobalAlloc(flags, dwBytes)
-        w16_arg16(a);
-        c->r[R_AX] = w16_global_alloc(w, w16_arg32(a), 0);
-        return 6;
-    }
-    case 16: {                                   // GlobalReAlloc(h, dwBytes, flags)
-        uint16_t h = w16_arg16(a);
-        uint32_t size = w16_arg32(a);
-        uint16_t flags = w16_arg16(a);
-        c->r[R_AX] = global_realloc(w, h, size, flags);
-        return 8;
-    }
-    case 17: {                                   // GlobalFree(h): 0 on success
-        uint16_t h = w16_arg16(a);
-        int ok = global_desc(w, h) != 0;
-        w16_global_free(w, h);
-        c->r[R_AX] = ok ? 0 : h;
-        return 2;
-    }
-    case 18: {                                   // GlobalLock(h) -> sel:0
-        uint16_t h = w16_arg16(a);
-        set32(c, global_desc(w, h) ? (uint32_t)h << 16 : 0);
-        return 2;
-    }
-    case 19:                                     // GlobalUnlock(h)
-        w16_arg16(a);
-        c->r[R_AX] = 0;
-        return 2;
-    case 20: {                                   // GlobalSize(h)
-        const struct cpu16_desc *d = global_desc(w, w16_arg16(a));
-        set32(c, d ? d->limit + 1 : 0);
-        return 2;
-    }
-    case 21: {                                   // GlobalHandle(sel) -> handle in AX, sel in DX
-        uint16_t s = w16_arg16(a);
-        set32(c, global_desc(w, s) ? (uint32_t)s << 16 | s : 0);
-        return 2;
-    }
-    case 22:                                     // GlobalFlags(h)
-        w16_arg16(a);
-        c->r[R_AX] = 0;
-        return 2;
-    case 23: {                                   // LockSegment(seg): -1 is DS
-        uint16_t s = w16_arg16(a);
-        c->r[R_AX] = s == 0xFFFF ? c->sreg[S_DS] : s;
-        return 2;
-    }
-    case 24: {                                   // UnlockSegment(seg)
-        uint16_t s = w16_arg16(a);
-        c->r[R_AX] = s == 0xFFFF ? c->sreg[S_DS] : s;
-        return 2;
-    }
-    case 25:                                     // GlobalCompact(dwMinFree): plenty
-        w16_arg32(a);
-        set32(c, 0x00100000);
-        return 4;
-    default:
-        return -2;
-    }
+    (void)ordinal;
+    uint16_t flags = w16_arg16(a), size = w16_arg16(a);
+    c->r[R_AX] = local_alloc(w, flags, size);
+    return 4;
+}
+
+// LocalReAlloc(h, bytes, flags)
+static int api_LocalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint16_t h = w16_arg16(a), size = w16_arg16(a), flags = w16_arg16(a);
+    c->r[R_AX] = local_realloc(w, h, size, flags);
+    return 6;
+}
+
+// LocalFree(h): 0 on success
+static int api_LocalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    int i = lfind(w, h);
+    if (i >= 0) local_free(w, i);
+    c->r[R_AX] = i >= 0 ? 0 : h;
+    return 2;
+}
+
+// LocalLock(h): the handle is the pointer
+static int api_LocalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    c->r[R_AX] = w16_arg16(a);
+    return 2;
+}
+
+// LocalUnlock(h)
+static int api_LocalUnlock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    c->r[R_AX] = 0;
+    return 2;
+}
+
+// LocalSize(h)
+static int api_LocalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    int i = lfind(w, w16_arg16(a));
+    c->r[R_AX] = i >= 0 ? w->lheap.blk[i].size : 0;
+    return 2;
+}
+
+// LocalCompact(min): the largest free
+static int api_LocalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    c->r[R_AX] = local_free_bytes(w);
+    return 2;
+}
+
+// GlobalAlloc(flags, dwBytes)
+static int api_GlobalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    c->r[R_AX] = w16_global_alloc(w, w16_arg32(a), 0);
+    return 6;
+}
+
+// GlobalReAlloc(h, dwBytes, flags)
+static int api_GlobalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    uint32_t size = w16_arg32(a);
+    uint16_t flags = w16_arg16(a);
+    c->r[R_AX] = global_realloc(w, h, size, flags);
+    return 8;
+}
+
+// GlobalFree(h): 0 on success
+static int api_GlobalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    int ok = global_desc(w, h) != 0;
+    w16_global_free(w, h);
+    c->r[R_AX] = ok ? 0 : h;
+    return 2;
+}
+
+// GlobalLock(h) -> sel:0
+static int api_GlobalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    set32(c, global_desc(w, h) ? (uint32_t)h << 16 : 0);
+    return 2;
+}
+
+// GlobalUnlock(h)
+static int api_GlobalUnlock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    c->r[R_AX] = 0;
+    return 2;
+}
+
+// GlobalSize(h)
+static int api_GlobalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    const struct cpu16_desc *d = global_desc(w, w16_arg16(a));
+    set32(c, d ? d->limit + 1 : 0);
+    return 2;
+}
+
+// GlobalHandle(sel) -> handle in AX, sel in DX
+static int api_GlobalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint16_t s = w16_arg16(a);
+    set32(c, global_desc(w, s) ? (uint32_t)s << 16 | s : 0);
+    return 2;
+}
+
+// GlobalFlags(h)
+static int api_GlobalFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    c->r[R_AX] = 0;
+    return 2;
+}
+
+// LockSegment(seg): -1 is DS
+static int api_LockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint16_t s = w16_arg16(a);
+    c->r[R_AX] = s == 0xFFFF ? c->sreg[S_DS] : s;
+    return 2;
+}
+
+// UnlockSegment(seg)
+static int api_UnlockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint16_t s = w16_arg16(a);
+    c->r[R_AX] = s == 0xFFFF ? c->sreg[S_DS] : s;
+    return 2;
+}
+
+// GlobalCompact(dwMinFree): plenty
+static int api_GlobalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg32(a);
+    set32(c, 0x00100000);
+    return 4;
+}
+
+const struct w16_api g_kernel_mem_api[] = {
+    { 5, api_LocalAlloc },
+    { 6, api_LocalReAlloc },
+    { 7, api_LocalFree },
+    { 8, api_LocalLock },
+    { 9, api_LocalUnlock },
+    { 10, api_LocalSize },
+    { 13, api_LocalCompact },
+    { 15, api_GlobalAlloc },
+    { 16, api_GlobalReAlloc },
+    { 17, api_GlobalFree },
+    { 18, api_GlobalLock },
+    { 19, api_GlobalUnlock },
+    { 20, api_GlobalSize },
+    { 21, api_GlobalHandle },
+    { 22, api_GlobalFlags },
+    { 23, api_LockSegment },
+    { 24, api_UnlockSegment },
+    { 25, api_GlobalCompact },
+};
+const unsigned g_kernel_mem_api_n = sizeof g_kernel_mem_api / sizeof g_kernel_mem_api[0];
+
+int w16_kernel_mem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    return w16_api_call(g_kernel_mem_api, sizeof g_kernel_mem_api / sizeof g_kernel_mem_api[0], w, ordinal, a);
 }

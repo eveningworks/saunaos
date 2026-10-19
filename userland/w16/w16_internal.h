@@ -239,6 +239,13 @@ struct w16_api {
     uint16_t ordinal;
     int (*fn)(struct w16 *w, unsigned ordinal, struct w16_args *a);
 };
+extern const struct w16_api g_kernel_api[], g_kernel_mem_api[], g_kernel_res_api[], g_profile_api[],
+                            g_user_api[], g_user_misc_api[], g_gdi_api[];
+extern const unsigned g_kernel_api_n, g_kernel_mem_api_n, g_kernel_res_api_n, g_profile_api_n,
+                      g_user_api_n, g_user_misc_api_n, g_gdi_api_n;
+// Does w16 implement MODULE.ordinal? What `w16 --check` counts.
+int w16_has(const char *module, unsigned ordinal);
+
 // The handler's result, or -2 when the table has no such ordinal.
 int w16_api_call(const struct w16_api *t, unsigned n, struct w16 *w, unsigned ordinal,
                  struct w16_args *a);
@@ -281,6 +288,16 @@ int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap);
 uint16_t w16_res_load(struct w16 *w, unsigned index);
 int w16_res_find(struct w16 *w, uint16_t type, const char *type_name, uint16_t id,
                  const char *name, struct ne_resource *out);
+
+// --- ini16.c ------------------------------------------------------------------
+
+extern char g_w16_drive_c[128];                   // drive C:'s host folder
+struct w16_prefs;
+extern struct w16_prefs g_w16_prefs;              // how this program runs (w16prefs.h)
+int w16_icon(const struct ne_module *m, uint32_t *px, int *w, int *h);   // icon16.c
+int w16_ini_get(const char *file, const char *sec, const char *key, char *out, size_t cap);
+size_t w16_ini_names(const char *file, const char *sec, char *out, size_t cap);
+int w16_ini_set(const char *file, const char *sec, const char *key, const char *val);
 
 // --- blit16.c -----------------------------------------------------------------
 
@@ -328,6 +345,12 @@ void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int activ
 enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE, HIT_NONE };
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch);
+extern int g_w16_scale;                           // 1 or 2 (w16prefs.h's scale)
+extern int g_w16_desktop_frame;                   // toywm's frame, not 3.1's
+void w16_frame_fit(const struct w16_wnd *win, int *w, int *h);   // a 3.1 outer size -> the window's
+void w16_scale_blit(struct ugfx_surface *dst, int dx, int dy, const uint32_t *src, int w, int h,
+                    int stride, int s);
+
 // The control-menu box, in window coordinates: what its menu drops from.
 void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
 

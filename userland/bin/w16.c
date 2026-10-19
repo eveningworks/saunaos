@@ -8,6 +8,8 @@
 // up everything it will not need before it reads a byte, and refuses to
 // run if it cannot.
 #include <errno.h>
+#include <sys/stat.h>
+#include <time.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,9 +21,11 @@
 #include "lib/uargs.h"
 #include "lib/udclick.h"
 #include "rt/sys.h"
+#include "query_abi.h"
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "w16/w16_internal.h"
+#include "w16/w16prefs.h"
 
 #define W16_FILE_MAX (16u << 20)   // NE files are at most a few MiB
 
@@ -32,11 +36,14 @@
 #define MK_LBUTTON 0x0001
 #define MK_RBUTTON 0x0002
 
-static int g_info;
+static int g_info, g_check;
 static const char *g_trace_path;
+static char g_exe[W16_PATH_MAX];         // the program, as an absolute path: its settings' key
 
 static const struct uargs_opt OPTS[] = {
     { "info", 'i', NULL, "print the program's segments and the functions it imports", &g_info, NULL },
+    { "check", 'c', NULL, "say how much of what the program imports w16 has, and its icon",
+      &g_check, NULL },
     { "trace", 't', "FILE", "log every Windows call the program makes to FILE (Wine's +relay)",
       NULL, &g_trace_path },
     { 0 },
@@ -44,7 +51,7 @@ static const struct uargs_opt OPTS[] = {
 
 static const struct uargs_prog PROG = {
     .name = "w16",
-    .usage = "FILE\n--info FILE",
+    .usage = "FILE\n--info FILE\n--check FILE",
     .summary = "Run a 16-bit Windows (Windows 3.x) program in a window, or with --info\n"
                "list what an NE executable holds and the Windows functions it imports.\n"
                "Only a few functions are implemented so far: a program that calls one\n"
@@ -123,10 +130,29 @@ static int maximized(void) {
     return m;
 }
 
+// What happened the last time the program ran, for the launcher:
+// "<seconds since 1970> ended" or "... stopped <the fault's headline>".
+static void record_last(const char *what) {
+    char path[W16_PATH_MAX + 32];
+    w16_prog_last(g_exe, path, sizeof path);
+    FILE *f = fopen(path, "w");
+    if (!f) return;
+    fprintf(f, "%ld %s\n", (long)time(0), what);
+    fclose(f);
+}
+
+static void record_fault(void) {
+    char head[160];
+    size_t n = strcspn(g_w16_fault, "\n");
+    snprintf(head, sizeof head, "stopped %.*s", (int)(n < 150 ? n : 150), g_w16_fault);
+    record_last(head);
+}
+
 // The program stopped and its box is answered (or could not be shown):
 // end with its message as the crash report's headline.
 static void end_faulted(void) {
     w16_msgbox_close(&g_box);
+    record_fault();
     abort();
 }
 
@@ -156,20 +182,38 @@ static void on_open(struct uapp *a) {
     if (pending) do_syscmd(a, pending);   // ShowWindow(SW_MAXIMIZE) before the window was up
 }
 
+// The window at 1x: the frame, then the client's pixels. At 2x it is
+// composed into `g_virt` first and every pixel doubled onto the surface.
+static uint32_t *g_virt;
+static int g_virt_w, g_virt_h;
+
 static void on_draw(struct uapp *a, struct uapp_draw *d) {
     struct ugfx_surface *s = uapp_surface(d);
     struct w16_wnd *win = &g_w16.win;
     pthread_mutex_lock(&g_w16.lock);
-    w16_frame_draw(s, win, uapp_focused(a), w16_menu_open_p(&g_menu) ? HIT_SYSMENU : g_pressed);
+    struct ugfx_surface vs, *out = s;
+    if (g_w16_scale > 1) {
+        if (g_virt_w != win->w || g_virt_h != win->h) {
+            free(g_virt);
+            g_virt = calloc((size_t)win->w * win->h + 1, 4);
+            g_virt_w = g_virt ? win->w : 0;
+            g_virt_h = g_virt ? win->h : 0;
+        }
+        if (g_virt) { vs = ugfx_surface_for_pixels(g_virt, win->w, win->h); out = &vs; }
+    }
+    w16_frame_draw(out, win, uapp_focused(a), w16_menu_open_p(&g_menu) ? HIT_SYSMENU : g_pressed);
     int cx, cy, cw, ch;
     w16_client_rect(win, &cx, &cy, &cw, &ch);
-    if (win->fb) ugfx_blit(s, cx, cy, win->cw, win->ch, win->fb, win->cw);
+    if (win->fb) ugfx_blit(out, cx, cy, win->cw, win->ch, win->fb, win->cw);
+    if (out != s) w16_scale_blit(s, 0, 0, g_virt, win->w, win->h, win->w, g_w16_scale);
     pthread_mutex_unlock(&g_w16.lock);
     w16_menu_draw(&g_menu);
     w16_msgbox_draw(&g_box);
 }
 
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
+    x /= g_w16_scale;
+    y /= g_w16_scale;
     if (g_faulted) {                     // modal: only the box's button
         w16_msgbox_press(&g_box, x, y);
         uapp_redraw(a);
@@ -232,6 +276,8 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
 }
 
 static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
+    x /= g_w16_scale;
+    y /= g_w16_scale;
     if (g_faulted) {
         if (w16_msgbox_release(&g_box, x, y)) end_faulted();
         uapp_redraw(a);
@@ -262,6 +308,8 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
 }
 
 static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
+    x /= g_w16_scale;
+    y /= g_w16_scale;
     if (g_faulted) return;
     if (w16_menu_open_p(&g_menu)) {
         int was = g_menu.sel;
@@ -340,6 +388,8 @@ static void on_focus(struct uapp *a, int focused) {
 
 static void on_resize(struct uapp *a, int w, int h) {
     struct w16_wnd *win = &g_w16.win;
+    w /= g_w16_scale;
+    h /= g_w16_scale;
     pthread_mutex_lock(&g_w16.lock);
     win->w = w;
     win->h = h;
@@ -372,6 +422,10 @@ static int on_close(struct uapp *a) {
 static int on_user(struct uapp *a, int code, int arg) {
     switch (code) {
     case W16_POST_DONE:
+        // RECORDED WHILE THE WINDOW STILL EXISTS: the launcher re-reads
+        // this when its own window gets focus back, which is the moment
+        // this one goes -- written after, it would read the run before.
+        record_last("ended");
         uapp_quit(a, g_w16.exit_code);
         return 0;
     case W16_POST_SYSCMD:
@@ -381,13 +435,14 @@ static int on_user(struct uapp *a, int code, int arg) {
         pthread_mutex_lock(&g_w16.lock);
         int ww = g_w16.win.w, wh = g_w16.win.h;
         pthread_mutex_unlock(&g_w16.lock);
-        uapp_resize(a, ww, wh);
+        uapp_resize(a, ww * g_w16_scale, wh * g_w16_scale);
         return 1;
     }
     case W16_POST_FAULT:
         w16_menu_close(&g_menu);
         g_pressed = 0;
         g_faulted = 1;
+        if (g_w16_prefs.on_fault == W16_FAULT_REPORT) end_faulted();   // the report alone
         strlcpy(g_box.caption, "Application Error", sizeof g_box.caption);
         strlcpy(g_box.text, g_w16_fault_box, sizeof g_box.text);
         g_box.on_dismiss = end_faulted;
@@ -399,8 +454,20 @@ static int on_user(struct uapp *a, int code, int arg) {
     }
 }
 
+// The scale the settings ask for: Auto is 2x on a screen 1600 pixels wide
+// or more, where a 3.1 program's 640x480 world is otherwise a postage stamp.
+static int pick_scale(void) {
+    if (g_w16_prefs.scale == W16_SCALE_1) return 1;
+    if (g_w16_prefs.scale == W16_SCALE_2) return 2;
+    struct query_display d;
+    if (sys_query_record(QUERY_DISPLAY, 0, &d, sizeof d) >= (int)sizeof d && d.width >= 1600) return 2;
+    return 1;
+}
+
 static int run(const char *path, const uint8_t *img, uint32_t size) {
     struct w16 *w = &g_w16;
+    g_w16_scale = pick_scale();
+    g_w16_desktop_frame = g_w16_prefs.frame == W16_FRAME_DESKTOP;
     if (w16_load(w, img, size, path) < 0) return 1;
     ugfx_font_init();
     pthread_t task;
@@ -414,24 +481,29 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     pthread_mutex_unlock(&w->lock);
     if (!ready) {                        // ended, or faulted, before opening a window
         pthread_join(task, NULL);
-        if (w->cpu.fault) abort();       // the report's headline was set as it stopped
+        if (w->cpu.fault) { record_fault(); abort(); }   // the headline was set as it stopped
+        record_last("ended");
         return w->exit_code;
     }
     // EACH PROGRAM ITS OWN IDENTITY: toywm remembers a window's size and
     // groups the taskbar by app_id, and one shared "w16" gave every
-    // program the last one's size.
+    // program the last one's size. A scaled window is another identity:
+    // the size remembered at 1x would undo scale=2.
     static char appid[40];
-    snprintf(appid, sizeof appid, "w16-%s", w->ne.name);
+    if (g_w16_scale > 1) snprintf(appid, sizeof appid, "w16-%s-%dx", w->ne.name, g_w16_scale);
+    else snprintf(appid, sizeof appid, "w16-%s", w->ne.name);
     for (char *p = appid; *p; p++)
         *p = *p >= 'A' && *p <= 'Z' ? (char)(*p + 32) : (*p == ' ' || *p == '/') ? '-' : *p;
     struct uapp_desc desc = {
         .title = w->win.title,
+        // Sized in REAL pixels: the window's 1x size times the scale.
         .app_id = appid,
-        .flags = UAPP_NO_DECOR | (w->win.style & WS_THICKFRAME ? UAPP_RESIZABLE : 0),
-        .w = w->win.w,
-        .h = w->win.h,
-        .min_w = 120,
-        .min_h = 2 * W16_FRAME + W16_CAPTION + 1,
+        .flags = (g_w16_desktop_frame ? 0 : UAPP_NO_DECOR) |
+                 (w->win.style & WS_THICKFRAME ? UAPP_RESIZABLE : 0),
+        .w = w->win.w * g_w16_scale,
+        .h = w->win.h * g_w16_scale,
+        .min_w = 120 * g_w16_scale,
+        .min_h = (2 * W16_FRAME + W16_CAPTION + 1) * g_w16_scale,
         .on_open = on_open,
         .on_draw = on_draw,
         .on_press = on_press,
@@ -450,25 +522,96 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     return r ? r : w->exit_code;
 }
 
+// `--check`: what the launcher shows of a program, as lines -- its module
+// and description, how many of the Windows functions it imports w16 has
+// and which it lacks, and its icon as rows of AARRGGBB.
+static int check(const uint8_t *img, uint32_t size) {
+    static struct ne_module m;
+    int err = ne_parse(img, size, &m);
+    if (err < 0) { printf("error %s\n", ne_strerror(err)); return 1; }
+    char desc[256], mods[NE_MAX_MODULES][16];
+    printf("module %s\n", m.name);
+    if (ne_description(&m, desc, sizeof desc) == 0 && desc[0]) printf("description %s\n", desc);
+    for (unsigned i = 1; i <= m.nmod; i++)
+        if (ne_module_name(&m, i, mods[i - 1], sizeof mods[0]) < 0) snprintf(mods[i - 1], sizeof mods[0], "?");
+    static uint32_t seen[2048];                  // module << 16 | ordinal, each import once
+    unsigned nseen = 0, has = 0, by_name = 0;
+    for (unsigned s = 1; s <= m.nseg; s++)
+        for (unsigned i = 0; i < m.seg[s - 1].nrelocs; i++) {
+            struct ne_reloc r;
+            if (ne_reloc_at(&m, s, i, &r) < 0) continue;
+            if ((r.flags & 3) == NE_REL_IMPORT_NAME) { by_name++; continue; }
+            if ((r.flags & 3) != NE_REL_IMPORT_ORD || r.a < 1 || r.a > m.nmod) continue;
+            uint32_t key = (uint32_t)r.a << 16 | r.b;
+            unsigned k = 0;
+            while (k < nseen && seen[k] != key) k++;
+            if (k == nseen && nseen < sizeof seen / sizeof seen[0]) seen[nseen++] = key;
+        }
+    for (unsigned k = 0; k < nseen; k++) has += w16_has(mods[(seen[k] >> 16) - 1], seen[k] & 0xFFFF);
+    printf("imports %u\nhas %u\n", nseen + by_name, has);
+    for (unsigned k = 0; k < nseen; k++) {
+        const char *mod = mods[(seen[k] >> 16) - 1];
+        unsigned ord = seen[k] & 0xFFFF;
+        if (w16_has(mod, ord)) continue;
+        const struct w16_name *n = w16_name_lookup(mod, ord);
+        printf("missing %s.%u %s\n", mod, ord, n ? n->name : "?");
+    }
+    static uint32_t px[32 * 32];
+    int iw, ih;
+    if (w16_icon(&m, px, &iw, &ih) == 0) {
+        printf("icon %d %d\n", iw, ih);
+        for (int y = 0; y < ih; y++) {
+            for (int x = 0; x < iw; x++) printf("%08x", px[y * iw + x]);
+            printf("\n");
+        }
+    }
+    return 0;
+}
+
+static void mkdirs(const char *path) {
+    char p[W16_PATH_MAX];
+    snprintf(p, sizeof p, "%s", path);
+    for (char *s = p + 1; (s = strchr(s, '/')); s++) { *s = 0; mkdir(p, 0755); *s = '/'; }
+    mkdir(p, 0755);
+}
+
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
     if (a.argc != 1) return uargs_error(&PROG, "expected one FILE");
     const char *path = a.argv[0];
+    if (path[0] == '/') snprintf(g_exe, sizeof g_exe, "%s", path);
+    else {
+        char cwd[W16_PATH_MAX];
+        snprintf(g_exe, sizeof g_exe, "%s/%s", getcwd(cwd, sizeof cwd) ? cwd : "", path);
+    }
 
-    // --info reads one file; a run also needs the window, its fonts and
-    // the settings and theme a window draws with.
-    int ok = unveil(path, "r") == 0;
-    if (!g_info)
-        ok = ok && unveil("/usr/share", "r") == 0 && unveil("/etc", "r") == 0
-                && unveil("shm:toywm", "r") == 0 && unveil("shm:" FONT_BEACON_NAME, "r") == 0
-                && unveil("shm:font.0", "r") == 0 && unveil("shm:font.1", "r") == 0
-                && unveil("shm:font.2", "r") == 0 && unveil("shm:font.3", "r") == 0;
-    if (g_trace_path) ok = ok && unveil(g_trace_path, "rwc") == 0;
-    ok = ok && unveil(NULL, NULL) == 0
-            && pledge(g_info ? "stdio rpath"
-                      : g_trace_path ? "stdio rpath wpath cpath shm window settings query"
-                                     : "stdio rpath shm window settings query", NULL) == 0;
+    // --info and --check read one file. A run also needs the window, its
+    // fonts, the settings a window draws with, and the program's own:
+    // its settings (read before the sandbox closes), drive C: for its INI
+    // files, and the state directory its last run is recorded in.
+    int ok;
+    if (g_info || g_check) {
+        ok = unveil(path, "r") == 0 && unveil(NULL, NULL) == 0 && pledge("stdio rpath", NULL) == 0;
+    } else {
+        w16_prefs_load(&g_w16_prefs, g_exe);
+        snprintf(g_w16_drive_c, sizeof g_w16_drive_c, "%s", g_w16_prefs.drive_c);
+        mkdirs(g_w16_drive_c);
+        mkdirs(W16_STATE_DIR);
+        static char trace[W16_PATH_MAX + 32];
+        if (!g_trace_path && g_w16_prefs.trace) {
+            w16_trace_path(g_exe, trace, sizeof trace);
+            g_trace_path = trace;
+        }
+        ok = unveil(path, "r") == 0 && unveil("/usr/share", "r") == 0 && unveil("/etc", "r") == 0
+             && unveil(g_w16_drive_c, "rwc") == 0 && unveil(W16_STATE_DIR, "rwc") == 0
+             && unveil("shm:toywm", "r") == 0 && unveil("shm:" FONT_BEACON_NAME, "r") == 0
+             && unveil("shm:font.0", "r") == 0 && unveil("shm:font.1", "r") == 0
+             && unveil("shm:font.2", "r") == 0 && unveil("shm:font.3", "r") == 0
+             && (!g_trace_path || unveil(g_trace_path, "rwc") == 0)
+             && unveil(NULL, NULL) == 0
+             && pledge("stdio rpath wpath cpath shm window settings query", NULL) == 0;
+    }
     if (!ok) {
         fprintf(stderr, "w16: cannot sandbox myself, so I will not read %s\n", path);
         return 1;
@@ -484,6 +627,7 @@ int main(int argc, char **argv) {
                 size == UINT32_MAX ? "larger than any NE program" : strerror(errno));
         return 1;
     }
+    if (g_check) return check(img, size);
     if (!g_info) return run(path, img, size);
     static struct ne_module m;
     int err = ne_parse(img, size, &m);

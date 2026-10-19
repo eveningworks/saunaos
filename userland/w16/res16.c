@@ -58,50 +58,76 @@ int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap) {
     return (int)n;
 }
 
-int w16_kernel_res(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+// FindResource(hInst, lpName, lpType)
+static int api_FindResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
-    switch (ordinal) {
-    case 60: {                                   // FindResource(hInst, lpName, lpType)
-        w16_arg16(a);
-        uint32_t lpname = w16_arg32(a), lptype = w16_arg32(a);
-        uint16_t id, type;
-        char name[32], tname[32];
-        if (res_arg(w, lpname, &id, name, sizeof name) < 0 ||
-            res_arg(w, lptype, &type, tname, sizeof tname) < 0)
-            return -1;
-        struct ne_resource r;
-        int i = w16_res_find(w, type, tname[0] ? tname : 0, id, name[0] ? name : 0, &r);
-        c->r[R_AX] = i < 0 ? 0 : (uint16_t)(HRSRC_BASE + i);
-        return 10;
-    }
-    case 61: {                                   // LoadResource(hInst, hRsrc)
-        w16_arg16(a);
-        uint16_t h = w16_arg16(a);
-        c->r[R_AX] = h >= HRSRC_BASE ? w16_res_load(w, h - HRSRC_BASE) : 0;
-        return 4;
-    }
-    case 62: {                                   // LockResource(hGlobal) -> sel:0
-        uint16_t h = w16_arg16(a);
-        c->r[R_AX] = 0;
-        c->r[R_DX] = h;
-        return 2;
-    }
-    case 63:                                     // FreeResource(hGlobal): kept for the next load
-        w16_arg16(a);
-        c->r[R_AX] = 0;
-        return 2;
-    case 65: {                                   // SizeofResource(hInst, hRsrc)
-        w16_arg16(a);
-        uint16_t h = w16_arg16(a);
-        struct ne_resource r;
-        uint32_t n = h >= HRSRC_BASE && ne_resource_at(&w->ne, h - HRSRC_BASE, &r) == 0 ? r.len : 0;
-        c->r[R_AX] = (uint16_t)n;
-        c->r[R_DX] = (uint16_t)(n >> 16);
-        return 4;
-    }
-    default:
-        return -2;
-    }
+    (void)ordinal;
+    w16_arg16(a);
+    uint32_t lpname = w16_arg32(a), lptype = w16_arg32(a);
+    uint16_t id, type;
+    char name[32], tname[32];
+    if (res_arg(w, lpname, &id, name, sizeof name) < 0 ||
+        res_arg(w, lptype, &type, tname, sizeof tname) < 0)
+        return -1;
+    struct ne_resource r;
+    int i = w16_res_find(w, type, tname[0] ? tname : 0, id, name[0] ? name : 0, &r);
+    c->r[R_AX] = i < 0 ? 0 : (uint16_t)(HRSRC_BASE + i);
+    return 10;
+}
+
+// LoadResource(hInst, hRsrc)
+static int api_LoadResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    uint16_t h = w16_arg16(a);
+    c->r[R_AX] = h >= HRSRC_BASE ? w16_res_load(w, h - HRSRC_BASE) : 0;
+    return 4;
+}
+
+// LockResource(hGlobal) -> sel:0
+static int api_LockResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    c->r[R_AX] = 0;
+    c->r[R_DX] = h;
+    return 2;
+}
+
+// FreeResource(hGlobal): kept for the next load
+static int api_FreeResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    c->r[R_AX] = 0;
+    return 2;
+}
+
+// SizeofResource(hInst, hRsrc)
+static int api_SizeofResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = &w->cpu;
+    (void)ordinal;
+    w16_arg16(a);
+    uint16_t h = w16_arg16(a);
+    struct ne_resource r;
+    uint32_t n = h >= HRSRC_BASE && ne_resource_at(&w->ne, h - HRSRC_BASE, &r) == 0 ? r.len : 0;
+    c->r[R_AX] = (uint16_t)n;
+    c->r[R_DX] = (uint16_t)(n >> 16);
+    return 4;
+}
+
+const struct w16_api g_kernel_res_api[] = {
+    { 60, api_FindResource },
+    { 61, api_LoadResource },
+    { 62, api_LockResource },
+    { 63, api_FreeResource },
+    { 65, api_SizeofResource },
+};
+const unsigned g_kernel_res_api_n = sizeof g_kernel_res_api / sizeof g_kernel_res_api[0];
+
+int w16_kernel_res(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    return w16_api_call(g_kernel_res_api, sizeof g_kernel_res_api / sizeof g_kernel_res_api[0], w, ordinal, a);
 }
 
 // USER.176 LoadString(hInst, id, lpBuffer, cbBuffer): the length copied.

@@ -112,6 +112,10 @@ int ne_reloc_at(const struct ne_module *m, unsigned seg, unsigned i, struct ne_r
 // Module reference idx (1-based) as a NUL-terminated name. 0 or negative.
 int ne_module_name(const struct ne_module *m, unsigned idx, char *out, size_t cap);
 
+// The module's description, the non-resident names' first entry ("" when
+// it has none). 0, or NE_E_NAME.
+int ne_description(const struct ne_module *m, char *out, size_t cap);
+
 // Entry ordinal -> segment and offset (a movable entry's segment too). 0
 // or negative: no such entry.
 int ne_entry(const struct ne_module *m, unsigned ordinal, uint16_t *seg, uint16_t *off);

@@ -137,6 +137,7 @@ static int create_window(struct w16 *w, struct w16_args *a) {
         return -1;
     win->w = cx == W16_CW_USEDEFAULT || cx <= 0 ? W16_DEFAULT_W : cx;
     win->h = cx == W16_CW_USEDEFAULT || cy <= 0 ? W16_DEFAULT_H : cy;
+    w16_frame_fit(win, &win->w, &win->h);
     int cxp, cyp;
     w16_client_rect(win, &cxp, &cyp, &win->cw, &win->ch);
     win->fb = calloc((size_t)win->cw * win->ch + 1, 4);
@@ -343,8 +344,12 @@ static int move_window(struct w16 *w, struct w16_args *a) {
     int16_t nw = (int16_t)w16_arg16(a), nh = (int16_t)w16_arg16(a);
     w16_arg16(a);
     struct w16_wnd *win = &w->win;
-    if (nw < 120) nw = 120;
-    if (nh < 2 * W16_FRAME + W16_CAPTION + 1) nh = 2 * W16_FRAME + W16_CAPTION + 1;
+    int fw = nw, fh = nh;
+    w16_frame_fit(win, &fw, &fh);
+    nw = (int16_t)fw;
+    nh = (int16_t)fh;
+    if (nw < 120 && !g_w16_desktop_frame) nw = 120;
+    if (nh < 2 * W16_FRAME + W16_CAPTION + 1 && !g_w16_desktop_frame) nh = 2 * W16_FRAME + W16_CAPTION + 1;
     pthread_mutex_lock(&w->lock);
     int ok = !win->maximized;
     if (ok) {
@@ -620,7 +625,7 @@ static int api_GetSystemMetrics(struct w16 *w, unsigned ordinal, struct w16_args
     return 2;
 }
 
-static const struct w16_api g_user_api[] = {
+const struct w16_api g_user_api[] = {
     { 5, api_InitApp },
     { 6, api_PostQuitMessage },
     { 33, api_GetClientRect },
@@ -648,6 +653,7 @@ static const struct w16_api g_user_api[] = {
     { 176, api_LoadString },
     { 179, api_GetSystemMetrics },
 };
+const unsigned g_user_api_n = sizeof g_user_api / sizeof g_user_api[0];
 
 int w16_user(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int r = w16_user_misc(w, ordinal, a);

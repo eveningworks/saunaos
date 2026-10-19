@@ -979,6 +979,8 @@ EXTRA_OBJS_notepad    = notepad/np_conf notepad/np_prefs
 EXTRA_OBJS_screenshot = screenshot/shot_conf screenshot/shot_prefs
 EXTRA_OBJS_paint      = paint/paint_tools paint/paint_resize paint/paint_text paint/paint_layers paint/paint_shapes paint/paint_frame paint/paint_paste paint/paint_select paint/paint_gradient
 EXTRA_OBJS_terminal   = term/term_conf term/term_prefs term/term_panel
+# The Win16 Programs launcher reads and writes the settings w16 runs by.
+EXTRA_OBJS_win16      = w16/w16prefs
 # Shapes keeps its teapot mesh in userland/shapes/, outside the program
 # directories for the reason userland/fm/ is (see EXTRA_OBJS_files).
 EXTRA_OBJS_gfxdemo    = shapes/teapot
@@ -1046,7 +1048,7 @@ EXTRA_OBJS_doom = doom/doom_wad doom/doom_front $(DOOM_BACKEND_OBJS) $(DOOM_PORT
 # /bin/w16 runs 16-bit Windows programs (docs/w16-design.md); its main() is
 # userland/bin/w16.c and its parts live in userland/w16/, listed rather
 # than wildcarded for the reason the WM's are.
-EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names w16/cpu16 w16/task16 w16/kernel16 w16/user16 w16/gdi16 w16/frame16 w16/menu16 w16/msgbox16 w16/mem16 w16/res16 w16/blit16 w16/usermisc16
+EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names w16/cpu16 w16/task16 w16/kernel16 w16/user16 w16/gdi16 w16/frame16 w16/menu16 w16/msgbox16 w16/mem16 w16/res16 w16/blit16 w16/usermisc16 w16/ini16 w16/icon16 w16/w16prefs
 
 # VENDORED CODE IS COMPILED WITH ITS WARNINGS OFF, on purpose.
 #
@@ -2088,6 +2090,9 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# directory, so an absent /etc/savers is a write that fails with the
 	# settings page reporting success.
 	mkdir -p $(SEED_DIR)/sync/etc/savers
+	# w16's per-program settings (w16/w16prefs.h), the same reason: the
+	# Win16 Programs launcher writes there, and nothing creates the parent.
+	mkdir -p $(SEED_DIR)/sync/etc/win16
 	# Window-effect option descriptors, and the directory their values
 	# land in -- the same pair as the savers above and the same reason
 	# (userland/lib/ueffect.h). An effect with no descriptor simply has

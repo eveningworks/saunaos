@@ -369,6 +369,10 @@ def dump(path):
     sp, ss = h(0x18, "<HH")
     name_len = b[ne + res_t]
     print(f"module {b[ne + res_t + 1:ne + res_t + 1 + name_len].decode()}")
+    (nonres,) = struct.unpack_from("<I", b, ne + 0x2C)
+    (nonres_len,) = struct.unpack_from("<H", b, ne + 0x20)
+    if nonres and nonres_len and b[nonres]:
+        print(f"description {b[nonres + 1:nonres + 1 + b[nonres]].decode('latin-1')}")
     print(f"entry {cs}:{ip:04x} stack {ss}:{sp:04x} autodata {h(0x0E, '<H')[0]} "
           f"heap {h(0x10, '<H')[0]} stacksize {h(0x12, '<H')[0]}")
     mods = []

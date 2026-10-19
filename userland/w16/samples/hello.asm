@@ -4,7 +4,7 @@
 ; quits when the window is destroyed. Build: tools/gen_ne.py.
 ;
 ;w16: module HELLO
-;w16: description w16 test program: one window that says hello
+;w16: description Hello
 ;w16: segment 1 code
 ;w16: segment 2 data
 ;w16: autodata 2

@@ -65,6 +65,8 @@ static void walk(const struct ne_module *m) {
             struct ne_reloc r; ne_reloc_at(m, s, i, &r);
         }
     for (unsigned o = 0; o < 300; o++) { uint16_t sg, of; ne_entry(m, o, &sg, &of); }
+    char desc[256];
+    ne_description(m, desc, sizeof desc);
     // Every resource, its bytes, and lookups by number and by name.
     volatile unsigned rsum = 0;
     for (unsigned i = 0; i < m->nres; i++) {

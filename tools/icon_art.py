@@ -712,6 +712,27 @@ def disks():
     return finish(shadow(im))
 
 
+def win16():
+    # A Windows 3.1-style window -- grey bevelled frame, navy caption, a
+    # raised button inside: Win16 Programs. Deliberately no four-pane
+    # flag: that mark is Microsoft's.
+    im = canvas()
+    frame = m_rr(6, 10, 58, 54, 3)
+    fill(im, frame, ((206, 206, 206), (172, 172, 172)))
+    edge(im, frame, (70, 70, 80))
+    cap = canvas()
+    fill(cap, m_rr(9, 13, 55, 23, 1.5), ((40, 60, 168), (0, 0, 128)))
+    im = Image.alpha_composite(im, cap)
+    body = canvas()
+    fill(body, m_rr(9, 25, 55, 51, 1.5), ((255, 255, 255), (238, 238, 238)))
+    im = Image.alpha_composite(im, body)
+    btn = canvas()
+    fill(btn, m_rr(20, 32, 44, 44, 1.5), ((220, 220, 220), (176, 176, 176)))
+    edge(btn, m_rr(20, 32, 44, 44, 1.5), (90, 90, 100))
+    im = Image.alpha_composite(im, shadow(btn, dy=1, blur=1.0, alpha=70))
+    return finish(shadow(im))
+
+
 def installer():
     # A drive with an arrow going into it: Install toy-os.
     im = canvas()
@@ -1022,7 +1043,7 @@ ART = {
     "notepad": notepad, "files": files, "terminal": terminal, "calculator": calculator,
     "imgview": imgview, "player": player, "video": video, "settings": settings, "taskmgr": taskmgr,
     "mines": mines, "screenshot": screenshot, "about": about, "help": help_app, "browser": browser,
-    "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "disks": disks, "themeedit": themeedit, "paint": paint,
+    "logview": logview, "crashreports": crashreports, "shapes": shapes, "fontdemo": fontdemo, "charmap": charmap, "disks": disks, "win16": win16, "themeedit": themeedit, "paint": paint,
     "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
     "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,

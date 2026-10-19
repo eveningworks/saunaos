@@ -541,7 +541,20 @@ static int api_wsprintf(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return wsprintf16(w);
 }
 
-static const struct w16_api g_user_misc_api[] = {
+// WinHelp(hwnd, lpHelpFile, wCommand, dwData): there is no help viewer,
+// so a request for help fails -- and HELP_QUIT, which a program sends as
+// it closes (Minesweeper does, on WM_DESTROY), succeeds.
+static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg32(a);
+    uint16_t cmd = w16_arg16(a);
+    w16_arg32(a);
+    w->cpu.r[R_AX] = cmd == 2;                   // HELP_QUIT
+    return 12;
+}
+
+const struct w16_api g_user_misc_api[] = {
     { 10, api_SetTimer },
     { 12, api_KillTimer },
     { 13, api_GetTickCount },
@@ -580,6 +593,7 @@ static const struct w16_api g_user_misc_api[] = {
     { 158, api_SetMenu },
     { 159, api_GetSubMenu },
     { 160, api_DrawMenuBar },
+    { 171, api_WinHelp },
     { 177, api_LoadAccelerators },
     { 178, api_TranslateAccelerator },
     { 180, api_GetSysColor },
@@ -588,6 +602,7 @@ static const struct w16_api g_user_misc_api[] = {
     { 287, api_GetLastActivePopup },
     { 420, api_wsprintf },
 };
+const unsigned g_user_misc_api_n = sizeof g_user_misc_api / sizeof g_user_misc_api[0];
 
 int w16_user_misc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w16_api_call(g_user_misc_api, sizeof g_user_misc_api / sizeof g_user_misc_api[0], w, ordinal, a);

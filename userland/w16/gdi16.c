@@ -714,7 +714,7 @@ static int api_SetDIBitsToDevice(struct w16 *w, unsigned ordinal, struct w16_arg
     return set_dibits_to_device(w, a);
 }
 
-static const struct w16_api g_gdi_api[] = {
+const struct w16_api g_gdi_api[] = {
     { 1, api_SetBkColor },
     { 2, api_SetBkMode },
     { 4, api_SetBkMode },
@@ -740,6 +740,7 @@ static const struct w16_api g_gdi_api[] = {
     { 442, api_CreateDIBitmap },
     { 443, api_SetDIBitsToDevice },
 };
+const unsigned g_gdi_api_n = sizeof g_gdi_api / sizeof g_gdi_api[0];
 
 int w16_gdi(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w16_api_call(g_gdi_api, sizeof g_gdi_api / sizeof g_gdi_api[0], w, ordinal, a);

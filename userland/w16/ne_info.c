@@ -7,6 +7,8 @@
 
 void ne_print_info(const struct ne_module *m) {
     printf("module %s\n", m->name);
+    char desc[256];
+    if (ne_description(m, desc, sizeof desc) == 0 && desc[0]) printf("description %s\n", desc);
     printf("entry %u:%04x stack %u:%04x autodata %u heap %u stacksize %u\n",
            m->entry_cs, m->entry_ip, m->ss, m->sp, m->autodata, m->heap, m->stack);
     char mods[NE_MAX_MODULES][16];
