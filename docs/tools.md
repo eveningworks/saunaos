@@ -7498,6 +7498,13 @@ runs first**: a `doom1.wad` with one
   exactly the matching check red, as do ignoring the INI value, a
   launcher that never spawns and a calls list that ignores "missing"
   (`mutate.py`). In `gui_regress.py`.
+  **Run it on a fresh image**: a second run in the same guest fails the
+  two scale checks (toywm remembers gdi.exe's earlier window sizes) and
+  the calls-window checks (cause not established) -- 48 of 48 pass on a
+  fresh one (2026-10-19). It does NOT yet cover child windows, the EDIT,
+  list boxes, files or the common dialogs, which only Windows 3.11's
+  Notepad exercises today (a roadmap item: a NASM sample that edits and
+  saves).
 - **`cpu16_hostcheck.py`** -- w16's 16-bit CPU interpreter
   (`userland/w16/cpu16.c`) against THE HOST'S OWN CPU. Its driver,
   `tools/w16/cpu16_check.c`, puts 16-bit code, data and stack segments in

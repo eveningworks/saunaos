@@ -63,11 +63,17 @@ LOUDLY and by name (below), never as a silent zero.
   |   cpu16.c    the interpreter: 8086/186/286 integer,  |
   |              a selector table instead of an LDT      |
   |   kernel16.c user16.c gdi16.c  the API, in C         |
+  |   file16.c   drives C: and Z:, the file calls        |
+  |   wnd16.c    the window tree: every HWND, its pixels |
+  |   ctl16.c edit16.c list16.c scroll16.c               |
+  |              w16's own classes (BUTTON, EDIT...)     |
+  |   dialog16.c commdlg16.c  dialogs, the common ones   |
   |  MAIN thread (uapp)                                  |
   |   frame16.c  the 3.1 caption, frame and buttons (L3) |
-  |   w16.c      input -> messages, client pixels shown  |
+  |   dlgwin16.c a dialog's frame, its own toywm window  |
+  |   w16.c input16.c  input -> messages, pixels shown   |
   +-----|------------------------------------------------+
-        |  uapp: one window, pixels drawn by w16
+        |  uapp: a window per top-level HWND, drawn by w16
   +-----v------+        toywm: an UNDECORATED window,
   |   toywm    |  <---  a client-started move/resize   [NEW]
   +------------+
@@ -92,16 +98,28 @@ LOUDLY and by name (below), never as a silent zero.
   next thing on its to-do list.
 - **Two threads.** The program -- interpreter, message loop, GDI -- runs
   on a TASK thread, so a modal loop inside a window procedure simply
-  blocks there; the uapp MAIN thread owns the window, draws the frame,
-  copies the client pixels and turns input into messages. They share
-  the queue and the client buffer under one lock, and the task wakes
-  the main thread with `uapp_post()`.
-- **The sandbox** (`userland/bin/w16.c`): the program file, `/usr/share`
-  and `/etc` read-only, drive C: and `/var/lib/win16` read-write, the
-  compositor's and fontd's beacons by exact name, and `stdio rpath wpath
-  cpath shm window settings query`; `--info` and `--check` keep only the
-  file and `stdio rpath`. Settings are read BEFORE the sandbox, which is
-  what decides drive C:.
+  blocks there; the uapp MAIN thread owns the toywm windows, draws their
+  frames, copies the client pixels and turns input into messages for the
+  window under the pointer or with the focus. They share the queue and
+  the client buffers under one lock, and the task wakes the main thread
+  with `uapp_post()`. EVERY CLIENT PIXEL IS PAINTED ON THE TASK THREAD,
+  w16's controls included, because an EDIT's text lives in the
+  program's memory, which the task may move.
+- **One window tree** (`wnd16.c`): the main window, its dialogs and every
+  child in one table with parents. A child has no pixels of its own --
+  it paints into its top-level window's buffer at its place, clipped to
+  its ancestors -- and w16's classes are C window procedures reached by
+  SendMessage like a program's. `docs/decisions/gui.md`, "A Win16 window
+  tree".
+- **Two drives** (`file16.c`): C: is the Win16 folder, Z: the whole
+  toy-os tree, names matched without case; a program starts in its own
+  folder, and the common dialogs browse both.
+- **The sandbox** (`userland/bin/w16.c`): the whole tree read-only (drive
+  Z:), `/home`, drive C: and `/var/lib/win16` read-write, the clipboard,
+  the compositor's and fontd's beacons by exact name, and `stdio rpath
+  wpath cpath shm window settings query`; `--info` and `--check` keep
+  only the file and `stdio rpath`. Settings are read BEFORE the
+  sandbox, which is what decides drive C:.
 - **Settings** (`userland/w16/w16prefs.c`): `/etc/win16.conf` the
   defaults, `/etc/win16/<program>.conf` one program's overrides, keyed by
   its path -- the shape of Windows' per-executable compatibility
@@ -173,9 +191,7 @@ shape to copy:
    EDIT as w16's own classes, 3.1's dialog keyboard, MessageBox and
    ShellAbout; a dialog is an owned, modal toywm window of its own
    (`dlgwin16.c`, uapp's pixel dialog windows) -- `docs/decisions/gui.md`,
-   "A Win16 dialog is an owned window w16 paints". The window table
-   (`wnd16.c`) holds the dialogs and their controls beside the main
-   window. KERNEL's constants `__AHSHIFT`, `__AHINCR` and `__WINFLAGS`
+   "A Win16 dialog is an owned window w16 paints". KERNEL's constants `__AHSHIFT`, `__AHINCR` and `__WINFLAGS`
    are patched at load; SOUND's voices play nothing yet. **Notepad,
    2026-10-19**: ONE WINDOW TREE (`wnd16.c`) -- every HWND, a child
    painting into its top-level window's buffer on the task thread --
