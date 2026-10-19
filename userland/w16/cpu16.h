@@ -82,6 +82,8 @@ struct cpu16 {
     void *user;
     int fault;
     uint16_t fault_cs, fault_ip;
+    uint16_t fault_r[8], fault_sreg[4];  // the registers AS THE FAULT FOUND THEM: the
+                                         // calls it unwinds through restore r and sreg
     char fault_why[96];
     int exited;                  // the program ended (INT 21h 4Ch); exit_code says how
     int exit_code;

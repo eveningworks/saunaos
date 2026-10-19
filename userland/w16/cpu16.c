@@ -7,6 +7,7 @@
 #include "cpu16.h"
 
 #include <stdio.h>
+#include <string.h>
 
 // What one instruction is decoding: its prefixes and where it began.
 struct insn {
@@ -26,6 +27,8 @@ static uint8_t g_dummy[8];
 void cpu16_set_fault(struct cpu16 *c, int kind, const char *why) {
     if (c->fault) return;
     c->fault = kind;
+    memcpy(c->fault_r, c->r, sizeof c->fault_r);
+    memcpy(c->fault_sreg, c->sreg, sizeof c->fault_sreg);
     snprintf(c->fault_why, sizeof c->fault_why, "%s", why);
 }
 

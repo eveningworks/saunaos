@@ -13,7 +13,11 @@
 
 static uint32_t rgb(uint32_t v) { return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v); }
 
-static int frame_of(const struct w16_wnd *win) { return win->style & WS_THICKFRAME ? W16_FRAME : 1; }
+// MAXIMIZED, 3.1 put the border off the screen's edges; here there is
+// none, and the caption is the window's top.
+static int frame_of(const struct w16_wnd *win) {
+    return win->maximized ? 0 : win->style & WS_THICKFRAME ? W16_FRAME : 1;
+}
 static int has_caption(const struct w16_wnd *win) { return (win->style & WS_CAPTION) == WS_CAPTION; }
 
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch) {
@@ -53,10 +57,27 @@ static void arrow(struct ugfx_surface *s, int x, int y, int w, int h, int up, in
     }
 }
 
+// Restore: a smaller arrow up over one down, as 3.1 drew it.
+static void restore_arrows(struct ugfx_surface *s, int x, int y, int w, int h, int shift) {
+    int cx = x + w / 2 - 1 + shift, top = y + (h - 8) / 2 + shift;
+    for (int r = 0; r < 3; r++) {
+        ugfx_fill_rect(s, cx - r, top + r, 2 * r + 1, 1, rgb(0x000000));
+        ugfx_fill_rect(s, cx - (2 - r), top + 5 + r, 2 * (2 - r) + 1, 1, rgb(0x000000));
+    }
+}
+
+void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h) {
+    int f = frame_of(win);
+    *x = f;
+    *y = f;
+    *w = BTN;
+    *h = W16_CAPTION - 1;
+}
+
 void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int active, int pressed) {
     int W = win->w, H = win->h, f = frame_of(win);
     uint32_t black = rgb(0x000000);
-    ugfx_draw_rect(s, 0, 0, W, H, black);
+    if (f) ugfx_draw_rect(s, 0, 0, W, H, black);
     if (f > 1) {
         uint32_t border = rgb(0xC0C0C0);
         ugfx_fill_rect(s, 1, 1, W - 2, f - 2, border);
@@ -83,7 +104,8 @@ void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int activ
     ugfx_fill_rect(s, cx, cy + ch, cw, 1, black);
     int left = cx, right = cx + cw;
     if (win->style & WS_SYSMENU) {                 // the control-menu box
-        ugfx_fill_rect(s, cx, cy, BTN, ch, rgb(0xC0C0C0));
+        // Its menu open, the box is drawn in the highlight, as 3.1 did.
+        ugfx_fill_rect(s, cx, cy, BTN, ch, pressed == HIT_SYSMENU ? rgb(0x000080) : rgb(0xC0C0C0));
         ugfx_fill_rect(s, cx + BTN, cy, 1, ch, black);
         int bx = cx + 3, by = cy + ch / 2 - 1;
         ugfx_fill_rect(s, bx + 1, by + 1, BTN - 6, 3, rgb(0x808080));
@@ -95,7 +117,8 @@ void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int activ
         right -= BTN;
         ugfx_fill_rect(s, right - 1, cy, 1, ch, black);
         bevel(s, right, cy, BTN, ch, pressed == HIT_MAX);
-        arrow(s, right, cy, BTN, ch, 1, pressed == HIT_MAX);
+        if (win->maximized) restore_arrows(s, right, cy, BTN, ch, pressed == HIT_MAX);
+        else arrow(s, right, cy, BTN, ch, 1, pressed == HIT_MAX);
         right -= 1;
     }
     if (win->style & WS_MINIMIZEBOX) {
@@ -120,7 +143,7 @@ enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *ed
     int W = win->w, H = win->h, f = frame_of(win);
     *edges = 0;
     if (x < 0 || y < 0 || x >= W || y >= H) return HIT_NONE;
-    if (win->style & WS_THICKFRAME) {
+    if ((win->style & WS_THICKFRAME) && !win->maximized) {
         int n = W16_CAPTION + f;                   // a corner reaches this far along an edge
         if (x < f) *edges |= WIN_EDGE_LEFT;
         if (x >= W - f) *edges |= WIN_EDGE_RIGHT;
@@ -135,7 +158,7 @@ enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *ed
             if (x >= W - n) *edges |= WIN_EDGE_RIGHT;
         }
         if (*edges) return HIT_EDGE;
-    } else if (x < f || y < f || x >= W - f || y >= H - f) {
+    } else if (f && (x < f || y < f || x >= W - f || y >= H - f)) {
         return HIT_NONE;
     }
     if (has_caption(win) && y < f + W16_CAPTION) {

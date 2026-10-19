@@ -212,8 +212,21 @@ static int get_message(struct w16 *w, struct w16_args *a) {
 }
 
 static uint32_t def_window_proc(struct w16 *w, uint16_t msg, uint16_t wparam) {
-    (void)wparam;
     switch (msg) {
+    case WM_SYSCOMMAND:
+        // What the frame and the control menu asked, carried out only
+        // when the program lets it through, as Windows' DefWindowProc does.
+        switch (wparam & 0xFFF0) {
+        case SC_CLOSE:
+            send(w, WM_CLOSE, 0, 0);
+            break;
+        case SC_MINIMIZE: case SC_MAXIMIZE: case SC_RESTORE: case SC_KEYMENU:
+            w16_task_post_arg(w, W16_POST_SYSCMD, wparam & 0xFFF0);
+            break;
+        default:
+            break;
+        }
+        return 0;
     case WM_CLOSE:
         if (w->win.used) {
             send(w, WM_DESTROY, 0, 0);
@@ -270,7 +283,13 @@ int w16_user(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     case 41: return create_window(w, a);
     case 42: {                                   // ShowWindow(hwnd, nCmdShow)
         w16_arg16(a);
-        int show = w16_arg16(a) != 0;
+        uint16_t cmd = w16_arg16(a);
+        int show = cmd != 0;
+        // SW_SHOWMINIMIZED, SW_MINIMIZE and SW_SHOWMINNOACTIVE; SW_MAXIMIZE;
+        // SW_RESTORE -- toywm's to do, as the frame's buttons are.
+        if (cmd == 2 || cmd == 6 || cmd == 7) w16_task_post_arg(w, W16_POST_SYSCMD, SC_MINIMIZE);
+        else if (cmd == 3) w16_task_post_arg(w, W16_POST_SYSCMD, SC_MAXIMIZE);
+        else if (cmd == 9) w16_task_post_arg(w, W16_POST_SYSCMD, SC_RESTORE);
         pthread_mutex_lock(&w->lock);
         c->r[R_AX] = (uint16_t)w->win.visible;
         w->win.visible = show;

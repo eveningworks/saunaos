@@ -16,6 +16,8 @@
 
 struct w16 g_w16;
 pthread_mutex_t g_w16_text_lock = PTHREAD_MUTEX_INITIALIZER;
+char g_w16_fault[1024];
+char g_w16_fault_box[512];
 
 #define SYSDATA_SIZE 0x1000
 
@@ -203,6 +205,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
         char why[96];
         snprintf(why, sizeof why, "%s.%u (%s) is not implemented", name, ordinal,
                  n ? n->name : "unknown");
+        snprintf(w->missing, sizeof w->missing, "%s.%u (%s)", name, ordinal, n ? n->name : "unknown");
         cpu16_set_fault(c, FAULT_API, why);
         return -1;
     }
@@ -253,11 +256,57 @@ void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, u
     pthread_mutex_unlock(&w->lock);
 }
 
-void w16_task_post(struct w16 *w, int code) {
+void w16_task_post_arg(struct w16 *w, int code, int arg) {
     pthread_mutex_lock(&w->lock);
     struct uapp *a = w->app;
+    if (!a && code == W16_POST_SYSCMD) w->pending_syscmd = arg;   // on_open applies it
     pthread_mutex_unlock(&w->lock);
-    if (a) uapp_post(a, code, 0);
+    if (a) uapp_post(a, code, arg);
+}
+
+void w16_task_post(struct w16 *w, int code) { w16_task_post_arg(w, code, 0); }
+
+static const char *base_of(const char *p) {
+    const char *b = strrchr(p, '/');
+    return b ? b + 1 : p;
+}
+
+// Why the program stopped, twice: the crash report's message (a headline,
+// then where and the registers) and the 3.1 box's sentence.
+static void describe_fault(struct w16 *w) {
+    const struct cpu16 *c = &w->cpu;
+    const struct cpu16_desc *d = &w->desc[cpu16_index(c->fault_cs) % CPU16_MAX_DESC];
+    const char *file = base_of(w->path);
+    char at[16];
+    snprintf(at, sizeof at, "%04X:%04X", d->owner, c->fault_ip);
+    int api = c->fault == FAULT_API;
+    snprintf(g_w16_fault, sizeof g_w16_fault,
+             "%s: %s%s%s\n"
+             "%s stopped at %s (%s, segment %u): %s -- %s\n"
+             "AX %04X  BX %04X  CX %04X  DX %04X\n"
+             "SI %04X  DI %04X  BP %04X  SP %04X\n"
+             "CS %04X  DS %04X  SS %04X  ES %04X  IP %04X",
+             file, api ? c->fault_why : cpu16_fault_name(c->fault), api ? "" : " at ", api ? "" : at,
+             w->path, at, w->ne.name, d->owner, cpu16_fault_name(c->fault), c->fault_why,
+             c->fault_r[R_AX], c->fault_r[R_BX], c->fault_r[R_CX], c->fault_r[R_DX],
+             c->fault_r[R_SI], c->fault_r[R_DI], c->fault_r[R_BP], c->fault_r[R_SP],
+             c->fault_cs, c->fault_sreg[S_DS], c->fault_sreg[S_SS], c->fault_sreg[S_ES], c->fault_ip);
+    char upper[64];
+    size_t i = 0;
+    for (; file[i] && i < sizeof upper - 1; i++)
+        upper[i] = file[i] >= 'a' && file[i] <= 'z' ? (char)(file[i] - 32) : file[i];
+    upper[i] = 0;
+    if (api && w->missing[0])
+        snprintf(g_w16_fault_box, sizeof g_w16_fault_box,
+                 "%s called %s, which w16 does not have yet.\n\nThe program will close.",
+                 w->ne.name, w->missing);
+    else if (api)
+        snprintf(g_w16_fault_box, sizeof g_w16_fault_box,
+                 "%s stopped: %s.\n\nThe program will close.", w->ne.name, c->fault_why);
+    else
+        snprintf(g_w16_fault_box, sizeof g_w16_fault_box,
+                 "%s caused a %s in module %s at %s.\n\nThe program will close.",
+                 w->ne.name, cpu16_fault_name(c->fault), upper, at);
 }
 
 void *w16_task_main(void *arg) {
@@ -269,6 +318,8 @@ void *w16_task_main(void *arg) {
         const struct cpu16_desc *d = &w->desc[cpu16_index(c->fault_cs) % CPU16_MAX_DESC];
         fprintf(stderr, "w16: %s: %s at %u:%04x -- %s\n", w->path, cpu16_fault_name(c->fault),
                 d->owner, c->fault_ip, c->fault_why);
+        describe_fault(w);
+        set_abort_message("%s", g_w16_fault);
         w->exit_code = 1;
     } else {
         w->exit_code = c->exit_code;
@@ -277,6 +328,8 @@ void *w16_task_main(void *arg) {
     w->task_done = 1;
     pthread_cond_broadcast(&w->cond);
     pthread_mutex_unlock(&w->lock);
-    w16_task_post(w, W16_POST_DONE);
+    // A fault is shown before the program goes; the main thread aborts
+    // once the box is answered.
+    w16_task_post(w, c->fault ? W16_POST_FAULT : W16_POST_DONE);
     return 0;
 }

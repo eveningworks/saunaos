@@ -6,6 +6,8 @@
 //                     and the dispatch of its imports
 //   kernel16.c        KERNEL (and INT 21h), user16.c USER, gdi16.c GDI
 //   frame16.c         the Windows 3.1 caption and frame (main thread)
+//   menu16.c          a 3.1 popup menu; the control menu is its first
+//   msgbox16.c        a 3.1 message box; the Application Error is its first
 //
 // TWO THREADS. The program -- interpreter, message loop, GDI -- runs on
 // the TASK thread, so a modal loop inside a window procedure simply
@@ -47,6 +49,21 @@ void ne_print_info(const struct ne_module *m);
 #define WM_LBUTTONUP     0x0202
 #define WM_RBUTTONDOWN   0x0204
 #define WM_RBUTTONUP     0x0205
+#define WM_SYSCOMMAND    0x0112
+
+// WM_SYSCOMMAND's wParam: what the frame, the control menu and Alt+Space
+// ask, sent through the program so that it may refuse (DefWindowProc
+// acts on them).
+#define SC_SIZE          0xF000
+#define SC_MOVE          0xF010
+#define SC_MINIMIZE      0xF020
+#define SC_MAXIMIZE      0xF030
+#define SC_CLOSE         0xF060
+#define SC_KEYMENU       0xF100
+#define SC_RESTORE       0xF120
+
+#define SIZE_RESTORED    0                        // WM_SIZE's wParam
+#define SIZE_MAXIMIZED   2
 
 #define WS_CAPTION       0x00C00000u
 #define WS_SYSMENU       0x00080000u
@@ -86,6 +103,7 @@ struct w16_wnd {
     int cw, ch;                   // the client area
     uint32_t *fb;                 // client pixels, cw * ch, under `lock`
     int visible;
+    int maximized;                // toywm's last proposal said so; under `lock`
     int inval, erase;             // a pending WM_PAINT, and whether it erases
 };
 
@@ -116,6 +134,8 @@ struct w16 {
     int task_done;
     int exit_code;
     int active;                                  // the toywm window has focus
+    int pending_syscmd;                          // an SC_* asked before the window was up
+    char missing[64];                            // "USER.171 (WinHelp)": the call that is not there
 
     uint32_t text_color, bk_color;               // GDI: one DC's worth for now
     int bk_mode;
@@ -128,6 +148,8 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_PAINT 1
 #define W16_POST_DONE  2
 #define W16_POST_TITLE 3
+#define W16_POST_SYSCMD 4    // arg: the SC_* DefWindowProc carried out
+#define W16_POST_FAULT  5    // the program stopped: show why, then end
 
 // --- task16.c --------------------------------------------------------------
 
@@ -137,6 +159,11 @@ void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, u
 uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,
                           uint16_t msg, uint16_t wparam, uint32_t lparam);
 void w16_task_post(struct w16 *w, int code);     // uapp_post() once the main thread is up
+void w16_task_post_arg(struct w16 *w, int code, int arg);
+// Why the program stopped, filled by the task thread as it ends: the
+// first line is the crash report's headline (set_abort_message()).
+extern char g_w16_fault[1024];
+extern char g_w16_fault_box[512];               // the same, as the Application Error box says it
 
 // Pascal arguments, read FIRST TO LAST: the first was pushed first, so it
 // sits highest, just under the byte count the function pops.
@@ -177,5 +204,65 @@ void w16_frame_draw(struct ugfx_surface *s, const struct w16_wnd *win, int activ
 enum w16_hit { HIT_CLIENT, HIT_CAPTION, HIT_SYSMENU, HIT_MIN, HIT_MAX, HIT_EDGE, HIT_NONE };
 enum w16_hit w16_frame_hit(const struct w16_wnd *win, int x, int y, unsigned *edges);
 void w16_client_rect(const struct w16_wnd *win, int *x, int *y, int *cw, int *ch);
+// The control-menu box, in window coordinates: what its menu drops from.
+void w16_frame_sysbox(const struct w16_wnd *win, int *x, int *y, int *w, int *h);
+
+// --- menu16.c / msgbox16.c (main thread) -------------------------------------
+//
+// Both draw into a toolkit popup (UUI_POPUP_NO_DECOR: the 3.1 look is
+// square, hard-shadowed and its own), so they may reach past a small
+// window. Input arrives in WINDOW coordinates, as uapp hands it on.
+
+#define W16_MENU_MAX 16
+#define W16_MF_GRAYED    0x1
+#define W16_MF_SEPARATOR 0x2
+
+struct w16_menu_item {
+    char text[40];                // "&Restore": & marks the mnemonic
+    char accel[16];               // "Alt+F4", right-aligned; "" none
+    unsigned flags;               // W16_MF_*
+    unsigned id;                  // what choosing it returns (an SC_* here)
+};
+
+struct w16_menu {
+    struct w16_menu_item item[W16_MENU_MAX];
+    int n;
+    int popup;                    // the uui_popup id; 0 closed
+    int x, y, w, h;               // where it landed, window coordinates
+    int sel;                      // the highlighted item, -1 none
+    int armed;                    // a press began inside it
+};
+
+void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_key);
+void w16_menu_close(struct w16_menu *m);
+void w16_menu_draw(struct w16_menu *m);
+// Each returns the chosen item's id, 0 for nothing chosen yet, and -1
+// once the menu has closed without a choice.
+unsigned w16_menu_motion(struct w16_menu *m, int x, int y);
+int w16_menu_press(struct w16_menu *m, int x, int y);    // 1: inside, 0: outside (now closed)
+unsigned w16_menu_release(struct w16_menu *m, int x, int y);
+unsigned w16_menu_key(struct w16_menu *m, int key);      // KEY_* or a character
+int w16_menu_open_p(const struct w16_menu *m);
+
+// The control menu of `win`, its items enabled as its style and state allow.
+void w16_sysmenu_build(struct w16_menu *m, const struct w16_wnd *win);
+
+struct w16_msgbox {
+    char caption[48];
+    char text[512];               // wrapped to the box; '\n' breaks
+    int popup;
+    int x, y, w, h;
+    int btn_x, btn_y, btn_w, btn_h;
+    int pressed;                  // the Close button is held down
+    void (*on_dismiss)(void);     // the compositor closed it: taken as the button
+};
+
+void w16_msgbox_open(struct w16_msgbox *b, int win_w, int win_h);
+void w16_msgbox_draw(struct w16_msgbox *b);
+void w16_msgbox_close(struct w16_msgbox *b);
+// 1 when the box is answered: its button released on it, Enter or Esc.
+int w16_msgbox_press(struct w16_msgbox *b, int x, int y);
+int w16_msgbox_release(struct w16_msgbox *b, int x, int y);
+int w16_msgbox_key(struct w16_msgbox *b, int key);
 
 #endif

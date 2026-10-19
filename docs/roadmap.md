@@ -913,8 +913,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Stage 1: the 16-bit CPU interpreter, checked against the real CPU~~ DONE 2026-10-18 -- `cpu16_hostcheck.py`
 - [x] ~~Stage 2: toywm's undecorated windows and client-started move/resize~~ DONE 2026-10-18 -- `WIN_HINT_NO_DECOR`
 - [x] ~~Stage 2: a first window -- start-up, classes, messages, GDI text, the 3.1 frame~~ DONE 2026-10-18
-- [ ] w16: minimize, maximize and the control menu -- the buttons draw and press, and do nothing yet
-- [ ] w16: a fault or an unimplemented call as a crash report, not only a line on stderr
+- [x] ~~w16: minimize, maximize and the control menu~~ DONE 2026-10-19 -- through WM_SYSCOMMAND; `WIN_REQ_WINDOW_STATE`
+- [x] ~~w16: a fault or an unimplemented call as a crash report~~ DONE 2026-10-19 -- the Application Error box, then `set_abort_message()`
+- [ ] w16: Move and Size on the control menu -- 3.1's keyboard move and size, which need toywm to run a drag with no button held
 - [ ] Stage 3: standard controls, menus and dialogs from resources; files, INI profiles, timers
 - [ ] Stage 4: real programs (the user's own copies), each run's unimplemented-import list worked through
 - [ ] Several top-level windows per uapp process, which real Win16 programs need
@@ -948,7 +949,7 @@ run on, not by order.
 - [ ] The calendar, context menu and confirm dialog should declare their own damage, as the Start menu already does
 - [ ] Intel modesetting: external outputs on DDI B-D, a second EDID and hotplug -- waits for a laptop with a usable port
 - [x] ~~Intel gen9 on the Kaby Lake desktop over HDMI: readout, adopt, GMBUS EDID, scaler modes, HDMI modeset~~ DONE 2026-10-04
-- [ ] Pace composing to the vblank -- saves the frames a mailbox flip discards (CPU), not latency; count them first
+- [ ] Pace composing to the vblank -- a hand drag on the ASUS composed 8161 frames, 8143 within a refresh of the last; CPU, not latency
 - [ ] Intel blitter acceleration on the BCS ring -- declined 2026-09-03; the 2026-09-17 frame time reopens it
 - [x] ~~A fullscreen state, and direct scanout for a fullscreen client~~ DONE 2026-09-11 -- a lease, `docs/scanout-design.md`
 - [ ] The Broadwell sprite plane: a MAXIMIZED window scanned out, the desktop composed around it -- `docs/scanout-design.md` stage 4
