@@ -280,7 +280,7 @@ static void print_losses(const struct udisk *d) {
         char size[16], title[40];
         human_size_iec(size, sizeof size, p->count * 512);
         udisk_part_title(p, title, sizeof title);
-        printf("  %-10s %-14s %-6s %s\n", p->dev[0] ? p->dev : "-", title, p->fs[0] ? p->fs : "", size);
+        printf("  %-10s %-14s %-6s %s\n", p->dev[0] ? p->dev : "-", title, udisk_part_fs(p), size);
     }
 }
 

@@ -1212,7 +1212,17 @@ struct query_blkdev {
     char model[48];     // the drive's own name ("SAMSUNG MZNLN128HAHQ-000H1"), or ""
     char driver[16];    // "ahci", "nvme"; "" for a partition
     char device_id[24]; // its controller, udevice's naming ("pci:00:1f.2"), or ""
+    // WHAT FILESYSTEM IT HOLDS, by signature (kernel/fs_ident.h) -- blkid's
+    // TYPE and LABEL, mounted or not, toy-os's own or a foreign one. ""
+    // when nothing is recognised, and on a disk that carries a partition
+    // table (its partitions answer instead).
+    char fstype[16];    // "ntfs", "ext4", "tfs3", "fat32"
+    char label[64];     // UTF-8; "" when it has none
+    uint64_t fs_flags;  // QUERY_BLK_FS_*
 };
+
+// fstype names a filesystem this kernel can mount.
+#define QUERY_BLK_FS_MOUNTABLE 0x1
 
 // QUERY_NETDEV's record -- one registered network device.
 //

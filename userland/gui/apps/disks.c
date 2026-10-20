@@ -56,7 +56,7 @@ static int g_cur;                  // the drives list's row: a disk, then the RA
 static struct uui_segbar_seg g_segs[UUI_SEGBAR_MAX];
 static int g_seg_part[UUI_SEGBAR_MAX];       // a part index, -1 for free space
 static uint64_t g_seg_start[UUI_SEGBAR_MAX], g_seg_count[UUI_SEGBAR_MAX];
-static char g_seg_title[UUI_SEGBAR_MAX][32], g_seg_corner[UUI_SEGBAR_MAX][24], g_seg_detail[UUI_SEGBAR_MAX][40];
+static char g_seg_title[UUI_SEGBAR_MAX][64], g_seg_corner[UUI_SEGBAR_MAX][24], g_seg_detail[UUI_SEGBAR_MAX][96];
 static int g_nsegs;
 
 enum {
@@ -145,7 +145,13 @@ static void add_seg(int part, uint64_t start, uint64_t count) {
     } else {
         const struct udisk_part *p = &cur_disk()->parts[part];
         udisk_part_title(p, g_seg_title[i], sizeof g_seg_title[i]);
-        snprintf(g_seg_detail[i], sizeof g_seg_detail[i], "%s%s%s", size, p->fs[0] ? " " : "", p->fs);
+        // A labelled volume is titled by its label, so the table's name
+        // moves down beside what it holds: "7452.0 GiB NTFS · Basic data".
+        char name[40] = "";
+        if (p->label[0] && (p->name[0] || udisk_role_name(p))) udisk_part_name(p, name, sizeof name);
+        const char *fs = udisk_part_fs(p);
+        snprintf(g_seg_detail[i], sizeof g_seg_detail[i], "%s%s%s%s%s", size, fs[0] ? " " : "", fs,
+                 name[0] ? " \xb7 " : "", name);
         snprintf(g_seg_corner[i], sizeof g_seg_corner[i], "%s", p->point);
         if (p->total) s->used_pct = (int)(p->used * 100 / p->total);
         // Colour by what it IS: the firmware's in amber, data in the accent's tint.
@@ -219,6 +225,11 @@ static const char *refusal(int cmd) {
         if (!p) return "Select a partition";
         if (d->system) return "The system disk's volumes stay as they are";
         if (!p->point[0] && (p->role != UDISK_ROLE_DATA || !p->dev[0])) return "Nothing here can be mounted";
+        if (!p->point[0] && p->type[0] && !p->readable) {
+            static char why[64];
+            snprintf(why, sizeof why, "toy-os cannot read %s", udisk_fs_title(p->type));
+            return why;
+        }
         return 0;
     default:
         return 0;
@@ -268,7 +279,7 @@ static int write_table(struct udisk *d, int skip, const struct mkpart_entry *add
         if (req.count >= MKPART_MAX_ENTRIES) return -EINVAL;
         req.entries[req.count++] = *add;
     }
-    int rc = sys_mkpart(&req);
+    int rc = sys_mkpart(&req) < 0 ? -errno : 0;
     ulogf("disks: mkpart %s %u entries -> %d\n", d->name, req.count, rc);
     return rc;
 }
@@ -279,7 +290,7 @@ static int format(const char *dev, const char *fs) {
     snprintf(m.source, sizeof m.source, "%s", dev);
     snprintf(m.fstype, sizeof m.fstype, "%s", fs);
     m.flags = MKFS_CONFIRM;
-    int rc = sys_mkfs(&m);
+    int rc = sys_mkfs(&m) < 0 ? -errno : 0;
     ulogf("disks: mkfs %s %s -> %d\n", dev, fs, rc);
     return rc;
 }
@@ -329,7 +340,7 @@ static void do_mount(void) {
     if (p->point[0]) {
         char point[64];
         snprintf(point, sizeof point, "%s", p->point);
-        rc = sys_umount(point);
+        rc = sys_umount(point) < 0 ? -errno : 0;
         if (rc < 0) { say("Could not unmount %s: %s", point, strerror(-rc)); return; }
         // A directory Disks made for it goes with it.
         if (!strncmp(point, "/mnt/", 5)) sys_unlink(point);
@@ -340,7 +351,7 @@ static void do_mount(void) {
         snprintf(m.source, sizeof m.source, "%s", p->dev);
         snprintf(m.point, sizeof m.point, "/mnt/%s", p->dev);
         sys_mkdir(m.point);
-        rc = sys_mount(&m);
+        rc = sys_mount(&m) < 0 ? -errno : 0;
         if (rc < 0) {
             sys_unlink(m.point);
             say("Could not mount %s: %s", p->dev, rc == -ENODEV ? "no filesystem this system reads" : strerror(-rc));
@@ -726,8 +737,8 @@ static void draw_details(struct ugfx_surface *s, int cw) {
         return;
     }
     if (!p) return;
-    char t[32];
-    udisk_part_title(p, t, sizeof t);
+    char t[40];
+    udisk_part_name(p, t, sizeof t);
     if (p->number) snprintf(a, sizeof a, "%d of %d, %s", p->number, d->nparts, t);
     else snprintf(a, sizeof a, "The whole disk, no partition table");
     fact(s, x, &y, vx, right, "Partition", a, UTHEME_TEXT);
@@ -735,6 +746,8 @@ static void draw_details(struct ugfx_surface *s, int cw) {
     snprintf(a, sizeof a, "%s (%llu sectors), from LBA %llu", b, (unsigned long long)p->count, (unsigned long long)p->start);
     fact(s, x, &y, vx, right, "Size", a, UTHEME_TEXT);
     if (p->point[0]) snprintf(a, sizeof a, "%s, mounted at %s", p->fs, p->point);
+    else if (p->type[0])
+        snprintf(a, sizeof a, "%s (not mounted%s)", udisk_fs_title(p->type), p->readable ? "" : "; toy-os cannot read it");
     else snprintf(a, sizeof a, "%s", p->role == UDISK_ROLE_BIOS ? "A boot loader, no filesystem" : "Not mounted");
     fact(s, x, &y, vx, right, "Contents", a, UTHEME_TEXT);
     if (p->total) {

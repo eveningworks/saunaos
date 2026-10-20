@@ -48,8 +48,8 @@ static void add_now(struct uui_diskplan *p, int *n, const struct udisk_part *par
         s->empty = 1;
     } else {
         udisk_part_title(part, p->now_title[i], sizeof p->now_title[i]);
-        snprintf(p->now_detail[i], sizeof p->now_detail[i], "%s%s%s", size, part->fs[0] ? " " : "",
-                 part->fs);
+        snprintf(p->now_detail[i], sizeof p->now_detail[i], "%s%s%s", size, udisk_part_fs(part)[0] ? " " : "",
+                 udisk_part_fs(part));
         snprintf(p->now_corner[i], sizeof p->now_corner[i], "%s", part->point);
         uui_diskplan_colour(s, part->role, part->fs[0] != 0);
         s->corner = p->now_corner[i][0] ? p->now_corner[i] : 0;

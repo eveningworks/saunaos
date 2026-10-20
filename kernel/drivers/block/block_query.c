@@ -7,15 +7,17 @@
 // was found -- and a scalar beside the list would answer a question
 // nobody has.
 //
-// Cheap: this reads the table block.c already holds, with no disk I/O at
-// all. The partition provider next door hits the disk on every read;
-// this one cannot, because the table is the kernel's own state.
+// Reads the table block.c already holds, plus a few signature sectors per
+// device for `fstype` (fs_ident.c) -- through the block cache, so a second
+// walk is memory.
 #include "query.h"
 #include "block.h"
 #include "string.h"
 #include <stddef.h>
 #include "initcall.h"
 #include "devevent.h"   // devevent_pci_id -- the controller's name
+#include "fs_ident.h"
+#include "mount.h"      // mount_backend_named -- can it be mounted
 
 // driver-none: a QUERY provider over the block table
 
@@ -42,6 +44,20 @@ static int blkdev_fill(int index, void *out) {
     if (e->dev->model) k_strlcpy(d->model, e->dev->model, sizeof d->model);
     if (e->dev->driver) k_strlcpy(d->driver, e->dev->driver, sizeof d->driver);
     if (e->dev->pci) devevent_pci_id(e->dev->pci, d->device_id, sizeof d->device_id);
+
+    // A disk with partitions holds a table, not a filesystem; anything else
+    // is read for a signature, so this list is no longer free of disk I/O.
+    int partitioned = 0;
+    for (int i = 0; i < blk_device_count() && !partitioned; i++) {
+        const struct blk_entry *c = blk_device_at(i);
+        partitioned = c && c->parent == e->dev && c->dev != e->dev;
+    }
+    struct fs_ident id;
+    if (!partitioned && fs_ident(e->dev, &id)) {
+        k_strlcpy(d->fstype, id.type, sizeof d->fstype);
+        k_strlcpy(d->label, id.label, sizeof d->label);
+        if (mount_backend_named(id.type)) d->fs_flags |= QUERY_BLK_FS_MOUNTABLE;
+    }
     return 1;
 }
 

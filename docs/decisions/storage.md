@@ -4038,3 +4038,41 @@ the old names would have had to treat `_` as structure, which it is not
 (`font_size` is a family, `boot_messages` is not), and would have
 printed names that are not the tree it claimed to show. The rename makes
 the name and the tree the same thing.
+
+## A volume's filesystem is recognised by signature in the kernel, and a format wipes foreign ones
+
+**Decision (2026-10-20).** `QUERY_BLKDEV` carries each device's
+`fstype` and `label`, read from the volume's signature by
+`kernel/fs/fs_ident.c`, mounted or not and whether or not toy-os can
+mount it (NTFS, exFAT, FAT12/16/32, ext2/3/4, Btrfs, XFS, swap, ISO 9660,
+HFS+, APFS, LUKS, BitLocker, ReFS, tfs3). Disks titles a volume by its
+label and `lsblk -f` prints both. `fs_format_device()` zeroes a
+partition's first 128 KiB before formatting.
+
+**What real systems do.** Linux's kernel does not report a filesystem
+type for an unmounted device at all; libblkid does it in userspace by
+reading the raw block device, and udisks, GNOME Disks and `lsblk -f` all
+ask it. Windows' volume manager reports `RAW` for what no driver claims,
+and Disk Management shows the type only for filesystems Windows has.
+`wipefs`, and `mkfs.ext4`'s own zeroing, are why a reformatted Linux
+volume does not keep its old signature.
+
+**Why in the kernel, not a ring-3 libblkid.** Ring 3 has no raw block
+access here, and opening one up to recognise a filesystem would hand
+every process the disk. The recogniser reads a few fixed sectors through
+the block cache, writes nothing, and runs where `mount`'s probe already
+does.
+
+**Why a TABLE OF SIGNATURES and not the mount backends' `probe()`.** A
+backend's probe only knows its own format, needs per-mount state, and
+the point is to name what toy-os CANNOT mount. The table is ORDERED:
+tfs3, whose superblock is checksummed, first; FAT, recognised by a BPB
+that merely looks sane, last -- because two signatures can sit on one
+volume.
+
+**Why format wipes 128 KiB.** tfs3 never writes its first 32 KiB, so a
+partition that had been NTFS still read as NTFS after a tfs3 format, to
+the recogniser and to Windows. `mount_wipe_others()` only knows toy-os's
+backends. 128 KiB covers every signature the recogniser reads (Btrfs's
+is the deepest, at 64 KiB). A whole disk is never wiped: those sectors
+are its partition table.

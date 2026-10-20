@@ -6,7 +6,14 @@
 
 ## Synopsis
 
-    lsblk
+    lsblk [-f]
+
+## Options
+
+| Option | Meaning |
+|---|---|
+| `-f`, `--fs` | show each device's filesystem and label instead of its geometry |
+| `-h`, `--help` | print the usage and exit |
 
 ## Description
 
@@ -57,6 +64,28 @@ that lines a row up against `parttable`. For a whole disk it says
 `disk`, or `memory (not persistent)` for a RAM-backed live image, since
 "this will not survive a reboot" is the one property a person most needs
 not to have to infer.
+
+### `-f`: what each device holds
+
+    NAME        SIZE      FSTYPE   LABEL            MOUNTED
+    ahci0       7.3T
+    ahci0p1     7.3T      ntfs     Backup           (cannot mount)
+    nvme0       238.4G
+    nvme0p1     64.0M     fat32                     /boot
+    nvme0p2     238.4G    tfs3                      /
+
+util-linux's `lsblk -f`, and the same answer Disks shows. `FSTYPE` is
+read from the volume's **signature**, mounted or not, by the kernel
+(`kernel/fs/fs_ident.c`) -- ring 3 has no raw access to a disk, which is
+where libblkid reads it on Linux. It names filesystems this system cannot
+mount too: NTFS, exFAT, FAT12/16/32, ext2/3/4, Btrfs, XFS, Linux swap,
+ISO 9660, HFS+, APFS, LUKS, BitLocker, ReFS, and tfs3. A disk that
+carries a partition table shows nothing; its partitions answer. An empty
+`FSTYPE` means no signature was recognised -- a blank volume, or one
+this list does not know.
+
+`MOUNTED` is the mount point, or `(cannot mount)` for a filesystem the
+kernel has no driver for.
 
 A machine with no disk at all prints `no block devices` rather than a
 bare header: that is a real supported state (the root is ramfs then),

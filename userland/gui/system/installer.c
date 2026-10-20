@@ -432,7 +432,7 @@ static void ask_erase(void) {
         udisk_part_title(p, t, sizeof t);
         human_size_iec(ps, sizeof ps, p->count * 512);
         snprintf(g_ask_rows[n++], sizeof g_ask_rows[0], "    %s -- %s%s%s, %s", p->dev[0] ? p->dev : "-", t,
-                 p->fs[0] ? ", " : "", p->fs, ps);
+                 udisk_part_fs(p)[0] ? ", " : "", udisk_part_fs(p), ps);
     }
     snprintf(g_ask_rows[n++], sizeof g_ask_rows[0], "This can't be undone.");
     for (int i = 0; i < n; i++) g_ask_ptrs[i] = g_ask_rows[i];

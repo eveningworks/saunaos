@@ -27,6 +27,7 @@
 #include "mount.h"
 #include "tmppath.h"
 #include "block.h"
+#include "heap.h"   // wipe_foreign's zero page
 #include "ata.h"
 #include "kfmt.h"    // klog_printf
 #include "klog.h"
@@ -199,6 +200,24 @@ int fs_has(uint32_t cap) {
 // to what is mounted where. A target that would need any of that is
 // refused instead, because an installer handed the running root is an
 // installer being asked to saw off its own branch.
+// FOREIGN SIGNATURES TOO: mount_wipe_others() knows only this kernel's
+// backends, and tfs3 never writes its first 32 KiB -- so an NTFS or ext4
+// volume formatted tfs3 still read as NTFS to fs_ident() and to Windows.
+// The first 128 KiB holds every signature fs_ident.c reads (Btrfs's is the
+// deepest, at 64 KiB); what the new format writes there lands after this.
+// A PARTITION only: on a whole disk those sectors are the MBR and GPT.
+#define WIPE_SECTORS 256u
+static void wipe_foreign(const struct block_device *dev) {
+    uint64_t base;
+    if (!blk_part_parent(dev, &base) || blkdev_sector_count(dev) < WIPE_SECTORS) return;
+    uint8_t *zero = kmalloc(4096);
+    if (!zero) return;
+    k_memset(zero, 0, 4096);
+    for (uint64_t lba = 0; lba < WIPE_SECTORS; lba += 8)
+        if (!blkdev_write_partial(dev, lba, 8, zero)) break;
+    kfree(zero);
+}
+
 int fs_format_device(const struct block_device *dev, const char *fstype) {
     if (!dev || !fstype || !fstype[0]) return 0;
     const struct fs_ops *target = mount_backend_named(fstype);
@@ -222,6 +241,7 @@ int fs_format_device(const struct block_device *dev, const char *fstype) {
     // backend's leftover signature outlives a format and the next probe
     // mounts the corpse.
     mount_wipe_others(target, dev);
+    wipe_foreign(dev);
 
     struct fs_scratch sc;
     if (!mount_scratch_begin(target, &sc)) return 0;

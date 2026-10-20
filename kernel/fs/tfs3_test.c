@@ -8,6 +8,7 @@
 // size above it.
 #include "ktest.h"
 #include "tfs3.h"
+#include "fs_ident.h"
 #include "block.h"
 #include "heap.h"
 #include "string.h"
@@ -147,6 +148,9 @@ KTEST("tfs3", "fsync and sync flush the device while its mount is locked") {
         ok = T()->format(sc.st, &FLUSH_DEV);
         mount_scratch_end(&sc);
     }
+    // What format() wrote is what the signature recogniser calls tfs3.
+    struct fs_ident id;
+    KTEST_ASSERT(!ok || (fs_ident(&FLUSH_DEV, &id) && !k_strcmp(id.type, "tfs3")));
     fs_mkdir(FLUSH_POINT);
     const char *why = 0;
     int mounted = ok && mount_add(&FLUSH_DEV, "tfs3", FLUSH_POINT, 0, 0, &why);

@@ -14,19 +14,41 @@
 // what is written there; this reports what the KERNEL found and named.
 // They disagree usefully -- a partition whose window the kernel refused
 // appears in one and not the other -- and merging them would lose that.
+//
+// -f is util-linux's: what filesystem each device holds and its label,
+// mounted or not -- the kernel reads the signature (kernel/fs_ident.h).
 #include <stdint.h>
 #include "rt/sys.h"
 #include "lib/human.h"
+#include "lib/uargs.h"
 #include <stdio.h>
+#include <string.h>
 
 #define SECTOR_BYTES 512
 
+static int g_fs;
 
-int main(void) {
-    char line[160], size[32];
+static const struct uargs_opt OPTS[] = {
+    { "fs", 'f', 0, "show each device's filesystem and label", &g_fs, 0 },
+    { 0 }
+};
+
+static const struct uargs_prog PROG = {
+    .name = "lsblk",
+    .usage = "[-f]",
+    .summary = "List every block device this boot found: disks and their partitions.",
+    .opts = OPTS,
+};
+
+int main(int argc, char **argv) {
+    char line[224], size[32];
     int n = 0;
+    struct uargs a;
+    if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
+    if (a.argc) return uargs_error(&PROG, "unexpected argument '%s'", a.argv[0]);
 
-    sys_print("NAME        SIZE      SECTOR TYPE   ROOT  WHERE\n");
+    if (g_fs) sys_print("NAME        SIZE      FSTYPE   LABEL            MOUNTED\n");
+    else sys_print("NAME        SIZE      SECTOR TYPE   ROOT  WHERE\n");
 
     // The loop ends on the record that is NOT THERE rather than on a
     // count read first: a list's length is itself a fact and can change
@@ -47,6 +69,22 @@ int main(void) {
         else
             snprintf(where, sizeof where, "%s",
                      d.persistent ? "disk" : "memory (not persistent)");
+
+        if (g_fs) {
+            // Where it is mounted; else "" -- or, for a filesystem this
+            // system cannot mount, that, since it is the next question.
+            const char *at = d.fstype[0] && !(d.fs_flags & QUERY_BLK_FS_MOUNTABLE) ? "(cannot mount)" : "";
+            struct query_fsinfo f;
+            QUERY_FOREACH(QUERY_FSINFO, f, k)
+                if ((f.flags & QUERY_FS_MOUNTED) && f.device[0] && !strcmp(f.device, d.name)) {
+                    snprintf(where, sizeof where, "%s", f.point);
+                    at = where;
+                    break;
+                }
+            snprintf(line, sizeof line, "%-11s %-9s %-8s %-16s %s\n", d.name, size, d.fstype, d.label, at);
+            sys_print(line);
+            continue;
+        }
 
         // SECTOR is the device's logical block -- 4096 on a 4K-sector
         // disk -- while `lba` above stays in 512-byte units, as the

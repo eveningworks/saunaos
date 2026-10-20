@@ -27,6 +27,12 @@ struct udisk *udisk_named(struct udisk_scan *s, const char *name) {
     return 0;
 }
 
+static void set_ident(struct udisk_part *p, const struct query_blkdev *b) {
+    snprintf(p->type, sizeof p->type, "%s", b->fstype);
+    snprintf(p->label, sizeof p->label, "%s", b->label);
+    p->readable = (b->fs_flags & QUERY_BLK_FS_MOUNTABLE) != 0;
+}
+
 void udisk_scan(struct udisk_scan *s) {
     s->ndisks = s->nram = 0;
     struct query_blkdev b;
@@ -69,8 +75,19 @@ void udisk_scan(struct udisk_scan *s) {
         for (int k = 0; d && k < d->nparts; k++)
             if (d->parts[k].start == b.base_lba) {
                 snprintf(d->parts[k].dev, sizeof d->parts[k].dev, "%s", b.name);
+                set_ident(&d->parts[k], &b);
                 if (b.is_root) d->system = 1;
             }
+        // A whole disk with no table that holds a filesystem is one volume,
+        // mounted or not (below adds the mounted one).
+        struct udisk *w = !b.parent[0] && b.fstype[0] ? udisk_named(s, b.name) : 0;
+        if (w && !w->kind && !w->nparts) {
+            struct udisk_part *p = &w->parts[w->nparts++];
+            memset(p, 0, sizeof *p);
+            p->count = w->sectors;
+            snprintf(p->dev, sizeof p->dev, "%s", w->name);
+            set_ident(p, &b);
+        }
     }
     // What is mounted where: on a partition, on a whole disk with no
     // table (a stock disk.img), or on nothing at all (ramfs).
@@ -137,6 +154,28 @@ const char *udisk_role_name(const struct udisk_part *p) {
 }
 
 void udisk_part_title(const struct udisk_part *p, char *out, size_t cap) {
+    if (p->label[0]) snprintf(out, cap, "%s", p->label);
+    else udisk_part_name(p, out, cap);
+}
+
+const char *udisk_fs_title(const char *type) {
+    static const struct { const char *id, *title; } names[] = {
+        { "ntfs", "NTFS" },       { "exfat", "exFAT" },     { "fat32", "FAT32" },
+        { "fat16", "FAT16" },     { "fat12", "FAT12" },     { "btrfs", "Btrfs" },
+        { "xfs", "XFS" },         { "swap", "Linux swap" }, { "iso9660", "ISO 9660" },
+        { "hfsplus", "HFS+" },    { "apfs", "APFS" },       { "crypto_LUKS", "LUKS" },
+        { "refs", "ReFS" },
+    };
+    for (size_t i = 0; i < sizeof names / sizeof names[0]; i++)
+        if (!strcmp(type, names[i].id)) return names[i].title;
+    return type;
+}
+
+const char *udisk_part_fs(const struct udisk_part *p) {
+    return udisk_fs_title(p->fs[0] ? p->fs : p->type);
+}
+
+void udisk_part_name(const struct udisk_part *p, char *out, size_t cap) {
     if (p->name[0]) snprintf(out, cap, "%s", p->name);
     else if (udisk_role_name(p)) snprintf(out, cap, "%s", udisk_role_name(p));
     else if (p->number) snprintf(out, cap, "Partition %d", p->number);

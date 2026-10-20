@@ -32,6 +32,10 @@ struct udisk_part {
     char name[40];
     char dev[16];                  // its block device, "" when it has none yet
     char point[64], fs[16];        // where it is mounted, and as what; "" when not
+    // What its signature says it holds, mounted or not (QUERY_BLKDEV's
+    // fstype/label): "ntfs", "Backup". `readable`: this system can mount it.
+    char type[16], label[64];
+    int readable;
     uint64_t used, total;
     int root;
 };
@@ -69,8 +73,17 @@ int udisk_live_root(void);
 
 // "EFI", "BIOS boot", or NULL for a data partition.
 const char *udisk_role_name(const struct udisk_part *p);
-// The partition's label, else its role, else "Partition 3"; "Whole disk"
-// for a volume with no table.
+// What a person calls the volume: its filesystem's label, else what the
+// table calls it (udisk_part_name()).
 void udisk_part_title(const struct udisk_part *p, char *out, size_t cap);
+// The table's name for it: the GPT name, else its role, else "Partition 3";
+// "Whole disk" for a volume with no table.
+void udisk_part_name(const struct udisk_part *p, char *out, size_t cap);
+// A filesystem type as a person reads it ("ntfs" -> "NTFS"); an unknown
+// one as it came.
+const char *udisk_fs_title(const char *type);
+// The filesystem it holds, for display: as mounted, else as recognised;
+// "" for neither.
+const char *udisk_part_fs(const struct udisk_part *p);
 
 #endif

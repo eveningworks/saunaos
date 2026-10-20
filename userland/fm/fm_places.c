@@ -261,7 +261,7 @@ static void unmount(void) {
     char point[UVOL_POINT];
     strlcpy(point, g_aim, sizeof point);
     leave(point);
-    int rc = sys_umount(point);
+    int rc = sys_umount(point) < 0 ? -errno : 0;
     if (rc < 0) {
         snprintf(g_stat_note, sizeof g_stat_note, "could not unmount %s: %s", point, strerror(-rc));
     } else {

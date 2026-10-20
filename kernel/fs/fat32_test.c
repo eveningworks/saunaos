@@ -32,6 +32,7 @@
 // THAT OUTGROWS A CLUSTER, and PROBE-WHILE-MOUNTED.
 #include "ktest.h"
 #include "fat32.h"
+#include "fs_ident.h"
 #include "fs.h"
 #include "block.h"
 #include "heap.h"
@@ -181,6 +182,9 @@ KTEST("fat32", "a probe recognises what format() wrote, and refuses a blank volu
     // And wipe() must leave it in that state from a formatted one.
     KTEST_ASSERT(F()->format(ST, &IMG_DEV));
     KTEST_ASSERT_EQ(F()->probe(ST, &IMG_DEV), 1);
+    // ...and the signature recogniser (Disks, `lsblk -f`) names it too.
+    struct fs_ident id;
+    KTEST_ASSERT(fs_ident(&IMG_DEV, &id) && !k_strcmp(id.type, "fat32"));
     KTEST_ASSERT(F()->wipe(ST, &IMG_DEV));
     KTEST_ASSERT_EQ(F()->probe(ST, &IMG_DEV), 0);
     restore();
