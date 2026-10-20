@@ -12005,3 +12005,67 @@ blocks written for this change found behaviour the old one-line comments
 did not say (GlobalAlloc refuses a block over 64 KB; InvalidateRect marks
 the whole window; dashed pens draw solid; GetKeyState knows only Shift,
 Ctrl and Alt).
+
+## A Win16 TrueType face is the user's own .TTF, else a metric twin, laid out by its device tables
+
+Chosen 2026-10-20 from the "Write: TrueType in w16" canvas, built from
+screenshots of Write running: T2 over T1 (Liberation always) and over
+3.11's bitmap faces at the nearest size (what w16 did before).
+
+A Write document names its faces -- Arial, Times New Roman, Courier
+New -- and was laid out in them, so a substitute must have the SAME
+ADVANCES or every line breaks somewhere else. Wine and every Linux
+desktop answer with the metric twins (Liberation Sans and Serif, made
+for exactly this; DejaVu Sans Mono for Courier New's fixed pitch), and
+w16 does too when drive C: has no fonts. When it has them, the `fonts`
+setting that already takes 3.11's .FON files from C: takes its .TTF files
+as well: the outlines are Microsoft's, so the text is the program's own
+type, drawn by toy-os's ttf.c (3.11's hinter is not reproduced; stems are
+softer than the real one's).
+
+**Advances come from the font's DEVICE tables, not its outlines.**
+GDI laid out TrueType text by the hinted widths the font stores per size
+(hdmx) and a cell per size (VDMX), and never kerned. Scaling the design
+advances instead -- what a modern text stack does -- can miss a glyph's
+hinted width by a pixel, and the misses add up along a line until a word
+wraps differently; with hdmx and VDMX w16's lines matched real 3.11's to
+the pixel on the reference VM. A font without the tables falls back to
+scaled advances.
+
+**Why not the bitmap faces, as before.** 3.11's .FON files stop at a few
+sizes and have no Arial; Write offers a TrueType face at any size, so a
+bitmap stand-in turned a document's layout into a guess.
+
+## A Win16 OLE object is kept as its bytes and drawn from its picture, never served
+
+Chosen 2026-10-20 for Write: "Objects drawn, not editable", over running
+the object's server (Paintbrush, Sound Recorder) as a second Win16
+program.
+
+OLE 1.0 is two programs talking over DDE: the container keeps the
+object's bytes and a picture of it, and to edit it starts the server
+named in the registration database and hands it the native data. w16
+does the container's half only. OLECLI reads the object from the
+program's stream in [MS-OLEDS] 2.2's persistent format and KEEPS EVERY
+BYTE IT READ, so saving writes the object back unchanged -- a document
+opened in w16 and saved goes back into real 3.11 whole, which was
+checked byte for byte. It draws from the presentation the object carries
+(a metafile, a DIB, a device bitmap), or for Paintbrush, which stores
+none, from the BMP that is its native data.
+
+**Why no server.** Editing needs DDE between two w16 tasks, SHELL's
+registration database filled from the user's own REG.DAT, and the
+server programs themselves -- Paintbrush and Sound Recorder are the
+user's copies, untested in w16. That is a stage of its own; drawing is
+what makes a document READABLE, and it costs none of that. The
+registration database answers as empty, so Insert Object lists nothing
+rather than offering a server that cannot start. A picture pasted from
+toy-os arrives as a static object, which needs no server in Windows
+either.
+
+**Why one shared metafile decoder.** A metafile is how OLE objects and
+the clipboard carry pictures, and a hostile document can hold any
+bytes; `userland/lib/uwmf.c` parses records (bounds-checked, fuzzed by
+`uwmf_hostcheck.py`), and w16's PlayMetaFile replays them through its
+own GDI calls, so one parser serves anything else that ever reads a
+.WMF.

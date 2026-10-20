@@ -68,7 +68,8 @@ that turned out wrong. It boots on real hardware and under QEMU.
 - **A desktop outside the kernel** — the window manager and every app run in
   ring 3: a file manager, a tabbed terminal, an image viewer, an audio
   player, a video player, a character map, Disks, a task manager, System Settings,
-  Minesweeper and **DOOM**.
+  Minesweeper and **DOOM** -- and **Windows 3.1 programs** (Write,
+  Solitaire, Hearts) on an emulated 16-bit CPU.
 - **Networking** — IPv4, ICMP, UDP and TCP on six NIC drivers, with DHCP,
   DNS, `wget` and an `httpd` serving the machine's own files.
 - **USB, display and sound** — xHCI with hubs and report-descriptor HID, an
