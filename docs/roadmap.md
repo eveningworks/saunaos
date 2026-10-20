@@ -945,7 +945,12 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: the last pixels from real 3.11 -- the menu bar's title spacing, a list box's top, Switch To... on the control menu
 - [ ] w16: a file dropped on a program (WM_DROPFILES) -- DragAcceptFiles is answered, nothing is ever dropped
 - [ ] w16: printing -- PrintDlg answers "no default printer"
-- [ ] w16: a program's own DLLs loaded beside it (Solitaire's CARDS.DLL) -- only Windows' own modules are answered today
+- [x] ~~w16: a program's own DLLs loaded beside it (Hearts' CARDS.DLL)~~ DONE 2026-10-20 -- LoadLibrary, GetProcAddress, by-name imports
+- [x] ~~w16: Solitaire and Hearts from Windows 3.11~~ DONE 2026-10-20 -- Hearts plays the computer's hands; MFC's hook and creation order
+- [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
+- [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
+- [ ] w16: regions as more than their bounding rectangle -- CombineRgn of two that do not make a rectangle
+- [ ] w16: Windows' own bitmaps and icons (OBM_*, IDI_*) -- LoadBitmap(NULL) answers none, DrawIcon draws a program's only
 - [x] ~~w16: the Win16 folders and drives (Options > Folders and Drives, D: to Y:, drive C: per program)~~ DONE 2026-10-20
 - [x] ~~w16: a Windows program opened from the File Manager -- the run card, its setting, the right-click menu and details~~ DONE 2026-10-20
 - [ ] w16: a NASM sample that edits and saves, so the GUI test covers the EDIT, the files and COMMDLG without Notepad

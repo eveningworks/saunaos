@@ -11916,3 +11916,43 @@ Text fields, dropdowns and lists stretch; choice buttons and checkboxes
 keep their size. A captionless control takes the page's width only when
 it asks (`UUI_FILL_W`): the first rule gave it to every captionless row
 and moved Notepad's and Screenshot's stacked checkboxes to the left edge.
+
+## A Win16 window shows its last complete frame, as a Wayland surface shows its last commit
+
+Chosen 2026-10-20, after resizing Solitaire flashed its cards and showed
+the deck under them. w16 has two threads: the program's paints into a
+top-level window's buffer, and the main thread composes that buffer into
+the toywm window whenever toywm asks for a frame -- every frame of a
+resize drag. It read the buffer halfway through a repaint: the felt
+erased, a pile's lower cards drawn, the top ones still to come (4 of 12
+mid-drag frames in a probe).
+
+The obvious fixes are a lock held over the whole repaint (the main thread
+then stalls behind the emulated CPU, and a program that paints outside
+WM_PAINT never releases it at a good moment) or double-buffering by
+swapping at the end of WM_PAINT (Win16 programs draw through GetDC at any
+time, so there is no "end of the paint"). Wayland's answer is the one
+that fits: a surface's content changes only on `wl_surface.commit`, which
+the client sends when the frame is whole. w16's commit point is where a
+Windows program is idle by definition -- it asks for its next message
+with no WM_PAINT owed (`w16_gdi_flush()`) -- and then each top-level's
+buffer is copied to the frame the main thread draws. A program that is
+never idle (a busy queue) commits between messages, at most every 30 ms,
+still never while a paint is owed. Measured after: 0 of 12.
+
+## A Win16 program's own DLL is bound by w16's loader, its exports' prologues patched
+
+Chosen 2026-10-20 for Hearts and CARDS.DLL. A DLL could have been
+answered in C, as Windows' own modules are; but a program's DLL is the
+program's code (Hearts' card drawing), so it is loaded as Windows loaded
+one: its segments get selectors, its relocations bind through the same
+code as the program's (Windows' modules to one thunk selector each, a
+by-name import through w16_names), its LibEntry runs, its local heap is
+its own -- a KERNEL local-heap call works on the heap in DS's segment,
+swapped in for the call -- and every exported entry flagged for shared
+data has its `push ds; pop ax` (or `mov ax, ds`) rewritten to `mov ax,
+DGROUP`, which is what Windows' and Wine's loaders do so that a call from
+the program arrives with the DLL's data segment rather than the caller's.
+A DLL is loaded once and kept until the program ends: FreeLibrary counts,
+nothing unloads, because no program w16 runs depends on a library going
+away and an unload would have to prove no far pointer into it survives.

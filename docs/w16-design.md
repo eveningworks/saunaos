@@ -6,7 +6,7 @@ implements the Win16 API it calls -- KERNEL, USER, GDI -- on top of
 toywm. It answers "can toy-os run a Windows 3.11 program, and what is
 the smallest honest route there?"
 
-**STAGES 0-2 ARE BUILT (2026-10-18)**: `w16 --info` reads a program and names its imports, the CPU interpreter matches the host's own CPU on random instructions (`tools/cpu16_hostcheck.py`), and `w16 /usr/share/w16/hello.exe` opens a Windows 3.1 window in toywm that paints, moves, resizes and closes. **Since 2026-10-19** it minimizes, maximizes and opens its control menu (click the box, or Alt+Space), all through `WM_SYSCOMMAND` so a program may refuse, and a program that faults or calls something w16 lacks shows 3.1's Application Error box and leaves a crash report naming why (`/usr/share/w16/fault.exe`). **Minesweeper, from the maintainer's own Windows 3.11, is complete** -- it plays, and its menu bar, Best Times, Custom Field, About and Help all work (stage 3 below). **Notepad, too, is complete since that evening** -- it opens, edits, finds, word-wraps, uses the toy-os clipboard and saves, through a window tree (child windows), w16's EDIT, LISTBOX and COMBOBOX, KERNEL's file calls on drives C: and Z:, and COMMDLG's Open, Save As and Find in the 3.1 look ("Win16 Notepad" canvas, O1). **Since 2026-10-20** it draws in Windows 3.11's own fonts and COMMDLG's pictures when drive C: has them, programs see drives D: to Y:, the launcher is **Retro Launcher** (`userland/retrolauncher/`) with a folder list of any length, and a program opened from the File Manager gets the run card when calls it uses are missing; Solitaire waits on loading a program's own DLLs (CARDS.DLL, roadmap). Chosen that day: the emulated
+**STAGES 0-2 ARE BUILT (2026-10-18)**: `w16 --info` reads a program and names its imports, the CPU interpreter matches the host's own CPU on random instructions (`tools/cpu16_hostcheck.py`), and `w16 /usr/share/w16/hello.exe` opens a Windows 3.1 window in toywm that paints, moves, resizes and closes. **Since 2026-10-19** it minimizes, maximizes and opens its control menu (click the box, or Alt+Space), all through `WM_SYSCOMMAND` so a program may refuse, and a program that faults or calls something w16 lacks shows 3.1's Application Error box and leaves a crash report naming why (`/usr/share/w16/fault.exe`). **Minesweeper, from the maintainer's own Windows 3.11, is complete** -- it plays, and its menu bar, Best Times, Custom Field, About and Help all work (stage 3 below). **Notepad, too, is complete since that evening** -- it opens, edits, finds, word-wraps, uses the toy-os clipboard and saves, through a window tree (child windows), w16's EDIT, LISTBOX and COMBOBOX, KERNEL's file calls on drives C: and Z:, and COMMDLG's Open, Save As and Find in the 3.1 look ("Win16 Notepad" canvas, O1). **Since 2026-10-20** it draws in Windows 3.11's own fonts and COMMDLG's pictures when drive C: has them, programs see drives D: to Y:, the launcher is **Retro Launcher** (`userland/retrolauncher/`) with a folder list of any length, and a program opened from the File Manager gets the run card when calls it uses are missing; **Solitaire and Hearts run since that afternoon** -- Hearts loading its own CARDS.DLL (LoadLibrary, GetProcAddress, the prologues patched to its DGROUP), an MFC program whose WH_CALLWNDPROC hook w16 calls, and both compared pixel for pixel with the reference (below). Chosen that day: the emulated
 CPU in ring 3 (W1 below), the Windows 3.1 look all the way (L3 on the
 "Win16 windows in toywm" mockup canvas), the code in `userland/w16/`,
 and the name **w16** -- not WOW, which is Microsoft's term. "Win16" is
@@ -178,32 +178,59 @@ driver script (`win311vm.py`: `start`, `key`, `type`, `shot [--to]`,
 `floppy`, `stop`) and a screenshot of every install step. None of it
 enters this repo.
 
-**How:**
+**How** (both scripts are in the local-only folder, `scripts/compare/`,
+because they drive and copy Microsoft programs):
 
-1. **The same data on both.** One test file -- a heading, a blank line,
-   a line longer than the window, punctuation -- copied onto the
-   reference's C: (mtools, the VM stopped) and into `/home/Win16`.
-2. **A fresh toy-os image every run.** toywm remembers each app's last
-   size (`/etc/windows.conf`), so a reused image opens the program at
-   whatever size it was left, not at its own default.
-3. **The same keystrokes on both, one state per screenshot.** Keys, not
-   the mouse: the reference's pointer is relative and Windows
-   accelerates it, so a click cannot be aimed.
+1. **w16's side: `w16vm.py start`** -- a toy-os VM on slot 3 from a FRESH
+   copy of `disk.img` (after `make iso`; toywm remembers each app's last
+   size and place in `/etc/windows.conf`, so a reused image opens the
+   program wherever it was left), the programs under test copied to
+   `/home/Win16/sol/`, and **3.11's own VGA fonts** (VGASYS, VGAFIX,
+   VGAOEM, SSERIFE, SERIFE, COURE, SMALLE, SYMBOLE) to
+   `/home/Win16/WINDOWS/SYSTEM` -- drive C:'s, where w16 looks. `w16
+   --fonts` lists what it found. Then `run EXE TITLE`, `key`, `click`,
+   `drag`, `shot NAME`; `wins` prints every window's rectangle.
+2. **The reference's side: `win311vm.py start`**, then `type "win
+   c:\windows\X.EXE"`, `key ret`, and the same keys; `shot NAME`.
+3. **The same data and the same keystrokes on both, one state per
+   shot.** Keys, not the mouse: the reference's pointer is relative and
+   Windows accelerates it, so a click cannot be aimed. One test file --
+   a heading, a blank line, a line longer than the window, punctuation
+   -- on both C:s when the program reads one.
 4. **Close programs by APP ID between runs, never by title** -- a wrong
    title leaves the old window open and the next run's keys go into it
    (Minesweeper's Esc is its boss key: it minimises).
-5. **w16 at 1x** (`scale=1`): it reports a 640x480 screen, as the
-   reference has, so a default-sized window is the same size on both
-   and a pixel is a pixel.
-6. **Diff, then dump.** Crop each pair to the window, take a PIL
-   `ImageChops.difference` and count differing pixels per region
-   (caption, menu bar, each scroll bar, client) -- the regions that are
-   not zero say where to look. Then dump the region as a character map,
-   one character per pixel class (`#` black, `.` white, `o` face grey,
-   `+` shadow grey, `N` navy), from both, and compare row by row.
-7. Fix, re-shoot on a fresh image, diff again; then the GUI test
-   (`w16_gui_test.py`), whose expected colours and frame sizes are
-   3.11's too.
+5. **w16 at 1x** (`scale=1`, the default on a 1280-wide guest): it
+   reports a 640x480 screen, as the reference has, so a window is the
+   same size on both and a pixel is a pixel.
+6. **`w16diff.py REF.png OURS.png --size W,H`** finds the window in both
+   (a W x H black outline; or `--ref X,Y --ours X,Y`), prints how many
+   pixels differ and where, in 20 x 10 clusters. **The SIZE must match
+   first** -- a different size is the first difference. `--map
+   X0,Y0,X1,Y1` prints a region of both as one character per pixel (`#`
+   black, `.` white, `o` face grey, `+` shadow grey, `N` navy); read them
+   row by row against each other. `--sheet OUT.png` writes reference,
+   w16 and the difference in red, side by side -- what the maintainer is
+   sent.
+7. **Name what is not a drawing difference, never "fix" it:** the caret
+   (it blinks, so its state at the shot is chance); the mouse pointer
+   (the reference's shot has one); the PHASE of a 50% pattern -- 3.1's
+   grey text (GrayString) and focus dots are aligned to the SCREEN, so
+   they follow where each window happens to sit, and no fixed phase
+   matches every window; and a dialog's place, while it is toywm's (the
+   roadmap item). Everything else is a difference to fix.
+8. Fix, re-shoot on a fresh image, diff again until only (7) remains;
+   then the GUI test (`w16_gui_test.py`, its expected pixels 3.11's
+   too), and send the maintainer the before-and-after sheets.
+
+**Programs and states compared:**
+
+| Program | States | Result | When |
+|---|---|---|---|
+| Notepad | the window, File/Edit/Search menus, the control menu, Open, Save As, Find, About, a selection | frames, dialogs, scroll bars, menus, fonts matched by region (the round before w16diff.py); Find's caption rows 0 pixels on 2026-10-20 | 2026-10-19 |
+| Minesweeper | the board, Game menu, Custom Field, Best Times, the name entry, About | matched by region | 2026-10-19 |
+| Solitaire | Options; the board | Options 2152 pixels differed, now none but (7) | 2026-10-20 |
+| Hearts | the welcome dialog; a game after OK | the dialog 381 differed, now none but (7); the game by eye (the felt's green fixed) | 2026-10-20 |
 
 **What to compare** -- each state, each of these:
 
@@ -224,20 +251,21 @@ enters this repo.
 | Caption | 18 rows and a black line (W16_CAPTION 19) |
 | Menu bar | 18 rows and a black line (W16_MENU_H 19) |
 | Main frame | black, 2 grey, black: 4; notches 22 from each outer corner, on the caption buttons' edges |
-| Dialog frame | black and 4 of navy all round; a caption the client's width, edged white on its top and sides, its black line stopping at the white |
+| Dialog frame | DS_MODALFRAME (or WS_DLGFRAME without WS_BORDER): black and 4 of navy all round, a caption the client's width edged white on its top and sides, its black line stopping at the white (Notepad's Find). WS_CAPTION alone: one black line, the caption straight inside it, no white (Hearts) |
 | Control-menu box | 18 square; its bar 13 by 3, 2 in, 7 down, a shadow 1 down-right |
 | Scroll-bar arrows | head 7 wide, stem 3 by 3, 7 long, centred; grey with a white shadow when there is nothing to scroll, over a white trough with no thumb |
 | A top-level window's scroll bars | share their outer edge with the frame's inner line and the menu bar's line -- no second black line |
 | Button bevel | white top and left, one deep (two on a push button); shadow two deep, the inner line stopping at the white |
-| Push button | its label centred in the face left of the edge's shadow; a disabled default button loses its thick edge; disabled text a 50% dither (GrayString), not grey |
-| Check box, radio button | 13 by 13, the label 5 past it and a row below centre; the circle 3.11's stepped one, its dot 7 wide |
-| Group box | its frame from half a line down, the label a quarter line down, the gap 7 in |
-| Mnemonic underline | a row below the baseline (ascent + 1), a blank row between it and the letters |
+| Push button | its label centred in the face left of the edge's shadow by GDI's extent -- the overhang of a bold GDI made counts (Hearts' Help); the white two deep along the whole top and left; a disabled default button loses its thick edge; disabled text a 50% dither (GrayString), not grey |
+| Check box, radio button | 13 by 13, the label 5 past it at (height - text + 2) / 2; the circle 3.11's stepped one, open (its background shows inside), its dot 7 wide; the focus round the label one wider each side and above, two below |
+| Group box | its frame from half a line down, the label's cell 3 rows down, the gap 7 in, the label's cleared box counting the overhang; disabled, its label dithered too |
+| Mnemonic underline | a row below the baseline (ascent + 1), a blank row between it and the letters; the letter's width plus the overhang of a bold GDI made |
 | Menu bar | titles from the bar's left edge, each 8 in from its box |
 | List box | whole rows only, the foot moved up (unless LBS_NOINTEGRALHEIGHT); rows of folders or drives 16, the picture's height |
 | Combo box | shut, the font's height and 7; its button 17 wide, the arrow with a stem over a bar |
-| Colours | navy 0000A8, face grey C0C7C8, shadow grey 87888F (the VGA palette; ctl16.c's `w16_vga()`) |
+| Colours | navy 0000A8, face grey C0C7C8, shadow grey 87888F; dark green 00A857, teal 57A8A8, maroon A80057, purple A857A8, olive A8A857 -- a channel a step or two off 0x80 drawn as the palette's (Hearts' 0x007F00 felt is solid 00A857); stock and system-colour brushes the same (the VGA palette; ctl16.c's `w16_vga()`) |
 | Base units | System font 8x16; a template's `FONT 8, "Helv"` 7x13, drawn bold |
+| A dialog's first focus | the first tab stop -- for a radio button, the CHECKED one of its group (Solitaire's Options opens on Draw Three); Tab the same |
 | Units to pixels | an x from the template's own position, each end truncated; a y rounded; a width or height rounded (COMMDLG.DLL's templates: Open 264x134 at 36,24 is 462x218; Find 236x62 at 30,73 is 413x101) |
 | Font cells | System 16, Helv 8 13, Fixedsys 15 |
 | Edit text | a multi-line edit's at the client's left edge; a one-line field's 2 in |
