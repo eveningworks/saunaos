@@ -405,6 +405,10 @@ void uapp_minimize(struct uapp *a) {
     if (a && a->running) wmchan_send(WIN_REQ_WINDOW_STATE, a->window, WIN_STATE_MINIMIZE, 0, 0, 0);
 }
 
+void uapp_set_pointer(struct uapp *a, int x, int y) {
+    if (a && a->running) wmchan_send(WIN_REQ_SET_POINTER, a->window, x, y, 0, 0);
+}
+
 void uapp_set_maximized(struct uapp *a, int on) {
     if (a && a->running)
         wmchan_send(WIN_REQ_WINDOW_STATE, a->window, on ? WIN_STATE_MAXIMIZE : WIN_STATE_RESTORE, 0, 0, 0);

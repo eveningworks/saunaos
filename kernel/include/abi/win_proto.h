@@ -1047,6 +1047,14 @@ struct win_event {
 #define WIN_STATE_MAXIMIZE 2
 #define WIN_STATE_RESTORE  3   // un-maximize
 
+// `window`: one of the caller's toplevels; a, b: a point in its content.
+// The pointer is put there -- Win32's SetCursorPos, for a Win16 program's
+// keyboard play -- ONLY while that window has the focus and the point is
+// inside it, so a client can move the pointer within itself and nowhere
+// else (Wayland gives no warp at all, only a hint while the pointer is
+// locked). No reply; the client hears the motion as usual.
+#define WIN_REQ_SET_POINTER 45
+
 // --- popup surfaces (WIN_REQ_POPUP) ------------------------------------
 //
 // A POPUP IS A SECOND SURFACE OF THE SAME CLIENT, anchored to a rect of

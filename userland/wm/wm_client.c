@@ -1368,6 +1368,19 @@ static void req_window_state(int from, struct wmchan_msg *m) {
     }
 }
 
+static void req_set_pointer(int from, struct wmchan_msg *m) {
+    int idx = find_client_window(from, m->window);
+    if (idx < 0 || idx != wm_focus_index() || windows[idx].state == WIN_MINIMIZED) return;
+    struct window *win = &windows[idx];
+    if (m->a < 0 || m->b < 0 || m->a >= window_content_w(win) || m->b >= window_content_h(win)) return;
+    struct win_request_msg q;
+    k_memset(&q, 0, sizeof q);
+    q.type = WIN_REQ_WARP_POINTER;   // the compositor's own: it alone may move the pointer
+    q.a = window_content_x(win) + m->a;
+    q.b = window_content_y(win) + m->b;
+    sys_win_request(&q);
+}
+
 static void req_fullscreen(int from, struct wmchan_msg *m) {
     int idx = find_client_window(from, m->window);
     if (idx >= 0) wm_set_fullscreen(idx, m->a);
@@ -1571,6 +1584,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_MOVE_START] = req_move_start,
     [WIN_REQ_FULLSCREEN] = req_fullscreen,
     [WIN_REQ_WINDOW_STATE] = req_window_state,
+    [WIN_REQ_SET_POINTER] = req_set_pointer,
     [WIN_REQ_CURSOR] = req_cursor,
     [WIN_REQ_DRAG_START] = req_drag_start,
     [WIN_REQ_DRAG_END] = req_drag_end,

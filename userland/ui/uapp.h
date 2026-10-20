@@ -603,6 +603,9 @@ void uapp_set_fullscreen(struct uapp *a, int on);
 // taskbar. A fixed-size window is never maximized.
 void uapp_minimize(struct uapp *a);
 void uapp_set_maximized(struct uapp *a, int on);
+// The pointer put at (x, y) of the window's content -- honoured only while
+// the window has the focus and the point is inside it (WIN_REQ_SET_POINTER).
+void uapp_set_pointer(struct uapp *a, int x, int y);
 int  uapp_maximized(const struct uapp *a);    // as the last proposal said
 
 // Ask the compositor for a notice about `path`, a file this app just
