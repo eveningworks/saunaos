@@ -303,6 +303,25 @@ static uint32_t dlgcode(struct w16 *w, struct w16_wnd *c, uint16_t vk) {
     return c ? w16_send(w, c->hwnd, WM_GETDLGCODE, vk, 0) : 0;
 }
 
+// The control a tab stop gives the focus to: itself -- or, for a radio
+// button, the CHECKED one of its group (WS_GROUP to the next), as 3.11's
+// dialog manager did (Solitaire's Options opens on "Draw Three").
+static struct w16_wnd *tab_target(struct w16 *w, struct w16_wnd *d, struct w16_wnd *c) {
+    if (!c || !(dlgcode(w, c, 0) & DLGC_RADIOBUTTON)) return c;
+    int n, at = -1;
+    struct w16_wnd **v = w16_wnd_children(w, d->hwnd, &n), *hit = c;
+    for (int i = 0; v && i < n; i++) if (v[i] == c) at = i;
+    int first = at;
+    while (first > 0 && !(v[first]->style & WS_GROUP)) first--;
+    for (int i = first; v && at >= 0 && i < n; i++) {
+        if (i > first && (v[i]->style & WS_GROUP)) break;
+        if ((dlgcode(w, v[i], 0) & DLGC_RADIOBUTTON) && v[i]->visible && !(v[i]->style & WS_DISABLED) &&
+            (w16_send(w, v[i]->hwnd, WM_USER + 0, 0, 0) & 3)) { hit = v[i]; break; }   // BM_GETCHECK
+    }
+    free(v);
+    return hit;
+}
+
 static struct w16_wnd *focused_in(struct w16 *w, struct w16_wnd *d) {
     return w16_wnd_is_child(w, d->hwnd, w->focus) ? w16_wnd_get(w, w->focus) : 0;
 }
@@ -342,7 +361,7 @@ static void tab(struct w16 *w, struct w16_wnd *d, int back) {
     int start = at >= 0 ? at : back ? 0 : n - 1;
     for (int k = 1; k <= n; k++) {
         int i = ((start + (back ? -k : k)) % n + n) % n;
-        if (tabstop(v[i])) { dlg_focus(w, d, v[i], 1); break; }
+        if (tabstop(v[i])) { dlg_focus(w, d, tab_target(w, d, v[i]), 1); break; }
     }
     free(v);
 }
@@ -474,6 +493,7 @@ uint32_t w16_dialog_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_
             c = 0;
             for (int i = 0; v && i < n && !c; i++) if (tabstop(v[i])) c = v[i];
             free(v);
+            c = tab_target(w, d, c);
         }
         if (c && w->focus != c->hwnd) dlg_focus(w, d, c, 0);
         return 0;
@@ -512,7 +532,7 @@ static void start(struct w16 *w, struct w16_wnd *d, uint32_t param, int modal) {
     w16_task_post_arg(w, W16_POST_DLG_OPEN, h);
     uint32_t r = w16_send(w, h, WM_INITDIALOG, first ? first->hwnd : 0, param);
     d = w16_wnd_get(w, h);
-    if (d && (r & 0xFFFF) && first && w16_wnd_get(w, first->hwnd)) dlg_focus(w, d, first, 1);
+    if (d && (r & 0xFFFF) && first && w16_wnd_get(w, first->hwnd)) dlg_focus(w, d, tab_target(w, d, first), 1);
     if (d) w16_invalidate(w, d, 1);
 }
 

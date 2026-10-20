@@ -308,9 +308,11 @@ static void paint_push(struct w16 *w, struct w16_wnd *x, struct button *b, struc
     char *buf = strip_amp(x->text ? x->text : "", 1, &mark);
     if (!buf) return;
     int tw = ugfx_text_width(buf), lh = ugfx_char_h(), sh = b->pressed ? 1 : 0;
-    // Centred in the face left of the edge and its shadow, as 3.11 set it
-    // -- an even-width label rounds left (Hearts' Help, on the reference).
-    int tx = x0 + (bw - 3 - tw) / 2 + sh, ty = y0 + (bh - lh) / 2 + sh;
+    // Centred in the face left of the edge and its shadow, as 3.11 set it,
+    // by GDI's extent -- which counts the overhang of a bold GDI made
+    // (Hearts' dialog font; Solitaire's System font is bold of itself).
+    int ext = tw + w16_font_overhang(ugfx_font_current());
+    int tx = x0 + (bw - 2 - ext) / 2 + sh, ty = y0 + (bh - lh) / 2 + sh;
     ugfx_draw_string_clipped(s, tx, ty, bw - 4, buf, black, w16_rgb(0xC0C0C0));
     underline(s, tx, ty, buf, mark, black);
     if (x->style & WS_DISABLED) dither_out(s, tx, ty, tw, lh, black, w16_rgb(0xC0C0C0));
@@ -367,22 +369,25 @@ static void paint_check(struct w16 *w, struct w16_wnd *x, struct button *b, stru
     int mark;
     char *buf = strip_amp(x->text ? x->text : "", 1, &mark);
     if (!buf) return;
-    // The label 5 past the box, a row below centre, as 3.11 set it.
-    int tx = left ? x0 : x0 + box + 5, ty = y0 + (x->ch - lh + 1) / 2, room = x->cw - box - 5;
+    // The label 5 past the box, a row below centre (rounded down), as 3.11
+    // set it in the System font and a dialog's alike.
+    int tx = left ? x0 : x0 + box + 5, ty = y0 + (x->ch - lh + 2) / 2, room = x->cw - box - 5;
     ugfx_draw_string_clipped(s, tx, ty, room, buf, black, bg);
     underline(s, tx, ty, buf, mark, black);
     int tw = ugfx_text_width(buf);
     if (x->style & WS_DISABLED) dither_out(s, tx, ty, tw < room ? tw : room, lh, black, bg);
-    if (b->focused) w16_draw_focus(s, tx - 1, ty, (tw < room ? tw : room) + 2, lh);
+    // The focus round the label one wider each side and above, two below:
+    // 3.11's, measured in the System font (Solitaire's Options).
+    if (b->focused) w16_draw_focus(s, tx - 2, ty - 1, (tw < room ? tw : room) + 4, lh + 3);
     free(buf);
 }
 
 // A group box: a frame round its group, the label breaking its top edge.
 static void paint_group(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int x0, int y0) {
     uint32_t black = w16_rgb(0x000000), bg = w16_parent_bg(w, x);
-    // The frame's top at half a line, the label a quarter line down
-    // across it: 3.11's measured places.
-    int lh = ugfx_char_h(), mid = lh / 2, ty = y0 + lh / 4;
+    // The frame's top at half a line, the label's cell 3 rows down across
+    // it: 3.11's measured places, in the System font and a dialog's alike.
+    int lh = ugfx_char_h(), mid = lh / 2, ty = y0 + 3;
     ugfx_draw_rect(s, x0, y0 + mid, x->cw, x->ch - mid, black);
     int mark;
     char *buf = strip_amp(x->text ? x->text : "", 1, &mark);
