@@ -769,8 +769,11 @@ Lessons:
   mouse" and Write ran its keyboard interface -- the pointer warped to the
   window's middle at every dialog, no I-beam. The maintainer saw it in a
   minute; the trace had shown `GetSystemMetrics(0013) = 0` all along.
-- **An injected `gui drag` passed in both builds**, so it could not have
-  told the broken case apart; read the trace's answers, not the result.
+- **An injected `gui drag` cannot test a program's own drag loop**: it
+  queues every move before the program reads one, so a loop that polls
+  GetKeyState(VK_LBUTTON) on an empty queue never polls -- Write's drag
+  selection passed it while failing on the ASUS's real mouse (f0544e28).
+  Drive QMP's mouse at a human pace (press, hold, move in steps).
 - **Write's stops were nearly all OLD w16 bugs, found by disassembling the
   faulting segment** (ndisasm, selector (n<<3)|7): an OFSTRUCT written
   past a 132-byte buffer, INT 21h 47h leaving AL, a CS_OWNDC DC reset per
