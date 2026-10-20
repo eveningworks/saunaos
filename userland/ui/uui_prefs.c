@@ -136,17 +136,20 @@ int uui_prefs_row(int page, const char *caption, const struct uui_widget_ops *op
     g_row[i].row = (struct uui_layout){ .dir = UUI_ROW, .items = g_row[i].items, .count = 2,
                                         .margin = 1, .gap = 16 };
     // CARDS GET THE PAGE'S WIDTH, under their caption: beside it they fit
-    // two to a row and the page outgrows the window. So does a row with no
-    // caption -- a list or a card that is the page's subject.
-    int bare = !caption || !caption[0];
+    // two to a row and the page outgrows the window. So does a control with
+    // no caption that ASKS for it (UUI_FILL_W) -- a list or a card that is
+    // the page's subject. A captionless checkbox does not: checkboxes stack
+    // under the controls above them.
+    int bare = (!caption || !caption[0]) && (flags & UUI_FILL_W);
     if (ops == &uui_gallery_ops || bare) {
         g_row[i].row.dir = UUI_COLUMN;
         g_row[i].items[0].flags = 0;
         g_row[i].items[0].main_size = 0;
         g_row[i].items[0].hidden = bare;
     }
+    // A control that asks to grow down (a list) takes the page's spare height.
     g_page_items[2 + i] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_row[i].row,
-                                             .flags = UUI_FILL_W };
+                                             .flags = UUI_FILL_W | (flags & UUI_FILL_H) };
     g_focusables[g_nfocus++] = (struct uui_focusable){ widget, ops };
     return i;
 }
@@ -326,7 +329,7 @@ int uui_prefs_open(struct uapp *a) {
         .title = g_d.title,
         .w = w,
         .h = h,
-        .flags = UAPP_WIN_MODAL,
+        .flags = UAPP_WIN_MODAL | UAPP_WIN_RESIZABLE,
         .widgets = g_root_items,
         .widget_count = 2,
         .layout = &g_root_l,

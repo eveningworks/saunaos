@@ -31,6 +31,10 @@ struct uui_listedit {
     // Is the button with `code` usable with `row` (-1: none selected)?
     // NULL: a button needs a selected row unless it is the first (Add).
     int (*enabled)(void *ctx, int code, int row);
+    // Optional: the selected row's facts, "Label<TAB>value" lines, shown in
+    // a card under the table -- what a column has no room for. The text is
+    // the app's and lives until the next call; NULL or "" shows no card.
+    const char *(*details)(void *ctx, int row);
     void *ctx;
 };
 

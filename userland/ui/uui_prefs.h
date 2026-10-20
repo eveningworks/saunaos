@@ -5,7 +5,9 @@
 // of "Caption:  control  [control]" rows, over Defaults / OK / Cancel.
 // Dolphin's and Kate's Configure dialogs; Notepad, Screenshot, Terminal
 // and the File Manager all open theirs here. Modal; nothing is applied
-// until OK; Esc cancels and Return keeps.
+// until OK; Esc cancels and Return keeps. RESIZABLE, never below the size
+// it opened at: a row whose control asks for UUI_FILL_H (a list) takes the
+// spare height, as KDE's do.
 //
 // **THE WINDOW IS SHARED, THE CONTROLS ARE THE APP'S.** The app owns its
 // widgets and their ids (below UUI_PREFS_ID_BASE), fills them from its
@@ -63,7 +65,7 @@ void uui_prefs_begin(const struct uui_prefs_desc *d);
 
 // A row on `page`: a caption and its first control. A gallery gets the
 // page's width under its caption rather than beside it, and a control with
-// no caption ("" or NULL) the page's width alone. Returns the row,
+// no caption ("" or NULL) that asks for UUI_FILL_W the page's width alone. Returns the row,
 // or -1 when UUI_PREFS_ROWS_MAX are taken.
 int uui_prefs_row(int page, const char *caption, const struct uui_widget_ops *ops,
                   void *widget, int id, const char *name, unsigned flags);

@@ -296,6 +296,18 @@ struct uui_table {
         int settle;          // the drop's glide is still running
         int drop_x;          // where it would land: the marker, this frame
     } cdrag;
+    // --- column widths the user set. OWNED ---
+    // A header divider dragged sideways, or double-clicked to fit the
+    // widest cell -- Explorer's and Dolphin's headers, in EVERY table.
+    // Pixels, 0 for the declared width; saved with the layout as
+    // `id:width` where an app keeps one (uui_table_columns_save).
+    short user_w[UUI_TABLE_MAX_COLS];
+    struct {
+        int col;             // the column whose RIGHT edge is held, or -1
+        int press_x, start_w;
+        unsigned long long last_ns;   // the last divider press, for a double click
+        int last_col;
+    } rsz;
     // The glide: each column's drawn x eases to where the layout puts it.
     struct utween col_tw[UUI_TABLE_MAX_COLS];
     int col_tw_to[UUI_TABLE_MAX_COLS];

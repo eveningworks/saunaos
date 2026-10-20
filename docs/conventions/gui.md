@@ -1863,8 +1863,12 @@ this the obvious way), not from how much history it accumulated.
   and GNOME's `g_settings_bind()` are the shape. Checkboxes STACK, one
   row each with an empty caption -- two side by side ran off the window
   -- except a bound one `uui_prefs_also_check()` puts beside its
-  partner. Notepad, Screenshot, Terminal and the File Manager all use
-  it. A size for a monospace face comes from `ui/umonofont.h`.
+  partner. A control with no caption that asks for `UUI_FILL_W` (a
+  list, a card) takes the page's whole width instead; add `UUI_FILL_H`
+  and it takes the spare height too, for the window is RESIZABLE, never
+  below the size it opened at. Notepad, Screenshot, Terminal, the File
+  Manager and Retro Launcher all use it. A size for a monospace face
+  comes from `ui/umonofont.h`.
   `tools/notepad_options_test.py`, `screenshot_options_test.py`.
 - **A POPUP CHOOSES ON THE RELEASE, AND ONE CLOSED UNDER A PRESS OWES
   THAT PRESS A RELEASE.** `uui_dropdown` arms a row on the press and

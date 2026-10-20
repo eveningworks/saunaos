@@ -9,6 +9,8 @@
 #include "ui/uui_ctxmenu.h" // the header's column chooser
 #include "ui/uui_anim.h"    // the column glide: uui_anim_ms(), uui_anim_request()
 #include "rt/sys.h"         // sys_monotonic_ns() -- the glide's clock
+#include "lib/udclick.h"     // a divider's double click fits its column
+#include <stdio.h>
 
 // Left/right inset inside a column. Hoisted so natural_size() reserves
 // exactly what the draw uses -- the "one geometry, shared" rule the
@@ -90,6 +92,7 @@ void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
 
     t->col_mode = UUI_TABLE_COLS_FIXED;
     t->cdrag.armed = t->cdrag.active = 0;
+    t->rsz.col = t->rsz.last_col = -1;
     t->layout_changed = 0;
     memset(t->col_tw_on, 0, sizeof t->col_tw_on);
     uui_table_columns_reset(t);
@@ -117,6 +120,7 @@ void uui_table_columns_reset(struct uui_table *t) {
     for (int c = 0; c < t->col_count; c++) {
         t->col_order[c] = (unsigned char)c;
         t->col_hidden[c] = !col_locked(t, c) && (t->cols[c].flags & UUI_TCOL_HIDDEN);
+        t->user_w[c] = 0;
     }
     t->layout_changed = 1;
 }
@@ -173,12 +177,16 @@ int uui_table_columns_save(const struct uui_table *t, char *out, int cap) {
     for (int p = 0; p < t->col_count; p++) {
         int c = uui_table_column_at(t, p);
         const char *id = col_id(t, c);
-        int len = (int)strlen(id) + (p ? 1 : 0) + (uui_table_column_shown(t, c) ? 0 : 1);
+        char w[12] = "";
+        if (t->user_w[c] > 0) snprintf(w, sizeof w, ":%d", t->user_w[c]);
+        int len = (int)strlen(id) + (int)strlen(w) + (p ? 1 : 0) + (uui_table_column_shown(t, c) ? 0 : 1);
         if (n + len >= cap) { out[0] = '\0'; return 0; }   // refused, not truncated
         if (p) out[n++] = ',';
         if (!uui_table_column_shown(t, c)) out[n++] = '-';
         memcpy(out + n, id, strlen(id));
         n += (int)strlen(id);
+        memcpy(out + n, w, strlen(w));
+        n += (int)strlen(w);
         out[n] = '\0';
     }
     return n;
@@ -198,11 +206,18 @@ int uui_table_columns_load(struct uui_table *t, const char *s) {
         int len = e ? (int)(e - s) : (int)strlen(s);
         int hide = len > 0 && s[0] == '-';
         const char *name = s + hide;
-        int nlen = len - hide;
+        int nlen = len - hide, width = 0;
+        // `id:width` -- a width the user dragged, in pixels.
+        const char *colon = memchr(name, ':', (size_t)nlen);
+        if (colon) {
+            width = atoi(colon + 1);
+            nlen = (int)(colon - name);
+        }
         for (int c = 0; c < t->col_count; c++) {
             const char *id = col_id(t, c);
             if (seen[c] || (int)strlen(id) != nlen || strncmp(id, name, (size_t)nlen)) continue;
             seen[c] = 1;
+            t->user_w[c] = (short)(width > 0 && width < 10000 ? width : 0);
             order[n++] = (unsigned char)c;
             if (!col_locked(t, c)) hidden[c] = (unsigned char)hide;
             any = 1;
@@ -596,7 +611,8 @@ static void layout_cols(const struct uui_table *t, const unsigned char *order,
     int fixed = 0, stretch = 0;
     for (int i = 0; i < t->col_count; i++) {
         if (!uui_table_column_shown(t, i)) continue;
-        if (t->cols[i].width_chars > 0) fixed += col_fixed_w(t->cols[i].width_chars);
+        if (t->user_w[i] > 0) fixed += t->user_w[i];
+        else if (t->cols[i].width_chars > 0) fixed += col_fixed_w(t->cols[i].width_chars);
         else stretch++;
     }
 
@@ -612,6 +628,7 @@ static void layout_cols(const struct uui_table *t, const unsigned char *order,
         int c = order ? order[p] : p;
         int width;
         if (!uui_table_column_shown(t, c)) width = 0;
+        else if (t->user_w[c] > 0) width = t->user_w[c];
         else if (t->cols[c].width_chars > 0) width = col_fixed_w(t->cols[c].width_chars);
         else {
             seen_stretch++;
@@ -1365,6 +1382,49 @@ static void tb_ops_set_focused(void *w, int focused) {
 #define COL_DRAG_START 4
 #define COL_GLIDE_MS 150
 
+// --- resizing a column: its header's right edge -------------------------
+
+#define DIV_GRAB 3   // pixels either side of a divider that take it
+
+// The shown column whose right edge is at `cx` in the header, or -1.
+static int divider_at(const struct uui_table *t, int cx, int cy) {
+    int hh = uui_table_header_h(t);
+    if (hh <= 0 || cy < t->y || cy >= t->y + hh || cx < t->x || cx >= t->x + table_content_w(t)) return -1;
+    int best = -1, bd = DIV_GRAB + 1;
+    for (int c = 0; c < t->col_count; c++) {
+        if (!uui_table_column_shown(t, c)) continue;
+        int x, w;
+        uui_table_column_rect(t, c, &x, &w);
+        int d = cx - (x + w);
+        if (d < 0) d = -d;
+        if (w > 0 && d < bd) { bd = d; best = c; }
+    }
+    return best;
+}
+
+static int col_min_w(void) { return ugfx_char_w() * 3; }
+
+// Column `c` as wide as its widest cell or its title, whichever is wider.
+static void fit_column(struct uui_table *t, int c) {
+    char buf[256];
+    int w = ugfx_text_width(t->cols[c].title);
+    for (int r = 0; r < t->row_count && t->cell; r++) {
+        buf[0] = 0;
+        t->cell(t->ctx, r, c, buf, (int)sizeof buf);
+        int tw = ugfx_text_width(buf);
+        if (tw > w) w = tw;
+    }
+    w += UUI_TABLE_PAD_X * 2 + 2;
+    if (c == 0 && (t->icon || t->parent)) w += uui_table_row_h(t) + UUI_TABLE_PAD_X;   // its icon or expander
+    t->user_w[c] = (short)(w < col_min_w() ? col_min_w() : w);
+    t->layout_changed = 1;
+}
+
+static int tb_ops_cursor(const void *w, int cx, int cy) {
+    const struct uui_table *t = (const struct uui_table *)w;
+    return t->rsz.col >= 0 || divider_at(t, cx, cy) >= 0 ? WIN_CURSOR_RESIZE_H : WIN_CURSOR_DEFAULT;
+}
+
 static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
     (void)mods;
     struct uui_table *t = (struct uui_table *)w;
@@ -1372,6 +1432,24 @@ static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
     // column, so a press there has to be offered to the bar first or it
     // reaches nothing at all.
     if (uui_table_press(t, cx, cy)) return 1;
+    // A DIVIDER outranks its column's title: held, it resizes the column
+    // to its left; pressed twice in a double click's time, it fits it.
+    int div = divider_at(t, cx, cy);
+    if (div >= 0) {
+        unsigned long long now = sys_monotonic_ns();
+        if (div == t->rsz.last_col && now - t->rsz.last_ns <= udclick_ns()) {
+            fit_column(t, div);
+            t->rsz.last_col = -1;
+            return 1;
+        }
+        int x;
+        uui_table_column_rect(t, div, &x, &t->rsz.start_w);
+        t->rsz.col = div;
+        t->rsz.press_x = cx;
+        t->rsz.last_col = div;
+        t->rsz.last_ns = now;
+        return 1;
+    }
     // MOVABLE COLUMNS ARM ON THE PRESS: what it becomes -- a drag, or a
     // sort click -- is decided by the motion after it, as a taskbar
     // button's is. Without them the header still sorts on the press.
@@ -1392,6 +1470,13 @@ static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
 
 static int tb_ops_motion(void *w, int cx, int cy, unsigned buttons) {
     struct uui_table *t = (struct uui_table *)w;
+    if ((buttons & 1) && t->rsz.col >= 0) {
+        int nw = t->rsz.start_w + cx - t->rsz.press_x;
+        if (nw < col_min_w()) nw = col_min_w();
+        if (nw == t->user_w[t->rsz.col]) return 0;
+        t->user_w[t->rsz.col] = (short)nw;
+        return 1;
+    }
     if ((buttons & 1) && t->cdrag.armed) {
         int dx = cx - t->cdrag.press_x;
         if (!t->cdrag.active && (dx > COL_DRAG_START || dx < -COL_DRAG_START) &&
@@ -1413,6 +1498,11 @@ static int tb_ops_motion(void *w, int cx, int cy, unsigned buttons) {
 static int tb_ops_release(void *w, int cx, int cy) {
     (void)cx; (void)cy;
     struct uui_table *t = (struct uui_table *)w;
+    if (t->rsz.col >= 0) {
+        if (t->user_w[t->rsz.col] > 0) t->layout_changed = 1;
+        t->rsz.col = -1;
+        return 1;
+    }
     if (t->cdrag.armed) {
         t->cdrag.armed = 0;
         if (!t->cdrag.active)   // never moved: it was a click on the title
@@ -1520,4 +1610,5 @@ const struct uui_widget_ops uui_table_ops = {
     .wheel = tb_ops_wheel,
     .describe = tb_ops_describe,
     .bounds = tb_ops_bounds,
+    .cursor = tb_ops_cursor,
 };

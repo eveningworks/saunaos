@@ -398,6 +398,9 @@ struct uapp_window;
 // The window draws its OWN frame (WIN_HINT_NO_DECOR), as UAPP_NO_DECOR
 // does for the main window: w16's dialogs, in Windows 3.1's frame.
 #define UAPP_WIN_NO_DECOR 0x02
+// The user may resize it, never below the size it opened at; its layout
+// follows (a list given UUI_FILL_H grows). The Options window's.
+#define UAPP_WIN_RESIZABLE 0x04
 
 struct uapp_window_desc {
     const char *title;

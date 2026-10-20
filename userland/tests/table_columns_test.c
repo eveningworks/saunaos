@@ -12,6 +12,7 @@
 #include "ui/uui_table.h"
 #include "ui/uui_ctxmenu.h"
 #include "lib/utest.h"
+#include "win_proto.h"   // WIN_CURSOR_*
 
 static void ok(const char *name, int cond, const char *detail) {
     utest_check_detail(cond, name, detail);
@@ -153,6 +154,58 @@ int main(int argc, char **argv) {
     ok("choosing Name does nothing", !src.run(src.w, 1) && uui_table_column_shown(&t, 0), "");
     src.run(src.w, src.items[src.count - 1].code);
     oks("Reset columns", layout(&t), "name,pid,cpu,read,-extra");
+
+    // --- resizing: a header divider, in any mode ---
+    uui_table_set_columns_mode(&t, UUI_TABLE_COLS_FIXED);
+    uui_table_columns_reset(&t);
+    uui_table_take_layout_changed(&t);
+    int px, pw, cx2, cw2;
+    uui_table_column_rect(&t, 1, &px, &pw);
+    uui_table_column_rect(&t, 2, &cx2, &cw2);
+    int hy = t.y + uui_table_header_h(&t) / 2;
+    ok("over PID's right edge the pointer is the resize arrow",
+       uui_table_ops.cursor(&t, px + pw, hy) == WIN_CURSOR_RESIZE_H, "");
+    ok("...and over its title it is not", uui_table_ops.cursor(&t, px + pw / 2, hy) == WIN_CURSOR_DEFAULT, "");
+    uui_table_ops.press(&t, px + pw, hy, 0);
+    uui_table_ops.motion(&t, px + pw + 15, hy, 1);
+    uui_table_ops.motion(&t, px + pw + 30, hy, 1);
+    uui_table_ops.release(&t, px + pw + 30, hy);
+    int nx, nw;
+    uui_table_column_rect(&t, 1, &nx, &nw);
+    char d[96];
+    snprintf(d, sizeof d, "was %d, now %d", pw, nw);
+    ok("dragging PID's divider 30 px right widens it by 30", nw == pw + 30, d);
+    // Name, the stretching column, gives up the 30: CPU keeps its width
+    // and starts where PID now ends.
+    int p2x, p2w;
+    uui_table_column_rect(&t, 1, &p2x, &p2w);
+    uui_table_column_rect(&t, 2, &nx, &nw);
+    ok("...CPU follows it, its width kept", nx == p2x + p2w && nw == cw2, "");
+    ok("...no sort happened", t.sort_col != 1, "");
+    ok("...and the app is told the layout changed", uui_table_take_layout_changed(&t), "");
+    char want[64];
+    snprintf(want, sizeof want, "name,pid:%d,cpu,read,-extra", pw + 30);
+    oks("the width is saved with the layout", layout(&t), want);
+    uui_table_columns_load(&t, "name,pid,cpu:77,read");
+    uui_table_column_rect(&t, 2, &nx, &nw);
+    ok("load: cpu:77 makes CPU 77 wide", nw == 77, "");
+    uui_table_column_rect(&t, 1, &nx, &nw);
+    snprintf(d, sizeof d, "PID %d, declared %d", nw, pw);
+    ok("...and a column named without one keeps its declared width", nw == pw, d);
+    // A double click on the divider fits the column: "4.3" is the widest
+    // of CPU's cells (rows 0..4), wider than its title.
+    uui_table_column_rect(&t, 2, &nx, &nw);
+    uui_table_ops.press(&t, nx + nw, hy, 0);
+    uui_table_ops.release(&t, nx + nw, hy);
+    uui_table_ops.press(&t, nx + nw, hy, 0);
+    uui_table_ops.release(&t, nx + nw, hy);
+    int fx, fw, need = ugfx_text_width("CPU") > ugfx_text_width("4.2") ? ugfx_text_width("CPU") : ugfx_text_width("4.2");
+    uui_table_column_rect(&t, 2, &fx, &fw);
+    snprintf(d, sizeof d, "width %d, the widest text %d", fw, need);
+    ok("a double click on CPU's divider fits it to its widest cell", fw >= need && fw < need + 24 && fw != 77, d);
+    uui_table_columns_reset(&t);
+    uui_table_column_rect(&t, 2, &fx, &fw);
+    ok("Reset columns forgets the widths", fw == cw2, "");
 
     return utest_end();
 }

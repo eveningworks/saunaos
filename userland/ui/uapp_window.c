@@ -115,8 +115,14 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
             !buttons_heard(&d->top.router, desc->on_action != 0, desc->title))
             d->top.router.count = 0;
     }
-    if (desc->flags & UAPP_WIN_NO_DECOR)
-        wmchan_send(WIN_REQ_HINTS, (uint32_t)slot, WIN_HINT_NO_DECOR, 0, 0, 0);
+    // ONE hints message: it states every flag, so two would undo each other.
+    if (desc->flags & (UAPP_WIN_NO_DECOR | UAPP_WIN_RESIZABLE)) {
+        int resizable = (desc->flags & UAPP_WIN_RESIZABLE) != 0;
+        wmchan_send(WIN_REQ_HINTS, (uint32_t)slot,
+                    ((desc->flags & UAPP_WIN_NO_DECOR) ? WIN_HINT_NO_DECOR : 0) |
+                    (resizable ? WIN_HINT_RESIZABLE : 0),
+                    resizable ? w : 0, resizable ? h : 0, 0);
+    }
     d->top.dirty = 1;
     dlg_flush(d);
     return d;
@@ -564,6 +570,20 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
     case WIN_EV_WHEEL:
         top_wheel(&w->top, (int)ev->a);
         return;
+    case WIN_EV_RESIZE: {
+        // uapp_resize()'s answer for a dialog. A fixed one declines by
+        // presenting at its own size, which the compositor adopts.
+        w->top.dirty = 1;
+        if (!(d->flags & UAPP_WIN_RESIZABLE)) return;
+        struct uapp_surf *s = &g_surf[w->top.slot];
+        int rw = ev->a < d->w ? d->w : ev->a, rh = ev->b < d->h ? d->h : ev->b;
+        clamp_to_screen(&rw, &rh);
+        if (s->back >= 0 && !buf_make(s, s->back, rw, rh)) return;
+        s->w = rw;
+        s->h = rh;
+        if (s->back >= 0) s->surface = ugfx_surface_for_pixels(s->px[s->back], rw, rh);
+        return;
+    }
     default:
         return;
     }
