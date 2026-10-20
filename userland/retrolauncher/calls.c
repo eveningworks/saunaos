@@ -74,8 +74,9 @@ static const struct uui_table_column COLS[] = {
     { "Kind",          14, UUI_TALIGN_LEFT,  0, 0 },
     { "Status",        10, UUI_TALIGN_LEFT,  0, 0 },
     { "What w16 does",  0, UUI_TALIGN_LEFT,  0, 0 },
+    { "",               7, UUI_TALIGN_LEFT,  "why", UUI_TCOL_ACTION },   // a stand-in's Why?
 };
-enum { COL_STATUS = 4, COL_NOTE };
+enum { COL_STATUS = 4, COL_NOTE, COL_WHY };
 
 static const char *note_of(const struct call *c) {
     return c->status == ST_MISSING ? "not yet: the program stops if it calls this" : c->note;
@@ -131,7 +132,7 @@ static int load(void) {
         }
         l = nl ? nl + 1 : 0;
     }
-    // Calls imported BY NAME are counted but not listed: All is the total.
+    // A call imported by a name w16 does not know is counted but not listed: All is the total.
     g_st_counts[ST_ALL] = g_imports;
     const char *base = strrchr(g_path, '/');
     g_name = w16_short_title(desc && *desc ? desc : base ? base + 1 : g_path);
@@ -223,6 +224,7 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
     case 2: snprintf(out, (size_t)cap, "%s", c->name); break;
     case 3: snprintf(out, (size_t)cap, "%s", c->kind); break;
     case COL_STATUS: snprintf(out, (size_t)cap, "%s", ST_NAMES[c->status]); break;
+    case COL_WHY: snprintf(out, (size_t)cap, "%s", c->status == ST_PARTLY ? "Why?" : ""); break;
     default: snprintf(out, (size_t)cap, "%s", note_of(c)); break;
     }
 }
@@ -245,7 +247,7 @@ static int compare(void *ctx, int a, int b, int col) {
     case 1: r = (x->ordinal > y->ordinal) - (x->ordinal < y->ordinal); break;
     case 2: r = strcmp(x->name, y->name); break;
     case 3: r = strcmp(x->kind, y->kind); break;
-    case COL_STATUS: r = x->status - y->status; break;
+    case COL_STATUS: case COL_WHY: r = x->status - y->status; break;
     default: r = strcmp(note_of(x), note_of(y)); break;
     }
     if (r || col == 0) return r ? r : (x->ordinal > y->ordinal) - (x->ordinal < y->ordinal);
@@ -378,6 +380,15 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_TOOLBAR: if ((code = uui_toolbar_take_code(&g_tb)) > 0) command(a, code); break;
     case ID_SHOW: build_chips(); build_rows(); break;
     case ID_CHIPS: case ID_SEARCH: build_rows(); break;
+    case ID_TABLE: {
+        // A stand-in's Why? cell, or Enter on its row.
+        int r = uui_table_take_action(&g_table, 0);
+        if (r >= 0 && r < g_nrows) {
+            const struct call *c = &g_calls[g_rows[r]];
+            retro_why_open(a, c->module, c->ordinal, c->name);
+        }
+        break;
+    }
     default: break;
     }
     uapp_redraw(a);

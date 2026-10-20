@@ -981,7 +981,7 @@ EXTRA_OBJS_paint      = paint/paint_tools paint/paint_resize paint/paint_text pa
 EXTRA_OBJS_terminal   = term/term_conf term/term_prefs term/term_panel
 # Retro Launcher reads and writes the settings w16 runs by;
 # userland/retrolauncher/ holds its calls window and what both windows share.
-EXTRA_OBJS_retrolauncher = w16/w16prefs retrolauncher/check retrolauncher/calls retrolauncher/fonts retrolauncher/sounds
+EXTRA_OBJS_retrolauncher = w16/w16prefs retrolauncher/check retrolauncher/calls retrolauncher/fonts retrolauncher/sounds retrolauncher/why
 # Shapes keeps its teapot mesh in userland/shapes/, outside the program
 # directories for the reason userland/fm/ is (see EXTRA_OBJS_files).
 EXTRA_OBJS_gfxdemo    = shapes/teapot
@@ -2045,10 +2045,14 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' grub.cfg > $(BUILD)/grub-disk.cfg
 	python3 tools/install_grub.py --stage-payload $(SEED_DIR)/sync/install \
 	    --kernel $(KERNEL_MEDIA) --grub-cfg $(BUILD)/grub-disk.cfg
-	# Getting started: Markdown pages like the command pages, so Help
-	# and `doc` read them the same way.
-	mkdir -p $(SEED_DIR)/sync/usr/share/doc/guide
-	cp data/usr/share/doc/guide/*.md $(SEED_DIR)/sync/usr/share/doc/guide/
+	# Getting started, and each other category of hand-written pages
+	# (windows/: w16's stand-ins): Markdown like the command pages, so
+	# Help and `doc` read them the same way. A category is a directory,
+	# so a new one needs no line here.
+	for d in data/usr/share/doc/*/; do \
+		mkdir -p $(SEED_DIR)/sync/usr/share/doc/$$(basename $$d) && \
+		cp $$d*.md $(SEED_DIR)/sync/usr/share/doc/$$(basename $$d)/ || exit 1; \
+	done
 	# The command pages, staged UNCONVERTED from docs/commands/ -- the
 	# same Markdown the repository is written in, rendered at display
 	# time by /bin/doc (userland/lib/umd.h says why not at build time).

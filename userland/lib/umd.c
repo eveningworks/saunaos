@@ -714,6 +714,28 @@ int umd_field(const char *src, int len, const char *name, char *out, int cap) {
     return 0;
 }
 
+int umd_section_find(const char *src, int len, const char *key, int *off) {
+    int i = 0, start = -1;
+    size_t kn = strlen(key);
+    while (i < len) {
+        int at = i;
+        struct line l = next_line(src, len, &i);
+        int lv = heading_level(l);
+        if (!lv) continue;
+        if (start >= 0 && lv <= 2) {
+            *off = start;
+            return at - start;
+        }
+        // The first word, exactly: "USER.12" must not find "USER.121".
+        if (lv == 2 && start < 0 && (size_t)(l.n - 3) >= kn && !memcmp(l.s + 3, key, kn) &&
+            ((size_t)(l.n - 3) == kn || l.s[3 + kn] == ' '))
+            start = at;
+    }
+    if (start < 0) return 0;
+    *off = start;
+    return len - start;
+}
+
 int umd_section_para(const char *src, int len, const char *name,
                      char *out, int cap) {
     int i = 0;

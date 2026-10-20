@@ -602,6 +602,15 @@ int uui_table_take_action(struct uui_table *t, int *col) {
     return r;
 }
 
+// Does `row` show a button in action column `col`? A row whose cell is
+// empty has none, and a click or Enter there is no action.
+static int has_action(const struct uui_table *t, int row, int col) {
+    char buf[UUI_TABLE_CELL_MAX];
+    buf[0] = 0;
+    if (t->cell) t->cell(t->ctx, row, col, buf, (int)sizeof buf);
+    return buf[0] != 0;
+}
+
 // The first shown action column, or -1: what Enter acts on.
 static int first_action_col(const struct uui_table *t) {
     for (int p = 0; p < t->col_count; p++) {
@@ -1281,7 +1290,7 @@ int uui_table_click(struct uui_table *t, int cx, int cy) {
             int x, w;
             if (!(t->cols[c].flags & UUI_TCOL_ACTION) || !uui_table_column_shown(t, c)) continue;
             uui_table_column_rect(t, c, &x, &w);
-            if (w > 0 && cx >= x && cx < x + w) {
+            if (w > 0 && cx >= x && cx < x + w && has_action(t, idx, c)) {
                 t->acted = idx;
                 t->acted_col = c;
                 t->selected = idx;
@@ -1447,6 +1456,7 @@ int uui_table_key(struct uui_table *t, int key) {
                                        if (view >= vcount(t)) view = vcount(t) - 1; }
     // A PRINTABLE KEY IS A SEARCH, not a keystroke to pass on.
     else if ((key == '\n' || key == '\r') && t->selected >= 0 && first_action_col(t) >= 0) {
+        if (!has_action(t, t->selected, first_action_col(t))) return 0;
         t->acted = t->selected;
         t->acted_col = first_action_col(t);
         return 1;

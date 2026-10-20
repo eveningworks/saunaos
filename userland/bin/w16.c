@@ -20,6 +20,7 @@
 #include "keyboard.h"
 #include "win_proto.h"
 #include "lib/uargs.h"
+#include "lib/umd.h"
 #include "lib/udclick.h"
 #include "lib/uclip_page.h"   // CLIP_SHM_NAME: the clipboard an EDIT copies to
 #include "rt/sys.h"
@@ -38,6 +39,7 @@
 static int g_info, g_check, g_fonts, g_sounds;
 static char g_tail[127];                 // the program's command line: DOS's 126 characters
 static const char *g_trace_path;
+static const char *g_why;                // --why CALL
 static char g_exe[W16_PATH_MAX];         // the program, as an absolute path: its settings' key
 
 static const struct uargs_opt OPTS[] = {
@@ -50,12 +52,14 @@ static const struct uargs_opt OPTS[] = {
       &g_sounds, NULL },
     { "trace", 't', "FILE", "log every Windows call the program makes to FILE (Wine's +relay)",
       NULL, &g_trace_path },
+    { "why", 'w', "CALL", "say why CALL (USER.121) is only partly there, from the stand-ins page",
+      NULL, &g_why },
     { 0 },
 };
 
 static const struct uargs_prog PROG = {
     .name = "w16",
-    .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE\n--fonts\n--sounds",
+    .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE\n--fonts\n--sounds\n--why CALL",
     .summary = "Run a 16-bit Windows (Windows 3.x) program in a window, or with --info\n"
                "list what an NE executable holds and the Windows functions it imports.\n"
                "Only a few functions are implemented so far: a program that calls one\n"
@@ -740,14 +744,22 @@ static int check(const uint8_t *img, uint32_t size) {
         for (unsigned i = 0; i < m.seg[s - 1].nrelocs; i++) {
             struct ne_reloc r;
             if (ne_reloc_at(&m, s, i, &r) < 0) continue;
-            if ((r.flags & 3) == NE_REL_IMPORT_NAME) { by_name++; continue; }
-            if ((r.flags & 3) != NE_REL_IMPORT_ORD || r.a < 1 || r.a > m.nmod) continue;
+            unsigned ord = r.b;
+            if ((r.flags & 3) == NE_REL_IMPORT_NAME) {
+                // By name, as the loader takes it: a Windows module's names
+                // are known, so it is listed under its ordinal like the rest.
+                char fn[64];
+                ord = r.a >= 1 && r.a <= m.nmod && w16_is_builtin(mods[r.a - 1])
+                      && ne_imported_name(&m, r.b, fn, sizeof fn) == 0 ? w16_builtin_ordinal(mods[r.a - 1], fn) : 0;
+                if (!ord) { by_name++; continue; }
+            } else if ((r.flags & 3) != NE_REL_IMPORT_ORD) continue;
+            if (r.a < 1 || r.a > m.nmod) continue;
             if (nseen == cap) {
                 uint32_t *g = realloc(seen, sizeof *seen * (cap = cap ? cap * 2 : 256));
                 if (!g) { printf("error out of memory\n"); return 1; }
                 seen = g;
             }
-            seen[nseen++] = (uint32_t)r.a << 16 | r.b;
+            seen[nseen++] = (uint32_t)r.a << 16 | ord;
         }
     qsort(seen, nseen, sizeof *seen, cmp_u32);
     unsigned u = 0;
@@ -806,7 +818,7 @@ static void sounds_list(void) {
     };
     static const char *const STATUS[] = { "found", "missing", "none", "off" };
     g_w16_prefs.sounds = W16_SOUNDS_WIN311;
-    char names[4096];
+    static char names[4096], ini[160], host[600], toyos[600];   // one-shot: off the stack
     size_t n = w16_ini_names("WIN.INI", "sounds", names, sizeof names);
     const char *list[64];
     int k = 0;
@@ -814,7 +826,6 @@ static void sounds_list(void) {
     if (!k)
         for (unsigned i = 0; i < sizeof STD / sizeof STD[0]; i++) list[k++] = STD[i].alias;
     for (int i = 0; i < k; i++) {
-        char ini[160], host[600], toyos[600];
         int st = w16_sound_resolve(list[i], ini, sizeof ini, host, sizeof host);
         g_w16_prefs.sounds = W16_SOUNDS_TOYOS;
         w16_sound_resolve(list[i], toyos, sizeof toyos, toyos, sizeof toyos);
@@ -831,6 +842,33 @@ static void sounds_list(void) {
     }
 }
 
+// `--why CALL`: CALL's section of the stand-ins page, rendered for a
+// terminal as `doc` renders a page.
+static int why(const char *call) {
+    if (unveil(W16_STANDINS_DOC, "r") != 0 || unveil(NULL, NULL) != 0 || pledge("stdio rpath", NULL) != 0) {
+        fprintf(stderr, "w16: cannot sandbox myself, so I will not read the stand-ins page\n");
+        return 1;
+    }
+    uint32_t size = 0;
+    char *doc = (char *)slurp(W16_STANDINS_DOC, &size);
+    int off = 0, n = doc ? umd_section_find(doc, (int)size, call, &off) : 0;
+    if (!n) {
+        fprintf(stderr, "w16: %s is no stand-in w16 explains (`w16 --check FILE` lists a program's)\n", call);
+        free(doc);
+        return 1;
+    }
+    struct umd_opts mo = { .cols = 80, .color = isatty(1), .indent = 3 };
+    int cap = n * 4 + 8192;                      // indent and colour codes on every line
+    struct umd_out o = { malloc((size_t)cap), cap, 0, 0 };
+    if (o.buf) {
+        umd_render(doc + off, n, &mo, &o);
+        fwrite(o.buf, 1, (size_t)o.len, stdout);
+    }
+    free(o.buf);
+    free(doc);
+    return o.buf ? 0 : 1;
+}
+
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
@@ -844,6 +882,10 @@ int main(int argc, char **argv) {
         }
         w16_fonts_list(stdout);
         return 0;
+    }
+    if (g_why) {
+        if (a.argc) return uargs_error(&PROG, "--why takes no FILE");
+        return why(g_why);
     }
     if (g_sounds) {                              // WIN.INI's [sounds] on drive C:, read in the sandbox
         if (a.argc) return uargs_error(&PROG, "--sounds takes no FILE");

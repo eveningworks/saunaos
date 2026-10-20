@@ -64,6 +64,11 @@ file is involved.
 13. **Options > Sound**: Windows 3.11's seven events with no WIN.INI on
    drive C:; the first row's Play plays toy-os's chime, and nothing once
    the Sounds choice is Off (before OK).
+14. **Why?** on a stand-in: IsIconic's cell in fault.exe's calls window
+   and its link in the details panel each open "IsIconic - partly there"
+   with its section of the stand-ins page; a Missing row's empty cell
+   opens nothing; `w16 --why USER.31` prints it and `--why USER.7` is
+   refused.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -793,6 +798,9 @@ def calls_log(dbg):
         m = re.search(CALLS + r"(\w+) (-?\d+) (-?\d+) (\d+) (\d+)$", line)
         if m:
             out[m.group(1)] = tuple(int(v) for v in m.groups()[1:])
+        m = re.search(CALLS + r"(\w+\.\w+) (-?\d+)$", line)
+        if m:
+            out[m.group(1)] = int(m.group(2))
     return out
 
 
@@ -804,6 +812,37 @@ def wait_calls(dbg, pred, t=8.0):
             return got
         time.sleep(0.3)
     return got
+
+
+WHY_TITLE = "IsIconic - partly there"
+
+
+def why_link(dbg, res):
+    """The details panel's "Partly there" list: IsIconic's Why? link opens
+    the same window the calls window's Why? does."""
+    dbg.logs("retrolauncher", clear=True)
+    dbg.send(f"gui spawn {LAUNCHER_BIN} --show /usr/share/w16/fault.exe")
+    if not wait_title(dbg, "Retro Launcher"):
+        res.check("Retro Launcher opens for the Why? link", False, "")
+        return
+    layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "why 0") is not None)   # drawn once
+    dbg.send("gui resize 1200 700")
+    dbg.settle()
+    time.sleep(1.5)
+    lines = dbg.logs("retrolauncher:", clear=True)   # the LAST report is after the resize
+    r, win = layout_rect(lines, "why 0"), dbg.window("Retro Launcher")
+    if not r or not win:
+        res.check("the panel reports IsIconic's Why? link", False, f"{r} {win}")
+    else:
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(win["content"]["x"] + r[0] + r[2] // 2, win["content"]["y"] + r[1] + r[3] // 2)
+        titles = wait_titles(dbg, lambda t: WHY_TITLE in t)
+        why = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": why " in ln]
+        res.check("the panel's Why? beside IsIconic opens its explanation",
+                  WHY_TITLE in titles and any(ln.endswith("why USER.31 shown") for ln in why),
+                  f"windows {titles} log {why}")
+        dbg.close_window(WHY_TITLE)
+    dbg.close_window("Retro Launcher")
 
 
 def calls(dbg, res):
@@ -837,6 +876,21 @@ def calls(dbg, res):
     res.check("the Partly chip lists the stand-in, USER.31 IsIconic",
               lay.get("show") == 2 and lay.get("rows") == 1 and lay.get("first") == "USER.31 IsIconic",
               f"{ {k: lay.get(k) for k in ('rows', 'show', 'first')} }")
+    # Why? on its row: the call's section of the stand-ins page, in a
+    # window of its own -- and a Works row's empty cell opens nothing.
+    lay.update(wait_calls(dbg, lambda l: "calls.col6" in l and "calls.row_h" in l and "calls.header_h" in l))
+    col, rh, hh = lay.get("calls.col6"), lay.get("calls.row_h"), lay.get("calls.header_h")
+    if col and rh and hh:
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(cx + col[0] + col[2] // 3, cy + col[1] + hh + rh // 2)
+        titles = wait_titles(dbg, lambda t: WHY_TITLE in t)
+        why = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": why " in ln]
+        res.check("Why? on IsIconic's row opens its explanation in a window of its own",
+                  WHY_TITLE in titles and any(ln.endswith("why USER.31 shown") for ln in why),
+                  f"windows {titles} log {why}")
+        dbg.close_window(WHY_TITLE)
+    else:
+        res.check("the calls table reports its Why? column", False, f"{col} {rh} {hh}")
     chip(0)
     lay.update(wait_calls(dbg, lambda l: l.get("show") == 0))
     res.check("the All chip lists every import w16 --check counts",
@@ -855,6 +909,20 @@ def calls(dbg, res):
     dbg.send("gui key 0x03")
     lay = wait_calls(dbg, lambda l: l.get("copied", -1) >= 0)
     res.check("Ctrl+C copies the rows shown", lay.get("copied") == 1, f"copied {lay.get('copied')}")
+    # ExitWindows's row (Missing) has no Why?: its cell opens nothing. The
+    # table has not moved since its Why? column was read above.
+    if col and rh and hh:
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(cx + col[0] + col[2] // 3, cy + col[1] + hh + rh // 2)
+        dbg.settle(0.6)
+        why = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": why " in ln]
+        res.check("a Missing row's empty Why? cell opens nothing", not why and
+                  WHY_TITLE not in [w["title"] for w in dbg.windows()], f"{why}")
+    out = sh(dbg, "w16 --why USER.31")
+    res.check("`w16 --why USER.31` prints IsIconic's section", "IsIconic" in out and "Always says no" in out,
+              out[-300:])
+    out = sh(dbg, "w16 --why USER.7")
+    res.check("...and refuses a call that is no stand-in", "no stand-in" in out, out[-200:])
     dbg.close_window("Fault test - calls")
 
     win = dbg.spawn("/bin/wm/apps/retrolauncher --calls /usr/share/w16/gdi.exe", "GDI test - calls")
@@ -895,6 +963,7 @@ def main():
         from_file_manager(dbg, qmp, res)
         panel_and_options(dbg, qmp, res)
         sound_page(dbg, res)
+        why_link(dbg, res)
         dialogs(dbg, qmp, res)
     finally:
         dbg.close()

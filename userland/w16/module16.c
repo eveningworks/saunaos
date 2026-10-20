@@ -40,7 +40,7 @@ int w16_is_builtin(const char *module) {
 }
 
 // A Windows module's export by name: its ordinal, 0 when unknown.
-static unsigned builtin_ordinal(const char *module, const char *name) {
+unsigned w16_builtin_ordinal(const char *module, const char *name) {
     if (same(module, "KRNL386")) module = "KERNEL";
     for (const struct w16_name_module *m = w16_name_modules; m->module; m++)
         if (same(m->module, module))
@@ -129,7 +129,7 @@ static int import_target(struct w16 *w, const struct w16_image *im, unsigned mod
     if (by_name && ne_imported_name(im->ne, b, fn, sizeof fn) < 0)
         return fail(im->path, why, cap, "an imported function's name is malformed");
     if (w16_is_builtin(mod)) {
-        unsigned ord = by_name ? builtin_ordinal(mod, fn) : b;
+        unsigned ord = by_name ? w16_builtin_ordinal(mod, fn) : b;
         if (!ord) {
             snprintf(msg, sizeof msg, "imports %s.%s, a name w16 does not know", mod, fn);
             return fail(im->path, why, cap, msg);
@@ -497,7 +497,7 @@ static int api_GetProcAddress(struct w16 *w, unsigned ordinal, struct w16_args *
     const char *bmod = w16_thunk_module(w, h);
     struct w16_dll *d = w16_dll_of(w, h);
     if (bmod) {
-        unsigned ord = (far >> 16) ? builtin_ordinal(bmod, fn) : (uint16_t)far;
+        unsigned ord = (far >> 16) ? w16_builtin_ordinal(bmod, fn) : (uint16_t)far;
         if (ord) r = (uint32_t)h << 16 | ord;
     } else {
         const struct ne_module *m = d ? &d->ne : &w->ne;

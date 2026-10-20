@@ -14,6 +14,8 @@
 
 #define W16_CONF        "/etc/win16.conf"
 #define W16_PROG_DIR    "/etc/win16"
+// Why each stand-in call is only partly there: a section per call, "## USER.121 ..."
+#define W16_STANDINS_DOC "/usr/share/doc/windows/stand-ins.md"
 #define W16_STATE_DIR   "/var/lib/win16"
 #define W16_PATH_MAX    128
 

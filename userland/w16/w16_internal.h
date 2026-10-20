@@ -729,6 +729,8 @@ struct w16_image {
 int w16_load_segments(struct w16 *w, const struct w16_image *im, uint32_t dgroup_extra, char *why, size_t cap);
 int w16_bind_image(struct w16 *w, const struct w16_image *im, char *why, size_t cap);
 int w16_is_builtin(const char *module);           // one of Windows' own, answered in C
+// A Windows module's function by NAME -> its ordinal, 0 if w16 knows no such name
+unsigned w16_builtin_ordinal(const char *module, const char *name);
 uint16_t w16_thunk_sel(struct w16 *w, const char *module);   // made on first use; 0 out of selectors
 const char *w16_thunk_module(struct w16 *w, uint16_t sel);   // NULL: not a thunk
 int w16_kernel_equate(const char *module, unsigned ordinal, uint16_t *value);

@@ -146,6 +146,13 @@ int umd_field(const char *src, int len, const char *name, char *out, int cap);
 int umd_section_para(const char *src, int len, const char *name,
                      char *out, int cap);
 
+// The `## ` section whose heading's first word is `key` ("## USER.121
+// SetWindowsHook" for "USER.121"), heading included, up to the next
+// heading of level 1 or 2. Returns its length and sets *off to where it
+// starts in `src`; 0 when there is no such section. A page of many short
+// entries, one shown at a time -- w16's stand-ins page.
+int umd_section_find(const char *src, int len, const char *key, int *off);
+
 // --- as HTML, for a web engine (lib/umd_html.c) -----------------------
 //
 // The same blocks and inline rules as umd_render(), written as HTML a

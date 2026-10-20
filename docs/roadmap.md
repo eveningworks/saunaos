@@ -950,6 +950,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
 - [ ] w16: regions as more than their bounding rectangle -- CombineRgn of two that do not make a rectangle
+- [ ] w16: Windows Help files shown -- WinHelp says a .HLP file cannot be shown
+- [ ] w16: IsIconic answers from the window's state -- it always says no, even minimized
+- [ ] w16: one program starting or finding another -- WinExec and FindWindow; each program is its own w16
 - [ ] w16: Windows' own bitmaps and icons (OBM_*, IDI_*) -- LoadBitmap(NULL) answers none, DrawIcon draws a program's only
 - [x] ~~w16: the Win16 folders and drives (Options > Folders and Drives, D: to Y:, drive C: per program)~~ DONE 2026-10-20
 - [x] ~~w16: a Windows program opened from the File Manager -- the run card, its setting, the right-click menu and details~~ DONE 2026-10-20

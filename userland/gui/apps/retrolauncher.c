@@ -55,6 +55,8 @@
 struct partly {
     char *names;
     char *note;
+    char *key;            // the first call's "USER.121", for its Why?
+    char *first;          // ...and its name
 };
 
 // Every string is allocated (prog_free()); `icon` is w16_icon()'s largest.
@@ -130,7 +132,9 @@ static const char *str(const char *s) { return s ? s : ""; }
 static void prog_free(struct prog *p) {
     free(p->path); free(p->name); free(p->title); free(p->module); free(p->last_text); free(p->foreign);
     for (int i = 0; i < p->nmissing; i++) free(p->missing[i]);
-    for (int i = 0; i < p->npart; i++) { free(p->part[i].names); free(p->part[i].note); }
+    for (int i = 0; i < p->npart; i++) {
+        free(p->part[i].names); free(p->part[i].note); free(p->part[i].key); free(p->part[i].first);
+    }
     free(p->part);
     memset(p, 0, sizeof *p);
 }
@@ -161,6 +165,7 @@ static void add_partly(struct prog *p, char *line) {
     char *note = strchr(line, '\t'), *name = strchr(line + 12, ' ');
     if (!note || !name || name > note) return;
     *note++ = 0;
+    *name = 0;                                   // line + 12: "USER.121"
     char *end = strchr(++name, ' ');
     if (end) *end = 0;
     int i = 0;
@@ -171,8 +176,10 @@ static void add_partly(struct prog *p, char *line) {
         p->part = g;
         p->part[i].names = strdup(name);
         p->part[i].note = strdup(note);
-        if (!p->part[i].names || !p->part[i].note) {
-            free(p->part[i].names); free(p->part[i].note);
+        p->part[i].key = strdup(line + 12);
+        p->part[i].first = strdup(name);
+        if (!p->part[i].names || !p->part[i].note || !p->part[i].key || !p->part[i].first) {
+            free(p->part[i].names); free(p->part[i].note); free(p->part[i].key); free(p->part[i].first);
             return;
         }
         p->npart++;
@@ -1009,6 +1016,10 @@ static void line(struct ugfx_surface *s, int x, int *y, int w, const char *t, ui
 static int g_dd_y[NSET], g_ddc_y;
 static struct uui_stackbar g_bar;            // works, partly, missing
 
+// Each "Partly there" row's Why? link, where it was last drawn: one x
+// span, a y per row (allocated to the rows); the press that armed one.
+static int g_why_x, g_why_w, *g_why_y, g_why_n, g_why_armed = -1;
+
 // THE PANEL SCROLLS ABOVE A FOOTER that holds Run and the calls button --
 // the "Retro Launcher details scroll" canvas's B. It is drawn by hand, its
 // dropdowns placed over it, so the scrolling is the panel's own: an
@@ -1066,10 +1077,19 @@ static void draw_details(struct ugfx_surface *s, const struct prog *p, int x, in
         if (p->npart) {
             y += lh / 3;
             bold_line(s, x, &y, w, "Partly there", utheme_action(UTHEME_ACT_EDIT));
-            int nw = w * 2 / 5;
+            int nw = w * 2 / 5, ww = ugfx_text_width("Why?");
+            int *gy = realloc(g_why_y, sizeof *g_why_y * (size_t)p->npart);
+            if (gy) g_why_y = gy;
+            g_why_n = gy ? p->npart : 0;
+            g_why_x = x + w - ww;
+            g_why_w = ww;
             for (int i = 0; i < p->npart; i++) {
                 bold_line(s, x, &(int){ y }, nw - pad, str(p->part[i].names), UTHEME_TEXT);
-                line(s, x + nw, &y, w - nw, str(p->part[i].note), dim);
+                uint32_t link = g_why_armed == i ? UTHEME_TEXT : UTHEME_ACCENT;
+                ugfx_draw_string_clipped(s, g_why_x, y, ww, "Why?", link, UTHEME_PANEL_BG);
+                ugfx_fill_rect(s, g_why_x, y + lh - 1, ww, 1, link);
+                if (i < g_why_n) g_why_y[i] = y;
+                line(s, x + nw, &y, w - nw - ww - pad, str(p->part[i].note), dim);
             }
         }
         // Why it stopped last time; the footer says when.
@@ -1166,11 +1186,23 @@ static int ps_hit(const void *w, int cx, int cy) {
     (void)w;
     return cx >= g_px && cx < g_px + g_pw && cy >= view_y() && cy < view_y() + view_h();
 }
+// The "Partly there" row whose Why? is at (cx, cy), or -1.
+static int why_at(int cx, int cy) {
+    const struct prog *p = cur();
+    if (!p || cx < g_why_x || cx >= g_why_x + g_why_w || cy < view_y() || cy >= view_y() + view_h()) return -1;
+    for (int i = 0; i < g_why_n && i < p->npart; i++)
+        if (cy >= g_why_y[i] - 2 && cy < g_why_y[i] + ugfx_char_h() + 2) return i;
+    return -1;
+}
+
 static int ps_press(void *w, int cx, int cy, unsigned mods) {
     (void)w; (void)mods;
     int r = uui_sbar_press(&g_psb, cx, cy);
     if (r & UUI_SBAR_MOVED) pscroll_to(g_psb.top);
-    return (r & UUI_SBAR_TOOK) != 0;
+    if (r & UUI_SBAR_TOOK) return 1;
+    // A link arms on the press and acts on a release over it.
+    g_why_armed = why_at(cx, cy);
+    return g_why_armed >= 0;
 }
 static int ps_motion(void *w, int cx, int cy, unsigned buttons) {
     (void)w;
@@ -1179,8 +1211,19 @@ static int ps_motion(void *w, int cx, int cy, unsigned buttons) {
     return r != 0;
 }
 static int ps_release(void *w, int cx, int cy) {
-    (void)w; (void)cx; (void)cy;
-    return uui_sbar_release(&g_psb) != 0;
+    (void)w;
+    int armed = g_why_armed;
+    g_why_armed = -1;
+    const struct prog *p = cur();
+    if (armed >= 0 && p && armed < p->npart && why_at(cx, cy) == armed) {
+        const struct partly *q = &p->part[armed];
+        char module[16];
+        const char *dot = strchr(q->key, '.');
+        snprintf(module, sizeof module, "%.*s", dot ? (int)(dot - q->key) : 0, q->key);
+        if (dot) retro_why_open(g_app, module, (unsigned)strtoul(dot + 1, 0, 10), q->first);
+        return 1;
+    }
+    return uui_sbar_release(&g_psb) != 0 || armed >= 0;
 }
 static int ps_wheel(void *w, int notches) {
     (void)w;
@@ -1324,11 +1367,19 @@ static void status(void) {
 static void on_draw(struct uapp *a, struct uapp_draw *d) {
     struct ugfx_surface *s = d->surface;
     status();
-    if (g_panel) draw_panel(s);      // first: it places the dropdown rows layout() puts the boxes on
+    // Laid out on both sides of the panel: before, so a resized window's
+    // panel is drawn where it now is, not the last frame's place; after,
+    // because drawing it places the dropdown rows the boxes go on.
+    layout(s->w, s->h);
+    if (g_panel) draw_panel(s);
     layout(s->w, s->h);
     ugfx_fill_rect(s, 0, g_py - 1, s->w, 1, UTHEME_SEPARATOR);
     ugfx_fill_rect(s, g_side.w, g_py, 1, g_ph, UTHEME_SEPARATOR);
     uapp_log_layout(a, "retrolauncher");
+    // Each Why? link, for a test to click (it is drawn, not a widget).
+    for (int i = 0; g_panel && i < g_why_n; i++)
+        uapp_logf_layout("retrolauncher: layout why %d %d %d %d %d\n", i, g_why_x, g_why_y[i], g_why_w,
+                         ugfx_char_h());
 }
 
 // --- input --------------------------------------------------------------------------
