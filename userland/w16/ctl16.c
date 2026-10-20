@@ -132,8 +132,9 @@ static void underline(struct ugfx_surface *s, int x, int y, const char *line, in
     // A row under the baseline, a blank row between it and the letters, as
     // 3.11 drew a mnemonic's underline.
     char ch[2] = { line[mark], 0 };
-    ugfx_fill_rect(s, x + ugfx_text_width_n(line, mark), y + w16_font_ascent(ugfx_font_current()) + 1,
-                   ugfx_text_width(ch), 1, fg);
+    const struct ugfx_font *f = ugfx_font_current();
+    ugfx_fill_rect(s, x + ugfx_text_width_n(line, mark), y + w16_font_ascent(f) + 1,
+                   ugfx_text_width(ch) + w16_font_overhang(f), 1, fg);
 }
 
 void w16_draw_label(struct ugfx_surface *s, int x, int y, int w, const char *text, int prefix,
@@ -300,15 +301,16 @@ static void paint_push(struct w16 *w, struct w16_wnd *x, struct button *b, struc
     w16_draw_bevel(s, x0 + t, y0 + t, bw - 2 * t, bh - 2 * t, b->pressed);
     if (!b->pressed) {                           // a push button's white is two deep, 3.11's
         uint32_t white = w16_rgb(0xFFFFFF);
-        ugfx_fill_rect(s, x0 + t, y0 + t + 1, bw - 2 * t - 3, 1, white);
-        ugfx_fill_rect(s, x0 + t + 1, y0 + t, 1, bh - 2 * t - 3, white);
+        ugfx_fill_rect(s, x0 + t, y0 + t + 1, bw - 2 * t - 2, 1, white);
+        ugfx_fill_rect(s, x0 + t + 1, y0 + t, 1, bh - 2 * t - 2, white);
     }
     int mark;
     char *buf = strip_amp(x->text ? x->text : "", 1, &mark);
     if (!buf) return;
     int tw = ugfx_text_width(buf), lh = ugfx_char_h(), sh = b->pressed ? 1 : 0;
-    // Centred in the face left of the edge and its shadow, as 3.11 set it.
-    int tx = x0 + (bw - 2 - tw) / 2 + sh, ty = y0 + (bh - lh) / 2 + sh;
+    // Centred in the face left of the edge and its shadow, as 3.11 set it
+    // -- an even-width label rounds left (Hearts' Help, on the reference).
+    int tx = x0 + (bw - 3 - tw) / 2 + sh, ty = y0 + (bh - lh) / 2 + sh;
     ugfx_draw_string_clipped(s, tx, ty, bw - 4, buf, black, w16_rgb(0xC0C0C0));
     underline(s, tx, ty, buf, mark, black);
     if (x->style & WS_DISABLED) dither_out(s, tx, ty, tw, lh, black, w16_rgb(0xC0C0C0));
@@ -348,7 +350,10 @@ static void paint_check(struct w16 *w, struct w16_wnd *x, struct button *b, stru
     int left = (x->style & BS_LEFTTEXT) != 0, bx = left ? x0 + x->cw - box : x0;
     uint32_t inside = b->pressed ? w16_rgb(0xC0C0C0) : white;
     if (is_radio(x)) {
-        radio(s, bx, by, b->checked != 0, inside, black);
+        // A radio button's circle is open: its background shows inside
+        // (grey in an MFC dialog, measured on the reference), a check box's
+        // square is white.
+        radio(s, bx, by, b->checked != 0, b->pressed ? inside : bg, black);
     } else {
         ugfx_fill_rect(s, bx, by, box, box, inside);
         ugfx_draw_rect(s, bx, by, box, box, black);
@@ -383,7 +388,7 @@ static void paint_group(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s
     char *buf = strip_amp(x->text ? x->text : "", 1, &mark);
     if (!buf) return;
     if (buf[0]) {
-        int tw = ugfx_text_width(buf);
+        int tw = ugfx_text_width(buf) + w16_font_overhang(ugfx_font_current());
         ugfx_fill_rect(s, x0 + 7, ty, tw + 4, lh, bg);
         ugfx_draw_string_clipped(s, x0 + 9, ty, x->cw - 12, buf, black, bg);
         underline(s, x0 + 9, ty, buf, mark, black);

@@ -312,6 +312,12 @@ int w16_font_ascent(const struct ugfx_font *uf) {
     return uf ? uf->line_h * 13 / 16 : 13;
 }
 
+int w16_font_overhang(const struct ugfx_font *uf) {
+    for (int i = 0; i < g_ninst; i++)
+        if (&g_inst[i]->uf == uf) return g_inst[i]->real >= 0 && g_inst[i]->bold;
+    return 0;
+}
+
 const struct ugfx_font *w16_system_font(void) { return w16_font_of(STOCK_BASE + SYSTEM_FONT); }
 const struct ugfx_font *w16_fixed_font(void) { return w16_font_of(STOCK_BASE + SYSTEM_FIXED_FONT); }
 const struct ugfx_font *w16_dialog_font(void) { return w16_font_of(W16_FONT_DIALOG); }

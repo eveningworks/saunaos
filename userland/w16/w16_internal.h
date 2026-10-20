@@ -144,6 +144,7 @@ void ne_print_info(const struct ne_module *m);
 #define WS_TABSTOP       0x00010000u
 #define WS_MINIMIZEBOX   0x00020000u
 #define WS_MAXIMIZEBOX   0x00010000u
+#define DS_MODALFRAME    0x00000080u              // a dialog's thick (navy-banded) frame
 
 // WM_GETDLGCODE's answers: what keys a control keeps from the dialog manager.
 #define DLGC_WANTARROWS      0x0001
@@ -875,6 +876,9 @@ struct w16_fontinfo {
 };
 const struct w16_fontinfo *w16_font_info(uint16_t hfont);
 int w16_font_ascent(const struct ugfx_font *uf);   // pixels above its baseline
+// GDI's tmOverhang: 1 for a raster font it emboldened itself (3.11's MS Sans
+// Serif drawn bold), which an underline and a label's cleared box count.
+int w16_font_overhang(const struct ugfx_font *uf);
 extern int g_w16_fonts;                            // W16_FONTS_*: the program's setting
 struct w16_logfont {                               // a CreateFont's request
     int16_t height, width, weight;

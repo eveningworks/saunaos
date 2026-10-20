@@ -165,7 +165,10 @@ shape to copy:
 runs ends with a SIDE-BY-SIDE** -- the same program in the same state on
 the reference (left) and in w16 (right), one labelled image per state,
 sent to the maintainer with the differences found, then again after they
-are fixed. The images stay outside the repo, as every reference shot does.
+are fixed -- w16 running on 3.11's OWN raster fonts (its VGA .FON set in
+drive C:'s WINDOWS\SYSTEM), not the stand-ins, so text measures as the
+reference's does. The images stay outside the repo, as every reference
+shot does.
 
 **The reference is a real Windows for Workgroups 3.11, measured, never
 remembered.** It runs in QEMU on MS-DOS 6.22 (640x480 VGA, 16 colours,

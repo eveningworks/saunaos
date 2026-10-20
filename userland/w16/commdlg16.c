@@ -599,7 +599,7 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
 
     g_org_x = 36;                                // FILEOPENORD's place
     g_org_y = 24;
-    struct w16_wnd *d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_DLGFRAME,
+    struct w16_wnd *d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
                                     w16_du_w(264, 7), w16_du_h(134, 13), cap && cap[0] ? cap : save ? "Save As" : "Open", 0, ofn_proc);
     if (!d) { g_error = CDERR_MEMALLOCFAILURE; goto out; }
     w16_dlg_set_font(d, 8);
@@ -792,7 +792,7 @@ static int api_FindText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     f->msg = w16_atom_add(w, "commdlg_FindReplace");
     g_org_x = 30;                                // FINDDLGORD's place
     g_org_y = 73;
-    struct w16_wnd *d = w16_dlg_new(w, f->owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_DLGFRAME, w16_du_w(236, 7),
+    struct w16_wnd *d = w16_dlg_new(w, f->owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME, w16_du_w(236, 7),
                                     w16_du_h(62, 13), "Find", 0, find_proc);
     if (!d) { free(f); free(what); g_error = CDERR_MEMALLOCFAILURE; return 4; }
     w16_dlg_set_font(d, 8);

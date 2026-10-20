@@ -92,9 +92,12 @@ static void set_text(struct w16 *w, struct w16_wnd *x, const char *t) {
 
 // 3.11's dialog frame, measured at VGA: a black line and 4 of navy all
 // round. A caption sits on the client's width, its top row white (so the
-// head shows 3 navy and a white line). A plain WS_BORDER is the black
-// line alone.
-static int dlgframe(uint32_t style) { return (style & (WS_DLGFRAME | 0x00800000u)) != 0; }
+// head shows 3 navy and a white line). The band is DS_MODALFRAME's -- or
+// a WS_DLGFRAME with no WS_BORDER; WS_CAPTION alone (both bits) is the
+// black line, as Hearts' dialogs show on the reference.
+static int dlgframe(uint32_t style) {
+    return (style & DS_MODALFRAME) || (style & (WS_DLGFRAME | WS_BORDER)) == WS_DLGFRAME;
+}
 static int frame_of(uint32_t style) { return dlgframe(style) ? 5 : 1; }
 
 int w16_dlg_frame(const struct w16_wnd *d) { return frame_of(d->style); }
@@ -896,7 +899,8 @@ static struct w16_wnd *built(struct w16 *w, uint16_t owner, const char *caption,
     if (row + 2 * pad > cw) cw = row + 2 * pad;
     int top = icon && 32 > texth ? 32 : texth;
     int chh = pad + top + pad + bh + pad;
-    struct w16_wnd *d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU, cw, chh, caption, 0, box_proc);
+    struct w16_wnd *d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME, cw, chh, caption, 0,
+                                    box_proc);
     if (!d) return 0;
     int ok = 1;
     if (icon)

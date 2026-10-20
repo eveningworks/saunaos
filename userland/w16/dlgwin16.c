@@ -41,20 +41,22 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
     const uint32_t *fr = d->fb ? w16_shown(d, &sw, &sh) : 0;   // its last complete frame
     if (fr) ugfx_blit(&s, f, top + cap, sw < d->fbw ? sw : d->fbw, sh < d->fbh ? sh : d->fbh, fr, sw);
     if (cap) {
-        // The caption is the client's width, edged in white on its top and
-        // sides (the line 3.11 shows round it), its bar navy within. The
-        // side edges run down through the black line's row too, so white
-        // shows at both of its ends, as 3.11's.
-        int cw = d->w - 2 * f;
+        // The caption is the client's width, its bar navy. In the MODAL
+        // frame it is edged in white on its top and sides (the line 3.11
+        // shows between it and the band), the side edges running down
+        // through the black line's row too, so white shows at both of its
+        // ends. In the thin frame (WS_CAPTION alone: Hearts') it starts
+        // straight inside the black line -- measured on the reference.
+        int cw = d->w - 2 * f, e = f > 1;
         uint32_t bar = d->active ? w16_rgb(0x000080) : white, ink = d->active ? white : black;
-        ugfx_fill_rect(&s, f, top - 1, cw, cap + 1, white);
-        ugfx_fill_rect(&s, f + 1, top, cw - 2, cap - 1, bar);
-        ugfx_fill_rect(&s, f + 1, top + cap - 1, cw - 2, 1, black);   // inside the white edges, as 3.11's
+        if (e) ugfx_fill_rect(&s, f, top - 1, cw, cap + 1, white);
+        ugfx_fill_rect(&s, f + e, top, cw - 2 * e, cap - 1, bar);
+        ugfx_fill_rect(&s, f + e, top + cap - 1, cw - 2 * e, 1, black);
         int box = cap - 1;
-        w16_draw_sysbox(&s, f + 1, top, box, box, 0);   // the main window's own, frame16.c's
-        ugfx_fill_rect(&s, f + 1 + box, top, 1, box, black);
+        w16_draw_sysbox(&s, f + e, top, box, box, 0);   // the main window's own, frame16.c's
+        ugfx_fill_rect(&s, f + e + box, top, 1, box, black);
         const char *t = d->text ? d->text : "";
-        int tw = ugfx_text_width(t), left = f + 2 + box, room = cw - box - 3;
+        int tw = ugfx_text_width(t), left = f + e + 1 + box, room = cw - box - 1 - 2 * e;
         ugfx_draw_string_clipped(&s, left + (room - tw) / 2, top + (cap - 1 - ugfx_char_h()) / 2,
                                  room, t, ink, bar);
     }
