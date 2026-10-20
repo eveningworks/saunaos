@@ -11,6 +11,7 @@
 #include "ui/ugfx.h"
 #include "ui/uui_table.h"
 #include "ui/uui_ctxmenu.h"
+#include "ui/uui_sbar.h"
 #include "lib/utest.h"
 #include "win_proto.h"   // WIN_CURSOR_*
 
@@ -206,6 +207,25 @@ int main(int argc, char **argv) {
     uui_table_columns_reset(&t);
     uui_table_column_rect(&t, 2, &fx, &fw);
     ok("Reset columns forgets the widths", fw == cw2, "");
+
+    // --- wider than the table: it scrolls sideways ---
+    ok("columns that fit show no sideways bar", !uui_table_hbar_visible(&t), "");
+    uui_table_columns_load(&t, "name,pid:900,cpu,read");
+    ok("PID 900 wide in a 600-wide table: the sideways bar shows", uui_table_hbar_visible(&t), "");
+    uui_table_column_rect(&t, 0, &nx, &nw);
+    snprintf(d, sizeof d, "Name is %d wide", nw);
+    ok("...and Name, which stretches, keeps ten digits' width instead of none", nw >= ugfx_char_advance('0') * 10, d);
+    int bottom = t.y + t.h - uui_sbar_width() / 2;
+    uui_table_ops.press(&t, t.x + t.w - 30, bottom, 0);   // the bar's track, right of its thumb: a page
+    uui_table_ops.release(&t, t.x + t.w - 30, bottom);
+    snprintf(d, sizeof d, "hscroll %d", t.hscroll);
+    ok("a press on the bar's track scrolls the columns sideways", t.hscroll > 0, d);
+    int sx, sw;
+    uui_table_column_rect(&t, 0, &sx, &sw);
+    ok("...Name moves left by as much", sx == t.x - t.hscroll, "");
+    ok("...and the press selected no row", t.selected < 0 || t.selected == 0, "");
+    uui_table_columns_reset(&t);
+    ok("back to the declared widths: no bar, scrolled back", !uui_table_hbar_visible(&t), "");
 
     return utest_end();
 }

@@ -406,6 +406,7 @@ struct uapp_window_desc {
     const char *title;
     int w, h;              // CONTENT size; derive it from the font
     unsigned flags;        // UAPP_WIN_*
+    int min_w, min_h;      // UAPP_WIN_RESIZABLE's floor; 0 is the size it opens at
 
     // The content. `widgets` is routed AND drawn, exactly as
     // uapp_desc.widgets is; `layout` (optional) places them, run at the

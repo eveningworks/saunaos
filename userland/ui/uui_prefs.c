@@ -13,6 +13,9 @@
 #include "ui/uui_label.h"
 #include "ui/uui_layout.h"
 #include "ui/uui_route.h"
+#include "ui/uui_scrollview.h"
+#include "ui/uui_dropdown.h"
+#include "ui/uui_textbox.h"
 #include "ui/uui_segmented.h"
 #include "ui/uui_sidebar.h"
 #include "ui/uui_spinbox.h"
@@ -52,6 +55,9 @@ static struct uui_button g_defaults, g_ok, g_cancel;
 static struct uui_item g_page_items[2 + UUI_PREFS_ROWS_MAX], g_body_items[2], g_button_items[4],
                        g_root_items[2];
 static struct uui_layout g_page_l, g_body_l, g_button_l, g_root_l;
+// The page scrolls when the window is shorter than it: so the window's
+// floor can be small, as KDE's are.
+static struct uui_scrollview g_page_sv;
 // The pages, OK and Cancel, then up to three controls a row.
 static struct uui_focusable g_focusables[3 + 3 * UUI_PREFS_ROWS_MAX];
 static int g_nfocus;
@@ -63,20 +69,34 @@ static void show_page(int page) {
     g_note.text = g_d.notes ? g_d.notes[page] : 0;
     g_page_items[1].hidden = !g_note.text || !g_note.text[0];
     for (int i = 0; i < g_rows; i++) g_page_items[2 + i].hidden = g_row[i].page != page;
+    if (g_page_sv.content) {
+        uui_scrollview_set_offset(&g_page_sv, 0);
+        uui_scrollview_content_changed(&g_page_sv);
+    }
 }
 
 // THE WINDOW FITS ITS LARGEST PAGE, not the one showing --
 // QStackedWidget's sizeHint. The caller's w/h is a floor: a segmented row
 // is as wide as its labels, and under a fixed width the last ones ran
 // off the window's edge. Leaves no page shown; the caller picks one.
-static void fit_pages(int *w, int *h) {
+//
+// Measured through the PAGE's own layout, not the scroll view around it,
+// whose natural height is a few rows by design. `*min_w` gets the widest
+// page's own width: under it a row would be cut, where height only scrolls.
+static void fit_pages(int *w, int *h, int *min_w) {
+    int side = ugfx_char_advance('n') * 22 + 2, bw = 0, bh = 0;
+    uui_layout_natural_size(&g_button_l, &bw, &bh);
     for (int p = 0; p < g_d.page_count; p++) {
         show_page(p);
         int nw = 0, nh = 0;
-        uui_layout_natural_size(&g_root_l, &nw, &nh);
+        uui_layout_natural_size(&g_page_l, &nw, &nh);
+        nw += side;
+        nh += bh + 4;
         if (nw > *w) *w = nw;
         if (nh > *h) *h = nh;
+        if (nw > *min_w) *min_w = nw;
     }
+    if (bw > *min_w) *min_w = bw;
 }
 
 static int *field_of(int b) { return (int *)((char *)g_d.edit + g_bound[b].field); }
@@ -131,6 +151,9 @@ int uui_prefs_row(int page, const char *caption, const struct uui_widget_ops *op
     g_row[i].items[0] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_row[i].caption,
                                            .flags = UUI_FILL_H,
                                            .main_size = ugfx_char_advance('n') * 20 };
+    // A text field or a dropdown takes the row's spare width, as in KDE's
+    // dialogs; choice buttons, checkboxes and numbers keep their own.
+    if (ops == &uui_textbox_ops || ops == &uui_dropdown_ops) flags |= UUI_FILL_W;
     g_row[i].items[1] = (struct uui_item){ .ops = ops, .widget = widget, .id = id, .name = name,
                                            .flags = flags };
     g_row[i].row = (struct uui_layout){ .dir = UUI_ROW, .items = g_row[i].items, .count = 2,
@@ -298,8 +321,9 @@ int uui_prefs_open(struct uapp *a) {
     g_body_items[0] = (struct uui_item){ .ops = &uui_sidebar_ops, .widget = &g_pages, .id = ID_PAGES,
                                          .flags = UUI_FILL_H, .name = "pages",
                                          .main_size = ugfx_char_advance('n') * 22 };
-    g_body_items[1] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_page_l,
-                                         .flags = UUI_FILL_W | UUI_FILL_H };
+    uui_scrollview_init(&g_page_sv, &g_page_l);
+    g_body_items[1] = (struct uui_item){ .ops = &uui_scrollview_ops, .widget = &g_page_sv,
+                                         .flags = UUI_FILL_W | UUI_FILL_H, .name = "page" };
     g_body_l = (struct uui_layout){ .dir = UUI_ROW, .items = g_body_items, .count = 2, .margin = 1 };
     g_button_items[0] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_defaults,
                                            .id = ID_DEFAULTS, .name = "defaults" };
@@ -322,7 +346,8 @@ int uui_prefs_open(struct uapp *a) {
 
     int w = g_d.w > 0 ? g_d.w : ugfx_char_advance('n') * 96;
     int h = g_d.h > 0 ? g_d.h : ugfx_char_h() * 30;
-    fit_pages(&w, &h);
+    int min_w = 0;
+    fit_pages(&w, &h, &min_w);
     show_page(first);
 
     struct uapp_window_desc d = {
@@ -330,6 +355,8 @@ int uui_prefs_open(struct uapp *a) {
         .w = w,
         .h = h,
         .flags = UAPP_WIN_MODAL | UAPP_WIN_RESIZABLE,
+        .min_w = min_w,
+        .min_h = ugfx_char_h() * 14,
         .widgets = g_root_items,
         .widget_count = 2,
         .layout = &g_root_l,

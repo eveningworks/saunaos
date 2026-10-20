@@ -302,6 +302,10 @@ struct uui_table {
     // Pixels, 0 for the declared width; saved with the layout as
     // `id:width` where an app keeps one (uui_table_columns_save).
     short user_w[UUI_TABLE_MAX_COLS];
+    // SIDEWAYS, when the columns are wider than the table: pixels scrolled,
+    // and the bar along the bottom (Shift+wheel, or the bar). OWNED.
+    int hscroll;
+    struct uui_sbar hsb;
     struct {
         int col;             // the column whose RIGHT edge is held, or -1
         int press_x, start_w;
@@ -428,6 +432,7 @@ int  uui_table_row_h(const struct uui_table *t);
 int  uui_table_header_h(const struct uui_table *t);
 int  uui_table_visible_rows(const struct uui_table *t);
 int  uui_table_scrollbar_visible(const struct uui_table *t);
+int  uui_table_hbar_visible(const struct uui_table *t);   // the columns overflow its width
 // The bar, placed and filled in from the table's rows. For a widget that
 // draws a table's rows its own way (uui_fileview) and keeps its bar.
 struct uui_sbar *uui_table_sbar(struct uui_table *t);

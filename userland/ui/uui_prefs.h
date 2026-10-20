@@ -5,9 +5,11 @@
 // of "Caption:  control  [control]" rows, over Defaults / OK / Cancel.
 // Dolphin's and Kate's Configure dialogs; Notepad, Screenshot, Terminal
 // and the File Manager all open theirs here. Modal; nothing is applied
-// until OK; Esc cancels and Return keeps. RESIZABLE, never below the size
-// it opened at: a row whose control asks for UUI_FILL_H (a list) takes the
-// spare height, as KDE's do.
+// until OK; Esc cancels and Return keeps. RESIZABLE, as KDE's are: the
+// page scrolls when the window is shorter than it, so the floor is the
+// widest page's width by a few lines; text fields and dropdowns take a
+// row's spare width, and a row whose control asks for UUI_FILL_H (a list)
+// takes the spare height.
 //
 // **THE WINDOW IS SHARED, THE CONTROLS ARE THE APP'S.** The app owns its
 // widgets and their ids (below UUI_PREFS_ID_BASE), fills them from its

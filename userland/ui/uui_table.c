@@ -7,6 +7,7 @@
 #include <stdlib.h>
 #include "keyboard.h" // KEY_* codes, as delivered by WIN_EV_KEY
 #include "ui/uui_ctxmenu.h" // the header's column chooser
+#include "ui/uapp.h"        // uapp_keyboard_mods(): Shift+wheel scrolls sideways
 #include "ui/uui_anim.h"    // the column glide: uui_anim_ms(), uui_anim_request()
 #include "rt/sys.h"         // sys_monotonic_ns() -- the glide's clock
 #include "lib/udclick.h"     // a divider's double click fits its column
@@ -39,6 +40,10 @@ static int col_fixed_w(int chars) {
     if (per <= 0) per = ugfx_char_w();
     return chars * per;
 }
+
+// The narrowest a stretching column is squeezed: past it, the columns
+// scroll sideways (hscroll) rather than lose one.
+#define STRETCH_MIN() col_fixed_w(10)
 
 void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
                      const struct uui_table_column *cols, int col_count,
@@ -93,6 +98,7 @@ void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
     t->col_mode = UUI_TABLE_COLS_FIXED;
     t->cdrag.armed = t->cdrag.active = 0;
     t->rsz.col = t->rsz.last_col = -1;
+    uui_sbar_init(&t->hsb);
     t->layout_changed = 0;
     memset(t->col_tw_on, 0, sizeof t->col_tw_on);
     uui_table_columns_reset(t);
@@ -308,11 +314,25 @@ void uui_table_set_header(struct uui_table *t, int show) {
     t->show_header = show ? 1 : 0;
 }
 
-int uui_table_visible_rows(const struct uui_table *t) {
+static int cols_total(const struct uui_table *t);
+
+// The rows' height without a sideways bar: what decides whether a
+// vertical one shows, and so how wide the columns' room is -- asked
+// without the sideways bar, which depends on that width.
+static int rows_fit(const struct uui_table *t, int hbar) {
     int rh = uui_table_row_h(t);
-    int avail = t->h - uui_table_header_h(t);
+    int avail = t->h - uui_table_header_h(t) - (hbar ? uui_sbar_width() : 0);
     int n = rh > 0 ? avail / rh : 0;
     return n > 0 ? n : 1;
+}
+
+int uui_table_hbar_visible(const struct uui_table *t) {
+    int vbar = vcount(t) > rows_fit(t, 0);
+    return cols_total(t) > t->w - (vbar ? uui_sbar_width() : 0);
+}
+
+int uui_table_visible_rows(const struct uui_table *t) {
+    return rows_fit(t, uui_table_hbar_visible(t));
 }
 
 int uui_table_scrollbar_visible(const struct uui_table *t) {
@@ -604,8 +624,40 @@ static int table_content_w(const struct uui_table *t) {
     return t->w - (uui_table_scrollbar_visible(t) ? uui_sbar_width() : 0);
 }
 
+// The shown columns' total width, as laid out.
+static int cols_total(const struct uui_table *t) {
+    int fixed = 0, stretch = 0;
+    for (int i = 0; i < t->col_count; i++) {
+        if (!uui_table_column_shown(t, i)) continue;
+        if (t->user_w[i] > 0) fixed += t->user_w[i];
+        else if (t->cols[i].width_chars > 0) fixed += col_fixed_w(t->cols[i].width_chars);
+        else stretch++;
+    }
+    int room = t->w - (vcount(t) > rows_fit(t, 0) ? uui_sbar_width() : 0) - fixed;
+    int each = stretch > 0 ? room / stretch : 0;
+    if (stretch && each < STRETCH_MIN()) each = STRETCH_MIN();
+    return fixed + (stretch ? (each * stretch > room ? each * stretch : room) : 0);
+}
+
+static int hscroll_max(const struct uui_table *t) {
+    int m = cols_total(t) - table_content_w(t);
+    return m > 0 ? m : 0;
+}
+
+// The sideways bar, placed and set for this geometry; `hscroll` kept in range.
+static struct uui_sbar *hbar(struct uui_table *t) {
+    if (t->hscroll > hscroll_max(t)) t->hscroll = hscroll_max(t);
+    if (t->hscroll < 0) t->hscroll = 0;
+    int on = uui_table_hbar_visible(t);
+    t->hsb.horiz = 1;
+    uui_sbar_place_h(&t->hsb, t->x, t->y + t->h - uui_sbar_width(), on ? table_content_w(t) : 0);
+    uui_sbar_set(&t->hsb, cols_total(t), table_content_w(t), t->hscroll);
+    return &t->hsb;
+}
+
 // Every column's x and width for one display order: hidden ones are 0
-// wide, at the x where they would be. The one geometry everything uses.
+// wide, at the x where they would be -- scrolled sideways by `hscroll`.
+// The one geometry everything uses.
 static void layout_cols(const struct uui_table *t, const unsigned char *order,
                         int *xs, int *ws) {
     int fixed = 0, stretch = 0;
@@ -621,9 +673,12 @@ static void layout_cols(const struct uui_table *t, const unsigned char *order,
     // Split evenly between stretch columns; the LAST stretch column
     // takes the rounding remainder so the columns exactly fill the
     // width rather than leaving a one-pixel gap that looks like a bug.
+    // Never below STRETCH_MIN each: columns made wider than the table
+    // scroll sideways instead of squeezing a stretching one to nothing.
     int each = stretch > 0 ? spare / stretch : 0;
+    if (stretch && each < STRETCH_MIN()) { each = STRETCH_MIN(); spare = each * stretch; }
 
-    int x = t->x, seen_stretch = 0;
+    int x = t->x - t->hscroll, seen_stretch = 0;
     for (int p = 0; p < t->col_count; p++) {
         int c = order ? order[p] : p;
         int width;
@@ -973,8 +1028,16 @@ void uui_table_draw(struct ugfx_surface *s, const struct uui_table *t) {
     frame_cols((struct uui_table *)t);
     int lifted = t->cdrag.active ? t->cdrag.col : -1;
 
+    hbar((struct uui_table *)t);                 // hscroll in range before any column is placed
+    int hb = uui_table_hbar_visible(t) ? uui_sbar_width() : 0;
+    int cw_all = table_content_w(t);
+
     // --- header ---
+    struct ugfx_clip hsaved;
+    ugfx_clip_save(s, &hsaved);
+    ugfx_clip_intersect(s, t->x, t->y, cw_all, hh);
     if (hh > 0) table_draw_header(s, t, hh);
+    ugfx_clip_restore(s, &hsaved);
 
     // --- rows ---
     // The glide (ui/uui_scrollanim.h): `top` has already moved, and the
@@ -987,7 +1050,7 @@ void uui_table_draw(struct ugfx_surface *s, const struct uui_table *t) {
     int first = disp > 0 ? t->top - extra : t->top;
     struct ugfx_clip saved;
     ugfx_clip_save(s, &saved);
-    ugfx_clip_intersect(s, t->x, t->y + hh, t->w, t->h - hh);
+    ugfx_clip_intersect(s, t->x, t->y + hh, cw_all, t->h - hh - hb);
     for (int i = 0; i < vis + 1 + extra; i++) {
         int view = first + i;
         if (view < 0) continue;
@@ -1050,10 +1113,11 @@ void uui_table_draw(struct ugfx_surface *s, const struct uui_table *t) {
         // ratios are the row ones scaled by rh, which lands the thumb
         // on the same pixels the row-unit hit test computes.
         struct uui_sbar sb = t->sb;
-        uui_sbar_place(&sb, t->x + t->w - bar, t->y + hh, t->h - hh);
+        uui_sbar_place(&sb, t->x + t->w - bar, t->y + hh, t->h - hh - hb);
         uui_sbar_set(&sb, vcount(t) * rh, vis * rh, t->top * rh - disp);
         uui_sbar_draw(&sb, s, uui_table_c_bg(t), uui_table_c_fg(t));
     }
+    if (hb) uui_sbar_draw(&t->hsb, s, uui_table_c_bg(t), uui_table_c_fg(t));
 
     // On the selected ROW, because that is what the arrows move. Round
     // the whole widget instead when the selection is scrolled out of
@@ -1108,7 +1172,8 @@ int uui_table_header_hit(const struct uui_table *t, int cx, int cy) {
 int uui_table_hit(const struct uui_table *t, int cx, int cy) {
     int bar = uui_table_scrollbar_visible(t) ? uui_sbar_width() : 0;
     int hh = uui_table_header_h(t);
-    if (!uui_hit(t->x, t->y + hh, t->w - bar, t->h - hh, cx, cy)) return -1;
+    int hb = uui_table_hbar_visible(t) ? uui_sbar_width() : 0;
+    if (!uui_hit(t->x, t->y + hh, t->w - bar, t->h - hh - hb, cx, cy)) return -1;
     int rh = uui_table_row_h(t);
     // Mid-glide the rows sit `disp` px from their resting place, and a
     // hit must land on what is drawn. Floor division, since a row above
@@ -1164,8 +1229,9 @@ int uui_table_click(struct uui_table *t, int cx, int cy) {
 // The bar in ROWS, below the header, filled in before anything asks it.
 struct uui_sbar *uui_table_sbar(struct uui_table *t) {
     int hh = uui_table_header_h(t);
+    int hb = uui_table_hbar_visible(t) ? uui_sbar_width() : 0;
     uui_sbar_place(&t->sb, t->x + t->w - uui_sbar_width(), t->y + hh,
-                   uui_table_scrollbar_visible(t) ? t->h - hh : 0);
+                   uui_table_scrollbar_visible(t) ? t->h - hh - hb : 0);
     uui_sbar_set(&t->sb, vcount(t), uui_table_visible_rows(t), t->top);
     return &t->sb;
 }
@@ -1432,6 +1498,12 @@ static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
     // column, so a press there has to be offered to the bar first or it
     // reaches nothing at all.
     if (uui_table_press(t, cx, cy)) return 1;
+    // The sideways bar, when the columns overflow.
+    {
+        int r = uui_sbar_press(hbar(t), cx, cy);
+        if (r & UUI_SBAR_MOVED) t->hscroll = t->hsb.top;
+        if (r & UUI_SBAR_TOOK) return 1;
+    }
     // A DIVIDER outranks its column's title: held, it resizes the column
     // to its left; pressed twice in a double click's time, it fits it.
     int div = divider_at(t, cx, cy);
@@ -1489,6 +1561,11 @@ static int tb_ops_motion(void *w, int cx, int cy, unsigned buttons) {
         t->cdrag.x = cx;
         return 1;
     }
+    if ((buttons & 1) && t->hsb.grab >= 0) {
+        int r = uui_sbar_motion(hbar(t), cx, cy, buttons);
+        if (r & UUI_SBAR_MOVED) t->hscroll = t->hsb.top;
+        return r != 0;
+    }
     if (buttons & 1) return uui_table_drag(t, cx, cy);
     int on = 0, redraw = uui_table_bar_hover(t, cx, cy, &on);
     if (on) return uui_table_hover(t, UUI_NOWHERE, UUI_NOWHERE) | redraw;
@@ -1501,6 +1578,10 @@ static int tb_ops_release(void *w, int cx, int cy) {
     if (t->rsz.col >= 0) {
         if (t->user_w[t->rsz.col] > 0) t->layout_changed = 1;
         t->rsz.col = -1;
+        return 1;
+    }
+    if (t->hsb.grab >= 0) {
+        uui_sbar_release(&t->hsb);
         return 1;
     }
     if (t->cdrag.armed) {
@@ -1564,8 +1645,16 @@ static int tb_ops_context_menu(void *w, int cx, int cy, struct uui_ctxmenu_src *
     return 1;
 }
 
+// Shift+wheel scrolls sideways, as in every desktop's lists.
 static int tb_ops_wheel(void *w, int notches) {
-    return uui_table_wheel((struct uui_table *)w, notches);
+    struct uui_table *t = (struct uui_table *)w;
+    if ((uapp_keyboard_mods() & KEY_MOD_SHIFT) && hscroll_max(t)) {
+        int was = t->hscroll;
+        t->hscroll -= notches * ugfx_char_advance('n') * 6;
+        hbar(t);
+        return t->hscroll != was;
+    }
+    return uui_table_wheel(t, notches);
 }
 
 // The rows' pitch, the header's height, each column's x and width, and

@@ -121,7 +121,8 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
         wmchan_send(WIN_REQ_HINTS, (uint32_t)slot,
                     ((desc->flags & UAPP_WIN_NO_DECOR) ? WIN_HINT_NO_DECOR : 0) |
                     (resizable ? WIN_HINT_RESIZABLE : 0),
-                    resizable ? w : 0, resizable ? h : 0, 0);
+                    resizable ? (desc->min_w > 0 ? desc->min_w : w) : 0,
+                    resizable ? (desc->min_h > 0 ? desc->min_h : h) : 0, 0);
     }
     d->top.dirty = 1;
     dlg_flush(d);
@@ -576,7 +577,8 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         w->top.dirty = 1;
         if (!(d->flags & UAPP_WIN_RESIZABLE)) return;
         struct uapp_surf *s = &g_surf[w->top.slot];
-        int rw = ev->a < d->w ? d->w : ev->a, rh = ev->b < d->h ? d->h : ev->b;
+        int mw = d->min_w > 0 ? d->min_w : d->w, mh = d->min_h > 0 ? d->min_h : d->h;
+        int rw = ev->a < mw ? mw : ev->a, rh = ev->b < mh ? mh : ev->b;
         clamp_to_screen(&rw, &rh);
         if (s->back >= 0 && !buf_make(s, s->back, rw, rh)) return;
         s->w = rw;
