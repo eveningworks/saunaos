@@ -947,6 +947,12 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: printing -- PrintDlg answers "no default printer"
 - [x] ~~w16: a program's own DLLs loaded beside it (Hearts' CARDS.DLL)~~ DONE 2026-10-20 -- LoadLibrary, GetProcAddress, by-name imports
 - [x] ~~w16: Solitaire and Hearts from Windows 3.11~~ DONE 2026-10-20 -- Hearts plays the computer's hands; MFC's hook and creation order
+- [x] ~~w16: Write from Windows 3.11~~ DONE 2026-10-20 -- .WRI files real 3.11 reads back, TrueType, ChooseFont, OLE pictures
+- [ ] w16: Write's pictures onto toy-os's clipboard -- Write promises CF_BITMAP but never renders it when asked (WM_RENDERFORMAT)
+- [ ] w16: arcs, pies, chords and rounded rectangles -- GDI lacks them, so a metafile draws them not (RoundRect draws square)
+- [ ] w16: italic for a raster font and for a TrueType face with no italic file -- GDI slanted them; w16 draws upright
+- [ ] w16: Windows-1252's 0x80-0x9F drawn -- curly quotes, dashes and the euro sign have no glyph slot in a ugfx font
+- [ ] w16: Symbol and Wingdings -- a symbol font's cmap (3, 0) is not read, so its characters do not draw
 - [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
 - [ ] w16: regions as more than their bounding rectangle -- CombineRgn of two that do not make a rectangle

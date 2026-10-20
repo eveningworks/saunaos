@@ -28,7 +28,6 @@
 #include "win_proto.h"   // WIN_CURSOR_*
 #include "ui/ugfx.h"
 
-#define W16_ATOM_BASE   0xC000
 // CW_USEDEFAULT's size on the 640x480 screen GetSystemMetrics reports:
 // what 3.11 gave Notepad there -- the width less the frame's inset, the
 // height less the row of icons at the foot.
@@ -860,8 +859,17 @@ static int api_BeginPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_EndPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg16(a);
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     w16_arg32(a);
+    // w16 paints a window whole, not its update region: without WS_CLIPCHILDREN
+    // that covered its children (Write's ruler), so they paint again on top.
+    if (x && !(x->style & WS_CLIPCHILDREN)) {
+        int n;
+        struct w16_wnd **kids = w16_wnd_children(w, x->hwnd, &n);
+        for (int i = 0; kids && i < n; i++)
+            if (!kids[i]->inval && w16_wnd_shown(w, kids[i])) w16_invalidate(w, kids[i], 1);
+        free(kids);
+    }
     c->r[R_AX] = 1;
     return 6;
 }
@@ -1480,6 +1488,8 @@ int w16_user(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     r = w16_api_call(g_menu_api, g_menu_api_n, w, ordinal, a);
     if (r != -2) return r;
     r = w16_api_call(g_scroll_api, g_scroll_api_n, w, ordinal, a);
+    if (r != -2) return r;
+    r = w16_api_call(g_clip_api, g_clip_api_n, w, ordinal, a);
     if (r != -2) return r;
     r = w16_user_misc(w, ordinal, a);
     if (r != -2) return r;

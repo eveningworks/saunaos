@@ -153,9 +153,11 @@ int w16_has(const char *module, unsigned ordinal) {
                in_table(g_user_misc_api, g_user_misc_api_n, ordinal) ||
                in_table(g_dialog_api, g_dialog_api_n, ordinal) ||
                in_table(g_menu_api, g_menu_api_n, ordinal) ||
-               in_table(g_scroll_api, g_scroll_api_n, ordinal);
-    if (!strcmp(module, "GDI")) return in_table(g_gdi_api, g_gdi_api_n, ordinal);
-    if (!strcmp(module, "SHELL")) return in_table(g_shell_api, g_shell_api_n, ordinal);
+               in_table(g_scroll_api, g_scroll_api_n, ordinal) ||
+               in_table(g_clip_api, g_clip_api_n, ordinal);
+    if (!strcmp(module, "GDI")) return in_table(g_gdi_api, g_gdi_api_n, ordinal) || in_table(g_meta_api, g_meta_api_n, ordinal);
+    if (!strcmp(module, "SHELL")) return in_table(g_shell_api, g_shell_api_n, ordinal) || in_table(g_reg_api, g_reg_api_n, ordinal);
+    if (!strcmp(module, "OLECLI")) return in_table(g_olecli_api, g_olecli_api_n, ordinal);
     if (!strcmp(module, "SOUND")) return in_table(g_sound_api, g_sound_api_n, ordinal);
     if (!strcmp(module, "KEYBOARD")) return in_table(g_keyboard_api, g_keyboard_api_n, ordinal);
     if (!strcmp(module, "COMMDLG")) return in_table(g_commdlg_api, g_commdlg_api_n, ordinal);
@@ -177,10 +179,24 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "DDEML",   27,  "names a service no one can reach" },                 // DdeNameService
     { "GDI",     47,  "a region is its bounding rectangle" },               // CombineRgn
     { "GDI",     53,  "no printer to make a DC for" },                  // CreateDC
+    { "GDI",     123, "arcs, pies and chords not drawn" },              // PlayMetaFile
     { "KERNEL",  166, "runs nothing: answers that the file is not there" }, // WinExec
+    { "OLECLI",  12,  "pastes a picture, never an object to edit" },    // OleCreateFromClip
+    { "OLECLI",  21,  "no program can edit the object" },               // OleActivate
+    { "OLECLI",  9,   "no server: nothing can be linked" },             // OleQueryLinkFromClip
+    { "OLECLI",  10,  "pastes a picture, never an object to edit" },    // OleQueryCreateFromClip
+    { "OLECLI",  11,  "no server: nothing can be linked" },             // OleCreateLinkFromClip
+    { "OLECLI",  34,  "no server: no new object" },                     // OleCreate
+    { "OLECLI",  38,  "no server: no new object" },                     // OleCreateFromFile
+    { "OLECLI",  39,  "no server: nothing can be linked" },             // OleCreateLinkFromFile
+    { "SHELL",   1,   "the registration database is empty" },           // RegOpenKey
+    { "SHELL",   3,   "the registration database is empty" },           // RegCloseKey
+    { "SHELL",   6,   "the registration database is empty" },           // RegQueryValue
+    { "SHELL",   7,   "the registration database is empty" },           // RegEnumKey
     { "SHELL",   9,   "nothing can be dropped on a program yet" },      // DragAcceptFiles
     { "SHELL",   11,  "answers no files" },                             // DragQueryFile
     { "SHELL",   12,  "does nothing" },                                 // DragFinish
+    { "USER",    141, "a program's own formats stay in that program" },  // SetClipboardData
     { "USER",    31,  "always no, even when minimised" },       // IsIconic
     { "USER",    50,  "finds no other program's window" },              // FindWindow
     { "USER",    121, "only WH_CALLWNDPROC is called" },                    // SetWindowsHook
@@ -231,12 +247,20 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     if (!strcmp(name, "KERNEL") || !strcmp(name, "KRNL386")) r = w16_kernel(w, ordinal, &a);
     else if (!strcmp(name, "USER")) r = w16_user(w, ordinal, &a);
     else if (!strcmp(name, "GDI")) r = w16_gdi(w, ordinal, &a);
-    else if (!strcmp(name, "SHELL")) r = w16_api_call(g_shell_api, g_shell_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "SHELL")) {
+        r = w16_api_call(g_shell_api, g_shell_api_n, w, ordinal, &a);
+        if (r == -2) r = w16_api_call(g_reg_api, g_reg_api_n, w, ordinal, &a);
+    }
+    else if (!strcmp(name, "OLECLI")) r = w16_api_call(g_olecli_api, g_olecli_api_n, w, ordinal, &a);
     else if (!strcmp(name, "SOUND")) r = w16_api_call(g_sound_api, g_sound_api_n, w, ordinal, &a);
     else if (!strcmp(name, "KEYBOARD")) r = w16_api_call(g_keyboard_api, g_keyboard_api_n, w, ordinal, &a);
     else if (!strcmp(name, "COMMDLG")) r = w16_api_call(g_commdlg_api, g_commdlg_api_n, w, ordinal, &a);
     else if (!strcmp(name, "DDEML")) r = w16_api_call(g_ddeml_api, g_ddeml_api_n, w, ordinal, &a);
     else if (!strcmp(name, "MMSYSTEM")) r = w16_api_call(g_mmsystem_api, g_mmsystem_api_n, w, ordinal, &a);
+    if (g_w16_trace && r >= 0) {                 // what it answered, as Wine's +relay ends a call with Ret
+        fprintf(g_w16_trace, "  = %04x:%04x\n", c->r[R_DX], c->r[R_AX]);
+        fflush(g_w16_trace);
+    }
     if (r == -2 || (r < 0 && !c->fault)) {
         char why[96];
         snprintf(why, sizeof why, "%s.%u (%s) is not implemented", name, ordinal,
@@ -358,6 +382,18 @@ static void describe_fault(struct w16 *w) {
              c->fault_r[R_AX], c->fault_r[R_BX], c->fault_r[R_CX], c->fault_r[R_DX],
              c->fault_r[R_SI], c->fault_r[R_DI], c->fault_r[R_BP], c->fault_r[R_SP],
              c->fault_cs, c->fault_sreg[S_DS], c->fault_sreg[S_SS], c->fault_sreg[S_ES], c->fault_ip);
+    // The stack's top words, as Wine's crash dump shows them: the return
+    // addresses there say who called into the fault.
+    struct cpu16 *mc = &w->cpu;
+    int fault = mc->fault;
+    size_t len = strlen(g_w16_fault);
+    len += (size_t)snprintf(g_w16_fault + len, sizeof g_w16_fault - len, "\nstack");
+    for (unsigned i = 0; i < 16 && len < sizeof g_w16_fault - 6; i++) {
+        const uint8_t *p = cpu16_ptr(mc, c->fault_sreg[S_SS], (uint16_t)(c->fault_r[R_SP] + 2 * i), 2, 0);
+        if (!p) break;
+        len += (size_t)snprintf(g_w16_fault + len, sizeof g_w16_fault - len, " %04X", p[0] | p[1] << 8);
+    }
+    mc->fault = fault;                           // a word past the stack's end is not the fault reported
     char upper[64];
     size_t i = 0;
     for (; file[i] && i < sizeof upper - 1; i++)

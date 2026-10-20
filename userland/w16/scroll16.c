@@ -9,7 +9,10 @@
 //
 // A BAR'S PLACE: inside a child's border, against its right or bottom
 // edge, its outline the border's; in a top-level window, beyond its
-// client area at the right and bottom of its buffer.
+// client area at the right and bottom of its buffer. A SCROLLBAR CONTROL
+// (the class, SB_CTL) is a bar that is its whole window: the same drawing
+// and tracking, reporting to its parent with its own HWND in lParam's
+// high word.
 #include "w16_internal.h"
 
 #include <string.h>
@@ -23,7 +26,16 @@
 #define SB_THUMBTRACK    5
 #define SB_ENDSCROLL     8
 
+#define SB_CTL           2
+#define SBS_VERT         0x0001
+
 enum { PART_NONE = -1, PART_UP, PART_PAGEUP, PART_THUMB, PART_PAGEDOWN, PART_DOWN };
+
+static int is_ctl(const struct w16_wnd *x) {
+    return x->cls >= 0 && x->cls < g_w16.ncls && g_w16.cls[x->cls].host == w16_scrollbar_proc;
+}
+
+static int ctl_bar(const struct w16_wnd *x) { return x->style & SBS_VERT ? SB_VERT : SB_HORZ; }
 
 // The one bar being tracked, and the part held down: how it is drawn.
 static struct { uint16_t hwnd; int bar, part, down; } g_track = { 0, 0, PART_NONE, 0 };
@@ -43,6 +55,13 @@ int w16_sbar_shown(const struct w16_wnd *x, int bar) {
 
 // Bar `bar`'s rectangle in window coordinates; 0 when x has none.
 static int bar_rect(const struct w16_wnd *x, int bar, int *x0, int *y0, int *x1, int *y1) {
+    if (is_ctl(x)) {
+        if (bar != ctl_bar(x)) return 0;
+        *x0 = *y0 = 0;
+        *x1 = x->w;
+        *y1 = x->h;
+        return 1;
+    }
     int ww, wh, vs = w16_sbar_shown(x, SB_VERT), hs = w16_sbar_shown(x, SB_HORZ);
     window_size(x, &ww, &wh);
     int near = x->kind == W16_K_CHILD ? 0 : -1;   // and onto the line above or left of the buffer
@@ -156,6 +175,11 @@ void w16_sbar_draw(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int
 }
 
 static void redraw(struct w16 *w, struct w16_wnd *x) {
+    if (is_ctl(x)) {
+        w16_invalidate(w, x, 0);
+        w16_paint_now(w);
+        return;
+    }
     struct ugfx_surface s;
     int ox, oy;
     if (!(x->style & (WS_VSCROLL | WS_HSCROLL)) || !w16_wnd_paint_nc(w, x, &s, &ox, &oy)) return;
@@ -186,21 +210,23 @@ void w16_sbar_set(struct w16 *w, struct w16_wnd *x, int bar, int min, int max, i
     if (max < min) max = min;
     if (pos < min) pos = min;
     if (pos > max) pos = max;
-    int was = w16_sbar_shown(x, bar);
+    int was = is_ctl(x) || w16_sbar_shown(x, bar);
     int changed = b->min != min || b->max != max || b->pos != pos;
     pthread_mutex_lock(&w->lock);
     b->min = (int16_t)min;
     b->max = (int16_t)max;
     b->pos = (int16_t)pos;
     pthread_mutex_unlock(&w->lock);
-    if (was != w16_sbar_shown(x, bar)) relayout(w, x);
+    if (was != (is_ctl(x) || w16_sbar_shown(x, bar))) relayout(w, x);
     else if (changed && redraw_it && w16_wnd_shown(w, x)) redraw(w, x);
 }
 
 // --- tracking ---------------------------------------------------------------------
 
 static void send_scroll(struct w16 *w, struct w16_wnd *x, int bar, int code, int pos) {
-    w16_send(w, x->hwnd, bar == SB_VERT ? WM_VSCROLL : WM_HSCROLL, (uint16_t)code, (uint16_t)pos);
+    uint16_t to = is_ctl(x) ? x->parent : x->hwnd;
+    uint32_t lp = (uint16_t)pos | (is_ctl(x) ? (uint32_t)x->hwnd << 16 : 0);
+    w16_send(w, to, bar == SB_VERT ? WM_VSCROLL : WM_HSCROLL, (uint16_t)code, lp);
     w16_paint_now(w);                            // the window scrolls under the held button
 }
 
@@ -277,21 +303,53 @@ void w16_sbar_track(struct w16 *w, struct w16_wnd *x, int bar, int wx, int wy) {
     }
 }
 
+// --- the SCROLLBAR class ------------------------------------------------------------
+
+static void paint_ctl(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int ox, int oy) {
+    (void)w;
+    draw_bar(x, ctl_bar(x), s, ox, oy);
+}
+
+uint32_t w16_scrollbar_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, uint32_t lp) {
+    switch (msg) {
+    case WM_PAINT:
+        w16_ctl_paint(w, x, paint_ctl);
+        return 0;
+    case WM_LBUTTONDOWN:
+    case WM_LBUTTONDBLCLK:
+        w16_sbar_track(w, x, ctl_bar(x), (int16_t)lp, (int16_t)(lp >> 16));
+        return 0;
+    case WM_ENABLE:
+        w16_invalidate(w, x, 0);
+        return 0;
+    default:
+        return w16_def_window_proc(w, x, msg, wp, lp);
+    }
+}
+
+// The bar a Set/GetScroll call means: SB_HORZ or SB_VERT of a window, or
+// the control itself for SB_CTL; -1 for none.
+static int which_bar(const struct w16_wnd *x, unsigned bar) {
+    if (!x) return -1;
+    if (bar == SB_CTL) return is_ctl(x) ? ctl_bar(x) : -1;
+    return bar <= SB_VERT ? (int)bar : -1;
+}
+
 // --- the exports ------------------------------------------------------------------
 
 // SetScrollPos(hwnd, nBar, nPos, bRedraw) -> int
 // Windows: Moves the thumb of a window's horizontal or vertical scroll bar to a position in its
 // range, redrawing it if asked; returns the old position.
-// w16: The same, on the scroll bars w16 draws in Windows 3.1's look; the position is kept inside
-// the range.
+// w16: The same, on the scroll bars w16 draws in Windows 3.1's look -- a window's own, or a
+// SCROLLBAR control's (SB_CTL); the position is kept inside the range.
 static int api_SetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    uint16_t bar = w16_arg16(a);
+    int bar = which_bar(x, w16_arg16(a));
     int16_t pos = (int16_t)w16_arg16(a);
     uint16_t redraw_it = w16_arg16(a);
     w->cpu.r[R_AX] = 0;
-    if (x && bar <= SB_VERT) {
+    if (bar >= 0) {
         w->cpu.r[R_AX] = (uint16_t)x->sb[bar].pos;
         w16_sbar_set(w, x, bar, x->sb[bar].min, x->sb[bar].max, pos, redraw_it);
     }
@@ -304,8 +362,8 @@ static int api_SetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
 static int api_GetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    uint16_t bar = w16_arg16(a);
-    w->cpu.r[R_AX] = x && bar <= SB_VERT ? (uint16_t)x->sb[bar].pos : 0;
+    int bar = which_bar(x, w16_arg16(a));
+    w->cpu.r[R_AX] = bar >= 0 ? (uint16_t)x->sb[bar].pos : 0;
     return 4;
 }
 
@@ -315,10 +373,10 @@ static int api_GetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
 static int api_SetScrollRange(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    uint16_t bar = w16_arg16(a);
+    int bar = which_bar(x, w16_arg16(a));
     int16_t min = (int16_t)w16_arg16(a), max = (int16_t)w16_arg16(a);
     uint16_t redraw_it = w16_arg16(a);
-    if (x && bar <= SB_VERT) w16_sbar_set(w, x, bar, min, max, x->sb[bar].pos, redraw_it);
+    if (bar >= 0) w16_sbar_set(w, x, bar, min, max, x->sb[bar].pos, redraw_it);
     return 10;
 }
 
@@ -328,10 +386,10 @@ static int api_SetScrollRange(struct w16 *w, unsigned ordinal, struct w16_args *
 static int api_GetScrollRange(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    uint16_t bar = w16_arg16(a);
+    int bar = which_bar(x, w16_arg16(a));
     uint32_t pmin = w16_arg32(a), pmax = w16_arg32(a);
     int16_t v[2] = { 0, 0 };
-    if (x && bar <= SB_VERT) { v[0] = x->sb[bar].min; v[1] = x->sb[bar].max; }
+    if (bar >= 0) { v[0] = x->sb[bar].min; v[1] = x->sb[bar].max; }
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(pmin >> 16), (uint16_t)pmin, 2, 1);
     uint8_t *q = cpu16_ptr(&w->cpu, (uint16_t)(pmax >> 16), (uint16_t)pmax, 2, 1);
     if (!p || !q) return -1;

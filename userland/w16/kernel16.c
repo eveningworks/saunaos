@@ -455,6 +455,50 @@ static int api_InitTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;
 }
 
+// AddAtom(lpszString) -> ATOM
+// DeleteAtom(nAtom) -> ATOM
+// GetAtomName(nAtom, lpszBuffer, cbBuffer) -> UINT
+// Windows: A number for a string in the program's atom table -- the same number for the same
+// string, without case; "#123" is the integer atom 123 -- one less use of it, and its string back.
+// w16: The same numbers, from the table class names and registered messages use. A deleted atom
+// keeps its number until the program ends, so a later AddAtom of the string gets the same one.
+static int api_AddAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    char name[256];
+    w->cpu.r[R_AX] = 0;
+    if (ordinal == 71) { w16_arg16(a); return 2; }   // DeleteAtom: 0 is success
+    if (ordinal == 72) {
+        uint16_t atom = w16_arg16(a);
+        uint32_t far = w16_arg32(a);
+        int16_t cap = (int16_t)w16_arg16(a);
+        if (atom >= W16_ATOM_BASE && (unsigned)(atom - W16_ATOM_BASE) < (unsigned)w->natoms)
+            snprintf(name, sizeof name, "%s", w->atoms[atom - W16_ATOM_BASE]);
+        else if (atom && atom < W16_ATOM_BASE)
+            snprintf(name, sizeof name, "#%u", atom);
+        else
+            return 8;
+        if (cap <= 0) return 8;
+        size_t n = strlen(name);
+        if (n > (size_t)cap - 1) n = (size_t)cap - 1;
+        uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (uint32_t)n + 1, 1);
+        if (!p) return -1;
+        memcpy(p, name, n);
+        p[n] = 0;
+        w->cpu.r[R_AX] = (uint16_t)n;
+        return 8;
+    }
+    uint32_t far = w16_arg32(a);
+    if (!(far >> 16)) { w->cpu.r[R_AX] = (uint16_t)far; return 4; }   // MAKEINTATOM
+    if (cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, name, sizeof name) < 0) return -1;
+    if (name[0] == '#') {
+        unsigned v = 0;
+        for (const char *p = name + 1; *p >= '0' && *p <= '9'; p++) v = v * 10 + (unsigned)(*p - '0');
+        w->cpu.r[R_AX] = (uint16_t)(v < W16_ATOM_BASE ? v : 0);
+        return 4;
+    }
+    w->cpu.r[R_AX] = w16_atom_add(w, name);
+    return 4;
+}
+
 const struct w16_api g_kernel_api[] = {
     { 1, api_FatalExit },
     { 3, api_GetVersion },
@@ -465,6 +509,9 @@ const struct w16_api g_kernel_api[] = {
     { 54, api_GetInstanceData },
     { 55, api_Catch },
     { 56, api_Throw },
+    { 70, api_AddAtom },
+    { 71, api_AddAtom },
+    { 72, api_AddAtom },
     { 88, api_lstrcpy },
     { 89, api_lstrcpy },
     { 90, api_lstrlen },

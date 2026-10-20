@@ -21,7 +21,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include "keyboard.h"
-#include "lib/uclip.h"
 #include "ui/ugfx.h"
 
 #define ES_CENTER      0x0001
@@ -478,35 +477,16 @@ static void set_all(struct w16 *w, struct w16_wnd *x, struct edit *e, const char
 static void copy(struct w16 *w, struct edit *e) {
     int lo = sel_lo(e), hi = sel_hi(e);
     if (lo == hi || e->pw) return;
-    const char *t = text(w, e);
-    char *out = malloc((size_t)(hi - lo) + 1);
-    if (!out) return;
-    int n = 0;
-    for (int i = lo; i < hi; i++)                // the clipboard's lines end in "\n"
-        if (!(t[i] == '\r' && i + 1 < hi && t[i + 1] == '\n')) out[n++] = t[i];
-    uclip_set_text(out, n);
-    free(out);
+    w16_clip_put_text(text(w, e) + lo, hi - lo);
 }
 
 static void paste(struct w16 *w, struct w16_wnd *x, struct edit *e) {
-    static struct uclip c;                       // 64 KiB: not on the task's stack
-    int n;
-    if (!uclip_load(&c)) return;
-    const char *s = uclip_text(&c, &n);
+    int n, m = 0;
+    char *s = w16_clip_get_text(&n);             // Windows' "\r\n" and ANSI already
     if (!s) return;
-    char *in = malloc((size_t)n * 2 + 1);
-    if (!in) return;
-    int m = 0;
-    for (int i = 0; i < n; i++) {                // each "\n" back to Windows' "\r\n"
-        if (s[i] == '\n' && (i == 0 || s[i - 1] != '\r')) {
-            if (!multi(x)) break;
-            in[m++] = '\r';
-        }
-        if (s[i] == '\r' && !multi(x)) break;
-        in[m++] = s[i];
-    }
-    type_text(w, x, e, in, m);
-    free(in);
+    while (m < n && (multi(x) || (s[m] != '\r' && s[m] != '\n'))) m++;   // one line: the first
+    type_text(w, x, e, s, m);
+    free(s);
 }
 
 // --- painting ----------------------------------------------------------------------

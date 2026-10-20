@@ -123,7 +123,7 @@ void w16_listbox_folders(struct w16_wnd *x, int on) {
 static int item_h(const struct w16_wnd *x) {
     int h = w16_font_line_h(x ? x->font : 0);
     const struct listbox *l = x && x->host == w16_listbox_proc ? x->ctl : 0;
-    return l && l->folders && h < 16 ? 16 : h;
+    return l && l->folders == 1 && h < 16 ? 16 : h;
 }
 
 static int rows(const struct w16_wnd *x) {
@@ -296,6 +296,16 @@ static void folder(struct ugfx_surface *s, int x, int y, int kind) {
     }
 }
 
+// toy-os's own TrueType mark, for when drive C: has no COMMDLG.DLL: two
+// capital T's, a grey one behind a black one, drawn rather than traced.
+static void tt_mark(struct ugfx_surface *s, int x, int y) {
+    uint32_t black = w16_rgb(0x000000), grey = w16_rgb(0x808080);
+    ugfx_fill_rect(s, x + 2, y + 1, 9, 2, grey);
+    ugfx_fill_rect(s, x + 5, y + 1, 3, 9, grey);
+    ugfx_fill_rect(s, x + 8, y + 3, 9, 2, black);
+    ugfx_fill_rect(s, x + 11, y + 3, 3, 9, black);
+}
+
 static void paint_listbox(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s, int ox, int oy) {
     (void)w;
     struct listbox *l = lb_of(x);
@@ -318,6 +328,12 @@ static int item_icon(struct ugfx_surface *s, const struct listbox *l, int i, int
     if (!l->folders || i < 0 || i >= l->n) return 0;
     int indent = (int)(l->it[i].data >> 8 & 0xFF), kind = (int)(l->it[i].data & 0xFF);
     x += indent * 4;
+    if (kind == 5 || kind == 6) {                // a font's kind: the TrueType mark, or just its room
+        const uint32_t *tt = kind == 5 ? w16_commdlg_tt() : 0;
+        if (tt) ugfx_blit_alpha(s, x, y + (ih - W16_TT_H) / 2, W16_TT_W, W16_TT_H, tt, W16_TT_W);
+        else if (kind == 5) tt_mark(s, x, y + (ih - W16_TT_H) / 2);
+        return W16_TT_W;
+    }
     // 3.11's own pictures when the user's COMMDLG.DLL is on drive C:, else ours.
     static const int REAL[] = { -1, W16_ICON_OPEN, W16_ICON_SHUT, W16_ICON_DISK, W16_ICON_CURRENT };
     const uint32_t *px = kind > 0 && kind < 5 ? w16_commdlg_icon(REAL[kind]) : 0;
@@ -508,7 +524,9 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
     case WM_LBUTTONUP:
         if (l->captured) {
             l->captured = 0;
-            if (!l->combo) lb_capture(w, 0);
+            // A drop-down's list keeps the capture until it shuts; a simple box's never shuts.
+            struct w16_wnd *box = l->combo ? w16_wnd_get(w, l->combo) : 0;
+            if (!l->combo || (box && (box->style & 3) == CBS_SIMPLE)) lb_capture(w, 0);
             int16_t mx = (int16_t)lp, my = (int16_t)(lp >> 16);
             if (l->combo && mx >= 0 && my >= 0 && mx < x->cw && my < x->ch) lb_notify(w, x, l, LBN_PICKED);
         }
@@ -657,13 +675,16 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
         pthread_mutex_lock(&w->lock);
         x->style &= ~(WS_VSCROLL | WS_HSCROLL);
         pthread_mutex_unlock(&w->lock);
-        int sh = cb_type(x) == CBS_SIMPLE ? x->h : shut_h(x);
+        // A simple box (CBS_SIMPLE) keeps its list open under the edit, a
+        // pixel's gap between them as 3.1 drew it, within the template's height.
+        int simple = cb_type(x) == CBS_SIMPLE, sh = shut_h(x), gap = simple ? 1 : 0;
         w16_wnd_set_geometry(w, x, x->x, x->y, x->w, sh);
         int k = w16_class_find(w, "LISTBOX"), ek = w16_class_find(w, "EDIT");
-        int lh = c->open_h - sh > item_h(x) * 2 + 2 ? c->open_h - sh : item_h(x) * 4 + 2;
+        int room = c->open_h - sh - gap;
+        int lh = room > item_h(x) * 2 + 2 ? room : item_h(x) * 4 + 2;
         uint32_t ls = WS_CHILD | WS_BORDER | WS_VSCROLL | ((x->style & CBS_SORT) ? LBS_SORT : 0);
-        if (cb_type(x) == CBS_SIMPLE) ls |= WS_VISIBLE;
-        struct w16_wnd *lw = w16_wnd_create(w, k, "", ls, x->x, x->y + sh, x->w - (cb_type(x) == CBS_SIMPLE ? 0 : W16_SB),
+        if (simple) ls |= WS_VISIBLE | LBS_DISABLENOSCROLL;
+        struct w16_wnd *lw = w16_wnd_create(w, k, "", ls, x->x, x->y + sh + gap, x->w - (simple ? 0 : W16_SB),
                                             lh, x->parent, LIST_ID, x->inst, 0);
         if (!lw) return 0xFFFFFFFFu;
         c->list = lw->hwnd;

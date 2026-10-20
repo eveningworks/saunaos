@@ -11,8 +11,10 @@ file is involved.
    same colours, NOTSRCCOPY every one inverted, and the DIB's rows the
    right way up -- a pen line that stops short of its end point, a brush
    rectangle inside a pen edge, text copied through the global and local
-   heaps, and a square that appears only once its timer has fired three
-   times.
+   heaps, a square that appears only once its timer has fired three
+   times; and a metafile played at twice its size through MM_ANISOTROPIC
+   (PlayMetaFile, lib/uwmf: a NULL-pen rectangle and an ellipse), a PatBlt
+   cut by IntersectClipRect inside SaveDC/RestoreDC, and a Polygon.
 2. **The window controls**: Alt+Space opens w16's own control menu (a
    popup), X maximizes -- the window takes the work area and the frame
    loses its border, so the caption reaches the top-left pixel -- and
@@ -41,8 +43,9 @@ file is involved.
    (`w16 --check` says `partly 1` and why), so its window opens on the
    Missing chip with that one row under two module chips (All, USER);
    Partly lists IsIconic; All lists every import `w16 --check` counts;
-   a search narrows it to one; Ctrl+C copies the rows shown; gdi.exe,
-   which lacks nothing, opens on All; and the launcher's details panel
+   a search narrows it to one; Ctrl+C copies the rows shown; hello.exe,
+   which lacks nothing, opens on All, and gdi.exe -- nothing missing, one
+   stand-in (PlayMetaFile) -- on Partly; and the launcher's details panel
    opens the window for the selected program.
 9. **The pointer under a capture** (hello.exe's scrolling edit): an
    I-beam over the text, an arrow over the scroll bar, and dragging the
@@ -165,6 +168,20 @@ def gdi_checks(dbg, qmp, res, tmp):
               "a text row has no dark pixel")
     res.check("GetPrivateProfileInt read Square=1 from the INI file: the square is magenta",
               px(123, 53) == MAGENTA, f"got {px(123, 53)}")
+    # A metafile through MM_ANISOTROPIC at twice its size (PlayMetaFile, lib/uwmf),
+    # SaveDC/IntersectClipRect/RestoreDC, and Polygon.
+    res.check("PlayMetaFile: the red square at twice its size, a NULL pen leaving its right edge out",
+              px(141, 31) == RED and px(178, 68) == RED and px(179, 50) == WHITE,
+              f"141,31:{px(141, 31)} 178,68:{px(178, 68)} 179,50:{px(179, 50)}")
+    res.check("PlayMetaFile: an ellipse, its middle green and its box's corner not",
+              px(200, 50) == GREEN and px(182, 32) == WHITE and px(219, 50) != WHITE,
+              f"middle {px(200, 50)} corner {px(182, 32)} right edge {px(219, 50)}")
+    res.check("IntersectClipRect: the PatBlt is cut to the clip, inside SaveDC/RestoreDC",
+              px(156, 84) == BLUE and px(144, 84) == WHITE and px(156, 96) == WHITE and px(166, 84) == WHITE,
+              f"in {px(156, 84)} left {px(144, 84)} below {px(156, 96)} right {px(166, 84)}")
+    res.check("Polygon: a blue triangle, its edge black, nothing past its long side",
+              px(186, 86) == BLUE and px(180, 92) == BLACK and px(208, 104) == WHITE,
+              f"inside {px(186, 86)} edge {px(180, 92)} outside {px(208, 104)}")
     ini = sh(dbg, f"cat {INI}")
     res.check("WritePrivateProfileString kept the file's line and added its own",
               "Square=1" in ini and "Written=yes" in ini, f"the file: {ini!r}")
@@ -938,10 +955,16 @@ def calls(dbg, res):
     res.check("...and refuses a call w16 does not answer (ExitWindows)", "no call w16 answers" in out, out[-200:])
     dbg.close_window("Fault test - calls")
 
-    win = dbg.spawn("/bin/wm/apps/retrolauncher --calls /usr/share/w16/gdi.exe", "GDI test - calls")
+    win = dbg.spawn("/bin/wm/apps/retrolauncher --calls /usr/share/w16/hello.exe", "Hello - calls")
     lay = wait_calls(dbg, lambda l: "rows" in l)
     res.check("a program that lacks nothing, with no stand-ins, opens on All",
               win is not None and lay.get("show") == 0 and lay.get("rows", 0) > 0, f"{lay}")
+    dbg.close_window("Hello - calls")
+    # gdi.exe lacks nothing but plays a metafile, whose arcs are a stand-in.
+    win = dbg.spawn("/bin/wm/apps/retrolauncher --calls /usr/share/w16/gdi.exe", "GDI test - calls")
+    lay = wait_calls(dbg, lambda l: "rows" in l)
+    res.check("...one with a stand-in opens on Partly, the stand-in its row",
+              win is not None and lay.get("show") == 2 and lay.get("first") == "GDI.123 PlayMetaFile", f"{lay}")
     dbg.close_window("GDI test - calls")
 
 

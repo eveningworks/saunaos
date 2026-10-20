@@ -44,6 +44,13 @@ uint16_t w16_global_alloc(struct w16 *w, uint32_t size, const void *init) {
     return sel;
 }
 
+uint8_t *w16_global_ptr(struct w16 *w, uint16_t h, uint32_t *size) {
+    struct cpu16_desc *d = global_desc(w, h);
+    if (!d) return 0;
+    if (size) *size = d->limit + 1;
+    return d->base;
+}
+
 void w16_global_free(struct w16 *w, uint16_t h) {
     struct cpu16_desc *d = global_desc(w, h);
     if (!d) return;
@@ -477,6 +484,20 @@ static int api_LocalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 2;
 }
 
+// LocalHandleDelta(nNewDelta) -> UINT
+// Windows: How many handle entries the local heap adds each time its handle table fills (32 at
+// first); a nonzero argument sets it. The number in force is returned.
+// w16: The same number kept and answered; w16's handle table grows one entry at a time, so it
+// changes nothing.
+static int api_LocalHandleDelta(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    static uint16_t delta = 32;
+    (void)ordinal;
+    uint16_t v = w16_arg16(a);
+    if (v) delta = v;
+    w->cpu.r[R_AX] = delta;
+    return 2;
+}
+
 // GlobalAlloc(wFlags, dwBytes) -> HGLOBAL
 // Windows: Allocates a block from the global heap, outside the data segment, up to 1 MB or more as
 // a huge block; moveable, discardable or fixed by its flags.
@@ -627,6 +648,7 @@ const struct w16_api g_kernel_mem_api[] = {
     { 23, api_LockSegment },
     { 24, api_UnlockSegment },
     { 25, api_GlobalCompact },
+    { 310, api_LocalHandleDelta },
 };
 const unsigned g_kernel_mem_api_n = sizeof g_kernel_mem_api / sizeof g_kernel_mem_api[0];
 

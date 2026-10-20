@@ -299,9 +299,15 @@ static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t name = w16_arg32(a), ofs = w16_arg32(a);
     uint16_t style = w16_arg16(a);
-    uint8_t *of = cpu16_ptr(&w->cpu, (uint16_t)(ofs >> 16), (uint16_t)ofs, 136, 1);
-    if (!of) return -1;
-    char *dos = (style & OF_REOPEN) ? strndup((char *)of + 8, DOS_PATH - 1) : far_path(w, name);
+    // OF_REOPEN reads the path the OFSTRUCT holds; nothing else of it is read
+    char *dos = 0;
+    if (style & OF_REOPEN) {
+        char prev[DOS_PATH];
+        if (cpu16_str(&w->cpu, (uint16_t)(ofs >> 16), (uint16_t)(ofs + 8), prev, sizeof prev) < 0) return -1;
+        dos = strdup(prev);
+    } else {
+        dos = far_path(w, name);
+    }
     if (!dos) return -1;
     char full[DOS_PATH * 2] = "";
     int h, err = 0;
@@ -320,11 +326,18 @@ static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         fflush(g_w16_trace);
     }
     free(dos);
-    memset(of, 0, 136);
-    of[0] = 136;                                 // cBytes
-    of[1] = 1;                                   // fFixedDisk
-    of[2] = (uint8_t)err;
-    for (size_t i = 0; full[i] && i < DOS_PATH - 1; i++) of[8 + i] = (uint8_t)upper(full[i]);
+    // The header and the path's characters, as KERNEL wrote them -- never the
+    // whole 136 bytes: Write's buffer is 132, its saved registers right after it.
+    size_t n = 0;
+    while (full[n] && n < DOS_PATH - 1) n++;
+    uint8_t *put = cpu16_ptr(&w->cpu, (uint16_t)(ofs >> 16), (uint16_t)ofs, (uint32_t)(8 + n + 1), 1);
+    if (!put) return -1;
+    memset(put, 0, 8);
+    put[0] = 136;                                // cBytes
+    put[1] = 1;                                  // fFixedDisk
+    put[2] = (uint8_t)err;
+    for (size_t i = 0; i < n; i++) put[8 + i] = (uint8_t)upper(full[i]);
+    put[8 + n] = 0;
     w->cpu.r[R_AX] = h < 0 ? HFILE_ERROR : (uint16_t)h;
     return 10;
 }
@@ -397,6 +410,42 @@ static int api_llseek(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
+// GetTempFileName(cDriveLetter, lpPrefixString, uUnique, lpTempFileName) -> UINT
+// Windows: A name for a temporary file, "~PRE1A2B.TMP" in the TEMP folder (or the drive's root):
+// the prefix's first three letters and a number in hex. With uUnique 0 the number is the time and
+// the file is made, a taken name stepping on to the next; else the name is only given. The number.
+// w16: The same, in C:\TEMP -- the TEMP the program's environment names, made when it is not
+// there -- whatever drive is asked: the program's temporary files stay in the Win16 folder.
+static int api_GetTempFileName(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);                                // the drive: always C:'s TEMP
+    uint32_t pre = w16_arg32(a);
+    uint16_t unique = w16_arg16(a);
+    uint32_t out = w16_arg32(a);
+    char prefix[4] = "";
+    char pbuf[16];
+    if ((pre >> 16) && cpu16_str(&w->cpu, (uint16_t)(pre >> 16), (uint16_t)pre, pbuf, sizeof pbuf) >= 0)
+        for (int i = 0; i < 3 && pbuf[i]; i++) { prefix[i] = upper(pbuf[i]); prefix[i + 1] = 0; }
+    char host[1024], name[DOS_PATH];
+    if (w16_dos_path("C:\\TEMP", host, sizeof host, 1, 0, 0) == 0) mkdir(host, 0755);
+    uint16_t n = unique ? unique : (uint16_t)time(0);
+    for (int tries = 0; tries < 0x10000; tries++, n++) {
+        if (!n) continue;
+        snprintf(name, sizeof name, "C:\\TEMP\\~%s%04X.TMP", prefix, n);
+        if (unique) break;
+        if (w16_dos_path(name, host, sizeof host, 1, 0, 0) != 0) { n = 0; break; }
+        int fd = open(host, O_WRONLY | O_CREAT | O_EXCL, 0644);
+        if (fd >= 0) { close(fd); break; }
+        if (errno != EEXIST) { n = 0; break; }
+    }
+    w->cpu.r[R_AX] = n;
+    if (!n) return 10;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(out >> 16), (uint16_t)out, (uint32_t)strlen(name) + 1, 1);
+    if (!p) return -1;
+    memcpy(p, name, strlen(name) + 1);
+    return 10;
+}
+
 const struct w16_api g_file_api[] = {
     { 74, api_OpenFile },
     { 81, api_lclose },
@@ -405,6 +454,7 @@ const struct w16_api g_file_api[] = {
     { 84, api_llseek },
     { 85, api_lopen },
     { 86, api_lread },
+    { 97, api_GetTempFileName },
 };
 const unsigned g_file_api_n = sizeof g_file_api / sizeof g_file_api[0];
 
@@ -600,6 +650,7 @@ int w16_dos_file(struct w16 *w, struct cpu16 *c) {
         uint8_t *p = cpu16_ptr(c, c->sreg[S_DS], c->r[R_SI], 64, 1);
         if (!p) return -1;
         snprintf((char *)p, 64, "%s", g_cwd + 3);
+        c->r[R_AX] = 0x0100;                     // DOS's own (undocumented) answer: Write scans for AL's 0
         dos_ok(c);
         return 0;
     }

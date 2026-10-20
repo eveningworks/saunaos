@@ -68,6 +68,10 @@ LOUDLY and by name (below), never as a silent zero.
   |   ctl16.c edit16.c list16.c scroll16.c               |
   |              w16's own classes (BUTTON, EDIT...)     |
   |   dialog16.c commdlg16.c  dialogs, the common ones   |
+  |   font16.c   3.11's bitmap fonts, TrueType faces     |
+  |   clip16.c   the clipboard, on toy-os's (lib/uclip)  |
+  |   meta16.c   metafiles, through lib/uwmf             |
+  |   ole16.c    OLECLI: objects kept, drawn, not edited |
   |  MAIN thread (uapp)                                  |
   |   frame16.c  the 3.1 caption, frame and buttons (L3) |
   |   dlgwin16.c a dialog's frame, its own toywm window  |
@@ -149,6 +153,38 @@ LOUDLY and by name (below), never as a silent zero.
   section. The build, and `check_docs.py`, fail a call without its block:
   `docs/decisions/gui.md`, "Win16 calls are documented in their handler's
   comment".
+- **Fonts** (`font16.c`): 3.11's raster faces from drive C:'s .FON files,
+  and its TrueType ones -- Arial, Times New Roman, Courier New -- from
+  C:'s own .TTF files when the `fonts` setting allows, else from toy-os's
+  Liberation Sans and Serif (metric twins of Arial and Times New Roman,
+  made to be) and DejaVu Sans Mono, which is what Wine and every Linux
+  desktop substitute too. A TrueType face is laid out by Windows' OWN
+  DEVICE METRICS where the font carries them -- its cell from VDMX, each
+  advance from hdmx (ttf.c reads both) -- and GDI never kerned, so a Write
+  line breaks where 3.11's did, to the pixel. Chosen 2026-10-20 from the
+  "Write: TrueType in w16" canvas over Liberation always (T1) and the
+  bitmap fonts as before.
+- **The clipboard** (`clip16.c`) is toy-os's: text both ways, ANSI and
+  "\r\n" one side and UTF-8 and "\n" the other (lib/ucharset's
+  Windows-1252), and a picture as CF_BITMAP and CF_DIB. A format toy-os
+  has no kind for -- Write's own, an object's Native data -- stays inside
+  the w16 that put it there, which is the one stand-in. A format promised
+  with no data (delayed rendering) is made when the clipboard closes, so
+  the rest of toy-os can paste it.
+- **OLE 1.0** (`ole16.c`): an object is read from the program's OLESTREAM
+  in the persistent format of [MS-OLEDS] 2.2 and EVERY BYTE READ IS KEPT,
+  so saving writes it back unchanged and a document round-trips through
+  w16 and back into real 3.11 whole. It is drawn from its presentation --
+  a metafile, a DIB, a device bitmap (VGA's 4 planes) -- or, for a
+  Paintbrush object, which saves none, from the BMP its native data is.
+  Nothing edits one: there is no server, the registration database is
+  empty (Insert Object lists nothing), OleActivate says the server cannot
+  start, and a picture pasted in becomes a static object.
+- **Metafiles** (`meta16.c` over `userland/lib/uwmf.c`): the shared
+  decoder checks every record; each becomes the GDI call it recorded,
+  MADE THROUGH w16'S OWN EXPORT with its arguments laid below the
+  program's stack -- one implementation of each call, mapping and clip
+  included. Arcs, pies and chords are not drawn yet.
 - **Far pointers are translated at the boundary.** An API taking an
   `LPSTR` gets segment:offset, checked against the selector's limit
   before C reads a byte -- the same bounds discipline as `ttf.h`.
@@ -361,6 +397,22 @@ the palette, whose mapping is not yet measured.
    `soundd` only (`usnd_set_daemon_only()`: no `device` promise), under
    the program's short title in the Volume panel.
    `tools/w16_sound_test.py` hears all three on the host.
+   **Write, 2026-10-20**: the mapping modes and DPtoLP/LPtoDP, a DC's own
+   clip rectangle (IntersectClipRect, SelectClipRgn), SaveDC and
+   RestoreDC, SetTextJustification, Ellipse, Polygon and PolyPolygon,
+   underline and strike-out, EnumFonts, GetCharWidth and the TrueType
+   faces above; a CS_OWNDC window's DC keeping its state between paints
+   (Write selects its font once); a parent's paint repainting the
+   children it covered, since w16 paints a window whole (Write's ruler);
+   the SCROLLBAR class; menus changed at run time (InsertMenu,
+   ChangeMenu...); ChooseFont from COMMDLG's own template, the TrueType
+   mark taken from the user's COMMDLG.DLL; the clipboard, OLECLI and
+   PlayMetaFile above. The bugs it found were older ones: DOS's get-folder
+   call must answer AX=0100h (Write scans for that 0), OpenFile wrote all
+   136 bytes of an OFSTRUCT over a 132-byte buffer (its saved registers),
+   and a program tracking Shift and Ctrl itself heard no key for them.
+   `w16 --trace` now ends each call with what it answered, and a fault's
+   report carries the stack's top words.
 4. **Real programs**, the user's own copies (none ship): run each,
    read its unimplemented list (the launcher's calls window), implement,
    repeat. A second top-level window that is not a dialog still needs

@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <sys/stat.h>
 #include "lib/ufile.h"
 #include "ne.h"
@@ -99,6 +100,9 @@
 #define MB_ICONEXCLAMATION 0x0030
 #define IDYES             6
 #define COLOR_WINDOW      5
+#define LB_GETCOUNT_      (WM_USER + 12)
+#define SS_CENTER_        0x0001
+#define CF_SHOWHELP_      0x00000004
 
 static uint16_t g_error;                          // CommDlgExtendedError's
 
@@ -181,6 +185,10 @@ static struct w16_wnd *item(struct w16 *w, struct w16_wnd *d, uint16_t id) { ret
 #define ICON_SIZE 16
 static uint32_t g_icon[W16_ICON_COUNT][ICON_SIZE * ICON_SIZE];
 static int g_icon_state;                         // 0 not tried, 1 loaded, -1 none
+// Its bitmap 38: the Font dialog's marks, 20 by 12 -- TrueType, then a
+// printer font -- over a row of the same on the highlight. The TrueType one.
+static uint32_t g_tt[W16_TT_W * W16_TT_H];
+static int g_tt_state;
 
 static void load_icons(void) {
     g_icon_state = -1;
@@ -208,8 +216,27 @@ static void load_icons(void) {
                 g_icon[i][y * ICON_SIZE + x] = px == 0x0000FF ? 0 : 0xFF000000u | px;
             }
     }
-    free(img);
     g_icon_state = 1;
+    if (ne_resource_find(&m, NE_RT_BITMAP, 0, 38, 0, &r) == 0 && gdi_dib_header(img + r.off, r.len, 0, &dib) == 0 &&
+        dib.w >= W16_TT_W && (dib.h >= W16_TT_H || -dib.h >= W16_TT_H)) {
+        rows = dib.h < 0 ? -dib.h : dib.h;
+        if (dib.header_len + (uint64_t)dib.stride * (uint64_t)rows <= r.len) {
+            for (int y = 0; y < W16_TT_H; y++) {
+                const uint8_t *row = img + r.off + dib.header_len + (size_t)dib.stride * (size_t)(dib.h < 0 ? y : rows - 1 - y);
+                for (int x = 0; x < W16_TT_W; x++) {
+                    uint32_t px = gdi_dib_px(&dib, row, x) & 0xFFFFFF;
+                    g_tt[y * W16_TT_W + x] = px == 0x0000FF ? 0 : 0xFF000000u | px;
+                }
+            }
+            g_tt_state = 1;
+        }
+    }
+    free(img);
+}
+
+const uint32_t *w16_commdlg_tt(void) {
+    if (!g_icon_state) load_icons();
+    return g_tt_state > 0 ? g_tt : 0;
 }
 
 const uint32_t *w16_commdlg_icon(int which) {
@@ -878,10 +905,413 @@ static int api_CommDlgExtendedError(struct w16 *w, unsigned ordinal, struct w16_
     return 0;
 }
 
+// --- Font (ChooseFont) ---------------------------------------------------------------------
+
+#define CF_ENABLEHOOK           0x00000008
+#define CF_ENABLETEMPLATE       0x00000010
+#define CF_ENABLETEMPLATEHANDLE 0x00000020
+#define CF_INITTOLOGFONTSTRUCT  0x00000040
+#define CF_USESTYLE             0x00000080
+#define CF_EFFECTS              0x00000100
+#define CF_APPLY                0x00000200
+#define CF_ANSIONLY             0x00000400
+#define CF_LIMITSIZE            0x00002000
+#define CF_FIXEDPITCHONLY       0x00004000
+#define CF_SCALABLEONLY         0x00020000
+#define CF_TTONLY               0x00040000
+#define CF_NOFACESEL            0x00080000
+#define CF_NOSTYLESEL           0x00100000
+#define CF_NOSIZESEL            0x00200000
+#define BOLD_FONTTYPE           0x0100
+#define ITALIC_FONTTYPE         0x0200
+#define REGULAR_FONTTYPE        0x0400
+#define SCREEN_FONTTYPE         0x2000
+#define WM_SETFONT_             0x0030
+#define CBN_EDITCHANGE          5
+#define CB_GETEDITSEL_LIST      0
+// FORMATDLGORD31's ids
+#define FNT_FACE  1136
+#define FNT_STYLE 1137
+#define FNT_SIZE  1138
+#define FNT_SAMPLEBOX 1073
+#define FNT_SAMPLE 1092
+#define FNT_KIND  1093
+
+struct cf_face { char name[32]; int tt; uint8_t charset, pitch_family; int *pts; int npts; };
+
+struct cf {
+    uint32_t far, flags, hook;
+    struct cf_face *face;
+    int nface;
+    struct w16_logfont lf;        // what is chosen, as it will be handed back
+    int pt;                       // its size in points
+    uint16_t font;                // the sample's font
+    int sample_top, sample_h;     // the sample box's inside, for centring the sample in it
+};
+
+static int collect_face(const struct w16_logfont *lf, const struct w16_fontinfo *fi, int type, void *ctx) {
+    struct cf *c = ctx;
+    int tt = (type & W16_TRUETYPE_FONTTYPE) != 0;
+    if ((c->flags & (CF_TTONLY | CF_SCALABLEONLY)) && !tt) return 1;
+    if ((c->flags & CF_ANSIONLY) && lf->charset != 0) return 1;
+    if ((c->flags & CF_FIXEDPITCHONLY) && (fi->pitch_family & 1)) return 1;
+    for (int i = 0; i < c->nface; i++)
+        if (!strcasecmp(c->face[i].name, lf->face)) return 1;
+    struct cf_face *g = realloc(c->face, sizeof *g * (size_t)(c->nface + 1));
+    if (!g) return 0;
+    c->face = g;
+    struct cf_face *f = &c->face[c->nface++];
+    memset(f, 0, sizeof *f);
+    snprintf(f->name, sizeof f->name, "%s", lf->face);
+    f->tt = tt;
+    f->charset = lf->charset;
+    f->pitch_family = lf->pitch_family;
+    return 1;
+}
+
+// A raster face's sizes, in points: one per .FON size, as 3.11 listed them.
+static int collect_size(const struct w16_logfont *lf, const struct w16_fontinfo *fi, int type, void *ctx) {
+    (void)lf;
+    (void)type;
+    struct cf_face *f = ctx;
+    int pt = ((fi->height - fi->internal_leading) * 72 + 48) / 96;
+    for (int i = 0; i < f->npts; i++)
+        if (f->pts[i] == pt) return 1;
+    int *g = realloc(f->pts, sizeof *g * (size_t)(f->npts + 1));
+    if (!g) return 0;
+    f->pts = g;
+    f->pts[f->npts++] = pt;
+    return 1;
+}
+
+static struct cf_face *cf_face_named(struct cf *c, const char *name) {
+    for (int i = 0; i < c->nface; i++)
+        if (!strcasecmp(c->face[i].name, name)) return &c->face[i];
+    return 0;
+}
+
+static const char *const CF_STYLES[4] = { "Regular", "Italic", "Bold", "Bold Italic" };
+static const int TT_SIZES[] = { 8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72 };
+
+static struct w16_wnd *combo_list(struct w16 *w, struct w16_wnd *d, uint16_t id) {
+    struct w16_wnd *c = item(w, d, id);
+    return c ? w16_combo_list(w, c) : 0;
+}
+
+// The list's line for `text` chosen and shown in its box, -1 when none matches.
+static int combo_pick(struct w16 *w, struct w16_wnd *d, uint16_t id, const char *text) {
+    struct w16_wnd *c = item(w, d, id), *l = combo_list(w, d, id);
+    if (!c || !l) return -1;
+    int n = (int16_t)w16_send(w, l->hwnd, LB_GETCOUNT_, 0, 0), at = -1;
+    for (int i = 0; i < n; i++) {
+        const char *t = w16_listbox_text(l, i);
+        if (t && !strcasecmp(t, text)) { at = i; break; }
+    }
+    w16_send(w, l->hwnd, LB_SETCURSEL, (uint16_t)at, 0);
+    if (at >= 0) w16_combo_changed(w, c);
+    else set_text(w, c, text);
+    return at;
+}
+
+// What a box shows: its edit field's text (the field is its child 1001).
+static char *combo_text(struct w16 *w, struct w16_wnd *d, uint16_t id) {
+    struct w16_wnd *c = item(w, d, id), *e = c ? w16_dlg_item(w, c->hwnd, 1001) : 0;
+    return e ? get_text(w, e) : c ? get_text(w, c) : 0;
+}
+
+// The sample in the font chosen, the line under it saying what kind of font it is.
+static void cf_sample(struct w16 *w, struct w16_wnd *d) {
+    struct cf *c = d->dlgdata;
+    struct w16_wnd *smp = item(w, d, FNT_SAMPLE), *kind = item(w, d, FNT_KIND);
+    struct cf_face *f = cf_face_named(c, c->lf.face);
+    c->lf.height = (int16_t)-((c->pt * 96 + 36) / 72);
+    uint16_t font = w16_gdi_font_new(w, &c->lf);
+    if (smp && font) {
+        w16_send(w, smp->hwnd, WM_SETFONT_, font, 1);
+        int lh = w16_font_line_h(font);
+        if (lh > c->sample_h) lh = c->sample_h;
+        w16_wnd_set_geometry(w, smp, smp->x, c->sample_top + (c->sample_h - lh) / 2, smp->w, lh);
+        w16_invalidate(w, smp, 1);
+    }
+    if (c->font) w16_gdi_delete(w, c->font);
+    c->font = font;
+    if (kind)
+        set_text(w, kind, !f ? "" : f->tt ? "This is a TrueType font. This same font will be used on both your printer and your screen."
+                                        : "This is a screen font. The closest matching font will be used for printing.");
+}
+
+// A face chosen: its styles and sizes listed, the size kept when it has it.
+static void cf_face_chosen(struct w16 *w, struct w16_wnd *d, const char *name) {
+    struct cf *c = d->dlgdata;
+    struct cf_face *f = cf_face_named(c, name);
+    if (!f) return;
+    snprintf(c->lf.face, sizeof c->lf.face, "%s", f->name);
+    c->lf.charset = f->charset;
+    c->lf.pitch_family = f->pitch_family;
+    struct w16_wnd *sl = combo_list(w, d, FNT_SIZE);
+    if (sl) {
+        w16_send(w, sl->hwnd, LB_RESETCONTENT, 0, 0);
+        if (!f->tt && !f->npts) {
+            pthread_mutex_lock(&g_w16_text_lock);
+            w16_font_enum(f->name, collect_size, f);
+            pthread_mutex_unlock(&g_w16_text_lock);
+        }
+        int n = f->tt ? (int)(sizeof TT_SIZES / sizeof TT_SIZES[0]) : f->npts;
+        for (int i = 0; i < n; i++) {
+            char t[8];
+            snprintf(t, sizeof t, "%d", f->tt ? TT_SIZES[i] : f->pts[i]);
+            w16_listbox_str(w, sl, LB_ADDSTRING, 0, t);
+        }
+        char want[8];
+        snprintf(want, sizeof want, "%d", c->pt);
+        if (combo_pick(w, d, FNT_SIZE, want) < 0 && !f->tt && f->npts) {
+            int best = f->pts[0];                // a raster face: its nearest size
+            for (int i = 1; i < f->npts; i++) if (abs(f->pts[i] - c->pt) < abs(best - c->pt)) best = f->pts[i];
+            c->pt = best;
+            snprintf(want, sizeof want, "%d", best);
+            combo_pick(w, d, FNT_SIZE, want);
+        }
+    }
+    cf_sample(w, d);
+}
+
+static int cf_style_index(const struct cf *c) { return (c->lf.italic ? 1 : 0) + (c->lf.weight >= 600 ? 2 : 0); }
+
+// OK: what the boxes say, checked; 0 when one is wrong (said, and focused).
+static int cf_ok(struct w16 *w, struct w16_wnd *d) {
+    struct cf *c = d->dlgdata;
+    char *face = combo_text(w, d, FNT_FACE), *size = combo_text(w, d, FNT_SIZE);
+    int ok = 1;
+    if (face && face[0] && !cf_face_named(c, face)) {
+        w16_message_box(w, d->hwnd, "There is no font with that name.\nChoose a font from the list of fonts.", "Font",
+                        MB_ICONEXCLAMATION);
+        ok = 0;
+    } else if (face && face[0]) {
+        cf_face_chosen(w, d, face);
+    }
+    int pt = size ? atoi(size) : 0;
+    if (ok && (pt < 1 || pt > 127)) {
+        w16_message_box(w, d->hwnd, "Size must be between 1 and 127 points.", "Font", MB_ICONEXCLAMATION);
+        ok = 0;
+    }
+    if (ok) c->pt = pt;
+    free(face);
+    free(size);
+    return ok;
+}
+
+// The choice into the program's CHOOSEFONT and LOGFONT.
+static int cf_give_back(struct w16 *w, struct cf *c) {
+    uint8_t *p = at(w, c->far, 46, 1);
+    if (!p) return 0;
+    uint32_t lpl = rd32(p + 8);
+    uint8_t *l = at(w, lpl, 50, 1);
+    if (!l) return 0;
+    c->lf.height = (int16_t)-((c->pt * 96 + 36) / 72);
+    wr16(l, (uint16_t)c->lf.height);
+    wr16(l + 2, 0);
+    wr16(l + 4, 0);
+    wr16(l + 6, 0);
+    wr16(l + 8, (uint16_t)c->lf.weight);
+    l[10] = c->lf.italic;
+    l[11] = c->lf.underline;
+    l[12] = c->lf.strikeout;
+    l[13] = c->lf.charset;
+    l[17] = c->lf.pitch_family;
+    memset(l + 18, 0, 32);
+    memcpy(l + 18, c->lf.face, strlen(c->lf.face));
+    p = at(w, c->far, 46, 1);
+    if (!p) return 0;
+    wr16(p + 12, (uint16_t)(c->pt * 10));                      // iPointSize, tenths
+    wr16(p + 40, (uint16_t)((c->lf.weight >= 600 ? BOLD_FONTTYPE : REGULAR_FONTTYPE) |
+                            (c->lf.italic ? ITALIC_FONTTYPE : 0) | SCREEN_FONTTYPE));
+    if (c->flags & CF_USESTYLE) {
+        uint32_t st = rd32(p + 36);
+        const char *name = CF_STYLES[cf_style_index(c)];
+        uint8_t *q = at(w, st, (unsigned)strlen(name) + 1, 1);
+        if (!q) return 0;
+        memcpy(q, name, strlen(name) + 1);
+    }
+    return 1;
+}
+
+static int cf_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_t wp, uint32_t lp) {
+    struct cf *c = d->dlgdata;
+    if (!c) return 0;
+    if (hook(w, d, c->hook, msg, wp, lp) && msg != WM_INITDIALOG) return 1;
+    if (msg == WM_INITDIALOG) return 1;
+    if (msg != WM_COMMAND) return 0;
+    uint16_t code = (uint16_t)(lp >> 16);
+    switch (wp) {
+    case IDOK:
+        if (cf_ok(w, d)) { d->result = 1; d->ended = 1; }
+        return 1;
+    case IDCANCEL: d->result = 0; d->ended = 1; return 1;
+    case PSH_HELP: {
+        uint16_t m = w16_atom_add(w, "commdlg_help");
+        if (m && d->parent) w16_send(w, d->parent, m, d->hwnd, c->far);
+        return 1;
+    }
+    case FNT_FACE:
+        if (code == CBN_SELCHANGE) {
+            char *t = combo_text(w, d, FNT_FACE);
+            if (t) cf_face_chosen(w, d, t);
+            free(t);
+        }
+        return 1;
+    case FNT_STYLE:
+        if (code == CBN_SELCHANGE) {
+            struct w16_wnd *l = combo_list(w, d, FNT_STYLE);
+            int i = l ? (int16_t)w16_send(w, l->hwnd, LB_GETCURSEL, 0, 0) : -1;
+            if (i >= 0 && i < 4) {
+                c->lf.italic = (uint8_t)(i & 1);
+                c->lf.weight = (int16_t)(i & 2 ? 700 : 400);
+                cf_sample(w, d);
+            }
+        }
+        return 1;
+    case FNT_SIZE:
+        if (code == CBN_SELCHANGE) {
+            char *t = combo_text(w, d, FNT_SIZE);
+            int pt = t ? atoi(t) : 0;
+            free(t);
+            if (pt > 0) { c->pt = pt; cf_sample(w, d); }
+        }
+        return 1;
+    default:
+        return 0;
+    }
+}
+
+// The font dialog as Windows 3.1 drew it -- FORMATDLGORD31's controls: a face, a style and a size,
+// each a box over its list; OK, Cancel and (CF_APPLY, CF_SHOWHELP) Apply and Help; the effects and
+// colour (CF_EFFECTS); a sample in the font chosen, and a line saying what kind of font it is.
+// ChooseFont(lpcf) -> BOOL
+// Windows: The common Font dialog: a face, a style, a size and (CF_EFFECTS) strike-out, underline
+// and a colour, with a sample; TRUE with the choice in the program's LOGFONT and CHOOSEFONT, FALSE
+// on Cancel.
+// w16: The same dialog, drawn as Windows 3.1 drew it, over the fonts w16 draws in: 3.11's bitmap
+// fonts from drive C:, TrueType faces (C:'s own .TTF files, else toy-os's metric twins) marked as
+// 3.1 marked them, at any size. A program's hook hears every message first; a custom template is
+// refused (CDERR_NOTEMPLATE). Apply (CF_APPLY) reaches the hook, which is where 3.1 left it.
+static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t far = w16_arg32(a);
+    struct cpu16 *cpu = &w->cpu;
+    cpu->r[R_AX] = 0;
+    g_error = 0;
+    const uint8_t *p = at(w, far, 46, 0);
+    if (!p) return -1;
+    struct cf *c = calloc(1, sizeof *c);
+    if (!c) { g_error = CDERR_MEMALLOCFAILURE; return 4; }
+    c->far = far;
+    c->flags = rd32(p + 14);
+    c->hook = c->flags & CF_ENABLEHOOK ? rd32(p + 26) : 0;
+    uint16_t owner = rd16(p + 4);
+    if (c->flags & (CF_ENABLETEMPLATE | CF_ENABLETEMPLATEHANDLE)) { free(c); g_error = CDERR_NOTEMPLATE; return 4; }
+    c->lf.weight = 400;
+    c->pt = 10;
+    snprintf(c->lf.face, sizeof c->lf.face, "Arial");
+    if (c->flags & CF_INITTOLOGFONTSTRUCT) {
+        const uint8_t *l = at(w, rd32(p + 8), 50, 0);
+        if (!l) { free(c); return -1; }
+        int16_t h = (int16_t)rd16(l);
+        c->lf.weight = (int16_t)rd16(l + 8);
+        c->lf.italic = l[10];
+        c->lf.underline = l[11];
+        c->lf.strikeout = l[12];
+        c->lf.charset = l[13];
+        c->lf.pitch_family = l[17];
+        memcpy(c->lf.face, l + 18, 31);
+        c->lf.face[31] = 0;
+        if (h) c->pt = ((h < 0 ? -h : h) * 72 + 48) / 96;
+        if (c->lf.weight == 0) c->lf.weight = 400;
+    }
+    pthread_mutex_lock(&g_w16_text_lock);
+    w16_font_enum(0, collect_face, c);
+    pthread_mutex_unlock(&g_w16_text_lock);
+
+    g_org_x = 13;                                // FORMATDLGORD31's place
+    g_org_y = 54;
+    struct w16_wnd *d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
+                                    w16_du_w(264, 7), w16_du_h(147, 13), "Font", 0, cf_proc);
+    if (!d) { g_error = CDERR_MEMALLOCFAILURE; goto out; }
+    w16_dlg_set_font(d, 8);
+    d->dlgdata = c;
+    add(w, d, "STATIC", STC1, 0, 6, 3, 40, 9, "&Font:");
+    struct w16_wnd *fc = add(w, d, "COMBOBOX", FNT_FACE, WS_TABSTOP | WS_VSCROLL | 1 | 0x100, 6, 13, 94, 54, "");
+    add(w, d, "STATIC", STC2, 0, 108, 3, 44, 9, "Font St&yle:");
+    struct w16_wnd *sc = add(w, d, "COMBOBOX", FNT_STYLE, WS_TABSTOP | WS_VSCROLL | 1, 108, 13, 64, 54, "");
+    add(w, d, "STATIC", STC3, 0, 179, 3, 30, 9, "&Size:");
+    struct w16_wnd *zc = add(w, d, "COMBOBOX", FNT_SIZE, WS_TABSTOP | WS_VSCROLL | 1, 179, 13, 32, 54, "");
+    add(w, d, "BUTTON", IDOK, WS_TABSTOP | BS_DEFPUSHBUTTON, 218, 6, 40, 14, "OK");
+    add(w, d, "BUTTON", IDCANCEL, WS_TABSTOP, 218, 23, 40, 14, "Cancel");
+    if (c->flags & CF_APPLY) add(w, d, "BUTTON", 1026, WS_TABSTOP, 218, 40, 40, 14, "&Apply");
+    if (c->flags & CF_SHOWHELP_) add(w, d, "BUTTON", PSH_HELP, WS_TABSTOP, 218, 57, 40, 14, "&Help");
+    if (c->flags & CF_EFFECTS) {
+        add(w, d, "BUTTON", GRP1, BS_GROUPBOX, 6, 72, 84, 34, "Effects");
+        add(w, d, "BUTTON", CHX1, WS_TABSTOP | BS_AUTOCHECKBOX, 10, 82, 49, 10, "Stri&keout");
+        add(w, d, "BUTTON", CHX2, WS_TABSTOP | BS_AUTOCHECKBOX, 10, 94, 51, 10, "&Underline");
+    }
+    add(w, d, "BUTTON", FNT_SAMPLEBOX, BS_GROUPBOX, 98, 72, 160, 49, "Sample");
+    struct w16_wnd *smp = add(w, d, "STATIC", FNT_SAMPLE, SS_CENTER_ | SS_NOPREFIX, 104, 81, 149, 37, "AaBbYyZz");
+    add(w, d, "STATIC", FNT_KIND, SS_CENTER_ | SS_NOPREFIX, 98, 124, 160, 20, "");
+    if (!fc || !sc || !zc || !smp || cpu->fault) {
+        if (!cpu->fault) g_error = CDERR_MEMALLOCFAILURE;
+        d->dlgdata = 0;
+        w16_wnd_destroy(w, d);
+        goto out;
+    }
+    c->sample_top = smp->y;
+    c->sample_h = smp->h;
+    if (c->flags & CF_EFFECTS) {
+        struct w16_wnd *k = item(w, d, CHX1), *u = item(w, d, CHX2);
+        if (k && c->lf.strikeout) w16_send(w, k->hwnd, BM_SETCHECK, 1, 0);
+        if (u && c->lf.underline) w16_send(w, u->hwnd, BM_SETCHECK, 1, 0);
+    }
+    struct w16_wnd *fl = w16_combo_list(w, fc), *stl = w16_combo_list(w, sc);
+    if (fl) {
+        w16_listbox_folders(fl, 2);
+        for (int i = 0; i < c->nface; i++)
+            w16_send(w, fl->hwnd, LB_SETITEMDATA,
+                     (uint16_t)w16_listbox_str(w, fl, LB_ADDSTRING, 0, c->face[i].name), c->face[i].tt ? 5 : 6);
+    }
+    for (int i = 0; stl && i < 4; i++) w16_listbox_str(w, stl, LB_ADDSTRING, 0, CF_STYLES[i]);
+    if (!(c->flags & CF_NOFACESEL) && combo_pick(w, d, FNT_FACE, c->lf.face) < 0 && c->nface)
+        combo_pick(w, d, FNT_FACE, c->face[0].name);
+    {
+        char *t = combo_text(w, d, FNT_FACE);
+        if (t && t[0]) cf_face_chosen(w, d, t);
+        free(t);
+    }
+    if (!(c->flags & CF_NOSTYLESEL)) combo_pick(w, d, FNT_STYLE, CF_STYLES[cf_style_index(c)]);
+    uint16_t h = d->hwnd;
+    w16_dlg_show(w, d, 1, far);
+    d = w16_wnd_get(w, h);
+    if (d) {
+        int r = w16_dlg_run(w, d);
+        if (r == 1) {
+            if (c->flags & CF_EFFECTS) {
+                struct w16_wnd *k = item(w, d, CHX1), *u = item(w, d, CHX2);
+                c->lf.strikeout = (uint8_t)(k && w16_send(w, k->hwnd, BM_GETCHECK, 0, 0));
+                c->lf.underline = (uint8_t)(u && w16_send(w, u->hwnd, BM_GETCHECK, 0, 0));
+            }
+            cpu->r[R_AX] = (uint16_t)cf_give_back(w, c);
+        }
+    }
+out:
+    if (c->font) w16_gdi_delete(w, c->font);
+    for (int i = 0; i < c->nface; i++) free(c->face[i].pts);
+    free(c->face);
+    free(c);
+    return cpu->fault ? -1 : 4;
+}
+
 const struct w16_api g_commdlg_api[] = {
     { 1, api_GetOpenFileName },
     { 2, api_GetOpenFileName },
     { 11, api_FindText },
+    { 15, api_ChooseFont },
     { 20, api_PrintDlg },
     { 26, api_CommDlgExtendedError },
 };

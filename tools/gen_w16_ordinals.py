@@ -103,6 +103,18 @@ KIND_RULES = [
 ]
 ARG_BYTES = {"word": 2, "s_word": 2, "long": 4, "ptr": 4, "str": 4, "segptr": 4,
              "segstr": 4, "double": 8}
+# Exports Wine only STUBS, so its spec gives no arguments: the Pascal bytes
+# from OLE 1.0's ole.h prototypes (an LPOLEOBJECT, LPOLECLIENT, LPOLESTREAM,
+# LHCLIENTDOC or string 4, an OLEOPT_* or OLECLIPFORMAT 2), for the calls a
+# program w16 runs imports.
+STUB_ARGS = {
+    ("OLECLI", 2): 4, ("OLECLI", 3): 8, ("OLECLI", 4): 24, ("OLECLI", 6): 20, ("OLECLI", 13): 4,
+    ("OLECLI", 15): 12, ("OLECLI", 16): 6, ("OLECLI", 18): 8, ("OLECLI", 19): 16, ("OLECLI", 20): 4,
+    ("OLECLI", 21): 16, ("OLECLI", 22): 4, ("OLECLI", 24): 8, ("OLECLI", 25): 6, ("OLECLI", 26): 6,
+    ("OLECLI", 27): 4, ("OLECLI", 28): 10, ("OLECLI", 29): 8, ("OLECLI", 32): 24, ("OLECLI", 34): 28,
+    ("OLECLI", 35): 4, ("OLECLI", 36): 4, ("OLECLI", 37): 4, ("OLECLI", 38): 32, ("OLECLI", 39): 36,
+    ("OLECLI", 40): 4, ("OLECLI", 56): 8,
+}
 LINE = re.compile(r"^\s*(\d+)\s+(pascal|cdecl|varargs|stub|equate|variable)\s+(.*)$")
 
 
@@ -119,7 +131,7 @@ def parse(path):
             continue
         name, argbytes, register = rest[0], -1, "-register" in raw
         if kind in ("pascal", "cdecl", "varargs"):
-            fm = re.match(r"([A-Za-z_]\w*)\((.*?)\)", " ".join(rest))
+            fm = re.match(r"([A-Za-z_]\w*)\s*\((.*?)\)", " ".join(rest))
             if not fm:
                 continue
             name = fm.group(1)
@@ -177,6 +189,8 @@ def main():
         lines.append(f"static const struct w16_name names_{mod.lower()}[] = {{")
         for o in sorted(table):
             name, argb = table[o]
+            if argb == -1 and (mod, o) in STUB_ARGS:
+                argb = STUB_ARGS[(mod, o)]
             lines.append(f'    {{ {o}, {argb}, {kind_of(mod, name)}, "{name}" }},')
         lines.append("};")
         lines.append("")

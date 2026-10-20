@@ -13,6 +13,12 @@
 ;   y 80        text copied through a global block into a local one
 ;   x 100..107, y 50..57  green, once the timer has fired three times
 ;   x 120..127, y 50..57  magenta, when GDITEST.INI says [GdiTest] Square=1
+;   x 140..219, y 30..69  a metafile played through MM_ANISOTROPIC at twice its
+;               size: a red square (a NULL pen: its right and bottom left out)
+;               and a green ellipse beside it
+;   x 148..163, y 76..91  blue: a 32-pixel PatBlt at (140, 76) cut by
+;               IntersectClipRect, inside SaveDC and RestoreDC
+;   x 180..211, y 76..107 a blue triangle (Polygon), its edge black
 ;
 ; and at start-up it writes [GdiTest] Written=yes to GDITEST.INI (drive
 ; C:'s WINDOWS folder), so both directions of the profile calls are seen.
@@ -372,6 +378,75 @@ wndproc:
     push word heaps_len
     W16_CALL "GDI", 33
 
+    ; A metafile in a global block, played at twice its size: the window its
+    ; records set (40 x 20) onto a viewport of 80 x 40 at (140, 30).
+    push word 0x0002                ; GlobalAlloc(GMEM_MOVEABLE, wmf_len)
+    push word 0
+    push word wmf_len
+    W16_CALL "KERNEL", 15
+    mov [hmf], ax
+    push ax
+    W16_CALL "KERNEL", 18           ; GlobalLock -> DX:AX
+    mov es, dx
+    mov di, ax
+    mov si, wmf
+    mov cx, wmf_len
+    cld
+    rep movsb
+    push word [hmf]
+    W16_CALL "KERNEL", 19           ; GlobalUnlock
+    push word [hdc]
+    push word 8
+    W16_CALL "GDI", 3               ; SetMapMode(MM_ANISOTROPIC)
+    push word [hdc]
+    push word 140
+    push word 30
+    W16_CALL "GDI", 13              ; SetViewportOrg
+    push word [hdc]
+    push word 80
+    push word 40
+    W16_CALL "GDI", 14              ; SetViewportExt
+    push word [hdc]
+    push word [hmf]
+    W16_CALL "GDI", 123             ; PlayMetaFile
+    push word [hdc]
+    push word 1
+    W16_CALL "GDI", 3               ; SetMapMode(MM_TEXT)
+    push word [hdc]
+    push word 0
+    push word 0
+    W16_CALL "GDI", 13              ; SetViewportOrg(0, 0)
+    push word [hmf]
+    W16_CALL "KERNEL", 17           ; GlobalFree
+
+    ; The clip: kept by SaveDC, cut to 16 x 16, a wider PatBlt, then back.
+    push word [hdc]
+    W16_CALL "GDI", 30              ; SaveDC
+    push word [hdc]
+    push word 148
+    push word 76
+    push word 164
+    push word 92
+    W16_CALL "GDI", 22              ; IntersectClipRect
+    push word [hdc]                 ; PatBlt(hdc, 140, 76, 32, 32, PATCOPY): the blue brush
+    push word 140
+    push word 76
+    push word 32
+    push word 32
+    push word 0x00F0
+    push word 0x0021
+    W16_CALL "GDI", 29
+    push word [hdc]
+    push word -1
+    W16_CALL "GDI", 39              ; RestoreDC(-1)
+
+    ; A blue triangle with a black edge.
+    push word [hdc]
+    push ds
+    push word triangle
+    push word 3
+    W16_CALL "GDI", 36              ; Polygon
+
     ; Magenta, when the INI file said so.
     cmp word [square], 1
     jne .nosquare
@@ -491,6 +566,45 @@ msg_wParam: dw 0
 
 ps:         times 32 db 0
 strbuf:     times 64 db 0
+
+hmf:        dw 0
+triangle:   dw 180, 76, 212, 76, 180, 108
+
+; A memory metafile: a 9-word METAHEADER, then records (a DWORD size in words,
+; the function, its arguments last first).
+wmf:
+            dw 1, 9, 0x0300
+            dd wmf_words
+            dw 3                    ; objects: two brushes and a pen
+            dd 8
+            dw 0
+            dd 5
+            dw 0x020C, 20, 40       ; SetWindowExt(40, 20)
+            dd 7
+            dw 0x02FC, 0            ; CreateBrushIndirect(BS_SOLID, red)
+            dd 0x000000FF
+            dw 0
+            dd 4
+            dw 0x012D, 0            ; SelectObject(0)
+            dd 8
+            dw 0x02FA, 5, 0, 0      ; CreatePenIndirect(PS_NULL)
+            dd 0
+            dd 4
+            dw 0x012D, 1            ; SelectObject(1)
+            dd 7
+            dw 0x041B, 20, 20, 0, 0 ; Rectangle(0, 0, 20, 20)
+            dd 7
+            dw 0x02FC, 0            ; CreateBrushIndirect(BS_SOLID, green)
+            dd 0x0000FF00
+            dw 0
+            dd 4
+            dw 0x012D, 2            ; SelectObject(2)
+            dd 7
+            dw 0x0418, 20, 40, 0, 20 ; Ellipse(20, 0, 40, 20)
+            dd 3
+            dw 0                    ; META_EOF
+wmf_len     equ $ - wmf
+wmf_words   equ wmf_len / 2
 
 classname:  db "GdiTestClass", 0
 title:      db "GDI test (Win16)", 0

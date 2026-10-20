@@ -627,5 +627,6 @@ void w16_register_builtins(struct w16 *w) {
     if (edit >= 0) w->cls[edit].cursor = WIN_CURSOR_TEXT;           // IDC_IBEAM
     w16_class_add_host(w, "LISTBOX", w16_listbox_proc, CS_DBLCLKS, 0);
     w16_class_add_host(w, "COMBOBOX", w16_combo_proc, CS_DBLCLKS, 0);
+    w16_class_add_host(w, "SCROLLBAR", w16_scrollbar_proc, CS_DBLCLKS, 0);
     w16_class_add_host(w, "#32770", w16_dialog_proc, 0, COLOR_WINDOW + 1);
 }

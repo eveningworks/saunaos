@@ -51,10 +51,26 @@ static uint16_t key_target(struct w16 *w, struct w16_wnd *top) {
     return to;
 }
 
+// Shift and Ctrl as keys of their own: a WM_KEYDOWN when one is first seen
+// held with a key, a WM_KEYUP when a key arrives without it -- the messages
+// a real keyboard sends, which a program tracking the keys itself (Write's
+// Ctrl+Home, Shift+arrows) reads instead of GetKeyState. toywm sends no event
+// for a modifier alone, so a release is seen at the next key.
+static void modifiers(struct w16 *w, uint16_t to, unsigned mods) {
+    static unsigned held;
+    static const struct { unsigned mod; uint16_t vk; } M[] = { { KEY_MOD_SHIFT, VK_SHIFT }, { KEY_MOD_CTRL, VK_CONTROL } };
+    for (unsigned i = 0; i < 2; i++) {
+        if ((mods & M[i].mod) && !(held & M[i].mod)) w16_post_msg_mods(w, to, WM_KEYDOWN, M[i].vk, 1, mods);
+        if (!(mods & M[i].mod) && (held & M[i].mod)) w16_post_msg_mods(w, to, WM_KEYUP, M[i].vk, 0xC0000001u, mods);
+    }
+    held = mods & (KEY_MOD_SHIFT | KEY_MOD_CTRL);
+}
+
 void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up) {
     uint16_t to = key_target(w, top);
     mods &= KEY_MOD_SHIFT | KEY_MOD_CTRL | KEY_MOD_ALT;
     int vk = w16_vk_of(key);
+    if (!up) modifiers(w, to, mods);
     if (up) {
         if (vk) w16_post_msg_mods(w, to, WM_KEYUP, (uint16_t)vk, 0xC0000001u, mods);
         return;

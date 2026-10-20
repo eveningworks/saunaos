@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include "lib/uclip.h"
 
 
 uint64_t w16_now_ms(void) {
@@ -1013,43 +1012,6 @@ static int api_TabbedTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 22;
 }
 
-// --- the clipboard: the EDIT control moves its text itself (edit16.c) ------------
-
-#define CF_TEXT 1
-
-// OpenClipboard(hWnd) -> BOOL
-// CloseClipboard() -> BOOL
-// Windows: Open the clipboard for the program to read or change, and close it.
-// w16: Both succeed: the clipboard is toy-os's, shared with every program, and an EDIT's Cut, Copy
-// and Paste reach it.
-static int api_OpenClipboard(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    if (ordinal == 137) w16_arg16(a);
-    w->cpu.r[R_AX] = 1;
-    return ordinal == 137 ? 2 : 0;
-}
-
-// EnumClipboardFormats(format) -> UINT
-// Windows: The clipboard's formats one by one: what follows `format`, 0 at the end.
-// w16: CF_TEXT when toy-os's clipboard holds text, then the end.
-static int api_EnumClipboardFormats(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)ordinal;
-    uint16_t fmt = w16_arg16(a);
-    w->cpu.r[R_AX] = fmt == 0 && uclip_peek_op() != UCLIP_NONE ? CF_TEXT : 0;
-    return 2;
-}
-
-// IsClipboardFormatAvailable(format) -> BOOL
-// Windows: Whether the clipboard holds a format -- whether Paste should be enabled.
-// w16: TRUE for CF_TEXT when toy-os's clipboard holds text.
-static int api_IsClipboardFormatAvailable(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)ordinal;
-    static struct uclip c;
-    int n;
-    uint16_t fmt = w16_arg16(a);
-    w->cpu.r[R_AX] = fmt == CF_TEXT && uclip_load(&c) && uclip_text(&c, &n) != 0;
-    return 2;
-}
-
 // There is no help viewer, so a request for help fails -- and HELP_QUIT, which a program sends as
 // it closes (Minesweeper does, on WM_DESTROY), succeeds.
 // WinHelp(hWnd, lpszHelp, uCommand, dwData) -> BOOL
@@ -1082,6 +1044,185 @@ static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 12;
 }
 
+// IsRectEmpty(lprc) -> BOOL
+// Windows: Whether a rectangle has no area: its right not past its left, or its bottom not below
+// its top.
+// w16: The same.
+static int api_IsRectEmpty(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int16_t r[4];
+    if (get_rect(w, w16_arg32(a), r) < 0) return -1;
+    w->cpu.r[R_AX] = r[2] <= r[0] || r[3] <= r[1];
+    return 4;
+}
+
+// UnionRect(lprcDst, lprcSrc1, lprcSrc2) -> BOOL
+// Windows: The smallest rectangle holding both -- an empty one left out; FALSE when both are empty.
+// w16: The same.
+static int api_UnionRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int16_t r[4], s[4], o[4] = { 0, 0, 0, 0 };
+    uint32_t dst = w16_arg32(a), pa = w16_arg32(a), pb = w16_arg32(a);
+    if (get_rect(w, pa, r) < 0 || get_rect(w, pb, s) < 0) return -1;
+    int re = r[2] <= r[0] || r[3] <= r[1], se = s[2] <= s[0] || s[3] <= s[1];
+    if (re && !se) memcpy(o, s, sizeof o);
+    else if (se && !re) memcpy(o, r, sizeof o);
+    else if (!re) {
+        o[0] = r[0] < s[0] ? r[0] : s[0]; o[1] = r[1] < s[1] ? r[1] : s[1];
+        o[2] = r[2] > s[2] ? r[2] : s[2]; o[3] = r[3] > s[3] ? r[3] : s[3];
+    }
+    if (put_rect(w, dst, o) < 0) return -1;
+    w->cpu.r[R_AX] = !(re && se);
+    return 12;
+}
+
+// The windows EnumWindows and EnumChildWindows report, collected first:
+// the program's function may create or destroy windows as it goes.
+static int enum_call(struct w16 *w, const uint16_t *v, int n, uint32_t fn, uint32_t data) {
+    int r = 1;
+    for (int i = 0; i < n && r && !w->cpu.fault; i++) {
+        if (!w16_wnd_get(w, v[i])) continue;
+        const uint16_t words[] = { v[i], (uint16_t)(data >> 16), (uint16_t)data };
+        r = (uint16_t)w16_call_far(w, (uint16_t)(fn >> 16), (uint16_t)fn, words, 3) != 0;
+    }
+    return r;
+}
+
+static void descendants(struct w16 *w, uint16_t parent, uint16_t **v, int *n, int *cap) {
+    int k;
+    struct w16_wnd **kids = w16_wnd_children(w, parent, &k);
+    for (int i = 0; kids && i < k; i++) {
+        if (*n == *cap) {
+            int c = *cap ? *cap * 2 : 16;
+            uint16_t *g = realloc(*v, sizeof *g * (size_t)c);
+            if (!g) break;
+            *v = g;
+            *cap = c;
+        }
+        (*v)[(*n)++] = kids[i]->hwnd;
+        descendants(w, kids[i]->hwnd, v, n, cap);
+    }
+    free(kids);
+}
+
+// EnumWindows(lpEnumFunc, lParam) -> BOOL
+// EnumChildWindows(hWndParent, lpEnumFunc, lParam) -> BOOL
+// Windows: Calls a function of the program's for each top-level window on the screen -- every
+// program's -- or for each child (and grandchild) of a window, until it returns FALSE.
+// w16: The same over this program's windows: its main window and its dialogs, or the children of
+// one. Other programs' windows are not this program's to see (each runs in its own w16).
+static int api_EnumWindows(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint16_t parent = ordinal == 55 ? w16_arg16(a) : 0;
+    uint32_t fn = w16_arg32(a), data = w16_arg32(a);
+    uint16_t *v = 0;
+    int n = 0, cap = 0;
+    if (ordinal == 55) {
+        descendants(w, parent, &v, &n, &cap);
+    } else {
+        cap = w->nwnds + 1;
+        v = malloc(sizeof *v * (size_t)cap);
+        if (v && w->win.used) v[n++] = w->win.hwnd;
+        for (int i = 0; v && i < w->nwnds; i++)
+            if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->kind == W16_K_DIALOG) v[n++] = w->wnds[i]->hwnd;
+    }
+    w->cpu.r[R_AX] = (uint16_t)enum_call(w, v, n, fn, data);
+    free(v);
+    return w->cpu.fault ? -1 : ordinal == 55 ? 10 : 8;
+}
+
+// GetClassName(hWnd, lpClassName, nMaxCount) -> int
+// Windows: The name of a window's class, cut to the buffer; the characters copied.
+// w16: The same: a program's class as it registered it, w16's own as Windows named them (Button,
+// Edit, #32770 for a dialog...).
+static int api_GetClassName(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    uint32_t far = w16_arg32(a);
+    int16_t cap = (int16_t)w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    if (!x || x->cls < 0 || x->cls >= w->ncls || cap <= 0) return 8;
+    const char *name = w->cls[x->cls].name;
+    size_t n = strlen(name);
+    if (n > (size_t)cap - 1) n = (size_t)cap - 1;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (uint32_t)n + 1, 1);
+    if (!p) return -1;
+    memcpy(p, name, n);
+    p[n] = 0;
+    w->cpu.r[R_AX] = (uint16_t)n;
+    return 8;
+}
+
+// FlashWindow(hWnd, bInvert) -> BOOL
+// Windows: Flips a window's caption between active and inactive once -- called on a timer, it
+// flashes to ask for attention; returns whether it looked active before.
+// w16: Answers as Windows would and draws no flash: toywm, not the program, says a window wants
+// attention.
+static int api_FlashWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = (uint16_t)(w->active != 0);
+    return 4;
+}
+
+// GetCaretBlinkTime() -> UINT
+// Windows: How long the caret stays on, and off, in milliseconds -- the Control Panel's Cursor
+// Blink Rate, 530 by default.
+// w16: 530, the rate w16's own EDIT blinks at.
+static int api_GetCaretBlinkTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    w->cpu.r[R_AX] = 530;
+    return 0;
+}
+
+// GetUpdateRect(hWnd, lpRect, bErase) -> BOOL
+// Windows: The smallest rectangle round the part of a window waiting to be painted, and whether
+// there is any; bErase erases its background first.
+// w16: The same: w16 invalidates a window whole, so a window owing a paint answers its whole client
+// area.
+static int api_GetUpdateRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    uint32_t far = w16_arg32(a);
+    w16_arg16(a);
+    int owed = x && x->inval;
+    int16_t r[4] = { 0, 0, (int16_t)(owed ? x->cw : 0), (int16_t)(owed ? x->ch : 0) };
+    if ((far >> 16) && put_rect(w, far, r) < 0) return -1;
+    w->cpu.r[R_AX] = (uint16_t)owed;
+    return 8;
+}
+
+// InSendMessage() -> BOOL
+// Windows: Whether the message being handled was sent by another task, which waits for the reply.
+// w16: FALSE: no other program can send this one a message.
+static int api_InSendMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    w->cpu.r[R_AX] = 0;
+    return 0;
+}
+
+// ScrollDC(hDC, dx, dy, lprcScroll, lprcClip, hrgnUpdate, lprcUpdate) -> BOOL
+// Windows: Moves the pixels of a rectangle of a DC by dx, dy, inside a clip rectangle, and says what
+// the move uncovered -- as a region, a rectangle or both -- for the program to paint.
+// w16: The same.
+static int api_ScrollDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    int16_t dx = (int16_t)w16_arg16(a), dy = (int16_t)w16_arg16(a);
+    uint32_t ps = w16_arg32(a), pc = w16_arg32(a);
+    uint16_t rgn = w16_arg16(a);
+    uint32_t pu = w16_arg32(a);
+    int16_t sr[4], cr[4], up[4];
+    if ((ps >> 16) && get_rect(w, ps, sr) < 0) return -1;
+    if ((pc >> 16) && get_rect(w, pc, cr) < 0) return -1;
+    w->cpu.r[R_AX] = (uint16_t)w16_gdi_scroll(w, hdc, dx, dy, ps >> 16 ? sr : 0, pc >> 16 ? cr : 0, up);
+    if (rgn) w16_gdi_region_set(w, rgn, up);
+    if ((pu >> 16) && put_rect(w, pu, up) < 0) return -1;
+    return 20;
+}
+
 const struct w16_api g_user_misc_api[] = {
     { 10, api_SetTimer },
     { 12, api_KillTimer },
@@ -1100,6 +1241,9 @@ const struct w16_api g_user_misc_api[] = {
     { 47, api_IsWindow },
     { 49, api_IsWindow },
     { 50, api_FindWindow },
+    { 54, api_EnumWindows },
+    { 55, api_EnumWindows },
+    { 58, api_GetClassName },
     { 59, api_SetActiveWindow },
     { 60, api_GetActiveWindow },
     { 67, api_GetWindowDC },
@@ -1109,27 +1253,30 @@ const struct w16_api g_user_misc_api[] = {
     { 72, api_SetRect },
     { 73, api_SetRectEmpty },
     { 74, api_CopyRect },
+    { 75, api_IsRectEmpty },
     { 76, api_PtInRect },
     { 77, api_OffsetRect },
     { 78, api_OffsetRect },
     { 79, api_IntersectRect },
+    { 80, api_UnionRect },
     { 81, api_FillRect },
     { 82, api_InvertRect },
     { 83, api_FrameRect },
     { 84, api_DrawIcon },
     { 85, api_DrawText },
     { 104, api_MessageBeep },
+    { 105, api_FlashWindow },
     { 119, api_GetMessagePos },
     { 120, api_GetMessageTime },
     { 121, api_SetWindowsHook },
-    { 137, api_OpenClipboard },
-    { 138, api_OpenClipboard },
-    { 144, api_EnumClipboardFormats },
+    { 169, api_GetCaretBlinkTime },
     { 171, api_WinHelp },
     { 175, api_LoadBitmap },
     { 180, api_GetSysColor },
-    { 193, api_IsClipboardFormatAvailable },
+    { 190, api_GetUpdateRect },
+    { 192, api_InSendMessage },
     { 196, api_TabbedTextOut },
+    { 221, api_ScrollDC },
     { 234, api_UnhookWindowsHook },
     { 235, api_DefHookProc },
     { 236, api_GetCapture },
@@ -1171,9 +1318,37 @@ static int api_AnsiToOem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
+// VkKeyScan(cChar) -> UINT
+// Windows: Which key types a character, by the keyboard layout in use: the virtual-key code in the
+// low byte, the shift state in the high (1 Shift, 2 Ctrl, 4 Alt); -1 when no key types it.
+// w16: The same, by the US layout -- the one 3.1 shipped as its default. A program asks to show or
+// match a key (Write's optional hyphen, Ctrl+Shift+-); the characters it is sent come from the
+// layout toy-os uses.
+static int api_VkKeyScan(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    unsigned ch = w16_arg16(a) & 0xFF;
+    static const char punct[] = ";=,-./`[\\]'";
+    static const char shifted[] = ":+<_>?~{|}\"";
+    static const uint8_t vk[] = { 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0, 0xDB, 0xDC, 0xDD, 0xDE };
+    static const char digits_shifted[] = ")!@#$%^&*(";
+    unsigned r = 0xFFFF;
+    const char *p;
+    if (ch >= 'a' && ch <= 'z') r = ch - 32;
+    else if (ch >= 'A' && ch <= 'Z') r = 0x100 | ch;
+    else if (ch >= '0' && ch <= '9') r = ch;
+    else if (ch == ' ' || ch == 8 || ch == 9 || ch == 13 || ch == 27) r = ch;
+    else if (ch >= 1 && ch <= 26) r = 0x200 | (ch + 64);   // Ctrl+letter
+    else if (ch && (p = strchr(digits_shifted, (int)ch))) r = 0x100 | (unsigned)('0' + (p - digits_shifted));
+    else if (ch && (p = strchr(punct, (int)ch))) r = vk[p - punct];
+    else if (ch && (p = strchr(shifted, (int)ch))) r = 0x100 | vk[p - shifted];
+    w->cpu.r[R_AX] = (uint16_t)r;
+    return 2;
+}
+
 const struct w16_api g_keyboard_api[] = {
     { 5, api_AnsiToOem },
     { 6, api_AnsiToOem },
+    { 129, api_VkKeyScan },
 };
 const unsigned g_keyboard_api_n = sizeof g_keyboard_api / sizeof g_keyboard_api[0];
 const unsigned g_user_misc_api_n = sizeof g_user_misc_api / sizeof g_user_misc_api[0];

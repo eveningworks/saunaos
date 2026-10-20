@@ -347,6 +347,154 @@ static int api_DestroyMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
+// --- changing a menu ------------------------------------------------------------------
+
+#define MF_SEPARATOR 0x0800
+#define MF_BITMAP    0x0004
+#define MF_OWNERDRAW 0x0100
+#define MF_CHANGE    0x0080
+#define MF_APPEND    0x0100
+#define MF_DELETE    0x0200
+#define MF_REMOVE    0x1000
+
+// Item `at` of `m` taken out; its popup destroyed too when `destroy`.
+static void menu_cut(struct w16_hmenu *m, int at, int destroy) {
+    if (destroy && (m->it[at].flags & MF_POPUP)) menu_destroy(m->it[at].sub);
+    free(m->it[at].text);
+    memmove(&m->it[at], &m->it[at + 1], sizeof m->it[0] * (size_t)(m->n - at - 1));
+    m->n--;
+}
+
+// Where an item `id` (MF_BYPOSITION: a place) is in h itself, or -1 -- with
+// *in the menu that holds it, a popup's searched too as Windows did.
+static int place(uint16_t h, uint16_t id, unsigned flags, struct w16_hmenu **in) {
+    struct w16_hmenu *m = menu_of(h);
+    *in = m;
+    if (!m) return -1;
+    if (flags & MF_BYPOSITION) return id < m->n ? id : -1;
+    for (int i = 0; i < m->n; i++) {
+        if (!(m->it[i].flags & (MF_POPUP | MF_SEP)) && m->it[i].id == id) return i;
+        if (m->it[i].flags & MF_POPUP) {
+            int k = place(m->it[i].sub, id, flags, in);
+            if (k >= 0) return k;
+        }
+    }
+    *in = m;
+    return -1;
+}
+
+// A new item's text: the string, or "" for a separator and the kinds w16
+// draws no text for (a bitmap, owner-drawn). 0 after a fault.
+static int item_text(struct w16 *w, uint32_t far, unsigned flags, char *out, size_t cap) {
+    out[0] = 0;
+    if (flags & (MF_SEPARATOR | MF_BITMAP | MF_OWNERDRAW) || !(far >> 16)) return 1;
+    return cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, out, (unsigned)cap) >= 0;
+}
+
+static int menu_insert(struct w16_hmenu *m, int at, const char *text, uint16_t id, unsigned flags) {
+    if (menu_append(m, text, id, (uint16_t)(flags & (MF_GRAYED | MF_DISABLED | MF_CHECKED | MF_POPUP)), 0) < 0)
+        return 0;
+    struct w16_mi it = m->it[m->n - 1];
+    if (flags & MF_POPUP) { it.sub = id; it.id = 0; }
+    if (flags & MF_SEPARATOR) it.flags |= MF_SEP;
+    if (at < 0 || at > m->n - 1) at = m->n - 1;
+    memmove(&m->it[at + 1], &m->it[at], sizeof it * (size_t)(m->n - 1 - at));
+    m->it[at] = it;
+    return 1;
+}
+
+// CreatePopupMenu() -> HMENU
+// Windows: A new, empty popup menu, to fill and hang on a menu bar or another popup.
+// w16: The same.
+static int api_CreatePopupMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    pthread_mutex_lock(&w->lock);
+    w->cpu.r[R_AX] = menu_new();
+    pthread_mutex_unlock(&w->lock);
+    return 0;
+}
+
+// InsertMenu(hMenu, nPosition, wFlags, wIDNewItem, lpNewItem) -> BOOL
+// Windows: Puts a new item in a menu before an existing one (by command, or MF_BYPOSITION its
+// place; -1 the end): text, a separator, or a popup (MF_POPUP, its HMENU as the id).
+// w16: The same; a bitmap or owner-drawn item shows as an empty item.
+static int api_InsertMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a), pos = w16_arg16(a), flags = w16_arg16(a), id = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    char text[256];
+    if (!item_text(w, far, flags, text, sizeof text)) return -1;
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *in;
+    int at = pos == 0xFFFF ? -1 : place(h, pos, flags, &in);
+    if (pos == 0xFFFF || at < 0) in = menu_of(h);
+    int ok = in && menu_insert(in, at, text, id, flags);
+    pthread_mutex_unlock(&w->lock);
+    if (ok && h == w->menu) bar_changed(w);
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 12;
+}
+
+// DeleteMenu(hMenu, nPosition, wFlags) -> BOOL
+// Windows: Takes an item out of a menu, by command or place, destroying its popup if it has one.
+// w16: The same.
+static int api_DeleteMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a), pos = w16_arg16(a), flags = w16_arg16(a);
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *in;
+    int at = place(h, pos, flags, &in);
+    if (at >= 0) menu_cut(in, at, 1);
+    pthread_mutex_unlock(&w->lock);
+    if (at >= 0 && h == w->menu) bar_changed(w);
+    w->cpu.r[R_AX] = at >= 0;
+    return 6;
+}
+
+// ChangeMenu(hMenu, uPosition, lpNewItem, uIDNewItem, fuFlags) -> BOOL
+// Windows: Windows 3.0's one call for changing a menu -- MF_APPEND, MF_INSERT (before uPosition),
+// MF_CHANGE (replace it), MF_DELETE or MF_REMOVE (take it out, the popup kept) -- which 3.1 split
+// into AppendMenu, InsertMenu, ModifyMenu, DeleteMenu and RemoveMenu.
+// w16: The same five.
+static int api_ChangeMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a), pos = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    uint16_t id = w16_arg16(a), flags = w16_arg16(a);
+    char text[256];
+    if (!(flags & (MF_DELETE | MF_REMOVE)) && !item_text(w, far, flags, text, sizeof text)) return -1;
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *in;
+    int at = place(h, pos, flags, &in), ok = 0;
+    if (flags & MF_APPEND) {
+        in = menu_of(h);
+        ok = in && menu_insert(in, -1, text, id, flags);
+    } else if (flags & (MF_DELETE | MF_REMOVE)) {
+        if ((ok = at >= 0)) menu_cut(in, at, (flags & MF_DELETE) != 0);
+    } else if (flags & MF_CHANGE) {
+        if (at >= 0 && (ok = menu_insert(in, at, text, id, flags))) menu_cut(in, at + 1, 0);
+    } else if (at >= 0 || pos == 0) {           // MF_INSERT, before uPosition
+        if (at < 0) in = menu_of(h);
+        ok = in && menu_insert(in, at, text, id, flags);
+    }
+    pthread_mutex_unlock(&w->lock);
+    if (ok && h == w->menu) bar_changed(w);
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 12;
+}
+
+// HiliteMenuItem(hwnd, hmenu, uItemHilite, uHilite) -> BOOL
+// Windows: Highlights a title of a window's menu bar, or takes the highlight off -- a program
+// showing a key's menu as it works.
+// w16: Answers TRUE and draws nothing: a title is highlighted while its popup is open.
+static int api_HiliteMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg16(a);
+    w->cpu.r[R_AX] = 1;
+    return 8;
+}
+
 // LoadAccelerators(hInstance, lpTableName) -> HACCEL
 // Windows: Loads an ACCELERATORS resource: the keys that stand for menu commands, as Ctrl+Z for
 // Undo.
@@ -413,6 +561,7 @@ static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_
 const struct w16_api g_menu_api[] = {
     { 150, api_LoadMenu },
     { 152, api_DestroyMenu },
+    { 153, api_ChangeMenu },
     { 154, api_CheckMenuItem },
     { 155, api_EnableMenuItem },
     { 156, api_GetSystemMenu },
@@ -420,11 +569,15 @@ const struct w16_api g_menu_api[] = {
     { 158, api_SetMenu },
     { 159, api_GetSubMenu },
     { 160, api_DrawMenuBar },
+    { 162, api_HiliteMenuItem },
     { 177, api_LoadAccelerators },
     { 178, api_TranslateAccelerator },
     { 250, api_GetMenuState },
     { 263, api_GetMenuItemCount },
     { 264, api_GetMenuItemID },
+    { 410, api_InsertMenu },
+    { 413, api_DeleteMenu },
+    { 415, api_CreatePopupMenu },
 };
 const unsigned g_menu_api_n = sizeof g_menu_api / sizeof g_menu_api[0];
 

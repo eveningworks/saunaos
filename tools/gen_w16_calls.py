@@ -167,7 +167,8 @@ def collect():
         doc = None
         for sigs, fields in parse_block(block):
             for s in sigs:
-                if s.split("(")[0].split(" =")[0] == name and (doc is None or fields):
+                # without case: Wine's spec names OLE 1.0's exports as the DLL does (OLEDELETE)
+                if s.split("(")[0].split(" =")[0].lower() == name.lower() and (doc is None or fields):
                     doc = (s, fields)
         if not doc:
             problems.append(f"{path}:{line}: {fn} has no `// {name}(...)` signature line for {where}")

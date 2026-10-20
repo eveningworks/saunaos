@@ -22,6 +22,10 @@
 //   module16.c        binding an image to Windows' modules; a program's own
 //                     DLLs (LoadLibrary, GetProcAddress)
 //   ddeml16.c         DDEML, mmsystem16.c MMSYSTEM: stand-ins (no peer, no wave device)
+//   font16.c          what an HFONT is: 3.11's bitmap fonts, TrueType faces, stand-ins
+//   clip16.c          the clipboard, on toy-os's
+//   meta16.c          metafiles: PlayMetaFile, an OLE object's picture
+//   ole16.c           OLECLI's objects, and SHELL's registration database
 //
 // TWO THREADS. The program -- interpreter, message loop, GDI -- runs on
 // the TASK thread, so a modal loop inside a window procedure simply
@@ -106,6 +110,8 @@ void ne_print_info(const struct ne_module *m);
 #define WM_PASTE         0x0302
 #define WM_CLEAR         0x0303
 #define WM_UNDO          0x0304
+#define WM_RENDERFORMAT  0x0305
+#define WM_RENDERALLFORMATS 0x0306
 #define WM_USER          0x0400
 // w16's own, never a program's: the main thread asks the task to open
 // menu-bar title wParam (lParam 1: the first since none was open), and
@@ -220,6 +226,18 @@ struct w16_gdiobj {
     int bk_mode, rop2;
     int16_t cx, cy;               // the current position
     int16_t brush_ox, brush_oy;   // SetBrushOrg's: kept and answered, no brush is patterned yet
+    // DC: its mapping (SetMapMode, Set{Window,Viewport}{Org,Ext}) -- a
+    // logical point is (p - worg) * vext / wext + vorg in device pixels --
+    // its clip rectangle in device pixels (IntersectClipRect, SelectClipRgn),
+    // SetTextJustification's spaces, and SaveDC's copies of it all.
+    int map_mode, stretch_mode, fill_mode;
+    int16_t worg[2], wext[2], vorg[2], vext[2];
+    int has_clip;
+    int16_t clip[4];
+    int16_t break_extra, break_count;
+    struct w16_gdiobj *saved;     // SaveDC's stack, allocated
+    int nsaved;
+    int16_t dim[2];               // bitmap: SetBitmapDimension's, in 0.1 mm
 };
 
 struct w16_timer {
@@ -493,6 +511,10 @@ const uint32_t *w16_shown(const struct w16_wnd *x, int *w, int *h);
 void w16_gdi_forget_window(struct w16 *w, uint16_t hwnd);   // its DC goes with it
 // A bitmap made from a packed DIB (header, palette, bits): LoadBitmap's. 0 when malformed.
 uint16_t w16_gdi_bitmap_of_dib(struct w16 *w, const uint8_t *dib, uint32_t len);
+// A bitmap made from a device-dependent one as a program stores it (a
+// Bitmap16: BITMAP's fields, perhaps its bits pointer, the bits) -- mono,
+// the VGA's 4 planes or 24 bits. 0 for any other kind or a short one.
+uint16_t w16_gdi_bitmap_of_ddb(struct w16 *w, const uint8_t *p, uint32_t len);
 // A brush handle's colour as a pixel (stock, COLOR_*+1 or created); fill
 // a client rectangle with it -- USER's FillRect and WM_ERASEBKGND.
 uint32_t w16_brush_px(struct w16 *w, uint16_t brush);
@@ -535,6 +557,7 @@ void w16_paint_begin(struct w16 *w, struct w16_wnd *x);
 int w16_class_find(struct w16 *w, const char *name);
 int w16_class_add_host(struct w16 *w, const char *name, w16_wndproc host, uint16_t style,
                        uint16_t background);
+#define W16_ATOM_BASE 0xC000                     // a string atom; below it, an integer one
 // An atom for `name` (RegisterClass, RegisterWindowMessage), 0 when out of memory.
 uint16_t w16_atom_add(struct w16 *w, const char *name);
 
@@ -621,7 +644,9 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
 uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, uint32_t lp);
 // The common dialogs' folder list draws a folder before each item: item
 // data's low byte 1 an open folder, 2 a closed one, the next byte its
-// indent in steps. Set on a LISTBOX by w16's own code only.
+// indent in steps. Set on a LISTBOX by w16's own code only. `on` 2 is the
+// Font dialog's face list: rows the font's own height, the TrueType mark
+// (kind 5) or its room (kind 6) before each.
 void w16_listbox_folders(struct w16_wnd *x, int on);
 uint32_t w16_listbox_str(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, const char *s);
 const char *w16_listbox_text(struct w16_wnd *x, int i);   // item i's text, or NULL
@@ -640,6 +665,7 @@ int w16_sbar_hit(const struct w16_wnd *x, int wx, int wy);   // -1, SB_HORZ or S
 int w16_sbar_shown(const struct w16_wnd *x, int bar);
 // SetScrollRange/SetScrollPos's work, the bar redrawn when `redraw`.
 void w16_sbar_set(struct w16 *w, struct w16_wnd *x, int bar, int min, int max, int pos, int redraw);
+uint32_t w16_scrollbar_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, uint32_t lp);
 extern const struct w16_api g_scroll_api[];
 extern const unsigned g_scroll_api_n;
 
@@ -762,6 +788,7 @@ extern const unsigned g_module_api_n, g_ddeml_api_n, g_mmsystem_api_n;
 
 uint16_t w16_global_alloc(struct w16 *w, uint32_t size, const void *init);   // a selector, or 0
 void w16_global_free(struct w16 *w, uint16_t h);
+uint8_t *w16_global_ptr(struct w16 *w, uint16_t h, uint32_t *size);   // a global block's bytes; NULL: not one
 void w16_local_init(struct w16 *w);
 // The local heap for w16's own use -- an EDIT keeping its text there, as
 // Windows' did: a handle (the program may be handed it), and its block.
@@ -804,6 +831,47 @@ extern const unsigned g_commdlg_api_n;
 int w16_dos_file(struct w16 *w, struct cpu16 *c);  // INT 21h's file calls; -1 not one
 extern const struct w16_api g_file_api[], g_keyboard_api[];
 extern const unsigned g_file_api_n, g_keyboard_api_n;
+
+// --- clip16.c: the clipboard ------------------------------------------------------
+
+// Text between a program and toy-os's clipboard: Windows' ANSI and "\r\n"
+// one side, UTF-8 and "\n" the other. Put: 0 when it could not be copied.
+// Get: allocated, *n bytes and a NUL; NULL when the clipboard holds no text.
+int w16_clip_put_text(const char *ansi, int n);
+char *w16_clip_get_text(int *n);
+// The clipboard's data in a format (GetClipboardData's), and new data for one
+// (SetClipboardData's, the clipboard open and the handle its own after).
+uint16_t w16_clip_get(struct w16 *w, uint16_t format);
+void w16_clip_set(struct w16 *w, uint16_t format, uint16_t h);
+extern const struct w16_api g_clip_api[];
+extern const unsigned g_clip_api_n;
+// A bitmap's pixels as GDI keeps them (not copied) and its size; NULL: not
+// a bitmap. And a new colour bitmap of `px` (copied): its handle, 0 none.
+const uint32_t *w16_gdi_bitmap_pixels(struct w16 *w, uint16_t h, int *bw, int *bh);
+uint16_t w16_gdi_bitmap_from(struct w16 *w, const uint32_t *px, int bw, int bh);
+void w16_gdi_delete(struct w16 *w, uint16_t h);   // DeleteObject's work
+// ScrollDC's work: the pixels of `scroll` (NULL: the whole DC) moved by
+// (dx, dy) inside `clip` (NULL: the scroll rectangle), logical units; *upd the
+// rectangle uncovered. 0 for no DC. And a region made that rectangle.
+int w16_gdi_scroll(struct w16 *w, uint16_t hdc, int dx, int dy, const int16_t *scroll, const int16_t *clip,
+                   int16_t upd[4]);
+void w16_gdi_region_set(struct w16 *w, uint16_t hrgn, const int16_t rc[4]);
+// meta16.c: a metafile's bytes (a METAHEADER and its records) drawn into a
+// DC through w16's own GDI calls. 0 when it is no metafile or a record is malformed.
+int w16_play_wmf(struct w16 *w, uint16_t hdc, const uint8_t *bytes, uint32_t len);
+// A metafile drawn into a DC's rectangle (logical units): MM_ANISOTROPIC, its
+// own extents -- or `pw` x `ph` when it sets none -- onto the rectangle.
+int w16_gdi_play_into(struct w16 *w, uint16_t hdc, const int16_t rc[4], int32_t pw, int32_t ph,
+                      const uint8_t *bytes, uint32_t len);
+// A metafile drawn on white into a new bitmap of its size (`xext` x `yext`
+// HIMETRIC, else 3 inches square): the bitmap, 0 when it could not be made.
+uint16_t w16_render_metafile(struct w16 *w, const uint8_t *bytes, uint32_t len, int xext, int yext);
+// A bitmap stretched into a DC's rectangle (logical units), SRCCOPY.
+void w16_gdi_stretch_bitmap(struct w16 *w, uint16_t hdc, int x, int y, int cw, int ch, uint16_t bm);
+extern const struct w16_api g_olecli_api[], g_reg_api[];
+extern const unsigned g_olecli_api_n, g_reg_api_n;
+extern const struct w16_api g_meta_api[];
+extern const unsigned g_meta_api_n;
 
 // --- ini16.c ------------------------------------------------------------------
 
@@ -868,6 +936,9 @@ int gdi_dib_header(const uint8_t *bmi, uint32_t bmi_len, int pal_indices, struct
 enum { W16_ICON_OPEN, W16_ICON_CURRENT, W16_ICON_SHUT, W16_ICON_FLOPPY, W16_ICON_DISK, W16_ICON_NET,
        W16_ICON_CD, W16_ICON_RAM, W16_ICON_COUNT };
 const uint32_t *w16_commdlg_icon(int which);
+#define W16_TT_W 20
+#define W16_TT_H 12
+const uint32_t *w16_commdlg_tt(void);            // the Font dialog's TrueType mark, 20 by 12, or NULL
 uint32_t gdi_dib_px(const struct gdi_dib *d, const uint8_t *row, int x);
 struct ugfx_font;
 const struct ugfx_font *w16_system_font(void);   // under g_w16_text_lock
@@ -888,6 +959,8 @@ struct w16_fontinfo {
     int height, ascent, internal_leading, external_leading;
     int ave, maxw, weight, italic, pitch_family, charset;
     int first, last, def;
+    const char *face;                              // the face it is, as GetTextFace names it
+    int dy;                                        // its glyphs drawn this much below the cell's top
 };
 const struct w16_fontinfo *w16_font_info(uint16_t hfont);
 int w16_font_ascent(const struct ugfx_font *uf);   // pixels above its baseline
@@ -901,6 +974,14 @@ struct w16_logfont {                               // a CreateFont's request
     char face[32];
 };
 const struct w16_logfont *w16_gdi_logfont(struct w16 *w, uint16_t hfont);   // NULL: not a created font
+uint16_t w16_gdi_font_new(struct w16 *w, const struct w16_logfont *lf);    // CreateFontIndirect's work
+// EnumFonts' work: each font there is, `face` NULL one per face, else every
+// size of that face; `fn` returning 0 stops. How many were reported. Under
+// g_w16_text_lock.
+#define W16_RASTER_FONTTYPE   0x0001
+#define W16_TRUETYPE_FONTTYPE 0x0004
+typedef int (*w16_font_enum_fn)(const struct w16_logfont *lf, const struct w16_fontinfo *tm, int type, void *ctx);
+int w16_font_enum(const char *face, w16_font_enum_fn fn, void *ctx);
 #include <stdio.h>
 void w16_fonts_list(FILE *out);                    // `w16 --fonts`
 // The base units x is laid out in: its dialog's, else the System font's.
