@@ -395,8 +395,26 @@ static void pin_selected(int pin) {
 // -- for a folder or a binary, since a row that can never apply here
 // is noise rather than a hint. Static because the popup keeps the
 // pointer while it is up.
-static struct uui_menu_item g_ctx_built[sizeof ctx_items / sizeof ctx_items[0]];
-int g_ctx_rows;   // how many of them the open popup holds (fm_view.c logs it)
+static struct uui_menu_item *g_ctx_built;
+static int g_ctx_cap;
+int g_ctx_rows;
+#define CTX_BASE ((int)(sizeof ctx_items / sizeof ctx_items[0]))
+
+// Room for `n` rows in the menu being built; 0 when memory ran out.
+static int ctx_room(int n) {
+    if (n <= g_ctx_cap) return 1;
+    struct uui_menu_item *g = realloc(g_ctx_built, sizeof *g * (size_t)n);
+    if (!g) return 0;
+    g_ctx_built = g;
+    g_ctx_cap = n;
+    return 1;
+}
+
+// The opening app's actions for the file the menu is about, under Open:
+// "Show its calls" for a Windows program. Their labels live here until
+// the next menu.
+static struct uopen_action *g_acts;
+static int g_nacts;   // how many of them the open popup holds (fm_view.c logs it)
 
 // Text or binary, git's rule: a NUL in the first bytes says binary. A
 // short read (an empty file, a permission problem) counts as text --
@@ -447,6 +465,13 @@ static int build_ctx_items(void) {
     int is_dir = uui_fileview_selected_is_dir(active());
     int pinned = is_dir && uui_fileview_selected_path(active(), path, sizeof path) && upins_has(path);
     int n = 0;
+    uopen_actions_free(g_acts, g_nacts);
+    g_acts = 0;
+    g_nacts = 0;
+    if (!is_dir && !in_bin(active()) && !in_recent(active()) && !in_archive(active()) &&
+        uui_fileview_selected_path(active(), path, sizeof path))
+        g_nacts = uopen_actions(path, &g_acts);
+    if (!ctx_room(CTX_BASE + g_nacts)) return 0;
     if (in_bin(active())) {
         for (int i = 0; i < (int)(sizeof bin_ctx_items / sizeof bin_ctx_items[0]); i++)
             g_ctx_built[n++] = bin_ctx_items[i];
@@ -479,6 +504,9 @@ static int build_ctx_items(void) {
         if (ctx_items[i].code == CMD_PIN && (!is_dir || pinned)) continue;
         if (ctx_items[i].code == CMD_UNPIN && (!is_dir || !pinned)) continue;
         g_ctx_built[n++] = ctx_items[i];
+        if (ctx_items[i].code == CMD_OPEN)
+            for (int k = 0; k < g_nacts; k++)
+                g_ctx_built[n++] = (struct uui_menu_item)UUI_MENU(g_acts[k].name, CMD_ACTION_FIRST + k, 0);
     }
     return n;
 }
@@ -940,6 +968,14 @@ static void set_view(int code) {
 
 void do_command(struct uapp *a, int code) {
     if (code >= CMD_PL_FIRST && code <= CMD_PL_LAST) { places_command(a, code); return; }
+    if (code >= CMD_ACTION_FIRST && code < CMD_ACTION_FIRST + g_nacts) {
+        char path[PATH_MAX_LEN];
+        if (uui_fileview_selected_path(active(), path, sizeof path)) {
+            int pid = uopen_action_run(&g_acts[code - CMD_ACTION_FIRST], path);
+            if (pid > 0) uapp_track_child(a, pid);
+        }
+        return;
+    }
     if (g_single && (code == CMD_COPY || code == CMD_MOVE || code == CMD_SWAP)) {
         set_note("one pane is shown -- View > Second pane adds the other");
         return;
@@ -1449,8 +1485,7 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
     g_ctx_armed = 0;
     if (g_modal != MODAL_NONE) return;
     if (g_ctx_on_tree)
-        g_ctx_rows = places_ctx_items(g_ctx_built, (int)(sizeof g_ctx_built / sizeof g_ctx_built[0]),
-                                      g_ctx_tree);
+        g_ctx_rows = ctx_room(CTX_BASE) ? places_ctx_items(g_ctx_built, g_ctx_cap, g_ctx_tree) : 0;
     else {
         g_ctx_rows = build_ctx_items();
         // What a test picks rows by: the labels, in order ("-" a separator).

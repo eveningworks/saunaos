@@ -106,6 +106,29 @@ static void headers(struct ufileinfo *fi) {
     utags_free(&t);
 }
 
+// The X-Details answers last asked, by path and when it changed: moving
+// back and forth over a folder of programs asks each once.
+#define DETAILS_KEPT 32
+static struct { char *path, *text; struct rtc_time when; uint64_t size; } g_det[DETAILS_KEPT];
+static int g_det_next;
+
+static const char *details(const char *path, const struct sys_stat *st) {
+    for (int i = 0; i < DETAILS_KEPT; i++)
+        if (g_det[i].path && !strcmp(g_det[i].path, path) && g_det[i].size == st->size &&
+            !memcmp(&g_det[i].when, &st->modified, sizeof st->modified))
+            return g_det[i].text;
+    char *text = uopen_details(path), *copy = strdup(path);
+    if (!copy) { free(text); return 0; }
+    int k = g_det_next++ % DETAILS_KEPT;
+    free(g_det[k].path);
+    free(g_det[k].text);
+    g_det[k].path = copy;
+    g_det[k].text = text;
+    g_det[k].when = st->modified;
+    g_det[k].size = st->size;
+    return text;
+}
+
 int ufileinfo_load(struct ufileinfo *fi, const char *path, unsigned what) {
     memset(fi, 0, sizeof *fi);
     strlcpy(fi->path, path, sizeof fi->path);
@@ -130,6 +153,7 @@ int ufileinfo_load(struct ufileinfo *fi, const char *path, unsigned what) {
         int media = fi->icon && (!strcmp(fi->icon, "file-image") || !strcmp(fi->icon, "file-audio") ||
                                  !strcmp(fi->icon, "file-video"));
         if ((what & UFI_HEADERS) && media) headers(fi);
+        if (what & UFI_DETAILS) fi->details = details(path, &fi->st);
     } else if (what & UFI_WALK) {
         g_qhead = g_qtail = g_qcount = 0;
         push(fi, path);

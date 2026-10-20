@@ -35,6 +35,11 @@ enum { W16_FONTS_WIN311, W16_FONTS_STANDIN };
 
 #define W16_DRIVES 22                // D: to Y:, the letters between C: and Z:
 
+// What the File Manager's Open does with a Windows 3.x program: run it,
+// run it unless calls it uses are missing (then the run card), always
+// show the card, or show it in the launcher.
+enum { W16_FROM_RUN, W16_FROM_CHECK, W16_FROM_ASK, W16_FROM_SHOW };
+
 struct w16_prefs {
     int scale;                       // W16_SCALE_*
     int frame;                       // W16_FRAME_*
@@ -46,6 +51,8 @@ struct w16_prefs {
     int fonts;                       // W16_FONTS_*
     // Drives D: to Y:, each a folder or "" -- C: is drive_c, Z: all of toy-os.
     char drive[W16_DRIVES][W16_PATH_MAX];
+    int from_files;                  // W16_FROM_*
+    int add_folder;                  // a program run from elsewhere adds its folder to the launcher
 };
 
 // The keys a program's own file may override, and the whole defaults table.

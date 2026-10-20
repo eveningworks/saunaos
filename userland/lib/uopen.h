@@ -86,6 +86,27 @@ int uopen_decide(const char *path, struct uopen_decision *d);
 // becomes /bin/wm/system/runask's. 0 for UOPEN_NOTHING.
 int uopen_decision_argv(const char *path, const struct uopen_decision *d, char **argv);
 
+// --- what the opening app offers besides opening ----------------------------
+//
+// freedesktop's DESKTOP ACTIONS: an entry's `Actions=calls;show` names
+// `[Desktop Action calls]` sections, each a Name= and an Exec= whose `%f`
+// is the file -- the File Manager lists them under Open, as Dolphin and
+// Nautilus do. And `X-Details=` (an X- key, freedesktop's room for one
+// of a desktop's own) names a command whose lines, "Label<TAB>value",
+// the File Manager's details show for the file: the app that understands
+// the file reads it, in its own sandbox, and the File Manager parses none.
+
+struct uopen_action { char *name, *exec; };
+
+// The actions of the app that opens `path`; how many, `*out` allocated.
+int  uopen_actions(const char *path, struct uopen_action **out);
+void uopen_actions_free(struct uopen_action *a, int n);
+// Spawns one for `path`, not waited for; the pid, or negative.
+int  uopen_action_run(const struct uopen_action *a, const char *path);
+// The opening app's X-Details answer for `path`, allocated; NULL for none.
+// WAITS for the command, so a caller asks once per file shown.
+char *uopen_details(const char *path);
+
 // Resolve and spawn, NOT waited for -- an opener that waited would
 // freeze its caller for as long as the editor stays open. A DIRECTORY
 // opens in the File Manager. A PROGRAM OR SCRIPT runs instead, by

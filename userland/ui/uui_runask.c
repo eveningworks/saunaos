@@ -19,7 +19,7 @@
 #include <stdio.h>
 #include <string.h>
 
-enum { ID_TERMINAL = 1, ID_RUN, ID_EDIT, ID_CANCEL, ID_ALLOW, ID_ALWAYS };
+enum { ID_TERMINAL = 1, ID_RUN, ID_EDIT, ID_CANCEL, ID_ALLOW, ID_ALWAYS, ID_SIDE1, ID_SIDE2 };
 
 static char g_path[256];
 static struct ulaunch_info g_info;
@@ -33,15 +33,17 @@ static char g_title[300], g_what[128], g_sub[300], g_warn[160], g_always_text[40
 static struct uui_image g_icon;
 static struct uui_label g_l_what, g_l_sub, g_l_warn, g_spacer, g_gap;
 static struct uui_checkbox g_always;
-static struct uui_button g_b_edit, g_b_term, g_b_run, g_b_cancel, g_b_allow;
+static struct uui_button g_b_edit, g_b_term, g_b_run, g_b_cancel, g_b_allow, g_b_side[2];
+static int g_was_always;
 static struct umonofont g_mono;
 
-static struct uui_item g_text_items[3], g_hero_items[2], g_btn_items[5], g_root_items[5];
+static struct uui_item g_text_items[3], g_hero_items[2], g_btn_items[7], g_root_items[5];
 static struct uui_layout g_text_l, g_hero_l, g_btn_l, g_root_l;
-static struct uui_focusable g_focusables[6];
+static struct uui_focusable g_focusables[8];
 static struct uui_focus g_focus;
 
 static int is_x_face(void) { return !g_info.runnable; }
+static int is_foreign(void) { return g_info.kind == ULAUNCH_FOREIGN; }
 
 // --- the script's first lines ----------------------------------------------
 //
@@ -50,7 +52,10 @@ static int is_x_face(void) { return !g_info.runnable; }
 #define PEEK_PAD 6
 static struct { int x, y, w, h, lines; } g_peek;
 
-static const struct ugfx_font *peek_font(void) { return umonofont_get(&g_mono, 0, "runask"); }
+// A script's lines in the terminal's face; a foreign program's facts in the UI's.
+static const struct ugfx_font *peek_font(void) {
+    return is_foreign() ? ugfx_font_current() : umonofont_get(&g_mono, 0, "runask");
+}
 
 static void peek_natural(const void *w, int *ow, int *oh) {
     (void)w;
@@ -86,7 +91,8 @@ static const struct uui_widget_ops g_peek_ops = {
 };
 
 static void finish(int act) {
-    if (act != ULAUNCH_ASK && g_always.checked && !is_x_face())
+    g_was_always = act != ULAUNCH_ASK && g_always.checked;
+    if (act != ULAUNCH_ASK && g_always.checked && !is_x_face() && !is_foreign())
         if (!ulaunch_set_policy(g_info.kind, act)) ulog("runask: could not save the choice\n");
     uui_runask_fn done = g_done;
     g_done = 0;
@@ -101,6 +107,8 @@ static void act_code(int code) {
     case ID_RUN:      finish(ULAUNCH_RUN); break;
     case ID_EDIT:     finish(ULAUNCH_EDIT); break;
     case ID_CANCEL:   finish(ULAUNCH_ASK); break;
+    case ID_SIDE1:    finish(ULAUNCH_SIDE1); break;
+    case ID_SIDE2:    finish(ULAUNCH_SIDE2); break;
     case ID_ALLOW:
         if (!ulaunch_allow(g_path)) {
             // REFUSED, and said on the card: FAT32 keeps no permissions.
@@ -120,6 +128,7 @@ static void act_code(int code) {
 
 // The default act: what Enter does when no button has the focus.
 static int default_code(void) {
+    if (is_foreign()) return g_info.interp_found ? ID_RUN : ID_CANCEL;
     if (is_x_face()) return ID_ALLOW;
     return g_b_term.disabled ? ID_CANCEL : ID_TERMINAL;
 }
@@ -188,6 +197,14 @@ static void describe(void) {
 
     snprintf(g_title, sizeof g_title, "Run %s?", name);
     g_warn[0] = '\0';
+    if (is_foreign()) {
+        if (!g_info.interp_found) snprintf(g_title, sizeof g_title, "%s cannot run here", name);
+        snprintf(g_what, sizeof g_what, "%s is %s", name, g_info.what);
+        snprintf(g_sub, sizeof g_sub, "%s \xb7 %s", sz, dir);
+        snprintf(g_warn, sizeof g_warn, "%s", g_info.note);
+        snprintf(g_always_text, sizeof g_always_text, "%s", g_info.always);
+        return;
+    }
     if (g_info.kind == ULAUNCH_SCRIPT) {
         snprintf(g_what, sizeof g_what, is_x_face() ? "%s is not marked as a program" : "%s is a script", name);
         snprintf(g_sub, sizeof g_sub, "Run by %s \xb7 %s \xb7 %s", g_info.interp, sz, dir);
@@ -211,8 +228,8 @@ static void build(void) {
     int ch = ugfx_char_h();
     uint32_t bg = UUI_ROLE(panel_bg), fg = UUI_ROLE(text);   // roles: resolved at draw
 
-    uui_image_init(&g_icon, icon_get(g_info.kind == ULAUNCH_SCRIPT ? "file-text" : "terminal", ch * 2 + 8),
-                   UIMG_FIT_CONTAIN);
+    const char *icon = g_info.kind == ULAUNCH_SCRIPT ? "file-text" : is_foreign() && g_info.app[0] ? g_info.app : "terminal";
+    uui_image_init(&g_icon, icon_get(icon, ch * 2 + 8), UIMG_FIT_CONTAIN);
     uui_label_init(&g_l_what, g_what);
     g_l_what.font = ugfx_font_session(UGFX_FONT_BOLD);
     uui_label_init(&g_l_sub, g_sub);
@@ -244,6 +261,44 @@ static void build(void) {
     g_b_term.disabled = g_b_run.disabled = !g_info.interp_found;
 
     int nb = 0, nf = 0;
+    if (is_foreign()) {
+        // Its own two buttons at the left, Run (the default) and Cancel at
+        // the right -- or, when it cannot run, Close alone.
+        uui_button_init(&g_b_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
+        g_b_cancel.label = g_info.interp_found ? "Cancel" : "Close";
+        for (int i = 0; i < 2 && g_info.interp_found; i++) {
+            if (!g_info.side[i][0]) continue;
+            uui_button_init(&g_b_side[i], 0, 0, 0, 0, g_info.side[i], UUI_ROLE(control_bg), fg, ID_SIDE1 + i);
+            g_btn_items[nb++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_b_side[i], .id = ID_SIDE1 + i,
+                                                   .name = i ? "side2" : "side1" };
+        }
+        g_btn_items[nb++] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_spacer, .flags = UUI_FILL_W };
+        if (g_info.interp_found) {
+            g_btn_items[nb++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_b_run, .id = ID_RUN, .name = "run" };
+            g_focusables[nf++] = (struct uui_focusable){ &g_b_run, &uui_button_ops };
+        }
+        g_btn_items[nb++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_b_cancel, .id = ID_CANCEL, .name = "cancel" };
+        g_focusables[nf++] = (struct uui_focusable){ &g_b_cancel, &uui_button_ops };
+        for (int i = 0; i < nb; i++)
+            if (g_btn_items[i].widget == &g_b_side[0] || g_btn_items[i].widget == &g_b_side[1])
+                g_focusables[nf++] = (struct uui_focusable){ g_btn_items[i].widget, &uui_button_ops };
+        g_btn_l = (struct uui_layout){ .dir = UUI_ROW, .items = g_btn_items, .count = nb, .gap = 8 };
+        g_peek.lines = g_info.head_lines;
+        int nr = 0;
+        g_root_items[nr++] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_hero_l, .flags = UUI_FILL_W };
+        if (g_peek.lines)
+            g_root_items[nr++] = (struct uui_item){ .ops = &g_peek_ops, .widget = &g_peek, .flags = UUI_FILL_W, .name = "head" };
+        if (g_info.interp_found && g_always_text[0]) {
+            g_root_items[nr++] = (struct uui_item){ .ops = &uui_checkbox_ops, .widget = &g_always, .id = ID_ALWAYS, .name = "always" };
+            g_focusables[nf++] = (struct uui_focusable){ &g_always, &uui_checkbox_ops };
+        }
+        g_root_items[nr++] = (struct uui_item){ .ops = &uui_label_ops, .widget = &g_gap, .flags = UUI_FILL_H };
+        g_root_items[nr++] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_btn_l, .flags = UUI_FILL_W };
+        g_root_l = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_root_items, .count = nr, .margin = 14, .gap = 12 };
+        uui_focus_init(&g_focus, g_focusables, nf);
+        uui_focus_set(&g_focus, 0);
+        return;
+    }
     if (g_info.kind == ULAUNCH_SCRIPT) {
         g_btn_items[nb++] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_b_edit, .id = ID_EDIT, .name = "edit" };
     }
@@ -297,10 +352,12 @@ static void take(const char *path, const struct ulaunch_info *info, uui_runask_f
     g_done = done;
     g_ctx = ctx;
     g_key_took = 0;
+    g_was_always = 0;
     build();
 }
 
 int uui_runask_is_open(void) { return g_win != 0; }
+int uui_runask_always(void) { return g_was_always; }
 
 int uui_runask_open(struct uapp *a, const char *path, const struct ulaunch_info *info,
                     uui_runask_fn done, void *ctx) {

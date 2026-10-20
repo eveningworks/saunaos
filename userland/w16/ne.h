@@ -106,6 +106,11 @@ int ne_resource_find(const struct ne_module *m, uint16_t type, const char *type_
 int ne_parse(const uint8_t *img, uint32_t size, struct ne_module *m);
 const char *ne_strerror(int err);
 
+// What an executable that is NOT a Windows 3.x program is, in words for a
+// person ("a 32-bit Windows program", "a DOS program"), from its MZ
+// header and the signature it points at; NULL for an NE program.
+const char *ne_what(const uint8_t *img, uint32_t size);
+
 // Relocation i of segment seg (1-based). 0, or a negative NE_E_*.
 int ne_reloc_at(const struct ne_module *m, unsigned seg, unsigned i, struct ne_reloc *out);
 

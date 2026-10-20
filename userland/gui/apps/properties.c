@@ -727,7 +727,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     if (uvolinfo_load(argv[1], &g_vol)) return vol_main();
-    ufileinfo_load(&g_fi, argv[1], UFI_HEADERS | UFI_WALK | UFI_OPENS);
+    ufileinfo_load(&g_fi, argv[1], UFI_HEADERS | UFI_WALK | UFI_OPENS | UFI_DETAILS);
     snprintf(g_title, sizeof g_title, "%s Properties", g_fi.name);
 
     uui_fileinfo_init(&g_info);

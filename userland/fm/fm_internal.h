@@ -131,6 +131,8 @@ enum {
     CMD_PL_SIGNIN, CMD_PL_DISCONNECT, CMD_PL_FORGET, CMD_PL_ADD_SHARE,
     CMD_PL_RESTORE_ALL, CMD_PL_EMPTY_BIN, CMD_PL_CLEAR_RECENT, CMD_PL_BIN_SETTINGS,
     CMD_PL_LAST = CMD_PL_BIN_SETTINGS,
+    // The opening app's own actions (lib/uopen.h's desktop actions), by place.
+    CMD_ACTION_FIRST,
 };
 
 // The Recycle Bin's folder, as uui_fileview and the breadcrumb see it --

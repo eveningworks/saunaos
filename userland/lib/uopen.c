@@ -7,6 +7,7 @@
 #include "lib/ulaunch.h"
 #include "lib/urecent.h"
 #include "lib/uconf.h"
+#include "lib/ucapture.h"
 #include "etc_config.h"
 #include "rt/sys.h"
 #include "kpath.h"
@@ -231,3 +232,133 @@ int uopen_set_default(const char *path, const char *entry) {
     return uconf_set(UOPEN_CONF, ext, entry) ? 0 : -1;
 }
 
+
+// --- what the opening app offers besides opening ---------------------------
+
+// The desktop entry (its file) that opens `path`, by uopen_resolve()'s
+// two layers; 0 for none, or for an override naming a literal program.
+static int opening_entry(const char *path, char *entry, int cap) {
+    char ext[16], val[UOPEN_PATH_MAX] = "", list[128];
+    if (!ext_of(path, ext, sizeof ext)) return 0;
+    struct etc_config_buf *cfg = malloc(sizeof *cfg);
+    if (!cfg) return 0;
+    if (uconf_load(UOPEN_CONF, cfg)) etc_config_buf_get_in_or_top(cfg, UOPEN_CONF_SECTION, ext, val, sizeof val);
+    struct sys_stat st;
+    int hit = 0;
+    if (val[0] == '/') {
+        free(cfg);
+        return 0;
+    }
+    if (val[0] && strcmp(val, "-") && snprintf(entry, (size_t)cap, DESKTOP_ENTRY_DIR "/%s.desktop", val) < cap &&
+        sys_stat(entry, &st) == 0)
+        hit = 1;
+    struct sys_dirent *ents = 0;
+    int n = hit ? 0 : ulistdir(DESKTOP_ENTRY_DIR, &ents);
+    for (int i = 0; i < n && !hit; i++)
+        hit = !ents[i].is_dir && k_path_join(DESKTOP_ENTRY_DIR, ents[i].name, entry, (size_t)cap) &&
+              uconf_load(entry, cfg) &&
+              etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Handles", list, sizeof list) &&
+              uopen_ext_matches(list, ext);
+    free(ents);
+    free(cfg);
+    return hit;
+}
+
+int uopen_actions(const char *path, struct uopen_action **out) {
+    *out = 0;
+    char entry[UOPEN_PATH_MAX], list[256];
+    if (!opening_entry(path, entry, sizeof entry)) return 0;
+    struct etc_config_buf *cfg = malloc(sizeof *cfg);
+    if (!cfg) return 0;
+    int n = 0;
+    if (uconf_load(entry, cfg) && etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "Actions", list, sizeof list)) {
+        char *save = 0;
+        for (char *id = strtok_r(list, ";", &save); id; id = strtok_r(0, ";", &save)) {
+            char sec[96], name[96], exec[UOPEN_PATH_MAX];
+            snprintf(sec, sizeof sec, "Desktop Action %s", id);
+            if (!etc_config_buf_get_in(cfg, sec, "Name", name, sizeof name) ||
+                !etc_config_buf_get_in(cfg, sec, "Exec", exec, sizeof exec))
+                continue;
+            struct uopen_action *g = realloc(*out, sizeof **out * (size_t)(n + 1));
+            if (!g) break;
+            *out = g;
+            g[n].name = strdup(name);
+            g[n].exec = strdup(exec);
+            if (!g[n].name || !g[n].exec) { free(g[n].name); free(g[n].exec); break; }
+            n++;
+        }
+    }
+    free(cfg);
+    return n;
+}
+
+void uopen_actions_free(struct uopen_action *a, int n) {
+    for (int i = 0; i < n; i++) { free(a[i].name); free(a[i].exec); }
+    free(a);
+}
+
+// An Exec line's words, `%f` made `path` -- ONE argument, spaces and all.
+// No quoting: an entry's own lines name programs and flags, not paths.
+static char **exec_argv(const char *line, const char *path, char **words) {
+    *words = strdup(line);
+    if (!*words) return 0;
+    int cap = 4, n = 0;
+    char **argv = malloc(sizeof *argv * (size_t)cap), *save = 0;
+    for (char *w = argv ? strtok_r(*words, " \t", &save) : 0; w; w = strtok_r(0, " \t", &save)) {
+        if (n + 2 > cap) {
+            char **g = realloc(argv, sizeof *argv * (size_t)(cap *= 2));
+            if (!g) { free(argv); argv = 0; break; }
+            argv = g;
+        }
+        argv[n++] = !strcmp(w, "%f") ? (char *)path : w;
+    }
+    if (argv) argv[n] = 0;
+    if (!argv || !n) { free(argv); free(*words); return 0; }
+    return argv;
+}
+
+int uopen_action_run(const struct uopen_action *a, const char *path) {
+    char *words, **argv = exec_argv(a->exec, path, &words);
+    if (!argv) return -1;
+    int pid = sys_spawn_argv(argv[0], argv);
+    free(argv);
+    free(words);
+    return pid;
+}
+
+// Each extension's X-Details line, asked of the entries once a process:
+// the details pane asks on every selection, and a scan of every desktop
+// entry per keypress is what made scrolling /bin paint half frames.
+static struct { char ext[16]; char *line; } *g_xd;
+static int g_nxd;
+
+static const char *details_line(const char *path) {
+    char ext[16], entry[UOPEN_PATH_MAX], line[UOPEN_PATH_MAX] = "";
+    if (!ext_of(path, ext, sizeof ext)) return 0;
+    for (int i = 0; i < g_nxd; i++)
+        if (!strcmp(g_xd[i].ext, ext)) return g_xd[i].line[0] ? g_xd[i].line : 0;
+    if (opening_entry(path, entry, sizeof entry)) {
+        struct etc_config_buf *cfg = malloc(sizeof *cfg);
+        if (cfg && uconf_load(entry, cfg))
+            etc_config_buf_get_in_or_top(cfg, UOPEN_ENTRY_SECTION, "X-Details", line, sizeof line);
+        free(cfg);
+    }
+    char *copy = strdup(line);
+    void *g = copy ? realloc(g_xd, sizeof *g_xd * (size_t)(g_nxd + 1)) : 0;
+    if (!g) { free(copy); return 0; }
+    g_xd = g;
+    strlcpy(g_xd[g_nxd].ext, ext, sizeof g_xd[g_nxd].ext);
+    g_xd[g_nxd++].line = copy;
+    return copy[0] ? copy : 0;
+}
+
+char *uopen_details(const char *path) {
+    const char *line = details_line(path);
+    if (!line) return 0;
+    char *words, **argv = exec_argv(line, path, &words);
+    if (!argv) return 0;
+    char *out = ucapture(argv[0], argv);
+    free(argv);
+    free(words);
+    return out;
+}

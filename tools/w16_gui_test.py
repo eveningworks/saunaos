@@ -50,6 +50,12 @@ file is involved.
 10. **Drives and folders**: drive D: mapped to /home/w16d gets hello.exe's
    D:\\HELLO.TXT; nine folders in /etc/win16.conf make ten sidebar rows (the
    list had room for eight); a folder's right-click Move down is saved.
+11. **From the File Manager** (`win16 FILE`, `--details`, the desktop
+   entry's actions): hello.exe runs at once, fault.exe (a call missing)
+   gets the run card, an MZ file that is not Windows 3.x gets "cannot run
+   here", `from_files=ask` cards hello.exe too, `--details` names the
+   rows, and the File Manager's right-click on fault.exe lists Show its
+   calls under Open, which opens the calls window.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -62,6 +68,7 @@ import time
 from gui_debug import DebugConsole, enter_gui          # noqa: E402
 from qmp_test import QMPSession                        # noqa: E402
 import port_guard  # noqa: E402
+import filemanager_test as fm  # noqa: E402
 from harness import Results  # noqa: E402
 
 GDI_TITLE = "GDI test (Win16)"
@@ -435,6 +442,77 @@ def drives_and_folders(dbg, res):
     sh(dbg, f"rm {WIN16_CONF}")
 
 
+LAUNCHER_BIN = "/bin/wm/apps/win16"
+
+
+def wait_title(dbg, title, t=10.0):
+    end = time.time() + t
+    while time.time() < end:
+        if dbg.window(title):
+            return True
+        time.sleep(0.3)
+    return False
+
+
+def from_file_manager(dbg, qmp, res):
+    """What the File Manager's Open does with an .exe (`win16 FILE`), the
+    rows it shows about one (`--details`), and its right-click actions."""
+    sh(dbg, "write /home/notwin.exe MZ this is not a Windows program")
+    out = sh(dbg, f"{LAUNCHER_BIN} --details /usr/share/w16/fault.exe")
+    res.check("--details: fault.exe runs partly, one call missing", "Runs\tPartly: 1 call missing" in out, repr(out))
+    out = sh(dbg, f"{LAUNCHER_BIN} --details /home/notwin.exe")
+    res.check("--details: an MZ file that is not Windows 3.x is named for what it is",
+              "Program\ta DOS program" in out and "Runs\tNo" in out, repr(out))
+    # Opened from elsewhere, by the default: ask only when it may not work.
+    dbg.send(f"gui spawn {LAUNCHER_BIN} /usr/share/w16/hello.exe")
+    res.check("hello.exe, which w16 has every call of, runs at once", wait_title(dbg, HELLO_TITLE),
+              f"windows {[w['title'] for w in dbg.windows()]}")
+    dbg.close_window(HELLO_TITLE)
+    dbg.send(f"gui spawn {LAUNCHER_BIN} /usr/share/w16/fault.exe")
+    res.check("fault.exe, which lacks a call, gets the run card first", wait_title(dbg, "Run fault.exe?"),
+              f"windows {[w['title'] for w in dbg.windows()]}")
+    dbg.close_window("Run fault.exe?")
+    dbg.send(f"gui spawn {LAUNCHER_BIN} /home/notwin.exe")
+    res.check("a DOS .exe gets the card that says it cannot run here", wait_title(dbg, "notwin.exe cannot run here"),
+              f"windows {[w['title'] for w in dbg.windows()]}")
+    dbg.close_window("notwin.exe cannot run here")
+    sh(dbg, f"write {WIN16_CONF} from_files=ask")
+    dbg.send(f"gui spawn {LAUNCHER_BIN} /usr/share/w16/hello.exe")
+    res.check("from_files=ask: even hello.exe gets the card", wait_title(dbg, "Run hello.exe?"),
+              f"windows {[w['title'] for w in dbg.windows()]}")
+    dbg.close_window("Run hello.exe?")
+    sh(dbg, f"rm {WIN16_CONF}")
+    # The File Manager's right-click menu on an .exe: the launcher's own
+    # actions under Open (its desktop entry's [Desktop Action]s).
+    dbg.write_lines(fm.FILES_CONF, ["panes=1", "tree=0", "left_view=details", "details_pane=0"])
+    win = dbg.spawn(f"{fm.SPAWN_PATH} /usr/share/w16", fm.TITLE)
+    res.check("the File Manager opens on the samples", win is not None, "no window")
+    if not win:
+        return
+    lay = fm.wait_layout(dbg, win, lambda l: l.rowy.get(0) is not None and l.rowh)
+    if not lay:
+        res.check("the File Manager reports its rows", False, "no row geometry")
+        dbg.close_window(fm.TITLE)
+        return
+    px, py, pw, _ = lay.pane[0]
+    for ch in "fault.exe":
+        dbg.key("0x2e" if ch == "." else ch)
+    fm.wait_layout(dbg, win, lambda l: l.selected == "fault.exe")
+    mark = fm.ctx_mark(dbg)
+    fm.sure_rclick(dbg, qmp, lay.ox + px + pw // 2, lay.oy + lay.rowy[0] + lay.rowh * 2 + lay.rowh // 2)
+    rows = fm.ctx_rows(dbg, mark) or []
+    res.check("its right-click menu has Show its calls and Show in Win16 Programs under Open",
+              "Show its calls" in rows and "Show in Win16 Programs" in rows
+              and rows.index("Show its calls") == rows.index("Open") + 1, f"rows {rows}")
+    if "Show its calls" in rows:
+        fm.ctx_pick(dbg, qmp, win, rows, "Show its calls")
+        res.check("...and Show its calls opens its calls window", wait_title(dbg, "Fault test - calls"),
+                  f"windows {[w['title'] for w in dbg.windows()]}")
+        dbg.close_window("Fault test - calls")
+    dbg.close_window(fm.TITLE)
+    sh(dbg, f"rm {fm.FILES_CONF}")
+
+
 DLG_TITLE = "Dialog test (Win16)"
 DLG_INI = "/home/Win16/WINDOWS/DIALOG.INI"
 
@@ -647,6 +725,7 @@ def main():
         calls(dbg, res)
         capture_cursor(dbg, qmp, res)
         drives_and_folders(dbg, res)
+        from_file_manager(dbg, qmp, res)
         dialogs(dbg, res)
     finally:
         dbg.close()

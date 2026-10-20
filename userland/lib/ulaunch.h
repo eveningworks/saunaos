@@ -26,6 +26,11 @@ enum ulaunch_kind {
     ULAUNCH_APP,       // an ELF program with a window: a desktop entry runs it, or it is under /bin/wm
     ULAUNCH_PROGRAM,   // an ELF program for a terminal
     ULAUNCH_SCRIPT,    // `#!` and an interpreter
+    // A program ANOTHER program runs -- a Windows 3.x .exe, run by w16.
+    // Never classified here: its app fills a ulaunch_info itself (what
+    // it is, a note, lines for the card, two buttons of its own) and
+    // shows uui_runask's card, keeping its own policy.
+    ULAUNCH_FOREIGN,
 };
 
 // What to do with one. ASK is a policy only, never an act.
@@ -34,6 +39,8 @@ enum ulaunch_act {
     ULAUNCH_TERMINAL,  // in a Terminal window that stays when it ends
     ULAUNCH_RUN,       // detached, no window of its own
     ULAUNCH_EDIT,      // a script, in Notepad
+    ULAUNCH_SIDE1,     // a FOREIGN card's own buttons: answers, never policies
+    ULAUNCH_SIDE2,
 };
 
 #define ULAUNCH_HEAD_LINES 4
@@ -49,6 +56,10 @@ struct ulaunch_info {
     // what the ask card shows of it.
     char head[ULAUNCH_HEAD_LINES][ULAUNCH_HEAD_COLS + 1];
     int head_lines;
+    // FOREIGN only: what it is ("a Windows 3.x program"), the card's
+    // warning, its "Always" line, and its two buttons ("" for none).
+    // `interp_found` 0 says it cannot run at all: the card only closes.
+    char what[64], note[160], always[64], side[2][32];
 };
 
 // Reads at most the first 512 bytes. 1 and `out` filled, or 0 when the

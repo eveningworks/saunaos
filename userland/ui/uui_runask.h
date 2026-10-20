@@ -41,6 +41,10 @@ int uui_runask_is_open(void);
 void uui_runask_app_desc(struct uapp_desc *d, const char *path, const struct ulaunch_info *info,
                          uui_runask_fn done, void *ctx);
 
+// Was "Always" ticked when the card was answered? A FOREIGN card's
+// policy is its app's to keep (ulaunch.h), so it asks this.
+int uui_runask_always(void);
+
 // Spawns `act` on `path` and tracks the child on `a` (uapp_track_child).
 // The pid, or negative.
 int uui_runask_start(struct uapp *a, const char *path, int kind, int act);

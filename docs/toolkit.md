@@ -28,6 +28,7 @@
 | `ubootwords.h` | The kernel's boot words, as a table: GENERATED from docs/boot-flags.md (tools/gen_bootwords.py), which is the only list of them -- the kernel matches its command line by substring and keeps no regi... |
 | `ubulk.h` | ubulk -- records of any size, up to UBULK_REC_MAX, between two ring-3 processes: a uchan channel for the doorbells, the discovery and the death of a client, and beside each client's uchan ring ONE... |
 | `ubytes.h` | Little-endian fields out of a byte buffer, and a read at an offset that does not come back short -- what every parser of an on-disk format here starts by writing (zip, WAD, RIFF/WAV, SoundFont). |
+| `ucapture.h` | ucapture -- run a program and take what it prints: popen("r") without a shell. |
 | `uchan.h` | uchan -- a message channel between two ring-3 processes. |
 | `uchan_page.h` | uchan -- the shared page layout for a message channel between two ring-3 processes. |
 | `ucharset.h` | Latin-1 (ISO 8859-1) to and from UTF-8, for a protocol or format older than UTF-8 meeting toy-os's text: RFB's cut text, an ID3v1 tag. |

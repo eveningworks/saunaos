@@ -692,7 +692,12 @@ static int cmp_u32(const void *a, const void *b) {
 static int check(const uint8_t *img, uint32_t size) {
     static struct ne_module m;
     int err = ne_parse(img, size, &m);
-    if (err < 0) { printf("error %s\n", ne_strerror(err)); return 1; }
+    if (err < 0) {
+        const char *what = ne_what(img, size);
+        if (what) printf("foreign %s\n", what);      // the run card's "cannot run here"
+        printf("error %s\n", ne_strerror(err));
+        return 1;
+    }
     char desc[256], mods[NE_MAX_MODULES][16];
     printf("module %s\n", m.name);
     if (ne_description(&m, desc, sizeof desc) == 0 && desc[0]) printf("description %s\n", desc);

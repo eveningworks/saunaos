@@ -254,6 +254,17 @@ int ne_entry(const struct ne_module *m, unsigned ordinal, uint16_t *seg, uint16_
     return NE_E_ENTRY;
 }
 
+const char *ne_what(const uint8_t *img, uint32_t size) {
+    if (size < 2 || img[0] != 'M' || img[1] != 'Z') return "not a program";
+    uint32_t at = size >= 0x40 ? (uint32_t)img[0x3C] | img[0x3D] << 8 | img[0x3E] << 16 | (uint32_t)img[0x3F] << 24 : 0;
+    if (!at || at > size - 2) return "a DOS program";
+    const uint8_t *sig = img + at;
+    if (sig[0] == 'N' && sig[1] == 'E') return 0;
+    if (sig[0] == 'P' && sig[1] == 'E') return "a 32-bit or 64-bit Windows program";
+    if (sig[0] == 'L' && (sig[1] == 'E' || sig[1] == 'X')) return "an OS/2 program or a Windows driver";
+    return "a DOS program";
+}
+
 const char *ne_strerror(int err) {
     switch (err) {
     case NE_E_SHORT:    return "the file is shorter than its headers say";

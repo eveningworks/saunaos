@@ -29,6 +29,9 @@ or the D-Bus activation none of which exist here.
                A one-character value is still drawn as a letter tile,
                which is the fallback when no artwork exists
     Handles    file extensions this app opens (see below)
+    Actions    the app's own verbs for a file it Handles (see below)
+    X-Details  a command whose lines the File Manager shows about such
+               a file (see below)
     NoDisplay  1 to keep it out of the menu and off the desktop
     ShowIn     which surfaces this appears on (see below)
 
@@ -95,6 +98,29 @@ MIME registry is a second thing to seed and keep true, while this OS has
 one image decoder that already identifies its formats by sniffing magic
 bytes. The cost is that an extension is a hint typed by a person — a
 JPEG named `.dat` opens nothing here.
+
+## Actions and X-Details
+
+    Actions=calls;show
+    X-Details=/bin/wm/apps/win16 --details %f
+
+    [Desktop Action calls]
+    Name=Show its calls
+    Exec=/bin/wm/apps/win16 --calls %f
+
+freedesktop's desktop actions: each id in `Actions=` names a
+`[Desktop Action <id>]` section with a `Name=` and an `Exec=`, and the
+File Manager lists them under Open in the right-click menu of a file this
+entry Handles, as Dolphin and Nautilus do. `%f` is the file, passed as ONE
+argument; the line is otherwise split on spaces, with no quoting.
+
+`X-Details=` is toy-os's own (freedesktop leaves `X-` keys for that): a
+command run on a file this entry Handles, whose output lines,
+`Label<TAB>value`, the File Manager's details pane and Properties show
+under Size. The app that understands the format reads the file -- in its
+own sandbox, when it has one -- and the File Manager parses nothing. It
+runs once per file shown (remembered by path and when it changed), so it
+must answer quickly. Put the sections after every top-level key.
 
 ## ShowIn
 

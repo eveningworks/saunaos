@@ -20,6 +20,8 @@
 #include <string.h>
 #include <strings.h>
 #include <time.h>
+#include <sys/stat.h>
+#include <unistd.h>
 #include "keyboard.h"
 #include "rt/sys.h"
 #include "lib/icon_cache.h"
@@ -36,6 +38,7 @@
 #include "ui/uui_menubar.h"
 #include "ui/uui_nameask.h"
 #include "ui/uui_prefs.h"
+#include "ui/uui_runask.h"
 #include "ui/uui_sidebar.h"
 #include "ui/uui_stackbar.h"
 #include "ui/uui_statusbar.h"
@@ -58,6 +61,7 @@ struct prog {
     char *name;                      // its description, else its file name
     char *title;                     // what its tile says: win16_short_title()
     char *module;
+    char *foreign;                   // not a Windows 3.x program: what it is ("a DOS program")
     int folder;                      // which folder it was found in
     int checked;                     // `w16 --check` has answered
     int ok;                          // ...and it is a Win16 program
@@ -122,7 +126,7 @@ static void set_str(char **to, const char *s) {
 static const char *str(const char *s) { return s ? s : ""; }
 
 static void prog_free(struct prog *p) {
-    free(p->path); free(p->name); free(p->title); free(p->module); free(p->last_text);
+    free(p->path); free(p->name); free(p->title); free(p->module); free(p->last_text); free(p->foreign);
     for (int i = 0; i < p->nmissing; i++) free(p->missing[i]);
     for (int i = 0; i < p->npart; i++) { free(p->part[i].names); free(p->part[i].note); }
     free(p->part);
@@ -200,6 +204,8 @@ static void check(struct prog *p) {
         } else if (!strncmp(line, "module ", 7)) {
             set_str(&p->module, line + 7);
             p->ok = 1;
+        } else if (!strncmp(line, "foreign ", 8)) {
+            set_str(&p->foreign, line + 8);
         } else if (!strncmp(line, "description ", 12)) {
             set_str(&p->name, line + 12);
         } else if (!strncmp(line, "imports ", 8)) {
@@ -631,8 +637,9 @@ static const struct uui_sidebar_row OPT_PAGES[] = {
     { "Folders", UUI_SIDEBAR_TOP, 0, 3 },
 };
 static const char *const FAULT_NAMES[] = { "Show the Error box", "Write the report only" };
+static const char *const FROM_NAMES[] = { "Run it", "Ask if it may not work", "Always ask", "Show it here" };
 static const char *const OPT_NOTES[] = {
-    "What programs are told, and what happens when one fails.",
+    "What programs are told, what happens when one fails, and what opening one in the File Manager does.",
     "How a program's windows look, and whose fonts its text is drawn in.",
     "Each drive letter a program sees, and the folder it is here. A program's INI files go in C:\\WINDOWS.",
     "The folders programs are listed from, in the sidebar's order.",
@@ -815,6 +822,9 @@ static void open_options(void) {
     uui_prefs_choice(0, "Windows version", VERSION_NAMES, 0, 3, offsetof(struct w16_prefs, version), "version");
     uui_prefs_choice(0, "When a program fails", FAULT_NAMES, 0, 2, offsetof(struct w16_prefs, on_fault), "on_fault");
     uui_prefs_check(0, "Debugging", "Trace every program's calls to a file", offsetof(struct w16_prefs, trace), "trace");
+    uui_prefs_choice(0, "From the File Manager", FROM_NAMES, 0, 4, offsetof(struct w16_prefs, from_files), "from_files");
+    uui_prefs_check(0, "", "Add a program's folder here the first time it runs from elsewhere",
+                    offsetof(struct w16_prefs, add_folder), "add_folder");
     uui_prefs_choice(1, "Scale", SCALE_NAMES, 0, W16_SCALE_COUNT, offsetof(struct w16_prefs, scale), "scale");
     uui_prefs_choice(1, "Scaled by", METHOD_NAMES, 0, 3, offsetof(struct w16_prefs, method), "method");
     uui_prefs_choice(1, "Window frame", FRAME_NAMES, 0, 2, offsetof(struct w16_prefs, frame), "frame");
@@ -912,11 +922,11 @@ static void line(struct ugfx_surface *s, int x, int *y, int w, const char *t, ui
 static int g_dd_y[NSET], g_ddc_y, g_calls_y;
 static struct uui_stackbar g_bar;            // works, partly, missing
 
-// The settings block under the panel's details, and the Run button below
-// it: what the "Partly there" list must leave room for.
+// The settings block under the panel's details: what the "Partly there"
+// list must leave room for. Run sits beside the calls button, above it.
 static int settings_h(void) {
     int pad = ugfx_char_w(), lh = ugfx_char_h();
-    return lh / 2 + lh + 3 + (NSET + 1) * (lh + pad + pad / 2) + lh + pad * 3;
+    return lh / 2 + lh + 3 + (NSET + 1) * (lh + pad + pad / 2) + pad;
 }
 
 static void bold_line(struct ugfx_surface *s, int x, int *y, int w, const char *t, uint32_t col) {
@@ -1099,19 +1109,20 @@ static void layout(int cw, int ch) {
     uui_grid_ops.set_geometry(&g_grid, sidew + 1, top, g_px - sidew - 1, body_h);
     // The settings rows exist only beside a program.
     for (int i = 0; i < NSET + 3; i++) g_widgets[W_PANEL + i].hidden = !g_panel || (i != NSET + 1 && !cur());
+    g_widgets[W_PANEL + NSET + 1].hidden |= g_calls_y < 0;     // Run and the calls button share a row
     g_widgets[W_PANEL + NSET + 2].hidden |= g_calls_y < 0;
     if (!g_panel) return;
     int dx = g_px + pad * 2 + pad * 14, dw = g_pw - pad * 17;
     for (int i = 0; i < NSET; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, lh + pad);
     uui_dropdown_set_geometry(&g_ddc, dx, g_ddc_y, dw, lh + pad);
     int bw = ugfx_text_width("Run") + pad * 6;
-    uui_button_set_geometry(&g_run, g_px + pad * 2, g_py + g_ph - lh - pad * 3, bw, lh + pad);
+    if (g_calls_y >= 0) uui_button_set_geometry(&g_run, g_px + pad * 2, g_calls_y, bw, lh + pad);
     g_run.disabled = !(cur() && cur()->ok);
     // The missing calls, or the whole list when none are.
     const struct prog *p = cur();
     g_calls.label = p && p->imports > p->has ? "Missing calls..." : "Calls it imports...";
     int cw2 = ugfx_text_width(g_calls.label) + pad * 4;
-    if (g_calls_y >= 0) uui_button_set_geometry(&g_calls, g_px + pad * 2, g_calls_y, cw2, lh + pad);
+    if (g_calls_y >= 0) uui_button_set_geometry(&g_calls, g_px + pad * 3 + bw, g_calls_y, cw2, lh + pad);
 }
 
 static void status(void) {
@@ -1196,9 +1207,12 @@ static int on_tick(struct uapp *a) {
     return uui_toolbar_tick(&g_tb) | did;
 }
 
+static void consume_show(void);
+
 // Back from a program: what it did is in its last-run record.
 static void on_focus(struct uapp *a, int focused) {
     if (!focused) return;
+    consume_show();
     for (int i = 0; i < g_nprog; i++) if (g_prog[i].checked) read_last(&g_prog[i]);
     uapp_redraw(a);
 }
@@ -1227,15 +1241,166 @@ static void default_size(int *w, int *h) {
     *h = ugfx_char_h() * 40;
 }
 
-int main(int argc, char **argv) {
-    if (argc == 3 && !strcmp(argv[1], "--calls")) return win16_calls_main(argv[2]);
-    if (argc == 2 && argv[1][0] != '-') {        // the File Manager's Open: run it, no window
-        char *args[] = { "w16", argv[1], 0 };
-        return sys_spawn_argv(W16_BIN, args) < 0 ? 1 : 0;
+// --- from elsewhere: `win16 FILE` (the File Manager's Open), --show, --details ----
+
+// Asks the launcher -- the one open, or the one about to open -- to show
+// `path`: a file it reads when it opens and whenever it gets the focus,
+// since a second copy of it only raises the first (UAPP_SINGLE_INSTANCE).
+#define SHOW_FILE W16_STATE_DIR "/show"
+static void request_show(const char *path) {
+    mkdir(W16_STATE_DIR, 0755);
+    FILE *f = fopen(SHOW_FILE, "w");
+    if (f) { fprintf(f, "%s\n", path); fclose(f); }
+}
+
+static void path_dir(const char *path, char *out, size_t cap) {
+    snprintf(out, cap, "%s", path);
+    char *slash = strrchr(out, '/');
+    if (slash) *(slash == out ? slash + 1 : slash) = 0;
+}
+
+// `path`'s folder in the launcher's list, added when it is not there; its index.
+static int remember_folder(const char *path) {
+    char dir[1024];
+    path_dir(path, dir, sizeof dir);
+    for (int i = 0; i < g_nfolders; i++)
+        if (!strcmp(g_folders[i].path, dir)) return i;
+    int i = folders_add(&g_folders, &g_nfolders, dir);
+    if (i >= 0) w16_folders_save(g_folders, g_nfolders);
+    return i;
+}
+
+// A pending --show: its folder listed and chosen, the program selected.
+static void consume_show(void) {
+    char *line = 0;
+    size_t cap = 0;
+    FILE *f = fopen(SHOW_FILE, "r");
+    if (!f) return;
+    ssize_t got = getline(&line, &cap, f);
+    fclose(f);
+    unlink(SHOW_FILE);
+    if (got > 0) {
+        line[strcspn(line, "\n")] = 0;
+        int had = g_nfolders, k = remember_folder(line);
+        if (k >= 0) {
+            if (g_nfolders != had) folders_changed(k);
+            else { uui_sidebar_select_id(&g_side, k); build_view(); }
+            for (int i = 0; i < g_nview; i++)
+                if (!strcmp(g_prog[g_view[i]].path, line)) g_grid.selected = i;
+            fill_panel();
+        }
+    }
+    free(line);
+}
+
+static void run_from_elsewhere(const char *path) {
+    if (g_def.add_folder) remember_folder(path);
+    char *args[] = { "w16", (char *)path, 0 };
+    sys_spawn_argv(W16_BIN, args);
+}
+
+// `win16 --details FILE`: the File Manager's rows for it (an X-Details
+// command, lib/uopen.h), "Label<tab>value".
+static int details_main(const char *path) {
+    static struct prog p;
+    p.path = strdup(path);
+    if (!p.path) return 1;
+    check(&p);
+    int missing = p.imports - p.has;
+    if (!p.ok) {
+        printf("Program\t%s\n", p.foreign ? p.foreign : "not one w16 can read");
+        printf("Runs\tNo\n");
+    } else {
+        printf("Program\tWindows 3.x, %s\n", str(p.module));
+        if (missing) printf("Runs\tPartly: %d call%s missing\n", missing, missing == 1 ? "" : "s");
+        else if (p.partly) printf("Runs\tYes, %d stand-in%s\n", p.partly, p.partly == 1 ? "" : "s");
+        else printf("Runs\tYes\n");
+    }
+    prog_free(&p);
+    return 0;
+}
+
+static void card_done(void *ctx, const char *path, int kind, int act) {
+    (void)ctx;
+    (void)kind;
+    if (act != ULAUNCH_ASK && uui_runask_always()) {
+        static struct w16_prefs was;
+        was = g_def;
+        g_def.from_files = W16_FROM_RUN;
+        uprefs_save(&w16_prefs_defaults, &g_def, &was);
+    }
+    if (act == ULAUNCH_RUN) run_from_elsewhere(path);
+    else if (act == ULAUNCH_SIDE1) show_calls(path);
+    else if (act == ULAUNCH_SIDE2) {
+        request_show(path);
+        char *args[] = { "win16", 0 };
+        sys_spawn_argv("/bin/wm/apps/win16", args);
+    }
+}
+
+// `win16 FILE`: what the File Manager's Open does with a program, by the
+// setting -- run it, or first the run card (ui/uui_runask.h) saying what
+// w16 lacks of it, or what it is when it is no Windows 3.x program at all.
+// -1 when the launcher's own window should open and show it.
+static int open_from_elsewhere(const char *path) {
+    static struct prog p;
+    p.path = strdup(path);
+    if (!p.path) return 1;
+    check(&p);
+    int missing = p.imports - p.has;
+    if (p.ok && (g_def.from_files == W16_FROM_RUN || (g_def.from_files == W16_FROM_CHECK && !missing))) {
+        run_from_elsewhere(path);
+        return 0;
+    }
+    if (p.ok && g_def.from_files == W16_FROM_SHOW) {
+        request_show(path);
+        return -1;
     }
     if (!ugfx_font_init()) return 2;
+    static struct ulaunch_info info;
+    info.kind = ULAUNCH_FOREIGN;
+    info.runnable = 1;
+    info.interp_found = p.ok;
+    snprintf(info.app, sizeof info.app, "win16");
+    if (!p.ok) {
+        snprintf(info.what, sizeof info.what, "%s", p.foreign ? p.foreign : "a file w16 cannot read");
+        snprintf(info.note, sizeof info.note, "w16 runs Windows 3.x programs only.");
+    } else {
+        snprintf(info.what, sizeof info.what, "a Windows 3.x program");
+        if (missing)
+            snprintf(info.note, sizeof info.note, "w16 lacks %d of the calls it uses, so it may stop partway.", missing);
+        else
+            snprintf(info.note, sizeof info.note, "w16 has every call it uses%s.", p.partly ? ", some as stand-ins" : "");
+        int n = 0;
+        if (p.nmissing) {
+            char list[ULAUNCH_HEAD_COLS + 1] = "";
+            for (int i = 0; i < p.nmissing; i++)
+                snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s", i ? ", " : "", str(p.missing[i]));
+            snprintf(info.head[n++], sizeof info.head[0], "Missing: %s%s", list, missing > p.nmissing ? ", ..." : "");
+        }
+        for (int i = 0; i < p.npart && n < ULAUNCH_HEAD_LINES; i++)
+            snprintf(info.head[n++], sizeof info.head[0], "%s: %s", str(p.part[i].names), str(p.part[i].note));
+        info.head_lines = n;
+        snprintf(info.always, sizeof info.always, "Do not ask again");
+        snprintf(info.side[0], sizeof info.side[0], "Show calls");
+        snprintf(info.side[1], sizeof info.side[1], "Settings...");
+    }
+    struct uapp_desc d = { 0 };
+    uui_runask_app_desc(&d, path, &info, card_done, 0);
+    return uapp_run(&d);
+}
+
+int main(int argc, char **argv) {
+    if (argc == 3 && !strcmp(argv[1], "--calls")) return win16_calls_main(argv[2]);
+    if (argc == 3 && !strcmp(argv[1], "--details")) return details_main(argv[2]);
     w16_prefs_load(&g_def, 0);
     g_nfolders = w16_folders_load(&g_folders);
+    if (argc == 3 && !strcmp(argv[1], "--show")) request_show(argv[2]);
+    else if (argc == 2 && argv[1][0] != '-') {   // the File Manager's Open
+        int rc = open_from_elsewhere(argv[1]);
+        if (rc >= 0) return rc;
+    }
+    if (!ugfx_font_init()) return 2;
     uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
     g_menu.item_flags = item_flags;
     uui_menubar_init(&g_ctx, 0, 0);
@@ -1276,6 +1441,7 @@ int main(int argc, char **argv) {
     uui_sidebar_select_id(&g_side, -1);
     build_view();
     fill_panel();
+    consume_show();
 
     struct uapp_desc desc = {
         .title        = "Win16 Programs",

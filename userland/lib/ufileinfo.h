@@ -46,6 +46,10 @@ struct ufileinfo {
     int files, dirs;              // a folder's contents, as far as the walk got
     unsigned long long bytes;
     int walking, overflow;        // overflow: the totals are a floor
+
+    // UFI_DETAILS: the opening app's own facts, "Label<TAB>value" lines
+    // (uopen_details()). ufileinfo.c's, valid until its next load; NULL none.
+    const char *details;
 };
 
 // What to read beyond the stat.
@@ -53,6 +57,7 @@ struct ufileinfo {
                         // a file read, made only when the extension says one
 #define UFI_WALK    2   // start counting a folder (ufileinfo_walk() goes on)
 #define UFI_OPENS   4   // what opens it: a scan of every desktop entry
+#define UFI_DETAILS 8   // the opening app's X-Details lines: a program run, remembered per file
 
 // Fill `fi` for `path`. Returns fi->ok.
 int ufileinfo_load(struct ufileinfo *fi, const char *path, unsigned what);

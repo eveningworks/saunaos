@@ -18,6 +18,7 @@ static const char *const FRAME_WORDS[] = { "win31", "desktop" };
 static const char *const VERSION_WORDS[] = { "3.10", "3.11", "3.00" };
 static const char *const FAULT_WORDS[] = { "box", "report" };
 static const char *const FONTS_WORDS[] = { "win311", "standin" };
+static const char *const FROM_WORDS[] = { "run", "check", "ask", "show" };
 
 static int is_abs_path(const char *v) { return v[0] == '/' || v[0] == 0; }
 
@@ -40,6 +41,8 @@ const struct upref w16_prefs_keys[] = {
     DRIVE_KEY(j, 6), DRIVE_KEY(k, 7), DRIVE_KEY(l, 8), DRIVE_KEY(m, 9), DRIVE_KEY(n, 10), DRIVE_KEY(o, 11),
     DRIVE_KEY(p, 12), DRIVE_KEY(q, 13), DRIVE_KEY(r, 14), DRIVE_KEY(s, 15), DRIVE_KEY(t, 16), DRIVE_KEY(u, 17),
     DRIVE_KEY(v, 18), DRIVE_KEY(w, 19), DRIVE_KEY(x, 20), DRIVE_KEY(y, 21),
+    UPREF_WORD_KEY("from_files", struct w16_prefs, from_files, FROM_WORDS, 4, W16_FROM_CHECK),
+    UPREF_BOOL_KEY("add_folder", struct w16_prefs, add_folder, 1),
 };
 const int w16_prefs_program_keys = 8;
 const struct uprefs w16_prefs_defaults = {

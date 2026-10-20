@@ -97,7 +97,7 @@ static void refresh(void) {
     snprintf(key, sizeof key, "%s|%u", path, e ? (unsigned)e->modified.second + 60u * e->modified.minute : 0u);
     if (strcmp(key, g_fi_key)) {
         strlcpy(g_fi_key, key, sizeof g_fi_key);
-        ufileinfo_load(&g_fi, path, UFI_HEADERS);
+        ufileinfo_load(&g_fi, path, UFI_HEADERS | UFI_DETAILS);
         if (!e) g_fi.files = uui_fileview_count(active());   // the folder itself: its items
         uui_fileinfo_set(&g_info, &g_fi);
     }

@@ -54,6 +54,22 @@ static void row(struct uui_fi_section *s, const char *k, const char *fmt, ...) {
     s->nrows++;
 }
 
+// The opening app's facts (ufileinfo.h's `details`), a row a line.
+static void details_rows(struct uui_fi_section *s, const char *text) {
+    for (const char *l = text; l && *l;) {
+        const char *nl = strchr(l, '\n'), *tab = strchr(l, '\t');
+        const char *end = nl ? nl : l + strlen(l);
+        if (tab && tab < end) {
+            char key[48];
+            int kn = (int)(tab - l) < (int)sizeof key - 1 ? (int)(tab - l) : (int)sizeof key - 1;
+            memcpy(key, l, (size_t)kn);
+            key[kn] = 0;
+            row(s, key, "%.*s", (int)(end - tab - 1), tab + 1);
+        }
+        l = nl ? nl + 1 : 0;
+    }
+}
+
 static void when(char *out, int cap, const struct rtc_time *t) {
     udate_format(out, cap, t, UDATE_DATE | UDATE_TIME | UDATE_SECONDS);
 }
@@ -99,6 +115,7 @@ void uui_fileinfo_set(struct uui_fileinfo *w, const struct ufileinfo *fi) {
         // The compact form walks nothing: a folder's count is what its
         // caller listed (the File Manager's own items), size only for a file.
         if (!fi->st.is_dir) row(g, "Size", "%s", size);
+        details_rows(g, fi->details);
         if (fi->vid_w) {
             // A video's two telling facts: how long, and in what.
             row(g, "Length", "%u:%02u", fi->length_ms / 60000, (fi->length_ms / 1000) % 60);
@@ -112,6 +129,7 @@ void uui_fileinfo_set(struct uui_fileinfo *w, const struct ufileinfo *fi) {
     }
     row(g, "Where", "%s", fi->dir[0] ? fi->dir : "/");
     row(g, "Size", "%s", size);
+    details_rows(g, fi->details);
     if (fi->st.is_dir)
         row(g, "Contains", "%d file%s, %d folder%s%s", fi->files, fi->files == 1 ? "" : "s",
             fi->dirs, fi->dirs == 1 ? "" : "s", fi->walking ? " (counting...)" : "");
