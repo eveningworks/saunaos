@@ -88,6 +88,11 @@ struct ttf_font {
     int ascent;        // hhea, font units
     int descent;       // hhea, font units, POSITIVE (the file stores it negative)
     int line_gap;
+
+    uint32_t name, name_len;   // `name` and `OS/2`, 0 when absent: ttf_family()
+    uint32_t os2, os2_len;     // and ttf_win_metrics() read them
+    uint32_t vdmx, vdmx_len;   // the device metrics Windows lays text out by,
+    uint32_t hdmx, hdmx_len;   // 0 when absent: ttf_vdmx(), ttf_hdmx()
 };
 
 struct ttf_edge { fx_t x0, y0, x1, y1; int dir; };
@@ -180,6 +185,27 @@ int ttf_kern_px(const struct ttf_font *f, int left_gid, int right_gid, int px);
 // pixels, so a cell sized to the unemboldened advance clips. font_face.c
 // adds it to the cell width and to every advance.
 void ttf_embolden(uint8_t *cov, int w, int h, int strength);
+
+// The font's family name (name ID 1: "Arial", "Liberation Sans") into
+// `out`, Windows' English record preferred, as ASCII ('?' for anything
+// past it). Its length, or -1 when the font names none.
+int ttf_family(const struct ttf_font *f, char *out, int cap);
+
+// head.macStyle: TTF_BOLD and TTF_ITALIC.
+#define TTF_BOLD   1
+#define TTF_ITALIC 2
+int ttf_style(const struct ttf_font *f);
+
+// The cell Windows lays text out in, font units: OS/2's usWinAscent and
+// usWinDescent, hhea's ascent and descent when there is no OS/2.
+void ttf_win_metrics(const struct ttf_font *f, int *ascent, int *descent);
+
+// WINDOWS' OWN DEVICE METRICS, which a hinted font carries for the sizes it
+// was tuned at: the cell at `ppem` (VDMX's group for a square-pixel screen),
+// and a glyph's advance (hdmx). Each 1 with the answer, 0 when the font has
+// none for that size -- the caller then scales the outline's metrics.
+int ttf_vdmx(const struct ttf_font *f, int ppem, int *ymax, int *ymin);
+int ttf_hdmx(const struct ttf_font *f, int ppem, int gid, int *advance);
 
 // Rasterizes `gid` into `cov` (w*h bytes, row-major, 0 = background,
 // 255 = fully ink), with the glyph origin at (x_origin, baseline) in

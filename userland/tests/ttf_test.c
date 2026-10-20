@@ -61,6 +61,17 @@ int main(void) {
     int gid_h = ttf_glyph_index(&f, 'H');
     utest_check(gid_h > 0, "cmap maps 'H' to a real glyph");
     utest_check(ttf_glyph_index(&f, 0x10FFFF) == 0, "an unmapped codepoint is .notdef");
+    char fam[64];
+    utest_checkf(ttf_family(&f, fam, sizeof fam) > 0 && !strcmp(fam, "DejaVu Sans Mono"),
+                 "the name table gives the family (\"%s\")", fam);
+    utest_check(ttf_family(&f, fam, 4) == 3 && !strcmp(fam, "Dej"), "a short buffer is cut, terminated");
+    utest_check(ttf_style(&f) == 0, "the regular face is neither bold nor italic");
+    int wa, wd;
+    ttf_win_metrics(&f, &wa, &wd);
+    utest_checkf(wa > 0 && wd > 0 && wa + wd >= f.ascent + f.descent - 1, "OS/2's Windows cell (%d, %d)", wa, wd);
+    int ym, yn, adv;
+    utest_check(!ttf_vdmx(&f, 13, &ym, &yn) && !ttf_hdmx(&f, 13, gid_h, &adv),
+                "a font with no VDMX or hdmx says so (the caller then scales)");
     utest_check(ttf_advance_px(&f, gid_h, 16) > 0, "'H' has a positive advance at 16px");
 
     struct ttf_scratch *sc = (struct ttf_scratch *)malloc(sizeof *sc);

@@ -80,6 +80,10 @@ int ttf_open(struct ttf_font *f, const uint8_t *data, uint32_t len) {
         case TAG('h', 'h', 'e', 'a'): f->hhea = off; break;
         case TAG('m', 'a', 'x', 'p'): f->maxp = off; break;
         case TAG('k', 'e', 'r', 'n'): kern_off = off; kern_len = tlen; break;
+        case TAG('n', 'a', 'm', 'e'): f->name = off; f->name_len = tlen; break;
+        case TAG('O', 'S', '/', '2'): f->os2 = off; f->os2_len = tlen; break;
+        case TAG('V', 'D', 'M', 'X'): f->vdmx = off; f->vdmx_len = tlen; break;
+        case TAG('h', 'd', 'm', 'x'): f->hdmx = off; f->hdmx_len = tlen; break;
         default: break;
         }
     }
@@ -630,4 +634,74 @@ int ttf_render_glyph(const struct ttf_font *f, int gid, int px,
         }
     }
     return 1;
+}
+
+int ttf_family(const struct ttf_font *f, char *out, int cap) {
+    if (!f->name || f->name_len < 6 || cap < 1) return -1;
+    uint32_t count = rd_u16(f, f->name + 2), strings = f->name + rd_u16(f, f->name + 4);
+    int best = -1, best_rank = 0;
+    for (uint32_t i = 0; i < count && 6 + (i + 1) * 12 <= f->name_len; i++) {
+        uint32_t r = f->name + 6 + i * 12;
+        uint32_t platform = rd_u16(f, r), enc = rd_u16(f, r + 2), lang = rd_u16(f, r + 4), id = rd_u16(f, r + 6);
+        if (id != 1) continue;
+        // Windows' Unicode English first, then any Windows Unicode record, then a Macintosh Roman one
+        int rank = platform == 3 && enc == 1 ? (lang == 0x409 ? 3 : 2) : platform == 1 && enc == 0 ? 1 : 0;
+        if (rank > best_rank) { best_rank = rank; best = (int)i; }
+    }
+    if (best < 0) return -1;
+    uint32_t r = f->name + 6 + (uint32_t)best * 12;
+    uint32_t len = rd_u16(f, r + 8), at = strings + rd_u16(f, r + 10);
+    if (!in_range(f, at, len)) return -1;
+    int two = best_rank >= 2, n = 0;                // Windows' records are UTF-16BE
+    for (uint32_t k = 0; k + (two ? 1 : 0) < len && n < cap - 1; k += two ? 2 : 1) {
+        uint32_t c = two ? rd_u16(f, at + k) : rd_u8(f, at + k);
+        out[n++] = (char)(c >= 0x20 && c < 0x7F ? c : '?');
+    }
+    out[n] = 0;
+    return n;
+}
+
+int ttf_style(const struct ttf_font *f) { return (int)(rd_u16(f, f->head + 44) & (TTF_BOLD | TTF_ITALIC)); }
+
+void ttf_win_metrics(const struct ttf_font *f, int *ascent, int *descent) {
+    *ascent = f->ascent;
+    *descent = f->descent;
+    if (f->os2 && f->os2_len >= 78) {
+        int a = (int)rd_u16(f, f->os2 + 74), d = (int)rd_u16(f, f->os2 + 76);
+        if (a > 0) { *ascent = a; *descent = d; }
+    }
+}
+
+int ttf_vdmx(const struct ttf_font *f, int ppem, int *ymax, int *ymin) {
+    if (!f->vdmx || f->vdmx_len < 6) return 0;
+    uint32_t nratios = rd_u16(f, f->vdmx + 4), base = f->vdmx + 6;
+    if (6 + nratios * 6 > f->vdmx_len) return 0;
+    for (uint32_t i = 0; i < nratios; i++) {
+        // a square-pixel screen: the record taking every ratio (xRatio 0), or 1:1 itself
+        uint32_t x = rd_u8(f, base + 4 * i + 1), y0 = rd_u8(f, base + 4 * i + 2), y1 = rd_u8(f, base + 4 * i + 3);
+        if (x && !(y0 <= x && x <= y1)) continue;
+        uint32_t g = f->vdmx + rd_u16(f, base + 4 * nratios + 2 * i);
+        uint32_t recs = rd_u16(f, g);
+        if (!in_range(f, g, 4 + recs * 6) || g + 4 + recs * 6 > f->vdmx + f->vdmx_len) return 0;
+        for (uint32_t k = 0; k < recs; k++)
+            if ((int)rd_u16(f, g + 4 + 6 * k) == ppem) {
+                *ymax = rd_i16(f, g + 6 + 6 * k);
+                *ymin = rd_i16(f, g + 8 + 6 * k);
+                return 1;
+            }
+        return 0;
+    }
+    return 0;
+}
+
+int ttf_hdmx(const struct ttf_font *f, int ppem, int gid, int *advance) {
+    if (!f->hdmx || f->hdmx_len < 8 || gid < 0 || gid >= f->num_glyphs) return 0;
+    uint32_t n = rd_u16(f, f->hdmx + 2), size = rd_u32(f, f->hdmx + 4);
+    if (size < 2 + (uint32_t)f->num_glyphs || size > f->hdmx_len) return 0;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t r = f->hdmx + 8 + i * size;
+        if (r + size > f->hdmx + f->hdmx_len) return 0;
+        if ((int)rd_u8(f, r) == ppem) { *advance = (int)rd_u8(f, r + 2 + (uint32_t)gid); return 1; }
+    }
+    return 0;
 }
