@@ -32,6 +32,10 @@ enum { W16_FAULT_BOX, W16_FAULT_REPORT };
 // Whose fonts a program's text is drawn in: Windows 3.11's own .FON files
 // from C:\WINDOWS\SYSTEM where they are there, else toy-os's stand-ins.
 enum { W16_FONTS_WIN311, W16_FONTS_STANDIN };
+// Whose sounds an event plays: what WIN.INI's [sounds] names on drive C:
+// where it is there (else toy-os's own), toy-os's own always, or none --
+// Off answers that there is no wave device at all.
+enum { W16_SOUNDS_WIN311, W16_SOUNDS_TOYOS, W16_SOUNDS_OFF };
 
 #define W16_DRIVES 22                // D: to Y:, the letters between C: and Z:
 
@@ -53,10 +57,16 @@ struct w16_prefs {
     char drive[W16_DRIVES][W16_PATH_MAX];
     int from_files;                  // W16_FROM_*
     int add_folder;                  // a program run from elsewhere adds its folder to the launcher
+    int sounds;                      // W16_SOUNDS_*
+    int sound_drv;                   // SOUND.DRV's notes played (Minesweeper's)
 };
 
 // The keys a program's own file may override, and the whole defaults table.
 extern const struct uprefs w16_prefs_defaults;
+// The short name a program goes by -- its NE description less "Microsoft "
+// and "Windows " and anything from "(c)", a version or "Copyright" on:
+// "Hearts", the launcher's tile and the Volume panel's row. Allocated.
+char *w16_short_title(const char *description);
 extern const struct upref w16_prefs_keys[];
 extern const int w16_prefs_program_keys;   // the first N keys are per-program
 

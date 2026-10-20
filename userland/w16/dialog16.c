@@ -938,6 +938,7 @@ static struct w16_wnd *built(struct w16 *w, uint16_t owner, const char *caption,
 }
 
 int16_t w16_message_box(struct w16 *w, uint16_t owner, const char *text, const char *caption, unsigned type) {
+    w16_sound_event(w, w16_beep_alias(type));   // 3.1's MessageBox beeps with its icon's sound
     static const char *const L[] = { "OK", "Cancel", "&Abort", "&Retry", "&Ignore", "&Yes", "&No" };
     static const uint8_t SETS[6][4] = {
         { 1 }, { 1, 2 }, { 3, 4, 5 }, { 6, 7, 2 }, { 6, 7 }, { 4, 2 },
@@ -1007,19 +1008,6 @@ static int api_ShellAbout(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 
 // The sound driver: voices that play nothing, yet -- a program that asks
 // for one is answered as if the queue played (Minesweeper's tick).
-static int api_OpenSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)ordinal; (void)a;
-    w->cpu.r[R_AX] = 1;                          // one voice
-    return 0;
-}
-static int api_SoundNothing(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    const struct w16_name *n = w16_name_lookup("SOUND", ordinal);
-    (void)a;
-    w->cpu.r[R_AX] = 0;
-    w->cpu.r[R_DX] = 0;
-    return n && n->argbytes > 0 ? n->argbytes : 0;
-}
-
 const struct w16_api g_dialog_api[] = {
     { 1, api_MessageBox },
     { 87, api_DialogBox },
@@ -1076,12 +1064,3 @@ const struct w16_api g_shell_api[] = {
 };
 const unsigned g_shell_api_n = sizeof g_shell_api / sizeof g_shell_api[0];
 
-const struct w16_api g_sound_api[] = {
-    { 1, api_OpenSound },
-    { 2, api_SoundNothing },     // CloseSound
-    { 4, api_SoundNothing },     // SetVoiceNote
-    { 5, api_SoundNothing },     // SetVoiceAccent
-    { 9, api_SoundNothing },     // StartSound
-    { 10, api_SoundNothing },    // StopSound
-};
-const unsigned g_sound_api_n = sizeof g_sound_api / sizeof g_sound_api[0];

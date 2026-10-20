@@ -134,6 +134,22 @@ static void bound_from_controls(void) {
     }
 }
 
+int uui_prefs_current(size_t field, int dflt) {
+    for (int b = 0; b < g_nbound; b++) {
+        if (g_bound[b].field != field) continue;
+        switch (g_bound[b].kind) {
+        case B_CHECK: return g_bound[b].check.checked;
+        case B_NUMBER: return uui_spinbox_value(&g_bound[b].number);
+        case B_CHOICE: {
+            int i = g_bound[b].choice.selected;
+            if (i < 0 || i >= g_bound[b].count) return *field_of(b);
+            return g_bound[b].values ? g_bound[b].values[i] : i;
+        }
+        }
+    }
+    return dflt;
+}
+
 void uui_prefs_begin(const struct uui_prefs_desc *d) {
     g_d = *d;
     if (g_d.page_count > UUI_PREFS_PAGES_MAX) g_d.page_count = UUI_PREFS_PAGES_MAX;

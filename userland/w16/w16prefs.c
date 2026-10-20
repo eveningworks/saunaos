@@ -19,12 +19,13 @@ static const char *const VERSION_WORDS[] = { "3.10", "3.11", "3.00" };
 static const char *const FAULT_WORDS[] = { "box", "report" };
 static const char *const FONTS_WORDS[] = { "win311", "standin" };
 static const char *const FROM_WORDS[] = { "run", "check", "ask", "show" };
+static const char *const SOUNDS_WORDS[] = { "win311", "toyos", "off" };
 
 static int is_abs_path(const char *v) { return v[0] == '/' || v[0] == 0; }
 
 #define DRIVE_KEY(l, i) UPREF_TEXT_KEY("drive_" #l, struct w16_prefs, drive[i], "", is_abs_path)
 
-// THE FIRST EIGHT ARE A PROGRAM'S TO OVERRIDE, each its bit in
+// THE FIRST NINE ARE A PROGRAM'S TO OVERRIDE, each its bit in
 // w16_prefs_overridden() by its place here -- so a new one goes after
 // them, never between; drives D: to Y: are for every program alike.
 // Keep w16_prefs_program_keys in step.
@@ -37,14 +38,16 @@ const struct upref w16_prefs_keys[] = {
     UPREF_TEXT_KEY("drive_c", struct w16_prefs, drive_c, "/home/Win16", is_abs_path),
     UPREF_WORD_KEY("method", struct w16_prefs, method, METHOD_WORDS, 3, W16_METHOD_SHARP),
     UPREF_WORD_KEY("fonts", struct w16_prefs, fonts, FONTS_WORDS, 2, W16_FONTS_WIN311),
+    UPREF_WORD_KEY("sounds", struct w16_prefs, sounds, SOUNDS_WORDS, 3, W16_SOUNDS_WIN311),
     DRIVE_KEY(d, 0), DRIVE_KEY(e, 1), DRIVE_KEY(f, 2), DRIVE_KEY(g, 3), DRIVE_KEY(h, 4), DRIVE_KEY(i, 5),
     DRIVE_KEY(j, 6), DRIVE_KEY(k, 7), DRIVE_KEY(l, 8), DRIVE_KEY(m, 9), DRIVE_KEY(n, 10), DRIVE_KEY(o, 11),
     DRIVE_KEY(p, 12), DRIVE_KEY(q, 13), DRIVE_KEY(r, 14), DRIVE_KEY(s, 15), DRIVE_KEY(t, 16), DRIVE_KEY(u, 17),
     DRIVE_KEY(v, 18), DRIVE_KEY(w, 19), DRIVE_KEY(x, 20), DRIVE_KEY(y, 21),
     UPREF_WORD_KEY("from_files", struct w16_prefs, from_files, FROM_WORDS, 4, W16_FROM_CHECK),
     UPREF_BOOL_KEY("add_folder", struct w16_prefs, add_folder, 1),
+    UPREF_BOOL_KEY("sound_drv", struct w16_prefs, sound_drv, 1),
 };
-const int w16_prefs_program_keys = 8;
+const int w16_prefs_program_keys = 9;
 const struct uprefs w16_prefs_defaults = {
     W16_CONF, w16_prefs_keys, (int)(sizeof w16_prefs_keys / sizeof w16_prefs_keys[0])
 };
@@ -191,4 +194,25 @@ uint16_t w16_prefs_winver(const struct w16_prefs *p) {
     case W16_VER_300: return 0x0003;
     default:          return 0x0A03;
     }
+}
+
+char *w16_short_title(const char *d) {
+    for (int again = 1; again; ) {
+        again = 0;
+        static const char *const PREFIX[] = { "Microsoft ", "Windows " };
+        for (int i = 0; i < 2; i++) {
+            size_t n = strlen(PREFIX[i]);
+            if (!strncmp(d, PREFIX[i], n) && d[n]) { d += n; again = 1; }
+        }
+    }
+    char *t = strdup(d);
+    if (!t) return 0;
+    for (char *c = t; *c; c++)
+        if (c > t && c[-1] == ' ' &&
+            (!strncmp(c, "(c)", 3) || !strncmp(c, "(C)", 3) || !strncmp(c, "Copyright", 9) ||
+             (c[0] == 'v' && c[1] >= '0' && c[1] <= '9'))) {
+            c[-1] = 0;
+            break;
+        }
+    return t;
 }

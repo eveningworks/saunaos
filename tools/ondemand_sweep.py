@@ -369,6 +369,8 @@ TOOLS = [
     ("audio_rate",  "audio_rate_test.py",      "a card's rate follows what plays (HDA)", True, None,                 False),
     ("audio_rate97", "audio_rate_test.py --card ac97", "...and on AC97's variable rate", True, None,               False),
     ("soundd",      "soundd_test.py",          "two programs audible at once, mixed by the daemon", True, None,    False),
+    # w16's sound calls through soundd, by pitch: three boots with an AC97.
+    ("w16_sound",   "w16_sound_test.py",       "a Win16 program's WAV, MessageBeep and SOUND.DRV notes", True, None, False),
     # Three guests, and the only run in which anything reaches an
     # isochronous endpoint. Its middle phase gives each card its own wav
     # recording, which is the only way "which device played" is an

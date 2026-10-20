@@ -178,19 +178,11 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "GDI",     47,  "a region is its bounding rectangle" },               // CombineRgn
     { "GDI",     53,  "no printer to make a DC for" },                  // CreateDC
     { "KERNEL",  166, "runs nothing: answers that the file is not there" }, // WinExec
-    { "MMSYSTEM", 2,  "plays nothing" },                                    // sndPlaySound
-    { "MMSYSTEM", 401, "answers no wave device" },                          // waveOutGetNumDevs
     { "SHELL",   9,   "nothing can be dropped on a program yet" },      // DragAcceptFiles
     { "SHELL",   11,  "answers no files" },                             // DragQueryFile
     { "SHELL",   12,  "does nothing" },                                 // DragFinish
-    { "SOUND",   1,   "a voice that plays nothing" },                   // OpenSound
-    { "SOUND",   4,   "plays nothing" },                                // SetVoiceNote
-    { "SOUND",   5,   "plays nothing" },                                // SetVoiceAccent
-    { "SOUND",   9,   "plays nothing" },                                // StartSound
-    { "SOUND",   10,  "plays nothing" },                                // StopSound
     { "USER",    31,  "always no, even when minimised" },       // IsIconic
     { "USER",    50,  "finds no other program's window" },              // FindWindow
-    { "USER",    104, "silent" },                                       // MessageBeep
     { "USER",    121, "only WH_CALLWNDPROC is called" },                    // SetWindowsHook
     { "USER",    291, "only WH_CALLWNDPROC is called" },                    // SetWindowsHookEx
     { "USER",    171, "says the Help file cannot be shown" },           // WinHelp

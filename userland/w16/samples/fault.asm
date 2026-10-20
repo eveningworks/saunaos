@@ -1,6 +1,6 @@
 ; fault.asm -- w16's test program for a program that goes wrong: a click
 ; in its window loads the null selector and writes through it (a general
-; protection fault), a right click beeps (MessageBeep: a stand-in, silent,
+; protection fault), a right click asks IsIconic (a stand-in, always no,
 ; so the launcher has a "partly" call to show) and calls ExitWindows, which
 ; w16 does not implement. Either ends in the Application Error box and a
 ; crash report.
@@ -159,8 +159,8 @@ wndproc:
     mov [es:0], ax                  ; ...and a general protection fault to use
     jmp .zero
 .help:
-    push word 0
-    W16_CALL "USER", 104            ; MessageBeep(0)
+    push word [bp+14]
+    W16_CALL "USER", 31             ; IsIconic(hwnd)
     push word 0                     ; ExitWindows(0, 0)
     push word 0
     push word 0

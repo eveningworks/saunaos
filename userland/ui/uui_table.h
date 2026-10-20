@@ -200,6 +200,10 @@ struct uui_table_column {
 // after the table's own widget event.
 #define UUI_TCOL_HIDDEN 0x01 // hidden until chosen (and after a reset)
 #define UUI_TCOL_LOCKED 0x02 // never hidden or moved (column 0 always is)
+// A COMMAND, not data: the cell's text is drawn as a small button, and a
+// click on it -- or Enter on the selected row -- is the app's to act on
+// through uui_table_take_action(). Windows' "Play" in a list of sounds.
+#define UUI_TCOL_ACTION 0x04
 
 #define UUI_TABLE_COLS_FIXED  0 // neither (the default)
 #define UUI_TABLE_COLS_HEADER 1 // the dragged HEADER floats; cells move on the drop
@@ -252,6 +256,7 @@ struct uui_table {
     int *up;
     int rows_cap;   // how many rows these arrays hold; OWNED
     int toggled;    // app row whose expander was used, or -1; see take_toggled()
+    int acted, acted_col; // app row and column whose UUI_TCOL_ACTION cell was used, or -1
     int structured; // OWNED: groups or a tree are in force this rebuild
 
     // A table with NO header: no column titles, no sort arrow, no
@@ -359,6 +364,10 @@ void uui_table_set_tree(struct uui_table *t, uui_table_parent_fn parent,
 // The app row whose expander was clicked or keyed since the last take,
 // or -1. Taking clears it.
 int  uui_table_take_toggled(struct uui_table *t);
+// The row whose action cell was clicked (or Enter pressed on), once, or
+// -1; *col (may be NULL) gets the column. Asked from the app's
+// on_widget, as take_toggled() is.
+int  uui_table_take_action(struct uui_table *t, int *col);
 // Rows on screen, captions included and collapsed children not.
 int  uui_table_view_count(const struct uui_table *t);
 // The group whose CAPTION is at view position `view_row`, or -1 for an

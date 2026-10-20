@@ -740,6 +740,19 @@ int w16_dll_start_pending(struct w16 *w);         // the task's first act: their
 // A KERNEL call, made on the local heap DS names (a DLL's own, when its code calls).
 int w16_kernel_heap_call(struct w16 *w, unsigned ordinal, struct w16_args *a,
                          int (*call)(struct w16 *, unsigned, struct w16_args *));
+// --- sound16.c: MMSYSTEM, MessageBeep, SOUND.DRV ------------------------------------
+
+// What an event plays (w16_sound_resolve): the file WIN.INI names, found
+// on drive C:; toy-os's own because it is not there; toy-os's own by the
+// setting; or nothing, sounds being off.
+enum { W16_SND_FOUND, W16_SND_MISSING, W16_SND_TOYOS, W16_SND_OFF };
+// An event's sound: `ini` what WIN.INI's [sounds] says ("" none), `host` the
+// file that plays. Its W16_SND_*.
+int w16_sound_resolve(const char *alias, char *ini, size_t ini_cap, char *host, size_t host_cap);
+int w16_sound_event(struct w16 *w, const char *alias);   // played, async: 1 if it plays
+const char *w16_beep_alias(unsigned type);                // MessageBeep's MB_* -> its event
+void w16_sound_tick(void);                                // main thread: a looping sound again
+void w16_sound_set_name(const char *name);                // the Volume panel's name for it
 extern const struct w16_api g_module_api[], g_ddeml_api[], g_mmsystem_api[];
 extern const unsigned g_module_api_n, g_ddeml_api_n, g_mmsystem_api_n;
 

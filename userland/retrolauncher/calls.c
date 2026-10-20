@@ -10,6 +10,7 @@
 // Like the launcher it parses no program: `w16 --check` names each import
 // ("call missing USER.1 MessageBox Dialogs") and this reads those lines.
 #include "retrolauncher/retrolauncher.h"
+#include "w16/w16prefs.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +43,7 @@ enum { ST_ALL, ST_WORKS, ST_PARTLY, ST_MISSING, ST_COUNT };
 static const char *const ST_NAMES[ST_COUNT] = { "All", "Works", "Partly", "Missing" };
 
 static const char *g_path;
-static char *g_name;                         // "Notepad": retro_short_title()
+static char *g_name;                         // "Notepad": w16_short_title()
 static char *g_title;                        // "Notepad - calls"
 static struct call *g_calls;
 static int g_ncalls, g_imports;
@@ -133,7 +134,7 @@ static int load(void) {
     // Calls imported BY NAME are counted but not listed: All is the total.
     g_st_counts[ST_ALL] = g_imports;
     const char *base = strrchr(g_path, '/');
-    g_name = retro_short_title(desc && *desc ? desc : base ? base + 1 : g_path);
+    g_name = w16_short_title(desc && *desc ? desc : base ? base + 1 : g_path);
     free(out);
     return 1;
 }

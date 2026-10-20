@@ -98,6 +98,10 @@ void uui_prefs_widen(int row, int width);
 void uui_prefs_also(int row, const struct uui_widget_ops *ops, void *widget, int id,
                     const char *name);
 
+// What the control bound to `field` says NOW, before OK writes it back --
+// for a row that follows another as it changes. `dflt` when none is bound.
+int uui_prefs_current(size_t field, int dflt);
+
 // Opens it on `first_page`. 0 if it is already open or could not be.
 int uui_prefs_open(struct uapp *a);
 int uui_prefs_is_open(void);

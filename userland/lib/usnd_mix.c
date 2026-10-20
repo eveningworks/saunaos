@@ -271,6 +271,10 @@ static void *worker_main(void *arg) {
 // count rather than a flag, so the last one out does the teardown.
 static int g_users;
 
+static int g_daemon_only;
+
+void usnd_set_daemon_only(int on) { g_daemon_only = on; }
+
 int usnd_init(void) {
     if (g_ready) { g_users++; return 0; }
 
@@ -284,6 +288,7 @@ int usnd_init(void) {
 
     int rc = -ENODEV;
     for (int i = 0; i < (int)(sizeof sinks / sizeof sinks[0]); i++) {
+        if (g_daemon_only && sinks[i] != &usnd_sink_daemon) continue;
         rc = sinks[i]->open();
         if (rc == 0) { g_sink = sinks[i]; break; }
     }

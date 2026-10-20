@@ -935,7 +935,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: the menu bar from the MENU resource, accelerators, dialogs from DIALOG resources, MessageBox~~ DONE 2026-10-19
 - [ ] w16: a dialog placed where its template says, not centred -- toywm opens owned windows centred
 - [x] ~~w16: the other standard controls -- check boxes, radio buttons, group boxes, LISTBOX, COMBOBOX~~ DONE 2026-10-19
-- [ ] w16: the sound driver's voices played through toy-os's sound, not answered silently
+- [x] ~~w16: the sound driver's voices played, not answered silently~~ DONE 2026-10-20 -- `sound16.c`, with sndPlaySound and MessageBeep
 - [x] ~~w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings~~ DONE 2026-10-19
 - [ ] w16: the launcher's Run with trace -- open the trace beside the stop, in Log Viewer or Notepad
 - [x] ~~w16: a program's missing calls in a window of their own, with names and kinds for every Win16 DLL~~ DONE 2026-10-19

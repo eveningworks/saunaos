@@ -199,6 +199,11 @@ extern const struct usnd_codec usnd_codec_vid;   // a video file's sound (lib/uv
 // holds the stream) are BOTH ordinary: an app that wants sound if it
 // can get it calls this, ignores the result, and plays into silence.
 int  usnd_init(void);
+// A SANDBOXED program that gave up the `device` promise calls this
+// before usnd_init(): only the daemon is tried, and with none running the
+// answer is -ENODEV -- never the kernel's stream, whose syscall would end
+// the process (SIGSYS).
+void usnd_set_daemon_only(int on);
 void usnd_shutdown(void);
 int  usnd_ready(void);            // did init succeed
 const char *usnd_sink_name(void); // "device", or a daemon's name later

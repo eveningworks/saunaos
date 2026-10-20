@@ -134,7 +134,7 @@ LOUDLY and by name (below), never as a silent zero.
   (`userland/retrolauncher/calls.c`) is that list -- what a program needs next,
   by module or by kind.
 - **A stand-in is not a whole call.** A handler that answers without
-  doing what Windows did (MessageBeep silent, PrintDlg with no printer,
+  doing what Windows did (WinHelp showing nothing, PrintDlg with no printer,
   the SHELL drag calls) is listed in `task16.c`'s `PARTLY` table with
   what it does instead, which `--check` prints as `call partly` and the
   launcher shows as Partly -- so "has every call" never overstates how
@@ -326,7 +326,7 @@ the palette, whose mapping is not yet measured.
    ShellAbout; a dialog is an owned, modal toywm window of its own
    (`dlgwin16.c`, uapp's pixel dialog windows) -- `docs/decisions/gui.md`,
    "A Win16 dialog is an owned window w16 paints". KERNEL's constants `__AHSHIFT`, `__AHINCR` and `__WINFLAGS`
-   are patched at load; SOUND's voices play nothing yet. **Notepad,
+   are patched at load. **Notepad,
    2026-10-19**: ONE WINDOW TREE (`wnd16.c`) -- every HWND, a child
    painting into its top-level window's buffer on the task thread --
    with w16's classes as C window procedures (`ctl16.c` BUTTON and
@@ -340,7 +340,17 @@ the palette, whose mapping is not yet measured.
    at 1x and scaled once, by the method its settings name -- Sharp,
    Pixels or Smooth. `w16 --trace FILE` logs every call into KERNEL, USER and
    GDI (Wine's `+relay`), which is how a stage-4 program's next stop is
-   found.
+   found. **Sound, 2026-10-20** (`sound16.c`): MMSYSTEM's sndPlaySound
+   (a file, an event's alias or a WAV in memory) and waveOutGetNumDevs,
+   USER's MessageBeep as the event 3.1 played for it, and SOUND.DRV's
+   voices (OpenSound, SetVoiceNote, SetVoiceAccent, StartSound) as square
+   waves -- BASIC PLAY's notes, value 37 middle C, at the tempo set. An
+   event plays what drive C:'s WIN.INI `[sounds]` names, when the file is
+   there (the user's own 3.11 copy, as with fonts), else toy-os's chime;
+   the `sounds` setting picks 3.11's, toy-os's or none. w16 plays through
+   `soundd` only (`usnd_set_daemon_only()`: no `device` promise), under
+   the program's short title in the Volume panel.
+   `tools/w16_sound_test.py` hears all three on the host.
 4. **Real programs**, the user's own copies (none ship): run each,
    read its unimplemented list (the launcher's calls window), implement,
    repeat. A second top-level window that is not a dialog still needs

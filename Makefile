@@ -981,7 +981,7 @@ EXTRA_OBJS_paint      = paint/paint_tools paint/paint_resize paint/paint_text pa
 EXTRA_OBJS_terminal   = term/term_conf term/term_prefs term/term_panel
 # Retro Launcher reads and writes the settings w16 runs by;
 # userland/retrolauncher/ holds its calls window and what both windows share.
-EXTRA_OBJS_retrolauncher = w16/w16prefs retrolauncher/check retrolauncher/calls retrolauncher/fonts
+EXTRA_OBJS_retrolauncher = w16/w16prefs retrolauncher/check retrolauncher/calls retrolauncher/fonts retrolauncher/sounds
 # Shapes keeps its teapot mesh in userland/shapes/, outside the program
 # directories for the reason userland/fm/ is (see EXTRA_OBJS_files).
 EXTRA_OBJS_gfxdemo    = shapes/teapot
@@ -1049,7 +1049,7 @@ EXTRA_OBJS_doom = doom/doom_wad doom/doom_front $(DOOM_BACKEND_OBJS) $(DOOM_PORT
 # /bin/w16 runs 16-bit Windows programs (docs/w16-design.md); its main() is
 # userland/bin/w16.c and its parts live in userland/w16/, listed rather
 # than wildcarded for the reason the WM's are.
-EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names w16/cpu16 w16/task16 w16/kernel16 w16/user16 w16/gdi16 w16/frame16 w16/menu16 w16/msgbox16 w16/mem16 w16/res16 w16/blit16 w16/usermisc16 w16/ini16 w16/icon16 w16/w16prefs w16/wnd16 w16/dialog16 w16/dlgwin16 w16/menubar16 w16/scale16 w16/ctl16 w16/edit16 w16/scroll16 w16/input16 w16/file16 w16/list16 w16/commdlg16 w16/font16 w16/module16 w16/ddeml16 w16/mmsystem16
+EXTRA_OBJS_w16 = w16/ne w16/ne_info w16/w16_names w16/cpu16 w16/task16 w16/kernel16 w16/user16 w16/gdi16 w16/frame16 w16/menu16 w16/msgbox16 w16/mem16 w16/res16 w16/blit16 w16/usermisc16 w16/ini16 w16/icon16 w16/w16prefs w16/wnd16 w16/dialog16 w16/dlgwin16 w16/menubar16 w16/scale16 w16/ctl16 w16/edit16 w16/scroll16 w16/input16 w16/file16 w16/list16 w16/commdlg16 w16/font16 w16/module16 w16/ddeml16 w16/sound16
 
 # VENDORED CODE IS COMPILED WITH ITS WARNINGS OFF, on purpose.
 #

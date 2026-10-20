@@ -75,6 +75,7 @@ void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
     t->parent = 0;
     t->collapsed = 0;
     t->toggled = -1;
+    t->acted = t->acted_col = -1;
     t->structured = 0;
     t->view_count = 0;
     t->sort_col = UUI_TABLE_UNSORTED;
@@ -594,6 +595,22 @@ int uui_table_take_toggled(struct uui_table *t) {
     return r;
 }
 
+int uui_table_take_action(struct uui_table *t, int *col) {
+    int r = t->acted;
+    if (col) *col = t->acted_col;
+    t->acted = t->acted_col = -1;
+    return r;
+}
+
+// The first shown action column, or -1: what Enter acts on.
+static int first_action_col(const struct uui_table *t) {
+    for (int p = 0; p < t->col_count; p++) {
+        int c = uui_table_column_at(t, p);
+        if (c >= 0 && (t->cols[c].flags & UUI_TCOL_ACTION) && uui_table_column_shown(t, c)) return c;
+    }
+    return -1;
+}
+
 void uui_table_set_sort(struct uui_table *t, int col, int dir) {
     if (col < UUI_TABLE_UNSORTED || col >= t->col_count) return;
     t->sort_col = col;
@@ -609,6 +626,7 @@ void uui_table_set_rows(struct uui_table *t, int row_count) {
     if (t->selected >= row_count) t->selected = row_count > 0 ? row_count - 1 : -1;
     if (t->hovered >= row_count) t->hovered = -1;
     if (t->toggled >= row_count) t->toggled = -1;
+    if (t->acted >= row_count) t->acted = t->acted_col = -1;
     // The app just told us its data changed, so the permutation is what
     // is stale. Rebuilding HERE is why an app that already calls this
     // after a refresh needs no sorting hook of its own -- Task Manager
@@ -914,6 +932,18 @@ static void draw_cell(struct ugfx_surface *s, const struct uui_table *t,
         ugfx_fill_circle(s, tx + r, ry + uui_table_row_h(t) / 2, r, dot);
         tx += 2 * r + UUI_TABLE_PAD_X;
         avail -= 2 * r + UUI_TABLE_PAD_X;
+    }
+    if (t->cols[col].flags & UUI_TCOL_ACTION) {
+        // A button's body inside the cell, its text centred: a control, so
+        // it keeps its own colours on a selected row.
+        int rh = uui_table_row_h(t), tw = ugfx_text_width(buf), bw = tw + 2 * ugfx_char_w();
+        if (bw > avail) bw = avail;
+        int bh = rh - 4 > ugfx_char_h() ? rh - 4 : ugfx_char_h();
+        int bx = tx, by = ry + (rh - bh) / 2;
+        uui_control_frame(s, bx, by, bw, bh, UTHEME_BUTTON_BG, UTHEME_OUTLINE);
+        int ix = bx + (bw - tw) / 2 > bx + 1 ? bx + (bw - tw) / 2 : bx + 1;
+        ugfx_draw_string_clipped(s, ix, ry + (rh - ugfx_char_h()) / 2, bw - 2, buf, UTHEME_TEXT, UTHEME_BUTTON_BG);
+        return;
     }
     if (t->cols[col].align == UUI_TALIGN_RIGHT) {
         int tw = ugfx_text_width(buf);
@@ -1245,6 +1275,20 @@ int uui_table_click(struct uui_table *t, int cx, int cy) {
             return 1;
         }
     }
+    if (idx >= 0) {
+        // An action cell acts even on the row already selected.
+        for (int c = 0; c < t->col_count && c < UUI_TABLE_MAX_COLS; c++) {
+            int x, w;
+            if (!(t->cols[c].flags & UUI_TCOL_ACTION) || !uui_table_column_shown(t, c)) continue;
+            uui_table_column_rect(t, c, &x, &w);
+            if (w > 0 && cx >= x && cx < x + w) {
+                t->acted = idx;
+                t->acted_col = c;
+                t->selected = idx;
+                return 1;
+            }
+        }
+    }
     if (idx < 0 || idx == t->selected) return 0;
     t->selected = idx;
     return 1;
@@ -1402,6 +1446,11 @@ int uui_table_key(struct uui_table *t, int key) {
     else if (key == KEY_PAGE_DOWN)  { view += vis;
                                        if (view >= vcount(t)) view = vcount(t) - 1; }
     // A PRINTABLE KEY IS A SEARCH, not a keystroke to pass on.
+    else if ((key == '\n' || key == '\r') && t->selected >= 0 && first_action_col(t) >= 0) {
+        t->acted = t->selected;
+        t->acted_col = first_action_col(t);
+        return 1;
+    }
     else if (uui_seek_is_key(key)) return table_seek(t, key);
     else return 0;
 

@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include "font_shm.h"
 #include "keyboard.h"
@@ -23,6 +24,7 @@
 #include "lib/uclip_page.h"   // CLIP_SHM_NAME: the clipboard an EDIT copies to
 #include "rt/sys.h"
 #include "query_abi.h"
+#include "sound_abi.h"   // SND_SERVER_NAME, SND_CLIENT_PREFIX: the daemon w16 may reach
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "w16/w16_internal.h"
@@ -33,7 +35,7 @@
 #define MK_LBUTTON 0x0001
 #define MK_RBUTTON 0x0002
 
-static int g_info, g_check, g_fonts;
+static int g_info, g_check, g_fonts, g_sounds;
 static char g_tail[127];                 // the program's command line: DOS's 126 characters
 static const char *g_trace_path;
 static char g_exe[W16_PATH_MAX];         // the program, as an absolute path: its settings' key
@@ -44,6 +46,8 @@ static const struct uargs_opt OPTS[] = {
       &g_check, NULL },
     { "fonts", 'f', NULL, "list Windows 3.11's own fonts found on drive C:, with a sample of each face",
       &g_fonts, NULL },
+    { "sounds", 's', NULL, "list each sound event, the file it plays and whether drive C: has it",
+      &g_sounds, NULL },
     { "trace", 't', "FILE", "log every Windows call the program makes to FILE (Wine's +relay)",
       NULL, &g_trace_path },
     { 0 },
@@ -51,7 +55,7 @@ static const struct uargs_opt OPTS[] = {
 
 static const struct uargs_prog PROG = {
     .name = "w16",
-    .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE\n--fonts",
+    .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE\n--fonts\n--sounds",
     .summary = "Run a 16-bit Windows (Windows 3.x) program in a window, or with --info\n"
                "list what an NE executable holds and the Windows functions it imports.\n"
                "Only a few functions are implemented so far: a program that calls one\n"
@@ -456,6 +460,7 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
 static int on_tick(struct uapp *a) {
     (void)a;
     w16_timers_fire(&g_w16);
+    w16_sound_tick();
     return 0;
 }
 
@@ -642,6 +647,11 @@ static int run(const char *path, const uint8_t *img, uint32_t size) {
     g_w16_desktop_frame = g_w16_prefs.frame == W16_FRAME_DESKTOP;
     w16_dos_start(g_exe);
     if (w16_load(w, img, size, path, g_tail) < 0) return 1;
+    // The Volume panel's row: the program's own short name ("Hearts"), not w16.
+    char about[128];
+    if (ne_description(&w->ne, about, sizeof about) < 0 || !about[0]) snprintf(about, sizeof about, "%s", w->ne.name);
+    char *short_name = w16_short_title(about);
+    if (short_name) { w16_sound_set_name(short_name); free(short_name); }
     ugfx_font_init();
     pthread_t task;
     if (pthread_create(&task, NULL, w16_task_main, w) != 0) {
@@ -783,6 +793,44 @@ static void mkdirs(const char *path) {
     mkdir(p, 0755);
 }
 
+// `--sounds`: a line per event drive C:'s WIN.INI lists, else Windows
+// 3.11's own seven -- its WIN.INI name, what 3.1 called it, the file
+// [sounds] names, the file that plays, found/missing/none, and toy-os's
+// own sound for it. Resolved as `sounds=win311` whatever the setting
+// says, so the launcher's Options can show each choice before OK.
+static void sounds_list(void) {
+    static const struct { const char *alias, *name; } STD[] = {
+        { "SystemDefault", "Default Beep" }, { "SystemAsterisk", "Asterisk" },
+        { "SystemHand", "Critical Stop" }, { "SystemExclamation", "Exclamation" },
+        { "SystemQuestion", "Question" }, { "SystemStart", "Windows Start" }, { "SystemExit", "Windows Exit" },
+    };
+    static const char *const STATUS[] = { "found", "missing", "none", "off" };
+    g_w16_prefs.sounds = W16_SOUNDS_WIN311;
+    char names[4096];
+    size_t n = w16_ini_names("WIN.INI", "sounds", names, sizeof names);
+    const char *list[64];
+    int k = 0;
+    for (const char *p = names; n && *p && k < 64; p += strlen(p) + 1) list[k++] = p;
+    if (!k)
+        for (unsigned i = 0; i < sizeof STD / sizeof STD[0]; i++) list[k++] = STD[i].alias;
+    for (int i = 0; i < k; i++) {
+        char ini[160], host[600], toyos[600];
+        int st = w16_sound_resolve(list[i], ini, sizeof ini, host, sizeof host);
+        g_w16_prefs.sounds = W16_SOUNDS_TOYOS;
+        w16_sound_resolve(list[i], toyos, sizeof toyos, toyos, sizeof toyos);
+        g_w16_prefs.sounds = W16_SOUNDS_WIN311;
+        const char *name = list[i], *comma = strchr(ini, ',');
+        for (unsigned j = 0; j < sizeof STD / sizeof STD[0]; j++)
+            if (!strcasecmp(STD[j].alias, list[i])) name = STD[j].name;
+        char desc[96];
+        snprintf(desc, sizeof desc, "%s", comma ? comma + 1 : name);
+        char *d = desc;
+        while (*d == ' ') d++;
+        if (comma) *(char *)comma = 0;
+        printf("sound\t%s\t%s\t%s\t%s\t%s\t%s\n", list[i], d, ini, host, STATUS[st], toyos);
+    }
+}
+
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
@@ -795,6 +843,18 @@ int main(int argc, char **argv) {
             return 1;
         }
         w16_fonts_list(stdout);
+        return 0;
+    }
+    if (g_sounds) {                              // WIN.INI's [sounds] on drive C:, read in the sandbox
+        if (a.argc) return uargs_error(&PROG, "--sounds takes no FILE");
+        w16_prefs_load(&g_w16_prefs, 0);
+        snprintf(g_w16_drive_c, sizeof g_w16_drive_c, "%s", g_w16_prefs.drive_c);
+        if (unveil(g_w16_drive_c, "r") != 0 || unveil("/usr/share/sounds", "r") != 0 || unveil(NULL, NULL) != 0 ||
+            pledge("stdio rpath", NULL) != 0) {
+            fprintf(stderr, "w16: cannot sandbox myself, so I will not read WIN.INI\n");
+            return 1;
+        }
+        sounds_list();
         return 0;
     }
     if (a.argc < 1 || ((g_info || g_check) && a.argc != 1)) return uargs_error(&PROG, "expected one FILE");
@@ -822,6 +882,10 @@ int main(int argc, char **argv) {
             w16_trace_path(g_exe, trace, sizeof trace);
             g_trace_path = trace;
         }
+        // The sound daemon's beacon, and this process's own ring to it
+        // (lib/usnd_sink_daemon.c names it by pid) -- never the device.
+        char snd_ring[48];
+        snprintf(snd_ring, sizeof snd_ring, "shm:" SND_CLIENT_PREFIX "%d", (int)getpid());
         // Drive Z: is the whole tree to read, and /home to write as well
         // (file16.c) -- what a program can reach of toy-os's files, Wine's
         // shape with the system's own folders kept read-only.
@@ -832,6 +896,7 @@ int main(int argc, char **argv) {
              && unveil("shm:font.0", "r") == 0 && unveil("shm:font.1", "r") == 0
              && unveil("shm:font.2", "r") == 0 && unveil("shm:font.3", "r") == 0
              && (!g_trace_path || unveil(g_trace_path, "rwc") == 0)
+             && unveil("shm:" SND_SERVER_NAME, "r") == 0 && unveil(snd_ring, "rwc") == 0
              && unveil(NULL, NULL) == 0
              && pledge("stdio rpath wpath cpath shm window settings query", NULL) == 0;
     }

@@ -690,11 +690,10 @@ static int api_WNetGetCaps(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// MessageBeep(type): no sound yet
+// MessageBeep(type): the event its MB_ICON* names (sound16.c)
 static int api_MessageBeep(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    (void)w;
-    w16_arg16(a);
+    w16_sound_event(w, w16_beep_alias(w16_arg16(a)));
     return 2;
 }
 

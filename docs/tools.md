@@ -7480,6 +7480,19 @@ runs first**: a `doom1.wad` with one
   sites from the wrong word (the comparison must go red); dropping the
   resource bound alone also goes red (checked with `mutate.py`). In
   `ondemand_sweep.py`; w16 is a side project and in no gate.
+- **`w16_sound_test.py`** -- a Win16 program's sounds, judged on the
+  HOST as `audio_test.py` judges a tone: `sound.exe` (a NASM sample)
+  plays a 1102.5 Hz WAV from its own memory (sndPlaySound SND_MEMORY),
+  MessageBeep's Asterisk event, then two SOUND.DRV quarter notes of
+  value 46 (A440), into an AC97 that QEMU's wav audiodev records. Each
+  is told apart by PITCH, counted in 50 ms windows that must hold the
+  band three in a row (a sound's edge window reads any pitch). Three
+  boots on copies of disk.img: the defaults (the beep is toy-os's chime,
+  not 2000 Hz), a WIN.INI on drive C: naming a 2000 Hz TEST.WAV for
+  SystemAsterisk (the beep is it), and `sounds=off` (exit 0, silence).
+  `--positive-control` rebuilds the sample with its WAV's rate halved:
+  the WAV check goes red. On demand (`ondemand_sweep.py`): it needs a
+  guest with a sound card.
 - **`w16_gui_test.py`** -- w16 running the project's own samples in
   toywm, by pixel. `gdi.exe` puts a string-table string, a bitmap
   resource three ways (SetDIBitsToDevice; a memory DC and BitBlt SRCCOPY;
@@ -7521,7 +7534,10 @@ runs first**: a `doom1.wad` with one
   panel scrolls above its pinned Run in a short window; the Options
   window grows and shrinks to a floor; and a dialog caption's black line
   leaves white at both ends. Each of those goes red with its fix taken
-  out. In `gui_regress.py`.
+  out. Options > Sound lists 3.11's seven events, a Play cell plays
+  toy-os's chime (its `play ROW PATH` log line, so a guest with no sound
+  card still answers), and plays nothing once Off is chosen, before OK.
+  In `gui_regress.py`.
   **Run it on a fresh image**: a second run in the same guest fails the
   two scale checks (toywm remembers gdi.exe's earlier window sizes) and
   the calls-window checks (cause not established) -- 48 of 48 pass on a

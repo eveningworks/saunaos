@@ -37,10 +37,10 @@ file is involved.
    what is typed over it (Value=), a right click's MessageBox answers No
    with its mnemonic (Box=7), and Help > About is ShellAbout's box.
 7. **A program's calls** (`retrolauncher --calls FILE`, retrolauncher/calls.c): fault.exe
-   lacks exactly USER.7 ExitWindows and has one stand-in, MessageBeep
+   lacks exactly USER.7 ExitWindows and has one stand-in, IsIconic
    (`w16 --check` says `partly 1` and why), so its window opens on the
    Missing chip with that one row under two module chips (All, USER);
-   Partly lists MessageBeep; All lists every import `w16 --check` counts;
+   Partly lists IsIconic; All lists every import `w16 --check` counts;
    a search narrows it to one; Ctrl+C copies the rows shown; gdi.exe,
    which lacks nothing, opens on All; and the launcher's details panel
    opens the window for the selected program.
@@ -61,6 +61,9 @@ file is involved.
    scrolled out; the wheel brings it into view above Run; the Options
    window takes a bigger size, and a smaller one with its page scrolling,
    but has a floor.
+13. **Options > Sound**: Windows 3.11's seven events with no WIN.INI on
+   drive C:; the first row's Play plays toy-os's chime, and nothing once
+   the Sounds choice is Off (before OK).
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -585,6 +588,72 @@ def panel_and_options(dbg, qmp, res):
     dbg.close_window("Retro Launcher")
 
 
+def sound_page(dbg, res):
+    """Options > Sound: a row per event (Windows 3.11's seven, with no
+    WIN.INI on drive C:), each Play cell playing toy-os's sound for it --
+    and none once the Sounds choice is Off, before OK."""
+    def opt(key):
+        for line in reversed(dbg.logs(f"retrolauncher options: layout {key} ", clear=False)):
+            try:
+                return [int(v) for v in line.split(f"layout {key} ", 1)[1].split()[:4]]
+            except ValueError:
+                return None
+        return None
+
+    dbg.logs("retrolauncher", clear=True)
+    dbg.send(f"gui spawn {LAUNCHER_BIN} --show /usr/share/w16/hello.exe")
+    if not wait_title(dbg, "Retro Launcher"):
+        res.check("Retro Launcher opens for the Sound page", False, "")
+        return
+    dbg.send("gui resize 1200 600")
+    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "toolbar.button 6") is not None)
+    b = layout_rect(lines, "toolbar.button 6")
+    win = dbg.window("Retro Launcher")
+    if not b or not win:
+        res.check("the toolbar reports its Options button", False, f"{b} {win}")
+        dbg.close_window("Retro Launcher")
+        return
+    dbg.click(win["content"]["x"] + b[0] + b[2] // 2, win["content"]["y"] + b[1] + b[3] // 2)
+    end = time.time() + 8
+    while time.time() < end and not opt("pages"):
+        time.sleep(0.3)
+    ow = dbg.window("Retro Launcher Options")
+    pg, rh = opt("pages"), opt("pages.row_h")
+    if not ow or not pg or not rh:
+        res.check("Options opens, its pages reported", False, f"{ow} {pg} {rh}")
+        dbg.close_window("Retro Launcher")
+        return
+    oc = ow["content"]
+    dbg.click(oc["x"] + pg[0] + 30, oc["y"] + pg[1] + 2 * rh[0] + rh[0] // 2)   # the third page
+    dbg.settle(0.6)
+    shown, play, rowh, head = opt("sound-table.shown"), opt("sound-table.col 4"), opt("sound-table.row_h"), \
+        opt("sound-table.header_h")
+    res.check("Options > Sound lists Windows 3.11's seven events (drive C: has no WIN.INI)",
+              bool(shown) and shown[0] == 7, f"shown {shown}")
+    if not (play and rowh and head):
+        res.check("the sound table reports its Play column", False, f"{play} {rowh} {head}")
+    else:
+        y = oc["y"] + play[1] + head[0] + rowh[0] // 2
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(oc["x"] + play[0] + play[2] // 3, y)
+        dbg.settle(0.4)
+        got = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": play " in ln]
+        res.check("the first row's Play plays toy-os's chime for the Default Beep",
+                  any(ln.endswith("play 0 /usr/share/sounds/chime.wav") for ln in got), f"{got}")
+        off = opt("sounds.slot 2")
+        if off:
+            dbg.click(oc["x"] + off[0] + off[2] // 2, oc["y"] + off[1] + off[3] // 2)
+            dbg.settle(0.4)
+            dbg.click(oc["x"] + play[0] + play[2] // 3, y)
+            dbg.settle(0.4)
+            got = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": play " in ln]
+            res.check("with Sounds Off chosen (not yet OK), Play plays nothing", not got, f"{got}")
+        else:
+            res.check("the Sounds choice reports its slots", False, "")
+    dbg.close_window("Retro Launcher Options")
+    dbg.close_window("Retro Launcher")
+
+
 DLG_TITLE = "Dialog test (Win16)"
 DLG_INI = "/home/Win16/WINDOWS/DIALOG.INI"
 
@@ -752,8 +821,8 @@ def calls(dbg, res):
               f"slots {[k for k in lay if k.startswith('modules.slot')]}")
     check = sh(dbg, "w16 --check /usr/share/w16/fault.exe")
     imports = int(re.search(r"imports (\d+)", check).group(1))
-    res.check("w16 --check names MessageBeep a stand-in, and why",
-              "partly 1" in check and "call partly USER.104 MessageBeep" in check and "\tsilent" in check,
+    res.check("w16 --check names IsIconic a stand-in, and why",
+              "partly 1" in check and "call partly USER.31 IsIconic" in check and "\talways no" in check,
               f"{[l for l in check.splitlines() if 'partly' in l]}")
     cx, cy = win["content"]["x"], win["content"]["y"]
 
@@ -765,8 +834,8 @@ def calls(dbg, res):
 
     chip(2)
     lay.update(wait_calls(dbg, lambda l: l.get("show") == 2))
-    res.check("the Partly chip lists the stand-in, USER.104 MessageBeep",
-              lay.get("show") == 2 and lay.get("rows") == 1 and lay.get("first") == "USER.104 MessageBeep",
+    res.check("the Partly chip lists the stand-in, USER.31 IsIconic",
+              lay.get("show") == 2 and lay.get("rows") == 1 and lay.get("first") == "USER.31 IsIconic",
               f"{ {k: lay.get(k) for k in ('rows', 'show', 'first')} }")
     chip(0)
     lay.update(wait_calls(dbg, lambda l: l.get("show") == 0))
@@ -825,6 +894,7 @@ def main():
         drives_and_folders(dbg, res)
         from_file_manager(dbg, qmp, res)
         panel_and_options(dbg, qmp, res)
+        sound_page(dbg, res)
         dialogs(dbg, qmp, res)
     finally:
         dbg.close()

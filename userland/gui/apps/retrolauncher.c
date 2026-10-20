@@ -43,6 +43,7 @@
 #include "ui/uui_sidebar.h"
 #include "ui/uui_stackbar.h"
 #include "ui/uui_statusbar.h"
+#include "ui/uui_table.h"
 #include "ui/uui_toolbar.h"
 #include "w16/w16prefs.h"
 #include "retrolauncher/retrolauncher.h"
@@ -60,7 +61,7 @@ struct partly {
 struct prog {
     char *path;
     char *name;                      // its description, else its file name
-    char *title;                     // what its tile says: retro_short_title()
+    char *title;                     // what its tile says: w16_short_title()
     char *module;
     char *foreign;                   // not a Windows 3.x program: what it is ("a DOS program")
     int folder;                      // which folder it was found in
@@ -92,7 +93,7 @@ enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CM
 enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VERSION, ID_FRAME,
        ID_TRACE, ID_RUN, ID_CALLS, ID_METHOD, ID_FONTS, ID_OPT_FONTCARD, ID_DRIVEC, ID_CTX,
        ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE,
-       ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN };
+       ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND };
 
 static struct uui_menubar g_menu;
 static struct uui_menubar g_ctx;             // a folder's right-click menu
@@ -100,7 +101,7 @@ static struct uui_toolbar g_tb;
 static struct uui_sidebar g_side;
 static struct uui_grid g_grid;
 static struct uui_statusbar g_sb;
-#define NSET 6                               // the per-program settings: SETTINGS below
+#define NSET 7                               // the per-program settings: SETTINGS below
 static struct uui_dropdown g_dd[NSET];
 static struct uui_dropdown g_ddc;            // its drive C:, a folder rather than a choice
 static struct uui_button g_run;
@@ -240,7 +241,7 @@ static void check(struct prog *p) {
     // A tile is narrow: "Microsoft Windows Notepad Application (c)1990"
     // says "Notepad Application" there, and the panel keeps the whole name.
     free(p->title);
-    p->title = retro_short_title(p->name);
+    p->title = w16_short_title(p->name);
     read_last(p);
 }
 
@@ -329,6 +330,7 @@ static const char *const VERSION_NAMES[] = { "3.10", "3.11", "3.00" };
 static const char *const FRAME_NAMES[] = { "Windows 3.1", "The desktop's" };
 static const char *const TRACE_NAMES[] = { "Off", "On" };
 static const char *const FONTS_NAMES[] = { "Windows 3.11's own", "toy-os's stand-ins" };
+static const char *const SOUNDS_NAMES[] = { "Windows 3.11's own", "toy-os's own", "Off" };
 static char g_dflt_label[NSET][48];
 static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list, plus "Default"
 
@@ -341,6 +343,7 @@ static const struct { const char *caption; const char *const *names; int n; int 
     { "Version told",    VERSION_NAMES, 3, 2, offsetof(struct w16_prefs, version) },
     { "Window frame",    FRAME_NAMES,   2, 1, offsetof(struct w16_prefs, frame) },
     { "Fonts",           FONTS_NAMES,   2, 7, offsetof(struct w16_prefs, fonts) },
+    { "Sound",           SOUNDS_NAMES,  3, 8, offsetof(struct w16_prefs, sounds) },
     { "Trace its calls", TRACE_NAMES,   2, 4, offsetof(struct w16_prefs, trace) },
 };
 
@@ -634,14 +637,16 @@ static void rename_folder(int opt, int row) {
 static const struct uui_sidebar_row OPT_PAGES[] = {
     { "General", UUI_SIDEBAR_TOP, 0, 0 },
     { "Display", UUI_SIDEBAR_TOP, 0, 1 },
-    { "Drives",  UUI_SIDEBAR_TOP, 0, 2 },
-    { "Folders", UUI_SIDEBAR_TOP, 0, 3 },
+    { "Sound",   UUI_SIDEBAR_TOP, 0, 2 },
+    { "Drives",  UUI_SIDEBAR_TOP, 0, 3 },
+    { "Folders", UUI_SIDEBAR_TOP, 0, 4 },
 };
 static const char *const FAULT_NAMES[] = { "Show the Error box", "Write the report only" };
 static const char *const FROM_NAMES[] = { "Run it", "Ask if it may not work", "Always ask", "Show it here" };
 static const char *const OPT_NOTES[] = {
     "What programs are told, what happens when one fails, and what opening one in the File Manager does.",
     "How a program's windows look, and whose fonts its text is drawn in.",
+    "What a program plays, and whose sounds its events use.",
     "Each drive letter a program sees, and the folder it is here. A program's INI files go in C:\\WINDOWS.",
     "The folders programs are listed from, in the sidebar's order.",
 };
@@ -834,6 +839,7 @@ static void opt_defaults(void) {
     opt_copy_folders(DEF, 2);
     opt_folders_changed(-1);
     opt_drives_changed(-1);
+    retro_sounds_mode(g_edit.sounds);
 }
 
 static void opt_action(int code) {
@@ -878,11 +884,20 @@ static void opt_ok(void) {
 
 static void edit_defaults(void *edit) { uprefs_defaults(&w16_prefs_defaults, edit); }
 
+// The Sound page's table follows the Sounds choice as it changes, and its
+// Play cells play here.
+static void opt_widget(int id, int reason) {
+    (void)reason;
+    retro_sounds_mode(uui_prefs_current(offsetof(struct w16_prefs, sounds), g_edit.sounds));
+    if (id == ID_SOUNDS) retro_sounds_play(uui_table_take_action(&g_retro_sounds, 0));
+}
+
 static void open_options(void) {
     g_edit = g_def;
     static const struct uui_prefs_desc d = {
-        .title = "Retro Launcher Options", .pages = OPT_PAGES, .page_count = 4,
+        .title = "Retro Launcher Options", .pages = OPT_PAGES, .page_count = 5,
         .log_prefix = "retrolauncher options", .on_defaults = opt_defaults, .on_ok = opt_ok, .on_action = opt_action,
+        .on_widget = opt_widget,
         .notes = OPT_NOTES, .edit = &g_edit, .edit_defaults = edit_defaults,
     };
     uui_prefs_begin(&d);
@@ -899,12 +914,17 @@ static void open_options(void) {
     uui_prefs_choice(1, "Fonts", FONTS_NAMES, 0, 2, offsetof(struct w16_prefs, fonts), "fonts");
     retro_fontcard_load(&g_retro_fontcard);
     uui_prefs_row(1, "", &retro_fontcard_ops, &g_retro_fontcard, ID_OPT_FONTCARD, "fontcard", UUI_FILL_W);
+    uui_prefs_choice(2, "Sounds", SOUNDS_NAMES, 0, 3, offsetof(struct w16_prefs, sounds), "sounds");
+    uui_prefs_check(2, "Old sound driver", "Play SOUND.DRV notes (Minesweeper's)",
+                    offsetof(struct w16_prefs, sound_drv), "sound_drv");
+    retro_sounds_load(g_edit.sounds);
+    uui_prefs_row(2, "", &uui_table_ops, &g_retro_sounds, ID_SOUNDS, "sound-table", UUI_FILL_W | UUI_FILL_H);
     opt_drives_changed('C');
-    uui_prefs_row(2, "", &uui_listedit_ops, &g_drives, 0, "drives", UUI_FILL_W | UUI_FILL_H);
+    uui_prefs_row(3, "", &uui_listedit_ops, &g_drives, 0, "drives", UUI_FILL_W | UUI_FILL_H);
     opt_copy_folders(g_folders, g_nfolders);
     uui_listedit_select(&g_ofolders, -1);
     opt_folders_changed(-1);
-    uui_prefs_row(3, "", &uui_listedit_ops, &g_ofolders, 0, "folder-list", UUI_FILL_W | UUI_FILL_H);
+    uui_prefs_row(4, "", &uui_listedit_ops, &g_ofolders, 0, "folder-list", UUI_FILL_W | UUI_FILL_H);
     uui_prefs_open(g_app);
 }
 
@@ -1236,7 +1256,8 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[2], .id = ID_VERSION, .name = "version" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[3], .id = ID_FRAME,   .name = "frame" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[4], .id = ID_FONTS,   .name = "fonts" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[5], .id = ID_TRACE,   .name = "trace" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[5], .id = ID_SOUND,   .name = "sound" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[6], .id = ID_TRACE,   .name = "trace" },
     { .ops = &uui_dropdown_ops,  .widget = &g_ddc,   .id = ID_DRIVEC,  .name = "drive-c" },
     { .ops = &uui_button_ops,    .widget = &g_run,   .id = ID_RUN,     .name = "run" },
     { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
@@ -1324,7 +1345,9 @@ static void on_widget(struct uapp *a, int id, int reason) {
         fill_panel();
         if ((code = uui_grid_take(&g_grid)) >= 0) command(a, CMD_RUN);
         break;
-    case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_FONTS: case ID_TRACE: save_panel(); break;
+    case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_FONTS: case ID_SOUND: case ID_TRACE:
+        save_panel();
+        break;
     case ID_DRIVEC: drive_c_chosen(); break;
     case ID_CTX:
         if ((code = uui_menubar_take_code(&g_ctx)) > 0) command(a, code);
@@ -1596,6 +1619,7 @@ int main(int argc, char **argv) {
     uui_listedit_init(&g_ofolders, FOLDER_COLS, 3, folder_cell, 0, 0, "folder-table", FOL_LABELS, FOL_CODES,
                       FOL_NAMES, 6);
     g_ofolders.enabled = folder_enabled;
+    retro_sounds_init();
     uui_button_init(&g_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
     uui_button_init(&g_calls, 0, 0, 0, 0, "Calls it imports...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_CALLS);
     uui_stackbar_init(&g_bar, 3);
