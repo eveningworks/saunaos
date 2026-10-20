@@ -298,6 +298,17 @@ static int api_GetVersion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;
 }
 
+// GetInstanceData(hInstance, pData, cbData): bytes at pData of another
+// instance's DGROUP into the same place in this one's. There is only
+// ever the one instance, so they are already there.
+static int api_GetInstanceData(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = w16_arg16(a);
+    return 6;
+}
+
 // WaitEvent(hTask)
 static int api_WaitEvent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
@@ -323,6 +334,7 @@ const struct w16_api g_kernel_api[] = {
     { 50, api_GetProcAddress },
     { 51, api_MakeProcInstance },
     { 52, api_FreeProcInstance },
+    { 54, api_GetInstanceData },
     { 88, api_lstrcpy },
     { 89, api_lstrcpy },
     { 90, api_lstrlen },

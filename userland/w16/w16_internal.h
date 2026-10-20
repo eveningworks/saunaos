@@ -128,6 +128,7 @@ void ne_print_info(const struct ne_module *m);
 #define WS_POPUP         0x80000000u
 #define WS_CHILD         0x40000000u
 #define WS_VISIBLE       0x10000000u
+#define WS_CLIPCHILDREN  0x02000000u
 #define WS_DISABLED      0x08000000u
 #define WS_CAPTION       0x00C00000u
 #define WS_BORDER        0x00800000u
@@ -207,10 +208,12 @@ struct w16_gdiobj {
     struct w16_logfont *lf;       // font: what CreateFont asked for, allocated
     // DC
     uint16_t hwnd;                // a window's DC: it draws on that window's client area
+    uint8_t screen;               // the display's DC before any window: answers, draws nothing
     uint16_t bitmap, pen, brush, font;
     uint32_t text, bk;            // COLORREFs
     int bk_mode, rop2;
     int16_t cx, cy;               // the current position
+    int16_t brush_ox, brush_oy;   // SetBrushOrg's: kept and answered, no brush is patterned yet
 };
 
 struct w16_timer {
@@ -269,6 +272,7 @@ struct w16_wnd {
     int visible;
     int transparent;              // a press goes through it to what is under (a label)
     int maximized;                // toywm's last proposal said so; under `lock`
+    int need_size;                // an overlapped window's first WM_SIZE waits for its first show
     int inval, erase;             // a pending WM_PAINT, and whether it erases
     char *text;                   // its title or label (WM_SETTEXT), allocated; an EDIT's is its own
     uint16_t proc_sel, proc_off;  // its window procedure: the class's until SetWindowLong
@@ -329,6 +333,7 @@ struct w16 {
     int exit_code;
     int active;                                  // the toywm window has focus
     int pending_syscmd;                          // an SC_* asked before the window was up
+    int pending_end;                             // W16_POST_DONE or _FAULT posted before it was up
     char missing[64];                            // "USER.171 (WinHelp)": the call that is not there
 
     struct {                                     // the local heap (mem16.c)
@@ -366,18 +371,25 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_DLG_PAINT 9    // arg: a dialog's hwnd -- redraw it
 #define W16_POST_MENU_SHOW 10   // arg: a menu-bar title -- the program has seen it open: show it
 #define W16_POST_CURSOR    11   // arg: a WIN_CURSOR_* -- SetCursor: the pointer's shape now
+#define W16_POST_POINTER   12   // arg: x << 16 | y, in the main window -- SetCursorPos
 
 // --- task16.c --------------------------------------------------------------
 
 // The program loaded, its command tail (what follows its name: a DOS
 // command line, 126 characters at most) in its PSP.
 int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path, const char *tail);
+// The module an hInstance names -- whose resources LoadBitmap and the rest
+// read -- or NULL for 0 (Windows' own).
+const struct ne_module *w16_module_of(struct w16 *w, uint16_t inst);
 void *w16_task_main(void *arg);
 void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam);
 void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam,
                        unsigned mods);
 uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,
                           uint16_t msg, uint16_t wparam, uint32_t lparam);
+// A far PASCAL callback: `words` pushed first to last, entered with DS
+// and AX the DGROUP; DX:AX back. The registers are the caller's again after.
+uint32_t w16_call_far(struct w16 *w, uint16_t sel, uint16_t off, const uint16_t *words, unsigned n);
 void w16_task_post(struct w16 *w, int code);     // uapp_post() once the main thread is up
 void w16_task_post_arg(struct w16 *w, int code, int arg);
 // Why the program stopped, filled by the task thread as it ends: the
@@ -435,12 +447,20 @@ uint32_t w16_syscolor(unsigned index);            // COLOR_* -> ugfx colour
 uint32_t w16_brush_color(uint16_t brush);
 // A window's DC, its state reset -- BeginPaint's and GetDC's.
 uint16_t w16_gdi_window_dc(struct w16 *w, uint16_t hwnd);
+// GetDC(NULL): the main window's once there is one, else the display's.
+uint16_t w16_gdi_screen_dc(struct w16 *w);
 void w16_gdi_flush(struct w16 *w);                // post a repaint if a window DC drew
 void w16_gdi_forget_window(struct w16 *w, uint16_t hwnd);   // its DC goes with it
+// A bitmap made from a packed DIB (header, palette, bits): LoadBitmap's. 0 when malformed.
+uint16_t w16_gdi_bitmap_of_dib(struct w16 *w, const uint8_t *dib, uint32_t len);
 // A brush handle's colour as a pixel (stock, COLOR_*+1 or created); fill
 // a client rectangle with it -- USER's FillRect and WM_ERASEBKGND.
 uint32_t w16_brush_px(struct w16 *w, uint16_t brush);
 void w16_gdi_fill(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, uint16_t brush);
+void w16_gdi_invert(struct w16 *w, uint16_t hdc, int l, int t, int r, int b);   // InvertRect's
+// DrawText's work: DT_* `fmt`, `rc` in DC coordinates (DT_CALCRECT sets
+// its right and bottom). The text's height.
+int w16_gdi_draw_text(struct w16 *w, uint16_t hdc, const char *text, int16_t rc[4], unsigned fmt);
 // `text` drawn through a DC (TextOut's work; tabs step `tab` pixels when
 // tab > 0): its width, -1 for a bad DC.
 int w16_gdi_text(struct w16 *w, uint16_t hdc, int x, int y, const char *text, int tab);
@@ -669,6 +689,9 @@ void w16_timers_fire(struct w16 *w);              // the main thread's tick
 void w16_set_timer(struct w16 *w, uint16_t hwnd, uint16_t id, uint32_t ms);
 void w16_kill_timer(struct w16 *w, uint16_t hwnd, uint16_t id);
 void w16_cursor_screen(struct w16 *w, int16_t *x, int16_t *y);   // MSG.pt, GetCursorPos
+// What x's client point is offset by in SCREEN coordinates -- which are
+// its top-level window's own (usermisc16.c).
+void w16_screen_offset(struct w16 *w, struct w16_wnd *x, int *dx, int *dy);
 uint64_t w16_now_ms(void);
 int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap);
 uint16_t w16_res_load(struct w16 *w, unsigned index);

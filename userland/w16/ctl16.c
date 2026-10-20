@@ -26,6 +26,7 @@
 #define BS_AUTO3STATE     0x06
 #define BS_GROUPBOX       0x07
 #define BS_AUTORADIOBUTTON 0x09
+#define BS_OWNERDRAW      0x0B
 #define BS_LEFTTEXT       0x20
 #define BM_GETCHECK       (WM_USER + 0)
 #define BM_SETCHECK       (WM_USER + 1)
@@ -33,6 +34,15 @@
 #define BM_SETSTATE       (WM_USER + 3)
 #define BM_SETSTYLE       (WM_USER + 4)
 #define BN_CLICKED        0
+#define BN_DOUBLECLICKED  5
+#define WM_DRAWITEM       0x002B
+#define ODT_BUTTON        4
+#define ODA_DRAWENTIRE    1
+#define ODA_SELECT        2
+#define ODA_FOCUS         4
+#define ODS_SELECTED      0x01
+#define ODS_DISABLED      0x04
+#define ODS_FOCUS         0x10
 
 #define SS_TYPE           0x0F
 #define SS_CENTER         0x01
@@ -358,6 +368,24 @@ static void paint_button(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *
     else paint_check(w, x, b, s, ox, oy);
 }
 
+static int is_owner(const struct w16_wnd *x) { return (x->style & BS_TYPE) == BS_OWNERDRAW; }
+
+// BS_OWNERDRAW: the parent draws it, told by WM_DRAWITEM what changed --
+// the whole of it on WM_PAINT, its pressed look or its focus as they
+// change -- with a DRAWITEMSTRUCT and the button's own DC.
+static void draw_item(struct w16 *w, struct w16_wnd *x, struct button *b, uint16_t action) {
+    if (!w16_wnd_shown(w, x)) return;
+    uint16_t at = w16_sys_push(w, 26);
+    if (w->cpu.fault) return;
+    uint16_t state = (b->pressed ? ODS_SELECTED : 0) | (b->focused ? ODS_FOCUS : 0) |
+                     (x->style & WS_DISABLED ? ODS_DISABLED : 0);
+    uint16_t dis[13] = { ODT_BUTTON, x->id, 0, action, state, x->hwnd, w16_gdi_window_dc(w, x->hwnd),
+                         0, 0, (uint16_t)x->cw, (uint16_t)x->ch, 0, 0 };
+    memcpy(w->sysmem + at, dis, sizeof dis);
+    w16_send(w, x->parent, WM_DRAWITEM, x->id, (uint32_t)w->sysdata << 16 | at);
+    w16_sys_pop(w, at);
+}
+
 static void set_check(struct w16 *w, struct w16_wnd *x, int v) {
     struct button *b = btn(x);
     if (!b || b->checked == v) return;
@@ -398,7 +426,8 @@ static void press(struct w16 *w, struct w16_wnd *x, int down) {
     struct button *b = btn(x);
     if (b && b->pressed != down) {
         b->pressed = down;
-        w16_invalidate(w, x, 0);
+        if (is_owner(x)) draw_item(w, x, b, ODA_SELECT);
+        else w16_invalidate(w, x, 0);
     }
 }
 
@@ -413,16 +442,27 @@ uint32_t w16_button_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_
     if (!b) return 0;
     switch (msg) {
     case WM_PAINT:
-        w16_ctl_paint(w, x, paint_button);
+        if (is_owner(x)) {
+            w16_paint_begin(w, x);
+            draw_item(w, x, b, ODA_DRAWENTIRE);
+        } else {
+            w16_ctl_paint(w, x, paint_button);
+        }
         return 0;
     case WM_GETDLGCODE:
         if ((x->style & BS_TYPE) == BS_GROUPBOX) return DLGC_STATIC;
+        if (is_owner(x)) return DLGC_BUTTON;
         if (is_radio(x)) return DLGC_BUTTON | DLGC_RADIOBUTTON;
         if (is_push(x))
             return DLGC_BUTTON | ((x->style & BS_TYPE) == BS_DEFPUSHBUTTON ? DLGC_DEFPUSHBUTTON : DLGC_UNDEFPUSHBUTTON);
         return DLGC_BUTTON;
-    case WM_LBUTTONDOWN:
     case WM_LBUTTONDBLCLK:
+        if (is_owner(x)) {                       // the one button kind told of a double click
+            w16_notify(w, x, BN_DOUBLECLICKED);
+            return 0;
+        }
+        /* fall through */
+    case WM_LBUTTONDOWN:
         if ((x->style & BS_TYPE) == BS_GROUPBOX) return 0;
         w16_set_focus(w, x->hwnd);
         b->captured = 1;
@@ -451,7 +491,8 @@ uint32_t w16_button_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_
     case WM_KILLFOCUS:
         b->focused = msg == WM_SETFOCUS;
         if (msg == WM_KILLFOCUS && b->captured) { b->captured = 0; capture(w, 0); b->pressed = 0; }
-        w16_invalidate(w, x, 0);
+        if (is_owner(x)) draw_item(w, x, b, ODA_FOCUS);
+        else w16_invalidate(w, x, 0);
         return 0;
     case WM_ENABLE:
         w16_invalidate(w, x, 0);

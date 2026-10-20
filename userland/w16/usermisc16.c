@@ -22,6 +22,8 @@ uint64_t w16_now_ms(void) {
     return (uint64_t)ts.tv_sec * 1000 + (uint64_t)ts.tv_nsec / 1000000;
 }
 
+static char *far_dup(struct w16 *w, uint32_t far);
+
 static int get_rect(struct w16 *w, uint32_t far, int16_t r[4]) {
     const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 0);
     if (!p) return -1;
@@ -51,7 +53,7 @@ static int point_offset(struct w16 *w, uint32_t far, int dx, int dy) {
 // not where the compositor put the window. A client point of `x` becomes
 // one by adding x's place in its top-level window's client buffer and
 // that buffer's place in the window (the main window's frame).
-static void screen_offset(struct w16 *w, struct w16_wnd *x, int *dx, int *dy) {
+void w16_screen_offset(struct w16 *w, struct w16_wnd *x, int *dx, int *dy) {
     *dx = *dy = 0;
     if (!x) return;
     struct w16_wnd *top = w16_wnd_top(w, x);
@@ -70,7 +72,7 @@ static void screen_offset(struct w16 *w, struct w16_wnd *x, int *dx, int *dy) {
 // The last mouse point in screen coordinates.
 void w16_cursor_screen(struct w16 *w, int16_t *x, int16_t *y) {
     int dx, dy;
-    screen_offset(w, w16_wnd_get(w, w->mouse_hwnd ? w->mouse_hwnd : w->win.hwnd), &dx, &dy);
+    w16_screen_offset(w, w16_wnd_get(w, w->mouse_hwnd ? w->mouse_hwnd : w->win.hwnd), &dx, &dy);
     *x = (int16_t)(w->mouse_x + dx);
     *y = (int16_t)(w->mouse_y + dy);
 }
@@ -234,6 +236,21 @@ static int api_GetCursorPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 4;
 }
 
+// SetCursorPos(x, y): screen coordinates, which are the main window's
+// (w16_screen_offset). toywm moves the pointer only while that window has
+// the focus and only within it; GetCursorPos answers the new place at once.
+static int api_SetCursorPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    int dx, dy;
+    w16_screen_offset(w, &w->win, &dx, &dy);
+    w->mouse_hwnd = w->win.hwnd;
+    w->mouse_x = (int16_t)(x - dx);
+    w->mouse_y = (int16_t)(y - dy);
+    w16_task_post_arg(w, W16_POST_POINTER, (int)((uint32_t)(uint16_t)x << 16 | (uint16_t)y));
+    return 4;
+}
+
 // SetCapture(hwnd) -> the previous
 static int api_SetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
@@ -305,7 +322,7 @@ static int api_ClientToScreen(struct w16 *w, unsigned ordinal, struct w16_args *
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     uint32_t p = w16_arg32(a);
     int dx, dy;
-    screen_offset(w, x, &dx, &dy);
+    w16_screen_offset(w, x, &dx, &dy);
     if (point_offset(w, p, ordinal == 28 ? dx : -dx, ordinal == 28 ? dy : -dy) < 0) return -1;
     return 6;
 }
@@ -326,7 +343,7 @@ static int api_GetWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a
     int16_t wr[4] = { 0, 0, 0, 0 };
     if (x && x->kind == W16_K_CHILD) {
         int dx, dy, l, t, r, b;
-        screen_offset(w, x, &dx, &dy);
+        w16_screen_offset(w, x, &dx, &dy);
         w16_wnd_insets(x, &l, &t, &r, &b);
         wr[0] = (int16_t)(dx - l);
         wr[1] = (int16_t)(dy - t);
@@ -468,6 +485,80 @@ static int api_FillRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     w16_gdi_fill(w, hdc, r[0], r[1], r[2], r[3], br);
     c->r[R_AX] = 1;
     return 8;
+}
+
+// InvertRect(hdc, lpRect)
+static int api_InvertRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    int16_t r[4];
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    if (get_rect(w, w16_arg32(a), r) < 0) return -1;
+    w16_gdi_invert(w, hdc, r[0], r[1], r[2], r[3]);
+    return 6;
+}
+
+// FrameRect(hdc, lpRect, hbr): a one-pixel border in the brush
+static int api_FrameRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    int16_t r[4];
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    uint32_t p = w16_arg32(a);
+    uint16_t br = w16_arg16(a);
+    if (get_rect(w, p, r) < 0) return -1;
+    w->cpu.r[R_AX] = 1;
+    if (r[2] <= r[0] || r[3] <= r[1]) return 8;
+    w16_gdi_fill(w, hdc, r[0], r[1], r[2], r[1] + 1, br);
+    w16_gdi_fill(w, hdc, r[0], r[3] - 1, r[2], r[3], br);
+    w16_gdi_fill(w, hdc, r[0], r[1], r[0] + 1, r[3], br);
+    w16_gdi_fill(w, hdc, r[2] - 1, r[1], r[2], r[3], br);
+    return 8;
+}
+
+// DrawText(hdc, lpString, nCount, lpRect, uFormat) -> the text's height;
+// nCount -1: up to the NUL
+static int api_DrawText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    int16_t r[4];
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    int16_t n = (int16_t)w16_arg16(a);
+    uint32_t pr = w16_arg32(a);
+    uint16_t fmt = w16_arg16(a);
+    char *text;
+    if (n < 0) {
+        text = far_dup(w, far);
+    } else {
+        const uint8_t *p = n ? cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (unsigned)n, 0) : 0;
+        if (n && !p) return -1;
+        text = p ? strndup((const char *)p, (size_t)n) : strdup("");
+    }
+    if (!text) return -1;
+    if (get_rect(w, pr, r) < 0) { free(text); return -1; }
+    if (g_w16_trace) {
+        fprintf(g_w16_trace, "  DrawText \"%s\" in %d,%d,%d,%d format %04x\n", text, r[0], r[1], r[2], r[3], fmt);
+        fflush(g_w16_trace);
+    }
+    w->cpu.r[R_AX] = (uint16_t)w16_gdi_draw_text(w, hdc, text, r, fmt);
+    free(text);
+    if ((fmt & 0x0400) && put_rect(w, pr, r) < 0) return -1;   // DT_CALCRECT
+    return 14;
+}
+
+// LoadBitmap(hInst, lpName): a BITMAP resource as a bitmap. 3.1's own
+// (OBM_*, hInst NULL) are not drawn yet: 0, as for a missing name.
+static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t inst = w16_arg16(a);
+    uint32_t name = w16_arg32(a);
+    char sname[64] = "";
+    w->cpu.r[R_AX] = 0;
+    if ((name >> 16) && cpu16_str(&w->cpu, (uint16_t)(name >> 16), (uint16_t)name, sname, sizeof sname) < 0)
+        return -1;
+    const struct ne_module *m = w16_module_of(w, inst);
+    struct ne_resource r;
+    if (m && ne_resource_find(m, 2, 0, (name >> 16) ? 0 : (uint16_t)name, sname[0] ? sname : 0, &r) >= 0)
+        w->cpu.r[R_AX] = w16_gdi_bitmap_of_dib(w, m->img + r.off, r.len);
+    return 6;
 }
 
 // MessageBeep(type): no sound yet
@@ -706,6 +797,7 @@ const struct w16_api g_user_misc_api[] = {
     { 59, api_SetActiveWindow },
     { 60, api_GetActiveWindow },
     { 69, api_SetCursor },
+    { 70, api_SetCursorPos },
     { 71, api_ShowCursor },
     { 72, api_SetRect },
     { 73, api_SetRectEmpty },
@@ -715,11 +807,15 @@ const struct w16_api g_user_misc_api[] = {
     { 78, api_OffsetRect },
     { 79, api_IntersectRect },
     { 81, api_FillRect },
+    { 82, api_InvertRect },
+    { 83, api_FrameRect },
+    { 85, api_DrawText },
     { 104, api_MessageBeep },
     { 137, api_OpenClipboard },
     { 138, api_OpenClipboard },
     { 144, api_EnumClipboardFormats },
     { 171, api_WinHelp },
+    { 175, api_LoadBitmap },
     { 180, api_GetSysColor },
     { 193, api_IsClipboardFormatAvailable },
     { 196, api_TabbedTextOut },

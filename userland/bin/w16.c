@@ -240,8 +240,8 @@ static void do_syscmd(struct uapp *a, int sc) {
 static void on_open(struct uapp *a) {
     pthread_mutex_lock(&g_w16.lock);
     g_w16.app = a;
-    int pending = g_w16.pending_syscmd;
-    g_w16.pending_syscmd = 0;
+    int pending = g_w16.pending_syscmd, end = g_w16.pending_end;
+    g_w16.pending_syscmd = g_w16.pending_end = 0;
     // The title as it is NOW: a program that retitled its window before
     // this one was up (Notepad's "Notepad - FILE.TXT") posted to no one.
     char *title = g_w16.win.text ? strdup(g_w16.win.text) : 0;
@@ -249,6 +249,9 @@ static void on_open(struct uapp *a) {
     if (title) uapp_set_title(a, title);
     free(title);
     if (pending) do_syscmd(a, pending);   // ShowWindow(SW_MAXIMIZE) before the window was up
+    // The program stopped while its window was opening: the fault's box,
+    // or the end, would otherwise have gone to no one and the window stayed.
+    if (end) uapp_post(a, end, 0);
 }
 
 // The window at 1x: the frame, then the client's pixels. At 2x it is
@@ -571,6 +574,9 @@ static int on_user(struct uapp *a, int code, int arg) {
     }
     case W16_POST_MENU_SHOW: bar_show(arg); return 1;
     case W16_POST_CURSOR: uapp_set_cursor(a, arg); return 0;
+    case W16_POST_POINTER:              // w16's screen is the window: its 1x point, scaled
+        uapp_set_pointer(a, w16_up((int16_t)((uint32_t)arg >> 16)), w16_up((int16_t)arg));
+        return 0;
     case W16_POST_TITLE: {
         // A top-level window's new title: the taskbar's and toywm's too.
         pthread_mutex_lock(&g_w16.lock);

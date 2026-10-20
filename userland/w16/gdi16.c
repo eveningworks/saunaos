@@ -94,6 +94,19 @@ uint16_t w16_gdi_window_dc(struct w16 *w, uint16_t hwnd) {
     return x->dc;
 }
 
+uint16_t w16_gdi_screen_dc(struct w16 *w) {
+    static uint16_t screen;
+    if (w->win.used) return w16_gdi_window_dc(w, w->win.hwnd);
+    struct w16_gdiobj *dc = obj(w, screen, GDI_DC);
+    if (!dc || !dc->screen) {
+        screen = new_obj(w, GDI_DC, &dc);
+        if (!dc) return 0;
+        dc->screen = 1;
+    }
+    dc_defaults(dc);
+    return screen;
+}
+
 void w16_gdi_forget_window(struct w16 *w, uint16_t hwnd) {
     struct w16_wnd *x = w16_wnd_get(w, hwnd);
     struct w16_gdiobj *dc = x ? obj(w, x->dc, GDI_DC) : 0;
@@ -162,10 +175,64 @@ static void fill_target(struct w16 *w, const struct w16_gdiobj *dc, struct gdi_t
         if (!w16_wnd_visible_rect(w, x, &t->x0, &t->y0, &t->x1, &t->y1)) t->x1 = t->x0;
         return;
     }
+    if (dc->screen) return;
     struct w16_gdiobj *bm = obj(w, dc->bitmap, GDI_BITMAP);
     if (bm) { t->px = bm->px; t->w = bm->bw; t->h = bm->bh; t->mono = bm->mono; }
     else { t->px = &g_scratch_px; t->w = t->h = 1; t->mono = 1; }
     gdi_target_whole(t);
+}
+
+// WS_CLIPCHILDREN: a window DC draws round its shown children, not over
+// them. The clip is one rectangle, so the children's pixels are kept
+// before a call draws and put back after -- the same pixels as a clip that
+// left them out. Task thread, under `lock`.
+static struct kept { int x, y, w, h; uint32_t *px; } *g_kept;
+static int g_nkept, g_kept_cap;
+static const struct gdi_target *g_kept_t;
+
+static void restore_children(void) {
+    for (int i = 0; i < g_nkept; i++) {
+        struct kept *k = &g_kept[i];
+        for (int r = 0; r < k->h; r++)
+            memcpy(g_kept_t->px + (size_t)(k->y + r) * g_kept_t->w + k->x, k->px + (size_t)r * k->w, (size_t)k->w * 4);
+        free(k->px);
+    }
+    g_nkept = 0;
+}
+
+static void keep_children(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t) {
+    restore_children();
+    struct w16_wnd *x = dc->hwnd ? w16_wnd_get(w, dc->hwnd) : 0;
+    if (!x || !(x->style & WS_CLIPCHILDREN) || !t->px) return;
+    int n;
+    struct w16_wnd **v = w16_wnd_children(w, x->hwnd, &n);
+    g_kept_t = t;
+    for (int i = 0; v && i < n; i++) {
+        if (!w16_wnd_shown(w, v[i])) continue;
+        int ox, oy, l, tp, r, b;
+        w16_wnd_origin(w, v[i], &ox, &oy);
+        w16_wnd_insets(v[i], &l, &tp, &r, &b);
+        int x0 = ox - l, y0 = oy - tp, x1 = x0 + v[i]->w, y1 = y0 + v[i]->h;
+        if (x0 < t->x0) x0 = t->x0;
+        if (y0 < t->y0) y0 = t->y0;
+        if (x1 > t->x1) x1 = t->x1;
+        if (y1 > t->y1) y1 = t->y1;
+        if (x1 <= x0 || y1 <= y0) continue;
+        if (g_nkept == g_kept_cap) {
+            int cap = g_kept_cap ? 2 * g_kept_cap : 8;
+            struct kept *g = realloc(g_kept, (size_t)cap * sizeof *g);
+            if (!g) break;
+            g_kept = g;
+            g_kept_cap = cap;
+        }
+        struct kept *k = &g_kept[g_nkept];
+        *k = (struct kept){ x0, y0, x1 - x0, y1 - y0, malloc((size_t)(x1 - x0) * (y1 - y0) * 4) };
+        if (!k->px) break;
+        for (int row = 0; row < k->h; row++)
+            memcpy(k->px + (size_t)row * k->w, t->px + (size_t)(y0 + row) * t->w + x0, (size_t)k->w * 4);
+        g_nkept++;
+    }
+    free(v);
 }
 
 // The DC and its pixels; a window DC holds `lock` until gdi_done().
@@ -175,12 +242,22 @@ static struct w16_gdiobj *target(struct w16 *w, uint16_t hdc, struct gdi_target 
     if (!dc) return 0;
     if (dc->hwnd) pthread_mutex_lock(&w->lock);
     fill_target(w, dc, t);
+    if (dc->hwnd) keep_children(w, dc, t);
     return dc;
 }
 
 static void gdi_done(struct w16 *w, struct w16_gdiobj *dc) {
     if (dc && dc->hwnd) {
+        restore_children();
         w->fb_dirty = 1;
+        pthread_mutex_unlock(&w->lock);
+    }
+}
+
+// A window DC's lock dropped after a call that only READ (GetPixel, PtVisible).
+static void gdi_read_done(struct w16 *w, struct w16_gdiobj *dc) {
+    if (dc && dc->hwnd) {
+        restore_children();
         pthread_mutex_unlock(&w->lock);
     }
 }
@@ -216,24 +293,44 @@ static char *far_text(struct w16 *w, uint32_t far, unsigned len) {
 // `text` at (x, y) of a DC in the system font, its colours and
 // background mode; a tab steps to the next of `tab` pixels when tab > 0
 // (TabbedTextOut). Its width.
-static int draw_text(struct w16 *w, uint16_t hdc, int x, int y, const char *text, int tab) {
+static int draw_text_clip(struct w16 *w, uint16_t hdc, int x, int y, const char *text, int tab,
+                          const int *clip) {
     struct gdi_target t;
     struct w16_gdiobj *dc = target(w, hdc, &t);
     int width = 0;
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_font_of(dc ? dc->font : 0));
-    if (dc && t.px) {
+    if (dc && t.px && clip) {                    // a DC-coordinate rectangle, within the window's
+        if (clip[0] + t.ox > t.x0) t.x0 = clip[0] + t.ox;
+        if (clip[1] + t.oy > t.y0) t.y0 = clip[1] + t.oy;
+        if (clip[2] + t.ox < t.x1) t.x1 = clip[2] + t.ox;
+        if (clip[3] + t.oy < t.y1) t.y1 = clip[3] + t.oy;
+    }
+    if (dc && t.px && t.x1 > t.x0 && t.y1 > t.y0) {
         struct ugfx_surface s = ugfx_surface_for_pixels(t.px, t.w, t.h);
         ugfx_set_clip_rect(&s, t.x0, t.y0, t.x1 - t.x0, t.y1 - t.y0);
-        uint32_t bg = dc->bk_mode == TRANSPARENT ? UGFX_TRANSPARENT : w16_colorref_px(dc->bk);
-        for (const char *p = text; *p; ) {
-            size_t run = tab > 0 ? strcspn(p, "\t") : strlen(p);
-            char *piece = strndup(p, run);
-            if (piece) ugfx_draw_string(&s, x + t.ox + width, y + t.oy, piece, w16_colorref_px(dc->text), bg);
-            width += piece ? ugfx_text_width(piece) : 0;
-            free(piece);
-            p += run;
-            if (*p == '\t') { width = (width / tab + 1) * tab; p++; }
+        // OPAQUE fills the whole cell box first, as Windows did: the glyphs
+        // are blended over what is there, so text redrawn in place (a
+        // clock's digits) would otherwise pile up.
+        for (int pass = dc->bk_mode == TRANSPARENT; pass < 2; pass++) {
+            width = 0;
+            for (const char *p = text; *p; ) {
+                size_t run = tab > 0 ? strcspn(p, "\t") : strlen(p);
+                char *piece = strndup(p, run);
+                if (piece && pass) ugfx_draw_string(&s, x + t.ox + width, y + t.oy, piece, w16_colorref_px(dc->text),
+                                                    UGFX_TRANSPARENT);
+                width += piece ? ugfx_text_width(piece) : 0;
+                free(piece);
+                p += run;
+                if (*p == '\t') { width = (width / tab + 1) * tab; p++; }
+            }
+            if (pass) continue;
+            ugfx_fill_rect(&s, x + t.ox, y + t.oy, width, ugfx_char_h(), w16_colorref_px(dc->bk));
+            // ...and the ink kept inside that box: an anti-aliased stand-in
+            // glyph spills a pixel past its advance, which the next fill
+            // would leave behind (3.11's raster fonts never spill).
+            int l = x + t.ox > t.x0 ? x + t.ox : t.x0, r = x + t.ox + width < t.x1 ? x + t.ox + width : t.x1;
+            ugfx_set_clip_rect(&s, l, t.y0, r - l, t.y1 - t.y0);
         }
     }
     ugfx_set_font(was);
@@ -242,8 +339,147 @@ static int draw_text(struct w16 *w, uint16_t hdc, int x, int y, const char *text
     return dc ? width : -1;
 }
 
+static int draw_text(struct w16 *w, uint16_t hdc, int x, int y, const char *text, int tab) {
+    return draw_text_clip(w, hdc, x, y, text, tab, 0);
+}
+
 int w16_gdi_text(struct w16 *w, uint16_t hdc, int x, int y, const char *text, int tab) {
     return draw_text(w, hdc, x, y, text, tab);
+}
+
+// --- DrawText ----------------------------------------------------------------------
+
+static uint16_t dc_font(struct w16 *w, uint16_t hdc);
+
+#define DT_CENTER     0x0001
+#define DT_RIGHT      0x0002
+#define DT_VCENTER    0x0004
+#define DT_BOTTOM     0x0008
+#define DT_WORDBREAK  0x0010
+#define DT_SINGLELINE 0x0020
+#define DT_EXPANDTABS 0x0040
+#define DT_NOCLIP     0x0100
+#define DT_CALCRECT   0x0400
+#define DT_NOPREFIX   0x0800
+
+// One line of DrawText's: its text with the '&'s taken out, and where the
+// underlined character is (-1 none).
+struct dt_line { char *text; int mark; };
+
+static int dt_width(uint16_t hfont, const char *s, size_t n, int tab) {
+    char *t = strndup(s, n);
+    if (!t) return 0;
+    int width = 0;
+    for (char *p = t; *p; ) {
+        size_t run = tab > 0 ? strcspn(p, "\t") : strlen(p);
+        char c = p[run];
+        p[run] = 0;
+        int cx, cy;
+        w16_text_size_in(hfont, p, &cx, &cy);
+        width += cx;
+        p[run] = c;
+        p += run;
+        if (*p == '\t') { width = (width / tab + 1) * tab; p++; }
+    }
+    free(t);
+    return width;
+}
+
+static char *dt_strip(const char *s, size_t n, int prefix, int *mark) {
+    char *out = malloc(n + 1);
+    size_t k = 0;
+    *mark = -1;
+    if (!out) return 0;
+    for (size_t i = 0; i < n; i++) {
+        if (prefix && s[i] == '&' && i + 1 < n) {
+            i++;
+            if (s[i] != '&' && *mark < 0) *mark = (int)k;
+        }
+        out[k++] = s[i];
+    }
+    out[k] = 0;
+    return out;
+}
+
+int w16_gdi_draw_text(struct w16 *w, uint16_t hdc, const char *text, int16_t rc[4], unsigned fmt) {
+    uint16_t hfont = dc_font(w, hdc);
+    int lh = w16_font_line_h(hfont), width = rc[2] - rc[0], tab = 0;
+    if (fmt & DT_EXPANDTABS) { int cx, cy; w16_text_size_in(hfont, " ", &cx, &cy); tab = cx * 8; }
+    int prefix = !(fmt & DT_NOPREFIX);
+    struct dt_line *line = 0;
+    int n = 0, cap = 0, widest = 0;
+    // Lines: the whole text when DT_SINGLELINE; else each '\n' (a '\r' before
+    // it dropped) and, with DT_WORDBREAK, a break at the last space that fits.
+    for (const char *p = text; ; ) {
+        size_t len = fmt & DT_SINGLELINE ? strlen(p) : strcspn(p, "\n");
+        size_t take = len;
+        if ((fmt & DT_WORDBREAK) && !(fmt & DT_SINGLELINE) && dt_width(hfont, p, len, tab) > width) {
+            size_t fit = 0;
+            for (size_t i = 1; i <= len; i++)
+                if (dt_width(hfont, p, i, tab) > width) break;
+                else fit = i;
+            take = fit;
+            for (size_t i = fit; i > 0; i--)
+                if (p[i] == ' ') { take = i; break; }
+            if (take == 0) take = fit ? fit : 1;
+        }
+        size_t vis = take;
+        if (vis && p[vis - 1] == '\r') vis--;
+        if (n == cap) {
+            cap = cap ? cap * 2 : 8;
+            struct dt_line *g = realloc(line, (size_t)cap * sizeof *g);
+            if (!g) break;
+            line = g;
+        }
+        line[n].text = dt_strip(p, vis, prefix, &line[n].mark);
+        if (!line[n].text) break;
+        int lw = dt_width(hfont, line[n].text, strlen(line[n].text), tab);
+        if (lw > widest) widest = lw;
+        n++;
+        p += take;
+        if (take < len) { while (*p == ' ') p++; continue; }
+        if (!*p) break;
+        p++;                                     // the '\n'
+    }
+    int height = n * lh;
+    if (fmt & DT_CALCRECT) {
+        if (fmt & DT_SINGLELINE) height = lh;
+        rc[2] = (int16_t)(rc[0] + widest);
+        rc[3] = (int16_t)(rc[1] + height);
+    } else {
+        int y = rc[1];
+        if (fmt & DT_SINGLELINE) {
+            if (fmt & DT_VCENTER) y = rc[1] + (rc[3] - rc[1] - lh) / 2;
+            else if (fmt & DT_BOTTOM) y = rc[3] - lh;
+        }
+        int clip[4] = { rc[0], rc[1], rc[2], rc[3] };
+        for (int i = 0; i < n; i++, y += lh) {
+            int lw = dt_width(hfont, line[i].text, strlen(line[i].text), tab);
+            int x = fmt & DT_CENTER ? rc[0] + (width - lw) / 2 : fmt & DT_RIGHT ? rc[2] - lw : rc[0];
+            draw_text_clip(w, hdc, x, y, line[i].text, tab, fmt & DT_NOCLIP ? 0 : clip);
+            if (line[i].mark >= 0) {             // the mnemonic's underline, in the text colour
+                int ux = x + dt_width(hfont, line[i].text, (size_t)line[i].mark, tab);
+                int uw = dt_width(hfont, line[i].text + line[i].mark, 1, 0);
+                struct gdi_target t;
+                struct w16_gdiobj *dc = target(w, hdc, &t);
+                if (dc) {
+                    pthread_mutex_lock(&g_w16_text_lock);
+                    int asc = w16_font_info(hfont)->ascent;
+                    pthread_mutex_unlock(&g_w16_text_lock);
+                    if (!(fmt & DT_NOCLIP)) {
+                        if (rc[0] + t.ox > t.x0) t.x0 = rc[0] + t.ox;
+                        if (rc[2] + t.ox < t.x1) t.x1 = rc[2] + t.ox;
+                        if (rc[3] + t.oy < t.y1) t.y1 = rc[3] + t.oy;
+                    }
+                    gdi_line(&t, ux, y + asc + 1, ux + uw, y + asc + 1, w16_colorref_px(dc->text), 1, R2_COPYPEN);
+                }
+                gdi_done(w, dc);
+            }
+        }
+    }
+    for (int i = 0; i < n; i++) free(line[i].text);
+    free(line);
+    return height;
 }
 
 // `text`'s size in font `hfont` (0: the system font): width, and the
@@ -292,6 +528,7 @@ static int bit_blt(struct w16 *w, struct w16_args *a) {
     if (locked) pthread_mutex_lock(&w->lock);
     if (ddc) fill_target(w, ddc, &dt);
     if (sdc) { fill_target(w, sdc, &st); sp = &st; }
+    if (ddc && ddc->hwnd) keep_children(w, ddc, &dt);   // after the source is read, not before
     if (ddc) {
         int64_t br = brush_of(w, ddc->brush);
         struct gdi_blit b = {
@@ -302,10 +539,67 @@ static int bit_blt(struct w16 *w, struct w16_args *a) {
         };
         gdi_bitblt(&b);
     }
+    restore_children();
     if (ddc && ddc->hwnd) w->fb_dirty = 1;
     if (locked) pthread_mutex_unlock(&w->lock);
     w->cpu.r[R_AX] = ddc != 0;
     return 20;
+}
+
+// StretchBlt: the source rectangle sampled to the destination's size
+// (nearest pixel, a negative extent mirroring), then blitted as BitBlt --
+// COLORONCOLOR's result, which is what 3.1 drew a colour stretch with.
+static int stretch_blt(struct w16 *w, struct w16_args *a) {
+    uint16_t hd = w16_arg16(a);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    int16_t cw = (int16_t)w16_arg16(a), ch = (int16_t)w16_arg16(a);
+    uint16_t hs = w16_arg16(a);
+    int16_t sx = (int16_t)w16_arg16(a), sy = (int16_t)w16_arg16(a);
+    int16_t sw = (int16_t)w16_arg16(a), sh = (int16_t)w16_arg16(a);
+    uint32_t rop = w16_arg32(a);
+    struct w16_gdiobj *ddc = obj(w, hd, GDI_DC), *sdc = hs ? obj(w, hs, GDI_DC) : 0;
+    w->cpu.r[R_AX] = ddc != 0;
+    if (!ddc || !cw || !ch) return 24;
+    int dw = cw < 0 ? -cw : cw, dh = ch < 0 ? -ch : ch;
+    int dx = cw < 0 ? x + cw : x, dy = ch < 0 ? y + ch : y;
+    int flip_x = (cw < 0) != (sw < 0), flip_y = (ch < 0) != (sh < 0);
+    int aw = sw < 0 ? -sw : sw, ah = sh < 0 ? -sh : sh;
+    int ax = sw < 0 ? sx + sw : sx, ay = sh < 0 ? sy + sh : sy;
+    uint32_t *tmp = 0;
+    int locked = ddc->hwnd || (sdc && sdc->hwnd);
+    if (locked) pthread_mutex_lock(&w->lock);
+    struct gdi_target dt, st, tt;
+    fill_target(w, ddc, &dt);
+    if (sdc && aw && ah) {
+        fill_target(w, sdc, &st);
+        tmp = malloc((size_t)dw * dh * 4);
+        if (tmp) {
+            for (int j = 0; j < dh; j++) {
+                int v = ay + (flip_y ? dh - 1 - j : j) * ah / dh + st.oy;
+                for (int i = 0; i < dw; i++) {
+                    int u = ax + (flip_x ? dw - 1 - i : i) * aw / dw + st.ox;
+                    int in = st.px && u >= st.x0 && u < st.x1 && v >= st.y0 && v < st.y1;
+                    tmp[(size_t)j * dw + i] = in ? st.px[(size_t)v * st.w + u] : 0xFFFFFF;
+                }
+            }
+            tt = (struct gdi_target){ .px = tmp, .w = dw, .h = dh, .mono = st.mono };
+            gdi_target_whole(&tt);
+        }
+    }
+    if (ddc->hwnd) keep_children(w, ddc, &dt);
+    int64_t br = brush_of(w, ddc->brush);
+    struct gdi_blit b = {
+        .dst = &dt, .src = tmp ? &tt : 0, .x = dx, .y = dy, .w = dw, .h = dh,
+        .rop = rop, .brush = br < 0 ? 0xFFFFFF : (uint32_t)br,
+        .dst_text = w16_colorref_px(ddc->text), .dst_bk = w16_colorref_px(ddc->bk),
+        .src_bk = sdc ? w16_colorref_px(sdc->bk) : 0xFFFFFF,
+    };
+    gdi_bitblt(&b);
+    restore_children();
+    if (ddc->hwnd) w->fb_dirty = 1;
+    if (locked) pthread_mutex_unlock(&w->lock);
+    free(tmp);
+    return 24;
 }
 
 static int pat_blt(struct w16 *w, struct w16_args *a) {
@@ -335,6 +629,16 @@ void w16_gdi_fill(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, uint1
         struct gdi_blit bl = { .dst = &dt, .x = l, .y = t, .w = r - l, .h = b - t,
                                .rop = 0x00F00021, .brush = (uint32_t)br };
         gdi_bitblt(&bl);
+    }
+    gdi_done(w, dc);
+}
+
+void w16_gdi_invert(struct w16 *w, uint16_t hdc, int l, int t, int r, int b) {
+    struct gdi_target dt;
+    struct w16_gdiobj *dc = target(w, hdc, &dt);
+    if (dc) {
+        struct gdi_blit bl = { .dst = &dt, .x = l, .y = t, .w = r - l, .h = b - t, .rop = 0x00550009 };
+        gdi_bitblt(&bl);                         // DSTINVERT
     }
     gdi_done(w, dc);
 }
@@ -415,6 +719,25 @@ static int create_dibitmap(struct w16 *w, struct w16_args *a) {
     return 20;
 }
 
+uint16_t w16_gdi_bitmap_of_dib(struct w16 *w, const uint8_t *dib, uint32_t len) {
+    struct gdi_dib d;
+    if (gdi_dib_header(dib, len, 0, &d) < 0) return 0;
+    int bh = d.h < 0 ? -d.h : d.h;
+    if ((uint64_t)d.header_len + (uint64_t)d.stride * (unsigned)bh > len) return 0;
+    // Monochrome only when its two colours are black then white -- Windows'
+    // rule, so a mask stays a mask and a two-colour picture keeps its colours.
+    int mono = d.bpp == 1 && d.ncolors == 2 && (d.pal[0] & 0xFFFFFF) == 0 && (d.pal[1] & 0xFFFFFF) == 0xFFFFFF;
+    uint16_t h;
+    struct w16_gdiobj *bm = new_bitmap(w, d.w, bh, mono, &h);
+    if (!bm) return 0;
+    const uint8_t *bits = dib + d.header_len;
+    for (int y = 0; y < bh; y++) {
+        const uint8_t *row = bits + (size_t)(d.h < 0 ? y : bh - 1 - y) * d.stride;
+        for (int x = 0; x < d.w; x++) bm->px[(size_t)y * d.w + x] = gdi_dib_px(&d, row, x);
+    }
+    return h;
+}
+
 static int set_dibits_to_device(struct w16 *w, struct w16_args *a) {
     uint16_t hdc = w16_arg16(a);
     int16_t xd = (int16_t)w16_arg16(a), yd = (int16_t)w16_arg16(a);
@@ -461,7 +784,7 @@ static uint16_t select_object(struct w16 *w, uint16_t hdc, uint16_t h) {
     case GDI_BRUSH: old = dc->brush; dc->brush = h; break;
     case GDI_FONT:  old = dc->font; dc->font = h; break;
     case GDI_BITMAP: {
-        if (dc->hwnd) return 0;
+        if (dc->hwnd || dc->screen) return 0;
         struct w16_gdiobj *bm = obj(w, h, GDI_BITMAP), *was = obj(w, dc->bitmap, GDI_BITMAP);
         if (!bm || (bm->in_dc && bm->in_dc != hdc)) return 0;
         if (was) was->in_dc = 0;
@@ -492,7 +815,7 @@ static void delete_object(struct w16 *w, uint16_t h) {
     }
     if (t == GDI_FONT) free(o->lf);
     if (t == GDI_DC) {
-        if (o->hwnd) return;
+        if (o->hwnd || o->screen) return;
         struct w16_gdiobj *bm = obj(w, o->bitmap, GDI_BITMAP);
         if (bm) bm->in_dc = 0;
     }
@@ -618,7 +941,7 @@ static int api_SetPixel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (ordinal == 31) *p = t.mono ? (w16_colorref_px(cr) ? 0xFFFFFF : 0) : w16_colorref_px(cr);
         out = (*p & 0xFF) << 16 | (*p & 0xFF00) | (*p >> 16 & 0xFF);   // back to a COLORREF
     }
-    if (o && o->hwnd && ordinal == 83) pthread_mutex_unlock(&w->lock);
+    if (ordinal == 83) gdi_read_done(w, o);
     else gdi_done(w, o);
     set32(c, out);
     return ordinal == 31 ? 10 : 6;
@@ -677,7 +1000,7 @@ static int api_CreateCompatibleBitmap(struct w16 *w, unsigned ordinal, struct w1
     int16_t bw = (int16_t)w16_arg16(a), bh = (int16_t)w16_arg16(a);
     o = obj(w, hdc, GDI_DC);
     struct w16_gdiobj *src = o ? obj(w, o->bitmap, GDI_BITMAP) : 0;
-    int mono = o && !o->hwnd && (!src || src->mono);   // a memory DC's own bitmap decides
+    int mono = o && !o->hwnd && !o->screen && (!src || src->mono);   // a memory DC's own bitmap decides
     new_bitmap(w, bw, bh, mono, &h);
     c->r[R_AX] = h;
     return 6;
@@ -870,6 +1193,155 @@ static int api_GetStockObject(struct w16 *w, unsigned ordinal, struct w16_args *
     return 2;
 }
 
+// StretchBlt
+static int api_StretchBlt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    return stretch_blt(w, a);
+}
+
+// GetDCOrg(hdc) -> the DC's origin in screen coordinates (w16's screen
+// is the top-level window: usermisc16.c's SCREEN COORDINATES)
+static int api_GetDCOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    int dx = 0, dy = 0;
+    if (dc && dc->hwnd) w16_screen_offset(w, w16_wnd_get(w, dc->hwnd), &dx, &dy);
+    set32(&w->cpu, (uint32_t)(uint16_t)dy << 16 | (uint16_t)dx);
+    return 2;
+}
+
+// GetObject(h, cbBuffer, lpObject) -> the bytes copied: a BITMAP, LOGPEN,
+// LOGBRUSH or LOGFONT, cut to cbBuffer
+static int api_GetObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    int16_t cb = (int16_t)w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    uint8_t buf[50] = { 0 };
+    unsigned n = 0;
+    int width;
+    switch (type_of(w, h)) {
+    case GDI_BITMAP: {
+        struct w16_gdiobj *bm = obj(w, h, GDI_BITMAP);
+        if (!bm) break;
+        int bpp = bm->mono ? 1 : 8;              // GetDeviceCaps' BITSPIXEL
+        int16_t v[4] = { 0, (int16_t)bm->bw, (int16_t)bm->bh, (int16_t)((bm->bw * bpp + 15) / 16 * 2) };
+        memcpy(buf, v, 8);
+        buf[8] = 1;                              // bmPlanes
+        buf[9] = (uint8_t)bpp;
+        n = 14;                                  // bmBits: NULL, a DDB's bits are GDI's
+        break;
+    }
+    case GDI_PEN: {
+        int64_t px = pen_of(w, h, &width);
+        struct w16_gdiobj *p = obj(w, h, GDI_PEN);
+        uint16_t style = p ? p->style : px < 0 ? PS_NULL : 0;
+        uint32_t cr = p ? p->color : h == STOCK_BASE + WHITE_PEN ? 0xFFFFFF : 0;
+        memcpy(buf, &style, 2);
+        buf[2] = (uint8_t)width;
+        memcpy(buf + 6, &cr, 4);
+        n = 10;
+        break;
+    }
+    case GDI_BRUSH: {
+        struct w16_gdiobj *b = obj(w, h, GDI_BRUSH);
+        uint16_t style = b ? b->style : h == STOCK_BASE + NULL_BRUSH ? BS_NULL : 0;
+        uint32_t px = w16_brush_px(w, h), cr = (px & 0xFF) << 16 | (px & 0xFF00) | (px >> 16 & 0xFF);
+        memcpy(buf, &style, 2);
+        memcpy(buf + 2, &cr, 4);
+        n = 8;
+        break;
+    }
+    case GDI_FONT: {
+        const struct w16_logfont *lf = w16_gdi_logfont(w, h);
+        if (lf) {
+            memcpy(buf, &lf->height, 2);
+            memcpy(buf + 2, &lf->width, 2);
+            memcpy(buf + 8, &lf->weight, 2);
+            buf[10] = lf->italic;
+            buf[11] = lf->underline;
+            buf[12] = lf->strikeout;
+            buf[13] = lf->charset;
+            buf[17] = lf->pitch_family;
+            memcpy(buf + 18, lf->face, sizeof lf->face - 1);   // NUL-padded by new_font
+        } else {
+            pthread_mutex_lock(&g_w16_text_lock);
+            const struct w16_fontinfo *f = w16_font_info(h);
+            int16_t ht = (int16_t)f->height, wd = (int16_t)f->ave, wt = (int16_t)f->weight;
+            buf[17] = (uint8_t)f->pitch_family;
+            buf[13] = (uint8_t)f->charset;
+            pthread_mutex_unlock(&g_w16_text_lock);
+            memcpy(buf, &ht, 2);
+            memcpy(buf + 2, &wd, 2);
+            memcpy(buf + 8, &wt, 2);
+            memcpy(buf + 18, "System", 6);
+        }
+        n = 50;
+        break;
+    }
+    default:
+        break;
+    }
+    if (cb >= 0 && (unsigned)cb < n) n = (unsigned)cb;
+    if (n) {
+        uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n, 1);
+        if (!p) return -1;
+        memcpy(p, buf, n);
+    }
+    w->cpu.r[R_AX] = (uint16_t)n;
+    return 8;
+}
+
+// LineDDA(x1, y1, x2, y2, lpLineFunc, lpData): lpLineFunc(x, y, lpData)
+// at each point of the line, the last left out as LineTo leaves it
+static int api_LineDDA(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int x0 = (int16_t)w16_arg16(a), y0 = (int16_t)w16_arg16(a);
+    int x1 = (int16_t)w16_arg16(a), y1 = (int16_t)w16_arg16(a);
+    uint32_t fn = w16_arg32(a), data = w16_arg32(a);
+    int dx = abs(x1 - x0), dy = -abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
+    int err = dx + dy;
+    while ((x0 != x1 || y0 != y1) && !w->cpu.fault) {
+        const uint16_t words[] = { (uint16_t)x0, (uint16_t)y0, (uint16_t)(data >> 16), (uint16_t)data };
+        w16_call_far(w, (uint16_t)(fn >> 16), (uint16_t)fn, words, 4);
+        int e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+    return w->cpu.fault ? -1 : 16;
+}
+
+// PtVisible(hdc, x, y): is the point inside what the DC may draw on
+static int api_PtVisible(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    struct gdi_target t;
+    struct w16_gdiobj *dc = target(w, hdc, &t);
+    int px = x + t.ox, py = y + t.oy;
+    w->cpu.r[R_AX] = dc && t.px && px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1;
+    gdi_read_done(w, dc);                        // drew nothing: no repaint
+    return 6;
+}
+
+// SetBrushOrg(hdc, x, y) -> the old origin
+static int api_SetBrushOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    set32(&w->cpu, dc ? (uint32_t)(uint16_t)dc->brush_oy << 16 | (uint16_t)dc->brush_ox : 0);
+    if (dc) { dc->brush_ox = x; dc->brush_oy = y; }
+    return 6;
+}
+
+// UnrealizeObject(h): a brush's origin is taken afresh at its next select
+// -- nothing to undo here
+static int api_UnrealizeObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w->cpu.r[R_AX] = type_of(w, w16_arg16(a)) != GDI_FREE;
+    return 2;
+}
+
 // CreateDIBitmap
 static int api_CreateDIBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -894,6 +1366,7 @@ const struct w16_api g_gdi_api[] = {
     { 31, api_SetPixel },
     { 33, api_TextOut },
     { 34, api_BitBlt },
+    { 35, api_StretchBlt },
     { 38, api_Escape },
     { 45, api_SelectObject },
     { 48, api_CreateBitmap },
@@ -906,11 +1379,17 @@ const struct w16_api g_gdi_api[] = {
     { 66, api_CreateSolidBrush },
     { 68, api_DeleteDC },
     { 69, api_DeleteDC },
+    { 79, api_GetDCOrg },
     { 80, api_GetDeviceCaps },
+    { 82, api_GetObject },
     { 83, api_SetPixel },
     { 87, api_GetStockObject },
     { 91, api_GetTextExtent },
     { 93, api_GetTextMetrics },
+    { 100, api_LineDDA },
+    { 103, api_PtVisible },
+    { 148, api_SetBrushOrg },
+    { 150, api_UnrealizeObject },
     { 442, api_CreateDIBitmap },
     { 443, api_SetDIBitsToDevice },
 };

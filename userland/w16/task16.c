@@ -226,6 +226,10 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     return 0;
 }
 
+const struct ne_module *w16_module_of(struct w16 *w, uint16_t inst) {
+    return inst ? &w->ne : 0;
+}
+
 // --- imports -------------------------------------------------------------
 
 int w16_api_call(const struct w16_api *t, unsigned n, struct w16 *w, unsigned ordinal,
@@ -367,18 +371,13 @@ void w16_sys_pop(struct w16 *w, uint16_t at) {
     if (at < w->sys_top) w->sys_top = at;
 }
 
-uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,
-                          uint16_t msg, uint16_t wparam, uint32_t lparam) {
+uint32_t w16_call_far(struct w16 *w, uint16_t sel, uint16_t off, const uint16_t *words, unsigned n) {
     struct cpu16 *c = &w->cpu;
     uint16_t saved[8], ss[4], flags = c->flags;
     memcpy(saved, c->r, sizeof saved);
     memcpy(ss, c->sreg, sizeof ss);
-    cpu16_push(c, hwnd);
-    cpu16_push(c, msg);
-    cpu16_push(c, wparam);
-    cpu16_push(c, (uint16_t)(lparam >> 16));
-    cpu16_push(c, (uint16_t)lparam);
-    c->sreg[S_DS] = w->dgroup;       // what an instance thunk gave a window procedure
+    for (unsigned i = 0; i < n; i++) cpu16_push(c, words[i]);
+    c->sreg[S_DS] = w->dgroup;       // what an instance thunk gave a callback
     c->r[R_AX] = w->dgroup;
     cpu16_call_far(c, sel, off);
     uint32_t result = (uint32_t)c->r[R_DX] << 16 | c->r[R_AX];
@@ -388,6 +387,12 @@ uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hw
     c->sreg[S_SS] = ss[S_SS];
     c->flags = flags;
     return result;
+}
+
+uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,
+                          uint16_t msg, uint16_t wparam, uint32_t lparam) {
+    const uint16_t words[] = { hwnd, msg, wparam, (uint16_t)(lparam >> 16), (uint16_t)lparam };
+    return w16_call_far(w, sel, off, words, 5);
 }
 
 // --- the queue -------------------------------------------------------------
@@ -412,6 +417,7 @@ void w16_task_post_arg(struct w16 *w, int code, int arg) {
     pthread_mutex_lock(&w->lock);
     struct uapp *a = w->app;
     if (!a && code == W16_POST_SYSCMD) w->pending_syscmd = arg;   // on_open applies it
+    if (!a && (code == W16_POST_DONE || code == W16_POST_FAULT)) w->pending_end = code;   // ...and posts it
     pthread_mutex_unlock(&w->lock);
     if (a) uapp_post(a, code, arg);
 }

@@ -254,8 +254,21 @@ static int create_main(struct w16 *w, int k, const char *title, uint32_t style, 
         win->used = 0;
         return 0;
     }
-    w16_send(w, win->hwnd, WM_SIZE, 0, (uint32_t)win->ch << 16 | (uint16_t)win->cw);
+    // An OVERLAPPED window hears its first WM_SIZE and WM_MOVE when first
+    // shown, not here (Wine's WIN_NEED_SIZE): Solitaire builds its piles
+    // between CreateWindow and ShowWindow, and its WM_SIZE walks them.
+    if (style & (WS_CHILD | WS_POPUP)) w16_send(w, win->hwnd, WM_SIZE, 0, (uint32_t)win->ch << 16 | (uint16_t)win->cw);
+    else win->need_size = 1;
     return win->hwnd;
+}
+
+// The size messages a window was owed until it was shown.
+static void sized_on_show(struct w16 *w, struct w16_wnd *x) {
+    if (!x->need_size) return;
+    x->need_size = 0;
+    w16_send(w, x->hwnd, WM_SIZE, x->maximized ? SIZE_MAXIMIZED : SIZE_RESTORED,
+             (uint32_t)(uint16_t)x->ch << 16 | (uint16_t)x->cw);
+    w16_send(w, x->hwnd, WM_MOVE, 0, 0);
 }
 
 static int create_window(struct w16 *w, struct w16_args *a) {
@@ -617,6 +630,7 @@ static int move_main(struct w16 *w, int nw, int nh) {
     }
     pthread_mutex_unlock(&w->lock);
     if (ok) {
+        win->need_size = 0;
         w16_invalidate(w, win, 1);
         w16_task_post_arg(w, W16_POST_SIZE, 0);
         w16_send(w, win->hwnd, WM_SIZE, SIZE_RESTORED, (uint32_t)win->ch << 16 | (uint16_t)win->cw);
@@ -624,13 +638,9 @@ static int move_main(struct w16 *w, int nw, int nh) {
     return ok;
 }
 
-// MoveWindow(hwnd, x, y, cx, cy, bRepaint)
-static int move_window(struct w16 *w, struct w16_args *a) {
-    uint16_t h = w16_arg16(a);
-    int16_t nx = (int16_t)w16_arg16(a), ny = (int16_t)w16_arg16(a);
-    int16_t nw = (int16_t)w16_arg16(a), nh = (int16_t)w16_arg16(a);
-    w16_arg16(a);
-    struct w16_wnd *x = w16_wnd_get(w, h);
+// MoveWindow's work, SetWindowPos's too: 1 when x took the place.
+static int move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int nh) {
+    uint16_t h = x ? x->hwnd : 0;
     int ok = 0;
     if (x == &w->win) {
         ok = move_main(w, nw, nh);
@@ -643,8 +653,76 @@ static int move_window(struct w16 *w, struct w16_args *a) {
         if (moved) w16_send(w, h, WM_MOVE, 0, (uint32_t)(uint16_t)x->y << 16 | (uint16_t)x->x);
         ok = 1;
     }
-    w->cpu.r[R_AX] = (uint16_t)ok;
+    return ok;
+}
+
+// MoveWindow(hwnd, x, y, cx, cy, bRepaint)
+static int move_window(struct w16 *w, struct w16_args *a) {
+    uint16_t h = w16_arg16(a);
+    int16_t nx = (int16_t)w16_arg16(a), ny = (int16_t)w16_arg16(a);
+    int16_t nw = (int16_t)w16_arg16(a), nh = (int16_t)w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = (uint16_t)move_to(w, w16_wnd_get(w, h), nx, ny, nw, nh);
     return 12;
+}
+
+#define SWP_NOSIZE     0x0001
+#define SWP_NOMOVE     0x0002
+#define SWP_SHOWWINDOW 0x0040
+#define SWP_HIDEWINDOW 0x0080
+
+// SetWindowPos(hwnd, hwndInsertAfter, x, y, cx, cy, flags): a place and a
+// size as MoveWindow takes them, either kept by its SWP_NO* flag; the
+// z-order is the creation order (wnd16.c) and stays.
+static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    w16_arg16(a);
+    int16_t nx = (int16_t)w16_arg16(a), ny = (int16_t)w16_arg16(a);
+    int16_t nw = (int16_t)w16_arg16(a), nh = (int16_t)w16_arg16(a);
+    uint16_t flags = w16_arg16(a);
+    w->cpu.r[R_AX] = x != 0;
+    if (!x) return 14;
+    if (flags & SWP_NOMOVE) { nx = (int16_t)x->x; ny = (int16_t)x->y; }
+    if (flags & SWP_NOSIZE) { nw = (int16_t)x->w; nh = (int16_t)x->h; }
+    if ((flags & (SWP_NOMOVE | SWP_NOSIZE)) != (SWP_NOMOVE | SWP_NOSIZE) &&
+        (x == &w->win ? (nw != x->w || nh != x->h) : (nx != x->x || ny != x->y || nw != x->w || nh != x->h)))
+        move_to(w, x, nx, ny, nw, nh);
+    if (flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW)) {
+        int show = (flags & SWP_SHOWWINDOW) != 0;
+        pthread_mutex_lock(&w->lock);
+        int was = x->visible;
+        x->visible = show;
+        if (show) x->style |= WS_VISIBLE;
+        else x->style &= ~WS_VISIBLE;
+        pthread_mutex_unlock(&w->lock);
+        if (show) sized_on_show(w, x);
+        if (show && !was) w16_invalidate(w, x, 1);
+        else if (!show && was && x->kind == W16_K_CHILD) w16_invalidate(w, w16_wnd_get(w, x->parent), 1);
+        if (x == &w->win) w16_task_post(w, W16_POST_PAINT);
+    }
+    return 14;
+}
+
+// AdjustWindowRect(lpRect, style, bMenu): the client rectangle grown by
+// 3.1's frame, caption and menu bar -- what CreateWindow and MoveWindow
+// take off again (w16_frame_fit under the desktop's frame), so the client
+// is the one asked for. Scroll bars are not counted, as in Windows.
+static int api_AdjustWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t p = w16_arg32(a), style = w16_arg32(a);
+    uint16_t menu = w16_arg16(a);
+    int16_t r[4];
+    if (get_bytes(w, p, r, 8) < 0) return -1;
+    int f = style & WS_THICKFRAME ? W16_FRAME : 1;
+    int top = f + ((style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0) + (menu ? W16_MENU_H : 0);
+    r[0] = (int16_t)(r[0] - f);
+    r[1] = (int16_t)(r[1] - top);
+    r[2] = (int16_t)(r[2] + f);
+    r[3] = (int16_t)(r[3] + f);
+    if (put_bytes(w, p, r, 8) < 0) return -1;
+    w->cpu.r[R_AX] = 1;
+    return 10;
 }
 
 // --- the exports ------------------------------------------------------------------------
@@ -713,7 +791,7 @@ static int api_GetDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    c->r[R_AX] = w16_gdi_window_dc(w, h ? h : w->win.hwnd);
+    c->r[R_AX] = h ? w16_gdi_window_dc(w, h) : w16_gdi_screen_dc(w);
     return 2;
 }
 
@@ -800,10 +878,11 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (show) x->style |= WS_VISIBLE;
     else x->style &= ~WS_VISIBLE;
     pthread_mutex_unlock(&w->lock);
+    if (show) sized_on_show(w, x);
     if (show) w16_invalidate(w, x, 1);
     else if (was && x->kind == W16_K_CHILD) w16_invalidate(w, w16_wnd_get(w, x->parent), 1);
     if (x == &w->win) w16_task_post(w, W16_POST_PAINT);
-    return 4;
+    return c->fault ? -1 : 4;
 }
 
 // DestroyWindow(hwnd)
@@ -1107,6 +1186,7 @@ const struct w16_api g_user_api[] = {
     { 57, api_RegisterClass },
     { 66, api_GetDC },
     { 68, api_ReleaseDC },
+    { 102, api_AdjustWindowRect },
     { 106, api_GetKeyState },
     { 107, api_DefWindowProc },
     { 108, api_GetMessage },
@@ -1127,6 +1207,7 @@ const struct w16_api g_user_api[] = {
     { 174, api_LoadCursor },
     { 176, api_LoadString },
     { 179, api_GetSystemMetrics },
+    { 232, api_SetWindowPos },
     { 277, api_GetDlgCtrlID },
 };
 const unsigned g_user_api_n = sizeof g_user_api / sizeof g_user_api[0];
