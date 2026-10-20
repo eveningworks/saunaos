@@ -926,6 +926,9 @@ int sys_mount(const struct mount_request *req);
 // permission check. Refuses a volume something is mounted from; use
 // `fsformat` for the running root, which is a different operation.
 int sys_mkfs(const struct mkfs_request *req);
+// How far the format running on `source` ("ahci0p1") has got; -1 with
+// errno ESRCH when none is (MKFS_PROGRESS).
+int sys_mkfs_progress(const char *source, struct fs_check_progress *out);
 // SYS_FS_CHECK: check (FSCK_REPAIR: and repair) the mounted volume
 // holding `path`, in the kernel. 0 or -1 with errno; abi/mount_abi.h.
 int sys_fs_check(const char *path, unsigned flags, struct fs_check_result *out);

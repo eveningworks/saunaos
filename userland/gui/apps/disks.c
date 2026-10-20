@@ -187,12 +187,13 @@ static void build_map(void) {
 
 // Why `cmd` is refused for the selection, or NULL when it may go ahead.
 static int check_running(void);
+static const char *job_wait_note(void);
 
 static const char *refusal(int cmd) {
     struct udisk *d = cur_disk();
     struct udisk_part *p = cur_part();
     // Refresh too: reading a volume's usage waits behind the check's lock.
-    if (check_running() && cmd != CMD_EXIT) return "Wait for the check to finish";
+    if (check_running() && cmd != CMD_EXIT) return job_wait_note();
     if (!d) return "Volumes in memory cannot be changed";
     switch (cmd) {
     case CMD_NEW:
@@ -295,7 +296,9 @@ static int format(const char *dev, const char *fs) {
     return rc;
 }
 
-static void do_create(void) {
+static void start_format(struct uapp *a, const char *dev, const char *fs);
+
+static void do_create(struct uapp *a) {
     struct udisk *d = cur_disk();
     int s = g_map.selected;
     if (refusal(CMD_NEW) || !d) return;
@@ -326,10 +329,7 @@ static void do_create(void) {
     if (fs == 2 || !dev[0]) {
         say(dev[0] ? "Created %s%s" : "Created the partition%s%s; it gets a device at the next boot", dev, "");
     } else {
-        rc = format(dev, fs == 0 ? "tfs3" : "fat32");
-        if (rc < 0) say("Created %s, but could not format it: %s", dev, strerror(-rc));
-        else say("Created %s and formatted it %s", dev, fs == 0 ? "tfs3" : "FAT32");
-        scan();
+        start_format(a, dev, fs == 0 ? "tfs3" : "fat32");
     }
 }
 
@@ -362,11 +362,12 @@ static void do_mount(void) {
     scan();
 }
 
-// --- Check and Repair, on a worker ----------------------------------------------
+// --- Check, Repair and Format, on a worker ----------------------------------------
 //
-// SYS_FS_CHECK BLOCKS FOR THE WHOLE PASS, so it runs on a worker and this
-// thread reads how far it has got (FSCK_PROGRESS, which takes no lock)
-// on every tick. The worker touches nothing but g_check and posts once.
+// SYS_FS_CHECK AND SYS_MKFS BLOCK FOR THE WHOLE PASS, so each runs on a
+// worker and this thread reads how far it has got (FSCK_PROGRESS,
+// MKFS_PROGRESS, neither taking a lock the pass holds) on every tick. The
+// worker touches nothing but the job's answer and posts once.
 
 #define SHOW_AFTER_MS 300   // a check quicker than this never shows a dialog...
 #define SHOW_FOR_MS   500   // ...and one that does stays up this long, so it never flashes
@@ -375,7 +376,10 @@ enum { EV_CHECK_DONE = 1 };
 
 static struct fs_check_result g_check;
 static char g_check_point[64], g_check_title[32], g_job_title[48];
+enum { JOB_CHECK, JOB_FORMAT };
+static char g_fmt_dev[16], g_fmt_fs[8];
 static struct {
+    int kind;                      // JOB_*
     int running, repair, shown, stopping, finished;
     unsigned ms;                   // how long the pass took, to the worker's answer
     unsigned long long started_ns, shown_ns;
@@ -386,6 +390,17 @@ static struct uui_item g_stages_item = { .ops = &uui_stages_ops, .widget = &g_st
 static struct uapp *g_app;
 
 static int check_running(void) { return g_job.running; }
+static const char *job_wait_note(void) {
+    return g_job.kind == JOB_FORMAT ? "Wait for the format to finish" : "Wait for the check to finish";
+}
+
+static void *format_worker(void *arg) {
+    (void)arg;
+    g_job.rc = format(g_fmt_dev, g_fmt_fs);   // -errno already
+    g_job.err = g_job.rc < 0 ? -g_job.rc : 0;
+    uapp_post(g_app, EV_CHECK_DONE, 0);
+    return 0;
+}
 
 static void *check_worker(void *arg) {
     unsigned flags = (unsigned)(uintptr_t)arg;
@@ -401,7 +416,7 @@ static void *check_worker(void *arg) {
 static void open_progress(struct uapp *a) {
     static struct uui_dialog_button stop[1];
     stop[0] = (struct uui_dialog_button){ g_job.stopping ? "Stopping..." : "Stop", ASK_STOP, 0 };
-    int n = g_job.repair || g_job.stopping || g_job.finished ? 0 : 1;
+    int n = g_job.repair || g_job.kind == JOB_FORMAT || g_job.stopping || g_job.finished ? 0 : 1;
     int sw, sh;
     uui_stages_natural_size(&g_stages, &sw, &sh);
     uui_dialog_set_body(&g_ask, &g_stages_item, sw, sh);
@@ -415,7 +430,8 @@ static void open_progress(struct uapp *a) {
 // which stays set until the worker's message is read, after the pass.
 static int poll_progress(void) {
     struct fs_check_progress p;
-    if (sys_fs_check_progress(g_check_point, &p) < 0 || !p.running) return 0;
+    int rc = g_job.kind == JOB_FORMAT ? sys_mkfs_progress(g_fmt_dev, &p) : sys_fs_check_progress(g_check_point, &p);
+    if (rc < 0 || !p.running) return 0;
     if (p.stages && (int)p.stages != g_stages.count) {
         const char *names[FSCK_STAGES_MAX];
         for (int i = 0; i < FSCK_STAGES_MAX; i++) names[i] = p.names[i];
@@ -426,6 +442,7 @@ static int poll_progress(void) {
     uui_stages_set(&g_stages, st, p.total ? (int)((uint64_t)done * 1000 / p.total) : -1);
     if (p.total) snprintf(g_stages.line, sizeof g_stages.line, "%u of %u %s", done, p.total, p.units[st]);
     else snprintf(g_stages.line, sizeof g_stages.line, "%s", "Starting");
+    if (g_job.kind == JOB_FORMAT) return 1;
     snprintf(g_stages.detail[0], sizeof g_stages.detail[0], "%u files, %u blocks", p.records, p.blocks);
     if (st > 0)
         snprintf(g_stages.detail[st], sizeof g_stages.detail[st], p.problems == 1 ? "%u problem so far"
@@ -437,8 +454,12 @@ static int poll_progress(void) {
 // IN IS READ FROM THAT VOLUME -- so the first progress dialog of a boot
 // would wait, undrawn, for the very pass it reports. Drawing it once
 // into a scratch surface first brings those pages in while the volume
-// is free.
+// is free -- and asking both progress calls once, with nothing running
+// (a moved wrapper was the whole dialog lost, unseen).
 static void warm_progress(void) {
+    struct fs_check_progress none;
+    sys_fs_check_progress("/", &none);
+    sys_mkfs_progress("", &none);
     static const char *const names[] = { "Walk", "Compare", "Count" };
     struct uui_stages st;
     uui_stages_init(&st);
@@ -488,6 +509,34 @@ static void start_check(struct uapp *a, unsigned flags) {
     say("%s%s", g_job_title, "...");
 }
 
+// A format on the worker, reported in the same stage dialog: everything
+// on the partition is replaced, so there is no Stop.
+static void start_format(struct uapp *a, const char *dev, const char *fs) {
+    g_app = a;
+    warm_progress();
+    memset(&g_job, 0, sizeof g_job);
+    g_job.kind = JOB_FORMAT;
+    snprintf(g_fmt_dev, sizeof g_fmt_dev, "%s", dev);
+    snprintf(g_fmt_fs, sizeof g_fmt_fs, "%s", fs);
+    g_job.started_ns = uui_anim_now_ns();
+    snprintf(g_job_title, sizeof g_job_title, "Formatting %s as %s", dev, !strcmp(fs, "fat32") ? "FAT32" : fs);
+    uui_stages_set_names(&g_stages, 0, 0);
+    uui_stages_set(&g_stages, 0, -1);
+    snprintf(g_stages.line, sizeof g_stages.line, "%s", "Starting");
+    pthread_t th;
+    pthread_attr_t at;
+    pthread_attr_init(&at);
+    pthread_attr_setdetachstate(&at, PTHREAD_CREATE_DETACHED);
+    g_job.running = 1;
+    if (pthread_create(&th, &at, format_worker, 0) != 0) {
+        g_job.running = 0;
+        say("Could not start formatting %s: %s", dev, "no thread");
+        return;
+    }
+    ulogf("disks: format %s %s started\n", dev, fs);
+    say("%s%s", g_job_title, "...");
+}
+
 static void do_check(struct uapp *a, unsigned flags) {
     struct udisk_part *p = cur_part();
     if (!flags) {
@@ -505,6 +554,14 @@ static void check_done(struct uapp *a) {
     if (uui_dialog_is_open(&g_ask)) uui_dialog_close(&g_ask);
     uui_dialog_set_body(&g_ask, 0, 0, 0);
     unsigned ms = g_job.ms;
+    if (g_job.kind == JOB_FORMAT) {
+        const char *fs = !strcmp(g_fmt_fs, "fat32") ? "FAT32" : g_fmt_fs;
+        ulogf("disks: format %s %s -> %d in %u ms\n", g_fmt_dev, g_fmt_fs, g_job.rc, ms);
+        if (g_job.rc < 0) say("Could not format %s: %s", g_fmt_dev, strerror(g_job.err));
+        else say("Formatted %s %s", g_fmt_dev, fs);
+        scan();
+        return;
+    }
     if (g_job.rc < 0 && g_job.err == ECANCELED) {
         ulogf("disks: check %s stopped after %u ms\n", g_check_point, ms);
         say("Stopped checking %s%s", g_check_point, "");
@@ -606,10 +663,7 @@ static void answer(struct uapp *a, int code) {
     case ASK_FORMAT_TFS3:
     case ASK_FORMAT_FAT:
         if (!p || refusal(CMD_FORMAT)) break;
-        rc = format(p->dev, code == ASK_FORMAT_TFS3 ? "tfs3" : "fat32");
-        if (rc < 0) say("Could not format %s: %s", p->dev, strerror(-rc));
-        else say("Formatted %s %s", p->dev, code == ASK_FORMAT_TFS3 ? "tfs3" : "FAT32");
-        scan();
+        start_format(a, p->dev, code == ASK_FORMAT_TFS3 ? "tfs3" : "fat32");
         break;
     case ASK_DELETE:
         if (!p || refusal(CMD_DELETE)) break;
@@ -618,7 +672,7 @@ static void answer(struct uapp *a, int code) {
         else say("Deleted the partition from %s%s", d->name, "");
         scan();
         break;
-    case ASK_CREATE: do_create(); break;
+    case ASK_CREATE: do_create(a); break;
     case ASK_REPAIR: do_check(a, FSCK_REPAIR); break;
     case ASK_STOP:
         if (!g_job.running || g_job.repair) break;
@@ -1003,7 +1057,10 @@ static int on_user(struct uapp *a, int a0, int a1) {
     if (a0 != EV_CHECK_DONE) return 0;
     g_job.finished = 1;
     g_job.ms = (unsigned)((uui_anim_now_ns() - g_job.started_ns) / 1000000ull);
-    if (g_job.shown && g_job.rc == 0) {
+    if (g_job.shown && g_job.rc == 0 && g_job.kind == JOB_FORMAT) {
+        uui_stages_set(&g_stages, g_stages.count, 1000);
+        g_stages.line[0] = 0;
+    } else if (g_job.shown && g_job.rc == 0) {
         unsigned bad = fs_check_problems(&g_check);
         uui_stages_set(&g_stages, g_stages.count, 1000);
         g_stages.line[0] = 0;

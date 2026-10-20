@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include "rt/sys.h"
 #include "lib/uargs.h"
+#include "lib/ustageline.h"
 
 #define FSCK_CLEAN     0
 #define FSCK_CORRECTED 1
@@ -67,27 +68,9 @@ static void on_interrupt(int sig) {
     g_interrupted = 1;
 }
 
-// "fsck: stage 2 of 3, compare the allocation maps: 18 of 28 groups (64%)",
-// over the last one; `width` is that one's length, so a shorter line
-// leaves no tail.
 static void draw_line(int *width) {
     struct fs_check_progress p;
-    if (sys_fs_check_progress(g_path, &p) || !p.running || !p.stages) return;
-    unsigned st = p.stage < FSCK_STAGES_MAX ? p.stage : 0;
-    char line[128], name[32];
-    snprintf(name, sizeof name, "%s", p.names[st]);
-    if (name[0] >= 'A' && name[0] <= 'Z') name[0] = (char)(name[0] - 'A' + 'a');
-    int n = snprintf(line, sizeof line, "fsck: stage %u of %u, %s", st + 1, p.stages, name);
-    if (p.total && n > 0 && n < (int)sizeof line) {
-        unsigned done = p.done > p.total ? p.total : p.done;
-        snprintf(line + n, sizeof line - (size_t)n, ": %u of %u %s (%u%%)", done, p.total, p.units[st],
-                 (unsigned)((unsigned long long)done * 100 / p.total));
-    }
-    int len = (int)strlen(line);
-    char out[192];   // ONE write: stderr is unbuffered, and fprintf would make it one per byte
-    int n2 = snprintf(out, sizeof out, "\r%s%*s", line, *width > len ? *width - len : 0, "");
-    if (n2 > 0) write(2, out, (size_t)(n2 < (int)sizeof out ? n2 : (int)sizeof out - 1));
-    *width = len;
+    if (!sys_fs_check_progress(g_path, &p)) ustageline_draw("fsck", &p, width);
 }
 
 // Runs the check on a worker and waits for it, drawing and passing a
@@ -137,11 +120,7 @@ static int run_check(void) {
     }
     pthread_join(th, 0);
     signal(SIGINT, SIG_DFL);
-    if (width) {
-        char blank[160];
-        int n = snprintf(blank, sizeof blank, "\r%*s\r", width < 150 ? width : 150, "");
-        if (n > 0) write(2, blank, (size_t)n);
-    }
+    ustageline_clear(&width);
     errno = g_err;
     return g_rc;
 }

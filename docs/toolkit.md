@@ -113,6 +113,7 @@
 | `usnd_synth.h` | A General MIDI synthesiser over a SoundFont bank: sixteen channels of MIDI state and a pool of sample-playing voices. |
 | `usndfmt.h` | usndfmt -- each sound card's chosen output format: its rate policy and its width, kept in SND_CARDS_FILE (abi/sound_abi.h) as one `[<card>]` section per card, keyed by the card's stable name. |
 | `usolid.h` | A textured solid -- a cube, a pyramid or a ball -- that folds up out of one flat face, tumbles, and bounces around a screen. |
+| `ustageline.h` | A long job's STAGE LINE on a terminal, redrawn in place over the last one -- "fsck: stage 2 of 3, compare the allocation maps: 18 of 28 groups (64%)", e2fsck -C's shape -- from the kernel's progres... |
 | `utags.h` | utags -- what a sound file says about itself: title, artist, album, and an embedded picture. |
 | `utar.h` | TAR ARCHIVES, plain or gzipped, and a lone .gz file -- reading one member out, listing them, and writing a new archive. |
 | `utest.h` | The harness every self-checking /tests program reports through: a banner, one line per check, and ONE epilogue line in the shape tools/usertest_run.py knows by default -- |

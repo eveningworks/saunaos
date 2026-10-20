@@ -1,6 +1,10 @@
 // mkfs -- put an empty filesystem on a partition.
 //
-//     mkfs [-t <type>] <partition> confirm
+//     mkfs [-t TYPE] PARTITION confirm
+//
+// The format runs on a second thread while this one draws its stage line
+// from MKFS_PROGRESS (lib/ustageline.h, as `fsck` does). Arguments come
+// through lib/uargs, as for every such program.
 //
 // THE INSTALLER'S OPERATION, and deliberately not `fsformat`. That one
 // reformats the volume this machine is RUNNING FROM: it unmounts
@@ -20,55 +24,87 @@
 // the ABI comment says so rather than letting anybody mistake it for a
 // permission check.
 #include <stdint.h>
+#include <errno.h>
+#include <pthread.h>
+#include <unistd.h>
 #include "rt/sys.h"
 #include "mount_abi.h"
-#include "lib/cmd.h"
+#include "lib/uargs.h"
+#include "lib/ustageline.h"
 #include <stdio.h>
 #include <string.h>
 
-#define USAGE "mkfs [-t <type>] <partition> confirm"
+#define REDRAW_MS 200
+
+static const char *g_type = "tfs3";
+
+static const struct uargs_opt OPTS[] = {
+    { "type", 't', "TYPE", "the filesystem to write: tfs3 (the default) or fat32", 0, &g_type },
+    { 0 }
+};
+
+static const struct uargs_prog PROG = {
+    .name = "mkfs",
+    .usage = "[-t TYPE] PARTITION confirm",
+    .summary = "Put an empty filesystem on PARTITION (as lsblk names it: ahci0p1),\n"
+               "erasing what is on it. The word `confirm` says that is meant.",
+    .opts = OPTS,
+};
+
+static struct mkfs_request g_req;
+static int g_rc, g_err;
+static volatile int g_done;
+
+static void *worker(void *arg) {
+    (void)arg;
+    g_rc = sys_mkfs(&g_req);
+    g_err = g_rc < 0 ? sys_errno() : 0;
+    __atomic_store_n(&g_done, 1, __ATOMIC_RELEASE);
+    return 0;
+}
 
 int main(int argc, char **argv) {
-    const char *type = "tfs3";
-    const char *part = 0;
-    int confirmed = 0;
-
-    for (int i = 1; i < argc; i++) {
-        if (!strcmp(argv[i], "-t") && i + 1 < argc) type = argv[++i];
-        else if (!strcmp(argv[i], "confirm")) confirmed = 1;
-        else if (argv[i][0] == '-') { cmd_usage(USAGE); return 1; }
-        else if (!part) part = argv[i];
-        else { cmd_usage(USAGE); return 1; }
-    }
-    if (!part) { cmd_usage(USAGE); return 1; }
-
-    if (!confirmed) {
+    struct uargs a;
+    if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
+    const char *part = a.argc > 0 ? a.argv[0] : 0;
+    if (!part) return uargs_error(&PROG, "which partition?");
+    if (a.argc > 2 || (a.argc == 2 && strcmp(a.argv[1], "confirm")))
+        return uargs_error(&PROG, "unexpected argument '%s'", a.argv[a.argc > 2 ? 2 : 1]);
+    if (a.argc < 2) {
         printf("mkfs: this ERASES %s. Add the word `confirm` if that is "
-               "what you want:\n    mkfs -t %s %s confirm\n", part, type, part);
+               "what you want:\n    mkfs -t %s %s confirm\n", part, g_type, part);
         return 1;
     }
 
-    struct mkfs_request req;
-    memset(&req, 0, sizeof req);
-    strlcpy(req.source, part, sizeof req.source);
-    strlcpy(req.fstype, type, sizeof req.fstype);
-    req.flags = MKFS_CONFIRM;
+    memset(&g_req, 0, sizeof g_req);
+    strlcpy(g_req.source, part, sizeof g_req.source);
+    strlcpy(g_req.fstype, g_type, sizeof g_req.fstype);
+    g_req.flags = MKFS_CONFIRM;
 
-    if (sys_mkfs(&req) < 0) {
+    pthread_t th;
+    if (pthread_create(&th, 0, worker, 0) == 0) {
+        int tty = isatty(2), width = 0;
+        while (!__atomic_load_n(&g_done, __ATOMIC_ACQUIRE)) {
+            usleep(REDRAW_MS * 1000);
+            struct fs_check_progress p;
+            if (tty && !sys_mkfs_progress(part, &p)) ustageline_draw("mkfs", &p, &width);
+        }
+        pthread_join(th, 0);
+        ustageline_clear(&width);
+    } else {
+        worker(0);   // no thread: no line, same answer
+    }
+
+    if (g_rc < 0) {
         // THE REASON IS IN sys_errno(), NOT IN THE RETURN VALUE. Every
         // wrapper here converts a negative errno to -1 and stashes the
         // code (rt/sys.c's err()), so comparing the return against
         // -EINVAL matches nothing -- and -1 IS -EPERM, so a chain of
         // such comparisons reports every failure as the LAST thing it
-        // happens to equal. This one printed "refused without
-        // confirmation" for a partition that did not exist.
-        int e = sys_errno();
+        // happens to equal.
+        int e = g_err;
         const char *why =
-            e == EBUSY  ? "a disk-backed filesystem is mounted.\n"
-                          "       Formatting anything now would repoint that backend --\n"
-                          "       they keep their volume in module-level state -- so it is\n"
-                          "       refused. NOTE: no boot mode today leaves them all\n"
-                          "       unmounted, so this is not reachable yet. See docs/bugs.md"
+            e == EBUSY  ? "it is mounted -- unmount it first"
           : e == EINVAL ? "no such partition, or no such filesystem type"
           : e == EPERM  ? "refused without confirmation"
           : e == EIO    ? "the format itself failed -- see dmesg"
@@ -76,6 +112,6 @@ int main(int argc, char **argv) {
         printf("mkfs: %s: %s\n", part, why);
         return 1;
     }
-    printf("mkfs: %s is now an empty %s filesystem\n", part, type);
+    printf("mkfs: %s is now an empty %s filesystem\n", part, g_type);
     return 0;
 }

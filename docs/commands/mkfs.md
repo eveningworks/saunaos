@@ -6,12 +6,14 @@
 
 ## Synopsis
 
-    mkfs [-t <type>] <partition> confirm
+    mkfs [-t TYPE] PARTITION confirm
 
 ## Options
 
-- `-t <type>` -- the filesystem to write: `tfs3` (the default) or
-  `fat32`.
+| Option | Meaning |
+|---|---|
+| `-t TYPE`, `--type=TYPE` | the filesystem to write: `tfs3` (the default) or `fat32` |
+| `-h`, `--help` | print the usage and exit |
 
 ## Description
 
@@ -25,6 +27,19 @@ confirm` and `mkpart`'s. There is no privilege model in this OS to gate
 a destructive storage operation with, so the stand-in is that the person
 asking spells it out. It is a speed bump and not a permission check, and
 the ABI says so rather than letting anyone mistake it for one.
+
+## Progress
+
+On a terminal, a format long enough to notice draws a stage line over
+itself on stderr, the way `fsck` does:
+
+    mkfs: stage 2 of 3, write the group descriptors: 120 of 699 blocks (17%)
+
+A tfs3 format writes only the superblock, the journal, the group
+descriptors (three copies), group 0 and the backup superblocks -- every
+other group is marked unwritten and initialised when first used -- so it
+takes about as long on 8 TB as on 8 GiB. Disks shows the same three
+stages in its format dialog.
 
 ## Why this is not `fsformat`
 

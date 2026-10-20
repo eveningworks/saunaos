@@ -993,6 +993,14 @@ int sys_mkfs(const struct mkfs_request *req) {
     return (int)err(syscall1(SYS_MKFS, (uint64_t)(uintptr_t)req));
 }
 
+int sys_mkfs_progress(const char *source, struct fs_check_progress *out) {
+    struct mkfs_request req;
+    __builtin_memset(&req, 0, sizeof req);
+    for (size_t i = 0; source[i] && i + 1 < sizeof req.source; i++) req.source[i] = source[i];
+    req.flags = MKFS_PROGRESS;
+    return (int)err(syscall2(SYS_MKFS, (uint64_t)(uintptr_t)&req, (uint64_t)(uintptr_t)out));
+}
+
 int sys_fs_check(const char *path, unsigned flags, struct fs_check_result *out) {
     return (int)err(syscall3(SYS_FS_CHECK, (uint64_t)(uintptr_t)path, flags,
                              (uint64_t)(uintptr_t)out));
