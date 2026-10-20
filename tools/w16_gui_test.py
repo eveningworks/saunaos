@@ -56,6 +56,10 @@ file is involved.
    here", `from_files=ask` cards hello.exe too, `--details` names the
    rows, and the File Manager's right-click on fault.exe lists Show its
    calls under Open, which opens the calls window.
+12. **The details panel and Options** (`--show`): in a short window
+   fault.exe's Run sits in the pinned footer and its Drive C: row is
+   scrolled out; the wheel brings it into view above Run; the Options
+   window takes a bigger size and refuses one smaller than it opened at.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -513,6 +517,73 @@ def from_file_manager(dbg, qmp, res):
     sh(dbg, f"rm {fm.FILES_CONF}")
 
 
+def layout_rect(lines, name):
+    got = None
+    for ln in lines:
+        m = re.search(r": layout " + re.escape(name) + r" (-?\d+) (-?\d+) (\d+) (\d+)$", ln)
+        if m:
+            got = tuple(int(v) for v in m.groups())
+    return got
+
+
+def panel_and_options(dbg, qmp, res):
+    """The details panel scrolls above a pinned footer, and the Options
+    window resizes, its Drives list growing with it and a card under it."""
+    dbg.send(f"gui spawn {LAUNCHER_BIN} --show /usr/share/w16/fault.exe")
+    res.check("--show opens Retro Launcher", wait_title(dbg, "Retro Launcher"),
+              f"windows {[w['title'] for w in dbg.windows()]}")
+    dbg.send("gui resize 1000 380")
+    dbg.settle()
+    time.sleep(1)
+    w = dbg.widgets("Retro Launcher")
+    res.check("a short window: fault.exe's Run is in the footer, its Drive C: row scrolled out of view",
+              "run" in w and "drive-c" not in w, f"widgets {sorted(w)}")
+    det = w.get("details")
+    if det:
+        dbg.warp_cursor(qmp, *dbg.widget_center("details", "Retro Launcher"))
+        dbg.wheel(-10)
+        time.sleep(0.5)
+        w = dbg.widgets("Retro Launcher")
+        dc, run = w.get("drive-c"), w.get("run")
+        res.check("the wheel over the panel scrolls Drive C: into view, above the pinned Run",
+                  dc is not None and run is not None and dc["y"] + dc["h"] <= run["y"],
+                  f"drive-c {dc} run {run}")
+    else:
+        res.check("the panel reports its scrolling area", False, f"widgets {sorted(w)}")
+    # Options, from its toolbar button (the toolbar's seventh slot), once
+    # a resize has made the window wide enough for all of it and repaint.
+    dbg.logs("retrolauncher:", clear=True)
+    dbg.send("gui resize 1200 380")
+    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "toolbar.button 6") is not None)
+    b = layout_rect(lines, "toolbar.button 6")
+    win = dbg.window("Retro Launcher")
+    if not b or not win:
+        res.check("the toolbar reports its Options button", False, f"{b} {win}")
+        dbg.close_window("Retro Launcher")
+        return
+    c = win["content"]
+    dbg.click(c["x"] + b[0] + b[2] // 2, c["y"] + b[1] + b[3] // 2)
+    res.check("Options... opens the Options window", wait_title(dbg, "Retro Launcher Options"),
+              f"windows {[x['title'] for x in dbg.windows()]}")
+    before = dbg.window("Retro Launcher Options")
+    if before:
+        dbg.send(f"gui resize {before['content']['w'] + 120} {before['content']['h'] + 80}")
+        time.sleep(1.5)
+        after = dbg.window("Retro Launcher Options")
+        res.check("the Options window takes a bigger size",
+                  after and after["content"]["w"] == before["content"]["w"] + 120,
+                  f"before {before['content']} after {after and after['content']}")
+        dbg.send("gui resize 200 150")
+        time.sleep(1.5)
+        small = dbg.window("Retro Launcher Options")
+        res.check("...but never one smaller than it opened at",
+                  small and small["content"]["w"] >= before["content"]["w"]
+                  and small["content"]["h"] >= before["content"]["h"],
+                  f"opened {before['content']} asked 200x150, got {small and small['content']}")
+        dbg.close_window("Retro Launcher Options")
+    dbg.close_window("Retro Launcher")
+
+
 DLG_TITLE = "Dialog test (Win16)"
 DLG_INI = "/home/Win16/WINDOWS/DIALOG.INI"
 
@@ -726,6 +797,7 @@ def main():
         capture_cursor(dbg, qmp, res)
         drives_and_folders(dbg, res)
         from_file_manager(dbg, qmp, res)
+        panel_and_options(dbg, qmp, res)
         dialogs(dbg, res)
     finally:
         dbg.close()

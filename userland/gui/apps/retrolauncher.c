@@ -15,6 +15,7 @@
 // File Manager's Open does for an .exe (Handles= in its desktop entry).
 // `retrolauncher --calls FILE` is the window listing what it imports
 // (retrolauncher/calls.c), which the details panel's button opens.
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -650,7 +651,7 @@ static const char *const OPT_NOTES[] = {
 static struct uui_listedit g_drives;
 static char g_drive_holds[W16_DRIVES + 2][64];
 static const struct uui_table_column DRIVE_COLS[] = {
-    { "Drive", 6, UUI_TALIGN_LEFT, 0, 0 }, { "Folder", 0, UUI_TALIGN_LEFT, 0, 0 }, { "Holds", 26, UUI_TALIGN_LEFT, 0, 0 },
+    { "Drive", 6, UUI_TALIGN_LEFT, 0, 0 }, { "Folder", 0, UUI_TALIGN_LEFT, 0, 0 }, { "Holds", 24, UUI_TALIGN_LEFT, 0, 0 },
 };
 
 static int has_ci(const char *dir, const char *name, int *fonts) {
@@ -665,17 +666,82 @@ static int has_ci(const char *dir, const char *name, int *fonts) {
     return found;
 }
 
+// A drive's Holds column, short; its card (drive_details) says the rest.
 static void drive_holds(char d, char *out, size_t cap) {
     const char *root = d == 'Z' ? "/" : drive_slot(&g_edit, d);
     if (d == 'Z') { snprintf(out, cap, "all of toy-os"); return; }
-    if (d != 'C') { snprintf(out, cap, "%d programs", count_programs(root)); return; }
-    char win[W16_PATH_MAX + 16], sys[W16_PATH_MAX + 32];
-    snprintf(win, sizeof win, "%s/WINDOWS", root);
+    int n = count_programs(root);
+    char sys[W16_PATH_MAX + 32];
     snprintf(sys, sizeof sys, "%s/WINDOWS/SYSTEM", root);
-    int fonts = 0, dll = has_ci(sys, "COMMDLG.DLL", &fonts);
-    if (!has_ci(root, "WINDOWS", 0)) snprintf(out, cap, "no WINDOWS folder yet");
-    else snprintf(out, cap, "WINDOWS%s, %d fonts", dll ? ", COMMDLG.DLL" : "", fonts);
-    (void)win;
+    int fonts = 0, dll = d == 'C' && has_ci(sys, "COMMDLG.DLL", &fonts);
+    snprintf(out, cap, "%s%d program%s", dll || fonts ? "Windows files, " : "", n, n == 1 ? "" : "s");
+}
+
+// The card under the list for the selected drive: its folder, the programs
+// in it by name, and for C: what of Windows 3.x's own files it holds.
+// Built when the list changes or the selection moves, not as it paints.
+static char *g_drive_card;
+static int g_drive_card_row = -2;
+
+static void card_add(char **t, size_t *n, size_t *cap, const char *fmt, ...) __attribute__((format(printf, 4, 5)));
+static void card_add(char **t, size_t *n, size_t *cap, const char *fmt, ...) {
+    va_list ap;
+    va_start(ap, fmt);
+    int need = vsnprintf(0, 0, fmt, ap);
+    va_end(ap);
+    if (need < 0) return;
+    if (*n + (size_t)need + 1 > *cap) {
+        size_t c = (*n + (size_t)need + 1) * 2;
+        char *g = realloc(*t, c);
+        if (!g) return;
+        *t = g;
+        *cap = c;
+    }
+    va_start(ap, fmt);
+    vsnprintf(*t + *n, *cap - *n, fmt, ap);
+    va_end(ap);
+    *n += (size_t)need;
+}
+
+static const char *drive_details(void *ctx, int row) {
+    (void)ctx;
+    if (row == g_drive_card_row && g_drive_card) return g_drive_card;
+    free(g_drive_card);
+    g_drive_card = 0;
+    g_drive_card_row = row;
+    if (row < 0 || row >= g_ndrive_rows) return 0;
+    char d = g_drive_rows[row];
+    const char *root = d == 'Z' ? "/" : drive_slot(&g_edit, d);
+    size_t n = 0, cap = 0;
+    char *t = 0;
+    card_add(&t, &n, &cap, "Drive %c:\t%s\n", d, d == 'Z' ? "/ (all of toy-os)" : root);
+    if (d != 'Z') {
+        // The programs, by name, as many as there are.
+        struct sys_dirent *ents;
+        int k = ulistdir(root, &ents), np = 0;
+        card_add(&t, &n, &cap, "Programs\t");
+        for (int i = 0; i < k; i++)
+            if (is_exe(ents[i].name)) card_add(&t, &n, &cap, "%s%s", np++ ? ", " : "", ents[i].name);
+        if (!np) card_add(&t, &n, &cap, "none");
+        card_add(&t, &n, &cap, "\n");
+        free(k >= 0 ? ents : 0);
+    }
+    if (d == 'C') {
+        char sys[W16_PATH_MAX + 32];
+        snprintf(sys, sizeof sys, "%s/WINDOWS/SYSTEM", root);
+        int fonts = 0, dll = has_ci(sys, "COMMDLG.DLL", &fonts);
+        card_add(&t, &n, &cap, "WINDOWS folder\t%s\n", has_ci(root, "WINDOWS", 0)
+                 ? "Found -- programs' INI files go here" : "Not yet -- made when a program first runs");
+        card_add(&t, &n, &cap, "COMMDLG.DLL\t%s\n", dll ? "Found -- the Open dialog's own pictures"
+                                                            : "Missing -- toy-os's own pictures stand in");
+        if (fonts) card_add(&t, &n, &cap, "Fonts\t%d in WINDOWS\\SYSTEM\n", fonts);
+        else card_add(&t, &n, &cap, "Fonts\tNone -- toy-os's stand-ins draw the text\n");
+    }
+    card_add(&t, &n, &cap, "Programs may\t%s", d == 'Z' ? "read everything, and write under /home"
+                                         : !strncmp(root, "/home/", 6) || !strcmp(root, "/home") || d == 'C'
+                                         ? "read and write here" : "only read here (it is outside /home)");
+    g_drive_card = t;
+    return t;
 }
 
 static void drive_cell(void *ctx, int row, int col, char *out, int cap) {
@@ -699,6 +765,7 @@ static void opt_drives_changed(int select) {
     }
     uui_listedit_set_rows(&g_drives, g_ndrive_rows);
     if (at >= 0) uui_listedit_select(&g_drives, at);
+    g_drive_card_row = -2;                       // the card is redone for what the list now says
     uui_prefs_redraw();
 }
 
@@ -833,11 +900,11 @@ static void open_options(void) {
     retro_fontcard_load(&g_retro_fontcard);
     uui_prefs_row(1, "", &retro_fontcard_ops, &g_retro_fontcard, ID_OPT_FONTCARD, "fontcard", UUI_FILL_W);
     opt_drives_changed('C');
-    uui_prefs_row(2, "", &uui_listedit_ops, &g_drives, 0, "drives", UUI_FILL_W);
+    uui_prefs_row(2, "", &uui_listedit_ops, &g_drives, 0, "drives", UUI_FILL_W | UUI_FILL_H);
     opt_copy_folders(g_folders, g_nfolders);
     uui_listedit_select(&g_ofolders, -1);
     opt_folders_changed(-1);
-    uui_prefs_row(3, "", &uui_listedit_ops, &g_ofolders, 0, "folder-list", UUI_FILL_W);
+    uui_prefs_row(3, "", &uui_listedit_ops, &g_ofolders, 0, "folder-list", UUI_FILL_W | UUI_FILL_H);
     uui_prefs_open(g_app);
 }
 
@@ -919,15 +986,23 @@ static void line(struct ugfx_surface *s, int x, int *y, int w, const char *t, ui
     *y += ugfx_char_h() + 3;
 }
 
-static int g_dd_y[NSET], g_ddc_y, g_calls_y;
+static int g_dd_y[NSET], g_ddc_y;
 static struct uui_stackbar g_bar;            // works, partly, missing
 
-// The settings block under the panel's details: what the "Partly there"
-// list must leave room for. Run sits beside the calls button, above it.
-static int settings_h(void) {
-    int pad = ugfx_char_w(), lh = ugfx_char_h();
-    return lh / 2 + lh + 3 + (NSET + 1) * (lh + pad + pad / 2) + pad;
-}
+// THE PANEL SCROLLS ABOVE A FOOTER that holds Run and the calls button --
+// the "Retro Launcher details scroll" canvas's B. It is drawn by hand, its
+// dropdowns placed over it, so the scrolling is the panel's own: an
+// offset, a clip, the shared bar (uui_sbar), and a dropdown shown only
+// while all of it is in view.
+static int g_panel_for = -1;                 // the grid row the panel was last scrolled for
+static int g_pscroll, g_pcontent_h;          // pixels scrolled; how tall the content was last drawn
+static struct uui_sbar g_psb;
+
+static int footer_h(void) { return ugfx_char_h() + ugfx_char_w() * 3; }
+static int view_y(void) { return g_py; }
+static int view_h(void) { return g_ph - footer_h(); }
+static int row_h(void) { return ugfx_char_h() + ugfx_char_w(); }
+static int scroll_max(void) { return g_pcontent_h > view_h() ? g_pcontent_h - view_h() : 0; }
 
 static void bold_line(struct ugfx_surface *s, int x, int *y, int w, const char *t, uint32_t col) {
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
@@ -935,20 +1010,13 @@ static void bold_line(struct ugfx_surface *s, int x, int *y, int w, const char *
     ugfx_set_font(was);
 }
 
-static void draw_panel(struct ugfx_surface *s) {
-    ugfx_fill_rect(s, g_px, g_py, g_pw, g_ph, UTHEME_PANEL_BG);
-    ugfx_fill_rect(s, g_px, g_py, 1, g_ph, UTHEME_SEPARATOR);
-    const struct prog *p = cur();
-    int pad = ugfx_char_w(), x = g_px + pad * 2, w = g_pw - pad * 3, y = g_py + pad, lh = ugfx_char_h();
+// The scrolling part: what the program is, its calls, its last run, its settings.
+static void draw_details(struct ugfx_surface *s, const struct prog *p, int x, int y0, int w) {
+    int pad = ugfx_char_w(), lh = ugfx_char_h(), y = y0;
     uint32_t dim = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
-    g_calls_y = -1;
-    if (!p) {
-        line(s, x, &y, w, g_nview ? "Pick a program." : "No programs here. Add a folder of them.", dim);
-        return;
-    }
+    char t[160];
     bold_line(s, x, &y, w, str(p->name), UTHEME_TEXT);
     line(s, x, &y, w, p->path, dim);
-    char t[160];
     if (p->ok) {
         snprintf(t, sizeof t, "Module %s", str(p->module));
         line(s, x, &y, w, t, dim);
@@ -974,54 +1042,137 @@ static void draw_panel(struct ugfx_surface *s) {
                      i == p->nmissing - 1 && missing > p->nmissing ? ", ..." : "");
             line(s, x, &y, w, t, dim);
         }
-        // What w16 answers without doing: as many as leave the settings
-        // their room, then how many more the calls window lists.
+        // What w16 answers without doing, every one: the panel scrolls.
         if (p->npart) {
             y += lh / 3;
             bold_line(s, x, &y, w, "Partly there", utheme_action(UTHEME_ACT_EDIT));
-            // Below it: the calls button and a line of the last run, two
-            // when it stopped and says why.
-            int last_lines = p->last == 2 && p->last_text && p->last_text[0] ? 2 : 1;
-            int bottom = g_py + g_ph - settings_h() - (lh + pad + pad / 2) - last_lines * (lh + 3);
-            int room = (bottom - y) / (lh + 3);
-            int shown = p->npart <= room ? p->npart : room > 1 ? room - 1 : 0;
             int nw = w * 2 / 5;
-            for (int i = 0; i < shown; i++) {
+            for (int i = 0; i < p->npart; i++) {
                 bold_line(s, x, &(int){ y }, nw - pad, str(p->part[i].names), UTHEME_TEXT);
                 line(s, x + nw, &y, w - nw, str(p->part[i].note), dim);
             }
-            if (shown < p->npart) {
-                snprintf(t, sizeof t, "and %d more: see the calls", p->npart - shown);
-                line(s, x, &y, w, t, dim);
-            }
         }
-        g_calls_y = y + 2;                       // the calls button, placed by layout()
-        y += lh + pad + pad / 2;
-        if (p->last) {
-            char when[32] = "";
-            time_t tt = (time_t)p->last_when;
-            struct tm *tm = localtime(&tt);
-            if (tm) strftime(when, sizeof when, "%Y-%m-%d %H:%M", tm);
-            snprintf(t, sizeof t, "Last run %s: %s", when, p->last == 2 ? "stopped" : "ended normally");
-            line(s, x, &y, w, t, p->last == 2 ? utheme_severity(UTHEME_SEV_ERROR) : UTHEME_TEXT);
-            if (p->last == 2 && p->last_text && p->last_text[0]) line(s, x, &y, w, p->last_text, dim);
-        } else {
-            line(s, x, &y, w, "Not run yet", dim);
+        // Why it stopped last time; the footer says when.
+        if (p->last == 2 && p->last_text && p->last_text[0]) {
+            y += lh / 3;
+            bold_line(s, x, &y, w, "Why it stopped", utheme_severity(UTHEME_SEV_ERROR));
+            line(s, x, &y, w, p->last_text, dim);
         }
     } else if (p->checked) {
-        line(s, x, &y, w, "Not a Windows 3.x program w16 can read.", dim);
+        line(s, x, &y, w, p->foreign ? p->foreign : "Not a Windows 3.x program w16 can read.", dim);
     }
     y += lh / 2;
     bold_line(s, x, &y, w, "This program's settings", utheme_action(UTHEME_ACT_EDIT));
-    for (int i = 0; i < NSET; i++) {
-        g_dd_y[i] = y;
-        ugfx_draw_string_clipped(s, x, y + (lh + pad - lh) / 2, w / 2, SETTINGS[i].caption, UTHEME_TEXT,
-                                 UTHEME_PANEL_BG);
-        y += lh + pad + pad / 2;
+    for (int i = 0; i <= NSET; i++) {
+        if (i < NSET) g_dd_y[i] = y;
+        else g_ddc_y = y;
+        ugfx_draw_string_clipped(s, x, y + (row_h() - lh) / 2, w / 2, i < NSET ? SETTINGS[i].caption : "Drive C:",
+                                 UTHEME_TEXT, UTHEME_PANEL_BG);
+        y += row_h() + pad / 2;
     }
-    g_ddc_y = y;
-    ugfx_draw_string_clipped(s, x, y + (lh + pad - lh) / 2, w / 2, "Drive C:", UTHEME_TEXT, UTHEME_PANEL_BG);
+    g_pcontent_h = y - y0 + pad * 2;
 }
+
+// The footer's line beside its buttons: when it last ran.
+static void last_run_text(const struct prog *p, char *t, size_t cap, uint32_t *col) {
+    *col = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    if (!p->last) { snprintf(t, cap, "Not run yet"); return; }
+    char when[32] = "";
+    time_t tt = (time_t)p->last_when;
+    struct tm *tm = localtime(&tt);
+    if (tm) strftime(when, sizeof when, "%Y-%m-%d %H:%M", tm);
+    snprintf(t, cap, "%s %s", p->last == 2 ? "Stopped" : "Ran", when);
+    if (p->last == 2) *col = utheme_severity(UTHEME_SEV_ERROR);
+}
+
+// Run, then the calls button, in the footer: their widths, and where the
+// line beside them starts.
+static int run_w(void) { return ugfx_text_width("Run") + ugfx_char_w() * 6; }
+static const char *calls_label(const struct prog *p) {
+    return p && p->imports > p->has ? "Missing calls..." : "Calls it imports...";
+}
+static int calls_w(const struct prog *p) { return ugfx_text_width(calls_label(p)) + ugfx_char_w() * 4; }
+
+static void draw_panel(struct ugfx_surface *s) {
+    ugfx_fill_rect(s, g_px, g_py, g_pw, g_ph, UTHEME_PANEL_BG);
+    ugfx_fill_rect(s, g_px, g_py, 1, g_ph, UTHEME_SEPARATOR);
+    const struct prog *p = cur();
+    int pad = ugfx_char_w(), x = g_px + pad * 2, w = g_pw - pad * 3 - uui_sbar_width();
+    uint32_t dim = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
+    if (!p) {
+        int y = g_py + pad;
+        line(s, x, &y, w, g_nview ? "Pick a program." : "No programs here. Add a folder of them.", dim);
+        g_pcontent_h = 0;
+        return;
+    }
+    if (g_pscroll > scroll_max()) g_pscroll = scroll_max();
+    ugfx_set_clip_rect(s, g_px + 1, view_y(), g_pw - 1, view_h());
+    draw_details(s, p, x, view_y() + pad - g_pscroll, w);
+    ugfx_clear_clip_rect(s);
+    if (g_pscroll > scroll_max()) {              // the content got shorter: once more, in range
+        g_pscroll = scroll_max();
+        uapp_redraw(g_app);
+    }
+    uui_sbar_place(&g_psb, g_px + g_pw - uui_sbar_width(), view_y(), view_h());
+    uui_sbar_set(&g_psb, g_pcontent_h, view_h(), g_pscroll);
+    uui_sbar_draw(&g_psb, s, UTHEME_PANEL_BG, UTHEME_TEXT);
+    // The footer, pinned.
+    int fy = g_py + g_ph - footer_h();
+    ugfx_fill_rect(s, g_px + 1, fy, g_pw - 1, 1, UTHEME_SEPARATOR);
+    if (p->ok) {
+        char t[64];
+        uint32_t col;
+        last_run_text(p, t, sizeof t, &col);
+        int tx = g_px + pad * 4 + run_w() + calls_w(p);
+        ugfx_draw_string_clipped(s, tx, fy + (footer_h() - ugfx_char_h()) / 2, g_px + g_pw - pad - tx, t, col,
+                                 UTHEME_PANEL_BG);
+    }
+}
+
+// --- scrolling the panel: the wheel anywhere over it, and its bar ---------------
+
+static void pscroll_to(int top) {
+    g_pscroll = top < 0 ? 0 : top > scroll_max() ? scroll_max() : top;
+}
+
+static void ps_natural(const void *w, int *ow, int *oh) { (void)w; *ow = 0; *oh = 0; }
+static void ps_geometry(void *w, int x, int y, int ww, int hh) { (void)w; (void)x; (void)y; (void)ww; (void)hh; }
+static void ps_bounds(const void *w, int *x, int *y, int *ow, int *oh) {
+    (void)w;
+    *x = g_px; *y = view_y(); *ow = g_pw; *oh = view_h();
+}
+static void ps_draw(struct ugfx_surface *s, const void *w) { (void)s; (void)w; }   // draw_panel() did
+static int ps_hit(const void *w, int cx, int cy) {
+    (void)w;
+    return cx >= g_px && cx < g_px + g_pw && cy >= view_y() && cy < view_y() + view_h();
+}
+static int ps_press(void *w, int cx, int cy, unsigned mods) {
+    (void)w; (void)mods;
+    int r = uui_sbar_press(&g_psb, cx, cy);
+    if (r & UUI_SBAR_MOVED) pscroll_to(g_psb.top);
+    return (r & UUI_SBAR_TOOK) != 0;
+}
+static int ps_motion(void *w, int cx, int cy, unsigned buttons) {
+    (void)w;
+    int r = uui_sbar_motion(&g_psb, cx, cy, buttons);
+    if (r & UUI_SBAR_MOVED) pscroll_to(g_psb.top);
+    return r != 0;
+}
+static int ps_release(void *w, int cx, int cy) {
+    (void)w; (void)cx; (void)cy;
+    return uui_sbar_release(&g_psb) != 0;
+}
+static int ps_wheel(void *w, int notches) {
+    (void)w;
+    if (!scroll_max()) return 0;
+    pscroll_to(g_pscroll - notches * row_h() * 2);   // up is positive, as uui_listbox_wheel()
+    return 1;
+}
+static const struct uui_widget_ops g_pscroll_ops = {
+    .natural_size = ps_natural, .set_geometry = ps_geometry, .bounds = ps_bounds, .draw = ps_draw,
+    .hit = ps_hit, .press = ps_press, .motion = ps_motion, .release = ps_release, .wheel = ps_wheel,
+};
+static int g_pscroller;                      // the widget is the panel's state above; this is its handle
 
 static struct uui_menu_item program_items[] = {
     UUI_MENU("Run", CMD_RUN, "Enter"),
@@ -1077,6 +1228,9 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_toolbar_ops,   .widget = &g_tb,    .id = ID_TOOLBAR, .name = "toolbar" },
     { .ops = &uui_sidebar_ops,   .widget = &g_side,  .id = ID_SIDEBAR, .name = "folders" },
     { .ops = &uui_grid_ops,      .widget = &g_grid,  .id = ID_GRID,    .name = "programs" },
+    // Under the dropdowns, so a click on one is theirs and the wheel over
+    // them (a closed dropdown takes none) scrolls the panel.
+    { .ops = &g_pscroll_ops,     .widget = &g_pscroller, .name = "details" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[0], .id = ID_SCALE,   .name = "scale" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[1], .id = ID_METHOD,  .name = "method" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[2], .id = ID_VERSION, .name = "version" },
@@ -1089,10 +1243,11 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_statusbar_ops, .widget = &g_sb,    .id = ID_STATUS,  .name = "status" },
     { .ops = &uui_menubar_ops,   .widget = &g_ctx,   .id = ID_CTX,     .name = "ctxmenu" },
 };
-#define W_PANEL 4   // then the NSET dropdowns, drive C:, Run, the calls button
+#define W_PSCROLL 4 // the panel's scrolling
+#define W_PANEL 5   // then the NSET dropdowns, drive C:, Run, the calls button
 
 static void layout(int cw, int ch) {
-    int pad = ugfx_char_w(), lh = ugfx_char_h();
+    int pad = ugfx_char_w();
     int mh = uui_menubar_height(&g_menu);
     uui_menubar_set_geometry(&g_menu, 0, 0, cw, mh);
     uui_menubar_set_bounds(&g_menu, 0, 0, cw, ch);
@@ -1107,22 +1262,29 @@ static void layout(int cw, int ch) {
     g_py = top;
     g_ph = body_h;
     uui_grid_ops.set_geometry(&g_grid, sidew + 1, top, g_px - sidew - 1, body_h);
-    // The settings rows exist only beside a program.
-    for (int i = 0; i < NSET + 3; i++) g_widgets[W_PANEL + i].hidden = !g_panel || (i != NSET + 1 && !cur());
-    g_widgets[W_PANEL + NSET + 1].hidden |= g_calls_y < 0;     // Run and the calls button share a row
-    g_widgets[W_PANEL + NSET + 2].hidden |= g_calls_y < 0;
-    if (!g_panel) return;
-    int dx = g_px + pad * 2 + pad * 14, dw = g_pw - pad * 17;
-    for (int i = 0; i < NSET; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, lh + pad);
-    uui_dropdown_set_geometry(&g_ddc, dx, g_ddc_y, dw, lh + pad);
-    int bw = ugfx_text_width("Run") + pad * 6;
-    if (g_calls_y >= 0) uui_button_set_geometry(&g_run, g_px + pad * 2, g_calls_y, bw, lh + pad);
-    g_run.disabled = !(cur() && cur()->ok);
-    // The missing calls, or the whole list when none are.
+    // The settings rows exist only beside a program, each only while all of
+    // it is in the panel's scrolled view; Run and the calls button are the
+    // footer's.
     const struct prog *p = cur();
-    g_calls.label = p && p->imports > p->has ? "Missing calls..." : "Calls it imports...";
-    int cw2 = ugfx_text_width(g_calls.label) + pad * 4;
-    if (g_calls_y >= 0) uui_button_set_geometry(&g_calls, g_px + pad * 3 + bw, g_calls_y, cw2, lh + pad);
+    int show = g_panel && p, ok = show && p->ok, rh = row_h();
+    g_widgets[W_PSCROLL].hidden = !show;
+    for (int i = 0; i <= NSET; i++) {
+        int y = i < NSET ? g_dd_y[i] : g_ddc_y;
+        g_widgets[W_PANEL + i].hidden = !show || y < view_y() || y + rh > view_y() + view_h();
+    }
+    g_widgets[W_PANEL + NSET + 1].hidden = !ok;
+    g_widgets[W_PANEL + NSET + 2].hidden = !ok;
+    if (!g_panel) return;
+    int dx = g_px + pad * 2 + pad * 14, dw = g_pw - pad * 17 - uui_sbar_width();
+    for (int i = 0; i < NSET; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, rh);
+    uui_dropdown_set_geometry(&g_ddc, dx, g_ddc_y, dw, rh);
+    int bw = run_w();
+    int by = g_py + g_ph - footer_h() + (footer_h() - rh) / 2;
+    uui_button_set_geometry(&g_run, g_px + pad * 2, by, bw, rh);
+    g_run.disabled = !ok;
+    // The missing calls, or the whole list when none are.
+    g_calls.label = calls_label(p);
+    uui_button_set_geometry(&g_calls, g_px + pad * 3 + bw, by, calls_w(p), rh);
 }
 
 static void status(void) {
@@ -1158,6 +1320,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_TOOLBAR: if ((code = uui_toolbar_take_code(&g_tb)) > 0) command(a, code); break;
     case ID_SIDEBAR: build_view(); fill_panel(); break;
     case ID_GRID:
+        if (g_grid.selected != g_panel_for) { g_panel_for = g_grid.selected; g_pscroll = 0; }
         fill_panel();
         if ((code = uui_grid_take(&g_grid)) >= 0) command(a, CMD_RUN);
         break;
@@ -1376,7 +1539,14 @@ static int open_from_elsewhere(const char *path) {
             char list[ULAUNCH_HEAD_COLS + 1] = "";
             for (int i = 0; i < p.nmissing; i++)
                 snprintf(list + strlen(list), sizeof list - strlen(list), "%s%s", i ? ", " : "", str(p.missing[i]));
-            snprintf(info.head[n++], sizeof info.head[0], "Missing: %s%s", list, missing > p.nmissing ? ", ..." : "");
+            // A sample when there are more, and said to be one.
+            if (missing > p.nmissing) {
+                snprintf(info.head[n++], sizeof info.head[0], "Missing %d calls, among them: %s", missing, list);
+                snprintf(info.head[n++], sizeof info.head[0], "...and %d more -- Show calls lists every one.",
+                         missing - p.nmissing);
+            } else {
+                snprintf(info.head[n++], sizeof info.head[0], "Missing: %s", list);
+            }
         }
         for (int i = 0; i < p.npart && n < ULAUNCH_HEAD_LINES; i++)
             snprintf(info.head[n++], sizeof info.head[0], "%s: %s", str(p.part[i].names), str(p.part[i].note));
@@ -1418,6 +1588,7 @@ int main(int argc, char **argv) {
     static const char *const DRV_NAMES[] = { "drive-add", "drive-change", "drive-remove" };
     uui_listedit_init(&g_drives, DRIVE_COLS, 3, drive_cell, 0, 0, "drive-table", DRV_LABELS, DRV_CODES, DRV_NAMES, 3);
     g_drives.enabled = drive_enabled;
+    g_drives.details = drive_details;
     static const char *const FOL_LABELS[] = { "Add...", "Change...", "Rename...", "Remove", "Move up", "Move down" };
     static const int FOL_CODES[] = { ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN };
     static const char *const FOL_NAMES[] = { "folder-add", "folder-change", "folder-rename", "folder-remove",
@@ -1428,6 +1599,7 @@ int main(int argc, char **argv) {
     uui_button_init(&g_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
     uui_button_init(&g_calls, 0, 0, 0, 0, "Calls it imports...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_CALLS);
     uui_stackbar_init(&g_bar, 3);
+    uui_sbar_init(&g_psb);
     uui_stackbar_add(&g_bar, "Work", 0);
     uui_stackbar_add(&g_bar, "Partly", 0);
     uui_stackbar_add(&g_bar, "Missing", 0);
