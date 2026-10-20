@@ -114,10 +114,35 @@ void w16_gdi_forget_window(struct w16 *w, uint16_t hwnd) {
     if (x) x->dc = 0;
 }
 
+static void commit(struct w16_wnd *x) {
+    if (!x || !x->used || !x->fb) return;
+    if (x->shw != x->fbw || x->shh != x->fbh) {
+        uint32_t *g = realloc(x->shown, (size_t)x->fbw * x->fbh * 4);
+        if (!g) return;                          // the old frame stays shown
+        x->shown = g;
+        x->shw = x->fbw;
+        x->shh = x->fbh;
+    }
+    memcpy(x->shown, x->fb, (size_t)x->fbw * x->fbh * 4);
+}
+
 void w16_gdi_flush(struct w16 *w) {
     if (!w->fb_dirty) return;
     w->fb_dirty = 0;
+    pthread_mutex_lock(&w->lock);
+    commit(&w->win);
+    for (int i = 0; i < w->nwnds; i++)
+        if (w->wnds[i] && w->wnds[i]->kind == W16_K_DIALOG) commit(w->wnds[i]);
+    pthread_mutex_unlock(&w->lock);
+    w->committed_ms = w16_now_ms();
     w16_task_post(w, W16_POST_PAINT);
+}
+
+const uint32_t *w16_shown(const struct w16_wnd *x, int *w, int *h) {
+    if (x->shown) { *w = x->shw; *h = x->shh; return x->shown; }
+    *w = x->fbw;
+    *h = x->fbh;
+    return x->fb;
 }
 
 // --- colours -----------------------------------------------------------------

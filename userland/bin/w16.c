@@ -279,7 +279,20 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     if (bh) w16_menubar_draw(out, &g_w16, bx, by, bw, bar_open() ? g_bar_pos : g_bar_hot);
     int cx, cy, cw, ch;
     w16_client_rect(win, &cx, &cy, &cw, &ch);
-    if (win->fb) ugfx_blit(out, cx, cy, win->fbw, win->fbh, win->fb, win->fbw);
+    // The last COMPLETE frame (w16_shown), never the buffer the program may
+    // be halfway through painting; while a resize waits for its repaint,
+    // what the old frame does not cover is the class background.
+    int sw, sh;
+    const uint32_t *px = w16_shown(win, &sw, &sh);
+    if (px && win->fb) {
+        int bw2 = sw < win->fbw ? sw : win->fbw, bh2 = sh < win->fbh ? sh : win->fbh;
+        if (bw2 < win->fbw || bh2 < win->fbh) {
+            int k = win->cls;
+            uint32_t bg = k >= 0 && k < g_w16.ncls ? w16_brush_color(g_w16.cls[k].background) : 0xFFFFFF;
+            ugfx_fill_rect(out, cx, cy, win->fbw, win->fbh, bg);
+        }
+        ugfx_blit(out, cx, cy, bw2, bh2, px, sw);
+    }
     static struct w16_scaler sc;
     if (out != s) w16_scaler_show(&sc, s, 0, 0, g_virt, win->w, win->h);
     pthread_mutex_unlock(&g_w16.lock);

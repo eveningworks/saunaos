@@ -37,7 +37,9 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
         uint32_t band = d->active ? w16_rgb(0x000080) : w16_rgb(0xC0C0C0);
         ugfx_fill_rect(&s, 1, 1, d->w - 2, d->h - 2, band);
     }
-    if (d->fb) ugfx_blit(&s, f, top + cap, d->fbw, d->fbh, d->fb, d->fbw);
+    int sw, sh;
+    const uint32_t *fr = d->fb ? w16_shown(d, &sw, &sh) : 0;   // its last complete frame
+    if (fr) ugfx_blit(&s, f, top + cap, sw < d->fbw ? sw : d->fbw, sh < d->fbh ? sh : d->fbh, fr, sw);
     if (cap) {
         // The caption is the client's width, edged in white on its top and
         // sides (the line 3.11 shows round it), its bar navy within. The

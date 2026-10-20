@@ -269,6 +269,11 @@ struct w16_wnd {
     int cw, ch;                   // the client area
     uint32_t *fb;                 // a top-level window's interior: client area and its scroll bars,
     int fbw, fbh;                 // fbw * fbh pixels, under `lock`
+    // THE LAST COMPLETE FRAME, what the window shows: `fb` copied when the
+    // program has painted all it owed (w16_gdi_flush) -- Wayland's commit.
+    // The main thread draws this, never `fb`, which may be half painted.
+    uint32_t *shown;
+    int shw, shh;
     int visible;
     int transparent;              // a press goes through it to what is under (a label)
     int maximized;                // toywm's last proposal said so; under `lock`
@@ -346,6 +351,7 @@ struct w16 {
     uint16_t res_sel[W16_MAX_RES];               // a loaded resource's global block
     struct w16_gdiobj gdi[W16_GDI_MAX];          // gdi16.c; handle = GDI_BASE + 4 * index
     int fb_dirty;                                // a window DC drew: post a repaint
+    uint64_t committed_ms;                       // when w16_gdi_flush() last took a frame
     struct w16_timer timer[W16_TIMERS];          // set by the task, fired by the main thread
     uint16_t capture;                            // SetCapture's window, 0 none; under `lock`
     uint16_t menu;                               // SetMenu's HMENU, the bar under the caption
@@ -449,7 +455,12 @@ uint32_t w16_brush_color(uint16_t brush);
 uint16_t w16_gdi_window_dc(struct w16 *w, uint16_t hwnd);
 // GetDC(NULL): the main window's once there is one, else the display's.
 uint16_t w16_gdi_screen_dc(struct w16 *w);
-void w16_gdi_flush(struct w16 *w);                // post a repaint if a window DC drew
+// What the windows drew, made the frame they show (each top-level's `shown`)
+// and a repaint posted -- when nothing more is owed a WM_PAINT. Takes `lock`.
+void w16_gdi_flush(struct w16 *w);
+// The frame a top-level window shows: its last complete one, else (none
+// yet) its buffer as it is. Under `lock`.
+const uint32_t *w16_shown(const struct w16_wnd *x, int *w, int *h);
 void w16_gdi_forget_window(struct w16 *w, uint16_t hwnd);   // its DC goes with it
 // A bitmap made from a packed DIB (header, palette, bits): LoadBitmap's. 0 when malformed.
 uint16_t w16_gdi_bitmap_of_dib(struct w16 *w, const uint8_t *dib, uint32_t len);

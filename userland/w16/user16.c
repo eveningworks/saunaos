@@ -430,6 +430,14 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
             break;
         }
         if (again) continue;
+        // A program that never runs out of messages still shows what it
+        // drew, a frame at most every 30 ms -- between messages, and never
+        // while a window is owed a paint (its children would be missing).
+        if (found && w->fb_dirty && !w16_wnd_next_paint(w) && w16_now_ms() - w->committed_ms >= 30) {
+            pthread_mutex_unlock(&w->lock);
+            w16_gdi_flush(w);
+            pthread_mutex_lock(&w->lock);
+        }
         if (found) break;
         if (w->quit_posted && wanted(w, f, 0, WM_QUIT)) {
             *m = (struct w16_msg){ 0, WM_QUIT, w->quit_code, 0, 0 };
