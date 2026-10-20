@@ -422,12 +422,15 @@ partitions" and "no table at all" are both zero records and mean
 different things; here zero records means one thing only -- no disk was
 found -- so a scalar beside the list would answer a question nobody has.
 
-**It reads no disk.** The partition provider hits the platter on every
-call, by design; this one cannot, because what it reports is the
-kernel's own table. That difference is worth noticing when adding a
-provider: a fact that already lives in kernel memory does not need the
-"every read hits the device" discipline, and paying it anyway would be a
-cache nobody asked for.
+**It read no disk until 2026-10-20**, when each record gained `fstype`
+and `label` -- what the device HOLDS, by signature
+(`kernel/fs/fs_ident.c`, blkid's job, `lsblk -f` and Disks). That is a
+handful of fixed sectors per device through the block cache, under the
+query lock; a disk carrying a partition table is not read (its
+partitions answer). The rest of the record is still the kernel's own
+table. The point stands for a new provider: a fact that already lives in
+kernel memory does not need the "every read hits the device" discipline,
+and paying it anyway would be a cache nobody asked for.
 
 ### The process map -- DONE 2026-08-28
 

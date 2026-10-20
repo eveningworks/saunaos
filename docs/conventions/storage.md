@@ -421,6 +421,27 @@ outstanding. **NCQ and 64-bit addressing are REPORTED, not used**, and
   the last group's bitmap at format time, which is why nothing else
   needed special-casing. The host writer must agree exactly or an image
   will not mount.
+- **A TFS3 BITMAP IS READ THROUGH ITS CACHE, AND A DIRTY ONE IS NEVER
+  EVICTED.** `t3_bbm_test()`/`t3_ibm_test()` and their `_set()`s go
+  through a per-mount cache (`tfs3_alloc.c`'s `bmap()`), on every format
+  version: 32 clean bitmaps kept, a dirty one pinned until
+  `t3_flush_alloc_state()` writes it -- the one writer, because
+  set-before-use and clear-after-persist hold only across the barrier
+  before a commit. A bitmap that cannot be read tests as ALL IN USE:
+  nothing is allocated from it, and a free becomes a leak for fsck. Never
+  hold the returned pointer across anything that can look up another
+  bitmap. Only the descriptors (`sbi->gd`) are resident, 16 bytes a
+  group.
+- **A v3 GROUP MAY BE UNINITIALISED, AND AN INODE SLOT AT OR PAST ITS
+  `itable_used` IS NO INODE.** `T3_BG_BLOCK_UNINIT` means the block
+  bitmap on disk is garbage and `t3_bbm_default()` -- the SAME function
+  the format writes group 0 from -- derives it; `T3_BG_INODE_UNINIT`
+  means all inodes free. The flush clears the flag once the bitmap is
+  written. A new inode comes only from `t3_alloc_inode()`, which zeroes
+  the table up to the slot (`t3_itable_reserve()`) before marking it;
+  `read_inode_uncached()` refuses anything past the mark, which may hold
+  a previous filesystem's inode, checksum and all.
+  `docs/tfs3-spec.md` has the format.
 - **A new TFS3 operation must COUNT ITS JOURNAL CREDITS, and the count
   is the design.** `txn_begin(n)` reserves `n` distinct metadata blocks
   up front (jbd2's discipline in miniature) and refuses before anything

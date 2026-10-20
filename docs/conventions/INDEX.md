@@ -925,6 +925,10 @@ whenever a headline here tells you something you did not already know.
 - **VIRTIO-BLK IS THE PREFERRED DISK; ATA IS THE LEGACY PATH.**
 - **A filesystem talks to a `block_device`, not to a disk.**
 - **TFS3's last block group may be PARTIAL**
+- **A TFS3 BITMAP IS READ THROUGH ITS CACHE, AND A DIRTY ONE IS NEVER
+  EVICTED**
+- **A v3 GROUP MAY BE UNINITIALISED, AND AN INODE SLOT AT OR PAST ITS
+  `itable_used` IS NO INODE**
 - **A new TFS3 operation must COUNT ITS JOURNAL CREDITS, and the count
   is the design.**
 - **Shrinking a file, or anything else that stops referencing a block,

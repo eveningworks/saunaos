@@ -6017,7 +6017,11 @@ runs first**: a `doom1.wad` with one
   `--smash-superblock`, `--stage-journal[-torn]` -- known damage for
   fsck/backup/journal-replay testing, same reasoning as
   tfs2_writer's). Spec: `docs/tfs3-spec.md`; the kernel backend
-  (`kernel/fs/tfs3.c`) is kept in lockstep.
+  (`kernel/fs/tfs3.c`) is kept in lockstep for v1/v2. **It does not
+  read or write v3**, the kernel's lazy, volume-sized format (2026-10-20):
+  a v3 volume is REFUSED BY NAME, never reported as "not TFS3", because
+  the seeder formats what it takes for blank. The images it seeds are a
+  few GiB, where v3's geometry is v2's anyway.
 
   **IT WRITES THE WHOLE BLOCK MAP** -- direct, single, double and triple
   indirect. It stopped at single-indirect (~4.05 MB) until 2026-08-31,

@@ -408,6 +408,9 @@ No dependency on the phases above; ordered among themselves.
 - [ ] LBA48 addressing
 - [ ] TFS3's bitmap barrier, traded for replay reconciling the bitmaps -- a create pays one extra disk flush, a batch one
 - [x] ~~Disks past 2 TiB~~ DONE 2026-10-07 -- 64-bit block layer, AHCI/NVMe/virtio, GPT and TFS3; `bigdisk_test.py`
+- [x] ~~TFS3 volumes past 512 GiB~~ DONE 2026-10-20 -- v3: a volume-sized descriptor table, lazy groups, cached bitmaps
+- [x] ~~Name what an unmounted partition holds~~ DONE 2026-10-20 -- a signature probe, Disks and `lsblk -f`
+- [ ] Mount exFAT, and NTFS read-only -- Disks names them since 2026-10-20 but cannot open them
 - [x] ~~AHCI drives only the FIRST SATA drive it finds~~ DONE 2026-10-07 -- every drive, every HBA; `rootdisk_test.py`
 - [x] ~~A blank disk on a higher-precedence controller takes the root~~ DONE 2026-10-07 -- `bootpart=`, else the first bootable disk
 - [x] ~~Host-seeded images share PARTUUIDs~~ DONE 2026-10-07 -- random GUIDs per image; `regenerate_guids()` for a copy
@@ -1518,7 +1521,9 @@ this to be better?".
 - [ ] Disk Mark's size and location dropdowns cannot be typed at while CLOSED -- the app routes no keys, so only the overlay path reaches it
 - [ ] On a machine with no invariant TSC, CPU percentages round to 0% for sub-tick work
 - [ ] `gfxbench`'s numbers are only meaningful under KVM or on real hardware
-- [ ] **Kernel-side `fsformat tfs3` writes ~73 MB of zeroed inode tables
+- [x] ~~Kernel-side `fsformat tfs3` writes ~73 MB of zeroed inode tables~~ DONE 2026-10-20 -- tfs3 v3 formats lazily
+- [ ] TFS3 volumes stop at 16 TiB: block numbers are 32 bits
+- [ ] `tools/tfs3_writer.py` reads and writes v1/v2 only, and a kernel-formatted volume is v3
 - [ ] The vmsvga HARDWARE cursor is off by default because it fights the relative PS/2 mouse
 - [ ] Time sources -- the strongest candidate (superseded above)
 - [ ] Stack block devices rather than hooking the filesystem, for M18 encryption at rest
