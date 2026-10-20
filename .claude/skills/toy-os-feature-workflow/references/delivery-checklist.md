@@ -410,6 +410,18 @@ short version.
    matches the live files (see the note at the top of this skill about
    conventions changing).
 
+   **THEN, WHEN EVERYTHING IS SHIPPED, SWEEP THE DOCS** (standing
+   instruction, 2026-10-20). The maintainer had to ask for it after the
+   8 TB / tfs3 v3 work: three code commits had left the roadmap listing
+   a fixed item as open, no convention for the new traps, a design doc
+   contradicted by the code, and `tools.md` promising lockstep with a
+   format the tool did not read. Grep `docs/` and the CLAUDE.md files
+   for the area's words (the feature, the struct, the command, the
+   limit that changed) and check each hit: roadmap (done, and newly
+   found limits) and `roadmap-details.md`, `features.md`, conventions
+   (+ INDEX), design/spec docs, `tools.md`, `commands/`. Commit as one
+   `docs:` commit and name in the hand-over any doc the code contradicted.
+
 
 6. **Ship it -- usually without a version bump.** Most changes are a
    commit under the current `-dev` version, not a release.

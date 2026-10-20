@@ -77,8 +77,11 @@ reader pays for them):
    command needs its `docs/commands/` page in the same change. Roadmap
    items are one line (detail in `roadmap-details.md`, same title);
    urgency is `**NEXT**` + `gen_next_up.py`. A `docs/decisions.md` entry
-   only for a "why this way" a future session would re-litigate. Full
-   text: `delivery-checklist.md`, "Steps 5 and 6 in full".
+   only for a "why this way" a future session would re-litigate. **When
+   everything is shipped, SWEEP THE DOCS for what went stale** (roadmap,
+   features, conventions, design/spec, tools; CLAUDE.md's rule) and
+   commit that as `docs:`. Full text: `delivery-checklist.md`, "Steps 5
+   and 6 in full".
 
 6. **Ship.** Gate with `tools/preflight.sh` (and `gui_regress.py --logs`
    after anything userland or drawn), commit with plain `git`, push

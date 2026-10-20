@@ -625,6 +625,14 @@ and push verified work.
   `KCMDLINE="video=1920x1080"`). Nothing to see: say so in a line.
 - **LIST EVERY FILE ADDED OR EDITED** in the final response, compactly
   (standing instruction).
+- **WHEN THE WORK IS DONE, SWEEP THE DOCS BEFORE THE HAND-OVER**
+  (standing instruction, 2026-10-20): grep `docs/` and the CLAUDE.md
+  files for what the change made stale -- a roadmap item now done or
+  newly found (`roadmap-details.md` too), `docs/features.md`, a
+  convention for a new trap (+ its INDEX headline), a design or spec
+  doc, `docs/tools.md`, any doc the code now CONTRADICTS -- and commit
+  the fixes as a `docs:` commit. `check_docs.py` checks shapes, not
+  truth; a multi-commit change leaves docs behind unless swept.
 - **IF TESTING LEFT THIS MACHINE, REPORT EVERY EXTERNAL HOST IT REACHED
   -- IN THE CHAT, NOT IN THE COMMIT** (standing instruction, 2026-09-07):
   end with `External hosts contacted during testing:` -- each host, its

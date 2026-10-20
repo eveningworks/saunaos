@@ -146,7 +146,10 @@ allocator.
 **Filesystems.** [TFS3](tfs3-spec.md) is the root: block groups,
 128-byte checksummed inodes, hardlinks, atomic rename and truncation,
 32-slot journal transactions, ext-style superblock backups, ~590k files
-on a 9 GiB volume. It scales files to gigabytes through direct and
+on a 9 GiB volume and volumes up to 16 TiB -- formatted in about a
+second whatever the size, ext4-style, since a group nobody has used is
+not written until it is, and with bitmaps cached rather than all held
+in memory. It scales files to gigabytes through direct and
 single/double/triple-indirect pointers, batches ATA flushes, TRIMs freed
 blocks back to the host, and refuses to touch a disk whose superblock
 could not be read rather than destroying a possibly-good filesystem.
@@ -263,7 +266,10 @@ map of its partitions and free space, GNOME Disks' shape. On any disk
 but the system's it makes a partition in free space (a new GPT on a
 blank disk), formats one tfs3 or FAT32, mounts and unmounts it under
 `/mnt`, and deletes one, each behind a confirm; any mounted volume can
-be checked, and repaired when the check finds a problem.
+be checked, and repaired when the check finds a problem. A format or a
+check shows its stages as it runs. Every volume is titled by its label
+and says what it holds -- NTFS, exFAT, ext4, Btrfs and a dozen more,
+mounted or not, recognised by signature as `lsblk -f` does.
 
 **Character Map** finds any character the installed fonts can draw --
 by name ("arrow" finds the arrows as it is typed), by `U+2192`, or by
