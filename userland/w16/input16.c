@@ -73,8 +73,8 @@ static struct { uint64_t tick; uint16_t hwnd; int x, y; } g_last;
 int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *cap = w16_wnd_get(w, w->capture), *to;
-    int cx, cy, nc = 0, dbl = 0;
-    if (cap && w16_wnd_top(w, cap) == top) {
+    int cx, cy, nc = 0, dbl = 0, held = cap && w16_wnd_top(w, cap) == top;
+    if (held) {
         // Held by one window: the point in its client coordinates, wherever it is.
         int ox, oy;
         w16_wnd_origin(w, cap, &ox, &oy);
@@ -98,6 +98,7 @@ int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t w
     }
     int disabled = to && (to->style & WS_DISABLED);
     int shape = to && !nc && to->cls >= 0 && to->cls < w->ncls ? w->cls[to->cls].cursor : WIN_CURSOR_DEFAULT;
+    if (held) shape = -1;                        // no WM_SETCURSOR under a capture, as in 3.1
     pthread_mutex_unlock(&w->lock);
     if (!hwnd || disabled) return WIN_CURSOR_DEFAULT;
     if (nc) {                                    // the frame of a child: its scroll bars

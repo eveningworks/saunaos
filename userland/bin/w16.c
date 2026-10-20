@@ -426,13 +426,14 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     }
     // The pointer takes the shape of the window under it: an edit's I-beam,
     // or over the 3.1 frame's border -- which toywm cannot see -- the
-    // resize arrow for the way that edge or corner drags.
+    // resize arrow for the way that edge or corner drags. Under a capture
+    // it keeps the shape it had when the capture began.
     unsigned edges;
     int shape = WIN_CURSOR_DEFAULT;
     enum w16_hit hit = w16_frame_hit(&g_w16.win, x, y, &edges);
     if (mouse_is_programs(hit)) shape = client_mouse(WM_MOUSEMOVE, mk_flags(buttons), x, y);
     else if (hit == HIT_EDGE && !maximized()) shape = edge_cursor(edges);
-    uapp_set_cursor(a, shape);
+    if (shape >= 0) uapp_set_cursor(a, shape);
 }
 
 static int on_tick(struct uapp *a) {

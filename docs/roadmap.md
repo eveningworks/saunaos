@@ -941,6 +941,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: the last pixels from real 3.11 -- the menu bar's title spacing, a list box's top, Switch To... on the control menu
 - [ ] w16: a file dropped on a program (WM_DROPFILES) -- DragAcceptFiles is answered, nothing is ever dropped
 - [ ] w16: printing -- PrintDlg answers "no default printer"
+- [ ] w16: a program's own DLLs loaded beside it (Solitaire's CARDS.DLL) -- only Windows' own modules are answered today
+- [ ] w16: the Win16 folders and drives (Options > Folders and Drives, D: to Y:, drive C: per program)
+- [ ] w16: a Windows program opened from the File Manager -- the run card, its setting, the right-click menu and details
 - [ ] w16: a NASM sample that edits and saves, so the GUI test covers the EDIT, the files and COMMDLG without Notepad
 - [ ] Stage 4: real programs (the user's own copies), each run's unimplemented-import list worked through
 - [ ] Several top-level windows per uapp process, which real Win16 programs need -- owned dialogs done 2026-10-19

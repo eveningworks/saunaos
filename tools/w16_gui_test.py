@@ -44,6 +44,9 @@ file is involved.
    a search narrows it to one; Ctrl+C copies the rows shown; gdi.exe,
    which lacks nothing, opens on All; and the launcher's details panel
    opens the window for the selected program.
+9. **The pointer under a capture** (hello.exe's scrolling edit): an
+   I-beam over the text, an arrow over the scroll bar, and dragging the
+   thumb onto the text keeps the arrow until the button is let go.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -317,6 +320,41 @@ def launcher(dbg, res):
               f"the file: {last!r}")
 
 
+def capture_cursor(dbg, qmp, res):
+    """A scroll bar's drag holds the capture, and under a capture the
+    pointer keeps the shape it had -- an arrow from the bar, even over
+    the edit's text, where it was an I-beam (Notepad, 2026-10-20)."""
+    win = dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", HELLO_TITLE)
+    res.check("hello.exe opens, with its scrolling edit", win is not None, "no window")
+    if not win:
+        return
+    ARROW, IBEAM = 0, 4                     # wm_internal.h's WM_CURSOR_NORMAL, WM_CURSOR_TEXT
+    ox, oy = win["x"] + FRAME, win["y"] + FRAME + CAPTION
+    bar_x, thumb_y = ox + 16 + 200 - 9, oy + 40 + 1 + 17 + 8   # the edit's right edge; under its up arrow
+    text = (ox + 60, oy + 70)
+    dbg.warp_cursor(qmp, *text)
+    dbg.settle()
+    res.check("over the edit's text the pointer is the I-beam", dbg.cursor_shape() == IBEAM,
+              f"shape {dbg.cursor_shape()}")
+    dbg.warp_cursor(qmp, bar_x, thumb_y)
+    dbg.settle()
+    res.check("over its scroll bar, the arrow", dbg.cursor_shape() == ARROW, f"shape {dbg.cursor_shape()}")
+    qmp.mouse_down()
+    dbg.settle()
+    for i in range(1, 5):
+        dbg.warp_cursor(qmp, bar_x + (text[0] - bar_x) * i // 4, thumb_y + (text[1] - thumb_y) * i // 4)
+    dbg.settle()
+    held = dbg.cursor_shape()
+    qmp.mouse_up()
+    dbg.settle()
+    res.check("dragging the thumb onto the text keeps the arrow", held == ARROW, f"shape {held}")
+    dbg.warp_cursor(qmp, text[0] + 10, text[1])
+    dbg.settle()
+    res.check("...and once let go, the text's I-beam again", dbg.cursor_shape() == IBEAM,
+              f"shape {dbg.cursor_shape()}")
+    dbg.close_window(HELLO_TITLE)
+
+
 DLG_TITLE = "Dialog test (Win16)"
 DLG_INI = "/home/Win16/WINDOWS/DIALOG.INI"
 
@@ -527,6 +565,7 @@ def main():
         settings(dbg, qmp, res)
         launcher(dbg, res)
         calls(dbg, res)
+        capture_cursor(dbg, qmp, res)
         dialogs(dbg, res)
     finally:
         dbg.close()

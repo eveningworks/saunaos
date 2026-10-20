@@ -1,7 +1,9 @@
 ; hello.asm -- w16's first test program: one window that says hello.
 ; The classic Win16 shape, by hand: task start-up, a window class, a
 ; window, the message loop, and a window procedure that paints text and
-; quits when the window is destroyed. Build: tools/gen_ne.py.
+; quits when the window is destroyed -- and a child, a multi-line EDIT
+; with a scroll bar (client 16,40 200x60, twenty numbered lines), whose
+; thumb tools/w16_gui_test.py drags. Build: tools/gen_ne.py.
 ;
 ;w16: module HELLO
 ;w16: description Hello
@@ -19,6 +21,7 @@
 %define WS_OVERLAPPEDWINDOW 0x00CF0000
 %define COLOR_WINDOW 5
 %define IDC_ARROW   32512
+%define EDIT_STYLE  0x50A00004      ; WS_CHILD|WS_VISIBLE|WS_BORDER|WS_VSCROLL|ES_MULTILINE
 
 ; ---------------------------------------------------------------- code
 W16_SEGMENT 1
@@ -67,7 +70,24 @@ start:
     jz fail
     mov [hwnd], ax
 
-    push ax
+    push ds                         ; CreateWindow("EDIT", lines, EDIT_STYLE,
+    push word editclass             ;   16, 40, 200, 60, hwnd, id 1, hInstance, 0)
+    push ds
+    push word edit_text
+    push word EDIT_STYLE >> 16
+    push word EDIT_STYLE & 0xFFFF
+    push word 16
+    push word 40
+    push word 200
+    push word 60
+    push word [hwnd]
+    push word 1
+    push word [hInstance]
+    push word 0
+    push word 0
+    W16_CALL "USER", 41
+
+    push word [hwnd]
     push word [nCmdShow]
     W16_CALL "USER", 42             ; ShowWindow(hwnd, nCmdShow)
     push word [hwnd]
@@ -182,3 +202,11 @@ classname:  db "HelloClass", 0
 title:      db "Hello (Win16)", 0
 hello_text: db "Hello from a Win16 program, running in /bin/w16."
 hello_len   equ $ - hello_text
+editclass:  db "EDIT", 0
+edit_text:
+%assign i 1
+%rep 20
+            db "Line ", %str(i), 13, 10
+%assign i i+1
+%endrep
+            db 0
