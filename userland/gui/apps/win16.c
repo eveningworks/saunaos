@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <time.h>
 #include "keyboard.h"
 #include "rt/sys.h"
@@ -31,12 +32,13 @@
 #include "ui/uui_dropdown.h"
 #include "ui/uui_filedialog.h"
 #include "ui/uui_grid.h"
+#include "ui/uui_listedit.h"
 #include "ui/uui_menubar.h"
+#include "ui/uui_nameask.h"
 #include "ui/uui_prefs.h"
 #include "ui/uui_sidebar.h"
 #include "ui/uui_stackbar.h"
 #include "ui/uui_statusbar.h"
-#include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
 #include "w16/w16prefs.h"
 #include "win16/win16.h"
@@ -75,20 +77,27 @@ struct prog {
 static struct prog *g_prog;
 static int g_nprog, g_next_check;
 static int *g_view, g_nview;                 // the programs the sidebar's choice shows
-static struct w16_prefs g_def;               // the defaults, and the folders
+static struct w16_prefs g_def;               // the defaults
+static struct w16_folder *g_folders;         // the folders programs are listed from
+static int g_nfolders;
 static struct uapp *g_app;
 
-enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CMD_EXIT, CMD_CALLS };
+enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CMD_EXIT, CMD_CALLS,
+       CMD_CHANGE, CMD_RENAME, CMD_UP, CMD_DOWN };
 enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VERSION, ID_FRAME,
-       ID_TRACE, ID_RUN, ID_OPT_DRIVE, ID_CALLS, ID_METHOD, ID_FONTS, ID_OPT_FONTCARD };
+       ID_TRACE, ID_RUN, ID_CALLS, ID_METHOD, ID_FONTS, ID_OPT_FONTCARD, ID_DRIVEC, ID_CTX,
+       ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE,
+       ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN };
 
 static struct uui_menubar g_menu;
+static struct uui_menubar g_ctx;             // a folder's right-click menu
 static struct uui_toolbar g_tb;
 static struct uui_sidebar g_side;
 static struct uui_grid g_grid;
 static struct uui_statusbar g_sb;
 #define NSET 6                               // the per-program settings: SETTINGS below
 static struct uui_dropdown g_dd[NSET];
+static struct uui_dropdown g_ddc;            // its drive C:, a folder rather than a choice
 static struct uui_button g_run;
 static struct uui_button g_calls;            // "Missing calls...": the calls window
 static struct uui_filedialog g_chooser;      // ~20 KB: file scope
@@ -238,10 +247,10 @@ static void find_programs(void) {
     for (int i = 0; i < g_nprog; i++) prog_free(&g_prog[i]);
     g_nprog = g_next_check = 0;
     static int cap;
-    for (int f = 0; f < W16_FOLDERS_MAX; f++) {
-        if (!g_def.folder[f][0]) continue;
+    for (int f = 0; f < g_nfolders; f++) {
+        const char *dir = g_folders[f].path;
         struct sys_dirent *ents;
-        int n = ulistdir(g_def.folder[f], &ents);
+        int n = ulistdir(dir, &ents);
         for (int i = 0; i < n; i++) {
             if (!is_exe(ents[i].name)) continue;
             if (g_nprog == cap) {
@@ -255,8 +264,8 @@ static void find_programs(void) {
             }
             struct prog *p = &g_prog[g_nprog++];
             memset(p, 0, sizeof *p);
-            size_t len = strlen(g_def.folder[f]) + strlen(ents[i].name) + 2;
-            if ((p->path = malloc(len))) snprintf(p->path, len, "%s/%s", g_def.folder[f], ents[i].name);
+            size_t len = strlen(dir) + strlen(ents[i].name) + 2;
+            if ((p->path = malloc(len))) snprintf(p->path, len, "%s/%s", dir, ents[i].name);
             set_str(&p->name, ents[i].name);
             set_str(&p->title, ents[i].name);
             p->folder = f;
@@ -268,22 +277,23 @@ static void find_programs(void) {
 
 // --- the sidebar: All programs, then each folder ---------------------------------
 
-static struct uui_sidebar_row g_rows[W16_FOLDERS_MAX + 2];
-static char g_row_label[W16_FOLDERS_MAX][48];
+static struct uui_sidebar_row *g_rows;       // "All programs", then a row per folder
 
-static void folder_label(int f, char *out, size_t cap) {
-    const char *path = g_def.folder[f];
-    snprintf(out, cap, "%s", !strcmp(path, "/usr/share/w16") ? "Samples" : file_name(path));
+// What a folder is called: its own name, else the folder's.
+static const char *folder_label(const struct w16_folder *f) {
+    if (f->name[0]) return f->name;
+    return !strcmp(f->path, "/usr/share/w16") ? "Samples" : file_name(f->path);
 }
 
+// Rebuilt whenever g_folders changes: the labels point into it.
 static void build_sidebar(void) {
+    struct uui_sidebar_row *g = realloc(g_rows, sizeof *g_rows * (size_t)(g_nfolders + 1));
+    if (!g) return;
+    g_rows = g;
     int n = 0;
     g_rows[n++] = (struct uui_sidebar_row){ "All programs", UUI_SIDEBAR_TOP, 0, -1 };
-    for (int f = 0; f < W16_FOLDERS_MAX; f++) {
-        if (!g_def.folder[f][0]) continue;
-        folder_label(f, g_row_label[f], sizeof g_row_label[f]);
-        g_rows[n++] = (struct uui_sidebar_row){ g_row_label[f], UUI_SIDEBAR_TOP, 0, f };
-    }
+    for (int f = 0; f < g_nfolders; f++)
+        g_rows[n++] = (struct uui_sidebar_row){ folder_label(&g_folders[f]), UUI_SIDEBAR_TOP, 0, f };
     uui_sidebar_set_rows(&g_side, g_rows, n);
     if (g_side.selected < 0) uui_sidebar_select_id(&g_side, -1);
 }
@@ -329,10 +339,58 @@ static const struct { const char *caption; const char *const *names; int n; int 
 
 static int *field_of(struct w16_prefs *p, int i) { return (int *)((char *)p + SETTINGS[i].field); }
 
+// Drive C: per program: the default, the folder the program is in, a
+// folder of its own once chosen, and Choose a folder... -- a path, so a
+// list of its own rather than a SETTINGS row.
+#define DRIVEC_BIT 5                         // drive_c's place in w16_prefs_keys
+enum { DC_DEFAULT, DC_ITS_FOLDER, DC_OWN, DC_CHOOSE };
+static char g_dc_label[3][W16_PATH_MAX + 32];
+static const char *g_dc_items[4];
+static int g_dc_kind[4], g_dc_n;
+
+static void prog_dir(const struct prog *p, char *out, size_t cap) {
+    snprintf(out, cap, "%s", p->path);
+    char *slash = strrchr(out, '/');
+    if (slash && slash != out) *slash = 0;
+}
+
+static void fill_drive_c(const struct prog *p, unsigned mask, const struct w16_prefs *eff) {
+    char dir[W16_PATH_MAX] = "";
+    if (p) prog_dir(p, dir, sizeof dir);
+    int own = p && (mask & (1u << DRIVEC_BIT)), sel = 0;
+    g_dc_n = 0;
+    snprintf(g_dc_label[0], sizeof g_dc_label[0], "Default (%s)", g_def.drive_c);
+    g_dc_items[g_dc_n] = g_dc_label[0]; g_dc_kind[g_dc_n++] = DC_DEFAULT;
+    snprintf(g_dc_label[1], sizeof g_dc_label[1], "The folder it is in");
+    if (own && !strcmp(eff->drive_c, dir)) sel = g_dc_n;
+    g_dc_items[g_dc_n] = g_dc_label[1]; g_dc_kind[g_dc_n++] = DC_ITS_FOLDER;
+    if (own && strcmp(eff->drive_c, dir)) {
+        snprintf(g_dc_label[2], sizeof g_dc_label[2], "%s", eff->drive_c);
+        sel = g_dc_n;
+        g_dc_items[g_dc_n] = g_dc_label[2]; g_dc_kind[g_dc_n++] = DC_OWN;
+    }
+    g_dc_items[g_dc_n] = "Choose a folder..."; g_dc_kind[g_dc_n++] = DC_CHOOSE;
+    uui_dropdown_set_items(&g_ddc, g_dc_items, g_dc_n);
+    uui_dropdown_set_selected(&g_ddc, sel);
+    g_ddc.disabled = !p || !p->ok;
+}
+
+// The program's own drive C: set to `path`, or back to the default (NULL).
+static void set_prog_drive_c(const struct prog *p, const char *path) {
+    static struct w16_prefs eff;                 // ~3 KB with the drives: not on the stack
+    w16_prefs_load(&eff, p->path);
+    unsigned mask = w16_prefs_overridden(p->path) & ~(1u << DRIVEC_BIT);
+    if (path) {
+        snprintf(eff.drive_c, sizeof eff.drive_c, "%s", path);
+        mask |= 1u << DRIVEC_BIT;
+    }
+    w16_prefs_save_program(p->path, &eff, mask);
+}
+
 static void fill_panel(void) {
     struct prog *p = cur();
     unsigned mask = p ? w16_prefs_overridden(p->path) : 0;
-    struct w16_prefs eff;
+    static struct w16_prefs eff;
     w16_prefs_load(&eff, p ? p->path : 0);
     for (int i = 0; i < NSET; i++) {
         snprintf(g_dflt_label[i], sizeof g_dflt_label[i], "Default (%s)",
@@ -348,12 +406,13 @@ static void fill_panel(void) {
         uui_dropdown_set_selected(&g_dd[i], mask & (1u << SETTINGS[i].bit) ? *field_of(&eff, i) + 1 : 0);
         g_dd[i].disabled = !p || !p->ok;
     }
+    fill_drive_c(p, mask, &eff);
 }
 
 static void save_panel(void) {
     struct prog *p = cur();
     if (!p) return;
-    struct w16_prefs eff;
+    static struct w16_prefs eff;
     w16_prefs_load(&eff, p->path);
     unsigned mask = w16_prefs_overridden(p->path);
     for (int i = 0; i < NSET; i++) {
@@ -363,6 +422,34 @@ static void save_panel(void) {
         else { mask |= bit; *field_of(&eff, i) = sel - 1; }
     }
     w16_prefs_save_program(p->path, &eff, mask);
+}
+
+static const struct prog *g_pick_prog;       // whose drive C: the chooser is for
+static void prog_drive_c(const char *path) {
+    for (int i = 0; i < g_nprog; i++)
+        if (&g_prog[i] == g_pick_prog) set_prog_drive_c(g_pick_prog, path);
+    fill_panel();
+}
+
+static void pick_folder(int why, int row, const char *title, const char *start);
+
+// The panel's Drive C: list changed.
+static void drive_c_chosen(void) {
+    const struct prog *p = cur();
+    int sel = uui_dropdown_selected(&g_ddc);
+    if (!p || sel < 0 || sel >= g_dc_n) return;
+    char dir[W16_PATH_MAX];
+    switch (g_dc_kind[sel]) {
+    case DC_DEFAULT:    set_prog_drive_c(p, 0); break;
+    case DC_ITS_FOLDER: prog_dir(p, dir, sizeof dir); set_prog_drive_c(p, dir); break;
+    case DC_CHOOSE:
+        g_pick_prog = p;
+        prog_dir(p, dir, sizeof dir);
+        pick_folder(6, -1, "Choose the program's drive C:", dir);   // PICK_PROG_C
+        break;
+    default: break;
+    }
+    fill_panel();
 }
 
 // --- actions --------------------------------------------------------------------
@@ -378,63 +465,350 @@ static void show_calls(const char *path) {
     sys_spawn_argv("/bin/wm/apps/win16", args);
 }
 
-static void folder_chosen(void *ctx, const char *path) {
+// --- the folders: a list kept in order, changed in place or in Options ------------
+
+// `path` added at the end of `*f`; its index, or -1. Already there: that one.
+static int folders_add(struct w16_folder **f, int *n, const char *path) {
+    for (int i = 0; i < *n; i++)
+        if (!strcmp((*f)[i].path, path)) return i;
+    struct w16_folder *g = realloc(*f, sizeof **f * (size_t)(*n + 1));
+    if (!g) return -1;
+    *f = g;
+    g[*n].path = strdup(path);
+    g[*n].name = strdup("");
+    if (!g[*n].path || !g[*n].name) { free(g[*n].path); free(g[*n].name); return -1; }
+    return (*n)++;
+}
+
+static void folders_remove(struct w16_folder *f, int *n, int i) {
+    if (i < 0 || i >= *n) return;
+    free(f[i].path);
+    free(f[i].name);
+    memmove(&f[i], &f[i + 1], sizeof *f * (size_t)(*n - i - 1));
+    (*n)--;
+}
+
+// Row `i` one place up (by -1) or down (+1); where it went, or `i`.
+static int folders_move(struct w16_folder *f, int n, int i, int by) {
+    int j = i + by;
+    if (i < 0 || j < 0 || i >= n || j >= n) return i;
+    struct w16_folder t = f[i];
+    f[i] = f[j];
+    f[j] = t;
+    return j;
+}
+
+static void set_owned(char **to, const char *s) {
+    char *c = strdup(s);
+    if (!c) return;
+    free(*to);
+    *to = c;
+}
+
+// A folder's .exe files, for a list's Programs column.
+static int count_programs(const char *dir) {
+    struct sys_dirent *ents;
+    int n = ulistdir(dir, &ents), k = 0;
+    for (int i = 0; i < n; i++) k += is_exe(ents[i].name);
+    free(n >= 0 ? ents : 0);
+    return k;
+}
+
+// The launcher's folders changed: saved, and everything shown from them redone.
+static void folders_changed(int select) {
+    w16_folders_save(g_folders, g_nfolders);
+    find_programs();
+    build_sidebar();
+    uui_sidebar_select_id(&g_side, select);
+    build_view();
+    fill_panel();
+}
+
+// Which folder a Folder command is for: the one right-clicked, else the
+// sidebar's choice (-1 for All programs).
+static int g_ctx_folder = -1;
+static int target_folder(void) { return g_ctx_folder >= 0 ? g_ctx_folder : uui_sidebar_selected_id(&g_side); }
+
+// --- choosing a folder, for whichever asked ----------------------------------------
+
+enum pick { PICK_ADD, PICK_CHANGE, PICK_OPT_ADD, PICK_OPT_CHANGE, PICK_DRIVE_ADD, PICK_DRIVE_CHANGE, PICK_PROG_C };
+_Static_assert(PICK_PROG_C == 6, "drive_c_chosen() names it by number, being above the enum");
+static int g_pick;
+static int g_pick_row;                       // the row a Change is for
+static struct uui_nameask g_ask;             // Rename...
+
+static void opt_folders_changed(int select);
+static void opt_drives_changed(int select);
+static struct w16_folder *g_ofold;           // Options' copy of the folders, until OK
+static int g_nofold;
+static struct w16_prefs g_edit;
+static char g_drive_rows[W16_DRIVES + 2];    // Options' Drives list: its letters, C: to Z:
+static int g_ndrive_rows;
+
+static char *drive_slot(struct w16_prefs *p, char d) {
+    return d == 'C' ? p->drive_c : d >= 'D' && d < 'D' + W16_DRIVES ? p->drive[d - 'D'] : 0;
+}
+
+static void chosen(void *ctx, const char *path) {
     (void)ctx;
     if (!path) return;
-    for (int f = 0; f < W16_FOLDERS_MAX; f++)
-        if (!strcmp(g_def.folder[f], path)) return;
-    for (int f = 0; f < W16_FOLDERS_MAX; f++) {
-        if (g_def.folder[f][0]) continue;
-        snprintf(g_def.folder[f], sizeof g_def.folder[f], "%s", path);
-        uprefs_save(&w16_prefs_defaults, &g_def, 0);
-        find_programs();
-        build_sidebar();
-        uui_sidebar_select_id(&g_side, f);
-        build_view();
-        return;
+    switch (g_pick) {
+    case PICK_ADD: {
+        int i = folders_add(&g_folders, &g_nfolders, path);
+        if (i >= 0) folders_changed(i);
+        break;
     }
+    case PICK_CHANGE:
+        if (g_pick_row >= 0 && g_pick_row < g_nfolders) {
+            set_owned(&g_folders[g_pick_row].path, path);
+            folders_changed(g_pick_row);
+        }
+        break;
+    case PICK_OPT_ADD: opt_folders_changed(folders_add(&g_ofold, &g_nofold, path)); break;
+    case PICK_OPT_CHANGE:
+        if (g_pick_row >= 0 && g_pick_row < g_nofold) set_owned(&g_ofold[g_pick_row].path, path);
+        opt_folders_changed(g_pick_row);
+        break;
+    case PICK_DRIVE_ADD:
+        for (char d = 'D'; d < 'D' + W16_DRIVES; d++) {
+            char *slot = drive_slot(&g_edit, d);
+            if (slot[0]) continue;
+            snprintf(slot, W16_PATH_MAX, "%s", path);
+            opt_drives_changed(d);
+            break;
+        }
+        break;
+    case PICK_DRIVE_CHANGE:
+        if (g_pick_row >= 0 && g_pick_row < g_ndrive_rows) {
+            char d = g_drive_rows[g_pick_row], *slot = drive_slot(&g_edit, d);
+            if (slot) snprintf(slot, W16_PATH_MAX, "%s", path);
+            opt_drives_changed(d);
+        }
+        break;
+    case PICK_PROG_C: prog_drive_c(path); break;
+    }
+    uapp_redraw(g_app);
+}
+
+static void pick_folder(int why, int row, const char *title, const char *start) {
+    if (uui_filedialog_is_open(&g_chooser)) return;
+    g_pick = why;
+    g_pick_row = row;
+    struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_FOLDER, .title = title,
+                                     .start_dir = start && start[0] ? start : "/home" };
+    uui_filedialog_open(g_app, &g_chooser, &o, chosen, g_app);
+}
+
+// Rename...: the launcher's folder, or Options' copy of it.
+static int g_rename_opt;
+static void renamed(void *ctx, const char *name) {
+    (void)ctx;
+    if (g_rename_opt) {
+        if (g_pick_row >= 0 && g_pick_row < g_nofold) set_owned(&g_ofold[g_pick_row].name, name);
+        opt_folders_changed(g_pick_row);
+    } else if (g_pick_row >= 0 && g_pick_row < g_nfolders) {
+        set_owned(&g_folders[g_pick_row].name, name);
+        folders_changed(g_pick_row);
+    }
+    uapp_redraw(g_app);
+}
+
+static void rename_folder(int opt, int row) {
+    const struct w16_folder *f = opt ? &g_ofold[row] : &g_folders[row];
+    if (uui_nameask_is_open(&g_ask)) return;
+    g_rename_opt = opt;
+    g_pick_row = row;
+    uui_nameask_open(&g_ask, g_app, "Rename folder", "Shown in the list as (empty: the folder's own name)",
+                     folder_label(f), "Rename", 0, renamed, 0);
 }
 
 // --- Options: the defaults ----------------------------------------------------------
 
-static struct w16_prefs g_edit;
-static struct uui_textbox g_drive;
 static const struct uui_sidebar_row OPT_PAGES[] = {
     { "General", UUI_SIDEBAR_TOP, 0, 0 },
     { "Display", UUI_SIDEBAR_TOP, 0, 1 },
-    { "Files",   UUI_SIDEBAR_TOP, 0, 2 },
+    { "Drives",  UUI_SIDEBAR_TOP, 0, 2 },
+    { "Folders", UUI_SIDEBAR_TOP, 0, 3 },
 };
 static const char *const FAULT_NAMES[] = { "Show the Error box", "Write the report only" };
 static const char *const OPT_NOTES[] = {
     "What programs are told, and what happens when one fails.",
     "How a program's windows look, and whose fonts its text is drawn in.",
-    "Drive C: is a folder here; a program's INI files go in its WINDOWS folder.",
+    "Each drive letter a program sees, and the folder it is here. A program's INI files go in C:\\WINDOWS.",
+    "The folders programs are listed from, in the sidebar's order.",
 };
 
-static void opt_defaults(void) { uui_textbox_set_text(&g_drive, "/home/Win16"); }
+// The Drives list: C:, the drives set, then Z:; what each holds, worked
+// out when the list changes rather than as it paints.
+static struct uui_listedit g_drives;
+static char g_drive_holds[W16_DRIVES + 2][64];
+static const struct uui_table_column DRIVE_COLS[] = {
+    { "Drive", 6, UUI_TALIGN_LEFT, 0, 0 }, { "Folder", 0, UUI_TALIGN_LEFT, 0, 0 }, { "Holds", 26, UUI_TALIGN_LEFT, 0, 0 },
+};
+
+static int has_ci(const char *dir, const char *name, int *fonts) {
+    struct sys_dirent *ents;
+    int n = ulistdir(dir, &ents), found = 0;
+    for (int i = 0; i < n; i++) {
+        if (name && !strcasecmp(ents[i].name, name)) found = 1;
+        size_t l = strlen(ents[i].name);
+        if (fonts && l > 4 && !strcasecmp(ents[i].name + l - 4, ".fon")) (*fonts)++;
+    }
+    free(n >= 0 ? ents : 0);
+    return found;
+}
+
+static void drive_holds(char d, char *out, size_t cap) {
+    const char *root = d == 'Z' ? "/" : drive_slot(&g_edit, d);
+    if (d == 'Z') { snprintf(out, cap, "all of toy-os"); return; }
+    if (d != 'C') { snprintf(out, cap, "%d programs", count_programs(root)); return; }
+    char win[W16_PATH_MAX + 16], sys[W16_PATH_MAX + 32];
+    snprintf(win, sizeof win, "%s/WINDOWS", root);
+    snprintf(sys, sizeof sys, "%s/WINDOWS/SYSTEM", root);
+    int fonts = 0, dll = has_ci(sys, "COMMDLG.DLL", &fonts);
+    if (!has_ci(root, "WINDOWS", 0)) snprintf(out, cap, "no WINDOWS folder yet");
+    else snprintf(out, cap, "WINDOWS%s, %d fonts", dll ? ", COMMDLG.DLL" : "", fonts);
+    (void)win;
+}
+
+static void drive_cell(void *ctx, int row, int col, char *out, int cap) {
+    (void)ctx;
+    if (row < 0 || row >= g_ndrive_rows) { out[0] = 0; return; }
+    char d = g_drive_rows[row];
+    if (col == 0) snprintf(out, (size_t)cap, "%c:", d);
+    else if (col == 1) snprintf(out, (size_t)cap, "%s", d == 'Z' ? "/" : drive_slot(&g_edit, d));
+    else snprintf(out, (size_t)cap, "%s", g_drive_holds[row]);
+}
+
+static void opt_drives_changed(int select) {
+    int at = -1;
+    g_ndrive_rows = 0;
+    for (char d = 'C'; d <= 'Z'; d++) {
+        const char *slot = d == 'Z' ? "/" : drive_slot(&g_edit, d);
+        if (!slot || (d != 'C' && !slot[0])) continue;
+        if (d == select) at = g_ndrive_rows;
+        drive_holds(d, g_drive_holds[g_ndrive_rows], sizeof g_drive_holds[0]);
+        g_drive_rows[g_ndrive_rows++] = d;
+    }
+    uui_listedit_set_rows(&g_drives, g_ndrive_rows);
+    if (at >= 0) uui_listedit_select(&g_drives, at);
+    uui_prefs_redraw();
+}
+
+static int drive_enabled(void *ctx, int code, int row) {
+    (void)ctx;
+    char d = row >= 0 && row < g_ndrive_rows ? g_drive_rows[row] : 0;
+    switch (code) {
+    case ID_DRV_ADD:
+        for (char k = 'D'; k < 'D' + W16_DRIVES; k++) if (!drive_slot(&g_edit, k)[0]) return 1;
+        return 0;
+    case ID_DRV_CHANGE: return d && d != 'Z';
+    case ID_DRV_REMOVE: return d && d != 'C' && d != 'Z';
+    default: return 0;
+    }
+}
+
+// The Folders list: Options' copy of the launcher's.
+static struct uui_listedit g_ofolders;
+static int *g_ofold_count;                   // each folder's programs, counted when the list changes
+static const struct uui_table_column FOLDER_COLS[] = {
+    { "Name", 16, UUI_TALIGN_LEFT, 0, 0 }, { "Folder", 0, UUI_TALIGN_LEFT, 0, 0 }, { "Programs", 9, UUI_TALIGN_RIGHT, 0, 0 },
+};
+
+static void folder_cell(void *ctx, int row, int col, char *out, int cap) {
+    (void)ctx;
+    if (row < 0 || row >= g_nofold) { out[0] = 0; return; }
+    if (col == 0) snprintf(out, (size_t)cap, "%s", folder_label(&g_ofold[row]));
+    else if (col == 1) snprintf(out, (size_t)cap, "%s", g_ofold[row].path);
+    else snprintf(out, (size_t)cap, "%d", g_ofold_count ? g_ofold_count[row] : 0);
+}
+
+static void opt_folders_changed(int select) {
+    int *c = realloc(g_ofold_count, sizeof *c * (size_t)(g_nofold ? g_nofold : 1));
+    if (c) {
+        g_ofold_count = c;
+        for (int i = 0; i < g_nofold; i++) c[i] = count_programs(g_ofold[i].path);
+    }
+    uui_listedit_set_rows(&g_ofolders, g_nofold);
+    if (select >= 0) uui_listedit_select(&g_ofolders, select);
+    uui_prefs_redraw();
+}
+
+static int folder_enabled(void *ctx, int code, int row) {
+    (void)ctx;
+    int on = row >= 0 && row < g_nofold;
+    switch (code) {
+    case ID_FOL_ADD:  return 1;
+    case ID_FOL_UP:   return on && row > 0;
+    case ID_FOL_DOWN: return on && row < g_nofold - 1;
+    default:          return on;
+    }
+}
+
+static void opt_copy_folders(const struct w16_folder *from, int n) {
+    w16_folders_free(g_ofold, g_nofold);
+    g_ofold = 0;
+    g_nofold = 0;
+    for (int i = 0; i < n; i++) {
+        int k = folders_add(&g_ofold, &g_nofold, from[i].path);
+        if (k >= 0) set_owned(&g_ofold[k].name, from[i].name);
+    }
+}
+
+static void opt_defaults(void) {
+    static const struct w16_folder DEF[] = { { "/usr/share/w16", "" }, { "/home/Win16", "" } };
+    opt_copy_folders(DEF, 2);
+    opt_folders_changed(-1);
+    opt_drives_changed(-1);
+}
+
+static void opt_action(int code) {
+    int row = uui_listedit_selected(&g_drives), fr = uui_listedit_selected(&g_ofolders);
+    switch (code) {
+    case ID_DRV_ADD: pick_folder(PICK_DRIVE_ADD, -1, "Choose the folder for a new drive", "/home"); break;
+    case ID_DRV_CHANGE:
+        if (row >= 0 && row < g_ndrive_rows)
+            pick_folder(PICK_DRIVE_CHANGE, row, "Choose the drive's folder", drive_slot(&g_edit, g_drive_rows[row]));
+        break;
+    case ID_DRV_REMOVE:
+        if (row >= 0 && row < g_ndrive_rows && g_drive_rows[row] != 'C' && g_drive_rows[row] != 'Z') {
+            drive_slot(&g_edit, g_drive_rows[row])[0] = 0;
+            opt_drives_changed(-1);
+        }
+        break;
+    case ID_FOL_ADD:    pick_folder(PICK_OPT_ADD, -1, "Add a folder of programs", "/home"); break;
+    case ID_FOL_CHANGE: if (fr >= 0) pick_folder(PICK_OPT_CHANGE, fr, "Choose the folder", g_ofold[fr].path); break;
+    case ID_FOL_RENAME: if (fr >= 0) rename_folder(1, fr); break;
+    case ID_FOL_REMOVE: folders_remove(g_ofold, &g_nofold, fr); opt_folders_changed(fr < g_nofold ? fr : g_nofold - 1); break;
+    case ID_FOL_UP:     opt_folders_changed(folders_move(g_ofold, g_nofold, fr, -1)); break;
+    case ID_FOL_DOWN:   opt_folders_changed(folders_move(g_ofold, g_nofold, fr, +1)); break;
+    default: break;
+    }
+}
 
 static void opt_ok(void) {
-    char drive[W16_PATH_MAX];
-    snprintf(drive, sizeof drive, "%s", uui_textbox_text(&g_drive));
-    if (drive[0] == '/') snprintf(g_edit.drive_c, sizeof g_edit.drive_c, "%s", drive);
-    struct w16_prefs was = g_def;
+    static struct w16_prefs was;
+    was = g_def;
     g_def = g_edit;
     uprefs_save(&w16_prefs_defaults, &g_def, &was);
-    fill_panel();
+    w16_folders_free(g_folders, g_nfolders);
+    g_folders = 0;
+    g_nfolders = 0;
+    for (int i = 0; i < g_nofold; i++) {
+        int k = folders_add(&g_folders, &g_nfolders, g_ofold[i].path);
+        if (k >= 0) set_owned(&g_folders[k].name, g_ofold[i].name);
+    }
+    folders_changed(-1);
     uapp_redraw(g_app);
 }
 
-static void edit_defaults(void *edit) {
-    struct w16_prefs keep = *(struct w16_prefs *)edit;
-    uprefs_defaults(&w16_prefs_defaults, edit);
-    memcpy(((struct w16_prefs *)edit)->folder, keep.folder, sizeof keep.folder);   // folders are not options
-}
+static void edit_defaults(void *edit) { uprefs_defaults(&w16_prefs_defaults, edit); }
 
 static void open_options(void) {
     g_edit = g_def;
     static const struct uui_prefs_desc d = {
-        .title = "Win16 Programs Options", .pages = OPT_PAGES, .page_count = 3,
-        .log_prefix = "win16 options", .on_defaults = opt_defaults, .on_ok = opt_ok,
+        .title = "Win16 Programs Options", .pages = OPT_PAGES, .page_count = 4,
+        .log_prefix = "win16 options", .on_defaults = opt_defaults, .on_ok = opt_ok, .on_action = opt_action,
         .notes = OPT_NOTES, .edit = &g_edit, .edit_defaults = edit_defaults,
     };
     uui_prefs_begin(&d);
@@ -448,8 +822,12 @@ static void open_options(void) {
     uui_prefs_choice(1, "Fonts", FONTS_NAMES, 0, 2, offsetof(struct w16_prefs, fonts), "fonts");
     win16_fontcard_load(&g_win16_fontcard);
     uui_prefs_row(1, "", &win16_fontcard_ops, &g_win16_fontcard, ID_OPT_FONTCARD, "fontcard", UUI_FILL_W);
-    uui_textbox_set_text(&g_drive, g_def.drive_c);
-    uui_prefs_row(2, "Drive C:", &uui_textbox_ops, &g_drive, ID_OPT_DRIVE, "drive", 0);
+    opt_drives_changed('C');
+    uui_prefs_row(2, "", &uui_listedit_ops, &g_drives, 0, "drives", UUI_FILL_W);
+    opt_copy_folders(g_folders, g_nfolders);
+    uui_listedit_select(&g_ofolders, -1);
+    opt_folders_changed(-1);
+    uui_prefs_row(3, "", &uui_listedit_ops, &g_ofolders, 0, "folder-list", UUI_FILL_W);
     uui_prefs_open(g_app);
 }
 
@@ -459,22 +837,23 @@ static void command(struct uapp *a, int cmd) {
     case CMD_RUN:     if (p && p->ok) run(p->path); break;
     case CMD_CALLS:   if (p && p->ok) show_calls(p->path); break;
     case CMD_PROPS:   g_panel = !g_panel; break;
-    case CMD_ADD: {
-        if (uui_filedialog_is_open(&g_chooser)) break;
-        struct uui_filedialog_opts o = { .mode = UUI_FILEDIALOG_FOLDER, .title = "Add a folder of programs",
-                                         .start_dir = "/home" };
-        uui_filedialog_open(a, &g_chooser, &o, folder_chosen, a);
+    case CMD_ADD:    pick_folder(PICK_ADD, -1, "Add a folder of programs", "/home"); break;
+    case CMD_CHANGE: {
+        int f = target_folder();
+        if (f >= 0 && f < g_nfolders) pick_folder(PICK_CHANGE, f, "Choose the folder", g_folders[f].path);
+        break;
+    }
+    case CMD_RENAME: { int f = target_folder(); if (f >= 0 && f < g_nfolders) rename_folder(0, f); break; }
+    case CMD_UP: case CMD_DOWN: {
+        int f = target_folder();
+        if (f >= 0) folders_changed(folders_move(g_folders, g_nfolders, f, cmd == CMD_UP ? -1 : 1));
         break;
     }
     case CMD_REMOVE: {
-        int f = uui_sidebar_selected_id(&g_side);
+        int f = target_folder();
         if (f < 0) break;
-        g_def.folder[f][0] = 0;
-        uprefs_save(&w16_prefs_defaults, &g_def, 0);
-        find_programs();
-        build_sidebar();
-        uui_sidebar_select_id(&g_side, -1);
-        build_view();
+        folders_remove(g_folders, &g_nfolders, f);
+        folders_changed(-1);
         break;
     }
     case CMD_REFRESH: find_programs(); build_view(); break;
@@ -482,6 +861,7 @@ static void command(struct uapp *a, int cmd) {
     case CMD_EXIT:    uapp_quit(a, 0); break;
     default: break;
     }
+    g_ctx_folder = -1;
     fill_panel();
 }
 
@@ -529,14 +909,14 @@ static void line(struct ugfx_surface *s, int x, int *y, int w, const char *t, ui
     *y += ugfx_char_h() + 3;
 }
 
-static int g_dd_y[NSET], g_calls_y;
+static int g_dd_y[NSET], g_ddc_y, g_calls_y;
 static struct uui_stackbar g_bar;            // works, partly, missing
 
 // The settings block under the panel's details, and the Run button below
 // it: what the "Partly there" list must leave room for.
 static int settings_h(void) {
     int pad = ugfx_char_w(), lh = ugfx_char_h();
-    return lh / 2 + lh + 3 + NSET * (lh + pad + pad / 2) + lh + pad * 3;
+    return lh / 2 + lh + 3 + (NSET + 1) * (lh + pad + pad / 2) + lh + pad * 3;
 }
 
 static void bold_line(struct ugfx_surface *s, int x, int *y, int w, const char *t, uint32_t col) {
@@ -629,24 +1009,37 @@ static void draw_panel(struct ugfx_surface *s) {
                                  UTHEME_PANEL_BG);
         y += lh + pad + pad / 2;
     }
+    g_ddc_y = y;
+    ugfx_draw_string_clipped(s, x, y + (lh + pad - lh) / 2, w / 2, "Drive C:", UTHEME_TEXT, UTHEME_PANEL_BG);
 }
 
 static struct uui_menu_item program_items[] = {
     UUI_MENU("Run", CMD_RUN, "Enter"),
     UUI_MENU("Calls it imports...", CMD_CALLS, 0),
     UUI_MENU("Details panel", CMD_PROPS, "F4"),
-    UUI_MENU_SEP,
-    UUI_MENU("Add folder...", CMD_ADD, 0),
-    UUI_MENU("Remove this folder", CMD_REMOVE, 0),
     UUI_MENU("Refresh", CMD_REFRESH, "F5"),
     UUI_MENU_SEP,
     UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
 };
+// The Folder menu, and a folder's right-click menu.
+static struct uui_menu_item folder_items[] = {
+    UUI_MENU("Add folder...", CMD_ADD, 0),
+    UUI_MENU_SEP,
+    UUI_MENU("Change folder...", CMD_CHANGE, 0),
+    UUI_MENU("Rename...", CMD_RENAME, 0),
+    UUI_MENU_SEP,
+    UUI_MENU("Move up", CMD_UP, 0),
+    UUI_MENU("Move down", CMD_DOWN, 0),
+    UUI_MENU_SEP,
+    UUI_MENU("Remove from the list", CMD_REMOVE, 0),
+};
+#define FOLDER_CTX_FIRST 2                   // the right-click menu leaves out Add folder...
 static struct uui_menu_item tools_items[] = {
     UUI_MENU("Options...", CMD_OPTIONS, 0),
 };
 static const struct uui_menu_item menu_bar[] = {
     UUI_SUBMENU("Program", program_items),
+    UUI_SUBMENU("Folder", folder_items),
     UUI_SUBMENU("Tools", tools_items),
 };
 static struct uui_toolbar_item tb_items[] = {
@@ -662,7 +1055,9 @@ static struct uui_toolbar_item tb_items[] = {
 static unsigned item_flags(int code) {
     const struct prog *p = cur();
     if ((code == CMD_RUN || code == CMD_CALLS) && !(p && p->ok)) return UUI_MI_DISABLED;
-    if (code == CMD_REMOVE && uui_sidebar_selected_id(&g_side) < 0) return UUI_MI_DISABLED;
+    int f = target_folder();
+    if ((code == CMD_REMOVE || code == CMD_CHANGE || code == CMD_RENAME) && f < 0) return UUI_MI_DISABLED;
+    if ((code == CMD_UP && f <= 0) || (code == CMD_DOWN && (f < 0 || f >= g_nfolders - 1))) return UUI_MI_DISABLED;
     if (code == CMD_PROPS && g_panel) return UUI_MI_CHECKED;
     return 0;
 }
@@ -678,11 +1073,13 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[3], .id = ID_FRAME,   .name = "frame" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[4], .id = ID_FONTS,   .name = "fonts" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[5], .id = ID_TRACE,   .name = "trace" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_ddc,   .id = ID_DRIVEC,  .name = "drive-c" },
     { .ops = &uui_button_ops,    .widget = &g_run,   .id = ID_RUN,     .name = "run" },
     { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,    .id = ID_STATUS,  .name = "status" },
+    { .ops = &uui_menubar_ops,   .widget = &g_ctx,   .id = ID_CTX,     .name = "ctxmenu" },
 };
-#define W_PANEL 4   // then the NSET dropdowns, Run, the calls button
+#define W_PANEL 4   // then the NSET dropdowns, drive C:, Run, the calls button
 
 static void layout(int cw, int ch) {
     int pad = ugfx_char_w(), lh = ugfx_char_h();
@@ -701,11 +1098,12 @@ static void layout(int cw, int ch) {
     g_ph = body_h;
     uui_grid_ops.set_geometry(&g_grid, sidew + 1, top, g_px - sidew - 1, body_h);
     // The settings rows exist only beside a program.
-    for (int i = 0; i < NSET + 2; i++) g_widgets[W_PANEL + i].hidden = !g_panel || (i != NSET && !cur());
-    g_widgets[W_PANEL + NSET + 1].hidden |= g_calls_y < 0;
+    for (int i = 0; i < NSET + 3; i++) g_widgets[W_PANEL + i].hidden = !g_panel || (i != NSET + 1 && !cur());
+    g_widgets[W_PANEL + NSET + 2].hidden |= g_calls_y < 0;
     if (!g_panel) return;
     int dx = g_px + pad * 2 + pad * 14, dw = g_pw - pad * 17;
     for (int i = 0; i < NSET; i++) uui_dropdown_set_geometry(&g_dd[i], dx, g_dd_y[i], dw, lh + pad);
+    uui_dropdown_set_geometry(&g_ddc, dx, g_ddc_y, dw, lh + pad);
     int bw = ugfx_text_width("Run") + pad * 6;
     uui_button_set_geometry(&g_run, g_px + pad * 2, g_py + g_ph - lh - pad * 3, bw, lh + pad);
     g_run.disabled = !(cur() && cur()->ok);
@@ -753,6 +1151,11 @@ static void on_widget(struct uapp *a, int id, int reason) {
         if ((code = uui_grid_take(&g_grid)) >= 0) command(a, CMD_RUN);
         break;
     case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_FONTS: case ID_TRACE: save_panel(); break;
+    case ID_DRIVEC: drive_c_chosen(); break;
+    case ID_CTX:
+        if ((code = uui_menubar_take_code(&g_ctx)) > 0) command(a, code);
+        else if (!uui_menubar_is_open(&g_ctx)) g_ctx_folder = -1;
+        break;
     default: break;
     }
     uapp_redraw(a);
@@ -800,6 +1203,23 @@ static void on_focus(struct uapp *a, int focused) {
     uapp_redraw(a);
 }
 
+// A right-click on a folder in the sidebar: its menu, for that folder.
+static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
+    if (!(buttons & 0x2)) return;
+    if (uui_menubar_is_open(&g_ctx)) {
+        uui_menubar_close(&g_ctx);
+        g_ctx_folder = -1;
+        uapp_redraw(a);
+        return;
+    }
+    int row = uui_sidebar_hit(&g_side, x, y);
+    if (row < 1 || row > g_nfolders) return;     // row 0 is All programs
+    g_ctx_folder = g_rows[row].id;
+    uui_menubar_open_at(&g_ctx, folder_items + FOLDER_CTX_FIRST,
+                        (int)(sizeof folder_items / sizeof folder_items[0]) - FOLDER_CTX_FIRST, x, y);
+    uapp_redraw(a);
+}
+
 static void on_open(struct uapp *a) { g_app = a; }
 
 static void default_size(int *w, int *h) {
@@ -815,8 +1235,11 @@ int main(int argc, char **argv) {
     }
     if (!ugfx_font_init()) return 2;
     w16_prefs_load(&g_def, 0);
+    g_nfolders = w16_folders_load(&g_folders);
     uui_menubar_init(&g_menu, menu_bar, (int)(sizeof menu_bar / sizeof menu_bar[0]));
     g_menu.item_flags = item_flags;
+    uui_menubar_init(&g_ctx, 0, 0);
+    g_ctx.item_flags = item_flags;
     uui_toolbar_init(&g_tb, tb_items, (int)(sizeof tb_items / sizeof tb_items[0]));
     g_tb.item_flags = item_flags;
     g_tb.overflow = 1;
@@ -824,9 +1247,21 @@ int main(int argc, char **argv) {
     uui_grid_init(&g_grid, ugfx_char_w() * 12, ugfx_char_h() * 4 + 36);
     g_grid.cell = tile;
     for (int i = 0; i < NSET; i++) uui_dropdown_init(&g_dd[i], 0, 0, 0, 0, g_dd_items[i], 1);
+    uui_dropdown_init(&g_ddc, 0, 0, 0, 0, g_dc_items, 1);
+    static const char *const DRV_LABELS[] = { "Add drive...", "Change...", "Remove" };
+    static const int DRV_CODES[] = { ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE };
+    static const char *const DRV_NAMES[] = { "drive-add", "drive-change", "drive-remove" };
+    uui_listedit_init(&g_drives, DRIVE_COLS, 3, drive_cell, 0, 0, "drive-table", DRV_LABELS, DRV_CODES, DRV_NAMES, 3);
+    g_drives.enabled = drive_enabled;
+    static const char *const FOL_LABELS[] = { "Add...", "Change...", "Rename...", "Remove", "Move up", "Move down" };
+    static const int FOL_CODES[] = { ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN };
+    static const char *const FOL_NAMES[] = { "folder-add", "folder-change", "folder-rename", "folder-remove",
+                                             "folder-up", "folder-down" };
+    uui_listedit_init(&g_ofolders, FOLDER_COLS, 3, folder_cell, 0, 0, "folder-table", FOL_LABELS, FOL_CODES,
+                      FOL_NAMES, 6);
+    g_ofolders.enabled = folder_enabled;
     uui_button_init(&g_run, 0, 0, 0, 0, "Run", UUI_ROLE(accent), UUI_ROLE(accent_text), ID_RUN);
     uui_button_init(&g_calls, 0, 0, 0, 0, "Calls it imports...", UUI_COLOR_UNSET, UUI_COLOR_UNSET, ID_CALLS);
-    uui_textbox_init(&g_drive, "");
     uui_stackbar_init(&g_bar, 3);
     uui_stackbar_add(&g_bar, "Work", 0);
     uui_stackbar_add(&g_bar, "Partly", 0);
@@ -854,6 +1289,7 @@ int main(int argc, char **argv) {
         .tick_ms      = 50,
         .on_tick      = on_tick,
         .on_open      = on_open,
+        .on_press     = on_press,
         .on_focus     = on_focus,
         .on_draw      = on_draw,
         .on_widget    = on_widget,

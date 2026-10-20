@@ -21,12 +21,12 @@ static const char *const FONTS_WORDS[] = { "win311", "standin" };
 
 static int is_abs_path(const char *v) { return v[0] == '/' || v[0] == 0; }
 
-#define FOLDER_KEY(n, d) UPREF_TEXT_KEY("folder" #n, struct w16_prefs, folder[n - 1], d, is_abs_path)
+#define DRIVE_KEY(l, i) UPREF_TEXT_KEY("drive_" #l, struct w16_prefs, drive[i], "", is_abs_path)
 
 // THE FIRST EIGHT ARE A PROGRAM'S TO OVERRIDE, each its bit in
 // w16_prefs_overridden() by its place here -- so a new one goes after
-// them, never between; the folders are the launcher's alone. Keep
-// w16_prefs_program_keys in step.
+// them, never between; drives D: to Y: are for every program alike.
+// Keep w16_prefs_program_keys in step.
 const struct upref w16_prefs_keys[] = {
     UPREF_WORD_KEY("scale", struct w16_prefs, scale, SCALE_WORDS, W16_SCALE_COUNT, W16_SCALE_AUTO),
     UPREF_WORD_KEY("frame", struct w16_prefs, frame, FRAME_WORDS, 2, W16_FRAME_31),
@@ -36,8 +36,10 @@ const struct upref w16_prefs_keys[] = {
     UPREF_TEXT_KEY("drive_c", struct w16_prefs, drive_c, "/home/Win16", is_abs_path),
     UPREF_WORD_KEY("method", struct w16_prefs, method, METHOD_WORDS, 3, W16_METHOD_SHARP),
     UPREF_WORD_KEY("fonts", struct w16_prefs, fonts, FONTS_WORDS, 2, W16_FONTS_WIN311),
-    FOLDER_KEY(1, "/usr/share/w16"), FOLDER_KEY(2, "/home/Win16"), FOLDER_KEY(3, ""),
-    FOLDER_KEY(4, ""), FOLDER_KEY(5, ""), FOLDER_KEY(6, ""), FOLDER_KEY(7, ""), FOLDER_KEY(8, ""),
+    DRIVE_KEY(d, 0), DRIVE_KEY(e, 1), DRIVE_KEY(f, 2), DRIVE_KEY(g, 3), DRIVE_KEY(h, 4), DRIVE_KEY(i, 5),
+    DRIVE_KEY(j, 6), DRIVE_KEY(k, 7), DRIVE_KEY(l, 8), DRIVE_KEY(m, 9), DRIVE_KEY(n, 10), DRIVE_KEY(o, 11),
+    DRIVE_KEY(p, 12), DRIVE_KEY(q, 13), DRIVE_KEY(r, 14), DRIVE_KEY(s, 15), DRIVE_KEY(t, 16), DRIVE_KEY(u, 17),
+    DRIVE_KEY(v, 18), DRIVE_KEY(w, 19), DRIVE_KEY(x, 20), DRIVE_KEY(y, 21),
 };
 const int w16_prefs_program_keys = 8;
 const struct uprefs w16_prefs_defaults = {
@@ -94,6 +96,79 @@ int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned 
         }
     }
     return ok ? 0 : -1;
+}
+
+// --- the launcher's folders ----------------------------------------------------------
+
+#define FOLDER_PATH 1024                             // a path read back from the file
+
+static int add_folder(struct w16_folder **f, int *n, const char *path, const char *name) {
+    struct w16_folder *g = realloc(*f, sizeof **f * (size_t)(*n + 1));
+    if (!g) return -1;
+    *f = g;
+    g[*n].path = strdup(path);
+    g[*n].name = strdup(name);
+    if (!g[*n].path || !g[*n].name) { free(g[*n].path); free(g[*n].name); return -1; }
+    (*n)++;
+    return 0;
+}
+
+int w16_folders_load(struct w16_folder **out) {
+    struct w16_folder *f = 0;
+    int n = 0;
+    char *v = malloc(FOLDER_PATH), *name = malloc(FOLDER_PATH), key[32];
+    if (!v || !name) {
+        free(v); free(name);
+        *out = 0;
+        return 0;
+    }
+    if (uconf_get(W16_CONF, "folders", v, FOLDER_PATH)) {
+        int count = atoi(v);
+        for (int i = 1; i <= count; i++) {
+            snprintf(key, sizeof key, "folder%d", i);
+            if (!uconf_get(W16_CONF, key, v, FOLDER_PATH) || v[0] != '/') continue;
+            snprintf(key, sizeof key, "folder%d_name", i);
+            if (!uconf_get(W16_CONF, key, name, FOLDER_PATH)) name[0] = 0;
+            add_folder(&f, &n, v, name);
+        }
+    } else {
+        // Before the count: eight keys, the first two with defaults.
+        static const char *const DEF[] = { "/usr/share/w16", "/home/Win16" };
+        for (int i = 1; i <= 8; i++) {
+            snprintf(key, sizeof key, "folder%d", i);
+            if (!uconf_get(W16_CONF, key, v, FOLDER_PATH)) snprintf(v, FOLDER_PATH, "%s", i <= 2 ? DEF[i - 1] : "");
+            if (v[0] == '/') add_folder(&f, &n, v, "");
+        }
+    }
+    free(v);
+    free(name);
+    *out = f;
+    return n;
+}
+
+int w16_folders_save(const struct w16_folder *f, int n) {
+    char v[16], key[32];
+    int was = uconf_get(W16_CONF, "folders", v, sizeof v) ? atoi(v) : 8, ok = 1;
+    snprintf(v, sizeof v, "%d", n);
+    if (!uconf_set(W16_CONF, "folders", v)) ok = 0;
+    for (int i = 1; i <= n; i++) {
+        snprintf(key, sizeof key, "folder%d", i);
+        if (!uconf_set(W16_CONF, key, f[i - 1].path)) ok = 0;
+        snprintf(key, sizeof key, "folder%d_name", i);
+        if (f[i - 1].name[0] ? !uconf_set(W16_CONF, key, f[i - 1].name) : (uconf_unset(W16_CONF, key), 0)) ok = 0;
+    }
+    for (int i = n + 1; i <= was; i++) {
+        snprintf(key, sizeof key, "folder%d", i);
+        uconf_unset(W16_CONF, key);
+        snprintf(key, sizeof key, "folder%d_name", i);
+        uconf_unset(W16_CONF, key);
+    }
+    return ok ? 0 : -1;
+}
+
+void w16_folders_free(struct w16_folder *f, int n) {
+    for (int i = 0; i < n; i++) { free(f[i].path); free(f[i].name); }
+    free(f);
 }
 
 int w16_prefs_auto_q(void) {

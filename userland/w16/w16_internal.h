@@ -695,6 +695,7 @@ extern const unsigned g_file_api_n, g_keyboard_api_n;
 // --- ini16.c ------------------------------------------------------------------
 
 extern char g_w16_drive_c[128];                   // drive C:'s host folder
+const char *w16_drive_root(char d);              // a drive's host folder, "" for Z:, 0 for none
 struct w16_prefs;
 extern struct w16_prefs g_w16_prefs;              // how this program runs (w16prefs.h)
 int w16_icon(const struct ne_module *m, uint32_t *px, int *w, int *h);   // icon16.c

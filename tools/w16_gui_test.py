@@ -47,6 +47,9 @@ file is involved.
 9. **The pointer under a capture** (hello.exe's scrolling edit): an
    I-beam over the text, an arrow over the scroll bar, and dragging the
    thumb onto the text keeps the arrow until the button is let go.
+10. **Drives and folders**: drive D: mapped to /home/w16d gets hello.exe's
+   D:\\HELLO.TXT; nine folders in /etc/win16.conf make ten sidebar rows (the
+   list had room for eight); a folder's right-click Move down is saved.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -355,6 +358,83 @@ def capture_cursor(dbg, qmp, res):
     dbg.close_window(HELLO_TITLE)
 
 
+WIN16_CONF = "/etc/win16.conf"
+
+
+def layout_lines(dbg, prefix, ok, timeout=6.0):
+    """The app's layout log lines until `ok` says they are enough."""
+    acc, end = [], time.time() + timeout
+    while time.time() < end:
+        acc += dbg.logs(prefix + ":", clear=True)
+        if ok(acc):
+            break
+        time.sleep(0.2)
+    return acc
+
+
+def layout_int(lines, name):
+    got = None
+    for ln in lines:
+        m = re.search(r": layout " + re.escape(name) + r" (-?\d+)$", ln)
+        if m:
+            got = int(m.group(1))
+    return got
+
+
+def drives_and_folders(dbg, res):
+    """Drive D: reaches its folder; the folder list has no cap; a folder's
+    right-click Move down is saved in order."""
+    # hello.exe writes D:\HELLO.TXT: with D: mapped, the file lands there.
+    sh(dbg, "mkdir /home/w16d")
+    sh(dbg, f"write {WIN16_CONF} drive_d=/home/w16d")
+    if dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", HELLO_TITLE):
+        dbg.close_window(HELLO_TITLE)
+    listing = sh(dbg, "ls /home/w16d")
+    res.check("drive D: is its folder: hello.exe's D:\\HELLO.TXT lands in /home/w16d",
+              "hello.txt" in listing.lower(), f"ls: {listing!r}")
+    # Nine folders, past the eight there used to be room for.
+    sh(dbg, f"write {WIN16_CONF} folders=9")
+    sh(dbg, f"append {WIN16_CONF} folder1=/usr/share/w16")
+    sh(dbg, f"append {WIN16_CONF} folder2=/home/Win16")
+    for i in range(3, 10):
+        sh(dbg, f"mkdir /home/w16f{i}")
+        sh(dbg, f"append {WIN16_CONF} folder{i}=/home/w16f{i}")
+    dbg.logs("win16:", clear=True)
+    win = dbg.spawn("/bin/wm/apps/win16", "Win16 Programs")
+    res.check("Win16 Programs opens on the nine folders", win is not None, "no window")
+    if not win:
+        return
+    lines = layout_lines(dbg, "win16", lambda a: layout_int(a, "folders.rows") is not None)
+    rows = layout_int(lines, "folders.rows")
+    res.check("all nine folders are listed: ten sidebar rows with All programs", rows == 10, f"rows {rows}")
+    row_h = layout_int(lines, "folders.row_h") or 0
+    side = dbg.widgets("Win16 Programs").get("folders")
+    if not side or not row_h:
+        res.check("the sidebar reports where it is", False, f"{side} row_h {row_h}")
+    else:
+        # Right-click Samples (row 1), then Move down (the menu's fifth row:
+        # Change, Rename, a line, Move up, Move down).
+        sc = side["screen"]
+        dbg.logs("win16:", clear=True)
+        dbg.rclick(sc["x"] + 20, sc["y"] + row_h + row_h // 2)
+        lines = layout_lines(dbg, "win16", lambda a: any("ctxmenu.item 0 4 " in ln for ln in a))
+        item = None
+        for ln in lines:
+            m = re.search(r"ctxmenu\.item 0 4 (-?\d+) (-?\d+) (\d+) (\d+)$", ln)
+            if m:
+                item = tuple(int(v) for v in m.groups())
+        res.check("a right-click on a folder opens its menu", item is not None, f"{len(lines)} layout lines")
+        if item:
+            c = dbg.window("Win16 Programs")["content"]
+            dbg.click(c["x"] + item[0] + item[2] // 2, c["y"] + item[1] + item[3] // 2)
+            dbg.settle()
+            conf = sh(dbg, f"cat {WIN16_CONF}")
+            res.check("Move down is saved: /home/Win16 first, then the samples",
+                      "folder1=/home/Win16" in conf and "folder2=/usr/share/w16" in conf, f"the file: {conf!r}")
+    dbg.close_window("Win16 Programs")
+    sh(dbg, f"rm {WIN16_CONF}")
+
+
 DLG_TITLE = "Dialog test (Win16)"
 DLG_INI = "/home/Win16/WINDOWS/DIALOG.INI"
 
@@ -566,6 +646,7 @@ def main():
         launcher(dbg, res)
         calls(dbg, res)
         capture_cursor(dbg, qmp, res)
+        drives_and_folders(dbg, res)
         dialogs(dbg, res)
     finally:
         dbg.close()

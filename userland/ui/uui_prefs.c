@@ -136,11 +136,14 @@ int uui_prefs_row(int page, const char *caption, const struct uui_widget_ops *op
     g_row[i].row = (struct uui_layout){ .dir = UUI_ROW, .items = g_row[i].items, .count = 2,
                                         .margin = 1, .gap = 16 };
     // CARDS GET THE PAGE'S WIDTH, under their caption: beside it they fit
-    // two to a row and the page outgrows the window.
-    if (ops == &uui_gallery_ops) {
+    // two to a row and the page outgrows the window. So does a row with no
+    // caption -- a list or a card that is the page's subject.
+    int bare = !caption || !caption[0];
+    if (ops == &uui_gallery_ops || bare) {
         g_row[i].row.dir = UUI_COLUMN;
         g_row[i].items[0].flags = 0;
         g_row[i].items[0].main_size = 0;
+        g_row[i].items[0].hidden = bare;
     }
     g_page_items[2 + i] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &g_row[i].row,
                                              .flags = UUI_FILL_W };

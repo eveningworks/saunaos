@@ -3,7 +3,9 @@
 ; window, the message loop, and a window procedure that paints text and
 ; quits when the window is destroyed -- and a child, a multi-line EDIT
 ; with a scroll bar (client 16,40 200x60, twenty numbered lines), whose
-; thumb tools/w16_gui_test.py drags. Build: tools/gen_ne.py.
+; thumb tools/w16_gui_test.py drags -- and it writes D:\HELLO.TXT, so the
+; test can see drive D: reach the folder it is mapped to. Build:
+; tools/gen_ne.py.
 ;
 ;w16: module HELLO
 ;w16: description Hello
@@ -86,6 +88,22 @@ start:
     push word 0
     push word 0
     W16_CALL "USER", 41
+
+    push ds                         ; _lcreat("D:\HELLO.TXT", 0): fails, harmlessly,
+    push word dfile                 ;   when no drive D: is mapped
+    push word 0
+    W16_CALL "KERNEL", 83
+    cmp ax, 0xFFFF
+    je no_drive_d
+    mov [hfile], ax
+    push ax                         ; _lwrite(hFile, text, len)
+    push ds
+    push word dtext
+    push word dtext_len
+    W16_CALL "KERNEL", 86
+    push word [hfile]
+    W16_CALL "KERNEL", 81           ; _lclose(hFile)
+no_drive_d:
 
     push word [hwnd]
     push word [nCmdShow]
@@ -178,6 +196,7 @@ W16_SEGMENT 2
 hInstance:  dw 0
 nCmdShow:   dw 0
 hwnd:       dw 0
+hfile:      dw 0
 
 wc:                                 ; WNDCLASS
             dw 0                    ; style
@@ -203,6 +222,9 @@ title:      db "Hello (Win16)", 0
 hello_text: db "Hello from a Win16 program, running in /bin/w16."
 hello_len   equ $ - hello_text
 editclass:  db "EDIT", 0
+dfile:      db "D:\HELLO.TXT", 0
+dtext:      db "Written on drive D:."
+dtext_len   equ $ - dtext
 edit_text:
 %assign i 1
 %rep 20

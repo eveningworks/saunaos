@@ -198,6 +198,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_layerlist.h` | uui_layerlist -- A LAYER STACK, the top layer the top row: an eye that shows or hides it, a thumbnail on a checkerboard, its name and its opacity -- Krita's Layers docker, Paint.NET's Layers window... |
 | `uui_layout.h` | uui_layout -- places widgets so apps stop doing coordinate arithmetic. |
 | `uui_listbox.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
+| `uui_listedit.h` | AN EDITABLE LIST: a table of rows with a column of buttons beside it -- Add..., Change..., Remove, Move up, Move down -- each greyed when it does not apply to the selected row. |
 | `uui_loglist.h` | uui_loglist -- a log's lines (lib/ulogset.h) as a list: Time, Level, Source and the message with its subsystem in bold, a severity drawn as a shape AND a theme colour, errors marked on the scrollba... |
 | `uui_markdown.h` | uui_markdown -- a Markdown DOCUMENT, drawn as a document: proportional text, headings at real sizes, code in a monospace face on a tinted ground, lists with hanging indents, rules, and tables. |
 | `uui_medialist.h` | uui_medialist -- a PLAYLIST: one row per item, a 16:9 picture, a title with a detail line under it, and a length at the right. |

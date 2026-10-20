@@ -288,6 +288,14 @@ static int matches(const char *patterns, const char *name) {
 
 static int has_wild(const char *s) { return strchr(s, '*') || strchr(s, '?'); }
 
+// Drive `d`'s row in the drive box, which lists every drive C: to Z: in order.
+static int drive_row(char d) {
+    int row = 0;
+    d = (char)(d & ~0x20);
+    for (char k = 'C'; k < d && k <= 'Z'; k++) row += w16_drive_root(k) != 0;
+    return row;
+}
+
 static void fill_lists(struct w16 *w, struct w16_wnd *d) {
     struct ofn *o = d->dlgdata;
     struct w16_wnd *files = item(w, d, LST1), *dirs = item(w, d, LST2), *label = item(w, d, STC1);
@@ -303,7 +311,7 @@ static void fill_lists(struct w16 *w, struct w16_wnd *d) {
     // The drive box follows the folder, however it was reached.
     struct w16_wnd *drives = item(w, d, CMB2), *dl = drives ? w16_combo_list(w, drives) : 0;
     if (dl) {
-        w16_send(w, dl->hwnd, LB_SETCURSEL, lower[0] == 'z', 0);
+        w16_send(w, dl->hwnd, LB_SETCURSEL, (uint16_t)drive_row(lower[0]), 0);
         w16_combo_changed(w, drives);
     }
     // The folders down to this one, open, each a step further in.
@@ -627,11 +635,18 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
     w16_combo_changed(w, types);
     if (dl) {
         // 3.1's "letter: volume label", a drive icon before it; C: is the Win16
-        // folder and Z: the whole toy-os tree, so those are their labels.
+        // folder, D: to Y: named for theirs, and Z: the whole toy-os tree.
         w16_listbox_folders(dl, 1);
-        w16_send(w, dl->hwnd, LB_SETITEMDATA, (uint16_t)w16_listbox_str(w, dl, LB_ADDSTRING, 0, "c: win16"), 3);
-        w16_send(w, dl->hwnd, LB_SETITEMDATA, (uint16_t)w16_listbox_str(w, dl, LB_ADDSTRING, 0, "z: toy-os"), 3);
-        w16_send(w, dl->hwnd, LB_SETCURSEL, (o->dir[0] | 0x20) == 'z', 0);
+        for (char d = 'C'; d <= 'Z'; d++) {
+            const char *root = w16_drive_root(d);
+            if (!root) continue;
+            char label[48], low[48];
+            const char *base = strrchr(root, '/');
+            snprintf(label, sizeof label, "%c: %s", d, d == 'C' ? "win16" : d == 'Z' ? "toy-os" : base ? base + 1 : root);
+            w16_send(w, dl->hwnd, LB_SETITEMDATA,
+                     (uint16_t)w16_listbox_str(w, dl, LB_ADDSTRING, 0, lowered(label, low, sizeof low)), 3);
+        }
+        w16_send(w, dl->hwnd, LB_SETCURSEL, (uint16_t)drive_row(o->dir[0]), 0);
     }
     w16_combo_changed(w, drives);
     {

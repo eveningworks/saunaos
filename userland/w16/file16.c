@@ -24,6 +24,7 @@
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
+#include "w16/w16prefs.h"
 #include "rt/sys.h"
 
 #define OF_READ      0x0000
@@ -59,24 +60,30 @@ static int same_ci(const char *a, const char *b) {
     return !*a && !*b;
 }
 
-// The drive's root on the host: "" for Z: (so that "/" + rest is right).
-static const char *drive_root(char d) {
+// The drive's root on the host: "" for Z: (so that "/" + rest is right),
+// 0 for a letter that is no drive.
+const char *w16_drive_root(char d) {
     d = upper(d);
     if (d == 'C') return g_w16_drive_c;
     if (d == 'Z') return "";
+    if (d >= 'D' && d < 'D' + W16_DRIVES && g_w16_prefs.drive[d - 'D'][0]) return g_w16_prefs.drive[d - 'D'];
     return 0;
 }
+#define drive_root w16_drive_root
 
+// A host path on the drive whose folder holds it most closely, else Z:.
 int w16_host_to_dos(const char *host, char *out, size_t cap) {
-    size_t n = strlen(g_w16_drive_c);
-    const char *rest;
-    char drive;
-    if (n && !strncmp(host, g_w16_drive_c, n) && (host[n] == '/' || !host[n])) {
-        drive = 'C';
-        rest = host + n;
-    } else {
-        drive = 'Z';
-        rest = host;
+    const char *rest = host;
+    char drive = 'Z';
+    size_t best = 0;
+    for (char d = 'C'; d < 'Z'; d++) {
+        const char *root = drive_root(d);
+        size_t n = root ? strlen(root) : 0;
+        if (n > best && !strncmp(host, root, n) && (host[n] == '/' || !host[n])) {
+            best = n;
+            drive = d;
+            rest = host + n;
+        }
     }
     if ((size_t)snprintf(out, cap, "%c:%s", drive, rest[0] ? rest : "\\") >= cap) return -1;
     for (char *p = out; *p; p++) if (*p == '/') *p = '\\';

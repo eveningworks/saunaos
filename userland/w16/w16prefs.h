@@ -15,7 +15,6 @@
 #define W16_CONF        "/etc/win16.conf"
 #define W16_PROG_DIR    "/etc/win16"
 #define W16_STATE_DIR   "/var/lib/win16"
-#define W16_FOLDERS_MAX 8
 #define W16_PATH_MAX    128
 
 // The scale: Auto, then the steps, as quarters (4 = 1x, 6 = 1.5x, 12 = 3x)
@@ -34,6 +33,8 @@ enum { W16_FAULT_BOX, W16_FAULT_REPORT };
 // from C:\WINDOWS\SYSTEM where they are there, else toy-os's stand-ins.
 enum { W16_FONTS_WIN311, W16_FONTS_STANDIN };
 
+#define W16_DRIVES 22                // D: to Y:, the letters between C: and Z:
+
 struct w16_prefs {
     int scale;                       // W16_SCALE_*
     int frame;                       // W16_FRAME_*
@@ -43,8 +44,8 @@ struct w16_prefs {
     char drive_c[W16_PATH_MAX];      // drive C:; INI files live in its WINDOWS
     int method;                      // W16_METHOD_*: how a fractional scale is drawn
     int fonts;                       // W16_FONTS_*
-    // The launcher's alone: the folders it lists programs from.
-    char folder[W16_FOLDERS_MAX][W16_PATH_MAX];
+    // Drives D: to Y:, each a folder or "" -- C: is drive_c, Z: all of toy-os.
+    char drive[W16_DRIVES][W16_PATH_MAX];
 };
 
 // The keys a program's own file may override, and the whole defaults table.
@@ -68,6 +69,15 @@ unsigned w16_prefs_overridden(const char *exe);
 // Writes `exe`'s overrides file: the keys in `mask` from `p`, nothing else
 // (an empty mask removes it). 0, or -1 when it could not be written.
 int w16_prefs_save_program(const char *exe, const struct w16_prefs *p, unsigned mask);
+
+// THE LAUNCHER'S FOLDERS, as many as there are: `folders=N` and
+// folderI / folderI_name in /etc/win16.conf. A file from before the count
+// (folder1..folder8, empties skipped) still reads. `name` "" is "named
+// for its folder".
+struct w16_folder { char *path, *name; };
+int  w16_folders_load(struct w16_folder **out);              // how many; *out allocated
+int  w16_folders_save(const struct w16_folder *f, int n);    // 0, or -1
+void w16_folders_free(struct w16_folder *f, int n);
 
 // Auto's scale, in quarters: the step nearest this screen's width over
 // 1280, so a 3.1 program looks as big as on a 1280-wide screen -- 1920

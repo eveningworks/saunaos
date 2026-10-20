@@ -62,7 +62,8 @@ struct uui_prefs_desc {
 void uui_prefs_begin(const struct uui_prefs_desc *d);
 
 // A row on `page`: a caption and its first control. A gallery gets the
-// page's width under its caption rather than beside it. Returns the row,
+// page's width under its caption rather than beside it, and a control with
+// no caption ("" or NULL) the page's width alone. Returns the row,
 // or -1 when UUI_PREFS_ROWS_MAX are taken.
 int uui_prefs_row(int page, const char *caption, const struct uui_widget_ops *ops,
                   void *widget, int id, const char *name, unsigned flags);
