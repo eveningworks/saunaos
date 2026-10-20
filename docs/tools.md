@@ -7490,9 +7490,9 @@ runs first**: a `doom1.wad` with one
   turns gdi.exe's magenta square on and gets its own Written=yes;
   `scale=2` in gdi.exe's own settings opens it at twice the size, and
   `frame=desktop` gives hello.exe toywm's frame round a client of the
-  size it asked for. The Win16 Programs launcher runs a tile on a double
-  click, `win16 FILE` runs a program with no launcher window, and closing
-  it records `ended`. A program's calls window (`win16 --calls`) lists
+  size it asked for. The Retro Launcher runs a tile on a double
+  click, `retrolauncher FILE` runs a program with no launcher window, and closing
+  it records `ended`. A program's calls window (`retrolauncher --calls`) lists
   fault.exe's one missing call under two chips, every import with Show
   all, one row after a search, and copies the rows on Ctrl+C; gdi.exe's
   opens on every import, and the details panel's button opens it.

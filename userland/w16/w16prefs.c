@@ -1,4 +1,4 @@
-// w16prefs.c -- the settings table w16 and the Win16 Programs launcher
+// w16prefs.c -- the settings table w16 and Retro Launcher
 // share (w16prefs.h).
 #include "w16/w16prefs.h"
 

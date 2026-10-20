@@ -28,15 +28,15 @@ file is involved.
    1.5 times with method=pixels leaving only pure colours across an edge
    and method=smooth blending them, and frame=desktop gives hello.exe
    toywm's frame with the client still the size the program asked for.
-6. **Win16 Programs**: the launcher lists the samples, a double click on
-   one runs it, and `win16 FILE` runs a program with no launcher window
+6. **Retro Launcher**: the launcher lists the samples, a double click on
+   one runs it, and `retrolauncher FILE` runs a program with no launcher window
    (the File Manager's Open for an .exe).
 8. **Dialogs and the menu bar** (dialog.exe): Alt+F, C ticks File >
    Checked off (CheckMenuItem; Checked=0 lands in DIALOG.INI), F2 is an
    accelerator for File > Number..., whose dialog starts at 42 and keeps
    what is typed over it (Value=), a right click's MessageBox answers No
    with its mnemonic (Box=7), and Help > About is ShellAbout's box.
-7. **A program's calls** (`win16 --calls FILE`, win16/calls.c): fault.exe
+7. **A program's calls** (`retrolauncher --calls FILE`, retrolauncher/calls.c): fault.exe
    lacks exactly USER.7 ExitWindows and has one stand-in, MessageBeep
    (`w16 --check` says `partly 1` and why), so its window opens on the
    Missing chip with that one row under two module chips (All, USER);
@@ -50,7 +50,7 @@ file is involved.
 10. **Drives and folders**: drive D: mapped to /home/w16d gets hello.exe's
    D:\\HELLO.TXT; nine folders in /etc/win16.conf make ten sidebar rows (the
    list had room for eight); a folder's right-click Move down is saved.
-11. **From the File Manager** (`win16 FILE`, `--details`, the desktop
+11. **From the File Manager** (`retrolauncher FILE`, `--details`, the desktop
    entry's actions): hello.exe runs at once, fault.exe (a call missing)
    gets the run card, an MZ file that is not Windows 3.x gets "cannot run
    here", `from_files=ask` cards hello.exe too, `--details` names the
@@ -276,12 +276,12 @@ def settings(dbg, qmp, res):
 
 
 def launcher(dbg, res):
-    win = dbg.spawn("/bin/wm/apps/win16", "Win16 Programs")
-    res.check("Win16 Programs opens", win is not None, "no window")
+    win = dbg.spawn("/bin/wm/apps/retrolauncher", "Retro Launcher")
+    res.check("Retro Launcher opens", win is not None, "no window")
     if not win:
         return
     time.sleep(3)                                 # three programs, checked a few a tick
-    grid = dbg.widgets("Win16 Programs").get("programs")
+    grid = dbg.widgets("Retro Launcher").get("programs")
     res.check("its program grid is there", grid is not None, "no 'programs' widget")
     if grid:
         g = grid["screen"]
@@ -292,7 +292,7 @@ def launcher(dbg, res):
         end = time.time() + 10
         new = set()
         while time.time() < end and not any("(Win16)" in t for t in new):
-            new = {w["title"] for w in dbg.windows()} - before - {"Win16 Programs"}
+            new = {w["title"] for w in dbg.windows()} - before - {"Retro Launcher"}
             time.sleep(0.3)
         res.check("a double click on a program's tile runs it", any("(Win16)" in t for t in new),
                   f"new windows {new}")
@@ -303,7 +303,7 @@ def launcher(dbg, res):
         # getting the focus back from the program just closed.
         btn, end = None, time.time() + 5
         while not btn and time.time() < end:
-            btn = dbg.widgets("Win16 Programs").get("calls")
+            btn = dbg.widgets("Retro Launcher").get("calls")
             time.sleep(0.3)
         if btn:
             dbg.click(btn["screen"]["x"] + 10, btn["screen"]["y"] + 8)
@@ -316,13 +316,13 @@ def launcher(dbg, res):
                   f"button {btn and btn['screen']}, windows {[w['title'] for w in dbg.windows()]}")
         if cw:
             dbg.close_window(cw)
-    dbg.close_window("Win16 Programs")
-    dbg.send("gui spawn /bin/wm/apps/win16 /usr/share/w16/hello.exe")
+    dbg.close_window("Retro Launcher")
+    dbg.send("gui spawn /bin/wm/apps/retrolauncher /usr/share/w16/hello.exe")
     end = time.time() + 10
     while time.time() < end and not dbg.window(HELLO_TITLE):
         time.sleep(0.3)
-    res.check("`win16 FILE` runs the program, with no launcher window",
-              dbg.window(HELLO_TITLE) is not None and dbg.window("Win16 Programs") is None,
+    res.check("`retrolauncher FILE` runs the program, with no launcher window",
+              dbg.window(HELLO_TITLE) is not None and dbg.window("Retro Launcher") is None,
               f"windows {[w['title'] for w in dbg.windows()]}")
     dbg.close_window(HELLO_TITLE)
     last = sh(dbg, f"cat {LAST.format('hello')}")
@@ -406,25 +406,25 @@ def drives_and_folders(dbg, res):
     for i in range(3, 10):
         sh(dbg, f"mkdir /home/w16f{i}")
         sh(dbg, f"append {WIN16_CONF} folder{i}=/home/w16f{i}")
-    dbg.logs("win16:", clear=True)
-    win = dbg.spawn("/bin/wm/apps/win16", "Win16 Programs")
-    res.check("Win16 Programs opens on the nine folders", win is not None, "no window")
+    dbg.logs("retrolauncher:", clear=True)
+    win = dbg.spawn("/bin/wm/apps/retrolauncher", "Retro Launcher")
+    res.check("Retro Launcher opens on the nine folders", win is not None, "no window")
     if not win:
         return
-    lines = layout_lines(dbg, "win16", lambda a: layout_int(a, "folders.rows") is not None)
+    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_int(a, "folders.rows") is not None)
     rows = layout_int(lines, "folders.rows")
     res.check("all nine folders are listed: ten sidebar rows with All programs", rows == 10, f"rows {rows}")
     row_h = layout_int(lines, "folders.row_h") or 0
-    side = dbg.widgets("Win16 Programs").get("folders")
+    side = dbg.widgets("Retro Launcher").get("folders")
     if not side or not row_h:
         res.check("the sidebar reports where it is", False, f"{side} row_h {row_h}")
     else:
         # Right-click Samples (row 1), then Move down (the menu's fifth row:
         # Change, Rename, a line, Move up, Move down).
         sc = side["screen"]
-        dbg.logs("win16:", clear=True)
+        dbg.logs("retrolauncher:", clear=True)
         dbg.rclick(sc["x"] + 20, sc["y"] + row_h + row_h // 2)
-        lines = layout_lines(dbg, "win16", lambda a: any("ctxmenu.item 0 4 " in ln for ln in a))
+        lines = layout_lines(dbg, "retrolauncher", lambda a: any("ctxmenu.item 0 4 " in ln for ln in a))
         item = None
         for ln in lines:
             m = re.search(r"ctxmenu\.item 0 4 (-?\d+) (-?\d+) (\d+) (\d+)$", ln)
@@ -432,17 +432,17 @@ def drives_and_folders(dbg, res):
                 item = tuple(int(v) for v in m.groups())
         res.check("a right-click on a folder opens its menu", item is not None, f"{len(lines)} layout lines")
         if item:
-            c = dbg.window("Win16 Programs")["content"]
+            c = dbg.window("Retro Launcher")["content"]
             dbg.click(c["x"] + item[0] + item[2] // 2, c["y"] + item[1] + item[3] // 2)
             dbg.settle()
             conf = sh(dbg, f"cat {WIN16_CONF}")
             res.check("Move down is saved: /home/Win16 first, then the samples",
                       "folder1=/home/Win16" in conf and "folder2=/usr/share/w16" in conf, f"the file: {conf!r}")
-    dbg.close_window("Win16 Programs")
+    dbg.close_window("Retro Launcher")
     sh(dbg, f"rm {WIN16_CONF}")
 
 
-LAUNCHER_BIN = "/bin/wm/apps/win16"
+LAUNCHER_BIN = "/bin/wm/apps/retrolauncher"
 
 
 def wait_title(dbg, title, t=10.0):
@@ -455,7 +455,7 @@ def wait_title(dbg, title, t=10.0):
 
 
 def from_file_manager(dbg, qmp, res):
-    """What the File Manager's Open does with an .exe (`win16 FILE`), the
+    """What the File Manager's Open does with an .exe (`retrolauncher FILE`), the
     rows it shows about one (`--details`), and its right-click actions."""
     sh(dbg, "write /home/notwin.exe MZ this is not a Windows program")
     out = sh(dbg, f"{LAUNCHER_BIN} --details /usr/share/w16/fault.exe")
@@ -501,8 +501,8 @@ def from_file_manager(dbg, qmp, res):
     mark = fm.ctx_mark(dbg)
     fm.sure_rclick(dbg, qmp, lay.ox + px + pw // 2, lay.oy + lay.rowy[0] + lay.rowh * 2 + lay.rowh // 2)
     rows = fm.ctx_rows(dbg, mark) or []
-    res.check("its right-click menu has Show its calls and Show in Win16 Programs under Open",
-              "Show its calls" in rows and "Show in Win16 Programs" in rows
+    res.check("its right-click menu has Show its calls and Show in Retro Launcher under Open",
+              "Show its calls" in rows and "Show in Retro Launcher" in rows
               and rows.index("Show its calls") == rows.index("Open") + 1, f"rows {rows}")
     if "Show its calls" in rows:
         fm.ctx_pick(dbg, qmp, win, rows, "Show its calls")
@@ -608,14 +608,14 @@ def drift_check(dbg, res):
     dbg.close_window(DLG_TITLE)
 
 
-CALLS = "win16-calls: layout "
+CALLS = "retrolauncher-calls: layout "
 
 
 def calls_log(dbg):
     """The calls window's report since the last read: its `rows` line and
     the parts it describes, by name."""
     out = {}
-    for line in dbg.logs("win16-calls:", clear=True):
+    for line in dbg.logs("retrolauncher-calls:", clear=True):
         m = re.search(r"rows (\d+) show (-?\d) first (\S+) (\S+) copied (-?\d+)", line)
         if m:
             out["rows"], out["show"] = int(m.group(1)), int(m.group(2))
@@ -640,9 +640,9 @@ def wait_calls(dbg, pred, t=8.0):
 
 
 def calls(dbg, res):
-    dbg.logs("win16-calls:", clear=True)
-    win = dbg.spawn("/bin/wm/apps/win16 --calls /usr/share/w16/fault.exe", "Fault test - calls")
-    res.check("`win16 --calls` opens the program's calls window", win is not None,
+    dbg.logs("retrolauncher-calls:", clear=True)
+    win = dbg.spawn("/bin/wm/apps/retrolauncher --calls /usr/share/w16/fault.exe", "Fault test - calls")
+    res.check("`retrolauncher --calls` opens the program's calls window", win is not None,
               f"windows {[w['title'] for w in dbg.windows()]}")
     if not win:
         return
@@ -690,7 +690,7 @@ def calls(dbg, res):
     res.check("Ctrl+C copies the rows shown", lay.get("copied") == 1, f"copied {lay.get('copied')}")
     dbg.close_window("Fault test - calls")
 
-    win = dbg.spawn("/bin/wm/apps/win16 --calls /usr/share/w16/gdi.exe", "GDI test - calls")
+    win = dbg.spawn("/bin/wm/apps/retrolauncher --calls /usr/share/w16/gdi.exe", "GDI test - calls")
     lay = wait_calls(dbg, lambda l: "rows" in l)
     res.check("a program that lacks nothing, with no stand-ins, opens on All",
               win is not None and lay.get("show") == 0 and lay.get("rows", 0) > 0, f"{lay}")

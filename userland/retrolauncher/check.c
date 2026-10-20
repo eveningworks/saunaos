@@ -1,6 +1,6 @@
 // check.c -- asking w16 (`--check`, `--fonts`), and the short name a
-// program goes by (win16.h).
-#include "win16/win16.h"
+// program goes by (retrolauncher.h).
+#include "retrolauncher/retrolauncher.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -8,17 +8,17 @@
 
 static char *ask(char **argv) { return ucapture(W16_BIN, argv); }
 
-char *win16_check(const char *path) {
+char *retro_check(const char *path) {
     char *argv[] = { "w16", "--check", (char *)path, 0 };
     return ask(argv);
 }
 
-char *win16_fonts(void) {
+char *retro_fonts(void) {
     char *argv[] = { "w16", "--fonts", 0 };
     return ask(argv);
 }
 
-char *win16_short_title(const char *d) {
+char *retro_short_title(const char *d) {
     for (int again = 1; again; ) {
         again = 0;
         static const char *const PREFIX[] = { "Microsoft ", "Windows " };

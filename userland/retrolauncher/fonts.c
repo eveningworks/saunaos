@@ -1,9 +1,9 @@
-// fonts.c -- the card in Win16 Programs' Options > Display that says which
+// fonts.c -- the card in Retro Launcher' Options > Display that says which
 // of Windows 3.11's own fonts are on drive C:, a row per face: its name,
 // file and sizes, and a sample drawn in it ("Win16 real fonts option"
 // canvas, A). w16 reads the fonts, in its sandbox; this reads w16
-// (`w16 --fonts`, win16.h), so the launcher still parses nothing hostile.
-#include "win16/win16.h"
+// (`w16 --fonts`, retrolauncher.h), so the launcher still parses nothing hostile.
+#include "retrolauncher/retrolauncher.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -22,27 +22,27 @@ struct face {
     uint32_t *sample;
 };
 
-struct win16_fontcard {
+struct retro_fontcard {
     int x, y, w, h;
     struct face *f;
     int n;
     int loaded;
 };
 
-struct win16_fontcard g_win16_fontcard;
+struct retro_fontcard g_retro_fontcard;
 
 // The faces 3.11 draws a program's chrome and text in: the card names them
 // even when missing, since that is what a missing file costs.
 static const char *const WANTED[] = { "System", "Fixedsys", "MS Sans Serif" };
 
-static void clear(struct win16_fontcard *c) {
+static void clear(struct retro_fontcard *c) {
     for (int i = 0; i < c->n; i++) { free(c->f[i].name); free(c->f[i].file); free(c->f[i].sample); }
     free(c->f);
     c->f = 0;
     c->n = 0;
 }
 
-static struct face *face_named(struct win16_fontcard *c, const char *name, int add) {
+static struct face *face_named(struct retro_fontcard *c, const char *name, int add) {
     for (int i = 0; i < c->n; i++)
         if (!strcmp(c->f[i].name, name)) return &c->f[i];
     if (!add) return 0;
@@ -56,11 +56,11 @@ static struct face *face_named(struct win16_fontcard *c, const char *name, int a
     return f;
 }
 
-void win16_fontcard_load(struct win16_fontcard *c) {
+void retro_fontcard_load(struct retro_fontcard *c) {
     clear(c);
     for (unsigned i = 0; i < sizeof WANTED / sizeof WANTED[0]; i++) face_named(c, WANTED[i], 1);
     c->loaded = 1;
-    char *out = win16_fonts();
+    char *out = retro_fonts();
     if (!out) return;
     struct face *sample = 0;
     int row = 0;
@@ -100,13 +100,13 @@ void win16_fontcard_load(struct win16_fontcard *c) {
     free(out);
 }
 
-static int row_h(const struct win16_fontcard *c, int i) {
+static int row_h(const struct retro_fontcard *c, int i) {
     int h = ugfx_char_h() + 8;
     return c->f[i].sh + 8 > h ? c->f[i].sh + 8 : h;
 }
 
 static void natural(const void *w, int *ow, int *oh) {
-    const struct win16_fontcard *c = w;
+    const struct retro_fontcard *c = w;
     int h = 8;
     for (int i = 0; i < c->n; i++) h += row_h(c, i);
     *ow = ugfx_char_w() * 60;
@@ -114,17 +114,17 @@ static void natural(const void *w, int *ow, int *oh) {
 }
 
 static void geometry(void *w, int x, int y, int width, int height) {
-    struct win16_fontcard *c = w;
+    struct retro_fontcard *c = w;
     c->x = x; c->y = y; c->w = width; c->h = height;
 }
 
 static void bounds(const void *w, int *x, int *y, int *ow, int *oh) {
-    const struct win16_fontcard *c = w;
+    const struct retro_fontcard *c = w;
     *x = c->x; *y = c->y; *ow = c->w; *oh = c->h;
 }
 
 static void draw(struct ugfx_surface *s, const void *w) {
-    const struct win16_fontcard *c = w;
+    const struct retro_fontcard *c = w;
     uint32_t bg = UTHEME_WINDOW_BG, dim = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
     int r = utheme_radius(UTHEME_R_CONTROL);
     uui_fill_round_rect(s, c->x, c->y, c->w, c->h, r, bg);
@@ -153,7 +153,7 @@ static void draw(struct ugfx_surface *s, const void *w) {
     }
 }
 
-const struct uui_widget_ops win16_fontcard_ops = {
+const struct uui_widget_ops retro_fontcard_ops = {
     .natural_size = natural,
     .set_geometry = geometry,
     .bounds = bounds,

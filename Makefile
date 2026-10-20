@@ -979,9 +979,9 @@ EXTRA_OBJS_notepad    = notepad/np_conf notepad/np_prefs
 EXTRA_OBJS_screenshot = screenshot/shot_conf screenshot/shot_prefs
 EXTRA_OBJS_paint      = paint/paint_tools paint/paint_resize paint/paint_text paint/paint_layers paint/paint_shapes paint/paint_frame paint/paint_paste paint/paint_select paint/paint_gradient
 EXTRA_OBJS_terminal   = term/term_conf term/term_prefs term/term_panel
-# The Win16 Programs launcher reads and writes the settings w16 runs by;
-# userland/win16/ holds its calls window and what both windows share.
-EXTRA_OBJS_win16      = w16/w16prefs win16/check win16/calls win16/fonts
+# Retro Launcher reads and writes the settings w16 runs by;
+# userland/retrolauncher/ holds its calls window and what both windows share.
+EXTRA_OBJS_retrolauncher = w16/w16prefs retrolauncher/check retrolauncher/calls retrolauncher/fonts
 # Shapes keeps its teapot mesh in userland/shapes/, outside the program
 # directories for the reason userland/fm/ is (see EXTRA_OBJS_files).
 EXTRA_OBJS_gfxdemo    = shapes/teapot

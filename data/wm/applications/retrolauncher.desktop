@@ -1,0 +1,17 @@
+# Retro Launcher -- see this directory's README.md for the format.
+Name=Retro Launcher
+Exec=/bin/wm/apps/retrolauncher
+Category=utility
+Comment=Runs programs made for Windows 3.x, and sets how each one runs
+Icon=win16
+Handles=.exe
+Actions=calls;show
+X-Details=/bin/wm/apps/retrolauncher --details %f
+
+[Desktop Action calls]
+Name=Show its calls
+Exec=/bin/wm/apps/retrolauncher --calls %f
+
+[Desktop Action show]
+Name=Show in Retro Launcher
+Exec=/bin/wm/apps/retrolauncher --show %f

@@ -2,7 +2,7 @@
 // RT_GROUP_ICON names its pictures, the 32x32 one (else the first) is an
 // RT_ICON -- a DIB twice as tall as the icon, its colour rows and then a
 // 1-bit AND mask, a set bit transparent. What `w16 --check` hands the
-// Win16 Programs launcher, so the launcher itself never parses a program.
+// Retro Launcher, so the launcher itself never parses a program.
 //
 // THE RESOURCE IS THE FILE'S, ne.c checked its span; every read here is
 // checked against that span again before it is made.

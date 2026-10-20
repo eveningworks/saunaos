@@ -102,11 +102,11 @@ JPEG named `.dat` opens nothing here.
 ## Actions and X-Details
 
     Actions=calls;show
-    X-Details=/bin/wm/apps/win16 --details %f
+    X-Details=/bin/wm/apps/retrolauncher --details %f
 
     [Desktop Action calls]
     Name=Show its calls
-    Exec=/bin/wm/apps/win16 --calls %f
+    Exec=/bin/wm/apps/retrolauncher --calls %f
 
 freedesktop's desktop actions: each id in `Actions=` names a
 `[Desktop Action <id>]` section with a `Name=` and an `Exec=`, and the

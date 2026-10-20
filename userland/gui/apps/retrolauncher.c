@@ -1,7 +1,7 @@
-// win16.c -- Win16 Programs: the Windows 3.x programs in a few folders,
+// retrolauncher.c -- Retro Launcher: the Windows 3.x programs in a few folders,
 // each with its own icon and how far w16 runs it, run with a double click
 // and set up per program (docs/w16-design.md). The design is the
-// "Win16 Programs launcher" canvas's L1 and S2: folders on the left,
+// "Win16 Programs launcher" canvas (its old name)'s L1 and S2: folders on the left,
 // program tiles, a details panel with the program's own settings, and an
 // Options window for the defaults (w16/w16prefs.h, which w16 reads too).
 //
@@ -11,10 +11,10 @@
 // that answer is all this reads. A folder is checked a few programs a
 // tick, so a big one fills in rather than holding the window shut.
 //
-// `win16 FILE` runs that program and exits without a window: what the
+// `retrolauncher FILE` runs that program and exits without a window: what the
 // File Manager's Open does for an .exe (Handles= in its desktop entry).
-// `win16 --calls FILE` is the window listing what it imports
-// (win16/calls.c), which the details panel's button opens.
+// `retrolauncher --calls FILE` is the window listing what it imports
+// (retrolauncher/calls.c), which the details panel's button opens.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -44,7 +44,7 @@
 #include "ui/uui_statusbar.h"
 #include "ui/uui_toolbar.h"
 #include "w16/w16prefs.h"
-#include "win16/win16.h"
+#include "retrolauncher/retrolauncher.h"
 
 #define MISSING_SHOWN 3                      // the panel names this many; the window lists all
 
@@ -59,7 +59,7 @@ struct partly {
 struct prog {
     char *path;
     char *name;                      // its description, else its file name
-    char *title;                     // what its tile says: win16_short_title()
+    char *title;                     // what its tile says: retro_short_title()
     char *module;
     char *foreign;                   // not a Windows 3.x program: what it is ("a DOS program")
     int folder;                      // which folder it was found in
@@ -187,7 +187,7 @@ static void add_partly(struct prog *p, char *line) {
 // `w16 --check PATH`'s lines into `p`.
 static void check(struct prog *p) {
     p->checked = 1;
-    char *out = win16_check(p->path);
+    char *out = retro_check(p->path);
     if (!out) return;
     int icon_row = -1;
     for (char *line = out; line && *line; ) {
@@ -239,7 +239,7 @@ static void check(struct prog *p) {
     // A tile is narrow: "Microsoft Windows Notepad Application (c)1990"
     // says "Notepad Application" there, and the panel keeps the whole name.
     free(p->title);
-    p->title = win16_short_title(p->name);
+    p->title = retro_short_title(p->name);
     read_last(p);
 }
 
@@ -465,10 +465,10 @@ static void run(const char *path) {
     uapp_spawn(g_app, W16_BIN, path);
 }
 
-// The calls window, its own process: `win16 --calls PATH`.
+// The calls window, its own process: `retrolauncher --calls PATH`.
 static void show_calls(const char *path) {
-    char *args[] = { "win16", "--calls", (char *)path, 0 };
-    sys_spawn_argv("/bin/wm/apps/win16", args);
+    char *args[] = { "retrolauncher", "--calls", (char *)path, 0 };
+    sys_spawn_argv("/bin/wm/apps/retrolauncher", args);
 }
 
 // --- the folders: a list kept in order, changed in place or in Options ------------
@@ -814,8 +814,8 @@ static void edit_defaults(void *edit) { uprefs_defaults(&w16_prefs_defaults, edi
 static void open_options(void) {
     g_edit = g_def;
     static const struct uui_prefs_desc d = {
-        .title = "Win16 Programs Options", .pages = OPT_PAGES, .page_count = 4,
-        .log_prefix = "win16 options", .on_defaults = opt_defaults, .on_ok = opt_ok, .on_action = opt_action,
+        .title = "Retro Launcher Options", .pages = OPT_PAGES, .page_count = 4,
+        .log_prefix = "retrolauncher options", .on_defaults = opt_defaults, .on_ok = opt_ok, .on_action = opt_action,
         .notes = OPT_NOTES, .edit = &g_edit, .edit_defaults = edit_defaults,
     };
     uui_prefs_begin(&d);
@@ -830,8 +830,8 @@ static void open_options(void) {
     uui_prefs_choice(1, "Window frame", FRAME_NAMES, 0, 2, offsetof(struct w16_prefs, frame), "frame");
     // 3.11's own fonts, where drive C: has them: what w16 found, asked of it now.
     uui_prefs_choice(1, "Fonts", FONTS_NAMES, 0, 2, offsetof(struct w16_prefs, fonts), "fonts");
-    win16_fontcard_load(&g_win16_fontcard);
-    uui_prefs_row(1, "", &win16_fontcard_ops, &g_win16_fontcard, ID_OPT_FONTCARD, "fontcard", UUI_FILL_W);
+    retro_fontcard_load(&g_retro_fontcard);
+    uui_prefs_row(1, "", &retro_fontcard_ops, &g_retro_fontcard, ID_OPT_FONTCARD, "fontcard", UUI_FILL_W);
     opt_drives_changed('C');
     uui_prefs_row(2, "", &uui_listedit_ops, &g_drives, 0, "drives", UUI_FILL_W);
     opt_copy_folders(g_folders, g_nfolders);
@@ -1145,7 +1145,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     layout(s->w, s->h);
     ugfx_fill_rect(s, 0, g_py - 1, s->w, 1, UTHEME_SEPARATOR);
     ugfx_fill_rect(s, g_side.w, g_py, 1, g_ph, UTHEME_SEPARATOR);
-    uapp_log_layout(a, "win16");
+    uapp_log_layout(a, "retrolauncher");
 }
 
 // --- input --------------------------------------------------------------------------
@@ -1241,7 +1241,7 @@ static void default_size(int *w, int *h) {
     *h = ugfx_char_h() * 40;
 }
 
-// --- from elsewhere: `win16 FILE` (the File Manager's Open), --show, --details ----
+// --- from elsewhere: `retrolauncher FILE` (the File Manager's Open), --show, --details ----
 
 // Asks the launcher -- the one open, or the one about to open -- to show
 // `path`: a file it reads when it opens and whenever it gets the focus,
@@ -1299,7 +1299,7 @@ static void run_from_elsewhere(const char *path) {
     sys_spawn_argv(W16_BIN, args);
 }
 
-// `win16 --details FILE`: the File Manager's rows for it (an X-Details
+// `retrolauncher --details FILE`: the File Manager's rows for it (an X-Details
 // command, lib/uopen.h), "Label<tab>value".
 static int details_main(const char *path) {
     static struct prog p;
@@ -1333,12 +1333,12 @@ static void card_done(void *ctx, const char *path, int kind, int act) {
     else if (act == ULAUNCH_SIDE1) show_calls(path);
     else if (act == ULAUNCH_SIDE2) {
         request_show(path);
-        char *args[] = { "win16", 0 };
-        sys_spawn_argv("/bin/wm/apps/win16", args);
+        char *args[] = { "retrolauncher", 0 };
+        sys_spawn_argv("/bin/wm/apps/retrolauncher", args);
     }
 }
 
-// `win16 FILE`: what the File Manager's Open does with a program, by the
+// `retrolauncher FILE`: what the File Manager's Open does with a program, by the
 // setting -- run it, or first the run card (ui/uui_runask.h) saying what
 // w16 lacks of it, or what it is when it is no Windows 3.x program at all.
 // -1 when the launcher's own window should open and show it.
@@ -1391,7 +1391,7 @@ static int open_from_elsewhere(const char *path) {
 }
 
 int main(int argc, char **argv) {
-    if (argc == 3 && !strcmp(argv[1], "--calls")) return win16_calls_main(argv[2]);
+    if (argc == 3 && !strcmp(argv[1], "--calls")) return retro_calls_main(argv[2]);
     if (argc == 3 && !strcmp(argv[1], "--details")) return details_main(argv[2]);
     w16_prefs_load(&g_def, 0);
     g_nfolders = w16_folders_load(&g_folders);
@@ -1444,8 +1444,8 @@ int main(int argc, char **argv) {
     consume_show();
 
     struct uapp_desc desc = {
-        .title        = "Win16 Programs",
-        .app_id       = "win16",
+        .title        = "Retro Launcher",
+        .app_id       = "retrolauncher",
         .on_size      = default_size,
         .flags        = UAPP_SINGLE_INSTANCE | UAPP_RESIZABLE,
         .min_w        = 640,

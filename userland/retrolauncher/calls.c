@@ -4,12 +4,12 @@
 // w16 does for it; chips for the status and per module to narrow it, and a
 // search. Dependency Walker's shape; the "Win16 missing calls" canvas's M2
 // and the "Win16 calls: works, partly, missing" canvas's B. Its own window
-// and process, `win16 --calls PATH`, so it stays open beside the program
+// and process, `retrolauncher --calls PATH`, so it stays open beside the program
 // it describes.
 //
 // Like the launcher it parses no program: `w16 --check` names each import
 // ("call missing USER.1 MessageBox Dialogs") and this reads those lines.
-#include "win16/win16.h"
+#include "retrolauncher/retrolauncher.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +42,7 @@ enum { ST_ALL, ST_WORKS, ST_PARTLY, ST_MISSING, ST_COUNT };
 static const char *const ST_NAMES[ST_COUNT] = { "All", "Works", "Partly", "Missing" };
 
 static const char *g_path;
-static char *g_name;                         // "Notepad": win16_short_title()
+static char *g_name;                         // "Notepad": retro_short_title()
 static char *g_title;                        // "Notepad - calls"
 static struct call *g_calls;
 static int g_ncalls, g_imports;
@@ -111,7 +111,7 @@ static int parse_call(char *l, struct call *c) {
 }
 
 static int load(void) {
-    char *out = win16_check(g_path);
+    char *out = retro_check(g_path);
     if (!out) return 0;
     char *desc = 0;
     int cap = 0;
@@ -133,7 +133,7 @@ static int load(void) {
     // Calls imported BY NAME are counted but not listed: All is the total.
     g_st_counts[ST_ALL] = g_imports;
     const char *base = strrchr(g_path, '/');
-    g_name = win16_short_title(desc && *desc ? desc : base ? base + 1 : g_path);
+    g_name = retro_short_title(desc && *desc ? desc : base ? base + 1 : g_path);
     free(out);
     return 1;
 }
@@ -361,12 +361,12 @@ static void layout(int cw, int ch) {
 static void on_draw(struct uapp *a, struct uapp_draw *d) {
     layout(d->surface->w, d->surface->h);
     ugfx_fill_rect(d->surface, 0, g_table.y - 1, d->surface->w, 1, UTHEME_SEPARATOR);
-    uapp_log_layout(a, "win16-calls");
+    uapp_log_layout(a, "retrolauncher-calls");
     // What a test asks: how many rows, the first in table order, which
     // status chip is chosen, and what the last Copy took.
     int r = uui_table_source_row(&g_table, 0);
     const struct call *c = r >= 0 ? &g_calls[g_rows[r]] : 0;
-    uapp_logf_layout("win16-calls: layout rows %d show %d first %s.%u %s copied %d\n", g_nrows, g_show.selected,
+    uapp_logf_layout("retrolauncher-calls: layout rows %d show %d first %s.%u %s copied %d\n", g_nrows, g_show.selected,
                      c ? c->module : "-", c ? c->ordinal : 0, c ? c->name : "-", g_copied);
 }
 
@@ -399,7 +399,7 @@ static void default_size(int *w, int *h) {
     *h = ugfx_char_h() * 32;
 }
 
-int win16_calls_main(const char *path) {
+int retro_calls_main(const char *path) {
     g_path = path;
     if (!ugfx_font_init()) return 2;
     if (!load()) return 1;
@@ -426,7 +426,7 @@ int win16_calls_main(const char *path) {
 
     struct uapp_desc desc = {
         .title        = g_title ? g_title : "Win16 calls",
-        .app_id       = "win16-calls",
+        .app_id       = "retrolauncher-calls",
         .on_size      = default_size,
         .flags        = UAPP_RESIZABLE,
         .min_w        = 480,

@@ -1,6 +1,6 @@
 // w16prefs.h -- how a Win16 program runs: the defaults in /etc/win16.conf
 // and one program's own overrides in /etc/win16/<key>.conf, as ONE TABLE
-// (lib/uprefs.h) that w16 and the Win16 Programs launcher both read, so
+// (lib/uprefs.h) that w16 and Retro Launcher both read, so
 // they cannot disagree about a key or its default. A program's overrides
 // file holds only the keys it overrides; a missing key is "the default".
 //
