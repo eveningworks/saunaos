@@ -737,3 +737,27 @@ Next: the desktop stage's bbox fallback (roadmap, **NEXT**). Lessons:
 - **The WM never grows a window past the client's presented size** --
   a stopped client's resize just waits -- so a test cannot make a
   client-smaller-than-window gap with `kill -STOP` and `gui resize`.
+
+2026-10-20: w16's long day -- the pointer under a capture (2338ff76),
+drives D:-Y: and the folder list (094f0385), the File Manager's run card,
+desktop Actions= and X-Details= (1016660a), the Retro Launcher rename
+(7f9a32bb), then resizable table columns with a sideways scroll, resizable
+Options windows and the launcher's scrolling panel (cdb6c7bd..88dc4984).
+Next for w16: loading a program's own DLLs (Solitaire's CARDS.DLL).
+Lessons:
+- **A rule made general fires on every caller, so look at every caller's
+  window, not just their tests**: "a captionless prefs row takes the
+  page's width" moved Notepad's and Screenshot's stacked checkboxes, and
+  their tests, which never measure alignment, stayed green.
+- **A resizable window's floor is what its content NEEDS, not the size it
+  opens at**: the first Options floor was the 96x30 opening size and the
+  maintainer found it "really big"; pages scroll, the floor is the widest
+  page by a few lines.
+- **Anything measured from a widget's left edge breaks when the widget
+  scrolls sideways**: the column drag's landing slot and bounds both used
+  `t->x` and jumped once `hscroll` existed -- grep a new offset's every
+  reader.
+- **A fixed pixel minimum is a bug on a scaled screen**: Retro Launcher's
+  640 let its panel slide over the sidebar at 1.5x on the ASUS; derive it
+  from the font, as layout() does.
+

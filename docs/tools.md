@@ -7490,7 +7490,7 @@ runs first**: a `doom1.wad` with one
   turns gdi.exe's magenta square on and gets its own Written=yes;
   `scale=2` in gdi.exe's own settings opens it at twice the size, and
   `frame=desktop` gives hello.exe toywm's frame round a client of the
-  size it asked for. The Retro Launcher runs a tile on a double
+  size it asked for. Retro Launcher runs a tile on a double
   click, `retrolauncher FILE` runs a program with no launcher window, and closing
   it records `ended`. A program's calls window (`retrolauncher --calls`) lists
   fault.exe's one missing call under two chips, every import with Show
@@ -7507,7 +7507,17 @@ runs first**: a `doom1.wad` with one
   Flipping the DIB's rows or swapping P and S in the ROP3 rule turns
   exactly the matching check red, as do ignoring the INI value, a
   launcher that never spawns and a calls list that ignores "missing"
-  (`mutate.py`). In `gui_regress.py`.
+  (`mutate.py`). Since 2026-10-20 also: the pointer keeps the arrow while
+  hello.exe's scroll-bar thumb is dragged onto its text; drive D: mapped
+  to a folder gets hello.exe's D:\HELLO.TXT; nine folders list and a
+  folder's right-click Move down is saved; `retrolauncher FILE` runs
+  hello.exe at once and cards fault.exe (a call missing) and a DOS
+  `.exe`, `--details` names the File Manager's rows, and the File
+  Manager's right-click on fault.exe lists Show its calls; the details
+  panel scrolls above its pinned Run in a short window; the Options
+  window grows and shrinks to a floor; and a dialog caption's black line
+  leaves white at both ends. Each of those goes red with its fix taken
+  out. In `gui_regress.py`.
   **Run it on a fresh image**: a second run in the same guest fails the
   two scale checks (toywm remembers gdi.exe's earlier window sizes) and
   the calls-window checks (cause not established) -- 48 of 48 pass on a

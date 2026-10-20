@@ -11850,3 +11850,69 @@ artwork.
 Each missing font falls back on its own: a drive C: with only
 VGASYS.FON still gets the real System font. The `fonts` setting (global
 and per program) chooses stand-ins outright.
+
+## A file's facts and verbs come from the app that opens it
+
+Chosen 2026-10-20, from the "Win16 from File Manager" canvas, so the File
+Manager could say what an `.exe` is (a Windows 3.x program that runs
+partly, or a DOS program that cannot run here) and offer Show its calls.
+
+The obvious way -- the File Manager reads an NE header and asks w16's
+tables -- puts a parser of hostile files in the File Manager, and makes
+it know one app's formats. Instead the app that opens the file says what
+it offers, in the desktop entry that already declares `Handles=`:
+
+- **`Actions=` and `[Desktop Action <id>]`**, freedesktop's own: each a
+  Name= and an Exec= with `%f`, listed under Open in the right-click menu,
+  as Dolphin and Nautilus list them.
+- **`X-Details=`**, toy-os's (freedesktop keeps `X-` keys for that): a
+  command whose `Label<TAB>value` lines the details pane and Properties
+  show. The app reads the file in its own sandbox -- Retro Launcher asks
+  `w16 --check`, which pledges before the first byte -- and the File
+  Manager parses nothing. It runs once per file shown, remembered by path
+  and change time, and the command is looked up once per extension.
+
+What opening the program DOES stays the app's too: Retro Launcher's
+`from_files` setting (run, ask only when calls are missing, always ask,
+show it) and the run card -- the scripts' card in a FOREIGN face its app
+fills in -- rather than a new File Manager policy, since a Windows
+program's question has four answers and ulaunch's has two.
+
+## The launcher is Retro Launcher: no "Windows" in an app's own name
+
+Chosen 2026-10-20, renaming "Win16 Programs" (7f9a32bb). Its source sat
+in `userland/win16/` beside w16's `userland/w16/`, one letter apart and
+saying neither what they were. The maintainer's first pick was "Windows
+3.x Programs"; it changed after this:
+
+**"Windows" is Microsoft's trademark, and a product NAMED with it is what
+Microsoft has acted on** -- it sued Lindows, which became Linspire. Using
+the word to DESCRIBE what something runs is ordinary (Wine's own pages
+do), so the rule here is: no "Windows" in an app's title, binary, app id
+or source folder; "Windows 3.x" in descriptive text only (the Start
+menu's Comment=, the run card's "a Windows 3.x program"). "Win16" stays
+the API's name in docs and code, as WOW was never used (w16-design.md).
+The emulator keeps its name, `w16`, and its settings files keep theirs
+(`/etc/win16.conf`), so the rename moved no setting.
+
+## Tables and Options windows are the user's to size
+
+Chosen 2026-10-20 as one round: resizable table columns everywhere, a
+sideways scroll when they outgrow the table, and resizable Options
+windows -- KDE's way after a first try that only grew lists.
+
+**Columns** are dragged by their header divider and fitted by a double
+click on it, Explorer's and Dolphin's header; widths are pixels, saved
+with the layout an app already keeps (`id:width`, Task Manager), and
+Reset columns forgets them. **Past the table's width the columns scroll
+sideways** under a bar and with Shift+wheel, rather than squeeze: a
+stretching column keeps ten digits. A column held at an edge scrolls the
+columns under it.
+
+**An Options window resizes, its page scrolling** when the window is
+shorter, so its floor is the widest page's width by a few lines -- not
+the 96-by-30 size it opens at, which was the first floor and too big.
+Text fields, dropdowns and lists stretch; choice buttons and checkboxes
+keep their size. A captionless control takes the page's width only when
+it asks (`UUI_FILL_W`): the first rule gave it to every captionless row
+and moved Notepad's and Screenshot's stacked checkboxes to the left edge.

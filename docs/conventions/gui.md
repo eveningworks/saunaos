@@ -1213,10 +1213,14 @@ this the obvious way), not from how much history it accumulated.
   so a column is never renamed in its id, and a new column takes a new
   one; a string from an older version loads with the new columns after
   it. Only a drag glides (`uui_anim_ms()`, the user's animation speed);
-  a resize or a menu choice moves columns at once. **THERE IS NO
-  HORIZONTAL SCROLL**, so an app whose window minimum is narrower than
-  its shown columns squeezes the stretch column -- size the minimum from
-  `uui_table_natural_size()`, which counts shown columns only.
+  a resize or a menu choice moves columns at once. **THE USER SIZES
+  COLUMNS IN EVERY TABLE** -- a header divider dragged, or double-clicked
+  to fit -- and a width saves with the layout as `id:width`. **PAST THE
+  TABLE'S WIDTH THE COLUMNS SCROLL SIDEWAYS** (a bar along the bottom,
+  Shift+wheel; a held column scrolls them at an edge) and a stretching
+  column keeps ten digits rather than squeezing to nothing; size a
+  window's minimum from `uui_table_natural_size()` all the same, so the
+  bar is the exception.
 
 - **`uui_splitter` IS THE DRAGGABLE DIVIDER, AND IT OWNS A FRACTION
   RATHER THAN A PIXEL COLUMN.** Qt's `QSplitter`, GTK's `GtkPaned`,

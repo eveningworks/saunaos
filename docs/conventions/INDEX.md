@@ -425,7 +425,8 @@ whenever a headline here tells you something you did not already know.
 - **A WIDGET'S OWN RIGHT-CLICK MENU IS `uui_widget_ops.context_menu`,
   HOSTED BY uapp LIKE THE EDIT MENU**
 - **TABLE COLUMNS ARE CHOSEN AND MOVED IN `uui_table`, AND EVERY PUBLIC
-  COLUMN INDEX STAYS THE APP'S** (an id is a saved format)
+  COLUMN INDEX STAYS THE APP'S** (an id is a saved format; the user sizes
+  columns, and past the table's width they scroll sideways)
 - **`uui_splitter` IS THE DRAGGABLE DIVIDER, AND IT OWNS A FRACTION
   RATHER THAN A PIXEL COLUMN**
 - **A LAYOUT CHILD'S SIZE CAN BE PINNED FROM OUTSIDE:
