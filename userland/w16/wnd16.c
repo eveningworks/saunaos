@@ -360,7 +360,7 @@ uint16_t w16_set_focus(struct w16 *w, uint16_t hwnd) {
         // A dialog remembers its control that last had the focus, to give
         // it back when the dialog is active again.
         struct w16_wnd *top = w16_wnd_top(w, to);
-        if (top && top->kind == W16_K_DIALOG && top != to) top->focus = hwnd;
+        if (top && w16_is_dialog(top) && top != to) top->focus = hwnd;
         w16_send(w, hwnd, WM_SETFOCUS, old, 0);
     }
     return old;

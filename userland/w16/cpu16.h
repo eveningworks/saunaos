@@ -63,6 +63,18 @@ enum cpu16_fault {
     FAULT_LIMIT,     // the step budget ran out
 };
 
+// The x87 (cpu16_x87.c), a 387 as Windows 3.1 on a 386 had one. THE HOST'S
+// OWN FPU runs each instruction: the state is FNSAVE's 32-bit image,
+// FRSTORed, the one instruction run on a host buffer, FNSAVEd back -- so
+// the arithmetic, rounding, transcendentals and exception responses are a
+// real x87's.
+struct cpu16_x87 {
+    uint8_t img[108];        // the state; its pointer fields are the host's, unused
+    uint16_t fip, fcs, fop;  // the last non-control instruction, as a 387 keeps it
+    uint16_t fdp, fds;       // ... and its memory operand
+    uint8_t ready;           // 0: FNINIT's state, made on first use
+};
+
 struct cpu16;
 
 // An import was reached: SS:SP holds the far return address, the
@@ -89,6 +101,7 @@ struct cpu16 {
     int exit_code;
     unsigned depth;              // nested cpu16_call_far()s
     uint64_t steps;
+    struct cpu16_x87 x87;
 };
 
 // Selectors.
@@ -124,5 +137,42 @@ int cpu16_str(struct cpu16 *c, uint16_t sel, uint16_t off, char *out, unsigned c
 
 void cpu16_set_fault(struct cpu16 *c, int kind, const char *why);
 const char *cpu16_fault_name(int kind);
+
+// --- the x87 ------------------------------------------------------------------
+//
+// An UNMASKED exception does what a PC's did: nothing until the next
+// waiting FPU instruction or FWAIT, which then raises INT 75h (IRQ 13,
+// the coprocessor's) with IP back at itself, so returning re-runs it.
+// The INT 75h handler must clear the exception or that loops.
+
+#define X87_IE 0x01
+#define X87_DE 0x02
+#define X87_ZE 0x04
+#define X87_OE 0x08
+#define X87_UE 0x10
+#define X87_PE 0x20
+#define X87_SF 0x40
+
+// One ESC instruction (opcode D8-DF and its ModRM byte), for cpu16.c:
+// `seg` is the memory operand's segment register (-1 for a register
+// form), `off` its offset, `cs:ip` where the instruction began.
+void cpu16_x87_op(struct cpu16 *c, uint8_t op, uint8_t modrm, int seg, uint16_t off, uint16_t cs, uint16_t ip);
+// Does this ESC instruction wait (check for a pending exception first)?
+int cpu16_x87_waits(uint8_t op, uint8_t modrm);
+// The unmasked exceptions pending (X87_*), 0 when none.
+unsigned cpu16_x87_pending(struct cpu16 *c);
+// One instruction on a HOST buffer as its memory operand (`mem` is that
+// many bytes, read and written as the instruction does), for an API that
+// works on the program's FPU (WIN87EM). Returns the unmasked exceptions it
+// raised, -1 for an instruction that is not a 387's.
+int cpu16_x87_exec(struct cpu16 *c, uint8_t op, uint8_t modrm, uint8_t *mem);
+// The state as FNSAVE's 32-bit image, as the program sees it (its control
+// word, ES and B), and back.
+void cpu16_x87_save(struct cpu16 *c, uint8_t out[108]);
+void cpu16_x87_load(struct cpu16 *c, const uint8_t in[108]);
+uint16_t cpu16_x87_status(struct cpu16 *c);
+void cpu16_x87_set_cw(struct cpu16 *c, uint16_t cw);
+void cpu16_x87_clear(struct cpu16 *c);      // FNCLEX
+void cpu16_x87_init(struct cpu16 *c);       // FNINIT
 
 #endif

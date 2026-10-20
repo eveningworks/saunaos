@@ -73,6 +73,21 @@ file is involved.
    "<name> - about"; a Missing row's empty cell opens nothing; `w16 --why
    USER.31` prints its section and `--why USER.7` is refused.
 
+15. **The coprocessor** (fpu.exe, cpu16_x87.c + win87em16.c): with _fpMath's
+   control word, 1/0 and sqrt(-1) each reach the program's handler once,
+   as 83h and 81h, and the FWAIT after them runs on; a ninth load is a
+   stack overflow, 8Ah; masked, 1/0 calls nothing and BX=8 reports the
+   zero divide; sqrt(2) * 1e9 stored by FISTP is 1414213562 exactly.
+   UNDER TCG the x87 is QEMU's, which has no stack fault: the test asks
+   QEMU (`info kvm`) and expects no 8Ah there, and exactly 8Ah under KVM
+   and on bare metal (`--host`).
+
+16. **GDI's curves as 3.11 drew them** (shapes.exe, gdi16.c): Ellipse(150, 10,
+   210, 50)'s rows start in exactly as many pixels as real 3.11's did,
+   RoundRect's 20 x 16 corners likewise (the midpoint ellipse both), a
+   pie's vertical radius steps across a pixel where 3.11's did, and its
+   brush reaches the radius with no gap.
+
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
 """
@@ -971,6 +986,58 @@ def calls(dbg, res):
 TMP = "/tmp"
 
 
+SHAPES_TITLE = "Shapes (Win16)"
+# Measured off real 3.11 drawing shapes.exe: each top row's first pixel from the box's left.
+ELLIPSE_60x40 = [23, 18, 15, 13, 11, 9, 8, 6, 5, 4, 3, 3, 2, 1, 1, 1, 0, 0, 0, 0]
+CORNER_20x16 = [7, 5, 3, 2, 1, 1, 0, 0]
+
+
+def shapes(dbg, qmp, res, tmp):
+    win = dbg.spawn("/bin/w16 /usr/share/w16/shapes.exe", SHAPES_TITLE)
+    res.check("shapes.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    ox, oy = win["x"] + FRAME, win["y"] + FRAME + CAPTION
+    dbg.settle()
+    im = shot(qmp, f"{tmp}/w16_shapes.png")
+    def first_ink(l, r, y):
+        xs = [x for x in range(l, r) if im.getpixel((ox + x, oy + y)) != WHITE]
+        return xs[0] - l if xs else None
+    got = [first_ink(150, 210, 10 + y) for y in range(20)]
+    res.check("Ellipse's rows start where 3.11's did", got == ELLIPSE_60x40, f"got {got}")
+    got = [first_ink(10, 70, 10 + y) for y in range(8)]
+    res.check("RoundRect's corners are 3.11's", got == CORNER_20x16, f"got {got}")
+    radius = [next((x for x in range(246, 254) if im.getpixel((ox + x, oy + y)) == BLACK), None) for y in (66, 72, 73, 80)]
+    res.check("a pie's radius steps across a pixel where 3.11's did", radius == [250, 250, 249, 249], f"got {radius}")
+    filled = [im.getpixel((ox + x, oy + y)) not in (WHITE, BLACK) for x, y in ((249, 70), (248, 80))]
+    res.check("the pie's brush reaches its radius", all(filled), f"got {filled}")
+    dbg.close_window(SHAPES_TITLE)
+
+
+FPU_INI = "/home/Win16/WINDOWS/FPUTEST.INI"
+
+
+def coprocessor(dbg, qmp, res):
+    sh(dbg, f"rm {FPU_INI}")
+    sh(dbg, "spawn /bin/w16 /usr/share/w16/fpu.exe")
+    end, text = time.time() + 15, ""
+    while time.time() < end and "Root=" not in text:
+        time.sleep(0.5)
+        text = sh(dbg, f"cat {FPU_INI}")
+    got = dict(re.findall(r"^(\w+)=(\S*)", text, re.M))
+    try:
+        where = "KVM" if "enabled" in (qmp.hmp("info kvm") or "") else "TCG"
+    except RuntimeError:                         # remote_gui.py: no QEMU in front, a real x87
+        where = "hardware"
+    want = "8381" if where == "TCG" else "83818A"   # TCG's x87 has no stack fault
+    res.check(f"fpu.exe: each exception reaches its handler once ({where}: {want})",
+              got.get("Codes") == want and got.get("Calls") == f"{len(want) // 2:04X}", f"the file: {text!r}")
+    res.check("fpu.exe: masked, 1/0 calls nothing and BX=8 reports it",
+              got.get("Status") == "0004", f"Status={got.get('Status')}")
+    res.check("fpu.exe: sqrt(2) * 1e9 through FISTP is 1414213562", got.get("Root") == "544B2FBA",
+              f"Root={got.get('Root')}")
+
+
 def main():
     global TMP
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -1001,6 +1068,8 @@ def main():
         sound_page(dbg, res)
         why_link(dbg, res)
         dialogs(dbg, qmp, res)
+        coprocessor(dbg, qmp, res)
+        shapes(dbg, qmp, res, TMP)
     finally:
         dbg.close()
     print(f"\nw16_gui_test: {len(res.passes)} passed, {len(res.fails)} failed")

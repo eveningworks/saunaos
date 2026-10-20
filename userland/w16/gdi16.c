@@ -20,6 +20,7 @@
 #include "w16_internal.h"
 
 #include <limits.h>
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -134,6 +135,7 @@ static void dev_rect(const struct w16_gdiobj *dc, int *l, int *t, int *r, int *b
 
 // A logical length along x, in pixels: a pen's width, a space's extra.
 static int dev_w(const struct w16_gdiobj *dc, int v) { return scale(v, dc->vext[0], dc->wext[0]); }
+static int dev_h(const struct w16_gdiobj *dc, int v) { return scale(v, dc->vext[1], dc->wext[1]); }
 
 #define CS_OWNDC   0x0020
 #define CS_CLASSDC 0x0040
@@ -856,6 +858,16 @@ void w16_gdi_invert(struct w16 *w, uint16_t hdc, int l, int t, int r, int b) {
     gdi_done(w, dc);
 }
 
+// The raster operation a shape's inside is filled with: its DC's ROP2 mix
+// over the brush, as GDI filled them -- R2_NOTXORPEN twice puts a button back
+// (Calculator's press). FillRect alone is PATCOPY whatever the mix.
+static uint32_t fill_rop(const struct w16_gdiobj *dc) {
+    static const uint8_t R2[16] = { 0x00, 0x05, 0x0A, 0x0F, 0x50, 0x55, 0x5A, 0x5F,
+                                    0xA0, 0xA5, 0xAA, 0xAF, 0xF0, 0xF5, 0xFA, 0xFF };
+    unsigned m = dc->rop2 >= 1 && dc->rop2 <= 16 ? dc->rop2 : 13;
+    return (uint32_t)R2[m - 1] << 16;
+}
+
 static int rectangle(struct w16 *w, struct w16_args *a) {
     uint16_t hd = w16_arg16(a);
     int l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a);
@@ -870,7 +882,7 @@ static int rectangle(struct w16 *w, struct w16_args *a) {
         if (br >= 0) {
             // inside the edge; with a NULL pen the whole box but its right and bottom rows, as GDI filled it
             struct gdi_blit bl = { .dst = &dt, .x = l + !nopen, .y = t + !nopen, .w = r - l - 1 - !nopen,
-                                   .h = b - t - 1 - !nopen, .rop = 0x00F00021, .brush = (uint32_t)br };
+                                   .h = b - t - 1 - !nopen, .rop = fill_rop(dc), .brush = (uint32_t)br };
             uint32_t pbuf[64];
             pattern_of(w, dc, dc->brush, &dt, &bl, pbuf);
             gdi_bitblt(&bl);
@@ -890,6 +902,7 @@ static int rectangle(struct w16 *w, struct w16_args *a) {
 
 // --- shapes: a coverage mask, filled with the brush and edged with the pen -----------
 
+
 // mask[y * mw + x] set where the shape covers (x0 + x, y0 + y), device pixels.
 struct mask { int x0, y0, w, h; uint8_t *m; };
 
@@ -905,27 +918,70 @@ static int mask_at(const struct mask *k, int x, int y) {
     return x >= 0 && y >= 0 && x < k->w && y < k->h && k->m[(size_t)y * k->w + x];
 }
 
-static unsigned isqrt(unsigned long v) {
-    unsigned long r = 0, bit = 1ul << 62;
-    while (bit > v) bit >>= 2;
-    while (bit) {
-        if (v >= r + bit) { v -= r + bit; r = (r >> 1) + bit; } else r >>= 1;
-        bit >>= 2;
+// The midpoint ellipse of radii a and b (Bresenham's, in integers): the
+// widest x of each row dy = 0..b from the centre, into xm[0..b].
+static void ellipse_widths(long a, long b, int *xm) {
+    for (long i = 0; i <= b; i++) xm[i] = 0;
+    if (a <= 0 || b <= 0) { if (b >= 0) xm[0] = (int)(a > 0 ? a : 0); return; }
+    long long a2 = a * a, b2 = b * b, x = 0, y = b, dx = 0, dy = 2 * a2 * b;
+    long long d = 4 * b2 - 4 * a2 * b + a2;          // the decision variable, times 4
+    while (dx < dy) {                               // where the slope is under 1
+        if (x > xm[y]) xm[y] = (int)x;
+        x++;
+        dx += 2 * b2;
+        if (d < 0) d += 4 * (dx + b2);
+        else { y--; dy -= 2 * a2; d += 4 * (dx - dy + b2); }
     }
-    return (unsigned)r;
+    d = b2 * (2 * x + 1) * (2 * x + 1) + 4 * a2 * (y - 1) * (y - 1) - 4 * a2 * b2;
+    while (y >= 0) {
+        if (x > xm[y]) xm[y] = (int)x;
+        y--;
+        dy -= 2 * a2;
+        if (d > 0) d += 4 * (a2 - dy);
+        else { x++; dx += 2 * b2; d += 4 * (dx - dy + a2); }
+    }
 }
 
-// The ellipse inside the mask's box: each row's run from the centre's
-// distance at the row's middle, as a width in half pixels.
-static void mask_ellipse(struct mask *k) {
-    unsigned long W = (unsigned long)k->w, H = (unsigned long)k->h;
-    for (int y = 0; y < k->h; y++) {
-        long dy = 2L * y + 1 - (long)H;
-        unsigned long hw = isqrt(W * W * (H * H - (unsigned long)(dy * dy)) / (H * H));
-        // the row's span rounded outward, so the middle rows touch both sides of the box as GDI's did
-        int x0 = (int)((W - hw) / 2), x1 = (int)((W + hw + 1) / 2);
-        for (int x = x0; x < x1; x++) k->m[(size_t)y * k->w + x] = 1;
+// How far each row of a W x H ellipse starts in from its box's left (and
+// ends from its right): the midpoint ellipse of radii (W - 1) / 2 and
+// (H - 1) / 2, an even size doubling its middle column or row -- 3.11's
+// Ellipse, row for row (Calculator's corners, docs/w16-design.md). insets
+// holds H rows; 0 when out of memory.
+static int *ellipse_insets(int W, int H) {
+    long a = (W - 1) / 2, b = (H - 1) / 2;
+    int *xm = malloc(sizeof *xm * (size_t)(b + 1)), *in = malloc(sizeof *in * (size_t)(H > 0 ? H : 1));
+    if (!xm || !in) { free(xm); free(in); return 0; }
+    ellipse_widths(a, b, xm);
+    for (int y = 0; y < H; y++) {
+        int yy = y <= b ? y : H - 1 - y;
+        int v = (int)(a - xm[b - yy]);
+        in[y] = v > 0 ? v : 0;
     }
+    free(xm);
+    return in;
+}
+
+// The ellipse inside the mask's box.
+static void mask_ellipse(struct mask *k) {
+    int *in = ellipse_insets(k->w, k->h);
+    for (int y = 0; in && y < k->h; y++)
+        for (int x = in[y]; x < k->w - in[y]; x++) k->m[(size_t)y * k->w + x] = 1;
+    free(in);
+}
+
+// The box with its corners rounded: each the quarter of an ellipse whose box
+// is one more than the corner's size, the box's own size at most -- so a
+// corner as big as the box is that box's Ellipse, as 3.11's was.
+static void mask_roundrect(struct mask *k, int ew, int eh) {
+    int cw = (ew < k->w - 1 ? ew : k->w - 1) + 1, ch = (eh < k->h - 1 ? eh : k->h - 1) + 1;
+    int b = (ch - 1) / 2, *in = ew > 0 && eh > 0 ? ellipse_insets(cw, ch) : 0;
+    for (int y = 0; y < k->h; y++) {
+        int inset = 0;
+        if (in && y < b) inset = in[y];
+        else if (in && y >= k->h - b) inset = in[k->h - 1 - y];
+        for (int x = inset; x < k->w - inset; x++) k->m[(size_t)y * k->w + x] = 1;
+    }
+    free(in);
 }
 
 static long ceil_half(long v) { return v >= 0 ? (v + 1) / 2 : -(-v / 2); }
@@ -977,7 +1033,7 @@ static void fill_mask(struct w16 *w, const struct w16_gdiobj *dc, struct gdi_tar
     int64_t br = brush_of(w, dc->brush);
     if (br < 0 || !k->m) return;
     uint32_t pbuf[64];
-    struct gdi_blit tpl = { .dst = t, .h = 1, .rop = 0x00F00021, .brush = (uint32_t)br };
+    struct gdi_blit tpl = { .dst = t, .h = 1, .rop = fill_rop(dc), .brush = (uint32_t)br };
     pattern_of(w, dc, dc->brush, t, &tpl, pbuf);
     for (int y = 0; y < k->h; y++)
         for (int x = 0; x < k->w; ) {
@@ -1005,6 +1061,159 @@ static void edge_mask(struct w16 *w, const struct w16_gdiobj *dc, struct gdi_tar
                 gdi_pixel(t, k->x0 + x, k->y0 + y, (uint32_t)pen, dc->rop2);
 }
 
+static int is_edge(const struct mask *k, int x, int y) {
+    return mask_at(k, x, y) && (!mask_at(k, x - 1, y) || !mask_at(k, x + 1, y) || !mask_at(k, x, y - 1) ||
+                                !mask_at(k, x, y + 1));
+}
+
+// A closed shape: its edge in the pen, the rest of it in the brush -- each
+// pixel once, so a mix (R2_NOTXORPEN) drawn twice undoes itself. With a
+// NULL pen the brush fills the edge too.
+static void fill_and_edge(struct w16 *w, const struct w16_gdiobj *dc, struct gdi_target *t, struct mask *k) {
+    int width;
+    int64_t pen = pen_of(w, dc->pen, &width);
+    uint8_t *edge = pen >= 0 && k->m ? calloc((size_t)k->w * k->h, 1) : 0;
+    if (!edge) {
+        if (pen < 0) fill_mask(w, dc, t, k);
+        else edge_mask(w, dc, t, k);
+        return;
+    }
+    for (int y = 0; y < k->h; y++)
+        for (int x = 0; x < k->w; x++) edge[(size_t)y * k->w + x] = (uint8_t)is_edge(k, x, y);
+    for (size_t i = 0; i < (size_t)k->w * k->h; i++) if (edge[i]) k->m[i] = 0;
+    fill_mask(w, dc, t, k);
+    for (int y = 0; y < k->h; y++)
+        for (int x = 0; x < k->w; x++)
+            if (edge[(size_t)y * k->w + x]) gdi_pixel(t, k->x0 + x, k->y0 + y, (uint32_t)pen, dc->rop2);
+    free(edge);
+}
+
+// --- arcs: Arc, Pie, Chord -------------------------------------------------------
+//
+// AS 3.11 MADE THEM, measured pixel for pixel (samples/shapes.asm): the
+// ellipse's own outline pixels, counterclockwise as the screen shows it from
+// the radial line through the first point to the one through the second --
+// then, for a pie, a line from the arc's end to the centre pixel and one from
+// the centre back to its start; for a chord, one from the end to the start.
+// That closed outline is a polygon, filled as Polygon fills.
+
+enum { ARC_ARC, ARC_CHORD, ARC_PIE };
+
+struct arc_px { int x, y; double d; };
+
+static int arc_px_cmp(const void *a, const void *b) {
+    double d = ((const struct arc_px *)a)->d - ((const struct arc_px *)b)->d;
+    return d < 0 ? -1 : d > 0;
+}
+
+// gdi_line's pixels, its end left out, into the mask.
+static void mask_line(struct mask *k, int x0, int y0, int x1, int y1) {
+    int dx = abs(x1 - x0), dy = -abs(y1 - y0), sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
+    while (x0 != x1 || y0 != y1) {
+        int x = x0 - k->x0, y = y0 - k->y0;
+        if (x >= 0 && y >= 0 && x < k->w && y < k->h) k->m[(size_t)y * k->w + x] = 1;
+        int e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x0 += sx; }
+        if (e2 <= dx) { err += dx; y0 += sy; }
+    }
+}
+
+// What the closed outline `line` encloses inside the ellipse `e`, grown
+// from the pixels `k` already holds (the polygon of its points, which misses
+// some beside the curve): a 4-connected fill, which no 8-connected outline
+// lets through.
+static void enclosed(struct mask *k, const struct mask *e, const struct mask *line) {
+    size_t n = (size_t)k->w * k->h, top = 0;
+    size_t *stack = malloc(sizeof *stack * (n + 1));
+    if (!stack) return;
+    for (size_t i = 0; i < n; i++) {
+        k->m[i] = (uint8_t)(k->m[i] && e->m[i] && !line->m[i]);
+        if (k->m[i]) stack[top++] = i;
+    }
+    while (top) {
+        size_t i = stack[--top];
+        int x = (int)(i % (size_t)k->w), y = (int)(i / (size_t)k->w);
+        const int nx[4] = { x - 1, x + 1, x, x }, ny[4] = { y, y, y - 1, y + 1 };
+        for (int d = 0; d < 4; d++) {
+            if (nx[d] < 0 || ny[d] < 0 || nx[d] >= k->w || ny[d] >= k->h) continue;
+            size_t j = (size_t)ny[d] * k->w + nx[d];
+            if (k->m[j] || !e->m[j] || line->m[j]) continue;
+            k->m[j] = 1;
+            stack[top++] = j;
+        }
+    }
+    free(stack);
+}
+
+// Arc's, Chord's and Pie's work, in logical units.
+static int arc_shape(struct w16 *w, uint16_t hdc, int kind, int l, int t, int r, int b, int x1, int y1, int x2,
+                     int y2) {
+    struct gdi_target dt;
+    struct w16_gdiobj *dc = target(w, hdc, &dt);
+    struct mask e = { 0 }, line = { 0 }, k = { 0 };
+    struct arc_px *px = 0;
+    int *pt = 0;
+    if (!dc) goto done;
+    dev_rect(dc, &l, &t, &r, &b);
+    x1 = dev_x(dc, x1); y1 = dev_y(dc, y1);
+    x2 = dev_x(dc, x2); y2 = dev_y(dc, y2);
+    if (!mask_new(&e, l, t, r, b) || !mask_new(&line, l, t, r, b)) goto done;
+    mask_ellipse(&e);
+    // the sweep, from the box's middle in whole pixels, y up
+    double cx = floor((l + r) / 2.0), cy = floor((t + b) / 2.0), two_pi = 2 * M_PI;
+    double as = atan2(cy - y1, x1 - cx), ae = atan2(cy - y2, x2 - cx);
+    double sweep = fmod(ae - as + 2 * two_pi, two_pi);
+    int whole = (x1 == x2 && y1 == y2) || sweep == 0;
+    int n = 0, edges = 0;
+    for (int y = 0; y < e.h; y++)
+        for (int x = 0; x < e.w; x++) edges += is_edge(&e, x, y);
+    px = malloc(sizeof *px * (size_t)(edges + 1));
+    if (!px) goto done;
+    for (int y = 0; y < e.h; y++)
+        for (int x = 0; x < e.w; x++) {
+            if (!is_edge(&e, x, y)) continue;
+            double d = fmod(atan2(cy - (t + y), (l + x) - cx) - as + 2 * two_pi, two_pi);
+            if (whole || d <= sweep + 1e-9) px[n++] = (struct arc_px){ l + x, t + y, d };
+        }
+    qsort(px, (size_t)n, sizeof *px, arc_px_cmp);
+    for (int i = 0; i < n; i++) line.m[(size_t)(px[i].y - t) * line.w + (px[i].x - l)] = 1;
+    int ccx = (int)floor((l + r - 1) / 2.0), ccy = (int)floor((t + b - 1) / 2.0);   // the radii's centre pixel
+    if (n && !whole && kind == ARC_PIE) {
+        mask_line(&line, px[n - 1].x, px[n - 1].y, ccx, ccy);
+        mask_line(&line, ccx, ccy, px[0].x, px[0].y);
+    } else if (n && !whole && kind == ARC_CHORD)
+        mask_line(&line, px[n - 1].x, px[n - 1].y, px[0].x, px[0].y);
+    int width;
+    int64_t pen = pen_of(w, dc->pen, &width);
+    if (kind != ARC_ARC && n && mask_new(&k, l, t, r, b)) {
+        if (whole) memcpy(k.m, e.m, (size_t)e.w * e.h);
+        else {
+            int np = n + (kind == ARC_PIE);
+            pt = malloc(sizeof *pt * 2 * (size_t)np);
+            if (!pt) goto done;
+            for (int i = 0; i < n; i++) { pt[2 * i] = px[i].x; pt[2 * i + 1] = px[i].y; }
+            if (kind == ARC_PIE) { pt[2 * n] = ccx; pt[2 * n + 1] = ccy; }
+            mask_polygons(&k, pt, &np, 1, 1);
+            enclosed(&k, &e, &line);
+        }
+        for (size_t i = 0; i < (size_t)k.w * k.h; i++)
+            if (line.m[i]) k.m[i] = (uint8_t)(pen < 0);   // the outline is the pen's, or the brush's with none
+        fill_mask(w, dc, &dt, &k);
+    }
+    if (pen >= 0)
+        for (int y = 0; y < line.h; y++)
+            for (int x = 0; x < line.w; x++)
+                if (line.m[(size_t)y * line.w + x]) gdi_pixel(&dt, l + x, t + y, (uint32_t)pen, dc->rop2);
+done:
+    free(e.m);
+    free(line.m);
+    free(k.m);
+    free(px);
+    free(pt);
+    gdi_done(w, dc);
+    return dc != 0;
+}
+
 // Ellipse's work, in logical units: the box's right and bottom left out.
 static int ellipse(struct w16 *w, uint16_t hdc, int l, int t, int r, int b) {
     struct gdi_target dt;
@@ -1014,8 +1223,26 @@ static int ellipse(struct w16 *w, uint16_t hdc, int l, int t, int r, int b) {
         struct mask k;
         if (mask_new(&k, l, t, r, b)) {
             mask_ellipse(&k);
-            fill_mask(w, dc, &dt, &k);
-            edge_mask(w, dc, &dt, &k);
+            fill_and_edge(w, dc, &dt, &k);
+        }
+        free(k.m);
+    }
+    gdi_done(w, dc);
+    return dc != 0;
+}
+
+// RoundRect's work, in logical units: the box's right and bottom left out.
+static int roundrect(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, int ew, int eh) {
+    struct gdi_target dt;
+    struct w16_gdiobj *dc = target(w, hdc, &dt);
+    if (dc) {
+        dev_rect(dc, &l, &t, &r, &b);
+        ew = abs(dev_w(dc, ew));
+        eh = abs(dev_h(dc, eh));
+        struct mask k;
+        if (mask_new(&k, l, t, r, b)) {
+            mask_roundrect(&k, ew, eh);
+            fill_and_edge(w, dc, &dt, &k);
         }
         free(k.m);
     }
@@ -2518,6 +2745,36 @@ static int api_Ellipse(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 10;
 }
 
+// RoundRect(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect, nWidth, nHeight) -> BOOL
+// Windows: A rectangle with rounded corners -- each a quarter of an ellipse nWidth by nHeight --
+// edged in the pen and filled with the brush, its right and bottom left out.
+// w16: The same, edged a pixel wide: a wider pen draws as a 1-pixel one.
+static int api_RoundRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    int l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a), r = (int16_t)w16_arg16(a), b = (int16_t)w16_arg16(a);
+    int ew = (int16_t)w16_arg16(a), eh = (int16_t)w16_arg16(a);
+    w->cpu.r[R_AX] = (uint16_t)roundrect(w, hdc, l, t, r, b, ew, eh);
+    return 14;
+}
+
+// Arc(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect, nXStartArc, nYStartArc, nXEndArc, nYEndArc) -> BOOL
+// Chord(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect, nXRadial1, nYRadial1, nXRadial2, nYRadial2) -> BOOL
+// Pie(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect, nXRadial1, nYRadial1, nXRadial2, nYRadial2) -> BOOL
+// Windows: Part of the ellipse inside a rectangle, counterclockwise from where the line from its
+// centre through the first point meets it to where the line through the second does: the curve
+// alone in the pen (Arc); closed by the line between its ends (Chord) or by two lines to the centre
+// (Pie) and filled with the brush. The two points the same: the whole ellipse.
+// w16: The same, edged a pixel wide: a wider pen draws as a 1-pixel one.
+static int api_Arc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint16_t hdc = w16_arg16(a);
+    int v[8];
+    for (int i = 0; i < 8; i++) v[i] = (int16_t)w16_arg16(a);
+    int kind = ordinal == 23 ? ARC_ARC : ordinal == 26 ? ARC_PIE : ARC_CHORD;
+    w->cpu.r[R_AX] = (uint16_t)arc_shape(w, hdc, kind, v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7]);
+    return 18;
+}
+
 // Polygon(hdc, lpPoints, nCount) -> BOOL
 // Polyline(hdc, lpPoints, nCount) -> BOOL
 // Windows: A closed shape through the points, edged in the pen and filled with the brush by the
@@ -2639,8 +2896,11 @@ const struct w16_api g_gdi_api[] = {
     { 19, api_LineTo },
     { 20, api_MoveTo },
     { 22, api_IntersectClipRect },
+    { 23, api_Arc },
     { 24, api_Ellipse },
+    { 26, api_Arc },
     { 27, api_Rectangle },
+    { 28, api_RoundRect },
     { 29, api_PatBlt },
     { 30, api_SaveDC },
     { 31, api_SetPixel },
@@ -2695,6 +2955,7 @@ const struct w16_api g_gdi_api[] = {
     { 162, api_SetBitmapDimension },
     { 163, api_SetBitmapDimension },
     { 172, api_SetRectRgn },
+    { 348, api_Arc },
     { 350, api_GetCharWidth },
     { 442, api_CreateDIBitmap },
     { 443, api_SetDIBitsToDevice },

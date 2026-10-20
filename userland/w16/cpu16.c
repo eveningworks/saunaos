@@ -799,7 +799,12 @@ static void step(struct cpu16 *c) {
         far_call(c, sel, off);
         return;
     }
-    case 0x9B: return;                                    // wait
+    case 0x9B:                                            // wait
+        if (cpu16_x87_pending(c)) {
+            c->ip = in.ip;
+            interrupt(c, 0x75);
+        }
+        return;
     case 0x9C: cpu16_push(c, (uint16_t)((c->flags & 0x0FD5) | 0x0002)); return;
     case 0x9D: c->flags = (uint16_t)((cpu16_pop(c) & 0x0FD5) | 0x0002); return;
     case 0x9E: c->flags = (uint16_t)((c->flags & 0xFF00) | (get8(c, 4) & 0xD5) | 0x02); return;
@@ -898,9 +903,18 @@ static void step(struct cpu16 *c) {
         set8(c, 0, rd8(c, s, (uint16_t)(c->r[R_BX] + (uint8_t)c->r[R_AX])));
         return;
     }
-    case 0xD8: case 0xD9: case 0xDA: case 0xDB: case 0xDC: case 0xDD: case 0xDE: case 0xDF:
-        cpu16_set_fault(c, FAULT_UD, "x87 floating point is not emulated yet");
+    case 0xD8: case 0xD9: case 0xDA: case 0xDB: case 0xDC: case 0xDD: case 0xDE: case 0xDF: {
+        decode_modrm(c, &in, &m);
+        if (c->fault) return;
+        uint8_t b = (uint8_t)(m.mod << 6 | m.reg << 3 | m.rm);
+        if (cpu16_x87_waits(op, b) && cpu16_x87_pending(c)) {   // the coprocessor's IRQ 13, before it runs
+            c->ip = in.ip;
+            interrupt(c, 0x75);
+            return;
+        }
+        cpu16_x87_op(c, op, b, m.mod == 3 ? -1 : m.seg, m.off, in.cs, in.ip);
         return;
+    }
     case 0xE0: case 0xE1: case 0xE2: {                    // loopnz loopz loop
         int8_t d = (int8_t)fetch8(c);
         c->r[R_CX]--;

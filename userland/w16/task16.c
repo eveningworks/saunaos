@@ -163,6 +163,7 @@ int w16_has(const char *module, unsigned ordinal) {
     if (!strcmp(module, "COMMDLG")) return in_table(g_commdlg_api, g_commdlg_api_n, ordinal);
     if (!strcmp(module, "DDEML")) return in_table(g_ddeml_api, g_ddeml_api_n, ordinal);
     if (!strcmp(module, "MMSYSTEM")) return in_table(g_mmsystem_api, g_mmsystem_api_n, ordinal);
+    if (!strcmp(module, "WIN87EM")) return in_table(g_win87em_api, g_win87em_api_n, ordinal);
     return 0;
 }
 
@@ -179,7 +180,7 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "DDEML",   27,  "names a service no one can reach" },                 // DdeNameService
     { "GDI",     47,  "a region is its bounding rectangle" },               // CombineRgn
     { "GDI",     53,  "no printer to make a DC for" },                  // CreateDC
-    { "GDI",     123, "arcs, pies and chords not drawn" },              // PlayMetaFile
+    { "GDI",     123, "a palette is not realised" },                    // PlayMetaFile
     { "KERNEL",  166, "runs nothing: answers that the file is not there" }, // WinExec
     { "OLECLI",  12,  "pastes a picture, never an object to edit" },    // OleCreateFromClip
     { "OLECLI",  21,  "no program can edit the object" },               // OleActivate
@@ -226,6 +227,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     struct w16 *w = c->user;
     const char *name = w16_thunk_module(w, sel);
     if (!name) name = "?";
+    if (!strcmp(name, W16_FPE_MODULE)) return w16_fpu_irq_return(w);
     if (!strcmp(name, W16_HOST_MODULE)) {        // w16's own window procedure, called by the program
         struct w16_args ha = { c, 10 };
         return w16_host_proc_call(w, ordinal, &ha);
@@ -257,6 +259,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     else if (!strcmp(name, "COMMDLG")) r = w16_api_call(g_commdlg_api, g_commdlg_api_n, w, ordinal, &a);
     else if (!strcmp(name, "DDEML")) r = w16_api_call(g_ddeml_api, g_ddeml_api_n, w, ordinal, &a);
     else if (!strcmp(name, "MMSYSTEM")) r = w16_api_call(g_mmsystem_api, g_mmsystem_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "WIN87EM")) r = w16_api_call(g_win87em_api, g_win87em_api_n, w, ordinal, &a);
     if (g_w16_trace && r >= 0) {                 // what it answered, as Wine's +relay ends a call with Ret
         fprintf(g_w16_trace, "  = %04x:%04x\n", c->r[R_DX], c->r[R_AX]);
         fflush(g_w16_trace);

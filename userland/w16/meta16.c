@@ -28,8 +28,11 @@
 #define GDI_LINETO        19
 #define GDI_MOVETO        20
 #define GDI_INTERSECTCLIP 22
+#define GDI_ARC           23
 #define GDI_ELLIPSE       24
+#define GDI_PIE           26
 #define GDI_RECTANGLE     27
+#define GDI_ROUNDRECT     28
 #define GDI_PATBLT        29
 #define GDI_SAVEDC        30
 #define GDI_SETPIXEL      31
@@ -52,6 +55,7 @@
 #define GDI_WINDOWORG     97
 #define GDI_VPEXT         94
 #define GDI_VPORG         95
+#define GDI_CHORD         348
 #define GDI_POLYPOLYGON   450
 
 // GDI export `ordinal` called with `words` as the program pushes them, first
@@ -198,9 +202,14 @@ int w16_play_wmf(struct w16 *w, uint16_t hdc, const uint8_t *bytes, uint32_t len
         case UWMF_MOVETO:  if (r.nv >= 2) G(GDI_MOVETO, hdc, U(0), U(1)); break;
         case UWMF_LINETO:  if (r.nv >= 2) G(GDI_LINETO, hdc, U(0), U(1)); break;
         case UWMF_INTERSECTCLIPRECT: if (r.nv >= 4) G(GDI_INTERSECTCLIP, hdc, U(0), U(1), U(2), U(3)); break;
-        case UWMF_RECTANGLE:
-        case UWMF_ROUNDRECT:                     // its corners drawn square
-            if (r.nv >= 4) G(GDI_RECTANGLE, hdc, U(0), U(1), U(2), U(3));
+        case UWMF_RECTANGLE: if (r.nv >= 4) G(GDI_RECTANGLE, hdc, U(0), U(1), U(2), U(3)); break;
+        case UWMF_ROUNDRECT: if (r.nv >= 6) G(GDI_ROUNDRECT, hdc, U(0), U(1), U(2), U(3), U(4), U(5)); break;
+        case UWMF_ARC:
+        case UWMF_PIE:
+        case UWMF_CHORD:
+            if (r.nv >= 8)
+                G(r.func == UWMF_ARC ? GDI_ARC : r.func == UWMF_PIE ? GDI_PIE : GDI_CHORD, hdc, U(0), U(1), U(2),
+                  U(3), U(4), U(5), U(6), U(7));
             break;
         case UWMF_ELLIPSE: if (r.nv >= 4) G(GDI_ELLIPSE, hdc, U(0), U(1), U(2), U(3)); break;
         case UWMF_PATBLT:  G(GDI_PATBLT, hdc, U(0), U(1), U(2), U(3), HI(r.rop), LO(r.rop)); break;
@@ -252,7 +261,7 @@ int w16_play_wmf(struct w16 *w, uint16_t hdc, const uint8_t *bytes, uint32_t len
             break;
         }
         default:
-            // Arcs, pies and chords, palettes, regions, escapes, text alignment:
+            // Palettes, regions, escapes, text alignment:
             // not drawn (w16_play_wmf's caller's note says so).
             break;
         }
@@ -334,13 +343,14 @@ uint16_t w16_render_metafile(struct w16 *w, const uint8_t *bytes, uint32_t len, 
 // PlayMetaFile(hdc, hmf) -> BOOL
 // Windows: Draws a metafile -- the GDI calls it recorded -- into a DC, through the DC's mapping;
 // the metafile's own pens, brushes and fonts are made and deleted as it goes.
-// w16: The same, a record at a time through w16's own GDI calls: lines, rectangles, ellipses,
-// polygons, text, bitmaps (the DIB records), the mapping and the clip. Arcs, pies and chords draw
-// nothing, a rounded rectangle draws square, and a palette is not realised.
-// Why: These are the records the pictures met so far do not use; each is one more GDI call w16
-// does not have yet (Arc, Pie, Chord, RoundRect).
-// Notice: A chart or drawing made of arcs shows without them.
-// Whole: Arc, Pie, Chord and RoundRect in GDI, which the player would then call.
+// w16: The same, a record at a time through w16's own GDI calls: lines, rectangles, rounded
+// rectangles, ellipses, arcs, pies, chords, polygons, text, bitmaps (the DIB records), the mapping
+// and the clip. A palette is not realised.
+// Why: w16 draws in the screen's own colours and has no palettes (CreatePalette and
+// RealizePalette are not there), so a picture's palette records have nothing to act on.
+// Notice: A picture whose colours come from its own palette may show other colours.
+// Whole: Palettes in GDI -- CreatePalette, SelectPalette, RealizePalette -- which the player would
+// then call.
 static int api_PlayMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a), hmf = w16_arg16(a);

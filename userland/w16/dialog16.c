@@ -115,7 +115,7 @@ void w16_dlg_set_font(struct w16_wnd *d, int pt) {
 
 void w16_units_of(struct w16 *w, const struct w16_wnd *x, int *bx, int *by) {
     for (int depth = 0; x && depth < 64; depth++) {
-        if (x->kind == W16_K_DIALOG && x->bx) { *bx = x->bx; *by = x->by; return; }
+        if (w16_is_dialog(x) && x->bx) { *bx = x->bx; *by = x->by; return; }
         if (x->kind != W16_K_CHILD) break;
         x = w16_wnd_get(w, x->parent);
     }
@@ -232,6 +232,22 @@ static char *rd_name(struct reader *r, unsigned *ord) {
 
 static const char *const ORD_CLASS[] = { "BUTTON", "EDIT", "STATIC", "LISTBOX", "SCROLLBAR", "COMBOBOX" };
 
+// The program's main window from a template naming its class: the frame,
+// caption and menu bar round the template's client size, as CreateWindow
+// would make it, then the dialog manager's fields.
+static struct w16_wnd *dlg_main(struct w16 *w, int k, uint32_t style, int cw, int ch, const char *menu,
+                                unsigned menu_id, const char *caption, uint16_t inst, uint32_t dlgproc) {
+    uint16_t hm = menu[0] || menu_id ? w16_load_menu(w, menu[0] ? menu : 0, (uint16_t)menu_id) : 0;
+    int f = style & WS_THICKFRAME ? W16_FRAME : 1;
+    int ow = cw + 2 * f, oh = ch + 2 * f + ((style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0) +
+                             (hm ? W16_MENU_H : 0);
+    int h = w16_create_main(w, k, caption, style, ow, oh, hm, inst, 0, 0, 0);
+    if (h <= 0) return 0;
+    w->win.dlg = 1;
+    w->win.dlgproc = dlgproc;
+    return &w->win;
+}
+
 // A DIALOG resource (3.x's DLGTEMPLATE) into a dialog, its controls made:
 // its units are a quarter of the font's average width and an eighth of
 // its height.
@@ -243,8 +259,8 @@ static struct w16_wnd *from_template(struct w16 *w, const uint8_t *p, uint32_t n
     unsigned count = rd8(&r);
     int16_t dx = (int16_t)rd16(&r), dy = (int16_t)rd16(&r);
     int16_t dw = (int16_t)rd16(&r), dh = (int16_t)rd16(&r);
-    unsigned ord;
-    char *menu = rd_name(&r, &ord), *cls = rd_name(&r, &ord), *caption = rd_str(&r);
+    unsigned ord, menu_id, cls_id;
+    char *menu = rd_name(&r, &menu_id), *cls = rd_name(&r, &cls_id), *caption = rd_str(&r);
     // A FONT (DS_SETFONT): its size sets the units; whatever the face, w16
     // draws it in its one stand-in for MS Sans Serif.
     int pt = 0;
@@ -255,11 +271,28 @@ static struct w16_wnd *from_template(struct w16 *w, const uint8_t *p, uint32_t n
     int bx, by;
     w16_dlg_units(&bx, &by);
     if (pt) { bx = (7 * pt + 4) / 8; by = (13 * pt + 4) / 8; }
-    struct w16_wnd *d = r.bad ? 0 : w16_dlg_new(w, owner, inst, style, w16_du_w(dw, bx), w16_du_h(dh, by), caption,
-                                                dlgproc, hostdlg);
+    struct w16_wnd *d = 0;
+    int own = cls && cls[0], ok = !r.bad && menu && cls && caption;
+    if (ok && own) {
+        // A class of the program's own: a window of that class, which hands
+        // DefDlgProc what it does not want (Calculator's SciCalc). The only one
+        // w16 makes is the program's main window, owned by nobody.
+        int k = w16_class_find(w, cls);
+        if (k < 0 || owner || w->win.used) {
+            snprintf(why, why_cap, "a dialog of the program's own class is supported only as its main window");
+            ok = 0;
+        } else {
+            d = dlg_main(w, k, style, w16_du_w(dw, bx), w16_du_h(dh, by), menu, menu_id, caption, inst, dlgproc);
+            ok = d != 0;
+        }
+    } else if (ok && (menu[0] || menu_id)) {
+        snprintf(why, why_cap, "a dialog with a menu is supported only as the program's main window");
+        ok = 0;
+    } else if (ok) {
+        d = w16_dlg_new(w, owner, inst, style, w16_du_w(dw, bx), w16_du_h(dh, by), caption, dlgproc, hostdlg);
+        ok = d != 0;
+    }
     if (d && pt) w16_dlg_set_font(d, pt);
-    int ok = d && menu && cls && !(menu[0] || cls[0]);
-    if (d && !ok) snprintf(why, why_cap, "a dialog with its own class or menu is not supported yet");
     free(menu); free(cls); free(caption);
     for (unsigned i = 0; ok && i < count; i++) {
         int16_t x = (int16_t)rd16(&r), y = (int16_t)rd16(&r), cw = (int16_t)rd16(&r), ch = (int16_t)rd16(&r);
@@ -477,6 +510,7 @@ uint32_t w16_dialog_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_
     if (r && msg != WM_ACTIVATE && msg != WM_SETFOCUS) return r;
     switch (msg) {
     case WM_ERASEBKGND:
+        if (d->kind != W16_K_DIALOG) break;      // a class of the program's: its own brush
         w16_gdi_fill(w, wp, 0, 0, d->cw, d->ch, COLOR_WINDOW + 1);
         return 1;
     case WM_CLOSE:
@@ -505,8 +539,9 @@ uint32_t w16_dialog_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_
         restyle_default(w, d, focused_in(w, d));
         return 1;
     default:
-        return w16_def_window_proc(w, d, msg, wp, lp);
+        break;
     }
+    return w16_def_window_proc(w, d, msg, wp, lp);
 }
 
 // --- showing and running ----------------------------------------------------------------
@@ -525,11 +560,13 @@ static void start(struct w16 *w, struct w16_wnd *d, uint32_t param, int modal) {
     }
     free(v);
     d->modal = modal;
-    pthread_mutex_lock(&w->lock);
-    d->visible = 1;
-    d->style |= WS_VISIBLE;
-    pthread_mutex_unlock(&w->lock);
-    w16_task_post_arg(w, W16_POST_DLG_OPEN, h);
+    if (d->kind == W16_K_DIALOG) {               // a main window shows as CreateWindow's do: by its style or ShowWindow
+        pthread_mutex_lock(&w->lock);
+        d->visible = 1;
+        d->style |= WS_VISIBLE;
+        pthread_mutex_unlock(&w->lock);
+        w16_task_post_arg(w, W16_POST_DLG_OPEN, h);
+    }
     uint32_t r = w16_send(w, h, WM_INITDIALOG, first ? first->hwnd : 0, param);
     d = w16_wnd_get(w, h);
     if (d && (r & 0xFFFF) && first && w16_wnd_get(w, first->hwnd)) dlg_focus(w, d, tab_target(w, d, first), 1);
@@ -715,7 +752,7 @@ static int api_IsDialogMessage(struct w16 *w, unsigned ordinal, struct w16_args 
     if (!p) return -1;
     struct w16_msg m = { (uint16_t)(p[0] | p[1] << 8), (uint16_t)(p[2] | p[3] << 8), (uint16_t)(p[4] | p[5] << 8),
                          (uint32_t)(p[6] | p[7] << 8 | p[8] << 16 | (uint32_t)p[9] << 24), (uint8_t)w->key_mods };
-    w->cpu.r[R_AX] = d && d->kind == W16_K_DIALOG ? (uint16_t)w16_is_dialog_message(w, d, &m) : 0;
+    w->cpu.r[R_AX] = d && w16_is_dialog(d) ? (uint16_t)w16_is_dialog_message(w, d, &m) : 0;
     return w->cpu.fault ? -1 : 6;
 }
 
@@ -888,13 +925,14 @@ static int api_CheckRadioButton(struct w16 *w, unsigned ordinal, struct w16_args
 // DefDlgProc(hDlg, uMsg, wParam, lParam) -> LRESULT
 // Windows: The default handling for a dialog of a program's own window class -- what a dialog does
 // with a message its class procedure does not want.
-// w16: The same handling w16's own dialogs get.
+// w16: The same handling w16's own dialogs get -- the program's DLGPROC first, when the dialog has
+// one -- for a main window made from a DIALOG template; any other window gets DefWindowProc's.
 static int api_DefDlgProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *d = w16_wnd_get(w, w16_arg16(a));
     uint16_t msg = w16_arg16(a), wp = w16_arg16(a);
     uint32_t lp = w16_arg32(a);
-    uint32_t r = d ? w16_def_window_proc(w, d, msg, wp, lp) : 0;
+    uint32_t r = !d ? 0 : w16_is_dialog(d) ? w16_dialog_proc(w, d, msg, wp, lp) : w16_def_window_proc(w, d, msg, wp, lp);
     w->cpu.r[R_AX] = (uint16_t)r;
     w->cpu.r[R_DX] = (uint16_t)(r >> 16);
     return 10;

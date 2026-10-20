@@ -80,15 +80,15 @@ const char *w16_thunk_module(struct w16 *w, uint16_t sel) {
 // Windows: The selector step itself, 1 << __AHSHIFT: what a huge pointer adds to its selector to
 // reach the next 64 KB.
 // w16: 8, patched in at load.
-// __WINFLAGS = 0x0413
+// __WINFLAGS = 0x0425
 // Windows: A constant saying what Windows runs on and in -- the processor, protected mode, standard
 // or enhanced mode, a coprocessor.
-// w16: 0x0413 -- protected mode, a 386, enhanced mode -- what 3.1 said on the machines its programs
-// expected.
+// w16: 0x0425 -- protected mode, a 386, enhanced mode, a coprocessor -- what 3.1 said on the
+// machines its programs expected.
 static const struct { uint16_t ordinal, value; } KERNEL_EQUATES[] = {
     { 113, 3 },        // __AHSHIFT: a huge pointer's selector step is 1 << 3
     { 114, 8 },        // __AHINCR
-    { 178, 0x0413 },   // __WINFLAGS: protected mode, a 386, enhanced mode
+    { 178, 0x0425 },   // __WINFLAGS: protected mode, a 386, enhanced mode, a coprocessor
 };
 
 int w16_kernel_equate(const char *module, unsigned ordinal, uint16_t *value) {
@@ -192,7 +192,9 @@ static int relocate(struct w16 *w, const struct w16_image *im, unsigned n, const
             return -1;
         break;
     default:
-        return fail(im->path, why, cap, "uses floating-point fixups, which w16 does not support yet");
+        // OSFIXUP: where Windows with no coprocessor turned an FPU instruction
+        // into its emulator's INT 34h-3Dh. w16 has a 387, so they stay real.
+        return 0;
     }
     int additive = (r->flags & NE_REL_ADDITIVE) != 0;
     uint16_t at = r->site;

@@ -234,9 +234,8 @@ static void fill_buffer(struct w16 *w, struct w16_wnd *win, uint32_t colour) {
     pthread_mutex_unlock(&w->lock);
 }
 
-static int create_main(struct w16 *w, int k, const char *title, uint32_t style, int cx, int cy,
-                       uint16_t menu, uint16_t inst, uint32_t param, uint32_t far_title,
-                       uint32_t far_class) {
+int w16_create_main(struct w16 *w, int k, const char *title, uint32_t style, int cx, int cy, uint16_t menu,
+                    uint16_t inst, uint32_t param, uint32_t far_title, uint32_t far_class) {
     struct cpu16 *c = &w->cpu;
     struct w16_wnd *win = &w->win;
     memset(win, 0, sizeof *win);
@@ -358,7 +357,7 @@ static int create_window(struct w16 *w, struct w16_args *a) {
                                                          : "a second top-level window is not supported yet");
         return -1;
     }
-    int h = create_main(w, k, text, style, cx, cy, menu, inst, param, title, cname);
+    int h = w16_create_main(w, k, text, style, cx, cy, menu, inst, param, title, cname);
     free(text);
     if (h < 0) return -1;
     c->r[R_AX] = (uint16_t)h;

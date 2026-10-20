@@ -370,12 +370,12 @@ static int api_OutputDebugString(struct w16 *w, unsigned ordinal, struct w16_arg
 // GetWinFlags() -> DWORD
 // Windows: What Windows runs on and in: protected mode, the processor, standard or enhanced mode, a
 // coprocessor.
-// w16: Protected mode, a 386, enhanced mode -- as __WINFLAGS says.
+// w16: Protected mode, a 386, enhanced mode, a coprocessor -- as __WINFLAGS says.
 static int api_GetWinFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     (void)a;
-    c->r[R_AX] = 0x0001 | 0x0020 | 0x0004;
+    c->r[R_AX] = 0x0425;                         // WF_PMODE WF_CPU386 WF_ENHANCED WF_80x87
     c->r[R_DX] = 0;
     return 0;
 }
@@ -541,7 +541,9 @@ int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 }
 
 // INT 21h: the DOS calls a Windows program still makes. 4Ch ends it.
+// INT 75h: the coprocessor's exception (win87em16.c).
 int w16_int(struct cpu16 *c, uint8_t n) {
+    if (n == 0x75) return w16_fpu_irq(c->user);
     if (n != 0x21) return -1;
     if (g_w16_trace) {
         fprintf(g_w16_trace, "INT 21h AX=%04x BX=%04x CX=%04x DX=%04x\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],

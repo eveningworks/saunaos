@@ -16,12 +16,19 @@ error) are not run natively and are counted as skipped.
 Covered: the ALU ops in every form, inc/dec, shifts and rotates by 1,
 CL and an immediate, mul/imul/div/idiv, mov/lea/xchg, the flag ops, BCD,
 string ops with and without REP/REPE/REPNE in both directions, push/pop,
-pusha/popa, enter/leave, jcc/loop/jcxz, imul by an immediate, xlat. Not
+pusha/popa, enter/leave, jcc/loop/jcxz, imul by an immediate, xlat, and
+the x87 (cpu16_x87.c): one random ESC instruction in every register and
+memory form on a random FPU state -- numbers at float's and double's
+edges, zeros, denormals, infinities, NaNs, empty registers, every
+rounding and precision control, unmasked exceptions -- compared as both
+FNSAVE images, the 387's instruction and operand pointers included. Not
 covered here: far transfers, segment loads and interrupts, which the
 NE samples exercise.
 
 POSITIVE CONTROL (--positive-control): in a COPY of cpu16.c, ADC loses its
-carry-in and SAR stops sign-extending (the oracle must go red), and
+carry-in and SAR stops sign-extending, and in one of cpu16_x87.c FLDENV
+stops turning the registers for a new TOP and stores stop reaching memory
+(the oracle must go red each time), and
 mem() loses its limit check (the ASan fuzz of random code must go red).
 
 A host whose kernel has no modify_ldt cannot run the oracle: the check
@@ -43,19 +50,28 @@ CASES = 200000
 
 FUZZ_CONTROL = ("    if ((uint32_t)off + size - 1 > d->limit) {", "    if (0) {")
 
+CPU = "userland/w16/cpu16.c"
+X87 = "userland/w16/cpu16_x87.c"
+
 CONTROLS = [
-    ("adc carry-in", "        if (op == 0) cf = 0;\n", "        cf = 0;\n"),
-    ("sar sign", "        int32_t sv = w ? (int16_t)v : (int8_t)v;", "        int32_t sv = (int32_t)v;"),
+    ("adc carry-in", CPU, "        if (op == 0) cf = 0;\n", "        cf = 0;\n"),
+    ("sar sign", CPU, "        int32_t sv = w ? (int16_t)v : (int8_t)v;", "        int32_t sv = (int32_t)v;"),
+    ("x87 FLDENV keeps the registers' order", X87,
+     "10 * ((i + top - top0) & 7)", "10 * ((i + 0 * (top - top0)) & 7)"),
+    ("x87 a store never reaches memory", X87,
+     "    if (len && !reads_only(op, reg)) memcpy(p, buf, len);\n", "\n"),
 ]
 
 
-def build(tmp, edits=(), apply=False):
-    cpu = hostcheck.stage(tmp, "userland/w16/cpu16.c", edits=edits, apply=apply,
+def build(tmp, edits=(), apply=False, where=CPU):
+    cpu = hostcheck.stage(tmp, CPU, edits=edits if where == CPU else (), apply=apply,
                           tool="cpu16_hostcheck")
     hostcheck.stage(tmp, "userland/w16/cpu16.h")
+    x87 = hostcheck.stage(tmp, X87, edits=edits if where == X87 else (), apply=apply,
+                          tool="cpu16_hostcheck")
     drv = os.path.join(ROOT, "tools", "w16", "cpu16_check.c")
     flags = ["-O2", "-g", "-no-pie", "-Wall", "-Wextra", "-Werror"]
-    return hostcheck.compile(tmp, "cpu16_check", [drv, cpu], flags=flags, includes=[tmp],
+    return hostcheck.compile(tmp, "cpu16_check", [drv, cpu, x87], flags=flags, includes=[tmp],
                              tool="cpu16_hostcheck")
 
 
@@ -73,9 +89,9 @@ def main():
 
     if args.positive_control:
         red = []
-        for name, before, after in CONTROLS:
+        for name, where, before, after in CONTROLS:
             with tempfile.TemporaryDirectory() as tmp:
-                exe = build(tmp, edits=[(before, after)], apply=True)
+                exe = build(tmp, edits=[(before, after)], apply=True, where=where)
                 rc, out = run(exe, 50000, 7)
                 if rc == 3:
                     print("cpu16_hostcheck: SKIPPED -- the host kernel has no modify_ldt")
@@ -88,8 +104,9 @@ def main():
             cpu = hostcheck.stage(tmp, "userland/w16/cpu16.c", edits=[FUZZ_CONTROL], apply=True,
                                   tool="cpu16_hostcheck")
             hostcheck.stage(tmp, "userland/w16/cpu16.h")
+            x87 = hostcheck.stage(tmp, "userland/w16/cpu16_x87.c")
             asan = hostcheck.compile(tmp, "cpu16_fuzz",
-                                     [os.path.join(ROOT, "tools", "w16", "cpu16_check.c"), cpu],
+                                     [os.path.join(ROOT, "tools", "w16", "cpu16_check.c"), cpu, x87],
                                      flags=["-O1", "-g", "-no-pie", "-fsanitize=address,undefined",
                                             "-fno-sanitize-recover=all"],
                                      includes=[tmp], tool="cpu16_hostcheck")
@@ -116,7 +133,7 @@ def main():
         # Random bytes as code under ASan/UBSan: fault or finish, never escape.
         asan = hostcheck.compile(tmp, "cpu16_fuzz",
                                  [os.path.join(ROOT, "tools", "w16", "cpu16_check.c"),
-                                  os.path.join(tmp, "cpu16.c")],
+                                  os.path.join(tmp, "cpu16.c"), os.path.join(tmp, "cpu16_x87.c")],
                                  flags=["-O1", "-g", "-no-pie", "-Wall", "-Wextra", "-Werror",
                                         "-fsanitize=address,undefined", "-fno-sanitize-recover=all"],
                                  includes=[tmp], tool="cpu16_hostcheck")

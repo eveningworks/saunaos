@@ -320,7 +320,9 @@ struct w16_wnd {
     int has_ctl_bg;               // its parent answered WM_CTLCOLOR before this paint...
     uint32_t ctl_bg;              // ...with this brush's colour, a pixel
 
-    // A dialog's; the rest under `lock`.
+    // A dialog's -- or a main window made from a DIALOG template (`dlg`),
+    // the dialog manager's as much as a dialog's; the rest under `lock`.
+    int dlg;
     uint32_t dlgproc;             // the program's DLGPROC, a far pointer...
     w16_dlgproc hostdlg;          // ...or w16's own
     void *dlgdata;                // w16's own dialog's state
@@ -550,6 +552,8 @@ uint32_t w16_hook(int id);                        // the hook procedure set for 
 // (GetWindowLong(GWL_WNDPROC), GetClassInfo): the thunk module W16HOST, its
 // "ordinal" the class index; a call lands in w16_host_proc_call().
 #define W16_HOST_MODULE "W16HOST"
+// The far return an x87 exception's handler makes (win87em16.c).
+#define W16_FPE_MODULE "W16FPE"
 uint32_t w16_host_proc_far(struct w16 *w, int cls);
 int w16_host_proc_call(struct w16 *w, unsigned cls, struct w16_args *a);
 uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, uint32_t lp);
@@ -717,6 +721,12 @@ extern const unsigned g_menu_api_n;
 // calls hold `lock`.
 void w16_menu_opening(struct w16 *w, int pos, int first);
 uint16_t w16_load_menu(struct w16 *w, const char *name, uint16_t id);   // a MENU resource's HMENU
+// The program's main window, as CreateWindow makes it: its handle, 0
+// refused (WM_CREATE said -1), -1 faulted.
+int w16_create_main(struct w16 *w, int k, const char *title, uint32_t style, int cx, int cy, uint16_t menu,
+                    uint16_t inst, uint32_t param, uint32_t far_title, uint32_t far_class);
+// The dialog manager's to handle: a dialog, or a main window from a template.
+static inline int w16_is_dialog(const struct w16_wnd *x) { return x->kind == W16_K_DIALOG || x->dlg; }
 void w16_set_menu(struct w16 *w, uint16_t hmenu);   // SetMenu on the main window
 struct w16_menu;
 int w16_menubar_count(struct w16 *w);
@@ -789,6 +799,13 @@ void w16_sound_tick(void);                                // main thread: a loop
 void w16_sound_set_name(const char *name);                // the Volume panel's name for it
 extern const struct w16_api g_module_api[], g_ddeml_api[], g_mmsystem_api[];
 extern const unsigned g_module_api_n, g_ddeml_api_n, g_mmsystem_api_n;
+
+// --- win87em16.c -----------------------------------------------------------------
+
+extern const struct w16_api g_win87em_api[];
+extern const unsigned g_win87em_api_n;
+int w16_fpu_irq(struct w16 *w);          // INT 75h: an unmasked x87 exception, to the program's handler
+int w16_fpu_irq_return(struct w16 *w);   // ... and its return, through W16_FPE_MODULE's thunk
 
 // --- mem16.c / res16.c --------------------------------------------------------
 

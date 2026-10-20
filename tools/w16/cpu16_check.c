@@ -71,7 +71,7 @@ static unsigned emit(uint8_t *p, unsigned at, const uint8_t *b, unsigned n) {
 // The 16-bit code: save the host's SS:ESP, switch to our stack, set
 // DS=ES=data, load the registers and flags, run the test, store them,
 // restore the host's stack and `o32 retf` back to 64-bit mode.
-static void build_native(const uint8_t *test, unsigned len) {
+static unsigned build_native(const uint8_t *test, unsigned len) {
     uint8_t *p = g_code;
     unsigned a = 0;
     const uint8_t pro[] = {
@@ -94,6 +94,7 @@ static void build_native(const uint8_t *test, unsigned len) {
         0x36, 0x8B, 0x3E, 0x0E, 0xFF,                     // mov di
     };
     a = emit(p, a, pro, sizeof pro);
+    unsigned at = a;
     a = emit(p, a, test, len);
     const uint8_t epi[] = {
         0x36, 0xA3, 0x20, 0xFF,                           // mov [ss:OUT], ax
@@ -110,9 +111,12 @@ static void build_native(const uint8_t *test, unsigned len) {
         0x66, 0xCB,                                       // o32 retf
     };
     emit(p, a, epi, sizeof epi);
+    return at;
 }
 
-static void run_native(void) {
+// The FPU state goes in by FRSTOR before the far call and comes out by
+// FNSAVE after it, neither of which waits on what the test left pending.
+static void run_native(const uint8_t *fin, uint8_t *fout) {
     static struct { uint32_t off; uint16_t sel; } __attribute__((packed)) fp;
     fp.off = 0;
     fp.sel = SEL(E_CODE);
@@ -121,12 +125,15 @@ static void run_native(void) {
         "push %%rbx\n push %%rbp\n push %%r12\n push %%r13\n push %%r14\n push %%r15\n"
         "mov %%rsp, %[saved]\n"
         "mov %[top], %%rsp\n"
+        "frstor (%[fin])\n"
         "lcall *%[fp]\n"
+        "fnsave (%[fout])\n"
         "mov %[saved], %%rsp\n"
         "pop %%r15\n pop %%r14\n pop %%r13\n pop %%r12\n pop %%rbp\n pop %%rbx\n"
         : [saved] "+m"(g_saved_rsp)
-        : [top] "r"(top), [fp] "m"(fp)
-        : "memory", "cc", "rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11");
+        : [top] "r"(top), [fp] "m"(fp), [fin] "r"(fin), [fout] "r"(fout)
+        : "memory", "cc", "rax", "rcx", "rdx", "rsi", "rdi", "r8", "r9", "r10", "r11",
+          "st", "st(1)", "st(2)", "st(3)", "st(4)", "st(5)", "st(6)", "st(7)");
 }
 
 // --- the cases ---------------------------------------------------------------
@@ -343,6 +350,93 @@ static unsigned gen(uint8_t *b, uint16_t *undef, struct regs *in) {
     return n;
 }
 
+// --- the x87 cases ---------------------------------------------------------
+
+// One ESC instruction, sometimes behind a segment override, sometimes
+// followed by FNSTSW AX (which does not wait, so a pending exception is
+// read, not raised).
+static unsigned gen_x87(uint8_t *b) {
+    unsigned n = 0, dlen;
+    uint8_t disp = 0;
+    if (rnd() % 8 == 0) b[n++] = rnd() & 1 ? 0x26 : 0x36;
+    b[n++] = (uint8_t)(0xD8 + rnd() % 8);
+    if (rnd() & 1) b[n++] = (uint8_t)(0xC0 + rnd() % 64);
+    else {
+        b[n++] = rand_mem_modrm(rnd() % 8, &disp, &dlen);
+        if (dlen) b[n++] = disp;
+    }
+    if (rnd() % 4 == 0) { b[n++] = 0xDF; b[n++] = 0xE0; }
+    return n;
+}
+
+// An 80-bit value of a random class: ordinary numbers near 1, the edges
+// of double's and float's range (so stores overflow and underflow),
+// zeros, denormals, infinities, NaNs and a few unsupported encodings.
+static void rand_ext(uint8_t *p) {
+    uint64_t m = (uint64_t)rnd() << 32 | rnd();
+    unsigned e, cls = rnd() % 10;
+    switch (cls) {
+    case 0: e = 0; m = 0; break;
+    case 1: e = 0; m &= ~(1ull << 63); break;                      // denormal
+    case 2: e = 0x7FFF; m = 1ull << 63; break;                     // infinity
+    case 3: e = 0x7FFF; m |= 1ull << 63; break;                    // NaN
+    case 4: e = 0x43FE + rnd() % 4; m |= 1ull << 63; break;        // past double
+    case 5: e = 0x3BFF - rnd() % 64; m |= 1ull << 63; break;       // under double
+    case 6: e = 0x407E + rnd() % 4; m |= 1ull << 63; break;        // past float
+    case 7: e = rnd() & 0x7FFF; break;                             // anything
+    default: e = 0x3FFF - 32 + rnd() % 64; m |= 1ull << 63; break;
+    }
+    if (rnd() & 1) e |= 0x8000;
+    memcpy(p, &m, 8);
+    p[8] = (uint8_t)e;
+    p[9] = (uint8_t)(e >> 8);
+}
+
+// FNSAVE's image: random registers, tags, TOP, condition codes and control
+// word; the sticky flags only ever masked ones, as a state that has not
+// trapped yet is.
+static void rand_x87(uint8_t *img) {
+    memset(img, 0, 108);
+    uint16_t cw = (uint16_t)((rnd() & 0x1F3F) | 0x0040);
+    if ((cw & 0x0300) == 0x0100) cw ^= 0x0100;                     // PC 01 is reserved
+    if (rnd() % 3) cw |= 0x3F;                                     // mostly masked
+    uint16_t sw = (uint16_t)(rnd() & 0x4700 & 0xFFFF) | (uint16_t)((rnd() % 8) << 11);
+    sw |= (uint16_t)(rnd() & cw & 0x3F);
+    if (sw & 0x01) sw |= rnd() & 0x40;
+    uint16_t tw = 0;
+    for (int i = 0; i < 8; i++) tw |= (uint16_t)((rnd() % 4 == 0 ? 3 : 0) << (2 * i));
+    memcpy(img + 0, &cw, 2);
+    memcpy(img + 4, &sw, 2);
+    memcpy(img + 8, &tw, 2);
+    for (int i = 0; i < 8; i++) rand_ext(img + 28 + 10 * i);
+}
+
+static uint16_t w16at(const uint8_t *p, unsigned at) { return (uint16_t)(p[at] | p[at + 1] << 8); }
+
+// The two FNSAVE images: control, status and tag words, the registers,
+// and the last instruction's and operand's pointers (the native test ran
+// `at` bytes into its code segment).
+static int x87_differs(const uint8_t *cpu, const uint8_t *w16, unsigned at, unsigned len) {
+    if (w16at(cpu, 0) != w16at(w16, 0) || w16at(cpu, 4) != w16at(w16, 4) || w16at(cpu, 8) != w16at(w16, 8))
+        return 1;
+    if (memcmp(cpu + 28, w16 + 28, 80)) return 1;
+    uint16_t ip = w16at(cpu, 12);
+    int in_test = w16at(w16, 16) == SEL(E_CODE) && w16at(w16, 12) < len;   // else a loaded value
+    if (ip != (in_test ? (uint16_t)(w16at(w16, 12) + at) : w16at(w16, 12))) return 1;
+    return w16at(cpu, 16) != w16at(w16, 16) || (w16at(cpu, 18) & 0x7FF) != w16at(w16, 18) ||
+           w16at(cpu, 20) != w16at(w16, 20) || w16at(cpu, 24) != w16at(w16, 24);
+}
+
+static void x87_print(const uint8_t *p) {
+    printf("cw %04x sw %04x tw %04x ip %04x cs %04x op %03x dp %04x ds %04x\n          ", w16at(p, 0),
+           w16at(p, 4), w16at(p, 8), w16at(p, 12), w16at(p, 16), w16at(p, 18) & 0x7FF, w16at(p, 20), w16at(p, 24));
+    for (int i = 0; i < 8; i++) {
+        for (int j = 9; j >= 0; j--) printf("%02x", p[28 + 10 * i + j]);
+        printf(i == 3 ? "\n          " : " ");
+    }
+    printf("\n");
+}
+
 static void dis(const uint8_t *b, unsigned n, char *out) {
     out[0] = 0;
     for (unsigned i = 0; i < n; i++) sprintf(out + 3 * i, "%02X ", b[i]);
@@ -423,8 +517,14 @@ int main(int argc, char **argv) {
         in.r[R_SP] = TEST_SP;
         in.flags = (uint16_t)((rnd() & (F_CF | F_PF | F_AF | F_ZF | F_SF | F_DF | F_OF)) | F_IF | 2);
         uint8_t test[16];
-        uint16_t undef;
-        unsigned len = gen(test, &undef, &in);
+        uint16_t undef = 0;
+        int fp = rnd() % 4 == 0;
+        uint8_t fin[108], fout[108], fw16[108];
+        unsigned len = fp ? gen_x87(test) : gen(test, &undef, &in);
+        if (fp) rand_x87(fin);
+        else {
+            __asm__ volatile("fninit\n\tfnsave %0" : "=m"(fin) : : "memory");
+        }
         if (test[0] == 0xF2 || test[0] == 0xF3 || (test[0] >= 0xA4 && test[0] <= 0xAF)) {
             in.r[R_SI] = (uint16_t)(0x200 + rnd() % 0x7000);
             in.r[R_DI] = (uint16_t)(0x200 + rnd() % 0x7000);
@@ -454,6 +554,7 @@ int main(int argc, char **argv) {
         c.sreg[S_DS] = c.sreg[S_ES] = SEL(E_DATA);
         c.sreg[S_SS] = SEL(E_STACK);
         c.ip = 0;
+        cpu16_x87_load(&c, fin);
         for (int s = 0; s < 64 && c.ip < len && !c.fault; s++) cpu16_step(&c);
         if (c.fault) {           // divide errors and the like: not run natively
             skipped++;
@@ -463,8 +564,9 @@ int main(int argc, char **argv) {
         // The CPU.
         memcpy(g_stack + IN_BLOCK, in.r, 16);
         memcpy(g_stack + IN_BLOCK + 0x10, &in.flags, 2);
-        build_native(test, len);
-        run_native();
+        unsigned at = build_native(test, len);
+        run_native(fin, fout);
+        cpu16_x87_save(&c, fw16);
         struct regs out;
         memcpy(out.r, g_stack + OUT_BLOCK, 16);
         memcpy(&out.flags, g_stack + OUT_BLOCK + 0x10, 2);
@@ -475,8 +577,9 @@ int main(int argc, char **argv) {
         uint16_t below = (uint16_t)(out.r[R_SP] - 2);
         if (below < CMP_STACK - 1) memcpy(g_stack + below, g_istack + below, 2);
         uint16_t fmask = (uint16_t)((F_CF | F_PF | F_AF | F_ZF | F_SF | F_DF | F_OF) & ~undef);
+        int fdiff = fp && x87_differs(fout, fw16, at, len);
         int diff = memcmp(out.r, c.r, sizeof c.r) || ((out.flags ^ c.flags) & fmask)
-                || memcmp(g_data, g_idata, 0x10000) || memcmp(g_stack, g_istack, CMP_STACK);
+                || memcmp(g_data, g_idata, 0x10000) || memcmp(g_stack, g_istack, CMP_STACK) || fdiff;
         if (diff) {
             char d[64];
             dis(test, len, d);
@@ -489,6 +592,14 @@ int main(int argc, char **argv) {
             printf("fl %04x%s%s\n", c.flags & fmask,
                    memcmp(g_data, g_idata, 0x10000) ? "  (data differs)" : "",
                    memcmp(g_stack, g_istack, CMP_STACK) ? "  (stack differs)" : "");
+            if (fp) {
+                printf("  fpu in   ");
+                x87_print(fin);
+                printf("  fpu cpu  ");
+                x87_print(fout);
+                printf("  fpu w16  ");
+                x87_print(fw16);
+            }
             bad++;
         }
     }
