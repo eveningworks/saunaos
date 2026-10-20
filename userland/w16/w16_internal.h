@@ -267,6 +267,7 @@ struct w16_class {
     uint16_t style;
     uint16_t wnd_extra;           // cbWndExtra: the bytes Get/SetWindowWord reach
     uint8_t cursor;               // hCursor as a WIN_CURSOR_* shape: an EDIT's is the I-beam
+#define W16_CLASS_NO_CURSOR 0xFF   // hCursor NULL: the program sets the shape itself (SetCursor)
     char *menu;                   // lpszMenuName: its windows' menu, by name...
     uint16_t menu_id;             // ...or by number (an ordinal)
 };
@@ -735,7 +736,8 @@ void w16_dlg_units(int *bx, int *by);
 // top's client coordinates.
 void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, int up);
 // The pointer's shape there (WIN_CURSOR_*): the class cursor of the window under it,
-// or -1 to leave it as it is while a window holds the capture (a scroll bar's drag).
+// or -1 to leave it as it is: while a window holds the capture (a scroll bar's drag), or
+// over a class with no cursor, whose program calls SetCursor itself (Write's I-beam).
 int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y);
 // A cursor handle (LoadCursor's) as a WIN_CURSOR_* shape.
 int w16_cursor_shape(uint16_t hcursor);

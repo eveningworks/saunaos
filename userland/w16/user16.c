@@ -158,7 +158,8 @@ static int register_class(struct w16 *w, struct w16_args *a) {
     k.proc_off = (uint16_t)(wc[2] | wc[3] << 8);
     k.proc_sel = (uint16_t)(wc[4] | wc[5] << 8);
     k.wnd_extra = (uint16_t)(wc[8] | wc[9] << 8);
-    k.cursor = (uint8_t)w16_cursor_shape((uint16_t)(wc[14] | wc[15] << 8));
+    uint16_t hcursor = (uint16_t)(wc[14] | wc[15] << 8);
+    k.cursor = hcursor ? (uint8_t)w16_cursor_shape(hcursor) : W16_CLASS_NO_CURSOR;
     k.background = (uint16_t)(wc[16] | wc[17] << 8);
     uint32_t cname = (uint32_t)(wc[22] | wc[23] << 8) | (uint32_t)(wc[24] | wc[25] << 8) << 16;
     uint32_t mname = (uint32_t)(wc[18] | wc[19] << 8) | (uint32_t)(wc[20] | wc[21] << 8) << 16;
@@ -1237,8 +1238,13 @@ static int api_GetSystemMetrics(struct w16 *w, unsigned ordinal, struct w16_args
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     int16_t i = (int16_t)w16_arg16(a);
+    // By index (SM_*): from SM_CXSCREEN to SM_CYFULLSCREEN, then SM_MOUSEPRESENT at 19 -- a
+    // program told 0 there runs its keyboard interface (Write parks the pointer and never
+    // sets the I-beam) -- the scroll bars again, the caption buttons (SM_CXSIZE),
+    // the sizing border (SM_CXFRAME, W16_FRAME) and the double-click box at 36.
     static const int16_t m[] = { 640, 480, 17, 17, 20, 1, 1, 18, 18, 18, 18, 32, 32,
-                                 32, 32, 18, 640, 460 };
+                                 32, 32, 18, 640, 460, 0, 1, 17, 17, 0, 0, 0, 0, 0, 0,
+                                 0, 0, 18, 18, W16_FRAME, W16_FRAME, 0, 0, 4, 4 };
     c->r[R_AX] = (uint16_t)(i >= 0 && i < (int)(sizeof m / sizeof m[0]) ? m[i] : 0);
     return 2;
 }
