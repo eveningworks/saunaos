@@ -953,6 +953,10 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Windows Help files shown -- WinHelp says a .HLP file cannot be shown
 - [ ] w16: IsIconic answers from the window's state -- it always says no, even minimized
 - [ ] w16: one program starting or finding another -- WinExec and FindWindow; each program is its own w16
+- [ ] w16: huge blocks -- GlobalAlloc refuses over 64 KB (`__AHINCR` stepping), no program run so far asks
+- [ ] w16: invalid regions as rectangles -- InvalidateRect and ValidateRect take the whole window
+- [ ] w16: dashed and dotted pens -- CreatePen's styles draw solid
+- [ ] w16: GetKeyState for every key and toggle -- only Shift, Ctrl and Alt are known
 - [ ] w16: Windows' own bitmaps and icons (OBM_*, IDI_*) -- LoadBitmap(NULL) answers none, DrawIcon draws a program's only
 - [x] ~~w16: the Win16 folders and drives (Options > Folders and Drives, D: to Y:, drive C: per program)~~ DONE 2026-10-20
 - [x] ~~w16: a Windows program opened from the File Manager -- the run card, its setting, the right-click menu and details~~ DONE 2026-10-20
