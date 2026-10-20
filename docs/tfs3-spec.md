@@ -1,4 +1,4 @@
-# TFS3 on-disk format (v1 -- block groups + inodes)
+# TFS3 on-disk format (v1-v3 -- block groups + inodes)
 
 What is actually on a TFS3 disk, byte by byte, as shipped in
 `kernel/fs/tfs3.c` and mirrored by `tools/tfs3_writer.py`. This is the
@@ -37,10 +37,30 @@ both magics -- see "Coexistence with TFS2" below.
 
 ## Disk layout
 
-There are two versions of this layout. They differ ONLY in the size of
-the journal region and therefore in where everything after it starts.
+There are three versions of this layout. v1 and v2 differ only in the
+size of the journal region; v3 keeps v2's journal and sizes the
+descriptor table to the volume.
 
-**v2** (current; what `format` writes):
+**v3** (2026-10-20; what the KERNEL's format writes):
+
+| Region | Blocks | Contents |
+|---|---|---|
+| reserved | 0-7 | never touched by tfs3 (a format of a PARTITION zeroes the first 128 KiB first, for other filesystems' signatures) |
+| superblock | 8 | first sector meaningful |
+| journal header | 9 | first sector meaningful |
+| journal images | 10-41 | 32 staged block images |
+| group descriptors | 42 .. 42+D-1 | D = `gdt_blocks(total_blocks)`, below -- 16 up to 512 GiB |
+| block groups | 42+D ... | group 0, group 1, ... to end of volume |
+
+```
+gdt_blocks(V) = max(16, ceil(ceil((V - 42) / 32768) / 256))
+```
+
+A function of the VOLUME SIZE alone, so v3 is as derivable with no
+superblock in hand as v2 is: on a volume of 512 GiB or less it is v2's
+geometry exactly (16 blocks, group 0 at 58). An 8 TB volume has 233.
+
+**v2** (what `tools/tfs3_writer.py` writes):
 
 | Region | Blocks | Contents |
 |---|---|---|
@@ -75,7 +95,35 @@ group g = blocks [group0_start + g*32768, group0_start + (g+1)*32768)
 
 `tools/tfs3_writer.py format --fs-version {1,2}` writes either layout
 -- v2 by default, v1 so that the layout the kernel still mounts stays
-producible and therefore testable (`tools/tfs3_v1_test.py`).
+producible and therefore testable (`tools/tfs3_v1_test.py`). It reads
+neither v3 nor writes it, and refuses a v3 volume BY NAME rather than
+calling it blank: the host only ever seeds images far below 512 GiB.
+
+### v3: groups nothing has used yet are not written
+
+v3's format writes the superblock, the journal, the descriptor table
+(and its backup snapshots), group 0's bitmaps, the root's inode-table
+block and directory block -- a few MiB at any volume size. Every other
+group's descriptor carries `BLOCK_UNINIT | INODE_UNINIT` and an
+`itable_used` of 0 (descriptor bytes 8-11, below):
+
+- **`BLOCK_UNINIT`**: the block bitmap on disk is garbage; the reader
+  DERIVES it -- the group's metadata, a backup region at its tail and
+  anything past the volume's end in use, the rest free (exactly what
+  an eager format would have written). It is written, and the flag
+  cleared, the first time an allocation changes it.
+- **`INODE_UNINIT`**: the inode bitmap is all free.
+- **`itable_used`**: inode slots below it are zeroed or real; at or
+  above it the table was never written and may hold a previous
+  filesystem's inodes, checksums and all. A reader treats such a slot
+  as no inode. Allocating slot `i` at or past the mark zeroes the table
+  blocks up to and including `i`'s first, then raises the mark (a
+  multiple of 32 slots); the descriptor is written with the bitmaps,
+  before the transaction that makes the inode reachable.
+
+ext4's `uninit_bg` + `lazy_itable_init`, without the background zeroing
+thread: the high-water mark is what makes zeroing ahead of use
+unnecessary.
 
 A reformat must erase the OTHER version's backup superblock sectors,
 for the same reason the wipefs rule exists between filesystems: a
@@ -87,18 +135,18 @@ disk with the wrong geometry the first time a primary goes bad.
 | Offset | Size | Field | Notes |
 |---|---|---|---|
 | 0 | 4 | magic | `"TFS3"` |
-| 4 | 1 | version | 2 (v1 images still mount) |
+| 4 | 1 | version | 3 from the kernel, 2 from the host writer (v1 and v2 images still mount) |
 | 5 | 1 | flags | bit 0 reserves a per-group data-checksum table (never set by current tools; the kernel REFUSES to mount unknown flag bits rather than rot a feature it doesn't implement) |
 | 6 | 2 | reserved | |
 | 8 | 4 | total_blocks | volume size in blocks |
 | 12 | 4 | blocks_per_group | 32768; a reader rejects anything else |
-| 16 | 4 | inodes_per_group | multiple of 32 (whole table blocks); 8192 at the default 16 KiB-per-inode format ratio |
+| 16 | 4 | inodes_per_group | multiple of 32 (whole table blocks); from mke2fs's bytes-per-inode ratios -- 16 KiB (8192), 32 KiB from 4 TiB (4096), 64 KiB from 16 TiB |
 | 20 | 4 | group_count | |
-| 24 | 4 | group0_start | 58 on v2, 30 on v1; validated against the version's constant |
+| 24 | 4 | group0_start | 58 on v2, 30 on v1, 42 + gdt_blocks on v3; validated against the version's layout |
 | 28 | 4 | journal_start | v2 only: 10 |
 | 32 | 4 | journal_blocks | v2 only: 32 |
-| 36 | 4 | gdt_start | v2 only: 42 |
-| 40 | 4 | reserved | |
+| 36 | 4 | gdt_start | v2 and v3: 42 |
+| 40 | 4 | gdt_blocks | v3 only: validated against `gdt_blocks(total_blocks)`; reserved (0) before |
 | 44 | 4 | checksum | FNV-1a over bytes 0-43 |
 
 The three v2 offsets are the version's own layout written down. A
@@ -118,8 +166,8 @@ backup groups: gc == 1 -> [0]; gc == 2 -> [1]; else [1, gc-1]
 backup_sb(g) = block 30 + (g+1)*32768 - 1
 ```
 
-The 16 blocks before each copy hold a format-time snapshot of the
-group-descriptor table (free counts stale by design; `fsck`
+The `gdt_blocks` blocks (16 on v1/v2) before each copy hold a
+format-time snapshot of the group-descriptor table (free counts stale by design; `fsck`
 recomputes). A reader whose primary fails should try the backups --
 their positions derive from the volume size alone. The kernel mounts
 from a backup loudly and repairs the primary only on `fsck repair`.
@@ -135,11 +183,13 @@ clear the other format's magic).
 |---|---|---|---|
 | 0 | 4 | free_blocks | cache -- bitmaps are the authority |
 | 4 | 4 | free_inodes | cache |
-| 8 | 4 | reserved | |
+| 8 | 2 | flags | v3: bit 0 `BLOCK_UNINIT`, bit 1 `INODE_UNINIT`; 0 before |
+| 10 | 2 | itable_used | v3: inode slots zeroed or in use; 0 before, read as "all" |
 | 12 | 4 | checksum | FNV-1a over bytes 0-11 |
 
 A descriptor failing its checksum degrades that group's counts to
-zero until `fsck` recomputes; it never blocks a mount.
+zero, and the group to initialised (its bitmaps read from disk), until
+`fsck` recomputes; it never blocks a mount.
 
 ## Inside a group (fixed layout, all derivable)
 
@@ -149,7 +199,7 @@ block G       block bitmap   (bit i = block G+i; metadata + backup
 block G+1     inode bitmap   (bit i = inode g*ipg + i)
 [cksum table  only if flags bit 0 -- 32 blocks; never present today]
 inode table   ipg * 128 bytes (256 blocks at ipg=8192)
-data blocks   the rest; backup groups lose their trailing 17 blocks
+data blocks   the rest; backup groups lose their trailing gdt_blocks + 1
 ```
 
 ## Inode (128 bytes, 4 per sector)
@@ -255,6 +305,7 @@ committed for the next boot).
 |---|---|
 | Max file size | 12 + 1024 + 1024^2 + 1024^3 blocks = ~4 TiB format; volume-capped in practice |
 | Name | 255 bytes (`FS_NAME_MAX` matches it now); path depth unlimited on disk, and `FS_PATH_MAX` is 4096 since 2026-09-15, so callers can reach one |
+| Volume | 2^32 blocks = 16 TiB (32-bit block numbers); v1/v2 used at most 4096 groups, 512 GiB |
 | Inodes | group_count * inodes_per_group; ~590k on 9 GiB at defaults |
 | Dir entries | uncapped (a dir grows like a file; the kernel writer stops dirs at single-indirect scale, ~4 M entries) |
 

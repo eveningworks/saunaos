@@ -218,7 +218,34 @@ static void wipe_foreign(const struct block_device *dev) {
     kfree(zero);
 }
 
+// One format at a time: the progress record is a single one, and two
+// formats would only fight over the same disk's queue anyway.
+static struct kmutex g_format_lock;
+static struct fs_check_live g_format_live;
+static const struct block_device *volatile g_format_dev;
+
+struct fs_check_live *fs_format_live(void) { return g_format_dev ? &g_format_live : 0; }
+
+int fs_format_progress(const struct block_device *dev, struct fs_check_progress *out) {
+    if (!dev || g_format_dev != dev || !__atomic_load_n(&g_format_live.prog.running, __ATOMIC_ACQUIRE))
+        return -ESRCH;
+    k_memcpy(out, &g_format_live.prog, sizeof *out);
+    return 0;
+}
+
+static int format_device_locked(const struct block_device *dev, const char *fstype);
+
 int fs_format_device(const struct block_device *dev, const char *fstype) {
+    kmutex_lock(&g_format_lock);
+    g_format_dev = dev;
+    int ok = format_device_locked(dev, fstype);
+    g_format_dev = 0;
+    __atomic_store_n(&g_format_live.prog.running, 0, __ATOMIC_RELEASE);
+    kmutex_unlock(&g_format_lock);
+    return ok;
+}
+
+static int format_device_locked(const struct block_device *dev, const char *fstype) {
     if (!dev || !fstype || !fstype[0]) return 0;
     const struct fs_ops *target = mount_backend_named(fstype);
     if (!target || !target->format) return 0;

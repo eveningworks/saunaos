@@ -19,8 +19,9 @@ WHAT A BROKEN VERSION WOULD STILL PASS, and the check that stops it:
   * GPT's backup header lives at the disk's LAST sector; computed in 32
     bits it lands somewhere else. The host checks it is at the true end.
 
-Formatting the whole disk is deliberately avoided: a multi-terabyte TFS3
-writes gigabytes of inode tables, which TCG would take hours over.
+The partition is small on purpose: what is under test is the address
+past 2^32, not the volume's size -- tfs3 v3 on a multi-terabyte volume
+is kernel/fs/tfs3_v3_test.c's KTEST.
 
 On demand, not in the gate: it boots three guests with extra hardware.
 """

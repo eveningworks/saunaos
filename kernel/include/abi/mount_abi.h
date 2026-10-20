@@ -79,6 +79,11 @@ struct mkfs_request {
 // speed bump, not a permission check, because this OS has no privilege
 // model to make it one.
 #define MKFS_CONFIRM 0x1
+// **NOT A FORMAT: A QUESTION ABOUT THE ONE RUNNING** on `source`. RSI is
+// then a `struct fs_check_progress` (below), filled without waiting for
+// the format, so a second thread can draw its stages; -ESRCH when none is
+// running there. FSCK_PROGRESS's shape, for the same dialog.
+#define MKFS_PROGRESS 0x2
 
 // --- SYS_FS_CHECK -----------------------------------------------------
 //

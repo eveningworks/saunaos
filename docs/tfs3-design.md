@@ -92,6 +92,16 @@ the volume size alone. A descriptor table sized to fit would save at
 most 15 blocks (60 KiB) and cost exactly that recoverability. Unused
 descriptor slots are zeroed.
 
+**Revised in v3 (2026-10-20): the premise "the size never binds" broke**
+the day an 8 TB SATA disk was formatted -- 4096 descriptors made a 508
+GiB filesystem on it and said nothing. v3 sizes the table from the
+VOLUME SIZE alone (`docs/tfs3-spec.md`, "Disk layout"), which keeps
+the property this paragraph bought: every position still derives with
+no superblock in hand, and up to 512 GiB the layout is v2's exactly.
+v3 also stopped writing groups nothing uses yet; the spec's "v3: groups
+nothing has used yet are not written" has the rules, `docs/decisions/
+storage.md` the reasoning.
+
 So the whole layout derives, in the spirit of tfs2-spec's "deriving
 these offsets yourself":
 

@@ -9,23 +9,152 @@
 #include "klog.h"
 #include "heap.h"
 
-// ---- allocation (RAM bitmaps, write-through, leak-safe ordering) ---------
+// ---- allocation (cached bitmaps, write-through, leak-safe ordering) ------
 
 void t3_mark_dirty(uint8_t *set, uint32_t g) { set[g >> 3] |= (uint8_t)(1u << (g & 7)); }
 static int test_dirty(const uint8_t *set, uint32_t g) { return (set[g >> 3] >> (g & 7)) & 1; }
 static void clear_dirty(uint8_t *set, uint32_t g) { set[g >> 3] &= (uint8_t)~(1u << (g & 7)); }
 
-int t3_bbm_test(struct t3_state *sbi, uint32_t g, uint32_t i) { return (sbi->bbm[g * T3_BLOCK + (i >> 3)] >> (i & 7)) & 1; }
-void t3_bbm_set(struct t3_state *sbi, uint32_t g, uint32_t i, int v) {
-    uint8_t *b = &sbi->bbm[g * T3_BLOCK + (i >> 3)];
-    if (v) *b |= (uint8_t)(1u << (i & 7)); else *b &= (uint8_t)~(1u << (i & 7));
-    t3_mark_dirty(sbi->bbm_dirty, g);
+// The bitmap block of group g, through the cache (tfs3_internal.h says
+// why a cache). NULL only when the block cannot be read -- or memory for
+// it found -- and then a caller treats every bit as IN USE: nothing is
+// allocated from a bitmap nobody could read, and a free is a leak for
+// fsck rather than a guess.
+static struct t3_bmap *bmap(struct t3_state *sbi, uint32_t g, uint32_t kind) {
+    struct t3_bmap *e = sbi->bm_last < sbi->bm_n ? &sbi->bm[sbi->bm_last] : 0;
+    if (!e || e->g != g || e->kind != kind) {
+        e = 0;
+        for (uint32_t k = 0; k < sbi->bm_n; k++)
+            if (sbi->bm[k].g == g && sbi->bm[k].kind == kind) { e = &sbi->bm[k]; break; }
+    }
+    if (e) {
+        e->used = ++sbi->bm_tick;
+        sbi->bm_last = (uint32_t)(e - sbi->bm);
+        return e;
+    }
+    // A miss: the least recently used CLEAN entry once KEEP are held,
+    // else a new one.
+    struct t3_bmap *victim = 0;
+    if (sbi->bm_n >= T3_BMAP_KEEP)
+        for (uint32_t k = 0; k < sbi->bm_n; k++)
+            if (!sbi->bm[k].dirty && (!victim || sbi->bm[k].used < victim->used)) victim = &sbi->bm[k];
+    if (!victim) {
+        if (sbi->bm_n == sbi->bm_cap) {
+            uint32_t cap = sbi->bm_cap ? sbi->bm_cap * 2 : T3_BMAP_KEEP;
+            struct t3_bmap *grown = krealloc(sbi->bm, sizeof *grown * cap);
+            if (!grown) return 0;
+            sbi->bm = grown;
+            sbi->bm_cap = cap;
+        }
+        uint8_t *data = kmalloc(T3_BLOCK);
+        if (!data) return 0;
+        victim = &sbi->bm[sbi->bm_n++];
+        victim->data = data;
+    }
+    victim->g = g;
+    victim->kind = kind;
+    victim->dirty = 0;
+    victim->used = ++sbi->bm_tick;
+    sbi->bm_last = (uint32_t)(victim - sbi->bm);
+    // A v3 group whose bitmap was never written: what format() would
+    // have written, derived. It reaches the disk when first changed.
+    uint32_t uninit = kind == T3_BMAP_BLOCK ? T3_BG_BLOCK_UNINIT : T3_BG_INODE_UNINIT;
+    if (sbi->gd[g].flags & uninit) {
+        if (kind == T3_BMAP_BLOCK) t3_bbm_default(sbi, g, victim->data);
+        else k_memset(victim->data, 0, T3_BLOCK);
+        return victim;
+    }
+    if (!t3_read_block(sbi, t3_group_base(sbi, g) + kind, victim->data)) {
+        // Forget it rather than cache a block that was never read.
+        victim->g = 0xffffffffu;
+        static int logged;
+        if (!logged++) klog_write(KLOG_ERR "tfs3: a bitmap could not be read -- its group is treated as full\n");
+        return 0;
+    }
+    return victim;
 }
-int t3_ibm_test(struct t3_state *sbi, uint32_t g, uint32_t i) { return (sbi->ibm[g * T3_BLOCK + (i >> 3)] >> (i & 7)) & 1; }
-void t3_ibm_set(struct t3_state *sbi, uint32_t g, uint32_t i, int v) {
-    uint8_t *b = &sbi->ibm[g * T3_BLOCK + (i >> 3)];
+
+static int bit_test(struct t3_state *sbi, uint32_t g, uint32_t kind, uint32_t i) {
+    struct t3_bmap *e = bmap(sbi, g, kind);
+    return e ? (e->data[i >> 3] >> (i & 7)) & 1 : 1;
+}
+
+static void bit_set(struct t3_state *sbi, uint32_t g, uint32_t kind, uint32_t i, int v) {
+    struct t3_bmap *e = bmap(sbi, g, kind);
+    if (!e) return;
+    uint8_t *b = &e->data[i >> 3];
     if (v) *b |= (uint8_t)(1u << (i & 7)); else *b &= (uint8_t)~(1u << (i & 7));
-    t3_mark_dirty(sbi->ibm_dirty, g);
+    e->dirty = 1;
+}
+
+int t3_bbm_test(struct t3_state *sbi, uint32_t g, uint32_t i) { return bit_test(sbi, g, T3_BMAP_BLOCK, i); }
+void t3_bbm_set(struct t3_state *sbi, uint32_t g, uint32_t i, int v) { bit_set(sbi, g, T3_BMAP_BLOCK, i, v); }
+int t3_ibm_test(struct t3_state *sbi, uint32_t g, uint32_t i) { return bit_test(sbi, g, T3_BMAP_INODE, i); }
+void t3_ibm_set(struct t3_state *sbi, uint32_t g, uint32_t i, int v) { bit_set(sbi, g, T3_BMAP_INODE, i, v); }
+
+// Group g's block bitmap as format() leaves it: the group's metadata, a
+// backup region at its tail, and everything past the volume's end in use;
+// the rest free. ONE description, for the format and for a v3 group whose
+// bitmap was never written -- the two must agree bit for bit.
+//
+// Everything past the volume's end is marked USED, permanently. That is
+// what makes a partial group need no special case anywhere else: the
+// bitmap is still a full T3_BPG bits, the allocator still reads it the
+// same way, and the blocks that do not exist are simply never free. Miss
+// this and the allocator hands out a block past the end of the device,
+// which fails as a refused write somewhere far away from the cause.
+void t3_bbm_default(struct t3_state *sbi, uint32_t g, uint8_t *bm) {
+    k_memset(bm, 0, T3_BLOCK);
+    uint32_t span = t3_group_span(sbi, g), end = t3_group_data_end(sbi, g);
+    for (uint32_t i = 0; i < T3_BPG; i++)
+        if (i < sbi->meta_off || i >= end || i >= span) bm[i >> 3] |= (uint8_t)(1u << (i & 7));
+}
+
+// INODE SLOT i OF GROUP g IS ABOUT TO BE USED: zero the table blocks
+// between the group's high-water mark and it, first, and raise the mark
+// (v3, tfs3_internal.h) -- so every slot below the mark is zeroed or
+// real. The descriptor carrying the mark is written with the bitmaps,
+// before the commit that makes the inode reachable. 1 on success.
+int t3_itable_reserve(struct t3_state *sbi, uint32_t g, uint32_t i) {
+    struct t3_gd *gd = &sbi->gd[g];
+    if (i < gd->itable_used) return 1;
+    uint32_t per = T3_BLOCK / T3_INODE_SIZE;
+    uint32_t table = t3_group_base(sbi, g) + 2 + (sbi->meta_off - 2 - sbi->itb);
+    uint8_t *zero = kzalloc(T3_BLOCK);
+    if (!zero) return 0;
+    int ok = 1;
+    for (uint32_t b = gd->itable_used / per; b <= i / per && ok; b++)
+        ok = t3_write_block(sbi, table + b, zero);
+    kfree(zero);
+    if (!ok) return 0;
+    t3_icache_drop(sbi);   // a table block was written behind it
+    gd->itable_used = (i / per + 1) * per;
+    t3_mark_dirty(sbi->gdt_dirty, g);
+    return 1;
+}
+
+// Group g's 16-byte descriptor, as written on disk (struct t3_gd says the
+// layout); v1/v2 keep bytes 8..11 zero.
+void t3_gd_pack(struct t3_state *sbi, uint32_t g, uint8_t *e) {
+    k_memset(e, 0, 16);
+    wr32(e, sbi->gd[g].free_blocks);
+    wr32(e + 4, sbi->gd[g].free_inodes);
+    if (sbi->sb.version >= 3) {
+        e[8] = (uint8_t)sbi->gd[g].flags;
+        e[9] = (uint8_t)(sbi->gd[g].flags >> 8);
+        e[10] = (uint8_t)sbi->gd[g].itable_used;
+        e[11] = (uint8_t)(sbi->gd[g].itable_used >> 8);
+    }
+    wr32(e + 12, k_fnv1a(e, 12));
+}
+
+// Everything cached goes, dirty or not: the caller is unmounting (after
+// its last flush) or has rewritten the bitmaps on disk behind the cache.
+void t3_bmap_drop(struct t3_state *sbi) {
+    for (uint32_t k = 0; k < sbi->bm_n; k++) kfree(sbi->bm[k].data);
+    kfree(sbi->bm);
+    sbi->bm = 0;
+    sbi->bm_n = sbi->bm_cap = sbi->bm_last = 0;
 }
 
 static void alog_push(struct t3_state *sbi, uint32_t blk); // rollback log, defined below with its story
@@ -37,7 +166,7 @@ uint32_t t3_group_data_end(struct t3_state *sbi, uint32_t g) {
     uint32_t span = t3_group_span(sbi, g);
     for (int i = 0; i < n; i++) {
         if (groups[i] == g) {
-            return span > T3_BACKUP_BLOCKS ? span - T3_BACKUP_BLOCKS : 0;
+            return span > t3_backup_blocks(sbi) ? span - t3_backup_blocks(sbi) : 0;
         }
     }
     return span;
@@ -116,6 +245,7 @@ uint64_t t3_alloc_inode(struct t3_state *sbi, uint32_t prefer_group) {
         if (sbi->gd[g].free_inodes == 0) continue;
         for (uint32_t i = 0; i < sbi->sb.ipg; i++) {
             if (!t3_ibm_test(sbi, g, i)) {
+                if (!t3_itable_reserve(sbi, g, i)) return 0;
                 t3_ibm_set(sbi, g, i, 1);
                 sbi->gd[g].free_inodes--;
                 t3_mark_dirty(sbi->gdt_dirty, g);
@@ -150,22 +280,24 @@ void t3_free_inode_bit(struct t3_state *sbi, uint64_t ino) {
 // commit flush first (txn_commit_raw()).
 int t3_flush_alloc_state(struct t3_state *sbi) {
     int ok = 1;
-    for (uint32_t g = 0; g < sbi->sb.gc; g++) {
-        if (test_dirty(sbi->bbm_dirty, g)) {
-            if (!t3_write_block(sbi, t3_group_base(sbi, g), sbi->bbm + g * T3_BLOCK)) ok = 0;
-            clear_dirty(sbi->bbm_dirty, g);
-            sbi->alloc_unfenced = 1;
-        }
-        if (test_dirty(sbi->ibm_dirty, g)) {
-            if (!t3_write_block(sbi, t3_group_base(sbi, g) + 1, sbi->ibm + g * T3_BLOCK)) ok = 0;
-            clear_dirty(sbi->ibm_dirty, g);
-            sbi->alloc_unfenced = 1;
+    for (uint32_t k = 0; k < sbi->bm_n; k++) {
+        struct t3_bmap *e = &sbi->bm[k];
+        if (!e->dirty) continue;
+        if (!t3_write_block(sbi, t3_group_base(sbi, e->g) + e->kind, e->data)) { ok = 0; continue; }
+        e->dirty = 0;
+        sbi->alloc_unfenced = 1;
+        // On disk now, so no longer derived -- the descriptor saying so
+        // is written below, in this same flush.
+        uint32_t uninit = e->kind == T3_BMAP_BLOCK ? T3_BG_BLOCK_UNINIT : T3_BG_INODE_UNINIT;
+        if (sbi->gd[e->g].flags & uninit) {
+            sbi->gd[e->g].flags &= ~uninit;
+            t3_mark_dirty(sbi->gdt_dirty, e->g);
         }
     }
     // GDT blocks: rebuild each dirty block from the RAM free counts.
     // Backup GDT snapshots are deliberately NOT refreshed (stale by
     // design -- fsck recomputes counts anyway; see the design doc).
-    for (uint32_t tb = 0; tb < T3_GDT_BLOCKS; tb++) {
+    for (uint32_t tb = 0; tb * (T3_BLOCK / 16) < sbi->sb.gc; tb++) {
         int dirty = 0;
         for (uint32_t i = 0; i < T3_BLOCK / 16 && !dirty; i++) {
             uint32_t g = tb * (T3_BLOCK / 16) + i;
@@ -177,9 +309,7 @@ int t3_flush_alloc_state(struct t3_state *sbi) {
             uint32_t g = tb * (T3_BLOCK / 16) + i;
             if (g >= sbi->sb.gc) break;
             uint8_t *e = sbi->blk + i * 16;
-            wr32(e, sbi->gd[g].free_blocks);
-            wr32(e + 4, sbi->gd[g].free_inodes);
-            wr32(e + 12, k_fnv1a(e, 12));
+            t3_gd_pack(sbi, g, e);
             clear_dirty(sbi->gdt_dirty, g);
         }
         if (!t3_write_block(sbi, sbi->gdt_block + tb, sbi->blk)) ok = 0;

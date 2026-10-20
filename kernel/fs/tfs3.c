@@ -235,10 +235,12 @@ static void set_flat_volume(struct t3_state *sbi, const struct block_device *dev
 
 // ---- superblock ----------------------------------------------------------
 
-// Point the geometry globals at one version's constant set. Returns 0
-// for a version this kernel doesn't know, which is how an image from a
-// future format is refused rather than misread.
-static int set_geometry_version(struct t3_state *sbi, uint32_t v) {
+// Point the geometry at one version's layout for a volume of
+// `total_blocks` (only v3's depends on it). Returns 0 for a version this
+// kernel doesn't know, which is how an image from a future format is
+// refused rather than misread.
+static int set_geometry_version(struct t3_state *sbi, uint32_t v, uint32_t total_blocks) {
+    sbi->gdt_blocks = T3_GDT_BLOCKS;
     if (v == 1) {
         sbi->group0 = T3_V1_GROUP0; sbi->gdt_block = T3_V1_GDT;
         sbi->jdata_block = T3_V1_JDATA; sbi->jslots = T3_V1_JSLOTS;
@@ -249,14 +251,20 @@ static int set_geometry_version(struct t3_state *sbi, uint32_t v) {
         sbi->jdata_block = T3_V2_JDATA; sbi->jslots = T3_V2_JSLOTS;
         return 1;
     }
+    if (v == 3) {
+        sbi->gdt_blocks = t3_v3_gdt_blocks(total_blocks);
+        sbi->gdt_block = T3_V3_GDT; sbi->group0 = T3_V3_GDT + sbi->gdt_blocks;
+        sbi->jdata_block = T3_V3_JDATA; sbi->jslots = T3_V3_JSLOTS;
+        return 1;
+    }
     return 0;
 }
 
-// group0_start for a version, without disturbing the active geometry
-// -- load_superblock()'s backup search needs it before it knows which
-// version it's looking at.
-static uint32_t group0_for_version(uint32_t v) {
-    return v == 1 ? T3_V1_GROUP0 : T3_V2_GROUP0;
+// group0_start for a version and volume size, without disturbing the
+// active geometry -- load_superblock()'s backup search needs it before
+// it knows which version it's looking at.
+static uint32_t group0_for_version(uint32_t v, uint32_t total_blocks) {
+    return v == 1 ? T3_V1_GROUP0 : v == 2 ? T3_V2_GROUP0 : T3_V3_GDT + t3_v3_gdt_blocks(total_blocks);
 }
 
 // Parses+validates one superblock sector into sbi->sb, and (on success)
@@ -277,17 +285,20 @@ static int parse_superblock(struct t3_state *sbi, const uint8_t *sec) {
     uint32_t ipg = rd32(sec + 16);
     uint32_t gc = rd32(sec + 20);
     uint32_t group0 = rd32(sec + 24);
-    if (bpg != T3_BPG || group0 != group0_for_version(version)) return 0;
+    if (bpg != T3_BPG || group0 != group0_for_version(version, total_blocks)) return 0;
     if (version >= 2) {
         if (rd32(sec + 28) != T3_V2_JDATA || rd32(sec + 32) != T3_V2_JSLOTS ||
             rd32(sec + 36) != T3_V2_GDT) return 0;
     }
+    if (version >= 3 && rd32(sec + 40) != t3_v3_gdt_blocks(total_blocks)) return 0;
+    // Every group's descriptor must fit the table.
+    if (version >= 3 && gc > t3_v3_gdt_blocks(total_blocks) * (T3_BLOCK / 16)) return 0;
     if (gc == 0 || ipg == 0 || ipg > T3_BPG) return 0;
     if ((uint64_t)total_blocks * T3_SPB > (uint64_t)sbi->vol.sector_count) return 0; // claims more volume than exists
     // The LAST group may be partial (see t3_group_span()), so the volume
     // has to contain every group's START, not every group's full extent.
     if (group0 + (uint64_t)(gc - 1) * bpg >= total_blocks) return 0;
-    if (!set_geometry_version(sbi, version)) return 0;
+    if (!set_geometry_version(sbi, version, total_blocks)) return 0;
     sbi->sb.version = (uint8_t)version;
     sbi->sb.flags = sec[5];
     sbi->sb.total_blocks = total_blocks;
@@ -329,7 +340,7 @@ static int load_superblock(struct t3_state *sbi, int loud) {
     // parse_superblock()'s own group0 check.
     uint32_t vol_blocks = t3_vol_blocks(sbi);
     for (uint32_t v = T3_VERSION; v >= T3_VERSION_MIN; v--) {
-        uint32_t group0 = group0_for_version(v);
+        uint32_t group0 = group0_for_version(v, vol_blocks);
         if (vol_blocks <= group0) continue;
         // Ceiling, matching format(): a volume of one partial group has
         // one group, not zero.
@@ -377,6 +388,7 @@ int t3_write_superblock_everywhere(struct t3_state *sbi) {
         wr32(sbi->blk + 32, sbi->jslots);
         wr32(sbi->blk + 36, sbi->gdt_block);
     }
+    if (sbi->sb.version >= 3) wr32(sbi->blk + 40, sbi->gdt_blocks);
     wr32(sbi->blk + 44, k_fnv1a(sbi->blk, 44));
     int ok = t3_write_block(sbi, T3_SB_BLOCK, sbi->blk);
     uint32_t groups[2];
@@ -483,6 +495,9 @@ static int read_inode_uncached(struct t3_state *sbi, uint64_t ino, struct t3_ino
     uint64_t lba;
     uint32_t off;
     if (!t3_inode_pos(sbi, ino, &lba, &off)) return 0;
+    // Past the zeroed part of a v3 table the slot was never written and
+    // may hold a previous filesystem's inode, checksum and all: no inode.
+    if (sbi->gd && ino % sbi->sb.ipg >= sbi->gd[ino / sbi->sb.ipg].itable_used) return 0;
     uint8_t sec[T3_SECTOR];
     if (!t3_vol_read_sectors(sbi, lba, 1, sec)) return 0;
     const uint8_t *p = sec + off;
@@ -880,7 +895,7 @@ static int tfs3_wipe_inner(void *st, const struct block_device *dev) {
     // Leaving one version's backups behind is exactly the seance the
     // wipefs rule exists to prevent.
     for (uint32_t v = T3_VERSION_MIN; v <= T3_VERSION; v++) {
-        uint32_t group0 = group0_for_version(v);
+        uint32_t group0 = group0_for_version(v, vol_blocks);
         if (vol_blocks <= group0) continue;
         // Ceiling, matching format(): a volume of one partial group has
         // one group, not zero.
@@ -898,77 +913,112 @@ static int tfs3_wipe_inner(void *st, const struct block_device *dev) {
     return ok;
 }
 
-// Kernel-side format, kept in lockstep with tfs3_writer.py's
-// cmd_format() -- one description of the layout, two writers of it.
+// What a format reports to Disks' dialog and `mkfs` (fs_format_live()).
+static const struct fsck_stage_desc T3_FORMAT_STAGES[] = {
+    { "Write the journal", "blocks" },
+    { "Write the group descriptors", "blocks" },
+    { "Write the root and backups", "blocks" },
+};
+
+// Writes `n` copies of the descriptor table's blocks starting at each of
+// `at[]`, a block at a time, counting each for the progress.
+static int format_write_gdt(struct t3_state *sbi, const uint32_t *at, int n, struct fs_check_live *live) {
+    uint32_t done = 0;
+    for (uint32_t tb = 0; tb < sbi->gdt_blocks; tb++) {
+        k_memset(sbi->blk, 0, T3_BLOCK);
+        for (uint32_t i = 0; i < T3_BLOCK / 16; i++) {
+            uint32_t g = tb * (T3_BLOCK / 16) + i;
+            if (g >= sbi->sb.gc) break;
+            t3_gd_pack(sbi, g, sbi->blk + i * 16);
+        }
+        for (int c = 0; c < n; c++) {
+            if (!t3_write_block(sbi, at[c] + tb, sbi->blk)) return 0;
+            fsck_step(live, ++done, 0);
+        }
+    }
+    return 1;
+}
+
+// Kernel-side format: v3 (tfs3_internal.h). tfs3_writer.py still writes
+// v2 for the host's images, which this kernel mounts as it always did.
+//
+// LAZY, ext4's way: only what the empty filesystem needs is written --
+// the superblock, the journal, the descriptor table, group 0 (the root)
+// and the backups. Every other group's descriptor says its bitmaps were
+// never written and none of its inode table is in use, so a format costs
+// the same few MiB on 8 TB as on 8 GiB.
 static int tfs3_format_inner(void *st, const struct block_device *dev) {
     struct t3_state *sbi = st;
     if (!dev) return 0;
     set_flat_volume(sbi, dev);
-
-    // A fresh filesystem is always the newest version.
-    set_geometry_version(sbi, T3_VERSION);
-    sbi->sb.version = T3_VERSION;
+    struct fs_check_live *live = fs_format_live();
 
     uint32_t vol_blocks = t3_vol_blocks(sbi);
-    // The floor is the METADATA, not a whole group. A group needs its
-    // two bitmaps, its inode table and somewhere to put the root
-    // directory; beyond that a PARTIAL last group is fine, exactly as
-    // ext2/3/4 allow -- which is what lets a 16 MiB live image exist
-    // instead of a 129 MiB one. (`meta` is computed just below, so this
-    // checks the generous version of the same thing: one group's
-    // metadata cannot exceed a few hundred blocks.)
+    // A fresh filesystem is always the newest version.
+    set_geometry_version(sbi, T3_VERSION, vol_blocks);
+    sbi->sb.version = T3_VERSION;
+    sbi->sb.flags = 0;   // no checksum-table feature at format time
+
+    // The floor is the METADATA, not a whole group: a PARTIAL last group
+    // is fine, exactly as ext2/3/4 allow -- which is what lets a 16 MiB
+    // live image exist instead of a 129 MiB one.
     if (vol_blocks <= sbi->group0 + T3_MIN_GROUP_BLOCKS) {
         klog_write("tfs3: volume too small even for one partial group -- not formatting\n");
         return 0;
     }
-    // CEILING: a volume that ends mid-group still has that group.
+    // CEILING: a volume that ends mid-group still has that group. The
+    // table was sized for at least this many (t3_v3_gdt_blocks()).
     uint32_t gc = (vol_blocks - sbi->group0 + T3_BPG - 1) / T3_BPG;
-    if (gc > T3_GDT_BLOCKS * T3_BLOCK / 16) gc = T3_GDT_BLOCKS * T3_BLOCK / 16;
-    uint32_t ipg = T3_BPG * T3_BLOCK / T3_BYTES_PER_INODE;
+    uint32_t ipg = (uint32_t)((uint64_t)T3_BPG * T3_BLOCK / t3_bytes_per_inode(vol_blocks));
     if (ipg > T3_BPG) ipg = T3_BPG;
     ipg = (ipg / T3_INODES_PER_SECTOR / T3_SPB) * T3_INODES_PER_SECTOR * T3_SPB; // whole table blocks
-    uint32_t itb = ipg * T3_INODE_SIZE / T3_BLOCK;
-    uint32_t meta = 2 + itb; // no checksum-table feature at format time (flags = 0)
 
-    // Publish the geometry BEFORE anything uses it. t3_group_span() and
-    // everything built on it read sbi->sb, and during a format that still
-    // held the PREVIOUS volume's numbers (or zeros on a fresh boot) --
-    // so every group's span came out wrong and the format failed with
-    // no clue as to why. The superblock image below is written from
-    // these same values, so there is one source rather than two.
+    // Publish the geometry BEFORE anything uses it: t3_group_span(),
+    // t3_bbm_default() and the descriptor packing all read sbi->sb, which
+    // still held the PREVIOUS volume's numbers -- so every group's span
+    // came out wrong and the format failed with no clue as to why.
     sbi->sb.total_blocks = vol_blocks;
     sbi->sb.bpg = T3_BPG;
     sbi->sb.ipg = ipg;
     sbi->sb.gc = gc;
+    derive_geometry(sbi);
 
     uint32_t groups[2];
     int nb = t3_backup_groups(gc, groups);
-    uint64_t now = 0;
-    {
-        struct rtc_time t;
-        ktime_read(&t);
-        now = cal_rtc_to_epoch(&t);
+    uint32_t per = T3_BLOCK / T3_INODE_SIZE;
+    uint32_t root_block = sbi->group0 + sbi->meta_off; // first data block of group 0
+
+    // The descriptors: every group uninitialised but group 0.
+    if (sbi->gd) kfree(sbi->gd);
+    sbi->gd = kzalloc(sizeof(struct t3_gd) * gc);
+    if (!sbi->gd) return 0;
+    for (uint32_t g = 0; g < gc; g++) {
+        uint32_t end = t3_group_data_end(sbi, g);
+        sbi->gd[g].free_blocks = end > sbi->meta_off ? end - sbi->meta_off : 0;
+        sbi->gd[g].free_inodes = ipg;
+        sbi->gd[g].flags = T3_BG_BLOCK_UNINIT | T3_BG_INODE_UNINIT;
+    }
+    sbi->gd[0].flags = 0;
+    sbi->gd[0].free_blocks -= 1;   // the root's directory block
+    sbi->gd[0].free_inodes -= 2;   // ino 0 (null) and 1 (the root)
+    sbi->gd[0].itable_used = per;  // its first table block, written below
+
+    uint32_t backup_tail[2];
+    for (int j = 0; j < nb; j++) {
+        uint32_t span = t3_group_span(sbi, groups[j]);
+        backup_tail[j] = t3_group_base(sbi, groups[j]) + span - 1;
     }
 
-    // Superblock image (one sector's worth, zero-padded to a block by
-    // the caller writes below).
-    uint8_t sb[T3_SECTOR];
-    k_memset(sb, 0, sizeof(sb));
-    sb[0] = 'T'; sb[1] = 'F'; sb[2] = 'S'; sb[3] = '3';
-    sb[4] = T3_VERSION; sb[5] = 0;
-    wr32(sb + 8, vol_blocks);
-    wr32(sb + 12, T3_BPG);
-    wr32(sb + 16, ipg);
-    wr32(sb + 20, gc);
-    wr32(sb + 24, sbi->group0);
-    wr32(sb + 28, sbi->jdata_block);
-    wr32(sb + 32, sbi->jslots);
-    wr32(sb + 36, sbi->gdt_block);
-    wr32(sb + 44, k_fnv1a(sb, 44));
+    fsck_begin(live, 0, T3_FORMAT_STAGES, 3);
+    fsck_stage(live, 0, 2 + sbi->jslots);
+    uint32_t done = 0;
 
+    // THE SUPERBLOCK IS WRITTEN LAST (below), and the old one is cleared
+    // first, so a format cut short leaves a volume that reads as blank
+    // rather than one whose superblock describes half-written tables.
     k_memset(sbi->blk, 0, T3_BLOCK);
-    k_memcpy(sbi->blk, sb, T3_SECTOR);
-    if (!t3_write_block(sbi, T3_SB_BLOCK, sbi->blk)) return 0;
+    if (!t3_write_block(sbi, T3_SB_BLOCK, sbi->blk)) goto fail;
+    fsck_step(live, ++done, 0);
 
     // The wipefs rule applied WITHIN this format: an older version's
     // backup superblocks sit where this version's layout never writes,
@@ -976,159 +1026,97 @@ static int tfs3_format_inner(void *st, const struct block_device *dev) {
     // mount a corpse with the wrong geometry -- the same seance
     // fs_ops.h's wipe contract describes, one format version apart
     // instead of one filesystem apart.
-    {
-        uint8_t zero[T3_SECTOR];
-        k_memset(zero, 0, sizeof(zero));
-        for (uint32_t v = T3_VERSION_MIN; v < T3_VERSION; v++) {
-            uint32_t old0 = group0_for_version(v);
-            if (vol_blocks <= old0) continue;
-            uint32_t old_gc = (vol_blocks - old0 + T3_BPG - 1) / T3_BPG;
-            uint32_t old_groups[2];
-            int on = t3_backup_groups(old_gc, old_groups);
-            for (int i = 0; i < on; i++) {
-                uint32_t gbase = old0 + old_groups[i] * T3_BPG;
-                uint32_t gspan = vol_blocks - gbase;
-                if (gspan > T3_BPG) gspan = T3_BPG;
-                t3_vol_write_sectors(sbi, (gbase + gspan - 1) * T3_SPB, 1, zero);
-            }
+    for (uint32_t v = T3_VERSION_MIN; v < T3_VERSION; v++) {
+        uint32_t old0 = group0_for_version(v, vol_blocks);
+        if (vol_blocks <= old0) continue;
+        uint32_t old_gc = (vol_blocks - old0 + T3_BPG - 1) / T3_BPG;
+        uint32_t old_groups[2];
+        int on = t3_backup_groups(old_gc, old_groups);
+        for (int i = 0; i < on; i++) {
+            uint32_t gbase = old0 + old_groups[i] * T3_BPG;
+            uint32_t gspan = vol_blocks - gbase;
+            if (gspan > T3_BPG) gspan = T3_BPG;
+            t3_vol_write_sectors(sbi, (gbase + gspan - 1) * T3_SPB, 1, sbi->blk);
         }
     }
 
     // Empty journal header + zeroed image slots.
-    k_memset(sbi->blk, 0, T3_BLOCK);
     sbi->blk[0] = 'J'; sbi->blk[1] = 'R'; sbi->blk[2] = 'N'; sbi->blk[3] = '3';
     wr32(sbi->blk + t3_jh_cksum_off(T3_VERSION), k_fnv1a(sbi->blk, t3_jh_cksum_off(T3_VERSION)));
-    if (!t3_write_block(sbi, T3_JH_BLOCK, sbi->blk)) return 0;
+    if (!t3_write_block(sbi, T3_JH_BLOCK, sbi->blk)) goto fail;
+    fsck_step(live, ++done, 0);
     k_memset(sbi->blk, 0, T3_BLOCK);
     for (uint32_t i = 0; i < sbi->jslots; i++) {
-        if (!t3_write_block(sbi, sbi->jdata_block + i, sbi->blk)) return 0;
+        if (!t3_write_block(sbi, sbi->jdata_block + i, sbi->blk)) goto fail;
+        fsck_step(live, ++done, 0);
     }
 
-    // Group descriptor table: free-count caches, checksummed each.
-    // Built one block at a time (a full table is 64 KiB, bigger than
-    // any scratch this kernel keeps around).
-    uint32_t root_block = sbi->group0 + meta; // first data block of group 0
-    for (uint32_t tb = 0; tb < T3_GDT_BLOCKS; tb++) {
-        k_memset(sbi->blk, 0, T3_BLOCK);
-        for (uint32_t i = 0; i < T3_BLOCK / 16; i++) {
-            uint32_t g = tb * (T3_BLOCK / 16) + i;
-            if (g >= gc) break;
-            // The last group's span, not T3_BPG -- a partial group has
-            // fewer free blocks and the GDT cache is what the allocator
-            // trusts.
-            uint32_t gbase = sbi->group0 + g * T3_BPG;
-            uint32_t gspan = vol_blocks - gbase;
-            if (gspan > T3_BPG) gspan = T3_BPG;
-            uint32_t free_b = gspan > meta ? gspan - meta : 0;
-            uint32_t free_i = ipg;
-            for (int j = 0; j < nb; j++) {
-                if (groups[j] == g) free_b -= T3_BACKUP_BLOCKS;
-            }
-            if (g == 0) { free_b -= 1; free_i -= 2; } // root dirent block; ino 0+1
-            uint8_t *e = sbi->blk + i * 16;
-            wr32(e, free_b);
-            wr32(e + 4, free_i);
-            wr32(e + 12, k_fnv1a(e, 12));
-        }
-        if (!t3_write_block(sbi, sbi->gdt_block + tb, sbi->blk)) return 0;
-        // Backup GDT snapshots get the identical block.
-        for (int j = 0; j < nb; j++) {
-            uint32_t gbase = sbi->group0 + groups[j] * T3_BPG;
-            uint32_t gspan = vol_blocks - gbase;
-            if (gspan > T3_BPG) gspan = T3_BPG;
-            uint32_t tail = gbase + gspan - 1;
-            if (!t3_write_block(sbi, tail - T3_GDT_BLOCKS + tb, sbi->blk)) return 0;
-        }
-    }
+    // The descriptor table, and its snapshot in each backup region.
+    fsck_stage(live, 1, sbi->gdt_blocks * (1 + (uint32_t)nb));
+    uint32_t at[3];
+    at[0] = sbi->gdt_block;
+    for (int j = 0; j < nb; j++) at[1 + j] = backup_tail[j] - sbi->gdt_blocks;
+    if (!format_write_gdt(sbi, at, 1 + nb, live)) goto fail;
 
-    // Per group: block bitmap, inode bitmap, zeroed inode table.
-    for (uint32_t g = 0; g < gc; g++) {
-        uint32_t base = t3_group_base(sbi, g);
-        k_memset(sbi->blk, 0, T3_BLOCK);
-        for (uint32_t i = 0; i < meta; i++) sbi->blk[i >> 3] |= (uint8_t)(1u << (i & 7));
-        uint32_t gspan = vol_blocks - base;
-        if (gspan > T3_BPG) gspan = T3_BPG;
+    // Group 0: its bitmaps, the root inode's table block, the root's
+    // directory block, then the superblock and its backups.
+    fsck_stage(live, 2, 5 + (uint32_t)nb);
+    done = 0;
+    t3_bbm_default(sbi, 0, sbi->blk);
+    sbi->blk[sbi->meta_off >> 3] |= (uint8_t)(1u << (sbi->meta_off & 7));  // the root's block
+    if (!t3_write_block(sbi, sbi->group0, sbi->blk)) goto fail;
+    fsck_step(live, ++done, 0);
+    k_memset(sbi->blk, 0, T3_BLOCK);
+    sbi->blk[0] = 0x03;   // ino 0 (null) + ino 1 (root)
+    if (!t3_write_block(sbi, sbi->group0 + 1, sbi->blk)) goto fail;
+    fsck_step(live, ++done, 0);
 
-        int is_backup = 0;
-        for (int j = 0; j < nb; j++) if (groups[j] == g) is_backup = 1;
-        if (is_backup) {
-            for (uint32_t i = gspan - T3_BACKUP_BLOCKS; i < gspan; i++)
-                sbi->blk[i >> 3] |= (uint8_t)(1u << (i & 7));
-        }
-
-        // Everything past the volume's end is marked USED, permanently.
-        // That is what makes a partial group need no special case
-        // anywhere else: the bitmap is still a full T3_BPG bits, the
-        // allocator still reads it the same way, and the blocks that do
-        // not exist are simply never free. Miss this and the allocator
-        // hands out a block past the end of the device, which fails as a
-        // refused write somewhere far away from the cause.
-        for (uint32_t i = gspan; i < T3_BPG; i++)
-            sbi->blk[i >> 3] |= (uint8_t)(1u << (i & 7));
-        if (g == 0) {
-            uint32_t i = meta; // the root dirent block
-            sbi->blk[i >> 3] |= (uint8_t)(1u << (i & 7));
-        }
-        if (!t3_write_block(sbi, base, sbi->blk)) return 0;
-
-        k_memset(sbi->blk, 0, T3_BLOCK);
-        if (g == 0) sbi->blk[0] |= 0x03; // ino 0 (null) + ino 1 (root)
-        if (!t3_write_block(sbi, base + 1, sbi->blk)) return 0;
-
-        // Zero the inode table: a zero inode fails its checksum on
-        // purpose, and stale-but-valid inodes from a previous TFS3
-        // format must not survive into this one.
-        k_memset(sbi->blk, 0, T3_BLOCK);
-        for (uint32_t i = 0; i < itb; i++) {
-            if (!t3_write_block(sbi, base + 2 + i, sbi->blk)) return 0;
-        }
-    }
-
-    // Root inode (ino 1, group 0) + its dirent block (. and ..).
+    uint64_t now;
     {
-        uint8_t sec[T3_SECTOR];
-        uint64_t table_lba = (sbi->group0 + 2) * T3_SPB;
-        if (!t3_vol_read_sectors(sbi, table_lba, 1, sec)) return 0;
-        uint8_t *p = sec + T3_INO_ROOT * T3_INODE_SIZE;
-        k_memset(p, 0, T3_INODE_SIZE);
+        struct rtc_time t;
+        ktime_read(&t);
+        now = cal_rtc_to_epoch(&t);
+    }
+    k_memset(sbi->blk, 0, T3_BLOCK);
+    {
+        uint8_t *p = sbi->blk + T3_INO_ROOT * T3_INODE_SIZE;
         p[0] = T3_TYPE_DIR;
         wr16(p + 2, 2);
         wr64(p + 4, T3_BLOCK);
         wr64(p + 12, now);
         wr64(p + 20, now);
         wr32(p + 28, root_block);
+        // The checksum covers bytes 0-87 and 92-127, everything but itself.
         uint8_t chk[124];
         k_memcpy(chk, p, 88);
         k_memcpy(chk + 88, p + 92, 36);
         wr32(p + 88, k_fnv1a(chk, sizeof(chk)));
-        if (!t3_vol_write_sectors(sbi, table_lba, 1, sec)) return 0;
-
-        k_memset(sbi->blk, 0, T3_BLOCK);
-        wr32(sbi->blk + 0, T3_INO_ROOT); wr16(sbi->blk + 4, 12); sbi->blk[6] = 1; sbi->blk[7] = '.';
-        wr32(sbi->blk + 12, T3_INO_ROOT); wr16(sbi->blk + 16, (uint16_t)(T3_BLOCK - 12)); sbi->blk[18] = 2;
-        sbi->blk[19] = '.'; sbi->blk[20] = '.';
-        if (!t3_write_block(sbi, root_block, sbi->blk)) return 0;
     }
+    if (!t3_write_block(sbi, sbi->group0 + 2 + (sbi->meta_off - 2 - sbi->itb), sbi->blk)) goto fail;
+    fsck_step(live, ++done, 0);
 
-    // Backup superblock copies, byte-identical to the primary.
     k_memset(sbi->blk, 0, T3_BLOCK);
-    k_memcpy(sbi->blk, sb, T3_SECTOR);
-    for (int j = 0; j < nb; j++) {
-        // The group's REAL last block. A partial last group ends before
-        // sbi->group0 + (g+1)*T3_BPG, and writing the backup superblock
-        // past the end of the volume failed the entire format with
-        // nothing anywhere to say why.
-        uint32_t gbase = sbi->group0 + groups[j] * T3_BPG;
-        uint32_t gspan = vol_blocks - gbase;
-        if (gspan > T3_BPG) gspan = T3_BPG;
-        if (!t3_write_block(sbi, gbase + gspan - 1, sbi->blk)) return 0;
-    }
+    wr32(sbi->blk + 0, T3_INO_ROOT); wr16(sbi->blk + 4, 12); sbi->blk[6] = 1; sbi->blk[7] = '.';
+    wr32(sbi->blk + 12, T3_INO_ROOT); wr16(sbi->blk + 16, (uint16_t)(T3_BLOCK - 12)); sbi->blk[18] = 2;
+    sbi->blk[19] = '.'; sbi->blk[20] = '.';
+    if (!t3_write_block(sbi, root_block, sbi->blk)) goto fail;
+    fsck_step(live, ++done, 0);
+
+    // Everything above is on the media before the superblock that makes
+    // it a filesystem.
+    blkdev_flush(sbi->vol.dev);
+    if (!t3_write_superblock_everywhere(sbi)) goto fail;
+    done += 1 + (uint32_t)nb;
+    fsck_step(live, done, 0);
 
     blkdev_flush(sbi->vol.dev); // one barrier so the whole format is durable before init() re-reads it
-    klog_write("tfs3: formatted a fresh tfs3 filesystem (");
-    klog_write_dec(gc); klog_write(" groups, ");
-    klog_write_dec(ipg); klog_write(" inodes/group)\n");
+    fsck_end(live);
+    klog_printf("tfs3: formatted a fresh tfs3 v3 filesystem (%u groups, %u inodes/group, %u descriptor blocks)\n",
+                gc, ipg, sbi->gdt_blocks);
     return 1;
+fail:
+    fsck_end(live);
+    return 0;
 }
 
 static void unmount_state(struct t3_state *sbi) {
@@ -1142,9 +1130,9 @@ static void unmount_state(struct t3_state *sbi) {
         sbi->txn_deferred = 0;
     }
     if (sbi->gd) { kfree(sbi->gd); sbi->gd = 0; }
-    if (sbi->bbm) { kfree(sbi->bbm); sbi->bbm = 0; }
-    if (sbi->ibm) { kfree(sbi->ibm); sbi->ibm = 0; }
+    t3_bmap_drop(sbi);
     if (sbi->rotor) { kfree(sbi->rotor); sbi->rotor = 0; }
+    if (sbi->gdt_dirty) { kfree(sbi->gdt_dirty); sbi->gdt_dirty = 0; }
     t3_ncache_flush(sbi);
     t3_icache_drop(sbi);
     t3_pcache_drop(sbi);
@@ -1193,26 +1181,17 @@ static int tfs3_init(void *st, const struct block_device *dev, uint64_t size_byt
         t3_vol_go_readonly(sbi, "a committed journal transaction could not be replayed");
     t3_icache_drop(sbi);   // replay rewrote inode tables behind any cache
 
+    // Only the descriptors are read here; a bitmap is read when its group
+    // is first used (tfs3_internal.h), so a mount costs the GDT, not one
+    // read per group -- 8192 of them, 30 s, on a 512 GiB disk.
     sbi->gd = kmalloc(sizeof(struct t3_gd) * sbi->sb.gc);
-    sbi->bbm = kmalloc((size_t)sbi->sb.gc * T3_BLOCK);
-    sbi->ibm = kmalloc((size_t)sbi->sb.gc * T3_BLOCK);
     sbi->rotor = kmalloc(sizeof(uint32_t) * sbi->sb.gc);
-    if (!sbi->gd || !sbi->bbm || !sbi->ibm || !sbi->rotor) { unmount_state(sbi); return -1; }
-    k_memset(sbi->bbm_dirty, 0, sizeof(sbi->bbm_dirty));
-    k_memset(sbi->ibm_dirty, 0, sizeof(sbi->ibm_dirty));
-    k_memset(sbi->gdt_dirty, 0, sizeof(sbi->gdt_dirty));
-    for (uint32_t g = 0; g < sbi->sb.gc; g++) {
-        sbi->rotor[g] = sbi->meta_off;
-        if (!t3_read_block(sbi, t3_group_base(sbi, g), sbi->bbm + (size_t)g * T3_BLOCK) ||
-            !t3_read_block(sbi, t3_group_base(sbi, g) + 1, sbi->ibm + (size_t)g * T3_BLOCK)) {
-            klog_write(KLOG_ERR "tfs3: bitmap read failed -- not mounted\n");
-            unmount_state(sbi);
-            return -1;
-        }
-    }
+    sbi->gdt_dirty = kzalloc((sbi->sb.gc + 7) / 8);
+    if (!sbi->gd || !sbi->rotor || !sbi->gdt_dirty) { unmount_state(sbi); return -1; }
+    for (uint32_t g = 0; g < sbi->sb.gc; g++) sbi->rotor[g] = sbi->meta_off;
     uint32_t bad_gd = 0;
     for (uint32_t tb = 0; tb <= (sbi->sb.gc - 1) / (T3_BLOCK / 16); tb++) {
-        if (!t3_read_block(sbi, sbi->gdt_block + tb, sbi->blk)) { kfree(sbi->gd); sbi->gd = 0; return -1; }
+        if (!t3_read_block(sbi, sbi->gdt_block + tb, sbi->blk)) { unmount_state(sbi); return -1; }
         for (uint32_t i = 0; i < T3_BLOCK / 16; i++) {
             uint32_t g = tb * (T3_BLOCK / 16) + i;
             if (g >= sbi->sb.gc) break;
@@ -1232,11 +1211,19 @@ static int tfs3_init(void *st, const struct block_device *dev, uint64_t size_byt
                     klog_write(KLOG_ERR "tfs3: ...more group descriptors failed -- run fsck\n");
                 }
                 bad_gd++;
+                // ...and as INITIALISED: its bitmaps are read from disk,
+                // which fsck reconciles, rather than derived.
                 sbi->gd[g].free_blocks = 0;
                 sbi->gd[g].free_inodes = 0;
+                sbi->gd[g].flags = 0;
+                sbi->gd[g].itable_used = sbi->sb.ipg;
             } else {
                 sbi->gd[g].free_blocks = rd32(e);
                 sbi->gd[g].free_inodes = rd32(e + 4);
+                // v1/v2 wrote zeros here: initialised, table all in use.
+                uint32_t used = (uint32_t)e[10] | (uint32_t)e[11] << 8;
+                sbi->gd[g].flags = sbi->sb.version >= 3 ? ((uint32_t)e[8] | (uint32_t)e[9] << 8) : 0;
+                sbi->gd[g].itable_used = sbi->sb.version >= 3 && used < sbi->sb.ipg ? used : sbi->sb.ipg;
             }
         }
     }
@@ -1531,7 +1518,7 @@ static int tfs3_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
         // A size that lies is worse than no size at all.
         uint32_t span = t3_group_span(sbi, g);
         uint32_t data = span > sbi->meta_off ? span - sbi->meta_off : 0;
-        for (int j = 0; j < nb; j++) if (groups[j] == g) data -= T3_BACKUP_BLOCKS;
+        for (int j = 0; j < nb; j++) if (groups[j] == g) data -= t3_backup_blocks(sbi);
         total_data += data;
         free_data += sbi->gd[g].free_blocks;
     }
@@ -1558,6 +1545,7 @@ static void *tfs3_state_alloc(void) {
     st->gdt_block = T3_V1_GDT;
     st->jdata_block = T3_V1_JDATA;
     st->jslots = T3_V1_JSLOTS;
+    st->gdt_blocks = T3_GDT_BLOCKS;
     return st;
 }
 

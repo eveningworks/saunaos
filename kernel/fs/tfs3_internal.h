@@ -37,7 +37,7 @@
 #define T3_SECTOR       512u
 #define T3_SB_BLOCK     8u
 #define T3_JH_BLOCK     9u
-#define T3_GDT_BLOCKS   16u             // fixed -- positions derive without a superblock
+#define T3_GDT_BLOCKS   16u             // v1/v2's fixed table, and v3's floor (t3_v3_gdt_blocks())
 #define T3_BPG          32768u          // blocks per group (one 4 KiB bitmap)
 
 // The smallest a group may be. Every group is T3_BPG blocks except
@@ -49,7 +49,8 @@
 #define T3_MIN_GROUP_BLOCKS 512u
 #define T3_INODE_SIZE   128u
 #define T3_INODES_PER_SECTOR (T3_SECTOR / T3_INODE_SIZE)
-#define T3_BACKUP_BLOCKS (T3_GDT_BLOCKS + 1)
+// A backup region is one superblock copy plus a snapshot of the whole
+// descriptor table: t3_backup_blocks(sbi) -- the table is volume-sized in v3.
 #define T3_PTRS_PER_BLOCK (T3_BLOCK / 4u)
 
 // THE ONE STATED MAXIMUM FILE SIZE. The format addresses 12 direct
@@ -107,9 +108,29 @@ static inline int t3_range_fits(uint64_t offset, uint64_t len) {
 #define T3_V2_GDT       (T3_V2_JDATA + T3_V2_JSLOTS)      // 42
 #define T3_V2_GROUP0    (T3_V2_GDT + T3_GDT_BLOCKS)       // 58
 
+// v3 (2026-10-20) keeps v2's journal and makes the descriptor table as
+// big as the volume needs: v2's fixed 16 blocks hold 4096 groups, 512
+// GiB, and format() silently left the rest of a larger disk unused. The
+// table's size is a function of the VOLUME SIZE alone
+// (t3_v3_gdt_blocks()), so the positions still derive with no superblock
+// in hand -- and up to 512 GiB it is 16, v2's exact geometry.
+//
+// v3 also stops formatting what nothing uses yet (ext4's uninit_bg +
+// lazy_itable_init): a group descriptor can say its bitmaps were never
+// written (T3_BG_*_UNINIT -- they are then DERIVED: metadata in use, the
+// rest free) and how much of its inode table has been zeroed
+// (itable_used). A format writes the superblock, journal, descriptors,
+// group 0 and the backups -- a few MiB on any size of disk.
+#define T3_V3_JDATA     T3_V2_JDATA
+#define T3_V3_JSLOTS    T3_V2_JSLOTS
+#define T3_V3_GDT       T3_V2_GDT
+
+#define T3_BG_BLOCK_UNINIT 0x1u  // block bitmap never written: derive it
+#define T3_BG_INODE_UNINIT 0x2u  // inode bitmap never written: all free
+
 #define T3_JSLOTS_MAX   T3_V2_JSLOTS
 
-#define T3_VERSION      2u  // what format() writes
+#define T3_VERSION      3u  // what format() writes
 #define T3_VERSION_MIN  1u  // oldest version this kernel still mounts
 #define T3_INO_ROOT     1u
 
@@ -146,8 +167,24 @@ static inline int t3_range_fits(uint64_t offset, uint64_t len) {
 
 #define T3_SB_READ_RETRIES 3 // same transient-DMA-miss reasoning as TFS2's
 
-// Default bytes-per-inode ratio for format(); tfs3_writer.py mirrors.
+// Bytes-per-inode for format(): mke2fs.conf's ratios -- 16 KiB, 32 KiB
+// ("big") from 4 TiB, 64 KiB ("huge") from 16 TiB. tfs3_writer.py uses the
+// first; it never writes a volume that big.
 #define T3_BYTES_PER_INODE 16384u
+static inline uint32_t t3_bytes_per_inode(uint64_t vol_blocks) {
+    uint64_t bytes = vol_blocks * T3_BLOCK;
+    return bytes >= (16ull << 40) ? 65536u : bytes >= (4ull << 40) ? 32768u : T3_BYTES_PER_INODE;
+}
+
+// v3's descriptor table, in blocks: enough for every group a volume of
+// `vol_blocks` can hold (counted as if group 0 started right after a
+// table of zero size, an upper bound), never fewer than v2's 16.
+static inline uint32_t t3_v3_gdt_blocks(uint32_t vol_blocks) {
+    if (vol_blocks <= T3_V3_GDT) return T3_GDT_BLOCKS;
+    uint32_t gc = (vol_blocks - T3_V3_GDT + T3_BPG - 1) / T3_BPG;
+    uint32_t n = (gc + T3_BLOCK / 16 - 1) / (T3_BLOCK / 16);
+    return n > T3_GDT_BLOCKS ? n : T3_GDT_BLOCKS;
+}
 
 // ---- state --------------------------------------------------------------
 
@@ -165,7 +202,27 @@ struct t3_vol {
     uint64_t sector_count;
 };
 
-struct t3_gd { uint32_t free_blocks, free_inodes; };
+// A descriptor in RAM. On disk (16 bytes): free blocks, free inodes,
+// then -- v3 only, zero in v1/v2 -- flags (16 bits) and itable_used (16
+// bits), and a checksum over the first 12.
+struct t3_gd {
+    uint32_t free_blocks, free_inodes;
+    uint32_t flags;        // T3_BG_*
+    // Inode slots below this are zeroed or real; above it the table was
+    // never written and may hold anything (a previous filesystem's bytes).
+    // A multiple of a table block's slots; sb.ipg for v1/v2.
+    uint32_t itable_used;
+};
+
+#define T3_BMAP_BLOCK 0u
+#define T3_BMAP_INODE 1u
+#define T3_BMAP_KEEP  32u   // clean bitmaps kept per mount: 128 KiB
+struct t3_bmap {
+    uint32_t g, kind;          // which group, T3_BMAP_*
+    uint32_t used;             // bm_tick at the last lookup
+    int dirty;
+    uint8_t *data;             // T3_BLOCK bytes
+};
 
 // ---- PER-MOUNT STATE -----------------------------------------------
 //
@@ -178,7 +235,6 @@ struct t3_gd { uint32_t free_blocks, free_inodes; };
 // outside is shared by every mount, and the symptom is one filesystem's
 // metadata written onto another with no error anywhere. The scratch
 // below is the deliberate exception, and says why.
-#define T3_MAX_GROUPS (T3_GDT_BLOCKS * T3_BLOCK / 16u)
 #define T3_NCACHE 16
 #define T3_NCACHE_NAME 48
 
@@ -253,30 +309,32 @@ struct t3_state {
     // the T3_V1_*/T3_V2_* sets above); they are variables only because
     // two versions are mountable. state_alloc() seeds them with v1's.
     uint32_t group0, gdt_block, jdata_block, jslots;
+    uint32_t gdt_blocks;       // the descriptor table's size: 16, or v3's t3_v3_gdt_blocks()
 
     uint32_t itb;              // inode-table blocks per group
     int mounted_from_backup;   // primary superblock was bad at mount; fsck repair restores it
     uint32_t meta_off;         // first data-ish block offset within a group (2 [+cksum] + itb)
     struct t3_gd *gd;          // free-count caches, sb.gc entries
 
-    // In-RAM copies of every group's block/inode bitmap (sb.gc * 4 KiB
-    // each -- ~284 KiB per cache on the 9 GiB image, the same order as
-    // TFS2's static full-disk bitmap). RAM is the authority during
-    // operation; changed blocks are written through, UNJOURNALED, with
-    // the set-before-use / clear-after-persist ordering that makes a
-    // crash cost a leak, never a double allocation -- TFS2's exact
-    // discipline, inherited deliberately (see the journal section). The
-    // "before" holds only across a BARRIER: a drive may write the
-    // committed journal header ahead of a bitmap it was handed first
-    // (alloc_unfenced).
-    uint8_t *bbm;
-    uint8_t *ibm;
+    // THE BITMAPS ARE CACHED, NOT RESIDENT: a group's block or inode
+    // bitmap is read when an allocation, a free or fsck first touches it,
+    // and a clean one is dropped once T3_BMAP_KEEP are held -- ext2/3's
+    // shape, where only the descriptors stay in memory. Holding every
+    // bitmap was 8 KiB per 128 MiB group, 466 MiB for an 8 TB volume.
+    // Changed bitmaps are written through, UNJOURNALED, with the
+    // set-before-use / clear-after-persist ordering that makes a crash
+    // cost a leak, never a double allocation -- TFS2's exact discipline,
+    // inherited deliberately (see the journal section). The "before" holds
+    // only across a BARRIER: a drive may write the committed journal
+    // header ahead of a bitmap it was handed first (alloc_unfenced). So a
+    // DIRTY entry is never evicted -- only t3_flush_alloc_state() writes
+    // one -- and the cache grows past T3_BMAP_KEEP rather than break that.
+    struct t3_bmap *bm;
+    uint32_t bm_n, bm_cap;     // entries in use, and allocated
+    uint32_t bm_tick;          // LRU clock
+    uint32_t bm_last;          // the entry the last lookup hit: a scan stays in one group
     uint32_t *rotor;           // per-group scan start (ext2's trick)
-
-    // Dirty tracking for the write-through: one bit per group, per cache.
-    uint8_t bbm_dirty[T3_MAX_GROUPS / 8];
-    uint8_t ibm_dirty[T3_MAX_GROUPS / 8];
-    uint8_t gdt_dirty[T3_MAX_GROUPS / 8];
+    uint8_t *gdt_dirty;        // one bit per group: its descriptor needs writing
 
     uint32_t jrn_seq;          // this volume's journal sequence number
 
@@ -484,6 +542,10 @@ int t3_flush_alloc_state(struct t3_state *sbi);
 void t3_free_block_bit(struct t3_state *sbi, uint32_t blk);
 void t3_free_inode_bit(struct t3_state *sbi, uint64_t ino);
 uint32_t t3_group_data_end(struct t3_state *sbi, uint32_t g);
+static inline uint32_t t3_backup_blocks(const struct t3_state *sbi) { return sbi->gdt_blocks + 1; }
+void t3_bbm_default(struct t3_state *sbi, uint32_t g, uint8_t *bm);
+void t3_gd_pack(struct t3_state *sbi, uint32_t g, uint8_t *e);
+int t3_itable_reserve(struct t3_state *sbi, uint32_t g, uint32_t i);
 void t3_ibm_set(struct t3_state *sbi, uint32_t g, uint32_t i, int v);
 int t3_ibm_test(struct t3_state *sbi, uint32_t g, uint32_t i);
 void t3_map_cache_forget(struct t3_state *sbi, uint32_t blk);
@@ -493,6 +555,7 @@ int t3_map_get_or_alloc_tables(struct t3_state *sbi, struct t3_inode *node, uint
 void t3_map_set_block(struct t3_state *sbi, struct t3_inode *node, uint32_t leaf_blk,
                       uint32_t leaf_slot, uint32_t data_blk);
 void t3_mark_dirty(uint8_t *set, uint32_t g);
+void t3_bmap_drop(struct t3_state *sbi);
 void t3_pcache_drop(struct t3_state *sbi);
 int t3_pcache_flush(struct t3_state *sbi);
 void t3_trim_flush(struct t3_state *sbi);

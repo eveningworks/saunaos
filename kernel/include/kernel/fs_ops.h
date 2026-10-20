@@ -62,6 +62,12 @@ static inline void fsck_end(struct fs_check_live *l) {
     if (l) __atomic_store_n(&l->prog.running, 0, __ATOMIC_RELEASE);
 }
 
+// THE FORMAT IN FLIGHT reports through the same record a check does
+// (Disks' stage dialog, `mkfs`'s stage line): a backend's format() asks
+// for it here, NULL when none is being watched. One format runs at a
+// time (fs_format_device() serialises them).
+struct fs_check_live *fs_format_live(void);
+
 // The VFS backend interface -- fs.h's public fs_* API (kapi.h's stable
 // surface, unchanged by any of this) is implemented by vfs.c as a thin
 // dispatch layer over exactly one of these, chosen once in fs_init().

@@ -22,16 +22,33 @@
 // was bad at mount (we ran from a backup) is rewritten -- on repair
 // only, never automatically (see the design doc's backup rules).
 
+// THE MAPS ARE PER GROUP AND ALLOCATED WHEN A GROUP IS FIRST TOUCHED, so
+// a check's memory follows what the volume USES: a whole-volume array was
+// 1 bit per block plus a byte per inode, ~480 MB on an 8 TB disk however
+// empty (e2fsck's sparse bitmaps answer the same problem). A group nothing
+// reaches has no page, and reads as all zero.
 struct t3_fsck {
-    uint8_t *breach;     // block reachability, gc*4096
-    uint8_t *ireach;     // inode reachability, gc*4096
-    uint8_t *names;      // observed name count per inode, u8 saturating
+    uint8_t **breach;    // per group: block reachability, T3_BLOCK bytes
+    uint8_t **ireach;    // per group: inode reachability, T3_BLOCK bytes
+    uint8_t **names;     // per group: observed name count per inode, u8 saturating
+    int nomem;           // a page could not be had: the result is not trustworthy
     struct fs_check_result *r;
     int repair;
     int link_mismatches;
     struct fs_check_live *live;
     int stopped;         // FSCK_STOP was honoured: unwind, report nothing
 };
+
+// Group g's page of `tab`, allocated zeroed on first use; NULL when out
+// of memory (and the pass is then abandoned, not believed).
+static uint8_t *fk_page(struct t3_fsck *fk, uint8_t **tab, uint32_t g, size_t bytes) {
+    if (!tab[g] && !(tab[g] = kzalloc(bytes))) fk->nomem = 1;
+    return tab[g];
+}
+
+static int fk_bit(uint8_t **tab, uint32_t g, uint32_t i) {
+    return tab[g] ? (tab[g][i >> 3] >> (i & 7)) & 1 : 0;
+}
 
 static int fsck_block_ok(struct t3_state *sbi, uint32_t blk) {
     if (blk < sbi->group0 + sbi->meta_off) return 0;
@@ -48,7 +65,9 @@ static int fsck_mark_block(struct t3_state *sbi, struct t3_fsck *fk, uint32_t bl
     if (!fsck_block_ok(sbi, blk)) { fk->r->out_of_range++; return 0; }
     uint32_t idx = blk - sbi->group0;
     uint32_t g = idx / T3_BPG, i = idx % T3_BPG;
-    uint8_t *b = &fk->breach[(size_t)g * T3_BLOCK + (i >> 3)];
+    uint8_t *page = fk_page(fk, fk->breach, g, T3_BLOCK);
+    if (!page) return 0;
+    uint8_t *b = &page[i >> 3];
     if (*b & (1u << (i & 7))) { fk->r->double_allocated++; return 0; }
     *b |= (uint8_t)(1u << (i & 7));
     fk->r->blocks_referenced++;
@@ -106,13 +125,14 @@ static void fsck_walk_inode_blocks(struct t3_state *sbi, struct t3_fsck *fk, uin
 static void fsck_mark_ino(struct t3_state *sbi, struct t3_fsck *fk, uint64_t ino) {
     uint32_t g = (uint32_t)(ino / sbi->sb.ipg), i = (uint32_t)(ino % sbi->sb.ipg);
     if (g >= sbi->sb.gc) return;
-    fk->ireach[(size_t)g * T3_BLOCK + (i >> 3)] |= (uint8_t)(1u << (i & 7));
+    uint8_t *page = fk_page(fk, fk->ireach, g, T3_BLOCK);
+    if (page) page[i >> 3] |= (uint8_t)(1u << (i & 7));
 }
 
 static int fsck_ino_reached(struct t3_state *sbi, struct t3_fsck *fk, uint64_t ino) {
     uint32_t g = (uint32_t)(ino / sbi->sb.ipg), i = (uint32_t)(ino % sbi->sb.ipg);
     if (g >= sbi->sb.gc) return 1;
-    return (fk->ireach[(size_t)g * T3_BLOCK + (i >> 3)] >> (i & 7)) & 1;
+    return fk_bit(fk->ireach, g, i);
 }
 
 // Depth-capped DFS over the directory tree. 32 components is far past
@@ -154,8 +174,9 @@ static void fsck_walk_dir(struct t3_state *sbi, struct t3_fsck *fk, uint64_t dir
                 int is_dotdot = (nl == 2 && dirblk[off + 7] == '.' && dirblk[off + 8] == '.');
                 uint64_t child = e_ino;
                 if (child < (uint64_t)sbi->sb.gc * sbi->sb.ipg) {
-                    uint8_t *nc = &fk->names[child];
-                    if (*nc < 255) (*nc)++;
+                    uint8_t *page = fk_page(fk, fk->names, (uint32_t)(child / sbi->sb.ipg), sbi->sb.ipg);
+                    uint8_t *nc = page ? &page[child % sbi->sb.ipg] : 0;
+                    if (nc && *nc < 255) (*nc)++;
                 }
                 if (is_dot) {
                     if (child != dir_ino) {
@@ -206,8 +227,13 @@ static const struct fsck_stage_desc T3_STAGES[] = {
     { "Check link counts", "inodes" },
 };
 
-// The arrays the pass allocated; every return after them goes through here.
-static void fsck_free(struct t3_fsck *fk) {
+// The maps the pass allocated; every return after them goes through here.
+static void fsck_free(struct t3_fsck *fk, uint32_t gc) {
+    for (uint32_t g = 0; g < gc; g++) {
+        if (fk->breach) kfree(fk->breach[g]);
+        if (fk->ireach) kfree(fk->ireach[g]);
+        if (fk->names) kfree(fk->names[g]);
+    }
     kfree(fk->breach);
     kfree(fk->ireach);
     kfree(fk->names);
@@ -234,21 +260,16 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     fk.r = r;
     fk.repair = repair;
     fk.live = live;
-    size_t bmbytes = (size_t)sbi->sb.gc * T3_BLOCK;
-    uint64_t total_inodes = (uint64_t)sbi->sb.gc * sbi->sb.ipg;
-    fk.breach = kmalloc(bmbytes);
-    fk.ireach = kmalloc(bmbytes);
-    fk.names = kmalloc((size_t)total_inodes);
+    uint32_t gc = sbi->sb.gc;
+    uint64_t total_inodes = (uint64_t)gc * sbi->sb.ipg;
+    fk.breach = kzalloc(sizeof(uint8_t *) * gc);
+    fk.ireach = kzalloc(sizeof(uint8_t *) * gc);
+    fk.names = kzalloc(sizeof(uint8_t *) * gc);
     if (!fk.breach || !fk.ireach || !fk.names) {
         klog_write("tfs3 fsck: not enough memory for the reachability maps -- not checked\n");
-        if (fk.breach) kfree(fk.breach);
-        if (fk.ireach) kfree(fk.ireach);
-        if (fk.names) kfree(fk.names);
+        fsck_free(&fk, 0);
         return 0;
     }
-    k_memset(fk.breach, 0, bmbytes);
-    k_memset(fk.ireach, 0, bmbytes);
-    k_memset(fk.names, 0, (size_t)total_inodes);
 
     fsck_begin(live, repair, T3_STAGES, 3);
     uint64_t in_use = total_inodes;
@@ -256,7 +277,13 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
     fsck_stage(live, 0, (uint32_t)in_use);
     fsck_mark_ino(sbi, &fk, T3_INO_ROOT);
     fsck_walk_dir(sbi, &fk, T3_INO_ROOT, T3_INO_ROOT, 0);
-    if (fk.stopped) { fsck_free(&fk); fsck_end(live); return -ECANCELED; }
+    if (fk.nomem) {
+        klog_write("tfs3 fsck: ran out of memory for the reachability maps -- not checked\n");
+        fsck_free(&fk, gc);
+        fsck_end(live);
+        return 0;
+    }
+    if (fk.stopped) { fsck_free(&fk, gc); fsck_end(live); return -ECANCELED; }
 
     fsck_stage(live, 1, sbi->sb.gc);
 
@@ -267,10 +294,23 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         uint32_t end = t3_group_data_end(sbi, g);
         uint32_t free_b = 0;
         uint32_t leak_run_start = 0, leak_run_len = 0;
-        for (uint32_t i = 0; i < T3_BPG; i++) {
+        // A group whose bitmap was never written and that nothing reaches
+        // agrees with itself by construction: every data block free.
+        int untouched_b = (sbi->gd[g].flags & T3_BG_BLOCK_UNINIT) && !fk.breach[g];
+        if (untouched_b) free_b = end > sbi->meta_off ? end - sbi->meta_off : 0;
+        for (uint32_t i = 0; i < T3_BPG && !untouched_b; i++) {
             int alloc = t3_bbm_test(sbi, g, i);
-            if (i < sbi->meta_off || i >= end) continue; // format-owned
-            int reach = (fk.breach[(size_t)g * T3_BLOCK + (i >> 3)] >> (i & 7)) & 1;
+            if (i < sbi->meta_off || i >= end) {
+                // Format-owned: the group's metadata, a backup region,
+                // blocks past the volume's end. Always in use -- a clear
+                // bit here would hand out a bitmap or the table.
+                if (!alloc) {
+                    r->referenced_but_free++;
+                    if (repair) { t3_bbm_set(sbi, g, i, 1); r->marked_allocated++; }
+                }
+                continue;
+            }
+            int reach = fk_bit(fk.breach, g, i);
             if (alloc && !reach) {
                 r->leaked++;
                 if (repair) {
@@ -290,10 +330,12 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
 
         // Inode bitmap + free counts: reconcile, repair-only writes.
         uint32_t free_i = 0;
-        for (uint32_t i = 0; i < sbi->sb.ipg; i++) {
+        int untouched_i = (sbi->gd[g].flags & T3_BG_INODE_UNINIT) && !fk.ireach[g];
+        if (untouched_i) free_i = sbi->sb.ipg;
+        for (uint32_t i = 0; i < sbi->sb.ipg && !untouched_i; i++) {
             uint64_t ino = (uint64_t)g * sbi->sb.ipg + i;
             int alloc = t3_ibm_test(sbi, g, i);
-            int reach = (fk.ireach[(size_t)g * T3_BLOCK + (i >> 3)] >> (i & 7)) & 1;
+            int reach = fk_bit(fk.ireach, g, i);
             if (g == 0 && i == 0) { free_i += !alloc; continue; } // ino 0 reserved
             if (alloc && !reach) {
                 // An orphaned inode is the inode-space leak. Reported
@@ -323,17 +365,23 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         }
         if (fsck_step(live, g + 1, r)) { fk.stopped = 1; break; }
     }
-    if (fk.stopped) { fsck_free(&fk); fsck_end(live); return -ECANCELED; }
-    fsck_stage(live, 2, (uint32_t)total_inodes);
+    if (fk.stopped) { fsck_free(&fk, gc); fsck_end(live); return -ECANCELED; }
+    uint32_t named = 0;
+    for (uint32_t g = 0; g < gc; g++) named += fk.names[g] != 0;
+    fsck_stage(live, 2, named * sbi->sb.ipg);
 
     // Link counts: observed names vs stored counts. A directory's
     // observed count from the walk is its own dirent + `.` + each
     // child's `..`, which is exactly the 2+subdirs rule -- so one
-    // comparison covers both types.
-    for (uint64_t ino = 1; ino < total_inodes; ino++) {
-        if (!(ino & 255) && fsck_step(live, (uint32_t)ino, r)) { fk.stopped = 1; break; }
+    // comparison covers both types. Only groups something named.
+    uint32_t walked = 0;
+    for (uint64_t ino = 1; ino < total_inodes && !fk.stopped; ino++) {
+        uint32_t g = (uint32_t)(ino / sbi->sb.ipg), i = (uint32_t)(ino % sbi->sb.ipg);
+        if (!fk.names[g]) { ino = (uint64_t)(g + 1) * sbi->sb.ipg - 1; continue; }
+        if (!(++walked & 255) && fsck_step(live, walked, r)) { fk.stopped = 1; break; }
+        uint8_t nm = fk.names[g][i];
         if (!fsck_ino_reached(sbi, &fk, ino) && ino != T3_INO_ROOT) continue;
-        if (!fk.names[ino] && ino != T3_INO_ROOT) continue;
+        if (!nm && ino != T3_INO_ROOT) continue;
         struct t3_inode node;
         if (!t3_read_inode(sbi, ino, &node)) continue;
         // One rule covers files, dirs AND the root: names[] counted
@@ -342,8 +390,8 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         // the root lacks a parent entry but its own `..` points at
         // itself, which restores the same total. Files get their
         // hardlink count.
-        uint16_t want = fk.names[ino];
-        if (node.links != want && fk.names[ino] < 255) {
+        uint16_t want = nm;
+        if (node.links != want && nm < 255) {
             fk.link_mismatches++;
             r->links_wrong++;
             klog_write("tfs3 fsck: inode "); klog_write_dec((uint32_t)ino);
@@ -375,7 +423,7 @@ int tfs3_check(void *st, int repair, struct fs_check_result *out, struct fs_chec
         }
     }
 
-    fsck_free(&fk);
+    fsck_free(&fk, gc);
     fsck_end(live);
     return fk.stopped ? -ECANCELED : 1;
 }

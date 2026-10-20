@@ -91,6 +91,15 @@ int sys_mkfs(struct syscall_ctx *c) {
     req.source[MOUNT_SOURCE_MAX - 1] = '\0';
     req.fstype[MOUNT_FSTYPE_MAX - 1] = '\0';
 
+    if (req.flags == MKFS_PROGRESS) {
+        const struct block_device *dev = NULL;
+        struct fs_check_progress prog;
+        int rc = req.source[0] && source_device(req.source, &dev) && dev ? fs_format_progress(dev, &prog) : -EINVAL;
+        if (!rc && !vmm_copy_to_user(c->pml4, c->a1, &prog, sizeof prog)) rc = -EFAULT;
+        c->regs[14] = (uint64_t)(int64_t)rc;
+        return 0;
+    }
+
     if (!(req.flags & MKFS_CONFIRM)) {
         klog_write(KLOG_ERR "mkfs: refused without MKFS_CONFIRM\n");
         c->regs[14] = (uint64_t)(int64_t)-EPERM;

@@ -43,17 +43,17 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 def probe(disk, base_lba=0):
     """'tfs3', or None (blank/unknown). Reads at the VOLUME's base.
 
-    Any TFS3 format version claims the image -- the writer reads both
-    v1 (four journal slots) and v2 (32), and picking a version here
-    would make a v2 image look BLANK and get reformatted, which is the
-    one outcome this probe exists to prevent.
+    Any TFS3 format version claims the image -- the writer reads v1
+    (four journal slots) and v2 (32) and refuses v3 by name -- and
+    picking a version here would make a newer image look BLANK and get
+    reformatted, which is the one outcome this probe exists to prevent.
 
     """
     at = base_lba * 512
     with open(disk, "rb") as f:
         f.seek(at + 8 * 4096)   # block 8 -- TFS3's superblock
         blk8 = f.read(5)
-    if blk8[:4] == b"TFS3" and 1 <= blk8[4] <= 2:
+    if blk8[:4] == b"TFS3" and 1 <= blk8[4] <= 3:
         return "tfs3"
     return None
 

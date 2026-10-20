@@ -179,6 +179,11 @@ def parse_superblock(sec: bytes):
      group0) = struct.unpack("<4sBBHIIIII", body[:28])
     cksum = struct.unpack("<I", sec[44:48])[0]
     if magic != MAGIC or not (VERSION_MIN <= ver <= VERSION):
+        if magic == MAGIC and ver == 3 and fnv1a(body) == cksum:
+            # The kernel's lazy, volume-sized format (kernel/fs/tfs3_internal.h).
+            # Refused BY NAME: read as "not TFS3" it would be reformatted.
+            raise SystemExit("tfs3_writer: a v3 volume (formatted by a toy-os kernel) -- "
+                             "this tool reads and writes v1/v2; `make clean-disk` reseeds a v2 image")
         return None
     if fnv1a(body) != cksum:
         return None

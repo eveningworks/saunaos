@@ -430,6 +430,9 @@ int fs_format_backend(const char *name);
 // that failed.
 struct block_device;
 int fs_format_device(const struct block_device *dev, const char *fstype);
+// How far the format running on `dev` has got: 0 and `out` filled, or
+// -ESRCH when none is. Takes no lock the format holds.
+int fs_format_progress(const struct block_device *dev, struct fs_check_progress *out);
 
 // 1 if the active backend found (or formatted) a usable disk via
 // ata.c, so every fs_touch()/fs_write()/fs_mkdir()/fs_delete() above is

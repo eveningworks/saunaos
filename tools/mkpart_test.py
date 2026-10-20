@@ -530,7 +530,7 @@ def is_tfs3(path, base_lba):
     with open(path, "rb") as f:
         f.seek(base_lba * SECTOR + 8 * 4096)
         blk = f.read(5)
-    return len(blk) == 5 and blk[:4] == b"TFS3" and 1 <= blk[4] <= 2
+    return len(blk) == 5 and blk[:4] == b"TFS3" and 1 <= blk[4] <= 3
 
 
 def volume_of(path):

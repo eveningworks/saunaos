@@ -4076,3 +4076,66 @@ the recogniser and to Windows. `mount_wipe_others()` only knows toy-os's
 backends. 128 KiB covers every signature the recogniser reads (Btrfs's
 is the deepest, at 64 KiB). A whole disk is never wiped: those sectors
 are its partition table.
+
+## tfs3 v3: a volume-sized descriptor table, groups written when first used, bitmaps cached
+
+**Decision (2026-10-20).** The kernel formats tfs3 **v3**. Its group
+descriptor table is sized from the volume (16 blocks up to 512 GiB,
+v2's layout exactly; 233 for 8 TB); a group nothing has used carries
+`BLOCK_UNINIT`/`INODE_UNINIT` and an inode-table high-water mark
+instead of written bitmaps and a zeroed table; and every volume of
+every version keeps its bitmaps in a small cache rather than all in
+RAM. Disks and `mkfs` show the format's three stages.
+
+**What happened.** An 8 TB SATA disk in the Kaby Lake desktop,
+formatted tfs3 from Disks: 87 s with nothing on screen, then a 507.9
+GiB filesystem -- the fixed 16-block table holds 4096 descriptors, and
+format() clamped the group count and said nothing. Mounting it read
+8192 bitmap blocks one at a time (30 s, the desktop frozen 23 s
+meanwhile) and held them all, 64 MiB; the whole disk would have been
+466 MiB of bitmaps and some 20 minutes of zeroing inode tables.
+
+**What real systems do.** ext4 sizes its descriptor table to the
+volume (with reserved GDT blocks for online growth), and since
+`uninit_bg` and `lazy_itable_init` its mkfs writes almost nothing per
+group: an unused group's bitmaps are computed, and its inode table is
+zeroed later by the `ext4lazyinit` kernel thread, while the
+descriptor's `itable_unused` keeps e2fsck from reading slots that were
+never written. ext2/3 never held bitmaps resident: only the
+descriptors are pinned, and a bitmap is a buffer-cache block read when
+an allocation touches its group. mke2fs's "big" and "huge" types
+lower the inode density from 4 and 16 TiB.
+
+**Why the table's size is a function of the volume, not a field.** The
+fixed table existed so a reader whose primary superblock is unreadable
+can find the backups by arithmetic. A size computed from the volume
+alone keeps that; a size read from the superblock would not.
+
+**Why a high-water mark, and no background zeroing.** ext4's lazy
+thread exists so that, eventually, every table is zeroed and an old
+filesystem's inodes cannot be mistaken for live ones. A mark that only
+ever rises, with a slot at or above it read as no inode, gives the same
+guarantee from the first moment and needs no thread: allocating a slot
+past the mark zeroes up to it first. The cost is one 4 KiB write per
+32 new inodes in a fresh group.
+
+**Why a cache that never evicts a dirty bitmap.** Bitmaps are written
+through, unjournaled, under set-before-use and clear-after-persist,
+and the barrier before each commit is what makes "before" true. An
+eviction that wrote a dirty bitmap would be a write outside that
+ordering. So only the flush writes one; the cache keeps 32 clean
+bitmaps and grows past that only while dirty ones are pinned, and
+memory follows the volume's size by 8 bytes a group, not 8 KiB. The
+cache is not a format change, so v1 and v2 volumes have it too.
+
+**Why `fsck`'s maps went per group.** One bit per block plus a byte
+per inode for the whole volume was ~480 MB on 8 TB, empty or not.
+Allocating a group's page when something in it is first reached makes
+a check's memory follow what the volume uses -- e2fsck's sparse
+bitmaps answer the same problem.
+
+**Why the host writer stays on v2.** `tools/tfs3_writer.py` seeds
+images of a few GiB, where v3's layout is v2's anyway; teaching it the
+lazy rules would be a second implementation to keep in lockstep for no
+image it makes. It refuses a v3 volume by name, so the seeder can never
+mistake one for blank and reformat it.

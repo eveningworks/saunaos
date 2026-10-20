@@ -650,7 +650,7 @@ static struct t3_state *g_order_sbi;
 static int g_order_commits, g_order_alloc_writes, g_order_bad;
 
 static int is_alloc_block(struct t3_state *sbi, uint32_t b) {
-    if (b >= sbi->gdt_block && b < sbi->gdt_block + T3_GDT_BLOCKS) return 1;
+    if (b >= sbi->gdt_block && b < sbi->gdt_block + sbi->gdt_blocks) return 1;
     for (uint32_t g = 0; g < sbi->sb.gc; g++)
         if (b == t3_group_base(sbi, g) || b == t3_group_base(sbi, g) + 1) return 1;
     return 0;
