@@ -179,9 +179,30 @@ static int register_class(struct w16 *w, struct w16_args *a) {
 
 // --- sending ----------------------------------------------------------------------
 
+// WH_CALLWNDPROC's hook, told of a sent message before its window hears it:
+// (HC_ACTION, sent by this task, a CWPSTRUCT -- lParam, wParam, message, hwnd).
+static void call_wndproc_hook(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wp, uint32_t lp) {
+    uint32_t hook = w16_hook(WH_CALLWNDPROC);
+    if (!hook) return;
+    uint16_t at = w16_sys_push(w, 10);
+    if (w->cpu.fault) return;
+    uint8_t cwp[10];
+    memcpy(cwp, &lp, 4);
+    memcpy(cwp + 4, &wp, 2);
+    memcpy(cwp + 6, &msg, 2);
+    memcpy(cwp + 8, &hwnd, 2);
+    memcpy(w->sysmem + at, cwp, sizeof cwp);
+    const uint16_t words[] = { 0, 1, w->sysdata, at };
+    w16_call_far(w, (uint16_t)(hook >> 16), (uint16_t)hook, words, 4);
+    w16_sys_pop(w, at);
+}
+
 uint32_t w16_send(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wp, uint32_t lp) {
     struct w16_wnd *x = w16_wnd_get(w, hwnd);
     if (!x || w->cpu.fault) return 0;
+    call_wndproc_hook(w, hwnd, msg, wp, lp);
+    // Read again: the hook may have subclassed it (MFC does, on its first message).
+    if (!(x = w16_wnd_get(w, hwnd)) || w->cpu.fault) return 0;
     if (x->host) return x->host(w, x, msg, wp, lp);
     return w16_call_wndproc(w, x->proc_sel, x->proc_off, hwnd, msg, wp, lp);
 }
@@ -189,6 +210,19 @@ uint32_t w16_send(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wp, uint3
 void w16_notify(struct w16 *w, struct w16_wnd *x, uint16_t code) {
     if (x->kind == W16_K_CHILD)
         w16_send(w, x->parent, WM_COMMAND, x->id, (uint32_t)code << 16 | x->hwnd);
+}
+
+uint32_t w16_host_proc_far(struct w16 *w, int cls) {
+    return (uint32_t)w16_thunk_sel(w, W16_HOST_MODULE) << 16 | (uint16_t)cls;
+}
+
+int w16_host_proc_call(struct w16 *w, unsigned cls, struct w16_args *a) {
+    uint16_t hwnd = w16_arg16(a), msg = w16_arg16(a), wp = w16_arg16(a);
+    uint32_t lp = w16_arg32(a);
+    struct w16_wnd *x = w16_wnd_get(w, hwnd);
+    uint32_t r = x && cls < (unsigned)w->ncls && w->cls[cls].host ? w->cls[cls].host(w, x, msg, wp, lp) : 0;
+    set_result(&w->cpu, r);
+    return w->cpu.fault ? -1 : 10;
 }
 
 // --- the main window ------------------------------------------------------------
@@ -248,8 +282,31 @@ static int create_main(struct w16 *w, int k, const char *title, uint32_t style, 
     uint16_t hm = menu ? menu : w->cls[k].menu || w->cls[k].menu_id
                                 ? w16_load_menu(w, w->cls[k].menu, w->cls[k].menu_id) : 0;
     if (hm) w16_set_menu(w, hm);
-    uint32_t r = w16_send(w, win->hwnd, WM_CREATE, 0, lp);
+    // Windows' order before WM_CREATE: WM_GETMINMAXINFO, WM_NCCREATE (0
+    // refuses the window), WM_NCCALCSIZE. MFC's hook attaches its C++ object
+    // on the first of them, so none may be left out.
+    uint16_t mm = w16_sys_push(w, 20);
+    if (c->fault) return -1;
+    int16_t mmi[10] = { 0, 0, 640 + 2 * W16_FRAME, 480 + 2 * W16_FRAME, -W16_FRAME, -W16_FRAME,
+                        120, 2 * W16_FRAME + W16_CAPTION + 1, 640 + 2 * W16_FRAME, 480 + 2 * W16_FRAME };
+    memcpy(w->sysmem + mm, mmi, sizeof mmi);
+    w16_send(w, win->hwnd, 0x0024, 0, (uint32_t)w->sysdata << 16 | mm);      // WM_GETMINMAXINFO
+    w16_sys_pop(w, mm);
+    uint32_t r = c->fault ? 0 : w16_send(w, win->hwnd, WM_NCCREATE, 0, lp);
+    if (r) {
+        uint16_t rc = w16_sys_push(w, 8);
+        int16_t wr[4] = { 0, 0, (int16_t)win->w, (int16_t)win->h };
+        if (!c->fault) {
+            memcpy(w->sysmem + rc, wr, sizeof wr);
+            w16_send(w, win->hwnd, WM_NCCALCSIZE, 0, (uint32_t)w->sysdata << 16 | rc);
+            w16_sys_pop(w, rc);
+        }
+        r = c->fault ? 0xFFFFFFFFu : w16_send(w, win->hwnd, WM_CREATE, 0, lp);
+    } else {
+        r = 0xFFFFFFFFu;
+    }
     w16_sys_pop(w, at);
+    if (c->fault) return -1;
     if (r == 0xFFFFFFFFu) {
         win->used = 0;
         return 0;
@@ -857,6 +914,53 @@ static int api_LoadString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w16_user_loadstring(w, a);
 }
 
+// CreateWindowEx(dwExStyle, ...CreateWindow's...): no extended style
+// changes anything w16 draws yet
+static int api_CreateWindowEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg32(a);
+    int r = create_window(w, a);
+    return r < 0 ? r : 34;
+}
+
+// CallWindowProc(lpPrevWndFunc, hwnd, msg, wParam, lParam): a far call to
+// it -- a W16HOST pointer lands in the C procedure (w16_host_proc_call)
+static int api_CallWindowProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t fn = w16_arg32(a);
+    uint16_t hwnd = w16_arg16(a), msg = w16_arg16(a), wp = w16_arg16(a);
+    uint32_t lp = w16_arg32(a);
+    set_result(&w->cpu, w16_call_wndproc(w, (uint16_t)(fn >> 16), (uint16_t)fn, hwnd, msg, wp, lp));
+    return w->cpu.fault ? -1 : 14;
+}
+
+// GetClassInfo(hInstance, lpClassName, lpWndClass): a WNDCLASS of a
+// registered class -- w16's own answer their W16HOST procedure, so a
+// program may superclass one (register its own on top, passing on)
+static int api_GetClassInfo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t inst = w16_arg16(a);
+    uint32_t cname = w16_arg32(a), out = w16_arg32(a);
+    char *name = class_name(w, cname);
+    int k = name ? w16_class_find(w, name) : -1;
+    free(name);
+    w->cpu.r[R_AX] = 0;
+    if (k < 0) return w->cpu.fault ? -1 : 10;
+    const struct w16_class *cl = &w->cls[k];
+    uint32_t proc = cl->host ? w16_host_proc_far(w, k) : (uint32_t)cl->proc_sel << 16 | cl->proc_off;
+    uint8_t wc[26] = { 0 };
+    uint16_t v16;
+    v16 = cl->style;       memcpy(wc, &v16, 2);
+    memcpy(wc + 2, &proc, 4);
+    v16 = cl->wnd_extra;   memcpy(wc + 8, &v16, 2);
+    v16 = cl->host ? 0 : inst; memcpy(wc + 10, &v16, 2);
+    v16 = cl->background;  memcpy(wc + 16, &v16, 2);
+    memcpy(wc + 22, &cname, 4);                  // lpszClassName: the caller's own string
+    if (put_bytes(w, out, wc, sizeof wc) < 0) return -1;
+    w->cpu.r[R_AX] = 1;
+    return 10;
+}
+
 // CreateWindow
 static int api_CreateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -1001,12 +1105,19 @@ int w16_cursor_shape(uint16_t h) {
     }
 }
 
-// LoadCursor(hInst, lpName), LoadIcon: a handle to nothing yet
+// LoadCursor(hInst, lpName): a WIN_CURSOR_* shape's handle. LoadIcon: a
+// module's icon (w16_icon_handle), else a handle to Windows' own, not drawn yet
 static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint16_t inst = w16_arg16(a);
     uint32_t name = w16_arg32(a);
-    if (ordinal == 174) c->r[R_AX] = (uint16_t)(0x4000 | ordinal);
+    uint16_t icon = 0;
+    if (ordinal == 174 && inst) {
+        char s[32] = "";
+        if ((name >> 16) && cpu16_str(c, (uint16_t)(name >> 16), (uint16_t)name, s, sizeof s) < 0) return -1;
+        icon = w16_icon_handle(w16_module_of(w, inst), (name >> 16) ? 0 : (uint16_t)name, s[0] ? s : 0);
+    }
+    if (ordinal == 174) c->r[R_AX] = icon ? icon : (uint16_t)(0x4000 | ordinal);
     else if (!inst && !(name >> 16) && (name & 0xFF00) == 0x7F00) c->r[R_AX] = (uint16_t)(CURSOR_BASE | (name & 0xFF));
     else c->r[R_AX] = CURSOR_OWN;
     return 6;
@@ -1100,13 +1211,21 @@ static uint32_t window_field(struct w16 *w, struct w16_wnd *x, int index, int by
         return old;
     case GWL_EXSTYLE:
         return 0;
-    case GWL_WNDPROC:
-        // A program subclassing w16's own control gets a pointer it can
-        // never call back through (no CallWindowProc yet): refuse it.
-        if (x->host) return 0;
-        old = (uint32_t)x->proc_sel << 16 | x->proc_off;
-        if (set) { x->proc_sel = (uint16_t)(v >> 16); x->proc_off = (uint16_t)v; }
+    case GWL_WNDPROC: {
+        // w16's own control answers its class's W16HOST far pointer, which
+        // CallWindowProc (or a far call) takes back to the C procedure: a
+        // program may subclass an EDIT and pass on what it does not handle.
+        uint32_t host = x->cls >= 0 && x->cls < w->ncls && w->cls[x->cls].host ? w16_host_proc_far(w, x->cls) : 0;
+        old = x->host ? host : (uint32_t)x->proc_sel << 16 | x->proc_off;
+        if (set && host && v == host) {
+            x->host = w->cls[x->cls].host;
+        } else if (set) {
+            x->host = 0;
+            x->proc_sel = (uint16_t)(v >> 16);
+            x->proc_off = (uint16_t)v;
+        }
         return old;
+    }
     case GWW_HINSTANCE:
         return x->inst;
     case GWW_HWNDPARENT:
@@ -1204,6 +1323,7 @@ const struct w16_api g_user_api[] = {
     { 113, api_TranslateMessage },
     { 114, api_DispatchMessage },
     { 118, api_RegisterWindowMessage },
+    { 122, api_CallWindowProc },
     { 124, api_UpdateWindow },
     { 125, api_InvalidateRect },
     { 127, api_ValidateRect },
@@ -1217,6 +1337,8 @@ const struct w16_api g_user_api[] = {
     { 179, api_GetSystemMetrics },
     { 232, api_SetWindowPos },
     { 277, api_GetDlgCtrlID },
+    { 404, api_GetClassInfo },
+    { 452, api_CreateWindowEx },
 };
 const unsigned g_user_api_n = sizeof g_user_api / sizeof g_user_api[0];
 

@@ -201,6 +201,47 @@ static int api_EnableMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *
     return 6;
 }
 
+// GetMenuState(hMenu, id, flags) -> the item's MF_* flags (a popup's
+// item count in the high byte), or -1
+static int api_GetMenuState(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a), id = w16_arg16(a), flags = w16_arg16(a);
+    pthread_mutex_lock(&w->lock);
+    struct w16_mi *it = find(h, id, flags);
+    int r = -1;
+    if (it) {
+        struct w16_hmenu *sub = (it->flags & MF_POPUP) ? menu_of(it->sub) : 0;
+        r = (it->flags & (MF_GRAYED | MF_DISABLED | MF_CHECKED | MF_POPUP)) | (it->flags & MF_SEP ? 0x0800 : 0);
+        if (sub) r = (r & 0xFF) | (sub->n & 0xFF) << 8;
+    }
+    pthread_mutex_unlock(&w->lock);
+    w->cpu.r[R_AX] = (uint16_t)r;
+    return 6;
+}
+
+// GetMenuItemCount(hMenu) -> its items, or -1
+static int api_GetMenuItemCount(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *m = menu_of(h);
+    w->cpu.r[R_AX] = (uint16_t)(m ? m->n : -1);
+    pthread_mutex_unlock(&w->lock);
+    return 2;
+}
+
+// GetMenuItemID(hMenu, nPos) -> the item's command id; -1 for a popup or none
+static int api_GetMenuItemID(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a), pos = w16_arg16(a);
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *m = menu_of(h);
+    int r = m && pos < m->n && !(m->it[pos].flags & MF_POPUP) ? m->it[pos].id : -1;
+    pthread_mutex_unlock(&w->lock);
+    w->cpu.r[R_AX] = (uint16_t)r;
+    return 4;
+}
+
 // GetSystemMenu(hwnd, bRevert): the control menu is w16's own
 static int api_GetSystemMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -344,6 +385,9 @@ const struct w16_api g_menu_api[] = {
     { 160, api_DrawMenuBar },
     { 177, api_LoadAccelerators },
     { 178, api_TranslateAccelerator },
+    { 250, api_GetMenuState },
+    { 263, api_GetMenuItemCount },
+    { 264, api_GetMenuItemID },
 };
 const unsigned g_menu_api_n = sizeof g_menu_api / sizeof g_menu_api[0];
 

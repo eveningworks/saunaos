@@ -19,6 +19,9 @@
 //   dialog16.c        DialogBox, CreateDialog and the dialog manager,
 //                     MessageBox (task thread)
 //   dlgwin16.c        a dialog's own toywm window: its 3.1 frame (main thread)
+//   module16.c        binding an image to Windows' modules; a program's own
+//                     DLLs (LoadLibrary, GetProcAddress)
+//   ddeml16.c         DDEML, mmsystem16.c MMSYSTEM: stand-ins (no peer, no wave device)
 //
 // TWO THREADS. The program -- interpreter, message loop, GDI -- runs on
 // the TASK thread, so a modal loop inside a window procedure simply
@@ -197,12 +200,14 @@ struct w16_lblock {
 
 // A GDI object (gdi16.c). A DC's drawing state lives in it; a bitmap's
 // pixels are 32-bit, `mono` for a 1-bit one (black or white only).
-enum { GDI_FREE, GDI_PEN, GDI_BRUSH, GDI_BITMAP, GDI_DC, GDI_FONT };
+enum { GDI_FREE, GDI_PEN, GDI_BRUSH, GDI_BITMAP, GDI_DC, GDI_FONT, GDI_REGION };
 struct w16_gdiobj {
     uint8_t type;
     uint32_t color;               // pen, brush: a COLORREF
-    uint16_t style, width;        // pen, brush
-    int bw, bh, mono;             // bitmap
+    uint16_t style, width;        // pen, brush; a hatched brush's HS_* is `width`
+    int16_t rgn[4];               // region: its bounding rectangle...
+    uint8_t complex;              // ...and whether it is more than that rectangle
+    int bw, bh, mono;             // bitmap; a pattern brush's 8x8 in px (mono: 0 and 1)
     uint32_t *px;
     uint16_t in_dc;               // bitmap: the DC it is selected into
     struct w16_logfont *lf;       // font: what CreateFont asked for, allocated
@@ -289,6 +294,8 @@ struct w16_wnd {
     void *ctl;                    // a built-in class's own state, freed with the window
     int destroyed;                // WM_DESTROY was sent
     uint16_t font;                // the HFONT a built-in control draws in (WM_SETFONT); 0 the System font
+    int has_ctl_bg;               // its parent answered WM_CTLCOLOR before this paint...
+    uint32_t ctl_bg;              // ...with this brush's colour, a pixel
 
     // A dialog's; the rest under `lock`.
     uint32_t dlgproc;             // the program's DLGPROC, a far pointer...
@@ -304,14 +311,37 @@ struct w16_wnd {
     int menubar;                  // the main window has a menu bar (SetMenu); under `lock`
 };
 
+// A local heap (mem16.c): the program's, or a DLL's in its own DGROUP.
+struct w16_lheap {
+    struct w16_lblock *blk;                      // its blocks in address order, grown
+    int n, cap;
+    uint32_t end;                                // where it ends: it grows toward 64 KiB
+    uint16_t *h;                                 // every moveable handle's entry
+    int nh;
+};
+
+// A program's own DLL, loaded (module16.c).
+struct w16_dll {
+    char name[16];                               // its module name, upper case
+    char *path;                                  // the host file
+    uint8_t *img;
+    uint32_t size;
+    struct ne_module ne;
+    uint16_t seg_sel[NE_MAX_SEGMENTS + 1];
+    uint16_t dgroup;                             // 0: it has no data segment
+    uint16_t hinst;                              // its DGROUP, else its first segment
+    struct w16_lheap heap;
+    int refs;
+    int broken;                                  // it failed to load: kept so it is not tried again
+    int pending;                                 // bound at the program's load: LibEntry still to run
+};
+
 struct w16 {
     const char *path;
     struct ne_module ne;
     struct cpu16 cpu;
     struct cpu16_desc *desc;
     uint16_t seg_sel[NE_MAX_SEGMENTS + 1];       // NE segment n -> its selector
-    uint16_t thunk_sel[NE_MAX_MODULES + 1];      // module reference -> its thunk selector
-    char modname[NE_MAX_MODULES + 1][16];
     uint16_t dgroup, psp, sysdata;               // sysdata: what w16 hands the program
     uint8_t *sysmem;
     unsigned sys_top;                            // w16_sys_push()'s stack
@@ -341,13 +371,11 @@ struct w16 {
     int pending_end;                             // W16_POST_DONE or _FAULT posted before it was up
     char missing[64];                            // "USER.171 (WinHelp)": the call that is not there
 
-    struct {                                     // the local heap (mem16.c)
-        struct w16_lblock *blk;                  // its blocks in address order, grown
-        int n, cap;
-        uint32_t end;                            // where it ends: it grows toward 64 KiB
-        uint16_t *h;                             // every moveable handle's entry
-        int nh;
-    } lheap;
+    struct w16_lheap lheap;                      // the local heap of `dgroup` (mem16.c)
+    struct w16_dll **dlls;                       // module16.c: the program's own DLLs, grown
+    int ndlls;
+    struct { uint16_t sel; char name[16]; } *thunks;   // a Windows module's thunk selector each
+    int nthunks;
     uint16_t res_sel[W16_MAX_RES];               // a loaded resource's global block
     struct w16_gdiobj gdi[W16_GDI_MAX];          // gdi16.c; handle = GDI_BASE + 4 * index
     int fb_dirty;                                // a window DC drew: post a repaint
@@ -488,6 +516,14 @@ uint32_t w16_dispatch(struct w16 *w, const struct w16_msg *m);
 void w16_paint_now(struct w16 *w);                // every WM_PAINT owed, sent now
 // SendMessage: the window's procedure called now, the program's or w16's.
 uint32_t w16_send(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wp, uint32_t lp);
+#define WH_CALLWNDPROC 4
+uint32_t w16_hook(int id);                        // the hook procedure set for WH_* `id`, 0 none
+// w16's OWN window procedures as far pointers a program can hold and call
+// (GetWindowLong(GWL_WNDPROC), GetClassInfo): the thunk module W16HOST, its
+// "ordinal" the class index; a call lands in w16_host_proc_call().
+#define W16_HOST_MODULE "W16HOST"
+uint32_t w16_host_proc_far(struct w16 *w, int cls);
+int w16_host_proc_call(struct w16 *w, unsigned cls, struct w16_args *a);
 uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, uint32_t lp);
 // A control telling its parent: WM_COMMAND(id, MAKELONG(hwnd, code)).
 void w16_notify(struct w16 *w, struct w16_wnd *x, uint16_t code);
@@ -679,6 +715,33 @@ int w16_cursor_shape(uint16_t hcursor);
 int w16_vk_of(int key);                           // a key's VK_* code, 0 for none
 void w16_dlgwin_redraw_all(struct w16 *w);       // every open dialog shows its buffer again
 
+// --- module16.c: binding images, Windows' modules, a program's own DLLs ----------
+
+// A loaded NE image: the program's (in struct w16) or a DLL's.
+struct w16_image {
+    const struct ne_module *ne;
+    uint16_t *seg_sel;                            // NE segment n -> its selector
+    const char *path;
+};
+// Its segments given selectors (the DGROUP `dgroup_extra` bytes larger:
+// heap and stack), then its relocations bound. -1 with `why` set.
+int w16_load_segments(struct w16 *w, const struct w16_image *im, uint32_t dgroup_extra, char *why, size_t cap);
+int w16_bind_image(struct w16 *w, const struct w16_image *im, char *why, size_t cap);
+int w16_is_builtin(const char *module);           // one of Windows' own, answered in C
+uint16_t w16_thunk_sel(struct w16 *w, const char *module);   // made on first use; 0 out of selectors
+const char *w16_thunk_module(struct w16 *w, uint16_t sel);   // NULL: not a thunk
+int w16_kernel_equate(const char *module, unsigned ordinal, uint16_t *value);
+// A DLL loaded (once) by module name or path; NULL with *err 2 (not found)
+// or 11 (not a library w16 can load).
+struct w16_dll *w16_dll_load(struct w16 *w, const char *spec, int *err);
+struct w16_dll *w16_dll_of(struct w16 *w, uint16_t hinst);   // NULL: not a DLL's
+int w16_dll_start_pending(struct w16 *w);         // the task's first act: their LibEntries
+// A KERNEL call, made on the local heap DS names (a DLL's own, when its code calls).
+int w16_kernel_heap_call(struct w16 *w, unsigned ordinal, struct w16_args *a,
+                         int (*call)(struct w16 *, unsigned, struct w16_args *));
+extern const struct w16_api g_module_api[], g_ddeml_api[], g_mmsystem_api[];
+extern const unsigned g_module_api_n, g_ddeml_api_n, g_mmsystem_api_n;
+
 // --- mem16.c / res16.c --------------------------------------------------------
 
 uint16_t w16_global_alloc(struct w16 *w, uint32_t size, const void *init);   // a selector, or 0
@@ -733,6 +796,15 @@ const char *w16_drive_root(char d);              // a drive's host folder, "" fo
 struct w16_prefs;
 extern struct w16_prefs g_w16_prefs;              // how this program runs (w16prefs.h)
 int w16_icon(const struct ne_module *m, uint32_t *px, int *w, int *h);   // icon16.c
+// Icon group `id` (or `name`, when not NULL) of a module; that group's picture.
+int w16_icon_named(const struct ne_module *m, uint16_t id, const char *name, uint32_t *px, int *w, int *h);
+int w16_icon_group(const struct ne_module *m, const struct ne_resource *grp, uint32_t *px, int *w, int *h);
+// LoadIcon's handle for a module's icon group (0: it has none such), and
+// the picture a handle names (32x32 at most), -1 for one that names none.
+uint16_t w16_icon_handle(const struct ne_module *m, uint16_t id, const char *name);
+int w16_icon_of_handle(uint16_t h, uint32_t *px, int *w, int *hh);
+// ARGB pixels (alpha 0 clear) drawn at (x, y) of a DC: DrawIcon's work.
+void w16_gdi_draw_argb(struct w16 *w, uint16_t hdc, int x, int y, const uint32_t *px, int pw, int ph);
 int w16_ini_get(const char *file, const char *sec, const char *key, char *out, size_t cap);
 size_t w16_ini_names(const char *file, const char *sec, char *out, size_t cap);
 int w16_ini_set(const char *file, const char *sec, const char *key, const char *val);
@@ -754,7 +826,9 @@ struct gdi_blit {
     const struct gdi_target *dst, *src;  // src NULL for a pattern-only ROP
     int x, y, w, h, sx, sy;
     uint32_t rop;                        // a ROP3, its code in bits 16-23
-    uint32_t brush;                      // the pattern, a pixel
+    uint32_t brush;                      // the pattern, a pixel...
+    const uint32_t *pat;                 // ...or 8x8 of them (a hatched or bitmap brush), NULL none
+    int pat_x, pat_y;                    // where the pattern's (0, 0) falls, buffer coordinates
     uint32_t dst_text, dst_bk;           // pixels, for a 1-bit source
     uint32_t src_bk;                     // a pixel, for a 1-bit destination
 };

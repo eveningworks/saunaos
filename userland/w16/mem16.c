@@ -333,6 +333,34 @@ static void set32(struct cpu16 *c, uint32_t v) {
     c->r[R_DX] = (uint16_t)(v >> 16);
 }
 
+// LocalInit(wSegment, pStart, pEnd): a heap in DS's segment (0) from
+// pStart to pEnd -- or, with pStart 0, the last pEnd bytes of it, where
+// a library's LibEntry puts the heap its header asked for. The program's
+// own heap is made at load (w16_local_init), so this is a DLL's.
+static int api_LocalInit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t seg = w16_arg16(a), start = w16_arg16(a), end = w16_arg16(a);
+    struct cpu16_desc *dg = dgroup_desc(w);
+    w->cpu.r[R_AX] = 0;
+    if (seg && seg != w->dgroup) return 6;
+    uint32_t s0 = start, e0 = end;
+    if (!start) {
+        e0 = dg->limit + 1u;
+        s0 = e0 > end ? e0 - end : 0;
+    }
+    s0 = (s0 + 3) & ~3u;
+    if (e0 > 0x10000 || e0 <= s0 + 4) return 6;
+    if (dg->limit + 1u < e0) dg->limit = e0 - 1;   // the 64 KiB buffer was there all along
+    free(w->lheap.blk);
+    free(w->lheap.h);
+    memset(&w->lheap, 0, sizeof w->lheap);
+    w->lheap.end = s0;
+    if (lblock_add(w, 0, (uint16_t)s0, (uint16_t)(e0 - s0), 0) < 0) return 6;
+    w->lheap.end = e0;
+    w->cpu.r[R_AX] = 1;
+    return 6;
+}
+
 // LocalAlloc(flags, bytes)
 static int api_LocalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
@@ -527,6 +555,7 @@ static int api_GlobalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a
 }
 
 const struct w16_api g_kernel_mem_api[] = {
+    { 4, api_LocalInit },
     { 5, api_LocalAlloc },
     { 6, api_LocalReAlloc },
     { 7, api_LocalFree },

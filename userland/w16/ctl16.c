@@ -62,13 +62,25 @@
 #define COLOR_WINDOW      5
 
 // THE COLOURS 3.11 SHOWED AT VGA. Its driver programs the 16-colour
-// palette, so navy, the face grey and the shadow grey reach the screen
-// shifted -- measured off the reference (docs/w16-design.md). The other
-// dark colours shift too, but which nominal became which is not
-// established, so they pass through.
+// palette, so the dark colours and the greys reach the screen shifted --
+// measured off the reference (docs/w16-design.md): each 0x80 channel shows
+// as 0xA8, and the dark colours carry a 0x57 besides (Hearts' felt, asked
+// as 0x007F00, is 0x00A857 there; the reference grids show the rest, one
+// per dominant channel). A channel a step or two off 0x80 is the palette's
+// colour too -- the driver drew Hearts' 0x7F solid, not dithered.
 uint32_t w16_vga(uint32_t v) {
-    switch (v & 0xFFFFFF) {
+    uint32_t n = 0;
+    for (int sh = 0; sh < 24; sh += 8) {
+        uint32_t c = v >> sh & 0xFF;
+        n |= (c >= 0x7C && c <= 0x84 ? 0x80 : c) << sh;
+    }
+    switch (n) {
     case 0x000080: return 0x0000A8;
+    case 0x008000: return 0x00A857;
+    case 0x008080: return 0x57A8A8;
+    case 0x800000: return 0xA80057;
+    case 0x800080: return 0xA857A8;
+    case 0x808000: return 0xA8A857;
     case 0xC0C0C0: return 0xC0C7C8;
     case 0x808080: return 0x87888F;
     default:       return v & 0xFFFFFF;
@@ -196,7 +208,24 @@ static void text_box(struct ugfx_surface *s, int x, int y, int w, int h, const c
 
 // The colour a control's parent paints under it: a dialog's white, else
 // the parent's class background.
+// WM_CTLCOLOR(hdc, MAKELONG(hwnd, CTLCOLOR_*)) to a control's parent before
+// it paints: the brush the parent answers is its background (MFC greys its
+// dialogs so); 0 leaves it the default. Sent here, before the paint takes
+// `lock`, because the answer is the program's code.
+static void ask_ctl_color(struct w16 *w, struct w16_wnd *x) {
+    x->has_ctl_bg = 0;
+    if (x->kind != W16_K_CHILD || !x->parent) return;
+    int type = x->host == w16_button_proc ? 3 : x->host == w16_edit_proc ? 1
+             : x->host == w16_listbox_proc ? 2 : 6;  // CTLCOLOR_BTN, _EDIT, _LISTBOX, _STATIC
+    uint16_t dc = w16_gdi_window_dc(w, x->hwnd), h = x->hwnd;
+    uint32_t br = w16_send(w, x->parent, WM_CTLCOLOR, dc, (uint32_t)type << 16 | x->hwnd);
+    if (!(x = w16_wnd_get(w, h)) || w->cpu.fault || !(br & 0xFFFF)) return;
+    x->ctl_bg = w16_brush_px(w, (uint16_t)br);
+    x->has_ctl_bg = 1;
+}
+
 uint32_t w16_parent_bg(struct w16 *w, struct w16_wnd *x) {
+    if (x->has_ctl_bg) return x->ctl_bg;
     struct w16_wnd *p = w16_wnd_get(w, x->parent);
     if (!p || p->kind == W16_K_DIALOG || p->cls < 0 || p->cls >= w->ncls) return w16_syscolor(COLOR_WINDOW);
     return w16_brush_px(w, w->cls[p->cls].background);
@@ -206,6 +235,9 @@ void w16_ctl_paint(struct w16 *w, struct w16_wnd *x,
                    void (*fn)(struct w16 *, struct w16_wnd *, struct ugfx_surface *, int, int)) {
     struct ugfx_surface s;
     int ox, oy;
+    uint16_t h = x->hwnd;
+    ask_ctl_color(w, x);
+    if (!(x = w16_wnd_get(w, h)) || w->cpu.fault) return;
     w16_paint_begin(w, x);
     if (!w16_wnd_paint(w, x, &s, &ox, &oy)) return;
     pthread_mutex_lock(&g_w16_text_lock);
@@ -355,6 +387,7 @@ static void paint_group(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s
         ugfx_fill_rect(s, x0 + 7, ty, tw + 4, lh, bg);
         ugfx_draw_string_clipped(s, x0 + 9, ty, x->cw - 12, buf, black, bg);
         underline(s, x0 + 9, ty, buf, mark, black);
+        if (x->style & WS_DISABLED) dither_out(s, x0 + 9, ty, tw, lh, black, bg);   // its label greyed, as 3.11's
     }
     free(buf);
 }

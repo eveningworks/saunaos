@@ -138,7 +138,26 @@ struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32
     d->text = strdup(caption ? caption : "");
     d->fb = calloc((size_t)d->fbw * d->fbh + 1, 4);
     if (!d->text || !d->fb) { w16_wnd_free(w, d); return 0; }
-    return d;
+    // The dialog hears its own creation before any control exists, as
+    // Windows' CreateDialog sends it: a hook watching for the next window
+    // made (MFC's, attaching its CDialog) must find the dialog, not its
+    // first control.
+    uint16_t at = w16_sys_push(w, 34), h = d->hwnd;
+    if (w->cpu.fault) return 0;
+    uint16_t cs[17] = { 0 };
+    cs[2] = inst;                                // CREATESTRUCT: lpCreateParams, hInstance, ...
+    cs[5] = (uint16_t)d->h; cs[6] = (uint16_t)d->w;
+    cs[9] = (uint16_t)style; cs[10] = (uint16_t)(style >> 16);
+    memcpy(w->sysmem + at, cs, sizeof cs);
+    uint32_t lp = (uint32_t)w->sysdata << 16 | at;
+    int ok = w16_send(w, h, WM_NCCREATE, 0, lp) != 0 && !w->cpu.fault &&
+             w16_send(w, h, WM_CREATE, 0, lp) != 0xFFFFFFFFu && !w->cpu.fault;
+    w16_sys_pop(w, at);
+    if (!ok) {
+        if ((d = w16_wnd_get(w, h))) w16_wnd_free(w, d);
+        return 0;
+    }
+    return w16_wnd_get(w, h);
 }
 
 struct w16_wnd *w16_dlg_add(struct w16 *w, struct w16_wnd *d, const char *cls, uint16_t id, uint32_t style,
@@ -542,6 +561,9 @@ static int find_template(struct w16 *w, uint32_t tmpl, struct ne_resource *res) 
     return w16_res_find(w, NE_RT_DIALOG, 0, (uint16_t)(tmpl >> 16 ? 0 : tmpl), tmpl >> 16 ? name : 0, res);
 }
 
+static int run_template(struct w16 *w, const uint8_t *p, uint32_t n, uint16_t inst, uint16_t owner, uint32_t proc,
+                        uint32_t param, int modal, int pop);
+
 // DialogBox(hInst, lpTemplate, hWndParent, lpDialogFunc), CreateDialog
 // the same, modeless; their Param forms add an lParam for WM_INITDIALOG.
 static int dialog(struct w16 *w, struct w16_args *a, int with_param, int modal) {
@@ -552,14 +574,22 @@ static int dialog(struct w16 *w, struct w16_args *a, int with_param, int modal) 
     uint32_t proc = w16_arg32(a);
     uint32_t param = with_param ? w16_arg32(a) : 0;
     int pop = with_param ? 16 : 12;
-    char why[96] = "";
     struct ne_resource res;
     int found = find_template(w, tmpl, &res);
     if (found == -2) return -1;
     c->r[R_AX] = modal ? 0xFFFF : 0;
     if (found < 0) return pop;
-    struct w16_wnd *d = from_template(w, w->ne.img + res.off, res.len, owner, inst ? inst : w->dgroup, proc, 0,
-                                      why, sizeof why);
+    return run_template(w, w->ne.img + res.off, res.len, inst, owner, proc, param, modal, pop);
+}
+
+// A DIALOG template's dialog made, then run when modal: the dialog's
+// handle, or the modal result, in AX.
+static int run_template(struct w16 *w, const uint8_t *p, uint32_t n, uint16_t inst, uint16_t owner, uint32_t proc,
+                        uint32_t param, int modal, int pop) {
+    struct cpu16 *c = &w->cpu;
+    char why[96] = "";
+    c->r[R_AX] = modal ? 0xFFFF : 0;
+    struct w16_wnd *d = from_template(w, p, n, owner, inst ? inst : w->dgroup, proc, 0, why, sizeof why);
     if (!d) {
         if (!c->fault) cpu16_set_fault(c, FAULT_API, why[0] ? why : "out of memory for a dialog");
         return -1;
@@ -590,6 +620,37 @@ static int api_CreateDialog(struct w16 *w, unsigned ordinal, struct w16_args *a)
 static int api_CreateDialogParam(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return dialog(w, a, 1, 0);
+}
+
+// DialogBoxIndirect(hInst, hDialogTemplate, hWndParent, lpDialogFunc): a
+// template the program built in a global block; CreateDialogIndirect(hInst,
+// lpDialogTemplate, hWndParent, lpDialogFunc) one at a far pointer. The
+// template is read up to its segment's end; from_template() stops at its own.
+static int indirect(struct w16 *w, struct w16_args *a, int modal) {
+    uint16_t inst = w16_arg16(a);
+    uint32_t tmpl = modal ? (uint32_t)w16_arg16(a) << 16 : w16_arg32(a);
+    uint16_t owner = w16_arg16(a);
+    uint32_t proc = w16_arg32(a);
+    int pop = modal ? 10 : 12;
+    uint16_t sel = (uint16_t)(tmpl >> 16), off = (uint16_t)tmpl;
+    const struct cpu16_desc *d = &w->desc[cpu16_index(sel) % CPU16_MAX_DESC];
+    uint32_t n = sel && (d->kind == D_DATA || d->kind == D_CODE) && off <= d->limit ? d->limit + 1u - off : 0;
+    const uint8_t *p = n ? cpu16_ptr(&w->cpu, sel, off, n, 0) : 0;
+    if (!p) {
+        w->cpu.r[R_AX] = modal ? 0xFFFF : 0;
+        return w->cpu.fault ? -1 : pop;
+    }
+    return run_template(w, p, n, inst, owner, proc, 0, modal, pop);
+}
+
+static int api_DialogBoxIndirect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    return indirect(w, a, 1);
+}
+
+static int api_CreateDialogIndirect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    return indirect(w, a, 0);
 }
 
 // IsDialogMessage(hDlg, lpMsg)
@@ -951,6 +1012,8 @@ const struct w16_api g_dialog_api[] = {
     { 98, api_IsDlgButtonChecked },
     { 101, api_SendDlgItemMessage },
     { 103, api_MapDialogRect },
+    { 218, api_DialogBoxIndirect },
+    { 219, api_CreateDialogIndirect },
     { 239, api_DialogBoxParam },
     { 241, api_CreateDialogParam },
     { 308, api_DefDlgProc },

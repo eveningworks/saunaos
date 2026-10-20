@@ -114,6 +114,9 @@ const char *ne_what(const uint8_t *img, uint32_t size);
 // Relocation i of segment seg (1-based). 0, or a negative NE_E_*.
 int ne_reloc_at(const struct ne_module *m, unsigned seg, unsigned i, struct ne_reloc *out);
 
+// An imported-names table entry (a by-name import's), at offset `off`. 0 or negative.
+int ne_imported_name(const struct ne_module *m, uint16_t off, char *out, size_t cap);
+
 // Module reference idx (1-based) as a NUL-terminated name. 0 or negative.
 int ne_module_name(const struct ne_module *m, unsigned idx, char *out, size_t cap);
 
@@ -124,6 +127,15 @@ int ne_description(const struct ne_module *m, char *out, size_t cap);
 // Entry ordinal -> segment and offset (a movable entry's segment too). 0
 // or negative: no such entry.
 int ne_entry(const struct ne_module *m, unsigned ordinal, uint16_t *seg, uint16_t *off);
+// The same, with the entry's flag byte: NE_ENTRY_EXPORTED, NE_ENTRY_SHARED_DATA.
+#define NE_ENTRY_EXPORTED    0x01
+#define NE_ENTRY_SHARED_DATA 0x02   // its prologue loads the module's DGROUP (the loader patches it)
+int ne_entry_flags(const struct ne_module *m, unsigned ordinal, uint16_t *seg, uint16_t *off, uint8_t *flags);
+// How many ordinals the entry table numbers (empty ones included).
+unsigned ne_entry_count(const struct ne_module *m);
+// The ordinal a module exports `name` under -- its resident names, then
+// the non-resident ones, without case -- or 0 when it exports no such name.
+unsigned ne_export_find(const struct ne_module *m, const char *name);
 
 #define NE_E_SHORT     (-1)   // shorter than the headers say
 #define NE_E_NOT_MZ    (-2)

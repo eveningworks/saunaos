@@ -112,9 +112,12 @@ void gdi_bitblt(const struct gdi_blit *b) {
     for (int r = 0; r < h; r++) {
         uint32_t *d = b->dst->px + (size_t)(y + r) * b->dst->w + x;
         const uint32_t *s = uses_src ? spx + (size_t)(sy + r) * sstride + sx : 0;
+        const uint32_t *prow = b->pat ? b->pat + ((y + r - b->pat_y) & 7) * 8 : 0;
         for (int c = 0; c < w; c++) {
             uint32_t sv = s ? convert(b, s[c]) : 0;
-            d[c] = gdi_rop3(code, pat, sv, d[c]);
+            uint32_t pv = prow ? (b->dst->mono ? to_mono(prow[(x + c - b->pat_x) & 7]) : prow[(x + c - b->pat_x) & 7])
+                               : pat;
+            d[c] = gdi_rop3(code, pv, sv, d[c]);
         }
     }
     free(tmp);

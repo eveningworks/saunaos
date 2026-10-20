@@ -29,94 +29,6 @@ static int load_fail(const char *path, const char *why) {
     return -1;
 }
 
-static int apply_value(uint8_t *mem, uint32_t len, uint16_t at, uint8_t src, int additive,
-                       uint16_t sel, uint16_t off) {
-    unsigned need = src == NE_SRC_FARPTR ? 4 : src == NE_SRC_LOBYTE ? 1 : 2;
-    if ((uint32_t)at + need > len) return -1;
-    uint8_t *p = mem + at;
-    uint16_t cur = (uint16_t)(p[0] | (need > 1 ? p[1] << 8 : 0));
-    switch (src) {
-    case NE_SRC_LOBYTE: p[0] = (uint8_t)(additive ? p[0] + off : off); break;
-    case NE_SRC_SEGMENT: p[0] = (uint8_t)sel; p[1] = (uint8_t)(sel >> 8); break;
-    case NE_SRC_OFFSET: {
-        uint16_t v = additive ? (uint16_t)(cur + off) : off;
-        p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
-        break;
-    }
-    case NE_SRC_FARPTR: {
-        uint16_t v = additive ? (uint16_t)(cur + off) : off;
-        p[0] = (uint8_t)v; p[1] = (uint8_t)(v >> 8);
-        p[2] = (uint8_t)sel; p[3] = (uint8_t)(sel >> 8);
-        break;
-    }
-    default: return -1;
-    }
-    return 0;
-}
-
-// KERNEL's CONSTANTS: imported by ordinal like a function, but the loader
-// patches the VALUE in (Wine's krnl386 spec gives each). The selector ones
-// (__0040H and the rest) need real-mode memory w16 does not map, so they
-// stay unresolved -- counted missing, never patched with a guess.
-static const struct { uint16_t ordinal, value; } KERNEL_EQUATES[] = {
-    { 113, 3 },        // __AHSHIFT: a huge pointer's selector step is 1 << 3
-    { 114, 8 },        // __AHINCR
-    { 178, 0x0413 },   // __WINFLAGS: protected mode, a 386, enhanced mode
-};
-
-static int kernel_equate(const char *module, unsigned ordinal, uint16_t *value) {
-    if (strcmp(module, "KERNEL") && strcmp(module, "KRNL386")) return 0;
-    for (unsigned i = 0; i < sizeof KERNEL_EQUATES / sizeof KERNEL_EQUATES[0]; i++)
-        if (KERNEL_EQUATES[i].ordinal == ordinal) { *value = KERNEL_EQUATES[i].value; return 1; }
-    return 0;
-}
-
-// One relocation record of segment `n`: its target, then every site of
-// its chain (just the one when additive).
-static int relocate(struct w16 *w, unsigned n, const struct ne_reloc *r, uint8_t *mem, uint32_t len) {
-    uint16_t sel, off;
-    char why[96];
-    switch (r->flags & 3) {
-    case NE_REL_INTERNAL: {
-        unsigned seg = r->a & 0xFF;
-        off = r->b;
-        if (seg == 0xFF) {                  // a movable segment: through the entry table
-            uint16_t s16;
-            if (ne_entry(&w->ne, r->b, &s16, &off) < 0)
-                return load_fail(w->path, "a relocation names a missing entry point");
-            seg = s16;
-        }
-        if (seg < 1 || seg > w->ne.nseg) return load_fail(w->path, "a relocation names no segment");
-        sel = w->seg_sel[seg];
-        break;
-    }
-    case NE_REL_IMPORT_ORD:
-        if (r->a < 1 || r->a > w->ne.nmod) return load_fail(w->path, "an import names no module");
-        sel = w->thunk_sel[r->a];
-        off = r->b;
-        if (kernel_equate(w->modname[r->a], r->b, &off)) sel = off;
-        break;
-    case NE_REL_IMPORT_NAME:
-        snprintf(why, sizeof why, "imports from %s by name, which w16 does not resolve yet",
-                 r->a >= 1 && r->a <= w->ne.nmod ? w->modname[r->a] : "?");
-        return load_fail(w->path, why);
-    default:
-        return load_fail(w->path, "uses floating-point fixups, which w16 does not support yet");
-    }
-    int additive = (r->flags & NE_REL_ADDITIVE) != 0;
-    uint16_t at = r->site;
-    for (unsigned guard = 0; guard < 0x10000; guard++) {
-        uint16_t next = (uint32_t)at + 2 <= len ? (uint16_t)(mem[at] | mem[at + 1] << 8) : 0xFFFF;
-        if (apply_value(mem, len, at, r->src, additive, sel, off) < 0) {
-            snprintf(why, sizeof why, "a relocation in segment %u lies outside it", n);
-            return load_fail(w->path, why);
-        }
-        if (additive || next == 0xFFFF) return 0;
-        at = next;
-    }
-    return load_fail(w->path, "a relocation chain loops");
-}
-
 int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path, const char *tail) {
     w->path = path;
     int err = ne_parse(img, size, &w->ne);
@@ -130,38 +42,13 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     memset(c, 0, sizeof *c);
     c->desc = w->desc;
 
-    // Segments: data copied in, the rest zero, DGROUP grown by heap+stack.
-    for (unsigned n = 1; n <= w->ne.nseg; n++) {
-        const struct ne_segment *s = &w->ne.seg[n - 1];
-        uint32_t want = s->minalloc > s->length ? s->minalloc : s->length;
-        if (n == w->ne.autodata) want += (uint32_t)w->ne.heap + w->ne.stack;
-        if (want > 0x10000) {
-            if (n == w->ne.autodata) return load_fail(path, "its data, heap and stack exceed 64 KiB");
-            want = 0x10000;
-        }
-        if (want == 0) want = 16;
-        uint8_t *mem = calloc(1, 0x10000);   // a whole segment: a later resize needs no move
-        if (!mem) return load_fail(path, "out of memory");
-        if (s->file_off) memcpy(mem, img + s->file_off, s->length);
-        int data = (s->flags & NE_SEG_DATA) != 0;
-        w->seg_sel[n] = cpu16_alloc(c, data ? D_DATA : D_CODE, mem, want - 1, (uint16_t)n);
-        if (!w->seg_sel[n]) return load_fail(path, "too many segments");
-    }
-    // Imported modules: a thunk selector each.
-    for (unsigned i = 1; i <= w->ne.nmod; i++) {
-        if (ne_module_name(&w->ne, i, w->modname[i], sizeof w->modname[i]) < 0)
-            return load_fail(path, "an imported module's name is malformed");
-        w->thunk_sel[i] = cpu16_alloc(c, D_THUNK, 0, 0xFFFF, 0);
-    }
-    for (unsigned n = 1; n <= w->ne.nseg; n++) {
-        const struct ne_segment *s = &w->ne.seg[n - 1];
-        uint8_t *mem = w->desc[cpu16_index(w->seg_sel[n])].base;
-        uint32_t len = w->desc[cpu16_index(w->seg_sel[n])].limit + 1;
-        for (unsigned i = 0; i < s->nrelocs; i++) {
-            struct ne_reloc r;
-            if (ne_reloc_at(&w->ne, n, i, &r) < 0 || relocate(w, n, &r, mem, len) < 0) return -1;
-        }
-    }
+    // Segments: data copied in, the rest zero, DGROUP grown by heap+stack;
+    // then every relocation bound (module16.c).
+    char why[160];
+    struct w16_image im = { &w->ne, w->seg_sel, path };
+    if (w16_load_segments(w, &im, (uint32_t)w->ne.heap + w->ne.stack, why, sizeof why) < 0 ||
+        w16_bind_image(w, &im, why, sizeof why) < 0)
+        return -1;
 
     // The PSP (ES at start): the command line at 81h, its length at 80h.
     // NUL-TERMINATED AND WITH NO SPACE BEFORE IT, unlike DOS's tail: a
@@ -226,10 +113,6 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     return 0;
 }
 
-const struct ne_module *w16_module_of(struct w16 *w, uint16_t inst) {
-    return inst ? &w->ne : 0;
-}
-
 // --- imports -------------------------------------------------------------
 
 int w16_api_call(const struct w16_api *t, unsigned n, struct w16 *w, unsigned ordinal,
@@ -257,13 +140,14 @@ static int in_table(const struct w16_api *t, unsigned n, unsigned ordinal) {
 
 int w16_has(const char *module, unsigned ordinal) {
     uint16_t v;
-    if (kernel_equate(module, ordinal, &v)) return 1;
+    if (w16_kernel_equate(module, ordinal, &v)) return 1;
     if (!strcmp(module, "KERNEL") || !strcmp(module, "KRNL386"))
         return in_table(g_kernel_api, g_kernel_api_n, ordinal) ||
                in_table(g_kernel_mem_api, g_kernel_mem_api_n, ordinal) ||
                in_table(g_kernel_res_api, g_kernel_res_api_n, ordinal) ||
                in_table(g_profile_api, g_profile_api_n, ordinal) ||
-               in_table(g_file_api, g_file_api_n, ordinal);
+               in_table(g_file_api, g_file_api_n, ordinal) ||
+               in_table(g_module_api, g_module_api_n, ordinal);
     if (!strcmp(module, "USER"))
         return in_table(g_user_api, g_user_api_n, ordinal) ||
                in_table(g_user_misc_api, g_user_misc_api_n, ordinal) ||
@@ -275,6 +159,8 @@ int w16_has(const char *module, unsigned ordinal) {
     if (!strcmp(module, "SOUND")) return in_table(g_sound_api, g_sound_api_n, ordinal);
     if (!strcmp(module, "KEYBOARD")) return in_table(g_keyboard_api, g_keyboard_api_n, ordinal);
     if (!strcmp(module, "COMMDLG")) return in_table(g_commdlg_api, g_commdlg_api_n, ordinal);
+    if (!strcmp(module, "DDEML")) return in_table(g_ddeml_api, g_ddeml_api_n, ordinal);
+    if (!strcmp(module, "MMSYSTEM")) return in_table(g_mmsystem_api, g_mmsystem_api_n, ordinal);
     return 0;
 }
 
@@ -284,8 +170,16 @@ int w16_has(const char *module, unsigned ordinal) {
 static const struct { const char *module; uint16_t ordinal; const char *note; } PARTLY[] = {
     { "COMMDLG", 20,  "says there is no printer" },                     // PrintDlg
     { "GDI",     38,  "a printer's call; refused" },                    // Escape
+    { "DDEML",   2,   "no other program: no network play" },            // DdeInitialize
+    { "DDEML",   7,   "finds no one to connect to" },                       // DdeConnect
+    { "DDEML",   11,  "no conversation to send in" },                       // DdeClientTransaction
+    { "DDEML",   16,  "no data ever arrives" },                             // DdeGetData
+    { "DDEML",   27,  "names a service no one can reach" },                 // DdeNameService
+    { "GDI",     47,  "a region is its bounding rectangle" },               // CombineRgn
     { "GDI",     53,  "no printer to make a DC for" },                  // CreateDC
-    { "KERNEL",  50,  "finds nothing: no DLLs are loaded" },            // GetProcAddress
+    { "KERNEL",  166, "runs nothing: answers that the file is not there" }, // WinExec
+    { "MMSYSTEM", 2,  "plays nothing" },                                    // sndPlaySound
+    { "MMSYSTEM", 401, "answers no wave device" },                          // waveOutGetNumDevs
     { "SHELL",   9,   "nothing can be dropped on a program yet" },      // DragAcceptFiles
     { "SHELL",   11,  "answers no files" },                             // DragQueryFile
     { "SHELL",   12,  "does nothing" },                                 // DragFinish
@@ -297,6 +191,8 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    31,  "always no, even when minimised" },       // IsIconic
     { "USER",    50,  "finds no other program's window" },              // FindWindow
     { "USER",    104, "silent" },                                       // MessageBeep
+    { "USER",    121, "only WH_CALLWNDPROC is called" },                    // SetWindowsHook
+    { "USER",    291, "only WH_CALLWNDPROC is called" },                    // SetWindowsHookEx
     { "USER",    171, "says the Help file cannot be shown" },           // WinHelp
 };
 
@@ -320,10 +216,12 @@ uint32_t w16_arg32(struct w16_args *a) {
 
 static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     struct w16 *w = c->user;
-    unsigned mod = 0;
-    for (unsigned i = 1; i <= w->ne.nmod; i++)
-        if (w->thunk_sel[i] == sel) mod = i;
-    const char *name = mod ? w->modname[mod] : "?";
+    const char *name = w16_thunk_module(w, sel);
+    if (!name) name = "?";
+    if (!strcmp(name, W16_HOST_MODULE)) {        // w16's own window procedure, called by the program
+        struct w16_args ha = { c, 10 };
+        return w16_host_proc_call(w, ordinal, &ha);
+    }
     const struct w16_name *n = w16_name_lookup(name, ordinal);
     struct w16_args a = { c, n && n->argbytes > 0 ? (unsigned)n->argbytes : 0 };
     int r = -1;
@@ -345,6 +243,8 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     else if (!strcmp(name, "SOUND")) r = w16_api_call(g_sound_api, g_sound_api_n, w, ordinal, &a);
     else if (!strcmp(name, "KEYBOARD")) r = w16_api_call(g_keyboard_api, g_keyboard_api_n, w, ordinal, &a);
     else if (!strcmp(name, "COMMDLG")) r = w16_api_call(g_commdlg_api, g_commdlg_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "DDEML")) r = w16_api_call(g_ddeml_api, g_ddeml_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "MMSYSTEM")) r = w16_api_call(g_mmsystem_api, g_mmsystem_api_n, w, ordinal, &a);
     if (r == -2 || (r < 0 && !c->fault)) {
         char why[96];
         snprintf(why, sizeof why, "%s.%u (%s) is not implemented", name, ordinal,
@@ -488,7 +388,7 @@ void *w16_task_main(void *arg) {
     struct w16 *w = arg;
     struct cpu16 *c = &w->cpu;
     c->thunk = thunk;
-    cpu16_run(c, 0);
+    if (w16_dll_start_pending(w) == 0) cpu16_run(c, 0);
     if (c->fault) {
         const struct cpu16_desc *d = &w->desc[cpu16_index(c->fault_cs) % CPU16_MAX_DESC];
         fprintf(stderr, "w16: %s: %s at %u:%04x -- %s\n", w->path, cpu16_fault_name(c->fault),

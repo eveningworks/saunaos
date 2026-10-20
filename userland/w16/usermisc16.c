@@ -561,6 +561,135 @@ static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
+// GetWindowDC(hwnd): its client area's DC -- the frame round it is w16's
+// own, drawn by the main thread, and a program does not paint on it
+static int api_GetWindowDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    w->cpu.r[R_AX] = h ? w16_gdi_window_dc(w, h) : w16_gdi_screen_dc(w);
+    return 2;
+}
+
+// DrawIcon(hdc, x, y, hIcon): one LoadIcon gave; Windows' own (IDI_*) are not drawn yet
+static int api_DrawIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    uint16_t hicon = w16_arg16(a);
+    uint32_t *px = malloc(32 * 32 * 4);
+    int iw, ih;
+    int ok = px && w16_icon_of_handle(hicon, px, &iw, &ih) == 0;
+    if (ok) w16_gdi_draw_argb(w, hdc, x, y, px, iw, ih);
+    free(px);
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 8;
+}
+
+// GetMessagePos() -> where the pointer was, screen coordinates (y high)
+static int api_GetMessagePos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    int16_t x, y;
+    w16_cursor_screen(w, &x, &y);
+    w->cpu.r[R_AX] = (uint16_t)x;
+    w->cpu.r[R_DX] = (uint16_t)y;
+    return 0;
+}
+
+// GetMessageTime() -> milliseconds, as GetTickCount counts them
+static int api_GetMessageTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    uint32_t ms = (uint32_t)w16_now_ms();
+    w->cpu.r[R_AX] = (uint16_t)ms;
+    w->cpu.r[R_DX] = (uint16_t)(ms >> 16);
+    return 0;
+}
+
+// HOOKS: one per WH_* type, the newest. WH_CALLWNDPROC is CALLED -- before
+// every sent message reaches its window procedure (w16_send), which is how
+// MFC attaches its C++ window to the HWND CreateWindow is making (Hearts).
+// The rest are kept and never called: SetWindowsHook answers the one set
+// before it, DefHookProc and CallNextHookEx pass nothing on.
+static uint32_t g_hooks[16];                     // per WH_* (-1..14)
+
+uint32_t w16_hook(int id) { return id >= -1 && id <= 14 ? g_hooks[id + 1] : 0; }
+
+static int api_SetWindowsHook(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int16_t id = (int16_t)w16_arg16(a);
+    uint32_t fn = w16_arg32(a), old = 0;
+    if (id >= -1 && id <= 14) { old = g_hooks[id + 1]; g_hooks[id + 1] = fn; }
+    w->cpu.r[R_AX] = (uint16_t)old;
+    w->cpu.r[R_DX] = (uint16_t)(old >> 16);
+    return 6;
+}
+
+static int api_UnhookWindowsHook(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int16_t id = (int16_t)w16_arg16(a);
+    uint32_t fn = w16_arg32(a);
+    int ok = id >= -1 && id <= 14 && g_hooks[id + 1] == fn;
+    if (ok) g_hooks[id + 1] = 0;
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 6;
+}
+
+static int api_DefHookProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a); w16_arg16(a); w16_arg32(a); w16_arg32(a);
+    w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0;
+    return 12;
+}
+
+// SetWindowsHookEx(idHook, lpfn, hInstance, hTask) -> an HHOOK: kept,
+// never called, like SetWindowsHook's; UnhookWindowsHookEx(hhk) takes it
+// out; CallNextHookEx(hhk, code, wParam, lParam) has no next to call
+static int api_SetWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int16_t id = (int16_t)w16_arg16(a);
+    uint32_t fn = w16_arg32(a);
+    w16_arg16(a); w16_arg16(a);
+    uint32_t h = 0;
+    if (id >= -1 && id <= 14) { g_hooks[id + 1] = fn; h = 0x48000000u | (uint32_t)(id + 1); }
+    w->cpu.r[R_AX] = (uint16_t)h;
+    w->cpu.r[R_DX] = (uint16_t)(h >> 16);
+    return 10;
+}
+
+static int api_UnhookWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t h = w16_arg32(a);
+    int ok = (h >> 16) == 0x4800 && (h & 0xFFFF) < 16;
+    if (ok) g_hooks[h & 0xFFFF] = 0;
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 4;
+}
+
+static int api_CallNextHookEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg32(a); w16_arg16(a); w16_arg16(a); w16_arg32(a);
+    w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0;
+    return 12;
+}
+
+// SelectPalette(hdc, hpal, bForceBackground): every colour is a true colour
+// here, so a palette changes nothing -- the previous, none
+static int api_SelectPalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a); w16_arg16(a); w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    return 6;
+}
+
+// WNetGetCaps(nIndex): no network
+static int api_WNetGetCaps(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    return 2;
+}
+
 // MessageBeep(type): no sound yet
 static int api_MessageBeep(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -796,6 +925,7 @@ const struct w16_api g_user_misc_api[] = {
     { 50, api_FindWindow },
     { 59, api_SetActiveWindow },
     { 60, api_GetActiveWindow },
+    { 67, api_GetWindowDC },
     { 69, api_SetCursor },
     { 70, api_SetCursorPos },
     { 71, api_ShowCursor },
@@ -809,8 +939,12 @@ const struct w16_api g_user_misc_api[] = {
     { 81, api_FillRect },
     { 82, api_InvertRect },
     { 83, api_FrameRect },
+    { 84, api_DrawIcon },
     { 85, api_DrawText },
     { 104, api_MessageBeep },
+    { 119, api_GetMessagePos },
+    { 120, api_GetMessageTime },
+    { 121, api_SetWindowsHook },
     { 137, api_OpenClipboard },
     { 138, api_OpenClipboard },
     { 144, api_EnumClipboardFormats },
@@ -819,9 +953,15 @@ const struct w16_api g_user_misc_api[] = {
     { 180, api_GetSysColor },
     { 193, api_IsClipboardFormatAvailable },
     { 196, api_TabbedTextOut },
+    { 234, api_UnhookWindowsHook },
+    { 235, api_DefHookProc },
     { 236, api_GetCapture },
+    { 282, api_SelectPalette },
     { 286, api_GetDesktopWindow },
     { 287, api_GetLastActivePopup },
+    { 291, api_SetWindowsHookEx },
+    { 292, api_UnhookWindowsHookEx },
+    { 293, api_CallNextHookEx },
     { 420, api_wsprintf },
     { 430, api_lstrcmp },
     { 431, api_AnsiUpper },
@@ -829,6 +969,7 @@ const struct w16_api g_user_misc_api[] = {
     { 471, api_lstrcmp },
     { 472, api_AnsiNext },
     { 473, api_AnsiPrev },
+    { 513, api_WNetGetCaps },
 };
 
 // KEYBOARD's AnsiToOem, OemToAnsi(src, dst): w16's DOS has no code page of

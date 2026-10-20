@@ -149,14 +149,6 @@ static int api_FatalExit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return -1;
 }
 
-// GetModuleHandle(name): this program's
-static int api_GetModuleHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    struct cpu16 *c = &w->cpu;
-    (void)ordinal;
-    w16_arg32(a);
-    c->r[R_AX] = w->dgroup;
-    return 4;
-}
 
 // MakeProcInstance(lpProc, hInst): the proc itself
 static int api_MakeProcInstance(struct w16 *w, unsigned ordinal, struct w16_args *a) {
@@ -219,15 +211,75 @@ static int api_lstrlen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// GetProcAddress(hModule, lpProcName): no module but the program's own is
-// loaded, so nothing is found -- NULL, which a program asking for an
-// optional one (Pen Windows' RegisterPenApp) takes as "not here".
-static int api_GetProcAddress(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+// GetCurrentTask() -> the one task: its PSP stands for it, and DX the
+// head of the task list, which is the same task
+static int api_GetCurrentTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
+    (void)a;
+    w->cpu.r[R_AX] = w->cpu.r[R_DX] = w->psp;
+    return 0;
+}
+
+// CATCH AND THROW are Win16's setjmp and longjmp: Catch(lpCatchBuf) keeps
+// where it will return and the registers a C function keeps (BP SI DI DS,
+// SS:SP), and answers 0; Throw(lpCatchBuf, nThrow) returns from that
+// Catch a second time, answering nThrow. Register calls in Wine's spec,
+// so their arguments are read off the stack here, not by w16_args. A
+// Throw out of a callback w16 itself called (a window procedure inside
+// SendMessage) would leave w16's C frames behind: refused, with a reason.
+#define CATCH_WORDS 9
+
+static int api_Catch(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    struct cpu16 *c = &w->cpu;
+    uint16_t off = cpu16_arg(c, 0), sel = cpu16_arg(c, 2);
+    const uint8_t *ret = cpu16_ptr(c, c->sreg[S_SS], c->r[R_SP], 4, 0);
+    uint8_t *buf = cpu16_ptr(c, sel, off, 2 * CATCH_WORDS, 1);
+    if (!ret || !buf) return -1;
+    uint16_t v[CATCH_WORDS] = {
+        (uint16_t)(ret[0] | ret[1] << 8), (uint16_t)(ret[2] | ret[3] << 8), (uint16_t)(c->r[R_SP] + 8),
+        c->r[R_BP], c->r[R_SI], c->r[R_DI], c->sreg[S_DS], c->sreg[S_SS], (uint16_t)c->depth,
+    };
+    memcpy(buf, v, sizeof v);
+    c->r[R_AX] = 0;
+    return 4;
+}
+
+static int api_Throw(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    struct cpu16 *c = &w->cpu;
+    uint16_t value = cpu16_arg(c, 0), off = cpu16_arg(c, 2), sel = cpu16_arg(c, 4);
+    const uint8_t *buf = cpu16_ptr(c, sel, off, 2 * CATCH_WORDS, 0);
+    if (!buf) return -1;
+    uint16_t v[CATCH_WORDS];
+    memcpy(v, buf, sizeof v);
+    if (v[8] != c->depth) {
+        cpu16_set_fault(c, FAULT_API, "Throw out of a window procedure w16 called, which it cannot unwind");
+        return -1;
+    }
+    c->sreg[S_SS] = v[7];
+    c->r[R_SP] = (uint16_t)(v[2] - 4);           // the Catch's return address, put back for the return
+    uint8_t *ret = cpu16_ptr(c, c->sreg[S_SS], c->r[R_SP], 4, 1);
+    if (!ret) return -1;
+    ret[0] = (uint8_t)v[0]; ret[1] = (uint8_t)(v[0] >> 8);
+    ret[2] = (uint8_t)v[1]; ret[3] = (uint8_t)(v[1] >> 8);
+    c->r[R_BP] = v[3];
+    c->r[R_SI] = v[4];
+    c->r[R_DI] = v[5];
+    c->sreg[S_DS] = v[6];
+    c->r[R_AX] = value;
+    return 0;                                    // the far return lands where Catch returned
+}
+
+// WinExec(lpCmdLine, nCmdShow): w16 runs no second program yet -- Hearts
+// asks for NETDDE.EXE, the network DDE agent -- so the file is not found
+static int api_WinExec(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
     w16_arg32(a);
-    w->cpu.r[R_AX] = 0;
-    w->cpu.r[R_DX] = 0;
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 2;                          // ERROR_FILE_NOT_FOUND
     return 6;
 }
 
@@ -330,11 +382,12 @@ const struct w16_api g_kernel_api[] = {
     { 1, api_FatalExit },
     { 3, api_GetVersion },
     { 30, api_WaitEvent },
-    { 47, api_GetModuleHandle },
-    { 50, api_GetProcAddress },
+    { 36, api_GetCurrentTask },
     { 51, api_MakeProcInstance },
     { 52, api_FreeProcInstance },
     { 54, api_GetInstanceData },
+    { 55, api_Catch },
+    { 56, api_Throw },
     { 88, api_lstrcpy },
     { 89, api_lstrcpy },
     { 90, api_lstrlen },
@@ -344,17 +397,23 @@ const struct w16_api g_kernel_api[] = {
     { 115, api_OutputDebugString },
     { 132, api_GetWinFlags },
     { 137, api_FatalAppExit },
+    { 166, api_WinExec },
     { 207, api_IsDBCSLeadByte },
 };
 const unsigned g_kernel_api_n = sizeof g_kernel_api / sizeof g_kernel_api[0];
 
-int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+static int kernel_call(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int r = w16_kernel_mem(w, ordinal, a);
     if (r != -2) return r;
     if ((r = w16_kernel_res(w, ordinal, a)) != -2) return r;
     if ((r = profile(w, ordinal, a)) != -2) return r;
     if ((r = w16_api_call(g_file_api, g_file_api_n, w, ordinal, a)) != -2) return r;
+    if ((r = w16_api_call(g_module_api, g_module_api_n, w, ordinal, a)) != -2) return r;
     return w16_api_call(g_kernel_api, sizeof g_kernel_api / sizeof g_kernel_api[0], w, ordinal, a);
+}
+
+int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    return w16_kernel_heap_call(w, ordinal, a, kernel_call);
 }
 
 // INT 21h: the DOS calls a Windows program still makes. 4Ch ends it.

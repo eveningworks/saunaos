@@ -161,6 +161,12 @@ shape to copy:
 
 ### Comparing with real Windows 3.11
 
+**STANDING RULE (2026-10-20): any work on how a Win16 program looks or
+runs ends with a SIDE-BY-SIDE** -- the same program in the same state on
+the reference (left) and in w16 (right), one labelled image per state,
+sent to the maintainer with the differences found, then again after they
+are fixed. The images stay outside the repo, as every reference shot does.
+
 **The reference is a real Windows for Workgroups 3.11, measured, never
 remembered.** It runs in QEMU on MS-DOS 6.22 (640x480 VGA, 16 colours,
 no network card, no printer), built from the maintainer's own disks in

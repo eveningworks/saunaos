@@ -220,12 +220,68 @@ int ne_description(const struct ne_module *m, char *out, size_t cap) {
     return pname(m, off, out, cap);
 }
 
+int ne_imported_name(const struct ne_module *m, uint16_t off, char *out, size_t cap) {
+    return pname(m, m->imported + off, out, cap);
+}
+
 int ne_module_name(const struct ne_module *m, unsigned idx, char *out, size_t cap) {
     if (idx < 1 || idx > m->nmod) return NE_E_RANGE;
     return pname(m, m->imported + m->modref[idx - 1], out, cap);
 }
 
 int ne_entry(const struct ne_module *m, unsigned ordinal, uint16_t *seg, uint16_t *off) {
+    uint8_t flags;
+    return ne_entry_flags(m, ordinal, seg, off, &flags);
+}
+
+unsigned ne_entry_count(const struct ne_module *m) {
+    uint32_t p = m->entry_table, end = m->entry_table + m->entry_len;
+    unsigned n = 0;
+    while (p + 2 <= end) {
+        unsigned count = rd8(m, p), type = rd8(m, p + 1);
+        if (count == 0) break;
+        unsigned size = type == 0 ? 0 : type == 0xFF ? 6 : 3;
+        p += 2;
+        if (size && (end - p) / size < count) break;
+        p += size * count;
+        n += count;
+    }
+    return n;
+}
+
+// A name table (resident or non-resident) from `p` to `end`: the
+// ordinal of `name`, compared without case; 0 when it is not there.
+static unsigned names_find(const struct ne_module *m, uint32_t p, uint32_t end, const char *name) {
+    while (p < end && span(m, p, 1)) {
+        unsigned n = rd8(m, p);
+        if (n == 0 || !span(m, p + 1, n + 2u) || p + 1 + n + 2 > end) break;
+        size_t k = 0;
+        for (; k < n && name[k]; k++) {
+            char a = (char)m->img[p + 1 + k], b = name[k];
+            if (a >= 'a' && a <= 'z') a = (char)(a - 32);
+            if (b >= 'a' && b <= 'z') b = (char)(b - 32);
+            if (a != b) break;
+        }
+        uint16_t ord = rd16(m, p + 1 + n);
+        if (k == n && !name[k] && ord) return ord;
+        p += 1 + n + 2;
+    }
+    return 0;
+}
+
+unsigned ne_export_find(const struct ne_module *m, const char *name) {
+    // The resident names run to the module-reference table; the
+    // non-resident ones are their own table, its length in the header.
+    uint32_t res_end = m->ne + rd16(m, m->ne + 0x28);
+    unsigned ord = res_end > m->resident ? names_find(m, m->resident, res_end, name) : 0;
+    if (ord) return ord;
+    uint32_t off = rd32(m, m->ne + 0x2C);
+    uint16_t len = rd16(m, m->ne + 0x20);
+    if (!off || !len || !span(m, off, len)) return 0;
+    return names_find(m, off, off + len, name);
+}
+
+int ne_entry_flags(const struct ne_module *m, unsigned ordinal, uint16_t *seg, uint16_t *off, uint8_t *flags) {
     uint32_t p = m->entry_table, end = m->entry_table + m->entry_len;
     unsigned ord = 1;
     while (p < end) {
@@ -239,6 +295,7 @@ int ne_entry(const struct ne_module *m, unsigned ordinal, uint16_t *seg, uint16_
         if (ordinal >= ord && ordinal < ord + count) {
             if (type == 0) return NE_E_ENTRY;
             uint32_t e = p + (ordinal - ord) * size;
+            *flags = rd8(m, e);
             if (type == 0xFF) {
                 *seg = rd8(m, e + 3);
                 *off = rd16(m, e + 4);

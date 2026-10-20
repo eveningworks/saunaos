@@ -150,13 +150,52 @@ const uint32_t *w16_shown(const struct w16_wnd *x, int *w, int *h) {
 static const uint32_t g_stock_brush[] = { 0xFFFFFF, 0xC0C0C0, 0x808080, 0x404040, 0x000000 };
 
 // -1 for "draw nothing" (a NULL brush or pen).
+// A stock or system-colour brush is a palette colour too: shown as 3.11 at
+// VGA showed it (w16_vga), as a created brush's is.
 static int64_t brush_of(struct w16 *w, uint16_t h) {
-    if (h >= STOCK_BASE && h < STOCK_BASE + NULL_BRUSH) return g_stock_brush[h - STOCK_BASE];
+    if (h >= STOCK_BASE && h < STOCK_BASE + NULL_BRUSH) return w16_vga(g_stock_brush[h - STOCK_BASE]);
     if (h == STOCK_BASE + NULL_BRUSH || h == 0) return -1;
-    if (h >= 1 && h <= 21) return w16_syscolor(h - 1u);         // COLOR_* + 1
+    if (h >= 1 && h <= 21) return w16_vga(w16_syscolor(h - 1u));   // COLOR_* + 1
     struct w16_gdiobj *b = obj(w, h, GDI_BRUSH);
     if (!b || b->style == BS_NULL) return b ? -1 : 0xFFFFFF;
     return w16_colorref_px(b->color);
+}
+
+#define BS_HATCHED 2
+#define BS_PATTERN 3
+
+// The 8x8 bits of HS_HORIZONTAL .. HS_DIAGCROSS, a set bit the hatch's
+// colour -- Windows' own patterns, as Wine's gdi32 lists them.
+static const uint8_t HATCHES[6][8] = {
+    { 0x00, 0x00, 0x00, 0xFF, 0x00, 0x00, 0x00, 0x00 },
+    { 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08 },
+    { 0x80, 0x40, 0x20, 0x10, 0x08, 0x04, 0x02, 0x01 },
+    { 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80 },
+    { 0x08, 0x08, 0x08, 0xFF, 0x08, 0x08, 0x08, 0x08 },
+    { 0x81, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x81 },
+};
+
+// A hatched or bitmap brush as the blit's 8x8 pattern, in the colours of
+// the DC drawing with it (a hatch's gaps and a 1-bit pattern's 1s are its
+// background colour, a 1-bit pattern's 0s its text colour); a solid
+// brush leaves `b` its one pixel. The pattern's origin is the DC's plus
+// SetBrushOrg's.
+static void pattern_of(struct w16 *w, const struct w16_gdiobj *dc, uint16_t brush, const struct gdi_target *t,
+                       struct gdi_blit *b, uint32_t buf[64]) {
+    struct w16_gdiobj *o = obj(w, brush, GDI_BRUSH);
+    if (!o || (o->style != BS_HATCHED && o->style != BS_PATTERN)) return;
+    uint32_t bk = w16_colorref_px(dc->bk), text = w16_colorref_px(dc->text);
+    for (int i = 0; i < 64; i++) {
+        if (o->style == BS_HATCHED)
+            buf[i] = HATCHES[o->width % 6][i / 8] >> (7 - i % 8) & 1 ? w16_colorref_px(o->color) : bk;
+        else if (o->mono)
+            buf[i] = o->px && o->px[i] ? bk : text;
+        else
+            buf[i] = o->px ? o->px[i] : bk;
+    }
+    b->pat = buf;
+    b->pat_x = t->ox + dc->brush_ox;
+    b->pat_y = t->oy + dc->brush_oy;
 }
 
 uint32_t w16_brush_px(struct w16 *w, uint16_t brush) {
@@ -562,6 +601,8 @@ static int bit_blt(struct w16 *w, struct w16_args *a) {
             .dst_text = w16_colorref_px(ddc->text), .dst_bk = w16_colorref_px(ddc->bk),
             .src_bk = sdc ? w16_colorref_px(sdc->bk) : 0xFFFFFF,
         };
+        uint32_t pbuf[64];
+        pattern_of(w, ddc, ddc->brush, &dt, &b, pbuf);
         gdi_bitblt(&b);
     }
     restore_children();
@@ -619,6 +660,8 @@ static int stretch_blt(struct w16 *w, struct w16_args *a) {
         .dst_text = w16_colorref_px(ddc->text), .dst_bk = w16_colorref_px(ddc->bk),
         .src_bk = sdc ? w16_colorref_px(sdc->bk) : 0xFFFFFF,
     };
+    uint32_t pbuf[64];
+    pattern_of(w, ddc, ddc->brush, &dt, &b, pbuf);
     gdi_bitblt(&b);
     restore_children();
     if (ddc->hwnd) w->fb_dirty = 1;
@@ -638,6 +681,8 @@ static int pat_blt(struct w16 *w, struct w16_args *a) {
         int64_t br = brush_of(w, dc->brush);
         struct gdi_blit b = { .dst = &dt, .x = x, .y = y, .w = cw, .h = ch, .rop = rop,
                               .brush = br < 0 ? 0xFFFFFF : (uint32_t)br };
+        uint32_t pbuf[64];
+        pattern_of(w, dc, dc->brush, &dt, &b, pbuf);
         gdi_bitblt(&b);
     }
     gdi_done(w, dc);
@@ -653,8 +698,23 @@ void w16_gdi_fill(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, uint1
     if (dc) {
         struct gdi_blit bl = { .dst = &dt, .x = l, .y = t, .w = r - l, .h = b - t,
                                .rop = 0x00F00021, .brush = (uint32_t)br };
+        uint32_t pbuf[64];
+        pattern_of(w, dc, brush, &dt, &bl, pbuf);
         gdi_bitblt(&bl);
     }
+    gdi_done(w, dc);
+}
+
+void w16_gdi_draw_argb(struct w16 *w, uint16_t hdc, int x, int y, const uint32_t *px, int pw, int ph) {
+    struct gdi_target t;
+    struct w16_gdiobj *dc = target(w, hdc, &t);
+    for (int j = 0; dc && t.px && j < ph; j++)
+        for (int i = 0; i < pw; i++) {
+            uint32_t p = px[j * pw + i];
+            int bx = x + i + t.ox, by = y + j + t.oy;
+            if (!(p >> 24) || bx < t.x0 || by < t.y0 || bx >= t.x1 || by >= t.y1) continue;
+            t.px[(size_t)by * t.w + bx] = t.mono ? ((p & 0xFFFFFF) ? 0xFFFFFF : 0) : (p & 0xFFFFFF);
+        }
     gdi_done(w, dc);
 }
 
@@ -679,6 +739,8 @@ static int rectangle(struct w16 *w, struct w16_args *a) {
         if (br >= 0) {
             struct gdi_blit bl = { .dst = &dt, .x = l + 1, .y = t + 1, .w = r - l - 2, .h = b - t - 2,
                                    .rop = 0x00F00021, .brush = (uint32_t)br };
+            uint32_t pbuf[64];
+            pattern_of(w, dc, dc->brush, &dt, &bl, pbuf);
             gdi_bitblt(&bl);
         }
         int width;
@@ -839,6 +901,7 @@ static void delete_object(struct w16 *w, uint16_t h) {
         free(o->px);
     }
     if (t == GDI_FONT) free(o->lf);
+    if (t == GDI_BRUSH) free(o->px);
     if (t == GDI_DC) {
         if (o->hwnd || o->screen) return;
         struct w16_gdiobj *bm = obj(w, o->bitmap, GDI_BITMAP);
@@ -1367,6 +1430,136 @@ static int api_UnrealizeObject(struct w16 *w, unsigned ordinal, struct w16_args 
     return 2;
 }
 
+// CreateHatchBrush(fnStyle, clrref)
+static int api_CreateHatchBrush(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hs = w16_arg16(a);
+    uint32_t cr = w16_arg32(a);
+    struct w16_gdiobj *o;
+    uint16_t h = new_obj(w, GDI_BRUSH, &o);
+    if (o) { o->style = BS_HATCHED; o->width = hs < 6 ? hs : 0; o->color = cr & 0xFFFFFF; }
+    w->cpu.r[R_AX] = h;
+    return 6;
+}
+
+// CreatePatternBrush(hbmp): the bitmap's top-left 8x8, copied now
+static int api_CreatePatternBrush(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *bm = obj(w, w16_arg16(a), GDI_BITMAP), *o;
+    w->cpu.r[R_AX] = 0;
+    if (!bm) return 2;
+    uint32_t *px = calloc(64, 4);
+    if (!px) return 2;
+    for (int i = 0; i < 64; i++)
+        px[i] = bm->px[(size_t)(i / 8 % bm->bh) * bm->bw + (size_t)(i % 8 % bm->bw)];
+    uint16_t h = new_obj(w, GDI_BRUSH, &o);
+    if (!o) { free(px); return 2; }
+    o->style = BS_PATTERN;
+    o->px = px;
+    o->mono = bm->mono;
+    w->cpu.r[R_AX] = h;
+    return 2;
+}
+
+// CreateIC(driver, device, output, lpInitData): the display's answers
+// (GetDeviceCaps and the like) through a DC that draws nothing; a
+// printer's, none
+static int api_CreateIC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t drv = w16_arg32(a);
+    w16_arg32(a); w16_arg32(a); w16_arg32(a);
+    char name[16] = "";
+    if ((drv >> 16) && cpu16_str(&w->cpu, (uint16_t)(drv >> 16), (uint16_t)drv, name, sizeof name) < 0) name[0] = 0;
+    for (char *p = name; *p; p++) if (*p >= 'a' && *p <= 'z') *p = (char)(*p - 32);
+    struct w16_gdiobj *o = 0;
+    uint16_t h = !strcmp(name, "DISPLAY") ? new_obj(w, GDI_DC, &o) : 0;
+    if (o) { dc_defaults(o); o->screen = 1; }
+    w->cpu.r[R_AX] = h;
+    return 16;
+}
+
+// --- regions: each is its bounding rectangle --------------------------------------
+
+#define NULLREGION    1
+#define SIMPLEREGION  2
+#define COMPLEXREGION 3
+
+static int rgn_kind(const struct w16_gdiobj *r) {
+    if (r->rgn[2] <= r->rgn[0] || r->rgn[3] <= r->rgn[1]) return NULLREGION;
+    return r->complex ? COMPLEXREGION : SIMPLEREGION;
+}
+
+static void rgn_set(struct w16_gdiobj *r, int l, int t, int rr, int b) {
+    if (rr <= l || b <= t) l = t = rr = b = 0;
+    r->rgn[0] = (int16_t)l; r->rgn[1] = (int16_t)t; r->rgn[2] = (int16_t)rr; r->rgn[3] = (int16_t)b;
+    r->complex = 0;
+}
+
+// CreateRectRgn(l, t, r, b)
+static int api_CreateRectRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int16_t l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a), r = (int16_t)w16_arg16(a), b = (int16_t)w16_arg16(a);
+    struct w16_gdiobj *o;
+    uint16_t h = new_obj(w, GDI_REGION, &o);
+    if (o) rgn_set(o, l, t, r, b);
+    w->cpu.r[R_AX] = h;
+    return 8;
+}
+
+// SetRectRgn(hrgn, l, t, r, b)
+static int api_SetRectRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *o = obj(w, w16_arg16(a), GDI_REGION);
+    int16_t l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a), r = (int16_t)w16_arg16(a), b = (int16_t)w16_arg16(a);
+    if (o) rgn_set(o, l, t, r, b);
+    return 10;
+}
+
+// CombineRgn(hrgnDest, hrgnSrc1, hrgnSrc2, mode) -> the result's kind.
+// Exact for rectangles that meet in a rectangle; anything else is kept
+// as its bounding box and called COMPLEXREGION.
+static int api_CombineRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *d = obj(w, w16_arg16(a), GDI_REGION), *s1 = obj(w, w16_arg16(a), GDI_REGION);
+    struct w16_gdiobj *s2 = obj(w, w16_arg16(a), GDI_REGION);
+    uint16_t mode = w16_arg16(a);
+    w->cpu.r[R_AX] = 0;                          // ERROR
+    if (!d || !s1 || (mode != 5 && !s2)) return 8;
+    int16_t A[4], B[4] = { 0, 0, 0, 0 };
+    memcpy(A, s1->rgn, sizeof A);
+    if (s2) memcpy(B, s2->rgn, sizeof B);
+    int ac = s1->complex, bc = s2 ? s2->complex : 0;
+    int aempty = A[2] <= A[0] || A[3] <= A[1], bempty = B[2] <= B[0] || B[3] <= B[1];
+    int il = A[0] > B[0] ? A[0] : B[0], it = A[1] > B[1] ? A[1] : B[1];
+    int ir = A[2] < B[2] ? A[2] : B[2], ib = A[3] < B[3] ? A[3] : B[3];
+    int meet = il < ir && it < ib;
+    switch (mode) {
+    case 1:                                      // RGN_AND
+        rgn_set(d, il, it, ir, ib);
+        d->complex = meet && (ac || bc);
+        break;
+    case 2: case 3:                              // RGN_OR, RGN_XOR
+        if (aempty) { memcpy(d->rgn, B, sizeof B); d->complex = bc; break; }
+        if (bempty) { memcpy(d->rgn, A, sizeof A); d->complex = ac; break; }
+        rgn_set(d, A[0] < B[0] ? A[0] : B[0], A[1] < B[1] ? A[1] : B[1],
+                A[2] > B[2] ? A[2] : B[2], A[3] > B[3] ? A[3] : B[3]);
+        d->complex = mode == 3 ? 1 : !((il == A[0] && it == A[1] && ir == A[2] && ib == A[3]) ||
+                                       (il == B[0] && it == B[1] && ir == B[2] && ib == B[3]));
+        break;
+    case 4:                                      // RGN_DIFF
+        memcpy(d->rgn, A, sizeof A);
+        d->complex = ac || meet;
+        if (meet && il <= A[0] && it <= A[1] && ir >= A[2] && ib >= A[3]) rgn_set(d, 0, 0, 0, 0);
+        break;
+    default:                                     // RGN_COPY
+        memcpy(d->rgn, A, sizeof A);
+        d->complex = ac;
+        break;
+    }
+    w->cpu.r[R_AX] = (uint16_t)rgn_kind(d);
+    return 8;
+}
+
 // CreateDIBitmap
 static int api_CreateDIBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -1394,13 +1587,17 @@ const struct w16_api g_gdi_api[] = {
     { 35, api_StretchBlt },
     { 38, api_Escape },
     { 45, api_SelectObject },
+    { 47, api_CombineRgn },
     { 48, api_CreateBitmap },
     { 51, api_CreateCompatibleBitmap },
     { 52, api_CreateCompatibleDC },
     { 53, api_CreateDC },
     { 56, api_CreateFont },
     { 57, api_CreateFontIndirect },
+    { 58, api_CreateHatchBrush },
+    { 60, api_CreatePatternBrush },
     { 61, api_CreatePen },
+    { 64, api_CreateRectRgn },
     { 66, api_CreateSolidBrush },
     { 68, api_DeleteDC },
     { 69, api_DeleteDC },
@@ -1415,6 +1612,8 @@ const struct w16_api g_gdi_api[] = {
     { 103, api_PtVisible },
     { 148, api_SetBrushOrg },
     { 150, api_UnrealizeObject },
+    { 153, api_CreateIC },
+    { 172, api_SetRectRgn },
     { 442, api_CreateDIBitmap },
     { 443, api_SetDIBitsToDevice },
 };
