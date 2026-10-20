@@ -7479,6 +7479,19 @@ runs first**: a `doom1.wad` with one
   `--positive-control` drops the box average's carry and the /255's +1
   and must go red in both groups; `--bench` prints ns/pixel per tier.
   About a second; in `preflight.sh`.
+- **`uwmf_hostcheck.py`** -- `userland/lib/uwmf.c`, the Windows metafile
+  record decoder w16's PlayMetaFile and its OLE pictures draw through,
+  compiled with the host gcc under ASan and UBSan. A metafile built by a
+  writer in the tool -- MS-WMF's record layouts, arguments last first,
+  sharing no code with the decoder -- must decode to exactly the records
+  written (function, words in GDI's order, colours, ROPs, object slots,
+  points and polygon counts, text and ExtTextOut's advances, a DIB's
+  length, a font's face), bare and behind a placeable header; then
+  thousands of mutated and truncated copies, which must decode, end or be
+  refused and never read past the bytes. `--positive-control` drops the
+  Polygon record's point-count bound (the fuzz goes red) and keeps the
+  file's argument order (the comparison goes red). In
+  `ondemand_sweep.py`; w16 is a side project and in no gate.
 - **`w16_hostcheck.py`** -- w16's NE parser (`userland/w16/ne.c`,
   `ne_info.c`) compiled with the host gcc under ASan and UBSan. For every
   sample in `userland/w16/samples/`, `w16 --info`'s lines must EQUAL

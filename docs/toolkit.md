@@ -31,7 +31,7 @@
 | `ucapture.h` | ucapture -- run a program and take what it prints: popen("r") without a shell. |
 | `uchan.h` | uchan -- a message channel between two ring-3 processes. |
 | `uchan_page.h` | uchan -- the shared page layout for a message channel between two ring-3 processes. |
-| `ucharset.h` | Latin-1 (ISO 8859-1) to and from UTF-8, for a protocol or format older than UTF-8 meeting toy-os's text: RFB's cut text, an ID3v1 tag. |
+| `ucharset.h` | Latin-1 (ISO 8859-1) and Windows-1252 to and from UTF-8, for a protocol or format older than UTF-8 meeting toy-os's text: RFB's cut text, an ID3v1 tag, a Windows program's ANSI text. |
 | `uclip.h` | uclip -- the system clipboard, for a ring-3 app. |
 | `uclip_page.h` | The clipboard's shared page: the contract between every app's lib/uclip.c and /bin/clipboardd, and between no other two things. |
 | `uclock.h` | The smallest non-zero gap the monotonic clock will actually show. |
@@ -129,6 +129,7 @@
 | `uvolinfo.h` | What one mounted volume or network share IS, gathered in one place: the kernel's QUERY_FSINFO record, the share's file in /etc/mounts.d and its server's last word -- for Properties' volume page and... |
 | `uwalk.h` | A DIRECTORY TREE WALK, one directory at a time, for a caller that has to stop, report progress or share a thread: the File Manager's search into subfolders and its folder sizes. |
 | `uwmchan.h` | TWP over a channel: a client's request reaching the compositor DIRECTLY instead of through the kernel. |
+| `uwmf.h` | Windows metafiles (MS-WMF): a 16-bit metafile's records, decoded and checked, one at a time, for a caller that draws them -- w16's PlayMetaFile into a GDI DC, or an image viewer into a canvas. |
 | `uzip.h` | Reading ONE member out of a .zip archive into a file or memory, and writing a new archive -- PKWARE's APPNOTE, the subset every archiver writes: stored (method 0) and deflated (method 8) members, n... |
 | `webnet_proto.h` | The contract between /bin/webnet -- the network process, one per Web Browser (docs/browser-design.md, stage 5) -- and its clients: each content process, which fetches through it, and the browser ap... |
 | `webview_proto.h` | The contract between ui/uui_webview.h (in the embedding app) and /bin/webcontent (the engine, one process per view) -- docs/browser-design.md, stage 5. |

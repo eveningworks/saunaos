@@ -1,4 +1,5 @@
-// lib/ucharset.h: Latin-1 <-> UTF-8, as RFB's cut text needs it.
+// lib/ucharset.h: Latin-1 and Windows-1252 <-> UTF-8, as RFB's cut text
+// and a Windows program's clipboard need them.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS: ASCII alone passes almost any
 // converter, so every byte 0x01-0xFF goes there and back. A decoder that
@@ -12,7 +13,7 @@
 #include "lib/utest.h"
 
 int main(void) {
-    utest_begin("ucharset_test", "Latin-1 <-> UTF-8", 0);
+    utest_begin("ucharset_test", "Latin-1 and Windows-1252 <-> UTF-8", 0);
     char all[255], u8[600], back[300];
     for (int i = 0; i < 255; i++) all[i] = (char)(i + 1);
     long n = ucharset_latin1_to_utf8(u8, sizeof u8, all, sizeof all);
@@ -41,5 +42,21 @@ int main(void) {
                 ucharset_utf8_to_latin1(out, 2, "ab", 2, '?') == -1 && out[0] == 0 &&
                 ucharset_utf8_to_latin1(out, 0, "ab", 2, '?') == -1,
                 "...and the same the other way, a cap of 0 included");
+
+    // Windows-1252: its 27 defined bytes in 0x80-0x9F are other characters,
+    // so a converter that treated it as Latin-1 fails the euro both ways.
+    utest_check(ucharset_cp1252_to_utf8(out, sizeof out, "\x80\x96", 2, '?') == 6 &&
+                !strcmp(out, "\xe2\x82\xac\xe2\x80\x93"), "cp1252 0x80 is the euro, 0x96 an en dash");
+    utest_check(ucharset_utf8_to_cp1252(out, sizeof out, "\xe2\x82\xac\xc3\xa9\xc2\x80", 7, '?') == 3 &&
+                !strcmp(out, "\x80\xe9?"), "...back: the euro to 0x80, e-acute kept, U+0080 has no byte");
+    utest_check(ucharset_cp1252_to_utf8(out, sizeof out, "a\x81" "b", 3, '?') == 3 && !strcmp(out, "a?b"),
+                "an undefined cp1252 byte is the replacement");
+    char all12[255], u12[800], back12[300];
+    int k = 0;
+    for (int i = 1; i < 256; i++)
+        if (i != 0x81 && i != 0x8D && i != 0x8F && i != 0x90 && i != 0x9D) all12[k++] = (char)i;
+    long n12 = ucharset_cp1252_to_utf8(u12, sizeof u12, all12, (size_t)k, '?');
+    long m12 = n12 > 0 ? ucharset_utf8_to_cp1252(back12, sizeof back12, u12, (size_t)n12, '?') : -1;
+    utest_checkf(m12 == k && !memcmp(back12, all12, (size_t)k), "every defined cp1252 byte there and back (%ld)", m12);
     return utest_end();
 }
