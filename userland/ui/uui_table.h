@@ -295,6 +295,7 @@ struct uui_table {
         int press_x, press_y, x, grab_dx;
         int settle;          // the drop's glide is still running
         int drop_x;          // where it would land: the marker, this frame
+        unsigned long long scroll_ns;   // held at an edge: when the columns last scrolled
     } cdrag;
     // --- column widths the user set. OWNED ---
     // A header divider dragged sideways, or double-clicked to fit the

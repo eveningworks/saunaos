@@ -224,6 +224,17 @@ int main(int argc, char **argv) {
     uui_table_column_rect(&t, 0, &sx, &sw);
     ok("...Name moves left by as much", sx == t.x - t.hscroll, "");
     ok("...and the press selected no row", t.selected < 0 || t.selected == 0, "");
+    // A column moved while the columns are scrolled lands by where they
+    // ARE: Read dropped with its middle just past PID's lands after PID.
+    uui_table_set_columns_mode(&t, UUI_TABLE_COLS_COLUMN);
+    uui_table_columns_load(&t, "name,pid:560,cpu,read");
+    t.hscroll = 150;
+    int qx, qw;
+    uui_table_column_rect(&t, 1, &qx, &qw);
+    drag(&t, 3, qx + qw / 2 + 40);
+    oks("scrolled: Read dropped just past PID's middle lands after PID", layout(&t), "name,pid:560,read,cpu,-extra");
+    uui_table_set_columns_mode(&t, UUI_TABLE_COLS_FIXED);
+    t.hscroll = 0;
     uui_table_columns_reset(&t);
     ok("back to the declared widths: no bar, scrolled back", !uui_table_hbar_visible(&t), "");
 

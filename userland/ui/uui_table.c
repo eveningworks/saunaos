@@ -257,7 +257,7 @@ static void live_order(const struct uui_table *t, unsigned char *out) {
     int dx0, dw;
     uui_table_column_rect(t, d, &dx0, &dw);
     int centre = t->cdrag.x - t->cdrag.grab_dx + dw / 2;
-    int x = t->x, slot = n;
+    int x = t->x - t->hscroll, slot = n;   // where the columns start, scrolled
     for (int i = 0; i < n; i++) {
         int c = rest[i], cx, cw;
         uui_table_column_rect(t, c, &cx, &cw);
@@ -745,6 +745,28 @@ static void frame_cols(struct uui_table *t) {
     unsigned char live[UUI_TABLE_MAX_COLS];
     int lx[UUI_TABLE_MAX_COLS], lw[UUI_TABLE_MAX_COLS];
     int cx[UUI_TABLE_MAX_COLS], cw[UUI_TABLE_MAX_COLS];
+    // HELD AT AN EDGE, the columns scroll under it -- Explorer's header,
+    // and the only way to carry a column to one out of view. By the time
+    // since the last frame, so the speed is the same at any frame rate.
+    int edge_scroll = 0;
+    if (t->cdrag.active && hscroll_max(t)) {
+        unsigned long long t_ns = sys_monotonic_ns();
+        int margin = ugfx_char_advance('n') * 3, dir = 0;
+        if (t->cdrag.x < t->x + margin && t->hscroll > 0) dir = -1;
+        if (t->cdrag.x > t->x + table_content_w(t) - margin && t->hscroll < hscroll_max(t)) dir = 1;
+        if (dir) {
+            unsigned long long dt = t->cdrag.scroll_ns ? t_ns - t->cdrag.scroll_ns : 16000000ULL;
+            int step = (int)(dt / 2000000ULL);           // 500 px a second
+            if (step < 1) step = 1;
+            t->hscroll += dir * step;
+            if (t->hscroll < 0) t->hscroll = 0;
+            if (t->hscroll > hscroll_max(t)) t->hscroll = hscroll_max(t);
+            t->cdrag.scroll_ns = t_ns;
+            edge_scroll = 1;
+        } else {
+            t->cdrag.scroll_ns = 0;
+        }
+    }
     live_order(t, live);
     layout_cols(t, live, lx, lw);
     layout_cols(t, t->col_order, cx, cw);
@@ -753,15 +775,19 @@ static void frame_cols(struct uui_table *t) {
     // ONLY A DRAG GLIDES. A resize or a column chosen from the menu
     // moves the columns at once, as it always did; a glide there would
     // read as the table drifting on its own.
-    int glide = (t->cdrag.active || t->cdrag.settle) && t->col_glide_ms;
+    // Nor while the columns scroll under a held one: they move with the
+    // scroll at once, or they would trail it.
+    int glide = (t->cdrag.active || t->cdrag.settle) && t->col_glide_ms && !edge_scroll;
     t->cdrag.drop_x = t->cdrag.active ? lx[t->cdrag.col] : -1;
     for (int c = 0; c < n; c++) {
         int target = lx[c], x;
         if (t->cdrag.active && c == t->cdrag.col) {
             // Under the pointer, exactly; recorded as the resting value so
             // the drop glides FROM here into its slot.
+            // Between the locked first column's right edge and the last
+            // column's -- the SCROLLED columns', not the table's own edges.
             int px = t->cdrag.x - t->cdrag.grab_dx;
-            int lo = t->x + lw[0], hi = t->x + table_content_w(t) - lw[c];
+            int lo = lx[0] + lw[0], hi = t->x - t->hscroll + cols_total(t) - lw[c];
             if (px > hi) px = hi;
             if (px < lo) px = lo;
             utween_start(&t->col_tw[c], px, px, 0, now);
@@ -791,7 +817,7 @@ static void frame_cols(struct uui_table *t) {
             t->bw[c] = (short)lw[c];
         }
     }
-    if (gliding) uui_anim_request();
+    if (gliding || edge_scroll) uui_anim_request();
     else t->cdrag.settle = 0;
 }
 
@@ -1531,6 +1557,7 @@ static int tb_ops_press(void *w, int cx, int cy, unsigned mods) {
         uui_table_column_rect(t, col, &colx, &colw);
         t->cdrag.armed = 1;
         t->cdrag.active = 0;
+        t->cdrag.scroll_ns = 0;
         t->cdrag.col = col;
         t->cdrag.press_x = t->cdrag.x = cx;
         t->cdrag.press_y = cy;
