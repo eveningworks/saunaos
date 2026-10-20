@@ -7562,6 +7562,13 @@ runs first**: a `doom1.wad` with one
   out. Options > Sound lists 3.11's seven events, a Play cell plays
   toy-os's chime (its `play ROW PATH` log line, so a guest with no sound
   card still answers), and plays nothing once Off is chosen, before OK.
+  `fpu.exe` (the x87 and WIN87EM): 1/0 and sqrt(-1) each reach its
+  handler once as 83h and 81h, a ninth load as 8Ah -- under KVM; TCG's
+  x87 has no stack fault, and the test asks QEMU which it is -- masked,
+  BX=8 reports the zero divide, and sqrt(2) * 1e9 through FISTP is exact;
+  WIN87EM answering 84h for a zero divide turns it red. `shapes.exe`:
+  Ellipse's rows, RoundRect's corners and a pie's radius sit where real
+  3.11 drew them; the ellipse's radii one pixel larger turn it red.
   In `gui_regress.py`.
   **Run it on a fresh image**: a second run in the same guest fails the
   two scale checks (toywm remembers gdi.exe's earlier window sizes) and
@@ -7580,8 +7587,16 @@ runs first**: a `doom1.wad` with one
   masked) and both segments' bytes must match, over three seeds of 200k
   cases; then random bytes run as code under ASan/UBSan must fault or
   finish and never reach host memory. Far transfers, segment loads and
-  interrupts are not in the oracle's set. `--positive-control` breaks
-  ADC's carry-in and SAR's sign (the oracle goes red) and `mem()`'s limit
+  interrupts are not in the oracle's set. A quarter of the cases are the
+  x87 (`cpu16_x87.c`): one random ESC instruction in every register and
+  memory form on a random FPU state (float's and double's edges, zeros,
+  denormals, infinities, NaNs, empty registers, every rounding and
+  precision control, unmasked exceptions), compared as both FNSAVE
+  images, the instruction and operand pointers included -- the native
+  run FRSTORs before the far call and FNSAVEs after, neither of which
+  waits. `--positive-control` breaks
+  ADC's carry-in and SAR's sign, FLDENV's turning of the registers for a
+  new TOP and the x87's stores (the oracle goes red each time) and `mem()`'s limit
   check (the fuzz goes red). A host without `modify_ldt` prints SKIPPED,
   never PASS. In `ondemand_sweep.py`.
 - **`gen_ne.py`** -- builds a Win16 (NE) executable from ONE NASM source

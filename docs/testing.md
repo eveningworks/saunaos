@@ -215,6 +215,16 @@ the feature under test wholly broken.
 
 ## What the emulator does and does not model
 
+**TCG'S x87 IS NOT A REAL ONE, AND w16 INHERITS IT.** w16 runs a Win16
+program's FPU instructions on the (here emulated) host x87
+(`cpu16_x87.c`). QEMU's TCG raises no stack fault -- nine loads leave
+TOP at 7 with no invalid operation -- and stores the result of an
+operation whose unmasked exception should have stopped it (1/0 pops).
+On a real CPU, or under `--kvm`, both are exact: `cpu16_hostcheck.py`
+checks w16's x87 against the host CPU, and `w16_gui_test.py`'s
+fpu.exe asks QEMU (`info kvm`) which to expect -- Codes=8381 under
+TCG, 83818A (the stack overflow too) under KVM or on hardware.
+
 **USB PASSTHROUGH BREAKS ISOCHRONOUS OUT PACKETS WHOSE LENGTH VARIES --
 UNDER KVM AS WELL AS TCG.** 44.1 kHz at high speed is 5 or 6 frames a
 microframe; through a guest owning the G6 (`vm.py --usb-host 041e:3256`)

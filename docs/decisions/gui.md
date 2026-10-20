@@ -12069,3 +12069,43 @@ bytes; `userland/lib/uwmf.c` parses records (bounds-checked, fuzzed by
 `uwmf_hostcheck.py`), and w16's PlayMetaFile replays them through its
 own GDI calls, so one parser serves anything else that ever reads a
 .WMF.
+
+## A Win16 program's x87 is the host's own, an instruction at a time
+
+Chosen 2026-10-20 for Calculator ("Host FPU per op", over a softfloat
+and over C doubles). A Windows 3.1 program does its floating point in
+x87 instructions -- real ones in the file, with OSFIXUP relocations
+Windows used only to turn them into emulator interrupts when there was
+no coprocessor -- so w16's CPU needs an 80-bit x87 with a 387's rounding,
+transcendentals and exception responses.
+
+**What others do.** Windows 3.1 ran the instructions on the machine's
+FPU, or emulated them in WIN87EM. Wine ignores the fixups and lets the
+real FPU run them. DOSBox's x86 build runs each guest FPU instruction on
+the host's x87 (its `FPU_X86` core); its portable core uses `double`.
+QEMU and Bochs carry a softfloat floatx80.
+
+**w16 copies DOSBox's x86 shape.** The program's state is an FNSAVE
+image; each instruction is FRSTOR, the one instruction from a stub
+(`ESC [rax]` on a host buffer for a memory operand), FNSAVE
+(`cpu16_x87.c`). toy-os and its development host are both x86-64, so the
+host's x87 is always there, and being a real one is the whole point: the
+results are a 387's to the last bit, which `cpu16_hostcheck.py` holds to
+the CPU it runs on. A softfloat is thousands of lines whose FPTAN, FYL2X
+and F2XM1 would each need their own approximation to match; `double`
+loses the 80-bit format the programs store and print from.
+
+**The host never traps, and that is load-bearing.** An x87 exception
+traps at the NEXT waiting instruction, and FNSAVE does not wait, so the
+instruction runs with the program's real masks and the hardware itself
+gives every unmasked response a 387 gave (no result for a zero divide, a
+biased one for an overflow into a register). A state with an unmasked
+flag set is never loaded before a waiting instruction (that does trap,
+measured): cpu16 raises INT 75h first -- IRQ 13, where a PC's
+coprocessor reported -- and w16's INT 75h is 3.11's WIN87EM, far-calling
+the handler the C runtime gave `_fpMath` with AL saying which exception,
+then running the instruction again.
+
+**The cost** is an FRSTOR/FNSAVE pair around every FPU instruction, and
+that w16's x87 is only as good as the host's: under QEMU's TCG it has no stack fault
+(`docs/testing.md`, "What the emulator does and does not model").

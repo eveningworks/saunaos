@@ -949,7 +949,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: Solitaire and Hearts from Windows 3.11~~ DONE 2026-10-20 -- Hearts plays the computer's hands; MFC's hook and creation order
 - [x] ~~w16: Write from Windows 3.11~~ DONE 2026-10-20 -- .WRI files real 3.11 reads back, TrueType, ChooseFont, OLE pictures
 - [ ] w16: Write's pictures onto toy-os's clipboard -- Write promises CF_BITMAP but never renders it when asked (WM_RENDERFORMAT)
-- [ ] w16: arcs, pies, chords and rounded rectangles -- GDI lacks them, so a metafile draws them not (RoundRect draws square)
+- [x] ~~w16: arcs, pies, chords and rounded rectangles~~ DONE 2026-10-20 -- 3.11's midpoint ellipse, row for row
+- [x] ~~w16: Calculator from Windows 3.11~~ DONE 2026-10-20 -- the x87 on the host's own, WIN87EM, a dialog as the main window
+- [ ] w16: a pie's or chord's straight edge a pixel off 3.11's where an arc ends between two outline pixels
+- [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
+- [ ] w16: WIN87EM's __WinEm87Save, __WinEm87Restore and __WinEm87Info -- no program run so far imports them
 - [ ] w16: italic for a raster font and for a TrueType face with no italic file -- GDI slanted them; w16 draws upright
 - [ ] w16: Windows-1252's 0x80-0x9F drawn -- curly quotes, dashes and the euro sign have no glyph slot in a ugfx font
 - [ ] w16: Symbol and Wingdings -- a symbol font's cmap (3, 0) is not read, so its characters do not draw

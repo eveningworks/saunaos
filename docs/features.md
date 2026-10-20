@@ -234,13 +234,16 @@ paused game; F1 again is DOOM's own help.
 **Windows 3.1 programs run in a window of their own** (`/bin/w16`, the
 shape of otvdm and Wine): an emulated 16-bit CPU in an ordinary ring-3
 process, and Windows' KERNEL, USER, GDI, COMMDLG, OLECLI and the rest
-written again in C. Minesweeper, Notepad, Solitaire, Hearts and Write
-from the user's own Windows 3.11 run -- none ships -- in 3.11's own fonts
+written again in C. Minesweeper, Notepad, Solitaire, Hearts, Write and
+Calculator from the user's own Windows 3.11 run -- none ships -- in 3.11's own fonts
 and pictures when drive C: has them, with 3.1's menus, dialogs and
 Application Error box. Write's TrueType text breaks its lines where
 3.11's did, to the pixel; its documents round-trip with real 3.11, and
 the pictures and OLE objects in them are drawn from their stored
-picture. Text copies both ways through toy-os's clipboard. **Retro
+picture. Text copies both ways through toy-os's clipboard. A program's
+floating point runs on a real x87 -- the computer's own, an instruction
+at a time -- so Calculator's sines and logarithms are 3.11's to the last
+digit, its "Cannot divide by zero." included. **Retro
 Launcher** lists the programs found, and for each one which Windows
 calls it uses, which w16 answers only in part and why.
 

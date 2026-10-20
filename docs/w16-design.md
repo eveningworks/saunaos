@@ -62,6 +62,8 @@ LOUDLY and by name (below), never as a silent zero.
   |   task16.c   loading, the imports, the message queue |
   |   cpu16.c    the interpreter: 8086/186/286 integer,  |
   |              a selector table instead of an LDT      |
+  |   cpu16_x87.c  the 387, on the host's own x87        |
+  |   win87em16.c  WIN87EM: _fpMath, the FP exceptions   |
   |   kernel16.c user16.c gdi16.c  the API, in C         |
   |   file16.c   drives C: and Z:, the file calls        |
   |   wnd16.c    the window tree: every HWND, its pixels |
@@ -416,7 +418,29 @@ the palette, whose mapping is not yet measured.
 4. **Real programs**, the user's own copies (none ship): run each,
    read its unimplemented list (the launcher's calls window), implement,
    repeat. A second top-level window that is not a dialog still needs
-   uapp to grow past one main window.
+   uapp to grow past one main window. **Calculator, 2026-10-20**: the
+   x87 (`cpu16_x87.c`) -- each ESC instruction run ON THE HOST'S x87
+   between an FRSTOR and an FNSAVE of the program's state, so results,
+   rounding and unmasked-exception responses are a real 387's
+   (`docs/decisions/gui.md`, "A Win16 program's x87 is the host's own")
+   -- and WIN87EM (`win87em16.c`): `_fpMath`'s thirteen functions as
+   3.11's WIN87EM.DLL answers them (read from its code), and an unmasked
+   exception raising INT 75h at the next waiting instruction, which
+   far-calls the C runtime's handler with AL = 81h-8Bh and runs the
+   instruction again; `w16 --trace` logs each. The loader skips OSFIXUP
+   relocations (Windows rewrote those instructions only with no
+   coprocessor), and `__WINFLAGS` and GetWinFlags both say WF_80x87.
+   Calculator's main window is a DIALOG template of its own class
+   (SciCalc): such a template with no owner, while no main window
+   exists, becomes the main window, its menu the template's, and
+   DefDlgProc and IsDialogMessage serve it. GDI gained RoundRect, Arc,
+   Pie and Chord, and every shape's inside is now filled with the DC's
+   ROP2 mix and its edge drawn once (Calculator presses a button by
+   drawing its RoundRect twice in R2_NOTXORPEN). Ellipses and rounded
+   corners follow 3.11's own midpoint ellipse, row for row, measured off
+   Calculator and `samples/shapes.asm` run on both; both views of
+   Calculator then match real 3.11 to the pixel, and seven calculations'
+   displays -- sin, pi, log, 100!, log 0, a root, 1000! -- read the same.
 
 ## Not planned
 
