@@ -761,3 +761,18 @@ Lessons:
   640 let its panel slide over the sidebar at 1.5x on the ASUS; derive it
   from the font, as layout() does.
 
+2026-10-20 (evening): Windows 3.11 Write in w16 (b6a1c47c ttf/ucharset/uwmf
+libs, 652ada3f ttf metrics, 6779775e w16, 2293af13 the mouse fix).
+Lessons:
+- **A table answering 0 past its end is a hardware answer, not "unknown"**:
+  GetSystemMetrics stopped at index 17, so SM_MOUSEPRESENT said "no
+  mouse" and Write ran its keyboard interface -- the pointer warped to the
+  window's middle at every dialog, no I-beam. The maintainer saw it in a
+  minute; the trace had shown `GetSystemMetrics(0013) = 0` all along.
+- **An injected `gui drag` passed in both builds**, so it could not have
+  told the broken case apart; read the trace's answers, not the result.
+- **Write's stops were nearly all OLD w16 bugs, found by disassembling the
+  faulting segment** (ndisasm, selector (n<<3)|7): an OFSTRUCT written
+  past a 132-byte buffer, INT 21h 47h leaving AL, a CS_OWNDC DC reset per
+  paint. `w16 --trace` printing each call's `= DX:AX` paid for itself.
+
