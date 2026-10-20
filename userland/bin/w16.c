@@ -33,9 +33,6 @@
 
 #define W16_FILE_MAX (16u << 20)   // NE files are at most a few MiB
 
-#define MK_LBUTTON 0x0001
-#define MK_RBUTTON 0x0002
-
 static int g_info, g_check, g_fonts, g_sounds;
 static char g_tail[127];                 // the program's command line: DOS's 126 characters
 static const char *g_trace_path;

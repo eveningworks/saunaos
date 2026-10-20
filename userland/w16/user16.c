@@ -548,6 +548,7 @@ static int put_msg(struct w16 *w, uint32_t lpmsg, const struct w16_msg *m) {
         w->mouse_x = (int16_t)m->lparam;
         w->mouse_y = (int16_t)(m->lparam >> 16);
         w->mouse_hwnd = m->hwnd;
+        w->mouse_keys = m->wparam;
     }
     int16_t pt[2];
     w16_cursor_screen(w, &pt[0], &pt[1]);
@@ -1417,14 +1418,18 @@ static int api_IsChild(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // GetKeyState(nVirtKey) -> int
 // Windows: Whether a key was down when the message being handled was made (the high bit), and a
 // toggle key's state (the low bit).
-// w16: Shift, Ctrl and Alt as they were for the message being handled; any other key reads as up,
-// and no toggle is kept. The programs run so far ask only for those three.
+// w16: Shift, Ctrl and Alt as they were for the key message being handled, and the mouse buttons
+// as they were for the last mouse message the program took -- how a drag loop learns the button is
+// still held while its queue is empty (Write's selection). Any other key reads as up, and no toggle
+// is kept.
 static int api_GetKeyState(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t vk = w16_arg16(a);
-    unsigned m = w->key_mods;
+    unsigned m = w->key_mods, b = w->mouse_keys;
     int down = (vk == VK_SHIFT && (m & KEY_MOD_SHIFT)) || (vk == VK_CONTROL && (m & KEY_MOD_CTRL)) ||
-               (vk == 0x12 && (m & KEY_MOD_ALT));
+               (vk == 0x12 && (m & KEY_MOD_ALT)) ||
+               (vk == 0x01 && (b & MK_LBUTTON)) || (vk == 0x02 && (b & MK_RBUTTON)) ||
+               (vk == 0x04 && (b & MK_MBUTTON));
     w->cpu.r[R_AX] = down ? 0x8000 : 0;
     return 2;
 }

@@ -100,6 +100,9 @@ void ne_print_info(const struct ne_module *m);
 #define WM_HSCROLL       0x0114
 #define WM_VSCROLL       0x0115
 #define WM_MOUSEMOVE     0x0200
+#define MK_LBUTTON       0x0001   // a mouse message's wParam: the buttons held
+#define MK_RBUTTON       0x0002
+#define MK_MBUTTON       0x0010
 #define WM_LBUTTONDOWN   0x0201
 #define WM_LBUTTONUP     0x0202
 #define WM_LBUTTONDBLCLK 0x0203
@@ -406,6 +409,7 @@ struct w16 {
     unsigned key_mods;                           // KEY_MOD_* of the key message being handled
     int16_t mouse_x, mouse_y;                    // the last mouse message's point, client coordinates
     uint16_t mouse_hwnd;                         // ...and the window it was for
+    uint16_t mouse_keys;                         // ...and its MK_* buttons, GetKeyState's VK_LBUTTON
 };
 
 extern struct w16 g_w16;
