@@ -828,6 +828,18 @@ extern int g_w16_desktop_frame;                   // toywm's frame, not 3.1's
 void w16_frame_fit(const struct w16_wnd *win, int *w, int *h);   // a 3.1 outer size -> the window's
 void w16_scale_blit(struct ugfx_surface *dst, int dx, int dy, const uint32_t *src, int w, int h,
                     int stride);
+// A window's pixels kept at the scale between frames: each frame re-scales
+// only what changed since the last (a dragged card, not the whole window)
+// and copies the rest. Zeroed to start; w16_scaler_free() to end.
+struct tap;
+struct w16_scaler {
+    uint32_t *prev, *out;          // the last 1x frame; the scaled one
+    struct tap *tx, *ty;           // each screen column's and row's source pixels
+    int w, h, W, H, q, method;
+};
+void w16_scaler_show(struct w16_scaler *sc, struct ugfx_surface *dst, int dx, int dy, const uint32_t *cur,
+                     int w, int h);
+void w16_scaler_free(struct w16_scaler *sc);
 
 // The control-menu box drawn at (x, y): grey, its bar outlined; navy while
 // its menu is open. The main window's frame and a dialog's share it.

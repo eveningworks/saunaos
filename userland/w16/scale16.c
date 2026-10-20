@@ -11,6 +11,7 @@
 #include "w16_internal.h"
 
 #include <stdlib.h>
+#include <string.h>
 #include "ui/ugfx.h"
 #include "w16/w16prefs.h"
 
@@ -98,4 +99,86 @@ void w16_scale_blit(struct ugfx_surface *dst, int dx, int dy, const uint32_t *sr
     free(tx);
     free(ty);
     free(row);
+}
+
+// --- a window kept scaled between frames ------------------------------------------
+
+// Screen pixels [X0, X1) x [Y0, Y1) of `sc->out` from `cur`, by the taps
+// already made for this size.
+static void scale_part(struct w16_scaler *sc, const uint32_t *cur, int X0, int Y0, int X1, int Y1) {
+    int w = sc->w, W = sc->W;
+    if (g_w16_q % 4 == 0) {                      // a whole step: every pixel a square, exactly
+        int k = g_w16_q / 4;
+        for (int Y = Y0; Y < Y1; Y++) {
+            const uint32_t *in = cur + (size_t)(Y / k) * w;
+            uint32_t *o = sc->out + (size_t)Y * W;
+            for (int X = X0; X < X1; X++) o[X] = in[X / k];
+        }
+        return;
+    }
+    for (int Y = Y0; Y < Y1; Y++) {
+        const struct tap *ty = &sc->ty[Y];
+        const uint32_t *ra = cur + (size_t)ty->a * w, *rb = cur + (size_t)ty->b * w;
+        uint32_t *o = sc->out + (size_t)Y * W;
+        for (int X = X0; X < X1; X++) {
+            const struct tap *tx = &sc->tx[X];
+            uint32_t top = mix(ra[tx->a], ra[tx->b], tx->w);
+            uint32_t bot = ty->w ? mix(rb[tx->a], rb[tx->b], tx->w) : top;
+            o[X] = mix(top, bot, ty->w);
+        }
+    }
+}
+
+// The rectangle of `cur` that differs from `prev`, both w x h; 0 when none.
+static int changed(const uint32_t *cur, const uint32_t *prev, int w, int h, int *x0, int *y0, int *x1, int *y1) {
+    *x0 = w; *y0 = h; *x1 = *y1 = 0;
+    for (int y = 0; y < h; y++) {
+        const uint32_t *a = cur + (size_t)y * w, *b = prev + (size_t)y * w;
+        if (!memcmp(a, b, (size_t)w * 4)) continue;
+        int l = 0, r = w;
+        while (a[l] == b[l]) l++;
+        while (a[r - 1] == b[r - 1]) r--;
+        if (l < *x0) *x0 = l;
+        if (r > *x1) *x1 = r;
+        if (y < *y0) *y0 = y;
+        *y1 = y + 1;
+    }
+    return *x1 > *x0;
+}
+
+void w16_scaler_show(struct w16_scaler *sc, struct ugfx_surface *dst, int dx, int dy, const uint32_t *cur,
+                     int w, int h) {
+    int W = w16_up(w), H = w16_up(h);
+    if (W <= 0 || H <= 0) return;
+    int fresh = sc->w != w || sc->h != h || sc->q != g_w16_q || sc->method != g_w16_method || !sc->out;
+    if (fresh) {
+        w16_scaler_free(sc);
+        sc->prev = malloc((size_t)w * h * 4);
+        sc->out = malloc((size_t)W * H * 4);
+        sc->tx = malloc(sizeof *sc->tx * (size_t)W);
+        sc->ty = malloc(sizeof *sc->ty * (size_t)H);
+        if (!sc->prev || !sc->out || !sc->tx || !sc->ty) { w16_scaler_free(sc); return; }
+        sc->w = w; sc->h = h; sc->W = W; sc->H = H; sc->q = g_w16_q; sc->method = g_w16_method;
+        taps(sc->tx, w, W);
+        taps(sc->ty, h, H);
+    }
+    int x0 = 0, y0 = 0, x1 = w, y1 = h;
+    if (fresh || changed(cur, sc->prev, w, h, &x0, &y0, &x1, &y1)) {
+        // Every screen pixel whose taps can reach the change: a blend reads
+        // its neighbour, so a pixel past each side, scaled, and one more.
+        int X0 = (x0 - 1) * g_w16_q / 4 - 1, X1 = (x1 + 1) * g_w16_q / 4 + 2;
+        int Y0 = (y0 - 1) * g_w16_q / 4 - 1, Y1 = (y1 + 1) * g_w16_q / 4 + 2;
+        scale_part(sc, cur, X0 < 0 ? 0 : X0, Y0 < 0 ? 0 : Y0, X1 > W ? W : X1, Y1 > H ? H : Y1);
+        for (int y = y0; y < y1; y++)
+            memcpy(sc->prev + (size_t)y * w + x0, cur + (size_t)y * w + x0, (size_t)(x1 - x0) * 4);
+    }
+    ugfx_blit(dst, dx, dy, W, H, sc->out, W);
+}
+
+void w16_scaler_free(struct w16_scaler *sc) {
+    free(sc->prev);
+    free(sc->out);
+    free(sc->tx);
+    free(sc->ty);
+    memset(sc, 0, sizeof *sc);
 }

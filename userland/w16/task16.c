@@ -400,6 +400,23 @@ uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hw
 void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam,
                        unsigned mods) {
     pthread_mutex_lock(&w->lock);
+    // ONE MOVE PENDING, as Windows kept it: a WM_MOUSEMOVE replaces the
+    // queued one for the same window and buttons when no other mouse
+    // message came after it, so a program busy drawing a drag catches up
+    // with the pointer instead of replaying every place it passed.
+    if (msg == WM_MOUSEMOVE)
+        for (unsigned i = w->qtail; i != w->qhead; ) {
+            i = (i + W16_QUEUE - 1) % W16_QUEUE;
+            struct w16_msg *q = &w->q[i];
+            if (q->message < WM_MOUSEMOVE || q->message > 0x0209) continue;
+            if (q->message == WM_MOUSEMOVE && q->hwnd == hwnd && q->wparam == wparam) {
+                q->lparam = lparam;
+                q->mods = (uint8_t)mods;
+                pthread_mutex_unlock(&w->lock);
+                return;
+            }
+            break;
+        }
     unsigned next = (w->qtail + 1) % W16_QUEUE;
     if (next != w->qhead) {
         w->q[w->qtail] = (struct w16_msg){ hwnd, msg, wparam, lparam, (uint8_t)mods };

@@ -280,7 +280,8 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     int cx, cy, cw, ch;
     w16_client_rect(win, &cx, &cy, &cw, &ch);
     if (win->fb) ugfx_blit(out, cx, cy, win->fbw, win->fbh, win->fb, win->fbw);
-    if (out != s) w16_scale_blit(s, 0, 0, g_virt, win->w, win->h, win->w);
+    static struct w16_scaler sc;
+    if (out != s) w16_scaler_show(&sc, s, 0, 0, g_virt, win->w, win->h);
     pthread_mutex_unlock(&g_w16.lock);
     w16_menu_draw(&g_menu);
     w16_menu_draw(&g_bar);
