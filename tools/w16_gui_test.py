@@ -59,7 +59,8 @@ file is involved.
 12. **The details panel and Options** (`--show`): in a short window
    fault.exe's Run sits in the pinned footer and its Drive C: row is
    scrolled out; the wheel brings it into view above Run; the Options
-   window takes a bigger size and refuses one smaller than it opened at.
+   window takes a bigger size, and a smaller one with its page scrolling,
+   but has a floor.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -576,9 +577,9 @@ def panel_and_options(dbg, qmp, res):
         dbg.send("gui resize 200 150")
         time.sleep(1.5)
         small = dbg.window("Retro Launcher Options")
-        res.check("...but never one smaller than it opened at",
-                  small and small["content"]["w"] >= before["content"]["w"]
-                  and small["content"]["h"] >= before["content"]["h"],
+        res.check("...and a smaller one, its page scrolling, but not as small as 200x150",
+                  small and small["content"]["h"] < before["content"]["h"]
+                  and small["content"]["w"] > 200 and small["content"]["h"] > 150,
                   f"opened {before['content']} asked 200x150, got {small and small['content']}")
         dbg.close_window("Retro Launcher Options")
     dbg.close_window("Retro Launcher")
@@ -607,7 +608,32 @@ def ini_has(dbg, line, t=6.0):
     return False
 
 
-def dialogs(dbg, res):
+def caption_line_ends(dbg, qmp, res, title):
+    """3.11's dialog caption: the black line under its bar stops inside
+    the white edge on each side, so white shows at both ends."""
+    win = title and dbg.window(title)
+    if not win:
+        res.check("the dialog's caption can be measured", False, f"no window {title!r}")
+        return
+    c = win["content"]
+    im = shot(qmp, f"{TMP}/w16_dlg_caption.png")
+    # The white edge: the first white pixel in from the left, a few rows down.
+    y_mid = c["y"] + 8
+    edge = next((x for x in range(c["x"], c["x"] + 12) if im.getpixel((x, y_mid)) == WHITE), None)
+    line = None
+    right = c["x"] + c["w"] - 1 - (edge - c["x"]) if edge is not None else None
+    # The line, found at the RIGHT end: the left one is the control-menu box's.
+    if edge is not None:
+        line = next((y for y in range(c["y"] + 1, c["y"] + 40) if im.getpixel((right - 1, y)) == BLACK
+                     and im.getpixel((right - 1, y - 1)) == NAVY), None)
+    ok = line is not None and im.getpixel((edge, line)) == WHITE and im.getpixel((right, line)) == WHITE \
+        and im.getpixel((edge + 1, line)) == BLACK and im.getpixel((right - 1, line)) == BLACK
+    res.check("the caption's black line stops short of its white edges, white at both ends (3.11's)",
+              ok, f"edge x {edge}, line y {line}, ends {line and im.getpixel((edge, line))}/"
+                  f"{line and im.getpixel((right, line))}")
+
+
+def dialogs(dbg, qmp, res):
     sh(dbg, f"rm {DLG_INI}")
     win = dbg.spawn("/bin/w16 /usr/share/w16/dialog.exe", DLG_TITLE)
     res.check("dialog.exe opens its window", win is not None, "no window")
@@ -622,6 +648,7 @@ def dialogs(dbg, res):
     dbg.send("gui key 0xF789")                    # F2
     titles = wait_titles(dbg, lambda t: "Number" in t)
     res.check("F2, an accelerator, opens the dialog", "Number" in titles, f"windows {titles}")
+    caption_line_ends(dbg, qmp, res, next((t for t in titles if "Number" in t), None))
     for ch in "57":
         dbg.send(f"gui key {ch}")
         dbg.settle(0.1)
@@ -798,7 +825,7 @@ def main():
         drives_and_folders(dbg, res)
         from_file_manager(dbg, qmp, res)
         panel_and_options(dbg, qmp, res)
-        dialogs(dbg, res)
+        dialogs(dbg, qmp, res)
     finally:
         dbg.close()
     print(f"\nw16_gui_test: {len(res.passes)} passed, {len(res.fails)} failed")

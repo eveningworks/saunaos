@@ -1620,8 +1620,11 @@ int main(int argc, char **argv) {
         .app_id       = "retrolauncher",
         .on_size      = default_size,
         .flags        = UAPP_SINGLE_INSTANCE | UAPP_RESIZABLE,
-        .min_w        = 640,
-        .min_h        = 400,
+        // From the font, as layout() is: the sidebar (20 'n'), a grid of
+        // at least one tile and a bit (16), the details panel (34) -- a
+        // fixed 640 let the panel slide over the sidebar at 1.5x.
+        .min_w        = ugfx_char_w() * (20 + 16 + 34) + 2,
+        .min_h        = ugfx_char_h() * 20,
         .widgets      = g_widgets,
         .widget_count = (int)(sizeof g_widgets / sizeof g_widgets[0]),
         .tick_ms      = 50,
