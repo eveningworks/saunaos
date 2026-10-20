@@ -70,10 +70,21 @@ const char *w16_thunk_module(struct w16 *w, uint16_t sel) {
     return 0;
 }
 
-// KERNEL's CONSTANTS: imported by ordinal like a function, but the loader
-// patches the VALUE in (Wine's krnl386 spec gives each). The selector ones
-// (__0040H and the rest) need real-mode memory w16 does not map, so they
-// stay unresolved -- counted missing, never patched with a guess.
+// KERNEL's constants: an import of one is patched to its value at load, never called.
+// __AHSHIFT = 3
+// Windows: A constant a program imports rather than a function: how far to shift a count of 64 KB
+// steps to get the selector step of a huge (over 64 KB) block -- 3 in protected mode.
+// w16: 3, patched in where the program uses it, as Windows' protected mode had it. w16 makes no
+// block over 64 KB (GlobalAlloc), so a program never has a huge block to step through.
+// __AHINCR = 8
+// Windows: The selector step itself, 1 << __AHSHIFT: what a huge pointer adds to its selector to
+// reach the next 64 KB.
+// w16: 8, patched in at load.
+// __WINFLAGS = 0x0413
+// Windows: A constant saying what Windows runs on and in -- the processor, protected mode, standard
+// or enhanced mode, a coprocessor.
+// w16: 0x0413 -- protected mode, a 386, enhanced mode -- what 3.1 said on the machines its programs
+// expected.
 static const struct { uint16_t ordinal, value; } KERNEL_EQUATES[] = {
     { 113, 3 },        // __AHSHIFT: a huge pointer's selector step is 1 << 3
     { 114, 8 },        // __AHINCR
@@ -441,7 +452,12 @@ static int far_name(struct w16 *w, uint32_t far, char *out, size_t cap) {
     return cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, out, (unsigned)cap) < 0 ? -1 : 0;
 }
 
-// LoadLibrary(lpLibFileName) -> its hInstance, or an error code under 32
+// LoadLibrary(lpLibFileName) -> HINSTANCE
+// Windows: Loads a DLL and returns its instance handle, or an error number under 32 -- 2 when the
+// file is not there. A DLL already loaded is counted again.
+// w16: A Windows module (USER, GDI...) is always there: it answers with that module's handle. Any
+// other DLL -- a program's own, as Hearts' CARDS.DLL -- is loaded from the program's folder, its
+// segments relocated and its entry point run once; 2 when it is not there.
 static int api_LoadLibrary(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     char spec[260], name[16];
@@ -458,7 +474,9 @@ static int api_LoadLibrary(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 4;
 }
 
-// FreeLibrary(hLibModule): counted; the library stays until the program ends
+// FreeLibrary(hLibModule) -> void
+// Windows: Counts a DLL down, unloading it when no one uses it.
+// w16: Counts it down; the DLL stays loaded until the program ends.
 static int api_FreeLibrary(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_dll *d = w16_dll_of(w, w16_arg16(a));
@@ -466,9 +484,10 @@ static int api_FreeLibrary(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// GetModuleHandle(lpModuleName): the program's, a loaded DLL's, or a
-// Windows module's (its thunk selector, which GetProcAddress takes); 0
-// for one that is not loaded
+// GetModuleHandle(lpModuleName) -> HMODULE
+// Windows: The handle of a module already loaded, by its name; 0 if it is not.
+// w16: The program's own, a DLL it loaded, or a Windows module's -- the handle GetProcAddress
+// takes; 0 for one not loaded.
 static int api_GetModuleHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
@@ -485,8 +504,12 @@ static int api_GetModuleHandle(struct w16 *w, unsigned ordinal, struct w16_args 
     return 4;
 }
 
-// GetProcAddress(hModule, lpProcName): by name, or by ordinal when the
-// selector is 0. A Windows function is its thunk; NULL when not exported.
+// GetProcAddress(hModule, lpProcName) -> FARPROC
+// Windows: The address of a function a module exports, by name or by ordinal (a name pointer whose
+// selector is 0); NULL if it exports no such function.
+// w16: The same for the program and its DLLs, from their entry tables. A Windows module's function
+// is answered with the far address w16 catches its calls at, so the program can call it through the
+// pointer.
 static int api_GetProcAddress(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
@@ -516,7 +539,9 @@ static int api_GetProcAddress(struct w16 *w, unsigned ordinal, struct w16_args *
     return 6;
 }
 
-// GetModuleFileName(hModule, lpFilename, nSize): its DOS path
+// GetModuleFileName(hModule, lpFilename, nSize) -> int
+// Windows: The full DOS path of the file a module was loaded from.
+// w16: The program's or a DLL's path, as the DOS path it has on the drives the program sees.
 static int api_GetModuleFileName(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);

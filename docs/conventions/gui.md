@@ -6003,3 +6003,31 @@ there first; an icon spelled out at a menu is one that drifts from the
 next menu's. Tests pick a context-menu row BY LABEL (the File Manager
 logs `files: ctxmenu rows` and `files: placemenu`), never by index: the
 strip moves every row below it.
+
+## A WIN16 CALL'S HANDLER CARRIES ITS DOCUMENTATION BLOCK -- THE BUILD FAILS WITHOUT IT
+
+Every handler in one of w16's API tables (`{ ordinal, api_Name }`) has,
+directly above it, the call's signature line and two fields:
+
+```c
+// IsIconic(hWnd) -> BOOL
+// Windows: Says whether a window is minimized ...
+// w16: Always says no, even while the window is minimized.
+```
+
+A STAND-IN (`task16.c`'s `PARTLY`) adds `Why:`, `Notice:` and `Whole:` --
+why only that, what a program may notice, what would make it whole, with
+the roadmap line that would. One handler serving several calls gives each
+its own signature line; signatures in a row share the fields after them.
+`tools/gen_w16_calls.py` generates `/usr/share/doc/windows/calls.md` and
+`stand-ins.md` from these at seed time -- what Help, Retro Launcher's
+About and Why? and `w16 --why` show -- and fails the build, as
+`check_docs.py` does, on a call without its block or a stand-in without
+its three. **Write `Windows:` in your own words** -- never Microsoft's
+documentation's -- and `w16:` as what the CODE does, read from it: a
+promise the handler does not keep is worse than none. A trap the code
+needs still goes above the signature, as a comment of its own; the
+generator shows only the block. When a handler changes what it does, its
+`w16:` line changes in the same commit, and a stand-in made whole leaves
+`PARTLY` and loses its three fields together (`--check`'s Partly and the
+page then agree).

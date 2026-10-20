@@ -625,21 +625,39 @@ static int run_template(struct w16 *w, const uint8_t *p, uint32_t n, uint16_t in
     return c->fault ? -1 : pop;
 }
 
+// DialogBox(hInstance, lpTemplateName, hWndParent, lpDialogFunc) -> int
+// Windows: Makes a modal dialog from a DIALOG resource -- its controls, their places in dialog
+// units -- and runs it until the dialog procedure calls EndDialog; returns EndDialog's value. The
+// owner takes no input meanwhile.
+// w16: The same: the dialog is a window of its own over the program's, drawn as Windows 3.1 drew
+// dialogs, with 3.1's keyboard -- Tab between controls, Enter the default button, Esc Cancel, a
+// control's underlined letter. Its controls are w16's own BUTTON, STATIC, EDIT, LISTBOX and
+// COMBOBOX.
 static int api_DialogBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return dialog(w, a, 0, 1);
 }
 
+// DialogBoxParam(hInstance, lpTemplateName, hWndParent, lpDialogFunc, lParamInit) -> int
+// Windows: DialogBox, with a value the dialog procedure gets in WM_INITDIALOG's lParam.
+// w16: The same (DialogBox says how).
 static int api_DialogBoxParam(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return dialog(w, a, 1, 1);
 }
 
+// CreateDialog(hInstance, lpTemplateName, hWndParent, lpDialogFunc) -> HWND
+// Windows: Makes a modeless dialog from a DIALOG resource: it stays open beside the program's
+// window, its keys passed through IsDialogMessage, until DestroyWindow.
+// w16: The same, a window of its own beside the program's.
 static int api_CreateDialog(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return dialog(w, a, 0, 0);
 }
 
+// CreateDialogParam(hInstance, lpTemplateName, hWndParent, lpDialogFunc, lParamInit) -> HWND
+// Windows: CreateDialog, with a value for WM_INITDIALOG's lParam.
+// w16: The same.
 static int api_CreateDialogParam(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return dialog(w, a, 1, 0);
@@ -666,17 +684,29 @@ static int indirect(struct w16 *w, struct w16_args *a, int modal) {
     return run_template(w, p, n, inst, owner, proc, 0, modal, pop);
 }
 
+// A template the program built in a global block; read up to its segment's end, from_template()
+// stopping at its own.
+// DialogBoxIndirect(hInstance, hDialogTemplate, hWndParent, lpDialogFunc) -> int
+// Windows: DialogBox from a template the program built in memory -- a global block -- rather than a
+// resource.
+// w16: The same; the template is read with every field checked to lie inside its block.
 static int api_DialogBoxIndirect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return indirect(w, a, 1);
 }
 
+// CreateDialogIndirect(hInstance, lpDialogTemplate, hWndParent, lpDialogFunc) -> HWND
+// Windows: CreateDialog from a template in memory, at a far pointer.
+// w16: The same (DialogBoxIndirect says how it is read).
 static int api_CreateDialogIndirect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return indirect(w, a, 0);
 }
 
-// IsDialogMessage(hDlg, lpMsg)
+// IsDialogMessage(hDlg, lpMsg) -> BOOL
+// Windows: Gives a modeless dialog's keys their dialog meaning -- Tab, the arrows, Enter, Esc, a
+// mnemonic -- when the message is for it; TRUE when it took the message.
+// w16: The same, as a modal dialog's own loop does it.
 static int api_IsDialogMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *d = w16_wnd_get(w, w16_arg16(a));
@@ -689,7 +719,9 @@ static int api_IsDialogMessage(struct w16 *w, unsigned ordinal, struct w16_args 
     return w->cpu.fault ? -1 : 6;
 }
 
-// EndDialog(hDlg, nResult)
+// EndDialog(hDlg, nResult) -> void
+// Windows: Ends a modal dialog once its procedure returns: DialogBox returns nResult.
+// w16: The same; a modeless dialog, which has no loop to end, is destroyed.
 static int api_EndDialog(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *d = w16_wnd_get(w, w16_arg16(a));
@@ -711,7 +743,9 @@ struct w16_wnd *w16_dlg_item(struct w16 *w, uint16_t dlg, uint16_t id) {
     return 0;
 }
 
-// GetDlgItem(hDlg, id)
+// GetDlgItem(hDlg, nIDDlgItem) -> HWND
+// Windows: The window of a dialog's control by its id.
+// w16: The same; a main window's child controls are found the same way.
 static int api_GetDlgItem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a);
@@ -720,7 +754,9 @@ static int api_GetDlgItem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// SetDlgItemText(hDlg, id, lpString): WM_SETTEXT to the control
+// SetDlgItemText(hDlg, nIDDlgItem, lpString) -> void
+// Windows: Sets a control's text: WM_SETTEXT to it.
+// w16: The same.
 static int api_SetDlgItemText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a);
@@ -730,7 +766,9 @@ static int api_SetDlgItemText(struct w16 *w, unsigned ordinal, struct w16_args *
     return w->cpu.fault ? -1 : 8;
 }
 
-// GetDlgItemText(hDlg, id, lpString, nMaxCount): the length copied
+// GetDlgItemText(hDlg, nIDDlgItem, lpString, nMaxCount) -> int
+// Windows: Copies a control's text into a buffer: WM_GETTEXT; the length copied.
+// w16: The same; an empty string for an id that is no control.
 static int api_GetDlgItemText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a);
@@ -747,7 +785,9 @@ static int api_GetDlgItemText(struct w16 *w, unsigned ordinal, struct w16_args *
     return w->cpu.fault ? -1 : 10;
 }
 
-// SetDlgItemInt(hDlg, id, uValue, bSigned)
+// SetDlgItemInt(hDlg, nIDDlgItem, uValue, bSigned) -> void
+// Windows: Sets a control's text to a number, signed or not.
+// w16: The same.
 static int api_SetDlgItemInt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a), v = w16_arg16(a), sig = w16_arg16(a);
@@ -761,8 +801,11 @@ static int api_SetDlgItemInt(struct w16 *w, unsigned ordinal, struct w16_args *a
     return w->cpu.fault ? -1 : 8;
 }
 
-// GetDlgItemInt(hDlg, id, lpTranslated, bSigned): the number, and whether
-// the text was one (3.1 accepts leading spaces and, signed, a minus).
+// GetDlgItemInt(hDlg, nIDDlgItem, lpTranslated, bSigned) -> UINT
+// Windows: Reads a control's text as a number, and says whether it was one: leading spaces are
+// skipped and, signed, a minus taken; anything else after the digits, or too big a number, is not a
+// number.
+// w16: The same rules as 3.1.
 static int api_GetDlgItemInt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a);
@@ -792,7 +835,9 @@ static int api_GetDlgItemInt(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 10;
 }
 
-// SendDlgItemMessage(hDlg, id, msg, wParam, lParam)
+// SendDlgItemMessage(hDlg, nIDDlgItem, uMsg, wParam, lParam) -> LRESULT
+// Windows: SendMessage to a dialog's control by its id.
+// w16: The same; 0 for an id that is no control.
 static int api_SendDlgItemMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a), msg = w16_arg16(a), wp = w16_arg16(a);
@@ -804,7 +849,10 @@ static int api_SendDlgItemMessage(struct w16 *w, unsigned ordinal, struct w16_ar
     return w->cpu.fault ? -1 : 12;
 }
 
-// CheckDlgButton(hDlg, id, uCheck), IsDlgButtonChecked(hDlg, id)
+// CheckDlgButton(hDlg, nIDButton, uCheck) -> void
+// Windows: Checks, unchecks or (for a three-state box) greys a check box or radio button:
+// BM_SETCHECK.
+// w16: The same.
 static int api_CheckDlgButton(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a), v = w16_arg16(a);
@@ -813,6 +861,9 @@ static int api_CheckDlgButton(struct w16 *w, unsigned ordinal, struct w16_args *
     return 6;
 }
 
+// IsDlgButtonChecked(hDlg, nIDButton) -> UINT
+// Windows: Whether a check box or radio button is checked: BM_GETCHECK.
+// w16: The same; 0 for an id that is no control.
 static int api_IsDlgButtonChecked(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), id = w16_arg16(a);
@@ -821,7 +872,9 @@ static int api_IsDlgButtonChecked(struct w16 *w, unsigned ordinal, struct w16_ar
     return 4;
 }
 
-// CheckRadioButton(hDlg, idFirst, idLast, idCheck)
+// CheckRadioButton(hDlg, nIDFirstButton, nIDLastButton, nIDCheckButton) -> void
+// Windows: Checks one radio button of a run of ids and unchecks the others.
+// w16: The same.
 static int api_CheckRadioButton(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t dlg = w16_arg16(a), first = w16_arg16(a), last = w16_arg16(a), check = w16_arg16(a);
@@ -832,7 +885,10 @@ static int api_CheckRadioButton(struct w16 *w, unsigned ordinal, struct w16_args
     return 8;
 }
 
-// DefDlgProc(hDlg, msg, wParam, lParam): for a dialog of the program's own class
+// DefDlgProc(hDlg, uMsg, wParam, lParam) -> LRESULT
+// Windows: The default handling for a dialog of a program's own window class -- what a dialog does
+// with a message its class procedure does not want.
+// w16: The same handling w16's own dialogs get.
 static int api_DefDlgProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *d = w16_wnd_get(w, w16_arg16(a));
@@ -844,7 +900,10 @@ static int api_DefDlgProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 10;
 }
 
-// MapDialogRect(hDlg, lpRect): dialog units to pixels
+// MapDialogRect(hDlg, lpRect) -> void
+// Windows: Turns a rectangle in dialog units -- a quarter of the dialog font's average width, an
+// eighth of its height -- into pixels.
+// w16: The same, from the font of the dialog given (the System font when it names none).
 static int api_MapDialogRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdlg = w16_arg16(a);
@@ -958,7 +1017,12 @@ int16_t w16_message_box(struct w16 *w, uint16_t owner, const char *text, const c
     return w16_dlg_run(w, d);
 }
 
-// MessageBox(hwnd, lpText, lpCaption, uType)
+// MessageBox(hWnd, lpText, lpCaption, uType) -> int
+// Windows: A modal box with a message, an icon (stop, question, exclamation, information) and
+// buttons -- OK, OK and Cancel, Yes and No, Abort, Retry and Ignore... -- and the event sound for
+// its icon; returns the button chosen.
+// w16: The same, sized round its text and drawn as Windows 3.1 drew it, with its buttons, mnemonics
+// and sound (MessageBeep's).
 static int api_MessageBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t owner = w16_arg16(a);
@@ -972,9 +1036,12 @@ static int api_MessageBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w->cpu.fault ? -1 : 12;
 }
 
-// ShellAbout(hWnd, szApp, szOtherStuff, hIcon): Windows 3.1's About layout
-// -- the program's icon and its own two strings -- with what runs it where
-// 3.1 named itself. "Name#title": the part after '#' is the first line.
+// "Name#title": the part after '#' is the first line.
+// ShellAbout(hWnd, szApp, szOtherStuff, hIcon) -> int
+// Windows: Shows the About box Windows' own programs use: the program's icon and name, a line of
+// its own, and Windows' version, copyright and free memory.
+// w16: The same layout, with the program's icon and its two strings, and what runs it -- w16 on
+// toy-os -- where 3.1 named itself.
 static int api_ShellAbout(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t owner = w16_arg16(a);
@@ -1032,8 +1099,17 @@ const struct w16_api g_dialog_api[] = {
 };
 const unsigned g_dialog_api_n = sizeof g_dialog_api / sizeof g_dialog_api[0];
 
-// DragAcceptFiles(hwnd, fAccept): nothing is ever dropped on a program
-// yet; DragQueryFile, DragFinish answer for a drop that never comes.
+// Nothing is ever dropped on a program yet; DragQueryFile and DragFinish answer for a drop that
+// never comes.
+// DragAcceptFiles(hWnd, fAccept) -> void
+// Windows: Tells File Manager that a window takes files dropped on it; a drop then arrives as
+// WM_DROPFILES.
+// w16: Accepts the call and does nothing: no drop is ever delivered.
+// Why: Dropping a file from toy-os's File Manager onto a Windows program's window needs toywm to
+// carry the drop to w16, and w16 to turn it into WM_DROPFILES with DOS paths.
+// Notice: A file dropped on its window is not opened. Open... in its File menu works.
+// Whole: Drops delivered to Windows programs. On the roadmap: "w16: a file dropped on a program
+// (WM_DROPFILES)".
 static int api_DragAcceptFiles(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
@@ -1042,6 +1118,12 @@ static int api_DragAcceptFiles(struct w16 *w, unsigned ordinal, struct w16_args 
     return 4;
 }
 
+// DragQueryFile(hDrop, iFile, lpszFile, cb) -> UINT
+// Windows: Says how many files a drop held, and each one's path.
+// w16: Answers 0: there is never a drop to ask about.
+// Why: No drop is ever delivered (DragAcceptFiles says why).
+// Notice: Nothing: it is only asked after a drop.
+// Whole: As DragAcceptFiles: on the roadmap, "w16: a file dropped on a program (WM_DROPFILES)".
 static int api_DragQueryFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg32(a); w16_arg16(a);
@@ -1049,6 +1131,12 @@ static int api_DragQueryFile(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 10;
 }
 
+// DragFinish(hDrop) -> void
+// Windows: Frees what a drop held.
+// w16: Nothing, as there is nothing to free.
+// Why: No drop is ever delivered (DragAcceptFiles says why).
+// Notice: Nothing.
+// Whole: As DragAcceptFiles: on the roadmap, "w16: a file dropped on a program (WM_DROPFILES)".
 static int api_DragFinish(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)w;

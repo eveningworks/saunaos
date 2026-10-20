@@ -1220,7 +1220,7 @@ static int ps_release(void *w, int cx, int cy) {
         char module[16];
         const char *dot = strchr(q->key, '.');
         snprintf(module, sizeof module, "%.*s", dot ? (int)(dot - q->key) : 0, q->key);
-        if (dot) retro_why_open(g_app, module, (unsigned)strtoul(dot + 1, 0, 10), q->first);
+        if (dot) retro_why_open(g_app, module, (unsigned)strtoul(dot + 1, 0, 10), q->first, 1);
         return 1;
     }
     return uui_sbar_release(&g_psb) != 0 || armed >= 0;

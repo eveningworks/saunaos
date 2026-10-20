@@ -288,8 +288,13 @@ static char *far_path(struct w16 *w, uint32_t far) {
     return s;
 }
 
-// OpenFile(lpFileName, lpReOpenBuff, wStyle): the OFSTRUCT gets the full
-// path, upper-case as DOS gave it, and the error code.
+// OpenFile(lpFileName, lpReOpenBuff, wStyle) -> HFILE
+// Windows: Opens, creates, deletes or tests a file by its DOS path, and fills an OFSTRUCT with the
+// full path and, on failure, DOS's error code; OF_REOPEN opens the path the OFSTRUCT already holds,
+// OF_PARSE only works out the full path.
+// w16: The same, over the drives the program sees: a DOS path becomes a toy-os one (C: is the Win16
+// folder, Z: all of toy-os), names match without case as DOS's did, and the OFSTRUCT gets the full
+// path in capitals, as DOS gave it. A drive outside /home is read-only.
 static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t name = w16_arg32(a), ofs = w16_arg32(a);
@@ -324,7 +329,10 @@ static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 10;
 }
 
-// _lopen(lpPathName, iReadWrite)
+// _lopen(lpPathName, iReadWrite) -> HFILE
+// Windows: Opens an existing file for reading, writing or both, and returns DOS's file handle;
+// HFILE_ERROR if it cannot.
+// w16: The same, on a toy-os file found through the DOS path.
 static int api_lopen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     char *dos = far_path(w, w16_arg32(a));
@@ -335,7 +343,10 @@ static int api_lopen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// _lcreat(lpPathName, iAttribute): made, or emptied
+// _lcreat(lpPathName, iAttribute) -> HFILE
+// Windows: Makes a file, or empties one that exists, and opens it for reading and writing.
+// w16: The same. The DOS attribute (read-only, hidden, system) is not kept: toy-os files have none
+// of them.
 static int api_lcreat(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     char *dos = far_path(w, w16_arg32(a));
@@ -346,14 +357,21 @@ static int api_lcreat(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// _lclose(hFile)
+// _lclose(hFile) -> HFILE
+// Windows: Closes a file handle.
+// w16: The same; 0, or HFILE_ERROR for a handle that is not open.
 static int api_lclose(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w->cpu.r[R_AX] = close_handle(w16_arg16(a)) < 0 ? HFILE_ERROR : 0;
     return 2;
 }
 
-// _lread(hFile, lpBuffer, wBytes), _lwrite(hFile, lpBuffer, wBytes)
+// _lread(hFile, lpBuffer, wBytes) -> UINT
+// _lwrite(hFile, lpBuffer, wBytes) -> UINT
+// Windows: Read or write up to 65535 bytes at the file's position, which moves on; the count done,
+// or HFILE_ERROR. A write of 0 bytes ends the file at the position, as DOS's did.
+// w16: The same, the 0-byte write included, straight into or out of the program's memory, checked
+// to lie inside the segment it names.
 static int api_lread(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t h = w16_arg16(a);
     uint32_t far = w16_arg32(a);
@@ -364,7 +382,10 @@ static int api_lread(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// _llseek(hFile, lOffset, iOrigin) -> the new position
+// _llseek(hFile, lOffset, iOrigin) -> LONG
+// Windows: Moves a file's position -- from its start, from where it is, or from its end -- and
+// returns the new position.
+// w16: The same; -1 for a handle that is not open or an origin that is not one of the three.
 static int api_llseek(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);

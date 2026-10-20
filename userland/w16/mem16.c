@@ -333,10 +333,13 @@ static void set32(struct cpu16 *c, uint32_t v) {
     c->r[R_DX] = (uint16_t)(v >> 16);
 }
 
-// LocalInit(wSegment, pStart, pEnd): a heap in DS's segment (0) from
-// pStart to pEnd -- or, with pStart 0, the last pEnd bytes of it, where
-// a library's LibEntry puts the heap its header asked for. The program's
-// own heap is made at load (w16_local_init), so this is a DLL's.
+// A heap in DS's segment (0) from pStart to pEnd -- or, with pStart 0, the last pEnd bytes of it,
+// where a library's LibEntry puts the heap its header asked for. The program's own heap is made at
+// load (w16_local_init), so this is a DLL's.
+// LocalInit(wSegment, pStart, pEnd) -> BOOL
+// Windows: Sets up a local heap in a data segment -- what a DLL's start-up code calls for the heap
+// its header asks for.
+// w16: The same for the data segment it runs in. The program's own heap is made when it loads.
 static int api_LocalInit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t seg = w16_arg16(a), start = w16_arg16(a), end = w16_arg16(a);
@@ -361,7 +364,12 @@ static int api_LocalInit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// LocalAlloc(flags, bytes)
+// LocalAlloc(wFlags, wBytes) -> HLOCAL
+// Windows: Allocates a block in the program's local heap, inside its 64 KB data segment: fixed (the
+// handle is its offset) or moveable (the handle names it, and LocalLock gives its offset), zeroed
+// with LMEM_ZEROINIT.
+// w16: The same, fixed and moveable, in the data segment; the heap grows toward the segment's 64 KB
+// as it fills.
 static int api_LocalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -370,7 +378,9 @@ static int api_LocalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// LocalReAlloc(h, bytes, flags)
+// LocalReAlloc(hMem, wBytes, wFlags) -> HLOCAL
+// Windows: Changes a local block's size, moving it if it may; LMEM_MODIFY changes only its flags.
+// w16: The same; a moveable block keeps its handle when it moves.
 static int api_LocalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -379,7 +389,9 @@ static int api_LocalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 6;
 }
 
-// LocalFree(h): 0 on success
+// LocalFree(hMem) -> HLOCAL
+// Windows: Frees a local block: 0, or the handle when it could not.
+// w16: The same.
 static int api_LocalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -388,7 +400,10 @@ static int api_LocalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// LocalLock(h): the block's offset -- a fixed handle is it already
+// LocalLock(hMem) -> PSTR
+// Windows: A local block's offset in the data segment, counting a lock on a moveable one so it
+// stays put.
+// w16: The same; a fixed block's handle is already its offset.
 static int api_LocalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -400,7 +415,9 @@ static int api_LocalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// LocalUnlock(h): whether it is still locked
+// LocalUnlock(hMem) -> BOOL
+// Windows: Counts a lock off a moveable block; whether it is still locked.
+// w16: The same.
 static int api_LocalUnlock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -411,7 +428,9 @@ static int api_LocalUnlock(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// LocalSize(h)
+// LocalSize(hMem) -> UINT
+// Windows: A local block's size in bytes.
+// w16: The same; 0 for a handle that is not a block.
 static int api_LocalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -421,7 +440,9 @@ static int api_LocalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// LocalHandle(wMem): the handle of the block at offset wMem
+// LocalHandle(wMem) -> HLOCAL
+// Windows: The handle of the local block at an offset.
+// w16: The same: the moveable handle that points there, else the offset itself for a fixed block.
 static int api_LocalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -432,7 +453,9 @@ static int api_LocalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// LocalFlags(h): the lock count in the low byte
+// LocalFlags(hMem) -> UINT
+// Windows: A local block's flags -- discardable, discarded -- with its lock count in the low byte.
+// w16: The lock count; w16 discards nothing.
 static int api_LocalFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -442,7 +465,10 @@ static int api_LocalFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// LocalCompact(min): the largest free
+// LocalCompact(uMinFree) -> UINT
+// Windows: Moves the heap's moveable blocks together and returns the largest free block it then
+// has.
+// w16: Returns the free room the heap has; it is never fragmented enough to need moving.
 static int api_LocalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -451,7 +477,11 @@ static int api_LocalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 2;
 }
 
-// GlobalAlloc(flags, dwBytes)
+// GlobalAlloc(wFlags, dwBytes) -> HGLOBAL
+// Windows: Allocates a block from the global heap, outside the data segment, up to 1 MB or more as
+// a huge block; moveable, discardable or fixed by its flags.
+// w16: Allocates a block of up to 64 KB, always zeroed, as its own segment: the handle is its
+// selector. A larger block is refused (0); no program run so far asks for one.
 static int api_GlobalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -460,7 +490,9 @@ static int api_GlobalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 6;
 }
 
-// GlobalReAlloc(h, dwBytes, flags)
+// GlobalReAlloc(hMem, dwBytes, wFlags) -> HGLOBAL
+// Windows: Changes a global block's size, moving it if it may.
+// w16: The same, up to 64 KB; the selector stays, so the handle does too.
 static int api_GlobalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -471,7 +503,9 @@ static int api_GlobalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 8;
 }
 
-// GlobalFree(h): 0 on success
+// GlobalFree(hMem) -> HGLOBAL
+// Windows: Frees a global block: 0, or the handle when it could not.
+// w16: The same.
 static int api_GlobalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -482,7 +516,9 @@ static int api_GlobalFree(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// GlobalLock(h) -> sel:0
+// GlobalLock(hMem) -> LPVOID
+// Windows: A far pointer to a global block, counting a lock on it.
+// w16: Its selector with offset 0. Nothing moves in w16's memory, so no lock is needed or counted.
 static int api_GlobalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -491,7 +527,9 @@ static int api_GlobalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// GlobalUnlock(h)
+// GlobalUnlock(hMem) -> BOOL
+// Windows: Counts a lock off a global block; whether it is still locked.
+// w16: Always unlocked (FALSE): w16 counts no global locks (GlobalLock says why).
 static int api_GlobalUnlock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -500,7 +538,9 @@ static int api_GlobalUnlock(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 2;
 }
 
-// GlobalSize(h)
+// GlobalSize(hMem) -> DWORD
+// Windows: A global block's size in bytes.
+// w16: The same; 0 for a handle that is not a block.
 static int api_GlobalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -509,7 +549,10 @@ static int api_GlobalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// GlobalHandle(sel) -> handle in AX, sel in DX
+// GlobalHandle(wMem) -> DWORD
+// Windows: The handle of the global block a selector belongs to, with the selector in the high
+// word.
+// w16: The selector both ways: in w16 a global block's handle is its selector.
 static int api_GlobalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -518,7 +561,9 @@ static int api_GlobalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 2;
 }
 
-// GlobalFlags(h)
+// GlobalFlags(hMem) -> UINT
+// Windows: A global block's flags -- discardable, discarded, shared -- and its lock count.
+// w16: 0: nothing is discarded and no locks are counted.
 static int api_GlobalFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -527,7 +572,9 @@ static int api_GlobalFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// LockSegment(seg): -1 is DS
+// LockSegment(wSegment) -> HGLOBAL
+// Windows: Locks a segment in memory; -1 means the program's data segment.
+// w16: Returns the segment -- -1 the data segment -- as nothing in w16 moves.
 static int api_LockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -536,7 +583,9 @@ static int api_LockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// UnlockSegment(seg)
+// UnlockSegment(wSegment) -> void
+// Windows: Unlocks a segment LockSegment locked.
+// w16: Nothing to unlock (LockSegment says why).
 static int api_UnlockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -545,7 +594,9 @@ static int api_UnlockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 2;
 }
 
-// GlobalCompact(dwMinFree): plenty
+// GlobalCompact(dwMinFree) -> DWORD
+// Windows: Compacts the global heap and returns the largest free block it could make.
+// w16: 1 MB: memory comes from toy-os as it is asked for, so there is always room to say yes.
 static int api_GlobalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;

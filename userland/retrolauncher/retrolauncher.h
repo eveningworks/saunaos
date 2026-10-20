@@ -35,10 +35,11 @@ void retro_sounds_load(int mode);
 void retro_sounds_mode(int mode);
 void retro_sounds_play(int row);
 
-// Why? on a stand-in call (why.c): its section of W16_STANDINS_DOC in a
-// uui_docdialog, titled by `name`. `module` is w16's ("USER").
+// About and Why? on a call (why.c): its section of W16_CALLS_DOC in a
+// uui_docdialog, titled by `name` -- "partly there" for a stand-in.
+// `module` is w16's ("USER").
 struct uapp;
-void retro_why_open(struct uapp *a, const char *module, unsigned ordinal, const char *name);
+void retro_why_open(struct uapp *a, const char *module, unsigned ordinal, const char *name, int partly);
 
 // The window listing what `path` imports: `retrolauncher --calls PATH`.
 int retro_calls_main(const char *path);

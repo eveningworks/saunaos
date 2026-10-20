@@ -736,9 +736,12 @@ static int move_window(struct w16 *w, struct w16_args *a) {
 #define SWP_SHOWWINDOW 0x0040
 #define SWP_HIDEWINDOW 0x0080
 
-// SetWindowPos(hwnd, hwndInsertAfter, x, y, cx, cy, flags): a place and a
-// size as MoveWindow takes them, either kept by its SWP_NO* flag; the
-// z-order is the creation order (wnd16.c) and stays.
+// The z-order is the creation order (wnd16.c) and stays.
+// SetWindowPos(hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags) -> BOOL
+// Windows: Moves, sizes, shows or hides a window, and changes its place in the stacking order; each
+// SWP_NO* flag keeps one of them as it is.
+// w16: Moves and sizes as MoveWindow does, keeping what an SWP_NO* flag says to. The stacking order
+// of a program's windows stays their creation order; toywm stacks its top-level windows.
 static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -769,10 +772,13 @@ static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 14;
 }
 
-// AdjustWindowRect(lpRect, style, bMenu): the client rectangle grown by
-// 3.1's frame, caption and menu bar -- what CreateWindow and MoveWindow
-// take off again (w16_frame_fit under the desktop's frame), so the client
-// is the one asked for. Scroll bars are not counted, as in Windows.
+// What CreateWindow and MoveWindow take off again (w16_frame_fit under the desktop's frame), so the
+// client is the one asked for.
+// AdjustWindowRect(lpRect, dwStyle, bMenu) -> void
+// Windows: Grows a client rectangle by the frame, caption and menu bar a window of that style has:
+// the window rectangle that gives that client area. Scroll bars are not counted.
+// w16: The same, by Windows 3.1's measures; under toywm's frame (the Window frame setting) the
+// client asked for is still the one the program gets.
 static int api_AdjustWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t p = w16_arg32(a), style = w16_arg32(a);
@@ -792,7 +798,9 @@ static int api_AdjustWindowRect(struct w16 *w, unsigned ordinal, struct w16_args
 
 // --- the exports ------------------------------------------------------------------------
 
-// InitApp(hInstance)
+// InitApp(hInstance) -> BOOL
+// Windows: Part of a program's start-up: sets up its message queue.
+// w16: Answers TRUE: the queue is there from the start.
 static int api_InitApp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -801,7 +809,9 @@ static int api_InitApp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// PostQuitMessage(code)
+// PostQuitMessage(nExitCode) -> void
+// Windows: Asks the program's message loop to end: GetMessage then returns FALSE with the code.
+// w16: The same; the code becomes w16's exit status.
 static int api_PostQuitMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     pthread_mutex_lock(&w->lock);
@@ -812,7 +822,10 @@ static int api_PostQuitMessage(struct w16 *w, unsigned ordinal, struct w16_args 
     return 2;
 }
 
-// GetClientRect(hwnd, lpRect)
+// GetClientRect(hWnd, lpRect) -> void
+// Windows: A window's client area -- inside its frame, caption, menu bar and scroll bars -- as a
+// rectangle from 0,0.
+// w16: The same.
 static int api_GetClientRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -822,7 +835,11 @@ static int api_GetClientRect(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 6;
 }
 
-// BeginPaint(hwnd, lpPaint)
+// BeginPaint(hWnd, lpPaint) -> HDC
+// Windows: Starts painting a window in answer to WM_PAINT: a device context clipped to the part
+// that needs it, the background erased with the class brush first unless the program does it.
+// w16: The same; the window's background is erased (WM_ERASEBKGND) when it was invalidated asking
+// for that.
 static int api_BeginPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -836,7 +853,10 @@ static int api_BeginPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// EndPaint(hwnd, lpPaint): what was drawn shows when the program next waits
+// EndPaint(hWnd, lpPaint) -> void
+// Windows: Ends the painting BeginPaint began.
+// w16: The same. What was drawn shows on screen when the program next waits for a message, as one
+// finished frame, so a window never shows half a repaint.
 static int api_EndPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -846,12 +866,21 @@ static int api_EndPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
+// MoveWindow(hWnd, X, Y, nWidth, nHeight, bRepaint) -> BOOL
+// Windows: Moves and sizes a window -- a top-level one on the screen, a child in its parent --
+// sending WM_MOVE and WM_SIZE.
+// w16: The same. A top-level window's size is its toywm window's, frame included as the program
+// counted it.
 static int api_MoveWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return move_window(w, a);
 }
 
-// GetDC(hwnd): the window's one DC
+// GetDC(hWnd) -> HDC
+// Windows: A device context to draw in a window's client area outside WM_PAINT; GetDC(NULL) one for
+// the whole screen.
+// w16: The window's device context; GetDC(NULL) one for the program's screen, which it may read
+// from but which shows nothing it draws.
 static int api_GetDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -860,7 +889,9 @@ static int api_GetDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// ReleaseDC(hwnd, hdc)
+// ReleaseDC(hWnd, hDC) -> int
+// Windows: Gives back a device context GetDC lent.
+// w16: Answers 1: a window keeps its one device context.
 static int api_ReleaseDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -869,12 +900,21 @@ static int api_ReleaseDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
+// A program polling with it would spin a core, so an empty queue costs the caller a millisecond --
+// Windows yielded to other tasks there.
+// PeekMessage(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, wRemoveMsg) -> BOOL
+// Windows: Looks for a message without waiting -- for a window, in a range -- taking it off the
+// queue with PM_REMOVE; FALSE when there is none. Programs that animate while idle loop on it.
+// w16: The same. A program that finds nothing gives up a millisecond each time, where Windows let
+// other programs run.
 static int api_PeekMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return peek_message(w, a);
 }
 
-// PostMessage(hwnd, msg, wParam, lParam)
+// PostMessage(hWnd, Msg, wParam, lParam) -> BOOL
+// Windows: Puts a message on a window's queue and returns at once.
+// w16: The same, on the program's one queue.
 static int api_PostMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -885,7 +925,10 @@ static int api_PostMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 10;
 }
 
-// SendMessage(hwnd, msg, wParam, lParam)
+// SendMessage(hWnd, Msg, wParam, lParam) -> LRESULT
+// Windows: Calls a window's procedure with a message now and returns its answer.
+// w16: The same, for the program's windows and w16's own controls inside them; a hook on
+// WH_CALLWNDPROC hears it first.
 static int api_SendMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -895,7 +938,10 @@ static int api_SendMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return c->fault ? -1 : 10;
 }
 
-// ValidateRect(hwnd, lpRect): the whole window
+// ValidateRect(hWnd, lpRect) -> void
+// Windows: Marks part of a window as painted, so no WM_PAINT comes for it.
+// w16: Marks the whole client area painted, whatever rectangle is given -- w16 keeps one "needs
+// painting" mark per window.
 static int api_ValidateRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -908,14 +954,19 @@ static int api_ValidateRect(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 6;
 }
 
-// LoadString
+// LoadString(hInstance, uID, lpBuffer, nBufferMax) -> int
+// Windows: Copies a string from the module's string table resource -- in blocks of 16 -- into a
+// buffer; the length copied.
+// w16: The same.
 static int api_LoadString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return w16_user_loadstring(w, a);
 }
 
-// CreateWindowEx(dwExStyle, ...CreateWindow's...): no extended style
-// changes anything w16 draws yet
+// CreateWindowEx(dwExStyle, lpClassName, lpWindowName, dwStyle, X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam) -> HWND
+// Windows: CreateWindow with an extended style -- a dialog's frame, a window kept on top, one that
+// takes dropped files.
+// w16: CreateWindow; no extended style changes what w16 draws yet.
 static int api_CreateWindowEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a);
@@ -923,8 +974,11 @@ static int api_CreateWindowEx(struct w16 *w, unsigned ordinal, struct w16_args *
     return r < 0 ? r : 34;
 }
 
-// CallWindowProc(lpPrevWndFunc, hwnd, msg, wParam, lParam): a far call to
-// it -- a W16HOST pointer lands in the C procedure (w16_host_proc_call)
+// CallWindowProc(lpPrevWndFunc, hWnd, Msg, wParam, lParam) -> LRESULT
+// Windows: Calls a window procedure by its address -- how a subclass passes a message on to the
+// procedure it replaced.
+// w16: The same; when the procedure is one of w16's own controls', the call lands in w16's C code,
+// so a program can subclass an EDIT or a BUTTON.
 static int api_CallWindowProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t fn = w16_arg32(a);
@@ -934,9 +988,10 @@ static int api_CallWindowProc(struct w16 *w, unsigned ordinal, struct w16_args *
     return w->cpu.fault ? -1 : 14;
 }
 
-// GetClassInfo(hInstance, lpClassName, lpWndClass): a WNDCLASS of a
-// registered class -- w16's own answer their W16HOST procedure, so a
-// program may superclass one (register its own on top, passing on)
+// GetClassInfo(hInstance, lpClassName, lpWndClass) -> BOOL
+// Windows: Fills a WNDCLASS with what a registered class was registered with.
+// w16: The same; for w16's own classes (BUTTON, EDIT, LISTBOX...) the procedure is one a program
+// can call, so it can superclass them -- register its own class on top, passing messages on.
 static int api_GetClassInfo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t inst = w16_arg16(a);
@@ -961,13 +1016,22 @@ static int api_GetClassInfo(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 10;
 }
 
-// CreateWindow
+// CreateWindow(lpClassName, lpWindowName, dwStyle, X, Y, nWidth, nHeight, hWndParent, hMenu, hInstance, lpParam) -> HWND
+// Windows: Makes a window of a registered class: a top-level window or a child in another, with its
+// style, place, size and menu, sending WM_GETMINMAXINFO, WM_NCCREATE, WM_NCCALCSIZE and WM_CREATE
+// as it is made.
+// w16: The same messages in the same order -- MFC programs depend on it. A top-level window is a
+// toywm window with Windows 3.1's frame drawn by w16 (or toywm's own frame, by the Window frame
+// setting); a child is drawn into it.
 static int api_CreateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return create_window(w, a);
 }
 
-// ShowWindow(hwnd, nCmdShow) -> whether it was visible
+// ShowWindow(hWnd, nCmdShow) -> BOOL
+// Windows: Shows, hides, minimizes, maximizes or restores a window; whether it was visible.
+// w16: The same. A top-level window is minimized and maximized through toywm; a window that was
+// sized while hidden hears its WM_SIZE as it is first shown.
 static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -997,7 +1061,9 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return c->fault ? -1 : 4;
 }
 
-// DestroyWindow(hwnd)
+// DestroyWindow(hWnd) -> BOOL
+// Windows: Destroys a window and its children, sending WM_DESTROY to each.
+// w16: The same.
 static int api_DestroyWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1007,13 +1073,21 @@ static int api_DestroyWindow(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 2;
 }
 
-// RegisterClass
+// RegisterClass(lpWndClass) -> ATOM
+// Windows: Registers a window class: its procedure, background brush, icon, cursor and extra bytes
+// per window.
+// w16: The same.
 static int api_RegisterClass(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return register_class(w, a);
 }
 
-// DefWindowProc(hwnd, msg, wParam, lParam)
+// DefWindowProc(hWnd, Msg, wParam, lParam) -> LRESULT
+// Windows: What Windows does with a message the program does not handle: erases the background,
+// draws the frame, runs the control menu, closes on WM_CLOSE, gives the cursor.
+// w16: The same for what w16's windows do: WM_ERASEBKGND with the class brush, WM_SYSCOMMAND
+// (minimize, maximize, restore, close), WM_CLOSE destroying the window, WM_SETTEXT and WM_GETTEXT
+// for the caption, the class cursor.
 static int api_DefWindowProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1024,12 +1098,20 @@ static int api_DefWindowProc(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 10;
 }
 
+// GetMessage(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax) -> BOOL
+// Windows: Waits for the program's next message: posted messages and input first, WM_PAINT for a
+// window that needs it when nothing else waits, WM_TIMER after that; FALSE for WM_QUIT.
+// w16: The same. A mouse move still waiting is replaced by a newer one, so a slow program is not
+// handed a backlog of old positions.
 static int api_GetMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return get_message(w, a);
 }
 
-// TranslateMessage: the main thread posts
+// TranslateMessage(lpMsg) -> BOOL
+// Windows: Turns a key press into WM_CHAR with the character it types, by the keyboard layout.
+// w16: Answers FALSE and does nothing: w16 posts WM_CHAR itself as each key arrives, with the
+// character toy-os's keyboard layout gave it.
 static int api_TranslateMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1048,7 +1130,9 @@ uint32_t w16_dispatch(struct w16 *w, const struct w16_msg *m) {
     return w16_send(w, m->hwnd, m->message, m->wparam, m->lparam);
 }
 
-// DispatchMessage(lpMsg)
+// DispatchMessage(lpMsg) -> LONG
+// Windows: Calls the window procedure a message is for; a WM_TIMER with a procedure calls that.
+// w16: The same.
 static int api_DispatchMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1072,13 +1156,21 @@ static void update(struct w16 *w, struct w16_wnd *x, int depth) {
     free(kids);
 }
 
+// UpdateWindow(hWnd) -> void
+// Windows: Sends WM_PAINT now, rather than when the program next waits, if the window needs
+// painting.
+// w16: The same, then its children's.
 static int api_UpdateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     update(w, w16_wnd_get(w, w16_arg16(a)), 0);
     return 2;
 }
 
-// InvalidateRect(hwnd, lpRect, bErase): the whole window
+// InvalidateRect(hWnd, lpRect, bErase) -> void
+// Windows: Marks part of a window as needing paint -- erased first, if asked -- so WM_PAINT comes
+// for it.
+// w16: Marks the whole client area, whatever rectangle is given: w16 keeps one mark per window, and
+// repainting more than was asked draws the same picture.
 static int api_InvalidateRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -1105,8 +1197,13 @@ int w16_cursor_shape(uint16_t h) {
     }
 }
 
-// LoadCursor(hInst, lpName): a WIN_CURSOR_* shape's handle. LoadIcon: a
-// module's icon (w16_icon_handle), else a handle to Windows' own, not drawn yet
+// LoadCursor(hInstance, lpCursorName) -> HCURSOR
+// LoadIcon(hInstance, lpIconName) -> HICON
+// Windows: A cursor or an icon, from the module's resources or -- with hInstance NULL -- one of
+// Windows' own (the arrow, the hourglass, IDI_APPLICATION...).
+// w16: A cursor is one of toy-os's pointer shapes standing for Windows' (arrow, I-beam, hourglass,
+// cross, sizes); a program's own cursor resource shows as the arrow. An icon from the program's
+// resources is drawn as it is; Windows' own icons are handles that draw nothing yet.
 static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint16_t inst = w16_arg16(a);
@@ -1123,7 +1220,11 @@ static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// GetSystemMetrics(index)
+// GetSystemMetrics(nIndex) -> int
+// Windows: Sizes of the screen and of Windows' parts: the screen's width and height, scroll bar and
+// caption sizes, icon and cursor sizes...
+// w16: Windows 3.1's values on a 640 x 480 VGA screen, the world a program is drawn in before any
+// scaling; 0 for an index it does not know.
 static int api_GetSystemMetrics(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1134,7 +1235,10 @@ static int api_GetSystemMetrics(struct w16 *w, unsigned ordinal, struct w16_args
     return 2;
 }
 
-// EnableWindow(hwnd, bEnable) -> whether it was disabled
+// EnableWindow(hWnd, bEnable) -> BOOL
+// Windows: Enables or disables a window -- a disabled one takes no mouse or keys, a control greys;
+// whether it was disabled.
+// w16: The same; a control redraws greyed.
 static int api_EnableWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -1155,7 +1259,9 @@ static int api_EnableWindow(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 4;
 }
 
-// IsWindowEnabled(hwnd)
+// IsWindowEnabled(hWnd) -> BOOL
+// Windows: Whether a window takes input.
+// w16: The same.
 static int api_IsWindowEnabled(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -1163,7 +1269,9 @@ static int api_IsWindowEnabled(struct w16 *w, unsigned ordinal, struct w16_args 
     return 2;
 }
 
-// GetWindowText(hwnd, lpString, nMaxCount): WM_GETTEXT
+// GetWindowText(hWnd, lpString, nMaxCount) -> int
+// Windows: A window's caption, or a control's text: WM_GETTEXT.
+// w16: The same.
 static int api_GetWindowText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
@@ -1173,7 +1281,9 @@ static int api_GetWindowText(struct w16 *w, unsigned ordinal, struct w16_args *a
     return w->cpu.fault ? -1 : 8;
 }
 
-// SetWindowText(hwnd, lpString): WM_SETTEXT
+// SetWindowText(hWnd, lpString) -> void
+// Windows: Sets a window's caption or a control's text: WM_SETTEXT.
+// w16: The same; a top-level window's caption shows in toywm's taskbar too.
 static int api_SetWindowText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
@@ -1181,7 +1291,9 @@ static int api_SetWindowText(struct w16 *w, unsigned ordinal, struct w16_args *a
     return w->cpu.fault ? -1 : 6;
 }
 
-// GetWindowTextLength(hwnd)
+// GetWindowTextLength(hWnd) -> int
+// Windows: The length of a window's text: WM_GETTEXTLENGTH.
+// w16: The same.
 static int api_GetWindowTextLength(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w->cpu.r[R_AX] = (uint16_t)w16_send(w, w16_arg16(a), WM_GETTEXTLENGTH, 0, 0);
@@ -1237,6 +1349,14 @@ static uint32_t window_field(struct w16 *w, struct w16_wnd *x, int index, int by
     }
 }
 
+// GetWindowWord(hWnd, nIndex) -> WORD
+// SetWindowWord(hWnd, nIndex, wNewWord) -> WORD
+// GetWindowLong(hWnd, nIndex) -> LONG
+// SetWindowLong(hWnd, nIndex, dwNewLong) -> LONG
+// Windows: Read or change a window's fields: a negative index is one of Windows' own -- its
+// procedure (GWL_WNDPROC, how a window is subclassed), style, id, parent, instance -- a positive
+// one the window's own extra bytes.
+// w16: The same fields, and the window's extra bytes as its class asked for them.
 static int api_GetWindowWord(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     int16_t index = (int16_t)w16_arg16(a);
@@ -1247,7 +1367,10 @@ static int api_GetWindowWord(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 4 + (set ? (lng ? 4 : 2) : 0);
 }
 
-// RegisterWindowMessage(lpString): an atom, unique per string
+// RegisterWindowMessage(lpString) -> UINT
+// Windows: A message number unique to a string, the same in every program that registers it -- how
+// programs agree on a message, as the Find dialog's "commdlg_FindReplace".
+// w16: The same, from the program's atom table.
 static int api_RegisterWindowMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     char *s = dup_far(w, w16_arg32(a));
@@ -1257,7 +1380,9 @@ static int api_RegisterWindowMessage(struct w16 *w, unsigned ordinal, struct w16
     return 4;
 }
 
-// GetParent(hwnd)
+// GetParent(hWnd) -> HWND
+// Windows: A child window's parent, or a top-level window's owner.
+// w16: The same.
 static int api_GetParent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -1265,7 +1390,9 @@ static int api_GetParent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// IsChild(hwndParent, hwnd)
+// IsChild(hWndParent, hWnd) -> BOOL
+// Windows: Whether a window is a child -- at any depth -- of another.
+// w16: The same.
 static int api_IsChild(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t p = w16_arg16(a), h = w16_arg16(a);
@@ -1273,8 +1400,11 @@ static int api_IsChild(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// GetKeyState(vk): the Shift, Ctrl and Alt of the key being handled, as
-// the high bit of the answer; any other key reads as up
+// GetKeyState(nVirtKey) -> int
+// Windows: Whether a key was down when the message being handled was made (the high bit), and a
+// toggle key's state (the low bit).
+// w16: Shift, Ctrl and Alt as they were for the message being handled; any other key reads as up,
+// and no toggle is kept. The programs run so far ask only for those three.
 static int api_GetKeyState(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t vk = w16_arg16(a);
@@ -1285,7 +1415,9 @@ static int api_GetKeyState(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// GetDlgCtrlID(hwnd)
+// GetDlgCtrlID(hWnd) -> int
+// Windows: A child window's id.
+// w16: The same.
 static int api_GetDlgCtrlID(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));

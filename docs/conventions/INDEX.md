@@ -854,6 +854,9 @@ whenever a headline here tells you something you did not already know.
   SELECTION** -- `CMD_PL_*`, aimed by `places_ctx_items()`
 - **A VERB'S ICON AND COLOUR COME FROM `ui/uui_verbs.h`, IN EVERY MENU** --
   and a test picks a menu row by label, never by index
+- **A WIN16 CALL'S HANDLER CARRIES ITS DOCUMENTATION BLOCK -- THE BUILD FAILS
+  WITHOUT IT** -- `Name(...)`, `Windows:`, `w16:` (+ `Why:`/`Notice:`/`Whole:`
+  for a stand-in), generated into Help's pages by `tools/gen_w16_calls.py`
 
 ### Storage, the filesystem, and /etc
 

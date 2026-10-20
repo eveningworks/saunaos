@@ -144,7 +144,11 @@ uint16_t w16_load_menu(struct w16 *w, const char *name, uint16_t id) {
     return h;
 }
 
-// LoadMenu(hInst, lpName)
+// LoadMenu(hInstance, lpMenuName) -> HMENU
+// Windows: Builds a menu from a MENU resource -- a menu bar's titles, each with its popup of items
+// -- and returns its handle.
+// w16: The same, from the program's MENU resource by name or number; drawn as Windows 3.1 drew
+// menus.
 static int api_LoadMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -174,7 +178,10 @@ static struct w16_mi *find(uint16_t h, uint16_t id, unsigned flags) {
 
 static void bar_changed(struct w16 *w) { w16_task_post(w, W16_POST_PAINT); }
 
-// CheckMenuItem(hMenu, id, flags): the previous state, or -1
+// CheckMenuItem(hMenu, uIDCheckItem, uCheck) -> DWORD
+// Windows: Puts a check mark beside a menu item, or takes it off, found by its command id or
+// (MF_BYPOSITION) its place; returns the state it had, or -1.
+// w16: The same.
 static int api_CheckMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a), id = w16_arg16(a), flags = w16_arg16(a);
@@ -187,7 +194,9 @@ static int api_CheckMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 6;
 }
 
-// EnableMenuItem(hMenu, id, flags): the previous MF_GRAYED|MF_DISABLED, or -1
+// EnableMenuItem(hMenu, uIDEnableItem, uEnable) -> BOOL
+// Windows: Enables, disables or greys a menu item; returns the state it had, or -1.
+// w16: The same, and a menu bar title greyed or enabled is redrawn at once.
 static int api_EnableMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a), id = w16_arg16(a), flags = w16_arg16(a);
@@ -201,8 +210,10 @@ static int api_EnableMenuItem(struct w16 *w, unsigned ordinal, struct w16_args *
     return 6;
 }
 
-// GetMenuState(hMenu, id, flags) -> the item's MF_* flags (a popup's
-// item count in the high byte), or -1
+// GetMenuState(hMenu, uId, uFlags) -> UINT
+// Windows: A menu item's flags -- checked, greyed, a separator, a popup -- or, for a popup, its
+// item count in the high byte; -1 when there is no such item.
+// w16: The same.
 static int api_GetMenuState(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a), id = w16_arg16(a), flags = w16_arg16(a);
@@ -219,7 +230,9 @@ static int api_GetMenuState(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 6;
 }
 
-// GetMenuItemCount(hMenu) -> its items, or -1
+// GetMenuItemCount(hMenu) -> int
+// Windows: How many items a menu has; -1 for a handle that is not a menu.
+// w16: The same.
 static int api_GetMenuItemCount(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
@@ -230,7 +243,9 @@ static int api_GetMenuItemCount(struct w16 *w, unsigned ordinal, struct w16_args
     return 2;
 }
 
-// GetMenuItemID(hMenu, nPos) -> the item's command id; -1 for a popup or none
+// GetMenuItemID(hMenu, nPos) -> UINT
+// Windows: The command id of the item at a place in a menu; -1 for a popup or a place with no item.
+// w16: The same.
 static int api_GetMenuItemID(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a), pos = w16_arg16(a);
@@ -242,7 +257,11 @@ static int api_GetMenuItemID(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 4;
 }
 
-// GetSystemMenu(hwnd, bRevert): the control menu is w16's own
+// GetSystemMenu(hWnd, bRevert) -> HMENU
+// Windows: The window's control menu (Restore, Move, Size, Minimize, Maximize, Close, Switch
+// To...), for a program to change.
+// w16: A handle to the control menu, which is w16's own: the items a program adds to it are not
+// shown.
 static int api_GetSystemMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a);
@@ -250,7 +269,9 @@ static int api_GetSystemMenu(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 4;
 }
 
-// GetMenu(hwnd)
+// GetMenu(hWnd) -> HMENU
+// Windows: The menu bar of a window.
+// w16: The program's menu bar: in w16 only its main window has one.
 static int api_GetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
@@ -258,8 +279,12 @@ static int api_GetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// SetMenu(hwnd, hMenu): the bar takes its height from the client area, as
-// on Windows -- the window keeps its size and the program hears WM_SIZE.
+// The bar takes its height from the client area, as on Windows -- the window keeps its size and the
+// program hears WM_SIZE.
+// SetMenu(hWnd, hMenu) -> BOOL
+// Windows: Gives a window a menu bar, or takes it away with NULL; the client area shrinks or grows
+// by the bar's height.
+// w16: The same: the window keeps its size, the program hears WM_SIZE for its client area.
 static int api_SetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
@@ -284,7 +309,10 @@ void w16_set_menu(struct w16 *w, uint16_t h) {
     bar_changed(w);
 }
 
-// GetSubMenu(hMenu, nPos)
+// GetSubMenu(hMenu, nPos) -> HMENU
+// Windows: The popup menu at a place in a menu -- File under the menu bar's first title; NULL when
+// the item is no popup.
+// w16: The same.
 static int api_GetSubMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a), pos = w16_arg16(a);
@@ -295,7 +323,9 @@ static int api_GetSubMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// DrawMenuBar(hwnd)
+// DrawMenuBar(hWnd) -> void
+// Windows: Redraws a window's menu bar after a program changed it.
+// w16: The same.
 static int api_DrawMenuBar(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
@@ -303,7 +333,9 @@ static int api_DrawMenuBar(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// DestroyMenu(hMenu)
+// DestroyMenu(hMenu) -> BOOL
+// Windows: Frees a menu and its popups.
+// w16: The same; the menu bar the window shows is kept until it is replaced.
 static int api_DestroyMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
@@ -315,7 +347,10 @@ static int api_DestroyMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// LoadAccelerators(hInst, lpName)
+// LoadAccelerators(hInstance, lpTableName) -> HACCEL
+// Windows: Loads an ACCELERATORS resource: the keys that stand for menu commands, as Ctrl+Z for
+// Undo.
+// w16: The same: the handle names the resource, read again at each key.
 static int api_LoadAccelerators(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -334,10 +369,12 @@ static int api_LoadAccelerators(struct w16 *w, unsigned ordinal, struct w16_args
 #define FCONTROL 0x08
 #define FALT     0x10
 
-// TranslateAccelerator(hwnd, hAccel, lpMsg): a key an ACCELERATORS entry
-// names becomes WM_COMMAND (its id, 1 in lParam's high word) to `hwnd`.
-// A virtual key matches WM_KEYDOWN with the same Shift, Ctrl and Alt; a
-// character matches WM_CHAR.
+// TranslateAccelerator(hWnd, hAccTable, lpMsg) -> int
+// Windows: Turns a key the accelerator table names into WM_COMMAND with its command id for the
+// window, rather than a keystroke; TRUE when it did.
+// w16: The same: a virtual key matches WM_KEYDOWN (and WM_SYSKEYDOWN) with the same Shift, Ctrl and
+// Alt, a character matches WM_CHAR, and the WM_COMMAND carries 1 in lParam's high word, as an
+// accelerator's does.
 static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;

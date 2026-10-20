@@ -682,25 +682,16 @@ def check_command_options_documented(problems):
                 problems.append(f"{rel} does not name the command `{c}`, which {name} accepts")
 
 
-def check_w16_stand_ins_explained(problems):
-    """Every stand-in in w16's PARTLY table (userland/w16/task16.c) has its
-    `## MODULE.ORDINAL Name` section on the stand-ins page Retro Launcher's
-    Why? opens, and every section names a stand-in -- a call made whole
-    takes its section with it, rather than leaving an explanation of a
-    stand-in that is no longer one."""
-    page = "data/usr/share/doc/windows/stand-ins.md"
-    table = re.search(r"PARTLY\[\] = \{(.*?)\n\};", read("userland/w16/task16.c"), re.S)
-    if not table:
-        problems.append("userland/w16/task16.c: no PARTLY table found -- update check_w16_stand_ins_explained")
-        return
-    want = {f"{m}.{o}" for m, o in re.findall(r'\{\s*"(\w+)",\s*(\d+),', table.group(1))}
-    have = set(re.findall(r"^## (\w+\.\d+) ", read(page), re.M))
-    for k in sorted(want - have):
-        problems.append(f"{page}: no `## {k} ...` section for the stand-in task16.c lists -- "
-                        "Why? would have nothing to say")
-    for k in sorted(have - want):
-        problems.append(f"{page}: `## {k}` explains a call task16.c's PARTLY no longer lists -- "
-                        "take the section out")
+def check_w16_calls_documented(problems):
+    """Every call w16 answers has its `Name(...)` / `Windows:` / `w16:` block
+    above its handler, and a stand-in (task16.c's PARTLY) its `Why:`,
+    `Notice:` and `Whole:` too -- the pages Help, Retro Launcher's About and
+    Why?, and `w16 --why` show are generated from them
+    (tools/gen_w16_calls.py, which says the format)."""
+    sys.path.insert(0, os.path.join(REPO, "tools"))
+    import gen_w16_calls
+    _, _, found = gen_w16_calls.collect()
+    problems.extend(f"w16 calls: {p} -- tools/gen_w16_calls.py says the format" for p in found)
 
 
 def main():
@@ -724,7 +715,7 @@ def main():
                   check_commands_index_is_current,
                   check_command_synopsis_matches,
                   check_command_options_documented,
-                  check_w16_stand_ins_explained):
+                  check_w16_calls_documented):
         check(problems)
 
     if not problems:
@@ -734,7 +725,7 @@ def main():
               "toolkit index are current, no broken "
               "doc links, every tool documented, every command has a page "
               "and a link, every driver listed, the keyboard layout names "
-              "match gen_kbs.py, every w16 stand-in explained")
+              "match gen_kbs.py, every w16 call documented")
         return 0
 
     print(f"check_docs: {len(problems)} problem(s)\n")

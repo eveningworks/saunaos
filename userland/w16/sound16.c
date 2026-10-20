@@ -192,9 +192,15 @@ const char *w16_beep_alias(unsigned type) {
 
 // --- MMSYSTEM -----------------------------------------------------------------------------
 
-// sndPlaySound(lpszSound, fuSound): NULL stops what plays; SND_MEMORY a WAV
-// at the pointer; else an event's alias, else a file -- and when neither
-// is found, the Default Beep unless SND_NODEFAULT. TRUE if it plays.
+// sndPlaySound(lpszSound, fuSound) -> BOOL
+// Windows: Plays a WAV file, a sound event by its WIN.INI name (SystemAsterisk...) or, with
+// SND_MEMORY, a WAV already in memory -- at once (SND_ASYNC) or before returning, looping with
+// SND_LOOP; NULL stops what plays. When nothing is found it plays the Default Beep, unless
+// SND_NODEFAULT.
+// w16: The same through toy-os's sound daemon, one sound at a time as MMSYSTEM did. An event plays
+// the file drive C:'s WIN.INI names in [sounds] when the file is there -- the user's own Windows
+// 3.11 sounds -- else toy-os's own; the Sounds setting may choose toy-os's always, or none. The WAV
+// is 8- or 16-bit PCM, read with every size checked; anything else does not play.
 static int api_sndPlaySound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
@@ -228,7 +234,10 @@ static int api_sndPlaySound(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 6;
 }
 
-// waveOutGetNumDevs() -> 1 when the sound daemon is there (and sounds are on)
+// waveOutGetNumDevs() -> UINT
+// Windows: How many wave output devices -- sound cards -- there are.
+// w16: 1 when toy-os's sound daemon is running and sounds are on, else 0: a program then knows not
+// to try.
 static int api_waveOutGetNumDevs(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -261,15 +270,22 @@ static int g_tempo = 120, g_mode, g_pitch;       // SetVoiceAccent's; S_NORMAL
 static struct usnd_clip g_tune;
 static usnd_voice_t g_tune_voice;
 
-// OpenSound() -> the voices: one, the speaker's; -1 (S_SERDVNA) when
-// sounds are off or SOUND.DRV's notes are, or there is no device.
+// OpenSound() -> int
+// Windows: Opens SOUND.DRV, the PC speaker's music driver, and returns how many voices it has --
+// one on a PC -- or S_SERDVNA when another program has it.
+// w16: 1 voice, played through the sound card as a square wave, the speaker's sound; S_SERDVNA when
+// sounds are off, the Old sound driver setting is, or there is no device.
 static int api_OpenSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
     w->cpu.r[R_AX] = g_w16_prefs.sound_drv && ready(w) ? 1 : 0xFFFF;
     return 0;
 }
 
-// CloseSound(), StopSound(): what plays stops, the queue empties
+// CloseSound() -> void
+// StopSound() -> void
+// Windows: StopSound stops the notes playing and empties the queue; CloseSound does that and closes
+// the driver.
+// w16: Both stop what plays and empty the queue.
 static int api_StopSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)a;
     if (g_tune_voice != USND_VOICE_NONE) usnd_voice_stop(g_tune_voice);
@@ -280,9 +296,11 @@ static int api_StopSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;
 }
 
-// SetVoiceNote(nVoice, nValue, nLength, nCdots): 0 a rest, 1-84 seven
-// octaves from the C three below middle C (37); nLength 1 a whole note,
-// 4 a quarter; each dot half as long again
+// SetVoiceNote(nVoice, nValue, nLength, nCdots) -> int
+// Windows: Queues a note, BASIC's PLAY in a call: nValue 1 to 84 is seven octaves from the C three
+// below middle C (37 is middle C), 0 a rest; nLength 1 a whole note, 4 a quarter; each dot half as
+// long again.
+// w16: The same, queued until StartSound.
 static int api_SetVoiceNote(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
@@ -300,8 +318,11 @@ static int api_SetVoiceNote(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 8;
 }
 
-// SetVoiceAccent(nVoice, nTempo, nVolume, nMode, nPitch): tempo in quarter
-// notes a minute (32-255), the mode legato/normal/staccato, a transpose
+// SetVoiceAccent(nVoice, nTempo, nVolume, nMode, nPitch) -> int
+// Windows: Sets how the notes after it play: the tempo in quarter notes a minute (32 to 255),
+// legato, normal or staccato, and a transposition in semitones.
+// w16: The same: normal plays seven eighths of a note's length, staccato three quarters, legato all
+// of it.
 static int api_SetVoiceAccent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
@@ -315,7 +336,9 @@ static int api_SetVoiceAccent(struct w16 *w, unsigned ordinal, struct w16_args *
     return 10;
 }
 
-// StartSound(): the queued notes rendered as one square wave and played
+// StartSound() -> int
+// Windows: Starts playing the queued notes, in the background.
+// w16: Renders the queue into one square wave at its tempo and plays it through the sound daemon.
 static int api_StartSound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal; (void)a;
     w->cpu.r[R_AX] = 0;

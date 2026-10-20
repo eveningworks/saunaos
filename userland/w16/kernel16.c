@@ -64,8 +64,12 @@ static int ini_file(struct w16 *w, unsigned ordinal, unsigned private_ord, uint3
     return far_str(w, far, out, cap);
 }
 
-// Get[Private]ProfileInt(app, key, default[, file]): the value's leading
-// digits as Windows read them, or the default when the key is absent.
+// GetProfileInt(lpAppName, lpKeyName, nDefault) -> UINT
+// GetPrivateProfileInt(lpAppName, lpKeyName, nDefault, lpFileName) -> UINT
+// Windows: A number from an INI file -- WIN.INI, or the program's own -- by section and key: the
+// value's leading digits, or the default when the key is not there.
+// w16: The same, read from the files on drive C:: a file named without a path is in C:\WINDOWS, as
+// Windows kept them. A user's own WIN.INI there is read as it is.
 static int api_GetProfileInt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint32_t app = w16_arg32(a), key = w16_arg32(a);
@@ -84,8 +88,11 @@ static int api_GetProfileInt(struct w16 *w, unsigned ordinal, struct w16_args *a
     return ordinal == 57 ? 10 : 14;
 }
 
-// Get[Private]ProfileString(app, key, default, buf, size[, file]): the
-// characters copied. A NULL app lists the sections, a NULL key the keys.
+// GetProfileString(lpAppName, lpKeyName, lpDefault, lpReturnedString, nSize) -> int
+// GetPrivateProfileString(lpAppName, lpKeyName, lpDefault, lpReturnedString, nSize, lpFileName) -> int
+// Windows: A string from an INI file by section and key, or the default; a NULL section lists the
+// sections, a NULL key the section's keys, each ended by a 0. Returns the characters copied.
+// w16: The same, from the files in C:\WINDOWS (GetProfileInt says where).
 static int api_GetProfileString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint32_t app = w16_arg32(a), key = w16_arg32(a), def = w16_arg32(a), buf = w16_arg32(a);
@@ -111,7 +118,12 @@ static int api_GetProfileString(struct w16 *w, unsigned ordinal, struct w16_args
     return ordinal == 58 ? 18 : 22;
 }
 
-// Write[Private]ProfileString(app, key, value[, file]): 1 when written.
+// WriteProfileString(lpAppName, lpKeyName, lpString) -> BOOL
+// WritePrivateProfileString(lpAppName, lpKeyName, lpString, lpFileName) -> BOOL
+// Windows: Writes a key's value into an INI file, making the file and section if need be; a NULL
+// value removes the key, a NULL key the whole section.
+// w16: The same, in C:\WINDOWS -- which is where a program's settings, such as Minesweeper's best
+// times, live between runs.
 static int api_WriteProfileString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint32_t app = w16_arg32(a), key = w16_arg32(a), val = w16_arg32(a);
@@ -138,7 +150,10 @@ static int profile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w16_api_call(g_profile_api, sizeof g_profile_api / sizeof g_profile_api[0], w, ordinal, a);
 }
 
-// FatalExit(code)
+// FatalExit(Code) -> void
+// Windows: Ends the program at once; in the debugging version of Windows it first showed where.
+// w16: Ends the program with Windows 3.1's Application Error box and a crash report naming the
+// code.
 static int api_FatalExit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     char s[256];
@@ -150,7 +165,11 @@ static int api_FatalExit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 }
 
 
-// MakeProcInstance(lpProc, hInst): the proc itself
+// MakeProcInstance(lpProc, hInstance) -> FARPROC
+// Windows: Makes a small thunk that loads the instance's data segment before calling a callback --
+// a window or dialog procedure, a timer -- so the callback finds its own data.
+// w16: Returns the procedure itself: w16 enters every callback with the program's data segment
+// already loaded, so no thunk is needed.
 static int api_MakeProcInstance(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -161,7 +180,9 @@ static int api_MakeProcInstance(struct w16 *w, unsigned ordinal, struct w16_args
     return 6;
 }
 
-// FreeProcInstance(lpProc)
+// FreeProcInstance(lpProc) -> void
+// Windows: Frees a thunk MakeProcInstance made.
+// w16: Nothing to free (MakeProcInstance says why).
 static int api_FreeProcInstance(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)w;
@@ -183,7 +204,10 @@ static char *far_dup(struct w16 *w, uint32_t far) {
     }
 }
 
-// lstrcpy, lstrcat(dst, src) -> dst
+// lstrcpy(lpString1, lpString2) -> LPSTR
+// lstrcat(lpString1, lpString2) -> LPSTR
+// Windows: Copy a string, or add it to the end of another, by far pointers; return the destination.
+// w16: The same, every byte checked to lie inside the segment it names.
 static int api_lstrcpy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint32_t dst = w16_arg32(a), src = w16_arg32(a);
@@ -200,7 +224,9 @@ static int api_lstrcpy(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// lstrlen(s)
+// lstrlen(lpString) -> int
+// Windows: A string's length in bytes.
+// w16: The same.
 static int api_lstrlen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -211,8 +237,10 @@ static int api_lstrlen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// GetCurrentTask() -> the one task: its PSP stands for it, and DX the
-// head of the task list, which is the same task
+// The one task: its PSP stands for it, and DX the head of the task list, which is the same task.
+// GetCurrentTask() -> HTASK
+// Windows: The running task's handle -- and, in DX, the first task of the list of all of them.
+// w16: The program's one task, both times: each program runs in a w16 of its own.
 static int api_GetCurrentTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -229,6 +257,11 @@ static int api_GetCurrentTask(struct w16 *w, unsigned ordinal, struct w16_args *
 // SendMessage) would leave w16's C frames behind: refused, with a reason.
 #define CATCH_WORDS 9
 
+// Catch(lpCatchBuf) -> int
+// Windows: Win16's setjmp: keeps where it was called from and the registers a C function keeps, and
+// returns 0; a later Throw with that buffer returns from it again with Throw's value.
+// w16: The same, for any Throw that does not cross a callback w16 itself is in the middle of
+// calling (Throw says why).
 static int api_Catch(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -246,6 +279,12 @@ static int api_Catch(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
+// Throw(lpCatchBuf, nThrow) -> void
+// Windows: Win16's longjmp: returns from the Catch that filled the buffer a second time, answering
+// nThrow -- how a program gets out of a deep error.
+// w16: The same, from anywhere the program's own calls reach. A Throw out of a window procedure
+// that w16 is calling (inside SendMessage, say) would leave w16's own work half done, so it ends
+// the program with a crash report saying so instead; no program run so far does it.
 static int api_Throw(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -273,8 +312,17 @@ static int api_Throw(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;                                    // the far return lands where Catch returned
 }
 
-// WinExec(lpCmdLine, nCmdShow): w16 runs no second program yet -- Hearts
-// asks for NETDDE.EXE, the network DDE agent -- so the file is not found
+// w16 runs no second program yet -- Hearts asks for NETDDE.EXE, the network DDE agent -- so the
+// file is not found.
+// WinExec(lpCmdLine, nCmdShow) -> UINT
+// Windows: Starts another program from a command line, in the same Windows.
+// w16: Starts nothing and answers that the file was not found (2).
+// Why: A second Windows program would need a second w16 and a way for the two to see each other as
+// one Windows -- which they do not have yet. Hearts asks for NETDDE.EXE, the agent for network
+// play.
+// Notice: Hearts goes on without network play.
+// Whole: w16 starting a second program -- and for Hearts, NetDDE. On the roadmap: "w16: one program
+// starting or finding another".
 static int api_WinExec(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a);
@@ -283,7 +331,11 @@ static int api_WinExec(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// DOS3Call: INT 21h by a far call, same registers
+// DOS3Call() -> registers
+// Windows: DOS's INT 21h by a far call: a DOS service -- open a file, read a directory, ask the
+// date -- with DOS's registers in and out.
+// w16: The same as w16's INT 21h: the file, directory, drive and date services programs use, on the
+// drives the program sees.
 static int api_DOS3Call(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -291,7 +343,11 @@ static int api_DOS3Call(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w16_int(c, 0x21) < 0 ? -1 : 0;
 }
 
-// SetErrorMode(mode)
+// SetErrorMode(fuErrorMode) -> UINT
+// Windows: Whether Windows shows its own box for a critical error -- a drive not ready -- or leaves
+// the program to see the failure; returns the old mode.
+// w16: Answers 0 and keeps nothing: w16 shows no critical-error box, so a program always sees the
+// failure itself.
 static int api_SetErrorMode(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -300,7 +356,9 @@ static int api_SetErrorMode(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 2;
 }
 
-// OutputDebugString(s): to stderr
+// OutputDebugString(lpOutputString) -> void
+// Windows: Sends a line to the debugger, or the debug terminal.
+// w16: Writes it to w16's standard error, naming the program, where a terminal or the log shows it.
 static int api_OutputDebugString(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     char s[256];
     (void)ordinal;
@@ -309,7 +367,10 @@ static int api_OutputDebugString(struct w16 *w, unsigned ordinal, struct w16_arg
     return 4;
 }
 
-// GetWinFlags: protected mode, enhanced, a 386
+// GetWinFlags() -> DWORD
+// Windows: What Windows runs on and in: protected mode, the processor, standard or enhanced mode, a
+// coprocessor.
+// w16: Protected mode, a 386, enhanced mode -- as __WINFLAGS says.
 static int api_GetWinFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -319,7 +380,9 @@ static int api_GetWinFlags(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 0;
 }
 
-// FatalAppExit(action, lpMessage)
+// FatalAppExit(wAction, lpMessageText) -> void
+// Windows: Shows a message box with the text and ends the program.
+// w16: Ends the program with the Application Error box and a crash report carrying the text.
 static int api_FatalAppExit(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     char s[256], t[256];
@@ -331,7 +394,9 @@ static int api_FatalAppExit(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return -1;
 }
 
-// IsDBCSLeadByte(b): no double-byte sets
+// IsDBCSLeadByte(bTestChar) -> BOOL
+// Windows: Whether a byte starts a two-byte character, in the Far East editions' character sets.
+// w16: Always FALSE: w16 is a Western Windows, every character one byte.
 static int api_IsDBCSLeadByte(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -340,7 +405,10 @@ static int api_IsDBCSLeadByte(struct w16 *w, unsigned ordinal, struct w16_args *
     return 2;
 }
 
-// GetVersion: Windows 3.10 on DOS 5.0
+// GetVersion() -> DWORD
+// Windows: The Windows version in the low word -- major, then minor -- and DOS's in the high word.
+// w16: The version the program's settings say -- 3.10 by default, or 3.11 or 3.00 (Retro Launcher's
+// Version told) -- on DOS 5.0.
 static int api_GetVersion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -350,9 +418,13 @@ static int api_GetVersion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;
 }
 
-// GetInstanceData(hInstance, pData, cbData): bytes at pData of another
-// instance's DGROUP into the same place in this one's. There is only
-// ever the one instance, so they are already there.
+// Bytes at pData of another instance's DGROUP into the same place in this one's. There is only ever
+// the one instance, so they are already there.
+// GetInstanceData(hInstance, pData, cbData) -> int
+// Windows: Copies bytes from a running copy of the program's data segment into this copy's -- how a
+// second copy started where the first had got to.
+// w16: Answers that the bytes were copied: each program runs in its own w16, so there is only ever
+// the one copy and they are already there.
 static int api_GetInstanceData(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
@@ -361,7 +433,9 @@ static int api_GetInstanceData(struct w16 *w, unsigned ordinal, struct w16_args 
     return 6;
 }
 
-// WaitEvent(hTask)
+// WaitEvent(hTask) -> BOOL
+// Windows: Waits until the task has an event; a program's start-up calls it once.
+// w16: Returns at once: the start-up call is the only one programs make.
 static int api_WaitEvent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -370,7 +444,10 @@ static int api_WaitEvent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// InitTask
+// InitTask() -> registers
+// Windows: A program's first call: sets up its stack, heap and command line, and answers in
+// registers -- the instance, the previous instance, the command line, how to show the window.
+// w16: The same, with the command line w16 was given made into the DOS path the program can open.
 static int api_InitTask(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;

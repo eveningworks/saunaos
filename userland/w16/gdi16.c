@@ -941,7 +941,12 @@ static void set32(struct cpu16 *c, uint32_t v) {
     c->r[R_DX] = (uint16_t)(v >> 16);
 }
 
-// SetBkColor, SetTextColor(hdc, color)
+// SetBkColor(hdc, crColor) -> COLORREF
+// SetTextColor(hdc, crColor) -> COLORREF
+// Windows: The colour behind text, hatches and dashed lines, and the colour of text; each returns
+// the old one. On a 16-colour VGA a colour that is no solid one draws as the nearest.
+// w16: The same; a colour is shown as Windows 3.11's 256-colour VGA driver showed it -- its 20
+// static colours -- so a program looks as it did.
 static int api_SetBkColor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -956,7 +961,12 @@ static int api_SetBkColor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// SetBkMode, SetROP2(hdc, mode)
+// SetBkMode(hdc, iBkMode) -> int
+// SetROP2(hdc, fnDrawMode) -> int
+// Windows: Whether text fills its background (OPAQUE) or not (TRANSPARENT); and how a pen's colour
+// combines with what is already there -- copy, invert, XOR... the 16 binary raster operations. Each
+// returns the old mode.
+// w16: The same; all 16 raster operations.
 static int api_SetBkMode(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -968,7 +978,10 @@ static int api_SetBkMode(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// LineTo(hdc, x, y)
+// LineTo(hdc, nXEnd, nYEnd) -> BOOL
+// Windows: Draws a line in the current pen from the current position to a point, which becomes the
+// position; the last pixel is left out.
+// w16: The same, the last pixel left out too. A dashed or dotted pen draws solid.
 static int api_LineTo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -989,7 +1002,9 @@ static int api_LineTo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// MoveTo(hdc, x, y) -> the old position
+// MoveTo(hdc, X, Y) -> DWORD
+// Windows: Moves the current position; returns the old one.
+// w16: The same.
 static int api_MoveTo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -1001,19 +1016,28 @@ static int api_MoveTo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// Rectangle
+// Rectangle(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect) -> BOOL
+// Windows: Draws a rectangle: edged in the pen, filled with the brush.
+// w16: The same.
 static int api_Rectangle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return rectangle(w, a);
 }
 
-// PatBlt
+// PatBlt(hdc, nXLeft, nYLeft, nWidth, nHeight, dwRop) -> BOOL
+// Windows: Fills a rectangle with the brush, combined with what is there by a raster operation
+// (PATCOPY, PATINVERT, DSTINVERT, BLACKNESS...).
+// w16: The same; any of the 256 raster operations, hatched and pattern brushes included, their
+// pattern aligned to the screen as Windows' was.
 static int api_PatBlt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return pat_blt(w, a);
 }
 
-// SetPixel(hdc, x, y, color), GetPixel(hdc, x, y)
+// SetPixel(hdc, X, Y, crColor) -> COLORREF
+// GetPixel(hdc, X, Y) -> COLORREF
+// Windows: Set or read one pixel; SetPixel returns the colour actually set.
+// w16: The same.
 static int api_SetPixel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -1035,19 +1059,32 @@ static int api_SetPixel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return ordinal == 31 ? 10 : 6;
 }
 
-// TextOut
+// TextOut(hdc, nXStart, nYStart, lpString, cbString) -> BOOL
+// Windows: Draws a string in the DC's font and text colour, its background filled when the mode is
+// OPAQUE.
+// w16: The same, in Windows 3.11's own bitmap fonts from drive C:'s WINDOWS\SYSTEM when they are
+// there (and the Fonts setting allows), else in toy-os's stand-ins; an OPAQUE background fills the
+// whole cell box first, as Windows did.
 static int api_TextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return text_out(w, a);
 }
 
-// BitBlt
+// BitBlt(hdcDest, nXDest, nYDest, nWidth, nHeight, hdcSrc, nXSrc, nYSrc, dwRop) -> BOOL
+// Windows: Copies a rectangle of pixels from one DC to another -- a bitmap to the window, the
+// window to a bitmap -- combined with what is there and the brush by a raster operation; a
+// monochrome source takes the text and background colours.
+// w16: The same: any of the 256 raster operations, monochrome to colour and back as Windows
+// converted them.
 static int api_BitBlt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return bit_blt(w, a);
 }
 
-// SelectObject(hdc, h)
+// SelectObject(hdc, hgdiobj) -> HGDIOBJ
+// Windows: Puts a pen, brush, font, bitmap or region into a DC, returning the one it replaces; a
+// bitmap selected into a memory DC is what that DC draws on.
+// w16: The same.
 static int api_SelectObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1056,7 +1093,11 @@ static int api_SelectObject(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 4;
 }
 
-// CreateBitmap(w, h, planes, bpp, lpBits)
+// CreateBitmap(nWidth, nHeight, cPlanes, cBitsPerPel, lpvBits) -> HBITMAP
+// Windows: Makes a bitmap -- monochrome, or in the display's colours -- optionally from its bits in
+// the device's own layout.
+// w16: The same; a monochrome bitmap's bits are read, a colour one's are not (it starts black) --
+// programs fill those by drawing or with SetDIBits.
 static int api_CreateBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint16_t h;
@@ -1078,7 +1119,10 @@ static int api_CreateBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 12;
 }
 
-// CreateCompatibleBitmap(hdc, w, h)
+// CreateCompatibleBitmap(hdc, nWidth, nHeight) -> HBITMAP
+// Windows: Makes a bitmap in the colours of a DC's device -- what a program draws off-screen in,
+// then copies to its window.
+// w16: The same.
 static int api_CreateCompatibleBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -1094,7 +1138,10 @@ static int api_CreateCompatibleBitmap(struct w16 *w, unsigned ordinal, struct w1
     return 6;
 }
 
-// CreateCompatibleDC(hdc)
+// CreateCompatibleDC(hdc) -> HDC
+// Windows: A memory DC like a device's: it draws on whatever bitmap is selected into it -- a 1 x 1
+// monochrome one at first.
+// w16: The same.
 static int api_CreateCompatibleDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -1107,7 +1154,9 @@ static int api_CreateCompatibleDC(struct w16 *w, unsigned ordinal, struct w16_ar
     return 2;
 }
 
-// CreatePen(style, width, color)
+// CreatePen(fnPenStyle, nWidth, crColor) -> HPEN
+// Windows: A pen: solid, dashed, dotted or none, its width and colour.
+// w16: The same, but dashed and dotted pens draw solid; no program run so far draws with one.
 static int api_CreatePen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -1121,7 +1170,9 @@ static int api_CreatePen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// CreateSolidBrush(color)
+// CreateSolidBrush(crColor) -> HBRUSH
+// Windows: A brush of one colour -- dithered on a 16-colour screen when it is no solid colour.
+// w16: The same, shown as the 256-colour VGA driver showed it.
 static int api_CreateSolidBrush(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -1134,7 +1185,9 @@ static int api_CreateSolidBrush(struct w16 *w, unsigned ordinal, struct w16_args
     return 4;
 }
 
-// GetTextExtent(hdc, lpString, nCount) -> MAKELONG(cx, cy)
+// GetTextExtent(hdc, lpString, cbString) -> DWORD
+// Windows: How wide and high a string is in the DC's font, as TextOut would draw it.
+// w16: The same, from the same font TextOut draws with, so text measures as it draws.
 static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hfont = dc_font(w, w16_arg16(a));
@@ -1149,7 +1202,11 @@ static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 8;
 }
 
-// GetTextMetrics(hdc, lpMetrics): the DC's font's, as a 31-byte TEXTMETRIC
+// GetTextMetrics(hdc, lptm) -> BOOL
+// Windows: The DC's font's measures: height, ascent, descent, leading, average and widest
+// character, weight, overhang, pitch and family, character set.
+// w16: The same, from the font itself -- Windows 3.11's .FON header when it is that font, so a
+// program lays out as it did.
 static int api_GetTextMetrics(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hfont = dc_font(w, w16_arg16(a));
@@ -1196,8 +1253,12 @@ static uint16_t new_font(struct w16 *w, const struct w16_logfont *lf) {
     return h;
 }
 
-// CreateFont(height, width, escapement, orientation, weight, italic, underline,
-// strikeout, charset, outprecision, clipprecision, quality, pitchandfamily, face)
+// CreateFont(nHeight, nWidth, nEscapement, nOrientation, fnWeight, fdwItalic, fdwUnderline, fdwStrikeOut, fdwCharSet, fdwOutputPrecision, fdwClipPrecision, fdwQuality, fdwPitchAndFamily, lpszFace) -> HFONT
+// Windows: A font as near as Windows can find to what is asked: a face, a height, a weight, italic,
+// underline...; Windows picks among the fonts installed.
+// w16: The same choice among Windows 3.11's bitmap fonts on drive C: (MS Sans Serif, Courier, MS
+// Serif, Small Fonts...) by face and the nearest size; without them, toy-os's stand-ins. Bold is
+// synthesized as Windows did, with its overhang. Escapement (rotated text) is not drawn.
 static int api_CreateFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_logfont lf = { 0 };
@@ -1218,7 +1279,9 @@ static int api_CreateFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 30;
 }
 
-// CreateFontIndirect(lpLogFont): a LOGFONT -- five words, eight bytes, the face
+// CreateFontIndirect(lplf) -> HFONT
+// Windows: CreateFont from a LOGFONT structure.
+// w16: The same.
 static int api_CreateFontIndirect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
@@ -1238,8 +1301,14 @@ static int api_CreateFontIndirect(struct w16 *w, unsigned ordinal, struct w16_ar
     return 4;
 }
 
-// CreateDC(driver, device, output, lpInitData): only a printer asks this
-// way, and there is no printer -- the program is told so as Windows did.
+// Only a printer asks this way, and there is no printer -- the program is told so as Windows did.
+// CreateDC(lpszDriver, lpszDevice, lpszOutput, lpInitData) -> HDC
+// Windows: Makes a device context for a named driver and device -- in practice a printer's.
+// w16: Answers 0: there is no such device. The screen's device contexts come from GetDC,
+// CreateCompatibleDC and BeginPaint, which work in full.
+// Why: There is no printer (PrintDlg says why).
+// Notice: Nothing beyond printing not working.
+// Whole: Printing. On the roadmap: "w16: printing".
 static int api_CreateDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a); w16_arg32(a); w16_arg32(a); w16_arg32(a);
@@ -1247,7 +1316,14 @@ static int api_CreateDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 16;
 }
 
-// Escape(hdc, nEscape, cbInput, lpIn, lpOut): a printer's; none here
+// Escape(hdc, nEscape, cbInput, lpvInData, lpvOutData) -> int
+// Windows: Passes a device-specific request to a device's driver -- in 3.x mostly a printer's:
+// start a document, start or end a page, ask the paper size.
+// w16: Answers 0: the request is not supported.
+// Why: There is no printer (PrintDlg says why), and a screen device context takes none of these
+// requests.
+// Notice: Nothing beyond printing not working.
+// Whole: Printing. On the roadmap: "w16: printing".
 static int api_Escape(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg32(a); w16_arg32(a);
@@ -1255,7 +1331,10 @@ static int api_Escape(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 14;
 }
 
-// DeleteDC(hdc), DeleteObject(h)
+// DeleteDC(hdc) -> BOOL
+// DeleteObject(hObject) -> BOOL
+// Windows: Free a DC, or a pen, brush, font, bitmap or region.
+// w16: The same; a stock object is never freed.
 static int api_DeleteDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1264,7 +1343,11 @@ static int api_DeleteDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// GetDeviceCaps(hdc, index)
+// GetDeviceCaps(hdc, nIndex) -> int
+// Windows: What the device can do: its resolution, colours, bits per pixel, raster abilities,
+// pixels per inch...
+// w16: A 640 x 480 VGA with 256 colours, 20 of them static, at 96 pixels per inch -- what Windows
+// 3.11's VGA driver said; 0 for an index it does not know.
 static int api_GetDeviceCaps(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1273,7 +1356,10 @@ static int api_GetDeviceCaps(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 4;
 }
 
-// GetStockObject(index)
+// GetStockObject(fnObject) -> HGDIOBJ
+// Windows: One of Windows' ready-made pens, brushes and fonts: white, grey and black brushes, the
+// null pen and brush, the System font, ANSI_FIXED_FONT...
+// w16: The same seventeen.
 static int api_GetStockObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1281,14 +1367,19 @@ static int api_GetStockObject(struct w16 *w, unsigned ordinal, struct w16_args *
     return 2;
 }
 
-// StretchBlt
+// StretchBlt(hdcDest, nXOriginDest, nYOriginDest, nWidthDest, nHeightDest, hdcSrc, nXOriginSrc, nYOriginSrc, nWidthSrc, nHeightSrc, dwRop) -> BOOL
+// Windows: BitBlt to a rectangle of another size, stretching or shrinking the pixels -- a mirror
+// image when a width or height is negative.
+// w16: The same, mirrors included, the nearest pixel taken as 3.1's COLORONCOLOR mode did for
+// colour.
 static int api_StretchBlt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return stretch_blt(w, a);
 }
 
-// GetDCOrg(hdc) -> the DC's origin in screen coordinates (w16's screen
-// is the top-level window: usermisc16.c's SCREEN COORDINATES)
+// GetDCOrg(hdc) -> DWORD
+// Windows: Where a DC's origin is on the screen.
+// w16: Where it is in the program's top-level window, which is the program's screen.
 static int api_GetDCOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
@@ -1298,8 +1389,10 @@ static int api_GetDCOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// GetObject(h, cbBuffer, lpObject) -> the bytes copied: a BITMAP, LOGPEN,
-// LOGBRUSH or LOGFONT, cut to cbBuffer
+// GetObject(hgdiobj, cbBuffer, lpvObject) -> int
+// Windows: The description of a GDI object: a bitmap's size and colours (BITMAP), a pen's (LOGPEN),
+// a brush's (LOGBRUSH), a font's (LOGFONT); the bytes copied.
+// w16: The same four, cut to the buffer's size.
 static int api_GetObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
@@ -1380,8 +1473,10 @@ static int api_GetObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// LineDDA(x1, y1, x2, y2, lpLineFunc, lpData): lpLineFunc(x, y, lpData)
-// at each point of the line, the last left out as LineTo leaves it
+// LineDDA(nXStart, nYStart, nXEnd, nYEnd, lpLineFunc, lpData) -> void
+// Windows: Calls a function of the program's for each point of a line, as LineTo would draw it --
+// for drawing a line in some way of its own.
+// w16: The same points LineTo draws, the last left out as LineTo leaves it.
 static int api_LineDDA(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     int x0 = (int16_t)w16_arg16(a), y0 = (int16_t)w16_arg16(a);
@@ -1399,7 +1494,9 @@ static int api_LineDDA(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w->cpu.fault ? -1 : 16;
 }
 
-// PtVisible(hdc, x, y): is the point inside what the DC may draw on
+// PtVisible(hdc, X, Y) -> BOOL
+// Windows: Whether a point is inside what the DC may draw on -- its clipping region.
+// w16: The same: inside what the DC draws on and its clip rectangle.
 static int api_PtVisible(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a);
@@ -1412,7 +1509,9 @@ static int api_PtVisible(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// SetBrushOrg(hdc, x, y) -> the old origin
+// SetBrushOrg(hdc, X, Y) -> DWORD
+// Windows: Where a hatch or pattern brush's 8 x 8 pattern starts; the old origin.
+// w16: The same.
 static int api_SetBrushOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
@@ -1422,15 +1521,19 @@ static int api_SetBrushOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 6;
 }
 
-// UnrealizeObject(h): a brush's origin is taken afresh at its next select
-// -- nothing to undo here
+// UnrealizeObject(hgdiobj) -> BOOL
+// Windows: Makes a brush take its origin afresh the next time it is selected.
+// w16: Answers TRUE: w16 takes a brush's origin afresh at every select anyway.
 static int api_UnrealizeObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w->cpu.r[R_AX] = type_of(w, w16_arg16(a)) != GDI_FREE;
     return 2;
 }
 
-// CreateHatchBrush(fnStyle, clrref)
+// CreateHatchBrush(fnStyle, clrref) -> HBRUSH
+// Windows: A brush of lines -- horizontal, vertical, diagonal, crossed -- in a colour over the
+// background.
+// w16: The same six hatches.
 static int api_CreateHatchBrush(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hs = w16_arg16(a);
@@ -1442,7 +1545,9 @@ static int api_CreateHatchBrush(struct w16 *w, unsigned ordinal, struct w16_args
     return 6;
 }
 
-// CreatePatternBrush(hbmp): the bitmap's top-left 8x8, copied now
+// CreatePatternBrush(hbmp) -> HBRUSH
+// Windows: A brush whose 8 x 8 pattern is a bitmap's top-left corner.
+// w16: The same, the 8 x 8 corner copied when the brush is made.
 static int api_CreatePatternBrush(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *bm = obj(w, w16_arg16(a), GDI_BITMAP), *o;
@@ -1461,9 +1566,11 @@ static int api_CreatePatternBrush(struct w16 *w, unsigned ordinal, struct w16_ar
     return 2;
 }
 
-// CreateIC(driver, device, output, lpInitData): the display's answers
-// (GetDeviceCaps and the like) through a DC that draws nothing; a
-// printer's, none
+// CreateIC(lpszDriver, lpszDevice, lpszOutput, lpdvmInit) -> HDC
+// Windows: An information context: asks a device about itself -- GetDeviceCaps, text metrics --
+// without drawing on it.
+// w16: The display's: a DC that answers as the screen's does and draws nothing. A printer's is
+// refused (0).
 static int api_CreateIC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t drv = w16_arg32(a);
@@ -1495,7 +1602,9 @@ static void rgn_set(struct w16_gdiobj *r, int l, int t, int rr, int b) {
     r->complex = 0;
 }
 
-// CreateRectRgn(l, t, r, b)
+// CreateRectRgn(nLeftRect, nTopRect, nRightRect, nBottomRect) -> HRGN
+// Windows: A rectangular region.
+// w16: The same.
 static int api_CreateRectRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     int16_t l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a), r = (int16_t)w16_arg16(a), b = (int16_t)w16_arg16(a);
@@ -1506,7 +1615,9 @@ static int api_CreateRectRgn(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 8;
 }
 
-// SetRectRgn(hrgn, l, t, r, b)
+// SetRectRgn(hrgn, nLeftRect, nTopRect, nRightRect, nBottomRect) -> void
+// Windows: Makes a region the rectangle given.
+// w16: The same.
 static int api_SetRectRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *o = obj(w, w16_arg16(a), GDI_REGION);
@@ -1515,9 +1626,18 @@ static int api_SetRectRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 10;
 }
 
-// CombineRgn(hrgnDest, hrgnSrc1, hrgnSrc2, mode) -> the result's kind.
-// Exact for rectangles that meet in a rectangle; anything else is kept
-// as its bounding box and called COMPLEXREGION.
+// CombineRgn(hrgnDest, hrgnSrc1, hrgnSrc2, fnCombineMode) -> int
+// Windows: Makes a region from two others -- their intersection, union, either but not both, or one
+// less the other -- of any shape the rectangles make.
+// w16: Exact while the answer is plainly a rectangle: the intersection of two rectangles, the union
+// of two where one holds the other, a difference that takes all or none of the first away. Any
+// other answer is kept as its bounding rectangle -- a difference keeps the first rectangle whole --
+// and reported COMPLEXREGION, as Windows would report it.
+// Why: w16's regions are single rectangles. That covers the uses met so far: Hearts combines
+// rectangles to say what to redraw, and redrawing a little more than needed draws the same picture.
+// Notice: A region used to clip may let a little more be painted than Windows would.
+// Whole: Regions as lists of rectangles, as Windows kept them. On the roadmap: "w16: regions as
+// more than their bounding rectangle".
 static int api_CombineRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *d = obj(w, w16_arg16(a), GDI_REGION), *s1 = obj(w, w16_arg16(a), GDI_REGION);
@@ -1560,13 +1680,19 @@ static int api_CombineRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// CreateDIBitmap
+// CreateDIBitmap(hdc, lpbmih, fdwInit, lpbInit, lpbmi, fuUsage) -> HBITMAP
+// Windows: A bitmap in the device's colours made from a device-independent bitmap: a header, a
+// colour table, rows bottom-up.
+// w16: The same, at 1, 4, 8 and 24 bits per pixel, the header, colour table and rows checked to lie
+// inside the program's memory; compressed (RLE) bitmaps are refused.
 static int api_CreateDIBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return create_dibitmap(w, a);
 }
 
-// SetDIBitsToDevice
+// SetDIBitsToDevice(hdc, XDest, YDest, dwWidth, dwHeight, XSrc, YSrc, uStartScan, cScanLines, lpvBits, lpbmi, fuColorUse) -> int
+// Windows: Draws a device-independent bitmap's rows straight onto a DC.
+// w16: The same, for the same bitmap formats as CreateDIBitmap.
 static int api_SetDIBitsToDevice(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return set_dibits_to_device(w, a);

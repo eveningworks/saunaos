@@ -66,9 +66,9 @@ file is involved.
    the Sounds choice is Off (before OK).
 14. **Why?** on a stand-in: IsIconic's cell in fault.exe's calls window
    and its link in the details panel each open "IsIconic - partly there"
-   with its section of the stand-ins page; a Missing row's empty cell
-   opens nothing; `w16 --why USER.31` prints it and `--why USER.7` is
-   refused.
+   with its section of the calls page, and a working call's About opens
+   "<name> - about"; a Missing row's empty cell opens nothing; `w16 --why
+   USER.31` prints its section and `--why USER.7` is refused.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -876,8 +876,8 @@ def calls(dbg, res):
     res.check("the Partly chip lists the stand-in, USER.31 IsIconic",
               lay.get("show") == 2 and lay.get("rows") == 1 and lay.get("first") == "USER.31 IsIconic",
               f"{ {k: lay.get(k) for k in ('rows', 'show', 'first')} }")
-    # Why? on its row: the call's section of the stand-ins page, in a
-    # window of its own -- and a Works row's empty cell opens nothing.
+    # Why? on its row: the call's section of the calls page, in a
+    # window of its own -- and a Missing row's empty cell opens nothing.
     lay.update(wait_calls(dbg, lambda l: "calls.col6" in l and "calls.row_h" in l and "calls.header_h" in l))
     col, rh, hh = lay.get("calls.col6"), lay.get("calls.row_h"), lay.get("calls.header_h")
     if col and rh and hh:
@@ -895,6 +895,19 @@ def calls(dbg, res):
     lay.update(wait_calls(dbg, lambda l: l.get("show") == 0))
     res.check("the All chip lists every import w16 --check counts",
               lay.get("show") == 0 and lay.get("rows") == imports, f"rows {lay.get('rows')} of {imports}")
+    # About on the first row, a call that works: its section of the calls
+    # page, generated from the comment above its handler.
+    first = lay.get("first", "")
+    if col and rh and hh and first:
+        name = first.split()[-1]
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(cx + col[0] + col[2] // 3, cy + col[1] + hh + rh // 2)
+        titles = wait_titles(dbg, lambda t: f"{name} - about" in t)
+        why = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": why " in ln]
+        res.check(f"About on {first}'s row (it works) opens its description",
+                  f"{name} - about" in titles and any(ln.endswith(f"why {first.split()[0]} shown") for ln in why),
+                  f"windows {titles} log {why}")
+        dbg.close_window(f"{name} - about")
     s = lay.get("search")
     if s:
         dbg.click(cx + s[0] + 10, cy + s[1] + s[3] // 2)
@@ -922,7 +935,7 @@ def calls(dbg, res):
     res.check("`w16 --why USER.31` prints IsIconic's section", "IsIconic" in out and "Always says no" in out,
               out[-300:])
     out = sh(dbg, "w16 --why USER.7")
-    res.check("...and refuses a call that is no stand-in", "no stand-in" in out, out[-200:])
+    res.check("...and refuses a call w16 does not answer (ExitWindows)", "no call w16 answers" in out, out[-200:])
     dbg.close_window("Fault test - calls")
 
     win = dbg.spawn("/bin/wm/apps/retrolauncher --calls /usr/share/w16/gdi.exe", "GDI test - calls")

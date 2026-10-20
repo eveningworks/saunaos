@@ -58,7 +58,13 @@ int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap) {
     return (int)n;
 }
 
-// FindResource(hInst, lpName, lpType)
+// FindResource(hInst, lpName, lpType) -> HRSRC
+// Windows: Finds a resource in a module's resource table -- a bitmap, an icon, a dialog template, a
+// string table, a program's own data -- by its type and its name or number, and returns a handle to
+// say which.
+// w16: Looks it up in the program's NE resource table, by number or by name, standard types and the
+// program's own alike, and returns a handle naming its place in that table; 0 when there is no such
+// resource.
 static int api_FindResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -75,7 +81,11 @@ static int api_FindResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 10;
 }
 
-// LoadResource(hInst, hRsrc)
+// LoadResource(hInst, hRsrc) -> HGLOBAL
+// Windows: Reads the resource FindResource found into memory and returns a global handle to it,
+// loading it only once however often it is asked.
+// w16: Copies the resource's bytes from the file into a moveable global block, once per resource,
+// and returns its handle.
 static int api_LoadResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -85,7 +95,9 @@ static int api_LoadResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 4;
 }
 
-// LockResource(hGlobal) -> sel:0
+// LockResource(hResData) -> LPVOID
+// Windows: Returns a far pointer to a loaded resource's bytes.
+// w16: Returns the block's selector with offset 0: a global handle in w16 is its selector.
 static int api_LockResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -95,7 +107,10 @@ static int api_LockResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 2;
 }
 
-// FreeResource(hGlobal): kept for the next load
+// FreeResource(hResData) -> BOOL
+// Windows: Releases a loaded resource when nothing else uses it.
+// w16: Keeps the resource loaded for the next LoadResource, and answers that it was freed. A
+// program has few resources, and a process's memory goes when it ends.
 static int api_FreeResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -104,7 +119,9 @@ static int api_FreeResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 2;
 }
 
-// SizeofResource(hInst, hRsrc)
+// SizeofResource(hInst, hRsrc) -> DWORD
+// Windows: The size of a resource in bytes -- rounded up to the module's alignment unit.
+// w16: The size its resource table entry gives.
 static int api_SizeofResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;

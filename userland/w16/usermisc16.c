@@ -185,7 +185,11 @@ void w16_timers_fire(struct w16 *w) {
 
 // --- the dispatcher -------------------------------------------------------------
 
-// SetTimer(hwnd, id, ms, lpTimerFunc)
+// SetTimer(hWnd, nIDEvent, uElapse, lpTimerFunc) -> UINT
+// Windows: Starts a timer that fires every uElapse milliseconds -- as WM_TIMER to the window, or a
+// call to the timer procedure -- coming only when the program waits for messages and nothing else
+// is queued.
+// w16: The same.
 static int api_SetTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -194,7 +198,9 @@ static int api_SetTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 10;
 }
 
-// KillTimer(hwnd, id)
+// KillTimer(hWnd, uIDEvent) -> BOOL
+// Windows: Stops a timer.
+// w16: The same.
 static int api_KillTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -211,7 +217,10 @@ static int api_KillTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// GetTickCount, GetCurrentTime: ms since boot
+// GetTickCount() -> DWORD
+// GetCurrentTime() -> DWORD
+// Windows: Milliseconds since Windows started.
+// w16: Milliseconds since toy-os started.
 static int api_GetTickCount(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -222,7 +231,10 @@ static int api_GetTickCount(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 0;
 }
 
-// GetCursorPos(lpPoint)
+// GetCursorPos(lpPoint) -> void
+// Windows: Where the mouse pointer is, in screen coordinates.
+// w16: Where it is in the program's screen -- its top-level window, whose client area's corner is
+// the screen's 0,0 as the program counts it.
 static int api_GetCursorPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint32_t p;
@@ -236,9 +248,11 @@ static int api_GetCursorPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 4;
 }
 
-// SetCursorPos(x, y): screen coordinates, which are the main window's
-// (w16_screen_offset). toywm moves the pointer only while that window has
-// the focus and only within it; GetCursorPos answers the new place at once.
+// SetCursorPos(X, Y) -> void
+// Windows: Moves the mouse pointer to a place on the screen.
+// w16: Moves it within the program's own window, and only while that window has the focus: a
+// program may not take the pointer anywhere else on the desktop. GetCursorPos answers the new place
+// at once.
 static int api_SetCursorPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
@@ -251,7 +265,11 @@ static int api_SetCursorPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 4;
 }
 
-// SetCapture(hwnd) -> the previous
+// SetCapture(hWnd) -> HWND
+// Windows: Sends the mouse to one window, wherever the pointer goes, until ReleaseCapture -- how a
+// drag keeps going outside the window; returns the window that had it.
+// w16: The same, toywm keeping the pointer's moves coming while a button is held outside the
+// window.
 static int api_SetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -262,7 +280,9 @@ static int api_SetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// ReleaseCapture
+// ReleaseCapture() -> void
+// Windows: Ends SetCapture.
+// w16: The same.
 static int api_ReleaseCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -272,7 +292,9 @@ static int api_ReleaseCapture(struct w16 *w, unsigned ordinal, struct w16_args *
     return 0;
 }
 
-// GetCapture
+// GetCapture() -> HWND
+// Windows: The window that has captured the mouse, or NULL.
+// w16: The same.
 static int api_GetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -281,7 +303,10 @@ static int api_GetCapture(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;
 }
 
-// SetFocus(hwnd) -> the previous
+// SetFocus(hWnd) -> HWND
+// Windows: Sends the keyboard to a window, with WM_KILLFOCUS and WM_SETFOCUS; returns the one that
+// had it.
+// w16: The same, among the program's windows.
 static int api_SetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -289,7 +314,9 @@ static int api_SetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return c->fault ? -1 : 2;
 }
 
-// GetFocus
+// GetFocus() -> HWND
+// Windows: The window the keyboard goes to.
+// w16: The same.
 static int api_GetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -298,7 +325,10 @@ static int api_GetFocus(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 0;
 }
 
-// SetActiveWindow(hwnd) -> the previous: w16's one top-level window, or its dialog
+// SetActiveWindow(hWnd) -> HWND
+// Windows: Makes a top-level window the active one; returns the one that was.
+// w16: Returns the program's main window and changes nothing: toywm decides which window on the
+// desktop is active.
 static int api_SetActiveWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -307,7 +337,9 @@ static int api_SetActiveWindow(struct w16 *w, unsigned ordinal, struct w16_args 
     return 2;
 }
 
-// GetActiveWindow: the top-level window the focus is in
+// GetActiveWindow() -> HWND
+// Windows: The active top-level window, if it is the program's.
+// w16: The program's top-level window the focus is in.
 static int api_GetActiveWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -317,7 +349,10 @@ static int api_GetActiveWindow(struct w16 *w, unsigned ordinal, struct w16_args 
     return 0;
 }
 
-// ClientToScreen, ScreenToClient(hwnd, lpPoint)
+// ClientToScreen(hWnd, lpPoint) -> void
+// ScreenToClient(hWnd, lpPoint) -> void
+// Windows: Turn a point between a window's client coordinates and the screen's.
+// w16: The same, the screen being the program's (GetCursorPos says what that is).
 static int api_ClientToScreen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     uint32_t p = w16_arg32(a);
@@ -327,7 +362,16 @@ static int api_ClientToScreen(struct w16 *w, unsigned ordinal, struct w16_args *
     return 6;
 }
 
-// IsIconic(hwnd)
+// IsIconic(hWnd) -> BOOL
+// Windows: Says whether a window is minimized -- shown as an icon at the foot of the screen in 3.x,
+// hence the name.
+// w16: Always says no, even while the window is minimized.
+// Why: w16 minimizes a program's window through toywm, which keeps the state; w16 does not yet keep
+// it on the window itself for this call to read.
+// Notice: A program that paints its own icon while minimized, or stops its timer then, does
+// neither. None run so far depends on it.
+// Whole: w16 keeping the minimized state it already sets. On the roadmap: "w16: IsIconic answers
+// from the window's state".
 static int api_IsIconic(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -336,7 +380,9 @@ static int api_IsIconic(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// GetWindowRect(hwnd, lpRect): in screen coordinates
+// GetWindowRect(hWnd, lpRect) -> void
+// Windows: A window's rectangle, frame included, in screen coordinates.
+// w16: The same, in the program's screen.
 static int api_GetWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -353,7 +399,10 @@ static int api_GetWindowRect(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 6;
 }
 
-// BringWindowToTop(hwnd)
+// BringWindowToTop(hWnd) -> void
+// Windows: Puts a window above the others.
+// w16: Nothing to do: a program's windows stay in their creation order, and toywm stacks the
+// desktop's.
 static int api_BringWindowToTop(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -362,7 +411,10 @@ static int api_BringWindowToTop(struct w16 *w, unsigned ordinal, struct w16_args
     return 2;
 }
 
-// IsWindow, IsWindowVisible(hwnd)
+// IsWindow(hWnd) -> BOOL
+// IsWindowVisible(hWnd) -> BOOL
+// Windows: Whether a handle is a window that exists; whether it is shown.
+// w16: The same.
 static int api_IsWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -370,7 +422,16 @@ static int api_IsWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// FindWindow(class, title): no other program
+// FindWindow(lpClassName, lpWindowName) -> HWND
+// Windows: Finds a top-level window by its class or its title, in any program. Programs use it to
+// find a copy of themselves already running.
+// w16: Finds none.
+// Why: Each program runs in its own w16, so there are no other programs' windows to find. Its own
+// windows are not searched either: a program asks this for someone else's.
+// Notice: A program that allows only one copy of itself does not notice the first one; a second
+// copy starts beside it.
+// Whole: w16 programs that see each other. On the roadmap: "w16: one program starting or finding
+// another".
 static int api_FindWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -379,9 +440,11 @@ static int api_FindWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// SetCursor(h) -> the previous: the pointer takes it now, until it next
-// moves over a window, whose class cursor it then takes (WM_SETCURSOR's
-// default)
+// The pointer takes it now, until it next moves over a window, whose class cursor it then takes
+// (WM_SETCURSOR's default).
+// SetCursor(hCursor) -> HCURSOR
+// Windows: Changes the mouse pointer's shape now -- an hourglass while busy; returns the old one.
+// w16: The same, in toy-os's shape for it (LoadCursor says which).
 static int api_SetCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     static uint16_t current;
     struct cpu16 *c = &w->cpu;
@@ -393,7 +456,10 @@ static int api_SetCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// ShowCursor(show) -> the display count
+// ShowCursor(bShow) -> int
+// Windows: Counts the pointer shown or hidden: it shows while the count is 0 or more; returns the
+// new count.
+// w16: Answers as if the count were kept, and the pointer stays shown: toywm owns it.
 static int api_ShowCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -401,7 +467,9 @@ static int api_ShowCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
-// SetRect(lpRect, l, t, r, b)
+// SetRect(lpRect, xLeft, yTop, xRight, yBottom) -> void
+// Windows: Fills a RECT.
+// w16: The same.
 static int api_SetRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t r[4];
     uint32_t p;
@@ -411,7 +479,9 @@ static int api_SetRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return put_rect(w, p, r) < 0 ? -1 : 12;
 }
 
-// SetRectEmpty(lpRect)
+// SetRectEmpty(lpRect) -> void
+// Windows: Fills a RECT with zeros.
+// w16: The same.
 static int api_SetRectEmpty(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t r[4];
     (void)ordinal;
@@ -419,7 +489,9 @@ static int api_SetRectEmpty(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return put_rect(w, w16_arg32(a), r) < 0 ? -1 : 4;
 }
 
-// CopyRect(lpDst, lpSrc)
+// CopyRect(lprcDst, lprcSrc) -> BOOL
+// Windows: Copies a RECT.
+// w16: The same.
 static int api_CopyRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     int16_t r[4];
@@ -430,7 +502,9 @@ static int api_CopyRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// PtInRect(lpRect, POINT): the right and bottom edges are out
+// PtInRect(lprc, pt) -> BOOL
+// Windows: Whether a point is inside a rectangle -- its right and bottom edges outside.
+// w16: The same.
 static int api_PtInRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     int16_t r[4];
@@ -444,7 +518,10 @@ static int api_PtInRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// OffsetRect, InflateRect(lpRect, dx, dy)
+// OffsetRect(lprc, dx, dy) -> BOOL
+// InflateRect(lprc, dx, dy) -> BOOL
+// Windows: Move a rectangle by dx, dy; or grow it by them on every side (shrink, when negative).
+// w16: The same.
 static int api_OffsetRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t r[4];
     uint32_t p;
@@ -456,7 +533,9 @@ static int api_OffsetRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return put_rect(w, p, r) < 0 ? -1 : 8;
 }
 
-// IntersectRect(lpDst, lpA, lpB): nonzero if they meet
+// IntersectRect(lprcDst, lprcSrc1, lprcSrc2) -> BOOL
+// Windows: Where two rectangles overlap; FALSE, and an empty rectangle, when they do not.
+// w16: The same.
 static int api_IntersectRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     int16_t r[4], s[4];
@@ -472,7 +551,9 @@ static int api_IntersectRect(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 12;
 }
 
-// FillRect(hdc, lpRect, hbr)
+// FillRect(hdc, lprc, hbr) -> int
+// Windows: Fills a rectangle with a brush -- right and bottom edges left out.
+// w16: The same.
 static int api_FillRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     int16_t r[4];
@@ -487,7 +568,9 @@ static int api_FillRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// InvertRect(hdc, lpRect)
+// InvertRect(hdc, lprc) -> void
+// Windows: Inverts a rectangle's colours -- how a selection or a pressed card shows.
+// w16: The same.
 static int api_InvertRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t r[4];
     (void)ordinal;
@@ -497,7 +580,9 @@ static int api_InvertRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// FrameRect(hdc, lpRect, hbr): a one-pixel border in the brush
+// FrameRect(hdc, lprc, hbr) -> int
+// Windows: Draws a one-pixel border round a rectangle in a brush.
+// w16: The same.
 static int api_FrameRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t r[4];
     (void)ordinal;
@@ -514,8 +599,11 @@ static int api_FrameRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// DrawText(hdc, lpString, nCount, lpRect, uFormat) -> the text's height;
-// nCount -1: up to the NUL
+// DrawText(hdc, lpString, nCount, lpRect, uFormat) -> int
+// Windows: Draws text in a rectangle: left, centred or right, wrapped at words, on one line, its
+// tabs expanded, '&' underlining the next letter, or only measured (DT_CALCRECT); returns its
+// height.
+// w16: The same formats in the DC's font; nCount -1 draws up to the string's end.
 static int api_DrawText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int16_t r[4];
     (void)ordinal;
@@ -544,8 +632,11 @@ static int api_DrawText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 14;
 }
 
-// LoadBitmap(hInst, lpName): a BITMAP resource as a bitmap. 3.1's own
-// (OBM_*, hInst NULL) are not drawn yet: 0, as for a missing name.
+// LoadBitmap(hInstance, lpBitmapName) -> HBITMAP
+// Windows: A bitmap from a BITMAP resource -- or, with hInstance NULL, one of Windows' own (the
+// check mark, scroll arrows, size box...).
+// w16: A program's own bitmap, as it is. Windows' own bitmaps are not drawn yet: 0, as for a name
+// that is not there.
 static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t inst = w16_arg16(a);
@@ -561,8 +652,11 @@ static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
-// GetWindowDC(hwnd): its client area's DC -- the frame round it is w16's
-// own, drawn by the main thread, and a program does not paint on it
+// GetWindowDC(hWnd) -> HDC
+// Windows: A DC for the whole window, frame and caption included -- for a program that draws its
+// own frame.
+// w16: The client area's DC: the frame is w16's own (or toywm's), and a program does not paint on
+// it.
 static int api_GetWindowDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
@@ -570,7 +664,10 @@ static int api_GetWindowDC(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// DrawIcon(hdc, x, y, hIcon): one LoadIcon gave; Windows' own (IDI_*) are not drawn yet
+// DrawIcon(hdc, X, Y, hIcon) -> BOOL
+// Windows: Draws an icon -- its picture through its mask -- at a place.
+// w16: The same for an icon LoadIcon loaded from the program's resources; Windows' own icons
+// (IDI_*) are not drawn yet.
 static int api_DrawIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a);
@@ -585,7 +682,9 @@ static int api_DrawIcon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// GetMessagePos() -> where the pointer was, screen coordinates (y high)
+// GetMessagePos() -> DWORD
+// Windows: Where the pointer was when the last message was made, in screen coordinates.
+// w16: The same, in the program's screen.
 static int api_GetMessagePos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -596,7 +695,9 @@ static int api_GetMessagePos(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 0;
 }
 
-// GetMessageTime() -> milliseconds, as GetTickCount counts them
+// GetMessageTime() -> LONG
+// Windows: When the last message was made, as GetTickCount counts.
+// w16: The same.
 static int api_GetMessageTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -615,6 +716,19 @@ static uint32_t g_hooks[16];                     // per WH_* (-1..14)
 
 uint32_t w16_hook(int id) { return id >= -1 && id <= 14 ? g_hooks[id + 1] : 0; }
 
+// SetWindowsHook(nFilterType, pfnFilterProc) -> HHOOK
+// Windows: Puts a function in a chain that Windows calls at a set point: WH_CALLWNDPROC before each
+// message a window is sent, WH_GETMESSAGE as a message leaves the queue, WH_KEYBOARD for each key,
+// WH_MSGFILTER inside a dialog's or a menu's own loop, and others.
+// w16: Keeps every hook a program sets and answers with the one it replaced, as Windows did. Only
+// WH_CALLWNDPROC is called -- before each message w16 sends. The others are kept and never called.
+// Why: An MFC program cannot make a window without WH_CALLWNDPROC: MFC ties its C++ object to the
+// window inside that hook, and Hearts is an MFC program. The other kinds need w16's message, dialog
+// and menu loops to call out at the points 3.1 did, and no program run so far sets them.
+// Notice: Hearts sets only WH_CALLWNDPROC and notices nothing. A program that watches keys or
+// messages through WH_KEYBOARD or WH_GETMESSAGE would not see them.
+// Whole: The other kinds called from the message, dialog and menu loops. On the roadmap: "w16: the
+// hooks besides WH_CALLWNDPROC called".
 static int api_SetWindowsHook(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     int16_t id = (int16_t)w16_arg16(a);
@@ -625,6 +739,9 @@ static int api_SetWindowsHook(struct w16 *w, unsigned ordinal, struct w16_args *
     return 6;
 }
 
+// UnhookWindowsHook(nCode, pfnFilterProc) -> BOOL
+// Windows: Takes a hook SetWindowsHook set out of its chain.
+// w16: The same.
 static int api_UnhookWindowsHook(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     int16_t id = (int16_t)w16_arg16(a);
@@ -635,6 +752,9 @@ static int api_UnhookWindowsHook(struct w16 *w, unsigned ordinal, struct w16_arg
     return 6;
 }
 
+// DefHookProc(nCode, wParam, lParam, lplpfnNextHook) -> DWORD
+// Windows: Passes a hook's event on to the next hook in the chain.
+// w16: Answers 0: w16 keeps one hook of each kind, so there is no next one to call.
 static int api_DefHookProc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg32(a); w16_arg32(a);
@@ -642,9 +762,14 @@ static int api_DefHookProc(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 12;
 }
 
-// SetWindowsHookEx(idHook, lpfn, hInstance, hTask) -> an HHOOK: kept,
-// never called, like SetWindowsHook's; UnhookWindowsHookEx(hhk) takes it
-// out; CallNextHookEx(hhk, code, wParam, lParam) has no next to call
+// SetWindowsHookEx(idHook, lpfn, hInstance, hTask) -> HHOOK
+// Windows: SetWindowsHook's newer form (3.1): the same hooks, with a handle the program gives back
+// to take its hook out.
+// w16: As SetWindowsHook: WH_CALLWNDPROC is called, the other kinds are kept and never called.
+// Why: As SetWindowsHook. Hearts sets its WH_CALLWNDPROC hook this way, once for each window MFC
+// makes.
+// Notice: As SetWindowsHook.
+// Whole: As SetWindowsHook: on the roadmap, "w16: the hooks besides WH_CALLWNDPROC called".
 static int api_SetWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     int16_t id = (int16_t)w16_arg16(a);
@@ -657,6 +782,9 @@ static int api_SetWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_args
     return 10;
 }
 
+// UnhookWindowsHookEx(hhk) -> BOOL
+// Windows: Takes out a hook SetWindowsHookEx set.
+// w16: The same.
 static int api_UnhookWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t h = w16_arg32(a);
@@ -666,6 +794,9 @@ static int api_UnhookWindowsHookEx(struct w16 *w, unsigned ordinal, struct w16_a
     return 4;
 }
 
+// CallNextHookEx(hhk, nCode, wParam, lParam) -> LRESULT
+// Windows: Passes a hook's event on to the next hook in the chain.
+// w16: Answers 0: there is no next one (DefHookProc says why).
 static int api_CallNextHookEx(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a); w16_arg16(a); w16_arg16(a); w16_arg32(a);
@@ -673,8 +804,11 @@ static int api_CallNextHookEx(struct w16 *w, unsigned ordinal, struct w16_args *
     return 12;
 }
 
-// SelectPalette(hdc, hpal, bForceBackground): every colour is a true colour
-// here, so a palette changes nothing -- the previous, none
+// SelectPalette(hdc, hpal, bForceBackground) -> HPALETTE
+// Windows: Puts a logical palette into a DC, for a program that needs its own 256 colours on a
+// palette display.
+// w16: Changes nothing: w16 draws in true colour, so every colour a program names is shown. Returns
+// no previous palette.
 static int api_SelectPalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a); w16_arg16(a); w16_arg16(a);
@@ -682,7 +816,9 @@ static int api_SelectPalette(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 6;
 }
 
-// WNetGetCaps(nIndex): no network
+// WNetGetCaps(nIndex) -> UINT
+// Windows: What the network driver can do -- Windows for Workgroups' sharing and connections.
+// w16: 0 for every question: to a program, there is no network.
 static int api_WNetGetCaps(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg16(a);
@@ -690,14 +826,21 @@ static int api_WNetGetCaps(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// MessageBeep(type): the event its MB_ICON* names (sound16.c)
+// MessageBeep(uType) -> void
+// Windows: Plays the sound of an event: the one for the message box icon uType names -- Asterisk,
+// Exclamation, Critical Stop, Question -- else the Default Beep; the speaker's beep without a sound
+// card.
+// w16: The same event (sndPlaySound says which file plays it), through toy-os's sound daemon.
 static int api_MessageBeep(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_sound_event(w, w16_beep_alias(w16_arg16(a)));
     return 2;
 }
 
-// GetSysColor(index) -> a COLORREF
+// GetSysColor(nIndex) -> COLORREF
+// Windows: A colour of the desktop's scheme: window, window text, caption, menu, button face and
+// shadow...
+// w16: Windows 3.1's default scheme, as w16 draws its windows and controls in it.
 static int api_GetSysColor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -708,7 +851,9 @@ static int api_GetSysColor(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
-// GetDesktopWindow
+// GetDesktopWindow() -> HWND
+// Windows: The desktop window, behind every other.
+// w16: A handle standing for it: the program's screen.
 static int api_GetDesktopWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -717,7 +862,9 @@ static int api_GetDesktopWindow(struct w16 *w, unsigned ordinal, struct w16_args
     return 0;
 }
 
-// GetLastActivePopup(hwnd): no popups yet
+// GetLastActivePopup(hwndOwner) -> HWND
+// Windows: The popup a window owns that was active last -- its dialog, say -- or the window itself.
+// w16: The window itself.
 static int api_GetLastActivePopup(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -725,7 +872,10 @@ static int api_GetLastActivePopup(struct w16 *w, unsigned ordinal, struct w16_ar
     return 2;
 }
 
-// wsprintf
+// _wsprintf(lpszOut, lpszFormat, ...) -> int
+// Windows: Formats a string, C's sprintf in USER: %d %i %u %x %X %c %s, with '-', '0', a width and
+// 'l' for a long; up to 1024 characters.
+// w16: The same specifiers and flags.
 static int api_wsprintf(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -750,7 +900,11 @@ static char *far_dup(struct w16 *w, uint32_t far) {
 
 static int fold(int c) { return c >= 'a' && c <= 'z' ? c - 32 : (c >= 0xE0 && c <= 0xFE && c != 0xF7) ? c - 32 : c; }
 
-// lstrcmp, lstrcmpi(lpString1, lpString2): -1, 0 or 1, in the ANSI order
+// lstrcmp(lpszString1, lpszString2) -> int
+// lstrcmpi(lpszString1, lpszString2) -> int
+// Windows: Compare two strings in the ANSI character set's order -- lstrcmpi without case; -1, 0 or
+// 1.
+// w16: The same, accented capitals and small letters folded together by lstrcmpi.
 static int api_lstrcmp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t p1 = w16_arg32(a), p2 = w16_arg32(a);
     char *s = far_dup(w, p1), *t = s ? far_dup(w, p2) : 0;
@@ -767,8 +921,11 @@ static int api_lstrcmp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// AnsiUpper, AnsiLower(lpString): in place -- or, with a null selector, the
-// one character in the offset's low byte
+// AnsiUpper(lpString) -> LPSTR
+// AnsiLower(lpString) -> LPSTR
+// Windows: A string in capitals, or small letters, in place, accented letters too; or, given a null
+// selector, the one character in the offset's low byte.
+// w16: The same, both ways.
 static int api_AnsiUpper(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint32_t far = w16_arg32(a);
     int up = ordinal == 431;
@@ -794,7 +951,9 @@ static int api_AnsiUpper(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// AnsiNext(lpCurrent): the next character, staying on the terminator
+// AnsiNext(lpchCurrentChar) -> LPSTR
+// Windows: The next character of a string, staying on its terminating 0.
+// w16: The same; every character is one byte (IsDBCSLeadByte says why).
 static int api_AnsiNext(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
@@ -806,7 +965,9 @@ static int api_AnsiNext(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// AnsiPrev(lpStart, lpCurrent): the character before, never before lpStart
+// AnsiPrev(lpchStart, lpchCurrentChar) -> LPSTR
+// Windows: The character before, never before the string's start.
+// w16: The same.
 static int api_AnsiPrev(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t start = w16_arg32(a), cur = w16_arg32(a);
@@ -816,9 +977,10 @@ static int api_AnsiPrev(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
-// TabbedTextOut(hdc, x, y, lpString, nCount, nTabPositions, lpnTabStopPositions,
-// nTabOrigin) -> MAKELONG(width, height): tabs every 8 average characters,
-// or every first stop's distance when one is given
+// TabbedTextOut(hDC, X, Y, lpString, nCount, nTabPositions, lpnTabStopPositions, nTabOrigin) -> LONG
+// Windows: TextOut with its tabs expanded to tab stops: the stops given, every first stop's
+// distance, or every 8 average characters; returns the width and height drawn.
+// w16: The same.
 static int api_TabbedTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a);
@@ -855,14 +1017,20 @@ static int api_TabbedTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a
 
 #define CF_TEXT 1
 
-// OpenClipboard(hwnd), CloseClipboard: one clipboard, always open to us
+// OpenClipboard(hWnd) -> BOOL
+// CloseClipboard() -> BOOL
+// Windows: Open the clipboard for the program to read or change, and close it.
+// w16: Both succeed: the clipboard is toy-os's, shared with every program, and an EDIT's Cut, Copy
+// and Paste reach it.
 static int api_OpenClipboard(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (ordinal == 137) w16_arg16(a);
     w->cpu.r[R_AX] = 1;
     return ordinal == 137 ? 2 : 0;
 }
 
-// EnumClipboardFormats(fmt): CF_TEXT when there is text, then the end
+// EnumClipboardFormats(format) -> UINT
+// Windows: The clipboard's formats one by one: what follows `format`, 0 at the end.
+// w16: CF_TEXT when toy-os's clipboard holds text, then the end.
 static int api_EnumClipboardFormats(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t fmt = w16_arg16(a);
@@ -870,7 +1038,9 @@ static int api_EnumClipboardFormats(struct w16 *w, unsigned ordinal, struct w16_
     return 2;
 }
 
-// IsClipboardFormatAvailable(fmt)
+// IsClipboardFormatAvailable(format) -> BOOL
+// Windows: Whether the clipboard holds a format -- whether Paste should be enabled.
+// w16: TRUE for CF_TEXT when toy-os's clipboard holds text.
 static int api_IsClipboardFormatAvailable(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     static struct uclip c;
@@ -880,9 +1050,17 @@ static int api_IsClipboardFormatAvailable(struct w16 *w, unsigned ordinal, struc
     return 2;
 }
 
-// WinHelp(hwnd, lpHelpFile, wCommand, dwData): there is no help viewer,
-// so a request for help fails -- and HELP_QUIT, which a program sends as
+// There is no help viewer, so a request for help fails -- and HELP_QUIT, which a program sends as
 // it closes (Minesweeper does, on WM_DESTROY), succeeds.
+// WinHelp(hWnd, lpszHelp, uCommand, dwData) -> BOOL
+// Windows: Opens the program's Help file (.HLP) in Windows Help, at its contents, a topic or a
+// keyword.
+// w16: Shows a box saying the file is a Windows Help file that w16 cannot show yet, and answers
+// that Help opened. The call a program makes as it closes, to close its Help, simply succeeds.
+// Why: A .HLP file is a compiled format of its own -- compressed topics, its own fonts and
+// pictures, hot spots -- and toy-os has no reader for it.
+// Notice: Its Help menu and F1 show that box instead of Help.
+// Whole: A viewer for .HLP files. On the roadmap: "w16: Windows Help files shown".
 static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t owner = w16_arg16(a);
@@ -971,9 +1149,14 @@ const struct w16_api g_user_misc_api[] = {
     { 513, api_WNetGetCaps },
 };
 
-// KEYBOARD's AnsiToOem, OemToAnsi(src, dst): w16's DOS has no code page of
-// its own -- its file names are the program's ANSI ones -- so the two
+// w16's DOS has no code page of its own -- its file names are the program's ANSI ones -- so the two
 // sets are one and a string is copied as it is.
+// AnsiToOem(lpszWindowsStr, lpszOemStr) -> int
+// OemToAnsi(lpszOemStr, lpszWindowsStr) -> BOOL
+// Windows: Translate a string between Windows' character set and DOS's code page -- for a file name
+// DOS will see.
+// w16: Copies it as it is: w16's DOS keeps the program's own characters in its names, so the two
+// sets are one.
 static int api_AnsiToOem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t src = w16_arg32(a), dst = w16_arg32(a);

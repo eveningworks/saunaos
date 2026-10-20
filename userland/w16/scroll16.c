@@ -279,7 +279,11 @@ void w16_sbar_track(struct w16 *w, struct w16_wnd *x, int bar, int wx, int wy) {
 
 // --- the exports ------------------------------------------------------------------
 
-// SetScrollPos(hwnd, nBar, nPos, bRedraw) -> the old position
+// SetScrollPos(hwnd, nBar, nPos, bRedraw) -> int
+// Windows: Moves the thumb of a window's horizontal or vertical scroll bar to a position in its
+// range, redrawing it if asked; returns the old position.
+// w16: The same, on the scroll bars w16 draws in Windows 3.1's look; the position is kept inside
+// the range.
 static int api_SetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -294,7 +298,9 @@ static int api_SetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 8;
 }
 
-// GetScrollPos(hwnd, nBar)
+// GetScrollPos(hwnd, nBar) -> int
+// Windows: Where a window's scroll bar thumb is.
+// w16: The same; 0 for a window or bar that is not there.
 static int api_GetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -303,7 +309,9 @@ static int api_GetScrollPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 4;
 }
 
-// SetScrollRange(hwnd, nBar, nMin, nMax, bRedraw)
+// SetScrollRange(hwnd, nBar, nMin, nMax, bRedraw) -> void
+// Windows: Sets the range a scroll bar's thumb moves over; a range of 0 to 0 hides the bar.
+// w16: The same: an empty range takes the bar away and gives the client area its room.
 static int api_SetScrollRange(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -314,7 +322,9 @@ static int api_SetScrollRange(struct w16 *w, unsigned ordinal, struct w16_args *
     return 10;
 }
 
-// GetScrollRange(hwnd, nBar, lpMin, lpMax)
+// GetScrollRange(hwnd, nBar, lpMinPos, lpMaxPos) -> void
+// Windows: Writes a scroll bar's range into the two integers given.
+// w16: The same; 0 and 0 for a window or bar that is not there.
 static int api_GetScrollRange(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));

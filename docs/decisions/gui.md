@@ -11956,3 +11956,52 @@ the program arrives with the DLL's data segment rather than the caller's.
 A DLL is loaded once and kept until the program ends: FreeLibrary counts,
 nothing unloads, because no program w16 runs depends on a library going
 away and an unload would have to prove no far pointer into it survives.
+
+## Win16 calls are documented in their handler's comment
+
+Retro Launcher's calls window lists every Windows call a program imports,
+and the maintainer asked for each to say -- at length, on demand -- what
+it does and how w16 answers it: an **About** on a call that works, a
+**Why?** on a stand-in. That is 285 calls today, and one more with almost
+every program w16 learns to run.
+
+**The text lives in the C file, as a fixed comment block above each
+handler, and the pages are generated from it.** `// Name(args) -> type`,
+`// Windows: ...`, `// w16: ...`, and for a stand-in `Why:`, `Notice:`,
+`Whole:`; `tools/gen_w16_calls.py` turns them into
+`/usr/share/doc/windows/calls.md` and `stand-ins.md` at seed time, and the
+build fails on a call without its block. Wine does exactly this: each
+exported function carries a comment block in a set shape and Wine's API
+reference is generated from it (`tools/c2man.pl`). The reason is the one
+CLAUDE.md gives for preferring facts that cannot go stale: a description
+beside the code it describes is read whenever the code is, and changed in
+the same diff; a page elsewhere is changed when someone remembers.
+
+**Why not the obvious hand-written page.** The stand-ins page shipped
+first as hand-written Markdown (9410a0a8) -- 18 sections, fine at that
+size. At 285, a page apart from the code is a second copy of every
+handler's behaviour, and nothing but care keeps them equal; checking that
+each call HAS a section (as check_docs did) says nothing about whether
+the section is still true. The stand-ins moved into the C files in the
+same change, so there is one source.
+
+**Why not a field in the API table** (`{ 121, api_SetWindowsHook, "..." }`):
+the strings would ship inside `/bin/w16` for every run of every program,
+and a table row of prose is unreadable as code. A comment costs the binary
+nothing.
+
+**This is a deliberate exception to "a comment's length tracks how
+surprising the code is"** (CLAUDE.md). A two-line block on a handler as
+plain as `lstrlen` says nothing a programmer needs -- but it is not
+written for the programmer: it is the user-facing documentation, kept in
+the one place it cannot drift from. A trap the code needs still goes
+above the signature as an ordinary comment, which the generator does not
+show.
+
+**The words are our own.** `Windows:` describes what Windows 3.1 did in
+toy-os's own words, never Microsoft's documentation's text, and `w16:`
+is read from the handler, not from what it was meant to do: several
+blocks written for this change found behaviour the old one-line comments
+did not say (GlobalAlloc refuses a block over 64 KB; InvalidateRect marks
+the whole window; dashed pens draw solid; GetKeyState knows only Shift,
+Ctrl and Alt).

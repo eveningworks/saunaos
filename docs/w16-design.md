@@ -138,12 +138,17 @@ LOUDLY and by name (below), never as a silent zero.
   the SHELL drag calls) is listed in `task16.c`'s `PARTLY` table with
   what it does instead, which `--check` prints as `call partly` and the
   launcher shows as Partly -- so "has every call" never overstates how
-  far a program runs. Each has a section on the stand-ins page
-  (`data/usr/share/doc/windows/stand-ins.md`, `## USER.121 ...`) saying
-  why at length -- what 3.1 did, what w16 does, why it stops there, what
-  a program notices, what would finish it -- which the launcher's Why?
-  and `w16 --why` show; `check_docs.py` keeps the page and the table in
-  step. A handler that stops being one leaves the table and its section.
+  far a program runs. A handler that stops being one leaves the table.
+- **Every call is documented where it is answered.** The comment above
+  each handler is a fixed block -- the call's signature line, `Windows:`
+  (what 3.1 did), `w16:` (what w16 does), and for a stand-in `Why:`,
+  `Notice:` and `Whole:` -- which `tools/gen_w16_calls.py` turns into the
+  pages in `/usr/share/doc/windows/` (`calls.md`, `stand-ins.md`), as
+  Wine's API reference is generated from its comments (c2man). Help reads
+  them whole; the launcher's About and Why? and `w16 --why` show one
+  section. The build, and `check_docs.py`, fail a call without its block:
+  `docs/decisions/gui.md`, "Win16 calls are documented in their handler's
+  comment".
 - **Far pointers are translated at the boundary.** An API taking an
   `LPSTR` gets segment:offset, checked against the selector's limit
   before C reads a byte -- the same bounds discipline as `ttf.h`.

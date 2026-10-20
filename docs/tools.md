@@ -2145,6 +2145,18 @@ window without going through it will find its layout polls timing out.
   meaningless without the boot log). Same two-pass + `--verify` shape as
   `genrelocs.py`; the blob is deliberately pointer-free so it costs no
   relocations.
+- **`gen_w16_calls.py`** -- writes `/usr/share/doc/windows/calls.md` and
+  `stand-ins.md` at seed time (`-o DIR`) from the comment block above each
+  handler in `userland/w16/`'s API tables: the call's signature line,
+  `Windows:`, `w16:`, and for a stand-in (`task16.c`'s `PARTLY`) `Why:`,
+  `Notice:`, `Whole:` -- Wine's c2man shape. Help reads the pages whole;
+  Retro Launcher's About and Why? and `w16 --why` show one call's section.
+  It FAILS the build on a call without its block, a stand-in without its
+  three fields, or a non-stand-in with them; `--check` is what
+  `check_docs.py` runs, `--missing` lists every problem by file and line.
+  The table-to-module map is read from `task16.c`'s `w16_has()` and the
+  names from `w16_names.c`, so a new table or module needs no edit here.
+  `docs/conventions/gui.md` has the format.
 - **`gen_toolkit_index.py`** -- writes `docs/toolkit.md`, one row per
   `userland/lib/` and `userland/ui/` header, taken from the header's own
   top comment (its first sentence). `--check` fails when the file is

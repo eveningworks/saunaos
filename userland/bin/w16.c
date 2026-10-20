@@ -52,7 +52,7 @@ static const struct uargs_opt OPTS[] = {
       &g_sounds, NULL },
     { "trace", 't', "FILE", "log every Windows call the program makes to FILE (Wine's +relay)",
       NULL, &g_trace_path },
-    { "why", 'w', "CALL", "say why CALL (USER.121) is only partly there, from the stand-ins page",
+    { "why", 'w', "CALL", "say what CALL (USER.121) does and how w16 answers it, from the calls page",
       NULL, &g_why },
     { 0 },
 };
@@ -842,18 +842,19 @@ static void sounds_list(void) {
     }
 }
 
-// `--why CALL`: CALL's section of the stand-ins page, rendered for a
+// `--why CALL`: CALL's section of the calls page -- what it does, how w16
+// answers it, and for a stand-in why only partly -- rendered for a
 // terminal as `doc` renders a page.
 static int why(const char *call) {
-    if (unveil(W16_STANDINS_DOC, "r") != 0 || unveil(NULL, NULL) != 0 || pledge("stdio rpath", NULL) != 0) {
-        fprintf(stderr, "w16: cannot sandbox myself, so I will not read the stand-ins page\n");
+    if (unveil(W16_CALLS_DOC, "r") != 0 || unveil(NULL, NULL) != 0 || pledge("stdio rpath", NULL) != 0) {
+        fprintf(stderr, "w16: cannot sandbox myself, so I will not read the calls page\n");
         return 1;
     }
     uint32_t size = 0;
-    char *doc = (char *)slurp(W16_STANDINS_DOC, &size);
+    char *doc = (char *)slurp(W16_CALLS_DOC, &size);
     int off = 0, n = doc ? umd_section_find(doc, (int)size, call, &off) : 0;
     if (!n) {
-        fprintf(stderr, "w16: %s is no stand-in w16 explains (`w16 --check FILE` lists a program's)\n", call);
+        fprintf(stderr, "w16: %s is no call w16 answers (`w16 --check FILE` lists a program's)\n", call);
         free(doc);
         return 1;
     }

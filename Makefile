@@ -2045,14 +2045,18 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	sed -e 's/@GRUB_TIMEOUT@/$(GRUB_TIMEOUT)/' -e 's|@KCMDLINE@|$(GRUB_KCMDLINE)|' grub.cfg > $(BUILD)/grub-disk.cfg
 	python3 tools/install_grub.py --stage-payload $(SEED_DIR)/sync/install \
 	    --kernel $(KERNEL_MEDIA) --grub-cfg $(BUILD)/grub-disk.cfg
-	# Getting started, and each other category of hand-written pages
-	# (windows/: w16's stand-ins): Markdown like the command pages, so
+	# Getting started, and each other category of hand-written pages:
+	# Markdown like the command pages, so
 	# Help and `doc` read them the same way. A category is a directory,
 	# so a new one needs no line here.
 	for d in data/usr/share/doc/*/; do \
 		mkdir -p $(SEED_DIR)/sync/usr/share/doc/$$(basename $$d) && \
 		cp $$d*.md $(SEED_DIR)/sync/usr/share/doc/$$(basename $$d)/ || exit 1; \
 	done
+	# Windows programs: every call w16 answers, and the stand-ins, GENERATED
+	# from the comment above each handler in userland/w16/ (Wine's c2man
+	# shape); a call without its block fails here.
+	python3 tools/gen_w16_calls.py -o $(SEED_DIR)/sync/usr/share/doc/windows
 	# The command pages, staged UNCONVERTED from docs/commands/ -- the
 	# same Markdown the repository is written in, rendered at display
 	# time by /bin/doc (userland/lib/umd.h says why not at build time).

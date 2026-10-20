@@ -687,7 +687,15 @@ out:
     return c->fault ? -1 : 4;
 }
 
-// GetOpenFileName(lpofn), GetSaveFileName(lpofn)
+// GetOpenFileName(lpofn) -> BOOL
+// GetSaveFileName(lpofn) -> BOOL
+// Windows: The common Open and Save As dialogs: a file name, a list of the files in the current
+// folder, the folders above it, the file types the program offers and the drives; TRUE with the
+// chosen path, FALSE on Cancel.
+// w16: The same dialogs, drawn as Windows 3.1 drew them and built on w16's own dialog manager, list
+// box and combo box, over the drives the program sees -- C:, the Win16 folder; D: to Y: as set; Z:,
+// all of toy-os. A program's hook procedure hears every message first. A custom dialog template is
+// refused (CDERR_NOTEMPLATE).
 static int api_GetOpenFileName(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return file_dialog(w, a, ordinal == 2);
 }
@@ -772,7 +780,11 @@ static int find_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_t wp
     }
 }
 
-// FindText(lpfr): the Find dialog, modeless; its hwnd
+// FindText(lpfr) -> HWND
+// Windows: Opens the modeless Find dialog -- what to find, whole word, match case, up or down --
+// and tells the program each Find Next by a registered message, "commdlg_FindReplace".
+// w16: The same dialog, modeless beside the program's window, sending the same registered message
+// with the same flags. A custom template is refused (CDERR_NOTEMPLATE).
 static int api_FindText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
@@ -835,8 +847,16 @@ static int api_FindText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return c->fault ? -1 : 4;
 }
 
-// PrintDlg(lppd): there is no printer, and the program is told so as
-// Windows told it with none installed
+// There is no printer, and the program is told so as Windows told it with none installed.
+// PrintDlg(lppd) -> BOOL
+// Windows: Shows the Print dialog -- which printer, which pages, how many copies -- and hands the
+// program a device context for the printer chosen, to draw the pages into.
+// w16: Answers as Windows did on a machine with no printer installed: FALSE, and
+// CommDlgExtendedError says PDERR_NODEFAULTPRN. No dialog opens.
+// Why: toy-os has no printing yet: no spooler and no printer drivers, so there is nothing for the
+// dialog to offer.
+// Notice: Its own message that no printer is installed, when you choose Print.
+// Whole: A printing system in toy-os, then this dialog over it. On the roadmap: "w16: printing".
 static int api_PrintDlg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a);
@@ -845,7 +865,11 @@ static int api_PrintDlg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
-// CommDlgExtendedError: why the last common dialog returned FALSE (0: Cancel)
+// CommDlgExtendedError() -> DWORD
+// Windows: Why the last common dialog returned FALSE: 0 when the user cancelled, else an error
+// code.
+// w16: The same, for w16's dialogs: 0 after Cancel, CDERR_NOTEMPLATE for a custom template,
+// CDERR_MEMALLOCFAILURE, PDERR_NODEFAULTPRN from PrintDlg.
 static int api_CommDlgExtendedError(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;

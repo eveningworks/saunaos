@@ -74,7 +74,7 @@ static const struct uui_table_column COLS[] = {
     { "Kind",          14, UUI_TALIGN_LEFT,  0, 0 },
     { "Status",        10, UUI_TALIGN_LEFT,  0, 0 },
     { "What w16 does",  0, UUI_TALIGN_LEFT,  0, 0 },
-    { "",               7, UUI_TALIGN_LEFT,  "why", UUI_TCOL_ACTION },   // a stand-in's Why?
+    { "",               7, UUI_TALIGN_LEFT,  "why", UUI_TCOL_ACTION },   // About, or a stand-in's Why?
 };
 enum { COL_STATUS = 4, COL_NOTE, COL_WHY };
 
@@ -224,7 +224,9 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
     case 2: snprintf(out, (size_t)cap, "%s", c->name); break;
     case 3: snprintf(out, (size_t)cap, "%s", c->kind); break;
     case COL_STATUS: snprintf(out, (size_t)cap, "%s", ST_NAMES[c->status]); break;
-    case COL_WHY: snprintf(out, (size_t)cap, "%s", c->status == ST_PARTLY ? "Why?" : ""); break;
+    case COL_WHY:
+        snprintf(out, (size_t)cap, "%s", c->status == ST_PARTLY ? "Why?" : c->status == ST_WORKS ? "About" : "");
+        break;
     default: snprintf(out, (size_t)cap, "%s", note_of(c)); break;
     }
 }
@@ -381,11 +383,11 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_SHOW: build_chips(); build_rows(); break;
     case ID_CHIPS: case ID_SEARCH: build_rows(); break;
     case ID_TABLE: {
-        // A stand-in's Why? cell, or Enter on its row.
+        // A call's About or a stand-in's Why? cell, or Enter on its row.
         int r = uui_table_take_action(&g_table, 0);
         if (r >= 0 && r < g_nrows) {
             const struct call *c = &g_calls[g_rows[r]];
-            retro_why_open(a, c->module, c->ordinal, c->name);
+            retro_why_open(a, c->module, c->ordinal, c->name, c->status == ST_PARTLY);
         }
         break;
     }
