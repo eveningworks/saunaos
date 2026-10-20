@@ -40,10 +40,12 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
     if (d->fb) ugfx_blit(&s, f, top + cap, d->fbw, d->fbh, d->fb, d->fbw);
     if (cap) {
         // The caption is the client's width, edged in white on its top and
-        // sides (the line 3.11 shows round it), its bar navy within.
+        // sides (the line 3.11 shows round it), its bar navy within. The
+        // side edges run down through the black line's row too, so white
+        // shows at both of its ends, as 3.11's.
         int cw = d->w - 2 * f;
         uint32_t bar = d->active ? w16_rgb(0x000080) : white, ink = d->active ? white : black;
-        ugfx_fill_rect(&s, f, top - 1, cw, cap, white);
+        ugfx_fill_rect(&s, f, top - 1, cw, cap + 1, white);
         ugfx_fill_rect(&s, f + 1, top, cw - 2, cap - 1, bar);
         ugfx_fill_rect(&s, f + 1, top + cap - 1, cw - 2, 1, black);   // inside the white edges, as 3.11's
         int box = cap - 1;
