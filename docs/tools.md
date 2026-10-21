@@ -8232,6 +8232,21 @@ runs first**: a `doom1.wad` with one
   back clean). `--fuzz N --seed S` sizes it; `--positive-control` runs a
   wrong hash multiplier (the lookups must fail) and a bounds check that
   always agrees (the fuzz must crash). In `preflight.sh`.
+- **`hlpview_test.py`** -- Help Viewer on `hlpgen.sample()`, put into the
+  guest with `vm.py put` before the console is taken: the link colour is
+  in the reported link rects and nowhere else (pixels), the pointer is the
+  hand over a link, the text cursor beside it and the arrow over nothing,
+  a click follows a jump, Alt+Left/Right walk the history, a pop-up opens
+  and Esc closes it, zoom stops at both limits and Ctrl+0 resets it, the
+  right-click menu greys Copy and Back and not Select All, Forward or
+  Contents (by the rows' own contrast), Ctrl+A Ctrl+C reaches Notepad
+  through the real clipboard with a phrase-compressed paragraph intact,
+  and Find opens the first hit. Links come from the widget's own
+  `view.link` layout lines; the menu's rows from `ctxmenu.item`. Notepad
+  takes the CONTROL CODES (`0x16`, `0x13`), not `mods="ctrl"` -- the
+  viewer takes either, which hid it for one run. Its controls, both seen
+  red with `mutate.py`: removing the zoom clamp, and drawing links in the
+  text colour. In `gui_regress.py`.
 - **`hlpgen.py`** -- writes WinHelp 3.1 files from Python (`Help`,
   `Topic`, `sample()`): the B+ trees, LZ77 blocks, phrases, fonts,
   contexts, keywords, windows, links, macros and tables. The input of
