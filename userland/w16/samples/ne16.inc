@@ -27,6 +27,7 @@ section .w16tail align=1
 %define W16_REL_INTERNAL 2   ; site, srctype, segment, offset
 %define W16_REL_ENTRY    3   ; offset in the current segment
 %define W16_REL_EXPORT   4   ; ordinal, offset, name
+%define W16_REL_IMPNAME  5   ; site, srctype, module name, function name (an import BY NAME)
 
 ; NE relocation source types.
 %define W16_SRC_SEGMENT  2
@@ -74,6 +75,28 @@ section .w16tail align=1
         dw %4
         w16_back
     %endif
+%endmacro
+
+; A far pointer to MODULE's function `name`, as the loader takes one that is imported by name.
+%macro w16_rel_import_name 4   ; site, srctype, "MODULE", "name"
+    %if W16_PASS == W16_CUR
+        section .w16rel
+        db W16_REL_IMPNAME
+        dw %1
+        db %2
+        %strlen %%n %3
+        db %%n, %3
+        %strlen %%m %4
+        db %%m, %4
+        w16_back
+    %endif
+%endmacro
+
+; call far MODULE.name, by name
+%macro W16_CALL_NAME 2
+    db 0x9A
+    %%site: dd 0
+    w16_rel_import_name %%site, W16_SRC_FARPTR, %1, %2
 %endmacro
 
 ; call far MODULE.ordinal

@@ -51,7 +51,7 @@ import subprocess
 import sys
 import tempfile
 
-REL_IMPORT, REL_INTERNAL, REL_ENTRY, REL_EXPORT = 1, 2, 3, 4
+REL_IMPORT, REL_INTERNAL, REL_ENTRY, REL_EXPORT, REL_IMPNAME = 1, 2, 3, 4, 5
 SRC_SEGMENT, SRC_FARPTR, SRC_OFFSET = 2, 3, 5
 
 SEG_DATA = 0x0001
@@ -149,6 +149,15 @@ def parse_relocs(raw, segno):
             (ordinal,) = struct.unpack_from("<H", raw, i)
             i += 2
             relocs.append(("import", site, src, mod.upper(), ordinal))
+        elif kind == REL_IMPNAME:
+            site, src, ln = struct.unpack_from("<HBB", raw, i)
+            i += 4
+            mod = raw[i:i + ln].decode("ascii")
+            i += ln
+            nl = raw[i]
+            name = raw[i + 1:i + 1 + nl].decode("ascii")
+            i += 1 + nl
+            relocs.append(("impname", site, src, mod.upper(), name))
         elif kind == REL_INTERNAL:
             site, src, seg, off = struct.unpack_from("<HBBH", raw, i)
             i += 6
@@ -284,7 +293,7 @@ def build(src, out):
     modules = []
     for n in range(1, nseg + 1):
         for r in relocs[n]:
-            if r[0] == "import" and r[3] not in modules:
+            if r[0] in ("import", "impname") and r[3] not in modules:
                 modules.append(r[3])
 
     # Tables after the 64-byte NE header, in the order Microsoft's
@@ -324,6 +333,14 @@ def build(src, out):
     for m in modules:
         modref += struct.pack("<H", len(imported))
         imported += pstr(m)
+    # Imports BY NAME: the function's name in the same table, each once; the relocation's second
+    # word is where it sits.
+    name_off = {}
+    for n in range(1, nseg + 1):
+        for r in relocs[n]:
+            if r[0] == "impname" and r[4] not in name_off:
+                name_off[r[4]] = len(imported)
+                imported += pstr(r[4])
     # Entry table: one bundle of fixed entries per run of ordinals in the
     # same segment, ordinal 1 upwards; unused ordinals as empty bundles.
     entry_table = b""
@@ -368,6 +385,9 @@ def build(src, out):
             if r[0] == "import":
                 _, site, src_t, mod, ordinal = r
                 recs += struct.pack("<BBHHH", src_t, 1, site, modules.index(mod) + 1, ordinal)
+            elif r[0] == "impname":
+                _, site, src_t, mod, name = r
+                recs += struct.pack("<BBHHH", src_t, 2, site, modules.index(mod) + 1, name_off[name])
             else:
                 _, site, src_t, seg, off = r
                 recs += struct.pack("<BBHBBH", src_t, 0, site, seg, 0, off)

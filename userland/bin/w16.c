@@ -720,6 +720,8 @@ static int cmp_u32(const void *a, const void *b) {
     return x < y ? -1 : x > y;
 }
 
+static int cmp_str(const void *a, const void *b) { return strcmp(*(char *const *)a, *(char *const *)b); }
+
 static int check(const uint8_t *img, uint32_t size) {
     static struct ne_module m;
     int err = ne_parse(img, size, &m);
@@ -737,6 +739,11 @@ static int check(const uint8_t *img, uint32_t size) {
     // Each import once: module << 16 | ordinal, collected then sorted.
     uint32_t *seen = 0;
     unsigned nseen = 0, cap = 0, has = 0, by_name = 0;
+    // Imports by name that w16 cannot number -- a program's own DLL, a name its tables lack -- as
+    // "MODULE name", each once: they count as imports and w16 has none, so they are LISTED, or the
+    // launcher says one call is missing and the calls window finds none.
+    char **named = 0;
+    unsigned nnamed = 0, ncap = 0;
     for (unsigned s = 1; s <= m.nseg; s++)
         for (unsigned i = 0; i < m.seg[s - 1].nrelocs; i++) {
             struct ne_reloc r;
@@ -748,7 +755,19 @@ static int check(const uint8_t *img, uint32_t size) {
                 char fn[64];
                 ord = r.a >= 1 && r.a <= m.nmod && w16_is_builtin(mods[r.a - 1])
                       && ne_imported_name(&m, r.b, fn, sizeof fn) == 0 ? w16_builtin_ordinal(mods[r.a - 1], fn) : 0;
-                if (!ord) { by_name++; continue; }
+                if (!ord) {
+                    char nm[64], key[96];
+                    snprintf(key, sizeof key, "%s %s", r.a >= 1 && r.a <= m.nmod ? mods[r.a - 1] : "?",
+                             ne_imported_name(&m, r.b, nm, sizeof nm) == 0 ? nm : "?");
+                    if (nnamed == ncap) {
+                        char **g = realloc(named, sizeof *named * (ncap = ncap ? ncap * 2 : 16));
+                        if (!g) { printf("error out of memory\n"); return 1; }
+                        named = g;
+                    }
+                    if (!(named[nnamed] = strdup(key))) { printf("error out of memory\n"); return 1; }
+                    nnamed++;
+                    continue;
+                }
             } else if ((r.flags & 3) != NE_REL_IMPORT_ORD) continue;
             if (r.a < 1 || r.a > m.nmod) continue;
             if (nseen == cap) {
@@ -758,6 +777,11 @@ static int check(const uint8_t *img, uint32_t size) {
             }
             seen[nseen++] = (uint32_t)r.a << 16 | ord;
         }
+    qsort(named, nnamed, sizeof *named, cmp_str);
+    for (unsigned k = 0; k < nnamed; k++) {
+        if (by_name && !strcmp(named[by_name - 1], named[k])) free(named[k]);
+        else named[by_name++] = named[k];
+    }
     qsort(seen, nseen, sizeof *seen, cmp_u32);
     unsigned u = 0;
     for (unsigned k = 0; k < nseen; k++)
@@ -783,6 +807,13 @@ static int check(const uint8_t *img, uint32_t size) {
                n ? n->name : "?", w16_kind_names[n ? n->kind : w16_kind_other], note ? "\t" : "", note ? note : "");
     }
     free(seen);
+    for (unsigned k = 0; k < by_name; k++) {
+        char *sp = strchr(named[k], ' ');
+        *sp = 0;
+        printf("call missing %s.0 %s %s\n", named[k], sp + 1, w16_kind_names[w16_kind_other]);
+        free(named[k]);
+    }
+    free(named);
     static uint32_t px[32 * 32];
     int iw, ih;
     if (w16_icon(&m, px, &iw, &ih) == 0) {
