@@ -8247,9 +8247,22 @@ runs first**: a `doom1.wad` with one
   (the painter counts from the bottom; they passed a position from the top)
   and nothing looked until a folder of hundreds of programs gave the grid a
   bar. **A new scrolling view is added here before it is called done**
-  (`userland/CLAUDE.md` rule 10). Its controls, both seen red with
-  `mutate.py`: the grid's draw without its flip, the log list's hit test
-  without its flip. In `gui_regress.py`.
+  (`userland/CLAUDE.md` rule 10): the Retro Launcher's Details table is
+  checked here too. Its controls, both seen red with `mutate.py`: the
+  grid's draw without its flip, the log list's hit test without its flip.
+  In `gui_regress.py`.
+- **`retro_list_test.py`** -- Retro Launcher's list as a person uses it,
+  on the sample programs: `view=details` in `/etc/retrolauncher.conf`
+  opens the table; the search box filters by name and by FILE name (the
+  query `.EXE` is in no title, description or module, so it reaches only
+  the file-name term -- a first query, `wincalls`, matched the module and
+  let the control stay green), Esc clears it; a click on a header sorts and
+  a second reverses, judged from the log line the app writes (first and
+  last program with their call counts), not pixels; the selection stays on
+  its program through a re-sort and a view switch; the arrow keys move both
+  views; a double click runs; the choices reach the conf and a second launch
+  opens as left. Controls, both seen red with `mutate.py`: Missing compared
+  as Calls, the file-name term of `matches()` removed. In `gui_regress.py`.
 - **`fm_bigdir_test.py`** -- the File Manager on a folder of 600 files
   (`mkfiles`, from inside the guest): its own `rows` report says all 600
   (601 with the `..` row), the last file can be chosen and marked (the

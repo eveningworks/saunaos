@@ -2,8 +2,9 @@
 // each with its own icon and how far w16 runs it, run with a double click
 // and set up per program (docs/w16-design.md). The design is the
 // "Win16 Programs launcher" canvas (its old name)'s L1 and S2: folders on the left,
-// program tiles, a details panel with the program's own settings, and an
-// Options window for the defaults (w16/w16prefs.h, which w16 reads too).
+// program tiles or a Details table (searched from the toolbar, sorted by a
+// header or View > Sort by), a details panel with the program's own
+// settings, and an Options window for the defaults (w16/w16prefs.h, which w16 reads too).
 //
 // THIS APP NEVER PARSES A PROGRAM. A Windows executable is hostile input;
 // `w16 --check` reads it inside w16's sandbox and answers in plain lines
@@ -27,9 +28,12 @@
 #include "keyboard.h"
 #include "rt/sys.h"
 #include "lib/icon_cache.h"
+#include "lib/uconf.h"
+#include "lib/uimg.h"
 #include "lib/ulistdir.h"
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
+#include "ui/ulog.h"
 #include "ui/utheme.h"
 #include "ui/uui.h"
 #include "ui/uui_button.h"
@@ -44,7 +48,9 @@
 #include "ui/uui_sidebar.h"
 #include "ui/uui_stackbar.h"
 #include "ui/uui_statusbar.h"
+#include "ui/uui_focus.h"
 #include "ui/uui_table.h"
+#include "ui/uui_textbox.h"
 #include "ui/uui_toolbar.h"
 #include "w16/w16prefs.h"
 #include "retrolauncher/retrolauncher.h"
@@ -78,6 +84,7 @@ struct prog {
     int nmissing;
     uint32_t icon[32 * 32];
     int iw, ih;
+    struct uimg small;               // the icon at a table row's height, made when first drawn
     int last;                        // 0 never run, 1 ended, 2 stopped
     long last_when;
     char *last_text;
@@ -92,10 +99,11 @@ static int g_nfolders;
 static struct uapp *g_app;
 
 enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CMD_EXIT, CMD_CALLS,
-       CMD_CHANGE, CMD_RENAME, CMD_UP, CMD_DOWN };
+       CMD_CHANGE, CMD_RENAME, CMD_UP, CMD_DOWN, CMD_VIEW_ICONS, CMD_VIEW_DETAILS,
+       CMD_SORT_ASC, CMD_SORT_DESC, CMD_SORT0 /* + a column: nine of them */ };
 enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VERSION, ID_FRAME,
        ID_TRACE, ID_RUN, ID_CALLS, ID_METHOD, ID_FONTS, ID_OPT_FONTCARD, ID_DRIVEC, ID_CTX,
-       ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE,
+       ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE, ID_TABLE, ID_SEARCH,
        ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND, ID_HELP };
 
 static struct uui_menubar g_menu;
@@ -103,6 +111,10 @@ static struct uui_menubar g_ctx;             // a folder's right-click menu
 static struct uui_toolbar g_tb;
 static struct uui_sidebar g_side;
 static struct uui_grid g_grid;
+static struct uui_table g_table;             // the Details view of the same list
+static struct uui_textbox g_search;
+static struct uui_focus g_focus;
+static struct uui_focusable g_ring[3];       // the list (grid or table), the search box, the folders
 static struct uui_statusbar g_sb;
 #define NSET 8                               // the per-program settings: SETTINGS below
 static struct uui_dropdown g_dd[NSET];
@@ -137,6 +149,7 @@ static void prog_free(struct prog *p) {
         free(p->part[i].names); free(p->part[i].note); free(p->part[i].key); free(p->part[i].first);
     }
     free(p->part);
+    uimg_free(&p->small);
     memset(p, 0, sizeof *p);
 }
 
@@ -262,6 +275,7 @@ static int is_exe(const char *name) {
 static void find_programs(void) {
     for (int i = 0; i < g_nprog; i++) prog_free(&g_prog[i]);
     g_nprog = g_next_check = 0;
+    g_nview = 0;                             // the list is stale: nothing is selected until build_view()
     static int cap;
     for (int f = 0; f < g_nfolders; f++) {
         const char *dir = g_folders[f].path;
@@ -314,18 +328,265 @@ static void build_sidebar(void) {
     if (g_side.selected < 0) uui_sidebar_select_id(&g_side, -1);
 }
 
-static void build_view(void) {
-    int want = uui_sidebar_selected_id(&g_side);
-    g_nview = 0;
-    for (int i = 0; i < g_nprog; i++)
-        if ((want < 0 || g_prog[i].folder == want) && (!g_prog[i].checked || g_prog[i].ok))
-            g_view[g_nview++] = i;
-    uui_grid_set(&g_grid, g_nview, g_grid.cell, 0);
-    if (g_grid.selected >= g_nview) g_grid.selected = g_nview - 1;
+// --- the order, the search, and the list's two views --------------------------------
+//
+// ONE LIST, TWO VIEWS: g_view is the programs the folder choice and the search
+// let through, in the order g_sort says, and the icon grid and the Details table
+// both show it -- their selections are the same index, kept equal by sync_sel().
+
+// The Details view's columns; the Sort by menu and a header click name the same nine. Calls
+// and Stand-ins start hidden: with the panel open, a 1280-wide window has room for four.
+enum { COL_NAME, COL_FILE, COL_CALLS, COL_MISSING, COL_STANDINS, COL_LAST, COL_STATUS, COL_FOLDER, COL_DESC,
+       COL_COUNT };
+static const struct uui_table_column COLS[COL_COUNT] = {
+    { "Name",        0,  UUI_TALIGN_LEFT,  "name",        UUI_TCOL_LOCKED },
+    { "File",        9,  UUI_TALIGN_LEFT,  "file",        0 },
+    { "Calls",       5,  UUI_TALIGN_RIGHT, "calls",       UUI_TCOL_HIDDEN },
+    { "Missing",     7,  UUI_TALIGN_RIGHT, "missing",     0 },
+    { "Stand-ins",   8,  UUI_TALIGN_RIGHT, "standins",    UUI_TCOL_HIDDEN },
+    { "Last run",    12, UUI_TALIGN_LEFT,  "last",        0 },
+    { "Status",      20, UUI_TALIGN_LEFT,  "status",      UUI_TCOL_HIDDEN },
+    { "Folder",      14, UUI_TALIGN_LEFT,  "folder",      UUI_TCOL_HIDDEN },
+    { "Description", 30, UUI_TALIGN_LEFT,  "description", UUI_TCOL_HIDDEN },
+};
+
+#define LAUNCHER_CONF "/etc/retrolauncher.conf"
+static int g_details;                        // the Details view is showing, not the icons
+static int g_sort = COL_NAME, g_sort_desc;   // the order both views show
+static int g_nfolder_progs;                  // what the folder choice offered, before the search
+static char g_applied[UUI_TEXTBOX_MAX];      // the search the list was last built for
+
+// The how-far badge: red when it last stopped, green when it ran to the end
+// last time or w16 has every call in full, amber when some are stand-ins,
+// grey when some are missing.
+static uint32_t badge_of(const struct prog *p) {
+    int missing = p->imports - p->has;
+    return !p->checked ? UTHEME_OUTLINE
+         : p->last == 2 ? utheme_severity(UTHEME_SEV_ERROR)
+         : p->last == 1 || (!missing && !p->partly) ? utheme_action(UTHEME_ACT_CREATE)
+         : missing ? uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED)
+         : utheme_severity(UTHEME_SEV_WARNING);
 }
 
+// The tile's second line, and the Status column.
+static void status_text(const struct prog *p, char *st, size_t cap) {
+    int missing = p->imports - p->has;
+    if (!p->checked) snprintf(st, cap, "Checking...");
+    else if (p->last == 2) snprintf(st, cap, "Stopped last time");
+    else if (missing) snprintf(st, cap, p->last == 1 ? "Ran last time" : "%d missing", missing);
+    else if (p->partly) snprintf(st, cap, "Runs \xb7 %d partly", p->partly);
+    else snprintf(st, cap, "Runs");
+}
+
+static void when_text(const struct prog *p, char *out, size_t cap) {
+    out[0] = 0;
+    if (!p->last) { snprintf(out, cap, "Never"); return; }
+    time_t tt = (time_t)p->last_when;
+    struct tm *tm = localtime(&tt);
+    if (tm) strftime(out, cap, "%Y-%m-%d %H:%M", tm);
+}
+
+// How the Status column orders: worst last, programs not yet checked first.
+static int status_rank(const struct prog *p) {
+    return !p->checked ? -1 : p->last == 2 ? 4 : p->imports > p->has ? 3 : p->partly ? 2 : 1;
+}
+
+// Two programs by one column, ascending; ties fall to the name and then the path, so a
+// sort is the same order every time.
+static int cmp_prog(const struct prog *a, const struct prog *b, int col) {
+    long x = 0, y = 0;
+    switch (col) {
+    case COL_FILE: { int r = strcasecmp(file_name(a->path), file_name(b->path)); if (r) return r; break; }
+    case COL_DESC: { int r = strcasecmp(str(a->name), str(b->name)); if (r) return r; break; }
+    case COL_CALLS:    x = a->checked ? a->imports : -1;             y = b->checked ? b->imports : -1; break;
+    case COL_MISSING:  x = a->checked ? a->imports - a->has : -1;    y = b->checked ? b->imports - b->has : -1; break;
+    case COL_STANDINS: x = a->checked ? a->partly : -1;              y = b->checked ? b->partly : -1; break;
+    case COL_LAST:     x = a->last ? a->last_when : 0;               y = b->last ? b->last_when : 0; break;
+    case COL_STATUS:   x = status_rank(a);                           y = status_rank(b); break;
+    case COL_FOLDER:   x = a->folder;                                y = b->folder; break;
+    default: break;
+    }
+    if (x != y) return x < y ? -1 : 1;
+    int r = strcasecmp(str(a->title), str(b->title));
+    return r ? r : strcmp(str(a->path), str(b->path));
+}
+
+static int view_cmp(const void *pa, const void *pb) {
+    int r = cmp_prog(&g_prog[*(const int *)pa], &g_prog[*(const int *)pb], g_sort);
+    return g_sort_desc ? -r : r;
+}
+
+static int ci_has(const char *hay, const char *needle) {
+    size_t n = strlen(needle);
+    for (; *hay; hay++)
+        if (!strncasecmp(hay, needle, n)) return 1;
+    return 0;
+}
+
+// The search matches what a person might type for a program: its name on the tile,
+// its description, its file name, its module.
+static int matches(const struct prog *p, const char *q) {
+    return !q[0] || ci_has(str(p->title), q) || ci_has(str(p->name), q) || ci_has(file_name(p->path), q) ||
+           ci_has(str(p->module), q);
+}
+
+static int cur_index(void) { return g_details ? g_table.selected : g_grid.selected; }
+
 static struct prog *cur(void) {
-    return g_grid.selected >= 0 && g_grid.selected < g_nview ? &g_prog[g_view[g_grid.selected]] : 0;
+    int i = cur_index();
+    return i >= 0 && i < g_nview ? &g_prog[g_view[i]] : 0;
+}
+
+static void select_row(int i) { g_grid.selected = g_table.selected = i; }
+
+// Whichever view was just used moved the selection; the other follows.
+static void sync_sel(void) {
+    if (g_details) g_grid.selected = g_table.selected;
+    else g_table.selected = g_grid.selected;
+}
+
+// The table orders itself; g_view is in that order already, so the two agree.
+static int table_cmp(void *ctx, int a, int b, int col) {
+    (void)ctx;
+    return cmp_prog(&g_prog[g_view[a]], &g_prog[g_view[b]], col);
+}
+
+static void apply_sort(void) { uui_table_set_sort(&g_table, g_sort, g_sort_desc ? -1 : 1); }
+
+// The list rebuilt: the folder's programs the search lets through, sorted. The selection
+// stays on the program at `keep` (a path) when it is still listed; else on the first one
+// of a search, so Enter runs the top hit, and on the nearest row otherwise.
+static void build_view_keep(const char *keep) {
+    int want = uui_sidebar_selected_id(&g_side), old = cur_index();
+    const char *q = uui_textbox_text(&g_search);
+    g_nview = g_nfolder_progs = 0;
+    for (int i = 0; i < g_nprog; i++)
+        if ((want < 0 || g_prog[i].folder == want) && (!g_prog[i].checked || g_prog[i].ok)) {
+            g_nfolder_progs++;
+            if (matches(&g_prog[i], q)) g_view[g_nview++] = i;
+        }
+    qsort(g_view, (size_t)g_nview, sizeof *g_view, view_cmp);
+    snprintf(g_applied, sizeof g_applied, "%s", q);
+    uui_grid_set(&g_grid, g_nview, g_grid.cell, 0);
+    apply_sort();
+    uui_table_set_rows(&g_table, g_nview);
+    int at = -1;
+    for (int i = 0; keep && i < g_nview; i++)
+        if (!strcmp(g_prog[g_view[i]].path, keep)) at = i;
+    if (at < 0) at = q[0] ? (g_nview ? 0 : -1) : old >= g_nview ? g_nview - 1 : old;
+    select_row(at);
+}
+
+static void build_view(void) {
+    const struct prog *p = cur();
+    build_view_keep(p ? p->path : 0);
+}
+
+static void log_list(const char *why);
+
+// The search box changed under a key: list again for what it says now.
+static int query_changed(void) {
+    if (!strcmp(uui_textbox_text(&g_search), g_applied)) return 0;
+    build_view();
+    log_list("search");
+    return 1;
+}
+
+// What a person's change did to the list, for the log a test reads (not every rebuild: the
+// folder is still being checked then).
+static void log_list(const char *why) {
+    char line[360];
+    const struct prog *sel = cur();
+    int n = snprintf(line, sizeof line, "%s: %s by %s %s, %d of %d programs, selected %s", why,
+                     g_details ? "details" : "icons", COLS[g_sort].id, g_sort_desc ? "descending" : "ascending",
+                     g_nview, g_nfolder_progs, sel ? file_name(sel->path) : "none");
+    if (g_nview && n > 0 && (size_t)n < sizeof line) {
+        const struct prog *f = &g_prog[g_view[0]], *l = &g_prog[g_view[g_nview - 1]];
+        snprintf(line + n, sizeof line - (size_t)n, ", first %s (%d calls, %d missing), last %s (%d calls, %d missing)",
+                 file_name(f->path), f->imports, f->imports - f->has, file_name(l->path), l->imports,
+                 l->imports - l->has);
+    }
+    ulogf("retrolauncher: %s\n", line);
+}
+
+// How the list is shown and ordered, kept for the next time (/etc/retrolauncher.conf).
+static void save_state(void) {
+    char cols[200];
+    uconf_set(LAUNCHER_CONF, "view", g_details ? "details" : "icons");
+    uconf_set(LAUNCHER_CONF, "sort", COLS[g_sort].id);
+    uconf_set(LAUNCHER_CONF, "order", g_sort_desc ? "descending" : "ascending");
+    if (uui_table_columns_save(&g_table, cols, sizeof cols)) uconf_set(LAUNCHER_CONF, "columns", cols);
+}
+
+static void load_state(void) {
+    char v[200];
+    if (uconf_get(LAUNCHER_CONF, "view", v, sizeof v)) g_details = !strcmp(v, "details");
+    if (uconf_get(LAUNCHER_CONF, "sort", v, sizeof v))
+        for (int c = 0; c < COL_COUNT; c++)
+            if (!strcmp(v, COLS[c].id)) g_sort = c;
+    if (uconf_get(LAUNCHER_CONF, "order", v, sizeof v)) g_sort_desc = !strcmp(v, "descending");
+    if (uconf_get(LAUNCHER_CONF, "columns", v, sizeof v)) uui_table_columns_load(&g_table, v);
+    uui_table_take_layout_changed(&g_table);
+}
+
+enum { RING_LIST, RING_SEARCH, RING_SIDE };
+
+static void set_ring_list(void) {
+    g_ring[RING_LIST] = g_details ? (struct uui_focusable){ &g_table, &uui_table_ops }
+                                  : (struct uui_focusable){ &g_grid, &uui_grid_ops };
+}
+
+// Icons or Details: the selection comes along, and the keyboard stays with the list.
+static void set_details(int details) {
+    if (details == g_details) return;
+    int sel = cur_index();
+    uui_focus_set(&g_focus, -1);
+    g_details = details;
+    set_ring_list();
+    select_row(sel);
+    uui_focus_set(&g_focus, RING_LIST);
+    save_state();
+    log_list("view");
+}
+
+// --- the Details view's rows ---------------------------------------------------------
+
+static void table_cell(void *ctx, int row, int col, char *out, int cap) {
+    (void)ctx;
+    const struct prog *p = &g_prog[g_view[row]];
+    out[0] = 0;
+    switch (col) {
+    case COL_NAME:     snprintf(out, (size_t)cap, "%s", str(p->title)); break;
+    case COL_FILE:     snprintf(out, (size_t)cap, "%s", file_name(p->path)); break;
+    case COL_CALLS:    if (p->checked) snprintf(out, (size_t)cap, "%d", p->imports); break;
+    case COL_MISSING:  if (p->checked) snprintf(out, (size_t)cap, "%d", p->imports - p->has); break;
+    case COL_STANDINS: if (p->checked) snprintf(out, (size_t)cap, "%d", p->partly); break;
+    case COL_LAST:     when_text(p, out, (size_t)cap); break;
+    case COL_STATUS:   status_text(p, out, (size_t)cap); break;
+    case COL_FOLDER:   snprintf(out, (size_t)cap, "%s",
+                                p->folder < g_nfolders ? folder_label(&g_folders[p->folder]) : ""); break;
+    case COL_DESC:     snprintf(out, (size_t)cap, "%s", str(p->name)); break;
+    default: break;
+    }
+}
+
+// Its own icon at the row's height, made once; the stand-in until it has been read.
+static const struct uimg *table_icon(void *ctx, int row, int px) {
+    (void)ctx;
+    struct prog *p = &g_prog[g_view[row]];
+    if (!p->iw) return icon_get("win16", px);
+    if (p->small.h != px) {
+        uimg_free(&p->small);
+        struct uimg src = { .w = p->iw, .h = p->ih, .px = p->icon, .has_alpha = 1 };
+        if (uimg_scale(&src, px, px, &p->small) < 0) return 0;
+        p->small.has_alpha = 1;
+    }
+    return &p->small;
+}
+
+static uint32_t table_dot(void *ctx, int row, int col) {
+    (void)ctx;
+    return col == COL_STATUS ? badge_of(&g_prog[g_view[row]]) : 0;
 }
 
 // --- the program's own settings, in the panel ------------------------------------
@@ -476,6 +737,7 @@ static void drive_c_chosen(void) {
 
 static void run(const char *path) {
     if (!path) return;
+    ulogf("retrolauncher: run %s\n", file_name(path));
     uapp_spawn(g_app, W16_BIN, path);
 }
 
@@ -980,6 +1242,8 @@ static void command(struct uapp *a, int cmd) {
     case CMD_RUN:     if (p && p->ok) run(p->path); break;
     case CMD_CALLS:   if (p && p->ok) show_calls(p->path); break;
     case CMD_PROPS:   g_panel = !g_panel; break;
+    case CMD_VIEW_ICONS: case CMD_VIEW_DETAILS: set_details(cmd == CMD_VIEW_DETAILS); break;
+    case CMD_SORT_ASC: case CMD_SORT_DESC: g_sort_desc = cmd == CMD_SORT_DESC; build_view(); save_state(); log_list("sort"); break;
     case CMD_ADD:    pick_folder(PICK_ADD, -1, "Add a folder of programs", "/home"); break;
     case CMD_CHANGE: {
         int f = target_folder();
@@ -999,10 +1263,18 @@ static void command(struct uapp *a, int cmd) {
         folders_changed(-1);
         break;
     }
-    case CMD_REFRESH: find_programs(); build_view(); break;
+    case CMD_REFRESH: {
+        char *keep = p ? strdup(p->path) : 0;
+        find_programs();
+        build_view_keep(keep);
+        free(keep);
+        break;
+    }
     case CMD_OPTIONS: open_options(); break;
     case CMD_EXIT:    uapp_quit(a, 0); break;
-    default: break;
+    default:
+        if (cmd >= CMD_SORT0 && cmd < CMD_SORT0 + COL_COUNT) { g_sort = cmd - CMD_SORT0; build_view(); save_state(); log_list("sort"); }
+        break;
     }
     g_ctx_folder = -1;
     fill_panel();
@@ -1022,26 +1294,14 @@ static void tile(struct ugfx_surface *s, void *ctx, int index, int x, int y, int
         const struct uimg *ico = icon_get("win16", 32);
         if (ico) ugfx_blit_alpha(s, ix, iy, ico->w, ico->h, ico->px, ico->w);
     }
-    // The how-far badge: red when it last stopped, green when it ran to
-    // the end last time or w16 has every call in full, amber when some are
-    // stand-ins, grey when some are missing.
-    int missing = p->imports - p->has;
-    uint32_t badge = !p->checked ? UTHEME_OUTLINE
-                   : p->last == 2 ? utheme_severity(UTHEME_SEV_ERROR)
-                   : p->last == 1 || (!missing && !p->partly) ? utheme_action(UTHEME_ACT_CREATE)
-                   : missing ? uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED)
-                   : utheme_severity(UTHEME_SEV_WARNING);
+    uint32_t badge = badge_of(p);
     ugfx_fill_rect(s, ix + 28, iy + 28, 9, 9, ground);
     ugfx_fill_rect(s, ix + 29, iy + 29, 7, 7, badge);
     int ty = iy + 32 + lh / 3;
     int tw = ugfx_text_width(str(p->title));
     ugfx_draw_string_clipped(s, x + (tw < w ? (w - tw) / 2 : 2), ty, w - 4, str(p->title), ink, ground);
     char st[48];
-    if (!p->checked) snprintf(st, sizeof st, "Checking...");
-    else if (p->last == 2) snprintf(st, sizeof st, "Stopped last time");
-    else if (missing) snprintf(st, sizeof st, p->last == 1 ? "Ran last time" : "%d missing", missing);
-    else if (p->partly) snprintf(st, sizeof st, "Runs \xb7 %d partly", p->partly);
-    else snprintf(st, sizeof st, "Runs");
+    status_text(p, st, sizeof st);
     int sw = ugfx_text_width(st);
     ugfx_draw_string_clipped(s, x + (sw < w ? (w - sw) / 2 : 2), ty + lh, w - 4, st,
                              sel ? ink : uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED), ground);
@@ -1279,10 +1539,31 @@ static int g_pscroller;                      // the widget is the panel's state 
 static struct uui_menu_item program_items[] = {
     UUI_MENU("Run", CMD_RUN, "Enter"),
     UUI_MENU("Calls it imports...", CMD_CALLS, 0),
-    UUI_MENU("Details panel", CMD_PROPS, "F4"),
     UUI_MENU("Refresh", CMD_REFRESH, "F5"),
     UUI_MENU_SEP,
     UUI_MENU("Exit", CMD_EXIT, "Alt+F4"),
+};
+// View: how the list shows, and in what order -- a header click in Details sorts by the same columns.
+static struct uui_menu_item sort_items[] = {
+    UUI_MENU("Name", CMD_SORT0 + COL_NAME, 0),
+    UUI_MENU("File name", CMD_SORT0 + COL_FILE, 0),
+    UUI_MENU("Calls", CMD_SORT0 + COL_CALLS, 0),
+    UUI_MENU("Missing calls", CMD_SORT0 + COL_MISSING, 0),
+    UUI_MENU("Stand-ins", CMD_SORT0 + COL_STANDINS, 0),
+    UUI_MENU("Last run", CMD_SORT0 + COL_LAST, 0),
+    UUI_MENU("Status", CMD_SORT0 + COL_STATUS, 0),
+    UUI_MENU("Folder", CMD_SORT0 + COL_FOLDER, 0),
+    UUI_MENU("Description", CMD_SORT0 + COL_DESC, 0),
+    UUI_MENU_SEP,
+    UUI_MENU("Ascending", CMD_SORT_ASC, 0),
+    UUI_MENU("Descending", CMD_SORT_DESC, 0),
+};
+static struct uui_menu_item view_items[] = {
+    UUI_MENU("Icons", CMD_VIEW_ICONS, 0),
+    UUI_MENU("Details", CMD_VIEW_DETAILS, 0),
+    UUI_MENU_SEP,
+    UUI_SUBMENU("Sort by", sort_items),
+    UUI_MENU("Details panel", CMD_PROPS, "F4"),
 };
 // The Folder menu, and a folder's right-click menu.
 static struct uui_menu_item folder_items[] = {
@@ -1302,6 +1583,7 @@ static struct uui_menu_item tools_items[] = {
 };
 static const struct uui_menu_item menu_bar[] = {
     UUI_SUBMENU("Program", program_items),
+    UUI_SUBMENU("View", view_items),
     UUI_SUBMENU("Folder", folder_items),
     UUI_SUBMENU("Tools", tools_items),
 };
@@ -1309,8 +1591,11 @@ static struct uui_toolbar_item tb_items[] = {
     { "tb-play",    "Run the program (Enter)",   CMD_RUN,     "Run",           0, "Enter", UTHEME_ACT_CREATE },
     UUI_TOOLBAR_SEP,
     { "tb-mkdir",   "Add a folder of programs",  CMD_ADD,     "Add folder...", 0, 0,       UTHEME_ACT_CREATE },
-    { "tb-info",    "Details panel (F4)",        CMD_PROPS,   "Details",       0, "F4",    UTHEME_ACT_VIEW },
+    { "tb-info",    "Details panel (F4)",        CMD_PROPS,   "Panel",         0, "F4",    UTHEME_ACT_VIEW },
     { "tb-refresh", "Refresh (F5)",              CMD_REFRESH, 0,               0, "F5",    UTHEME_ACT_VIEW },
+    UUI_TOOLBAR_SEP,
+    { "tb-icons",   "Show the programs as icons", CMD_VIEW_ICONS,   0,         0, 0,       UTHEME_ACT_ARRANGE },
+    { "tb-details", "Show the programs as a list with details", CMD_VIEW_DETAILS, 0, 0, 0, UTHEME_ACT_ARRANGE },
     UUI_TOOLBAR_SEP,
     { "tb-gear",    "Options for every program", CMD_OPTIONS, "Options...",    0, 0,       UTHEME_ACT_EDIT },
 };
@@ -1322,6 +1607,10 @@ static unsigned item_flags(int code) {
     if ((code == CMD_REMOVE || code == CMD_CHANGE || code == CMD_RENAME) && f < 0) return UUI_MI_DISABLED;
     if ((code == CMD_UP && f <= 0) || (code == CMD_DOWN && (f < 0 || f >= g_nfolders - 1))) return UUI_MI_DISABLED;
     if (code == CMD_PROPS && g_panel) return UUI_MI_CHECKED;
+    if (code == CMD_VIEW_ICONS && !g_details) return UUI_MI_CHECKED;
+    if (code == CMD_VIEW_DETAILS && g_details) return UUI_MI_CHECKED;
+    if (code >= CMD_SORT0 && code < CMD_SORT0 + COL_COUNT && code - CMD_SORT0 == g_sort) return UUI_MI_CHECKED;
+    if ((code == CMD_SORT_ASC && !g_sort_desc) || (code == CMD_SORT_DESC && g_sort_desc)) return UUI_MI_CHECKED;
     return 0;
 }
 
@@ -1330,6 +1619,7 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_toolbar_ops,   .widget = &g_tb,    .id = ID_TOOLBAR, .name = "toolbar" },
     { .ops = &uui_sidebar_ops,   .widget = &g_side,  .id = ID_SIDEBAR, .name = "folders" },
     { .ops = &uui_grid_ops,      .widget = &g_grid,  .id = ID_GRID,    .name = "programs" },
+    { .ops = &uui_table_ops,     .widget = &g_table, .id = ID_TABLE,   .name = "programs-table", .hidden = 1 },
     // Under the dropdowns, so a click on one is theirs and the wheel over
     // them (a closed dropdown takes none) scrolls the panel.
     { .ops = &g_pscroll_ops,     .widget = &g_pscroller, .name = "details" },
@@ -1346,9 +1636,12 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
     { .ops = &uui_statusbar_ops, .widget = &g_sb,    .id = ID_STATUS,  .name = "status" },
     { .ops = &uui_menubar_ops,   .widget = &g_ctx,   .id = ID_CTX,     .name = "ctxmenu" },
+    { .ops = &uui_textbox_ops,   .widget = &g_search, .id = ID_SEARCH, .name = "search" },
 };
-#define W_PSCROLL 4 // the panel's scrolling
-#define W_PANEL 5   // then the NSET dropdowns, drive C:, Run, the calls button
+#define W_GRID 3    // the icons; W_TABLE, the Details view, is shown instead
+#define W_TABLE 4
+#define W_PSCROLL 5 // the panel's scrolling
+#define W_PANEL 6   // then the NSET dropdowns, drive C:, Run, the calls button
 
 static void layout(int cw, int ch) {
     int pad = ugfx_char_w();
@@ -1356,7 +1649,9 @@ static void layout(int cw, int ch) {
     uui_menubar_set_geometry(&g_menu, 0, 0, cw, mh);
     uui_menubar_set_bounds(&g_menu, 0, 0, cw, ch);
     int th = uui_toolbar_height(&g_tb);
-    uui_toolbar_ops.set_geometry(&g_tb, 0, mh, cw, th);
+    int searchw = pad * 26, sh = row_h() + 4;
+    uui_toolbar_ops.set_geometry(&g_tb, 0, mh, cw - searchw - pad * 2, th);
+    uui_textbox_set_geometry(&g_search, cw - searchw - pad, mh + (th - sh) / 2, searchw, sh);
     int sbh = uui_statusbar_height(&g_sb);
     uui_statusbar_set_geometry(&g_sb, 0, ch - sbh, cw, sbh);
     int top = mh + th + 1, sidew = pad * 20, body_h = ch - sbh - top;
@@ -1366,6 +1661,9 @@ static void layout(int cw, int ch) {
     g_py = top;
     g_ph = body_h;
     uui_grid_ops.set_geometry(&g_grid, sidew + 1, top, g_px - sidew - 1, body_h);
+    uui_table_ops.set_geometry(&g_table, sidew + 1, top, g_px - sidew - 1, body_h);
+    g_widgets[W_GRID].hidden = g_details;
+    g_widgets[W_TABLE].hidden = !g_details;
     // The settings rows exist only beside a program, each only while all of
     // it is in the panel's scrolled view; Run and the calls button are the
     // footer's.
@@ -1399,7 +1697,8 @@ static void status(void) {
         if (g_prog[i].last == 1 || g_prog[i].has == g_prog[i].imports) runs++;   // stand-ins run
         else need++;
     }
-    snprintf(g_st_count, sizeof g_st_count, "%d programs", ok);
+    if (g_applied[0]) snprintf(g_st_count, sizeof g_st_count, "%d of %d match", g_nview, g_nfolder_progs);
+    else snprintf(g_st_count, sizeof g_st_count, "%d programs", ok);
     snprintf(g_st_runs, sizeof g_st_runs, "%d ready", runs);
     snprintf(g_st_need, sizeof g_st_need, "%d %s more of Windows", need, need == 1 ? "needs" : "need");
 }
@@ -1432,9 +1731,26 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_TOOLBAR: if ((code = uui_toolbar_take_code(&g_tb)) > 0) command(a, code); break;
     case ID_SIDEBAR: build_view(); fill_panel(); break;
     case ID_GRID:
+        sync_sel();
         if (g_grid.selected != g_panel_for) { g_panel_for = g_grid.selected; g_pscroll = 0; }
         fill_panel();
         if ((code = uui_grid_take(&g_grid)) >= 0) command(a, CMD_RUN);
+        break;
+    case ID_TABLE:
+        sync_sel();
+        if (g_table.selected != g_panel_for) { g_panel_for = g_table.selected; g_pscroll = 0; }
+        // A header click re-sorted the table, or a column was chosen or moved: the other view and the file follow.
+        if (g_table.sort_col != g_sort || (g_table.sort_dir < 0) != g_sort_desc) {
+            if (g_table.sort_col >= 0) { g_sort = g_table.sort_col; g_sort_desc = g_table.sort_dir < 0; }
+            build_view();
+            save_state();
+            log_list("sort");
+        }
+        if (uui_table_take_layout_changed(&g_table)) save_state();
+        fill_panel();
+        break;
+    case ID_SEARCH:
+        if (query_changed()) fill_panel();
         break;
     case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_FONTS: case ID_SOUND: case ID_HELP: case ID_TRACE:
         save_panel();
@@ -1457,7 +1773,7 @@ static void on_action(struct uapp *a, int code) {
 
 static void on_key(struct uapp *a, int key, unsigned mods) {
     (void)mods;
-    int code;
+    int code, at = g_focus.current;
     if (uui_menubar_key(&g_menu, key, &code)) {
         if (code > 0) command(a, code);
         uapp_redraw(a);
@@ -1466,8 +1782,21 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     switch (key) {
     case KEY_F4: command(a, CMD_PROPS); break;
     case KEY_F5: command(a, CMD_REFRESH); break;
+    case 0x06: uui_focus_set(&g_focus, RING_SEARCH); break;                      // Ctrl+F
+    case 27:                                                                      // Esc clears the search
+        if (at == RING_SEARCH) {
+            uui_textbox_set_text(&g_search, "");
+            uui_focus_set(&g_focus, RING_LIST);
+        }
+        break;
+    case '\n': case '\r':                                                         // Enter runs the program shown
+        if (at == RING_SEARCH || (g_details && at == RING_LIST)) command(a, CMD_RUN);
+        break;
     default: break;
     }
+    sync_sel();
+    if (query_changed()) fill_panel();
+    else if (cur_index() != g_panel_for) { g_panel_for = cur_index(); g_pscroll = 0; fill_panel(); }
     uapp_redraw(a);
 }
 
@@ -1496,6 +1825,11 @@ static void on_focus(struct uapp *a, int focused) {
 
 // A right-click on a folder in the sidebar: its menu, for that folder.
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
+    // A double click on a row of the table runs it (the grid reports its own).
+    if ((buttons & 0x1) && g_details && uui_table_double_click(&g_table, x, y) >= 0) {
+        command(a, CMD_RUN);
+        uapp_redraw(a);
+    }
     if (!(buttons & 0x2)) return;
     if (uui_menubar_is_open(&g_ctx)) {
         uui_menubar_close(&g_ctx);
@@ -1563,7 +1897,7 @@ static void consume_show(void) {
             if (g_nfolders != had) folders_changed(k);
             else { uui_sidebar_select_id(&g_side, k); build_view(); }
             for (int i = 0; i < g_nview; i++)
-                if (!strcmp(g_prog[g_view[i]].path, line)) g_grid.selected = i;
+                if (!strcmp(g_prog[g_view[i]].path, line)) select_row(i);
             fill_panel();
         }
     }
@@ -1695,6 +2029,19 @@ int main(int argc, char **argv) {
     uui_sidebar_init(&g_side, 0, 0, 0, 0, g_rows, 0);
     uui_grid_init(&g_grid, ugfx_char_w() * 12, ugfx_char_h() * 4 + 36);
     g_grid.cell = tile;
+    uui_textbox_init(&g_search, "");
+    g_search.placeholder = "Search programs";
+    uui_table_init(&g_table, 0, 0, 0, 0, COLS, COL_COUNT, table_cell, 0);
+    uui_table_set_compare(&g_table, table_cmp);
+    uui_table_set_icon(&g_table, table_icon);
+    uui_table_set_dot(&g_table, table_dot);
+    uui_table_set_columns_mode(&g_table, UUI_TABLE_COLS_COLUMN);
+    load_state();
+    set_ring_list();
+    g_ring[RING_SEARCH] = (struct uui_focusable){ &g_search, &uui_textbox_focus_ops };
+    g_ring[RING_SIDE] = (struct uui_focusable){ &g_side, &uui_sidebar_ops };
+    uui_focus_init(&g_focus, g_ring, 3);
+    uui_focus_set(&g_focus, RING_LIST);
     for (int i = 0; i < NSET; i++) uui_dropdown_init(&g_dd[i], 0, 0, 0, 0, g_dd_items[i], 1);
     uui_dropdown_init(&g_ddc, 0, 0, 0, 0, g_dc_items, 1);
     static const char *const DRV_LABELS[] = { "Add drive...", "Change...", "Remove" };
@@ -1720,7 +2067,7 @@ int main(int argc, char **argv) {
     uui_stackbar_add(&g_bar, "Missing", 0);
     uui_statusbar_init(&g_sb);
     g_sb.count = 3;
-    g_sb.panes[0].text = g_st_count; g_sb.panes[0].chars = 14;
+    g_sb.panes[0].text = g_st_count; g_sb.panes[0].chars = 18;
     g_sb.panes[1].text = g_st_runs;  g_sb.panes[1].chars = 10;
     g_sb.panes[2].text = g_st_need;  g_sb.panes[2].chars = 26;
     find_programs();
@@ -1751,6 +2098,7 @@ int main(int argc, char **argv) {
         .on_widget    = on_widget,
         .on_action    = on_action,
         .on_key       = on_key,
+        .focus        = &g_focus,
     };
     return uapp_run(&desc);
 }

@@ -244,7 +244,9 @@ picture. Text copies both ways through toy-os's clipboard. A program's
 floating point runs on a real x87 -- the computer's own, an instruction
 at a time -- so Calculator's sines and logarithms are 3.11's to the last
 digit, its "Cannot divide by zero." included. **Retro
-Launcher** lists the programs found, and for each one which Windows
+Launcher** lists the programs found, as icons or a Details table, with a
+search box and an order (Name, Missing calls, Stand-ins, Last run... from a
+header click or View > Sort by), and for each one which Windows
 calls it uses, which w16 answers only in part and why. **A program's
 Help opens in Help Viewer** (`/bin/wm/apps/hlpview`): Windows 3.x
 `.HLP` files read by `lib/uhlp` -- text in the file's own fonts, links

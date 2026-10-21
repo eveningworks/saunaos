@@ -18,7 +18,7 @@ THE INVARIANT, asked of each view, with the pointer parked off the bar:
 
   python3 tools/scroll_test.py
 Positive control (mutate.py): drop one uui_scrollbar_flip() from uui_grid.c's draw -- the Launcher's thumb check
-reddens.
+reddens. The Launcher's Details table is a uui_table, whose bar is uui_sbar's.
 """
 import argparse
 import os
@@ -124,7 +124,8 @@ def check_view(dbg, qmp, res, tmp, label, title, widget, click_at, park, keys):
     res.check(f"{label}: the wheel up moves it back", up is not None and down is not None and
               where(up, wh) < where(down, wh) - 0.01, f"{down} -> {up}")
 
-    # a click in the track below the thumb pages DOWN; above it pages UP
+    # a click in the track below the thumb pages DOWN; above it pages UP. In PIXELS: a long list's page is a
+    # sliver of the track (the Log Viewer's, with a few thousand lines), so a fraction of it is no threshold
     go(False)
     top = read()
     if top:
@@ -133,12 +134,12 @@ def check_view(dbg, qmp, res, tmp, label, title, widget, click_at, park, keys):
         dbg.click(bx, sy + min(wh - 6, top[1] + 30))
         paged = read()
         res.check(f"{label}: a click in the track below the thumb moves it down",
-                  paged is not None and where(paged, wh) > where(top, wh) + 0.02, f"{top} -> {paged}")
+                  paged is not None and paged[0] > top[0] + 2, f"{top} -> {paged}")
         if paged and paged[0] - track_top > 6:
             dbg.click(bx, sy + (track_top + paged[0]) // 2)
             back = read()
             res.check(f"{label}: a click in the track above the thumb moves it up",
-                      back is not None and where(back, wh) < where(paged, wh) - 0.01, f"{paged} -> {back}")
+                      back is not None and back[0] < paged[0] - 2, f"{paged} -> {back}")
 
     # drag the thumb from the top to about the middle of the track
     go(False)
@@ -178,6 +179,16 @@ def main():
             check_view(dbg, qmp, res, args.tmp, "Retro Launcher grid", "Retro Launcher", "programs",
                        lambda sx, sy, w, h: (sx + 60, sy + 40), lambda sx, sy, w, h: (sx + w // 2, sy - 20), keys=False)
             dbg.close_window("Retro Launcher")
+
+        # --- the Retro Launcher's Details view (ui/uui_table), the same sixty programs -------------------------
+        dbg.send("sh write /etc/retrolauncher.conf view=details")
+        win = dbg.spawn("/bin/wm/apps/retrolauncher", "Retro Launcher")
+        if res.check("the Retro Launcher opens in Details", win is not None, "no window"):
+            time.sleep(15)
+            check_view(dbg, qmp, res, args.tmp, "Retro Launcher details", "Retro Launcher", "programs-table",
+                       lambda sx, sy, w, h: (sx + 60, sy + 60), lambda sx, sy, w, h: (sx + w // 2, sy - 20), keys=True)
+            dbg.close_window("Retro Launcher")
+        dbg.send("sh rm /etc/retrolauncher.conf")
 
         # --- the Log Viewer's list (ui/uui_loglist), on the kernel log -----------------------------------------
         win = dbg.spawn("/bin/wm/apps/logview", "Log Viewer")

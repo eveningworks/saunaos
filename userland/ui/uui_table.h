@@ -277,6 +277,8 @@ struct uui_table {
     int seek_col;
 
     int selected;   // row index, or -1
+    int dbl_row;    // OWNED -- the row of the last press, for uui_table_double_click()
+    unsigned long long dbl_ns;
     int hovered;    // OWNED -- driven by uui_table_hover()
     int focused;    // OWNED -- driven by the focus ring's set_focused
     int top;        // first visible row; OWNED
@@ -459,6 +461,12 @@ void uui_table_natural_size(const struct uui_table *t, int *out_w, int *out_h);
 
 // Row index at (cx, cy), or -1 outside / on the header / on the bar.
 int  uui_table_hit(const struct uui_table *t, int cx, int cy);
+// A press at (cx, cy) -- from the app's on_press, which hears every primary press after the
+// widgets -- asks whether it is the SECOND of a double click (the desktop's double-click time,
+// lib/udclick.h) on one row: that app row, else -1. The table's own rows have no "open", so an
+// app that opens a row on Enter opens it on a double click through this -- Explorer's and
+// Dolphin's list views. A press on a header or the bar is never a row.
+int  uui_table_double_click(struct uui_table *t, int cx, int cy);
 int  uui_table_hover(struct uui_table *t, int cx, int cy);  // 1 if changed
 int  uui_table_click(struct uui_table *t, int cx, int cy);  // selects; 1 if changed
 int  uui_table_wheel(struct uui_table *t, int notches);     // 1 if scrolled

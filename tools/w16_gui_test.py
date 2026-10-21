@@ -331,6 +331,13 @@ def launcher(dbg, res):
     if not win:
         return
     time.sleep(3)                                 # three programs, checked a few a tick
+    # The list is by name now: narrow it to the Hello program (a window of its own), as a person would.
+    search = dbg.widgets("Retro Launcher").get("search")
+    if search:
+        dbg.click(search["screen"]["x"] + 40, search["screen"]["y"] + 10)
+        for ch in "hello":
+            dbg.send(f"gui key {ch}")
+            dbg.settle(0.1)
     grid = dbg.widgets("Retro Launcher").get("programs")
     res.check("its program grid is there", grid is not None, "no 'programs' widget")
     if grid:
@@ -596,12 +603,12 @@ def panel_and_options(dbg, qmp, res):
                   f"drive-c {dc} run {run}")
     else:
         res.check("the panel reports its scrolling area", False, f"widgets {sorted(w)}")
-    # Options, from its toolbar button (the toolbar's seventh slot), once
+    # Options, from its toolbar button (the toolbar's tenth slot, after the view buttons), once
     # a resize has made the window wide enough for all of it and repaint.
     dbg.logs("retrolauncher:", clear=True)
     dbg.send("gui resize 1200 380")
-    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "toolbar.button 6") is not None)
-    b = layout_rect(lines, "toolbar.button 6")
+    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "toolbar.button 9") is not None)
+    b = layout_rect(lines, "toolbar.button 9")
     win = dbg.window("Retro Launcher")
     if not b or not win:
         res.check("the toolbar reports its Options button", False, f"{b} {win}")
@@ -648,8 +655,8 @@ def sound_page(dbg, res):
         res.check("Retro Launcher opens for the Sound page", False, "")
         return
     dbg.send("gui resize 1200 600")
-    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "toolbar.button 6") is not None)
-    b = layout_rect(lines, "toolbar.button 6")
+    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "toolbar.button 9") is not None)
+    b = layout_rect(lines, "toolbar.button 9")
     win = dbg.window("Retro Launcher")
     if not b or not win:
         res.check("the toolbar reports its Options button", False, f"{b} {win}")
@@ -900,6 +907,12 @@ def calls(dbg, res):
     res.check("w16 --check names IsIconic a stand-in, and why",
               "partly 1" in check and "call partly USER.31 IsIconic" in check and "\talways no" in check,
               f"{[l for l in check.splitlines() if 'partly' in l]}")
+    by = sh(dbg, "w16 --check /usr/share/w16/zbyname.exe")
+    named = [ln for ln in by.splitlines() if ln.startswith("call ")]
+    res.check("w16 --check LISTS the imports it counts: by name too, each once (it counted them and named none)",
+              "imports 3" in by and "has 1" in by and len(named) == 3
+              and any(ln.startswith("call missing MYDLL.0 Frobnicate ") for ln in named)
+              and any(ln.startswith("call missing KERNEL.0 NoSuchFunction ") for ln in named), f"{by[:300]}")
     cx, cy = win["content"]["x"], win["content"]["y"]
 
     def chip(i):
@@ -944,6 +957,14 @@ def calls(dbg, res):
         res.check(f"About on {first}'s row (it works) opens its description",
                   f"{name} - about" in titles and any(ln.endswith(f"why {first.split()[0]} shown") for ln in why),
                   f"windows {titles} log {why}")
+        dbg.close_window(f"{name} - about")
+        # A double click on the row itself, anywhere on it, does what the About cell does.
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(cx + col[0] // 4 + 10, cy + col[1] + hh + rh // 2, settle=False)
+        dbg.click(cx + col[0] // 4 + 10, cy + col[1] + hh + rh // 2)
+        titles = wait_titles(dbg, lambda t: f"{name} - about" in t)
+        res.check(f"a double click on {first}'s row opens its About",
+                  f"{name} - about" in titles, f"windows {titles}")
         dbg.close_window(f"{name} - about")
     s = lay.get("search")
     if s:

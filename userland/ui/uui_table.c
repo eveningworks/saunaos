@@ -85,6 +85,7 @@ void uui_table_init(struct uui_table *t, int x, int y, int w, int h,
     // about searching still answers the keyboard.
     t->seek_col = 0;
     uui_seek_reset(&t->seek);
+    t->dbl_row = -1;
 
     // UNSET means "ask the theme when you draw" (utheme.h). An app
     // setting any of these still wins.
@@ -1231,6 +1232,18 @@ int uui_table_header_hit(const struct uui_table *t, int cx, int cy) {
         uui_table_column_rect(t, c, &colx, &colw);
         if (cx >= colx && cx < colx + colw) return c;
     }
+    return -1;
+}
+
+int uui_table_double_click(struct uui_table *t, int cx, int cy) {
+    int row = uui_table_hit(t, cx, cy);
+    unsigned long long now = sys_monotonic_ns();
+    if (row >= 0 && row == t->dbl_row && now - t->dbl_ns <= udclick_ns()) {
+        t->dbl_row = -1;
+        return row;
+    }
+    t->dbl_row = row;
+    t->dbl_ns = now;
     return -1;
 }
 

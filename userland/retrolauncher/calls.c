@@ -220,7 +220,7 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
     const struct call *c = &g_calls[g_rows[row]];
     switch (col) {
     case 0: snprintf(out, (size_t)cap, "%s", c->module); break;
-    case 1: snprintf(out, (size_t)cap, "%u", c->ordinal); break;
+    case 1: if (c->ordinal) snprintf(out, (size_t)cap, "%u", c->ordinal); else snprintf(out, (size_t)cap, "by name"); break;
     case 2: snprintf(out, (size_t)cap, "%s", c->name); break;
     case 3: snprintf(out, (size_t)cap, "%s", c->kind); break;
     case COL_STATUS: snprintf(out, (size_t)cap, "%s", ST_NAMES[c->status]); break;
@@ -396,6 +396,17 @@ static void on_widget(struct uapp *a, int id, int reason) {
     uapp_redraw(a);
 }
 
+// A double click on a row opens its About, or a stand-in's Why? -- what Enter on it does.
+static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
+    if (!(buttons & 0x1)) return;
+    int r = uui_table_double_click(&g_table, x, y);
+    if (r < 0 || r >= g_nrows) return;
+    const struct call *c = &g_calls[g_rows[r]];
+    if (c->status == ST_MISSING) return;         // nothing is written of a call w16 does not answer
+    retro_why_open(a, c->module, c->ordinal, c->name, c->status == ST_PARTLY);
+    uapp_redraw(a);
+}
+
 // Keys the focused widget did not take. Ctrl+C in the search box is its
 // own text's; anywhere else it copies the list.
 static void on_key(struct uapp *a, int key, unsigned mods) {
@@ -453,6 +464,7 @@ int retro_calls_main(const char *path) {
         .on_open      = on_open,
         .on_draw      = on_draw,
         .on_widget    = on_widget,
+        .on_press     = on_press,
         .on_key       = on_key,
         .focus        = &g_focus,
     };
