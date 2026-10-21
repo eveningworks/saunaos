@@ -303,8 +303,10 @@ void w16_set_menu(struct w16 *w, uint16_t h) {
     int cw = win->cw, ch = win->ch;
     pthread_mutex_unlock(&w->lock);
     if (resized) {
+        // SENT, as SetMenu's own SetWindowPos sent it: posted, it arrived after a later frame change's
+        // size (Clock's title coming back) and the program drew for the wrong client area.
         w16_invalidate(w, win, 1);
-        w16_post_msg(w, win->hwnd, WM_SIZE, SIZE_RESTORED, (uint32_t)ch << 16 | (uint16_t)cw);
+        w16_send(w, win->hwnd, WM_SIZE, SIZE_RESTORED, (uint32_t)ch << 16 | (uint16_t)cw);
     }
     bar_changed(w);
 }

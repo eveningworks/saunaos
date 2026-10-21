@@ -1032,6 +1032,8 @@ static void cf_sample(struct w16 *w, struct w16_wnd *d) {
         int lh = w16_font_line_h(font);
         if (lh > c->sample_h) lh = c->sample_h;
         w16_wnd_set_geometry(w, smp, smp->x, c->sample_top + (c->sample_h - lh) / 2, smp->w, lh);
+        // The dialog under it too: a smaller font's line leaves the last, taller sample's rows behind.
+        w16_invalidate(w, d, 1);
         w16_invalidate(w, smp, 1);
     }
     if (c->font) w16_gdi_delete(w, c->font);

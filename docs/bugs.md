@@ -52,6 +52,7 @@ it has exonerated one this session and convicted another.
 
 
 ## Intermittent -- a rate, not a verdict
+- [ ] **`w16_gui_test.py`'s `` `w16 --why USER.31` prints IsIconic's section`` FAILED 2 OF 6 RUNS ON 2026-10-21**, alone, after the Clock work (which touched neither `--why` nor the call pages it reads); its output was not kept. Cause NOT established
 - [ ] **`tracefollow_test`'s `the child reaped, the ring still has 0 writer(s) left` FAILED ONCE, IN A PREFLIGHT ON 2026-10-21**, then 3 of 3 alone on the same build (`usertest_run.py -k tracefollow`) -- 1 in 4 runs; the change under test touched only Help Viewer and Retro Launcher. Cause NOT established
 - [ ] **`w16_gui_test.py`'s `the wheel over the panel scrolls Drive C: into view` FAILED 1 OF 3 RUNS WITH FOUR GUESTS IN PARALLEL ON 2026-10-21** (drive-c not reported 0.5 s after the wheel), and 1 of 5 alone later that day; the full parallel suite failed this tool's panel checks once too. Rate ~1 in 5 alone, ~1 in 3 under load; cause NOT established
 - [ ] **`duration_test`'s `sleep 0.3` TOOK 3367 ms ONCE, IN A PREFLIGHT ON 2026-10-20** ("exit 0 after 3367 ms" against 300), then 5 of 5 alone on the same build straight after; the host idle (load 1.0). The change under test touched only `uui_table`. 1 of 2 preflights on that build; cause NOT established.

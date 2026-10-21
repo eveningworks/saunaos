@@ -766,17 +766,37 @@ static int move_window(struct w16 *w, struct w16_args *a) {
     return 12;
 }
 
-#define SWP_NOSIZE     0x0001
-#define SWP_NOMOVE     0x0002
-#define SWP_SHOWWINDOW 0x0040
-#define SWP_HIDEWINDOW 0x0080
+#define SWP_NOSIZE       0x0001
+#define SWP_NOMOVE       0x0002
+#define SWP_FRAMECHANGED 0x0020
+#define SWP_SHOWWINDOW   0x0040
+#define SWP_HIDEWINDOW   0x0080
+
+// The frame a changed style or menu draws, applied: the window keeps its size, the client area
+// grows or shrinks inside it and the program hears WM_SIZE -- Clock's No Title and its way back.
+static void frame_changed(struct w16 *w, struct w16_wnd *x) {
+    int cw = x->cw, ch = x->ch;
+    if (x == &w->win) {                          // the main window's buffer is its client area: refitted
+        pthread_mutex_lock(&w->lock);
+        if (x->used) w16_top_fit(x);
+        pthread_mutex_unlock(&w->lock);
+    } else {
+        w16_wnd_set_geometry(w, x, x->x, x->y, x->w, x->h);
+    }
+    // SENT, inside SetWindowPos, as Windows sent it: the program sizes what it draws before the call returns.
+    if (x->cw != cw || x->ch != ch)
+        w16_send(w, x->hwnd, WM_SIZE, SIZE_RESTORED, (uint32_t)(uint16_t)x->ch << 16 | (uint16_t)x->cw);
+    w16_invalidate(w, x, 1);
+    if (x == &w->win) w16_task_post(w, W16_POST_PAINT);
+}
 
 // The z-order is the creation order (wnd16.c) and stays.
 // SetWindowPos(hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags) -> BOOL
 // Windows: Moves, sizes, shows or hides a window, and changes its place in the stacking order; each
 // SWP_NO* flag keeps one of them as it is.
-// w16: Moves and sizes as MoveWindow does, keeping what an SWP_NO* flag says to. The stacking order
-// of a program's windows stays their creation order; toywm stacks its top-level windows.
+// w16: Moves and sizes as MoveWindow does, keeping what an SWP_NO* flag says to; SWP_FRAMECHANGED
+// redraws the frame a style change made and resizes the client inside it. The stacking order of a
+// program's windows stays their creation order; toywm stacks its top-level windows.
 static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
@@ -791,6 +811,7 @@ static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a)
     if ((flags & (SWP_NOMOVE | SWP_NOSIZE)) != (SWP_NOMOVE | SWP_NOSIZE) &&
         (x == &w->win ? (nw != x->w || nh != x->h) : (nx != x->x || ny != x->y || nw != x->w || nh != x->h)))
         move_to(w, x, nx, ny, nw, nh);
+    if (flags & SWP_FRAMECHANGED) frame_changed(w, x);
     if (flags & (SWP_SHOWWINDOW | SWP_HIDEWINDOW)) {
         int show = (flags & SWP_SHOWWINDOW) != 0;
         pthread_mutex_lock(&w->lock);
