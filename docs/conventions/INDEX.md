@@ -1168,5 +1168,8 @@ whenever a headline here tells you something you did not already know.
   `Release-note:` TRAILER**
 - **RING 3 IS BUILT `-ffreestanding`, SO A SMALL `memcpy()` IS A CALL --
   `__builtin_memcpy` IN A HOT LOOP**
+- **FILES THAT MUST NOT BE PUBLISHED GO IN `todisk/` (git-ignored), AND ONLY
+  THE DISK IMAGE TAKES THEM** -- `make iso TODISK=1`, never the live ISO or
+  the USB image
 - **A BOOTABLE IMAGE SEEDED FOR DEVELOPMENT OR TESTING PASSES `--fbs-done`**,
   or First-boot setup covers the desktop and every GUI check after it fails

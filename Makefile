@@ -70,6 +70,21 @@ GRUB_TIMEOUT ?= $(if $(MENU),5,0)
 # the kernel matches by substring and an unknown word is simply ignored.
 KCMDLINE ?=
 
+# Files for the guest's disk that must never be published -- a Windows 3.11
+# install, game data -- kept in todisk/ (ignored by git) and laid over
+# disk.img by tools/todisk.py.
+#
+#     make iso TODISK=1               # seed disk.img, then todisk/ over it
+#     make run TODISK=1               # the same, through run's `iso` step
+#     make iso TODISK=~/win311files   # another folder, laid the same way
+#
+# The disk image only: the live ISO and the USB image are media that get
+# published, so they never take it. `make iso` seeds without deleting, so
+# the files stay on the image across later plain builds until `make
+# clean-disk`. The folder is the guest's root as written.
+TODISK ?=
+TODISK_DIR = $(if $(filter 1,$(TODISK)),todisk,$(TODISK))
+
 # The serial DEBUG CONSOLE listens only with `debugcon` on the kernel
 # command line -- it is an unauthenticated root shell on a serial port
 # (kernel/core/debug_console.c). ON by default here, because every test
@@ -2367,6 +2382,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# name functions from, is kept. tools/strip_staged.py says what is.
 	$(if $(filter 0,$(STRIP)),@echo "  STRIP=0: staged programs keep their debug info",python3 tools/strip_staged.py $(SEED_DIR)/sync)
 	python3 tools/seed_disk.py $(DISK_IMG) $(SEED_DIR) --fbs-done
+	$(if $(TODISK),python3 tools/todisk.py --disk $(DISK_IMG) --dir $(TODISK_DIR),@:)
 	# THE KERNEL GOES ON THE DISK TOO. GRUB cannot read TFS3, so
 	# /boot is a FAT32 partition in front of it and GRUB's core.img
 	# is embedded in a BIOS boot partition in front of THAT -- see
@@ -2861,6 +2877,7 @@ QEMU_RUN = qemu-system-x86_64 $(QEMU_BOOT) $(QEMU_ACCEL) $(QEMU_DISK) \
 	  $(QEMU_AUDIO) $(QEMU_NET) $(QEMU_KDEBUG) $(QEMU_EXTRA)
 
 run: $(RUN_PREREQ)
+	$(if $(and $(TODISK),$(LIVE)),$(error TODISK is for the disk image; LIVE=1 boots the live ISO, which is published and must not carry those files),@:)
 	$(QEMU_RUN)
 
 # WHAT EACH AXIS IS FOR, since the targets that used to carry this are

@@ -254,6 +254,11 @@ python3 tools/tfs3_writer_test.py || fail "tfs3_writer overwrite check"
 step "ugfx_pix_hostcheck.py (every SIMD pixel loop byte-identical to C)"
 python3 tools/ugfx_pix_hostcheck.py || fail "ugfx_pix SIMD vs C"
 
+# todisk.py puts files on a TFS3 volume from the host, and a bug in it
+# writes under a disk the user may be booting. Host-only, about a second.
+step "todisk_test.py (todisk/ laid over a volume: bytes, no deletes, QEMU guard)"
+python3 tools/todisk_test.py || fail "todisk"
+
 # The Help file reader parses untrusted input in ring 3. This writes help
 # files with a known answer (no Microsoft data), checks the container and
 # lookups, then opens mutated copies under ASan + UBSan. Host-only, ~10 s.

@@ -168,3 +168,8 @@ ci-virtio.img
 # The test lock and its holders (tools/tree_lock.py): runtime state.
 /.test-lock
 /.test-lock.d/
+
+# Files for the guest's disk that must never be published (a Windows 3.11
+# install, game data) -- the WHOLE folder, so a `git add -A` cannot take
+# them; tools/todisk.py is what copies it onto disk.img.
+/todisk/
