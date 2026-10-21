@@ -1366,6 +1366,10 @@ void uui_fileview_set_geometry(struct uui_fileview *fv, int x, int y, int w, int
     else if (fv->src && fv->table.cols == fv->src->cols)
         fv->table.col_count = fv_fit_cols(fv->src->cols, fv->src->ncols, w);
     uui_table_set_rows(&fv->table, uui_fileview_row_count(fv));
+    // A TALLER OR WIDER VIEW SHRINKS THE GRID'S RANGE, and a scroll left past the new end drew
+    // nothing at all until the next wheel step clamped it (the details table clamps in
+    // set_rows() above).
+    if (fv->mode == UUI_FILEVIEW_ICONS) ic_clamp(fv);
 }
 
 void uui_fileview_set_active_mark(struct uui_fileview *fv, int on, uint32_t color) {
