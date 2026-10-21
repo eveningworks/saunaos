@@ -3907,10 +3907,10 @@ real scanout hardware does. Do not write a pixel assertion for one.
   - **It COMPOSES `uui_table`** rather than reimplementing rows,
     scrolling, the sorting header and keyboard motion. What it adds is
     what is specific to directories.
-  - **The caller owns the entry storage.** A full listing is
-    `SYS_LISTDIR_MAX` x 80 bytes = 20 KB -- too big for a ring-3 frame
-    (2 KiB) and wrong to bake in, since a sidebar wants 64 entries and a
-    file manager wants 256. `uui_fileview_init()` takes the array.
+  - **The view owns its listing and grows it to the folder** --
+    `lib/ulistdir.h` pages `SYS_LISTDIR_AT` into a malloc'd array and the
+    mark/dim bitmaps follow the rows; `uui_fileview_free()` returns it.
+    A fixed array capped a folder at 256 and a status line said "(more)".
   - **Filtering is a CALLBACK, not an extension list**, because Image
     Viewer decides what an image is by probing MAGIC BYTES -- a `.dat`
     holding a JPEG is listed and a `.jpg` holding text is not.

@@ -91,10 +91,10 @@ Checked against the tree before this was written.
   its entries. No watching mechanism needs inventing.
 - **`sys_waitpid_nohang()` exists**, so a GUI app can supervise a child
   process without blocking its event loop.
-- **`SYS_LISTDIR` truncates at 256 entries** with no offset argument. A
-  caller can DETECT truncation (a full array means "there may be more")
-  and cannot page past it. That is a known ABI gap, not this project's
-  to fix.
+- **`SYS_LISTDIR` returns at most 256 entries a call**; `SYS_LISTDIR_AT`
+  takes a start offset, and `lib/ulistdir.h` pages it into one array. The
+  view uses that, so a folder of any size lists whole (it once stopped at
+  256 -- a copied Windows folder looked as if it had lost its files).
 
 ## What real systems do
 
@@ -144,13 +144,14 @@ directories: reading one, ordering it directories-first, synthesising
 `..`, formatting a size and a timestamp, and turning an activation into
 either "descend" or "open this file".
 
-**The caller supplies the entry storage.** Toykit has no allocator, and
-a listing capped at `SYS_LISTDIR_MAX` is 256 x 80 bytes -- 20 KB, which
-cannot go on a ring-3 stack (the frame budget is 2048 bytes) and must
-not be baked into the widget struct either, since Image Viewer's sidebar
-wants 64 entries and not 256. So `uui_fileview_init()` takes a
-caller-owned `struct sys_dirent[]` and its capacity, the same ownership
-rule `uui_listbox`'s items and `uui_table`'s columns already follow.
+**The view owns its listing and grows it to the folder.** A listing is
+`sizeof(struct sys_dirent)` per entry -- far too much for a ring-3
+stack (2048-byte frames) and wrong to bake into the widget -- so
+`reload()` pages `SYS_LISTDIR_AT` (`lib/ulistdir.h`) into a malloc'd
+array, and the mark and dim bitmaps are sized to the rows. A virtual
+folder's list callback is given a buffer that doubles until the answer
+no longer fills it. `uui_fileview_free()` gives it all back; it once
+took a caller's fixed array, which is what capped a folder at 256.
 
 **Filtering is a callback, not an extension list.** Image Viewer decides
 what an image is by PROBING MAGIC BYTES (`uimg_probe()`), deliberately,
@@ -271,9 +272,9 @@ Stated so they are limitations rather than discoveries:
 - ~~**No trash.** Delete is delete, as `rm` is.~~ Reversed 2026-10-06:
   Delete moves to a Recycle Bin (`lib/utrash.h`); `rm` stays permanent.
 - **No progress bar for a copy**, per above.
-- **No pagination past 256 entries.** `SYS_LISTDIR`'s ABI gap; the view
-  says so in its status line rather than truncating silently, exactly as
-  `/bin/ls` does.
+- **The virtual folders are still capped at 256**: Trash, Recent, search
+  results, ZIP contents and the folder-size cache each hold `PANE_FILES`
+  (`SYS_LISTDIR_MAX`) -- a real folder is not (`docs/roadmap.md`).
 - **No file properties dialog, no permissions.** There are no
   permissions in TFS3 to show.
 

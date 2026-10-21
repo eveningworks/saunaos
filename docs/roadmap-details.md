@@ -8159,3 +8159,4 @@ needs the adapter in reach of hands: switching it off cuts any remote
 session through it, so test it with a detached script that rebinds the
 device if no traffic returns (`devctl`) -- and keep a replug ready.
 
+- [ ] File Manager virtual folders (Trash, Recent, search, ZIP, folder sizes) still hold 256 entries each (`PANE_FILES`). A real folder lists whole since `uui_fileview` pages `SYS_LISTDIR_AT` into its own array (the File Manager once said "256 items (more)" for a copied Windows folder of 570 files). The virtual folders keep static arrays sized `PANE_FILES` in `fm_trash.c`, `fm_recent.c`, `fm_search.c`, `fm_archive.c` and `fm_sizes.c`; their `list` callbacks are now handed a growing buffer but stop at their own bound. Uncapping each means a growing array in its source (`docs/conventions/kernel.md`, allocate and grow).

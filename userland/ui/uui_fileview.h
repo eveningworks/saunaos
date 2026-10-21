@@ -27,12 +27,13 @@
 // and keyboard motion. What is added here is everything specific to
 // directories, which is the only part those three copies had in common.
 //
-// **The caller owns the entry storage.** Toykit has no allocator, and a
-// full listing is SYS_LISTDIR_MAX x sizeof(struct sys_dirent) = 20 KB --
-// too big for a ring-3 stack frame (2 KiB budget) and wrong to bake
-// into the struct, since a sidebar wants 64 entries and a file manager
-// wants 256. So init() takes an array and its capacity, the same
-// ownership rule uui_listbox's items and uui_table's columns follow.
+// **THE VIEW OWNS ITS LISTING AND GROWS IT TO THE DIRECTORY.** A folder
+// of 570 files lists 570 files: the listing is paged (lib/ulistdir.h)
+// into a malloc'd array, and the mark and dim bitmaps are sized to the
+// rows. It once took a caller's fixed array and stopped at 256 with a
+// "(more)" in the status bar, which is how a Windows folder copied to a
+// disk looked as if it had lost most of its files. uui_fileview_free()
+// gives the storage back.
 //
 // **Filtering is a CALLBACK, not an extension list.** Image Viewer
 // decides what an image is by probing magic bytes, deliberately, so
@@ -140,12 +141,11 @@ typedef long long (*uui_fileview_dirsize_fn)(void *ctx, const char *path);
 struct uui_fileview {
     struct uui_table table; // the whole visual/input mechanism
 
-    // Caller-owned listing storage; see the header comment.
+    // The listing, owned (see the header comment): `cap` is how many it has room for.
     struct sys_dirent *entries;
     int cap;
     int count;      // entries actually held, EXCLUDING the ".." row
     int has_up;     // 1 when a synthetic ".." leads the rows
-    int truncated;  // the listing filled `cap` -- there may be more
     int failed;     // the directory could not be read AT ALL, which is
                      // not the same as it being empty (wm_fs.h's rule)
 
@@ -182,12 +182,11 @@ struct uui_fileview {
     // Total Commander and Far all have it, and a file manager that can
     // only ever act on one file is a shell with pictures.
     //
-    // A BITMAP rather than a flag per entry, because the entries are
-    // the CALLER's array (see the header comment) and this widget must
-    // not need a second one sized to match. Sized in ROWS, which is
-    // SYS_LISTDIR_MAX entries PLUS the synthetic ".." -- one more than
-    // the listing, and the off-by-one that would put the last row's
-    // mark one word past the end.
+    // A BITMAP rather than a flag per entry, so the entries need no
+    // second array of their own. Sized in ROWS -- the listing PLUS the
+    // synthetic ".." -- one more than the entries, and the off-by-one
+    // that would put the last row's mark one word past the end. Grown by
+    // every reload (fv_size_bits), so a row always has its bit.
     //
     // RE-APPLIED BY NAME ON EVERY RELOAD: a mark names a ROW, the rows
     // are re-read from the filesystem, and a mark kept as a row would
@@ -196,7 +195,8 @@ struct uui_fileview {
     // names (up to UUI_FILEVIEW_KEEP_MARKS) and marks those rows again.
     // A caller acting on marks still SNAPSHOTS the paths before it
     // starts: the set can change under a long operation.
-    uint32_t marks[(SYS_LISTDIR_MAX + 1 + 31) / 32];
+    uint32_t *marks;
+    int mark_words;
     int mark_count;
     uint32_t mark_bg;
 
@@ -210,7 +210,8 @@ struct uui_fileview {
     // like. A separate bitmap from `marks` because the two are
     // independent: a staged file can also be marked. Same lifetime rule
     // as the marks, and for the same reason -- see the note above.
-    uint32_t dimmed[(SYS_LISTDIR_MAX + 1 + 31) / 32];
+    uint32_t *dimmed;
+    int dim_words;
     int dim_count;
 
     // Double-click state, in sys_ticks(). OWNED.
@@ -285,10 +286,10 @@ struct uui_fileview {
     void *ctx;
 };
 
-// `storage`/`cap` are the caller's listing array. The view starts empty:
-// call uui_fileview_set_dir() to point it somewhere.
-void uui_fileview_init(struct uui_fileview *fv, int x, int y, int w, int h,
-                        struct sys_dirent *storage, int cap);
+// The view starts empty: call uui_fileview_set_dir() to point it somewhere.
+void uui_fileview_init(struct uui_fileview *fv, int x, int y, int w, int h);
+// Gives back the listing and the bitmaps. The view is empty afterwards and may be reused.
+void uui_fileview_free(struct uui_fileview *fv);
 
 void uui_fileview_set_mode(struct uui_fileview *fv, enum uui_fileview_mode mode);
 // See `active_mark` above. `on` 0 turns it off; the colour is kept.
@@ -419,7 +420,6 @@ int  uui_fileview_row_count(const struct uui_fileview *fv);
 // Real entries, excluding "..", and their total size in bytes.
 int  uui_fileview_count(const struct uui_fileview *fv);
 unsigned long long uui_fileview_total_bytes(const struct uui_fileview *fv);
-int  uui_fileview_truncated(const struct uui_fileview *fv);
 
 // The direct interface, for a caller the toolkit router never sees --
 // the WM's file picker is a screen-absolute modal and draws itself.

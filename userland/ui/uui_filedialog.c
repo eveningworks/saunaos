@@ -812,6 +812,7 @@ void uui_filedialog_close_window(struct uui_filedialog *fd) {
     struct uapp_window *w = fd->win;
     fd->win = 0;
     drop_undo(fd);
+    uui_fileview_free(&fd->view);       // its listing is the view's own, grown to the folder
     free(fd->ops);
     fd->ops = 0;
     fd->op_n = 0;
@@ -847,7 +848,7 @@ struct uapp_window *uui_filedialog_open(struct uapp *a, struct uui_filedialog *f
     build_places(fd);
     uui_pathbar_init(&fd->path, "System", "drive");
 
-    uui_fileview_init(&fd->view, 0, 0, 10, 10, fd->entries, UUI_FILEDIALOG_ENTRIES);
+    uui_fileview_init(&fd->view, 0, 0, 10, 10);
     uui_fileview_set_mode(&fd->view, UUI_FILEVIEW_DETAILS);
     fd->filters = opts->filters;
     fd->filter_count = opts->filter_count > UUI_FILEDIALOG_FILTERS

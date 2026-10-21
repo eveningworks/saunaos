@@ -12,6 +12,8 @@
 #include "lib/icon_grid.h"      // cell math, shared with the desktop
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include "lib/ulistdir.h" // a whole listing, paged
 #include "keyboard.h"   // KEY_* codes, as delivered by WIN_EV_KEY
 #include "ui/uui_label.h" // uui_label_wrap_next -- the icon caption
 #include "lib/uclip.h"     // the drag slot -- a drag that leaves the window
@@ -97,7 +99,6 @@ int uui_fileview_row_count(const struct uui_fileview *fv) {
 }
 
 int uui_fileview_count(const struct uui_fileview *fv) { return fv->count; }
-int uui_fileview_truncated(const struct uui_fileview *fv) { return fv->truncated; }
 const char *uui_fileview_dir(const struct uui_fileview *fv) { return fv->dir; }
 
 unsigned long long uui_fileview_total_bytes(const struct uui_fileview *fv) {
@@ -268,12 +269,13 @@ static const struct uimg *fv_icon(void *ctx, int row, int px) {
 int uui_fileview_is_marked(const struct uui_fileview *fv, int row) {
     if (row < 0 || row >= uui_fileview_row_count(fv)) return 0;
     if (fv_is_up_row(fv, row)) return 0;
+    if (row / 32 >= fv->mark_words) return 0;
     return (fv->marks[row / 32] >> (row % 32)) & 1u;
 }
 
 int uui_fileview_toggle_mark(struct uui_fileview *fv, int row) {
     if (row < 0 || row >= uui_fileview_row_count(fv)) return 0;
-    if (fv_is_up_row(fv, row)) return 0;
+    if (fv_is_up_row(fv, row) || row / 32 >= fv->mark_words) return 0;
     uint32_t bit = 1u << (row % 32);
     if (fv->marks[row / 32] & bit) {
         fv->marks[row / 32] &= ~bit;
@@ -288,7 +290,7 @@ int uui_fileview_toggle_mark(struct uui_fileview *fv, int row) {
 int uui_fileview_mark_count(const struct uui_fileview *fv) { return fv->mark_count; }
 
 void uui_fileview_clear_marks(struct uui_fileview *fv) {
-    for (int i = 0; i < (int)(sizeof fv->marks / sizeof fv->marks[0]); i++)
+    for (int i = 0; i < fv->mark_words; i++)
         fv->marks[i] = 0;
     fv->mark_count = 0;
 }
@@ -316,7 +318,7 @@ int uui_fileview_marked_is_dir(const struct uui_fileview *fv, int n) {
 }
 
 void uui_fileview_set_dimmed(struct uui_fileview *fv, int row, int on) {
-    if (row < 0 || row >= (int)(sizeof fv->dimmed * 8)) return;
+    if (row < 0 || row >= fv->dim_words * 32) return;
     uint32_t bit = 1u << (row & 31);
     int was = (fv->dimmed[row >> 5] & bit) != 0;
     if (was == !!on) return;
@@ -325,12 +327,12 @@ void uui_fileview_set_dimmed(struct uui_fileview *fv, int row, int on) {
 }
 
 int uui_fileview_is_dimmed(const struct uui_fileview *fv, int row) {
-    if (row < 0 || row >= (int)(sizeof fv->dimmed * 8)) return 0;
+    if (row < 0 || row >= fv->dim_words * 32) return 0;
     return (fv->dimmed[row >> 5] & (1u << (row & 31))) != 0;
 }
 
 void uui_fileview_clear_dimmed(struct uui_fileview *fv) {
-    for (int i = 0; i < (int)(sizeof fv->dimmed / sizeof fv->dimmed[0]); i++)
+    for (int i = 0; i < fv->dim_words; i++)
         fv->dimmed[i] = 0;
     fv->dim_count = 0;
 }
@@ -360,14 +362,51 @@ static uint32_t fv_tint(void *ctx, int row) {
 
 // --- listing ----------------------------------------------------------
 
-void uui_fileview_init(struct uui_fileview *fv, int x, int y, int w, int h,
-                        struct sys_dirent *storage, int cap) {
+void uui_fileview_free(struct uui_fileview *fv) {
+    free(fv->entries);
+    free(fv->marks);
+    free(fv->dimmed);
+    fv->entries = 0; fv->marks = fv->dimmed = 0;
+    fv->cap = fv->count = fv->mark_words = fv->dim_words = fv->mark_count = fv->dim_count = 0;
+}
+
+// Room for `n` listing entries; 0 when there is no memory (the caller then keeps what it has).
+static int fv_grow(struct uui_fileview *fv, int n) {
+    if (n <= fv->cap) return 1;
+    struct sys_dirent *g = realloc(fv->entries, sizeof *g * (size_t)n);
+    if (!g) return 0;
+    fv->entries = g;
+    fv->cap = n;
+    return 1;
+}
+
+// A bit per ROW in each bitmap, new words clear. Called once the listing is known, before any
+// mark is put back.
+static void fv_size_bits(struct uui_fileview *fv) {
+    int words = (fv->count + 1 + 31) / 32;
+    if (words > fv->mark_words) {
+        uint32_t *m = realloc(fv->marks, sizeof *m * (size_t)words);
+        if (m) {
+            memset(m + fv->mark_words, 0, sizeof *m * (size_t)(words - fv->mark_words));
+            fv->marks = m;
+            fv->mark_words = words;
+        }
+    }
+    if (words > fv->dim_words) {
+        uint32_t *d = realloc(fv->dimmed, sizeof *d * (size_t)words);
+        if (d) {
+            memset(d + fv->dim_words, 0, sizeof *d * (size_t)(words - fv->dim_words));
+            fv->dimmed = d;
+            fv->dim_words = words;
+        }
+    }
+}
+
+void uui_fileview_init(struct uui_fileview *fv, int x, int y, int w, int h) {
     memset(fv, 0, sizeof *fv);
     fv->anchor = -1;
     fv->press_row = -1;
     fv->drop_row = -2;
-    fv->entries = storage;
-    fv->cap = cap;
     fv->last_click_row = -1;
     fv->navigable = 1;
     fv->dir[0] = '/';
@@ -572,7 +611,6 @@ int uui_fileview_reload(struct uui_fileview *fv) {
     }
 
     fv->count = 0;
-    fv->truncated = 0;
     fv->failed = 0;
     uui_fileview_clear_marks(fv); // see uui_fileview.h -- a mark names a ROW
     uui_fileview_clear_dimmed(fv); // ...and so do the dim bits and the anchor
@@ -594,8 +632,25 @@ int uui_fileview_reload(struct uui_fileview *fv) {
     }
     fv->has_up = !fv->src && fv->navigable && !fv_at_root(fv);
 
-    int n = fv->src ? fv->src->list(fv->src->ctx, fv->dir, fv->entries, fv->cap)
-                    : sys_listdir(fv->dir, fv->entries, fv->cap);
+    int n;
+    if (fv->src) {
+        // A virtual folder lists into the view's own array, which doubles until the answer
+        // no longer fills it.
+        fv_grow(fv, SYS_LISTDIR_MAX);
+        for (;;) {
+            n = fv->src->list(fv->src->ctx, fv->dir, fv->entries, fv->cap);
+            if (n < fv->cap) break;
+            if (!fv_grow(fv, fv->cap * 2)) { fv->failed = 1; break; }   // out of memory: not "empty"
+        }
+    } else {
+        struct sys_dirent *list = 0;
+        n = ulistdir(fv->dir, &list);
+        if (n >= 0) {
+            free(fv->entries);
+            fv->entries = list;
+            fv->cap = n;
+        }
+    }
     if (n < 0) {
         // A directory that cannot be read is NOT an empty one, and a
         // caller conflating the two reports a missing path as empty
@@ -603,11 +658,6 @@ int uui_fileview_reload(struct uui_fileview *fv) {
         fv->failed = 1;
         n = 0;
     }
-    // A full array means "there may be more" -- SYS_LISTDIR has no
-    // offset argument, so this is a truncation point the view SAYS
-    // rather than hides, exactly as /bin/ls does.
-    fv->truncated = (n >= fv->cap);
-
     if (fv->filter && !fv->src) {
         int kept = 0;
         for (int i = 0; i < n; i++) {
@@ -618,6 +668,7 @@ int uui_fileview_reload(struct uui_fileview *fv) {
         n = kept;
     }
     fv->count = n;
+    fv_size_bits(fv);
 
     // The table permutes; nothing sorts the array itself. set_rows()
     // rebuilds the order and clamps the scroll and the selection.

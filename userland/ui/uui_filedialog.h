@@ -38,10 +38,6 @@
 // the rebuild-and-reveal logic one needs -- and a second copy here would
 // be exactly the duplication uui_fileview exists to have ended.
 
-// How many entries one listing holds. SYS_LISTDIR_MAX so nothing is
-// silently dropped -- the cost is ~20 KB of BSS in each app that opens
-// one, which is the same trade every uui_fileview caller makes.
-#define UUI_FILEDIALOG_ENTRIES SYS_LISTDIR_MAX
 #define UUI_FILEDIALOG_PATH_MAX UUI_FILEVIEW_PATH_MAX
 #define UUI_FILEDIALOG_PLACES 8
 #define UUI_FILEDIALOG_FILTERS 8
@@ -99,7 +95,6 @@ struct uui_filedialog {
     char app[48];   // the owner's name, for Recent (lib/urecent.h)
 
     // --- the content ------------------------------------------------
-    struct sys_dirent entries[UUI_FILEDIALOG_ENTRIES];
     struct uui_fileview view;
     struct uui_toolbar bar;
     struct uui_pathbar path;       // the File Manager's breadcrumb, beside the toolbar

@@ -60,8 +60,6 @@
 // The listings. 256 entries x 80 bytes = 20 KB per pane, which is why
 // these are file-scope: a ring-3 frame is capped at 2 KiB
 // (USERLAND_CFLAGS), and uui_fileview does not own its storage.
-static struct sys_dirent g_left_entries[PANE_FILES];
-static struct sys_dirent g_right_entries[PANE_FILES];
 
 struct uui_fileview g_pane[2];
 int g_active;            // 0 = left, 1 = right
@@ -718,8 +716,7 @@ void refresh_status(void) {
     // chosen -- with its size, since that is what a copy will cost.
     struct uui_fileview *fv = active();
     int n = uui_fileview_count(fv);
-    snprintf(g_stat_dir, sizeof g_stat_dir, "%d item%s%s", n, n == 1 ? "" : "s",
-             uui_fileview_truncated(fv) ? " (more)" : "");
+    snprintf(g_stat_dir, sizeof g_stat_dir, "%d item%s", n, n == 1 ? "" : "s");
     char size[24];
     int marks = uui_fileview_mark_count(fv);
     const struct sys_dirent *e = uui_fileview_selected_entry(fv);
@@ -2161,8 +2158,7 @@ int main(int argc, char **argv) {
     g_status.count = 3;
 
     for (int i = 0; i < 2; i++) {
-        uui_fileview_init(&g_pane[i], 0, 0, 100, 100,
-                           i ? g_right_entries : g_left_entries, PANE_FILES);
+        uui_fileview_init(&g_pane[i], 0, 0, 100, 100);
         g_pane[i].on_open = on_pane_open;
         g_pane[i].ctx = (void *)(intptr_t)i;
         uui_fileview_set_resolver(&g_pane[i], resolve_virtual, 0);

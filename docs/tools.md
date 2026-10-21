@@ -8236,6 +8236,14 @@ runs first**: a `doom1.wad` with one
   an image with no volume is refused; so is one a stand-in `qemu-system`
   process has open. `--positive-control` removes the QEMU guard and must
   turn exactly those two checks red. In `preflight.sh`.
+- **`fm_bigdir_test.py`** -- the File Manager on a folder of 600 files
+  (`mkfiles`, from inside the guest): its own `rows` report says all 600
+  (601 with the `..` row), the last file can be chosen and marked (the
+  mark bitmap grew with the listing), and the status line says "600
+  items". The File Manager once listed 256 and said "(more)" -- a copied
+  Windows folder looked as if it had lost most of its files. Its control,
+  seen red with `mutate.py`: capping the listing at 256 in
+  `uui_fileview.c`'s reload. In `gui_regress.py`.
 - **`uhlp_hostcheck.py`** -- `userland/lib/uhlp.c`, the Windows Help file
   reader, compiled on the host under ASan + UBSan against files WRITTEN by
   `hlpgen.py`, so the answer is known and no Microsoft data is needed. It
