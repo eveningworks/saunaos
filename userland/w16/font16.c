@@ -239,6 +239,7 @@ struct inst {
     int px, bold;
     struct ugfx_font uf;
     void *mem;
+    void *c1mem;                                 // a TrueType face's cells for 0x7F-0x9F (tt_c1())
     struct w16_fontinfo info;
 };
 static struct inst **g_inst;                    // each its own allocation: a font in use never moves
@@ -249,31 +250,38 @@ static int g_ninst;
 // pixel right, the advance one wider.
 static int from_real(struct inst *in) {
     const struct winfnt *f = &g_real[in->real].f;
+    // The slots, then the bytes 0x7F-0x9F the slots lack (ugfx.h's c1 table): the .FON has its own.
+    enum { N = FONT_TTF_GLYPH_COUNT + UGFX_C1_COUNT };
     int extra = in->bold ? 1 : 0, cw = 1, h = f->pix_height;
-    for (int s = 0; s < FONT_TTF_GLYPH_COUNT; s++) {
-        int w = winfnt_width(f, font_ttf_slot_codepoint(s));
+    for (int s = 0; s < N; s++) {
+        int w = winfnt_width(f, s < FONT_TTF_GLYPH_COUNT ? font_ttf_slot_codepoint(s)
+                                                         : (unsigned)(UGFX_C1_FIRST + s - FONT_TTF_GLYPH_COUNT));
         if (w + extra > cw) cw = w + extra;
     }
     if (cw > 255) cw = 255;                       // ugfx keeps an advance in a byte
     size_t cell = (size_t)cw * (size_t)h;
-    unsigned char *mem = calloc(cell * FONT_TTF_GLYPH_COUNT + FONT_TTF_GLYPH_COUNT, 1);
+    unsigned char *mem = calloc(cell * N + N, 1);
     if (!mem) return -1;
-    unsigned char *adv = mem + cell * FONT_TTF_GLYPH_COUNT;
+    unsigned char *adv = mem + cell * N;
     long sum = 0;
-    for (int s = 0; s < FONT_TTF_GLYPH_COUNT; s++) {
+    for (int s = 0; s < N; s++) {
         unsigned char *g = mem + cell * (size_t)s;
-        int w = winfnt_glyph(f, font_ttf_slot_codepoint(s), g, cw, cw - extra);
+        unsigned code = s < FONT_TTF_GLYPH_COUNT ? font_ttf_slot_codepoint(s)
+                                                 : (unsigned)(UGFX_C1_FIRST + s - FONT_TTF_GLYPH_COUNT);
+        int w = winfnt_glyph(f, code, g, cw, cw - extra);
         if (w < 0) w = 0;
         if (extra)
             for (int y = 0; y < h; y++)
                 for (int x = w; x > 0; x--)
                     if (g[y * cw + x - 1]) g[y * cw + x] = 255;
         adv[s] = (unsigned char)(w + extra < cw ? w + extra : cw);
-        sum += adv[s];
+        if (s < FONT_TTF_GLYPH_COUNT) sum += adv[s];
     }
     in->mem = mem;
     in->uf = (struct ugfx_font){ .glyphs = mem, .advances = adv, .kern = 0, .char_w = cw,
-                                 .char_h = h, .line_h = h, .count = FONT_TTF_GLYPH_COUNT };
+                                 .char_h = h, .line_h = h, .count = FONT_TTF_GLYPH_COUNT,
+                                 .c1_glyphs = mem + cell * FONT_TTF_GLYPH_COUNT,
+                                 .c1_advances = adv + FONT_TTF_GLYPH_COUNT };
     struct w16_fontinfo *i = &in->info;
     i->height = h;
     i->ascent = f->ascent;
@@ -306,6 +314,54 @@ static void scale_up(struct w16_fontinfo *i, int want, int got) {
     i->scale_den = got;
 }
 
+// --- TrueType: the bytes toy-os's slots lack --------------------------------------------
+
+// Windows 3.1's ANSI table from 0x7F to 0x9F, as Unicode: Windows-1252 before the euro, Z-caron and
+// z-caron (read off 3.11's Character Map in Arial). 0 is no character: the font's box.
+static const uint16_t ANSI_C1[UGFX_C1_COUNT] = {
+    0, 0, 0, 0x201A, 0x0192, 0x201E, 0x2026, 0x2020, 0x2021, 0x02C6, 0x2030, 0x0160, 0x2039, 0x0152,
+    0, 0, 0, 0, 0x2018, 0x2019, 0x201C, 0x201D, 0x2022, 0x2013, 0x2014, 0x02DC, 0x2122, 0x0161,
+    0x203A, 0x0153, 0, 0, 0x0178,
+};
+
+// A TrueType face's cells for 0x7F-0x9F in the ugfx font's own cell: each byte's ANSI character,
+// else the byte itself (a symbol font's), else glyph 0 -- the font's box, as 3.1 drew an unmapped
+// code. `smear` is the synthetic bold ugfx gave the slots.
+static void tt_c1(struct inst *in, const struct ttf_font *f, int px, int smear) {
+    int cw = in->uf.char_w, ch = in->uf.char_h;
+    size_t cell = (size_t)cw * (size_t)ch;
+    unsigned char *mem = calloc(cell * UGFX_C1_COUNT + UGFX_C1_COUNT, 1);
+    struct ttf_scratch *sc = malloc(sizeof *sc);
+    if (!mem || !sc) { free(mem); free(sc); return; }
+    unsigned char *adv = mem + cell * UGFX_C1_COUNT;
+    int base = fx_round(fx_mul(fx_from_int(f->ascent), ttf_scale_for_px(f, px)));   // where ugfx put it
+    for (int k = 0; k < UGFX_C1_COUNT; k++) {
+        int gid = ANSI_C1[k] ? ttf_glyph_index(f, ANSI_C1[k]) : 0;
+        if (!gid) gid = ttf_glyph_index(f, (uint32_t)(UGFX_C1_FIRST + k));
+        unsigned char *g = mem + cell * (size_t)k;
+        ttf_render_glyph(f, gid, px, g, cw, ch, 0, base, sc);
+        if (smear) ttf_embolden(g, cw, ch, smear);
+        int a;
+        if (!ttf_hdmx(f, px, gid, &a)) a = ttf_advance_px(f, gid, px);
+        if (a > 0) a += smear;
+        adv[k] = (unsigned char)(a < 0 ? 0 : a > cw ? cw : a);
+    }
+    free(sc);
+    in->c1mem = mem;
+    in->uf.c1_glyphs = mem;
+    in->uf.c1_advances = adv;
+}
+
+// A loaded TrueType face finished for w16: its 0x7F-0x9F cells made.
+static void tt_finish(struct inst *in, const char *path, int px, int smear) {
+    unsigned char *bytes = 0;
+    size_t n = 0;
+    struct ttf_font f;
+    if (ufile_slurp(path, 16ul * 1024 * 1024, &bytes, &n) == UFILE_OK && ttf_open(&f, bytes, (uint32_t)n))
+        tt_c1(in, &f, px, smear);
+    free(bytes);
+}
+
 static int from_standin(struct inst *in) {
     static const char *const FILES[3][2] = {
         { "/usr/share/fonts/liberation-sans.ttf", "/usr/share/fonts/liberation-sans-bold.ttf" },
@@ -320,6 +376,7 @@ static int from_standin(struct inst *in) {
         return -1;
     }
     in->mem = arena;
+    tt_finish(in, FILES[in->standin][in->bold], px, 0);
     struct w16_fontinfo *i = &in->info;
     int h = in->uf.line_h;
     i->height = h;
@@ -370,6 +427,7 @@ static int from_tt(struct inst *in) {
                 advances[k] = (unsigned char)(adv + (in->bold && adv ? (px / 24 < 1 ? 1 : px / 24 > 3 ? 3 : px / 24) : 0));
     }
     free(bytes);
+    tt_finish(in, t->path, px, in->bold ? (px / 24 < 1 ? 1 : px / 24 > 3 ? 3 : px / 24) : 0);
     in->uf.kern = 0;                             // GDI's TextOut never kerned
     i->dy = asc > base ? asc - base : 0;         // Windows' cell may reach higher above the baseline
     i->height = asc + desc;

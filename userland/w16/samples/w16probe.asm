@@ -11,6 +11,8 @@
 ;                   VK_OEM_1 to the character it types (003B, ';')
 ;           Families= / TrueType=  EnumFontFamilies with no family named: how many families, and how
 ;                   many of them TrueType -- Character Map's Font list
+;           Dash=   GetTextExtent of 0x97, the em dash in 3.1's ANSI table, in Arial at 100 pixels: an em,
+;                   about 0064 -- not a space's width, which a byte with no glyph measured
 ; Run on real Windows 3.11 for Workgroups and on w16, it is the check of both: w16_gui_test.py reads
 ; the file. No window. Its name sorts after fault.exe: tests index the samples by their place.
 ; Build: tools/gen_ne.py.
@@ -65,6 +67,10 @@ start:
     call extent
     mov word [logfont], -100
     mov di, wide100_text
+    call extent
+    mov word [ext_str], dash        ; the em dash alone, at the same 100 pixels
+    mov word [ext_len], 1
+    mov di, dash_text
     call extent
 
     push word [screen]              ; CreateCompatibleBitmap(screen, 8, 1): colour, as the screen is
@@ -179,7 +185,8 @@ fail:
     mov ax, 0x4C01
     int 0x21
 
-; The font `logfont` describes, selected into `mem`: GetTextExtent of the digits, in hex at ES:DI.
+; The font `logfont` describes, selected into `mem`: GetTextExtent of `ext_str` (the digits), in hex at
+; ES:DI.
 extent:
     push di
     push ds                         ; CreateFontIndirect(&logfont)
@@ -190,10 +197,10 @@ extent:
     push ax
     W16_CALL "GDI", 45              ; SelectObject(mem, font)
     mov [was], ax
-    push word [mem]                 ; GetTextExtent(mem, digits, 8): AX the width
+    push word [mem]                 ; GetTextExtent(mem, ext_str, ext_len): AX the width
     push ds
-    push word digits
-    push word 8
+    push word [ext_str]
+    push word [ext_len]
     W16_CALL "GDI", 91
     mov [width], ax
     push word [mem]                 ; the old font back, the new one deleted
@@ -266,10 +273,13 @@ logfont:    dw -1000, 0, 0, 0, 400  ; height, width, escapement, orientation, we
             db "Arial"
             times 32 - 5 db 0
 digits:     db "00:00:00"
+dash:       db 0x97
+ext_str:    dw digits
+ext_len:    dw 8
 
 keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_text
             dw key_w100, wide100_text, key_not, not_text, key_map0, map0_text, key_map1, map1_text
-            dw key_map2, map2_text, key_fam, families_text, key_tt, truetype_text, 0
+            dw key_map2, map2_text, key_fam, families_text, key_tt, truetype_text, key_dash, dash_text, 0
 key_base:   db "Base", 0
 key_async:  db "Async", 0
 key_w1000:  db "Wide1000", 0
@@ -280,6 +290,8 @@ key_map1:   db "Map1", 0
 key_map2:   db "Map2", 0
 key_fam:    db "Families", 0
 key_tt:     db "TrueType", 0
+key_dash:   db "Dash", 0
+dash_text:  times 6 db 0
 map0_text:  times 6 db 0
 map1_text:  times 6 db 0
 map2_text:  times 6 db 0

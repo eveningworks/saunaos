@@ -159,6 +159,9 @@ def probe(dbg, res):
     fam, tt = int(got.get("Families", "0"), 16), int(got.get("TrueType", "0"), 16)
     res.check("EnumFontFamilies calls back once per family, the TrueType ones flagged (Character Map's list)",
               fam > tt > 0, f"{fam} families, {tt} TrueType")
+    dash = int(got.get("Dash", "0"), 16)
+    res.check("0x97 is an em dash at 100 pixels, as 3.1's ANSI table has it -- not a space's width",
+              90 <= dash <= 110, f"{dash} px")
 
 
 def gdi_checks(dbg, qmp, res, tmp):

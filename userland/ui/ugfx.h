@@ -252,7 +252,17 @@ struct ugfx_font {
     int char_h;   // rows per glyph bitmap -- the indexing stride
     int line_h;   // rows between lines -- what layout uses
     int count;
+
+    // THE BYTES 0x7F-0x9F, which the slots both rings share leave out: a
+    // font may carry its own cells for them -- UGFX_C1_COUNT of char_w x
+    // char_h, and an advance each -- drawn and measured like any other
+    // glyph. NULL in every font but w16's, whose Windows ANSI table has
+    // curly quotes, dashes and a bullet there.
+    const unsigned char *c1_glyphs;
+    const unsigned char *c1_advances;
 };
+#define UGFX_C1_FIRST 0x7F
+#define UGFX_C1_COUNT 33
 
 // Asks the server for the shared font. Must succeed before any text
 // call below; returns 1 on success, 0 if the server refused (no

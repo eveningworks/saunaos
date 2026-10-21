@@ -468,6 +468,7 @@ static int map_fontd_font(int slot, struct ugfx_font *out) {
     out->glyphs   = (const unsigned char *)base + h->glyph_off;
     out->advances = (const unsigned char *)base + h->adv_off;
     out->kern     = (const signed char *)((const unsigned char *)base + h->kern_off);
+    out->c1_glyphs = out->c1_advances = 0;   // the caller's struct may hold anything there
     g_shm_generation[slot] = h->generation;
     beacon_map();
 
@@ -527,6 +528,7 @@ static int map_kernel_font(int weight, struct ugfx_font *out) {
     // place that arithmetic is written down.
     uint64_t koff = win_font_kern_offset(req.mods, req.c);
     out->kern = koff ? (const signed char *)(uintptr_t)(base + koff) : 0;
+    out->c1_glyphs = out->c1_advances = 0;
     return 1;
 }
 
@@ -804,6 +806,7 @@ int ugfx_font_load(const char *path, int px, int bold,
     f->glyphs = blob;
     f->advances = blob + glyph_bytes;
     f->kern = kern;
+    f->c1_glyphs = f->c1_advances = 0;   // filled field by field: the caller's struct may hold anything
     f->char_w = cell_w;
     f->char_h = cell_h;
     // A private font is rasterized at full height already (see the
@@ -859,7 +862,15 @@ int ugfx_kern(int prev, int c) {
 // 'W', and a client that assumed a fixed cell would draw its labels on
 // top of each other. Falls back to the cell width, so a client on the
 // baked font behaves exactly as it always did.
+// A byte from the font's own 0x7F-0x9F table (ugfx.h), or -1.
+static int c1_of(unsigned char c) {
+    if (!g_font->c1_glyphs || c < UGFX_C1_FIRST || c >= UGFX_C1_FIRST + UGFX_C1_COUNT) return -1;
+    return c - UGFX_C1_FIRST;
+}
+
 int ugfx_char_advance(char c) {
+    int k = c1_of((unsigned char)c);
+    if (k >= 0 && g_font->c1_advances) return g_font->c1_advances[k];
     if (!g_advances) return g_char_w;
     int idx = glyph_index((unsigned char)c);
     int adv = g_advances[idx];
@@ -898,9 +909,11 @@ void ugfx_draw_char(struct ugfx_surface *s, int x, int y, char c,
     if (!s || !s->pixels || !g_glyphs) return;
     if (x >= s->w || y >= s->h || x + g_char_w <= 0 || y + g_char_h <= 0) return;
 
-    const unsigned char *glyph =
-        g_glyphs + win_glyph_offset((uint32_t)glyph_index((unsigned char)c),
-                                     g_char_w, g_char_h);
+    int k = c1_of((unsigned char)c);
+    const unsigned char *glyph = k >= 0
+        ? g_font->c1_glyphs + win_glyph_offset((uint32_t)k, g_char_w, g_char_h)
+        : g_glyphs + win_glyph_offset((uint32_t)glyph_index((unsigned char)c),
+                                      g_char_w, g_char_h);
 
     for (int row = 0; row < g_char_h; row++) {
         int py = y + row;
