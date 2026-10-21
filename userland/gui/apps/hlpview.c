@@ -43,9 +43,10 @@
 #define FILE_MAX_BYTES (64u << 20)
 #define PATH_CAP 512
 
-enum { ID_TOOLBAR = 1, ID_TABS, ID_TREE, ID_FILTER, ID_KEYWORDS, ID_TOPICS, ID_FIND, ID_FOUND, ID_VIEW };
+enum { ID_TOOLBAR = 1, ID_TABS, ID_TREE, ID_FILTER, ID_KEYWORDS, ID_TOPICS, ID_FIND, ID_FOUND, ID_VIEW, ID_HISTMENU };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_HOME, CMD_PREV, CMD_NEXT, CMD_PANE, CMD_COPY, CMD_ZOOM_IN, CMD_ZOOM_OUT,
-       CMD_HISTORY, CMD_ZOOM_RESET };
+       CMD_HISTORY, CMD_ZOOM_RESET, CMD_HIST_CLEAR, CMD_HIST_MORE,
+       CMD_HIST_BASE = 1000 };   // CMD_HIST_BASE + i: the history entry i, from the History list
 enum { TAB_CONTENTS, TAB_INDEX, TAB_FIND };
 
 // --- the open files ----------------------------------------------------------------------------
@@ -463,6 +464,59 @@ static void step_history(int by) {
     show(g_hist[to].file, g_hist[to].topic, g_hist[to].scroll);
 }
 
+// --- the History list: a popup under its button -----------------------------------------------------------
+//
+// The topics visited, newest first, the current one ticked: a pick goes there with Back and Forward
+// still working from it (the history is a trail with a position, as a browser's is). A popup is as
+// tall as the window, so it shows the newest HIST_ROWS and says how many it left out. Kept for the
+// session; Clear history empties the trail to the topic shown.
+
+#define HIST_ROWS 20
+#define TB_HISTORY 7                      // the History button's place in TOOLBAR, separators counted
+
+static struct uui_menubar g_hmenu;
+static struct uui_menu_item g_hitems[HIST_ROWS + 4];
+static char g_hlabel[HIST_ROWS][112], g_hmore[48];
+
+static unsigned hmenu_flags(int code) {
+    if (code == CMD_HIST_MORE) return UUI_MI_DISABLED;
+    return code == CMD_HIST_BASE + g_hpos ? UUI_MI_CHECKED : 0;
+}
+
+static void open_history(struct uapp *a) {
+    int n = 0, shown = 0;
+    for (int i = g_hn - 1; i >= 0 && shown < HIST_ROWS; i--, shown++) {
+        const struct hist *e = &g_hist[i];
+        const char *t = uhlp_topic_title(g_f[e->file].h, e->topic);
+        snprintf(g_hlabel[shown], sizeof g_hlabel[shown], "%s", t[0] ? t : "(untitled)");
+        const char *base = strrchr(g_f[e->file].path, '/');
+        g_hitems[n++] = (struct uui_menu_item)UUI_MENU(g_hlabel[shown], CMD_HIST_BASE + i,
+                                                       g_nf > 1 ? (base ? base + 1 : g_f[e->file].path) : 0);
+    }
+    if (g_hn > shown) {
+        snprintf(g_hmore, sizeof g_hmore, "... and %d earlier", g_hn - shown);
+        g_hitems[n++] = (struct uui_menu_item)UUI_MENU(g_hmore, CMD_HIST_MORE, 0);
+    }
+    g_hitems[n++] = (struct uui_menu_item)UUI_MENU_SEP;
+    g_hitems[n++] = (struct uui_menu_item)UUI_MENU("Clear history", CMD_HIST_CLEAR, 0);
+    uui_menubar_set_bounds(&g_hmenu, 0, 0, uapp_width(a), uapp_height(a));
+    int x, y, w, h;
+    uui_toolbar_item_rect(&g_tb, TB_HISTORY, &x, &y, &w, &h);
+    uui_menubar_open_below(&g_hmenu, g_hitems, n, x, y, w, h);
+}
+
+// A row of that menu was chosen.
+static void history_pick(int code) {
+    if (code >= CMD_HIST_BASE && code - CMD_HIST_BASE < g_hn) {
+        step_history(code - CMD_HIST_BASE - g_hpos);
+    } else if (code == CMD_HIST_CLEAR && g_hpos >= 0) {
+        g_hist[g_hpos].scroll = g_view.scroll;
+        g_hist[0] = g_hist[g_hpos];
+        g_hn = 1;
+        g_hpos = 0;
+    }
+}
+
 // --- macros ------------------------------------------------------------------------------------------------------
 
 static void run_macro(const char *m);
@@ -552,7 +606,7 @@ static void command(struct uapp *a, int code) {
     case CMD_ZOOM_IN: uui_helpview_set_zoom(&g_view, g_view.zoom + 1); break;
     case CMD_ZOOM_OUT: uui_helpview_set_zoom(&g_view, g_view.zoom - 1); break;
     case CMD_ZOOM_RESET: uui_helpview_set_zoom(&g_view, 0); break;
-    case CMD_HISTORY: set_tab(a, TAB_CONTENTS); break;
+    case CMD_HISTORY: open_history(a); break;
     default: break;
     }
     uapp_redraw(a);
@@ -563,6 +617,7 @@ static unsigned item_flags(int code) {
     switch (code) {
     case CMD_BACK: return g_hpos > 0 ? 0 : UUI_MI_DISABLED;
     case CMD_FORWARD: return g_hpos < g_hn - 1 ? 0 : UUI_MI_DISABLED;
+    case CMD_HISTORY: return g_hn > 1 ? 0 : UUI_MI_DISABLED;      // nowhere to go but here
     case CMD_PREV: return h && uhlp_topic_prev(h, g_ct) >= 0 ? 0 : UUI_MI_DISABLED;
     case CMD_NEXT: return h && uhlp_topic_next(h, g_ct) >= 0 ? 0 : UUI_MI_DISABLED;
     case CMD_PANE: return g_pane ? UUI_MI_CHECKED : 0;
@@ -577,6 +632,11 @@ static unsigned item_flags(int code) {
 
 static void on_widget(struct uapp *a, int id, int reason) {
     switch (id) {
+    case ID_HISTMENU: {
+        int code = uui_menubar_take_code(&g_hmenu);
+        if (code >= 0) history_pick(code);
+        break;
+    }
     case ID_TOOLBAR: {
         int code = uui_toolbar_take_code(&g_tb);
         if (code > 0) command(a, code);
@@ -631,6 +691,14 @@ static void on_widget(struct uapp *a, int id, int reason) {
 }
 
 static void on_key(struct uapp *a, int key, unsigned mods) {
+    if (uui_menubar_is_open(&g_hmenu)) {                // the History list, while it is up
+        int code;
+        if (uui_menubar_key(&g_hmenu, key, &code)) {
+            if (code >= 0) history_pick(code);
+            uapp_redraw(a);
+            return;
+        }
+    }
     int text_focus = g_focus.current == 0 || g_focus.current == 1;
     if (mods & KEY_MOD_ALT) {
         if (key == KEY_ARROW_LEFT) command(a, CMD_BACK);
@@ -675,6 +743,12 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
     (void)d;
     g_bar.panes[2].text = g_status;
+    uui_menubar_set_bounds(&g_hmenu, 0, 0, uapp_width(a), uapp_height(a));
+    {   // where the History button is: the toolbar's own report names no button of a strip that fits
+        int bx, by, bw, bh;
+        if (uui_toolbar_item_rect(&g_tb, TB_HISTORY, &bx, &by, &bw, &bh))
+            uapp_logf_layout("hlpview: toolbar history %d %d %d %d\n", bx, by, bw, bh);
+    }
     g_view.can_back = g_hpos > 0;                    // what the right-click menu greys by
     g_view.can_fwd = g_hpos < g_hn - 1;
     uapp_log_layout(a, "hlpview");
@@ -791,6 +865,8 @@ int main(int argc, char **argv) {
         return 2;
     }
 
+    uui_menubar_init(&g_hmenu, 0, 0);
+    g_hmenu.item_flags = hmenu_flags;
     uui_toolbar_init(&g_tb, TOOLBAR, (int)(sizeof TOOLBAR / sizeof TOOLBAR[0]));
     g_tb.item_flags = item_flags;
     g_tb.accent_latch = 1;
@@ -847,6 +923,10 @@ int main(int argc, char **argv) {
     ITEMS[2] = (struct uui_item){ .ops = &uui_statusbar_ops, .widget = &g_bar, .name = "status", .flags = UUI_FILL_W };
     ROOT_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = ITEMS, .count = 3, .margin = 1, .gap = 1 };
     static struct uui_item root = { .ops = &uui_layout_ops, .widget = &ROOT_L };
+    // The History list drops over everything, so it goes first (a popup's place in the order).
+    static struct uui_item widgets[2];
+    widgets[0] = (struct uui_item){ .ops = &uui_menubar_ops, .widget = &g_hmenu, .id = ID_HISTMENU, .name = "history" };
+    widgets[1] = root;
 
     struct uapp_desc desc = {
         .title        = "Help Viewer",
@@ -854,8 +934,8 @@ int main(int argc, char **argv) {
         .on_size      = on_size,
         .on_font      = on_font,
         .layout       = &ROOT_L,
-        .widgets      = &root,
-        .widget_count = 1,
+        .widgets      = widgets,
+        .widget_count = 2,
         .on_widget    = on_widget,
         .on_key       = on_key,
         .on_draw_over = on_draw_over,

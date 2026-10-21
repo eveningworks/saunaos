@@ -962,7 +962,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: regions as more than their bounding rectangle -- CombineRgn of two that do not make a rectangle
 - [ ] GUI: selectable, copyable text in the read-only widgets -- `uui_markdown` and the labels have no selection (Help Viewer has)
 - [ ] w16: popup menus at a point -- TrackPopupMenu shows nothing and answers FALSE
-- [ ] w16: Help Viewer's rest -- macros, bookmarks, annotations, a History list, WMF pictures, a comparison with WINHELP.EXE's own layout
+- [ ] w16: Help Viewer's rest -- macros, bookmarks, annotations, WMF pictures, a comparison with WINHELP.EXE's own layout
 - [ ] w16: IsIconic answers from the window's state -- it always says no, even minimized
 - [ ] w16: one program starting or finding another -- WinExec and FindWindow; each program is its own w16
 - [ ] w16: huge blocks -- GlobalAlloc refuses over 64 KB (`__AHINCR` stepping), no program run so far asks

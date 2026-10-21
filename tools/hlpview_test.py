@@ -20,10 +20,12 @@ WHAT IT CHECKS, and what a broken version would still pass:
     read back from disk, with a phrase-compressed paragraph intact;
   - Find looks through topic text (the word is inside a phrase the file stores as a code),
     and Enter opens the first hit;
+  - the History button's list shows the trail newest first, a pick goes there with Back and Forward
+    kept, and Clear history empties them (the rows come from the app's own layout report);
   - a Win16 program's WinHelp() (winhelp.exe, a NASM sample) opens the viewer at the topic its
     context number names, and HELP_QUIT closes it;
-  - the right-click menu opens with its rows, and greys Copy (no selection) and Back (no earlier
-    page) but not Select All, Forward or Contents -- by the row's own pixels, not the app's say-so.
+  - the right-click menu opens with its rows, and greys Copy (no selection) and Back and Forward (a
+    cleared trail) but not Select All or Contents -- by the row's own pixels, not the app's say-so.
 
 Positive controls (mutate.py): removing the zoom clamp reddens the zoom check; drawing
 links in the text colour reddens the colour check.
@@ -234,6 +236,8 @@ def main():
     dbg.key("0", mods="ctrl")
     v.wait(lambda h: h["zoom"] == 0)
 
+    history_list(dbg, v, res, win)
+
     # --- the right-click menu: drawn by the app, rows reported in the layout log ---------------------------
     dbg.logs("hlpview:", clear=True)
     dbg.rclick(vx + 40, vy + vh - 40)
@@ -257,9 +261,9 @@ def main():
             return max(abs(p - bg) for p in px)
 
         st = [strength(r) for r in full]      # Copy, Select All, Back, Forward, Contents
-        # Copy has no selection and Back no earlier page; Forward has the topic Alt+Left came from.
-        check("...Copy and Back are greyed (no selection, no earlier page); Select All, Forward, Contents are not",
-              max(st[0], st[2]) * 1.25 < min(st[1], st[3], st[4]), f"text contrast {st}")
+        # Copy has no selection; Back and Forward have nowhere to go (the History list was just cleared).
+        check("...Copy, Back and Forward are greyed (no selection, no trail); Select All and Contents are not",
+              max(st[0], st[2], st[3]) * 1.25 < min(st[1], st[4]), f"text contrast {st}")
     dbg.key(K_ESC)
 
     # --- copy, to the clipboard and out through Notepad -------------------------------------------------
@@ -299,6 +303,68 @@ def main():
     poll(lambda: dbg.window(title) is None, 5, 0.3)
     winhelp_call(dbg, res, Viewer(dbg))
     return res.finish("hlpview_test")
+
+
+def history_list(dbg, v, res, win):
+    """The History button's list: the trail newest first, a pick goes there, Clear history empties it.
+    The trail so far is Contents then Details (we came back to Contents)."""
+    def open_list():
+        btn = None           # the layout log repeats a block only when it changed: read the last one seen
+        dbg.settle()
+        for _ in range(10):
+            v.pump()
+            hits = [ln for ln in v.lines if "hlpview: toolbar history " in ln]
+            if hits:
+                m = re.search(r"toolbar history (-?\d+) (-?\d+) (\d+) (\d+)", hits[-1])
+                btn = tuple(int(g) for g in m.groups())
+                break
+            time.sleep(0.3)
+        if not btn:
+            return None
+        c = win["content"]
+        v.lines = []
+        dbg.click(c["x"] + btn[0] + btn[2] // 2, c["y"] + btn[1] + btn[3] // 2)
+        rows = {}
+        for _ in range(10):
+            v.pump()
+            for ln in v.lines:
+                r = re.search(r"layout history\.item 0 (\d+) (-?\d+) (-?\d+) (\d+) (\d+)$", ln)
+                if r:
+                    rows[int(r.group(1))] = tuple(int(g) for g in r.groups()[1:])
+            if rows:
+                break
+            time.sleep(0.3)
+        tall = sorted((r for r in rows.values() if r[3] > 20), key=lambda t: t[1])    # separators are short
+        return tall
+
+    def pick(rows, i):
+        c = win["content"]
+        x, y, w, h = rows[i]
+        dbg.click(c["x"] + x + w // 2, c["y"] + y + h // 2)
+
+    rows = open_list()
+    if not res.check("the History button opens a list: two topics and Clear history", rows is not None and len(rows) == 3,
+                     f"rows {rows}"):
+        dbg.key(K_ESC)
+        return
+    pick(rows, 0)                                   # newest first: Details
+    h = v.wait(lambda h: h["topic"] == 1)
+    res.check("the newest row is the newer topic, and a pick goes there (Back still works from it)",
+              h and h["title"] == "Details" and h["back"] == 1 and h["fwd"] == 0, h)
+    rows = open_list()
+    if rows and len(rows) == 3:
+        pick(rows, 1)                               # Contents, the older one
+        h = v.wait(lambda h: h["topic"] == 0)
+        res.check("the older row goes back to it, with Forward kept", h and h["title"] == "Contents" and h["fwd"] == 1, h)
+        rows = open_list()
+    if rows and len(rows) == 3:
+        pick(rows, 2)                               # Clear history
+        h = v.wait(lambda h: h["back"] == 0 and h["fwd"] == 0)
+        res.check("Clear history leaves the shown topic alone and empties Back and Forward",
+                  h and h["title"] == "Contents" and h["back"] == 0 and h["fwd"] == 0, h)
+    else:
+        res.check("Clear history leaves the shown topic alone and empties Back and Forward", False, f"rows {rows}")
+    dbg.key(K_ESC)
 
 
 def winhelp_call(dbg, res, v):
