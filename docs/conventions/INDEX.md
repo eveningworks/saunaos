@@ -700,6 +700,9 @@ whenever a headline here tells you something you did not already know.
 - **ONE SCROLLBAR LOOK: `uui_scrollbar_draw_overlay()`** (flush with the
   far edge; `desktop.scrollbars` changes its shape, never its hover)
 - **A SCROLLING VIEW EMBEDS `uui_sbar`, AND ROUTES ITS POINTER THROUGH IT FIRST**
+- **A NEW SCROLLING VIEW IS TESTED FOR SCROLLING (`tools/scroll_test.py`), AND A
+  TOP-BASED POSITION IS NEVER PASSED TO THE PAINTER RAW** -- it counts from the
+  BOTTOM; `uui_scrollbar_flip()` or `uui_sbar`
 - **CHROME IS MEASURED IN THE INTERFACE FACE, EVEN INSIDE A DOCUMENT'S**
 - **`uui_chart` HAS A RUN MODE: `uui_chart_set_fit()`**
 - **A "FILE SAVED" CARD IS THE COMPOSITOR'S: `uapp_notice()` /

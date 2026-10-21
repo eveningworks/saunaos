@@ -197,6 +197,14 @@ enum uui_scrollbar_zone uui_scrollbar_hit(int x, int y, int w, int h,
     return UUI_SB_THUMB;
 }
 
+int uui_scrollbar_flip(int total, int visible, int offset) {
+    int max = total - visible;
+    if (max < 0) max = 0;
+    if (offset < 0) offset = 0;
+    if (offset > max) offset = max;
+    return max - offset;
+}
+
 void uui_scrollbar_thumb_rect(int y, int h, int total_lines, int visible_rows,
                                int scroll_offset, int *out_thumb_y, int *out_thumb_h,
                                int bar_w, unsigned flags) {

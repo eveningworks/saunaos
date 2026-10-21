@@ -153,7 +153,7 @@ static void ml_draw(struct ugfx_surface *s, const void *w) {
     }
     ugfx_clip_restore(s, &saved);
     uui_scrollbar_draw_overlay(s, m->x + m->w - bar_w(), m->y, bar_w(), m->h, content_h(m), m->h,
-                               m->scroll, c_bg(m), UTHEME_TEXT, (m->bar_hot || m->bar_drag) ? 255 : 0,
+                               uui_scrollbar_flip(content_h(m), m->h, m->scroll), c_bg(m), UTHEME_TEXT, (m->bar_hot || m->bar_drag) ? 255 : 0,
                                m->bar_drag ? UUI_SCROLLBAR_HELD : 0);
 }
 
@@ -168,10 +168,11 @@ static int ml_press(void *w, int cx, int cy, unsigned mods) {
     struct uui_medialist *m = w;
     if (on_bar(m, cx, cy)) {
         int zone = uui_scrollbar_hit(m->x + m->w - bar_w(), m->y, bar_w(), m->h, content_h(m), m->h,
-                                     m->scroll, cx, cy, 0);
+                                     uui_scrollbar_flip(content_h(m), m->h, m->scroll), cx, cy, 0);
         if (zone == UUI_SB_THUMB) {
             int ty, tth;
-            uui_scrollbar_thumb_rect(m->y, m->h, content_h(m), m->h, m->scroll, &ty, &tth, bar_w(), 0);
+            uui_scrollbar_thumb_rect(m->y, m->h, content_h(m), m->h, uui_scrollbar_flip(content_h(m), m->h, m->scroll),
+                                     &ty, &tth, bar_w(), 0);
             m->bar_drag = 1;
             m->bar_grab = cy - ty;
         } else if (zone == UUI_SB_ABOVE) {
@@ -190,7 +191,8 @@ static int ml_press(void *w, int cx, int cy, unsigned mods) {
 static int ml_motion(void *w, int cx, int cy, unsigned buttons) {
     struct uui_medialist *m = w;
     if (m->bar_drag) {
-        m->scroll = uui_scrollbar_offset_for_drag(m->y, m->h, content_h(m), m->h, cy, m->bar_grab, bar_w(), 0);
+        m->scroll = uui_scrollbar_flip(content_h(m), m->h,
+                        uui_scrollbar_offset_for_drag(m->y, m->h, content_h(m), m->h, cy, m->bar_grab, bar_w(), 0));
         clamp_scroll(m);
         return 1;
     }

@@ -151,7 +151,10 @@ rather than shrink. `tools/check_widget_ops.py` enforces the first.
 **Follows `docs/gui-guidelines.md`, which is binding; the six rules that
 bite most are in `userland/CLAUDE.md`.** The one that bites outside it:
 `gfx_draw_string()` does not clip -- `gfx_draw_string_clipped()` in any
-fixed box.
+fixed box. **A new scrolling view is TESTED for scrolling** (wheel
+direction, thumb vs view, trough, drag: `tools/scroll_test.py`, rule 10
+there) -- a mirrored scrollbar hid in three widgets until a folder gave one
+enough rows.
 
 ### The line editor
 

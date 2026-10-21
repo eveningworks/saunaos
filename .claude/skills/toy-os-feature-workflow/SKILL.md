@@ -132,6 +132,9 @@ reader pays for them):
 - **Suspect your own test before the code, but verify either way.**
 - **A mechanism that explains the symptoms is not the mechanism that
   caused them** -- prefer the discriminating experiment.
+- **A new scrolling view gets scrolled, with more rows than fit** --
+  wheel, thumb, trough, drag (`tools/scroll_test.py`; a mirrored bar hid
+  in three widgets).
 
 ## When the request is small
 

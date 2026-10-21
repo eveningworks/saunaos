@@ -419,6 +419,15 @@ ring-3 Notepad; `tools/uidemo_test.py` asserts 1, 2, 3 and 9 against the
 listbox and the dropdown popup. Run both after touching either
 scrollbar port.
 
+**11. The thumb, the view and the wheel agree -- and a NEW scrolling view is tested for it.** A view opens
+with its thumb at the top; the wheel DOWN moves the content on and the thumb DOWN; a click in the trough below
+the thumb pages down and above it pages up; dragging the thumb down moves the view down. The painter counts a
+vertical bar's offset from the BOTTOM (a terminal's scrollback), so a view that counts from the top and calls it
+raw draws the thumb mirrored and runs the trough and the drag backwards -- the Retro Launcher's grid, the Log
+Viewer's list and the media list all did, unseen until a folder of hundreds of programs gave the grid something
+to scroll. `tools/scroll_test.py` reads the thumb's pixels and checks all of this; **a new scrolling view is
+not finished until it has been run there** (userland/CLAUDE.md, rule 10; `docs/conventions/gui.md`).
+
 ## Rubber-band selection: what a real one does
 
 Drag on empty space and a rectangle selects what it touches. Like the

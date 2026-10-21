@@ -342,7 +342,8 @@ void uui_loglist_draw(struct ugfx_surface *s, const void *w) {
     // The overlay bar, with every ERROR's place marked on its edge -- a
     // long log's problems are findable from the scrollbar.
     int n = l->set->view_count;
-    uui_scrollbar_draw_overlay(s, c.bar_x, y0, c.bar_w, vh, n, visible(l), l->top,
+    uui_scrollbar_draw_overlay(s, c.bar_x, y0, c.bar_w, vh, n, visible(l),
+                               uui_scrollbar_flip(n, visible(l), l->top),
                                bg, t->text, l->bar_hover || l->thumb_grab >= 0 ? 255 : 0,
                                l->thumb_grab >= 0 ? UUI_SCROLLBAR_HELD : 0);
     if (n > visible(l)) {
@@ -416,10 +417,11 @@ static int press(void *w, int cx, int cy, unsigned mods) {
         columns(l, &c);
         int y0 = rows_y(l), vh = rows_h(l);
         enum uui_scrollbar_zone z = uui_scrollbar_hit(c.bar_x, y0, c.bar_w, vh, nview(l), visible(l),
-                                                      l->top, cx, cy, 0);
+                                                      uui_scrollbar_flip(nview(l), visible(l), l->top), cx, cy, 0);
         if (z == UUI_SB_THUMB) {
             int ty, th;
-            uui_scrollbar_thumb_rect(y0, vh, nview(l), visible(l), l->top, &ty, &th, c.bar_w, 0);
+            uui_scrollbar_thumb_rect(y0, vh, nview(l), visible(l), uui_scrollbar_flip(nview(l), visible(l), l->top),
+                                     &ty, &th, c.bar_w, 0);
             l->thumb_grab = cy - ty;
         } else if (z == UUI_SB_ABOVE) l->top -= visible(l);
         else if (z == UUI_SB_BELOW) l->top += visible(l);
@@ -447,8 +449,9 @@ static int motion(void *w, int cx, int cy, unsigned buttons) {
     if (l->thumb_grab >= 0 && buttons) {
         struct cols c;
         columns(l, &c);
-        l->top = uui_scrollbar_offset_for_drag(rows_y(l), rows_h(l), nview(l), visible(l),
-                                               cy, l->thumb_grab, c.bar_w, 0);
+        l->top = uui_scrollbar_flip(nview(l), visible(l),
+                    uui_scrollbar_offset_for_drag(rows_y(l), rows_h(l), nview(l), visible(l),
+                                                  cy, l->thumb_grab, c.bar_w, 0));
         clamp(l);
         unfollow_if_off_end(l);
         return 1;

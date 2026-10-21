@@ -8236,6 +8236,20 @@ runs first**: a `doom1.wad` with one
   an image with no volume is refused; so is one a stand-in `qemu-system`
   process has open. `--positive-control` removes the QEMU guard and must
   turn exactly those two checks red. In `preflight.sh`.
+- **`scroll_test.py`** -- scrolling as a person does it, read from the
+  scrollbar thumb's PIXELS with the pointer parked off the bar: the view
+  opens with its thumb at the top, the wheel down moves the thumb down and
+  the wheel up moves it back, a click in the trough below the thumb pages
+  down and above pages up, dragging the thumb moves the view with the
+  pointer. Run on the Retro Launcher's program grid (60 programs: a folder
+  with more rows than fit) and the Log Viewer's list. It exists because
+  `uui_grid`, `uui_medialist` and `uui_loglist` drew the thumb MIRRORED
+  (the painter counts from the bottom; they passed a position from the top)
+  and nothing looked until a folder of hundreds of programs gave the grid a
+  bar. **A new scrolling view is added here before it is called done**
+  (`userland/CLAUDE.md` rule 10). Its controls, both seen red with
+  `mutate.py`: the grid's draw without its flip, the log list's hit test
+  without its flip. In `gui_regress.py`.
 - **`fm_bigdir_test.py`** -- the File Manager on a folder of 600 files
   (`mkfiles`, from inside the guest): its own `rows` report says all 600
   (601 with the `..` row), the last file can be chosen and marked (the

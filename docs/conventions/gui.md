@@ -6132,3 +6132,26 @@ generator shows only the block. When a handler changes what it does, its
 `w16:` line changes in the same commit, and a stand-in made whole leaves
 `PARTLY` and loses its three fields together (`--check`'s Partly and the
 page then agree).
+
+## A NEW SCROLLING VIEW IS TESTED FOR SCROLLING, AND A TOP-BASED POSITION IS NEVER PASSED TO THE PAINTER RAW
+
+**What happened.** In the Retro Launcher, a folder of hundreds of programs gave the program grid something to
+scroll, and its scrollbar thumb sat at the foot with the view at the top, moved up as the view moved on, and a
+click below the thumb or a drag of it ran backwards. `uui_scrollbar_draw_overlay()` and its hit tests count a
+vertical bar's offset **from the bottom** (a terminal's scrollback: 0 is the newest line); `uui_grid`,
+`uui_medialist` and `uui_loglist` passed their own from-the-top position raw. Every view with room for all its
+rows has no bar, so nothing had ever looked.
+
+**The rule.** A view whose position counts from the top **embeds `uui_sbar`** (it converts once, inside), or
+passes `uui_scrollbar_flip(total, visible, position)` on the way in -- to the painter, the hit test and the thumb
+rectangle -- and again on the offset a drag returns (it is its own inverse and clamps). **And a new scrolling view
+is tested before it is called done**: `tools/scroll_test.py` opens it with more rows than fit and checks, from the
+thumb's own pixels with the pointer parked off the bar, that it opens at the top, that the wheel down moves the
+thumb down and the wheel up moves it back, that a click in the trough below pages down and above pages up, and that
+dragging the thumb down moves the view down. Where the view takes Home and End the test uses them; where it takes no
+keys (the Launcher's grid takes none: roadmap) the independent fact is that it opens at the top. Add the new view to
+that file -- it is the same ten lines per view.
+
+**Why from pixels.** A wheel check on the content passes when the thumb is wrong, and a thumb check on a view that
+fits passes because there is none. The mirrored thumb was visible only as a picture.
+

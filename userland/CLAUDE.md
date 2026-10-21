@@ -50,7 +50,7 @@ root file's other rules still apply.
 
 ## Anything drawn
 
-**Follows `docs/gui-guidelines.md`**, which is binding. Nine things bite
+**Follows `docs/gui-guidelines.md`**, which is binding. Ten things bite
 most often:
 
 1. **`gfx_draw_string()` does not clip** -- use
@@ -85,6 +85,17 @@ most often:
    `ugfx_set_font()` puts back the one it found, before every return, or
    every widget drawn after it is in the wrong face
    (`check_font_state.py`).
+
+10. **A NEW SCROLLING VIEW IS TESTED FOR SCROLLING, BEFORE IT IS DONE**
+    -- the wheel DOWN moves the content on and the thumb down, the thumb is
+    at the top when the view opens, a trough click below it pages down, a
+    drag of it moves the view the way the pointer went. The painter counts a
+    vertical bar from the BOTTOM: **embed `uui_sbar`** (it converts), or
+    pass `uui_scrollbar_flip()`'s answer, never your own top-based
+    position -- three widgets passed it raw and drew the thumb mirrored,
+    unseen until a folder gave the Launcher's grid a few hundred rows.
+    Add the view to `tools/scroll_test.py`; a view with room for all its
+    rows has no bar to look at, so the test needs MORE ROWS THAN FIT.
 
 **Interaction states come from `enum ui_state` / `ui_state_bg()`**,
 which derives hover/pressed from the control's own colour: don't

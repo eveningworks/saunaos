@@ -757,3 +757,13 @@ zoom it could not do; copied text lost a word. Each is now a convention
   was a page fault at startup, found from the crash report with
   `addr2line` on `build/lib/libuapp.so`.
 
+## A scrollbar that is mirrored is invisible until something has rows to scroll (2026-10-21)
+
+The Retro Launcher's grid, the media list and the Log Viewer's list passed their from-the-TOP position to
+`uui_scrollbar_draw_overlay()`, which counts a vertical bar from the BOTTOM. A folder of a few hundred Windows
+programs showed it: thumb at the foot with the view at the top, the trough and the drag running backwards. Found by
+a person, not a test: every earlier view fit its rows. The fix is `uui_scrollbar_flip()` (or embedding `uui_sbar`),
+and the check is `tools/scroll_test.py` -- READ THE THUMB FROM PIXELS with the pointer parked off the bar, and give the
+view MORE ROWS THAN FIT. Where a view takes no keys (the Launcher's grid takes none) its starting position is the
+independent fact: it opens at the top. A test of a new view's wheel on its content alone passes with the thumb wrong.
+

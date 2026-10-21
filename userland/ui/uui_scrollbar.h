@@ -126,6 +126,12 @@ void uui_scrollbar_draw_styled(struct ugfx_surface *s, int x, int y, int w, int 
 void uui_scrollbar_draw_overlay(struct ugfx_surface *s, int x, int y, int w, int h,
                                 int total_lines, int visible_rows, int scroll_offset,
                                 uint32_t ground, uint32_t ink, int wide, unsigned flags);
+// THE PAINTER AND THE HIT TESTS COUNT A VERTICAL BAR'S OFFSET FROM THE BOTTOM, as a terminal's scrollback does
+// (0 is the newest line, the thumb at the foot). A view whose position counts from the TOP -- every list,
+// grid and document -- must convert before it draws or tests a hit, and convert again the offset a drag
+// returns; passing its own top draws the thumb MIRRORED and runs the track clicks and the drag backwards.
+// Embed uui_sbar, which does this inside, or call this: it is its own inverse, and clamps.
+int uui_scrollbar_flip(int total, int visible, int offset);
 // The overlay thumb's colour at `wide` -- for a test reading its pixels.
 uint32_t uui_scrollbar_overlay_thumb(uint32_t ground, uint32_t ink, int wide);
 // The overlay strip's width: a row less than a line, in the face

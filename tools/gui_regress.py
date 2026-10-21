@@ -123,6 +123,7 @@ TOOLS = [
     ("uterm", "uterm_test.py", "Terminal + the ring-3 shell"),
     ("crt", "crt_test.py", "the Terminal's screen effect: toggle, Options, the curve's pointer"),
     ("crashview", "crashview_test.py", "the crash report viewer: a real crash, its backtrace against the host's"),
+    ("scroll", "scroll_test.py", "scrolling as a person does it: wheel direction, thumb vs view, track clicks, thumb drag (Retro Launcher grid, Log Viewer)"),
     ("fmbigdir", "fm_bigdir_test.py", "the File Manager lists 600 files in one folder, marks the last, counts them all"),
     ("hlpview", "hlpview_test.py", "Help Viewer on a generated .HLP: link colour, pointer shapes, history, pop-up, zoom limits, copy, Find"),
     ("uapp", "uapp_test.py", "the TWP resize handshake"),
