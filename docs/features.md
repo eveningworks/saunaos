@@ -239,7 +239,7 @@ paused game; F1 again is DOOM's own help.
 shape of otvdm and Wine): an emulated 16-bit CPU in an ordinary ring-3
 process, and Windows' KERNEL, USER, GDI, COMMDLG, OLECLI and the rest
 written again in C. Minesweeper, Notepad, Solitaire, Hearts, Write,
-Calculator and Clock (its Always on Top too) from the user's own Windows 3.11 run -- none ships -- in 3.11's own fonts
+Calculator, Clock (its Always on Top too) and Character Map from the user's own Windows 3.11 run -- none ships -- in 3.11's own fonts
 and pictures when drive C: has them, with 3.1's menus, dialogs and
 Application Error box. Write's TrueType text breaks its lines where
 3.11's did, to the pixel; its documents round-trip with real 3.11, and

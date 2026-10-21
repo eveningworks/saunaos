@@ -952,6 +952,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: arcs, pies, chords and rounded rectangles~~ DONE 2026-10-20 -- 3.11's midpoint ellipse, row for row
 - [x] ~~w16: Calculator from Windows 3.11~~ DONE 2026-10-20 -- the x87 on the host's own, WIN87EM, a dialog as the main window
 - [x] ~~w16: Clock from Windows 3.11~~ DONE 2026-10-21 -- analog, digital, No Title dragged by its face, its own Font dialog
+- [x] ~~w16: Character Map from Windows 3.11~~ DONE 2026-10-21 -- owner-drawn font list, EnumFontFamilies, zoom, Copy
+- [ ] w16: TrueType text drawn bilevel, as 3.1's rasterizer drew it -- w16's is anti-aliased, lighter than 3.11's
 - [x] ~~w16: Clock's Always on Top~~ DONE 2026-10-21 -- a program's own system-menu items, HWND_TOPMOST as toywm's Always on Top
 - [ ] w16: a pie's or chord's straight edge a pixel off 3.11's where an arc ends between two outline pixels
 - [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
