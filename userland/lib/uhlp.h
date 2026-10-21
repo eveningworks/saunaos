@@ -25,8 +25,10 @@
 // hit-testing are the widget's.
 //
 // What is not here: the 3.1 "MVB" and "new font" tables (a file written
-// by a later compiler; opened with fonts defaulted), and the Windows 95
-// phrase and full-text formats beyond |Phrases / |PhrIndex.
+// by a later compiler; opened with fonts defaulted -- none of Windows 3.11's
+// own files, English or Finnish, has one, so there is nothing to check a
+// reader against), and the Windows 95 phrase and full-text formats beyond
+// |Phrases / |PhrIndex.
 
 #define UHLP_LINK_JUMP   0
 #define UHLP_LINK_POPUP  1

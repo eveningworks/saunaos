@@ -270,6 +270,9 @@ python3 tools/uhlpmac_hostcheck.py || fail "uhlpmac macro language"
 step "uhlp_hostcheck.py (the Help file reader: known files, then hostile ones)"
 python3 tools/uhlp_hostcheck.py || fail "uhlp reader vs generated help files"
 
+step "uwmf_draw_hostcheck.py (a metafile played into a box: mapping, objects, text, DIBs)"
+python3 tools/uwmf_draw_hostcheck.py || fail "uwmf_draw vs generated metafiles"
+
 step "boot_smoke_test.py"
 python3 tools/boot_smoke_test.py || fail "boot smoke test"
 

@@ -320,7 +320,7 @@ def check_model(exe, tmp, problems, h=None, name="sample.hlp"):
              "font %d read as %r" % (i, f))
     w = rec["W"][0]
     need(w[1] == "side" and w[2] == "Side" and [int(x) for x in w[3:7]] == [10, 20, 300, 400], "window read as %r" % w)
-    need(int(w[7], 16) == 0xFFFFFF and int(w[8], 16) == 0xE0E0E0, "window colours %r" % w[7:9])
+    need(int(w[7], 16) == 0xFFFFFF and int(w[8], 16) == 0x2060A0, "window colours %r, wanted RGB from a COLORREF" % w[7:9])
     need([m[1] for m in rec["M"]] == h.macros, "file macros %r" % rec["M"])
 
     n = len(h.topics)
@@ -365,6 +365,10 @@ def check_model(exe, tmp, problems, h=None, name="sample.hlp"):
     paras = [x for x in rec["P"] if x[0] == "1"]
     cells = [(int(p[4]), int(p[5])) for p in paras if int(p[3]) >= 0]
     need(cells == [(0, 0), (1, 0), (0, 1), (1, 1)], "table cells (column,row) %r" % cells)
+
+    # Contents' heading is its non-scrolling region, the rest scrolls
+    scr = [int(p[6]) for p in rec["P"] if p[0] == "0"]
+    need(scr[:1] == [0] and all(scr[1:]), "Contents' regions (scrolls per paragraph) %r, wanted [0, 1, ...]" % scr)
 
     # the keywords, sorted, with their topics
     kws = {x[1]: [int(t) for t in x[2:]] for x in rec["K"]}
@@ -461,6 +465,11 @@ def positive_control(args):
          [("static int v_ok(struct view v, size_t off, size_t len) { return off <= v.n && len <= v.n - off; }",
            "static int v_ok(struct view v, size_t off, size_t len) { (void)v; (void)off; (void)len; return 1; }")],
          "fuzz"),
+        ("the region bounds compared with the wrong number",
+         [("ref >= pg->nonscroll && ref < pg->scroll)", "0)")], "model"),
+        ("a window's name read from the wrong offset",
+         [("v_strlen(s, d + 12) < 0 ? 0 : v_strlen(s, d + 12)), (const char *)s.p + d + 12);",
+           "v_strlen(s, d + 10) < 0 ? 0 : v_strlen(s, d + 10)), (const char *)s.p + d + 10);")], "model"),
         ("a record clamped to its block",
          [("size_t avail = contiguous(h, idx, off, sz >= 0x15 ? sz : 0);",
            "size_t avail = b.n > off ? b.n - off : 0;")], "span"),

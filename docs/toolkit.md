@@ -274,5 +274,6 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_widget.h` | uui_widget_ops -- the ONE table a widget exports to be handled generically: laid out, drawn, hit-tested, focused. |
 | `uui_wizard.h` | uui_wizard -- a whole window of steps: a RAIL listing them on the left, the current step's page on the right under "STEP 2 OF 7" and its title, Back and Next in a bar along the bottom, and an optio... |
 | `uvterm.h` | uvterm -- ONE TERMINAL: a pty and the program on it, the reader thread that drains it, the ANSI parser, the grid, its scrollback and alternate screen, the cursor, a selection, and drawing all of th... |
+| `uwmf_draw.h` | uwmf_draw -- plays a 16-bit Windows metafile (lib/uwmf.h decodes it) into a box of a ugfx surface: the metafile's window (SetWindowOrg/Ext) is mapped onto the box, MM_ANISOTROPIC's way, so the pict... |
 
 Private seams of a split module, not for apps: `uapp_internal.h`.

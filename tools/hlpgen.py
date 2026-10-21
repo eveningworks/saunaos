@@ -170,8 +170,9 @@ def btree(entries, page_size, structure, flags=0x0002):
 
 
 class Topic:
-    def __init__(self, title, ids=(), keywords=(), paras=(), macros=(), number=None, table=None):
+    def __init__(self, title, ids=(), keywords=(), paras=(), macros=(), number=None, table=None, nsr=0):
         self.title = title
+        self.nsr = nsr              # the first `nsr` paragraphs are the non-scrolling region
         self.ids = list(ids)
         self.keywords = list(keywords)
         self.paras = [list(p) if isinstance(p, (list, tuple)) else p for p in paras]
@@ -306,13 +307,15 @@ class Help:
         total = datalen + len(text)
         return struct.pack("<IIIIIB", total, full, prev, nxt, datalen, typ) + ld1 + text
 
-    def _header(self, t, bwd, fwd, number, prev, nxt):
+    def _header(self, t, bwd, fwd, number, prev, nxt, ns=0xFFFFFFFF, sc=0xFFFFFFFF):
         """A topic header: browse links, number and the no-non-scrolling-region marks (28 bytes of
         LinkData1), then the title and the topic's own macros."""
         body = t.title.encode("latin-1") + b"\0"
         for m in t.macros:
             body += m.encode("latin-1") + b"\0"
-        ld1 = struct.pack("<IIIIIII", 0, bwd, fwd, number, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF)
+        # NonScroll and Scroll are RECORD ADDRESSES (the region's first record, the scrolling one's), as
+        # Microsoft's compiler wrote them -- not TOPICPOS
+        ld1 = struct.pack("<IIIIIII", 0, bwd, fwd, number, ns, sc, 0xFFFFFFFF)
         return self._record(0x02, ld1, body, len(body), prev, nxt)
 
     # -- the file --------------------------------------------------------------------------
@@ -390,7 +393,12 @@ class Help:
             if kind == "hdr":
                 bwd = topic_pos[ti - 1] if ti > 0 else 0xFFFFFFFF
                 fwd = topic_pos[ti + 1] if ti + 1 < len(self.topics) else 0xFFFFFFFF
-                r = self._header(self.topics[ti], bwd, fwd, ti + 1 if self.topics[ti].number is None else self.topics[ti].number, prv, nxt)
+                t = self.topics[ti]
+                ns = sc = 0xFFFFFFFF
+                if t.nsr and t.nsr < len(t.paras):
+                    first = idx + 1 + len(t.table or [])
+                    ns, sc = ref(first), ref(first + t.nsr)
+                r = self._header(t, bwd, fwd, ti + 1 if t.number is None else t.number, prv, nxt, ns, sc)
             elif kind == "tbl":
                 r, _ = self._table(arg[0], arg[1], prv, nxt)
             else:
@@ -449,10 +457,13 @@ class Help:
             wr = bytearray(90)
             fl = 0x2 | 0x4 | 0x8 | 0x10 | 0x20 | 0x40 | 0x100 | 0x200
             struct.pack_into("<H", wr, 0, fl)
-            wr[10:10 + len(w["name"]) + 1] = w["name"].encode("latin-1") + b"\0"
-            wr[19:19 + len(w["caption"]) + 1] = w["caption"].encode("latin-1") + b"\0"
+            # a type at 2, the name at 12 (9 bytes), the caption at 21 (51), as a 3.1 compiler wrote them
+            wr[2:2 + len("secondary") + 1] = b"secondary\0"
+            wr[12:12 + len(w["name"]) + 1] = w["name"].encode("latin-1") + b"\0"
+            wr[21:21 + len(w["caption"]) + 1] = w["caption"].encode("latin-1") + b"\0"
             struct.pack_into("<HHHH", wr, 72, w["x"], w["y"], w["w"], w["h"])
-            struct.pack_into("<II", wr, 82, w.get("sr", 0xFFFFFF), w.get("nsr", 0xE0E0E0))
+            colorref = lambda rgb: (rgb & 0xFF) << 16 | (rgb & 0xFF00) | (rgb >> 16 & 0xFF)   # noqa: E731
+            struct.pack_into("<II", wr, 82, colorref(w.get("sr", 0xFFFFFF)), colorref(w.get("nsr", 0x2060A0)))
             system += rec(6, bytes(wr))
 
         # |FONT: 20-byte face names, then 11-byte descriptors
@@ -511,7 +522,7 @@ def sample():
              macros=["CreateButton(\"b1\", \"&Home\", \"JumpContents()\")",
                      "CreateButton(\"gb\", \"&Glossary\", \"JI(`SAMPLE.HLP>glossary', `gloss')\")"],
              map_ids=[(100, 1)])
-    h.add(Topic("Contents", ids=["contents", "idh_contents"], keywords=["Overview"], paras=[
+    h.add(Topic("Contents", ids=["contents", "idh_contents"], keywords=["Overview"], nsr=1, paras=[
         [("font", 1), ("text", "Sample Help"), ("font", 0)],
         [("text", "Welcome. See "), ("link", "Details", "jump", "details"), ("endlink",),
          ("text", " or the "), ("link", "glossary", "popup", "gloss"), ("endlink",), ("text", ".")],

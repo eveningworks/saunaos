@@ -6,6 +6,7 @@
 // what is clickable cannot disagree. Two regions: the non-scrolling
 // heading, then the scrolling body.
 #include "ui/uui_helpview.h"
+#include "ui/uwmf_draw.h"
 #include "ui/uui_widget.h"
 #include "ui/uui_ctxmenu.h"
 #include "ui/uui_primitives.h"
@@ -15,6 +16,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 enum { IT_TEXT, IT_PIC, IT_RULE };
 enum { UL_SOLID = 1, UL_DOTTED = 2, UL_STRIKE = 4, UL_DOUBLE = 8 };
@@ -342,8 +344,8 @@ static void add_text_atoms(struct lay *L, struct pctx *P, const struct uhlp_run 
     if (link >= 0 && link < L->d->nlink) {
         const struct uhlp_link *lk = &L->d->link[link];
         if (lk->colour) color = link_colour(v);
-        if (lk->kind == UHLP_LINK_POPUP) ul |= UL_DOTTED;
-        else if (lk->colour) ul |= UL_SOLID;
+        // a hidden hotspot (no colour) is drawn as plain text, a pop-up's as well -- WINHELP.EXE's contents rows
+        if (lk->colour) ul |= lk->kind == UHLP_LINK_POPUP ? UL_DOTTED : UL_SOLID;
     }
     if (color == 0) color = 0;
     const char *src = L->d->pool + r->text;
@@ -451,7 +453,13 @@ static void layout_para(struct lay *L, const struct uhlp_para *pa, int x0, int w
             if (r->pic < 0 || r->pic >= L->d->npic) break;
             const struct uhlp_pic *pic = &L->d->pic[r->pic];
             int pw = pic->w > 0 ? pic->w : 16, ph = pic->h > 0 ? pic->h : 16;
-            if (pic->kind == UHLP_PIC_WMF) { pw = to_px(L, pw / 10 > 0 ? pw / 10 : 1); ph = to_px(L, ph / 10 > 0 ? ph / 10 : 1); }
+            // a metafile's size is HIMETRIC (0.01 mm): at 96 dpi, as WINHELP.EXE drew it -- a DIB is pixels, unscaled too
+            if (pic->kind == UHLP_PIC_WMF) {
+                pw = (int)((long)pic->w * 96 / 2540);
+                ph = (int)((long)pic->h * 96 / 2540);
+                if (pw < 1) pw = 1;
+                if (ph < 1) ph = 1;
+            }
             if (r->place == 0) {
                 if (P.line_x + pw > P.line_w && L->natom > 0) flush_line(L, &P, asc + desc);
                 struct atom a = { .kind = 3, .w = pw, .asc = ph, .desc = 0, .pic = r->pic, .link = r->link, .x = P.line_x,
@@ -495,11 +503,14 @@ static void layout_para(struct lay *L, const struct uhlp_para *pa, int x0, int w
         if (it) {
             it->region = (uint8_t)L->region;
             it->bits = pa->border;
-            it->x = x0 + P.left - 3;
-            it->w = w - P.left - P.right + 6;
+            // from the first line's start when it hangs out past the rest (a tabbed table's header row),
+            // as WINHELP.EXE draws it; one pixel, two for the thick style -- border_w is no pen width
+            int from = P.first < 0 ? P.left + P.first : P.left;
+            it->x = x0 + from - 3;
+            it->w = w - from - P.right + 6;
             it->y = top - 2;
             it->h = P.y - top + 4;
-            it->font = pa->border_w > 0 ? 1 + (to_px(L, pa->border_w) > 1) : 1;
+            it->font = pa->border & 0x20 ? 2 : 1;
         }
     }
 }
@@ -591,7 +602,9 @@ static void layout_all(struct uui_helpview *v, int width, int em) {
     if (!L.d || !L.h) return;
     int pad = em / 2 + 2;
     int ys[2] = { 0, 0 };
-    ys[1] = pad / 2;
+    // the topic's first paragraph brings its own space above (WINHELP.EXE adds none); a pad only without it
+    for (int p = 0; p < L.d->npara; p++)
+        if (L.d->para[p].scrolls) { ys[1] = L.d->para[p].before ? 0 : pad / 2; break; }
     int total = L.d->npara;
     for (int p = 0; p < total && !L.oom;) {
         const struct uhlp_para *pa = &L.d->para[p];
@@ -674,6 +687,27 @@ static void draw_wmf_placeholder(struct ugfx_surface *s, int x, int y, int w, in
     ugfx_draw_line(s, x + w - 1, y, x, y + h - 1, UTHEME_BORDER, GEOM_ALIASED);
 }
 
+// A metafile's font, from the faces the topic's text uses: its family guessed from the 3.1 face name.
+static const struct ugfx_font *wmf_font(void *ctx, const char *face, int px, int bold, int italic) {
+    int fam = !strncasecmp(face, "Courier", 7) ? UHLP_FAMILY_MODERN
+            : !strncasecmp(face, "Tms", 3) || !strncasecmp(face, "Times", 5) ? UHLP_FAMILY_ROMAN : UHLP_FAMILY_SWISS;
+    return font_for((struct uui_helpview *)ctx, fam, bold, italic, px, 0);
+}
+
+// The main window's two backgrounds, when the file names them (|SYSTEM's window record "main", or one
+// with no name): RASPHONE.HLP's grey band at the top. White otherwise, and always in a pop-up.
+static void region_colours(const struct uui_helpview *v, uint32_t *sr, uint32_t *nsr) {
+    *sr = *nsr = UTHEME_WHITE;
+    if (!v->help || v->is_popup) return;
+    for (int i = 0; i < uhlp_nwindows(v->help); i++) {
+        const struct uhlp_window *w = uhlp_window(v->help, i);
+        if (w->name[0] && strcasecmp(w->name, "main")) continue;
+        if (w->sr_rgb != 0xFFFFFFFFu) *sr = 0xFF000000u | w->sr_rgb;
+        if (w->nsr_rgb != 0xFFFFFFFFu) *nsr = 0xFF000000u | w->nsr_rgb;
+        return;
+    }
+}
+
 static int hl_match(const char *hl, const char *text, int *at, int *len) {
     // the first case-insensitive occurrence of any highlight word in `text`
     const char *p = hl;
@@ -707,7 +741,13 @@ static void draw_items(struct ugfx_surface *s, struct uui_helpview *v, int regio
         case IT_PIC: {
             const struct uhlp_pic *pic = &v->doc->pic[it->pic];
             if (pic->kind == UHLP_PIC_DIB && pic->argb) ugfx_blit_alpha(s, ix, iy, pic->w, pic->h, pic->argb, pic->w);
-            else draw_wmf_placeholder(s, ix, iy, it->w, it->h);
+            else {
+                // the session face first: wmf_font may grow the face table, and the current font must not
+                // point into it then
+                ugfx_set_font(ugfx_font_session(UGFX_FONT_REGULAR));
+                if (!pic->wmf || uwmf_draw(s, pic->wmf, pic->wmf_len, ix, iy, it->w, it->h, wmf_font, v) < 0)
+                    draw_wmf_placeholder(s, ix, iy, it->w, it->h);
+            }
             if (it->link >= 0 && it->link == v->hover) ugfx_draw_rect(s, ix, iy, it->w, it->h, UTHEME_ACCENT);
             for (int k = 0; k < pic->nhot; k++) {
                 const struct uhlp_hot *hot = &v->doc->hot[pic->hot0 + k];
@@ -763,7 +803,9 @@ static void clamp_scroll(struct uui_helpview *v) {
 static void draw_popup(struct ugfx_surface *s, struct uui_helpview *v);
 
 static void helpview_draw(struct ugfx_surface *s, struct uui_helpview *v) {
-    ugfx_fill_rect(s, v->x, v->y, v->w, v->h, UTHEME_WHITE);
+    uint32_t sr, nsr;
+    region_colours(v, &sr, &nsr);
+    ugfx_fill_rect(s, v->x, v->y, v->w, v->h, sr);
     if (!v->doc) return;
     // THE FONT SELECTED IS THE PROCESS'S, not this widget's: every widget drawn after it uses
     // whatever it leaves, so a zoomed face here made the toolbar and the tree zoom too.
@@ -776,6 +818,7 @@ static void helpview_draw(struct ugfx_surface *s, struct uui_helpview *v) {
     uui_sbar_set(&v->bar, v->sc_h, vp, v->scroll);
     v->bar.step = em_now() * 2;
     if (v->ns_h) {
+        if (nsr != sr) ugfx_fill_rect(s, v->x, v->y, v->w, v->ns_h, nsr);
         draw_items(s, v, 0, v->x, v->y, v->w, v->ns_h);
         ugfx_fill_rect(s, v->x, v->y + v->ns_h - 1, v->w, 1, UTHEME_SEPARATOR);
     }

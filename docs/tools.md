@@ -8286,10 +8286,24 @@ runs first**: a `doom1.wad` with one
   back clean). `--fuzz N --seed S` sizes it; `--positive-control` runs a
   wrong hash multiplier (the lookups must fail), a picture's size counted
   from before its hotspot count, a record clamped to its block (the
-  spanning variant must fail) and a bounds check that always agrees (the
-  fuzz must crash). Every model check also runs on a SPANNING file, whose
-  records straddle block boundaries as Microsoft's compiler writes them.
+  spanning variant must fail), the non-scrolling region's bounds compared
+  with the wrong number, a window's name read from 3.0's offset, and a
+  bounds check that always agrees (the fuzz must crash). Every model check
+  also runs on a SPANNING file, whose records straddle block boundaries as
+  Microsoft's compiler writes them; Contents has a non-scrolling region and
+  the window an asymmetric colour, so a COLORREF read unswapped shows.
   In `preflight.sh`.
+- **`uwmf_draw_hostcheck.py`** -- `userland/ui/uwmf_draw.c`, a 16-bit
+  metafile played into a box (Help Viewer's WMF pictures), compiled on the
+  host with the real `lib/uwmf.c` under it and STUBS of ugfx and `lib/uimg`
+  that print each call. Eight metafiles written in Python, each with the
+  calls it must cause worked out from MS-WMF: a window with an origin, an
+  extent's shrink, a placeable header's bounds, SaveDC/RestoreDC, null and
+  solid pens and brushes, COLORREF to RGB, text on its baseline in the
+  mapped font size with the caller's font put back, and a 24-bit and an
+  8-bit (short palette) DIB whose bits the BMP made of them must point at.
+  `--positive-control`: the window's origin ignored, a DIB's palette
+  forgotten. In `preflight.sh`.
 - **`hlpview_test.py`** -- Help Viewer on `hlpgen.sample()`, put into the
   guest with `vm.py put` before the console is taken: the link colour is
   in the reported link rects and nowhere else (pixels), the pointer is the
@@ -8326,7 +8340,9 @@ runs first**: a `doom1.wad` with one
   (a record may not cross a block unless `span=True`, which writes
   literals-only blocks filled to their last byte, `SPAN_CHUNK` bytes each
   -- zero padding after compressed data decompresses into garbage;
-  TOPICPOS counts the display text written in the block so far).
+  TOPICPOS counts the display text written in the block so far; a topic
+  header's NonScroll and Scroll are RECORD addresses; a window record has
+  its type at 2, name at 12, caption at 21, colours as COLORREFs).
 - **`check_drivers.py`** -- refuses a driver that declares itself to
   nothing. Every `.c` under `kernel/drivers/`, and any file anywhere
   that calls a device class registry, must carry a `DRIVER_DECLARE(...)`

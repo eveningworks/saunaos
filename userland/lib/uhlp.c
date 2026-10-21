@@ -103,7 +103,10 @@ static int grow(void **arr, int *cap_or_n, int n, size_t elt) {
 
 // The size LZ77 data expands to, or -1 for a back-reference that reaches
 // before the start. A pass of its own so the output is allocated to fit.
-static long lz77_size(struct view v) {
+// `lenient`: a reference before the start ends the data there instead of failing it -- what a
+// topic block gets, as WINHELP.EXE opens a file whose last block holds one (the Finnish
+// PACKAGER.HLP); lz77_expand() stops at the same byte.
+static long lz77_size(struct view v, int lenient) {
     size_t i = 0;
     long out = 0;
     while (i < v.n) {
@@ -113,7 +116,7 @@ static long lz77_size(struct view v) {
                 if (i + 2 > v.n) return out;
                 unsigned code = v16(v, i);
                 unsigned len = 3 + (code >> 12), dist = (code & 0xfff) + 1;
-                if ((long)dist > out) return -1;
+                if ((long)dist > out) return lenient ? out : -1;
                 out += len;
                 i += 2;
             } else {
@@ -424,6 +427,9 @@ int uhlp_id_for_hash(uint32_t hash, char *out, size_t cap) {
     return found && uhlp_hash(out) == hash;
 }
 
+// A COLORREF (0x00BBGGRR, as Windows stores it) as 0xRRGGBB.
+static uint32_t colorref_rgb(uint32_t c) { return (c & 0xFF) << 16 | (c & 0xFF00) | (c >> 16 & 0xFF); }
+
 static char *dup_n(const uint8_t *p, size_t n) {
     char *s = malloc(n + 1);
     if (!s) return 0;
@@ -482,14 +488,16 @@ static int read_system(struct uhlp *h, const char **err) {
                 unsigned fl = v16(s, d);
                 struct view rec = v_sub(s, d, len);
                 (void)rec;
-                if (fl & 2) snprintf(w->name, sizeof w->name, "%.*s", (int)(v_strlen(s, d + 10) < 0 ? 0 : v_strlen(s, d + 10)), (const char *)s.p + d + 10);
-                if (fl & 4) snprintf(w->caption, sizeof w->caption, "%.*s", (int)(v_strlen(s, d + 19) < 0 ? 0 : v_strlen(s, d + 19)), (const char *)s.p + d + 19);
+                // a type ("main", "secondary") at 2, the name at 12, the caption at 21 -- RASPHONE.HLP's
+                // "main", GLOSSARY.HLP's "glossary"
+                if (fl & 2) snprintf(w->name, sizeof w->name, "%.*s", (int)(v_strlen(s, d + 12) < 0 ? 0 : v_strlen(s, d + 12)), (const char *)s.p + d + 12);
+                if (fl & 4) snprintf(w->caption, sizeof w->caption, "%.*s", (int)(v_strlen(s, d + 21) < 0 ? 0 : v_strlen(s, d + 21)), (const char *)s.p + d + 21);
                 w->x = fl & 8 ? (int)v16(s, d + 72) : -1;
                 w->y = fl & 0x10 ? (int)v16(s, d + 74) : -1;
                 w->w = fl & 0x20 ? (int)v16(s, d + 76) : -1;
                 w->h = fl & 0x40 ? (int)v16(s, d + 78) : -1;
-                w->sr_rgb = fl & 0x100 ? v32(s, d + 82) : 0xFFFFFFFFu;
-                w->nsr_rgb = fl & 0x200 ? v32(s, d + 86) : 0xFFFFFFFFu;
+                w->sr_rgb = fl & 0x100 ? colorref_rgb(v32(s, d + 82)) : 0xFFFFFFFFu;
+                w->nsr_rgb = fl & 0x200 ? colorref_rgb(v32(s, d + 86)) : 0xFFFFFFFFu;
             }
             break;
         case 11:
@@ -523,7 +531,7 @@ static int read_phrases(struct uhlp *h) {
             if (!buf) return 0;
             memcpy(buf, data.p, dec);
         } else {
-            long sz = lz77_size(data);
+            long sz = lz77_size(data, 0);
             if (sz < 0) return 0;
             buf = malloc((size_t)sz + 1);
             if (!buf) return 0;
@@ -556,7 +564,7 @@ static int read_phrases(struct uhlp *h) {
         memcpy(buf, img.p, dec_size);
         dec = dec_size;
     } else {
-        long sz = lz77_size(img);
+        long sz = lz77_size(img, 0);
         if (sz < 0) return 0;
         buf = malloc((size_t)sz + 1);
         if (!buf) return 0;
@@ -672,7 +680,7 @@ static int read_topic_blocks(struct uhlp *h, const char **err) {
             size_t off = (size_t)i * tb;
             size_t len = t.n - off < tb ? t.n - off : tb;
             if (len < 0x0c) { sz[i] = 0; continue; }
-            long s = lz77_size(v_sub(t, off + 0x0c, len - 0x0c));
+            long s = lz77_size(v_sub(t, off + 0x0c, len - 0x0c), 1);
             if (s < 0) { free(sz); *err = "damaged topic block"; return 0; }
             sz[i] = s;
             total += s;
@@ -1123,7 +1131,7 @@ static uint8_t *unpack_gfx(struct view src, unsigned pack, size_t want) {
     case 0: memcpy(out, src.p, src.n < want ? src.n : want); break;
     case 1: rle_expand(src, out, want); break;
     case 2: {
-        long s = lz77_size(src);
+        long s = lz77_size(src, 0);
         if (s < 0) break;
         uint8_t *t = malloc((size_t)s + 1);
         if (!t) { free(out); return 0; }
@@ -1133,7 +1141,7 @@ static uint8_t *unpack_gfx(struct view src, unsigned pack, size_t want) {
         break;
     }
     case 3: {
-        long s = lz77_size(src);
+        long s = lz77_size(src, 0);
         if (s < 0) break;
         uint8_t *t = malloc((size_t)s + 1);
         if (!t) { free(out); return 0; }
@@ -1602,14 +1610,12 @@ struct uhlp_doc *uhlp_render(const struct uhlp *h, int topic) {
     }
     struct pstate st = { 0, -1 };
     int cur_table = -1, cur_row = 0, count = 0;
-    uint32_t ref = pg->ref, offs = 0;
-    unsigned old_index = 0xffffffffu;
+    uint32_t ref = pg->ref;
     size_t guard = 0, max_records = h->nblk ? (size_t)h->nblk * 0x4000 / 0x15 + 16 : 16;
     do {
         unsigned index = 0;
         struct view rec = record_at(h, ref, &index);
         if (!rec.p) break;
-        if (index != old_index) { offs = 0; old_index = index; }
         int type = v8(rec, 0x14);
         uint32_t next = v32(rec, 0x0c);
         if (type == REC_TOPICHDR) {
@@ -1618,13 +1624,11 @@ struct uhlp_doc *uhlp_render(const struct uhlp *h, int topic) {
             size_t first = (size_t)b.d->npara;
             if (type != REC_TABLE) { cur_table = -1; cur_row = 0; }
             if (!browse_paragraph(&b, rec, &st, 0, pg, &cur_table, &cur_row)) { if (b.oom) goto fail; }
-            // the non-scrolling region: records from `nonscroll` up to `scroll`
-            uint32_t pos = h->minor <= 16 ? 0 : index * 0x8000u + offs;
+            // the non-scrolling region: records from `nonscroll` up to `scroll` -- both are RECORD
+            // ADDRESSES like `ref` (MSMAIL.HLP's title and Expand/Collapse buttons), not TOPICPOS
             if (h->minor > 16 && pg->nonscroll != 0xFFFFFFFFu && pg->scroll != 0xFFFFFFFFu &&
-                pos >= pg->nonscroll && pos < pg->scroll)
+                ref >= pg->nonscroll && ref < pg->scroll)
                 for (size_t i = first; i < (size_t)b.d->npara; i++) b.d->para[i].scrolls = 0;
-            unsigned len;
-            if (para_len(rec, &len)) offs += len;
         }
         if (h->minor <= 16) {
             if (next == 0) break;
