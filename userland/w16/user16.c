@@ -848,6 +848,7 @@ static int api_BeginPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     c->r[R_AX] = 0;
     if (x) {
         begin_paint(w, x, lpps);
+        w->painting++;
         c->r[R_AX] = x->dc;
     }
     return 6;
@@ -862,6 +863,7 @@ static int api_EndPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
     w16_arg32(a);
+    if (w->painting > 0) w->painting--;
     // w16 paints a window whole, not its update region: without WS_CLIPCHILDREN
     // that covered its children (Write's ruler), so they paint again on top.
     if (x && !(x->style & WS_CLIPCHILDREN)) {

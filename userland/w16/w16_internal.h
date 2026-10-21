@@ -405,6 +405,8 @@ struct w16 {
     struct w16_gdiobj gdi[W16_GDI_MAX];          // gdi16.c; handle = GDI_BASE + 4 * index
     int fb_dirty;                                // a window DC drew: post a repaint
     uint64_t committed_ms;                       // when w16_gdi_flush() last took a frame
+    uint64_t flash_ms;                           // when an inverting window-DC draw last ran (gdi16.c's hold_flash)
+    int painting;                                // BeginPaint calls not yet ended: a window DC drawing is a repaint's
     struct w16_timer timer[W16_TIMERS];          // set by the task, fired by the main thread
     uint16_t capture;                            // SetCapture's window, 0 none; under `lock`
     uint16_t menu;                               // SetMenu's HMENU, the bar under the caption

@@ -24,6 +24,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "ui/ugfx.h"
 
 #define STOCK_BASE 0x5000      // GetStockObject(i) -> STOCK_BASE + i
@@ -384,11 +385,38 @@ static struct w16_gdiobj *target(struct w16 *w, uint16_t hdc, struct gdi_target 
     return dc;
 }
 
+// An inverting mix drawn on a window DC outside WM_PAINT is feedback meant
+// to be SEEN (Calculator's pressed button is two R2_NOTXORPEN RoundRects
+// with nothing between): 3.11 drew to the screen at once, and VGA's slow
+// draw kept the first frame up. Here a frame commits when the program next
+// waits, so both would land in one. The FIRST of a burst is therefore
+// shown and held for a few frames; the rest of a burst (a rubber band
+// being dragged) is not, so a drag takes one stall, not one per move.
+#define FLASH_HOLD_MS  40
+#define FLASH_BURST_MS 150
+
+static int inverting_rop2(int rop2) { return rop2 == 6 || rop2 == 7 || rop2 == 10; }
+
+static void hold_flash(struct w16 *w) {
+    uint64_t now = w16_now_ms();
+    int first = now - w->flash_ms >= FLASH_BURST_MS;
+    w->flash_ms = now;
+    pthread_mutex_lock(&w->lock);
+    int owed = w16_wnd_next_paint(w) != 0;       // a window half painted would show its children missing
+    pthread_mutex_unlock(&w->lock);
+    if (!first || owed || w->painting) return;
+    w16_gdi_flush(w);
+    struct timespec ts = { 0, FLASH_HOLD_MS * 1000000L };
+    nanosleep(&ts, 0);
+}
+
 static void gdi_done(struct w16 *w, struct w16_gdiobj *dc) {
     if (dc && dc->hwnd) {
+        int flash = inverting_rop2(dc->rop2);
         restore_children();
         w->fb_dirty = 1;
         pthread_mutex_unlock(&w->lock);
+        if (flash) hold_flash(w);
     }
 }
 
