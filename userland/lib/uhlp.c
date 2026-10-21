@@ -1452,6 +1452,8 @@ static int browse_paragraph(struct build *b, struct view rec, struct pstate *st,
             text += tl + 1;
             int cmd = v8(f.v, f.at);
             if (cmd == 0xff) { f.at++; break; }
+            // dispatch-ok: THE SET IS THE FILE FORMAT'S OWN COMMAND BYTES (font, line break, tab, pictures,
+            // links, macros), fixed by WinHelp 3.x and each reading its own operands from the stream.
             switch (cmd) {
             case 0x20: f.at += 5; break;
             case 0x21: f.at += 3; break;
