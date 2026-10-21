@@ -408,7 +408,11 @@ static int api_IsDBCSLeadByte(struct w16 *w, unsigned ordinal, struct w16_args *
 // GetVersion() -> DWORD
 // Windows: The Windows version in the low word -- major, then minor -- and DOS's in the high word.
 // w16: The version the program's settings say -- 3.10 by default, or 3.11 or 3.00 (Retro Launcher's
-// Version told) -- on DOS 5.0.
+// Version told) -- on DOS 5.0. 3.10 is the default because it is what Windows for Workgroups 3.11
+// answers (measured on the reference VM, 2026-10-21, samples/version.asm: GetVersion 0A03 on DOS
+// 0616, GetWinFlags 00000C29): "3.11" names the product, not the kernel, and a program tells WfW
+// from 3.1 by GetWinFlags, WNetGetCaps or its own INI. The 3.11 setting is for a program that
+// insists on it. The DOS version and the flags (w16 00000425) differ from the VM's as well.
 static int api_GetVersion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
