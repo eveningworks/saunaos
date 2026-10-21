@@ -45,7 +45,7 @@
 
 enum { ID_TOOLBAR = 1, ID_TABS, ID_TREE, ID_FILTER, ID_KEYWORDS, ID_TOPICS, ID_FIND, ID_FOUND, ID_VIEW };
 enum { CMD_BACK = 1, CMD_FORWARD, CMD_HOME, CMD_PREV, CMD_NEXT, CMD_PANE, CMD_COPY, CMD_ZOOM_IN, CMD_ZOOM_OUT,
-       CMD_HISTORY };
+       CMD_HISTORY, CMD_ZOOM_RESET };
 enum { TAB_CONTENTS, TAB_INDEX, TAB_FIND };
 
 // --- the open files ----------------------------------------------------------------------------
@@ -153,9 +153,10 @@ static const struct uui_toolbar_item TOOLBAR[] = {
     { "tb-down",     "Next topic",                     CMD_NEXT, 0, 0, 0, 0 },
     { "tb-history",  "History",                        CMD_HISTORY, 0, 0, 0, 0 },
     { NULL, NULL, 0, 0, 0, 0, 0 },
-    { "tb-copy",     "Copy the topic (Ctrl+C)",        CMD_COPY, 0, 0, 0, 0 },
+    { "tb-copy",     "Copy the selection, or the topic (Ctrl+C)", CMD_COPY, 0, 0, 0, 0 },
     { "tb-zoom-in",  "Larger text (Ctrl++)",           CMD_ZOOM_IN, 0, 0, 0, 0 },
     { "tb-zoom-out", "Smaller text (Ctrl+-)",          CMD_ZOOM_OUT, 0, 0, 0, 0 },
+    { "tb-actual",   "Actual size (Ctrl+0)",           CMD_ZOOM_RESET, 0, 0, 0, 0 },
 };
 
 static struct uui_item   LEFT[7], RIGHT[1], BODY[2], ITEMS[3];
@@ -525,14 +526,16 @@ static void set_tab(struct uapp *a, int tab) {
     relayout(a);
 }
 
+// What is selected in the topic, or the whole topic when nothing is.
 static void copy_topic(void) {
     const struct uhlp *h = cur_help();
     if (!h || g_ct < 0) return;
-    char *s = uhlp_topic_text(h, g_ct);
+    char *s = uui_helpview_selection_text(&g_view);
+    if (!s) s = uhlp_topic_text(h, g_ct);
     if (!s) return;
     uclip_set_text(s, (int)strlen(s));
     free(s);
-    set_status("Topic copied");
+    set_status(uui_helpview_has_selection(&g_view) ? "Selection copied" : "Topic copied");
 }
 
 static void command(struct uapp *a, int code) {
@@ -548,6 +551,7 @@ static void command(struct uapp *a, int code) {
     case CMD_COPY: copy_topic(); break;
     case CMD_ZOOM_IN: uui_helpview_set_zoom(&g_view, g_view.zoom + 1); break;
     case CMD_ZOOM_OUT: uui_helpview_set_zoom(&g_view, g_view.zoom - 1); break;
+    case CMD_ZOOM_RESET: uui_helpview_set_zoom(&g_view, 0); break;
     case CMD_HISTORY: set_tab(a, TAB_CONTENTS); break;
     default: break;
     }
@@ -564,6 +568,7 @@ static unsigned item_flags(int code) {
     case CMD_PANE: return g_pane ? UUI_MI_CHECKED : 0;
     case CMD_ZOOM_IN: return g_view.zoom >= UHV_ZOOM_MAX ? UUI_MI_DISABLED : 0;
     case CMD_ZOOM_OUT: return g_view.zoom <= UHV_ZOOM_MIN ? UUI_MI_DISABLED : 0;
+    case CMD_ZOOM_RESET: return g_view.zoom == 0 ? UUI_MI_DISABLED : 0;
     default: return 0;
     }
 }
@@ -610,6 +615,13 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_VIEW: {
         struct uui_helpview_link lk;
         if (uui_helpview_take_link(&g_view, &lk)) follow(&lk);
+        switch (uui_helpview_take_command(&g_view)) {         // a right-click menu row
+        case UHV_CMD_COPY: command(a, CMD_COPY); break;
+        case UHV_CMD_BACK: command(a, CMD_BACK); break;
+        case UHV_CMD_FORWARD: command(a, CMD_FORWARD); break;
+        case UHV_CMD_CONTENTS: command(a, CMD_HOME); break;
+        default: break;
+        }
         reap_popup();
         break;
     }
@@ -632,6 +644,10 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
         command(a, CMD_ZOOM_IN);
     } else if ((mods & KEY_MOD_CTRL) && key == '-') {
         command(a, CMD_ZOOM_OUT);
+    } else if ((mods & KEY_MOD_CTRL) && key == '0') {
+        command(a, CMD_ZOOM_RESET);
+    } else if ((mods & KEY_MOD_CTRL) && (key == 'a' || key == 0x01) && !text_focus) {
+        uui_helpview_select_all(&g_view);
     } else if (uui_helpview_popup_open(&g_view) && key == 0x1B) {
         uui_helpview_popup_close(&g_view);
         reap_popup();
@@ -659,6 +675,8 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
     (void)d;
     g_bar.panes[2].text = g_status;
+    g_view.can_back = g_hpos > 0;                    // what the right-click menu greys by
+    g_view.can_fwd = g_hpos < g_hn - 1;
     uapp_log_layout(a, "hlpview");
     uapp_logf_layout("hlpview: here \"%s\" topic %d file %d back %d fwd %d popup %d zoom %d\n",
                      g_ct >= 0 ? uhlp_topic_title(cur_help(), g_ct) : "-", g_ct, g_cf, g_hpos > 0,

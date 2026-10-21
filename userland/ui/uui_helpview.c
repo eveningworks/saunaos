@@ -7,6 +7,7 @@
 // heading, then the scrolling body.
 #include "ui/uui_helpview.h"
 #include "ui/uui_widget.h"
+#include "ui/uui_ctxmenu.h"
 #include "ui/uui_primitives.h"
 #include "ui/utheme.h"
 #include "lib/ucharset.h"
@@ -26,6 +27,9 @@ struct uhv_item {
     int link;                 // a doc link, or -1
     int str;                  // arena offset of NUL-terminated UTF-8
     int pic;
+    int para;                 // the document paragraph it came from
+    int ord;                  // TEXT: its place in reading order
+    int ly;                   // the top of the LINE it is on: items of one line share it, whatever their font
 };
 
 struct uhv_font {
@@ -101,6 +105,7 @@ void uui_helpview_init(struct uui_helpview *v) {
     memset(v, 0, sizeof *v);
     uui_sbar_init(&v->bar);
     v->armed = v->hover = v->armed_hot = -1;
+    v->ctx_link = -1;
     v->fonts = calloc(1, sizeof *v->fonts);
     v->owns_fonts = 1;
 }
@@ -108,9 +113,10 @@ void uui_helpview_init(struct uui_helpview *v) {
 void uui_helpview_free(struct uui_helpview *v) {
     if (v->pop) { uui_helpview_free(v->pop); free(v->pop); v->pop = 0; }
     free(v->item);
+    free(v->order);
     free(v->arena);
     if (v->owns_fonts) fonts_free(v->fonts);
-    v->item = 0; v->arena = 0; v->fonts = 0;
+    v->item = 0; v->arena = 0; v->fonts = 0; v->order = 0; v->norder = 0;
     v->nitem = v->item_cap = 0;
     v->arena_len = v->arena_cap = 0;
 }
@@ -121,6 +127,7 @@ void uui_helpview_set_doc(struct uui_helpview *v, const struct uhlp *h, const st
     v->doc_serial++;
     v->scroll = scroll;
     v->armed = v->hover = v->armed_hot = -1;
+    v->sel_on = v->selecting = 0;
     if (v->pop) uui_helpview_popup_close(v);
 }
 
@@ -147,6 +154,7 @@ struct atom {
     int str;
     int pic;
     int x;
+    int para;
 };
 
 struct lay {
@@ -155,6 +163,7 @@ struct lay {
     const struct uhlp_doc *d;
     int em;
     int region;
+    int para;                 // the paragraph being laid out
     // floats: the y a left / right picture ends at, and its width
     int lfl_until, lfl_w, rfl_until, rfl_w;
     struct atom *atom; int natom, atom_cap;
@@ -226,7 +235,8 @@ static int atom_add(struct lay *L, const struct atom *a) {
         L->atom = g;
         L->atom_cap = nc;
     }
-    L->atom[L->natom++] = *a;
+    L->atom[L->natom] = *a;
+    L->atom[L->natom++].para = L->para;
     return 1;
 }
 
@@ -287,6 +297,8 @@ static void flush_line(struct lay *L, struct pctx *P, int force_empty_h) {
         it->ul = a->ul;
         it->str = a->str;
         it->pic = a->pic;
+        it->para = a->para;
+        it->ly = P->y;
         if (a->kind == 3) {
             it->h = a->asc + a->desc;
             it->y = P->y + asc - a->asc;
@@ -385,6 +397,7 @@ static void add_text_atoms(struct lay *L, struct pctx *P, const struct uhlp_run 
 
 // One paragraph, flowed in a box at (x0, *y) `w` wide. Advances *y.
 static void layout_para(struct lay *L, const struct uhlp_para *pa, int x0, int w, int *y) {
+    L->para = (int)(pa - L->d->para);
     struct pctx P;
     memset(&P, 0, sizeof P);
     P.x0 = x0;
@@ -530,6 +543,34 @@ static int layout_table(struct lay *L, int first, int total, int x0, int w, int 
     return end;
 }
 
+// --- reading order, for the selection ----------------------------------------------------------------
+
+static const struct uui_helpview *g_ord_view;
+
+static int ord_cmp(const void *pa, const void *pb) {
+    const struct uhv_item *a = &g_ord_view->item[*(const int *)pa], *b = &g_ord_view->item[*(const int *)pb];
+    if (a->region != b->region) return (int)a->region - (int)b->region;
+    if (a->ly != b->ly) return a->ly - b->ly;
+    return a->x - b->x;
+}
+
+// The text items sorted by (region, line, x): the order a reader meets them in, which is
+// not the order the layout made them in for a table (a column at a time).
+static void build_order(struct uui_helpview *v) {
+    free(v->order);
+    v->order = NULL;
+    v->norder = 0;
+    v->sel_on = 0;                                  // a new layout is a new text
+    int n = 0;
+    for (int i = 0; i < v->nitem; i++) if (v->item[i].kind == IT_TEXT) n++;
+    v->order = malloc((size_t)(n ? n : 1) * sizeof *v->order);
+    if (!v->order) return;
+    for (int i = 0; i < v->nitem; i++) if (v->item[i].kind == IT_TEXT) v->order[v->norder++] = i;
+    g_ord_view = v;
+    qsort(v->order, (size_t)v->norder, sizeof *v->order, ord_cmp);
+    for (int k = 0; k < v->norder; k++) v->item[v->order[k]].ord = k;
+}
+
 static void layout_all(struct uui_helpview *v, int width, int em) {
     struct lay L;
     memset(&L, 0, sizeof L);
@@ -556,6 +597,7 @@ static void layout_all(struct uui_helpview *v, int width, int em) {
     free(L.atom);
     v->ns_h = ys[0] ? ys[0] + 4 : 0;
     v->sc_h = ys[1] + pad / 2 + 4;
+    build_order(v);
 }
 
 // --- measuring against the current size --------------------------------------------------------------------
@@ -672,6 +714,15 @@ static void draw_items(struct ugfx_surface *s, struct uui_helpview *v, int regio
             uint32_t col = it->color ? 0xFF000000u | it->color : UTHEME_TEXT;
             if (it->link >= 0 && it->link == v->hover) col = ugfx_blend(col, UTHEME_TEXT, 90);
             int tw = ugfx_text_width(txt);
+            if (v->sel_on) {
+                int so = v->sel_a_ord, sc = v->sel_a_ch, eo = v->sel_f_ord, ec = v->sel_f_ch;
+                if (so > eo || (so == eo && sc > ec)) { int t = so; so = eo; eo = t; t = sc; sc = ec; ec = t; }
+                if (it->ord >= so && it->ord <= eo) {
+                    int a = it->ord == so ? sc : 0, b = it->ord == eo ? ec : (int)strlen(txt);
+                    int x1 = ix + ugfx_text_width_n(txt, a), x2 = ix + ugfx_text_width_n(txt, b);
+                    if (x2 > x1) ugfx_fill_rect(s, x1, iy, x2 - x1, it->h, UTHEME_SELECTION);
+                }
+            }
             if (v->hl[0]) {
                 int at, len;
                 if (hl_match(v->hl, txt, &at, &len)) {
@@ -780,6 +831,88 @@ int uui_helpview_take_link(struct uui_helpview *v, struct uui_helpview_link *out
     *out = v->taken;
     v->have_taken = 0;
     return 1;
+}
+
+// --- the selection ---------------------------------------------------------------------------------------------------------------
+
+// The text item nearest (cx, cy) and the byte under the pointer in it. 0 when there is no text.
+static int pos_at(struct uui_helpview *v, int cx, int cy, int *ord, int *ch) {
+    if (!v->norder) return 0;
+    const struct ugfx_font *saved = ugfx_font_current();
+    long best = -1;
+    int bo = 0, bch = 0;
+    for (int k = 0; k < v->norder; k++) {
+        const struct uhv_item *it = &v->item[v->order[k]];
+        int ix = it->x + v->x, iy = it->y + region_top(v, it->region);
+        int dy = cy < iy ? iy - cy : cy > iy + it->h - 1 ? cy - (iy + it->h - 1) : 0;
+        int dx = cx < ix ? ix - cx : cx > ix + it->w ? cx - (ix + it->w) : 0;
+        long score = (long)dy * 100000 + dx;
+        if (best >= 0 && score >= best) continue;
+        best = score;
+        bo = k;
+        const char *txt = v->arena + it->str;
+        if (dx == 0) {
+            ugfx_set_font(font_at(v, it->font));
+            bch = ugfx_text_index_at_x(txt, cx - ix);
+        } else {
+            bch = cx < ix ? 0 : (int)strlen(txt);
+        }
+    }
+    ugfx_set_font(saved);
+    *ord = bo;
+    *ch = bch;
+    return 1;
+}
+
+static void sel_range(const struct uui_helpview *v, int *so, int *sc, int *eo, int *ec) {
+    *so = v->sel_a_ord; *sc = v->sel_a_ch; *eo = v->sel_f_ord; *ec = v->sel_f_ch;
+    if (*so > *eo || (*so == *eo && *sc > *ec)) { int t = *so; *so = *eo; *eo = t; t = *sc; *sc = *ec; *ec = t; }
+}
+
+int uui_helpview_has_selection(const struct uui_helpview *v) {
+    if (!v->sel_on) return 0;
+    return v->sel_a_ord != v->sel_f_ord || v->sel_a_ch != v->sel_f_ch;
+}
+
+void uui_helpview_clear_selection(struct uui_helpview *v) { v->sel_on = v->selecting = 0; }
+
+void uui_helpview_select_all(struct uui_helpview *v) {
+    if (!v->norder) return;
+    const struct uhv_item *last = &v->item[v->order[v->norder - 1]];
+    v->sel_a_ord = 0; v->sel_a_ch = 0;
+    v->sel_f_ord = v->norder - 1; v->sel_f_ch = (int)strlen(v->arena + last->str);
+    v->sel_on = 1;
+}
+
+char *uui_helpview_selection_text(const struct uui_helpview *v) {
+    if (!uui_helpview_has_selection(v)) return NULL;
+    int so, sc, eo, ec;
+    sel_range(v, &so, &sc, &eo, &ec);
+    size_t cap = 256, n = 0;
+    char *out = malloc(cap);
+    if (!out) return NULL;
+    for (int k = so; k <= eo && k < v->norder; k++) {
+        const struct uhv_item *it = &v->item[v->order[k]];
+        const char *txt = v->arena + it->str;
+        int a = k == so ? sc : 0, b = k == eo ? ec : (int)strlen(txt);
+        if (b < a) b = a;
+        size_t need = (size_t)(b - a) + 3;
+        if (n + need > cap) {
+            while (n + need > cap) cap *= 2;
+            char *g = realloc(out, cap);
+            if (!g) { free(out); return NULL; }
+            out = g;
+        }
+        if (k > so) {                                       // between two items: a paragraph, a wrapped line, or the same line
+            const struct uhv_item *prev = &v->item[v->order[k - 1]];
+            if (it->para != prev->para) out[n++] = '\n';
+            else if ((it->region != prev->region || it->ly != prev->ly) && n && out[n - 1] != ' ') out[n++] = ' ';
+        }
+        memcpy(out + n, txt + a, (size_t)(b - a));
+        n += (size_t)(b - a);
+    }
+    out[n] = 0;
+    return out;
 }
 
 // --- the pop-up ----------------------------------------------------------------------------------------------------------------
@@ -899,7 +1032,16 @@ static int op_press(void *w, int cx, int cy, unsigned mods) {
     int rx, ry, rw, rh;
     v->armed = link_at(v, cx, cy, &rx, &ry, &rw, &rh);
     v->pop_ax = rx; v->pop_ay = ry; v->pop_aw = rw; v->pop_ah = rh;
-    return v->armed >= 0;
+    // A press in the text may become a drag: remember where, and where in the text.
+    v->press_x = cx; v->press_y = cy;
+    v->sel_on = 0;
+    int ord, ch;
+    if (pos_at(v, cx, cy, &ord, &ch)) {
+        v->sel_a_ord = v->sel_f_ord = ord;
+        v->sel_a_ch = v->sel_f_ch = ch;
+        v->selecting = 1;
+    }
+    return v->armed >= 0 || v->selecting;
 }
 
 static int op_motion(void *w, int cx, int cy, unsigned buttons) {
@@ -914,6 +1056,19 @@ static int op_motion(void *w, int cx, int cy, unsigned buttons) {
     int r = uui_sbar_motion(&v->bar, cx, cy, buttons);
     if (r & UUI_SBAR_MOVED) v->scroll = v->bar.top;
     if (r & UUI_SBAR_TOOK) return 1;
+    if (buttons && v->selecting) {
+        int dx = cx - v->press_x, dy = cy - v->press_y;
+        if (!v->sel_on && dx * dx + dy * dy < 16) return 0;      // not yet a drag
+        v->armed = -1;                                          // a drag is not a click on a link
+        v->sel_on = 1;
+        // past the top or bottom of the scrolling text, the view follows the pointer
+        int top = v->y + v->ns_h, bot = v->y + v->h;
+        if (cy < top) { v->scroll -= em_now(); clamp_scroll(v); }
+        else if (cy > bot) { v->scroll += em_now(); clamp_scroll(v); }
+        int ord, ch;
+        if (pos_at(v, cx, cy, &ord, &ch)) { v->sel_f_ord = ord; v->sel_f_ch = ch; }
+        return 1;
+    }
     if (buttons) return r != 0;
     int hv = link_at(v, cx, cy, 0, 0, 0, 0);
     int changed = hv != v->hover || (r & UUI_SBAR_REDRAW);
@@ -933,6 +1088,8 @@ static int op_release(void *w, int cx, int cy) {
     }
     int r = uui_sbar_release(&v->bar);
     (void)r;
+    v->selecting = 0;
+    if (!uui_helpview_has_selection(v)) v->sel_on = 0;
     int rx, ry, rw, rh;
     int l = link_at(v, cx, cy, &rx, &ry, &rw, &rh);
     if (v->armed >= 0 && l == v->armed) take_link(v, l, rx, ry, rw, rh);
@@ -951,7 +1108,13 @@ static int op_wheel(void *w, int notches) {
 static int op_cursor(const void *w, int cx, int cy) {
     struct uui_helpview *v = (struct uui_helpview *)(void *)(uintptr_t)w;
     struct uui_helpview *t = uui_helpview_popup_open(v) ? v->pop : v;
-    return link_at(t, cx, cy, 0, 0, 0, 0) >= 0 ? WIN_CURSOR_HAND : WIN_CURSOR_DEFAULT;
+    if (link_at(t, cx, cy, 0, 0, 0, 0) >= 0) return WIN_CURSOR_HAND;
+    if (t == v && cx >= v->x && cx < v->x + v->w - (v->bar_on ? uui_sbar_width() : 0) && cy >= v->y && cy < v->y + v->h)
+        for (int k = 0; k < v->norder; k++) {                         // over a word: the text cursor
+            const struct uhv_item *it = &v->item[v->order[k]];
+            if (uui_hit(it->x + v->x, it->y + region_top(v, it->region), it->w, it->h, cx, cy)) return WIN_CURSOR_TEXT;
+        }
+    return WIN_CURSOR_DEFAULT;
 }
 
 int uui_helpview_key(struct uui_helpview *v, int key, unsigned mods) {
@@ -1001,7 +1164,80 @@ static void op_describe(const void *w, const struct uui_describe *d) {
     }
 }
 
+// --- the right-click menu ----------------------------------------------------------------------------------
+
+enum { M_OPEN = 1, M_COPY, M_SELALL, M_BACK, M_FWD, M_HOME };
+
+static const struct uui_menu_item MENU[] = {
+    UUI_MENU("Copy",       M_COPY,   "Ctrl+C"),
+    UUI_MENU("Select All", M_SELALL, "Ctrl+A"),
+    UUI_MENU_SEP,
+    UUI_MENU("Back",       M_BACK,   "Alt+Left"),
+    UUI_MENU("Forward",    M_FWD,    "Alt+Right"),
+    UUI_MENU("Contents",   M_HOME,   "Ctrl+Home"),
+};
+static const struct uui_menu_item MENU_LINK[] = {
+    UUI_MENU("Open",       M_OPEN,   0),
+    UUI_MENU_SEP,
+    UUI_MENU("Copy",       M_COPY,   "Ctrl+C"),
+    UUI_MENU("Select All", M_SELALL, "Ctrl+A"),
+    UUI_MENU_SEP,
+    UUI_MENU("Back",       M_BACK,   "Alt+Left"),
+    UUI_MENU("Forward",    M_FWD,    "Alt+Right"),
+    UUI_MENU("Contents",   M_HOME,   "Ctrl+Home"),
+};
+
+static unsigned menu_flags(void *w, int code) {
+    struct uui_helpview *v = w;
+    switch (code) {
+    case M_COPY: return uui_helpview_has_selection(v) ? 0 : UUI_MI_DISABLED;
+    case M_SELALL: return v->norder ? 0 : UUI_MI_DISABLED;
+    case M_BACK: return v->can_back ? 0 : UUI_MI_DISABLED;
+    case M_FWD: return v->can_fwd ? 0 : UUI_MI_DISABLED;
+    default: return 0;
+    }
+}
+
+static int menu_run(void *w, int code) {
+    struct uui_helpview *v = w;
+    switch (code) {
+    case M_OPEN:
+        if (v->ctx_link >= 0 && v->doc) {
+            take_link(v, v->ctx_link, v->ctx_ax, v->ctx_ay, v->ctx_aw, v->ctx_ah);
+            return 1;
+        }
+        return 0;
+    case M_SELALL: uui_helpview_select_all(v); return 1;
+    case M_COPY: v->cmd = UHV_CMD_COPY; return 1;
+    case M_BACK: v->cmd = UHV_CMD_BACK; return 1;
+    case M_FWD: v->cmd = UHV_CMD_FORWARD; return 1;
+    case M_HOME: v->cmd = UHV_CMD_CONTENTS; return 1;
+    default: return 0;
+    }
+}
+
+int uui_helpview_take_command(struct uui_helpview *v) {
+    int c = v->cmd;
+    v->cmd = 0;
+    return c;
+}
+
+static int op_context_menu(void *w, int cx, int cy, struct uui_ctxmenu_src *out) {
+    struct uui_helpview *v = w;
+    if (!v->doc || uui_helpview_popup_open(v)) return 0;
+    if (cx < v->x || cx >= v->x + v->w - (v->bar_on ? uui_sbar_width() : 0) || cy < v->y || cy >= v->y + v->h) return 0;
+    v->ctx_link = link_at(v, cx, cy, &v->ctx_ax, &v->ctx_ay, &v->ctx_aw, &v->ctx_ah);
+    const struct uui_menu_item *items = v->ctx_link >= 0 ? MENU_LINK : MENU;
+    out->w = v;
+    out->items = items;
+    out->count = v->ctx_link >= 0 ? (int)(sizeof MENU_LINK / sizeof MENU_LINK[0]) : (int)(sizeof MENU / sizeof MENU[0]);
+    out->flags = menu_flags;
+    out->run = menu_run;
+    return 1;
+}
+
 const struct uui_widget_ops uui_helpview_ops = {
+    .context_menu = op_context_menu,
     .draw = op_draw,
     .draw_overlay = op_overlay,
     .natural_size = op_natural,

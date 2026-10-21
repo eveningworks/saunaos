@@ -81,6 +81,21 @@ struct uui_helpview {
     struct uui_helpview_link taken;
     int have_taken;
 
+    // --- the selection: dragged over the text, in reading order ---------------------------
+    int sel_on;                     // a selection exists
+    int sel_a_ord, sel_a_ch;        // where the drag began: a text item in reading order, a byte in it
+    int sel_f_ord, sel_f_ch;        // where it is now
+    int selecting;                  // a press that may become a drag
+    int press_x, press_y;
+    int *order;                     // the layout's text items in reading order
+    int norder;
+
+    // --- the right-click menu ----------------------------------------------------------------
+    int can_back, can_fwd;          // the APP keeps these true as history allows: the menu greys by them
+    int cmd;                        // a menu row the app is to run (UHV_CMD_*), until taken
+    int ctx_link;                   // the link the menu opened over, or -1
+    int ctx_ax, ctx_ay, ctx_aw, ctx_ah;
+
     // --- highlight (Find) ----------------------------------------------------------
     char hl[64];
 
@@ -99,6 +114,23 @@ void uui_helpview_set_doc(struct uui_helpview *v, const struct uhlp *h, const st
 void uui_helpview_set_zoom(struct uui_helpview *v, int zoom);   // UHV_ZOOM_MIN .. UHV_ZOOM_MAX
 // The words to mark in the text, or "" for none (a Find result).
 void uui_helpview_set_highlight(struct uui_helpview *v, const char *words);
+
+// The selection: dragged with the pointer, or all of the topic. The text
+// is allocated (free() it), paragraphs on separate lines and a wrapped line
+// joined by a space; NULL when nothing is selected.
+int   uui_helpview_has_selection(const struct uui_helpview *v);
+char *uui_helpview_selection_text(const struct uui_helpview *v);
+void  uui_helpview_select_all(struct uui_helpview *v);
+void  uui_helpview_clear_selection(struct uui_helpview *v);
+
+// What a right-click menu row asks of the APP, taken after the widget
+// reports a change: the rows that are about history or the clipboard, not
+// the topic. 0 for none.
+#define UHV_CMD_COPY 1
+#define UHV_CMD_BACK 2
+#define UHV_CMD_FORWARD 3
+#define UHV_CMD_CONTENTS 4
+int uui_helpview_take_command(struct uui_helpview *v);
 
 // The link clicked since the last call: 1, or 0 when none.
 int uui_helpview_take_link(struct uui_helpview *v, struct uui_helpview_link *out);
