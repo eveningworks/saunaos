@@ -1344,7 +1344,17 @@ static int browse_paragraph(struct build *b, struct view rec, struct pstate *st,
         if (ttype == 0 || ttype == 2) { width = (int)(int16_t)cu16(&f); }
         if (ncol < 1) ncol = 1;
         if (!f.bad && v_ok(f.v, f.at, (size_t)ncol * 4)) {
-            if (*cur_table < 0 || 1) {
+            // Each row of a table is its own record and repeats the column layout: a record
+            // whose layout matches the table just read continues it, so a table is one table.
+            if (*cur_table >= 0 && *cur_table < b->d->ntable) {
+                const struct uhlp_table *t = &b->d->table[*cur_table];
+                int same = t->ncol == ncol && t->type == ttype && t->width == width;
+                for (int i = 0; same && i < ncol; i++)
+                    same = b->d->col[t->col0 + i].width == (int16_t)v16(f.v, f.at + (size_t)i * 4) &&
+                           b->d->col[t->col0 + i].gap == (int16_t)v16(f.v, f.at + (size_t)i * 4 + 2);
+                if (same) table = *cur_table;
+            }
+            if (table < 0) {
                 if (!grow((void **)&b->d->table, &b->table_cap, b->d->ntable, sizeof *b->d->table)) { b->oom = 1; goto done; }
                 struct uhlp_table *t = &b->d->table[b->d->ntable];
                 t->ncol = ncol; t->width = width; t->type = ttype; t->nrow = 0;

@@ -8217,6 +8217,28 @@ runs first**: a `doom1.wad` with one
   EXISTS; that it answers for every command that can fail to apply is for
   a person (`docs/conventions/gui.md`). `--positive-control` removes Help
   Viewer's `item_flags` and must come back refused. In `preflight.sh`.
+- **`uhlp_hostcheck.py`** -- `userland/lib/uhlp.c`, the Windows Help file
+  reader, compiled on the host under ASan + UBSan against files WRITTEN by
+  `hlpgen.py`, so the answer is known and no Microsoft data is needed. It
+  checks the container (a directory tree of several levels, a compressed
+  multi-block |TOPIC, the phrase table, |FONT, |SYSTEM's records), every
+  context ID finding its own topic, the browse sequence, keywords, each
+  topic's text against the model, links by kind, macros, a two-row table
+  being ONE table (it was one per row until this check found it),
+  `uhlp_hash` against an independent Python hash and `uhlp_id_for_hash`
+  hashing back to its input -- then opens the same files with bytes
+  flipped, ranges zeroed, sizes set to 0xFFFFFFFF and the end cut off
+  (the reader parses untrusted input: a fuzz of 30,000 mutated files came
+  back clean). `--fuzz N --seed S` sizes it; `--positive-control` runs a
+  wrong hash multiplier (the lookups must fail) and a bounds check that
+  always agrees (the fuzz must crash). In `preflight.sh`.
+- **`hlpgen.py`** -- writes WinHelp 3.1 files from Python (`Help`,
+  `Topic`, `sample()`): the B+ trees, LZ77 blocks, phrases, fonts,
+  contexts, keywords, windows, links, macros and tables. The input of
+  `uhlp_hostcheck.py`, and the file a GUI test of Help Viewer can open.
+  Its docstring has the layout rules a writer shares with a real file
+  (a record may not cross a block; TOPICPOS counts the display text
+  written in the block so far).
 - **`check_drivers.py`** -- refuses a driver that declares itself to
   nothing. Every `.c` under `kernel/drivers/`, and any file anywhere
   that calls a device class registry, must carry a `DRIVER_DECLARE(...)`

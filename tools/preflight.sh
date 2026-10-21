@@ -254,6 +254,12 @@ python3 tools/tfs3_writer_test.py || fail "tfs3_writer overwrite check"
 step "ugfx_pix_hostcheck.py (every SIMD pixel loop byte-identical to C)"
 python3 tools/ugfx_pix_hostcheck.py || fail "ugfx_pix SIMD vs C"
 
+# The Help file reader parses untrusted input in ring 3. This writes help
+# files with a known answer (no Microsoft data), checks the container and
+# lookups, then opens mutated copies under ASan + UBSan. Host-only, ~10 s.
+step "uhlp_hostcheck.py (the Help file reader: known files, then hostile ones)"
+python3 tools/uhlp_hostcheck.py || fail "uhlp reader vs generated help files"
+
 step "boot_smoke_test.py"
 python3 tools/boot_smoke_test.py || fail "boot smoke test"
 
