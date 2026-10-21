@@ -32,6 +32,7 @@ from harness import Results                      # noqa: E402
 
 N = 600
 DIR = "/home/big"
+SBAR = 19             # the overlay scroll bar plus the view's own inset, as measured (cells 112..126 over 1020..1180)
 END = "0xf787"        # KEY_END (api/keyboard.h): the row after Home's 0xf786
 
 
@@ -90,6 +91,21 @@ def run(dbg, qmp, res):
         ink = sum(1 for y in range(c["y"] + py + 8, c["y"] + py + ph - 8, 3)
                   for x in range(c["x"] + px + 8, c["x"] + px + pw - 20, 3)
                   if sum(im.getpixel((x, y))) < 600)
+        # The spare width is shared out: at several widths, the packed columns reach the scroll bar's
+        # edge to within a pixel a column (rounding), never a blank strip of up to one cell.
+        slacks = []
+        for w in (1020, 1060, 1100, 1140, 1180):
+            dbg.send(f"gui resize {w} 640")
+            dbg.settle()
+            time.sleep(0.5)
+            win = dbg.window(fm.TITLE)
+            lay = fm.layout_now(dbg, win) or fm.last_layout()
+            if 0 in lay.cellgrid:
+                px0, _, pw0, _ = lay.pane[0]
+                x0, _, cw, _, cols = lay.cellgrid[0]
+                slacks.append((w, pw0 - (x0 - px0) - cols * cw - SBAR, cols, cw))
+        res.check("the icon columns fill the row at every width tried (no strip on the right)",
+                  len(slacks) == 5 and all(0 <= s <= cols for _, s, cols, _ in slacks), f"(width, slack, cols, cell) {slacks}")
         res.check("wheeled to the end, then a wider window: the icons are still drawn", ink > 1000, f"{ink} non-white samples, scroll {before} -> {lay.scroll.get(0)}")
         dbg.close_window(fm.TITLE)
     sh(f"rm -r {DIR}")

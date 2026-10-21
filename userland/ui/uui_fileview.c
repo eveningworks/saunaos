@@ -852,7 +852,7 @@ static int ic_px(const struct uui_fileview *fv) {
 }
 static int ic_pad(void)  { return 4; }
 
-static int ic_cell_w(const struct uui_fileview *fv) {
+static int ic_min_cell_w(const struct uui_fileview *fv) {
     // A label's worth of pitch, never narrower than the icon -- the
     // desktop's icon_col_w() tradeoff (fixed pitch, clipped labels),
     // including its reservation in a REPRESENTATIVE glyph. `char_w` is
@@ -872,8 +872,19 @@ static int ic_cell_w(const struct uui_fileview *fv) {
 static int ic_cell_h(const struct uui_fileview *fv) { return ic_px(fv) + IC_LABEL_LINES * (ugfx_char_h() + 1) + 10; }
 
 static int ic_cols(const struct uui_fileview *fv) {
-    int n = (fv->table.w - uui_sbar_width() - 2 * ic_pad()) / ic_cell_w(fv);
+    int n = (fv->table.w - uui_sbar_width() - 2 * ic_pad()) / ic_min_cell_w(fv);
     return n > 0 ? n : 1;
+}
+
+// THE CELL IS AT LEAST ic_min_cell_w() AND IS STRETCHED TO FILL THE ROW: the columns share the
+// width left over once the last whole one is placed, so dragging the window wider widens every
+// column a little and one more drops in -- instead of a blank strip on the right that grows
+// until a column fits (Android's grids and Dolphin's wide view do this; Explorer and Finder
+// leave the strip). Icons and labels stay centred in their cell.
+static int ic_cell_w(const struct uui_fileview *fv) {
+    int w = (fv->table.w - uui_sbar_width() - 2 * ic_pad()) / ic_cols(fv);
+    int m = ic_min_cell_w(fv);
+    return w > m ? w : m;
 }
 
 static int ic_total_rows(const struct uui_fileview *fv) {
