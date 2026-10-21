@@ -1717,7 +1717,8 @@ static int api_PatBlt(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // SetPixel(hdc, X, Y, crColor) -> COLORREF
 // GetPixel(hdc, X, Y) -> COLORREF
 // Windows: Set or read one pixel; SetPixel returns the colour actually set.
-// w16: The same.
+// w16: The same, as the palette colour: a pixel holds the shade 3.11's VGA driver showed (its light
+// grey is 0xC0C7C8), and the colour a program asked for is what it reads back -- 0x808080 for dark grey.
 static int api_SetPixel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     struct w16_gdiobj *o;
@@ -1731,7 +1732,8 @@ static int api_SetPixel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (o && t.px && px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1) {
         uint32_t *p = t.px + (size_t)py * t.w + px;
         if (ordinal == 31) *p = t.mono ? (w16_colorref_px(cr) ? 0xFFFFFF : 0) : w16_colorref_px(cr);
-        out = (*p & 0xFF) << 16 | (*p & 0xFF00) | (*p >> 16 & 0xFF);   // back to a COLORREF
+        uint32_t v = w16_vga_back(*p);           // the colour a program asked for, not its shade on screen
+        out = (v & 0xFF) << 16 | (v & 0xFF00) | (v >> 16 & 0xFF);      // back to a COLORREF
     }
     if (ordinal == 83) gdi_read_done(w, o);
     else gdi_done(w, o);
@@ -1881,6 +1883,8 @@ static int api_GetTextExtent(struct w16 *w, unsigned ordinal, struct w16_args *a
     int cx = text_runs(dc, 0, INT_MIN, 0, text, 0, 0), cy = ugfx_char_h();
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
+    cx = w16_font_scaled(dc ? dc->font : 0, cx);
+    cy = w16_font_scaled(dc ? dc->font : 0, cy);
     if (dc) { cx = scale(cx, dc->wext[0], dc->vext[0]); cy = scale(cy, dc->wext[1], dc->vext[1]); }
     if (cx < 0) cx = -cx;
     if (cy < 0) cy = -cy;
@@ -2120,7 +2124,7 @@ static int api_GetCharWidth(struct w16 *w, unsigned ordinal, struct w16_args *a)
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_font_of(hfont));
     for (unsigned i = 0; i < n; i++) {
-        int adv = ugfx_char_advance((char)(first + i));
+        int adv = w16_font_scaled(hfont, ugfx_char_advance((char)(first + i)));
         p[2 * i] = (uint8_t)adv;
         p[2 * i + 1] = (uint8_t)(adv >> 8);
     }

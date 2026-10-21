@@ -594,6 +594,9 @@ static int on_user(struct uapp *a, int code, int arg) {
     }
     case W16_POST_MENU_SHOW: bar_show(arg); return 1;
     case W16_POST_CURSOR: uapp_set_cursor(a, arg); return 0;
+    case W16_POST_MOVE:                 // a press the program called its caption: the compositor drags
+        if (!maximized()) uapp_move_start(a, 0);
+        return 0;
     case W16_POST_POINTER:              // w16's screen is the window: its 1x point, scaled
         uapp_set_pointer(a, w16_up((int16_t)((uint32_t)arg >> 16)), w16_up((int16_t)arg));
         return 0;

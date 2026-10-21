@@ -137,6 +137,25 @@ def sh(dbg, cmd):
     return dbg.send(f"sh {cmd}") or ""
 
 
+def probe(dbg, res):
+    """w16probe.exe's answers (userland/w16/samples/w16probe.asm), against Windows 3.1's: the dialog
+    base units at VGA, no button down, a 1000-pixel font measuring ten times a 100-pixel one (Clock
+    sizes its digits so), and R2_NOT on light grey giving the palette's dark grey (Clock's second hand)."""
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/WINDOWS")
+    sh(dbg, "rm /home/Win16/WINDOWS/W16PROBE.INI")
+    sh(dbg, "w16 /usr/share/w16/w16probe.exe")
+    out = sh(dbg, "cat /home/Win16/WINDOWS/W16PROBE.INI")
+    got = dict(re.findall(r"(\w+)=([0-9A-F]+)", out))
+    res.check("GetDialogBaseUnits answers 3.1's VGA units, 8 by 16", got.get("Base") == "00100008", got)
+    res.check("GetAsyncKeyState says the left button is up", got.get("Async") == "0000", got)
+    w1000, w100 = int(got.get("Wide1000", "0"), 16), int(got.get("Wide100", "0"), 16)
+    res.check("a 1000-pixel font measures ten times a 100-pixel one (not cut at what ugfx can draw)",
+              w100 > 0 and 9.5 <= w1000 / w100 <= 10.5, f"{w1000} / {w100}")
+    res.check("R2_NOT on light grey is dark grey, as on 3.1's palette, and GetPixel says 0x808080",
+              got.get("Not") == "00808080", got)
+
+
 def gdi_checks(dbg, qmp, res, tmp):
     sh(dbg, "mkdir /home/Win16")
     sh(dbg, "mkdir /home/Win16/WINDOWS")
@@ -1130,6 +1149,7 @@ def main():
         dialogs(dbg, qmp, res)
         coprocessor(dbg, qmp, res)
         calls_answered(dbg, res)
+        probe(dbg, res)
         shapes(dbg, qmp, res, TMP)
     finally:
         dbg.close()

@@ -87,6 +87,13 @@ uint32_t w16_vga(uint32_t v) {
     }
 }
 
+uint32_t w16_vga_back(uint32_t v) {
+    static const uint32_t SHIFTED[] = { 0x000080, 0x008000, 0x008080, 0x800000, 0x800080, 0x808000, 0xC0C0C0, 0x808080 };
+    for (unsigned i = 0; i < sizeof SHIFTED / sizeof SHIFTED[0]; i++)
+        if (w16_vga(SHIFTED[i]) == (v & 0xFFFFFF)) return SHIFTED[i];
+    return v & 0xFFFFFF;
+}
+
 uint32_t w16_rgb(uint32_t v) {
     v = w16_vga(v);
     return ugfx_rgb((uint8_t)(v >> 16), (uint8_t)(v >> 8), (uint8_t)v);

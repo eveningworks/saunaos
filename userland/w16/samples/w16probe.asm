@@ -1,0 +1,214 @@
+; w16probe.asm -- answers Windows gives that are easy to get subtly wrong, written to W16PROBE.INI in
+; drive C:'s WINDOWS folder:
+;   [Probe] Base=   GetDialogBaseUnits (DX:AX: the System font's height and width)
+;           Async=  GetAsyncKeyState(VK_LBUTTON), no button down
+;           Wide1000= / Wide100=  GetTextExtent("00:00:00") in Arial at 1000 and 100 pixels -- Clock sizes
+;                   its digits by measuring them in a 1000-pixel font, so the first must be ten times the
+;                   second, not cut at what the rasterizer can draw
+;           Not=    GetPixel of light grey after an R2_NOT line: dark grey (00808080) on 3.1's palette, where
+;                   the mix works on palette indices -- Clock's second hand
+; Run on real Windows 3.11 for Workgroups and on w16, it is the check of both: w16_gui_test.py reads
+; the file. No window. Its name sorts after fault.exe: tests index the samples by their place.
+; Build: tools/gen_ne.py.
+;
+;w16: module W16PROBE
+;w16: description Probe test
+;w16: segment 1 code
+;w16: segment 2 data
+;w16: autodata 2
+;w16: stack 4096
+;w16: heap 1024
+
+%include "ne16.inc"
+
+; ---------------------------------------------------------------- code
+W16_SEGMENT 1
+
+start:
+    W16_CALL "KERNEL", 91           ; InitTask
+    or ax, ax
+    jnz .run
+    jmp fail
+.run:
+    push ds
+    pop es
+
+    W16_CALL "USER", 243            ; GetDialogBaseUnits: DX height, AX width
+    push ax
+    mov ax, dx
+    mov di, base_text
+    call hex16
+    pop ax
+    call hex16
+    mov byte [di], 0
+
+    push word 1                     ; GetAsyncKeyState(VK_LBUTTON)
+    W16_CALL "USER", 249
+    mov di, async_text
+    call hex16
+    mov byte [di], 0
+
+    push word 0                     ; GetDC(NULL): the screen
+    W16_CALL "USER", 66
+    mov [screen], ax
+    push ax                         ; CreateCompatibleDC(screen)
+    W16_CALL "GDI", 52
+    mov [mem], ax
+
+    mov word [logfont], -1000       ; the text extent at 1000 pixels, then at 100
+    mov di, wide1000_text
+    call extent
+    mov word [logfont], -100
+    mov di, wide100_text
+    call extent
+
+    push word [screen]              ; CreateCompatibleBitmap(screen, 8, 1): colour, as the screen is
+    push word 8
+    push word 1
+    W16_CALL "GDI", 51
+    push word [mem]
+    push ax
+    W16_CALL "GDI", 45              ; SelectObject(mem, bitmap)
+    push word 0x00C0                ; CreateSolidBrush(0x00C0C0C0)
+    push word 0xC0C0
+    W16_CALL "GDI", 66
+    push word [mem]
+    push ax
+    W16_CALL "GDI", 45              ; SelectObject(mem, brush)
+    push word [mem]                 ; PatBlt(mem, 0, 0, 8, 1, PATCOPY): light grey
+    push word 0
+    push word 0
+    push word 8
+    push word 1
+    push word 0x00F0
+    push word 0x0021
+    W16_CALL "GDI", 29
+    push word [mem]                 ; SetROP2(mem, R2_NOT)
+    push word 6
+    W16_CALL "GDI", 4
+    push word [mem]                 ; MoveTo(mem, 0, 0)
+    push word 0
+    push word 0
+    W16_CALL "GDI", 20
+    push word [mem]                 ; LineTo(mem, 8, 0)
+    push word 8
+    push word 0
+    W16_CALL "GDI", 19
+    push word [mem]                 ; GetPixel(mem, 2, 0): DX:AX a COLORREF
+    push word 2
+    push word 0
+    W16_CALL "GDI", 83
+    push ax
+    mov ax, dx
+    mov di, not_text
+    call hex16
+    pop ax
+    call hex16
+    mov byte [di], 0
+
+    mov si, keys
+.write:
+    lodsw                           ; a key's name, then its text
+    or ax, ax
+    jz .written
+    mov dx, ax
+    lodsw
+    push si                         ; kept across the call, under its arguments
+    push ds                         ; WritePrivateProfileString("Probe", key, text, "W16PROBE.INI")
+    push word ini_app
+    push ds
+    push dx
+    push ds
+    push ax
+    push ds
+    push word ini_file
+    W16_CALL "KERNEL", 129
+    pop si
+    jmp .write
+.written:
+    mov ax, 0x4C00
+    int 0x21
+fail:
+    mov ax, 0x4C01
+    int 0x21
+
+; The font `logfont` describes, selected into `mem`: GetTextExtent of the digits, in hex at ES:DI.
+extent:
+    push di
+    push ds                         ; CreateFontIndirect(&logfont)
+    push word logfont
+    W16_CALL "GDI", 57
+    mov [font], ax
+    push word [mem]
+    push ax
+    W16_CALL "GDI", 45              ; SelectObject(mem, font)
+    mov [was], ax
+    push word [mem]                 ; GetTextExtent(mem, digits, 8): AX the width
+    push ds
+    push word digits
+    push word 8
+    W16_CALL "GDI", 91
+    mov [width], ax
+    push word [mem]                 ; the old font back, the new one deleted
+    push word [was]
+    W16_CALL "GDI", 45
+    push word [font]
+    W16_CALL "GDI", 69
+    pop di
+    mov ax, [width]
+    call hex16
+    mov byte [di], 0
+    ret
+
+; AX as four hex digits at ES:DI.
+hex16:
+    push ax
+    mov al, ah
+    call hex8
+    pop ax
+hex8:
+    push ax
+    shr al, 4
+    call .digit
+    pop ax
+.digit:
+    and al, 0x0F
+    add al, '0'
+    cmp al, '9'
+    jbe .put
+    add al, 'A' - '9' - 1
+.put:
+    stosb
+    ret
+
+W16_ENTRY start
+
+; ---------------------------------------------------------------- data
+W16_SEGMENT 2
+
+            times 16 db 0           ; the Windows header words a task keeps
+screen:     dw 0
+mem:        dw 0
+font:       dw 0
+was:        dw 0
+width:      dw 0
+logfont:    dw -1000, 0, 0, 0, 400  ; height, width, escapement, orientation, weight
+            db 0, 0, 0, 0, 0, 0, 0, 0x22    ; italic .. quality; VARIABLE_PITCH | FF_SWISS
+            db "Arial"
+            times 32 - 5 db 0
+digits:     db "00:00:00"
+
+keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_text
+            dw key_w100, wide100_text, key_not, not_text, 0
+key_base:   db "Base", 0
+key_async:  db "Async", 0
+key_w1000:  db "Wide1000", 0
+key_w100:   db "Wide100", 0
+key_not:    db "Not", 0
+base_text:  times 10 db 0
+async_text: times 6 db 0
+wide1000_text: times 6 db 0
+wide100_text: times 6 db 0
+not_text:   times 10 db 0
+ini_app:    db "Probe", 0
+ini_file:   db "W16PROBE.INI", 0

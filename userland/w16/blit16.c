@@ -43,9 +43,43 @@ uint32_t gdi_rop3(uint8_t code, uint32_t p, uint32_t s, uint32_t d) {
     return out & WHITE;
 }
 
+// Windows' 20 static colours of a 256-colour screen, by palette index: 0-9 and 246-255.
+static const struct { uint8_t index; uint32_t rgb; } STATIC[20] = {
+    { 0, 0x000000 }, { 1, 0x800000 }, { 2, 0x008000 }, { 3, 0x808000 }, { 4, 0x000080 },
+    { 5, 0x800080 }, { 6, 0x008080 }, { 7, 0xC0C0C0 }, { 8, 0xC0DCC0 }, { 9, 0xA6CAF0 },
+    { 246, 0xFFFBF0 }, { 247, 0xA0A0A4 }, { 248, 0x808080 }, { 249, 0xFF0000 }, { 250, 0x00FF00 },
+    { 251, 0xFFFF00 }, { 252, 0x0000FF }, { 253, 0xFF00FF }, { 254, 0x00FFFF }, { 255, 0xFFFFFF },
+};
+
+// Pixels hold the colours as 3.11's VGA driver showed them (w16_vga(): its light grey is 0xC0C7C8),
+// so a static colour is matched, and answered, in that form.
+static int static_index(uint32_t rgb) {
+    for (unsigned i = 0; i < 20; i++)
+        if (w16_vga(STATIC[i].rgb) == (rgb & WHITE)) return STATIC[i].index;
+    return -1;
+}
+
+static int static_rgb(unsigned index, uint32_t *rgb) {
+    for (unsigned i = 0; i < 20; i++)
+        if (STATIC[i].index == index) { *rgb = w16_vga(STATIC[i].rgb); return 1; }
+    return 0;
+}
+
 uint32_t gdi_rop2(int r2, uint32_t p, uint32_t d) {
     unsigned code = (unsigned)(r2 - 1) & 15;
     if (code == 12) return p;                    // R2_COPYPEN
+    // THE MIX WORKS ON PALETTE INDICES, as on the 256-colour screen w16 reports: the static palette is
+    // laid out so an inverted index is a colour's opposite -- light grey (7) inverts to dark grey (248),
+    // not RGB's (63, 56, 55): Clock's second hand. Where pen and pixel are both static colours and the
+    // answer is one too, that answer; anything else mixes the RGB.
+    int pi = static_index(p), di = static_index(d);
+    if (pi >= 0 && di >= 0) {
+        unsigned out = 0;
+        for (unsigned i = 0; i < 4; i++)
+            if (code >> i & 1) out |= (i & 2 ? (unsigned)pi : ~(unsigned)pi) & (i & 1 ? (unsigned)di : ~(unsigned)di);
+        uint32_t rgb;
+        if (static_rgb(out & 0xFF, &rgb)) return rgb;
+    }
     uint32_t out = 0;
     for (unsigned i = 0; i < 4; i++)
         if (code >> i & 1) out |= (i & 2 ? p : ~p) & (i & 1 ? d : ~d);

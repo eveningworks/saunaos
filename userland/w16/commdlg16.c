@@ -49,6 +49,7 @@
 
 #define CDERR_NOTEMPLATE      0x0003
 #define CDERR_MEMALLOCFAILURE 0x0009
+#define CDERR_FINDRESFAILURE  0x0006
 #define PDERR_NODEFAULTPRN    0x1008
 #define FNERR_BUFFERTOOSMALL  0x3003
 
@@ -1192,8 +1193,10 @@ static int cf_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_t wp, 
 // on Cancel.
 // w16: The same dialog, drawn as Windows 3.1 drew it, over the fonts w16 draws in: 3.11's bitmap
 // fonts from drive C:, TrueType faces (C:'s own .TTF files, else toy-os's metric twins) marked as
-// 3.1 marked them, at any size. A program's hook hears every message first; a custom template is
-// refused (CDERR_NOTEMPLATE). Apply (CF_APPLY) reaches the hook, which is where 3.1 left it.
+// 3.1 marked them, at any size. A program's hook hears every message first. A program's own template
+// (CF_ENABLETEMPLATE: Clock's, which hides all but the face list) is built from its resource and filled
+// by the standard control ids; one passed by handle is refused (CDERR_NOTEMPLATE). Apply (CF_APPLY)
+// reaches the hook, which is where 3.1 left it.
 static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
@@ -1208,7 +1211,7 @@ static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     c->flags = rd32(p + 14);
     c->hook = c->flags & CF_ENABLEHOOK ? rd32(p + 26) : 0;
     uint16_t owner = rd16(p + 4);
-    if (c->flags & (CF_ENABLETEMPLATE | CF_ENABLETEMPLATEHANDLE)) { free(c); g_error = CDERR_NOTEMPLATE; return 4; }
+    if (c->flags & CF_ENABLETEMPLATEHANDLE) { free(c); g_error = CDERR_NOTEMPLATE; return 4; }
     c->lf.weight = 400;
     c->pt = 10;
     snprintf(c->lf.face, sizeof c->lf.face, "Arial");
@@ -1233,35 +1236,65 @@ static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 
     g_org_x = 13;                                // FORMATDLGORD31's place
     g_org_y = 54;
-    struct w16_wnd *d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
-                                    w16_du_w(264, 7), w16_du_h(147, 13), "Font", 0, cf_proc);
-    if (!d) { g_error = CDERR_MEMALLOCFAILURE; goto out; }
-    w16_dlg_set_font(d, 8);
-    d->dlgdata = c;
-    add(w, d, "STATIC", STC1, 0, 6, 3, 40, 9, "&Font:");
-    struct w16_wnd *fc = add(w, d, "COMBOBOX", FNT_FACE, WS_TABSTOP | WS_VSCROLL | 1 | 0x100, 6, 13, 94, 54, "");
-    add(w, d, "STATIC", STC2, 0, 108, 3, 44, 9, "Font St&yle:");
-    struct w16_wnd *sc = add(w, d, "COMBOBOX", FNT_STYLE, WS_TABSTOP | WS_VSCROLL | 1, 108, 13, 64, 54, "");
-    add(w, d, "STATIC", STC3, 0, 179, 3, 30, 9, "&Size:");
-    struct w16_wnd *zc = add(w, d, "COMBOBOX", FNT_SIZE, WS_TABSTOP | WS_VSCROLL | 1, 179, 13, 32, 54, "");
-    add(w, d, "BUTTON", IDOK, WS_TABSTOP | BS_DEFPUSHBUTTON, 218, 6, 40, 14, "OK");
-    add(w, d, "BUTTON", IDCANCEL, WS_TABSTOP, 218, 23, 40, 14, "Cancel");
-    if (c->flags & CF_APPLY) add(w, d, "BUTTON", 1026, WS_TABSTOP, 218, 40, 40, 14, "&Apply");
-    if (c->flags & CF_SHOWHELP_) add(w, d, "BUTTON", PSH_HELP, WS_TABSTOP, 218, 57, 40, 14, "&Help");
-    if (c->flags & CF_EFFECTS) {
-        add(w, d, "BUTTON", GRP1, BS_GROUPBOX, 6, 72, 84, 34, "Effects");
-        add(w, d, "BUTTON", CHX1, WS_TABSTOP | BS_AUTOCHECKBOX, 10, 82, 49, 10, "Stri&keout");
-        add(w, d, "BUTTON", CHX2, WS_TABSTOP | BS_AUTOCHECKBOX, 10, 94, 51, 10, "&Underline");
+    struct w16_wnd *d;
+    if (c->flags & CF_ENABLETEMPLATE) {
+        // The program's own dialog (Clock's: the face list alone, the rest hidden off to the side),
+        // its controls the standard ids this fills: built from its DIALOG resource, not shown yet.
+        uint32_t name = rd32(p + 30);
+        char rname[64] = "", why[96] = "";
+        struct ne_resource res;
+        for (unsigned k = 0; name >> 16 && k + 1 < sizeof rname; k++) {   // a name, else an id
+            const uint8_t *ch = at(w, name + k, 1, 0);
+            if (!ch || !*ch) break;
+            rname[k] = (char)*ch;
+        }
+        if (w16_res_find(w, NE_RT_DIALOG, 0, (uint16_t)(name >> 16 ? 0 : name), name >> 16 ? rname : 0, &res) < 0 ||
+            !(d = w16_dlg_from_template(w, w->ne.img + res.off, res.len, owner, rd16(p + 34), cf_proc, why,
+                                        sizeof why))) {
+            free(c);
+            g_error = CDERR_FINDRESFAILURE;
+            return 4;
+        }
+        d->dlgdata = c;
+    } else {
+        d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
+                        w16_du_w(264, 7), w16_du_h(147, 13), "Font", 0, cf_proc);
+        if (!d) { g_error = CDERR_MEMALLOCFAILURE; goto out; }
+        w16_dlg_set_font(d, 8);
+        d->dlgdata = c;
+        add(w, d, "STATIC", STC1, 0, 6, 3, 40, 9, "&Font:");
+        add(w, d, "COMBOBOX", FNT_FACE, WS_TABSTOP | WS_VSCROLL | 1 | 0x100, 6, 13, 94, 54, "");
+        add(w, d, "STATIC", STC2, 0, 108, 3, 44, 9, "Font St&yle:");
+        add(w, d, "COMBOBOX", FNT_STYLE, WS_TABSTOP | WS_VSCROLL | 1, 108, 13, 64, 54, "");
+        add(w, d, "STATIC", STC3, 0, 179, 3, 30, 9, "&Size:");
+        add(w, d, "COMBOBOX", FNT_SIZE, WS_TABSTOP | WS_VSCROLL | 1, 179, 13, 32, 54, "");
+        add(w, d, "BUTTON", IDOK, WS_TABSTOP | BS_DEFPUSHBUTTON, 218, 6, 40, 14, "OK");
+        add(w, d, "BUTTON", IDCANCEL, WS_TABSTOP, 218, 23, 40, 14, "Cancel");
+        if (c->flags & CF_APPLY) add(w, d, "BUTTON", 1026, WS_TABSTOP, 218, 40, 40, 14, "&Apply");
+        if (c->flags & CF_SHOWHELP_) add(w, d, "BUTTON", PSH_HELP, WS_TABSTOP, 218, 57, 40, 14, "&Help");
+        if (c->flags & CF_EFFECTS) {
+            add(w, d, "BUTTON", GRP1, BS_GROUPBOX, 6, 72, 84, 34, "Effects");
+            add(w, d, "BUTTON", CHX1, WS_TABSTOP | BS_AUTOCHECKBOX, 10, 82, 49, 10, "Stri&keout");
+            add(w, d, "BUTTON", CHX2, WS_TABSTOP | BS_AUTOCHECKBOX, 10, 94, 51, 10, "&Underline");
+        }
+        add(w, d, "BUTTON", FNT_SAMPLEBOX, BS_GROUPBOX, 98, 72, 160, 49, "Sample");
+        add(w, d, "STATIC", FNT_SAMPLE, SS_CENTER_ | SS_NOPREFIX, 104, 81, 149, 37, "AaBbYyZz");
+        add(w, d, "STATIC", FNT_KIND, SS_CENTER_ | SS_NOPREFIX, 98, 124, 160, 20, "");
     }
-    add(w, d, "BUTTON", FNT_SAMPLEBOX, BS_GROUPBOX, 98, 72, 160, 49, "Sample");
-    struct w16_wnd *smp = add(w, d, "STATIC", FNT_SAMPLE, SS_CENTER_ | SS_NOPREFIX, 104, 81, 149, 37, "AaBbYyZz");
-    add(w, d, "STATIC", FNT_KIND, SS_CENTER_ | SS_NOPREFIX, 98, 124, 160, 20, "");
+    struct w16_wnd *fc = item(w, d, FNT_FACE), *sc = item(w, d, FNT_STYLE), *zc = item(w, d, FNT_SIZE),
+                   *smp = item(w, d, FNT_SAMPLE);
     if (!fc || !sc || !zc || !smp || cpu->fault) {
         if (!cpu->fault) g_error = CDERR_MEMALLOCFAILURE;
         d->dlgdata = 0;
         w16_wnd_destroy(w, d);
         goto out;
     }
+    // 3.1 painted the sample into this control's rectangle itself, so a template may leave it hidden
+    // (Clock's does); here it is the control's own text, so it is shown.
+    pthread_mutex_lock(&w->lock);
+    smp->style |= WS_VISIBLE;
+    smp->visible = 1;
+    pthread_mutex_unlock(&w->lock);
     c->sample_top = smp->y;
     c->sample_h = smp->h;
     if (c->flags & CF_EFFECTS) {

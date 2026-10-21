@@ -297,6 +297,15 @@ enum { STAND_SANS, STAND_SERIF, STAND_MONO };
 // The 3.11 face each stand-in takes the place of: what GetTextFace and EnumFonts name.
 static const char *const STAND_FACE[3] = { "MS Sans Serif", "MS Serif", "Courier" };
 
+// A face asked for at `want` and loaded at `got` (the most ugfx rasterizes): its numbers at `want`.
+static void scale_up(struct w16_fontinfo *i, int want, int got) {
+    if (want <= got || got <= 0) return;
+    int *f[] = { &i->height, &i->ascent, &i->internal_leading, &i->external_leading, &i->ave, &i->maxw, &i->dy };
+    for (unsigned k = 0; k < sizeof f / sizeof f[0]; k++) *f[k] = (int)((long)*f[k] * want / got);
+    i->scale_num = want;
+    i->scale_den = got;
+}
+
 static int from_standin(struct inst *in) {
     static const char *const FILES[3][2] = {
         { "/usr/share/fonts/liberation-sans.ttf", "/usr/share/fonts/liberation-sans-bold.ttf" },
@@ -320,6 +329,7 @@ static int from_standin(struct inst *in) {
     i->ave = ugfx_text_width("x");
     i->maxw = ugfx_text_width("W");
     ugfx_set_font(was);
+    scale_up(i, in->px, px);
     i->weight = in->bold ? 700 : 400;
     i->pitch_family = in->standin == STAND_MONO ? 0x30 : in->standin == STAND_SERIF ? 0x11 : 0x21;   // bit 0: variable
     i->first = 0x20;
@@ -368,6 +378,7 @@ static int from_tt(struct inst *in) {
     i->external_leading = t->gap > 0 ? (t->gap * px + t->upem / 2) / t->upem : 0;
     i->ave = (t->avg * px + t->upem / 2) / t->upem + (in->bold ? 1 : 0);
     i->maxw = (t->maxw * px + t->upem / 2) / t->upem + (in->bold ? 1 : 0);
+    scale_up(i, in->px, px);
     i->weight = in->bold || (t->style & TTF_BOLD) ? 700 : 400;
     i->italic = (t->style & TTF_ITALIC) != 0;
     i->pitch_family = t->pitch_family;
@@ -561,6 +572,11 @@ const struct w16_fontinfo *w16_font_info(uint16_t hfont) {
     none.uf = 0;
     none.height = 16;
     return &none;
+}
+
+int w16_font_scaled(uint16_t hfont, int v) {
+    const struct w16_fontinfo *fi = w16_font_info(hfont);
+    return fi && fi->scale_den ? (int)((long)v * fi->scale_num / fi->scale_den) : v;
 }
 
 const struct ugfx_font *w16_font_of(uint16_t hfont) {

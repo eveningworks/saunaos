@@ -435,6 +435,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_MENU_SHOW 10   // arg: a menu-bar title -- the program has seen it open: show it
 #define W16_POST_CURSOR    11   // arg: a WIN_CURSOR_* -- SetCursor: the pointer's shape now
 #define W16_POST_POINTER   12   // arg: x << 16 | y, in the main window -- SetCursorPos
+#define W16_POST_MOVE      13   // DefWindowProc took a press on the caption: the compositor runs the move
 
 // --- task16.c --------------------------------------------------------------
 
@@ -647,6 +648,7 @@ void w16_draw_focus(struct ugfx_surface *s, int x, int y, int w, int h);
 void w16_draw_icon(struct ugfx_surface *s, struct w16 *w, int kind, int x, int y);
 uint32_t w16_rgb(uint32_t rgb);                   // 0xRRGGBB -> a ugfx colour, as VGA showed it
 uint32_t w16_vga(uint32_t rgb);                   // 0xRRGGBB as 3.11 at VGA showed it
+uint32_t w16_vga_back(uint32_t rgb);              // ...and a shown colour back to the one asked for
 // Paint a control's client area with `fn` (surface, origin), the system
 // font set and the window validated; and the colour its parent shows.
 void w16_ctl_paint(struct w16 *w, struct w16_wnd *x,
@@ -706,6 +708,10 @@ struct w16_wnd *w16_dlg_create(struct w16 *w, const uint8_t *tmpl, uint32_t n, u
                                uint16_t inst, uint32_t dlgproc, w16_dlgproc hostdlg, uint32_t param,
                                char *why, size_t why_cap);
 int16_t w16_dlg_run(struct w16 *w, struct w16_wnd *d);
+// The same dialog made and NOT shown: for a common dialog run from a program's own template
+// (CF_ENABLETEMPLATE), whose controls it then fills by their standard ids before w16_dlg_show().
+struct w16_wnd *w16_dlg_from_template(struct w16 *w, const uint8_t *tmpl, uint32_t n, uint16_t owner,
+                                      uint16_t inst, w16_dlgproc hostdlg, char *why, size_t why_cap);
 // A dialog built in code (MessageBox, the common dialogs) and its
 // controls by class name; then w16_dlg_run() it, or leave it modeless.
 struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32_t style, int cw, int ch,
@@ -989,8 +995,14 @@ struct w16_fontinfo {
     int first, last, def;
     const char *face;                              // the face it is, as GetTextFace names it
     int dy;                                        // its glyphs drawn this much below the cell's top
+    // A size past what ugfx rasterizes is loaded at the largest and its numbers scaled up by
+    // scale_num / scale_den (0: none): GDI measures any size, and Clock sizes its digits by
+    // measuring them in a 1000-pixel font. The glyphs are drawn at the loaded size.
+    int scale_num, scale_den;
 };
 const struct w16_fontinfo *w16_font_info(uint16_t hfont);
+// `v`, a length measured in hfont's loaded glyphs, at the size the font was asked for.
+int w16_font_scaled(uint16_t hfont, int v);
 int w16_font_ascent(const struct ugfx_font *uf);   // pixels above its baseline
 // GDI's tmOverhang: 1 for a raster font it emboldened itself (3.11's MS Sans
 // Serif drawn bold), which an underline and a label's cleared box count.

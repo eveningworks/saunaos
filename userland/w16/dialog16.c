@@ -612,6 +612,11 @@ struct w16_wnd *w16_dlg_create(struct w16 *w, const uint8_t *tmpl, uint32_t n, u
     return d;
 }
 
+struct w16_wnd *w16_dlg_from_template(struct w16 *w, const uint8_t *tmpl, uint32_t n, uint16_t owner,
+                                      uint16_t inst, w16_dlgproc hostdlg, char *why, size_t why_cap) {
+    return from_template(w, tmpl, n, owner, inst ? inst : w->dgroup, 0, hostdlg, why, why_cap);
+}
+
 // --- the exports ------------------------------------------------------------------
 
 // The DIALOG resource a template argument names; -1 when none.

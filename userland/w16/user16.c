@@ -41,8 +41,11 @@
 #define GWW_ID          (-12)
 #define WA_INACTIVE     0
 #define WA_ACTIVE       1
+#define HTCLIENT        1
+#define HTCAPTION       2
 #define HTHSCROLL       6
 #define HTVSCROLL       7
+#define WM_NCLBUTTONDBLCLK 0x00A3
 
 static const uint32_t g_syscolors[] = {
     0xC0C0C0, 0x008080, 0x000080, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x000000, 0x000000,
@@ -555,6 +558,23 @@ static int put_msg(struct w16 *w, uint32_t lpmsg, const struct w16_msg *m) {
     return put_bytes(w, lpmsg, out, sizeof out);
 }
 
+// A press in a top-level window's client area asks the window where it is (WM_NCHITTEST), as Windows'
+// input did: one that answers HTCAPTION -- Clock with No Title, dragged by its face -- gets the
+// caption's message instead, which DefWindowProc turns into a move. Asked only for the left button's
+// press and double click, the two a caption acts on.
+static void caption_press(struct w16 *w, struct w16_msg *m) {
+    if (m->message != WM_LBUTTONDOWN && m->message != WM_LBUTTONDBLCLK) return;
+    struct w16_wnd *x = w16_wnd_get(w, m->hwnd);
+    if (!x || x->kind == W16_K_CHILD) return;
+    int dx, dy;
+    w16_screen_offset(w, x, &dx, &dy);
+    uint32_t at = (uint32_t)(uint16_t)((int16_t)(m->lparam >> 16) + dy) << 16 | (uint16_t)((int16_t)m->lparam + dx);
+    if ((uint16_t)w16_send(w, m->hwnd, WM_NCHITTEST, 0, at) != HTCAPTION) return;
+    m->message = m->message == WM_LBUTTONDOWN ? WM_NCLBUTTONDOWN : WM_NCLBUTTONDBLCLK;
+    m->wparam = HTCAPTION;
+    m->lparam = at;
+}
+
 static int get_message(struct w16 *w, struct w16_args *a) {
     uint32_t lpmsg = w16_arg32(a);
     struct msg_filter f;
@@ -563,6 +583,7 @@ static int get_message(struct w16 *w, struct w16_args *a) {
     f.max = w16_arg16(a);
     struct w16_msg m;
     if (!next_message(w, &f, 1, -1, &m)) return -1;    // the program faulted meanwhile
+    caption_press(w, &m);
     if (put_msg(w, lpmsg, &m) < 0) return -1;
     w->cpu.r[R_AX] = m.message != WM_QUIT;
     return 10;
@@ -580,6 +601,7 @@ static int peek_message(struct w16 *w, struct w16_args *a) {
     uint16_t flags = w16_arg16(a);
     struct w16_msg m;
     int got = next_message(w, &f, flags & 1, 0, &m);
+    if (got) caption_press(w, &m);
     if (got && put_msg(w, lpmsg, &m) < 0) return -1;
     if (!got) {
         struct timespec ts = { 0, 1000000 };
@@ -666,6 +688,19 @@ uint32_t w16_def_window_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uin
     case WM_NCLBUTTONDOWN:
         if (wp == HTVSCROLL || wp == HTHSCROLL)
             w16_sbar_track(w, x, wp == HTVSCROLL ? SB_VERT : SB_HORZ, (int16_t)lp, (int16_t)(lp >> 16));
+        if (wp == HTCAPTION && x->kind != W16_K_CHILD) w16_task_post_arg(w, W16_POST_MOVE, 0);
+        return 0;
+    case WM_NCHITTEST: {
+        // HTCLIENT inside the client area (Clock calls this first, and makes HTCLIENT its caption with
+        // No Title); the frame's parts are w16's own and never asked about, so anywhere else is nowhere.
+        int dx, dy;
+        w16_screen_offset(w, x, &dx, &dy);
+        int cx = (int16_t)lp - dx, cy = (int16_t)(lp >> 16) - dy;
+        return cx >= 0 && cy >= 0 && cx < x->cw && cy < x->ch ? HTCLIENT : 0;
+    }
+    case WM_NCLBUTTONDBLCLK:                     // on a caption: maximize or restore, as w16's own caption does
+        if (wp == HTCAPTION && x->kind != W16_K_CHILD && (x->style & WS_MAXIMIZEBOX))
+            w16_task_post_arg(w, W16_POST_SYSCMD, x->maximized ? SC_RESTORE : SC_MAXIMIZE);
         return 0;
     default:
         return 0;
@@ -1359,6 +1394,13 @@ static uint32_t window_field(struct w16 *w, struct w16_wnd *x, int index, int by
     case GWW_HWNDPARENT:
         return x->parent;
     case GWW_ID:
+        // A top-level window's is its MENU: Clock's No Title sets it to 0 to drop the menu bar, and
+        // back to put it again (it never calls SetMenu).
+        if (x->kind != W16_K_CHILD && x == &w->win) {
+            old = w->menu;
+            if (set) w16_set_menu(w, (uint16_t)v);
+            return old;
+        }
         return x->id;
     default:
         return 0;
@@ -1435,6 +1477,30 @@ static int api_GetKeyState(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
+// GetAsyncKeyState(vKey) -> int
+// Windows: Whether a key is down at this moment (the high bit), and whether it was pressed since the
+// last call (the low bit) -- not as of the message being handled, as GetKeyState answers.
+// w16: GetKeyState's answer: Shift, Ctrl and Alt as of the key message handled, the mouse buttons
+// as of the last mouse message taken -- which is as late as w16 knows them (Clock asks for the left
+// button while its title-less window is dragged). The low bit is never set.
+static int api_GetAsyncKeyState(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    return api_GetKeyState(w, ordinal, a);
+}
+
+// GetDialogBaseUnits() -> DWORD
+// Windows: The System font's average character width (low word) and height (high word): what a
+// dialog unit is made of, a quarter of the width and an eighth of the height.
+// w16: Windows 3.11's at VGA, 8 by 16 -- the units its dialogs are laid out in (dlgwin16.c).
+static int api_GetDialogBaseUnits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    int bx, by;
+    w16_dlg_units(&bx, &by);
+    w->cpu.r[R_AX] = (uint16_t)bx;
+    w->cpu.r[R_DX] = (uint16_t)by;
+    return 0;
+}
+
 // GetDlgCtrlID(hWnd) -> int
 // Windows: A child window's id.
 // w16: The same.
@@ -1488,6 +1554,8 @@ const struct w16_api g_user_api[] = {
     { 176, api_LoadString },
     { 179, api_GetSystemMetrics },
     { 232, api_SetWindowPos },
+    { 243, api_GetDialogBaseUnits },
+    { 249, api_GetAsyncKeyState },
     { 277, api_GetDlgCtrlID },
     { 404, api_GetClassInfo },
     { 452, api_CreateWindowEx },
