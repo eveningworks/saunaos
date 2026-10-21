@@ -726,3 +726,34 @@ appears -- beside a cheap baseline (a brush stroke). Put the number in
 the hand-over. Per-motion work should be proportional to what changed on
 SCREEN, never to the whole picture: draw the moving thing over the view,
 commit once.
+
+## Help Viewer's three bugs, and what became rules (2026-10-21)
+
+A zoom button zoomed the whole window; the same button went on offering a
+zoom it could not do; copied text lost a word. Each is now a convention
+(`docs/conventions/gui.md`) and the first two a check:
+
+- **The selected font is the PROCESS's.** A widget that selects its
+  zoomed face and returns without restoring changes what every widget
+  drawn after it measures -- toolbar, tree, status bar. Look for the leak
+  with a screenshot of the CHROME at the largest zoom, not of the widget.
+  `check_font_state.py`.
+- **A control that cannot act is greyed.** The magnifier, Back, Save,
+  Copy. `check_control_states.py` (the callback exists) plus a person
+  (it answers for every command that can fail to apply). The audit found
+  Theme Editor, Device Manager and Crash Reports wrong too.
+- **Sort selectable text by LINE, not `y`.** A smaller-font word on a
+  line has a different `y`; sorted by it, `F1` landed after the full stop
+  and Copy dropped it. Paste into the native Notepad to check what Copy
+  really produced -- `uclip` has no reader on the command line.
+- **The pointer's shape is read, not looked at**: `dbg.warp_cursor(qmp,
+  x, y)` then `dbg.cursor_shape()` (text 4, hand 7). A synthetic click
+  does not move the drawn sprite, so a screenshot shows the wrong cursor.
+- **A child inherits its parent's sandbox**, so a pledged launcher starts
+  a viewer that cannot open a window. `hlpbroker` is unsandboxed on
+  purpose (`docs/conventions/kernel.md`).
+- **`natural_size` writes BOTH out-pointers**: pass a scratch int for the
+  dimension you do not want. `uui_segmented_natural_size(&sg, &w, NULL)`
+  was a page fault at startup, found from the crash report with
+  `addr2line` on `build/lib/libuapp.so`.
+

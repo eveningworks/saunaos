@@ -5127,6 +5127,8 @@ guess.*
 **Needs:** Runtime + interop (allocator, file I/O), A layout engine for the GUI (layout) and
 Runtime font loading & text metrics (fonts). This is the leaf the three of them exist for.
 
+- [ ] **GUI: selectable, copyable text in the read-only widgets.** Rule since 2026-10-21 (`docs/conventions/gui.md`): text a person reads can be selected and copied. `uui_helpview` does it (reading order by line, a press that may become a drag, the widget's own `context_menu`); `uui_markdown` (Help, the docs viewer, the About pages), `uui_label` and the details panes do not. The helpview selection is the shape to lift into a shared piece once a second widget needs it.
+
 ## Running 16-bit Windows programs (w16)
 
 The whole plan, the routes and the case against each are in `docs/w16-design.md`; these entries carry only what the one-line items cannot.

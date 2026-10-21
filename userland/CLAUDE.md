@@ -50,7 +50,7 @@ root file's other rules still apply.
 
 ## Anything drawn
 
-**Follows `docs/gui-guidelines.md`**, which is binding. Six things bite
+**Follows `docs/gui-guidelines.md`**, which is binding. Nine things bite
 most often:
 
 1. **`gfx_draw_string()` does not clip** -- use
@@ -72,6 +72,19 @@ most often:
 6. **An app cannot draw outside its own window, and that is enforced.**
    The explicit opt-out is `gfx_clear_clip_rect()`, lasting only for
    that paint.
+
+7. **A control that cannot act is GREYED, not offered** -- say it in
+   `item_flags`: Back with no history, Save with nothing changed, Copy
+   with nothing selected, Zoom at its limits. A bar with no `item_flags`
+   fails `check_control_states.py`.
+8. **Text a person reads is SELECTABLE AND COPYABLE** -- drag, Ctrl+A,
+   Ctrl+C, a right-click menu, the text cursor over it and the HAND (not
+   the text cursor) over a link. Read-only is no excuse
+   (`docs/conventions/gui.md`; `ui/uui_helpview.c` is the worked example).
+9. **The selected font is the PROCESS's** -- a function that calls
+   `ugfx_set_font()` puts back the one it found, before every return, or
+   every widget drawn after it is in the wrong face
+   (`check_font_state.py`).
 
 **Interaction states come from `enum ui_state` / `ui_state_bg()`**,
 which derives hover/pressed from the control's own colour: don't

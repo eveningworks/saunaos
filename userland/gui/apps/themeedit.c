@@ -233,6 +233,12 @@ static const struct uui_toolbar_item TB[] = {
     { "tb-undo",  "Put back what was last saved", CMD_REVERT, "Revert", 0, 0, UTHEME_ACT_NAV },
 };
 
+// Save and Revert have something to do only once the theme differs from what was saved.
+static unsigned tb_flags(int code) {
+    if (code == CMD_SAVE || code == CMD_REVERT) return dirty() ? 0 : UUI_MI_DISABLED;
+    return 0;
+}
+
 static struct uui_label g_status_l;
 static struct uui_item g_ins_items[16];
 static struct uui_layout g_ins;
@@ -542,6 +548,7 @@ int main(int argc, char **argv) {
     build_rows();
     uui_sbar_init(&g_sb);
     uui_toolbar_init(&g_tb, TB, (int)(sizeof TB / sizeof TB[0]));
+    g_tb.item_flags = tb_flags;
     uui_dropdown_init(&g_themes, 0, 0, 0, 0, g_theme_ptr, 0);
     g_list = (struct uui_custom){ .w = cw * 18, .h = ch * 20, .draw = draw_list };
     g_left_items[0] = (struct uui_item){ .ops = &uui_dropdown_ops, .widget = &g_themes, .id = ID_THEMES,

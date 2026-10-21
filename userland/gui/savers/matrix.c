@@ -70,6 +70,7 @@ static void seed(int w, int h) {
 static void on_draw(struct uapp *a, struct uapp_draw *d) {
     (void)a;
     struct ugfx_surface *s = d->surface;
+    // font-ok: a saver owns the whole screen and draws nothing after this.
     ugfx_set_font(ugfx_font_mono(UGFX_FONT_REGULAR));
     if (!g_seeded || s->w != g_for_w || s->h != g_for_h) seed(s->w, s->h);
     ugfx_fill_rect(s, 0, 0, s->w, s->h, 0x000000);

@@ -32,6 +32,8 @@ whenever a headline here tells you something you did not already know.
 
 `docs/conventions/kernel.md`
 
+- **A SANDBOXED PROGRAM THAT MUST START ANOTHER ASKS A BROKER STARTED
+  BEFORE THE SANDBOX, AND THE BROKER IS NOT SANDBOXED** (`hlpbroker`)
 - **AN OVERLAY ANSWERS WHERE IT IS; THE CORE DAMAGES IT**
 - **AN OVERLAY THAT REFRESHES ONLY WHILE OPEN GETS AN `on_open`, AND
   THE CORE FIRES IT**
@@ -316,6 +318,12 @@ whenever a headline here tells you something you did not already know.
 
 `docs/conventions/gui.md`
 
+- **A CONTROL THAT CANNOT ACT IS GREYED, NOT OFFERED -- AND `item_flags`
+  ANSWERS FOR EVERY COMMAND THAT CAN FAIL TO APPLY** (`check_control_states.py`)
+- **TEXT A PERSON READS IS SELECTABLE AND COPYABLE -- THE TEXT CURSOR OVER
+  IT, THE HAND OVER A LINK, A RIGHT-CLICK MENU**
+- **THE SELECTED FONT IS THE PROCESS'S: A FUNCTION THAT SELECTS ONE PUTS
+  BACK THE ONE IT FOUND** (`check_font_state.py`)
 - **A WINDOW'S GEOMETRY IS REMEMBERED PER APP, AND THE KEY IS `app_id`
   -- NEVER `app_identity`**
 - **MEASURE TEXT, NEVER MULTIPLY: `gfx_char_advance()` /

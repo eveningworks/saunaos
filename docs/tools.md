@@ -8190,6 +8190,33 @@ runs first**: a `doom1.wad` with one
   <reason>` comment; `diskmark.c` is the one waiver, because an OPEN
   popup takes keys through the overlay path regardless. In
   `preflight.sh`.
+- **`check_font_state.py`** -- refuses a function in `userland/` that
+  calls `ugfx_set_font()` and does not put back the font it found. The
+  selected font is the PROCESS's, so what a widget leaves selected is
+  what the next widget measures in: Help Viewer's topic widget drew in
+  its zoomed face and returned, and the magnifier zoomed the toolbar,
+  the tree and the status bar (2026-10-21). It accepts the toolkit's own
+  idioms -- `was = ugfx_set_font(f)` ... `ugfx_set_font(was)`,
+  `saved = ugfx_font_current()`, a push helper that `return`s the call,
+  ending on `ugfx_set_font(NULL)` -- and a saved variable only under the
+  toolkit's names for one, since `f = font_for(...); ugfx_set_font(f)` is
+  the selection. Waive a function with `font-ok: <whose job the restore
+  is>` inside it. `--list` shows how each function restores;
+  `--positive-control` removes the restores from the widget that shipped
+  the bug and must come back refused. In `preflight.sh`.
+- **`check_control_states.py`** -- refuses an app whose menu bar or
+  toolbar never says when a command cannot act. Every
+  `uui_toolbar_init()` / `uui_menubar_init()` given its items needs an
+  `item_flags` assignment in the same file, one per bar (a context menu
+  built later, `uui_menubar_init(&ctx, 0, 0)`, is not counted); the
+  waiver is `flags-ok: <why every command always applies>`. It exists
+  because Help Viewer's magnifier stayed clickable after it could do
+  nothing, and the audit that followed found Theme Editor's Save and
+  Revert, Device Manager's device commands and Crash Reports' list
+  commands offered with nothing to act on. It checks that the callback
+  EXISTS; that it answers for every command that can fail to apply is for
+  a person (`docs/conventions/gui.md`). `--positive-control` removes Help
+  Viewer's `item_flags` and must come back refused. In `preflight.sh`.
 - **`check_drivers.py`** -- refuses a driver that declares itself to
   nothing. Every `.c` under `kernel/drivers/`, and any file anywhere
   that calls a device class registry, must carry a `DRIVER_DECLARE(...)`

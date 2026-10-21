@@ -61,7 +61,11 @@ struct uui_ctxmenu_src;   // ui/uui_ctxmenu.h
 struct uui_widget_ops {
     // The preferred minimum -- see uui_primitives.h. 0 in either axis
     // means "no preference", and a container reads that as "give me
-    // whatever is going".
+    // whatever is going". **BOTH POINTERS ARE WRITTEN, SO PASS BOTH**: most
+    // widgets assign through `out_w` and `out_h` without a NULL test, and
+    // `uui_segmented_natural_size(&sg, &w, NULL)` faulted Help Viewer at
+    // startup (2026-10-21). A caller that wants one dimension passes a
+    // scratch int for the other.
     void (*natural_size)(const void *w, int *out_w, int *out_h);
 
     // Told where it ended up. A widget whose size is not a free

@@ -839,6 +839,29 @@ a `hover_index` next to a group is a sign of not knowing the function
 exists; the Control Panel tracks its own only because its applet grid
 isn't a button group.
 
+## What every app owes a person: greyed commands, selectable text, a font put back
+
+Three things a new app is checked for, each learned from a bug (the
+reasoning and the worked example are in `docs/conventions/gui.md`):
+
+- **A control that cannot act is greyed, not offered.** A magnifier at its
+  limit, Back with no history, Save with nothing changed, Copy with nothing
+  selected: say it in `item_flags`, which the toolbar and the menu bar
+  both ask on every draw. Windows greys these; so does every toolkit. A
+  click that does nothing teaches a person the app is broken.
+- **Text a person reads can be selected and copied.** Drag to select,
+  Ctrl+A for all, Ctrl+C to copy, a right-click menu with Copy and Select
+  All; the text cursor over the text, the HAND over a link (never the text
+  cursor on a link), and a drag that starts on a link selects instead of
+  following it. A read-only page is no exception -- a browser's and a
+  PDF's are read-only.
+- **The selected font is the process's, so put back the one you found.**
+  A widget that leaves its zoomed face selected zooms every widget drawn
+  after it.
+
+`tools/check_control_states.py` and `tools/check_font_state.py` enforce
+the parts a script can see; the rest is the person writing the app.
+
 ## Layout and text
 
 - **Never draw text into a fixed box with `gfx_draw_string()`.** It

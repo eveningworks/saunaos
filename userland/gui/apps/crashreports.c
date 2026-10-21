@@ -212,6 +212,13 @@ static const struct uui_toolbar_item TB[] = {
 
 static struct uui_table g_table;
 static struct uui_toolbar g_tb;
+
+// Open, Copy and Delete act on the selected report; with none (an empty list) they are greyed.
+static const struct report *selected(void);
+static unsigned list_flags(int code) {
+    (void)code;
+    return selected() ? 0 : UUI_MI_DISABLED;
+}
 static struct uui_label g_panel;     // the details' room; drawn in on_draw_over
 static struct uui_item g_left_items[2], g_items[2];
 static struct uui_layout g_left, g_root;
@@ -601,6 +608,7 @@ int main(int argc, char **argv) {
     uui_table_set_rows(&g_table, g_n);
     if (g_n) g_table.selected = 0;
     uui_toolbar_init(&g_tb, TB, (int)(sizeof TB / sizeof TB[0]));
+    g_tb.item_flags = list_flags;
     uui_label_init(&g_panel, "");
     g_left_items[0] = (struct uui_item){ .ops = &uui_toolbar_ops, .widget = &g_tb, .id = ID_TB,
                                          .flags = UUI_FILL_W, .name = "tb" };

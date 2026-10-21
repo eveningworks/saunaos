@@ -328,6 +328,7 @@ static int next_tab(struct lay *L, struct pctx *P, int x_from_box) {
 }
 
 static void add_text_atoms(struct lay *L, struct pctx *P, const struct uhlp_run *r, int font, int asc, int desc) {
+    // font-ok: measuring inside the layout, which helpview_draw, draw_popup and op_describe bracket.
     struct uui_helpview *v = L->v;
     const struct uhlp_font *hf = uhlp_font(L->h, r->font);
     uint32_t color = hf ? hf->rgb : 0;
@@ -397,6 +398,7 @@ static void add_text_atoms(struct lay *L, struct pctx *P, const struct uhlp_run 
 
 // One paragraph, flowed in a box at (x0, *y) `w` wide. Advances *y.
 static void layout_para(struct lay *L, const struct uhlp_para *pa, int x0, int w, int *y) {
+    // font-ok: inside the layout, which helpview_draw, draw_popup and op_describe bracket.
     L->para = (int)(pa - L->d->para);
     struct pctx P;
     memset(&P, 0, sizeof P);
@@ -686,6 +688,8 @@ static int hl_match(const char *hl, const char *text, int *at, int *len) {
 }
 
 static void draw_items(struct ugfx_surface *s, struct uui_helpview *v, int region, int clip_x, int clip_y, int clip_w, int clip_h) {
+    // font-ok: every caller (helpview_draw, draw_popup) puts back the font it found -- the leak this check
+    // exists for was HERE, before they did.
     ugfx_set_clip_rect(s, clip_x, clip_y, clip_w, clip_h);
     int oy = region_top(v, region), ox = v->x;
     for (int i = 0; i < v->nitem; i++) {

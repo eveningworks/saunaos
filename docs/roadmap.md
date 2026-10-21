@@ -960,6 +960,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
 - [ ] w16: regions as more than their bounding rectangle -- CombineRgn of two that do not make a rectangle
+- [ ] GUI: selectable, copyable text in the read-only widgets -- `uui_markdown` and the labels have no selection (Help Viewer has)
 - [ ] w16: Help Viewer's rest -- macros, bookmarks, annotations, a History list, the Help setting and WINHELP.EXE as an option, WMF pictures
 - [ ] w16: IsIconic answers from the window's state -- it always says no, even minimized
 - [ ] w16: one program starting or finding another -- WinExec and FindWindow; each program is its own w16

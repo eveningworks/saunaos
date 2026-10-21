@@ -417,6 +417,7 @@ int retro_calls_main(const char *path) {
     g_path = path;
     if (!ugfx_font_init()) return 2;
     if (!load()) return 1;
+    // flags-ok: the list is always on screen, so Copy and Save as always have something to act on.
     uui_toolbar_init(&g_tb, TB, (int)(sizeof TB / sizeof TB[0]));
     g_tb.overflow = 1;
     // Opens on what most needs saying: the missing, else the stand-ins.

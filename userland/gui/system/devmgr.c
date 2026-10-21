@@ -881,6 +881,17 @@ static void focus_filter(void) {
         if (g_focus.items[i].widget == &g_filter) { uui_focus_set(&g_focus, i); return; }
 }
 
+// A command that would only say it cannot is greyed instead: the ones about a device need one
+// selected, and loading or unloading a driver needs one that can be.
+static unsigned item_flags(int code) {
+    switch (code) {
+    case CMD_TOGGLE: case CMD_COPY: return selected() ? 0 : UUI_MI_DISABLED;
+    case CMD_LOAD:   return g_drv_mode == 1 ? 0 : UUI_MI_DISABLED;
+    case CMD_UNLOAD: return g_drv_mode == 2 ? 0 : UUI_MI_DISABLED;
+    default:         return 0;
+    }
+}
+
 static void do_command(struct uapp *a, int code) {
     switch (code) {
     case CMD_REFRESH:  relist(); g_sig = signature(); set_note("refreshed"); break;
@@ -1067,6 +1078,7 @@ static void on_size(int *w, int *h) {
 
 int main(void) {
     uui_menubar_init(&g_menu, menu_items, (int)(sizeof menu_items / sizeof menu_items[0]));
+    g_menu.item_flags = item_flags;
     uui_segmented_init(&g_view, VIEWS, 2, 0);
     uui_textbox_init(&g_filter, "");
     g_filter.placeholder = "Find a device";

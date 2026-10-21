@@ -4934,3 +4934,29 @@ Real systems split the same way: Linux allocates (`kmalloc`, `krealloc`,
 `xarray`) and keeps fixed arrays to the paths that cannot sleep; GLib's
 and KDE's application lists are heap lists rebuilt when the directory
 changes.
+
+## A SANDBOXED PROGRAM THAT MUST START ANOTHER ASKS A BROKER STARTED BEFORE THE SANDBOX, AND THE BROKER IS NOT SANDBOXED.
+
+`w16` runs an untrusted Windows program and has no `proc` promise, so a
+program's F1 cannot start the Help Viewer from inside it. The wrong fixes
+are the two obvious ones. Granting `proc` hands a compromised emulator
+every program it can name. Sandboxing a launcher does not work either:
+**a child inherits its parent's promises and unveiled paths**
+(`abi/sandbox_abi.h`), so a broker that pledged `stdio rpath proc` and
+unveiled only the viewer started a viewer that could not open a window --
+the viewer's own `unveil("/", "r")` failed and it exited before drawing.
+
+The shape that works (`userland/bin/hlpbroker.c`, OpenBSD's privilege
+separation): the sandboxed program starts a tiny helper BEFORE it closes
+its own sandbox, keeps the write end of a pipe that is the helper's
+standard input, and writes request lines. The helper is NOT sandboxed and
+is kept harmless by how little it does -- one fixed program, options it
+checks one by one, an absolute path, a bounded line, nothing else is
+ever run. The program it starts pledges for itself before reading
+anything hostile (`hlpview`'s `hlpview_sandbox()`).
+
+Pass the request as TAB-separated fields on that pipe, not as a
+command line: `sys_spawn()` splits at spaces, so a keyword or a path with
+one would arrive as two arguments. `sys_spawn_opts()` takes the argv as a
+vector and a `stdin_fd`.
+

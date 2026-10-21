@@ -4401,6 +4401,100 @@ for the same reason -- the ops `release` slot can only say "changed".
 First caller: the File Manager (Up/Refresh and the four View toggles,
 with Up greyed at the root through the same flags callback).
 
+## A CONTROL THAT CANNOT ACT IS GREYED, NOT OFFERED -- AND `item_flags` ANSWERS FOR EVERY COMMAND THAT CAN FAIL TO APPLY.
+
+A button, a toolbar icon or a menu row that is clickable and then does
+nothing is a small lie, and the commonest one a new app tells. Help
+Viewer's magnifier kept offering "larger text" after the text could grow
+no more (2026-10-21): the click did nothing, and nothing said why. The
+answer is the one Windows' menus and Qt's `QAction::setEnabled` give --
+the control reads disabled, takes no hover and no click -- and here it is
+the `item_flags(int code)` callback the toolbar and the menu bar share
+(the section above), asked on every draw.
+
+**For each command in a new app, ask "when can this not act?" and say it
+in `item_flags`.** The usual answers: Back and Forward with no history;
+Up at the root; Save and Revert with nothing changed; Copy and Cut with
+nothing selected; a command about the selected thing with nothing
+selected; Zoom in and out at their limits, and Reset zoom at 100%;
+Delete on an empty list; Undo and Redo with nothing to undo or redo. A
+bound that clamps silently (`set_zoom()` clamping) is the same bug one
+layer down: grey the control that reaches it.
+
+`tools/check_control_states.py` enforces the half it can see: every
+`uui_toolbar_init()` / `uui_menubar_init()` given its items needs an
+`item_flags` assignment in the same file, one per bar (a context menu
+built later, `uui_menubar_init(&ctx, 0, 0)`, is not counted). It fails on
+a bar with none. The waiver is `flags-ok: <why every command always
+applies>` -- a REASON, not a comment. What it cannot see is whether the
+callback answers for every command that can fail to apply; that is for
+the person writing the app and the reviewer reading it. Audited when it
+was written: Theme Editor (Save and Revert, when not dirty), Device
+Manager (the device commands without a device, Load and Unload by what
+the driver allows) and Crash Reports (Open, Copy and Delete with no
+report) had it wrong.
+
+## TEXT A PERSON READS IS SELECTABLE AND COPYABLE -- THE TEXT CURSOR OVER IT, THE HAND OVER A LINK, A RIGHT-CLICK MENU.
+
+If an app puts a body of text on screen -- a document, a topic, a log, a
+manual page, a details pane -- the person looking at it can drag over
+part of it, press Ctrl+A for all of it, press Ctrl+C, and right-click for
+a menu. Read-only is not a reason: a browser's page, a PDF and Help are
+all read-only and all selectable. Help Viewer (`ui/uui_helpview.c`) is
+the worked example; the parts that were not obvious:
+
+- **SELECT IN READING ORDER, BY LINE -- NOT BY `y`.** Items on one line
+  differ in `y` with their font (a smaller `F1` in a sentence sits lower),
+  so sorting by `y` put it after the full stop and the copy lost it. Give
+  every laid-out item its LINE's top (`ly`) and sort by (region, line, x).
+- **A press on a link follows it on release; a DRAG from the same press
+  selects.** Arm the link on press, cancel it once the pointer has moved
+  past a few pixels, and let the release follow only an armed link
+  (`docs/gui-guidelines.md`, "Press, then commit on release").
+- **THE POINTER**: the text cursor (`WIN_CURSOR_TEXT`) over text, the hand
+  over a link and NOT the text cursor there, the arrow elsewhere. Verified
+  by `DebugConsole.cursor_shape()` after `warp_cursor()`, which gives the
+  compositor's RESOLVED shape (text 4, hand 7) -- a screenshot of the
+  sprite is not a test.
+- **THE MENU is the widget's own, through its `context_menu` slot**
+  (`ui/uui_ctxmenu.h`): Copy (greyed with no selection), Select All, and
+  over a link Open first. Rows that are about the app -- Back, Forward --
+  are handed to it with a `take_command()` after the widget reports a
+  change, so the widget does not know what history is.
+- **Copy with no selection copies the whole document** from the toolbar
+  button and Ctrl+C; paragraphs go on separate lines and a wrapped line
+  joins with a space. A drag past the top or bottom scrolls.
+
+The read-only widgets that still have no selection are on the roadmap
+(`uui_markdown` and the labels among them): a new app uses one that has,
+or adds it to the widget, rather than shipping unselectable text.
+
+## THE SELECTED FONT IS THE PROCESS'S: A FUNCTION THAT SELECTS ONE PUTS BACK THE ONE IT FOUND.
+
+`ugfx_set_font()` is not a widget's setting, it is the whole process's:
+whatever a widget leaves selected is what the NEXT widget measures and
+draws in. Help Viewer's topic widget selected its zoomed face to draw and
+returned without restoring, and the magnifier zoomed the toolbar, the
+tree and the status bar with it (2026-10-21) -- a bug that reads as "the
+whole window zoomed" and sits nowhere near the line that caused it.
+
+The idioms, all in the toolkit already: `was = ugfx_set_font(f); ...;
+ugfx_set_font(was)`; `saved = ugfx_font_current()` and the same back; a
+push helper that RETURNS the old font (`return ugfx_set_font(f)`) with the
+caller restoring; or ending on `ugfx_set_font(NULL)`, the session's
+regular face. Put the restore before EVERY return -- an early return
+inside a draw was where it kept getting lost.
+
+`tools/check_font_state.py` fails a function in `userland/` that calls
+`ugfx_set_font()` and does none of those. Setting a variable back counts
+only under the toolkit's own names for a saved font (`was`, `saved`,
+`prev`, `prior`, `old`, `orig`, `restore`): `f = font_for(...)` then
+`ugfx_set_font(f)` is the selection, which is the bug. The waiver,
+`font-ok: <whose job the restore is>`, is for a helper its callers
+bracket, or a screensaver that owns the whole screen. `--positive-control`
+takes the restores out of the widget that shipped the bug and checks that
+it is refused.
+
 ## A TAB IS A SESSION, AND `uui_tabs` IS THE STRIP.
 
 `userland/ui/uui_tabs.c` draws a row of tabs and reports clicks; it

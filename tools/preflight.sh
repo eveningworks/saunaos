@@ -202,6 +202,12 @@ python3 tools/check_widget_ops.py || fail "widget ops check"
 step "check_key_routing.py (a key-taking widget an app routes no keys to)"
 python3 tools/check_key_routing.py || fail "key routing check"
 
+step "check_font_state.py (a function that selects a font and does not put it back)"
+python3 tools/check_font_state.py || fail "font state check"
+
+step "check_control_states.py (a menu bar or toolbar that never says when a command cannot act)"
+python3 tools/check_control_states.py || fail "control states check"
+
 step "check_text_measure.py (a character count used as a text width)"
 python3 tools/check_text_measure.py || fail "text measurement check"
 

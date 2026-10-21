@@ -9652,3 +9652,71 @@ at the crash**: the range is validated, the copy bounded to
 `SYS_ABORT_MSG_MAX`, and a control byte becomes a space, so a corrupt
 buffer costs a line of noise, never the report
 (`tools/faulttest_run.py`'s `abortmsg_test`). Exec forgets it.
+
+## Windows Help files are read by a library and shown by a sandboxed viewer; WINHELP.EXE is the option, not the way
+
+Chosen 2026-10-21, when a Win16 program's F1 only said that w16 cannot
+show Help files. A Windows 3.x program asks for its `.HLP` through
+`WinHelp()`, and real Windows answered by running WINHELP.EXE, a separate
+program the caller messaged. Wine rewrote it as `winhlp32`; Linux has no
+equivalent; Windows itself stopped shipping it after Vista.
+
+The two routes were a native viewer and Microsoft's own WINHELP.EXE under
+w16. The second looks exactly right and cannot be the default: the binary
+is Microsoft's and this repository ships none, and w16 has no way yet for
+one program to find and message another (every program is its own w16).
+So the viewer is native: `lib/uhlp` reads the format (the B+ trees,
+LZ77 topic blocks, phrase compression, the paragraph format -- written from
+the documentation Wine's `winhlp32` and `helpdeco` give, not copied),
+`ui/uui_helpview` draws a topic, and `/bin/wm/apps/hlpview` is the
+window. WINHELP.EXE stays an option for a machine that has it, a setting
+rather than a replacement, which is on the roadmap.
+
+Three choices that were not obvious:
+
+**The viewer is a separate process and pledges before the first byte.** A
+help file is a compiled binary from anywhere, parsed by code that took a
+pointer from the file for every field. Every offset is checked against the
+file, nothing is capped, the decompressors size their output from the
+stream, and the process gives up everything but reading and the window
+(`stdio rpath shm window settings query`) before it opens the file --
+OpenBSD's habit for a program that parses hostile input, the rule
+`webcontent`, `fontd` and `thumb` already follow.
+
+**Contents is a tree made from the links**, because a help file has no
+outline: its contents page is a topic of jumps. Each topic goes under the
+first topic that links to it, found breadth first, so it appears once; what
+nothing links to is listed last under its own heading.
+
+**Fonts are the toolkit's, scaled, not the file's.** The file names Helv,
+Tms Rmn and a size in half-points. The viewer maps the family to Liberation
+Sans, Liberation Serif or DejaVu Mono and scales so a 10-point face is as
+tall as the interface font -- the look of a toy-os app, with Zoom for the
+rest -- rather than rasterising 3.11's bitmap fonts, which the w16 programs
+do but a viewer of any program's Help should not need.
+
+## A sandboxed program that must start another asks a broker started before the sandbox
+
+Chosen 2026-10-21 for `WinHelp()`. `w16` runs an untrusted Windows program
+without a `proc` promise, because the program is code on an emulated CPU
+and nothing it does should be able to start anything. But F1 has to open a
+window.
+
+Granting `proc` hands a compromised emulator every program it can name.
+Pledging a launcher does not work, which was found rather than argued: a
+child inherits its parent's promises AND its unveiled paths
+(`abi/sandbox_abi.h`), so a broker that pledged `stdio rpath proc` and
+unveiled only the viewer started a viewer that could not open a window --
+the viewer's own `unveil("/", "r")` failed and it exited before drawing.
+
+So `w16` starts `/bin/hlpbroker` BEFORE its own sandbox closes and keeps the
+write end of the pipe that is its standard input; `WinHelp()` writes one
+tab-separated line, `OPEN` and its options and the file's path, or `QUIT`.
+The broker is not sandboxed and is harmless by how little it does: one
+fixed program, options checked one at a time, an absolute path, a bounded
+line. It is OpenBSD's privilege separation, `ssh` beside `ssh-agent`,
+rather than a sandbox with a hole in it. Lines are tab-separated because
+`sys_spawn()` splits at spaces and a keyword may hold one; the argv goes
+to `sys_spawn_argv()` as a vector. It exits when the pipe closes and
+leaves the window open, as closing it is the user's, as with Windows Help.
+

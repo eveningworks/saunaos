@@ -245,7 +245,13 @@ floating point runs on a real x87 -- the computer's own, an instruction
 at a time -- so Calculator's sines and logarithms are 3.11's to the last
 digit, its "Cannot divide by zero." included. **Retro
 Launcher** lists the programs found, and for each one which Windows
-calls it uses, which w16 answers only in part and why.
+calls it uses, which w16 answers only in part and why. **A program's
+Help opens in Help Viewer** (`/bin/wm/apps/hlpview`): Windows 3.x
+`.HLP` files read by `lib/uhlp` -- text in the file's own fonts, links
+and pop-ups, pictures, tables, Contents, a keyword Index, full-text Find,
+Back and the browse sequence -- with text you can select and copy, a
+right-click menu and a zoom. F1 and the Help menu reach it through
+`WinHelp()`.
 
 **Programs and scripts run from the File Manager**, KDE's way: a
 double-click on an app opens it, and on any other program or `#!`

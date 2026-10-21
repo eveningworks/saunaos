@@ -274,6 +274,16 @@ them has its own checks:
   container and look at a screenshot of each bar on the real machine's
   font. Disk Mark's dropdowns stuck out of its toolbar with every test
   green (`docs/conventions/gui.md`, "A control placed on a bar").
+- **A new or redesigned GUI app is checked for these, by hand, before it
+  ships** (maintainer, 2026-10-21; each one cost a bug in Help Viewer):
+  every command that CANNOT act is greyed through `item_flags` (Back with
+  no history, Save with nothing changed, Copy with nothing selected, a
+  zoom at its limit -- `check_control_states.py` only proves the callback
+  exists); every body of text on screen can be SELECTED and COPIED (drag,
+  Ctrl+A, Ctrl+C, a right-click menu), with the text cursor over it and
+  the hand over links; any font a function selects is put back
+  (`check_font_state.py` proves that one). Drive the zoom, the selection
+  and the menu on the guest and send the maintainer the screenshot.
 - Adding a syscall means: the number and its contract in
   `abi/syscall_abi.h`, a handler, a typed wrapper in `sys.h`/`sys.c`,
   a `strace.c` table entry, and a KTEST. Missing the strace entry is

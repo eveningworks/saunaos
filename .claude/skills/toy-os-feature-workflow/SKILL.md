@@ -56,7 +56,9 @@ reader pays for them):
    reusable `userland/ui/` widget. Skip only for an unambiguous one-liner.
    Say what Linux/Windows/Wayland do first (CLAUDE.md).
 
-3. **Implement** in the real checkout. **Comments are an invariant and a
+3. **Implement** in the real checkout. **A GUI app also owes the nine
+   rules in `userland/CLAUDE.md`** -- greyed commands, selectable text,
+   a restored font -- and `delivery-checklist.md` lists how to prove them. **Comments are an invariant and a
    trap, not an essay**: would the sentence be true had nobody got it
    wrong? does `docs/decisions.md` already say it? naming a real system is
    a clause, justifying it is a decisions entry; >~6 lines on a small
