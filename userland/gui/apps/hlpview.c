@@ -537,6 +537,7 @@ static void copy_topic(void) {
 
 static void command(struct uapp *a, int code) {
     const struct uhlp *h = cur_help();
+    if (code != CMD_COPY) g_status[0] = 0;
     switch (code) {
     case CMD_BACK: step_history(-1); break;
     case CMD_FORWARD: step_history(1); break;
@@ -561,6 +562,8 @@ static unsigned item_flags(int code) {
     case CMD_PREV: return h && uhlp_topic_prev(h, g_ct) >= 0 ? 0 : UUI_MI_DISABLED;
     case CMD_NEXT: return h && uhlp_topic_next(h, g_ct) >= 0 ? 0 : UUI_MI_DISABLED;
     case CMD_PANE: return g_pane ? UUI_MI_CHECKED : 0;
+    case CMD_ZOOM_IN: return g_view.zoom >= UHV_ZOOM_MAX ? UUI_MI_DISABLED : 0;
+    case CMD_ZOOM_OUT: return g_view.zoom <= UHV_ZOOM_MIN ? UUI_MI_DISABLED : 0;
     default: return 0;
     }
 }

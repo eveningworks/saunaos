@@ -22,7 +22,7 @@
 //
 // Sizes: the file's half-points are scaled so a 10-point face is as tall
 // as the interface font, then Zoom steps by 4 half-points -- WinHelp's
-// Options > Font Small / Normal / Large.
+// Options > Font Small / Normal / Large, as many steps as UHV_ZOOM_* allow.
 //
 // A POP-UP is a second document shown in a card over this one
 // (uui_helpview_popup); a click anywhere closes it, and a link inside it
@@ -31,6 +31,10 @@
 
 struct uhv_fonts;
 struct uhv_item;
+
+// Zoom steps of 4 half-points (2 pt) each: smaller than the file asks for, and a good deal larger.
+#define UHV_ZOOM_MIN   (-2)
+#define UHV_ZOOM_MAX   4
 
 #define UHV_FILE_CAP   192
 #define UHV_MACRO_CAP  320
@@ -55,7 +59,7 @@ struct uui_helpview {
 
     struct uui_sbar bar;
     int scroll;                     // pixels down the scrolling region
-    int zoom;                       // -1, 0, +1
+    int zoom;                       // UHV_ZOOM_MIN .. UHV_ZOOM_MAX
 
     // --- the layout, rebuilt when its key changes ---------------------------
     struct uhv_item *item;
@@ -92,7 +96,7 @@ void uui_helpview_free(struct uui_helpview *v);
 // Shows `d` (a topic of `h`), scrolled to `scroll` pixels. Both must
 // outlive the next set_doc() or free().
 void uui_helpview_set_doc(struct uui_helpview *v, const struct uhlp *h, const struct uhlp_doc *d, int scroll);
-void uui_helpview_set_zoom(struct uui_helpview *v, int zoom);   // -1, 0, 1
+void uui_helpview_set_zoom(struct uui_helpview *v, int zoom);   // UHV_ZOOM_MIN .. UHV_ZOOM_MAX
 // The words to mark in the text, or "" for none (a Find result).
 void uui_helpview_set_highlight(struct uui_helpview *v, const char *words);
 

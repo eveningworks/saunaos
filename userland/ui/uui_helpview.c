@@ -125,7 +125,7 @@ void uui_helpview_set_doc(struct uui_helpview *v, const struct uhlp *h, const st
 }
 
 void uui_helpview_set_zoom(struct uui_helpview *v, int zoom) {
-    v->zoom = zoom < -1 ? -1 : zoom > 1 ? 1 : zoom;
+    v->zoom = zoom < UHV_ZOOM_MIN ? UHV_ZOOM_MIN : zoom > UHV_ZOOM_MAX ? UHV_ZOOM_MAX : zoom;
 }
 
 void uui_helpview_set_highlight(struct uui_helpview *v, const char *words) {
@@ -705,6 +705,9 @@ static void draw_popup(struct ugfx_surface *s, struct uui_helpview *v);
 static void helpview_draw(struct ugfx_surface *s, struct uui_helpview *v) {
     ugfx_fill_rect(s, v->x, v->y, v->w, v->h, UTHEME_WHITE);
     if (!v->doc) return;
+    // THE FONT SELECTED IS THE PROCESS'S, not this widget's: every widget drawn after it uses
+    // whatever it leaves, so a zoomed face here made the toolbar and the tree zoom too.
+    const struct ugfx_font *saved = ugfx_font_current();
     ensure_layout(v);
     clamp_scroll(v);
     int barw = v->bar_on ? uui_sbar_width() : 0;
@@ -717,6 +720,7 @@ static void helpview_draw(struct ugfx_surface *s, struct uui_helpview *v) {
         ugfx_fill_rect(s, v->x, v->y + v->ns_h - 1, v->w, 1, UTHEME_SEPARATOR);
     }
     draw_items(s, v, 1, v->x, v->y + v->ns_h, v->w - barw, vp);
+    ugfx_set_font(saved);
     if (v->bar_on) uui_sbar_draw(&v->bar, s, UTHEME_WHITE, UTHEME_TEXT);
 }
 
@@ -833,13 +837,14 @@ static void popup_geometry(struct uui_helpview *v) {
 
 static void draw_popup(struct ugfx_surface *s, struct uui_helpview *v) {
     if (!uui_helpview_popup_open(v)) return;
+    const struct ugfx_font *saved = ugfx_font_current();
     popup_geometry(v);
     struct uui_helpview *p = v->pop;
     uui_fill_round_rect(s, p->x + 2, p->y + 3, p->w, p->h, 8, ugfx_blend(UTHEME_WHITE, 0x000000, 40));
     uui_fill_round_rect(s, p->x, p->y, p->w, p->h, 8, UTHEME_WHITE);
     uui_stroke_round_rect(s, p->x, p->y, p->w, p->h, 8, UTHEME_BORDER);
-    struct ugfx_clip saved;
-    ugfx_clip_save(s, &saved);
+    struct ugfx_clip clip;
+    ugfx_clip_save(s, &clip);
     ugfx_clip_intersect(s, p->x + 2, p->y + 2, p->w - 4, p->h - 4);
     {
         ensure_layout(p);
@@ -847,7 +852,8 @@ static void draw_popup(struct ugfx_surface *s, struct uui_helpview *v) {
         draw_items(s, p, 0, p->x, p->y, p->w, p->ns_h ? p->ns_h : 0);
         draw_items(s, p, 1, p->x, p->y + p->ns_h, p->w - barw, p->h - p->ns_h);
     }
-    ugfx_clip_restore(s, &saved);
+    ugfx_clip_restore(s, &clip);
+    ugfx_set_font(saved);
 }
 
 // --- the ops ---------------------------------------------------------------------------------------------------------------------
@@ -972,7 +978,9 @@ int uui_helpview_key(struct uui_helpview *v, int key, unsigned mods) {
 static void op_describe(const void *w, const struct uui_describe *d) {
     struct uui_helpview *v = (struct uui_helpview *)(void *)(uintptr_t)w;
     if (!v->doc || v->w <= 0) return;
+    const struct ugfx_font *saved = ugfx_font_current();
     ensure_layout(v);
+    ugfx_set_font(saved);
     uui_describe_int(d, "scroll", v->scroll);
     uui_describe_int(d, "content_h", v->ns_h + v->sc_h);
     uui_describe_int(d, "ns_h", v->ns_h);
@@ -988,6 +996,7 @@ static void op_describe(const void *w, const struct uui_describe *d) {
     }
     if (uui_helpview_popup_open(v)) {
         popup_geometry(v);
+        ugfx_set_font(saved);
         uui_describe_rect(d, "popup", v->pop->x, v->pop->y, v->pop->w, v->pop->h);
     }
 }
