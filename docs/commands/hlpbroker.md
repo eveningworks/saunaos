@@ -17,7 +17,7 @@ pipe as standard input, and `WinHelp()` writes a line down the other end.
 A line is tab-separated fields: `OPEN`, then any of `-c` NUMBER (a
 HELP_CONTEXT topic), `-k` KEYWORD (HELP_KEY) and `-m` MACRO
 (HELP_COMMAND), then the absolute path of the help file; or `QUIT`
-(HELP_QUIT). A new `OPEN` closes the window this started before. A line
+(HELP_QUIT), or `WINHELP`, the path of a program named `winhelp.exe`, an optional `-i`ID (letters) and the help file's path, which starts `w16` on Windows' own Help. A new `OPEN` or `WINHELP` closes the window this started before. A line
 that is anything else is ignored. It exits when the pipe closes, and
 leaves the window open.
 

@@ -9669,8 +9669,23 @@ So the viewer is native: `lib/uhlp` reads the format (the B+ trees,
 LZ77 topic blocks, phrase compression, the paragraph format -- written from
 the documentation Wine's `winhlp32` and `helpdeco` give, not copied),
 `ui/uui_helpview` draws a topic, and `/bin/wm/apps/hlpview` is the
-window. WINHELP.EXE stays an option for a machine that has it, a setting
-rather than a replacement, which is on the roadmap.
+window. WINHELP.EXE is an option for a machine that has it, the Help
+setting in Retro Launcher's Options and per program, never a replacement:
+w16 runs it as it runs any Windows program and `hlpbroker` starts that
+(`WINHELP` lines), the viewer when it is not found.
+
+**WINHELP.EXE is told its topic by a context ID the library invents.** Its
+command line takes an ID string (`-iNAME`) and the file keeps only the
+HASH of each, and a HELP_CONTEXT number or a keyword reaches a topic by
+hash. Running Windows' own Help at a topic therefore needs a string that
+hashes where the topic is. The hash is `h = h * 43 + value` per character
+over 32 bits, and 43 is odd, so it can be run backwards: `uhlp_id_for_hash()`
+meets in the middle -- every four-letter prefix's hash, sorted, against
+every four-letter suffix's contribution -- and finds eight lower-case letters
+in about 13 ms (`yceoaard` is "Finding Text" in Notepad's help). The string
+is never shown; it is the way a number is spoken to a program that only
+takes names. The alternative, a WM_WINHELP message from one w16 to another,
+needs programs to find each other, which w16 does not have.
 
 Three choices that were not obvious:
 

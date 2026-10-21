@@ -180,6 +180,12 @@ int uhlp_topic_by_offset(const struct uhlp *h, uint32_t offset, uint32_t *rel);
 int uhlp_topic_prev(const struct uhlp *h, int topic);              // the browse sequence; -1 at the end
 int uhlp_topic_next(const struct uhlp *h, int topic);
 uint32_t uhlp_hash(const char *context_id);                        // HASH of a context string
+// A context hash that names `topic` (0 when none does), and a string of lower-case letters that
+// HASHES to `hash`: WinHelp's command line takes a context ID, so a topic reached by number or by
+// keyword -- which the file only stores as a hash -- is named to Microsoft's own WINHELP.EXE by a
+// string it hashes back to the same place. 1 on success.
+uint32_t uhlp_topic_hash(const struct uhlp *h, int topic);
+int uhlp_id_for_hash(uint32_t hash, char *out, size_t cap);
 
 // --- keywords (the Index) -------------------------------------------------------
 

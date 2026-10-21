@@ -98,6 +98,7 @@ static void dc_defaults(struct w16_gdiobj *dc) {
     dc->bk = 0xFFFFFF;
     dc->bk_mode = OPAQUE;
     dc->rop2 = R2_COPYPEN;
+    dc->text_align = 0;
     dc->cx = dc->cy = 0;
 }
 
@@ -491,10 +492,23 @@ static int draw_text_clip(struct w16 *w, uint16_t hdc, int x, int y, const char 
                           const int *clip) {
     struct gdi_target t;
     struct w16_gdiobj *dc = target(w, hdc, &t);
-    int width = 0;
+    int width = 0, ta_dx = 0, ta_dy = 0;
+    if (dc && dc->text_align) {                  // SetTextAlign: the point is the right, middle, bottom or baseline
+        int cx, cy;
+        w16_text_size_in(dc->font, text, &cx, &cy);
+        unsigned ta = dc->text_align;
+        ta_dx = (ta & 6) == 6 ? -cx / 2 : (ta & 2) ? -cx : 0;
+        if ((ta & 24) == 24) {
+            pthread_mutex_lock(&g_w16_text_lock);
+            ta_dy = -w16_font_info(dc->font)->ascent;
+            pthread_mutex_unlock(&g_w16_text_lock);
+        } else if (ta & 8) {
+            ta_dy = -cy;
+        }
+    }
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_font_of(dc ? dc->font : 0));
-    if (dc) { x = dev_x(dc, x); y = dev_y(dc, y); }
+    if (dc) { x = dev_x(dc, x) + ta_dx; y = dev_y(dc, y) + ta_dy; }
     if (dc && t.px && clip) {                    // a DC-coordinate rectangle, within the window's
         int l = clip[0], tp = clip[1], r = clip[2], b = clip[3];
         dev_rect(dc, &l, &tp, &r, &b);
@@ -1495,7 +1509,7 @@ static void delete_object(struct w16 *w, uint16_t h) {
         free(o->px);
     }
     if (t == GDI_FONT) free(o->lf);
-    if (t == GDI_BRUSH) free(o->px);
+    if (t == GDI_BRUSH || t == GDI_PALETTE) free(o->px);
     if (t == GDI_DC) {
         if (o->hwnd || o->screen) return;
         struct w16_gdiobj *bm = obj(w, o->bitmap, GDI_BITMAP);
@@ -2908,6 +2922,256 @@ static int api_GetNearestColor(struct w16 *w, unsigned ordinal, struct w16_args 
     return 6;
 }
 
+// A solid colour over a rectangle of a DC, as FillRect does a brush: ExtTextOut's opaque box.
+static void fill_color(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, uint32_t colorref) {
+    struct gdi_target dt;
+    struct w16_gdiobj *dc = target(w, hdc, &dt);
+    if (dc) {
+        dev_rect(dc, &l, &t, &r, &b);
+        struct gdi_blit bl = { .dst = &dt, .x = l, .y = t, .w = r - l, .h = b - t,
+                               .rop = 0x00F00021, .brush = w16_colorref_px(colorref) };
+        gdi_bitblt(&bl);
+    }
+    gdi_done(w, dc);
+}
+
+// GetBkColor(hdc) -> COLORREF
+// GetTextColor(hdc) -> COLORREF
+// Windows: The DC's background colour, and its text colour.
+// w16: The same, as set -- not the nearest colour the driver would draw.
+static int api_GetBkColor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    set32(&w->cpu, dc ? (ordinal == 75 ? dc->bk : dc->text) : 0);
+    return 2;
+}
+
+// GetTextAlign(hdc) -> WORD
+// SetTextAlign(hdc, wFlags) -> WORD
+// Windows: Which point of the text the position given to TextOut names -- left, centre or right,
+// top, baseline or bottom (TA_*) -- or that the current position is used and moved (TA_UPDATECP);
+// SetTextAlign returns the old word.
+// w16: Left, centre and right, top, baseline and bottom are honoured by TextOut and ExtTextOut;
+// TA_UPDATECP is kept and answered but does not move the current position.
+static int api_SetTextAlign(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    uint16_t old = dc ? dc->text_align : 0;
+    if (ordinal == 346) {
+        uint16_t v = w16_arg16(a);
+        if (dc) dc->text_align = v;
+        w->cpu.r[R_AX] = old;
+        return 4;
+    }
+    w->cpu.r[R_AX] = old;
+    return 2;
+}
+
+// ExtTextOut(hdc, X, Y, fuOptions, lprc, lpString, cbString, lpDx) -> BOOL
+// Windows: TextOut with a rectangle: the rectangle may be filled with the background colour first
+// (ETO_OPAQUE) and the text cut to it (ETO_CLIPPED); lpDx gives the distance from each character
+// to the next.
+// w16: The same, including the character spacing; the fill is the whole rectangle in the
+// background colour whatever the background mode.
+static int api_ExtTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    int x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    unsigned opts = w16_arg16(a);
+    uint32_t rcfar = w16_arg32(a), sfar = w16_arg32(a);
+    unsigned n = w16_arg16(a);
+    uint32_t dxfar = w16_arg32(a);
+    struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
+    w->cpu.r[R_AX] = 0;
+    if (!dc) return 22;
+    int16_t rc[4] = { 0, 0, 0, 0 };
+    int have_rc = 0;
+    if (rcfar >> 16) {
+        const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(rcfar >> 16), (uint16_t)rcfar, 8, 0);
+        if (!p) return -1;
+        for (int i = 0; i < 4; i++) rc[i] = (int16_t)(p[2 * i] | p[2 * i + 1] << 8);
+        have_rc = 1;
+    }
+    char *text = far_text(w, sfar, n);
+    if (!text) return -1;
+    if (have_rc && (opts & 2)) fill_color(w, hdc, rc[0], rc[1], rc[2], rc[3], dc->bk);
+    int clip[4] = { rc[0], rc[1], rc[2], rc[3] };
+    const int *cp = have_rc && (opts & 4) ? clip : 0;
+    if (dxfar >> 16 && n) {                      // each character at its own distance
+        const uint8_t *dx = cpu16_ptr(&w->cpu, (uint16_t)(dxfar >> 16), (uint16_t)dxfar, n * 2, 0);
+        if (!dx) { free(text); return -1; }
+        int pen = x;
+        for (unsigned i = 0; i < n; i++) {
+            char one[2] = { text[i], 0 };
+            draw_text_clip(w, hdc, pen, y, one, 0, cp);
+            pen += (int16_t)(dx[2 * i] | dx[2 * i + 1] << 8);
+        }
+        w->cpu.r[R_AX] = 1;
+    } else {
+        w->cpu.r[R_AX] = draw_text_clip(w, hdc, x, y, text, 0, cp) >= 0;
+    }
+    free(text);
+    return 22;
+}
+
+// ExcludeClipRect(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect) -> int
+// Windows: Cuts a rectangle out of the DC's clipping region, in logical units; returns the region's
+// kind.
+// w16: A DC's clip is one rectangle, so only an exclusion that takes a whole side off it is
+// applied (a rectangle across the full height at the left or right edge, or across the full width
+// at the top or bottom); one in the middle leaves the clip as it was.
+// Why: A DC's clip is one rectangle, and a hole in it needs a region made of several.
+// Notice: A program that excludes a rectangle from the middle of its clip draws over it.
+// Whole: Regions as more than their bounding rectangle. On the roadmap: "w16: regions as more than their
+// bounding rectangle".
+static int api_ExcludeClipRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    int l = (int16_t)w16_arg16(a), t = (int16_t)w16_arg16(a), r = (int16_t)w16_arg16(a), b = (int16_t)w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    if (!dc) return 10;
+    dev_rect(dc, &l, &t, &r, &b);
+    struct gdi_target tg;
+    fill_target(w, dc, &tg);
+    int c[4] = { dc->has_clip ? dc->clip[0] : tg.x0 - tg.ox, dc->has_clip ? dc->clip[1] : tg.y0 - tg.oy,
+                 dc->has_clip ? dc->clip[2] : tg.x1 - tg.ox, dc->has_clip ? dc->clip[3] : tg.y1 - tg.oy };
+    if (t <= c[1] && b >= c[3] && l <= c[0] && r > c[0]) c[0] = r < c[2] ? r : c[2];         // the left side
+    else if (t <= c[1] && b >= c[3] && r >= c[2] && l < c[2]) c[2] = l > c[0] ? l : c[0];    // the right
+    else if (l <= c[0] && r >= c[2] && t <= c[1] && b > c[1]) c[1] = b < c[3] ? b : c[3];    // the top
+    else if (l <= c[0] && r >= c[2] && b >= c[3] && t < c[3]) c[3] = t > c[1] ? t : c[1];    // the bottom
+    dc->has_clip = 1;
+    for (int i = 0; i < 4; i++) dc->clip[i] = (int16_t)c[i];
+    w->cpu.r[R_AX] = c[2] > c[0] && c[3] > c[1] ? 2 : 1;
+    return 10;
+}
+
+// GetClipBox(hdc, lprc) -> int
+// Windows: The smallest rectangle round what the DC can draw on, in logical units; returns the
+// region's kind.
+// w16: The same: the visible part of the window's client area, or the bitmap, cut by the DC's clip.
+static int api_GetClipBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    uint32_t far = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!dc) return 6;
+    struct gdi_target t;
+    fill_target(w, dc, &t);
+    int l = t.x0 - t.ox, tp = t.y0 - t.oy, r = t.x1 - t.ox, b = t.y1 - t.oy;
+    if (r < l) r = l;
+    if (b < tp) b = tp;
+    int ll = log_x(dc, l), tl = log_y(dc, tp), rl = log_x(dc, r), bl = log_y(dc, b);
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 1);
+    if (!p) return -1;
+    int16_t out[4] = { (int16_t)(ll < rl ? ll : rl), (int16_t)(tl < bl ? tl : bl), (int16_t)(ll < rl ? rl : ll),
+                       (int16_t)(tl < bl ? bl : tl) };
+    for (int i = 0; i < 4; i++) { p[2 * i] = (uint8_t)out[i]; p[2 * i + 1] = (uint8_t)((uint16_t)out[i] >> 8); }
+    w->cpu.r[R_AX] = r > l && b > tp ? 2 : 1;
+    return 6;
+}
+
+// CreatePalette(lplgpl) -> HPALETTE
+// Windows: A logical palette -- the colours a program wants -- from a LOGPALETTE.
+// w16: The palette is kept and deleted, but colours are drawn as the 256-colour VGA driver drew
+// them (its 20 static colours), so a palette changes no pixel.
+static int api_CreatePalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t far = w16_arg32(a);
+    const uint8_t *hd = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 4, 0);
+    w->cpu.r[R_AX] = 0;
+    if (!hd) return -1;
+    unsigned n = (unsigned)(hd[2] | hd[3] << 8);
+    const uint8_t *e = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)(far + 4), (n ? n * 4 : 1), 0);
+    if (!e) return -1;
+    struct w16_gdiobj *o;
+    uint16_t h = new_obj(w, GDI_PALETTE, &o);
+    if (!h) return 4;
+    o->px = calloc(n ? n : 1, 4);
+    if (!o->px) { memset(o, 0, sizeof *o); return 4; }
+    o->bw = (int)n;
+    for (unsigned i = 0; i < n; i++) o->px[i] = (uint32_t)e[4 * i] << 16 | (uint32_t)e[4 * i + 1] << 8 | e[4 * i + 2];
+    w->cpu.r[R_AX] = h;
+    return 4;
+}
+
+// GetSystemPaletteEntries(hdc, wStartIndex, wNumEntries, lpPaletteEntries) -> UINT
+// Windows: Reads entries of the device's hardware palette.
+// w16: The 20 static colours at their places (0-9 and 246-255) and black between.
+static int api_GetSystemPaletteEntries(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    static const uint32_t SYS[20] = { 0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xC0C0C0,
+                                      0xC0DCC0, 0xA6CAF0, 0xFFFBF0, 0xA0A0A4, 0x808080, 0xFF0000, 0x00FF00,
+                                      0xFFFF00, 0x0000FF, 0xFF00FF, 0x00FFFF, 0xFFFFFF };
+    w16_arg16(a);
+    unsigned start = w16_arg16(a), n = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!(far >> 16)) { w->cpu.r[R_AX] = 256; return 10; }
+    if (start >= 256) return 10;
+    if (n > 256 - start) n = 256 - start;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (n ? n * 4 : 1), 1);
+    if (!p) return -1;
+    for (unsigned i = 0; i < n; i++) {
+        unsigned idx = start + i;
+        uint32_t c = idx < 10 ? SYS[idx] : idx >= 246 ? SYS[idx - 236] : 0;
+        p[4 * i] = (uint8_t)(c >> 16); p[4 * i + 1] = (uint8_t)(c >> 8); p[4 * i + 2] = (uint8_t)c; p[4 * i + 3] = 0;
+    }
+    w->cpu.r[R_AX] = (uint16_t)n;
+    return 10;
+}
+
+// SetMetaFileBits(hMem) -> HMETAFILE
+// Windows: Makes a memory metafile of the bits in a global block, which the metafile then owns.
+// w16: The block is the metafile: a metafile handle here is the global block's.
+static int api_SetMetaFileBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w->cpu.r[R_AX] = w16_arg16(a);
+    return 2;
+}
+
+// SetDIBits(hdc, hbmp, uStartScan, cScanLines, lpvBits, lpbmi, fuColorUse) -> int
+// Windows: Sets a bitmap's pixels from rows of a device-independent bitmap, counted from the bottom
+// of a bottom-up one; returns the rows copied.
+// w16: The same, for the DIB formats CreateDIBitmap reads.
+static int api_SetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    struct w16_gdiobj *bm = obj(w, w16_arg16(a), GDI_BITMAP);
+    unsigned start = w16_arg16(a), lines = w16_arg16(a);
+    uint32_t lpbits = w16_arg32(a), lpbmi = w16_arg32(a);
+    unsigned usage = w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    if (!bm) return 18;
+    static struct gdi_dib d;                     // the task thread's alone
+    if (!bmi_at(w, lpbmi, usage, &d)) return -1;
+    const uint8_t *bits = dib_bits(w, lpbits, &d, lines);
+    if (!bits) return -1;
+    unsigned done = 0;
+    for (unsigned k = 0; k < lines; k++) {
+        int y = d.h < 0 ? (int)(start + k) : bm->bh - 1 - (int)(start + k);
+        if (y < 0 || y >= bm->bh) continue;
+        const uint8_t *row = bits + (size_t)k * d.stride;
+        for (int x = 0; x < bm->bw && x < d.w; x++) bm->px[(size_t)y * bm->bw + x] = gdi_dib_px(&d, row, x);
+        done++;
+    }
+    w->cpu.r[R_AX] = (uint16_t)done;
+    return 18;
+}
+
+// DrawFocusRect's work: every second pixel of a rectangle's border inverted, twice undoing it.
+void w16_gdi_focus_rect(struct w16 *w, uint16_t hdc, int l, int t, int r, int b) {
+    struct gdi_target dt;
+    struct w16_gdiobj *dc = target(w, hdc, &dt);
+    if (dc) {
+        dev_rect(dc, &l, &t, &r, &b);
+        for (int x = l; x < r; x++) {
+            if (!((x - l) & 1)) { gdi_pixel(&dt, x, t, 0, 6); if (b - 1 > t) gdi_pixel(&dt, x, b - 1, 0, 6); }
+        }
+        for (int y = t + 1; y < b - 1; y++) {
+            if (!((y - t) & 1)) { gdi_pixel(&dt, l, y, 0, 6); if (r - 1 > l) gdi_pixel(&dt, r - 1, y, 0, 6); }
+        }
+    }
+    gdi_done(w, dc);
+}
+
 const struct w16_api g_gdi_api[] = {
     { 1, api_SetBkColor },
     { 2, api_SetBkMode },
@@ -2923,6 +3187,7 @@ const struct w16_api g_gdi_api[] = {
     { 14, api_SetWindowOrg },
     { 19, api_LineTo },
     { 20, api_MoveTo },
+    { 21, api_ExcludeClipRect },
     { 22, api_IntersectClipRect },
     { 23, api_Arc },
     { 24, api_Ellipse },
@@ -2958,12 +3223,15 @@ const struct w16_api g_gdi_api[] = {
     { 68, api_DeleteDC },
     { 69, api_DeleteDC },
     { 70, api_EnumFonts },
+    { 75, api_GetBkColor },
+    { 77, api_GetClipBox },
     { 79, api_GetDCOrg },
     { 80, api_GetDeviceCaps },
     { 81, api_GetMapMode },
     { 82, api_GetObject },
     { 83, api_SetPixel },
     { 87, api_GetStockObject },
+    { 90, api_GetBkColor },
     { 91, api_GetTextExtent },
     { 92, api_GetTextFace },
     { 93, api_GetTextMetrics },
@@ -2980,11 +3248,18 @@ const struct w16_api g_gdi_api[] = {
     { 153, api_CreateIC },
     { 154, api_GetNearestColor },
     { 156, api_CreateDiscardableBitmap },
+    { 160, api_SetMetaFileBits },
     { 162, api_SetBitmapDimension },
     { 163, api_SetBitmapDimension },
     { 172, api_SetRectRgn },
+    { 345, api_SetTextAlign },
+    { 346, api_SetTextAlign },
     { 348, api_Arc },
     { 350, api_GetCharWidth },
+    { 351, api_ExtTextOut },
+    { 360, api_CreatePalette },
+    { 375, api_GetSystemPaletteEntries },
+    { 440, api_SetDIBits },
     { 442, api_CreateDIBitmap },
     { 443, api_SetDIBitsToDevice },
     { 450, api_PolyPolygon },

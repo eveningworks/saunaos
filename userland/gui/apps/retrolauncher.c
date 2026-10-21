@@ -16,6 +16,7 @@
 // `retrolauncher --calls FILE` is the window listing what it imports
 // (retrolauncher/calls.c), which the details panel's button opens.
 #include <stdarg.h>
+#include <dirent.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -95,7 +96,7 @@ enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CM
 enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VERSION, ID_FRAME,
        ID_TRACE, ID_RUN, ID_CALLS, ID_METHOD, ID_FONTS, ID_OPT_FONTCARD, ID_DRIVEC, ID_CTX,
        ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE,
-       ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND };
+       ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND, ID_HELP };
 
 static struct uui_menubar g_menu;
 static struct uui_menubar g_ctx;             // a folder's right-click menu
@@ -103,7 +104,7 @@ static struct uui_toolbar g_tb;
 static struct uui_sidebar g_side;
 static struct uui_grid g_grid;
 static struct uui_statusbar g_sb;
-#define NSET 7                               // the per-program settings: SETTINGS below
+#define NSET 8                               // the per-program settings: SETTINGS below
 static struct uui_dropdown g_dd[NSET];
 static struct uui_dropdown g_ddc;            // its drive C:, a folder rather than a choice
 static struct uui_button g_run;
@@ -338,6 +339,7 @@ static const char *const FRAME_NAMES[] = { "Windows 3.1", "The desktop's" };
 static const char *const TRACE_NAMES[] = { "Off", "On" };
 static const char *const FONTS_NAMES[] = { "Windows 3.11's own", "toy-os's stand-ins" };
 static const char *const SOUNDS_NAMES[] = { "Windows 3.11's own", "toy-os's own", "Off" };
+static const char *const HELP_NAMES[] = { "toy-os Help Viewer", "WINHELP.EXE" };
 static char g_dflt_label[NSET][48];
 static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list, plus "Default"
 
@@ -351,6 +353,7 @@ static const struct { const char *caption; const char *const *names; int n; int 
     { "Window frame",    FRAME_NAMES,   2, 1, offsetof(struct w16_prefs, frame) },
     { "Fonts",           FONTS_NAMES,   2, 7, offsetof(struct w16_prefs, fonts) },
     { "Sound",           SOUNDS_NAMES,  3, 8, offsetof(struct w16_prefs, sounds) },
+    { "Help",            HELP_NAMES,    2, 9, offsetof(struct w16_prefs, help) },
     { "Trace its calls", TRACE_NAMES,   2, 4, offsetof(struct w16_prefs, trace) },
 };
 
@@ -647,6 +650,7 @@ static const struct uui_sidebar_row OPT_PAGES[] = {
     { "Sound",   UUI_SIDEBAR_TOP, 0, 2 },
     { "Drives",  UUI_SIDEBAR_TOP, 0, 3 },
     { "Folders", UUI_SIDEBAR_TOP, 0, 4 },
+    { "Help",    UUI_SIDEBAR_TOP, 0, 5 },
 };
 static const char *const FAULT_NAMES[] = { "Show the Error box", "Write the report only" };
 static const char *const FROM_NAMES[] = { "Run it", "Ask if it may not work", "Always ask", "Show it here" };
@@ -656,6 +660,7 @@ static const char *const OPT_NOTES[] = {
     "What a program plays, and whose sounds its events use.",
     "Each drive letter a program sees, and the folder it is here. A program's INI files go in C:\\WINDOWS.",
     "The folders programs are listed from, in the sidebar's order.",
+    "What opens when a program asks for its Help file.",
 };
 
 // The Drives list: C:, the drives set, then Z:; what each holds, worked
@@ -899,10 +904,41 @@ static void opt_widget(int id, int reason) {
     if (id == ID_SOUNDS) retro_sounds_play(uui_table_take_action(&g_retro_sounds, 0));
 }
 
+// Is there a WINHELP.EXE on drive C:? Looked for as Windows looked: in WINDOWS, then the root -- the
+// names matched without case, as a 3.11 set copied off a case-sensitive disk has them either way.
+static int winhelp_on_c(const char *drive_c) {
+    static const char *const DIRS[] = { "/WINDOWS", "" };
+    for (unsigned i = 0; i < sizeof DIRS / sizeof DIRS[0]; i++) {
+        char dir[W16_PATH_MAX + 16];
+        snprintf(dir, sizeof dir, "%s%s", drive_c, DIRS[i]);
+        DIR *d = opendir(dir);
+        if (!d) continue;
+        struct dirent *e;
+        while ((e = readdir(d)) != NULL)
+            if (!strcasecmp(e->d_name, "winhelp.exe")) { closedir(d); return 1; }
+        closedir(d);
+    }
+    return 0;
+}
+
+static struct uui_label g_help_note;
+static char g_help_note_text[200];
+
+static void help_note_set(void) {
+    snprintf(g_help_note_text, sizeof g_help_note_text, "%s",
+             winhelp_on_c(g_def.drive_c)
+                 ? "WINHELP.EXE is on drive C:. Chosen, it runs under w16 in place of the Help Viewer."
+                 : "WINHELP.EXE is not on drive C: (WINDOWS or the root). The Help Viewer opens a program's Help either way.");
+    uui_label_init(&g_help_note, g_help_note_text);
+    g_help_note.dim = 1;
+    g_help_note.wrap = 1;
+    g_help_note.rows = 3;
+}
+
 static void open_options(void) {
     g_edit = g_def;
     static const struct uui_prefs_desc d = {
-        .title = "Retro Launcher Options", .pages = OPT_PAGES, .page_count = 5,
+        .title = "Retro Launcher Options", .pages = OPT_PAGES, .page_count = 6,
         .log_prefix = "retrolauncher options", .on_defaults = opt_defaults, .on_ok = opt_ok, .on_action = opt_action,
         .on_widget = opt_widget,
         .notes = OPT_NOTES, .edit = &g_edit, .edit_defaults = edit_defaults,
@@ -932,6 +968,9 @@ static void open_options(void) {
     uui_listedit_select(&g_ofolders, -1);
     opt_folders_changed(-1);
     uui_prefs_row(4, "", &uui_listedit_ops, &g_ofolders, 0, "folder-list", UUI_FILL_W | UUI_FILL_H);
+    uui_prefs_choice(5, "Help opens in", HELP_NAMES, 0, 2, offsetof(struct w16_prefs, help), "help");
+    help_note_set();
+    uui_prefs_row(5, "", &uui_label_ops, &g_help_note, 0, "help-note", UUI_FILL_W);
     uui_prefs_open(g_app);
 }
 
@@ -1300,7 +1339,8 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[3], .id = ID_FRAME,   .name = "frame" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[4], .id = ID_FONTS,   .name = "fonts" },
     { .ops = &uui_dropdown_ops,  .widget = &g_dd[5], .id = ID_SOUND,   .name = "sound" },
-    { .ops = &uui_dropdown_ops,  .widget = &g_dd[6], .id = ID_TRACE,   .name = "trace" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[6], .id = ID_HELP,    .name = "help" },
+    { .ops = &uui_dropdown_ops,  .widget = &g_dd[7], .id = ID_TRACE,   .name = "trace" },
     { .ops = &uui_dropdown_ops,  .widget = &g_ddc,   .id = ID_DRIVEC,  .name = "drive-c" },
     { .ops = &uui_button_ops,    .widget = &g_run,   .id = ID_RUN,     .name = "run" },
     { .ops = &uui_button_ops,    .widget = &g_calls, .id = ID_CALLS,   .name = "calls" },
@@ -1396,7 +1436,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         fill_panel();
         if ((code = uui_grid_take(&g_grid)) >= 0) command(a, CMD_RUN);
         break;
-    case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_FONTS: case ID_SOUND: case ID_TRACE:
+    case ID_SCALE: case ID_METHOD: case ID_VERSION: case ID_FRAME: case ID_FONTS: case ID_SOUND: case ID_HELP: case ID_TRACE:
         save_panel();
         break;
     case ID_DRIVEC: drive_c_chosen(); break;

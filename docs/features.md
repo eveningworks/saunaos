@@ -251,7 +251,8 @@ Help opens in Help Viewer** (`/bin/wm/apps/hlpview`): Windows 3.x
 and pop-ups, pictures, tables, Contents, a keyword Index, full-text Find,
 Back and the browse sequence -- with text you can select and copy, a
 right-click menu and a zoom. F1 and the Help menu reach it through
-`WinHelp()`.
+`WinHelp()`; with the Help setting at WINHELP.EXE, Windows' own Help runs
+under w16 instead, at the same topic.
 
 **Programs and scripts run from the File Manager**, KDE's way: a
 double-click on an app opens it, and on any other program or `#!`

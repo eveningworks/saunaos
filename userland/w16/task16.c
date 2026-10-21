@@ -202,6 +202,15 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    50,  "finds no other program's window" },              // FindWindow
     { "USER",    121, "only WH_CALLWNDPROC is called" },                    // SetWindowsHook
     { "USER",    291, "only WH_CALLWNDPROC is called" },                    // SetWindowsHookEx
+    { "USER",    416, "shows no menu and answers FALSE" },                  // TrackPopupMenu
+    { "USER",    130, "keeps no class word and answers 0" },                // SetClassWord
+    { "USER",    99,  "chooses nothing" },                                  // DlgDirSelect
+    { "USER",    100, "lists nothing" },                                    // DlgDirList
+    { "USER",    267, "changes no scroll bar" },                            // ShowScrollBar
+    { "USER",    61,  "repaints the whole window; its children do not move" },   // ScrollWindow
+    { "USER",    456, "answers no icon" },                                  // LoadIconHandler
+    { "KERNEL",  64,  "answers an error: no file handle for a resource" },  // AccessResource
+    { "GDI",     21,  "takes off only a whole side of the clip" },          // ExcludeClipRect
 };
 
 const char *w16_partly(const char *module, unsigned ordinal) {

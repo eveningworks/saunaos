@@ -81,6 +81,21 @@ static int api_FindResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 10;
 }
 
+// AccessResource(hInstance, hResInfo) -> int
+// Windows: Opens the file the resource is in, positioned at it, and returns a DOS file handle to
+// read it with.
+// w16: Answers -1, the file could not be opened: a resource is read with LoadResource and LockResource.
+// Why: A resource is read out of the loaded image, so there is no file position to hand back.
+// Notice: A program that reads a resource through the handle finds the call failed.
+// Whole: A DOS file handle on the program's file, at the resource.
+static int api_AccessResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0xFFFF;
+    return 4;
+}
+
 // LoadResource(hInst, hRsrc) -> HGLOBAL
 // Windows: Reads the resource FindResource found into memory and returns a global handle to it,
 // loading it only once however often it is asked.
@@ -139,6 +154,7 @@ const struct w16_api g_kernel_res_api[] = {
     { 61, api_LoadResource },
     { 62, api_LockResource },
     { 63, api_FreeResource },
+    { 64, api_AccessResource },
     { 65, api_SizeofResource },
 };
 const unsigned g_kernel_res_api_n = sizeof g_kernel_res_api / sizeof g_kernel_res_api[0];

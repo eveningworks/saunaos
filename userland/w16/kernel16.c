@@ -331,6 +331,26 @@ static int api_WinExec(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
+// GetWindowsDirectory(lpBuffer, nSize) -> UINT
+// GetSystemDirectory(lpBuffer, nSize) -> UINT
+// Windows: The path of the Windows directory and of its SYSTEM subdirectory, in a buffer of nSize
+// bytes; the length, or the size needed when the buffer is too small.
+// w16: C:\WINDOWS and C:\WINDOWS\SYSTEM -- drive C: is the program's own tree, where its INI
+// files live.
+static int api_GetWindowsDirectory(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint32_t far = w16_arg32(a);
+    unsigned size = w16_arg16(a);
+    const char *dir = ordinal == 134 ? "C:\\WINDOWS" : "C:\\WINDOWS\\SYSTEM";
+    unsigned len = (unsigned)strlen(dir);
+    w->cpu.r[R_AX] = (uint16_t)(len + 1);
+    if (size < len + 1) return 6;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, len + 1, 1);
+    if (!p) return -1;
+    memcpy(p, dir, len + 1);
+    w->cpu.r[R_AX] = (uint16_t)len;
+    return 6;
+}
+
 // DOS3Call() -> registers
 // Windows: DOS's INT 21h by a far call: a DOS service -- open a file, read a directory, ask the
 // date -- with DOS's registers in and out.
@@ -524,6 +544,8 @@ const struct w16_api g_kernel_api[] = {
     { 107, api_SetErrorMode },
     { 115, api_OutputDebugString },
     { 132, api_GetWinFlags },
+    { 134, api_GetWindowsDirectory },
+    { 135, api_GetWindowsDirectory },
     { 137, api_FatalAppExit },
     { 166, api_WinExec },
     { 207, api_IsDBCSLeadByte },

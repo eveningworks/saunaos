@@ -39,6 +39,9 @@ enum { W16_FONTS_WIN311, W16_FONTS_STANDIN };
 // where it is there (else toy-os's own), toy-os's own always, or none --
 // Off answers that there is no wave device at all.
 enum { W16_SOUNDS_WIN311, W16_SOUNDS_TOYOS, W16_SOUNDS_OFF };
+// What a program's Help opens in: toy-os's Help Viewer, or Windows' own WINHELP.EXE run under w16 when
+// drive C: has it (the viewer when it does not).
+enum { W16_HELP_VIEWER, W16_HELP_WINHELP };
 
 #define W16_DRIVES 22                // D: to Y:, the letters between C: and Z:
 
@@ -61,6 +64,7 @@ struct w16_prefs {
     int from_files;                  // W16_FROM_*
     int add_folder;                  // a program run from elsewhere adds its folder to the launcher
     int sounds;                      // W16_SOUNDS_*
+    int help;                        // W16_HELP_*
     int sound_drv;                   // SOUND.DRV's notes played (Minesweeper's)
 };
 

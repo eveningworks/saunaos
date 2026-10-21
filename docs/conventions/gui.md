@@ -6109,6 +6109,13 @@ directly above it, the call's signature line and two fields:
 // w16: Always says no, even while the window is minimized.
 ```
 
+**An API table stays in ORDINAL ORDER.** `w16_has()` and `w16_api_call()` find a
+call by BISECTION, so one entry out of place is a call reported "not
+implemented" while its handler sits in the file: thirty-six calls added at
+the head of a table made BitBlt, SelectObject and SetMessageQueue vanish
+(2026-10-21). `gen_w16_calls.py --check` fails on a table that is not
+ascending, in the build and in `check_docs.py`.
+
 A STAND-IN (`task16.c`'s `PARTLY`) adds `Why:`, `Notice:` and `Whole:` --
 why only that, what a program may notice, what would make it whole, with
 the roadmap line that would. One handler serving several calls gives each

@@ -144,6 +144,28 @@ def entries():
     return out
 
 
+def unsorted_tables():
+    """Problems for any API table whose ordinals are not ascending.
+
+    w16_has() and w16_api_call() BINARY-SEARCH a table, so one entry out of
+    order is a call that is "not implemented" while its handler sits in the
+    file -- on 2026-10-21 thirty-six new calls went in at the head of a table
+    and BitBlt, SelectObject and SetMessageQueue stopped being found.
+    """
+    out = []
+    for path in sorted(glob.glob(os.path.join(W16, "*.c"))):
+        src = open(path, encoding="utf-8").read()
+        for var, body in re.findall(r"const struct w16_api (g_\w+_api)\[\] = \{(.*?)\n\};", src, re.S):
+            last = -1
+            for ordn, fn in re.findall(r"\{ *(\d+), *(api_\w+) *\}", body):
+                if int(ordn) < last:
+                    out.append(f"{os.path.relpath(path, REPO)}: {var} is not in ordinal order at {ordn} {fn} "
+                               "-- the table is searched by bisection; keep it ascending")
+                    break
+                last = int(ordn)
+    return out
+
+
 def equates():
     """[(ordinal, value)] and the comment block above KERNEL_EQUATES."""
     src = read("userland/w16/module16.c")
@@ -276,6 +298,7 @@ def main():
     ap.add_argument("--missing", action="store_true", help="list the calls without a block, by file")
     args = ap.parse_args()
     docs, part, problems = collect()
+    problems = problems + unsorted_tables()
     if args.missing:
         for p in sorted(problems):
             print(p)

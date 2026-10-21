@@ -626,6 +626,40 @@ static int api_GlobalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 4;
 }
 
+// LocalShrink(hSeg, cbNewSize) -> UINT
+// Windows: Shrinks a segment's local heap to at least cbNewSize, returning the new size of the
+// segment.
+// w16: Leaves the heap as it is and answers its size: the heap is DGROUP's whole room.
+static int api_LocalShrink(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = local_free_bytes(w);
+    return 4;
+}
+
+// GlobalLRUNewest(hMem) -> HGLOBAL
+// Windows: Moves a block to the newest end of the least-recently-used list, where memory is
+// discarded last.
+// w16: Answers the handle: nothing is ever discarded.
+static int api_GlobalLRUNewest(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w->cpu.r[R_AX] = w16_arg16(a);
+    return 2;
+}
+
+// DirectResAlloc(hInstance, wType, wSize) -> HGLOBAL
+// Windows: Allocates global memory for a resource, as the loader does, of the given size.
+// w16: A moveable global block of that size.
+static int api_DirectResAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg16(a);
+    unsigned size = w16_arg16(a);
+    w->cpu.r[R_AX] = w16_global_alloc(w, size, 0);
+    return 6;
+}
+
 const struct w16_api g_kernel_mem_api[] = {
     { 4, api_LocalInit },
     { 5, api_LocalAlloc },
@@ -648,6 +682,9 @@ const struct w16_api g_kernel_mem_api[] = {
     { 23, api_LockSegment },
     { 24, api_UnlockSegment },
     { 25, api_GlobalCompact },
+    { 121, api_LocalShrink },
+    { 164, api_GlobalLRUNewest },
+    { 168, api_DirectResAlloc },
     { 310, api_LocalHandleDelta },
 };
 const unsigned g_kernel_mem_api_n = sizeof g_kernel_mem_api / sizeof g_kernel_mem_api[0];

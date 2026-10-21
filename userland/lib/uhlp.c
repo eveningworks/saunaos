@@ -347,6 +347,83 @@ uint32_t uhlp_hash(const char *s) {
     return hash;
 }
 
+static int topic_at_offset(const struct uhlp *h, uint32_t offset, uint32_t *rel);
+
+uint32_t uhlp_topic_hash(const struct uhlp *h, int topic) {
+    if (!h || topic < 0 || topic >= h->npage) return 0;
+    for (int i = 0; i < h->nctx; i++) {
+        int t = topic_at_offset(h, h->ctx_off[i], 0);
+        if (t == topic && h->ctx_off[i] == h->page[topic].offset) return h->ctx_hash[i];
+    }
+    for (int i = 0; i < h->nctx; i++)                     // a hash that lands inside the topic will do
+        if (topic_at_offset(h, h->ctx_off[i], 0) == topic) return h->ctx_hash[i];
+    return 0;
+}
+
+// A letter's value in the hash: 'a'..'z' are 17..42, and each step is h = h * 43 + value, mod 2^32.
+// Eight letters are found by MEETING IN THE MIDDLE: every four-letter prefix's hash, sorted, against
+// every four-letter suffix's contribution -- about 26^4 of each, which together reach a given
+// 32-bit value some fifty times over.
+static uint32_t hl_inv43(void) {                          // 43^-1 mod 2^32, by Newton's iteration
+    uint32_t x = 43;
+    for (int i = 0; i < 5; i++) x *= 2 - 43 * x;
+    return x;
+}
+
+struct hl_pre { uint32_t hash; uint32_t idx; };
+
+static int hl_cmp(const void *a, const void *b) {
+    uint32_t x = ((const struct hl_pre *)a)->hash, y = ((const struct hl_pre *)b)->hash;
+    return x < y ? -1 : x > y;
+}
+
+static void hl_letters(uint32_t idx, char out[4]) {
+    for (int i = 3; i >= 0; i--) { out[i] = (char)('a' + idx % 26); idx /= 26; }
+}
+
+int uhlp_id_for_hash(uint32_t hash, char *out, size_t cap) {
+    if (cap < 9) return 0;
+    const uint32_t n = 26u * 26 * 26 * 26;
+    struct hl_pre *pre = malloc((size_t)n * sizeof *pre);
+    if (!pre) return 0;
+    for (uint32_t i = 0; i < n; i++) {
+        uint32_t hs = 0, v = i;
+        char l[4];
+        hl_letters(v, l);
+        for (int k = 0; k < 4; k++) hs = hs * 43 + (uint32_t)(l[k] - 'a' + 17);
+        pre[i].hash = hs;
+        pre[i].idx = i;
+    }
+    qsort(pre, n, sizeof *pre, hl_cmp);
+    uint32_t p4 = 43u * 43 * 43 * 43;                     // 43^4: a prefix's weight
+    uint32_t inv4 = hl_inv43();
+    inv4 = inv4 * inv4 * inv4 * inv4;
+    int found = 0;
+    for (uint32_t sidx = 0; sidx < n && !found; sidx++) {
+        char suf[4];
+        hl_letters(sidx, suf);
+        uint32_t c = 0;
+        for (int k = 0; k < 4; k++) c = c * 43 + (uint32_t)(suf[k] - 'a' + 17);
+        uint32_t need = (hash - c) * inv4;               // the prefix hash that continues to `hash`
+        size_t lo = 0, hi = n;
+        while (lo < hi) {
+            size_t mid = (lo + hi) / 2;
+            if (pre[mid].hash < need) lo = mid + 1; else hi = mid;
+        }
+        if (lo < n && pre[lo].hash == need) {
+            char l[4];
+            hl_letters(pre[lo].idx, l);
+            memcpy(out, l, 4);
+            memcpy(out + 4, suf, 4);
+            out[8] = 0;
+            found = 1;
+        }
+    }
+    free(pre);
+    (void)p4;
+    return found && uhlp_hash(out) == hash;
+}
+
 static char *dup_n(const uint8_t *p, size_t n) {
     char *s = malloc(n + 1);
     if (!s) return 0;

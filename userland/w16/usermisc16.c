@@ -8,6 +8,9 @@
 // the queue when one is due, at most one pending per timer, as Windows
 // coalesces them; GetMessage clears `pending` when it hands one out.
 #include "w16_internal.h"
+#include "lib/uhlp.h"
+#include "w16/w16prefs.h"
+#include <strings.h>
 #include "rt/sys.h"
 #include <unistd.h>
 
@@ -82,13 +85,17 @@ void w16_cursor_screen(struct w16 *w, int16_t *x, int16_t *y) {
 
 // The C-convention wsprintf: arguments on the stack in order, the caller
 // pops them. %d %i %u %x %X %c %s %%, with '-', '0', a width and 'l'.
-static int wsprintf16(struct w16 *w) {
+// One 16-bit argument of a wsprintf: off the stack (`argp` 0) or out of the far array wvsprintf is given.
+static unsigned fmt_arg(struct cpu16 *c, uint32_t argp, unsigned at) {
+    if (!argp) return cpu16_arg(c, at);
+    const uint8_t *p = cpu16_ptr(c, (uint16_t)(argp >> 16), (uint16_t)(argp + at), 2, 0);
+    return p ? (unsigned)(p[0] | p[1] << 8) : 0;
+}
+
+// The common formatter: `out` and `fmtp` are far pointers; the arguments start `at` bytes on in
+// whichever place `argp` says.
+static int format16(struct w16 *w, uint32_t out, uint32_t fmtp, uint32_t argp, unsigned at) {
     struct cpu16 *c = &w->cpu;
-    unsigned at = 0;
-    uint32_t out = cpu16_arg(c, at) | (uint32_t)cpu16_arg(c, at + 2) << 16;
-    at += 4;
-    uint32_t fmtp = cpu16_arg(c, at) | (uint32_t)cpu16_arg(c, at + 2) << 16;
-    at += 4;
     char fmt[512], buf[1024];
     if (cpu16_str(c, (uint16_t)(fmtp >> 16), (uint16_t)fmtp, fmt, sizeof fmt) < 0) {
         cpu16_set_fault(c, FAULT_API, "wsprintf was passed a bad format");
@@ -105,8 +112,8 @@ static int wsprintf16(struct w16 *w) {
         char tmp[300];
         switch (*f) {
         case 'd': case 'i': case 'u': case 'x': case 'X': {
-            uint32_t v = cpu16_arg(c, at);
-            if (lng) v |= (uint32_t)cpu16_arg(c, at + 2) << 16;
+            uint32_t v = fmt_arg(c, argp, at);
+            if (lng) v |= (uint32_t)fmt_arg(c, argp, at + 2) << 16;
             at += lng ? 4 : 2;
             if (*f == 'd' || *f == 'i')
                 snprintf(tmp, sizeof tmp, "%ld", lng ? (long)(int32_t)v : (long)(int16_t)v);
@@ -115,12 +122,12 @@ static int wsprintf16(struct w16 *w) {
             break;
         }
         case 'c':
-            tmp[0] = (char)cpu16_arg(c, at);
+            tmp[0] = (char)fmt_arg(c, argp, at);
             tmp[1] = 0;
             at += 2;
             break;
         case 's': {
-            uint32_t sp = cpu16_arg(c, at) | (uint32_t)cpu16_arg(c, at + 2) << 16;
+            uint32_t sp = fmt_arg(c, argp, at) | (uint32_t)fmt_arg(c, argp, at + 2) << 16;
             at += 4;
             if (cpu16_str(c, (uint16_t)(sp >> 16), (uint16_t)sp, tmp, sizeof tmp) < 0) tmp[0] = 0;
             break;
@@ -139,6 +146,14 @@ static int wsprintf16(struct w16 *w) {
     memcpy(p, buf, n + 1);
     c->r[R_AX] = (uint16_t)n;
     return 0;                                    // the caller pops
+}
+
+// The C-convention wsprintf: out, format, then the arguments on the stack.
+static int wsprintf16(struct w16 *w) {
+    struct cpu16 *c = &w->cpu;
+    uint32_t out = cpu16_arg(c, 0) | (uint32_t)cpu16_arg(c, 2) << 16;
+    uint32_t fmtp = cpu16_arg(c, 4) | (uint32_t)cpu16_arg(c, 6) << 16;
+    return format16(w, out, fmtp, 0, 8);
 }
 
 // --- timers ------------------------------------------------------------------
@@ -883,6 +898,17 @@ static int api_wsprintf(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return wsprintf16(w);
 }
 
+// wvsprintf(lpOutput, lpFormat, lpArglist) -> int
+// Windows: wsprintf with its arguments in an array the caller points to -- a va_list -- not on the
+// stack; the length of the result.
+// w16: The same specifiers and flags as wsprintf.
+static int api_wvsprintf(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t out = w16_arg32(a), fmtp = w16_arg32(a), args = w16_arg32(a);
+    int r = format16(w, out, fmtp, args, 0);
+    return r < 0 ? -1 : 12;
+}
+
 // --- strings -----------------------------------------------------------------
 
 // A far string, allocated; NULL after a fault.
@@ -1023,13 +1049,60 @@ static void help_field(char *out, size_t cap, const char *s) {
     out[n] = 0;
 }
 
+// WINHELP.EXE, if drive C: has it: in WINDOWS, at the root, or beside the program. 1 and its host path.
+static int find_winhelp(char *host, size_t cap) {
+    static const char *const WHERE[] = { "C:\\WINDOWS\\WINHELP.EXE", "C:\\WINHELP.EXE", "WINHELP.EXE" };
+    for (unsigned i = 0; i < sizeof WHERE / sizeof WHERE[0]; i++)
+        if (w16_dos_path(WHERE[i], host, cap, 0, 0, 0) == 0) return 1;
+    return 0;
+}
+
+// The context ID WINHELP.EXE is to be given to reach what the call names -- a HELP_CONTEXT number or a
+// HELP_KEY keyword -- worked out from the file here, since WINHELP's command line takes an ID string and
+// the file keeps only its hash. 1 and the ID, or 0 for "open it at its contents".
+static int winhelp_id(const char *host, unsigned cmd, uint32_t data, const char *key, char *id, size_t cap) {
+    FILE *f = fopen(host, "rb");
+    if (!f) return 0;
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    uint8_t *buf = n > 0 && n < (64L << 20) ? malloc((size_t)n) : 0;
+    int ok = 0;
+    if (buf && fread(buf, 1, (size_t)n, f) == (size_t)n) {
+        struct uhlp *h = uhlp_open(buf, (size_t)n, 0);
+        if (h) {
+            int topic = -1;
+            if (cmd == 1 || cmd == 8) topic = uhlp_topic_by_map(h, data);
+            else if (key[0]) {
+                for (int i = 0; i < uhlp_nkeywords(h) && topic < 0; i++) {
+                    const char *k = uhlp_keyword(h, i);
+                    size_t kl = strlen(key);
+                    if (!strncasecmp(k, key, kl) && (cmd == 0x105 || !k[kl])) {
+                        int cnt = 0;
+                        const int *t = uhlp_keyword_topics(h, i, &cnt);
+                        if (cnt > 0) topic = t[0];
+                    }
+                }
+            }
+            uint32_t hash = topic >= 0 ? uhlp_topic_hash(h, topic) : 0;
+            ok = hash && uhlp_id_for_hash(hash, id, cap);
+            uhlp_close(h);
+        }
+    }
+    free(buf);
+    fclose(f);
+    return ok;
+}
+
 // WinHelp(hWnd, lpszHelp, uCommand, dwData) -> BOOL
 // Windows: Opens the program's Help file (.HLP) in Windows Help, at its contents, a topic or a
 // keyword; HELP_QUIT closes it.
 // w16: Opens it in Help Viewer (/bin/wm/apps/hlpview), found as Windows finds a help file -- the
 // program's folder, then drive C:'s WINDOWS -- at the contents, the topic a HELP_CONTEXT number
-// names, a HELP_KEY keyword, or after a HELP_COMMAND macro. A second call closes the first window
-// and opens the next. HELP_QUIT closes the program's Help window. w16 may not start a program
+// names, a HELP_KEY keyword, or after a HELP_COMMAND macro. With the Help setting at WINHELP.EXE, and
+// that program on drive C:, it runs Windows' own Help under w16 instead, at the contents or the topic
+// a number or keyword names (a HELP_COMMAND macro is not passed). A second call closes the first
+// window and opens the next. HELP_QUIT closes the program's Help window. w16 may not start a program
 // itself, so the request goes to hlpbroker, which it started before its sandbox closed.
 static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -1057,19 +1130,34 @@ static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             return 12;
         }
     }
-    int n = snprintf(line, sizeof line, "OPEN");
-    switch (cmd) {
-    case 1: case 8:                                   // HELP_CONTEXT, HELP_CONTEXTPOPUP
-        n += snprintf(line + n, sizeof line - (size_t)n, "\t-c\t%lu", (unsigned long)data);
-        break;
-    case 0x101: case 0x105: case 0x201:               // HELP_KEY, HELP_PARTIALKEY, HELP_MULTIKEY
-    case 0x102:                                       // HELP_COMMAND
-        if (data >> 16 && cpu16_str(&w->cpu, (uint16_t)(data >> 16), (uint16_t)data, tmp, sizeof tmp)) {
-            help_field(word, sizeof word, tmp);
-            n += snprintf(line + n, sizeof line - (size_t)n, "\t%s\t%s", cmd == 0x102 ? "-m" : "-k", word);
+    tmp[0] = 0;
+    if ((cmd == 0x101 || cmd == 0x105 || cmd == 0x201 || cmd == 0x102) && (data >> 16))
+        cpu16_str(&w->cpu, (uint16_t)(data >> 16), (uint16_t)data, tmp, sizeof tmp);
+    int n = 0;
+    char exe[256];
+    const char *me = strrchr(w->path, '/');
+    int is_winhelp = me && !strcasecmp(me + 1, "winhelp.exe");
+    if (g_w16_prefs.help == W16_HELP_WINHELP && !is_winhelp && find_winhelp(exe, sizeof exe)) {
+        char id[16];
+        help_field(word, sizeof word, exe);
+        n = snprintf(line, sizeof line, "WINHELP\t%s", word);
+        if (cmd != 0x102 && winhelp_id(host, cmd, data, tmp, id, sizeof id))
+            n += snprintf(line + n, sizeof line - (size_t)n, "\t-i%s", id);
+    } else {
+        n = snprintf(line, sizeof line, "OPEN");
+        switch (cmd) {
+        case 1: case 8:                               // HELP_CONTEXT, HELP_CONTEXTPOPUP
+            n += snprintf(line + n, sizeof line - (size_t)n, "\t-c\t%lu", (unsigned long)data);
+            break;
+        case 0x101: case 0x105: case 0x201:           // HELP_KEY, HELP_PARTIALKEY, HELP_MULTIKEY
+        case 0x102:                                   // HELP_COMMAND
+            if (tmp[0]) {
+                help_field(word, sizeof word, tmp);
+                n += snprintf(line + n, sizeof line - (size_t)n, "\t%s\t%s", cmd == 0x102 ? "-m" : "-k", word);
+            }
+            break;
+        default: break;                               // contents, index, help on help
         }
-        break;
-    default: break;                                   // contents, index, help on help
     }
     help_field(word, sizeof word, host);
     n += snprintf(line + n, sizeof line - (size_t)n, "\t%s\n", word);
@@ -1260,6 +1348,274 @@ static int api_ScrollDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 20;
 }
 
+// EqualRect(lprc1, lprc2) -> BOOL
+// Windows: Whether two rectangles have the same four sides.
+// w16: The same.
+static int api_EqualRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int16_t r[4], s[4];
+    uint32_t p = w16_arg32(a), q = w16_arg32(a);
+    if (get_rect(w, p, r) < 0 || get_rect(w, q, s) < 0) return -1;
+    w->cpu.r[R_AX] = memcmp(r, s, sizeof r) == 0;
+    return 8;
+}
+
+// IsZoomed(hWnd) -> BOOL
+// Windows: Whether a window is maximized.
+// w16: The program's main window is, when the compositor has it maximized; no other window is.
+static int api_IsZoomed(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
+    pthread_mutex_lock(&w->lock);
+    w->cpu.r[R_AX] = x && x->kind != W16_K_CHILD && x->maximized;
+    pthread_mutex_unlock(&w->lock);
+    return 2;
+}
+
+// The windows beside `x`: its parent's children, or for a top-level window the program's own
+// (the main window, then its dialogs). Allocated; the count in *n.
+static uint16_t *siblings_of(struct w16 *w, const struct w16_wnd *x, int *n) {
+    uint16_t *v = 0;
+    int cap = 0;
+    *n = 0;
+    if (x->kind == W16_K_CHILD) {
+        int k;
+        struct w16_wnd **kids = w16_wnd_children(w, x->parent, &k);
+        v = malloc(sizeof *v * (size_t)(k ? k : 1));
+        for (int i = 0; v && kids && i < k; i++) v[(*n)++] = kids[i]->hwnd;
+        return v;
+    }
+    cap = w->nwnds + 1;
+    v = malloc(sizeof *v * (size_t)cap);
+    if (v && w->win.used) v[(*n)++] = w->win.hwnd;
+    for (int i = 0; v && i < w->nwnds; i++)
+        if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->kind == W16_K_DIALOG) v[(*n)++] = w->wnds[i]->hwnd;
+    return v;
+}
+
+// GetWindow(hWnd, uCmd) -> HWND
+// GetNextWindow(hWnd, uFlag) -> HWND
+// Windows: The window that stands in a relation to another: GW_HWNDFIRST, GW_HWNDLAST, GW_HWNDNEXT
+// or GW_HWNDPREV among its siblings, GW_OWNER, GW_CHILD (its first child); NULL when there is none.
+// GetNextWindow is the sibling pair of it.
+// w16: The same over the program's own windows, in the order they were made.
+static int api_GetWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a), cmd = w16_arg16(a);
+    struct w16_wnd *x = w16_wnd_get(w, h);
+    w->cpu.r[R_AX] = 0;
+    if (!x) return 4;
+    if (cmd == 5) {                              // GW_CHILD
+        int k;
+        struct w16_wnd **kids = w16_wnd_children(w, h, &k);
+        w->cpu.r[R_AX] = kids && k ? kids[0]->hwnd : 0;
+        return 4;
+    }
+    if (cmd == 4) {                              // GW_OWNER
+        w->cpu.r[R_AX] = x->kind == W16_K_DIALOG ? x->parent : 0;
+        return 4;
+    }
+    int n;
+    uint16_t *v = siblings_of(w, x, &n);
+    int at = -1;
+    for (int i = 0; v && i < n; i++) if (v[i] == h) at = i;
+    if (v && at >= 0) {
+        switch (cmd) {
+        case 0: w->cpu.r[R_AX] = v[0]; break;
+        case 1: w->cpu.r[R_AX] = v[n - 1]; break;
+        case 2: w->cpu.r[R_AX] = at + 1 < n ? v[at + 1] : 0; break;
+        case 3: w->cpu.r[R_AX] = at > 0 ? v[at - 1] : 0; break;
+        default: break;
+        }
+    }
+    free(v);
+    return 4;
+}
+
+// SetMessageQueue(cMsg) -> BOOL
+// Windows: Makes the program's message queue hold cMsg messages -- by default 8; a program that
+// posts a burst asks for more.
+// w16: Answers TRUE: the queue is the size it is.
+static int api_SetMessageQueue(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 1;
+    return 2;
+}
+
+// CallMsgFilter(lpMsg, nCode) -> BOOL
+// Windows: Offers a message to the program's message-filter hook, which a modal loop of the
+// program's own does; TRUE when the hook handled it.
+// w16: FALSE: no WH_MSGFILTER hook is called (SetWindowsHook says which are).
+static int api_CallMsgFilter(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg32(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    return 6;
+}
+
+// ScrollWindow(hWnd, XAmount, YAmount, lpRect, lpClipRect) -> void
+// Windows: Moves the contents of a window's client area, or of a rectangle in it, and its child
+// windows, by an amount; what is uncovered is invalid and repainted.
+// w16: The window is repainted whole -- w16 paints a window whole, not its update region -- so a
+// program draws what it would have drawn for the uncovered strip, and everything with it; the
+// child windows are not moved.
+// Why: w16 paints a window whole from its WM_PAINT, so there is no pixel move to make.
+// Notice: A program that scrolls child windows this way finds them where they were.
+// Whole: Invalid regions as rectangles, and the children moved with the pixels. On the roadmap: "w16:
+// invalid regions as rectangles".
+static int api_ScrollWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    w16_arg16(a);
+    w16_arg16(a);
+    w16_arg32(a);
+    w16_arg32(a);
+    struct w16_wnd *x = w16_wnd_get(w, h);
+    if (x) w16_invalidate(w, x, 1);
+    return 14;
+}
+
+// ShowScrollBar(hWnd, wBar, bShow) -> void
+// Windows: Shows or hides a window's scroll bar, or both.
+// w16: Nothing changes: a window's bars are the ones it was made with (WS_HSCROLL, WS_VSCROLL),
+// and its client area is sized for them.
+// Why: A window's client area is sized for its bars when it is made.
+// Notice: A bar the program hides stays, and one it shows is missing if the window was made without it.
+// Whole: The frame and client area recomputed when a bar comes or goes.
+static int api_ShowScrollBar(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)w;
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg16(a);
+    w16_arg16(a);
+    return 6;
+}
+
+// SetClassWord(hWnd, nIndex, wNewWord) -> WORD
+// Windows: Sets a word of a window's CLASS -- its icon, cursor or background brush -- for every
+// window of the class; returns the old one.
+// w16: Keeps nothing and answers 0: a class's words are what RegisterClass gave it.
+// Why: A class keeps what RegisterClass gave it, and nothing reads a class's words back.
+// Notice: A class's icon or cursor cannot be changed after it is registered.
+// Whole: GetClassWord, SetClassWord, GetClassLong and SetClassLong over the class.
+static int api_SetClassWord(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    return 6;
+}
+
+// DlgDirList(hDlg, lpPathSpec, nIDListBox, nIDStaticPath, wFileType) -> int
+// DlgDirSelect(hDlg, lpString, nIDListBox) -> BOOL
+// Windows: Fills a dialog's list box with the files and drives of a directory, and reads back the
+// entry chosen in one.
+// w16: Lists nothing (DlgDirList answers 0) and chooses nothing (DlgDirSelect answers FALSE).
+// Why: Listing a directory into a list box needs the list box's own messages and the drives and
+// files of the DOS view, which nothing has asked for yet.
+// Notice: A dialog's file list stays empty and its path static unchanged.
+// Whole: A DlgDirList that fills the list with the folder's files and drives.
+static int api_DlgDirList(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    w16_arg16(a);
+    w16_arg32(a);
+    w16_arg16(a);
+    if (ordinal == 100) { w16_arg16(a); w16_arg16(a); }
+    w->cpu.r[R_AX] = 0;
+    return ordinal == 100 ? 12 : 8;
+}
+
+// EnumTaskWindows(hTask, lpEnumFunc, lParam) -> BOOL
+// Windows: Calls a function for each top-level window a task owns, until it returns FALSE.
+// w16: The same for this program's windows -- all of them are its own task's.
+static int api_EnumTaskWindows(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    uint32_t fn = w16_arg32(a), data = w16_arg32(a);
+    int cap = w->nwnds + 1, n = 0;
+    uint16_t *v = malloc(sizeof *v * (size_t)cap);
+    if (v && w->win.used) v[n++] = w->win.hwnd;
+    for (int i = 0; v && i < w->nwnds; i++)
+        if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->kind == W16_K_DIALOG) v[n++] = w->wnds[i]->hwnd;
+    w->cpu.r[R_AX] = (uint16_t)enum_call(w, v, n, fn, data);
+    free(v);
+    return w->cpu.fault ? -1 : 10;
+}
+
+// TrackPopupMenu(hMenu, wFlags, x, y, nReserved, hWnd, lpRect) -> BOOL
+// Windows: Shows a popup menu at a point of the screen and lets the user choose; the choice is
+// sent to the window as WM_COMMAND.
+// w16: Shows nothing and answers FALSE: a popup that is not hung on a menu bar is not drawn yet.
+// Why: Only a menu bar's popups are drawn; a popup at a point needs its own grab, keys and commit.
+// Notice: A program's context menu never appears.
+// Whole: A popup menu at a point, chosen by pointer or key, its choice sent as WM_COMMAND. On the
+// roadmap: "w16: popup menus at a point".
+static int api_TrackPopupMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    for (int i = 0; i < 5; i++) w16_arg16(a);
+    w16_arg16(a);
+    w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    return 16;
+}
+
+// AnsiUpperBuff(lpString, nLength) -> UINT
+// Windows: Capitals for the first nLength characters of a buffer, in place (0 meaning 65536);
+// returns how many it did.
+// w16: The same, accented letters too.
+static int api_AnsiUpperBuff(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t far = w16_arg32(a);
+    unsigned n = w16_arg16(a);
+    if (!n) n = 65536;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n, 1);
+    if (!p) return -1;
+    for (unsigned i = 0; i < n; i++) p[i] = (uint8_t)fold(p[i]);
+    w->cpu.r[R_AX] = (uint16_t)n;
+    return 6;
+}
+
+// LoadIconHandler(hResData, bNew) -> HICON
+// Windows: An undocumented call -- an icon from resource data already loaded.
+// w16: Answers 0, no icon: a program that asks goes on without one.
+// Why: It is undocumented and nothing seen so far has needed the icon.
+// Notice: The program has no icon from it.
+// Whole: An icon made from resource data already loaded.
+static int api_LoadIconHandler(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    return 4;
+}
+
+// DrawFocusRect(hdc, lprc) -> void
+// Windows: Draws, or erases, the dotted rectangle that marks the control with the keyboard; it is
+// an XOR, so a second call with the same rectangle removes it.
+// w16: The same: every second pixel of the border inverted.
+static int api_DrawFocusRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    int16_t r[4];
+    if (get_rect(w, far, r) < 0) return -1;
+    w16_gdi_focus_rect(w, hdc, r[0], r[1], r[2], r[3]);
+    return 6;
+}
+
+// RealizePalette(hdc) -> UINT
+// Windows: Maps the DC's logical palette into the device's hardware palette; returns how many
+// entries changed.
+// w16: Changes nothing and answers 0: colours are always the static VGA ones.
+static int api_RealizePalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    return 2;
+}
+
 const struct w16_api g_user_misc_api[] = {
     { 10, api_SetTimer },
     { 12, api_KillTimer },
@@ -1283,6 +1639,7 @@ const struct w16_api g_user_misc_api[] = {
     { 58, api_GetClassName },
     { 59, api_SetActiveWindow },
     { 60, api_GetActiveWindow },
+    { 61, api_ScrollWindow },
     { 67, api_GetWindowDC },
     { 69, api_SetCursor },
     { 70, api_SetCursorPos },
@@ -1301,11 +1658,15 @@ const struct w16_api g_user_misc_api[] = {
     { 83, api_FrameRect },
     { 84, api_DrawIcon },
     { 85, api_DrawText },
+    { 99, api_DlgDirList },
+    { 100, api_DlgDirList },
     { 104, api_MessageBeep },
     { 105, api_FlashWindow },
     { 119, api_GetMessagePos },
     { 120, api_GetMessageTime },
     { 121, api_SetWindowsHook },
+    { 123, api_CallMsgFilter },
+    { 130, api_SetClassWord },
     { 169, api_GetCaretBlinkTime },
     { 171, api_WinHelp },
     { 175, api_LoadBitmap },
@@ -1314,19 +1675,32 @@ const struct w16_api g_user_misc_api[] = {
     { 192, api_InSendMessage },
     { 196, api_TabbedTextOut },
     { 221, api_ScrollDC },
+    { 225, api_EnumTaskWindows },
+    { 230, api_GetWindow },
     { 234, api_UnhookWindowsHook },
     { 235, api_DefHookProc },
     { 236, api_GetCapture },
+    { 244, api_EqualRect },
+    { 262, api_GetWindow },
+    { 266, api_SetMessageQueue },
+    { 267, api_ShowScrollBar },
+    { 272, api_IsZoomed },
     { 282, api_SelectPalette },
+    { 283, api_RealizePalette },
     { 286, api_GetDesktopWindow },
     { 287, api_GetLastActivePopup },
     { 291, api_SetWindowsHookEx },
     { 292, api_UnhookWindowsHookEx },
     { 293, api_CallNextHookEx },
+    { 416, api_TrackPopupMenu },
     { 420, api_wsprintf },
+    { 421, api_wvsprintf },
     { 430, api_lstrcmp },
     { 431, api_AnsiUpper },
     { 432, api_AnsiUpper },
+    { 437, api_AnsiUpperBuff },
+    { 456, api_LoadIconHandler },
+    { 466, api_DrawFocusRect },
     { 471, api_lstrcmp },
     { 472, api_AnsiNext },
     { 473, api_AnsiPrev },

@@ -404,8 +404,9 @@ static int menu_insert(struct w16_hmenu *m, int at, const char *text, uint16_t i
 }
 
 // CreatePopupMenu() -> HMENU
-// Windows: A new, empty popup menu, to fill and hang on a menu bar or another popup.
-// w16: The same.
+// CreateMenu() -> HMENU
+// Windows: A new, empty popup menu, or a menu bar, to fill and hang on a window or another popup.
+// w16: The same: one kind of menu is both.
 static int api_CreatePopupMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -434,6 +435,25 @@ static int api_InsertMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (ok && h == w->menu) bar_changed(w);
     w->cpu.r[R_AX] = (uint16_t)ok;
     return 12;
+}
+
+// AppendMenu(hMenu, wFlags, wIDNewItem, lpNewItem) -> BOOL
+// Windows: Puts a new item at the end of a menu: text, a separator, or a popup (MF_POPUP, its HMENU
+// as the id).
+// w16: The same; a bitmap or owner-drawn item shows as an empty item.
+static int api_AppendMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a), flags = w16_arg16(a), id = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    char text[256];
+    if (!item_text(w, far, flags, text, sizeof text)) return -1;
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *in = menu_of(h);
+    int ok = in && menu_insert(in, -1, text, id, flags);
+    pthread_mutex_unlock(&w->lock);
+    if (ok && h == w->menu) bar_changed(w);
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 10;
 }
 
 // DeleteMenu(hMenu, nPosition, wFlags) -> BOOL
@@ -560,6 +580,7 @@ static int api_TranslateAccelerator(struct w16 *w, unsigned ordinal, struct w16_
 
 const struct w16_api g_menu_api[] = {
     { 150, api_LoadMenu },
+    { 151, api_CreatePopupMenu },
     { 152, api_DestroyMenu },
     { 153, api_ChangeMenu },
     { 154, api_CheckMenuItem },
@@ -576,6 +597,7 @@ const struct w16_api g_menu_api[] = {
     { 263, api_GetMenuItemCount },
     { 264, api_GetMenuItemID },
     { 410, api_InsertMenu },
+    { 411, api_AppendMenu },
     { 413, api_DeleteMenu },
     { 415, api_CreatePopupMenu },
 };

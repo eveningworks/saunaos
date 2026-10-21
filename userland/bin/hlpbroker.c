@@ -14,10 +14,13 @@
 // OPEN closes the window this started before, as a second WinHelp() call
 // to the same Help window replaces its topic. It exits when the pipe
 // closes (the program ended) and leaves the window: closing it is the
-// user's, as with Windows Help.
+// user's, as with Windows Help. A line may instead be `WINHELP`, the path of
+// WINHELP.EXE, an optional `-i`ID and the file's path: it starts w16 on that
+// program, for a machine that has Windows' own Help and is set to use it.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include "rt/sys.h"
 
@@ -34,6 +37,39 @@ static void close_child(void) {
         break;
     }
     g_child = 0;
+}
+
+#define W16BIN "/bin/w16"
+
+// `WINHELP`, the program's path, an optional `-i`ID and the help file's: Windows' own WINHELP.EXE under
+// w16 -- argv for /bin/w16, or 0. The program must be named winhelp.exe, the ID is letters, the file is
+// an absolute path: w16 is itself sandboxed, and this opens that one program on that one kind of file.
+static int build_winhelp(char *line, char **argv, int max) {
+    int n = 0;
+    argv[n++] = (char *)W16BIN;
+    char *f = strtok(line, "\t");
+    if (!f || strcmp(f, "WINHELP")) return 0;
+    char *exe = strtok(NULL, "\t");
+    if (!exe || exe[0] != '/') return 0;
+    const char *base = strrchr(exe, '/') + 1;
+    if (strcasecmp(base, "winhelp.exe")) return 0;
+    argv[n++] = exe;
+    argv[n++] = (char *)"--";
+    while ((f = strtok(NULL, "\t")) != NULL) {
+        if (n + 2 >= max) return 0;
+        if (f[0] == '-' && f[1] == 'i') {
+            size_t k = 2;
+            while (f[k] >= 'a' && f[k] <= 'z' && k < 40) k++;
+            if (k == 2 || f[k]) return 0;
+            argv[n++] = f;
+        } else if (f[0] == '/') {
+            argv[n++] = f;
+        } else {
+            return 0;
+        }
+    }
+    argv[n] = NULL;
+    return n >= 4 && argv[n - 1][0] == '/';
 }
 
 // Fields to argv for the viewer, or 0 if the line is not one this will run.
@@ -77,6 +113,12 @@ int main(void) {
         len = 0;
         if (!strcmp(line, "QUIT")) { close_child(); continue; }
         char *argv[16];
+        if (!strncmp(line, "WINHELP\t", 8)) {
+            if (!build_winhelp(line, argv, 16)) continue;
+            close_child();
+            g_child = sys_spawn_argv(W16BIN, argv);
+            continue;
+        }
         if (!build(line, argv, 16)) continue;
         close_child();
         g_child = sys_spawn_argv(VIEWER, argv);

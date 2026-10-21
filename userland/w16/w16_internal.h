@@ -210,7 +210,7 @@ struct w16_lblock {
 
 // A GDI object (gdi16.c). A DC's drawing state lives in it; a bitmap's
 // pixels are 32-bit, `mono` for a 1-bit one (black or white only).
-enum { GDI_FREE, GDI_PEN, GDI_BRUSH, GDI_BITMAP, GDI_DC, GDI_FONT, GDI_REGION };
+enum { GDI_FREE, GDI_PEN, GDI_BRUSH, GDI_BITMAP, GDI_DC, GDI_FONT, GDI_REGION, GDI_PALETTE };
 struct w16_gdiobj {
     uint8_t type;
     uint32_t color;               // pen, brush: a COLORREF
@@ -227,6 +227,7 @@ struct w16_gdiobj {
     uint16_t bitmap, pen, brush, font;
     uint32_t text, bk;            // COLORREFs
     int bk_mode, rop2;
+    uint16_t text_align;          // SetTextAlign's TA_* word
     int16_t cx, cy;               // the current position
     int16_t brush_ox, brush_oy;   // SetBrushOrg's: kept and answered, no brush is patterned yet
     // DC: its mapping (SetMapMode, Set{Window,Viewport}{Org,Ext}) -- a
@@ -879,6 +880,7 @@ void w16_gdi_delete(struct w16 *w, uint16_t h);   // DeleteObject's work
 // ScrollDC's work: the pixels of `scroll` (NULL: the whole DC) moved by
 // (dx, dy) inside `clip` (NULL: the scroll rectangle), logical units; *upd the
 // rectangle uncovered. 0 for no DC. And a region made that rectangle.
+void w16_gdi_focus_rect(struct w16 *w, uint16_t hdc, int l, int t, int r, int b);   // DrawFocusRect's XOR
 int w16_gdi_scroll(struct w16 *w, uint16_t hdc, int dx, int dy, const int16_t *scroll, const int16_t *clip,
                    int16_t upd[4]);
 void w16_gdi_region_set(struct w16 *w, uint16_t hrgn, const int16_t rc[4]);
