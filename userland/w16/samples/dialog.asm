@@ -7,6 +7,9 @@
 ; AppendMenu), which toggles SetWindowPos(HWND_TOPMOST / HWND_NOTOPMOST) and its
 ; tick, as Clock's does. Each answer is written to DIALOG.INI's [Dialog]
 ; section (Value=, Box=, Checked=, Top=), which the test reads back.
+; The Number dialog's list is owner-drawn (LBS_OWNERDRAWFIXED): its rows are
+; measured 20 tall (WM_MEASUREITEM) and filled dark grey, the selected one
+; black (WM_DRAWITEM) -- the test reads the bands.
 ; Build: tools/gen_ne.py.
 ;
 ;w16: module DLGTEST
@@ -16,11 +19,12 @@
 ;w16: autodata 2
 ;w16: stack 4096
 ;w16: heap 1024
-;w16: dialog 100 0 0 110 56 0x80c80080 "Number"
+;w16: dialog 100 0 0 110 100 0x80c80080 "Number"
 ;w16: control 100 STATIC 65535 8 10 30 8 0x50000000 "&Value:"
 ;w16: control 100 EDIT 10 42 8 56 12 0x50810000 ""
 ;w16: control 100 BUTTON 1 8 34 44 14 0x50010001 "OK"
 ;w16: control 100 BUTTON 2 58 34 44 14 0x50010000 "Cancel"
+;w16: control 100 LISTBOX 11 8 54 94 40 0x50800051 ""
 ;w16: menu 200
 ;w16: popup 200 "&File"
 ;w16: item 200 300 "&Number...\tF2"
@@ -43,6 +47,10 @@
 %define WM_INITDIALOG  0x0110
 %define WM_COMMAND     0x0111
 %define WM_SYSCOMMAND  0x0112
+%define WM_DRAWITEM    0x002B
+%define WM_MEASUREITEM 0x002C
+%define LB_ADDSTRING   0x0401
+%define LB_SETCURSEL   0x0407
 %define MF_CHECKED     0x0008
 %define MF_SEPARATOR   0x0800
 %define IDM_TOP        310
@@ -339,10 +347,59 @@ dlgproc:
     je .init
     cmp ax, WM_COMMAND
     je .command
+    cmp ax, WM_MEASUREITEM
+    je .measure
+    cmp ax, WM_DRAWITEM
+    je .draw
 .no:
     xor ax, ax
     jmp .ret
+.measure:
+    les bx, [bp+6]                  ; MEASUREITEMSTRUCT: itemHeight 20
+    mov word [es:bx+8], 20
+    mov ax, 1
+    jmp .ret
+.draw:
+    les bx, [bp+6]                  ; DRAWITEMSTRUCT: a stock brush by itemState
+    mov ax, 3                       ; DKGRAY_BRUSH
+    test word [es:bx+8], 1          ; ODS_SELECTED
+    jz .brush
+    mov ax, 4                       ; BLACK_BRUSH
+.brush:
+    push es
+    push bx
+    push ax
+    W16_CALL "GDI", 87              ; GetStockObject
+    pop bx
+    pop es
+    push word [es:bx+12]            ; FillRect(hDC, &rcItem, brush)
+    push es
+    lea cx, [bx+14]
+    push cx
+    push ax
+    W16_CALL "USER", 81
+    mov ax, 1
+    jmp .ret
 .init:
+    mov cx, 3                       ; three rows, the middle one selected
+.row:
+    push cx
+    push word [bp+14]               ; SendDlgItemMessage(hDlg, 11, LB_ADDSTRING, 0, "Row")
+    push word 11
+    push word LB_ADDSTRING
+    push word 0
+    push ds
+    push word row_text
+    W16_CALL "USER", 101
+    pop cx
+    loop .row
+    push word [bp+14]               ; SendDlgItemMessage(hDlg, 11, LB_SETCURSEL, 1, 0)
+    push word 11
+    push word LB_SETCURSEL
+    push word 1
+    push word 0
+    push word 0
+    W16_CALL "USER", 101
     push word [bp+14]               ; SetDlgItemInt(hDlg, 10, 42, FALSE)
     push word 10
     push word 42
@@ -432,5 +489,6 @@ ini_file:   db "DIALOG.INI", 0
 ini_checked: db "Checked", 0
 ini_top:    db "Top", 0
 top_text:   db "Always on &Top", 0
+row_text:   db "Row", 0
 about_app:  db "Dialog test", 0
 about_other: db "w16's own sample", 0

@@ -378,6 +378,28 @@ static int api_ClientToScreen(struct w16 *w, unsigned ordinal, struct w16_args *
     return 6;
 }
 
+// WindowFromPoint(Point) -> HWND
+// Windows: The window under a screen point -- the deepest visible child there, a label passing it
+// to what is under it -- or NULL over no window.
+// w16: The same over the program's own windows, a dialog before its main window; a point on a
+// frame or caption, or on another program, answers NULL.
+static int api_WindowFromPoint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t pt = w16_arg32(a);
+    int x = (int16_t)pt, y = (int16_t)(pt >> 16);
+    uint16_t r = 0;
+    for (int i = w->nwnds; i >= 0 && !r; i--) {   // the dialogs, newest first; then the main window
+        struct w16_wnd *t = i == 0 ? &w->win : w->wnds[i - 1];
+        if (!t || !t->used || t->destroyed || !t->visible || (i && t->kind != W16_K_DIALOG)) continue;
+        int dx, dy, cx, cy, nc;
+        w16_screen_offset(w, t, &dx, &dy);
+        if (x < dx || y < dy || x >= dx + t->cw || y >= dy + t->ch) continue;
+        r = w16_wnd_at(w, t, x - dx, y - dy, &cx, &cy, &nc)->hwnd;
+    }
+    w->cpu.r[R_AX] = r;
+    return 4;
+}
+
 // IsIconic(hWnd) -> BOOL
 // Windows: Says whether a window is minimized -- shown as an icon at the foot of the screen in 3.x,
 // hence the name.
@@ -1628,6 +1650,7 @@ const struct w16_api g_user_misc_api[] = {
     { 23, api_GetFocus },
     { 28, api_ClientToScreen },
     { 29, api_ClientToScreen },
+    { 30, api_WindowFromPoint },
     { 31, api_IsIconic },
     { 32, api_GetWindowRect },
     { 45, api_BringWindowToTop },
@@ -1756,10 +1779,58 @@ static int api_VkKeyScan(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
+// The US keyboard's set-1 scan code of each virtual key, VK_BACK (8) to VK_OEM_7 (0xDE); 0 for none.
+static uint8_t vk_scan(unsigned vk) {
+    static const char letters[] = "\x1e\x30\x2e\x20\x12\x21\x22\x23\x17\x24\x25\x26\x32\x31\x18\x19"
+                                  "\x10\x13\x1f\x14\x16\x2f\x11\x2d\x15\x2c";            // A to Z
+    static const struct { uint8_t vk, scan; } other[] = {
+        { 0x08, 0x0E }, { 0x09, 0x0F }, { 0x0D, 0x1C }, { 0x10, 0x2A }, { 0x11, 0x1D }, { 0x12, 0x38 },
+        { 0x14, 0x3A }, { 0x1B, 0x01 }, { 0x20, 0x39 }, { 0x21, 0x49 }, { 0x22, 0x51 }, { 0x23, 0x4F },
+        { 0x24, 0x47 }, { 0x25, 0x4B }, { 0x26, 0x48 }, { 0x27, 0x4D }, { 0x28, 0x50 }, { 0x2D, 0x52 },
+        { 0x2E, 0x53 }, { 0x60, 0x52 }, { 0x61, 0x4F }, { 0x62, 0x50 }, { 0x63, 0x51 }, { 0x64, 0x4B },
+        { 0x65, 0x4C }, { 0x66, 0x4D }, { 0x67, 0x47 }, { 0x68, 0x48 }, { 0x69, 0x49 }, { 0x6A, 0x37 },
+        { 0x6B, 0x4E }, { 0x6D, 0x4A }, { 0x6E, 0x53 }, { 0x6F, 0x35 }, { 0x7A, 0x57 }, { 0x7B, 0x58 },
+        { 0xBA, 0x27 }, { 0xBB, 0x0D }, { 0xBC, 0x33 }, { 0xBD, 0x0C }, { 0xBE, 0x34 }, { 0xBF, 0x35 },
+        { 0xC0, 0x29 }, { 0xDB, 0x1A }, { 0xDC, 0x2B }, { 0xDD, 0x1B }, { 0xDE, 0x28 },
+    };
+    if (vk >= 'A' && vk <= 'Z') return (uint8_t)letters[vk - 'A'];
+    if (vk >= '1' && vk <= '9') return (uint8_t)(vk - '1' + 2);
+    if (vk == '0') return 0x0B;
+    if (vk >= 0x70 && vk <= 0x79) return (uint8_t)(vk - 0x70 + 0x3B);   // F1 to F10
+    for (unsigned i = 0; i < sizeof other / sizeof other[0]; i++)
+        if (other[i].vk == vk) return other[i].scan;
+    return 0;
+}
+
+// MapVirtualKey(wCode, wMapType) -> UINT
+// Windows: Translates by the keyboard layout: type 0 a virtual key to its scan code, 1 a scan code to
+// its virtual key, 2 a virtual key to the character it types unshifted (a letter in capitals); 0
+// when there is none.
+// w16: The same, by the US layout VkKeyScan uses. A scan code shared by two keys (the numeric pad's
+// and the arrows) maps back to the one 3.1's table lists first.
+static int api_MapVirtualKey(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    unsigned code = w16_arg16(a), type = w16_arg16(a), r = 0;
+    static const char punct[] = ";=,-./`[\\]'";
+    static const uint8_t pvk[] = { 0xBA, 0xBB, 0xBC, 0xBD, 0xBE, 0xBF, 0xC0, 0xDB, 0xDC, 0xDD, 0xDE };
+    if (type == 0) r = vk_scan(code);
+    else if (type == 1) {
+        for (unsigned vk = 8; vk <= 0xDE && !r; vk++) if (vk_scan(vk) == code && code) r = vk;
+    } else if (type == 2) {
+        if ((code >= 'A' && code <= 'Z') || (code >= '0' && code <= '9') || code == ' ' || code == 8 ||
+            code == 9 || code == 13 || code == 27) r = code;
+        else if (code >= 0x60 && code <= 0x69) r = '0' + code - 0x60;
+        for (unsigned i = 0; !r && i < sizeof pvk; i++) if (pvk[i] == code) r = (uint8_t)punct[i];
+    }
+    w->cpu.r[R_AX] = (uint16_t)r;
+    return 4;
+}
+
 const struct w16_api g_keyboard_api[] = {
     { 5, api_AnsiToOem },
     { 6, api_AnsiToOem },
     { 129, api_VkKeyScan },
+    { 131, api_MapVirtualKey },
 };
 const unsigned g_keyboard_api_n = sizeof g_keyboard_api / sizeof g_keyboard_api[0];
 const unsigned g_user_misc_api_n = sizeof g_user_misc_api / sizeof g_user_misc_api[0];

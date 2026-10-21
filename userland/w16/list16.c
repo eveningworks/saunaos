@@ -10,6 +10,12 @@
 // dialog's edge. Its notifications go to the box, which turns them into
 // CBN_* for its parent. A template's height for a combo box is its
 // height OPEN; it is drawn shut at one row.
+//
+// OWNER-DRAWN (LBS_/CBS_OWNERDRAWFIXED): the parent sizes a row once
+// (WM_MEASUREITEM) and draws each one (WM_DRAWITEM) with the control's
+// DC; w16 keeps the frame, the button, the white ground and the scrolling.
+// A combo's rows, and the item in its shut box, go to the BOX's parent as
+// ODT_COMBOBOX naming the box -- Character Map's TrueType marks.
 #include "w16_internal.h"
 
 #include <stdlib.h>
@@ -20,6 +26,9 @@
 #define LBS_NOTIFY     0x0001
 #define LBS_SORT       0x0002
 #define LBS_NOREDRAW   0x0004
+#define LBS_OWNERDRAWFIXED 0x0010
+#define LBS_OWNERDRAWVARIABLE 0x0020
+#define LBS_HASSTRINGS 0x0040
 #define LBS_NOINTEGRALHEIGHT 0x0100
 #define LBS_DISABLENOSCROLL 0x1000
 #define LB_ADDSTRING   (WM_USER + 1)
@@ -55,7 +64,19 @@
 #define CBS_SIMPLE       0x0001
 #define CBS_DROPDOWN     0x0002
 #define CBS_DROPDOWNLIST 0x0003
+#define CBS_OWNERDRAWFIXED 0x0010
+#define CBS_OWNERDRAWVARIABLE 0x0020
 #define CBS_SORT         0x0100
+#define CBS_HASSTRINGS   0x0200
+#define WM_DRAWITEM      0x002B
+#define WM_MEASUREITEM   0x002C
+#define ODT_LISTBOX      2
+#define ODT_COMBOBOX     3
+#define ODA_DRAWENTIRE   1
+#define ODS_SELECTED     0x0001
+#define ODS_DISABLED     0x0004
+#define ODS_FOCUS        0x0010
+#define ODS_COMBOBOXEDIT 0x1000
 #define CB_GETEDITSEL    (WM_USER + 0)
 #define CB_LIMITTEXT     (WM_USER + 1)
 #define CB_SETEDITSEL    (WM_USER + 2)
@@ -109,6 +130,8 @@ struct listbox {
     int focused, captured;
     int folders;                      // w16_listbox_folders()
     uint16_t combo;                   // a combo box's list: the box hears its notifications
+    int owner, strings;               // owner-drawn; and keeping strings (else an item is its data)
+    int oh;                           // an owner-drawn row's height, from WM_MEASUREITEM; 0 otherwise
 };
 
 static struct listbox *lb_of(struct w16_wnd *x) { return x->ctl; }
@@ -123,7 +146,34 @@ void w16_listbox_folders(struct w16_wnd *x, int on) {
 static int item_h(const struct w16_wnd *x) {
     int h = w16_font_line_h(x ? x->font : 0);
     const struct listbox *l = x && x->host == w16_listbox_proc ? x->ctl : 0;
+    if (l && l->oh) return l->oh;
     return l && l->folders == 1 && h < 16 ? 16 : h;
+}
+
+// WM_MEASUREITEM to `to`: the height a row (or, item -1, a combo's shut box) is drawn at; `h`
+// when the program leaves it.
+static int measure(struct w16 *w, uint16_t to, uint16_t type, uint16_t id, int item, int width, int h) {
+    uint16_t at = w16_sys_push(w, 14);
+    if (!at) return h;
+    uint16_t mis[7] = { type, id, (uint16_t)item, (uint16_t)width, (uint16_t)h, 0, 0 };
+    memcpy(w->sysmem + at, mis, sizeof mis);
+    w16_send(w, to, WM_MEASUREITEM, id, (uint32_t)w->sysdata << 16 | at);
+    uint16_t got;
+    memcpy(&got, w->sysmem + at + 8, 2);
+    w16_sys_pop(w, at);
+    return got > 0 && got < 256 ? got : h;
+}
+
+// WM_DRAWITEM to `to` for one row (or the shut box's item), into the DC of `in`.
+static void draw_owned(struct w16 *w, uint16_t to, uint16_t type, uint16_t id, uint16_t ctl, int item,
+                       uint16_t state, uint16_t in, int l, int t, int r, int b, uint32_t data) {
+    uint16_t at = w16_sys_push(w, 26);
+    if (!at) return;
+    uint16_t dis[13] = { type, id, (uint16_t)item, ODA_DRAWENTIRE, state, ctl, w16_gdi_window_dc(w, in),
+                         (uint16_t)l, (uint16_t)t, (uint16_t)r, (uint16_t)b, (uint16_t)data, (uint16_t)(data >> 16) };
+    memcpy(w->sysmem + at, dis, sizeof dis);
+    w16_send(w, to, WM_DRAWITEM, id, (uint32_t)w->sysdata << 16 | at);
+    w16_sys_pop(w, at);
 }
 
 static int rows(const struct w16_wnd *x) {
@@ -311,7 +361,7 @@ static void paint_listbox(struct w16 *w, struct w16_wnd *x, struct ugfx_surface 
     struct listbox *l = lb_of(x);
     uint32_t white = w16_rgb(0xFFFFFF), black = w16_rgb(0x000000), navy = w16_rgb(0x000080);
     ugfx_fill_rect(s, ox, oy, x->cw, x->ch, white);
-    if (!l) return;
+    if (!l || l->owner) return;                  // the rows are the parent's: paint_owned()
     int ih = item_h(x);
     for (int i = l->top; i < l->n && (i - l->top) * ih < x->ch; i++) {
         int y = oy + (i - l->top) * ih, tx = ox + 2;
@@ -321,6 +371,23 @@ static void paint_listbox(struct w16 *w, struct w16_wnd *x, struct ugfx_surface 
         if (sel) ugfx_fill_rect(s, tx - 1, y, (tw + 2 < ox + x->cw - tx + 1 ? tw + 2 : ox + x->cw - tx + 1), ih, navy);
         ugfx_draw_string_clipped(s, tx, y, ox + x->cw - tx, l->it[i].text, sel ? white : black, UGFX_TRANSPARENT);
         if (l->focused && i == l->caret) w16_draw_focus(s, tx - 1, y, tw + 2 < x->cw ? tw + 2 : x->cw - 2, ih);
+    }
+}
+
+// An owner-drawn list's rows, each the parent's to draw -- a combo's, the box's parent's.
+static void paint_owned(struct w16 *w, struct w16_wnd *x) {
+    uint16_t h = x->hwnd;
+    struct listbox *l = lb_of(x);
+    struct w16_wnd *box = l && l->combo ? w16_wnd_get(w, l->combo) : 0;
+    uint16_t to = box ? box->parent : x->parent, id = box ? box->id : x->id, ctl = box ? box->hwnd : h;
+    uint16_t type = box ? ODT_COMBOBOX : ODT_LISTBOX;
+    for (int i = l ? l->top : 0; l && i < l->n && !w->cpu.fault; i++) {
+        int ih = item_h(x), y = (i - l->top) * ih;
+        if (y >= x->ch) break;
+        uint16_t state = (i == l->sel ? ODS_SELECTED : 0) | (l->focused && i == l->caret ? ODS_FOCUS : 0) |
+                         (x->style & WS_DISABLED ? ODS_DISABLED : 0);
+        draw_owned(w, to, type, id, ctl, i, state, h, 0, y, x->cw, y + ih, l->it[i].data);
+        if (!(x = w16_wnd_get(w, h)) || !(l = lb_of(x))) return;   // the program may have changed it
     }
 }
 
@@ -463,6 +530,10 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
     if (!l && msg == WM_NCCREATE) {
         if (!(x->ctl = calloc(1, sizeof(struct listbox)))) return 0;
         lb_of(x)->sel = -1;
+        lb_of(x)->owner = (x->style & (LBS_OWNERDRAWFIXED | LBS_OWNERDRAWVARIABLE)) != 0;
+        lb_of(x)->strings = !lb_of(x)->owner || (x->style & LBS_HASSTRINGS);
+        if (lb_of(x)->owner)
+            lb_of(x)->oh = measure(w, x->parent, ODT_LISTBOX, x->id, 0, x->cw, w16_font_line_h(x->font));
         // An empty list shows no scroll bar, unless it asks to keep it.
         x->keep_sb = (x->style & LBS_DISABLENOSCROLL) != 0;
         x->sb[SB_VERT] = (struct w16_sbar){ 0, 0, 0 };
@@ -477,7 +548,12 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
     }
     if (!l) return w16_def_window_proc(w, x, msg, wp, lp);
     if (msg >= LB_ADDSTRING && msg <= LB_FINDSTRINGEXACT) {
-        char *s = is_string_msg(msg) ? far_get(w, lp) : 0;
+        if (!l->strings && (msg == LB_ADDSTRING || msg == LB_INSERTSTRING)) {   // the "string" is the item's data
+            uint32_t r = lb_message(w, x, l, msg, wp, lp, "");
+            if ((int16_t)r >= 0 && (int16_t)r < l->n) l->it[(int16_t)r].data = lp;
+            return r;
+        }
+        char *s = is_string_msg(msg) && l->strings ? far_get(w, lp) : 0;
         uint32_t r = lb_message(w, x, l, msg, wp, lp, s);
         free(s);
         return r;
@@ -485,6 +561,7 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
     switch (msg) { // dispatch-ok: a window procedure, bounded by the messages Windows' LISTBOX answered
     case WM_PAINT:
         w16_ctl_paint(w, x, paint_listbox);
+        if (l->owner) paint_owned(w, x);
         return 0;
     case WM_SIZE:
         lb_scroll_to(w, x, l, l->top);
@@ -583,11 +660,15 @@ struct combo {
     uint16_t list, edit;
     int dropped, sel_before, focused;
     int open_h;                       // its height open: the template's
+    int oh;                           // owner-drawn: the shut box's item height, from WM_MEASUREITEM
 };
 
 static struct combo *cb_of(struct w16_wnd *x) { return x->ctl; }
 
-static int shut_h(const struct w16_wnd *x) { return item_h(x) + 7; }   // 3.11's: 20 in a Helv 8 dialog
+static int shut_h(const struct w16_wnd *x) {   // 3.11's: 20 in a Helv 8 dialog
+    const struct combo *c = x->ctl;
+    return (c && c->oh ? c->oh : item_h(x)) + 7;
+}
 
 static struct w16_wnd *cb_list(struct w16 *w, struct combo *c) { return w16_wnd_get(w, c->list); }
 
@@ -643,7 +724,7 @@ static void paint_combo(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s
         ugfx_draw_rect(s, ox, oy, x->cw - bw + 1, h, black);
         struct w16_wnd *l = c ? cb_list(w, c) : 0;
         struct listbox *lb = l ? lb_of(l) : 0;
-        if (lb && lb->sel >= 0) {
+        if (lb && lb->sel >= 0 && !lb->owner) {
             const char *t = lb->it[lb->sel].text;
             int tw = ugfx_text_width(t), ty = oy + (h - item_h(x)) / 2;
             int ix = item_icon(s, lb, lb->sel, ox + 4, ty, item_h(x)), tx = ox + 4 + ix;
@@ -675,6 +756,12 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
         pthread_mutex_lock(&w->lock);
         x->style &= ~(WS_VSCROLL | WS_HSCROLL);
         pthread_mutex_unlock(&w->lock);
+        int owner = (x->style & (CBS_OWNERDRAWFIXED | CBS_OWNERDRAWVARIABLE)) != 0, row_h = 0;
+        if (owner) {                              // the shut box's item (-1), then a row of the list
+            c->oh = measure(w, x->parent, ODT_COMBOBOX, x->id, -1, x->cw - W16_SB, item_h(x));
+            row_h = measure(w, x->parent, ODT_COMBOBOX, x->id, 0, x->cw - W16_SB, item_h(x));
+            if (!(x = w16_wnd_get(w, x->hwnd)) || !(c = cb_of(x))) return 0xFFFFFFFFu;
+        }
         // A simple box (CBS_SIMPLE) keeps its list open under the edit, a
         // pixel's gap between them as 3.1 drew it, within the template's height.
         int simple = cb_type(x) == CBS_SIMPLE, sh = shut_h(x), gap = simple ? 1 : 0;
@@ -689,6 +776,11 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
         if (!lw) return 0xFFFFFFFFu;
         c->list = lw->hwnd;
         lb_of(lw)->combo = x->hwnd;
+        if (owner) {
+            lb_of(lw)->owner = 1;
+            lb_of(lw)->strings = (x->style & CBS_HASSTRINGS) != 0;
+            lb_of(lw)->oh = row_h;
+        }
         if (cb_type(x) != CBS_DROPDOWNLIST && ek >= 0) {
             struct w16_wnd *e = w16_wnd_create(w, ek, "", WS_CHILD | WS_VISIBLE | WS_BORDER | 0x0080, 0, 0,
                                                x->w - (cb_type(x) == CBS_SIMPLE ? 0 : W16_SB), sh, x->hwnd, 1001,
@@ -697,11 +789,20 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
         }
         return 0;
     }
-    case WM_PAINT:
+    case WM_PAINT: {
         w16_ctl_paint(w, x, paint_combo);
+        struct listbox *lb = l ? lb_of(l) : 0;
+        if (lb && lb->owner && cb_type(x) == CBS_DROPDOWNLIST && lb->sel >= 0 && lb->sel < lb->n) {
+            uint16_t state = ODS_COMBOBOXEDIT | (c->focused ? ODS_SELECTED | ODS_FOCUS : 0) |
+                             (x->style & WS_DISABLED ? ODS_DISABLED : 0);
+            draw_owned(w, x->parent, ODT_COMBOBOX, x->id, x->hwnd, lb->sel, state, x->hwnd, 2, 2,
+                       x->cw - W16_SB - 1, x->ch - 2, lb->it[lb->sel].data);
+        }
         return 0;
+    }
     case WM_GETDLGCODE:
-        return DLGC_WANTARROWS | DLGC_WANTCHARS;
+        // OPEN, ENTER AND ESC ARE THE LIST'S -- they shut it -- not the dialog's default button and Cancel.
+        return DLGC_WANTARROWS | DLGC_WANTCHARS | (c->dropped && (wp == 0x0D || wp == 0x1B) ? DLGC_WANTMESSAGE : 0);
     case WM_SETFOCUS:
         if (c->edit) { w16_set_focus(w, c->edit); return 0; }
         c->focused = 1;

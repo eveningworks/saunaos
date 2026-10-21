@@ -57,6 +57,7 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
     uint8_t *psp = calloc(1, 256);
     w->sysmem = calloc(1, SYSDATA_SIZE);
     if (!psp || !w->sysmem) return load_fail(path, "out of memory");
+    w->sys_top = 4;   // OFFSET 0 IS NEVER HANDED OUT: w16_sys_push()'s callers read 0 as no room
     psp[0] = 0xCD; psp[1] = 0x20;
     size_t tl = tail ? strlen(tail) : 0;
     if (tl > 126) return load_fail(path, "its command line is longer than DOS's 126 characters");

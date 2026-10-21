@@ -7,6 +7,10 @@
 ;                   second, not cut at what the rasterizer can draw
 ;           Not=    GetPixel of light grey after an R2_NOT line: dark grey (00808080) on 3.1's palette, where
 ;                   the mix works on palette indices -- Clock's second hand
+;           Map0= / Map1= / Map2=  MapVirtualKey: VK_A to its scan code (001E), that back to VK_A (0041),
+;                   VK_OEM_1 to the character it types (003B, ';')
+;           Families= / TrueType=  EnumFontFamilies with no family named: how many families, and how
+;                   many of them TrueType -- Character Map's Font list
 ; Run on real Windows 3.11 for Workgroups and on w16, it is the check of both: w16_gui_test.py reads
 ; the file. No window. Its name sorts after fault.exe: tests index the samples by their place.
 ; Build: tools/gen_ne.py.
@@ -30,6 +34,7 @@ start:
     jnz .run
     jmp fail
 .run:
+    mov [hinst], di
     push ds
     pop es
 
@@ -106,6 +111,48 @@ start:
     call hex16
     mov byte [di], 0
 
+    mov si, maps                    ; MapVirtualKey(code, type) for each row of `maps`
+.map:
+    lodsw
+    or ax, ax
+    jz .mapped
+    mov cx, ax                      ; the code
+    lodsw
+    mov dx, ax                      ; the map type
+    lodsw
+    push si                         ; kept across the call, under its arguments
+    push ax                         ; where its answer goes
+    push cx
+    push dx
+    W16_CALL "KEYBOARD", 131
+    pop di
+    call hex16
+    mov byte [di], 0
+    pop si
+    jmp .map
+.mapped:
+
+    push cs                         ; EnumFontFamilies(screen, NULL, MakeProcInstance(famproc), 0)
+    push word famproc
+    push word [hinst]
+    W16_CALL "KERNEL", 51
+    push word [screen]
+    push word 0
+    push word 0
+    push dx
+    push ax
+    push word 0
+    push word 0
+    W16_CALL "GDI", 330
+    mov ax, [families]
+    mov di, families_text
+    call hex16
+    mov byte [di], 0
+    mov ax, [truetype]
+    mov di, truetype_text
+    call hex16
+    mov byte [di], 0
+
     mov si, keys
 .write:
     lodsw                           ; a key's name, then its text
@@ -160,6 +207,23 @@ extent:
     mov byte [di], 0
     ret
 
+; int FAR PASCAL FamProc(lpelf, lpntm, FontType, lParam): each family counted, a TrueType one twice.
+famproc:
+    push bp
+    mov bp, sp
+    push ds
+    mov ds, ax
+    inc word [families]
+    test word [bp+10], 4            ; TRUETYPE_FONTTYPE
+    jz .counted
+    inc word [truetype]
+.counted:
+    mov ax, 1
+    xor dx, dx
+    pop ds
+    pop bp
+    retf 14
+
 ; AX as four hex digits at ES:DI.
 hex16:
     push ax
@@ -182,12 +246,17 @@ hex8:
     ret
 
 W16_ENTRY start
+W16_EXPORT 1, "FAMPROC", famproc
 
 ; ---------------------------------------------------------------- data
 W16_SEGMENT 2
 
             times 16 db 0           ; the Windows header words a task keeps
 screen:     dw 0
+hinst:      dw 0
+families:   dw 0
+truetype:   dw 0
+maps:       dw 0x41, 0, map0_text, 0x1E, 1, map1_text, 0xBA, 2, map2_text, 0
 mem:        dw 0
 font:       dw 0
 was:        dw 0
@@ -199,12 +268,23 @@ logfont:    dw -1000, 0, 0, 0, 400  ; height, width, escapement, orientation, we
 digits:     db "00:00:00"
 
 keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_text
-            dw key_w100, wide100_text, key_not, not_text, 0
+            dw key_w100, wide100_text, key_not, not_text, key_map0, map0_text, key_map1, map1_text
+            dw key_map2, map2_text, key_fam, families_text, key_tt, truetype_text, 0
 key_base:   db "Base", 0
 key_async:  db "Async", 0
 key_w1000:  db "Wide1000", 0
 key_w100:   db "Wide100", 0
 key_not:    db "Not", 0
+key_map0:   db "Map0", 0
+key_map1:   db "Map1", 0
+key_map2:   db "Map2", 0
+key_fam:    db "Families", 0
+key_tt:     db "TrueType", 0
+map0_text:  times 6 db 0
+map1_text:  times 6 db 0
+map2_text:  times 6 db 0
+families_text: times 6 db 0
+truetype_text: times 6 db 0
 base_text:  times 10 db 0
 async_text: times 6 db 0
 wide1000_text: times 6 db 0

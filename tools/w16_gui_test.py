@@ -154,6 +154,11 @@ def probe(dbg, res):
               w100 > 0 and 9.5 <= w1000 / w100 <= 10.5, f"{w1000} / {w100}")
     res.check("R2_NOT on light grey is dark grey, as on 3.1's palette, and GetPixel says 0x808080",
               got.get("Not") == "00808080", got)
+    res.check("MapVirtualKey: VK_A to scan 1E, scan 1E to VK_A, VK_OEM_1 to ';'",
+              (got.get("Map0"), got.get("Map1"), got.get("Map2")) == ("001E", "0041", "003B"), got)
+    fam, tt = int(got.get("Families", "0"), 16), int(got.get("TrueType", "0"), 16)
+    res.check("EnumFontFamilies calls back once per family, the TrueType ones flagged (Character Map's list)",
+              fam > tt > 0, f"{fam} families, {tt} TrueType")
 
 
 def gdi_checks(dbg, qmp, res, tmp):
@@ -745,6 +750,38 @@ def ini_has(dbg, line, t=6.0):
     return False
 
 
+def owner_drawn_list(dbg, qmp, res, title):
+    """The Number dialog's owner-drawn list (LBS_OWNERDRAWFIXED): dialog.exe measures its rows 20 tall and
+    fills them dark grey, the selected (middle) one black -- read down the list's middle as bands."""
+    win = title and dbg.window(title)
+    if not win:
+        res.check("the owner-drawn list can be read", False, f"no window {title!r}")
+        return
+    im = shot(qmp, f"{TMP}/w16_ownerdraw.png")
+    c = win["content"]
+    dark = (0x40, 0x40, 0x40)
+    # The list's top row: the first with a long run of the fill (anti-aliased text has the odd pixel).
+    at = None
+    for y in range(c["y"], c["y"] + c["h"]):
+        xs = [x for x in range(c["x"], c["x"] + c["w"]) if im.getpixel((x, y)) == dark]
+        if len(xs) >= 40:
+            at = (xs[0], y)
+            break
+    if not at:
+        res.check("the owner-drawn list's rows are drawn (WM_DRAWITEM)", False, "no dark grey in the dialog")
+        return
+    x = at[0] + 20
+    bands, y = [], at[1]
+    while y < c["y"] + c["h"] and len(bands) < 3:
+        px, n = im.getpixel((x, y)), 0
+        while y < c["y"] + c["h"] and im.getpixel((x, y)) == px:
+            n, y = n + 1, y + 1
+        bands.append((px, n))
+    want = [(dark, 20), ((0, 0, 0), 20), (dark, 20)]
+    res.check("an owner-drawn list's rows are the program's: measured 20 tall, the selected one drawn black",
+              bands == want, f"bands {bands}")
+
+
 def caption_line_ends(dbg, qmp, res, title):
     """3.11's dialog caption: the black line under its bar stops inside
     the white edge on each side, so white shows at both ends."""
@@ -786,6 +823,7 @@ def dialogs(dbg, qmp, res):
     titles = wait_titles(dbg, lambda t: "Number" in t)
     res.check("F2, an accelerator, opens the dialog", "Number" in titles, f"windows {titles}")
     caption_line_ends(dbg, qmp, res, next((t for t in titles if "Number" in t), None))
+    owner_drawn_list(dbg, qmp, res, next((t for t in titles if "Number" in t), None))
     for ch in "57":
         dbg.send(f"gui key {ch}")
         dbg.settle(0.1)

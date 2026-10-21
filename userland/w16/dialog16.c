@@ -177,6 +177,9 @@ struct w16_wnd *w16_dlg_add(struct w16 *w, struct w16_wnd *d, const char *cls, u
 // a y rounded, as MulDiv rounds (Find's Cancel at 37, its radio buttons at
 // 62); a width or height rounded likewise -- Find is 413 by 101, a button
 // 88 by 23. Every place measured fits these, and no single rule fits both axes.
+// THE ORIGIN IS AN OWNED DIALOG'S ONLY: Character Map's main window (owned by
+// nobody, at x 9) maps an x as MulDiv rounds it, as it does a width -- its
+// labels at 3 * 7 / 4 = 5, not the 6 an origin of 9 gives, its edit at 403.
 int w16_du_x(int org, int x, int bx) { return (org + x) * bx / 4 - org * bx / 4; }
 int w16_du_y(int org, int y, int by) { (void)org; return (y * by + 4) / 8; }
 int w16_du_w(int cx, int bx) { return (cx * bx + 2) / 4; }
@@ -312,7 +315,7 @@ static struct w16_wnd *from_template(struct w16 *w, const uint8_t *p, uint32_t n
         if (w16_class_find(w, klass) < 0) {
             snprintf(why, why_cap, "a dialog control of class %s is not supported yet", klass);
             ok = 0;
-        } else if (!add_with_font(w, d, klass, id, cs, w16_du_x(dx, x, bx), w16_du_y(dy, y, by),
+        } else if (!add_with_font(w, d, klass, id, cs, owner ? w16_du_x(dx, x, bx) : w16_du_w(x, bx), w16_du_y(dy, y, by),
                                   w16_du_w(cw, bx), w16_du_h(ch, by),
                                   ord ? "" : text)) {
             if (!w->cpu.fault) snprintf(why, why_cap, "a %s control of the dialog was refused", klass);
@@ -745,6 +748,29 @@ static int api_CreateDialogIndirect(struct w16 *w, unsigned ordinal, struct w16_
     return indirect(w, a, 0);
 }
 
+// GetNextDlgTabItem(hDlg, hCtl, bPrevious) -> HWND
+// Windows: The control Tab (or Shift+Tab) would move to from hCtl: the next visible, enabled one
+// with WS_TABSTOP, wrapping; from NULL, the first (or last).
+// w16: The same walk the dialog's own Tab takes, without moving the focus.
+static int api_GetNextDlgTabItem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_wnd *d = w16_wnd_get(w, w16_arg16(a));
+    uint16_t from = w16_arg16(a);
+    int back = w16_arg16(a) != 0;
+    uint16_t r = 0;
+    int n, at = -1;
+    struct w16_wnd **v = d ? w16_wnd_children(w, d->hwnd, &n) : 0;
+    for (int i = 0; v && i < n; i++) if (v[i]->hwnd == from) at = i;
+    int start = at >= 0 ? at : back ? 0 : n - 1;
+    for (int k = 1; v && k <= n && !r; k++) {
+        int i = ((start + (back ? -k : k)) % n + n) % n;
+        if (tabstop(v[i])) r = v[i]->hwnd;
+    }
+    free(v);
+    w->cpu.r[R_AX] = r;
+    return 6;
+}
+
 // IsDialogMessage(hDlg, lpMsg) -> BOOL
 // Windows: Gives a modeless dialog's keys their dialog meaning -- Tab, the arrows, Enter, Esc, a
 // mnemonic -- when the message is for it; TRUE when it took the message.
@@ -1136,6 +1162,7 @@ const struct w16_api g_dialog_api[] = {
     { 103, api_MapDialogRect },
     { 218, api_DialogBoxIndirect },
     { 219, api_CreateDialogIndirect },
+    { 228, api_GetNextDlgTabItem },
     { 239, api_DialogBoxParam },
     { 241, api_CreateDialogParam },
     { 308, api_DefDlgProc },

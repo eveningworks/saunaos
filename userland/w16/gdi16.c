@@ -2045,15 +2045,9 @@ static int collect_font(const struct w16_logfont *lf, const struct w16_fontinfo 
     return 1;
 }
 
-// EnumFonts(hdc, lpFaceName, lpFontFunc, lpData) -> int
-// Windows: Calls a function of the program's for each font the device has -- one per face when no
-// face is named, else each size of that face -- with its LOGFONT, its TEXTMETRIC and whether it is a
-// raster, device or TrueType font; stops when the function returns 0, and returns what it last did.
-// w16: The same, for the fonts w16 draws in: Windows 3.11's bitmap fonts from drive C:'s
-// WINDOWS\SYSTEM, each face at the sizes its .FON files hold; without them, toy-os's stand-ins
-// under 3.11's names (MS Sans Serif, MS Serif, Courier) at 3.11's sizes.
-static int api_EnumFonts(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)ordinal;
+// One LOGFONT and TEXTMETRIC per font, or for EnumFontFamilies an ENUMLOGFONT (the LOGFONT, the full
+// name, the style) and a NEWTEXTMETRIC (the TEXTMETRIC, then the TrueType flags and sizes).
+static int enum_fonts(struct w16 *w, struct w16_args *a, int families) {
     w16_arg16(a);                                // the DC: every one is the display's
     uint32_t face = w16_arg32(a), fn = w16_arg32(a), data = w16_arg32(a);
     char name[32] = "";
@@ -2064,13 +2058,38 @@ static int api_EnumFonts(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     pthread_mutex_lock(&g_w16_text_lock);
     w16_font_enum(face >> 16 ? name : 0, collect_font, &e);
     pthread_mutex_unlock(&g_w16_text_lock);
+    unsigned lf_n = families ? 50 + 64 + 32 : 50, tm_n = families ? 31 + 10 : 31;
     uint16_t last = 0;
     for (int i = 0; i < e.n && !w->cpu.fault; i++) {
-        uint16_t at = w16_sys_push(w, 50 + 31);
+        const char *f = (const char *)e.v[i].lf + 18;
+        int dup = 0;
+        for (int k = 0; families && !(face >> 16) && k < i; k++)    // a family once, at its first size
+            dup |= !strcmp((const char *)e.v[k].lf + 18, f);
+        if (dup) continue;
+        uint16_t at = w16_sys_push(w, lf_n + tm_n);
         if (!at) break;
-        memcpy(w->sysmem + at, e.v[i].lf, 50);
-        memcpy(w->sysmem + at + 50, e.v[i].tm, 31);
-        const uint16_t words[] = { w->sysdata, at, w->sysdata, (uint16_t)(at + 50), (uint16_t)e.v[i].type,
+        uint8_t *p = w->sysmem + at;
+        memset(p, 0, lf_n + tm_n);
+        memcpy(p, e.v[i].lf, 50);
+        memcpy(p + lf_n, e.v[i].tm, 31);
+        if (families) {
+            int16_t weight;
+            memcpy(&weight, e.v[i].lf + 8, 2);
+            int bold = weight >= 700, italic = e.v[i].lf[10] != 0;
+            const char *style = bold && italic ? "Bold Italic" : bold ? "Bold" : italic ? "Italic" : "Regular";
+            int tt = e.v[i].type == W16_TRUETYPE_FONTTYPE;
+            if (tt && (bold || italic)) snprintf((char *)p + 50, 64, "%s %s", f, style);
+            else snprintf((char *)p + 50, 64, "%s", f);
+            if (tt) snprintf((char *)p + 114, 32, "%s", style);
+            uint8_t *n = p + lf_n + 31;
+            uint32_t flags = (italic ? 0x01 : 0) | (bold ? 0x20 : 0) | (!bold && !italic ? 0x40 : 0);
+            memcpy(n, &flags, 4);
+            uint16_t em = tt ? 2048 : 0;
+            memcpy(n + 4, &em, 2);
+            memcpy(n + 6, e.v[i].tm, 2);         // the cell's height: tmHeight
+            memcpy(n + 8, e.v[i].tm + 10, 2);    // tmAveCharWidth
+        }
+        const uint16_t words[] = { w->sysdata, at, w->sysdata, (uint16_t)(at + lf_n), (uint16_t)e.v[i].type,
                                    (uint16_t)(data >> 16), (uint16_t)data };
         last = (uint16_t)w16_call_far(w, (uint16_t)(fn >> 16), (uint16_t)fn, words, 7);
         w16_sys_pop(w, at);
@@ -2079,6 +2098,29 @@ static int api_EnumFonts(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     free(e.v);
     w->cpu.r[R_AX] = last;
     return w->cpu.fault ? -1 : 14;
+}
+
+// EnumFonts(hdc, lpFaceName, lpFontFunc, lpData) -> int
+// Windows: Calls a function of the program's for each font the device has -- one per face when no
+// face is named, else each size of that face -- with its LOGFONT, its TEXTMETRIC and whether it is a
+// raster, device or TrueType font; stops when the function returns 0, and returns what it last did.
+// w16: The same, for the fonts w16 draws in: Windows 3.11's bitmap fonts from drive C:'s
+// WINDOWS\SYSTEM, each face at the sizes its .FON files hold; without them, toy-os's stand-ins
+// under 3.11's names (MS Sans Serif, MS Serif, Courier) at 3.11's sizes.
+static int api_EnumFonts(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    return enum_fonts(w, a, 0);
+}
+
+// EnumFontFamilies(hdc, lpszFamily, lpEnumFontFamProc, lParam) -> int
+// Windows: EnumFonts for 3.1's TrueType: one call per family when none is named, else each of the
+// family's fonts, with an ENUMLOGFONT (adding the full name and the style, "Bold Italic") and a
+// NEWTEXTMETRIC (adding whether it is bold or italic, its em square and its cell); stops at a 0.
+// w16: The same over the fonts EnumFonts reports; a TrueType family is reported in its regular
+// style only.
+static int api_EnumFontFamilies(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    return enum_fonts(w, a, 1);
 }
 
 // GetTextFace(hdc, nCount, lpFaceName) -> int
@@ -3256,6 +3298,7 @@ const struct w16_api g_gdi_api[] = {
     { 162, api_SetBitmapDimension },
     { 163, api_SetBitmapDimension },
     { 172, api_SetRectRgn },
+    { 330, api_EnumFontFamilies },
     { 345, api_SetTextAlign },
     { 346, api_SetTextAlign },
     { 348, api_Arc },

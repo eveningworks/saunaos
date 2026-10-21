@@ -314,7 +314,7 @@ because they drive and copy Microsoft programs):
 | Colours | navy 0000A8, face grey C0C7C8, shadow grey 87888F; dark green 00A857, teal 57A8A8, maroon A80057, purple A857A8, olive A8A857 -- a channel a step or two off 0x80 drawn as the palette's (Hearts' 0x007F00 felt is solid 00A857); stock and system-colour brushes the same (the VGA palette; ctl16.c's `w16_vga()`) |
 | Base units | System font 8x16; a template's `FONT 8, "Helv"` 7x13, drawn bold |
 | A dialog's first focus | the first tab stop -- for a radio button, the CHECKED one of its group (Solitaire's Options opens on Draw Three); Tab the same |
-| Units to pixels | an x from the template's own position, each end truncated; a y rounded; a width or height rounded (COMMDLG.DLL's templates: Open 264x134 at 36,24 is 462x218; Find 236x62 at 30,73 is 413x101) |
+| Units to pixels | in an OWNED dialog an x from the template's own position, each end truncated; in one owned by nobody (Character Map's main window) an x rounded, as MulDiv does; a y rounded; a width or height rounded (COMMDLG.DLL's templates: Open 264x134 at 36,24 is 462x218; Find 236x62 at 30,73 is 413x101; Character Map's edit at 230 is 403) |
 | Font cells | System 16, Helv 8 13, Fixedsys 15 |
 | Edit text | a multi-line edit's at the client's left edge; a one-line field's 2 in |
 | CW_USEDEFAULT | 632x408 on 640x480 |
