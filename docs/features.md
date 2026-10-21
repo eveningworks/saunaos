@@ -250,7 +250,8 @@ header click or View > Sort by), and for each one which Windows
 calls it uses, which w16 answers only in part and why. **A program's
 Help opens in Help Viewer** (`/bin/wm/apps/hlpview`): Windows 3.x
 `.HLP` files read by `lib/uhlp` -- text in the file's own fonts, links
-and pop-ups, pictures, tables, Contents, a keyword Index, full-text Find,
+and pop-ups, pictures (bitmaps and metafiles), tables, the fixed region at a
+topic's top in its own colour, Contents, a keyword Index, full-text Find,
 Back, a History list under its button, a help file's own macros (its
 Glossary button) and the browse sequence -- with
 text you can select and copy, a right-click menu and a zoom. F1 and the Help menu reach it through
