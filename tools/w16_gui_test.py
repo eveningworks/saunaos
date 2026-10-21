@@ -88,6 +88,11 @@ file is involved.
    pie's vertical radius steps across a pixel where 3.11's did, and its
    brush reaches the radius with no gap.
 
+17. **Calls that need no window** (wincalls.exe): EqualRect, AnsiUpperBuff, wvsprintf,
+   the Windows and System directories, GlobalLRUNewest, the colour and text-align
+   state of a device context, CreatePalette -- each answer written to WINCALLS.INI
+   and compared with what Windows 3.11 answers.
+
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
 """
@@ -1038,6 +1043,40 @@ def coprocessor(dbg, qmp, res):
               f"Root={got.get('Root')}")
 
 
+CALL_INI = "/home/Win16/WINDOWS/WINCALLS.INI"
+
+
+def calls_answered(dbg, res):
+    """wincalls.exe asks for what needs no window and writes each answer to WINCALLS.INI; the
+    values are what Windows 3.11 answers (the sample's header lists them)."""
+    sh(dbg, f"rm {CALL_INI}")
+    sh(dbg, "spawn /bin/w16 /usr/share/w16/wincalls.exe")
+    end, text = time.time() + 15, ""
+    while time.time() < end and "Pal=" not in text:
+        time.sleep(0.5)
+        text = sh(dbg, f"cat {CALL_INI}")
+    got = dict(re.findall(r"^(\w+)=(.*)$", text, re.M))
+    want = {
+        "EqualSame": "0001", "EqualDiff": "0000",
+        "Upper": "ABC XYZ1", "UpperN": "0007",
+        "Wvs": "42|toy|beef|100000", "WvsN": "0012",
+        "WinDir": "C:\\WINDOWS", "SysDir": "C:\\WINDOWS\\SYSTEM",
+        "Lru": "0001",
+        "BkOld": "00FFFFFF", "Bk": "00123456", "TextOld": "00000000", "Text": "00654321",
+        "AlignOld": "0000", "Align": "0006", "Pal": "0001",
+    }
+    for names, what in ((("EqualSame", "EqualDiff"), "EqualRect tells equal rectangles from different ones"),
+                        (("Upper", "UpperN"), "AnsiUpperBuff upcases its count and no more"),
+                        (("Wvs", "WvsN"), "wvsprintf: %d %s %x %lu, and the length"),
+                        (("WinDir", "SysDir"), "GetWindowsDirectory and GetSystemDirectory"),
+                        (("Lru",), "GlobalLRUNewest answers its handle"),
+                        (("BkOld", "Bk", "TextOld", "Text"), "SetBkColor and SetTextColor return the old colour and read back"),
+                        (("AlignOld", "Align"), "SetTextAlign returns the old word and GetTextAlign reads it back"),
+                        (("Pal",), "CreatePalette answers a handle")):
+        res.check(f"wincalls.exe: {what}", all(got.get(n) == want[n] for n in names),
+                  "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
+
+
 def main():
     global TMP
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
@@ -1069,6 +1108,7 @@ def main():
         why_link(dbg, res)
         dialogs(dbg, qmp, res)
         coprocessor(dbg, qmp, res)
+        calls_answered(dbg, res)
         shapes(dbg, qmp, res, TMP)
     finally:
         dbg.close()
