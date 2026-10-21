@@ -8271,8 +8271,12 @@ runs first**: a `doom1.wad` with one
   flipped, ranges zeroed, sizes set to 0xFFFFFFFF and the end cut off
   (the reader parses untrusted input: a fuzz of 30,000 mutated files came
   back clean). `--fuzz N --seed S` sizes it; `--positive-control` runs a
-  wrong hash multiplier (the lookups must fail) and a bounds check that
-  always agrees (the fuzz must crash). In `preflight.sh`.
+  wrong hash multiplier (the lookups must fail), a picture's size counted
+  from before its hotspot count, a record clamped to its block (the
+  spanning variant must fail) and a bounds check that always agrees (the
+  fuzz must crash). Every model check also runs on a SPANNING file, whose
+  records straddle block boundaries as Microsoft's compiler writes them.
+  In `preflight.sh`.
 - **`hlpview_test.py`** -- Help Viewer on `hlpgen.sample()`, put into the
   guest with `vm.py put` before the console is taken: the link colour is
   in the reported link rects and nowhere else (pixels), the pointer is the
@@ -8306,8 +8310,10 @@ runs first**: a `doom1.wad` with one
   contexts, keywords, windows, links, macros and tables. The input of
   `uhlp_hostcheck.py`, and the file a GUI test of Help Viewer can open.
   Its docstring has the layout rules a writer shares with a real file
-  (a record may not cross a block; TOPICPOS counts the display text
-  written in the block so far).
+  (a record may not cross a block unless `span=True`, which writes
+  literals-only blocks filled to their last byte, `SPAN_CHUNK` bytes each
+  -- zero padding after compressed data decompresses into garbage;
+  TOPICPOS counts the display text written in the block so far).
 - **`check_drivers.py`** -- refuses a driver that declares itself to
   nothing. Every `.c` under `kernel/drivers/`, and any file anywhere
   that calls a device class registry, must carry a `DRIVER_DECLARE(...)`

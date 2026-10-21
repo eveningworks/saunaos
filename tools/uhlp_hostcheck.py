@@ -23,9 +23,10 @@ is KNOWN, and it compiles the same .c file with the host gcc, under ASan and UBS
   python3 tools/uhlp_hostcheck.py --fuzz 4000 --seed 7
   python3 tools/uhlp_hostcheck.py --positive-control
 
-**A CLEAN RUN PROVES NOTHING UNTIL --positive-control HAS GONE RED.** It runs two
+**A CLEAN RUN PROVES NOTHING UNTIL --positive-control HAS GONE RED.** It runs three
 controls on a patched COPY of the reader: a wrong hash multiplier must fail the
-lookups, and a bounds check that always says yes must be caught by the fuzz.
+lookups, a picture's size measured from before its hotspot count must fail the topics' text, and a bounds
+check that always says yes must be caught by the fuzz.
 Exit status is non-zero on any violation. Needs gcc.
 """
 import argparse
@@ -289,9 +290,9 @@ def model_text(h, t):
     return out
 
 
-def check_model(exe, tmp, problems):
-    h = hlpgen.sample()
-    path = os.path.join(tmp, "sample.hlp")
+def check_model(exe, tmp, problems, h=None, name="sample.hlp"):
+    h = h or hlpgen.sample()
+    path = os.path.join(tmp, name)
     data = h.build()
     open(path, "wb").write(data)
     lines = run(exe, "dump", path).splitlines()
@@ -396,6 +397,12 @@ def check_fuzz(exe, path, seed, iters, problems):
     return r.stdout.decode().strip()
 
 
+def spanning_sample():
+    h = hlpgen.sample()
+    h.span = True
+    return h
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--fuzz", type=int, default=1500, help="mutated files to open per seed")
@@ -410,6 +417,13 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         exe = build(tmp)
         check_model(exe, tmp, problems)
+        # the same file with every record cut across block boundaries, as Microsoft's compiler writes them: its
+        # text, links and tables must come out whole (a record clamped to its block lost its tail)
+        spanning = spanning_sample()
+        before = len(problems)
+        check_model(exe, tmp, problems, spanning, "spanning.hlp")
+        for i in range(before, len(problems)):
+            problems[i] = "[records across blocks] " + problems[i]
         check_lookups(exe, tmp, problems)
         # a second file: one block per few records, so records land in many blocks, and no phrases
         small = hlpgen.sample()
@@ -441,17 +455,24 @@ def positive_control(args):
     rc = 0
     controls = [
         ("a wrong hash multiplier", [("hash = hash * 43 + x;", "hash = hash * 41 + x;")], "model"),
+        ("a picture's size measured from before its hotspot count",
+         [("if (ptype == 0x22) { c_ushort(&f); after = f.at + (psize > 0 ? (size_t)psize : 0); }", "if (ptype == 0x22) { c_ushort(&f); }")], "model"),
         ("a bounds check that always agrees",
          [("static int v_ok(struct view v, size_t off, size_t len) { return off <= v.n && len <= v.n - off; }",
            "static int v_ok(struct view v, size_t off, size_t len) { (void)v; (void)off; (void)len; return 1; }")],
          "fuzz"),
+        ("a record clamped to its block",
+         [("size_t avail = contiguous(h, idx, off, sz >= 0x15 ? sz : 0);",
+           "size_t avail = b.n > off ? b.n - off : 0;")], "span"),
     ]
     for name, patch, half in controls:
         problems = []
         with tempfile.TemporaryDirectory() as tmp:
             exe = build(tmp, patch)
             try:
-                if half == "model":
+                if half == "span":
+                    check_model(exe, tmp, problems, spanning_sample(), "spanning.hlp")
+                elif half == "model":
                     check_model(exe, tmp, problems)
                     check_lookups(exe, tmp, problems)
                 else:

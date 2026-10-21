@@ -79,7 +79,7 @@ static const struct ugfx_font *font_for(struct uui_helpview *v, int family, int 
     unsigned long need = ugfx_font_arena_size(px);
     f->arena = malloc(need);
     if (f->arena) {
-        f->ok = ugfx_font_load(path, px, bold, &f->f, f->arena, need);
+        f->ok = ugfx_font_load(path, px, 0, &f->f, f->arena, need);   // the -bold file is already bold: emboldening it again smears
         if (!f->ok) { free(f->arena); f->arena = 0; }
     }
     if (index) *index = fs->n;
@@ -170,9 +170,11 @@ struct lay {
     int oom;
 };
 
+// Half-points (144 to the inch) to pixels: 96 dpi when the interface face is its default 14 px -- a 10-point
+// face is 13 px, as in WINHELP.EXE -- and in proportion to it when the face is changed.
 static int to_px(const struct lay *L, int hp) {
     long n = (long)hp * L->em;
-    return (int)(n >= 0 ? (n + 10) / 20 : -((-n + 10) / 20));
+    return (int)(n >= 0 ? (n + 10) / 21 : -((-n + 10) / 21));
 }
 
 static struct uhv_item *add_item(struct uui_helpview *v, int kind) {
@@ -534,7 +536,10 @@ static int layout_table(struct lay *L, int first, int total, int x0, int w, int 
             int cy = row_top;
             L->lfl_until = L->rfl_until = 0;
             for (int q = p; q < row_end; q++)
-                if (d->para[q].column == c) layout_para(L, &d->para[q], x0 + cx[c], cw[c], &cy);
+                // A paragraph with no runs in a cell is a spacing record with nothing to show: WINHELP gives it no
+                // height, and one per cell made every row of a real table a blank line taller and left the
+                // first cell's text a line below its neighbour's.
+                if (d->para[q].column == c && d->para[q].nrun > 0) layout_para(L, &d->para[q], x0 + cx[c], cw[c], &cy);
             if (cy > row_bot) row_bot = cy;
         }
         *y = row_bot;

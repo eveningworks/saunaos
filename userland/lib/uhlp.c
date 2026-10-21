@@ -704,6 +704,19 @@ static int read_topic_blocks(struct uhlp *h, const char **err) {
     return 1;
 }
 
+// Bytes readable from block `idx` at `off` running on into the blocks after it, at least `need` of them if
+// there are that many. A compressed block is whatever fitted its 0x1000 (or 0x800) bytes on disk -- about 5 KB
+// decompressed, not the 16 KB its address range spans -- and the blocks sit end to end in `tbuf`, so a record
+// that starts near a block's end goes on in the next block's first bytes (its HEADER may even straddle the
+// boundary). Clamped to the block, the last paragraph of a block lost its text mid-sentence ("The comma
+// after" ...). An uncompressed block has a gap after it unless it is full.
+static size_t contiguous(const struct uhlp *h, unsigned idx, size_t off, size_t need) {
+    size_t avail = h->blk[idx].n > off ? h->blk[idx].n - off : 0;
+    for (int j = (int)idx; j + 1 < h->nblk && (h->compressed || h->blk[j].n == h->dsize) && avail < need; j++)
+        avail += h->blk[j + 1].n;
+    return avail;
+}
+
 // A topic record at `ref`: its bytes (the whole record), or an empty view.
 static struct view record_at(const struct uhlp *h, uint32_t ref, unsigned *index_out) {
     struct view r = { 0, 0 };
@@ -717,13 +730,13 @@ static struct view record_at(const struct uhlp *h, uint32_t ref, unsigned *index
         off = (ref - 0x0c) & 0x3fff;
     }
     if ((int)idx >= h->nblk || idx > 0x7fffffff) return r;
-    struct view b = h->blk[idx];
-    if (!v_ok(b, off, 0x15)) return r;
+    const struct view b = h->blk[idx];
+    if (off > b.n || contiguous(h, idx, off, 0x15) < 0x15) return r;
     if (index_out) *index_out = idx;
-    uint32_t sz = v32(b, off);
-    size_t n = sz < 0x15 || sz > b.n - off ? b.n - off : sz;
+    uint32_t sz = v32((struct view){ b.p, off + 4 }, off);      // inside the first block's view or the next one's: contiguous
+    size_t avail = contiguous(h, idx, off, sz >= 0x15 ? sz : 0);
     r.p = b.p + off;
-    r.n = n;
+    r.n = sz < 0x15 || sz > avail ? avail : sz;
     return r;
 }
 
@@ -1480,7 +1493,11 @@ static int browse_paragraph(struct build *b, struct view rec, struct pstate *st,
                 size_t after = f.at + (psize > 0 ? (size_t)psize : 0);
                 int pic = -1;
                 if (ptype == 0x22 || ptype == 0x03) {
-                    if (ptype == 0x22) c_ushort(&f);
+                    // THE SIZE COUNTS THE BYTES AFTER the hotspot count, not from before it: measured from before it,
+                    // the command ended one byte short, that last byte of the picture's index was read as a command
+                    // of its own, and it took a text chunk -- so every tab, font change and link after a picture
+                    // landed one chunk early (a bullet's tab after "Press", a superscript before its number).
+                    if (ptype == 0x22) { c_ushort(&f); after = f.at + (psize > 0 ? (size_t)psize : 0); }
                     int mode = (int16_t)v16(f.v, f.at);
                     unsigned idx = v16(f.v, f.at + 2);
                     if (mode == 0) pic = add_picture_by_index(b, idx);

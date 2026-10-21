@@ -13,13 +13,14 @@ Python, so a check can run anywhere and can KNOW what a topic holds.
                                               ("text", "this"), ("endlink",)]]))
     open("x.hlp", "wb").write(h.build())
 
-A paragraph is a list of items: ("text", s), ("font", n), ("link", text, "jump"|"popup"|
+A paragraph is a list of items: ("text", s), ("font", n), ("pic",) (a picture command with no bitmap), ("link", text, "jump"|"popup"|
 "hidden-jump"|"hidden-popup", context-id), ("macro", text, macro-string), ("endlink",),
 ("br",), ("tab",). An item list is ONE paragraph; end it by starting the next list.
 
 THE LAYOUT RULES the reader and a real file share, and a writer must follow:
   - a block of |TOPIC is 0x1000 bytes holding LZ77 data of at most 0x4000 bytes, and a
-    record may not cross a block (the reader addresses by block number and offset);
+    record may cross a block only with `span=True`, which cuts one stream every SPAN_CHUNK bytes, each block full to its last byte as
+    Microsoft's compiler writes them (zero padding would decompress into garbage between blocks) (a record then goes on in the next block's first bytes);
   - TOPICPOS of a topic is block * 0x8000 + the display text written in its block so far;
   - a record's `next` link only goes forward.
 """
@@ -27,6 +28,7 @@ import struct
 
 DIR_PAGE = 512
 TB = 0x1000
+SPAN_CHUNK = 3630            # literals-only LZ77 of this many bytes fills a 0x1000 block exactly
 
 
 def hlp_hash(s):
@@ -52,9 +54,10 @@ def hlp_hash(s):
     return h
 
 
-def lz77(data):
+def lz77(data, literals=False):
     """Greedy LZ77 in WinHelp's shape: a flag byte per 8 items, bit set = a 2-byte match
-    (length - 3 in the top 4 bits, distance - 1 in the low 12)."""
+    (length - 3 in the top 4 bits, distance - 1 in the low 12). `literals` writes no match at all, so the
+    output is exactly len + ceil(len / 8) bytes."""
     out = bytearray()
     n = len(data)
     seen = {}
@@ -62,7 +65,7 @@ def lz77(data):
     i = 0
     while i < n:
         best_len, best_dist = 0, 0
-        if i + 3 <= n:
+        if i + 3 <= n and not literals:
             for j in reversed(seen.get(bytes(data[i:i + 3]), ())[-32:]):
                 if i - j > 4096:
                     break
@@ -179,7 +182,7 @@ class Topic:
 
 class Help:
     def __init__(self, title, copyright_=None, fonts=None, phrases=(), windows=(), macros=(), block_limit=3000,
-                 map_ids=()):
+                 map_ids=(), span=False):
         self.title = title
         self.copyright = copyright_
         self.fonts = fonts or [("Helv", 20, 0, 3, 0)]
@@ -187,6 +190,7 @@ class Help:
         self.windows = list(windows)
         self.macros = list(macros)
         self.block_limit = block_limit
+        self.span = span             # records straddle block boundaries, as Microsoft's compiler writes them
         self.map_ids = list(map_ids)     # (number, topic index)
         self.topics = []
         self.contents = 0
@@ -245,6 +249,11 @@ class Help:
                 emit(b"\x81")
             elif k == "tab":
                 emit(b"\x83")
+            elif k == "pic":
+                # A picture by index (mode 0) that names no bitmap, laid out as in Windows 3.11's own files: the
+                # command, the type 0x22, a size, a hotspot count, then the size's worth: mode and index. The
+                # SIZE COUNTS THE BYTES AFTER THE HOTSPOT COUNT. Like every command it takes the text before it.
+                emit(b"\x86\x22" + c_long(4) + c_ushort(1) + struct.pack("<HH", 0, 1))
             elif k == "endlink":
                 emit(b"\x89")
             elif k == "link":
@@ -330,26 +339,43 @@ class Help:
             else:
                 r, full = self._display(arg, 0, 0)
                 sizes.append((len(r), full))
-        blocks = [[]]
-        blen = 0
-        for idx, (n, _) in enumerate(sizes):
-            if blen + n > self.block_limit and blocks[-1]:
-                blocks.append([])
-                blen = 0
-            blocks[-1].append(idx)
-            blen += n
         pos_of = {}                       # record index -> (block, offset in block, TOPICPOS)
         topic_pos = {}
-        for bi, members in enumerate(blocks):
-            off = 0
-            offs = 0
-            for idx in members:
+        if self.span:
+            # One stream cut every SPAN_CHUNK bytes (a block's worth of literals), wherever that falls: a record that starts near the end of a
+            # block goes on in the next one's first bytes. TOPICPOS counts the display text of the records that
+            # START in a block (the reader's rule).
+            blocks = []
+            at, cur, offs = 0, None, 0
+            for idx, (n, full) in enumerate(sizes):
+                bi, off = divmod(at, SPAN_CHUNK)
+                if bi != cur:
+                    cur, offs = bi, 0
                 pos_of[idx] = (bi, off, bi * 0x8000 + offs)
-                ti, kind, _ = recs[idx]
-                if kind == "hdr":
-                    topic_pos[ti] = bi * 0x8000 + offs
-                off += sizes[idx][0]
-                offs += sizes[idx][1]
+                if recs[idx][1] == "hdr":
+                    topic_pos[recs[idx][0]] = bi * 0x8000 + offs
+                offs += full
+                at += n
+            blocks = [None] * (-(-at // SPAN_CHUNK))
+        else:
+            blocks = [[]]
+            blen = 0
+            for idx, (n, _) in enumerate(sizes):
+                if blen + n > self.block_limit and blocks[-1]:
+                    blocks.append([])
+                    blen = 0
+                blocks[-1].append(idx)
+                blen += n
+            for bi, members in enumerate(blocks):
+                off = 0
+                offs = 0
+                for idx in members:
+                    pos_of[idx] = (bi, off, bi * 0x8000 + offs)
+                    ti, kind, _ = recs[idx]
+                    if kind == "hdr":
+                        topic_pos[ti] = bi * 0x8000 + offs
+                    off += sizes[idx][0]
+                    offs += sizes[idx][1]
 
         def ref(idx):
             bi, off, _ = pos_of[idx]
@@ -357,6 +383,7 @@ class Help:
 
         # pass 2: the records, with their links
         raw_blocks = [bytearray() for _ in blocks]
+        stream = bytearray()
         for idx, (ti, kind, arg) in enumerate(recs):
             nxt = ref(idx + 1) if idx + 1 < len(recs) else 0xFFFFFFFF
             prv = ref(idx - 1) if idx else 0xFFFFFFFF
@@ -369,11 +396,17 @@ class Help:
             else:
                 r, _ = self._display(arg, prv, nxt)
             assert len(r) == sizes[idx][0]
-            raw_blocks[pos_of[idx][0]] += r
+            if self.span:
+                stream += r
+            else:
+                raw_blocks[pos_of[idx][0]] += r
+        if self.span:
+            for bi in range(len(raw_blocks)):
+                raw_blocks[bi] += stream[bi * SPAN_CHUNK:(bi + 1) * SPAN_CHUNK]
 
         topic = b""
         for bi, rb in enumerate(raw_blocks):
-            comp = lz77(bytes(rb))
+            comp = lz77(bytes(rb), literals=self.span)
             if 12 + len(comp) > TB:
                 raise ValueError("block %d does not fit in 0x1000 bytes compressed; lower block_limit" % bi)
             blk = struct.pack("<III", 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF) + comp
@@ -490,6 +523,8 @@ def sample():
         [("font", 2), ("text", "code()"), ("font", 0), ("text", " then "),
          ("macro", "run it", "Test(1)"), ("endlink",)],
         [("link", "hidden", "hidden-jump", "contents"), ("text", "x"), ("endlink",)],
+        [("pic",), ("tab",), ("text", "Press "), ("font", 2), ("text", "BACKSPACE"), ("font", 0), ("text", " to delete.")],
+        [("text", "-2"), ("pic",), ("text", "-1 to 2"), ("pic",), ("text", "-1")],
     ], table=[[[("text", "A1")], [("text", "B1")]], [[("text", "A2")], [("font", 3), ("text", "B2")]]]))
     h.add(Topic("Glossary entry", ids=["gloss"], keywords=["Glossary"], paras=[[("text", "A popup's text.")]]))
     for i in range(24):

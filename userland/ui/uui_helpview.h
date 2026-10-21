@@ -20,9 +20,10 @@
 // document changes; set_doc() again to show another. It copies nothing
 // of the file and frees nothing of it.
 //
-// Sizes: the file's half-points are scaled so a 10-point face is as tall
-// as the interface font, then Zoom steps by 4 half-points -- WinHelp's
-// Options > Font Small / Normal / Large, as many steps as UHV_ZOOM_* allow.
+// Sizes: the file's half-points are 96 dpi at the interface face's default size (a
+// 10-point face is 13 px, as WINHELP.EXE draws it) and in proportion to it when the face
+// is changed; Zoom then steps by 4 half-points -- WinHelp's Options > Font Small / Normal /
+// Large, as many steps as UHV_ZOOM_* allow.
 //
 // A POP-UP is a second document shown in a card over this one
 // (uui_helpview_popup); a click anywhere closes it, and a link inside it
