@@ -953,13 +953,13 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: Calculator from Windows 3.11~~ DONE 2026-10-20 -- the x87 on the host's own, WIN87EM, a dialog as the main window
 - [x] ~~w16: Clock from Windows 3.11~~ DONE 2026-10-21 -- analog, digital, No Title dragged by its face, its own Font dialog
 - [x] ~~w16: Character Map from Windows 3.11~~ DONE 2026-10-21 -- owner-drawn font list, EnumFontFamilies, zoom, Copy
-- [ ] w16: TrueType text drawn bilevel, as 3.1's rasterizer drew it -- w16's is anti-aliased, lighter than 3.11's
+- [ ] w16: TrueType text hinted and drawn bilevel, as 3.1 drew it -- needs a bytecode interpreter; w16's is anti-aliased
 - [x] ~~w16: Clock's Always on Top~~ DONE 2026-10-21 -- a program's own system-menu items, HWND_TOPMOST as toywm's Always on Top
 - [ ] w16: a pie's or chord's straight edge a pixel off 3.11's where an arc ends between two outline pixels
 - [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
 - [ ] w16: WIN87EM's __WinEm87Save, __WinEm87Restore and __WinEm87Info -- no program run so far imports them
 - [ ] w16: italic for a raster font and for a TrueType face with no italic file -- GDI slanted them; w16 draws upright
-- [ ] w16: Windows-1252's 0x80-0x9F drawn -- curly quotes, dashes and the euro sign have no glyph slot in a ugfx font
+- [x] ~~w16: Windows-1252's 0x80-0x9F drawn~~ DONE 2026-10-21 -- 3.1's ANSI table from each font, a ugfx font's own c1 cells
 - [ ] w16: Symbol and Wingdings -- a symbol font's cmap (3, 0) is not read, so its characters do not draw
 - [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
