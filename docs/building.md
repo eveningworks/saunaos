@@ -96,6 +96,7 @@ make run AUDIO=1        # an AC97 -- needed for any sound at all
 make run AUDIO=hda      # ...or an Intel HD Audio controller with an output codec
 make run AUDIO=usb      # ...or a USB audio card, on an xHCI controller
 make run AUDIO=both     #    both, so the device picker has something to pick
+make run AUDIO=1 MIC=1  # ...and let the guest record: by default QEMU opens NO host microphone (in.voices=0)
 make run WINDOW=full    # full-screen, pixel-exact, no decorations
 make run WINDOW=fit     # a resizable window the guest is SCALED into
 make run NOGRAPHIC=1    # serial console only -- use this over SSH

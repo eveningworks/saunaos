@@ -674,6 +674,7 @@ help:
 	@echo "   debug console. lspci only says the device is on the bus."
 	@echo ""
 	@echo "   make run AUDIO=1|hda|usb|both PC speaker + a sound card (AUDIODEV=alsa etc.)"
+	@echo "   make run AUDIO=1 MIC=1           ...and let the guest record (default: no host microphone)"
 	@echo "   make run WINDOW=full      start full-screen -- no decorations, so a guest"
 	@echo "                             mode as big as the monitor is pixel-exact AND fits"
 	@echo "   make run WINDOW=fit       a resizable window the guest is SCALED into (gtk)."
@@ -2820,6 +2821,15 @@ QEMU_NET = $(if $(filter none,$(NET_KIND)),-nic none,\
 # this was confirmed with; AUDIODEV= overrides it for an alsa/coreaudio
 # host (`qemu-system-x86_64 -audiodev help` lists them).
 AUDIODEV ?= pa
+
+# THE GUEST HEARS NO MICROPHONE unless asked: `in.voices=0` on the audiodev
+# stops QEMU opening a capture stream, and with PulseAudio/PipeWire an open
+# one connects the guest to the host's default input -- the real
+# microphone, live, with the host's recording indicator lit. `make run
+# AUDIO=1 MIC=1` gives the guest the input back, for recording tests; the
+# loopback tools (audio_loopback_test.py) use the real G6 passed through,
+# not this.
+MIC ?=
 # A NAME rather than a boolean, for the reason DISK/VGA/INPUT are:
 # `AUDIO=usb` and `AUDIO=hda` are the others. `AUDIO=1` still means the AC'97, so
 # every existing invocation is unchanged.
@@ -2833,7 +2843,7 @@ AUDIO_KIND = $(if $(filter usb both hda,$(AUDIO)),$(AUDIO),$(if $(AUDIO),ac97,no
 # Without it the controller is attached twice and QEMU refuses the
 # duplicate id.
 AUDIO_XHCI = $(strip $(if $(filter usb both,$(AUDIO_KIND)),$(if $(filter xhci xhci+mouse xhci+hub,$(USB_KIND)),,yes),))
-QEMU_AUDIO = $(if $(filter-out none,$(AUDIO_KIND)),               -audiodev $(AUDIODEV)$(COMMA)id=snd0 -machine pcspk-audiodev=snd0                $(if $(AUDIO_XHCI),-device qemu-xhci$(COMMA)id=xhci,)               $(if $(filter ac97 both,$(AUDIO_KIND)),                 -device AC97$(COMMA)audiodev=snd0,)               $(if $(filter usb both,$(AUDIO_KIND)),                 -device usb-audio$(COMMA)id=usbaud$(COMMA)bus=xhci.0$(COMMA)audiodev=snd0,)               $(if $(filter hda,$(AUDIO_KIND)),                 -device ich9-intel-hda$(COMMA)id=hda -device hda-output$(COMMA)bus=hda.0$(COMMA)audiodev=snd0,),)
+QEMU_AUDIO = $(if $(filter-out none,$(AUDIO_KIND)),               -audiodev $(AUDIODEV)$(COMMA)id=snd0$(if $(MIC),,$(COMMA)in.voices=0) -machine pcspk-audiodev=snd0                $(if $(AUDIO_XHCI),-device qemu-xhci$(COMMA)id=xhci,)               $(if $(filter ac97 both,$(AUDIO_KIND)),                 -device AC97$(COMMA)audiodev=snd0,)               $(if $(filter usb both,$(AUDIO_KIND)),                 -device usb-audio$(COMMA)id=usbaud$(COMMA)bus=xhci.0$(COMMA)audiodev=snd0,)               $(if $(filter hda,$(AUDIO_KIND)),                 -device ich9-intel-hda$(COMMA)id=hda -device hda-output$(COMMA)bus=hda.0$(COMMA)audiodev=snd0,),)
 
 QEMU_EXTRA =
 
