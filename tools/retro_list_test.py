@@ -141,6 +141,11 @@ def main():
         widgets = dbg.widgets(TITLE)
         res.check("view=details in the conf opens the Details table, not the icon grid",
                   "programs-table" in widgets and "programs" not in widgets, f"widgets {sorted(widgets)}")
+        # The search box stays inside the toolbar's strip and the window (it once stood a pixel into the menu bar).
+        sr, tr, mr = layout_ints(dbg, "search "), layout_ints(dbg, "toolbar "), layout_ints(dbg, "menu ")
+        res.check("the search box sits inside the toolbar's strip and the window",
+                  sr and tr and mr and sr[1] >= tr[1] and sr[1] + sr[3] <= tr[1] + tr[3] and sr[0] + sr[2] <= mr[2],
+                  f"search {sr} toolbar {tr} menu {mr}")
         sx, sy = dbg.widget_center("search", TITLE)
         dbg.click(sx, sy)
 

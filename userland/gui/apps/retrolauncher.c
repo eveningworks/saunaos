@@ -1649,9 +1649,11 @@ static void layout(int cw, int ch) {
     uui_menubar_set_geometry(&g_menu, 0, 0, cw, mh);
     uui_menubar_set_bounds(&g_menu, 0, 0, cw, ch);
     int th = uui_toolbar_height(&g_tb);
-    int searchw = pad * 26, sh = row_h() + 4;
+    // The search box sits INSIDE the toolbar's strip, a few pixels off its edges, and takes at most a
+    // third of the width: the toolbar overflows into its menu before the box shrinks further.
+    int searchw = pad * 26 < cw / 3 ? pad * 26 : cw / 3, inset = th > 12 ? 3 : 0, sh = th - 2 * inset;
     uui_toolbar_ops.set_geometry(&g_tb, 0, mh, cw - searchw - pad * 2, th);
-    uui_textbox_set_geometry(&g_search, cw - searchw - pad, mh + (th - sh) / 2, searchw, sh);
+    uui_textbox_set_geometry(&g_search, cw - searchw - pad, mh + inset, searchw, sh);
     int sbh = uui_statusbar_height(&g_sb);
     uui_statusbar_set_geometry(&g_sb, 0, ch - sbh, cw, sbh);
     int top = mh + th + 1, sidew = pad * 20, body_h = ch - sbh - top;
