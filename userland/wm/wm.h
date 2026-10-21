@@ -313,6 +313,11 @@ struct window {
     int dialog;
     uint32_t dialog_owner;
     int modal;
+
+    // ALWAYS ON TOP (the window menu, Ctrl+Super+T, or WIN_STATE_ABOVE):
+    // stacked over every window without it, while focus still moves as
+    // ever -- wm_stacking() in wm_internal.h. A dialog follows its owner.
+    int above;
 };
 
 // Height of a window's title bar in pixels. NOT the taskbar's, which is

@@ -1041,11 +1041,15 @@ struct win_event {
 // client whose own buttons ask (WIN_HINT_NO_DECOR). A maximize or a
 // restore arrives as the usual WIN_EV_RESIZE proposal, its mods saying
 // which; a minimize is the server's to undo, from the taskbar. A window
-// that is not resizable is never maximized. No reply.
+// that is not resizable is never maximized. ABOVE/NOT_ABOVE is Always on
+// Top (X11's _NET_WM_STATE_ABOVE, Win32's HWND_TOPMOST), which the user
+// can also change from the window menu -- the client is not told. No reply.
 #define WIN_REQ_WINDOW_STATE 44
-#define WIN_STATE_MINIMIZE 1
-#define WIN_STATE_MAXIMIZE 2
-#define WIN_STATE_RESTORE  3   // un-maximize
+#define WIN_STATE_MINIMIZE  1
+#define WIN_STATE_MAXIMIZE  2
+#define WIN_STATE_RESTORE   3   // un-maximize
+#define WIN_STATE_ABOVE     4
+#define WIN_STATE_NOT_ABOVE 5
 
 // `window`: one of the caller's toplevels; a, b: a point in its content.
 // The pointer is put there -- Win32's SetCursorPos, for a Win16 program's

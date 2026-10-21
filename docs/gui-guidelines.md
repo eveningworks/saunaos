@@ -715,6 +715,14 @@ by an app with no F11 of its own could only be closed. **Unlike Alt+F4
 it can be inhibited**: a window holding the shortcut inhibitor (DOOM in
 play) receives it as a key, and Alt+F4 stays the one break.
 
+**Always on Top is the window's, from three places that agree**: the
+window menu's ticked row, Ctrl+Super+T on the focused window, and a
+program's own request (`uapp_set_above()`). A pinned window stacks over
+every unpinned one but takes focus like any other -- clicking the window
+under it focuses that window and leaves the pin on top -- and its
+taskbar button carries an amber pin. A focused fullscreen window goes
+over it, as in KWin.
+
 ## When an app stops answering
 
 A window that will not close is either **declining** or **wedged**, and

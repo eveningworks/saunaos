@@ -5427,6 +5427,17 @@ window without going through it will find its layout polls timing out.
   restore, then Restore to the original rect). Its control is
   `mutate.py` restoring to WIN_NORMAL and disabling `wm_focus_sync()`:
   6 checks go red. In `gui_regress.py`.
+- **`above_test.py`** -- Always on Top. Notepad, then Calculator over
+  it, pinned with Ctrl+Super+T; a click on Notepad then focuses it while
+  Calculator stays STACKED above (`gui windows`' `stack`), covers the
+  overlap pixel for pixel as it did while focused, and takes the probe
+  there. The taskbar button's pin is amber where `gui taskbar` puts it,
+  the window menu's row is ticked, and choosing it unpins -- after which
+  the overlap changes, the in-test control. `--keep DIR` keeps the
+  screenshots. Its control is `mutate.py` drawing in activation order
+  (`draw_one_window(k, ...)`): the pixel check goes red. The w16 side
+  (HWND_TOPMOST, a program's control-menu item) is in `w16_gui_test.py`'s
+  dialog.exe checks. In `gui_regress.py`.
 - **`notepad_options_test.py`** -- Notepad Options, asserted by what
   the options DO: OK writes `/etc/notepad.conf` (only the keys that
   moved); the status bar going off gives the text its height; Tab types

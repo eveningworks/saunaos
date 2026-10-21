@@ -374,6 +374,8 @@ whenever a headline here tells you something you did not already know.
   BAR'S**
 - **AN APP HANDED A FILE MUST SELECT IT, NOT JUST ITS FOLDER** -- and
   its regression test has to LAUNCH WITH AN ARGUMENT
+- **`windows[]` IS ACTIVATION ORDER; WHAT IS ON TOP COMES FROM `wm_stacking()`**
+  -- a draw or hit-test loop walks the stacking; focus keeps the table
 - **A GLOBAL SHORTCUT IS THE COMPOSITOR'S, AND SUPER IS NOW A MODIFIER**
   -- `KEY_SUPER` left the byte stream; Ctrl with a non-letter arrives as
   the key plus `KEY_MOD_CTRL`; a capture control must inhibit shortcuts

@@ -397,6 +397,11 @@ static void cmd_windows(struct dbg_out *o, int json) {
             // the generation is what a compositor that failed to re-open
             // a replaced buffer would disagree about -- see
             // docs/commands/lswin.md on reading the two together.
+            // Always on Top, and where the window really is in the stack
+            // -- the array index above is ACTIVATION order (wm_stacking()).
+            const int *zpos;
+            wm_stacking(&zpos);
+            dbg_out_printf(o, "\"above\":%s,\"stack\":%d,", w->above ? "true" : "false", zpos[i]);
             dbg_out_printf(o, "\"buf\":{\"front\":%d,\"gen\":%u},",
                          w->client_front, w->client_gen[w->client_front]);
             dbg_out_printf(o, "\"first_frame\":{\"w\":%d,\"h\":%d},", w->first_w, w->first_h);
@@ -417,8 +422,8 @@ static void cmd_windows(struct dbg_out *o, int json) {
         return;
     }
 
-    dbg_out_printf(o, "%d window(s), z-order bottom to top; the top one has focus\r\n",
-                 window_count);
+    dbg_out_printf(o, "%d window(s), activation order, the focused one last; "
+                 "\"on top\" ones are stacked above the rest\r\n", window_count);
     if (window_count == 0) return;
     dbg_out_write(o, "  z  title           x    y    w    h  | content x/y/w/h    state\r\n");
     for (int i = 0; i < window_count; i++) {
@@ -434,6 +439,7 @@ static void cmd_windows(struct dbg_out *o, int json) {
         dbg_out_write(o, w->fullscreen ? "fullscreen" : state_name(w->state));
         if (w->popup) dbg_out_write(o, " popup");
         if (w->dialog) dbg_out_write(o, w->modal ? " dialog modal" : " dialog");
+        if (w->above) dbg_out_write(o, " on top");
         dbg_out_write(o, (i == wm_focus_index()) ? " (focused)\r\n" : "\r\n");
     }
 }
@@ -511,7 +517,9 @@ static void cmd_probe(struct dbg_out *o, int px, int py, int json) {
     int hit = -1;
 
     // Topmost first, matching wm_handle_left_click()'s own order.
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         const struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (px < w->x || px >= w->x + w->w || py < w->y || py >= w->y + w->h) continue;
@@ -955,6 +963,13 @@ static void cmd_taskbar(struct dbg_out *o, int json) {
                            bx, by, bw, bh, num);
             else
                 k_strlcpy(badge, "null", sizeof badge);
+            // Always on Top's pin where it is drawn, or null.
+            char pin[64];
+            int px, py, psz;
+            if (taskbar_pin_rect(&btns[i], taskbar_draw_x(&btns[i]), &px, &py, &psz))
+                k_snprintf(pin, sizeof pin, "{\"x\":%d,\"y\":%d,\"size\":%d}", px, py, psz);
+            else
+                k_strlcpy(pin, "null", sizeof pin);
             dbg_out_printf(o, "%s{\"index\":%d,\"title\":\"%s\",\"app_id\":\"%s\","
                          "\"label\":\"%s\",\"elided\":%s,\"key\":%u,\"dragging\":%s,"
                          "\"x\":%d,\"w\":%d,\"count\":%d,\"cx\":%d,\"cy\":%d,",
@@ -965,6 +980,7 @@ static void cmd_taskbar(struct dbg_out *o, int json) {
                          btns[i].x, btns[i].w, btns[i].count,
                          btns[i].x + btns[i].w / 2, bar_y + taskbar_h / 2);
             // A call of its own: one line is KFMT_LINE_MAX, as above.
+            dbg_out_printf(o, "\"pin\":%s,", pin);
             dbg_out_printf(o, "\"badge\":%s}", badge);
             if (o->overflow) { dbg_out_rollback(o, mark); break; }
             listed++;

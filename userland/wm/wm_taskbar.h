@@ -73,8 +73,17 @@ struct taskbar_button {
     // member is in front. What a drag and a glide follow.
     uint32_t key;
     int dragging;        // this button is under the pointer in a drag; x follows it
+    int above;           // a window it stands for is Always on Top: the pin
     char label[32];
 };
+
+// The Always on Top pin's size on a labelled button, which the label
+// leaves room for: the strip's text height.
+int taskbar_pin_size(void);
+// Where the pin is drawn on button `b` at `x` -- the right end of a
+// labelled one, the icon's top-left corner on an icons-only one -- or 0
+// when no window it stands for is on top. The renderer and `gui taskbar`.
+int taskbar_pin_rect(const struct taskbar_button *b, int x, int *px, int *py, int *size);
 
 // THE GROUP COUNT on an icons-only button (`desktop.taskbar.buttons` =
 // icons) that stands for two or more windows: the badge's rect when the

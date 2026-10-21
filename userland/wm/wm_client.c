@@ -619,7 +619,9 @@ int wm_client_popup_owner(void) {
 // The same topmost-first walk wm_handle_left_click() does, so the two
 // agree on which window a press is "in".
 int wm_client_popup_route(int owner, int mx, int my) {
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         const struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;
@@ -1365,6 +1367,8 @@ static void req_window_state(int from, struct wmchan_msg *m) {
         if (windows[idx].state != WIN_MINIMIZED) wm_window_minimize(idx);
     } else if (m->a == WIN_STATE_MAXIMIZE || m->a == WIN_STATE_RESTORE) {
         wm_set_maximized(idx, m->a == WIN_STATE_MAXIMIZE);
+    } else if (m->a == WIN_STATE_ABOVE || m->a == WIN_STATE_NOT_ABOVE) {
+        wm_set_above(idx, m->a == WIN_STATE_ABOVE);
     }
 }
 

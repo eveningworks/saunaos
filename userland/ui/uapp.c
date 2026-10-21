@@ -413,6 +413,11 @@ void uapp_set_maximized(struct uapp *a, int on) {
     if (a && a->running)
         wmchan_send(WIN_REQ_WINDOW_STATE, a->window, on ? WIN_STATE_MAXIMIZE : WIN_STATE_RESTORE, 0, 0, 0);
 }
+
+void uapp_set_above(struct uapp *a, int on) {
+    if (a && a->running)
+        wmchan_send(WIN_REQ_WINDOW_STATE, a->window, on ? WIN_STATE_ABOVE : WIN_STATE_NOT_ABOVE, 0, 0, 0);
+}
 int uapp_scanout(const struct uapp *a)    { return a ? a->lease_on : 0; }
 
 void uapp_display_name(const struct uapp *a, char *out, int cap) {

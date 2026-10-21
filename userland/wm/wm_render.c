@@ -741,7 +741,9 @@ static enum wm_cursor_kind client_cursor_at(int mx, int my) {
     if (context_menu_open || calendar_open || wm_overlay_modal_open()) return WM_CURSOR_NORMAL;
     if (my >= screen_h - taskbar_h) return WM_CURSOR_NORMAL;
 
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *order = wm_stacking(0);
+    for (int k = window_count - 1; k >= 0; k--) {
+        int i = order[k];
         struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;
@@ -1473,6 +1475,15 @@ static void tb_fade(int x, int y, int w, int h, uint32_t ground) {
         ugfx_blend_hspan(wm_surface(), x, y + r, w, ground, 0, 128);
 }
 
+// ALWAYS ON TOP's mark on a taskbar button: the pushpin, in amber -- a
+// deeper one on a light strip, where the mockup's would wash out.
+static void draw_tb_pin(struct ugfx_surface *s, int x, int y, int size) {
+    const struct uimg *m = icon_get("tb-pin", size);
+    if (!m) return;
+    uint32_t ink = taskbar_dark() ? ugfx_rgb(0xFF, 0xD1, 0x66) : ugfx_rgb(0xB0, 0x78, 0x00);
+    ugfx_blit_tinted(s, x, y, m->w, m->h, m->px, m->w, ink);
+}
+
 // The strip, for whatever combination of the taskbar settings is set
 // (wm_taskbar.h). Every rect comes from taskbar_geom()/taskbar_layout(),
 // which wm_input.c hit-tests against too.
@@ -1598,6 +1609,9 @@ static void draw_taskbar(void) {
                 uui_fill_round_rect(s, x + (w - 16) / 2, py, 16, ph, UUI_CAPSULE, p->accent);
             else
                 uui_fill_round_rect(s, x + (w - 6) / 2, py, 6, ph, UUI_CAPSULE, p->running);
+            // THE PIN, on the icon's top-left corner -- the count has the other.
+            int pin_x, pin_y, psz;
+            if (taskbar_pin_rect(tb, x, &pin_x, &pin_y, &psz)) draw_tb_pin(s, pin_x, pin_y, psz);
             // THE COUNT BADGE: the strip's ink as its fill and the
             // button's ground as its digits, so it inverts with the
             // theme, cut out of the icon by a ring of that ground.
@@ -1626,7 +1640,14 @@ static void draw_taskbar(void) {
             if (minimized) tb_fade(lx, iy, ico->w, ico->h, bg);
             lx += ico->w + TB_ICON_GAP;
         }
-        ugfx_draw_string_clipped(s, lx, ty, x + w - TB_PAD - lx, tb->label,
+        int rx = x + w - TB_PAD;   // the label's right edge
+        int px, py, psz;
+        if (taskbar_pin_rect(tb, x, &px, &py, &psz)) {
+            // THE PIN at the right end, in the room the layout left it.
+            draw_tb_pin(s, px, py, psz);
+            rx = px - TB_ICON_GAP;
+        }
+        ugfx_draw_string_clipped(s, lx, ty, rx - lx, tb->label,
                                  minimized ? p->dim : p->text,
                                  wm_glass_ink_bg(WM_GLASS_TASKBAR, bg, p->bar));
         // Windows 10's underline, inset from the corners; a floating
@@ -1940,10 +1961,12 @@ static int covers(const struct window *w) {
     return w->fullscreen && w->x == 0 && w->y == 0 && w->w >= screen_w && w->h >= screen_h;
 }
 
-// The covering window's index, or -1. windows[] is z-order, the top last.
+// The covering window's index, or -1, walking the stacking order down.
 static int cover_index(void) {
     int dialog_pid = 0;
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *order = wm_stacking(0);
+    for (int k = window_count - 1; k >= 0; k--) {
+        int i = order[k];
         const struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (covers(w)) {
@@ -1963,6 +1986,9 @@ int wm_top_covers_screen(void) { return cover_index() >= 0; }
 
 // What render_scene() found this frame: nothing under it is painted.
 static int g_cover = -1;
+// This frame's stacking order and its inverse (wm_stacking()); nothing
+// restacks while a frame is drawn.
+static const int *g_order, *g_order_pos;
 
 // Is window i painted at all this frame? Every reason draw_one_window()
 // skips one, in one place, because the OCCLUDER walk below must agree:
@@ -1976,7 +2002,8 @@ static int window_shown(int i, int focus, int covered, int lifted) {
         w->client_pid == wm_render_hidden_pid()) return 0;
     if (wm_anim_hides(w)) return 0;   // its ghost is on screen instead (wm_anim.h)
     (void)focus;
-    if (covered && i < g_cover && !w->popup) return 0; // under the fullscreen window
+    if (covered && g_order_pos[i] < g_order_pos[g_cover] && !w->popup)
+        return 0; // under the fullscreen window
     // NOTHING UNTIL THE CLIENT'S FIRST PRESENT, popup or toplevel: the
     // buffer opened at create is whatever the client has drawn so far --
     // nothing, or whatever the pages came up as -- and compositing it
@@ -2031,7 +2058,8 @@ static int window_opaque_rects(int j, int focus, struct urect out[3]) {
 
 // Subtracts from `g` the opaque part of every window above `below`.
 static void subtract_occluders(struct uregion *g, int below, int focus, int covered) {
-    for (int j = below + 1; j < window_count && !uregion_is_empty(g); j++) {
+    for (int k = below < 0 ? 0 : g_order_pos[below] + 1; k < window_count && !uregion_is_empty(g); k++) {
+        int j = g_order[k];
         if (!window_shown(j, focus, covered, 0)) continue;
         struct urect o[3];
         int n = window_opaque_rects(j, focus, o);
@@ -2210,6 +2238,7 @@ static void render_scene(int mx, int my, int has_damage) {
         return;
     }
 
+    g_order = wm_stacking(&g_order_pos);
     g_cover = cover_index();
     int covered = g_cover >= 0;
     // Everything under this frame's clip is painted afresh: no shadow on it yet.
@@ -2249,8 +2278,8 @@ static void render_scene(int mx, int my, int has_damage) {
     // under the current clip like everything else, so a damage rect
     // inside it re-dims only what it repaints.
     int lifted = wm_peek_highlight_index();
-    for (int i = 0; i < window_count && !under_page; i++)
-        if (i != lifted) draw_one_window(i, focus, covered, has_damage, 0);
+    for (int k = 0; k < window_count && !under_page; k++)
+        if (g_order[k] != lifted) draw_one_window(g_order[k], focus, covered, has_damage, 0);
     if (lifted >= 0) {
         for (int y = 0; y < screen_h - taskbar_h; y++)
             ugfx_blend_hspan(wm_surface(), 0, y, screen_w, ugfx_rgb(8, 8, 12), 0, 150);
@@ -2607,7 +2636,9 @@ void wm_render_frame(int mx, int my) {
                 // the bug report.
                 int owner = -1;
                 int cx = (d.x0 + d.x1) / 2, cy = (d.y0 + d.y1) / 2;
-                for (int i = window_count - 1; i >= 0; i--) {
+                g_order = wm_stacking(&g_order_pos);   // window_shown() below reads it
+                for (int k = window_count - 1; k >= 0; k--) {
+                    int i = g_order[k];
                     if (windows[i].state == WIN_MINIMIZED) continue;
                     if (cx >= windows[i].x && cx < windows[i].x + windows[i].w &&
                         cy >= windows[i].y && cy < windows[i].y + windows[i].h) {

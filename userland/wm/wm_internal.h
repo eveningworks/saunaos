@@ -376,6 +376,18 @@ void raise_with_dialogs(int idx);
 // that toplevel actually reaches -- its topmost popup, if it has one.
 int wm_focus_index(void);
 int wm_key_target(int focus);
+
+// STACKING ORDER IS NOT windows[] ORDER. windows[] is ACTIVATION order
+// (the focused toplevel is the last), and stacking is that order sorted
+// into layers -- normal, then Always on Top, then a focused fullscreen
+// window, then popups; a dialog in its owner's layer. KWin's layers.
+// wm_stacking() is windows[] indices, BOTTOM FIRST, window_count of them;
+// anything asking "what is on top HERE" walks it, anything asking "which
+// window is active" keeps windows[]. Valid until windows[] next changes;
+// `pos`, when given, gets the inverse -- pos[i] is windows[i]'s place.
+const int *wm_stacking(const int **pos);
+// Always on Top, set or cleared: restacks and repaints. Logs the change.
+void wm_set_above(int idx, int above);
 void open_app(const struct gui_app *app);
 void close_window(int idx);
 

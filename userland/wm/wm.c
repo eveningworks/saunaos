@@ -72,6 +72,7 @@ static int g_super_used;
 struct window *windows = NULL;
 int window_count = 0;
 static int windows_cap = 0;
+static int *g_stack, *g_stack_pos;   // wm_stacking()'s answers, windows_cap long
 
 // Grows the window table by doubling. See wm_internal.h for the two
 // rules the caller owes (index, don't cache a `struct window *`).
@@ -90,6 +91,16 @@ int wm_windows_reserve(int n) {
     }
     k_memset(grown + windows_cap, 0, (size_t)(cap - windows_cap) * sizeof *grown);
     windows = grown;
+    // GROWN HERE, never in wm_stacking(): a caller walking the order may
+    // ask again inside its loop, and a realloc there would free its array.
+    int *stack = realloc(g_stack, (size_t)cap * sizeof *stack);
+    if (stack) g_stack = stack;
+    int *pos = stack ? realloc(g_stack_pos, (size_t)cap * sizeof *pos) : 0;
+    if (!pos) {
+        sys_eprint("wm: out of memory growing the window table\n");
+        return 0;
+    }
+    g_stack_pos = pos;
     windows_cap = cap;
     return 1;
 }
@@ -200,6 +211,54 @@ int wm_focus_index(void) {
         return i;
     }
     return -1;
+}
+
+// ---- stacking (wm_internal.h's wm_stacking()) ----
+
+// The window a dialog belongs to, or -1.
+static int dialog_owner_index(int i) {
+    for (int j = 0; j < window_count; j++)
+        if (j != i && windows[j].client_pid == windows[i].client_pid &&
+            windows[j].client_win == windows[i].dialog_owner && !windows[j].dialog)
+            return j;
+    return -1;
+}
+
+// A FOCUSED FULLSCREEN WINDOW GOES OVER Always on Top, as KWin's active
+// layer does: a fullscreen screenshot overlay or video would otherwise
+// sit under a pinned clock. Focus on one of its dialogs counts.
+static int layer_of(int i, int focus, int focus_owner) {
+    const struct window *w = &windows[i];
+    if (w->popup) return 3;
+    if (w->dialog) {
+        int o = dialog_owner_index(i);
+        if (o >= 0) i = o, w = &windows[o];
+    }
+    if (w->fullscreen && (i == focus || i == focus_owner)) return 2;
+    return w->above ? 1 : 0;
+}
+
+const int *wm_stacking(const int **pos) {
+    int focus = wm_focus_index();
+    int focus_owner = focus >= 0 && windows[focus].dialog ? dialog_owner_index(focus) : -1;
+    int n = 0;
+    for (int layer = 0; layer < 4; layer++)
+        for (int i = 0; i < window_count; i++)
+            if (layer_of(i, focus, focus_owner) == layer) g_stack_pos[i] = n, g_stack[n++] = i;
+    if (pos) *pos = g_stack_pos;
+    return g_stack;
+}
+
+void wm_set_above(int idx, int above) {
+    if (idx < 0 || idx >= window_count || windows[idx].popup) return;
+    above = !!above;
+    if (windows[idx].above == above) return;
+    windows[idx].above = above;
+    wm_logf("wm: '%s' %s always on top\n", windows[idx].title, above ? "now" : "no longer");
+    // Its whole footprint changes depth, and so does every window it
+    // overlaps -- a full repaint is the honest damage for a rare event.
+    wm_damage_rect(0, 0, screen_w, screen_h);
+    redraw_pending = 1;
 }
 
 // Does popup p hang, through any chain of popups, off windows[focus]?
@@ -1645,6 +1704,13 @@ void wm_run(void) {
                     // compositor's and an app cannot be allowed to shadow
                     // one (wm_shortcut.c).
                     redraw_pending = 1;
+                } else if ((key == 't' || key == 'T' || key == 0x14) && f >= 0 &&
+                           (key_mods & KEY_MOD_CTRL) && (key_mods & KEY_MOD_SUPER) &&
+                           !(key_mods & KEY_MOD_ALT) && !wm_shortcut_inhibited(f)) {
+                    // CTRL+SUPER+T: Always on Top for the focused window --
+                    // PowerToys' Win+Ctrl+T. Every window, a self-framed one
+                    // too: the state is the compositor's, not the frame's.
+                    wm_set_above(f, !windows[f].above);
                 } else if (key == ' ' && (key_mods & KEY_MOD_ALT) && f >= 0 &&
                            !wm_shortcut_inhibited(f) && !windows[f].no_decor) {
                     // ALT+SPACE: the focused window's menu, at its corner --

@@ -75,7 +75,9 @@ void wm_dnd_end(int pid) {
 #define NOWHERE (-1)
 #define SOURCE  (-2)
 static int target_under(int mx, int my) {
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;
@@ -92,7 +94,9 @@ static int target_under(int mx, int my) {
 // there -- and so is the desktop background, which takes files.
 int wm_dnd_refused_at(int mx, int my) {
     if (!g_active) return 0;
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;

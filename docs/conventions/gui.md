@@ -4287,6 +4287,19 @@ a thread is neither. The case for a thread is work whose RESULT must
 live in the app's own memory: a decoded image is the example, since
 handing one back through a pipe that carries 1 KiB a read is absurd.
 
+## `windows[]` IS ACTIVATION ORDER; WHAT IS ON TOP COMES FROM `wm_stacking()`.
+
+Since Always on Top (`docs/decisions/gui.md`, "Always on Top is a
+stacking layer"), the window table's last toplevel is the FOCUSED window
+but not necessarily the topmost one. **A loop that asks "what is drawn
+over what" or "what is under the pointer" walks `wm_stacking()`**
+(`const int *z = wm_stacking(0); for (k = window_count - 1; ...) i =
+z[k];`), and one that asks "which window is active" -- focus, the key
+target, the taskbar, a screenshot's "focused window" -- keeps `windows[]`.
+A new loop written the old way is wrong only while something is pinned,
+which is why no test without a pinned window catches it.
+`tools/above_test.py` pins one.
+
 ## A GLOBAL SHORTCUT IS THE COMPOSITOR'S, AND SUPER IS NOW A MODIFIER.
 
 Bindings are registry settings under the `shortcuts` namespace

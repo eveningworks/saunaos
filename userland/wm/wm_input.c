@@ -120,7 +120,9 @@ int title_btn_at(const struct window *w, int mx, int my) {
 }
 
 static int title_btn_hit_test(int mx, int my, int *out_kind) {
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;
@@ -137,7 +139,9 @@ static int title_btn_hit_test(int mx, int my, int *out_kind) {
 }
 
 int wm_find_resize_zone(int mx, int my, int *out_edges) {
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
 
@@ -335,7 +339,9 @@ void wm_handle_left_click(int mx, int my) {
         }
     }
 
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;
@@ -504,7 +510,7 @@ void wm_handle_left_click(int mx, int my) {
 // resolves it through ctx_target(), and a window that has gone does
 // nothing.
 static uint32_t g_ctx_window_seq;
-static struct context_menu_item g_window_menu[6];
+static struct context_menu_item g_window_menu[7];
 static char g_close_all_label[32];
 
 static int ctx_target(void *ctx) { return wm_window_by_seq(*(uint32_t *)ctx); }
@@ -544,6 +550,11 @@ void wm_window_unminimize(int i) {
 int wm_window_maximized(const struct window *w) {
     return w->state == WIN_MAXIMIZED ||
            (w->state == WIN_MINIMIZED && w->min_prev == WIN_MAXIMIZED);
+}
+
+static void ctx_toggle_above(void *ctx) {
+    int i = ctx_target(ctx);
+    if (i >= 0) wm_set_above(i, !windows[i].above);
 }
 
 static void ctx_minimize_window(void *ctx) {
@@ -753,6 +764,10 @@ void wm_open_window_menu(int idx, int mx, int my) {
                                                  .icon = w->fullscreen ? "tb-unfullscreen" : "tb-fullscreen",
                                                  .tint = UTHEME_ACT_VIEW };
     }
+    // Ticked while on, as KWin's "Keep Above Others" is.
+    items[n++] = (struct context_menu_item){ .label = "Always on Top", .on_select = ctx_toggle_above,
+                                             .ctx = &g_ctx_window_seq, .icon = "tb-pin",
+                                             .checked = w->above, .accel = "Ctrl+Super+T" };
     // Close apart, as Windows' window menu sets it, with the key that does it.
     items[n++] = (struct context_menu_item){ .separator = 1 };
     items[n++] = (struct context_menu_item){ .label = "Close", .on_select = ctx_close_window,
@@ -796,7 +811,9 @@ static void ctx_toggle_pin(void *ctx) {
 // (mouse messages go to the window under the cursor) and Wayland
 // (pointer focus IS the surface under the pointer) do.
 void wm_handle_thumb_button(int mx, int my, unsigned btn, int down) {
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;
@@ -867,7 +884,9 @@ void wm_handle_right_click(int mx, int my) {
         return; // a button's window menu, the Start button's tools, or the strip's options
     }
 
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;
@@ -1416,7 +1435,9 @@ int content_hover_win = -1;
 int wm_point_on_desktop(int mx, int my) {
     if (wm_overlay_under(mx, my)) return 0;
     if (my >= screen_h - taskbar_h) return 0;
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         const struct window *w = &windows[i];
         if (w->state == WIN_MINIMIZED) continue;
         if (uui_hit(w->x, w->y, w->w, w->h, mx, my)) return 0;
@@ -1445,7 +1466,9 @@ void wm_update_content_hover(int mx, int my, uint8_t buttons) {
         // surfaces (the grab, abi/win_proto.h): sliding along its menu
         // bar still switches menus, but nothing else lights up.
         int owner = wm_client_popup_owner();
-        for (int i = window_count - 1; i >= 0; i--) {
+        const int *zorder = wm_stacking(0);
+        for (int z = window_count - 1; z >= 0; z--) {
+            int i = zorder[z];
             struct window *w = &windows[i];
             if (w->state == WIN_MINIMIZED) continue;
             if (!uui_hit(w->x, w->y, w->w, w->h, mx, my)) continue;

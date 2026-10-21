@@ -518,6 +518,10 @@ static void fill_button(struct taskbar_button *b, int starter, int first, int me
         name = app ? app : windows[first].app_id;
     }
     b->icon = wm_window_icon_name(first);
+    b->above = 0;
+    for (int j = 0; j < window_count; j++)
+        if ((j == first || (members > 1 && !unlisted(j) && same_app(first, j))) && windows[j].above)
+            b->above = 1;
     if (!labelled) {
         b->elided = 0;
         k_strlcpy(b->label, name, sizeof b->label);
@@ -526,8 +530,28 @@ static void fill_button(struct taskbar_button *b, int starter, int first, int me
     // The label gets what the ICON does not take. Reserved from the
     // same taskbar_icon_size() the renderer blits with, so the two
     // cannot disagree about where the text starts.
-    int label_w = w - (b->icon ? taskbar_icon_size() + TB_ICON_GAP : 0);
+    int label_w = w - (b->icon ? taskbar_icon_size() + TB_ICON_GAP : 0) -
+                  (b->above ? taskbar_pin_size() + TB_ICON_GAP : 0);
     b->elided = make_label(b->label, (int)sizeof b->label, name, label_w, members);
+}
+
+int taskbar_pin_size(void) { return ugfx_char_h(); }
+
+int taskbar_pin_rect(const struct taskbar_button *b, int x, int *px, int *py, int *size) {
+    if (!b->above) return 0;
+    struct taskbar_geom g;
+    taskbar_geom(&g);
+    if (g_buttons == TASKBAR_BUTTONS_ICONS) {
+        int isz = taskbar_icon_size();
+        *size = isz / 2;
+        *px = x + (b->w - isz) / 2 - *size / 3;
+        *py = g.btn_y + (g.btn_h - isz) / 2 - *size / 3;
+    } else {
+        *size = taskbar_pin_size();
+        *px = x + b->w - TB_PAD - *size;
+        *py = g.btn_y + (g.btn_h - *size) / 2;
+    }
+    return 1;
 }
 
 int taskbar_badge_rect(const struct taskbar_button *b, int x,

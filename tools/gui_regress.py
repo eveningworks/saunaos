@@ -229,6 +229,7 @@ TOOLS = [
     ("shortcut", "shortcut_test.py", "global keyboard shortcuts, and rebinding them"),
     ("identity", "window_identity_test.py", "a held window survives a close or raise that renumbers windows[]"),
     ("focusstate", "focus_state_test.py", "clients hear the WM's focus; minimize/restore keeps maximized"),
+    ("above", "above_test.py", "Always on Top stacks over the rest while focus moves; menu tick, pin"),
     ("badpresent", "bad_present_test.py", "a refused buffer replacement keeps the last frame and the WM alive"),
     ("npoptions", "notepad_options_test.py", "Notepad Options: saved, applied, remembered across runs"),
     ("idleio", "idle_io_test.py", "an idle desktop with a ring-3 sound driver stays off the disk"),

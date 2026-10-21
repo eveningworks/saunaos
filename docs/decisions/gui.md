@@ -12115,3 +12115,36 @@ then running the instruction again.
 **The cost** is an FRSTOR/FNSAVE pair around every FPU instruction, and
 that w16's x87 is only as good as the host's: under QEMU's TCG it has no stack fault
 (`docs/testing.md`, "What the emulator does and does not model").
+
+## Always on Top is a stacking layer, and the window table stays activation order
+
+**Decided 2026-10-21.** A window can be kept above the rest: the window
+menu's ticked row, Ctrl+Super+T, or a program's WIN_STATE_ABOVE.
+
+**The obvious way was to keep pinned windows at the end of `windows[]`**,
+which every draw and hit-test loop already walks back to front. But that
+array is also the ACTIVATION order: the focused window is its last
+toplevel (`wm_focus_index()`), `bring_to_front()` promises the raised
+window lands at `window_count - 1`, and four input paths index by that.
+Pinned windows at the end would have taken the focus with them, or
+broken that promise for every raise under one.
+
+**What others do.** KWin keeps one stacking order sorted into layers
+(desktop, below, normal, above, active fullscreen, popups...) and focus
+separately; X11's `_NET_WM_STATE_ABOVE` and Win32's `WS_EX_TOPMOST` are
+both "a band of the z-order", and on both a click below a topmost window
+activates that window without lifting it over the topmost one.
+
+**toy-os copies KWin's shape.** `windows[]` stays activation order;
+`wm_stacking()` derives the stacking from it -- normal, Always on Top, a
+FOCUSED fullscreen window (KWin's active layer: a screenshot overlay or a
+video must not sit under a pinned clock), then popups, a dialog in its
+owner's layer. Drawing, occlusion culling, the fullscreen cover test and
+every "what is under the pointer" walk use the stacking; focus, the key
+target and the taskbar do not. It is recomputed, never cached: a few
+windows' worth of work, and a cache would be one more thing to keep in
+step with every mutation of the table.
+
+**The cost** is that each z-order loop must say which order it means,
+and a new one written as `for (i = window_count - 1 ...)` is silently
+activation order -- wrong only while something is pinned.

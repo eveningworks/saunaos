@@ -42,7 +42,9 @@ static int topmost_other(int from) {
 // same rule as topmost_other(), because a picker's full-screen overlay
 // is over everything and would otherwise be the answer every time.
 static int topmost_at(int from, int px, int py) {
-    for (int i = window_count - 1; i >= 0; i--) {
+    const int *zorder = wm_stacking(0);
+    for (int z = window_count - 1; z >= 0; z--) {
+        int i = zorder[z];
         const struct window *w = &windows[i];
         if (w->popup || w->state == WIN_MINIMIZED) continue;
         if (wm_client_is_client_window(w) && w->client_pid == from) continue;
