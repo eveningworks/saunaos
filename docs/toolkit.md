@@ -61,6 +61,7 @@
 | `ufolderopts.h` | ufolderopts -- how files are shown and opened, in File Manager windows AND on the desktop: Explorer's Folder Options, which apply to both. |
 | `uhistory.h` | Command history for a ring-3 line editor. |
 | `uhlp.h` | uhlp -- WINDOWS HELP FILES (.HLP, the WinHelp 3.0/3.1 format) read in ring 3: the internal directory, the topics, their text and formatting, the pictures, and the tables that find a topic (context... |
+| `uhlpmac.h` | uhlpmac -- THE WINHELP MACRO LANGUAGE: the text a help file runs when it opens (\|SYSTEM's macros and a topic's own), when a hotspot is clicked (`JumpId("file.hlp", "ctx")`) or a button is pressed,... |
 | `uhostname.h` | This computer's name -- `system.hostname`, what About shows, what a VNC viewer's title bar says and what the remote-desktop certificate names. |
 | `uhwids.h` | Names for hardware ids, from the pci.ids / usb.ids databases -- the files a Linux distribution ships as hwdata, refreshed by /bin/hwdata. |
 | `uimg.h` | uimg -- decoding an image file into pixels, in RING 3. |

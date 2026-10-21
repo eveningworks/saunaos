@@ -8274,6 +8274,19 @@ runs first**: a `doom1.wad` with one
   viewer takes either, which hid it for one run. Its controls, both seen
   red with `mutate.py`: removing the zoom clamp, and drawing links in the
   text colour. In `gui_regress.py`.
+- **`uhlpmac_hostcheck.py`** -- `userland/lib/uhlpmac.c`, the WinHelp macro
+  language (what a help file runs: its buttons, jumps, marks), on the host
+  under ASan + UBSan. A table of 46 macro texts and the events each must
+  cause (jumps and pop-ups by id, number, hash and keyword; commands;
+  buttons; marks; `IfThen`, `IfThenElse`, `Not`, nesting; the short forms;
+  every string quoting), REJECTION (a syntax error runs none of it, not
+  even the macros before it), the depth limits (a macro run from a string
+  from a string ... stops and says so; `A(A(A(...` is refused), what is
+  known and not done saying why (`ExecProgram` is refused on purpose) --
+  then the corpus mutated and fuzzed. `--fuzz N --seed S`;
+  `--positive-control` runs the else branch for a true condition (the table
+  must fail) and an unterminated string read past its end (the fuzz must
+  crash). In `preflight.sh`.
 - **`hlpgen.py`** -- writes WinHelp 3.1 files from Python (`Help`,
   `Topic`, `sample()`): the B+ trees, LZ77 blocks, phrases, fonts,
   contexts, keywords, windows, links, macros and tables. The input of

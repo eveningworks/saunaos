@@ -24,6 +24,9 @@ WHAT IT CHECKS, and what a broken version would still pass:
     kept, and Clear history empties them (the rows come from the app's own layout report);
   - a Win16 program's WinHelp() (winhelp.exe, a NASM sample) opens the viewer at the topic its
     context number names, and HELP_QUIT closes it;
+  - a help file's own macros: the sample's |SYSTEM macros make a Home and a Glossary button under the contents
+    list (the Glossary one is the macro 28 of Windows 3.11's files carry) and pressing them jumps; a topic's
+    own macro runs when it opens;
   - the right-click menu opens with its rows, and greys Copy (no selection) and Back and Forward (a
     cleared trail) but not Select All or Contents -- by the row's own pixels, not the app's say-so.
 
@@ -286,9 +289,9 @@ def main():
         dbg.send(f"gui close {npw['z']}")
         time.sleep(1)
 
+    macro_buttons(dbg, v, res, win)
+
     # --- Find -----------------------------------------------------------------------------------------------
-    dbg.key(K_RIGHT, mods="alt")
-    v.wait(lambda h: h["topic"] == 1)
     dbg.key(K_CTRL_F)
     for ch in "brown":
         dbg.key(ch)
@@ -365,6 +368,38 @@ def history_list(dbg, v, res, win):
     else:
         res.check("Clear history leaves the shown topic alone and empties Back and Forward", False, f"rows {rows}")
     dbg.key(K_ESC)
+
+
+def macro_buttons(dbg, v, res, win):
+    """The sample's |SYSTEM macros create two buttons (Home: JumpContents(); Glossary: JI(`SAMPLE.HLP>glossary',
+    `gloss'), the very macro 28 of Windows 3.11's help files carry), shown under the contents list; a topic's own
+    macro (SaveMark) runs when it opens. Ends on the Glossary entry, so Find starts somewhere else."""
+    box = poll(lambda: dbg.widgets("Sample Help").get("macro-buttons"), 8, 0.3)
+    if not res.check("the file's macros made two buttons under the contents list", box is not None and box["h"] > 40,
+                     box):
+        return
+    sx, sy, bh = box["screen"]["x"], box["screen"]["y"], (box["h"] - 4) // 2
+    upper = (sx + box["w"] // 2, sy + bh // 2)
+    lower = (sx + box["w"] // 2, sy + bh + 4 + bh // 2)
+
+    view = dbg.widgets("Sample Help")["view"]
+    h = v.wait(lambda h: h["topic"] == 0 and h["links"])
+    if h and 0 in h["links"]:
+        lx, ly, lw, lh = h["links"][0]
+        dbg.click(view["screen"]["x"] + lx + lw // 2, view["screen"]["y"] + ly + lh // 2)
+        h = v.wait(lambda h: h["topic"] == 1)
+        v.pump()
+        res.check("a topic's own macro runs when it opens (Details saves a mark)",
+                  h and any('mark "seen" saved at topic 1' in ln for ln in v.lines), h)
+    dbg.click(*lower)
+    h = v.wait(lambda h: h["topic"] == 2)
+    res.check("the Glossary button jumps to the glossary, in the same window",
+              h and h["title"] == "Glossary entry" and len([w for w in dbg.windows() if w.get("title") == "Sample Help"]) == 1, h)
+    dbg.click(*upper)
+    h = v.wait(lambda h: h["topic"] == 0)
+    res.check("the Home button (JumpContents) goes to the contents", h and h["title"] == "Contents", h)
+    dbg.click(*lower)
+    v.wait(lambda h: h["topic"] == 2)
 
 
 def winhelp_call(dbg, res, v):

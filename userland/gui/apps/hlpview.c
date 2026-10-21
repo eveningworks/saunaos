@@ -30,6 +30,8 @@
 #include "ui/ulog.h"
 #include "lib/ufile.h"
 #include "lib/uhlp.h"
+#include "lib/uhlpmac.h"
+#include "ui/uui_button.h"
 #include "lib/uclip.h"
 #include "keyboard.h"
 #include "sandbox_abi.h"
@@ -64,6 +66,10 @@ static int g_cf = -1, g_ct = -1;           // the topic shown: file, topic
 static struct uhlp_doc *g_doc, *g_pdoc;    // the topic, and the pop-up over it
 static struct uapp *g_app;
 static char g_status[160];
+
+static void run_file_macros(int idx);
+static void buttons_rebuild(struct uapp *a);
+static int g_manchor[4];                   // where a pop-up from a macro hangs: the hotspot clicked, else the view's corner
 
 struct hist { int file, topic, scroll; };
 static struct hist *g_hist;
@@ -127,7 +133,9 @@ static int load_file(const char *path) {
     }
     g_f[g_nf] = (struct hfile){ strdup(path), buf, len, h };
     ulogf("hlpview: opened %s: \"%s\", %d topics\n", path, uhlp_title(h), uhlp_ntopics(h));
-    return g_nf++;
+    int idx = g_nf++;
+    run_file_macros(idx);                     // what the file runs when it opens: its buttons
+    return idx;
 }
 
 // --- the widgets ----------------------------------------------------------------------------------
@@ -160,7 +168,7 @@ static const struct uui_toolbar_item TOOLBAR[] = {
     { "tb-actual",   "Actual size (Ctrl+0)",           CMD_ZOOM_RESET, 0, 0, 0, 0 },
 };
 
-static struct uui_item   LEFT[7], RIGHT[1], BODY[2], ITEMS[3];
+static struct uui_item   LEFT[8], RIGHT[1], BODY[2], ITEMS[3];
 static struct uui_layout LEFT_L, RIGHT_L, BODY_L, ROOT_L;
 
 static struct uui_focusable g_focusables[] = {
@@ -437,6 +445,7 @@ static void show(int file, int topic, int scroll) {
     }
     tree_rebuild();
     update_status();
+    buttons_rebuild(g_app);
     ulogf("hlpview: showing \"%s\" (topic %d)\n", uhlp_topic_title(h, topic), topic);
     run_topic_macros(d);
 }
@@ -525,11 +534,6 @@ static void run_topic_macros(const struct uhlp_doc *d) {
     for (int i = 0; i < d->nmacro; i++) run_macro(d->macro[i]);
 }
 
-static void run_macro(const char *m) {
-    if (!m || !m[0]) return;
-    ulogf("hlpview: macro %s\n", m);
-}
-
 // --- following a link --------------------------------------------------------------------------------------------
 
 static int resolve(const struct uui_helpview_link *lk, int *file, int *topic) {
@@ -548,7 +552,12 @@ static int resolve(const struct uui_helpview_link *lk, int *file, int *topic) {
 }
 
 static void follow(const struct uui_helpview_link *lk) {
-    if (lk->kind == UHLP_LINK_MACRO) { run_macro(lk->macro); return; }
+    if (lk->kind == UHLP_LINK_MACRO) {
+        g_manchor[0] = lk->ax; g_manchor[1] = lk->ay; g_manchor[2] = lk->aw; g_manchor[3] = lk->ah;
+        run_macro(lk->macro);
+        g_manchor[2] = g_manchor[3] = 0;
+        return;
+    }
     int file, topic;
     if (!resolve(lk, &file, &topic)) return;
     g_status[0] = 0;
@@ -626,6 +635,259 @@ static unsigned item_flags(int code) {
     case CMD_ZOOM_RESET: return g_view.zoom == 0 ? UUI_MI_DISABLED : 0;
     default: return 0;
     }
+}
+
+// --- the macro language (lib/uhlpmac.h) -----------------------------------------------------------------------
+//
+// What a help file runs: its |SYSTEM macros when it opens (in 3.11's own files, one each: the Glossary button),
+// a topic's when it is shown, a hotspot's when it is clicked, a button's when it is pressed. The language is
+// the library's; this is what the viewer does for it. Buttons are kept per file and shown under the contents
+// list for the file on screen; a macro's "file.hlp>window" names a secondary window this viewer does not have,
+// so the jump goes in this window.
+
+struct mbtn { int file; char *id, *caption, *macro; int disabled; };
+static struct mbtn *g_mb;
+static int g_nmb, g_mbcap;
+struct mmark { char *name; int file, topic, scroll; };
+static struct mmark *g_mm;
+static int g_nmm, g_mmcap;
+static int g_mfile = -1;                   // the file whose macro is running; -1 is the one shown
+static int g_mui;                          // the widgets exist (set once main has built them)
+
+#define MB_CODE 5000                       // a button's code is MB_CODE + its place in g_mb
+static struct uui_button *g_bw;            // the buttons under the list: those of the file shown
+static struct uui_item *g_bi;
+static struct uui_layout BTN_L;
+static int g_nbw;
+
+static int macro_base(void) { return g_mfile >= 0 ? g_mfile : g_cf; }
+
+static int mb_find(int file, const char *id) {
+    for (int i = 0; i < g_nmb; i++)
+        if (g_mb[i].file == file && !strcasecmp(g_mb[i].id, id)) return i;
+    return -1;
+}
+
+static void buttons_rebuild(struct uapp *a) {
+    if (!g_mui || !a) return;
+    free(g_bw);
+    free(g_bi);
+    g_bw = 0; g_bi = 0; g_nbw = 0;
+    int n = 0;
+    for (int i = 0; i < g_nmb; i++) if (g_mb[i].file == g_cf) n++;
+    if (n) {
+        g_bw = calloc((size_t)n, sizeof *g_bw);
+        g_bi = calloc((size_t)n, sizeof *g_bi);
+        if (!g_bw || !g_bi) { free(g_bw); free(g_bi); g_bw = 0; g_bi = 0; n = 0; }
+    }
+    for (int i = 0; i < g_nmb && g_nbw < n; i++) {
+        if (g_mb[i].file != g_cf) continue;
+        uui_button_init(&g_bw[g_nbw], 0, 0, 0, 0, g_mb[i].caption, UUI_ROLE(control_bg), UUI_ROLE(text), MB_CODE + i);
+        g_bw[g_nbw].outlined = 1;
+        g_bw[g_nbw].disabled = g_mb[i].disabled;
+        g_bi[g_nbw] = (struct uui_item){ .ops = &uui_button_ops, .widget = &g_bw[g_nbw], .id = MB_CODE + i, .flags = UUI_FILL_W };
+        g_nbw++;
+    }
+    BTN_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_bi, .count = g_nbw, .gap = 4 };
+    LEFT[7].hidden = g_nbw == 0;
+    relayout(a);
+    uapp_redraw(a);
+}
+
+// A caption without its & (the mnemonic the file marks).
+static char *caption_of(const char *s) {
+    char *o = malloc(strlen(s) + 1), *w = o;
+    if (!o) return 0;
+    for (; *s; s++) {
+        if (*s == '&' && s[1] == '&') { *w++ = '&'; s++; }
+        else if (*s != '&') *w++ = *s;
+    }
+    *w = 0;
+    return o;
+}
+
+static void mac_button(void *c, int op, const char *id, const char *caption, const char *macro) {
+    (void)c;
+    int file = macro_base();
+    if (file < 0) return;
+    int i = mb_find(file, id);
+    if (op == UHLPMAC_BTN_CREATE) {
+        char *cap = caption_of(caption), *mac = strdup(macro);
+        if (!cap || !mac) { free(cap); free(mac); return; }
+        if (i < 0) {
+            if (g_nmb == g_mbcap) {
+                int nc = g_mbcap ? g_mbcap * 2 : 8;
+                struct mbtn *g = realloc(g_mb, (size_t)nc * sizeof *g);
+                if (!g) { free(cap); free(mac); return; }
+                g_mb = g;
+                g_mbcap = nc;
+            }
+            char *idc = strdup(id);
+            if (!idc) { free(cap); free(mac); return; }
+            g_mb[g_nmb] = (struct mbtn){ file, idc, cap, mac, 0 };
+            g_nmb++;
+        } else {
+            free(g_mb[i].caption); free(g_mb[i].macro);
+            g_mb[i].caption = cap;
+            g_mb[i].macro = mac;
+        }
+    } else if (i >= 0) {
+        if (op == UHLPMAC_BTN_DESTROY) {
+            free(g_mb[i].id); free(g_mb[i].caption); free(g_mb[i].macro);
+            memmove(&g_mb[i], &g_mb[i + 1], (size_t)(g_nmb - i - 1) * sizeof *g_mb);
+            g_nmb--;
+        } else if (op == UHLPMAC_BTN_ENABLE || op == UHLPMAC_BTN_DISABLE) {
+            g_mb[i].disabled = op == UHLPMAC_BTN_DISABLE;
+        } else if (op == UHLPMAC_BTN_BIND) {
+            char *mac = strdup(macro);
+            if (mac) { free(g_mb[i].macro); g_mb[i].macro = mac; }
+        }
+    }
+    buttons_rebuild(g_app);
+}
+
+static int mac_mark(void *c, int op, const char *name) {
+    (void)c;
+    int at = -1;
+    for (int i = 0; i < g_nmm; i++) if (!strcmp(g_mm[i].name, name)) at = i;
+    switch (op) {
+    case UHLPMAC_MARK_IS: return at >= 0;
+    case UHLPMAC_MARK_GOTO:
+        if (at >= 0) go(g_mm[at].file, g_mm[at].topic);
+        return 0;
+    case UHLPMAC_MARK_DELETE:
+        if (at >= 0) {
+            free(g_mm[at].name);
+            memmove(&g_mm[at], &g_mm[at + 1], (size_t)(g_nmm - at - 1) * sizeof *g_mm);
+            g_nmm--;
+        }
+        return 0;
+    default:
+        break;
+    }
+    if (at < 0) {
+        if (g_nmm == g_mmcap) {
+            int nc = g_mmcap ? g_mmcap * 2 : 8;
+            struct mmark *g = realloc(g_mm, (size_t)nc * sizeof *g);
+            if (!g) return 0;
+            g_mm = g;
+            g_mmcap = nc;
+        }
+        char *nm = strdup(name);
+        if (!nm) return 0;
+        at = g_nmm++;
+        g_mm[at].name = nm;
+    }
+    ulogf("hlpview: mark \"%s\" saved at topic %d\n", name, g_ct);
+    g_mm[at].file = g_cf;
+    g_mm[at].topic = g_ct;
+    g_mm[at].scroll = g_view.scroll;
+    return 0;
+}
+
+// The topic a macro's jump names: its help file ("" is this one; a ">window" suffix is dropped), then the
+// context string, number, hash or keyword. 0 with the reason in the status line when it is not there.
+static int macro_target(int target, const char *file, const char *id, unsigned long num, int *f, int *t) {
+    int base = macro_base();
+    char name[160];
+    const char *gt = strchr(file, '>');
+    snprintf(name, sizeof name, "%.*s", (int)(gt ? (size_t)(gt - file) : strlen(file)), file);
+    *f = base;
+    if (name[0]) {
+        char *p = base >= 0 ? find_sibling(g_f[base].path, name) : NULL;
+        if (!p) { char m[200]; snprintf(m, sizeof m, "Cannot find the help file %s", name); set_status(m); return 0; }
+        *f = load_file(p);
+        free(p);
+    }
+    if (*f < 0) return 0;
+    const struct uhlp *h = g_f[*f].h;
+    *t = -1;
+    switch (target) {
+    case UHLPMAC_ID: *t = uhlp_topic_by_hash(h, uhlp_hash(id)); break;
+    case UHLPMAC_HASH: *t = uhlp_topic_by_hash(h, (uint32_t)num); break;
+    case UHLPMAC_CONTEXT: *t = uhlp_topic_by_map(h, (uint32_t)num); break;
+    case UHLPMAC_TOC: *t = uhlp_contents(h); break;
+    case UHLPMAC_KEYWORD:
+        for (int i = 0; i < uhlp_nkeywords(h); i++) {
+            if (strcasecmp(uhlp_keyword(h, i), id)) continue;
+            int n;
+            const int *tp = uhlp_keyword_topics(h, i, &n);
+            if (n > 0) *t = tp[0];
+            break;
+        }
+        break;
+    default: break;
+    }
+    if (*t < 0) { set_status("That topic is not in the help file"); return 0; }
+    return 1;
+}
+
+static void mac_jump(void *c, int popup, int target, const char *file, const char *id, unsigned long num) {
+    (void)c;
+    int f, t;
+    if (!macro_target(target, file, id, num, &f, &t)) return;
+    g_status[0] = 0;
+    if (popup) {
+        struct uhlp_doc *d = uhlp_render(g_f[f].h, t);
+        if (!d) return;
+        int ax = g_manchor[0], ay = g_manchor[1], aw = g_manchor[2], ah = g_manchor[3];
+        if (!aw) { ax = g_view.x + 12; ay = g_view.y + 12; aw = 24; ah = 16; }
+        uui_helpview_popup(&g_view, g_f[f].h, d, ax, ay, aw, ah);
+        uhlp_doc_free(g_pdoc);
+        g_pdoc = d;
+        return;
+    }
+    go(f, t);
+}
+
+static void mac_command(void *c, int cmd) {
+    (void)c;
+    switch (cmd) {
+    case UHLPMAC_CONTENTS: command(g_app, CMD_HOME); break;
+    case UHLPMAC_SEARCH: set_tab(g_app, TAB_FIND); uui_focus_set(&g_focus, 1); break;
+    case UHLPMAC_BACK: command(g_app, CMD_BACK); break;
+    case UHLPMAC_NEXT: command(g_app, CMD_NEXT); break;
+    case UHLPMAC_PREV: command(g_app, CMD_PREV); break;
+    case UHLPMAC_HISTORY: command(g_app, CMD_HISTORY); break;
+    case UHLPMAC_COPY: command(g_app, CMD_COPY); break;
+    case UHLPMAC_EXIT: uapp_quit(g_app, 0); break;
+    default: break;                        // BrowseButtons: the toolbar always has them
+    }
+}
+
+static void mac_unsupported(void *c, const char *name, const char *why) {
+    (void)c;
+    ulogf("hlpview: macro %s: %s\n", name, why);
+}
+
+static const struct uhlpmac_ops MAC_OPS = { 0, mac_jump, mac_command, mac_button, mac_mark, mac_unsupported };
+
+static void run_macro(const char *m) {
+    if (!m || !m[0]) return;
+    const char *err = "";
+    if (uhlpmac_run(m, &MAC_OPS, &err) < 0) ulogf("hlpview: macro not run (%s): %s\n", err, m);
+}
+
+static void run_file_macros(int idx) {
+    const struct uhlp *h = g_f[idx].h;
+    int was = g_mfile;
+    g_mfile = idx;
+    for (int i = 0; i < uhlp_nmacros(h); i++) run_macro(uhlp_macro(h, i));
+    g_mfile = was;
+}
+
+// A button of the file's was pressed.
+static void on_action(struct uapp *a, int code) {
+    if (code < MB_CODE || code - MB_CODE >= g_nmb) return;
+    struct mbtn *b = &g_mb[code - MB_CODE];
+    char *mac = strdup(b->macro);          // the macro may destroy or change this very button
+    if (!mac) return;
+    int was = g_mfile;
+    g_mfile = b->file;
+    run_macro(mac);
+    g_mfile = was;
+    free(mac);
+    uapp_redraw(a);
 }
 
 // --- events --------------------------------------------------------------------------------------------------------------
@@ -787,6 +1049,7 @@ static const char *g_opt_keyword, *g_opt_macro, *g_opt_file;
 
 static void on_open(struct uapp *a) {
     g_app = a;
+    g_mui = 1;
     size_panes();
     char *path = g_opt_file ? strdup(g_opt_file) : NULL;
     int f = path ? load_file(path) : -1;
@@ -907,7 +1170,9 @@ int main(int argc, char **argv) {
                                  .flags = UUI_FILL_W, .hidden = 1 };
     LEFT[6] = (struct uui_item){ .ops = &uui_listbox_ops, .widget = &g_found, .id = ID_FOUND, .name = "found",
                                  .flags = UUI_FILL_W | UUI_FILL_H, .hidden = 1 };
-    LEFT_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = LEFT, .count = 7, .gap = 6 };
+    LEFT[7] = (struct uui_item){ .ops = &uui_layout_ops, .widget = &BTN_L, .name = "macro-buttons",
+                                 .flags = UUI_FILL_W, .hidden = 1 };
+    LEFT_L = (struct uui_layout){ .dir = UUI_COLUMN, .items = LEFT, .count = 8, .gap = 6 };
 
     RIGHT[0] = (struct uui_item){ .ops = &uui_helpview_ops, .widget = &g_view, .id = ID_VIEW, .name = "view",
                                   .flags = UUI_FILL_W | UUI_FILL_H };
@@ -937,6 +1202,7 @@ int main(int argc, char **argv) {
         .widgets      = widgets,
         .widget_count = 2,
         .on_widget    = on_widget,
+        .on_action    = on_action,
         .on_key       = on_key,
         .on_draw_over = on_draw_over,
         .on_tick      = on_tick,

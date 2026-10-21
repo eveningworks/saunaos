@@ -311,7 +311,7 @@ def check_model(exe, tmp, problems):
     need(int(hd[3]) == len(h.topics), "ntopics %s, wanted %d" % (hd[3], len(h.topics)))
     need(int(hd[4]) == h.contents, "contents %s" % hd[4])
     need(int(hd[5]) == len(h.fonts), "nfonts %s" % hd[5])
-    need(int(hd[6]) == 1 and int(hd[7]) == 1, "windows/macros %s/%s" % (hd[6], hd[7]))
+    need(int(hd[6]) == 1 and int(hd[7]) == len(h.macros), "windows/macros %s/%s" % (hd[6], hd[7]))
 
     for i, (face, half, attr, fam, rgb) in enumerate(h.fonts):
         f = rec["F"][i]
@@ -320,7 +320,7 @@ def check_model(exe, tmp, problems):
     w = rec["W"][0]
     need(w[1] == "side" and w[2] == "Side" and [int(x) for x in w[3:7]] == [10, 20, 300, 400], "window read as %r" % w)
     need(int(w[7], 16) == 0xFFFFFF and int(w[8], 16) == 0xE0E0E0, "window colours %r" % w[7:9])
-    need(rec["M"][0][1] == h.macros[0], "file macro %r" % rec["M"][0])
+    need([m[1] for m in rec["M"]] == h.macros, "file macros %r" % rec["M"])
 
     n = len(h.topics)
     tops = {int(t[0]): t for t in rec["T"]}
@@ -338,7 +338,7 @@ def check_model(exe, tmp, problems):
     for ti, t in enumerate(h.topics):
         need(texts.get(ti) == model_text(h, t), "topic %d text %r, wanted %r" % (ti, texts.get(ti), model_text(h, t)))
     tm = [(int(x[0]), x[2]) for x in rec.get("TM", [])]
-    need(tm == [(1, "Prev()")], "topic macros %r" % tm)
+    need(tm == [(1, 'SaveMark("seen")')], "topic macros %r" % tm)
 
     # links of Contents: a jump and a popup, by hash, then Details': a macro and a hidden jump
     lk = {}

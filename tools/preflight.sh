@@ -259,6 +259,11 @@ python3 tools/ugfx_pix_hostcheck.py || fail "ugfx_pix SIMD vs C"
 step "todisk_test.py (todisk/ laid over a volume: bytes, no deletes, QEMU guard)"
 python3 tools/todisk_test.py || fail "todisk"
 
+# The macro language a help file runs is untrusted text too: a table of what each macro must do, a
+# rejection table, the depth limits, then mutated texts under ASan + UBSan. Host-only, a few seconds.
+step "uhlpmac_hostcheck.py (the WinHelp macro language: what each macro does, refusals, hostile text)"
+python3 tools/uhlpmac_hostcheck.py || fail "uhlpmac macro language"
+
 # The Help file reader parses untrusted input in ring 3. This writes help
 # files with a known answer (no Microsoft data), checks the container and
 # lookups, then opens mutated copies under ASan + UBSan. Host-only, ~10 s.

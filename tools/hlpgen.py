@@ -475,7 +475,8 @@ def sample():
     h = Help("Sample Help", "(c) toy-os", fonts=fonts,
              phrases=["the quick ", "brown fox", "jumps over ", "lazy dog"],
              windows=[{"name": "side", "caption": "Side", "x": 10, "y": 20, "w": 300, "h": 400}],
-             macros=["CreateButton(\"b1\", \"&Home\", \"JumpContents()\")"],
+             macros=["CreateButton(\"b1\", \"&Home\", \"JumpContents()\")",
+                     "CreateButton(\"gb\", \"&Glossary\", \"JI(`SAMPLE.HLP>glossary', `gloss')\")"],
              map_ids=[(100, 1)])
     h.add(Topic("Contents", ids=["contents", "idh_contents"], keywords=["Overview"], paras=[
         [("font", 1), ("text", "Sample Help"), ("font", 0)],
@@ -483,7 +484,7 @@ def sample():
          ("text", " or the "), ("link", "glossary", "popup", "gloss"), ("endlink",), ("text", ".")],
         [("text", "the quick brown fox jumps over the lazy dog")],
     ]))
-    h.add(Topic("Details", ids=["details"], keywords=["Overview", "Details"], macros=["Prev()"], paras=[
+    h.add(Topic("Details", ids=["details"], keywords=["Overview", "Details"], macros=["SaveMark(\"seen\")"], paras=[
         [("font", 1), ("text", "Details"), ("font", 0)],
         [("text", "Name"), ("tab",), ("text", "Value"), ("br",), ("text", "second line")],
         [("font", 2), ("text", "code()"), ("font", 0), ("text", " then "),
