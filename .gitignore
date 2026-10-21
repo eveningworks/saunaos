@@ -169,7 +169,7 @@ ci-virtio.img
 /.test-lock
 /.test-lock.d/
 
-# Files for the guest's disk that must never be published (a Windows 3.11
-# install, game data) -- the WHOLE folder, so a `git add -A` cannot take
-# them; tools/todisk.py is what copies it onto disk.img.
+# Files for the guest's disk that must never be published -- the WHOLE
+# folder, so a `git add -A` cannot take them; tools/todisk.py is what
+# copies it onto disk.img.
 /todisk/

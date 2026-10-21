@@ -969,14 +969,14 @@ made from the same tree.
 
 ## FILES THAT MUST NOT BE PUBLISHED GO IN `todisk/`, AND ONLY THE DISK IMAGE TAKES THEM
 
-A Windows 3.11 install for w16, a game's data: nothing under `data/`
-or `seed/` may hold them, because both are published (and `seed/sync/`
-is what the live ISO and the USB image are made from). `todisk/` is
-the home -- **ignored by git as a whole folder**, so no `git add -A`
-can take a file from it -- and `tools/todisk.py` (the only tracked part)
-lays it over a disk image's TFS3 volume as the guest's root, as written:
-`todisk/home/Win16/WINDOWS/X.EXE` is `/home/Win16/WINDOWS/X.EXE`.
-`python3 tools/todisk.py --init` makes the example folder.
+Nothing under `data/` or `seed/` may hold a file that must not be
+published, because both are (and `seed/sync/` is what the live ISO and
+the USB image are made from). `todisk/` is the home -- **ignored by git
+as a whole folder**, so no `git add -A` can take a file from it -- and
+`tools/todisk.py` (the only tracked part) copies it over a disk image's
+TFS3 volume as the guest's root, as written: `todisk/a/b/c.txt` is
+`/a/b/c.txt`. The tool makes no folder of its own and knows nothing of
+what it copies.
 
 `make iso TODISK=1` (or `TODISK=<folder>`) seeds `disk.img` and then
 runs it; `make run TODISK=1` gets it through `run`'s `iso` step. **It is
@@ -989,4 +989,3 @@ already match, finds the volume the way every host tool does
 `qemu-system` has open -- a host write under QEMU corrupts the
 filesystem; copy the image and boot the copy (`tools/vm.py --disk`).
 `tools/todisk_test.py` is its check, in `preflight.sh`.
-

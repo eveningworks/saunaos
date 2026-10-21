@@ -20,6 +20,8 @@ WHAT IT CHECKS, and what a broken version would still pass:
     read back from disk, with a phrase-compressed paragraph intact;
   - Find looks through topic text (the word is inside a phrase the file stores as a code),
     and Enter opens the first hit;
+  - a Win16 program's WinHelp() (winhelp.exe, a NASM sample) opens the viewer at the topic its
+    context number names, and HELP_QUIT closes it;
   - the right-click menu opens with its rows, and greys Copy (no selection) and Back (no earlier
     page) but not Select All, Forward or Contents -- by the row's own pixels, not the app's say-so.
 
@@ -42,6 +44,7 @@ import hlpgen                                   # noqa: E402
 from harness import Results, poll               # noqa: E402
 
 SAMPLE = "/tmp/sample.hlp"
+WIN_SAMPLE = "/home/Win16/WINDOWS/SAMPLE.HLP"     # where winhelp.exe asks for it as C:\\WINDOWS\\SAMPLE.HLP
 CLIP = "/tmp/hlpclip.txt"
 K_ENTER, K_ESC = "0x0d", "0x1b"
 K_LEFT, K_RIGHT = "0xf784", "0xf785"
@@ -55,10 +58,12 @@ def put_sample(instance):
     with tempfile.NamedTemporaryFile(suffix=".hlp", delete=False) as f:
         f.write(hlpgen.sample().build())
         host = f.name
-    r = subprocess.run([sys.executable, os.path.join(HERE, "vm.py"), "--instance", str(instance),
-                        "put", host, SAMPLE], capture_output=True)
+    vm = [sys.executable, os.path.join(HERE, "vm.py"), "--instance", str(instance)]
+    subprocess.run(vm + ["exec", "mkdir /home/Win16", "mkdir /home/Win16/WINDOWS"], capture_output=True)
+    ok = all(subprocess.run(vm + ["put", host, dst], capture_output=True).returncode == 0
+             for dst in (SAMPLE, WIN_SAMPLE))
     os.unlink(host)
-    return r.returncode == 0
+    return ok
 
 
 class Viewer:
@@ -291,7 +296,31 @@ def main():
     for w in dbg.windows():
         if w.get("title") == title:
             dbg.send(f"gui close {w['z']}")
+    poll(lambda: dbg.window(title) is None, 5, 0.3)
+    winhelp_call(dbg, res, Viewer(dbg))
     return res.finish("hlpview_test")
+
+
+def winhelp_call(dbg, res, v):
+    """A Win16 program's WinHelp(): winhelp.exe has no window, asks for context number 100 of
+    C:\\WINDOWS\\SAMPLE.HLP, waits eight seconds and quits the help. The number is the file's
+    |CTXOMAP entry for topic 1, so the viewer must land on "Details" -- through w16, the help
+    broker (the one unsandboxed process that may start it) and the viewer's own `-c`."""
+    dbg.logs("hlpview:", clear=True)
+    dbg.send("sh spawn /bin/w16 /usr/share/w16/winhelp.exe")
+    win = poll(lambda: dbg.window("Sample Help"), 12, 0.3)
+    res.check("WinHelp() opens the viewer on the help file", win is not None,
+              f"windows {[w.get('title') for w in dbg.windows()]}")
+    if not win:
+        return
+    h = v.wait(lambda h: h["topic"] == 1, 10)
+    res.check("...at the topic its context number names (HELP_CONTEXT 100 -> Details)",
+              h and h["title"] == "Details", h)
+    gone = poll(lambda: dbg.window("Sample Help") is None, 15, 0.5)
+    res.check("HELP_QUIT closes it when the program is done", gone, f"windows {[w.get('title') for w in dbg.windows()]}")
+    for w in dbg.windows():
+        if w.get("title") == "Sample Help":
+            dbg.send(f"gui close {w['z']}")
 
 
 if __name__ == "__main__":

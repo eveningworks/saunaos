@@ -8,7 +8,7 @@ reader.
 WHAT A BROKEN VERSION WOULD STILL PASS, and what is asserted instead:
   - files and nested folders land at the paths they have under the folder, with their
     BYTES (sizes 0, under a block, over a block, over the direct-block ceiling);
-  - the top-level README.txt is not copied, and a README.txt deeper down IS;
+  - a file named README.txt is copied like any other, at the top and below it;
   - a second run writes nothing, a changed file is replaced and an untouched one is not,
     and a file the folder no longer holds STAYS on the image (nothing is deleted);
   - `--dry-run` changes not one byte of the image;
@@ -87,7 +87,7 @@ def main():
             sys.exit("todisk_test: could not seed the scratch image:\n" + r.stdout + r.stderr)
 
         folder = os.path.join(tmp, "todisk")
-        win = os.path.join(folder, "home", "Win16", "WINDOWS")
+        win = os.path.join(folder, "a", "b")
         os.makedirs(os.path.join(win, "SUB", "DEEP"))
         data = {}
         for i, (name, n) in enumerate(SIZES.items()):
@@ -95,10 +95,10 @@ def main():
             with open(os.path.join(win, "SUB", "DEEP", name), "wb") as f:
                 f.write(data[name])
         with open(os.path.join(folder, "README.txt"), "w") as f:
-            f.write("the folder's own note")
+            f.write("a top-level file\n")
         with open(os.path.join(win, "README.txt"), "w") as f:
             f.write("a real file\n")
-        guest = "/home/Win16/WINDOWS"
+        guest = "/a/b"
 
         # dry run first: the image must be byte-identical afterwards
         before = hashlib.sha256(open(disk, "rb").read()).hexdigest()
@@ -107,23 +107,23 @@ def main():
         check("--dry-run changes nothing", hashlib.sha256(open(disk, "rb").read()).hexdigest() == before)
 
         rc, out = todisk(tool, "--disk", disk, "--dir", folder, env=env)
-        check("the first run succeeds", rc == 0 and "6 written" in out, out[-300:])
+        check("the first run succeeds", rc == 0 and "7 written" in out, out[-300:])
         for name, want in data.items():
             got = read_back(disk, f"{guest}/SUB/DEEP/{name}")
             check(f"{name} ({len(want)} bytes) arrives with its bytes", got == want,
                   "missing" if got is None else f"{len(got)} bytes, different")
-        check("a README.txt below the top is copied", read_back(disk, f"{guest}/README.txt") == b"a real file\n")
-        check("the folder's own top-level README.txt is not", read_back(disk, "/README.txt") is None)
+        check("a file below the top is copied", read_back(disk, f"{guest}/README.txt") == b"a real file\n")
+        check("a top-level file is copied too", read_back(disk, "/README.txt") == b"a top-level file\n")
         check("what seeding put there is untouched", read_back(disk, "/etc/kept.txt") == b"seeded before\n")
 
         rc, out = todisk(tool, "--disk", disk, "--dir", folder, env=env)
-        check("a second run writes nothing", rc == 0 and "0 written, 6 unchanged" in out, out[-200:])
+        check("a second run writes nothing", rc == 0 and "0 written, 7 unchanged" in out, out[-200:])
 
         data["small.txt"] = b"changed " * 20
         with open(os.path.join(win, "SUB", "DEEP", "small.txt"), "wb") as f:
             f.write(data["small.txt"])
         rc, out = todisk(tool, "--disk", disk, "--dir", folder, env=env)
-        check("a changed file is replaced, the others left", rc == 0 and "1 written, 5 unchanged" in out, out[-200:])
+        check("a changed file is replaced, the others left", rc == 0 and "1 written, 6 unchanged" in out, out[-200:])
         check("...with the new bytes", read_back(disk, f"{guest}/SUB/DEEP/small.txt") == data["small.txt"])
 
         os.unlink(os.path.join(win, "SUB", "DEEP", "block.bin"))

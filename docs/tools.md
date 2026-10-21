@@ -8217,26 +8217,25 @@ runs first**: a `doom1.wad` with one
   EXISTS; that it answers for every command that can fail to apply is for
   a person (`docs/conventions/gui.md`). `--positive-control` removes Help
   Viewer's `item_flags` and must come back refused. In `preflight.sh`.
-- **`todisk.py`** -- lays the files in `todisk/` (git-ignored, the
+- **`todisk.py`** -- copies the files in `todisk/` (git-ignored, the
   guest's root as written) over a disk image's TFS3 volume: folders made
-  as needed, identical files skipped, changed ones replaced, NOTHING
-  deleted. `--init` makes the example folder (`home/Win16/WINDOWS/`),
-  `--dry-run` says what would be written, `--disk` and `--dir` pick
-  another image or folder. It finds the volume with `volume_of()`, refuses
-  an image with no TFS3 and one a running `qemu-system` has open.
-  `make iso TODISK=1` (or `TODISK=<folder>`) runs it after seeding; the
-  live ISO and USB image never do. For files that must not be published
-  (a Windows 3.11 install). Convention in `docs/conventions/build.md`.
+  on the disk as needed, identical files skipped, changed ones replaced,
+  NOTHING deleted. It creates no folder of its own and knows nothing of
+  the contents. `--dry-run` says what would be written; `--disk` and
+  `--dir` pick another image or folder. It finds the volume with
+  `volume_of()`, refuses an image with no TFS3 and one a running
+  `qemu-system` has open. `make iso TODISK=1` (or `TODISK=<folder>`) runs
+  it after seeding; the live ISO and USB image never do. For files that
+  must not be published. Convention in `docs/conventions/build.md`.
 - **`todisk_test.py`** -- its check, host-only and about a second: a
   scratch partitioned image, a folder with files from empty to over the
   direct-block ceiling, read back through `tfs3_writer`'s reader. Bytes
-  arrive; the top-level `README.txt` does not and a deeper one does; a
-  second run writes nothing; a changed file is replaced and an untouched
-  one is not; a file taken out of the folder stays; `--dry-run` leaves
-  the image identical; an image with no volume is refused; so is one a
-  stand-in `qemu-system` process has open. `--positive-control` removes
-  the QEMU guard and must turn exactly those two checks red. In
-  `preflight.sh`.
+  arrive at the paths they have under the folder; a second run writes
+  nothing; a changed file is replaced and an untouched one is not; a file
+  taken out of the folder stays; `--dry-run` leaves the image identical;
+  an image with no volume is refused; so is one a stand-in `qemu-system`
+  process has open. `--positive-control` removes the QEMU guard and must
+  turn exactly those two checks red. In `preflight.sh`.
 - **`uhlp_hostcheck.py`** -- `userland/lib/uhlp.c`, the Windows Help file
   reader, compiled on the host under ASan + UBSan against files WRITTEN by
   `hlpgen.py`, so the answer is known and no Microsoft data is needed. It

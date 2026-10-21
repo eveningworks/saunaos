@@ -70,13 +70,12 @@ GRUB_TIMEOUT ?= $(if $(MENU),5,0)
 # the kernel matches by substring and an unknown word is simply ignored.
 KCMDLINE ?=
 
-# Files for the guest's disk that must never be published -- a Windows 3.11
-# install, game data -- kept in todisk/ (ignored by git) and laid over
-# disk.img by tools/todisk.py.
+# Files for the guest's disk that must never be published, kept in
+# todisk/ (ignored by git) and copied over disk.img by tools/todisk.py.
 #
 #     make iso TODISK=1               # seed disk.img, then todisk/ over it
 #     make run TODISK=1               # the same, through run's `iso` step
-#     make iso TODISK=~/win311files   # another folder, laid the same way
+#     make iso TODISK=~/somefolder    # another folder, copied the same way
 #
 # The disk image only: the live ISO and the USB image are media that get
 # published, so they never take it. `make iso` seeds without deleting, so
