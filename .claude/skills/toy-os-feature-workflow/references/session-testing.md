@@ -3159,3 +3159,31 @@ Its first version also measured itself. With no page cache, every
 twice every 5 s while waiting to "settle" was more I/O than the idle
 machine, so it never settled and reported 7.8 reads/s for 2.4. Measure
 one probe's cost back to back and subtract it, or sample in-process.
+
+## Testing a switch that cuts your own session, and the traps on the way (2026-10-19)
+
+Switching a network card off from a session that runs over it ends the
+session, and a hung-up shell kills its jobs (a screenshot run lost its
+last frame that way). What works:
+
+- **Put a script on the machine and `spawn /bin/dash /tmp/x.sh`**:
+  `spawn` reparents to init, so it outlives the session. tosh does not
+  split `;` -- inline sequences go through `dash -c '...'`.
+- **Judge traffic by a ping to the gateway, not by `netctl`**: a card
+  switched off keeps showing its old address.
+- **Give the script its own way back**: no traffic after N seconds ->
+  `devctl disable ID; devctl enable ID` (a rebind). It was not always
+  enough -- the RTL8153 needed a physical replug -- so keep the
+  maintainer's hands in the plan for a device you can lose.
+- **Prove a new hardware path OFF AND BACK ON before it ships.** The
+  aq card's switch worked; the r8153's, untested because it was the
+  laptop's only link, left the adapter dead and reached the maintainer.
+
+Smaller traps from the same day: a `/tests` program that spawns and
+waits must be registered with exit code `None` in `usertest_run.py`
+(the legacy `run` loader has no slot, `waitpid` returns -1 at once); a
+probe script run from `tools/` cannot find `.vm.N.serial` (the paths
+are relative to the repo root); `predates.py` stashes TRACKED changes
+only, so new untracked files are in both of its runs; and
+`remote.py exec` gives up after 15 s while the command keeps running.
+

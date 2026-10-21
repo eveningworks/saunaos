@@ -1556,3 +1556,32 @@ and locale data as FILES, not only through SYS_SETTING**: libc's locale
 engine lost its User-Agent setting silently that way until the log line
 named the file. A violation (a syscall group given up) is louder: SIGSYS,
 a crash report whose fault reads `Sandbox: <call> needs '<promise>'`.
+
+## A flake whose rate moved with unrelated binaries' sizes was a command near a timeout (2026-10-19)
+
+`start_settings_test` failed 3 runs in 4 on a tree whose changes were
+network code, passed 5 of 5 at HEAD, and then failed with HEAD's netd
+plus ONE unreachable `realloc` call in ntpd -- yet passed with that same
+ntpd line on HEAD alone. A trigger that tracks unrelated binaries is not
+a mechanism; it is a margin. What found it, in order:
+
+- **Rates, not runs** (`flake_hunt.py -n 3`, `predates.py`): one pass
+  per side misled twice before the 3-in-4 against 0-in-5 was measured.
+- **QMP `info registers` during the stall** (hook `DebugConsole.send`,
+  sample when a command takes >5 s). Resolve kernel RIPs with the
+  boot log's `kernel relocated +0x...` slide, user ones against
+  `pmap`'s library bases. Most samples were `clockevent_idle_halt`: the
+  CPU was IDLE -- waiting, not spinning.
+- **The kernel stub's `toy-ps`** (`vm.py --kdebug`, an image built with
+  `KCMDLINE="kdebug=ttyS2"`, gdb attached at the stall): every process
+  asleep except `config`, in libc memset under `usetting_dispatch`.
+- **`strace -c` of the slow call and a fast one: identical counts**
+  (2,968 syscalls). Same work, slower -- so the bug is the work, sitting
+  just under the debug console's 6 s, and any load tips it.
+
+The debug console runs `sh` SYNCHRONOUSLY, so one slow command freezes
+every `gui` reply behind it -- which is why the failures looked like the
+WM hanging. When a stall's trigger looks unrelated, count the work of
+the command that stalls; that is also why the fix came with a COUNTED
+ceiling test rather than a timed one.
+

@@ -835,6 +835,19 @@ adds a COM3 socket (`.vm[.N].kdb`) for an image carrying
 userland ELF have real DWARF. Kept at `-O2` deliberately -- same binary
 as every other build, so some locals show as "optimized out".
 
+**A STALL, NOT A CRASH: ASK WHO IS RUNNING.** A guest that stops
+answering for seconds has a state worth reading while it is stuck. Boot
+it with the kernel's stub (`make iso KCMDLINE="kdebug=ttyS2"`, then
+`vm.py --kdebug`), attach when the stall starts, and `toy-ps` plus
+`thread apply all bt` say which process runs and where everything else
+sleeps. Without the stub, QMP's `info registers` sampled a few dozen
+times gives RIPs: resolve a kernel one against `build/kernel.bin`
+minus the boot log's `kernel relocated +0x...`, a user one against the
+library bases `pmap <pid>` prints. Samples in `clockevent_idle_halt`
+mean the machine is WAITING, not busy. (One such stall was `config`
+doing 2,968 syscalls just under the debug console's timeout --
+`session-diagnosis.md` in the feature-workflow skill has the story.)
+
 ## Testing in QEMU headlessly, via QMP
 
 **First: is this actually a GUI change?** If not, `tools/vm.py` (above)

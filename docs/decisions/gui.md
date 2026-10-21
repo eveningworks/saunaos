@@ -6477,9 +6477,15 @@ A link the driver KNOWS is down reads "Cable unplugged", except for 20
 seconds after the switch goes on (a 2.5G card took 8 to renegotiate), when it is renegotiating and reads
 "Connecting... Waiting for the link". An address held while netd asks
 is shown "(not confirmed)". The switch itself now reaches the hardware
-(`set_admin`, docs/driver-guide.md): off powers the PHY down, as
-Linux's `ip link set down` does, so on is a real renegotiation of a few
-seconds rather than a flag flipped back.
+where the driver can (`set_admin`, docs/driver-guide.md -- r8169, aq,
+e1000): off powers the PHY down, as Linux's `ip link set down` does, so
+on is a real renegotiation of a few seconds rather than a flag flipped
+back. NOT on the Realtek USB NICs: a BMCR power-down left the ASUS's
+RTL8153 passing no frames until a replug, so there the switch is the
+flag and the link stays up (a roadmap item). A link that comes up --
+seen down then up, or a card registered afresh -- makes netd ask at
+once instead of sitting out its backoff, which is what the tray's
+"Asking" counting up had been waiting on.
 
 **Connecting moves for 30 seconds, then stops.** The icon's links draw
 in (the change it is waiting for, drawn as it happens); after
