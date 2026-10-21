@@ -285,7 +285,8 @@ static void add(struct w16_menu *m, const char *text, const char *accel, unsigne
 // Move and Size are 3.1's KEYBOARD move and size, which need toywm to run
 // a drag without a held button; until it can, they are shown grey rather
 // than dropped, so the menu is the one a 3.1 user knows.
-void w16_sysmenu_build(struct w16_menu *m, const struct w16_wnd *win) {
+void w16_sysmenu_build(struct w16_menu *m, struct w16 *w) {
+    const struct w16_wnd *win = &w->win;
     w16_menu_clear(m);
     int max = win->maximized;
     add(m, "&Restore", "", SC_RESTORE, !max);
@@ -295,4 +296,5 @@ void w16_sysmenu_build(struct w16_menu *m, const struct w16_wnd *win) {
     add(m, "Ma&ximize", "", SC_MAXIMIZE, max || !(win->style & WS_MAXIMIZEBOX));
     add(m, "", "", 0, 0);
     add(m, "&Close", "Alt+F4", SC_CLOSE, 0);
+    w16_sysmenu_extra(w, m);
 }

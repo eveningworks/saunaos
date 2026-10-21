@@ -361,6 +361,7 @@ void w16_task_post_arg(struct w16 *w, int code, int arg) {
     pthread_mutex_lock(&w->lock);
     struct uapp *a = w->app;
     if (!a && code == W16_POST_SYSCMD) w->pending_syscmd = arg;   // on_open applies it
+    if (!a && code == W16_POST_ABOVE) w->pending_above = arg + 1;
     if (!a && (code == W16_POST_DONE || code == W16_POST_FAULT)) w->pending_end = code;   // ...and posts it
     pthread_mutex_unlock(&w->lock);
     if (a) uapp_post(a, code, arg);

@@ -768,6 +768,9 @@ static int move_window(struct w16 *w, struct w16_args *a) {
 
 #define SWP_NOSIZE       0x0001
 #define SWP_NOMOVE       0x0002
+#define SWP_NOZORDER     0x0004
+#define HWND_TOPMOST     0xFFFF     // (HWND)-1
+#define HWND_NOTOPMOST   0xFFFE     // (HWND)-2
 #define SWP_FRAMECHANGED 0x0020
 #define SWP_SHOWWINDOW   0x0040
 #define SWP_HIDEWINDOW   0x0080
@@ -793,19 +796,22 @@ static void frame_changed(struct w16 *w, struct w16_wnd *x) {
 // The z-order is the creation order (wnd16.c) and stays.
 // SetWindowPos(hWnd, hWndInsertAfter, X, Y, cx, cy, uFlags) -> BOOL
 // Windows: Moves, sizes, shows or hides a window, and changes its place in the stacking order; each
-// SWP_NO* flag keeps one of them as it is.
+// SWP_NO* flag keeps one of them as it is. HWND_TOPMOST keeps it above every window that is not.
 // w16: Moves and sizes as MoveWindow does, keeping what an SWP_NO* flag says to; SWP_FRAMECHANGED
 // redraws the frame a style change made and resizes the client inside it. The stacking order of a
-// program's windows stays their creation order; toywm stacks its top-level windows.
+// program's windows stays their creation order; toywm stacks its top-level windows, and
+// HWND_TOPMOST and HWND_NOTOPMOST on the main window are its Always on Top.
 static int api_SetWindowPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    w16_arg16(a);
+    uint16_t after = w16_arg16(a);
     int16_t nx = (int16_t)w16_arg16(a), ny = (int16_t)w16_arg16(a);
     int16_t nw = (int16_t)w16_arg16(a), nh = (int16_t)w16_arg16(a);
     uint16_t flags = w16_arg16(a);
     w->cpu.r[R_AX] = x != 0;
     if (!x) return 14;
+    if (x == &w->win && !(flags & SWP_NOZORDER) && (after == HWND_TOPMOST || after == HWND_NOTOPMOST))
+        w16_task_post_arg(w, W16_POST_ABOVE, after == HWND_TOPMOST);
     if (flags & SWP_NOMOVE) { nx = (int16_t)x->x; ny = (int16_t)x->y; }
     if (flags & SWP_NOSIZE) { nw = (int16_t)x->w; nh = (int16_t)x->h; }
     if ((flags & (SWP_NOMOVE | SWP_NOSIZE)) != (SWP_NOMOVE | SWP_NOSIZE) &&

@@ -394,6 +394,7 @@ struct w16 {
     int exit_code;
     int active;                                  // the toywm window has focus
     int pending_syscmd;                          // an SC_* asked before the window was up
+    int pending_above;                           // W16_POST_ABOVE's arg + 1, asked before then
     int pending_end;                             // W16_POST_DONE or _FAULT posted before it was up
     char missing[64];                            // "USER.171 (WinHelp)": the call that is not there
 
@@ -411,6 +412,7 @@ struct w16 {
     struct w16_timer timer[W16_TIMERS];          // set by the task, fired by the main thread
     uint16_t capture;                            // SetCapture's window, 0 none; under `lock`
     uint16_t menu;                               // SetMenu's HMENU, the bar under the caption
+    uint16_t sysmenu;                            // GetSystemMenu's: the items the PROGRAM added
     unsigned key_mods;                           // KEY_MOD_* of the key message being handled
     int16_t mouse_x, mouse_y;                    // the last mouse message's point, client coordinates
     uint16_t mouse_hwnd;                         // ...and the window it was for
@@ -436,6 +438,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_CURSOR    11   // arg: a WIN_CURSOR_* -- SetCursor: the pointer's shape now
 #define W16_POST_POINTER   12   // arg: x << 16 | y, in the main window -- SetCursorPos
 #define W16_POST_MOVE      13   // DefWindowProc took a press on the caption: the compositor runs the move
+#define W16_POST_ABOVE     14   // arg: 1 or 0 -- SetWindowPos(HWND_TOPMOST / HWND_NOTOPMOST)
 
 // --- task16.c --------------------------------------------------------------
 
@@ -1113,8 +1116,11 @@ unsigned w16_menu_release(struct w16_menu *m, int x, int y);
 unsigned w16_menu_key(struct w16_menu *m, int key);      // KEY_* or a character
 int w16_menu_open_p(const struct w16_menu *m);
 
-// The control menu of `win`, its items enabled as its style and state allow.
-void w16_sysmenu_build(struct w16_menu *m, const struct w16_wnd *win);
+// The control menu of the main window, its items enabled as its style and
+// state allow, then the ones the program added (GetSystemMenu).
+void w16_sysmenu_build(struct w16_menu *m, struct w16 *w);
+// Main thread: the program's own control-menu items appended to `m`.
+void w16_sysmenu_extra(struct w16 *w, struct w16_menu *m);
 // Empties `m` (closed or not); then items are added one by one.
 void w16_menu_clear(struct w16_menu *m);
 void w16_menu_add(struct w16_menu *m, const char *text, const char *accel, unsigned id, unsigned flags);

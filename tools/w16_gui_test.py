@@ -801,6 +801,7 @@ def dialogs(dbg, qmp, res):
               f"windows {titles}")
     dbg.send("gui key n")
     res.check("its No answers by mnemonic: Box=7 (IDNO)", ini_has(dbg, "Box=7"), sh(dbg, f"cat {DLG_INI}"))
+    always_on_top(dbg, res)
     dbg.send("gui key h alt")
     wait_titles(dbg, lambda t: "Popup" in t)
     dbg.send("gui key a")
@@ -822,6 +823,25 @@ def dialogs(dbg, qmp, res):
         drift_check(dbg, res)
     finally:
         sh(dbg, f"config set system.font.size {was}")
+
+
+def always_on_top(dbg, res):
+    """The program's own control-menu item (GetSystemMenu + AppendMenu), chosen by its mnemonic, is
+    WM_SYSCOMMAND to it; its SetWindowPos(HWND_TOPMOST) is toywm's Always on Top, and NOTOPMOST
+    takes it off again -- Clock's menu item."""
+    for want in (1, 0):
+        win = dbg.window(DLG_TITLE)
+        dbg.click(win["x"] + 10, win["y"] + 10)     # the control-menu box, drawn by w16 itself
+        dbg.settle(0.5)
+        dbg.send("gui key t")
+        ok = ini_has(dbg, f"Top={want}")
+        end = time.time() + 3
+        while (above := (dbg.window(DLG_TITLE) or {}).get("above")) is not bool(want) and time.time() < end:
+            time.sleep(0.3)
+        res.check(f"the control menu's own Always on Top item reaches the program: Top={want}", ok,
+                  sh(dbg, f"cat {DLG_INI}"))
+        res.check(f"...and its SetWindowPos({'HWND_TOPMOST' if want else 'HWND_NOTOPMOST'}) "
+                  f"{'pins' if want else 'unpins'} the window in toywm", above is bool(want), f"above {above!r}")
 
 
 def drift_check(dbg, res):

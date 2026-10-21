@@ -3,8 +3,10 @@
 ; an EDIT, OK and Cancel -- through DialogBox, whose procedure fills the
 ; field on WM_INITDIALOG and reads it back on OK; a right click or File >
 ; Ask... asks a Yes/No/Cancel MessageBox; File > Checked ticks and unticks
-; itself (CheckMenuItem). Each answer is written to DIALOG.INI's [Dialog]
-; section (Value=, Box=, Checked=), which the test reads back.
+; itself (CheckMenuItem). The control menu gains "Always on Top" (GetSystemMenu,
+; AppendMenu), which toggles SetWindowPos(HWND_TOPMOST / HWND_NOTOPMOST) and its
+; tick, as Clock's does. Each answer is written to DIALOG.INI's [Dialog]
+; section (Value=, Box=, Checked=, Top=), which the test reads back.
 ; Build: tools/gen_ne.py.
 ;
 ;w16: module DLGTEST
@@ -40,7 +42,10 @@
 %define WM_RBUTTONDOWN 0x0204
 %define WM_INITDIALOG  0x0110
 %define WM_COMMAND     0x0111
+%define WM_SYSCOMMAND  0x0112
 %define MF_CHECKED     0x0008
+%define MF_SEPARATOR   0x0800
+%define IDM_TOP        310
 %define CW_USEDEFAULT  0x8000
 %define WS_OVERLAPPEDWINDOW 0x00CF0000
 %define COLOR_WINDOW   5
@@ -101,6 +106,22 @@ start:
     push word [hwnd]
     push ax
     W16_CALL "USER", 158
+    push word [hwnd]                ; GetSystemMenu(hwnd, FALSE)
+    push word 0
+    W16_CALL "USER", 156
+    mov [hsysmenu], ax
+    push ax                         ; AppendMenu(sys, MF_SEPARATOR, 0, NULL)
+    push word MF_SEPARATOR
+    push word 0
+    push word 0
+    push word 0
+    W16_CALL "USER", 411
+    push word [hsysmenu]            ; AppendMenu(sys, MF_STRING, IDM_TOP, "Always on &Top")
+    push word 0
+    push word IDM_TOP
+    push ds
+    push word top_text
+    W16_CALL "USER", 411
     push word [hInstance]           ; LoadAccelerators(hInst, MAKEINTRESOURCE(210))
     push word 0
     push word 210
@@ -184,6 +205,11 @@ wndproc:
     je .command
     cmp ax, WM_DESTROY
     je .destroy
+    cmp ax, WM_SYSCOMMAND
+    jne .default
+    cmp word [bp+10], IDM_TOP
+    je .top
+.default:
     push word [bp+14]
     push word [bp+12]
     push word [bp+10]
@@ -267,6 +293,29 @@ wndproc:
     mov di, ini_box
     call save_ax
     jmp .zero
+.top:
+    xor word [top], 1
+    push word [bp+14]               ; SetWindowPos(hwnd, top ? HWND_TOPMOST : HWND_NOTOPMOST, 0, 0, 0, 0,
+    mov ax, -2                      ;              SWP_NOMOVE | SWP_NOSIZE)
+    add ax, [top]
+    push ax
+    push word 0
+    push word 0
+    push word 0
+    push word 0
+    push word 3
+    W16_CALL "USER", 232
+    mov ax, [top]                   ; CheckMenuItem(sys, IDM_TOP, top ? MF_CHECKED : MF_UNCHECKED)
+    mov cl, 3
+    shl ax, cl
+    push word [hsysmenu]
+    push word IDM_TOP
+    push ax
+    W16_CALL "USER", 154
+    mov ax, [top]
+    mov di, ini_top
+    call save_ax
+    jmp .zero
 .destroy:
     push word 0
     W16_CALL "USER", 6              ; PostQuitMessage(0)
@@ -346,6 +395,8 @@ value:      dw 0
 hmenu:      dw 0
 haccel:     dw 0
 checked:    dw MF_CHECKED
+hsysmenu:   dw 0
+top:        dw 0
 dlgproc_ptr: W16_FARPTR dlgproc, 1
 
 wc:
@@ -379,5 +430,7 @@ ini_value:  db "Value", 0
 ini_box:    db "Box", 0
 ini_file:   db "DIALOG.INI", 0
 ini_checked: db "Checked", 0
+ini_top:    db "Top", 0
+top_text:   db "Always on &Top", 0
 about_app:  db "Dialog test", 0
 about_other: db "w16's own sample", 0

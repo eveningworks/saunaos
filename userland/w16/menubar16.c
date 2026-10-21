@@ -20,7 +20,6 @@
 #define HMENU_BASE  0x7800          // HMENU i is HMENU_BASE + 2 * i: even, beside the HRSRCs
 #define HMENU_LAST  0x7FFE
 #define HACCEL_BASE 0x7600          // HACCEL i is ACCELERATORS resource i
-#define SYSMENU     0x7FFF          // GetSystemMenu's: odd, never a loaded one
 
 #define MF_GRAYED     0x0001
 #define MF_DISABLED   0x0002
@@ -257,16 +256,40 @@ static int api_GetMenuItemID(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 4;
 }
 
+// THE STANDARD ITEMS ARE NOT IN IT: w16_sysmenu_build() draws those from the window's state, so
+// this HMENU holds only what the program added -- Clock's "Always on Top" -- shown after Close.
 // GetSystemMenu(hWnd, bRevert) -> HMENU
-// Windows: The window's control menu (Restore, Move, Size, Minimize, Maximize, Close, Switch
-// To...), for a program to change.
-// w16: A handle to the control menu, which is w16's own: the items a program adds to it are not
-// shown.
+// Windows: The window's control menu (Restore, Move, Size, Minimize, Maximize, Close, Switch To...),
+// for a program to change; bRevert puts the standard one back and returns NULL.
+// w16: A menu for the program's own items, shown after Close and sent back as WM_SYSCOMMAND;
+// changing a standard item does nothing. bRevert drops the program's items.
 static int api_GetSystemMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a); w16_arg16(a);
-    w->cpu.r[R_AX] = SYSMENU;
+    w16_arg16(a);
+    int revert = w16_arg16(a) != 0;
+    pthread_mutex_lock(&w->lock);
+    if (revert && w->sysmenu) {
+        menu_destroy(w->sysmenu);
+        w->sysmenu = 0;
+    }
+    if (!revert && !w->sysmenu) w->sysmenu = menu_new();
+    w->cpu.r[R_AX] = revert ? 0 : w->sysmenu;
+    pthread_mutex_unlock(&w->lock);
     return 4;
+}
+
+void w16_sysmenu_extra(struct w16 *w, struct w16_menu *m) {
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *s = menu_of(w->sysmenu);
+    for (int i = 0; s && i < s->n; i++) {
+        const struct w16_mi *it = &s->it[i];
+        if (it->flags & MF_POPUP) continue;   // no cascades in the control menu
+        unsigned f = (it->flags & MF_SEP) ? W16_MF_SEPARATOR : 0;
+        if (it->flags & (MF_GRAYED | MF_DISABLED)) f |= W16_MF_GRAYED;
+        if (it->flags & MF_CHECKED) f |= W16_MF_CHECKED;
+        w16_menu_add(m, (it->flags & MF_SEP) ? "" : it->text, "", it->id, f);
+    }
+    pthread_mutex_unlock(&w->lock);
 }
 
 // GetMenu(hWnd) -> HMENU

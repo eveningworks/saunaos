@@ -234,7 +234,7 @@ static void do_syscmd(struct uapp *a, int sc) {
         if (!w16_menu_open_p(&g_menu) && (g_w16.win.style & WS_SYSMENU)) {
             int x, y, w, h;
             w16_frame_sysbox(&g_w16.win, &x, &y, &w, &h);
-            w16_sysmenu_build(&g_menu, &g_w16.win);
+            w16_sysmenu_build(&g_menu, &g_w16);
             w16_menu_open(&g_menu, x, y, w, h, 1);
         }
         break;
@@ -245,8 +245,8 @@ static void do_syscmd(struct uapp *a, int sc) {
 static void on_open(struct uapp *a) {
     pthread_mutex_lock(&g_w16.lock);
     g_w16.app = a;
-    int pending = g_w16.pending_syscmd, end = g_w16.pending_end;
-    g_w16.pending_syscmd = g_w16.pending_end = 0;
+    int pending = g_w16.pending_syscmd, end = g_w16.pending_end, above = g_w16.pending_above;
+    g_w16.pending_syscmd = g_w16.pending_end = g_w16.pending_above = 0;
     // The title as it is NOW: a program that retitled its window before
     // this one was up (Notepad's "Notepad - FILE.TXT") posted to no one.
     char *title = g_w16.win.text ? strdup(g_w16.win.text) : 0;
@@ -254,6 +254,7 @@ static void on_open(struct uapp *a) {
     if (title) uapp_set_title(a, title);
     free(title);
     if (pending) do_syscmd(a, pending);   // ShowWindow(SW_MAXIMIZE) before the window was up
+    if (above) uapp_set_above(a, above - 1);   // Clock's saved Always on Top, set at start
     // The program stopped while its window was opening: the fault's box,
     // or the end, would otherwise have gone to no one and the window stayed.
     if (end) uapp_post(a, end, 0);
@@ -374,7 +375,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     case HIT_SYSMENU: {
         int bx, by, bw, bh;
         w16_frame_sysbox(&g_w16.win, &bx, &by, &bw, &bh);
-        w16_sysmenu_build(&g_menu, &g_w16.win);
+        w16_sysmenu_build(&g_menu, &g_w16);
         w16_menu_open(&g_menu, bx, by, bw, bh, 0);
         g_sysmenu_tick = now;
         uapp_redraw(a);
@@ -597,6 +598,7 @@ static int on_user(struct uapp *a, int code, int arg) {
     case W16_POST_MOVE:                 // a press the program called its caption: the compositor drags
         if (!maximized()) uapp_move_start(a, 0);
         return 0;
+    case W16_POST_ABOVE: uapp_set_above(a, arg); return 0;
     case W16_POST_POINTER:              // w16's screen is the window: its 1x point, scaled
         uapp_set_pointer(a, w16_up((int16_t)((uint32_t)arg >> 16)), w16_up((int16_t)arg));
         return 0;
