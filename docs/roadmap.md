@@ -759,7 +759,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Alt+Tab window switching
 - [ ] Window snapping (half/quarter screen)
 - [ ] Virtual desktops -- Windows 11's Task View, KDE's; a window belongs to one, the taskbar shows the current one's
-- [ ] Always on top, from a window's menu -- KWin's Keep Above: a layer over normal windows and under the taskbar
+- [x] ~~Always on top, from a window's menu -- KWin's Keep Above: a layer over normal windows and under the taskbar~~ DONE 2026-10-21
 - [ ] Remember each app's window size and position across runs -- KWin's window rules; Windows keeps it per app
 - [ ] Resize from any edge or corner -- only the bottom-right grip works today
 - [x] ~~Per-window back buffers, so a slow app's redraw can't tear~~ DONE 2026-08-24 -- two buffers, `WIN_REQ_PRESENT` flips
@@ -952,7 +952,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: arcs, pies, chords and rounded rectangles~~ DONE 2026-10-20 -- 3.11's midpoint ellipse, row for row
 - [x] ~~w16: Calculator from Windows 3.11~~ DONE 2026-10-20 -- the x87 on the host's own, WIN87EM, a dialog as the main window
 - [x] ~~w16: Clock from Windows 3.11~~ DONE 2026-10-21 -- analog, digital, No Title dragged by its face, its own Font dialog
-- [ ] w16: Clock's Always on Top -- a program's items on the system menu, and a keep-above request toywm does not have yet
+- [x] ~~w16: Clock's Always on Top~~ DONE 2026-10-21 -- a program's own system-menu items, HWND_TOPMOST as toywm's Always on Top
 - [ ] w16: a pie's or chord's straight edge a pixel off 3.11's where an arc ends between two outline pixels
 - [ ] w16: a dialog of the program's own class that is not its main window -- an owned one, or a second
 - [ ] w16: WIN87EM's __WinEm87Save, __WinEm87Restore and __WinEm87Info -- no program run so far imports them

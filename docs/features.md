@@ -201,6 +201,10 @@ list raises it. A window's menu and a grouped button's list offer
 stay open (Notepad asking to save) are named on a card after a few
 seconds, with Show it and Force Quit.
 
+**Always on Top**, from a window's menu or Ctrl+Super+T: the window
+stays over every other while focus moves as ever, and its taskbar button
+carries a pin. A program can ask for it too -- Windows 3.1's Clock does.
+
 **The tray's flyouts are one card**, drawn by one kit: network (the
 adapter's state, a switch that takes it down, live traffic, its
 address, Copy / Renew / Details), volume (each application, the output
@@ -235,7 +239,7 @@ paused game; F1 again is DOOM's own help.
 shape of otvdm and Wine): an emulated 16-bit CPU in an ordinary ring-3
 process, and Windows' KERNEL, USER, GDI, COMMDLG, OLECLI and the rest
 written again in C. Minesweeper, Notepad, Solitaire, Hearts, Write,
-Calculator and Clock from the user's own Windows 3.11 run -- none ships -- in 3.11's own fonts
+Calculator and Clock (its Always on Top too) from the user's own Windows 3.11 run -- none ships -- in 3.11's own fonts
 and pictures when drive C: has them, with 3.1's menus, dialogs and
 Application Error box. Write's TrueType text breaks its lines where
 3.11's did, to the pixel; its documents round-trip with real 3.11, and

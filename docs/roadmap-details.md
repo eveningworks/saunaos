@@ -1532,9 +1532,18 @@ answer "this desktop" first.
 
 ### Always on top, from a window's menu -- KWin's Keep Above: a layer over normal windows and under the taskbar
 
-Put on the roadmap 2026-10-06 (not scheduled). A stacking LAYER rather than a flag the raise path
-checks: windows above, normal windows, then the taskbar, so a raise
-moves a window to the top of its own layer.
+Put on the roadmap 2026-10-06; BUILT 2026-10-21. A stacking LAYER rather than a flag the raise
+path checks: `windows[]` stays activation order (focus is still its last
+toplevel) and `wm_stacking()` sorts it into layers -- normal, Always on
+Top, a focused fullscreen window, popups; a dialog in its owner's. Drawing
+and every "what is under the pointer" walk use the stacking; focus does
+not, so a click on a window under a pinned one focuses it without
+covering the pin. The window menu's ticked row, Ctrl+Super+T (PowerToys'
+Win+Ctrl+T), an amber pin on the taskbar button, and WIN_STATE_ABOVE /
+`uapp_set_above()` for a program; w16 maps SetWindowPos(HWND_TOPMOST) on
+it. A client is not told when the user changes it -- Clock's own tick can
+disagree after Ctrl+Super+T, as it would on Windows after another
+program's SetWindowPos.
 
 ### Remember each app's window size and position across runs -- KWin's window rules; Windows keeps it per app
 
