@@ -202,7 +202,6 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    50,  "finds no other program's window" },              // FindWindow
     { "USER",    121, "only WH_CALLWNDPROC is called" },                    // SetWindowsHook
     { "USER",    291, "only WH_CALLWNDPROC is called" },                    // SetWindowsHookEx
-    { "USER",    171, "says the Help file cannot be shown" },           // WinHelp
 };
 
 const char *w16_partly(const char *module, unsigned ordinal) {

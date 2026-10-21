@@ -846,6 +846,7 @@ int w16_res_find(struct w16 *w, uint16_t type, const char *type_name, uint16_t i
 // the current folder) as a host path, matched without case; the last
 // component may be missing when `creating`. 0, or a DOS error code;
 // `full` (optional) gets the full DOS path.
+extern int g_w16_help_fd;                         // w16.c: the pipe to hlpbroker, -1 none
 int w16_dos_path(const char *dos, char *host, size_t cap, int creating, char *full, size_t full_cap);
 int w16_host_to_dos(const char *host, char *out, size_t cap);
 void w16_dos_start(const char *exe);              // the current folder: the program's own

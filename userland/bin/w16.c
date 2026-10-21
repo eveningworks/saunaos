@@ -867,6 +867,23 @@ static int why(const char *call) {
     return o.buf ? 0 : 1;
 }
 
+// The write end of the pipe to hlpbroker, -1 when it could not be started: WinHelp() says so then.
+int g_w16_help_fd = -1;
+
+static void start_help_broker(void) {
+    int fds[2];
+    if (sys_pipe(fds) != 0) return;
+    struct sys_spawn_opts o;
+    sys_spawn_opts_init(&o);
+    char *argv[] = { (char *)"/bin/hlpbroker", NULL };
+    o.argv = argv;
+    o.stdin_fd = fds[0];
+    int pid = sys_spawn_opts("/bin/hlpbroker", &o);
+    close(fds[0]);
+    if (pid > 0) g_w16_help_fd = fds[1];
+    else close(fds[1]);
+}
+
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
@@ -922,6 +939,9 @@ int main(int argc, char **argv) {
             w16_trace_path(g_exe, trace, sizeof trace);
             g_trace_path = trace;
         }
+        // Help Viewer's opener, started BEFORE the sandbox closes: this process may not spawn,
+        // and a program's F1 has to open a window (userland/bin/hlpbroker.c).
+        start_help_broker();
         // The sound daemon's beacon, and this process's own ring to it
         // (lib/usnd_sink_daemon.c names it by pid) -- never the device.
         char snd_ring[48];

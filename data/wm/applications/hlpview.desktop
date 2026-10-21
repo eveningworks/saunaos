@@ -1,0 +1,8 @@
+# Help Viewer -- see this directory's README.md for the format.
+Name=Help Viewer
+Exec=/bin/wm/apps/hlpview
+Category=utility
+Comment=Windows Help files (.HLP)
+Icon=help
+Handles=.hlp
+NoDisplay=1

@@ -236,6 +236,7 @@ a command), and the `gui3`/`nano` aliases.
 
 - [`clipboardd`](clipboardd.md)
 - [`fontd`](fontd.md)
+- [`hlpbroker`](hlpbroker.md)
 - [`soundd`](soundd.md)
 
 ### Storage

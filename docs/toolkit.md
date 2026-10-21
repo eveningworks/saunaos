@@ -60,6 +60,7 @@
 | `ufileurl.h` | A file: URL and the local path it names (RFC 8089), and the web's name for what a file is (its Content-Type) -- what a browser engine and the app that reads files for it both have to agree on. |
 | `ufolderopts.h` | ufolderopts -- how files are shown and opened, in File Manager windows AND on the desktop: Explorer's Folder Options, which apply to both. |
 | `uhistory.h` | Command history for a ring-3 line editor. |
+| `uhlp.h` | uhlp -- WINDOWS HELP FILES (.HLP, the WinHelp 3.0/3.1 format) read in ring 3: the internal directory, the topics, their text and formatting, the pictures, and the tables that find a topic (context... |
 | `uhostname.h` | This computer's name -- `system.hostname`, what About shows, what a VNC viewer's title bar says and what the remote-desktop certificate names. |
 | `uhwids.h` | Names for hardware ids, from the pci.ids / usb.ids databases -- the files a Linux distribution ships as hwdata, refreshed by /bin/hwdata. |
 | `uimg.h` | uimg -- decoding an image file into pixels, in RING 3. |
@@ -191,6 +192,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_form.h` | A SMALL FORM: labelled text fields, password fields, checkboxes, choices (a uui_segmented: two to four short options) and notes stacked down a column, with Tab moving between them -- the body of a... |
 | `uui_gallery.h` | uui_gallery -- one choice out of a few, each shown as a CARD: a picture the caller paints and a label under it. |
 | `uui_grid.h` | uui_grid -- a GRID OF EQUAL CELLS the caller paints, one selected: a character map's glyphs (the Character Map), an icon picker, a board. |
+| `uui_helpview.h` | uui_helpview -- ONE WINDOWS HELP TOPIC, drawn as a document: the text in the fonts the file names, links and pop-ups as clickable runs, pictures with their hotspots, tables, and the non-scrolling h... |
 | `uui_image.h` | A decoded picture, in a layout. |
 | `uui_imagetypes.h` | uui_imagetypes -- THE PICTURE ROWS of a file chooser's "Files of type", written once: "All pictures (*.png; *.jpg; ...)", then one row per format, then "All files" -- Windows' common dialog's wordi... |
 | `uui_infobar.h` | AN INFO BAR across the top of a view: an icon, one line saying what is going on, and at most one action -- "Opened for this session" with Save to Network, a read-only medium with Open as writable. |

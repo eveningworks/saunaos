@@ -8,6 +8,8 @@
 // the queue when one is due, at most one pending per timer, as Windows
 // coalesces them; GetMessage clears `pending` when it hands one out.
 #include "w16_internal.h"
+#include "rt/sys.h"
+#include <unistd.h>
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1014,33 +1016,68 @@ static int api_TabbedTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a
 
 // There is no help viewer, so a request for help fails -- and HELP_QUIT, which a program sends as
 // it closes (Minesweeper does, on WM_DESTROY), succeeds.
+// One word of a line to hlpbroker, whose fields are tab-separated: no tab or newline in it.
+static void help_field(char *out, size_t cap, const char *s) {
+    size_t n = 0;
+    for (; *s && n + 1 < cap; s++) out[n++] = *s == '\t' || *s == '\n' ? ' ' : *s;
+    out[n] = 0;
+}
+
 // WinHelp(hWnd, lpszHelp, uCommand, dwData) -> BOOL
 // Windows: Opens the program's Help file (.HLP) in Windows Help, at its contents, a topic or a
-// keyword.
-// w16: Shows a box saying the file is a Windows Help file that w16 cannot show yet, and answers
-// that Help opened. The call a program makes as it closes, to close its Help, simply succeeds.
-// Why: A .HLP file is a compiled format of its own -- compressed topics, its own fonts and
-// pictures, hot spots -- and toy-os has no reader for it.
-// Notice: Its Help menu and F1 show that box instead of Help.
-// Whole: A viewer for .HLP files. On the roadmap: "w16: Windows Help files shown".
+// keyword; HELP_QUIT closes it.
+// w16: Opens it in Help Viewer (/bin/wm/apps/hlpview), found as Windows finds a help file -- the
+// program's folder, then drive C:'s WINDOWS -- at the contents, the topic a HELP_CONTEXT number
+// names, a HELP_KEY keyword, or after a HELP_COMMAND macro. A second call closes the first window
+// and opens the next. HELP_QUIT closes the program's Help window. w16 may not start a program
+// itself, so the request goes to hlpbroker, which it started before its sandbox closed.
 static int api_WinHelp(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t owner = w16_arg16(a);
     uint32_t file = w16_arg32(a);
     uint16_t cmd = w16_arg16(a);
-    w16_arg32(a);
-    // Asked for help, not just closing it (HELP_QUIT): say what is missing
-    // rather than nothing, and report it shown -- the program has no
-    // better thing to do with a failure.
-    if (cmd != 2) {
-        char name[80] = "", text[200];
-        if (file >> 16) cpu16_str(&w->cpu, (uint16_t)(file >> 16), (uint16_t)file, name, sizeof name);
-        const char *base = strrchr(name, '\\');
-        snprintf(text, sizeof text, "%s is a Windows Help file, and w16 cannot show Help files yet.",
-                 base ? base + 1 : name[0] ? name : "This program's help");
-        w16_message_box(w, owner, text, "Help", 0x40);   // MB_ICONASTERISK
-    }
+    uint32_t data = w16_arg32(a);
     w->cpu.r[R_AX] = 1;
+    if (cmd == 2) {                                   // HELP_QUIT
+        if (g_w16_help_fd >= 0 && write(g_w16_help_fd, "QUIT\n", 5) < 0) g_w16_help_fd = -1;
+        return 12;
+    }
+    static char line[1400], tmp[300], word[400];
+    char name[160] = "", host[256] = "";
+    if (file >> 16) cpu16_str(&w->cpu, (uint16_t)(file >> 16), (uint16_t)file, name, sizeof name);
+    if (!name[0] || w16_dos_path(name, host, sizeof host, 0, 0, 0) != 0) {
+        char alt[200];
+        const char *base = strrchr(name, '\\');
+        snprintf(alt, sizeof alt, "C:\\WINDOWS\\%s", base ? base + 1 : name);
+        if (!name[0] || w16_dos_path(alt, host, sizeof host, 0, 0, 0) != 0) {
+            char text[220];
+            snprintf(text, sizeof text, "Cannot find the help file %s.", name[0] ? name : "(none)");
+            w16_message_box(w, owner, text, "Help", 0x30);   // MB_ICONEXCLAMATION
+            w->cpu.r[R_AX] = 0;
+            return 12;
+        }
+    }
+    int n = snprintf(line, sizeof line, "OPEN");
+    switch (cmd) {
+    case 1: case 8:                                   // HELP_CONTEXT, HELP_CONTEXTPOPUP
+        n += snprintf(line + n, sizeof line - (size_t)n, "\t-c\t%lu", (unsigned long)data);
+        break;
+    case 0x101: case 0x105: case 0x201:               // HELP_KEY, HELP_PARTIALKEY, HELP_MULTIKEY
+    case 0x102:                                       // HELP_COMMAND
+        if (data >> 16 && cpu16_str(&w->cpu, (uint16_t)(data >> 16), (uint16_t)data, tmp, sizeof tmp)) {
+            help_field(word, sizeof word, tmp);
+            n += snprintf(line + n, sizeof line - (size_t)n, "\t%s\t%s", cmd == 0x102 ? "-m" : "-k", word);
+        }
+        break;
+    default: break;                                   // contents, index, help on help
+    }
+    help_field(word, sizeof word, host);
+    n += snprintf(line + n, sizeof line - (size_t)n, "\t%s\n", word);
+    if (g_w16_help_fd < 0 || n >= (int)sizeof line || write(g_w16_help_fd, line, (size_t)n) < 0) {
+        g_w16_help_fd = -1;
+        w16_message_box(w, owner, "Help Viewer could not be started.", "Help", 0x30);
+        w->cpu.r[R_AX] = 0;
+    }
     return 12;
 }
 
