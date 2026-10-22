@@ -215,6 +215,18 @@ the feature under test wholly broken.
 
 ## What the emulator does and does not model
 
+**FREE PAGE REPORTING IS MEASURED IN QEMU'S RSS, AND `info virtio-status`
+ON A BALLOON KILLS QEMU 11.1.2.** `make run` and the KTEST machine
+attach `virtio-balloon-pci,free-page-reporting=on`; `vm.py --balloon`
+opts a guest in. The oracle is the host: `VmRSS` in
+`/proc/<qemu pid>/status` while `memtest 400` runs and after it exits
+(back down within ~3 s; a guest without the balloon stays up), and HMP
+`info virtio-queue-status <path> 3` -- the reporting queue's `used_idx`
+counts acknowledged batches. A `/tmp` file is the WRONG fill: the
+kernel heap keeps freed memory (`docs/conventions/kernel.md`). Never
+send `info virtio-status` for the balloon: on QEMU 11.1.2 it aborts the
+emulator even with no guest running (`-S`).
+
 **TCG'S x87 IS NOT A REAL ONE, AND w16 INHERITS IT.** w16 runs a Win16
 program's FPU instructions on the (here emulated) host x87
 (`cpu16_x87.c`). QEMU's TCG raises no stack fault -- nine loads leave

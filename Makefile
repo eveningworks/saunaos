@@ -683,6 +683,8 @@ help:
 	@echo "   make run NOGRAPHIC=1      serial only, no window -- use this over SSH"
 	@echo "   make run MENU=1           show the GRUB boot menu (5s) instead of booting"
 	@echo "   make run MEM=512          a smaller machine"
+	@echo "   make run BALLOON=0        no virtio-balloon: freed guest memory is not"
+	@echo "                             handed back to the host (on by default)"
 	@echo "   make run LIVE=1           the live ISO, with NO disk attached (implies live-iso)"
 	@echo "   make run NODISK=1         the ordinary ISO with no disk attached either"
 	@echo "   make run BOOT=cd          boot the ISO instead of the disk (default: the"
@@ -2646,6 +2648,13 @@ COMMA := ,
 
 MEM ?= 2048
 
+# FREE PAGE REPORTING, on by default: the guest hands memory it has
+# freed back to the host, so the VM costs what toy-os is using rather
+# than the most it ever touched (kernel/include/kernel/page_report.h).
+# Real hardware has no such device and loses nothing.
+BALLOON ?= 1
+QEMU_BALLOON = $(if $(filter 1,$(BALLOON)),-device virtio-balloon-pci$(COMMA)free-page-reporting=on)
+
 # WHICH ISO, and what has to be built first. LIVE is an ordinary axis
 # like the rest, but it is the one that changes the PREREQUISITE as well
 # as the command line -- which works because a command-line variable is
@@ -2886,7 +2895,7 @@ QEMU_KDEBUG = $(if $(filter 1,$(KDEBUG)),$(QEMU_KDEBUG_ARGS))$(if $(filter net,$
 QEMU_RUN = qemu-system-x86_64 $(QEMU_BOOT) $(QEMU_ACCEL) $(QEMU_DISK) \
 	  $(QEMU_INPUT) $(QEMU_USB) \
 	  -serial stdio -vga $(QEMU_VGA) -display $(QEMU_DISPLAY) $(QEMU_FULLSCREEN) -m $(MEM) \
-	  $(QEMU_AUDIO) $(QEMU_NET) $(QEMU_KDEBUG) $(QEMU_EXTRA)
+	  $(QEMU_AUDIO) $(QEMU_NET) $(QEMU_BALLOON) $(QEMU_KDEBUG) $(QEMU_EXTRA)
 
 run: $(RUN_PREREQ)
 	$(if $(and $(TODISK),$(LIVE)),$(error TODISK is for the disk image; LIVE=1 boots the live ISO, which is published and must not carry those files),@:)

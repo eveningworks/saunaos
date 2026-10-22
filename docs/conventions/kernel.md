@@ -4960,3 +4960,26 @@ command line: `sys_spawn()` splits at spaces, so a keyword or a path with
 one would arrive as two arguments. `sys_spawn_opts()` takes the argv as a
 vector and a `stdin_fd`.
 
+
+## A FREED FRAME MAY COME BACK ZERO-FILLED, AND A FREE IS NOT A RETURN TO THE HOST UNLESS IT REACHES THE FRAME ALLOCATOR
+
+Under a hypervisor with free page reporting (`make run`'s default
+`virtio-balloon`, `kernel/include/kernel/page_report.h`), a wholly free
+2 MiB block is told to the host, which discards it; the next touch of
+any frame in it reads zeros. So:
+
+- **Nothing may rely on a freed frame keeping its contents** -- not a
+  "free, then read it back" shortcut, not a debug pattern checked after
+  reallocation. It was never promised; it is now false in practice.
+  An allocator that hands out a frame must zero or fill it itself.
+- **Only `pmm_free_frame()`/`pmm_free_contiguous()` give memory back.**
+  The kernel heap keeps every region it ever took, so `kfree()` --
+  and with it ramfs, whose `/tmp` data is kmalloc'd -- returns nothing
+  to the host. **Test reporting with ring-3 memory**: `memtest 400`
+  then watch QEMU's RSS, never a `/tmp` file.
+- **The walk runs from `scheduler_idle()`**, never from a free path; a
+  busy machine reports when it next idles, about 2 s after a block's
+  worth of frames has been freed.
+- **A reporter that stops answering loses the frames in flight
+  forever** (`PAGE_REPORT_LOST`): the device may still discard them, so
+  they must never be handed out again.

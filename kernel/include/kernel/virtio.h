@@ -47,6 +47,7 @@
 #define VIRTIO_ID_BLK   2
 #define VIRTIO_ID_CONSOLE 3
 #define VIRTIO_ID_RNG   4
+#define VIRTIO_ID_BALLOON 5
 #define VIRTIO_ID_GPU  16
 #define VIRTIO_ID_INPUT 18
 

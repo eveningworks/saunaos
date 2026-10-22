@@ -92,6 +92,7 @@
 #include "sched_internal.h"
 #include "vmm.h"
 #include "process.h" // process_context_is_armed() -- see kernel_slot_runnable()
+#include "page_report.h" // page_report_idle() -- idle work scheduler_idle() owns
 #include "win_input.h" // raw input to a ring-3 compositor // win_server_client_gone() -- see scheduler_on_exit()
 #include "netdev.h"    // net_poll() -- the idle half of the receive path
 #include "kfmt.h"      // klog_printf, vga_printf
@@ -1994,6 +1995,9 @@ void scheduler_idle(void) {
     // machine with nothing to do still behaves like a host on the
     // network. Costs one compare when no card is registered.
     net_poll();
+    // Free memory back to a hypervisor (page_report.h). One compare
+    // without a reporter, which is every machine but a VM with a balloon.
+    page_report_idle();
 }
 
 // Interrupts off around each bill: a tick that rotates bills too, and

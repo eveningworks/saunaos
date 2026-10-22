@@ -104,6 +104,10 @@ def launch_cmd(iso, disk, port, virtio_disk=None, memory=256, ahci_disk=None):
         # this is it. Drop it and those tests skip themselves (with a
         # message saying why) rather than fighting the driver.
         "-device", "virtio-rng-pci",
+        # Free page reporting, as `make run` boots by default: the whole
+        # suite then runs while page_report.c isolates and returns real
+        # memory under it, and [virtio-balloon] has a device to check.
+        "-device", "virtio-balloon-pci,free-page-reporting=on",
         "-no-reboot",
         "-no-shutdown",
     ]

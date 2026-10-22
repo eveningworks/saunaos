@@ -43,7 +43,9 @@ doorbell where ATA is dense with port I/O and every one of those is a VM
 exit), `virtio-rng` feeding the entropy pool, **`virtio-gpu` as a real
 display driver** (resource, scanout, transfer-and-flush, its own cursor
 queue, and it programs the mode itself so `video=1920x1080` is honoured
-rather than left to GRUB), and **`virtio-input`**. One transport, so the
+rather than left to GRUB), **`virtio-input`**, and **`virtio-balloon`
+free page reporting**, which hands memory toy-os has freed back to the
+host so a VM costs what it is using. One transport, so the
 next device is a driver rather than a bring-up project. On real
 hardware, **an Intel display driver** for a laptop's Broadwell GPU. It
 reads the panel's **EDID** over the DisplayPort AUX channel and

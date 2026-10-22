@@ -299,6 +299,10 @@ def cmd_start(args):
     # transport -- which is the only way to reach
     # kernel/drivers/virtio/virtio_input.c at all, the same reason
     # --vga virtio exists for the GPU.
+    # A virtio-balloon with free page reporting, which `make run` attaches
+    # by default; opt-in here so existing tests keep their machine.
+    if getattr(args, "balloon", False):
+        cmd += ["-device", "virtio-balloon-pci,free-page-reporting=on"]
     if getattr(args, "virtio_input", False):
         cmd += ["-device", "virtio-keyboard-pci",
                 "-device", "virtio-mouse-pci",
@@ -989,6 +993,8 @@ def main():
                     help="which NIC to attach. e1000 is what QEMU already did "
                          "implicitly; virtio reaches the virtio-net driver; both "
                          "is the multi-NIC case; none means no card at all")
+    ap.add_argument("--balloon", action="store_true",
+                    help="attach virtio-balloon with free page reporting, as make run does")
     ap.add_argument("--virtio-input", action="store_true",
                     help="attach virtio keyboard/mouse/tablet devices. Off by "
                          "default; with it the guest has BOTH these and the PS/2 "

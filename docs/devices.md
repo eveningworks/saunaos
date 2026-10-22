@@ -71,6 +71,7 @@ person has to keep true.
 | `acpi_pm` | ACPI PM timer, 3.579545 MHz | Named by the FADT; needs no calibration and runs without the tick, so a machine with no invariant TSC can still go tickless. 24 bits wrap in 4.7 s. |
 | `pit` | 8253/8254, counted per tick | The last-resort clocksource; `clocksource=pit` forces it. Advances only from the tick, so it keeps the timer periodic. |
 | `virtio-rng` | virtio entropy source | Seeds `krandom`, raising it above TSC jitter. |
+| `virtio-balloon` | virtio balloon with `free-page-reporting=on` | Free page reporting only: freed 2 MiB blocks go back to the host (`page_report.h`). No inflate/deflate or stats; declined without the reporting feature. |
 
 ## What there is no driver for
 

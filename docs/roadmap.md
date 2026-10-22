@@ -175,6 +175,15 @@ is the bookkeeping that makes any other kind of mapping possible.
 - [x] ~~Stage 5: a test that consumes past 4 GiB, and About reading usable == installed~~ DONE 2026-09-02 -- `tools/highmem_consume.py`
 - [ ] Expose the DMA32 reserve as a `kernel.` tunable, the way `vm.lowmem_reserve_ratio` is a sysctl
 
+### Returning memory to a hypervisor
+**Needs:** nothing -- free page reporting built 2026-10-22.
+
+- [x] ~~Free page reporting via virtio-balloon: freed 2 MiB blocks go back to the host~~ DONE 2026-10-22, on in `make run`
+- [ ] The kernel heap returns empty regions to pmm, so freed kmalloc memory (ramfs `/tmp`) reaches the host too
+- [ ] Memory reported to the host in `meminfo` and Task Manager
+- [ ] Classic balloon inflate/deflate, so the host can ask for a size (QMP `balloon`)
+- [ ] The balloon's stats queue, so the host's `guest-stats` reads the guest's own numbers
+
 ### Swap / paging to disk
 **Needs:** Demand paging & shared memory -- swap is demand paging with a backing store. Designed in `docs/swap-design.md`.
 

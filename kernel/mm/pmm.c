@@ -26,6 +26,8 @@
 #include "paging.h"
 #include "string.h"
 #include "kasan.h"
+#include "page_report.h"
+#include "irqflags.h"
 #include <stddef.h>
 
 // Linker symbols from linker.ld: the running image's extent. With
@@ -48,6 +50,13 @@ static uint8_t *managed;
 // for a free frame and for one reserved at boot -- the image and the
 // books are "used, refcount 0" and can never be shared or freed.
 static uint16_t *refs;
+// One bit per 2 MiB block: told to the host as free (page_report.h) and
+// not allocated from since. Every allocation clears its block's bit, so
+// a block is reported again once it is wholly free again -- Linux's
+// PageReported(), per block.
+static uint8_t *reported;
+static uint64_t report_blocks = 0;
+static uint64_t freed_since_report = 0; // frames; page_report.c's gate
 static uint64_t max_frames = 0;    // frames the bitmaps cover
 static uint64_t bitmap_bytes = 0;  // per bitmap
 static uint64_t zone_total[ZONE_COUNT]; // managed frames per zone
@@ -80,6 +89,11 @@ static inline void mark_free_bit(uint64_t frame) {
 static inline int bit_is_used(uint64_t frame) {
     if (frame >= max_frames) return 1;
     return (bitmap[frame / 8] & (1u << (frame % 8))) != 0;
+}
+
+static inline void unreport(uint64_t frame) {
+    uint64_t b = frame / PAGE_REPORT_BLOCK_FRAMES;
+    if (b < report_blocks) reported[b / 8] &= (uint8_t)~(1u << (b % 8));
 }
 
 static inline uint64_t align_up(uint64_t v)   { return (v + FRAME_SIZE - 1) & ~((uint64_t)FRAME_SIZE - 1); }
@@ -228,7 +242,9 @@ void pmm_init(void) {
 
     max_frames = highest_usable / FRAME_SIZE;
     bitmap_bytes = (max_frames + 7) / 8;
-    bitmap_need = align_up(bitmap_bytes * 2 + max_frames * sizeof(uint16_t));
+    report_blocks = max_frames / PAGE_REPORT_BLOCK_FRAMES; // a partial last block is never reported
+    bitmap_need = align_up(bitmap_bytes * 2 + max_frames * sizeof(uint16_t) +
+                           (report_blocks + 7) / 8);
     bitmap_home = 0;
     multiboot_mmap_foreach(place_cb);
     if (!bitmap_home) {
@@ -237,15 +253,18 @@ void pmm_init(void) {
         klog_printf("pmm: no room for %lu-byte frame bitmaps below 4 GiB -- no memory managed\n",
                     bitmap_need);
         max_frames = 0;
+        report_blocks = 0;
         boot_subsystem_up(BOOT_SUB_PMM);
         return;
     }
     bitmap = (uint8_t *)(uintptr_t)bitmap_home;
     managed = bitmap + bitmap_bytes;
     refs = (uint16_t *)(bitmap + bitmap_bytes * 2);
+    reported = (uint8_t *)(refs + max_frames);
     k_memset(bitmap, 0xFF, bitmap_bytes); // start fully reserved
     k_memset(managed, 0, bitmap_bytes);
     k_memset(refs, 0, max_frames * sizeof(uint16_t));
+    k_memset(reported, 0, (report_blocks + 7) / 8);
     for (int z = 0; z < ZONE_COUNT; z++) zone_total[z] = zone_free[z] = zone_hint[z] = 0;
 
     multiboot_mmap_foreach(mark_available_cb);
@@ -319,6 +338,7 @@ static uint64_t alloc_one_in(int z, uint64_t floor) {
         uint64_t f = lo + (start - lo + i) % span;
         if (!bit_is_used(f)) {
             mark_used_bit(f);
+            unreport(f);
             refs[f] = 1;
             zone_free[z]--;
             zone_hint[z] = f + 1;
@@ -365,6 +385,7 @@ static void free_one(uint64_t f) {
     refs[f] = 0;
     mark_free_bit(f);
     zone_free[zone_of(f)]++;
+    freed_since_report++;
     kasan_poison((const void *)(uintptr_t)(f * FRAME_SIZE), FRAME_SIZE, KASAN_PAGE_FREE);
 }
 
@@ -406,6 +427,7 @@ static uint64_t alloc_run_in(int z, uint64_t count, uint64_t floor) {
             if (++run_len == count) {
                 for (uint64_t i = 0; i < count; i++) {
                     mark_used_bit(run_start + i);
+                    unreport(run_start + i);
                     refs[run_start + i] = 1;
                 }
                 zone_free[z] -= count;
@@ -466,6 +488,79 @@ uint64_t pmm_free_frames(void) { return zone_free[0] + zone_free[1]; }
 uint64_t pmm_zone_total_frames(enum pmm_zone zone) { return zone_total[zone == PMM_ZONE_ANY]; }
 uint64_t pmm_zone_free_frames(enum pmm_zone zone) { return zone_free[zone == PMM_ZONE_ANY]; }
 uint64_t pmm_firmware_bytes(void) { return firmware_bytes; }
+
+// ---- free page reporting (page_report.h) ---------------------------
+
+// Every frame of block `b` managed and free. Byte-wise: a block is 64
+// bytes of each bitmap, and `managed` need not be 8-byte aligned.
+static int block_wholly_free(uint64_t b) {
+    uint64_t at = b * (PAGE_REPORT_BLOCK_FRAMES / 8);
+    for (uint64_t i = 0; i < PAGE_REPORT_BLOCK_FRAMES / 8; i++)
+        if (bitmap[at + i] != 0 || managed[at + i] != 0xFF) return 0;
+    return 1;
+}
+
+static int block_is_reported(uint64_t b) {
+    return b < report_blocks && (reported[b / 8] & (1u << (b % 8)));
+}
+
+// Isolated frames are "used, refcount 0", like a reserved one, and stay
+// KASAN-poisoned: nothing owns them, so nothing may touch them while the
+// host is being told.
+int pmm_report_isolate(uint64_t *cursor, struct page_report_run *runs, int max_runs,
+                       uint64_t keep_free) {
+    const uint64_t bytes = (uint64_t)PAGE_REPORT_BLOCK_FRAMES * FRAME_SIZE;
+    uint64_t flags = irq_save();
+    int n = 0;
+    uint64_t taken = 0, b = *cursor;
+    for (; b < report_blocks && taken < PAGE_REPORT_BATCH_BLOCKS; b++) {
+        if (block_is_reported(b) || !block_wholly_free(b)) continue;
+        uint64_t f0 = b * PAGE_REPORT_BLOCK_FRAMES;
+        int z = zone_of(f0);
+        if (zone_free[z] < keep_free + PAGE_REPORT_BLOCK_FRAMES) continue;
+        if (n && runs[n - 1].phys + runs[n - 1].len == f0 * FRAME_SIZE) {
+            runs[n - 1].len += bytes;
+        } else {
+            if (n == max_runs) break;
+            runs[n].phys = f0 * FRAME_SIZE;
+            runs[n].len = bytes;
+            n++;
+        }
+        for (uint64_t i = 0; i < PAGE_REPORT_BLOCK_FRAMES; i++) mark_used_bit(f0 + i);
+        zone_free[z] -= PAGE_REPORT_BLOCK_FRAMES;
+        taken++;
+    }
+    *cursor = b;
+    irq_restore(flags);
+    return n;
+}
+
+void pmm_report_release(const struct page_report_run *runs, int n, int was_reported) {
+    uint64_t flags = irq_save();
+    for (int r = 0; r < n; r++) {
+        uint64_t f0 = runs[r].phys / FRAME_SIZE, count = runs[r].len / FRAME_SIZE;
+        for (uint64_t i = 0; i < count; i++) mark_free_bit(f0 + i);
+        zone_free[zone_of(f0)] += count;
+        for (uint64_t b = f0 / PAGE_REPORT_BLOCK_FRAMES;
+             b < (f0 + count) / PAGE_REPORT_BLOCK_FRAMES; b++) {
+            if (was_reported && b < report_blocks) reported[b / 8] |= (uint8_t)(1u << (b % 8));
+        }
+    }
+    irq_restore(flags);
+}
+
+uint64_t pmm_report_blocks(void) { return report_blocks; }
+
+uint64_t pmm_report_freed(void) { return freed_since_report; }
+void pmm_report_reset_freed(void) { freed_since_report = 0; }
+
+int pmm_report_block_reported(uint64_t phys) {
+    return block_is_reported(phys / FRAME_SIZE / PAGE_REPORT_BLOCK_FRAMES);
+}
+
+void pmm_report_forget_all(void) {
+    if (report_blocks) k_memset(reported, 0, (report_blocks + 7) / 8);
+}
 
 // See pmm.h's doc comment. Checks the bitmap and the free count
 // directly, not just "did it return nonzero" -- a bug marking the wrong

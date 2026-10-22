@@ -32,6 +32,9 @@ whenever a headline here tells you something you did not already know.
 
 `docs/conventions/kernel.md`
 
+- **A FREED FRAME MAY COME BACK ZERO-FILLED, AND A FREE IS NOT A
+  RETURN TO THE HOST UNLESS IT REACHES THE FRAME ALLOCATOR** (free page
+  reporting)
 - **A SANDBOXED PROGRAM THAT MUST START ANOTHER ASKS A BROKER STARTED
   BEFORE THE SANDBOX, AND THE BROKER IS NOT SANDBOXED** (`hlpbroker`)
 - **AN OVERLAY ANSWERS WHERE IT IS; THE CORE DAMAGES IT**

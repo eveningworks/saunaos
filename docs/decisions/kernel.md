@@ -9735,3 +9735,52 @@ rather than a sandbox with a hole in it. Lines are tab-separated because
 to `sys_spawn_argv()` as a vector. It exits when the pipe closes and
 leaves the window open, as closing it is the user's, as with Windows Help.
 
+
+## Free memory goes back to a hypervisor by free page reporting, walked from the idle loop
+
+Chosen 2026-10-22. QEMU allocates guest RAM lazily, so a VM only costs
+the host what toy-os has touched -- but it never gets a page BACK, and a
+machine that once ran something big costs that much until it exits.
+`kernel/mm/page_report.c` walks the frame allocator for wholly free
+2 MiB blocks and `kernel/drivers/virtio/virtio_balloon.c` hands them to
+QEMU, which discards them with `madvise(DONTNEED)`. Measured on a 2 GiB
+TCG guest: `memtest 400` raises QEMU's RSS from ~300 to ~700 MiB, and
+3 s after it exits RSS is back at ~300 MiB; with no balloon it stays at
+~550 MiB.
+
+**What real systems do.** virtio-balloon has three mechanisms. Classic
+inflate/deflate (2008) is host-driven: the host sets a target size and
+the guest allocates pages to hand over -- a policy the HOST has to run.
+Free page HINTING exists for live migration only. Free page REPORTING
+(Linux 5.7, `mm/page_reporting.c`; QEMU `free-page-reporting=on`) is
+guest-driven and needs no host policy: the guest reports free blocks of
+pageblock order (2 MiB on x86) a couple of seconds after they appear,
+in batches of 32. Hyper-V's Dynamic Memory and virtio-mem resize a VM;
+neither reclaims idle pages. toy-os copies reporting's shape -- a
+generic core in mm, one registered reporter, 2 MiB blocks, a 2 s
+delay, 32 per batch -- because "the host uses what the guest uses" is
+exactly what it does and nothing else does it.
+
+**Why the idle loop and not the free.** A report is a device round
+trip, and `pmm_free_frame()` runs with interrupts off on paths that
+must stay short. Linux defers to a workqueue; toy-os has no kernel
+threads, and `scheduler_idle()` is the one owner of idle work, so the
+walk runs there, a few batches per pass, asking for its wake when due.
+
+**Why a per-block bit and not a rescan.** Every allocation clears its
+2 MiB block's "reported" bit (`pmm.c`), so a walk skips what the host
+already has and a block is reported again only once it was used and
+freed. Isolation is the ordinary used bit, so nothing can allocate a
+block while the host is being told; a zone is never isolated below
+32 MiB free, so a report in flight cannot be what fails an allocation.
+
+**Why STATS_VQ is negotiated and never driven.** The spec numbers
+queues densely, skipping absent ones; QEMU always creates the stats
+queue. Negotiating STATS_VQ (which QEMU always offers) makes both say
+the reporting queue is index 3.
+
+**What it cannot return.** The kernel heap never gives a region back to
+the frame allocator, so kmalloc's high-water mark -- ramfs's `/tmp`
+data above all -- stays resident on the host after it is freed. That is
+a roadmap item ("The kernel heap returns empty regions"), not part of
+this design.
