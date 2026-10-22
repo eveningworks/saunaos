@@ -256,6 +256,14 @@ def launch_qemu_cmd(iso="toy-os.iso", disk="disk.img", serial_log="serial.log",
     )
 
 
+# QEMU 11.1.2 segfaults in hmp_virtio_status() for ANY virtio device, even
+# with no guest running (-S), and its QMP twin x-query-virtio-status dies
+# the same way -- the guest and the run go with it.
+_VIRTIO_STATUS_REFUSED = (
+    "refused: `info virtio-status` / x-query-virtio-status segfault QEMU 11.1.2 "
+    "(docs/testing.md); `info virtio-queue-status <path> <queue>` is safe")
+
+
 class QMPSession:
     """A connected, capabilities-negotiated QMP socket with mouse/keyboard/
     screenshot helpers layered on top. One instance per QEMU process.
@@ -329,11 +337,15 @@ class QMPSession:
         time. Take a distribution, not one sample, and pair it with a
         counter inside the guest.
         """
+        if " ".join(command.split()[:2]) == "info virtio-status":
+            raise ValueError(_VIRTIO_STATUS_REFUSED)
         r = self._cmd({"execute": "human-monitor-command",
                        "arguments": {"command-line": command}})
         return r.get("return", "") if isinstance(r, dict) else str(r)
 
     def _cmd(self, obj):
+        if obj.get("execute") == "x-query-virtio-status":
+            raise ValueError(_VIRTIO_STATUS_REFUSED)
         self._sock.sendall((json.dumps(obj) + "\n").encode())
         # SKIP ASYNCHRONOUS EVENTS: QEMU interleaves them ({"event":
         # "RESET"} after a guest reboot, SHUTDOWN, POWERDOWN) with the
