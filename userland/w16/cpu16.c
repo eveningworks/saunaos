@@ -58,6 +58,25 @@ uint16_t cpu16_alloc(struct cpu16 *c, uint8_t kind, uint8_t *base, uint32_t limi
     return 0;
 }
 
+uint16_t cpu16_alloc_run(struct cpu16 *c, unsigned n, uint8_t kind, uint8_t *base, uint32_t size, uint16_t owner,
+                         uint16_t tail_owner) {
+    unsigned run = 0;
+    for (unsigned i = 1; i < CPU16_MAX_DESC; i++) {
+        run = c->desc[i].kind == D_FREE ? run + 1 : 0;
+        if (run < n) continue;
+        unsigned first = i + 1 - n;
+        for (unsigned k = 0; k < n; k++) {
+            struct cpu16_desc *d = &c->desc[first + k];
+            d->kind = kind;
+            d->base = base + (size_t)k * 0x10000;
+            d->limit = k + 1 < n ? 0xFFFF : size - (uint32_t)k * 0x10000 - 1;
+            d->owner = k ? tail_owner : owner;
+        }
+        return cpu16_sel(first);
+    }
+    return 0;
+}
+
 static const struct cpu16_desc *desc_of(struct cpu16 *c, uint16_t sel) {
     unsigned i = cpu16_index(sel);
     if (i == 0 || i >= CPU16_MAX_DESC || (sel & 7) != 7 || c->desc[i].kind == D_FREE) return 0;
@@ -91,10 +110,21 @@ static uint8_t *mem(struct cpu16 *c, int s, uint16_t off, unsigned size, int wri
     return d->base + off;
 }
 
+// A pointer into a HUGE block may run on into the selectors after it (a global block over 64 KiB is
+// one host buffer tiled a step apart), which a Windows call that takes a length -- _lwrite, GetDIBits --
+// is given as one far pointer.
+static uint64_t reach(const struct cpu16 *c, const struct cpu16_desc *d) {
+    uint64_t avail = d->limit;
+    for (const struct cpu16_desc *t = d; t->limit == 0xFFFF && t + 1 < c->desc + CPU16_MAX_DESC &&
+                                         (t + 1)->kind == d->kind && (t + 1)->base == t->base + 0x10000; t++)
+        avail += (uint64_t)(t + 1)->limit + 1;
+    return avail;
+}
+
 uint8_t *cpu16_ptr(struct cpu16 *c, uint16_t sel, uint16_t off, uint32_t len, int write) {
     const struct cpu16_desc *d = desc_of(c, sel);
     if (!d || !d->base || (d->kind != D_DATA && d->kind != D_CODE) || (write && d->kind != D_DATA)
-        || len == 0 || (uint32_t)off + len - 1 > d->limit) {
+        || len == 0 || (uint64_t)off + len - 1 > (d->limit >= 0xFFFF ? reach(c, d) : d->limit)) {
         cpu16_set_fault(c, FAULT_API, "a Windows call was passed a bad pointer");
         return 0;
     }

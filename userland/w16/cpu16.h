@@ -110,6 +110,10 @@ static inline unsigned cpu16_index(uint16_t sel) { return sel >> 3; }
 
 // A free descriptor slot (from 1; index 0 is the null selector), or 0.
 uint16_t cpu16_alloc(struct cpu16 *c, uint8_t kind, uint8_t *base, uint32_t limit, uint16_t owner);
+// `n` selectors in a row, one step (8) apart, tiling `size` bytes at `base` 64 KiB each: a huge block.
+// The first has owner `owner`, the others `tail_owner`. 0 when no run of n is free.
+uint16_t cpu16_alloc_run(struct cpu16 *c, unsigned n, uint8_t kind, uint8_t *base, uint32_t size, uint16_t owner,
+                         uint16_t tail_owner);
 
 // Load a segment register as a mov would: checked against the table.
 int cpu16_load_sreg(struct cpu16 *c, int s, uint16_t sel);

@@ -386,6 +386,15 @@ void w16_paint_begin(struct w16 *w, struct w16_wnd *x) {
 static void begin_paint(struct w16 *w, struct w16_wnd *x, uint32_t lpps) {
     int erase = x->erase, erased = 0;
     w16_paint_begin(w, x);
+    if (erase && !(x->style & WS_CLIPCHILDREN)) {
+        // A parent that does not clip its children paints over them, and Windows invalidates what it
+        // painted over: each child draws itself, its frame and scroll bars too, once the parent is done.
+        int n;
+        struct w16_wnd **v = w16_wnd_children(w, x->hwnd, &n);
+        for (int i = 0; v && i < n; i++)
+            if (w16_wnd_shown(w, v[i])) w16_invalidate(w, v[i], 1);
+        free(v);
+    }
     uint16_t hdc = w16_gdi_window_dc(w, x->hwnd);
     if (erase) erased = w16_send(w, x->hwnd, WM_ERASEBKGND, hdc, 0) != 0;
     w16_gdi_window_dc(w, x->hwnd);               // WM_ERASEBKGND may have changed its state

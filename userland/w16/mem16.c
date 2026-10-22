@@ -4,9 +4,10 @@
 // GLOBAL: a handle IS its selector, MOVEABLE or not. Windows 3.1's
 // moveable handles differ from their selector by a low bit and a program
 // is meant to GlobalLock first; one that uses the handle as a selector
-// works here, which is lenient and costs nothing. A block is at most
-// 64 KiB: a huge (tiled) block is refused, as the selector table has no
-// tiling.
+// works here, which is lenient and costs nothing. A block over 64 KiB is
+// HUGE, as Windows made one: a run of selectors one step (__AHINCR, 8)
+// apart, each 64 KiB of one host buffer; the first is the handle, and the
+// others' owner is GLOBAL_TILE.
 //
 // LOCAL: Windows' local heap lives in the DGROUP after the stack, and a
 // pointer into it is a plain 16-bit offset. The block list is kept
@@ -23,6 +24,7 @@
 #define GMEM_ZEROINIT 0x0040
 #define LMEM_ZEROINIT 0x0040
 #define GLOBAL_OWNER  0xFFFF       // a descriptor's owner: this selector is a global block
+#define GLOBAL_TILE   0xFFFE       // ...the second or later 64 KiB of a huge one
 
 // --- the global heap ---------------------------------------------------------
 
@@ -33,13 +35,22 @@ static struct cpu16_desc *global_desc(struct w16 *w, uint16_t h) {
     return d->kind == D_DATA && d->owner == GLOBAL_OWNER ? d : 0;
 }
 
+// A block's bytes: its own selector's, and the 64 KiB of each tile after it.
+static uint32_t global_bytes(struct w16 *w, const struct cpu16_desc *d) {
+    uint32_t n = d->limit + 1;
+    for (const struct cpu16_desc *t = d + 1; t < w->desc + CPU16_MAX_DESC && t->kind == D_DATA && t->owner == GLOBAL_TILE; t++)
+        n += t->limit + 1;
+    return n;
+}
+
 uint16_t w16_global_alloc(struct w16 *w, uint32_t size, const void *init) {
-    if (size > 0x10000) return 0;
     uint32_t cap = size ? size : 1;
     uint8_t *mem = calloc(1, cap);
     if (!mem) return 0;
     if (init) memcpy(mem, init, size);
-    uint16_t sel = cpu16_alloc(&w->cpu, D_DATA, mem, cap - 1, GLOBAL_OWNER);
+    unsigned tiles = (cap + 0xFFFF) / 0x10000;
+    uint16_t sel = tiles > 1 ? cpu16_alloc_run(&w->cpu, tiles, D_DATA, mem, cap, GLOBAL_OWNER, GLOBAL_TILE)
+                             : cpu16_alloc(&w->cpu, D_DATA, mem, cap - 1, GLOBAL_OWNER);
     if (!sel) free(mem);
     return sel;
 }
@@ -47,7 +58,7 @@ uint16_t w16_global_alloc(struct w16 *w, uint32_t size, const void *init) {
 uint8_t *w16_global_ptr(struct w16 *w, uint16_t h, uint32_t *size) {
     struct cpu16_desc *d = global_desc(w, h);
     if (!d) return 0;
-    if (size) *size = d->limit + 1;
+    if (size) *size = global_bytes(w, d);
     return d->base;
 }
 
@@ -55,6 +66,8 @@ void w16_global_free(struct w16 *w, uint16_t h) {
     struct cpu16_desc *d = global_desc(w, h);
     if (!d) return;
     free(d->base);
+    for (struct cpu16_desc *t = d + 1; t < w->desc + CPU16_MAX_DESC && t->kind == D_DATA && t->owner == GLOBAL_TILE; t++)
+        memset(t, 0, sizeof *t);
     memset(d, 0, sizeof *d);
 }
 
@@ -62,8 +75,14 @@ static uint16_t global_realloc(struct w16 *w, uint16_t h, uint32_t size, uint16_
     struct cpu16_desc *d = global_desc(w, h);
     if (!d) return 0;
     if (flags & GMEM_MODIFY) return h;
-    if (size > 0x10000) return 0;
-    uint32_t cap = size ? size : 1, old = d->limit + 1;
+    uint32_t cap = size ? size : 1, old = global_bytes(w, d);
+    if (cap > 0x10000 || old > 0x10000) {         // a huge block moves: the handle is the answer, as it was for Windows
+        uint16_t n = w16_global_alloc(w, cap, 0);
+        if (!n) return 0;
+        memcpy(w16_global_ptr(w, n, 0), d->base, old < cap ? old : cap);
+        w16_global_free(w, h);
+        return n;
+    }
     uint8_t *mem = realloc(d->base, cap);
     if (!mem) return 0;
     if (cap > old) memset(mem + old, 0, cap - old);
@@ -501,8 +520,9 @@ static int api_LocalHandleDelta(struct w16 *w, unsigned ordinal, struct w16_args
 // GlobalAlloc(wFlags, dwBytes) -> HGLOBAL
 // Windows: Allocates a block from the global heap, outside the data segment, up to 1 MB or more as
 // a huge block; moveable, discardable or fixed by its flags.
-// w16: Allocates a block of up to 64 KB, always zeroed, as its own segment: the handle is its
-// selector. A larger block is refused (0); no program run so far asks for one.
+// w16: Allocates a block, always zeroed, as its own segment: the handle is its selector. Over 64 KB it
+// is a run of selectors __AHINCR apart (a huge pointer's steps), as Windows tiled one; 0 when memory or
+// a run of free selectors is not there.
 static int api_GlobalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -513,7 +533,8 @@ static int api_GlobalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 
 // GlobalReAlloc(hMem, dwBytes, wFlags) -> HGLOBAL
 // Windows: Changes a global block's size, moving it if it may.
-// w16: The same, up to 64 KB; the selector stays, so the handle does too.
+// w16: The same; the selector stays, so the handle does too, up to 64 KB -- a huge block moves to a new
+// one, which is the handle returned.
 static int api_GlobalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -566,7 +587,7 @@ static int api_GlobalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     const struct cpu16_desc *d = global_desc(w, w16_arg16(a));
-    set32(c, d ? d->limit + 1 : 0);
+    set32(c, d ? global_bytes(w, d) : 0);
     return 2;
 }
 
@@ -626,6 +647,27 @@ static int api_GlobalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 4;
 }
 
+// GlobalNotify(lpNotifyProc) -> void
+// Windows: Names the procedure Windows calls before it discards a GMEM_NOTIFY block, so the program
+// can save or give it up.
+// w16: Takes it and never calls it: no block is ever discarded, memory comes from toy-os as asked.
+static int api_GlobalNotify(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)w;
+    (void)ordinal;
+    w16_arg32(a);
+    return 4;
+}
+
+// GetFreeSpace(wFlags) -> DWORD
+// Windows: The bytes of global memory a GlobalAlloc could get now, discardable blocks counted.
+// w16: 1 MB, as GlobalCompact says: there is always room to say yes.
+static int api_GetFreeSpace(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    set32(&w->cpu, 0x00100000);
+    return 2;
+}
+
 // LocalShrink(hSeg, cbNewSize) -> UINT
 // Windows: Shrinks a segment's local heap to at least cbNewSize, returning the new size of the
 // segment.
@@ -683,8 +725,10 @@ const struct w16_api g_kernel_mem_api[] = {
     { 24, api_UnlockSegment },
     { 25, api_GlobalCompact },
     { 121, api_LocalShrink },
+    { 154, api_GlobalNotify },
     { 164, api_GlobalLRUNewest },
     { 168, api_DirectResAlloc },
+    { 169, api_GetFreeSpace },
     { 310, api_LocalHandleDelta },
 };
 const unsigned g_kernel_mem_api_n = sizeof g_kernel_mem_api / sizeof g_kernel_mem_api[0];

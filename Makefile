@@ -2208,6 +2208,9 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	for s in userland/w16/samples/*.asm; do \
 		python3 tools/gen_ne.py $$s -o $(SEED_DIR)/sync/usr/share/w16/$$(basename $$s .asm).exe || exit 1; \
 	done
+	# ...and the guard (tools/iso_guard.py) judges userland/ against build/userland, where no sample lands:
+	# a stamp there says the samples were built after their source changed.
+	touch build/userland/.w16-samples
 	mkdir -p $(SEED_DIR)/sync/usr/share/sounds
 	cp data/usr/share/sounds/*.wav $(SEED_DIR)/sync/usr/share/sounds/
 	# The audio FIXTURE, beside /tests/sample.txt and for the same

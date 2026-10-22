@@ -505,6 +505,26 @@ static int api_DeleteMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
+// ModifyMenu(hMenu, nPosition, wFlags, wIDNewItem, lpNewItem) -> BOOL
+// Windows: Replaces an item, found by command or place, with another: its text, state, command or
+// popup.
+// w16: The same; a bitmap or owner-drawn item shows as an empty item.
+static int api_ModifyMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a), pos = w16_arg16(a), flags = w16_arg16(a), id = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    char text[256];
+    if (!item_text(w, far, flags, text, sizeof text)) return -1;
+    pthread_mutex_lock(&w->lock);
+    struct w16_hmenu *in;
+    int at = place(h, pos, flags, &in), ok = 0;
+    if (at >= 0 && (ok = menu_insert(in, at, text, id, flags))) menu_cut(in, at + 1, 0);
+    pthread_mutex_unlock(&w->lock);
+    if (ok && h == w->menu) bar_changed(w);
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 12;
+}
+
 // ChangeMenu(hMenu, uPosition, lpNewItem, uIDNewItem, fuFlags) -> BOOL
 // Windows: Windows 3.0's one call for changing a menu -- MF_APPEND, MF_INSERT (before uPosition),
 // MF_CHANGE (replace it), MF_DELETE or MF_REMOVE (take it out, the popup kept) -- which 3.1 split
@@ -632,6 +652,7 @@ const struct w16_api g_menu_api[] = {
     { 410, api_InsertMenu },
     { 411, api_AppendMenu },
     { 413, api_DeleteMenu },
+    { 414, api_ModifyMenu },
     { 415, api_CreatePopupMenu },
 };
 const unsigned g_menu_api_n = sizeof g_menu_api / sizeof g_menu_api[0];

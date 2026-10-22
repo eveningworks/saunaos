@@ -523,6 +523,12 @@ static int api_AddAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
+// The same table, for USER's GlobalAddAtom, GlobalDeleteAtom and GlobalGetAtomName (usermisc16.c): a
+// program is the only one there is, so a "global" atom is a local one.
+int w16_atom_call(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    return api_AddAtom(w, ordinal, a);
+}
+
 const struct w16_api g_kernel_api[] = {
     { 1, api_FatalExit },
     { 3, api_GetVersion },

@@ -845,12 +845,13 @@ static int api_CallNextHookEx(struct w16 *w, unsigned ordinal, struct w16_args *
 // SelectPalette(hdc, hpal, bForceBackground) -> HPALETTE
 // Windows: Puts a logical palette into a DC, for a program that needs its own 256 colours on a
 // palette display.
-// w16: Changes nothing: w16 draws in true colour, so every colour a program names is shown. Returns
-// no previous palette.
+// w16: Remembers it and gives back the one before, so a DIB_PAL_COLORS table can name its colours;
+// nothing else changes: w16 draws in true colour, so every colour a program names is shown.
 static int api_SelectPalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a); w16_arg16(a); w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
+    uint16_t hdc = w16_arg16(a), hpal = w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = w16_gdi_select_palette(w, hdc, hpal);
     return 6;
 }
 
@@ -1638,11 +1639,68 @@ static int api_RealizePalette(struct w16 *w, unsigned ordinal, struct w16_args *
     return 2;
 }
 
+// ClipCursor(lpRect) -> void
+// Windows: Keeps the pointer inside a rectangle of the screen, or lets it go again with NULL.
+// w16: Takes the rectangle and does nothing: the pointer is never confined.
+// Why: toywm owns the pointer, and one program may not hold the desktop's.
+// Notice: A drag that Windows would stop at the rectangle's edge goes on past it.
+// Whole: Holding the pointer inside the program's own window while it has the capture.
+static int api_ClipCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)w;
+    (void)ordinal;
+    w16_arg32(a);
+    return 4;
+}
+
+// CreateCaret(hwnd, hBitmap, nWidth, nHeight) -> void
+// DestroyCaret() -> void
+// SetCaretPos(X, Y) -> void
+// HideCaret(hwnd) -> void
+// ShowCaret(hwnd) -> void
+// Windows: The text cursor of the window with the focus -- a bar, a block or a bitmap, made, put
+// where the next character goes, hidden and shown (a count: each Hide wants a Show) -- blinking on
+// its own.
+// w16: Takes them and draws nothing.
+// Why: A caret is drawn over the window's pixels and blinks on a timer; w16's own edit fields have
+// one, and a program's has none yet.
+// Notice: Paintbrush's Text tool and any program that draws its own text cursor shows none.
+// Whole: A caret a window's pixels carry, inverted and blinking. On the roadmap: "w16: a program's
+// own caret".
+static int api_Caret(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)w;
+    switch (ordinal) {
+    case 163: w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg16(a); return 8;   // CreateCaret
+    case 164: return 0;                                                          // DestroyCaret
+    case 165: w16_arg16(a); w16_arg16(a); return 4;                              // SetCaretPos
+    default:  w16_arg16(a); return 2;                                            // 166 HideCaret, 167 ShowCaret
+    }
+}
+
+// GlobalAddAtom(lpszString) -> ATOM
+// GlobalDeleteAtom(nAtom) -> ATOM
+// GlobalGetAtomName(nAtom, lpszBuffer, nSize) -> UINT
+// Windows: AddAtom's family over the system-wide table, shared by every program.
+// w16: AddAtom's own table: a program is the only one there is.
+static int api_GlobalAtom(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    return w16_atom_call(w, ordinal == 268 ? 70 : ordinal == 269 ? 71 : 72, a);
+}
+
+// GetMessageExtraInfo() -> LONG
+// Windows: The extra value the last message's source attached: a driver's own word with it.
+// w16: 0: nothing attaches one.
+static int api_GetMessageExtraInfo(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
+    w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0;
+    return 0;
+}
+
 const struct w16_api g_user_misc_api[] = {
     { 10, api_SetTimer },
     { 12, api_KillTimer },
     { 13, api_GetTickCount },
     { 15, api_GetTickCount },
+    { 16, api_ClipCursor },
     { 17, api_GetCursorPos },
     { 18, api_SetCapture },
     { 19, api_ReleaseCapture },
@@ -1690,6 +1748,11 @@ const struct w16_api g_user_misc_api[] = {
     { 121, api_SetWindowsHook },
     { 123, api_CallMsgFilter },
     { 130, api_SetClassWord },
+    { 163, api_Caret },
+    { 164, api_Caret },
+    { 165, api_Caret },
+    { 166, api_Caret },
+    { 167, api_Caret },
     { 169, api_GetCaretBlinkTime },
     { 171, api_WinHelp },
     { 175, api_LoadBitmap },
@@ -1707,11 +1770,15 @@ const struct w16_api g_user_misc_api[] = {
     { 262, api_GetWindow },
     { 266, api_SetMessageQueue },
     { 267, api_ShowScrollBar },
+    { 268, api_GlobalAtom },
+    { 269, api_GlobalAtom },
+    { 271, api_GlobalAtom },
     { 272, api_IsZoomed },
     { 282, api_SelectPalette },
     { 283, api_RealizePalette },
     { 286, api_GetDesktopWindow },
     { 287, api_GetLastActivePopup },
+    { 288, api_GetMessageExtraInfo },
     { 291, api_SetWindowsHookEx },
     { 292, api_UnhookWindowsHookEx },
     { 293, api_CallNextHookEx },

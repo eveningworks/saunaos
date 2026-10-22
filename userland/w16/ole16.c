@@ -879,6 +879,7 @@ const unsigned g_olecli_api_n = sizeof g_olecli_api / sizeof g_olecli_api[0];
 #define HKEY_CLASSES_ROOT 1
 #define ERROR_SUCCESS     0
 #define ERROR_BADKEY      2
+#define ERROR_CANTWRITE   5
 
 // The registration database has no programs in it: what OLE servers there are, and how files open.
 // RegOpenKey(hkey, lpszSubKey, lphkResult) -> LONG
@@ -918,10 +919,82 @@ static int api_RegOpenKey(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
 }
 
+// RegCreateKey(hkey, lpszSubKey, lphkResult) -> LONG
+// RegSetValue(hkey, lpszSubKey, fdwType, lpszValue, cb) -> LONG
+// Windows: Make a key in the registration database, or give one a value: how a program registers
+// the file types it opens and the OLE servers it is.
+// w16: Answers ERROR_CANTWRITE: the database is read-only, and empty.
+// Why: Nothing would read a registration back (RegOpenKey says why), so none is kept.
+// Notice: Paintbrush cannot register itself as the server for its pictures; nothing else changes.
+// Whole: The database as a file the program writes. On the roadmap: "w16: one program starting or
+// finding another".
+static int api_RegCreateKey(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX] = ERROR_CANTWRITE;
+    if (ordinal == 2) { w16_arg32(a); w16_arg32(a); w16_arg32(a); return 12; }
+    w16_arg32(a); w16_arg32(a); w16_arg32(a); w16_arg32(a); w16_arg32(a);
+    return 20;
+}
+
 const struct w16_api g_reg_api[] = {
     { 1, api_RegOpenKey },
+    { 2, api_RegCreateKey },
     { 3, api_RegOpenKey },
+    { 5, api_RegCreateKey },
     { 6, api_RegOpenKey },
     { 7, api_RegOpenKey },
 };
 const unsigned g_reg_api_n = sizeof g_reg_api / sizeof g_reg_api[0];
+
+// --- OLESVR: a program as an OLE 1.0 server -------------------------------------------------------
+
+// OleRegisterServer(lpszClass, lpsrvr, lplhserver, hInst, srvrUse) -> OLESTATUS
+// OleRevokeServer(lhserver) -> OLESTATUS
+// OleBlockServer(lhserver) -> OLESTATUS
+// OleUnblockServer(lhserver, lpfRequest) -> OLESTATUS
+// OleRegisterServerDoc(lhserver, lpszDocName, lpoledoc, lplhdoc) -> OLESTATUS
+// OleRevokeServerDoc(lhdoc) -> OLESTATUS
+// OleRenameServerDoc(lhdoc, lpszDocName) -> OLESTATUS
+// OleSavedServerDoc(lhdoc) -> OLESTATUS
+// Windows: A program tells OLE it can serve a class of object (Paintbrush: its pictures), and which
+// document it has open, so a client can edit an embedded object in it; the rest end, rename or pause
+// that, and say the document was saved.
+// w16: Each says OLE_OK and keeps a handle, and no client ever comes: nothing can ask this program for
+// an object.
+// Why: A client is another Windows program, and w16 runs one at a time (RegOpenKey says why).
+// Notice: Paintbrush starts and runs as if registered; a Write picture is still not editable in it.
+// Whole: Servers w16 can start, for the clients that ask. On the roadmap: "w16: one program starting
+// or finding another".
+static int api_OleServer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint32_t out = 0;
+    unsigned bytes = 4;
+    switch (ordinal) {
+    case 2: w16_arg32(a); w16_arg32(a); out = w16_arg32(a); w16_arg16(a); w16_arg16(a); bytes = 16; break;
+    case 5: w16_arg32(a); out = w16_arg32(a); bytes = 8; break;           // lpfRequest is cleared below
+    case 6: w16_arg32(a); w16_arg32(a); w16_arg32(a); out = w16_arg32(a); bytes = 16; break;
+    case 8: w16_arg32(a); w16_arg32(a); bytes = 8; break;
+    default: w16_arg32(a); break;
+    }
+    w->cpu.r[R_DX] = 0;
+    w->cpu.r[R_AX] = OLE_OK;
+    if (out && ordinal == 5) {                    // OleUnblockServer: no request is waiting
+        uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(out >> 16), (uint16_t)out, 2, 1);
+        if (!p) return -1;
+        p[0] = p[1] = 0;
+    } else if (out && !put_far(w, out, ordinal == 2 ? 1 : 2)) {
+        return -1;
+    }
+    return (int)bytes;
+}
+
+const struct w16_api g_olesvr_api[] = {
+    { 2, api_OleServer },
+    { 3, api_OleServer },
+    { 4, api_OleServer },
+    { 5, api_OleServer },
+    { 6, api_OleServer },
+    { 7, api_OleServer },
+    { 8, api_OleServer },
+    { 10, api_OleServer },
+};
+const unsigned g_olesvr_api_n = sizeof g_olesvr_api / sizeof g_olesvr_api[0];

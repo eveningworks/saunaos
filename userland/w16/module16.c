@@ -571,8 +571,19 @@ static int api_GetModuleFileName(struct w16 *w, unsigned ordinal, struct w16_arg
     return 8;
 }
 
+// GetModuleUsage(hModule) -> int
+// Windows: How many instances of a module are loaded, or how many programs use a DLL.
+// w16: A DLL's count of LoadLibrary calls; 1 for anything else, as there is only ever the one instance.
+static int api_GetModuleUsage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_dll *d = w16_dll_of(w, w16_arg16(a));
+    w->cpu.r[R_AX] = d && d->refs > 0 ? (uint16_t)d->refs : 1;
+    return 2;
+}
+
 const struct w16_api g_module_api[] = {
     { 47, api_GetModuleHandle },
+    { 48, api_GetModuleUsage },
     { 49, api_GetModuleFileName },
     { 50, api_GetProcAddress },
     { 95, api_LoadLibrary },

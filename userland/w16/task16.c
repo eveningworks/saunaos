@@ -159,6 +159,7 @@ int w16_has(const char *module, unsigned ordinal) {
     if (!strcmp(module, "GDI")) return in_table(g_gdi_api, g_gdi_api_n, ordinal) || in_table(g_meta_api, g_meta_api_n, ordinal);
     if (!strcmp(module, "SHELL")) return in_table(g_shell_api, g_shell_api_n, ordinal) || in_table(g_reg_api, g_reg_api_n, ordinal);
     if (!strcmp(module, "OLECLI")) return in_table(g_olecli_api, g_olecli_api_n, ordinal);
+    if (!strcmp(module, "OLESVR")) return in_table(g_olesvr_api, g_olesvr_api_n, ordinal);
     if (!strcmp(module, "SOUND")) return in_table(g_sound_api, g_sound_api_n, ordinal);
     if (!strcmp(module, "KEYBOARD")) return in_table(g_keyboard_api, g_keyboard_api_n, ordinal);
     if (!strcmp(module, "COMMDLG")) return in_table(g_commdlg_api, g_commdlg_api_n, ordinal);
@@ -191,6 +192,16 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "OLECLI",  34,  "no server: no new object" },                     // OleCreate
     { "OLECLI",  38,  "no server: no new object" },                     // OleCreateFromFile
     { "OLECLI",  39,  "no server: nothing can be linked" },             // OleCreateLinkFromFile
+    { "OLESVR",  2,   "no client can ever ask for an object" },         // OleRegisterServer
+    { "OLESVR",  3,   "no client can ever ask for an object" },         // OleRevokeServer
+    { "OLESVR",  4,   "no client can ever ask for an object" },         // OleBlockServer
+    { "OLESVR",  5,   "no client can ever ask for an object" },         // OleUnblockServer
+    { "OLESVR",  6,   "no client can ever ask for an object" },         // OleRegisterServerDoc
+    { "OLESVR",  7,   "no client can ever ask for an object" },         // OleRevokeServerDoc
+    { "OLESVR",  8,   "no client can ever ask for an object" },         // OleRenameServerDoc
+    { "OLESVR",  10,  "no client can ever ask for an object" },         // OleSavedServerDoc
+    { "SHELL",   2,   "the registration database cannot be written" },  // RegCreateKey
+    { "SHELL",   5,   "the registration database cannot be written" },  // RegSetValue
     { "SHELL",   1,   "the registration database is empty" },           // RegOpenKey
     { "SHELL",   3,   "the registration database is empty" },           // RegCloseKey
     { "SHELL",   6,   "the registration database is empty" },           // RegQueryValue
@@ -198,6 +209,12 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "SHELL",   9,   "nothing can be dropped on a program yet" },      // DragAcceptFiles
     { "SHELL",   11,  "answers no files" },                             // DragQueryFile
     { "SHELL",   12,  "does nothing" },                                 // DragFinish
+    { "USER",    16,  "the pointer is never confined" },                // ClipCursor
+    { "USER",    163, "draws no caret" },                                // CreateCaret
+    { "USER",    164, "draws no caret" },                                // DestroyCaret
+    { "USER",    165, "draws no caret" },                                // SetCaretPos
+    { "USER",    166, "draws no caret" },                                // HideCaret
+    { "USER",    167, "draws no caret" },                                // ShowCaret
     { "USER",    141, "a program's own formats stay in that program" },  // SetClipboardData
     { "USER",    31,  "always no, even when minimised" },       // IsIconic
     { "USER",    50,  "finds no other program's window" },              // FindWindow
@@ -211,6 +228,12 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    61,  "repaints the whole window; its children do not move" },   // ScrollWindow
     { "USER",    456, "answers no icon" },                                  // LoadIconHandler
     { "KERNEL",  64,  "answers an error: no file handle for a resource" },  // AccessResource
+    { "GDI",     63,  "a region is its bounding rectangle" },               // CreatePolygonRgn
+    { "GDI",     125, "records nothing: a metafile with no records" },      // CreateMetaFile
+    { "GDI",     126, "records nothing: a metafile with no records" },      // CloseMetaFile
+    { "GDI",     71,  "lists no objects" },                                 // EnumObjects
+    { "GDI",     307, "answers FALSE: no bearings are measured" },          // GetCharABCWidths
+    { "GDI",     366, "no palette is realised" },                           // UpdateColors
     { "GDI",     21,  "takes off only a whole side of the clip" },          // ExcludeClipRect
 };
 
@@ -246,13 +269,20 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     int r = -1;
     if (g_w16_trace) {
         // The arguments as words, first pushed first: the Pascal order.
-        char args[64] = "";
+        char args[96] = "";
         unsigned nw = n && n->argbytes > 0 ? (unsigned)n->argbytes / 2 : 0, len = 0;
-        for (unsigned i = 0; i < nw && i < 8 && len < sizeof args - 6; i++)
+        for (unsigned i = 0; i < nw && i < 16 && len < sizeof args - 6; i++)
             len += (unsigned)snprintf(args + len, sizeof args - len, "%s%04x", i ? " " : "",
                                       cpu16_arg(c, (nw - 1 - i) * 2));
         fprintf(g_w16_trace, "%s.%u %s(%s) from %04x:%04x\n", name, ordinal,
                 n ? n->name : "?", args, cpu16_arg(c, -4 + 2), cpu16_arg(c, -4));
+        if (!strcmp(name, "USER") && ordinal == 114) {   // DispatchMessage: say which message, as +relay does
+            uint32_t far = (uint32_t)cpu16_arg(c, 0) | (uint32_t)cpu16_arg(c, 2) << 16;
+            const uint8_t *m = cpu16_ptr(c, (uint16_t)(far >> 16), (uint16_t)far, 12, 0);
+            if (m) fprintf(g_w16_trace, "  msg hwnd=%04x %04x wParam=%04x lParam=%04x%04x\n", m[0] | m[1] << 8,
+                           m[2] | m[3] << 8, m[4] | m[5] << 8, m[8] | m[9] << 8, m[6] | m[7] << 8);
+            c->fault = 0;
+        }
         fflush(g_w16_trace);                     // a fault ends in abort(), which flushes nothing
     }
     if (!strcmp(name, "KERNEL") || !strcmp(name, "KRNL386")) r = w16_kernel(w, ordinal, &a);
@@ -263,6 +293,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
         if (r == -2) r = w16_api_call(g_reg_api, g_reg_api_n, w, ordinal, &a);
     }
     else if (!strcmp(name, "OLECLI")) r = w16_api_call(g_olecli_api, g_olecli_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "OLESVR")) r = w16_api_call(g_olesvr_api, g_olesvr_api_n, w, ordinal, &a);
     else if (!strcmp(name, "SOUND")) r = w16_api_call(g_sound_api, g_sound_api_n, w, ordinal, &a);
     else if (!strcmp(name, "KEYBOARD")) r = w16_api_call(g_keyboard_api, g_keyboard_api_n, w, ordinal, &a);
     else if (!strcmp(name, "COMMDLG")) r = w16_api_call(g_commdlg_api, g_commdlg_api_n, w, ordinal, &a);

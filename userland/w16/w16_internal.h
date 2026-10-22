@@ -225,6 +225,7 @@ struct w16_gdiobj {
     uint16_t hwnd;                // a window's DC: it draws on that window's client area
     uint8_t screen;               // the display's DC before any window: answers, draws nothing
     uint16_t bitmap, pen, brush, font;
+    uint16_t palette;             // SelectPalette's logical palette: what a DIB_PAL_COLORS table indexes
     uint32_t text, bk;            // COLORREFs
     int bk_mode, rop2;
     uint16_t text_align;          // SetTextAlign's TA_* word
@@ -664,6 +665,7 @@ uint32_t w16_combo_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t
 // indent in steps. Set on a LISTBOX by w16's own code only. `on` 2 is the
 // Font dialog's face list: rows the font's own height, the TrueType mark
 // (kind 5) or its room (kind 6) before each.
+void w16_list_not_owner_drawn(struct w16 *w, struct w16_wnd *x);   // w16 draws its rows after all
 void w16_listbox_folders(struct w16_wnd *x, int on);
 uint32_t w16_listbox_str(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, const char *s);
 const char *w16_listbox_text(struct w16_wnd *x, int i);   // item i's text, or NULL
@@ -886,6 +888,8 @@ extern const unsigned g_clip_api_n;
 // a bitmap. And a new colour bitmap of `px` (copied): its handle, 0 none.
 const uint32_t *w16_gdi_bitmap_pixels(struct w16 *w, uint16_t h, int *bw, int *bh);
 uint16_t w16_gdi_bitmap_from(struct w16 *w, const uint32_t *px, int bw, int bh);
+uint16_t w16_gdi_new_memory_dc(struct w16 *w);   // CreateMetaFile
+uint16_t w16_gdi_select_palette(struct w16 *w, uint16_t hdc, uint16_t hpal);   // SelectPalette
 void w16_gdi_delete(struct w16 *w, uint16_t h);   // DeleteObject's work
 // ScrollDC's work: the pixels of `scroll` (NULL: the whole DC) moved by
 // (dx, dy) inside `clip` (NULL: the scroll rectangle), logical units; *upd the
@@ -906,8 +910,9 @@ int w16_gdi_play_into(struct w16 *w, uint16_t hdc, const int16_t rc[4], int32_t 
 uint16_t w16_render_metafile(struct w16 *w, const uint8_t *bytes, uint32_t len, int xext, int yext);
 // A bitmap stretched into a DC's rectangle (logical units), SRCCOPY.
 void w16_gdi_stretch_bitmap(struct w16 *w, uint16_t hdc, int x, int y, int cw, int ch, uint16_t bm);
-extern const struct w16_api g_olecli_api[], g_reg_api[];
-extern const unsigned g_olecli_api_n, g_reg_api_n;
+extern const struct w16_api g_olecli_api[], g_reg_api[], g_olesvr_api[];
+extern const unsigned g_olecli_api_n, g_reg_api_n, g_olesvr_api_n;
+int w16_atom_call(struct w16 *w, unsigned ordinal, struct w16_args *a);   // kernel16.c: AddAtom's family
 extern const struct w16_api g_meta_api[];
 extern const unsigned g_meta_api_n;
 

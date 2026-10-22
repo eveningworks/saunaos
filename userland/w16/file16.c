@@ -446,6 +446,16 @@ static int api_GetTempFileName(struct w16 *w, unsigned ordinal, struct w16_args 
     return 10;
 }
 
+// GetTempDrive(cDriveLetter) -> UINT
+// Windows: The drive temporary files go on: its letter in the low byte, a colon in the high one.
+// w16: C:, where GetTempFileName puts them.
+static int api_GetTempDrive(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 'C' | ':' << 8;
+    return 2;
+}
+
 // GetDriveType(nDrive) -> UINT
 // Windows: What kind of drive a letter (0 is A:) is: 0 none, 2 removable, 3 fixed, 4 remote, 5 CD-ROM.
 // w16: 3, a fixed disk, for each drive the program sees (C:, Z: and the folders mapped to D:-Y:); 0 for
@@ -465,6 +475,7 @@ const struct w16_api g_file_api[] = {
     { 84, api_llseek },
     { 85, api_lopen },
     { 86, api_lread },
+    { 92, api_GetTempDrive },
     { 97, api_GetTempFileName },
     { 136, api_GetDriveType },
 };

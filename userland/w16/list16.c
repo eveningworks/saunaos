@@ -136,6 +136,20 @@ struct listbox {
 
 static struct listbox *lb_of(struct w16_wnd *x) { return x->ctl; }
 
+// A list or combo a program's template made owner-drawn, drawn by w16 instead: COMMDLG drew its own
+// folder and drive lists, and a template for it asks for the style without a parent that draws.
+void w16_list_not_owner_drawn(struct w16 *w, struct w16_wnd *x) {
+    struct w16_wnd *lw = x->host == w16_listbox_proc ? x : w16_combo_list(w, x);
+    pthread_mutex_lock(&w->lock);
+    x->style &= ~(uint32_t)(LBS_OWNERDRAWFIXED | LBS_OWNERDRAWVARIABLE);
+    if (lw && lb_of(lw)) {
+        lb_of(lw)->owner = 0;
+        lb_of(lw)->strings = 1;
+        lb_of(lw)->oh = 0;
+    }
+    pthread_mutex_unlock(&w->lock);
+}
+
 void w16_listbox_folders(struct w16_wnd *x, int on) {
     struct listbox *l = lb_of(x);
     if (l) l->folders = on;

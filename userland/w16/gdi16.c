@@ -1331,7 +1331,7 @@ static int polygons(struct w16 *w, uint16_t hdc, int *pt, const int *n, int npol
 
 // A BITMAPINFO at a far pointer: its header and palette, checked against
 // the segment. NULL after setting a fault.
-static const uint8_t *bmi_at(struct w16 *w, uint32_t far, int usage, struct gdi_dib *d) {
+static const uint8_t *bmi_at(struct w16 *w, uint32_t far, int usage, struct gdi_dib *d, uint16_t hdc) {
     uint16_t sel = (uint16_t)(far >> 16), off = (uint16_t)far;
     const uint8_t *p = cpu16_ptr(&w->cpu, sel, off, 12, 0);
     if (!p) return 0;
@@ -1344,6 +1344,16 @@ static const uint8_t *bmi_at(struct w16 *w, uint32_t far, int usage, struct gdi_
         cpu16_set_fault(&w->cpu, FAULT_API, "a bitmap in a format w16 cannot read (compressed?)");
         return 0;
     }
+    // DIB_PAL_COLORS: the table is 16-bit indices into the logical palette the DC has selected -- the
+    // grey ramp gdi_dib_header left stands when it has none.
+    const struct w16_gdiobj *dc = obj(w, hdc, GDI_DC), *lp = dc ? obj(w, dc->palette, GDI_PALETTE) : 0;
+    if (usage == 1 && lp && lp->px) {
+        const uint8_t *e = p + (d->header_len - d->ncolors * 2);
+        for (unsigned i = 0; i < d->ncolors; i++) {
+            unsigned idx = (unsigned)(e[2 * i] | e[2 * i + 1] << 8);
+            d->pal[i] = idx < (unsigned)lp->bw ? w16_vga(lp->px[idx]) : 0;
+        }
+    }
     return p;
 }
 
@@ -1354,17 +1364,17 @@ static const uint8_t *dib_bits(struct w16 *w, uint32_t far, const struct gdi_dib
 }
 
 static int create_dibitmap(struct w16 *w, struct w16_args *a) {
-    w16_arg16(a);                                // the DC: every bitmap is the display's
+    uint16_t hdc = w16_arg16(a);                 // every bitmap is the display's; its palette is what a PAL_COLORS table names
     uint32_t lpbmih = w16_arg32(a), init = w16_arg32(a), lpbits = w16_arg32(a), lpbmi = w16_arg32(a);
     uint16_t usage = w16_arg16(a);
     struct gdi_dib d;
-    if (!bmi_at(w, lpbmih, 0, &d)) return -1;
+    if (!bmi_at(w, lpbmih, 0, &d, hdc)) return -1;
     int bh = d.h < 0 ? -d.h : d.h;
     uint16_t h;
     struct w16_gdiobj *bm = new_bitmap(w, d.w, bh, 0, &h);
     if (bm && (init & 4)) {                      // CBM_INIT
         static struct gdi_dib pd;                // the task thread's alone; a palette is 1 KiB
-        if (!bmi_at(w, lpbmi, usage, &pd)) return -1;
+        if (!bmi_at(w, lpbmi, usage, &pd, hdc)) return -1;
         const uint8_t *bits = dib_bits(w, lpbits, &pd, (unsigned)bh);
         if (!bits) return -1;
         for (int y = 0; y < bh; y++) {
@@ -1393,6 +1403,28 @@ uint16_t w16_gdi_bitmap_of_dib(struct w16 *w, const uint8_t *dib, uint32_t len) 
         for (int x = 0; x < d.w; x++) bm->px[(size_t)y * d.w + x] = gdi_dib_px(&d, row, x);
     }
     return h;
+}
+
+// The 256-colour display's 20 static colours, at their places: 0-9 and 246-255 (GetSystemPaletteEntries).
+static const uint32_t SYS20[20] = { 0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xC0C0C0,
+                                    0xC0DCC0, 0xA6CAF0, 0xFFFBF0, 0xA0A0A4, 0x808080, 0xFF0000, 0x00FF00,
+                                    0xFFFF00, 0x0000FF, 0xFF00FF, 0x00FFFF, 0xFFFFFF };
+
+// A pixel as the display's device-dependent bitmaps hold it, one byte: the static colour nearest it.
+static unsigned dev_index(uint32_t px) {
+    unsigned best = 0;
+    long bd = -1;
+    for (unsigned i = 0; i < 20; i++) {
+        uint32_t c = w16_vga(SYS20[i]);
+        long dr = (long)(px >> 16 & 0xFF) - (long)(c >> 16 & 0xFF), dg = (long)(px >> 8 & 0xFF) - (long)(c >> 8 & 0xFF);
+        long db = (long)(px & 0xFF) - (long)(c & 0xFF), d = dr * dr + dg * dg + db * db;
+        if (bd < 0 || d < bd) { bd = d; best = i; }
+    }
+    return best < 10 ? best : best + 236;
+}
+
+static uint32_t dev_px(unsigned idx) {
+    return idx < 10 ? w16_vga(SYS20[idx]) : idx >= 246 ? w16_vga(SYS20[idx - 236]) : 0;
 }
 
 // The 3.1 VGA driver's 16 colours, as a 4-plane bitmap's planes spell them:
@@ -1441,7 +1473,7 @@ static int set_dibits_to_device(struct w16 *w, struct w16_args *a) {
     uint32_t lpbits = w16_arg32(a), lpbmi = w16_arg32(a);
     uint16_t usage = w16_arg16(a);
     struct gdi_dib d;
-    if (!bmi_at(w, lpbmi, usage, &d)) return -1;
+    if (!bmi_at(w, lpbmi, usage, &d, hdc)) return -1;
     const uint8_t *bits = dib_bits(w, lpbits, &d, lines);
     if (!bits) return -1;
     int dib_h = d.h < 0 ? -d.h : d.h;
@@ -1818,6 +1850,14 @@ static int api_CreateCompatibleBitmap(struct w16 *w, unsigned ordinal, struct w1
     new_bitmap(w, bw, bh, mono, &h);
     c->r[R_AX] = h;
     return 6;
+}
+
+// A memory DC with no bitmap, made for CreateMetaFile (meta16.c): it draws on Windows' 1x1 default.
+uint16_t w16_gdi_new_memory_dc(struct w16 *w) {
+    struct w16_gdiobj *o;
+    uint16_t h = new_obj(w, GDI_DC, &o);
+    if (o) dc_defaults(o);
+    return h;
 }
 
 // CreateCompatibleDC(hdc) -> HDC
@@ -3114,6 +3154,15 @@ static int api_GetClipBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
+// SelectPalette's work: the DC's logical palette, the old one back.
+uint16_t w16_gdi_select_palette(struct w16 *w, uint16_t hdc, uint16_t hpal) {
+    struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
+    if (!dc) return 0;
+    uint16_t old = dc->palette;
+    if (obj(w, hpal, GDI_PALETTE)) dc->palette = hpal;
+    return old;
+}
+
 // CreatePalette(lplgpl) -> HPALETTE
 // Windows: A logical palette -- the colours a program wants -- from a LOGPALETTE.
 // w16: The palette is kept and deleted, but colours are drawn as the 256-colour VGA driver drew
@@ -3143,9 +3192,7 @@ static int api_CreatePalette(struct w16 *w, unsigned ordinal, struct w16_args *a
 // w16: The 20 static colours at their places (0-9 and 246-255) and black between.
 static int api_GetSystemPaletteEntries(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    static const uint32_t SYS[20] = { 0x000000, 0x800000, 0x008000, 0x808000, 0x000080, 0x800080, 0x008080, 0xC0C0C0,
-                                      0xC0DCC0, 0xA6CAF0, 0xFFFBF0, 0xA0A0A4, 0x808080, 0xFF0000, 0x00FF00,
-                                      0xFFFF00, 0x0000FF, 0xFF00FF, 0x00FFFF, 0xFFFFFF };
+    const uint32_t *SYS = SYS20;
     w16_arg16(a);
     unsigned start = w16_arg16(a), n = w16_arg16(a);
     uint32_t far = w16_arg32(a);
@@ -3176,10 +3223,11 @@ static int api_SetMetaFileBits(struct w16 *w, unsigned ordinal, struct w16_args 
 // SetDIBits(hdc, hbmp, uStartScan, cScanLines, lpvBits, lpbmi, fuColorUse) -> int
 // Windows: Sets a bitmap's pixels from rows of a device-independent bitmap, counted from the bottom
 // of a bottom-up one; returns the rows copied.
-// w16: The same, for the DIB formats CreateDIBitmap reads.
+// w16: The same, for the DIB formats CreateDIBitmap reads. A bottom-up DIB's row 0 is its own bottom
+// row, so a DIB shorter than the bitmap lands at the bitmap's top (Paintbrush loads in strips).
 static int api_SetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
+    uint16_t hdc = w16_arg16(a);
     struct w16_gdiobj *bm = obj(w, w16_arg16(a), GDI_BITMAP);
     unsigned start = w16_arg16(a), lines = w16_arg16(a);
     uint32_t lpbits = w16_arg32(a), lpbmi = w16_arg32(a);
@@ -3187,12 +3235,12 @@ static int api_SetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     w->cpu.r[R_AX] = 0;
     if (!bm) return 18;
     static struct gdi_dib d;                     // the task thread's alone
-    if (!bmi_at(w, lpbmi, usage, &d)) return -1;
+    if (!bmi_at(w, lpbmi, usage, &d, hdc)) return -1;
     const uint8_t *bits = dib_bits(w, lpbits, &d, lines);
     if (!bits) return -1;
     unsigned done = 0;
     for (unsigned k = 0; k < lines; k++) {
-        int y = d.h < 0 ? (int)(start + k) : bm->bh - 1 - (int)(start + k);
+        int y = d.h < 0 ? (int)(start + k) : (d.h > 0 ? d.h : 1) - 1 - (int)(start + k);   // by the DIB's own height
         if (y < 0 || y >= bm->bh) continue;
         const uint8_t *row = bits + (size_t)k * d.stride;
         for (int x = 0; x < bm->bw && x < d.w; x++) bm->px[(size_t)y * bm->bw + x] = gdi_dib_px(&d, row, x);
@@ -3216,6 +3264,374 @@ void w16_gdi_focus_rect(struct w16 *w, uint16_t hdc, int l, int t, int r, int b)
         }
     }
     gdi_done(w, dc);
+}
+
+// GetDIBits(hdc, hbmp, uStartScan, cScanLines, lpvBits, lpbmi, uUsage) -> int
+// Windows: Reads a bitmap's rows into a device-independent bitmap of the bit count the header asks
+// for (1, 4, 8 or 24), with its colour table; rows counted from the bottom of a bottom-up one. With
+// no lpvBits it only fills the header in (the size, planes, and the bit count if it was 0).
+// w16: The same, uncompressed. A 4- or 8-bit table is the colours the bitmap holds, first met first
+// (the nearest of them when it holds more than fit); a 1-bit one is black and white. The colours are
+// the ones asked for, not the display's shades of them (a 0x80 channel shows as 0xA8 at VGA).
+static int api_GetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    struct w16_gdiobj *bm = obj(w, w16_arg16(a), GDI_BITMAP);
+    unsigned start = w16_arg16(a), lines = w16_arg16(a);
+    uint32_t lpbits = w16_arg32(a), lpbmi = w16_arg32(a);
+    w16_arg16(a);                                // the colour use: a table of colours either way
+    w->cpu.r[R_AX] = 0;
+    if (!bm) return 18;
+    uint8_t *h = cpu16_ptr(&w->cpu, (uint16_t)(lpbmi >> 16), (uint16_t)lpbmi, 40, 1);
+    if (!h) return -1;
+    unsigned bpp = h[14] | h[15] << 8;
+    int32_t hh = (int32_t)(h[8] | h[9] << 8 | h[10] << 16 | (uint32_t)h[11] << 24);
+    if (bpp != 1 && bpp != 4 && bpp != 8 && bpp != 24) bpp = bm->mono ? 1 : 8;
+    unsigned stride = ((unsigned)bm->bw * bpp + 31) / 32 * 4, ncol = bpp > 8 ? 0 : 1u << bpp;
+    int top_down = hh < 0;
+    int32_t put[11] = { 40, bm->bw, top_down ? -bm->bh : bm->bh, 0, 0, 0, (int32_t)(stride * (unsigned)bm->bh), 0, 0, 0, 0 };
+    h[0] = 40; h[1] = h[2] = h[3] = 0;
+    for (int i = 1; i < 3; i++) for (int k = 0; k < 4; k++) h[4 * i + k] = (uint8_t)((uint32_t)put[i] >> 8 * k);
+    h[12] = 1; h[13] = 0; h[14] = (uint8_t)bpp; h[15] = 0;
+    for (int k = 16; k < 40; k++) h[k] = 0;
+    for (int k = 0; k < 4; k++) h[20 + k] = (uint8_t)((uint32_t)put[6] >> 8 * k);
+    if (!(lpbits >> 16)) { w->cpu.r[R_AX] = 1; return 18; }
+    if (start >= (unsigned)bm->bh) return 18;
+    if (lines > (unsigned)bm->bh - start) lines = (unsigned)bm->bh - start;
+    uint8_t *tab = ncol ? cpu16_ptr(&w->cpu, (uint16_t)(lpbmi >> 16), (uint16_t)(lpbmi + 40), ncol * 4, 1) : 0;
+    if (ncol && !tab) return -1;
+    uint8_t *bits = cpu16_ptr(&w->cpu, (uint16_t)(lpbits >> 16), (uint16_t)lpbits, stride * (lines ? lines : 1), 1);
+    if (!bits) return -1;
+    uint32_t pal[256];
+    unsigned np = 0;
+    if (bpp == 1) {
+        pal[0] = 0; pal[1] = 0xFFFFFF; np = 2;
+    } else if (ncol) {
+        for (int y = 0; y < bm->bh && np < ncol; y++)
+            for (int x = 0; x < bm->bw && np < ncol; x++) {
+                uint32_t px = w16_vga_back(bm->px[(size_t)y * bm->bw + x]);
+                unsigned i = 0;
+                while (i < np && pal[i] != px) i++;
+                if (i == np) pal[np++] = px;
+            }
+        for (unsigned i = 0; i < np; i++)
+            for (int k = 0; k < 3; k++) tab[4 * i + (unsigned)k] = (uint8_t)(pal[i] >> 8 * k);
+        for (unsigned i = np; i < ncol; i++) tab[4 * i] = tab[4 * i + 1] = tab[4 * i + 2] = tab[4 * i + 3] = 0;
+    }
+    if (bpp == 1) { tab[0] = tab[1] = tab[2] = 0; tab[4] = tab[5] = tab[6] = 0xFF; tab[3] = tab[7] = 0; }
+    for (unsigned k = 0; k < lines; k++) {
+        int y = top_down ? (int)(start + k) : bm->bh - 1 - (int)(start + k);
+        uint8_t *row = bits + (size_t)k * stride;
+        memset(row, 0, stride);
+        for (int x = 0; x < bm->bw; x++) {
+            uint32_t px = w16_vga_back(bm->px[(size_t)y * bm->bw + x]);
+            if (bpp == 24) {
+                row[3 * x] = (uint8_t)px; row[3 * x + 1] = (uint8_t)(px >> 8); row[3 * x + 2] = (uint8_t)(px >> 16);
+                continue;
+            }
+            unsigned best = 0;
+            if (bpp == 1) {
+                best = bm->mono ? px != 0 : ((px >> 16 & 0xFF) * 30 + (px >> 8 & 0xFF) * 59 + (px & 0xFF) * 11) >= 12800;
+            } else {
+                long bd = -1;
+                for (unsigned i = 0; i < np; i++) {
+                    long dr = (long)(px >> 16 & 0xFF) - (long)(pal[i] >> 16 & 0xFF), dg = (long)(px >> 8 & 0xFF) - (long)(pal[i] >> 8 & 0xFF);
+                    long db = (long)(px & 0xFF) - (long)(pal[i] & 0xFF), d = dr * dr + dg * dg + db * db;
+                    if (bd < 0 || d < bd) { bd = d; best = i; if (!d) break; }
+                }
+            }
+            if (bpp == 8) row[x] = (uint8_t)best;
+            else if (bpp == 4) row[x / 2] |= (uint8_t)(best << (x & 1 ? 0 : 4));
+            else row[x / 8] |= (uint8_t)(best << (7 - x % 8));
+        }
+    }
+    w->cpu.r[R_AX] = (uint16_t)lines;
+    return 18;
+}
+
+// StretchDIBits(hdc, XDest, YDest, cxDest, cyDest, XSrc, YSrc, cxSrc, cySrc, lpBits, lpbmi, iUsage, dwRop) -> int
+// Windows: Draws a rectangle of a device-independent bitmap onto a DC at another size, with a raster
+// operation; the scan lines copied.
+// w16: The same, for the bitmap formats CreateDIBitmap reads, the nearest pixel taken.
+static int api_StretchDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    int dx = (int16_t)w16_arg16(a), dy = (int16_t)w16_arg16(a), dw = (int16_t)w16_arg16(a), dh = (int16_t)w16_arg16(a);
+    int sx = (int16_t)w16_arg16(a), sy = (int16_t)w16_arg16(a), sw = (int16_t)w16_arg16(a), sh = (int16_t)w16_arg16(a);
+    uint32_t lpbits = w16_arg32(a), lpbmi = w16_arg32(a);
+    uint16_t usage = w16_arg16(a);
+    uint32_t rop = w16_arg32(a);
+    struct gdi_dib d;
+    w->cpu.r[R_AX] = 0;
+    if (!bmi_at(w, lpbmi, usage, &d, hdc)) return -1;
+    int bh = d.h < 0 ? -d.h : d.h;
+    const uint8_t *bits = dib_bits(w, lpbits, &d, (unsigned)bh);
+    if (!bits) return -1;
+    struct gdi_target dt;
+    struct w16_gdiobj *dc = target(w, hdc, &dt);
+    if (dc && dw && dh && sw && sh) {
+        int x1 = dev_x(dc, dx + dw), y1 = dev_y(dc, dy + dh);
+        dx = dev_x(dc, dx); dy = dev_y(dc, dy);
+        int pw = x1 - dx, ph = y1 - dy, aw = pw < 0 ? -pw : pw, ah = ph < 0 ? -ph : ph;
+        int ox = pw < 0 ? dx + pw : dx, oy = ph < 0 ? dy + ph : dy;
+        int saw = sw < 0 ? -sw : sw, sah = sh < 0 ? -sh : sh;
+        uint32_t *tmp = aw && ah && (size_t)aw * (size_t)ah <= (64u << 20) / 4 ? malloc((size_t)aw * (size_t)ah * 4) : 0;
+        if (tmp) {
+            for (int j = 0; j < ah; j++) {
+                int v = sy + (ph < 0 ? ah - 1 - j : j) * sah / ah;          // from the bottom: DIB rows are bottom-up
+                int row_i = d.h < 0 ? bh - 1 - v : v;
+                for (int i = 0; i < aw; i++) {
+                    int u = sx + (pw < 0 ? aw - 1 - i : i) * saw / aw;
+                    int in = row_i >= 0 && row_i < bh && u >= 0 && u < d.w;
+                    tmp[(size_t)(ah - 1 - j) * aw + i] = in ? gdi_dib_px(&d, bits + (size_t)row_i * d.stride, u) : 0xFFFFFF;
+                }
+            }
+            struct gdi_target tt = { .px = tmp, .w = aw, .h = ah };
+            gdi_target_whole(&tt);
+            int64_t br = brush_of(w, dc->brush);
+            struct gdi_blit b = { .dst = &dt, .src = &tt, .x = ox, .y = oy, .w = aw, .h = ah, .rop = rop,
+                                  .brush = br < 0 ? 0xFFFFFF : (uint32_t)br,
+                                  .dst_text = w16_colorref_px(dc->text), .dst_bk = w16_colorref_px(dc->bk), .src_bk = 0xFFFFFF };
+            uint32_t pbuf[64];
+            pattern_of(w, dc, dc->brush, &dt, &b, pbuf);
+            gdi_bitblt(&b);
+            free(tmp);
+            w->cpu.r[R_AX] = (uint16_t)sah;
+        }
+    }
+    gdi_done(w, dc);
+    return 32;
+}
+
+// GetBitmapBits(hbmp, cbBuffer, lpvBits) -> LONG
+// SetBitmapBits(hbmp, cb, lpvBits) -> LONG
+// Windows: Copy a bitmap's pixels out, or in, in the device's own layout; the bytes copied.
+// w16: The display's layout: a 1-bit bitmap's rows are 2-byte aligned, top-down, a set bit white; a
+// colour bitmap's are a byte a pixel, the index of the nearest of the display's 20 static colours.
+// A colour that is not one of them comes back as its nearest.
+static int api_BitmapBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    int set = ordinal == 106;
+    struct w16_gdiobj *bm = obj(w, w16_arg16(a), GDI_BITMAP);
+    uint32_t cb = w16_arg32(a), far = w16_arg32(a);
+    w->cpu.r[R_AX] = w->cpu.r[R_DX] = 0;
+    if (!bm) return 10;
+    unsigned stride = bm->mono ? ((unsigned)bm->bw + 15) / 16 * 2 : ((unsigned)bm->bw + 1) & ~1u;
+    uint32_t total = stride * (uint32_t)bm->bh, n = cb < total ? cb : total;
+    if (!n) return 10;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n, set ? 0 : 1);
+    if (!p) return -1;
+    for (uint32_t i = 0; i < n; i++) {
+        unsigned y = i / stride, xb = i % stride;
+        uint32_t *row = bm->px + (size_t)y * (unsigned)bm->bw;
+        if (bm->mono) {
+            if (set) {
+                for (unsigned k = 0; k < 8; k++) if (xb * 8 + k < (unsigned)bm->bw) row[xb * 8 + k] = p[i] >> (7 - k) & 1 ? 0xFFFFFF : 0;
+            } else {
+                uint8_t v = 0;
+                for (unsigned k = 0; k < 8; k++) if (xb * 8 + k < (unsigned)bm->bw && row[xb * 8 + k]) v |= (uint8_t)(0x80 >> k);
+                p[i] = v;
+            }
+        } else if (xb < (unsigned)bm->bw) {
+            if (set) row[xb] = dev_px(p[i]);
+            else p[i] = (uint8_t)dev_index(row[xb]);
+        } else if (!set) {
+            p[i] = 0;
+        }
+    }
+    set32(&w->cpu, n);
+    return 10;
+}
+
+// GetROP2(hdc) -> int
+// Windows: The DC's foreground mix mode (R2_*).
+// w16: The same.
+static int api_GetROP2(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    w->cpu.r[R_AX] = dc ? (uint16_t)dc->rop2 : 0;
+    return 2;
+}
+
+// GetBrushOrg(hdc) -> DWORD
+// Windows: Where a pattern brush's pattern starts on the DC.
+// w16: The same, as SetBrushOrg last said.
+static int api_GetBrushOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
+    set32(&w->cpu, dc ? (uint32_t)(uint16_t)dc->brush_oy << 16 | (uint16_t)dc->brush_ox : 0);
+    return 2;
+}
+
+// ExtFloodFill(hdc, X, Y, crColor, fuFillType) -> BOOL
+// Windows: Fills an area with the DC's brush, from a point outward: up to a border colour
+// (FLOODFILLBORDER), or through the pixels of a colour (FLOODFILLSURFACE). FALSE when the point is
+// the border colour already, or off the DC.
+// w16: The same, four-connected, solid and patterned brushes alike, the colour as the display shows it.
+static int api_ExtFloodFill(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    int16_t x = (int16_t)w16_arg16(a), y = (int16_t)w16_arg16(a);
+    uint32_t cr = w16_arg32(a);
+    uint16_t type = w16_arg16(a);
+    struct gdi_target t;
+    struct w16_gdiobj *dc = target(w, hdc, &t);
+    w->cpu.r[R_AX] = 0;
+    if (dc && t.px) {
+        int px = dev_x(dc, x) + t.ox, py = dev_y(dc, y) + t.oy;
+        uint32_t ref = w16_colorref_px(cr);
+        int ok = px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1;
+#define FILLABLE(X, Y) ((type ? t.px[(size_t)(Y) * t.w + (X)] == ref : t.px[(size_t)(Y) * t.w + (X)] != ref))
+        if (ok && FILLABLE(px, py)) {
+            int bw = t.x1 - t.x0, bh = t.y1 - t.y0;
+            uint8_t *seen = calloc((size_t)bw * (size_t)bh, 1);
+            int *stack = malloc(sizeof *stack * 2 * ((size_t)bw * (size_t)bh + 1));
+            int64_t br = brush_of(w, dc->brush);
+            struct gdi_blit pb = { 0 };
+            uint32_t pbuf[64];
+            pattern_of(w, dc, dc->brush, &t, &pb, pbuf);
+            if (seen && stack) {
+                int sp = 0;
+                stack[sp++] = px; stack[sp++] = py;
+                seen[(size_t)(py - t.y0) * bw + (px - t.x0)] = 1;
+                static const int D[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
+                while (sp) {
+                    int cy = stack[--sp], cx = stack[--sp];
+                    // Painted at once: the border test never sees a pixel this fill drew, because
+                    // `seen` marks what is queued and a queued pixel is never re-tested.
+                    t.px[(size_t)cy * t.w + cx] = br < 0 ? t.px[(size_t)cy * t.w + cx]
+                        : pb.pat ? pb.pat[((cy - pb.pat_y) & 7) * 8 + ((cx - pb.pat_x) & 7)] : (uint32_t)br;
+                    for (int k = 0; k < 4; k++) {
+                        int nx = cx + D[k][0], ny = cy + D[k][1];
+                        if (nx < t.x0 || ny < t.y0 || nx >= t.x1 || ny >= t.y1) continue;
+                        size_t si = (size_t)(ny - t.y0) * bw + (size_t)(nx - t.x0);
+                        if (seen[si]) continue;
+                        seen[si] = 1;
+                        if (FILLABLE(nx, ny)) { stack[sp++] = nx; stack[sp++] = ny; }
+                    }
+                }
+                w->cpu.r[R_AX] = 1;
+            }
+            free(seen);
+            free(stack);
+        }
+#undef FILLABLE
+    }
+    gdi_done(w, dc);
+    return 12;
+}
+
+// CreatePolygonRgn(lpPoints, nCount, nPolyFillMode) -> HRGN
+// Windows: A region the shape of a polygon.
+// w16: Its bounding rectangle: regions here are single rectangles.
+// Why: A region is one rectangle (CombineRgn says why); a polygon's shape needs the list of them.
+// Notice: A clip or a fill by this region covers the polygon's whole box.
+// Whole: Regions as more than their bounding rectangle. On the roadmap: "w16: regions as more than
+// their bounding rectangle".
+static int api_CreatePolygonRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t far = w16_arg32(a);
+    int16_t n = (int16_t)w16_arg16(a);
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    if (n <= 0) return 8;
+    const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (uint32_t)n * 4, 0);
+    if (!p) return -1;
+    int l = 32767, t = 32767, r = -32768, b = -32768;
+    for (int i = 0; i < n; i++) {
+        int px = (int16_t)(p[4 * i] | p[4 * i + 1] << 8), py = (int16_t)(p[4 * i + 2] | p[4 * i + 3] << 8);
+        if (px < l) l = px;
+        if (px > r) r = px;
+        if (py < t) t = py;
+        if (py > b) b = py;
+    }
+    struct w16_gdiobj *o;
+    uint16_t h = new_obj(w, GDI_REGION, &o);
+    if (o) { rgn_set(o, l, t, r + 1, b + 1); o->complex = 1; }
+    w->cpu.r[R_AX] = h;
+    return 8;
+}
+
+// EnumObjects(hdc, nObjectType, lpObjectFunc, lpData) -> int
+// Windows: Calls a function for each pen or brush the DC could use (stock ones and the device's).
+// w16: Calls it for none and answers 0.
+// Why: Calling back into the program from a call is not built for this one; the program's pens and
+// brushes it made itself are unaffected.
+// Notice: A program that lists "the device's pens" finds an empty list.
+// Whole: The callback, over the stock pens and brushes.
+static int api_EnumObjects(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a); w16_arg16(a); w16_arg32(a); w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    return 12;
+}
+
+// GetCharABCWidths(hdc, uFirstChar, uLastChar, lpabc) -> BOOL
+// Windows: A TrueType font's A (left side bearing), B (black part) and C (right bearing) widths for a
+// range of characters; FALSE for any other font.
+// w16: FALSE: a character's width is its advance only.
+// Why: The font engine reports advances; a glyph's bearings are not measured.
+// Notice: A program laying out italic or overhanging text from the three widths falls back to the advance.
+// Whole: The three widths of a TrueType face (ttf.h has them).
+static int api_GetCharABCWidths(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    return 10;
+}
+
+// GetPaletteEntries(hpal, wStartIndex, wNumEntries, lpPaletteEntries) -> UINT
+// Windows: Reads entries of a logical palette; the number copied.
+// w16: The same.
+static int api_GetPaletteEntries(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *pal = obj(w, w16_arg16(a), GDI_PALETTE);
+    unsigned start = w16_arg16(a), n = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!pal || !pal->px) return 10;
+    if (!(far >> 16)) { w->cpu.r[R_AX] = (uint16_t)pal->bw; return 10; }
+    if (start >= (unsigned)pal->bw) return 10;
+    if (n > (unsigned)pal->bw - start) n = (unsigned)pal->bw - start;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n ? n * 4 : 1, 1);
+    if (!p) return -1;
+    for (unsigned i = 0; i < n; i++) {
+        uint32_t c = pal->px[start + i];
+        p[4 * i] = (uint8_t)(c >> 16); p[4 * i + 1] = (uint8_t)(c >> 8); p[4 * i + 2] = (uint8_t)c; p[4 * i + 3] = 0;
+    }
+    w->cpu.r[R_AX] = (uint16_t)n;
+    return 10;
+}
+
+// GetNearestPaletteIndex(hpal, crColor) -> UINT
+// Windows: The index of the palette entry nearest a colour.
+// w16: The same; 0xFFFF for no palette.
+static int api_GetNearestPaletteIndex(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *pal = obj(w, w16_arg16(a), GDI_PALETTE);
+    uint32_t cr = w16_arg32(a) & 0xFFFFFF;
+    unsigned best = 0xFFFF;
+    long bd = -1;
+    for (int i = 0; pal && pal->px && i < pal->bw; i++) {
+        uint32_t c = pal->px[i];
+        long dr = (long)(cr & 0xFF) - (long)(c >> 16 & 0xFF), dg = (long)(cr >> 8 & 0xFF) - (long)(c >> 8 & 0xFF);
+        long db = (long)(cr >> 16 & 0xFF) - (long)(c & 0xFF), d = dr * dr + dg * dg + db * db;
+        if (bd < 0 || d < bd) { bd = d; best = (unsigned)i; }
+    }
+    w->cpu.r[R_AX] = (uint16_t)best;
+    return 6;
+}
+
+// UpdateColors(hdc) -> int
+// Windows: Repaints a window's pixels to the colours of a palette just realised, without redrawing.
+// w16: Does nothing and answers 0: no palette is ever realised, the pixels keep their colours.
+// Why: w16 draws in true colour (RealizePalette says why), so there is nothing to remap.
+// Notice: A palette animation or a fade done with UpdateColors shows no change.
+// Whole: A hardware palette the pixels are indices into.
+static int api_UpdateColors(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    return 2;
 }
 
 const struct w16_api g_gdi_api[] = {
@@ -3263,12 +3679,15 @@ const struct w16_api g_gdi_api[] = {
     { 58, api_CreateHatchBrush },
     { 60, api_CreatePatternBrush },
     { 61, api_CreatePen },
+    { 63, api_CreatePolygonRgn },
     { 64, api_CreateRectRgn },
     { 66, api_CreateSolidBrush },
     { 67, api_DPtoLP },
     { 68, api_DeleteDC },
     { 69, api_DeleteDC },
     { 70, api_EnumFonts },
+    { 71, api_EnumObjects },
+    { 74, api_BitmapBits },
     { 75, api_GetBkColor },
     { 77, api_GetClipBox },
     { 79, api_GetDCOrg },
@@ -3276,6 +3695,7 @@ const struct w16_api g_gdi_api[] = {
     { 81, api_GetMapMode },
     { 82, api_GetObject },
     { 83, api_SetPixel },
+    { 85, api_GetROP2 },
     { 87, api_GetStockObject },
     { 90, api_GetBkColor },
     { 91, api_GetTextExtent },
@@ -3288,8 +3708,10 @@ const struct w16_api g_gdi_api[] = {
     { 99, api_DPtoLP },
     { 100, api_LineDDA },
     { 103, api_PtVisible },
+    { 106, api_BitmapBits },
     { 128, api_MulDiv },
     { 148, api_SetBrushOrg },
+    { 149, api_GetBrushOrg },
     { 150, api_UnrealizeObject },
     { 153, api_CreateIC },
     { 154, api_GetNearestColor },
@@ -3298,6 +3720,7 @@ const struct w16_api g_gdi_api[] = {
     { 162, api_SetBitmapDimension },
     { 163, api_SetBitmapDimension },
     { 172, api_SetRectRgn },
+    { 307, api_GetCharABCWidths },
     { 330, api_EnumFontFamilies },
     { 345, api_SetTextAlign },
     { 346, api_SetTextAlign },
@@ -3305,8 +3728,14 @@ const struct w16_api g_gdi_api[] = {
     { 350, api_GetCharWidth },
     { 351, api_ExtTextOut },
     { 360, api_CreatePalette },
+    { 363, api_GetPaletteEntries },
+    { 366, api_UpdateColors },
+    { 370, api_GetNearestPaletteIndex },
+    { 372, api_ExtFloodFill },
     { 375, api_GetSystemPaletteEntries },
+    { 439, api_StretchDIBits },
     { 440, api_SetDIBits },
+    { 441, api_GetDIBits },
     { 442, api_CreateDIBitmap },
     { 443, api_SetDIBitsToDevice },
     { 450, api_PolyPolygon },

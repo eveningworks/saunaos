@@ -366,7 +366,41 @@ static int api_PlayMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return w->cpu.fault ? -1 : 4;
 }
 
+// CreateMetaFile(lpFilename) -> HDC
+// Windows: Starts a metafile -- a DC that records the GDI calls made on it, in memory or in a file.
+// w16: A DC that draws nothing and records nothing.
+// Why: Recording means every GDI call keeps a record of itself (the player in this file reads the
+// format; nothing writes it).
+// Notice: A program that draws into a metafile and plays it back draws nothing; Paintbrush's Copy puts
+// a picture on the clipboard as a bitmap only.
+// Whole: A metafile DC that records. On the roadmap: "w16: recording a metafile".
+static int api_CreateMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w16_arg32(a);
+    w->cpu.r[R_AX] = w16_gdi_new_memory_dc(w);
+    return 4;
+}
+
+// CloseMetaFile(hdc) -> HMETAFILE
+// Windows: Ends a metafile and returns it, for PlayMetaFile and the clipboard.
+// w16: A metafile with no records.
+// Why: Nothing was recorded (CreateMetaFile says why).
+// Notice: The same as CreateMetaFile's: played, it draws nothing.
+// Whole: The metafile CreateMetaFile's DC recorded.
+static int api_CloseMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    // METAHEADER (type 1 memory, 9 words, version 3.0, 12 words in all, no objects, longest record 3, no
+    // members) and the EOF record.
+    static const uint8_t EMPTY[24] = { 1, 0, 9, 0, 0, 3, 12, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0 };
+    w16_gdi_delete(w, hdc);
+    w->cpu.r[R_AX] = w16_global_alloc(w, sizeof EMPTY, EMPTY);
+    return 2;
+}
+
 const struct w16_api g_meta_api[] = {
     { 123, api_PlayMetaFile },
+    { 125, api_CreateMetaFile },
+    { 126, api_CloseMetaFile },
 };
 const unsigned g_meta_api_n = sizeof g_meta_api / sizeof g_meta_api[0];

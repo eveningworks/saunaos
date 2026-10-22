@@ -7,8 +7,9 @@
 //
 // The dialogs see the files the program does (file16.c): drive C:, the
 // Win16 folder, and Z:, all of toy-os. A program's hook procedure
-// (OFN_ENABLEHOOK, FR_ENABLEHOOK) hears every message first; a custom
-// template is refused, as CDERR_NOTEMPLATE.
+// (OFN_ENABLEHOOK, FR_ENABLEHOOK) hears every message first; a program's
+// own template is built from its resource, one by handle refused as
+// CDERR_NOTEMPLATE.
 #include "w16_internal.h"
 
 #include <dirent.h>
@@ -606,7 +607,7 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
     uint16_t owner = rd16(of + 4);
     uint32_t file = rd32(of + 24), init = rd32(of + 40), title = rd32(of + 44), def = rd32(of + 56);
     uint32_t index = rd32(of + 20), filter = rd32(of + 8);
-    if (o->flags & (OFN_ENABLETEMPLATE | OFN_ENABLETEMPLATEHANDLE)) {
+    if (o->flags & OFN_ENABLETEMPLATEHANDLE) {
         free(o);
         g_error = CDERR_NOTEMPLATE;
         return 4;
@@ -627,40 +628,71 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
 
     g_org_x = 36;                                // FILEOPENORD's place
     g_org_y = 24;
-    struct w16_wnd *d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
-                                    w16_du_w(264, 7), w16_du_h(134, 13), cap && cap[0] ? cap : save ? "Save As" : "Open", 0, ofn_proc);
-    if (!d) { g_error = CDERR_MEMALLOCFAILURE; goto out; }
-    w16_dlg_set_font(d, 8);
-    d->dlgdata = o;
-    add(w, d, "STATIC", STC3, 0, 6, 6, 76, 9, "File &Name:");
-    struct w16_wnd *e = add(w, d, "EDIT", EDT1, WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, 6, 16, 90, 12, "");
-    struct w16_wnd *files = add(w, d, "LISTBOX", LST1, WS_BORDER | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY | LBS_SORT |
-                                LBS_DISABLENOSCROLL, 6, 32, 90, 68, "");
-    add(w, d, "STATIC", -1, 0, 110, 6, 92, 9, "&Directories:");
-    add(w, d, "STATIC", STC1, SS_NOPREFIX, 110, 18, 92, 9, "");
-    struct w16_wnd *dirs = add(w, d, "LISTBOX", LST2, WS_BORDER | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY |
-                               LBS_DISABLENOSCROLL, 110, 32, 92, 68, "");
-    add(w, d, "STATIC", STC2, 0, 6, 104, 90, 9, save ? "Save File as &Type:" : "List Files of &Type:");
-    struct w16_wnd *types = add(w, d, "COMBOBOX", CMB1, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 6, 114, 90, 68, "");
-    add(w, d, "STATIC", STC4, 0, 110, 104, 92, 9, "Dri&ves:");
-    struct w16_wnd *drives = add(w, d, "COMBOBOX", CMB2, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 110, 114, 92, 68, "");
-    add(w, d, "BUTTON", IDOK, WS_TABSTOP | BS_DEFPUSHBUTTON, 208, 6, 50, 14, "OK");
-    add(w, d, "BUTTON", IDCANCEL, WS_TABSTOP, 208, 24, 50, 14, "Cancel");
-    if (o->flags & OFN_SHOWHELP) add(w, d, "BUTTON", PSH_HELP, WS_TABSTOP, 208, 46, 50, 14, "&Help");
-    if (!(o->flags & OFN_HIDEREADONLY))
-        add(w, d, "BUTTON", CHX1, WS_TABSTOP | BS_AUTOCHECKBOX, 208, 68, 50, 12, "&Read Only");
-    if (!e || !files || !dirs || !types || !drives || c->fault) {
-        if (!c->fault) g_error = CDERR_MEMALLOCFAILURE;
+    struct w16_wnd *d, *e, *files, *dirs, *types, *drives;
+    if (o->flags & OFN_ENABLETEMPLATE) {
+        // The program's own dialog (Paintbrush's: the standard file controls and its own beside them),
+        // built from its DIALOG resource; the standard ids are filled, its own are the hook's.
+        uint32_t name = rd32(of + 68);
+        char rname[64] = "", why[96] = "";
+        struct ne_resource res;
+        for (unsigned k = 0; name >> 16 && k + 1 < sizeof rname; k++) {   // a name, else an id
+            const uint8_t *ch = at(w, name + k, 1, 0);
+            if (!ch || !*ch) break;
+            rname[k] = (char)*ch;
+        }
+        if (w16_res_find(w, NE_RT_DIALOG, 0, (uint16_t)(name >> 16 ? 0 : name), name >> 16 ? rname : 0, &res) < 0 ||
+            !(d = w16_dlg_from_template(w, w->ne.img + res.off, res.len, owner, rd16(of + 6), ofn_proc, why,
+                                        sizeof why))) {
+            g_error = CDERR_FINDRESFAILURE;
+            goto out;
+        }
+        d->dlgdata = o;
+        if (cap && cap[0]) set_text(w, d, cap);
+        e = item(w, d, EDT1);
+        files = item(w, d, LST1);
+        dirs = item(w, d, LST2);
+        types = item(w, d, CMB1);
+        drives = item(w, d, CMB2);
+        if (files) w16_list_not_owner_drawn(w, files);
+        if (dirs) w16_list_not_owner_drawn(w, dirs);
+        if (drives) w16_list_not_owner_drawn(w, drives);
+        if (types) w16_list_not_owner_drawn(w, types);
+    } else {
+        d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
+                        w16_du_w(264, 7), w16_du_h(134, 13), cap && cap[0] ? cap : save ? "Save As" : "Open", 0, ofn_proc);
+        if (!d) { g_error = CDERR_MEMALLOCFAILURE; goto out; }
+        w16_dlg_set_font(d, 8);
+        d->dlgdata = o;
+        add(w, d, "STATIC", STC3, 0, 6, 6, 76, 9, "File &Name:");
+        e = add(w, d, "EDIT", EDT1, WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL, 6, 16, 90, 12, "");
+        files = add(w, d, "LISTBOX", LST1, WS_BORDER | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY | LBS_SORT |
+                                    LBS_DISABLENOSCROLL, 6, 32, 90, 68, "");
+        add(w, d, "STATIC", -1, 0, 110, 6, 92, 9, "&Directories:");
+        add(w, d, "STATIC", STC1, SS_NOPREFIX, 110, 18, 92, 9, "");
+        dirs = add(w, d, "LISTBOX", LST2, WS_BORDER | WS_VSCROLL | WS_TABSTOP | LBS_NOTIFY |
+                                   LBS_DISABLENOSCROLL, 110, 32, 92, 68, "");
+        add(w, d, "STATIC", STC2, 0, 6, 104, 90, 9, save ? "Save File as &Type:" : "List Files of &Type:");
+        types = add(w, d, "COMBOBOX", CMB1, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 6, 114, 90, 68, "");
+        add(w, d, "STATIC", STC4, 0, 110, 104, 92, 9, "Dri&ves:");
+        drives = add(w, d, "COMBOBOX", CMB2, WS_TABSTOP | CBS_DROPDOWNLIST | WS_VSCROLL, 110, 114, 92, 68, "");
+        add(w, d, "BUTTON", IDOK, WS_TABSTOP | BS_DEFPUSHBUTTON, 208, 6, 50, 14, "OK");
+        add(w, d, "BUTTON", IDCANCEL, WS_TABSTOP, 208, 24, 50, 14, "Cancel");
+        if (o->flags & OFN_SHOWHELP) add(w, d, "BUTTON", PSH_HELP, WS_TABSTOP, 208, 46, 50, 14, "&Help");
+        if (!(o->flags & OFN_HIDEREADONLY))
+            add(w, d, "BUTTON", CHX1, WS_TABSTOP | BS_AUTOCHECKBOX, 208, 68, 50, 12, "&Read Only");
+    }
+    if (!e || !files || !dirs || c->fault) {
+        if (!c->fault) g_error = (o->flags & OFN_ENABLETEMPLATE) ? CDERR_NOTEMPLATE : CDERR_MEMALLOCFAILURE;
         d->dlgdata = 0;
         w16_wnd_destroy(w, d);
         goto out;
     }
     w16_listbox_folders(dirs, 1);
     w16_send(w, e->hwnd, EM_LIMITTEXT, 127, 0);
-    struct w16_wnd *tl = w16_combo_list(w, types), *dl = w16_combo_list(w, drives);
+    struct w16_wnd *tl = types ? w16_combo_list(w, types) : 0, *dl = drives ? w16_combo_list(w, drives) : 0;
     for (int i = 0; tl && i < o->ntypes; i++) w16_listbox_str(w, tl, LB_ADDSTRING, 0, filter_str(o, 2 * i));
     if (tl) w16_send(w, tl->hwnd, LB_SETCURSEL, (uint16_t)o->type, 0);
-    w16_combo_changed(w, types);
+    if (types) w16_combo_changed(w, types);
     if (dl) {
         // 3.1's "letter: volume label", a drive icon before it; C: is the Win16
         // folder, D: to Y: named for theirs, and Z: the whole toy-os tree.
@@ -676,7 +708,7 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
         }
         w16_send(w, dl->hwnd, LB_SETCURSEL, (uint16_t)drive_row(o->dir[0]), 0);
     }
-    w16_combo_changed(w, drives);
+    if (drives) w16_combo_changed(w, drives);
     {
         char low[160];
         set_text(w, e, lowered(initial && initial[0] ? initial : o->pattern, low, sizeof low));
@@ -722,8 +754,9 @@ out:
 // chosen path, FALSE on Cancel.
 // w16: The same dialogs, drawn as Windows 3.1 drew them and built on w16's own dialog manager, list
 // box and combo box, over the drives the program sees -- C:, the Win16 folder; D: to Y: as set; Z:,
-// all of toy-os. A program's hook procedure hears every message first. A custom dialog template is
-// refused (CDERR_NOTEMPLATE).
+// all of toy-os. A program's hook procedure hears every message first. A program's own template
+// (OFN_ENABLETEMPLATE: Paintbrush's) is built from its resource and filled by the standard control
+// ids; one passed by handle is refused (CDERR_NOTEMPLATE).
 static int api_GetOpenFileName(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return file_dialog(w, a, ordinal == 2);
 }

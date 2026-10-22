@@ -88,7 +88,7 @@ file is involved.
    pie's vertical radius steps across a pixel where 3.11's did, and its
    brush reaches the radius with no gap.
 
-17. **Calls that need no window** (wincalls.exe): EqualRect, AnsiUpperBuff, wvsprintf,
+17. **Calls that need no window** (wincalls.exe): huge GlobalAlloc, GetDIBits, Get/SetBitmapBits, INT 2Fh, EqualRect, AnsiUpperBuff, wvsprintf,
    the Windows and System directories, GlobalLRUNewest, the colour and text-align
    state of a device context, CreatePalette -- each answer written to WINCALLS.INI
    and compared with what Windows 3.11 answers.
@@ -1165,6 +1165,13 @@ def calls_answered(dbg, res):
         "Lru": "0001",
         "BkOld": "00FFFFFF", "Bk": "00123456", "TextOld": "00000000", "Text": "00654321",
         "AlignOld": "0000", "Align": "0006", "Pal": "0001",
+        "HugeSize": "00030000", "HugeTile": "005A", "HugeFree": "0000",
+        "Free": "00100000", "Temp": "3A43", "Drv0": "0000", "Drv2": "0003",
+        "Int2f1686": "0000", "Int2f1600": "0A03", "Rop2": "000D", "Org": "00000000",
+        "BitsSet": "00000008", "BitsGet": "00000008", "BitsOut": "00F9FF04F9FF0004",
+        "DibW": "0004", "DibH": "0002",
+        # bottom row first (the bitmap's second), each pixel B G R: red, white, black, blue 0,0,128
+        "Dib24": "0000FF" "FFFFFF" "000000" "800000" "000000" "0000FF" "FFFFFF" "800000",
     }
     for names, what in ((("EqualSame", "EqualDiff"), "EqualRect tells equal rectangles from different ones"),
                         (("Upper", "UpperN"), "AnsiUpperBuff upcases its count and no more"),
@@ -1173,7 +1180,14 @@ def calls_answered(dbg, res):
                         (("Lru",), "GlobalLRUNewest answers its handle"),
                         (("BkOld", "Bk", "TextOld", "Text"), "SetBkColor and SetTextColor return the old colour and read back"),
                         (("AlignOld", "Align"), "SetTextAlign returns the old word and GetTextAlign reads it back"),
-                        (("Pal",), "CreatePalette answers a handle")):
+                        (("Pal",), "CreatePalette answers a handle"),
+                        (("HugeSize", "HugeTile", "HugeFree"), "a 192 KB GlobalAlloc is a run of selectors: its size, a byte in its third 64 KB, freed"),
+                        (("Free", "Temp"), "GetFreeSpace and GetTempDrive"),
+                        (("Drv0", "Drv2"), "GetDriveType: A: is none, C: fixed"),
+                        (("Int2f1686", "Int2f1600"), "INT 2Fh answers protected mode and the Windows version"),
+                        (("Rop2", "Org"), "GetROP2 and GetBrushOrg of a new DC"),
+                        (("BitsSet", "BitsGet", "BitsOut"), "SetBitmapBits and GetBitmapBits round-trip a bitmap's bytes"),
+                        (("DibW", "DibH", "Dib24"), "GetDIBits fills the header and gives 24-bit rows, bottom row first, in true colours")):
         res.check(f"wincalls.exe: {what}", all(got.get(n) == want[n] for n in names),
                   "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
 
