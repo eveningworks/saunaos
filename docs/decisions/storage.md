@@ -3727,7 +3727,10 @@ of windows created at boot cannot do here.
 Mount uses `/mnt/<device>`, made at mount and removed at unmount, so
 two volumes never fight over `/mnt` itself. GNOME uses
 `/run/media/$USER/<label>`; toy-os has no per-user runtime directory
-and labels are optional.
+and labels are optional. A REMOVABLE disk's volumes are the exception:
+automountd mounts them at `/media/<label>` (FHS's place for them),
+because a stick is recognised by its label, and a person typing a path
+to it has the label in front of them (`docs/usb-storage-design.md`).
 
 ## A check's progress is read without the volume's lock, and only a read-only check can be stopped
 

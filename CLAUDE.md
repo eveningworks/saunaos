@@ -568,8 +568,9 @@ work), `w16-design.md` (16-bit Windows programs on an emulated CPU, PLANNED --
 before NE or `userland/w16/` work), `browser-design.md` (a NetSurf port, stages 0-6 (JavaScript) and the
 sandbox BUILT -- before NetSurf, `uui_webview` or HTTP/1.1 work in
 `libhttp`), `usb-storage-design.md` (USB sticks: BOT, UAS, exFAT,
-removal, root on a stick; stage 1 BUILT -- before `usb_storage.c`, a
-removable `block_device` or `blk_device_gone()`).
+removal, root on a stick; stages 1, 2, 4 and 5 BUILT -- before
+`usb_storage.c`, a removable `block_device`, `blk_device_gone()` or
+automountd).
 
 **Rules for editing docs/:**
 
