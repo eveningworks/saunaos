@@ -395,9 +395,9 @@ static void begin_paint(struct w16 *w, struct w16_wnd *x, uint32_t lpps) {
             if (w16_wnd_shown(w, v[i])) w16_invalidate(w, v[i], 1);
         free(v);
     }
-    uint16_t hdc = w16_gdi_window_dc(w, x->hwnd);
+    uint16_t hdc = w16_gdi_take_dc(w, x->hwnd);
     if (erase) erased = w16_send(w, x->hwnd, WM_ERASEBKGND, hdc, 0) != 0;
-    w16_gdi_window_dc(w, x->hwnd);               // WM_ERASEBKGND may have changed its state
+    w16_gdi_reset_dc(w, hdc);                    // WM_ERASEBKGND may have changed its state
     uint8_t ps[32] = { 0 };
     uint16_t v[6] = { hdc, (uint16_t)(erase && !erased), 0, 0, (uint16_t)x->cw, (uint16_t)x->ch };
     memcpy(ps, v, sizeof v);
@@ -933,7 +933,10 @@ static int api_EndPaint(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     struct w16_wnd *x = w16_wnd_get(w, w16_arg16(a));
-    w16_arg32(a);
+    uint32_t lpps = w16_arg32(a);
+    const uint8_t *ps = cpu16_ptr(c, (uint16_t)(lpps >> 16), (uint16_t)lpps, 2, 0);
+    if (!ps) return -1;
+    w16_gdi_give_dc(w, (uint16_t)(ps[0] | ps[1] << 8));   // the DC BeginPaint handed out
     if (w->painting > 0) w->painting--;
     // w16 paints a window whole, not its update region: without WS_CLIPCHILDREN
     // that covered its children (Write's ruler), so they paint again on top.
@@ -961,23 +964,25 @@ static int api_MoveWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // GetDC(hWnd) -> HDC
 // Windows: A device context to draw in a window's client area outside WM_PAINT; GetDC(NULL) one for
 // the whole screen.
-// w16: The window's device context; GetDC(NULL) one for the program's screen, which it may read
-// from but which shows nothing it draws.
+// w16: The window's device context, its defaults restored -- or a second one while the first is still
+// held, as Windows' cache gave; GetDC(NULL) one for the program's screen, which it may read from but
+// which shows nothing it draws.
 static int api_GetDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    c->r[R_AX] = h ? w16_gdi_window_dc(w, h) : w16_gdi_screen_dc(w);
+    c->r[R_AX] = h ? w16_gdi_take_dc(w, h) : w16_gdi_screen_dc(w);
     return 2;
 }
 
 // ReleaseDC(hWnd, hDC) -> int
 // Windows: Gives back a device context GetDC lent.
-// w16: Answers 1: a window keeps its one device context.
+// w16: The same, and 1: the window's own DC is free to hand out again, a second one deleted.
 static int api_ReleaseDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg16(a); w16_arg16(a);
+    w16_arg16(a);
+    w16_gdi_give_dc(w, w16_arg16(a));
     c->r[R_AX] = 1;
     return 4;
 }

@@ -100,6 +100,7 @@ static void dc_defaults(struct w16_gdiobj *dc) {
     dc->rop2 = R2_COPYPEN;
     dc->text_align = 0;
     dc->cx = dc->cy = 0;
+    dc->palette = 0;
 }
 
 // --- mapping: logical units to the DC's pixels ------------------------------------
@@ -141,6 +142,52 @@ static int dev_h(const struct w16_gdiobj *dc, int v) { return scale(v, dc->vext[
 
 #define CS_OWNDC   0x0020
 #define CS_CLASSDC 0x0040
+
+// GetDC, GetWindowDC and BeginPaint: a window's DC for the program to hold until ReleaseDC or
+// EndPaint. Windows handed DCs out of a cache, so one asked for while the window's own is still held --
+// Paintbrush's mouse-move handler gets one inside a drag that holds another -- is ANOTHER DC: handing
+// back the held one reset would take its brush and pen away mid-stroke.
+uint16_t w16_gdi_take_dc(struct w16 *w, uint16_t hwnd) {
+    struct w16_wnd *x = w16_wnd_get(w, hwnd);
+    if (!x) return 0;
+    struct w16_gdiobj *dc = obj(w, x->dc, GDI_DC);
+    int own = x->cls >= 0 && x->cls < w->ncls && (w->cls[x->cls].style & (CS_OWNDC | CS_CLASSDC));
+    if (own || !dc || dc->hwnd != hwnd || !dc->taken) {
+        uint16_t h = w16_gdi_window_dc(w, hwnd);
+        struct w16_gdiobj *d = obj(w, h, GDI_DC);
+        if (d && !own) d->taken = 1;
+        return h;
+    }
+    struct w16_gdiobj *n;
+    uint16_t h = new_obj(w, GDI_DC, &n);
+    if (!n) return 0;
+    dc_defaults(n);
+    n->hwnd = hwnd;
+    n->taken = n->extra = 1;
+    return h;
+}
+
+// ReleaseDC and EndPaint: the window's own DC free to be handed out again, a second one deleted.
+void w16_gdi_give_dc(struct w16 *w, uint16_t hdc) {
+    struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
+    if (!dc || !dc->hwnd) return;
+    if (!dc->extra) { dc->taken = 0; return; }
+    free(dc->saved);
+    memset(dc, 0, sizeof *dc);
+}
+
+// A taken DC back to its defaults (BeginPaint's, after WM_ERASEBKGND), unless its class keeps its state.
+void w16_gdi_reset_dc(struct w16 *w, uint16_t hdc) {
+    struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
+    struct w16_wnd *x = dc ? w16_wnd_get(w, dc->hwnd) : 0;
+    if (!x || (x->cls >= 0 && x->cls < w->ncls && (w->cls[x->cls].style & (CS_OWNDC | CS_CLASSDC)))) return;
+    uint8_t taken = dc->taken, extra = dc->extra;
+    uint16_t hwnd = dc->hwnd;
+    dc_defaults(dc);
+    dc->hwnd = hwnd;
+    dc->taken = taken;
+    dc->extra = extra;
+}
 
 uint16_t w16_gdi_window_dc(struct w16 *w, uint16_t hwnd) {
     struct w16_wnd *x = w16_wnd_get(w, hwnd);

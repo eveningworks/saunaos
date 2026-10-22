@@ -6,7 +6,9 @@
 ; itself (CheckMenuItem). The control menu gains "Always on Top" (GetSystemMenu,
 ; AppendMenu), which toggles SetWindowPos(HWND_TOPMOST / HWND_NOTOPMOST) and its
 ; tick, as Clock's does. Each answer is written to DIALOG.INI's [Dialog]
-; section (Value=, Box=, Checked=, Top=), which the test reads back.
+; section (Value=, Box=, Checked=, Top=), which the test reads back. At start it also holds a GetDC
+; with NULL_PEN selected while it takes and releases a second one: NestedDC=1 when the two differ and
+; the first still has its pen (Windows' DC cache; Paintbrush's brush strokes rely on it).
 ; The Number dialog's list is owner-drawn (LBS_OWNERDRAWFIXED): its rows are
 ; measured 20 tall (WM_MEASUREITEM) and filled dark grey, the selected one
 ; black (WM_DRAWITEM) -- the test reads the bands.
@@ -135,6 +137,42 @@ start:
     push word 210
     W16_CALL "USER", 177
     mov [haccel], ax
+
+    push word [hwnd]                ; GetDC(hwnd), NULL_PEN selected into it
+    W16_CALL "USER", 66
+    mov [hdc1], ax
+    push word 8                     ; GetStockObject(NULL_PEN)
+    W16_CALL "GDI", 87
+    mov [null_pen], ax
+    push word [hdc1]
+    push ax
+    W16_CALL "GDI", 45
+    push word [hwnd]                ; GetDC(hwnd) while the first is held, then ReleaseDC
+    W16_CALL "USER", 66
+    mov [hdc2], ax
+    push word [hwnd]
+    push ax
+    W16_CALL "USER", 68
+    push word 7                     ; SelectObject(hdc1, BLACK_PEN): the old pen, still NULL_PEN?
+    W16_CALL "GDI", 87
+    push word [hdc1]
+    push ax
+    W16_CALL "GDI", 45
+    xor cx, cx
+    cmp ax, [null_pen]
+    jne .nested
+    mov dx, [hdc1]
+    cmp dx, [hdc2]
+    je .nested
+    inc cx
+.nested:
+    mov [nested], cx
+    push word [hwnd]                ; ReleaseDC(hwnd, hdc1)
+    push word [hdc1]
+    W16_CALL "USER", 68
+    mov ax, [nested]
+    mov di, ini_nested
+    call save_ax
 
     push word [hwnd]
     push word [nCmdShow]
@@ -475,6 +513,10 @@ msg_wParam: dw 0
 
 ps:         times 32 db 0
 numbuf:     times 16 db 0
+hdc1:       dw 0
+hdc2:       dw 0
+null_pen:   dw 0
+nested:     dw 0
 
 classname:  db "DlgTestClass", 0
 title:      db "Dialog test (Win16)", 0
@@ -488,6 +530,7 @@ ini_box:    db "Box", 0
 ini_file:   db "DIALOG.INI", 0
 ini_checked: db "Checked", 0
 ini_top:    db "Top", 0
+ini_nested: db "NestedDC", 0
 top_text:   db "Always on &Top", 0
 row_text:   db "Row", 0
 about_app:  db "Dialog test", 0

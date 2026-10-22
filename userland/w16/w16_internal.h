@@ -226,6 +226,7 @@ struct w16_gdiobj {
     uint8_t screen;               // the display's DC before any window: answers, draws nothing
     uint16_t bitmap, pen, brush, font;
     uint16_t palette;             // SelectPalette's logical palette: what a DIB_PAL_COLORS table indexes
+    uint8_t taken, extra;         // a window DC: held by the program (GetDC, BeginPaint); a second one
     uint32_t text, bk;            // COLORREFs
     int bk_mode, rop2;
     uint16_t text_align;          // SetTextAlign's TA_* word
@@ -888,6 +889,9 @@ extern const unsigned g_clip_api_n;
 // a bitmap. And a new colour bitmap of `px` (copied): its handle, 0 none.
 const uint32_t *w16_gdi_bitmap_pixels(struct w16 *w, uint16_t h, int *bw, int *bh);
 uint16_t w16_gdi_bitmap_from(struct w16 *w, const uint32_t *px, int bw, int bh);
+uint16_t w16_gdi_take_dc(struct w16 *w, uint16_t hwnd);   // GetDC, BeginPaint: another while one is held
+void w16_gdi_give_dc(struct w16 *w, uint16_t hdc);         // ReleaseDC, EndPaint
+void w16_gdi_reset_dc(struct w16 *w, uint16_t hdc);        // its defaults again
 uint16_t w16_gdi_new_memory_dc(struct w16 *w);   // CreateMetaFile
 uint16_t w16_gdi_select_palette(struct w16 *w, uint16_t hdc, uint16_t hpal);   // SelectPalette
 void w16_gdi_delete(struct w16 *w, uint16_t h);   // DeleteObject's work

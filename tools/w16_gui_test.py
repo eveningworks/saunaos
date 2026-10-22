@@ -37,7 +37,8 @@ file is involved.
    Checked off (CheckMenuItem; Checked=0 lands in DIALOG.INI), F2 is an
    accelerator for File > Number..., whose dialog starts at 42 and keeps
    what is typed over it (Value=), a right click's MessageBox answers No
-   with its mnemonic (Box=7), and Help > About is ShellAbout's box.
+   with its mnemonic (Box=7), and Help > About is ShellAbout's box. A second
+   GetDC while one is held is another DC, the first keeping its pen (NestedDC=1).
 7. **A program's calls** (`retrolauncher --calls FILE`, retrolauncher/calls.c): fault.exe
    lacks exactly USER.7 ExitWindows and has one stand-in, IsIconic
    (`w16 --check` says `partly 1` and why), so its window opens on the
@@ -820,6 +821,8 @@ def dialogs(dbg, qmp, res):
     res.check("dialog.exe opens its window", win is not None, "no window")
     if not win:
         return
+    res.check("a second GetDC while one is held is another DC, the first keeps its pen: NestedDC=1",
+              ini_has(dbg, "NestedDC=1"), sh(dbg, f"cat {DLG_INI}"))
     dbg.send("gui key f alt")
     titles = wait_titles(dbg, lambda t: "Popup" in t)
     res.check("Alt+F opens the File menu from the bar", "Popup" in titles, f"windows {titles}")

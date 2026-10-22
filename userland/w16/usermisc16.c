@@ -698,7 +698,7 @@ static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 static int api_GetWindowDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    w->cpu.r[R_AX] = h ? w16_gdi_window_dc(w, h) : w16_gdi_screen_dc(w);
+    w->cpu.r[R_AX] = h ? w16_gdi_take_dc(w, h) : w16_gdi_screen_dc(w);
     return 2;
 }
 
