@@ -1161,7 +1161,7 @@ run on, not by order.
 - [x] ~~A self-hosted installer: partition, format, copy the running system, write the bootloader~~ done -- `/bin/install`
 - [x] ~~A graphical installer, offered by a live session~~ DONE 2026-10-12 -- Install toy-os over `lib/uinstall.h`
 - [ ] Install beside another system: keep a disk's partitions and install into its free space -- the installer erases whole disks only
-- [ ] USB mass storage -- six stages in `docs/usb-storage-design.md`; stages 1, 2 and 4 (removal, bulk-only, exFAT) BUILT 2026-10-22
+- [ ] USB mass storage -- `docs/usb-storage-design.md`; stages 1, 2, 4, 5 BUILT 2026-10-22, UAS and root-on-a-stick to go
 - [ ] A USB gamepad for DOOM -- HID's generic-desktop gamepad and joystick usages, through the input core
 - [ ] Bluetooth, or a written decision against it -- the Intel cards' Bluetooth half is a USB device, Linux's `btusb`
 - [ ] Root ports driven by the hub driver, through an xHCI virtual root hub -- one port state machine, as Linux's `core/hub.c`

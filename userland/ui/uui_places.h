@@ -38,6 +38,10 @@ struct uui_place {
     int remote, state;
     int session;                  // opened for the session: nothing in /etc/mounts.d keeps it
     char source[64];
+    // On a disk a person can pull (QUERY_FS_REMOVABLE): listed after the
+    // local devices, under their own caption, with an Eject.
+    int removable;
+    char dev[16];                 // the block device ("usb0p1") -- what Eject resolves
 };
 
 struct uui_places {
@@ -45,6 +49,7 @@ struct uui_places {
     struct uui_place row[UUI_PLACES_MAX];
     int count;
     int places;                   // how many of `row` are places; devices follow
+    int removable;                // where the removable devices start (== network: none)
     int network;                  // where the network shares start (== count: none)
     int pinned;                   // the LAST this many places are the Places list (lib/upins.h)
     int selected;                 // row, or -1: the one whose path is where you are

@@ -24,10 +24,11 @@ static int device_h(void) { return 2 * ugfx_char_h() + 18; }
 static int gap_h(void)    { return 9 + ugfx_char_h() + 6; }   // the rule, then "This computer"
 
 // The caption rows: "This computer" over the devices (when places come
-// first), "Network" over the shares.
+// first), "Removable" over the USB sticks, "Network" over the shares.
 static int caps_before(const struct uui_places *p, int i) {
     int n = 0;
     if (i >= p->places && p->count > p->places && p->places) n++;
+    if (i >= p->removable && p->removable < p->network && p->removable > 0) n++;
     if (i >= p->network && p->network < p->count && p->network > 0) n++;
     return n;
 }
@@ -130,20 +131,25 @@ void uui_places_refresh(struct uui_places *p) {
     if (p->selected >= 0) strlcpy(keep, p->row[p->selected].path, sizeof keep);
     p->count = p->places;
     struct query_fsinfo fs;
-    // Two passes over the mounts: the local devices, then the shares,
-    // each then put in the order the person dragged them into
-    // (upins_dev_order); a mount never ordered keeps the kernel's, after.
+    // Three passes over the mounts: the local disks, the removable ones
+    // (USB sticks), then the shares, each then put in the order the
+    // person dragged them into (upins_dev_order); a mount never ordered
+    // keeps the kernel's, after.
     static char order[UPINS_DEV_MAX][64];
     int norder = upins_dev_order(order, UPINS_DEV_MAX);
-    for (int pass = 0; pass < 2; pass++) {
-        if (pass == 1) p->network = p->count;
+    for (int pass = 0; pass < 3; pass++) {
+        if (pass == 1) p->removable = p->count;
+        if (pass == 2) p->network = p->count;
         int first = p->count;
         for (int i = 0; p->count < UUI_PLACES_MAX; i++) {
             int n = sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs);
             if (n <= 0) break;
             if ((unsigned)n < sizeof fs || !(fs.flags & QUERY_FS_MOUNTED)) continue;
             int remote = (fs.flags & QUERY_FS_REMOTE) != 0;
-            if (remote != pass) continue;
+            int removable = !remote && (fs.flags & QUERY_FS_REMOVABLE);
+            // A pulled stick's mount is going: automountd unmounts it.
+            if (removable && (fs.flags & QUERY_FS_GONE)) continue;
+            if ((remote ? 2 : removable ? 1 : 0) != pass) continue;
             struct uui_place *r = &p->row[p->count++];
             memset(r, 0, sizeof *r);
             uvolinfo_name(fs.point, r->label, sizeof r->label);
@@ -151,7 +157,10 @@ void uui_places_refresh(struct uui_places *p) {
             r->device = 1;
             r->persistent = (fs.flags & QUERY_FS_PERSISTENT) != 0;
             r->readonly = (fs.flags & QUERY_FS_RDONLY) != 0;
-            r->icon = remote ? "drive-network" : r->persistent ? "drive" : "drive-ram";
+            r->icon = remote ? "drive-network" : removable ? "drive-usb"
+                    : r->persistent ? "drive" : "drive-ram";
+            r->removable = removable;
+            strlcpy(r->dev, fs.device, sizeof r->dev);
             r->total = fs.total_bytes;
             r->used = fs.used_bytes;
             r->remote = remote;
@@ -245,13 +254,15 @@ static void op_draw(struct ugfx_surface *s, const void *w) {
         const struct uui_place *r = &p->row[i];
         int x, y, rw, rh;
         uui_places_row_rect(p, i, &x, &y, &rw, &rh);
-        if ((i == p->places && i > 0) || (i == p->network && i > 0)) {
-            // The rule and the caption over the devices, or the shares.
+        int removable_head = i == p->removable && i < p->network && i != p->places;
+        if ((i == p->places && i > 0) || (i == p->network && i > 0) || (removable_head && i > 0)) {
+            // The rule and the caption over the devices, the sticks or the shares.
             int ry = y - gap_h();
             ugfx_fill_rect(s, x + 6, ry + 4, rw - 12, 1, UTHEME_SEPARATOR);
             const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
             ugfx_draw_string_clipped(s, x + 6, ry + 9, rw - 12,
-                                     i == p->network ? "Network" : "This computer", dim, bg);
+                                     i == p->network ? "Network" : removable_head ? "Removable"
+                                                                             : "This computer", dim, bg);
             ugfx_set_font(was);
         }
         uint32_t rbg = bg, rfg = fg;

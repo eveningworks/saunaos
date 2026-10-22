@@ -82,6 +82,11 @@ struct uui_tree_node {
     const char *note;
     int meter_on, meter_pm;
     uint32_t meter_color;
+    // A BUTTON at the row's right edge, an icon name, NULL for none: the
+    // File Manager's Eject on a USB stick. Always drawn, not only on
+    // hover, so it can be found. A click on it selects nothing -- the app
+    // reads uui_tree_take_action() at the release.
+    const char *action;
 };
 
 struct uui_tree {
@@ -114,6 +119,8 @@ struct uui_tree {
     void *reorder_ctx;
     int press_node, pre_press_sel;   // OWNED: the press a drag starts from
     int drag_node;                   // the row being dragged, -1; OWNED
+    int action_hot, action_press;    // the node whose `action` is hovered / armed, -1; OWNED
+    int acted;                       // the node whose `action` fired, -1; OWNED
     int ins_y, ins_after, ins_before;   // the gap under the pointer; ins_y -1 none. OWNED
     int dropped_from, dropped_after, dropped_before, dropped_insert;   // the last drop. OWNED
     char drag_label[64];             // OWNED, the ghost's
@@ -217,6 +224,9 @@ int  uui_tree_select_id(struct uui_tree *t, int id);
 // on_widget(id, UUI_REASON_DROP). Every node is a drop target; what a
 // drop MEANS is the app's (a folder tree moves files into the node).
 int  uui_tree_drop_id(const struct uui_tree *t);
+// The id of the node whose `action` button the last release fired, or -1;
+// cleared by asking. Read it first at a release: the click chose nothing.
+int  uui_tree_take_action(struct uui_tree *t);
 // Turns on reordering by drag (see the struct). Either callback NULL
 // leaves it off.
 void uui_tree_set_reorder(struct uui_tree *t, int (*can_drag)(void *ctx, int id),

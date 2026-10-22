@@ -766,6 +766,23 @@ def drive_network():
     return finish(shadow(im))
 
 
+def drive_usb():
+    # A USB stick, standing: a blue body under its metal connector (the
+    # File Manager's Removable rows and the USB flyout).
+    im = canvas()
+    plug = m_rr(22, 4, 42, 24, 2)
+    fill(im, plug, ((236, 239, 244), (178, 186, 202)))
+    edge(im, plug, (140, 150, 168))
+    d = D4(im)
+    d.rectangle((26, 10, 30, 15), fill=(110, 120, 140, 255))
+    d.rectangle((34, 10, 38, 15), fill=(110, 120, 140, 255))
+    body = m_rr(16, 22, 48, 60, 6)
+    fill(im, body, ((96, 160, 236), (52, 104, 200)))
+    edge(im, body, (40, 84, 170))
+    D4(im).ellipse((29, 48, 35, 54), fill=(60, 190, 110, 255))
+    return finish(shadow(im))
+
+
 def lock():
     # A padlock: something here needs a password (the Sign-in dialog).
     im = canvas()
@@ -1047,7 +1064,7 @@ ART = {
     "uidemo": uidemo, "doom": doom, "devmgr": devmgr, "bootmgr": bootmgr, "installer": installer,
     "sysupdate": sysupdate, "diskmark": diskmark, "properties": properties,
     "folder": plain_folder, "file": plain_file, "drive": drive, "drive-ram": drive_ram,
-    "drive-network": drive_network, "lock": lock,
+    "drive-network": drive_network, "drive-usb": drive_usb, "lock": lock,
     "trash-empty": trash_empty, "trash-full": trash_full,
     "cat-time": cat_time, "cat-appearance": cat_appearance, "cat-input": cat_input,
     "cat-shortcuts": cat_shortcuts, "cat-kernel": cat_kernel, "cat-display": cat_display,

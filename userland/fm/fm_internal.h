@@ -130,7 +130,8 @@ enum {
     CMD_PL_PIN, CMD_PL_UNPIN, CMD_PL_DISKS, CMD_PL_CHECK, CMD_PL_UNMOUNT,
     CMD_PL_SIGNIN, CMD_PL_DISCONNECT, CMD_PL_FORGET, CMD_PL_ADD_SHARE,
     CMD_PL_RESTORE_ALL, CMD_PL_EMPTY_BIN, CMD_PL_CLEAR_RECENT, CMD_PL_BIN_SETTINGS,
-    CMD_PL_LAST = CMD_PL_BIN_SETTINGS,
+    CMD_PL_EJECT,
+    CMD_PL_LAST = CMD_PL_EJECT,
     // The opening app's own actions (lib/uopen.h's desktop actions), by place.
     CMD_ACTION_FIRST,
 };
@@ -317,6 +318,9 @@ void tree_reveal_path(const char *path);   // ancestors opened, then selected
 void tree_rebuild(void);
 int  tree_poll(void);           // rebuild if an open folder changed; 1 if it did
 void tree_refresh_meters(void); // the volumes' notes and meters, from g_places
+// Which rows g_places holds, as one number: a stick swapped for another
+// keeps the count and changes this.
+unsigned places_signature(void);
 void tree_toggle(void *ctx, int id, int expand);
 // The g_places row a tree row shows, or TREE_FOLDER (a folder under a
 // volume), TREE_HEADER (a group heading) or TREE_ADD_ROW.
@@ -332,6 +336,8 @@ void tree_goto(const char *path);   // a row clicked: there, or "not there any m
 // aims places_command() at that row. Rows written, separators included.
 int  places_ctx_items(struct uui_menu_item *out, int cap, int nid);
 void places_command(struct uapp *a, int code);   // CMD_PL_*
+// Eject the USB stick tree row `nid` is (its row's Eject button).
+void places_eject_row(int nid);
 void places_rename_pin(const char *label);        // Rename pin's prompt answered
 void places_reorder_init(void);                   // the tree's rows move by drag
 int  places_drop(struct uui_fileview *src);       // a drop in a gap of the list: 1 if it was

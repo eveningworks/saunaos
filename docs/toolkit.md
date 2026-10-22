@@ -48,6 +48,7 @@
 | `udhcp.h` | THE DHCP CLIENT, AS A LIBRARY -- one implementation, two front ends. |
 | `udirs.h` | THE PERSONAL FOLDERS -- Desktop, Documents, Music, Pictures, Videos, Downloads and Screenshots -- asked for BY NAME, never by path: XDG's user-dirs (`xdg-user-dir MUSIC`) and Windows' Known Folders. |
 | `udiskscan.h` | What is on this machine's disks, read in one pass: every whole disk (model, size, table kind), its partitions (where, what role, which block device), what is mounted on each and how full, and the v... |
+| `udrive.h` | Removable drives -- USB sticks -- as the desktop shows them: each volume on a removable disk, its name, what it holds and where it is mounted; mounting one at /media/<name>; ejecting a disk; and as... |
 | `uduration.h` | A length of time typed by a person -- "2", "0.25", "90s", "1.5m", "2h", "1d" -- as whole milliseconds. |
 | `ueffect.h` | A WINDOW EFFECT'S OPTIONS -- what it declares, and what the user chose. |
 | `uelfsym.h` | uelfsym -- function names for addresses in an ELF64 file on disk, and the bytes at an address: what a crash report's backtrace needs to name a frame and to check it follows a call. |
@@ -178,6 +179,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_dialog.h` | A MODAL over the app's own window: a title, some lines, and a row of buttons. |
 | `uui_diskplan.h` | uui_diskplan -- what a disk holds NOW and what it will hold AFTER an operation, as two labelled partition maps one above the other: an installer's or a partitioner's before-and-after (Calamares' pa... |
 | `uui_docdialog.h` | uui_docdialog -- A MARKDOWN DOCUMENT IN A WINDOW OF ITS OWN: the text drawn by uui_markdown and scrolled, with Copy (the Markdown, to the clipboard) and Close. |
+| `uui_drive.h` | REMOVABLE DRIVES, A ROW EACH: the stick's icon, its name, what it holds ("32.0 GiB FAT32 \xb7 25.3 GiB free"), then Open and an Eject button at the right. |
 | `uui_dropdown.h` | Split out of the single uwidgets.c/.h this used to be, one file per widget -- the same shape as apps/ui/, so a widget's kernel-side and ring-3 versions live at matching paths. |
 | `uui_droprows.h` | A DROPDOWN'S ROWS IN THREE PARTS: the fixed choices, then a few the person added (a custom size, a folder they chose), newest first, then one row that opens a dialog to add another ("Custom...", "C... |
 | `uui_edit.h` | uui_edit -- what EDITING TEXT means, in one place. |

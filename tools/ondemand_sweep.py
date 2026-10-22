@@ -281,6 +281,9 @@ TOOLS = [
     # from the host image after a pull, a re-plug, a 4 KiB stick. Its
     # own guest; needs dosfstools and mtools on the host.
     ("usb_storage", "usb_storage_test.py",     "USB sticks: read, pull, re-plug, 4K", True,  None,                   False),
+    # The desktop's half: the tray flyout opening itself, Eject there and
+    # in the File Manager's Removable group, the notices. Its own guest.
+    ("usb_desktop", "usb_desktop_test.py",     "USB sticks on the desktop: flyout, Eject", True, None,              False),
     # exFAT against the host's fsck.exfat and an independent reader, on a
     # host-made and a guest-made stick. Its own guest; needs exfatprogs.
     ("exfat_host",  "exfat_hostcheck.py",      "exFAT: fsck.exfat and a host reader", True,  None,                   False),

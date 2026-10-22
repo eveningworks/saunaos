@@ -203,8 +203,21 @@ void crash_notice_action(const char *title, const char *sub, const char *icon,
     k_strlcpy(c.action, action, sizeof c.action);
     c.act = act;
     // A newer action replaces the old one's card: only the latest can be taken back.
-    for (int i = g_count - 1; i >= 0; i--) if (g_n[i].kind == KIND_ACTION) drop(i);
+    for (int i = g_count - 1; i >= 0; i--) if (g_n[i].kind == KIND_ACTION && g_n[i].act) drop(i);
     push(&c);
+}
+
+void crash_notice_info(const char *title, const char *sub, const char *icon,
+                       const char *button, int stays) {
+    struct notice c;
+    k_memset(&c, 0, sizeof c);
+    c.kind = KIND_ACTION;
+    k_strlcpy(c.title, title, sizeof c.title);
+    k_strlcpy(c.sub, sub ? sub : "", sizeof c.sub);
+    k_strlcpy(c.icon, icon ? icon : "tb-info", sizeof c.icon);
+    k_strlcpy(c.action, button ? button : "", sizeof c.action);
+    push(&c);
+    if (stays) g_n[0].until = UINT64_MAX;
 }
 
 static int installer_open(void) {
@@ -528,7 +541,7 @@ static int button_rect(int i, int b, int *x, int *y, int *w, int *h) {
     if (b == BTN_C || b == BTN_D) return 0;
     int right = cx + cw - pad();
     if (n->kind == KIND_ACTION) {
-        if (b != BTN_A) return 0;
+        if (b != BTN_A || !n->action[0]) return 0;
         *w = ugfx_text_width(n->action) + 2 * ugfx_char_w();
         *x = right - *w;
         return 1;

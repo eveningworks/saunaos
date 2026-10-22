@@ -78,7 +78,14 @@ legacy INTx where it does not, with an always-on polled backup either
 way — a BIOS-reported INTx line can be plausible and dead. Two more
 device classes ride on it: **USB Ethernet** (CDC ECM by class, plus an
 RTL8153 vendor driver, because that adapter's ECM configuration does not
-receive) and **USB Audio** (UAC1 and UAC2, on an isochronous endpoint).
+receive), **USB Audio** (UAC1 and UAC2, on an isochronous endpoint)
+and **USB sticks** (bulk-only transport, as every stick speaks). A stick
+is mounted at `/media/<label>` as it arrives; the tray's USB item opens
+itself to show it, with Open and Eject, and the File Manager lists it
+under Removable with an Eject button of its own. Pulling one out
+WITHOUT ejecting loses nothing a finished write put on it -- a
+removable disk's writes are on it before the call returns -- and the
+desktop says plainly when that happened.
 `/bin/lsusb` names what is attached, from the ID database and the
 device's own string descriptors under `-v`.
 xHCI only, deliberately: UHCI and OHCI are a quarter of the code and run

@@ -1020,6 +1020,16 @@ def icon_tray_remote():
     return im
 
 
+# The tray's USB-drives item: a stick, its body below the connector.
+def icon_tray_usb():
+    im, d = _tb()
+    d.rounded_rectangle([18, 26, 46, 60], radius=4, outline=TB_INK, width=5)
+    d.rectangle([24, 6, 40, 26], outline=TB_INK, width=4)
+    d.rectangle([28, 12, 31, 16], fill=TB_INK)
+    d.rectangle([34, 12, 37, 16], fill=TB_INK)
+    return im
+
+
 # The tray's on-screen-keyboard item: a key grid, one state. It toggles
 # a panel rather than opening a flyout, so unlike the volume speaker
 # there is no level for it to show.
@@ -1833,6 +1843,7 @@ ICONS = {
     "tray-network-connecting": icon_tray_network_connecting,
     **{f"tray-network-connecting-{k}": _icon_tray_network_growing(k) for k in range(1, 5)},
     "tray-remote": icon_tray_remote,
+    "tray-usb": icon_tray_usb,
 }
 
 # Crash Test deliberately gets NO icon file. It is the one entry that

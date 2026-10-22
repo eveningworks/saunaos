@@ -1336,6 +1336,14 @@ static void on_widget(struct uapp *a, int id, int reason) {
         return;
     }
     if (id == ID_TREE) {
+        // A row's Eject: it chose no row.
+        int act = uui_tree_take_action(&g_tree);
+        if (act >= 0) {
+            places_eject_row(act);
+            refresh_status();
+            uapp_redraw(a);
+            return;
+        }
         // A SECOND CLICK ON THE SAME ROW EXPANDS OR COLLAPSES IT, which
         // is what Explorer and Dolphin do and what the expander column
         // alone made a small target for. The first click still
@@ -1730,9 +1738,9 @@ static int on_tick(struct uapp *a) {
         for (int i = 0; i < 2; i++)
             if (sys_fs_generation_of(fm_watch_path(uui_fileview_dir(&g_pane[i]))) != g_pane_gen[i])
                 reload_pane(&g_pane[i]);
-        int places = g_places.count;
+        unsigned places = places_signature();
         uui_places_refresh(&g_places);  // free space moved, or a disk came
-        if (g_places.count != places) tree_rebuild();
+        if (places_signature() != places) tree_rebuild();
         else if (!tree_poll()) tree_refresh_meters();
         refresh_status();
         changed = 1;

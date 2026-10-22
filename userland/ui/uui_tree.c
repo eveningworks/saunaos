@@ -26,6 +26,7 @@ void uui_tree_init(struct uui_tree *t, int x, int y, int w, int h,
     t->reorder_ctx = 0;
     t->press_node = t->pre_press_sel = -1;
     t->drag_node = -1;
+    t->action_hot = t->action_press = t->acted = -1;
     t->ins_y = t->ins_after = t->ins_before = -1;
     t->dropped_from = t->dropped_after = t->dropped_before = -1;
     t->dropped_insert = 0;
@@ -411,6 +412,41 @@ static void draw_expander(struct ugfx_surface *s, int cx, int cy, int open,
     }
 }
 
+// The right edge a row's note, meter and action are laid from.
+static int row_right(const struct uui_tree *t) {
+    int bar = uui_tree_scrollbar_visible(t) ? uui_sbar_width() : 0;
+    return t->x + t->w - bar - UUI_TREE_PAD_X - (t->sel_style == UUI_SEL_ROUNDED ? 6 : 0);
+}
+
+static int action_size(const struct uui_tree *t) { return uui_tree_row_h(t) - 6; }
+
+// Node `node`'s action button, where its row is drawn now; 0 when it has
+// none or its row is not on screen.
+static int action_rect(const struct uui_tree *t, int node, int *x, int *y, int *w, int *h) {
+    if (node < 0 || node >= t->count || !t->nodes[node].action) return 0;
+    int row = row_of_node(t, node);
+    if (row < 0) return 0;
+    int rh = uui_tree_row_h(t), sz = action_size(t);
+    *w = *h = sz;
+    *x = row_right(t) - sz;
+    *y = t->y + (row - t->top) * rh + t->anim.disp + (rh - sz) / 2;
+    return *y + sz > t->y && *y < t->y + t->h;
+}
+
+// The node whose action button is at (cx, cy), or -1.
+static int action_at(const struct uui_tree *t, int cx, int cy) {
+    int node = uui_tree_hit(t, cx, cy), x, y, w, h;
+    if (node >= 0 && action_rect(t, node, &x, &y, &w, &h) && uui_hit(x, y, w, h, cx, cy))
+        return node;
+    return -1;
+}
+
+int uui_tree_take_action(struct uui_tree *t) {
+    int n = t->acted;
+    t->acted = -1;
+    return n >= 0 && n < t->count ? id_of(t, n) : -1;
+}
+
 void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
     int rh = uui_tree_row_h(t);
     int vis = uui_tree_visible_rows(t);
@@ -436,7 +472,8 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
         if (!m->meter_on) continue;
         int room = t->x + t->w - uui_sbar_width() - UUI_TREE_PAD_X - (rounded ? 6 : 0)
                  - (row_text_x(t, n) + ugfx_text_width(m->label) + 6)
-                 - (m->note ? ugfx_text_width(m->note) + 6 : 0);
+                 - (m->note ? ugfx_text_width(m->note) + 6 : 0)
+                 - (m->action ? action_size(t) + 4 : 0);
         if (room < meter_w() + 6) meters = 0;
     }
     uint32_t sel_bg = strong ? UTHEME_ACCENT : UUI_COLOR(t->sel_bg, UTHEME_SELECTION);
@@ -529,9 +566,25 @@ void uui_tree_draw(struct ugfx_surface *s, const struct uui_tree *t) {
 
         // The note and meter at the right edge -- each only where the
         // whole label still fits: the name first, the note, the meter.
-        int right = t->x + t->w - bar - UUI_TREE_PAD_X - (rounded ? 6 : 0);
+        int right = row_right(t);
         int ty = ry + (rh - ugfx_char_h()) / 2;
         int need = tx + ugfx_text_width(nd->label) + 6;
+        // The action first, always: it is a control, the note is not.
+        if (nd->action) {
+            int sz = action_size(t), ax = right - sz, ay = ry + (rh - sz) / 2;
+            if (node == t->action_hot || node == t->action_press)
+                uui_fill_round_rect(s, ax, ay, sz, sz, uui_control_radius(0),
+                                    uui_state_bg(row_bg, node == t->action_press ? UUI_STATE_PRESSED
+                                                                               : UUI_STATE_HOVER));
+            const struct uimg *g = icon_get(nd->action, ugfx_char_h() - 2);
+            if (g) {
+                uint32_t ink;
+                if (!uui_glyph_ink(nd->action, fg, row_bg, &ink)) ink = selected && strong ? sel_fg : fg;
+                ugfx_blit_tinted(s, ax + (sz - g->w) / 2, ay + (sz - g->h) / 2, g->w, g->h,
+                                 g->px, g->w, ink);
+            }
+            right = ax - 4;
+        }
         if (nd->note) {
             int nw = ugfx_text_width(nd->note);
             if (right - nw >= need) {
@@ -672,6 +725,10 @@ int uui_tree_press(struct uui_tree *t, int cx, int cy) {
         t->top = t->sb.top;
     }
     if (r & UUI_SBAR_TOOK) return 1;
+    // A row's action button arms, and selects nothing: Eject on a stick
+    // is not a visit to it.
+    t->action_press = action_at(t, cx, cy);
+    if (t->action_press >= 0) { t->press_node = -1; return 1; }
     t->pre_press_sel = t->selected;
     t->press_node = uui_tree_hit(t, cx, cy);
     uui_tree_click(t, cx, cy);
@@ -786,11 +843,16 @@ static int tree_motion_op(void *w, int cx, int cy, unsigned buttons) {
         if (t->hovered != -1) { t->hovered = -1; r |= UUI_SBAR_REDRAW; }
         return (r & UUI_SBAR_REDRAW) != 0;
     }
-    return uui_tree_hover(t, cx, cy) | ((r & UUI_SBAR_REDRAW) != 0);
+    int hot = buttons ? t->action_hot : action_at(t, cx, cy), moved = hot != t->action_hot;
+    t->action_hot = hot;
+    return uui_tree_hover(t, cx, cy) | moved | ((r & UUI_SBAR_REDRAW) != 0);
 }
 static int tree_release_op(void *w, int cx, int cy) {
-    (void)cx; (void)cy;
-    uui_tree_drag_end((struct uui_tree *)w);
+    struct uui_tree *t = w;
+    // Fires only over the button that was pressed.
+    if (t->action_press >= 0 && action_at(t, cx, cy) == t->action_press) t->acted = t->action_press;
+    t->action_press = -1;
+    uui_tree_drag_end(t);
     return 1;
 }
 static int tree_wheel_op(void *w, int notches) { return uui_tree_wheel(w, notches); }

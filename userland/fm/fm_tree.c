@@ -138,6 +138,12 @@ static int tree_build_head(void) {
                                                        .kind = UUI_TREE_HEADER };
             n++;
         }
+        if (i == g_places.removable && i < g_places.network) {
+            g_tree_path[n][0] = '\0';
+            g_tree_place[n] = TREE_HEADER;
+            g_tree_nodes[n] = (struct uui_tree_node){ .label = "Removable", .kind = UUI_TREE_HEADER };
+            n++;
+        }
         if (i == g_places.network) {
             g_tree_path[n][0] = '\0';
             g_tree_place[n] = TREE_HEADER;
@@ -152,6 +158,7 @@ static int tree_build_head(void) {
             nd->kind = !g_tree_on ? UUI_TREE_AUTO
                      : tree_is_open(r->path) ? UUI_TREE_OPEN : UUI_TREE_CLOSED;
             head_device(nd, r, i);
+            if (r->removable) nd->action = "tb-eject";
         }
         n++;
     }

@@ -5882,7 +5882,23 @@ main()'s local.
   never a blocking call from the compositor: the network card runs
   `/bin/netctl`, and its once-a-second read shows the outcome. A control
   whose effect lags shows what was asked for a few seconds rather than
-  flicking back.
+  flicking back. A request to a SERVICE's channel that is only queued
+  (`lib/udrive.h`'s `udrive_ask_eject()`) is the same rule: send, never
+  wait, and read the reply on the next poll.
+
+## A FLYOUT THAT OPENS ITSELF CLOSES ITSELF, AND NEVER TAKES THE CLICK THAT CLOSES IT
+
+- **A flyout the person did not open** -- the USB item's, on a stick
+  plugged in (`drives_popup.c`, KDE's Device Notifier) -- opens only
+  when no menu or dialog is up (`wm_overlay_any_open()`), closes itself
+  after a few seconds untouched, and the pointer over it holds it.
+- **A click outside it closes it AND GOES THROUGH** to what is under
+  the pointer. Every flyout the person opened eats its dismissing click
+  (`*_handle_click()` returns 1); a self-opened one returning 1 swallowed
+  the first click on the window the person was working in, and the test
+  found it as an Eject in the File Manager that did nothing.
+- **A flyout closes with its tray icon**: an item that hides (the last
+  stick ejected) takes its open card with it.
 
 ## EDITABLE TEXT HAS ONE HISTORY: `uui_undo`, RECORDED BY `uui_edit`
 

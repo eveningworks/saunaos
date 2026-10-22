@@ -49,6 +49,7 @@
 #include "close_batch.h"
 #include "network_popup.h"
 #include "remote_popup.h"
+#include "drives_popup.h"
 #include "layout_popup.h"
 #include "wm_overlay.h"
 #include "osk.h"
@@ -1141,6 +1142,7 @@ void wm_run(void) {
     wm_setup_hold_begin();  // First-boot setup on its way: no desktop until it is up
     network_tray_init();  // furthest right of the non-clock items
     remote_tray_init();   // hidden unless somebody is connected
+    drives_tray_init();   // hidden unless a USB stick is plugged in
 
     // Announced once per run of this loop. Reset here rather than
     // declared static-and-forgotten, because `gui` can re-enter it:
@@ -1546,6 +1548,7 @@ void wm_run(void) {
             g_clock_ticks++;
             volume_tray_update(); // the speaker icon follows the level
             remote_poll();        // who is on this machine, and what they did
+            drives_poll();        // USB sticks: arrived, ejected, pulled
             layout_poll();        // the layout list, or the active one, changed
             // A CADENCE, not a generation compare, and network_popup.c
             // says why: there is no netdev generation in the ABI, and

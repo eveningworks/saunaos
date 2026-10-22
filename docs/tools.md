@@ -4588,7 +4588,21 @@ window without going through it will find its layout polls timing out.
   running takes the lowest free name, and formats, writes and reads the
   4K stick. Controls that turned it red: a driver dropping every write,
   and disk names counted rather than chosen (a re-plug got a second
-  `usb1`). Needs dosfstools and mtools. In `ondemand_sweep.py`.
+  `usb1`). automountd mounts the boot-time stick at `/media/TESTSTICK`
+  and the replug at `/media/REPLUG`; it is stopped in between so the
+  pulled mount is the kernel's alone to handle. Needs dosfstools and
+  mtools. In `ondemand_sweep.py`.
+
+- **`usb_desktop_test.py`** -- the desktop's side of USB sticks, on a
+  stick hot-plugged into a running desktop: the tray item hidden with
+  none, the flyout OPENING ITSELF and closing itself again (and DRAWN:
+  its rect differs once it has closed, a far corner does not), Eject
+  pressed where `gui drives --json` says it is, the notice "<label> can
+  be pulled out", the File Manager's Removable heading and its row's
+  own Eject button (aimed from the tree's layout log), and a stick
+  pulled without Eject told as "was pulled out". `--positive-control`
+  pulls instead of ejecting: the eject checks go red. Needs dosfstools
+  and mtools. In `ondemand_sweep.py`.
 
 - **`nvme_test.py`** -- one QEMU NVMe controller with TWO namespaces
   and no other disk: namespace 1 a copy of `disk.img` (SeaBIOS boots it,

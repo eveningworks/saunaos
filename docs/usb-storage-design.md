@@ -4,7 +4,7 @@ A staged plan for USB sticks, card readers and USB disks: both
 transports, a disk that can disappear, quick removal, exFAT, auto-mount
 with Eject, and a root filesystem on the stick.
 
-Written 2026-10-22. **Stages 1, 2 and 4 are BUILT** (the same day;
+Written 2026-10-22. **Stages 1, 2, 4 and 5 are BUILT** (the same day;
 exFAT was taken before UAS, which no stick speaks); the others are not. The stage markers go on the list below as they land.
 
 ## The finding that shapes the plan
@@ -148,10 +148,23 @@ Each stage is gated, committed and usable on its own.
    chained files. Host-checked against Linux's `mkfs.exfat` and the
    kernel's exfat driver on images, before it touches a real stick.
    Formatting from Disks follows.
-5. **Auto-mount, Eject, the notice.** A ring-3 service waits on device
-   changes and mounts what it recognises; the File Manager's volumes
-   gain Eject; the desktop says a stick arrived (and, unannounced, that
-   one left). Mockups first.
+5. **Auto-mount, Eject, the notice.** BUILT 2026-10-22, from mockups
+   (N2, F1, R1). `/bin/automountd` (a service, udisks2's job) waits on
+   the device wakeword and mounts each readable volume on a removable
+   disk at `/media/<label>` -- `-2`, `-3` on a clash -- once per plug, so
+   a manual unmount is respected; it tidies a pulled stick's GONE mount.
+   `SYS_EJECT` (`blk_eject()`: flush, SCSI SYNCHRONIZE CACHE and START
+   STOP UNIT, then the disk goes as `QUERY_DEVEV_EJECTED`) behind
+   `/bin/eject` and `lib/udrive.h`. The desktop never touches the disk:
+   it ASKS automountd over its channel (`drives`). The tray's USB item
+   (`userland/wm/drives_popup.c`, KDE's Disks & Devices) opens itself
+   for a few seconds when a stick is mounted, with Open, Eject, Eject
+   all and Disks, drawn by the shared `ui/uui_drive.h` row; the File
+   Manager's tree has a Removable heading and a per-row Eject
+   (`uui_tree_node.action`). From the kernel's device events it says
+   "<name> can be pulled out" after an Eject from anywhere, and "<name>
+   was pulled out" -- held until read -- when a stick with a mounted
+   volume went without one. `tools/usb_desktop_test.py`.
 6. **The root on a stick.** `rootwait` (Linux's word): the boot waits,
    bounded, for the named root device, since USB enumeration finishes
    after the disks a PCI probe finds; `install` and `make usb-image`

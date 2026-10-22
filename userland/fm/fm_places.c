@@ -11,6 +11,7 @@
 #include "kpath.h"
 #include "lib/upins.h"
 #include "lib/uvolinfo.h"
+#include "lib/udrive.h"
 #include "lib/udirs.h"
 #include "ui/uui_verbs.h"
 #include "lib/uconf.h"
@@ -51,6 +52,14 @@ void places_build(void) {
     uui_places_init(&g_places);
     uui_places_add_pins(&g_places, 1);
     uui_places_refresh(&g_places);
+}
+
+unsigned places_signature(void) {
+    unsigned h = 2166136261u ^ (unsigned)g_places.count ^ ((unsigned)g_places.removable << 8) ^
+                 ((unsigned)g_places.network << 16);
+    for (int i = 0; i < g_places.count; i++)
+        for (const char *c = g_places.row[i].path; *c; c++) h = (h ^ (unsigned char)*c) * 16777619u;
+    return h;
 }
 
 // A TREE ROW WHOSE FOLDER HAS GONE -- a pin to a folder deleted since
@@ -137,6 +146,8 @@ static enum kind kind_of(int nid) {
     return !strcmp(p, FM_RECENT) ? K_RECENT : !strcmp(p, FM_BIN) ? K_BIN : K_PIN;
 }
 
+static const struct uui_place *place_removable(const char *point);
+
 int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
     int n = 0;
     g_kind = kind_of(nid);
@@ -197,6 +208,7 @@ int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
             if (g_vol.persistent) ADD(UUI_MENU_VERB("Check...", CMD_PL_CHECK, 0, CHECK));
             if (g_vol.disks_mounted) ADD(UUI_MENU_VERB("Unmount", CMD_PL_UNMOUNT, 0, UNMOUNT));
         }
+        if (place_removable(g_aim)) ADD(UUI_MENU_VERB("Eject", CMD_PL_EJECT, 0, EJECT));
         SEP;
         ADD(UUI_MENU_VERB("Properties", CMD_PL_PROPERTIES, 0, PROPERTIES));
         break;
@@ -273,6 +285,31 @@ static void unmount(void) {
     rebuild();
 }
 
+// The removable mount at `point`, or NULL.
+static const struct uui_place *place_removable(const char *point) {
+    for (int i = g_places.removable; i < g_places.network; i++)
+        if (!strcmp(g_places.row[i].path, point)) return &g_places.row[i];
+    return 0;
+}
+
+// THE SERVICE EJECTS (lib/udrive.h): unmounting waits on the disk, and
+// the stick's row goes when automountd has done it -- the generation
+// watch sees the mount leave. Only the panes are moved off it here.
+static void eject(const char *point) {
+    const struct uui_place *r = place_removable(point);
+    char disk[16];
+    if (!r || udrive_disk_of(r->dev, disk, sizeof disk) < 0) { set_note("that is not a USB drive"); return; }
+    leave(point);
+    if (udrive_ask_eject(disk) < 0) set_note("could not eject it -- the drive service is not running");
+    else snprintf(g_stat_note, sizeof g_stat_note, "ejecting %s...", r->label);
+    ulogf("files: eject %s (%s)\n", point, disk);
+}
+
+void places_eject_row(int nid) {
+    int pl = tree_place_of(nid);
+    if (pl >= 0 && pl < g_places.count) eject(g_places.row[pl].path);
+}
+
 // The pin's own name, typed: answer_prompt() hands it here.
 void places_rename_pin(const char *label) {
     int e = upins_set_label(g_aim, label);
@@ -346,6 +383,7 @@ void places_command(struct uapp *a, int code) {
         break;
     }
     case CMD_PL_UNMOUNT:    unmount(); break;
+    case CMD_PL_EJECT:      eject(path); break;
     case CMD_PL_SIGNIN:     net_aim(path); net_command(CMD_NET_SIGNIN); break;
     case CMD_PL_DISCONNECT: net_aim(path); net_command(CMD_NET_DISCONNECT); break;
     case CMD_PL_FORGET:     net_aim(path); net_command(CMD_NET_FORGET); break;
@@ -377,13 +415,14 @@ void places_command(struct uapp *a, int code) {
 // folder dragged in from a pane lands only in a Places gap, and is pinned
 // there; dropped ONTO a row it is moved into that folder, as ever.
 
-enum { G_NONE = -1, G_LIST, G_VOLUMES, G_SHARES };
+enum { G_NONE = -1, G_LIST, G_VOLUMES, G_REMOVABLE, G_SHARES };
 
 static int group_of(int nid) {
     int pl = tree_place_of(nid);
     if (pl < 0) return G_NONE;
     if (pl < g_places.places) return G_LIST;
-    if (pl < g_places.network) return G_VOLUMES;
+    if (pl < g_places.removable) return G_VOLUMES;
+    if (pl < g_places.network) return G_REMOVABLE;
     return pl < g_places.count ? G_SHARES : G_NONE;
 }
 
@@ -414,8 +453,8 @@ void places_reorder_init(void) {
 // the next, so the gap under it names a folder below.
 static void mounts_reorder(int g, int from, int after, int before) {
     static char pts[UUI_PLACES_MAX][64];
-    int lo = g == G_VOLUMES ? g_places.places : g_places.network;
-    int hi = g == G_VOLUMES ? g_places.network : g_places.count;
+    int lo = g == G_VOLUMES ? g_places.places : g == G_REMOVABLE ? g_places.removable : g_places.network;
+    int hi = g == G_VOLUMES ? g_places.removable : g == G_REMOVABLE ? g_places.network : g_places.count;
     const char *moved = g_places.row[tree_place_of(from)].path;
     const char *ahead = before >= 0 && group_of(before) == g ? g_places.row[tree_place_of(before)].path : 0;
     const char *behind = !ahead && after >= 0 && group_of(after) == g ? g_places.row[tree_place_of(after)].path : 0;

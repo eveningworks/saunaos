@@ -15,6 +15,8 @@
 #include "brightness_popup.h"
 #include "network_popup.h"
 #include "remote_popup.h"
+#include "drives_popup.h"
+#include "ui/uui_drive.h"
 #include "layout_popup.h"
 #include "wm_overlay.h"
 #include "crash_notice.h"
@@ -1970,6 +1972,45 @@ static void cmd_remote(struct dbg_out *o, int json) {
     }
 }
 
+static void cmd_drives(struct dbg_out *o, int json) {
+    struct drives_geom g;
+    drives_geometry(&g);
+    int n = drives_count();
+    if (json) {
+        dbg_out_printf(o, "{\"open\":%s,\"itself\":%s,\"tray_hidden\":%s,\"rows\":[",
+                       drives_open ? "true" : "false", drives_opened_itself() ? "true" : "false",
+                       drives_tray_hidden() ? "true" : "false");
+        // Each row's text and its buttons' centres, so a test presses
+        // Eject by asking where it is.
+        for (int i = 0; i < n; i++) {
+            dbg_out_printf(o, "%s{\"title\":\"%s\",\"sub\":\"%s\",\"point\":\"%s\",\"busy\":%s",
+                           i ? "," : "", drives_row_title(i), drives_row_sub(i), drives_row_point(i),
+                           drives_row_busy(i) ? "true" : "false");
+            for (int b = 0; b < UUI_DRIVE_BTNS; b++) {
+                int r[4];
+                if (!drives_button(i, b, r)) continue;
+                dbg_out_printf(o, ",\"%s\":{\"cx\":%d,\"cy\":%d}", b == UUI_DRIVE_OPEN ? "open" : "eject",
+                               r[0] + r[2] / 2, r[1] + r[3] / 2);
+            }
+            dbg_out_printf(o, "}");
+        }
+        dbg_out_printf(o, "],\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,", g.x, g.y, g.w, g.h);
+        dbg_out_printf(o, "\"all\":{\"cx\":%d,\"cy\":%d},\"gear\":{\"cx\":%d,\"cy\":%d},",
+                       g.all_x + g.all_w / 2, g.btn_y + g.btn_h / 2, g.gear_x + g.gear_w / 2,
+                       g.btn_y + g.btn_h / 2);
+        dbg_out_printf(o, "\"tray\":{\"x\":%d,\"y\":%d,\"w\":%d,\"h\":%d,\"cx\":%d,\"cy\":%d}}\r\n",
+                       g.tray_x, g.tray_y, g.tray_w, g.tray_h,
+                       g.tray_x + g.tray_w / 2, g.tray_y + g.tray_h / 2);
+        return;
+    }
+    dbg_out_printf(o, "drives: %s%s  %s  %d volume(s)\r\n", drives_open ? "open" : "closed",
+                   drives_opened_itself() ? " (by itself)" : "",
+                   drives_tray_hidden() ? "tray hidden" : "tray shown", n);
+    for (int i = 0; i < n; i++)
+        dbg_out_printf(o, "  %s  %s%s%s\r\n", drives_row_title(i), drives_row_sub(i),
+                       drives_row_point(i)[0] ? "  at " : "", drives_row_point(i));
+}
+
 static void usage(struct dbg_out *o) {
     dbg_out_write(o, "gui subcommands (all of these work while the desktop is up):\r\n");
     dbg_out_write(o, "  windows [--json]      open windows: rects, content rects, z-order, focus\r\n");
@@ -2009,6 +2050,7 @@ static void usage(struct dbg_out *o) {
     dbg_out_write(o, "  latency [reset] [--json]  frame work, wake overshoot and ping, as distributions\r\n");
     dbg_out_write(o, "  network [--json]      the tray's network item: state, address, panel rect\r\n");
     dbg_out_write(o, "  remote [--json]       the tray's remote-activity item: sessions and what they did\r\n");
+    dbg_out_write(o, "  drives [--json]       the tray's USB drives item: each volume, its buttons\r\n");
     dbg_out_write(o, "  layout [--json]       the keyboard-layout item: the list, the active one, the switcher\r\n");
     dbg_out_write(o, "  pingtimeout [<ticks>] not-responding timeout (a TEST lever)\r\n");
     dbg_out_write(o, "  pinginterval [<ticks>] how often every client is asked (a TEST lever)\r\n");
@@ -2293,6 +2335,10 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
 
     if (k_strcmp(sub, "remote") == 0) {
         cmd_remote(o, wants_json(p));
+        return 1;
+    }
+    if (k_strcmp(sub, "drives") == 0) {
+        cmd_drives(o, wants_json(p));
         return 1;
     }
     if (k_strcmp(sub, "layout") == 0) {

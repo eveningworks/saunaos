@@ -237,9 +237,9 @@ int net_tick(void) {
         unsigned sig = signature();
         if (sig != g_sig) {
             g_sig = sig;
-            int count = g_places.count;
+            unsigned rows = places_signature();
             uui_places_refresh(&g_places);
-            if (g_places.count != count) tree_rebuild();
+            if (places_signature() != rows) tree_rebuild();
             else tree_refresh_meters();
             changed = 1;
         }

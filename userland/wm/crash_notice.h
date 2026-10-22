@@ -40,6 +40,12 @@ const char *crash_notice_describe(int details[4], int reopen[4]);
 void crash_notice_action(const char *title, const char *sub, const char *icon,
                          const char *action, void (*act)(void));
 
+// A card that only TELLS -- "ESD-USB can be pulled out" -- with `button`
+// (may be NULL) dismissing it. Never replaces an Undo card. `stays`: until
+// dismissed, for news the person must not miss.
+void crash_notice_info(const char *title, const char *sub, const char *icon,
+                       const char *button, int stays);
+
 // A client's WIN_REQ_NOTICE, one piece of its path at a time.
 void crash_notice_piece(int pid, int a, int kind, unsigned flags, const char *text);
 // The newest card's action `b` (1..4): its label, and its rect in r.
