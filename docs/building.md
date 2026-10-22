@@ -102,6 +102,7 @@ make run WINDOW=fit     # a resizable window the guest is SCALED into
 make run NOGRAPHIC=1    # serial console only -- use this over SSH
 make run MENU=1         # show GRUB's menu instead of booting through
 make run MEM=512        # a smaller machine
+make run BALLOON=0      # no virtio-balloon: freed memory is not handed back to the host
 make run NET=virtio     # virtio-net instead of the e1000 (NET=none for no card)
 make run NODISK=1       # no disk attached at all
 make run LIVE=1         # the Live CD, no disk attached
