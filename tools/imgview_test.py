@@ -937,8 +937,11 @@ def check_auto_resize_falls_back(dbg, res):
     to tell a fast client from a slow one, so one client can only ever
     show one half: winclient repaints in a couple of frames and must
     stay live, and this viewer rescales a JPEG per proposed size and
-    must not. Measured here: ~200-300 ms to become a size it was asked
-    for, against winclient's 20-30 ms, and a threshold of 100 ms.
+    must not. Measured here under TCG: ~150 ms to become a size it was
+    asked for, against winclient's 20-30 ms, and a threshold of 100 ms.
+    UNDER KVM THE VIEWER CAN STAY UNDER IT (~70 ms), so the assertion is
+    on what the WM did with the number, either way; the outline half is
+    exercised only on a host slow enough to cross it.
 
     THE FIRST DRAG IS LIVE AND THAT IS CORRECT -- a window nobody has
     dragged has no measurement, and `auto` refuses to guess from
@@ -970,8 +973,11 @@ def check_auto_resize_falls_back(dbg, res):
     set_setting(dbg, "desktop.resize_mode", "auto")
     first = drag_grip(90, 60)
     second = drag_grip(90, 60)
-    res.check("auto: a client too slow to follow is outlined on the next drag",
-              first and second and first["lag"] > 100 and second["paint"] == "outline",
+    # WHAT THE WM DID WITH THE NUMBER IT MEASURED, either way: a host fast
+    # enough to keep the viewer under the threshold must keep it live.
+    want = "outline" if first and first["lag"] > 100 else "live"
+    res.check(f"auto: the next drag follows the measured lag ({want})",
+              first and second and second["paint"] == want,
               f"first drag lag {first['lag']}ms paint {first['paint']}, "
               f"second paint {second['paint']}"
               if first and second else "no window")

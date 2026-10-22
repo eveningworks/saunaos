@@ -70,7 +70,7 @@ enum {
     CMD_SLIDESHOW, CMD_PROPS, CMD_COPY,
 };
 
-enum { USER_DECODED = 1, USER_THUMB };
+enum { USER_DECODED = 1, USER_THUMB, USER_SHARP };
 
 static struct uapp *g_app;
 static char g_dir[PATH_MAX_LEN] = DEFAULT_DIR;
@@ -82,6 +82,10 @@ static int g_count, g_cur = -1;
 
 static struct uimg g_img;      // the decoded picture, owned here
 static struct uimg g_rimg;     // ...turned, when g_rot is not 0
+// The picture fitted to the screen, which uui_image scales the fit mode's
+// FAST frame from (uui_image.h's `preview`), turned with the picture --
+// empty when it is no bigger than the screen, and for an animation.
+static struct uimg g_prev, g_rprev;
 static int g_have_img, g_rot;
 
 // AN ANIMATION OWNS ITS CANVAS: while g_animated, g_img is g_anim.frame
@@ -243,9 +247,10 @@ struct decode_job {
     struct uimg img;            // the animation's canvas when `animated`
     struct uimg_anim anim;
     int animated, delay;
+    struct uimg preview;
     struct uimg_info info;
     int rc;
-    unsigned long long ms;
+    unsigned long long ms, preview_ms;
     char err[96];   // uimg_last_error() is one string per process
 };
 
@@ -273,6 +278,13 @@ static void *decode_main(void *arg) {
     }
     j->ms = (sys_monotonic_ns() - t0) / 1000000ull;
     if (j->rc < 0) strlcpy(j->err, uimg_last_error(), sizeof j->err);
+    // The screen-sized copy, here rather than on the paint loop, and
+    // timed apart from the decode it follows.
+    if (j->rc == 0 && !j->animated) {
+        t0 = sys_monotonic_ns();
+        uui_image_make_preview(&j->img, &j->preview);
+        j->preview_ms = (sys_monotonic_ns() - t0) / 1000000ull;
+    }
     uapp_post(j->app, USER_DECODED, 0);
     return NULL;
 }
@@ -331,6 +343,96 @@ static void start_decode(struct uapp *a, const char *path, const char *name) {
     }
 }
 
+// --- the sharp scale, on a WORKER THREAD ---------------------------------
+//
+// A resize draws the fit from the preview at once, which is soft; once
+// the size has held for SHARP_DELAY_MS the full picture is scaled here,
+// off the paint loop, and the widget swaps it in (uui_image_adopt_sharp).
+//
+// **THE PICTURE IT READS MUST NOT BE FREED UNDER IT.** While g_sharp
+// runs, a finished decode and a rotation -- the two things that free
+// g_img or g_rimg -- wait for it (g_decode_waiting, g_rot_waiting), and
+// exit joins it. An animation has no preview, so never a job.
+#define SHARP_DELAY_MS 300
+struct sharp_job {
+    struct uapp *app;
+    const struct uimg *from;
+    int w, h;
+    struct uimg out;
+    unsigned long long ms;
+};
+static struct sharp_job *g_sharp;
+static pthread_t g_sharp_thread;
+static int g_sharp_threaded;
+static int g_sharp_w, g_sharp_h;   // the size the tick is armed for
+static int g_decode_waiting, g_rot_waiting;
+
+static void *sharp_main(void *arg) {
+    struct sharp_job *j = (struct sharp_job *)arg;
+    unsigned long long t0 = sys_monotonic_ns();
+    if (uimg_scale(j->from, j->w, j->h, &j->out) < 0) memset(&j->out, 0, sizeof j->out);
+    j->ms = (sys_monotonic_ns() - t0) / 1000000ull;
+    uapp_post(j->app, USER_SHARP, 0);
+    return NULL;
+}
+
+static void start_sharp(struct uapp *a, int w, int h) {
+    struct sharp_job *j = calloc(1, sizeof *j);
+    if (!j) return;
+    j->app = a;
+    j->from = g_view.img;
+    j->w = w;
+    j->h = h;
+    g_sharp = j;
+    g_sharp_threaded = pthread_create(&g_sharp_thread, NULL, sharp_main, j) == 0;
+    if (!g_sharp_threaded) sharp_main(j);
+}
+
+static void finish_decode(struct uapp *a);
+static void show_rotation(void);
+
+static void finish_sharp(struct uapp *a) {
+    struct sharp_job *j = g_sharp;
+    if (!j) return;
+    if (g_sharp_threaded) pthread_join(g_sharp_thread, NULL);
+    g_sharp = NULL;
+    int took = uui_image_adopt_sharp(&g_view, j->from, &j->out);
+    ulogf("imgview: sharp %dx%d in %llu ms, %s\n", j->w, j->h, j->ms, took ? "shown" : "dropped");
+    free(j);
+    if (g_rot_waiting) {
+        g_rot_waiting = 0;
+        show_rotation();
+    }
+    if (g_decode_waiting) {
+        g_decode_waiting = 0;
+        finish_decode(a);
+    }
+    uapp_redraw(a);
+}
+
+// Called from each draw: a fit drawn from the preview at a NEW size
+// re-arms the tick, so a resize in progress keeps pushing the sharp
+// scale back and only the size it stops at is scaled.
+static void arm_sharp(struct uapp *a) {
+    int w, h;
+    if (g_sharp || g_animated || !uui_image_sharp_wanted(&g_view, &w, &h)) return;
+    if (w == g_sharp_w && h == g_sharp_h) return;
+    g_sharp_w = w;
+    g_sharp_h = h;
+    uapp_set_tick(a, SHARP_DELAY_MS);
+}
+
+// The armed tick: still wanted at the same size, so scale it.
+static void sharp_tick(struct uapp *a) {
+    if (!g_sharp_w) return;
+    int w, h;
+    if (!g_sharp && !g_animated && uui_image_sharp_wanted(&g_view, &w, &h) &&
+        w == g_sharp_w && h == g_sharp_h)
+        start_sharp(a, w, h);
+    g_sharp_w = g_sharp_h = 0;
+    if (!g_animated) uapp_set_tick(a, IDLE_TICK_MS);
+}
+
 static void show_index(struct uapp *a, int i) {
     if (i < 0 || i >= g_count) return;
     g_cur = i;
@@ -357,6 +459,7 @@ static void free_picture(struct uapp *a) {
     } else if (g_have_img) {
         uimg_free(&g_img);
     }
+    uimg_free(&g_prev);
     g_have_img = 0;
 }
 
@@ -395,18 +498,33 @@ static int next_frame(struct uapp *a) {
 
 // What the widget shows: the picture, or its turned copy.
 static void show_rotation(void) {
+    if (g_sharp) {
+        g_rot_waiting = 1;
+        ulog("imgview: rotation waits for the sharp scale\n");
+        return;
+    }
     uui_image_set(&g_view, NULL);
     uimg_free(&g_rimg);
-    if (g_have_img && g_rot && uimg_rotate(&g_img, g_rot, &g_rimg) == 0)
+    uimg_free(&g_rprev);
+    if (g_have_img && g_rot && uimg_rotate(&g_img, g_rot, &g_rimg) == 0) {
         uui_image_set(&g_view, &g_rimg);
-    else if (g_have_img)
+        if (g_prev.px && uimg_rotate(&g_prev, g_rot, &g_rprev) == 0)
+            uui_image_set_preview(&g_view, &g_rprev);
+    } else if (g_have_img) {
         uui_image_set(&g_view, &g_img);
+        if (g_prev.px) uui_image_set_preview(&g_view, &g_prev);
+    }
     zoom_to(0, -1, -1);
 }
 
 static void finish_decode(struct uapp *a) {
     struct decode_job *j = g_active;
     if (!j) return;
+    if (g_sharp) {
+        g_decode_waiting = 1;
+        ulog("imgview: decode waits for the sharp scale\n");
+        return;
+    }
     g_active = NULL;
     uapp_busy_end(a);
 
@@ -416,6 +534,7 @@ static void finish_decode(struct uapp *a) {
         uimg_free(&g_rimg);
         free_picture(a);
         g_img = j->img;
+        g_prev = j->preview;
         g_have_img = 1;
         g_rot = 0;
         if (j->animated) {
@@ -434,6 +553,8 @@ static void finish_decode(struct uapp *a) {
         snprintf(g_stat_note, sizeof g_stat_note, "decoded in %llu ms", j->ms);
         ulogf("imgview: shown %s %dx%d in %llu ms, %u frame(s) during\n",
               j->name, j->img.w, j->img.h, j->ms, g_frames_during);
+        if (g_prev.px)
+            ulogf("imgview: preview %dx%d in %llu ms\n", g_prev.w, g_prev.h, j->preview_ms);
     } else {
         // A REFUSAL IS NOT A CORRUPTION, and the status bar says which:
         // the decoder's own sentence, copied on the worker.
@@ -837,6 +958,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     }
     uapp_log_layout(a, "imgview");   // every widget, by name (ui/uui_describe.h)
     sync_cursor(a);
+    arm_sharp(a);
 }
 
 static void on_draw_over(struct uapp *a, struct uapp_draw *d) {
@@ -1037,6 +1159,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
 
 static int on_tick(struct uapp *a) {
     uthumb_tick();
+    sharp_tick(a);
     int redraw = uui_toolbar_tick(&g_tb);
     // A few ms of slack: the timer's deadline is kept in nanoseconds and
     // this in milliseconds, and a tick that lands a hair early must not
@@ -1060,6 +1183,7 @@ static int on_tick(struct uapp *a) {
 static int on_user(struct uapp *a, int a0, int a1) {
     (void)a1;
     if (a0 == USER_DECODED) { finish_decode(a); return 1; }
+    if (a0 == USER_SHARP) { finish_sharp(a); return 1; }
     if (a0 == USER_THUMB) return uthumb_posted();
     return 0;
 }
@@ -1164,8 +1288,10 @@ int main(int argc, char **argv) {
         .on_user      = on_user,
     };
     int rc = uapp_run(&desc);
+    if (g_sharp && g_sharp_threaded) pthread_join(g_sharp_thread, NULL);   // it reads g_img
     uui_image_release(&g_view);
     uimg_free(&g_rimg);
+    uimg_free(&g_rprev);
     free_picture(NULL);   // the window is gone: no timer to re-arm
     uambient_stage_free(&g_stage);
     return rc;

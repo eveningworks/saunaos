@@ -59,22 +59,38 @@ void uambient_paint(struct uambient_stage *st, const struct uambient *a,
     if (!st->grad || st->w != w || st->h != h || st->c != a->centre || st->e != a->edge) {
         free(st->grad);
         st->grad = malloc((size_t)w * (size_t)h * sizeof *st->grad);
-        if (!st->grad) { ugfx_fill_rect(s, x, y, w, h, a->edge); return; }
+        long *dx2 = malloc((size_t)w * sizeof *dx2);
+        if (!st->grad || !dx2) {
+            free(st->grad);
+            free(dx2);
+            st->grad = 0;
+            ugfx_fill_rect(s, x, y, w, h, a->edge);
+            return;
+        }
         st->w = w; st->h = h; st->c = a->centre; st->e = a->edge;
         // An ellipse a little wider than the stage, centred just above
         // the middle; t squared needs no square root and falls off as a
-        // lit-from-behind ground should.
+        // lit-from-behind ground should. Rebuilt on every resize, so the
+        // divides and blends are hoisted out of the pixel loop: a column
+        // table, and the 256 colours t can name.
         int cx = w / 2, cy = h * 45 / 100;
         long rx = (long)w * 65 / 100 + 1, ry = (long)h * 75 / 100 + 1;
+        uint32_t lut[256];
+        for (int t = 0; t < 256; t++) lut[t] = ugfx_blend(st->c, st->e, (uint8_t)t);
+        for (int xx = 0; xx < w; xx++) {
+            long dx = (long)(xx - cx) * 256 / rx;
+            dx2[xx] = dx * dx;
+        }
         for (int yy = 0; yy < h; yy++) {
             long dy = (long)(yy - cy) * 256 / ry;
+            long dy2 = dy * dy;
+            uint32_t *row = st->grad + (size_t)yy * w;
             for (int xx = 0; xx < w; xx++) {
-                long dx = (long)(xx - cx) * 256 / rx;
-                long t = (dx * dx + dy * dy) >> 8;
-                if (t > 255) t = 255;
-                st->grad[(size_t)yy * w + xx] = ugfx_blend(st->c, st->e, (uint8_t)t);
+                long t = (dx2[xx] + dy2) >> 8;
+                row[xx] = lut[t > 255 ? 255 : t];
             }
         }
+        free(dx2);
     }
     ugfx_blit(s, x, y, w, h, st->grad, w);
 }

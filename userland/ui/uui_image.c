@@ -1,6 +1,8 @@
 // See uui_image.h.
 #include "ui/uui_image.h"
 #include "ui/utheme.h"
+#include "rt/sys.h"
+#include "query_abi.h"
 #include <string.h>
 
 // The theme's when the app left it unset, looked up per paint
@@ -17,14 +19,22 @@ void uui_image_init(struct uui_image *im, const struct uimg *src, enum uimg_fit 
 void uui_image_set(struct uui_image *im, const struct uimg *src) {
     uimg_free(&im->scaled);
     im->cache_src = NULL;
-    im->cache_failed = 0;
+    im->cache_failed = NULL;
     im->img = src;
+    im->preview = NULL;
+}
+
+void uui_image_set_preview(struct uui_image *im, const struct uimg *preview) {
+    uimg_free(&im->scaled);
+    im->cache_src = NULL;
+    im->cache_failed = NULL;
+    im->preview = preview;
 }
 
 void uui_image_set_fit(struct uui_image *im, enum uimg_fit fit) {
     if (im->fit == fit) return;
     im->fit = fit;
-    im->cache_failed = 0;
+    im->cache_failed = NULL;
 }
 
 void uui_image_release(struct uui_image *im) {
@@ -147,27 +157,87 @@ int uui_image_drawn_rect(const struct uui_image *im, int *x, int *y, int *w, int
 // Brings the cached scale up to date. Returns the image to blit, which
 // is the SOURCE itself when no scaling is needed -- copying an image to
 // draw it unchanged would double its memory for nothing.
+//
+// Whether a dw x dh scale reads the preview: the fit mode only -- a zoom
+// the user picked is drawn from the picture itself -- and never past the
+// preview's own pixels.
+static int from_preview(const struct uui_image *im, int dw, int dh) {
+    return !im->zoom && im->preview && im->preview->px &&
+           dw <= im->preview->w && dh <= im->preview->h;
+}
+
+// The cache already holds the full picture's scale at this size -- the
+// sharp one a worker handed over, or one made the slow way.
+static int sharp_cached(const struct uui_image *im, int dw, int dh) {
+    return im->scaled.px && im->cache_src == im->img && im->cache_w == dw && im->cache_h == dh;
+}
+
 static const struct uimg *ensure_scaled(struct uui_image *im, int dw, int dh) {
     if (!im->img || !im->img->px) return NULL;
     if (dw == im->img->w && dh == im->img->h) return im->img;
-    if (im->scaled.px && im->cache_src == im->img &&
+    if (sharp_cached(im, dw, dh)) return &im->scaled;
+    const struct uimg *from = im->img;
+    if (from_preview(im, dw, dh)) {
+        if (dw == im->preview->w && dh == im->preview->h) return im->preview;
+        from = im->preview;
+    }
+    if (im->scaled.px && im->cache_src == from &&
         im->cache_w == dw && im->cache_h == dh)
         return &im->scaled;
-    if (im->cache_failed) return NULL;
+    if (im->cache_failed == from) return NULL;
 
     uimg_free(&im->scaled);
-    if (uimg_scale(im->img, dw, dh, &im->scaled) < 0) {
+    im->cache_src = NULL;
+    if (uimg_scale(from, dw, dh, &im->scaled) < 0) {
         // Remembered, so a window that is too big to scale into does not
         // retry the allocation on every single frame.
-        im->cache_failed = 1;
-        im->cache_src = NULL;
+        im->cache_failed = from;
         return NULL;
     }
-    im->cache_src = im->img;
+    im->cache_src = from;
     im->cache_w = dw;
     im->cache_h = dh;
     im->cache_fit = (int)im->fit;
     return &im->scaled;
+}
+
+void uui_image_make_preview(const struct uimg *im, struct uimg *out) {
+    memset(out, 0, sizeof *out);
+    struct query_display d;
+    if (!im || !im->px || sys_query_record(QUERY_DISPLAY, 0, &d, sizeof d) < (int)sizeof d ||
+        d.width == 0 || d.height == 0)
+        return;
+    if (im->w <= (int)d.width && im->h <= (int)d.height) return;
+    int pw, ph;
+    uimg_fit_size(im->w, im->h, (int)d.width, (int)d.height, UIMG_FIT_CONTAIN, &pw, &ph);
+    if (uimg_scale(im, pw, ph, out) < 0) memset(out, 0, sizeof *out);
+}
+
+int uui_image_sharp_wanted(const struct uui_image *im, int *w, int *h) {
+    if (!im->img || !im->img->px || im->w <= 0 || im->h <= 0 || im->zoom) return 0;
+    int dw, dh;
+    drawn_size(im, &dw, &dh);
+    if (!from_preview(im, dw, dh) || sharp_cached(im, dw, dh)) return 0;
+    *w = dw;
+    *h = dh;
+    return 1;
+}
+
+int uui_image_adopt_sharp(struct uui_image *im, const struct uimg *from, struct uimg *sharp) {
+    int w, h;
+    if (!sharp->px || from != im->img || !uui_image_sharp_wanted(im, &w, &h) ||
+        sharp->w != w || sharp->h != h) {
+        uimg_free(sharp);
+        return 0;
+    }
+    uimg_free(&im->scaled);
+    im->scaled = *sharp;
+    memset(sharp, 0, sizeof *sharp);
+    im->cache_src = im->img;
+    im->cache_w = w;
+    im->cache_h = h;
+    im->cache_fit = (int)im->fit;
+    return 1;
 }
 
 void uui_image_draw(struct ugfx_surface *s, const struct uui_image *im) {

@@ -59,13 +59,29 @@ struct uui_image {
     // Paint nothing behind the picture: the app has drawn its own ground
     // (Image Viewer's ambient stage) before the widget draws.
     int transparent;
+    // A SMALLER COPY OF `img` TO SCALE FROM, borrowed like it: in the fit
+    // mode, a scale that needs no more pixels than the preview has reads
+    // it instead of the full picture, so a resize of a 12 MP photo
+    // shrinks a screen's worth of pixels rather than all of them. NULL
+    // scales from `img`. Set through uui_image_set_preview();
+    // uui_image_set() clears it.
+    //
+    // **A PREVIEW-SCALED PICTURE IS SOFTER** -- two resamples, the second
+    // near 1:1, blur fine detail such as text -- so it is the FAST frame,
+    // not the final one: uui_image_sharp_wanted() says when the owner
+    // should scale the full picture (on a worker) and hand it over with
+    // uui_image_adopt_sharp().
+    const struct uimg *preview;
 
     // The cache, and the four things it is keyed on. Private.
     struct uimg scaled;
-    const struct uimg *cache_src;
+    const struct uimg *cache_src;   // `img` or `preview`: what it was scaled from
     int cache_w, cache_h;
     int cache_fit;
-    int cache_failed;     // a scale that ran out of memory; do not retry every frame
+    // A scale that ran out of memory, so it is not retried every frame:
+    // the source it failed from, which is the key -- the full picture
+    // failing must not stop the preview serving.
+    const struct uimg *cache_failed;
 };
 
 void uui_image_init(struct uui_image *im, const struct uimg *src, enum uimg_fit fit);
@@ -75,7 +91,26 @@ void uui_image_init(struct uui_image *im, const struct uimg *src, enum uimg_fit 
 // into the same struct has new pixels behind the same address, and
 // comparing pointers would show the previous image forever.
 void uui_image_set(struct uui_image *im, const struct uimg *src);
+// The preview for the picture just set, or NULL; same invalidation.
+// It must show the same picture -- the widget cannot tell otherwise.
+void uui_image_set_preview(struct uui_image *im, const struct uimg *preview);
 void uui_image_set_fit(struct uui_image *im, enum uimg_fit fit);
+
+// The screen-fitted copy a preview is: `im` scaled to fit the display,
+// into `out` (the caller's, uimg_free()), or `out` left empty when the
+// picture already fits or the display cannot be asked. Touches no widget,
+// so a decode worker can call it.
+void uui_image_make_preview(const struct uimg *im, struct uimg *out);
+
+// 1, with the size, when what is on screen was scaled from the preview
+// and the full picture at *w x *h would replace it.
+int uui_image_sharp_wanted(const struct uui_image *im, int *w, int *h);
+// Takes `sharp` -- `from` (the picture it was scaled from) at a size
+// sharp_wanted() gave -- as the cached scale, if it still fits: the same
+// picture, still fitted, at that size. Otherwise frees it: the window
+// moved on while the worker ran, and the next sharp_wanted() says so.
+// 1 when it was taken.
+int uui_image_adopt_sharp(struct uui_image *im, const struct uimg *from, struct uimg *sharp);
 
 // Frees the scaled copy. The source image is the caller's.
 void uui_image_release(struct uui_image *im);

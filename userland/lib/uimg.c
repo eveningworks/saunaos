@@ -390,16 +390,25 @@ void uimg_fit_size(int sw, int sh, int bw, int bh, enum uimg_fit mode,
 // edge. So the alpha channel is averaged by area, and the colour
 // channels are averaged weighted by alpha -- which is the same thing as
 // premultiplying, resampling and unpremultiplying, without the two extra
-// passes over the image. It costs a multiply per channel and it is used
-// even for an opaque image, where alpha is constant and cancels exactly.
+// passes over the image. For an opaque image alpha is constant and
+// cancels exactly, which is what the opaque paths' shortcuts rest on.
 // `opaque` reads every alpha byte as 255: an image whose has_alpha is 0
 // is opaque by definition, and a buffer in 0x00RRGGBB (a client
 // window's) would otherwise weight every colour by zero and scale to
 // black.
-static void resample_axis(const uint32_t *src, uint32_t *dst,
-                          int src_n, int dst_n, int lines,
-                          int src_step, int src_line, int dst_step, int dst_line,
-                          int opaque) {
+//
+// Where one output position reads from. It depends on the position
+// alone, so a pass works it out once per position, not once per pixel.
+enum { TAP_LERP, TAP_BOX_OPAQUE, TAP_BOX };
+struct tap {
+    int s0, s1;           // the first and last source sample
+    int frac;             // LERP: the second sample's 16.16 weight
+    uint64_t inv;         // BOX_OPAQUE: 2^32 / the weights' sum
+    int64_t start, end;   // BOX: the span, 16.16
+    uint32_t wt[17];      // BOX_OPAQUE: one weight per sample
+};
+
+static int make_taps(struct tap *t, int src_n, int dst_n, int opaque) {
     if (dst_n >= src_n) {
         // Enlarge: linear interpolation between the two nearest samples.
         // The map is (i + 0.5) * src/dst - 0.5 in 16.16, clamped at the
@@ -408,29 +417,13 @@ static void resample_axis(const uint32_t *src, uint32_t *dst,
         for (int i = 0; i < dst_n; i++) {
             int64_t pos = ((2 * (int64_t)i + 1) * ratio) / 2 - (1 << 15);
             if (pos < 0) pos = 0;
-            int s0 = (int)(pos >> 16);
-            int frac = (int)(pos & 0xFFFF);
-            int s1 = s0 + 1;
+            int s0 = (int)(pos >> 16), s1 = s0 + 1;
             if (s1 > src_n - 1) { s1 = src_n - 1; if (s0 > s1) s0 = s1; }
-            for (int l = 0; l < lines; l++) {
-                const uint32_t *sp = src + (size_t)l * src_line;
-                uint32_t a = sp[(size_t)s0 * src_step];
-                uint32_t b = sp[(size_t)s1 * src_step];
-                int aa = opaque ? 255 : (int)(a >> 24), ab = opaque ? 255 : (int)(b >> 24);
-                int wa = (65536 - frac), wb = frac;
-                int alpha = (aa * wa + ab * wb) >> 16;
-                int64_t caw = (int64_t)aa * wa, cbw = (int64_t)ab * wb;
-                int64_t den = caw + cbw;
-                uint32_t o = (uint32_t)(alpha & 0xFF) << 24;
-                for (int shift = 0; shift <= 16; shift += 8) {
-                    int ca = (int)((a >> shift) & 0xFF), cb = (int)((b >> shift) & 0xFF);
-                    int v = den ? (int)(((int64_t)ca * caw + (int64_t)cb * cbw) / den) : 0;
-                    o |= (uint32_t)(v & 0xFF) << shift;
-                }
-                dst[(size_t)l * dst_line + (size_t)i * dst_step] = o;
-            }
+            t[i].s0 = s0;
+            t[i].s1 = s1;
+            t[i].frac = (int)(pos & 0xFFFF);
         }
-        return;
+        return TAP_LERP;
     }
 
     // Shrink: average every source pixel whose span touches this output
@@ -438,84 +431,151 @@ static void resample_axis(const uint32_t *src, uint32_t *dst,
     // to exactly one output pixel's worth of source, so the divide is by
     // a constant.
     int64_t span = ((int64_t)src_n << 16) / dst_n;   // source pixels per output pixel
-    if (opaque && span <= (16 << 16)) {
-        // OPAQUE: every weight depends on the output position alone, so it
-        // is worked out once per position and the divide becomes one
-        // reciprocal -- the general path below divides three times per
-        // pixel per line, which made shrinking dearer than decoding.
-        // Sums stay in 32 bits: 255 x 16 source pixels x 65536.
-        for (int i = 0; i < dst_n; i++) {
-            int64_t start = (int64_t)i * src_n * 65536 / dst_n;
-            int64_t end = start + span;
-            int s0 = (int)(start >> 16);
-            int s1 = (int)((end - 1) >> 16);
-            if (s1 > src_n - 1) s1 = src_n - 1;
-            uint32_t wt[17];
-            uint32_t wsum = 0;
-            int nw = 0;
-            for (int s = s0; s <= s1 && nw < 17; s++) {
-                int64_t lo = (int64_t)s << 16, hi = lo + 65536;
-                int64_t w = (end < hi ? end : hi) - (start > lo ? start : lo);
-                wt[nw++] = w > 0 ? (uint32_t)w : 0;
-                wsum += w > 0 ? (uint32_t)w : 0;
-            }
-            uint64_t inv = wsum ? ((1ull << 32) + wsum / 2) / wsum : 0;
-            for (int l = 0; l < lines; l++) {
-                const uint32_t *sp = src + (size_t)l * src_line + (size_t)s0 * src_step;
-                uint32_t r = 0, g = 0, b = 0;
-                for (int k = 0; k < nw; k++) {
-                    uint32_t v = sp[(size_t)k * src_step], w = wt[k];
-                    r += ((v >> 16) & 0xFF) * w;
-                    g += ((v >> 8) & 0xFF) * w;
-                    b += (v & 0xFF) * w;
-                }
-                // Rounded: the reciprocal itself is, so flooring lost a step.
-                uint32_t rr = (uint32_t)((r * inv + (1ull << 31)) >> 32),
-                         gg = (uint32_t)((g * inv + (1ull << 31)) >> 32),
-                         bb = (uint32_t)((b * inv + (1ull << 31)) >> 32);
-                dst[(size_t)l * dst_line + (size_t)i * dst_step] =
-                    0xFF000000u | ((rr > 255 ? 255 : rr) << 16) | ((gg > 255 ? 255 : gg) << 8) |
-                    (bb > 255 ? 255 : bb);
-            }
-        }
-        return;
-    }
+    int mode = (opaque && span <= (16 << 16)) ? TAP_BOX_OPAQUE : TAP_BOX;
     for (int i = 0; i < dst_n; i++) {
         int64_t start = (int64_t)i * src_n * 65536 / dst_n;
         int64_t end = start + span;
         int s0 = (int)(start >> 16);
         int s1 = (int)((end - 1) >> 16);
         if (s1 > src_n - 1) s1 = src_n - 1;
+        t[i].s0 = s0;
+        t[i].s1 = s1;
+        t[i].start = start;
+        t[i].end = end;
+        if (mode != TAP_BOX_OPAQUE) continue;
+        uint32_t wsum = 0;
+        int nw = 0;
+        for (int s = s0; s <= s1 && nw < 17; s++) {
+            int64_t lo = (int64_t)s << 16, hi = lo + 65536;
+            int64_t w = (end < hi ? end : hi) - (start > lo ? start : lo);
+            t[i].wt[nw++] = w > 0 ? (uint32_t)w : 0;
+            wsum += w > 0 ? (uint32_t)w : 0;
+        }
+        t[i].s1 = s0 + nw - 1;
+        t[i].inv = wsum ? ((1ull << 32) + wsum / 2) / wsum : 0;
+    }
+    return mode;
+}
+
+// One output pixel: tap `t` applied to the line starting at `sp`.
+static inline __attribute__((always_inline)) uint32_t tap_pixel(int mode, const struct tap *t, const uint32_t *sp,
+                                 int step, int opaque) {
+    if (mode == TAP_LERP) {
+        uint32_t a = sp[(size_t)t->s0 * step];
+        uint32_t b = sp[(size_t)t->s1 * step];
+        int wa = 65536 - t->frac, wb = t->frac;
+        if (opaque) {
+            // Alpha is 255 on both sides and cancels out of the weighted
+            // mean exactly, so the general path's divide is a shift here.
+            uint32_t o = 0xFF000000u;
+            for (int shift = 0; shift <= 16; shift += 8)
+                o |= (uint32_t)(((int)((a >> shift) & 0xFF) * wa +
+                                 (int)((b >> shift) & 0xFF) * wb) >> 16) << shift;
+            return o;
+        }
+        int aa = (int)(a >> 24), ab = (int)(b >> 24);
+        int alpha = (aa * wa + ab * wb) >> 16;
+        int64_t caw = (int64_t)aa * wa, cbw = (int64_t)ab * wb;
+        int64_t den = caw + cbw;
+        uint32_t o = (uint32_t)(alpha & 0xFF) << 24;
+        for (int shift = 0; shift <= 16; shift += 8) {
+            int ca = (int)((a >> shift) & 0xFF), cb = (int)((b >> shift) & 0xFF);
+            int v = den ? (int)(((int64_t)ca * caw + (int64_t)cb * cbw) / den) : 0;
+            o |= (uint32_t)(v & 0xFF) << shift;
+        }
+        return o;
+    }
+    if (mode == TAP_BOX_OPAQUE) {
+        // Sums stay in 32 bits: 255 x 16 source pixels x 65536.
+        sp += (size_t)t->s0 * step;
+        uint32_t r = 0, g = 0, b = 0;
+        for (int k = 0; k <= t->s1 - t->s0; k++) {
+            uint32_t v = sp[(size_t)k * step], w = t->wt[k];
+            r += ((v >> 16) & 0xFF) * w;
+            g += ((v >> 8) & 0xFF) * w;
+            b += (v & 0xFF) * w;
+        }
+        // Rounded: the reciprocal itself is, so flooring lost a step.
+        uint32_t rr = (uint32_t)((r * t->inv + (1ull << 31)) >> 32),
+                 gg = (uint32_t)((g * t->inv + (1ull << 31)) >> 32),
+                 bb = (uint32_t)((b * t->inv + (1ull << 31)) >> 32);
+        return 0xFF000000u | ((rr > 255 ? 255 : rr) << 16) | ((gg > 255 ? 255 : gg) << 8) |
+               (bb > 255 ? 255 : bb);
+    }
+    int64_t acc[3] = { 0, 0, 0 };
+    int64_t asum = 0, wsum = 0, awsum = 0;
+    for (int s = t->s0; s <= t->s1; s++) {
+        int64_t lo = (int64_t)s << 16, hi = lo + 65536;
+        int64_t w = (t->end < hi ? t->end : hi) - (t->start > lo ? t->start : lo);
+        if (w <= 0) continue;
+        uint32_t v = sp[(size_t)s * step];
+        int64_t a = opaque ? 255 : (int64_t)((v >> 24) & 0xFF);
+        int64_t aw = a * w;
+        acc[0] += (int64_t)((v >> 16) & 0xFF) * aw;
+        acc[1] += (int64_t)((v >> 8) & 0xFF) * aw;
+        acc[2] += (int64_t)(v & 0xFF) * aw;
+        asum += a * w;
+        awsum += aw;
+        wsum += w;
+    }
+    if (wsum == 0) wsum = 1;
+    uint32_t alpha = (uint32_t)(asum / wsum) & 0xFF;
+    uint32_t r = 0, g = 0, b = 0;
+    if (awsum > 0) {
+        r = (uint32_t)(acc[0] / awsum) & 0xFF;
+        g = (uint32_t)(acc[1] / awsum) & 0xFF;
+        b = (uint32_t)(acc[2] / awsum) & 0xFF;
+    }
+    return (alpha << 24) | (r << 16) | (g << 8) | b;
+}
+
+// THE LOOP ORDER FOLLOWS MEMORY, NOT THE AXIS. The horizontal pass reads
+// along a line, so it walks a line at a time; the vertical one reads down
+// a column, so it walks an output ROW at a time across every column. The
+// other order strides a whole row per pixel.
+//
+// Inlined per MODE with the mode a constant, so the pixel loop carries
+// no branch on it.
+static inline __attribute__((always_inline))
+void run_taps(int mode, const struct tap *t, const uint32_t *src, uint32_t *dst,
+              int dst_n, int lines, int src_step, int src_line, int dst_step, int dst_line,
+              int opaque) {
+    if (src_step == 1) {
         for (int l = 0; l < lines; l++) {
             const uint32_t *sp = src + (size_t)l * src_line;
-            int64_t acc[3] = { 0, 0, 0 };
-            int64_t asum = 0, wsum = 0, awsum = 0;
-            for (int s = s0; s <= s1; s++) {
-                int64_t lo = (int64_t)s << 16, hi = lo + 65536;
-                int64_t w = (end < hi ? end : hi) - (start > lo ? start : lo);
-                if (w <= 0) continue;
-                uint32_t v = sp[(size_t)s * src_step];
-                int64_t a = opaque ? 255 : (int64_t)((v >> 24) & 0xFF);
-                int64_t aw = a * w;
-                acc[0] += (int64_t)((v >> 16) & 0xFF) * aw;
-                acc[1] += (int64_t)((v >> 8) & 0xFF) * aw;
-                acc[2] += (int64_t)(v & 0xFF) * aw;
-                asum += a * w;
-                awsum += aw;
-                wsum += w;
-            }
-            if (wsum == 0) wsum = 1;
-            uint32_t alpha = (uint32_t)(asum / wsum) & 0xFF;
-            uint32_t r = 0, g = 0, b = 0;
-            if (awsum > 0) {
-                r = (uint32_t)(acc[0] / awsum) & 0xFF;
-                g = (uint32_t)(acc[1] / awsum) & 0xFF;
-                b = (uint32_t)(acc[2] / awsum) & 0xFF;
-            }
-            dst[(size_t)l * dst_line + (size_t)i * dst_step] =
-                (alpha << 24) | (r << 16) | (g << 8) | b;
+            uint32_t *dp = dst + (size_t)l * dst_line;
+            for (int i = 0; i < dst_n; i++)
+                dp[(size_t)i * dst_step] = tap_pixel(mode, &t[i], sp, 1, opaque);
+        }
+    } else {
+        for (int i = 0; i < dst_n; i++) {
+            uint32_t *dp = dst + (size_t)i * dst_step;
+            for (int l = 0; l < lines; l++)
+                dp[(size_t)l * dst_line] =
+                    tap_pixel(mode, &t[i], src + (size_t)l * src_line, src_step, opaque);
         }
     }
+}
+
+static int resample_axis(const uint32_t *src, uint32_t *dst,
+                         int src_n, int dst_n, int lines,
+                         int src_step, int src_line, int dst_step, int dst_line,
+                         int opaque) {
+    struct tap *t = malloc((size_t)dst_n * sizeof *t);
+    if (!t) return -ENOMEM;
+    switch (make_taps(t, src_n, dst_n, opaque)) {
+    case TAP_LERP:
+        run_taps(TAP_LERP, t, src, dst, dst_n, lines, src_step, src_line, dst_step, dst_line, opaque);
+        break;
+    case TAP_BOX_OPAQUE:
+        run_taps(TAP_BOX_OPAQUE, t, src, dst, dst_n, lines, src_step, src_line, dst_step, dst_line, 1);
+        break;
+    default:
+        run_taps(TAP_BOX, t, src, dst, dst_n, lines, src_step, src_line, dst_step, dst_line, opaque);
+        break;
+    }
+    free(t);
+    return 0;
 }
 
 int uimg_rotate(const struct uimg *src, int quarters, struct uimg *out) {
@@ -608,12 +668,17 @@ int uimg_scale(const struct uimg *src, int dw, int dh, struct uimg *out) {
     }
 
     // Horizontal: each source row becomes a dw-wide row.
-    resample_axis(src->px, mid, src->w, dw, src->h, 1, src->w, 1, dw, !src->has_alpha);
+    int rc = resample_axis(src->px, mid, src->w, dw, src->h, 1, src->w, 1, dw, !src->has_alpha);
     // Vertical: each of the dw columns is resampled down its own stride,
     // which is the transposed view the same routine handles by walking
     // with a stride instead of by one.
-    resample_axis(mid, dst, src->h, dh, dw, dw, 1, dw, 1, !src->has_alpha);
+    if (rc == 0) rc = resample_axis(mid, dst, src->h, dh, dw, dw, 1, dw, 1, !src->has_alpha);
     free(mid);
+    if (rc < 0) {
+        free(dst);
+        uimg_set_error("not enough memory to scale the image");
+        return rc;
+    }
 
     out->w = dw;
     out->h = dh;
