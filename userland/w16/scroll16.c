@@ -37,8 +37,10 @@ static int is_ctl(const struct w16_wnd *x) {
 
 static int ctl_bar(const struct w16_wnd *x) { return x->style & SBS_VERT ? SB_VERT : SB_HORZ; }
 
-// The one bar being tracked, and the part held down: how it is drawn.
-static struct { uint16_t hwnd; int bar, part, down; } g_track = { 0, 0, PART_NONE, 0 };
+// The one bar being tracked, and the part held down: how it is drawn. A dragged thumb is drawn where
+// the drag has it (`pos`), as 3.1's followed the pointer -- a program that scrolls only on
+// SB_THUMBPOSITION (Windows Help) leaves its own position until the release.
+static struct { uint16_t hwnd; int bar, part, down, pos; } g_track = { 0, 0, PART_NONE, 0, 0 };
 
 // A top-level window's bars reach one pixel past its buffer, onto the
 // frame's inner black line, which is their outer edge -- 3.11 drew no second
@@ -83,7 +85,8 @@ static int thumb_at(const struct w16_wnd *x, int bar, int len) {
     const struct w16_sbar *b = &x->sb[bar];
     int travel = len - 3 * W16_SB + 2;
     if (b->max <= b->min || travel < 0) return -1;
-    int pos = b->pos < b->min ? b->min : b->pos > b->max ? b->max : b->pos;
+    int p = g_track.hwnd == x->hwnd && g_track.bar == bar && g_track.part == PART_THUMB ? g_track.pos : b->pos;
+    int pos = p < b->min ? b->min : p > b->max ? b->max : p;
     return W16_SB - 1 + (int)((long)(pos - b->min) * travel / (b->max - b->min));
 }
 
@@ -253,6 +256,7 @@ void w16_sbar_track(struct w16 *w, struct w16_wnd *x, int bar, int wx, int wy) {
     g_track.bar = bar;
     g_track.part = part;
     g_track.down = 1;
+    g_track.pos = pos;
     pthread_mutex_lock(&w->lock);
     w->capture = hwnd;
     pthread_mutex_unlock(&w->lock);
@@ -281,7 +285,12 @@ void w16_sbar_track(struct w16 *w, struct w16_wnd *x, int bar, int wx, int wy) {
                 int np = travel > 0 ? sb->min + (int)((long)at * (sb->max - sb->min) / travel) : sb->min;
                 if (np < sb->min) np = sb->min;
                 if (np > sb->max) np = sb->max;
-                if (np != pos) { pos = np; send_scroll(w, x, bar, SB_THUMBTRACK, pos); }
+                if (np != pos) {
+                    g_track.pos = pos = np;
+                    send_scroll(w, x, bar, SB_THUMBTRACK, pos);
+                    if ((x = w16_wnd_get(w, hwnd))) redraw(w, x);
+                    else break;
+                }
             } else {
                 int inside = mx >= x0 && my >= y0 && mx < x1 && my < y1 && part_at(x, bar, along, len) == part;
                 if (inside != g_track.down) { g_track.down = inside; redraw(w, x); }
