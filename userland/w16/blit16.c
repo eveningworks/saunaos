@@ -4,11 +4,13 @@
 // buffer, `mono` when it stands for a 1-bit bitmap (pixels black or white).
 //
 // THE RASTER OPERATIONS ARE WINDOWS' OWN TRUTH TABLES, applied bitwise
-// across the 24 colour bits: a ROP3's code byte has bit P*4 + S*2 + D set
-// when the result is 1 for that pattern, source and destination (SRCCOPY,
-// 0xCC, is "S"); a ROP2's value minus one is the same table over P*2 + D.
-// So every one of the 256 ROP3s and 16 ROP2s works, none special-cased
-// but the commonest for speed.
+// across the palette indices where every colour is one of the static 20
+// (as the display's own pixels were indices), else across the 24 colour
+// bits: a ROP3's code byte has bit P*4 + S*2 + D set when the result is 1
+// for that pattern, source and destination (SRCCOPY, 0xCC, is "S"); a
+// ROP2's value minus one is the same table over P*2 + D. So every one of
+// the 256 ROP3s and 16 ROP2s works, none special-cased but the commonest
+// for speed.
 #include "w16_internal.h"
 
 #include <stdlib.h>
@@ -25,24 +27,6 @@ uint32_t gdi_to_mono(uint32_t px) {
     return r * 30 + g * 59 + b * 11 >= 128 * 100 ? WHITE : 0;
 }
 
-uint32_t gdi_rop3(uint8_t code, uint32_t p, uint32_t s, uint32_t d) {
-    switch (code) {
-    case 0xCC: return s;                         // SRCCOPY
-    case 0xF0: return p;                         // PATCOPY
-    case 0x00: return 0;                         // BLACKNESS
-    case 0xFF: return WHITE;                     // WHITENESS
-    case 0x88: return s & d;                     // SRCAND
-    case 0xEE: return s | d;                     // SRCPAINT
-    case 0x66: return s ^ d;                     // SRCINVERT
-    default: break;
-    }
-    uint32_t out = 0;
-    for (unsigned i = 0; i < 8; i++)
-        if (code >> i & 1)
-            out |= (i & 4 ? p : ~p) & (i & 2 ? s : ~s) & (i & 1 ? d : ~d);
-    return out & WHITE;
-}
-
 // Windows' 20 static colours of a 256-colour screen, by palette index: 0-9 and 246-255.
 static const struct { uint8_t index; uint32_t rgb; } STATIC[20] = {
     { 0, 0x000000 }, { 1, 0x800000 }, { 2, 0x008000 }, { 3, 0x808000 }, { 4, 0x000080 },
@@ -52,17 +36,60 @@ static const struct { uint8_t index; uint32_t rgb; } STATIC[20] = {
 };
 
 // Pixels hold the colours as 3.11's VGA driver showed them (w16_vga(): its light grey is 0xC0C7C8),
-// so a static colour is matched, and answered, in that form.
+// so a static colour is matched, and answered, in that form -- worked out once, as a blit asks per pixel.
+static uint32_t g_shade[20];
+
+static void shades(void) {
+    if (g_shade[19]) return;
+    for (unsigned i = 0; i < 20; i++) g_shade[i] = w16_vga(STATIC[i].rgb);
+}
+
 static int static_index(uint32_t rgb) {
-    for (unsigned i = 0; i < 20; i++)
-        if (w16_vga(STATIC[i].rgb) == (rgb & WHITE)) return STATIC[i].index;
+    rgb &= WHITE;
+    if (rgb == 0) return 0;
+    if (rgb == WHITE) return 255;
+    shades();
+    for (unsigned i = 1; i < 19; i++)
+        if (g_shade[i] == rgb) return STATIC[i].index;
     return -1;
 }
 
 static int static_rgb(unsigned index, uint32_t *rgb) {
+    shades();
     for (unsigned i = 0; i < 20; i++)
-        if (STATIC[i].index == index) { *rgb = w16_vga(STATIC[i].rgb); return 1; }
+        if (STATIC[i].index == index) { *rgb = g_shade[i]; return 1; }
     return 0;
+}
+
+// THE RASTER OPERATIONS WORK ON PALETTE INDICES TOO, as the display did -- gdi_rop2's rule, over the
+// operands a ROP3 uses: DSTINVERT turns teal (6) to red (249), as Paintbrush's selected tool shows,
+// where RGB's NOT gives pink. An operand the code ignores may be any colour; where the used ones are
+// all static and so is the answer, that answer, else the RGB.
+uint32_t gdi_rop3(uint8_t code, uint32_t p, uint32_t s, uint32_t d) {
+    switch (code) {
+    case 0xCC: return s;                         // SRCCOPY
+    case 0xF0: return p;                         // PATCOPY
+    case 0x00: return 0;                         // BLACKNESS
+    case 0xFF: return WHITE;                     // WHITENESS
+    default: break;
+    }
+    int use_p = ((code >> 4 ^ code) & 0x0F) != 0, use_s = ((code >> 2 ^ code) & 0x33) != 0;
+    int use_d = ((code >> 1 ^ code) & 0x55) != 0;
+    int pi = use_p ? static_index(p) : 0, si = use_s ? static_index(s) : 0, di = use_d ? static_index(d) : 0;
+    if (pi >= 0 && si >= 0 && di >= 0) {
+        unsigned out = 0;
+        for (unsigned i = 0; i < 8; i++)
+            if (code >> i & 1)
+                out |= (i & 4 ? (unsigned)pi : ~(unsigned)pi) & (i & 2 ? (unsigned)si : ~(unsigned)si) &
+                       (i & 1 ? (unsigned)di : ~(unsigned)di);
+        uint32_t rgb;
+        if (static_rgb(out & 0xFF, &rgb)) return rgb;
+    }
+    uint32_t out = 0;
+    for (unsigned i = 0; i < 8; i++)
+        if (code >> i & 1)
+            out |= (i & 4 ? p : ~p) & (i & 2 ? s : ~s) & (i & 1 ? d : ~d);
+    return out & WHITE;
 }
 
 uint32_t gdi_rop2(int r2, uint32_t p, uint32_t d) {

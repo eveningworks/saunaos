@@ -8,7 +8,7 @@ file is involved.
 1. **gdi.exe draws everything where it put it** (its header lists the
    places): a string-table string, a bitmap resource put with
    SetDIBitsToDevice and through a memory DC with BitBlt -- SRCCOPY the
-   same colours, NOTSRCCOPY every one inverted, and the DIB's rows the
+   same colours, NOTSRCCOPY every one inverted (by palette index, as 3.11 did), and the DIB's rows the
    right way up -- a pen line that stops short of its end point, a brush
    rectangle inside a pen edge, text copied through the global and local
    heaps, a square that appears only once its timer has fired three
@@ -134,8 +134,15 @@ def shot(qmp, path):
         return im.convert("RGB")
 
 
+# A colour inverted as the display did it: its palette index's complement, not its RGB's (blit16.c).
+# Measured on real 3.11 (2026-10-22): Paintbrush's selected tool, a DSTINVERT, turns dark cyan red,
+# magenta dark green and dark magenta green. The eight here, shown as VGA showed the dark ones.
+INVERSE = {RED: (87, 168, 168), GREEN: (168, 87, 168), BLUE: (168, 168, 87), WHITE: BLACK,
+           YELLOW: NAVY, CYAN: (168, 0, 87), MAGENTA: (0, 168, 87), BLACK: WHITE}
+
+
 def inv(c):
-    return tuple(255 - v for v in c)
+    return INVERSE[c]
 
 
 def sh(dbg, cmd):
