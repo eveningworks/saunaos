@@ -7559,7 +7559,12 @@ runs first**: a `doom1.wad` with one
   keeps what is typed (read back through DIALOG.INI), a right click's
   MessageBox answers No by mnemonic, and Help > About is ShellAbout's
   box; breaking GetDlgItemInt or TranslateAccelerator turns exactly its
-  check red.
+  check red. `wincalls.exe` writes the answers of calls that need no window
+  to WINCALLS.INI (huge blocks and a GlobalReAlloc that must move them,
+  GetDIBits, bitmap bits, INT 2Fh, a flood fill on a 1-bit bitmap among
+  them); `opendlg.exe` runs the Open dialog on its own template, its hook
+  recording which of Read Only and Help show and ticking Read Only before
+  OK. Taking out the flood fill's 1-bit border turns exactly its check red.
   Flipping the DIB's rows or swapping P and S in the ROP3 rule turns
   exactly the matching check red, as do ignoring the INI value, a
   launcher that never spawns and a calls list that ignores "missing"
