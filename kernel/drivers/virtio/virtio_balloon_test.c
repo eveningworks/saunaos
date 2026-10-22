@@ -6,6 +6,7 @@
 #include "page_report.h"
 #include "pci.h"
 #include "string.h"
+#include "clocksource.h"
 #include "ktest.h"
 
 static int balloon_on_bus(void) {
@@ -22,4 +23,14 @@ KTEST("virtio-balloon", "the device on the bus is the registered page reporter")
     KTEST_ASSERT(virtio_balloon_present());
     const char *name = page_report_name();
     KTEST_ASSERT(name && k_strcmp(name, "virtio-balloon") == 0);
+}
+
+// The first walk is due 2 s after the driver registers, from the idle
+// loop; driven here until it lands. Nothing reported means a refused or
+// lost batch, or a walk that never ran -- every way reporting dies quietly.
+KTEST("virtio-balloon", "the first walk reported memory to the host") {
+    if (!balloon_on_bus()) KTEST_SKIP("no virtio-balloon on this machine");
+    uint64_t deadline = clocksource_now_ns() + 10000000000ull;
+    while (!page_report_reported_bytes() && clocksource_now_ns() < deadline) page_report_idle();
+    KTEST_ASSERT(page_report_reported_bytes() > 0);
 }

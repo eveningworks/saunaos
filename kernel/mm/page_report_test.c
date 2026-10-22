@@ -1,8 +1,9 @@
 // KTESTs for free page reporting's core (page_report.h), through a fake
 // reporter rather than the device: what a walk hands out, that it gives
 // every frame back, and that the reported mark is set and cleared at the
-// right times. Each test ends with pmm_report_forget_all(), so the real
-// reporter, if any, reports everything again afterwards.
+// right times. Each test ends with pmm_report_forget_all(): the marks a
+// fake report set are cleared, so the real reporter's next walk (after
+// its usual gate) re-reports those blocks rather than skipping them.
 #include "page_report.h"
 #include "pmm.h"
 #include "ktest.h"

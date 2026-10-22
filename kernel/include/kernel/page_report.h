@@ -46,9 +46,11 @@ struct page_report_run {
 // the device may still discard them -- and stops reporting.
 typedef int (*page_report_fn)(const struct page_report_run *runs, int n);
 
-// One reporter; a second registration is refused. The first walk is due
-// a moment after this, and reports everything free since boot.
-int page_report_register(const char *name, page_report_fn fn);
+// One reporter; a second registration is refused. `max_runs` is how
+// many runs it can take at once (a virtqueue's descriptors), so a batch
+// never asks for more than fits. The first walk is due a moment after
+// this, and reports everything free since boot.
+int page_report_register(const char *name, page_report_fn fn, int max_runs);
 
 // scheduler_idle()'s hook. One compare when nothing is registered.
 void page_report_idle(void);
@@ -65,7 +67,8 @@ int page_report_walk_for_test(page_report_fn fn);
 
 // Isolates up to PAGE_REPORT_BATCH_BLOCKS wholly free, unreported blocks
 // from block *cursor on, never taking a zone below `keep_free` free
-// frames, and coalesces adjacent ones into at most `max_runs` runs.
+// frames (DMA32 also keeps its reserve), and coalesces adjacent ones in
+// one zone into at most `max_runs` runs.
 // Returns the run count, 0 only when the walk reached the end; *cursor
 // ends past the last block examined.
 int pmm_report_isolate(uint64_t *cursor, struct page_report_run *runs, int max_runs,
@@ -76,6 +79,6 @@ uint64_t pmm_report_blocks(void);         // blocks the walk covers
 uint64_t pmm_report_freed(void);          // frames freed since the last reset
 void pmm_report_reset_freed(void);
 int pmm_report_block_reported(uint64_t phys);
-void pmm_report_forget_all(void);         // KTEST cleanup: report everything again
+void pmm_report_forget_all(void);         // KTEST cleanup: every block reportable again
 
 #endif

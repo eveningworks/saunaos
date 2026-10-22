@@ -11,9 +11,11 @@
 //
 // THE REPORTING QUEUE'S INDEX DEPENDS ON WHAT WAS NEGOTIATED. The spec
 // numbers queues densely, skipping an absent one; QEMU creates the stats
-// queue whether or not it is negotiated. Taking STATS_VQ (QEMU always
-// offers it) makes both say index 3. QEMU's `free-page-hint=on` would
-// add a queue before it and is not supported.
+// queue whether or not it is negotiated, and the hinting queue whenever
+// it OFFERS hinting (`free-page-hint=on`). Taking both whenever offered
+// makes the two numberings agree: index 3, or 4 with hinting. Neither
+// queue is ever driven -- a hint request during migration goes unanswered,
+// which costs QEMU only the pages it would have skipped.
 //
 // It needs `-device virtio-balloon-pci,free-page-reporting=on`; without
 // the property the device is declined, since there is nothing else here
@@ -26,16 +28,15 @@
 
 DRIVER_DECLARE("virtio-balloon", "memory", "virtio free page reporting");
 
-#define VIRTIO_BALLOON_F_STATS_VQ  (1ull << 1)
-#define VIRTIO_BALLOON_F_REPORTING (1ull << 5)
+#define VIRTIO_BALLOON_F_STATS_VQ        (1ull << 1)
+#define VIRTIO_BALLOON_F_FREE_PAGE_HINT  (1ull << 3)
+#define VIRTIO_BALLOON_F_REPORTING       (1ull << 5)
 
 static struct virtio_device g_dev;
 static struct virtqueue g_vq;
 static int g_present;
-static uint32_t g_reports;
 
 int virtio_balloon_present(void) { return g_present; }
-uint32_t virtio_balloon_reports(void) { return g_reports; }
 
 static int report(const struct page_report_run *runs, int n) {
     struct virtio_sg in[PAGE_REPORT_BATCH_BLOCKS];
@@ -48,7 +49,6 @@ static int report(const struct page_report_run *runs, int n) {
     if (head < 0) return PAGE_REPORT_REFUSED;
     virtqueue_kick(&g_vq);
     if (!virtqueue_poll(&g_vq, head, 0)) return PAGE_REPORT_LOST;  // poll logged it
-    g_reports++;
     return PAGE_REPORT_TAKEN;
 }
 
@@ -61,21 +61,23 @@ static int virtio_balloon_probe(const struct pci_device *pci) {
     g_dev.name = "virtio-balloon";
     if (!virtio_pci_attach(pci, VIRTIO_ID_BALLOON, &g_dev))
         return pci_probe_decline(pci, "the virtio transport did not attach");
-    if (!virtio_begin(&g_dev, VIRTIO_BALLOON_F_STATS_VQ | VIRTIO_BALLOON_F_REPORTING))
+    if (!virtio_begin(&g_dev, VIRTIO_BALLOON_F_STATS_VQ | VIRTIO_BALLOON_F_FREE_PAGE_HINT |
+                              VIRTIO_BALLOON_F_REPORTING))
         return pci_probe_decline(pci, "feature negotiation failed");
     if (!virtio_has_feature(&g_dev, VIRTIO_BALLOON_F_REPORTING)) {
         virtio_fail(&g_dev);
         return pci_probe_decline(pci, "the host offers no free page reporting "
                                       "(QEMU: free-page-reporting=on)");
     }
-    uint16_t q = virtio_has_feature(&g_dev, VIRTIO_BALLOON_F_STATS_VQ) ? 3 : 2;
+    uint16_t q = 2 + (virtio_has_feature(&g_dev, VIRTIO_BALLOON_F_STATS_VQ) ? 1 : 0) +
+                 (virtio_has_feature(&g_dev, VIRTIO_BALLOON_F_FREE_PAGE_HINT) ? 1 : 0);
     if (!virtqueue_setup(&g_dev, q, &g_vq)) {
         virtio_fail(&g_dev);
         return pci_probe_decline(pci, "could not set up its reporting queue");
     }
     virtio_driver_ok(&g_dev);
     g_present = 1;
-    page_report_register("virtio-balloon", report);
+    page_report_register("virtio-balloon", report, g_vq.size);
     return 0;
 }
 PCI_DRIVER("virtio-balloon", virtio_balloon_matches, virtio_balloon_probe);

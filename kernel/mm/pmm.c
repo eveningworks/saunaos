@@ -507,31 +507,52 @@ static int block_is_reported(uint64_t b) {
 // Isolated frames are "used, refcount 0", like a reserved one, and stay
 // KASAN-poisoned: nothing owns them, so nothing may touch them while the
 // host is being told.
+//
+// INTERRUPTS GO OFF PER BLOCK, not for the walk: one block's check and
+// mark must not interleave with an allocation, but a walk over a large
+// machine is milliseconds of bitmap. A run never spans the 4 GiB line,
+// so release() credits one zone, and DMA32 keeps its reserve on top of
+// `keep_free`.
 int pmm_report_isolate(uint64_t *cursor, struct page_report_run *runs, int max_runs,
                        uint64_t keep_free) {
     const uint64_t bytes = (uint64_t)PAGE_REPORT_BLOCK_FRAMES * FRAME_SIZE;
-    uint64_t flags = irq_save();
+    const uint64_t dma32_end = DMA32_FRAMES / PAGE_REPORT_BLOCK_FRAMES; // first high block
     int n = 0;
     uint64_t taken = 0, b = *cursor;
     for (; b < report_blocks && taken < PAGE_REPORT_BATCH_BLOCKS; b++) {
-        if (block_is_reported(b) || !block_wholly_free(b)) continue;
         uint64_t f0 = b * PAGE_REPORT_BLOCK_FRAMES;
         int z = zone_of(f0);
-        if (zone_free[z] < keep_free + PAGE_REPORT_BLOCK_FRAMES) continue;
-        if (n && runs[n - 1].phys + runs[n - 1].len == f0 * FRAME_SIZE) {
+        uint64_t floor = keep_free + (z == 0 ? dma32_reserve : 0);
+        uint64_t flags = irq_save();
+        if (zone_free[z] < floor + PAGE_REPORT_BLOCK_FRAMES) {
+            irq_restore(flags);
+            if (z == 1) { b = report_blocks; break; }   // nothing more to take up here
+            b = dma32_end - 1;                           // skip to the high zone
+            continue;
+        }
+        if (block_is_reported(b) || !block_wholly_free(b)) {
+            irq_restore(flags);
+            continue;
+        }
+        int extend = n && runs[n - 1].phys + runs[n - 1].len == f0 * FRAME_SIZE &&
+                     zone_of(runs[n - 1].phys / FRAME_SIZE) == z;
+        if (!extend && n == max_runs) {
+            irq_restore(flags);
+            break;
+        }
+        for (uint64_t i = 0; i < PAGE_REPORT_BLOCK_FRAMES; i++) mark_used_bit(f0 + i);
+        zone_free[z] -= PAGE_REPORT_BLOCK_FRAMES;
+        irq_restore(flags);
+        if (extend) {
             runs[n - 1].len += bytes;
         } else {
-            if (n == max_runs) break;
             runs[n].phys = f0 * FRAME_SIZE;
             runs[n].len = bytes;
             n++;
         }
-        for (uint64_t i = 0; i < PAGE_REPORT_BLOCK_FRAMES; i++) mark_used_bit(f0 + i);
-        zone_free[z] -= PAGE_REPORT_BLOCK_FRAMES;
         taken++;
     }
     *cursor = b;
-    irq_restore(flags);
     return n;
 }
 
