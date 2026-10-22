@@ -151,12 +151,14 @@ def main():
 
         # --- the search -------------------------------------------------------------------------------------
         n = len(dbg.logs("retrolauncher: search:", clear=False))
-        s = search_for(dbg, "dia", n)
-        res.check("typing 'dia' lists only the Dialog test", s and s["shown"] == 1 and s["first"] == "dialog.exe"
+        # "dialog." -- the Open dialog test's description says "dialog" too; only one FILE name has it.
+        q = "dialog."
+        s = search_for(dbg, q, n)
+        res.check(f"typing '{q}' lists only the Dialog test", s and s["shown"] == 1 and s["first"] == "dialog.exe"
                   and s["total"] >= 5, s)
         res.check("...and selects it, so Enter would run it", s and s["selected"] == "dialog.exe", s)
         total = s["total"] if s else 10
-        for _ in range(3):
+        for _ in range(len(q)):
             dbg.key("\b", settle=False)
         dbg.settle()
         s = poll(lambda: (lambda x: x if x and x["shown"] == total else None)(list_line(dbg, "search")), 6, 0.2)
