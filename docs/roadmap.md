@@ -965,6 +965,9 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Paintbrush's View Picture -- a second top-level window (a popup over the screen) ends the program
 - [ ] w16: recording a metafile -- CreateMetaFile records nothing, so Paintbrush's Copy puts a bitmap on the clipboard and no metafile
 - [ ] w16: a program's own caret -- CreateCaret and the rest draw nothing; Paintbrush's Text tool shows none
+- [ ] w16: 16-colour VGA dithering as a per-program Display setting (default 256) -- the driver's patterns measured on Paintbrush's palette
+- [ ] w16: StretchBlt's shrink rule measured at several ratios on real 3.11 -- Paintbrush's arrow drops rows 2 and 9 there, 6 and 12 here
+- [ ] w16: the NASM samples start on real 3.11 -- gen_ne's programs are refused there silently, so they cannot measure anything
 - [ ] w16: Paintbrush's rest -- Help, Zoom In, Get/Save Colors and Edit Colors' reach into the palette, not yet checked
 - [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called

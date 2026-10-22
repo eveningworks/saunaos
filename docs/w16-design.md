@@ -279,7 +279,7 @@ because they drive and copy Microsoft programs):
 | Minesweeper | the board, Game menu, Custom Field, Best Times, the name entry, About | matched by region | 2026-10-19 |
 | Solitaire | Options; the board | Options 2152 pixels differed, now none but (7) | 2026-10-20 |
 | Hearts | the welcome dialog; a game after OK | the dialog 381 differed, now none but (7); the game by eye (the felt's green fixed) | 2026-10-20 |
-| Paintbrush | Options menu, Image Attributes, Brush Shapes, Edit Colors, Save As | by eye, side by side (not w16diff'd): the same menus, controls and layout; its window opens 640x405 at 0,0 there and 632x408 here, the palette's pale colours are dithered there and solid here, and Save As says "16 Color" there ("256 Color" here: w16 reports the 256-colour driver) | 2026-10-22 |
+| Paintbrush | Options menu, Image Attributes, Brush Shapes, Edit Colors, Save As; the window at start and the Edit menu, w16diff'd at 636x408 | dialogs by eye: the same layout; the window 6229 differed, now 6006 -- the palette's pale colours (dithered at 16 colours there, solid here) and the line-width arrow's stretch (13 rows to 11: 3.1 drops 2 and 9, w16 6 and 12); the Edit menu 4366, now 98 (the dither's screen phase); Save As says "16 Color" there ("256 Color" here) | 2026-10-22 |
 
 **What to compare** -- each state, each of these:
 
@@ -318,15 +318,20 @@ because they drive and copy Microsoft programs):
 | Units to pixels | in an OWNED dialog an x from the template's own position, each end truncated; in one owned by nobody (Character Map's main window) an x rounded, as MulDiv does; a y rounded; a width or height rounded (COMMDLG.DLL's templates: Open 264x134 at 36,24 is 462x218; Find 236x62 at 30,73 is 413x101; Character Map's edit at 230 is 403) |
 | Font cells | System 16, Helv 8 13, Fixedsys 15 |
 | Edit text | a multi-line edit's at the client's left edge; a one-line field's 2 in |
-| CW_USEDEFAULT | 632x408 on 640x480 |
+| CW_USEDEFAULT | 632x408 on 640x480 (Notepad, the first window, at 4,0); Paintbrush opened at 0,0 636x408 -- both reach to 636,408 (docs/bugs.md) |
 | COMMDLG | names and the filter in lower case; "c: label" with a drive icon; the current folder not selected |
 | Menus | dropped from the keyboard: the first item lit even when grey; Esc goes back to the bar, a second Esc out |
+| Menu items | rows the System font's height + 2 (18) from the row under the border, the label at the row's top 16 in; shortcuts a LEFT-aligned column 8 after the longest label, the border 15 after the longest; a one-pixel light-grey shadow from the second pixel; a grey item or title light grey, lit white with a 50% dither (measured on Paintbrush's and Notepad's, 2026-10-22) |
+| Raster operations | on palette indices where the colours are static: an inverted colour is its index's complement (teal and red, light and dark grey), as Paintbrush's selected tool shows |
 
 **Fonts and pictures are the user's own** (the decision "Win16's fonts
 and pictures come from the user's own Windows files"): with 3.11's
 `.FON` files and COMMDLG.DLL in drive C:'s `WINDOWS\SYSTEM`, Notepad's
-text, caption and menus diff to ZERO pixels and Find to the caret and
-one label's pixel; without them, toy-os's stand-ins at 3.11's cells.
+text, caption and menu bar diff to ZERO pixels and Find to the caret and
+one label's pixel; without them, toy-os's stand-ins at 3.11's cells. (Its
+dropdown menus did not: measured on 2026-10-22, their rows, grey text,
+shortcut column and shadow were w16's guesses, now 3.11's -- the table
+above.)
 
 **Still different, known:** the menu bar's title spacing (3.11's boxes
 are not the text plus a constant: File, Edit, Search, Game measure 40,
