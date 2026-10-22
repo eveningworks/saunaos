@@ -39,7 +39,7 @@
 static const char *g_type = "tfs3";
 
 static const struct uargs_opt OPTS[] = {
-    { "type", 't', "TYPE", "the filesystem to write: tfs3 (the default) or fat32", 0, &g_type },
+    { "type", 't', "TYPE", "the filesystem to write: tfs3 (the default), fat32 or exfat", 0, &g_type },
     { 0 }
 };
 

@@ -12,7 +12,7 @@
 
 | Option | Meaning |
 |---|---|
-| `-t TYPE`, `--type=TYPE` | the filesystem to write: `tfs3` (the default) or `fat32` |
+| `-t TYPE`, `--type=TYPE` | the filesystem to write: `tfs3` (the default), `fat32` or `exfat` |
 | `-h`, `--help` | print the usage and exit |
 
 ## Description

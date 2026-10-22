@@ -155,14 +155,18 @@ in memory. It scales files to gigabytes through direct and
 single/double/triple-indirect pointers, batches ATA flushes, TRIMs freed
 blocks back to the host, and refuses to touch a disk whose superblock
 could not be read rather than destroying a possibly-good filesystem.
+exFAT is the third — read-write, Unicode names, contiguous files kept
+contiguous, judged against the host's `fsck.exfat` and an independent
+reader — so a stick from another computer mounts whatever its size.
 FAT32 is the second on-disk backend — read-write, with VFAT long names —
 and exists because `/boot` is a FAT volume the machine boots from and
 could not read. It is a generic driver: nothing in it knows it holds a
 bootloader, and the read-only-by-default policy lives in the mount code,
 the same split Linux keeps between `fs/fat/` and an ESP in `fstab`.
-ramfs is the third, in the kernel heap, and is what a diskless boot gets
-for a root. A mount table resolves a path to a backend by longest prefix
-at a component boundary, so all three can be mounted at once.
+ramfs is the fourth, in whole frames of RAM, and is what a diskless boot
+gets for a root and what `/tmp` is. A mount table resolves a path to a
+backend by longest prefix at a component boundary, so all of them can be
+mounted at once.
 
 **Graphics and GUI.** Real fonts, two ways: eight sizes of JetBrains
 Mono baked to bitmaps at build time as the guaranteed fallback, and a

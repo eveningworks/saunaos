@@ -281,6 +281,9 @@ TOOLS = [
     # from the host image after a pull, a re-plug, a 4 KiB stick. Its
     # own guest; needs dosfstools and mtools on the host.
     ("usb_storage", "usb_storage_test.py",     "USB sticks: read, pull, re-plug, 4K", True,  None,                   False),
+    # exFAT against the host's fsck.exfat and an independent reader, on a
+    # host-made and a guest-made stick. Its own guest; needs exfatprogs.
+    ("exfat_host",  "exfat_hostcheck.py",      "exFAT: fsck.exfat and a host reader", True,  None,                   False),
     ("bigdisk",     "bigdisk_test.py",         "a 2200 GiB disk on virtio, AHCI, NVMe", True, None,                 False),
     # A second, blank disk: Disks partitions, formats, mounts and deletes
     # on it, and the host reads the GPT back. Its own guest.

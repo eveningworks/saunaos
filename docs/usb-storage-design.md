@@ -4,8 +4,8 @@ A staged plan for USB sticks, card readers and USB disks: both
 transports, a disk that can disappear, quick removal, exFAT, auto-mount
 with Eject, and a root filesystem on the stick.
 
-Written 2026-10-22. **Stages 1 and 2 are BUILT** (the same day); the
-others are not. The stage markers go on the list below as they land.
+Written 2026-10-22. **Stages 1, 2 and 4 are BUILT** (the same day;
+exFAT was taken before UAS, which no stick speaks); the others are not. The stage markers go on the list below as they land.
 
 ## The finding that shapes the plan
 
@@ -134,7 +134,8 @@ Each stage is gated, committed and usable on its own.
    array) and `usb_uas.c` on the same SCSI helper: command, status,
    data-in and data-out pipes, tags. BOT stays the fallback a UAS
    device also offers (alternate setting 0). QEMU `usb-uas`.
-4. **exFAT.** A backend beside FAT32, read and write: the boot region
+4. **exFAT.** BUILT 2026-10-22 (`kernel/fs/exfat*.c`, `mkfs -t exfat`;
+   Disks' format dialog waits for stage 5's mockups). A backend beside FAT32, read and write: the boot region
    and its checksum, the allocation bitmap, the up-case table, directory
    entry sets with their checksum, contiguous (`NoFatChain`) and FAT-
    chained files. Host-checked against Linux's `mkfs.exfat` and the

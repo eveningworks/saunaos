@@ -4566,6 +4566,17 @@ window without going through it will find its layout polls timing out.
   dispatching the vector. The control that DOES go red is returning 0
   from it outright -- 0 events decoded against 33 vectors delivered --
   and that is what shows the tool can see a dead path. On demand.
+- **`exfat_hostcheck.py`** -- toy-os's exFAT judged by the HOST: a
+  stick formatted by `mkfs.exfat` and one the guest formats itself
+  (`mkfs -t exfat`), each written by the guest (a directory, a file several
+  clusters long, a non-ASCII name, a rename, a delete, a truncate), then
+  `fsck.exfat -n` on each image and a reader written in Python from the
+  specification -- no code shared with the kernel -- that must find the
+  same files byte for byte, and every name's hash right for the volume's
+  own up-case table. Controls that turned it red: a hash without
+  up-casing and a set checksum one byte short (fsck named both). Needs
+  exfatprogs. In `ondemand_sweep.py`.
+
 - **`usb_storage_test.py`** -- USB sticks on QEMU's `usb-storage`, the
   bulk-only transport every real stick speaks: a FAT32 stick built on
   the host with a known file, and a blank one with 4096-byte blocks. It

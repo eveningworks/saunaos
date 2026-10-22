@@ -419,7 +419,9 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~Disks past 2 TiB~~ DONE 2026-10-07 -- 64-bit block layer, AHCI/NVMe/virtio, GPT and TFS3; `bigdisk_test.py`
 - [x] ~~TFS3 volumes past 512 GiB~~ DONE 2026-10-20 -- v3: a volume-sized descriptor table, lazy groups, cached bitmaps
 - [x] ~~Name what an unmounted partition holds~~ DONE 2026-10-20 -- a signature probe, Disks and `lsblk -f`
-- [ ] Mount exFAT, and NTFS read-only -- Disks names them since 2026-10-20 but cannot open them
+- [x] ~~Mount exFAT~~ DONE 2026-10-22 -- read-write, `mkfs -t exfat`; `docs/usb-storage-design.md` stage 4
+- [ ] Mount NTFS read-only -- Disks names it since 2026-10-20 but cannot open it
+- [ ] A listing's size is 32 bits (`fs_list_cb`): an exFAT file of 4 GiB or more lists as 4 GiB -- `stat` is right
 - [x] ~~AHCI drives only the FIRST SATA drive it finds~~ DONE 2026-10-07 -- every drive, every HBA; `rootdisk_test.py`
 - [x] ~~A blank disk on a higher-precedence controller takes the root~~ DONE 2026-10-07 -- `bootpart=`, else the first bootable disk
 - [x] ~~Host-seeded images share PARTUUIDs~~ DONE 2026-10-07 -- random GUIDs per image; `regenerate_guids()` for a copy
@@ -1159,7 +1161,7 @@ run on, not by order.
 - [x] ~~A self-hosted installer: partition, format, copy the running system, write the bootloader~~ done -- `/bin/install`
 - [x] ~~A graphical installer, offered by a live session~~ DONE 2026-10-12 -- Install toy-os over `lib/uinstall.h`
 - [ ] Install beside another system: keep a disk's partitions and install into its free space -- the installer erases whole disks only
-- [ ] USB mass storage -- six stages in `docs/usb-storage-design.md`; stages 1-2 (removal, bulk-only) BUILT 2026-10-22
+- [ ] USB mass storage -- six stages in `docs/usb-storage-design.md`; stages 1, 2 and 4 (removal, bulk-only, exFAT) BUILT 2026-10-22
 - [ ] A USB gamepad for DOOM -- HID's generic-desktop gamepad and joystick usages, through the input core
 - [ ] Bluetooth, or a written decision against it -- the Intel cards' Bluetooth half is a USB device, Linux's `btusb`
 - [ ] Root ports driven by the hub driver, through an xHCI virtual root hub -- one port state machine, as Linux's `core/hub.c`

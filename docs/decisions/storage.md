@@ -4139,3 +4139,35 @@ images of a few GiB, where v3's layout is v2's anyway; teaching it the
 lazy rules would be a second implementation to keep in lockstep for no
 image it makes. It refuses a v3 volume by name, so the seeder can never
 mistake one for blank and reformat it.
+
+## exFAT writes its own up-case table, and keeps a file contiguous until it cannot
+
+Chosen 2026-10-22 (`kernel/fs/exfat*.c`, `docs/usb-storage-design.md`
+stage 4).
+
+**The up-case table a format writes is GENERATED** -- the case pairs of
+Latin, Greek, Cyrillic, Armenian and fullwidth Latin, compressed as the
+specification's 7.2.5 allows -- rather than a copy of the table Windows
+writes. A volume's names are compared and hashed through the table ON
+THAT VOLUME, so any table is correct for the volume carrying it:
+Windows, Linux's driver and `fsck.exfat` all read the table from the
+disk and check only its checksum (measured: `fsck.exfat -n` calls a
+volume formatted here clean). The cost is honest and small: a case pair
+the table lacks (a rarer script's) is two different names on a volume
+toy-os formatted, as on any volume whose table lacks it. A volume made
+elsewhere keeps its own table; toy-os never rewrites it.
+
+**A file's clusters are contiguous when they can be (NoFatChain)** and
+grow in place; only when the next cluster is taken is the run
+converted to a FAT chain -- its FAT entries written, the flag cleared --
+before it grows. That is what Windows writes, it keeps a large copy one
+seek long on a stick, and the conversion is the one place NoFatChain's
+trap (a reader following the FAT of a contiguous file reads garbage)
+can be got wrong, so it is the case `exfat_test.c` forces.
+
+**What it judges itself by is not itself.** A guest that reads back its
+own writes agrees with itself whatever the checksum or the name hash
+says; `tools/exfat_hostcheck.py` has the host's `fsck.exfat` and a reader
+written in Python from the specification judge every image, and both
+positive controls (a hash taken without up-casing, a set checksum one
+byte short) were caught by both.

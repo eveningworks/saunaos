@@ -17,6 +17,7 @@
 #include "block.h"
 #include "tfs3.h"
 #include "fat32.h"
+#include "exfat.h"
 #include "ramfs.h"
 #include "ata.h"
 #include "klog.h"
@@ -39,6 +40,7 @@
 static const struct fs_ops *const g_backends[] = {
     &tfs3_ops,
     &fat32_ops,
+    &exfat_ops,
 };
 #define FS_BACKEND_COUNT ((int)(sizeof(g_backends) / sizeof(g_backends[0])))
 
