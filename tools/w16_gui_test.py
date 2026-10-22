@@ -1188,7 +1188,7 @@ def calls_answered(dbg, res):
         "Dib24": "0000FF" "FFFFFF" "000000" "800000" "000000" "0000FF" "FFFFFF" "800000",
         "ReSame": "0001", "ReSize": "00012000", "ReKept": "0077", "ReTile": "0033", "ReHandle": "0001",
         "ReFree": "0000", "Int2f1680": "1600", "Int2f1684": "0000", "Int2f4300": "4300",
-        "FloodRet": "0001", "FloodMono": "F800F800",
+        "FloodRet": "0001", "FloodMono": "F800F800", "OleRelease": "0001",
     }
     for names, what in ((("EqualSame", "EqualDiff"), "EqualRect tells equal rectangles from different ones"),
                         (("Upper", "UpperN"), "AnsiUpperBuff upcases its count and no more"),
@@ -1208,7 +1208,8 @@ def calls_answered(dbg, res):
                         (("ReSame", "ReSize", "ReKept", "ReTile", "ReHandle", "ReFree"),
                          "GlobalReAlloc that must move a block past 64 KB keeps its handle and its bytes"),
                         (("Int2f1680", "Int2f1684", "Int2f4300"), "INT 2Fh answers the time slice and no VxD, and leaves a call nobody owns"),
-                        (("FloodRet", "FloodMono"), "ExtFloodFill on a 1-bit bitmap stops at a border as that bitmap holds it")):
+                        (("FloodRet", "FloodMono"), "ExtFloodFill on a 1-bit bitmap stops at a border as that bitmap holds it"),
+                        (("OleRelease",), "OleRevokeServer calls the server's Release (Paintbrush's Exit waits for it)")):
         res.check(f"wincalls.exe: {what}", all(got.get(n) == want[n] for n in names),
                   "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
 

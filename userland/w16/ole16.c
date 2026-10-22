@@ -948,6 +948,46 @@ const unsigned g_reg_api_n = sizeof g_reg_api / sizeof g_reg_api[0];
 
 // --- OLESVR: a program as an OLE 1.0 server -------------------------------------------------------
 
+// A registered server or document: the handle OLE gave the program and the program's own object
+// (an OLESERVER or OLESERVERDOC: a far pointer to its method table), whose Release a revoke calls.
+struct ole_reg { uint32_t handle, obj; };
+static struct ole_reg *g_regs;
+static int g_nregs, g_regs_cap;
+static uint32_t g_next_reg = 1;
+
+static uint32_t reg_add(uint32_t obj) {
+    if (g_nregs == g_regs_cap) {
+        int cap = g_regs_cap ? 2 * g_regs_cap : 4;
+        struct ole_reg *g = realloc(g_regs, sizeof *g * (size_t)cap);
+        if (!g) return 0;
+        g_regs = g;
+        g_regs_cap = cap;
+    }
+    g_regs[g_nregs].handle = g_next_reg;
+    g_regs[g_nregs++].obj = obj;
+    return g_next_reg++;
+}
+
+// The object `handle` names, taken off the list; 0 for none.
+static uint32_t reg_take(uint32_t handle) {
+    for (int i = 0; i < g_nregs; i++)
+        if (g_regs[i].handle == handle) {
+            uint32_t obj = g_regs[i].obj;
+            g_regs[i] = g_regs[--g_nregs];
+            return obj;
+        }
+    return 0;
+}
+
+// The object's Release -- slot 5 of OLESERVERVTBL and of OLESERVERDOCVTBL alike -- called as OLE did
+// once a revoke was done.
+static void call_release(struct w16 *w, uint32_t obj) {
+    uint16_t sel, off;
+    if (!obj || !stream_fn(w, obj, 5, &sel, &off) || !(sel | off)) { w->cpu.fault = 0; return; }
+    const uint16_t words[] = { (uint16_t)(obj >> 16), (uint16_t)obj };
+    w16_call_far(w, sel, off, words, 2);
+}
+
 // OleRegisterServer(lpszClass, lpsrvr, lplhserver, hInst, srvrUse) -> OLESTATUS
 // OleRevokeServer(lhserver) -> OLESTATUS
 // OleBlockServer(lhserver) -> OLESTATUS
@@ -958,21 +998,24 @@ const unsigned g_reg_api_n = sizeof g_reg_api / sizeof g_reg_api[0];
 // OleSavedServerDoc(lhdoc) -> OLESTATUS
 // Windows: A program tells OLE it can serve a class of object (Paintbrush: its pictures), and which
 // document it has open, so a client can edit an embedded object in it; the rest end, rename or pause
-// that, and say the document was saved.
+// that, and say the document was saved. Ending one, OLE calls the object's Release when no client
+// holds it any more, and a server waits for that before it quits.
 // w16: Each says OLE_OK and keeps a handle, and no client ever comes: nothing can ask this program for
-// an object.
+// an object. A revoke calls the object's Release at once, as no client holds it -- Paintbrush's Exit
+// waits for its server's.
 // Why: A client is another Windows program, and w16 runs one at a time (RegOpenKey says why).
 // Notice: Paintbrush starts and runs as if registered; a Write picture is still not editable in it.
 // Whole: Servers w16 can start, for the clients that ask. On the roadmap: "w16: one program starting
 // or finding another".
 static int api_OleServer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    uint32_t out = 0;
+    uint32_t out = 0, obj = 0, handle = 0;
     unsigned bytes = 4;
     switch (ordinal) {
-    case 2: w16_arg32(a); w16_arg32(a); out = w16_arg32(a); w16_arg16(a); w16_arg16(a); bytes = 16; break;
+    case 2: w16_arg32(a); obj = w16_arg32(a); out = w16_arg32(a); w16_arg16(a); w16_arg16(a); bytes = 16; break;
     case 5: w16_arg32(a); out = w16_arg32(a); bytes = 8; break;           // lpfRequest is cleared below
-    case 6: w16_arg32(a); w16_arg32(a); w16_arg32(a); out = w16_arg32(a); bytes = 16; break;
+    case 6: w16_arg32(a); w16_arg32(a); obj = w16_arg32(a); out = w16_arg32(a); bytes = 16; break;
     case 8: w16_arg32(a); w16_arg32(a); bytes = 8; break;
+    case 3: case 7: handle = w16_arg32(a); break;                          // a revoke
     default: w16_arg32(a); break;
     }
     w->cpu.r[R_DX] = 0;
@@ -981,10 +1024,17 @@ static int api_OleServer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(out >> 16), (uint16_t)out, 2, 1);
         if (!p) return -1;
         p[0] = p[1] = 0;
-    } else if (out && !put_far(w, out, ordinal == 2 ? 1 : 2)) {
-        return -1;
+    } else if (out) {
+        uint32_t h = reg_add(obj);
+        if (!h) { w->cpu.r[R_AX] = OLE_ERROR_MEMORY; return (int)bytes; }
+        if (!put_far(w, out, h)) return -1;
     }
-    return (int)bytes;
+    if (handle) {
+        call_release(w, reg_take(handle));
+        w->cpu.r[R_AX] = OLE_OK;                  // what Release answered is the program's, not this call's
+        w->cpu.r[R_DX] = 0;
+    }
+    return w->cpu.fault ? -1 : (int)bytes;
 }
 
 const struct w16_api g_olesvr_api[] = {

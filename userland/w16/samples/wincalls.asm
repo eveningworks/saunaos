@@ -26,6 +26,8 @@
 ;   Int2f4300=4300                     ...and a multiplex nobody owns, left as it came
 ;   FloodRet=0001 FloodMono=F800F800   ExtFloodFill of a 1-bit 8 x 2 bitmap up to a near-white border at
 ;                                      column 4: columns 0-3 white, the rest black
+;   OleRelease=0001                    OleRegisterServer, then OleRevokeServer calls the server's Release
+;                                      (slot 5 of its method table) -- Paintbrush's Exit waits for it
 ; Run on real Windows 3.11 it is the check of what each answer should be.
 ; Build: tools/gen_ne.py.
 ;
@@ -64,6 +66,7 @@ start:
     W16_CALL "KERNEL", 91           ; InitTask
     or ax, ax
     jz fail
+    mov [hinst], di
 
     push ds                         ; EqualRect(&a, &a)
     push word rect_a
@@ -352,6 +355,19 @@ start:
     push word mono_out
     W16_CALL "GDI", 74
 
+    push ds                         ; OleRegisterServer("WinCallsSrv", &srvr, &lhsrvr, hInst, OLE_SERVER_SINGLE)
+    push word srv_class
+    push ds
+    push word srvr
+    push ds
+    push word lhsrvr
+    push word [hinst]
+    push word 0
+    W16_CALL "OLESVR", 2
+    push word [lhsrvr + 2]          ; OleRevokeServer(lhsrvr): Release sets `released`
+    push word [lhsrvr]
+    W16_CALL "OLESVR", 3
+
     push ds                         ; the numbers, as text
     pop es
     HEXW equal_same_t, [equal_same]
@@ -391,6 +407,7 @@ start:
     HEXW i2f84_t, [i2f84]
     HEXW i2f43_t, [i2f43]
     HEXW flood_ret_t, [flood_ret]
+    HEXW released_t, [released]
     mov di, flood_mono_t            ; the four bytes back, as hex
     mov si, mono_out
     mov cx, 4
@@ -455,6 +472,25 @@ fail:
     mov ax, 0x4C01
     int 0x21
 
+; The server's Release(lpsrvr), Pascal, DS from AX: marks that it was called.
+srv_release:
+    push bp
+    mov bp, sp
+    push ds
+    mov ds, ax
+    mov word [released], 1
+    xor ax, ax
+    xor dx, dx
+    pop ds
+    pop bp
+    retf 4
+
+; Its other methods, never called here: OLE_OK.
+srv_other:
+    xor ax, ax
+    xor dx, dx
+    retf
+
 ; AX as four hex digits at ES:DI.
 hex16:
     push ax
@@ -477,6 +513,7 @@ hex8:
     ret
 
 W16_ENTRY start
+W16_EXPORT 1, "SRVRELEASE", srv_release
 
 ; ---------------------------------------------------------------- data
 W16_SEGMENT 2
@@ -540,6 +577,18 @@ hmono:      dw 0
 flood_ret:  dw 0
 mono_in:    db 0x08, 0x00, 0x08, 0x00
 mono_out:   times 4 db 0
+hinst:      dw 0
+lhsrvr:     dd 0
+released:   dw 0
+srvr:       W16_FARPTR srv_vtbl, 2      ; an OLESERVER: its method table
+srv_vtbl:   W16_FARPTR srv_other, 1     ; Open, Create, CreateFromTemplate, Edit, Exit, Release, Execute
+            W16_FARPTR srv_other, 1
+            W16_FARPTR srv_other, 1
+            W16_FARPTR srv_other, 1
+            W16_FARPTR srv_other, 1
+            W16_FARPTR srv_release, 1
+            W16_FARPTR srv_other, 1
+srv_class:  db "WinCallsSrv", 0
 bits_out:   times 8 db 0
 bmi:        dd 40, 0, 0
             dw 0, 24
@@ -585,6 +634,7 @@ i2f80_t:    times 6 db 0
 i2f84_t:    times 6 db 0
 i2f43_t:    times 6 db 0
 flood_ret_t: times 6 db 0
+released_t: times 6 db 0
 flood_mono_t: times 10 db 0
 
 keys:       dw k_equal_same, equal_same_t, k_equal_diff, equal_diff_t
@@ -602,7 +652,7 @@ keys:       dw k_equal_same, equal_same_t, k_equal_diff, equal_diff_t
             dw k_re_same, re_same_t, k_re_size, re_size_t, k_re_kept, re_kept_t, k_re_tile, re_tile_t
             dw k_re_handle, re_handle_t, k_re_free, re_free_t
             dw k_i2f80, i2f80_t, k_i2f84, i2f84_t, k_i2f43, i2f43_t
-            dw k_flood_ret, flood_ret_t, k_flood_mono, flood_mono_t
+            dw k_flood_ret, flood_ret_t, k_flood_mono, flood_mono_t, k_released, released_t
             dw k_pal, pal_t, 0
 k_equal_same: db "EqualSame", 0
 k_equal_diff: db "EqualDiff", 0
@@ -648,5 +698,6 @@ k_i2f84:    db "Int2f1684", 0
 k_i2f43:    db "Int2f4300", 0
 k_flood_ret: db "FloodRet", 0
 k_flood_mono: db "FloodMono", 0
+k_released: db "OleRelease", 0
 ini_app:    db "WinCalls", 0
 ini_file:   db "WINCALLS.INI", 0

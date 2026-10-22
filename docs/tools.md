@@ -7561,8 +7561,8 @@ runs first**: a `doom1.wad` with one
   box; breaking GetDlgItemInt or TranslateAccelerator turns exactly its
   check red. `wincalls.exe` writes the answers of calls that need no window
   to WINCALLS.INI (huge blocks and a GlobalReAlloc that must move them,
-  GetDIBits, bitmap bits, INT 2Fh, a flood fill on a 1-bit bitmap among
-  them); `opendlg.exe` runs the Open dialog on its own template, its hook
+  GetDIBits, bitmap bits, INT 2Fh, a flood fill on a 1-bit bitmap, an OLE
+  server's Release on revoke among them); `opendlg.exe` runs the Open dialog on its own template, its hook
   recording which of Read Only and Help show and ticking Read Only before
   OK. Taking out the flood fill's 1-bit border turns exactly its check red.
   Flipping the DIB's rows or swapping P and S in the ROP3 rule turns
