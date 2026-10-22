@@ -279,7 +279,7 @@ static int is_radio(const struct w16_wnd *x) {
 
 // 3.1's grey text (GrayString): the text's ink every other pixel, a 50%
 // dither, rather than a grey colour -- over the box it was drawn in.
-static void dither_out(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t ink, uint32_t ground) {
+void w16_gray_dither(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t ink, uint32_t ground) {
     for (int j = 0; j < h; j++)
         for (int i = 0; i < w; i++) {
             int px = x + i, py = y + j;
@@ -322,7 +322,7 @@ static void paint_push(struct w16 *w, struct w16_wnd *x, struct button *b, struc
     int tx = x0 + (bw - 2 - ext) / 2 + sh, ty = y0 + (bh - lh) / 2 + sh;
     ugfx_draw_string_clipped(s, tx, ty, bw - 4, buf, black, w16_rgb(0xC0C0C0));
     underline(s, tx, ty, buf, mark, black);
-    if (x->style & WS_DISABLED) dither_out(s, tx, ty, tw, lh, black, w16_rgb(0xC0C0C0));
+    if (x->style & WS_DISABLED) w16_gray_dither(s, tx, ty, tw, lh, black, w16_rgb(0xC0C0C0));
     if (b->focused) w16_draw_focus(s, tx - 2, ty - 1, tw + 4, lh + 2);
     free(buf);
 }
@@ -382,7 +382,7 @@ static void paint_check(struct w16 *w, struct w16_wnd *x, struct button *b, stru
     ugfx_draw_string_clipped(s, tx, ty, room, buf, black, bg);
     underline(s, tx, ty, buf, mark, black);
     int tw = ugfx_text_width(buf);
-    if (x->style & WS_DISABLED) dither_out(s, tx, ty, tw < room ? tw : room, lh, black, bg);
+    if (x->style & WS_DISABLED) w16_gray_dither(s, tx, ty, tw < room ? tw : room, lh, black, bg);
     // The focus round the label one wider each side and above, two below:
     // 3.11's, measured in the System font (Solitaire's Options).
     if (b->focused) w16_draw_focus(s, tx - 2, ty - 1, (tw < room ? tw : room) + 4, lh + 3);
@@ -404,7 +404,7 @@ static void paint_group(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *s
         ugfx_fill_rect(s, x0 + 7, ty, tw + 4, lh, bg);
         ugfx_draw_string_clipped(s, x0 + 9, ty, x->cw - 12, buf, black, bg);
         underline(s, x0 + 9, ty, buf, mark, black);
-        if (x->style & WS_DISABLED) dither_out(s, x0 + 9, ty, tw, lh, black, bg);   // its label greyed, as 3.11's
+        if (x->style & WS_DISABLED) w16_gray_dither(s, x0 + 9, ty, tw, lh, black, bg);   // its label greyed, as 3.11's
     }
     free(buf);
 }

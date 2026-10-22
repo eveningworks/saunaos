@@ -171,6 +171,10 @@ static int register_class(struct w16 *w, struct w16_args *a) {
     k.name = class_name(w, cname);
     w->cpu.r[R_AX] = 0;
     if (!k.name) return -1;
+    if (g_w16_trace) {
+        fprintf(g_w16_trace, "  RegisterClass %s style %04x\n", k.name, k.style);
+        fflush(g_w16_trace);
+    }
     if (w16_class_find(w, k.name) >= 0 || !(k.atom = w16_atom_add(w, k.name)) || class_add(w, &k) < 0) {
         free(k.name);
         free(k.menu);

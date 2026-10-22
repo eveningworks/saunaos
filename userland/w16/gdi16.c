@@ -2987,6 +2987,11 @@ static int api_Polygon(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int *pt = malloc(sizeof *pt * 2 * (size_t)n), cnt = n;
     if (!pt) return 8;
     for (int i = 0; i < 2 * n; i++) pt[i] = (int16_t)(p[2 * i] | p[2 * i + 1] << 8);
+    if (g_w16_trace) {                           // the points, as Wine's +gdi shows a polygon's
+        fprintf(g_w16_trace, "  points");
+        for (int i = 0; i < n; i++) fprintf(g_w16_trace, " %d,%d", pt[2 * i], pt[2 * i + 1]);
+        fprintf(g_w16_trace, "\n");
+    }
     w->cpu.r[R_AX] = (uint16_t)polygons(w, hdc, pt, &cnt, 1, ordinal == 36);
     free(pt);
     return 8;

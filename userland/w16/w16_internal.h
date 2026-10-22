@@ -651,6 +651,9 @@ void w16_draw_focus(struct ugfx_surface *s, int x, int y, int w, int h);
 // A message box's icon (1 hand, 2 question, 3 exclamation, 4 asterisk),
 // or 0xFF: the program's own.
 void w16_draw_icon(struct ugfx_surface *s, struct w16 *w, int kind, int x, int y);
+struct ugfx_surface;
+// 3.1's grey text (GrayString): every other pixel of `ink` in the box made `ground`, a 50% dither.
+void w16_gray_dither(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t ink, uint32_t ground);
 uint32_t w16_rgb(uint32_t rgb);                   // 0xRRGGBB -> a ugfx colour, as VGA showed it
 uint32_t w16_vga(uint32_t rgb);                   // 0xRRGGBB as 3.11 at VGA showed it
 uint32_t w16_vga_back(uint32_t rgb);              // ...and a shown colour back to the one asked for
@@ -1111,6 +1114,7 @@ struct w16_menu {
     int sel;                      // the highlighted item, -1 none
     int armed;                    // a press began inside it
     int row_h;                    // a row's height in the system font, set as it opens
+    int accel_x;                  // where the shortcut column starts, set with it
 };
 
 void w16_menu_open(struct w16_menu *m, int ax, int ay, int aw, int ah, int by_key);

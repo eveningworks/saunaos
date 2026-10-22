@@ -13,9 +13,13 @@
 #include "ui/ugfx.h"
 #include "ui/uui_popup.h"
 
-#define PAD_L   18                 // room for a check mark, as 3.1 left it
-#define PAD_R   14
-#define SHADOW  2
+// 3.11's menu at VGA, measured on Notepad's and Paintbrush's: a label's origin 16 in (room for a
+// check mark), the shortcuts a left-aligned column 8 after the longest label, the border 15 after the
+// longest label or shortcut, and a shadow one light-grey pixel wide.
+#define PAD_L   16
+#define PAD_R   15
+#define GAP     8
+#define SHADOW  1
 
 static uint32_t rgb(uint32_t v) { return w16_rgb(v); }
 
@@ -56,8 +60,8 @@ static int mnemonic(const struct w16_menu_item *it) {
 static void measure(struct w16_menu *m) {
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
-    int lw = 0, aw = 0, h = 4;
-    m->row_h = ugfx_char_h() + 4;
+    int lw = 0, aw = 0, h = 2;                   // the border's two lines
+    m->row_h = ugfx_char_h() + 2;                // 18 in 3.11's System font, rows from the border on
     for (int i = 0; i < m->n; i++) {
         char *t = malloc(strlen(m->item[i].text) + 1);
         if (t) plain(m->item[i].text, t, (int)strlen(m->item[i].text) + 1);
@@ -67,10 +71,10 @@ static void measure(struct w16_menu *m) {
         if (kw > aw) aw = kw;
         h += item_h(m, &m->item[i]);
     }
-    int gap = 3 * ugfx_char_w();                 // before the shortcut column, in this font too
     ugfx_set_font(was);
     pthread_mutex_unlock(&g_w16_text_lock);
-    m->w = PAD_L + lw + (aw ? gap + aw : 0) + PAD_R + SHADOW;
+    m->accel_x = PAD_L + lw + GAP;
+    m->w = PAD_L + lw + (aw ? GAP + aw : 0) + PAD_R + SHADOW;
     m->h = h + SHADOW;
 }
 
@@ -112,7 +116,7 @@ void w16_menu_close(struct w16_menu *m) {
 
 static int item_at(const struct w16_menu *m, int x, int y) {
     if (x < m->x || x >= m->x + m->w - SHADOW || y < m->y) return -1;
-    int top = m->y + 2;
+    int top = m->y + 1;
     for (int i = 0; i < m->n; i++) {
         int h = item_h(m, &m->item[i]);
         if (y >= top && y < top + h) return i;
@@ -149,15 +153,18 @@ void w16_menu_draw(struct w16_menu *m) {
 static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
     uint32_t black = rgb(0x000000), white = rgb(0xFFFFFF);
     int W = m->w - SHADOW, H = m->h - SHADOW;
-    // The shadow is the surface's black right and bottom bands: an opaque
-    // popup cannot leave its two far corners transparent, as 3.1's could.
-    ugfx_fill_rect(s, 0, 0, m->w, m->h, black);
+    // The shadow is the surface's light-grey right column and bottom row, from the second pixel on. An
+    // opaque popup cannot leave its two far corners transparent, as 3.1's did: the top right is black,
+    // the menu bar's line a dropdown lies on, the bottom left white, the client under it as a rule.
+    ugfx_fill_rect(s, 0, 0, m->w, m->h, rgb(0xC0C0C0));
     ugfx_fill_rect(s, 0, 0, W, H, white);
     ugfx_draw_rect(s, 0, 0, W, H, black);
+    ugfx_fill_rect(s, W, 0, SHADOW, 1, black);
+    ugfx_fill_rect(s, 0, H, 1, SHADOW, white);
 
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_system_font());
-    int y = 2, ch = ugfx_char_h();
+    int y = 1, ch = ugfx_char_h();
     for (int i = 0; i < m->n; i++) {
         const struct w16_menu_item *it = &m->item[i];
         int h = item_h(m, it);
@@ -166,13 +173,14 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
             y += h;
             continue;
         }
-        int lit = i == m->sel;
-        uint32_t fg = it->flags & W16_MF_GRAYED ? rgb(0x808080) : lit ? white : black;
+        // A grey item: light grey -- COLOR_GRAYTEXT at VGA -- or, lit, white dithered as GrayString did.
+        int lit = i == m->sel, grey = (it->flags & W16_MF_GRAYED) != 0;
+        uint32_t fg = grey && !lit ? rgb(0xC0C0C0) : lit ? white : black;
         if (lit) ugfx_fill_rect(s, 1, y, W - 2, h, rgb(0x000080));
         char *t = malloc(strlen(it->text) + 1);
         if (!t) { y += h; continue; }
         int at = plain(it->text, t, (int)strlen(it->text) + 1);
-        int ty = y + (h - ch) / 2;
+        int ty = y;                              // the cell at the row's top, its 2 spare rows below, as 3.11
         if (it->flags & W16_MF_CHECKED) {       // 3.1's tick, in the room left of the text
             int cx = 5, cy = ty + ch / 2;
             for (int k = 0; k < 3; k++) ugfx_fill_rect(s, cx + k, cy - 1 + k, 1, 2, fg);
@@ -184,8 +192,8 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
             ugfx_fill_rect(s, ux, ty + w16_font_ascent(ugfx_font_current()) + 1, uw, 1, fg);
         }
         if (it->accel[0])
-            ugfx_draw_string(s, W - PAD_R - ugfx_text_width(it->accel), ty, it->accel, fg,
-                             UGFX_TRANSPARENT);
+            ugfx_draw_string(s, m->accel_x, ty, it->accel, fg, UGFX_TRANSPARENT);
+        if (grey && lit) w16_gray_dither(s, 1, y, W - 2, h, white, rgb(0x000080));
         free(t);
         y += h;
     }
