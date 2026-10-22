@@ -446,6 +446,17 @@ static int api_GetTempFileName(struct w16 *w, unsigned ordinal, struct w16_args 
     return 10;
 }
 
+// GetDriveType(nDrive) -> UINT
+// Windows: What kind of drive a letter (0 is A:) is: 0 none, 2 removable, 3 fixed, 4 remote, 5 CD-ROM.
+// w16: 3, a fixed disk, for each drive the program sees (C:, Z: and the folders mapped to D:-Y:); 0 for
+// a letter that is no drive -- there are no floppies, CD-ROMs or network drives to tell apart.
+static int api_GetDriveType(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t n = w16_arg16(a);
+    w->cpu.r[R_AX] = n < 26 && drive_root((char)('A' + n)) ? 3 : 0;
+    return 2;
+}
+
 const struct w16_api g_file_api[] = {
     { 74, api_OpenFile },
     { 81, api_lclose },
@@ -455,6 +466,7 @@ const struct w16_api g_file_api[] = {
     { 85, api_lopen },
     { 86, api_lread },
     { 97, api_GetTempFileName },
+    { 136, api_GetDriveType },
 };
 const unsigned g_file_api_n = sizeof g_file_api / sizeof g_file_api[0];
 

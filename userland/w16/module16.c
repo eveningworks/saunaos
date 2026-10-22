@@ -459,7 +459,10 @@ static int far_name(struct w16 *w, uint32_t far, char *out, size_t cap) {
 // file is not there. A DLL already loaded is counted again.
 // w16: A Windows module (USER, GDI...) is always there: it answers with that module's handle. Any
 // other DLL -- a program's own, as Hearts' CARDS.DLL -- is loaded from the program's folder, its
-// segments relocated and its entry point run once; 2 when it is not there.
+// segments relocated and its entry point run once; 2 when it is not there. NETAPI.DLL, Windows for
+// Workgroups' own network layer, is "not there" even in a full 3.11 tree: it talks to a real-mode
+// NetBIOS through DOS memory and INT 2Fh, which w16 has no network behind (WNetGetCaps says so too),
+// and Hearts then plays alone as it does on a tree without it.
 static int api_LoadLibrary(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     char spec[260], name[16];
@@ -468,6 +471,10 @@ static int api_LoadLibrary(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     int err = 2;
     if (w16_is_builtin(name)) {                  // Windows' own: always there
         w->cpu.r[R_AX] = w16_thunk_sel(w, name);
+        return 4;
+    }
+    if (same(name, "NETAPI")) {
+        w->cpu.r[R_AX] = (uint16_t)err;
         return 4;
     }
     struct w16_dll *d = w16_dll_load(w, spec, &err);

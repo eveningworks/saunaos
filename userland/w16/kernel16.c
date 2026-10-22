@@ -566,10 +566,29 @@ int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w16_kernel_heap_call(w, ordinal, a, kernel_call);
 }
 
+// INT 2Fh, the multiplex: a program's DLL asks whether Windows is running in enhanced mode, which
+// GetWinFlags says it is, and whether the CPU is in protected mode, which it is. 1600h answers with the
+// version GetVersion tells (AL major, AH minor), 1686h with AX 0; anything else is left unimplemented.
+static int multiplex(struct cpu16 *c) {
+    if (g_w16_trace) {
+        fprintf(g_w16_trace, "INT 2Fh AX=%04x BX=%04x CX=%04x DX=%04x\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],
+                c->r[R_DX]);
+        fflush(g_w16_trace);
+    }
+    if (c->r[R_AX] == 0x1686) {                  // "in real or V86 mode?": 0 is protected mode
+        c->r[R_AX] = 0;
+        return 0;
+    }
+    if (c->r[R_AX] != 0x1600) return -1;
+    c->r[R_AX] = w16_prefs_winver(&g_w16_prefs);   // GetVersion's AX: minor in AH, major in AL
+    return 0;
+}
+
 // INT 21h: the DOS calls a Windows program still makes. 4Ch ends it.
 // INT 75h: the coprocessor's exception (win87em16.c).
 int w16_int(struct cpu16 *c, uint8_t n) {
     if (n == 0x75) return w16_fpu_irq(c->user);
+    if (n == 0x2F) return multiplex(c);
     if (n != 0x21) return -1;
     if (g_w16_trace) {
         fprintf(g_w16_trace, "INT 21h AX=%04x BX=%04x CX=%04x DX=%04x\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],
