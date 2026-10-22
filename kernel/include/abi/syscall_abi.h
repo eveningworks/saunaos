@@ -2704,6 +2704,12 @@ struct sys_rlimit {
                                // QUERY_DEVEVENT's seq), or -ENOENT for 1
                                // with no wakeword registered. Linux's
                                // uevent socket, Windows' WM_DEVICECHANGE.
+#define SYS_EJECT 153          // RDI = a disk's name ("usb0"). Ejects a
+                               // removable disk: refused -EBUSY while any
+                               // of it is mounted, -ENOTSUP if it is not
+                               // removable, -ENOENT for no such disk. 0:
+                               // flushed, told, and gone (QUERY_DEVEV_EJECTED)
+                               // -- safe to pull out.
 #define SYS_SET_ABORT_MSG 151  // RDI = a NUL-terminated buffer of RSI
                                // bytes (at most SYS_ABORT_MSG_MAX), or 0
                                // to forget it. Per address space: threads

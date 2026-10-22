@@ -11,7 +11,9 @@ THE CHECKS, and what a broken version would still pass
 -----------------------------------------------------
   1. Both sticks come up as usbN with their sizes and block sizes, and
      the FAT32 stick's partition is named -- a driver that declined the
-     interface still boots; the NAMES are the assertion.
+     interface still boots; the NAMES are the assertion. automountd has
+     mounted it at /media/TESTSTICK; it is then stopped, so the checks
+     below watch the kernel alone, and started again for step 5.
   2. A file the HOST put on the stick reads back byte for byte in the
      guest (`sum` against the host's own), and it is bigger than one
      64 KiB transfer, so the chunking is in the path.
@@ -22,7 +24,7 @@ THE CHECKS, and what a broken version would still pass
   4. The pulled mount is `removed` and refuses writes; unmounting it
      releases usb0 -- gone from lsblk, released in the log.
   5. A stick plugged in while running (device_add) is named, its
-     partition found, mounted and read; `sync` is not failed by a pulled
+     partition found, mounted by automountd at /media/REPLUG and read; `sync` is not failed by a pulled
      stick's mount; a stick pulled with NOTHING mounted is released in the
      unbind itself and the guest carries on.
   6. The 4 KiB stick is formatted, mounted, written and read back.
@@ -132,6 +134,14 @@ def main():
         res.check("both sticks are named, with their block sizes",
                   "usb0" in blk and "usb1" in blk and "4096" in blk and "usb0p1" in blk, blk[-500:])
 
+        # automountd mounted it already; it is stopped so the kernel's own
+        # handling of a pulled mount can be watched without it tidying up,
+        # and started again for the replug below.
+        auto = poll(lambda: "/media/TESTSTICK" in g.run("mount"), 15)
+        res.check("automountd mounts a stick present at boot at /media/<label>", auto,
+                  g.run("mount").strip()[-300:])
+        g.run("service stop automountd", "umount /media/TESTSTICK")
+
         big = open(BIG, "rb").read()
         want = guest_sum(big)
         out = g.run("mkdir /mnt/stick", "mount usb0p1 /mnt/stick", "cat /mnt/stick/HELLO.TXT",
@@ -164,13 +174,15 @@ def main():
                   "usb0p1" not in out.split("--- dmesg ---")[0] and "block: usb0 released" in out,
                   out.split("--- dmesg ---")[0].strip()[-300:])
 
+        g.run("service start automountd")
         q.hmp(f"drive_add 0 if=none,id=ustickdrv9,file={replug},format=raw")
         q.hmp("device_add usb-storage,id=ustick9,drive=ustickdrv9,bus=xhci.0")
         # usb1 (the 4 KiB stick) is still there, so the lowest free name is usb0.
         named = poll(lambda: "usb0p1" in g.run("lsblk"), 15)
-        out = g.run("mkdir /mnt/replug", "mount usb0p1 /mnt/replug", "cat /mnt/replug/HELLO.TXT")
-        res.check("a stick plugged in while running takes the lowest free name, mounts, reads",
-                  named and "hello from a usb stick" in out, out.strip()[-300:])
+        auto = poll(lambda: "/media/REPLUG" in g.run("mount"), 15)
+        out = g.run("cat /media/REPLUG/HELLO.TXT")
+        res.check("a stick plugged in while running takes the lowest free name, is mounted, reads",
+                  named and auto and "hello from a usb stick" in out, out.strip()[-300:])
 
         out = g.run("mkfs -t fat32 usb1 confirm", "mkdir /mnt/k4", "mount usb1 /mnt/k4",
                     f"cp {GUEST_BIG} /mnt/k4/BIG", "sum /mnt/k4/BIG", timeout=180)

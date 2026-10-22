@@ -80,12 +80,14 @@ a command), and the `gui3`/`nano` aliases.
 ### Files and the filesystem
 
 - [`append`](append.md)
+- [`automountd`](automountd.md)
 - [`cat`](cat.md)
 - [`cd`](cd.md)
 - [`chmod`](chmod.md)
 - [`cp`](cp.md)
 - [`df`](df.md)
 - [`edit`](edit.md)
+- [`eject`](eject.md)
 - [`imginfo`](imginfo.md)
 - [`less`](less.md)
 - [`ln`](ln.md)

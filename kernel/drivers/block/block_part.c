@@ -298,6 +298,7 @@ static const struct block_device *create_locked(const struct block_device *paren
     // a partition of a device with no flush must not claim one.
     s->dev.persistent = parent->persistent;
     s->dev.removable = parent->removable;
+    s->dev.no_automount = parent->no_automount;
     s->dev.block_size = parent->block_size;
     s->dev.caps = parent->caps;
     s->dev.flush = (parent->caps & BLK_CAP_FLUSH) ? part_flush : NULL;

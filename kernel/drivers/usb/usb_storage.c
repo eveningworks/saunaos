@@ -329,6 +329,31 @@ static void leave(struct ums *u) {
     if (__atomic_sub_fetch(&u->busy, 1, __ATOMIC_SEQ_CST) == 0) maybe_free_dma(u);
 }
 
+// EJECT (blk_eject() calls it, after the flush): the cache synced once
+// more, then START STOP UNIT -- stop, eject. A stick with neither says
+// ILLEGAL REQUEST, and it has nothing to lose, so that is success too:
+// what makes it safe to pull is that nothing is mounted and every write
+// already reached it.
+static int ums_eject(const struct block_device *dev) {
+    struct ums_lun *l = lun_of(dev);
+    struct ums *u = l->u;
+    if (!enter(u)) return 0;
+    kmutex_lock(&u->lock);
+    uint8_t cdb[16];
+    struct scsi_sense why = { 0, 0, 0 };
+    int n = scsi_cdb_sync_cache(cdb);
+    int r = command_retry(u, l->lun, cdb, n, 0, 0, 0, &why);
+    int ok = r == CMD_OK || (r == CMD_FAILED && why.key == SCSI_KEY_ILLEGAL_REQUEST);
+    if (ok) {
+        n = scsi_cdb_start_stop(cdb, 0, 1);
+        r = command_retry(u, l->lun, cdb, n, 0, 0, 0, &why);
+        ok = r == CMD_OK || (r == CMD_FAILED && why.key == SCSI_KEY_ILLEGAL_REQUEST);
+    }
+    kmutex_unlock(&u->lock);
+    leave(u);
+    return ok;
+}
+
 // The block layer is done with one LUN.
 static void ums_release(const struct block_device *dev) {
     struct ums *u = lun_of(dev)->u;
@@ -468,6 +493,7 @@ static int ums_bind(struct usb_device_info *d, int iface, const uint8_t *cfg, ui
         l->blk.flush = ums_flush;
         l->blk.block_size = l->block;
         l->blk.release = ums_release;
+        l->blk.eject = ums_eject;
         __atomic_add_fetch(&u->live, 1, __ATOMIC_SEQ_CST);
         if (!blk_add_disk(&l->blk)) { __atomic_sub_fetch(&u->live, 1, __ATOMIC_SEQ_CST); continue; }
         l->registered = 1;

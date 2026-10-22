@@ -40,6 +40,8 @@ static int blkdev_fill(int index, void *out) {
     d->base_lba = e->base_lba;
     d->is_root = (blk_root() == e->dev) ? 1 : 0;
     d->persistent = e->dev->persistent ? 1 : 0;
+    if (e->dev->removable) d->fs_flags |= QUERY_BLK_REMOVABLE;
+    if (e->dev->no_automount) d->fs_flags |= QUERY_BLK_NO_AUTOMOUNT;
     d->block_size = blkdev_block_size(e->dev);
     if (e->dev->model) k_strlcpy(d->model, e->dev->model, sizeof d->model);
     if (e->dev->driver) k_strlcpy(d->driver, e->dev->driver, sizeof d->driver);

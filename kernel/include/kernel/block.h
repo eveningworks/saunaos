@@ -133,12 +133,20 @@ struct block_device {
     // such a disk), and it may later go away (blk_device_gone()).
     // Inherited by its partitions.
     int removable;
+    // Not for automountd: a removable disk only the kernel's own tests
+    // mount (udev's UDISKS_AUTO=0). Inherited by its partitions.
+    int no_automount;
 
     // OPTIONAL: called once a device that went away has no users left
     // (blk_device_gone()), so the driver may free the memory this struct
     // lives in. NULL for a device that never goes, or whose memory is
     // static. Never called for a device that is still registered.
     void (*release)(const struct block_device *self);
+
+    // OPTIONAL, for a removable disk: tell the device it is about to be
+    // pulled -- a USB stick's SYNCHRONIZE CACHE and START STOP UNIT
+    // (stop, eject). 1 when it took it. blk_eject() is the only caller.
+    int (*eject)(const struct block_device *self);
 };
 
 // ---- the device table ------------------------------------------------
@@ -202,6 +210,15 @@ int blk_untrack(const struct block_device *dev);
 // an interrupt handler.
 void blk_device_gone(const struct block_device *disk);
 int blk_device_is_gone(const struct block_device *dev);
+
+// EJECT: the safe way out for a removable disk, "Safely Remove" in
+// Windows' words. Refused (-EBUSY) while anything on the disk or a
+// partition of it is mounted, -ENOTSUP for a disk that is not removable.
+// Flushes, asks the device (its eject op, if it has one), then the disk
+// goes away exactly as a pull does -- but recorded as QUERY_DEVEV_EJECTED,
+// so the desktop can tell the two apart. The stick is still plugged in;
+// unplugging and replugging brings it back.
+int blk_eject(const struct block_device *disk);
 
 // A mount's hold on a device. blk_get() refuses (0) a gone or unknown
 // device; blk_put() may drop a gone one on the spot.

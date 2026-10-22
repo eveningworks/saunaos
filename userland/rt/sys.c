@@ -973,6 +973,10 @@ unsigned long long sys_fs_generation(void) {
     return (unsigned long long)syscall0(SYS_FS_GENERATION);
 }
 
+int sys_eject(const char *disk) {
+    return (int)err(syscall1(SYS_EJECT, (uint64_t)(uintptr_t)disk));
+}
+
 int sys_dev_watch(int op) {
     return (int)err(syscall1(SYS_DEV_WATCH, (uint64_t)(int64_t)op));
 }

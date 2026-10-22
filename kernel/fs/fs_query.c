@@ -46,7 +46,9 @@ static int fsinfo_fill(int index, void *out) {
 
     k_strlcpy(f->name, m->fs->name, sizeof f->name);
     k_strlcpy(f->point, m->point, sizeof f->point);
-    if (m->dev) k_strlcpy(f->device, m->dev->name, sizeof f->device);
+    // The device TABLE's name ("usb1", "ata0p3"), not the driver's stem a
+    // whole-disk mount would otherwise report ("usb").
+    if (m->dev) k_strlcpy(f->device, blk_device_name(m->dev), sizeof f->device);
     f->flags |= QUERY_FS_MOUNTED;
     if (m->persistent) f->flags |= QUERY_FS_PERSISTENT;
     if (m->flags & MNT_RDONLY) f->flags |= QUERY_FS_RDONLY;

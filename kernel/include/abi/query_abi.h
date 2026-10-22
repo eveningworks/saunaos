@@ -1132,6 +1132,7 @@ struct query_pcidev {
 #define QUERY_DEVEV_ADDED     6 // it appeared: plugged in, a disk registered
 #define QUERY_DEVEV_REMOVED   7 // it went: unplugged, a disk unregistered
 #define QUERY_DEVEV_NO_DRIVER 8 // it appeared and no driver matched it
+#define QUERY_DEVEV_EJECTED   9 // a removable disk was ejected: safe to pull out
 
 struct query_devevent {
     uint32_t seq;          // 1 for this boot's first event, then on
@@ -1225,6 +1226,11 @@ struct query_blkdev {
 
 // fstype names a filesystem this kernel can mount.
 #define QUERY_BLK_FS_MOUNTABLE 0x1
+// The DEVICE can be pulled out (a USB stick; a partition says its disk's).
+// In fs_flags rather than a field of its own so the record's size stays.
+#define QUERY_BLK_REMOVABLE    0x2
+// Not to be mounted automatically (a test's disk); a partition says its disk's.
+#define QUERY_BLK_NO_AUTOMOUNT 0x4
 
 // QUERY_NETDEV's record -- one registered network device.
 //

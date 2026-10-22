@@ -50,6 +50,7 @@ static const struct block_device YK_DEV = {
     .caps = BLK_CAP_FLUSH,
     .flush = yk_flush,
     .removable = 1,
+    .no_automount = 1,   // the tests mount it themselves; automountd racing them failed one
     .release = yk_release,
 };
 

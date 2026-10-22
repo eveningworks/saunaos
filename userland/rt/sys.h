@@ -900,6 +900,11 @@ long long sys_fs_generation_of(const char *path);
 // the last one seen after a wake -- or -1 and errno (ENOENT: register a
 // wakeword first).
 int sys_dev_watch(int op);
+
+// Ejects a removable disk by name ("usb0"): flushed, told, and gone --
+// safe to pull out. -1 and errno: EBUSY while any of it is mounted,
+// ENOTSUP for a disk that is not removable, ENOENT for no such disk.
+int sys_eject(const char *disk);
 // Watch `path` (and a directory's direct children) for the compositor:
 // a change posts WIN_EV_FSWATCH carrying the returned id. -EPERM from
 // anyone else. See SYS_FS_WATCH.

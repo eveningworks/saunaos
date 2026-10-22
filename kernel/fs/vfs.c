@@ -379,6 +379,7 @@ static void ensure_layout(void) {
     fs_mkdir(TMP_RUNDIR);
     fs_mkdir("/boot");
     fs_mkdir("/mnt");
+    fs_mkdir("/media");   // removable disks, mounted by automountd (FHS's place for them)
     // Where a config FILE declares itself -- one descriptor per file,
     // read by config_files_scan() (api/config_file.h). It has to exist
     // before anything can register, and `config register` on a machine

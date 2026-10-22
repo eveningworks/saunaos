@@ -80,6 +80,18 @@ static int source_device(const char *src, const struct block_device **out) {
 // unmounting everything and re-probing after. Writing a filesystem onto
 // some OTHER partition must disturb nothing at all, so a target that is
 // mounted is REFUSED rather than unmounted for the caller.
+int sys_eject(struct syscall_ctx *c) {
+    char name[BLK_NAME_MAX];
+    if (!vmm_copy_string_from_user(c->pml4, name, c->a0, sizeof name)) {
+        c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+        return 0;
+    }
+    const struct blk_entry *e = blk_device_by_name(name);
+    int rc = e ? blk_eject(e->dev) : -ENOENT;
+    c->regs[14] = (uint64_t)(int64_t)rc;
+    return 0;
+}
+
 int sys_mkfs(struct syscall_ctx *c) {
     struct mkfs_request req;
     if (!vmm_copy_from_user(c->pml4, &req, c->a0, sizeof(req))) {

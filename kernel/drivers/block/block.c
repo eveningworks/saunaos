@@ -16,6 +16,7 @@
 #include "heap.h"        // the partial-block bounce buffer
 #include "devevent.h"
 #include "kmutex.h"
+#include "errno.h"
 
 // driver-none: the block class registry itself
 
@@ -217,7 +218,27 @@ void blk_set_hooks(void (*added)(const struct block_device *disk),
     g_gone_hook = gone;
 }
 
-void blk_device_gone(const struct block_device *disk) {
+static void gone_as(const struct block_device *disk, int kind);
+
+void blk_device_gone(const struct block_device *disk) { gone_as(disk, QUERY_DEVEV_REMOVED); }
+
+int blk_eject(const struct block_device *disk) {
+    kmutex_lock(&g_wlock);
+    struct blk_entry *d = entry_of(disk);
+    int rc = 0;
+    if (!d || d->gone || d->parent != disk) rc = -ENOENT;
+    else if (!disk->removable) rc = -ENOTSUP;
+    for (int i = 0; !rc && i < count(); i++)
+        if (at(i)->parent == disk && at(i)->users) rc = -EBUSY;
+    kmutex_unlock(&g_wlock);
+    if (rc) return rc;
+    if (!blkdev_flush(disk)) return -EIO;
+    if (disk->eject && !disk->eject(disk)) return -EIO;
+    gone_as(disk, QUERY_DEVEV_EJECTED);
+    return 0;
+}
+
+static void gone_as(const struct block_device *disk, int kind) {
     kmutex_lock(&g_wlock);
     struct blk_entry *d = entry_of(disk);
     if (!d || d->gone) { kmutex_unlock(&g_wlock); return; }
@@ -228,10 +249,11 @@ void blk_device_gone(const struct block_device *disk) {
         e->gone = 1;
         if (g_gone_hook) g_gone_hook(e->dev);
     }
-    klog_printf("block: %s went away\n", d->name);
+    int ejected = kind == QUERY_DEVEV_EJECTED;
+    klog_printf("block: %s %s\n", d->name, ejected ? "ejected" : "went away");
     char id[24];
     k_snprintf(id, sizeof id, "blk:%s", d->name);
-    devevent_add(QUERY_DEVEV_REMOVED, id, disk->driver, "%s went away", d->name);
+    devevent_add(kind, id, disk->driver, ejected ? "%s was ejected" : "%s went away", d->name);
     reap();
     kmutex_unlock(&g_wlock);
 }
