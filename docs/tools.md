@@ -5314,7 +5314,10 @@ window without going through it will find its layout polls timing out.
   because seeding is content-hash based and a byte-identical rebuild
   correctly rewrites nothing. `TOYOS_ALLOW_STALE_ISO=1` bypasses it, for
   deliberately booting an older image -- e.g. building an earlier commit
-  to prove a failure predates your work.
+  to prove a failure predates your work. A w16 SAMPLE (`userland/w16/
+  samples/*.asm`) lands in `seed/sync/`, not `build/userland`, so the
+  `seed` step touches `build/userland/.w16-samples` after building them: an
+  edited sample otherwise read as a build that never ran.
 
   **It guards the STAGING tree and single staged FILES too, which is the
   same trap one layer down.** `make all` writes `build/` and stops;

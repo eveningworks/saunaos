@@ -961,6 +961,11 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: italic for a raster font and for a TrueType face with no italic file -- GDI slanted them; w16 draws upright
 - [x] ~~w16: Windows-1252's 0x80-0x9F drawn~~ DONE 2026-10-21 -- 3.1's ANSI table from each font, a ugfx font's own c1 cells
 - [ ] w16: Symbol and Wingdings -- a symbol font's cmap (3, 0) is not read, so its characters do not draw
+- [x] ~~w16: Paintbrush from Windows 3.11, drawing~~ DONE 2026-10-22 -- tools, fill, text, Pick/Copy/Paste, .BMP Save and Open, its dialogs
+- [ ] w16: Paintbrush's View Picture -- a second top-level window (a popup over the screen) ends the program
+- [ ] w16: recording a metafile -- CreateMetaFile records nothing, so Paintbrush's Copy puts a bitmap on the clipboard and no metafile
+- [ ] w16: a program's own caret -- CreateCaret and the rest draw nothing; Paintbrush's Text tool shows none
+- [ ] w16: Paintbrush's rest -- Help, Zoom In, Get/Save Colors and Edit Colors' reach into the palette, not yet checked
 - [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
 - [ ] w16: regions as more than their bounding rectangle -- CombineRgn of two that do not make a rectangle
@@ -969,7 +974,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Help Viewer's rest -- bookmarks and annotations
 - [ ] w16: IsIconic answers from the window's state -- it always says no, even minimized
 - [ ] w16: one program starting or finding another -- WinExec and FindWindow; each program is its own w16
-- [ ] w16: huge blocks -- GlobalAlloc refuses over 64 KB (`__AHINCR` stepping), no program run so far asks
+- [x] ~~w16: huge blocks~~ DONE 2026-10-22 -- GlobalAlloc over 64 KB is a run of selectors `__AHINCR` apart; Paintbrush's picture strips
 - [ ] w16: invalid regions as rectangles -- InvalidateRect and ValidateRect take the whole window
 - [ ] w16: dashed and dotted pens -- CreatePen's styles draw solid
 - [ ] w16: GetKeyState for every key and toggle -- only Shift, Ctrl and Alt are known

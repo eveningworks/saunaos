@@ -279,6 +279,7 @@ because they drive and copy Microsoft programs):
 | Minesweeper | the board, Game menu, Custom Field, Best Times, the name entry, About | matched by region | 2026-10-19 |
 | Solitaire | Options; the board | Options 2152 pixels differed, now none but (7) | 2026-10-20 |
 | Hearts | the welcome dialog; a game after OK | the dialog 381 differed, now none but (7); the game by eye (the felt's green fixed) | 2026-10-20 |
+| Paintbrush | Options menu, Image Attributes, Brush Shapes, Edit Colors, Save As | by eye, side by side (not w16diff'd): the same menus, controls and layout; its window opens 640x405 at 0,0 there and 632x408 here, the palette's pale colours are dithered there and solid here, and Save As says "16 Color" there ("256 Color" here: w16 reports the 256-colour driver) | 2026-10-22 |
 
 **What to compare** -- each state, each of these:
 
