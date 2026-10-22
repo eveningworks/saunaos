@@ -7,7 +7,9 @@
 // works here, which is lenient and costs nothing. A block over 64 KiB is
 // HUGE, as Windows made one: a run of selectors one step (__AHINCR, 8)
 // apart, each 64 KiB of one host buffer; the first is the handle, and the
-// others' owner is GLOBAL_TILE.
+// others' owner is GLOBAL_TILE. The one handle that is NOT its selector is
+// a huge block's that GlobalReAlloc had to move: its slot forwards
+// (GLOBAL_FWD) to the run the block lives in now.
 //
 // LOCAL: Windows' local heap lives in the DGROUP after the stack, and a
 // pointer into it is a plain 16-bit offset. The block list is kept
@@ -24,31 +26,63 @@
 #define GMEM_ZEROINIT 0x0040
 #define LMEM_ZEROINIT 0x0040
 #define GLOBAL_OWNER  0xFFFF       // a descriptor's owner: this selector is a global block
-#define GLOBAL_TILE   0xFFFE       // ...the second or later 64 KiB of a huge one
+#define GLOBAL_TILE   CPU16_OWNER_TILE   // ...the second or later 64 KiB of a huge one
+#define GLOBAL_FWD    0xFFFD       // ...a HANDLE whose block moved: `limit` holds the block's selector now
 
 // --- the global heap ---------------------------------------------------------
 
+static struct cpu16_desc *desc_at(struct w16 *w, uint16_t sel) {
+    unsigned i = cpu16_index(sel);
+    return i == 0 || i >= CPU16_MAX_DESC || (sel & 7) != 7 ? 0 : &w->desc[i];
+}
+
+// A handle's block: the handle's own selector, or where a moved block's handle forwards.
 static struct cpu16_desc *global_desc(struct w16 *w, uint16_t h) {
-    unsigned i = cpu16_index(h);
-    if (i == 0 || i >= CPU16_MAX_DESC || (h & 7) != 7) return 0;
-    struct cpu16_desc *d = &w->desc[i];
-    return d->kind == D_DATA && d->owner == GLOBAL_OWNER ? d : 0;
+    struct cpu16_desc *d = desc_at(w, h);
+    if (d && d->kind == D_DATA && d->owner == GLOBAL_FWD) d = desc_at(w, (uint16_t)d->limit);
+    return d && d->kind == D_DATA && d->owner == GLOBAL_OWNER ? d : 0;
+}
+
+static uint16_t global_sel(struct w16 *w, const struct cpu16_desc *d) { return cpu16_sel((unsigned)(d - w->desc)); }
+
+// A block's selectors: its own and the tiles after it.
+static unsigned global_tiles(struct w16 *w, const struct cpu16_desc *d) {
+    unsigned n = 1;
+    for (const struct cpu16_desc *t = d + 1; t < w->desc + CPU16_MAX_DESC && t->kind == D_DATA && t->owner == GLOBAL_TILE; t++)
+        n++;
+    return n;
 }
 
 // A block's bytes: its own selector's, and the 64 KiB of each tile after it.
 static uint32_t global_bytes(struct w16 *w, const struct cpu16_desc *d) {
-    uint32_t n = d->limit + 1;
-    for (const struct cpu16_desc *t = d + 1; t < w->desc + CPU16_MAX_DESC && t->kind == D_DATA && t->owner == GLOBAL_TILE; t++)
-        n += t->limit + 1;
+    uint32_t n = 0;
+    for (unsigned k = 0, t = global_tiles(w, d); k < t; k++) n += d[k].limit + 1;
     return n;
+}
+
+// The selectors for `cap` bytes at `mem`, from descriptor d on: 64 KiB a tile, the last what is left.
+static void global_place(struct cpu16_desc *d, uint8_t *mem, uint32_t cap, unsigned tiles) {
+    for (unsigned k = 0; k < tiles; k++) {
+        d[k].kind = D_DATA;
+        d[k].base = mem + (size_t)k * 0x10000;
+        d[k].limit = k + 1 < tiles ? 0xFFFF : cap - (uint32_t)k * 0x10000 - 1;
+        d[k].owner = k ? GLOBAL_TILE : GLOBAL_OWNER;
+    }
+}
+
+// The selectors a block of `cap` bytes needs; 0 when no run of them could exist.
+static unsigned tiles_for(uint32_t cap) {
+    uint64_t t = ((uint64_t)cap + 0xFFFF) >> 16;
+    return t < CPU16_MAX_DESC ? (unsigned)t : 0;
 }
 
 uint16_t w16_global_alloc(struct w16 *w, uint32_t size, const void *init) {
     uint32_t cap = size ? size : 1;
+    unsigned tiles = tiles_for(cap);
+    if (!tiles) return 0;
     uint8_t *mem = calloc(1, cap);
     if (!mem) return 0;
     if (init) memcpy(mem, init, size);
-    unsigned tiles = (cap + 0xFFFF) / 0x10000;
     uint16_t sel = tiles > 1 ? cpu16_alloc_run(&w->cpu, tiles, D_DATA, mem, cap, GLOBAL_OWNER, GLOBAL_TILE)
                              : cpu16_alloc(&w->cpu, D_DATA, mem, cap - 1, GLOBAL_OWNER);
     if (!sel) free(mem);
@@ -62,32 +96,59 @@ uint8_t *w16_global_ptr(struct w16 *w, uint16_t h, uint32_t *size) {
     return d->base;
 }
 
-void w16_global_free(struct w16 *w, uint16_t h) {
-    struct cpu16_desc *d = global_desc(w, h);
-    if (!d) return;
+// A block's memory and selectors given back, and any handle forwarding to it.
+static void global_block_free(struct w16 *w, struct cpu16_desc *d) {
+    uint16_t sel = global_sel(w, d);
+    unsigned tiles = global_tiles(w, d);
     free(d->base);
-    for (struct cpu16_desc *t = d + 1; t < w->desc + CPU16_MAX_DESC && t->kind == D_DATA && t->owner == GLOBAL_TILE; t++)
-        memset(t, 0, sizeof *t);
-    memset(d, 0, sizeof *d);
+    memset(d, 0, sizeof *d * tiles);
+    for (unsigned i = 1; i < CPU16_MAX_DESC; i++)
+        if (w->desc[i].kind == D_DATA && w->desc[i].owner == GLOBAL_FWD && w->desc[i].limit == sel)
+            memset(&w->desc[i], 0, sizeof w->desc[i]);
 }
 
+void w16_global_free(struct w16 *w, uint16_t h) {
+    struct cpu16_desc *d = global_desc(w, h);
+    if (d) global_block_free(w, d);
+}
+
+// The handle a block's selector is known by: a forward's, when the block moved.
+static uint16_t handle_of(struct w16 *w, uint16_t sel) {
+    for (unsigned i = 1; i < CPU16_MAX_DESC; i++)
+        if (w->desc[i].kind == D_DATA && w->desc[i].owner == GLOBAL_FWD && w->desc[i].limit == sel)
+            return cpu16_sel(i);
+    return sel;
+}
+
+// GROWN IN PLACE when the selectors after the block are free -- the handle and every far pointer into
+// it stay -- else MOVED to a run of its own, the handle's slot left forwarding there: Windows kept a
+// moveable block's handle whatever moved, and a program may go on using the one it had.
 static uint16_t global_realloc(struct w16 *w, uint16_t h, uint32_t size, uint16_t flags) {
     struct cpu16_desc *d = global_desc(w, h);
     if (!d) return 0;
     if (flags & GMEM_MODIFY) return h;
     uint32_t cap = size ? size : 1, old = global_bytes(w, d);
-    if (cap > 0x10000 || old > 0x10000) {         // a huge block moves: the handle is the answer, as it was for Windows
-        uint16_t n = w16_global_alloc(w, cap, 0);
-        if (!n) return 0;
-        memcpy(w16_global_ptr(w, n, 0), d->base, old < cap ? old : cap);
-        w16_global_free(w, h);
-        return n;
+    unsigned want = tiles_for(cap), have = global_tiles(w, d), first = (unsigned)(d - w->desc);
+    if (!want) return 0;
+    int room = want <= CPU16_MAX_DESC - first;
+    for (unsigned k = have; room && k < want; k++) room = w->desc[first + k].kind == D_FREE;
+    if (room) {
+        uint8_t *mem = realloc(d->base, cap);
+        if (!mem) return 0;
+        if (cap > old) memset(mem + old, 0, cap - old);
+        if (want < have) memset(d + want, 0, sizeof *d * (have - want));
+        global_place(d, mem, cap, want);
+        return h;
     }
-    uint8_t *mem = realloc(d->base, cap);
-    if (!mem) return 0;
-    if (cap > old) memset(mem + old, 0, cap - old);
-    d->base = mem;
-    d->limit = cap - 1;
+    uint16_t n = w16_global_alloc(w, cap, 0);
+    if (!n) return 0;
+    memcpy(w16_global_ptr(w, n, 0), d->base, old < cap ? old : cap);
+    global_block_free(w, d);                     // the old block, and a forward to it
+    struct cpu16_desc *hd = desc_at(w, h);
+    hd->kind = D_DATA;                           // a handle only: a far pointer through it faults
+    hd->base = 0;
+    hd->limit = n;
+    hd->owner = GLOBAL_FWD;
     return h;
 }
 
@@ -533,8 +594,8 @@ static int api_GlobalAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 
 // GlobalReAlloc(hMem, dwBytes, wFlags) -> HGLOBAL
 // Windows: Changes a global block's size, moving it if it may.
-// w16: The same; the selector stays, so the handle does too, up to 64 KB -- a huge block moves to a new
-// one, which is the handle returned.
+// w16: The same, the handle kept: the block grows in place while the selectors after it are free, and
+// when they are not it moves and its handle forwards there (a far pointer from before then faults).
 static int api_GlobalReAlloc(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -565,7 +626,8 @@ static int api_GlobalLock(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    set32(c, global_desc(w, h) ? (uint32_t)h << 16 : 0);
+    const struct cpu16_desc *d = global_desc(w, h);
+    set32(c, d ? (uint32_t)global_sel(w, d) << 16 : 0);
     return 2;
 }
 
@@ -594,12 +656,15 @@ static int api_GlobalSize(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // GlobalHandle(wMem) -> DWORD
 // Windows: The handle of the global block a selector belongs to, with the selector in the high
 // word.
-// w16: The selector both ways: in w16 a global block's handle is its selector.
+// w16: The selector both ways, as in w16 a global block's handle is its selector -- but for a block
+// GlobalReAlloc moved, whose handle is the one it had.
 static int api_GlobalHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t s = w16_arg16(a);
-    set32(c, global_desc(w, s) ? (uint32_t)s << 16 | s : 0);
+    const struct cpu16_desc *d = global_desc(w, s);
+    uint16_t sel = d ? global_sel(w, d) : 0;
+    set32(c, d ? (uint32_t)sel << 16 | handle_of(w, sel) : 0);
     return 2;
 }
 

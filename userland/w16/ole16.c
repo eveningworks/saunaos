@@ -650,7 +650,7 @@ static int api_OleGetLinkUpdateOptions(struct w16 *w, unsigned ordinal, struct w
 // block and its metafile, or a packed DIB. 0 when it has none such.
 static uint16_t picture_handle(struct w16 *w, struct ole_obj *o, unsigned format) {
     if (format == CF_BITMAP && o->pformat == CF_BITMAP) return w16_gdi_bitmap_of_ddb(w, o->raw + o->poff, o->plen);
-    if (format != (unsigned)o->pformat || o->plen > 0xFFFF) return 0;
+    if (format != (unsigned)o->pformat) return 0;
     uint16_t data = w16_global_alloc(w, o->plen, o->raw + o->poff);
     if (!data || format == CF_DIB) return data;
     uint8_t mfp[8] = { 8, 0, (uint8_t)o->pw, (uint8_t)(o->pw >> 8), (uint8_t)o->ph, (uint8_t)(o->ph >> 8),

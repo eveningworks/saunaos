@@ -156,7 +156,7 @@ static uint16_t make(struct w16 *w, uint16_t format) {
     if (format == CF_TEXT || format == CF_OEMTEXT) {
         int n;
         char *t = w16_clip_get_text(&n);
-        uint16_t h = t && n < 0xFFFF ? w16_global_alloc(w, (uint32_t)n + 1, t) : 0;
+        uint16_t h = t && n >= 0 ? w16_global_alloc(w, (uint32_t)n + 1, t) : 0;   // over 64 KB: a huge block
         free(t);
         return h;
     }
@@ -167,7 +167,7 @@ static uint16_t make(struct w16 *w, uint16_t format) {
     if (format == CF_BITMAP) h = w16_gdi_bitmap_from(w, im.px, im.w, im.h);
     else if (format == CF_DIB) {                 // a packed DIB: header, then 24-bit rows bottom-up
         uint32_t stride = ((uint32_t)im.w * 3 + 3) & ~3u, size = 40 + stride * (uint32_t)im.h;
-        if (size <= 0x10000 && (h = w16_global_alloc(w, size, 0))) {
+        if ((h = w16_global_alloc(w, size, 0))) {   // a huge block past 64 KB, as Windows gave one
             uint8_t *p = w16_global_ptr(w, h, 0);
             int32_t hdr[3] = { 40, im.w, im.h };
             memcpy(p, hdr, 12);

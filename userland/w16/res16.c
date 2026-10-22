@@ -32,8 +32,7 @@ uint16_t w16_res_load(struct w16 *w, unsigned index) {
     if (w->res_sel[index]) return w->res_sel[index];
     struct ne_resource r;
     if (ne_resource_at(&w->ne, index, &r) < 0) return 0;
-    uint32_t len = r.len > 0x10000 ? 0x10000 : r.len;
-    w->res_sel[index] = w16_global_alloc(w, len, w->ne.img + r.off);
+    w->res_sel[index] = w16_global_alloc(w, r.len, w->ne.img + r.off);   // past 64 KB a huge block
     return w->res_sel[index];
 }
 

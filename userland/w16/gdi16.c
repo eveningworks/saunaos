@@ -1412,15 +1412,36 @@ static const uint32_t SYS20[20] = { 0x000000, 0x800000, 0x008000, 0x808000, 0x00
 
 // A pixel as the display's device-dependent bitmaps hold it, one byte: the static colour nearest it.
 static unsigned dev_index(uint32_t px) {
+    static uint32_t shade[20];                   // SYS20 as the display shows it, worked out once
+    if (!shade[19]) for (unsigned i = 0; i < 20; i++) shade[i] = w16_vga(SYS20[i]);
     unsigned best = 0;
     long bd = -1;
     for (unsigned i = 0; i < 20; i++) {
-        uint32_t c = w16_vga(SYS20[i]);
+        uint32_t c = shade[i];
         long dr = (long)(px >> 16 & 0xFF) - (long)(c >> 16 & 0xFF), dg = (long)(px >> 8 & 0xFF) - (long)(c >> 8 & 0xFF);
         long db = (long)(px & 0xFF) - (long)(c & 0xFF), d = dr * dr + dg * dg + db * db;
         if (bd < 0 || d < bd) { bd = d; best = i; }
     }
     return best < 10 ? best : best + 236;
+}
+
+// A colour's index in a DIB's table: a cache in front of the search, as a picture repeats its colours.
+#define PAL_CACHE 4096
+struct pal_cache { uint32_t px[PAL_CACHE]; uint16_t idx[PAL_CACHE]; };   // idx 0: empty, else index + 1
+
+static unsigned pal_slot(uint32_t px) { return (px * 2654435761u) >> 20; }
+
+// The exact entry for px in pal[0..n), or the nearest; -1 for an exact search that finds none.
+static int pal_find(const uint32_t *pal, unsigned n, uint32_t px, int exact) {
+    int best = -1;
+    long bd = -1;
+    for (unsigned i = 0; i < n; i++) {
+        long dr = (long)(px >> 16 & 0xFF) - (long)(pal[i] >> 16 & 0xFF), dg = (long)(px >> 8 & 0xFF) - (long)(pal[i] >> 8 & 0xFF);
+        long db = (long)(px & 0xFF) - (long)(pal[i] & 0xFF), d = dr * dr + dg * dg + db * db;
+        if (!d) return (int)i;
+        if (!exact && (bd < 0 || d < bd)) { bd = d; best = (int)i; }
+    }
+    return best;
 }
 
 static uint32_t dev_px(unsigned idx) {
@@ -3165,8 +3186,9 @@ uint16_t w16_gdi_select_palette(struct w16 *w, uint16_t hdc, uint16_t hpal) {
 
 // CreatePalette(lplgpl) -> HPALETTE
 // Windows: A logical palette -- the colours a program wants -- from a LOGPALETTE.
-// w16: The palette is kept and deleted, but colours are drawn as the 256-colour VGA driver drew
-// them (its 20 static colours), so a palette changes no pixel.
+// w16: The palette is kept and deleted, and a DIB whose table holds palette indices (DIB_PAL_COLORS)
+// takes its colours from the one SelectPalette chose; other colours are drawn as asked, so a palette
+// changes no pixel drawn by colour.
 static int api_CreatePalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
@@ -3307,12 +3329,17 @@ static int api_GetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (bpp == 1) {
         pal[0] = 0; pal[1] = 0xFFFFFF; np = 2;
     } else if (ncol) {
+        static struct pal_cache pc;              // the task thread's alone
+        memset(pc.idx, 0, sizeof pc.idx);
         for (int y = 0; y < bm->bh && np < ncol; y++)
             for (int x = 0; x < bm->bw && np < ncol; x++) {
                 uint32_t px = w16_vga_back(bm->px[(size_t)y * bm->bw + x]);
-                unsigned i = 0;
-                while (i < np && pal[i] != px) i++;
-                if (i == np) pal[np++] = px;
+                unsigned k = pal_slot(px);
+                if (pc.idx[k] && pc.px[k] == px) continue;
+                int i = pal_find(pal, np, px, 1);
+                if (i < 0) pal[i = (int)np++] = px;
+                pc.px[k] = px;
+                pc.idx[k] = (uint16_t)(i + 1);
             }
         for (unsigned i = 0; i < np; i++)
             for (int k = 0; k < 3; k++) tab[4 * i + (unsigned)k] = (uint8_t)(pal[i] >> 8 * k);
@@ -3333,11 +3360,16 @@ static int api_GetDIBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
             if (bpp == 1) {
                 best = bm->mono ? px != 0 : ((px >> 16 & 0xFF) * 30 + (px >> 8 & 0xFF) * 59 + (px & 0xFF) * 11) >= 12800;
             } else {
-                long bd = -1;
-                for (unsigned i = 0; i < np; i++) {
-                    long dr = (long)(px >> 16 & 0xFF) - (long)(pal[i] >> 16 & 0xFF), dg = (long)(px >> 8 & 0xFF) - (long)(pal[i] >> 8 & 0xFF);
-                    long db = (long)(px & 0xFF) - (long)(pal[i] & 0xFF), d = dr * dr + dg * dg + db * db;
-                    if (bd < 0 || d < bd) { bd = d; best = i; if (!d) break; }
+                static struct pal_cache near;        // px -> its entry, exact or nearest
+                if (k == 0 && x == 0) memset(near.idx, 0, sizeof near.idx);
+                unsigned slot = pal_slot(px);
+                if (near.idx[slot] && near.px[slot] == px) {
+                    best = near.idx[slot] - 1u;
+                } else {
+                    int i = pal_find(pal, np, px, 0);
+                    best = i < 0 ? 0 : (unsigned)i;
+                    near.px[slot] = px;
+                    near.idx[slot] = (uint16_t)(best + 1);
                 }
             }
             if (bpp == 8) row[x] = (uint8_t)best;
@@ -3462,11 +3494,42 @@ static int api_GetBrushOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
+// ExtFloodFill's state: the target, what may be filled, the paint, and what is done (a bit a pixel).
+struct flood {
+    struct gdi_target *t;
+    uint32_t ref;                 // the border or surface colour, as the target holds colours
+    int surface;                  // FLOODFILLSURFACE: fill through `ref`; else up to it
+    int64_t br;                   // the brush's pixel, -1 a NULL brush
+    const struct gdi_blit *pb;    // its pattern, if it has one
+    uint8_t *seen;
+    int bw;
+};
+
+static size_t flood_bit(const struct flood *f, int x, int y) {
+    return (size_t)(y - f->t->y0) * (size_t)f->bw + (size_t)(x - f->t->x0);
+}
+
+static int flood_open(const struct flood *f, int x, int y) {
+    size_t b = flood_bit(f, x, y);
+    if (f->seen[b >> 3] >> (b & 7) & 1) return 0;
+    uint32_t v = f->t->px[(size_t)y * f->t->w + x] & 0xFFFFFF;
+    return f->surface ? v == f->ref : v != f->ref;
+}
+
+static void flood_paint(const struct flood *f, int x, int y) {
+    size_t b = flood_bit(f, x, y);
+    f->seen[b >> 3] |= (uint8_t)(1u << (b & 7));
+    if (f->br < 0) return;
+    uint32_t v = f->pb->pat ? f->pb->pat[((y - f->pb->pat_y) & 7) * 8 + ((x - f->pb->pat_x) & 7)] : (uint32_t)f->br;
+    f->t->px[(size_t)y * f->t->w + x] = f->t->mono ? gdi_to_mono(v) : v;
+}
+
 // ExtFloodFill(hdc, X, Y, crColor, fuFillType) -> BOOL
 // Windows: Fills an area with the DC's brush, from a point outward: up to a border colour
 // (FLOODFILLBORDER), or through the pixels of a colour (FLOODFILLSURFACE). FALSE when the point is
 // the border colour already, or off the DC.
-// w16: The same, four-connected, solid and patterned brushes alike, the colour as the display shows it.
+// w16: The same, four-connected, solid and patterned brushes alike, the colour as the display shows it
+// -- on a monochrome bitmap, black or white as that bitmap would hold it.
 static int api_ExtFloodFill(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a);
@@ -3476,45 +3539,47 @@ static int api_ExtFloodFill(struct w16 *w, unsigned ordinal, struct w16_args *a)
     struct gdi_target t;
     struct w16_gdiobj *dc = target(w, hdc, &t);
     w->cpu.r[R_AX] = 0;
-    if (dc && t.px) {
-        int px = dev_x(dc, x) + t.ox, py = dev_y(dc, y) + t.oy;
+    int px = dc ? dev_x(dc, x) + t.ox : 0, py = dc ? dev_y(dc, y) + t.oy : 0;
+    if (dc && t.px && px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1) {
+        struct gdi_blit pb = { 0 };
+        uint32_t pbuf[64];
+        pattern_of(w, dc, dc->brush, &t, &pb, pbuf);
         uint32_t ref = w16_colorref_px(cr);
-        int ok = px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1;
-#define FILLABLE(X, Y) ((type ? t.px[(size_t)(Y) * t.w + (X)] == ref : t.px[(size_t)(Y) * t.w + (X)] != ref))
-        if (ok && FILLABLE(px, py)) {
-            int bw = t.x1 - t.x0, bh = t.y1 - t.y0;
-            uint8_t *seen = calloc((size_t)bw * (size_t)bh, 1);
-            int *stack = malloc(sizeof *stack * 2 * ((size_t)bw * (size_t)bh + 1));
-            int64_t br = brush_of(w, dc->brush);
-            struct gdi_blit pb = { 0 };
-            uint32_t pbuf[64];
-            pattern_of(w, dc, dc->brush, &t, &pb, pbuf);
-            if (seen && stack) {
-                int sp = 0;
-                stack[sp++] = px; stack[sp++] = py;
-                seen[(size_t)(py - t.y0) * bw + (px - t.x0)] = 1;
-                static const int D[4][2] = { { 1, 0 }, { -1, 0 }, { 0, 1 }, { 0, -1 } };
-                while (sp) {
-                    int cy = stack[--sp], cx = stack[--sp];
-                    // Painted at once: the border test never sees a pixel this fill drew, because
-                    // `seen` marks what is queued and a queued pixel is never re-tested.
-                    t.px[(size_t)cy * t.w + cx] = br < 0 ? t.px[(size_t)cy * t.w + cx]
-                        : pb.pat ? pb.pat[((cy - pb.pat_y) & 7) * 8 + ((cx - pb.pat_x) & 7)] : (uint32_t)br;
-                    for (int k = 0; k < 4; k++) {
-                        int nx = cx + D[k][0], ny = cy + D[k][1];
-                        if (nx < t.x0 || ny < t.y0 || nx >= t.x1 || ny >= t.y1) continue;
-                        size_t si = (size_t)(ny - t.y0) * bw + (size_t)(nx - t.x0);
-                        if (seen[si]) continue;
-                        seen[si] = 1;
-                        if (FILLABLE(nx, ny)) { stack[sp++] = nx; stack[sp++] = ny; }
+        struct flood f = { &t, t.mono ? gdi_to_mono(ref) : ref, type != 0, brush_of(w, dc->brush), &pb, 0,
+                           t.x1 - t.x0 };
+        f.seen = calloc(((size_t)f.bw * (size_t)(t.y1 - t.y0) + 7) / 8, 1);
+        // A SCANLINE fill: a seed is a run's first pixel, so the stack holds runs, not pixels; it grows.
+        size_t cap = 64, sp = 0;
+        int *stack = malloc(sizeof *stack * 2 * cap);
+        if (!f.seen || !stack) {
+            fprintf(stderr, "w16: %s: ExtFloodFill: out of memory for a %dx%d fill\n", w->path, f.bw, t.y1 - t.y0);
+        } else if (flood_open(&f, px, py)) {
+            stack[sp++] = px; stack[sp++] = py;
+            while (sp) {
+                int sy = stack[--sp], sx = stack[--sp];
+                if (!flood_open(&f, sx, sy)) continue;
+                int l = sx, r = sx;
+                while (l > t.x0 && flood_open(&f, l - 1, sy)) l--;
+                while (r + 1 < t.x1 && flood_open(&f, r + 1, sy)) r++;
+                for (int i = l; i <= r; i++) flood_paint(&f, i, sy);
+                for (int ny = sy - 1; ny <= sy + 1; ny += 2) {
+                    if (ny < t.y0 || ny >= t.y1) continue;
+                    for (int i = l; i <= r; i++) {
+                        if (!flood_open(&f, i, ny) || (i > l && flood_open(&f, i - 1, ny))) continue;   // a run's start
+                        if (sp + 2 > 2 * cap) {
+                            int *g = realloc(stack, sizeof *stack * 4 * cap);
+                            if (!g) { fprintf(stderr, "w16: %s: ExtFloodFill: out of memory\n", w->path); sp = 0; ny = sy + 2; break; }
+                            stack = g;
+                            cap *= 2;
+                        }
+                        stack[sp++] = i; stack[sp++] = ny;
                     }
                 }
-                w->cpu.r[R_AX] = 1;
             }
-            free(seen);
-            free(stack);
+            w->cpu.r[R_AX] = 1;
         }
-#undef FILLABLE
+        free(f.seen);
+        free(stack);
     }
     gdi_done(w, dc);
     return 12;

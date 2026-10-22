@@ -21,6 +21,7 @@
 #include <stdint.h>
 
 #define CPU16_MAX_DESC 8192          // an LDT's worth
+#define CPU16_OWNER_TILE 0xFFFE      // a descriptor's owner: the 2nd or later 64 KiB of a huge block
 
 enum cpu16_reg { R_AX, R_CX, R_DX, R_BX, R_SP, R_BP, R_SI, R_DI };
 enum cpu16_sreg { S_ES, S_CS, S_SS, S_DS };

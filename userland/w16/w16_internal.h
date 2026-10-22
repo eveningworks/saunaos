@@ -968,6 +968,7 @@ struct gdi_dib {
 };
 
 uint32_t w16_colorref_px(uint32_t cr);
+uint32_t gdi_to_mono(uint32_t px);   // black or white, as a 1-bit bitmap holds a colour
 uint32_t gdi_rop3(uint8_t code, uint32_t p, uint32_t s, uint32_t d);
 uint32_t gdi_rop2(int r2, uint32_t p, uint32_t d);
 void gdi_bitblt(const struct gdi_blit *b);

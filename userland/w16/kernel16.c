@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <sched.h>
 #include <string.h>
 
 #define SW_SHOWNORMAL 1
@@ -572,21 +573,25 @@ int w16_kernel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w16_kernel_heap_call(w, ordinal, a, kernel_call);
 }
 
-// INT 2Fh, the multiplex: a program's DLL asks whether Windows is running in enhanced mode, which
-// GetWinFlags says it is, and whether the CPU is in protected mode, which it is. 1600h answers with the
-// version GetVersion tells (AL major, AH minor), 1686h with AX 0; anything else is left unimplemented.
+// INT 2Fh, the multiplex: DOS hands each call to the handler that owns its AH, and one that nobody
+// owns comes back untouched -- an installation check (AL 0) then says "not installed". w16 is that DOS,
+// with Windows' own 16h family answered as enhanced mode, which GetWinFlags says it is: 1600h the
+// version GetVersion tells (AL major, AH minor), 1680h the time slice given up, 1683h the system VM,
+// 1684h no VxD entry point (ES:DI 0), 1686h protected mode (AX 0).
 static int multiplex(struct cpu16 *c) {
     if (g_w16_trace) {
         fprintf(g_w16_trace, "INT 2Fh AX=%04x BX=%04x CX=%04x DX=%04x\n", c->r[R_AX], c->r[R_BX], c->r[R_CX],
                 c->r[R_DX]);
         fflush(g_w16_trace);
     }
-    if (c->r[R_AX] == 0x1686) {                  // "in real or V86 mode?": 0 is protected mode
-        c->r[R_AX] = 0;
-        return 0;
+    switch (c->r[R_AX]) {
+    case 0x1600: c->r[R_AX] = w16_prefs_winver(&g_w16_prefs); break;   // minor in AH, major in AL
+    case 0x1680: sched_yield(); c->r[R_AX] &= 0xFF00; break;            // AL 0: given up
+    case 0x1683: c->r[R_BX] = 1; break;                                 // the system VM's ID
+    case 0x1684: c->sreg[S_ES] = 0; c->r[R_DI] = 0; break;              // no such VxD
+    case 0x1686: c->r[R_AX] = 0; break;                                 // protected mode
+    default: break;                                                     // nobody's: untouched
     }
-    if (c->r[R_AX] != 0x1600) return -1;
-    c->r[R_AX] = w16_prefs_winver(&g_w16_prefs);   // GetVersion's AX: minor in AH, major in AL
     return 0;
 }
 

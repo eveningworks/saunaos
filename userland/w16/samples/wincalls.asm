@@ -19,6 +19,13 @@
 ;   BitsOut=00F9FF04F9FF0004           ...the bytes back, indices of the display's static colours
 ;   DibW=0004 DibH=0002                GetDIBits fills the header in
 ;   Dib24=...                          ...and 24-bit rows, bottom row first, in BGR
+;   ReSame=0001 ReSize=00012000        GlobalReAlloc of a 60 KB moveable block to 72 KB with a block
+;   ReKept=0077 ReTile=0033            after it: the same handle, its size, a byte kept, its second 64 KB
+;   ReHandle=0001 ReFree=0000          GlobalHandle(its selector now) is the handle; GlobalFree
+;   Int2f1680=1600 Int2f1684=0000      INT 2Fh: a time slice given up (AL 0), no VxD (ES:DI 0)
+;   Int2f4300=4300                     ...and a multiplex nobody owns, left as it came
+;   FloodRet=0001 FloodMono=F800F800   ExtFloodFill of a 1-bit 8 x 2 bitmap up to a near-white border at
+;                                      column 4: columns 0-3 white, the rest black
 ; Run on real Windows 3.11 it is the check of what each answer should be.
 ; Build: tools/gen_ne.py.
 ;
@@ -245,6 +252,106 @@ start:
     mov ax, [bmi + 8]
     mov [dib_h], ax
 
+    push word 2                     ; GlobalAlloc(GMEM_MOVEABLE, 60 KB), then a block after it
+    push word 0
+    push word 0xF000
+    W16_CALL "KERNEL", 15
+    mov [hre], ax
+    push word 2
+    push word 0
+    push word 16
+    W16_CALL "KERNEL", 15
+    push word [hre]                 ; GlobalLock(h): a byte at 100h
+    W16_CALL "KERNEL", 18
+    mov es, dx
+    mov byte [es:0x100], 0x77
+    push word [hre]                 ; GlobalReAlloc(h, 72 KB, GMEM_MOVEABLE): it must move
+    push word 1
+    push word 0x2000
+    push word 2
+    W16_CALL "KERNEL", 16
+    xor cx, cx
+    cmp ax, [hre]
+    jne .re_same
+    inc cx
+.re_same:
+    mov [re_same], cx
+    push word [hre]                 ; GlobalSize(h)
+    W16_CALL "KERNEL", 20
+    mov [re_size], ax
+    mov [re_size + 2], dx
+    push word [hre]                 ; GlobalLock(h): where it is now
+    W16_CALL "KERNEL", 18
+    mov [re_sel], dx
+    mov es, dx
+    mov al, [es:0x100]
+    xor ah, ah
+    mov [re_kept], ax
+    add dx, 8                       ; its second 64 KB
+    mov es, dx
+    mov byte [es:0x1FFF], 0x33
+    mov al, [es:0x1FFF]
+    xor ah, ah
+    mov [re_tile], ax
+    push word [re_sel]              ; GlobalHandle(the selector): the handle in AX
+    W16_CALL "KERNEL", 21
+    xor cx, cx
+    cmp ax, [hre]
+    jne .re_handle
+    inc cx
+.re_handle:
+    mov [re_handle], cx
+    push word [hre]                 ; GlobalFree(h): 0
+    W16_CALL "KERNEL", 17
+    mov [re_free], ax
+
+    mov ax, 0x1680                  ; INT 2Fh: release the time slice
+    int 0x2F
+    mov [i2f80], ax
+    push ds                         ; INT 2Fh 1684h: a VxD's entry point -- none, ES:DI 0
+    pop es
+    mov di, 0x1234
+    mov bx, 0x0021
+    mov ax, 0x1684
+    int 0x2F
+    mov ax, es
+    or ax, di
+    mov [i2f84], ax
+    mov ax, 0x4300                  ; INT 2Fh 4300h: nobody's, so AX comes back as it went
+    int 0x2F
+    mov [i2f43], ax
+
+    push word 8                     ; CreateBitmap(8, 2, 1, 1, mono_in): white at column 4
+    push word 2
+    push word 1
+    push word 1
+    push ds
+    push word mono_in
+    W16_CALL "GDI", 48
+    mov [hmono], ax
+    push word [hdc]                 ; SelectObject(hdc, hmono)
+    push ax
+    W16_CALL "GDI", 45
+    push word 0                     ; SelectObject(hdc, GetStockObject(WHITE_BRUSH))
+    W16_CALL "GDI", 87
+    push word [hdc]
+    push ax
+    W16_CALL "GDI", 45
+    push word [hdc]                 ; ExtFloodFill(hdc, 0, 0, RGB(250,250,250), FLOODFILLBORDER)
+    push word 0
+    push word 0
+    push word 0x00FA
+    push word 0xFAFA
+    push word 0
+    W16_CALL "GDI", 372
+    mov [flood_ret], ax
+    push word [hmono]               ; GetBitmapBits(hmono, 4, mono_out)
+    push word 0
+    push word 4
+    push ds
+    push word mono_out
+    W16_CALL "GDI", 74
+
     push ds                         ; the numbers, as text
     pop es
     HEXW equal_same_t, [equal_same]
@@ -274,6 +381,28 @@ start:
     HEXD bits_get_t, bits_get
     HEXW dib_w_t, [dib_w]
     HEXW dib_h_t, [dib_h]
+    HEXW re_same_t, [re_same]
+    HEXD re_size_t, re_size
+    HEXW re_kept_t, [re_kept]
+    HEXW re_tile_t, [re_tile]
+    HEXW re_handle_t, [re_handle]
+    HEXW re_free_t, [re_free]
+    HEXW i2f80_t, [i2f80]
+    HEXW i2f84_t, [i2f84]
+    HEXW i2f43_t, [i2f43]
+    HEXW flood_ret_t, [flood_ret]
+    mov di, flood_mono_t            ; the four bytes back, as hex
+    mov si, mono_out
+    mov cx, 4
+.fm:
+    lodsb
+    push cx
+    push si
+    call hex8
+    pop si
+    pop cx
+    loop .fm
+    mov byte [di], 0
     mov di, bits_out_t              ; the eight bytes read back, as hex
     mov si, bits_out
     mov cx, 8
@@ -396,6 +525,21 @@ bits_get:   dd 0
 dib_w:      dw 0
 dib_h:      dw 0
 bits_in:    db 0x00, 0xF9, 0xFF, 0x04, 0xF9, 0xFF, 0x00, 0x04
+hre:        dw 0
+re_same:    dw 0
+re_size:    dd 0
+re_sel:     dw 0
+re_kept:    dw 0
+re_tile:    dw 0
+re_handle:  dw 0
+re_free:    dw 0
+i2f80:      dw 0
+i2f84:      dw 0
+i2f43:      dw 0
+hmono:      dw 0
+flood_ret:  dw 0
+mono_in:    db 0x08, 0x00, 0x08, 0x00
+mono_out:   times 4 db 0
 bits_out:   times 8 db 0
 bmi:        dd 40, 0, 0
             dw 0, 24
@@ -431,6 +575,17 @@ dib_w_t:    times 6 db 0
 dib_h_t:    times 6 db 0
 bits_out_t: times 20 db 0
 dib24_t:    times 52 db 0
+re_same_t:  times 6 db 0
+re_size_t:  times 10 db 0
+re_kept_t:  times 6 db 0
+re_tile_t:  times 6 db 0
+re_handle_t: times 6 db 0
+re_free_t:  times 6 db 0
+i2f80_t:    times 6 db 0
+i2f84_t:    times 6 db 0
+i2f43_t:    times 6 db 0
+flood_ret_t: times 6 db 0
+flood_mono_t: times 10 db 0
 
 keys:       dw k_equal_same, equal_same_t, k_equal_diff, equal_diff_t
             dw k_upper, upper, k_upper_n, upper_n_t
@@ -444,6 +599,10 @@ keys:       dw k_equal_same, equal_same_t, k_equal_diff, equal_diff_t
             dw k_i2f86, i2f86_t, k_i2f00, i2f00_t, k_rop2, rop2_t, k_org, org_t
             dw k_bits_set, bits_set_t, k_bits_get, bits_get_t, k_bits_out, bits_out_t
             dw k_dib_w, dib_w_t, k_dib_h, dib_h_t, k_dib24, dib24_t
+            dw k_re_same, re_same_t, k_re_size, re_size_t, k_re_kept, re_kept_t, k_re_tile, re_tile_t
+            dw k_re_handle, re_handle_t, k_re_free, re_free_t
+            dw k_i2f80, i2f80_t, k_i2f84, i2f84_t, k_i2f43, i2f43_t
+            dw k_flood_ret, flood_ret_t, k_flood_mono, flood_mono_t
             dw k_pal, pal_t, 0
 k_equal_same: db "EqualSame", 0
 k_equal_diff: db "EqualDiff", 0
@@ -478,5 +637,16 @@ k_bits_out: db "BitsOut", 0
 k_dib_w:    db "DibW", 0
 k_dib_h:    db "DibH", 0
 k_dib24:    db "Dib24", 0
+k_re_same:  db "ReSame", 0
+k_re_size:  db "ReSize", 0
+k_re_kept:  db "ReKept", 0
+k_re_tile:  db "ReTile", 0
+k_re_handle: db "ReHandle", 0
+k_re_free:  db "ReFree", 0
+k_i2f80:    db "Int2f1680", 0
+k_i2f84:    db "Int2f1684", 0
+k_i2f43:    db "Int2f4300", 0
+k_flood_ret: db "FloodRet", 0
+k_flood_mono: db "FloodMono", 0
 ini_app:    db "WinCalls", 0
 ini_file:   db "WINCALLS.INI", 0

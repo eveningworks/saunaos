@@ -20,7 +20,7 @@ uint32_t w16_colorref_px(uint32_t cr) {
     return w16_vga((cr & 0xFF) << 16 | (cr & 0xFF00) | (cr >> 16 & 0xFF));
 }
 
-static uint32_t to_mono(uint32_t px) {
+uint32_t gdi_to_mono(uint32_t px) {
     unsigned r = px >> 16 & 0xFF, g = px >> 8 & 0xFF, b = px & 0xFF;
     return r * 30 + g * 59 + b * 11 >= 128 * 100 ? WHITE : 0;
 }
@@ -118,7 +118,7 @@ static uint32_t convert(const struct gdi_blit *b, uint32_t s) {
 void gdi_bitblt(const struct gdi_blit *b) {
     int x = b->x, y = b->y, w = b->w, h = b->h, sx = b->sx, sy = b->sy;
     if (!b->dst->px || !clip(b->dst, &x, &y, &w, &h, &sx, &sy)) return;
-    uint32_t pat = b->dst->mono ? to_mono(b->brush) : b->brush;
+    uint32_t pat = b->dst->mono ? gdi_to_mono(b->brush) : b->brush;
     uint8_t code = (uint8_t)(b->rop >> 16);
     int uses_src = ((code >> 2) & 0x33) != (code & 0x33);
     if (uses_src) {
@@ -149,7 +149,7 @@ void gdi_bitblt(const struct gdi_blit *b) {
         const uint32_t *prow = b->pat ? b->pat + ((y + r - b->pat_y) & 7) * 8 : 0;
         for (int c = 0; c < w; c++) {
             uint32_t sv = s ? convert(b, s[c]) : 0;
-            uint32_t pv = prow ? (b->dst->mono ? to_mono(prow[(x + c - b->pat_x) & 7]) : prow[(x + c - b->pat_x) & 7])
+            uint32_t pv = prow ? (b->dst->mono ? gdi_to_mono(prow[(x + c - b->pat_x) & 7]) : prow[(x + c - b->pat_x) & 7])
                                : pat;
             d[c] = gdi_rop3(code, pv, sv, d[c]);
         }
@@ -162,7 +162,7 @@ void gdi_pixel(const struct gdi_target *t, int x, int y, uint32_t px, int r2) {
     y += t->oy;
     if (!t->px || x < t->x0 || y < t->y0 || x >= t->x1 || y >= t->y1) return;
     uint32_t *d = t->px + (size_t)y * t->w + x;
-    *d = gdi_rop2(r2, t->mono ? to_mono(px) : px, *d);
+    *d = gdi_rop2(r2, t->mono ? gdi_to_mono(px) : px, *d);
 }
 
 // Bresenham from (x0,y0) to (x1,y1), the last point left out, as LineTo

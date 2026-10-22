@@ -88,10 +88,14 @@ file is involved.
    pie's vertical radius steps across a pixel where 3.11's did, and its
    brush reaches the radius with no gap.
 
-17. **Calls that need no window** (wincalls.exe): huge GlobalAlloc, GetDIBits, Get/SetBitmapBits, INT 2Fh, EqualRect, AnsiUpperBuff, wvsprintf,
+17. **Calls that need no window** (wincalls.exe): huge GlobalAlloc and GlobalReAlloc, GetDIBits,
+   Get/SetBitmapBits, ExtFloodFill on a 1-bit bitmap, INT 2Fh, EqualRect, AnsiUpperBuff, wvsprintf,
    the Windows and System directories, GlobalLRUNewest, the colour and text-align
    state of a device context, CreatePalette -- each answer written to WINCALLS.INI
    and compared with what Windows 3.11 answers.
+
+18. **The Open dialog on a program's own template** (opendlg.exe): Read Only and Help hidden or
+   shown by the flags, and Read Only's box as OK found it handed back in OFN_READONLY.
 
 Every colour is compared with a tolerance of 0: the client buffer is
 32-bit and nothing between it and the screendump blends.
@@ -1172,6 +1176,9 @@ def calls_answered(dbg, res):
         "DibW": "0004", "DibH": "0002",
         # bottom row first (the bitmap's second), each pixel B G R: red, white, black, blue 0,0,128
         "Dib24": "0000FF" "FFFFFF" "000000" "800000" "000000" "0000FF" "FFFFFF" "800000",
+        "ReSame": "0001", "ReSize": "00012000", "ReKept": "0077", "ReTile": "0033", "ReHandle": "0001",
+        "ReFree": "0000", "Int2f1680": "1600", "Int2f1684": "0000", "Int2f4300": "4300",
+        "FloodRet": "0001", "FloodMono": "F800F800",
     }
     for names, what in ((("EqualSame", "EqualDiff"), "EqualRect tells equal rectangles from different ones"),
                         (("Upper", "UpperN"), "AnsiUpperBuff upcases its count and no more"),
@@ -1187,8 +1194,34 @@ def calls_answered(dbg, res):
                         (("Int2f1686", "Int2f1600"), "INT 2Fh answers protected mode and the Windows version"),
                         (("Rop2", "Org"), "GetROP2 and GetBrushOrg of a new DC"),
                         (("BitsSet", "BitsGet", "BitsOut"), "SetBitmapBits and GetBitmapBits round-trip a bitmap's bytes"),
-                        (("DibW", "DibH", "Dib24"), "GetDIBits fills the header and gives 24-bit rows, bottom row first, in true colours")):
+                        (("DibW", "DibH", "Dib24"), "GetDIBits fills the header and gives 24-bit rows, bottom row first, in true colours"),
+                        (("ReSame", "ReSize", "ReKept", "ReTile", "ReHandle", "ReFree"),
+                         "GlobalReAlloc that must move a block past 64 KB keeps its handle and its bytes"),
+                        (("Int2f1680", "Int2f1684", "Int2f4300"), "INT 2Fh answers the time slice and no VxD, and leaves a call nobody owns"),
+                        (("FloodRet", "FloodMono"), "ExtFloodFill on a 1-bit bitmap stops at a border as that bitmap holds it")):
         res.check(f"wincalls.exe: {what}", all(got.get(n) == want[n] for n in names),
+                  "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
+
+
+OPEN_INI = "/home/Win16/WINDOWS/OPENDLG.INI"
+
+
+def open_dialog(dbg, res):
+    """opendlg.exe runs GetOpenFileName three times on a template of its own; its hook writes what it saw
+    and what came back to OPENDLG.INI (the sample's header says what each key means)."""
+    sh(dbg, f"rm {OPEN_INI}")
+    sh(dbg, "spawn /bin/w16 /usr/share/w16/opendlg.exe")
+    end, text = time.time() + 20, ""
+    while time.time() < end and "Ro3=" not in text:
+        time.sleep(0.5)
+        text = sh(dbg, f"cat {OPEN_INI}")
+    got = dict(re.findall(r"^(\w+)=(.*)$", text, re.M))
+    want = {"Vis1": "0000", "Ret1": "0000", "Vis2": "0003", "Ret2": "0001", "Ro2": "0001", "Ret3": "0001", "Ro3": "0000"}
+    for names, what in ((("Vis1", "Ret1"), "a template's Read Only and Help hidden by OFN_HIDEREADONLY and no OFN_SHOWHELP"),
+                        (("Vis2",), "...and shown when the flags ask for them"),
+                        (("Ret2", "Ro2"), "Read Only ticked before OK comes back as OFN_READONLY"),
+                        (("Ret3", "Ro3"), "Read Only unticked before OK clears OFN_READONLY")):
+        res.check(f"opendlg.exe: {what}", all(got.get(n) == want[n] for n in names),
                   "; ".join(f"{n}={got.get(n)!r} (want {want[n]!r})" for n in names if got.get(n) != want[n]))
 
 
@@ -1224,6 +1257,7 @@ def main():
         dialogs(dbg, qmp, res)
         coprocessor(dbg, qmp, res)
         calls_answered(dbg, res)
+        open_dialog(dbg, res)
         probe(dbg, res)
         shapes(dbg, qmp, res, TMP)
     finally:

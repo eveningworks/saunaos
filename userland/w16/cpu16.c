@@ -112,11 +112,12 @@ static uint8_t *mem(struct cpu16 *c, int s, uint16_t off, unsigned size, int wri
 
 // A pointer into a HUGE block may run on into the selectors after it (a global block over 64 KiB is
 // one host buffer tiled a step apart), which a Windows call that takes a length -- _lwrite, GetDIBits --
-// is given as one far pointer.
+// is given as one far pointer. Only the block's own TILES count: a neighbour whose buffer happens to
+// sit right after this one is another block.
 static uint64_t reach(const struct cpu16 *c, const struct cpu16_desc *d) {
     uint64_t avail = d->limit;
     for (const struct cpu16_desc *t = d; t->limit == 0xFFFF && t + 1 < c->desc + CPU16_MAX_DESC &&
-                                         (t + 1)->kind == d->kind && (t + 1)->base == t->base + 0x10000; t++)
+                                         (t + 1)->owner == CPU16_OWNER_TILE && (t + 1)->kind == d->kind; t++)
         avail += (uint64_t)(t + 1)->limit + 1;
     return avail;
 }

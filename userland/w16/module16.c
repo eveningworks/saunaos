@@ -74,8 +74,8 @@ const char *w16_thunk_module(struct w16 *w, uint16_t sel) {
 // __AHSHIFT = 3
 // Windows: A constant a program imports rather than a function: how far to shift a count of 64 KB
 // steps to get the selector step of a huge (over 64 KB) block -- 3 in protected mode.
-// w16: 3, patched in where the program uses it, as Windows' protected mode had it. w16 makes no
-// block over 64 KB (GlobalAlloc), so a program never has a huge block to step through.
+// w16: 3, patched in where the program uses it, as Windows' protected mode had it: a block over 64 KB
+// (GlobalAlloc) is a run of selectors that step apart.
 // __AHINCR = 8
 // Windows: The selector step itself, 1 << __AHSHIFT: what a huge pointer adds to its selector to
 // reach the next 64 KB.

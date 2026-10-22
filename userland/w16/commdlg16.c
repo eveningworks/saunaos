@@ -278,6 +278,7 @@ struct ofn {
     char dir[160];                // the folder shown, a full DOS path
     char pattern[64];             // what the file list shows: "*.TXT;*.DOC"
     char *defext;
+    int readonly;                 // Read Only's box as OK found it
 };
 
 // The `i`th string of the filter list (0-based), or NULL.
@@ -530,6 +531,8 @@ static void ok(struct w16 *w, struct w16_wnd *d) {
         }
     }
     free(name);
+    struct w16_wnd *ro = item(w, d, CHX1);
+    o->readonly = ro && w16_send(w, ro->hwnd, BM_GETCHECK, 0, 0) != 0;   // read before the box is gone
     if (!give_back(w, o, full)) { d->result = 0; d->ended = 1; return; }
     if (!(o->flags & OFN_NOCHANGEDIR)) w16_dos_chdir(o->dir);
     d->result = 1;
@@ -657,6 +660,12 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
         if (dirs) w16_list_not_owner_drawn(w, dirs);
         if (drives) w16_list_not_owner_drawn(w, drives);
         if (types) w16_list_not_owner_drawn(w, types);
+        // A template carries every standard control; COMMDLG hid the ones the flags leave out.
+        struct w16_wnd *ro = item(w, d, CHX1), *help = item(w, d, PSH_HELP);
+        pthread_mutex_lock(&w->lock);
+        if (ro && (o->flags & OFN_HIDEREADONLY)) { ro->style &= ~(uint32_t)WS_VISIBLE; ro->visible = 0; }
+        if (help && !(o->flags & OFN_SHOWHELP)) { help->style &= ~(uint32_t)WS_VISIBLE; help->visible = 0; }
+        pthread_mutex_unlock(&w->lock);
     } else {
         d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
                         w16_du_w(264, 7), w16_du_h(134, 13), cap && cap[0] ? cap : save ? "Save As" : "Open", 0, ofn_proc);
@@ -727,13 +736,11 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
     }
     d = w16_wnd_get(w, h);
     if (d) {
-        struct w16_wnd *ro = item(w, d, CHX1);
-        int checked = ro ? (int)w16_send(w, ro->hwnd, BM_GETCHECK, 0, 0) : 0;
         int r = w16_dlg_run(w, d);
         of = at(w, far, 72, 1);
         if (of && r == 1) {
             uint32_t fl = rd32(of + 48);
-            wr32(of + 48, checked ? fl | OFN_READONLY : fl & ~(uint32_t)OFN_READONLY);
+            wr32(of + 48, o->readonly ? fl | OFN_READONLY : fl & ~(uint32_t)OFN_READONLY);
         }
         c->r[R_AX] = r == 1;
     }

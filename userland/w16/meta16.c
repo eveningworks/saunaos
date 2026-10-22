@@ -346,11 +346,11 @@ uint16_t w16_render_metafile(struct w16 *w, const uint8_t *bytes, uint32_t len, 
 // w16: The same, a record at a time through w16's own GDI calls: lines, rectangles, rounded
 // rectangles, ellipses, arcs, pies, chords, polygons, text, bitmaps (the DIB records), the mapping
 // and the clip. A palette is not realised.
-// Why: w16 draws in the screen's own colours and has no palettes (CreatePalette and
-// RealizePalette are not there), so a picture's palette records have nothing to act on.
-// Notice: A picture whose colours come from its own palette may show other colours.
-// Whole: Palettes in GDI -- CreatePalette, SelectPalette, RealizePalette -- which the player would
-// then call.
+// Why: w16 draws in true colour and realises no palette (CreatePalette keeps one, and SelectPalette
+// only names where a DIB_PAL_COLORS table looks), so a picture's palette records are skipped.
+// Notice: A picture whose colours come from its own palette -- a DIB in it naming palette indices --
+// may show other colours.
+// Whole: The palette records played through CreatePalette and SelectPalette.
 static int api_PlayMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a), hmf = w16_arg16(a);
