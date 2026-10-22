@@ -3037,7 +3037,11 @@ real scanout hardware does. Do not write a pixel assertion for one.
   and owns that) but owns the SCALED copy it caches, so an app that
   re-points one
   at image after image without `uui_image_release()` leaks a screen's
-  worth of pixels each time. The cache is the reason the widget exists at
+  worth of pixels each time. A `preview` (`uui_image_set_preview()`) is
+  borrowed the same way, and a worker scaling the full picture for
+  `uui_image_adopt_sharp()` READS it, so nothing may free or re-point the
+  picture until that job is back -- Image Viewer's `g_sharp` holds a
+  finished decode and a rotation until then. The cache is the reason the widget exists at
   all rather than three lines of `ugfx_blit()` per app: resampling a
   screen-sized picture costs tens of milliseconds and a repaint happens
   on every damage event. **Set `max_w`/`max_h` on any viewer of arbitrary
