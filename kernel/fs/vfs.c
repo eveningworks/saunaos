@@ -549,15 +549,15 @@ static int fs_sync_locked(uint32_t *wrote_out) {
     // (block_part.c) and nothing here can see that it did -- which is
     // correct, merely not minimal, and a flush is ~0.7 ms on real
     // hardware rather than free.
-    const struct block_device *done[MOUNT_MAX];
-    int ndone = 0;
     for (int i = 0; i < mount_count(); i++) {
         const struct mount *m = mount_at(i);
         if (!m || !m->dev) continue;    // ramfs has no volume to flush
-        int seen = 0;
-        for (int j = 0; j < ndone; j++) if (done[j] == m->dev) { seen = 1; break; }
+        int seen = 0;   // an earlier mount on the same device already flushed it
+        for (int j = 0; j < i && !seen; j++) {
+            const struct mount *e = mount_at(j);
+            seen = e && e->dev == m->dev;
+        }
         if (seen) continue;
-        if (ndone < MOUNT_MAX) done[ndone++] = m->dev;
         if (!blkdev_flush(m->dev)) {
             klog_printf(KLOG_ERR "fs: sync FAILED -- %s did not flush\n", m->point);
             ok = 0;
@@ -566,6 +566,19 @@ static int fs_sync_locked(uint32_t *wrote_out) {
 
     if (wrote_out) *wrote_out = wrote;
     return ok;
+}
+
+// QUICK REMOVAL (docs/usb-storage-design.md): on a disk a person can
+// pull, a call that changed anything is on the device before it returns
+// -- the backend's own sync (a batched TFS3 commit, FAT32's caches), then
+// a device flush. Windows' default for a USB stick. Passes `result`
+// through, so a wrapper stays one expression.
+static int settle(const struct resolved *r, int result) {
+    const struct mount *m = r->m;
+    if (!m->dev || !m->dev->removable) return result;
+    if (m->fs->sync) (void)FS_OP(m, r->gen, sync);
+    blkdev_flush(m->dev);
+    return result;
 }
 
 // Bump on a truthy result, and pass that result straight through, so a
@@ -602,21 +615,21 @@ static int changed2(int ok, const char *a, const char *b) {
 int fs_touch(const char *path) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "touch", path)) return 0;
-    return changed(FS_OP(r.m, r.gen, touch, r.sub), path);
+    return changed(settle(&r, FS_OP(r.m, r.gen, touch, r.sub)), path);
 }
 
 int fs_write(const char *path, const char *data, int append) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "write", path)) return 0;
     imgcache_forget(path);
-    return changed(FS_OP(r.m, r.gen, write, r.sub, data, append), path);
+    return changed(settle(&r, FS_OP(r.m, r.gen, write, r.sub, data, append)), path);
 }
 
 int fs_create_excl(const char *path) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "create", path)) return 0;
     if (!r.m->fs->create_excl) return 0;
-    int rc = FS_OP(r.m, r.gen, create_excl, r.sub);
+    int rc = settle(&r, FS_OP(r.m, r.gen, create_excl, r.sub));
     if (rc > 0) changed(1, path);
     return rc;
 }
@@ -624,7 +637,7 @@ int fs_create_excl(const char *path) {
 int fs_mkdir(const char *path) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "mkdir", path)) return 0;
-    return changed(FS_OP(r.m, r.gen, mkdir, r.sub), path);
+    return changed(settle(&r, FS_OP(r.m, r.gen, mkdir, r.sub)), path);
 }
 
 int fs_delete(const char *path) {
@@ -641,7 +654,7 @@ int fs_delete(const char *path) {
             return 0;
         }
     }
-    return changed(FS_OP(r.m, r.gen, del, r.sub), path);
+    return changed(settle(&r, FS_OP(r.m, r.gen, del, r.sub)), path);
 }
 
 uint32_t fs_read_into(const char *path, void *buf, uint32_t cap) {
@@ -689,7 +702,7 @@ int fs_write_range(const char *path, uint64_t offset, const void *buf, uint32_t 
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "write", path)) return 0;
     imgcache_forget(path);
-    return changed(FS_OP(r.m, r.gen, write_range, r.sub, offset, buf, len), path);
+    return changed(settle(&r, FS_OP(r.m, r.gen, write_range, r.sub, offset, buf, len)), path);
 }
 
 // A STEP CARRIES NO PATH, so it cannot be resolved. The handle came
@@ -747,6 +760,7 @@ enum fs_step_result fs_write_range_step(void *handle) {
     if (!handle) return FS_STEP_FAILED;
     struct step_handle *h = handle;
     if (!h->m) return FS_STEP_FAILED;
+    struct resolved at = { h->m, 0, h->gen };   // for settle(), before a terminal result clears it
     enum fs_step_result r = (enum fs_step_result)FS_OP(h->m, h->gen, write_range_step, h->inner);
     uint64_t self = h->self, parent = h->parent;
     if (r == FS_STEP_DONE || r == FS_STEP_FAILED) { h->m = 0; h->inner = 0; }
@@ -756,6 +770,7 @@ enum fs_step_result fs_write_range_step(void *handle) {
     // This path is the one Notepad saves through, so without it editing
     // a file in the editor would not be seen by anything watching.
     if (r == FS_STEP_DONE) {
+        settle(&at, 1);
         g_generation++; fswatch_note(self, parent); dirgen_note(self, parent);
         cachesim_file_changed(self);
     }
@@ -804,7 +819,7 @@ int fs_rename(const char *oldpath, const char *newpath) {
     // cache serving the file this replaces.
     imgcache_forget(oldpath);
     imgcache_forget(newpath);
-    return changed2(FS_OP(a.m, a.gen, rename, a.sub, b.sub), oldpath, newpath);
+    return changed2(settle(&a, FS_OP(a.m, a.gen, rename, a.sub, b.sub)), oldpath, newpath);
 }
 
 int fs_path_has(const char *path, uint32_t cap) {
@@ -822,14 +837,14 @@ int fs_rename_replace(const char *oldpath, const char *newpath) {
     if (!a.m->fs->rename_replace) return 0;   // no atomic swap: refused, never emulated
     imgcache_forget(oldpath);
     imgcache_forget(newpath);
-    return changed2(FS_OP(a.m, a.gen, rename_replace, a.sub, b.sub), oldpath, newpath);
+    return changed2(settle(&a, FS_OP(a.m, a.gen, rename_replace, a.sub, b.sub)), oldpath, newpath);
 }
 
 int fs_truncate(const char *path, uint64_t size) {
     struct resolved r;
     if (!resolve(path, &r) || !writable(&r, "truncate", path)) return 0;
     imgcache_forget(path);
-    return changed(FS_OP(r.m, r.gen, truncate, r.sub, size), path);
+    return changed(settle(&r, FS_OP(r.m, r.gen, truncate, r.sub, size)), path);
 }
 
 int fs_is_dir(const char *path) {
@@ -874,7 +889,7 @@ int fs_chmod(const char *path, uint16_t mode) {
     if (!r.m->fs->chmod) return -ENOTSUP;
     // PERMISSIONS ONLY. The type bits are the filesystem's, and a chmod
     // that could rewrite them would be a corruption primitive.
-    return FS_OP(r.m, r.gen, chmod, r.sub, (uint16_t)(mode & 07777));
+    return settle(&r, FS_OP(r.m, r.gen, chmod, r.sub, (uint16_t)(mode & 07777)));
 }
 
 // THE ROOT's usage. `df` reports every mount by walking the mount table
@@ -961,5 +976,5 @@ int fs_link(const char *existing, const char *newpath) {
     // Optional op -- the caps bit and this NULL check are the same
     // fact, and caps_are_honest() made sure they can't disagree.
     if (!a.m->fs->link) return 0;
-    return changed(FS_OP(a.m, a.gen, link, a.sub, b.sub), newpath);
+    return changed(settle(&a, FS_OP(a.m, a.gen, link, a.sub, b.sub)), newpath);
 }

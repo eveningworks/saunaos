@@ -52,6 +52,7 @@ SYSCALL_ROW(SYS_GETPRIORITY, "getpriority", sys_getpriority, A_INT, A_INT, A_END
 SYSCALL_ROW(SYS_GETRLIMIT, "getrlimit", sys_getrlimit, A_INT, A_HEX, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SETRLIMIT, "setrlimit", sys_setrlimit, A_INT, A_HEX, A_END, R_DEC, PROMISE_STDIO)
 SYSCALL_ROW(SYS_SET_ABORT_MSG, "set_abort_msg", sys_set_abort_msg, A_HEX, A_INT, A_END, R_DEC, PROMISE_STDIO)
+SYSCALL_ROW(SYS_DEV_WATCH, "dev_watch", sys_dev_watch, A_INT, A_END, A_END, R_DEC, PROMISE_QUERY)
 SYSCALL_ROW(SYS_SND_REGISTER, "snd_register", sys_snd_register, A_HEX, A_END, A_END, R_DEC, PROMISE_DEVICE)
 SYSCALL_ROW(SYS_SND_PERIOD, "snd_period", sys_snd_period, A_INT, A_END, A_END, R_DEC, PROMISE_DEVICE)
 SYSCALL_ROW(SYS_SND_OPEN, "snd_open", sys_snd_open, A_END, A_END, A_END, R_DEC, PROMISE_DEVICE)

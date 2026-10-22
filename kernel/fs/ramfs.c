@@ -59,7 +59,7 @@
 #include "ramfs.h"
 #include "ktime.h"
 #include "caltime.h"
-#include "mount.h" // MOUNT_MAX -- the mount limit this backend declares
+#include "mount.h"
 #include "heap.h"
 #include "klog.h"
 #include "kfmt.h"
@@ -790,7 +790,7 @@ const struct fs_ops ramfs_ops = {
     // half of what was free THEN -- so two of them can between them
     // promise more than the machine has; the allocator refusing is what
     // stops that, not the budget.
-    .max_mounts = MOUNT_MAX,
+    .max_mounts = FS_MOUNTS_ANY,
     .state_alloc = ramfs_state_alloc,
     .state_free = ramfs_state_free,
     .probe = ramfs_probe,

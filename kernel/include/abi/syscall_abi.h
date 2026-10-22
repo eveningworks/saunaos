@@ -2696,6 +2696,14 @@ struct sys_rlimit {
 // and is read when a report is written, so setting it again is a store,
 // not a syscall. libc's set_abort_message() is the caller (assert(),
 // UBSAN's fatal path, w16's 16-bit faults).
+#define SYS_DEV_WATCH 152      // RDI = 1 to have this process's WAKEWORD
+                               // bumped on every device event (a disk
+                               // plugged or pulled, a driver bound), 0 to
+                               // stop, 2 to ask only. Returns the device
+                               // event count (> 0 once anything happened;
+                               // QUERY_DEVEVENT's seq), or -ENOENT for 1
+                               // with no wakeword registered. Linux's
+                               // uevent socket, Windows' WM_DEVICECHANGE.
 #define SYS_SET_ABORT_MSG 151  // RDI = a NUL-terminated buffer of RSI
                                // bytes (at most SYS_ABORT_MSG_MAX), or 0
                                // to forget it. Per address space: threads

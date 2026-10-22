@@ -406,6 +406,7 @@ int sys_userfs(struct syscall_ctx *c);      // kernel/fs/userfs.c
 int sys_pledge(struct syscall_ctx *c);      // kernel/proc/sandbox.c
 int sys_unveil(struct syscall_ctx *c);      // kernel/proc/sandbox.c
 int sys_futex_wake(struct syscall_ctx *c);
+int sys_dev_watch(struct syscall_ctx *c);  // kernel/core/devevent.c
 int sys_wakeword(struct syscall_ctx *c);
 int sys_shm_grant(struct syscall_ctx *c); // kernel/mm/shm.c
 int sys_diag(struct syscall_ctx *c);      // kernel/core/diag.c

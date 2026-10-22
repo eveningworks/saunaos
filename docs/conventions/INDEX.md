@@ -878,6 +878,11 @@ whenever a headline here tells you something you did not already know.
 
 `docs/conventions/storage.md`
 
+- **A DISK FOUND AFTER BOOT REGISTERS WITH `blk_add_disk()`, NEVER
+  `blk_register()`, AND ONE THAT GOES AWAY CALLS `blk_device_gone()`
+  AND FREES NOTHING UNTIL `release()`**
+- **A REMOVABLE DISK GETS QUICK REMOVAL: EVERY CALL THAT CHANGED
+  ANYTHING IS SYNCED AND FLUSHED BEFORE IT RETURNS**
 - **A PATH HAS THREE BOUNDS AND THEY ARE NOT INTERCHANGEABLE:
   `FS_PATH_MAX` (4096) is what a CALL may be handed,
   `FS_PATH_STORED_MAX` (256) is what a STRUCT may remember,
@@ -1001,7 +1006,7 @@ whenever a headline here tells you something you did not already know.
 - **FORMATTING A VOLUME IS `SYS_MKFS`, AND A BACKEND MUST PUT ITS OWN
   VOLUME STATE BACK**
 - **A BACKEND DECLARES HOW MANY TIMES IT MAY BE MOUNTED, and all three
-  say MOUNT_MAX**
+  say FS_MOUNTS_ANY**
 - **A BACKEND'S VOLUME STATE IS PER MOUNT, AND EVERY OP IS HANDED IT**
 - **ONE LOCK PER MOUNT, TAKEN PARENT BEFORE CHILD, AND A SLOT IS NEVER
   ZEROED**

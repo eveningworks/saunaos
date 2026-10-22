@@ -31,20 +31,22 @@
 #include "block.h"
 #include "kfmt.h" // k_snprintf
 #include "klog.h"
+#include "heap.h"
 #include <stddef.h>
 
 // driver-none: partitions of a disk another driver drives
 
 // One per partition that anything holds a device for, across EVERY
-// disk -- every disk's table is named at boot, and this OS's own disk
-// alone takes three (bios, esp, tfs3). The pool is bounded because a `struct block_device` plus its name is
-// static storage, and an unbounded one would be a heap allocation with
-// a lifetime nobody owns.
-#define PART_SLOTS 16
+// disk -- every disk's table is named at boot, this OS's own disk alone
+// takes three (bios, esp, tfs3), and every stick plugged in adds its own.
+// ALLOCATED AS NEEDED AND RECYCLED, NEVER FREED: a released slot is
+// reused for the next window, so a pointer to a window that was let go
+// still points at a block_device rather than at freed heap.
 
 struct part_slot {
-    // The parent is BORROWED, not copied -- the disk drivers' device
-    // structs are static and outlive everything here.
+    // The parent is BORROWED, not copied. It outlives the window: a disk
+    // that goes away is released only after every window on it
+    // (block.c's reap()).
     const struct block_device *parent;
     uint64_t base;
     uint64_t sectors;
@@ -57,7 +59,21 @@ struct part_slot {
     struct block_device dev;
 };
 
-static struct part_slot g_slots[PART_SLOTS];
+static struct part_slot **g_slots;
+static int g_nslots, g_slot_cap;
+
+static struct part_slot *new_slot(void) {
+    if (g_nslots == g_slot_cap) {
+        int cap = g_slot_cap ? g_slot_cap * 2 : 16;
+        struct part_slot **t = krealloc(g_slots, (size_t)cap * sizeof *t);
+        if (!t) return NULL;
+        g_slots = t;
+        g_slot_cap = cap;
+    }
+    struct part_slot *slot = kzalloc(sizeof *slot);
+    if (slot) g_slots[g_nslots++] = slot;
+    return slot;
+}
 
 // THE SLOT IS RECOVERED FROM THE DEVICE every op is handed: `dev` is a
 // member of struct part_slot, so one set of functions serves every
@@ -151,13 +167,13 @@ static int part_trim_ranges(const struct block_device *self, const struct blk_ra
 }
 
 int blk_part_release(const struct block_device *dev) {
-    for (int i = 0; i < PART_SLOTS; i++) {
-        if (!g_slots[i].used || &g_slots[i].dev != dev) continue;
+    for (int i = 0; i < g_nslots; i++) {
+        if (!g_slots[i]->used || &g_slots[i]->dev != dev) continue;
         if (!blk_untrack(dev)) return 0;   // in use, or not named
-        g_slots[i].used = 0;
-        g_slots[i].parent = NULL;
-        g_slots[i].base = g_slots[i].sectors = 0;
-        g_slots[i].name[0] = '\0';
+        g_slots[i]->used = 0;
+        g_slots[i]->parent = NULL;
+        g_slots[i]->base = g_slots[i]->sectors = 0;
+        g_slots[i]->name[0] = '\0';
         return 1;
     }
     return 0;
@@ -173,10 +189,10 @@ const struct block_device *blk_part_create(const struct block_device *parent,
     // partition it got from here. A partition of a partition is not a
     // thing this models, and silently building one would put a second
     // offset on every LBA.
-    for (int i = 0; i < PART_SLOTS; i++) {
-        if (parent == &g_slots[i].dev) {
-            base_lba += g_slots[i].base;
-            parent = g_slots[i].parent;
+    for (int i = 0; i < g_nslots; i++) {
+        if (parent == &g_slots[i]->dev) {
+            base_lba += g_slots[i]->base;
+            parent = g_slots[i]->parent;
             break;
         }
     }
@@ -207,20 +223,19 @@ const struct block_device *blk_part_create(const struct block_device *parent,
     // structs describing one volume, and the mount table's "is this
     // device already mounted?" check -- which compares pointers -- would
     // answer no while the answer is plainly yes.
-    int free_slot = -1;
-    for (int i = 0; i < PART_SLOTS; i++) {
-        if (g_slots[i].used && g_slots[i].parent == parent &&
-            g_slots[i].base == base_lba && g_slots[i].sectors == sectors) {
-            return &g_slots[i].dev;
+    struct part_slot *s = NULL;
+    for (int i = 0; i < g_nslots; i++) {
+        if (g_slots[i]->used && g_slots[i]->parent == parent &&
+            g_slots[i]->base == base_lba && g_slots[i]->sectors == sectors) {
+            return &g_slots[i]->dev;
         }
-        if (!g_slots[i].used && free_slot < 0) free_slot = i;
+        if (!g_slots[i]->used && !s) s = g_slots[i];
     }
-    if (free_slot < 0) {
-        klog_write(KLOG_ERR "block: partition refused -- no free window slots\n");
+    if (!s) s = new_slot();
+    if (!s) {
+        klog_write(KLOG_ERR "block: partition refused -- out of memory for its window\n");
         return NULL;
     }
-
-    struct part_slot *s = &g_slots[free_slot];
     s->parent = parent;
     s->base = base_lba;
     s->sectors = sectors;
@@ -250,6 +265,7 @@ const struct block_device *blk_part_create(const struct block_device *parent,
     // blk_register_over()'s both-directions honesty check keeps holding:
     // a partition of a device with no flush must not claim one.
     s->dev.persistent = parent->persistent;
+    s->dev.removable = parent->removable;
     s->dev.block_size = parent->block_size;
     s->dev.caps = parent->caps;
     s->dev.flush = (parent->caps & BLK_CAP_FLUSH) ? part_flush : NULL;
@@ -267,10 +283,10 @@ const struct block_device *blk_part_create(const struct block_device *parent,
 
 const struct block_device *blk_part_parent(const struct block_device *dev,
                                            uint64_t *out_base) {
-    for (int i = 0; i < PART_SLOTS; i++) {
-        if (g_slots[i].used && dev == &g_slots[i].dev) {
-            if (out_base) *out_base = g_slots[i].base;
-            return g_slots[i].parent;
+    for (int i = 0; i < g_nslots; i++) {
+        if (g_slots[i]->used && dev == &g_slots[i]->dev) {
+            if (out_base) *out_base = g_slots[i]->base;
+            return g_slots[i]->parent;
         }
     }
     return NULL;

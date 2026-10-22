@@ -1180,7 +1180,7 @@ because getting any of them wrong is silent:
    is a property to keep, not a check to add.
 
 **A BACKEND DECLARES HOW MANY TIMES IT MAY BE MOUNTED**
-(`fs_ops.max_mounts`), and all three declare `MOUNT_MAX` now. The field
+(`fs_ops.max_mounts`), and all three declare `FS_MOUNTS_ANY` now. The field
 is not decoration: a backend without per-mount state that declared 2
 would let `mount 3 /mnt` on a second TFS3 partition repoint one set of
 statics, and the ROOT would start reading the other volume with no error
@@ -1474,7 +1474,7 @@ ONE named partition. Four things:
   A speed bump, not a permission check.
 
 **A TARGET CAN BE MOUNTED NOW TOO** -- `fs_ops.max_mounts` is
-`MOUNT_MAX` on all three backends since per-mount state landed, so an
+`FS_MOUNTS_ANY` on all three backends since per-mount state landed, so an
 installer can format a volume and then mount it to copy the system
 across. `mount` still distinguishes "already at its mount limit" from
 "nothing recognises this volume", because saying the wrong one costs an
@@ -1742,3 +1742,41 @@ music, the documentation; a personal folder starts empty and is the
 person's. The compositor makes the missing ones at start
 (`udir_create_all()`), Screenshots excepted (the first capture makes it).
 
+
+## A DISK FOUND AFTER BOOT REGISTERS WITH `blk_add_disk()`, NEVER `blk_register()`, AND ONE THAT GOES AWAY CALLS `blk_device_gone()` AND FREES NOTHING UNTIL `release()`
+
+`blk_register()` makes the device the PROVISIONAL ROOT -- harmless at
+boot, where `choose_root_disk()` decides afterwards, and a theft after
+it: a stick plugged in would become what `blk_root()` answers.
+`blk_add_disk()` registers and names a disk without touching the root,
+and its added hook (mount.c) names the disk's partitions.
+
+A disk that goes away (a USB stick pulled, `kernel/include/kernel/block.h`):
+
+1. the driver makes its own transfers fail AT ONCE first (an
+   `unplugged` flag), so nothing waits out a timeout on a dead device;
+2. then `blk_device_gone(disk)`: the disk and every window on it are
+   marked gone, the disk cache forgets them, and mount.c's hook turns
+   their mounts read-only and `MNT_GONE`;
+3. the entry stays -- NAMED -- while a mount holds it (`blk_get()` /
+   `blk_put()`), so a name a mount still means cannot be handed out
+   again; unmounting the last one drops it and calls the driver's
+   `release()`. **Free the driver's per-disk memory THERE and nowhere
+   else** -- a mount holds a pointer into it until then.
+
+Partition windows are allocated and recycled, never freed, so a stale
+window pointer is never a use-after-free. Docs: `docs/usb-storage-design.md`,
+"The removal model".
+
+## A REMOVABLE DISK GETS QUICK REMOVAL: EVERY CALL THAT CHANGED ANYTHING IS SYNCED AND FLUSHED BEFORE IT RETURNS
+
+A `block_device` with `removable` set (inherited by its partitions)
+gets `vfs.c`'s `settle()` after every mutating call: the backend's
+`sync` -- which commits a TFS3 transaction `storage.sync = batched`
+would have deferred -- then a device flush. Windows' default for a
+USB stick since 1809: a stick pulled between two calls has everything
+either call completed. **A new mutating `fs_*` wraps its `FS_OP` in
+`settle()`** like the others, or it is the one call a pull can lose.
+The test is a PULL, not a flush count: `mount_gone_test.c` copies the
+raw disk the moment a write returns and mounts the copy fresh -- FAT32
+flushes on every write anyway, so counting flushes proves nothing.

@@ -25,8 +25,12 @@
 static const struct block_device *g_root;
 static const struct block_device *g_root_disk;
 
-static struct blk_entry g_table[BLK_MAX_DEVICES];
-static int g_count;
+// Entries are allocated one at a time and the TABLE OF POINTERS grows, so
+// an entry a caller holds stays put while another device registers.
+static struct blk_entry **g_table;
+static int g_count, g_cap;
+static void (*g_added_hook)(const struct block_device *disk);
+static void (*g_gone_hook)(const struct block_device *dev);
 
 // `<driver><index>` for a disk, `<disk>p<n>` for a partition. The index
 // counts devices of the SAME driver already in the table, so a second
@@ -58,8 +62,8 @@ static void make_name(char *out, const struct block_device *dev,
 
     int nth = 0;
     for (int i = 0; i < g_count; i++)
-        if (g_table[i].dev == g_table[i].parent &&
-            k_strncmp(g_table[i].name, stem, (uint32_t)n) == 0) nth++;
+        if (g_table[i]->dev == g_table[i]->parent &&
+            k_strncmp(g_table[i]->name, stem, (uint32_t)n) == 0) nth++;
     k_snprintf(out, BLK_NAME_MAX, "%s%d", stem, nth);
 }
 
@@ -70,15 +74,21 @@ static const struct blk_entry *table_add(const struct block_device *dev,
                                           const struct block_device *parent,
                                           uint64_t base_lba) {
     for (int i = 0; i < g_count; i++)
-        if (g_table[i].dev == dev) return &g_table[i];
-    if (g_count >= BLK_MAX_DEVICES) return NULL;
-
-    struct blk_entry *e = &g_table[g_count];
+        if (g_table[i]->dev == dev) return g_table[i];
+    if (g_count == g_cap) {
+        int cap = g_cap ? g_cap * 2 : 16;
+        struct blk_entry **t = krealloc(g_table, (size_t)cap * sizeof *t);
+        if (!t) return NULL;
+        g_table = t;
+        g_cap = cap;
+    }
+    struct blk_entry *e = kzalloc(sizeof *e);
+    if (!e) return NULL;
     e->dev = dev;
     e->parent = parent;
     e->base_lba = base_lba;
     make_name(e->name, dev, parent, base_lba);
-    g_count++;
+    g_table[g_count++] = e;
     // Here rather than in blk_register_over(), because this is the one
     // place every device reaches the table -- a partition arrives
     // through blk_track() and never registers. A partition leaves
@@ -96,11 +106,12 @@ int blk_track(const struct block_device *dev,
 int blk_untrack(const struct block_device *dev) {
     if (!dev || dev == g_root || dev == g_root_disk) return 0;
     for (int i = 0; i < g_count; i++) {
-        if (g_table[i].dev != dev) continue;
+        if (g_table[i]->dev != dev) continue;
+        if (g_table[i]->users) return 0;   // a mount still holds it
         // Compacted rather than tombstoned, so blk_device_at() stays a
-        // plain walk and a name is never answered from a dead row. The
-        // entries are values, and nothing holds an index across a call.
-        if (g_table[i].parent == dev) bcache_forget(dev);   // a disk going away
+        // plain walk and a name is never answered from a dead row.
+        if (g_table[i]->parent == dev) bcache_forget(dev);   // a disk going away
+        kfree(g_table[i]);
         for (int j = i; j < g_count - 1; j++) g_table[j] = g_table[j + 1];
         g_count--;
         return 1;
@@ -108,23 +119,95 @@ int blk_untrack(const struct block_device *dev) {
     return 0;
 }
 
+static struct blk_entry *entry_of(const struct block_device *dev) {
+    for (int i = 0; i < g_count; i++)
+        if (g_table[i]->dev == dev) return g_table[i];
+    return NULL;
+}
+
+// Drops every gone entry nobody holds: a window first (released, which
+// untracks it), then a disk once no window of it is left, handing the
+// disk back to its driver.
+static void reap(void) {
+    for (int i = g_count - 1; i >= 0; i--) {
+        struct blk_entry *e = g_table[i];
+        if (!e->gone || e->users || e->dev == e->parent) continue;
+        blk_part_release(e->dev);
+    }
+    for (int i = g_count - 1; i >= 0; i--) {
+        struct blk_entry *e = g_table[i];
+        if (!e->gone || e->users || e->dev != e->parent) continue;
+        int windows = 0;
+        for (int j = 0; j < g_count; j++)
+            if (g_table[j]->parent == e->dev && g_table[j] != e) windows++;
+        if (windows) continue;
+        const struct block_device *dev = e->dev;
+        char name[BLK_NAME_MAX];
+        k_strlcpy(name, e->name, sizeof name);
+        if (!blk_untrack(dev)) continue;   // the root: never released
+        klog_printf("block: %s released\n", name);
+        if (dev->release) dev->release(dev);
+    }
+}
+
+void blk_set_hooks(void (*added)(const struct block_device *disk),
+                   void (*gone)(const struct block_device *dev)) {
+    g_added_hook = added;
+    g_gone_hook = gone;
+}
+
+void blk_device_gone(const struct block_device *disk) {
+    struct blk_entry *d = entry_of(disk);
+    if (!d || d->gone) return;
+    bcache_forget(disk);
+    for (int i = 0; i < g_count; i++) {
+        struct blk_entry *e = g_table[i];
+        if (e->parent != disk) continue;
+        e->gone = 1;
+        if (g_gone_hook) g_gone_hook(e->dev);
+    }
+    klog_printf("block: %s went away\n", d->name);
+    char id[24];
+    k_snprintf(id, sizeof id, "blk:%s", d->name);
+    devevent_add(QUERY_DEVEV_REMOVED, id, disk->driver, "%s went away", d->name);
+    reap();
+}
+
+int blk_device_is_gone(const struct block_device *dev) {
+    const struct blk_entry *e = entry_of(dev);
+    return e && e->gone;
+}
+
+int blk_get(const struct block_device *dev) {
+    struct blk_entry *e = entry_of(dev);
+    if (!e || e->gone) return 0;
+    e->users++;
+    return 1;
+}
+
+void blk_put(const struct block_device *dev) {
+    struct blk_entry *e = entry_of(dev);
+    if (!e || e->users <= 0) return;
+    if (--e->users == 0 && e->gone) reap();
+}
+
 int blk_device_count(void) { return g_count; }
 
 const struct blk_entry *blk_device_at(int i) {
     if (i < 0 || i >= g_count) return NULL;
-    return &g_table[i];
+    return g_table[i];
 }
 
 const struct blk_entry *blk_device_by_name(const char *name) {
     if (!name) return NULL;
     for (int i = 0; i < g_count; i++)
-        if (k_strcmp(g_table[i].name, name) == 0) return &g_table[i];
+        if (k_strcmp(g_table[i]->name, name) == 0) return g_table[i];
     return NULL;
 }
 
 const char *blk_device_name(const struct block_device *dev) {
     for (int i = 0; i < g_count; i++)
-        if (g_table[i].dev == dev) return g_table[i].name;
+        if (g_table[i]->dev == dev) return g_table[i]->name;
     return "?";
 }
 
@@ -132,10 +215,55 @@ int blk_register(const struct block_device *dev) {
     return blk_register_over(dev, dev, 0);
 }
 
+static int device_honest(const struct block_device *dev);
+
 int blk_register_over(const struct block_device *dev,
                       const struct block_device *parent, uint64_t base_lba) {
     if (!dev) { g_root = NULL; g_root_disk = NULL; return 1; }
+    if (!device_honest(dev)) return 0;
 
+    const struct blk_entry *e = table_add(dev, parent ? parent : dev, base_lba);
+    if (!e) {
+        klog_printf("block: no room in the device table for %s\n", dev->name);
+        return 0;
+    }
+
+    g_root = dev;
+    g_root_disk = parent ? parent : dev;
+    if (base_lba) {
+        klog_printf("block: %s active (%llu sectors at LBA %llu of %s)\n", e->name,
+                    (unsigned long long)dev->sector_count(dev), (unsigned long long)base_lba,
+                    blk_device_name(g_root_disk));
+    } else {
+        klog_printf("block: %s active (%llu sectors)\n", e->name,
+                    (unsigned long long)dev->sector_count(dev));
+        char id[24];
+        k_snprintf(id, sizeof id, "blk:%s", e->name);
+        devevent_add(QUERY_DEVEV_ADDED, id, dev->driver, "Registered as %s, %llu sectors",
+                     e->name, (unsigned long long)dev->sector_count(dev));
+    }
+    return 1;
+}
+
+int blk_add_disk(const struct block_device *dev) {
+    if (!dev || !device_honest(dev)) return 0;
+    const struct blk_entry *e = table_add(dev, dev, 0);
+    if (!e) {
+        klog_printf("block: no room in the device table for %s\n", dev->name);
+        return 0;
+    }
+    klog_printf("block: %s added (%llu sectors%s)\n", e->name,
+                (unsigned long long)dev->sector_count(dev), dev->removable ? ", removable" : "");
+    char id[24];
+    k_snprintf(id, sizeof id, "blk:%s", e->name);
+    devevent_add(QUERY_DEVEV_ADDED, id, dev->driver, "Added as %s, %llu sectors",
+                 e->name, (unsigned long long)dev->sector_count(dev));
+    if (g_added_hook) g_added_hook(dev);
+    return 1;
+}
+
+// The capability bits and the function pointers agree, both ways.
+static int device_honest(const struct block_device *dev) {
     if (!dev->name || !dev->sector_count || !dev->read_sectors ||
         !dev->write_sectors || !dev->max_sectors_per_xfer) {
         klog_write(KLOG_ERR "block: refused a device missing a required operation\n");
@@ -172,35 +300,14 @@ int blk_register_over(const struct block_device *dev,
         klog_printf("block: %s refused -- %u-byte blocks\n", dev->name, dev->block_size);
         return 0;
     }
-
-    const struct blk_entry *e = table_add(dev, parent ? parent : dev, base_lba);
-    if (!e) {
-        klog_printf("block: no room in the device table for %s\n", dev->name);
-        return 0;
-    }
-
-    g_root = dev;
-    g_root_disk = parent ? parent : dev;
-    if (base_lba) {
-        klog_printf("block: %s active (%llu sectors at LBA %llu of %s)\n", e->name,
-                    (unsigned long long)dev->sector_count(dev), (unsigned long long)base_lba,
-                    blk_device_name(g_root_disk));
-    } else {
-        klog_printf("block: %s active (%llu sectors)\n", e->name,
-                    (unsigned long long)dev->sector_count(dev));
-        char id[24];
-        k_snprintf(id, sizeof id, "blk:%s", e->name);
-        devevent_add(QUERY_DEVEV_ADDED, id, dev->driver, "Registered as %s, %llu sectors",
-                     e->name, (unsigned long long)dev->sector_count(dev));
-    }
     return 1;
 }
 
 int blk_set_root(const struct block_device *dev) {
     for (int i = 0; i < g_count; i++) {
-        if (g_table[i].dev != dev) continue;
-        g_root      = g_table[i].dev;
-        g_root_disk = g_table[i].parent;
+        if (g_table[i]->dev != dev) continue;
+        g_root      = g_table[i]->dev;
+        g_root_disk = g_table[i]->parent;
         return 1;
     }
     return 0; // not registered -- a `root=` naming something never found
@@ -262,10 +369,10 @@ static void account(const struct block_device *dev, uint64_t lba, uint32_t count
 static const struct block_device *cache_key(const struct block_device *dev, uint64_t lba,
                                             uint64_t *alba) {
     for (int i = 0; i < g_count; i++) {
-        if (g_table[i].dev != dev) continue;
-        const struct block_device *disk = g_table[i].parent;
+        if (g_table[i]->dev != dev) continue;
+        const struct block_device *disk = g_table[i]->parent;
         if (!disk || !disk->persistent) return NULL;
-        *alba = g_table[i].base_lba + lba;
+        *alba = g_table[i]->base_lba + lba;
         return disk;
     }
     return NULL;

@@ -493,11 +493,11 @@ No dependency on the phases above; ordered among themselves.
 - [x] ~~`df` reporting per-mount rather than one global figure~~ done -- `QUERY_FSINFO` is a vector, root first
 - [x] ~~Path resolution that can't escape a mount via `..` at its root~~ done -- for free: paths are normalized before they arrive
 - [x] ~~A tmpfs/RAM-disk backend as the cheapest possible second mount to test against~~ done -- `mount -t ramfs none /mnt`
-- [x] ~~Raise `fs_ops.max_mounts` above 1~~ done -- all three backends declare `MOUNT_MAX`
+- [x] ~~Raise `fs_ops.max_mounts` above 1~~ done -- all three backends declare `FS_MOUNTS_ANY`
 - [ ] `fs_ops` ops take a per-mount handle instead of the VFS setting a current state -- what SMP needs, and nothing before it
 - [x] ~~`mount` cannot name a device on a disk that is not the boot disk~~ DONE 2026-08-27 -- a source may be a device name (`lsblk`)
 - [ ] Nothing remounts in place: changing a mount's flags is `umount` then `mount`, and there is no `mount -o remount`
-- [ ] `MOUNT_MAX` (16, raised for network shares) and `PART_SLOTS` (8) are both compile-time
+- [x] ~~`MOUNT_MAX` and `PART_SLOTS` are both compile-time~~ DONE 2026-10-22 -- the mount table, partition windows and device table grow
 - [ ] A mount point deeper than one already mounted works, but nothing tests a three-level nest
 - [x] ~~`fs_check`/`fsck` only ever check the ROOT -- there is no way to fsck `/boot`~~ DONE 2026-10-07 -- `/bin/fsck PATH`
 - [x] ~~`parttable` still reads the root's disk only (`blk_root_disk()`)~~ DONE 2026-10-09 -- `parttable DISK`
@@ -1159,7 +1159,7 @@ run on, not by order.
 - [x] ~~A self-hosted installer: partition, format, copy the running system, write the bootloader~~ done -- `/bin/install`
 - [x] ~~A graphical installer, offered by a live session~~ DONE 2026-10-12 -- Install toy-os over `lib/uinstall.h`
 - [ ] Install beside another system: keep a disk's partitions and install into its free space -- the installer erases whole disks only
-- [ ] USB mass storage (bulk-only transport) -- the first non-disk-bus storage backend
+- [ ] USB mass storage -- six stages in `docs/usb-storage-design.md`; stage 1 (a disk that can disappear) BUILT 2026-10-22
 - [ ] A USB gamepad for DOOM -- HID's generic-desktop gamepad and joystick usages, through the input core
 - [ ] Bluetooth, or a written decision against it -- the Intel cards' Bluetooth half is a USB device, Linux's `btusb`
 - [ ] Root ports driven by the hub driver, through an xHCI virtual root hub -- one port state machine, as Linux's `core/hub.c`

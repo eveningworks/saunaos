@@ -4,7 +4,7 @@
 // the map.
 
 #include "tfs3_internal.h"
-#include "mount.h" // MOUNT_MAX -- the mount limit this backend declares
+#include "mount.h"
 #include "string.h"
 #include "klog.h"
 #include "heap.h"

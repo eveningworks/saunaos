@@ -48,13 +48,16 @@ struct block_device;
 //     (see api/fs.h), so `/boot/..` is `/` before any mount is
 //     consulted. That is a property to keep, not a check to add --
 //     a backend that started accepting `..` would break it.
-// Sixteen: root, /boot, /tmp, a USB stick or two, and the network
-// shares /etc/mounts.d names (userfs), one slot each.
-#define MOUNT_MAX 16
+// THE MOUNT TABLE GROWS -- every stick plugged in can add a mount per
+// partition. A backend with no limit of its own declares FS_MOUNTS_ANY.
 
 // Per-mount flags. Read-only first, because it is the one every real
 // system has and the one `/boot` genuinely wants.
 #define MNT_RDONLY (1u << 0)
+// Its disk went away (blk_device_gone()): read-only, every read reaches a
+// driver that fails at once, and only unmounting is left to do -- which
+// is what lets the block layer release the device.
+#define MNT_GONE   (1u << 1)
 
 struct mount {
     int used;

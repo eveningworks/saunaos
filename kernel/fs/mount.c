@@ -27,6 +27,7 @@
 #include "syscalls.h" // fd_desc[] -- the open-file check in mount_remove()
 #include "scheduler.h" // the drain's park and wake
 #include "barrier.h"   // cpu_relax()
+#include "heap.h"      // choose_root_disk()'s candidate list
 
 // driver-none: re-registers a disk a driver already found
 
@@ -55,29 +56,69 @@ static const struct fs_ops *const g_backends[] = {
 // no such backend and refuses before touching anything.
 static const struct fs_ops *const g_ram_backend = &ramfs_ops;
 
-static struct mount g_mounts[MOUNT_MAX];
+// THE TABLE GROWS AND IS READ WITHOUT A LOCK (mount_resolve()), so it
+// is REPLACED, never reallocated: a bigger array of slot pointers is
+// published and the old one is never freed, so a reader mid-walk keeps a
+// valid array whose slots are the same as the new one's at the same
+// indices. Slots never move or free -- a slot outlives its mount (its
+// lock may have waiters). The first sixteen are static, for the boot.
+struct mount_table {
+    int cap;
+    struct mount **slot;
+};
+#define S(i) &g_slots0[i]
+static struct mount g_slots0[16];
+static struct mount *g_ptrs0[16] = { S(0), S(1), S(2), S(3), S(4), S(5), S(6), S(7),
+                                     S(8), S(9), S(10), S(11), S(12), S(13), S(14), S(15) };
+#undef S
+static struct mount_table g_tab0 = { 16, g_ptrs0 };
+static struct mount_table *g_tab = &g_tab0;
+
+static inline int mt_cap(void) { return __atomic_load_n(&g_tab, __ATOMIC_ACQUIRE)->cap; }
+static inline struct mount *mt(int i) { return __atomic_load_n(&g_tab, __ATOMIC_ACQUIRE)->slot[i]; }
+
+// Doubles the table, under g_grow_lock (free_slot()).
+static int mt_grow(void) {
+    int cap = g_tab->cap * 2;
+    struct mount_table *t = kzalloc(sizeof *t);
+    struct mount **slots = kzalloc((size_t)cap * sizeof *slots);
+    if (!t || !slots) { kfree(t); kfree(slots); return 0; }
+    for (int i = 0; i < g_tab->cap; i++) slots[i] = g_tab->slot[i];
+    for (int i = g_tab->cap; i < cap; i++) {
+        slots[i] = kzalloc(sizeof **slots);
+        if (!slots[i]) {
+            for (int j = g_tab->cap; j < i; j++) kfree(slots[j]);
+            kfree(slots); kfree(t);
+            return 0;
+        }
+    }
+    t->cap = cap;
+    t->slot = slots;
+    __atomic_store_n(&g_tab, t, __ATOMIC_RELEASE);   // the old table is kept: see above
+    return 1;
+}
 
 // ---- the table -----------------------------------------------------
 
 int mount_count(void) {
     int n = 0;
-    for (int i = 0; i < MOUNT_MAX; i++) if (g_mounts[i].used) n++;
+    for (int i = 0; i < mt_cap(); i++) if (mt(i)->used) n++;
     return n;
 }
 
 const struct mount *mount_at(int index) {
     int n = 0;
-    for (int i = 0; i < MOUNT_MAX; i++) {
-        if (!g_mounts[i].used) continue;
-        if (n == index) return &g_mounts[i];
+    for (int i = 0; i < mt_cap(); i++) {
+        if (!mt(i)->used) continue;
+        if (n == index) return mt(i);
         n++;
     }
     return NULL;
 }
 
 const struct mount *mount_root(void) {
-    for (int i = 0; i < MOUNT_MAX; i++) {
-        if (g_mounts[i].used && g_mounts[i].point_len == 1) return &g_mounts[i];
+    for (int i = 0; i < mt_cap(); i++) {
+        if (mt(i)->used && mt(i)->point_len == 1) return mt(i);
     }
     return NULL;
 }
@@ -96,8 +137,8 @@ static int under(const char *point, int plen, const char *path) {
 const struct mount *mount_resolve(const char *path, const char **out_sub) {
     if (!path) path = "/";
     const struct mount *best = NULL;
-    for (int i = 0; i < MOUNT_MAX; i++) {
-        const struct mount *m = &g_mounts[i];
+    for (int i = 0; i < mt_cap(); i++) {
+        const struct mount *m = mt(i);
         if (!m->used) continue;
         if (!under(m->point, m->point_len, path)) continue;
         // LONGEST prefix, so a mount at /boot/grub would outrank one at
@@ -176,8 +217,8 @@ void fs_exclusive_begin(void) {
         scheduler_wait_arm(&g_excl_wait);
         exclusive_take();
         int held = 0;
-        for (int i = 0; !nested && i < MOUNT_MAX; i++) {
-            struct mount *m = &g_mounts[i];
+        for (int i = 0; !nested && i < mt_cap(); i++) {
+            struct mount *m = mt(i);
             if (m->used && m->fs->locks_held && m->fs->locks_held(m->state)) held = 1;
         }
         if (!held) { scheduler_wait_disarm(); return; }
@@ -191,25 +232,42 @@ void fs_exclusive_begin(void) {
     }
 }
 
+// The lock order, parent before child. Grown under g_excl, which every
+// caller holds, so one buffer serves.
+static int *g_order;
+static int g_order_cap;
+
 static void exclusive_take(void) {
-    int order[MOUNT_MAX];
-    for (int i = 0; i < MOUNT_MAX; i++) order[i] = i;
-    for (int i = 1; i < MOUNT_MAX; i++) {
+    int cap = mt_cap();
+    if (cap > g_order_cap) {
+        int *o = krealloc(g_order, (size_t)cap * sizeof *o);
+        if (o) { g_order = o; g_order_cap = cap; }
+        else cap = g_order_cap;   // out of memory: the slots it can order (the first 16 at least)
+    }
+    int *order = g_order;
+    for (int i = 0; i < cap; i++) order[i] = i;
+    for (int i = 1; i < cap; i++) {
         int v = order[i], j = i;
-        while (j > 0 && depth_of(&g_mounts[order[j - 1]]) > depth_of(&g_mounts[v])) {
+        while (j > 0 && depth_of(mt(order[j - 1])) > depth_of(mt(v))) {
             order[j] = order[j - 1];
             j--;
         }
         order[j] = v;
     }
-    for (int i = 0; i < MOUNT_MAX; i++) kmutex_lock(&g_mounts[order[i]].lock);
+    for (int i = 0; i < cap; i++) kmutex_lock(&mt(order[i])->lock);
     // AND NOTHING AT THE DISK: a call that dropped its lock for device
     // I/O is still in the driver (mount_io_begin()).
-    for (int i = 0; i < MOUNT_MAX; i++) if (g_mounts[i].used) drain(&g_mounts[i]);
+    for (int i = 0; i < mt_cap(); i++) if (mt(i)->used) drain(mt(i));
 }
 
+// Exactly the locks exclusive_take() took: a table grown in between has
+// slots this context never locked -- unused ones, so nothing missed them.
 static void exclusive_release(void) {
-    for (int i = MOUNT_MAX - 1; i >= 0; i--) kmutex_unlock(&g_mounts[i].lock);
+    int me = scheduler_current_pid();
+    for (int i = mt_cap() - 1; i >= 0; i--) {
+        struct kmutex *l = &mt(i)->lock;
+        if (kmutex_held(l) && kmutex_owner(l) == me) kmutex_unlock(l);
+    }
 }
 
 // ---- device I/O without the lock ----------------------------------------
@@ -218,8 +276,8 @@ static int can_drop(struct mount *m);
 
 static struct mount *mount_of_state(void *st) {
     if (!st) return NULL;
-    for (int i = 0; i < MOUNT_MAX; i++)
-        if (g_mounts[i].used && g_mounts[i].state == st) return &g_mounts[i];
+    for (int i = 0; i < mt_cap(); i++)
+        if (mt(i)->used && mt(i)->state == st) return mt(i);
     return NULL;   // a scratch state (probe, format, a test): no mount to drop
 }
 
@@ -387,20 +445,26 @@ void mount_scratch_end(struct fs_scratch *sc) {
 // FIRST mount reading the second one's volume.
 static int mounts_of(const struct fs_ops *fs) {
     int n = 0;
-    for (int i = 0; i < MOUNT_MAX; i++) {
-        if (g_mounts[i].used && g_mounts[i].fs == fs) n++;
+    for (int i = 0; i < mt_cap(); i++) {
+        if (mt(i)->used && mt(i)->fs == fs) n++;
     }
     return n;
 }
 
+static struct kmutex g_grow_lock;   // one grower at a time, or two tables get published
+
 static struct mount *free_slot(void) {
-    for (int i = 0; i < MOUNT_MAX; i++) if (!g_mounts[i].used) return &g_mounts[i];
-    return NULL;
+    for (int i = 0; i < mt_cap(); i++) if (!mt(i)->used) return mt(i);
+    int first_new = mt_cap();
+    kmutex_lock(&g_grow_lock);
+    int ok = mt_cap() > first_new || mt_grow();
+    kmutex_unlock(&g_grow_lock);
+    return ok ? mt(first_new) : NULL;
 }
 
 static struct mount *find_point(const char *point) {
-    for (int i = 0; i < MOUNT_MAX; i++) {
-        if (g_mounts[i].used && k_strcmp(g_mounts[i].point, point) == 0) return &g_mounts[i];
+    for (int i = 0; i < mt_cap(); i++) {
+        if (mt(i)->used && k_strcmp(mt(i)->point, point) == 0) return mt(i);
     }
     return NULL;
 }
@@ -483,8 +547,9 @@ int mount_add(const struct block_device *dev, const char *fstype,
     if (!point_ok(point, why)) return 0;
 
     if (dev) {
-        for (int i = 0; i < MOUNT_MAX; i++) {
-            if (g_mounts[i].used && g_mounts[i].dev == dev) {
+        if (blk_device_is_gone(dev)) { *why = "that disk has been removed"; return 0; }
+        for (int i = 0; i < mt_cap(); i++) {
+            if (mt(i)->used && mt(i)->dev == dev) {
                 *why = "that volume is already mounted";
                 return 0;
             }
@@ -492,7 +557,7 @@ int mount_add(const struct block_device *dev, const char *fstype,
     }
 
     struct mount *slot = free_slot();
-    if (!slot) { *why = "the mount table is full"; return 0; }
+    if (!slot) { *why = "out of memory for the mount table"; return 0; }
 
     // A named type is asked directly; an unnamed one is probed, which
     // is what `mount 2 /boot` does. ramfs is reachable BY NAME only --
@@ -570,6 +635,7 @@ int mount_add(const struct block_device *dev, const char *fstype,
 
     slot->state = state;
     record(slot, chosen, dev, point, flags, r);
+    if (dev) blk_get(dev);   // a device not in the table (a test's) is simply not counted
     return 1;
 }
 
@@ -584,7 +650,7 @@ int mount_add_nodev(const struct fs_ops *fs, void *state, const char *point,
     *why = "";
     if (!point_ok(point, why)) return 0;
     struct mount *slot = free_slot();
-    if (!slot) { *why = "the mount table is full"; return 0; }
+    if (!slot) { *why = "out of memory for the mount table"; return 0; }
     if (mounts_of(fs) >= fs->max_mounts) { *why = "too many of that kind mounted"; return 0; }
     fs_exclusive_begin();
     slot->state = state;
@@ -631,9 +697,9 @@ static int remove_locked(const char *point, const char **why) {
 
     // Something mounted UNDER this one holds it in place, exactly as a
     // process's open file does. Unmount the deeper one first.
-    for (int i = 0; i < MOUNT_MAX; i++) {
-        if (!g_mounts[i].used || &g_mounts[i] == m) continue;
-        if (under(m->point, m->point_len, g_mounts[i].point)) {
+    for (int i = 0; i < mt_cap(); i++) {
+        if (!mt(i)->used || mt(i) == m) continue;
+        if (under(m->point, m->point_len, mt(i)->point)) {
             *why = "another filesystem is mounted underneath it";
             return 0;
         }
@@ -643,17 +709,42 @@ static int remove_locked(const char *point, const char **why) {
 
     // Flush before forgetting the mount: a write-back cache's failure
     // surfaces at the flush, and after this the volume has no owner to
-    // report it to.
-    if (m->dev) blkdev_flush(m->dev);
-    if (m->fs->umount) m->fs->umount(m->state, m->dev);
+    // report it to. A gone disk has nothing left to write to.
+    const struct block_device *dev = m->dev;
+    int gone = (m->flags & MNT_GONE) != 0;
+    if (dev && !gone) blkdev_flush(dev);
+    if (m->fs->umount && !gone) m->fs->umount(m->state, dev);
     // AFTER umount(), which is the last thing that may write: state_free
     // drops the caches this mount is holding, and a sync into a freed
     // state is the one ordering that does not survive being got wrong.
     if (m->state) m->fs->state_free(m->state);
 
-    klog_printf("fs: %s unmounted from %s\n", m->fs->name, m->point);
+    klog_printf("fs: %s unmounted from %s%s\n", m->fs->name, m->point,
+                gone ? " (its disk had been removed)" : "");
     slot_clear(m);
+    if (dev) blk_put(dev);   // last: a gone disk may be released here
     return 1;
+}
+
+// blk_add_disk()'s hook: a disk plugged in after boot gets its
+// partitions named, as name_all_partitions() did for the boot's disks.
+static void device_added(const struct block_device *disk) {
+    int n = mount_rescan_disk(disk);
+    if (n) klog_printf("fs: %s has %d partition(s)\n", blk_device_name(disk), n);
+}
+
+// blk_device_gone()'s hook: every mount on `dev` is left with a volume
+// that answers nothing. Read-only stops a write reaching a backend that
+// would then half-update its caches; GONE tells unmount not to write.
+static void device_gone(const struct block_device *dev) {
+    for (int i = 0; i < mt_cap(); i++) {
+        struct mount *m = mt(i);
+        if (!m->used || m->dev != dev) continue;
+        m->flags |= MNT_RDONLY | MNT_GONE;
+        g_epoch++;
+        klog_printf(KLOG_WARN "mount: the disk under %s was removed -- read-only until unmounted\n",
+                    m->point);
+    }
 }
 
 // ---- boot policy ---------------------------------------------------
@@ -789,8 +880,8 @@ const struct block_device *mount_partition_device(int number) {
 // must not be released -- the mount would be left holding a slot
 // somebody else can reuse.
 static int device_is_mounted(const struct block_device *dev) {
-    for (int i = 0; i < MOUNT_MAX; i++)
-        if (g_mounts[i].used && g_mounts[i].dev == dev) return 1;
+    for (int i = 0; i < mt_cap(); i++)
+        if (mt(i)->used && mt(i)->dev == dev) return 1;
     return 0;
 }
 
@@ -817,8 +908,8 @@ static void forget_windows_of(const struct block_device *disk) {
 
 void mount_force_readonly(const struct block_device *dev, const char *why) {
     if (!dev) return;
-    for (int i = 0; i < MOUNT_MAX; i++) {
-        struct mount *m = &g_mounts[i];
+    for (int i = 0; i < mt_cap(); i++) {
+        struct mount *m = mt(i);
         if (!m->used || m->dev != dev || (m->flags & MNT_RDONLY)) continue;
         m->flags |= MNT_RDONLY;
         klog_printf("mount: %s is now read-only -- %s\n", m->point,
@@ -1035,10 +1126,19 @@ static int disk_has_partuuid(const struct block_device *disk, const char *want) 
     return 0;
 }
 
+static void choose_root_among(const struct block_device **cand, int n, const char *cmdline);
+
 static void choose_root_disk(const char *cmdline) {
-    const struct block_device *cand[BLK_MAX_DEVICES];
-    int n = root_candidates(cand, BLK_MAX_DEVICES);
-    if (n == 0) return;                 // no disk: the live image, or ramfs
+    int cap = blk_device_count();
+    if (cap == 0) return;
+    const struct block_device **cand = kmalloc((size_t)cap * sizeof *cand);
+    if (!cand) return;
+    int n = root_candidates(cand, cap);
+    if (n) choose_root_among(cand, n, cmdline);   // none: the live image, or ramfs
+    kfree(cand);
+}
+
+static void choose_root_among(const struct block_device **cand, int n, const char *cmdline) {
 
     // GRUB ANSWERS `none` FOR A DEVICE WITH NO PARTITION (the CD), and an
     // empty word means it could not ask at all (a core image without
@@ -1299,6 +1399,7 @@ static void probe_and_mount_root(void) {
 }
 
 void mount_boot_root(void) {
+    blk_set_hooks(device_added, device_gone);
     probe_and_mount_root();
 }
 
@@ -1338,7 +1439,7 @@ int mount_reprobe_root(const struct fs_ops *expect) {
     // Drop everything: a reformat invalidates the root, and anything
     // mounted under it was reached through a path the root owns.
     fs_exclusive_begin();
-    for (int i = 0; i < MOUNT_MAX; i++) slot_clear(&g_mounts[i]);
+    for (int i = 0; i < mt_cap(); i++) slot_clear(mt(i));
     fs_exclusive_end();
     g_tbl_valid = 0;
     probe_and_mount_root();

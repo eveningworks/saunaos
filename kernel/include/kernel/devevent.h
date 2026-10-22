@@ -28,6 +28,9 @@ void devevent_pci(int kind, const struct pci_device *d, const char *driver,
 // The newest event, for a test asserting that something recorded one.
 // 0 when the ring is empty.
 int devevent_latest(struct query_devevent *out);
+// Events ever recorded -- what SYS_DEV_WATCH returns, so a watcher
+// woken on its wakeword can tell "something new" from a spurious wake.
+uint32_t devevent_seq(void);
 
 // "pci:00:1f.2" into `out`; the form every PCI device_id field uses.
 void devevent_pci_id(const struct pci_device *d, char *out, unsigned cap);

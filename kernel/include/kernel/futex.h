@@ -33,4 +33,10 @@ void futex_wakeword_release(uint64_t pml4_phys);
 // physical address.
 uint64_t futex_wakeword_phys(int pid);
 
+// Device changes (SYS_DEV_WATCH): a process with a wakeword asks to have
+// it bumped on every device event. -ENOENT without a wakeword. The
+// subscription ends with the wakeword. Callable from any context.
+int futex_devwatch(int pid, int on);
+void futex_note_devwatchers(void);
+
 #endif

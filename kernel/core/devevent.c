@@ -8,6 +8,10 @@
 #include "string.h"
 #include "timer.h"
 #include "ktest.h"
+#include "futex.h"
+#include "syscalls.h"
+#include "scheduler.h"
+#include "errno.h"
 #include <stdarg.h>
 
 static struct query_devevent g_ring[QUERY_DEVEVENT_KEEP];
@@ -27,6 +31,17 @@ static void add_v(int kind, const char *id, const char *driver,
     e.seq = ++g_seq;
     g_ring[(e.seq - 1) % QUERY_DEVEVENT_KEEP] = e;
     irq_restore(f);
+    futex_note_devwatchers();
+}
+
+uint32_t devevent_seq(void) { return __atomic_load_n(&g_seq, __ATOMIC_RELAXED); }
+
+int sys_dev_watch(struct syscall_ctx *c) {
+    int64_t r = 0;
+    if (c->a0 == 0 || c->a0 == 1) r = futex_devwatch(scheduler_current_pid(), (int)c->a0);
+    else if (c->a0 != 2) r = -EINVAL;
+    c->regs[14] = (uint64_t)(r < 0 ? r : (int64_t)devevent_seq());
+    return 0;
 }
 
 void devevent_add(int kind, const char *device_id, const char *driver, const char *fmt, ...) {

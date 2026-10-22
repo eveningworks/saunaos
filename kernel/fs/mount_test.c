@@ -291,3 +291,35 @@ KTEST("mount", "a mount's size reaches the backend, and 0 means the default") {
     KTEST_ASSERT(got);
     KTEST_ASSERT(deflt > asked);
 }
+
+// The table GROWS: forty mounts at once, more than twice the sixteen it
+// starts with, each resolvable and each its own filesystem.
+KTEST("mount", "the mount table grows past its first sixteen slots") {
+    enum { N = 40 };
+    static char points[N][FS_PATH_MAX];
+    int made = 0, mounted = 0, own = 0;
+    for (int i = 0; i < N; i++) {
+        char name[16];
+        k_snprintf(name, sizeof name, "grow%d", i);
+        if (!tmppath(points[i], sizeof points[i], TMP_PERSISTENT, name)) break;
+        fs_mkdir(points[i]);
+        made++;
+        if (mnt_ramfs(points[i])) mounted++;
+    }
+    for (int i = 0; i < mounted; i++) {
+        char f[FS_PATH_MAX];
+        k_snprintf(f, sizeof f, "%s/x", points[i]);
+        const struct mount *m = mount_resolve(f, 0);
+        if (m && k_strcmp(m->point, points[i]) == 0 && fs_write(f, "x", 0)) own++;
+    }
+    int removed = 0;
+    for (int i = 0; i < mounted; i++) {
+        const char *why = "";
+        removed += mount_remove(points[i], &why);
+    }
+    for (int i = 0; i < made; i++) fs_delete(points[i]);
+    KTEST_ASSERT_EQ(made, N);
+    KTEST_ASSERT_EQ(mounted, N);
+    KTEST_ASSERT_EQ(own, N);
+    KTEST_ASSERT_EQ(removed, N);
+}

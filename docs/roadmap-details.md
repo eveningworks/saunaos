@@ -2037,7 +2037,7 @@ call means, and this kernel already has the second half: every backend
 call goes through `vfs.c`'s `FS_OP`, which holds a preemption guard
 across it. So the state moved into a `struct t3_state`/`fat32_state`/
 `ramfs_state` reached through a `static ... *S`, and the mount table
-set `S` around every call. All three backends declare `MOUNT_MAX`.
+set `S` around every call. All three backends declare `FS_MOUNTS_ANY`.
 
 The handle on every op that this entry once called "the remaining item"
 landed as stage 1 of `docs/fslock-design.md` (2026-09-24): every

@@ -156,6 +156,7 @@ struct fs_ops {
     // that declares max_mounts > 1 without them is refused at mount
     // time (mount.c's caps_are_honest()).
     int max_mounts;
+#define FS_MOUNTS_ANY 0x7fffffff   // as many as the mount table holds
 
     // ---- per-mount state ---------------------------------------
     //

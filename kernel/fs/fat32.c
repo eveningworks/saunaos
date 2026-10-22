@@ -57,7 +57,7 @@
 #include "fat32.h"
 #include "ktime.h"
 #include "caltime.h"
-#include "mount.h" // MOUNT_MAX -- the mount limit this backend declares
+#include "mount.h"
 #include "block.h"
 #include "string.h"
 #include "klog.h"
@@ -1994,7 +1994,7 @@ const struct fs_ops fat32_ops = {
     // MORE THAN ONCE: the volume, the FAT sector cache and the read
     // buffer are per mount (struct fat32_state). An installer needs two
     // -- the running system's ESP at /boot, and the target's.
-    .max_mounts = MOUNT_MAX,
+    .max_mounts = FS_MOUNTS_ANY,
     .state_alloc = fat32_state_alloc,
     .state_free = fat32_state_free,
     .probe = fat32_probe,

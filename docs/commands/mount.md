@@ -121,15 +121,14 @@ mounted as something it is not.
 
 ## Limits
 
-- At most six mounts at once (`MOUNT_MAX`).
-- **A backend may be mounted once.** TFS3, FAT32 and ramfs all keep their
-  state in module-level statics, so a second mount of the same backend is
-  refused by name rather than silently repointing the first one. See
-  `fs_ops.h`'s `max_mounts` for what raising it would take.
-
-  **This is what stops a second TFS3 disk being mounted.** The device
-  resolves and the volume is read; the backend is simply already in use by
-  the root.
+- No fixed number of mounts: the table grows. Network shares are the
+  exception -- `userfs` serves at most 16 at once, and says so when full.
+- A backend may be mounted as many times as there are volumes for it:
+  TFS3, FAT32 and ramfs keep their state per mount (`fs_ops.h`'s
+  `max_mounts` is `FS_MOUNTS_ANY` for all three).
+- **A disk that was pulled** (a USB stick) leaves its mount read-only and
+  marked removed until it is unmounted; it cannot be mounted again until
+  it is plugged back in.
 - An operation naming two paths — `mv`, `ln` — is refused across a mount
   boundary. That is Unix's `EXDEV`, and `cp` is the answer.
 

@@ -295,7 +295,7 @@ def main():
         # This check was written when every backend declared
         # max_mounts = 1, so the mount could only be REFUSED and the
         # assertion had to be about WHICH refusal came back. tfs3_ops
-        # declares MOUNT_MAX now and the mount SUCCEEDS, so the second
+        # declares FS_MOUNTS_ANY now and the mount SUCCEEDS, so the second
         # half is asserted directly below; the unknown name still has
         # to be refused by name, which is what this keeps.
         sh.run("sh mkdir /mnt2")
@@ -310,7 +310,7 @@ def main():
         # A SECOND TFS3 VOLUME REALLY MOUNTS. This used to be
         # impossible -- every backend declared max_mounts = 1 -- and
         # the comment above said so long after tfs3_ops started
-        # declaring MOUNT_MAX. The code was right and the comment was
+        # declaring more than one. The code was right and the comment was
         # not.
         mounts = sh.run("mount")
         res.check("the second TFS3 volume is mounted at /mnt2",

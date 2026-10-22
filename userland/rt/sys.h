@@ -894,6 +894,12 @@ unsigned long long sys_fs_generation(void);
 // the disk. May move for an unrelated change (a false positive), never
 // misses a real one. -1 and errno for a bad path.
 long long sys_fs_generation_of(const char *path);
+
+// Device changes on the WAKEWORD (SYS_DEV_WATCH): 1 subscribes, 0
+// stops, 2 only asks. Returns the device event count -- compare it with
+// the last one seen after a wake -- or -1 and errno (ENOENT: register a
+// wakeword first).
+int sys_dev_watch(int op);
 // Watch `path` (and a directory's direct children) for the compositor:
 // a change posts WIN_EV_FSWATCH carrying the returned id. -EPERM from
 // anyone else. See SYS_FS_WATCH.

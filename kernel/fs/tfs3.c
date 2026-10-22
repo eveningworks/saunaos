@@ -20,7 +20,7 @@
 #include "tfs3_internal.h"
 #include "ktime.h"
 #include "caltime.h"
-#include "mount.h" // MOUNT_MAX -- the mount limit this backend declares
+#include "mount.h"
 #include "string.h"
 #include "storage_config.h" // storage.sync -- whether the barriers are real
 #include "block_stat.h"     // the read counter lookup() brackets itself with
@@ -1611,7 +1611,7 @@ const struct fs_ops tfs3_ops = {
     // t3_state and every op is handed its own. Two is what an
     // installer needs (its own root, plus the target it is writing);
     // the ceiling is the mount table's, not this backend's.
-    .max_mounts = MOUNT_MAX,
+    .max_mounts = FS_MOUNTS_ANY,
     .state_alloc = tfs3_state_alloc,
     .state_free = tfs3_state_free,
     .op_end = tfs3_op_end,

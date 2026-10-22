@@ -126,6 +126,19 @@ struct block_device {
     // 512-byte buffer therefore fails loudly on such a disk instead of
     // overflowing -- use blkdev_read_partial() for those.
     uint32_t block_size;
+
+    // A disk a person can PULL: a USB stick, a card. Its mounts get
+    // QUICK REMOVAL (vfs.c's settle(): every call that changed anything
+    // is synced and flushed before it returns -- Windows' default for
+    // such a disk), and it may later go away (blk_device_gone()).
+    // Inherited by its partitions.
+    int removable;
+
+    // OPTIONAL: called once a device that went away has no users left
+    // (blk_device_gone()), so the driver may free the memory this struct
+    // lives in. NULL for a device that never goes, or whose memory is
+    // static. Never called for a device that is still registered.
+    void (*release)(const struct block_device *self);
 };
 
 // ---- the device table ------------------------------------------------
@@ -152,13 +165,14 @@ struct block_device {
 // user-facing lever here (`novirtio` and `noahci` already exist) and
 // because this OS has no /dev for `/dev/sda1` to be a path into.
 #define BLK_NAME_MAX 16     // "virtio0p15" and room to spare
-#define BLK_MAX_DEVICES 32  // disks plus their partitions
 
 struct blk_entry {
     const struct block_device *dev;
     const struct block_device *parent; // the disk it sits on; itself for a disk
     uint64_t base_lba;                 // where it starts on that disk
     char name[BLK_NAME_MAX];
+    int users;   // mounts holding it (blk_get()/blk_put())
+    int gone;    // its disk went away; kept, named, until users reach 0
 };
 
 // Forgets a device's NAME, so a re-read of a disk's partition table can
@@ -172,6 +186,40 @@ struct blk_entry {
 // somebody else can reuse. mount.c's rescan is the one caller and it
 // checks.
 int blk_untrack(const struct block_device *dev);
+
+// ---- a disk that goes away ------------------------------------------
+//
+// A REMOVED DEVICE STAYS A VALID OBJECT UNTIL ITS LAST USER LETS GO --
+// Linux's block-device open count, in miniature. The driver calls
+// blk_device_gone(disk) after making its own transfers fail at once;
+// the disk and every window on it are marked gone, the disk cache
+// forgets them, the gone hook (mount.c's) turns their mounts read-only,
+// and each entry is dropped -- a window released, the disk's release()
+// called -- once nothing holds it. Until then its name stays taken, so
+// a mount still holding it cannot have the name reused under it.
+//
+// From a context that may take the block table: a driver's unbind, never
+// an interrupt handler.
+void blk_device_gone(const struct block_device *disk);
+int blk_device_is_gone(const struct block_device *dev);
+
+// A mount's hold on a device. blk_get() refuses (0) a gone or unknown
+// device; blk_put() may drop a gone one on the spot.
+int blk_get(const struct block_device *dev);
+void blk_put(const struct block_device *dev);
+
+// A DISK FOUND AFTER BOOT -- a stick plugged in. Registered and named
+// like any disk, but NEVER made the root (blk_register() would make it
+// the provisional root, which after boot means stealing it). The added
+// hook then names its partitions. 0 if the device is dishonest or the
+// table cannot grow.
+int blk_add_disk(const struct block_device *dev);
+
+// The one listener told about each disk added after boot and each device
+// that went away (mount.c). The block layer calls up through these rather
+// than naming the mount table.
+void blk_set_hooks(void (*added)(const struct block_device *disk),
+                   void (*gone)(const struct block_device *dev));
 
 // How many devices are registered, and the i'th of them. NULL past the
 // end, so a caller can walk without asking the count first.

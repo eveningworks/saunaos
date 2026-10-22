@@ -96,7 +96,10 @@ struct ufs_mount {
 };
 
 static struct kmutex g_lock;
-static struct ufs_mount *g_tab[MOUNT_MAX];
+// The shares a daemon can serve at once: the handle space SYS_USERFS
+// hands out, its own bound rather than the mount table's. Logged when hit.
+#define USERFS_MAX 16
+static struct ufs_mount *g_tab[USERFS_MAX];
 
 static int owner_alive(const struct ufs_mount *um) {
     return um->owner > 0 && scheduler_pid_alive(um->owner);
@@ -417,7 +420,7 @@ const struct fs_ops userfs_ops = {
     .name = "userfs",
     .caps = FS_CAP_EPOCH_TIME,
     .volume_relative = 0,
-    .max_mounts = MOUNT_MAX,
+    .max_mounts = USERFS_MAX,
     .state_free = u_state_free,
     .probe = u_refuse_dev,
     .wipe = u_refuse_dev,
@@ -458,7 +461,7 @@ int userfs_describe(const void *st, struct userfs_describe *out) {
 
 // The live mount behind `handle`, if the caller serves it.
 static struct ufs_mount *served(uint64_t handle) {
-    if (handle < 1 || handle > MOUNT_MAX) return NULL;
+    if (handle < 1 || handle > USERFS_MAX) return NULL;
     struct ufs_mount *um = g_tab[handle - 1];
     return um && um->owner == scheduler_current_tgid() ? um : NULL;
 }
@@ -472,7 +475,7 @@ static int64_t op_mount(struct syscall_ctx *c) {
 
     // A point this backend already serves: adopt it if its server is gone.
     kmutex_lock(&g_lock);
-    for (int i = 0; i < MOUNT_MAX; i++) {
+    for (int i = 0; i < USERFS_MAX; i++) {
         struct ufs_mount *um = g_tab[i];
         if (!um || k_strcmp(um->point, m.point)) continue;
         if (owner_alive(um) && um->owner != me) { kmutex_unlock(&g_lock); return -EBUSY; }
@@ -487,9 +490,13 @@ static int64_t op_mount(struct syscall_ctx *c) {
         return um->handle;
     }
     int slot = -1;
-    for (int i = 0; i < MOUNT_MAX && slot < 0; i++) if (!g_tab[i]) slot = i;
+    for (int i = 0; i < USERFS_MAX && slot < 0; i++) if (!g_tab[i]) slot = i;
     kmutex_unlock(&g_lock);
-    if (slot < 0) return -ENOSPC;
+    if (slot < 0) {
+        klog_printf(KLOG_WARN "userfs: %d shares are mounted, the most it serves -- %s refused\n",
+                    USERFS_MAX, m.point);
+        return -ENOSPC;
+    }
 
     struct ufs_mount *um = kzalloc(sizeof *um);
     if (!um) return -ENOMEM;
@@ -551,7 +558,7 @@ static int64_t op_reply(struct syscall_ctx *c) {
     int64_t rc = 0;
     kmutex_lock(&g_lock);
     struct ufs_req *found = NULL;
-    for (int i = 0; i < MOUNT_MAX && !found; i++) {
+    for (int i = 0; i < USERFS_MAX && !found; i++) {
         struct ufs_mount *um = g_tab[i];
         if (!um || um->owner != me) continue;
         for (struct ufs_req *r = um->head; r; r = r->next)
@@ -600,7 +607,7 @@ static int64_t op_ctl(struct syscall_ctx *c) {
     // also takes: the mount cannot be freed in between.
     kmutex_lock(&g_lock);
     struct ufs_mount *um = NULL;
-    for (int i = 0; i < MOUNT_MAX && !um; i++)
+    for (int i = 0; i < USERFS_MAX && !um; i++)
         if (g_tab[i] && !k_strcmp(g_tab[i]->point, u->point)) um = g_tab[i];
     rc = um ? enqueue_locked(um, r) : -ENOENT;
     kmutex_unlock(&g_lock);

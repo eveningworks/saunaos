@@ -34,6 +34,7 @@
 #include "pmm.h"
 #include "string.h"
 #include "futex.h"
+#include "devevent.h" // the device-event source's KTEST
 #include "win_input.h"   // the event post the wakeword rides
 #include "win_role.h"    // the KTEST below gives a spare pid the role
 #include <stddef.h>
@@ -108,6 +109,7 @@ struct wakeword {
     int pid;
     uint64_t phys;   // 0 = this process registered none
     uint64_t pml4;   // whose it is, so a teardown can drop it
+    int devwatch;    // bumped on every device event (SYS_DEV_WATCH)
 };
 static struct wakeword *g_wakeword;
 static int g_ww_cap;
@@ -140,7 +142,22 @@ void futex_wakeword_release(uint64_t pml4_phys) {
             g_wakeword[i].pid = 0;
             g_wakeword[i].phys = 0;
             g_wakeword[i].pml4 = 0;
+            g_wakeword[i].devwatch = 0;
         }
+}
+
+int futex_devwatch(int pid, int on) {
+    int s = ww_slot(pid);
+    if (s < 0 || !g_wakeword[s].phys) return -ENOENT;   // nothing to bump
+    g_wakeword[s].devwatch = on ? 1 : 0;
+    return 0;
+}
+
+// A walk over the process limit per device event: events are a plug or
+// a driver binding, not a stream.
+void futex_note_devwatchers(void) {
+    for (int i = 0; i < g_ww_cap; i++)
+        if (g_wakeword[i].devwatch && g_wakeword[i].phys) futex_note_ready(g_wakeword[i].pid);
 }
 
 static void ww_set(int pid, uint64_t phys, uint64_t pml4) {
@@ -156,6 +173,7 @@ static void ww_set(int pid, uint64_t phys, uint64_t pml4) {
     g_wakeword[s].pid = phys ? pid : 0;
     g_wakeword[s].phys = phys;
     g_wakeword[s].pml4 = phys ? pml4 : 0;
+    if (!phys) g_wakeword[s].devwatch = 0;
 }
 
 int sys_wakeword(struct syscall_ctx *c) {
@@ -357,6 +375,44 @@ KTEST("futex", "a SECOND source bumps the same wakeword") {
     futex_fixture_down(&f);
     KTEST_ASSERT(keyed);
     KTEST_ASSERT_EQ(v, 1u);
+}
+
+// The third source: a device event, for a process that subscribed
+// (SYS_DEV_WATCH) -- and only for one that did.
+KTEST("futex", "a DEVICE event bumps a subscriber's wakeword, and only a subscriber's") {
+    struct futex_fixture f = {0};
+    if (!futex_fixture_up(&f)) { futex_fixture_down(&f); KTEST_SKIP("out of memory"); }
+    int slot = owner_park();
+    if (slot < 0) { futex_fixture_down(&f); KTEST_SKIP("no free process slot"); }
+    int pid = scheduler_slot_pid(slot);
+
+    const void *key = NULL;
+    int keyed = futex_key(f.as, FUTEX_TEST_VADDR, &key) == 0;
+    ww_set(pid, (uint64_t)(uintptr_t)key, f.as);
+    futex_set(&f, 0);
+
+    devevent_add(QUERY_DEVEV_ADDED, "blk:ktest", "ktest", "not subscribed");
+    uint32_t v0 = *(volatile uint32_t *)(uintptr_t)f.frame;
+    int sub = futex_devwatch(pid, 1);
+    uint32_t seq = devevent_seq();
+    devevent_add(QUERY_DEVEV_ADDED, "blk:ktest", "ktest", "subscribed");
+    uint32_t v1 = *(volatile uint32_t *)(uintptr_t)f.frame;
+    uint32_t seq1 = devevent_seq();
+    // The subscription goes with the wakeword.
+    futex_wakeword_release(f.as);
+    devevent_add(QUERY_DEVEV_REMOVED, "blk:ktest", "ktest", "released");
+    uint32_t v2 = *(volatile uint32_t *)(uintptr_t)f.frame;
+    int no_word = futex_devwatch(pid, 1);
+
+    owner_release(slot);
+    futex_fixture_down(&f);
+    KTEST_ASSERT(keyed);
+    KTEST_ASSERT_EQ(v0, 0u);
+    KTEST_ASSERT_EQ(sub, 0);
+    KTEST_ASSERT_EQ(v1, 1u);
+    KTEST_ASSERT_EQ(seq1, seq + 1);
+    KTEST_ASSERT_EQ(v2, 1u);
+    KTEST_ASSERT_EQ(no_word, -ENOENT);
 }
 
 KTEST("futex", "the SAME frame at two addresses is ONE channel") {
