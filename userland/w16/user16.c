@@ -283,7 +283,7 @@ int w16_create_main(struct w16 *w, int k, const char *title, uint32_t style, int
     // (Notepad names its own in its class).
     uint16_t hm = menu ? menu : w->cls[k].menu || w->cls[k].menu_id
                                 ? w16_load_menu(w, w->cls[k].menu, w->cls[k].menu_id) : 0;
-    if (hm) w16_set_menu(w, hm);
+    if (hm) w16_set_menu_ex(w, hm, 0);
     // Windows' order before WM_CREATE: WM_GETMINMAXINFO, WM_NCCREATE (0
     // refuses the window), WM_NCCALCSIZE. MFC's hook attaches its C++ object
     // on the first of them, so none may be left out.

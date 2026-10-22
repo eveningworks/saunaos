@@ -317,6 +317,12 @@ static int api_SetMenu(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 }
 
 void w16_set_menu(struct w16 *w, uint16_t h) {
+    w16_set_menu_ex(w, h, 1);
+}
+
+// notify 0 is CreateWindow's: the window has had no WM_NCCREATE yet, so a WM_SIZE SENT now reaches a
+// program (MFC's hook) that has not attached its object -- Hearts faulted. It is posted there, as it was.
+void w16_set_menu_ex(struct w16 *w, uint16_t h, int notify) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *win = &w->win;
     int had = win->menubar, has = menu_of(h) != 0;
@@ -329,7 +335,9 @@ void w16_set_menu(struct w16 *w, uint16_t h) {
         // SENT, as SetMenu's own SetWindowPos sent it: posted, it arrived after a later frame change's
         // size (Clock's title coming back) and the program drew for the wrong client area.
         w16_invalidate(w, win, 1);
-        w16_send(w, win->hwnd, WM_SIZE, SIZE_RESTORED, (uint32_t)ch << 16 | (uint16_t)cw);
+        uint32_t sz = (uint32_t)ch << 16 | (uint16_t)cw;
+        if (notify) w16_send(w, win->hwnd, WM_SIZE, SIZE_RESTORED, sz);
+        else w16_post_msg(w, win->hwnd, WM_SIZE, SIZE_RESTORED, sz);
     }
     bar_changed(w);
 }

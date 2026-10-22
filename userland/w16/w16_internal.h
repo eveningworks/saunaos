@@ -740,6 +740,7 @@ int w16_create_main(struct w16 *w, int k, const char *title, uint32_t style, int
 // The dialog manager's to handle: a dialog, or a main window from a template.
 static inline int w16_is_dialog(const struct w16_wnd *x) { return x->kind == W16_K_DIALOG || x->dlg; }
 void w16_set_menu(struct w16 *w, uint16_t hmenu);   // SetMenu on the main window
+void w16_set_menu_ex(struct w16 *w, uint16_t hmenu, int notify);   // notify 0: no WM_SIZE (CreateWindow)
 struct w16_menu;
 int w16_menubar_count(struct w16 *w);
 int w16_menubar_title_at(struct w16 *w, int x, int *tx, int *tw);   // x < 0: title -x-1's place
