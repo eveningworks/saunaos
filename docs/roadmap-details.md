@@ -2627,6 +2627,20 @@ behind a hub, not a root port), multiple simultaneous devices, anything
 beyond the boot protocol (full HID report-descriptor parsing for
 non-standard devices).
 
+### exFAT writes cluster by cluster -- batch bitmap and FAT updates per sector, keep a chain cursor
+
+Found in review (2026-10-22). Every `write_range` or grow of a chained
+file re-walks its FAT chain from the start (`chain_last()` resets the
+stream's cursor), so a copy into a fragmented file in 64 KiB pieces is
+O(n^2) in its clusters. And `bm_put()`, `exf_fat_set()` and `to_chain()`
+each write one sector per CLUSTER, synchronously: turning a 1 GiB
+contiguous file into a chain is about 32 thousand single-entry FAT
+writes, each a USB round trip -- tens of seconds, and flash wear. The
+fix: gather bitmap bits and FAT entries per sector and write each sector
+once (Linux's exfat dirties a buffer head per sector), and keep the
+cursor at the chain's last cluster across calls. Correctness is not at
+stake; speed on a stick is.
+
 ### A USB gamepad for DOOM -- HID's generic-desktop gamepad and joystick usages, through the input core
 
 Put on the roadmap 2026-10-06 (not scheduled). `hid_parse.h` already walks report descriptors;

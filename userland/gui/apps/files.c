@@ -1725,6 +1725,7 @@ static int on_tick(struct uapp *a) {
     if (thumb_tick()) changed = 1;
     if (undo_toast_tick()) changed = 1;
     if (net_tick()) changed = 1;
+    if (places_eject_tick()) { refresh_status(); changed = 1; }
 
     // Not under a rubber band: a reload clears the marks the band is
     // mid-way through choosing (the desktop's desktop_drag_active() rule).

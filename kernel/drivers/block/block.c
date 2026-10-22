@@ -228,12 +228,21 @@ int blk_eject(const struct block_device *disk) {
     int rc = 0;
     if (!d || d->gone || d->parent != disk) rc = -ENOENT;
     else if (!disk->removable) rc = -ENOTSUP;
+    else if (disk == g_root_disk) rc = -EPERM;   // the system runs from it
+    else if (d->ejecting) rc = -EBUSY;
     for (int i = 0; !rc && i < count(); i++)
         if (at(i)->parent == disk && at(i)->users) rc = -EBUSY;
+    // HELD THROUGH THE FLUSH: a mount arriving between the check above and
+    // the disk going would be cut off under its writes.
+    if (!rc) d->ejecting = 1;
     kmutex_unlock(&g_wlock);
     if (rc) return rc;
-    if (!blkdev_flush(disk)) return -EIO;
-    if (disk->eject && !disk->eject(disk)) return -EIO;
+    if (!blkdev_flush(disk) || (disk->eject && !disk->eject(disk))) {
+        kmutex_lock(&g_wlock);
+        d->ejecting = 0;
+        kmutex_unlock(&g_wlock);
+        return -EIO;
+    }
     gone_as(disk, QUERY_DEVEV_EJECTED);
     return 0;
 }
@@ -266,7 +275,8 @@ int blk_device_is_gone(const struct block_device *dev) {
 int blk_get(const struct block_device *dev) {
     kmutex_lock(&g_wlock);
     struct blk_entry *e = entry_of(dev);
-    int ok = e && !e->gone;
+    const struct blk_entry *disk = e ? entry_of(e->parent) : NULL;
+    int ok = e && !e->gone && !(disk && disk->ejecting);
     if (ok) e->users++;
     kmutex_unlock(&g_wlock);
     return ok;

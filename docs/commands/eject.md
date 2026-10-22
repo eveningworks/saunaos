@@ -23,7 +23,7 @@ DISK is the name `lsblk` prints (`usb0`), never a partition.
 A disk that is still in use -- a file open on it, a shell standing in it
 -- is not ejected, and says so. A folder `automountd` made under `/media`
 for it is removed. A disk that is not
-removable is refused. To use an ejected stick again, unplug it and plug
+removable is refused, and so is the disk the system runs from. To use an ejected stick again, unplug it and plug
 it back in.
 
 Pulling a stick out WITHOUT ejecting loses nothing a finished write put

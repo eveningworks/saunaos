@@ -45,25 +45,31 @@ static void remember(const char *dev) {
     snprintf(g_seen[g_nseen++], 16, "%s", dev);
 }
 
-// A pulled stick's mount: unmounted, and its /media folder removed.
+// Pulled sticks' mounts: each unmounted and its /media folder removed.
+// One a file still holds stays, and is tried again on the next wake --
+// the backstop timeout included, since closing a file raises no event.
 static void tidy_gone(void) {
     struct query_fsinfo fs;
-    for (int guard = 0; guard < 64; guard++) {
-        int found = 0;
-        for (unsigned i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
-            if ((fs.flags & (QUERY_FS_MOUNTED | QUERY_FS_GONE)) != (QUERY_FS_MOUNTED | QUERY_FS_GONE))
-                continue;
-            char point[64];
-            snprintf(point, sizeof point, "%s", fs.point);
-            if (sys_umount(point) == 0) {
-                printf("automountd: %s was pulled out -- unmounted\n", point);
-                if (!strncmp(point, "/media/", 7)) rmdir(point);
-                found = 1;
-            }
-            break;
+    char (*points)[64] = 0;
+    int n = 0, cap = 0;
+    for (unsigned i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
+        if ((fs.flags & (QUERY_FS_MOUNTED | QUERY_FS_GONE)) != (QUERY_FS_MOUNTED | QUERY_FS_GONE))
+            continue;
+        if (n == cap) {
+            cap = cap ? cap * 2 : 4;
+            char (*g)[64] = realloc(points, (size_t)cap * sizeof *points);
+            if (!g) break;
+            points = g;
         }
-        if (!found) break;
+        snprintf(points[n++], sizeof points[0], "%s", fs.point);
     }
+    // Collected first: an unmount renumbers the records being walked.
+    for (int i = 0; i < n; i++) {
+        if (sys_umount(points[i]) != 0) continue;
+        printf("automountd: %s was pulled out -- unmounted\n", points[i]);
+        if (!strncmp(points[i], "/media/", 7)) rmdir(points[i]);
+    }
+    free(points);
 }
 
 // Mounts every volume that has appeared since the last pass, and forgets
@@ -144,6 +150,8 @@ int main(void) {
         if (now != last) {
             last = now;
             reconcile();
+        } else {
+            tidy_gone();   // one a busy file held before may be free now
         }
     }
 }

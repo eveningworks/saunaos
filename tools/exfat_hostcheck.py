@@ -35,7 +35,7 @@ import zlib
 HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 sys.path.insert(0, HERE)
-from harness import Results, copy_disk  # noqa: E402
+from harness import Results, copy_disk, poll  # noqa: E402
 
 TOOL = "exfat_hostcheck"
 BIG = os.path.join(REPO, "seed", "sync", "bin", "dash")
@@ -208,8 +208,13 @@ def main():
         g = Guest(a.instance, disk, [host_img, guest_img])
         if not res.check("the guest boots with both sticks", g.ok, g.why):
             return res.finish(TOOL)
+        # automountd took it at /media/HOSTMADE; stopped, so the stick is
+        # this test's alone and its writes go where the checks look.
+        poll(lambda: "/media/HOSTMADE" in g.run("mount"), 15)
+        g.run("service stop automountd", "umount /media/HOSTMADE")
         out = g.run("mkdir /mnt/h", "mount usb0 /mnt/h", "mount")
-        res.check("the host-made exFAT stick mounts as exfat", "/mnt/h" in out and "exfat" in out,
+        res.check("the host-made exFAT stick mounts as exfat",
+                  any("/mnt/h" in ln and "exfat" in ln for ln in out.splitlines()),
                   out.strip()[-300:])
         g.run("mkdir /mnt/h/Kansio", "cp /bin/dash /mnt/h/Kansio/dash.bin",
               f"write /mnt/h/{UNAME} hei maailma",

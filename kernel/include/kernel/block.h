@@ -181,6 +181,7 @@ struct blk_entry {
     char name[BLK_NAME_MAX];
     int users;   // mounts holding it (blk_get()/blk_put())
     int gone;    // its disk went away; kept, named, until users reach 0
+    int ejecting;   // blk_eject() is under way on this disk: blk_get() refuses
 };
 
 // Forgets a device's NAME, so a re-read of a disk's partition table can
@@ -213,7 +214,9 @@ int blk_device_is_gone(const struct block_device *dev);
 
 // EJECT: the safe way out for a removable disk, "Safely Remove" in
 // Windows' words. Refused (-EBUSY) while anything on the disk or a
-// partition of it is mounted, -ENOTSUP for a disk that is not removable.
+// partition of it is mounted, -ENOTSUP for a disk that is not removable,
+// -EPERM for the disk the system runs from (refused before anything is
+// unmounted, so a caller does not tear down its other volumes first).
 // Flushes, asks the device (its eject op, if it has one), then the disk
 // goes away exactly as a pull does -- but recorded as QUERY_DEVEV_EJECTED,
 // so the desktop can tell the two apart. The stick is still plugged in;

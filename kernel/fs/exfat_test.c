@@ -13,6 +13,7 @@
 #include "heap.h"
 #include "string.h"
 #include "mount.h"
+#include "exfat_internal.h"   // the corrupt-volume tests reach inside
 
 #define EX_SECTORS (64u * 2048u)   // 64 MiB: 4 KiB clusters
 static uint8_t *g_img;
@@ -206,4 +207,107 @@ KTEST("exfat", "a directory that outgrows its cluster keeps every name") {
     KTEST_ASSERT_EQ(made, 60);
     KTEST_ASSERT_EQ(found, 60);
     KTEST_ASSERT(ok);
+}
+
+// ---- what a corrupt or crafted stick must not do ---------------------------
+//
+// automountd mounts a stick the moment it is plugged in, so these are the
+// volumes nobody chose to trust. Each corrupts a fresh volume through the
+// backend's own internals, then asks for an ordinary operation.
+
+// Mounts the image as it is now, without formatting it.
+static int remount(void) {
+    if (!mount_scratch_begin(F(), &g_sc)) return 0;
+    if (F()->probe(ST, &EX_DEV) != 1 || F()->init(ST, &EX_DEV, 0) != 1) {
+        mount_scratch_end(&g_sc);
+        return 0;
+    }
+    return 1;
+}
+
+KTEST("exfat", "a directory moved into itself under another case is refused") {
+    if (!fresh()) KTEST_SKIP("no 64 MiB for a test volume");
+    F()->mkdir(ST, "/Photos");
+    F()->mkdir(ST, "/Photos/x");
+    F()->mkdir(ST, "/Empty");
+    int r1 = F()->rename(ST, "/Photos", "/photos/old");
+    int r2 = F()->rename(ST, "/Empty", "/EMPTY/inner");
+    int still = F()->exists(ST, "/Photos/x") && F()->exists(ST, "/Empty");
+    int ok = clean();
+    done();
+    KTEST_ASSERT(!r1 && !r2);
+    KTEST_ASSERT(still);
+    KTEST_ASSERT(ok);
+}
+
+KTEST("exfat", "a contiguous file whose length runs off the heap is refused, nothing freed") {
+    if (!fresh()) KTEST_SKIP("no 64 MiB for a test volume");
+    static uint8_t blk[4096];
+    k_memset(blk, 'z', sizeof blk);
+    int w = F()->write_range(ST, "/f.bin", 0, blk, sizeof blk);
+    struct exfat_state *x = ST;
+    struct exf_node n;
+    int found = exf_lookup(x, "/f.bin", &n) && n.s.nofat;
+    // DataLength claims twice the volume: a delete would free past the bitmap.
+    uint8_t set[3 * 32];
+    for (int i = 0; found && i < 3; i++) found = exf_dir_entry(x, &n.loc.dir, n.loc.index + (uint32_t)i, set + i * 32);
+    uint64_t huge = (uint64_t)x->cluster_count * x->cluster_bytes * 2;
+    for (int i = 0; i < 8; i++) set[32 + 24 + i] = (uint8_t)(huge >> (8 * i));
+    uint16_t sum = exf_set_checksum(set, 3);
+    set[2] = (uint8_t)sum;
+    set[3] = (uint8_t)(sum >> 8);
+    int put = found && exf_dir_put_set(x, &n.loc.dir, n.loc.index, set, 3);
+    uint64_t used0 = 0, used1 = 0, total = 0;
+    F()->disk_usage(ST, &used0, &total);
+    int del = F()->del(ST, "/f.bin");
+    F()->disk_usage(ST, &used1, &total);
+    done();
+    KTEST_ASSERT(w && found && put);
+    KTEST_ASSERT(!del);
+    KTEST_ASSERT_EQ(used1, used0);
+}
+
+KTEST("exfat", "VolumeDirty: set by a write, kept when it came dirty, untouched by a read-only life") {
+    if (!fresh()) KTEST_SKIP("no 64 MiB for a test volume");
+    F()->write(ST, "/a.txt", "a", 0);
+    int dirty_while = (g_img[106] & 2) != 0;
+    done();
+    int clean_after = !(g_img[106] & 2);
+    // Mounted and unmounted with nothing written: sector 0 is untouched.
+    static uint8_t before[512];
+    k_memcpy(before, g_img, 512);
+    int m1 = remount();
+    if (m1) { F()->exists(ST, "/a.txt"); done(); }
+    int untouched = k_memcmp(before, g_img, 512) == 0;
+    // Dirty on arrival: a write and a clean unmount leave it dirty.
+    g_img[106] |= 2;
+    int m2 = remount();
+    if (m2) { F()->write(ST, "/b.txt", "b", 0); done(); }
+    int kept = (g_img[106] & 2) != 0;
+    KTEST_ASSERT(dirty_while && clean_after);
+    KTEST_ASSERT(m1 && untouched);
+    KTEST_ASSERT(m2 && kept);
+}
+
+KTEST("exfat", "a root whose cluster chain loops is walked to an end, not forever") {
+    if (!fresh()) KTEST_SKIP("no 64 MiB for a test volume");
+    // Enough names that the root's first cluster holds no end marker, then
+    // its chain pointed back at itself.
+    char p[16];
+    int made = 0;
+    for (int i = 0; i < 45; i++) {
+        k_strlcpy(p, "/f00", sizeof p);
+        p[2] = (char)('0' + i / 10);
+        p[3] = (char)('0' + i % 10);
+        made += F()->touch(ST, p);
+    }
+    struct exfat_state *x = ST;
+    int looped = exf_fat_set(x, x->root, x->root);
+    int missing = F()->exists(ST, "/not-there");   // a full walk of the root
+    struct listing l = { 0, 0, 0 };
+    F()->list(ST, "/", count_cb, &l);
+    done();
+    KTEST_ASSERT_EQ(made, 45);
+    KTEST_ASSERT(looped && !missing);
+    KTEST_ASSERT(l.n >= 1);
 }

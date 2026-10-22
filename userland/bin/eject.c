@@ -29,6 +29,7 @@ int main(int argc, char **argv) {
         printf("eject: %s: %s\n", disk,
                e == ENOENT ? "no such disk" :
                e == ENOTSUP ? "not a removable disk" :
+               e == EPERM ? "the system is running from it" :
                e == EBUSY ? "still in use -- close what has a file open on it" : strerror(e));
         return 1;
     }

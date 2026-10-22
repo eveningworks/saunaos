@@ -49,6 +49,10 @@ int exf_read_sector(struct exfat_state *x, uint64_t sector, void *buf) {
 }
 
 int exf_write_sector(struct exfat_state *x, uint64_t sector, const void *buf) {
+    if (x->mounted && !x->dirtied && sector != 0) {
+        x->dirtied = 1;
+        if (!exf_set_dirty(x, 1)) return 0;
+    }
     if (x->sec_valid && x->sec_lba == sector && buf != x->sec) k_memcpy(x->sec, buf, x->bps);
     if (x->fsec_valid && x->fsec_lba == sector && buf != x->fsec) k_memcpy(x->fsec, buf, x->bps);
     return blkdev_write_sectors(x->dev, sector * x->dev_per_sec, (int)x->dev_per_sec, buf);
@@ -72,6 +76,7 @@ uint64_t exf_cluster_sector(struct exfat_state *x, uint32_t clus) {
 }
 
 int exf_fat_get(struct exfat_state *x, uint32_t clus, uint32_t *out) {
+    if (!exf_cluster_ok(x, clus)) return 0;   // past the FAT: a corrupt pointer
     uint64_t byte = (uint64_t)clus * 4;
     uint64_t sector = x->fat_offset + (byte >> x->bps_shift);
     if (!(x->fsec_valid && x->fsec_lba == sector)) {
@@ -106,6 +111,11 @@ uint32_t exf_stream_cluster(struct exfat_state *x, struct exf_stream *s, uint64_
         uint32_t c = s->first + idx;
         return exf_cluster_ok(x, c) ? c : 0;
     }
+    // A stream with no length -- the root -- is bounded only by its
+    // chain, and a chain can loop: no directory is longer than 256 MiB
+    // (6.2.1) nor than the heap.
+    if (!s->length && (idx >= x->cluster_count || (uint64_t)idx * x->cluster_bytes >= (256ull << 20)))
+        return 0;
     if (!s->cur_clus || s->cur_idx > idx) { s->cur_idx = 0; s->cur_clus = s->first; }
     while (s->cur_idx < idx) {
         uint32_t next;
@@ -149,6 +159,27 @@ int exf_dir_put(struct exfat_state *x, struct exf_stream *dir, uint32_t index, c
     if (!s) return 0;
     k_memcpy(s + off, e32, 32);
     return exf_write_sector(x, sector, s);
+}
+
+int exf_dir_put_set(struct exfat_state *x, struct exf_stream *dir, uint32_t index,
+                    const uint8_t *set, int count) {
+    // Backwards, one write per sector: the File entry -- which carries the
+    // checksum -- is the first entry, so its sector goes last.
+    int i = count - 1;
+    while (i >= 0) {
+        uint64_t sector;
+        uint32_t off;
+        if (!entry_sector(x, dir, index + (uint32_t)i, &sector, &off)) return 0;
+        uint8_t *s = cached(x, sector);
+        if (!s) return 0;
+        for (;;) {   // every entry of the set this sector holds
+            k_memcpy(s + off, set + i * 32, 32);
+            if (--i < 0 || off < 32) break;
+            off -= 32;
+        }
+        if (!exf_write_sector(x, sector, s)) return 0;
+    }
+    return 1;
 }
 
 // 6.3.3 and 7.4.4: the same rotate-and-add, 16 bits wide over an entry
@@ -417,8 +448,8 @@ static uint64_t to_epoch(uint32_t ts, uint8_t ten_ms, uint8_t utc) {
 // ---- mounting -----------------------------------------------------------
 
 int exf_set_dirty(struct exfat_state *x, int dirty) {
-    uint8_t *s = cached(x, 0);
-    if (!s) return 0;
+    uint8_t *s = x->boot;
+    if (!s || !exf_read_sector(x, 0, s)) return 0;
     uint16_t flags = le16(s + 106);
     flags = (uint16_t)(dirty ? (flags | 2) : (flags & ~2));
     exf_put16(s + 106, flags);   // outside the boot checksum by design (3.1.13)
@@ -544,6 +575,7 @@ static void unload(struct exfat_state *x) {
     kfree(x->upcase); x->upcase = 0;
     kfree(x->sec); x->sec = 0;
     kfree(x->fsec); x->fsec = 0;
+    kfree(x->boot); x->boot = 0;
     x->sec_valid = x->fsec_valid = 0;
     x->mounted = 0;
 }
@@ -605,13 +637,16 @@ static int exfat_init(void *st, const struct block_device *dev, uint64_t size_by
     }
     x->bitmap = read_stream(x, &x->bitmap_s, x->bitmap_bytes);
     if (!x->bitmap || !load_upcase(x, &up_s, up_sum)) { unload(x); return -1; }
+    x->boot = kmalloc(x->bps);
+    if (!x->boot) { unload(x); return -1; }
     count_free(x);
+    x->was_dirty = (x->vol_flags & 2) != 0;
+    x->dirtied = 0;
     x->mounted = 1;
     x->writable = 1;
-    if (x->vol_flags & 2)
+    if (x->was_dirty)
         klog_printf("exfat: %s was not unmounted cleanly -- it may want a check on another system\n",
                     blk_device_name(dev));
-    exf_set_dirty(x, 1);   // cleared by a clean unmount, as Windows does
     klog_printf("exfat: mounted, %u clusters of %u bytes, %u free\n", x->cluster_count,
                 x->cluster_bytes, x->free_clusters);
     return 1;
@@ -620,7 +655,7 @@ static int exfat_init(void *st, const struct block_device *dev, uint64_t size_by
 static void exfat_umount(void *st, const struct block_device *dev) {
     (void)dev;
     struct exfat_state *x = st;
-    if (x->mounted) exf_set_dirty(x, 0);
+    if (x->mounted && x->dirtied && !x->was_dirty) exf_set_dirty(x, 0);
     unload(x);
 }
 

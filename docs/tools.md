@@ -4575,7 +4575,9 @@ window without going through it will find its layout polls timing out.
   same files byte for byte, and every name's hash right for the volume's
   own up-case table. Controls that turned it red: a hash without
   up-casing and a set checksum one byte short (fsck named both). Needs
-  exfatprogs. In `ondemand_sweep.py`.
+  exfatprogs. automountd is stopped once it has mounted the host-made
+  stick, so the test's own mount is the only one writing to it. In
+  `ondemand_sweep.py`.
 
 - **`usb_storage_test.py`** -- USB sticks on QEMU's `usb-storage`, the
   bulk-only transport every real stick speaks: a FAT32 stick built on

@@ -21,7 +21,11 @@
 
 // ---- the allocation bitmap ------------------------------------------------
 
+// A cluster number from the disk is checked HERE, where it would index
+// the bitmap: a corrupt stick's stream may point anywhere. Outside the
+// heap reads as used, and a put there is refused.
 static int bm_test(struct exfat_state *x, uint32_t c) {
+    if (!exf_cluster_ok(x, c)) return 1;
     uint32_t b = c - 2;
     return (x->bitmap[b / 8] >> (b % 8)) & 1;
 }
@@ -29,6 +33,7 @@ static int bm_test(struct exfat_state *x, uint32_t c) {
 // One bit, in memory and on the disk (the sector holding it, written
 // through).
 static int bm_put(struct exfat_state *x, uint32_t c, int used) {
+    if (!exf_cluster_ok(x, c)) return 0;
     uint32_t b = c - 2;
     if (used) x->bitmap[b / 8] |= (uint8_t)(1u << (b % 8));
     else x->bitmap[b / 8] &= (uint8_t)~(1u << (b % 8));
@@ -79,6 +84,7 @@ static uint32_t chain_last(struct exfat_state *x, struct exf_stream *s, uint32_t
 // The FAT entries a contiguous run never had: each cluster to the next,
 // the last to the end of chain. Then it is an ordinary chain.
 static int to_chain(struct exfat_state *x, struct exf_stream *s, uint32_t have) {
+    if (!exf_cluster_ok(x, s->first) || !exf_cluster_ok(x, s->first + have - 1)) return 0;
     for (uint32_t i = 0; i < have; i++)
         if (!exf_fat_set(x, s->first + i, i + 1 < have ? s->first + i + 1 : EXFAT_EOC)) return 0;
     s->nofat = 0;
@@ -136,9 +142,14 @@ static int grow(struct exfat_state *x, struct exf_stream *s, uint32_t want, int 
 static int shrink(struct exfat_state *x, struct exf_stream *s, uint32_t keep) {
     if (!s->first) return 1;
     uint32_t have = exf_stream_clusters(x, s);
-    if (!s->length) have = 0xFFFFFFFFu;   // never called on the root
+    // No length: a chain is walked to its end (never called on the root);
+    // a contiguous run with no length holds nothing to free.
+    if (!s->length) have = s->nofat ? 0 : 0xFFFFFFFFu;
     if (keep >= have) return 1;
     if (s->nofat) {
+        // The whole run inside the heap before any of it is freed: a
+        // length a corrupt entry inflated must not free half and fail.
+        if (!exf_cluster_ok(x, s->first) || !exf_cluster_ok(x, s->first + have - 1)) return 0;
         for (uint32_t i = keep; i < have; i++) if (!bm_put(x, s->first + i, 0)) return 0;
     } else {
         uint32_t c = keep ? chain_last(x, s, keep) : s->first;
@@ -180,10 +191,7 @@ static int store(struct exfat_state *x, struct exf_node *n) {
     exf_put32(s + 20, n->s.first);
     exf_put64(s + 24, n->s.length);
     exf_put16(set + 2, exf_set_checksum(set, n->loc.count));
-    // The File entry last, as for a new set: it carries the checksum.
-    for (int i = n->loc.count - 1; i >= 0; i--)
-        if (!exf_dir_put(x, &n->loc.dir, n->loc.index + (uint32_t)i, set + i * 32)) return 0;
-    return 1;
+    return exf_dir_put_set(x, &n->loc.dir, n->loc.index, set, n->loc.count);
 }
 
 static void touch_times(struct exf_node *n) { n->mod = exf_now(&n->mod_10ms, &n->mod_utc); }
@@ -272,8 +280,7 @@ static int build_set(struct exfat_state *x, const uint16_t *name, int len, uint1
 static int place_set(struct exfat_state *x, struct exf_node *dir, int count, struct exf_loc *loc) {
     int64_t at = find_slots(x, dir, count);
     if (at < 0) return 0;
-    for (int i = count - 1; i >= 0; i--)
-        if (!exf_dir_put(x, &dir->s, (uint32_t)at + (uint32_t)i, x->nset + i * 32)) return 0;
+    if (!exf_dir_put_set(x, &dir->s, (uint32_t)at, x->nset, count)) return 0;
     loc->dir = dir->s;
     loc->dir.cur_clus = loc->dir.cur_idx = 0;
     loc->index = (uint32_t)at;
@@ -471,14 +478,33 @@ int exfat_del(void *st, const char *path) {
     return shrink(x, &n.s, 0);
 }
 
+// Whether `newpath` lies inside directory `d` -- which would cut it off
+// from the root. By IDENTITY, each ancestor resolved and its entry's
+// place compared: names match without regard to case, so "/Photos"
+// moved to "/photos/old" is into itself though no byte prefix says so.
+static int into_itself(struct exfat_state *x, const struct exf_node *d, const char *newpath) {
+    size_t len = k_strlen(newpath);
+    char *p = kmalloc(len + 1);
+    if (!p) return 1;            // cannot tell: refuse
+    int inside = 0;
+    for (size_t i = len; i > 0 && !inside; i--) {
+        if (newpath[i] != '/') continue;
+        k_memcpy(p, newpath, i);
+        p[i] = 0;
+        struct exf_node a;
+        inside = exf_lookup(x, p, &a) && a.loc.count && a.loc.index == d->loc.index &&
+                 a.loc.dir.first == d->loc.dir.first;
+    }
+    kfree(p);
+    return inside;
+}
+
 int exfat_rename(void *st, const char *oldpath, const char *newpath) {
     struct exfat_state *x = st;
     struct exf_node n, parent, existing;
     const char *leaf;
     if (!x->mounted || !exf_lookup(x, oldpath, &n) || !n.loc.count) return 0;
-    // A directory into its own subtree would cut it off from the root.
-    uint32_t ol = (uint32_t)k_strlen(oldpath);
-    if (n.is_dir && k_strncmp(newpath, oldpath, ol) == 0 && newpath[ol] == '/') return 0;
+    if (n.is_dir && into_itself(x, &n, newpath)) return 0;
     if (!exf_parent(x, newpath, &parent, &leaf)) return 0;
     if (exf_find(x, &parent.s, leaf, &existing)) {
         // Only a change of case to the SAME entry is a rename onto itself.

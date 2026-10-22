@@ -338,6 +338,9 @@ int  places_ctx_items(struct uui_menu_item *out, int cap, int nid);
 void places_command(struct uapp *a, int code);   // CMD_PL_*
 // Eject the USB stick tree row `nid` is (its row's Eject button).
 void places_eject_row(int nid);
+// Reads automountd's answers to an Eject into the status line; 1 when it
+// changed. From on_tick: a refusal must reach the person who asked.
+int places_eject_tick(void);
 void places_rename_pin(const char *label);        // Rename pin's prompt answered
 void places_reorder_init(void);                   // the tree's rows move by drag
 int  places_drop(struct uui_fileview *src);       // a drop in a gap of the list: 1 if it was

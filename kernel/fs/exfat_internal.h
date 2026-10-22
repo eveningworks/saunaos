@@ -80,6 +80,13 @@ struct exfat_state {
     uint32_t root;
     uint32_t serial;
     uint16_t vol_flags;
+    // VolumeDirty (3.1.13.2): set before the FIRST write, so a read-only
+    // mount writes nothing, and cleared at unmount only when this mount
+    // set it -- a volume dirty on arrival stays dirty for a real check.
+    // `boot` is sector 0's own buffer: exf_write_sector() marks the
+    // volume from inside a write whose data may be in `sec`.
+    uint8_t *boot;
+    int was_dirty, dirtied;
     // The allocation bitmap, whole in memory, and where it lives on disk.
     struct exf_stream bitmap_s;
     uint8_t *bitmap;
@@ -115,6 +122,11 @@ uint32_t exf_stream_cluster(struct exfat_state *x, struct exf_stream *s, uint64_
 uint32_t exf_stream_clusters(struct exfat_state *x, const struct exf_stream *s);
 int exf_dir_entry(struct exfat_state *x, struct exf_stream *dir, uint32_t index, uint8_t *e32);
 int exf_dir_put(struct exfat_state *x, struct exf_stream *dir, uint32_t index, const uint8_t *e32);
+// A whole entry set, ONE write per sector it covers, the File entry's
+// sector last -- so a pull mid-update never leaves a set whose checksum
+// is stale (which a reader drops, file and all).
+int exf_dir_put_set(struct exfat_state *x, struct exf_stream *dir, uint32_t index,
+                    const uint8_t *set, int count);
 uint16_t exf_set_checksum(const uint8_t *set, int count);
 uint16_t exf_name_hash(struct exfat_state *x, const uint16_t *name, int len);
 int exf_lookup(struct exfat_state *x, const char *path, struct exf_node *out);

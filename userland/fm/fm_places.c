@@ -292,17 +292,44 @@ static const struct uui_place *place_removable(const char *point) {
     return 0;
 }
 
+// The last stick asked about, for its answer's wording.
+static char g_ej_disk[16], g_ej_label[UUI_PLACES_LABEL_MAX];
+
 // THE SERVICE EJECTS (lib/udrive.h): unmounting waits on the disk, and
 // the stick's row goes when automountd has done it -- the generation
-// watch sees the mount leave. Only the panes are moved off it here.
+// watch sees the mount leave. Only the panes are moved off it here; the
+// answer comes back through places_eject_tick().
 static void eject(const char *point) {
     const struct uui_place *r = place_removable(point);
     char disk[16];
     if (!r || udrive_disk_of(r->dev, disk, sizeof disk) < 0) { set_note("that is not a USB drive"); return; }
     leave(point);
-    if (udrive_ask_eject(disk) < 0) set_note("could not eject it -- the drive service is not running");
-    else snprintf(g_stat_note, sizeof g_stat_note, "ejecting %s...", r->label);
+    if (udrive_ask_eject(disk) < 0) {
+        set_note("could not eject it -- the drive service is not running");
+    } else {
+        snprintf(g_stat_note, sizeof g_stat_note, "ejecting %s...", r->label);
+        strlcpy(g_ej_disk, disk, sizeof g_ej_disk);
+        strlcpy(g_ej_label, r->label, sizeof g_ej_label);
+    }
     ulogf("files: eject %s (%s)\n", point, disk);
+}
+
+int places_eject_tick(void) {
+    struct udrive_msg m;
+    int changed = 0;
+    while (udrive_take_reply(&m)) {
+        if (m.verb != UDRIVE_EJECT) continue;
+        const char *name = !strcmp(m.dev, g_ej_disk) ? g_ej_label : m.dev;
+        if (m.result == 0)
+            snprintf(g_stat_note, sizeof g_stat_note, "%s can be pulled out", name);
+        else if (m.result == -EBUSY)
+            snprintf(g_stat_note, sizeof g_stat_note,
+                     "%s was not ejected -- a file on it is still open", name);
+        else
+            snprintf(g_stat_note, sizeof g_stat_note, "%s was not ejected: %s", name, strerror(-m.result));
+        changed = 1;
+    }
+    return changed;
 }
 
 void places_eject_row(int nid) {
