@@ -147,6 +147,7 @@ int xhci_bulk_halted(uint8_t slot, uint8_t ep_addr);
 // takes recovery over: xhci_deferred_work() leaves the endpoint alone,
 // and the driver calls xhci_bulk_reset() (both the controller's halt and
 // the device's, CLEAR_FEATURE) from a context that may issue commands.
+// A no-op on an endpoint that is not halted: see xhci_xfer.c.
 void xhci_bulk_own_recovery(uint8_t slot, uint8_t ep_addr);
 int xhci_bulk_reset(uint8_t slot, uint8_t ep_addr);
 

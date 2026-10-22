@@ -859,18 +859,20 @@ void xhci_bulk_own_recovery(uint8_t slot, uint8_t ep_addr) {
     if (e && e->is_bulk) e->own_recovery = 1;
 }
 
-// BOTH HALVES OF A HALT: the controller's endpoint (Reset Endpoint and a
-// dequeue moved past whatever was queued) and the DEVICE's, with
-// CLEAR_FEATURE(ENDPOINT_HALT) -- which also resets its data toggle, so
-// a reset of one side alone leaves the next transfer out of step.
+// BOTH HALVES OF A HALT, AND ONLY OF A HALT: the controller's endpoint
+// (Reset Endpoint, which also zeroes its toggle, and a dequeue moved past
+// whatever was queued) and the DEVICE's, with CLEAR_FEATURE(ENDPOINT_HALT),
+// which zeroes the device's. On an endpoint that is NOT halted it does
+// nothing: the device's toggle would reset while Reset Endpoint -- valid
+// only on a halted endpoint -- could not reset the controller's, and the
+// next transfer would be dropped as a duplicate.
 int xhci_bulk_reset(uint8_t slot, uint8_t ep_addr) {
     struct xhci_ep *e = ep_find(slot, ep_addr);
     if (!e || !e->is_bulk) return -1;
-    if (e->halted) {
-        int rc = xhci_recover_halted(slot, dci_of(ep_addr), &e->ring);
-        if (rc < 0) return rc;
-        e->halted = 0;
-    }
+    if (!e->halted) return 0;
+    int rc = xhci_recover_halted(slot, dci_of(ep_addr), &e->ring);
+    if (rc < 0) return rc;
+    e->halted = 0;
     uint8_t setup[8] = { 0x02, 0x01, 0x00, 0x00, ep_addr, 0x00, 0x00, 0x00 };
     return xhci_control(slot, setup, 0, 0, 0) < 0 ? -1 : 0;
 }

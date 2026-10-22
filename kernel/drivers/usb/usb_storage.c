@@ -19,7 +19,10 @@
 // REMOVAL (block.h's blk_device_gone()): unbind marks the device
 // unplugged FIRST, so a transfer in flight or about to start fails at
 // once rather than waiting out a timeout, then tells the block layer.
-// The memory goes in release(), once the last mount lets go.
+// THE DEVICE'S STRUCT IS NEVER FREED -- a caller between looking a disk
+// up and calling into it holds a pointer into it, and nothing can count
+// that window -- only its DMA buffer, once no LUN is held (release()) and
+// no transfer is in flight (`busy`). A few hundred bytes a plug.
 //
 // QUICK REMOVAL is the block layer's (`removable`): every write is
 // flushed before the call that made it returns, so this driver adds no
@@ -76,8 +79,12 @@ struct ums {
     volatile int done, ok;
     volatile uint32_t bytes;
     int nluns, live;           // LUNs found, and how many the block layer still holds
-    struct ums_lun luns[MAX_LUNS];
+    int busy;                  // rw()/flush calls inside the driver (atomic)
+    struct ums_lun *luns;      // nluns of them
 };
+
+static int enter(struct ums *u);
+static void leave(struct ums *u);
 
 static void xfer_done(void *ctx, uint64_t phys, uint32_t bytes, int ok) {
     (void)phys;
@@ -134,8 +141,10 @@ static int control(struct ums *u, uint8_t type, uint8_t req, uint16_t value, voi
     return xhci_control(u->slot, setup, buf, len, (type & 0x80) != 0);
 }
 
-// Bulk-Only Mass Storage Reset, then both endpoints' halts: what a phase
-// error or a lost status costs. 0 when the device took it.
+// Bulk-Only Mass Storage Reset, then any HALTED endpoint's halt cleared:
+// what a phase error or a lost status costs. The reset keeps the device's
+// toggles and stalls (BOT spec 3.1), so an endpoint that is not halted is
+// left exactly as it is. 0 when the device took it.
 static int reset_recovery(struct ums *u) {
     if (u->unplugged) return -1;
     klog_printf("usb-storage: slot %u reset recovery\n", u->slot);
@@ -234,10 +243,10 @@ static int ums_xfer_max(const struct block_device *dev) { (void)dev; return (int
 static int rw(const struct block_device *dev, uint64_t lba, int count, void *buf, int write) {
     struct ums_lun *l = lun_of(dev);
     struct ums *u = l->u;
-    if (count <= 0 || u->unplugged) return 0;
     uint32_t spb = l->block / 512;
-    if ((lba | (uint64_t)count) & (spb - 1)) return 0;   // the block layer already refuses this
+    if (count <= 0 || ((lba | (uint64_t)count) & (spb - 1))) return 0;   // the block layer refuses these too
     if (lba + (uint64_t)count > ums_count(dev)) return 0;
+    if (!enter(u)) return 0;
     kmutex_lock(&u->lock);
     int ok = 1;
     uint8_t *p = buf;
@@ -262,6 +271,7 @@ static int rw(const struct block_device *dev, uint64_t lba, int count, void *buf
         p += bytes; lba += n; count -= (int)n;
     }
     kmutex_unlock(&u->lock);
+    leave(u);
     return ok;
 }
 
@@ -278,30 +288,52 @@ static int ums_write(const struct block_device *dev, uint64_t lba, int count, co
 static int ums_flush(const struct block_device *dev) {
     struct ums_lun *l = lun_of(dev);
     struct ums *u = l->u;
-    if (u->unplugged) return 0;
+    if (!enter(u)) return 0;
     kmutex_lock(&u->lock);
     uint8_t cdb[16];
     int n = scsi_cdb_sync_cache(cdb);
     struct scsi_sense why = { 0, 0, 0 };
     int r = command_retry(u, l->lun, cdb, n, 0, 0, 0, &why);
     kmutex_unlock(&u->lock);
+    leave(u);
     return r == CMD_OK || (r == CMD_FAILED && why.key == SCSI_KEY_ILLEGAL_REQUEST);
 }
 
 static struct ums *g_ums;
 
-// A buffer the controller may still DMA into is leaked, not freed: a late
-// write into a frame that has become a page table is an unlogged reset
-// (xhci_cancel_endpoint()).
-static void free_ums(struct ums *u) {
-    if (u->dma && !u->dma_pinned) pmm_free_contiguous(u->dma, DMA_PAGES);
-    kfree(u);
+// The DMA buffer goes once nothing can touch it: pulled, no LUN held, no
+// call inside. Any of the three may be the last to change, so each calls
+// this. A buffer the controller may still DMA into is leaked instead: a
+// late write into a frame that has become a page table is an unlogged
+// reset (xhci_cancel_endpoint()).
+static void maybe_free_dma(struct ums *u) {
+    if (!__atomic_load_n(&u->unplugged, __ATOMIC_SEQ_CST) ||
+        __atomic_load_n(&u->live, __ATOMIC_SEQ_CST) ||
+        __atomic_load_n(&u->busy, __ATOMIC_SEQ_CST))
+        return;
+    uint64_t dma = __atomic_exchange_n(&u->dma, 0, __ATOMIC_SEQ_CST);
+    if (dma && !u->dma_pinned) pmm_free_contiguous(dma, DMA_PAGES);
 }
 
-// The block layer is done with one LUN; the last one frees the device.
+// A call entering the driver: counted BEFORE the unplugged check, so
+// maybe_free_dma() -- which reads them the other way round -- can never
+// free a buffer a call has just decided to use.
+static int enter(struct ums *u) {
+    __atomic_add_fetch(&u->busy, 1, __ATOMIC_SEQ_CST);
+    if (!__atomic_load_n(&u->unplugged, __ATOMIC_SEQ_CST)) return 1;
+    __atomic_sub_fetch(&u->busy, 1, __ATOMIC_SEQ_CST);
+    return 0;
+}
+
+static void leave(struct ums *u) {
+    if (__atomic_sub_fetch(&u->busy, 1, __ATOMIC_SEQ_CST) == 0) maybe_free_dma(u);
+}
+
+// The block layer is done with one LUN.
 static void ums_release(const struct block_device *dev) {
     struct ums *u = lun_of(dev)->u;
-    if (--u->live == 0 && u->unplugged) free_ums(u);
+    __atomic_sub_fetch(&u->live, 1, __ATOMIC_SEQ_CST);
+    maybe_free_dma(u);
 }
 
 // ---- finding the disks ----------------------------------------------------
@@ -390,14 +422,15 @@ static int ums_bind(struct usb_device_info *d, int iface, const uint8_t *cfg, ui
         return 0;
     }
     u->dma = pmm_alloc_contiguous(DMA_PAGES, PMM_ZONE_DMA32);
-    if (!u->dma) { kfree(u); return 0; }
+    if (!u->dma) { kfree(u); return 0; }   // nothing has seen it yet: a plain free
     u->data = (uint8_t *)(uintptr_t)u->dma;
     u->cbw = u->data + DATA_BYTES;
     u->csw = u->cbw + 64;
     if (xhci_add_bulk(u->slot, u->ep_in, u->mps_in, xfer_done, u) < 0 ||
         xhci_add_bulk(u->slot, u->ep_out, u->mps_out, xfer_done, u) < 0) {
         klog_printf("usb-storage: slot %u: could not configure its endpoints\n", d->slot);
-        free_ums(u);
+        pmm_free_contiguous(u->dma, DMA_PAGES);
+        kfree(u);
         return 0;
     }
     xhci_bulk_own_recovery(u->slot, u->ep_in);
@@ -407,6 +440,14 @@ static int ums_bind(struct usb_device_info *d, int iface, const uint8_t *cfg, ui
     uint8_t max_lun = 0;
     if (control(u, 0xA1, 0xFE, 0, &max_lun, 1) < 0) max_lun = 0;
     if (max_lun >= MAX_LUNS) max_lun = MAX_LUNS - 1;
+    u->luns = kzalloc((size_t)(max_lun + 1) * sizeof *u->luns);
+    if (!u->luns) {
+        xhci_cancel_endpoint(u->slot, u->ep_in);
+        xhci_cancel_endpoint(u->slot, u->ep_out);
+        u->unplugged = 1;   // never registered anything: the buffer goes now
+        maybe_free_dma(u);
+        return 0;
+    }
     u->nluns = max_lun + 1;
 
     for (int i = 0; i < u->nluns; i++) {
@@ -427,8 +468,8 @@ static int ums_bind(struct usb_device_info *d, int iface, const uint8_t *cfg, ui
         l->blk.flush = ums_flush;
         l->blk.block_size = l->block;
         l->blk.release = ums_release;
-        u->live++;
-        if (!blk_add_disk(&l->blk)) { u->live--; continue; }
+        __atomic_add_fetch(&u->live, 1, __ATOMIC_SEQ_CST);
+        if (!blk_add_disk(&l->blk)) { __atomic_sub_fetch(&u->live, 1, __ATOMIC_SEQ_CST); continue; }
         l->registered = 1;
         klog_printf("usb-storage: %s, %llu MiB in %u-byte blocks, as %s\n", l->model,
                     (unsigned long long)(l->blocks * l->block >> 20), l->block,
@@ -450,18 +491,14 @@ static void ums_unbind(struct usb_device_info *d, int iface) {
         break;
     }
     if (!u) return;
-    u->unplugged = 1;
+    __atomic_store_n(&u->unplugged, 1, __ATOMIC_SEQ_CST);
     scheduler_wake(u, 0);   // a command waiting on a transfer sees it at once
     if (xhci_cancel_endpoint(u->slot, u->ep_in) < 0 ||
         xhci_cancel_endpoint(u->slot, u->ep_out) < 0)
         u->dma_pinned = 1;
-    int any = 0;
-    for (int i = 0; i < u->nluns; i++) {
-        if (!u->luns[i].registered) continue;
-        any = 1;
-        blk_device_gone(&u->luns[i].blk);   // may call ums_release() at once
-    }
-    if (!any) free_ums(u);
+    for (int i = 0; i < u->nluns; i++)
+        if (u->luns[i].registered) blk_device_gone(&u->luns[i].blk);   // may release at once
+    maybe_free_dma(u);   // `u` itself stays: see the top of this file
 }
 
 // SCSI transparent command set over bulk-only: every stick and card reader.

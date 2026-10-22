@@ -15,6 +15,7 @@
 #include "clocksource.h" // clocksource_now_ns() -- the stat timers
 #include "heap.h"        // the partial-block bounce buffer
 #include "devevent.h"
+#include "kmutex.h"
 
 // driver-none: the block class registry itself
 
@@ -25,10 +26,33 @@
 static const struct block_device *g_root;
 static const struct block_device *g_root_disk;
 
-// Entries are allocated one at a time and the TABLE OF POINTERS grows, so
-// an entry a caller holds stays put while another device registers.
-static struct blk_entry **g_table;
-static int g_count, g_cap;
+// THE TABLE IS READ WITHOUT A LOCK -- every I/O's cache_key(), every name
+// lookup -- while a hotplug thread adds and drops disks. So nothing a
+// reader can hold is ever freed: the pointer array is REPUBLISHED when it
+// grows (the old one kept), and an entry is RECYCLED through a free list
+// rather than kfree'd. A reader racing a change may get a stale answer,
+// as it could from the static array this was; never freed memory.
+// mount.c's table uses the same rule for the same reason.
+struct blk_tab {
+    int cap;
+    struct blk_entry *e[];
+};
+struct blk_ent {
+    struct blk_entry pub;      // first: a blk_entry * is a blk_ent *
+    struct blk_ent *next_free;
+};
+static struct blk_tab *g_tab;
+static int g_count;            // published AFTER the slot it newly counts
+static struct blk_ent *g_free_ents;
+// WRITERS take this (recursive: a reap releases windows through untrack);
+// readers never do. A hotplug, a boot driver and a mkpart rescan may add
+// or drop entries at the same time.
+static struct kmutex g_wlock;
+
+static inline int count(void) { return __atomic_load_n(&g_count, __ATOMIC_ACQUIRE); }
+static inline struct blk_entry *at(int i) {
+    return __atomic_load_n(&g_tab, __ATOMIC_ACQUIRE)->e[i];
+}
 static void (*g_added_hook)(const struct block_device *disk);
 static void (*g_gone_hook)(const struct block_device *dev);
 
@@ -66,7 +90,7 @@ static void make_name(char *out, const struct block_device *dev,
     for (int nth = 0;; nth++) {
         k_snprintf(out, BLK_NAME_MAX, "%s%d", stem, nth);
         int taken = 0;
-        for (int i = 0; i < g_count && !taken; i++) taken = k_strcmp(g_table[i]->name, out) == 0;
+        for (int i = 0; i < count() && !taken; i++) taken = k_strcmp(at(i)->name, out) == 0;
         if (!taken) return;
     }
 }
@@ -74,25 +98,47 @@ static void make_name(char *out, const struct block_device *dev,
 // Adds `dev`, or returns the entry it already has. Idempotent because
 // re-registering the same device is ordinary -- mount.c hands the root
 // back and forth, and a probe saves and restores it.
+static const struct blk_entry *table_add_locked(const struct block_device *dev,
+                                                 const struct block_device *parent,
+                                                 uint64_t base_lba);
+
 static const struct blk_entry *table_add(const struct block_device *dev,
                                           const struct block_device *parent,
                                           uint64_t base_lba) {
-    for (int i = 0; i < g_count; i++)
-        if (g_table[i]->dev == dev) return g_table[i];
-    if (g_count == g_cap) {
-        int cap = g_cap ? g_cap * 2 : 16;
-        struct blk_entry **t = krealloc(g_table, (size_t)cap * sizeof *t);
+    kmutex_lock(&g_wlock);
+    const struct blk_entry *e = table_add_locked(dev, parent, base_lba);
+    kmutex_unlock(&g_wlock);
+    return e;
+}
+
+static const struct blk_entry *table_add_locked(const struct block_device *dev,
+                                                 const struct block_device *parent,
+                                                 uint64_t base_lba) {
+    for (int i = 0; i < count(); i++)
+        if (at(i)->dev == dev) return at(i);
+    if (!g_tab || g_count == g_tab->cap) {
+        int cap = g_tab ? g_tab->cap * 2 : 16;
+        struct blk_tab *t = kzalloc(sizeof *t + (size_t)cap * sizeof t->e[0]);
         if (!t) return NULL;
-        g_table = t;
-        g_cap = cap;
+        t->cap = cap;
+        for (int i = 0; i < g_count; i++) t->e[i] = g_tab->e[i];
+        __atomic_store_n(&g_tab, t, __ATOMIC_RELEASE);   // the old array is kept: see above
     }
-    struct blk_entry *e = kzalloc(sizeof *e);
-    if (!e) return NULL;
+    struct blk_ent *x = g_free_ents;
+    if (x) {
+        g_free_ents = x->next_free;
+        k_memset(x, 0, sizeof *x);
+    } else {
+        x = kzalloc(sizeof *x);
+        if (!x) return NULL;
+    }
+    struct blk_entry *e = &x->pub;
     e->dev = dev;
     e->parent = parent;
     e->base_lba = base_lba;
     make_name(e->name, dev, parent, base_lba);
-    g_table[g_count++] = e;
+    g_tab->e[g_count] = e;
+    __atomic_store_n(&g_count, g_count + 1, __ATOMIC_RELEASE);
     // Here rather than in blk_register_over(), because this is the one
     // place every device reaches the table -- a partition arrives
     // through blk_track() and never registers. A partition leaves
@@ -107,25 +153,36 @@ int blk_track(const struct block_device *dev,
     return table_add(dev, parent ? parent : dev, base_lba) != NULL;
 }
 
+static int untrack_locked(const struct block_device *dev);
+
 int blk_untrack(const struct block_device *dev) {
+    kmutex_lock(&g_wlock);
+    int r = untrack_locked(dev);
+    kmutex_unlock(&g_wlock);
+    return r;
+}
+
+static int untrack_locked(const struct block_device *dev) {
     if (!dev || dev == g_root || dev == g_root_disk) return 0;
-    for (int i = 0; i < g_count; i++) {
-        if (g_table[i]->dev != dev) continue;
-        if (g_table[i]->users) return 0;   // a mount still holds it
+    for (int i = 0; i < count(); i++) {
+        if (at(i)->dev != dev) continue;
+        if (at(i)->users) return 0;   // a mount still holds it
         // Compacted rather than tombstoned, so blk_device_at() stays a
         // plain walk and a name is never answered from a dead row.
-        if (g_table[i]->parent == dev) bcache_forget(dev);   // a disk going away
-        kfree(g_table[i]);
-        for (int j = i; j < g_count - 1; j++) g_table[j] = g_table[j + 1];
-        g_count--;
+        struct blk_ent *x = (struct blk_ent *)at(i);
+        if (x->pub.parent == dev) bcache_forget(dev);   // a disk going away
+        for (int j = i; j < g_count - 1; j++) g_tab->e[j] = g_tab->e[j + 1];
+        __atomic_store_n(&g_count, g_count - 1, __ATOMIC_RELEASE);
+        x->next_free = g_free_ents;   // recycled, never freed: a reader may hold it
+        g_free_ents = x;
         return 1;
     }
     return 0;
 }
 
 static struct blk_entry *entry_of(const struct block_device *dev) {
-    for (int i = 0; i < g_count; i++)
-        if (g_table[i]->dev == dev) return g_table[i];
+    for (int i = 0; i < count(); i++)
+        if (at(i)->dev == dev) return at(i);
     return NULL;
 }
 
@@ -133,17 +190,17 @@ static struct blk_entry *entry_of(const struct block_device *dev) {
 // untracks it), then a disk once no window of it is left, handing the
 // disk back to its driver.
 static void reap(void) {
-    for (int i = g_count - 1; i >= 0; i--) {
-        struct blk_entry *e = g_table[i];
+    for (int i = count() - 1; i >= 0; i--) {
+        struct blk_entry *e = at(i);
         if (!e->gone || e->users || e->dev == e->parent) continue;
         blk_part_release(e->dev);
     }
-    for (int i = g_count - 1; i >= 0; i--) {
-        struct blk_entry *e = g_table[i];
+    for (int i = count() - 1; i >= 0; i--) {
+        struct blk_entry *e = at(i);
         if (!e->gone || e->users || e->dev != e->parent) continue;
         int windows = 0;
-        for (int j = 0; j < g_count; j++)
-            if (g_table[j]->parent == e->dev && g_table[j] != e) windows++;
+        for (int j = 0; j < count(); j++)
+            if (at(j)->parent == e->dev && at(j) != e) windows++;
         if (windows) continue;
         const struct block_device *dev = e->dev;
         char name[BLK_NAME_MAX];
@@ -161,11 +218,12 @@ void blk_set_hooks(void (*added)(const struct block_device *disk),
 }
 
 void blk_device_gone(const struct block_device *disk) {
+    kmutex_lock(&g_wlock);
     struct blk_entry *d = entry_of(disk);
-    if (!d || d->gone) return;
+    if (!d || d->gone) { kmutex_unlock(&g_wlock); return; }
     bcache_forget(disk);
-    for (int i = 0; i < g_count; i++) {
-        struct blk_entry *e = g_table[i];
+    for (int i = 0; i < count(); i++) {
+        struct blk_entry *e = at(i);
         if (e->parent != disk) continue;
         e->gone = 1;
         if (g_gone_hook) g_gone_hook(e->dev);
@@ -175,6 +233,7 @@ void blk_device_gone(const struct block_device *disk) {
     k_snprintf(id, sizeof id, "blk:%s", d->name);
     devevent_add(QUERY_DEVEV_REMOVED, id, disk->driver, "%s went away", d->name);
     reap();
+    kmutex_unlock(&g_wlock);
 }
 
 int blk_device_is_gone(const struct block_device *dev) {
@@ -183,35 +242,38 @@ int blk_device_is_gone(const struct block_device *dev) {
 }
 
 int blk_get(const struct block_device *dev) {
+    kmutex_lock(&g_wlock);
     struct blk_entry *e = entry_of(dev);
-    if (!e || e->gone) return 0;
-    e->users++;
-    return 1;
+    int ok = e && !e->gone;
+    if (ok) e->users++;
+    kmutex_unlock(&g_wlock);
+    return ok;
 }
 
 void blk_put(const struct block_device *dev) {
+    kmutex_lock(&g_wlock);
     struct blk_entry *e = entry_of(dev);
-    if (!e || e->users <= 0) return;
-    if (--e->users == 0 && e->gone) reap();
+    if (e && e->users > 0 && --e->users == 0 && e->gone) reap();
+    kmutex_unlock(&g_wlock);
 }
 
 int blk_device_count(void) { return g_count; }
 
 const struct blk_entry *blk_device_at(int i) {
     if (i < 0 || i >= g_count) return NULL;
-    return g_table[i];
+    return at(i);
 }
 
 const struct blk_entry *blk_device_by_name(const char *name) {
     if (!name) return NULL;
-    for (int i = 0; i < g_count; i++)
-        if (k_strcmp(g_table[i]->name, name) == 0) return g_table[i];
+    for (int i = 0; i < count(); i++)
+        if (k_strcmp(at(i)->name, name) == 0) return at(i);
     return NULL;
 }
 
 const char *blk_device_name(const struct block_device *dev) {
-    for (int i = 0; i < g_count; i++)
-        if (g_table[i]->dev == dev) return g_table[i]->name;
+    for (int i = 0; i < count(); i++)
+        if (at(i)->dev == dev) return at(i)->name;
     return "?";
 }
 
@@ -308,10 +370,10 @@ static int device_honest(const struct block_device *dev) {
 }
 
 int blk_set_root(const struct block_device *dev) {
-    for (int i = 0; i < g_count; i++) {
-        if (g_table[i]->dev != dev) continue;
-        g_root      = g_table[i]->dev;
-        g_root_disk = g_table[i]->parent;
+    for (int i = 0; i < count(); i++) {
+        if (at(i)->dev != dev) continue;
+        g_root      = at(i)->dev;
+        g_root_disk = at(i)->parent;
         return 1;
     }
     return 0; // not registered -- a `root=` naming something never found
@@ -372,11 +434,11 @@ static void account(const struct block_device *dev, uint64_t lba, uint32_t count
 // may be reused) or one whose I/O is already memory (a RAM image).
 static const struct block_device *cache_key(const struct block_device *dev, uint64_t lba,
                                             uint64_t *alba) {
-    for (int i = 0; i < g_count; i++) {
-        if (g_table[i]->dev != dev) continue;
-        const struct block_device *disk = g_table[i]->parent;
+    for (int i = 0; i < count(); i++) {
+        if (at(i)->dev != dev) continue;
+        const struct block_device *disk = at(i)->parent;
         if (!disk || !disk->persistent) return NULL;
-        *alba = g_table[i]->base_lba + lba;
+        *alba = at(i)->base_lba + lba;
         return disk;
     }
     return NULL;

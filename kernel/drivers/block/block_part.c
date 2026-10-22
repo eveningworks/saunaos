@@ -32,6 +32,7 @@
 #include "kfmt.h" // k_snprintf
 #include "klog.h"
 #include "heap.h"
+#include "kmutex.h"
 #include <stddef.h>
 
 // driver-none: partitions of a disk another driver drives
@@ -59,19 +60,30 @@ struct part_slot {
     struct block_device dev;
 };
 
+// READ WITHOUT A LOCK (blk_part_parent()), so the array of slot pointers
+// is republished when it grows and the old one kept -- block.c's rule.
 static struct part_slot **g_slots;
-static int g_nslots, g_slot_cap;
+static int g_nslots, g_slot_cap;   // g_nslots published after its slot
+static struct kmutex g_plock;      // writers: create and release (recursive)
+
+static inline int nslots(void) { return __atomic_load_n(&g_nslots, __ATOMIC_ACQUIRE); }
+static inline struct part_slot *slot_at(int i) {
+    return __atomic_load_n(&g_slots, __ATOMIC_ACQUIRE)[i];
+}
 
 static struct part_slot *new_slot(void) {
     if (g_nslots == g_slot_cap) {
         int cap = g_slot_cap ? g_slot_cap * 2 : 16;
-        struct part_slot **t = krealloc(g_slots, (size_t)cap * sizeof *t);
+        struct part_slot **t = kzalloc((size_t)cap * sizeof *t);
         if (!t) return NULL;
-        g_slots = t;
+        for (int i = 0; i < g_nslots; i++) t[i] = g_slots[i];
+        __atomic_store_n(&g_slots, t, __ATOMIC_RELEASE);   // the old array is kept
         g_slot_cap = cap;
     }
     struct part_slot *slot = kzalloc(sizeof *slot);
-    if (slot) g_slots[g_nslots++] = slot;
+    if (!slot) return NULL;
+    g_slots[g_nslots] = slot;
+    __atomic_store_n(&g_nslots, g_nslots + 1, __ATOMIC_RELEASE);
     return slot;
 }
 
@@ -166,7 +178,16 @@ static int part_trim_ranges(const struct block_device *self, const struct blk_ra
     return ok;
 }
 
+static int release_locked(const struct block_device *dev);
+
 int blk_part_release(const struct block_device *dev) {
+    kmutex_lock(&g_plock);
+    int r = release_locked(dev);
+    kmutex_unlock(&g_plock);
+    return r;
+}
+
+static int release_locked(const struct block_device *dev) {
     for (int i = 0; i < g_nslots; i++) {
         if (!g_slots[i]->used || &g_slots[i]->dev != dev) continue;
         if (!blk_untrack(dev)) return 0;   // in use, or not named
@@ -179,9 +200,20 @@ int blk_part_release(const struct block_device *dev) {
     return 0;
 }
 
+static const struct block_device *create_locked(const struct block_device *parent,
+                                                uint64_t base_lba, uint64_t sectors, int index);
+
 const struct block_device *blk_part_create(const struct block_device *parent,
                                            uint64_t base_lba, uint64_t sectors,
                                            int index) {
+    kmutex_lock(&g_plock);
+    const struct block_device *d = create_locked(parent, base_lba, sectors, index);
+    kmutex_unlock(&g_plock);
+    return d;
+}
+
+static const struct block_device *create_locked(const struct block_device *parent,
+                                                uint64_t base_lba, uint64_t sectors, int index) {
     if (!parent) return NULL;
 
     // Re-pointing rather than nesting: the boot scan walks the entries
@@ -283,10 +315,11 @@ const struct block_device *blk_part_create(const struct block_device *parent,
 
 const struct block_device *blk_part_parent(const struct block_device *dev,
                                            uint64_t *out_base) {
-    for (int i = 0; i < g_nslots; i++) {
-        if (g_slots[i]->used && dev == &g_slots[i]->dev) {
-            if (out_base) *out_base = g_slots[i]->base;
-            return g_slots[i]->parent;
+    for (int i = 0; i < nslots(); i++) {
+        struct part_slot *s = slot_at(i);
+        if (s->used && dev == &s->dev) {
+            if (out_base) *out_base = s->base;
+            return s->parent;
         }
     }
     return NULL;

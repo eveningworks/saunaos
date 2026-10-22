@@ -90,9 +90,12 @@ before any of their code.
    offline SCSI device, one layer up), so nothing waits on a dead
    device -- but `umount` still works and is what releases it.
 4. When nothing is mounted from a gone device any more, the block layer
-   drops its entries and calls the driver's `release()`; only then is
-   the driver's per-disk memory freed. Before that its name is kept and
-   shown as removed, so it cannot be reused under a mount still holding it.
+   drops its entries and calls the driver's `release()`. Before that its
+   name is kept and shown as removed, so it cannot be reused under a mount
+   still holding it. Even after it, the driver keeps the struct the block
+   layer knew -- a raw caller between looking it up and calling into it
+   holds nothing anyone can count -- and frees only its DMA buffer, once no
+   call is inside.
 
 The device table and the mount table become allocated and growing
 (`docs/conventions/kernel.md`, "Size it to the data").

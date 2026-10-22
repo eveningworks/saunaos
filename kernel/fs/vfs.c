@@ -532,6 +532,7 @@ static int fs_sync_locked(uint32_t *wrote_out) {
     for (int i = 0; i < mount_count(); i++) {
         const struct mount *m = mount_at(i);
         if (!m || !m->fs || !m->fs->sync) continue;
+        if (m->flags & MNT_GONE) continue;   // its disk was pulled: nothing to commit to
         if (!FS_OP(m, m->gen, sync)) {
             klog_printf(KLOG_ERR "fs: sync FAILED -- %s could not commit\n", m->point);
             ok = 0;
@@ -552,6 +553,7 @@ static int fs_sync_locked(uint32_t *wrote_out) {
     for (int i = 0; i < mount_count(); i++) {
         const struct mount *m = mount_at(i);
         if (!m || !m->dev) continue;    // ramfs has no volume to flush
+        if (m->flags & MNT_GONE) continue;
         int seen = 0;   // an earlier mount on the same device already flushed it
         for (int j = 0; j < i && !seen; j++) {
             const struct mount *e = mount_at(j);
@@ -572,12 +574,17 @@ static int fs_sync_locked(uint32_t *wrote_out) {
 // pull, a call that changed anything is on the device before it returns
 // -- the backend's own sync (a batched TFS3 commit, FAT32's caches), then
 // a device flush. Windows' default for a USB stick. Passes `result`
-// through, so a wrapper stays one expression.
+// through, so a wrapper stays one expression; a call that failed
+// (result <= 0) changed nothing to keep. The flush is under the mount's
+// lock, as every device access for a mount is (kernel/fs/CLAUDE.md), so
+// fs_exclusive_begin() still promises a quiet disk.
 static int settle(const struct resolved *r, int result) {
     const struct mount *m = r->m;
-    if (!m->dev || !m->dev->removable) return result;
+    if (result <= 0 || !m->dev || !m->dev->removable) return result;
     if (m->fs->sync) (void)FS_OP(m, r->gen, sync);
-    blkdev_flush(m->dev);
+    mount_lock(m);
+    if (m->used && m->gen == r->gen && !(m->flags & MNT_GONE)) blkdev_flush(m->dev);
+    mount_unlock(m);
     return result;
 }
 
@@ -889,7 +896,9 @@ int fs_chmod(const char *path, uint16_t mode) {
     if (!r.m->fs->chmod) return -ENOTSUP;
     // PERMISSIONS ONLY. The type bits are the filesystem's, and a chmod
     // that could rewrite them would be a corruption primitive.
-    return settle(&r, FS_OP(r.m, r.gen, chmod, r.sub, (uint16_t)(mode & 07777)));
+    int rc = FS_OP(r.m, r.gen, chmod, r.sub, (uint16_t)(mode & 07777));
+    if (rc == 0) settle(&r, 1);   // chmod's success is 0, not a count
+    return rc;
 }
 
 // THE ROOT's usage. `df` reports every mount by walking the mount table

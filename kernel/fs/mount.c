@@ -77,12 +77,15 @@ static struct mount_table *g_tab = &g_tab0;
 static inline int mt_cap(void) { return __atomic_load_n(&g_tab, __ATOMIC_ACQUIRE)->cap; }
 static inline struct mount *mt(int i) { return __atomic_load_n(&g_tab, __ATOMIC_ACQUIRE)->slot[i]; }
 
+static int *g_order;   // exclusive_take()'s lock order; defined with it below
+
 // Doubles the table, under g_grow_lock (free_slot()).
 static int mt_grow(void) {
     int cap = g_tab->cap * 2;
     struct mount_table *t = kzalloc(sizeof *t);
     struct mount **slots = kzalloc((size_t)cap * sizeof *slots);
-    if (!t || !slots) { kfree(t); kfree(slots); return 0; }
+    int *order = kzalloc((size_t)cap * sizeof *order);
+    if (!t || !slots || !order) { kfree(t); kfree(slots); kfree(order); return 0; }
     for (int i = 0; i < g_tab->cap; i++) slots[i] = g_tab->slot[i];
     for (int i = g_tab->cap; i < cap; i++) {
         slots[i] = kzalloc(sizeof **slots);
@@ -94,6 +97,7 @@ static int mt_grow(void) {
     }
     t->cap = cap;
     t->slot = slots;
+    __atomic_store_n(&g_order, order, __ATOMIC_RELEASE);   // first: see exclusive_take()
     __atomic_store_n(&g_tab, t, __ATOMIC_RELEASE);   // the old table is kept: see above
     return 1;
 }
@@ -232,19 +236,19 @@ void fs_exclusive_begin(void) {
     }
 }
 
-// The lock order, parent before child. Grown under g_excl, which every
-// caller holds, so one buffer serves.
-static int *g_order;
-static int g_order_cap;
+// Parent before child, by DEPTH: every slot at depth 0, then 1, ... An
+// unused slot counts as depth 0. A pass per level rather than a sorted
+// copy, so taking every lock allocates nothing and cannot fail.
+// The lock order, parent before child, sorted into a buffer at least as
+// long as the table. mt_grow() publishes a longer one BEFORE the longer
+// table and keeps the old, so a take that sees a capacity always has room
+// -- and taking every lock never allocates, so it cannot half-fail.
+static int g_order0[16];
+static int *g_order = g_order0;
 
 static void exclusive_take(void) {
     int cap = mt_cap();
-    if (cap > g_order_cap) {
-        int *o = krealloc(g_order, (size_t)cap * sizeof *o);
-        if (o) { g_order = o; g_order_cap = cap; }
-        else cap = g_order_cap;   // out of memory: the slots it can order (the first 16 at least)
-    }
-    int *order = g_order;
+    int *order = __atomic_load_n(&g_order, __ATOMIC_ACQUIRE);
     for (int i = 0; i < cap; i++) order[i] = i;
     for (int i = 1; i < cap; i++) {
         int v = order[i], j = i;
@@ -917,7 +921,20 @@ void mount_force_readonly(const struct block_device *dev, const char *why) {
     }
 }
 
+static int rescan_locked(const struct block_device *disk);
+
+// ONE RESCAN AT A TIME: a stick's hotplug (device_added()) and a mkpart's
+// rescan of another disk would otherwise share `tbl` below, and windows
+// would be cut at one disk's offsets on the other.
 int mount_rescan_disk(const struct block_device *disk) {
+    static struct kmutex lock;
+    kmutex_lock(&lock);
+    int n = rescan_locked(disk);
+    kmutex_unlock(&lock);
+    return n;
+}
+
+static int rescan_locked(const struct block_device *disk) {
     if (!disk) return 0;
     // STATIC, not a stack local: struct partition_table is ~1.5 KB
     // against a 1 KB kernel frame budget, the same call g_tbl and
@@ -1447,7 +1464,11 @@ int mount_reprobe_root(const struct fs_ops *expect) {
     // Drop everything: a reformat invalidates the root, and anything
     // mounted under it was reached through a path the root owns.
     fs_exclusive_begin();
-    for (int i = 0; i < mt_cap(); i++) slot_clear(mt(i));
+    for (int i = 0; i < mt_cap(); i++) {
+        const struct block_device *dev = mt(i)->used ? mt(i)->dev : 0;
+        slot_clear(mt(i));
+        if (dev) blk_put(dev);   // mount_add()'s hold, or the device is never released
+    }
     fs_exclusive_end();
     g_tbl_valid = 0;
     probe_and_mount_root();

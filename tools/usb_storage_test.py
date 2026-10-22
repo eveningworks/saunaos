@@ -22,7 +22,9 @@ THE CHECKS, and what a broken version would still pass
   4. The pulled mount is `removed` and refuses writes; unmounting it
      releases usb0 -- gone from lsblk, released in the log.
   5. A stick plugged in while running (device_add) is named, its
-     partition found, mounted and read.
+     partition found, mounted and read; `sync` is not failed by a pulled
+     stick's mount; a stick pulled with NOTHING mounted is released in the
+     unbind itself and the guest carries on.
   6. The 4 KiB stick is formatted, mounted, written and read back.
   7. Nothing logged a reset recovery, a timeout or a refused transfer.
 
@@ -151,6 +153,12 @@ def main():
         mounts = g.run("mount", "write /mnt/stick/X.TXT no")
         res.check("the pulled mount says removed and refuses a write",
                   gone and "read-only" in mounts, mounts.strip()[-300:])
+        # A pulled stick's mount must not make a sync of everything else
+        # fail: the mount is skipped, not flushed into a dead device.
+        out = g.run("sync", "dmesg")
+        res.check("sync succeeds while a pulled stick is still mounted",
+                  "sync FAILED" not in out and "could not commit" not in out,
+                  " | ".join(l for l in out.splitlines() if "sync" in l)[-300:])
         out = g.run("umount /mnt/stick", "lsblk", "dmesg")
         res.check("unmounting the pulled stick releases its disk",
                   "usb0p1" not in out.split("--- dmesg ---")[0] and "block: usb0 released" in out,
@@ -168,6 +176,16 @@ def main():
                     f"cp {GUEST_BIG} /mnt/k4/BIG", "sum /mnt/k4/BIG", timeout=180)
         res.check("the 4 KiB-block stick formats, mounts, writes and reads back",
                   want in out, out.strip()[-400:])
+
+        # A pull with NOTHING mounted: the block layer releases the disk
+        # inside the unbind itself -- the path that once read the device
+        # after freeing it. The guest must still answer afterwards.
+        g.run("umount /mnt/k4")
+        q.hmp("device_del ustick1")
+        released = poll(lambda: "block: usb1 released" in g.run("dmesg"), 10)
+        alive = "usb1" not in g.run("lsblk") and "hello" in g.run("echo hello")
+        res.check("a stick pulled with nothing mounted is released, and the guest carries on",
+                  released and alive, f"released={released} alive={alive}")
 
         log = g.run("dmesg")
         bad = [ln for ln in log.splitlines()

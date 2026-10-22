@@ -1761,11 +1761,20 @@ A disk that goes away (a USB stick pulled, `kernel/include/kernel/block.h`):
 3. the entry stays -- NAMED -- while a mount holds it (`blk_get()` /
    `blk_put()`), so a name a mount still means cannot be handed out
    again; unmounting the last one drops it and calls the driver's
-   `release()`. **Free the driver's per-disk memory THERE and nowhere
-   else** -- a mount holds a pointer into it until then.
+   `release()`. **`release()` is the EARLIEST the driver may free, and
+   not for everything:** a raw caller (Disks, a partition-table read)
+   looks a device up and calls into it with nothing held, so a struct the
+   block layer passes as `self` must stay valid memory whose transfers
+   fail at once. `usb_storage.c` keeps its device struct for good and
+   frees only the DMA buffer, once no LUN is held and no call is inside
+   (a `busy` count taken BEFORE the unplugged check).
 
-Partition windows are allocated and recycled, never freed, so a stale
-window pointer is never a use-after-free. Docs: `docs/usb-storage-design.md`,
+**Nothing a lock-free reader can hold is freed.** The device table, the
+partition windows and the mount table are read without a lock, so each
+grows by publishing a new pointer array and KEEPING the old one, and an
+entry or slot is recycled rather than freed: a reader racing a change
+gets a stale answer, never freed memory. Their WRITERS serialize (a
+recursive kmutex each; `mount_rescan_disk()` one rescan at a time). Docs: `docs/usb-storage-design.md`,
 "The removal model".
 
 ## A REMOVABLE DISK GETS QUICK REMOVAL: EVERY CALL THAT CHANGED ANYTHING IS SYNCED AND FLUSHED BEFORE IT RETURNS
