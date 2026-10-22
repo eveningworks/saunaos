@@ -12175,3 +12175,28 @@ compositor's own report.
 This is the cross-window case. A modal overlay INSIDE one app's window is
 the toolkit's job ("A modal owns the pointer's SHAPE too", above, which is
 withdrawn).
+
+## A Win16 popup the size of the screen goes fullscreen, centred on black at the program's scale
+
+A Windows 3.x program sees a 640 x 480 screen (GetSystemMetrics), and a
+top-level `WS_POPUP` that size at 0, 0 is how it says "cover the
+screen": Paintbrush's View Picture is one. toy-os's screen is bigger, so
+there was a choice (the "w16 Paintbrush View Picture" canvas, 2026-10-22,
+picked by the maintainer): the 640 x 480 at the program's scale, centred,
+black round it (V1); scaled up to fill the screen's height (V2); or a
+borderless window over the desktop at the program's place (V3).
+
+**What others do.** DOSBox in fullscreen keeps the guest's 4:3 screen
+whole with black bars round it, as a game's 4:3 mode shows on a 16:9
+panel; Wine reports the host's own screen size to GetSystemMetrics, so a
+program's screen-sized popup there is the host's size, which a Win16
+program never planned for.
+
+**toy-os takes V1.** Every other w16 window is drawn at the program's
+scale, so the picture is the size it was in Paintbrush's own window and
+pixel-exact; V2's fractional step blurs a pixel-art picture through the
+smoothing; V3 is not what 3.1 showed. The popup is a toywm window of its
+own on the dialogs' machinery (`w16_popup_new`), asked for fullscreen
+with `uapp_window_set_fullscreen()`; toywm makes only a resizable window
+fullscreen, so it opens resizable. Any other second top-level window is
+an ordinary toywm window, framed as its style says.

@@ -470,6 +470,11 @@ int uapp_window_width(const struct uapp_window *w);
 int uapp_window_height(const struct uapp_window *w);
 // Its title, re-sent to the compositor. The string is copied.
 void uapp_window_set_title(struct uapp_window *w, const char *title);
+// FULLSCREEN, as uapp_set_fullscreen() for the main window: the whole
+// screen, no frame, no taskbar, until asked again with `on` = 0 or it
+// closes. Its size follows the compositor's proposal (on_draw sees it in
+// uapp_window_width/height); a window that is not RESIZABLE takes it too.
+void uapp_window_set_fullscreen(struct uapp_window *w, int on);
 // UAPP_WIN_NO_DECOR only: hand the drag of the press in progress to the
 // compositor, as uapp_move_start() does for the main window -- a dialog
 // whose caption the program draws.

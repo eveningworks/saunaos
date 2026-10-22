@@ -7566,7 +7566,9 @@ runs first**: a `doom1.wad` with one
   GetDIBits, bitmap bits, INT 2Fh, a flood fill on a 1-bit bitmap, an OLE
   server's Release on revoke among them); `opendlg.exe` runs the Open dialog on its own template, its hook
   recording which of Read Only and Help show and ticking Read Only before
-  OK. Taking out the flood fill's 1-bit border turns exactly its check red.
+  OK; `popup.exe`'s screen-sized popup covers toy-os's whole screen, its
+  640 x 480 centred on black (its green corner at the centred origin),
+  and a click destroys it and leaves the main window. Taking out the flood fill's 1-bit border turns exactly its check red.
   Flipping the DIB's rows or swapping P and S in the ROP3 rule turns
   exactly the matching check red, as do ignoring the INI value, a
   launcher that never spawns and a calls list that ignores "missing"

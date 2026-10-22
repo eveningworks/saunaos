@@ -155,6 +155,14 @@ void uapp_window_set_title(struct uapp_window *w, const char *title) {
     wmchan_send(WIN_REQ_TITLE, (uint32_t)w->top.slot, 0, 0, 0, w->title);
 }
 
+void uapp_window_set_fullscreen(struct uapp_window *w, int on) {
+    if (!w || !w->top.slot) return;
+    on = on ? 1 : 0;
+    if (w->fullscreen == on) return;
+    w->fullscreen = on;
+    wmchan_send(WIN_REQ_FULLSCREEN, (uint32_t)w->top.slot, on, 0, 0, 0);
+}
+
 // One event, in the dialog's OWN coordinate space -- it is a toplevel,
 // so nothing is translated. Its widgets are routed exactly as the
 // toplevel's are; what a dialog has no equivalent of (scanout, resize,
@@ -575,9 +583,10 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         // uapp_resize()'s answer for a dialog. A fixed one declines by
         // presenting at its own size, which the compositor adopts.
         w->top.dirty = 1;
-        if (!(d->flags & UAPP_WIN_RESIZABLE)) return;
+        if (!(d->flags & UAPP_WIN_RESIZABLE) && !w->fullscreen) return;
         struct uapp_surf *s = &g_surf[w->top.slot];
         int mw = d->min_w > 0 ? d->min_w : d->w, mh = d->min_h > 0 ? d->min_h : d->h;
+        if (w->fullscreen) mw = mh = 1;          // the screen's size, whatever it opened at
         int rw = ev->a < mw ? mw : ev->a, rh = ev->b < mh ? mh : ev->b;
         clamp_to_screen(&rw, &rh);
         if (s->back >= 0 && !buf_make(s, s->back, rw, rh)) return;

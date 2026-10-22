@@ -67,6 +67,16 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
 
 static uint16_t hwnd_of(struct uapp_window *u) { return (uint16_t)(uintptr_t)uapp_window_state(u); }
 
+// Where a fullscreen popup's 640 x 480 sits on the screen: centred, at the program's scale; 0, 0 for
+// any other window (under the w16 lock).
+static void fullscreen_origin(struct uapp_window *u, const struct w16_wnd *d, int *ox, int *oy) {
+    *ox = *oy = 0;
+    if (!d->fullscreen) return;
+    int sw = uapp_window_width(u), sh = uapp_window_height(u), pw = w16_up(d->w), ph = w16_up(d->h);
+    *ox = sw > pw ? (sw - pw) / 2 : 0;
+    *oy = sh > ph ? (sh - ph) / 2 : 0;
+}
+
 static void on_draw(struct uapp_window *u, struct uapp_draw *dr) {
     static uint32_t *buf;
     static size_t cap;
@@ -85,7 +95,10 @@ static void on_draw(struct uapp_window *u, struct uapp_draw *dr) {
             paint_frame(d, buf);
             ugfx_set_font(was);
             pthread_mutex_unlock(&g_w16_text_lock);
-            w16_scale_blit(s, 0, 0, buf, d->w, d->h, d->w);
+            int ox, oy;
+            fullscreen_origin(u, d, &ox, &oy);
+            if (ox || oy) ugfx_fill_rect(s, 0, 0, s->w, s->h, 0x000000);
+            w16_scale_blit(s, ox, oy, buf, d->w, d->h, d->w);
         }
     }
     pthread_mutex_unlock(&g_w16.lock);
@@ -96,8 +109,12 @@ static void post_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsign
     pthread_mutex_lock(&g_w16.lock);
     struct w16_wnd *d = w16_wnd_get(&g_w16, hwnd_of(u));
     int f = d ? w16_dlg_frame(d) : 0, top = d ? w16_dlg_frame_top(d) : 0, cap = d ? w16_dlg_caption(d) : 0;
+    int ox = 0, oy = 0;
+    if (d) fullscreen_origin(u, d, &ox, &oy);
     pthread_mutex_unlock(&g_w16.lock);
     if (!d) return;
+    x -= ox;
+    y -= oy;
     x = w16_down(x) - f;
     y = w16_down(y) - top - cap;
     if (msg == WM_LBUTTONDOWN && y < 0 && y >= -cap && !g_w16.capture) { uapp_window_move_start(u, 0); return; }
@@ -129,13 +146,16 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *d = w16_wnd_get(w, hwnd);
     int dw = d ? d->w : 0, dh = d ? d->h : 0, modal = d ? d->modal : 0;
+    // A popup covering the screen the program was told of covers toy-os's: View Picture.
+    int full = d && d->popup && d->x <= 0 && d->y <= 0 && d->x + dw >= W16_SCREEN_W && d->y + dh >= W16_SCREEN_H;
+    int already = d && d->uwin;
     pthread_mutex_unlock(&w->lock);
-    if (!d) return;
+    if (!d || already) return;
     struct uapp_window_desc desc = {
         .title = d->text && d->text[0] ? d->text : "Dialog",
         .w = w16_up(dw),
         .h = w16_up(dh),
-        .flags = (modal ? UAPP_WIN_MODAL : 0) | UAPP_WIN_NO_DECOR,
+        .flags = (modal ? UAPP_WIN_MODAL : 0) | UAPP_WIN_NO_DECOR | (full ? UAPP_WIN_RESIZABLE : 0),   // toywm makes only a resizable window fullscreen
         .state = (void *)(uintptr_t)hwnd,
         .on_key = on_key,
         .on_close = on_close,
@@ -145,9 +165,12 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
         .on_release = on_release,
         .log_prefix = "w16-dialog",
     };
+    if (d->popup && !(d->text && d->text[0])) desc.title = w->win.text && w->win.text[0] ? w->win.text : "Window";
     struct uapp_window *u = uapp_window_open(a, &desc);
+    if (u && full) uapp_window_set_fullscreen(u, 1);
     pthread_mutex_lock(&w->lock);
     d->uwin = u;
+    d->fullscreen = u && full;
     d->active = u != 0;
     if (!u) {                                    // no window to show it in: the dialog is cancelled
         d->result = -1;

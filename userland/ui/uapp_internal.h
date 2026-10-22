@@ -193,6 +193,7 @@ struct uapp_window {
     struct uapp *app;
     struct uapp_window_desc desc;
     char title[WIN_TITLE_LEN];
+    int fullscreen;         // uapp_window_set_fullscreen(): its resize proposals adopted whatever the flags
 };
 
 // --- uapp.c ----------------------------------------------------------------

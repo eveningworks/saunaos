@@ -100,8 +100,13 @@ static int dlgframe(uint32_t style) {
 }
 static int frame_of(uint32_t style) { return dlgframe(style) ? 5 : 1; }
 
-int w16_dlg_frame(const struct w16_wnd *d) { return frame_of(d->style); }
-int w16_dlg_frame_top(const struct w16_wnd *d) { return frame_of(d->style); }
+// A popup has a frame only when its style asks for one; a dialog always has the black line.
+static int frame_of_wnd(const struct w16_wnd *d) {
+    return d->popup && !(d->style & (WS_BORDER | WS_DLGFRAME)) ? 0 : frame_of(d->style);
+}
+
+int w16_dlg_frame(const struct w16_wnd *d) { return frame_of_wnd(d); }
+int w16_dlg_frame_top(const struct w16_wnd *d) { return frame_of_wnd(d); }
 int w16_dlg_caption(const struct w16_wnd *d) {
     return (d->style & WS_CAPTION) == WS_CAPTION ? W16_CAPTION : 0;   // 18 rows and the line under them
 }
@@ -160,6 +165,57 @@ struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32
         if ((d = w16_wnd_get(w, h))) w16_wnd_free(w, d);
         return 0;
     }
+    return w16_wnd_get(w, h);
+}
+
+struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y, int cx,
+                              int cy, uint16_t owner, uint16_t inst, uint32_t param) {
+    if (cls < 0 || cls >= w->ncls) return 0;
+    const struct w16_class *k = &w->cls[cls];
+    struct w16_wnd *d = w16_wnd_new(w, W16_K_DIALOG);
+    if (!d) return 0;
+    d->popup = 1;
+    d->cls = cls;
+    d->proc_sel = k->proc_sel;
+    d->proc_off = k->proc_off;
+    d->host = k->host;
+    d->parent = owner;
+    d->inst = inst;
+    d->style = style & ~WS_VISIBLE;
+    if (cx == W16_CW_USEDEFAULT || cx <= 0) cx = 320;
+    if (cy == W16_CW_USEDEFAULT || cy <= 0) cy = 200;
+    d->x = x == W16_CW_USEDEFAULT ? 0 : x;
+    d->y = x == W16_CW_USEDEFAULT ? 0 : y;
+    d->w = cx;
+    d->h = cy;
+    int f = frame_of_wnd(d), cap = w16_dlg_caption(d);
+    d->cw = d->fbw = cx - 2 * f > 1 ? cx - 2 * f : 1;
+    d->ch = d->fbh = cy - 2 * f - cap > 1 ? cy - 2 * f - cap : 1;
+    d->text = strdup(title ? title : "");
+    d->extra = k->wnd_extra ? calloc(1, k->wnd_extra) : 0;
+    d->fb = calloc((size_t)d->fbw * d->fbh + 1, 4);
+    d->sb[SB_HORZ] = d->sb[SB_VERT] = (struct w16_sbar){ 0, 100, 0 };
+    if (!d->text || !d->fb || (k->wnd_extra && !d->extra)) { w16_wnd_free(w, d); return 0; }
+    // WM_CREATE with its CREATESTRUCT: lpCreateParams, hInstance, hMenu, hwndParent, cy, cx, y, x, style.
+    uint16_t at = w16_sys_push(w, 34), h = d->hwnd;
+    if (w->cpu.fault) return 0;
+    uint16_t cs[17] = { 0 };
+    memcpy(cs, &param, 4);
+    cs[2] = inst;
+    cs[4] = owner;
+    cs[5] = (uint16_t)cy; cs[6] = (uint16_t)cx; cs[7] = (uint16_t)d->y; cs[8] = (uint16_t)d->x;
+    cs[9] = (uint16_t)style; cs[10] = (uint16_t)(style >> 16);
+    memcpy(w->sysmem + at, cs, sizeof cs);
+    uint32_t lp = (uint32_t)w->sysdata << 16 | at;
+    int ok = w16_send(w, h, WM_NCCREATE, 0, lp) != 0 && !w->cpu.fault &&
+             w16_send(w, h, WM_CREATE, 0, lp) != 0xFFFFFFFFu && !w->cpu.fault;
+    w16_sys_pop(w, at);
+    if (!ok) {
+        if ((d = w16_wnd_get(w, h))) w16_wnd_free(w, d);
+        return 0;
+    }
+    if ((d = w16_wnd_get(w, h)))
+        w16_send(w, h, WM_SIZE, SIZE_RESTORED, (uint32_t)(uint16_t)d->ch << 16 | (uint16_t)d->cw);
     return w16_wnd_get(w, h);
 }
 

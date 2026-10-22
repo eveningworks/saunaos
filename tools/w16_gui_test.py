@@ -116,6 +116,7 @@ GDI_TITLE = "GDI test (Win16)"
 HELLO_TITLE = "Hello (Win16)"
 INI = "/home/Win16/WINDOWS/GDITEST.INI"
 GDI_CONF = "/etc/win16/usr_share_w16_gdi.exe.conf"
+POPUP_TITLE = "Popup test"
 HELLO_CONF = "/etc/win16/usr_share_w16_hello.exe.conf"
 LAST = "/var/lib/win16/usr_share_w16_{}.exe.last"   # what the launcher's "Last run" reads
 FAULT_TITLE = "Fault (Win16)"
@@ -909,6 +910,51 @@ def always_on_top(dbg, res):
                   f"{'pins' if want else 'unpins'} the window in toywm", above is bool(want), f"above {above!r}")
 
 
+def popup_window(dbg, qmp, res, tmp):
+    """A second top-level window: popup.exe's WS_POPUP the size of the screen it is told of (640 x 480)
+    covers toy-os's whole screen, the 640 x 480 centred on black, its origin where its green corner says;
+    a click in it is the program's, which destroys it, and the main window stays -- View Picture's shape."""
+    win = dbg.spawn("/bin/w16 /usr/share/w16/popup.exe", POPUP_TITLE)
+    res.check("popup.exe opens its main window", win is not None, "no window")
+    if not win:
+        return
+    im = shot(qmp, f"{tmp}/w16_popup.png")
+    sw, sh = im.size
+    full = None
+    end = time.time() + 6
+    while time.time() < end and not full:
+        full = next((w for w in dbg.windows() if w["w"] == sw and w["h"] == sh and w.get("client_pid")), None)
+        if not full:
+            time.sleep(0.3)
+    res.check("a popup the size of the reported screen covers toy-os's whole screen", full is not None,
+              f"{[(w['title'], w['w'], w['h']) for w in dbg.windows()]}")
+    if not full:
+        return
+    dbg.settle(0.5)
+    im = shot(qmp, f"{tmp}/w16_popup.png")
+    ox, oy = (sw - 640) // 2, (sh - 480) // 2
+    px = im.getpixel
+    res.check("...its 640 x 480 centred on black: the green corner at the centred origin, red beyond it",
+              px((ox + 5, oy + 5)) == GREEN and px((ox + 30, oy + 5)) == RED and px((sw // 2, sh // 2)) == RED
+              and px((ox + 639, oy + 479)) == RED,
+              f"origin {px((ox + 5, oy + 5))} beside {px((ox + 30, oy + 5))} middle {px((sw // 2, sh // 2))} "
+              f"far corner {px((ox + 639, oy + 479))}")
+    res.check("...and black round it, nothing of the desktop showing",
+              px((ox - 3, oy + 5)) == BLACK and px((ox + 5, oy - 3)) == BLACK and px((3, 3)) == BLACK
+              and px((sw - 3, sh - 3)) == BLACK,
+              f"left {px((ox - 3, oy + 5))} above {px((ox + 5, oy - 3))} corners {px((3, 3))}/{px((sw - 3, sh - 3))}")
+    dbg.click(sw // 2, sh // 2)
+    gone = False
+    end = time.time() + 6
+    while time.time() < end and not gone:
+        gone = not any(w["w"] == sw and w["h"] == sh and w.get("client_pid") for w in dbg.windows())
+        if not gone:
+            time.sleep(0.3)
+    res.check("a click is the program's: it destroys the popup, and the main window stays",
+              gone and dbg.window(POPUP_TITLE) is not None, f"{[(w['title'], w['w'], w['h']) for w in dbg.windows()]}")
+    dbg.close_window(POPUP_TITLE)
+
+
 def drift_check(dbg, res):
     win = dbg.spawn("/bin/w16 /usr/share/w16/dialog.exe", DLG_TITLE)
     if not win:
@@ -1281,6 +1327,7 @@ def main():
         open_dialog(dbg, res)
         probe(dbg, res)
         shapes(dbg, qmp, res, TMP)
+        popup_window(dbg, qmp, res, TMP)
     finally:
         dbg.close()
     print(f"\nw16_gui_test: {len(res.passes)} passed, {len(res.fails)} failed")

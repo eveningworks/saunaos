@@ -16,8 +16,10 @@
 // exactly as on Windows, and BeginPaint/EndPaint (or DefWindowProc) is
 // what stops it.
 //
-// ONE TOP-LEVEL WINDOW PER PROGRAM, beside its dialogs: CreateWindow of a
-// second ends the program with a fault that says so.
+// ONE MAIN WINDOW PER PROGRAM, `w->win`. A second top-level window is a
+// POPUP, made on the dialogs' machinery (its own buffer and toywm window,
+// dialog16.c's w16_popup_new) with its class's procedure; one covering
+// the whole screen shows fullscreen (Paintbrush's View Picture).
 #include "w16_internal.h"
 
 #include <stdio.h>
@@ -334,6 +336,18 @@ static void sized_on_show(struct w16 *w, struct w16_wnd *x) {
     w16_send(w, x->hwnd, WM_MOVE, 0, 0);
 }
 
+// A popup shown: visible, painted, and its toywm window asked for the first time.
+static void popup_show(struct w16 *w, struct w16_wnd *x) {
+    pthread_mutex_lock(&w->lock);
+    x->visible = 1;
+    x->style |= WS_VISIBLE;
+    int first = !x->opened;
+    x->opened = 1;
+    pthread_mutex_unlock(&w->lock);
+    if (first) w16_task_post_arg(w, W16_POST_DLG_OPEN, x->hwnd);
+    w16_invalidate(w, x, 1);
+}
+
 static int create_window(struct w16 *w, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint32_t cname = w16_arg32(a), title = w16_arg32(a), style = w16_arg32(a);
@@ -358,10 +372,16 @@ static int create_window(struct w16 *w, struct w16_args *a) {
         c->r[R_AX] = ch ? ch->hwnd : 0;
         return c->fault ? -1 : 30;
     }
+    if (w->win.used && !(style & WS_CHILD)) {    // a second top-level window: a popup of its own
+        struct w16_wnd *p = w16_popup_new(w, k, text, style, x, y, cx, cy, parent, inst, param);
+        free(text);
+        if (p && (style & WS_VISIBLE)) popup_show(w, p);
+        c->r[R_AX] = p ? p->hwnd : 0;
+        return c->fault ? -1 : 30;
+    }
     if (w->win.used) {
         free(text);
-        cpu16_set_fault(c, FAULT_API, (style & WS_CHILD) ? "a child window with no parent is not supported"
-                                                         : "a second top-level window is not supported yet");
+        cpu16_set_fault(c, FAULT_API, "a child window with no parent is not supported");
         return -1;
     }
     int h = w16_create_main(w, k, text, style, cx, cy, menu, inst, param, title, cname);
@@ -1113,7 +1133,9 @@ static int api_GetClassInfo(struct w16 *w, unsigned ordinal, struct w16_args *a)
 // as it is made.
 // w16: The same messages in the same order -- MFC programs depend on it. A top-level window is a
 // toywm window with Windows 3.1's frame drawn by w16 (or toywm's own frame, by the Window frame
-// setting); a child is drawn into it.
+// setting); a child is drawn into it. A second top-level window is a toywm window of its own, framed
+// as its style says; one the size of the screen (640 x 480) covers the whole of toy-os's, at the
+// program's scale and centred on black, as Paintbrush's View Picture covered 3.1's.
 static int api_CreateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     return create_window(w, a);
@@ -1137,6 +1159,11 @@ static int api_ShowWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (cmd == 2 || cmd == 6 || cmd == 7) w16_task_post_arg(w, W16_POST_SYSCMD, SC_MINIMIZE);
         else if (cmd == 3) w16_task_post_arg(w, W16_POST_SYSCMD, SC_MAXIMIZE);
         else if (cmd == 9) w16_task_post_arg(w, W16_POST_SYSCMD, SC_RESTORE);
+    }
+    if (x->popup && show) {                      // its toywm window opens on its first show
+        c->r[R_AX] = (uint16_t)x->visible;
+        popup_show(w, x);
+        return c->fault ? -1 : 4;
     }
     pthread_mutex_lock(&w->lock);
     c->r[R_AX] = (uint16_t)x->visible;
@@ -1324,8 +1351,8 @@ static int api_GetSystemMetrics(struct w16 *w, unsigned ordinal, struct w16_args
     // program told 0 there runs its keyboard interface (Write parks the pointer and never
     // sets the I-beam) -- the scroll bars again, the caption buttons (SM_CXSIZE),
     // the sizing border (SM_CXFRAME, W16_FRAME) and the double-click box at 36.
-    static const int16_t m[] = { 640, 480, 17, 17, 20, 1, 1, 18, 18, 18, 18, 32, 32,
-                                 32, 32, 18, 640, 460, 0, 1, 17, 17, 0, 0, 0, 0, 0, 0,
+    static const int16_t m[] = { W16_SCREEN_W, W16_SCREEN_H, 17, 17, 20, 1, 1, 18, 18, 18, 18, 32, 32,
+                                 32, 32, 18, W16_SCREEN_W, W16_SCREEN_H - 20, 0, 1, 17, 17, 0, 0, 0, 0, 0, 0,
                                  0, 0, 18, 18, W16_FRAME, W16_FRAME, 0, 0, 4, 4 };
     c->r[R_AX] = (uint16_t)(i >= 0 && i < (int)(sizeof m / sizeof m[0]) ? m[i] : 0);
     return 2;

@@ -423,8 +423,10 @@ the palette, whose mapping is not yet measured.
    report carries the stack's top words.
 4. **Real programs**, the user's own copies (none ship): run each,
    read its unimplemented list (the launcher's calls window), implement,
-   repeat. A second top-level window that is not a dialog still needs
-   uapp to grow past one main window. **Calculator, 2026-10-20**: the
+   repeat. A second top-level window is a popup on the dialogs' machinery
+   (its own toywm window); one covering the reported screen goes
+   fullscreen, centred on black (Paintbrush's View Picture, 2026-10-22).
+   **Calculator, 2026-10-20**: the
    x87 (`cpu16_x87.c`) -- each ESC instruction run ON THE HOST'S x87
    between an FRSTOR and an FNSAVE of the program's state, so results,
    rounding and unmasked-exception responses are a real 387's

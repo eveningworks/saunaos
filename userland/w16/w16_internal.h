@@ -182,6 +182,8 @@ void ne_print_info(const struct ne_module *m);
 #define VK_DELETE  0x2E
 
 #define W16_CW_USEDEFAULT ((int16_t)0x8000)
+#define W16_SCREEN_W 640                         // the screen GetSystemMetrics reports
+#define W16_SCREEN_H 480
 #define W16_HWND         0x2001                   // the main window; wnd16.c numbers the rest
 #define W16_DESKTOP      0x2000                   // GetDesktopWindow's
 #define W16_SB           17                       // a scroll bar's width (SM_CXVSCROLL)
@@ -337,6 +339,11 @@ struct w16_wnd {
     struct uapp_window *uwin;     // its toywm window (main thread's)
     int active;                   // its toywm window has the focus (main thread's)
     int menubar;                  // the main window has a menu bar (SetMenu); under `lock`
+    // A second top-level window CreateWindow made beside the main one (W16_K_DIALOG's machinery: its
+    // own buffer and toywm window, the class's procedure, no dialog manager): `opened` once its toywm
+    // window was asked for; `fullscreen` when it covers the screen GetSystemMetrics reports, as
+    // Paintbrush's View Picture does (main thread's).
+    int popup, opened, fullscreen;
 };
 
 // A local heap (mem16.c): the program's, or a DLL's in its own DGROUP.
@@ -754,6 +761,9 @@ struct w16_wnd *w16_dlg_from_template(struct w16 *w, const uint8_t *tmpl, uint32
 // controls by class name; then w16_dlg_run() it, or leave it modeless.
 struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32_t style, int cw, int ch,
                             const char *caption, uint32_t dlgproc, w16_dlgproc hostdlg);
+// A second top-level window (a popup beside the main window): made and sent WM_CREATE, not shown.
+struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_t style, int x, int y, int cx,
+                              int cy, uint16_t owner, uint16_t inst, uint32_t param);
 struct w16_wnd *w16_dlg_add(struct w16 *w, struct w16_wnd *d, const char *cls, uint16_t id, uint32_t style,
                             int x, int y, int cw, int ch, const char *text);
 // Shown, WM_INITDIALOG(param) sent, the focus put; then run it when modal.

@@ -962,7 +962,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: Windows-1252's 0x80-0x9F drawn~~ DONE 2026-10-21 -- 3.1's ANSI table from each font, a ugfx font's own c1 cells
 - [ ] w16: Symbol and Wingdings -- a symbol font's cmap (3, 0) is not read, so its characters do not draw
 - [x] ~~w16: Paintbrush from Windows 3.11, drawing~~ DONE 2026-10-22 -- tools, fill, text, Pick/Copy/Paste, .BMP Save and Open, its dialogs
-- [ ] w16: Paintbrush's View Picture -- a second top-level window (a popup over the screen) ends the program
+- [x] ~~w16: Paintbrush's View Picture~~ DONE 2026-10-22 -- a second top-level window; screen-sized, fullscreen centred on black
 - [x] ~~w16: recording a metafile~~ DONE 2026-10-22 -- drawing, objects, text and blits (as DIBs) recorded; Paintbrush's Copy
 - [x] ~~w16: a program's own caret~~ DONE 2026-10-22 -- drawn over the window, inverted and blinking; Paintbrush's Text tool
 - [ ] w16: 16-colour VGA dithering as a per-program Display setting (default 256) -- the driver's patterns measured on Paintbrush's palette
