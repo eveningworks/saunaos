@@ -964,7 +964,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: Paintbrush from Windows 3.11, drawing~~ DONE 2026-10-22 -- tools, fill, text, Pick/Copy/Paste, .BMP Save and Open, its dialogs
 - [ ] w16: Paintbrush's View Picture -- a second top-level window (a popup over the screen) ends the program
 - [ ] w16: recording a metafile -- CreateMetaFile records nothing, so Paintbrush's Copy puts a bitmap on the clipboard and no metafile
-- [ ] w16: a program's own caret -- CreateCaret and the rest draw nothing; Paintbrush's Text tool shows none
+- [x] ~~w16: a program's own caret~~ DONE 2026-10-22 -- drawn over the window, inverted and blinking; Paintbrush's Text tool
 - [ ] w16: 16-colour VGA dithering as a per-program Display setting (default 256) -- the driver's patterns measured on Paintbrush's palette
 - [ ] w16: StretchBlt's shrink rule measured at several ratios on real 3.11 -- Paintbrush's arrow drops rows 2 and 9 there, 6 and 12 here
 - [ ] w16: the NASM samples start on real 3.11 -- gen_ne's programs are refused there silently, so they cannot measure anything

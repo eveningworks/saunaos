@@ -298,6 +298,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
             ugfx_fill_rect(out, cx, cy, win->fbw, win->fbh, bg);
         }
         ugfx_blit(out, cx, cy, bw2, bh2, px, sw);
+        w16_caret_draw(&g_w16, out, win, cx, cy);
     }
     static struct w16_scaler sc;
     if (out != s) w16_scaler_show(&sc, s, 0, 0, g_virt, win->w, win->h);
@@ -459,10 +460,24 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     if (shape >= 0) uapp_set_cursor(a, shape);
 }
 
+// The caret's blink: its window drawn again when it turns on or off.
+static void caret_tick(struct uapp *a) {
+    static int was = -1;
+    pthread_mutex_lock(&g_w16.lock);
+    struct w16_wnd *x = g_w16.caret.hwnd ? w16_wnd_get(&g_w16, g_w16.caret.hwnd) : 0, *top = x ? w16_wnd_top(&g_w16, x) : 0;
+    int ph = top ? w16_caret_phase(&g_w16, top) : -1;
+    uint16_t dlg = top && top != &g_w16.win ? top->hwnd : 0;
+    pthread_mutex_unlock(&g_w16.lock);
+    if (ph == was) return;
+    was = ph;
+    if (dlg) w16_dlgwin_redraw(&g_w16, dlg);
+    else uapp_redraw(a);
+}
+
 static int on_tick(struct uapp *a) {
-    (void)a;
     w16_timers_fire(&g_w16);
     w16_sound_tick();
+    caret_tick(a);
     return 0;
 }
 

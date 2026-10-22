@@ -241,6 +241,9 @@ def gdi_checks(dbg, qmp, res, tmp):
     res.check("Polygon: a blue triangle, its edge black, nothing past its long side",
               px(186, 86) == BLUE and px(180, 92) == BLACK and px(208, 104) == WHITE,
               f"inside {px(186, 86)} edge {px(180, 92)} outside {px(208, 104)}")
+    res.check("the program's caret: a 2-pixel black bar at its SetCaretPos, the white past it untouched",
+              px(224, 80) == BLACK and px(225, 87) == BLACK and px(226, 80) == WHITE and px(224, 88) == WHITE,
+              f"224,80:{px(224, 80)} 225,87:{px(225, 87)} 226,80:{px(226, 80)} 224,88:{px(224, 88)}")
     ini = sh(dbg, f"cat {INI}")
     res.check("WritePrivateProfileString kept the file's line and added its own",
               "Square=1" in ini and "Written=yes" in ini, f"the file: {ini!r}")

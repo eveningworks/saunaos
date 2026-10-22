@@ -210,11 +210,6 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "SHELL",   11,  "answers no files" },                             // DragQueryFile
     { "SHELL",   12,  "does nothing" },                                 // DragFinish
     { "USER",    16,  "the pointer is never confined" },                // ClipCursor
-    { "USER",    163, "draws no caret" },                                // CreateCaret
-    { "USER",    164, "draws no caret" },                                // DestroyCaret
-    { "USER",    165, "draws no caret" },                                // SetCaretPos
-    { "USER",    166, "draws no caret" },                                // HideCaret
-    { "USER",    167, "draws no caret" },                                // ShowCaret
     { "USER",    141, "a program's own formats stay in that program" },  // SetClipboardData
     { "USER",    31,  "always no, even when minimised" },       // IsIconic
     { "USER",    50,  "finds no other program's window" },              // FindWindow

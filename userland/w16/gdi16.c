@@ -2390,6 +2390,17 @@ static int api_GetDCOrg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 2;
 }
 
+uint32_t *w16_gdi_bitmap_copy(struct w16 *w, uint16_t h, int *bw, int *bh) {
+    struct w16_gdiobj *bm = obj(w, h, GDI_BITMAP);
+    uint32_t *px = bm && bm->px && bm->bw > 0 && bm->bh > 0 ? malloc((size_t)bm->bw * bm->bh * 4) : 0;
+    if (!px) return 0;
+    for (int i = 0; i < bm->bw * bm->bh; i++)
+        px[i] = bm->mono ? (bm->px[i] ? 0xFFFFFFu : 0) : bm->px[i] & 0xFFFFFFu;
+    *bw = bm->bw;
+    *bh = bm->bh;
+    return px;
+}
+
 // GetObject(hgdiobj, cbBuffer, lpvObject) -> int
 // Windows: The description of a GDI object: a bitmap's size and colours (BITMAP), a pen's (LOGPEN),
 // a brush's (LOGBRUSH), a font's (LOGFONT); the bytes copied.

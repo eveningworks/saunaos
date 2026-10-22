@@ -419,6 +419,17 @@ struct w16 {
     int16_t mouse_x, mouse_y;                    // the last mouse message's point, client coordinates
     uint16_t mouse_hwnd;                         // ...and the window it was for
     uint16_t mouse_keys;                         // ...and its MK_* buttons, GetKeyState's VK_LBUTTON
+    // CreateCaret's caret (usermisc16.c), under `lock`: drawn over the window's last frame when it is
+    // shown, never into the program's pixels, so nothing the program draws has to hide it first.
+    struct {
+        uint16_t hwnd;                           // its window, 0 when there is none
+        int x, y, w, h;                          // client pixels of hwnd
+        int hidden;                              // HideCaret's count: shown at 0 (it starts at 1)
+        int grey;                                // hBitmap 1: every other pixel inverted
+        uint32_t *bits;                          // a bitmap caret's pixels, XORed (w by h); else NULL
+        unsigned blink_ms;                       // SetCaretBlinkTime's
+        uint64_t since;                          // when it was last moved or shown: the blink's start
+    } caret;
 };
 
 extern struct w16 g_w16;
@@ -536,6 +547,8 @@ uint16_t w16_gdi_bitmap_of_ddb(struct w16 *w, const uint8_t *p, uint32_t len);
 uint32_t w16_brush_px(struct w16 *w, uint16_t brush);
 void w16_gdi_fill(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, uint16_t brush);
 void w16_gdi_invert(struct w16 *w, uint16_t hdc, int l, int t, int r, int b);   // InvertRect's
+// A bitmap's pixels as screen colours (a mono one's 1s white), malloc'd; 0 when `h` is none.
+uint32_t *w16_gdi_bitmap_copy(struct w16 *w, uint16_t h, int *bw, int *bh);
 // DrawText's work: DT_* `fmt`, `rc` in DC coordinates (DT_CALCRECT sets
 // its right and bottom). The text's height.
 int w16_gdi_draw_text(struct w16 *w, uint16_t hdc, const char *text, int16_t rc[4], unsigned fmt);
@@ -852,6 +865,11 @@ void w16_cursor_screen(struct w16 *w, int16_t *x, int16_t *y);   // MSG.pt, GetC
 // its top-level window's own (usermisc16.c).
 void w16_screen_offset(struct w16 *w, struct w16_wnd *x, int *dx, int *dy);
 uint64_t w16_now_ms(void);
+// The caret over `top`'s client area at (cx, cy) of `s`, when it is in that window, shown and in its
+// on half (under `lock`); w16_caret_phase is that half (1 on, 0 off), -1 when there is no shown caret
+// in `top` -- what a tick compares to know the window needs drawing again.
+void w16_caret_draw(struct w16 *w, struct ugfx_surface *s, struct w16_wnd *top, int cx, int cy);
+int w16_caret_phase(struct w16 *w, struct w16_wnd *top);
 int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap);
 uint16_t w16_res_load(struct w16 *w, unsigned index);
 int w16_res_find(struct w16 *w, uint16_t type, const char *type_name, uint16_t id,

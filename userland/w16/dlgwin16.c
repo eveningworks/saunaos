@@ -40,6 +40,7 @@ static void paint_frame(const struct w16_wnd *d, uint32_t *px) {
     int sw, sh;
     const uint32_t *fr = d->fb ? w16_shown(d, &sw, &sh) : 0;   // its last complete frame
     if (fr) ugfx_blit(&s, f, top + cap, sw < d->fbw ? sw : d->fbw, sh < d->fbh ? sh : d->fbh, fr, sw);
+    w16_caret_draw(&g_w16, &s, (struct w16_wnd *)d, f, top + cap);
     if (cap) {
         // The caption is the client's width, its bar navy. In the MODAL
         // frame it is edged in white on its top and sides (the line 3.11

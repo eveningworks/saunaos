@@ -19,6 +19,7 @@
 ;   x 148..163, y 76..91  blue: a 32-pixel PatBlt at (140, 76) cut by
 ;               IntersectClipRect, inside SaveDC and RestoreDC
 ;   x 180..211, y 76..107 a blue triangle (Polygon), its edge black
+;   x 224..225, y 76..87  the caret (CreateCaret, ShowCaret): black over the white
 ;
 ; and at start-up it writes [GdiTest] Written=yes to GDITEST.INI (drive
 ; C:'s WINDOWS folder), so both directions of the profile calls are seen.
@@ -108,6 +109,18 @@ start:
     W16_CALL "USER", 42             ; ShowWindow
     push word [hwnd]
     W16_CALL "USER", 124            ; UpdateWindow
+    push word [hwnd]                ; CreateCaret(hwnd, NULL, 2, 12): a solid bar
+    push word 0
+    push word 2
+    push word 12
+    W16_CALL "USER", 163
+    push word 224                   ; SetCaretPos(224, 76)
+    push word 76
+    W16_CALL "USER", 165
+    push word 60000                 ; SetCaretBlinkTime: on for a minute, so a check sees it on
+    W16_CALL "USER", 168
+    push word [hwnd]
+    W16_CALL "USER", 167            ; ShowCaret
 
 msgloop:
     push ds

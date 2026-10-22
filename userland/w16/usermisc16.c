@@ -8,6 +8,7 @@
 // the queue when one is due, at most one pending per timer, as Windows
 // coalesces them; GetMessage clears `pending` when it hands one out.
 #include "w16_internal.h"
+#include "ui/ugfx.h"
 #include "lib/uhlp.h"
 #include "w16/w16prefs.h"
 #include <strings.h>
@@ -27,6 +28,7 @@ uint64_t w16_now_ms(void) {
 }
 
 static char *far_dup(struct w16 *w, uint32_t far);
+static unsigned caret_blink(const struct w16 *w);
 
 static int get_rect(struct w16 *w, uint32_t far, int16_t r[4]) {
     const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 0);
@@ -1320,7 +1322,9 @@ static int api_FlashWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 static int api_GetCaretBlinkTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
-    w->cpu.r[R_AX] = 530;
+    pthread_mutex_lock(&w->lock);
+    w->cpu.r[R_AX] = (uint16_t)caret_blink(w);
+    pthread_mutex_unlock(&w->lock);
     return 0;
 }
 
@@ -1652,27 +1656,131 @@ static int api_ClipCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 4;
 }
 
+// --- the caret -------------------------------------------------------------------------
+//
+// One per program, as Windows had one per system: drawn by the main thread over the window's last
+// frame (w16_caret_draw), inverted as DSTINVERT inverts -- a palette index's complement -- so a black
+// bar shows on white and white on black; a bitmap caret is XORed (SRCINVERT). Each change asks for the
+// window to be drawn again.
+
+static void caret_changed(struct w16 *w) {
+    w->caret.since = w16_now_ms();
+    w16_task_post(w, W16_POST_PAINT);
+}
+
 // CreateCaret(hwnd, hBitmap, nWidth, nHeight) -> void
+// Windows: A new caret for a window -- the old one, whoever's, destroyed -- hidden until ShowCaret:
+// a solid block (hBitmap NULL), a grey one (1) or a bitmap XORed over the window, nWidth by nHeight
+// pixels (0: the window border's width or height; a bitmap: its own size).
+// w16: The same.
+static int api_CreateCaret(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hwnd = w16_arg16(a), bm = w16_arg16(a);
+    int cw = (int16_t)w16_arg16(a), ch = (int16_t)w16_arg16(a);
+    uint32_t *bits = bm > 1 ? w16_gdi_bitmap_copy(w, bm, &cw, &ch) : 0;
+    pthread_mutex_lock(&w->lock);
+    free(w->caret.bits);
+    w->caret.bits = bits;
+    w->caret.hwnd = w16_wnd_get(w, hwnd) ? hwnd : 0;
+    w->caret.w = cw > 0 ? cw : 1;                // SM_CXBORDER, SM_CYBORDER
+    w->caret.h = ch > 0 ? ch : 1;
+    w->caret.grey = bm == 1;
+    w->caret.hidden = 1;
+    pthread_mutex_unlock(&w->lock);
+    caret_changed(w);
+    return 8;
+}
+
 // DestroyCaret() -> void
 // SetCaretPos(X, Y) -> void
 // HideCaret(hwnd) -> void
 // ShowCaret(hwnd) -> void
-// Windows: The text cursor of the window with the focus -- a bar, a block or a bitmap, made, put
-// where the next character goes, hidden and shown (a count: each Hide wants a Show) -- blinking on
-// its own.
-// w16: Takes them and draws nothing.
-// Why: A caret is drawn over the window's pixels and blinks on a timer; w16's own edit fields have
-// one, and a program's has none yet.
-// Notice: Paintbrush's Text tool and any program that draws its own text cursor shows none.
-// Whole: A caret a window's pixels carry, inverted and blinking. On the roadmap: "w16: a program's
-// own caret".
+// Windows: The caret removed, moved (client pixels of its window), hidden and shown -- a count, each
+// Hide wanting a Show, and only for the caret's own window or NULL -- blinking at GetCaretBlinkTime's
+// rate while shown.
+// w16: The same.
 static int api_Caret(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)w;
+    uint16_t hwnd = 0;
+    int x = 0, y = 0, ret = 0;
+    if (ordinal == 165) { x = (int16_t)w16_arg16(a); y = (int16_t)w16_arg16(a); ret = 4; }
+    else if (ordinal != 164) { hwnd = w16_arg16(a); ret = 2; }
+    pthread_mutex_lock(&w->lock);
+    int had = w->caret.hwnd != 0, mine = had && (!hwnd || hwnd == w->caret.hwnd);
     switch (ordinal) {
-    case 163: w16_arg16(a); w16_arg16(a); w16_arg16(a); w16_arg16(a); return 8;   // CreateCaret
-    case 164: return 0;                                                          // DestroyCaret
-    case 165: w16_arg16(a); w16_arg16(a); return 4;                              // SetCaretPos
-    default:  w16_arg16(a); return 2;                                            // 166 HideCaret, 167 ShowCaret
+    case 164: w->caret.hwnd = 0; free(w->caret.bits); w->caret.bits = 0; break;  // DestroyCaret
+    case 165: w->caret.x = x; w->caret.y = y; break;                             // SetCaretPos
+    case 166: if (mine) w->caret.hidden++; break;                                // HideCaret
+    default:  if (mine && w->caret.hidden > 0) w->caret.hidden--; break;         // 167 ShowCaret
+    }
+    pthread_mutex_unlock(&w->lock);
+    if (had) caret_changed(w);
+    return ret;
+}
+
+// GetCaretPos(lpPoint) -> void
+// Windows: Where the caret is, in its window's client pixels.
+// w16: The same.
+static int api_GetCaretPos(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint32_t p = w16_arg32(a);
+    int16_t pt[2];
+    pthread_mutex_lock(&w->lock);
+    pt[0] = (int16_t)w->caret.x;
+    pt[1] = (int16_t)w->caret.y;
+    pthread_mutex_unlock(&w->lock);
+    uint8_t *q = cpu16_ptr(&w->cpu, (uint16_t)(p >> 16), (uint16_t)p, 4, 1);
+    if (!q) return -1;
+    memcpy(q, pt, 4);
+    return 4;
+}
+
+// SetCaretBlinkTime(uMSeconds) -> void
+// Windows: How long the caret stays on, and off -- for every program, as the Control Panel sets it.
+// w16: The same, for this program's caret alone.
+static int api_SetCaretBlinkTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    unsigned ms = w16_arg16(a);
+    pthread_mutex_lock(&w->lock);
+    if (ms) w->caret.blink_ms = ms;
+    pthread_mutex_unlock(&w->lock);
+    return 2;
+}
+
+static unsigned caret_blink(const struct w16 *w) { return w->caret.blink_ms ? w->caret.blink_ms : 530; }
+
+int w16_caret_phase(struct w16 *w, struct w16_wnd *top) {
+    struct w16_wnd *x = w->caret.hwnd && !w->caret.hidden ? w16_wnd_get(w, w->caret.hwnd) : 0;
+    if (!x || !x->visible || w16_wnd_top(w, x) != top) return -1;
+    return (int)((w16_now_ms() - w->caret.since) / caret_blink(w) % 2 == 0);
+}
+
+void w16_caret_draw(struct w16 *w, struct ugfx_surface *s, struct w16_wnd *top, int cx, int cy) {
+    if (w16_caret_phase(w, top) != 1) return;
+    struct w16_wnd *x = w16_wnd_get(w, w->caret.hwnd);
+    int ox = 0, oy = 0;
+    if (x != top) w16_wnd_origin(w, x, &ox, &oy);
+    // Cut to the window's client area, and to the top window's.
+    int l = ox + w->caret.x, t = oy + w->caret.y, r = l + w->caret.w, b = t + w->caret.h;
+    if (l < ox) l = ox;
+    if (t < oy) t = oy;
+    if (r > ox + x->cw) r = ox + x->cw;
+    if (b > oy + x->ch) b = oy + x->ch;
+    if (l < 0) l = 0;
+    if (t < 0) t = 0;
+    if (r > top->fbw) r = top->fbw;
+    if (b > top->fbh) b = top->fbh;
+    for (int yy = t; yy < b; yy++) {
+        int py = cy + yy;
+        if (py < 0 || py >= s->h) continue;
+        uint32_t *row = s->pixels + (size_t)py * s->w;
+        for (int xx = l; xx < r; xx++) {
+            int px = cx + xx;
+            if (px < 0 || px >= s->w || (w->caret.grey && (xx + yy) % 2)) continue;
+            uint32_t d = row[px], *b = w->caret.bits;
+            uint32_t v = b ? gdi_rop3(0x66, 0, b[(yy - oy - w->caret.y) * w->caret.w + xx - ox - w->caret.x], d)   // SRCINVERT
+                           : gdi_rop3(0x55, 0, 0, d);                                                     // DSTINVERT
+            row[px] = v | (d & 0xFF000000u);
+        }
     }
 }
 
@@ -1748,15 +1856,17 @@ const struct w16_api g_user_misc_api[] = {
     { 121, api_SetWindowsHook },
     { 123, api_CallMsgFilter },
     { 130, api_SetClassWord },
-    { 163, api_Caret },
+    { 163, api_CreateCaret },
     { 164, api_Caret },
     { 165, api_Caret },
     { 166, api_Caret },
     { 167, api_Caret },
+    { 168, api_SetCaretBlinkTime },
     { 169, api_GetCaretBlinkTime },
     { 171, api_WinHelp },
     { 175, api_LoadBitmap },
     { 180, api_GetSysColor },
+    { 183, api_GetCaretPos },
     { 190, api_GetUpdateRect },
     { 192, api_InSendMessage },
     { 196, api_TabbedTextOut },
