@@ -7540,7 +7540,9 @@ runs first**: a `doom1.wad` with one
   local heaps, a square its timer draws after three ticks, its caret
   (a 2-pixel bar inverting the white) and a metafile it records itself
   (a brush, a rectangle, a BitBlt from its memory DC) and plays back,
-  each at a fixed place compared with tolerance 0; Alt+Space opens the control
+  and a (200,100,50) brush -- solid, and with `colors=16` equal to the
+  dither measured on 3.11 -- each at a fixed place compared with
+  tolerance 0; Alt+Space opens the control
   menu, X maximizes (the border goes, the caption reaches the corner)
   and Alt+Space, Enter restores; `fault.exe`'s click opens the
   Application Error box, its crash report names the fault and its
