@@ -277,6 +277,10 @@ TOOLS = [
     ("ahci",        "ahci_test.py",            "TFS3 on a SATA drive behind an HBA",  True,  None,                   False),
     ("sector4k",    "sector4k_test.py",        "GPT/TFS3/FAT32 on a 4K-sector disk", True,  None,                   False),
     ("nvme",        "nvme_test.py",            "root on NVMe, a 4K namespace, TRIM", True,  None,                   False),
+    # USB sticks on QEMU's usb-storage: bulk-only, quick removal judged
+    # from the host image after a pull, a re-plug, a 4 KiB stick. Its
+    # own guest; needs dosfstools and mtools on the host.
+    ("usb_storage", "usb_storage_test.py",     "USB sticks: read, pull, re-plug, 4K", True,  None,                   False),
     ("bigdisk",     "bigdisk_test.py",         "a 2200 GiB disk on virtio, AHCI, NVMe", True, None,                 False),
     # A second, blank disk: Disks partitions, formats, mounts and deletes
     # on it, and the host reads the GPT back. Its own guest.

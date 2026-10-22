@@ -142,6 +142,14 @@ int xhci_bulk_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
 // should ask this rather than assume the device went away.
 int xhci_bulk_halted(uint8_t slot, uint8_t ep_addr);
 
+// A driver whose PROTOCOL decides what a stall means -- bulk-only mass
+// storage stalls a data phase on purpose and then expects the status --
+// takes recovery over: xhci_deferred_work() leaves the endpoint alone,
+// and the driver calls xhci_bulk_reset() (both the controller's halt and
+// the device's, CLEAR_FEATURE) from a context that may issue commands.
+void xhci_bulk_own_recovery(uint8_t slot, uint8_t ep_addr);
+int xhci_bulk_reset(uint8_t slot, uint8_t ep_addr);
+
 int xhci_add_isoch_out(uint8_t slot, uint8_t ep_addr, uint16_t mps,
                        uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
                        void *ctx);

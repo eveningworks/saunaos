@@ -60,11 +60,15 @@ static void make_name(char *out, const struct block_device *dev,
         return;
     }
 
-    int nth = 0;
-    for (int i = 0; i < g_count; i++)
-        if (g_table[i]->dev == g_table[i]->parent &&
-            k_strncmp(g_table[i]->name, stem, (uint32_t)n) == 0) nth++;
-    k_snprintf(out, BLK_NAME_MAX, "%s%d", stem, nth);
+    // THE LOWEST FREE INDEX, not a count: with disks that come and go a
+    // count hands out a name still in use -- usb0 pulled while usb1 stays,
+    // and the next stick would be a second usb1.
+    for (int nth = 0;; nth++) {
+        k_snprintf(out, BLK_NAME_MAX, "%s%d", stem, nth);
+        int taken = 0;
+        for (int i = 0; i < g_count && !taken; i++) taken = k_strcmp(g_table[i]->name, out) == 0;
+        if (!taken) return;
+    }
 }
 
 // Adds `dev`, or returns the entry it already has. Idempotent because

@@ -333,7 +333,8 @@ def cmd_start(args):
         audio = "ac97" if getattr(args, "audio_wav", None) else "none"
     wants_usb_audio = audio in ("usb", "both")
     host_devs = getattr(args, "usb_host", None) or []
-    if usb != "none" or wants_usb_audio or host_devs:
+    sticks = getattr(args, "usb_stick", None) or []
+    if usb != "none" or wants_usb_audio or host_devs or sticks:
         # xhci+wide: QEMU numbers the USB3 ports first, so with fifteen of
         # each the USB2 ports are 16..30 and the keyboard on QEMU's port
         # 5 lands on the guest's port 20 -- past a cap of 16, which hid
@@ -369,14 +370,33 @@ def cmd_start(args):
         # high speed instead -- which is how "is this a SuperSpeed
         # problem?" gets answered in one boot.
         spec, _, port = spec.partition("@")
-        vid, _, pid = spec.partition(":")
-        if not pid:
-            raise SystemExit(f"vm: --usb-host wants VID:PID[@PORT], got {spec!r}")
-        dev = (f"usb-host,id=usbhost{i},bus=xhci.0,"
-               f"vendorid=0x{vid},productid=0x{pid}")
+        if ":" not in spec and "-" in spec:
+            # BUS-PORT, the host's own address (`lsusb -t`, or the sysfs
+            # name `4-1`): two devices sharing a VID:PID -- two sticks of
+            # one model -- cannot be told apart any other way.
+            hbus, _, hport = spec.partition("-")
+            dev = f"usb-host,id=usbhost{i},bus=xhci.0,hostbus={hbus},hostport={hport}"
+        else:
+            vid, _, pid = spec.partition(":")
+            if not pid:
+                raise SystemExit(f"vm: --usb-host wants VID:PID or BUS-PORT[@PORT], got {spec!r}")
+            dev = (f"usb-host,id=usbhost{i},bus=xhci.0,"
+                   f"vendorid=0x{vid},productid=0x{pid}")
         if port:
             dev += f",port={port}"
         cmd += ["-device", dev]
+
+    # An emulated USB STICK per image: QEMU's usb-storage, bulk-only, the
+    # transport every real stick speaks. `ustick<N>` is its QMP id, so a
+    # test can pull it (device_del) and plug it back (device_add).
+    # `,4k` gives it 4096-byte logical blocks, as some USB disks have.
+    for i, spec in enumerate(sticks):
+        spec, four_k = (spec[:-3], True) if spec.endswith(",4k") else (spec, False)
+        path, _, port = spec.partition("@")
+        cmd += ["-drive", f"file={path},format=raw,if=none,id=ustickdrv{i}",
+                "-device", f"usb-storage,id=ustick{i},drive=ustickdrv{i},bus=xhci.0"
+                + (f",port={port}" if port else "")
+                + (",logical_block_size=4096,physical_block_size=4096" if four_k else "")]
 
     # A sound card whose output QEMU RECORDS to a host wav file -- the
     # oracle tools/audio_test.py and tools/usb_audio_test.py measure a
@@ -1003,6 +1023,10 @@ def main():
     ap.add_argument("--reboot", action="store_true",
                     help="let the guest reboot instead of QEMU exiting "
                          "(-no-reboot is the default; see the launch)")
+    ap.add_argument("--usb-stick", action="append", default=[], metavar="IMAGE[@PORT][,4k]",
+                    help="attach an emulated USB stick (QEMU usb-storage, bulk-only) "
+                         "backed by IMAGE, on an xHCI controller added if needed; "
+                         "repeatable. QMP ids are ustick0, ustick1, ...")
     ap.add_argument("--usb", choices=("none", "xhci", "xhci+mouse", "xhci+hub", "xhci+wide"),
                     default="none",
                     help="attach an xHCI controller and USB HID devices. Off by "

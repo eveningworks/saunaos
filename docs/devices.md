@@ -34,6 +34,7 @@ person has to keep true.
 | `ata` | Legacy IDE, PIO and busmaster DMA | The fallback; `noahci` forces it. |
 | `virtio-blk` | virtio block, modern and transitional | Preferred in a VM. |
 | `ram` | No hardware | A RAM-backed device, for `ramfs` and tests. |
+| `usb-storage` | USB mass storage, SCSI over bulk-only (`08/06/50`) | Sticks, card readers, USB disks: each LUN with a medium is `usb0`, `usb1`, ...; 512- or 4096-byte blocks; removable, so quick removal and a pull are handled (`docs/usb-storage-design.md`). Never chosen as the root by content. |
 
 ## Display (`display_driver`)
 
@@ -75,7 +76,8 @@ person has to keep true.
 
 ## What there is no driver for
 
-USB mass storage, Wi-Fi (the laptop's Intel 3160 is unclaimed),
+UAS (USB Attached SCSI -- a stick never speaks it, an SSD enclosure
+may, and offers bulk-only as well), Wi-Fi (the laptop's Intel 3160 is unclaimed),
 NVIDIA or AMD graphics, EHCI/UHCI, PS/2-over-USB legacy emulation, and
 any Ethernet controller not listed above. `lspci` on a machine shows
 what was found; a device with no driver is listed with none.

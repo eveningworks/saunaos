@@ -50,6 +50,8 @@ static int fsinfo_fill(int index, void *out) {
     f->flags |= QUERY_FS_MOUNTED;
     if (m->persistent) f->flags |= QUERY_FS_PERSISTENT;
     if (m->flags & MNT_RDONLY) f->flags |= QUERY_FS_RDONLY;
+    if (m->flags & MNT_GONE) f->flags |= QUERY_FS_GONE;
+    if (m->dev && m->dev->removable) f->flags |= QUERY_FS_REMOVABLE;
     if (m->point_len == 1) f->flags |= QUERY_FS_ROOT;
     if (m->fs == &userfs_ops) {
         // The share's own type ("smb"), not the bridge's.

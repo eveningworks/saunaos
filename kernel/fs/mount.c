@@ -1161,10 +1161,18 @@ static void choose_root_among(const struct block_device **cand, int n, const cha
                    "without one, or could not ask; choosing by content\n");
     }
 
-    int best = 0, best_kind = -1;
+    // A REMOVABLE DISK IS NEVER CHOSEN BY CONTENT: a stick that happens to
+    // be bootable would otherwise take the root from the internal disk.
+    // The loader naming it (bootpart= above, root=) is how a stick boots.
+    int best = -1, best_kind = -1;
     for (int i = 0; i < n; i++) {
+        if (cand[i]->removable) continue;
         int kind = disk_kind(cand[i]);
         if (kind > best_kind) { best = i; best_kind = kind; }
+    }
+    if (best < 0) {
+        klog_write("fs: only removable disks, and the loader named none -- not choosing one\n");
+        return;
     }
     blk_set_root(cand[best]);
     g_tbl_valid = 0;

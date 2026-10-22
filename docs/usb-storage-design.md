@@ -4,8 +4,8 @@ A staged plan for USB sticks, card readers and USB disks: both
 transports, a disk that can disappear, quick removal, exFAT, auto-mount
 with Eject, and a root filesystem on the stick.
 
-Written 2026-10-22. **Stage 1 is BUILT** (the same day); the others are
-not. The stage markers go on the list below as they land.
+Written 2026-10-22. **Stages 1 and 2 are BUILT** (the same day); the
+others are not. The stage markers go on the list below as they land.
 
 ## The finding that shapes the plan
 
@@ -119,7 +119,7 @@ Each stage is gated, committed and usable on its own.
    already is the one word a process waits on for everything, with the
    timeouts and lost-wake handling a new blocking call would have to
    re-earn. Tested with a RAM disk a KTEST yanks.
-2. **Bulk-only transport.** `kernel/lib/scsi.c` (CDBs, sense; shared,
+2. **Bulk-only transport.** BUILT 2026-10-22, on QEMU; real sticks next. `kernel/lib/scsi.c` (CDBs, sense; shared,
    with host checks) and `kernel/drivers/usb/usb_storage.c`: Reset
    Recovery, Get Max LUN, CBW/CSW, READ CAPACITY(16) falling back to
    (10), READ/WRITE(10/16), SYNCHRONIZE CACHE, TEST UNIT READY with

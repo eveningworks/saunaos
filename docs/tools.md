@@ -55,7 +55,10 @@ back, `--virtio-disk` likewise -- and `--extra-disk PATH
 controller a test needs; `--usb xhci|xhci+mouse` attaches an
 xHCI controller and USB HID devices, off by default because attaching a
 `usb-kbd` takes the keyboard AWAY from PS/2 — see `docs/testing.md`;
-`--usb-host VID:PID` passes a REAL device off the host's bus through to
+`--usb-stick IMAGE[@PORT][,4k]` attaches an emulated USB stick (QEMU
+`usb-storage`, bulk-only; `,4k` for 4096-byte blocks; QMP ids `ustick0`,
+`ustick1`, ... for `device_del`); `--usb-host VID:PID` (or `BUS-PORT`,
+the host's own address, for two devices of one model) passes a REAL device off the host's bus through to
 the guest, which is the only way to reach a driver path no emulated
 device has — QEMU's `usb-audio` is UAC1 at one format, so every UAC2
 path in `sound_usb.c` is unreachable without it; it needs write access
@@ -4563,6 +4566,19 @@ window without going through it will find its layout polls timing out.
   dispatching the vector. The control that DOES go red is returning 0
   from it outright -- 0 events decoded against 33 vectors delivered --
   and that is what shows the tool can see a dead path. On demand.
+- **`usb_storage_test.py`** -- USB sticks on QEMU's `usb-storage`, the
+  bulk-only transport every real stick speaks: a FAT32 stick built on
+  the host with a known file, and a blank one with 4096-byte blocks. It
+  reads the host's file back (several 64 KiB transfers), has the guest
+  copy a file and PULLS the stick at once (QMP `device_del`), then reads
+  the copy out of the image on the HOST -- quick removal judged by the
+  data, not by a flush count -- checks the pulled mount says `removed`,
+  that unmounting releases the disk, that a stick plugged in while
+  running takes the lowest free name, and formats, writes and reads the
+  4K stick. Controls that turned it red: a driver dropping every write,
+  and disk names counted rather than chosen (a re-plug got a second
+  `usb1`). Needs dosfstools and mtools. In `ondemand_sweep.py`.
+
 - **`nvme_test.py`** -- one QEMU NVMe controller with TWO namespaces
   and no other disk: namespace 1 a copy of `disk.img` (SeaBIOS boots it,
   the root mounts from `nvme0p3`), namespace 2 blank with 4096-byte

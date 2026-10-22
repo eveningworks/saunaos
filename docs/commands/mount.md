@@ -42,6 +42,11 @@ is already attached. Both halves go through the mount table in
     device   on             type     options
     ata0p3   /              tfs3     rw
     ata0p2   /boot          fat32    ro
+    usb0p1   /mnt/stick     fat32    rw,removable
+
+`removable` is a disk a person can pull (a USB stick): every write on it
+is on the stick before the call returns. Pulled while mounted, it reads
+`ro,removable,removed` until it is unmounted.
 
 **The source is a DEVICE NAME, or a partition number, or `none`.**
 

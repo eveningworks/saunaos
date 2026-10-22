@@ -335,6 +335,7 @@ struct xhci_ep {
     // shared geometry to borrow. Completion is a callback carrying the
     // byte count and the buffer that was posted.
     uint8_t  is_bulk;
+    uint8_t  own_recovery;   // its driver clears a halt itself (xhci_bulk_reset())
     void (*bulk_done)(void *ctx, uint64_t phys, uint32_t bytes, int ok);
     void    *bulk_ctx;
     uint64_t buf_of_trb_phys[TRBS_PER_RING];  // which buffer a TRB's TD carried

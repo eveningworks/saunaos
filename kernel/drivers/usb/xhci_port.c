@@ -1044,7 +1044,7 @@ void xhci_deferred_work(void) {
 
     for (int i = 0; i < MAX_EPS; i++) {
         struct xhci_ep *e = &g_xhci_eps[i];
-        if (!e->in_use || !e->halted) continue;
+        if (!e->in_use || !e->halted || e->own_recovery) continue;
         if (e->recover_tries > 4) continue;   // gave up; logged below once
         e->recover_tries++;
         int rc = xhci_recover_halted(e->slot, dci_of(e->ep_addr), &e->ring);

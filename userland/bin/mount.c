@@ -71,10 +71,12 @@ static int list(void) {
             snprintf(line, sizeof line, "%-8s %-14s %-8s ro,%s\n",
                      fs.source, fs.point, fs.name, st[s]);
         } else {
-            snprintf(line, sizeof line, "%-8s %-14s %-8s %s%s\n",
+            snprintf(line, sizeof line, "%-8s %-14s %-8s %s%s%s%s\n",
                      fs.device[0] ? fs.device : "-", fs.point, fs.name,
                      (fs.flags & QUERY_FS_RDONLY) ? "ro" : "rw",
-                     (fs.flags & QUERY_FS_PERSISTENT) ? "" : ",volatile");
+                     (fs.flags & QUERY_FS_PERSISTENT) ? "" : ",volatile",
+                     (fs.flags & QUERY_FS_REMOVABLE) ? ",removable" : "",
+                     (fs.flags & QUERY_FS_GONE) ? ",removed" : "");
         }
         sys_print(line);
     }

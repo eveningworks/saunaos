@@ -229,6 +229,8 @@ whenever a headline here tells you something you did not already know.
   `virtqueue_setup()`, AND ITS ARMING WRITE IS `DRIVER_OK`**
 - **A USB CLASS DRIVER IS A `USB_DRIVER()` ENTRY, AND IT BINDS ONE
   INTERFACE**
+- **A BULK ENDPOINT WHOSE PROTOCOL STALLS ON PURPOSE IS RECOVERED BY ITS
+  DRIVER, BOTH HALVES** (`xhci_bulk_own_recovery()`, `xhci_bulk_reset()`)
 - **A USB ETHERNET ADAPTER IS A `net_device`, AND ITS CONFIGURATION IS A
   CHOICE**
 - **A VENDOR CONFIGURATION NEEDS A DRIVER THAT NAMES THE DEVICE, AND AN

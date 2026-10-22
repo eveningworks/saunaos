@@ -4983,3 +4983,20 @@ any frame in it reads zeros. So:
 - **A reporter that stops answering loses the frames in flight
   forever** (`PAGE_REPORT_LOST`): the device may still discard them, so
   they must never be handed out again.
+
+## A BULK ENDPOINT WHOSE PROTOCOL STALLS ON PURPOSE IS RECOVERED BY ITS DRIVER, BOTH HALVES
+
+`xhci_deferred_work()` recovers a halted endpoint generically: Reset
+Endpoint, a dequeue move, and the posted set rebuilt. That is right for
+HID and Ethernet, where a stall is a fault. It is wrong for USB mass
+storage's bulk-only transport, where a device STALLS a data phase it will
+not complete and then still sends the status -- the driver must clear
+the halt and read the CSW, in that order, and the device's side of the
+halt (its data toggle) must be cleared too, with
+`CLEAR_FEATURE(ENDPOINT_HALT)`, or the next transfer is out of step.
+
+So such a driver calls `xhci_bulk_own_recovery()` on its endpoints after
+`xhci_add_bulk()`, and `xhci_bulk_reset()` -- the controller's halt AND
+the device's -- itself, from a context that may issue commands (never
+the completion callback, which runs inside the event drain).
+`kernel/drivers/usb/usb_storage.c` is the one user.

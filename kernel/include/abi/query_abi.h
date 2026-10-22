@@ -988,6 +988,8 @@ struct query_meminfo {
 #define QUERY_FS_RDONLY     (1u << 2) // mounted read-only; a write is refused
 #define QUERY_FS_ROOT       (1u << 3) // this is the root mount
 #define QUERY_FS_REMOTE     (1u << 4) // served by a process over the network (userfs)
+#define QUERY_FS_REMOVABLE  (1u << 5) // on a disk a person can pull (a USB stick)
+#define QUERY_FS_GONE       (1u << 6) // that disk was pulled: read-only until unmounted
 
 // ONE RECORD PER MOUNT, root first. It was a scalar while there was one
 // filesystem; Real mount points made that a lie the moment /boot was

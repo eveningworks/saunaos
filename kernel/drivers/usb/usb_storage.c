@@ -1,0 +1,469 @@
+// USB mass storage, bulk-only transport: sticks, card readers, USB disks.
+//
+// The shape every system shares (docs/usb-storage-design.md): a thin
+// transport that carries SCSI command blocks, and the disk logic in
+// SCSI (kernel/lib/scsi.c). Bulk-only (the USB-IF's "BBB") is three
+// phases on two bulk endpoints -- a 31-byte Command Block Wrapper OUT, the
+// data either way, a 13-byte Command Status Wrapper IN -- one command at a
+// time per device. Each LUN with a medium becomes a block device,
+// `usb<n>`, registered with blk_add_disk() so a stick plugged in after
+// boot is named and partitioned but never becomes the root.
+//
+// THE STALL IS PART OF THE PROTOCOL, not an error. A device stalls a data
+// phase it will not complete (a short read, a refused write) and then
+// still sends the status -- so this driver recovers its own endpoints
+// (xhci_bulk_own_recovery()), clears the device's halt, and reads the
+// CSW. A status it cannot read, or one that does not belong to the
+// command, is a phase error: Reset Recovery (BOT spec 5.3.4).
+//
+// REMOVAL (block.h's blk_device_gone()): unbind marks the device
+// unplugged FIRST, so a transfer in flight or about to start fails at
+// once rather than waiting out a timeout, then tells the block layer.
+// The memory goes in release(), once the last mount lets go.
+//
+// QUICK REMOVAL is the block layer's (`removable`): every write is
+// flushed before the call that made it returns, so this driver adds no
+// cache of its own and forwards a flush as SYNCHRONIZE CACHE.
+#include "usb.h"
+#include "usb_driver.h"
+#include "xhci.h"
+#include "block.h"
+#include "scsi.h"
+#include "pmm.h"
+#include "heap.h"
+#include "kmutex.h"
+#include "scheduler.h"
+#include "clocksource.h"
+#include "barrier.h"
+#include "string.h"
+#include "klog.h"
+#include "kfmt.h"
+#include "driver.h"
+
+DRIVER_DECLARE("usb-storage", "block", "USB mass storage, bulk-only");
+
+#define CBW_SIG 0x43425355u   // "USBC"
+#define CSW_SIG 0x53425355u   // "USBS"
+#define DATA_BYTES (64u * 1024)          // one command's data at most
+#define DMA_PAGES  (DATA_BYTES / 4096 + 1)  // + a page for the CBW and CSW
+#define XFER_NS    (10ull * 1000000000ull)
+#define MAX_LUNS   16                     // GET MAX LUN's field is four bits
+
+struct ums;
+
+struct ums_lun {
+    struct block_device blk;   // first: release() gets this back
+    struct ums *u;
+    uint8_t lun;
+    uint8_t registered;
+    uint32_t block;            // logical block, 512 or 4096
+    uint64_t blocks;
+    char model[40];
+};
+
+struct ums {
+    struct ums *next;          // the bound devices, for unbind to find by slot
+    uint8_t slot, ifnum, ep_in, ep_out;
+    uint8_t dma_pinned;        // a cancel was not confirmed: never free the buffer
+    uint16_t mps_in, mps_out;
+    volatile int unplugged;
+    struct kmutex lock;        // one command at a time
+    uint64_t dma;              // DATA_BYTES of data, then the CBW and CSW
+    uint8_t *data;
+    uint8_t *cbw, *csw;
+    uint32_t tag;
+    // The transfer in flight, completed from the event drain.
+    volatile int done, ok;
+    volatile uint32_t bytes;
+    int nluns, live;           // LUNs found, and how many the block layer still holds
+    struct ums_lun luns[MAX_LUNS];
+};
+
+static void xfer_done(void *ctx, uint64_t phys, uint32_t bytes, int ok) {
+    (void)phys;
+    struct ums *u = ctx;
+    u->bytes = bytes;
+    u->ok = ok;
+    __atomic_store_n(&u->done, 1, __ATOMIC_RELEASE);
+    scheduler_wake(u, 0);
+}
+
+// One bulk transfer, waited for. A scheduled caller sleeps until the
+// completion wakes it; where nothing can park it drains the event ring
+// itself, which the single-consumer guard in xhci_service() allows.
+// 1 done, 0 failed (*stalled says whether the endpoint halted), -1 timed
+// out -- after which the endpoint has been cancelled, so the buffer is
+// the driver's again.
+static int xfer(struct ums *u, uint8_t ep, uint64_t phys, uint32_t len, uint32_t *got,
+                int *stalled) {
+    *stalled = 0;
+    if (u->unplugged) return 0;
+    u->done = 0;
+    if (xhci_bulk_post(u->slot, ep, phys, len) < 0) {
+        *stalled = xhci_bulk_halted(u->slot, ep);
+        return 0;
+    }
+    uint64_t deadline = clocksource_now_ns() + XFER_NS;
+    int parked = 1;
+    while (!__atomic_load_n(&u->done, __ATOMIC_ACQUIRE)) {
+        if (u->unplugged || clocksource_now_ns() >= deadline) {
+            xhci_cancel_endpoint(u->slot, ep);
+            return u->unplugged ? 0 : -1;
+        }
+        if (parked) {
+            scheduler_wait_arm(u);
+            if (__atomic_load_n(&u->done, __ATOMIC_ACQUIRE)) { scheduler_wait_disarm(); break; }
+            if (!scheduler_block_kernel_until(u, SCHED_WAIT_DISK, deadline)) {
+                scheduler_wait_disarm();
+                parked = 0;   // nowhere to park: drain it ourselves
+            }
+        } else {
+            xhci_service();
+            cpu_relax();
+        }
+    }
+    if (got) *got = u->bytes;
+    if (!u->ok) *stalled = xhci_bulk_halted(u->slot, ep);
+    return u->ok ? 1 : 0;
+}
+
+static int control(struct ums *u, uint8_t type, uint8_t req, uint16_t value, void *buf,
+                   uint16_t len) {
+    uint8_t setup[8] = { type, req, (uint8_t)value, (uint8_t)(value >> 8), u->ifnum, 0,
+                         (uint8_t)len, (uint8_t)(len >> 8) };
+    return xhci_control(u->slot, setup, buf, len, (type & 0x80) != 0);
+}
+
+// Bulk-Only Mass Storage Reset, then both endpoints' halts: what a phase
+// error or a lost status costs. 0 when the device took it.
+static int reset_recovery(struct ums *u) {
+    if (u->unplugged) return -1;
+    klog_printf("usb-storage: slot %u reset recovery\n", u->slot);
+    if (control(u, 0x21, 0xFF, 0, 0, 0) < 0) return -1;
+    xhci_bulk_reset(u->slot, u->ep_in);
+    xhci_bulk_reset(u->slot, u->ep_out);
+    return 0;
+}
+
+#define CMD_OK      0
+#define CMD_FAILED  1    // the device ran it and said no -- ask for sense
+#define CMD_GONE   -1    // transport failure: unplugged, or recovery did not help
+
+// One command, three phases. The data is u->data, `len` bytes either way.
+static int command(struct ums *u, uint8_t lun, const uint8_t *cdb, int cdb_len, int in,
+                   uint32_t len, uint32_t *got) {
+    if (u->unplugged) return CMD_GONE;
+    uint32_t tag = ++u->tag;
+    uint8_t *w = u->cbw;
+    k_memset(w, 0, 31);
+    w[0] = (uint8_t)CBW_SIG; w[1] = (uint8_t)(CBW_SIG >> 8);
+    w[2] = (uint8_t)(CBW_SIG >> 16); w[3] = (uint8_t)(CBW_SIG >> 24);
+    for (int i = 0; i < 4; i++) { w[4 + i] = (uint8_t)(tag >> (8 * i)); w[8 + i] = (uint8_t)(len >> (8 * i)); }
+    w[12] = in ? 0x80 : 0x00;
+    w[13] = lun;
+    w[14] = (uint8_t)cdb_len;
+    k_memcpy(w + 15, cdb, (uint32_t)cdb_len);
+
+    uint64_t cbw_phys = u->dma + DATA_BYTES, csw_phys = cbw_phys + 64;
+    int stalled;
+    if (xfer(u, u->ep_out, cbw_phys, 31, 0, &stalled) != 1) {
+        reset_recovery(u);
+        return CMD_GONE;
+    }
+    uint32_t moved = 0;
+    if (len) {
+        int r = xfer(u, in ? u->ep_in : u->ep_out, u->dma, len, &moved, &stalled);
+        if (r < 0) { reset_recovery(u); return CMD_GONE; }
+        if (r == 0 && stalled) xhci_bulk_reset(u->slot, in ? u->ep_in : u->ep_out);
+        else if (r == 0) { reset_recovery(u); return CMD_GONE; }
+    }
+    // The status, once more after a stall on it (BOT spec 6.7.2).
+    for (int attempt = 0;; attempt++) {
+        int r = xfer(u, u->ep_in, csw_phys, 13, 0, &stalled);
+        if (r == 1) break;
+        if (r == 0 && stalled && attempt == 0) { xhci_bulk_reset(u->slot, u->ep_in); continue; }
+        reset_recovery(u);
+        return CMD_GONE;
+    }
+    const uint8_t *s = u->csw;
+    uint32_t sig = (uint32_t)s[0] | (uint32_t)s[1] << 8 | (uint32_t)s[2] << 16 | (uint32_t)s[3] << 24;
+    uint32_t stag = (uint32_t)s[4] | (uint32_t)s[5] << 8 | (uint32_t)s[6] << 16 | (uint32_t)s[7] << 24;
+    if (sig != CSW_SIG || stag != tag || s[12] == 2) {   // not ours, or a phase error
+        reset_recovery(u);
+        return CMD_GONE;
+    }
+    if (got) *got = moved;
+    return s[12] == 0 ? CMD_OK : CMD_FAILED;
+}
+
+// The sense behind a CMD_FAILED. 0 if even that could not be read.
+static int sense(struct ums *u, uint8_t lun, struct scsi_sense *out) {
+    uint8_t cdb[16];
+    int n = scsi_cdb_request_sense(cdb, SCSI_SENSE_LEN);
+    uint32_t got = 0;
+    if (command(u, lun, cdb, n, 1, SCSI_SENSE_LEN, &got) != CMD_OK) return 0;
+    return scsi_parse_sense(u->data, got, out);
+}
+
+// A command, retried once after a UNIT ATTENTION -- what any disk says
+// first after a reset or a medium change, and which means "tell me again".
+static int command_retry(struct ums *u, uint8_t lun, const uint8_t *cdb, int cdb_len, int in,
+                         uint32_t len, uint32_t *got, struct scsi_sense *why) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+        int r = command(u, lun, cdb, cdb_len, in, len, got);
+        if (r != CMD_FAILED) return r;
+        struct scsi_sense s = { 0, 0, 0 };
+        sense(u, lun, &s);
+        if (why) *why = s;
+        if (s.key != SCSI_KEY_UNIT_ATTENTION) return CMD_FAILED;
+    }
+    return CMD_FAILED;
+}
+
+// ---- the block device ---------------------------------------------------
+
+static struct ums_lun *lun_of(const struct block_device *dev) { return (struct ums_lun *)dev; }
+
+static uint64_t ums_count(const struct block_device *dev) {
+    struct ums_lun *l = lun_of(dev);
+    return l->blocks * (l->block / 512);
+}
+
+static int ums_xfer_max(const struct block_device *dev) { (void)dev; return (int)(DATA_BYTES / 512); }
+
+static int rw(const struct block_device *dev, uint64_t lba, int count, void *buf, int write) {
+    struct ums_lun *l = lun_of(dev);
+    struct ums *u = l->u;
+    if (count <= 0 || u->unplugged) return 0;
+    uint32_t spb = l->block / 512;
+    if ((lba | (uint64_t)count) & (spb - 1)) return 0;   // the block layer already refuses this
+    if (lba + (uint64_t)count > ums_count(dev)) return 0;
+    kmutex_lock(&u->lock);
+    int ok = 1;
+    uint8_t *p = buf;
+    while (count > 0 && ok) {
+        uint32_t n = (uint32_t)count < DATA_BYTES / 512 ? (uint32_t)count : DATA_BYTES / 512;
+        uint32_t bytes = n * 512;
+        uint8_t cdb[16];
+        int clen = scsi_cdb_rw(cdb, write, lba / spb, n / spb);
+        if (write) k_memcpy(u->data, p, bytes);
+        uint32_t got = 0;
+        struct scsi_sense why = { 0, 0, 0 };
+        int r = command_retry(u, l->lun, cdb, clen, !write, bytes, &got, &why);
+        if (r != CMD_OK || (!write && got != bytes)) {
+            if (r == CMD_FAILED)
+                klog_printf(KLOG_ERR "usb-storage: %s %s at %llu failed: %s (%02x/%02x)\n",
+                            blk_device_name(dev), write ? "write" : "read",
+                            (unsigned long long)lba, scsi_key_name(why.key), why.asc, why.ascq);
+            ok = 0;
+            break;
+        }
+        if (!write) k_memcpy(p, u->data, bytes);
+        p += bytes; lba += n; count -= (int)n;
+    }
+    kmutex_unlock(&u->lock);
+    return ok;
+}
+
+static int ums_read(const struct block_device *dev, uint64_t lba, int count, void *buf) {
+    return rw(dev, lba, count, buf, 0);
+}
+
+static int ums_write(const struct block_device *dev, uint64_t lba, int count, const void *buf) {
+    return rw(dev, lba, count, (void *)buf, 1);
+}
+
+// SYNCHRONIZE CACHE. A stick that refuses it (many have no cache to sync
+// and say ILLEGAL REQUEST) has nothing to lose, so that is success.
+static int ums_flush(const struct block_device *dev) {
+    struct ums_lun *l = lun_of(dev);
+    struct ums *u = l->u;
+    if (u->unplugged) return 0;
+    kmutex_lock(&u->lock);
+    uint8_t cdb[16];
+    int n = scsi_cdb_sync_cache(cdb);
+    struct scsi_sense why = { 0, 0, 0 };
+    int r = command_retry(u, l->lun, cdb, n, 0, 0, 0, &why);
+    kmutex_unlock(&u->lock);
+    return r == CMD_OK || (r == CMD_FAILED && why.key == SCSI_KEY_ILLEGAL_REQUEST);
+}
+
+static struct ums *g_ums;
+
+// A buffer the controller may still DMA into is leaked, not freed: a late
+// write into a frame that has become a page table is an unlogged reset
+// (xhci_cancel_endpoint()).
+static void free_ums(struct ums *u) {
+    if (u->dma && !u->dma_pinned) pmm_free_contiguous(u->dma, DMA_PAGES);
+    kfree(u);
+}
+
+// The block layer is done with one LUN; the last one frees the device.
+static void ums_release(const struct block_device *dev) {
+    struct ums *u = lun_of(dev)->u;
+    if (--u->live == 0 && u->unplugged) free_ums(u);
+}
+
+// ---- finding the disks ----------------------------------------------------
+
+// A LUN with a medium, sized; 0 for one that is not a disk or is empty.
+static int probe_lun(struct ums *u, struct ums_lun *l) {
+    uint8_t cdb[16];
+    uint32_t got = 0;
+    int n = scsi_cdb_inquiry(cdb, SCSI_INQUIRY_LEN);
+    struct scsi_inquiry q;
+    if (command_retry(u, l->lun, cdb, n, 1, SCSI_INQUIRY_LEN, &got, 0) != CMD_OK ||
+        !scsi_parse_inquiry(u->data, got, &q))
+        return 0;
+    if (q.type != 0) {
+        klog_printf("usb-storage: slot %u lun %u is SCSI type %u, not a disk -- skipped\n",
+                    u->slot, l->lun, q.type);
+        return 0;
+    }
+    k_snprintf(l->model, sizeof l->model, "%s %s", q.vendor, q.product);
+
+    // TEST UNIT READY until the medium answers: a stick spinning up its
+    // controller says NOT READY for a moment, a card slot with no card
+    // says it for good.
+    struct scsi_sense why = { 0, 0, 0 };
+    int ready = 0;
+    for (int i = 0; i < 20 && !ready; i++) {
+        n = scsi_cdb_test_unit_ready(cdb);
+        int r = command_retry(u, l->lun, cdb, n, 0, 0, 0, &why);
+        if (r == CMD_GONE) return 0;
+        ready = r == CMD_OK;
+        if (!ready && scsi_sense_no_medium(&why)) {
+            klog_printf("usb-storage: %s (lun %u) has no medium\n", l->model, l->lun);
+            return 0;
+        }
+        if (!ready) xhci_delay_ms(150);
+    }
+    if (!ready) {
+        klog_printf("usb-storage: %s (lun %u) never became ready: %s\n", l->model, l->lun,
+                    scsi_key_name(why.key));
+        return 0;
+    }
+
+    uint64_t last = 0;
+    uint32_t block = 0;
+    n = scsi_cdb_read_capacity10(cdb);
+    int ok = command_retry(u, l->lun, cdb, n, 1, 8, &got, 0) == CMD_OK &&
+             scsi_parse_capacity10(u->data, got, &last, &block);
+    if (ok && last == 0xFFFFFFFFull) {   // past 2 TiB: ask the long form
+        n = scsi_cdb_read_capacity16(cdb, 32);
+        ok = command_retry(u, l->lun, cdb, n, 1, 32, &got, 0) == CMD_OK &&
+             scsi_parse_capacity16(u->data, got, &last, &block);
+    }
+    if (!ok) {
+        klog_printf("usb-storage: %s (lun %u): no usable capacity\n", l->model, l->lun);
+        return 0;
+    }
+    l->block = block;
+    l->blocks = last + 1;
+    return 1;
+}
+
+// The interface's two bulk endpoints, from the configuration descriptor.
+static int find_endpoints(struct ums *u, const uint8_t *cfg, uint32_t total) {
+    int in_if = 0;
+    for (uint32_t at = 0; at + 2 <= total && cfg[at]; at += cfg[at]) {
+        const uint8_t *d = cfg + at;
+        if (at + d[0] > total) break;
+        if (d[1] == 4 && d[0] >= 9) in_if = d[2] == u->ifnum && d[3] == 0;   // alt 0 of ours
+        else if (d[1] == 5 && d[0] >= 7 && in_if && (d[3] & 3) == 2) {
+            uint16_t mps = (uint16_t)(d[4] | d[5] << 8) & 0x7FF;
+            if (d[2] & 0x80) { u->ep_in = d[2]; u->mps_in = mps; }
+            else { u->ep_out = d[2]; u->mps_out = mps; }
+        }
+    }
+    return u->ep_in && u->ep_out;
+}
+
+static int ums_bind(struct usb_device_info *d, int iface, const uint8_t *cfg, uint32_t total) {
+    struct ums *u = kzalloc(sizeof *u);
+    if (!u) return 0;
+    u->slot = d->slot;
+    u->ifnum = d->ifs[iface].ifnum;
+    if (!find_endpoints(u, cfg, total)) {
+        klog_printf("usb-storage: slot %u has no bulk IN/OUT pair -- declined\n", d->slot);
+        kfree(u);
+        return 0;
+    }
+    u->dma = pmm_alloc_contiguous(DMA_PAGES, PMM_ZONE_DMA32);
+    if (!u->dma) { kfree(u); return 0; }
+    u->data = (uint8_t *)(uintptr_t)u->dma;
+    u->cbw = u->data + DATA_BYTES;
+    u->csw = u->cbw + 64;
+    if (xhci_add_bulk(u->slot, u->ep_in, u->mps_in, xfer_done, u) < 0 ||
+        xhci_add_bulk(u->slot, u->ep_out, u->mps_out, xfer_done, u) < 0) {
+        klog_printf("usb-storage: slot %u: could not configure its endpoints\n", d->slot);
+        free_ums(u);
+        return 0;
+    }
+    xhci_bulk_own_recovery(u->slot, u->ep_in);
+    xhci_bulk_own_recovery(u->slot, u->ep_out);
+
+    // GET MAX LUN. A device with one LUN may stall it (BOT spec 3.2).
+    uint8_t max_lun = 0;
+    if (control(u, 0xA1, 0xFE, 0, &max_lun, 1) < 0) max_lun = 0;
+    if (max_lun >= MAX_LUNS) max_lun = MAX_LUNS - 1;
+    u->nluns = max_lun + 1;
+
+    for (int i = 0; i < u->nluns; i++) {
+        struct ums_lun *l = &u->luns[i];
+        l->u = u;
+        l->lun = (uint8_t)i;
+        if (!probe_lun(u, l)) continue;
+        l->blk.name = "usb";
+        l->blk.driver = "usb-storage";
+        l->blk.model = l->model;
+        l->blk.sector_count = ums_count;
+        l->blk.read_sectors = ums_read;
+        l->blk.write_sectors = ums_write;
+        l->blk.max_sectors_per_xfer = ums_xfer_max;
+        l->blk.persistent = 1;
+        l->blk.removable = 1;
+        l->blk.caps = BLK_CAP_FLUSH;
+        l->blk.flush = ums_flush;
+        l->blk.block_size = l->block;
+        l->blk.release = ums_release;
+        u->live++;
+        if (!blk_add_disk(&l->blk)) { u->live--; continue; }
+        l->registered = 1;
+        klog_printf("usb-storage: %s, %llu MiB in %u-byte blocks, as %s\n", l->model,
+                    (unsigned long long)(l->blocks * l->block >> 20), l->block,
+                    blk_device_name(&l->blk));
+    }
+    // Bound even with no disk yet: a card reader with every slot empty is
+    // still this driver's, and holding it keeps the endpoints configured.
+    u->next = g_ums;
+    g_ums = u;
+    return 1;
+}
+
+static void ums_unbind(struct usb_device_info *d, int iface) {
+    struct ums *u = 0;
+    for (struct ums **pp = &g_ums; *pp; pp = &(*pp)->next) {
+        if ((*pp)->slot != d->slot || (*pp)->ifnum != d->ifs[iface].ifnum) continue;
+        u = *pp;
+        *pp = u->next;
+        break;
+    }
+    if (!u) return;
+    u->unplugged = 1;
+    scheduler_wake(u, 0);   // a command waiting on a transfer sees it at once
+    if (xhci_cancel_endpoint(u->slot, u->ep_in) < 0 ||
+        xhci_cancel_endpoint(u->slot, u->ep_out) < 0)
+        u->dma_pinned = 1;
+    int any = 0;
+    for (int i = 0; i < u->nluns; i++) {
+        if (!u->luns[i].registered) continue;
+        any = 1;
+        blk_device_gone(&u->luns[i].blk);   // may call ums_release() at once
+    }
+    if (!any) free_ums(u);
+}
+
+// SCSI transparent command set over bulk-only: every stick and card reader.
+static const struct usb_match ums_matches[] = { USB_MATCH_IF(0x08, 0x06, 0x50) };
+USB_DRIVER("usb-storage", ums_matches, ums_bind, ums_unbind);
