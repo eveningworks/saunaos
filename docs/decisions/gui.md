@@ -12148,3 +12148,30 @@ step with every mutation of the table.
 **The cost** is that each z-order loop must say which order it means,
 and a new one written as `for (i = window_count - 1 ...)` is silently
 activation order -- wrong only while something is pinned.
+
+## A window under a modal dialog shows the arrow, and the compositor decides it
+
+A modal dialog's owner hears no pointer motion (`wm_dialog_blocker()`
+drops it), so whatever cursor it last named stays over it for as long as
+the dialog is up. w16's Paintbrush showed this: it calls
+`SetCursor(IDC_WAIT)` and then `ChooseFont`, and the busy circle sat over
+its canvas for the whole Font dialog.
+
+**What others do.** On Windows a disabled window answers `WM_NCHITTEST`
+with `HTERROR`, and `DefWindowProc` turns that into the arrow (and a beep
+on a click), whatever the program set before. Wayland has no global rule:
+the pointer shape belongs to the surface under it, and a compositor that
+blocks a parent (KWin's modal transients) keeps showing what that parent
+last set.
+
+**toy-os follows Windows, in `client_cursor_at()`.** The owner cannot fix
+it itself, because it would have to notice a motion event it never gets;
+and asking every app to reset its cursor before opening a modal dialog is
+a rule each new app has to remember. The compositor already knows the
+window is blocked, so it shows the arrow there. Not answering still
+outranks it (`WM_CURSOR_WAIT`), because a wedged owner is the
+compositor's own report.
+
+This is the cross-window case. A modal overlay INSIDE one app's window is
+the toolkit's job ("A modal owns the pointer's SHAPE too", above, which is
+withdrawn).

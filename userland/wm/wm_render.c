@@ -757,6 +757,10 @@ static enum wm_cursor_kind client_cursor_at(int mx, int my) {
         // is wedged -- so this is the case only the compositor can
         // report, and it must override a stale TEXT.
         if (w->not_responding) return WM_CURSOR_WAIT;
+        // A modal dialog's owner hears no motion, so what it last named is
+        // stale (Paintbrush's hourglass, set just before its Font dialog):
+        // the arrow, as Windows gives a disabled window.
+        if (wm_dialog_blocker(i) >= 0) return WM_CURSOR_NORMAL;
         switch (w->client_cursor) {
         case WIN_CURSOR_TEXT:     return WM_CURSOR_TEXT;
         case WIN_CURSOR_WAIT:     return WM_CURSOR_WAIT;
