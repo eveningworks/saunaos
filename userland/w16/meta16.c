@@ -9,6 +9,7 @@
 // The metafile's objects are deleted and the DC's state restored after.
 #include "w16_internal.h"
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include "lib/uwmf.h"
@@ -366,35 +367,446 @@ static int api_PlayMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return w->cpu.fault ? -1 : 4;
 }
 
+// --- recording ----------------------------------------------------------------------
+//
+// A METAFILE DC is a memory DC this file knows the handle of: w16_gdi() hands every call whose first
+// argument is one to w16_meta_record() before its own handler. A record is the call's own stack words
+// -- the arguments last first, which is MS-WMF's order -- under the record's function number, so most
+// calls need nothing but a row in RECORDED; a pointer argument's data goes in instead of the pointer
+// (text, points, a DIB), an object as its Create record the first time it is selected and then its slot,
+// and a blit's source DC as the DIB of the rectangle it was read from. A call RECORDED does not name
+// runs on the memory DC beneath, as an answer (GetDeviceCaps, GetTextExtent) and draws nothing anyone
+// sees.
+
+struct mdc {
+    uint16_t hdc;
+    uint8_t *buf;                  // the records so far, the header and EOF added at the close
+    size_t n, cap;
+    uint32_t longest;              // the longest record, in words: the header's mtMaxRecord
+    uint16_t *slot;                // the object table: a slot's GDI handle, 0 when free
+    int nslot;
+    char *path;                    // a disk metafile's DOS name, NULL for one in memory
+};
+
+static struct mdc *g_mdc;
+static int g_nmdc;
+
+static struct mdc *mdc_of(uint16_t hdc) {
+    for (int i = 0; hdc && i < g_nmdc; i++)
+        if (g_mdc[i].hdc == hdc) return &g_mdc[i];
+    return 0;
+}
+
+int w16_meta_dc(uint16_t hdc) { return mdc_of(hdc) != 0; }
+
+static int grow(struct mdc *m, size_t more) {
+    if (m->n + more <= m->cap) return 1;
+    size_t cap = m->cap ? m->cap : 256;
+    while (cap < m->n + more) cap *= 2;
+    uint8_t *g = realloc(m->buf, cap);
+    if (!g) return 0;
+    m->buf = g;
+    m->cap = cap;
+    return 1;
+}
+
+// One record: its words, then `extra` bytes (a string or a DIB) padded to a word.
+static void emit(struct mdc *m, unsigned func, const uint16_t *words, unsigned nw, const void *extra, size_t nx) {
+    size_t bytes = 6 + 2 * (size_t)nw + (nx + 1) / 2 * 2;
+    if (!grow(m, bytes)) return;
+    uint8_t *p = m->buf + m->n;
+    uint32_t size = (uint32_t)(bytes / 2);
+    memcpy(p, &size, 4);
+    p[4] = (uint8_t)func;
+    p[5] = (uint8_t)(func >> 8);
+    memcpy(p + 6, words, 2 * (size_t)nw);
+    if (nx) memcpy(p + 6 + 2 * nw, extra, nx);
+    if (nx & 1) p[bytes - 1] = 0;
+    m->n += bytes;
+    if (size > m->longest) m->longest = size;
+}
+
+// The program's bytes at a far pointer, read only; NULL when they are not there.
+static const uint8_t *far_ptr(struct w16 *w, uint32_t far, unsigned n) {
+    return cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n ? n : 1, 0);
+}
+
+// The object's slot, its Create record first when it has none; -1 when it cannot be recorded.
+static int slot_of(struct w16 *w, struct mdc *m, uint16_t h) {
+    for (int i = 0; i < m->nslot; i++)
+        if (m->slot[i] == h) return i;
+    uint8_t d[50];
+    uint16_t words[32];
+    unsigned func = 0, nw = 0;
+    uint8_t *dib = 0;
+    uint32_t ndib = 0;
+    int kind = w16_gdi_kind(w, h);
+    if (kind == GDI_PEN && w16_gdi_describe(w, h, d)) {
+        func = UWMF_CREATEPENINDIRECT;
+        memcpy(words, d, 10);
+        nw = 5;
+    } else if (kind == GDI_BRUSH && (dib = w16_gdi_brush_dib(w, h, &ndib))) {
+        func = UWMF_DIBCREATEPATTERNBRUSH;
+        words[0] = 5;                            // BS_DIBPATTERN
+        words[1] = 0;                            // DIB_RGB_COLORS
+        nw = 2;
+    } else if (kind == GDI_BRUSH && w16_gdi_describe(w, h, d)) {
+        func = UWMF_CREATEBRUSHINDIRECT;
+        memcpy(words, d, 8);
+        nw = 4;
+    } else if (kind == GDI_FONT && w16_gdi_describe(w, h, d)) {
+        func = UWMF_CREATEFONTINDIRECT;
+        memcpy(words, d, 50);
+        nw = 25;
+    } else if (kind == GDI_PALETTE || h == 0x500F) {   // a palette, or the stock DEFAULT_PALETTE
+        int n;
+        const uint32_t *e = w16_gdi_palette_entries(w, h, &n);
+        uint16_t *pal = malloc(4 + 4 * (size_t)n);
+        if (!pal) return -1;
+        pal[0] = 0x300;
+        pal[1] = (uint16_t)n;
+        for (int i = 0; i < n; i++) {             // PALETTEENTRY: red, green, blue, flags
+            pal[2 + 2 * i] = (uint16_t)((e[i] >> 16 & 0xFF) | (e[i] >> 8 & 0xFF) << 8);
+            pal[3 + 2 * i] = (uint16_t)(e[i] & 0xFF);
+        }
+        dib = (uint8_t *)pal;
+        ndib = 4 + 4 * (uint32_t)n;
+        func = UWMF_CREATEPALETTE;
+    } else {
+        return -1;
+    }
+    int i = 0;
+    while (i < m->nslot && m->slot[i]) i++;      // MS-WMF's rule: the lowest free slot
+    if (i == m->nslot) {
+        uint16_t *g = realloc(m->slot, sizeof *g * (size_t)(m->nslot + 1));
+        if (!g) { free(dib); return -1; }
+        m->slot = g;
+        m->nslot++;
+    }
+    m->slot[i] = h;
+    emit(m, func, words, nw, dib, ndib);
+    free(dib);
+    return i;
+}
+
+void w16_meta_forget(struct w16 *w, uint16_t h) {
+    (void)w;
+    for (int k = 0; k < g_nmdc; k++)
+        for (int i = 0; i < g_mdc[k].nslot; i++)
+            if (g_mdc[k].slot[i] == h) {
+                uint16_t v = (uint16_t)i;
+                emit(&g_mdc[k], UWMF_DELETEOBJECT, &v, 1, 0, 0);
+                g_mdc[k].slot[i] = 0;
+            }
+}
+
+int w16_meta_select_palette(struct w16 *w, uint16_t hdc, uint16_t hpal) {
+    struct mdc *m = mdc_of(hdc);
+    if (!m) return 0;
+    int i = slot_of(w, m, hpal);
+    if (i >= 0) {
+        uint16_t v = (uint16_t)i;
+        emit(m, UWMF_SELECTPALETTE, &v, 1, 0, 0);
+    }
+    return 1;
+}
+
+int w16_meta_realize_palette(uint16_t hdc) {
+    struct mdc *m = mdc_of(hdc);
+    if (m) emit(m, UWMF_REALIZEPALETTE, 0, 0, 0, 0);
+    return m != 0;
+}
+
+// What each recorded GDI call is: its MS-WMF function, and how its arguments go in.
+enum { R_WORDS, R_TEXT, R_EXTTEXT, R_POLY, R_POLYPOLY, R_BLT, R_STRETCHDIB, R_DIBTODEV, R_SELECT };
+static const struct { uint16_t ordinal, func; uint8_t how; } RECORDED[] = {
+    { 1, UWMF_SETBKCOLOR, R_WORDS },       { 2, UWMF_SETBKMODE, R_WORDS },
+    { 3, UWMF_SETMAPMODE, R_WORDS },       { 4, UWMF_SETROP2, R_WORDS },
+    { 5, UWMF_SETRELABS, R_WORDS },        { 6, UWMF_SETPOLYFILLMODE, R_WORDS },
+    { 7, UWMF_SETSTRETCHBLTMODE, R_WORDS }, { 8, UWMF_SETTEXTCHAREXTRA, R_WORDS },
+    { 9, UWMF_SETTEXTCOLOR, R_WORDS },     { 10, UWMF_SETTEXTJUSTIFICATION, R_WORDS },
+    { 11, UWMF_SETWINDOWORG, R_WORDS },    { 12, UWMF_SETWINDOWEXT, R_WORDS },
+    { 13, UWMF_SETVIEWPORTORG, R_WORDS },  { 14, UWMF_SETVIEWPORTEXT, R_WORDS },
+    { 15, UWMF_OFFSETWINDOWORG, R_WORDS }, { 16, UWMF_SCALEWINDOWEXT, R_WORDS },
+    { 17, UWMF_OFFSETVIEWPORTORG, R_WORDS }, { 18, UWMF_SCALEVIEWPORTEXT, R_WORDS },
+    { 19, UWMF_LINETO, R_WORDS },          { 20, UWMF_MOVETO, R_WORDS },
+    { 21, UWMF_EXCLUDECLIPRECT, R_WORDS }, { 22, UWMF_INTERSECTCLIPRECT, R_WORDS },
+    { 23, UWMF_ARC, R_WORDS },             { 24, UWMF_ELLIPSE, R_WORDS },
+    { 25, UWMF_FLOODFILL, R_WORDS },       { 26, UWMF_PIE, R_WORDS },
+    { 27, UWMF_RECTANGLE, R_WORDS },       { 28, UWMF_ROUNDRECT, R_WORDS },
+    { 29, UWMF_PATBLT, R_WORDS },          { 30, UWMF_SAVEDC, R_WORDS },
+    { 31, UWMF_SETPIXEL, R_WORDS },        { 32, UWMF_OFFSETCLIPRGN, R_WORDS },
+    { 33, UWMF_TEXTOUT, R_TEXT },          { 34, UWMF_DIBBITBLT, R_BLT },
+    { 35, UWMF_DIBSTRETCHBLT, R_BLT },     { 36, UWMF_POLYGON, R_POLY },
+    { 37, UWMF_POLYLINE, R_POLY },         { 39, UWMF_RESTOREDC, R_WORDS },
+    { 45, UWMF_SELECTOBJECT, R_SELECT },   { 346, UWMF_SETTEXTALIGN, R_WORDS },
+    { 348, UWMF_CHORD, R_WORDS },          { 349, UWMF_SETMAPPERFLAGS, R_WORDS },
+    { 351, UWMF_EXTTEXTOUT, R_EXTTEXT },   { 372, 0x0548, R_WORDS },            // ExtFloodFill
+    { 439, UWMF_STRETCHDIB, R_STRETCHDIB }, { 443, UWMF_SETDIBTODEV, R_DIBTODEV },
+    { 450, UWMF_POLYPOLYGON, R_POLYPOLY },
+};
+
+// A packed DIB's bytes -- header, colour table and `rows` rows -- at the program's lpbmi and lpbits, in
+// one malloc'd block; NULL when they are not readable.
+static uint8_t *program_dib(struct w16 *w, uint32_t lpbmi, uint32_t lpbits, unsigned usage, unsigned rows,
+                            uint32_t *len) {
+    const uint8_t *h = far_ptr(w, lpbmi, 40);
+    if (!h) return 0;
+    uint32_t hs = (uint32_t)(h[0] | h[1] << 8), bw, bpp, used = 0;
+    int32_t bh;
+    if (hs == 12) {                              // BITMAPCOREHEADER
+        bw = (uint32_t)(h[4] | h[5] << 8);
+        bh = (int16_t)(h[6] | h[7] << 8);
+        bpp = (uint32_t)(h[10] | h[11] << 8);
+    } else {
+        memcpy(&bw, h + 4, 4);
+        memcpy(&bh, h + 8, 4);
+        bpp = (uint32_t)(h[14] | h[15] << 8);
+        if (hs >= 36) memcpy(&used, h + 32, 4);
+    }
+    if (hs < 12 || hs > 64 || !bw || bw > 32767 || !bpp || bpp > 32) return 0;
+    uint32_t ncol = bpp <= 8 ? (used ? used : 1u << bpp) : 0;
+    uint32_t tab = ncol * (usage == 1 ? 2 : hs == 12 ? 3 : 4);
+    uint32_t stride = (bw * bpp + 31) / 32 * 4, ah = (uint32_t)(bh < 0 ? -bh : bh);
+    if (!rows || rows > ah) rows = ah;
+    uint32_t bits = stride * rows;
+    const uint8_t *hp = far_ptr(w, lpbmi, hs + tab), *bp = far_ptr(w, lpbits, bits);
+    uint8_t *out = hp && bp ? malloc(hs + tab + bits) : 0;
+    if (!out) return 0;
+    memcpy(out, hp, hs + tab);
+    memcpy(out + hs + tab, bp, bits);
+    *len = hs + tab + bits;
+    return out;
+}
+
+int w16_meta_record(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct cpu16 *c = a->c;
+    if (a->pos < 2) return -2;
+    struct mdc *m = mdc_of(cpu16_arg(c, a->pos - 2));
+    if (!m) return -2;
+    int k = -1;
+    for (unsigned i = 0; i < sizeof RECORDED / sizeof RECORDED[0]; i++)
+        if (RECORDED[i].ordinal == ordinal) { k = (int)i; break; }
+    if (k < 0) return -2;                        // an answer, not a drawing: the memory DC's
+    unsigned func = RECORDED[k].func, nw = (a->pos - 2) / 2, ret = a->pos;
+    uint16_t v[16];
+    for (unsigned i = 0; i < nw && i < 16; i++) v[i] = cpu16_arg(c, 2 * i);   // last argument first
+#define FAR(i) ((uint32_t)v[i] | (uint32_t)v[(i) + 1] << 16)
+    c->r[R_AX] = 1;
+    c->r[R_DX] = 0;
+    switch (RECORDED[k].how) { // dispatch-ok: one case per way MS-WMF lays a call's arguments out
+    case R_WORDS:
+        if (nw == func >> 8) emit(m, func, v, nw, 0, 0);
+        break;
+    case R_TEXT: {                               // TextOut: count, lpString, y, x
+        unsigned n = v[0];
+        const uint8_t *t = far_ptr(w, FAR(1), n);
+        if (!t) break;
+        uint8_t *rec = malloc(2 + (n + 1) / 2 * 2 + 4);
+        if (!rec) break;
+        memcpy(rec, &v[0], 2);
+        memset(rec + 2, 0, (n + 1) / 2 * 2);
+        memcpy(rec + 2, t, n);
+        memcpy(rec + 2 + (n + 1) / 2 * 2, &v[3], 2);
+        memcpy(rec + 4 + (n + 1) / 2 * 2, &v[4], 2);
+        emit(m, func, 0, 0, rec, 6 + (n + 1) / 2 * 2);
+        free(rec);
+        break;
+    }
+    case R_EXTTEXT: {                            // lpDx, count, lpString, lpRect, options, y, x
+        unsigned n = v[2], opts = v[7];
+        const uint8_t *t = far_ptr(w, FAR(3), n);
+        const uint8_t *rc = (opts & 6) && FAR(5) ? far_ptr(w, FAR(5), 8) : 0;   // ETO_OPAQUE, ETO_CLIPPED
+        const uint8_t *dx = FAR(0) ? far_ptr(w, FAR(0), 2 * n) : 0;
+        if (!t || nw != 10) break;
+        size_t sz = 8 + (rc ? 8 : 0) + (n + 1) / 2 * 2 + (dx ? 2 * (size_t)n : 0);
+        uint8_t *rec = calloc(1, sz), *q = rec;
+        if (!rec) break;
+        uint16_t opt = (uint16_t)(rc ? opts : opts & ~6u);
+        memcpy(q, &v[8], 2); memcpy(q + 2, &v[9], 2);            // y, x
+        memcpy(q + 4, &v[2], 2); memcpy(q + 6, &opt, 2);         // count, options
+        q += 8;
+        if (rc) { memcpy(q, rc, 8); q += 8; }
+        memcpy(q, t, n);
+        q += (n + 1) / 2 * 2;
+        if (dx) memcpy(q, dx, 2 * (size_t)n);
+        emit(m, func, 0, 0, rec, sz);
+        free(rec);
+        break;
+    }
+    case R_POLY: {                               // count, lpPoints
+        unsigned n = v[0];
+        const uint8_t *pt = far_ptr(w, FAR(1), 4 * n);
+        if (pt) {
+            uint8_t *rec = malloc(2 + 4 * (size_t)n);
+            if (rec) { memcpy(rec, &v[0], 2); memcpy(rec + 2, pt, 4 * (size_t)n); emit(m, func, 0, 0, rec, 2 + 4 * (size_t)n); }
+            free(rec);
+        }
+        break;
+    }
+    case R_POLYPOLY: {                           // nPolys, lpCounts, lpPoints
+        unsigned np = v[0], total = 0;
+        const uint8_t *cnt = far_ptr(w, FAR(1), 2 * np);
+        for (unsigned i = 0; cnt && i < np; i++) total += (unsigned)(cnt[2 * i] | cnt[2 * i + 1] << 8);
+        const uint8_t *pt = cnt ? far_ptr(w, FAR(3), 4 * total) : 0;
+        size_t sz = 2 + 2 * (size_t)np + 4 * (size_t)total;
+        uint8_t *rec = pt ? malloc(sz) : 0;
+        if (rec) {
+            memcpy(rec, &v[0], 2);
+            memcpy(rec + 2, cnt, 2 * (size_t)np);
+            memcpy(rec + 2 + 2 * np, pt, 4 * (size_t)total);
+            emit(m, func, 0, 0, rec, sz);
+        }
+        free(rec);
+        break;
+    }
+    case R_BLT: {
+        // BitBlt: rop, ys, xs, hdcSrc, h, w, y, x -- StretchBlt: rop, hs, ws, ys, xs, hdcSrc, h, w, y, x.
+        // With no source the source DC's word is the record's Reserved one; with one, it goes and the
+        // DIB of the rectangle read follows, the source origin then 0, 0.
+        int stretch = ordinal == 35;
+        unsigned src = stretch ? 6 : 4;
+        if (nw != src + 5) break;
+        if (!v[src]) { emit(m, func, v, nw, 0, 0); break; }
+        int sx = (int16_t)v[src - 1], sy = (int16_t)v[src - 2];
+        int sw = stretch ? (int16_t)v[3] : (int16_t)v[src + 2], sh = stretch ? (int16_t)v[2] : (int16_t)v[src + 1];
+        uint32_t ndib = 0;
+        uint8_t *dib = w16_gdi_dc_dib(w, v[src], sx, sy, sw < 0 ? -sw : sw, sh < 0 ? -sh : sh, &ndib);
+        if (!dib) break;
+        uint16_t rv[16];
+        unsigned j = 0;
+        for (unsigned i = 0; i < nw; i++) if (i != src) rv[j++] = v[i];
+        rv[src - 1] = rv[src - 2] = 0;           // XSrc, YSrc: the DIB is that rectangle alone
+        emit(m, func, rv, j, dib, ndib);
+        free(dib);
+        break;
+    }
+    case R_STRETCHDIB: {
+        // rop, usage, lpbmi, lpbits, hs, ws, ys, xs, hd, wd, yd, xd -> rop, usage, hs..xd, the DIB
+        if (nw != 15) break;
+        uint32_t ndib = 0;
+        uint8_t *dib = program_dib(w, FAR(3), FAR(5), v[2], 0, &ndib);
+        if (!dib) break;
+        uint16_t rv[11];
+        memcpy(rv, v, 3 * 2);
+        memcpy(rv + 3, v + 7, 8 * 2);
+        emit(m, func, rv, 11, dib, ndib);
+        free(dib);
+        c->r[R_AX] = v[7];                       // the source's height: the rows drawn
+        break;
+    }
+    case R_DIBTODEV: {
+        // usage, lpbmi, lpbits, lines, start, ys, xs, h, w, yd, xd -> usage, lines, start..xd, the DIB
+        if (nw != 13) break;
+        uint32_t ndib = 0;
+        uint8_t *dib = program_dib(w, FAR(1), FAR(3), v[0], v[5], &ndib);
+        if (!dib) break;
+        uint16_t rv[9];
+        rv[0] = v[0];
+        memcpy(rv + 1, v + 5, 8 * 2);
+        emit(m, func, rv, 9, dib, ndib);
+        free(dib);
+        c->r[R_AX] = v[5];
+        break;
+    }
+    case R_SELECT: {                             // the object's slot; the handle back, as a stand-in
+        int i = slot_of(w, m, v[0]);
+        if (i >= 0) {
+            uint16_t sv = (uint16_t)i;
+            emit(m, func, &sv, 1, 0, 0);
+        }
+        c->r[R_AX] = v[0];
+        break;
+    }
+    }
+#undef FAR
+    return (int)ret;
+}
+
 // CreateMetaFile(lpFilename) -> HDC
-// Windows: Starts a metafile -- a DC that records the GDI calls made on it, in memory or in a file.
-// w16: A DC that draws nothing and records nothing.
-// Why: Recording means every GDI call keeps a record of itself (the player in this file reads the
-// format; nothing writes it).
-// Notice: A program that draws into a metafile and plays it back draws nothing; Paintbrush's Copy puts
-// a picture on the clipboard as a bitmap only.
-// Whole: A metafile DC that records. On the roadmap: "w16: recording a metafile".
+// Windows: Starts a metafile -- a DC that records the GDI calls made on it, in memory (lpFilename NULL)
+// or in a file.
+// w16: The same: the drawing calls, the mapping, the clip, objects selected (pens, brushes, fonts,
+// palettes), text, polygons, blits (the source's pixels as a DIB) and DIBs are recorded; questions
+// asked of it (GetDeviceCaps, GetTextExtent) are answered by a memory DC.
 static int api_CreateMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg32(a);
-    w->cpu.r[R_AX] = w16_gdi_new_memory_dc(w);
+    uint32_t name = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    char path[128] = "";
+    for (unsigned k = 0; name >> 16 && k + 1 < sizeof path; k++) {
+        const uint8_t *ch = far_ptr(w, name + k, 1);
+        if (!ch || !*ch) break;
+        path[k] = (char)*ch;
+    }
+    struct mdc *g = realloc(g_mdc, sizeof *g * (size_t)(g_nmdc + 1));
+    if (!g) return 4;
+    g_mdc = g;
+    uint16_t hdc = w16_gdi_new_memory_dc(w);
+    if (!hdc) return 4;
+    struct mdc *m = &g_mdc[g_nmdc++];
+    memset(m, 0, sizeof *m);
+    m->hdc = hdc;
+    if (path[0]) m->path = strdup(path);
+    w->cpu.r[R_AX] = hdc;
     return 4;
 }
 
 // CloseMetaFile(hdc) -> HMETAFILE
 // Windows: Ends a metafile and returns it, for PlayMetaFile and the clipboard.
-// w16: A metafile with no records.
-// Why: Nothing was recorded (CreateMetaFile says why).
-// Notice: The same as CreateMetaFile's: played, it draws nothing.
-// Whole: The metafile CreateMetaFile's DC recorded.
+// w16: The same: the records behind a METAHEADER, in a global block -- and, for one made with a file
+// name, in that file too.
 static int api_CloseMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t hdc = w16_arg16(a);
-    // METAHEADER (type 1 memory, 9 words, version 3.0, 12 words in all, no objects, longest record 3, no
-    // members) and the EOF record.
-    static const uint8_t EMPTY[24] = { 1, 0, 9, 0, 0, 3, 12, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0, 0 };
+    w->cpu.r[R_AX] = 0;
+    struct mdc *m = mdc_of(hdc);
+    if (!m) return 2;
+    static const uint16_t eof[3] = { 3, 0, 0 };
+    size_t total = 18 + m->n + sizeof eof;
+    uint8_t *mf = malloc(total);
+    if (mf) {
+        uint32_t words = (uint32_t)(total / 2), longest = m->longest > 3 ? m->longest : 3;
+        uint16_t hd[9] = { (uint16_t)(m->path ? 2 : 1), 9, 0x300, (uint16_t)words, (uint16_t)(words >> 16),
+                           (uint16_t)m->nslot, (uint16_t)longest, (uint16_t)(longest >> 16), 0 };
+        memcpy(mf, hd, 18);
+        if (m->n) memcpy(mf + 18, m->buf, m->n);
+        memcpy(mf + 18 + m->n, eof, sizeof eof);
+        if (m->path) {
+            char host[256];
+            FILE *f = w16_dos_path(m->path, host, sizeof host, 1, 0, 0) == 0 ? fopen(host, "wb") : 0;
+            if (f) { fwrite(mf, 1, total, f); fclose(f); }
+        }
+        w->cpu.r[R_AX] = w16_global_alloc(w, (uint32_t)total, mf);
+        free(mf);
+    }
+    free(m->buf);
+    free(m->slot);
+    free(m->path);
+    *m = g_mdc[--g_nmdc];
     w16_gdi_delete(w, hdc);
-    w->cpu.r[R_AX] = w16_global_alloc(w, sizeof EMPTY, EMPTY);
+    return 2;
+}
+
+// DeleteMetaFile(hmf) -> BOOL
+// Windows: Frees a metafile's handle (a disk metafile's file stays).
+// w16: The same.
+static int api_DeleteMetaFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    uint32_t size;
+    int ok = w16_global_ptr(w, h, &size) != 0;
+    if (ok) w16_global_free(w, h);
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 2;
+}
+
+// GetMetaFileBits(hmf) -> HGLOBAL
+// Windows: A metafile as a global block of its bytes; the metafile's handle is no longer valid.
+// w16: The same block: a metafile here is one already.
+static int api_GetMetaFileBits(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    w->cpu.r[R_AX] = w16_arg16(a);
     return 2;
 }
 
@@ -402,5 +814,7 @@ const struct w16_api g_meta_api[] = {
     { 123, api_PlayMetaFile },
     { 125, api_CreateMetaFile },
     { 126, api_CloseMetaFile },
+    { 127, api_DeleteMetaFile },
+    { 159, api_GetMetaFileBits },
 };
 const unsigned g_meta_api_n = sizeof g_meta_api / sizeof g_meta_api[0];

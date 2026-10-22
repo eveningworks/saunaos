@@ -224,8 +224,6 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    456, "answers no icon" },                                  // LoadIconHandler
     { "KERNEL",  64,  "answers an error: no file handle for a resource" },  // AccessResource
     { "GDI",     63,  "a region is its bounding rectangle" },               // CreatePolygonRgn
-    { "GDI",     125, "records nothing: a metafile with no records" },      // CreateMetaFile
-    { "GDI",     126, "records nothing: a metafile with no records" },      // CloseMetaFile
     { "GDI",     71,  "lists no objects" },                                 // EnumObjects
     { "GDI",     307, "answers FALSE: no bearings are measured" },          // GetCharABCWidths
     { "GDI",     366, "no palette is realised" },                           // UpdateColors

@@ -853,7 +853,7 @@ static int api_SelectPalette(struct w16 *w, unsigned ordinal, struct w16_args *a
     (void)ordinal;
     uint16_t hdc = w16_arg16(a), hpal = w16_arg16(a);
     w16_arg16(a);
-    w->cpu.r[R_AX] = w16_gdi_select_palette(w, hdc, hpal);
+    w->cpu.r[R_AX] = w16_meta_select_palette(w, hdc, hpal) ? hpal : w16_gdi_select_palette(w, hdc, hpal);
     return 6;
 }
 
@@ -1638,7 +1638,7 @@ static int api_DrawFocusRect(struct w16 *w, unsigned ordinal, struct w16_args *a
 // w16: Changes nothing and answers 0: colours are always the static VGA ones.
 static int api_RealizePalette(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
-    w16_arg16(a);
+    w16_meta_realize_palette(w16_arg16(a));
     w->cpu.r[R_AX] = 0;
     return 2;
 }

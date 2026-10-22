@@ -549,6 +549,22 @@ void w16_gdi_fill(struct w16 *w, uint16_t hdc, int l, int t, int r, int b, uint1
 void w16_gdi_invert(struct w16 *w, uint16_t hdc, int l, int t, int r, int b);   // InvertRect's
 // A bitmap's pixels as screen colours (a mono one's 1s white), malloc'd; 0 when `h` is none.
 uint32_t *w16_gdi_bitmap_copy(struct w16 *w, uint16_t h, int *bw, int *bh);
+// For recording a metafile (meta16.c): an object's GDI_* kind, GetObject's description of it (its
+// bytes), a rectangle of what a DC draws on and a pattern brush's 8x8, each as a malloc'd packed 24-bit
+// DIB in the colours the program asked for, and a palette's entries (DEFAULT_PALETTE's for a stock one).
+int w16_gdi_kind(struct w16 *w, uint16_t h);
+unsigned w16_gdi_describe(struct w16 *w, uint16_t h, uint8_t buf[50]);
+uint8_t *w16_gdi_dc_dib(struct w16 *w, uint16_t hdc, int x, int y, int cw, int ch, uint32_t *len);
+uint8_t *w16_gdi_brush_dib(struct w16 *w, uint16_t h, uint32_t *len);
+const uint32_t *w16_gdi_palette_entries(struct w16 *w, uint16_t h, int *n);
+// meta16.c's recording: whether a DC is a metafile's; a GDI call recorded when its first argument is one
+// (its argument bytes, or -2 when it is not recorded and runs as usual); an object deleted, which a
+// metafile holding it records; SelectPalette and RealizePalette, recorded (1) when the DC is a metafile's.
+int w16_meta_dc(uint16_t hdc);
+int w16_meta_record(struct w16 *w, unsigned ordinal, struct w16_args *a);
+void w16_meta_forget(struct w16 *w, uint16_t h);
+int w16_meta_select_palette(struct w16 *w, uint16_t hdc, uint16_t hpal);
+int w16_meta_realize_palette(uint16_t hdc);
 // DrawText's work: DT_* `fmt`, `rc` in DC coordinates (DT_CALCRECT sets
 // its right and bottom). The text's height.
 int w16_gdi_draw_text(struct w16 *w, uint16_t hdc, const char *text, int16_t rc[4], unsigned fmt);

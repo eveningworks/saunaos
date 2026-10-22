@@ -20,6 +20,8 @@
 ;               IntersectClipRect, inside SaveDC and RestoreDC
 ;   x 180..211, y 76..107 a blue triangle (Polygon), its edge black
 ;   x 224..225, y 76..87  the caret (CreateCaret, ShowCaret): black over the white
+;   x 56..75, y 56..65    a metafile recorded and played: a red rectangle, its edge black,
+;               and the bitmap at x 78..93, y 58..65 (BitBlt into it from the memory DC)
 ;
 ; and at start-up it writes [GdiTest] Written=yes to GDITEST.INI (drive
 ; C:'s WINDOWS folder), so both directions of the profile calls are seen.
@@ -333,6 +335,47 @@ wndproc:
     push word 0x0008
     W16_CALL "GDI", 34
 
+    ; A metafile RECORDED here, then played: a red brush, a rectangle in it and
+    ; the bitmap blitted from the memory DC, at (56, 56) and (78, 58).
+    push word 0
+    push word 0
+    W16_CALL "GDI", 125             ; CreateMetaFile(NULL)
+    mov [rmf], ax
+    push word 0x0000                ; CreateSolidBrush(RGB(255,0,0))
+    push word 0x00FF
+    W16_CALL "GDI", 66
+    mov [hrbrush], ax
+    push word [rmf]
+    push ax
+    W16_CALL "GDI", 45              ; SelectObject(metafile, brush)
+    push word [rmf]
+    push word 56
+    push word 56
+    push word 76
+    push word 66
+    W16_CALL "GDI", 27              ; Rectangle
+    push word [rmf]                 ; BitBlt(metafile, 78, 58, 16, 8, mdc, 0, 0, SRCCOPY)
+    push word 78
+    push word 58
+    push word 16
+    push word 8
+    push word [mdc]
+    push word 0
+    push word 0
+    push word 0x00CC
+    push word 0x0020
+    W16_CALL "GDI", 34
+    push word [rmf]
+    W16_CALL "GDI", 126             ; CloseMetaFile
+    mov [rmf], ax
+    push word [hrbrush]
+    W16_CALL "GDI", 69              ; the brush: the metafile holds its own record of it
+    push word [hdc]
+    push word [rmf]
+    W16_CALL "GDI", 123             ; PlayMetaFile
+    push word [rmf]
+    W16_CALL "GDI", 127             ; DeleteMetaFile
+
     push word [mdc]
     push word [oldbm]
     W16_CALL "GDI", 45              ; the default bitmap back
@@ -545,6 +588,8 @@ nCmdShow:   dw 0
 hwnd:       dw 0
 hdc:        dw 0
 mdc:        dw 0
+rmf:        dw 0
+hrbrush:    dw 0
 hbm:        dw 0
 oldbm:      dw 0
 hpen:       dw 0

@@ -2401,18 +2401,12 @@ uint32_t *w16_gdi_bitmap_copy(struct w16 *w, uint16_t h, int *bw, int *bh) {
     return px;
 }
 
-// GetObject(hgdiobj, cbBuffer, lpvObject) -> int
-// Windows: The description of a GDI object: a bitmap's size and colours (BITMAP), a pen's (LOGPEN),
-// a brush's (LOGBRUSH), a font's (LOGFONT); the bytes copied.
-// w16: The same four, cut to the buffer's size.
-static int api_GetObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)ordinal;
-    uint16_t h = w16_arg16(a);
-    int16_t cb = (int16_t)w16_arg16(a);
-    uint32_t far = w16_arg32(a);
-    uint8_t buf[50] = { 0 };
+// What GetObject describes: a BITMAP, LOGPEN, LOGBRUSH or LOGFONT into `buf` (50 bytes); its bytes, 0 for
+// another kind. A metafile records its objects from the same description (meta16.c).
+unsigned w16_gdi_describe(struct w16 *w, uint16_t h, uint8_t buf[50]) {
     unsigned n = 0;
     int width;
+    memset(buf, 0, 50);
     switch (type_of(w, h)) {
     case GDI_BITMAP: {
         struct w16_gdiobj *bm = obj(w, h, GDI_BITMAP);
@@ -2475,6 +2469,91 @@ static int api_GetObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     default:
         break;
     }
+    return n;
+}
+
+int w16_gdi_kind(struct w16 *w, uint16_t h) { return type_of(w, h); }
+
+// A packed 24-bit DIB (a BITMAPINFOHEADER, then the rows bottom-up), cw by ch, filled by px(x, y) in the
+// colours a program asked for.
+static uint8_t *dib24(int cw, int ch, uint32_t *len, uint32_t (*px)(void *, int, int), void *ctx) {
+    if (cw <= 0 || ch <= 0 || cw > 32767 || ch > 32767) return 0;
+    unsigned stride = ((unsigned)cw * 24 + 31) / 32 * 4;
+    uint32_t n = 40 + stride * (unsigned)ch;
+    uint8_t *p = calloc(1, n);
+    if (!p) return 0;
+    int32_t hd[3] = { 40, cw, ch };
+    memcpy(p, hd, 12);
+    p[12] = 1;
+    p[14] = 24;
+    uint32_t image = stride * (unsigned)ch;
+    memcpy(p + 20, &image, 4);
+    for (int y = 0; y < ch; y++) {
+        uint8_t *row = p + 40 + (size_t)(ch - 1 - y) * stride;
+        for (int x = 0; x < cw; x++) {
+            uint32_t v = px(ctx, x, y);
+            row[3 * x] = (uint8_t)v;
+            row[3 * x + 1] = (uint8_t)(v >> 8);
+            row[3 * x + 2] = (uint8_t)(v >> 16);
+        }
+    }
+    *len = n;
+    return p;
+}
+
+struct dc_read { const struct gdi_target *t; int x, y; };
+
+static uint32_t dc_px(void *ctx, int x, int y) {
+    const struct dc_read *r = ctx;
+    const struct gdi_target *t = r->t;
+    int px = r->x + x + t->ox, py = r->y + y + t->oy;
+    if (px < t->x0 || py < t->y0 || px >= t->x1 || py >= t->y1) return 0xFFFFFF;
+    uint32_t v = t->px[(size_t)py * t->w + px];
+    return t->mono ? (v & 0xFFFFFF ? 0xFFFFFF : 0) : w16_vga_back(v & 0xFFFFFF);
+}
+
+uint8_t *w16_gdi_dc_dib(struct w16 *w, uint16_t hdc, int x, int y, int cw, int ch, uint32_t *len) {
+    struct gdi_target t;
+    struct w16_gdiobj *dc = target(w, hdc, &t);
+    if (!dc) return 0;
+    struct dc_read r = { &t, dev_x(dc, x), dev_y(dc, y) };
+    uint8_t *p = t.px ? dib24(cw, ch, len, dc_px, &r) : 0;
+    if (dc->hwnd) {                              // target() held the lock for a window DC: read, not drawn
+        restore_children();
+        pthread_mutex_unlock(&w->lock);
+    }
+    return p;
+}
+
+static uint32_t brush_px(void *ctx, int x, int y) {
+    const struct w16_gdiobj *b = ctx;
+    uint32_t v = b->px[y * 8 + x];
+    return b->mono ? (v ? 0xFFFFFF : 0) : w16_vga_back(v & 0xFFFFFF);
+}
+
+uint8_t *w16_gdi_brush_dib(struct w16 *w, uint16_t h, uint32_t *len) {
+    struct w16_gdiobj *b = obj(w, h, GDI_BRUSH);
+    return b && b->style == BS_PATTERN && b->px ? dib24(8, 8, len, brush_px, b) : 0;
+}
+
+const uint32_t *w16_gdi_palette_entries(struct w16 *w, uint16_t h, int *n) {
+    struct w16_gdiobj *p = obj(w, h, GDI_PALETTE);
+    if (p) { *n = p->bw; return p->px; }
+    *n = 20;                                     // DEFAULT_PALETTE: the static colours
+    return SYS20;
+}
+
+// GetObject(hgdiobj, cbBuffer, lpvObject) -> int
+// Windows: The description of a GDI object: a bitmap's size and colours (BITMAP), a pen's (LOGPEN),
+// a brush's (LOGBRUSH), a font's (LOGFONT); the bytes copied.
+// w16: The same four, cut to the buffer's size.
+static int api_GetObject(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t h = w16_arg16(a);
+    int16_t cb = (int16_t)w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    uint8_t buf[50];
+    unsigned n = w16_gdi_describe(w, h, buf);
     if (cb >= 0 && (unsigned)cb < n) n = (unsigned)cb;
     if (n) {
         uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, n, 1);
@@ -3871,7 +3950,10 @@ const struct w16_api g_gdi_api[] = {
 const unsigned g_gdi_api_n = sizeof g_gdi_api / sizeof g_gdi_api[0];
 
 int w16_gdi(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    int r = w16_api_call(g_meta_api, g_meta_api_n, w, ordinal, a);
+    int r = w16_meta_record(w, ordinal, a);      // a call on a metafile's DC is recorded instead
+    if (r != -2) return r;
+    if (ordinal == 69 && a->pos >= 2) w16_meta_forget(w, cpu16_arg(a->c, a->pos - 2));   // DeleteObject
+    r = w16_api_call(g_meta_api, g_meta_api_n, w, ordinal, a);
     if (r != -2) return r;
     return w16_api_call(g_gdi_api, sizeof g_gdi_api / sizeof g_gdi_api[0], w, ordinal, a);
 }

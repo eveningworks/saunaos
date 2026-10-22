@@ -7537,9 +7537,10 @@ runs first**: a `doom1.wad` with one
   resource three ways (SetDIBitsToDevice; a memory DC and BitBlt SRCCOPY;
   NOTSRCCOPY, every colour inverted), a pen line that stops short of its
   end, a brush rectangle in a pen edge, text through the global and
-  local heaps, a square its timer draws after three ticks and its caret
-  (a 2-pixel bar inverting the white), each at a fixed place compared
-  with tolerance 0; Alt+Space opens the control
+  local heaps, a square its timer draws after three ticks, its caret
+  (a 2-pixel bar inverting the white) and a metafile it records itself
+  (a brush, a rectangle, a BitBlt from its memory DC) and plays back,
+  each at a fixed place compared with tolerance 0; Alt+Space opens the control
   menu, X maximizes (the border goes, the caption reaches the corner)
   and Alt+Space, Enter restores; `fault.exe`'s click opens the
   Application Error box, its crash report names the fault and its

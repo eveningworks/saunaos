@@ -207,6 +207,9 @@ def gdi_checks(dbg, qmp, res, tmp):
         got = [px(x0 + 4 * i + 1, 31) for i in range(4)] + [px(x0 + 4 * i + 1, 35) for i in range(4)]
         want = [inv(c) if invert else c for c in top + bottom]
         return got == want, f"got {got} want {want}"
+    def bitmap_at_y(x0, y_top, y_bottom):
+        got = [px(x0 + 4 * i + 1, y_top) for i in range(4)] + [px(x0 + 4 * i + 1, y_bottom) for i in range(4)]
+        return got == top + bottom, f"got {got} want {top + bottom}"
     ok, why = bitmap_at(16, False)
     res.check("SetDIBitsToDevice: the bitmap's colours, top row first", ok, why)
     ok, why = bitmap_at(40, False)
@@ -241,6 +244,10 @@ def gdi_checks(dbg, qmp, res, tmp):
     res.check("Polygon: a blue triangle, its edge black, nothing past its long side",
               px(186, 86) == BLUE and px(180, 92) == BLACK and px(208, 104) == WHITE,
               f"inside {px(186, 86)} edge {px(180, 92)} outside {px(208, 104)}")
+    ok, why = bitmap_at_y(78, 59, 63)
+    res.check("a RECORDED metafile played back: a red rectangle with a black edge, and the bitmap blitted into it",
+              px(56, 60) == BLACK and px(75, 60) == BLACK and px(60, 60) == RED and px(66, 64) == RED and ok,
+              f"edge {px(56, 60)}/{px(75, 60)} fill {px(60, 60)}/{px(66, 64)}; bitmap {why}")
     res.check("the program's caret: a 2-pixel black bar at its SetCaretPos, the white past it untouched",
               px(224, 80) == BLACK and px(225, 87) == BLACK and px(226, 80) == WHITE and px(224, 88) == WHITE,
               f"224,80:{px(224, 80)} 225,87:{px(225, 87)} 226,80:{px(226, 80)} 224,88:{px(224, 88)}")
