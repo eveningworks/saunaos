@@ -110,6 +110,26 @@ KTEST("mm", "the kernel heap grows into memory above 4 GiB") {
     KTEST_ASSERT_EQ(bad, 0);
 }
 
+// A region bigger than the kept cushion goes back to pmm the moment a
+// free leaves it empty -- the half of free page reporting that kmalloc
+// memory depends on.
+KTEST("mm", "a heap region a free empties goes back to pmm") {
+    const uint64_t frames = 1024;              // 4 MiB
+    uint64_t before = pmm_free_frames();
+    uint8_t *blk = kmalloc(frames * 4096);
+    KTEST_ASSERT(blk != 0);
+    uint64_t during = pmm_free_frames();
+    if (during + frames > before) {            // a free block already big enough served it
+        kfree(blk);
+        KTEST_SKIP("an existing free block served 4 MiB; no fresh region to give back");
+    }
+    blk[0] = 1;
+    kfree(blk);
+    uint64_t after = pmm_free_frames();
+    KTEST_ASSERT(after >= during + frames);
+    KTEST_ASSERT_EQ(heap_validate(), 0);
+}
+
 // ---- stage 3: the consumers that now say PMM_ZONE_ANY ---------------
 //
 // Each of these drives the REAL path and then names the frame behind

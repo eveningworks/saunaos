@@ -179,7 +179,7 @@ is the bookkeeping that makes any other kind of mapping possible.
 **Needs:** nothing -- free page reporting built 2026-10-22.
 
 - [x] ~~Free page reporting via virtio-balloon: freed 2 MiB blocks go back to the host~~ DONE 2026-10-22, on in `make run`
-- [ ] The kernel heap returns empty regions to pmm, so freed kmalloc memory (ramfs `/tmp`) reaches the host too
+- [x] ~~The kernel heap returns empty regions to pmm, so freed kmalloc memory reaches the host too~~ DONE 2026-10-22
 - [ ] Memory reported to the host in `meminfo` and Task Manager
 - [ ] Classic balloon inflate/deflate, so the host can ask for a size (QMP `balloon`)
 - [ ] The balloon's stats queue, so the host's `guest-stats` reads the guest's own numbers
@@ -194,7 +194,7 @@ is the bookkeeping that makes any other kind of mapping possible.
 - [ ] Stage 4: direct reclaim on frame exhaustion, clock/second-chance over the Accessed bit
 - [ ] An out-of-memory killer -- the machine running out ends the biggest process, not whoever faults next
 - [ ] Stage 5: swap usage in `meminfo` and Task Manager, and a swap FILE via extents
-- [ ] Stage 6: ramfs off the kernel heap, which is the only thing that makes `/tmp` swappable
+- [ ] Stage 6: ramfs's frames (off the kernel heap since 2026-10-22) made pageable, so `/tmp` can swap
 
 ## Phase 3 -- the process model
 

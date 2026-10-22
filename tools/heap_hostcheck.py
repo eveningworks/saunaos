@@ -36,9 +36,14 @@ first-fit walk quadratic (a Wikipedia article: 0.1 s against minutes).
   python3 tools/heap_hostcheck.py --positive-control
   python3 tools/heap_hostcheck.py --netsurf data/tests/web/net.html
 
---positive-control builds a copy with release() back to merging a freed
-block into its left neighbour BEFORE listing it -- the first bug the
-bins had -- and passes only if the validation catches it.
+Every fuzz runs twice more with HEAP_RETURNS=1, the kernel's side: a
+region left wholly free goes back (munmap), and after freeing everything
+at most the kept cushion may still be mapped.
+
+--positive-control builds two broken copies and passes only if each is
+caught: release() merging a freed block into its left neighbour BEFORE
+listing it (the first bug the bins had), and a region given back while
+a block in it is still live.
 """
 import argparse
 import os
@@ -59,6 +64,7 @@ HOOKS = r"""
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
 #include <pthread.h>
@@ -67,10 +73,18 @@ void heap_os_lock(void) { pthread_mutex_lock(&mu); }
 void heap_os_unlock(void) { pthread_mutex_unlock(&mu); }
 int heap_os_should_fail_alloc(void) { return 0; }
 void heap_os_report(const char *m) { fputs(m, stderr); }
+static uint64_t mapped;
+uint64_t hooks_mapped_bytes(void) { return mapped; }
 void *heap_os_alloc(uint64_t b) {
     void *p = mmap(0, b, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    return p == MAP_FAILED ? 0 : p;
+    if (p == MAP_FAILED) return 0;
+    mapped += b;
+    return p;
 }
+// HEAP_RETURNS=1 is the kernel's side: regions go back, and munmap makes
+// one given back while still in use a crash rather than a quiet pass.
+int heap_os_returns_memory(void) { const char *e = getenv("HEAP_RETURNS"); return e && *e == '1'; }
+void heap_os_free(void *r, uint64_t b) { munmap(r, b); mapped -= b; }
 void k_memset(void *d, uint8_t c, size_t n) { memset(d, c, n); }
 void k_memcpy(void *d, const void *s, size_t n) { memcpy(d, s, n); }
 int k_snprintf(char *b, size_t n, const char *f, ...) {
@@ -102,9 +116,10 @@ FUZZ = r"""
 void *kmalloc(size_t); void kfree(void *); void *krealloc(void *, size_t);
 uint64_t kmalloc_size(const void *); uint64_t heap_used_bytes(void);
 uint64_t heap_validate(void); uint64_t heap_violations(void); void heap_set_debug(int);
+uint64_t hooks_mapped_bytes(void);
 #define N 4096
 static unsigned char *ptr[N]; static size_t len[N]; static unsigned char tag[N];
-static uint64_t rng;
+static uint64_t rng; static int heap_set_debug_was;
 static uint64_t rnd(void) { rng ^= rng << 13; rng ^= rng >> 7; rng ^= rng << 17; return rng; }
 static size_t rsize(void) {
     uint64_t r = rnd() % 100;
@@ -117,6 +132,7 @@ static int intact(int i) {
 static void fill(int i) { for (size_t k = 0; k < len[i]; k++) ptr[i][k] = (unsigned char)(tag[i] + k); }
 int main(int argc, char **argv) {
     long steps = atol(argv[1]); rng = strtoull(argv[2], 0, 0) | 1; heap_set_debug(atoi(argv[3]));
+    heap_set_debug_was = atoi(argv[3]);   // poisoned blocks never merge, so debug keeps regions
     for (long it = 0; it < steps; it++) {
         if (it % 20000 == 0 && heap_validate()) { printf("FAIL validate at step %ld\n", it); return 1; }
         int i = rnd() % N, op = rnd() % 3;
@@ -139,9 +155,14 @@ int main(int argc, char **argv) {
     }
     for (int i = 0; i < N; i++) if (ptr[i]) kfree(ptr[i]);
     unsigned long v = (unsigned long)heap_validate(), u = (unsigned long)heap_used_bytes();
-    printf("%s %ld steps, validate %lu, used after freeing all %lu, violations %lu\n",
-           v || u ? "FAIL" : "ok", steps, v, u, (unsigned long)heap_violations());
-    return v || u;
+    // Giving back: what is still mapped is at most the kept cushion
+    // (256 KiB) plus the one small region kept on top of it.
+    unsigned long m = (unsigned long)hooks_mapped_bytes();
+    const char *ret = getenv("HEAP_RETURNS");
+    int kept = ret && *ret == '1' && !heap_set_debug_was && m > 512 * 1024;
+    printf("%s %ld steps, validate %lu, used after freeing all %lu, still mapped %lu KiB, violations %lu\n",
+           v || u || kept ? "FAIL" : "ok", steps, v, u, m / 1024, (unsigned long)heap_violations());
+    return v || u || kept;
 }
 """
 
@@ -151,7 +172,8 @@ SLAB_FUZZ = FUZZ.replace("kmalloc(len[i])", "malloc(len[i])") \
     .replace("|| kmalloc_size(ptr[i]) < len[i]", "") \
     .replace("void *kmalloc(size_t); void free(void *); void *realloc(void *, size_t);",
              "void *malloc(size_t); void free(void *); void *realloc(void *, size_t);") \
-    .replace("u = (unsigned long)heap_used_bytes()", "u = 0")
+    .replace("u = (unsigned long)heap_used_bytes()", "u = 0") \
+    .replace("ret && *ret == '1' && ", "0 && ")
 
 THREADS = r"""
 #include <pthread.h>
@@ -193,23 +215,28 @@ int main(void) {
 }
 """
 
-# The first bug the bins had: a block merged into its left neighbour
-# before it was ever listed, so the merge unlinked a stranger.
-BROKEN = ("""    bin_insert(b);   // before the merge below, which takes `b` out again
+# Two controls, each a past or plausible bug the checks must catch:
+# a block merged into its left neighbour before it was ever listed (the
+# first bug the bins had), and a region given back while a block in it
+# is still live (giving back's own trap -- munmap turns it into a crash).
+CONTROLS = {
+    "merge-before-list": ("""    bin_insert(b);   // before the merge below, which takes `b` out again
     struct heap_block *p = b->prev;
-    if (p && p->free == HEAP_FREE && (uint8_t *)(p + 1) + p->size == (uint8_t *)b) {
+    if (p && p->free == HEAP_FREE && may_absorb(p, b)) {
         bin_remove(p);
         try_merge_next(p);
         bin_insert(p);
-    }
-}""", """    struct heap_block *p = b->prev;
-    if (p && p->free == HEAP_FREE && (uint8_t *)(p + 1) + p->size == (uint8_t *)b) {
+        b = p;
+    }""", """    struct heap_block *p = b->prev;
+    if (p && p->free == HEAP_FREE && may_absorb(p, b)) {
         bin_remove(p);
         try_merge_next(p);
         b = p;
     }
-    bin_insert(b);
-}""")
+    bin_insert(b);"""),
+    "give-back-live-region": ("""    if (b->next && !starts_region(b->next)) return;
+""", ""),
+}
 
 
 def gcc(*args):
@@ -218,13 +245,14 @@ def gcc(*args):
         sys.exit("heap_hostcheck: gcc failed:\n" + r.stderr)
 
 
-def build(tmp, broken=False):
+def build(tmp, broken=None):
     core = CORE
     if broken:
+        old, new = CONTROLS[broken]
         text = open(CORE).read()
-        assert BROKEN[0] in text, "positive control could not find release()'s merge"
+        assert text.count(old) == 1, f"positive control {broken} could not find its code"
         core = os.path.join(tmp, "heap_core_broken.c")
-        open(core, "w").write(text.replace(BROKEN[0], BROKEN[1]))
+        open(core, "w").write(text.replace(old, new))
     for name, src in (("hooks", HOOKS), ("preload", PRELOAD), ("fuzz", FUZZ)):
         open(os.path.join(tmp, name + ".c"), "w").write(src)
     obj = lambda n: os.path.join(tmp, n + ".o")
@@ -253,11 +281,15 @@ def build(tmp, broken=False):
 
 def fuzz_runs(fuzz, steps, seed):
     ok = True
-    for debug, n in ((0, steps), (1, max(steps // 5, 20000))):
-        r = subprocess.run([fuzz, str(n), str(seed), str(debug)], capture_output=True, text=True)
-        line = (r.stdout.strip().splitlines() or ["(no output)"])[-1]
-        print(f"  {'debug' if debug else 'plain'}: {line}")
-        ok &= r.returncode == 0
+    for returns in ("0", "1"):
+        for debug, n in ((0, steps), (1, max(steps // 5, 20000))):
+            env = dict(os.environ, HEAP_RETURNS=returns)
+            r = subprocess.run([fuzz, str(n), str(seed), str(debug)], capture_output=True,
+                               text=True, env=env)
+            line = (r.stdout.strip().splitlines() or [f"(no output, exit {r.returncode})"])[-1]
+            mode = ("debug" if debug else "plain") + (", giving back" if returns == "1" else "")
+            print(f"  {mode}: {line}")
+            ok &= r.returncode == 0
     return ok
 
 
@@ -307,10 +339,14 @@ def main():
         sys.exit("heap_hostcheck: needs gcc")
     with tempfile.TemporaryDirectory(prefix="heap_hostcheck.") as tmp:
         if a.positive_control:
-            fuzz, _ = build(tmp, broken=True)
-            caught = not fuzz_runs(fuzz, a.steps, a.seed)
-            print("positive control:", "CAUGHT (good)" if caught else "MISSED -- the check is blind")
-            return 0 if caught else 1
+            all_caught = True
+            for name in CONTROLS:
+                fuzz, _ = build(os.path.join(tmp, name) if os.makedirs(os.path.join(tmp, name)) is None else tmp,
+                                broken=name)
+                caught = not fuzz_runs(fuzz, a.steps, a.seed)
+                print(f"positive control {name}:", "CAUGHT (good)" if caught else "MISSED -- the check is blind")
+                all_caught &= caught
+            return 0 if all_caught else 1
         fuzz, lib = build(tmp)
         print(f"heap_core.c, {a.steps} steps, seed {a.seed:#x}")
         ok = fuzz_runs(fuzz, a.steps, a.seed)

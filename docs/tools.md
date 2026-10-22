@@ -6865,9 +6865,14 @@ runs first**: a `doom1.wad` with one
   heap: that fuzz through `malloc`/`calloc`/`realloc`/`free`, and four
   threads freeing each other's blocks. `--netsurf PAGE` preloads the same allocator into the host's NetSurf
   and times a layout against glibc's -- the measurement that found the
-  old first-fit walk quadratic. `--positive-control` restores the first
-  bins bug (a merge unlinking a block never listed) and passes only if
-  validation catches it. In `ondemand_sweep.py` as `heap_host`.
+  old first-fit walk quadratic. Every kernel-heap fuzz runs again with
+  `HEAP_RETURNS=1`, the kernel's side, where a region a free empties goes
+  back (`munmap`, so a region given back while still in use crashes), and
+  after freeing everything at most the kept cushion may still be mapped.
+  `--positive-control` builds two broken copies -- the first bins bug (a
+  merge unlinking a block never listed) and a region given back with a
+  live block in it -- and passes only if each is caught. In
+  `ondemand_sweep.py` as `heap_host`.
 
 - **`hash_hostcheck.py`** -- compiles `/lib/libhash.so`'s two algorithms
   (`userland/dynlib/uhash.c` plus `kernel/lib/kcrc.c`) with the host gcc

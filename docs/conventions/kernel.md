@@ -4972,11 +4972,11 @@ any frame in it reads zeros. So:
   "free, then read it back" shortcut, not a debug pattern checked after
   reallocation. It was never promised; it is now false in practice.
   An allocator that hands out a frame must zero or fill it itself.
-- **Only `pmm_free_frame()`/`pmm_free_contiguous()` give memory back.**
-  The kernel heap keeps every region it ever took, so `kfree()` --
-  and with it ramfs, whose `/tmp` data is kmalloc'd -- returns nothing
-  to the host. **Test reporting with ring-3 memory**: `memtest 400`
-  then watch QEMU's RSS, never a `/tmp` file.
+- **Memory reaches the host only through pmm.** A `kfree()` does when
+  it leaves a whole heap region free (`give_back_region()`); a region
+  holding one live block stays. **Test reporting by host RSS** --
+  `memtest 400`, or a `/tmp` file deleted -- never by the guest's own
+  free count alone.
 - **The walk runs from `scheduler_idle()`**, never from a free path; a
   busy machine reports when it next idles, about 2 s after a block's
   worth of frames has been freed.

@@ -19,9 +19,9 @@
 // borrowing the name would promise a mechanism that does not exist.
 // **That stays true now that this backs `/tmp`**, which is the obvious
 // moment to start calling it tmpfs. What is missing is not the mount,
-// it is that these chunks are kmalloc'd KERNEL HEAP, which no page
-// reclaim can evict -- Linux's tmpfs is swappable because its pages are
-// shmem rather than slab. See docs/swap-design.md, stage 6.
+// it is that nothing can evict these chunks: they are whole frames now,
+// as tmpfs's are pages, but there is no swap to page them to. See
+// docs/swap-design.md, stage 6.
 //
 // ---- the three decisions worth knowing before editing ----
 //
@@ -35,18 +35,17 @@
 //    of RAMFS_MAX_NODES pointers per lookup -- not what a directory
 //    listing will be waiting on.
 //
-// 2. FILE DATA IS CHUNKED, and the reason is the allocator, not taste.
-//    kmalloc -> heap_os_alloc() -> pmm_alloc_contiguous(), so every
-//    heap region is a physically contiguous run of frames. One buffer
-//    per file would ask for a run as large as the file -- 6144
-//    contiguous frames for a 24 MiB file -- which fails on a fragmented
-//    machine while `meminfo` still shows memory free. That failure is
-//    invisible until the box has been up a while, which is the worst
-//    shape a bug can have. Fixed RAMFS_CHUNK pages, addressed through a
-//    per-file pointer array, never need a run bigger than one page for
-//    data. A NULL chunk reads as zeroes, which is also what makes
-//    fs_truncate()'s "growing does not consume blocks" contract true
-//    here for free.
+// 2. FILE DATA IS ONE FRAME PER CHUNK, STRAIGHT FROM pmm. One buffer
+//    per file would need a physically contiguous run as large as the
+//    file -- 6144 frames for a 24 MiB file -- which fails on a
+//    fragmented machine while `meminfo` still shows memory free.
+//    Fixed RAMFS_CHUNK frames, addressed through a per-file pointer
+//    array, never need a run. They are NOT kmalloc'd: the kernel heap
+//    keeps a region until every block in it is free, so a deleted file's
+//    chunks, interleaved with live ones, would never reach pmm -- nor,
+//    under a hypervisor, the host (page_report.h). A NULL chunk reads as
+//    zeroes, which is also what makes fs_truncate()'s "growing does not
+//    consume blocks" contract true here for free.
 //
 // 3. IT HAS A BUDGET, because this kernel has no OOM killer. Linux's
 //    ramfs is famously unbounded and relies on one. Here the ramfs and
@@ -75,9 +74,15 @@
 // caller can express.
 #define RAMFS_NAME_MAX 48
 
-// One page, so a data allocation is always a single-frame request --
-// see decision 2 above.
+// One frame -- see decision 2 above.
 #define RAMFS_CHUNK 4096
+
+static uint8_t *chunk_new(void) {
+    uint64_t phys = pmm_alloc_frame(PMM_ZONE_ANY);
+    return phys ? (uint8_t *)(uintptr_t)phys : 0; // every managed frame is identity-mapped
+}
+
+static void chunk_free(uint8_t *c) { pmm_free_frame((uint64_t)(uintptr_t)c); }
 
 // The table is .bss rather than heap: it is the one allocation that
 // must succeed for the filesystem to exist at all, and a root
@@ -157,7 +162,7 @@ static void free_chunks(struct ramfs_state *sbi, struct rnode *n) {
     if (!n->chunks) return;
     for (uint32_t i = 0; i < n->chunk_cap; i++) {
         if (n->chunks[i]) {
-            kfree(n->chunks[i]);
+            chunk_free(n->chunks[i]);
             budget_give(sbi, RAMFS_CHUNK);
         }
     }
@@ -329,7 +334,7 @@ static uint8_t *chunk_at(struct ramfs_state *sbi, struct rnode *n, uint64_t off,
     }
     if (!n->chunks[idx] && create) {
         if (!budget_take(sbi, RAMFS_CHUNK)) return 0;
-        n->chunks[idx] = kmalloc(RAMFS_CHUNK);
+        n->chunks[idx] = chunk_new();
         if (!n->chunks[idx]) { budget_give(sbi, RAMFS_CHUNK); return 0; }
         k_memset(n->chunks[idx], 0, RAMFS_CHUNK);
     }
@@ -657,7 +662,7 @@ static int ramfs_truncate(void *st, const char *path, uint64_t size) {
         uint32_t keep = (uint32_t)((size + RAMFS_CHUNK - 1) / RAMFS_CHUNK);
         for (uint32_t i = keep; i < n->chunk_cap; i++) {
             if (n->chunks[i]) {
-                kfree(n->chunks[i]);
+                chunk_free(n->chunks[i]);
                 n->chunks[i] = 0;
                 budget_give(sbi, RAMFS_CHUNK);
             }

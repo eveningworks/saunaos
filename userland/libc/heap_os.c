@@ -28,6 +28,10 @@ void *heap_os_alloc(uint64_t bytes) {
     return (p == (void *)-1) ? 0 : p;
 }
 
+// sbrk cannot move down, so nothing goes back (see the top comment).
+int heap_os_returns_memory(void) { return 0; }
+void heap_os_free(void *region, uint64_t bytes) { (void)region; (void)bytes; }
+
 // stderr, not stdout: a GUI client's stdout goes nowhere useful and a
 // spawned process's goes into its parent's pipe, while stderr reaches
 // the kernel log and `dmesg` where a test can read it. Same reasoning

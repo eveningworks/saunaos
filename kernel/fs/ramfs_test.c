@@ -19,6 +19,7 @@
 #include "fs.h"
 #include "string.h"
 #include "heap.h"
+#include "pmm.h"
 #include "kfmt.h"
 
 // Every test mounts with a small budget rather than the half-of-free-
@@ -201,6 +202,26 @@ KTEST("ramfs", "delete refuses a non-empty directory, and frees a file's chunks"
     KTEST_ASSERT(!R()->del(ST, "/never-existed"));
 
     ramfs_test_unmount();
+}
+
+// The budget moving is not the memory moving: chunks kmalloc'd from the
+// kernel heap left the budget on delete and stayed in the heap. Asked of
+// the frame allocator, which is what a hypervisor's balloon sees.
+KTEST("ramfs", "a deleted file's data goes back to the frame allocator") {
+    KTEST_ASSERT(ramfs_test_mount(TEST_BUDGET));
+    static uint8_t blob[4096];
+    k_memset(blob, 0xA5, sizeof blob);
+    int written = 0;
+    for (int i = 0; i < 32; i++)
+        written += R()->write_range(ST, "/f.bin", (uint64_t)i * 4096, blob, 4096) ? 1 : 0;
+    uint64_t with_file = pmm_free_frames();
+    int deleted = R()->del(ST, "/f.bin");
+    uint64_t after = pmm_free_frames();
+    ramfs_test_unmount();
+
+    KTEST_ASSERT_EQ(written, 32);
+    KTEST_ASSERT(deleted);
+    KTEST_ASSERT(after >= with_file + 32);
 }
 
 KTEST("ramfs", "rename moves a file, and refuses to move a directory into itself") {

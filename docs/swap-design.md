@@ -244,12 +244,13 @@ Manager; a swap FILE via extents resolved at swapon; a
 `vm.swappiness`-shaped setting if a second real caller for it turns up.
 
 **Stage 6 — and only now does `/tmp` benefit, which is the finding worth
-stating loudest.** ramfs file data is `kmalloc`'d kernel heap
-(`chunk_at()`, `kernel/fs/ramfs.c`), and kernel heap is not swappable by any of
-the above. Linux's tmpfs is swappable precisely because its pages are
-shmem pages on the LRU rather than slab. So a `/tmp` that pages to swap
-needs ramfs's chunks moved off the heap onto raw frames FIRST — at which
-point it can stop being called `ramfs` honestly. **Everything before
+stating loudest.** Kernel heap is not swappable by any of the above, and
+Linux's tmpfs is swappable precisely because its pages are shmem pages
+on the LRU rather than slab. ramfs's chunks moved off the heap onto raw
+frames on 2026-10-22 (`chunk_new()`, `kernel/fs/ramfs.c`), for free page
+reporting's sake, so what is left of this stage is putting those frames
+where page-out can find them -- at which point it can stop being called
+`ramfs` honestly. **Everything before
 this stage leaves `/tmp` exactly as unswappable as it is today**, and a
 reader who assumes otherwise will build stages 1-5 and find the feature
 they wanted is still missing.

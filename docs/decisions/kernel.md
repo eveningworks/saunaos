@@ -9772,15 +9772,63 @@ walk runs there, a few batches per pass, asking for its wake when due.
 already has and a block is reported again only once it was used and
 freed. Isolation is the ordinary used bit, so nothing can allocate a
 block while the host is being told; a zone is never isolated below
-32 MiB free, so a report in flight cannot be what fails an allocation.
+32 MiB free (DMA32 also keeps its reserve), so a report in flight is not
+what fails a single-frame allocation -- a large contiguous run can still
+find a stretch split for the moment a batch is out. Interrupts go off
+per block, not for the walk.
 
-**Why STATS_VQ is negotiated and never driven.** The spec numbers
-queues densely, skipping absent ones; QEMU always creates the stats
-queue. Negotiating STATS_VQ (which QEMU always offers) makes both say
-the reporting queue is index 3.
+**Why STATS_VQ and FREE_PAGE_HINT are negotiated and never driven.**
+The spec numbers queues densely, skipping absent ones; QEMU creates the
+stats queue always and the hinting queue whenever it offers hinting.
+Taking both whenever offered makes the two numberings agree -- the
+reporting queue is 3, or 4 with `free-page-hint=on` -- where a fixed 3
+silently reported into the hinting queue. An unanswered hint request
+costs a migration only the pages it would have skipped.
 
-**What it cannot return.** The kernel heap never gives a region back to
-the frame allocator, so kmalloc's high-water mark -- ramfs's `/tmp`
-data above all -- stays resident on the host after it is freed. That is
-a roadmap item ("The kernel heap returns empty regions"), not part of
-this design.
+**It needs memory to reach the frame allocator.** A `kfree()` used to
+return nothing to pmm, which left a deleted `/tmp` file resident on the
+host; see "The kernel heap gives a region back once a free empties it".
+
+## The kernel heap gives a region back once a free empties it
+
+Chosen 2026-10-22, for free page reporting: `heap_core.c` only ever
+appended regions, so the kernel heap was a high-water mark, and ramfs's
+`/tmp` data -- kmalloc'd 4 KiB chunks -- stayed resident on the host
+after the file was deleted (150 MiB filled and deleted: QEMU's RSS did
+not move).
+
+**What real systems do.** Linux's kmalloc is slab: an empty slab goes
+back to the page allocator (SLUB keeps `min_partial` of them), and a
+large kmalloc bypasses slab for whole pages that go back on `kfree()`.
+tmpfs never uses kmalloc for file data -- its pages are page-cache
+pages. glibc trims the top of its heap and `munmap`s chunks it got by
+`mmap`; Windows' HeapFree decommits past a threshold. toy-os takes two
+of those shapes:
+
+- **ramfs's file data is whole frames from pmm** (`chunk_new()`), as
+  tmpfs's are pages. A chunk was always exactly one frame; kmalloc only
+  added a header that made it two and tied it to a region's lifetime.
+- **A region a free leaves wholly free goes back** (`give_back_region()`,
+  `heap_os_free()`), which covers every other kmalloc user and makes a
+  big kmalloc behave like Linux's large path: its own region, returned
+  at `kfree()`.
+
+**Why region edges stop merging, in the kernel only.** Free blocks used
+to merge by address across regions, which loses where a region starts.
+A region's first header carries its own magic and no merge crosses it
+where the platform can take memory back (`heap_os_returns_memory()`).
+Ring 3's sbrk cannot shrink, so there regions still merge -- folding a
+free tail into the next sbrk is what lets a growing buffer avoid a third
+region.
+
+**Why a cushion, and only for small regions.** A region of the 64 KiB
+growth unit is kept while the heap's free bytes would be under 256 KiB
+without it, so a burst of small kmalloc/kfree does not take and return a
+contiguous run every time (pmm's run search is linear). A region bigger
+than the cushion always goes back: keeping it would make the cushion
+whatever the largest past allocation was. The hot `fd_bounce_alloc()`
+buffers are a few KiB and live in kept regions.
+
+**What it still cannot return.** A region with one live block stays, so
+a long-lived small allocation pins its 64 KiB. Slab-style per-size pages
+would bound that; nothing here measured it worth building.

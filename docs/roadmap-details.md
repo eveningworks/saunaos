@@ -3856,15 +3856,15 @@ subtraction) is in.
 `docs/decisions/kernel.md` ("Free memory goes back to a hypervisor by
 free page reporting, walked from the idle loop").
 
-- **The kernel heap returns empty regions to pmm.** `heap_core.c` only
-  ever appends regions (`append_region()`), so the heap is a high-water
-  mark: fill a 150 MiB `/tmp` file and delete it, and the frames stay in
-  kmalloc's free list -- QEMU's RSS does not move, while the same amount
-  of ring-3 memory freed by a process exit is back on the host within
-  3 s. Returning a region needs it wholly free (coalesced to its full
-  original extent), which the free list can already tell by address.
-  Stage 6 of Swap (ramfs off the kernel heap) would also fix the `/tmp`
-  half.
+- [x] ~~**The kernel heap returns empty regions to pmm.**~~ DONE 2026-10-22.
+  `heap_core.c` used to only append regions, so the heap was a
+  high-water mark: a 150 MiB `/tmp` file deleted left QEMU's RSS where it
+  was. Now a region a free leaves wholly free goes back to pmm (small
+  ones kept while the free cushion is under 256 KiB), and ramfs's file
+  data is whole frames rather than kmalloc. The same `/tmp` fill and
+  delete now drops RSS from 289 to 151 MiB within 3 s. Why this shape:
+  `docs/decisions/kernel.md`, "The kernel heap gives a region back once
+  a free empties it".
 
 ## Swap / paging to disk
 

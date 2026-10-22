@@ -26,6 +26,12 @@ void *heap_os_alloc(uint64_t bytes) {
     return phys ? (void *)(uintptr_t)phys : 0;
 }
 
+int heap_os_returns_memory(void) { return 1; }
+
+void heap_os_free(void *region, uint64_t bytes) {
+    pmm_free_contiguous((uint64_t)(uintptr_t)region, bytes / HEAP_PAGE_SIZE);
+}
+
 void heap_os_report(const char *msg) { klog_write(msg); }
 
 int heap_os_should_fail_alloc(void) { return fault_should_fail_alloc(); }

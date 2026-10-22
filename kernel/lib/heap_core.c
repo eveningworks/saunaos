@@ -17,6 +17,11 @@
 // This file just carves that identity-mapped space into
 // variable-sized blocks.
 //
+// A REGION GOES BACK when a free leaves it wholly free -- in the kernel,
+// where heap_os_free() returns frames to pmm; ring 3's sbrk cannot
+// shrink. That is why no merge crosses a region's first block there
+// (may_absorb()), and why a region's first header carries its own magic.
+//
 // There's no single contiguous region growing via something like
 // sbrk()/brk() -- each time the free list can't satisfy a request, a
 // fresh region is pulled from pmm (pmm_alloc_contiguous(), NOT
@@ -108,6 +113,15 @@
 // `free` anyway, so it costs nothing, and it is what makes kfree()'s
 // plain path able to reject a pointer that isn't one of ours.
 #define HEAP_HDR_MAGIC 0x48454150u // 'HEAP'
+// The same, on the block that STARTS a region heap_os_alloc() returned.
+// Where the platform takes memory back (heap_os_returns_memory()), no
+// merge crosses it, so a region whose first block covers it all is
+// wholly free and can go back -- SLUB freeing an empty slab, in shape.
+#define HEAP_HDR_MAGIC_REGION 0x48454152u // 'HEAR'
+// Small regions (the 64 KiB growth unit) are kept while the heap's free
+// cushion is under this, so a burst of kmalloc/kfree does not take and
+// return a region every time. A region bigger than this always goes back.
+#define HEAP_KEEP_FREE_BYTES (256u * 1024)
 
 struct heap_block {
     uint64_t size;            // usable payload size, NOT including this header
@@ -180,6 +194,16 @@ static int is_free(const struct heap_block *b) {
     return b->free == HEAP_FREE || b->free == HEAP_FREE_POISONED;
 }
 
+static int starts_region(const struct heap_block *b) { return b->magic == HEAP_HDR_MAGIC_REGION; }
+
+// May `n` be folded into `b`? Only when it starts where `b` ends -- list
+// neighbours may be different regions -- and, where regions go back to
+// the platform, never across a region's first block.
+static int may_absorb(const struct heap_block *b, const struct heap_block *n) {
+    if ((uint8_t *)(b + 1) + b->size != (uint8_t *)n) return 0;
+    return !(starts_region(n) && heap_os_returns_memory());
+}
+
 static void try_merge_next(struct heap_block *b);
 
 // A free block of at least `need`, still in its list, or NULL. The
@@ -212,7 +236,7 @@ static struct heap_block *append_region(uint64_t pages) {
     struct heap_block *b = (struct heap_block *)region;
     b->size = pages * HEAP_PAGE_SIZE - sizeof(struct heap_block);
     b->free = HEAP_FREE;
-    b->magic = HEAP_HDR_MAGIC;
+    b->magic = HEAP_HDR_MAGIC_REGION;
     b->next = 0;
     b->prev = g_tail;
     if (g_tail) g_tail->next = b;
@@ -226,7 +250,7 @@ static struct heap_block *append_region(uint64_t pages) {
     // bigger than either be met without a third region.
     bin_insert(b);   // first: try_merge_next() takes `b` out of its list
     struct heap_block *p = b->prev;
-    if (p && p->free == HEAP_FREE && (uint8_t *)(p + 1) + p->size == (uint8_t *)b) {
+    if (p && p->free == HEAP_FREE && may_absorb(p, b)) {
         bin_remove(p);
         try_merge_next(p);
         bin_insert(p);
@@ -392,7 +416,7 @@ static void quarantine(struct heap_block *b) {
 // one and start unlinking whatever it found there. This turns that
 // into a report. Deliberately cheap and always on, debug mode or not.
 static int header_plausible(const struct heap_block *b) {
-    if (b->magic != HEAP_HDR_MAGIC) return 0;
+    if (b->magic != HEAP_HDR_MAGIC && b->magic != HEAP_HDR_MAGIC_REGION) return 0;
     if (b->free != HEAP_IN_USE && b->free != HEAP_FREE && b->free != HEAP_FREE_POISONED &&
         b->free != HEAP_HELD) return 0;
     if (b->size == 0 || b->size > g_total_bytes) return 0;
@@ -515,8 +539,7 @@ static void try_merge_next(struct heap_block *b) {
     // used to depend on whether the freed block's neighbours happened to
     // be free. It costs fragmentation only while `heap debug` is on;
     // Linux's KASAN quarantine holds freed memory back for the same reason.
-    if (!n || n->free != HEAP_FREE) return;
-    if ((uint8_t *)(b + 1) + b->size != (uint8_t *)n) return; // not physically adjacent
+    if (!n || n->free != HEAP_FREE || !may_absorb(b, n)) return;
 
     bin_remove(n);
     b->size += sizeof(struct heap_block) + n->size;
@@ -614,7 +637,26 @@ static void kfree_locked(void *ptr, uintptr_t ip) {
 #endif
 }
 
-// A freed block rejoins the free list: merged with any free neighbour.
+// `b`, free and in its list, goes back to the platform when it is a
+// whole region: it starts one, and the next block in the list (blocks
+// tile a region in list order) starts another or there is none.
+static void give_back_region(struct heap_block *b) {
+    if (!heap_os_returns_memory() || b->free != HEAP_FREE || !starts_region(b)) return;
+    if (b->next && !starts_region(b->next)) return;
+    uint64_t bytes = sizeof *b + b->size;
+    uint64_t free_after = g_total_bytes - g_used_bytes - b->size;
+    if (bytes <= HEAP_KEEP_FREE_BYTES && free_after < HEAP_KEEP_FREE_BYTES) return;
+    bin_remove(b);
+    if (b->prev) b->prev->next = b->next;
+    else g_head = b->next;
+    if (b->next) b->next->prev = b->prev;
+    else g_tail = b->prev;
+    g_total_bytes -= b->size;
+    heap_os_free(b, bytes);
+}
+
+// A freed block rejoins the free list: merged with any free neighbour,
+// and given back if that leaves its whole region free.
 static void release(struct heap_block *b) {
     if (b->free == HEAP_FREE_POISONED) {   // kept apart: see try_merge_next()
         bin_insert(b);
@@ -638,11 +680,13 @@ static void release(struct heap_block *b) {
     // counter. See docs/decisions.md for the full story.
     bin_insert(b);   // before the merge below, which takes `b` out again
     struct heap_block *p = b->prev;
-    if (p && p->free == HEAP_FREE && (uint8_t *)(p + 1) + p->size == (uint8_t *)b) {
+    if (p && p->free == HEAP_FREE && may_absorb(p, b)) {
         bin_remove(p);
         try_merge_next(p);
         bin_insert(p);
+        b = p;
     }
+    give_back_region(b);
 }
 
 void kfree(void *ptr) {
@@ -666,8 +710,7 @@ static void *krealloc_locked(void *p, size_t n) {
     if (!rz_armed(p) && header_plausible(b) && b->free == HEAP_IN_USE) {
         uint64_t old = b->size;
         struct heap_block *nx = b->next;
-        if (need > old && nx && nx->free == HEAP_FREE &&
-            (uint8_t *)(b + 1) + old == (uint8_t *)nx &&
+        if (need > old && nx && nx->free == HEAP_FREE && may_absorb(b, nx) &&
             old + sizeof(struct heap_block) + nx->size >= need) {
             bin_remove(nx);
             b->size += sizeof(struct heap_block) + nx->size;
@@ -750,9 +793,8 @@ uint64_t heap_validate(void) {
         if (is_free(b)) {
             free_blocks++;
             struct heap_block *n = b->next;
-            if (b->free == HEAP_FREE && n && n->free == HEAP_FREE &&
-                (uint8_t *)(b + 1) + b->size == (uint8_t *)n)
-                bad++;   // poisoned blocks stay apart on purpose
+            if (b->free == HEAP_FREE && n && n->free == HEAP_FREE && may_absorb(b, n))
+                bad++;   // poisoned blocks and region edges stay apart on purpose
         } else if (b->free == HEAP_IN_USE) {
             used += b->size;
         }

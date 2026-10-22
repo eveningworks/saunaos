@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-// The three things the allocator deliberately does not know.
+// The things the allocator deliberately does not know.
 //
 // kernel/lib/heap_core.c is the free-list allocator -- first fit,
 // address-ordered, coalescing, with red-zones and use-after-free
@@ -24,15 +24,21 @@
 // out the other's memory.
 
 // One contiguous run of at least `bytes`, or NULL. The allocator asks
-// for this only when its free list cannot satisfy a request, and never
-// gives any of it back -- neither side has a shrink path (the kernel's
-// pmm regions are permanent, and sbrk cannot move down).
+// for this only when its free list cannot satisfy a request.
 //
 // The kernel returns identity-mapped physical frames; ring 3 returns
 // sbrk'd address space, whose PAGES do not exist until touched. The
 // allocator writes a block header into the region immediately, so ring
 // 3's first touch happens right here.
 void *heap_os_alloc(uint64_t bytes);
+
+// Gives back a whole region heap_os_alloc() returned, `bytes` long --
+// called only when heap_os_returns_memory() says the platform can take
+// it. The kernel can (the frames go back to pmm, and under a hypervisor
+// to the host); ring 3 cannot, since sbrk only moves up, and keeps
+// merging across region edges instead, which the kernel must not.
+int heap_os_returns_memory(void);
+void heap_os_free(void *region, uint64_t bytes);
 
 // Where a corruption report goes: the kernel log, or stderr. Takes
 // finished text -- the allocator formats with k_snprintf so it needs no
