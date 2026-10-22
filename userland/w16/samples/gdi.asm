@@ -20,6 +20,7 @@
 ;               IntersectClipRect, inside SaveDC and RestoreDC
 ;   x 180..211, y 76..107 a blue triangle (Polygon), its edge black
 ;   x 224..225, y 76..87  the caret (CreateCaret, ShowCaret): black over the white
+;   x 100..115, y 62..69  a (200,100,50) brush: solid at 256 colours, dithered at 16
 ;   x 56..75, y 56..65    a metafile recorded and played: a red rectangle, its edge black,
 ;               and the bitmap at x 78..93, y 58..65 (BitBlt into it from the memory DC)
 ;
@@ -384,6 +385,30 @@ wndproc:
     push word [hbm]
     W16_CALL "GDI", 69              ; DeleteObject
 
+    ; A brush of a colour the 16-colour VGA has not got, (200,100,50): solid at
+    ; 256 colours, the driver's dither at 16 (the Colours setting).
+    push word 0x0032                ; CreateSolidBrush(RGB(200,100,50)): the COLORREF's high word first
+    push word 0x64C8
+    W16_CALL "GDI", 66
+    mov [hdith], ax
+    push word [hdc]
+    push ax
+    W16_CALL "GDI", 45
+    mov [olddith], ax
+    push word [hdc]                 ; PatBlt(hdc, 100, 62, 16, 8, PATCOPY)
+    push word 100
+    push word 62
+    push word 16
+    push word 8
+    push word 0x00F0
+    push word 0x0021
+    W16_CALL "GDI", 29
+    push word [hdc]
+    push word [olddith]
+    W16_CALL "GDI", 45
+    push word [hdith]
+    W16_CALL "GDI", 69
+
     ; A red line with a pen of our own.
     push word 0                     ; CreatePen(PS_SOLID, 1, RGB(255,0,0))
     push word 1
@@ -589,6 +614,8 @@ hwnd:       dw 0
 hdc:        dw 0
 mdc:        dw 0
 rmf:        dw 0
+hdith:      dw 0
+olddith:    dw 0
 hrbrush:    dw 0
 hbm:        dw 0
 oldbm:      dw 0

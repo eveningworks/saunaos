@@ -12200,3 +12200,39 @@ own on the dialogs' machinery (`w16_popup_new`), asked for fullscreen
 with `uapp_window_set_fullscreen()`; toywm makes only a resizable window
 fullscreen, so it opens resizable. Any other second top-level window is
 an ordinary toywm window, framed as its style says.
+
+## Windows 3.11's 16-colour dither, measured rather than looked up
+
+At 16 colours (a program's `colors=16`), 3.11's VGA driver drew a brush
+of any colour it had not got as an 8x8 pattern of the colours it had.
+w16 reproduces it in `userland/w16/dither16.c`, and the rule there was
+FITTED TO MEASUREMENTS, not taken from a document: no description of
+the 3.x VGA driver's dither was consulted, so the reference VM is the
+only authority it has.
+
+**How it was measured.** Paintbrush's Edit Colors shows the brush it
+would paint as a swatch; the reference VM, which runs 3.11 at 16
+colours, was driven through it by keyboard (each channel set on its
+scroll bar: Home, then Right that many times) and each swatch read as
+a pattern by screen x % 8 and y % 8. 14 colours fixed the rule; 9 more,
+picked afterwards and not used in the fitting (light-grey neighbours,
+near-primaries, a dark blue-violet), matched it on every pixel; and
+Paintbrush's whole 28-colour palette, drawn by w16 at 16 colours, is
+pixel-identical to the reference's.
+
+**The rule** (`dither16.c`'s top comment has it exactly). In 64ths,
+each channel as `(c + 1) >> 2`. A colour with no channel above 128 is
+split by its sorted channels between black, a dark primary, a dark
+secondary and dark grey -- the tetrahedral split of the dark cube. Any
+other colour is split in the whole cube between black, a primary, a
+secondary and white, and then black is paired off: with white into dark
+grey first, then with the secondary, then with the primary, each pair
+becoming that colour at half intensity. The counts fill the standard
+8x8 Bayer matrix in the order of the colours' VGA palette indices, the
+matrix laid on the SCREEN at an offset of (5, 7); light grey appears
+only for (192, 192, 192) itself.
+
+**What it does not cover.** Pens and text take the nearest of the 16 by
+RGB distance -- an assumption, not a measurement -- and a DIB's colours
+are not mapped yet; both are on the roadmap ("16 colours' pens, text and
+DIBs measured").

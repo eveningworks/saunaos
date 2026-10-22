@@ -42,6 +42,9 @@ enum { W16_SOUNDS_WIN311, W16_SOUNDS_TOYOS, W16_SOUNDS_OFF };
 // What a program's Help opens in: toy-os's Help Viewer, or Windows' own WINHELP.EXE run under w16 when
 // drive C: has it (the viewer when it does not).
 enum { W16_HELP_VIEWER, W16_HELP_WINHELP };
+// How many colours the display has: 256, as w16 draws by default, or Windows 3.11's 16-colour VGA, whose
+// driver dithered a brush of any other colour (gdi16.c's dither, measured against the reference).
+enum { W16_COLORS_256, W16_COLORS_16 };
 
 #define W16_DRIVES 22                // D: to Y:, the letters between C: and Z:
 
@@ -65,6 +68,7 @@ struct w16_prefs {
     int add_folder;                  // a program run from elsewhere adds its folder to the launcher
     int sounds;                      // W16_SOUNDS_*
     int help;                        // W16_HELP_*
+    int colors;                      // W16_COLORS_*
     int sound_drv;                   // SOUND.DRV's notes played (Minesweeper's)
 };
 

@@ -965,7 +965,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: Paintbrush's View Picture~~ DONE 2026-10-22 -- a second top-level window; screen-sized, fullscreen centred on black
 - [x] ~~w16: recording a metafile~~ DONE 2026-10-22 -- drawing, objects, text and blits (as DIBs) recorded; Paintbrush's Copy
 - [x] ~~w16: a program's own caret~~ DONE 2026-10-22 -- drawn over the window, inverted and blinking; Paintbrush's Text tool
-- [ ] w16: 16-colour VGA dithering as a per-program Display setting (default 256) -- the driver's patterns measured on Paintbrush's palette
+- [x] ~~w16: 16-colour VGA dithering as a per-program setting~~ DONE 2026-10-22 -- `colors=16`; 3.11's driver's dither, measured
+- [ ] w16: 16 colours' pens, text and DIBs measured -- pens and text take the nearest by RGB distance (unmeasured); DIBs are not mapped
 - [ ] w16: StretchBlt's shrink rule measured at several ratios on real 3.11 -- Paintbrush's arrow drops rows 2 and 9 there, 6 and 12 here
 - [ ] w16: the NASM samples start on real 3.11 -- gen_ne's programs are refused there silently, so they cannot measure anything
 - [ ] w16: Paintbrush's rest -- Help, Zoom In, Get/Save Colors and Edit Colors' reach into the palette, not yet checked

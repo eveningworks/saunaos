@@ -692,6 +692,11 @@ struct ugfx_surface;
 void w16_gray_dither(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t ink, uint32_t ground);
 uint32_t w16_rgb(uint32_t rgb);                   // 0xRRGGBB -> a ugfx colour, as VGA showed it
 uint32_t w16_vga(uint32_t rgb);                   // 0xRRGGBB as 3.11 at VGA showed it
+// dither16.c: the Colours setting says 16; a brush colour's 8x8 dither by screen x % 8, y % 8 as
+// shown pixels (0 when it is one of the sixteen: solid); the nearest of the sixteen, 0xRRGGBB.
+int w16_colors16(void);
+int w16_dither(uint32_t rgb, uint32_t pat[64]);
+uint32_t w16_vga_nearest(uint32_t rgb);
 uint32_t w16_vga_back(uint32_t rgb);              // ...and a shown colour back to the one asked for
 // Paint a control's client area with `fn` (surface, origin), the system
 // font set and the window validated; and the colour its parent shows.

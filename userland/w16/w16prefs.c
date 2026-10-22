@@ -21,12 +21,13 @@ static const char *const FONTS_WORDS[] = { "win311", "standin" };
 static const char *const FROM_WORDS[] = { "run", "check", "ask", "show" };
 static const char *const SOUNDS_WORDS[] = { "win311", "toyos", "off" };
 static const char *const HELP_WORDS[] = { "viewer", "winhelp" };
+static const char *const COLORS_WORDS[] = { "256", "16" };
 
 static int is_abs_path(const char *v) { return v[0] == '/' || v[0] == 0; }
 
 #define DRIVE_KEY(l, i) UPREF_TEXT_KEY("drive_" #l, struct w16_prefs, drive[i], "", is_abs_path)
 
-// THE FIRST TEN ARE A PROGRAM'S TO OVERRIDE, each its bit in
+// THE FIRST ELEVEN ARE A PROGRAM'S TO OVERRIDE, each its bit in
 // w16_prefs_overridden() by its place here -- so a new one goes after
 // them, never between; drives D: to Y: are for every program alike.
 // Keep w16_prefs_program_keys in step.
@@ -41,6 +42,7 @@ const struct upref w16_prefs_keys[] = {
     UPREF_WORD_KEY("fonts", struct w16_prefs, fonts, FONTS_WORDS, 2, W16_FONTS_WIN311),
     UPREF_WORD_KEY("sounds", struct w16_prefs, sounds, SOUNDS_WORDS, 3, W16_SOUNDS_WIN311),
     UPREF_WORD_KEY("help", struct w16_prefs, help, HELP_WORDS, 2, W16_HELP_VIEWER),
+    UPREF_WORD_KEY("colors", struct w16_prefs, colors, COLORS_WORDS, 2, W16_COLORS_256),
     DRIVE_KEY(d, 0), DRIVE_KEY(e, 1), DRIVE_KEY(f, 2), DRIVE_KEY(g, 3), DRIVE_KEY(h, 4), DRIVE_KEY(i, 5),
     DRIVE_KEY(j, 6), DRIVE_KEY(k, 7), DRIVE_KEY(l, 8), DRIVE_KEY(m, 9), DRIVE_KEY(n, 10), DRIVE_KEY(o, 11),
     DRIVE_KEY(p, 12), DRIVE_KEY(q, 13), DRIVE_KEY(r, 14), DRIVE_KEY(s, 15), DRIVE_KEY(t, 16), DRIVE_KEY(u, 17),
@@ -49,7 +51,7 @@ const struct upref w16_prefs_keys[] = {
     UPREF_BOOL_KEY("add_folder", struct w16_prefs, add_folder, 1),
     UPREF_BOOL_KEY("sound_drv", struct w16_prefs, sound_drv, 1),
 };
-const int w16_prefs_program_keys = 10;
+const int w16_prefs_program_keys = 11;
 const struct uprefs w16_prefs_defaults = {
     W16_CONF, w16_prefs_keys, (int)(sizeof w16_prefs_keys / sizeof w16_prefs_keys[0])
 };

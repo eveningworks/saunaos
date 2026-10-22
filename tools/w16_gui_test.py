@@ -123,6 +123,7 @@ FAULT_TITLE = "Fault (Win16)"
 FRAME, CAPTION = 4, 19     # userland/w16/w16_internal.h's W16_FRAME, W16_CAPTION
 
 RED, GREEN, BLUE, WHITE = (255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 255)
+ODD = (200, 100, 50)        # gdi.exe's brush of a colour the 16-colour VGA has not got
 YELLOW, CYAN, MAGENTA, BLACK = (255, 255, 0), (0, 255, 255), (255, 0, 255), (0, 0, 0)
 # w16 shows 3.11's colours as VGA did (ctl16.c's w16_vga): navy and the face grey shift.
 NAVY, FACE = (0, 0, 168), (192, 199, 200)
@@ -245,6 +246,9 @@ def gdi_checks(dbg, qmp, res, tmp):
     res.check("Polygon: a blue triangle, its edge black, nothing past its long side",
               px(186, 86) == BLUE and px(180, 92) == BLACK and px(208, 104) == WHITE,
               f"inside {px(186, 86)} edge {px(180, 92)} outside {px(208, 104)}")
+    res.check("a (200,100,50) brush at 256 colours: solid, as asked",
+              all(px(x, y) == ODD for x in (100, 107, 115) for y in (62, 66, 69)),
+              f"100,62:{px(100, 62)} 107,66:{px(107, 66)} 115,69:{px(115, 69)}")
     ok, why = bitmap_at_y(78, 59, 63)
     res.check("a RECORDED metafile played back: a red rectangle with a black edge, and the bitmap blitted into it",
               px(56, 60) == BLACK and px(75, 60) == BLACK and px(60, 60) == RED and px(66, 64) == RED and ok,
@@ -910,6 +914,35 @@ def always_on_top(dbg, res):
                   f"{'pins' if want else 'unpins'} the window in toywm", above is bool(want), f"above {above!r}")
 
 
+# 3.11's VGA driver's dither of (200,100,50), MEASURED on the reference (Paintbrush's Edit Colors swatch):
+# by the program's screen y % 8 (rows) and x % 8. A dark grey, B olive, C red, D yellow, as VGA showed them.
+DITHER_200_100_50 = ["CDADCDAD", "CACBCACB", "ADACADAC", "CACACACA", "CDADCCAD", "CACBCACB", "ADACADAC", "CACACACA"]
+DITHER_COLOURS = {"A": (135, 136, 143), "B": (168, 168, 87), "C": (255, 0, 0), "D": (255, 255, 0)}
+
+
+def colours16(dbg, qmp, res, tmp):
+    """colors=16 for gdi.exe: its (200,100,50) brush is 3.11's VGA dither, pixel for pixel, laid on the
+    program's screen (the client at FRAME, FRAME + CAPTION); its pure colours stay solid."""
+    sh(dbg, f"write {GDI_CONF} colors=16")
+    win = dbg.spawn("/bin/w16 /usr/share/w16/gdi.exe", GDI_TITLE)
+    res.check("gdi.exe opens with colors=16", win is not None, "no window")
+    if win:
+        dbg.settle(0.5)
+        im = shot(qmp, f"{tmp}/w16_dither.png")
+        ox, oy = win["x"] + FRAME, win["y"] + FRAME + CAPTION
+        bad = [(x, y, im.getpixel((ox + x, oy + y)))
+               for y in range(62, 70) for x in range(100, 116)
+               if im.getpixel((ox + x, oy + y)) != DITHER_COLOURS[DITHER_200_100_50[(y + FRAME + CAPTION) % 8][(x + FRAME) % 8]]]
+        res.check("the (200,100,50) brush is 3.11's VGA dither, every pixel where the reference has it",
+                  not bad, f"{len(bad)} of 128 differ, first {bad[:4]}")
+        px = lambda x, y: im.getpixel((ox + x, oy + y))
+        res.check("...and a colour the VGA has stays solid: the red line, the blue rectangle",
+                  px(16, 50) == RED and px(79, 50) == RED and px(30, 64) == BLUE,
+                  f"line {px(16, 50)}/{px(79, 50)} fill {px(30, 64)}")
+        dbg.close_window(GDI_TITLE)
+    sh(dbg, f"rm {GDI_CONF}")
+
+
 def popup_window(dbg, qmp, res, tmp):
     """A second top-level window: popup.exe's WS_POPUP the size of the screen it is told of (640 x 480)
     covers toy-os's whole screen, the 640 x 480 centred on black, its origin where its green corner says;
@@ -1328,6 +1361,7 @@ def main():
         probe(dbg, res)
         shapes(dbg, qmp, res, TMP)
         popup_window(dbg, qmp, res, TMP)
+        colours16(dbg, qmp, res, TMP)
     finally:
         dbg.close()
     print(f"\nw16_gui_test: {len(res.passes)} passed, {len(res.fails)} failed")

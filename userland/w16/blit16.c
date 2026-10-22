@@ -19,7 +19,8 @@
 #define WHITE 0xFFFFFFu
 
 uint32_t w16_colorref_px(uint32_t cr) {
-    return w16_vga((cr & 0xFF) << 16 | (cr & 0xFF00) | (cr >> 16 & 0xFF));
+    uint32_t rgb = (cr & 0xFF) << 16 | (cr & 0xFF00) | (cr >> 16 & 0xFF);
+    return w16_vga(w16_colors16() ? w16_vga_nearest(rgb) : rgb);   // 16 colours: a pen's or text's is solid
 }
 
 uint32_t gdi_to_mono(uint32_t px) {

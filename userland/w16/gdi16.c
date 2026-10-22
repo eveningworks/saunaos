@@ -288,6 +288,16 @@ static const uint8_t HATCHES[6][8] = {
     { 0x81, 0x42, 0x24, 0x18, 0x18, 0x24, 0x42, 0x81 },
 };
 
+// A solid brush's colour as asked, 0xRRGGBB: a created one's, a stock one's, a system colour's.
+static int solid_rgb(struct w16 *w, uint16_t h, uint32_t *rgb) {
+    if (h >= STOCK_BASE && h < STOCK_BASE + NULL_BRUSH) { *rgb = g_stock_brush[h - STOCK_BASE]; return 1; }
+    if (h >= 1 && h <= 21) { *rgb = w16_syscolor(h - 1u); return 1; }
+    struct w16_gdiobj *b = obj(w, h, GDI_BRUSH);
+    if (!b || b->style != 0) return 0;           // BS_SOLID only
+    *rgb = (b->color & 0xFF) << 16 | (b->color & 0xFF00) | (b->color >> 16 & 0xFF);
+    return 1;
+}
+
 // A hatched or bitmap brush as the blit's 8x8 pattern, in the colours of
 // the DC drawing with it (a hatch's gaps and a 1-bit pattern's 1s are its
 // background colour, a 1-bit pattern's 0s its text colour); a solid
@@ -296,6 +306,17 @@ static const uint8_t HATCHES[6][8] = {
 static void pattern_of(struct w16 *w, const struct w16_gdiobj *dc, uint16_t brush, const struct gdi_target *t,
                        struct gdi_blit *b, uint32_t buf[64]) {
     struct w16_gdiobj *o = obj(w, brush, GDI_BRUSH);
+    uint32_t rgb;
+    if (w16_colors16() && solid_rgb(w, brush, &rgb) && w16_dither(rgb, buf)) {
+        // 16 colours: the VGA driver's dither, laid on the program's screen
+        int sx = 0, sy = 0;
+        struct w16_wnd *x = dc->hwnd ? w16_wnd_get(w, dc->hwnd) : 0;
+        if (x) w16_screen_offset(w, w16_wnd_top(w, x), &sx, &sy);
+        b->pat = buf;
+        b->pat_x = -sx;
+        b->pat_y = -sy;
+        return;
+    }
     if (!o || (o->style != BS_HATCHED && o->style != BS_PATTERN)) return;
     uint32_t bk = w16_colorref_px(dc->bk), text = w16_colorref_px(dc->text);
     for (int i = 0; i < 64; i++) {
@@ -1694,19 +1715,19 @@ static uint16_t device_caps(uint16_t index) {
     case 6:  return 156;                         // VERTSIZE
     case 8:  return 640;                         // HORZRES
     case 10: return 480;                         // VERTRES
-    case 12: return 8;                           // BITSPIXEL
-    case 14: return 1;                           // PLANES
+    case 12: return w16_colors16() ? 1 : 8;      // BITSPIXEL
+    case 14: return w16_colors16() ? 4 : 1;      // PLANES: the 16-colour VGA's four
     case 16: return 0xFFFF;                      // NUMBRUSHES
     case 18: return 0xFFFF;                      // NUMPENS
     case 22: return 0;                           // NUMFONTS
-    case 24: return 20;                          // NUMCOLORS: a 256-colour VGA's static ones
+    case 24: return w16_colors16() ? 16 : 20;    // NUMCOLORS: the 16, or a 256-colour VGA's static ones
     case 38: return 0x0699;                      // RASTERCAPS: bitblt, bitmap64, DIBs, stretch
     case 40: return 36;                          // ASPECTX
     case 42: return 36;                          // ASPECTY
     case 44: return 51;                          // ASPECTXY
     case 88: return 96;                          // LOGPIXELSX
     case 90: return 96;                          // LOGPIXELSY
-    case 104: return 256;                        // SIZEPALETTE
+    case 104: return w16_colors16() ? 0 : 256;   // SIZEPALETTE
     default: return 0;
     }
 }
