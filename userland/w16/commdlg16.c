@@ -104,6 +104,7 @@
 #define COLOR_WINDOW      5
 #define LB_GETCOUNT_      (WM_USER + 12)
 #define SS_CENTER_        0x0001
+#define CF_PRINTERFONTS   0x00000002
 #define CF_SHOWHELP_      0x00000004
 
 static uint16_t g_error;                          // CommDlgExtendedError's
@@ -176,6 +177,15 @@ static char *get_text(struct w16 *w, struct w16_wnd *c) {
 }
 
 static struct w16_wnd *item(struct w16 *w, struct w16_wnd *d, uint16_t id) { return w16_dlg_item(w, d->hwnd, id); }
+
+// A control of a dialog not shown yet, hidden.
+static void hide(struct w16 *w, struct w16_wnd *x) {
+    if (!x) return;
+    pthread_mutex_lock(&w->lock);
+    x->style &= ~(uint32_t)WS_VISIBLE;
+    x->visible = 0;
+    pthread_mutex_unlock(&w->lock);
+}
 
 // --- 3.11's own folder and drive pictures -------------------------------------------
 
@@ -662,10 +672,8 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
         if (types) w16_list_not_owner_drawn(w, types);
         // A template carries every standard control; COMMDLG hid the ones the flags leave out.
         struct w16_wnd *ro = item(w, d, CHX1), *help = item(w, d, PSH_HELP);
-        pthread_mutex_lock(&w->lock);
-        if (ro && (o->flags & OFN_HIDEREADONLY)) { ro->style &= ~(uint32_t)WS_VISIBLE; ro->visible = 0; }
-        if (help && !(o->flags & OFN_SHOWHELP)) { help->style &= ~(uint32_t)WS_VISIBLE; help->visible = 0; }
-        pthread_mutex_unlock(&w->lock);
+        if (o->flags & OFN_HIDEREADONLY) hide(w, ro);
+        if (!(o->flags & OFN_SHOWHELP)) hide(w, help);
     } else {
         d = w16_dlg_new(w, owner, 0, WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME,
                         w16_du_w(264, 7), w16_du_h(134, 13), cap && cap[0] ? cap : save ? "Save As" : "Open", 0, ofn_proc);
@@ -978,7 +986,9 @@ static int api_CommDlgExtendedError(struct w16 *w, unsigned ordinal, struct w16_
 #define FNT_SAMPLE 1092
 #define FNT_KIND  1093
 
-struct cf_face { char name[32]; int tt; uint8_t charset, pitch_family; int *pts; int npts; };
+// `light`: a raster face with a size lighter than bold -- 3.1 offered Regular and Italic only then
+// (System, bold at every size, lists Bold and Bold Italic alone).
+struct cf_face { char name[32]; int tt, light; uint8_t charset, pitch_family; int *pts; int npts; };
 
 struct cf {
     uint32_t far, flags, hook;
@@ -997,7 +1007,10 @@ static int collect_face(const struct w16_logfont *lf, const struct w16_fontinfo 
     if ((c->flags & CF_ANSIONLY) && lf->charset != 0) return 1;
     if ((c->flags & CF_FIXEDPITCHONLY) && (fi->pitch_family & 1)) return 1;
     for (int i = 0; i < c->nface; i++)
-        if (!strcasecmp(c->face[i].name, lf->face)) return 1;
+        if (!strcasecmp(c->face[i].name, lf->face)) {
+            c->face[i].tt |= tt;                 // Symbol is a .FON and a .TTF: 3.1 listed the TrueType one
+            return 1;
+        }
     struct cf_face *g = realloc(c->face, sizeof *g * (size_t)(c->nface + 1));
     if (!g) return 0;
     c->face = g;
@@ -1012,9 +1025,9 @@ static int collect_face(const struct w16_logfont *lf, const struct w16_fontinfo 
 
 // A raster face's sizes, in points: one per .FON size, as 3.11 listed them.
 static int collect_size(const struct w16_logfont *lf, const struct w16_fontinfo *fi, int type, void *ctx) {
-    (void)lf;
     (void)type;
     struct cf_face *f = ctx;
+    if (lf->weight < 600) f->light = 1;
     int pt = ((fi->height - fi->internal_leading) * 72 + 48) / 96;
     for (int i = 0; i < f->npts; i++)
         if (f->pts[i] == pt) return 1;
@@ -1078,10 +1091,13 @@ static void cf_sample(struct w16 *w, struct w16_wnd *d) {
     }
     if (c->font) w16_gdi_delete(w, c->font);
     c->font = font;
+    // Both lines are about printing: a dialog of screen fonts alone (Paintbrush's) says neither.
     if (kind)
-        set_text(w, kind, !f ? "" : f->tt ? "This is a TrueType font. This same font will be used on both your printer and your screen."
+        set_text(w, kind, !f || !(c->flags & CF_PRINTERFONTS) ? "" : f->tt ? "This is a TrueType font. This same font will be used on both your printer and your screen."
                                         : "This is a screen font. The closest matching font will be used for printing.");
 }
+
+static int cf_style_index(const struct cf *c) { return (c->lf.italic ? 1 : 0) + (c->lf.weight >= 600 ? 2 : 0); }
 
 // A face chosen: its styles and sizes listed, the size kept when it has it.
 static void cf_face_chosen(struct w16 *w, struct w16_wnd *d, const char *name) {
@@ -1091,14 +1107,22 @@ static void cf_face_chosen(struct w16 *w, struct w16_wnd *d, const char *name) {
     snprintf(c->lf.face, sizeof c->lf.face, "%s", f->name);
     c->lf.charset = f->charset;
     c->lf.pitch_family = f->pitch_family;
+    if (!f->tt && !f->npts) {
+        pthread_mutex_lock(&g_w16_text_lock);
+        w16_font_enum(f->name, collect_size, f);
+        pthread_mutex_unlock(&g_w16_text_lock);
+    }
+    struct w16_wnd *stl = combo_list(w, d, FNT_STYLE);
+    if (stl) {
+        int light = f->tt || f->light;
+        if (!light && c->lf.weight < 600) c->lf.weight = 700;
+        w16_send(w, stl->hwnd, LB_RESETCONTENT, 0, 0);
+        for (int i = light ? 0 : 2; i < 4; i++) w16_listbox_str(w, stl, LB_ADDSTRING, 0, CF_STYLES[i]);
+        if (!(c->flags & CF_NOSTYLESEL)) combo_pick(w, d, FNT_STYLE, CF_STYLES[cf_style_index(c)]);
+    }
     struct w16_wnd *sl = combo_list(w, d, FNT_SIZE);
     if (sl) {
         w16_send(w, sl->hwnd, LB_RESETCONTENT, 0, 0);
-        if (!f->tt && !f->npts) {
-            pthread_mutex_lock(&g_w16_text_lock);
-            w16_font_enum(f->name, collect_size, f);
-            pthread_mutex_unlock(&g_w16_text_lock);
-        }
         int n = f->tt ? (int)(sizeof TT_SIZES / sizeof TT_SIZES[0]) : f->npts;
         for (int i = 0; i < n; i++) {
             char t[8];
@@ -1117,8 +1141,6 @@ static void cf_face_chosen(struct w16 *w, struct w16_wnd *d, const char *name) {
     }
     cf_sample(w, d);
 }
-
-static int cf_style_index(const struct cf *c) { return (c->lf.italic ? 1 : 0) + (c->lf.weight >= 600 ? 2 : 0); }
 
 // OK: what the boxes say, checked; 0 when one is wrong (said, and focused).
 static int cf_ok(struct w16 *w, struct w16_wnd *d) {
@@ -1204,9 +1226,11 @@ static int cf_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_t wp, 
         return 1;
     case FNT_STYLE:
         if (code == CBN_SELCHANGE) {
-            struct w16_wnd *l = combo_list(w, d, FNT_STYLE);
-            int i = l ? (int16_t)w16_send(w, l->hwnd, LB_GETCURSEL, 0, 0) : -1;
-            if (i >= 0 && i < 4) {
+            char *t = combo_text(w, d, FNT_STYLE);
+            int i = 0;
+            while (t && i < 4 && strcasecmp(t, CF_STYLES[i])) i++;
+            free(t);
+            if (t && i < 4) {
                 c->lf.italic = (uint8_t)(i & 1);
                 c->lf.weight = (int16_t)(i & 2 ? 700 : 400);
                 cf_sample(w, d);
@@ -1237,8 +1261,10 @@ static int cf_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_t wp, 
 // fonts from drive C:, TrueType faces (C:'s own .TTF files, else toy-os's metric twins) marked as
 // 3.1 marked them, at any size. A program's hook hears every message first. A program's own template
 // (CF_ENABLETEMPLATE: Clock's, which hides all but the face list) is built from its resource and filled
-// by the standard control ids; one passed by handle is refused (CDERR_NOTEMPLATE). Apply (CF_APPLY)
-// reaches the hook, which is where 3.1 left it.
+// by the standard control ids, Apply and Help hidden unless the flags ask for them, as 3.1 hid
+// them; one passed by handle is refused (CDERR_NOTEMPLATE). The line saying what kind of font it is
+// shows only with CF_PRINTERFONTS, as 3.1's did. Apply (CF_APPLY) reaches the hook, which is where
+// 3.1 left it.
 static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
@@ -1252,6 +1278,10 @@ static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     c->far = far;
     c->flags = rd32(p + 14);
     c->hook = c->flags & CF_ENABLEHOOK ? rd32(p + 26) : 0;
+    if (g_w16_trace) {
+        fprintf(g_w16_trace, "  ChooseFont flags %08x\n", c->flags);
+        fflush(g_w16_trace);
+    }
     uint16_t owner = rd16(p + 4);
     if (c->flags & CF_ENABLETEMPLATEHANDLE) { free(c); g_error = CDERR_NOTEMPLATE; return 4; }
     c->lf.weight = 400;
@@ -1325,6 +1355,14 @@ static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     struct w16_wnd *fc = item(w, d, FNT_FACE), *sc = item(w, d, FNT_STYLE), *zc = item(w, d, FNT_SIZE),
                    *smp = item(w, d, FNT_SAMPLE);
+    if (c->flags & CF_ENABLETEMPLATE) {          // a template's owner-drawn lists, drawn by w16 (as Open's)
+        if (fc) w16_list_not_owner_drawn(w, fc);
+        if (sc) w16_list_not_owner_drawn(w, sc);
+        if (zc) w16_list_not_owner_drawn(w, zc);
+        // A template carries every standard control; COMMDLG hid the ones the flags leave out.
+        if (!(c->flags & CF_APPLY)) hide(w, item(w, d, 1026));
+        if (!(c->flags & CF_SHOWHELP_)) hide(w, item(w, d, PSH_HELP));
+    }
     if (!fc || !sc || !zc || !smp || cpu->fault) {
         if (!cpu->fault) g_error = CDERR_MEMALLOCFAILURE;
         d->dlgdata = 0;
@@ -1344,14 +1382,13 @@ static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (k && c->lf.strikeout) w16_send(w, k->hwnd, BM_SETCHECK, 1, 0);
         if (u && c->lf.underline) w16_send(w, u->hwnd, BM_SETCHECK, 1, 0);
     }
-    struct w16_wnd *fl = w16_combo_list(w, fc), *stl = w16_combo_list(w, sc);
+    struct w16_wnd *fl = w16_combo_list(w, fc);
     if (fl) {
         w16_listbox_folders(fl, 2);
         for (int i = 0; i < c->nface; i++)
             w16_send(w, fl->hwnd, LB_SETITEMDATA,
                      (uint16_t)w16_listbox_str(w, fl, LB_ADDSTRING, 0, c->face[i].name), c->face[i].tt ? 5 : 6);
     }
-    for (int i = 0; stl && i < 4; i++) w16_listbox_str(w, stl, LB_ADDSTRING, 0, CF_STYLES[i]);
     if (!(c->flags & CF_NOFACESEL) && combo_pick(w, d, FNT_FACE, c->lf.face) < 0 && c->nface)
         combo_pick(w, d, FNT_FACE, c->face[0].name);
     {
@@ -1359,7 +1396,6 @@ static int api_ChooseFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (t && t[0]) cf_face_chosen(w, d, t);
         free(t);
     }
-    if (!(c->flags & CF_NOSTYLESEL)) combo_pick(w, d, FNT_STYLE, CF_STYLES[cf_style_index(c)]);
     uint16_t h = d->hwnd;
     w16_dlg_show(w, d, 1, far);
     d = w16_wnd_get(w, h);
