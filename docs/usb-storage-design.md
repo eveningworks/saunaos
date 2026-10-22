@@ -122,7 +122,14 @@ Each stage is gated, committed and usable on its own.
    already is the one word a process waits on for everything, with the
    timeouts and lost-wake handling a new blocking call would have to
    re-earn. Tested with a RAM disk a KTEST yanks.
-2. **Bulk-only transport.** BUILT 2026-10-22, on QEMU; real sticks next. `kernel/lib/scsi.c` (CDBs, sense; shared,
+2. **Bulk-only transport.** BUILT 2026-10-22. Verified the same day on
+   three real sticks passed through to QEMU -- two Kingston DataTraveler
+   3.0 (SuperSpeed) and a Silicon Motion 090c:1000 (high speed): all
+   enumerated, a Windows installer's FAT32, a Windows-formatted exFAT and
+   a toy-os TFS3 stick mounted, and files written to the exFAT and FAT32
+   ones -- one written just before the stick was detached -- read back on
+   Linux with matching sha256s, `fsck.exfat -n` calling the exFAT stick
+   clean. Not yet on the laptops' own xHCI. `kernel/lib/scsi.c` (CDBs, sense; shared,
    with host checks) and `kernel/drivers/usb/usb_storage.c`: Reset
    Recovery, Get Max LUN, CBW/CSW, READ CAPACITY(16) falling back to
    (10), READ/WRITE(10/16), SYNCHRONIZE CACHE, TEST UNIT READY with
