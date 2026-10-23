@@ -38,6 +38,10 @@
 #include "lib/utrash.h"       // the bin's limits, kept by `trash expire`
 #include "kpath.h"
 #include <stdint.h>
+#include <stdlib.h>
+#include <errno.h>
+#include "lib/ulistdir.h"   // the desktop folder, however many files
+#include "lib/uargbatch.h"  // a long path list split across spawns
 
 // THE ICON SIZE IS A SETTING (`desktop.icon_size`, small|medium|large ->
 // 32/48/64 px), read on the same generation poll as the wallpaper; the
@@ -64,7 +68,6 @@ static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap 
 // never be truncated; anything longer (the "(ring 3)" launchers) is cut
 // with a ".." marker rather than widening every column to fit it.
 #define DESKTOP_ICON_LABEL_CHARS 13
-#define DESKTOP_MAX_ICONS 64
 #define DESKTOP_CONF_PATH "/etc/desktop.conf"
 // THE DESKTOP FOLDER IS THE DESKTOP. Every icon is an entry of this
 // directory, in name order with directories first -- KDE's Folder View
@@ -76,10 +79,13 @@ static int row_h(void) { return icon_px() + 4 + label_h() + 10; } // icon + gap 
 // poll as the wallpaper; a change re-derives the grid.
 // The known folder (lib/udirs.h): /home/Desktop unless moved.
 #define DESKTOP_DIR udir_path(UDIR_DESKTOP)
-#define DESKTOP_FILES_MAX DESKTOP_MAX_ICONS
-static struct sys_dirent g_files[DESKTOP_FILES_MAX];
-static struct gui_app_entry g_launch[DESKTOP_FILES_MAX];   // name NULL: a plain file
-static int g_file_count;
+// EVERY PER-ITEM ARRAY BELOW is indexed by the item and `g_item_cap` long,
+// grown together by items_reserve() -- so a desktop holds however many
+// files its folder does. Each grows by realloc, so NOTHING KEEPS A
+// POINTER into one across a reload; an index is what is kept.
+static struct sys_dirent *g_files;
+static struct gui_app_entry *g_launch;   // name NULL: a plain file
+static int g_file_count, g_item_cap;
 // The plain background, shown when there is no wallpaper and behind a
 // letterboxed one.
 #define DESKTOP_BG ugfx_rgb(24, 60, 90)
@@ -97,9 +103,11 @@ static int g_file_count;
 // clears) are KTESTed with no desktop involved at all.
 static struct rubberband sel;
 #define PATH_BUF 80
+typedef char desk_path[PATH_BUF];   // a list of these is sized to what it holds
 static void item_activate(int i);
 static void reflow_overflow(void);
 static int selected_paths(char paths[][PATH_BUF], int cap);
+static int add_selection(struct uclip *c, int icon, void (*begin)(struct uclip *));
 
 // The band's rect as it was last DRAWN, so a motion can damage the union
 // of where it was and where it now is. Same bookkeeping-at-the-point-of-
@@ -118,8 +126,8 @@ static uint64_t g_opened_tick;
 // Per-icon grid position, indexed the same as g_files[] --
 // see desktop.h's top comment. Loaded from DESKTOP_CONF_PATH (or
 // defaulted) on first use by desktop_load_positions().
-static int icon_col[DESKTOP_MAX_ICONS];
-static int icon_row[DESKTOP_MAX_ICONS];
+static int *icon_col;
+static int *icon_row;
 static int positions_loaded = 0;
 
 // The active icon drag, if any -- armed by desktop_handle_click() on
@@ -146,8 +154,8 @@ static int drag_px, drag_py;
 static int group_drag = 0;
 static int drag_moved = 0;
 static int drag_origin_px, drag_origin_py;
-static int drag_start_col[DESKTOP_MAX_ICONS];
-static int drag_start_row[DESKTOP_MAX_ICONS];
+static int *drag_start_col;
+static int *drag_start_row;
 
 // A drag resting ON an icon (desktop_drop_hover()): which one, what a
 // release there does, and what the drag's label says meanwhile.
@@ -165,13 +173,13 @@ static void damage_icon_hl(int i);
 // and ONLY from the cache: /bin/thumb makes them (lib/uthumb.h says why
 // the compositor never decodes someone else's file).
 #define DESKTOP_PEEKS 2
-static struct uimg g_thumb[DESKTOP_FILES_MAX];
-static struct uimg g_peek[DESKTOP_FILES_MAX][DESKTOP_PEEKS];
-static uint8_t g_thumb_asked[DESKTOP_FILES_MAX];   // /bin/thumb already asked about it
+static struct uimg *g_thumb;
+static struct uimg (*g_peek)[DESKTOP_PEEKS];
+static uint8_t *g_thumb_asked;   // /bin/thumb already asked about it
 // When each item last changed: a file still being copied grows a block at
 // a time, and asking at every step ran /bin/thumb once per block. An item
 // is asked about only once it has kept still for THUMB_SETTLE_TICKS.
-static uint64_t g_thumb_changed[DESKTOP_FILES_MAX];
+static uint64_t *g_thumb_changed;
 static uint64_t g_thumb_due;     // a refresh owed then, for what was too fresh; 0 none
 #define THUMB_SETTLE_TICKS 100   // a second
 static uint32_t g_files_epoch;   // moves when the list or the icon size does
@@ -183,6 +191,35 @@ static void thumb_forget(int i);
 static char g_rename_pending[64];
 static void begin_rename(int i);
 static void spawn_argv(char *const *argv);
+
+// Room for `n` items in every per-item array, the new entries zeroed and
+// placed nowhere (-1); 0 when there is no memory, the arrays as they were
+// up to the old capacity.
+#define ITEMS_GROW(arr) do {                                                  \
+        void *n_ = realloc((arr), (size_t)cap * sizeof *(arr));               \
+        if (!n_) return 0;                                                    \
+        (arr) = n_;                                                           \
+        k_memset((arr) + g_item_cap, 0, (size_t)(cap - g_item_cap) * sizeof *(arr)); \
+    } while (0)
+static int items_reserve(int n) {
+    if (n <= g_item_cap) return 1;
+    int cap = g_item_cap ? g_item_cap : 32;
+    while (cap < n) cap *= 2;
+    ITEMS_GROW(g_files);
+    ITEMS_GROW(g_launch);
+    ITEMS_GROW(icon_col);
+    ITEMS_GROW(icon_row);
+    ITEMS_GROW(drag_start_col);
+    ITEMS_GROW(drag_start_row);
+    ITEMS_GROW(g_thumb);
+    ITEMS_GROW(g_peek);
+    ITEMS_GROW(g_thumb_asked);
+    ITEMS_GROW(g_thumb_changed);
+    for (int i = g_item_cap; i < cap; i++) icon_col[i] = icon_row[i] = -1;
+    g_item_cap = cap;
+    return 1;
+}
+#undef ITEMS_GROW
 
 // The grid geometry, recomputed live (cheap -- a handful of registry
 // entries) rather than cached, same "derive fresh, don't persist a
@@ -324,7 +361,7 @@ static int is_desktop_file(const char *name) {
 static void desktop_files_parse(void) {
     // Every slot, not just the current count: a shorter listing leaves
     // the old tail's strings to free.
-    for (int i = 0; i < DESKTOP_FILES_MAX; i++) gui_app_entry_free(&g_launch[i]);
+    for (int i = 0; i < g_item_cap; i++) gui_app_entry_free(&g_launch[i]);
     for (int i = 0; i < g_file_count; i++) {
         if (item_is_dir(i) || !is_desktop_file(g_files[i].name)) continue;
         char path[PATH_BUF];
@@ -337,9 +374,22 @@ static void desktop_files_parse(void) {
 // is what a caller uses to re-derive positions and drop a selection
 // that indexed the old list.
 static int desktop_files_reload(void) {
-    static struct sys_dirent fresh[DESKTOP_FILES_MAX];
-    int n = sys_listdir(DESKTOP_DIR, fresh, DESKTOP_FILES_MAX);
-    if (n < 0) n = 0;
+    struct sys_dirent *fresh;
+    int n = ulistdir(DESKTOP_DIR, &fresh);
+    if (n < 0) {
+        // A folder that cannot be read lists nothing; no memory for the
+        // listing keeps the icons there are.
+        if (errno == ENOMEM) {
+            wm_logf("desktop: no memory to list %s -- icons left as they were", DESKTOP_DIR);
+            return 0;
+        }
+        n = 0;
+    }
+    if (!items_reserve(n)) {
+        wm_logf("desktop: no memory for %d icons -- icons left as they were", n);
+        free(fresh);
+        return 0;
+    }
     if (!g_fo.hidden) {   // a dot-file is listed only when the File Manager would list it
         int kept = 0;
         for (int i = 0; i < n; i++) if (fresh[i].name[0] != '.') fresh[kept++] = fresh[i];
@@ -388,11 +438,13 @@ static int desktop_files_reload(void) {
                 g_files[i] = fresh[i];
                 thumb_forget(i);
             }
+        free(fresh);
         return 0;
     }
     thumbs_reset();   // indexed by the list that is about to change
     for (int i = 0; i < n; i++) g_files[i] = fresh[i];
     g_file_count = n;
+    free(fresh);
     desktop_files_parse();
     return 1;
 }
@@ -491,15 +543,15 @@ static void desktop_load_positions(void) {
 
     // Pass 2: everything with no saved cell takes the first FREE one in
     // the default column-major order -- Windows' rule for a new shortcut.
-    // Bounded by the pigeonhole: at most DESKTOP_MAX_ICONS icons can
-    // occupy DESKTOP_MAX_ICONS cells, so one more slot than that is
-    // always free.
-    static int order[DESKTOP_MAX_ICONS];
-    sort_order(order, n);
+    // Bounded by the pigeonhole: n icons occupy at most n cells, so one
+    // more slot than that is always free. Without memory for the sorted
+    // order, the folder's own order places them.
+    int *order = malloc((size_t)(n ? n : 1) * sizeof *order);
+    if (order) sort_order(order, n);
     for (int o = 0; o < n; o++) {
-        int i = order[o];
+        int i = order ? order[o] : o;
         if (!item_visible(i) || icon_col[i] >= 0) continue;
-        for (int slot = 0; slot <= DESKTOP_MAX_ICONS; slot++) {
+        for (int slot = 0; slot <= n; slot++) {
             int col = slot / per_col, row = slot % per_col;
             if (cell_taken(col, row, i)) continue;
             icon_col[i] = col;
@@ -507,6 +559,7 @@ static void desktop_load_positions(void) {
             break;
         }
     }
+    free(order);
 }
 
 // --- the wallpaper ----------------------------------------------------
@@ -1006,7 +1059,7 @@ static int too_fresh(const struct rtc_time *m) {
 }
 
 static void thumbs_reset(void) {
-    for (int i = 0; i < DESKTOP_FILES_MAX; i++) {
+    for (int i = 0; i < g_item_cap; i++) {
         uimg_free(&g_thumb[i]);
         for (int k = 0; k < DESKTOP_PEEKS; k++) uimg_free(&g_peek[i][k]);
         g_thumb_asked[i] = 0;
@@ -1015,21 +1068,40 @@ static void thumbs_reset(void) {
     g_files_epoch++;
 }
 
+// The paths to ask /bin/thumb about at one size, grown as they are found.
+struct thumb_asks {
+    char (*path)[PATH_BUF];
+    int n, cap;
+};
+
+static void ask_add(struct thumb_asks *a, const char *path) {
+    if (a->n == a->cap) {
+        int cap = a->cap ? a->cap * 2 : 16;
+        char (*p)[PATH_BUF] = realloc(a->path, (size_t)cap * sizeof *p);
+        if (!p) {   // its item stays without a thumbnail until the list changes
+            wm_logf("desktop: no memory to ask for the thumbnail of %s", path);
+            return;
+        }
+        a->path = p;
+        a->cap = cap;
+    }
+    k_strlcpy(a->path[a->n++], path, PATH_BUF);
+}
+
+static void spawn_batch(char *const *argv, void *ctx) { (void)ctx; spawn_argv(argv); }
+
 // Every missing thumbnail the cache has now is loaded; the rest are asked
-// of /bin/thumb ONCE per item and list, in one run -- its writes move the
-// cache's watch, which brings this round again to load them.
+// of /bin/thumb ONCE per item and list -- its writes move the cache's
+// watch, which brings this round again to load them.
 static void thumbs_refresh(void) {
-    static char *argv[DESKTOP_FILES_MAX * DESKTOP_PEEKS + 6];
-    static char paths[2][DESKTOP_FILES_MAX * DESKTOP_PEEKS][PATH_BUF];   // per size
     static char size[2][8];
     int px = icon_px(), peek_px = icon_px() * 9 / 20;
     k_snprintf(size[0], sizeof size[0], "%d", px);
     k_snprintf(size[1], sizeof size[1], "%d", peek_px);
-    int want[2] = { 0, 0 };   // paths waiting, at each size
-    const int cap = DESKTOP_FILES_MAX * DESKTOP_PEEKS;
+    struct thumb_asks want[2] = { { 0 }, { 0 } };   // paths waiting, at each size
     uint64_t now = sys_ticks();
     g_thumb_due = 0;
-    for (int i = 0; i < g_file_count && i < DESKTOP_FILES_MAX; i++) {
+    for (int i = 0; i < g_file_count; i++) {
         if (item_is_launcher(i)) continue;
         // Still changing: loaded if the cache has it, asked about later.
         int settled = now - g_thumb_changed[i] >= THUMB_SETTLE_TICKS &&
@@ -1043,8 +1115,8 @@ static void thumbs_refresh(void) {
             if (uthumb_load_cached(path, &g_files[i].modified, px, &g_thumb[i]) == 0) {
                 damage_icon_hl(i);
                 redraw_pending = 1;
-            } else if (ask && want[0] < cap) {
-                k_strlcpy(paths[0][want[0]++], path, PATH_BUF);
+            } else if (ask) {
+                ask_add(&want[0], path);
             }
             if (ask) g_thumb_asked[i] = 1;
             continue;
@@ -1063,8 +1135,8 @@ static void thumbs_refresh(void) {
                 redraw_pending = 1;
             } else if (too_fresh(&kids[k].modified)) {
                 waiting = 1;
-            } else if (ask && want[1] < cap) {
-                k_strlcpy(paths[1][want[1]++], kid, PATH_BUF);
+            } else if (ask) {
+                ask_add(&want[1], kid);
             }
             got++;
         }
@@ -1073,22 +1145,20 @@ static void thumbs_refresh(void) {
         if (waiting) g_thumb_due = now + THUMB_SETTLE_TICKS;
         else if (ask) g_thumb_asked[i] = 1;
     }
-    // One run per size: the item thumbnails, then the peeks.
-    // At most THUMB_RUN files a run, so a full desktop stays far inside
-    // what a spawn's argument block holds.
-    enum { THUMB_RUN = 32 };
+    // The item thumbnails, then the peeks: as many runs each as a
+    // spawn's argument block needs (lib/uargbatch.h).
     for (int s = 0; s < 2; s++) {
-        for (int at = 0; at < want[s]; at += THUMB_RUN) {
-            int k = 0;
-            argv[k++] = "/bin/thumb";
-            argv[k++] = "-q";
-            argv[k++] = "-s";
-            argv[k++] = size[s];
-            for (int j = at; j < want[s] && j < at + THUMB_RUN; j++) argv[k++] = paths[s][j];
-            argv[k] = 0;
-            spawn_argv(argv);
+        struct thumb_asks *a = &want[s];
+        char **items = a->n ? malloc((size_t)a->n * sizeof *items) : 0;
+        if (items) {
+            for (int j = 0; j < a->n; j++) items[j] = a->path[j];
+            char *const head[] = { "/bin/thumb", "-q", "-s", size[s] };
+            int runs = uargbatch(head, 4, items, a->n, spawn_batch, 0);
+            wm_logf("desktop: asked /bin/thumb for %d thumbnail(s) at %s px in %d run(s)",
+                    a->n, size[s], runs);
         }
-        if (want[s]) wm_logf("desktop: asked /bin/thumb for %d thumbnail(s) at %s px", want[s], size[s]);
+        free(items);
+        free(a->path);
     }
 }
 
@@ -1384,6 +1454,10 @@ int desktop_link_hovered(void) { return g_fo.single_click && g_hover >= 0; }
 // deselected icon kept its highlight painted while the selection said
 // otherwise -- which reads as clicking icons ADDING to the selection.
 static void damage_selection_change(const uint32_t *before) {
+    if (!before) {   // no snapshot to compare: everything may have changed
+        wm_damage_rect(0, 0, screen_w, screen_h);
+        return;
+    }
     struct icon_grid g = current_grid();
     for (int i = 0; i < item_count(); i++) {
         int was = (before[i / 32] >> (i % 32)) & 1u;
@@ -1400,18 +1474,22 @@ static void damage_selection_change(const uint32_t *before) {
     }
 }
 
-static void snapshot_selection(uint32_t *out) {
-    for (int i = 0; i < (DESKTOP_MAX_ICONS + 31) / 32; i++) out[i] = 0;
+// The selection as it stands, a bit an item, for damage_selection_change()
+// -- free() it. NULL without memory, which that reads as "all changed".
+static uint32_t *snapshot_selection(void) {
+    int words = (item_count() + 31) / 32;
+    uint32_t *out = calloc((size_t)(words ? words : 1), sizeof *out);
+    if (!out) return 0;
     for (int i = 0; i < item_count(); i++)
         if (rb_is_selected(&sel, i)) out[i / 32] |= 1u << (i % 32);
+    return out;
 }
 
 void desktop_handle_click(int mx, int my) {
     desktop_load_positions();
     int idx = icon_hit_test(mx, my);
     uint64_t now = sys_ticks();
-    uint32_t sel_before[(DESKTOP_MAX_ICONS + 31) / 32];
-    snapshot_selection(sel_before);
+    uint32_t *sel_before = snapshot_selection();
 
     // Modifiers come from the LIVE keyboard state -- a click carries
     // none of its own. Ctrl adds to the selection, Shift too (both are
@@ -1429,6 +1507,7 @@ void desktop_handle_click(int mx, int my) {
         rb_begin(&sel, mx, my, mode);
         last_click_index = -1;
         redraw_pending = 1;
+        free(sel_before);
         return;
     }
 
@@ -1483,6 +1562,7 @@ void desktop_handle_click(int mx, int my) {
     }
 
     damage_selection_change(sel_before);
+    free(sel_before);
     redraw_pending = 1;
 }
 
@@ -1504,13 +1584,13 @@ static int cell_taken(int col, int row, int exclude) {
 // resolve to whichever cell the scan order (top row of the ring,
 // left to right) hits first -- not a strict Euclidean-nearest
 // tiebreak, but close enough at icon-grid scale. Always terminates:
-// DESKTOP_MAX_ICONS icons can occupy at most DESKTOP_MAX_ICONS cells,
-// so a search out to that many rings is guaranteed to find a free one.
+// n icons can occupy at most n cells, so a search out to that many
+// rings is guaranteed to find a free one.
 static void nearest_free_cell(const struct icon_grid *g, int col, int row,
                                int exclude, int *out_col, int *out_row) {
     if (!cell_taken(col, row, exclude)) { *out_col = col; *out_row = row; return; }
 
-    for (int radius = 1; radius <= DESKTOP_MAX_ICONS; radius++) {
+    for (int radius = 1; radius <= item_count(); radius++) {
         for (int dr = -radius; dr <= radius; dr++) {
             for (int dc = -radius; dc <= radius; dc++) {
                 // Skip the interior -- already checked at a smaller radius.
@@ -1655,12 +1735,7 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
                 // the drag slot now (the selection, if it is in it).
                 {
                     static struct uclip c;
-                    static char paths[DESKTOP_FILES_MAX][PATH_BUF];
-                    int n = 0;
-                    if (rb_is_selected(&sel, drag.index)) n = selected_paths(paths, DESKTOP_FILES_MAX);
-                    if (n == 0) { item_path(drag.index, paths[0], PATH_BUF); n = 1; }
-                    uclip_drag_begin(&c);
-                    for (int i = 0; i < n; i++) uclip_add(&c, paths[i]);
+                    int n = add_selection(&c, drag.index, uclip_drag_begin);
                     if (uclip_drag_commit(&c)) wm_dnd_start_desktop(n);
                 }
             }
@@ -1781,6 +1856,23 @@ static void spawn_argv(char *const *argv) {
     else wm_track_launched(pid);
 }
 
+// `prog opt path...` over every path, in as many runs as a spawn's
+// argument block needs (lib/uargbatch.h) -- a large selection would not
+// fit one.
+static void spawn_paths(const char *prog, const char *opt, desk_path *paths, int n) {
+    if (n <= 0) return;
+    char **items = malloc((size_t)n * sizeof *items);
+    if (!items) {
+        wm_logf("desktop: no memory to run %s over %d item(s)", prog, n);
+        return;
+    }
+    for (int i = 0; i < n; i++) items[i] = paths[i];
+    char *const head[] = { (char *)prog, (char *)opt };
+    if (uargbatch(head, 2, items, n, spawn_batch, 0) < 0)
+        wm_logf("desktop: %s skipped a path too long to pass", prog);
+    free(items);
+}
+
 // A launcher opens through the registry when the application database
 // has its AppId -- single-instance and geometry rules live there -- and
 // runs its Exec= directly when it does not (a launcher can outlive its
@@ -1842,13 +1934,42 @@ static int selected_paths(char paths[][PATH_BUF], int cap) {
     return n;
 }
 
+// The selection's paths, sized to it; *n is how many. NULL with *n 0 for
+// an empty selection, or with no memory (logged).
+static desk_path *selection_paths(int *n) {
+    int want = rb_selected_count(&sel);
+    *n = 0;
+    if (!want) return 0;
+    desk_path *p = malloc((size_t)want * sizeof *p);
+    if (!p) {
+        wm_logf("desktop: no memory for %d selected path(s)", want);
+        return 0;
+    }
+    *n = selected_paths(p, want);
+    return p;
+}
+
+static void clip_begin_copy(struct uclip *c) { uclip_begin(c, UCLIP_COPY); }
+static void clip_begin_cut(struct uclip *c)  { uclip_begin(c, UCLIP_CUT); }
+
+// Starts `c` with `begin`, then adds the selection's paths -- or, when it
+// is empty, or `icon` (>= 0) is not in it, that one icon's. Returns how
+// many went in.
+static int add_selection(struct uclip *c, int icon, void (*begin)(struct uclip *)) {
+    char path[PATH_BUF];
+    int n = 0;
+    begin(c);
+    if (icon < 0 || rb_is_selected(&sel, icon))
+        for (int i = 0; i < item_count(); i++)
+            if (rb_is_selected(&sel, i)) { item_path(i, path, sizeof path); uclip_add(c, path); n++; }
+    if (n == 0 && icon >= 0) { item_path(icon, path, sizeof path); uclip_add(c, path); n = 1; }
+    return n;
+}
+
 static void clip_put(int op) {
     static struct uclip c;   // 64 KiB: lib/uclip.h says why static
-    static char paths[DESKTOP_FILES_MAX][PATH_BUF];
-    int n = selected_paths(paths, DESKTOP_FILES_MAX);
+    int n = add_selection(&c, -1, op == UCLIP_CUT ? clip_begin_cut : clip_begin_copy);
     if (n == 0) return;
-    uclip_begin(&c, op);
-    for (int i = 0; i < n; i++) uclip_add(&c, paths[i]);
     if (!uclip_commit(&c)) wm_logf("desktop: clipboard refused %d item(s)", n);
 }
 static void menu_copy(void *ctx) { (void)ctx; clip_put(UCLIP_COPY); }
@@ -1879,11 +2000,17 @@ int desktop_drop_here(int mx, int my) {
     uclip_drag_load(&c);
     if (uclip_count(&c) <= 0 || uclip_kind(&c) != UCLIP_KIND_FILES) return 0;
     if (g_drop_on >= 0) {
-        static char paths[DESKTOP_FILES_MAX][PATH_BUF];
+        desk_path *paths = malloc((size_t)uclip_count(&c) * sizeof *paths);
+        if (!paths) {
+            wm_logf("desktop: no memory for a drop of %d item(s)", uclip_count(&c));
+            return 1;
+        }
         int n = 0;
-        for (int i = 0; i < uclip_count(&c) && n < DESKTOP_FILES_MAX; i++)
+        for (int i = 0; i < uclip_count(&c); i++)
             if (uclip_path(&c, i)) k_strlcpy(paths[n++], uclip_path(&c, i), PATH_BUF);
-        return drop_onto_target(paths, n);
+        int r = drop_onto_target(paths, n);
+        free(paths);
+        return r;
     }
     int copy = (wm_rawin_pointer_mods() & KEY_MOD_CTRL) != 0;
     paste_from(&c, copy ? UCLIP_COPY : UCLIP_CUT);
@@ -2139,17 +2266,9 @@ static int drop_onto_target(char paths[][PATH_BUF], int n) {
         }
         wm_logf("desktop: opened %d item(s) with %s", opened, item_name(t));
     } else if (verb == DROP_BIN) {
-        static char *argv[DESKTOP_FILES_MAX + 3];
-        int k = 0;
-        argv[k++] = "/bin/trash";
-        argv[k++] = "put";
         undo_begin(UNDO_TRASH);
-        for (int i = 0; i < n && k < DESKTOP_FILES_MAX + 2; i++) {
-            argv[k++] = paths[i];
-            undo_add(paths[i], 0);
-        }
-        argv[k] = 0;
-        spawn_argv(argv);
+        for (int i = 0; i < n; i++) undo_add(paths[i], 0);
+        spawn_paths("/bin/trash", "put", paths, n);
         wm_logf("desktop: %d item(s) to the Recycle Bin", n);
         undo_commit("Moved", "the Recycle Bin", 1);
     } else {
@@ -2161,36 +2280,41 @@ static int drop_onto_target(char paths[][PATH_BUF], int n) {
 // The release of the desktop's OWN icon drag, over an icon.
 static int drop_desktop_drag(void) {
     if (g_drop_on < 0) return 0;
-    static char paths[DESKTOP_FILES_MAX][PATH_BUF];
-    int n = drag_paths(paths, DESKTOP_FILES_MAX);
-    return drop_onto_target(paths, n);
+    int n = drag.active && rb_is_selected(&sel, drag.index) ? rb_selected_count(&sel) : 1;
+    desk_path *paths = malloc((size_t)n * sizeof *paths);
+    if (!paths) {
+        wm_logf("desktop: no memory for a drop of %d item(s)", n);
+        return 0;
+    }
+    n = drag_paths(paths, n);
+    int r = drop_onto_target(paths, n);
+    free(paths);
+    return r;
 }
 
 // Delete asks first, through the WM's own confirm dialog, and moves the
 // items to the Recycle Bin; Shift+Delete deletes them for good. The paths
 // are snapshotted when the dialog opens: the selection may change under it.
-static char g_del_paths[DESKTOP_FILES_MAX][PATH_BUF];
+static desk_path *g_del_paths;   // selection_paths()'s
 static int g_del_count;
 static int g_del_forever;
 static char g_del_msg[PATH_BUF + 40];
 static void delete_confirmed(void) {
-    static char *argv[DESKTOP_FILES_MAX + 3];
-    int k = 0;
-    argv[k++] = g_del_forever ? "/bin/rm" : "/bin/trash";
-    argv[k++] = g_del_forever ? "-r" : "put";
-    for (int i = 0; i < g_del_count; i++) argv[k++] = g_del_paths[i];
-    argv[k] = 0;
-    spawn_argv(argv);
+    if (g_del_forever) spawn_paths("/bin/rm", "-r", g_del_paths, g_del_count);
+    else spawn_paths("/bin/trash", "put", g_del_paths, g_del_count);
     if (!g_del_forever) {   // a delete for good has nothing to take back
         undo_begin(UNDO_TRASH);
         for (int i = 0; i < g_del_count; i++) undo_add(g_del_paths[i], 0);
         undo_commit("Moved", "the Recycle Bin", 1);
     }
+    free(g_del_paths);
+    g_del_paths = 0;
     g_del_count = 0;
 }
 static void delete_selected(int forever) {
     g_del_forever = forever;
-    g_del_count = selected_paths(g_del_paths, DESKTOP_FILES_MAX);
+    free(g_del_paths);   // a dialog cancelled earlier left its snapshot
+    g_del_paths = selection_paths(&g_del_count);
     if (g_del_count == 0) return;
     // Folder Options' "Ask before moving to the Recycle Bin"; a delete for
     // good always asks, as in Explorer -- Undo cannot take it back.

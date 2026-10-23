@@ -1204,12 +1204,11 @@ void wm_client_check_timers(void) {
 // paths are FS_PATH_MAX and a window is not the place to keep 64 bytes
 // of string. Never reclaimed: entries are program paths, of which a
 // running system has a handful, and a refcount would exist to save
-// nothing. Full means the next new program is ungrouped, which is a
-// degradation rather than a failure.
-#define WM_IDENTITY_MAX 32
-
-static char g_ident_path[WM_IDENTITY_MAX][QUERY_PROCPATH_MAX];
-static int  g_ident_count;
+// nothing. Each path is its own allocation, so a pointer identity_path()
+// handed out survives the table growing; out of memory leaves the
+// window ungrouped, which is a degradation rather than a failure.
+static char **g_ident_path;
+static int  g_ident_count, g_ident_cap;
 
 static const char *identity_path(int identity) {
     return identity >= 0 && identity < g_ident_count ? g_ident_path[identity] : "";
@@ -1219,11 +1218,24 @@ static int intern_identity(const char *path) {
     if (!path || !path[0]) return -1;
     for (int i = 0; i < g_ident_count; i++)
         if (k_strcmp(g_ident_path[i], path) == 0) return i;
-    if (g_ident_count >= WM_IDENTITY_MAX) {
-        wm_logf("wm: identity table full -- window ungrouped\n");
+    if (g_ident_count == g_ident_cap) {
+        int cap = g_ident_cap ? g_ident_cap * 2 : 32;
+        char **n = realloc(g_ident_path, (size_t)cap * sizeof *n);
+        if (!n) {
+            wm_logf("wm: no memory for a program identity -- window ungrouped\n");
+            return -1;
+        }
+        g_ident_path = n;
+        g_ident_cap = cap;
+    }
+    uint32_t len = k_strlen(path) + 1;
+    char *copy = malloc(len);
+    if (!copy) {
+        wm_logf("wm: no memory for a program identity -- window ungrouped\n");
         return -1;
     }
-    k_strlcpy(g_ident_path[g_ident_count], path, QUERY_PROCPATH_MAX);
+    k_memcpy(copy, path, len);
+    g_ident_path[g_ident_count] = copy;
     return g_ident_count++;
 }
 

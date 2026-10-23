@@ -38,7 +38,7 @@ static void drag(struct rubberband *rb, int x0, int y0, int x1, int y1,
 }
 
 static void case_1(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
 
     // Covers items 0 and 1 (x 0..20 and 40..60 at row 0) and nothing in
@@ -54,7 +54,7 @@ static void case_1(void) {
 }
 
 static void case_2(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
 
     // The check an accumulating implementation fails. It looks identical
@@ -71,7 +71,7 @@ static void case_2(void) {
 }
 
 static void case_3(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
 
     // Same rectangle as the first test, anchored at the opposite corner.
@@ -88,7 +88,7 @@ static void case_3(void) {
 }
 
 static void case_4(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
 
     rb_select(&rb, 8, 1); // row 2, nowhere near the band below
@@ -102,7 +102,7 @@ static void case_4(void) {
 }
 
 static void case_5(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
 
     // The control for the test above: same setup, different mode, and
@@ -116,7 +116,7 @@ static void case_5(void) {
 }
 
 static void case_6(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
 
     rb_select(&rb, 0, 1); // already selected -- the band must UNselect it
@@ -130,7 +130,7 @@ static void case_6(void) {
 }
 
 static void case_7(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
     rb_select(&rb, 3, 1);
 
@@ -144,7 +144,7 @@ static void case_7(void) {
 }
 
 static void case_8(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
     rb_select(&rb, 3, 1);
 
@@ -157,7 +157,7 @@ static void case_8(void) {
 }
 
 static void case_9(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
 
     rb_begin(&rb, 0, 0, RB_REPLACE);
@@ -170,22 +170,26 @@ static void case_9(void) {
 }
 
 static void case_10(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
 
-    // A caller reporting more items than the bitset holds is clamped,
-    // not trusted. The failure this prevents is a silent write past
-    // rb.sel into rb.base -- which would look like a selection that
-    // mysteriously survives the next drag.
-    // The band has to reach every one of the clamped items or the count
-    // below measures the band's size instead of the clamp: at 4 columns
-    // and a 40px pitch, item 127 sits at y = 1240.
-    int huge = RB_MAX_ITEMS * 4;
+    // MORE ITEMS THAN THE OLD FIXED BITSET HELD (256): the bitset grows
+    // and a band over all of them selects all of them. The band has to
+    // reach every item or the count measures the band instead: at 4
+    // columns and a 40px pitch, item 1023 sits at y = 10200.
+    int huge = 1024;
     rb_begin(&rb, -1000, -1000, RB_REPLACE);
-    rb_motion(&rb, 5000, 5000, &GRID, &huge);
+    rb_motion(&rb, 5000, 20000, &GRID, &huge);
     rb_end(&rb);
 
-    KTEST_ASSERT_EQ(rb_selected_count(&rb), RB_MAX_ITEMS);
+    KTEST_ASSERT_EQ(rb_selected_count(&rb), huge);
+    KTEST_ASSERT(rb_is_selected(&rb, huge - 1));
+    // ...and rb_select() past the end grows it too.
+    rb_select(&rb, 5000, 1);
+    KTEST_ASSERT(rb_is_selected(&rb, 5000));
+    KTEST_ASSERT_EQ(rb_selected_count(&rb), huge + 1);
+    rb_free(&rb);
+    KTEST_ASSERT_EQ(rb_selected_count(&rb), 0);
 }
 
 static void case_11(void) {
@@ -207,7 +211,7 @@ static void case_11(void) {
 // Refusing that case made the band never go active, and a rectangle
 // that never exists reads to the app as a drag that did nothing.
 static void case_12(void) {
-    struct rubberband rb;
+    struct rubberband rb = { 0 };
     rb_clear(&rb);
 
     rb_begin(&rb, 100, 50, RB_REPLACE);
@@ -234,7 +238,7 @@ static const struct uktest_case CASES[] = {
     { "a click is not a band, and clears the selection", case_7 },
     { "a modified click leaves the selection alone", case_8 },
     { "the threshold is what separates a click from a band", case_9 },
-    { "an over-large item count cannot walk off the bitset", case_10 },
+    { "the bitset grows to every item a band covers", case_10 },
     { "an empty band and empty items touch nothing", case_11 },
     { "a band with no selection model still has a rect", case_12 },
 };

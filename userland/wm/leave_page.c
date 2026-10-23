@@ -39,19 +39,18 @@ static char g_into_label[UBOOTMENU_MAX][UBOOTMENU_TITLE + 12];
 static struct context_menu_item g_into_item[UBOOTMENU_MAX];
 static char g_into_link[UBOOTMENU_TITLE + 24];
 
-// The apps asked to close (close_batch.h).
-// MORE THAN THIS MANY WINDOWS AND THE PAGE WILL NOT ACT: an app it did
-// not ask would lose its work unasked. Far past any real session here.
-#define LEAVE_APPS 128
-static struct close_batch_entry g_store[LEAVE_APPS];
-static struct close_batch g_apps = { g_store, LEAVE_APPS, 0, 0 };
+// The apps asked to close (close_batch.h), every one of them.
+static struct close_batch g_apps;
+// THE MOST APP ROWS THE PAGE DRAWS -- a screen's worth, not a cap on the
+// apps: the rest are "and N more" under the last row.
+#define LEAVE_ROWS 64
 
 static uint32_t *g_snap;
 static int g_snap_w, g_snap_h, g_snap_ok;
 static char g_note[96];             // why the last action did not happen
 
 enum { C_RESTART, C_SHUTDOWN, C_EXIT, C_INTO, C_CANCEL, C_ANYWAY, C_ROW0,
-       CTLS = C_ROW0 + LEAVE_APPS };
+       CTLS = C_ROW0 + LEAVE_ROWS };
 struct rect { int x, y, w, h; };
 static struct rect g_r[CTLS];
 static int g_rows_shown;            // app rows that fit the screen
@@ -128,13 +127,15 @@ static void begin(int action) {
     close_batch_reset(&g_apps);
     g_note[0] = 0;
     int all = 0;
-    for (int i = 0; i < window_count; i++) all += listed(&windows[i]);
-    if (all > LEAVE_APPS) {
-        refused("Too many windows are open to ask; close some first.");
+    for (int i = 0; i < window_count; i++)
+        if (listed(&windows[i])) { all++; close_batch_add(&g_apps, i); }
+    // AN APP IT DID NOT RECORD WOULD LOSE ITS WORK UNASKED: out of memory
+    // for one more is a refusal, not a shorter list.
+    if (g_apps.n < all) {
+        close_batch_reset(&g_apps);
+        refused("Not enough memory to ask every app; close some first.");
         return;
     }
-    for (int i = 0; i < window_count; i++)
-        if (listed(&windows[i])) close_batch_add(&g_apps, i);
     if (!g_apps.n) {
         wm_logf("leave: %s chosen, asking 0 app(s) to close\n", NAME[action]);
         perform();
@@ -239,6 +240,7 @@ static void layout(void) {
     // count under them (draw_closing).
     int fixed = D + u() * 5 + u() * 2 + btn_h() + u() * 2 + 2 * u();
     int fit = (H - fixed) / (rh + rg);
+    if (fit > LEAVE_ROWS) fit = LEAVE_ROWS;
     int rows = g_apps.n < fit ? g_apps.n : fit < 1 ? 1 : fit;
     g_rows_shown = rows;
     int block = D + u() * 5 + rows * (rh + rg) + u() * 2 + btn_h();

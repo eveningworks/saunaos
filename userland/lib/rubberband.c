@@ -1,30 +1,37 @@
 // Rubber-band selection -- see lib/rubberband.h for the design.
 //
-// Freestanding on purpose: <stdint.h> only. Nothing here allocates,
-// draws, or knows what an item is.
+// Nothing here draws or knows what an item is; the one thing it
+// allocates is its own bitset.
 #include "lib/rubberband.h"
+#include <stdlib.h>
 
 // --- bitset -----------------------------------------------------------
-//
-// Hand-rolled rather than reaching for kernel/lib/string.h's memset: this
-// file is compiled into ring-3 binaries too, and staying dependency-free
-// is what keeps it on the shared-source path at all.
 
-static void bits_clear(uint32_t *w) {
-    for (int i = 0; i < RB_WORDS; i++) w[i] = 0;
+// Room for `items` bits in both sel and base, the new words zeroed. 0
+// when there is no memory -- the bitset is then as it was.
+static int reserve(struct rubberband *rb, int items) {
+    int want = (items + 31) / 32;
+    if (want <= rb->words) return 1;
+    int w = rb->words ? rb->words : 4;
+    while (w < want) w *= 2;
+    uint32_t *s = realloc(rb->sel, (size_t)w * sizeof *s);
+    if (!s) return 0;
+    rb->sel = s;
+    uint32_t *b = realloc(rb->base, (size_t)w * sizeof *b);
+    if (!b) return 0;
+    rb->base = b;
+    for (int i = rb->words; i < w; i++) rb->sel[i] = rb->base[i] = 0;
+    rb->words = w;
+    return 1;
 }
 
-static void bits_copy(uint32_t *dst, const uint32_t *src) {
-    for (int i = 0; i < RB_WORDS; i++) dst[i] = src[i];
-}
-
-static int bit_get(const uint32_t *w, int i) {
-    if (i < 0 || i >= RB_MAX_ITEMS) return 0;
+static int bit_get(const uint32_t *w, int words, int i) {
+    if (i < 0 || i >= words * 32) return 0;
     return (w[i / 32] >> (i % 32)) & 1u;
 }
 
-static void bit_set(uint32_t *w, int i, int on) {
-    if (i < 0 || i >= RB_MAX_ITEMS) return;
+static void bit_set(uint32_t *w, int words, int i, int on) {
+    if (i < 0 || i >= words * 32) return;
     uint32_t mask = 1u << (i % 32);
     if (on) w[i / 32] |= mask;
     else    w[i / 32] &= ~mask;
@@ -67,28 +74,38 @@ void rb_clear(struct rubberband *rb) {
     rb->armed = rb->active = 0;
     rb->ax = rb->ay = rb->cx = rb->cy = 0;
     rb->mode = RB_REPLACE;
-    bits_clear(rb->sel);
-    bits_clear(rb->base);
+    for (int i = 0; i < rb->words; i++) rb->sel[i] = rb->base[i] = 0;
+}
+
+void rb_free(struct rubberband *rb) {
+    if (!rb) return;
+    free(rb->sel);
+    free(rb->base);
+    rb->sel = rb->base = 0;
+    rb->words = 0;
+    rb_clear(rb);
 }
 
 int rb_is_selected(const struct rubberband *rb, int index) {
-    return rb ? bit_get(rb->sel, index) : 0;
+    return rb ? bit_get(rb->sel, rb->words, index) : 0;
 }
 
 void rb_select(struct rubberband *rb, int index, int on) {
-    if (rb) bit_set(rb->sel, index, on);
+    if (!rb || index < 0) return;
+    if (on && !reserve(rb, index + 1)) return;
+    bit_set(rb->sel, rb->words, index, on);
 }
 
 int rb_selected_count(const struct rubberband *rb) {
     if (!rb) return 0;
     int n = 0;
-    for (int i = 0; i < RB_MAX_ITEMS; i++) n += bit_get(rb->sel, i);
+    for (int i = 0; i < rb->words * 32; i++) n += bit_get(rb->sel, rb->words, i);
     return n;
 }
 
 int rb_first_selected(const struct rubberband *rb) {
     if (!rb) return -1;
-    for (int i = 0; i < RB_MAX_ITEMS; i++) if (bit_get(rb->sel, i)) return i;
+    for (int i = 0; i < rb->words * 32; i++) if (bit_get(rb->sel, rb->words, i)) return i;
     return -1;
 }
 
@@ -104,7 +121,7 @@ void rb_begin(struct rubberband *rb, int x, int y, enum rb_mode mode) {
     // The selection as it stands is the BASE this drag composes with.
     // Kept for the whole drag, not just its first frame, so RB_ADD and
     // RB_TOGGLE stay right while the band shrinks as well as grows.
-    bits_copy(rb->base, rb->sel);
+    for (int i = 0; i < rb->words; i++) rb->base[i] = rb->sel[i];
 }
 
 static int past_threshold(const struct rubberband *rb, int x, int y) {
@@ -136,8 +153,9 @@ void rb_motion(struct rubberband *rb, int x, int y,
     if (!rb_rect(rb, &bx, &by, &bw, &bh)) return;
 
     int n = have_items ? ops->count(ctx) : 0;
-    if (n > RB_MAX_ITEMS) n = RB_MAX_ITEMS; // never index past the bitset
     if (n < 0) n = 0;
+    // Grown to the items -- or, with no memory for that, to what it holds.
+    if (!reserve(rb, n) && n > rb->words * 32) n = rb->words * 32;
 
     // Recomputed from `base` on EVERY motion rather than accumulated.
     // An accumulating version looks identical while the band grows and
@@ -147,7 +165,7 @@ void rb_motion(struct rubberband *rb, int x, int y,
         int ix, iy, iw, ih;
         ops->rect(ctx, i, &ix, &iy, &iw, &ih);
         int inside = rb_overlaps(bx, by, bw, bh, ix, iy, iw, ih);
-        int was = bit_get(rb->base, i);
+        int was = bit_get(rb->base, rb->words, i);
 
         int now;
         switch (rb->mode) {
@@ -156,7 +174,7 @@ void rb_motion(struct rubberband *rb, int x, int y,
         case RB_REPLACE:
         default:        now = inside; break;
         }
-        bit_set(rb->sel, i, now);
+        bit_set(rb->sel, rb->words, i, now);
     }
 }
 
@@ -170,7 +188,8 @@ int rb_end(struct rubberband *rb) {
     // nothing) rather than a special case bolted on beside it. A caller
     // that clicked ON an item selects it afterwards; it has the click
     // coordinates and this module does not.
-    if (!was_band && rb->armed && rb->mode == RB_REPLACE) bits_clear(rb->sel);
+    if (!was_band && rb->armed && rb->mode == RB_REPLACE)
+        for (int i = 0; i < rb->words; i++) rb->sel[i] = 0;
 
     rb->armed = 0;
     rb->active = 0;

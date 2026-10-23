@@ -28,6 +28,7 @@
 #include "wm_log.h"
 #include "ui/ulog.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 #define MAX_NOTICES   3
 #define SHOW_NS       12000000000ull   // a notice stays 12 s, longer while hovered
@@ -59,7 +60,7 @@ struct notice {
     int can_reopen;
     char path[PATH_MAX_NOTICE];   // a file notice's file
     struct uimg thumb;            // ...and its picture, scaled to the card; owned
-    uint32_t seq[NOTICE_STAYED_MAX];   // a close-all's windows, by open_seq
+    uint32_t *seq;                // a close-all's windows, by open_seq; owned
     int nwin;
     int pid;                      // a remote request's asker: the answer goes there
     int always;                   // ...and its box
@@ -90,9 +91,16 @@ static const struct gui_app *app_by_exec(const char *exec) {
 
 static void card_rect(int i, int *x, int *y, int *w, int *h);
 
+// What a card owns, given back.
+static void release(struct notice *n) {
+    uimg_free(&n->thumb);
+    free(n->seq);
+    n->seq = 0;
+}
+
 static void push(const struct notice *n) {
-    // The oldest falls off a full stack: its thumbnail goes with it.
-    if (g_count == MAX_NOTICES) uimg_free(&g_n[MAX_NOTICES - 1].thumb);
+    // The oldest falls off a full stack: what it owns goes with it.
+    if (g_count == MAX_NOTICES) release(&g_n[MAX_NOTICES - 1]);
     for (int i = MAX_NOTICES - 1; i > 0; i--) g_n[i] = g_n[i - 1];
     g_n[0] = *n;
     g_n[0].until = sys_monotonic_ns() + (n->kind == KIND_REMOTE ? ASK_NS : SHOW_NS);
@@ -103,7 +111,7 @@ static void push(const struct notice *n) {
         int x, y, w, h;
         card_rect(g_count - 1, &x, &y, &w, &h);
         if (y >= 0 || g_count <= 1) break;
-        uimg_free(&g_n[g_count - 1].thumb);
+        release(&g_n[g_count - 1]);
         g_count--;
     }
     crash_notice_open = 1;
@@ -112,7 +120,7 @@ static void push(const struct notice *n) {
 
 static void drop(int i) {
     crash_notice_damage();
-    uimg_free(&g_n[i].thumb);
+    release(&g_n[i]);
     for (int j = i; j < g_count - 1; j++) g_n[j] = g_n[j + 1];
     g_count--;
     crash_notice_open = g_count > 0;
@@ -184,9 +192,10 @@ void crash_notice_stayed(const char *title, const char *sub, const char *icon,
     k_strlcpy(c.title, title, sizeof c.title);
     k_strlcpy(c.sub, sub, sizeof c.sub);
     k_strlcpy(c.icon, icon ? icon : "tb-close-all", sizeof c.icon);
-    if (n > NOTICE_STAYED_MAX) n = NOTICE_STAYED_MAX;
-    for (int k = 0; k < n; k++) c.seq[k] = seq[k];
-    c.nwin = n;
+    c.seq = n > 0 && seq ? malloc((size_t)n * sizeof *c.seq) : 0;
+    if (c.seq) k_memcpy(c.seq, seq, (size_t)n * sizeof *c.seq);
+    else if (n > 0) wm_logf("notice: no memory for the windows left -- the card cannot act on them\n");
+    c.nwin = c.seq ? n : 0;
     push(&c);
 }
 
@@ -650,6 +659,7 @@ int crash_notice_handle_click(int mx, int my) {
     }
     struct notice n = g_n[i];
     n.thumb.px = 0;   // drop() frees the card's picture; this copy must not
+    g_n[i].seq = 0;   // ...and the window list moves to the copy, freed below
     drop(i);
     if (n.kind == KIND_ACTION) {
         if (b == BTN_A && n.act) n.act();
@@ -701,6 +711,7 @@ int crash_notice_handle_click(int mx, int my) {
                 }
             }
         }
+        free(n.seq);
         return 1;
     }
     if (b == BTN_DETAILS && n.report[0]) {

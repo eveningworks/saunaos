@@ -385,6 +385,9 @@ TESTS = [
     # lib/rubberband: the desktop's and the File Manager's drag selection.
     # A KTEST until the module left the kernel, its bodies unchanged.
     ("rubberband_test", 0, None, None),
+    # lib/uargbatch: a long argument list split across spawns, each within
+    # SPAWN_ARGS_MAX -- the desktop's Delete over a large selection.
+    ("uargbatch_test", 0, None, None),
     # lib/usiteperm: the Web Browser's per-site JavaScript choices, read
     # back from a fresh load of the file each time.
     ("usiteperm_test", 0, None, None),

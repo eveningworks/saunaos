@@ -204,6 +204,7 @@ TOOLS = [
     ("icons", "icons_test.py", "app icons: QOI, alpha compositing, three draw sites"),
     ("desktopmenu", "desktop_menu_test.py", "desktop menus, glass, rename, properties, popup corners"),
     ("deskdrop", "desktop_drop_test.py", "dropping on desktop folders, apps and the Recycle Bin; type art"),
+    ("deskmany", "desktop_many_test.py", "75 files are 75 icons; a band over them, Delete, all in the bin"),
     ("folderopts", "folder_options_test.py", "the desktop follows Folder Options; the double-click speed and its test folder"),
     ("trashlimits", "trash_limits_test.py", "the Recycle Bin's show switch, age limit, menu row and Settings card"),
     ("taskbarmenu", "taskbar_menu_test.py", "the taskbar strip's and the Start button's right-click menus"),

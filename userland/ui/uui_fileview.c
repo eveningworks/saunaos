@@ -368,6 +368,7 @@ void uui_fileview_free(struct uui_fileview *fv) {
     free(fv->dimmed);
     fv->entries = 0; fv->marks = fv->dimmed = 0;
     fv->cap = fv->count = fv->mark_words = fv->dim_words = fv->mark_count = fv->dim_count = 0;
+    rb_free(&fv->band);
 }
 
 // Room for `n` listing entries; 0 when there is no memory (the caller then keeps what it has).

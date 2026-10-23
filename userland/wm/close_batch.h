@@ -22,15 +22,17 @@ struct close_batch_entry {
     int asked, gone;
 };
 
+// Zero-initialised is empty; the entries grow with the batch and are kept
+// for the next one -- a reset empties it without freeing.
 struct close_batch {
-    struct close_batch_entry *e;     // the caller's storage, `cap` long
+    struct close_batch_entry *e;     // `cap` long, the batch's own
     int cap, n;
     uint64_t deadline_ns;            // 0 until asked
 };
 
-void close_batch_init(struct close_batch *b, struct close_batch_entry *store, int cap);
 void close_batch_reset(struct close_batch *b);
-// Records windows[idx]; 0 when the batch is full or already holds it.
+// Records windows[idx]; 0 when the batch already holds it, or there is
+// no memory for one more (logged).
 int close_batch_add(struct close_batch *b, int idx);
 // Asks every entry NOT YET ASKED, QUIETLY (wm_request_close_quiet(): no
 // raise, no focus change), and starts the wait on the first call,

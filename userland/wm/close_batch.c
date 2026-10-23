@@ -7,12 +7,7 @@
 #include "kapi.h"
 #include "rt/sys.h"   // sys_monotonic_ns()
 #include <stdio.h>
-
-void close_batch_init(struct close_batch *b, struct close_batch_entry *store, int cap) {
-    b->e = store;
-    b->cap = cap;
-    close_batch_reset(b);
-}
+#include <stdlib.h>
 
 void close_batch_reset(struct close_batch *b) {
     b->n = 0;
@@ -20,10 +15,20 @@ void close_batch_reset(struct close_batch *b) {
 }
 
 int close_batch_add(struct close_batch *b, int idx) {
-    if (idx < 0 || idx >= window_count || b->n >= b->cap) return 0;
+    if (idx < 0 || idx >= window_count) return 0;
     if (!windows[idx].open_seq) windows[idx].open_seq = wm_next_open_seq();
     for (int k = 0; k < b->n; k++)
         if (b->e[k].seq == windows[idx].open_seq) return 0;
+    if (b->n == b->cap) {
+        int cap = b->cap ? b->cap * 2 : 16;
+        struct close_batch_entry *e = realloc(b->e, (size_t)cap * sizeof *e);
+        if (!e) {
+            wm_logf("closebatch: no memory to record \"%s\" -- not asked\n", windows[idx].title);
+            return 0;
+        }
+        b->e = e;
+        b->cap = cap;
+    }
     struct close_batch_entry *e = &b->e[b->n++];
     e->seq = windows[idx].open_seq;
     k_strlcpy(e->title, windows[idx].title, sizeof e->title);
@@ -78,9 +83,7 @@ int close_batch_window(const struct close_batch *b, int k) {
 
 // --- Close all ---------------------------------------------------------------
 
-#define CLOSE_ALL_MAX NOTICE_STAYED_MAX   // the card names every window left
-static struct close_batch_entry g_store[CLOSE_ALL_MAX];
-static struct close_batch g_all = { g_store, CLOSE_ALL_MAX, 0, 0 };
+static struct close_batch g_all;
 static char g_app_id[WIN_APP_ID_MAX];   // every window's app, or "" when they differ
 static char g_icon[32];
 static int g_mixed;
@@ -130,7 +133,8 @@ static int stayed_sentence(char *sub, int cap, const char *first, const char *se
 }
 
 static void tell_stayed(void) {
-    uint32_t seq[NOTICE_STAYED_MAX];
+    // Every window still open, for the card's Show it and Force Quit.
+    uint32_t *seq = malloc((size_t)(g_all.n ? g_all.n : 1) * sizeof *seq);
     int n = 0, left = 0, asking = 0;
     const char *first = 0, *second = 0;
     for (int k = 0; k < g_all.n; k++) {
@@ -140,7 +144,7 @@ static void tell_stayed(void) {
         else if (!second) second = g_all.e[k].title;
         int i = close_batch_window(&g_all, k);
         if (i >= 0 && wm_dialog_blocker(i) >= 0) asking++;
-        if (n < NOTICE_STAYED_MAX) seq[n++] = g_all.e[k].seq;   // the batch holds no more
+        if (seq) seq[n++] = g_all.e[k].seq;
     }
     int closed = g_all.n - left;
     const char *name = app_name();
@@ -160,7 +164,9 @@ static void tell_stayed(void) {
         if (keep <= 1 || (len < (int)sizeof sub && crash_notice_sub_fits(sub))) break;
         keep--;
     }
+    if (!seq) wm_logf("closeall: no memory for the windows left -- the card cannot act on them\n");
     crash_notice_stayed(title, sub, g_icon[0] && !g_mixed ? g_icon : 0, seq, n);
+    free(seq);
 }
 
 void close_all_poll(void) {

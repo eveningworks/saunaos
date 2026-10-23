@@ -16,8 +16,8 @@
 // two that drift, which is this project's standing rule for widget
 // behaviour (docs/gui-guidelines.md).
 //
-// Freestanding: <stdint.h> only, no allocator, no drawing -- which is
-// what lets userland/tests/rubberband_test.c drive it with no screen.
+// No drawing and no knowledge of the items -- which is what lets
+// userland/tests/rubberband_test.c drive it with no screen.
 //
 // It deliberately does NOT do group DRAGGING (moving every selected item
 // together). That is the natural next layer and this is the piece it
@@ -25,14 +25,10 @@
 // iterate and a band that is already out of the way once rb_end() has
 // run.
 
-// Items are tracked in a fixed bitset, because there is no allocator on
-// either side of this boundary. Sized to SYS_LISTDIR_MAX so a file
-// manager pane's full listing fits (its rows can still be listing+1 --
-// the synthetic "..", which cannot be selected anyway); a caller with
-// more items must page them, and rb_ops::count is clamped to this so an
-// over-large answer can never write past the bitset.
-#define RB_MAX_ITEMS 256
-#define RB_WORDS ((RB_MAX_ITEMS + 31) / 32)
+// Items are tracked in a bitset that GROWS to the highest index a band
+// covers or rb_select() names, so a folder of any size selects whole.
+// Out of memory stops it growing: items past what it holds read as
+// unselected, never as a write past the end.
 
 // How far the pointer must travel before a press becomes a BAND rather
 // than a click. Without this every click is a zero-size drag that
@@ -60,16 +56,19 @@ struct rubberband {
     int ax, ay;     // where the press landed
     int cx, cy;     // where the pointer is now
     enum rb_mode mode;
-    uint32_t sel[RB_WORDS];
-    uint32_t base[RB_WORDS]; // the selection when this drag began
+    uint32_t *sel;           // `words` long, both of them
+    uint32_t *base;          // the selection when this drag began
+    int words;
 };
 
 // --- selection state --------------------------------------------------
 
-// Drop the selection and any drag in progress. Also the correct way to
-// initialise one: a zeroed struct rubberband is already valid, and this
-// says so at the call site.
+// Drop the selection and any drag in progress, keeping the bitset's
+// memory for the next one. A ZEROED struct rubberband is a valid empty
+// one; an uninitialised one is not -- this reads how much it holds.
 void rb_clear(struct rubberband *rb);
+// Give the bitset's memory back; the band is then as if zeroed.
+void rb_free(struct rubberband *rb);
 
 int rb_is_selected(const struct rubberband *rb, int index);
 void rb_select(struct rubberband *rb, int index, int on);
