@@ -7,6 +7,7 @@
 #include "lib/unum.h"
 #include "lib/icon_cache.h"
 #include "lib/udevice.h"
+#include <stdlib.h>
 #include "lib/uclip.h"
 #include "build_date.h"
 #include "query_abi.h"
@@ -115,14 +116,15 @@ void sysinfo_load(void) {
     add(g_hw, &g_hw_n, "Processor", v);
     add(g_hw, &g_hw_n, "Memory", "-");
 
-    static struct udevice dev[UDEV_MAX];
-    int nd = udevice_list(dev, UDEV_MAX);
+    struct udevice *dev;
+    int nd = udevice_list(&dev);
     for (int i = 0; i < nd; i++)
         if (dev[i].type == UDEV_T_DISPLAY && dev[i].driver[0]) {
             snprintf(v, sizeof v, "%s (%s)", dev[i].name, dev[i].driver);
             add(g_hw, &g_hw_n, "Graphics", v);
             break;
         }
+    free(dev);
     struct query_display qd;
     if (sys_query_record(QUERY_DISPLAY, 0, &qd, sizeof qd) >= (int)sizeof qd && qd.width) {
         if (qd.refresh_mhz)

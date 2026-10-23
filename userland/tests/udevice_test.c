@@ -16,13 +16,21 @@
 #include "rt/sys.h"
 #include "lib/uconf.h"
 #include "lib/udevice.h"
+#include <stdlib.h>
 #include "lib/uhwids.h"
 #include "lib/utest.h"
 
-static struct udevice g_dev[UDEV_MAX];
+static struct udevice *g_dev;
+
+// A fresh list into g_dev, the last one freed -- a pointer into it lasts
+// until the next call.
+static int relist(void) {
+    free(g_dev);
+    return udevice_list(&g_dev);
+}
 
 static struct udevice *by_id(const char *id) {
-    int n = udevice_list(g_dev, UDEV_MAX);
+    int n = relist();
     for (int i = 0; i < n; i++)
         if (!strcmp(g_dev[i].id, id)) return &g_dev[i];
     return 0;
@@ -31,7 +39,7 @@ static struct udevice *by_id(const char *id) {
 int main(void) {
     utest_begin("udevice_test", "the device list, and disable/enable", UTEST_VERDICT_FILE);
 
-    int n = udevice_list(g_dev, UDEV_MAX), pci = 0, named = 0;
+    int n = relist(), pci = 0, named = 0;
     struct udevice *store = 0, *nic = 0;
     for (int i = 0; i < n; i++) {
         struct udevice *d = &g_dev[i];

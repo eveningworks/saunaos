@@ -24,7 +24,6 @@
 // `devctl apply` re-applies at boot. Linux's sysfs `unbind` shape, with
 // Windows' "stays disabled across restarts".
 
-#define UDEV_MAX 96
 #define UDEV_PERSIST_CONF "/etc/devices.conf"
 #define UDEV_RUNTIME_NAME "devices.disabled"   // under storage.tmpdir
 
@@ -71,8 +70,10 @@ struct udevice {
     char class_name[48], subclass_name[48], progif_name[48];
 };
 
-// The devices, into `out` (capacity `cap`). Returns the count.
-int udevice_list(struct udevice *out, int cap);
+// The devices, in a list allocated to fit: `*list` is the caller's to
+// free(), NULL when there are none. Returns the count, or -ENOMEM with
+// `*list` NULL.
+int udevice_list(struct udevice **list);
 
 // 0, or a negative errno: -EBUSY a process holds it, -ENOTSUP its driver
 // cannot let go, -EPERM no scheduler slot (spawn, never `run`).

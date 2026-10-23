@@ -19,6 +19,7 @@
 // go.
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>
 #include <errno.h>
 #include "rt/sys.h"
 #include "query_abi.h"
@@ -80,13 +81,15 @@ enum {
 #define NODE_BUS_PCI -1
 #define NODE_BUS_PLAT -2
 
-static struct udevice g_dev[UDEV_MAX];
+// udevice_list()'s, and the tree's nodes and labels sized to it -- all
+// three replaced together by relist().
+static struct udevice *g_dev;
 static int g_n;
 static int g_by_conn;
 
-static struct uui_tree_node g_nodes[UDEV_MAX + UDEV_T_COUNT + 4];
-static int g_node_count;
-static char g_label[UDEV_MAX][120];
+static struct uui_tree_node *g_nodes;
+static int g_node_count, g_node_cap;
+static char (*g_label)[120];
 
 static struct uui_menubar g_menu;
 // A VIEW SWITCH, so a segmented control -- what Windows and macOS put
@@ -299,7 +302,7 @@ static void label_device(int i) {
 }
 
 static void add_node(const char *label, int depth, int id, const char *icon) {
-    if (g_node_count >= (int)(sizeof g_nodes / sizeof g_nodes[0])) return;
+    if (g_node_count >= g_node_cap) return;
     g_nodes[g_node_count++] = (struct uui_tree_node){ label, depth, id, UUI_TREE_AUTO, icon, 0, 0, 0, 0, 0 };
 }
 
@@ -389,6 +392,18 @@ static const struct udevice *find_id(const char *id) {
 
 // Rebuilds the nodes and keeps the selection on the same DEVICE (by its
 // stable id), since the index of a device can change with a relist.
+static void rebuild_tree(const char *keep_id);
+
+// rebuild_tree() into a new node array, the old one freed once the tree
+// holds the new -- the tree reads its nodes until it is handed others.
+static void rebuild_tree_into(struct uui_tree_node *nodes, int cap, const char *keep_id) {
+    struct uui_tree_node *old = g_nodes;
+    g_nodes = nodes;
+    g_node_cap = cap;
+    rebuild_tree(keep_id);
+    free(old);
+}
+
 static void rebuild_tree(const char *keep_id) {
     g_node_count = 0;
     g_head_n = 0;
@@ -490,12 +505,32 @@ static void update_controls(void) {
     snprintf(g_st_problem, sizeof g_st_problem, "%d without a driver, %d disabled", problems, off);
 }
 
+static void set_note(const char *msg);
+
+// A node per device, one per type heading, and the two bus headings.
+#define NODE_EXTRA (UDEV_T_COUNT + 4)
+
 static void relist(void) {
     const struct udevice *d = selected();
     char keep[24] = "";
     if (d) strlcpy(keep, d->id, sizeof keep);
-    g_n = udevice_list(g_dev, UDEV_MAX);
-    rebuild_tree(keep);
+    struct udevice *list;
+    int n = udevice_list(&list);
+    struct uui_tree_node *nodes = n >= 0 ? malloc((size_t)(n + NODE_EXTRA) * sizeof *nodes) : 0;
+    char (*labels)[120] = nodes ? malloc((size_t)(n ? n : 1) * sizeof *labels) : 0;
+    if (!labels) {
+        // The old list stays on screen, and says why it did not change.
+        free(list);
+        free(nodes);
+        set_note("out of memory -- the list was not refreshed");
+        return;
+    }
+    free(g_dev);
+    free(g_label);
+    g_dev = list;
+    g_n = n;
+    g_label = labels;
+    rebuild_tree_into(nodes, n + NODE_EXTRA, keep);
     update_controls();
 }
 

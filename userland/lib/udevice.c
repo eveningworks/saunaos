@@ -128,14 +128,39 @@ void udevice_cpu_brand(char *out, int cap) {
     strlcpy(out, p, (size_t)cap);
 }
 
-static void add_pci(struct udevice *out, int *n, int cap, struct uhwids_entry *ids) {
+// The list as it is built, with each bus device's hwdata lookup kept in
+// step at the same index. Grown by doubling; `oom` ends the building.
+struct dlist {
+    struct udevice *v;
+    struct uhwids_entry *ids;
+    int n, cap, oom;
+};
+
+// A zeroed entry at `l->n`, or NULL once memory has run out. The caller
+// counts it (`l->n++`) only when it keeps it.
+static struct udevice *dl_add(struct dlist *l) {
+    if (l->oom) return 0;
+    if (l->n == l->cap) {
+        int want = l->cap ? l->cap * 2 : 32;
+        struct udevice *v = realloc(l->v, (size_t)want * sizeof *v);
+        if (v) l->v = v;
+        struct uhwids_entry *ids = v ? realloc(l->ids, (size_t)want * sizeof *ids) : 0;
+        if (!ids) { l->oom = 1; return 0; }
+        l->ids = ids;
+        l->cap = want;
+    }
+    memset(&l->v[l->n], 0, sizeof l->v[0]);
+    memset(&l->ids[l->n], 0, sizeof l->ids[0]);
+    return &l->v[l->n];
+}
+
+static void add_pci(struct dlist *l) {
     struct query_pcidev q;
     QUERY_FOREACH(QUERY_PCIDEV, q, i) {
-        if (*n >= cap) return;
         struct pci_device p;
         if (sys_pci_info((int)q.index, &p) != 0) continue;
-        struct udevice *d = &out[*n];
-        memset(d, 0, sizeof *d);
+        struct udevice *d = dl_add(l);
+        if (!d) return;
         d->bus = UDEV_PCI;
         d->index = (int)q.index;
         d->parent = -1;
@@ -152,12 +177,13 @@ static void add_pci(struct udevice *out, int *n, int cap, struct uhwids_entry *i
         strlcpy(d->why, q.why, sizeof d->why);
         d->holder_pid = q.holder_pid;
         d->can_disable = q.claimable && !q.holder_pid;
-        ids[*n].vendor = d->vendor;
-        ids[*n].device = d->device;
-        ids[*n].cls = d->cls;
-        ids[*n].subclass = d->subclass;
-        ids[*n].prog_if = d->prog_if;
-        (*n)++;
+        struct uhwids_entry *e = &l->ids[l->n];
+        e->vendor = d->vendor;
+        e->device = d->device;
+        e->cls = d->cls;
+        e->subclass = d->subclass;
+        e->prog_if = d->prog_if;
+        l->n++;
     }
 }
 
@@ -173,12 +199,11 @@ static int all_unreadable(const char *s) {
     return 1;
 }
 
-static void add_usb(struct udevice *out, int *n, int cap, struct uhwids_entry *ids, int xhci) {
+static void add_usb(struct dlist *l, int xhci) {
     struct query_usb q;
     QUERY_FOREACH(QUERY_USB, q, i) {
-        if (*n >= cap) return;
-        struct udevice *d = &out[*n];
-        memset(d, 0, sizeof *d);
+        struct udevice *d = dl_add(l);
+        if (!d) return;
         d->bus = UDEV_USB;
         d->index = (int)q.slot;
         d->parent = xhci;
@@ -199,26 +224,27 @@ static void add_usb(struct udevice *out, int *n, int cap, struct uhwids_entry *i
         if (!all_unreadable(q.product)) strlcpy(d->name, q.product, sizeof d->name);
         if (!all_unreadable(q.manufacturer))
             strlcpy(d->vendor_name, q.manufacturer, sizeof d->vendor_name);
-        ids[*n].vendor = d->vendor;
-        ids[*n].device = d->device;
-        ids[*n].cls = d->cls;              // the bound (or first) interface's
-        ids[*n].subclass = d->subclass;
-        ids[*n].prog_if = d->prog_if;
-        (*n)++;
+        struct uhwids_entry *e = &l->ids[l->n];
+        e->vendor = d->vendor;
+        e->device = d->device;
+        e->cls = d->cls;                   // the bound (or first) interface's
+        e->subclass = d->subclass;
+        e->prog_if = d->prog_if;
+        l->n++;
     }
 }
 
 // The one platform bus this machine has: the i8042's keyboard and mouse,
 // named by the input core ("ps2-keyboard ps2-mouse" in QUERY_DRIVER).
-static void add_ps2(struct udevice *out, int *n, int cap) {
+static void add_ps2(struct dlist *l) {
     struct query_driver q;
     QUERY_FOREACH(QUERY_DRIVER, q, i) {
         if (strcmp(q.name, "i8042") != 0) continue;
         char devs[sizeof q.devices];
         strlcpy(devs, q.devices, sizeof devs);
-        for (char *tok = strtok(devs, " "); tok && *n < cap; tok = strtok(0, " ")) {
-            struct udevice *d = &out[*n];
-            memset(d, 0, sizeof *d);
+        for (char *tok = strtok(devs, " "); tok; tok = strtok(0, " ")) {
+            struct udevice *d = dl_add(l);
+            if (!d) return;
             d->bus = UDEV_PLATFORM;
             d->index = d->parent = -1;
             d->type = UDEV_T_INPUT;
@@ -227,27 +253,26 @@ static void add_ps2(struct udevice *out, int *n, int cap) {
             strlcpy(d->driver, "i8042", sizeof d->driver);
             strlcpy(d->name, strstr(tok, "keyboard") ? "PS/2 keyboard"
                              : "PS/2 mouse or touchpad", sizeof d->name);
-            (*n)++;
+            l->n++;
         }
     }
 }
 
-static void add_cpus(struct udevice *out, int *n, int cap) {
+static void add_cpus(struct dlist *l) {
     char brand[64];
     udevice_cpu_brand(brand, sizeof brand);
     struct query_cpu q;
     QUERY_FOREACH(QUERY_CPUS, q, i) {
-        if (*n >= cap) return;
         if (!(q.flags & QUERY_CPU_ENABLED)) continue;   // a firmware spare
-        struct udevice *d = &out[*n];
-        memset(d, 0, sizeof *d);
+        struct udevice *d = dl_add(l);
+        if (!d) return;
         d->bus = UDEV_CPU;
         d->index = d->parent = -1;
         d->type = UDEV_T_CPU;
         snprintf(d->id, sizeof d->id, "cpu:%u", (unsigned)q.apic_id);
         snprintf(d->location, sizeof d->location, "APIC id %u", (unsigned)q.apic_id);
         strlcpy(d->name, brand, sizeof d->name);
-        (*n)++;
+        l->n++;
     }
 }
 
@@ -282,13 +307,13 @@ static void adopt_class_drivers(struct udevice *d, int npci) {
 // reports them (`device_id`), or -- the legacy ATA driver knows no PCI
 // device -- under the IDE function adopt_class_drivers() gave to "ata".
 // A RAM disk is not hardware and is left out, as Windows leaves it.
-static void add_disks(struct udevice *out, int *n, int cap, int npci) {
+static void add_disks(struct dlist *l, int npci) {
     struct query_blkdev q;
     QUERY_FOREACH(QUERY_BLKDEV, q, i) {
-        if (*n >= cap) return;
         if (q.parent[0] || !q.persistent) continue;
-        struct udevice *d = &out[*n];
-        memset(d, 0, sizeof *d);
+        struct udevice *d = dl_add(l);
+        if (!d) return;
+        const struct udevice *out = l->v;
         d->bus = UDEV_BLOCK;
         d->type = UDEV_T_DISK;
         d->index = d->parent = -1;
@@ -305,19 +330,19 @@ static void add_disks(struct udevice *out, int *n, int cap, int npci) {
         if (q.model[0]) strlcpy(d->name, q.model, sizeof d->name);
         else snprintf(d->name, sizeof d->name, "%s disk", q.driver[0] ? q.driver : "Block");
         snprintf(d->location, sizeof d->location, "Block device %s", q.name);
-        (*n)++;
+        l->n++;
     }
 }
 
 // The monitor on the screen, from the display driver's EDID: one, under
 // the display adapter adopt_class_drivers() gave that driver.
-static void add_monitor(struct udevice *out, int *n, int cap, int npci) {
+static void add_monitor(struct dlist *l, int npci) {
     struct query_display q;
-    if (*n >= cap) return;
     if (sys_query_record(QUERY_DISPLAY, 0, &q, sizeof q) != (int)sizeof q) return;
     if (!q.driver[0] || (!q.panel[0] && !q.native_width)) return;
-    struct udevice *d = &out[*n];
-    memset(d, 0, sizeof *d);
+    struct udevice *d = dl_add(l);
+    if (!d) return;
+    const struct udevice *out = l->v;
     d->bus = UDEV_MONITOR;
     d->type = UDEV_T_MONITOR;
     d->index = d->parent = -1;
@@ -329,7 +354,7 @@ static void add_monitor(struct udevice *out, int *n, int cap, int npci) {
     else strlcpy(d->name, "Monitor", sizeof d->name);
     if (q.vendor[0]) strlcpy(d->vendor_name, q.vendor, sizeof d->vendor_name);
     strlcpy(d->location, "On screen", sizeof d->location);
-    (*n)++;
+    l->n++;
 }
 
 // What each device's driver came in (QUERY_DRIVER's module), and a
@@ -349,13 +374,14 @@ static void annotate(struct udevice *out, int n) {
     }
 }
 
-int udevice_list(struct udevice *out, int cap) {
-    static struct uhwids_entry ids[UDEV_MAX];   // static: too big for the stack
-    int n = 0;
-    if (cap > UDEV_MAX) cap = UDEV_MAX;
+int udevice_list(struct udevice **list) {
+    struct dlist l = { 0 };
+    *list = 0;
 
-    add_pci(out, &n, cap, ids);
-    int npci = n, xhci = -1;
+    add_pci(&l);
+    struct udevice *out = l.v;
+    struct uhwids_entry *ids = l.ids;
+    int npci = l.n, xhci = -1;
     for (int i = 0; i < npci; i++)
         if (out[i].cls == 0x0c && out[i].subclass == 0x03 && out[i].prog_if == 0x30) { xhci = i; break; }
     uhwids_resolve(UHWIDS_PCI, ids, npci);
@@ -374,8 +400,10 @@ int udevice_list(struct udevice *out, int cap) {
 
     adopt_class_drivers(out, npci);
 
-    add_usb(out, &n, cap, ids, xhci);          // indexes ids[] by the shared n, as add_pci does
-    int nusb = n - npci;
+    add_usb(&l, xhci);                         // indexes ids[] by the shared n, as add_pci does
+    out = l.v;
+    ids = l.ids;
+    int nusb = l.n - npci;
     uhwids_resolve(UHWIDS_USB, ids + npci, nusb);
     for (int i = 0; i < nusb; i++) {
         struct udevice *d = &out[npci + i];
@@ -391,10 +419,17 @@ int udevice_list(struct udevice *out, int cap) {
                      d->type == UDEV_T_STORAGE ? "storage device" : "device");
     }
 
-    add_ps2(out, &n, cap);
-    add_cpus(out, &n, cap);
-    add_disks(out, &n, cap, npci);
-    add_monitor(out, &n, cap, npci);
+    add_ps2(&l);
+    add_cpus(&l);
+    add_disks(&l, npci);
+    add_monitor(&l, npci);
+    free(l.ids);
+    if (l.oom) {
+        free(l.v);
+        return -ENOMEM;
+    }
+    out = l.v;
+    int n = l.n;
     annotate(out, n);
 
     // What has been switched off: each file read once, not once a device.
@@ -412,6 +447,7 @@ int udevice_list(struct udevice *out, int cap) {
     }
     free(run);
     free(per);
+    *list = out;
     return n;
 }
 

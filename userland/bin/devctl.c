@@ -14,8 +14,9 @@
 #include "rt/sys.h"
 #include "lib/uargs.h"
 #include "lib/udevice.h"
+#include <stdlib.h>
 
-static struct udevice g_dev[UDEV_MAX];
+static struct udevice *g_dev;   // udevice_list()'s; one command a run, freed at exit
 static struct udev_prop g_props[UDEV_PROPS_MAX];
 static int g_persist, g_addresses;
 
@@ -58,8 +59,16 @@ static const char *why(int err) {
     }
 }
 
+// The device list into g_dev, or a message and a negative count.
+static int load(void) {
+    int n = udevice_list(&g_dev);
+    if (n < 0) fprintf(stderr, "devctl: out of memory listing the devices\n");
+    return n;
+}
+
 static int list(void) {
-    int n = udevice_list(g_dev, UDEV_MAX);
+    int n = load();
+    if (n < 0) return 1;
     printf("%-20s %-12s %-10s %-10s %s\n", "ID", "TYPE", "DRIVER", "STATE", "NAME");
     for (int t = 0; t < UDEV_T_COUNT; t++)
         for (int i = 0; i < n; i++) {
@@ -74,7 +83,7 @@ static int list(void) {
 }
 
 static int find(const char *id, int *n) {
-    *n = udevice_list(g_dev, UDEV_MAX);
+    if ((*n = load()) < 0) return -1;
     for (int i = 0; i < *n; i++)
         if (!strcmp(g_dev[i].id, id)) return i;
     fprintf(stderr, "devctl: no device %s -- `devctl list` names them\n", id);
@@ -114,7 +123,8 @@ static int events(const char *id) {
 static void put_line(void *ctx, const char *line) { (void)ctx; puts(line); }
 
 static int report(void) {
-    int n = udevice_list(g_dev, UDEV_MAX);
+    int n = load();
+    if (n < 0) return 1;
     udevice_report(g_dev, n, UDEV_PROPS_RESOURCES | UDEV_PROPS_EVENTS |
                    (g_addresses ? UDEV_PROPS_ADDRESSES : 0), put_line, 0);
     return 0;
@@ -124,7 +134,8 @@ static int report(void) {
 // file names, when its ids still match (udevice.c checks), goes off
 // again. Each outcome is logged -- a boot service's only witness.
 static int apply(void) {
-    int n = udevice_list(g_dev, UDEV_MAX), bad = 0;
+    int n = load(), bad = 0;
+    if (n < 0) return 1;
     for (int i = 0; i < n; i++) {
         struct udevice *d = &g_dev[i];
         if (!d->persisted || !d->driver[0]) continue;   // not asked for, or already off
