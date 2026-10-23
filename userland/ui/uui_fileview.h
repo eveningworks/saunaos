@@ -166,6 +166,9 @@ struct uui_fileview {
     // selects the folder it came out of.
     int enter_unselected;
 
+    // GROUP BY (enum uui_fileview_group); set through uui_fileview_set_group().
+    int group_by;
+
     uui_fileview_filter_fn filter;
     void *filter_ctx;
 
@@ -298,6 +301,21 @@ void uui_fileview_init(struct uui_fileview *fv, int x, int y, int w, int h);
 void uui_fileview_free(struct uui_fileview *fv);
 
 void uui_fileview_set_mode(struct uui_fileview *fv, enum uui_fileview_mode mode);
+
+// GROUP BY -- Explorer's View > Group by, Dolphin's "Show in groups": the
+// rows in bands under captions, by what the sort alone does not show at a
+// glance. A virtual folder with groups of its own (Recent's days) keeps
+// those. DETAILS VIEW ONLY: the icon grid has no caption rows. ".." is
+// left out while grouped, as Explorer has none -- Backspace still goes up.
+enum uui_fileview_group {
+    UUI_FILEVIEW_GROUP_NONE,
+    UUI_FILEVIEW_GROUP_NAME,       // 0-9, A-H, I-P, Q-Z, Other
+    UUI_FILEVIEW_GROUP_MODIFIED,   // Today, Yesterday, Earlier this week, ...
+    UUI_FILEVIEW_GROUP_TYPE,       // Folders, Pictures, Music and sounds, ...
+    UUI_FILEVIEW_GROUP_SIZE,       // Folders, Empty, Tiny, Small, Medium, Large
+};
+// Reloads, keeping the selection by name.
+void uui_fileview_set_group(struct uui_fileview *fv, enum uui_fileview_group g);
 // See `active_mark` above. `on` 0 turns it off; the colour is kept.
 void uui_fileview_set_active_mark(struct uui_fileview *fv, int on, uint32_t color);
 // See `navigable` above. Takes effect on the next reload.

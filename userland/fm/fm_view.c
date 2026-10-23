@@ -368,6 +368,22 @@ void log_layout(void) {
         }
     }
     uapp_logf_layout("files: layout selected %s\n", sel ? sel : "-");
+    // The active pane's group captions, top to bottom ("-" for none):
+    // what a Group by test asserts, in the words a person reads.
+    {
+        const struct uui_table *t = &active()->table;
+        char caps[256] = "", title[48];
+        int n = uui_table_view_count(t);
+        for (int v = 0; v < n && t->group_title; v++) {
+            int g = uui_table_caption_at(t, v);
+            if (g < 0) continue;
+            t->group_title(t->ctx, g, title, sizeof title);
+            if (strlen(caps) + strlen(title) + 2 >= sizeof caps) break;
+            if (caps[0]) strlcat(caps, "|", sizeof caps);
+            strlcat(caps, title, sizeof caps);
+        }
+        uapp_logf_layout("files: layout groups %d %s\n", active()->group_by, caps[0] ? caps : "-");
+    }
     uapp_logf_layout("files: layout modal %d\n", (int)g_modal);
     // An in-place rename, per pane, and what its field holds.
     uapp_logf_layout("files: layout renaming %d %d %s\n", g_pane[0].renaming, g_pane[1].renaming,

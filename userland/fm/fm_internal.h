@@ -123,6 +123,8 @@ enum {
     CMD_NET_OPEN,
     // The command bar's folder verbs, with nothing selected (files.c).
     CMD_SELECT_NONE, CMD_TERMINAL_HERE, CMD_PIN_HERE,
+    // View > Group by, in enum uui_fileview_group's order.
+    CMD_GROUP_NONE, CMD_GROUP_NAME, CMD_GROUP_MODIFIED, CMD_GROUP_TYPE, CMD_GROUP_SIZE,
     // The left pane's own menus (fm_places.c), aimed at the row clicked
     // rather than the selection. CMD_PL_FIRST..CMD_PL_LAST go there whole.
     CMD_PL_FIRST,

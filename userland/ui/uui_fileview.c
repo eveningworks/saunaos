@@ -1,6 +1,7 @@
 // fileview -- a directory listing, as a widget. See ui/uui_fileview.h.
 #include "ui/uui_fileview.h"
 #include <time.h>
+#include <caltime.h>    // cal_rtc_to_epoch -- Group by date
 #include "ui/uui_widget.h"
 #include "rt/sys.h"     // sys_listdir(), sys_ticks()
 #include "ui/uui_anim.h" // uui_wheel_step_px()
@@ -458,7 +459,7 @@ enum uui_fileview_sort uui_fileview_sort(const struct uui_fileview *fv, int *dir
 
 void uui_fileview_set_mode(struct uui_fileview *fv, enum uui_fileview_mode mode) {
     fv->mode = mode;
-    if (fv->src && fv->src->group) {
+    if ((fv->src && fv->src->group) || fv->group_by) {
         fv_apply_groups(fv);
         uui_table_set_rows(&fv->table, uui_fileview_row_count(fv));
     }
@@ -543,25 +544,133 @@ const struct uui_fileview_source *uui_fileview_source(const struct uui_fileview 
     return fv->src;
 }
 
-// A source's groups, in the table's row numbers (no ".." row in a
-// virtual folder, but asked through fv_entry all the same).
+// --- group by -----------------------------------------------------------
+//
+// The bands' numbers ARE their order (uui_table shows groups ascending,
+// never re-sorted), so each list below is in the order a person reads it:
+// newest first, smallest first, folders before files.
+
+static int fv_has_src_groups(const struct uui_fileview *fv) {
+    return fv->src && fv->src->group;
+}
+
+// Local calendar days since the epoch, ordered: equal on the same day.
+static long fv_local_day(long long when, struct tm *out) {
+    time_t t = (time_t)when;
+    struct tm tm;
+    localtime_r(&t, &tm);
+    if (out) *out = tm;
+    return (long)tm.tm_year * 366 + tm.tm_yday;
+}
+
+enum { AGE_TODAY, AGE_YESTERDAY, AGE_WEEK, AGE_MONTH, AGE_YEAR, AGE_OLDER };
+static const char *const AGE_NAMES[] = {
+    "Today", "Yesterday", "Earlier this week", "Earlier this month", "Earlier this year", "Older",
+};
+
+static int fv_age_group(const struct rtc_time *mod) {
+    long long when = (long long)cal_rtc_to_epoch(mod), now = (long long)time(0);
+    struct tm a, b;
+    long dn = fv_local_day(now, &a), dw = fv_local_day(when, &b);
+    if (dw >= dn) return AGE_TODAY;           // a clock ahead of ours is still today
+    if (dw == dn - 1) return AGE_YESTERDAY;
+    if (dn - dw < 7 && b.tm_wday < a.tm_wday) return AGE_WEEK;
+    if (b.tm_year == a.tm_year && b.tm_mon == a.tm_mon) return AGE_MONTH;
+    if (b.tm_year == a.tm_year) return AGE_YEAR;
+    return AGE_OLDER;
+}
+
+enum { KIND_FOLDER, KIND_PICTURE, KIND_SOUND, KIND_VIDEO, KIND_DOC, KIND_ARCHIVE, KIND_PROGRAM, KIND_OTHER };
+static const char *const KIND_NAMES[] = {
+    "Folders", "Pictures", "Music and sounds", "Videos", "Documents", "Archives", "Programs", "Other",
+};
+
+// By the type's ICON, which ufiletype already derives from the name --
+// one table of extensions, not a second one here.
+static int fv_kind_group(const struct sys_dirent *e) {
+    if (e->is_dir) return KIND_FOLDER;
+    const char *ic = ufiletype_icon(e->name, 0);
+    if (!strcmp(ic, "file-image")) return KIND_PICTURE;
+    if (!strcmp(ic, "file-audio")) return KIND_SOUND;
+    if (!strcmp(ic, "file-video")) return KIND_VIDEO;
+    if (!strcmp(ic, "file-text") || !strcmp(ic, "file-doc") || !strcmp(ic, "file-config")) return KIND_DOC;
+    if (!strcmp(ic, "file-archive")) return KIND_ARCHIVE;
+    if (!strcmp(ic, "file-app")) return KIND_PROGRAM;
+    return KIND_OTHER;
+}
+
+static const char *const SIZE_NAMES[] = {
+    "Folders", "Empty", "Tiny (under 16 KB)", "Small (under 1 MB)", "Medium (under 128 MB)", "Large",
+};
+
+static int fv_size_group(const struct sys_dirent *e) {
+    if (e->is_dir) return 0;
+    if (e->size == 0) return 1;
+    if (e->size < 16u * 1024) return 2;
+    if (e->size < 1024u * 1024) return 3;
+    if (e->size < 128u * 1024 * 1024) return 4;
+    return 5;
+}
+
+static const char *const NAME_NAMES[] = { "0 - 9", "A - H", "I - P", "Q - Z", "Other" };
+
+static int fv_name_group(const struct sys_dirent *e) {
+    unsigned char c = (unsigned char)e->name[0];
+    if (c >= 'a' && c <= 'z') c = (unsigned char)(c - 'a' + 'A');
+    if (c >= '0' && c <= '9') return 0;
+    if (c >= 'A' && c <= 'H') return 1;
+    if (c >= 'I' && c <= 'P') return 2;
+    if (c >= 'Q' && c <= 'Z') return 3;
+    return 4;
+}
+
+// A row's group, in the table's row numbers: the source's own, or the
+// chosen group-by's.
 static int fv_group_of(void *ctx, int row) {
     const struct uui_fileview *fv = ctx;
     const struct sys_dirent *e = fv_entry(fv, row);
-    return e && fv->src && fv->src->group ? fv->src->group(fv->src->ctx, (int)(e - fv->entries)) : 0;
+    if (!e) return 0;
+    if (fv_has_src_groups(fv)) return fv->src->group(fv->src->ctx, (int)(e - fv->entries));
+    switch (fv->group_by) {
+    case UUI_FILEVIEW_GROUP_NAME:     return fv_name_group(e);
+    case UUI_FILEVIEW_GROUP_MODIFIED: return fv_age_group(&e->modified);
+    case UUI_FILEVIEW_GROUP_TYPE:     return fv_kind_group(e);
+    case UUI_FILEVIEW_GROUP_SIZE:     return fv_size_group(e);
+    default:                          return 0;
+    }
 }
 
 static void fv_group_title(void *ctx, int g, char *out, int cap) {
     const struct uui_fileview *fv = ctx;
     out[0] = '\0';
-    if (fv->src && fv->src->group_title) fv->src->group_title(fv->src->ctx, g, out, cap);
+    if (fv_has_src_groups(fv)) {
+        if (fv->src->group_title) fv->src->group_title(fv->src->ctx, g, out, cap);
+        return;
+    }
+    const char *const *names = 0;
+    int n = 0;
+    switch (fv->group_by) {
+    case UUI_FILEVIEW_GROUP_NAME:     names = NAME_NAMES; n = (int)(sizeof NAME_NAMES / sizeof *NAME_NAMES); break;
+    case UUI_FILEVIEW_GROUP_MODIFIED: names = AGE_NAMES;  n = (int)(sizeof AGE_NAMES / sizeof *AGE_NAMES); break;
+    case UUI_FILEVIEW_GROUP_TYPE:     names = KIND_NAMES; n = (int)(sizeof KIND_NAMES / sizeof *KIND_NAMES); break;
+    case UUI_FILEVIEW_GROUP_SIZE:     names = SIZE_NAMES; n = (int)(sizeof SIZE_NAMES / sizeof *SIZE_NAMES); break;
+    default: break;
+    }
+    if (names && g >= 0 && g < n) snprintf(out, (size_t)cap, "%s", names[g]);
 }
 
 // Groups in the details view only: the icon grid walks the table's
 // view rows, and a caption there would be a blank tile.
 static void fv_apply_groups(struct uui_fileview *fv) {
-    int on = fv->src && fv->src->group && fv->mode == UUI_FILEVIEW_DETAILS;
+    int on = fv->mode == UUI_FILEVIEW_DETAILS && (fv_has_src_groups(fv) || fv->group_by);
     uui_table_set_groups(&fv->table, on ? fv_group_of : 0, on ? fv_group_title : 0);
+}
+
+void uui_fileview_set_group(struct uui_fileview *fv, enum uui_fileview_group g) {
+    if (fv->group_by == (int)g) return;
+    fv->group_by = (int)g;
+    fv_apply_groups(fv);
+    uui_fileview_reload(fv);   // ".." comes and goes with it
 }
 
 // The details columns for the current listing: a source's, or the four.
@@ -631,7 +740,7 @@ int uui_fileview_reload(struct uui_fileview *fv) {
             uui_table_set_sort(&fv->table, fv->src->sort_col, fv->src->sort_dir);
         fv_apply_groups(fv);
     }
-    fv->has_up = !fv->src && fv->navigable && !fv_at_root(fv);
+    fv->has_up = !fv->src && fv->navigable && !fv_at_root(fv) && !fv->group_by;
 
     int n;
     if (fv->src) {
@@ -672,7 +781,13 @@ int uui_fileview_reload(struct uui_fileview *fv) {
     fv_size_bits(fv);
 
     // The table permutes; nothing sorts the array itself. set_rows()
-    // rebuilds the order and clamps the scroll and the selection.
+    // rebuilds the order and clamps the scroll and the selection. The
+    // groups are re-applied first: a group-by set before the first
+    // listing has nothing else to reach the table through. The fields
+    // only -- set_rows() is the one rebuild.
+    int grouped = fv->mode == UUI_FILEVIEW_DETAILS && (fv_has_src_groups(fv) || fv->group_by);
+    fv->table.group = grouped ? fv_group_of : 0;
+    fv->table.group_title = grouped ? fv_group_title : 0;
     uui_table_set_rows(&fv->table, uui_fileview_row_count(fv));
 
     // NO REVEAL: this is a refresh, and the scroll offset is the

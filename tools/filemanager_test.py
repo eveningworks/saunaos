@@ -101,8 +101,9 @@ def menu_rows(table):
     src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
                             "userland", "gui", "apps", "files.c")).read()
     body = src.split(f"static const struct uui_menu_item {table}[] = {{", 1)[1].split("};", 1)[0]
-    # Any UUI_MENU* row form: plain, _ICON, _VERB (ui/uui_verbs.h), STRIP_VERB.
-    rows = re.findall(r'UUI_MENU_SEP|UUI_(?:MENU|MENU_ICON|MENU_VERB|STRIP_VERB)\(\s*"([^"]*)"', body)
+    # Any UUI_MENU* row form: plain, _ICON, _VERB (ui/uui_verbs.h), STRIP_VERB,
+    # and a SUBMENU's own row.
+    rows = re.findall(r'UUI_MENU_SEP|UUI_(?:MENU|MENU_ICON|MENU_VERB|STRIP_VERB|SUBMENU)\(\s*"([^"]*)"', body)
     return {label: i for i, label in enumerate(rows) if label}
 
 
@@ -168,6 +169,8 @@ class Layout:
         self.navitems = {}    # Back/Forward/Up/Refresh
         self.vbitems = {}     # the status bar's view switch
         self.popitems = {}    # the open drop-down's (or context menu's) rows
+        self.popitems1 = {}   # ...and its open SUBMENU's (View > Group by)
+        self.groups = None    # (group_by, [caption, ...]) of the active pane
         self.dpane = None     # is the details pane shown
         self.pathedit = None  # is the breadcrumb being typed in
         self.pathseg = {}     # breadcrumb segment (0 = the root) -> [x, y, w, h]
@@ -281,6 +284,11 @@ class Layout:
             self.vbitems[int(p[1])] = [int(v) for v in p[2:6]]
         elif p[0] == "ctxmenu.item" and len(p) >= 7 and p[1] == "0":
             self.popitems[int(p[2])] = [int(v) for v in p[3:7]]
+        elif p[0] == "ctxmenu.item" and len(p) >= 7 and p[1] == "1":
+            self.popitems1[int(p[2])] = [int(v) for v in p[3:7]]
+        elif p[0] == "groups" and len(p) >= 3:
+            caps = " ".join(p[2:])
+            self.groups = (int(p[1]), [] if caps == "-" else caps.split("|"))
         elif p[0] == "ctxmenu.popup" and len(p) >= 6 and p[1] == "0":
             self.menu = [int(v) for v in p[2:6]]
         elif p[0] == "dpane" and len(p) >= 3:

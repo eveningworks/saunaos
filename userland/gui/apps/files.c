@@ -30,6 +30,7 @@
 #include <stdio.h>
 #include <strings.h>  // strncasecmp -- the search filter
 #include <stdlib.h>   // atoi -- the saved divider positions
+#include <time.h>     // the status bar's free space, asked every few seconds
 #include "kpath.h"
 #include "lib/urecent.h"
 #include "lib/uconf.h"
@@ -196,10 +197,21 @@ static const struct uui_menu_item sort_items[] = {
     UUI_MENU("Descending",     CMD_SORT_DESC,     0),
 };
 
+// Group by: bands in the Details view; choosing one from Icons switches to
+// Details, so the choice is seen rather than stored for later.
+static const struct uui_menu_item group_items[] = {
+    UUI_MENU("None",           CMD_GROUP_NONE,     0),
+    UUI_MENU("Name",           CMD_GROUP_NAME,     0),
+    UUI_MENU("Date modified",  CMD_GROUP_MODIFIED, 0),
+    UUI_MENU("Type",           CMD_GROUP_TYPE,     0),
+    UUI_MENU("Size",           CMD_GROUP_SIZE,     0),
+};
+
 static const struct uui_menu_item view_items[] = {
     UUI_MENU_ICON("Large icons",  CMD_VIEW_LARGE,   0, "tb-icons",   UTHEME_ACT_ARRANGE),
     UUI_MENU_ICON("Icons",        CMD_VIEW_ICONS,   0, "tb-icons",   UTHEME_ACT_ARRANGE),
     UUI_MENU_ICON("Details",      CMD_VIEW_DETAILS, 0, "tb-details", UTHEME_ACT_ARRANGE),
+    UUI_SUBMENU("Group by",       group_items),
     UUI_MENU_SEP,
     UUI_MENU_ICON("Folder sizes", CMD_VIEW_SIZES,   0, "tb-chart",   UTHEME_ACT_VIEW),
     UUI_MENU_ICON("Details pane", CMD_VIEW_DPANE,   "Alt+Shift+P", "tb-pane", UTHEME_ACT_VIEW),
@@ -609,6 +621,9 @@ static unsigned menu_item_flags(int code) {
     }
     case CMD_SELECT_ALL:
         return uui_fileview_count(active()) > 0 ? 0 : UUI_MI_DISABLED;
+    case CMD_GROUP_NONE: case CMD_GROUP_NAME: case CMD_GROUP_MODIFIED:
+    case CMD_GROUP_TYPE: case CMD_GROUP_SIZE:
+        return active()->group_by == code - CMD_GROUP_NONE ? UUI_MI_CHECKED : 0;
     case CMD_VIEW_DETAILS:
         return g_pane[g_active].mode == UUI_FILEVIEW_DETAILS ? UUI_MI_CHECKED : 0;
     case CMD_VIEW_ICONS:
@@ -785,8 +800,17 @@ void refresh_status(void) {
     }
 
     // What a paste here can still take, as Explorer's status bar says it.
+    // Asked when the folder changes and at most every few seconds besides:
+    // this runs on every filesystem change, and a volume's usage is a
+    // query per mount.
+    static char free_for[PATH_MAX_LEN];
+    static time_t free_at;
     struct uvolinfo v;
     const char *dir = uui_fileview_dir(fv);
+    time_t now = time(0);
+    if (!strcmp(free_for, dir) && now - free_at < 3) return;
+    strlcpy(free_for, dir, sizeof free_for);
+    free_at = now;
     g_stat_free[0] = '\0';
     if (dir[0] == '/' && uvolinfo_of(dir, &v) && uvolinfo_free(&v)) {
         char sz[24], name[32];
@@ -1243,6 +1267,16 @@ void do_command(struct uapp *a, int code) {
         uui_fileview_clear_marks(active());
         uui_fileview_select_none(active());
         break;
+    case CMD_GROUP_NONE: case CMD_GROUP_NAME: case CMD_GROUP_MODIFIED:
+    case CMD_GROUP_TYPE: case CMD_GROUP_SIZE: {
+        static const char *const keys[] = { "none", "name", "modified", "type", "size" };
+        int g = code - CMD_GROUP_NONE;
+        // One choice for the window, as the sort is: both panes follow.
+        for (int i = 0; i < 2; i++) uui_fileview_set_group(&g_pane[i], (enum uui_fileview_group)g);
+        if (g && active()->mode != UUI_FILEVIEW_DETAILS) set_view(CMD_VIEW_DETAILS);
+        uconf_set(FILES_CONF, "group", keys[g]);
+        break;
+    }
     case CMD_TERMINAL_HERE:
         fm_open_terminal(a, uui_fileview_dir(active()));
         break;
@@ -2275,6 +2309,13 @@ int main(int argc, char **argv) {
     for (int i = 0; i < 2; i++) g_pane[i].enter_unselected = g_single;
     if (uconf_get(FILES_CONF, "tree", opt, sizeof opt))
         g_tree_on = (opt[0] == '1');
+    if (uconf_get(FILES_CONF, "group", opt, sizeof opt)) {
+        int g = !strcmp(opt, "name") ? UUI_FILEVIEW_GROUP_NAME
+              : !strcmp(opt, "modified") ? UUI_FILEVIEW_GROUP_MODIFIED
+              : !strcmp(opt, "type") ? UUI_FILEVIEW_GROUP_TYPE
+              : !strcmp(opt, "size") ? UUI_FILEVIEW_GROUP_SIZE : UUI_FILEVIEW_GROUP_NONE;
+        for (int i = 0; i < 2; i++) g_pane[i].group_by = g;   // before the first listing
+    }
     // ICONS unless the file says details: the default every desktop
     // file manager opens in, and what the thumbnails were built for.
     for (int i = 0; i < 2; i++) {
