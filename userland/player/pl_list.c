@@ -59,32 +59,35 @@ static void describe_track(const char *dir, struct pl_track *t) {
 }
 
 int pl_scan(const char *dir) {
+    // Listed under its own name, and g_dir moved only with the tracks:
+    // running out keeps the old folder WHOLE, not its names in a new one.
+    char want[PL_PATH_MAX];
+    strlcpy(want, dir, sizeof want);
     struct sys_dirent *all = 0;
-    if (dir != g_dir) strlcpy(g_dir, dir, sizeof g_dir);
-    int n = ulistdir(g_dir, &all), count = 0;
+    int n = ulistdir(want, &all), count = 0;
     for (int i = 0; i < n; i++)
-        if (playable(g_dir, &all[i])) all[count++] = all[i];
+        if (playable(want, &all[i])) all[count++] = all[i];
     dirsort(all, count, DIRSORT_NAME, 0);
     // Built aside and swapped in, so running out keeps the old list.
     struct pl_track *tracks = calloc((size_t)(count ? count : 1), sizeof *tracks);
     int *order = malloc((size_t)(count ? count : 1) * sizeof *order);
     if (!tracks || !order) {
         free(tracks); free(order); free(all);
-        ulogf("player: out of memory listing %s (%d tracks)\n", g_dir, count);
+        ulogf("player: out of memory listing %s (%d tracks)\n", want, count);
         return g_track_count;
     }
     for (int i = 0; i < count; i++) {
         strlcpy(tracks[i].name, all[i].name, sizeof tracks[i].name);
-        describe_track(g_dir, &tracks[i]);
+        describe_track(want, &tracks[i]);
     }
     free(all);
+    strlcpy(g_dir, want, sizeof g_dir);
     free(g_tracks); free(g_order);
     g_tracks = tracks;
     g_order = order;
     g_track_count = count;
     for (int i = 0; i < count; i++) g_order[i] = i;
     if (g_shuffle) pl_reshuffle(-1);
-    ulogf("player: listing %s -- %d track(s)\n", g_dir, count);
     return count;
 }
 

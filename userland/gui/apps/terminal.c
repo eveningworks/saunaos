@@ -759,6 +759,7 @@ static void mark_cmd(struct session *s) {
 // The `-e` tab: PATH, standing in its own folder, as a double-click on
 // Windows or GNOME runs a program.
 static int open_cmd_tab(void) {
+    if (!g_cap && !grow_tabs()) return 0;   // on_open_cb()'s grow can fail
     char dir[TITLE_MAX];
     strlcpy(dir, g_cmd, sizeof dir);
     char *slash = strrchr(dir, '/');

@@ -333,8 +333,8 @@ KTEST("tty", "a pty is a terminal, with both ends counted separately") {
 }
 
 KTEST("tty", "ptys are not capped: twenty open at once, each its own terminal") {
-    // The table was PTY_MAX 8 / TTY_MAX 9 kernel-wide, so the eighth
-    // Terminal tab on the machine got no shell.
+    // Kernel-wide tables until 6fb721a: a Terminal tab past them got
+    // no shell.
     enum { N = 20 };
     static int idx[N];
     int made = 0, distinct = 1;

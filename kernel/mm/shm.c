@@ -475,8 +475,8 @@ INITCALL(shm_query_init, INIT_QUERY);
 // --- tests -----------------------------------------------------------
 
 KTEST("shm", "the tables grow: 400 objects and 800 mappings at once") {
-    // They were SHM_MAX 288 and SHM_MAPS_MAX 640, kernel-wide; every
-    // window buffer is one object and two mappings.
+    // Past the fixed tables these were before 6fb721a; every window
+    // buffer is one object and two mappings.
     enum { NOBJ = 400, NMAP = 800 };
     static int idx[NOBJ];
     const uint64_t pml4 = 0xFEED000ULL;   // never a real address space

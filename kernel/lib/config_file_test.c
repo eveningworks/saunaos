@@ -1,10 +1,11 @@
-// Tests for config_file.c's registry, which held 24 entries -- fourteen
-// of them the kernel's own -- and refused the rest without a word.
+// Tests for config_file.c's registry, a fixed table that refused what
+// did not fit without a word until 6fb721a.
 //
 // WHAT A BROKEN VERSION WOULD STILL PASS: a capped table passes under
 // its cap, so forty are registered on top of the built-ins; and one that
 // freed its old array on growth would pass every lookup made after it,
-// so a pointer taken before the growth is read again afterwards.
+// so a pointer taken before the growth is read again afterwards -- the
+// old array is kept as memory to read, not kept in step.
 #include "ktest.h"
 #include "config_file.h"
 #include "kfmt.h"

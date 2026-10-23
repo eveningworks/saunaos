@@ -14,10 +14,10 @@
 #include "heap.h"   // kmalloc -- the scan's state is the call's
 #include "kfmt.h"   // klog_printf
 
-// Grown on demand. A grown table's OLD ARRAY IS KEPT, never freed:
-// config_file_find()'s callers hold a pointer into it, and a rescan on
-// another thread must not free it under them -- kslots.h's promise, for
-// a few dozen entries.
+// Grown on demand. A grown table's OLD ARRAY IS KEPT, never freed, so a
+// pointer config_file_find() handed out before the growth still reads
+// memory -- but a STALE copy: later registrations and rescans write only
+// the new array. Use an entry where it is found; never keep one.
 static struct config_file *g_files;
 static int g_count = 0, g_cap = 0;
 

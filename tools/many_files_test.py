@@ -21,6 +21,9 @@ of it:
   File Manager    431 search hits   (was one SYS_LISTDIR batch, 256)
                   130+ tree rows    (was 96)
 
+and Image Viewer must survive a Reload of a folder that has gone, where
+its list is a NULL array and a stale current index reads through it.
+
 The seed files only have to PROBE as their type: a video is the first
 8 KiB of a stock one, a crash report is the header ucrash_load() checks.
 What is counted is the listing, not whether each file plays.
@@ -278,6 +281,35 @@ def file_manager(dbg):
     dbg.send(f"sh rm {conf}")
 
 
+def pids_of(dbg, name):
+    return [int(ln.split()[0]) for ln in (dbg.send("sh ps") or "").splitlines()
+            if ln.rstrip().endswith(name) and ln.split()[0].isdigit()]
+
+
+def imgview_folder_gone(dbg):
+    """Reload on a folder that is gone: the list is empty and its array
+    NULL, so a current index left over from before reads through NULL --
+    Properties reads the current entry on every paint."""
+    dbg.logs("imgview:", clear=True)
+    dbg.spawn("/bin/wm/apps/imgview /home/many/img/i5.qoi")
+    count_line(dbg, "imgview: listing /home/many/img", r"(\d+) image")
+    time.sleep(1.5)
+    dbg.key("i")                      # Properties
+    dbg.settle()
+    before = pids_of(dbg, "imgview")
+    dbg.send("sh rm -r /home/many/img")
+    dbg.key("0xf79b")                 # F5, Reload
+    time.sleep(3.0)
+    dbg.settle()
+    after = pids_of(dbg, "imgview")
+    crashed = [ln for ln in (dbg.send("sh ls /var/crash") or "").splitlines() if "imgview" in ln]
+    check("Image Viewer survives a Reload of a folder that is gone",
+          bool(before) and after == before and not crashed,
+          f"pids {before} -> {after}, crash reports {crashed}")
+    for pid in after:
+        dbg.send(f"sh kill {pid}")
+
+
 def cleanup(dbg):
     dbg.send("sh rm -r /home/many")
     for d in range(HELP_DIRS):
@@ -305,6 +337,7 @@ def main():
             run(dbg, qmp)
             finds(dbg, qmp)
             file_manager(dbg)
+            imgview_folder_gone(dbg)   # last: it deletes img/
         if not args.keep:
             cleanup(dbg)
     finally:

@@ -1,6 +1,6 @@
 // tosh's job table (userland/lib/tosh_jobs.c), past what it used to hold.
 //
-// It was a fixed eight; it grows now, and two promises ride on that: a
+// It grows (bee9612), and two promises ride on that: a
 // pointer from tosh_jobs_get() survives more jobs being added (each job
 // is its own allocation), and ids stay the LOWEST free ones, so `fg 3`
 // still means something in a shell with twenty jobs. Exits with the

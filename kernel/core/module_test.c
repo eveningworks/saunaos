@@ -63,8 +63,8 @@ KTEST("module", "hello.ko loads, is listed, symbolizes, runs its exit, and unloa
 }
 
 KTEST("module", "the table grows: twelve modules loaded at once") {
-    // It held eight. hello.ko under twelve names: one image, twelve
-    // copies at twelve addresses, each its own entry.
+    // Past the fixed table it was before 6fb721a. hello.ko under twelve
+    // names: one image, twelve copies at twelve addresses.
     if (!fs_exists(HELLO)) KTEST_SKIP("no /lib/modules/hello.ko on this image");
     uint32_t len = 0;
     uint8_t *img = read_ko(ctx, HELLO, &len);

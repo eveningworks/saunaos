@@ -224,6 +224,7 @@ static void load_dir(void) {
     free(g_entries);
     g_entries = all;   // the listing's own array, filtered in place
     g_count = kept;
+    g_cur = -1;        // an index into the array just freed; callers pick again
     dirsort(g_entries, g_count, DIRSORT_NAME, 0);
     uui_thumbstrip_set(&g_strip, g_count, strip_thumb, 0);
     ulogf("imgview: listing %s -- %d image(s)\n", g_dir, g_count);
