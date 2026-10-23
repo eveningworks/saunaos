@@ -44,6 +44,8 @@ DRIVER = r"""
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 static char marks[16][32];
 static int nmarks;
@@ -87,7 +89,13 @@ int main(int argc, char **argv) {
     int nc = 0;
     while (nc < 256 && fgets(corpus[nc], sizeof corpus[nc], f)) { corpus[nc][strcspn(corpus[nc], "\n")] = 0; nc++; }
     fclose(f);
-    freopen("/dev/null", "w", stdout);
+    // The macros print; the fuzz's output is noise. stdout is put back
+    // by descriptor, not reopened by name: there may be no /dev/tty.
+    fflush(stdout);
+    int saved = dup(1), nul = open("/dev/null", O_WRONLY);
+    if (saved < 0 || nul < 0) return 2;
+    dup2(nul, 1);
+    close(nul);
     int ran = 0;
     for (int it = 0; it < iters; it++) {
         char buf[600];
@@ -107,7 +115,9 @@ int main(int argc, char **argv) {
         const char *err;
         if (uhlpmac_run(buf, &ops, &err) >= 0) ran++;
     }
-    freopen("/dev/tty", "w", stdout);
+    fflush(stdout);
+    dup2(saved, 1);
+    close(saved);
     printf("fuzz: %d texts, %d ran\n", iters, ran);
     return 0;
 }
