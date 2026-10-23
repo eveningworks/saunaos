@@ -341,12 +341,13 @@ struct uapp_desc {
     // a single close, so a batch still raises nothing.
     int (*on_close)(struct uapp *a);
 
-    // Called on a cadence; repaints if it returns 1. WITH `tick_ms`
-    // set the loop still BLOCKS and TWS wakes it on a timer, which is
-    // what an app with a rate (a clock, a game's second hand) wants.
-    // WITHOUT it the loop POLLS -- calls this once per pass and yields
-    // -- which is what an animation with no natural rate needs, and
-    // which costs a scheduling slot for as long as the app lives.
+    // Called on a cadence; repaints if it returns 1. The loop BLOCKS
+    // and TWS wakes it on a timer every `tick_ms` (UAPP_TICK_DEFAULT_MS
+    // when 0), which is what an app with a rate (a clock, a game's
+    // second hand) wants. Only with UAPP_POLL does the loop POLL --
+    // call this once per pass and yield -- which is what an animation
+    // with no natural rate needs, and which costs a scheduling slot for
+    // as long as the app lives.
     int (*on_tick)(struct uapp *a);
 
     // Something this program posted to ITSELF arrived -- see
