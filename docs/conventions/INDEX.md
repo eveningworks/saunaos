@@ -882,6 +882,8 @@ whenever a headline here tells you something you did not already know.
 
 `docs/conventions/storage.md`
 
+- **A MOUNT LIST NEVER WAITS ON A VOLUME: DURING A WHOLE-VOLUME PASS IT
+  REPORTS THE LAST USAGE**
 - **A DISK FOUND AFTER BOOT REGISTERS WITH `blk_add_disk()`, NEVER
   `blk_register()`, AND ONE THAT GOES AWAY CALLS `blk_device_gone()`
   AND FREES NOTHING UNTIL `release()`**

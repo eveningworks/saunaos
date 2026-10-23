@@ -1789,3 +1789,19 @@ either call completed. **A new mutating `fs_*` wraps its `FS_OP` in
 The test is a PULL, not a flush count: `mount_gone_test.c` copies the
 raw disk the moment a write returns and mounts the copy fresh -- FAT32
 flushes on every write anyway, so counting flushes proves nothing.
+
+## A MOUNT LIST NEVER WAITS ON A VOLUME: DURING A WHOLE-VOLUME PASS IT REPORTS THE LAST USAGE
+
+`QUERY_FSINFO` -- what `df`, `lsblk` and the compositor's USB drive
+tray read -- asks each mount's usage through `fs_mount_usage()`, which
+takes that mount's lock. A check or repair holds the lock for the WHOLE
+PASS, so a listing used to wait the pass out: on the ASUS a FAT32 stick's
+check froze the desktop for 48 s and Disks' own progress dialog with it
+(2026-10-23). So `fs_check_at()` raises the mount's `long_ops` BEFORE it
+takes the lock, and `fs_mount_usage()` answers from the usage it last
+computed while that is up. **A new whole-volume operation (a resize, a
+defragment) goes through the same `long_op()`**, and anything polled by
+the compositor must not call into a backend for a volume that may be
+busy. The lock itself is still right for the backend; it is the LIST
+that must not queue on it.
+

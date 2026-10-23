@@ -915,10 +915,36 @@ int fs_disk_usage(uint64_t *out_used_bytes, uint64_t *out_total_bytes) {
 // existing at all is that the QUERY_FSINFO provider was calling
 // `m->fs->disk_usage()` directly, which is one line and skips the
 // preemption guard every other backend call in this file takes.
+static struct fs_check_live *live_of(const struct mount *m);
+
 int fs_mount_usage(const void *mount, uint64_t *out_used_bytes, uint64_t *out_total_bytes) {
-    const struct mount *m = mount;
+    struct mount *m = (struct mount *)mount;   // the cache below is the slot's own state
     if (!m || !m->fs) return 0;
-    return FS_OP(m, m->gen, disk_usage, out_used_bytes, out_total_bytes);
+    if (__atomic_load_n(&m->long_ops, __ATOMIC_ACQUIRE) && m->usage_known) {
+        if (out_used_bytes) *out_used_bytes = m->usage_used;
+        if (out_total_bytes) *out_total_bytes = m->usage_total;
+        return 1;
+    }
+    uint64_t used = 0, total = 0;
+    int ok = FS_OP(m, m->gen, disk_usage, &used, &total);
+    if (ok) {
+        m->usage_used = used;
+        m->usage_total = total;
+        m->usage_known = 1;
+        if (out_used_bytes) *out_used_bytes = used;
+        if (out_total_bytes) *out_total_bytes = total;
+    }
+    return ok;
+}
+
+// A whole-volume pass, announced before its lock is taken (mount.h's
+// `long_ops`), so fs_mount_usage() answers from memory meanwhile.
+static int long_op(const struct mount *mc, uint32_t gen, int repair, struct fs_check_result *out) {
+    struct mount *m = (struct mount *)mc;
+    __atomic_add_fetch(&m->long_ops, 1, __ATOMIC_ACQ_REL);
+    int rc = FS_OP(m, gen, check, repair, out, live_of(m));
+    __atomic_sub_fetch(&m->long_ops, 1, __ATOMIC_ACQ_REL);
+    return rc;
 }
 
 // The slot's progress is the slot's own mutable state, as its lock is.
@@ -930,7 +956,7 @@ int fs_check(int repair, struct fs_check_result *out) {
     const struct mount *m = mount_root();
     if (!m) return 0;
     if (repair && (m->flags & MNT_RDONLY)) return 0;
-    return FS_OP(m, m->gen, check, repair, out, live_of(m)) == 1;
+    return long_op(m, m->gen, repair, out) == 1;
 }
 
 int fs_check_at(const char *path, int repair, struct fs_check_result *out) {
@@ -938,7 +964,7 @@ int fs_check_at(const char *path, int repair, struct fs_check_result *out) {
     if (!path || !resolve(path, &r)) return -ENOENT;
     if (repair && (r.m->flags & MNT_RDONLY)) return -EROFS;
     if (repair && !(r.m->fs->caps & FS_CAP_REPAIR)) return -ENOTSUP;
-    int rc = FS_OP(r.m, r.gen, check, repair, out, live_of(r.m));
+    int rc = long_op(r.m, r.gen, repair, out);
     if (rc < 0) return rc;   // -ECANCELED: stopped on request
     if (!rc) return -EIO;
     k_strlcpy(out->fstype, r.m->fs->name, sizeof out->fstype);

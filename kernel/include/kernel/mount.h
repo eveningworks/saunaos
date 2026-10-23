@@ -98,6 +98,18 @@ struct mount {
     // How far a check of this volume has got, and a stop asked of it --
     // written under the lock, READ WITHOUT IT (fs_ops.h).
     struct fs_check_live check;
+
+    // A PASS OVER THE WHOLE VOLUME is running (a check or a repair): it
+    // holds the lock for its whole length, which on a USB stick is most
+    // of a minute. Raised BEFORE the lock is taken (atomics), so a
+    // listing that sees it does not queue behind the pass.
+    int long_ops;
+    // The last usage fs_mount_usage() computed, which a listing reports
+    // while `long_ops` is up rather than waiting -- a mount list is what
+    // the compositor's drive tray polls, and it froze the desktop for the
+    // length of a check (the ASUS, 2026-10-23). Written under the lock.
+    uint64_t usage_used, usage_total;
+    int usage_known;
 };
 
 // Lock one mount for a backend call; its state is behind it.

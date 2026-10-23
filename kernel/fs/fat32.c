@@ -228,6 +228,35 @@ static int fat_get(struct fat32_state *sbi, uint32_t clus, uint32_t *out) {
     return 1;
 }
 
+// EVERY CLUSTER'S ENTRY, IN BIG READS, for a pass over the whole FAT.
+// Through fat_get() that is one sector a read, and on a USB stick each
+// read is a whole bulk-only command: a 32 GB stick's check took 48 s on
+// the ASUS (2026-10-23), against about one second in 64 KiB reads.
+// `fn` sees each cluster from 2 up; a non-zero return stops the walk and
+// is returned. 0 when every entry was seen, -1 when a read failed.
+#define FAT_SCAN_SECTORS 128u
+static int fat_scan(struct fat32_state *sbi, int (*fn)(void *ctx, uint32_t clus, uint32_t val),
+                    void *ctx) {
+    if (!fat_flush(sbi)) return -1;   // the cached sector's edits first
+    uint8_t *buf = kmalloc(FAT_SCAN_SECTORS * SECTOR);
+    if (!buf) return -1;
+    const uint32_t per = SECTOR / 4, last = sbi->v.cluster_count + 1;
+    int rc = 0;
+    for (uint32_t s = 0; rc == 0 && s * per <= last; s += FAT_SCAN_SECTORS) {
+        uint32_t n = (last - s * per) / per + 1;   // sectors still holding entries
+        if (n > FAT_SCAN_SECTORS) n = FAT_SCAN_SECTORS;
+        if (!vol_read(sbi, sbi->v.reserved + s, (int)n, buf)) { rc = -1; break; }
+        for (uint32_t i = 0; i < n * per && rc == 0; i++) {
+            uint32_t c = s * per + i;
+            if (c < 2) continue;
+            if (c > last) break;
+            rc = fn(ctx, c, rd32(buf + i * 4) & FAT_MASK);
+        }
+    }
+    kfree(buf);
+    return rc;
+}
+
 // THE TOP FOUR BITS ARE RESERVED AND ARE PRESERVED. Microsoft's spec
 // says so, and a driver that writes a bare 32-bit value silently
 // changes bits another implementation may be using.
@@ -1885,6 +1914,12 @@ static int fat32_read_range_step(void *st, void *handle, uint32_t *out_total) {
 // FSInfo's count is a HINT and is not trusted for this (see
 // fsinfo_load) -- `df` printing a number another OS left stale would be
 // worse than the scan's cost, which is one pass over the FAT.
+static int count_free(void *ctx, uint32_t clus, uint32_t val) {
+    (void)clus;
+    if (val == FAT_FREE) ++*(uint32_t *)ctx;
+    return 0;
+}
+
 static int fat32_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
     struct fat32_state *sbi = st;
     if (!sbi->v.mounted) return 0;
@@ -1893,11 +1928,7 @@ static int fat32_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
 
     if (sbi->v.free_count == 0xFFFFFFFFu) {
         uint32_t free = 0;
-        for (uint32_t c = 2; c < sbi->v.cluster_count + 2; c++) {
-            uint32_t v;
-            if (!fat_get(sbi, c, &v)) return 0;
-            if (v == FAT_FREE) free++;
-        }
+        if (fat_scan(sbi, count_free, &free) < 0) return 0;
         sbi->v.free_count = free;
         fsinfo_store(sbi);
     }
@@ -1914,6 +1945,32 @@ static int fat32_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
 // agree, and that no cluster is claimed by two chains.
 static const struct fsck_stage_desc FAT_STAGES[] = { { "Read the allocation table", "clusters" } };
 
+// One cluster of the check's pass (fat_scan()'s callback).
+struct fat_check {
+    struct fat32_state *sbi;
+    struct fs_check_live *live;
+    uint8_t *seen;
+    int problems, crosslinked, out_of_volume;
+};
+
+static int check_entry(void *ctx, uint32_t c, uint32_t v) {
+    struct fat_check *k = ctx;
+    if (!(c & 1023) && fsck_step(k->live, c - 2, 0)) return 1;   // stop asked
+    if (v == FAT_FREE || v == FAT_BAD || fat_is_eoc(v)) return 0;
+    if (!cluster_valid(k->sbi, v)) {
+        klog_printf("fat32: cluster %u points outside the volume (%u)\n", c, v);
+        k->problems++; k->out_of_volume++;
+        return 0;
+    }
+    if (k->seen[v / 8] & (1u << (v % 8))) {
+        klog_printf("fat32: cluster %u is claimed by two chains\n", v);
+        k->problems++; k->crosslinked++;
+        return 0;
+    }
+    k->seen[v / 8] |= (uint8_t)(1u << (v % 8));
+    return 0;
+}
+
 static int fat32_check(void *st, int repair, struct fs_check_result *out, struct fs_check_live *live) {
     struct fat32_state *sbi = st;
     if (!sbi->v.mounted) return 0;
@@ -1926,33 +1983,18 @@ static int fat32_check(void *st, int repair, struct fs_check_result *out, struct
     // cross-linked FAT is the corruption that loses data silently, and
     // it is detectable with one bitmap and one pass.
     uint32_t nbytes = (sbi->v.cluster_count + 2 + 7) / 8;
-    uint8_t *seen = kmalloc(nbytes);
-    if (!seen) return 0;
-    k_memset(seen, 0, nbytes);
+    struct fat_check k = { sbi, live, kmalloc(nbytes), 0, 0, 0 };
+    if (!k.seen) return 0;
+    k_memset(k.seen, 0, nbytes);
 
-    int problems = 0, crosslinked = 0, out_of_volume = 0, stopped = 0;
     fsck_begin(live, repair, FAT_STAGES, 1);
     fsck_stage(live, 0, sbi->v.cluster_count);
-    for (uint32_t c = 2; c < sbi->v.cluster_count + 2; c++) {
-        if (!(c & 1023) && fsck_step(live, c - 2, 0)) { stopped = 1; break; }
-        uint32_t v;
-        if (!fat_get(sbi, c, &v)) { problems++; break; }
-        if (v == FAT_FREE || v == FAT_BAD || fat_is_eoc(v)) continue;
-        if (!cluster_valid(sbi, v)) {
-            klog_printf("fat32: cluster %u points outside the volume (%u)\n", c, v);
-            problems++; out_of_volume++;
-            continue;
-        }
-        if (seen[v / 8] & (1u << (v % 8))) {
-            klog_printf("fat32: cluster %u is claimed by two chains\n", v);
-            problems++; crosslinked++;
-            continue;
-        }
-        seen[v / 8] |= (uint8_t)(1u << (v % 8));
-    }
-    kfree(seen);
+    int rc = fat_scan(sbi, check_entry, &k);
+    kfree(k.seen);
     fsck_end(live);
-    if (stopped) return -ECANCELED;
+    if (rc > 0) return -ECANCELED;
+    if (rc < 0) return 0;   // a read failed: not checked
+    int crosslinked = k.crosslinked, out_of_volume = k.out_of_volume;
 
     // The fields this format can honestly fill. A cross-linked cluster
     // IS a double allocation, and one pointing off the volume IS an
@@ -1965,7 +2007,10 @@ static int fat32_check(void *st, int repair, struct fs_check_result *out, struct
         out->double_allocated = (uint32_t)crosslinked;
         out->out_of_range = (uint32_t)out_of_volume;
     }
-    return problems == 0;
+    // CHECKED, problems or not: what it found is in `out`, as tfs3's is.
+    // 0 here reads as "could not check" (vfs.c's -EIO), which a
+    // cross-linked FAT reported as until 2026-10-23.
+    return 1;
 }
 
 // ---- per-mount state ------------------------------------------------
