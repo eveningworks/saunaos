@@ -3738,6 +3738,14 @@ window without going through it will find its layout polls timing out.
   desktop icons off hiding every icon. Positive
   controls: folders never targets turns the three folder checks red; a
   cache the compositor can never read turns the thumbnail check red.
+- **`desktop_many_test.py`** -- a desktop past its old 64-icon table:
+  75 files in `/home/Desktop` must all be icons (`gui icons --json`); a
+  rubber band over the columns holding only test files -- worked out
+  from the icons' own rects, not an assumed layout -- must select every
+  icon it covers; and Delete, then the dialog's Move, must put every one
+  in the Recycle Bin, a selection whose paths are past `SPAWN_ARGS_MAX`
+  and so need `lib/uargbatch.h`'s several spawns. Its positive control
+  is the build before: 64 icons in all.
 - **`folder_options_test.py`** -- the desktop following the File
   Manager's Folder Options (`/etc/files.conf`, `lib/ufolderopts.h`) and
   the one double-click time (`system.double_click`, `lib/udclick.h`), in

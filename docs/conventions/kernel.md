@@ -4509,6 +4509,19 @@ holding a space is worse off. On 2026-09-10 the laptop had the new
 `tosh` on the old kernel and could not run a single command, which
 also took away the shell `remote.py flash` needs to replace the kernel.
 
+## A LIST OF PATHS FOR A SPAWN GOES THROUGH `uargbatch()`: ONE ARGV HOLDS `SPAWN_ARGS_MAX` BYTES
+
+A spawn's whole argv, every string's NUL included, fits in
+`SPAWN_ARGS_MAX` bytes or the spawn fails with `E2BIG` -- and that is a
+few dozen desktop paths, not a selection's worth. A caller handing a
+program a list it did not choose the length of (a Delete over a band, a
+batch of thumbnails) passes the fixed head and the items to
+`lib/uargbatch.h`, which runs the program as many times as the list
+needs, each argv within the bound -- `xargs` against `ARG_MAX`. The
+desktop built one argv for its whole selection until 2026-10-23, so a
+selection whose paths ran past the bound was refused whole, logged only
+as "could not run /bin/trash".
+
 ## THERE IS A `fork()` NOW, IT SHARES COPY-ON-WRITE, AND SPAWN IS STILL THE DOOR
 
 `SYS_FORK` (`scheduler_fork()`, `kernel/proc/sched_fork.c`) duplicates the
