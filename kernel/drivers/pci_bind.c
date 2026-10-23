@@ -23,13 +23,12 @@ static struct table g_tables[PCI_DRIVER_TABLES_MAX];
 static int g_table_count;
 
 // The driver each device was handed to -- the POINTER, since a module's
-// driver has to be found again when the module goes.
-static const struct pci_driver *g_bound[PCI_MAX_DEVICES];
+// driver has to be found again when the module goes -- and the last one
+// that declined it, live in the bus's record (pci_internal.h).
 static int g_bind_ran;
 
-// The last driver that declined each device, and why -- pci_probe_decline().
-static char g_declined_by[PCI_MAX_DEVICES][16];
-static char g_why[PCI_MAX_DEVICES][QUERY_DEVEVENT_TEXT];
+// Device `i`'s record; every caller has checked `i` against the count.
+static struct pci_bus_state *st(int i) { return pci_device_state(i); }
 
 static int image_count(void) {
     long n = __pci_drivers_end - __pci_drivers_start;
@@ -108,62 +107,57 @@ static const struct pci_driver *driver_for(const struct pci_device *d) {
     return 0;
 }
 
-static int index_of(const struct pci_device *d) {
-    for (int i = 0; i < pci_device_count() && i < PCI_MAX_DEVICES; i++)
-        if (pci_device_at(i) == d) return i;
-    return -1;
-}
-
 const char *pci_device_driver(const struct pci_device *d) {
-    int i = index_of(d);
-    return i >= 0 && g_bound[i] ? g_bound[i]->name : 0;
+    int i = pci_device_index(d);
+    return i >= 0 && st(i)->bound ? st(i)->bound->name : 0;
 }
 
 // The binding is recorded BEFORE probe() runs, so the decline below
 // knows whose it is; a probe that declines is unbound again at once.
 int pci_probe_decline(const struct pci_device *d, const char *fmt, ...) {
-    int i = index_of(d);
+    int i = pci_device_index(d);
     if (i < 0) return -ENODEV;
-    const char *drv = g_bound[i] ? g_bound[i]->name : "?";
-    k_strlcpy(g_declined_by[i], drv, sizeof g_declined_by[i]);
+    struct pci_bus_state *s = st(i);
+    const char *drv = s->bound ? s->bound->name : "?";
+    k_strlcpy(s->declined_by, drv, sizeof s->declined_by);
     va_list ap;
     va_start(ap, fmt);
-    k_vsnprintf(g_why[i], sizeof g_why[i], fmt, ap);
+    k_vsnprintf(s->why, sizeof s->why, fmt, ap);
     va_end(ap);
     klog_printf("pci: %s declined %02x:%02x.%u: %s\n",
-                drv, d->bus, d->device, d->function, g_why[i]);
-    devevent_pci(QUERY_DEVEV_DECLINED, d, drv, "%s", g_why[i]);
+                drv, d->bus, d->device, d->function, s->why);
+    devevent_pci(QUERY_DEVEV_DECLINED, d, drv, "%s", s->why);
     return -ENODEV;
 }
 
 const char *pci_device_declined(int index, const char **why) {
-    if (index < 0 || index >= pci_device_count() || index >= PCI_MAX_DEVICES
-        || !g_declined_by[index][0])
+    if (index < 0 || index >= pci_device_count() || !st(index)->declined_by[0])
         return 0;
-    if (why) *why = g_why[index];
-    return g_declined_by[index];
+    if (why) *why = st(index)->why;
+    return st(index)->declined_by;
 }
 
 // Hands device `i` to `drv`: 1 when it drives it, 0 when it declined.
 static int bind_one(int i, const struct pci_driver *drv) {
     const struct pci_device *d = pci_device_at(i);
-    g_bound[i] = drv;
-    g_declined_by[i][0] = 0;
-    g_why[i][0] = 0;
+    struct pci_bus_state *s = st(i);
+    s->bound = drv;
+    s->declined_by[0] = 0;
+    s->why[0] = 0;
     int r = probe_one(drv, d);
     if (r >= 0) {
         devevent_pci(QUERY_DEVEV_BOUND, d, drv->name, "Driven by %s", drv->name);
         return 1;
     }
-    g_bound[i] = 0;
+    s->bound = 0;
     // Whatever the probe had pointed the card at, it no longer masters.
     pci_command_update(d, 0, PCI_CMD_BUS_MASTER);
-    if (!g_declined_by[i][0]) {   // an errno without pci_probe_decline()
-        k_strlcpy(g_declined_by[i], drv->name, sizeof g_declined_by[i]);
-        k_snprintf(g_why[i], sizeof g_why[i], "its probe returned %d", r);
+    if (!s->declined_by[0]) {   // an errno without pci_probe_decline()
+        k_strlcpy(s->declined_by, drv->name, sizeof s->declined_by);
+        k_snprintf(s->why, sizeof s->why, "its probe returned %d", r);
         klog_printf("pci: %s declined %02x:%02x.%u: %s\n",
-                    drv->name, d->bus, d->device, d->function, g_why[i]);
-        devevent_pci(QUERY_DEVEV_DECLINED, d, drv->name, "%s", g_why[i]);
+                    drv->name, d->bus, d->device, d->function, s->why);
+        devevent_pci(QUERY_DEVEV_DECLINED, d, drv->name, "%s", s->why);
     }
     return 0;
 }
@@ -171,21 +165,21 @@ static int bind_one(int i, const struct pci_driver *drv) {
 // --- handing a device back (pci_driver.h) ------------------------------
 
 int pci_device_removable(int index) {
-    if (index < 0 || index >= pci_device_count() || index >= PCI_MAX_DEVICES)
+    if (index < 0 || index >= pci_device_count())
         return 0;
-    return g_bound[index] && g_bound[index]->remove ? 1 : 0;
+    return st(index)->bound && st(index)->bound->remove ? 1 : 0;
 }
 
 int pci_device_release(int index) {
-    if (index < 0 || index >= pci_device_count() || index >= PCI_MAX_DEVICES)
+    if (index < 0 || index >= pci_device_count())
         return -EINVAL;
-    const struct pci_driver *drv = g_bound[index];
+    const struct pci_driver *drv = st(index)->bound;
     if (!drv) return -ENOENT;
     if (!drv->remove) return -ENOTSUP;
 
     const struct pci_device *d = pci_device_at(index);
     remove_one(drv, d);
-    g_bound[index] = 0;
+    st(index)->bound = 0;
     // The bus's own statement that nothing in ring 0 drives this any
     // more. A driver's remove() quiesces its engine; this stops the
     // CARD mastering whatever it was last pointed at, which is the
@@ -199,9 +193,9 @@ int pci_device_release(int index) {
 }
 
 int pci_device_rebind(int index) {
-    if (index < 0 || index >= pci_device_count() || index >= PCI_MAX_DEVICES)
+    if (index < 0 || index >= pci_device_count())
         return -EINVAL;
-    if (g_bound[index]) return -EBUSY;
+    if (st(index)->bound) return -EBUSY;
     const struct pci_device *d = pci_device_at(index);
     const struct pci_driver *drv = driver_for(d);
     if (!drv || !drv->probe) return 0;
@@ -212,10 +206,10 @@ int pci_device_rebind(int index) {
 }
 
 int pci_device_claim(int index, const struct pci_driver *owner) {
-    if (g_bind_ran || index < 0 || index >= pci_device_count() || index >= PCI_MAX_DEVICES)
+    if (g_bind_ran || index < 0 || index >= pci_device_count())
         return 0;
-    if (g_bound[index]) return 0;
-    g_bound[index] = owner;
+    if (st(index)->bound) return 0;
+    st(index)->bound = owner;
     devevent_pci(QUERY_DEVEV_BOUND, pci_device_at(index), owner->name,
                  "Reserved for %s before drivers were bound", owner->name);
     return 1;
@@ -227,11 +221,11 @@ int pci_device_claim(int index, const struct pci_driver *owner) {
 // driver's reason; pci_device_rebind() asks again on purpose.
 static int bind_unbound(void) {
     int bound = 0;
-    for (int i = 0; i < pci_device_count() && i < PCI_MAX_DEVICES; i++) {
-        if (g_bound[i]) continue;
+    for (int i = 0; i < pci_device_count(); i++) {
+        if (st(i)->bound) continue;
         const struct pci_driver *drv = driver_for(pci_device_at(i));
         if (!drv || !drv->probe) continue;
-        if (g_declined_by[i][0] && k_strcmp(g_declined_by[i], drv->name) == 0) continue;
+        if (st(i)->declined_by[0] && k_strcmp(st(i)->declined_by, drv->name) == 0) continue;
         bound += bind_one(i, drv);
     }
     return bound;
@@ -274,8 +268,8 @@ int pci_driver_table_bound(const struct pci_driver *drivers) {
     int t = table_index(drivers);
     if (t < 0) return 0;
     int held = 0;
-    for (int i = 0; i < pci_device_count() && i < PCI_MAX_DEVICES; i++)
-        if (g_bound[i] && in_table(&g_tables[t], g_bound[i])) held++;
+    for (int i = 0; i < pci_device_count(); i++)
+        if (st(i)->bound && in_table(&g_tables[t], st(i)->bound)) held++;
     return held;
 }
 
@@ -286,18 +280,18 @@ int pci_driver_remove_table(const struct pci_driver *drivers) {
     // Every held device must be releasable BEFORE any is released, or
     // a table with one removable and one stuck driver would be left
     // half gone.
-    for (int i = 0; i < pci_device_count() && i < PCI_MAX_DEVICES; i++) {
-        if (!g_bound[i] || !in_table(&g_tables[t], g_bound[i])) continue;
-        if (!g_bound[i]->remove) {
-            klog_printf(KLOG_ERR "pci: %s holds a device and cannot let go\n", g_bound[i]->name);
+    for (int i = 0; i < pci_device_count(); i++) {
+        if (!st(i)->bound || !in_table(&g_tables[t], st(i)->bound)) continue;
+        if (!st(i)->bound->remove) {
+            klog_printf(KLOG_ERR "pci: %s holds a device and cannot let go\n", st(i)->bound->name);
             return -EBUSY;
         }
     }
-    for (int i = 0; i < pci_device_count() && i < PCI_MAX_DEVICES; i++) {
-        if (!g_bound[i] || !in_table(&g_tables[t], g_bound[i])) continue;
-        const char *name = g_bound[i]->name;
-        remove_one(g_bound[i], pci_device_at(i));
-        g_bound[i] = 0;
+    for (int i = 0; i < pci_device_count(); i++) {
+        if (!st(i)->bound || !in_table(&g_tables[t], st(i)->bound)) continue;
+        const char *name = st(i)->bound->name;
+        remove_one(st(i)->bound, pci_device_at(i));
+        st(i)->bound = 0;
         devevent_pci(QUERY_DEVEV_RELEASED, pci_device_at(i), name,
                      "%s let go: its module is unloading", name);
     }
@@ -365,14 +359,14 @@ static const struct pci_driver ktest_decline_table[] = {
 
 KTEST("pci_bind", "a probe that declines leaves the device unbound and says why") {
     int idx = -1;
-    for (int i = 0; i < pci_device_count() && i < PCI_MAX_DEVICES; i++)
-        if (!g_bound[i] && !driver_for(pci_device_at(i))) { idx = i; break; }
+    for (int i = 0; i < pci_device_count(); i++)
+        if (!st(i)->bound && !driver_for(pci_device_at(i))) { idx = i; break; }
     if (idx < 0) { KTEST_SKIP("every device has a driver"); return; }
     const struct pci_device *d = pci_device_at(idx);
     ktest_decline_match[0] = (struct pci_match)PCI_MATCH_ID(d->vendor_id, d->device_id);
-    char saved_by[sizeof g_declined_by[0]], saved_why[sizeof g_why[0]];
-    k_strlcpy(saved_by, g_declined_by[idx], sizeof saved_by);
-    k_strlcpy(saved_why, g_why[idx], sizeof saved_why);
+    char saved_by[sizeof st(idx)->declined_by], saved_why[sizeof st(idx)->why];
+    k_strlcpy(saved_by, st(idx)->declined_by, sizeof saved_by);
+    k_strlcpy(saved_why, st(idx)->why, sizeof saved_why);
 
     KTEST_ASSERT(pci_driver_add_table(ktest_decline_table, 1) == 0);
     KTEST_ASSERT_EQ(pci_device_rebind(idx), 0);          // matched, and declined
@@ -391,8 +385,8 @@ KTEST("pci_bind", "a probe that declines leaves the device unbound and says why"
     KTEST_ASSERT_EQ(pci_rebind(), 0);                    // not asked again on a pass
     KTEST_ASSERT(pci_driver_remove_table(ktest_decline_table) == 0);
 
-    k_strlcpy(g_declined_by[idx], saved_by, sizeof g_declined_by[idx]);
-    k_strlcpy(g_why[idx], saved_why, sizeof g_why[idx]);
+    k_strlcpy(st(idx)->declined_by, saved_by, sizeof st(idx)->declined_by);
+    k_strlcpy(st(idx)->why, saved_why, sizeof st(idx)->why);
 }
 
 KTEST("pci_bind", "an added table is walked after the image's and removed cleanly") {

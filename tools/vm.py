@@ -303,6 +303,15 @@ def cmd_start(args):
     # by default; opt-in here so existing tests keep their machine.
     if getattr(args, "balloon", False):
         cmd += ["-device", "virtio-balloon-pci,free-page-reporting=on"]
+    # N inert PCI devices (pci-testdev: no driver here wants one) behind
+    # PCI-to-PCI bridges, 31 a bridge -- slot 0 is left alone -- so a
+    # guest sees more devices than its default handful. What a device
+    # table sized to the scan is tested against.
+    fill = getattr(args, "pci_fill", 0) or 0
+    for b in range((fill + 30) // 31):
+        cmd += ["-device", f"pci-bridge,id=fillbr{b},chassis_nr={b + 1}"]
+    for i in range(fill):
+        cmd += ["-device", f"pci-testdev,bus=fillbr{i // 31},addr={i % 31 + 1:#x}"]
     if getattr(args, "virtio_input", False):
         cmd += ["-device", "virtio-keyboard-pci",
                 "-device", "virtio-mouse-pci",
@@ -343,6 +352,15 @@ def cmd_start(args):
         cmd += ["-device", "qemu-xhci,id=xhci" + (",p2=15,p3=15" if wide else "")]
         if wide:
             cmd += ["-device", "usb-kbd,id=usbkbd,bus=xhci.0,port=5"]
+        elif usb == "xhci+crowd":
+            # MORE DEVICES THAN THE OLD FIXED TABLES HELD (eight): a hub
+            # full of keyboards plus a mouse and a tablet on root ports --
+            # eleven devices, and more HID ones than the HID table's six.
+            cmd += ["-device", "usb-hub,id=usbhub,port=1,bus=xhci.0"]
+            cmd += [a for k in range(1, 9)
+                    for a in ("-device", f"usb-kbd,id=usbkbd{k},bus=xhci.0,port=1.{k}")]
+            cmd += ["-device", "usb-mouse,id=usbmouse,bus=xhci.0",
+                    "-device", "usb-tablet,id=usbtablet,bus=xhci.0"]
         elif usb == "xhci+hub":
             # The keyboard AND mouse both sit BEHIND a usb-hub (QEMU's
             # is a USB 1.1 full-speed hub), which is the only headless
@@ -1027,14 +1045,21 @@ def main():
                     help="attach an emulated USB stick (QEMU usb-storage, bulk-only) "
                          "backed by IMAGE, on an xHCI controller added if needed; "
                          "repeatable. QMP ids are ustick0, ustick1, ...")
-    ap.add_argument("--usb", choices=("none", "xhci", "xhci+mouse", "xhci+hub", "xhci+wide"),
+    ap.add_argument("--pci-fill", type=int, default=0, metavar="N",
+                    help="attach N inert PCI devices (pci-testdev) behind "
+                         "PCI-to-PCI bridges, for a guest with more devices "
+                         "than the default machine's handful")
+    ap.add_argument("--usb", choices=("none", "xhci", "xhci+mouse", "xhci+hub", "xhci+wide",
+                                      "xhci+crowd"),
                     default="none",
                     help="attach an xHCI controller and USB HID devices. Off by "
                          "default; `xhci` adds a usb-kbd, `xhci+mouse` adds a "
                          "usb-mouse too, `xhci+hub` puts a keyboard AND mouse "
                          "behind a usb-hub (the route-string path), `xhci+wide` "
                          "a 30-port controller with the keyboard on a port "
-                         "above 16 (a 200-series Intel PCH has 22). A named "
+                         "above 16 (a 200-series Intel PCH has 22), `xhci+crowd` "
+                         "eleven devices (a hub of eight keyboards, a mouse, a "
+                         "tablet). A named "
                          "value rather than a boolean because the mouse changes "
                          "QMP pointer routing once the guest driver polls it.")
     ap.add_argument("--usb-host", action="append", metavar="VID:PID",

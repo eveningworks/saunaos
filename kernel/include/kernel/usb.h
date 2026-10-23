@@ -31,7 +31,10 @@
 // xhci_control() by name. If a second controller ever arrives,
 // converting xhci.h's handful of functions is a mechanical afternoon.
 
-#define USB_MAX_DEVICES   8
+// Tables keyed by xHCI slot id (usb_enum.c's devices, usb_claim.c's
+// claims) have this many entries: a slot id is one byte (xHCI 4.5.3),
+// so the bound is the hardware's, mirrored -- slot 0 is never assigned.
+#define USB_SLOT_IDS      256
 #define USB_MAX_INTERFACES 8   // per device; a Sound Blaster G6 has 5
 
 // One interface out of a configuration descriptor, with its first

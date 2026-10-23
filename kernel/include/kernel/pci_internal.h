@@ -3,6 +3,8 @@
 
 #include <stdint.h>
 #include "pci.h"
+#include "query_abi.h"  // QUERY_DEVEVENT_TEXT
+#include "dev_claim.h"  // struct dev_claim
 
 // PCI config space, for DRIVERS -- the half of pci.c that apps must not
 // have.
@@ -158,6 +160,28 @@ void pci_msi_release(const struct pci_device *dev, uint8_t vector);
 // Records the vector a device was given, for `lspci`. Called by
 // pci_msi.c only; a driver reads it back as pci_device.irq_vector.
 void pci_note_vector(const struct pci_device *dev, uint8_t vector, int msix);
+
+// --- the bus's own record of a device ----------------------------------
+//
+// WHAT THE KERNEL KEEPS ABOUT A DEVICE BEYOND WHAT IT REPORTS, in the
+// same record as its struct pci_device (pci.c) -- beside it, never
+// inside it: SYS_PCI_INFO copies a struct pci_device to ring 3 whole,
+// and `bound` is a kernel pointer. Linux's pci_dev carries its driver
+// the same way.
+struct pci_bus_state {
+    const struct pci_driver *bound;  // pci_bind.c: the driver it was handed
+    char declined_by[16];            // pci_bind.c: the last driver that
+    char why[QUERY_DEVEVENT_TEXT];   //   declined it, and its reason
+    struct dev_claim claim;          // dev_claim.c: its ring-3 holder
+};
+
+// Device `index`'s record, or NULL out of range. Never moves: the table
+// is sized once, by pci_init().
+struct pci_bus_state *pci_device_state(int index);
+
+// `dev`'s enumeration index, or -1 when it is not one of pci_init()'s
+// records (a copy of one, say).
+int pci_device_index(const struct pci_device *dev);
 
 // --- the INTx pin (kernel/drivers/pci_irq.c) ---------------------------
 //

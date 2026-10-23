@@ -16,8 +16,8 @@
 // from the cause.
 //
 // WHY A BITMASK, NOT A STAGE NUMBER. A single ascending "boot stage"
-// would encode a total order that is not a fact -- PCI before PMM
-// before the heap is what the sequence happens to be today, not
+// would encode a total order that is not a fact -- PMM before the heap
+// before PCI is what the sequence happens to be today, not
 // something the kernel depends on. What a caller actually needs to
 // know is "is the thing I am about to use up?", and that is one bit
 // per subsystem with no ordering claimed.

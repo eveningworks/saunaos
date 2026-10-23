@@ -65,19 +65,23 @@ static void put_hex_digits(uint32_t v, int digits) {
 //
 // Parsed by lib/uhwids.c, which lsusb and the Device Manager share; the
 // format, and why it is streamed rather than held, are described there.
-#define MAX_DEVS         32
 #define VENDOR_NAME_MAX  40
 #define DEVICE_NAME_MAX  64
 #define CLASS_NAME_MAX  48
 
-static struct pci_device g_dev[MAX_DEVS];
-static char g_vendor_name[MAX_DEVS][VENDOR_NAME_MAX];
-static char g_device_name[MAX_DEVS][DEVICE_NAME_MAX];
-// From pci.ids's class section: the SUBCLASS's name when it has one,
-// which is the more specific, else the class's.
-static char g_subclass_name[MAX_DEVS][CLASS_NAME_MAX];
-static char g_class_name[MAX_DEVS][CLASS_NAME_MAX];
-static int  g_count;
+// One per device, allocated to the count the kernel reports.
+struct row {
+    struct pci_device dev;
+    uint32_t index;     // its ENUMERATION index -- see main()
+    char vendor_name[VENDOR_NAME_MAX];
+    char device_name[DEVICE_NAME_MAX];
+    // From pci.ids's class section: the SUBCLASS's name when it has
+    // one, which is the more specific, else the class's.
+    char subclass_name[CLASS_NAME_MAX];
+    char class_name[CLASS_NAME_MAX];
+};
+static struct row *g_rows;
+static int g_count;
 
 static void put_err(const char *s) {
     sys_call(SYS_WRITE, 2, (uint64_t)(uintptr_t)s, strlen(s));
@@ -85,10 +89,10 @@ static void put_err(const char *s) {
 
 // The name printed for device `i`: the database's, most specific first,
 // then the built-in table's.
-static const char *class_label(int i) {
-    if (g_subclass_name[i][0]) return g_subclass_name[i];
-    if (g_class_name[i][0]) return g_class_name[i];
-    return pci_class_name(g_dev[i].class_code, g_dev[i].subclass);
+static const char *class_label(const struct row *r) {
+    if (r->subclass_name[0]) return r->subclass_name;
+    if (r->class_name[0]) return r->class_name;
+    return pci_class_name(r->dev.class_code, r->dev.subclass);
 }
 
 // Fills in whatever names the database has (lib/uhwids.c, shared with
@@ -96,24 +100,31 @@ static const char *class_label(int i) {
 // there -- the numeric output below still works, which is the point of
 // keeping the two separable.
 static void load_names(void) {
-    static struct uhwids_entry e[MAX_DEVS];   // static: ~16 KiB is not a stack frame
+    struct uhwids_entry *e = calloc((size_t)g_count, sizeof *e);
+    if (!e) {
+        put_err("lspci: out of memory -- showing numeric ids only\n");
+        return;
+    }
     for (int i = 0; i < g_count; i++) {
-        e[i].vendor = g_dev[i].vendor_id;
-        e[i].device = g_dev[i].device_id;
-        e[i].cls = g_dev[i].class_code;
-        e[i].subclass = g_dev[i].subclass;
+        e[i].vendor = g_rows[i].dev.vendor_id;
+        e[i].device = g_rows[i].dev.device_id;
+        e[i].cls = g_rows[i].dev.class_code;
+        e[i].subclass = g_rows[i].dev.subclass;
         e[i].prog_if = -1;
     }
     if (uhwids_resolve(UHWIDS_PCI, e, g_count) < 0) {
         put_err("lspci: " UHWIDS_PCI " not found -- showing numeric ids only\n");
+        free(e);
         return;
     }
     for (int i = 0; i < g_count; i++) {
-        strlcpy(g_vendor_name[i], e[i].vendor_name, VENDOR_NAME_MAX);
-        strlcpy(g_device_name[i], e[i].device_name, DEVICE_NAME_MAX);
-        strlcpy(g_class_name[i], e[i].class_name, CLASS_NAME_MAX);
-        strlcpy(g_subclass_name[i], e[i].subclass_name, CLASS_NAME_MAX);
+        struct row *r = &g_rows[i];
+        strlcpy(r->vendor_name, e[i].vendor_name, sizeof r->vendor_name);
+        strlcpy(r->device_name, e[i].device_name, sizeof r->device_name);
+        strlcpy(r->class_name, e[i].class_name, sizeof r->class_name);
+        strlcpy(r->subclass_name, e[i].subclass_name, sizeof r->subclass_name);
     }
+    free(e);
 }
 
 #define USAGE "lspci [-k] [--update]"
@@ -132,14 +143,22 @@ static int update_ids(void) {
 // and the process that has claimed it (docs/umdf-design.md stage 2).
 // Read once into an array rather than queried per row, since the
 // listing walks devices and the query walks the same order.
-static uint32_t g_index[MAX_DEVS];  // each row's PCI enumeration index
-static struct query_pcidev g_own[MAX_DEVS];
-static int g_own_count;
+static struct query_pcidev *g_own;
+static int g_own_count, g_own_cap;
 
 static void load_owners(void) {
     struct query_pcidev q;
     QUERY_FOREACH(QUERY_PCIDEV, q, i) {
-        if (g_own_count >= MAX_DEVS) break;
+        if (g_own_count == g_own_cap) {
+            int cap = g_own_cap ? g_own_cap * 2 : 32;
+            struct query_pcidev *n = realloc(g_own, (size_t)cap * sizeof *n);
+            if (!n) {
+                put_err("lspci: out of memory -- some drivers not shown\n");
+                return;
+            }
+            g_own = n;
+            g_own_cap = cap;
+        }
         g_own[g_own_count++] = q;
     }
 }
@@ -164,21 +183,26 @@ int main(int argc, char **argv) {
         put("No PCI devices found.\n");
         sys_exit(0);
     }
-    if (count > MAX_DEVS) count = MAX_DEVS; // more than this and names are the least of it
+    g_rows = calloc((size_t)count, sizeof *g_rows);
+    if (!g_rows) {
+        put_err("lspci: out of memory\n");
+        sys_exit(1);
+    }
 
     for (int64_t i = 0; i < count; i++) {
         // The ENUMERATION index is kept, not assumed to be the row
         // number: a device whose info read fails leaves a gap, and
         // -k's lookup is by the index the kernel names.
-        if (sys_pci_info((int)i, &g_dev[g_count]) != 0) continue;
-        g_index[g_count++] = (uint32_t)i;
+        if (sys_pci_info((int)i, &g_rows[g_count].dev) != 0) continue;
+        g_rows[g_count++].index = (uint32_t)i;
     }
 
     load_names();
     if (kernel_drivers) load_owners();
 
     for (int i = 0; i < g_count; i++) {
-        const struct pci_device *dev = &g_dev[i];
+        const struct row *r = &g_rows[i];
+        const struct pci_device *dev = &r->dev;
 
         put_hex_digits(dev->bus, 2);
         put(":");
@@ -190,7 +214,7 @@ int main(int argc, char **argv) {
         put(":");
         put_hex_digits(dev->device_id, 4);
         put("  ");
-        put(class_label(i));
+        put(class_label(r));
 
         // IRQ line and nonzero BARs, matching what the kernel-side
         // cmd_lspci() printed before it started deferring to this
@@ -242,12 +266,12 @@ int main(int argc, char **argv) {
         // device name alone can be 60+ characters, and keeping the
         // first line's columns fixed means the numeric output still
         // lines up exactly as it did before this existed.
-        if (g_vendor_name[i][0] || g_device_name[i][0]) {
+        if (r->vendor_name[0] || r->device_name[0]) {
             put("           ");
-            put(g_vendor_name[i][0] ? g_vendor_name[i] : "(unknown vendor)");
-            if (g_device_name[i][0]) {
+            put(r->vendor_name[0] ? r->vendor_name : "(unknown vendor)");
+            if (r->device_name[0]) {
                 put("  ");
-                put(g_device_name[i]);
+                put(r->device_name);
             }
             put("\n");
         }
@@ -257,7 +281,7 @@ int main(int argc, char **argv) {
         // a RING-3 process has taken off the kernel names that process
         // instead (docs/umdf-design.md).
         if (kernel_drivers) {
-            const struct query_pcidev *o = owner_of(g_index[i]);
+            const struct query_pcidev *o = owner_of(r->index);
             put("           ");
             if (o && o->holder_pid) {
                 put("claimed by pid ");

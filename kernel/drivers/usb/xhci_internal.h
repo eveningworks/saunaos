@@ -96,7 +96,11 @@ struct xhci_hc {
     volatile uint8_t *rt;
     volatile uint8_t *db;
 
-    uint32_t max_slots;
+    uint32_t max_slots;      // HCSPARAMS1, at most 255: a slot id is a byte
+    // Slots enabled in CONFIG, and the length of g_xhci_slots less its
+    // unused slot 0. 0 until usb_probe() has the table, so a slot check
+    // against it fails closed.
+    uint32_t nslots;
     uint32_t max_ports;
     uint32_t max_intrs;
     uint8_t  csz64;          // HCCPARAMS1.CSZ: 64-byte contexts
@@ -218,7 +222,10 @@ static inline void pend_set(volatile uint32_t *mask, uint32_t bit) {
 static inline void pend_clear(volatile uint32_t *mask, uint32_t bit) {
     __atomic_fetch_and(mask, ~(1u << bit), __ATOMIC_SEQ_CST);
 }
-extern struct xhci_slot g_xhci_slots[XHCI_MAX_SLOTS + 1];   // slot ids are 1-based
+// Indexed by slot id, which is 1-based: nslots + 1 entries, allocated by
+// usb_probe() to what the controller offers, and never moved after --
+// the event drain reads it from interrupt context.
+extern struct xhci_slot *g_xhci_slots;
 
 // Where a synchronous waiter picks up its answer. The event ring has
 // ONE consumer at a time (see the guard in xhci_service), so a

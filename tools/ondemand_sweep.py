@@ -437,6 +437,9 @@ TOOLS = [
     # Boots its own guests with -device qemu-xhci, so it is in the sweep
     # rather than the gate: three phases and two reboots per phase.
     ("usb",         "usb_test.py",             "xHCI, and a HID keyboard and mouse", True,  None,                   False),
+    # Its own guests with extra hardware: forty PCI devices behind
+    # bridges, then eleven USB devices -- past both old fixed tables.
+    ("devcount",    "device_count_test.py",    "PCI past 32 devices, USB past 8",    True,  None,                   False),
 
     # REBOOTS ITS GUEST TWICE, ON PURPOSE -- that is the property under
     # test. Here rather than in the gate for the same reason usb_test is:

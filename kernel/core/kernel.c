@@ -155,13 +155,6 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // only boot.asm's identity map and the multiboot info block.
     acpi_init();
 
-    // Before any device driver: PCI enumeration is what a driver probes
-    // against. Safe this early -- pci.c is a port-I/O scan into a static
-    // table, needing neither the heap nor interrupts. It used to sit
-    // after heap_init() purely because nothing before that point cared.
-    pci_init();
-    klog_write("toy-os: PCI bus enumerated\n");
-
     // The frame allocator, HERE rather than beside the heap where it
     // used to sit, and the reason is the display block immediately
     // below: virtio-gpu's probe needs frames for its virtqueues and for
@@ -185,12 +178,21 @@ void kernel_main(uint64_t multiboot_info_addr) {
     kasan_init();
     kasan_run_constructors();
 
+    // kmalloc()/kfree(): needs the frames, the identity map above 4 GiB
+    // (PMM_ZONE_ANY) and, in a KASAN build, the shadow -- nothing else.
+    heap_init();
+
+    // Before any device driver: PCI enumeration is what a driver probes
+    // against. AFTER THE HEAP, because the device table is allocated to
+    // fit what the scan finds -- a fixed one dropped every device past
+    // the 32nd without a word.
+    pci_init();
+    klog_write("toy-os: PCI bus enumerated\n");
+
     // Display drivers register, then probe -- specific cards first, the
     // generic GRUB framebuffer last as the fallback that always claims.
     // Must happen before vga_init(), which calls gfx_init() and needs a
-    // surface to exist. vmsvga's probe does its own PCI config-space
-    // read rather than waiting for pci_init(), because the console has
-    // to come up before that.
+    // surface to exist. They find their cards in pci_init()'s table.
     virtio_gpu_display_register();
     vmsvga_register();
     // Intel integrated graphics: inherits the firmware's mode and adds a
@@ -320,7 +322,6 @@ void kernel_main(uint64_t multiboot_info_addr) {
     klog_printf("toy-os: serial RX enabled -- COM1%s\n",
                 serial_dbg_separate() ? " and COM2" : "");
 
-    heap_init(); // kmalloc()/kfree() -- built on pmm, needs it initialized first
 
     // Everything from here that is "run after X" is an INITCALL
     // (kernel/include/kernel/initcall.h): declared at file scope beside

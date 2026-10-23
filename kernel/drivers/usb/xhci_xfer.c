@@ -296,7 +296,7 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
         klog_printf(KLOG_ERR "usb: enable slot failed: %s\n", xhci_completion_name((uint32_t)cc));
         return xhci_fail(cc);
     }
-    if (!slot || slot > XHCI_MAX_SLOTS) {
+    if (!slot || slot > g_xhci.nslots) {
         klog_printf("usb: controller assigned slot %u, out of range\n", slot);
         return -1;
     }
@@ -366,7 +366,7 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
 }
 
 int xhci_set_ep0_mps(uint8_t slot, uint16_t mps) {
-    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return -1;
+    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
     struct xhci_slot *sl = &g_xhci_slots[slot];
 
     volatile uint32_t *icc = ctx_at(sl->in_ctx, 0);
@@ -406,7 +406,7 @@ int xhci_recover_halted(uint8_t slot, uint32_t dci, struct xhci_ring *ring) {
 }
 
 void xhci_slot_set_hub(uint8_t slot, uint8_t n_ports, uint8_t ttt) {
-    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return;
+    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return;
     volatile uint32_t *sc = ctx_at(g_xhci_slots[slot].in_ctx, 1);
     sc[0] |= (1u << 26);                                        // Hub flag
     sc[1] = (sc[1] & 0x00FFFFFFu) | ((uint32_t)n_ports << 24);  // Number of Ports
@@ -414,12 +414,12 @@ void xhci_slot_set_hub(uint8_t slot, uint8_t n_ports, uint8_t ttt) {
 }
 
 int xhci_slot_usable(uint8_t slot) {
-    return slot && slot <= XHCI_MAX_SLOTS && g_xhci_slots[slot].in_use && !g_xhci_slots[slot].ep0_dead;
+    return slot && slot <= g_xhci.nslots && g_xhci_slots[slot].in_use && !g_xhci_slots[slot].ep0_dead;
 }
 
 int xhci_control(uint8_t slot, const uint8_t setup[8],
                  void *buf, uint16_t len, int in) {
-    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return -1;
+    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
     struct xhci_slot *sl = &g_xhci_slots[slot];
     if (sl->ep0_dead) return -1;
 
@@ -607,7 +607,13 @@ static struct xhci_ep *ep_configure(uint8_t slot, uint8_t ep_addr, uint16_t mps,
         ring_phys = e->ring.phys;
     } else {
         for (int i = 0; i < MAX_EPS; i++) if (!g_xhci_eps[i].in_use) { e = &g_xhci_eps[i]; break; }
-        if (!e) return 0;
+        if (!e) {
+            // The event drain walks this table, so it stays fixed -- and
+            // says so when it is full rather than failing unexplained.
+            klog_printf(KLOG_WARN "usb: slot %u ep 0x%x: all %d endpoint entries in use\n",
+                        slot, ep_addr, MAX_EPS);
+            return 0;
+        }
         seg = xhci_alloc_frame(&ring_phys);
         if (!seg) return 0;
     }
@@ -660,7 +666,7 @@ static struct xhci_ep *ep_configure(uint8_t slot, uint8_t ep_addr, uint16_t mps,
 
 int xhci_add_interrupt_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
                           uint8_t interval) {
-    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return -1;
+    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
     if (mps == 0 || mps > EP_SLOT_SIZE) return -1;
 
     uint64_t buf_phys = 0;
@@ -680,7 +686,7 @@ int xhci_add_interrupt_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
 static int add_isoch(uint8_t slot, uint8_t ep_addr, uint16_t mps,
                      uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
                      void *ctx) {
-    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return -1;
+    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
     if (mps == 0) return -1;
 
     int cc = 0;
@@ -787,7 +793,7 @@ static void bulk_event(struct xhci_ep *e, uint32_t idx, uint32_t code, uint32_t 
 int xhci_add_bulk(uint8_t slot, uint8_t ep_addr, uint16_t mps,
                   void (*done)(void *ctx, uint64_t phys, uint32_t bytes, int ok),
                   void *ctx) {
-    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return -1;
+    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
     if (mps == 0) return -1;
 
     int cc = 0;
@@ -946,7 +952,7 @@ int xhci_take_report(uint8_t slot, uint8_t ep_addr, void *buf, uint32_t cap) {
 }
 
 void xhci_disable_slot(uint8_t slot) {
-    if (!slot || slot > XHCI_MAX_SLOTS || !g_xhci_slots[slot].in_use) return;
+    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return;
     struct xhci_slot *sl = &g_xhci_slots[slot];
 
     // The controller first: Disable Slot stops every endpoint, so the

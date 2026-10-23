@@ -21,11 +21,13 @@
 
 #define USB_CLASS_HUB 9   // the spec's value for a hub interface
 
+// By slot id, like the device table: a claim needs no free entry, so
+// it cannot run out before the controller's slots do. Held while pml4
+// is nonzero.
 static struct {
-    uint8_t  slot;      // 0 = free
     uint64_t pml4;
     int      pid;
-} g_claims[USB_MAX_DEVICES];
+} g_claims[USB_SLOT_IDS];
 
 // TWO ISOCHRONOUS ENDPOINTS, AN OUT AND AN IN: a UAC stream and its
 // feedback endpoint. Each has its own grant; a holder that needs more
@@ -76,9 +78,7 @@ static const struct usb_device_info *dev_by_slot(uint8_t slot) {
 }
 
 static int slot_index(uint8_t slot) {
-    for (int i = 0; i < USB_MAX_DEVICES; i++)
-        if (g_claims[i].slot == slot && g_claims[i].pml4) return i;
-    return -1;
+    return slot && g_claims[slot].pml4 ? slot : -1;
 }
 
 int usb_claim_holder_pid(uint8_t slot) {
@@ -116,11 +116,6 @@ int usb_claim_take(uint8_t slot, uint64_t pml4, int pid) {
     if (i >= 0) return g_claims[i].pml4 == pml4 ? 0 : -EBUSY;
     if (!usb_claim_claimable(slot)) return -EPERM;
 
-    int free_slot = -1;
-    for (int k = 0; k < USB_MAX_DEVICES; k++)
-        if (!g_claims[k].pml4) { free_slot = k; break; }
-    if (free_slot < 0) return -EBUSY;
-
     // THE UNBIND COMES FIRST, and it is what the claim is FOR: the
     // class driver has the device's endpoints configured, and two
     // owners posting to one transfer ring is not a thing to recover
@@ -128,9 +123,8 @@ int usb_claim_take(uint8_t slot, uint64_t pml4, int pid) {
     // with them, so lsusb no longer reports the device as driven.
     usb_unbind_drivers((struct usb_device_info *)d);
 
-    g_claims[free_slot].slot = slot;
-    g_claims[free_slot].pml4 = pml4;
-    g_claims[free_slot].pid  = pid;
+    g_claims[slot].pml4 = pml4;
+    g_claims[slot].pid  = pid;
     klog_printf("usb: pid %d claimed slot %u (%04x:%04x)\n",
                 pid, slot, d->vendor_id, d->product_id);
     char id[24];
@@ -470,7 +464,7 @@ int sys_usb_release(struct syscall_ctx *c) {
 // restarted and has to find its device free.
 void usb_claim_space_gone(uint64_t pml4) {
     if (!pml4) return;
-    for (int i = 0; i < USB_MAX_DEVICES; i++)
+    for (int i = 1; i < USB_SLOT_IDS; i++)
         if (g_claims[i].pml4 == pml4)
-            usb_claim_drop(g_claims[i].slot, 0, 0);
+            usb_claim_drop((uint8_t)i, 0, 0);
 }

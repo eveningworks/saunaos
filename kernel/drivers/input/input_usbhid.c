@@ -480,7 +480,12 @@ static int hid_bind(struct usb_device_info *info, int iface, const uint8_t *cfg,
     }
 
     struct hid_dev *d = hid_alloc();
-    if (!d) return 0;
+    if (!d) {
+        // A table the interrupt path walks, so fixed -- and said when full.
+        klog_printf(KLOG_WARN "usb: slot %u if %u: all %d HID entries in use, skipped\n",
+                    info->slot, ifc->ifnum, MAX_HID);
+        return 0;
+    }
     k_memset(d, 0, sizeof *d);
     d->slot     = info->slot;
     d->ifnum    = ifc->ifnum;

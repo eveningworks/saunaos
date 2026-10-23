@@ -4,9 +4,10 @@
 #include <stdint.h>
 
 // WHICH PROCESS HAS TAKEN A PCI DEVICE -- docs/umdf-design.md stage 2,
-// and the other half of pci_driver.h's `g_bound[]`: that table says
-// which ring-0 driver was handed a device, this one says which ring-3
-// process holds it instead. Both are keyed by the enumeration index.
+// and the other half of pci_driver.h's binding: that says which ring-0
+// driver was handed a device, this says which ring-3 process holds it
+// instead. Both live in the bus's record of the device
+// (pci_internal.h's struct pci_bus_state), addressed by its index.
 //
 // The claim is DEVICE state rather than process state, which is why it
 // lives beside the binding and not in an fd. The fd is what vfio-pci
@@ -18,6 +19,20 @@
 // at any physical page. What a claim buys is that exactly one driver
 // programs a register file, and that a crash takes a process rather
 // than the machine.
+
+// One device's claim. OCCUPANCY IS THE PML4, NOT THE PID: the kernel
+// context has no pid and a KTEST claims from it, so a pid of 0 is a
+// legitimate holder.
+struct dev_claim {
+    uint64_t pml4;
+    int pid;
+    // The DMA buffer, if this holder asked for one. It belongs to the
+    // CLAIM: a borrowed mapping of it dies with the address space, and
+    // these frames are freed by dev_claim.c, after bus mastering is off.
+    uint64_t dma_phys;
+    uint64_t dma_pages;
+    uint64_t dma_base;   // where the holder has it mapped, 0 if nowhere
+};
 
 // Takes the claim for `pml4`, releasing any ring-0 driver first.
 // Re-claiming by the same address space is idempotent.

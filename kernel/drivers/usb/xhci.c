@@ -16,12 +16,13 @@
 // alignment becomes something a human has to maintain, and a ring
 // straddling 64 KiB becomes possible again. Both failures are silent.
 #include "xhci_internal.h"
+#include "heap.h"
 
 DRIVER_DECLARE("xhci", "usb", "USB 3 xHCI host controller");
 
 // Defined here, shared through xhci_internal.h.
 struct xhci_hc g_xhci;
-struct xhci_slot g_xhci_slots[XHCI_MAX_SLOTS + 1];
+struct xhci_slot *g_xhci_slots;
 volatile struct xhci_completion g_xhci_cmd_done;
 volatile struct xhci_completion g_xhci_xfer_done;
 
@@ -651,8 +652,16 @@ static int usb_probe(const struct pci_device *d) {
          (unsigned)(g_xhci.op - g_xhci.cap), (unsigned)(g_xhci.rt - g_xhci.cap),
          (unsigned)(g_xhci.db - g_xhci.cap), g_xhci.ac64, g_xhci.csz64);
 
-    uint32_t slots = g_xhci.max_slots;
-    if (slots > XHCI_MAX_SLOTS) slots = XHCI_MAX_SLOTS;
+    // EVERY SLOT THE CONTROLLER OFFERS -- eight used to be enabled, and
+    // the ninth device was refused at Enable Slot. A probe after a failed
+    // one keeps the table it already has: the controller is the same.
+    if (!g_xhci_slots) {
+        g_xhci_slots = kzalloc((size_t)(g_xhci.max_slots + 1) * sizeof *g_xhci_slots);
+        if (!g_xhci_slots)
+            return pci_probe_decline(d, "no memory for %u slots", g_xhci.max_slots);
+        g_xhci.nslots = g_xhci.max_slots;
+    }
+    uint32_t slots = g_xhci.nslots;
     USBT("usb: trace: writing CONFIG=%u\n", slots);
     mw32(g_xhci.op, XHCI_CONFIG, slots);
 
@@ -665,9 +674,9 @@ static int usb_probe(const struct pci_device *d) {
     // -- possible at all, and with it unlogged the only way to know
     // whether a machine has it was to read a failure that never
     // mentioned the reason.
-    klog_printf("usb: %u slots (%u used), %u interrupters, %u ports, "
+    klog_printf("usb: %u slots, %u interrupters, %u ports, "
                 "%u-byte contexts, %u-byte pages, port power %s\n",
-                g_xhci.max_slots, slots, g_xhci.max_intrs, g_xhci.max_ports,
+                slots, g_xhci.max_intrs, g_xhci.max_ports,
                 g_xhci.csz64 ? 64u : 32u, g_xhci.page_size,
                 g_xhci.ppc ? "software-controlled (PPC)" : "always on (no PPC)");
     // SAID, never silently cut: a port past the cap is one nothing scans.

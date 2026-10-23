@@ -21,6 +21,7 @@
 #include "string.h"
 #include "pmm.h"
 #include "devevent.h"
+#include "heap.h"
 
 // driver-none: enumeration; xhci.c is the driver and the HID/net/audio drivers bind
 
@@ -48,7 +49,11 @@
 // ring-0 stack is 16 KiB with a guard page and a 1 KiB frame budget.
 static uint8_t g_desc_buf[4096] __attribute__((aligned(64)));
 
-static struct usb_device_info g_devs[USB_MAX_DEVICES];
+// By slot id, as Linux's xhci->devs[] is: each device allocated when
+// it is configured and freed when it goes, so nothing caps how many are
+// plugged in but the controller's slots. No driver keeps a pointer to
+// one past its unbind -- they key their own state by slot.
+static struct usb_device_info *g_devs[USB_SLOT_IDS];
 static int g_dev_count;
 
 static void fill_setup(uint8_t out[8], uint8_t type, uint8_t req,
@@ -249,24 +254,15 @@ static uint8_t pick_configuration(uint8_t slot, uint8_t configs,
     return 0;
 }
 
-static struct usb_device_info *dev_alloc(void) {
-    for (int i = 0; i < USB_MAX_DEVICES; i++)
-        if (!g_devs[i].in_use) return &g_devs[i];
-    return 0;
-}
-
 // Brings one device -- root-port or hub-child -- all the way to
-// "configured and described". Returns the index into the device table,
-// or -1 WITH ITS SLOT DISABLED: the failure path frees what it
-// allocated, which is what makes the caller's reset-and-retry start
-// from nothing instead of from a wedged half-enumeration.
+// "configured and described". Returns its slot id, or -1 WITH ITS SLOT
+// DISABLED: the failure path frees what it allocated, which is what
+// makes the caller's reset-and-retry start from nothing instead of
+// from a wedged half-enumeration.
 int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
                          uint32_t route, uint8_t depth, uint8_t speed,
                          uint8_t parent_slot, uint8_t tt_slot, uint8_t tt_port,
                          int patient) {
-    struct usb_device_info *d = dev_alloc();
-    if (!d) return -1;
-
     int slot = xhci_address_device(root_port, route, speed, tt_slot, tt_port);
     if (slot < 0) return -1;
 
@@ -291,7 +287,12 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
         return -1;
     }
 
-    k_memset(d, 0, sizeof *d);
+    struct usb_device_info *d = kzalloc(sizeof *d);
+    if (!d) {
+        klog_printf(KLOG_ERR "usb: port %u: no memory for the device\n", parent_port);
+        xhci_disable_slot((uint8_t)slot);
+        return -1;
+    }
     d->port         = parent_port;
     d->root_port    = root_port;
     d->route        = route;
@@ -322,6 +323,7 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
         klog_printf("usb: port %u: configuration %u unreadable\n",
                     parent_port, pick);
         xhci_disable_slot((uint8_t)slot);
+        kfree(d);
         return -1;
     }
 
@@ -340,8 +342,8 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
     if (set_configuration((uint8_t)slot, cfg_value) < 0) {
         klog_printf(KLOG_ERR "usb: port %u: set configuration failed\n", parent_port);
         if (d->cfg_phys) pmm_free_contiguous(d->cfg_phys, 1);
-        d->cfg = 0; d->cfg_phys = 0; d->cfg_len = 0;
         xhci_disable_slot((uint8_t)slot);
+        kfree(d);
         return -1;
     }
 
@@ -355,6 +357,11 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
     }
 
     d->in_use = 1;
+    // Every route to Disable Slot detaches first, so this would be a
+    // record the controller recycled under us -- said, not hidden.
+    if (g_devs[slot])
+        klog_printf(KLOG_WARN "usb: slot %d reassigned while still listed\n", slot);
+    g_devs[slot] = d;
     g_dev_count++;
     {
         static const char *const SPEED[] = { "?", "full", "low", "high", "super" };
@@ -381,7 +388,7 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
     // on ifs[0] alone never offers such a device to the audio driver at
     // all -- and offers a DAC with buttons to only one of the two.
     usb_bind_drivers(d, g_desc_buf, total);
-    return (int)(d - g_devs);
+    return slot;
 }
 
 int usb_enumerate_port(uint8_t port, uint8_t speed, int patient) {
@@ -390,23 +397,18 @@ int usb_enumerate_port(uint8_t port, uint8_t speed, int patient) {
 
 // --- detach -----------------------------------------------------------
 
-static struct usb_device_info *dev_by_slot(uint8_t slot) {
-    for (int i = 0; i < USB_MAX_DEVICES; i++)
-        if (g_devs[i].in_use && g_devs[i].slot == slot) return &g_devs[i];
-    return 0;
-}
-
 // Depth-first: a hub's children go before the hub, because a child's
 // Disable Slot while its route still exists is the orderly direction.
 void usb_detach_slot(uint8_t slot) {
-    struct usb_device_info *d = dev_by_slot(slot);
+    struct usb_device_info *d = g_devs[slot];
     if (!d) return;
-    d->in_use = 0;           // off the table first, so recursion terminates
+    g_devs[slot] = 0;        // off the table first, so recursion terminates
+    d->in_use = 0;
     g_dev_count--;
 
-    for (int i = 0; i < USB_MAX_DEVICES; i++)
-        if (g_devs[i].in_use && g_devs[i].parent_slot == slot)
-            usb_detach_slot(g_devs[i].slot);
+    for (int i = 1; i < USB_SLOT_IDS; i++)
+        if (g_devs[i] && g_devs[i]->parent_slot == slot)
+            usb_detach_slot((uint8_t)i);
 
     usb_unbind_drivers(d);
     xhci_disable_slot(slot);
@@ -418,21 +420,20 @@ void usb_detach_slot(uint8_t slot) {
     klog_printf("usb: %04x:%04x \"%s\" detached\n",
                 d->vendor_id, d->product_id,
                 d->product[0] ? d->product : "");
+    kfree(d);
 }
 
 uint8_t usb_root_port_slot(uint8_t root_port) {
-    for (int i = 0; i < USB_MAX_DEVICES; i++)
-        if (g_devs[i].in_use && g_devs[i].root_port == root_port &&
-            g_devs[i].depth == 0)
-            return g_devs[i].slot;
+    for (int i = 1; i < USB_SLOT_IDS; i++)
+        if (g_devs[i] && g_devs[i]->root_port == root_port && g_devs[i]->depth == 0)
+            return (uint8_t)i;
     return 0;
 }
 
 void usb_detach_root_port(uint8_t root_port) {
-    for (int i = 0; i < USB_MAX_DEVICES; i++)
-        if (g_devs[i].in_use && g_devs[i].root_port == root_port &&
-            g_devs[i].depth == 0)
-            usb_detach_slot(g_devs[i].slot);
+    for (int i = 1; i < USB_SLOT_IDS; i++)
+        if (g_devs[i] && g_devs[i]->root_port == root_port && g_devs[i]->depth == 0)
+            usb_detach_slot((uint8_t)i);
 }
 
 // --- the table, as lsusb sees it ---------------------------------------
@@ -450,9 +451,9 @@ const uint8_t *usb_device_config(int index, uint32_t *len) {
 
 const struct usb_device_info *usb_device_at(int index) {
     if (index < 0) return 0;
-    for (int i = 0; i < USB_MAX_DEVICES; i++) {
-        if (!g_devs[i].in_use) continue;
-        if (index-- == 0) return &g_devs[i];
+    for (int i = 1; i < USB_SLOT_IDS; i++) {
+        if (!g_devs[i]) continue;
+        if (index-- == 0) return g_devs[i];
     }
     return 0;
 }

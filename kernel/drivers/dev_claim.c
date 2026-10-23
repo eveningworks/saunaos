@@ -28,42 +28,32 @@
 #include "string.h"
 #include "devevent.h"
 
-// Keyed by the enumeration index, like g_bound[]. OCCUPANCY IS THE
-// PML4, NOT THE PID: the kernel context has no pid and a KTEST claims
-// from it, so a pid of 0 is a legitimate holder.
 static void dev_irq_release(int index);   // defined with the stub below
 
-static struct {
-    uint64_t pml4;
-    int pid;
-    // The DMA buffer, if this holder asked for one. It belongs to the
-    // CLAIM: a borrowed mapping of it dies with the address space, and
-    // these frames are freed here, after bus mastering is off.
-    uint64_t dma_phys;
-    uint64_t dma_pages;
-    uint64_t dma_base;   // where the holder has it mapped, 0 if nowhere
-} g_claims[PCI_MAX_DEVICES];
-
 static int valid(int index) {
-    return index >= 0 && index < pci_device_count() && index < PCI_MAX_DEVICES;
+    return index >= 0 && index < pci_device_count();
 }
 
+// Device `index`'s claim, in the bus's record of it (dev_claim.h has
+// the struct). Every caller has checked valid() first.
+static struct dev_claim *cl(int index) { return &pci_device_state(index)->claim; }
+
 int dev_claim_holder_pid(int index) {
-    if (!valid(index) || !g_claims[index].pml4) return 0;
-    return g_claims[index].pid;
+    if (!valid(index) || !cl(index)->pml4) return 0;
+    return cl(index)->pid;
 }
 
 int dev_claim_check(int index, uint64_t pml4) {
     if (!valid(index)) return -EINVAL;
-    if (!g_claims[index].pml4) return -EACCES;
-    return g_claims[index].pml4 == pml4 ? 0 : -EBUSY;
+    if (!cl(index)->pml4) return -EACCES;
+    return cl(index)->pml4 == pml4 ? 0 : -EBUSY;
 }
 
 int dev_claim_take(int index, uint64_t pml4, int pid) {
     if (!valid(index)) return -EINVAL;
     if (!pml4) return -EPERM;
-    if (g_claims[index].pml4)
-        return g_claims[index].pml4 == pml4 ? 0 : -EBUSY;
+    if (cl(index)->pml4)
+        return cl(index)->pml4 == pml4 ? 0 : -EBUSY;
 
     // The unbind, and it comes before the claim is recorded so a driver
     // that cannot let go leaves the table exactly as it was.
@@ -73,8 +63,8 @@ int dev_claim_take(int index, uint64_t pml4, int pid) {
         if (r < 0) return r;
     }
 
-    g_claims[index].pml4 = pml4;
-    g_claims[index].pid  = pid;
+    cl(index)->pml4 = pml4;
+    cl(index)->pid  = pid;
     klog_printf("dev: pid %d claimed pci %d (%02x:%02x.%u)\n",
                 pid, index, d->bus, d->device, d->function);
     devevent_pci(QUERY_DEVEV_CLAIMED, d, "", "Taken by pid %d", pid);
@@ -86,7 +76,7 @@ int dev_claim_dma_take(int index, uint64_t pml4, uint64_t pages, uint64_t base,
     int held = dev_claim_check(index, pml4);
     if (held != 0) return held;
     if (!pages || pages > DEV_DMA_MAX_BYTES / 4096) return -EINVAL;
-    if (g_claims[index].dma_phys) return -EBUSY;
+    if (cl(index)->dma_phys) return -EBUSY;
 
     // DMA32: a device that takes a 32-bit address must be able to reach
     // it, and this kernel identity-maps below 4 GiB so it can be zeroed
@@ -103,13 +93,13 @@ int dev_claim_dma_take(int index, uint64_t pml4, uint64_t pages, uint64_t base,
     // the same on every framebuffer retype.
     __asm__ volatile ("wbinvd" ::: "memory");
 
-    g_claims[index].dma_phys  = phys;
-    g_claims[index].dma_pages = pages;
-    g_claims[index].dma_base  = base;
+    cl(index)->dma_phys  = phys;
+    cl(index)->dma_pages = pages;
+    cl(index)->dma_base  = base;
     pci_command_update(pci_device_at(index), PCI_CMD_BUS_MASTER, 0);
     if (phys_out) *phys_out = phys;
     klog_printf("dev: pid %d dma %llu page(s) at %llx on pci %d, bus master on\n",
-                g_claims[index].pid, (unsigned long long)pages,
+                cl(index)->pid, (unsigned long long)pages,
                 (unsigned long long)phys, index);
     return 0;
 }
@@ -121,7 +111,7 @@ int dev_claim_dma_take(int index, uint64_t pml4, uint64_t pages, uint64_t base,
 // `unmap` is 0 only from dev_claim_space_gone(), where the address
 // space is already being torn down and there is nothing left to unmap.
 static void dma_release(int index, int unmap) {
-    if (!g_claims[index].dma_phys) return;
+    if (!cl(index)->dma_phys) return;
     pci_command_update(pci_device_at(index), 0, PCI_CMD_BUS_MASTER);
     // THE MAPPING GOES FIRST. The frames are borrowed, so no mapping
     // teardown disposes of them -- which means an explicit release
@@ -129,11 +119,11 @@ static void dma_release(int index, int unmap) {
     // holds a live writable PTE for every one, and the next owner of
     // those frames shares them with a process that can still write.
     // `meminfo audit` calls exactly that a DANGLING mapping.
-    if (unmap) mmap_drop_dma_region(g_claims[index].dma_base,
-                                    g_claims[index].dma_pages);
-    pmm_free_contiguous(g_claims[index].dma_phys, g_claims[index].dma_pages);
-    g_claims[index].dma_phys = g_claims[index].dma_pages = 0;
-    g_claims[index].dma_base = 0;
+    if (unmap) mmap_drop_dma_region(cl(index)->dma_base,
+                                    cl(index)->dma_pages);
+    pmm_free_contiguous(cl(index)->dma_phys, cl(index)->dma_pages);
+    cl(index)->dma_phys = cl(index)->dma_pages = 0;
+    cl(index)->dma_base = 0;
 }
 
 int dev_claim_dma_drop(int index, uint64_t pml4) {
@@ -145,13 +135,13 @@ int dev_claim_dma_drop(int index, uint64_t pml4) {
 
 int dev_claim_drop(int index, uint64_t pml4, int rebind) {
     if (!valid(index)) return -EINVAL;
-    if (!g_claims[index].pml4 || g_claims[index].pml4 != pml4) return -EACCES;
+    if (!cl(index)->pml4 || cl(index)->pml4 != pml4) return -EACCES;
 
-    int pid = g_claims[index].pid;
+    int pid = cl(index)->pid;
     dev_irq_release(index);
     dma_release(index, 1);
-    g_claims[index].pml4 = 0;
-    g_claims[index].pid  = 0;
+    cl(index)->pml4 = 0;
+    cl(index)->pid  = 0;
     klog_printf("dev: pid %d released pci %d%s\n", pid, index,
                 rebind ? " (rebinding)" : "");
     devevent_pci(QUERY_DEVEV_RETURNED, pci_device_at(index), "",
@@ -162,24 +152,24 @@ int dev_claim_drop(int index, uint64_t pml4, int rebind) {
 
 void dev_claim_space_gone(uint64_t pml4) {
     if (!pml4) return;
-    for (int i = 0; i < PCI_MAX_DEVICES; i++) {
-        if (g_claims[i].pml4 != pml4) continue;
+    for (int i = 0; i < pci_device_count(); i++) {
+        if (cl(i)->pml4 != pml4) continue;
         // NO REBIND. A driver under supervision is restarted and has to
         // find the device still free; taking it back here would race
         // that restart, and the ring-0 driver would win about half the
         // time. `SYS_DEV_RELEASE` with DEV_RELEASE_REBIND is how a
         // device goes back deliberately.
         klog_printf(KLOG_WARN "dev: pid %d died holding pci %d -- left unbound\n",
-                    g_claims[i].pid, i);
+                    cl(i)->pid, i);
         // The mapping of these frames died with the address space, but
         // the DEVICE did not stop: dma_release() clears bus mastering
         // before they go back to the allocator.
         devevent_pci(QUERY_DEVEV_RETURNED, pci_device_at(i), "",
-                     "pid %d exited holding it -- left without a driver", g_claims[i].pid);
+                     "pid %d exited holding it -- left without a driver", cl(i)->pid);
         dev_irq_release(i);
         dma_release(i, 0);
-        g_claims[i].pml4 = 0;
-        g_claims[i].pid  = 0;
+        cl(i)->pml4 = 0;
+        cl(i)->pid  = 0;
     }
 }
 
@@ -390,10 +380,7 @@ int sys_dev_irq_ack(struct syscall_ctx *c) {
 // The only reader of dev_claim_holder_pid() outside a test, and the
 // reason the claim is visible at all from ring 3: `lspci -k`.
 
-static int pcidev_count(void) {
-    int n = pci_device_count();
-    return n > PCI_MAX_DEVICES ? PCI_MAX_DEVICES : n;
-}
+static int pcidev_count(void) { return pci_device_count(); }
 
 static int pcidev_fill(int index, void *out) {
     if (!valid(index)) return 0;
@@ -435,7 +422,7 @@ INITCALL(dev_claim_query_init, INIT_QUERY);
 
 // A device no driver wants, so a KTEST never unbinds a live one.
 static int unbound_device(void) {
-    for (int i = 0; i < pci_device_count() && i < PCI_MAX_DEVICES; i++)
+    for (int i = 0; i < pci_device_count(); i++)
         if (!pci_device_driver(pci_device_at(i)) && !dev_claim_holder_pid(i))
             return i;
     return -1;
@@ -472,7 +459,7 @@ KTEST("dev_claim", "a driver with no remove() can never be claimed") {
     // and a KTEST runs with a desktop up.
     int found = 0;
     uint64_t me = vmm_current_pml4();
-    for (int i = 0; i < pci_device_count() && i < PCI_MAX_DEVICES; i++) {
+    for (int i = 0; i < pci_device_count(); i++) {
         const struct pci_device *d = pci_device_at(i);
         if (!pci_device_driver(d) || pci_device_removable(i)) continue;
         KTEST_ASSERT_EQ(dev_claim_take(i, me, 0), -ENOTSUP);
@@ -494,7 +481,7 @@ KTEST("dev_claim", "NOTHING CARRYING THE ROOT FILESYSTEM IS RELEASABLE") {
     // The gate is also only meaningful if SOMETHING passes it, so a
     // machine where nothing does SKIPS rather than passing quietly.
     int removable = 0, bound = 0;
-    for (int i = 0; i < pci_device_count() && i < PCI_MAX_DEVICES; i++) {
+    for (int i = 0; i < pci_device_count(); i++) {
         const struct pci_device *d = pci_device_at(i);
         if (!pci_device_driver(d)) continue;
         bound++;
@@ -508,7 +495,7 @@ KTEST("dev_claim", "NOTHING CARRYING THE ROOT FILESYSTEM IS RELEASABLE") {
 
 KTEST("dev_claim", "an unknown device and a claimless address space") {
     KTEST_ASSERT_EQ(dev_claim_take(-1, vmm_current_pml4(), 0), -EINVAL);
-    KTEST_ASSERT_EQ(dev_claim_take(PCI_MAX_DEVICES, vmm_current_pml4(), 0), -EINVAL);
+    KTEST_ASSERT_EQ(dev_claim_take(pci_device_count(), vmm_current_pml4(), 0), -EINVAL);
     KTEST_ASSERT_EQ(dev_claim_take(0, 0, 0), -EPERM);
     KTEST_ASSERT_EQ(dev_claim_holder_pid(-1), 0);
     dev_claim_space_gone(0);   // must not walk the table for a null space

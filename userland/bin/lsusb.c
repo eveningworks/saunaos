@@ -26,21 +26,25 @@
 #include <fcntl.h>
 #include <unistd.h>
 
-#define MAX_DEVS         8
 #define VENDOR_NAME_MAX  48
 #define PRODUCT_NAME_MAX 64
                                // at SYS_WRITE_MAX, far above this
 
-#define MAX_IFS          (MAX_DEVS * 8)
-
-static struct query_usb g_dev[MAX_DEVS];
+// One per device, grown as the query hands them over.
+struct row {
+    struct query_usb dev;
+    char vendor_name[VENDOR_NAME_MAX];
+    char product_name[PRODUCT_NAME_MAX];
+};
+static struct row *g_rows;
+static int g_count;
 // QUERY_USB_IF: a driver binds an interface, so a composite device can
 // be driven by several and QUERY_USB's `driver` names only the first.
-static struct query_usb_if g_if[MAX_IFS];
-static int  g_if_count;
-static char g_vendor_name[MAX_DEVS][VENDOR_NAME_MAX];
-static char g_product_name[MAX_DEVS][PRODUCT_NAME_MAX];
-static int  g_count;
+static struct query_usb_if *g_if;
+static int g_if_count;
+
+// The new capacity for a list that is full at `cap` -- doubling.
+static int grown(int cap) { return cap ? cap * 2 : 16; }
 
 static const char *speed_name(unsigned long long s) {
     switch (s) {  // dispatch-ok: bounded by QUERY_USB_SPEED_*
@@ -91,20 +95,26 @@ static const char *hid_protocol_name(unsigned long long cls,
 // shared with lspci and the Device Manager). Without the file the
 // numeric ids still print, with a note on stderr.
 static void load_names(void) {
-    static struct uhwids_entry e[MAX_DEVS];   // static: 2 KiB is past the frame budget
+    struct uhwids_entry *e = calloc((size_t)g_count, sizeof *e);
+    if (!e) {
+        fprintf(stderr, "lsusb: out of memory -- showing numeric ids only\n");
+        return;
+    }
     for (int i = 0; i < g_count; i++) {
-        e[i].vendor = (uint16_t)g_dev[i].vendor_id;
-        e[i].device = (uint16_t)g_dev[i].product_id;
+        e[i].vendor = (uint16_t)g_rows[i].dev.vendor_id;
+        e[i].device = (uint16_t)g_rows[i].dev.product_id;
         e[i].cls = e[i].subclass = e[i].prog_if = -1;   // names from the ids only
     }
     if (uhwids_resolve(UHWIDS_USB, e, g_count) < 0) {
         fprintf(stderr, "lsusb: %s not found -- showing numeric ids only\n", UHWIDS_USB);
+        free(e);
         return;
     }
     for (int i = 0; i < g_count; i++) {
-        strlcpy(g_vendor_name[i], e[i].vendor_name, VENDOR_NAME_MAX);
-        strlcpy(g_product_name[i], e[i].device_name, PRODUCT_NAME_MAX);
+        strlcpy(g_rows[i].vendor_name, e[i].vendor_name, sizeof g_rows[i].vendor_name);
+        strlcpy(g_rows[i].product_name, e[i].device_name, sizeof g_rows[i].product_name);
     }
+    free(e);
 }
 
 // --- the raw configuration descriptor (-D) ----------------------------
@@ -325,9 +335,21 @@ int main(int argc, char **argv) {
         else { cmd_usage("lsusb [-v] [-D] [--update]"); return 1; }
     }
 
-    for (int i = 0; i < MAX_DEVS; i++) {
-        if (sys_query_record(QUERY_USB, (unsigned)i, &g_dev[i],
-                             sizeof g_dev[i]) < (int)sizeof g_dev[i]) break;
+    int cap = 0;
+    for (;;) {
+        if (g_count == cap) {
+            struct row *n = realloc(g_rows, (size_t)grown(cap) * sizeof *n);
+            if (!n) {
+                fprintf(stderr, "lsusb: out of memory -- the list stops here\n");
+                break;
+            }
+            g_rows = n;
+            cap = grown(cap);
+        }
+        struct row *r = &g_rows[g_count];
+        memset(r, 0, sizeof *r);
+        if (sys_query_record(QUERY_USB, (unsigned)g_count, &r->dev,
+                             sizeof r->dev) < (int)sizeof r->dev) break;
         g_count++;
     }
     if (!g_count) {
@@ -338,20 +360,31 @@ int main(int argc, char **argv) {
     }
 
     load_names();
-    for (int i = 0; i < MAX_IFS; i++) {
-        if (sys_query_record(QUERY_USB_IF, (unsigned)i, &g_if[i],
-                             sizeof g_if[i]) < (int)sizeof g_if[i]) break;
+    cap = 0;
+    for (;;) {
+        if (g_if_count == cap) {
+            struct query_usb_if *n = realloc(g_if, (size_t)grown(cap) * sizeof *n);
+            if (!n) {
+                fprintf(stderr, "lsusb: out of memory -- some drivers not shown\n");
+                break;
+            }
+            g_if = n;
+            cap = grown(cap);
+        }
+        if (sys_query_record(QUERY_USB_IF, (unsigned)g_if_count, &g_if[g_if_count],
+                             sizeof *g_if) < (int)sizeof *g_if) break;
         g_if_count++;
     }
 
     for (int i = 0; i < g_count; i++) {
-        struct query_usb *d = &g_dev[i];
+        const struct row *r = &g_rows[i];
+        const struct query_usb *d = &r->dev;
         printf("Port %u Device %u: ID %04x:%04x %s\n",
                (unsigned)d->port, (unsigned)d->slot,
                (unsigned)d->vendor_id, (unsigned)d->product_id,
-               g_vendor_name[i][0] ? g_vendor_name[i] : "(unknown vendor)");
+               r->vendor_name[0] ? r->vendor_name : "(unknown vendor)");
         printf("  %s, %sb/s, %s\n",
-               g_product_name[i][0] ? g_product_name[i] : "(unknown product)",
+               r->product_name[0] ? r->product_name : "(unknown product)",
                speed_name(d->speed), drivers_of(d));
         printf("  Class %02x %s%s\n",
                (unsigned)d->if_class, class_name(d->if_class),

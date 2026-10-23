@@ -6,13 +6,23 @@
 #include "klog.h"
 #include "bootstage.h"
 #include "knum.h"
+#include "heap.h"
+#include "string.h"
 
 // driver-none: the bus a driver scans, not a driver
 
 #define PCI_CONFIG_ADDRESS 0xCF8
 #define PCI_CONFIG_DATA    0xCFC
 
-static struct pci_device g_devices[PCI_MAX_DEVICES];
+// One per device found, allocated to fit the scan. THE TABLE NEVER
+// MOVES ONCE pci_init() RETURNS: drivers keep `const struct pci_device *`
+// into it, which is safe only because nothing re-scans -- there is no
+// hotplug. Growing it is pci_init()'s alone, before any pointer is out.
+struct pci_record {
+    struct pci_device dev;     // ring 3's copy (SYS_PCI_INFO)
+    struct pci_bus_state bus;  // the kernel's own -- pci_internal.h
+};
+static struct pci_record *g_rec;
 static int g_count;
 
 // Builds the CONFIG_ADDRESS value for a given bus/device/function/
@@ -131,8 +141,24 @@ static void probe_bar_sizes(struct pci_device *d) {
     __asm__ volatile ("pushq %0; popfq" :: "r"(flags) : "memory", "cc");
 }
 
+// Room for one more record, doubling. 0 when the heap has none, which
+// pci_init() reports rather than dropping devices without a word.
+static int grow(int *cap) {
+    if (g_count < *cap) return 1;
+    int want = *cap ? *cap * 2 : 16;
+    struct pci_record *r = krealloc(g_rec, (size_t)want * sizeof *r);
+    if (!r) return 0;
+    g_rec = r;
+    *cap = want;
+    return 1;
+}
+
 void pci_init(void) {
-    g_count = 0;
+    if (g_rec) {
+        klog_write(KLOG_ERR "pci: pci_init() called twice -- drivers hold the first table\n");
+        return;
+    }
+    int cap = 0, lost = 0;
 
     for (uint32_t bus = 0; bus <= 0xFF; bus++) {
         for (uint32_t device = 0; device < 32; device++) {
@@ -140,9 +166,11 @@ void pci_init(void) {
                 uint16_t vendor = config_read16((uint8_t)bus, (uint8_t)device, (uint8_t)function, 0x00);
                 if (vendor == 0xFFFF) continue; // no device at this bus/device/function
 
-                if (g_count >= PCI_MAX_DEVICES) continue; // full -- keep scanning, just stop recording
+                if (lost || !grow(&cap)) { lost++; continue; }
 
-                struct pci_device *d = &g_devices[g_count++];
+                struct pci_record *rec = &g_rec[g_count++];
+                k_memset(rec, 0, sizeof *rec);
+                struct pci_device *d = &rec->dev;
                 d->bus = (uint8_t)bus;
                 d->device = (uint8_t)device;
                 d->function = (uint8_t)function;
@@ -192,9 +220,17 @@ void pci_init(void) {
         }
     }
 
+    // Trimmed to fit, while nothing holds a pointer into it yet.
+    if (g_count && g_count < cap) {
+        struct pci_record *r = krealloc(g_rec, (size_t)g_count * sizeof *r);
+        if (r) g_rec = r;
+    }
+
     klog_write("pci: ");
     klog_write_dec((uint32_t)g_count);
     klog_write(" device(s) found\n");
+    if (lost)
+        klog_printf(KLOG_ERR "pci: out of memory -- %d more device(s) not recorded\n", lost);
 
     // Marked HERE rather than from kernel_main(), so the flag cannot
     // drift from the thing it claims. See bootstage.h.
@@ -212,15 +248,30 @@ int pci_device_count(void) {
 const struct pci_device *pci_bridge_for_bus(uint8_t bus) {
     if (!bus) return 0;
     for (int i = 0; i < g_count; i++)
-        if ((g_devices[i].header_type & 0x7F) == 1 && g_devices[i].secondary_bus == bus)
-            return &g_devices[i];
+        if ((g_rec[i].dev.header_type & 0x7F) == 1 && g_rec[i].dev.secondary_bus == bus)
+            return &g_rec[i].dev;
     return 0;
 }
 
 const struct pci_device *pci_device_at(int index) {
     BOOT_REQUIRE(BOOT_SUB_PCI);
     if (index < 0 || index >= g_count) return 0;
-    return &g_devices[index];
+    return &g_rec[index].dev;
+}
+
+struct pci_bus_state *pci_device_state(int index) {
+    if (index < 0 || index >= g_count) return 0;
+    return &g_rec[index].bus;
+}
+
+// By address, not by a search: a record's device is its first member.
+// A COPY of a device -- a KTEST's local, say -- is not one of ours.
+int pci_device_index(const struct pci_device *dev) {
+    uintptr_t p = (uintptr_t)dev, base = (uintptr_t)g_rec;
+    if (!g_rec || p < base) return -1;
+    uintptr_t off = p - base;
+    if (off % sizeof *g_rec || off / sizeof *g_rec >= (uintptr_t)g_count) return -1;
+    return (int)(off / sizeof *g_rec);
 }
 
 int pci_bar_is_io(uint32_t bar) {
@@ -328,12 +379,12 @@ uint8_t pci_capability_find(const struct pci_device *dev, uint8_t cap_id, uint8_
 // Records which LAPIC vector a device ended up on, so `lspci` can say
 // so. Looked up by bus/device/function rather than taking the caller's
 // pointer as writable: every driver holds a `const struct pci_device *`
-// into g_devices, and keeping the ONE mutable path inside this file is
+// into g_rec, and keeping the ONE mutable path inside this file is
 // what stops a driver editing the enumerator's record directly.
 void pci_note_vector(const struct pci_device *dev, uint8_t vector, int msix) {
     if (!dev) return;
     for (int i = 0; i < g_count; i++) {
-        struct pci_device *d = &g_devices[i];
+        struct pci_device *d = &g_rec[i].dev;
         if (d->bus == dev->bus && d->device == dev->device &&
             d->function == dev->function) {
             d->irq_vector = vector;

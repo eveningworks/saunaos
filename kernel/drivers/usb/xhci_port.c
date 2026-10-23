@@ -591,8 +591,7 @@ static void hcreset_perform(void) {
     }
     HCSTAGE("reset done");
 
-    uint32_t slots = g_xhci.max_slots;
-    if (slots > XHCI_MAX_SLOTS) slots = XHCI_MAX_SLOTS;
+    uint32_t slots = g_xhci.nslots;
     mw32(g_xhci.op, XHCI_CONFIG, slots);
     for (uint32_t i = 1; i <= slots; i++) g_xhci.dcbaa[i] = 0;
     HCSTAGE("config + dcbaa");

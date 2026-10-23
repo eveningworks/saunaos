@@ -61,19 +61,13 @@ struct pci_device {
     uint8_t  irq_vector, irq_msix;
 };
 
-#define PCI_MAX_DEVICES 32
-
 // Scans every bus/device/function and records what it finds (see this
-// header's top comment). Safe to call exactly once, from kernel_main()
-// -- idempotent in the sense that calling it again just re-scans and
-// overwrites the recorded list, but nothing in this kernel does that
-// today. Devices beyond PCI_MAX_DEVICES are silently not recorded
-// (plenty for any real machine or QEMU's default topology, which has a
-// handful).
+// header's top comment), in a table allocated to fit -- so it runs
+// after heap_init(). Called exactly once, from kernel_main(): drivers
+// keep pointers into the table, so a second call is refused.
 void pci_init(void);
 
-// Number of devices pci_init() found (and could fit within
-// PCI_MAX_DEVICES).
+// Number of devices pci_init() found.
 int pci_device_count(void);
 
 // The PCI-to-PCI bridge whose secondary bus is `bus`, or NULL -- what a
