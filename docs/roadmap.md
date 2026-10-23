@@ -1182,6 +1182,9 @@ run on, not by order.
 - [ ] A USB gamepad for DOOM -- HID's generic-desktop gamepad and joystick usages, through the input core
 - [ ] Bluetooth, or a written decision against it -- the Intel cards' Bluetooth half is a USB device, Linux's `btusb`
 - [ ] Root ports driven by the hub driver, through an xHCI virtual root hub -- one port state machine, as Linux's `core/hub.c`
+- [ ] USB class tables sized to the devices: HID, hubs, audio, xHCI endpoints -- the interrupt path walks them; each logs when full
+- [ ] Device Manager and `devctl` list every device -- `lib/udevice.c` stops at `UDEV_MAX` without a word
+- [x] ~~As many USB devices as the controller has slots~~ DONE 2026-10-23 -- devices and claims keyed by slot id
 - [x] ~~Hub support (devices behind a hub, not just root ports)~~ DONE 2026-08-28 -- USB2 only; the TT path is hardware-only
 - [x] ~~Hot-plug: a device plugged in after boot enumerates, an unplugged one is torn down~~ DONE 2026-08-28
 - [x] ~~Composite devices: every boot interface binds, not just the first~~ DONE 2026-08-28

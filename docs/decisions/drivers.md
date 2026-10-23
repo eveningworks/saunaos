@@ -2742,9 +2742,10 @@ for one you may only mmap, so a new kind would have been cheap. Two
 things decided against it. A claim fd is inherited by `fork()` and
 `dup`able, so "exactly one holder" quietly becomes "one open-file
 description" and `lspci -k` can no longer name a pid. And the claim is
-state about the DEVICE, not about the process: keeping it next to
-`g_bound[]` means `pci_device_driver()` and `dev_claim_holder_pid()`
-answer the same question from one place. The fd remains the exit if a
+state about the DEVICE, not about the process: keeping it beside the
+binding, in the bus's record of the device (`struct pci_bus_state`),
+means `pci_device_driver()` and `dev_claim_holder_pid()` answer the
+same question from one place. The fd remains the exit if a
 claim ever has to be passed between processes.
 
 **The gate is the driver's `remove()`, because there is no uid to

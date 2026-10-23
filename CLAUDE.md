@@ -452,8 +452,9 @@ QMP. `docs/testing.md` has the `QMPSession`/`GuiFlow` API and its gotchas.
 it exists, the traps it encodes. Read it before reaching for a tool you
 haven't used recently, and add to it (not a one-off script) when
 something would save a future session real time -- the bar is "does this
-fix a rederive-from-scratch cost". `--list` on `preflight.sh`,
-`gui_regress.py` and `ondemand_sweep.py` names what each one runs.
+fix a rederive-from-scratch cost". `--list` on `gui_regress.py` and
+`ondemand_sweep.py` names what each one runs; `preflight.sh` takes no
+`--list` -- its header comment lists its steps.
 
 **The question-to-tool index is at the top of `docs/tools.md`** -- is it
 MINE (`predates.py`), can my test SEE the break (`mutate.py`), is it safe
@@ -577,7 +578,7 @@ and push verified work.
   and **A NEW TEST TOOL MUST BE NAMED BY A RUNNER** (`preflight.sh`,
   `gui_regress.py`, `ondemand_sweep.py`, or the sweep's exclusions with
   a reason). Nothing enforces it: audit `tools/*_test.py` against each
-  runner's `--list`.
+  runner's `--list` (`preflight.sh`'s header comment).
 - **AT EVERY COMMIT, SWEEP THE BACKGROUND SHELLS** (standing
   instruction, 2026-08-30): list what is still running and close what
   the work no longer needs (`ps aux | grep "[z]sh -c source"`;

@@ -85,7 +85,10 @@ back, `--virtio-disk` likewise -- and `--extra-disk PATH
 --extra-disk-kind virtio|ahci|nvme` puts that second disk on the
 controller a test needs; `--usb xhci|xhci+mouse` attaches an
 xHCI controller and USB HID devices, off by default because attaching a
-`usb-kbd` takes the keyboard AWAY from PS/2 — see `docs/testing.md`;
+`usb-kbd` takes the keyboard AWAY from PS/2 — see `docs/testing.md`
+(`xhci+crowd` is eleven devices, a hub of eight keyboards among them);
+`--pci-fill N` adds N inert `pci-testdev`s behind PCI-to-PCI bridges,
+for a guest with more devices than the default machine's handful;
 `--usb-stick IMAGE[@PORT][,4k]` attaches an emulated USB stick (QEMU
 `usb-storage`, bulk-only; `,4k` for 4096-byte blocks; QMP ids `ustick0`,
 `ustick1`, ... for `device_del`); `--usb-host VID:PID` (or `BUS-PORT`,
@@ -311,8 +314,8 @@ manual steps to be worth automating:
   **And every tool must be named in `docs/tools.md`.** When only
   CLAUDE.md's list was checked, `multidisk_test.py` passed the gate while
   missing from the full reference; that list is gone from CLAUDE.md now
-  (it cost always-loaded context, and each runner's `--list` is the live
-  answer), so this file is the one the check reads. The `/bin` list comes from the SEED TREE
+  (it cost always-loaded context, and each runner's `--list` -- or
+  `preflight.sh`'s header comment -- is the live answer), so this file is the one the check reads. The `/bin` list comes from the SEED TREE
   rather than from `userland/bin/*.c`, because the Makefile renames some
   programs on the way in and the name on disk is the name people type --
   which also means this check is skipped in a checkout that has not run
@@ -4506,6 +4509,17 @@ window without going through it will find its layout polls timing out.
   must SAY it skipped the unbind leg, so a tool whose HDA assertions
   silently matched nothing cannot look like a pass. On demand, not in
   the gate: it boots its own guest with extra hardware.
+- **`device_count_test.py`** -- more devices than the old fixed tables
+  held. PCI: `vm.py --pci-fill 40` (forty inert `pci-testdev`s behind
+  PCI-to-PCI bridges, 31 a bridge) -- the kernel's count must pass 32,
+  `lspci` must print a row per device counted, and both bridges' buses
+  must appear. USB: `vm.py --usb xhci+crowd` (a hub of eight keyboards,
+  a mouse and a tablet: eleven devices) -- all eleven must enumerate and
+  `lsusb` list them, and the HID table, which stays fixed because the
+  interrupt path walks it, must log that it is full. QEMU's default
+  machine has a handful of each, so nothing else reaches either limit.
+  Its positive control is an older build: before the tables were sized
+  to the bus it reads `pci: 32 device(s) found` and eight USB devices.
 - **`hdacodec_test.py`** -- a ring-3 driver reads the HD Audio codec
   graph and has to reach the SAME ANSWER the kernel does (stage 3 of
   `docs/umdf-design.md`). It boots its own guest with an

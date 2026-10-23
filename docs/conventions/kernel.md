@@ -4925,6 +4925,13 @@ interrupt context, under a spinlock, the GDB stub's stopped path, before
 the heap exists. Say which, in a comment by the table; anywhere else the
 kernel allocates too (`kzalloc`).
 
+**A table other code keeps POINTERS into must not move once they are
+out.** Grow it while nothing holds one -- `pci_init()` doubles its
+records during the scan and never again, since there is no PCI hotplug
+-- or, on a bus that hot-plugs, allocate each record on its own and
+index a pointer table by an id the hardware bounds: `usb_enum.c` keys
+devices by xHCI slot id (one byte), Linux's `xhci->devs[]` shape.
+
 **A cap that has to stay is REPORTED when it is hit** -- a log line or
 an error the caller sees -- never a silent drop. Existing fixed tables
 are converted as their code is touched (CLAUDE.md, "fix as touched");

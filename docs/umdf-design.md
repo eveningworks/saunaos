@@ -67,7 +67,7 @@ were half-built already, because the compositor needed the same things.
 | a memory type for a register file | `VMM_MT_UC` | **BUILT, stage 1**; `vmm_user_memtype()` reads one back |
 | find a device from ring 3 | `SYS_PCI_COUNT` / `SYS_PCI_INFO` | **built** -- `/bin/lspci` already walks every device and its BARs |
 | a BAR's address and size | `pci_bar_addr()`, `pci_bar_mem_size()` | **built**, size-probed once at enumeration |
-| is a ring-0 driver bound to it? | `pci_device_driver()`, `g_bound[]` | **built** -- stage 1 refuses on it |
+| is a ring-0 driver bound to it? | `pci_device_driver()`, `struct pci_bus_state.bound` | **built** -- stage 1 refuses on it |
 | single-holder access to a device | the compositor ROLE (`win_role.c`) | **the pattern exists**, for one device |
 | a CLAIM, and a way to make ring 0 let go | `SYS_DEV_CLAIM`, `pci_device_release()` | **BUILT, stage 2** |
 | deliver an interrupt to a process | -- | **nothing** -- stage 4 |
