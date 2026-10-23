@@ -121,6 +121,8 @@ enum {
     CMD_RUN_TERMINAL, CMD_RUN,                   // a program or script, lib/ulaunch.h
     CMD_NET_SIGNIN, CMD_NET_DISCONNECT, CMD_NET_FORGET,   // a network share, fm_network.c
     CMD_NET_OPEN,
+    // The command bar's folder verbs, with nothing selected (files.c).
+    CMD_SELECT_NONE, CMD_TERMINAL_HERE, CMD_PIN_HERE,
     // The left pane's own menus (fm_places.c), aimed at the row clicked
     // rather than the selection. CMD_PL_FIRST..CMD_PL_LAST go there whole.
     CMD_PL_FIRST,
@@ -329,6 +331,7 @@ int  tree_place_of(int nid);
 
 // --- the places and their menus (fm_places.c) ------------------------
 void places_build(void);        // g_places: the named places not hidden, the pins, the mounts
+void fm_open_terminal(struct uapp *a, const char *dir);   // a Terminal standing in `dir`
 void tree_goto(const char *path);   // a row clicked: there, or "not there any more"
 // The menu for tree row `nid` (-1: the pane itself, below the rows);
 // aims places_command() at that row. Rows written, separators included.

@@ -39,6 +39,7 @@
 #include "lib/ulaunch.h"
 #include "lib/uclip.h"
 #include "lib/upins.h"
+#include "lib/uvolinfo.h"
 #include "ui/uui_verbs.h"
 #include <errno.h>
 #include "ui/uui.h"
@@ -131,6 +132,7 @@ static int g_ctx_tree = -1;     // ...on this row of it, or -1 for the pane itse
 char g_stat_dir[PATH_MAX_LEN + 8];
 char g_stat_items[48];
 char g_stat_note[64];
+static char g_stat_free[48];
 
 // --- live refresh -------------------------------------------------------
 //
@@ -248,23 +250,53 @@ static const struct uui_toolbar_item nav_items[] = {
     { "tb-refresh", "Refresh (Ctrl+R)",    CMD_REFRESH, 0, 0, 0, TINT_TEAL },
 };
 
-// THE COMMAND BAR: the verbs with words where an icon alone would be a
-// guess. Same codes and the same item_flags as the menus, so a latched
-// button and a ticked menu row cannot disagree.
+// THE COMMAND BAR FOLLOWS THE SELECTION (chosen from mockups 2026-10-23,
+// Windows 11's own rule): with nothing selected it offers what the
+// FOLDER can have done to it, and with something selected what the
+// SELECTION can -- path_sync() swaps the two. Every verb carries its
+// word, and `overflow` folds what does not fit behind one "See more".
+// Same codes and the same item_flags as the menus, so a latched button
+// and a ticked menu row cannot disagree.
+static char g_sel_label[24];   // "2 selected"
+static char g_pin_label[24];   // "Pin to Places" / "Unpin"
+static char g_pin_for[PATH_MAX_LEN];   // the folder g_pin_label is about
 static const struct uui_toolbar_item toolbar_items[] = {
+    { "tb-new",      "Create a folder or a file", CMD_MENU_NEW, "New", UUI_TB_MENU, 0, TINT_GREEN },
+    UUI_TOOLBAR_SEP,
+    { "tb-paste",    "Paste (Ctrl+V)",   CMD_CLIP_PASTE,  "Paste", 0, "Ctrl+V", TINT_NAV },
+    { "tb-select",   "Select everything here (Ctrl+A)", CMD_SELECT_ALL, "Select all", 0, "Ctrl+A", TINT_NAV },
+    { "tb-terminal", "Open a Terminal in this folder", CMD_TERMINAL_HERE, "Open in Terminal", 0, 0, 0 },
+    { "tb-pin",      "Show this folder in Places", CMD_PIN_HERE, g_pin_label, 0, 0, TINT_NAV },
+    // THE RIGHT-HAND GROUP IS THE SAME IN BOTH BARS, so Sort and View
+    // stay under the pointer when a click elsewhere swaps the bar.
+    { "tb-sort",    0,                  CMD_MENU_SORT,  "Sort", UUI_TB_MENU | UUI_TB_END, 0, TINT_TEAL },
+    { "tb-view",    0,                  CMD_MENU_VIEW,  "View", UUI_TB_MENU, 0, TINT_ORANGE },
+    { "tb-pane",    "Show the details pane (Alt+Shift+P)", CMD_VIEW_DPANE, "Details", 0, 0, TINT_NAV },
+    { "tb-more",    "See more",         CMD_MENU_MORE,  0, UUI_TB_MENU, 0, 0 },
+};
+
+// ...and with something selected: how much, a way to let go of it, then
+// the verbs that act on it -- the clipboard four and Delete as icons,
+// Windows 11's, so the bar fits the default window. NEW AND PASTE STAY:
+// they act on the folder, and a commander's cursor is always on a row,
+// so a bar that dropped them there would never offer them at all.
+static const struct uui_toolbar_item sel_toolbar_items[] = {
+    { 0,            0,                  0,               g_sel_label, UUI_TB_TEXT, 0, 0 },
+    { "tb-close",   "Select nothing",   CMD_SELECT_NONE, 0, 0, 0, 0 },
+    UUI_TOOLBAR_SEP,
     { "tb-new",     "Create a folder or a file", CMD_MENU_NEW, "New", UUI_TB_MENU, 0, TINT_GREEN },
     UUI_TOOLBAR_SEP,
-    { "tb-cut",     "Cut (Ctrl+X)",     CMD_CLIP_CUT,   0, 0, 0, TINT_NAV },
-    { "tb-copy",    "Copy (Ctrl+C)",    CMD_CLIP_COPY,  0, 0, 0, TINT_NAV },
-    { "tb-paste",   "Paste (Ctrl+V)",   CMD_CLIP_PASTE, 0, 0, 0, TINT_NAV },
-    { "tb-rename",  "Rename (F2)",      CMD_RENAME,     0, 0, 0, TINT_VIOLET },
-    { "tb-delete",  "Delete (Del)",     CMD_DELETE,     0, 0, 0, TINT_RED },
-    { "tb-archive", "Compress to ZIP",  CMD_COMPRESS_ZIP, 0, 0, 0, TINT_GREEN },
-    UUI_TOOLBAR_SEP,
-    { "tb-sort",    0,                  CMD_MENU_SORT,  "Sort", UUI_TB_MENU, 0, TINT_TEAL },
+    { "tb-open",    "Open (Enter)",     CMD_OPEN,        "Open",   0, "Enter",  TINT_NAV },
+    { "tb-cut",     "Cut (Ctrl+X)",     CMD_CLIP_CUT,    0,        0, "Ctrl+X", TINT_NAV },
+    { "tb-copy",    "Copy (Ctrl+C)",    CMD_CLIP_COPY,   0,        0, "Ctrl+C", TINT_NAV },
+    { "tb-paste",   "Paste (Ctrl+V)",   CMD_CLIP_PASTE,  0,        0, "Ctrl+V", TINT_NAV },
+    { "tb-rename",  "Rename (F2)",      CMD_RENAME,      0,        0, "F2",     TINT_VIOLET },
+    { "tb-delete",  "Delete (Del)",     CMD_DELETE,      0,        0, "Del",    TINT_RED },
+    { "tb-archive", "Compress to ZIP",  CMD_COMPRESS_ZIP, "Compress", 0, 0,     TINT_GREEN },
+    { "tb-sort",    0,                  CMD_MENU_SORT,  "Sort", UUI_TB_MENU | UUI_TB_END, 0, TINT_TEAL },
     { "tb-view",    0,                  CMD_MENU_VIEW,  "View", UUI_TB_MENU, 0, TINT_ORANGE },
+    { "tb-pane",    "Show the details pane (Alt+Shift+P)", CMD_VIEW_DPANE, "Details", 0, 0, TINT_NAV },
     { "tb-more",    "See more",         CMD_MENU_MORE,  0, UUI_TB_MENU, 0, 0 },
-    { "tb-pane",    "Show the details pane (Alt+Shift+P)", CMD_VIEW_DPANE, "Details", UUI_TB_END, 0, TINT_NAV },
 };
 
 // THE RECYCLE BIN'S COMMAND BAR, swapped in while the active pane shows
@@ -384,6 +416,7 @@ static void pin_selected(int pin) {
     if (e == -ENOSPC) set_note("Places is full -- unpin one first");
     else if (e && e != -EEXIST && e != -ENOENT) set_note(pin ? "could not pin it" : "could not unpin it");
     else snprintf(g_stat_note, sizeof g_stat_note, pin ? "pinned %s" : "unpinned %s", k_path_basename(path));
+    g_pin_for[0] = '\0';
     places_build();
     tree_rebuild();
 }
@@ -552,8 +585,11 @@ static unsigned menu_item_flags(int code) {
     // and one that scolds you.
     case CMD_OPEN:
     case CMD_PROPERTIES:
-    case CMD_RENAME:
         return uui_fileview_selected_name(&g_pane[g_active]) ? 0 : UUI_MI_DISABLED;
+    // Several marked is Rename many, with or without a row under the cursor.
+    case CMD_RENAME:
+        return uui_fileview_selected_name(&g_pane[g_active]) ||
+               uui_fileview_mark_count(&g_pane[g_active]) > 1 ? 0 : UUI_MI_DISABLED;
     case CMD_CLIP_COPY:
     case CMD_CLIP_CUT:
     case CMD_DELETE:
@@ -565,6 +601,14 @@ static unsigned menu_item_flags(int code) {
         // Greyed when there is nothing to paste, which is what tells a
         // user the Ctrl+C in the other window did not take.
         return g_clip_op != UCLIP_NONE ? 0 : UUI_MI_DISABLED;
+    // A folder you can stand in: not a search's results or a virtual one.
+    case CMD_TERMINAL_HERE:
+    case CMD_PIN_HERE: {
+        const char *d = uui_fileview_dir(active());
+        return d[0] == '/' ? 0 : UUI_MI_DISABLED;
+    }
+    case CMD_SELECT_ALL:
+        return uui_fileview_count(active()) > 0 ? 0 : UUI_MI_DISABLED;
     case CMD_VIEW_DETAILS:
         return g_pane[g_active].mode == UUI_FILEVIEW_DETAILS ? UUI_MI_CHECKED : 0;
     case CMD_VIEW_ICONS:
@@ -739,6 +783,17 @@ void refresh_status(void) {
     } else {
         g_stat_items[0] = '\0';
     }
+
+    // What a paste here can still take, as Explorer's status bar says it.
+    struct uvolinfo v;
+    const char *dir = uui_fileview_dir(fv);
+    g_stat_free[0] = '\0';
+    if (dir[0] == '/' && uvolinfo_of(dir, &v) && uvolinfo_free(&v)) {
+        char sz[24], name[32];
+        human_size(sz, sizeof sz, uvolinfo_free(&v));
+        uvolinfo_name(v.point, name, sizeof name);
+        snprintf(g_stat_free, sizeof g_stat_free, "%s free on %s", sz, name);
+    }
 }
 
 // --- the breadcrumb, the search box and the places ------------------------
@@ -811,9 +866,19 @@ void path_sync(void) {
     const char *dir = uui_fileview_dir(active());
     sizes_follow(dir, 0);
     tabs_sync(g_app);
+    int picked = operand_count();
+    snprintf(g_sel_label, sizeof g_sel_label, "%d selected", picked);
+    // Asked when the folder changes, not per refresh: upins_has() reads a
+    // file. A pin made elsewhere shows on the next visit.
+    if (strcmp(g_pin_for, dir) != 0) {
+        strlcpy(g_pin_for, dir, sizeof g_pin_for);
+        strlcpy(g_pin_label, dir[0] == '/' && upins_has(dir) ? "Unpin" : "Pin to Places",
+                sizeof g_pin_label);
+    }
     const struct uui_toolbar_item *want = in_bin(active()) ? bin_toolbar_items
                                         : in_recent(active()) ? recent_toolbar_items
-                                        : in_archive(active()) ? arc_toolbar_items : toolbar_items;
+                                        : in_archive(active()) ? arc_toolbar_items
+                                        : picked > 0 ? sel_toolbar_items : toolbar_items;
     if (g_toolbar.items != want) {
         g_toolbar.items = want;
         g_toolbar.count = want == bin_toolbar_items
@@ -822,6 +887,8 @@ void path_sync(void) {
                         ? (int)(sizeof recent_toolbar_items / sizeof recent_toolbar_items[0])
                         : want == arc_toolbar_items
                         ? (int)(sizeof arc_toolbar_items / sizeof arc_toolbar_items[0])
+                        : want == sel_toolbar_items
+                        ? (int)(sizeof sel_toolbar_items / sizeof sel_toolbar_items[0])
                         : (int)(sizeof toolbar_items / sizeof toolbar_items[0]);
         g_toolbar.hot = g_toolbar.armed = -1;
     }
@@ -1170,6 +1237,23 @@ void do_command(struct uapp *a, int code) {
         struct uui_fileview *fv = active();
         for (int r = 0; r < uui_fileview_row_count(fv); r++)
             if (!uui_fileview_is_marked(fv, r)) uui_fileview_toggle_mark(fv, r);
+        break;
+    }
+    case CMD_SELECT_NONE:
+        uui_fileview_clear_marks(active());
+        uui_fileview_select_none(active());
+        break;
+    case CMD_TERMINAL_HERE:
+        fm_open_terminal(a, uui_fileview_dir(active()));
+        break;
+    case CMD_PIN_HERE: {
+        const char *dir = uui_fileview_dir(active());
+        int e = upins_has(dir) ? upins_remove(dir) : upins_add(dir);
+        if (e == -ENOSPC) set_note("Places is full -- unpin one first");
+        else if (e) set_note("could not change Places");
+        g_pin_for[0] = '\0';
+        places_build();
+        tree_rebuild();
         break;
     }
     case CMD_VIEW_PANES:
@@ -2150,6 +2234,7 @@ int main(int argc, char **argv) {
     uui_toolbar_init(&g_toolbar, toolbar_items,
                       (int)(sizeof toolbar_items / sizeof toolbar_items[0]));
     g_toolbar.item_flags = menu_item_flags; // ONE state source -- see uui_toolbar.h
+    g_toolbar.overflow = 1;
     uui_button_init(&g_cancel_btn, 0, 0, 0, 0, "Cancel",
                      UUI_ROLE(control_bg), UUI_ROLE(text), ID_CANCEL);
     // On the toast's light card: the accent button, and a flat dismiss
@@ -2162,9 +2247,11 @@ int main(int argc, char **argv) {
     g_status.panes[0].chars = 14;
     g_status.panes[1].text = g_stat_items;    // "1 item selected, 258 KB"
     g_status.panes[1].chars = 28;
-    g_status.panes[2].text = g_stat_note;     // what just happened
-    g_status.panes[2].chars = 0;
-    g_status.count = 3;
+    g_status.panes[2].text = g_stat_free;     // "1.6M free on System"
+    g_status.panes[2].chars = 24;
+    g_status.panes[3].text = g_stat_note;     // what just happened
+    g_status.panes[3].chars = 0;
+    g_status.count = 4;
 
     for (int i = 0; i < 2; i++) {
         uui_fileview_init(&g_pane[i], 0, 0, 100, 100);
@@ -2184,6 +2271,8 @@ int main(int argc, char **argv) {
     char opt[16];
     if (uconf_get(FILES_CONF, "panes", opt, sizeof opt))
         g_single = (opt[0] == '1');
+    // Before the first folder is entered; layout_all() keeps it in step.
+    for (int i = 0; i < 2; i++) g_pane[i].enter_unselected = g_single;
     if (uconf_get(FILES_CONF, "tree", opt, sizeof opt))
         g_tree_on = (opt[0] == '1');
     // ICONS unless the file says details: the default every desktop

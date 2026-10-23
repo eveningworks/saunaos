@@ -76,22 +76,23 @@ K_TAB, K_ENTER, K_ESC, K_BACKSPACE = "0x09", "0x0a", "0x1b", "0x08"
 K_DOWN, K_UP = "0xf781", "0xf780"
 K_LEFT, K_RIGHT = "0xf784", "0xf785"   # KEY_ARROW_LEFT/RIGHT (api/keyboard.h)
 
-# BUTTONS ARE ADDRESSED BY NAME, and the name maps to (strip, index) in
-# ONE place. The window has three strips -- Back/Forward/Up/Refresh
-# beside the breadcrumb ("nav"), the command bar ("tb") and the view
-# switch on the status bar ("vb") -- and an index is its order in the
-# strip's array in userland/gui/apps/files.c, separators counted. A
-# button added there is one edit here; the day indices were spelled at
-# each call site, one insertion failed sixteen checks on state the wrong
-# click left behind.
+# BUTTONS ARE ADDRESSED BY NAME, and the name maps to its place in ONE
+# place. The window has three strips -- Back/Forward/Up/Refresh beside
+# the breadcrumb ("nav"), the command bar ("tb") and the view switch on
+# the status bar ("vb"). Nav and vb are fixed arrays, addressed by index;
+# the COMMAND BAR FOLLOWS THE SELECTION (files.c swaps its table), so its
+# buttons are found by the ICON NAME the app logs beside each rect -- an
+# index there names a different button whenever the selection changes.
 BTN = {
     "back": ("nav", 0), "forward": ("nav", 1), "up": ("nav", 2), "refresh": ("nav", 3),
-    "new": ("tb", 0), "cut": ("tb", 2), "copy": ("tb", 3), "paste": ("tb", 4),
-    "rename": ("tb", 5), "delete": ("tb", 6), "sort": ("tb", 8), "view": ("tb", 9),
-    "more": ("tb", 10), "dpane": ("tb", 11),
+    "new": ("tb", "tb-new"), "cut": ("tb", "tb-cut"), "copy": ("tb", "tb-copy"),
+    "paste": ("tb", "tb-paste"), "rename": ("tb", "tb-rename"), "delete": ("tb", "tb-delete"),
+    "sort": ("tb", "tb-sort"), "view": ("tb", "tb-view"), "more": ("tb", "tb-more"),
+    "dpane": ("tb", "tb-pane"), "open": ("tb", "tb-open"), "none": ("tb", "tb-close"),
+    "selectall": ("tb", "tb-select"), "terminal": ("tb", "tb-terminal"), "pinhere": ("tb", "tb-pin"),
     "details": ("vb", 0), "icons": ("vb", 1),
 }
-STRIP_COUNT = {"nav": 4, "tb": 12, "vb": 2}
+STRIP_COUNT = {"nav": 4, "vb": 2}
 def menu_rows(table):
     """Each label's row in files.c's `table`, separators counted -- READ
     FROM THE SOURCE: hand-kept indices went stale twice as the menus grew,
@@ -162,6 +163,8 @@ class Layout:
         self.cellgrid = {}    # pane -> [x0, y0, cell_w, cell_h, cols]
         self.toolbar = None   # the strip [x, y, w, h]
         self.tbitems = {}     # command-bar item index -> [x, y, w, h]
+        self.tbicons = {}     # ...and -> its icon name, which is what names a button
+        self.tbcount = None   # items in the bar as it stands (+1 rect: overflow)
         self.navitems = {}    # Back/Forward/Up/Refresh
         self.vbitems = {}     # the status bar's view switch
         self.popitems = {}    # the open drop-down's (or context menu's) rows
@@ -268,6 +271,10 @@ class Layout:
             self.toolbar = [int(v) for v in p[1:5]]
         elif p[0] == "tbitem" and len(p) >= 6:
             self.tbitems[int(p[1])] = [int(v) for v in p[2:6]]
+            if len(p) >= 7:
+                self.tbicons[int(p[1])] = p[6]
+        elif p[0] == "tbcount" and len(p) >= 2:
+            self.tbcount = int(p[1])
         elif p[0] == "navitem" and len(p) >= 6:
             self.navitems[int(p[1])] = [int(v) for v in p[2:6]]
         elif p[0] == "vbitem" and len(p) >= 6:
@@ -558,15 +565,18 @@ def wait_layout(dbg, win, pred, timeout=12.0, grace=1.0):
 def btn_rect(lay, name):
     """Button `name`'s rect as the app reported it, or None."""
     strip, i = BTN[name]
-    items = {"nav": lay.navitems, "tb": lay.tbitems, "vb": lay.vbitems}[strip]
+    if strip == "tb":
+        i = next((k for k, ic in lay.tbicons.items() if ic == i), None)
+        return lay.tbitems.get(i) if i is not None else None
+    items = {"nav": lay.navitems, "vb": lay.vbitems}[strip]
     return items.get(i)
 
 
 def strips_complete(lay):
     """Every strip reported every item -- a layout mid-transition can
     carry fewer."""
-    return (len(lay.navitems) == STRIP_COUNT["nav"] and len(lay.tbitems) == STRIP_COUNT["tb"]
-            and len(lay.vbitems) == STRIP_COUNT["vb"])
+    return (len(lay.navitems) == STRIP_COUNT["nav"] and lay.tbcount is not None
+            and len(lay.tbicons) >= lay.tbcount and len(lay.vbitems) == STRIP_COUNT["vb"])
 
 
 def _toolbar_evidence(name, seen):
@@ -574,6 +584,7 @@ def _toolbar_evidence(name, seen):
     each strip reported, the view state, and the last report lines --
     which tells missing GEOMETRY from a transition that did not happen."""
     have = ({"nav": sorted(seen.navitems), "tb": sorted(seen.tbitems),
+             "tbicons": [(k, seen.tbicons.get(k), seen.tbitems[k][2]) for k in sorted(seen.tbitems)],
              "vb": sorted(seen.vbitems)} if seen else None)
     state = (f"view={seen.view} treebox={seen.treebox} ctx={seen.ctx} "
              f"panes={sorted(seen.pane)}") if seen else "no layout observed"

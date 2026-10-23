@@ -714,8 +714,9 @@ int uui_fileview_set_dir(struct uui_fileview *fv, const char *dir) {
     uui_scrollanim_cancel(&fv->ic_anim);
     int ok = uui_fileview_reload(fv);
     // A directory just entered starts on its first row (reload keeps
-    // "nothing selected" only for a refresh of the same one).
-    if (fv->table.selected < 0 && uui_fileview_row_count(fv) > 0)
+    // "nothing selected" only for a refresh of the same one), unless the
+    // caller asked for Explorer's empty selection.
+    if (!fv->enter_unselected && fv->table.selected < 0 && uui_fileview_row_count(fv) > 0)
         fv->table.selected = uui_table_source_row(&fv->table, 0);
     if (fv->on_dir_changed) fv->on_dir_changed(fv->ctx, fv->dir);
     return ok;

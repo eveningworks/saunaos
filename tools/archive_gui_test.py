@@ -245,7 +245,7 @@ def run(dbg, qmp, res, instance):
     lay = fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == zroot and l.rows.get(0) == 1) \
         or fm.layout_now(dbg, win) or EMPTY
     res.check("...and it opens as a folder holding hello.txt",
-              lay.dir.get(0) == zroot and lay.rows.get(0) == 1 and lay.selected in (None, "hello.txt"),
+              lay.dir.get(0) == zroot and lay.rows.get(0) == 1 and lay.selected in (None, "-", "hello.txt"),
               f"dir={lay.dir.get(0)!r} rows={lay.rows.get(0)}")
     dbg.key(fm.K_BACKSPACE)
     fm.wait_layout(dbg, win, lambda l: l.dir.get(0) == "/home/zt")

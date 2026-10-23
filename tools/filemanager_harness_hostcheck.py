@@ -38,8 +38,16 @@ FRAME_TAIL = [
     "files: layout active 0",
     "files: layout view 1 1 single 0 tree 0 0",
 ]
-def tbitems(n):
-    return [f"files: layout tbitem {i} {i * 24} 4 22 22" for i in range(n)]
+# The command bar with nothing selected (files.c's toolbar_items), each
+# line carrying its icon name as the app logs it; past it, unnamed rects.
+ICONS = ["tb-new", "-", "tb-paste", "tb-select", "tb-terminal", "tb-pin", "-",
+         "tb-sort", "tb-view", "tb-pane", "tb-more"]
+
+
+def tbitems(n, drop=()):
+    names = [ICONS[i] if i < len(ICONS) else "-" for i in range(n)]
+    return [f"files: layout tbitem {i} {i * 24} 4 22 22 {'-' if nm in drop else nm}"
+            for i, nm in enumerate(names)]
 
 
 class FakeDbg:
@@ -82,8 +90,8 @@ def reset():
 # --- 1. a missing item: a failed check, no click, no traceback ---------
 print("  (the one FAIL line below is the harness under test recording the missing item -- expected)")
 reset()
-# The command bar's items 0..10: "dpane" (item 11) is the one missing.
-dbg = FakeDbg([FRAME_HEAD + tbitems(11) + FRAME_TAIL])
+# The command bar's items 0..10, with "dpane" (tb-pane) not among them.
+dbg = FakeDbg([FRAME_HEAD + tbitems(11, drop=("tb-pane",)) + FRAME_TAIL])
 qmp = FakeQmp()
 res = fm.Result()
 lay = fm.layout_now(dbg, WIN, tries=2)

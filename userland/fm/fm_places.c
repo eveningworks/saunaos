@@ -252,7 +252,7 @@ static int spawn_argv(const char *exec, char *const *argv, const char *what) {
 
 // The Terminal starts in the folder: a spawned process takes this one's
 // working directory, so this one stands there for the spawn.
-static void open_terminal(struct uapp *a, const char *dir) {
+void fm_open_terminal(struct uapp *a, const char *dir) {
     char was[PATH_MAX_LEN];
     if (!getcwd(was, sizeof was)) strlcpy(was, "/", sizeof was);
     if (chdir(dir) != 0) { set_note("cannot open a Terminal there"); return; }
@@ -376,7 +376,7 @@ void places_command(struct uapp *a, int code) {
         uvolinfo_address(&g_vol, text, sizeof text);
         set_note(uclip_set_text(text, (int)strlen(text)) ? "address copied" : "the clipboard refused it");
         break;
-    case CMD_PL_TERMINAL:   open_terminal(a, path); break;
+    case CMD_PL_TERMINAL:   fm_open_terminal(a, path); break;
     case CMD_PL_PROPERTIES:
         if (uapp_spawn(a, PROPERTIES_EXEC, path) < 0) set_note("could not open Properties");
         break;

@@ -160,6 +160,12 @@ struct uui_fileview {
     // a view with no way back would be a control that strands you.
     int navigable;
 
+    // A directory just entered starts with NOTHING selected -- Explorer's
+    // and Dolphin's -- rather than on its first row, a commander's cursor
+    // (0, the default). An arrow key or a click picks a row; Up still
+    // selects the folder it came out of.
+    int enter_unselected;
+
     uui_fileview_filter_fn filter;
     void *filter_ctx;
 

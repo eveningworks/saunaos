@@ -233,6 +233,9 @@ void layout_all(int cw, int ch) {
         // mark_bg), so the ring is what says which row the keys are on
         // -- and this app has no focus ring of its own to set it.
         g_pane[i].table.focused = (i == g_active);
+        // One pane is Explorer, which opens a folder with nothing
+        // selected; two are a commander, whose cursor starts on a row.
+        g_pane[i].enter_unselected = g_single;
         // Rows with room to breathe, Explorer's details view: the icon
         // plus a few pixels either side.
         g_pane[i].table.row_h = ugfx_char_h() + 8;
@@ -307,8 +310,13 @@ void log_layout(void) {
     uapp_logf_layout("files: layout rowh %d\n", uui_table_row_h(&g_pane[0].table));
     uui_toolbar_ops.bounds(&g_toolbar, &x, &y, &w, &h);
     uapp_logf_layout("files: layout toolbar %d %d %d %d\n", x, y, w, h);
-    for (int i = 0; uui_toolbar_item_rect(&g_toolbar, i, &x, &y, &w, &h); i++)
-        uapp_logf_layout("files: layout tbitem %d %d %d %d %d\n", i, x, y, w, h);
+    // Each with its ICON NAME: the bar follows the selection, so an index
+    // names a different button from one moment to the next.
+    uapp_logf_layout("files: layout tbcount %d\n", g_toolbar.count);
+    for (int i = 0; uui_toolbar_item_rect(&g_toolbar, i, &x, &y, &w, &h); i++) {
+        const char *ic = i < g_toolbar.count && g_toolbar.items[i].icon ? g_toolbar.items[i].icon : "-";
+        uapp_logf_layout("files: layout tbitem %d %d %d %d %d %s\n", i, x, y, w, h, ic);
+    }
     for (int i = 0; uui_toolbar_item_rect(&g_nav, i, &x, &y, &w, &h); i++)
         uapp_logf_layout("files: layout navitem %d %d %d %d %d\n", i, x, y, w, h);
     for (int i = 0; uui_toolbar_item_rect(&g_viewbar, i, &x, &y, &w, &h); i++)
