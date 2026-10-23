@@ -1847,6 +1847,14 @@ static int on_tick(struct uapp *a) {
     if (uui_toolbar_tick(&g_viewbar)) changed = 1;
     if (thumb_tick()) changed = 1;
     if (undo_toast_tick()) changed = 1;
+    // A column chosen, moved or resized: written once it is done, never
+    // per motion (the table says "changed" on the release).
+    for (int i = 0; i < 2; i++) {
+        char cols[128];
+        if (uui_fileview_take_columns_changed(&g_pane[i]) &&
+            uui_fileview_columns_save(&g_pane[i], cols, sizeof cols))
+            uconf_set(FILES_CONF, i ? "right_cols" : "left_cols", cols);
+    }
     if (net_tick()) changed = 1;
     if (places_eject_tick()) { refresh_status(); changed = 1; }
 
@@ -2322,6 +2330,14 @@ int main(int argc, char **argv) {
               : !strcmp(opt, "type") ? UUI_FILEVIEW_GROUP_TYPE
               : !strcmp(opt, "size") ? UUI_FILEVIEW_GROUP_SIZE : UUI_FILEVIEW_GROUP_NONE;
         for (int i = 0; i < 2; i++) g_pane[i].group_by = g;   // before the first listing
+    }
+    // Each pane's columns: chosen, moved and sized from its header, kept
+    // as uui_table's layout string (on_tick saves a change).
+    for (int i = 0; i < 2; i++) {
+        char cols[128];
+        uui_fileview_set_columns(&g_pane[i], 1);
+        if (uconf_get(FILES_CONF, i ? "right_cols" : "left_cols", cols, sizeof cols))
+            uui_fileview_columns_load(&g_pane[i], cols);
     }
     // ICONS unless the file says details: the default every desktop
     // file manager opens in, and what the thumbnails were built for.

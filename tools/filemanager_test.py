@@ -171,6 +171,8 @@ class Layout:
         self.popitems = {}    # the open drop-down's (or context menu's) rows
         self.popitems1 = {}   # ...and its open SUBMENU's (View > Group by)
         self.groups = None    # (group_by, [caption, ...]) of the active pane
+        self.lcols = {}       # left pane's details column -> [x, y, w, h] (uui_table's describe)
+        self.lcolumns = None  # ...and its choosable layout string, when it has one
         self.dpane = None     # is the details pane shown
         self.pathedit = None  # is the breadcrumb being typed in
         self.pathseg = {}     # breadcrumb segment (0 = the root) -> [x, y, w, h]
@@ -286,6 +288,10 @@ class Layout:
             self.popitems[int(p[2])] = [int(v) for v in p[3:7]]
         elif p[0] == "ctxmenu.item" and len(p) >= 7 and p[1] == "1":
             self.popitems1[int(p[2])] = [int(v) for v in p[3:7]]
+        elif p[0] == "left.col" and len(p) >= 6:
+            self.lcols[int(p[1])] = [int(v) for v in p[2:6]]
+        elif p[0] == "left.columns" and len(p) >= 2:
+            self.lcolumns = p[1]
         elif p[0] == "groups" and len(p) >= 3:
             caps = " ".join(p[2:])
             self.groups = (int(p[1]), [] if caps == "-" else caps.split("|"))

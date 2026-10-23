@@ -57,14 +57,24 @@ def pick_group(dbg, qmp, win, lay, name, res):
     if not r:
         res.check(f"Group by > {name}: the View button is reported", False, f"lay={lay}")
         return
-    settled_click(dbg, qmp, lay.ox + r[0] + r[2] // 2, lay.oy + r[1] + r[3] // 2)
-    pop = fm.wait_layout(dbg, win, lambda l: VIEW_GROUP_ROW in l.popitems, timeout=6.0)
+    # ONE RETRY of the click that opens View: under a loaded guest the
+    # first can land while the window is still settling (the menu never
+    # opens, and nothing else is wrong -- it opens on the second).
+    for _ in range(2):
+        settled_click(dbg, qmp, lay.ox + r[0] + r[2] // 2, lay.oy + r[1] + r[3] // 2)
+        pop = fm.wait_layout(dbg, win, lambda l: VIEW_GROUP_ROW in l.popitems, timeout=6.0)
+        if pop:
+            break
     if not pop:
         res.check(f"Group by > {name}: View opens", False, f"popup={fm._popup_state(dbg, win)}")
         return
     x, y, w, h = pop.popitems[VIEW_GROUP_ROW]
-    settled_click(dbg, qmp, pop.ox + x + w // 2, pop.oy + y + h // 2)
-    sub = fm.wait_layout(dbg, win, lambda l: GROUP_ROW[name] in l.popitems1, timeout=6.0)
+    sub = None
+    for _ in range(2):
+        settled_click(dbg, qmp, pop.ox + x + w // 2, pop.oy + y + h // 2)
+        sub = fm.wait_layout(dbg, win, lambda l: GROUP_ROW[name] in l.popitems1, timeout=6.0)
+        if sub:
+            break
     res.check(f"Group by opens its submenu ({name})", sub is not None,
               f"level1={sub and sorted(sub.popitems1)}")
     if sub:

@@ -193,6 +193,15 @@ int main(int argc, char **argv) {
     uui_table_column_rect(&t, 1, &nx, &nw);
     snprintf(d, sizeof d, "PID %d, declared %d", nw, pw);
     ok("...and a column named without one keeps its declared width", nw == pw, d);
+    // The FIRST column is pinned first whatever the string says, but its
+    // width is still the string's -- it was dropped, and a narrowed Name
+    // came back full width.
+    uui_table_columns_load(&t, "name:111,pid,cpu,read");
+    uui_table_column_rect(&t, 0, &nx, &nw);
+    snprintf(d, sizeof d, "Name %d", nw);
+    ok("load: name:111 makes the locked first column 111 wide", nw == 111, d);
+    oks("...and saves back the same", layout(&t), "name:111,pid,cpu,read,-extra");
+    uui_table_columns_load(&t, "name,pid,cpu:77,read");
     // A double click on the divider fits the column: "4.3" is the widest
     // of CPU's cells (rows 0..4), wider than its title.
     uui_table_column_rect(&t, 2, &nx, &nw);

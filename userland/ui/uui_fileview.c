@@ -680,14 +680,63 @@ void uui_fileview_set_group(struct uui_fileview *fv, enum uui_fileview_group g) 
 }
 
 // The details columns for the current listing: a source's, or the four.
+// THE FOLDER'S COLUMN LAYOUT is the table's while the folder columns are,
+// and kept aside in `cols_layout` while a virtual folder's are: the
+// table's order, hidden set and widths are by index, and Recent's column
+// 2 is not a folder's. Saved and loaded at the full four, whatever a
+// narrow pane is showing.
+static void fv_layout_save(struct uui_fileview *fv) {
+    int shown = fv->table.col_count;
+    fv->table.col_count = 4;
+    uui_table_columns_save(&fv->table, fv->cols_layout, (int)sizeof fv->cols_layout);
+    fv->table.col_count = shown;
+}
+
+static void fv_layout_load(struct uui_fileview *fv) {
+    int shown = fv->table.col_count;
+    fv->table.col_count = 4;
+    uui_table_columns_reset(&fv->table);
+    if (fv->cols_layout[0]) uui_table_columns_load(&fv->table, fv->cols_layout);
+    fv->table.col_count = shown;
+    fv->table.layout_changed = 0;
+}
+
 static void fv_details_cols(struct uui_fileview *fv) {
+    int was_folder = fv->table.cols == fv_cols_details;
     if (fv->src) {
+        if (was_folder && fv->columns_on) fv_layout_save(fv);
         fv->table.cols = fv->src->cols;
         fv->table.col_count = fv_fit_cols(fv->src->cols, fv->src->ncols, fv->table.w);
+        uui_table_columns_reset(&fv->table);       // a virtual folder's, as declared
+        fv->table.layout_changed = 0;
+        uui_table_set_columns_mode(&fv->table, UUI_TABLE_COLS_FIXED);
     } else {
         fv->table.cols = fv_cols_details;
         fv->table.col_count = fv_fit_columns(fv->table.w);
+        if (!was_folder) fv_layout_load(fv);
+        uui_table_set_columns_mode(&fv->table, fv->columns_on ? UUI_TABLE_COLS_HEADER
+                                                              : UUI_TABLE_COLS_FIXED);
     }
+}
+
+void uui_fileview_set_columns(struct uui_fileview *fv, int on) {
+    fv->columns_on = on ? 1 : 0;
+    if (fv->table.cols == fv_cols_details)
+        uui_table_set_columns_mode(&fv->table, on ? UUI_TABLE_COLS_HEADER : UUI_TABLE_COLS_FIXED);
+}
+
+int uui_fileview_columns_save(const struct uui_fileview *fv, char *out, int cap) {
+    if (fv->table.cols == fv_cols_details) fv_layout_save((struct uui_fileview *)fv);
+    return snprintf(out, (size_t)cap, "%s", fv->cols_layout) < cap;
+}
+
+void uui_fileview_columns_load(struct uui_fileview *fv, const char *layout) {
+    snprintf(fv->cols_layout, sizeof fv->cols_layout, "%s", layout ? layout : "");
+    if (fv->table.cols == fv_cols_details) fv_layout_load(fv);
+}
+
+int uui_fileview_take_columns_changed(struct uui_fileview *fv) {
+    return fv->table.cols == fv_cols_details && uui_table_take_layout_changed(&fv->table);
 }
 
 static int fv_at_root(const struct uui_fileview *fv) {
@@ -1915,18 +1964,50 @@ static void fv_ops_set_focused(void *w, int focused) {
     ((struct uui_fileview *)w)->table.focused = focused;
 }
 
+// THE HEADER IS THE TABLE'S when its columns can be chosen: a divider
+// resizes, a title moves or sorts, a right-click is the checklist --
+// uui_table's own ops, handed the whole press-to-release.
+static int fv_header_live(const struct uui_fileview *fv, int cx, int cy) {
+    const struct uui_table *t = &fv->table;
+    int hh = uui_table_header_h(t);
+    return fv->mode == UUI_FILEVIEW_DETAILS && t->col_mode != UUI_TABLE_COLS_FIXED && hh > 0 &&
+           uui_hit(t->x, t->y, t->w, hh, cx, cy);
+}
+
 static int fv_ops_press(void *w, int cx, int cy, unsigned mods) {
-    return uui_fileview_press((struct uui_fileview *)w, cx, cy, mods);
+    struct uui_fileview *fv = (struct uui_fileview *)w;
+    if (fv_header_live(fv, cx, cy)) {
+        fv->hdr_held = 1;
+        return uui_table_ops.press(&fv->table, cx, cy, mods);
+    }
+    return uui_fileview_press(fv, cx, cy, mods);
 }
 
 static int fv_ops_motion(void *w, int cx, int cy, unsigned buttons) {
     struct uui_fileview *fv = (struct uui_fileview *)w;
+    if (fv->hdr_held) return uui_table_ops.motion(&fv->table, cx, cy, buttons);
     if (buttons & 1) return uui_fileview_drag(fv, cx, cy);
     return uui_fileview_hover(fv, cx, cy);
 }
 
+static int fv_ops_cursor(const void *w, int cx, int cy) {
+    const struct uui_fileview *fv = (const struct uui_fileview *)w;
+    if (fv->hdr_held || fv_header_live(fv, cx, cy)) return uui_table_ops.cursor(&fv->table, cx, cy);
+    return WIN_CURSOR_DEFAULT;
+}
+
+static int fv_ops_context_menu(void *w, int cx, int cy, struct uui_ctxmenu_src *out) {
+    struct uui_fileview *fv = (struct uui_fileview *)w;
+    if (!fv_header_live(fv, cx, cy)) return 0;
+    return uui_table_ops.context_menu(&fv->table, cx, cy, out);
+}
+
 static int fv_ops_release(void *w, int cx, int cy) {
     struct uui_fileview *fv = (struct uui_fileview *)w;
+    if (fv->hdr_held) {
+        fv->hdr_held = 0;
+        return uui_table_ops.release(&fv->table, cx, cy);
+    }
     uui_fileview_drag_end(fv);
     // SINGLE-CLICK MODE opens on the release of a plain click that stayed
     // on its row -- not on the press, which would open every file a drag
@@ -2080,8 +2161,11 @@ static int fv_ops_wheel(void *w, int notches) {
     return uui_fileview_wheel((struct uui_fileview *)w, notches);
 }
 
+// The details view is the table's: its columns' rects and layout too.
 static void ops_describe(const void *w, const struct uui_describe *d) {
-    uui_describe_int(d, "selected", ((const struct uui_fileview *)w)->table.selected);
+    const struct uui_fileview *fv = (const struct uui_fileview *)w;
+    if (fv->mode == UUI_FILEVIEW_DETAILS) uui_table_ops.describe(&fv->table, d);
+    else uui_describe_int(d, "selected", fv->table.selected);
 }
 
 // The inner field's, for the shared edit menu (ui/uui_widget.h).
@@ -2104,6 +2188,8 @@ const struct uui_widget_ops uui_fileview_ops = {
     .motion = fv_ops_motion,
     .release = fv_ops_release,
     .wheel = fv_ops_wheel,
+    .cursor = fv_ops_cursor,
+    .context_menu = fv_ops_context_menu,
     .describe     = ops_describe,
     .drag_start = fv_ops_drag_start,
     .drag_end   = fv_ops_drag_end,

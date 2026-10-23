@@ -172,6 +172,14 @@ struct uui_fileview {
     // GROUP BY (enum uui_fileview_group); set through uui_fileview_set_group().
     int group_by;
 
+    // CHOOSABLE COLUMNS (uui_fileview_set_columns()): a folder's details
+    // header takes uui_table's column moves, resizes and checklist. The
+    // folder's layout is kept here while a virtual folder, with columns
+    // of its own, has the table. OWNED.
+    int columns_on;
+    int hdr_held;              // a press on the header is the table's until release
+    char cols_layout[128];
+
     uui_fileview_filter_fn filter;
     void *filter_ctx;
 
@@ -319,6 +327,17 @@ enum uui_fileview_group {
 };
 // Reloads, keeping the selection by name.
 void uui_fileview_set_group(struct uui_fileview *fv, enum uui_fileview_group g);
+
+// CHOOSE, MOVE AND RESIZE COLUMNS in a folder's details view -- uui_table's
+// own (a right-click on the header is the checklist; a divider drags, and
+// a double click fits it). A virtual folder's columns stay as declared.
+// The layout is a uui_table_columns_save() string, the folder's even while
+// a virtual folder shows; the caller saves it when
+// uui_fileview_take_columns_changed() says so.
+void uui_fileview_set_columns(struct uui_fileview *fv, int on);
+int  uui_fileview_columns_save(const struct uui_fileview *fv, char *out, int cap);
+void uui_fileview_columns_load(struct uui_fileview *fv, const char *layout);
+int  uui_fileview_take_columns_changed(struct uui_fileview *fv);
 // See `active_mark` above. `on` 0 turns it off; the colour is kept.
 void uui_fileview_set_active_mark(struct uui_fileview *fv, int on, uint32_t color);
 // See `navigable` above. Takes effect on the next reload.

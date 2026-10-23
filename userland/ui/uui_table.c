@@ -232,7 +232,12 @@ int uui_table_columns_load(struct uui_table *t, const char *s) {
             break;
         }
         // Column 0 named in the string is skipped above (seen): it is
-        // first whatever the string says.
+        // first whatever the string says -- but its WIDTH is still the
+        // string's, or a narrowed Name comes back full width.
+        if (nlen == (int)strlen(col_id(t, 0)) && !strncmp(col_id(t, 0), name, (size_t)nlen)) {
+            t->user_w[0] = (short)(width > 0 && width < 10000 ? width : 0);
+            any = 1;
+        }
         if (!e) break;
         s = e + 1;
     }
