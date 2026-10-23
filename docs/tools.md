@@ -384,8 +384,9 @@ manual steps to be worth automating:
   history rewrite once removed from every commit here, with nothing in
   git warning before the first commit puts it back. What is required is
   that a LOCAL identity is set at all, not that it matches this
-  project's own (`toy-os` / `noreply@toy-os.local`, which it notes if
-  you differ): demanding the exact value would refuse anyone working on
+  project's own (`toy-os` / `noreply@toy-os.local`, or a cloud
+  session's `Claude` / `noreply@anthropic.com`; it notes any other):
+  demanding the exact value would refuse anyone working on
   a fork, who has every right to commit as themselves. The hazard is
   "you did not decide", not "you chose wrongly". In the gate rather than
   in a hook because `.git/hooks` is not cloned either.

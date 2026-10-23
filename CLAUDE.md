@@ -332,8 +332,10 @@ the repo's identity or history.**
 - Git identity (`toy-os` / `noreply@toy-os.local`) is PER-REPOSITORY; a
   clone does not carry it and `preflight.sh` refuses without one. **It
   is the privacy convention, not a default to override** -- never let a
-  commit carry the maintainer's real name or email. Commands:
-  `docs/development-setup.md`.
+  commit carry the maintainer's real name or email. **A Claude Code
+  CLOUD session commits as `Claude <noreply@anthropic.com>` instead**,
+  which its signing key makes Verified on GitHub (2026-10-23,
+  `docs/decisions/build.md`). Commands: `docs/development-setup.md`.
 - **A CLAUDE CODE CLOUD SESSION IS NOT THE CACHYOS BOX**: Ubuntu 24.04,
   nothing installed, its own global identity, no KVM, pushes to its
   `claude/...` branch, no `gh`. Setup: `docs/development-setup.md`.

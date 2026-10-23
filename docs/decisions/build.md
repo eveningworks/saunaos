@@ -485,6 +485,25 @@ personal email. It is configured in this checkout, so an ordinary
 `git commit` already does the right thing; the thing to avoid is
 overriding it.
 
+## A cloud session commits as Claude, because its signature only verifies under that address
+
+A Claude Code cloud container signs every commit: its global git config
+has `commit.gpgsign` and an SSH signing key registered to the
+`noreply@anthropic.com` identity. GitHub marks a signed commit Verified
+only when the key belongs to the account owning the COMMITTER's email,
+so the same signature under `toy-os <noreply@toy-os.local>` -- which
+the environment's `GIT_*` variables forced until 2026-10-23 -- showed
+"Unverified" on every cloud commit, a worse look than an unsigned
+commit's plain one, and no assurance to anybody.
+
+Three ways out were weighed: sign nothing in the cloud (no badge, like
+the dev box's unsigned commits); keep it as it was; or commit as
+`Claude <noreply@anthropic.com>` and let the signature verify. The
+maintainer chose the last. It keeps what the privacy convention is FOR
+-- no commit carries the maintainer's name or address -- and it is the
+step a "require signed commits" rule on `main` would need anyway. The
+dev box still commits as `toy-os`; `preflight.sh` accepts both.
+
 ## The repo lives in an organization because a personal repo has no read-only collaborator
 
 Wanting to show the code to one person without giving them write access

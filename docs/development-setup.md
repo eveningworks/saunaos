@@ -118,19 +118,20 @@ instead, and differs in seven ways:
 - **Pillow comes from pip, not apt.** `python3` is a separate build in
   `/usr/local`, which cannot load apt's `python3-pil`; the gate's
   `genttf.py --check` fails on the import.
-- **The commit identity is the container's, not yours.** Its global git
-  config says `Claude <noreply@anthropic.com>`, and step 5 above has not
-  run in a fresh clone. Set it in the environment's **Environment
-  variables**, which override any config:
+- **A cloud session commits as `Claude <noreply@anthropic.com>`**, the
+  container's global identity, and SIGNS each commit with the session's
+  SSH key (`commit.gpgsign` in its global config), which GitHub shows as
+  Verified -- only while the committer is that address; under any other
+  identity the same signature reads Unverified (docs/decisions/build.md).
+  So the environment sets NO `GIT_AUTHOR_*`/`GIT_COMMITTER_*` variables
+  (they override every config), and step 5 becomes:
 
   ```
-  GIT_AUTHOR_NAME=toy-os
-  GIT_AUTHOR_EMAIL=noreply@toy-os.local
-  GIT_COMMITTER_NAME=toy-os
-  GIT_COMMITTER_EMAIL=noreply@toy-os.local
+  git config --local user.name 'Claude'
+  git config --local user.email 'noreply@anthropic.com'
   ```
 
-  `preflight.sh` still wants a LOCAL identity, so run step 5 as well.
+  `preflight.sh` wants a LOCAL identity and accepts either convention.
 - **binutils is 2.42**, older than CachyOS's. It cannot link userland
   above 4 GiB unless GOT loads are left unrelaxed, which is what
   `-Wa,-mrelax-relocations=no` in `USERLAND_CFLAGS` is for; the

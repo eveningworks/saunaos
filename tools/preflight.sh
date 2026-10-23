@@ -127,7 +127,10 @@ if [ -z "$local_name" ] || [ -z "$local_email" ]; then
   echo "preflight: is that it is a CHOICE rather than a leak." >&2
   exit 1
 fi
-if [ "$local_name" != "$conv_name" ] || [ "$local_email" != "$conv_email" ]; then
+# A Claude Code cloud session commits as Claude, which its signing key
+# verifies on GitHub (docs/decisions/build.md) -- the other convention.
+if { [ "$local_name" != "$conv_name" ] || [ "$local_email" != "$conv_email" ]; } &&
+   { [ "$local_name" != "Claude" ] || [ "$local_email" != "noreply@anthropic.com" ]; }; then
   echo "preflight: note -- committing as $local_name <$local_email>," >&2
   echo "preflight: not this project's convention ($conv_name <$conv_email>)." >&2
 fi
