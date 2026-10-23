@@ -2468,9 +2468,12 @@ person uses), and there is no `/dev` for `/dev/sda1` to be a path into.
 
 **Why the partition number is the TABLE's.** `ata0p3` is the third entry
 in the partition table even when the two before it are the firmware's
-and were skipped, so it lines up with `parttable`. Numbering by slot
-order instead made the root partition `ata0p1` — a name that agreed with
-nothing a person could see, and that `root=ata0p3` would have missed.
+and were skipped, so it lines up with `parttable`. Numbering by position
+among the windows in use instead made the root partition `ata0p1` — a
+name that agreed with nothing a person could see, and that `root=ata0p3`
+would have missed. Since 2026-10-23 it is the entry's SLOT outright, so
+it also survives a deleted partition ahead of it ("A partition is
+numbered by its table slot, and one entry is edited in place").
 
 **What this deliberately did NOT fix.** A second volume of the same
 format still did not mount at the time — `fs_ops.max_mounts` was 1 for
@@ -3709,15 +3712,19 @@ warning:**
   a table only on a disk nothing runs from (Linux's `BLKRRPART` rule),
   so a change there takes effect at the next boot, under a running
   system. Formatting there is formatting the running system.
-- **A disk with anything mounted**, for a new or deleted partition:
-  the same rule. The new partition would get no device until a
-  restart, so the format that follows it could not run.
-- **A partition whose type Disks cannot write back.** A table entry is
-  rewritten from its ROLE (data, ESP, BIOS boot), so a Linux-filesystem
-  or swap GUID would come back as basic data. Such a disk is left to
-  `mkpart`, and Disks says so.
-- **The last partition**, and a fifth: `SYS_MKPART` writes one to four
-  entries, so an empty table cannot be written and a fifth cannot fit.
+- **A disk with anything mounted**, for a NEW partition: the same rule.
+  The new partition would get no device until a restart, so the format
+  that follows it could not run. A DELETE needs only that partition
+  unmounted: since 2026-10-23 it edits one entry in place
+  (`SYS_PARTEDIT`) and the disk is re-read with a mounted sibling kept.
+- **A partition whose type Disks cannot write back**, for a NEW
+  partition only. New rewrites every entry from its ROLE (data, ESP,
+  BIOS boot), so a Linux-filesystem or swap GUID would come back as
+  basic data; Delete touches no other entry, so such a disk is no
+  obstacle to it.
+- **A fifth partition**: `SYS_MKPART` writes one to four entries. (The
+  last partition was refused too while Delete went through it, since an
+  empty table cannot be written; an in-place delete has no such limit.)
 
 **GNOME Disks asks the same questions through UDisks**, which runs as
 root on its behalf and refuses a busy device the same way. Windows'

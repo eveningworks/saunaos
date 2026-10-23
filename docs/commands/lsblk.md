@@ -30,7 +30,8 @@ A name is `<driver><index>` for a disk and `<disk>p<n>` for a partition:
 `ata0`, `ahci0`, `virtio0`, `ram0`, `ahci0p1`. The partition number is
 the **partition table's**, so it matches what `parttable` prints — the
 third entry is `p3` even when the two ahead of it are the firmware's and
-were skipped.
+were skipped, and it stays `p3` when one of them is deleted (`part
+delete`): the number is the table's SLOT.
 
 ## What it is not
 

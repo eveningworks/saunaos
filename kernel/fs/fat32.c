@@ -1941,8 +1941,9 @@ static int fat32_disk_usage(void *st, uint64_t *out_used, uint64_t *out_total) {
 // rebuilding a lost-cluster list and reconciling two FAT copies, which
 // is `fsck.vfat`'s whole job; a half-repair on the partition holding
 // the bootloader is worse than a clear report. What this DOES check is
-// the pair of things a driver can be sure about: that the FAT copies
-// agree, and that no cluster is claimed by two chains.
+// what one pass over the first FAT can be sure about: that no cluster
+// is claimed by two chains, and that no entry points off the volume. The
+// copies are NOT compared.
 static const struct fsck_stage_desc FAT_STAGES[] = { { "Read the allocation table", "clusters" } };
 
 // One cluster of the check's pass (fat_scan()'s callback).

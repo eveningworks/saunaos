@@ -1422,7 +1422,8 @@ driver costs a probe and claims nothing.
 **partition table's**, not a count of slots in use, so `ata0p3` is the
 third table entry even when the two ahead of it are the firmware's and
 were skipped — that is the number `parttable` prints and the one a
-person will type. Named after the driver rather than Linux's sd/vd/nvme
+person will type. It is the entry's SLOT, so deleting `p1` leaves `p2`
+named `p2` (`partition_entry.slot`). Named after the driver rather than Linux's sd/vd/nvme
 split, because the driver is a real lever here (`novirtio`, `noahci`)
 and this OS has no `/dev` for a path to lead into.
 

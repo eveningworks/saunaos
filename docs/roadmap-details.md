@@ -4051,6 +4051,84 @@ durability and structure -- integrity checking, snapshots, mount points
 
 - [ ] Per-record checksums in the table itself -- TFS2-only now: TFS3 checksums every inode at rest (verified on each read); TFS2's records still have no at-rest integrity check
 
+## Grow a TFS3 volume
+
+Stage 2 of the partition resize the maintainer asked for on 2026-10-23
+(stage 1, Delete, shipped af16d1a4). Choices made then, from mockups
+(https://claude.ai/artifact/GHrfwpdgdDx2yRdp5tCzD6): **R1**, one
+Resize... dialog with a draggable end on a small map, the used part
+hatched, the smallest and largest sizes, and New size / Free space after
+fields; **a `part resize PARTITION SIZE confirm`** that resizes the
+filesystem too, in the safe order (the table first when growing); and
+**the bar as a shared `userland/ui/` widget, `uui_resizebar`**, which the
+installer's "install beside another system" will reuse.
+
+What exists: `partition_edit_of()` already moves an entry's END
+(`PART_EDIT_RESIZE`, KTEST-covered), behind `SYS_PARTEDIT`. What is
+missing is the filesystem half: a `fs_ops` resize op on an UNMOUNTED
+volume, reached through vfs.c's `long_op()` so a mount list keeps
+answering, with mkfs-style progress (the stage dialog). Growing TFS3 is
+cheap: the superblock's `total_blocks`, `group_count` and the last
+group's span change, the old short last group becomes full (its padding
+bits cleared), new groups go in uninitialised (`BLOCK_UNINIT|INODE_UNINIT`),
+and the backup superblock and GDT snapshot move to the new last groups,
+the old ones erased so a stale backup cannot claim the disk. **A resize
+that changes the descriptor table's size is refused**:
+`t3_v3_gdt_blocks()` is fixed at 16 up to 512 GiB and grows with the
+volume past it, and group 0 starts after it, so crossing that line would
+move every group.
+
+## Grow a FAT32 volume
+
+Stage 3. A FAT is sized at format for exactly the clusters present
+(`fat32_format()`), so growing past them needs larger FATs -- and the
+data region starts after the FATs, so every data sector shifts by the
+growth times the number of FATs. Cluster numbers do not change, so no
+directory entry does; the cost is copying the whole data region, back to
+front. FAT32 has no journal, so an interruption mid-shift corrupts the
+volume -- libparted's FAT resize has the same exposure -- and the
+confirm says so. `parse_bpb()` already accepts a volume smaller than its
+partition, so a grow that leaves slack is legal.
+
+## Shrink a FAT32 volume
+
+Stage 4. Every used cluster at or past the new end moves to a free
+cluster below it: copy the data, then patch the predecessor's FAT entry
+or the directory entry holding the chain's first cluster, and a moved
+directory's `..` entries. There is no owner map, so a walk from the root
+finds the chain heads. The FATs are left at their size (shrinking them
+would shift the data region again). `fat_scan()` (30f3f903) is the fast
+way to read the FAT for the plan.
+
+## Shrink a TFS3 volume
+
+Stage 5, the largest: `resize2fs`'s offline shrink. Whole trailing groups
+are dropped, so every block a file or directory holds past the new end
+moves below it (`tfs3_fsck.c`'s table walkers show how to enumerate an
+inode's pointers), and every inode in a dropped group is renumbered --
+an inode's number encodes its group -- which rewrites each directory
+entry naming it, `..` included. Journalled a file at a time, so an
+interruption leaves a consistent volume that is merely not yet smaller.
+The same 512 GiB descriptor-table rule as growing.
+
+## Grow the mounted system root
+
+`SYS_PARTEDIT` refuses the system disk, and a filesystem resize needs the
+volume unmounted, so the root cannot grow into free space after it --
+the case an install onto a small partition runs into. Windows' Extend
+Volume and `resize2fs` both grow a mounted volume online; here it needs
+the root's cached table entry (mount.c's `g_tbl`) refreshed and a TFS3
+grow that runs under the live mount's lock.
+
+## Disks' New partition still rewrites the whole table
+
+Delete edits one entry in place (`SYS_PARTEDIT`), but New still builds a
+whole table through `SYS_MKPART`: so it needs every volume on the disk
+unmounted, refuses a disk with a partition type it cannot re-express,
+regenerates every GUID, and caps the table at four. An ADD op beside
+DELETE and RESIZE -- the first free slot, the entry's bytes written,
+both CRCs resealed -- removes all four.
+
 ## Block integrity: checksums & scrubbing
 
 *Right after the inode layer, while that on-disk format is already

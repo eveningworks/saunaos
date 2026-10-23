@@ -139,5 +139,6 @@ A second disk needs no reboot, because nothing is mounted from it:
 
 ## See also
 
-`parttable` (read a table), `fsformat` (put a filesystem in the active volume),
-`df` (what is mounted, and how big it is).
+`parttable` (read a table), `part` (delete one partition and keep the rest of
+the table), `fsformat` (put a filesystem in the active volume), `df` (what is
+mounted, and how big it is).

@@ -25,9 +25,11 @@ fsck [-r] [PATH]
 Walks every file's block tree against the free-block bitmap. On TFS3 it
 also verifies inode checksums, link counts and `.`/`..`, reclaims
 orphans, and with `-r` restores a damaged primary superblock from its
-backups. FAT32 (`/boot`) is checked for cross-linked clusters and FAT
-copies that disagree, and is never repaired -- a half-repair on the
-partition holding the bootloader is worse than a report. Read-only
+backups. FAT32 (`/boot`, a USB stick) is checked for cross-linked
+clusters and FAT entries pointing off the volume -- the two FAT copies
+are NOT compared -- and is never repaired: a half-repair on the
+partition holding the bootloader is worse than a report. What it finds
+is reported as problems, not as an error. Read-only
 unless `-r` is passed.
 
 ```
