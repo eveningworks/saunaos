@@ -27,7 +27,6 @@
 // own intra-section jumps. Anything else is refused BY NAME.
 
 #define MODULE_NAME_MAX 16
-#define MODULE_MAX      8
 #define MODULE_DIR      "/lib/modules"
 
 struct kmodule {
@@ -39,6 +38,7 @@ struct kmodule {
     const struct pci_driver  *pci;     int npci;
     const struct initcall    *exits;   int nexits;
     int pins;                         // module_get() minus module_put()
+    int loaded;                       // set last: a slot mid-load is skipped
 };
 
 // Runs `fn` when the module is unloaded -- the inverse of INITCALL.
@@ -53,9 +53,8 @@ struct kmodule {
 // Loads the .ko at `path`. 0, or -errno with the reason in the kernel
 // log: -ENOENT no such file, -ENOEXEC not a loadable object (bad ELF,
 // an unsupported relocation, truncated), -EINVAL an unexported symbol
-// (named in the log), -EEXIST already loaded, -ENOSPC no slot,
-// -ENOMEM. Also binds any unclaimed PCI device the module's drivers
-// match (pci_rebind()).
+// (named in the log), -EEXIST already loaded, -ENOMEM. Also binds any
+// unclaimed PCI device the module's drivers match (pci_rebind()).
 int module_load(const char *path);
 
 // The same from an image already in memory; `name` is what `lsmod`

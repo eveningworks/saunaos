@@ -19,9 +19,15 @@
 #include "vga.h"
 #include "errno.h"
 #include "string.h"
+#include "kslots.h"
+#include "kfmt.h"     // klog_printf
 #include <stddef.h>
 
-static struct tty g_ttys[TTY_MAX];
+// Grown on demand: an object never moves (kslots.h), so the console's
+// pointer and every wait channel stay good, and tty_init() allocating
+// first is what makes index 0 the console.
+static struct kslots g_ttys = KSLOTS_INIT(sizeof(struct tty));
+static struct tty *g_console;
 
 // --- tty0's driver ---------------------------------------------------
 //
@@ -70,39 +76,45 @@ void tty_termios_defaults(struct tty_termios *tio) {
 }
 
 void tty_init(void) {
-    struct tty *t = &g_ttys[0];
-    k_memset(t, 0, sizeof *t);
+    // The first allocation from a heap made moments ago; failing it
+    // leaves tty_console() NULL and the boot does not get far.
+    if (kslots_alloc(&g_ttys) != 0) {
+        klog_printf("tty: no memory for the console\n");
+        return;
+    }
+    struct tty *t = kslots_at(&g_ttys, 0); // zeroed
+    g_console = t;
     t->used = 1;
     t->index = 0;
     t->drv = &console_driver;
     tty_termios_defaults(&t->tio);
 }
 
-struct tty *tty_console(void) { return &g_ttys[0]; }
+struct tty *tty_console(void) { return g_console; }
 
 struct tty *tty_at(int index) {
-    if (index < 0 || index >= TTY_MAX) return NULL;
-    return g_ttys[index].used ? &g_ttys[index] : NULL;
+    struct tty *t = kslots_at(&g_ttys, index);
+    return t && t->used ? t : NULL;
 }
 
 int tty_index(const struct tty *t) { return t ? t->index : -1; }
-int tty_count(void) { return TTY_MAX; }
+int tty_count(void) { return kslots_cap(&g_ttys); }
 
 struct tty *tty_create(const struct tty_driver *drv, void *drv_data) {
     if (!drv || !drv->output) return NULL;
-    // From 1: tty0 is the console and is never handed out.
-    for (int i = 1; i < TTY_MAX; i++) {
-        if (g_ttys[i].used) continue;
-        struct tty *t = &g_ttys[i];
-        k_memset(t, 0, sizeof *t);
-        t->used = 1;
-        t->index = i;
-        t->drv = drv;
-        t->drv_data = drv_data;
-        tty_termios_defaults(&t->tio);
-        return t;
+    // Never 0: tty0 is the console and is never freed.
+    int i = kslots_alloc(&g_ttys);
+    if (i < 0) {
+        klog_printf("tty: out of memory for a terminal\n");
+        return NULL;
     }
-    return NULL;
+    struct tty *t = kslots_at(&g_ttys, i); // zeroed
+    t->used = 1;
+    t->index = i;
+    t->drv = drv;
+    t->drv_data = drv_data;
+    tty_termios_defaults(&t->tio);
+    return t;
 }
 
 void tty_destroy(struct tty *t) {
@@ -113,6 +125,7 @@ void tty_destroy(struct tty *t) {
     // means anything. They re-read, find the terminal gone, and get EOF.
     t->used = 0;
     scheduler_wake(tty_wait_chan(t), SYS_RETRY);
+    kslots_free(&g_ttys, t->index); // the memory stays: a woken reader may still hold `t`
 }
 
 void *tty_driver_data(struct tty *t) { return t ? t->drv_data : NULL; }

@@ -332,6 +332,31 @@ KTEST("tty", "a pty is a terminal, with both ends counted separately") {
     KTEST_ASSERT(gone);
 }
 
+KTEST("tty", "ptys are not capped: twenty open at once, each its own terminal") {
+    // The table was PTY_MAX 8 / TTY_MAX 9 kernel-wide, so the eighth
+    // Terminal tab on the machine got no shell.
+    enum { N = 20 };
+    static int idx[N];
+    int made = 0, distinct = 1;
+    for (int i = 0; i < N; i++) {
+        idx[i] = pty_create();
+        if (idx[i] < 0) break;
+        made++;
+        for (int j = 0; j < i; j++)
+            if (pty_tty(idx[j]) == pty_tty(idx[i])) distinct = 0;
+    }
+    // The console outlives all of this, at index 0.
+    int console_ok = tty_at(0) == tty_console();
+    for (int i = 0; i < made; i++) { pty_close_slave(idx[i]); pty_close_master(idx[i]); }
+    int all_gone = 1;
+    for (int i = 0; i < made; i++) if (pty_valid(idx[i])) all_gone = 0;
+
+    KTEST_ASSERT_EQ(made, N);
+    KTEST_ASSERT(distinct);
+    KTEST_ASSERT(console_ok);
+    KTEST_ASSERT(all_gone);
+}
+
 KTEST("tty", "a pty read tells WOULD BLOCK from END OF FILE") {
     // The rule a shell is written against, and the one a terminal gets
     // wrong: -1 means wait, 0 means there will never be more. A pty that

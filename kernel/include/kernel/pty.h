@@ -32,12 +32,8 @@
 // end of input. Conflating those two is how a terminal decides a running
 // program has finished.
 
-#define PTY_MAX 8 // ptys, kernel-wide. TTY_MAX bounds them anyway --
-                  // every pty is a terminal -- but a separate cap keeps
-                  // this table's arithmetic its own.
-
 // Allocates a pty with ONE master and ONE slave already counted.
-// Returns its index, or -1 when none are free.
+// Returns its index, or -1 when the heap is out.
 //
 // **IT HAS NO OWNER YET, AND THAT IS THE CONSOLE'S RULE.** A terminal is
 // claimed by the first process to READ it (tty_fd.c), not by the one

@@ -16,6 +16,7 @@
 #include "klog.h"
 #include "kfmt.h"
 #include "string.h"
+#include "kslots.h"
 #include "errno.h"
 #include "scheduler.h"
 #include "syscalls.h"
@@ -85,26 +86,35 @@ _Static_assert(sizeof(struct rela) == 24, "rela");
 
 // --- the table of loaded modules ---------------------------------------
 
-static struct kmodule g_mods[MODULE_MAX];
-static int g_mod_used[MODULE_MAX];
+// Grown on demand (kslots.h): a struct kmodule never moves, so a pointer
+// from module_at() survives another load. A slot is reserved when a load
+// starts and `loaded` is set last, so every lookup skips one mid-load.
+static struct kslots g_mods = KSLOTS_INIT(sizeof(struct kmodule));
+
+static struct kmodule *loaded_at(int k) {
+    struct kmodule *m = kslots_at(&g_mods, k);
+    return m && m->loaded ? m : NULL;
+}
 
 int module_count(void) {
     int n = 0;
-    for (int i = 0; i < MODULE_MAX; i++) n += g_mod_used[i];
+    for (int k = 0; k < kslots_cap(&g_mods); k++) n += loaded_at(k) != NULL;
     return n;
 }
 
 const struct kmodule *module_at(int i) {
-    for (int k = 0; k < MODULE_MAX; k++) {
-        if (!g_mod_used[k]) continue;
-        if (i-- == 0) return &g_mods[k];
+    for (int k = 0; k < kslots_cap(&g_mods); k++) {
+        struct kmodule *m = loaded_at(k);
+        if (m && i-- == 0) return m;
     }
     return NULL;
 }
 
 static struct kmodule *slot_find(const char *name) {
-    for (int k = 0; k < MODULE_MAX; k++)
-        if (g_mod_used[k] && k_strcmp(g_mods[k].name, name) == 0) return &g_mods[k];
+    for (int k = 0; k < kslots_cap(&g_mods); k++) {
+        struct kmodule *m = loaded_at(k);
+        if (m && k_strcmp(m->name, name) == 0) return m;
+    }
     return NULL;
 }
 
@@ -114,9 +124,9 @@ const struct kmodule *module_find(const char *name) {
 
 static struct kmodule *slot_by_addr(const void *addr) {
     uint64_t a = (uint64_t)(uintptr_t)addr;
-    for (int k = 0; k < MODULE_MAX; k++) {
-        struct kmodule *m = &g_mods[k];
-        if (g_mod_used[k] && a >= m->base && a < m->base + (uint64_t)m->pages * PAGE) return m;
+    for (int k = 0; k < kslots_cap(&g_mods); k++) {
+        struct kmodule *m = loaded_at(k);
+        if (m && a >= m->base && a < m->base + (uint64_t)m->pages * PAGE) return m;
     }
     return NULL;
 }
@@ -136,9 +146,9 @@ int module_put(const void *addr) {
 }
 
 const char *module_symbolize(uint64_t addr, uint32_t *out_off) {
-    for (int k = 0; k < MODULE_MAX; k++) {
-        const struct kmodule *m = &g_mods[k];
-        if (!g_mod_used[k]) continue;
+    for (int k = 0; k < kslots_cap(&g_mods); k++) {
+        const struct kmodule *m = loaded_at(k);
+        if (!m) continue;
         if (addr >= m->base && addr < m->base + (uint64_t)m->pages * PAGE) {
             if (out_off) *out_off = (uint32_t)(addr - m->base);
             return m->name;
@@ -380,15 +390,9 @@ static void free_frames(struct kmodule *m) {
     pmm_free_contiguous(m->base, m->pages);
 }
 
-int module_load_image(const char *name, const void *image, uint32_t len) {
-    if (!name || !name[0] || k_strlen(name) >= MODULE_NAME_MAX) return -EINVAL;
-    if (!image || len == 0 || len > MODULE_MAX_IMAGE) return -ENOEXEC;
-    if (slot_find(name)) { klog_printf("module: %s is already loaded\n", name); return -EEXIST; }
-
-    int slot = -1;
-    for (int k = 0; k < MODULE_MAX; k++) if (!g_mod_used[k]) { slot = k; break; }
-    if (slot < 0) { klog_printf("module: no free slot for %s\n", name); return -ENOSPC; }
-
+// Loads into `m`, a reserved and zeroed slot; module_load_image() frees
+// the slot again on any failure.
+static int load_into(struct kmodule *m, const char *name, const void *image, uint32_t len) {
     struct image im;
     k_memset(&im, 0, sizeof im);
     im.p = image;
@@ -414,8 +418,6 @@ int module_load_image(const char *name, const void *image, uint32_t len) {
         else k_memcpy(dst, im.p + s->sh_offset, s->sh_size);
     }
 
-    struct kmodule *m = &g_mods[slot];
-    k_memset(m, 0, sizeof *m);
     k_strlcpy(m->name, name, sizeof m->name);
     m->base = base;
     m->text_bytes = (uint32_t)text_bytes;
@@ -460,7 +462,7 @@ int module_load_image(const char *name, const void *image, uint32_t len) {
         free_frames(m);
         return rc;
     }
-    g_mod_used[slot] = 1;
+    m->loaded = 1;
 
     // Its initcalls in level order, as kernel_main() walked the image's;
     // then any unclaimed device its drivers match.
@@ -473,6 +475,18 @@ int module_load_image(const char *name, const void *image, uint32_t len) {
                 (unsigned)(text_bytes / 1024), (unsigned)(data_bytes / 1024),
                 bound > 0 ? ", bound a device" : "");
     return 0;
+}
+
+int module_load_image(const char *name, const void *image, uint32_t len) {
+    if (!name || !name[0] || k_strlen(name) >= MODULE_NAME_MAX) return -EINVAL;
+    if (!image || len == 0 || len > MODULE_MAX_IMAGE) return -ENOEXEC;
+    if (slot_find(name)) { klog_printf("module: %s is already loaded\n", name); return -EEXIST; }
+
+    int slot = kslots_alloc(&g_mods);
+    if (slot < 0) { klog_printf("module: no memory to load %s\n", name); return -ENOMEM; }
+    int rc = load_into(kslots_at(&g_mods, slot), name, image, len);
+    if (rc) kslots_free(&g_mods, slot);
+    return rc;
 }
 
 int module_unload(const char *name) {
@@ -490,8 +504,8 @@ int module_unload(const char *name) {
     kdebug_forget_range(m->base, m->base + (uint64_t)m->pages * 4096);
     free_frames(m);
     klog_printf("module: %s unloaded\n", name);
-    g_mod_used[m - g_mods] = 0;
-    k_memset(m, 0, sizeof *m);
+    for (int k = 0; k < kslots_cap(&g_mods); k++)
+        if (kslots_at(&g_mods, k) == m) { k_memset(m, 0, sizeof *m); kslots_free(&g_mods, k); }
     return 0;
 }
 

@@ -12,9 +12,29 @@
 #include "fs.h"
 #include "kpath.h"
 #include "heap.h"   // kmalloc -- the scan's state is the call's
+#include "kfmt.h"   // klog_printf
 
-static struct config_file g_files[CONFIG_FILE_MAX];
-static int g_count = 0;
+// Grown on demand. A grown table's OLD ARRAY IS KEPT, never freed:
+// config_file_find()'s callers hold a pointer into it, and a rescan on
+// another thread must not free it under them -- kslots.h's promise, for
+// a few dozen entries.
+static struct config_file *g_files;
+static int g_count = 0, g_cap = 0;
+
+static struct config_file *append_slot(void) {
+    if (g_count == g_cap) {
+        int cap = g_cap ? g_cap * 2 : 32;
+        struct config_file *n = kmalloc((size_t)cap * sizeof *n);
+        if (!n) {
+            klog_printf("config: out of memory registering a config file (%d held)\n", g_count);
+            return 0;
+        }
+        if (g_count) k_memcpy(n, g_files, (size_t)g_count * sizeof *n);
+        g_files = n;
+        g_cap = cap;
+    }
+    return &g_files[g_count++];
+}
 
 int config_file_count(void) { return g_count; }
 
@@ -55,10 +75,7 @@ int config_file_register(const char *name, const char *path, const char *desc, i
         slot = &g_files[i];
         break;
     }
-    if (!slot) {
-        if (g_count >= CONFIG_FILE_MAX) return 0;
-        slot = &g_files[g_count++];
-    }
+    if (!slot && !(slot = append_slot())) return 0;
 
     k_strlcpy(slot->name, name, sizeof slot->name);
     k_strlcpy(slot->path, path, sizeof slot->path);
@@ -74,18 +91,26 @@ int config_file_register(const char *name, const char *path, const char *desc, i
 // mid-walk. The names and the read buffer are the CALL's (fs.h's
 // fs_list() on why nothing a walk touches may be a global), heap-held
 // because together they are too big for a kernel frame.
-#define SCAN_MAX 16
 struct scan_ctx {
-    char names[SCAN_MAX][CONFIG_NAME_MAX + 8];
-    int count;
+    char (*names)[CONFIG_NAME_MAX + 8];   // grown as the walk finds them
+    int count, cap;
     struct etc_config_buf buf;   // one read per descriptor, three keys out of it
 };
 
 static void scan_collect(void *ctx, const char *name, uint32_t size, int is_dir) {
     struct scan_ctx *x = ctx;
     (void)size;
-    if (is_dir || x->count >= SCAN_MAX) return;
-    if (k_strlen(name) >= (int)sizeof x->names[0]) return;
+    if (is_dir || k_strlen(name) >= (int)sizeof x->names[0]) return;
+    if (x->count == x->cap) {
+        int cap = x->cap ? x->cap * 2 : 16;
+        void *n = krealloc(x->names, (size_t)cap * sizeof x->names[0]);
+        if (!n) {
+            klog_printf("config: out of memory listing %s at %d\n", CONFIG_DESCRIPTOR_DIR, x->count);
+            return;
+        }
+        x->names = n;
+        x->cap = cap;
+    }
     k_strlcpy(x->names[x->count++], name, sizeof x->names[0]);
 }
 
@@ -141,7 +166,8 @@ void config_files_scan(void) {
 
     struct scan_ctx *x = kmalloc(sizeof *x);
     if (!x) return;   // the built-in floor above still stands
-    x->count = 0;
+    x->names = 0;
+    x->count = x->cap = 0;
     fs_list(CONFIG_DESCRIPTOR_DIR, scan_collect, x);
 
     for (int i = 0; i < x->count; i++) {
@@ -162,6 +188,7 @@ void config_files_scan(void) {
 
         config_file_register(name, path, desc, 0);
     }
+    kfree(x->names);
     kfree(x);
 }
 

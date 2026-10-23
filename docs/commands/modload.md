@@ -48,7 +48,7 @@ module: unexported: unknown symbol scheduler_kill (not exported -- see kernel/co
 
 The other refusals: `No such file`, `Exec format error` for anything
 that is not a relocatable x86-64 object (a truncated file included),
-`No space left` when the module table is full.
+an out-of-memory error (`ENOMEM`) when there is no memory for it.
 
 **Reloading the driver of the NIC you are logged in through** is
 `spawn modload -r r8169`: the session dies with the unload, the spawned

@@ -57,8 +57,6 @@ struct tty_driver {
     void (*winsize)(struct tty *t, uint16_t *rows, uint16_t *cols);
 };
 
-#define TTY_MAX 9 // terminals, kernel-wide: tty0, the serial debug console, one per window
-
 // Sets up tty0 -- the physical console -- and nothing else. Called from
 // kernel_main() before anything can type.
 //
@@ -79,9 +77,9 @@ struct tty *tty_console(void);
 // as they are created. For the QUERY_TTY provider and for tests.
 struct tty *tty_at(int index);
 int tty_index(const struct tty *t);
-int tty_count(void); // how many slots exist at all, not how many are live
+int tty_count(void); // how many indices exist (the table grows), not how many are live
 
-// Allocates a terminal on `drv`, or NULL when TTY_MAX are live. Starts
+// Allocates a terminal on `drv`, or NULL when the heap is out. Starts
 // with TTY_LFLAG_DEFAULT -- POSIX's, see abi/tty_abi.h.
 struct tty *tty_create(const struct tty_driver *drv, void *drv_data);
 // Releases one. Refuses tty0, which nothing may destroy.

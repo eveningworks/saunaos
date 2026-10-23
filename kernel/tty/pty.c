@@ -11,6 +11,7 @@
 #include "scheduler.h"
 #include "syscall_abi.h" // SYS_RETRY -- the value a woken reader gets
 #include "string.h"
+#include "kslots.h"
 #include "signal.h"        // signal_send_group() -- a hangup
 #include "signal_abi.h"    // SIGHUP, SIGCONT
 #include <stddef.h>
@@ -20,7 +21,6 @@
                          // is the same job.
 
 struct pty {
-    int used;
     int masters, slaves; // reference counts per END, as pipe.c has
     struct tty *t;
 
@@ -31,12 +31,11 @@ struct pty {
     unsigned out_head, out_tail;
 };
 
-static struct pty g_ptys[PTY_MAX];
+// Grown on demand, as pipes are: an fd stores the index, and a pty's
+// address -- its output ring is a wait channel -- never moves.
+static struct kslots g_ptys = KSLOTS_INIT(sizeof(struct pty));
 
-static struct pty *at(int idx) {
-    if (idx < 0 || idx >= PTY_MAX) return NULL;
-    return g_ptys[idx].used ? &g_ptys[idx] : NULL;
-}
+static struct pty *at(int idx) { return kslots_at(&g_ptys, idx); }
 
 static unsigned out_used(const struct pty *p) {
     return (p->out_head - p->out_tail) % PTY_OUT_MAX;
@@ -62,9 +61,9 @@ static void out_push(struct pty *p, const char *src, unsigned len) {
 // console's: fill a buffer, wake, and nothing else.
 static void pty_output_hook(struct tty *t, const char *buf, unsigned len) {
     struct pty *p = tty_driver_data(t);
-    if (!p || !p->used) return;
+    if (!p || !p->t) return;
     out_push(p, buf, len);
-    scheduler_wake(pty_out_wait_chan((int)(p - g_ptys)), SYS_RETRY);
+    scheduler_wake(&p->out_head, SYS_RETRY);
 }
 
 static const struct tty_driver pty_driver = {
@@ -73,20 +72,16 @@ static const struct tty_driver pty_driver = {
 };
 
 int pty_create(void) {
-    for (int i = 0; i < PTY_MAX; i++) {
-        if (g_ptys[i].used) continue;
-        struct pty *p = &g_ptys[i];
-        k_memset(p, 0, sizeof *p);
-        p->used = 1;
-        p->t = tty_create(&pty_driver, p);
-        if (!p->t) { p->used = 0; return -1; } // TTY_MAX reached first
-        p->masters = 1;
-        p->slaves = 1;
-        // No owner: the first process to READ the slave claims it. See
-        // pty.h -- the opener and the reader are different processes.
-        return i;
-    }
-    return -1;
+    int i = kslots_alloc(&g_ptys);
+    if (i < 0) return -1;
+    struct pty *p = kslots_at(&g_ptys, i); // zeroed
+    p->t = tty_create(&pty_driver, p);
+    if (!p->t) { kslots_free(&g_ptys, i); return -1; }
+    p->masters = 1;
+    p->slaves = 1;
+    // No owner: the first process to READ the slave claims it. See
+    // pty.h -- the opener and the reader are different processes.
+    return i;
 }
 
 struct tty *pty_tty(int idx) {
@@ -106,8 +101,7 @@ static void maybe_release(struct pty *p, int idx) {
     if (p->masters > 0 || p->slaves > 0) return;
     tty_destroy(p->t);
     p->t = NULL;
-    p->used = 0;
-    (void)idx;
+    kslots_free(&g_ptys, idx);
 }
 
 // THE LAST MASTER CLOSING IS A HANGUP -- the terminal's far end is gone
@@ -155,8 +149,8 @@ int pty_slave_open(int idx)  { struct pty *p = at(idx); return p ? p->slaves  > 
 // two waiters on one address would wake each other for the wrong reason
 // -- scheduler.h's whole point.
 const void *pty_out_wait_chan(int idx) {
-    if (idx < 0 || idx >= PTY_MAX) return NULL;
-    return &g_ptys[idx].out_head;
+    struct pty *p = at(idx);
+    return p ? &p->out_head : NULL;
 }
 
 int64_t pty_master_read(int idx, char *dst, uint32_t len) {

@@ -62,6 +62,46 @@ KTEST("module", "hello.ko loads, is listed, symbolizes, runs its exit, and unloa
     KTEST_ASSERT((after & (1ULL << 63)) && (after & 2));
 }
 
+KTEST("module", "the table grows: twelve modules loaded at once") {
+    // It held eight. hello.ko under twelve names: one image, twelve
+    // copies at twelve addresses, each its own entry.
+    if (!fs_exists(HELLO)) KTEST_SKIP("no /lib/modules/hello.ko on this image");
+    uint32_t len = 0;
+    uint8_t *img = read_ko(ctx, HELLO, &len);
+    if (!img) KTEST_SKIP("could not read hello.ko");
+    enum { N = 12 };
+    int before = module_count(), loaded = 0;
+    const struct kmodule *first = NULL;
+    for (int i = 0; i < N; i++) {
+        char name[MODULE_NAME_MAX] = "khello_";
+        name[7] = (char)('a' + i);
+        name[8] = '\0';
+        if (module_load_image(name, img, len) == 0) loaded++;
+        if (i == 0) first = module_find("khello_a");
+    }
+    // Taken before the table grew; a struct kmodule never moves.
+    int first_ok = first && first == module_find("khello_a");
+    uint32_t off = 0;
+    const struct kmodule *last = module_find("khello_l");
+    int last_named = last && !k_strcmp(module_symbolize(last->base + 16, &off), "khello_l");
+    int count = module_count();
+    int unloaded = 0;
+    for (int i = 0; i < N; i++) {
+        char name[MODULE_NAME_MAX] = "khello_";
+        name[7] = (char)('a' + i);
+        name[8] = '\0';
+        unloaded += module_unload(name) == 0;
+    }
+    kfree(img);
+
+    KTEST_ASSERT_EQ(loaded, N);
+    KTEST_ASSERT_EQ(count, before + N);
+    KTEST_ASSERT(first_ok);
+    KTEST_ASSERT(last_named);
+    KTEST_ASSERT_EQ(unloaded, N);
+    KTEST_ASSERT_EQ(module_count(), before);
+}
+
 KTEST("module", "a pinned module refuses to unload until it is put") {
     if (!fs_exists(HELLO)) KTEST_SKIP("no /lib/modules/hello.ko on this image");
     if (module_find("hello")) module_unload("hello");
