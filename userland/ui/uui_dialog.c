@@ -432,6 +432,13 @@ static void dlg_describe(const void *w, const struct uui_describe *desc) {
         button_rect(d, i, &x, &y, &bw, &bh);
         uui_describe_rect_i(desc, "button", i, x, y, bw, bh);
     }
+    // The body under its own name: it is in no app's widget array, so
+    // nothing else would say what it holds.
+    if (d->body && d->body->ops && d->body->ops->describe && d->body->name) {
+        struct uui_describe sub = *desc;
+        sub.name = d->body->name;
+        d->body->ops->describe(d->body->widget, &sub);
+    }
 }
 static int dlg_overlay_active(const void *w) {
     return ((const struct uui_dialog *)w)->open;

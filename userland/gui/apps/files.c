@@ -42,6 +42,10 @@
 #include "lib/upins.h"
 #include "lib/uvolinfo.h"
 #include "ui/uui_verbs.h"
+#include "ui/uui_compare.h"
+#include <caltime.h>      // Keep newer compares the two dates
+#include "lib/ufiletype.h"
+#include "lib/icon_cache.h"
 #include <errno.h>
 #include "ui/uui.h"
 #include "ui/utheme.h"
@@ -165,6 +169,12 @@ static char g_dlg_rename[PATH_MAX_LEN];
 // hundred times, which is the difference between a dialog and an
 // obstacle. Remembered for one operation and cleared when it ends.
 static int g_apply_all = -1;
+
+// THE CONFLICT CARD'S BODY: the two files side by side (ui/uui_compare.h)
+// and its "Do the same for the rest" box, which is what sets g_apply_all.
+static struct uui_compare g_cmp;
+static struct uui_item g_cmp_item = { .ops = &uui_compare_ops, .widget = &g_cmp,
+                                      .id = ID_COMPARE, .name = "compare" };
 
 static void answer_conflict(int code);   // defined with the dialog
 static void answer_dialog(int code);
@@ -2025,22 +2035,52 @@ static void on_pane_dir(void *ctx, const char *dir) {
     refresh_status();
 }
 
-// One file's facts for the dialog, so Overwrite is an informed choice
-// rather than a guess -- which is exactly what Windows and KDE both put
-// in this dialog and why.
-static void describe(char *out, int cap, const char *label, const char *path) {
+// The conflict card's pictures: each file's own thumbnail once one is
+// ready, its type's icon until then. Asked again when a thumbnail lands.
+static const struct uimg *picture_of(const char *path, int px) {
     struct sys_stat st;
-    if (sys_stat(path, &st) != 0) { snprintf(out, (size_t)cap, "%s: gone", label); return; }
-    char human[24], when[48];
-    human_size(human, sizeof human, st.size);
-    udate_format(when, sizeof when, &st.modified, UDATE_DATE | UDATE_TIME);
-    snprintf(out, (size_t)cap, "%s  %s  %s", label, human, when);
+    if (sys_stat(path, &st) != 0) return icon_get("file", px);
+    if (!st.is_dir && g_opt.folder.thumbs) {
+        struct sys_dirent e;
+        memset(&e, 0, sizeof e);
+        strlcpy(e.name, k_path_basename(path), sizeof e.name);
+        e.size = (uint32_t)st.size;
+        e.modified = st.modified;
+        char dir[PATH_MAX_LEN];
+        k_path_dirname(path, dir, sizeof dir);
+        const struct uimg *t = pane_thumb(0, dir, &e, px);
+        if (t) return t;
+    }
+    return icon_get(ufiletype_icon(k_path_basename(path), st.is_dir), px);
+}
+
+void conflict_pictures(void) {
+    if (g_dialog_kind != DIALOG_CONFLICT || !uui_dialog_is_open(&g_dialog)) return;
+    int px = ugfx_char_h() * 5;
+    uui_compare_set_picture(&g_cmp, 0, picture_of(fm_conflict_src(), px));
+    uui_compare_set_picture(&g_cmp, 1, picture_of(fm_conflict_dst(), px));
 }
 
 // Answers the worker, and remembers the answer when it was an
 // apply-to-all.
 static void answer_conflict(int code) {
     const char *src = fm_conflict_src(), *dst = fm_conflict_dst();
+    // The card's box makes this answer the rest's too. Asked before the
+    // body goes, which is also what keeps the next dialog plain.
+    if (g_dialog.body == &g_cmp_item) {   // answer_dialog() has already cleared the kind
+        if (g_cmp.rest.checked && code != DLG_CANCEL) g_apply_all = code;
+        uui_dialog_set_body(&g_dialog, NULL, 0, 0);
+    }
+    if (code == DLG_NEWER) {
+        // Replace only what is older than what is coming in: Windows'
+        // "Replace the files in the destination" with a date rule, and
+        // rsync's --update. Unreadable either side: leave it alone.
+        struct sys_stat a, b;
+        int newer = sys_stat(src, &a) == 0 && sys_stat(dst, &b) == 0 &&
+                    cal_rtc_to_epoch(&a.modified) > cal_rtc_to_epoch(&b.modified);
+        fm_conflict_answer(newer ? UFILEOP_OVERWRITE : UFILEOP_SKIP, 0);
+        return;
+    }
     switch (code) {
     case DLG_OVERWRITE_ALL: g_apply_all = DLG_OVERWRITE; /* fall through */
     case DLG_OVERWRITE:     fm_conflict_answer(UFILEOP_OVERWRITE, 0); break;
@@ -2101,22 +2141,36 @@ static void raise_conflict(struct uapp *a) {
     g_dialog_kind = DIALOG_CONFLICT;
 
     const char *src = fm_conflict_src(), *dst = fm_conflict_dst();
-    snprintf(g_dlg_rows[0], sizeof g_dlg_rows[0], "%s already exists.",
-              k_path_basename(dst));
-    describe(g_dlg_rows[1], sizeof g_dlg_rows[1], "Existing:", dst);
-    describe(g_dlg_rows[2], sizeof g_dlg_rows[2], "New:     ", src);
+    // THE TWO FILES SIDE BY SIDE (chosen from mockups 2026-10-23): what is
+    // coming in and what is there, each with its picture, size and date
+    // and a badge on the newer and the larger -- Windows' Replace or Skip
+    // card -- so the answer is read off the screen rather than recalled.
+    char sdir[PATH_MAX_LEN], ddir[PATH_MAX_LEN], cap[64];
+    k_path_dirname(src, sdir, sizeof sdir);
+    k_path_dirname(dst, ddir, sizeof ddir);
+    snprintf(g_dlg_rows[0], sizeof g_dlg_rows[0], "%s already has \"%s\".",
+             ddir[1] ? k_path_basename(ddir) : "System", k_path_basename(dst));
+    uui_compare_init(&g_cmp, "Do the same for the rest");
+    snprintf(cap, sizeof cap, "Coming in, from %s", sdir[1] ? k_path_basename(sdir) : "System");
+    uui_compare_set(&g_cmp, 0, cap, src, 0);
+    snprintf(cap, sizeof cap, "Already in %s", ddir[1] ? k_path_basename(ddir) : "System");
+    uui_compare_set(&g_cmp, 1, cap, dst, 0);
 
     static const struct uui_dialog_button btns[] = {
-        { "Overwrite",     DLG_OVERWRITE, 0 },
-        { "Overwrite all", DLG_OVERWRITE_ALL, 0 },
-        { "Skip",          DLG_SKIP, 0 },
-        { "Skip all",      DLG_SKIP_ALL, 0 },
-        { "Rename",        DLG_RENAME, 0 },
-        { "Cancel",        DLG_CANCEL, 0 },
+        { "Replace",    DLG_OVERWRITE, 0 },
+        { "Keep newer", DLG_NEWER, 0 },
+        { "Skip",       DLG_SKIP, 0 },
+        { "Keep both",  DLG_RENAME, 0 },
+        { "Cancel",     DLG_CANCEL, 0 },
     };
-    uui_dialog_open(&g_dialog, "File already exists", g_dlg_row_ptr, 3,
+    uui_dialog_open(&g_dialog, "Replace or skip", g_dlg_row_ptr, 1,
                      btns, (int)(sizeof btns / sizeof btns[0]),
                      0, DLG_CANCEL);
+    int bw, bh;
+    uui_compare_ops.natural_size(&g_cmp, &bw, &bh);
+    g_dialog.body_full = 1;
+    uui_dialog_set_body(&g_dialog, &g_cmp_item, bw, bh);
+    conflict_pictures();   // once it is open: a thumbnail landing asks again
     uapp_redraw(a);
 }
 
@@ -2149,7 +2203,7 @@ static int on_user(struct uapp *a, int a0, int a1) {
     }
     if (a0 == POST_THUMB) {
         int got = thumb_posted();
-        if (got) delete_picture();   // the delete card may be waiting on it
+        if (got) { delete_picture(); conflict_pictures(); }   // a card may be waiting on it
         return got;
     }
     return 0;

@@ -83,6 +83,7 @@
 #define ID_SCOPE    22  // the search strip's Look in switch
 #define ID_SEARCH_STOP 23
 #define ID_NETBAR   24  // "Opened for this session" + Save to Network (fm_network.c)
+#define ID_COMPARE  25  // the conflict card's two files and its "the rest" box (files.c)
 
 // The commands, shared by the menu bar, the toolbar, the context menu
 // and the function keys -- one code per act, so those four cannot
@@ -158,6 +159,7 @@ enum {
     DLG_OVERWRITE = 1, DLG_OVERWRITE_ALL, DLG_SKIP, DLG_SKIP_ALL,
     DLG_RENAME, DLG_RENAME_ALL, DLG_CANCEL,
     DLG_DELETE, DLG_OK,
+    DLG_NEWER,   // the conflict's Keep newer: replace when the incoming file is newer, else skip
 };
 enum dialog_kind { DIALOG_NONE, DIALOG_CONFLICT, DIALOG_DELETE, DIALOG_PROMPT, DIALOG_NETSHARE,
                    DIALOG_COMPRESS };
@@ -380,7 +382,8 @@ void do_drop(struct uui_fileview *src, const char *dest, int copy);
 // A drop from ANOTHER window: the files are in the drag slot (lib/uclip.h).
 void do_drop_extern(const char *dest, int copy);
 void do_delete(int forever); // asks (or not, per Options); commit_delete() acts
-void delete_picture(void);   // the delete card's picture, again (a thumbnail landed)
+void delete_picture(void);
+void conflict_pictures(void);   // the conflict card's, again (files.c)   // the delete card's picture, again (a thumbnail landed)
 void commit_delete(void);
 void do_empty_bin(void);  // asks, then purges every bin
 

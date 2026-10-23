@@ -173,6 +173,7 @@ class Layout:
         self.groups = None    # (group_by, [caption, ...]) of the active pane
         self.lcols = {}       # left pane's details column -> [x, y, w, h] (uui_table's describe)
         self.lcolumns = None  # ...and its choosable layout string, when it has one
+        self.compare = {}     # the conflict card's facts: side0/side1/rest/rest_checked
         self.dpane = None     # is the details pane shown
         self.pathedit = None  # is the breadcrumb being typed in
         self.pathseg = {}     # breadcrumb segment (0 = the root) -> [x, y, w, h]
@@ -288,6 +289,8 @@ class Layout:
             self.popitems[int(p[2])] = [int(v) for v in p[3:7]]
         elif p[0] == "ctxmenu.item" and len(p) >= 7 and p[1] == "1":
             self.popitems1[int(p[2])] = [int(v) for v in p[3:7]]
+        elif p[0].startswith("compare.") and len(p) >= 2:
+            self.compare[p[0][len("compare."):]] = p[1:]
         elif p[0] == "left.col" and len(p) >= 6:
             self.lcols[int(p[1])] = [int(v) for v in p[2:6]]
         elif p[0] == "left.columns" and len(p) >= 2:
@@ -2307,8 +2310,9 @@ def run(dbg, qmp, tmp, res):
     # sentinel as a decision and overwrote the file while the dialog was
     # still on screen. Each answer is checked by what is on disk after
     # it, read with `ls`.
-    # Overwrite, Overwrite all, Skip, Skip all, Rename, Cancel.
-    DLG_BUTTONS = 6
+    # Replace, Keep newer, Skip, Keep both, Cancel -- with "Do the same
+    # for the rest" a box on the card rather than three more buttons.
+    DLG_BUTTONS = 5
     steps = []
 
     def setup_conflict(dst_bytes):
@@ -2409,10 +2413,10 @@ def run(dbg, qmp, tmp, res):
               size_of(dbg, f"{CLIP}/dst", "one.txt") == size_of(dbg, "/etc", "resolv.conf"),
               "the destination must be untouched while the question is open")
 
-    # Rename -> "one (1).txt", the number before the extension.
-    picked = pick_button(win, lay, 4)
+    # Keep both -> "one (1).txt", the number before the extension.
+    picked = pick_button(win, lay, 3)
     got = wait_listing(dbg, f"{CLIP}/dst", lambda n: len(n) > 1)
-    res.check("Rename keeps both, numbering before the extension",
+    res.check("Keep both numbers the copy before the extension",
               sorted(got) == ["one (1).txt", "one.txt"],
               f"dst={sorted(got)} committed button {picked} "
               f"trace={[l.strip() for l in dbg.logs('files: conflict')][-3:]}")
@@ -2428,13 +2432,13 @@ def run(dbg, qmp, tmp, res):
               f"dst={names(f'{CLIP}/dst')} size {was} -> "
               f"{size_of(dbg, f'{CLIP}/dst', 'one.txt')}")
 
-    # Overwrite replaces the CONTENT -- by size, since a copy that made
+    # Replace replaces the CONTENT -- by size, since a copy that made
     # an empty file passes any check that only looks at the listing.
     win, lay = setup_conflict("/etc/resolv.conf")
     src_size = size_of(dbg, CLIP, "one.txt")
-    pick_button(win, lay, 0)                  # Overwrite is the default
+    pick_button(win, lay, 0)                  # Replace is the default
     time.sleep(2.5)
-    res.check("Overwrite replaces the destination's CONTENT",
+    res.check("Replace replaces the destination's CONTENT",
               size_of(dbg, f"{CLIP}/dst", "one.txt") == src_size,
               f"dst is {size_of(dbg, f'{CLIP}/dst', 'one.txt')}B, source is {src_size}B")
 

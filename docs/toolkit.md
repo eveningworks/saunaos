@@ -175,6 +175,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_clip.h` | uui_clip -- one child, drawn and clickable only inside a VIEWPORT the caller names: a panel placed in a scrolling pane that is not itself a uui_scrollview (Device Manager's uui_props), so it scroll... |
 | `uui_colourfield.h` | uui_colourfield -- PICKING A COLOUR BY EYE: a square of saturation (left to right) and brightness (top to bottom) at one hue, or the hue strip under it -- GTK's custom colour editor, KDE's and Krit... |
 | `uui_colourpick.h` | uui_colourpick -- ONE COLOUR, picked: by eye on a saturation and brightness square over a hue strip (ui/uui_colourfield.h), or exactly in a hex field and R, G and B fields, all following each other. |
+| `uui_compare.h` | THE TWO FILES OF A NAME CONFLICT, SIDE BY SIDE -- a dialog's body: what is coming in and what is already there, each with its picture, size and date, a badge on the side that is NEWER and the one t... |
 | `uui_confetti.h` | A CONFETTI BURST: pieces thrown up from a point, tumbling and falling under gravity, fading out at the end -- what a game shows when it is won (Microsoft Minesweeper, Google's, a Solitaire cascade'... |
 | `uui_ctxmenu.h` | uui_ctxmenu -- a WIDGET'S OWN right-click menu, hosted by uapp: a table header's column chooser is the first. |
 | `uui_describe.h` | uui_describe.h -- a widget REPORTS ITS OWN GEOMETRY, by name. |
