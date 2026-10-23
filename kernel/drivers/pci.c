@@ -4,6 +4,7 @@
 #include "pci_internal.h"
 #include "io.h"
 #include "klog.h"
+#include "kfmt.h"   // klog_printf
 #include "bootstage.h"
 #include "knum.h"
 #include "heap.h"
