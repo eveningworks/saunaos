@@ -8,6 +8,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include "lib/uconf.h"
+#include "lib/umd.h"
 #include "query_abi.h"
 #include "rt/sys.h"
 
@@ -219,4 +220,66 @@ char *w16_short_title(const char *d) {
             break;
         }
     return t;
+}
+
+// --- what a call is ---------------------------------------------------------------
+
+static char *slurp(const char *path, int *len) {
+    FILE *f = fopen(path, "rb");
+    if (!f) return 0;
+    char *t = 0;
+    size_t n = 0, cap = 0, got;
+    do {
+        if (n + 4096 > cap) {
+            char *g = realloc(t, cap = cap * 2 + 8192);
+            if (!g) { free(t); fclose(f); return 0; }
+            t = g;
+        }
+        got = fread(t + n, 1, cap - n, f);
+        n += got;
+    } while (got);
+    fclose(f);
+    *len = (int)n;
+    return t;
+}
+
+static char *section_of(const char *path, const char *key, int *len) {
+    int n = 0, off = 0, size = 0;
+    char *doc = slurp(path, &size);
+    if (doc) n = umd_section_find(doc, size, key, &off);
+    if (!n) { free(doc); return 0; }
+    memmove(doc, doc + off, (size_t)n);
+    *len = n;
+    return doc;
+}
+
+char *w16_call_doc(const char *key, const char *name, const char *kind, int *len, int *from) {
+    char *s = section_of(W16_CALLS_DOC, key, len);
+    *from = W16_DOC_CALLS;
+    if (s) return s;
+    *from = W16_DOC_MISSING;
+    if ((s = section_of(W16_MISSING_DOC, key, len))) return s;
+    *from = W16_DOC_MADE;
+    int named = name && name[0] && strcmp(name, "?");
+    char module[16] = "";
+    snprintf(module, sizeof module, "%.*s", (int)strcspn(key, "."), key);
+    size_t cap = 1024;
+    if (!(s = malloc(cap))) return 0;
+    int k = snprintf(s, cap, "## %s %s\n\n**Not there yet:** a program that makes this call stops with "
+                     "Application Error, naming it.\n\n", key, named ? name : "");
+    if (named) {
+        int kinded = kind && kind[0] && strcmp(kind, "?");
+        k += snprintf(s + k, cap - (size_t)k, "### What Windows 3.1 does\n\nNo description is written for "
+                      "this call yet%s%s%s%s%s.\n\n### Why it is not there\n\nNo program run under w16 so far "
+                      "has needed it, and none of Windows 3.11's own programs imports it.\n",
+                      kinded ? "; it is one of " : "", kinded ? module : "", kinded ? "'s " : "",
+                      kinded ? kind : "", kinded ? " calls" : "");
+    } else
+        k += snprintf(s + k, cap - (size_t)k, "### What it is\n\nw16 knows no name for this export of %s. "
+                      "When %s is a DLL of the program's own, its calls are that DLL's, and w16 runs them "
+                      "once it finds %s.DLL beside the program, or in C:\\WINDOWS\\SYSTEM or C:\\WINDOWS. "
+                      "One of Windows' own modules has no export by this number in Wine's list of them.\n",
+                      module, module, module);
+    *len = k < (int)cap ? k : (int)cap - 1;
+    return s;
 }

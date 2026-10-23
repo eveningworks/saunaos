@@ -11983,6 +11983,19 @@ CLAUDE.md gives for preferring facts that cannot go stale: a description
 beside the code it describes is read whenever the code is, and changed in
 the same diff; a page elsewhere is changed when someone remembers.
 
+**The calls w16 does NOT answer were added 2026-10-23, in the same
+shape, in `userland/w16/missing16.c`** -- a C file with no code, beside
+the handlers, so implementing a call moves its block a few lines rather
+than across formats (the generator refuses a block left behind for a
+call an API table now answers). Rather than all of the roughly 1,680
+missing exports Wine's spec names, the blocks cover the 431 that Windows
+3.11's own 225 programs and DLLs import, measured over them; any other
+missing call gets a card made of what w16 knows (its kind, or that an
+export with no name is a DLL's own), so the What? cell never opens on
+nothing. Many of the 431 are Windows' internals -- USER's calls into
+KERNEL, a driver's into GDI -- which a program never makes; saying so is
+the explanation.
+
 **Why not the obvious hand-written page.** The stand-ins page shipped
 first as hand-written Markdown (9410a0a8) -- 18 sections, fine at that
 size. At 285, a page apart from the code is a second copy of every

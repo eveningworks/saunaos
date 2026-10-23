@@ -17,6 +17,9 @@
 // Each call w16 answers, a section per call ("## USER.121 ..."), generated from
 // the comments above its handler (tools/gen_w16_calls.py)
 #define W16_CALLS_DOC   "/usr/share/doc/windows/calls.md"
+// ...and each call it does NOT answer that Windows 3.11's own programs import
+// (userland/w16/missing16.c)
+#define W16_MISSING_DOC "/usr/share/doc/windows/missing.md"
 #define W16_STATE_DIR   "/var/lib/win16"
 #define W16_PATH_MAX    128
 
@@ -114,5 +117,14 @@ int w16_prefs_auto_q(void);
 
 // The version words: what GetVersion's AX and the DOS version answer.
 uint16_t w16_prefs_winver(const struct w16_prefs *p);
+
+// What a call is, as Markdown, for Retro Launcher's About, Why? and What?
+// and `w16 --why`: `key` ("USER.161")'s section of the calls page, else of
+// the missing calls' page, else a card of what is known -- `name` and
+// `kind` (either NULL or "?" when not known). Allocated; *len its length;
+// *from W16_DOC_CALLS, W16_DOC_MISSING or W16_DOC_MADE. NULL only out of
+// memory. A sandboxed caller unveils both pages first.
+enum { W16_DOC_MADE, W16_DOC_CALLS, W16_DOC_MISSING };
+char *w16_call_doc(const char *key, const char *name, const char *kind, int *len, int *from);
 
 #endif

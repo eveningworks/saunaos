@@ -80,7 +80,9 @@ struct prog {
     int partly;                      // ...this many of it
     struct partly *part;             // by note, `npart` of them
     int npart;
-    char *missing[MISSING_SHOWN];
+    char *missing[MISSING_SHOWN];    // what the panel says: the name, else "USER.150"
+    char *mkey[MISSING_SHOWN];       // ...and for its What?: "USER.150", its name, its kind
+    char *mname[MISSING_SHOWN], *mkind[MISSING_SHOWN];
     int nmissing;
     uint32_t icon[32 * 32];
     int iw, ih;
@@ -144,7 +146,9 @@ static const char *str(const char *s) { return s ? s : ""; }
 
 static void prog_free(struct prog *p) {
     free(p->path); free(p->name); free(p->title); free(p->module); free(p->last_text); free(p->foreign);
-    for (int i = 0; i < p->nmissing; i++) free(p->missing[i]);
+    for (int i = 0; i < p->nmissing; i++) {
+        free(p->missing[i]); free(p->mkey[i]); free(p->mname[i]); free(p->mkind[i]);
+    }
     for (int i = 0; i < p->npart; i++) {
         free(p->part[i].names); free(p->part[i].note); free(p->part[i].key); free(p->part[i].first);
     }
@@ -242,13 +246,16 @@ static void check(struct prog *p) {
         } else if (!strncmp(line, "call missing ", 13)) {
             if (p->nmissing < MISSING_SHOWN) {
                 // "call missing USER.150 LoadMenu Menus": the name, else USER.150
+                int i = p->nmissing++;
                 char *imp = line + 13, *name = strchr(imp, ' ');
                 char *end = name ? strchr(name + 1, ' ') : 0;
+                p->missing[i] = p->mkey[i] = p->mname[i] = p->mkind[i] = 0;
+                set_str(&p->mkind[i], end ? end + 1 : "");
                 if (end) *end = 0;
-                if (name && name[1] != '?') imp = name + 1;
-                else if (name) *name = 0;
-                p->missing[p->nmissing] = 0;
-                set_str(&p->missing[p->nmissing++], imp);
+                if (name) *name++ = 0;
+                set_str(&p->mkey[i], imp);
+                set_str(&p->mname[i], name ? name : "?");
+                set_str(&p->missing[i], name && name[0] != '?' ? name : imp);
             }
         } else if (!strncmp(line, "icon ", 5)) {
             int w = 0, h = 0;
@@ -1318,9 +1325,17 @@ static void line(struct ugfx_surface *s, int x, int *y, int w, const char *t, ui
 static int g_dd_y[NSET], g_ddc_y;
 static struct uui_stackbar g_bar;            // works, partly, missing
 
-// Each "Partly there" row's Why? link, where it was last drawn: one x
-// span, a y per row (allocated to the rows); the press that armed one.
-static int g_why_x, g_why_w, *g_why_y, g_why_n, g_why_armed = -1;
+// Each "Partly there" row's Why? link and each "Missing:" line's What?,
+// where they were last drawn: an x span for each word, a y per link
+// (allocated: the stand-ins' first, then the missing calls'); the press
+// that armed one.
+static int g_why_x, g_why_w, g_what_x, g_what_w, *g_why_y, g_why_n, g_why_armed = -1;
+
+static void draw_link(struct ugfx_surface *s, int x, int y, int w, const char *word, int armed) {
+    uint32_t link = armed ? UTHEME_TEXT : UTHEME_ACCENT;
+    ugfx_draw_string_clipped(s, x, y, w, word, link, UTHEME_PANEL_BG);
+    ugfx_fill_rect(s, x, y + ugfx_char_h() - 1, w, 1, link);
+}
 
 // THE PANEL SCROLLS ABOVE A FOOTER that holds Run and the calls button --
 // the "Retro Launcher details scroll" canvas's B. It is drawn by hand, its
@@ -1348,6 +1363,7 @@ static void draw_details(struct ugfx_surface *s, const struct prog *p, int x, in
     int pad = ugfx_char_w(), lh = ugfx_char_h(), y = y0;
     uint32_t dim = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
     char t[160];
+    g_why_n = 0;                                 // no links until this program's are drawn
     bold_line(s, x, &y, w, str(p->name), UTHEME_TEXT);
     line(s, x, &y, w, p->path, dim);
     if (p->ok) {
@@ -1370,26 +1386,28 @@ static void draw_details(struct ugfx_surface *s, const struct prog *p, int x, in
         g_bar.x = x; g_bar.y = y; g_bar.w = w; g_bar.h = bh;
         uui_stackbar_draw(s, &g_bar);
         y += bh + lh / 2;
+        int *gy = realloc(g_why_y, sizeof *g_why_y * (size_t)(p->npart + p->nmissing + 1));
+        if (gy) g_why_y = gy;
+        g_why_n = gy ? p->npart + p->nmissing : 0;
+        g_what_w = ugfx_text_width("What?");
+        g_what_x = x + w - g_what_w;
         for (int i = 0; i < p->nmissing; i++) {
             snprintf(t, sizeof t, "Missing: %s%s", str(p->missing[i]),
                      i == p->nmissing - 1 && missing > p->nmissing ? ", ..." : "");
-            line(s, x, &y, w, t, dim);
+            if (p->npart + i < g_why_n) g_why_y[p->npart + i] = y;
+            draw_link(s, g_what_x, y, g_what_w, "What?", g_why_armed == p->npart + i);
+            line(s, x, &y, w - g_what_w - pad, t, dim);
         }
         // What w16 answers without doing, every one: the panel scrolls.
         if (p->npart) {
             y += lh / 3;
             bold_line(s, x, &y, w, "Partly there", utheme_action(UTHEME_ACT_EDIT));
             int nw = w * 2 / 5, ww = ugfx_text_width("Why?");
-            int *gy = realloc(g_why_y, sizeof *g_why_y * (size_t)p->npart);
-            if (gy) g_why_y = gy;
-            g_why_n = gy ? p->npart : 0;
             g_why_x = x + w - ww;
             g_why_w = ww;
             for (int i = 0; i < p->npart; i++) {
                 bold_line(s, x, &(int){ y }, nw - pad, str(p->part[i].names), UTHEME_TEXT);
-                uint32_t link = g_why_armed == i ? UTHEME_TEXT : UTHEME_ACCENT;
-                ugfx_draw_string_clipped(s, g_why_x, y, ww, "Why?", link, UTHEME_PANEL_BG);
-                ugfx_fill_rect(s, g_why_x, y + lh - 1, ww, 1, link);
+                draw_link(s, g_why_x, y, ww, "Why?", g_why_armed == i);
                 if (i < g_why_n) g_why_y[i] = y;
                 line(s, x + nw, &y, w - nw - ww - pad, str(p->part[i].note), dim);
             }
@@ -1488,12 +1506,15 @@ static int ps_hit(const void *w, int cx, int cy) {
     (void)w;
     return cx >= g_px && cx < g_px + g_pw && cy >= view_y() && cy < view_y() + view_h();
 }
-// The "Partly there" row whose Why? is at (cx, cy), or -1.
+// The link at (cx, cy) -- a "Partly there" row's Why? (its index), a
+// "Missing:" line's What? (npart + its index) -- or -1.
 static int why_at(int cx, int cy) {
     const struct prog *p = cur();
-    if (!p || cx < g_why_x || cx >= g_why_x + g_why_w || cy < view_y() || cy >= view_y() + view_h()) return -1;
-    for (int i = 0; i < g_why_n && i < p->npart; i++)
-        if (cy >= g_why_y[i] - 2 && cy < g_why_y[i] + ugfx_char_h() + 2) return i;
+    if (!p || cy < view_y() || cy >= view_y() + view_h()) return -1;
+    for (int i = 0; i < g_why_n && i < p->npart + p->nmissing; i++) {
+        int x = i < p->npart ? g_why_x : g_what_x, w = i < p->npart ? g_why_w : g_what_w;
+        if (cx >= x && cx < x + w && cy >= g_why_y[i] - 2 && cy < g_why_y[i] + ugfx_char_h() + 2) return i;
+    }
     return -1;
 }
 
@@ -1517,12 +1538,16 @@ static int ps_release(void *w, int cx, int cy) {
     int armed = g_why_armed;
     g_why_armed = -1;
     const struct prog *p = cur();
-    if (armed >= 0 && p && armed < p->npart && why_at(cx, cy) == armed) {
-        const struct partly *q = &p->part[armed];
+    if (armed >= 0 && p && armed < p->npart + p->nmissing && why_at(cx, cy) == armed) {
+        int part = armed < p->npart;
+        const char *key = part ? p->part[armed].key : p->mkey[armed - p->npart];
         char module[16];
-        const char *dot = strchr(q->key, '.');
-        snprintf(module, sizeof module, "%.*s", dot ? (int)(dot - q->key) : 0, q->key);
-        if (dot) retro_why_open(g_app, module, (unsigned)strtoul(dot + 1, 0, 10), q->first, 1);
+        const char *dot = strchr(str(key), '.');
+        snprintf(module, sizeof module, "%.*s", dot ? (int)(dot - key) : 0, str(key));
+        if (dot && part) retro_why_open(g_app, module, (unsigned)strtoul(dot + 1, 0, 10), p->part[armed].first, 0,
+                                        RETRO_CALL_PARTLY);
+        else if (dot) retro_why_open(g_app, module, (unsigned)strtoul(dot + 1, 0, 10), p->mname[armed - p->npart],
+                                     p->mkind[armed - p->npart], RETRO_CALL_MISSING);
         return 1;
     }
     return uui_sbar_release(&g_psb) != 0 || armed >= 0;
@@ -1721,10 +1746,16 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     ugfx_fill_rect(s, 0, g_py - 1, s->w, 1, UTHEME_SEPARATOR);
     ugfx_fill_rect(s, g_side.w, g_py, 1, g_ph, UTHEME_SEPARATOR);
     uapp_log_layout(a, "retrolauncher");
-    // Each Why? link, for a test to click (it is drawn, not a widget).
-    for (int i = 0; g_panel && i < g_why_n; i++)
-        uapp_logf_layout("retrolauncher: layout why %d %d %d %d %d\n", i, g_why_x, g_why_y[i], g_why_w,
-                         ugfx_char_h());
+    // Each Why? and What? link, for a test to click (they are drawn, not widgets).
+    const struct prog *lp = cur();
+    for (int i = 0; g_panel && lp && i < g_why_n; i++) {
+        if (i < lp->npart)
+            uapp_logf_layout("retrolauncher: layout why %d %d %d %d %d\n", i, g_why_x, g_why_y[i], g_why_w,
+                             ugfx_char_h());
+        else
+            uapp_logf_layout("retrolauncher: layout what %d %d %d %d %d\n", i - lp->npart, g_what_x, g_why_y[i],
+                             g_what_w, ugfx_char_h());
+    }
 }
 
 // --- input --------------------------------------------------------------------------

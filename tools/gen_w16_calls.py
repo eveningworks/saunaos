@@ -23,8 +23,16 @@ Comment text above the first signature is the code's own and not shown.
 KERNEL's constants (module16.c's KERNEL_EQUATES) are documented the same
 way in the block above that table, with `// __AHSHIFT = 3` signatures.
 
+A call w16 does NOT answer may have a block in userland/w16/missing16.c,
+which holds no code: `// MODULE.ORD Name(args) -> T`, then `Windows:`,
+`Why:` (why it is not there) and `By:` (which of Windows 3.11's own
+programs and DLLs import it). A `Why:` naming another missing call ("As
+OpenComm.") is shown with that call's reason after it, so a section read
+alone still says why. A block for a call that has since been implemented
+is refused: its text moves onto the new handler.
+
     python3 tools/gen_w16_calls.py --check        # every call documented? (check_docs.py runs it)
-    python3 tools/gen_w16_calls.py -o DIR         # write DIR/calls.md and DIR/stand-ins.md
+    python3 tools/gen_w16_calls.py -o DIR         # write DIR/calls.md, stand-ins.md and missing.md
     python3 tools/gen_w16_calls.py --missing      # the calls still without a block, by file
 
 The pages ship in /usr/share/doc/windows/: Help and `doc` read them whole,
@@ -43,6 +51,9 @@ FIELDS = {"Windows": "What Windows 3.1 does", "w16": "What w16 does", "Why": "Wh
 STANDIN_FIELDS = ("Why", "Notice", "Whole")
 SIG = re.compile(r"^(__\w+|[A-Za-z_]\w*)(\(.*\)( -> .*)?| = .*)$")
 FIELD = re.compile(r"^(Windows|w16|Why|Notice|Whole): ?(.*)$")
+MISSING_FILE = "userland/w16/missing16.c"
+MISSING_SIG = re.compile(r"^([A-Z0-9_]+)\.(\d+) ((__\w+|[A-Za-z_]\w*)(\(.*\)( -> .*)?| = .*))$")
+MISSING_FIELD = re.compile(r"^(Windows|Why|By): ?(.*)$")
 
 
 def read(rel):
@@ -220,6 +231,86 @@ def collect():
     return docs, part, problems
 
 
+def missing_blocks():
+    """{(MODULE, ordinal): (name, sig, {field: text}, line)} from missing16.c, and its problems."""
+    nm = names()
+    tabled = {(m, o) for m, o, _ in entries()} | {("KERNEL", o) for o, _ in equates()[0]}
+    out, problems, cur, field = {}, [], None, None
+    if not os.path.exists(os.path.join(REPO, MISSING_FILE)):
+        return out, problems
+    for i, raw in enumerate(read(MISSING_FILE).split("\n"), 1):
+        t = raw.strip()
+        if not t.startswith("//"):
+            cur = field = None
+            continue
+        t = t[2:].strip()
+        m = MISSING_SIG.match(t)
+        if m:
+            key = (m.group(1), int(m.group(2)))
+            name = m.group(4)
+            where = f"{MISSING_FILE}:{i}: {key[0]}.{key[1]}"
+            if key in out:
+                problems.append(f"{where} has two blocks")
+            elif nm.get(key, "").lower() != name.lower():
+                problems.append(f"{where} is {nm.get(key, 'no export')} in w16_names.c, not {name}")
+            elif key in tabled:
+                problems.append(f"{where} {name} is answered now: move its block onto its handler")
+            cur = key
+            out[key] = (nm.get(key, name), m.group(3), {}, i)
+            field = None
+            continue
+        if cur is None:
+            continue
+        f = MISSING_FIELD.match(t)
+        if f:
+            field = f.group(1)
+            out[cur][2][field] = f.group(2)
+        elif field and t:
+            out[cur][2][field] += " " + t
+    for key, (name, _, fields, line) in out.items():
+        for f in ("Windows", "Why", "By"):
+            if not fields.get(f):
+                problems.append(f"{MISSING_FILE}:{line}: {key[0]}.{key[1]} {name} has no `{f}:` field")
+    return out, problems
+
+
+def missing_section(key, blocks):
+    name, sig, fields, _ = blocks[key]
+    why = fields["Why"]
+    paras = [why]
+    # "As OpenComm." -- the named call's own reason, so the section stands alone
+    by_name = {v[0].lower(): k for k, v in blocks.items() if k[0] == key[0]}
+    m = re.search(r"\b[Aa]s (\w+)", why)
+    ref = by_name.get(m.group(1).lower()) if m else None
+    if ref and ref != key:
+        paras.append(f"*{blocks[ref][0]}:* {blocks[ref][2]['Why']}")
+    out = [f"## {key[0]}.{key[1]} {name}", "", "```", sig, "```", "",
+           "**Not there yet:** a program that makes this call stops with Application Error, naming it.", "",
+           "### What Windows 3.1 does", "", fields["Windows"], "", "### Why it is not there", ""]
+    for p in paras:
+        out += [p, ""]
+    out += ["### Who calls it", "", f"Windows 3.11's own programs and DLLs that import it: {fields['By']}.", ""]
+    return out
+
+
+INTRO_MISSING = """# Calls w16 does not answer yet
+
+**Category:** Windows programs
+
+## Description
+
+`w16` runs a Windows 3.x program by answering the Windows calls it
+makes. A program that makes a call w16 does not answer yet stops with
+Windows' Application Error, naming the call. The sections below are the
+missing calls that Windows 3.11's own programs and DLLs import: what
+Windows 3.1 did, why w16 does not do it yet, and who calls it. Many are
+Windows' own internals -- calls USER, GDI and the drivers make of each
+other, which a program never makes. Retro Launcher's **What?** shows one
+section, and so does `w16 --why CALL`; a missing call with no section
+here is shown with what is known of it.
+"""
+
+
 def section(key, doc, part):
     name, sig, fields, path, fn = doc
     mod, ordn = key
@@ -277,8 +368,12 @@ answers* (`doc calls`).
 """
 
 
-def write(out_dir, docs, part):
+def write(out_dir, docs, part, missing):
     os.makedirs(out_dir, exist_ok=True)
+    with open(os.path.join(out_dir, "missing.md"), "w", encoding="utf-8") as f:
+        f.write(INTRO_MISSING)
+        for k in sorted(missing):
+            f.write("\n" + "\n".join(missing_section(k, missing)))
     keys = sorted(docs)
     with open(os.path.join(out_dir, "calls.md"), "w", encoding="utf-8") as f:
         f.write(INTRO_CALLS)
@@ -293,12 +388,13 @@ def write(out_dir, docs, part):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("-o", "--out", help="write calls.md and stand-ins.md here")
+    ap.add_argument("-o", "--out", help="write calls.md, stand-ins.md and missing.md here")
     ap.add_argument("--check", action="store_true", help="fail on a call without its block")
     ap.add_argument("--missing", action="store_true", help="list the calls without a block, by file")
     args = ap.parse_args()
     docs, part, problems = collect()
-    problems = problems + unsorted_tables()
+    missing, mproblems = missing_blocks()
+    problems = problems + unsorted_tables() + mproblems
     if args.missing:
         for p in sorted(problems):
             print(p)
@@ -309,10 +405,12 @@ def main():
             print(f"gen_w16_calls: {p}", file=sys.stderr)
         return 1
     if args.out:
-        write(args.out, docs, part)
-        print(f"gen_w16_calls: {len(docs)} calls, {len(part)} of them stand-ins -> {args.out}")
+        write(args.out, docs, part, missing)
+        print(f"gen_w16_calls: {len(docs)} calls, {len(part)} of them stand-ins, {len(missing)} missing "
+              f"explained -> {args.out}")
     elif args.check:
-        print(f"gen_w16_calls: ok -- {len(docs)} calls documented, {len(part)} stand-ins explained")
+        print(f"gen_w16_calls: ok -- {len(docs)} calls documented, {len(part)} stand-ins explained, "
+              f"{len(missing)} missing calls explained")
     return 0
 
 

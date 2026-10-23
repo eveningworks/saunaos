@@ -6161,7 +6161,12 @@ its three. **Write `Windows:` in your own words** -- never Microsoft's
 documentation's -- and `w16:` as what the CODE does, read from it: a
 promise the handler does not keep is worse than none. A trap the code
 needs still goes above the signature, as a comment of its own; the
-generator shows only the block. When a handler changes what it does, its
+generator shows only the block. **A call w16 does not answer** may have
+a block in `userland/w16/missing16.c` -- `// MODULE.ORD Name(args) -> T`,
+`Windows:`, `Why:` (why it is not there), `By:` (which of Windows 3.11's
+own programs import it) -- generated into `missing.md`, Retro Launcher's
+What?; **implementing a call moves its block onto the handler**, as
+`Windows:` and `w16:`, and the generator refuses one left behind. When a handler changes what it does, its
 `w16:` line changes in the same commit, and a stand-in made whole leaves
 `PARTLY` and loses its three fields together (`--check`'s Partly and the
 page then agree).

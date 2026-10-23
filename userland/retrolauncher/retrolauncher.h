@@ -35,11 +35,14 @@ void retro_sounds_load(int mode);
 void retro_sounds_mode(int mode);
 void retro_sounds_play(int row);
 
-// About and Why? on a call (why.c): its section of W16_CALLS_DOC in a
-// uui_docdialog, titled by `name` -- "partly there" for a stand-in.
-// `module` is w16's ("USER").
+// About, Why? and What? on a call (why.c): what w16_call_doc() says of it
+// in a uui_docdialog, titled by `name` -- "partly there" for a stand-in,
+// "not there yet" for a missing call. `module` is w16's ("USER"); `kind`
+// the KIND column's, or NULL.
+enum { RETRO_CALL_WORKS, RETRO_CALL_PARTLY, RETRO_CALL_MISSING };
 struct uapp;
-void retro_why_open(struct uapp *a, const char *module, unsigned ordinal, const char *name, int partly);
+void retro_why_open(struct uapp *a, const char *module, unsigned ordinal, const char *name, const char *kind,
+                    int status);
 
 // The window listing what `path` imports: `retrolauncher --calls PATH`.
 int retro_calls_main(const char *path);

@@ -2154,8 +2154,12 @@ window without going through it will find its layout polls timing out.
   `Windows:`, `w16:`, and for a stand-in (`task16.c`'s `PARTLY`) `Why:`,
   `Notice:`, `Whole:` -- Wine's c2man shape. Help reads the pages whole;
   Retro Launcher's About and Why? and `w16 --why` show one call's section.
+  It also writes `missing.md` from `userland/w16/missing16.c`'s blocks for
+  calls w16 does NOT answer (`Windows:`, `Why:`, `By:`), a `Why:` that
+  names another such call ("As OpenComm.") followed by that call's reason.
   It FAILS the build on a call without its block, a stand-in without its
-  three fields, or a non-stand-in with them; `--check` is what
+  three fields, a non-stand-in with them, or a missing-call block for a
+  call that is answered now, or whose name is not w16_names.c's; `--check` is what
   `check_docs.py` runs, `--missing` lists every problem by file and line.
   The table-to-module map is read from `task16.c`'s `w16_has()` and the
   names from `w16_names.c`, so a new table or module needs no edit here.

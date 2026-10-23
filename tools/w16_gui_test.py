@@ -71,8 +71,10 @@ file is involved.
 14. **Why?** on a stand-in: IsIconic's cell in fault.exe's calls window
    and its link in the details panel each open "IsIconic - partly there"
    with its section of the calls page, and a working call's About opens
-   "<name> - about"; a Missing row's empty cell opens nothing; `w16 --why
-   USER.31` prints its section and `--why USER.7` is refused.
+   "<name> - about"; a Missing row's What? opens "<name> - not there yet"
+   with its section of the missing calls' page, and so does the panel's
+   What? link; `w16 --why` prints a stand-in's section, a missing call's,
+   and the made-up card for a missing call with no text or no name.
 
 15. **The coprocessor** (fpu.exe, cpu16_x87.c + win87em16.c): with _fpMath's
    control word, 1/0 and sqrt(-1) each reach the program's handler once,
@@ -1045,6 +1047,7 @@ def wait_calls(dbg, pred, t=8.0):
 
 
 WHY_TITLE = "IsIconic - partly there"
+MISSING_TITLE = "ExitWindows - not there yet"
 
 
 def why_link(dbg, res):
@@ -1072,6 +1075,22 @@ def why_link(dbg, res):
                   WHY_TITLE in titles and any(ln.endswith("why USER.31 shown") for ln in why),
                   f"windows {titles} log {why}")
         dbg.close_window(WHY_TITLE)
+    # ...and the "Missing:" line's What? beside ExitWindows, its explanation too.
+    dbg.logs("retrolauncher:", clear=True)
+    dbg.send("gui resize 1200 701")              # a fresh frame, so its layout is reported again
+    lines = layout_lines(dbg, "retrolauncher", lambda a: layout_rect(a, "what 0") is not None)
+    r, win = layout_rect(lines, "what 0"), dbg.window("Retro Launcher")
+    if not r or not win:
+        res.check("the panel reports ExitWindows's What? link", False, f"{r} {win}")
+    else:
+        dbg.logs("retrolauncher:", clear=True)
+        dbg.click(win["content"]["x"] + r[0] + r[2] // 2, win["content"]["y"] + r[1] + r[3] // 2)
+        titles = wait_titles(dbg, lambda t: MISSING_TITLE in t)
+        why = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": why " in ln]
+        res.check("the panel's What? beside ExitWindows opens its explanation",
+                  MISSING_TITLE in titles and any(ln.endswith("why USER.7 shown") for ln in why),
+                  f"windows {titles} log {why}")
+        dbg.close_window(MISSING_TITLE)
     dbg.close_window("Retro Launcher")
 
 
@@ -1166,20 +1185,29 @@ def calls(dbg, res):
     dbg.send("gui key 0x03")
     lay = wait_calls(dbg, lambda l: l.get("copied", -1) >= 0)
     res.check("Ctrl+C copies the rows shown", lay.get("copied") == 1, f"copied {lay.get('copied')}")
-    # ExitWindows's row (Missing) has no Why?: its cell opens nothing. The
-    # table has not moved since its Why? column was read above.
+    # ExitWindows's row (Missing): its What? opens its section of the missing
+    # calls' page. The table has not moved since its Why? column was read above.
     if col and rh and hh:
         dbg.logs("retrolauncher:", clear=True)
         dbg.click(cx + col[0] + col[2] // 3, cy + col[1] + hh + rh // 2)
-        dbg.settle(0.6)
+        titles = wait_titles(dbg, lambda t: MISSING_TITLE in t)
         why = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": why " in ln]
-        res.check("a Missing row's empty Why? cell opens nothing", not why and
-                  WHY_TITLE not in [w["title"] for w in dbg.windows()], f"{why}")
+        res.check("a Missing row's What? opens what ExitWindows is, and why it is not there",
+                  MISSING_TITLE in titles and any(ln.endswith("why USER.7 shown") for ln in why),
+                  f"windows {titles} log {why}")
+        dbg.close_window(MISSING_TITLE)
     out = sh(dbg, "w16 --why USER.31")
     res.check("`w16 --why USER.31` prints IsIconic's section", "IsIconic" in out and "Always says no" in out,
               out[-300:])
     out = sh(dbg, "w16 --why USER.7")
-    res.check("...and refuses a call w16 does not answer (ExitWindows)", "no call w16 answers" in out, out[-200:])
+    res.check("...and a missing call's: what ExitWindows does and why it is not there",
+              "exitwindows" in out.lower() and "Why it is not there" in out and "CPWIN386.CPL" in out, out[-300:])
+    out = " ".join(sh(dbg, "w16 --why USER.43").split())     # rendered at 80 columns: lines wrap
+    res.check("...a missing call with no text written says so (CloseWindow, a Windows call)",
+              "closewindow" in out.lower() and "No description is written" in out and "Windows calls" in out, out[-300:])
+    out = " ".join(sh(dbg, "w16 --why FAKEDLL.9").split())
+    res.check("...and one with no name names what w16 knows: a DLL's own export",
+              "knows no name" in out and "FAKEDLL.DLL" in out, out[-300:])
     dbg.close_window("Fault test - calls")
 
     win = dbg.spawn("/bin/wm/apps/retrolauncher --calls /usr/share/w16/hello.exe", "Hello - calls")

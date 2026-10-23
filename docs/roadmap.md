@@ -964,6 +964,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings~~ DONE 2026-10-19
 - [ ] w16: the launcher's Run with trace -- open the trace beside the stop, in Log Viewer or Notepad
 - [x] ~~w16: a program's missing calls in a window of their own, with names and kinds for every Win16 DLL~~ DONE 2026-10-19
+- [x] ~~w16: what each missing call is, and why it is missing~~ DONE 2026-10-23 -- What?; the 431 that 3.11's own programs import written
 - [x] ~~w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values~~ DONE 2026-10-19 -- the selector ones remain
 - [x] ~~Stage 3: the standard controls (BUTTON, EDIT, LISTBOX, STATIC) and file I/O~~ DONE 2026-10-19 -- Notepad is complete
 - [ ] w16: a combo box's list reaching past its dialog's edge -- it opens upward when it cannot open down

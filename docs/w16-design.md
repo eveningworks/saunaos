@@ -152,7 +152,9 @@ LOUDLY and by name (below), never as a silent zero.
   pages in `/usr/share/doc/windows/` (`calls.md`, `stand-ins.md`), as
   Wine's API reference is generated from its comments (c2man). Help reads
   them whole; the launcher's About and Why? and `w16 --why` show one
-  section. The build, and `check_docs.py`, fail a call without its block:
+  section. The calls NOT answered that Windows 3.11's own programs import
+  have blocks too, in the code-less `userland/w16/missing16.c`
+  (`missing.md`, the launcher's What?). The build, and `check_docs.py`, fail a call without its block:
   `docs/decisions/gui.md`, "Win16 calls are documented in their handler's
   comment".
 - **Fonts** (`font16.c`): 3.11's raster faces from drive C:'s .FON files,

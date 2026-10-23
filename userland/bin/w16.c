@@ -919,27 +919,31 @@ static void sounds_list(void) {
     }
 }
 
-// `--why CALL`: CALL's section of the calls page -- what it does, how w16
-// answers it, and for a stand-in why only partly -- rendered for a
-// terminal as `doc` renders a page.
+// `--why CALL`: what CALL is (w16_call_doc()) -- what it does, how w16
+// answers it, and for a stand-in why only partly, or for a missing call
+// why it is not there -- rendered for a terminal as `doc` renders a page.
 static int why(const char *call) {
-    if (unveil(W16_CALLS_DOC, "r") != 0 || unveil(NULL, NULL) != 0 || pledge("stdio rpath", NULL) != 0) {
-        fprintf(stderr, "w16: cannot sandbox myself, so I will not read the calls page\n");
+    if (unveil(W16_CALLS_DOC, "r") != 0 || unveil(W16_MISSING_DOC, "r") != 0 || unveil(NULL, NULL) != 0 ||
+        pledge("stdio rpath", NULL) != 0) {
+        fprintf(stderr, "w16: cannot sandbox myself, so I will not read the calls pages\n");
         return 1;
     }
-    uint32_t size = 0;
-    char *doc = (char *)slurp(W16_CALLS_DOC, &size);
-    int off = 0, n = doc ? umd_section_find(doc, (int)size, call, &off) : 0;
-    if (!n) {
-        fprintf(stderr, "w16: %s is no call w16 answers (`w16 --check FILE` lists a program's)\n", call);
-        free(doc);
+    char module[16] = "";
+    const char *dot = strchr(call, '.');
+    if (!dot || dot == call || (size_t)(dot - call) >= sizeof module || !dot[1]) {
+        fprintf(stderr, "w16: name a call as MODULE.ORDINAL, as `w16 --check FILE` lists them (USER.161)\n");
         return 1;
     }
+    snprintf(module, sizeof module, "%.*s", (int)(dot - call), call);
+    const struct w16_name *nm = w16_name_lookup(module, (unsigned)strtoul(dot + 1, 0, 10));
+    int n = 0, from = 0;
+    char *doc = w16_call_doc(call, nm ? nm->name : 0, nm ? w16_kind_names[nm->kind] : 0, &n, &from);
+    if (!doc) return 1;
     struct umd_opts mo = { .cols = 80, .color = isatty(1), .indent = 3 };
     int cap = n * 4 + 8192;                      // indent and colour codes on every line
     struct umd_out o = { malloc((size_t)cap), cap, 0, 0 };
     if (o.buf) {
-        umd_render(doc + off, n, &mo, &o);
+        umd_render(doc, n, &mo, &o);
         fwrite(o.buf, 1, (size_t)o.len, stdout);
     }
     free(o.buf);

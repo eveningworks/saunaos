@@ -225,7 +225,7 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
     case 3: snprintf(out, (size_t)cap, "%s", c->kind); break;
     case COL_STATUS: snprintf(out, (size_t)cap, "%s", ST_NAMES[c->status]); break;
     case COL_WHY:
-        snprintf(out, (size_t)cap, "%s", c->status == ST_PARTLY ? "Why?" : c->status == ST_WORKS ? "About" : "");
+        snprintf(out, (size_t)cap, "%s", c->status == ST_PARTLY ? "Why?" : c->status == ST_WORKS ? "About" : "What?");
         break;
     default: snprintf(out, (size_t)cap, "%s", note_of(c)); break;
     }
@@ -375,6 +375,12 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
                      c ? c->module : "-", c ? c->ordinal : 0, c ? c->name : "-", g_copied);
 }
 
+static void why(struct uapp *a, const struct call *c) {
+    retro_why_open(a, c->module, c->ordinal, c->name, c->kind,
+                   c->status == ST_PARTLY ? RETRO_CALL_PARTLY : c->status == ST_MISSING ? RETRO_CALL_MISSING
+                                                                 : RETRO_CALL_WORKS);
+}
+
 static void on_widget(struct uapp *a, int id, int reason) {
     (void)reason;
     int code;
@@ -383,12 +389,9 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_SHOW: build_chips(); build_rows(); break;
     case ID_CHIPS: case ID_SEARCH: build_rows(); break;
     case ID_TABLE: {
-        // A call's About or a stand-in's Why? cell, or Enter on its row.
+        // A call's About, a stand-in's Why? or a missing call's What? cell, or Enter on its row.
         int r = uui_table_take_action(&g_table, 0);
-        if (r >= 0 && r < g_nrows) {
-            const struct call *c = &g_calls[g_rows[r]];
-            retro_why_open(a, c->module, c->ordinal, c->name, c->status == ST_PARTLY);
-        }
+        if (r >= 0 && r < g_nrows) why(a, &g_calls[g_rows[r]]);
         break;
     }
     default: break;
@@ -396,14 +399,12 @@ static void on_widget(struct uapp *a, int id, int reason) {
     uapp_redraw(a);
 }
 
-// A double click on a row opens its About, or a stand-in's Why? -- what Enter on it does.
+// A double click on a row opens its About, Why? or What? -- what Enter on it does.
 static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     if (!(buttons & 0x1)) return;
     int r = uui_table_double_click(&g_table, x, y);
     if (r < 0 || r >= g_nrows) return;
-    const struct call *c = &g_calls[g_rows[r]];
-    if (c->status == ST_MISSING) return;         // nothing is written of a call w16 does not answer
-    retro_why_open(a, c->module, c->ordinal, c->name, c->status == ST_PARTLY);
+    why(a, &g_calls[g_rows[r]]);
     uapp_redraw(a);
 }
 
