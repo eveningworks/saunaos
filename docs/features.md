@@ -275,6 +275,21 @@ text you can select and copy, a right-click menu and a zoom. F1 and the Help men
 `WinHelp()`; with the Help setting at WINHELP.EXE, Windows' own Help runs
 under w16 instead, at the same topic.
 
+**The File Manager** opens on **Quick access** -- pinned folders,
+recently opened files and the drives in three bands -- and its command
+bar follows what is chosen, as Windows 11's does: New, Paste and Open in
+Terminal with nothing selected, Cut, Copy, Rename, Delete and Compress
+with something. The details view **groups** by name, date, type or size,
+and its **columns** are chosen, moved and resized and kept per pane. A
+name clash shows the **two files side by side** -- their pictures, sizes
+and dates, with "newer" and "larger" badges -- and answers Replace, Keep
+newer, Skip or Keep both, for the rest too if asked. **Rename many**
+renames a set to a pattern in one undoable step. **Search** narrows by
+type, date and size and can look inside text files, showing the line it
+found, and copies, moves and deletes run in an **Operations panel**
+with the whole operation's bytes, the rate, the time left, Pause, and
+the ones waiting their turn.
+
 **Programs and scripts run from the File Manager**, KDE's way: a
 double-click on an app opens it, and on any other program or `#!`
 script asks first -- "Run backup.sh?" with the script's first lines and

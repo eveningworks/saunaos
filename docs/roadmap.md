@@ -709,7 +709,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Scale factor as a single input, so a HiDPI mode is a multiplier and not a rewrite
 - [x] ~~A toolbar that folds what does not fit into a menu~~ DONE 2026-09-30 -- `uui_toolbar.overflow`; Shapes' View menu first
 - [ ] A menu taller than the screen scrolls -- today it is clamped and its last rows run off the bottom (Win32's arrows, Qt's wheel)
-- [ ] The File Manager's command bar turns on `overflow` -- it runs off a narrow window today, beside a hand-made "See more"
+- [x] ~~The File Manager's command bar turns on `overflow`~~ DONE 2026-10-23 -- with the command bar that follows the selection
 - [x] ~~Decide explicitly whether layout is immediate-mode~~ DONE 2026-08-18 -- it is; rects at open and on resize, drawing immediate
 - [ ] The WM's `desktop.c` and `uopen.c` onto `lib/uappentry` -- Crash Reports and Task Manager moved 2026-10-02
 
@@ -877,6 +877,14 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~File Manager to the design language~~ DONE 2026-10-01 -- soft selection, grey chrome, one navigation tree with volumes as roots
 - [x] ~~A menu on every row of the File Manager's left pane~~ DONE 2026-10-11 -- per kind of row; rename, move, unpin, restore defaults
 - [x] ~~Reorder Places, volumes and shares by drag; pin by dropping a folder~~ DONE 2026-10-11 -- `uui_tree` reorders
+- [x] ~~File Manager redesign: a command bar that follows the selection, Quick access as its start page~~ DONE 2026-10-23
+- [x] ~~File Manager: Group by, columns, Replace or skip compared, Rename many, search filters, Operations panel~~ DONE 2026-10-23
+- [ ] Group by in the File Manager's icon views -- bands are drawn in Details only
+- [ ] Saved searches in Places -- a query and its filters kept as a place ("Big files", "Changed this week")
+- [ ] A content index for search -- Contents reads every text file per search; Windows Search and Tracker keep one
+- [ ] The Operations panel's Run now, and operations side by side -- one runs at a time; Compress, Extract, Undo and Empty still say "busy"
+- [ ] More details columns -- Dimensions, Created, Owner
+- [ ] An operation's item list sized to the selection -- `fm_jobs.c` holds 64 (`JOB_MAX`, the undo journal's bound) and logs the rest
 - [x] ~~Properties of a volume or share~~ DONE 2026-10-11 -- a used/free ring and its facts (`uui_volinfo`), and in the details pane
 - [x] ~~Personal folders under /home~~ DONE 2026-10-11 -- Documents, Music, Pictures, Videos, Downloads; `lib/udirs.h`, moved once
 - [ ] A personal folder's Location: move it from its Properties, written to `/etc/user-dirs.conf` -- Windows' Location tab
@@ -886,7 +894,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A Log Viewer~~ DONE 2026-09-15 -- both rings merged on their shared stamp, a level filter and a search field
 - [x] ~~Log Viewer redesign~~ DONE 2026-10-07 -- details pane, timeline, repeats, kept mutes, Save as, any /var/log file; `uui_loglist`
 - [ ] Open a `.log` from the File Manager in the Log Viewer -- Notepad claims `.log` today, and two `Handles` claims have no rule
-- [ ] Resizable columns in the File Manager's details view and the Log Viewer -- their own lists, not `uui_table`
+- [x] ~~Resizable columns in the File Manager's details view~~ DONE 2026-10-23 -- on `uui_table`, under `uui_fileview`
+- [ ] Resizable columns in the Log Viewer -- `uui_loglist` is its own list, not `uui_table`
 - [ ] Tag the failures logged at info (`usb: port N: enumeration GAVE UP` and kin) with a level, so Errors finds them
 - [x] ~~CPU/memory over time as a TAB in Task Manager~~ DONE 2026-09-15 -- history is collected whether or not the tab is showing
 - [ ] Scientific mode for Calculator

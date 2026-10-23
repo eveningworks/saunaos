@@ -3579,6 +3579,62 @@ window without going through it will find its layout polls timing out.
   control renames straight to the new names, skipping the temporary
   pass: the rename check reddens.
 
+- **`fm_group_test.py`** -- View > Group by in the File Manager's details
+  view (`ui/uui_fileview.h`): a saved `group=type` bands the fixture as
+  Folders, Pictures, Music and sounds, Documents, in that order; `..` is
+  left out while grouped; Group by > Size and > Name through the View
+  menu's submenu, written to files.conf; None takes the captions away and
+  brings `..` back -- the negative control. Read from the app's `files:
+  layout groups <by> <cap|cap|...>` line, never from pixels. In
+  `gui_regress.py`.
+
+- **`fm_quick_test.py`** -- Quick access (`fm_quick.c`, `quick:/`): first
+  in Places; its three bands (Pinned folders, Recent files, Drives); a
+  file opened with `open` arrives in the Recent band without a reload;
+  Down, Enter on a pinned folder goes there; F2 renames nothing (the
+  rows are places, not files). In `gui_regress.py`.
+
+- **`fm_columns_test.py`** -- the details columns (`uui_table`'s choosable
+  layout through `ui/uui_fileview.h`): a divider dragged resizes Size and
+  the width is written to files.conf's `left_cols`; the header's
+  checklist (right-click) hides Size with Down, Enter -- Name is locked
+  and skipped; Recent keeps its own columns, untouched. Read from the
+  table's `left.columns` describe line. In `gui_regress.py`.
+
+- **`fm_conflict_test.py`** -- Replace or skip (`ui/uui_compare.h`): two
+  conflicts in one copy, dated so they disagree; the card's incoming
+  side carries the newer and larger badges and the existing side
+  neither; its "Do the same for the rest" box ticks on a click; Keep
+  newer for the rest replaces one file and keeps the other, with no
+  second card -- read back with `cat`. In `gui_regress.py`.
+
+- **`fm_search_filter_test.py`** -- the search strip's filters
+  (`lib/ufind.h`, `fm_search.c`): Ctrl+F opens the strip with its four
+  chips before anything is typed; Type > Pictures narrows the folder;
+  Enter with a filter alone searches below for it; Contents finds a text
+  file by its line 4 and NOT a GIF with the phrase appended (binary);
+  the results show Name | Match first; Size > Empty searches again and
+  finds nothing (the negative control); Esc drops every filter. **What a
+  search found is read from the app's `files: search hit <line> <path>`
+  lines before `search done`, and the columns from the frames the search
+  drew**: the window is idle once the walk ends, and a frame asked for
+  then can be an older one still queued. Its positive control (the walk
+  ignoring the filter, the binary test removed) reddens four checks. In
+  `gui_regress.py`.
+
+- **`fm_progress_test.py`** -- the Operations panel (`ui/uui_transfers.h`
+  over `fm_jobs.c`): F5 on a folder of six copies of `first-boot.mpg`
+  (~50 MB, so a copy lasts long enough to pause under TCG) shows one
+  running row whose total is EVERY byte (the counting pass, compared
+  exactly against `ls -l`); the bytes grow and a rate is measured; Pause
+  holds them for 1.5 s -- measured from a frame taken AFTER the pause
+  settles, since the chunk being written when it was pressed still
+  lands; two more copies wait as rows and one is cancelled from its row;
+  Resume goes on; at the end the copies are whole, the queued one ran
+  and the cancelled one did not. Rows are the panel's `ops.state <row>
+  <state> <got> <total> <rate>` lines. Its positive control (a Pause
+  that never waits) reddens five checks. In `gui_regress.py`.
+
 - **`recent_gui_test.py`** -- Recent (`lib/urecent.h`, `fm_recent.c`):
   `open` on a .txt and a .jpg records both in /var/lib/recent under the
   desktop entries' names (Notepad, Image Viewer); Places has the row;

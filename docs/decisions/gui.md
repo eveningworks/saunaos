@@ -12294,3 +12294,58 @@ nearest toy-os shape (no protocol change), both declined on the canvas
   and changed bits bump a generation the UI thread defines again. Paintbrush's
   `GetBitmapBits` into offsets 0x0C and 0x8C of its DUMMY cursor confirmed
   the layout.
+
+## The File Manager's redesign: a command bar that follows the selection, and operations that queue
+
+**Picked 2026-10-23** from a design canvas: redesign B (a contextual
+command bar) over a GNOME-style header bar and a column browser, and
+seven of eight improvements -- Quick Look was not wanted. Built in
+stages, each its own commit.
+
+- **The command bar is Windows 11's: it follows the selection.** With
+  nothing chosen it offers what acts on the FOLDER (New, Paste, Open in
+  Terminal, Pin); with something chosen, what acts on IT (Open, Cut,
+  Copy, Paste, Rename, Delete, Compress) behind an "N selected" readout
+  and a clear button. Sort, View, Details and More are an END group, so
+  they stay put while the left of the bar changes -- a click aimed at
+  View once landed on Delete when the bar re-laid under the pointer.
+  Cut/Copy/Paste/Rename/Delete are icon-only so the selection's bar fits
+  the default width; the rest overflows into "See more"
+  (`uui_toolbar.overflow`). Tests find a button by its ICON NAME, never
+  its index.
+- **Quick access is a virtual folder (`quick:/`), not a page.** Pins,
+  then recently opened files, then the drives, as three bands of one
+  listing -- so Back, tabs, the breadcrumb and the details view work on
+  it unchanged, as Explorer's Home is a folder. Its rows are places, so
+  rename and delete are greyed there.
+- **Group by draws bands in Details only.** The icon grid walks view
+  rows, and a caption there would be a blank tile; `..` is left out
+  while grouped (it belongs to no band). The bands are shared data:
+  kinds in `lib/ufiletype`, sizes in `lib/ufind`, so a group and a
+  search filter of one name hold the same files.
+- **Columns are `uui_table`'s choosable layout, per pane**, Name locked
+  first; a virtual folder keeps its own declared columns and is never
+  written over a folder's saved layout.
+- **A name clash shows both files** (`ui/uui_compare.h` as the dialog's
+  body): picture, size, date, "newer"/"larger" badges, and Replace,
+  Keep newer, Skip, Keep both -- Windows' Replace or Skip dialog with
+  Dolphin's comparison. The widget decides nothing; Keep newer compares
+  modification times in the app.
+- **Search narrows with chips, not a query language.** Explorer's
+  `kind:` and `datemodified:` syntax is the power and almost nobody
+  types it; its Search tab's drop-downs are what people use. Contents
+  search READS each text file -- there is no index to ask (Windows
+  Search and Tracker keep one; that is a roadmap item) -- skips a file
+  with a NUL in its first block as grep does, and puts the Match column
+  second so a narrow pane drops Size and Modified before it.
+- **Operations run ONE AT A TIME, the rest waiting, in a panel.**
+  Windows 8+ runs copies side by side in one dialog, each with Pause;
+  here one worker runs them in turn, which is what "5 of 12" can say
+  honestly and what a single disk does fastest. Only copy, move and
+  delete wait -- an archive, an Undo or Empty the bin carries state
+  beyond a list of paths and still says "busy". A copy is COUNTED before
+  the first byte moves (Explorer's "Calculating"), so the bar is the
+  whole operation's bytes with a measured rate and time left; Pause
+  holds at the next 64 KiB chunk. The panel is `uui_transfers`, the
+  Browser's downloads list, grown a rate, a note, Pause/Resume and a
+  waiting state -- one widget for "things moving bytes", not two.
