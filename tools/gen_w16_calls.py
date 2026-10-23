@@ -283,7 +283,7 @@ def missing_section(key, blocks):
     m = re.search(r"\b[Aa]s (\w+)", why)
     ref = by_name.get(m.group(1).lower()) if m else None
     if ref and ref != key:
-        paras.append(f"*{blocks[ref][0]}:* {blocks[ref][2]['Why']}")
+        paras.append(f"**{blocks[ref][0]}:** {blocks[ref][2]['Why']}")
     out = [f"## {key[0]}.{key[1]} {name}", "", "```", sig, "```", "",
            "**Not there yet:** a program that makes this call stops with Application Error, naming it.", "",
            "### What Windows 3.1 does", "", fields["Windows"], "", "### Why it is not there", ""]
