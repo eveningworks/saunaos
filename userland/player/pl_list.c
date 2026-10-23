@@ -12,16 +12,17 @@
 #include "lib/ufile.h"
 #include "lib/dirsort.h"
 #include "kpath.h"
+#include "ui/ulog.h"
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
 
 char g_dir[PL_PATH_MAX] = "/usr/share/music";
-struct pl_track g_tracks[PL_MAX];
+struct pl_track *g_tracks;
 int g_track_count;
 int g_shuffle, g_repeat;
 
-static int g_order[PL_MAX];   // play position -> track index
+static int *g_order;   // play position -> track index, g_track_count of them
 
 static int playable(const char *dir, const struct sys_dirent *e) {
     if (e->is_dir) return 0;
@@ -59,21 +60,31 @@ static void describe_track(const char *dir, struct pl_track *t) {
 
 int pl_scan(const char *dir) {
     struct sys_dirent *all = 0;
-    static struct sys_dirent keep[PL_MAX];
     if (dir != g_dir) strlcpy(g_dir, dir, sizeof g_dir);
     int n = ulistdir(g_dir, &all), count = 0;
-    for (int i = 0; i < n && count < PL_MAX; i++)
-        if (playable(g_dir, &all[i])) keep[count++] = all[i];
-    free(all);
-    dirsort(keep, count, DIRSORT_NAME, 0);
-    for (int i = 0; i < count; i++) {
-        memset(&g_tracks[i], 0, sizeof g_tracks[i]);
-        strlcpy(g_tracks[i].name, keep[i].name, sizeof g_tracks[i].name);
-        describe_track(g_dir, &g_tracks[i]);
+    for (int i = 0; i < n; i++)
+        if (playable(g_dir, &all[i])) all[count++] = all[i];
+    dirsort(all, count, DIRSORT_NAME, 0);
+    // Built aside and swapped in, so running out keeps the old list.
+    struct pl_track *tracks = calloc((size_t)(count ? count : 1), sizeof *tracks);
+    int *order = malloc((size_t)(count ? count : 1) * sizeof *order);
+    if (!tracks || !order) {
+        free(tracks); free(order); free(all);
+        ulogf("player: out of memory listing %s (%d tracks)\n", g_dir, count);
+        return g_track_count;
     }
+    for (int i = 0; i < count; i++) {
+        strlcpy(tracks[i].name, all[i].name, sizeof tracks[i].name);
+        describe_track(g_dir, &tracks[i]);
+    }
+    free(all);
+    free(g_tracks); free(g_order);
+    g_tracks = tracks;
+    g_order = order;
     g_track_count = count;
     for (int i = 0; i < count; i++) g_order[i] = i;
     if (g_shuffle) pl_reshuffle(-1);
+    ulogf("player: listing %s -- %d track(s)\n", g_dir, count);
     return count;
 }
 

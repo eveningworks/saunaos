@@ -45,9 +45,9 @@ by another shell, or a process suspended by hand with `kill -STOP`, does
 not appear here and cannot be `fg`'d; `kill -CONT` is how those come
 back.
 
-**There is a limit** — eight jobs. A ninth suspension is reported as
-untracked at the moment it happens, with its pid, rather than being
-silently dropped.
+**There is no fixed limit**: the table grows. If memory runs out, a
+suspension is reported as untracked at the moment it happens, with its
+pid, rather than being silently dropped.
 
 **It does not show a job another shell started**, and it does not
 survive this shell exiting — the table is memory, not a file.

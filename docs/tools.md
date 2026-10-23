@@ -3747,6 +3747,19 @@ window without going through it will find its layout polls timing out.
   in the Recycle Bin, a selection whose paths are past `SPAWN_ARGS_MAX`
   and so need `lib/uargbatch.h`'s several spawns. Its positive control
   is the build before: 64 icons in all.
+- **`many_files_test.py`** -- every list that used to be a fixed table,
+  filled past it: a dash script (`vm.py put` + `exec`) seeds folders, and
+  each app's own count line must report all of it -- 12 Terminal tabs,
+  each with its shell on its own pty (the kernel held 8 ptys), Image
+  Viewer's 80 images, Video's 210, the Audio Player's 140 tracks, Crash
+  Reports' 70+, Help's 300 extra pages in 40 categories and 20 folders,
+  Notepad's and the Terminal's find over 3120 matches, the File
+  Manager's folder tree past 96 rows and its search's 431 hits. The
+  seed files only PROBE as their type (an 8 KiB video head, a crash
+  report's header and `program:` line). Too slow for `gui_regress.py`
+  (the seeding is ~850 spawns under TCG), so it is in
+  `ondemand_sweep.py`; its positive control is the build before, where
+  every count stops at its old cap.
 - **`folder_options_test.py`** -- the desktop following the File
   Manager's Folder Options (`/etc/files.conf`, `lib/ufolderopts.h`) and
   the one double-click time (`system.double_click`, `lib/udclick.h`), in

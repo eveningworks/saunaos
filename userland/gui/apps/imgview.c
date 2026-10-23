@@ -55,7 +55,6 @@
 #define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
                                  // buffers; the shared widgets it uses
                                  // (uui_fileview, uopen) carry the same bound.
-#define MAX_FILES 64
 #define WALLPAPER_DIR "/usr/share/wallpapers"
 #define DEFAULT_DIR WALLPAPER_DIR
 
@@ -77,7 +76,7 @@ static char g_dir[PATH_MAX_LEN] = DEFAULT_DIR;
 static char g_want[PATH_MAX_LEN];   // the file named on the command line
 
 // The folder's pictures, sorted as /bin/ls sorts (lib/dirsort.h).
-static struct sys_dirent g_entries[MAX_FILES];
+static struct sys_dirent *g_entries; // the folder's images, malloc'd to fit
 static int g_count, g_cur = -1;
 
 static struct uimg g_img;      // the decoded picture, owned here
@@ -219,10 +218,12 @@ static const struct uimg *strip_thumb(void *ctx, int i, int px) {
 static void load_dir(void) {
     struct sys_dirent *all = 0;
     int n = ulistdir(g_dir, &all);
-    g_count = 0;
-    for (int i = 0; i < n && g_count < MAX_FILES; i++)
-        if (keep_images(0, g_dir, &all[i])) g_entries[g_count++] = all[i];
-    free(all);
+    int kept = 0;
+    for (int i = 0; i < n; i++)
+        if (keep_images(0, g_dir, &all[i])) all[kept++] = all[i];
+    free(g_entries);
+    g_entries = all;   // the listing's own array, filtered in place
+    g_count = kept;
     dirsort(g_entries, g_count, DIRSORT_NAME, 0);
     uui_thumbstrip_set(&g_strip, g_count, strip_thumb, 0);
     ulogf("imgview: listing %s -- %d image(s)\n", g_dir, g_count);

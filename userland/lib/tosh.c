@@ -238,7 +238,7 @@ static void job_stopped(struct tosh *sh, int pgid, const int *pids, int npid,
         // is one `fg` cannot name and `jobs` will not list, so the only
         // way back to it is `ps` and `kill -CONT` -- which the user
         // needs to be told, at the moment it happens.
-        emit(sh, "\ntosh: too many jobs -- group ");
+        emit(sh, "\ntosh: out of memory for a job -- group ");
         emit_int(sh, pgid);
         emit(sh, " is stopped and untracked (kill -CONT -");
         emit_int(sh, pgid);
@@ -294,7 +294,7 @@ static void job_backgrounded(struct tosh *sh, int pgid, const int *pids,
                              int npid, const char *label) {
     int id = tosh_jobs_add(pgid, pids, npid, label, 0);
     if (!id) {
-        emit(sh, "tosh: too many jobs -- group ");
+        emit(sh, "tosh: out of memory for a job -- group ");
         emit_int(sh, pgid);
         emit(sh, " is running untracked\n");
         return;
@@ -557,7 +557,7 @@ static int bi_bg(struct tosh *sh, const char *args) {
 // It ASKS AFTER EACH KNOWN PID rather than scanning: this is a job
 // table, not a process table, and `ps` is the program that scans.
 void tosh_reap_jobs(struct tosh *sh) {
-    for (int id = 1; id <= TOSH_JOBS_MAX; id++) {
+    for (int id = 1; id <= tosh_jobs_cap(); id++) {
         struct tosh_job *job = tosh_jobs_get(id);
         if (!job || job->id != id) continue;
         if (job->stopped) continue;   // nothing to hear from a stopped job

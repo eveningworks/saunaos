@@ -306,10 +306,8 @@ void save_split(const char *key, const struct uui_splitter *sp);
 
 // --- the folder tree (fm_tree.c) -------------------------------------
 
-#define TREE_MAX 96
-
 extern struct uui_tree g_tree;
-extern char g_tree_path[TREE_MAX][PATH_MAX_LEN];
+extern char (*g_tree_path)[PATH_MAX_LEN];   // g_tree_count rows
 extern int g_tree_count;
 
 void tree_init(void);

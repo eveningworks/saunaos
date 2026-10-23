@@ -22,7 +22,6 @@
 // found by asking after ITS pid, not by scanning -- `ps` is the program
 // that scans, and duplicating it here would be a second, worse one.
 
-#define TOSH_JOBS_MAX 8   // how many suspended/background jobs at once
 #define TOSH_JOB_CMD_MAX 64 // the command line as typed, for `jobs`
 // Must be at least tosh.c's TOSH_STAGE_MAX -- a job holds every stage
 // of its pipeline, and a stage left out of the table is a stage nobody
@@ -43,9 +42,9 @@ struct tosh_job {
     char cmd[TOSH_JOB_CMD_MAX];
 };
 
-// Adds a job and returns its id, or 0 if the table is full (which is
+// Adds a job and returns its id, or 0 when out of memory (which is
 // reported to the user rather than silently dropping the job: a job
-// nobody can name is one nobody can resume).
+// nobody can name is one nobody can resume). The table grows.
 //
 // The new job becomes CURRENT, and whatever was current becomes
 // previous -- the `+` and `-` markers `jobs` prints, and what a bare
@@ -72,6 +71,9 @@ int tosh_jobs_any(void);
 // this module has.
 void tosh_jobs_each(void (*fn)(void *ctx, const struct tosh_job *job, char marker),
                     void *ctx);
+
+// Ids run 1..tosh_jobs_cap() at most: the lowest free id is reused.
+int tosh_jobs_cap(void);
 
 // The id of the current job, or 0.
 int tosh_jobs_current(void);

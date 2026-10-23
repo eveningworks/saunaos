@@ -917,9 +917,10 @@ static void do_paste(void) {
 // the hit at or after the caret is the current one -- an editor's
 // search starts where you are.
 
-#define FIND_MAX 2048
-static struct utext_mark g_marks[FIND_MAX];
-static int g_nhits, g_hit_cur = -1;
+// Grown to the hit count. Only the CURRENT document's text points at it
+// (switch_to() takes it back), and find_paint() re-points after a grow.
+static struct utext_mark *g_marks;
+static int g_nhits, g_marks_cap, g_hit_cur = -1;
 static unsigned g_find_rev;
 static char g_find_q[UUI_TEXTBOX_MAX];
 
@@ -957,10 +958,18 @@ static void find_run(int select) {
     int from = T->ed.cursor;
     if (utext_sel_present(T)) utext_sel_range(T, &from, 0);
     if (n > 0) {
-        for (int i = 0; i + n <= T->count && g_nhits < FIND_MAX; i++) {
+        for (int i = 0; i + n <= T->count; i++) {
             int k = 0;
             while (k < n && fold(T->buf[i + k]) == fold(q[k])) k++;
             if (k < n) continue;
+            if (g_nhits == g_marks_cap) {
+                int cap = g_marks_cap ? g_marks_cap * 2 : 256;
+                struct utext_mark *m = realloc(g_marks, (size_t)cap * sizeof *m);
+                if (!m) { ulogf("notepad: out of memory at %d matches\n", g_nhits); break; }
+                g_marks = m;
+                g_marks_cap = cap;
+            }
+            memset(&g_marks[g_nhits], 0, sizeof g_marks[0]);
             g_marks[g_nhits].start = i;
             g_marks[g_nhits].end = i + n;
             if (g_hit_cur < 0 && i >= from) g_hit_cur = g_nhits;
@@ -968,6 +977,7 @@ static void find_run(int select) {
             i += n - 1;
         }
         if (g_hit_cur < 0 && g_nhits) g_hit_cur = 0;   // wraps, as every find does
+        ulogf("notepad: find \"%s\" %d matches\n", g_find_q, g_nhits);
     }
     g_find_rev = T->rev;
     g_find_doc = g_cur;

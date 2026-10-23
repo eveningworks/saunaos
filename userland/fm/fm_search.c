@@ -8,6 +8,7 @@
 // with Stop.
 #include "fm_internal.h"
 #include <string.h>
+#include <stdlib.h>
 #include <strings.h>
 #include <stdio.h>
 #include <pthread.h>
@@ -19,8 +20,6 @@
 #include "ui/uui_table.h"
 #include "ui/ulog.h"
 
-#define SEARCH_MAX PANE_FILES
-
 struct hit {
     char path[PATH_MAX_LEN];
     struct sys_dirent e;
@@ -28,9 +27,9 @@ struct hit {
 
 // WRITTEN BY THE WORKER under g_lock; read by the main thread under it.
 static pthread_mutex_t g_lock = PTHREAD_MUTEX_INITIALIZER;
-static struct hit g_hits[SEARCH_MAX];
-static int g_nhits;
-static int g_full;                        // there were more than SEARCH_MAX
+static struct hit *g_hits;                // grown as the walk finds them
+static int g_nhits, g_hits_cap;
+static int g_full;                        // memory ran out: there were more
 static unsigned long long g_seen;         // entries looked at
 static char g_where[PATH_MAX_LEN];        // the directory being read, for the strip
 
@@ -42,8 +41,20 @@ static unsigned long long g_last_post;
 
 // What the listing last copied out, so `path` and `cell` answer for the
 // rows the pane holds even while the worker keeps adding.
-static struct hit g_shown[SEARCH_MAX];
-static int g_nshown;
+static struct hit *g_shown;
+static int g_nshown, g_shown_cap;
+
+// Makes `*arr` hold at least `n` hits; 0 when memory is out.
+static int hold(struct hit **arr, int *cap, int n) {
+    if (n <= *cap) return 1;
+    int c = *cap ? *cap : 256;
+    while (c < n) c *= 2;
+    struct hit *g = realloc(*arr, (size_t)c * sizeof *g);
+    if (!g) return 0;
+    *arr = g;
+    *cap = c;
+    return 1;
+}
 
 static int matches(const char *name) {
     int qn = (int)strlen(g_query), n = (int)strlen(name);
@@ -60,12 +71,13 @@ static int visit(void *ctx, const char *path, const struct sys_dirent *e) {
     if (e->name[0] == '.' && (!g_opt.folder.hidden || !strncmp(e->name, ".Trash", 6))) return 0;
     if (matches(e->name)) {
         pthread_mutex_lock(&g_lock);
-        if (g_nhits < SEARCH_MAX) {
+        if (!g_full && hold(&g_hits, &g_hits_cap, g_nhits + 1)) {
             strlcpy(g_hits[g_nhits].path, path, PATH_MAX_LEN);
             g_hits[g_nhits].e = *e;
             g_nhits++;
-        } else {
+        } else if (!g_full) {
             g_full = 1;
+            ulogf("files: out of memory at %d search results\n", g_nhits);
         }
         pthread_mutex_unlock(&g_lock);
     }
@@ -154,7 +166,8 @@ static int s_list(void *ctx, const char *dir, struct sys_dirent *out, int cap) {
     (void)ctx; (void)dir;
     pthread_mutex_lock(&g_lock);
     g_nshown = g_nhits < cap ? g_nhits : cap;
-    memcpy(g_shown, g_hits, sizeof g_shown[0] * (size_t)g_nshown);
+    if (!hold(&g_shown, &g_shown_cap, g_nshown)) g_nshown = g_shown_cap;
+    if (g_nshown) memcpy(g_shown, g_hits, sizeof g_shown[0] * (size_t)g_nshown);
     pthread_mutex_unlock(&g_lock);
     for (int i = 0; i < g_nshown; i++) out[i] = g_shown[i].e;
     return g_nshown;

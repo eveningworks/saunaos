@@ -15,7 +15,6 @@
 #include "ui/uambient.h"
 
 #define PL_PATH_MAX 256
-#define PL_MAX      128
 
 struct pl_track {
     char name[64];           // the file, in the folder
@@ -28,7 +27,7 @@ struct pl_track {
 
 // pl_list.c ---------------------------------------------------------------
 extern char g_dir[PL_PATH_MAX];
-extern struct pl_track g_tracks[PL_MAX];
+extern struct pl_track *g_tracks;   // g_track_count of them, malloc'd to fit
 extern int g_track_count;
 extern int g_shuffle, g_repeat;
 

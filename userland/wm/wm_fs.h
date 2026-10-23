@@ -20,24 +20,8 @@
 // directly, each of which would otherwise be re-derived at three call
 // sites: does this path exist, is it a directory, how big is it, and
 // read a whole small file into my own buffer.
-//
-// **The 32-entry cap is real and the WM has already outgrown it once in
-// principle.** `SYS_LISTDIR` reports at most `max` entries per call and
-// does not paginate, so a directory with more entries than the caller's
-// array is silently TRUNCATED, not reported. Every caller here passes an
-// array at least as large as the surface it feeds and treats a full
-// result as "there may be more" -- see wm_fs_list()'s return.
 
-// Fills `out` with up to `max` entries of `dir`. Returns the count, or
-// -1 if the directory could not be read at all -- which is NOT the same
-// as an empty directory, and callers that conflate the two report a
-// missing desktop as an empty one.
-int wm_fs_list(const char *dir, struct sys_dirent *out, int max);
-
-// Whether `path` exists at all. Answered by looking it up in its
-// PARENT's listing rather than by opening it, because opening a
-// directory is not something SYS_OPEN promises and "it exists" must be
-// true for directories too.
+// Whether `path` exists at all, file or directory (sys_stat()).
 int wm_fs_exists(const char *path);
 
 // Whether `path` exists AND is a directory. Same lookup as above; a

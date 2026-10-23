@@ -40,7 +40,6 @@
 #include <sys/stat.h>
 
 #define CRASH_DIR   "/var/crash"
-#define MAX_REPORTS 64
 
 struct report {
     char file[48];        // its name in CRASH_DIR
@@ -59,8 +58,8 @@ struct report {
     int can_reopen;       // a desktop app; a daemon is init's to restart
 };
 
-static struct report g_rep[MAX_REPORTS];
-static int g_n;
+static struct report *g_rep; // g_cap of them, grown by scan()
+static int g_n, g_cap;
 static struct report g_one;      // --report's
 static int g_dialog;             // 1 = the one-report face
 
@@ -83,7 +82,7 @@ static int friendly_name(const char *exec, char *out, int cap) {
 
 // The list's row: lib/ucrash's reading, reduced to what a row and the
 // details panel show. No backtrace here -- that reads the binaries, and
-// the list holds sixty-four reports.
+// the list holds every report in the folder.
 static int parse_report(const char *path, struct report *r) {
     static struct ucrash c;
     if (ucrash_load(&c, path) != 0) return 0;
@@ -116,13 +115,21 @@ static void scan(void) {
     if (!d) return;
     struct dirent *e;
     char path[96];
-    while ((e = readdir(d)) && g_n < MAX_REPORTS) {
+    while ((e = readdir(d))) {
         if (!strstr(e->d_name, ".crash")) continue;
+        if (g_n == g_cap) {
+            int cap = g_cap ? g_cap * 2 : 32;
+            struct report *grown = realloc(g_rep, (size_t)cap * sizeof *grown);
+            if (!grown) { ulogf("crashreports: out of memory at %d reports\n", g_n); break; }
+            g_rep = grown;
+            g_cap = cap;
+        }
         snprintf(path, sizeof path, CRASH_DIR "/%s", e->d_name);
         if (parse_report(path, &g_rep[g_n])) g_n++;
     }
     closedir(d);
-    qsort(g_rep, (size_t)g_n, sizeof g_rep[0], newest_first);
+    if (g_n) qsort(g_rep, (size_t)g_n, sizeof g_rep[0], newest_first);
+    ulogf("crashreports: %d report(s)\n", g_n);
 }
 
 // "Today 12:24", "2 Oct 12:24".

@@ -50,8 +50,6 @@
 #define HOME_NAME  "overview"
 #define HOME_CAT   "Getting started"   // listed first; the rest by name
 
-#define MAX_PAGES  256
-#define MAX_CATS   32
 #define NAME_CAP   48    // = UUI_MD_LINK_MAX: a link names a page
 #define TITLE_CAP  64
 #define CAT_CAP    48
@@ -70,7 +68,7 @@ enum { CMD_BACK = 1, CMD_FORWARD, CMD_HOME };
 #define NODE_NONE      (-2)     // the "nothing matches" row
 
 struct page {
-    char dir[16];
+    char dir[64];     // = sys_dirent's name: a folder under DOC_ROOT
     char name[NAME_CAP];
     char title[TITLE_CAP];
     int  cat;
@@ -82,17 +80,20 @@ struct category {
     char name[CAT_CAP];
     int  open;        // the tree's expansion, owned here (a lazy tree)
     int  shown;       // pages under it that pass the search
+    char head[CAT_CAP + 12]; // "name (shown)", the tree's label for it
 };
 
-static struct page     g_page[MAX_PAGES];
-static int             g_npages;
-static struct category g_cat[MAX_CATS];
-static int             g_ncats;
-static int             g_order[MAX_PAGES];   // page indices, category then name
+// All sized to the manual: grown while load() reads it, then fixed --
+// nothing is loaded after, so the tree's pointers into them hold.
+static struct page     *g_page;
+static int             g_npages, g_page_cap;
+static struct category *g_cat;
+static int             g_ncats, g_cat_cap;
+static int             *g_order;   // page indices, category then name
+static unsigned char   *g_pass;    // per page: matches the search
 
 static struct uui_tree      g_tree;
-static struct uui_tree_node g_nodes[MAX_PAGES + MAX_CATS + 1];
-static char                 g_head[MAX_CATS][CAT_CAP + 12];
+static struct uui_tree_node *g_nodes; // a heading per category, a row per page, "no match"
 static int                  g_node_count;
 
 static struct uui_markdown g_md;
@@ -144,38 +145,56 @@ static int by_name(const void *a, const void *b) {
     return strcmp((const char *)a, (const char *)b);
 }
 
+// Doubles `*arr` (of `size`-byte elements) when `n` has reached `*cap`.
+static int grow(void *arr, int n, int *cap, size_t size) {
+    if (n < *cap) return 1;
+    int c = *cap ? *cap * 2 : 16;
+    void *g = realloc(*(void **)arr, (size_t)c * size);
+    if (!g) return 0;
+    *(void **)arr = g;
+    *cap = c;
+    return 1;
+}
+
+// -1 when out of memory.
 static int cat_index(const char *name) {
     for (int i = 0; i < g_ncats; i++)
         if (!strcmp(g_cat[i].name, name)) return i;
-    if (g_ncats >= MAX_CATS) return g_ncats - 1;   // the last one absorbs the rest
+    if (!grow(&g_cat, g_ncats, &g_cat_cap, sizeof *g_cat)) return -1;
+    memset(&g_cat[g_ncats], 0, sizeof *g_cat);
     strlcpy(g_cat[g_ncats].name, name, CAT_CAP);
     return g_ncats++;
 }
 
 static void load_dir(const char *dir) {
-    static char names[MAX_PAGES][NAME_CAP];
+    char (*names)[NAME_CAP] = NULL;
+    int names_cap = 0;
     char path[PATH_CAP];
     snprintf(path, sizeof path, "%s/%s", DOC_ROOT, dir);
     DIR *d = opendir(path);
     if (!d) return;
     int n = 0;
     struct dirent *e;
-    while (n < MAX_PAGES && (e = readdir(d)) != NULL) {
+    while ((e = readdir(d)) != NULL) {
         int len = (int)strlen(e->d_name);
         if (e->d_type == DT_DIR || len < 4 || len - 3 >= NAME_CAP ||
             strcmp(e->d_name + len - 3, ".md") != 0)
             continue;
+        if (!grow(&names, n, &names_cap, sizeof *names)) {
+            ulogf("help: out of memory listing %s at %d pages\n", path, n);
+            break;
+        }
         memcpy(names[n], e->d_name, (size_t)len - 3);
         names[n][len - 3] = 0;
         n++;
     }
     closedir(d);
-    qsort(names, (size_t)n, NAME_CAP, by_name);
+    if (n) qsort(names, (size_t)n, NAME_CAP, by_name);
 
     for (int i = 0; i < n; i++) {
-        if (g_npages >= MAX_PAGES) {
-            ulogf("help: more than %d pages; the rest are not listed\n", MAX_PAGES);
-            return;
+        if (!grow(&g_page, g_npages, &g_page_cap, sizeof *g_page)) {
+            ulogf("help: out of memory at %d pages; the rest are not listed\n", g_npages);
+            break;
         }
         struct page *p = &g_page[g_npages];
         snprintf(path, sizeof path, "%s/%s/%s.md", DOC_ROOT, dir, names[i]);
@@ -192,8 +211,10 @@ static void load_dir(const char *dir) {
         if (!umd_field(p->text, p->len, "Category", cat, sizeof cat))
             strlcpy(cat, "Other", sizeof cat);
         p->cat = cat_index(cat);
+        if (p->cat < 0) { free(p->text); break; }
         g_npages++;
     }
+    free(names);
 }
 
 static int cat_rank(int c) { return strcmp(g_cat[c].name, HOME_CAT) ? 1 : 0; }
@@ -216,18 +237,30 @@ static int page_cmp(const void *a, const void *b) {
 static void load(void) {
     DIR *d = opendir(DOC_ROOT);
     if (d) {
-        static char dirs[16][16];
-        int nd = 0;
+        char (*dirs)[sizeof g_page->dir] = NULL;
+        int nd = 0, dirs_cap = 0;
         struct dirent *e;
-        while (nd < 16 && (e = readdir(d)) != NULL)
-            if (e->d_type == DT_DIR && e->d_name[0] != '.')
+        while ((e = readdir(d)) != NULL)
+            if (e->d_type == DT_DIR && e->d_name[0] != '.' &&
+                grow(&dirs, nd, &dirs_cap, sizeof *dirs))
                 strlcpy(dirs[nd++], e->d_name, sizeof dirs[0]);
         closedir(d);
-        qsort(dirs, (size_t)nd, sizeof dirs[0], by_name);
+        if (nd) qsort(dirs, (size_t)nd, sizeof dirs[0], by_name);
         for (int i = 0; i < nd; i++) load_dir(dirs[i]);
+        free(dirs);
+    }
+    // Sized once, now the manual's size is known; +1 so none is ever 0.
+    g_order = malloc((size_t)(g_npages + 1) * sizeof *g_order);
+    g_pass = malloc((size_t)g_npages + 1);
+    g_nodes = malloc((size_t)(g_npages + g_ncats + 1) * sizeof *g_nodes);
+    if (!g_order || !g_pass || !g_nodes) {
+        ulogf("help: out of memory indexing %d pages\n", g_npages);
+        g_npages = 0;   // an empty manual, which every path below handles
+        if (!g_nodes) g_nodes = malloc(sizeof *g_nodes);   // "No page matches"
+        if (!g_nodes) exit(1);
     }
     for (int i = 0; i < g_npages; i++) g_order[i] = i;
-    qsort(g_order, (size_t)g_npages, sizeof g_order[0], page_cmp);
+    if (g_npages) qsort(g_order, (size_t)g_npages, sizeof g_order[0], page_cmp);
     for (int c = 0; c < g_ncats; c++) g_cat[c].open = !cat_rank(c);
 }
 
@@ -303,10 +336,9 @@ static void select_here(void) {
 static void rebuild_tree(void) {
     int searching = g_query[0] != 0;
     for (int c = 0; c < g_ncats; c++) g_cat[c].shown = 0;
-    static unsigned char pass[MAX_PAGES];
     for (int i = 0; i < g_npages; i++) {
-        pass[i] = !searching || matches(i);
-        if (pass[i]) g_cat[g_page[i].cat].shown++;
+        g_pass[i] = !searching || matches(i);
+        if (g_pass[i]) g_cat[g_page[i].cat].shown++;
     }
 
     g_node_count = 0;
@@ -318,11 +350,11 @@ static void rebuild_tree(void) {
             // Searching opens every category with a match: the results
             // ARE the tree, and a closed branch would hide them.
             int open = searching || g_cat[c].open;
-            snprintf(g_head[c], sizeof g_head[c], "%s (%d)", g_cat[c].name, g_cat[c].shown);
-            add_node(g_head[c], 0, CAT_TARGET(c), open ? UUI_TREE_OPEN : UUI_TREE_CLOSED);
+            snprintf(g_cat[c].head, sizeof g_cat[c].head, "%s (%d)", g_cat[c].name, g_cat[c].shown);
+            add_node(g_cat[c].head, 0, CAT_TARGET(c), open ? UUI_TREE_OPEN : UUI_TREE_CLOSED);
             if (open)
                 for (int j = k; j < end; j++)
-                    if (pass[g_order[j]])
+                    if (g_pass[g_order[j]])
                         add_node(g_page[g_order[j]].title, 1, g_order[j], UUI_TREE_AUTO);
         }
         k = end;

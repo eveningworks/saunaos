@@ -12,6 +12,7 @@
 #include "lib/ufiletype.h"
 #include <string.h>
 #include <stdlib.h>
+#include "ui/ulog.h"
 
 // --- the directory tree -----------------------------------------------
 //
@@ -19,30 +20,51 @@
 // has expanded are listed at all, so the node array is a view of the
 // open set, rebuilt on every toggle. The app owns which PATHS are open
 // -- paths, not node indices, because a rebuild renumbers every slot.
-#define TREE_MAX 96
-#define TREE_OPEN_MAX 24
-
+// All grown on demand, and only inside tree_rebuild() and the open set's
+// setter: a folder row's label points INTO g_tree_path, and is set after
+// the last grow of a rebuild.
 struct uui_tree g_tree;
-static struct uui_tree_node g_tree_nodes[TREE_MAX];
-char g_tree_path[TREE_MAX][PATH_MAX_LEN];
+static struct uui_tree_node *g_tree_nodes;
+char (*g_tree_path)[PATH_MAX_LEN];
 int g_tree_count;
+static int g_tree_cap;
 // Each row's g_places row (or TREE_FOLDER/_HEADER/_ADD_ROW), moved with
 // the rows as folders are inserted -- what a right-click asks.
-static int g_tree_place[TREE_MAX];
-static char g_tree_open[TREE_OPEN_MAX][PATH_MAX_LEN];
-static int g_tree_open_count;
+static int *g_tree_place;
+static char (*g_tree_open)[PATH_MAX_LEN];
+static int g_tree_open_count, g_tree_open_cap;
+
+// Room for `n` rows in all three row arrays; 0 when memory is out.
+static int tree_reserve(int n) {
+    if (n <= g_tree_cap) return 1;
+    int cap = g_tree_cap ? g_tree_cap : 64;
+    while (cap < n) cap *= 2;
+    void *a = realloc(g_tree_nodes, (size_t)cap * sizeof *g_tree_nodes);
+    if (!a) return 0;
+    g_tree_nodes = a;
+    void *b = realloc(g_tree_path, (size_t)cap * sizeof *g_tree_path);
+    if (!b) return 0;
+    g_tree_path = b;
+    void *c = realloc(g_tree_place, (size_t)cap * sizeof *g_tree_place);
+    if (!c) return 0;
+    g_tree_place = c;
+    g_tree_cap = cap;
+    return 1;
+}
 static struct sys_dirent *g_tree_scratch;   // the last folder listed; replaced by the next
 static char g_tree_note[UUI_PLACES_MAX][24];
 
 // The tree's own setup: the node array it draws from, and the open set
 // seeded with the root. Here rather than in main() because the storage
 // is this file's and an app should not have to know its shape.
+static void tree_set_open(const char *path, int open);
+
 void tree_init(void) {
     uui_tree_init(&g_tree, 0, 0, 100, 100, g_tree_nodes, 0);
     uui_tree_set_on_toggle(&g_tree, tree_toggle, 0);
     places_reorder_init();
-    strlcpy(g_tree_open[0], "/", PATH_MAX_LEN);
-    g_tree_open_count = 1;
+    g_tree_open_count = 0;
+    tree_set_open("/", 1);
 }
 
 // The open set speaks PATHS. "/" is put in it at startup.
@@ -71,7 +93,13 @@ static int mount_of(const char *path) {
 static void tree_set_open(const char *path, int open) {
     if (open) {
         if (tree_is_open(path)) return;
-        if (g_tree_open_count >= TREE_OPEN_MAX) return;
+        if (g_tree_open_count == g_tree_open_cap) {
+            int cap = g_tree_open_cap ? g_tree_open_cap * 2 : 16;
+            void *n = realloc(g_tree_open, (size_t)cap * sizeof *g_tree_open);
+            if (!n) { ulogf("files: out of memory opening %s in the tree\n", path); return; }
+            g_tree_open = n;
+            g_tree_open_cap = cap;
+        }
         strlcpy(g_tree_open[g_tree_open_count++], path, PATH_MAX_LEN);
         return;
     }
@@ -129,7 +157,9 @@ static void head_device(struct uui_tree_node *nd, const struct uui_place *r, int
 // tree on -- off, they are plain rows and nothing opens.
 static int tree_build_head(void) {
     int n = 0;
-    for (int i = 0; i < g_places.count && n < TREE_MAX - 1; i++) {
+    // Every place, three headings, the trailing Network and its Add row.
+    if (!tree_reserve(g_places.count + 5)) return 0;
+    for (int i = 0; i < g_places.count; i++) {
         const struct uui_place *r = &g_places.row[i];
         if (i == g_places.places) {
             g_tree_path[n][0] = '\0';
@@ -164,18 +194,16 @@ static int tree_build_head(void) {
     }
     // THE NETWORK GROUP IS ALWAYS THERE, with its Add row last, so a
     // machine with no shares yet still shows where they go.
-    if (g_places.network >= g_places.count && n < TREE_MAX - 1) {
+    if (g_places.network >= g_places.count) {
         g_tree_path[n][0] = '\0';
         g_tree_place[n] = TREE_HEADER;
         g_tree_nodes[n] = (struct uui_tree_node){ .label = "Network", .kind = UUI_TREE_HEADER };
         n++;
     }
-    if (n < TREE_MAX) {
-        strlcpy(g_tree_path[n], FM_NET_ADD, PATH_MAX_LEN);
-        g_tree_place[n] = TREE_ADD_ROW;
-        g_tree_nodes[n] = (struct uui_tree_node){ .label = "Add network share...", .icon = "tb-new" };
-        n++;
-    }
+    strlcpy(g_tree_path[n], FM_NET_ADD, PATH_MAX_LEN);
+    g_tree_place[n] = TREE_ADD_ROW;
+    g_tree_nodes[n] = (struct uui_tree_node){ .label = "Add network share...", .icon = "tb-new" };
+    n++;
     return n;
 }
 
@@ -278,8 +306,10 @@ void tree_rebuild(void) {
             nd++;
         }
         dirsort(g_tree_scratch, nd, DIRSORT_NAME, 0);
-        int room = TREE_MAX - g_tree_count;
-        if (nd > room) nd = room; // a full tree stops growing, silently
+        if (nd > 0 && !tree_reserve(g_tree_count + nd)) {
+            ulogf("files: out of memory showing %s's %d folders in the tree\n", g_tree_path[i], nd);
+            nd = 0;
+        }
 
         if (nd <= 0) continue;
         memmove(&g_tree_nodes[i + 1 + nd], &g_tree_nodes[i + 1],
@@ -300,8 +330,8 @@ void tree_rebuild(void) {
         g_tree_count += nd;
     }
 
-    // Labels point INTO g_tree_path (static, so they outlive the
-    // widget); ids are slots, valid until the next rebuild.
+    // Labels point INTO g_tree_path, which does not move again until
+    // the next rebuild; ids are slots, valid until then too.
     for (int i = 0; i < g_tree_count; i++) {
         g_tree_nodes[i].id = i;
         // The head's rows already have labels; a volume's folders are

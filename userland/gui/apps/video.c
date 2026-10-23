@@ -53,7 +53,6 @@
 #define DEFAULT_DIR "/usr/share/videos"
 #define PROPERTIES  "/bin/wm/apps/properties"
 #define SAVE_DIR    "/home"
-#define MAX_ITEMS   200
 #define PATH_MAX_V  256
 #define HIDE_MS     2500                // full screen: the bar hides after this still
 #define SEEK_STEP   10000               // Left/Right, ms
@@ -91,7 +90,8 @@ static struct uambient g_amb;
 static struct uambient_stage g_stage;
 
 static struct uvid_play *g_play;
-static struct item g_items[MAX_ITEMS];
+static struct item *g_items; // g_cap of them, grown by scan()
+static int g_cap;
 static int g_count, g_cur = -1;
 static char g_dir[PATH_MAX_V] = DEFAULT_DIR;
 static int g_have_sound, g_panel = 1, g_loop, g_full;
@@ -314,8 +314,15 @@ static void scan(const char *dir) {
     if (dir != g_dir) strlcpy(g_dir, dir, sizeof g_dir);
     g_count = 0;
     int n = ulistdir(g_dir, &all);
-    for (int i = 0; i < n && g_count < MAX_ITEMS; i++) {
+    for (int i = 0; i < n; i++) {
         if (!keep_video(0, g_dir, &all[i])) continue;
+        if (g_count == g_cap) {
+            int cap = g_cap ? g_cap * 2 : 32;
+            struct item *grown = realloc(g_items, (size_t)cap * sizeof *grown);
+            if (!grown) { ulogf("video: out of memory listing %s at %d\n", g_dir, g_count); break; }
+            g_items = grown;
+            g_cap = cap;
+        }
         struct item *it = &g_items[g_count];
         memset(it, 0, sizeof *it);
         strlcpy(it->name, all[i].name, sizeof it->name);
@@ -334,7 +341,7 @@ static void scan(const char *dir) {
         g_count++;
     }
     free(all);
-    qsort(g_items, (size_t)g_count, sizeof g_items[0], by_name);
+    if (g_count) qsort(g_items, (size_t)g_count, sizeof g_items[0], by_name);
 }
 
 static int index_of(const char *name) {

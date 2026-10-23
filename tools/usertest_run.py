@@ -267,6 +267,9 @@ TESTS = [
     # link, plus userland/lib/ucomplete.c's own filesystem hooks.
     ("complete_test", 0,
      None, None),
+    # tosh's job table, grown past the eight it used to hold: ids stay
+    # the lowest free, and a job's pointer survives the table growing.
+    ("toshjobs_test", 0, None, None),
     # The checksum table, in the ring its only caller runs in.
     # tools/hash_hostcheck.py sweeps the same source far harder against
     # hashlib and zlib, and kernel/lib/kcrc_test.c covers the CRC in ring

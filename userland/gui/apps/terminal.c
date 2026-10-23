@@ -152,12 +152,9 @@ static struct ucrt g_crt;
 static int g_sb_rows = 240;   // scrollback lines kept above the screen
 #define SB_ROWS g_sb_rows
 
-// **EIGHT, AND THE REASON IS MEMORY RATHER THAN TASTE.** A session is
-// about 220 KiB of grid, scrollback and saved screen, so the cap is
-// what bounds this window's heap at under two megabytes. Sessions are
-// allocated on demand and their slots REUSED, so a Terminal that never
-// opens a second tab pays for one.
-#define MAX_TABS 8
+// Sessions are allocated on demand and their slots REUSED, so a
+// Terminal that never opens a second tab pays for one (a session is
+// about 220 KiB of grid, scrollback and saved screen).
 
 #define TITLE_MAX UVTERM_TITLE_MAX
 
@@ -175,15 +172,38 @@ struct session {
     int is_cmd;
 };
 
-static struct session *g_slot[MAX_TABS];
+static struct session **g_slot; // g_cap of them, grown by grow_tabs()
 
 // The strip, and the mapping from a TAB position to a session SLOT.
 // They differ as soon as a middle tab is closed, and conflating them is
 // how a click lands on the wrong shell.
 static struct uui_tabs g_strip;
-static struct uui_tab  g_tablabels[MAX_TABS];
-static int g_tab_slot[MAX_TABS];
-static int g_ntabs;
+static struct uui_tab  *g_tablabels;
+static int *g_tab_slot;
+static int g_ntabs, g_cap;
+
+// Doubles all three arrays. A reader thread holds its own session, never
+// these, so moving them under it is safe; the strip's pointer is re-aimed.
+static int grow_tabs(void) {
+    int cap = g_cap ? g_cap * 2 : 4;
+    struct session **sl = realloc(g_slot, (size_t)cap * sizeof *sl);
+    if (!sl) return 0;
+    g_slot = sl;
+    struct uui_tab *tl = realloc(g_tablabels, (size_t)cap * sizeof *tl);
+    if (!tl) return 0;
+    g_tablabels = tl;
+    g_strip.tabs = g_tablabels;   // at once: the old array is freed
+    int *ts = realloc(g_tab_slot, (size_t)cap * sizeof *ts);
+    if (!ts) return 0;
+    g_tab_slot = ts;
+    for (int i = g_cap; i < cap; i++) {
+        g_slot[i] = 0;
+        memset(&g_tablabels[i], 0, sizeof g_tablabels[i]);
+        g_tab_slot[i] = -1;
+    }
+    g_cap = cap;
+    return 1;
+}
 
 // --- the menu bar -----------------------------------------------------
 //
@@ -530,7 +550,7 @@ static int cell_h(void) { if (g_cell_h <= 0) font_sync(); return g_cell_h; }
 static struct session *active(void) {
     if (g_ntabs <= 0) return 0;
     int slot = g_tab_slot[g_strip.selected];
-    if (slot < 0 || slot >= MAX_TABS) return 0;
+    if (slot < 0 || slot >= g_cap) return 0;
     return g_slot[slot];
 }
 
@@ -551,7 +571,7 @@ static struct session *active(void) {
 // The scheme's default pair moved: every terminal's cells follow it
 // (uvterm_set_default_pair says why a cell cannot know on its own).
 static void remap_default_pair(void) {
-    for (int i = 0; i < MAX_TABS; i++)
+    for (int i = 0; i < g_cap; i++)
         if (g_slot[i] && g_slot[i]->t.grid) uvterm_set_default_pair(&g_slot[i]->t, VT_FG, VT_BG);
 }
 
@@ -559,7 +579,7 @@ static void remap_default_pair(void) {
 // Every terminal keeps its NEWEST lines (uvterm_set_scrollback).
 static void resize_scrollback(int lines) {
     if (lines == g_sb_rows || lines < 1) return;
-    for (int i = 0; i < MAX_TABS; i++)
+    for (int i = 0; i < g_cap; i++)
         if (g_slot[i] && g_slot[i]->t.grid) uvterm_set_scrollback(&g_slot[i]->t, lines);
     g_sb_rows = lines;
 }
@@ -636,7 +656,7 @@ static void tabs_refresh(void) {
     int n = 0;
     for (int i = 0; i < g_ntabs; i++) {
         int slot = g_tab_slot[i];
-        struct session *s = (slot >= 0 && slot < MAX_TABS) ? g_slot[slot] : 0;
+        struct session *s = (slot >= 0 && slot < g_cap) ? g_slot[slot] : 0;
         if (!s || !s->t.live) continue;
         g_tab_slot[n] = slot;
         g_tablabels[n].label = s->t.title;
@@ -696,7 +716,7 @@ static void session_stop(struct session *s) {
 
 static int open_tab_with(const char *shell) {
     int slot = -1;
-    for (int i = 0; i < MAX_TABS; i++) {
+    for (int i = 0; i < g_cap; i++) {
         struct session *s = g_slot[i];
         if (!s) { slot = i; break; }
         // A slot whose reader has finished is free. One whose reader is
@@ -704,8 +724,10 @@ static int open_tab_with(const char *shell) {
         // hand two threads one ring.
         if (!s->t.live && s->t.done) { slot = i; break; }
     }
-    if (slot < 0) return 0;
-    if (g_ntabs >= MAX_TABS) return 0;
+    if (slot < 0) {
+        slot = g_cap;
+        if (!grow_tabs()) return 0;
+    }
     // A recycled slot's master is still open: its reader has finished
     // with it, and nothing else would ever close it.
     if (g_slot[slot] && g_slot[slot]->t.master >= 0) {
@@ -808,11 +830,9 @@ static int chrome_h(void) {
 // THE HITS GO STALE WHEN OUTPUT SCROLLS THE BUFFER, so they are found
 // again after every drain while the bar is open (on_user) -- cheap at
 // this buffer's size, and simpler than shifting them.
-#define FIND_MAX 512   // past it the count reads as a floor ("512 found")
-
 struct findhit { int line, col; };
-static struct findhit g_hits[FIND_MAX];
-static int g_nhits;
+static struct findhit *g_hits;   // grown to the hit count
+static int g_nhits, g_hits_cap;
 static int g_hit_cur = -1;   // index into g_hits, -1 for none
 static int g_find_len;
 
@@ -830,13 +850,21 @@ static void find_run(struct session *s, int keep) {
     g_find_len = n;
     if (s && n > 0 && n <= g_cols) {
         int total = s->t.sb_count + g_rows;
-        for (int line = 0; line < total && g_nhits < FIND_MAX; line++) {
+        int oom = 0;
+        for (int line = 0; line < total && !oom; line++) {
             const struct uvterm_cell *row = uvterm_line(&s->t, line);
             if (!row) continue;
-            for (int c = 0; c + n <= g_cols && g_nhits < FIND_MAX; c++) {
+            for (int c = 0; c + n <= g_cols; c++) {
                 int k = 0;
                 while (k < n && fold(row[c + k].ch) == fold(q[k])) k++;
                 if (k < n) continue;
+                if (g_nhits == g_hits_cap) {
+                    int cap = g_hits_cap ? g_hits_cap * 2 : 256;
+                    struct findhit *h = realloc(g_hits, (size_t)cap * sizeof *h);
+                    if (!h) { ulogf("uterm: out of memory at %d matches\n", g_nhits); oom = 1; break; }
+                    g_hits = h;
+                    g_hits_cap = cap;
+                }
                 g_hits[g_nhits].line = line;
                 g_hits[g_nhits].col = c;
                 g_nhits++;
@@ -1144,7 +1172,7 @@ static void rename_begin(void) {
 // empty OSC.
 static void rename_commit(void) {
     g_rename_open = 0;
-    struct session *s = (g_rename_slot >= 0 && g_rename_slot < MAX_TABS)
+    struct session *s = (g_rename_slot >= 0 && g_rename_slot < g_cap)
                           ? g_slot[g_rename_slot] : 0;
     g_rename_slot = -1;
     if (!s || !s->t.live) return;
@@ -1254,7 +1282,7 @@ static void size_changed(int w, int h) {
     // terminal owns its grid now, and one drawn at the old size would show
     // its last screen cropped or short. A terminal that cannot grow clamps
     // itself (uvterm_resize), the old fixed-grid behaviour.
-    for (int i = 0; i < MAX_TABS; i++)
+    for (int i = 0; i < g_cap; i++)
         if (g_slot[i] && g_slot[i]->t.grid) uvterm_resize(&g_slot[i]->t, rows, cols);
 }
 
@@ -1278,7 +1306,7 @@ static void apply_conf(const struct term_conf *next) {
     }
     font_sync();
     resize_scrollback(g_conf.scrollback);
-    for (int i = 0; i < MAX_TABS; i++)
+    for (int i = 0; i < g_cap; i++)
         if (g_slot[i]) g_slot[i]->t.scroll_on_output = g_conf.scroll_on_output;
     g_caret_on = 1;
     if (g_app) {
@@ -1300,7 +1328,7 @@ static void apply_conf(const struct term_conf *next) {
 static int on_tick(struct uapp *a) {
     (void)a;
     unsigned long long now = sys_monotonic_ns();
-    for (int i = 0; i < MAX_TABS; i++) {
+    for (int i = 0; i < g_cap; i++) {
         struct session *hs = g_slot[i];
         if (hs && hs->t.live && !hs->t.spoke && now - hs->t.started_ns > 2000000000ull)
             uvterm_release_held(&hs->t);
@@ -1396,7 +1424,7 @@ static void do_copy(void) {
 // and its bytes are already waiting whether or not anyone is looking.
 static int drain_all(void) {
     int painted = 0;
-    for (int i = 0; i < MAX_TABS; i++) {
+    for (int i = 0; i < g_cap; i++) {
         struct session *s = g_slot[i];
         if (!s) continue;
         int got = drain(s);
@@ -1410,7 +1438,7 @@ static int drain_all(void) {
 // to. Checked after a drain so the shell's last output is on screen
 // before its tab disappears.
 static void reap_dead_tabs(void) {
-    for (int i = 0; i < MAX_TABS; i++) {
+    for (int i = 0; i < g_cap; i++) {
         struct session *s = g_slot[i];
         if (!s || !s->t.live || !s->t.eof || s->exited) continue;
         // KEPT: reaped, and the tab stays with what the shell last said
@@ -1839,7 +1867,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         // Straight to uapp_quit(): on_close_cb() would ask again, and
         // the dialog it would put up is the one that just answered.
         if (uui_dialog_take_code(&g_quit_ask) == QUIT_YES) {
-            for (int i = 0; i < MAX_TABS; i++) session_stop(g_slot[i]);
+            for (int i = 0; i < g_cap; i++) session_stop(g_slot[i]);
             uapp_quit(a, 0);
         }
         return;
@@ -2029,6 +2057,7 @@ static void on_open_cb(struct uapp *a) {
     term_panel_init();
     for (int i = 0; i < TERM_PANEL_BUTTONS; i++) g_widgets[W_PANEL0 + i] = *term_panel_item(i);
 
+    grow_tabs(); // out of memory leaves it empty; open_tab_with() tries again
     uui_tabs_init(&g_strip, g_tablabels, 0, 0);
     g_strip.on_select = tab_selected;
     g_strip.on_close  = tab_closed;
@@ -2064,7 +2093,7 @@ static int on_close_cb(struct uapp *a) {
         uapp_redraw(a);
         return 0;   // not yet -- the dialog answers
     }
-    for (int i = 0; i < MAX_TABS; i++) session_stop(g_slot[i]);
+    for (int i = 0; i < g_cap; i++) session_stop(g_slot[i]);
     return 1;
 }
 

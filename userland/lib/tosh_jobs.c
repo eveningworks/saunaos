@@ -1,42 +1,57 @@
 // The shell's job table -- see tosh_jobs.h for what a job is and why
 // this is the shell's problem rather than the kernel's.
 //
-// A FIXED ARRAY WITH NO ALLOCATION, and eight of them, because a job
-// table is bounded by what a person can keep track of. bash grows one
-// dynamically and can hold thousands; nobody has ever wanted that, and
-// a full table here says so out loud rather than dropping the job.
+// Grown on demand, as bash's is. Each job is its own allocation, so a
+// pointer from tosh_jobs_get() survives another job being added.
 #include "lib/tosh_jobs.h"
+#include <stdlib.h>
+#include <string.h>
 
-static struct tosh_job g_jobs[TOSH_JOBS_MAX];
+static struct tosh_job **g_jobs; // g_cap of them; NULL until first used
+static int g_cap;
 static int g_current;   // id, or 0
 static int g_previous;  // id, or 0
 
 static struct tosh_job *slot_of(int id) {
     if (id <= 0) return 0;
-    for (int i = 0; i < TOSH_JOBS_MAX; i++)
-        if (g_jobs[i].id == id) return &g_jobs[i];
+    for (int i = 0; i < g_cap; i++)
+        if (g_jobs[i] && g_jobs[i]->id == id) return g_jobs[i];
     return 0;
 }
+
+int tosh_jobs_cap(void) { return g_cap; }
 
 // The lowest id nothing is using. Ids are REUSED once a job is gone,
 // which is what keeps them small enough to type -- bash does the same,
 // and an ever-increasing counter would have `fg 47` in a shell with two
 // jobs in it.
 static int next_id(void) {
-    for (int id = 1; id <= TOSH_JOBS_MAX; id++)
-        if (!slot_of(id)) return id;
-    return 0;
+    for (int id = 1; ; id++)
+        if (!slot_of(id)) return id;   // at most g_cap + 1
+}
+
+// A free slot, growing the table when none is.
+static struct tosh_job *free_slot(void) {
+    int i = 0;
+    while (i < g_cap && g_jobs[i] && g_jobs[i]->id) i++;
+    if (i == g_cap) {
+        int cap = g_cap ? g_cap * 2 : 8;
+        struct tosh_job **n = realloc(g_jobs, (size_t)cap * sizeof *n);
+        if (!n) return 0;
+        for (int k = g_cap; k < cap; k++) n[k] = 0;
+        g_jobs = n;
+        g_cap = cap;
+    }
+    if (!g_jobs[i] && !(g_jobs[i] = malloc(sizeof *g_jobs[i]))) return 0;
+    memset(g_jobs[i], 0, sizeof *g_jobs[i]);
+    return g_jobs[i];
 }
 
 int tosh_jobs_add(int pgid, const int *pids, int npid, const char *cmd,
                   int stopped) {
     int id = next_id();
-    if (!id) return 0;
-
-    struct tosh_job *j = 0;
-    for (int i = 0; i < TOSH_JOBS_MAX; i++)
-        if (!g_jobs[i].id) { j = &g_jobs[i]; break; }
-    if (!j) return 0; // next_id() said there was room; belt for the braces
+    struct tosh_job *j = free_slot();
+    if (!j) return 0;
 
     j->id = id;
     j->pgid = pgid;
@@ -76,13 +91,13 @@ void tosh_jobs_remove(int id) {
     }
     if (g_previous == id) g_previous = 0;
     if (!g_current) {
-        for (int i = 0; i < TOSH_JOBS_MAX; i++)
-            if (g_jobs[i].id) { g_current = g_jobs[i].id; break; }
+        for (int i = 0; i < g_cap; i++)
+            if (g_jobs[i] && g_jobs[i]->id) { g_current = g_jobs[i]->id; break; }
     }
 }
 
 int tosh_jobs_any(void) {
-    for (int i = 0; i < TOSH_JOBS_MAX; i++) if (g_jobs[i].id) return 1;
+    for (int i = 0; i < g_cap; i++) if (g_jobs[i] && g_jobs[i]->id) return 1;
     return 0;
 }
 
@@ -94,7 +109,7 @@ void tosh_jobs_each(void (*fn)(void *ctx, const struct tosh_job *job, char marke
     // BY ID, not by slot: the array's order is whichever slots happened
     // to be free, and a list that jumps about between runs reads as a
     // bug in the shell.
-    for (int id = 1; id <= TOSH_JOBS_MAX; id++) {
+    for (int id = 1; id <= g_cap; id++) {
         struct tosh_job *j = slot_of(id);
         if (!j) continue;
         char marker = id == g_current ? '+' : (id == g_previous ? '-' : ' ');
