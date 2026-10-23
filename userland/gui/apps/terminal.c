@@ -68,6 +68,7 @@
 #include "lib/usetting.h"  // system.shell
 #include <stdio.h>
 #include <stdlib.h>
+#include "lib/ugrow.h"
 #include <string.h>
 #include <pthread.h>
 #include "rt/sys.h"
@@ -180,22 +181,16 @@ static struct session **g_slot; // g_cap of them, grown by grow_tabs()
 static struct uui_tabs g_strip;
 static struct uui_tab  *g_tablabels;
 static int *g_tab_slot;
-static int g_ntabs, g_cap;
+static int g_ntabs, g_cap;   // g_cap: slots in use-or-free, all three arrays
+static int g_slot_cap, g_labels_cap, g_order_cap;
 
 // Doubles all three arrays. A reader thread holds its own session, never
 // these, so moving them under it is safe; the strip's pointer is re-aimed.
 static int grow_tabs(void) {
     int cap = g_cap ? g_cap * 2 : 4;
-    struct session **sl = realloc(g_slot, (size_t)cap * sizeof *sl);
-    if (!sl) return 0;
-    g_slot = sl;
-    struct uui_tab *tl = realloc(g_tablabels, (size_t)cap * sizeof *tl);
-    if (!tl) return 0;
-    g_tablabels = tl;
-    g_strip.tabs = g_tablabels;   // at once: the old array is freed
-    int *ts = realloc(g_tab_slot, (size_t)cap * sizeof *ts);
-    if (!ts) return 0;
-    g_tab_slot = ts;
+    int ok = UGROW(g_slot, g_slot_cap, cap) && UGROW(g_tablabels, g_labels_cap, cap);
+    g_strip.tabs = g_tablabels;   // it may have moved even if what follows fails
+    if (!ok || !UGROW(g_tab_slot, g_order_cap, cap)) return 0;
     for (int i = g_cap; i < cap; i++) {
         g_slot[i] = 0;
         memset(&g_tablabels[i], 0, sizeof g_tablabels[i]);
@@ -859,12 +854,10 @@ static void find_run(struct session *s, int keep) {
                 int k = 0;
                 while (k < n && fold(row[c + k].ch) == fold(q[k])) k++;
                 if (k < n) continue;
-                if (g_nhits == g_hits_cap) {
-                    int cap = g_hits_cap ? g_hits_cap * 2 : 256;
-                    struct findhit *h = realloc(g_hits, (size_t)cap * sizeof *h);
-                    if (!h) { ulogf("uterm: out of memory at %d matches\n", g_nhits); oom = 1; break; }
-                    g_hits = h;
-                    g_hits_cap = cap;
+                if (!UGROW(g_hits, g_hits_cap, g_nhits + 1)) {
+                    ulogf("uterm: out of memory at %d matches\n", g_nhits);
+                    oom = 1;
+                    break;
                 }
                 g_hits[g_nhits].line = line;
                 g_hits[g_nhits].col = c;

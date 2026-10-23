@@ -21,6 +21,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "lib/ugrow.h"
 #include <pthread.h>
 #include "lib/uvid.h"
 #include "lib/ulistdir.h"
@@ -316,12 +317,9 @@ static void scan(const char *dir) {
     int n = ulistdir(g_dir, &all);
     for (int i = 0; i < n; i++) {
         if (!keep_video(0, g_dir, &all[i])) continue;
-        if (g_count == g_cap) {
-            int cap = g_cap ? g_cap * 2 : 32;
-            struct item *grown = realloc(g_items, (size_t)cap * sizeof *grown);
-            if (!grown) { ulogf("video: out of memory listing %s at %d\n", g_dir, g_count); break; }
-            g_items = grown;
-            g_cap = cap;
+        if (!UGROW(g_items, g_cap, g_count + 1)) {
+            ulogf("video: out of memory listing %s at %d\n", g_dir, g_count);
+            break;
         }
         struct item *it = &g_items[g_count];
         memset(it, 0, sizeof *it);

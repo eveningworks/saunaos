@@ -4920,7 +4920,8 @@ toywm's desktop-entry registry held 32 apps, and the 32nd (Win16
 Programs, 2026-10-19) made the next one dropped without a word, while
 each entry's Name stopped at 32 bytes and its Comment at 64.
 
-How, in ring 3: `realloc` doubling for a list, ONE allocation per record
+How, in ring 3: `lib/ugrow.h`'s `UGROW()` for a list, never a
+hand-rolled doubling; ONE allocation per record
 sized to its strings (`gui_app_entry`'s `mem`), the whole thing rebuilt
 and swapped on reload with the old freed. A directory is listed with
 paging (`lib/ulistdir.h`, `opendir()`), not into an array of the

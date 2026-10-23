@@ -61,6 +61,7 @@
 | `ufileundo.h` | AN UNDO JOURNAL FOR FILE OPERATIONS: what a move, copy, rename, new item or delete-to-the-bin did, and how to take it back -- Explorer's Ctrl+Z/Ctrl+Y over file operations, Dolphin's KIO undo manager. |
 | `ufileurl.h` | A file: URL and the local path it names (RFC 8089), and the web's name for what a file is (its Content-Type) -- what a browser engine and the app that reads files for it both have to agree on. |
 | `ufolderopts.h` | ufolderopts -- how files are shown and opened, in File Manager windows AND on the desktop: Explorer's Folder Options, which apply to both. |
+| `ugrow.h` | A GROWABLE ARRAY in one macro: UGROW(arr, cap, need) makes the typed pointer `arr` hold at least `need` elements, doubling `cap`. |
 | `uhistory.h` | Command history for a ring-3 line editor. |
 | `uhlp.h` | uhlp -- WINDOWS HELP FILES (.HLP, the WinHelp 3.0/3.1 format) read in ring 3: the internal directory, the topics, their text and formatting, the pictures, and the tables that find a topic (context... |
 | `uhlpmac.h` | uhlpmac -- THE WINHELP MACRO LANGUAGE: the text a help file runs when it opens (\|SYSTEM's macros and a topic's own), when a hotspot is clicked (`JumpId("file.hlp", "ctx")`) or a button is pressed,... |

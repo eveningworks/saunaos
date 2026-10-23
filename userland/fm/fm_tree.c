@@ -13,6 +13,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include "ui/ulog.h"
+#include "lib/ugrow.h"
 
 // --- the directory tree -----------------------------------------------
 //
@@ -27,7 +28,7 @@ struct uui_tree g_tree;
 static struct uui_tree_node *g_tree_nodes;
 char (*g_tree_path)[PATH_MAX_LEN];
 int g_tree_count;
-static int g_tree_cap;
+static int g_nodes_cap, g_path_cap, g_place_cap;
 // Each row's g_places row (or TREE_FOLDER/_HEADER/_ADD_ROW), moved with
 // the rows as folders are inserted -- what a right-click asks.
 static int *g_tree_place;
@@ -36,20 +37,8 @@ static int g_tree_open_count, g_tree_open_cap;
 
 // Room for `n` rows in all three row arrays; 0 when memory is out.
 static int tree_reserve(int n) {
-    if (n <= g_tree_cap) return 1;
-    int cap = g_tree_cap ? g_tree_cap : 64;
-    while (cap < n) cap *= 2;
-    void *a = realloc(g_tree_nodes, (size_t)cap * sizeof *g_tree_nodes);
-    if (!a) return 0;
-    g_tree_nodes = a;
-    void *b = realloc(g_tree_path, (size_t)cap * sizeof *g_tree_path);
-    if (!b) return 0;
-    g_tree_path = b;
-    void *c = realloc(g_tree_place, (size_t)cap * sizeof *g_tree_place);
-    if (!c) return 0;
-    g_tree_place = c;
-    g_tree_cap = cap;
-    return 1;
+    return UGROW(g_tree_nodes, g_nodes_cap, n) && UGROW(g_tree_path, g_path_cap, n) &&
+           UGROW(g_tree_place, g_place_cap, n);
 }
 static struct sys_dirent *g_tree_scratch;   // the last folder listed; replaced by the next
 static char g_tree_note[UUI_PLACES_MAX][24];
@@ -93,12 +82,9 @@ static int mount_of(const char *path) {
 static void tree_set_open(const char *path, int open) {
     if (open) {
         if (tree_is_open(path)) return;
-        if (g_tree_open_count == g_tree_open_cap) {
-            int cap = g_tree_open_cap ? g_tree_open_cap * 2 : 16;
-            void *n = realloc(g_tree_open, (size_t)cap * sizeof *g_tree_open);
-            if (!n) { ulogf("files: out of memory opening %s in the tree\n", path); return; }
-            g_tree_open = n;
-            g_tree_open_cap = cap;
+        if (!UGROW(g_tree_open, g_tree_open_cap, g_tree_open_count + 1)) {
+            ulogf("files: out of memory opening %s in the tree\n", path);
+            return;
         }
         strlcpy(g_tree_open[g_tree_open_count++], path, PATH_MAX_LEN);
         return;

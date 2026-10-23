@@ -6,6 +6,7 @@
 #include "lib/tosh_jobs.h"
 #include <stdlib.h>
 #include <string.h>
+#include "lib/ugrow.h"
 
 static struct tosh_job **g_jobs; // g_cap of them; NULL until first used
 static int g_cap;
@@ -35,12 +36,9 @@ static struct tosh_job *free_slot(void) {
     int i = 0;
     while (i < g_cap && g_jobs[i] && g_jobs[i]->id) i++;
     if (i == g_cap) {
-        int cap = g_cap ? g_cap * 2 : 8;
-        struct tosh_job **n = realloc(g_jobs, (size_t)cap * sizeof *n);
-        if (!n) return 0;
-        for (int k = g_cap; k < cap; k++) n[k] = 0;
-        g_jobs = n;
-        g_cap = cap;
+        int was = g_cap;
+        if (!UGROW(g_jobs, g_cap, g_cap + 1)) return 0;
+        for (int k = was; k < g_cap; k++) g_jobs[k] = 0;   // not zeroed by realloc
     }
     if (!g_jobs[i] && !(g_jobs[i] = malloc(sizeof *g_jobs[i]))) return 0;
     memset(g_jobs[i], 0, sizeof *g_jobs[i]);

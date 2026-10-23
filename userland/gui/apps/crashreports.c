@@ -33,6 +33,7 @@
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "lib/ugrow.h"
 #include <string.h>
 #include <dirent.h>
 #include <time.h>
@@ -117,12 +118,9 @@ static void scan(void) {
     char path[96];
     while ((e = readdir(d))) {
         if (!strstr(e->d_name, ".crash")) continue;
-        if (g_n == g_cap) {
-            int cap = g_cap ? g_cap * 2 : 32;
-            struct report *grown = realloc(g_rep, (size_t)cap * sizeof *grown);
-            if (!grown) { ulogf("crashreports: out of memory at %d reports\n", g_n); break; }
-            g_rep = grown;
-            g_cap = cap;
+        if (!UGROW(g_rep, g_cap, g_n + 1)) {
+            ulogf("crashreports: out of memory at %d reports\n", g_n);
+            break;
         }
         snprintf(path, sizeof path, CRASH_DIR "/%s", e->d_name);
         if (parse_report(path, &g_rep[g_n])) g_n++;

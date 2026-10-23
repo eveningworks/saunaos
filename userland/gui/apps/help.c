@@ -41,6 +41,7 @@
 #include "keyboard.h"
 #include <dirent.h>
 #include <stdlib.h>
+#include "lib/ugrow.h"
 #include <stdio.h>
 #include <string.h>
 #include <strings.h>
@@ -145,22 +146,11 @@ static int by_name(const void *a, const void *b) {
     return strcmp((const char *)a, (const char *)b);
 }
 
-// Doubles `*arr` (of `size`-byte elements) when `n` has reached `*cap`.
-static int grow(void *arr, int n, int *cap, size_t size) {
-    if (n < *cap) return 1;
-    int c = *cap ? *cap * 2 : 16;
-    void *g = realloc(*(void **)arr, (size_t)c * size);
-    if (!g) return 0;
-    *(void **)arr = g;
-    *cap = c;
-    return 1;
-}
-
 // -1 when out of memory.
 static int cat_index(const char *name) {
     for (int i = 0; i < g_ncats; i++)
         if (!strcmp(g_cat[i].name, name)) return i;
-    if (!grow(&g_cat, g_ncats, &g_cat_cap, sizeof *g_cat)) return -1;
+    if (!UGROW(g_cat, g_cat_cap, g_ncats + 1)) return -1;
     memset(&g_cat[g_ncats], 0, sizeof *g_cat);
     strlcpy(g_cat[g_ncats].name, name, CAT_CAP);
     return g_ncats++;
@@ -180,7 +170,7 @@ static void load_dir(const char *dir) {
         if (e->d_type == DT_DIR || len < 4 || len - 3 >= NAME_CAP ||
             strcmp(e->d_name + len - 3, ".md") != 0)
             continue;
-        if (!grow(&names, n, &names_cap, sizeof *names)) {
+        if (!UGROW(names, names_cap, n + 1)) {
             ulogf("help: out of memory listing %s at %d pages\n", path, n);
             break;
         }
@@ -192,7 +182,7 @@ static void load_dir(const char *dir) {
     if (n) qsort(names, (size_t)n, NAME_CAP, by_name);
 
     for (int i = 0; i < n; i++) {
-        if (!grow(&g_page, g_npages, &g_page_cap, sizeof *g_page)) {
+        if (!UGROW(g_page, g_page_cap, g_npages + 1)) {
             ulogf("help: out of memory at %d pages; the rest are not listed\n", g_npages);
             break;
         }
@@ -242,7 +232,7 @@ static void load(void) {
         struct dirent *e;
         while ((e = readdir(d)) != NULL)
             if (e->d_type == DT_DIR && e->d_name[0] != '.' &&
-                grow(&dirs, nd, &dirs_cap, sizeof *dirs))
+                UGROW(dirs, dirs_cap, nd + 1))
                 strlcpy(dirs[nd++], e->d_name, sizeof dirs[0]);
         closedir(d);
         if (nd) qsort(dirs, (size_t)nd, sizeof dirs[0], by_name);

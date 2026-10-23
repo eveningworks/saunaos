@@ -270,6 +270,9 @@ TESTS = [
     # tosh's job table, grown past the eight it used to hold: ids stay
     # the lowest free, and a job's pointer survives the table growing.
     ("toshjobs_test", 0, None, None),
+    # lib/ugrow.h, the growable-array macro every ring-3 list uses: it
+    # grows, and a request it cannot meet leaves the array as it was.
+    ("ugrow_test", 0, None, None),
     # The checksum table, in the ring its only caller runs in.
     # tools/hash_hostcheck.py sweeps the same source far harder against
     # hashlib and zlib, and kernel/lib/kcrc_test.c covers the CRC in ring

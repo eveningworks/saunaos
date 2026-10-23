@@ -22,6 +22,7 @@
 #include <string.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include "lib/ugrow.h"
 #include "rt/sys.h"
 #include "kpath.h"   // k_path_join/_dirname/_basename -- the kernel's, linked into ring 3
 #include "ui/ugfx.h"
@@ -962,12 +963,9 @@ static void find_run(int select) {
             int k = 0;
             while (k < n && fold(T->buf[i + k]) == fold(q[k])) k++;
             if (k < n) continue;
-            if (g_nhits == g_marks_cap) {
-                int cap = g_marks_cap ? g_marks_cap * 2 : 256;
-                struct utext_mark *m = realloc(g_marks, (size_t)cap * sizeof *m);
-                if (!m) { ulogf("notepad: out of memory at %d matches\n", g_nhits); break; }
-                g_marks = m;
-                g_marks_cap = cap;
+            if (!UGROW(g_marks, g_marks_cap, g_nhits + 1)) {
+                ulogf("notepad: out of memory at %d matches\n", g_nhits);
+                break;
             }
             memset(&g_marks[g_nhits], 0, sizeof g_marks[0]);
             g_marks[g_nhits].start = i;
