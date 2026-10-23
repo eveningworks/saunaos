@@ -6,6 +6,12 @@
 // search sit side by side. There is no index to ask, so the walk is
 // the search -- on a thread of its own, posting as it finds things,
 // with Stop.
+//
+// THE FILTERS NARROW, THE CONTENTS WIDEN: a row passes the type, date
+// and size filters (lib/ufind.h) and then matches by name OR, with
+// "Inside text files", by a line in it -- Explorer's search and
+// Nautilus's full-text search. An empty query with a filter set lists
+// everything the filter keeps ("every picture under here").
 #include "fm_internal.h"
 #include <string.h>
 #include <strings.h>
@@ -19,10 +25,14 @@
 #include "ui/uui_table.h"
 #include "ui/ulog.h"
 #include "lib/ugrow.h"
+#include "lib/ufind.h"
+#include <time.h>
 
 struct hit {
     char path[PATH_MAX_LEN];
     struct sys_dirent e;
+    int line;                 // the matching line, from 1; 0 = matched by name
+    char match[80];           // that line, trimmed to what a column shows
 };
 
 // WRITTEN BY THE WORKER under g_lock; read by the main thread under it.
@@ -34,6 +44,9 @@ static unsigned long long g_seen;         // entries looked at
 static char g_where[PATH_MAX_LEN];        // the directory being read, for the strip
 
 static char g_root[PATH_MAX_LEN], g_query[UUI_TEXTBOX_MAX];
+static struct ufind_filter g_filter = UFIND_FILTER_ANY;
+static int g_contents;                    // "Inside text files"
+static long long g_now;                   // the date filter's today, asked once
 static volatile int g_running, g_cancel;
 static pthread_t g_thread;
 static struct uwalk g_walk;               // static: several KB
@@ -47,6 +60,7 @@ static int g_nshown, g_shown_cap;
 
 static int matches(const char *name) {
     int qn = (int)strlen(g_query), n = (int)strlen(name);
+    if (!qn) return 1;   // a filter alone
     for (int i = 0; i + qn <= n; i++)
         if (!strncasecmp(name + i, g_query, (size_t)qn)) return 1;
     return 0;
@@ -58,11 +72,19 @@ static int visit(void *ctx, const char *path, const struct sys_dirent *e) {
     // Hidden names the way the panes hide them -- and a bin is never
     // searched: what is in it was deleted.
     if (e->name[0] == '.' && (!g_opt.folder.hidden || !strncmp(e->name, ".Trash", 6))) return 0;
-    if (matches(e->name)) {
+    if (!ufind_matches(&g_filter, e, g_now)) return 1;
+    int line = 0;
+    char text[sizeof g_hits[0].match];
+    text[0] = '\0';
+    if (matches(e->name) ||
+        (g_contents && !e->is_dir && g_query[0] &&
+         ufind_contains(path, g_query, &line, text, sizeof text, &g_cancel))) {
         pthread_mutex_lock(&g_lock);
         if (!g_full && UGROW(g_hits, g_hits_cap, g_nhits + 1)) {
             strlcpy(g_hits[g_nhits].path, path, PATH_MAX_LEN);
             g_hits[g_nhits].e = *e;
+            g_hits[g_nhits].line = line;
+            strlcpy(g_hits[g_nhits].match, text, sizeof g_hits[0].match);
             g_nhits++;
         } else if (!g_full) {
             g_full = 1;
@@ -107,6 +129,15 @@ void search_stop(void) {
     g_running = 0;
 }
 
+// BEFORE the results are listed: which shape the folder takes
+// (search_source) follows `contents`, and a listing can resolve it before
+// the walk starts.
+void search_set_filter(const struct ufind_filter *f, int contents) {
+    search_stop();   // the worker reads them
+    g_filter = *f;
+    g_contents = contents;
+}
+
 void search_start(const char *root, const char *query) {
     search_stop();
     pthread_mutex_lock(&g_lock);
@@ -116,10 +147,12 @@ void search_start(const char *root, const char *query) {
     pthread_mutex_unlock(&g_lock);
     strlcpy(g_root, root, sizeof g_root);
     strlcpy(g_query, query, sizeof g_query);
+    g_now = (long long)time(0);
     g_cancel = 0;
     g_running = 1;
     g_last_post = 0;
-    ulogf("files: search start \"%s\" under %s\n", g_query, g_root);
+    ulogf("files: search start \"%s\" under %s kind %d age %d size %d contents %d\n",
+          g_query, g_root, g_filter.kind, g_filter.age, g_filter.size, g_contents);
     if (pthread_create(&g_thread, 0, worker, 0) != 0) {
         g_running = 0;
         set_note("could not start the search");
@@ -127,6 +160,18 @@ void search_start(const char *root, const char *query) {
 }
 
 int search_running(void) { return g_running; }
+
+// What a finished search found, for a test to read: the first few, by
+// path and matching line (0 for a name match), so a big search costs the
+// log a handful of lines rather than one per file.
+void search_log_hits(void) {
+    enum { SHOW = 16 };
+    pthread_mutex_lock(&g_lock);
+    for (int i = 0; i < g_nhits && i < SHOW; i++)
+        ulogf("files: search hit %d %s\n", g_hits[i].line, g_hits[i].path);
+    if (g_nhits > SHOW) ulogf("files: search hit and %d more\n", g_nhits - SHOW);
+    pthread_mutex_unlock(&g_lock);
+}
 
 // The strip's words: what is happening, or what came of it.
 void search_status(char *out, int cap) {
@@ -144,12 +189,28 @@ void search_status(char *out, int cap) {
 
 // --- the virtual folder ---------------------------------------------------
 
+// TWO SHAPES OF ONE FOLDER, told apart by the source's ctx: a contents
+// search puts Match second, as a pane too narrow for every column drops
+// them from the end and the line found is that search's answer.
+enum { C_NAME, C_SIZE, C_MODIFIED, C_FOLDER, C_MATCH };
 static const struct uui_table_column search_cols[] = {
     { "Name",     0,  UUI_TALIGN_LEFT  },
     { "Size",     9,  UUI_TALIGN_RIGHT },
     { "Modified", 20, UUI_TALIGN_LEFT  },
     { "Folder",   20, UUI_TALIGN_LEFT  },
 };
+static const struct uui_table_column text_cols[] = {
+    { "Name",     0,  UUI_TALIGN_LEFT  },
+    { "Match",    30, UUI_TALIGN_LEFT  },
+    { "Folder",   20, UUI_TALIGN_LEFT  },
+    { "Size",     9,  UUI_TALIGN_RIGHT },
+    { "Modified", 20, UUI_TALIGN_LEFT  },
+};
+static const int TEXT_FACT[] = { C_NAME, C_MATCH, C_FOLDER, C_SIZE, C_MODIFIED };
+
+static int fact(void *ctx, int col) {
+    return ctx && col >= 0 && col < (int)(sizeof TEXT_FACT / sizeof TEXT_FACT[0]) ? TEXT_FACT[col] : col;
+}
 
 static int s_list(void *ctx, const char *dir, struct sys_dirent *out, int cap) {
     (void)ctx; (void)dir;
@@ -168,21 +229,24 @@ static int s_path(void *ctx, int i, char *out, int cap) {
 }
 
 static void s_cell(void *ctx, int i, int col, char *out, int cap) {
-    (void)ctx;
+    col = fact(ctx, col);
     out[0] = '\0';
     if (i < 0 || i >= g_nshown) return;
     const struct sys_dirent *e = &g_shown[i].e;
-    if (col == 1 && !e->is_dir) human_size(out, (unsigned long)cap, e->size);
-    else if (col == 2) udate_format(out, (unsigned long)cap, &e->modified, UDATE_DATE | UDATE_TIME);
-    else if (col == 3) k_path_dirname(g_shown[i].path, out, (size_t)cap);
+    if (col == C_SIZE && !e->is_dir) human_size(out, (unsigned long)cap, e->size);
+    else if (col == C_MODIFIED) udate_format(out, (unsigned long)cap, &e->modified, UDATE_DATE | UDATE_TIME);
+    else if (col == C_FOLDER) k_path_dirname(g_shown[i].path, out, (size_t)cap);
+    else if (col == C_MATCH && g_shown[i].line)
+        snprintf(out, (size_t)cap, "line %d: %s", g_shown[i].line, g_shown[i].match);
 }
 
 // By the value, not the text: "9K" sorts after "10K" as a string.
 static int s_compare(void *ctx, int a, int b, int col) {
-    (void)ctx;
+    col = fact(ctx, col);
     const struct hit *x = &g_shown[a], *y = &g_shown[b];
-    if (col == 1) return x->e.size < y->e.size ? -1 : x->e.size > y->e.size;
-    if (col == 2) {
+    if (col == C_SIZE) return x->e.size < y->e.size ? -1 : x->e.size > y->e.size;
+    if (col == C_MATCH) return strcasecmp(x->match, y->match);
+    if (col == C_MODIFIED) {
         uint64_t tx = cal_rtc_to_epoch(&x->e.modified), ty = cal_rtc_to_epoch(&y->e.modified);
         return tx < ty ? -1 : tx > ty;
     }
@@ -194,10 +258,19 @@ static const struct uui_fileview_source g_src = {
     .cols = search_cols, .ncols = 4,
     .cell = s_cell, .compare = s_compare,
 };
+static const struct uui_fileview_source g_src_text = {
+    .ctx = (void *)1,
+    .list = s_list, .path = s_path,
+    .cols = text_cols, .ncols = 5,
+    .cell = s_cell, .compare = s_compare,
+};
 
-const struct uui_fileview_source *search_source(void) { return &g_src; }
+const struct uui_fileview_source *search_source(void) { return g_contents ? &g_src_text : &g_src; }
 
-int in_search(const struct uui_fileview *fv) { return uui_fileview_source(fv) == &g_src; }
+int in_search(const struct uui_fileview *fv) {
+    const struct uui_fileview_source *s = uui_fileview_source(fv);
+    return s == &g_src || s == &g_src_text;
+}
 
 // "search:/usr" -> "/usr": the folder a search view searches.
 const char *search_scope(const char *dir) {

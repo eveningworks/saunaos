@@ -10,6 +10,7 @@
 #include "lib/udate.h"  // the Modified column, in the locale's spelling
 #include "lib/icon_cache.h" // icon_get() -- the icons view's artwork
 #include "lib/ufiletype.h"  // a row's type, in words and as an icon
+#include "lib/ufind.h"      // the size bands, shared with search
 #include "lib/icon_grid.h"      // cell math, shared with the desktop
 #include <string.h>
 #include <stdio.h>
@@ -586,36 +587,13 @@ static int fv_age_group(const struct rtc_time *mod) {
     return AGE_OLDER;
 }
 
-enum { KIND_FOLDER, KIND_PICTURE, KIND_SOUND, KIND_VIDEO, KIND_DOC, KIND_ARCHIVE, KIND_PROGRAM, KIND_OTHER };
-static const char *const KIND_NAMES[] = {
-    "Folders", "Pictures", "Music and sounds", "Videos", "Documents", "Archives", "Programs", "Other",
-};
+// Type and size bands are ufiletype's and ufind's, so Group by and the
+// search filters hold the same files under one name.
+static int fv_kind_group(const struct sys_dirent *e) { return (int)ufiletype_kind(e->name, e->is_dir); }
 
-// By the type's ICON, which ufiletype already derives from the name --
-// one table of extensions, not a second one here.
-static int fv_kind_group(const struct sys_dirent *e) {
-    if (e->is_dir) return KIND_FOLDER;
-    const char *ic = ufiletype_icon(e->name, 0);
-    if (!strcmp(ic, "file-image")) return KIND_PICTURE;
-    if (!strcmp(ic, "file-audio")) return KIND_SOUND;
-    if (!strcmp(ic, "file-video")) return KIND_VIDEO;
-    if (!strcmp(ic, "file-text") || !strcmp(ic, "file-doc") || !strcmp(ic, "file-config")) return KIND_DOC;
-    if (!strcmp(ic, "file-archive")) return KIND_ARCHIVE;
-    if (!strcmp(ic, "file-app")) return KIND_PROGRAM;
-    return KIND_OTHER;
-}
-
-static const char *const SIZE_NAMES[] = {
-    "Folders", "Empty", "Tiny (under 16 KB)", "Small (under 1 MB)", "Medium (under 128 MB)", "Large",
-};
-
+// 0 is the folders' band; a file's is ufind's, UFIND_EMPTY onward.
 static int fv_size_group(const struct sys_dirent *e) {
-    if (e->is_dir) return 0;
-    if (e->size == 0) return 1;
-    if (e->size < 16u * 1024) return 2;
-    if (e->size < 1024u * 1024) return 3;
-    if (e->size < 128u * 1024 * 1024) return 4;
-    return 5;
+    return e->is_dir ? 0 : ufind_size_band(e->size);
 }
 
 static const char *const NAME_NAMES[] = { "0 - 9", "A - H", "I - P", "Q - Z", "Other" };
@@ -658,8 +636,12 @@ static void fv_group_title(void *ctx, int g, char *out, int cap) {
     switch (fv->group_by) {
     case UUI_FILEVIEW_GROUP_NAME:     names = NAME_NAMES; n = (int)(sizeof NAME_NAMES / sizeof *NAME_NAMES); break;
     case UUI_FILEVIEW_GROUP_MODIFIED: names = AGE_NAMES;  n = (int)(sizeof AGE_NAMES / sizeof *AGE_NAMES); break;
-    case UUI_FILEVIEW_GROUP_TYPE:     names = KIND_NAMES; n = (int)(sizeof KIND_NAMES / sizeof *KIND_NAMES); break;
-    case UUI_FILEVIEW_GROUP_SIZE:     names = SIZE_NAMES; n = (int)(sizeof SIZE_NAMES / sizeof *SIZE_NAMES); break;
+    case UUI_FILEVIEW_GROUP_TYPE:
+        snprintf(out, (size_t)cap, "%s", ufiletype_kind_name((enum ufiletype_kind)g));
+        return;
+    case UUI_FILEVIEW_GROUP_SIZE:
+        snprintf(out, (size_t)cap, "%s", g == 0 ? "Folders" : ufind_size_name(g));
+        return;
     default: break;
     }
     if (names && g >= 0 && g < n) snprintf(out, (size_t)cap, "%s", names[g]);

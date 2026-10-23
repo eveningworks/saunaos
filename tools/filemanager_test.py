@@ -173,7 +173,10 @@ class Layout:
         self.groups = None    # (group_by, [caption, ...]) of the active pane
         self.lcols = {}       # left pane's details column -> [x, y, w, h] (uui_table's describe)
         self.lcolumns = None  # ...and its choosable layout string, when it has one
+        self.lheads = None    # ...and the titles it shows, in order
         self.compare = {}     # the conflict card's facts: side0/side1/rest/rest_checked
+        self.filter = None    # (strip shown, kind, age, size, inside) of the active pane
+        self.filterbtn = {}   # the strip's filter chip index -> [x, y, w, h]
         self.dpane = None     # is the details pane shown
         self.pathedit = None  # is the breadcrumb being typed in
         self.pathseg = {}     # breadcrumb segment (0 = the root) -> [x, y, w, h]
@@ -291,10 +294,16 @@ class Layout:
             self.popitems1[int(p[2])] = [int(v) for v in p[3:7]]
         elif p[0].startswith("compare.") and len(p) >= 2:
             self.compare[p[0][len("compare."):]] = p[1:]
+        elif p[0] == "filter" and len(p) >= 6:
+            self.filter = tuple(int(v) for v in p[1:6])
+        elif p[0] == "filters.button" and len(p) >= 6:
+            self.filterbtn[int(p[1])] = [int(v) for v in p[2:6]]
         elif p[0] == "left.col" and len(p) >= 6:
             self.lcols[int(p[1])] = [int(v) for v in p[2:6]]
         elif p[0] == "left.columns" and len(p) >= 2:
             self.lcolumns = p[1]
+        elif p[0] == "left.heads":
+            self.lheads = " ".join(p[1:]).split("|")
         elif p[0] == "groups" and len(p) >= 3:
             caps = " ".join(p[2:])
             self.groups = (int(p[1]), [] if caps == "-" else caps.split("|"))

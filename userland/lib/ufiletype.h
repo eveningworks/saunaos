@@ -20,6 +20,18 @@ const char *ufiletype_name(const char *name, int is_dir);
 // by name), "file-image", ..., or "file".
 const char *ufiletype_icon(const char *name, int is_dir);
 
+// WHAT SORT OF THING it is, in the broad bands a person searches and
+// groups by -- Explorer's "kind:" and Nautilus's type filter. Derived from
+// the icon above, so one extension table answers all three questions.
+enum ufiletype_kind {
+    UFILETYPE_FOLDER, UFILETYPE_PICTURE, UFILETYPE_SOUND, UFILETYPE_VIDEO,
+    UFILETYPE_DOCUMENT, UFILETYPE_ARCHIVE, UFILETYPE_PROGRAM, UFILETYPE_OTHER,
+    UFILETYPE_KINDS
+};
+enum ufiletype_kind ufiletype_kind(const char *name, int is_dir);
+// "Folders", "Pictures", ..., "Other" -- plural, a band's caption. Never NULL.
+const char *ufiletype_kind_name(enum ufiletype_kind k);
+
 // The name as SHOWN: `name` without its extension when `hide_ext` and the
 // type is one the table knows -- an unknown extension is part of what the
 // name says, and a folder has none. Explorer's rule.

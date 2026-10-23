@@ -27,6 +27,8 @@ static const char *LOOK_IN = "Look in";
 // picture wash: a darker step for the hairlines, a lighter one for places.
 static uint32_t chrome(void)      { return UTHEME_CHROME; }
 static uint32_t chrome_line(void) { return ugfx_blend(UTHEME_CHROME, ugfx_rgb(0, 0, 0), 34); }
+// A step lighter than the chrome, as Explorer's search options bar.
+static uint32_t strip_bg(void) { return ugfx_blend(chrome(), UTHEME_WHITE, 120); }
 static uint32_t places_bg(void)   { return ugfx_blend(UTHEME_CHROME, UTHEME_WHITE, 110); }
 static int statusbar_h(void) { return uui_statusbar_height(&g_status); }
 
@@ -139,16 +141,27 @@ void layout_all(int cw, int ch) {
     int sh = strip_h();
     widget_by_id(ID_SCOPE)->hidden = !sh;
     widget_by_id(ID_SEARCH_STOP)->hidden = !sh || !search_running();
+    widget_by_id(ID_FILTERS)->hidden = !sh;
     if (sh) {
         int lx = 12 + ugfx_text_width(LOOK_IN) + 10;
         int sw, shh;
         uui_segmented_natural_size(&g_scope_seg, &sw, &shh);
         uui_segmented_set_geometry(&g_scope_seg, lx, nh + tb + (sh - shh) / 2);
+        int right = cw - 10;
         if (search_running()) {
             int bw, bh;
             uui_button_natural_size(&g_search_stop, &bw, &bh);
             uui_button_set_geometry(&g_search_stop, cw - bw - 10, nh + tb + (sh - bh) / 2, bw, bh);
+            right = cw - bw - 20;
         }
+        // The chips after the switch, ahead of the search's count: that
+        // is in the status bar too, the filters are nowhere else.
+        int fx = g_scope_seg.x + sw + 12, fw, fh;
+        uui_toolbar_natural_size(&g_filter_bar, &fw, &fh);
+        int room = right - fx;
+        if (fw > room) fw = room > 0 ? room : 0;
+        uui_toolbar_ops.set_geometry(&g_filter_bar, fx, nh + tb + (sh - fh) / 2, fw, fh);
+        g_filter_bar.bg = strip_bg();
     }
     int top = nh + tb + sh;
     int body_h = ch - top - sb;
@@ -336,6 +349,9 @@ void log_layout(void) {
     // Whether the search box has the keyboard: a test types only once it
     // does, since a key can overtake the click that gave it focus.
     uapp_logf_layout("files: layout searching %d\n", g_search_on);
+    char fs[64];
+    filter_describe(fs, sizeof fs);
+    uapp_logf_layout("files: layout filter %d %s\n", search_strip_shown(), fs);
     uapp_logf_layout("files: layout split %d %d\n",
           uui_splitter_frac(&g_tree_split), uui_splitter_frac(&g_pane_split));
     for (int i = 0; i < 2; i++) {
@@ -471,9 +487,8 @@ void on_draw(struct uapp *a, struct uapp_draw *d) {
     ugfx_fill_rect(d->surface, 0, nh + tb - 1, cw, 1, chrome_line());
     int sh = strip_h();
     if (sh) {
-        // A step lighter than the chrome, as Explorer's search options bar.
         int y = nh + tb;
-        uint32_t sbg = ugfx_blend(chrome(), UTHEME_WHITE, 120);
+        uint32_t sbg = strip_bg();
         ugfx_fill_rect(d->surface, 0, y, cw, sh, sbg);
         ugfx_fill_rect(d->surface, 0, y + sh - 1, cw, 1, chrome_line());
         uint32_t dim = uui_state_bg(UTHEME_TEXT, UUI_STATE_DISABLED);
@@ -482,9 +497,10 @@ void on_draw(struct uapp *a, struct uapp_draw *d) {
         if (search_scope(uui_fileview_dir(active()))) {
             char st[96];
             search_status(st, sizeof st);
-            int sx = g_scope_seg.x + g_scope_seg.w + 16;
+            int sx = g_filter_bar.x + g_filter_bar.w + 16;
             int right = widget_by_id(ID_SEARCH_STOP)->hidden ? cw - 10 : g_search_stop.x - 10;
-            ugfx_draw_string_elided(d->surface, sx, ty, right - sx, st, dim, sbg);
+            if (right - sx >= ugfx_char_w() * 12)   // else the status bar's alone
+                ugfx_draw_string_elided(d->surface, sx, ty, right - sx, st, dim, sbg);
         }
     }
     uui_statusbar_draw(d->surface, &g_status);

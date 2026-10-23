@@ -60,6 +60,7 @@
 | `ufiletype.h` | WHAT KIND OF FILE A NAME IS, in words and as an icon -- the File Manager's Type column, its details pane and Properties all ask, and three private tables would drift into three answers. |
 | `ufileundo.h` | AN UNDO JOURNAL FOR FILE OPERATIONS: what a move, copy, rename, new item or delete-to-the-bin did, and how to take it back -- Explorer's Ctrl+Z/Ctrl+Y over file operations, Dolphin's KIO undo manager. |
 | `ufileurl.h` | A file: URL and the local path it names (RFC 8089), and the web's name for what a file is (its Content-Type) -- what a browser engine and the app that reads files for it both have to agree on. |
+| `ufind.h` | WHICH FILES A SEARCH KEEPS, beyond their name: the kind, the date band and the size band a person narrows a search by, and whether a file holds a phrase -- Explorer's search filters (kind:, date:,... |
 | `ufolderopts.h` | ufolderopts -- how files are shown and opened, in File Manager windows AND on the desktop: Explorer's Folder Options, which apply to both. |
 | `ugrow.h` | A GROWABLE ARRAY in one macro: UGROW(arr, cap, need) makes the typed pointer `arr` hold at least `need` elements, doubling `cap`. |
 | `uhistory.h` | Command history for a ring-3 line editor. |

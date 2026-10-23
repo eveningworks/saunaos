@@ -321,6 +321,9 @@ TESTS = [
     # app's array would fail rather than pass by coincidence.
     ("table_tree_test", None,   # spawned: it draws, so it needs the font
      None, None),
+    # lib/ufind: the search filters' bands, and a contents match that
+    # straddles the read's block boundary, on a short line and a long one.
+    ("ufind_test", 0, None, None),
     # uui_table's chosen and moved columns: defaults, hide, the locked
     # first column, move, save/load (unknown ids, columns added since),
     # a drag through the OPS table in both modes, and the header menu.

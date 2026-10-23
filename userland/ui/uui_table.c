@@ -1773,6 +1773,17 @@ static void tb_ops_describe(const void *w, const struct uui_describe *d) {
         uui_table_column_rect(t, c, &cx, &cw);
         uui_describe_rect_i(d, "col", c, cx, t->y, cw, t->h);
     }
+    // The titles, in the order drawn: which columns a narrow table kept.
+    char heads[256];
+    int o = 0;
+    heads[0] = '\0';
+    for (int c = 0; c < t->col_count && o < (int)sizeof heads; c++) {
+        int ac = uui_table_column_at(t, c);
+        if (layout_ok(t) && t->col_hidden[ac]) continue;
+        o += snprintf(heads + o, sizeof heads - (size_t)o, "%s%s", o ? "|" : "",
+                      t->cols[ac].title ? t->cols[ac].title : "");
+    }
+    uui_describe_str(d, "heads", heads);
     uui_describe_int(d, "selected", t->selected);
     uui_describe_int(d, "shown", vcount(t));
     // The display order and what is hidden, by app column, so a test

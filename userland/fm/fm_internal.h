@@ -19,6 +19,7 @@
 #include "ui/uui_button.h"
 #include "ui/uui_segmented.h"
 #include "lib/uimg.h"
+#include "lib/ufind.h"
 
 // The File Manager's own header, shared by the files it is split across
 // and by nothing else.
@@ -84,6 +85,7 @@
 #define ID_SEARCH_STOP 23
 #define ID_NETBAR   24  // "Opened for this session" + Save to Network (fm_network.c)
 #define ID_COMPARE  25  // the conflict card's two files and its "the rest" box (files.c)
+#define ID_FILTERS  26  // the search strip's filter chips (files.c)
 
 // The commands, shared by the menu bar, the toolbar, the context menu
 // and the function keys -- one code per act, so those four cannot
@@ -127,6 +129,12 @@ enum {
     CMD_SELECT_NONE, CMD_TERMINAL_HERE, CMD_PIN_HERE,
     // View > Group by, in enum uui_fileview_group's order.
     CMD_GROUP_NONE, CMD_GROUP_NAME, CMD_GROUP_MODIFIED, CMD_GROUP_TYPE, CMD_GROUP_SIZE,
+    // The search strip's filters: its chips, then each drop-down's rows
+    // in lib/ufind.h's order (a kind's code is CMD_FKIND_ANY + 1 + kind).
+    CMD_MENU_FKIND, CMD_MENU_FDATE, CMD_MENU_FSIZE, CMD_FILTER_INSIDE,
+    CMD_FKIND_ANY, CMD_FKIND_LAST = CMD_FKIND_ANY + UFILETYPE_KINDS,
+    CMD_FAGE_FIRST, CMD_FAGE_LAST = CMD_FAGE_FIRST + UFIND_AGES - 1,
+    CMD_FSIZE_FIRST, CMD_FSIZE_LAST = CMD_FSIZE_FIRST + UFIND_SIZES - 1,
     // The left pane's own menus (fm_places.c), aimed at the row clicked
     // rather than the selection. CMD_PL_FIRST..CMD_PL_LAST go there whole.
     CMD_PL_FIRST,
@@ -420,17 +428,21 @@ void sizes_follow(const char *dir, int again);   // count `dir`'s folders (again
 void sizes_posted(void);
 
 // --- search into subfolders (fm_search.c) -----------------------------------
+void search_set_filter(const struct ufind_filter *f, int contents);   // before search_start
 void search_start(const char *root, const char *query);
 void search_stop(void);
 int  search_running(void);
+void search_log_hits(void);                    // after the walk: what it found, to the log
 void search_status(char *out, int cap);
 const struct uui_fileview_source *search_source(void);
 int  in_search(const struct uui_fileview *fv);
 const char *search_scope(const char *dir);     // "search:/usr" -> "/usr", else NULL
 int  search_item_flags(int code, unsigned *out);
 int  search_strip_shown(void);                 // files.c: the Look in strip is up
+void filter_describe(char *out, int cap);      // files.c: "kind age size inside", for the layout log
 extern struct uui_segmented g_scope_seg;
 extern struct uui_button g_search_stop;
+extern struct uui_toolbar g_filter_bar;          // files.c: the strip's filter chips
 
 // --- the inside of a .zip (fm_zip.c) ----------------------------------------
 const struct uui_fileview_source *arc_source(void);

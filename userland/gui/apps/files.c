@@ -109,6 +109,28 @@ struct uui_pathbar g_path;
 struct uui_textbox g_search;
 int g_search_on;
 static char g_search_hint[48];
+
+// THE SEARCH FILTERS, per pane like its query: type, date and size narrow
+// the listing as you type and the search below it; "Inside text files"
+// joins in on Enter, as reading every file is no per-keystroke act.
+static struct ufind_filter g_filt[2] = { UFIND_FILTER_ANY, UFIND_FILTER_ANY };
+static int g_inside[2];
+// The search box was entered: the strip stays up, filters and all, until
+// a new folder or Esc -- Explorer's Search tab. Without it a press on a
+// chip took the keyboard from the box and the strip from under the press.
+static int g_strip_open;
+static char g_fkind_label[48], g_fdate_label[48], g_fsize_label[48];
+struct uui_toolbar g_filter_bar;
+static const struct uui_toolbar_item filter_items[] = {
+    { "file",       "Type of file",            CMD_MENU_FKIND,    g_fkind_label, UUI_TB_MENU, 0, 0 },
+    { "tb-history", "Date modified",           CMD_MENU_FDATE,    g_fdate_label, UUI_TB_MENU, 0, 0 },
+    { "tb-drive",   "Size",                    CMD_MENU_FSIZE,    g_fsize_label, UUI_TB_MENU, 0, 0 },
+    { "tb-text",    "Look inside text files too, when you press Enter",
+                                               CMD_FILTER_INSIDE, "Contents",     0, 0, 0 },
+};
+// The drop-downs' rows, from lib/ufind.h's names (filled in main).
+static struct uui_menu_item fkind_items[1 + UFILETYPE_KINDS];
+static struct uui_menu_item fdate_items[UFIND_AGES], fsize_items[UFIND_SIZES];
 struct uui_places g_places;
 struct uui_toolbar g_viewbar;
 int g_dpane = 1;
@@ -573,6 +595,23 @@ static enum uui_fileview_sort sort_key_of(int code) {
     }
 }
 
+// A chip is LATCHED while it narrows anything, so a filter left on is
+// seen; its rows tick the one in force.
+static int filter_item_flags(int code, unsigned *out) {
+    const struct ufind_filter *f = &g_filt[g_active];
+    int on;
+    if (code == CMD_MENU_FKIND)      on = f->kind >= 0;
+    else if (code == CMD_MENU_FDATE) on = f->age != UFIND_ANY_DATE;
+    else if (code == CMD_MENU_FSIZE) on = f->size != UFIND_ANY_SIZE;
+    else if (code == CMD_FILTER_INSIDE) on = g_inside[g_active];
+    else if (code >= CMD_FKIND_ANY && code <= CMD_FKIND_LAST) on = code - CMD_FKIND_ANY - 1 == f->kind;
+    else if (code >= CMD_FAGE_FIRST && code <= CMD_FAGE_LAST) on = code - CMD_FAGE_FIRST == f->age;
+    else if (code >= CMD_FSIZE_FIRST && code <= CMD_FSIZE_LAST) on = code - CMD_FSIZE_FIRST == f->size;
+    else return 0;
+    *out = on ? UUI_MI_CHECKED : 0;
+    return 1;
+}
+
 // dispatch-ok: ONE CASE PER COMMAND WHOSE ROW OR BUTTON HAS A STATE, all
 // from this app's own CMD_* enum -- bounded by the menus it draws, and
 // each answer reads different state, which a table would only hide.
@@ -581,6 +620,7 @@ static enum uui_fileview_sort sort_key_of(int code) {
 // checked in the default two-pane state, not when the option was used.
 static unsigned menu_item_flags(int code) {
     unsigned bin;
+    if (filter_item_flags(code, &bin)) return bin;
     // ONE PANE SHOWN: nothing to copy, move or switch to.
     if (g_single && (code == CMD_COPY || code == CMD_MOVE || code == CMD_SWAP))
         return UUI_MI_DISABLED;
@@ -686,6 +726,7 @@ struct uui_item g_widgets[] = {
     { .ops = &uui_button_ops, .widget = &g_toast_x, .id = ID_TOAST_X, .hidden = 1 },
     { .ops = &uui_segmented_ops, .widget = &g_scope_seg, .id = ID_SCOPE, .hidden = 1, .name = "scope" },
     { .ops = &uui_button_ops, .widget = &g_search_stop, .id = ID_SEARCH_STOP, .hidden = 1 },
+    { .ops = &uui_toolbar_ops, .widget = &g_filter_bar, .id = ID_FILTERS, .hidden = 1, .name = "filters" },
     { .ops = &uui_infobar_ops, .widget = &g_netbar, .id = ID_NETBAR, .hidden = 1, .name = "netbar" },
     { .ops = &uui_textbox_ops, .widget = &g_addr[0], .id = ID_ADDR_L, .name = "addr0" },
     { .ops = &uui_textbox_ops, .widget = &g_addr[1], .id = ID_ADDR_R, .name = "addr1" },
@@ -787,6 +828,10 @@ void refresh_status(void) {
     struct uui_fileview *fv = active();
     int n = uui_fileview_count(fv);
     snprintf(g_stat_dir, sizeof g_stat_dir, "%d item%s", n, n == 1 ? "" : "s");
+    // A search's count is its progress: "Searching... 4 found, 120 looked
+    // at" -- here as well as on the strip, which gives its room to the
+    // filters first and has none left for it in a narrow window.
+    if (in_search(fv)) search_status(g_stat_dir, sizeof g_stat_dir);
     char size[24];
     int marks = uui_fileview_mark_count(fv);
     const struct sys_dirent *e = uui_fileview_selected_entry(fv);
@@ -847,7 +892,26 @@ static char g_scope[2][PATH_MAX_LEN];   // the real folder a pane's search is ab
 static int g_keep_query;                // the next navigation keeps the query (a scope switch)
 
 int search_strip_shown(void) {
-    return g_query[g_active][0] || in_search(active());
+    return g_strip_open || g_query[g_active][0] || in_search(active()) ||
+           ufind_filter_active(&g_filt[g_active]) || g_inside[g_active];
+}
+
+void filter_describe(char *out, int cap) {
+    const struct ufind_filter *f = &g_filt[g_active];
+    snprintf(out, (size_t)cap, "%d %d %d %d", f->kind, f->age, f->size, g_inside[g_active]);
+}
+
+// The chips' words: the filter in force, or "Any ..." -- short, so the
+// four fit beside the switch at the window's default width. A size's
+// bounds are the drop-down's to say: "Tiny", not "Tiny (under 16 KB)".
+static void filter_labels(void) {
+    const struct ufind_filter *f = &g_filt[g_active];
+    snprintf(g_fkind_label, sizeof g_fkind_label, "%s",
+             f->kind < 0 ? "Any type" : ufiletype_kind_name(f->kind));
+    snprintf(g_fdate_label, sizeof g_fdate_label, "%s", ufind_age_name(f->age));
+    const char *sz = ufind_size_name(f->size), *paren = strstr(sz, " (");
+    snprintf(g_fsize_label, sizeof g_fsize_label, "%.*s",
+             paren ? (int)(paren - sz) : (int)strlen(sz), sz);
 }
 
 // A pane's virtual folders: the Recycle Bin, Recent, a search's results
@@ -865,7 +929,11 @@ static const struct uui_fileview_source *resolve_virtual(void *ctx, const char *
 // Search below `scope` for the active pane's query: the results become
 // the pane's folder ("search:" + scope), and on_pane_dir starts the walk.
 static void search_into(const char *scope) {
-    if (!g_query[g_active][0]) { set_note("type what to look for, then Enter"); return; }
+    if (!g_query[g_active][0] && !ufind_filter_active(&g_filt[g_active])) {
+        set_note("type what to look for, or choose a filter");
+        return;
+    }
+    search_set_filter(&g_filt[g_active], g_inside[g_active]);
     char dir[PATH_MAX_LEN + 8];
     snprintf(dir, sizeof dir, "%s%s", FM_SEARCH, scope);
     strlcpy(g_scope[g_active], scope, sizeof g_scope[g_active]);
@@ -949,6 +1017,7 @@ void path_sync(void) {
         uui_textbox_set_text(&g_search, g_query[g_active]);
     const char *sc = search_scope(dir);
     g_scope_seg.selected = !sc ? 0 : !strcmp(sc, "/") ? 2 : 1;
+    filter_labels();
     const char *base = in_bin(active()) ? "Recycle Bin" : in_recent(active()) ? "Recent"
                      : in_quick(active()) ? "Quick access"
                      : (dir[0] == '/' && !dir[1]) ? "System" : k_path_basename(dir);
@@ -962,6 +1031,8 @@ void path_sync(void) {
 static int pane_filter(void *ctx, const char *dir, const struct sys_dirent *e) {
     (void)dir;
     if (!g_opt.folder.hidden && e->name[0] == '.') return 0;
+    const struct ufind_filter *f = &g_filt[(int)(intptr_t)ctx];
+    if (ufind_filter_active(f) && !ufind_matches(f, e, f->age ? (long long)time(0) : 0)) return 0;
     const char *q = g_query[(int)(intptr_t)ctx];
     int qn = (int)strlen(q), n = (int)strlen(e->name);
     for (int i = 0; i + qn <= n; i++)
@@ -979,12 +1050,16 @@ void search_apply(void) {
 void search_clear(void) {
     uui_textbox_set_text(&g_search, "");
     g_search_on = 0;
+    g_strip_open = 0;
     uui_textbox_set_active(&g_search, 0);
     for (int i = 0; i < 2; i++)
-        if (g_query[i][0]) {
+        if (g_query[i][0] || ufind_filter_active(&g_filt[i]) || g_inside[i]) {
             g_query[i][0] = '\0';
+            g_filt[i] = (struct ufind_filter)UFIND_FILTER_ANY;
+            g_inside[i] = 0;
             reload_pane(&g_pane[i]);
         }
+    filter_labels();
 }
 
 // A path from the breadcrumb: a segment's (absolute) or one typed there
@@ -1019,11 +1094,16 @@ static void open_dropdown(int code) {
     case CMD_MENU_NEW:  items = new_items;  n = (int)(sizeof new_items / sizeof new_items[0]); break;
     case CMD_MENU_SORT: items = sort_items; n = (int)(sizeof sort_items / sizeof sort_items[0]); break;
     case CMD_MENU_VIEW: items = view_items; n = (int)(sizeof view_items / sizeof view_items[0]); break;
+    case CMD_MENU_FKIND: items = fkind_items; n = (int)(sizeof fkind_items / sizeof fkind_items[0]); break;
+    case CMD_MENU_FDATE: items = fdate_items; n = (int)(sizeof fdate_items / sizeof fdate_items[0]); break;
+    case CMD_MENU_FSIZE: items = fsize_items; n = (int)(sizeof fsize_items / sizeof fsize_items[0]); break;
     default:            items = more_items; n = (int)(sizeof more_items / sizeof more_items[0]); break;
     }
     int x = 0, y = 0, w = 0, h = 0;
-    for (int i = 0; i < g_toolbar.count; i++)
-        if (g_toolbar.items[i].code == code) uui_toolbar_item_rect(&g_toolbar, i, &x, &y, &w, &h);
+    const struct uui_toolbar *tb = code == CMD_MENU_FKIND || code == CMD_MENU_FDATE ||
+                                   code == CMD_MENU_FSIZE ? &g_filter_bar : &g_toolbar;
+    for (int i = 0; i < tb->count; i++)
+        if (tb->items[i].code == code) uui_toolbar_item_rect(tb, i, &x, &y, &w, &h);
     g_ctx_rows = n;
     uui_menubar_open_at(&g_ctx, items, n, x, y + h);
 }
@@ -1065,6 +1145,34 @@ static void set_view(int code) {
                                                         : UUI_FILEVIEW_ICONS);
     uconf_set(FILES_CONF, g_active ? "right_view" : "left_view",
               code == CMD_VIEW_DETAILS ? "details" : code == CMD_VIEW_LARGE ? "large" : "icons");
+}
+
+// A filter chosen: the listing narrows now, and results already up are
+// searched for again with it. "Inside text files" waits for Enter in a
+// folder, as reading every file is no per-click act.
+static int filter_command(int code) {
+    struct ufind_filter *f = &g_filt[g_active];
+    if (code == CMD_FILTER_INSIDE) g_inside[g_active] = !g_inside[g_active];
+    else if (code >= CMD_FKIND_ANY && code <= CMD_FKIND_LAST) f->kind = code - CMD_FKIND_ANY - 1;
+    else if (code >= CMD_FAGE_FIRST && code <= CMD_FAGE_LAST) f->age = code - CMD_FAGE_FIRST;
+    else if (code >= CMD_FSIZE_FIRST && code <= CMD_FSIZE_LAST) f->size = code - CMD_FSIZE_FIRST;
+    else return 0;
+    filter_labels();
+    const char *sc = search_scope(uui_fileview_dir(active()));
+    char root[PATH_MAX_LEN];
+    if (sc && !g_query[g_active][0] && !ufind_filter_active(f)) {
+        scope_chosen(0);   // nothing left to search for: back to the folder
+    } else if (sc) {
+        strlcpy(root, sc, sizeof root);
+        search_into(root);
+    } else if (code != CMD_FILTER_INSIDE) {
+        reload_pane(active());
+    } else if (g_inside[g_active]) {
+        set_note("press Enter in the search box to look inside files");
+    }
+    ulogf("files: filter kind %d age %d size %d inside %d\n",
+          f->kind, f->age, f->size, g_inside[g_active]);
+    return 1;
 }
 
 void do_command(struct uapp *a, int code) {
@@ -1255,6 +1363,7 @@ void do_command(struct uapp *a, int code) {
         g_dpane = !g_dpane;
         uconf_set(FILES_CONF, "details_pane", g_dpane ? "1" : "0");
         break;
+    case CMD_MENU_FKIND: case CMD_MENU_FDATE: case CMD_MENU_FSIZE:
     case CMD_MENU_NEW: case CMD_MENU_SORT: case CMD_MENU_VIEW: case CMD_MENU_MORE:
         open_dropdown(code);
         break;
@@ -1319,7 +1428,8 @@ void do_command(struct uapp *a, int code) {
         uapp_quit(a, 0);
         return;
     default:
-        return;
+        if (!filter_command(code)) return;
+        break;
     }
     refresh_status();
     uapp_redraw(a);
@@ -1357,14 +1467,16 @@ static void on_widget(struct uapp *a, int id, int reason) {
         if (id == ID_TOOLBAR) (void)uui_toolbar_take_code(&g_toolbar);
         if (id == ID_NAV) (void)uui_toolbar_take_code(&g_nav);
         if (id == ID_VIEWBAR) (void)uui_toolbar_take_code(&g_viewbar);
+        if (id == ID_FILTERS) (void)uui_toolbar_take_code(&g_filter_bar);
         if (id == ID_PATH) (void)uui_pathbar_take(&g_path, taken, sizeof taken);
         if (id == ID_PLACES) (void)uui_places_take(&g_places, taken, sizeof taken);
         return;
     }
-    if (id == ID_TOOLBAR || id == ID_NAV || id == ID_VIEWBAR) {
+    if (id == ID_TOOLBAR || id == ID_NAV || id == ID_VIEWBAR || id == ID_FILTERS) {
         // The commit is PARKED in the widget (ui/uui_toolbar.h): the
         // ops release slot can only say "changed", not which item.
-        struct uui_toolbar *tb = id == ID_NAV ? &g_nav : id == ID_VIEWBAR ? &g_viewbar : &g_toolbar;
+        struct uui_toolbar *tb = id == ID_NAV ? &g_nav : id == ID_VIEWBAR ? &g_viewbar
+                               : id == ID_FILTERS ? &g_filter_bar : &g_toolbar;
         int code = uui_toolbar_take_code(tb);
         if (code >= 0) do_command(a, code);
         return;
@@ -1398,6 +1510,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     if (id == ID_SEARCH) {
         if (reason == UUI_REASON_PRESS) {
             g_search_on = 1;
+            g_strip_open = 1;
             uui_textbox_set_active(&g_search, 1);
         }
         uapp_redraw(a);
@@ -1676,7 +1789,8 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
             uui_textbox_set_active(&g_search, 0);
             strlcpy(g_query[g_active], uui_textbox_text(&g_search), sizeof g_query[g_active]);
             const char *sc = search_scope(uui_fileview_dir(active()));
-            if (g_query[g_active][0]) search_into(sc ? sc : uui_fileview_dir(active()));
+            if (g_query[g_active][0] || ufind_filter_active(&g_filt[g_active]))
+                search_into(sc ? sc : uui_fileview_dir(active()));
         } else if (uui_textbox_key_mods(&g_search, key, mods)) {
             search_apply();
         }
@@ -1724,6 +1838,7 @@ static void on_key(struct uapp *a, int key, unsigned mods) {
     }
     if (key == 0x06) {   // Ctrl-F: to the search box
         g_search_on = 1;
+        g_strip_open = 1;
         uui_textbox_set_active(&g_search, 1);
         uapp_redraw(a);
         return;
@@ -1853,6 +1968,7 @@ static int on_tick(struct uapp *a) {
     fm_history_sync();
     int changed = poll_job();
     if (uui_toolbar_tick(&g_toolbar)) changed = 1;
+    if (uui_toolbar_tick(&g_filter_bar)) changed = 1;
     if (uui_toolbar_tick(&g_nav)) changed = 1;
     if (uui_toolbar_tick(&g_viewbar)) changed = 1;
     if (thumb_tick()) changed = 1;
@@ -2002,15 +2118,23 @@ static void on_pane_dir(void *ctx, const char *dir) {
     // search's results, or switching its scope, keeps it.
     const char *sc = search_scope(dir);
     if (sc) {
-        if (g_keep_query || g_query[i][0]) search_start(sc, g_query[i]);
+        if (g_keep_query || g_query[i][0]) {
+            search_set_filter(&g_filt[i], g_inside[i]);
+            search_start(sc, g_query[i]);
+        }
     } else if (g_keep_query) {
         /* the strip's "This folder": the filter stays */
     } else {
         search_stop();
         g_scope[i][0] = '\0';
+        if (i == g_active) g_strip_open = 0;
     }
-    if (g_query[i][0] && !sc && !g_keep_query) {
+    // ...and its filters with it: they were about that folder too.
+    int filtered = ufind_filter_active(&g_filt[i]);
+    if ((g_query[i][0] || filtered || g_inside[i]) && !sc && !g_keep_query) {
         g_query[i][0] = '\0';
+        g_filt[i] = (struct ufind_filter)UFIND_FILTER_ANY;
+        g_inside[i] = 0;
         if (i == g_active) uui_textbox_set_text(&g_search, "");
         uui_fileview_reload(&g_pane[i]);
     }
@@ -2193,7 +2317,10 @@ static int on_user(struct uapp *a, int a0, int a1) {
     if (a0 == POST_SEARCH) {
         for (int i = 0; i < 2; i++)
             if (in_search(&g_pane[i])) uui_fileview_reload(&g_pane[i]);
-        if (a1) ulogf("files: search done, %d found\n", uui_fileview_count(active()));
+        if (a1) {
+            search_log_hits();
+            ulogf("files: search done, %d found\n", uui_fileview_count(active()));
+        }
         refresh_status();
         return 1;
     }
@@ -2323,6 +2450,18 @@ int main(int argc, char **argv) {
     uui_pathbar_set_scheme(&g_path, FM_ARC "/", "Archive", "file-archive");
     uui_segmented_init(&g_scope_seg, g_scope_names, 3, 0);
     uui_button_init(&g_search_stop, 0, 0, 0, 0, "Stop", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SEARCH_STOP);
+    uui_toolbar_init(&g_filter_bar, filter_items, (int)(sizeof filter_items / sizeof filter_items[0]));
+    g_filter_bar.item_flags = menu_item_flags;
+    g_filter_bar.edgeless = 1;
+    g_filter_bar.accent_latch = 1;   // a filter in force reads at a glance
+    g_filter_bar.overflow = 1;
+    fkind_items[0] = (struct uui_menu_item)UUI_MENU("Any type", CMD_FKIND_ANY, 0);
+    for (int k = 0; k < UFILETYPE_KINDS; k++)
+        fkind_items[1 + k] = (struct uui_menu_item)UUI_MENU(ufiletype_kind_name(k), CMD_FKIND_ANY + 1 + k, 0);
+    for (int i = 0; i < UFIND_AGES; i++)
+        fdate_items[i] = (struct uui_menu_item)UUI_MENU(ufind_age_name(i), CMD_FAGE_FIRST + i, 0);
+    for (int i = 0; i < UFIND_SIZES; i++)
+        fsize_items[i] = (struct uui_menu_item)UUI_MENU(ufind_size_name(i), CMD_FSIZE_FIRST + i, 0);
     uui_textbox_init(&g_search, "");
     g_search.placeholder = g_search_hint;
     // The places are the file chooser's (ui/uui_filedialog.c) -- one

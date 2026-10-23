@@ -86,6 +86,26 @@ const char *ufiletype_icon(const char *name, int is_dir) {
     return i < 0 ? "file" : TYPES[i].icon;
 }
 
+enum ufiletype_kind ufiletype_kind(const char *name, int is_dir) {
+    if (is_dir) return UFILETYPE_FOLDER;
+    const char *ic = ufiletype_icon(name, 0);
+    if (!strcmp(ic, "file-image")) return UFILETYPE_PICTURE;
+    if (!strcmp(ic, "file-audio")) return UFILETYPE_SOUND;
+    if (!strcmp(ic, "file-video")) return UFILETYPE_VIDEO;
+    if (!strcmp(ic, "file-text") || !strcmp(ic, "file-doc") || !strcmp(ic, "file-config"))
+        return UFILETYPE_DOCUMENT;
+    if (!strcmp(ic, "file-archive")) return UFILETYPE_ARCHIVE;
+    if (!strcmp(ic, "file-app")) return UFILETYPE_PROGRAM;
+    return UFILETYPE_OTHER;
+}
+
+const char *ufiletype_kind_name(enum ufiletype_kind k) {
+    static const char *const NAMES[UFILETYPE_KINDS] = {
+        "Folders", "Pictures", "Music and sounds", "Videos", "Documents", "Archives", "Programs", "Other",
+    };
+    return (unsigned)k < UFILETYPE_KINDS ? NAMES[k] : "Other";
+}
+
 void ufiletype_display_name(const char *name, int is_dir, int hide_ext, char *out, int cap) {
     snprintf(out, (size_t)cap, "%s", name);
     if (!hide_ext || is_dir || !strcmp(ufiletype_name(name, 0), "File")) return;
