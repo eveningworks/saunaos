@@ -12,6 +12,7 @@ from the app that did the work.
    Each file carries its own content, and the content is what is checked.
 3. **One Ctrl+Z undoes the whole set.**
 4. **Esc renames nothing.**
+5. **The command bar's Rename opens the same dialog** with the set marked.
 
 Shares filemanager_test.py's layout reader; the fixture is /rn.
 """
@@ -104,6 +105,20 @@ def run(dbg, qmp, res):
     res.check("Esc closes the dialog and renames nothing",
               reopened and gone and matches(BEFORE),
               f"reopened={reopened} gone={gone} dir={names()}")
+
+    # 5. The command bar's Rename, with the set marked, is the same dialog:
+    # the bar follows the selection, and its Rename is F2's command.
+    dbg.key(K_CTRL_A)
+    lay = fm.wait_layout(dbg, win, lambda l: fm.btn_rect(l, "rename")) or fm.last_layout()
+    r = fm.btn_rect(lay, "rename") if lay else None
+    if r:
+        time.sleep(0.4)
+        fm.sure_click(dbg, qmp, lay.ox + r[0] + r[2] // 2, lay.oy + r[1] + r[3] // 2)
+    by_bar = dialog_open()
+    dbg.key(fm.K_ESC)
+    wait(lambda: dbg.window(DIALOG) is None)
+    res.check(f"the command bar's Rename opens \"{DIALOG}\" too", by_bar,
+              f"button={r} windows={[w['title'] for w in dbg.windows()]}")
 
     sh(f"rm -r {ROOT}")
 
