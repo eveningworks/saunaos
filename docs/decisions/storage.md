@@ -4174,3 +4174,32 @@ says; `tools/exfat_hostcheck.py` has the host's `fsck.exfat` and a reader
 written in Python from the specification judge every image, and both
 positive controls (a hash taken without up-casing, a set checksum one
 byte short) were caught by both.
+
+## A partition is numbered by its table slot, and one entry is edited in place
+
+Chosen 2026-10-23 (`kernel/drivers/partition.c`'s `partition_edit_of()`,
+`SYS_PARTEDIT`, `/bin/part`).
+
+**`<disk>p<n>` is the entry's SLOT in the table**, not its position
+among the used entries. The two agree on every table toy-os writes
+whole, and differ only after a hole -- which is exactly when it
+matters: deleting partition 1 must leave partition 2 called `p2`, or a
+`root=`, a mount and a person's memory of the disk all move under them.
+Linux names `sda2` by slot for the same reason, and Windows keeps a
+volume's identity across a neighbour's delete.
+
+**Deleting or resizing ONE partition patches the table rather than
+rebuilding it.** The whole-table writer (`SYS_MKPART`) takes at most four
+entries described by role, and regenerates every unique GUID, the disk
+GUID and the slot order -- fine for a NEW table, wrong for an edit: a
+table another system wrote holds types, attribute bits and UTF-16 names
+the writer cannot express, so an edit through it either refused such a
+disk (what Disks did) or destroyed them. The edit reads the entry array's
+bytes, changes one entry, recomputes both CRCs, and writes the backup
+copy first, as `sfdisk --delete` and `sgdisk -d` behave;
+`tools/part_test.py` has the host's `sfdisk` judge the result.
+
+**Only that partition need be idle.** The disk is re-read at once and a
+mounted sibling keeps its window and name; the system disk alone is
+refused, since its table is what the next boot finds the root by.
+

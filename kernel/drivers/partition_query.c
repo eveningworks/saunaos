@@ -117,7 +117,7 @@ static int partition_fill(int index, void *out) {
 
     p->kind = abi_kind(g_table.kind);
     k_strlcpy(p->disk, blk_device_name(disk), sizeof p->disk);
-    p->number = (uint64_t)(index - first + 1);
+    p->number = e->slot;   // the slot, which is what `<disk>p<n>` names
     if (g_table.kind == PART_TABLE_GPT) {
         p->lba_start = e->gpt_lba_start;
         // GPT stores an inclusive END; the ABI carries a LENGTH,

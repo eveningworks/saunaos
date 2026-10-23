@@ -919,6 +919,9 @@ int sys_fs_watch(const char *path);
 // or a negative errno (-EPERM without MKPART_CONFIRM, -EINVAL for a
 // table that overlaps or runs off the disk, -EIO on a write failure).
 int sys_mkpart(const struct mkpart_request *req);
+// One partition deleted or its end moved, the rest of the table kept byte
+// for byte (SYS_PARTEDIT). 0, or -1 with errno and the reason in req->why.
+int sys_partedit(struct partedit_request *req);
 
 // Attaches a filesystem at a path, and detaches one. See
 // abi/mount_abi.h for the request shape -- in particular why `source`

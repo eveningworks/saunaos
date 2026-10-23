@@ -291,6 +291,9 @@ TOOLS = [
     # A second, blank disk: Disks partitions, formats, mounts and deletes
     # on it, and the host reads the GPT back. Its own guest.
     ("disks",       "disks_test.py",           "Disks: partition, format, mount, delete", True, None,           False),
+    # `part delete` against a GPT the host's sfdisk wrote, judged by sfdisk
+    # and the raw bytes afterwards. Its own guest; needs sfdisk.
+    ("part",        "part_test.py",            "part delete keeps every other table byte", True, None,          False),
     ("diskmark",    "diskmark_test.py",        "the Disk Mark GUI benchmark",        True,  None,                   True),
     # OUT OF gui_regress.py since 2026-09-29, at the maintainer's request:
     # ~150 checks and ~6 minutes, the slowest tool there by far, with two

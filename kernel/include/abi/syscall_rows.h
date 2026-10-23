@@ -97,6 +97,7 @@ SYSCALL_ROW(SYS_SYSINFO, "sysinfo", sys_sysinfo, A_HEX, A_END, A_END, R_DEC, PRO
 SYSCALL_ROW(SYS_FS_GENERATION, "fs_generation", sys_fs_generation, A_END, A_END, A_END, R_DEC, PROMISE_RPATH)
 SYSCALL_ROW(SYS_FS_GENERATION_OF, "fs_generation_of", sys_fs_generation_of, A_PATH, A_END, A_END, R_DEC, PROMISE_RPATH)
 SYSCALL_ROW(SYS_MKPART, "mkpart", sys_mkpart, A_HEX, A_END, A_END, R_DEC, PROMISE_ADMIN)
+SYSCALL_ROW(SYS_PARTEDIT, "partedit", sys_partedit, A_HEX, A_END, A_END, R_DEC, PROMISE_ADMIN)
 SYSCALL_ROW(SYS_INSTALL_BOOT, "install_boot", sys_install_boot, A_HEX, A_END, A_END, R_DEC, PROMISE_ADMIN)
 SYSCALL_ROW(SYS_CRASHTEST, "crashtest", sys_crashtest, A_HEX, A_END, A_END, R_DEC, PROMISE_ADMIN)
 SYSCALL_ROW(SYS_POWEROFF, "poweroff", sys_poweroff, A_INT, A_END, A_END, R_DEC, PROMISE_ADMIN)

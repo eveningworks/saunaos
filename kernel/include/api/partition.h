@@ -58,6 +58,13 @@ enum partition_table_kind {
 };
 
 struct partition_entry {
+    // WHICH SLOT OF THE TABLE, 1-based: a GPT entry's place in the entry
+    // array, an MBR entry's in LBA 0's four. entries[] skips empty slots,
+    // so this and the entry's index differ after a hole -- and the slot
+    // is the partition's NUMBER (`ata0p3`), Linux's rule: deleting
+    // partition 1 must not rename partition 2.
+    uint16_t slot;
+
     // MBR fields, always valid for a PART_TABLE_MBR entry.
     uint8_t mbr_type;
     // The boot indicator, 0x80 in the table and 1 here. A legacy BIOS
@@ -186,6 +193,25 @@ int partition_write_table(const struct partition_table *in);
 // written anywhere else.
 int partition_write_table_of(const struct block_device *dev,
                              const struct partition_table *in);
+
+// ---- editing ONE entry in place -------------------------------------
+//
+// Deleting or resizing a single partition with every other byte of the
+// table as it was: the other entries (their GUIDs, attributes, names in
+// any script), the disk GUID and the header's own fields. The whole-
+// table writer above cannot: it regenerates identities and compacts the
+// slots, which renumbers every partition after the one changed.
+// `sfdisk --delete` and `sgdisk -d` edit this way.
+enum partition_edit_op { PART_EDIT_DELETE, PART_EDIT_RESIZE };
+
+// `slot` is the entry's 1-based slot (struct partition_entry.slot);
+// `sectors` the new length in 512-byte sectors for a resize, whose start
+// stays where it is. A resize is checked against the other entries and
+// the table's usable span; nothing checks the filesystem inside, which
+// is the caller's to have shrunk first. Returns 0, -EINVAL with *why
+// set, or -EIO. GPT: backup array and header first, then the primary's.
+int partition_edit_of(const struct block_device *dev, enum partition_edit_op op,
+                      int slot, uint64_t sectors, const char **why);
 int partition_validate_on(const struct block_device *dev,
                           const struct partition_table *in, const char **why);
 

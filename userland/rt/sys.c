@@ -989,6 +989,10 @@ int sys_fs_watch(const char *path) {
     return (int)syscall1(SYS_FS_WATCH, (uint64_t)(uintptr_t)path);
 }
 
+int sys_partedit(struct partedit_request *req) {
+    return (int)err(syscall1(SYS_PARTEDIT, (uint64_t)(uintptr_t)req));
+}
+
 int sys_mkpart(const struct mkpart_request *req) {
     return (int)err(syscall1(SYS_MKPART, (uint64_t)(uintptr_t)req));
 }

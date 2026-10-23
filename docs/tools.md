@@ -2439,6 +2439,17 @@ window without going through it will find its layout polls timing out.
   picture changed while paused -- invisible on KVM, where the decoder is
   never behind. Positive control: a widget that never draws the frame
   fails exactly the two drawn-and-moving checks.
+- **`part_test.py`** -- `/bin/part delete` against a GPT the HOST's
+  `sfdisk` wrote, with what toy-os's whole-table writer cannot carry: a
+  Linux-filesystem type, a non-ASCII name and the RequiredPartition
+  attribute. The guest deletes partition 1; the host then reads the
+  image: every other entry byte-identical in BOTH arrays, the disk GUID
+  sfdisk's, `sfdisk --verify` clean, and in the guest the survivors keep
+  their names (`p2`, `p3`). The refusals -- no `confirm`, a whole disk,
+  a mounted partition, the system disk's -- change nothing. In
+  `ondemand_sweep.py`; needs `sfdisk`. Positive control: naming a window
+  by its position instead of its slot fails "the others keep their
+  names".
 - **`disks_test.py`** -- Disks on a guest of its own: the system disk
   pinned as the root and a BLANK 256 MiB virtio disk beside it, in
   `ondemand_sweep.py` (it boots its own hardware). On the system disk

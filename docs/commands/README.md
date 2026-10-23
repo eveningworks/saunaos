@@ -247,6 +247,7 @@ a command), and the `gui3`/`nano` aliases.
 - [`mkfs`](mkfs.md)
 - [`mkpart`](mkpart.md)
 - [`mount`](mount.md)
+- [`part`](part.md)
 - [`umount`](umount.md)
 
 ### System administration

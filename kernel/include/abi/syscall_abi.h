@@ -2704,6 +2704,17 @@ struct sys_rlimit {
                                // QUERY_DEVEVENT's seq), or -ENOENT for 1
                                // with no wakeword registered. Linux's
                                // uevent socket, Windows' WM_DEVICECHANGE.
+#define SYS_PARTEDIT 154 // RDI = pointer to a `struct partedit_request`
+                         // (abi/partition_abi.h). Deletes one partition,
+                         // or moves its end, keeping every other entry's
+                         // bytes. Returns 0, or a negative errno with the
+                         // reason in `why`: -EINVAL (not a partition, no
+                         // room, overlap), -EBUSY (it is mounted, or on
+                         // the system disk), -EPERM without
+                         // PARTEDIT_CONFIRM, -EIO. The disk is re-read at
+                         // once: the changed partition's device goes away
+                         // or takes its new size, the others keep theirs.
+
 #define SYS_EJECT 153          // RDI = a disk's name ("usb0"). Ejects a
                                // removable disk: refused -EBUSY while any
                                // of it is mounted, -ENOTSUP if it is not

@@ -850,10 +850,14 @@ static int entry_window_of(const struct partition_table *tbl,
 const struct block_device *mount_partition_device(int number) {
     const struct block_device *disk = blk_root_disk();
     if (!disk || !read_table()) return NULL;
-    if (number < 1 || number > g_tbl.entry_count) return NULL;
-    uint64_t base, count;
-    if (!entry_window(&g_tbl.entries[number - 1], &base, &count)) return NULL;
-    return blk_part_create(disk, base, count, number);
+    // By SLOT, which is what the number names (partition.h).
+    for (int i = 0; i < g_tbl.entry_count; i++) {
+        uint64_t base, count;
+        if (g_tbl.entries[i].slot != number) continue;
+        if (!entry_window(&g_tbl.entries[i], &base, &count)) return NULL;
+        return blk_part_create(disk, base, count, number);
+    }
+    return NULL;
 }
 
 // Tries to mount a root out of one of the disk's PARTITIONS.
@@ -944,15 +948,16 @@ static int rescan_locked(const struct block_device *disk) {
     // the ROOT's table.
     static struct partition_table tbl;
     if (!partition_read_table_of(disk, &tbl)) return 0;
-    if (tbl.kind == PART_TABLE_NONE || tbl.entry_count == 0) return 0;
-
+    // Forgotten even when nothing is left to name: a table whose last
+    // partition was just deleted must not keep that partition's window.
     forget_windows_of(disk);
+    if (tbl.kind == PART_TABLE_NONE || tbl.entry_count == 0) return 0;
 
     int named = 0;
     for (int n = 0; n < tbl.entry_count; n++) {
         uint64_t base, count;
         if (!entry_window_of(&tbl, &tbl.entries[n], &base, &count)) continue;
-        if (blk_part_create(disk, base, count, n + 1)) named++;
+        if (blk_part_create(disk, base, count, tbl.entries[n].slot)) named++;
     }
     return named;
 }
@@ -1234,19 +1239,19 @@ static int try_partitions(void) {
         // a different question from "what is the root", which is why it
         // is a different pass.
         if (partition_is_firmware(pe, g_tbl.kind)) {
-            klog_printf("fs: partition %d is the firmware's (bootloader/ESP) -- not the root\n", i + 1);
+            klog_printf("fs: partition %d is the firmware's (bootloader/ESP) -- not the root\n", pe->slot);
             continue;
         }
 
         // `root=<disk>p<n>` names ONE partition. Others are still
         // registered by the pass above -- they stay mountable by hand --
         // but only the named one is offered to a backend as the root.
-        if (g_root_part && g_root_part != i + 1) continue;
+        if (g_root_part && g_root_part != pe->slot) continue;
 
         if (!entry_window(pe, &base, &count)) continue;
-        if (!blk_part_register(disk, base, count, i + 1)) continue;
+        if (!blk_part_register(disk, base, count, pe->slot)) continue;
         if (!first_ok) {
-            first_base = base; first_count = count; first_index = i + 1; first_ok = 1;
+            first_base = base; first_count = count; first_index = pe->slot; first_ok = 1;
         }
 
         const struct block_device *dev = blk_root();
@@ -1264,10 +1269,10 @@ static int try_partitions(void) {
             mount_scratch_end(&sc);
             if (claimed == 1) {
                 klog_printf("fs: mounting %s from partition %d (LBA %llu, %llu sectors)\n",
-                            fs->name, i + 1, (unsigned long long)base, (unsigned long long)count);
+                            fs->name, pe->slot, (unsigned long long)base, (unsigned long long)count);
                 const char *why;
                 if (mount_add(dev, fs->name, "/", 0, 0, &why)) return 1;
-                klog_printf("fs: partition %d would not mount: %s\n", i + 1, why);
+                klog_printf("fs: partition %d would not mount: %s\n", pe->slot, why);
             }
         }
     }
@@ -1449,7 +1454,7 @@ void mount_boot_auto(void) {
 
         uint64_t base, count;
         if (!entry_window(pe, &base, &count)) continue;
-        const struct block_device *dev = blk_part_create(disk, base, count, i + 1);
+        const struct block_device *dev = blk_part_create(disk, base, count, pe->slot);
         if (!dev) continue;
 
         const char *why;

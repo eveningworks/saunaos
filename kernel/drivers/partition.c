@@ -17,6 +17,7 @@
 #include "klog.h"
 #include "kfmt.h" // klog_printf
 #include "heap.h" // a GPT header's whole block
+#include "errno.h"
 
 // driver-none: MBR/GPT parsing, on a disk a driver already drives
 
@@ -103,6 +104,7 @@ static void parse_mbr_entries(const uint8_t *mbr, uint32_t spb, struct partition
         k_memset(pe, 0, sizeof(*pe));
         pe->mbr_type = type;
         pe->mbr_slot = (uint8_t)(i + 1);
+        pe->slot = (uint16_t)(i + 1);
         pe->mbr_active = (e[0] == 0x80);   // read back, so `parttable` can show it
         pe->mbr_lba_start = read_le32(e + 8) * spb;
         pe->mbr_num_sectors = read_le32(e + 12) * spb;
@@ -166,6 +168,7 @@ static __attribute__((noinline)) void parse_gpt_entries(const struct block_devic
 
             struct partition_entry *pe = &out->entries[out->entry_count++];
             k_memset(pe, 0, sizeof(*pe));
+            pe->slot = (uint16_t)(s * entries_per_sector + i + 1);
             guid_copy(pe->gpt_type_guid, e);
             guid_copy(pe->gpt_unique_guid, e + 16);
             pe->gpt_lba_start = read_le64(e + 32) * spb;
@@ -634,6 +637,185 @@ int partition_write_table_of(const struct block_device *dev, const struct partit
 
     blkdev_flush(dev);
     return 1;
+}
+
+// ---- editing one entry in place --------------------------------------
+//
+// THE TABLE IS PATCHED, NOT REBUILT: the bytes are read, one entry's are
+// changed, the CRCs are recomputed and everything else goes back as it
+// came -- so a table another system wrote keeps whatever this kernel
+// cannot represent (non-ASCII names, attribute bits, a non-default entry
+// count) through an edit made here.
+
+// Does [s, s+n) overlap a USED entry other than `skip`, in the same
+// units? Half-open, as partition_validate_on()'s test.
+static int spans_overlap(uint64_t a, uint64_t an, uint64_t b, uint64_t bn) {
+    return a < b + bn && b < a + an;
+}
+
+static __attribute__((noinline)) int edit_mbr(const struct block_device *dev, enum partition_edit_op op,
+                                              int slot, uint64_t sectors, const char **why) {
+    uint32_t spb = blkdev_block_sectors(dev);
+    uint8_t sec[PART_SECTOR_SIZE];
+    if (!blkdev_read_partial(dev, 0, 1, sec)) { *why = "the table cannot be read"; return -EIO; }
+    if (slot < 1 || slot > MBR_ENTRY_COUNT) { *why = "an MBR has four slots"; return -EINVAL; }
+    uint8_t *e = sec + MBR_ENTRY_TABLE_OFFSET + (slot - 1) * MBR_ENTRY_SIZE;
+    if (e[4] == 0) { *why = "no partition in that slot"; return -EINVAL; }
+
+    if (op == PART_EDIT_DELETE) {
+        k_memset(e, 0, MBR_ENTRY_SIZE);
+    } else {
+        uint64_t start = (uint64_t)read_le32(e + 8) * spb;
+        if (sectors == 0 || sectors % spb) { *why = "the size is not whole blocks of this disk"; return -EINVAL; }
+        if ((start + sectors) / spb > 0xFFFFFFFFull || start + sectors > blkdev_sector_count(dev)) {
+            *why = "the partition would run past the end of the disk"; return -EINVAL;
+        }
+        for (int i = 0; i < MBR_ENTRY_COUNT; i++) {
+            const uint8_t *o = sec + MBR_ENTRY_TABLE_OFFSET + i * MBR_ENTRY_SIZE;
+            if (i == slot - 1 || o[4] == 0) continue;
+            if (spans_overlap(start, sectors, (uint64_t)read_le32(o + 8) * spb,
+                              (uint64_t)read_le32(o + 12) * spb)) {
+                *why = "the partition would overlap another"; return -EINVAL;
+            }
+        }
+        write_le32(e + 12, (uint32_t)(sectors / spb));
+    }
+    if (!blkdev_write_partial(dev, 0, 1, sec)) { *why = "the table write failed"; return -EIO; }
+    blkdev_flush(dev);
+    return 0;
+}
+
+// One GPT entry array, `bytes` long at block `lba`, read or written a
+// 512-byte sector at a time as parse_gpt_entries() reads it.
+static int gpt_array_io(const struct block_device *dev, uint64_t lba, uint8_t *arr,
+                        uint32_t bytes, int write) {
+    uint32_t spb = blkdev_block_sectors(dev);
+    for (uint32_t off = 0; off < bytes; off += PART_SECTOR_SIZE) {
+        uint64_t at = lba * spb + off / PART_SECTOR_SIZE;
+        int ok = write ? blkdev_write_partial(dev, at, 1, arr + off)
+                       : blkdev_read_partial(dev, at, 1, arr + off);
+        if (!ok) return 0;
+    }
+    return 1;
+}
+
+// A header's own CRC, over its declared size with the field read as zero.
+static void gpt_header_seal(uint8_t *hdr, uint32_t size) {
+    write_le32(hdr + 16, 0);
+    write_le32(hdr + 16, kcrc32(hdr, size));
+}
+
+// The largest entry array an edit will take on: 128 slots of 128 bytes is
+// what every tool writes, and anything far past it is a header to refuse,
+// not memory to allocate.
+#define GPT_EDIT_ARRAY_MAX (256u * 1024u)
+
+static __attribute__((noinline)) int edit_gpt(const struct block_device *dev, enum partition_edit_op op,
+                                              int slot, uint64_t sectors, const char **why) {
+    uint32_t spb = blkdev_block_sectors(dev);
+    uint32_t blk = spb * PART_SECTOR_SIZE;
+    uint8_t *hdr = kmalloc(blk);
+    uint8_t *arr = 0;
+    int rc = -EIO;
+    if (!hdr) { *why = "out of memory"; return -ENOMEM; }
+
+    if (!blkdev_read_sectors(dev, (uint64_t)GPT_HEADER_LBA * spb, (int)spb, hdr)) {
+        *why = "the GPT header cannot be read"; goto out;
+    }
+    uint32_t hsize = read_le32(hdr + 12);
+    uint32_t stored = read_le32(hdr + 16);
+    if (k_strncmp((const char *)hdr, GPT_SIGNATURE, 8) != 0 || hsize < GPT_HEADER_SIZE || hsize > PART_SECTOR_SIZE) {
+        *why = "the GPT header is not valid"; rc = -EINVAL; goto out;
+    }
+    write_le32(hdr + 16, 0);
+    if (kcrc32(hdr, hsize) != stored) { *why = "the GPT header fails its checksum"; rc = -EINVAL; goto out; }
+
+    uint64_t alt = read_le64(hdr + 32), last_usable = read_le64(hdr + 48);
+    uint64_t entry_lba = read_le64(hdr + 72);
+    uint32_t count = read_le32(hdr + 80), esize = read_le32(hdr + 84);
+    if (esize < GPT_ENTRY_SIZE || esize % 8 || (uint64_t)count * esize > GPT_EDIT_ARRAY_MAX) {
+        *why = "the GPT entry array is not a shape this kernel edits"; rc = -EINVAL; goto out;
+    }
+    if (slot < 1 || (uint32_t)slot > count) { *why = "no such slot in this table"; rc = -EINVAL; goto out; }
+    uint32_t bytes = count * esize;
+    uint32_t padded = (bytes + blk - 1) / blk * blk;   // the array's whole blocks
+    arr = kmalloc(padded);
+    if (!arr) { *why = "out of memory"; rc = -ENOMEM; goto out; }
+    k_memset(arr, 0, padded);
+    if (!gpt_array_io(dev, entry_lba, arr, padded, 0)) { *why = "the GPT entry array cannot be read"; goto out; }
+    if (kcrc32(arr, bytes) != read_le32(hdr + 88)) {
+        *why = "the GPT entry array fails its checksum"; rc = -EINVAL; goto out;
+    }
+
+    uint8_t *e = arr + (uint32_t)(slot - 1) * esize;
+    int used = 0;
+    for (int b = 0; b < 16; b++) if (e[b]) { used = 1; break; }
+    if (!used) { *why = "no partition in that slot"; rc = -EINVAL; goto out; }
+
+    if (op == PART_EDIT_DELETE) {
+        k_memset(e, 0, esize);
+    } else {
+        // In the DEVICE's blocks, as the entry records them.
+        uint64_t start = read_le64(e + 32);
+        if (sectors == 0 || sectors % spb) { *why = "the size is not whole blocks of this disk"; rc = -EINVAL; goto out; }
+        uint64_t end = start + sectors / spb - 1;   // inclusive
+        if (end > last_usable) { *why = "the partition would run past the table's last usable block"; rc = -EINVAL; goto out; }
+        for (uint32_t i = 0; i < count; i++) {
+            const uint8_t *o = arr + i * esize;
+            if (i == (uint32_t)(slot - 1)) continue;
+            int u = 0;
+            for (int b = 0; b < 16; b++) if (o[b]) { u = 1; break; }
+            if (!u) continue;
+            uint64_t os = read_le64(o + 32), oe = read_le64(o + 40);
+            if (oe >= os && spans_overlap(start, end - start + 1, os, oe - os + 1)) {
+                *why = "the partition would overlap another"; rc = -EINVAL; goto out;
+            }
+        }
+        write_le64(e + 40, end);
+    }
+    uint32_t crc = kcrc32(arr, bytes);
+
+    // THE BACKUP FIRST, rebuilt from the primary as gdisk rebuilds it: the
+    // same header with its own and its twin's positions swapped, pointing
+    // at the array that sits just in front of it.
+    uint64_t backup_entries = alt - padded / blk;
+    write_le32(hdr + 88, crc);
+    uint64_t self = read_le64(hdr + 24);
+    write_le64(hdr + 24, alt);
+    write_le64(hdr + 32, self);
+    write_le64(hdr + 72, backup_entries);
+    gpt_header_seal(hdr, hsize);
+    if (!gpt_array_io(dev, backup_entries, arr, padded, 1) ||
+        !blkdev_write_sectors(dev, alt * spb, (int)spb, hdr)) {
+        *why = "the backup table write failed"; goto out;
+    }
+    write_le64(hdr + 24, self);
+    write_le64(hdr + 32, alt);
+    write_le64(hdr + 72, entry_lba);
+    gpt_header_seal(hdr, hsize);
+    if (!gpt_array_io(dev, entry_lba, arr, padded, 1) ||
+        !blkdev_write_sectors(dev, (uint64_t)GPT_HEADER_LBA * spb, (int)spb, hdr)) {
+        *why = "the table write failed"; goto out;
+    }
+    blkdev_flush(dev);
+    rc = 0;
+out:
+    kfree(arr);
+    kfree(hdr);
+    return rc;
+}
+
+int partition_edit_of(const struct block_device *dev, enum partition_edit_op op,
+                      int slot, uint64_t sectors, const char **why) {
+    *why = "";
+    if (!dev || !blkdev_sector_count(dev)) { *why = "no disk"; return -ENODEV; }
+    uint8_t mbr[PART_SECTOR_SIZE];
+    if (!blkdev_read_partial(dev, 0, 1, mbr)) { *why = "the table cannot be read"; return -EIO; }
+    if (mbr[MBR_SIGNATURE_OFFSET] != 0x55 || mbr[MBR_SIGNATURE_OFFSET + 1] != 0xAA) {
+        *why = "this disk has no partition table"; return -EINVAL;
+    }
+    return mbr_has_gpt_protective_entry(mbr) ? edit_gpt(dev, op, slot, sectors, why)
+                                             : edit_mbr(dev, op, slot, sectors, why);
 }
 
 // THE BOOT DISK, which is what every caller meant before a table could

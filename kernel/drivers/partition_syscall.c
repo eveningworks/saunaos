@@ -215,6 +215,80 @@ int sys_mkpart(struct syscall_ctx *c) {
     return 0;
 }
 
+// ---- SYS_PARTEDIT ----------------------------------------------------
+
+// The reason goes back to the caller as well as to the log: `part` and
+// Disks show it, and nobody should need `dmesg` to learn why.
+static int partedit_fail(struct syscall_ctx *c, struct partedit_request *req, int err, const char *why) {
+    k_strlcpy(req->why, why, sizeof req->why);
+    klog_printf(KLOG_ERR "partedit: %s refused -- %s\n", req->device, why);
+    if (!vmm_copy_to_user(c->pml4, c->a0, req, sizeof *req)) err = -EFAULT;
+    c->regs[14] = (uint64_t)(int64_t)err;
+    return 0;
+}
+
+int sys_partedit(struct syscall_ctx *c) {
+    struct partedit_request req;
+    if (!vmm_copy_from_user(c->pml4, &req, c->a0, sizeof(req))) {
+        c->regs[14] = (uint64_t)(int64_t)-EFAULT;
+        return 0;
+    }
+    req.device[sizeof(req.device) - 1] = '\0';
+    req.why[0] = '\0';
+
+    if (req.op != PARTEDIT_DELETE && req.op != PARTEDIT_RESIZE)
+        return partedit_fail(c, &req, -EINVAL, "unknown operation");
+    if (!(req.flags & PARTEDIT_CONFIRM))
+        return partedit_fail(c, &req, -EPERM, "PARTEDIT_CONFIRM was not set");
+
+    const struct blk_entry *e = blk_device_by_name(req.device);
+    if (!e) return partedit_fail(c, &req, -ENODEV, "no such device");
+    uint64_t base = 0;
+    const struct block_device *disk = blk_part_parent(e->dev, &base);
+    if (!disk || e->parent == e->dev) return partedit_fail(c, &req, -EINVAL, "that is a disk, not a partition");
+
+    // THE SYSTEM DISK IS LEFT ALONE: its table is what the next boot
+    // finds the root by, and the root's own entry is cached (mount.c).
+    if (disk == blk_root_disk() && fs_is_persistent())
+        return partedit_fail(c, &req, -EBUSY, "the system disk's partitions cannot change while it runs");
+    for (int i = 0; i < mount_count(); i++) {
+        const struct mount *m = mount_at(i);
+        if (m && m->used && m->dev == e->dev)
+            return partedit_fail(c, &req, -EBUSY, "it is mounted -- unmount it first");
+    }
+
+    // WHICH SLOT: the entry starting where this window starts. By
+    // position, not by the device's name, which is only what the table
+    // said when the window was cut.
+    static struct partition_table tbl;   // ~1.5 KB, the same reason as sys_mkpart's
+    int slot = 0;
+    if (partition_read_table_of(disk, &tbl)) {
+        for (int i = 0; i < tbl.entry_count && !slot; i++) {
+            const struct partition_entry *pe = &tbl.entries[i];
+            uint64_t start = tbl.kind == PART_TABLE_GPT ? pe->gpt_lba_start : pe->mbr_lba_start;
+            if (start == base) slot = pe->slot;
+        }
+    }
+    if (!slot) return partedit_fail(c, &req, -EINVAL, "the table no longer has this partition");
+
+    const char *why = "";
+    fs_exclusive_begin();
+    int rc = partition_edit_of(disk, req.op == PARTEDIT_DELETE ? PART_EDIT_DELETE : PART_EDIT_RESIZE,
+                               slot, req.sectors, &why);
+    fs_exclusive_end();
+    if (rc < 0) return partedit_fail(c, &req, rc, why);
+
+    // RE-READ AT ONCE. A mounted sibling keeps its window (mount.c's
+    // forget_windows_of() skips it) and, named by slot, its name.
+    int named = mount_rescan_disk(disk);
+    klog_printf("partedit: %s %s -- %s re-read, %d partition(s) named\n", req.device,
+                req.op == PARTEDIT_DELETE ? "deleted" : "resized", blk_device_name(disk), named);
+    // The table is written whatever this says: a caller that cannot be
+    // told is still told by `lsblk`.
+    c->regs[14] = vmm_copy_to_user(c->pml4, c->a0, &req, sizeof req) ? 0 : (uint64_t)(int64_t)-EFAULT;
+    return 0;
+}
+
 // ---- SYS_INSTALL_BOOT ------------------------------------------------
 
 // 512, and it is the BLOCK layer's sector rather than the partition

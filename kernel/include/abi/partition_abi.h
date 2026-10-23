@@ -98,6 +98,31 @@ struct mkpart_request {
     struct mkpart_entry entries[MKPART_MAX_ENTRIES];
 };
 
+// ---- SYS_PARTEDIT ----------------------------------------------------
+//
+// ONE PARTITION CHANGED IN PLACE: deleted, or its END moved (its start
+// never does). Every other entry keeps its bytes, its slot and so its
+// name -- Linux's BLKPG_DEL_PARTITION/BLKPG_RESIZE_PARTITION, with the
+// table write the kernel's as SYS_MKPART's is.
+//
+// NOTHING HERE TOUCHES THE FILESYSTEM INSIDE. A shrink must have shrunk
+// the filesystem first, and a grow leaves it to grow after; `part
+// resize` and Disks do both, in that order.
+#define PARTEDIT_DELETE 1
+#define PARTEDIT_RESIZE 2
+
+#define PARTEDIT_CONFIRM 0x1   // required: the same speed bump as MKPART_CONFIRM
+
+#define PARTEDIT_WHY_MAX 80
+
+struct partedit_request {
+    uint32_t op;                      // PARTEDIT_*
+    uint32_t flags;                   // PARTEDIT_CONFIRM
+    uint64_t sectors;                 // RESIZE: the new length, 512-byte sectors
+    char device[MKPART_DEVICE_MAX];   // the PARTITION, as `lsblk` names it ("usb1p2")
+    char why[PARTEDIT_WHY_MAX];       // OUT: the refusal's reason, "" on success
+};
+
 // ---- SYS_INSTALL_BOOT ------------------------------------------------
 //
 // Making a disk BOOT, which on a BIOS machine is two images in two

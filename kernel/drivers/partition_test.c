@@ -32,6 +32,8 @@
 #include "heap.h"
 #include "scheduler.h"
 #include "string.h"
+#include "kcrc.h"
+#include "errno.h"
 
 // 1024 sectors. Big enough for a GPT's whole geometry -- 34 at the
 // front, 33 at the back -- with room between for two partitions.
@@ -245,4 +247,170 @@ KTEST("partition", "an MBR round-trips, and a GPT disk is not read as one") {
     KTEST_ASSERT_EQ(out.entries[0].mbr_lba_start, 64);
     KTEST_ASSERT_EQ(out.entries[0].mbr_num_sectors, 448);
     KTEST_ASSERT_EQ(out.entries[1].mbr_lba_start, 512);
+}
+
+// ---- editing one entry in place (partition_edit_of) ----------------------
+//
+// The promise is EVERY OTHER BYTE, so the assertions read the scratch
+// disk's raw bytes rather than the parser's view of them: a parser cannot
+// see an attribute bit or a disk GUID that an edit regenerated.
+
+#define ARR_BYTES (128 * 128)
+#define BACKUP_HDR (SCRATCH_SECTORS - 1)
+#define BACKUP_ARR (BACKUP_HDR - ARR_BYTES / 512)
+
+static uint32_t le32_at(const uint8_t *p) {
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+// A header whose own CRC holds and whose array CRC matches the array it
+// points at -- what a firmware checks before it trusts either copy.
+static int header_sound(const uint8_t *disk, uint32_t lba) {
+    static uint8_t h[512];
+    k_memcpy(h, disk + (uint64_t)lba * 512, 512);
+    if (k_memcmp(h, "EFI PART", 8) != 0) return 0;
+    uint32_t size = le32_at(h + 12), crc = le32_at(h + 16);
+    h[16] = h[17] = h[18] = h[19] = 0;
+    if (kcrc32(h, size) != crc) return 0;
+    uint32_t arr = le32_at(h + 72);
+    return kcrc32(disk + (uint64_t)arr * 512, ARR_BYTES) == le32_at(h + 88);
+}
+
+KTEST("partition", "an edit deletes one GPT entry and keeps every other byte") {
+    uint8_t *scratch = kmalloc(SCRATCH_BYTES);
+    static uint8_t before[ARR_BYTES], guid[16];
+    if (!scratch) KTEST_SKIP("no memory for a scratch disk");
+    k_memset(scratch, 0, SCRATCH_BYTES);
+
+    scheduler_preempt_disable();
+    const struct block_device *saved = blk_root();
+    int registered = blk_ram_register((uint64_t)(uintptr_t)scratch, SCRATCH_BYTES);
+    static struct partition_table in, out;
+    int wrote = 0, del = -1, refused = 0, sound = 0, back_sound = 0, read_back = 0;
+    int same_other = 0, same_guid = 0, refusal_kept = 0;
+
+    if (registered) {
+        k_memset(&in, 0, sizeof in);
+        in.kind = PART_TABLE_GPT;
+        in.entry_count = 3;
+        uint64_t at[4] = { 64, 300, 500, 900 };
+        for (int i = 0; i < 3; i++) {
+            in.entries[i].gpt_lba_start = at[i];
+            in.entries[i].gpt_lba_end = at[i + 1] - 1;
+        }
+        partition_fill_defaults(&in);
+        wrote = partition_write_table(&in);
+        // An ATTRIBUTE bit on entry 3 (offset 48), which this kernel never
+        // writes -- the byte a rebuilt table would lose. Both arrays, then
+        // both CRCs, by hand.
+        if (wrote) {
+            const char *why;
+            scratch[2 * 512 + 2 * 128 + 48] = 0x04;
+            scratch[(uint64_t)BACKUP_ARR * 512 + 2 * 128 + 48] = 0x04;
+            uint8_t *ph = scratch + 512, *bh = scratch + (uint64_t)BACKUP_HDR * 512;
+            uint32_t crc = kcrc32(scratch + 2 * 512, ARR_BYTES);
+            for (int k = 0; k < 2; k++) {
+                uint8_t *h = k ? bh : ph;
+                h[88] = (uint8_t)crc; h[89] = (uint8_t)(crc >> 8); h[90] = (uint8_t)(crc >> 16); h[91] = (uint8_t)(crc >> 24);
+                h[16] = h[17] = h[18] = h[19] = 0;
+                uint32_t hc = kcrc32(h, 92);
+                h[16] = (uint8_t)hc; h[17] = (uint8_t)(hc >> 8); h[18] = (uint8_t)(hc >> 16); h[19] = (uint8_t)(hc >> 24);
+            }
+            k_memcpy(before, scratch + 2 * 512, ARR_BYTES);
+            k_memcpy(guid, scratch + 512 + 56, 16);
+            del = partition_edit_of(blk_root_disk(), PART_EDIT_DELETE, 1, 0, &why);
+            same_other = k_memcmp(before + 128, scratch + 2 * 512 + 128, ARR_BYTES - 128) == 0;
+            same_guid = k_memcmp(guid, scratch + 512 + 56, 16) == 0;
+            sound = header_sound(scratch, 1);
+            back_sound = header_sound(scratch, BACKUP_HDR);
+            // Entry 2 growing over entry 3 must be refused and change NOTHING.
+            k_memcpy(before, scratch + 2 * 512, ARR_BYTES);
+            refused = partition_edit_of(blk_root_disk(), PART_EDIT_RESIZE, 2, 400, &why) == -EINVAL;
+            refusal_kept = k_memcmp(before, scratch + 2 * 512, ARR_BYTES) == 0;
+            read_back = partition_read_table(&out);
+        }
+    }
+
+    blk_register(saved);
+    scheduler_preempt_enable();
+    kfree(scratch);
+
+    KTEST_ASSERT(registered && wrote);
+    KTEST_ASSERT_EQ(del, 0);
+    KTEST_ASSERT(same_other);   // entries 2..128, attribute bit included
+    KTEST_ASSERT(same_guid);    // the disk GUID, which the whole-table writer regenerates
+    KTEST_ASSERT(sound);
+    KTEST_ASSERT(back_sound);
+    KTEST_ASSERT(refused);
+    KTEST_ASSERT(refusal_kept);
+    KTEST_ASSERT(read_back);
+    KTEST_ASSERT_EQ(out.entry_count, 2);
+    // The SLOTS survive the hole: what was partition 2 is still 2.
+    KTEST_ASSERT_EQ(out.entries[0].slot, 2);
+    KTEST_ASSERT_EQ(out.entries[1].slot, 3);
+    KTEST_ASSERT_EQ(out.entries[0].gpt_lba_start, 300);
+}
+
+KTEST("partition", "an edit resizes a GPT entry's end and an MBR slot keeps its number") {
+    uint8_t *scratch = kmalloc(SCRATCH_BYTES);
+    if (!scratch) KTEST_SKIP("no memory for a scratch disk");
+    k_memset(scratch, 0, SCRATCH_BYTES);
+
+    scheduler_preempt_disable();
+    const struct block_device *saved = blk_root();
+    int registered = blk_ram_register((uint64_t)(uintptr_t)scratch, SCRATCH_BYTES);
+    static struct partition_table in, gpt, mbr;
+    int grew = -1, past = 0, read_gpt = 0, mdel = -1, mgrow = -1, mover = 0, read_mbr = 0;
+
+    if (registered) {
+        const char *why;
+        k_memset(&in, 0, sizeof in);
+        in.kind = PART_TABLE_GPT;
+        in.entry_count = 1;
+        in.entries[0].gpt_lba_start = 64;
+        in.entries[0].gpt_lba_end = 299;
+        partition_fill_defaults(&in);
+        if (partition_write_table(&in)) {
+            grew = partition_edit_of(blk_root_disk(), PART_EDIT_RESIZE, 1, 600, &why);
+            // The last usable block is BACKUP_ARR - 1: one past it is refused.
+            past = partition_edit_of(blk_root_disk(), PART_EDIT_RESIZE, 1,
+                                     (uint64_t)BACKUP_ARR - 64 + 1, &why) == -EINVAL;
+            read_gpt = partition_read_table(&gpt);
+        }
+
+        k_memset(scratch, 0, SCRATCH_BYTES);
+        k_memset(&in, 0, sizeof in);
+        in.kind = PART_TABLE_MBR;
+        in.entry_count = 3;
+        uint32_t at[4] = { 64, 300, 500, 900 };
+        for (int i = 0; i < 3; i++) {
+            in.entries[i].mbr_lba_start = at[i];
+            in.entries[i].mbr_num_sectors = at[i + 1] - at[i];
+        }
+        partition_fill_defaults(&in);
+        if (partition_write_table(&in)) {
+            mdel = partition_edit_of(blk_root_disk(), PART_EDIT_DELETE, 2, 0, &why);
+            mgrow = partition_edit_of(blk_root_disk(), PART_EDIT_RESIZE, 1, 436, &why);   // into the hole
+            mover = partition_edit_of(blk_root_disk(), PART_EDIT_RESIZE, 1, 437, &why) == -EINVAL;
+            read_mbr = partition_read_table(&mbr);
+        }
+    }
+
+    blk_register(saved);
+    scheduler_preempt_enable();
+    kfree(scratch);
+
+    KTEST_ASSERT(registered);
+    KTEST_ASSERT_EQ(grew, 0);
+    KTEST_ASSERT(past);
+    KTEST_ASSERT(read_gpt);
+    KTEST_ASSERT(gpt.gpt_header_valid);
+    KTEST_ASSERT_EQ(gpt.entries[0].gpt_lba_end, 663);   // 64 + 600 - 1, inclusive
+    KTEST_ASSERT_EQ(mdel, 0);
+    KTEST_ASSERT_EQ(mgrow, 0);
+    KTEST_ASSERT(mover);   // one sector more would sit on slot 3
+    KTEST_ASSERT(read_mbr);
+    KTEST_ASSERT_EQ(mbr.entry_count, 2);
+    KTEST_ASSERT_EQ(mbr.entries[0].mbr_num_sectors, 436);
+    KTEST_ASSERT_EQ(mbr.entries[1].slot, 3);
 }

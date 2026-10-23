@@ -7,10 +7,11 @@
 // Format, Check, Mount/Unmount and Delete, each destructive one behind
 // a confirm. THE SYSTEM DISK IS REFUSED for anything but Check and its
 // facts -- its table only takes effect at the next boot, and a format
-// there is the running system -- and so is a disk with anything
-// mounted, since the kernel re-reads a table only on a disk nothing
-// runs from (SYS_MKPART). Everything goes through the same calls
-// `mkpart`, `mkfs`, `fsck` and `mount` make.
+// there is the running system. A new partition also needs nothing
+// mounted from the disk, since it rewrites the whole table (SYS_MKPART);
+// Delete edits one entry (SYS_PARTEDIT) and needs only that partition
+// unmounted. Everything goes through the same calls `mkpart`, `part`,
+// `mkfs`, `fsck` and `mount` make.
 #include <errno.h>
 #include <pthread.h>
 #include <stdint.h>
@@ -197,20 +198,24 @@ static const char *refusal(int cmd) {
     if (!d) return "Volumes in memory cannot be changed";
     switch (cmd) {
     case CMD_NEW:
-    case CMD_DELETE:
         if (d->system) return "The system disk's partitions cannot be changed while it runs";
         if (!d->persistent) return "This disk is in memory";
         if (disk_busy(d)) return "Unmount this disk's volumes first";
         for (int i = 0; i < d->nparts; i++)
             if (d->parts[i].role == UDISK_ROLE_OTHER)
                 return "A partition here has a type Disks cannot keep -- use mkpart";
-        if (cmd == CMD_NEW) {
-            if (!cur_is_free()) return "Select free space";
-            if (d->nparts >= MKPART_MAX_ENTRIES) return "A table here holds at most four partitions";
-        } else {
-            if (!p || !p->number) return "Select a partition";
-            if (d->nparts <= 1) return "Disks cannot remove a disk's last partition";
-        }
+        if (!cur_is_free()) return "Select free space";
+        if (d->nparts >= MKPART_MAX_ENTRIES) return "A table here holds at most four partitions";
+        return 0;
+    // ONE ENTRY EDITED IN PLACE (SYS_PARTEDIT), so the rest of the table
+    // -- any type, any number of entries, a mounted sibling -- is no
+    // obstacle; only the partition itself must be free.
+    case CMD_DELETE:
+        if (d->system) return "The system disk's partitions cannot be changed while it runs";
+        if (!d->persistent) return "This disk is in memory";
+        if (!p || !p->number) return "Select a partition";
+        if (p->point[0]) return "Unmount it first";
+        if (!p->dev[0]) return "This partition has no device until the next boot";
         return 0;
     case CMD_FORMAT:
         if (!p || !p->number) return "Select a partition";
@@ -257,16 +262,16 @@ static void ask(struct uapp *a, const char *title, int rows, const struct uui_di
     ulogf("disks: ask %s\n", title);
 }
 
-// The table as it would be with `skip` removed and `add` placed: every
-// other entry as it is, in disk order, its role and MBR type kept.
-static int write_table(struct udisk *d, int skip, const struct mkpart_entry *add) {
+// The table as it would be with `add` placed: every other entry as it
+// is, in disk order, its role and MBR type kept.
+static int write_table(struct udisk *d, const struct mkpart_entry *add) {
     struct mkpart_request req;
     memset(&req, 0, sizeof req);
     req.kind = d->kind == QUERY_PART_MBR ? MKPART_KIND_MBR : MKPART_KIND_GPT;
     snprintf(req.device, sizeof req.device, "%s", d->name);
     for (int i = 0; i < d->nparts; i++) {
         const struct udisk_part *p = &d->parts[i];
-        if (i == skip || !p->number) continue;
+        if (!p->number) continue;
         if (add && req.count < MKPART_MAX_ENTRIES && add->start_lba < p->start) req.entries[req.count++] = *add, add = 0;
         if (req.count >= MKPART_MAX_ENTRIES) return -EINVAL;
         struct mkpart_entry *e = &req.entries[req.count++];
@@ -316,7 +321,7 @@ static void do_create(struct uapp *a) {
     e.role = MKPART_ROLE_DATA;
     snprintf(e.name, sizeof e.name, "%s", uui_textbox_text(&g_name));
     if (e.sectors < MIB) { say("Too small: %s%s", "a partition needs at least 1 MiB", ""); return; }
-    int rc = write_table(d, -1, &e);
+    int rc = write_table(d, &e);
     if (rc < 0) { say("Could not write the table: %s%s", strerror(-rc), ""); return; }
     char name[16];
     snprintf(name, sizeof name, "%s", d->name);
@@ -667,9 +672,17 @@ static void answer(struct uapp *a, int code) {
         break;
     case ASK_DELETE:
         if (!p || refusal(CMD_DELETE)) break;
-        rc = write_table(d, (int)(p - d->parts), 0);
-        if (rc < 0) say("Could not write the table: %s%s", strerror(-rc), "");
-        else say("Deleted the partition from %s%s", d->name, "");
+        {
+            struct partedit_request req;
+            memset(&req, 0, sizeof req);
+            req.op = PARTEDIT_DELETE;
+            req.flags = PARTEDIT_CONFIRM;
+            snprintf(req.device, sizeof req.device, "%s", p->dev);
+            rc = sys_partedit(&req) < 0 ? -errno : 0;
+            ulogf("disks: partedit delete %s -> %d %s\n", req.device, rc, req.why);
+            if (rc < 0) say("Could not delete it: %s%s", req.why[0] ? req.why : strerror(-rc), "");
+            else say("Deleted %s from %s", req.device, d->name);
+        }
         scan();
         break;
     case ASK_CREATE: do_create(a); break;
