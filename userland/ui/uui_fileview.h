@@ -127,6 +127,9 @@ struct uui_fileview_source {
     // The sort on arriving, as uui_table_set_sort() takes it; 0/0 keeps
     // the view's. Leaving such a folder goes back to Name, ascending.
     int sort_col, sort_dir;
+    // Entry `index`'s icon_get() name, when its name alone would not say
+    // what it is (a drive listed by its label). NULL: by the name.
+    const char *(*icon)(void *ctx, int index);
 };
 typedef const struct uui_fileview_source *(*uui_fileview_resolve_fn)(void *ctx, const char *dir);
 

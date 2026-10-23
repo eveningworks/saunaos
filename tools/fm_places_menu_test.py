@@ -102,13 +102,15 @@ def run(dbg, qmp, res, positive_control):
         fm.wait_layout(dbg, win, lambda l: l.ctx == 0, timeout=4.0)
 
     # 1. a menu per kind
-    # ONE LIST: the defaults (Recent ... Recycle Bin), then PA and PB --
-    # the old pins-only file is read as the defaults followed by it.
+    # ONE LIST: the defaults (Quick access, Recent ... Recycle Bin), then
+    # PA and PB -- the old pins-only file is read as the defaults followed
+    # by it. Quick access leads, so Recent can move up as well as down.
     LIST = "Rename...|{up}{down}Unpin from Places"
     def lst(up, down):
         return LIST.format(up="Move up|" if up else "", down="Move down|" if down else "")
     want = {
-        "recent:/": ("recent", "Open|Open in new tab|-|Clear list|-|" + lst(0, 1)),
+        "quick:/": ("quick", "Open|Open in new tab|-|" + lst(0, 1)),
+        "recent:/": ("recent", "Open|Open in new tab|-|Clear list|-|" + lst(1, 1)),
         "/home": ("place", "Open|Open in new tab|-|" + lst(1, 1) + "|-|Copy path|Open in Terminal|-|Properties"),
         "trash:/": ("bin", "Open|Open in new tab|-|Restore all|Empty Recycle Bin|Recycle Bin settings...|-|"
                            + lst(1, 1)),

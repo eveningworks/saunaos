@@ -256,13 +256,19 @@ static void fv_cell(void *ctx, int row, int col, char *out, int cap) {
     }
 }
 
+// An entry's icon name: its source's word for it, or its type's.
+static const char *fv_icon_name(const struct uui_fileview *fv, const struct sys_dirent *e) {
+    const char *ic = fv->src && fv->src->icon ? fv->src->icon(fv->src->ctx, (int)(e - fv->entries)) : 0;
+    return ic ? ic : ufiletype_icon(e->name, e->is_dir);
+}
+
 // The row's type icon, before its name: the table asks, the icon cache
 // answers (a lookup, never a decode).
 static const struct uimg *fv_icon(void *ctx, int row, int px) {
     const struct uui_fileview *fv = (const struct uui_fileview *)ctx;
     if (fv_is_up_row(fv, row)) return icon_get("folder", px);
     const struct sys_dirent *e = fv_entry(fv, row);
-    return e ? icon_get(ufiletype_icon(e->name, e->is_dir), px) : 0;
+    return e ? icon_get(fv_icon_name(fv, e), px) : 0;
 }
 
 // --- marks ------------------------------------------------------------
@@ -1302,7 +1308,7 @@ static void ic_draw(struct ugfx_surface *s, const struct uui_fileview *fv) {
                 ugfx_set_font(was);
             }
         } else {
-            const struct uimg *ico = icon_get(is_up || !e ? "folder" : ufiletype_icon(e->name, is_dir), px);
+            const struct uimg *ico = icon_get(is_up || !e ? "folder" : fv_icon_name(fv, e), px);
             int ix = x + (cw - px) / 2;
             ax = ix; ay = y + 2; aw = px; ah = px;
             if (ico) {

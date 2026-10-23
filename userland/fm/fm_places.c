@@ -88,9 +88,9 @@ void tree_goto(const char *path) {
 
 // --- the menus --------------------------------------------------------------
 
-enum kind { K_NONE, K_PANE, K_RECENT, K_BIN, K_PIN, K_VOLUME, K_SHARE, K_FOLDER, K_ADD };
+enum kind { K_NONE, K_PANE, K_RECENT, K_BIN, K_PIN, K_VOLUME, K_SHARE, K_FOLDER, K_ADD, K_QUICK };
 static const char *const KIND_NAME[] = { "none", "pane", "recent", "bin", "place",
-                                         "volume", "share", "folder", "add" };
+                                         "volume", "share", "folder", "add", "quick" };
 
 // What the open menu is about, until its command runs: copied, because
 // a tree rebuild rewrites the slots it came from.
@@ -143,7 +143,8 @@ static enum kind kind_of(int nid) {
     if (pl >= g_places.network) return K_SHARE;
     if (pl >= g_places.places) return K_VOLUME;
     const char *p = g_places.row[pl].path;
-    return !strcmp(p, FM_RECENT) ? K_RECENT : !strcmp(p, FM_BIN) ? K_BIN : K_PIN;
+    return !strcmp(p, FM_RECENT) ? K_RECENT : !strcmp(p, FM_BIN) ? K_BIN
+         : !strcmp(p, FM_QUICK) ? K_QUICK : K_PIN;
 }
 
 static const struct uui_place *place_removable(const char *point);
@@ -166,6 +167,11 @@ int places_ctx_items(struct uui_menu_item *out, int cap, int nid) {
         n = open_rows(out, n, cap, 0);
         SEP;
         ADD(UUI_MENU_VERB("Clear list", CMD_PL_CLEAR_RECENT, 0, CLEAR));
+        SEP;
+        n = list_rows(out, n, cap);
+        break;
+    case K_QUICK:   // a page of other places' things: open it, or move its row
+        n = open_rows(out, n, cap, 0);
         SEP;
         n = list_rows(out, n, cap);
         break;

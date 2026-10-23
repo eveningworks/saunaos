@@ -70,7 +70,7 @@ static int described(char *path, int cap, const struct sys_dirent **ent) {
     // the bin, not "trash:/" joined with its name.
     if (e && in_archive(fv)) return 0;   // a member has no path to read facts from
     if (e) return uui_fileview_selected_path(fv, path, cap);
-    if (in_bin(fv) || in_search(fv) || in_archive(fv) || in_recent(fv)) return 0;   // a virtual folder is nothing to describe
+    if (in_bin(fv) || in_search(fv) || in_archive(fv) || in_recent(fv) || in_quick(fv)) return 0;   // a virtual folder is nothing to describe
     strlcpy(path, dir, (size_t)cap);
     return 1;
 }
@@ -207,7 +207,7 @@ static void draw_marked(struct ugfx_surface *s, uint32_t bg) {
     char archive[UUI_FILEVIEW_PATH_MAX];
     const char *inner;
     const char *where = in_bin(fv) ? "Recycle Bin" : in_search(fv) ? "Search results"
-                      : in_recent(fv) ? "Recent"
+                      : in_recent(fv) ? "Recent" : in_quick(fv) ? "Quick access"
                       : arc_split(uui_fileview_dir(fv), archive, sizeof archive, &inner)
                         ? k_path_basename(archive) : uui_fileview_dir(fv);
     ugfx_draw_string_elided(s, bx + kw, y, bw - kw, where, UTHEME_TEXT, bg);

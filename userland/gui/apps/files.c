@@ -578,6 +578,7 @@ static unsigned menu_item_flags(int code) {
     if (search_item_flags(code, &bin)) return bin;   // ...and a search's
     if (arc_item_flags(code, &bin)) return bin;      // ...and an archive's
     if (recent_item_flags(code, &bin)) return bin;   // ...and Recent's
+    if (quick_item_flags(code, &bin)) return bin;    // ...and Quick access's
     if (code == CMD_UNDO || code == CMD_REDO)
         return undo_can(code == CMD_REDO) ? 0 : UUI_MI_DISABLED;
     switch (code) {
@@ -845,6 +846,7 @@ static const struct uui_fileview_source *resolve_virtual(void *ctx, const char *
     (void)ctx;
     if (strcmp(dir, FM_BIN) == 0) return bin_source();
     if (strcmp(dir, FM_RECENT) == 0) return recent_source();
+    if (strcmp(dir, FM_QUICK) == 0) return quick_source();
     if (search_scope(dir)) return search_source();
     if (!strncmp(dir, FM_ARC, sizeof FM_ARC - 1)) return arc_source();
     return 0;
@@ -938,6 +940,7 @@ void path_sync(void) {
     const char *sc = search_scope(dir);
     g_scope_seg.selected = !sc ? 0 : !strcmp(sc, "/") ? 2 : 1;
     const char *base = in_bin(active()) ? "Recycle Bin" : in_recent(active()) ? "Recent"
+                     : in_quick(active()) ? "Quick access"
                      : (dir[0] == '/' && !dir[1]) ? "System" : k_path_basename(dir);
     snprintf(g_search_hint, sizeof g_search_hint, "Search %s", base);
 }
@@ -1070,11 +1073,13 @@ void do_command(struct uapp *a, int code) {
     }
     // A command the bin greys is refused here too: a key reaches this
     // without asking menu_item_flags().
-    if ((in_bin(active()) || in_search(active()) || in_archive(active()) || in_recent(active())) &&
+    if ((in_bin(active()) || in_search(active()) || in_archive(active()) || in_recent(active()) ||
+         in_quick(active())) &&
         (menu_item_flags(code) & UUI_MI_DISABLED) && code != CMD_UP) {
         set_note(in_bin(active()) ? "not in the Recycle Bin"
                  : in_archive(active()) ? "an archive is read-only -- extract it first"
                  : in_recent(active()) ? "not in Recent -- open the folder first"
+                 : in_quick(active()) ? "not in Quick access -- open the folder first"
                  : "not in search results");
         return;
     }
@@ -1874,7 +1879,8 @@ static int on_tick(struct uapp *a) {
 void open_path(const char *path);
 
 static void on_pane_open(void *ctx, const char *path) {
-    if (in_search(&g_pane[(int)(intptr_t)ctx]) || in_recent(&g_pane[(int)(intptr_t)ctx])) {   // a folder: go there
+    if (in_search(&g_pane[(int)(intptr_t)ctx]) || in_recent(&g_pane[(int)(intptr_t)ctx]) ||
+        in_quick(&g_pane[(int)(intptr_t)ctx])) {   // a folder: go there
         struct sys_stat st;
         if (sys_stat(path, &st) == 0 && st.is_dir) { fm_goto((int)(intptr_t)ctx, path); return; }
     }
@@ -2250,6 +2256,7 @@ int main(int argc, char **argv) {
     uui_pathbar_init(&g_path, "System", "drive");
     uui_pathbar_set_scheme(&g_path, FM_BIN, "Recycle Bin", "place-trash");
     uui_pathbar_set_scheme(&g_path, FM_RECENT, "Recent", "place-recent");
+    uui_pathbar_set_scheme(&g_path, FM_QUICK, "Quick access", "place-quick");
     uui_pathbar_set_scheme(&g_path, "search:/", "Search results", "tb-find");
     uui_pathbar_set_scheme(&g_path, FM_ARC "/", "Archive", "file-archive");
     uui_segmented_init(&g_scope_seg, g_scope_names, 3, 0);

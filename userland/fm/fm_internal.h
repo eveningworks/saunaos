@@ -40,6 +40,7 @@
 //   fm_details.c the details pane: a preview and the selection's facts
 //   fm_trash.c   the Recycle Bin's folder (trash:/) and its verbs
 //   fm_places.c  the left pane's places and the menu on each of its rows
+//   fm_quick.c   Quick access, the start page: pins, recent files, drives
 
 #define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
                                  // buffers; the shared widgets it uses
@@ -146,6 +147,7 @@ enum {
 #define FM_SEARCH "search:"
 #define FM_ARC "archive:"
 #define FM_RECENT "recent:/"
+#define FM_QUICK "quick:/"     // Quick access, the start page (fm_quick.c)
 // The tree's "Add network share..." row: not a folder, an action.
 #define FM_NET_ADD "net:add"
 
@@ -464,6 +466,9 @@ void launch_ask(const char *path, const struct ulaunch_info *li);
 const struct uui_fileview_source *recent_source(void);   // recent:/
 int  in_recent(const struct uui_fileview *fv);
 int  recent_item_flags(int code, unsigned *out);
+const struct uui_fileview_source *quick_source(void);    // quick:/ (fm_quick.c)
+int  in_quick(const struct uui_fileview *fv);
+int  quick_item_flags(int code, unsigned *out);
 void recent_forget(void);
 void recent_clear(void);
 void recent_open_folder(void);

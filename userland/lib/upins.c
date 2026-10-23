@@ -17,13 +17,14 @@ static char g_dev[UPINS_DEV_MAX][64];
 static int g_ndev;
 
 static const char *const DEFAULTS[] = {
-    "recent:/", "/home", "udir:desktop", "udir:documents", "udir:music",
+    "quick:/", "recent:/", "/home", "udir:desktop", "udir:documents", "udir:music",
     "udir:pictures", "udir:videos", "udir:downloads", "trash:/",
 };
 #define N_DEFAULTS ((int)(sizeof DEFAULTS / sizeof DEFAULTS[0]))
 
 static int is_entry(const char *s) {
-    return s[0] == '/' || !strcmp(s, "recent:/") || !strcmp(s, "trash:/") || !strncmp(s, "udir:", 5);
+    return s[0] == '/' || !strcmp(s, "recent:/") || !strcmp(s, "trash:/") || !strcmp(s, "quick:/") ||
+           !strncmp(s, "udir:", 5);
 }
 
 static int index_of(const struct pin *all, int n, const char *entry) {
@@ -91,6 +92,7 @@ int upins_resolve(const char *entry, char *path, int pcap, char *label, int lcap
     const char *ic = "folder", *name = 0;
     int virt = 0;
     if (!strcmp(entry, "recent:/"))     { name = "Recent";      ic = "place-recent"; virt = 1; strlcpy(path, entry, (size_t)pcap); }
+    else if (!strcmp(entry, "quick:/")) { name = "Quick access"; ic = "place-quick"; virt = 1; strlcpy(path, entry, (size_t)pcap); }
     else if (!strcmp(entry, "trash:/")) { name = "Recycle Bin"; ic = "place-trash";  virt = 1; strlcpy(path, entry, (size_t)pcap); }
     else if (!strncmp(entry, "udir:", 5)) {
         enum udir d = UDIR_COUNT;
@@ -186,6 +188,7 @@ int upins_set_label(const char *entry, const char *label) {
     // Its default name is no name of its own.
     const char *b = k_path_basename(p);
     strlcpy(def, !strcmp(e, "recent:/") ? "Recent" : !strcmp(e, "trash:/") ? "Recycle Bin"
+                 : !strcmp(e, "quick:/") ? "Quick access"
                  : !strcmp(e, "/home") ? "Home" : b, sizeof def);
     if (!strncmp(e, "udir:", 5))
         for (int k = 0; k < UDIR_COUNT; k++)

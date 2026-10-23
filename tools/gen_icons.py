@@ -803,6 +803,7 @@ def icon_place_music_tile():     return _tile((214, 92, 143), icon_place_music)
 def icon_place_pictures_tile():  return _tile((74, 163, 107), icon_place_pictures)
 def icon_place_trash_tile():     return _tile((104, 112, 125), icon_place_trash)
 def icon_place_recent_tile():    return _tile((214, 133, 54), icon_place_recent)
+def icon_place_quick_tile():     return _tile((70, 110, 160), icon_place_quick)
 def icon_place_videos_tile():    return _tile((122, 85, 196), icon_place_videos)
 def icon_place_downloads_tile(): return _tile((46, 140, 190), icon_place_downloads)
 
@@ -1173,6 +1174,19 @@ def icon_place_recent():
     d.line([32, 32, 32, 15], fill=cut, width=5)
     d.line([32, 32, 44, 40], fill=cut, width=5)
     d.ellipse([28, 28, 36, 36], fill=cut)
+    return im
+
+
+def icon_place_quick():
+    """A five-pointed star: Quick access, the start page."""
+    import math
+    im, d = _place()
+    pts = []
+    for k in range(10):
+        r = 28 if k % 2 == 0 else 12
+        a = -math.pi / 2 + k * math.pi / 5
+        pts.append((32 + r * math.cos(a), 34 + r * math.sin(a)))
+    d.polygon(pts, fill=PLACE_INK)
     return im
 
 
@@ -1793,6 +1807,7 @@ ICONS = {
     "place-pictures": icon_place_pictures_tile,
     "place-trash": icon_place_trash_tile,
     "place-recent": icon_place_recent_tile,
+    "place-quick": icon_place_quick_tile,
     "place-videos": icon_place_videos_tile,
     "place-downloads": icon_place_downloads_tile,
     "tb-bin-restore": icon_tb_bin_restore,
