@@ -818,7 +818,9 @@ int fm_job_rows(struct uui_xfer *out, int cap) {
         pthread_mutex_unlock(&g_lock);
         title(x->name, sizeof x->name, g_job_op, g_job_what, g_job_count, g_job_path[0], g_job_dest);
         x->state = g_paused ? UUI_XFER_PAUSED : UUI_XFER_RUNNING;
-        x->can_pause = 1;
+        // An archive is made or unpacked in one library call that never
+        // waits (lib/uarchive.h), so it offers no Pause it could not keep.
+        x->can_pause = g_job_op != CMD_EXTRACT && g_job_op != CMD_COMPRESS;
         x->icon = icon_for(g_job_op);
         if (counting) {
             // Nothing to measure yet: the figure is the count so far.
@@ -854,6 +856,14 @@ int fm_job_rows(struct uui_xfer *out, int cap) {
 }
 
 int fm_job_waiting(void) { return g_nqueue; }
+
+// Whether another name clash can follow the one being asked: an item
+// after this one, or this one a folder (its files are each a question).
+int fm_job_has_rest(void) {
+    if (g_job_count - g_job_at > 1) return 1;
+    struct sys_stat st;
+    return sys_stat(g_job_path[g_job_at], &st) == 0 && st.is_dir;
+}
 
 // A row's action: row 0 is the running one while there is one.
 void fm_job_action(int ev, int row) {

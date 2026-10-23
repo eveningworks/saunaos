@@ -102,8 +102,10 @@ def run(dbg, qmp, res):
               row2 is not None and row is not None and row2[1] > row[1] and row2[3] > 0,
               f"before={row} after={row2}")
 
-    # 3.
-    lay = fm.layout_now(dbg, win) or lay2
+    # 3. The Pause button from a frame that HAS it: under load an idle
+    # poll can hand back an older frame.
+    lay = fm.wait_layout(dbg, win, lambda l: 0 in l.opsact2 and l.ops.get(0, (None,))[0] == RUNNING,
+                         timeout=6.0) or lay2
     act = lay.opsact2.get(0) if lay else None
     if act and act[0] == EV_PAUSE:
         click(dbg, qmp, lay, act[1])
@@ -146,7 +148,8 @@ def run(dbg, qmp, res):
               lay is not None and len(lay.ops) == 2, f"rows={lay and lay.ops}")
 
     # 5.
-    lay = fm.layout_now(dbg, win) or lay
+    lay = fm.wait_layout(dbg, win, lambda l: 0 in l.opsact2 and l.ops.get(0, (None,))[0] == PAUSED,
+                         timeout=6.0) or lay
     act = lay.opsact2.get(0) if lay else None
     if act and act[0] == EV_RESUME:
         click(dbg, qmp, lay, act[1])

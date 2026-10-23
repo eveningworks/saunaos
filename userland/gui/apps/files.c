@@ -935,6 +935,7 @@ static void search_into(const char *scope) {
         return;
     }
     search_set_filter(&g_filt[g_active], g_inside[g_active]);
+    g_stat_note[0] = '\0';   // "press Enter to look inside" is answered now
     char dir[PATH_MAX_LEN + 8];
     snprintf(dir, sizeof dir, "%s%s", FM_SEARCH, scope);
     strlcpy(g_scope[g_active], scope, sizeof g_scope[g_active]);
@@ -2279,7 +2280,7 @@ static void raise_conflict(struct uapp *a) {
     k_path_dirname(dst, ddir, sizeof ddir);
     snprintf(g_dlg_rows[0], sizeof g_dlg_rows[0], "%s already has \"%s\".",
              ddir[1] ? k_path_basename(ddir) : "System", k_path_basename(dst));
-    uui_compare_init(&g_cmp, "Do the same for the rest");
+    uui_compare_init(&g_cmp, fm_job_has_rest() ? "Do the same for the rest" : 0);
     snprintf(cap, sizeof cap, "Coming in, from %s", sdir[1] ? k_path_basename(sdir) : "System");
     uui_compare_set(&g_cmp, 0, cap, src, 0);
     snprintf(cap, sizeof cap, "Already in %s", ddir[1] ? k_path_basename(ddir) : "System");

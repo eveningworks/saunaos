@@ -531,6 +531,7 @@ void fm_job_finished(void);
 struct uui_xfer;
 int  fm_job_rows(struct uui_xfer *out, int cap);
 int  fm_job_waiting(void);
+int  fm_job_has_rest(void);   // another clash may follow: the card offers "for the rest"
 void fm_job_action(int ev, int row);
 
 int         fm_conflict_pending(void);
