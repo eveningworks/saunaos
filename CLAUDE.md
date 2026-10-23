@@ -25,6 +25,10 @@ cross-compiler -- host and target are both x86-64, so plain system
   `docs/decisions.md` for "why is it like this" (**its INDEX first**),
   then `docs/roadmap.md` for whether the thing is already known broken.
   Anything drawn adds `docs/gui-guidelines.md`, which is binding.
+- **Rules that matter only while a file is open live in `.claude/rules/`**
+  (docs editing, the Makefile, GDB, the skills' layout, USB audio, the
+  design-doc list) and load when a matching file is read or edited, as
+  `userland/`, `kernel/fs/` and `kernel/lib/` have their own CLAUDE.md.
 - **THE CODE WINS OVER A DOC THAT DISAGREES WITH IT.** Believe the code,
   FIX THE DOC in the same change, and say plainly in your response that
   you did -- a silent fix leaves the next session re-deriving the same
@@ -279,14 +283,10 @@ look fine.
 - **A hover state needs `DebugConsole.hover_frames()`, never `gui
   move`** -- an injected position lasts ONE `wm_run()` iteration. Assert
   the BAND, not the change; SELECTION OUTRANKS HOVER.
-- **A USB AUDIO RESULT SAYS WHICH PATH IT EXERCISED, OR IT SAYS
-  NOTHING.** A real G6 is UAC2 at high speed (8000 packets/s, rate
-  through a Clock Source) and UAC1 at full speed (1000/s), and only a
-  physical replug reaches high speed: read `UAC1`/`UAC2` and the cadence
-  from the bind line first. **Two playbacks back to back are ONE
-  stream** (soundd keeps the card 2 s idle), so a restart fault needs a
-  longer gap. The driver's `usbaudio: start`/`stop` lines are the
-  evidence; `docs/bugs.md` has what is open.
+- **USB AUDIO TESTING HAS TRAPS OF ITS OWN** -- which path a G6 result
+  exercised (UAC1/UAC2, the bind line), two playbacks back to back being
+  ONE stream: `.claude/rules/usb-audio.md`, which loads with the usb and
+  sound drivers, soundd and the audio tools.
 - **NOTHING REBUILDS OR EDITS THE TREE UNDER A RUNNING TEST, AND THAT IS
   ENFORCED** (`tools/tree_lock.py`): a test holds a shared lock until it
   exits, `make` refuses while it is held, and a PreToolUse hook
@@ -367,10 +367,9 @@ mode, and alone blurs the font), `LIVE=1`, `BOOT=cd|disk`, `STRIP=0`,
   per-class value overrides it.
 - **`BOOT` IS DERIVED**: the disk, when `disk.img` carries GRUB and the
   kernel.
-- Makefile traps: **`LIVE` changes the PREREQUISITE as well as the
-  command line**; **every definition is DEFERRED (`=`, never `:=`) with
-  `$(if ...)`, not `ifeq`**; **`MENU=1` works by deriving
-  `GRUB_TIMEOUT`**, baked into both media.
+- **Editing the Makefile** -- definitions are DEFERRED (`=`, `$(if ...)`),
+  `LIVE` changes the prerequisite, `MENU=1` derives `GRUB_TIMEOUT`:
+  `.claude/rules/makefile.md`, which loads with `Makefile`.
 - **`EXTRAS=1` IS THE ONLY THING THAT MAKES A BUILD REACH THE NETWORK,
   AND AN EXTRAS IMAGE IS NOT YOURS TO PUBLISH.** It fetches
   differently-licensed material after showing its licence
@@ -378,11 +377,10 @@ mode, and alone blurs the font), `LIVE=1`, `BOOT=cd|disk`, `STRIP=0`,
 - **Boot flags bake into the media**: `make iso KCMDLINE="video=1920x1080
   nokaslr"`; every word is in `docs/boot-flags.md`. **`video=` only does
   something on a MODESETTING driver.**
-- **Source discovery is recursive** -- every `.c` under `kernel/` or
-  `apps/` compiles, so a new directory needs no Makefile edit, and there
-  is no scratch file the build ignores.
-- **Headers are dependency-tracked; a CFLAGS change is NOT** -- `make
-  clean` after one, and read a flag that half-works as stale objects.
+- **Source discovery is recursive** (a new directory under `kernel/` or
+  `apps/` needs no Makefile edit) and **a CFLAGS change is not
+  dependency-tracked** (`make clean` after one) -- the detail is in
+  `.claude/rules/makefile.md`.
 - **`make all` without `make iso` leaves the whole suite testing the
   PREVIOUS build**, as a clean PASS; `tools/iso_guard.py` refuses that.
 - **Every automated test runs TCG, so a green suite says nothing about
@@ -414,12 +412,10 @@ mode, and alone blurs the font), `LIVE=1`, `BOOT=cd|disk`, `STRIP=0`,
 
 ## Debugging with GDB
 
-`make debug` boots frozen for QEMU's own GDB stub; **the kernel's OWN
-stub (`kdebug=ttySN`, `make run KDEBUG=1`) is the one that works on bare
-metal** -- `docs/testing.md`, "Debugging with GDB", has both. Its stopped
-path takes no lock, allocates nothing and does not log. `-x
-tools/gdb/toyos.py` adds `toy-dmesg`, `toy-ps`, `toy-symbols` (modules,
-user programs) and a `bt` past `isr_common`.
+`make debug` (QEMU's stub) or **the kernel's own stub** (`make run
+KDEBUG=1`, the one that works on bare metal): `docs/testing.md`,
+"Debugging with GDB"; `.claude/rules/gdb.md` loads with `tools/gdb/` and
+the kdebug code.
 
 ## Testing in QEMU headlessly, via QMP
 
@@ -459,34 +455,12 @@ something would save a future session real time -- the bar is "does this
 fix a rederive-from-scratch cost". `--list` on `preflight.sh`,
 `gui_regress.py` and `ondemand_sweep.py` names what each one runs.
 
-| Question | Tool |
-|---|---|
-| Is it MINE, or already broken? | `predates.py "<command>"` -- "it predates me" is a MEASUREMENT |
-| Can my test SEE the break? | `mutate.py --edit FILE OLD NEW -- <test>` -- restores and rebuilds itself |
-| Is it safe to commit? | `preflight.sh` (**stop your `vm.py` guest first**) |
-| Has the on-demand half rotted? | `ondemand_sweep.py` -- the ~30 tools no other runner covers |
-| Drive the BARE-METAL machine | `remote.py` (`exec`/`put`/`get`/`sync`/`flash`/`screenshot`/`shell`) |
-| Let a machine PULL a build | `update_server.py` (a user service: `/dev` live, `/stable` = `--publish`ed) |
-| Run the GUI TOOLS on it | `gui_regress.py --host <ip>`, over `remote_gui.py` |
-| Drive a VM | `vm.py` (text in, text out), `qmp_test.py`, `gui_debug.py`, `gui_flow.py`, `shell_flow.py`, `serial_console.py`, `serial_capture.py`, `watch_vm.sh`, `run_release.sh` |
-| Is it INTERMITTENT, and at what rate? | `boot_rate.py` (bare metal), `flake_hunt.py` (VM) |
-| Test runners | `boot_smoke_test.py`, `ktest_run.py`, `usertest_run.py`, `faulttest_run.py`, `gui_regress.py`, `damage_sweep.py`, `damage_hunt.py`, `sanitize_run.py` (UBSAN both rings + KASAN, in a scratch copy) |
-| Diagnose | `panic_resolve.py` (**never hand-roll `nm`**), `acpi_dump.py`, `aml_walk.py`, `QMPSession.hmp()` (**the one oracle the guest cannot fake**), `corrupt_diff.py`, `window_resize_probe.py`, `pixel_probe.py`, `screenshot_diff.py`, `iso_guard.py` |
-| Does it actually SOUND right? | `audio_loopback_test.py` -- records the G6 back on line in; needs the cable patched in |
-| Check an implementation against a FOREIGN one | `libc_diff.py`, `uimg_codec_hostcheck.py`, `usnd_hostcheck.py`, `midi_hostcheck.py` (vs FluidSynth), `hash_hostcheck.py`, `divti3_hostcheck.py`, `regex_hostcheck.py`, `umd_hostcheck.py`, `ugfx_text_hostcheck.py`, `utext_hostcheck.py`, `utween_hostcheck.py`, `term_scheme_hostcheck.py`, `teapot_hostcheck.py` (vs a float surface) |
-| Measure | `idle_cpu.py` (quote DIFFERENCES only), `timer_bench.py` (a timer configuration, idle and under load), `loc.py`, `dup_scan.py` (copy-paste; a REPORT, never a gate), `ping_rtt.py`, `latency_under_io.py`, `fs_isolation.py`, `frame_balance.py` |
-| Disk images, from the host | `seed_disk.py`, `install_grub.py` (also `boot_medium()`), `tfs3_writer.py`, `mkpart_test.py`, `fetch_wad.py`, `fetch_soundfont.py` |
-| Generated data | `gen_version.sh`/`set_version.sh`, `gen_kconfig.sh`, `genttf.py`, `gen_kbs.py`, `gen_cursors.py`, `gen_icons.py`, `gen_imgdata.py`, `gen_audio.py`, `gen_music.py`, `gen_sf2.py`, `gen_mp3_tables.py`, `gen_signames.py`, `gen_bootwords.py`, `genrelocs.py`, `gen_syms.py`, `build_conf.py`, `gen_modalias.py`, `gen_decisions_index.py`, `gen_commands_index.py`, `gen_next_up.py`, `fetch_ca_bundle.py` |
-| The repo itself | `backup_repo.sh` -- run before ANY change to the repo's identity or history |
-| Wait for something, safely | `wait_for.sh` -- a PID or a file, never a process NAME, always bounded |
-
-**Host tools, none required to build** (`docs/tools.md`): **`bear --
-make all`** from a `make clean` regenerates `compile_commands.json` for
-`clangd` -- use the LSP rather than guessing `userland/ui/` ops tables.
-**`ruff check tools/` and `shellcheck tools/*.sh`** before touching a
-harness (`ruff.toml` pins `F` + `E9` on purpose; neither is in the gate).
-`ccache` is wired in and matters on the gate, which starts with `make
-clean`.
+**The question-to-tool index is at the top of `docs/tools.md`** -- is it
+MINE (`predates.py`), can my test SEE the break (`mutate.py`), is it safe
+to commit (`preflight.sh`, your `vm.py` guest stopped), wait safely
+(`wait_for.sh`), before any change to the repo's history
+(`backup_repo.sh`) -- with the host tools (`bear`, `ruff`, `shellcheck`,
+`ccache`).
 
 **WHAT THE USER SAYS, AND WHAT IT MEANS** -- ask if a request is
 ambiguous between the matrix and GitHub:
@@ -524,55 +498,15 @@ ambiguous between the matrix and GitHub:
 **This file holds RULES; reference material lives in `docs/` behind a
 one-line pointer.** Add detail there.
 
-| File | What it is |
-|---|---|
-| `docs/testing.md` | running and driving the OS, QMP mechanics, what the emulator does and does not model |
-| `docs/tools.md` | every script in `tools/` |
-| `docs/conventions/` | convention BODIES by area -- `INDEX.md` first |
-| `docs/toolkit.md` | every ring-3 toolkit header in one line -- GENERATED, check it before writing a helper or widget |
-| `docs/decisions.md` | the INDEX over `docs/decisions/`: why toy-os works this way |
-| `docs/gui-guidelines.md` | how the GUI looks and behaves -- binding; read before touching anything drawn |
-| `docs/gui-app-tutorial.md` | writing a ring-3 GUI app, walked through `userland/gui/demos/counter.c` -- change the two together |
-| `docs/driver-guide.md` | writing a driver; `e1000.c` and `r8169.c` are the worked examples |
-| `docs/devices.md` | every driver, by registry; `check_docs.py` wants a row per `DRIVER_DECLARE` |
-| `docs/filesystem-layout.md` | what lives where on disk; `check_layout.py` enforces it in both directions |
-| `docs/boot-flags.md` | every kernel command-line word -- matched by SUBSTRING with no registry, so this table is the only list |
-| `docs/settings-and-queries.md` | facts vs settings vs tunables |
-| `docs/commands.md` | the INDEX over `docs/commands/` |
-| `docs/bugs.md` / `docs/roadmap.md` / `docs/roadmap-details.md` | what is broken, what is not built yet, and the long form of both |
-
-**Design documents -- read the one for the area first**; each carries
-the finding that decides the scope, several the case AGAINST:
-`query-design.md` (BUILT), `errno-design.md`, `libc-design.md` (tolibc,
-BUILT -- before libc-shaped work), `cc-design.md` (an on-OS `cc`,
-PLANNED -- before compiler/SDK work, and before believing the roadmap's
-"out of scope" line covers it), `umdf-design.md` (a driver as a
-process, PLANNED -- IOMMU-less DMA buys crash isolation, NOT
-containment), `dynlink-design.md`, `signals-design.md` (signals, TTY and
-job control are ONE problem), `blocking-design.md` (stages 1-3 BUILT --
-before `switch_to()`, `block_common()` or `FS_OP()`),
-`fslock-design.md` (stage 0 BUILT -- before tfs3's scratch state or a
-caller sleeping under the fs lock), `smp-design.md` (stage 1 BUILT --
-before a module-level buffer anything a syscall reaches uses),
-`modules-design.md`, `update-design.md`, `rootfs-design.md`,
-`winserver-ring3-design.md` (stages 0-1 BUILT -- before
-`kernel/proc/win_*.c`), `kdebug-design.md` (the GDB stub: serial BUILT,
-the network BUILT, on QEMU's e1000 and on real r8169s -- the Lenovo,
-the desktop),
-`netstack-design.md` (the network stack in ring 3, PLANNED -- before
-socket or `kernel/net/` work), `trace-design.md` (`strace` decoding in
-ring 3 and a debugger's stop, stages 1-3 BUILT -- before `strace.c` or
-`ptrace` work), `input-policy-design.md` (keymaps in the compositor, the pointer
-kept, stage 1 BUILT -- before `keyboard_layout.c` or `WIN_EV_RAW_KEY`
-work), `w16-design.md` (16-bit Windows programs on an emulated CPU, PLANNED --
-before NE or `userland/w16/` work), `browser-design.md` (a NetSurf port, stages 0-6 (JavaScript) and the
-sandbox BUILT -- before NetSurf, `uui_webview` or HTTP/1.1 work in
-`libhttp`), `usb-storage-design.md` (USB sticks: BOT, UAS, exFAT,
-removal, root on a stick; stages 1, 2, 4 and 5 BUILT -- before
-`usb_storage.c`, a removable `block_device`, `blk_device_gone()` or
-automountd).
-
-**Rules for editing docs/:**
+**What each file in `docs/` is, and the rules for editing it** -- a
+convention's headline in `INDEX.md`, a decision entry then
+`gen_decisions_index.py`, milestones NAMED, `**NEXT**` then
+`gen_next_up.py`, a roadmap item ONE line -- are in
+`.claude/rules/docs-editing.md`, which loads with any `docs/` file.
+**Design documents (`docs/*-design.md`): read the one for the area
+first** -- the list, with what each has BUILT and when to read it, is
+`.claude/rules/design-docs.md`, loaded with `kernel/`, `userland/` and
+`apps/` files.
 
 - **A NEW COMMAND NEEDS ITS `docs/commands/` PAGE IN THE SAME CHANGE** --
   the build refuses otherwise, and a declared `cmd_usage()` string must
@@ -580,23 +514,6 @@ automountd).
   `COMMAND_PAGE_EXEMPT`). **It takes its arguments through
   `lib/uargs.h`'s table**, which gives it `-h`/`--help`; the page must
   name every option and command in the table.
-- **A new convention goes in `docs/conventions/<area>.md` AND its
-  headline in `INDEX.md`**, or it is invisible to the next session.
-- **A decision entry** goes in its area's file, then
-  `tools/gen_decisions_index.py` (the index is GENERATED and
-  `check_docs.py` fails when stale; a NEW file joins the script's
-  `ORDER`). Entries are SELF-CONTAINED; the bar is "why this way and not
-  the obvious way" that a future session would re-litigate.
-- **Milestones are NAMED, not numbered**; old numbers resolve through the
-  legend at the end of `docs/roadmap-details.md`.
-- **URGENCY IS MARKED WHERE THE ITEM LIVES**: `**NEXT**` on the item,
-  then `tools/gen_next_up.py --write`; never hand-write the "Next up"
-  list. `**NEXT**` means "before the unmarked work around it", never
-  "this is broken".
-- **`docs/roadmap.md` IS ORDERED BY WHAT MUST BE BUILT FIRST** -- phases
-  1-4 a dependency chain, then tracks that depend on nothing. **EVERY
-  ITEM IS ONE LINE**; detail goes to `docs/roadmap-details.md` under the
-  SAME title.
 
 ## Two skills live IN this repo
 
@@ -609,16 +526,10 @@ Both are tracked here rather than in `~/.claude/skills/` so they have
 history, diff review and a backup. **Update them in the repo**, or the
 two copies drift and the untracked one silently wins.
 
-**`SKILL.md` is the PLAYBOOK; the accumulated lessons live in
-`references/`** -- `session-testing.md`, `session-diagnosis.md`,
-`session-gui.md`, `session-design.md`, `session-history.md`,
-`testing-quickref.md`, beside `delivery-checklist.md`,
-`questions-that-worked.md` and `doc-templates.md`. **A new lesson goes
-in the reference file for its area, not back into `SKILL.md`**, which
-holds the sequence and nothing else -- KEEP IT UNDER ~10 KB, because
-every agent told to use the skill pays for all of it. **Point a reader
-(or an agent's brief) at ONE reference section, never a whole file**:
-several are 100 KB+.
+**`SKILL.md` is the PLAYBOOK; the lessons live in `references/`** -- the
+layout, the ~10 KB limit and "point at ONE section" are
+`.claude/rules/skills.md`, loaded with `.claude/skills/**`.
+
 ## Delivering changes
 
 The files are already on the real checkout: commit with plain `git`,

@@ -1,13 +1,44 @@
 # tools/
 
 The dev/build helper scripts — not compiled, not shipped as part of the
-OS. CLAUDE.md keeps a question-to-tool index; this file is the full
-reference for each one: what it does, why it exists, and the traps it
-encodes.
+OS. This file is the full reference for each one: what it does, why it
+exists, and the traps it encodes -- after the question-to-tool index
+below (moved here from CLAUDE.md, which keeps a pointer to it).
 
 **The bar for adding one:** does it fix a rederive-from-scratch cost?
 That is the reasoning that produced every tool below. Add freely when it
 does — and add its entry here, which `tools/check_docs.py` verifies.
+
+## Which tool answers which question
+
+| Question | Tool |
+|---|---|
+| Is it MINE, or already broken? | `predates.py "<command>"` -- "it predates me" is a MEASUREMENT |
+| Can my test SEE the break? | `mutate.py --edit FILE OLD NEW -- <test>` -- restores and rebuilds itself |
+| Is it safe to commit? | `preflight.sh` (**stop your `vm.py` guest first**) |
+| Has the on-demand half rotted? | `ondemand_sweep.py` -- the ~30 tools no other runner covers |
+| Drive the BARE-METAL machine | `remote.py` (`exec`/`put`/`get`/`sync`/`flash`/`screenshot`/`shell`) |
+| Let a machine PULL a build | `update_server.py` (a user service: `/dev` live, `/stable` = `--publish`ed) |
+| Run the GUI TOOLS on it | `gui_regress.py --host <ip>`, over `remote_gui.py` |
+| Drive a VM | `vm.py` (text in, text out), `qmp_test.py`, `gui_debug.py`, `gui_flow.py`, `shell_flow.py`, `serial_console.py`, `serial_capture.py`, `watch_vm.sh`, `run_release.sh` |
+| Is it INTERMITTENT, and at what rate? | `boot_rate.py` (bare metal), `flake_hunt.py` (VM) |
+| Test runners | `boot_smoke_test.py`, `ktest_run.py`, `usertest_run.py`, `faulttest_run.py`, `gui_regress.py`, `damage_sweep.py`, `damage_hunt.py`, `sanitize_run.py` (UBSAN both rings + KASAN, in a scratch copy) |
+| Diagnose | `panic_resolve.py` (**never hand-roll `nm`**), `acpi_dump.py`, `aml_walk.py`, `QMPSession.hmp()` (**the one oracle the guest cannot fake**), `corrupt_diff.py`, `window_resize_probe.py`, `pixel_probe.py`, `screenshot_diff.py`, `iso_guard.py` |
+| Does it actually SOUND right? | `audio_loopback_test.py` -- records the G6 back on line in; needs the cable patched in |
+| Check an implementation against a FOREIGN one | `libc_diff.py`, `uimg_codec_hostcheck.py`, `usnd_hostcheck.py`, `midi_hostcheck.py` (vs FluidSynth), `hash_hostcheck.py`, `divti3_hostcheck.py`, `regex_hostcheck.py`, `umd_hostcheck.py`, `ugfx_text_hostcheck.py`, `utext_hostcheck.py`, `utween_hostcheck.py`, `term_scheme_hostcheck.py`, `teapot_hostcheck.py` (vs a float surface) |
+| Measure | `idle_cpu.py` (quote DIFFERENCES only), `timer_bench.py` (a timer configuration, idle and under load), `loc.py`, `dup_scan.py` (copy-paste; a REPORT, never a gate), `ping_rtt.py`, `latency_under_io.py`, `fs_isolation.py`, `frame_balance.py` |
+| Disk images, from the host | `seed_disk.py`, `install_grub.py` (also `boot_medium()`), `tfs3_writer.py`, `mkpart_test.py`, `fetch_wad.py`, `fetch_soundfont.py` |
+| Generated data | `gen_version.sh`/`set_version.sh`, `gen_kconfig.sh`, `genttf.py`, `gen_kbs.py`, `gen_cursors.py`, `gen_icons.py`, `gen_imgdata.py`, `gen_audio.py`, `gen_music.py`, `gen_sf2.py`, `gen_mp3_tables.py`, `gen_signames.py`, `gen_bootwords.py`, `genrelocs.py`, `gen_syms.py`, `build_conf.py`, `gen_modalias.py`, `gen_decisions_index.py`, `gen_commands_index.py`, `gen_next_up.py`, `fetch_ca_bundle.py` |
+| The repo itself | `backup_repo.sh` -- run before ANY change to the repo's identity or history |
+| Wait for something, safely | `wait_for.sh` -- a PID or a file, never a process NAME, always bounded |
+
+**Host tools, none required to build** (`docs/tools.md`): **`bear --
+make all`** from a `make clean` regenerates `compile_commands.json` for
+`clangd` -- use the LSP rather than guessing `userland/ui/` ops tables.
+**`ruff check tools/` and `shellcheck tools/*.sh`** before touching a
+harness (`ruff.toml` pins `F` + `E9` on purpose; neither is in the gate).
+`ccache` is wired in and matters on the gate, which starts with `make
+clean`.
 
 Dev/build helper scripts, not compiled or shipped as part of the OS:
 `genttf.py` (font generation; `--font PATH` when JetBrains Mono is not
