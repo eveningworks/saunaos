@@ -111,9 +111,12 @@ instead, and differs in seven ways:
   apt-get update -qq -o Acquire::Retries=3
   apt-get install -y -qq -o Acquire::Retries=3 \
     nasm grub-pc-bin grub-common xorriso mtools libxkbcommon-tools \
-    qemu-system-x86 ccache shellcheck
+    qemu-system-x86 ccache shellcheck dosfstools
   python3 -m pip install -q --root-user-action=ignore pillow
   ```
+
+  `dosfstools` is `mkfs.fat` and `fsck.fat`: without it `fat32_test.py`
+  and the two USB-stick tools skip rather than run.
 
 - **Pillow comes from pip, not apt.** `python3` is a separate build in
   `/usr/local`, which cannot load apt's `python3-pil`; the gate's
