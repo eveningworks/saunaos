@@ -4948,7 +4948,11 @@ devices by xHCI slot id (one byte), Linux's `xhci->devs[]` shape.
 **A cap that has to stay is REPORTED when it is hit** -- a log line or
 an error the caller sees -- never a silent drop. Existing fixed tables
 are converted as their code is touched (CLAUDE.md, "fix as touched");
-the ones left in toywm are on the roadmap.
+the ones still left are on the roadmap ("The fixed tables still left").
+In the kernel, a table of objects addressed by index -- pipes, sockets,
+ttys, ptys, shm objects, modules -- is `kernel/kslots.h`: objects never
+move and a freed slot's memory is kept, so a pointer held across a
+preemption reads a dead object, not freed memory.
 
 Real systems split the same way: Linux allocates (`kmalloc`, `krealloc`,
 `xarray`) and keeps fixed arrays to the paths that cannot sleep; GLib's

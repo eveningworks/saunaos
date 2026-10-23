@@ -294,7 +294,8 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [ ] A compiled index of `/etc/settings.d`, so a new process does not parse every declaration -- GSettings' `gschemas.compiled`
 - [x] ~~Make Ctrl with a non-letter deliverable~~ DONE 2026-09-29 -- the key plus `KEY_MOD_CTRL`
 - [x] ~~The GUI Terminal reads its pty on a thread, not a 30 ms poll~~ DONE 2026-08-26 -- one reader per tab, no cadence left
-- [ ] More than eight Terminal tabs, which needs a scrolling strip rather than a wider one
+- [x] ~~More than eight Terminal tabs~~ DONE 2026-10-23 -- the tab table and the kernel's tty/pty tables grow
+- [ ] Terminal tabs past the strip's width run off its right edge -- a scrolling strip (Ctrl+PgUp/PgDn still reach them)
 - [x] ~~A tab can be renamed by hand~~ DONE 2026-08-27 -- Terminal > Rename Tab; the name outranks the shell's OSC
 - [ ] A thread stack with a guard page, which needs an `mprotect`-shaped syscall
 - [ ] Signal dispositions shared by a thread group, as POSIX has them -- per thread here, inherited at create
@@ -640,6 +641,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~A Live-CD boot: run from the ISO with no disk~~ done
 - [ ] Let TFS3 blocks-per-group vary for small volumes
 - [x] ~~toywm's fixed tables of user data, grown on demand: desktop icons, program identities, Close all's batch~~ DONE 2026-10-23
+- [x] ~~Fixed tables grown on demand: ttys/ptys, shm, modules, config files, tosh's jobs, seven apps' lists, three finds~~ DONE 2026-10-23
+- [ ] The fixed tables still left: Notepad's 16 documents, soundd's 8 clients, the tray's 8 icons, init's 64 services, ld.so's 24 libraries
 - [x] ~~Raw input to the compositor~~ DONE 2026-08-18
 - [x] ~~A ring-3 allocator, and four smaller syscalls~~ DONE 2026-08-18
 - [x] ~~An abstract transport behind that protocol~~ DONE 2026-08-18 -- `struct win_transport`, deleted 2026-09-09 unvalidated

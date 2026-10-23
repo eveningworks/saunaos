@@ -12282,7 +12282,7 @@ nearest toy-os shape (no protocol change), both declined on the canvas
 - **Copied, then unlinked: a round trip per definition.** The client's
   shm object lives until the reply says the pixels are in the
   compositor, which keeps nothing mapped. An object per live image
-  would hold the kernel's shared shm table (`SHM_MAX`) a slot each, and
+  would pin its frames for the image's whole life, and
   a client rewriting a mapped image could change a shape mid-draw. The
   object stays MAPPED until the reply, because one with no mapping and
   no fd is freed, name and all.
