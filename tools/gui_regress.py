@@ -153,6 +153,7 @@ TOOLS = [
     ("fmquick",    "fm_quick_test.py",      "Quick access: first in Places, its bands, a recent file, a row opens, nothing renamed"),
     ("fmcols",     "fm_columns_test.py",    "details columns: a divider drag resizes, saved, the header checklist hides one, Recent keeps its own"),
     ("fmconflict", "fm_conflict_test.py",   "Replace or skip: the two files compared, the rest box, Keep newer by date on disk"),
+    ("fmprogress", "fm_progress_test.py",   "Operations panel: a copy's bytes for the whole job, Pause holds it, copies wait in turn, one cancelled while waiting"),
     ("fmfilter",   "fm_search_filter_test.py", "search filters: type/size chips, Contents by line, binary skipped, Esc drops them"),
     ("archivegui", "archive_gui_test.py", ".zip and .tar.gz as folders, Extract all, open a member; Compress to ZIP and Compress..."),
     ("paint",      "paint_test.py",      "Paint: brush, palette + fill, undo/redo, right-button colour 2, the rail, save + reopen by pixels, zoom, brush kinds"),

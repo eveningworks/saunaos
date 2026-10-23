@@ -176,6 +176,9 @@ class Layout:
         self.lheads = None    # ...and the titles it shows, in order
         self.compare = {}     # the conflict card's facts: side0/side1/rest/rest_checked
         self.filter = None    # (strip shown, kind, age, size, inside) of the active pane
+        self.ops = {}         # Operations panel row -> (state, got, total, rate)
+        self.opsact = {}      # ...its rightmost button (Cancel) -> [x, y, w, h]
+        self.opsact2 = {}     # ...and the one beside it (Pause/Resume) -> (event, [x, y, w, h])
         self.filterbtn = {}   # the strip's filter chip index -> [x, y, w, h]
         self.dpane = None     # is the details pane shown
         self.pathedit = None  # is the breadcrumb being typed in
@@ -294,6 +297,12 @@ class Layout:
             self.popitems1[int(p[2])] = [int(v) for v in p[3:7]]
         elif p[0].startswith("compare.") and len(p) >= 2:
             self.compare[p[0][len("compare."):]] = p[1:]
+        elif p[0] == "ops.state" and len(p) >= 6:
+            self.ops[int(p[1])] = tuple(int(v) for v in p[2:6])
+        elif p[0] == "ops.action" and len(p) >= 6:
+            self.opsact[int(p[1])] = [int(v) for v in p[2:6]]
+        elif p[0] == "ops.action2" and len(p) >= 7:
+            self.opsact2[int(p[1])] = (int(p[2]), [int(v) for v in p[3:7]])
         elif p[0] == "filter" and len(p) >= 6:
             self.filter = tuple(int(v) for v in p[1:6])
         elif p[0] == "filters.button" and len(p) >= 6:

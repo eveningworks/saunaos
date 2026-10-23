@@ -321,6 +321,11 @@ TESTS = [
     # app's array would fail rather than pass by coincidence.
     ("table_tree_test", None,   # spawned: it draws, so it needs the font
      None, None),
+    # uui_transfers: each state's status line (rate, time left, paused,
+    # waiting, items) and which button a click on each action reports --
+    # the Browser's plain row keeping its one Cancel.
+    ("transfers_test", None,    # spawned: the buttons' widths are the font's
+     None, None),
     # lib/ufind: the search filters' bands, and a contents match that
     # straddles the read's block boundary, on a short line and a long one.
     ("ufind_test", 0, None, None),

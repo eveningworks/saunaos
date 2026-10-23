@@ -139,11 +139,12 @@ struct uapp *g_app;         // for the widget callbacks, which carry none
 struct uui_toolbar g_toolbar;
 struct uui_statusbar g_status;
 
-// CANCEL, and it exists only while an operation is running. Hidden the
-// rest of the time rather than disabled: a permanently greyed button in
-// the status bar is chrome that never does anything, and Explorer's
-// stop button appears with the progress it stops.
-struct uui_button g_cancel_btn;
+// THE OPERATIONS PANEL, there only while something runs or waits --
+// Explorer's copy dialog folded into the window, as Dolphin and Nautilus
+// show theirs: each operation a row with its bar, rate, time left, Pause
+// and Cancel (fm_jobs.c fills the rows).
+struct uui_transfers g_ops;
+struct uui_xfer g_ops_rows[OPS_ROWS];
 struct uui_button g_toast_btn;   // over the undo toast's action slot (fm_view.c)
 struct uui_button g_toast_x;     // ...and over its dismiss slot
 
@@ -721,7 +722,7 @@ struct uui_item g_widgets[] = {
     { .ops = &uui_tree_ops, .widget = &g_tree, .id = ID_TREE, .name = "tree" },
     { .ops = &uui_splitter_ops, .widget = &g_tree_split, .id = ID_TREE_SPLIT, .name = "treesplit" },
     { .ops = &uui_splitter_ops, .widget = &g_pane_split, .id = ID_PANE_SPLIT, .name = "panesplit" },
-    { .ops = &uui_button_ops, .widget = &g_cancel_btn, .id = ID_CANCEL, .hidden = 1 },
+    { .ops = &uui_transfers_ops, .widget = &g_ops, .id = ID_OPS, .hidden = 1, .name = "ops" },
     { .ops = &uui_button_ops, .widget = &g_toast_btn, .id = ID_TOAST, .hidden = 1 },
     { .ops = &uui_button_ops, .widget = &g_toast_x, .id = ID_TOAST_X, .hidden = 1 },
     { .ops = &uui_segmented_ops, .widget = &g_scope_seg, .id = ID_SCOPE, .hidden = 1, .name = "scope" },
@@ -1468,6 +1469,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         if (id == ID_NAV) (void)uui_toolbar_take_code(&g_nav);
         if (id == ID_VIEWBAR) (void)uui_toolbar_take_code(&g_viewbar);
         if (id == ID_FILTERS) (void)uui_toolbar_take_code(&g_filter_bar);
+        if (id == ID_OPS) (void)uui_transfers_take(&g_ops, 0);
         if (id == ID_PATH) (void)uui_pathbar_take(&g_path, taken, sizeof taken);
         if (id == ID_PLACES) (void)uui_places_take(&g_places, taken, sizeof taken);
         return;
@@ -1479,6 +1481,14 @@ static void on_widget(struct uapp *a, int id, int reason) {
                                : id == ID_FILTERS ? &g_filter_bar : &g_toolbar;
         int code = uui_toolbar_take_code(tb);
         if (code >= 0) do_command(a, code);
+        return;
+    }
+    if (id == ID_OPS) {   // a row's Pause, Resume or Cancel
+        int row, ev = uui_transfers_take(&g_ops, &row);
+        if (ev) fm_job_action(ev, row);
+        if (ev == UUI_XFER_EV_CANCEL && row == 0 && fm_job_running()) set_note("cancelling");
+        refresh_status();
+        uapp_redraw(a);
         return;
     }
     if (id == ID_PATH) {
@@ -1644,11 +1654,6 @@ static void on_action(struct uapp *a, int code) {
     }
     if (code == ID_TOAST) {
         undo_toast_action();
-        uapp_redraw(a);
-    }
-    if (code == ID_CANCEL) {
-        fm_job_cancel();
-        set_note("cancelling");
         uapp_redraw(a);
     }
 }
@@ -2477,8 +2482,7 @@ int main(int argc, char **argv) {
                       (int)(sizeof toolbar_items / sizeof toolbar_items[0]));
     g_toolbar.item_flags = menu_item_flags; // ONE state source -- see uui_toolbar.h
     g_toolbar.overflow = 1;
-    uui_button_init(&g_cancel_btn, 0, 0, 0, 0, "Cancel",
-                     UUI_ROLE(control_bg), UUI_ROLE(text), ID_CANCEL);
+    uui_transfers_init(&g_ops);
     // On the toast's light card: the accent button, and a flat dismiss
     // in the card's own colour, so only its hover shows a face.
     uui_button_init(&g_toast_btn, 0, 0, 0, 0, "Undo", UUI_ROLE(accent), UUI_ROLE(field_bg), ID_TOAST);

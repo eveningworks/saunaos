@@ -20,6 +20,7 @@
 #include "ui/uui_segmented.h"
 #include "lib/uimg.h"
 #include "lib/ufind.h"
+#include "ui/uui_transfers.h"
 
 // The File Manager's own header, shared by the files it is split across
 // and by nothing else.
@@ -34,7 +35,7 @@
 // Where things live:
 //   files.c      the app -- the menus, the commands, input, main()
 //   fm_view.c    layout, drawing, and the geometry a test asserts on
-//   fm_jobs.c    the operation queue and its spawned children
+//   fm_jobs.c    the operations: one on a worker thread, the rest queued
 //   fm_tree.c    the lazy folder tree
 //   fm_thumbs.c  the lazy thumbnail cache
 //   fm_modal.c   Rename / New folder (the two prompts with a text field)
@@ -69,7 +70,7 @@
 #define ID_PANE_SPLIT 7
 #define ID_CTX   8
 #define ID_DIALOG 9
-#define ID_CANCEL 10
+#define ID_OPS    10  // the Operations panel's rows (files.c)
 #define ID_ADDR_L 11
 #define ID_ADDR_R 12
 #define ID_NAV     13   // Back / Forward / Up / Refresh
@@ -220,7 +221,10 @@ struct uui_dialog;
 extern struct uui_dialog g_dialog;
 extern struct uui_toolbar g_toolbar;
 extern struct uui_statusbar g_status;
-extern struct uui_button g_cancel_btn;
+// The Operations panel, over the status bar while anything runs or waits.
+#define OPS_ROWS 6
+extern struct uui_transfers g_ops;
+extern struct uui_xfer g_ops_rows[OPS_ROWS];
 extern struct uui_button g_toast_btn, g_toast_x;
 
 // THE ADDRESS BARS. Each pane's path strip is a text field: read-only
@@ -518,8 +522,16 @@ int  poll_job(void);
 
 int  fm_job_running(void);
 void fm_job_cancel(void);
+void fm_job_pause(int paused);
+int  fm_job_paused(void);
 void fm_job_status(char *out, int cap);
 void fm_job_finished(void);
+// The Operations panel (ui/uui_transfers.h): the running operation and
+// each one waiting, and what a row's button does.
+struct uui_xfer;
+int  fm_job_rows(struct uui_xfer *out, int cap);
+int  fm_job_waiting(void);
+void fm_job_action(int ev, int row);
 
 int         fm_conflict_pending(void);
 const char *fm_conflict_src(void);

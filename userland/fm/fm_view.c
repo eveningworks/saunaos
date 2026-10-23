@@ -29,6 +29,24 @@ static uint32_t chrome(void)      { return UTHEME_CHROME; }
 static uint32_t chrome_line(void) { return ugfx_blend(UTHEME_CHROME, ugfx_rgb(0, 0, 0), 34); }
 // A step lighter than the chrome, as Explorer's search options bar.
 static uint32_t strip_bg(void) { return ugfx_blend(chrome(), UTHEME_WHITE, 120); }
+
+// The Operations panel's caption band: "Operations \xb7 1 running \xb7 2
+// waiting", a rule above it parting it from the panes.
+static int ops_header_h(void) { return ugfx_char_h() + 10; }
+
+static void ops_header_draw(struct ugfx_surface *s, int cw) {
+    int y = g_ops.y - ops_header_h();
+    ugfx_fill_rect(s, 0, y, cw, ops_header_h(), strip_bg());
+    ugfx_fill_rect(s, 0, y, cw, 1, chrome_line());
+    char t[96];
+    int waiting = fm_job_waiting();
+    int n = snprintf(t, sizeof t, "Operations");
+    if (fm_job_running())
+        n += snprintf(t + n, sizeof t - (size_t)n, " \xb7 1 %s", fm_job_paused() ? "paused" : "running");
+    if (waiting) snprintf(t + n, sizeof t - (size_t)n, " \xb7 %d waiting", waiting);
+    ugfx_draw_string_clipped(s, 12, y + (ops_header_h() - ugfx_char_h()) / 2, cw - 24, t,
+                             UTHEME_TEXT, strip_bg());
+}
 static uint32_t places_bg(void)   { return ugfx_blend(UTHEME_CHROME, UTHEME_WHITE, 110); }
 static int statusbar_h(void) { return uui_statusbar_height(&g_status); }
 
@@ -119,22 +137,18 @@ void layout_all(int cw, int ch) {
     int grip = ugfx_char_h();
     uui_toolbar_ops.set_geometry(&g_viewbar, cw - vw - grip, ch - sb + (sb - vh) / 2, vw, vh);
     g_viewbar.bg = UUI_COLOR(g_status.bg, UTHEME_BAR_BG);   // on the bar, in its colour
-    int status_w = cw - vw - grip;
-    // CANCEL SITS ON THE STATUS BAR, left of the view switch, and exists
-    // only while an operation runs -- see g_cancel_btn's own note.
-    int running = fm_job_running();
-    widget_by_id(ID_CANCEL)->hidden = !running;
-    if (running) {
-        int bw, bh;
-        uui_button_natural_size(&g_cancel_btn, &bw, &bh);
-        if (bh > sb) bh = sb;
-        uui_button_set_geometry(&g_cancel_btn, status_w - bw - 2, ch - sb + (sb - bh) / 2,
-                                 bw, bh);
-        status_w -= bw + 4;
-    }
     // The bar runs the full width under the switch; its text stops short.
     uui_statusbar_set_geometry(&g_status, 0, ch - sb, cw, sb);
-    (void)status_w;
+
+    // --- the Operations panel, over the status bar ----------------------
+    // While anything runs or waits: the rows are asked for every layout,
+    // so a row's figures move on the tick that repaints them.
+    g_ops.count = fm_job_rows(g_ops_rows, OPS_ROWS);
+    g_ops.items = g_ops_rows;
+    int oph = g_ops.count ? ops_header_h() + g_ops.count * uui_transfers_row_h() : 0;
+    widget_by_id(ID_OPS)->hidden = !oph;
+    if (oph) uui_transfers_ops.set_geometry(&g_ops, 0, ch - sb - oph + ops_header_h(), cw,
+                                            oph - ops_header_h());
 
     // --- the body: side column | panes | details pane -------------------
     // --- the search strip: Look in, the switch, the status, Stop ---------
@@ -164,7 +178,7 @@ void layout_all(int cw, int ch) {
         g_filter_bar.bg = strip_bg();
     }
     int top = nh + tb + sh;
-    int body_h = ch - top - sb;
+    int body_h = ch - top - sb - oph;
     int split_w = uui_splitter_thickness();
     int minw = min_col_w();
 
@@ -422,10 +436,11 @@ void log_layout(void) {
     // visible as a shade of grey no test can assert on.
     uapp_logf_layout("files: layout dim %d %d\n", g_pane[0].dim_count,
                       g_pane[1].dim_count);
-    // ...and whether the Cancel button is up, which is exactly "is an
-    // operation running" as far as anything on screen is concerned.
-    uapp_logf_layout("files: layout cancel %d\n",
-                      widget_by_id(ID_CANCEL)->hidden ? 0 : 1);
+    // ...and whether a Cancel is offered -- the Operations panel is up --
+    // which is exactly "is an operation running or waiting" as far as
+    // anything on screen is concerned. The rows are the panel's own
+    // `ops.*` lines.
+    uapp_logf_layout("files: layout cancel %d\n", widget_by_id(ID_OPS)->hidden ? 0 : 1);
     uapp_logf_layout("files: layout marked %d %d\n", uui_fileview_mark_count(&g_pane[0]),
           uui_fileview_mark_count(&g_pane[1]));
     // ...and the hovered row as a VIEW position too. `hover` above is a
@@ -505,7 +520,7 @@ void on_draw(struct uapp *a, struct uapp_draw *d) {
     }
     uui_statusbar_draw(d->surface, &g_status);
     if (g_dpane) details_draw(d->surface);
-    if (!widget_by_id(ID_CANCEL)->hidden) uui_button_draw_one(d->surface, &g_cancel_btn);
+    if (!widget_by_id(ID_OPS)->hidden) ops_header_draw(d->surface, cw);
     log_layout();
     // AFTER the app's own report: tools/filemanager_test.py takes `pane 0`
     // as the start of a frame, so the widgets' lines must follow it.

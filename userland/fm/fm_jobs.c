@@ -1,4 +1,5 @@
-// File operations, as a QUEUE of spawned children.
+// File operations: one at a time on a worker thread, the rest waiting
+// their turn in a queue.
 //
 // One of the File Manager's units -- see fm_internal.h for what is
 // where and why these share their state directly.
@@ -12,12 +13,16 @@
 #include "lib/ufileundo.h"
 #include "lib/uarchive.h"
 #include "ui/uui_dialog.h"
+#include "ui/uui_transfers.h"
 #include <pthread.h>
 #include "lib/uclip.h"
 #include "ui/ulog.h"
 #include "kpath.h"
+#include "lib/uwalk.h"
+#include "lib/ugrow.h"
 #include <string.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <errno.h>
 
 // --- the job queue ----------------------------------------------------
@@ -64,32 +69,137 @@ static int g_job_redo;
 // A path handed to a CHILD goes as an argv vector (sys_spawn_argv(),
 // uapp_spawn()), never through sys_spawn()'s string, which splits on
 // whitespace -- names with spaces exist (F2 can make one).
+// --- operations waiting their turn ---------------------------------
+//
+// A SECOND COPY WAITS rather than being refused "busy". Windows runs
+// them side by side in one dialog and Dolphin as separate jobs; one
+// worker here runs them in turn, which is what "3 of 7" can say
+// honestly and what a single disk does fastest anyway. Only copy, move
+// and delete wait: an archive, an Undo or Empty the bin carries state
+// beyond a list of paths, and stays "busy".
+//
+// EVERY BUILDER COLLECTS INTO g_stage FIRST, never into the running
+// job's g_job_* -- which a builder writing them while the worker reads
+// them would corrupt. stage_take() then makes it the running job, queues
+// it or drops it.
+struct pending {
+    int op;
+    char what[32], dest[PATH_MAX_LEN];
+    int count, cap;
+    char (*path)[PATH_MAX_LEN];   // grown to fit
+    int *isdir;
+};
+static struct pending g_stage;
+static struct pending *g_queue;   // waiting, oldest first; main thread only
+static int g_nqueue, g_queue_cap;
+
+static void stage_free(struct pending *p) {
+    free(p->path);
+    free(p->isdir);
+    memset(p, 0, sizeof *p);
+}
+
+static void stage_begin(int op, const char *what, const char *dest) {
+    stage_free(&g_stage);
+    g_stage.op = op;
+    strlcpy(g_stage.what, what, sizeof g_stage.what);
+    strlcpy(g_stage.dest, dest, sizeof g_stage.dest);
+}
+
+static int stage_add(const char *path, int isdir) {
+    struct pending *p = &g_stage;
+    if (p->count == p->cap) {
+        int cap = p->cap ? p->cap * 2 : 16;
+        void *np = realloc(p->path, sizeof p->path[0] * (size_t)cap);
+        if (!np) { ulogf("files: out of memory at %d items\n", p->count); return 0; }
+        p->path = np;
+        void *ni = realloc(p->isdir, sizeof p->isdir[0] * (size_t)cap);
+        if (!ni) { ulogf("files: out of memory at %d items\n", p->count); return 0; }
+        p->isdir = ni;
+        p->cap = cap;
+    }
+    strlcpy(p->path[p->count], path, PATH_MAX_LEN);
+    p->isdir[p->count++] = isdir;
+    return 1;
+}
+
+static int queueable(int op) {
+    return op == CMD_COPY || op == CMD_MOVE || op == CMD_TRASH || op == CMD_DELETE;
+}
+
+// A FOLDER INTO ITSELF, refused before a byte moves: the engine would
+// copy the tree into its own child until the disk filled. Checked where
+// every copy and move is accepted, so a queued one cannot slip past it.
+static int into_itself(const struct pending *p) {
+    if (p->op != CMD_COPY && p->op != CMD_MOVE) return 0;
+    for (int i = 0; i < p->count; i++) {
+        size_t n = strlen(p->path[i]);
+        if (strncmp(p->dest, p->path[i], n) == 0 && (p->dest[n] == '\0' || p->dest[n] == '/'))
+            return 1;
+    }
+    return 0;
+}
+
+// The running job, from a staged or a queued one. JOB_MAX is the undo
+// journal's bound per operation (fm_undo.c), so past it the rest is
+// logged rather than silently lost.
+static void install(const struct pending *p) {
+    g_job_count = g_job_at = g_job_failures = 0;
+    g_job_op = p->op;
+    strlcpy(g_job_what, p->what, sizeof g_job_what);
+    strlcpy(g_job_dest, p->dest, sizeof g_job_dest);
+    for (int i = 0; i < p->count && g_job_count < JOB_MAX; i++) {
+        strlcpy(g_job_path[g_job_count], p->path[i], PATH_MAX_LEN);
+        g_job_isdir[g_job_count++] = p->isdir[i];
+    }
+    if (p->count > JOB_MAX) ulogf("files: %d items, one operation holds %d\n", p->count, JOB_MAX);
+}
+
+enum { STAGE_DROPPED, STAGE_RUN, STAGE_QUEUED };
+
+// g_stage made the running job (STAGE_RUN: the caller starts it), queued
+// behind it, or dropped with a note.
+static int stage_take(void) {
+    if (g_stage.count == 0) { stage_free(&g_stage); return STAGE_DROPPED; }
+    if (into_itself(&g_stage)) {
+        set_note("cannot move a folder into itself");
+        stage_free(&g_stage);
+        return STAGE_DROPPED;
+    }
+    if (g_job_count > 0) {
+        if (!queueable(g_stage.op) || !UGROW(g_queue, g_queue_cap, g_nqueue + 1)) {
+            set_note("busy");
+            stage_free(&g_stage);
+            return STAGE_DROPPED;
+        }
+        ulogf("files: queued %s, %d item%s, behind %s\n", g_stage.what, g_stage.count,
+              g_stage.count == 1 ? "" : "s", g_job_what);
+        g_queue[g_nqueue++] = g_stage;
+        memset(&g_stage, 0, sizeof g_stage);   // the queue owns its arrays now
+        set_note("queued");
+        return STAGE_QUEUED;
+    }
+    install(&g_stage);
+    stage_free(&g_stage);
+    return STAGE_RUN;
+}
+
+// 1 when `fv`'s operands are the running job and the caller should start
+// it; 0 when they were queued (nothing more to do) or there were none.
 static int queue_from(int op, const char *what, struct uui_fileview *fv,
                       const char *dest) {
-    if (g_job_count > 0) { set_note("busy"); return 0; }
-
-    g_job_count = g_job_at = g_job_failures = 0;
-    g_job_op = op;
-    strlcpy(g_job_what, what, sizeof g_job_what);
-    strlcpy(g_job_dest, dest, sizeof g_job_dest);
-
+    stage_begin(op, what, dest);
+    char path[PATH_MAX_LEN];
     int marks = uui_fileview_mark_count(fv);
     if (marks > 0) {
-        for (int i = 0; i < marks && g_job_count < JOB_MAX; i++) {
-            if (!uui_fileview_marked_path(fv, i, g_job_path[g_job_count],
-                                           PATH_MAX_LEN)) continue;
-            g_job_isdir[g_job_count] = uui_fileview_marked_is_dir(fv, i);
-            g_job_count++;
-        }
-        if (marks > JOB_MAX)
-            ulogf("files: %d marked, queue holds %d\n", marks, JOB_MAX);
-    } else if (uui_fileview_selected_path(fv, g_job_path[0], PATH_MAX_LEN)) {
-        g_job_isdir[0] = uui_fileview_selected_is_dir(fv);
-        g_job_count = 1;
+        for (int i = 0; i < marks; i++)
+            if (uui_fileview_marked_path(fv, i, path, sizeof path) &&
+                !stage_add(path, uui_fileview_marked_is_dir(fv, i))) break;
+    } else if (uui_fileview_selected_path(fv, path, sizeof path)) {
+        stage_add(path, uui_fileview_selected_is_dir(fv));
     }
-
-    if (g_job_count == 0) { set_note("nothing selected"); return 0; }
-    return 1;
+    if (g_stage.count == 0) { set_note("nothing selected"); stage_free(&g_stage); return 0; }
+    return stage_take() == STAGE_RUN;
 }
 
 // The commander's verbs: the ACTIVE pane's operands into the OTHER pane.
@@ -103,21 +213,15 @@ static int start_job(void);   // defined with the worker, below
 // window, whose files are in the drag slot rather than in a pane.
 static int queue_from_paths(int op, const char *what, const struct uclip *c,
                             const char *dest) {
-    if (g_job_count > 0) { set_note("busy"); return 0; }
-    g_job_count = g_job_at = g_job_failures = 0;
-    g_job_op = op;
-    strlcpy(g_job_what, what, sizeof g_job_what);
-    strlcpy(g_job_dest, dest, sizeof g_job_dest);
-    for (int i = 0; i < uclip_count(c) && g_job_count < JOB_MAX; i++) {
+    stage_begin(op, what, dest);
+    for (int i = 0; i < uclip_count(c); i++) {
         const char *p = uclip_path(c, i);
         if (!p) break;
-        strlcpy(g_job_path[g_job_count], p, PATH_MAX_LEN);
         struct sys_stat st;
-        g_job_isdir[g_job_count] = sys_stat(p, &st) == 0 && st.is_dir;
-        g_job_count++;
+        if (!stage_add(p, sys_stat(p, &st) == 0 && st.is_dir)) break;
     }
-    if (g_job_count == 0) { set_note("nothing to drop"); return 0; }
-    return 1;
+    if (g_stage.count == 0) { set_note("nothing to drop"); stage_free(&g_stage); return 0; }
+    return stage_take() == STAGE_RUN;
 }
 
 void do_drop_extern(const char *dest, int copy) {
@@ -148,23 +252,11 @@ void do_drop(struct uui_fileview *src, const char *dest, int copy) {
         if (queue_from(CMD_TRASH, "Delete", src, "")) start_job();
         return;
     }
+    // A folder dropped into itself (a tree node under the folder being
+    // dragged, the case the target cannot see) is stage_take()'s refusal.
     if (!queue_from(copy ? CMD_COPY : CMD_MOVE, copy ? "Copy" : "Move", src, dest))
         return;
-    // A FOLDER INTO ITSELF is refused before a byte moves: the engine
-    // would copy the tree into its own child until the disk filled.
-    // Its own directory is refused by the target already; this is the
-    // case the target cannot see -- a drop on a tree node under the
-    // folder being dragged.
-    for (int i = 0; i < g_job_count; i++) {
-        size_t n = strlen(g_job_path[i]);
-        if (strncmp(g_job_dest, g_job_path[i], n) == 0 &&
-            (g_job_dest[n] == '\0' || g_job_dest[n] == '/')) {
-            g_job_count = 0;
-            set_note("cannot move a folder into itself");
-            return;
-        }
-    }
-    // ...and where they already are is a no-op said out loud, for the
+    // Where they already are is a no-op said out loud, for the
     // one target (a tree node) that does not know the items' directory.
     if (strcmp(g_job_dest, uui_fileview_dir(src)) == 0) {
         g_job_count = 0;
@@ -229,15 +321,11 @@ void clip_paste(void) {
     int op = uclip_op(&c), n = uclip_count(&c);
     ulogf("files: paste op=%d n=%d jobs=%d into %s\n", op, n, g_job_count,
           uui_fileview_dir(active()));
-    if (g_job_count > 0) { set_note("busy"); return; }
     if (op == UCLIP_NONE || n == 0) { set_note("clipboard is empty"); return; }
 
-    g_job_count = g_job_at = g_job_failures = 0;
-    g_job_op = (op == UCLIP_CUT) ? CMD_MOVE : CMD_COPY;
-    strlcpy(g_job_what, op == UCLIP_CUT ? "Move" : "Copy", sizeof g_job_what);
-    strlcpy(g_job_dest, uui_fileview_dir(active()), sizeof g_job_dest);
-
-    for (int i = 0; i < n && g_job_count < JOB_MAX; i++) {
+    stage_begin(op == UCLIP_CUT ? CMD_MOVE : CMD_COPY, op == UCLIP_CUT ? "Move" : "Copy",
+                uui_fileview_dir(active()));
+    for (int i = 0; i < n; i++) {
         const char *src = uclip_path(&c, i);
         if (!src) break;
         // PASTING INTO THE DIRECTORY A FILE IS ALREADY IN would ask
@@ -246,20 +334,20 @@ void clip_paste(void) {
         // should still move the rest.
         char dir[PATH_MAX_LEN];
         k_path_dirname(src, dir, sizeof dir);
-        if (strcmp(dir, g_job_dest) == 0) continue;
-        strlcpy(g_job_path[g_job_count], src, PATH_MAX_LEN);
-        g_job_isdir[g_job_count] = 0;   // /bin/cp -r decides; see start_next_job
-        g_job_count++;
+        if (strcmp(dir, g_stage.dest) == 0) continue;
+        if (!stage_add(src, 0)) break;   // the engine asks a path what it is
     }
 
-    if (g_job_count == 0) { set_note("already here"); return; }
+    if (g_stage.count == 0) { set_note("already here"); stage_free(&g_stage); return; }
+    int took = stage_take();
+    if (took == STAGE_DROPPED) return;
 
     // A CUT IS SPENT BY ITS PASTE. Explorer clears the clipboard after a
     // cut-paste for the reason that matters: the files are no longer
     // where the clipboard says they are, so a second paste would fail
     // on every one of them.
     if (op == UCLIP_CUT) { (void)uclip_clear(); refresh_dim(); }
-    start_job();
+    if (took == STAGE_RUN) start_job();
 }
 
 // --- the worker -------------------------------------------------------
@@ -292,6 +380,20 @@ static volatile int g_cancel;       // the main thread asked it to stop
 static char g_cur_name[PATH_MAX_LEN];
 static unsigned long long g_cur_done, g_cur_size;
 static int g_cur_index;
+// THE WHOLE OPERATION IN BYTES, for a copy or a move: counted before the
+// first byte moves (g_counting while it is), then advanced per chunk.
+// Explorer's "Calculating..." pass, and the only way a bar can say how
+// far through ALL of it rather than through one file.
+static int g_counting, g_by_bytes;
+static unsigned long long g_bytes_total, g_bytes_done;
+static unsigned long long g_item_bytes[JOB_MAX];
+static unsigned long long g_item_base;    // bytes of the items before this one
+static unsigned long long g_file_base;    // ...and of this item's files before this file
+static unsigned long long g_file_size;
+static char g_file_path[PATH_MAX_LEN];
+// PAUSED by the person: the worker waits between chunks, holding no lock.
+// Written by the main thread, a single int, read without the lock.
+static volatile int g_paused;
 
 // The conflict handshake. The worker parks here until the main thread
 // answers -- see fm_conflict_answer().
@@ -303,6 +405,12 @@ static char g_conflict_rename[PATH_MAX_LEN];
 
 // --- the policy the worker supplies to the engine ---------------------
 
+// Waits out a pause; 0 once cancelled.
+static int pause_point(void) {
+    while (g_paused && !g_cancel) sys_sleep_ms(50);
+    return !g_cancel;
+}
+
 static int worker_progress(void *ctx, const char *path,
                             uint64_t done, uint64_t total) {
     (void)ctx;
@@ -310,8 +418,62 @@ static int worker_progress(void *ctx, const char *path,
     strlcpy(g_cur_name, k_path_basename(path), sizeof g_cur_name);
     g_cur_done = done;
     g_cur_size = total;
+    // A NEW FILE: the one before it is whole. The engine reports per
+    // chunk and by path, and a file of no bytes is never reported at all.
+    if (strcmp(path, g_file_path) != 0) {
+        g_file_base += g_file_size;
+        g_file_size = total;
+        strlcpy(g_file_path, path, sizeof g_file_path);
+    }
+    if (g_by_bytes) {
+        unsigned long long at = g_item_base + g_file_base + done;
+        unsigned long long end = g_item_base + g_item_bytes[g_cur_index];
+        g_bytes_done = at < end ? at : end;   // a file that grew mid-copy
+    }
     pthread_mutex_unlock(&g_lock);
-    return !g_cancel;      // 0 cancels the whole operation
+    return pause_point();  // 0 cancels the whole operation
+}
+
+// One item's bytes: a file's size, a folder's files summed (lib/uwalk.h).
+static int count_visit(void *ctx, const char *path, const struct sys_dirent *e) {
+    (void)path;
+    if (g_cancel) return -1;
+    if (!e->is_dir) *(unsigned long long *)ctx += e->size;
+    return 1;
+}
+
+static unsigned long long item_bytes(const char *path, int isdir) {
+    unsigned long long n = 0;
+    struct sys_stat st;
+    if (!isdir && sys_stat(path, &st) == 0 && !st.is_dir) return st.size;
+    static struct uwalk w;   // several KB; the worker's alone
+    if (uwalk_begin(&w, path))
+        while (!g_cancel && uwalk_step(&w, count_visit, &n)) {
+            pthread_mutex_lock(&g_lock);
+            g_bytes_total = g_item_base + n;   // the count, as it grows
+            pthread_mutex_unlock(&g_lock);
+        }
+    return n;
+}
+
+static void count_job(void) {
+    pthread_mutex_lock(&g_lock);
+    g_by_bytes = g_job_op == CMD_COPY || g_job_op == CMD_MOVE;
+    g_bytes_total = g_bytes_done = g_item_base = 0;
+    g_counting = g_by_bytes;
+    pthread_mutex_unlock(&g_lock);
+    if (!g_by_bytes) return;
+    unsigned long long sum = 0;
+    for (int i = 0; i < g_job_count && !g_cancel; i++) {
+        g_item_base = sum;   // item_bytes() reports the running total from it
+        g_item_bytes[i] = item_bytes(g_job_path[i], g_job_isdir[i]);
+        sum += g_item_bytes[i];
+    }
+    pthread_mutex_lock(&g_lock);
+    g_bytes_total = sum;
+    g_item_base = 0;
+    g_counting = 0;
+    pthread_mutex_unlock(&g_lock);
 }
 
 static void worker_error(void *ctx, const char *path, int err) {
@@ -471,13 +633,20 @@ static void *worker_main(void *arg) {
         .on_error = worker_error,
     };
 
-    for (int i = 0; i < g_job_count && !g_cancel; i++) {
+    count_job();
+    unsigned long long base = 0;
+    for (int i = 0; i < g_job_count && pause_point(); i++) {
         pthread_mutex_lock(&g_lock);
         g_cur_index = i;
         g_job_at = i;
         strlcpy(g_cur_name, k_path_basename(g_job_path[i]), sizeof g_cur_name);
         g_cur_done = g_cur_size = 0;
+        g_item_base = base;
+        g_file_base = g_file_size = 0;
+        g_file_path[0] = '\0';
+        if (g_by_bytes) g_bytes_done = base;
         pthread_mutex_unlock(&g_lock);
+        base += g_by_bytes ? g_item_bytes[i] : 0;
 
         g_job_result[i][0] = '\0';
         g_item_first = -1;
@@ -538,6 +707,9 @@ static void *worker_main(void *arg) {
         }
     }
 
+    pthread_mutex_lock(&g_lock);
+    if (g_by_bytes && !g_cancel) g_bytes_done = g_bytes_total;
+    pthread_mutex_unlock(&g_lock);
     g_running = 0;
     uapp_post(g_app, POST_DONE, 0);
     return 0;
@@ -564,26 +736,167 @@ void fm_conflict_answer(int decision, const char *rename) {
 
 void fm_job_cancel(void) { g_cancel = 1; }
 
-// The status line's text, built on the MAIN thread from what the worker
-// last recorded.
-void fm_job_status(char *out, int cap) {
-    pthread_mutex_lock(&g_lock);
-    char name[PATH_MAX_LEN];
-    strlcpy(name, g_cur_name, sizeof name);
-    unsigned long long done = g_cur_done, size = g_cur_size;
-    int idx = g_cur_index, total = g_job_count;
-    pthread_mutex_unlock(&g_lock);
+void fm_job_pause(int paused) {
+    if (!g_running) return;
+    g_paused = paused ? 1 : 0;
+    ulogf("files: job %s\n", paused ? "paused" : "resumed");
+}
 
-    if (size > 0 && done < size)
-        snprintf(out, (size_t)cap, "%s %d/%d  %s  %d%%", g_job_what, idx + 1,
-                  total, name, (int)((done * 100) / size));
+int fm_job_paused(void) { return g_running && g_paused; }
+
+// "Copying", "Moving to the Recycle Bin" -- an operation as a row says it.
+static const char *doing(int op, const char *what) {
+    switch (op) {
+    case CMD_COPY:     return "Copying";
+    case CMD_MOVE:     return "Moving";
+    case CMD_TRASH:    return "Moving to the Recycle Bin";
+    case CMD_DELETE:   return "Deleting";
+    case CMD_PURGE:    return !strcmp(what, "Empty") ? "Emptying the Recycle Bin" : "Deleting";
+    case CMD_EXTRACT:  return "Extracting";
+    case CMD_COMPRESS: return "Compressing";
+    case CMD_UNDO:     return !strcmp(what, "Redo") ? "Redoing" : "Undoing";
+    }
+    return what;
+}
+
+static const char *icon_for(int op) {
+    switch (op) {
+    case CMD_MOVE:     return "tb-move";
+    case CMD_TRASH: case CMD_DELETE: case CMD_PURGE: return "tb-delete";
+    case CMD_EXTRACT: case CMD_COMPRESS: return "tb-archive";
+    case CMD_UNDO:     return "tb-undo";
+    }
+    return "tb-copy";
+}
+
+// "Copying 12 items to Photos", "Copying dusk.bmp to Photos".
+static void title(char *out, int cap, int op, const char *what, int count,
+                  const char *first, const char *dest) {
+    char items[PATH_MAX_LEN];
+    if (count == 1) strlcpy(items, k_path_basename(first), sizeof items);
+    else snprintf(items, sizeof items, "%d items", count);
+    const char *where = dest[0] && (op == CMD_COPY || op == CMD_MOVE || op == CMD_EXTRACT)
+                      ? k_path_basename(dest) : 0;
+    if (where && !where[0]) where = "System";
+    snprintf(out, (size_t)cap, "%s %s%s%s", doing(op, what), items, where ? " to " : "",
+             where ? where : "");
+}
+
+// THE RATE, MEASURED HERE on the main thread from what the worker last
+// recorded: sampled at most twice a second and smoothed, so one slow
+// chunk does not make "about 4 s left" jump to minutes. A pause is not a
+// slow second: the clock restarts on resume.
+static unsigned long long g_rate, g_rate_bytes;
+static uint64_t g_rate_t0;
+
+static void rate_sample(unsigned long long done) {
+    uint64_t now = sys_monotonic_ns();
+    if (g_paused || g_counting || !g_rate_t0 || done < g_rate_bytes) {
+        g_rate_t0 = now;
+        g_rate_bytes = done;
+        return;
+    }
+    if (now - g_rate_t0 < 500000000ull) return;
+    unsigned long long inst = (done - g_rate_bytes) * 1000000000ull / (now - g_rate_t0);
+    g_rate = g_rate ? (g_rate * 7 + inst * 3) / 10 : inst;
+    g_rate_t0 = now;
+    g_rate_bytes = done;
+}
+
+// The panel's rows: the running operation, then each one waiting.
+int fm_job_rows(struct uui_xfer *out, int cap) {
+    static char note[96];
+    int n = 0;
+    if (g_running && n < cap) {
+        struct uui_xfer *x = &out[n++];
+        memset(x, 0, sizeof *x);
+        pthread_mutex_lock(&g_lock);
+        int counting = g_counting, by_bytes = g_by_bytes, idx = g_cur_index;
+        unsigned long long total = g_bytes_total, done = g_bytes_done;
+        unsigned long long cdone = g_cur_done, csize = g_cur_size;
+        strlcpy(note, g_cur_name, sizeof note);
+        pthread_mutex_unlock(&g_lock);
+        title(x->name, sizeof x->name, g_job_op, g_job_what, g_job_count, g_job_path[0], g_job_dest);
+        x->state = g_paused ? UUI_XFER_PAUSED : UUI_XFER_RUNNING;
+        x->can_pause = 1;
+        x->icon = icon_for(g_job_op);
+        if (counting) {
+            // Nothing to measure yet: the figure is the count so far.
+            char h[24];
+            human_size_iec(h, sizeof h, total);
+            snprintf(x->note, sizeof x->note, "counting first, %s so far", h);
+        } else if (by_bytes) {
+            x->got = done;
+            x->total = total;
+            rate_sample(done);
+            x->rate = g_rate;
+            strlcpy(x->note, note, sizeof x->note);
+        } else if (g_job_op == CMD_EXTRACT || g_job_op == CMD_COMPRESS) {
+            x->got = cdone;          // the archive's own count, in bytes
+            x->total = csize;
+            strlcpy(x->note, note, sizeof x->note);
+        } else {
+            x->items = 1;
+            x->got = (unsigned long long)idx;
+            x->total = (unsigned long long)g_job_count;
+            strlcpy(x->note, note, sizeof x->note);
+        }
+    }
+    for (int q = 0; q < g_nqueue && n < cap; q++) {
+        const struct pending *p = &g_queue[q];
+        struct uui_xfer *x = &out[n++];
+        memset(x, 0, sizeof *x);
+        title(x->name, sizeof x->name, p->op, p->what, p->count, p->path[0], p->dest);
+        x->state = UUI_XFER_QUEUED;
+        x->icon = icon_for(p->op);
+    }
+    return n;
+}
+
+int fm_job_waiting(void) { return g_nqueue; }
+
+// A row's action: row 0 is the running one while there is one.
+void fm_job_action(int ev, int row) {
+    int q = row - (g_running ? 1 : 0);
+    if (g_running && row == 0) {
+        if (ev == UUI_XFER_EV_PAUSE)  fm_job_pause(1);
+        if (ev == UUI_XFER_EV_RESUME) fm_job_pause(0);
+        if (ev == UUI_XFER_EV_CANCEL) fm_job_cancel();
+        return;
+    }
+    if (ev != UUI_XFER_EV_CANCEL || q < 0 || q >= g_nqueue) return;
+    ulogf("files: dequeued %s, %d items\n", g_queue[q].what, g_queue[q].count);
+    stage_free(&g_queue[q]);
+    memmove(&g_queue[q], &g_queue[q + 1], sizeof g_queue[0] * (size_t)(g_nqueue - q - 1));
+    g_nqueue--;
+}
+
+// The status line's text, built on the MAIN thread from the same row the
+// panel draws: "Copying 5 of 12 \xb7 64%".
+void fm_job_status(char *out, int cap) {
+    struct uui_xfer x;
+    if (!fm_job_rows(&x, 1)) { out[0] = '\0'; return; }
+    int pct = x.total ? (int)(x.got * 100 / x.total) : 0;
+    char tail[48] = "";
+    if (g_nqueue) snprintf(tail, sizeof tail, " \xb7 %d waiting", g_nqueue);
+    // One item is named; several are counted, "5 of 12".
+    char which[PATH_MAX_LEN];
+    if (g_job_count == 1) strlcpy(which, k_path_basename(g_job_path[0]), sizeof which);
+    else snprintf(which, sizeof which, "%d of %d", g_cur_index + 1, g_job_count);
+    if (x.state == UUI_XFER_PAUSED)
+        snprintf(out, (size_t)cap, "%s, paused at %d%%%s", doing(g_job_op, g_job_what), pct, tail);
+    else if (!x.total)
+        snprintf(out, (size_t)cap, "%s %s%s", doing(g_job_op, g_job_what), which, tail);
     else
-        snprintf(out, (size_t)cap, "%s %d/%d  %s", g_job_what, idx + 1, total, name);
+        snprintf(out, (size_t)cap, "%s %s \xb7 %d%%%s", doing(g_job_op, g_job_what), which, pct, tail);
 }
 
 static int start_job(void) {
     if (g_job_count == 0) return 0;
     g_cancel = 0;
+    g_paused = 0;
+    g_rate = 0;
+    g_rate_t0 = 0;
     g_running = 1;
     g_job_failures = 0;
     if (pthread_create(&g_worker, 0, worker_main, 0) != 0) {
@@ -640,6 +953,18 @@ void fm_job_finished(void) {
         g_cmp_rename)
         uui_fileview_begin_rename(active());
     if (select_after[0]) uui_fileview_select_name(active(), select_after);
+    // THE NEXT ONE WAITING starts now. Its paths were snapshot when it was
+    // asked for, so a file it names may be gone: the engine reports that
+    // per file, as for any other.
+    if (g_nqueue > 0) {
+        struct pending p = g_queue[0];
+        memmove(&g_queue[0], &g_queue[1], sizeof g_queue[0] * (size_t)(g_nqueue - 1));
+        g_nqueue--;
+        install(&p);
+        stage_free(&p);
+        ulogf("files: starting the next, %s %d items\n", g_job_what, g_job_count);
+        start_job();
+    }
     refresh_status();
 }
 
