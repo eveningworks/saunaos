@@ -921,10 +921,22 @@ static int start_job(void) {
     return 1;
 }
 
-// Called from the tick. Returns 1 if the screen should be repainted.
+// Called from the tick. Returns 1 if the screen should be repainted:
+// ONLY WHEN A FIGURE MOVED. A worker parked on a conflict card, or a
+// paused one, changes nothing, and a repaint per tick then is a frame of
+// work -- and a frame of layout log -- that shows nothing new.
 int poll_job(void) {
-    if (!g_running) return 0;
-    return 1;      // the status line moves while it runs
+    static unsigned long long last;
+    if (!g_running) { last = 0; return 0; }
+    pthread_mutex_lock(&g_lock);
+    unsigned long long sig = g_bytes_done * 31 + g_bytes_total * 7 + g_cur_done * 3 +
+                             (unsigned long long)g_cur_index * 1000003ull +
+                             (unsigned long long)g_counting * 17 + 1;
+    pthread_mutex_unlock(&g_lock);
+    sig += (unsigned long long)g_paused * 5 + (unsigned long long)g_nqueue * 11;
+    if (sig == last) return 0;
+    last = sig;
+    return 1;
 }
 
 // The post arrived: the operation is over.
