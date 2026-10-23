@@ -670,7 +670,26 @@ const struct uimg *start_icon(int *out_x, int *out_y, int *out_size);
 enum wm_cursor_kind { WM_CURSOR_NORMAL, WM_CURSOR_H, WM_CURSOR_V, WM_CURSOR_DIAG,
                        WM_CURSOR_TEXT, WM_CURSOR_WAIT, WM_CURSOR_DIAG2,
                        WM_CURSOR_HAND, WM_CURSOR_MOVE, WM_CURSOR_NOT_ALLOWED,
-                       WM_CURSOR_CROSSHAIR, WM_CURSOR_GRAB, WM_CURSOR_GRABBING, WM_CURSOR_NONE };
+                       WM_CURSOR_CROSSHAIR, WM_CURSOR_GRAB, WM_CURSOR_GRABBING, WM_CURSOR_NONE,
+                       WM_CURSOR_CLIENT };   // a client's own image (wm_cursor_image.c)
+
+// A client's own pointer image (WIN_REQ_CURSOR_IMAGE), copied out of its
+// shm object. `serial` is new at every definition, so a redefined id is a
+// different shape to the sprite and the plane. wm_cursor_image.c.
+struct wm_cursor_img {
+    int pid, id;
+    uint32_t serial;
+    int w, h, hot_x, hot_y;
+    uint32_t *argb;   // w*h straight alpha
+    uint8_t *inv;     // w*h, 1 where the pixel inverts the screen
+    int inverts;      // any inv[] set: the hardware plane cannot show it
+};
+const struct wm_cursor_img *wm_cursor_img_find(int pid, int id);
+int  wm_cursor_img_define(int pid, int id);   // 0, or -1 refused
+void wm_cursor_img_client_gone(int pid);
+// The image the pointer's shape last resolved to, when that was
+// WM_CURSOR_CLIENT (wm_render.c); the plane reads it in wm_hwcursor_sync().
+const struct wm_cursor_img *wm_render_client_cursor(void);
 
 // Finds which window (if any) the point (mx, my) is over a resize edge
 // of -- the same topmost-window-wins hit-testing wm_handle_left_click()

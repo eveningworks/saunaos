@@ -113,9 +113,10 @@ int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t w
         g_last.y = cy;
     }
     int disabled = to && (to->style & WS_DISABLED);
-    int shape = to && !nc && to->cls >= 0 && to->cls < w->ncls ? w->cls[to->cls].cursor : WIN_CURSOR_DEFAULT;
+    uint16_t hc = to && !nc && to->cls >= 0 && to->cls < w->ncls ? w->cls[to->cls].cursor : W16_CURSOR_BASE;
+    int shape = hc ? w16_cursor_shape(hc) : -1;  // a class with none: the program's SetCursor
     if (held) shape = -1;                        // no WM_SETCURSOR under a capture, as in 3.1
-    if (shape == W16_CLASS_NO_CURSOR) shape = -1;
+    if (shape >= 0) w->cursor_now = hc;
     pthread_mutex_unlock(&w->lock);
     if (!hwnd || disabled) return WIN_CURSOR_DEFAULT;
     if (nc) {                                    // the frame of a child: its scroll bars

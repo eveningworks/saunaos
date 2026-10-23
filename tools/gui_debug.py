@@ -645,12 +645,14 @@ class DebugConsole:
 
     # WM_CURSOR_* (userland/wm/wm_internal.h): 0 normal, 1 resize-h,
     # 2 resize-v, 3 diagonal, 4 text, 5 wait, 6 the other diagonal,
-    # 7 hand, 8 move, 9 not-allowed, 10 crosshair, 11 grab, 12 grabbing.
-    # DIAG is the \ axis (top-left/bottom-right), DIAG2 the /.
+    # 7 hand, 8 move, 9 not-allowed, 10 crosshair, 11 grab, 12 grabbing,
+    # 13 none (the client draws its own), 14 a client's own image (its id
+    # is `gui state`'s cursor.image). DIAG is the \ axis (top-left/
+    # bottom-right), DIAG2 the /.
     (CURSOR_NORMAL, CURSOR_H, CURSOR_V, CURSOR_DIAG,
      CURSOR_TEXT, CURSOR_WAIT, CURSOR_DIAG2,
      CURSOR_HAND, CURSOR_MOVE, CURSOR_NOT_ALLOWED, CURSOR_CROSSHAIR,
-     CURSOR_GRAB, CURSOR_GRABBING) = range(13)
+     CURSOR_GRAB, CURSOR_GRABBING, CURSOR_NONE, CURSOR_CLIENT) = range(15)
 
     def scene_repaints(self):
         """The WM's SCENE repaint count (`gui state`'s `scene repaints`), or

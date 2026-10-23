@@ -666,6 +666,17 @@ void uapp_display_name(const struct uapp *a, char *out, int cap);
 // tree, so an app has the last word over its own window.
 void uapp_set_cursor(struct uapp *a, int cursor);
 
+// Define pointer image `id` (0 .. WIN_CURSOR_IMAGE_IDS-1) of this client's
+// own, for uapp_set_cursor(a, WIN_CURSOR_IMAGE(id)): w x h straight-alpha
+// ARGB, at most WIN_CURSOR_IMAGE_MAX a side, the hotspot inside it, and
+// `invert` (w*h bytes, or NULL) nonzero where a pixel turns the screen
+// under it to its complement -- a Windows cursor's XOR. Wayland's
+// wl_pointer.set_cursor plus that. A ROUND TRIP: it returns once the
+// compositor has the pixels (0), or -1. Defining an id again replaces it,
+// and a pointer showing it changes at once.
+int uapp_cursor_image(struct uapp *a, int id, int w, int h, int hot_x, int hot_y,
+                      const uint32_t *argb, const uint8_t *invert);
+
 // UAPP_NO_DECOR only: hand the drag of the press in progress to the
 // compositor -- edges 0 moves the window, WIN_EDGE_* bits resize it from
 // those edges (xdg_toplevel.move/.resize). Call it from on_press; the

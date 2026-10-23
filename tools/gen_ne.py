@@ -27,6 +27,11 @@ RESOURCES come from directives too, so a test program stays one text file:
     ;w16: accel 210 0x71 300 virtkey                (RT_ACCELERATOR: a key --
                                                     with virtkey, shift, control,
                                                     alt as it needs -- and its id)
+    ;w16: cursor 1 15 15                            (RT_GROUP_CURSOR + RT_CURSOR,
+    ;w16: crow 1 ....~....##..oo                    32x32, the hotspot; its rows
+                                                    top first: . clear, ~ invert,
+                                                    # black, o white; short rows
+                                                    and missing ones are clear)
 
 A bitmap is written as Windows stored one: a packed DIB (BITMAPINFOHEADER,
 the palette, the rows bottom-up and padded to 4 bytes), 4 bits a pixel for
@@ -66,7 +71,8 @@ NE_OFFSET = 0x80         # the NE header follows a 128-byte MZ stub
 def directives(path):
     """The ;w16: lines: module, segments, autodata, stack, heap."""
     d = {"module": None, "segments": {}, "autodata": 0, "stack": 4096, "heap": 1024,
-         "description": "", "strings": {}, "bitmaps": {}, "dialogs": {}, "menus": {}, "accels": {}}
+         "description": "", "strings": {}, "bitmaps": {}, "dialogs": {}, "menus": {}, "accels": {},
+         "cursors": {}}
     for line in open(path, encoding="utf-8"):
         m = re.match(r"\s*;w16:\s*(\w+)\s*(.*?)\s*$", line)
         if not m:
@@ -97,6 +103,12 @@ def directives(path):
             did, cls, cid, x, y, w, h, style, text = shlex.split(val)
             d["dialogs"][int(did, 0)]["controls"].append(
                 (cls.upper(), int(cid, 0), [int(v, 0) for v in (x, y, w, h)], int(style, 0), text))
+        elif key == "cursor":
+            cid, hx, hy = (int(v, 0) for v in val.split())
+            d["cursors"][cid] = {"hot": (hx, hy), "rows": []}
+        elif key == "crow":
+            cid, _, row = val.partition(" ")
+            d["cursors"][int(cid, 0)]["rows"].append(row.strip())
         elif key == "accel":
             aid, k, cmd, *flags = val.split()
             bits = {"virtkey": 0x01, "shift": 0x04, "control": 0x08, "alt": 0x10}
@@ -179,6 +191,24 @@ def parse_relocs(raw, segno):
 def pstr(s):
     b = s.encode("ascii")
     return bytes([len(b)]) + b
+
+
+def cursor_resource(c):
+    """RT_CURSOR, 3.x's: the hotspot, then a 1-bit DIB twice as tall as the
+    cursor -- its XOR rows, then its AND rows, each bottom-up."""
+    rows = (c["rows"] + [""] * 32)[:32]
+    def mask(bit):
+        out = b""
+        for row in reversed(rows):
+            row = row.ljust(32, ".")
+            v = 0
+            for x in range(32):
+                a_, x_ = {".": (1, 0), "~": (1, 1), "#": (0, 0), "o": (0, 1)}[row[x]]
+                v = v << 1 | (a_ if bit == "and" else x_)
+            out += struct.pack(">I", v)
+        return out
+    bih = struct.pack("<IiiHHIIiiII", 40, 32, 64, 1, 1, 0, 0, 0, 0, 2, 0)
+    return struct.pack("<HH", *c["hot"]) + bih + struct.pack("<II", 0, 0xFFFFFF) + mask("xor") + mask("and")
 
 
 def string_blocks(strings):
@@ -308,6 +338,11 @@ def build(src, out):
     resources += [(2, bid, packed_dib(bm)) for bid, bm in sorted(d["bitmaps"].items())]
     resources += [(4, mid, menu_template(m)) for mid, m in sorted(d["menus"].items())]
     resources += [(5, did, dialog_template(dl)) for did, dl in sorted(d["dialogs"].items())]
+    for cid, c in sorted(d["cursors"].items()):
+        data = cursor_resource(c)
+        resources.append((1, cid, data))
+        resources.append((12, cid, struct.pack("<HHH", 0, 2, 1) +
+                          struct.pack("<HHHHIH", 32, 64, 1, 1, len(data), cid)))
     resources += [(9, aid, b"".join(struct.pack("<BHH", f | (0x80 if i == len(acc) - 1 else 0), k, c)
                                    for i, (f, k, c) in enumerate(acc)))
                   for aid, acc in sorted(d["accels"].items())]

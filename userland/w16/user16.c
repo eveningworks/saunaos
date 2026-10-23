@@ -147,7 +147,8 @@ static int class_add(struct w16 *w, const struct w16_class *k) {
 
 int w16_class_add_host(struct w16 *w, const char *name, w16_wndproc host, uint16_t style,
                        uint16_t background) {
-    struct w16_class k = { .name = strdup(name), .host = host, .style = style, .background = background };
+    struct w16_class k = { .name = strdup(name), .host = host, .style = style, .background = background,
+                           .cursor = W16_CURSOR_BASE };   // IDC_ARROW
     if (!k.name || !(k.atom = w16_atom_add(w, name))) { free(k.name); return -1; }
     int i = class_add(w, &k);
     if (i < 0) free(k.name);
@@ -163,8 +164,9 @@ static int register_class(struct w16 *w, struct w16_args *a) {
     k.proc_off = (uint16_t)(wc[2] | wc[3] << 8);
     k.proc_sel = (uint16_t)(wc[4] | wc[5] << 8);
     k.wnd_extra = (uint16_t)(wc[8] | wc[9] << 8);
-    uint16_t hcursor = (uint16_t)(wc[14] | wc[15] << 8);
-    k.cursor = hcursor ? (uint8_t)w16_cursor_shape(hcursor) : W16_CLASS_NO_CURSOR;
+    k.cursor = (uint16_t)(wc[14] | wc[15] << 8);
+    k.icon = (uint16_t)(wc[12] | wc[13] << 8);
+    k.cls_extra = (uint16_t)(wc[6] | wc[7] << 8);
     k.background = (uint16_t)(wc[16] | wc[17] << 8);
     uint32_t cname = (uint32_t)(wc[22] | wc[23] << 8) | (uint32_t)(wc[24] | wc[25] << 8) << 16;
     uint32_t mname = (uint32_t)(wc[18] | wc[19] << 8) | (uint32_t)(wc[20] | wc[21] << 8) << 16;
@@ -173,6 +175,7 @@ static int register_class(struct w16 *w, struct w16_args *a) {
     k.name = class_name(w, cname);
     w->cpu.r[R_AX] = 0;
     if (!k.name) return -1;
+    if (k.cls_extra && !(k.extra = calloc(k.cls_extra, 1))) { free(k.name); free(k.menu); return 4; }
     if (g_w16_trace) {
         fprintf(g_w16_trace, "  RegisterClass %s style %04x\n", k.name, k.style);
         fflush(g_w16_trace);
@@ -180,6 +183,7 @@ static int register_class(struct w16 *w, struct w16_args *a) {
     if (w16_class_find(w, k.name) >= 0 || !(k.atom = w16_atom_add(w, k.name)) || class_add(w, &k) < 0) {
         free(k.name);
         free(k.menu);
+        free(k.extra);
         return 4;
     }
     w->cpu.r[R_AX] = k.atom;
@@ -1297,13 +1301,17 @@ static int api_InvalidateRect(struct w16 *w, unsigned ordinal, struct w16_args *
     return 8;
 }
 
-// A cursor handle names Windows' cursor: LoadCursor(NULL, IDC_*) is
-// CURSOR_BASE plus the IDC's low byte (IDC_ARROW 32512 is 0x7F00); a
-// program's own cursor resource draws as the arrow.
-#define CURSOR_BASE 0x4000
+// A cursor handle names Windows' cursor -- LoadCursor(NULL, IDC_*) is
+// W16_CURSOR_BASE plus the IDC's low byte -- or is the program's own, a
+// global block (w16_cursor_handle()); CURSOR_OWN is one whose resource
+// could not be read, drawn as the arrow.
+#define CURSOR_BASE W16_CURSOR_BASE
 #define CURSOR_OWN  (CURSOR_BASE | 0xFF)
 
 int w16_cursor_shape(uint16_t h) {
+    if (!h) return WIN_CURSOR_NONE;
+    int own = w16_cursor_index(h);
+    if (own >= 0) return WIN_CURSOR_IMAGE(own);
     switch (h) {
     case CURSOR_BASE | 0x01: return WIN_CURSOR_TEXT;        // IDC_IBEAM
     case CURSOR_BASE | 0x02: return WIN_CURSOR_WAIT;        // IDC_WAIT
@@ -1319,22 +1327,26 @@ int w16_cursor_shape(uint16_t h) {
 // LoadIcon(hInstance, lpIconName) -> HICON
 // Windows: A cursor or an icon, from the module's resources or -- with hInstance NULL -- one of
 // Windows' own (the arrow, the hourglass, IDI_APPLICATION...).
-// w16: A cursor is one of toy-os's pointer shapes standing for Windows' (arrow, I-beam, hourglass,
-// cross, sizes); a program's own cursor resource shows as the arrow. An icon from the program's
+// w16: Windows' own cursors are toy-os's pointer shapes standing for them (arrow, I-beam,
+// hourglass, cross, sizes); a program's own cursor resource is drawn as it is, its inverting
+// pixels inverting what is under them, at the program's scale -- and its handle is a global block
+// in 3.1's layout, whose bits a program may lock and rewrite. An icon from the program's
 // resources is drawn as it is; Windows' own icons are handles that draw nothing yet.
 static int api_LoadCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     uint16_t inst = w16_arg16(a);
     uint32_t name = w16_arg32(a);
-    uint16_t icon = 0;
-    if (ordinal == 174 && inst) {
+    uint16_t own = 0;
+    if (inst) {
         char s[32] = "";
         if ((name >> 16) && cpu16_str(c, (uint16_t)(name >> 16), (uint16_t)name, s, sizeof s) < 0) return -1;
-        icon = w16_icon_handle(w16_module_of(w, inst), (name >> 16) ? 0 : (uint16_t)name, s[0] ? s : 0);
+        const struct ne_module *m = w16_module_of(w, inst);
+        uint16_t id = (name >> 16) ? 0 : (uint16_t)name;
+        own = ordinal == 174 ? w16_icon_handle(m, id, s[0] ? s : 0) : w16_cursor_handle(w, m, id, s[0] ? s : 0);
     }
-    if (ordinal == 174) c->r[R_AX] = icon ? icon : (uint16_t)(0x4000 | ordinal);
+    if (ordinal == 174) c->r[R_AX] = own ? own : (uint16_t)(0x4000 | ordinal);
     else if (!inst && !(name >> 16) && (name & 0xFF00) == 0x7F00) c->r[R_AX] = (uint16_t)(CURSOR_BASE | (name & 0xFF));
-    else c->r[R_AX] = CURSOR_OWN;
+    else c->r[R_AX] = own ? own : CURSOR_OWN;
     return 6;
 }
 

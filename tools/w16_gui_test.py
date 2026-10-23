@@ -609,8 +609,11 @@ def from_file_manager(dbg, qmp, res):
     for ch in "fault.exe":
         dbg.key("0x2e" if ch == "." else ch)
     fm.wait_layout(dbg, win, lambda l: l.selected == "fault.exe")
+    # Its row from the listing, never a fixed one: a new sample sorting before it moves it down.
+    names = sorted(n for n in fm.listing(dbg, "/usr/share/w16") if not n.endswith("/"))
+    row = 1 + names.index("fault.exe") if "fault.exe" in names else 2   # under ".."
     mark = fm.ctx_mark(dbg)
-    fm.sure_rclick(dbg, qmp, lay.ox + px + pw // 2, lay.oy + lay.rowy[0] + lay.rowh * 2 + lay.rowh // 2)
+    fm.sure_rclick(dbg, qmp, lay.ox + px + pw // 2, lay.oy + lay.rowy[0] + lay.rowh * row + lay.rowh // 2)
     rows = fm.ctx_rows(dbg, mark) or []
     res.check("its right-click menu has Show its calls and Show in Retro Launcher under Open",
               "Show its calls" in rows and "Show in Retro Launcher" in rows
@@ -1223,6 +1226,60 @@ def shapes(dbg, qmp, res, tmp):
     dbg.close_window(SHAPES_TITLE)
 
 
+CURSOR_TITLE = "Cursors (Win16)"
+CLIENT_SHAPE, NO_SHAPE = 14, 13          # wm_internal.h's WM_CURSOR_CLIENT, WM_CURSOR_NONE
+
+
+def own_cursor(dbg, qmp, res, tmp):
+    """cursor.exe's class cursor is its own (cursor.asm's header): an inverting crosshair,
+    hotspot (15, 15), a black block 12 up-left of it and a white one 12 down-right, over a
+    window black on its left 140 pixels and white on the rest."""
+    win = dbg.spawn("/bin/w16 /usr/share/w16/cursor.exe", CURSOR_TITLE)
+    res.check("cursor.exe opens its window", win is not None, "no window")
+    if not win:
+        return
+    ox, oy = win["x"] + FRAME, win["y"] + FRAME + CAPTION
+
+    def at(x, y, name):
+        dbg.warp_cursor(qmp, ox + x, oy + y)
+        dbg.settle()
+        c = dbg.state()["cursor"]
+        return c.get("shape"), c.get("image"), shot(qmp, f"{tmp}/w16_cursor_{name}.png"), ox + x, oy + y
+
+    shape, image, im, hx, hy = at(220, 80, "white")
+    res.check("over its window the pointer is the program's own cursor", (shape, image) == (CLIENT_SHAPE, 0),
+              f"shape {shape} image {image}")
+    got = [im.getpixel((hx + dx, hy + dy)) for dx, dy in ((6, 0), (0, -6), (-12, -12), (6, 6))]
+    res.check("over white: the inverting arms black, the black block black, the rest white",
+              got == [BLACK, BLACK, BLACK, WHITE], f"got {got}")
+    shape, image, im, hx, hy = at(60, 80, "black")
+    got = [im.getpixel((hx + dx, hy + dy)) for dx, dy in ((6, 0), (0, -6), (12, 12), (6, 6))]
+    res.check("over black: the arms inverted to white, the white block white, the rest black",
+              got == [WHITE, WHITE, WHITE, BLACK], f"got {got}")
+    dbg.click(ox + 220, oy + 80)                 # SetClassWord(GCW_HCURSOR, the square)
+    shape, image, im, hx, hy = at(224, 84, "square")
+    res.check("SetClassWord(GCW_HCURSOR) gives the class's windows its other cursor from the next move",
+              (shape, image) == (CLIENT_SHAPE, 1) and im.getpixel((hx, hy - 10)) == BLACK,
+              f"shape {shape} image {image}, top edge {im.getpixel((hx, hy - 10))}")
+    dbg.send(f"gui rclick {ox + 224} {oy + 84}")  # SetCursor(NULL)
+    dbg.settle()
+    shape = dbg.cursor_shape()
+    res.check("SetCursor(NULL) takes the pointer away", shape == NO_SHAPE, f"shape {shape}")
+    shape, image, _, _, _ = at(230, 90, "back")
+    res.check("...and the next move brings the class cursor back", (shape, image) == (CLIENT_SHAPE, 1),
+              f"shape {shape} image {image}")
+    at(60, 80, "before-key")
+    dbg.key("x")                                  # its black block rewritten white, then SetCursor
+    dbg.settle()
+    c = dbg.state()["cursor"]
+    im = shot(qmp, f"{tmp}/w16_cursor_rewritten.png")
+    got = im.getpixel((ox + 60 - 12, oy + 80 - 12))
+    res.check("a cursor whose bits the program rewrote shows the new bits at its next SetCursor",
+              (c.get("shape"), c.get("image")) == (CLIENT_SHAPE, 0) and got == WHITE,
+              f"shape {c.get('shape')} image {c.get('image')}, the block {got}")
+    dbg.close_window(CURSOR_TITLE)
+
+
 FPU_INI = "/home/Win16/WINDOWS/FPUTEST.INI"
 
 
@@ -1332,6 +1389,7 @@ def main():
     ap.add_argument("--in-gui", action="store_true")
     ap.add_argument("--logs", default=None)
     ap.add_argument("--tmp", default="/tmp", help="where screendumps go")
+    ap.add_argument("--only", default=None, help="run just these checks, comma-separated (shapes,own_cursor)")
     args = ap.parse_args()
     port_guard.resolve_instance(args, "w16_gui_test")
     TMP = args.tmp
@@ -1340,28 +1398,31 @@ def main():
     if not args.in_gui:
         enter_gui(qmp, args.sock)
     dbg = DebugConsole(args.sock)
+    checks = [("gdi_checks", None), ("fault", lambda: fault(dbg, res)), ("settings", lambda: settings(dbg, qmp, res)),
+              ("launcher", lambda: launcher(dbg, res)), ("calls", lambda: calls(dbg, res)),
+              ("capture_cursor", lambda: capture_cursor(dbg, qmp, res)),
+              ("drives_and_folders", lambda: drives_and_folders(dbg, res)),
+              ("from_file_manager", lambda: from_file_manager(dbg, qmp, res)),
+              ("panel_and_options", lambda: panel_and_options(dbg, qmp, res)), ("sound_page", lambda: sound_page(dbg, res)),
+              ("why_link", lambda: why_link(dbg, res)), ("dialogs", lambda: dialogs(dbg, qmp, res)),
+              ("coprocessor", lambda: coprocessor(dbg, qmp, res)), ("calls_answered", lambda: calls_answered(dbg, res)),
+              ("open_dialog", lambda: open_dialog(dbg, res)), ("probe", lambda: probe(dbg, res)),
+              ("shapes", lambda: shapes(dbg, qmp, res, TMP)), ("own_cursor", lambda: own_cursor(dbg, qmp, res, TMP)),
+              ("popup_window", lambda: popup_window(dbg, qmp, res, TMP)),
+              ("colours16", lambda: colours16(dbg, qmp, res, TMP))]
+    only = set(args.only.split(",")) if args.only else None
+    if only and only - {n for n, _ in checks}:
+        sys.exit(f"w16_gui_test: no such check: {', '.join(sorted(only - {n for n, _ in checks}))}")
     try:
-        win = gdi_checks(dbg, qmp, res, TMP)
-        if win:
-            window_controls(dbg, qmp, res, win)
-        fault(dbg, res)
-        settings(dbg, qmp, res)
-        launcher(dbg, res)
-        calls(dbg, res)
-        capture_cursor(dbg, qmp, res)
-        drives_and_folders(dbg, res)
-        from_file_manager(dbg, qmp, res)
-        panel_and_options(dbg, qmp, res)
-        sound_page(dbg, res)
-        why_link(dbg, res)
-        dialogs(dbg, qmp, res)
-        coprocessor(dbg, qmp, res)
-        calls_answered(dbg, res)
-        open_dialog(dbg, res)
-        probe(dbg, res)
-        shapes(dbg, qmp, res, TMP)
-        popup_window(dbg, qmp, res, TMP)
-        colours16(dbg, qmp, res, TMP)
+        for name, fn in checks:
+            if only and name not in only:
+                continue
+            if fn is None:
+                win = gdi_checks(dbg, qmp, res, TMP)
+                if win:
+                    window_controls(dbg, qmp, res, win)
+            else:
+                fn()
     finally:
         dbg.close()
     print(f"\nw16_gui_test: {len(res.passes)} passed, {len(res.fails)} failed")

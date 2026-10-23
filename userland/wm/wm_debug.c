@@ -1302,8 +1302,12 @@ static void cmd_state(struct dbg_out *o, int json) {
         // `shape` is the resolved WM_CURSOR_* (wm_internal.h), which is
         // how a test checks what a client asked for without having to
         // recognise a sprite in a screenshot.
-        dbg_out_printf(o, "\"cursor\":{\"x\":%d,\"y\":%d,\"buttons\":%u,\"shape\":%d},",
-                     cx, cy, (unsigned)buttons, (int)wm_cursor_kind_at(cx, cy));
+        // `image` is the client image's id when shape is WM_CURSOR_CLIENT,
+        // else -1.
+        enum wm_cursor_kind shape = wm_cursor_kind_at(cx, cy);
+        const struct wm_cursor_img *ci = shape == WM_CURSOR_CLIENT ? wm_render_client_cursor() : 0;
+        dbg_out_printf(o, "\"cursor\":{\"x\":%d,\"y\":%d,\"buttons\":%u,\"shape\":%d,\"image\":%d},",
+                     cx, cy, (unsigned)buttons, (int)shape, ci ? ci->id : -1);
         // WALKED, not enumerated: the hand-written list had already
         // lost `osk`, and a tool asking about an overlay that is simply
         // missing from the object cannot tell that from "closed".

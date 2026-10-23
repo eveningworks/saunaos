@@ -12236,3 +12236,48 @@ only for (192, 192, 192) itself.
 RGB distance -- an assumption, not a measurement -- and a DIB's colours
 are not mapped yet; both are on the roadmap ("16 colours' pens, text and
 DIBs measured").
+
+## A client's own cursor image, with inverting pixels, copied at definition
+
+A Win16 program ships cursors of its own -- Paintbrush has seven -- and
+w16 showed every one as toy-os's arrow, because a client could only NAME
+a shape ("Cursor themes", above). Most of those cursors are drawn in
+INVERTING pixels, the screen under them turned to its complement, so a
+crosshair shows on black and on white alike. And Paintbrush does not
+only show them: it `GlobalLock`s its DUMMY cursor and draws its brush's
+outline into the bits, then `SetCursor`s it.
+
+**What others do.** Windows 3.1's HCURSOR is a global block (a
+CURSORICONINFO, then the AND and XOR masks) drawn by the display driver
+in software, so inversion was free. Wayland's `wl_pointer.set_cursor`
+takes an ARGB buffer and a hotspot, and X11's cursors are two colours
+plus a mask (or Xcursor's ARGB): neither can say "invert", so Wine on
+both has to approximate such a cursor.
+
+**toy-os adds Wayland's request, plus the invert mask.**
+`WIN_REQ_CURSOR_IMAGE` defines an image of the client's own -- ARGB, a
+byte per pixel saying "invert", a hotspot -- and `WIN_REQ_CURSOR` names
+it by id; `uapp_cursor_image()` is the toolkit's call. Inverting pixels
+are drawn by the software sprite (`draw_cursor_client()`), which already
+saves what is under it; an image with none may ride the hardware plane
+like a theme shape. Picked over drawing them black with a white edge
+(which keeps every image on the plane) and over mapping each to the
+nearest toy-os shape (no protocol change), both declined on the canvas
+"w16 Paintbrush cursors" (2026-10-23), because only the first matches
+3.11 pixel for pixel.
+
+- **Copied, then unlinked: a round trip per definition.** The client's
+  shm object lives until the reply says the pixels are in the
+  compositor, which keeps nothing mapped. An object per live image
+  would hold the kernel's shared shm table (`SHM_MAX`) a slot each, and
+  a client rewriting a mapped image could change a shape mid-draw. The
+  object stays MAPPED until the reply, because one with no mapping and
+  no fd is freed, name and all.
+- **The exception to "name a shape" is narrow.** It exists for cursors
+  that are a program's CONTENT. A toy-os app wanting a shape the theme
+  lacks still asks for a theme shape (`docs/gui-guidelines.md`).
+- **w16 keeps 3.1's layout, so a program may rewrite a cursor.** An
+  HCURSOR is a real global block; SetCursor and SetClassWord re-read it,
+  and changed bits bump a generation the UI thread defines again. Paintbrush's
+  `GetBitmapBits` into offsets 0x0C and 0x8C of its DUMMY cursor confirmed
+  the layout.

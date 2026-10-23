@@ -484,14 +484,17 @@ static int api_FindWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // (WM_SETCURSOR's default).
 // SetCursor(hCursor) -> HCURSOR
 // Windows: Changes the mouse pointer's shape now -- an hourglass while busy; returns the old one.
-// w16: The same, in toy-os's shape for it (LoadCursor says which).
+// w16: The same: Windows' own cursors in toy-os's shape for them, a program's own as drawn (LoadCursor
+// says which); NULL takes the pointer away until a window's class cursor brings it back.
 static int api_SetCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    static uint16_t current;
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
     uint16_t h = w16_arg16(a);
-    c->r[R_AX] = current;
-    current = h;
+    pthread_mutex_lock(&w->lock);
+    c->r[R_AX] = w->cursor_now;
+    w->cursor_now = h;
+    pthread_mutex_unlock(&w->lock);
+    w16_cursor_refresh(w, h);            // its bits may be new: Paintbrush draws its brush into one
     w16_task_post_arg(w, W16_POST_CURSOR, w16_cursor_shape(h));
     return 2;
 }
@@ -1520,20 +1523,47 @@ static int api_ShowScrollBar(struct w16 *w, unsigned ordinal, struct w16_args *a
     return 6;
 }
 
+// GetClassWord(hWnd, nIndex) -> WORD
 // SetClassWord(hWnd, nIndex, wNewWord) -> WORD
-// Windows: Sets a word of a window's CLASS -- its icon, cursor or background brush -- for every
-// window of the class; returns the old one.
-// w16: Keeps nothing and answers 0: a class's words are what RegisterClass gave it.
-// Why: A class keeps what RegisterClass gave it, and nothing reads a class's words back.
-// Notice: A class's icon or cursor cannot be changed after it is registered.
-// Whole: GetClassWord, SetClassWord, GetClassLong and SetClassLong over the class.
-static int api_SetClassWord(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    (void)ordinal;
-    w16_arg16(a);
-    w16_arg16(a);
-    w16_arg16(a);
-    w->cpu.r[R_AX] = 0;
-    return 6;
+// Windows: Reads or sets a word of a window's CLASS -- its cursor, icon, background brush, style, or
+// a word of the class's own extra bytes (cbClsExtra) -- for every window of the class; Set returns
+// the old word.
+// w16: The same. A cursor set this way is what the pointer takes over the class's windows from its
+// next move -- Paintbrush's tools switch theirs so. The sizes and the atom are read only; a
+// GCW_HMODULE, or an index past the extra bytes, answers 0.
+static int api_ClassWord(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint16_t h = w16_arg16(a);
+    int16_t index = (int16_t)w16_arg16(a);
+    int set = ordinal == 130;
+    uint16_t v = set ? w16_arg16(a) : 0, old = 0;
+    pthread_mutex_lock(&w->lock);
+    struct w16_wnd *x = w16_wnd_get(w, h);
+    struct w16_class *k = x && x->cls >= 0 && x->cls < w->ncls ? &w->cls[x->cls] : 0;
+    uint16_t *word = 0;
+    if (k) {
+        switch (index) {
+        case -10: word = &k->background; break;    // GCW_HBRBACKGROUND
+        case -12: word = &k->cursor; break;        // GCW_HCURSOR
+        case -14: word = &k->icon; break;          // GCW_HICON
+        case -26: word = &k->style; break;         // GCW_STYLE
+        case -18: old = k->wnd_extra; break;       // GCW_CBWNDEXTRA
+        case -20: old = k->cls_extra; break;       // GCW_CBCLSEXTRA
+        case -32: old = k->atom; break;            // GCW_ATOM
+        default:
+            if (index >= 0 && index + 2 <= k->cls_extra) {
+                old = (uint16_t)(k->extra[index] | k->extra[index + 1] << 8);
+                if (set) { k->extra[index] = (uint8_t)v; k->extra[index + 1] = (uint8_t)(v >> 8); }
+            }
+        }
+        if (word) {
+            old = *word;
+            if (set) *word = v;
+        }
+    }
+    pthread_mutex_unlock(&w->lock);
+    if (set && index == -12) w16_cursor_refresh(w, v);
+    w->cpu.r[R_AX] = old;
+    return set ? 6 : 4;
 }
 
 // DlgDirList(hDlg, lpPathSpec, nIDListBox, nIDStaticPath, wFileType) -> int
@@ -1855,7 +1885,8 @@ const struct w16_api g_user_misc_api[] = {
     { 120, api_GetMessageTime },
     { 121, api_SetWindowsHook },
     { 123, api_CallMsgFilter },
-    { 130, api_SetClassWord },
+    { 129, api_ClassWord },
+    { 130, api_ClassWord },
     { 163, api_CreateCaret },
     { 164, api_Caret },
     { 165, api_Caret },

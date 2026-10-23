@@ -110,6 +110,7 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
 
     pthread_mutex_init(&w->lock, 0);
     pthread_cond_init(&w->cond, 0);
+    w->cursor_now = W16_CURSOR_BASE;  // the arrow: what SetCursor first answers
     w16_register_builtins(w);
     return 0;
 }
@@ -216,7 +217,6 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    121, "only WH_CALLWNDPROC is called" },                    // SetWindowsHook
     { "USER",    291, "only WH_CALLWNDPROC is called" },                    // SetWindowsHookEx
     { "USER",    416, "shows no menu and answers FALSE" },                  // TrackPopupMenu
-    { "USER",    130, "keeps no class word and answers 0" },                // SetClassWord
     { "USER",    99,  "chooses nothing" },                                  // DlgDirSelect
     { "USER",    100, "lists nothing" },                                    // DlgDirList
     { "USER",    267, "changes no scroll bar" },                            // ShowScrollBar

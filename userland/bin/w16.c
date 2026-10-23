@@ -422,6 +422,35 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
             if (went & bit) client_mouse(button_msg(bit, 0), mk_flags(buttons), x, y);
 }
 
+// A program's own cursor reaches toywm the first time it is shown, and again
+// once its bits or the scale they are drawn at change: g_cursor_at[i] is the
+// (generation, scale) toywm holds image i at.
+static struct { uint32_t gen; int q; } *g_cursor_at;
+static int g_ncursor_at;
+
+static void show_cursor(struct uapp *a, int shape) {
+    if (shape >= WIN_CURSOR_IMAGE_BASE) {
+        int i = shape - WIN_CURSOR_IMAGE_BASE;
+        if (i >= g_ncursor_at) {
+            void *q = realloc(g_cursor_at, sizeof *g_cursor_at * (size_t)(i + 1));
+            if (!q) return;
+            g_cursor_at = q;
+            for (int k = g_ncursor_at; k <= i; k++) g_cursor_at[k].gen = 0, g_cursor_at[k].q = 0;
+            g_ncursor_at = i + 1;
+        }
+        static uint32_t argb[W16_CURSOR_IMG_MAX * W16_CURSOR_IMG_MAX];
+        static uint8_t inv[W16_CURSOR_IMG_MAX * W16_CURSOR_IMG_MAX];
+        int w, h, hx, hy;
+        uint32_t gen;
+        if (w16_cursor_image(i, g_w16_q, 4, argb, inv, &w, &h, &hx, &hy, &gen) < 0) shape = WIN_CURSOR_DEFAULT;
+        else if (g_cursor_at[i].gen != gen || g_cursor_at[i].q != g_w16_q) {
+            if (uapp_cursor_image(a, i, w, h, hx, hy, argb, inv) < 0) shape = WIN_CURSOR_DEFAULT;
+            else g_cursor_at[i].gen = gen, g_cursor_at[i].q = g_w16_q;
+        }
+    }
+    uapp_set_cursor(a, shape);
+}
+
 static int edge_cursor(unsigned edges) {
     int h = edges & (WIN_EDGE_LEFT | WIN_EDGE_RIGHT), v = edges & (WIN_EDGE_TOP | WIN_EDGE_BOTTOM);
     if (h && v)                          // top-left and bottom-right drag along \, the others /
@@ -457,7 +486,7 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     enum w16_hit hit = w16_frame_hit(&g_w16.win, x, y, &edges);
     if (mouse_is_programs(hit)) shape = client_mouse(WM_MOUSEMOVE, mk_flags(buttons), x, y);
     else if (hit == HIT_EDGE && !maximized()) shape = edge_cursor(edges);
-    if (shape >= 0) uapp_set_cursor(a, shape);
+    if (shape >= 0) show_cursor(a, shape);
 }
 
 // The caret's blink: its window drawn again when it turns on or off.
@@ -609,7 +638,7 @@ static int on_user(struct uapp *a, int code, int arg) {
         return 1;
     }
     case W16_POST_MENU_SHOW: bar_show(arg); return 1;
-    case W16_POST_CURSOR: uapp_set_cursor(a, arg); return 0;
+    case W16_POST_CURSOR: show_cursor(a, arg); return 0;
     case W16_POST_MOVE:                 // a press the program called its caption: the compositor drags
         if (!maximized()) uapp_move_start(a, 0);
         return 0;

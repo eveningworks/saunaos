@@ -989,6 +989,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: Paintbrush from Windows 3.11, drawing~~ DONE 2026-10-22 -- tools, fill, text, Pick/Copy/Paste, .BMP Save and Open, its dialogs
 - [x] ~~w16: Paintbrush's View Picture~~ DONE 2026-10-22 -- a second top-level window; screen-sized, fullscreen centred on black
 - [x] ~~w16: recording a metafile~~ DONE 2026-10-22 -- drawing, objects, text and blits (as DIBs) recorded; Paintbrush's Copy
+- [x] ~~w16: a program's own cursors~~ DONE 2026-10-23 -- as drawn, inverting pixels inverted; rewritten in memory (Paintbrush's brush)
 - [x] ~~w16: a program's own caret~~ DONE 2026-10-22 -- drawn over the window, inverted and blinking; Paintbrush's Text tool
 - [x] ~~w16: 16-colour VGA dithering as a per-program setting~~ DONE 2026-10-22 -- `colors=16`; 3.11's driver's dither, measured
 - [ ] w16: 16 colours' pens, text and DIBs measured -- pens and text take the nearest by RGB distance (unmeasured); DIBs are not mapped

@@ -312,7 +312,8 @@ void uapp_move_start(struct uapp *a, unsigned edges) {
 }
 
 void uapp_set_cursor(struct uapp *a, int cursor) {
-    if (cursor < 0 || cursor >= WIN_CURSOR_COUNT) return;
+    int image = cursor >= WIN_CURSOR_IMAGE_BASE && cursor < WIN_CURSOR_IMAGE(WIN_CURSOR_IMAGE_IDS);
+    if (!image && (cursor < 0 || cursor >= WIN_CURSOR_COUNT)) return;
     if (a->motion_cursor >= 0) { a->motion_cursor = cursor; return; }
     if (a->top.cursor == cursor) return;
     // Either way: a server that refuses this (one built before the

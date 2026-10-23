@@ -274,8 +274,10 @@ struct w16_class {
     uint16_t background;          // an HBRUSH, or COLOR_* + 1
     uint16_t style;
     uint16_t wnd_extra;           // cbWndExtra: the bytes Get/SetWindowWord reach
-    uint8_t cursor;               // hCursor as a WIN_CURSOR_* shape: an EDIT's is the I-beam
-#define W16_CLASS_NO_CURSOR 0xFF   // hCursor NULL: the program sets the shape itself (SetCursor)
+    uint16_t cursor;              // hCursor, 0: the program sets the shape itself (SetCursor)
+    uint16_t icon;                // hIcon
+    uint16_t cls_extra;           // cbClsExtra: the bytes Get/SetClassWord reach...
+    uint8_t *extra;               // ...allocated, zeroed
     char *menu;                   // lpszMenuName: its windows' menu, by name...
     uint16_t menu_id;             // ...or by number (an ordinal)
 };
@@ -420,6 +422,7 @@ struct w16 {
     int painting;                                // BeginPaint calls not yet ended: a window DC drawing is a repaint's
     struct w16_timer timer[W16_TIMERS];          // set by the task, fired by the main thread
     uint16_t capture;                            // SetCapture's window, 0 none; under `lock`
+    uint16_t cursor_now;                         // the HCURSOR shown: SetCursor's answer; under `lock`
     uint16_t menu;                               // SetMenu's HMENU, the bar under the caption
     uint16_t sysmenu;                            // GetSystemMenu's: the items the PROGRAM added
     unsigned key_mods;                           // KEY_MOD_* of the key message being handled
@@ -816,7 +819,9 @@ void w16_route_key(struct w16 *w, struct w16_wnd *top, int key, unsigned mods, i
 // or -1 to leave it as it is: while a window holds the capture (a scroll bar's drag), or
 // over a class with no cursor, whose program calls SetCursor itself (Write's I-beam).
 int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t wp, int x, int y);
-// A cursor handle (LoadCursor's) as a WIN_CURSOR_* shape.
+// A cursor handle (LoadCursor's) as a WIN_CURSOR_* shape -- or, for the
+// program's own, WIN_CURSOR_IMAGE(its index), which w16.c defines with
+// toywm the first time it is shown. NULL is WIN_CURSOR_NONE: no pointer.
 int w16_cursor_shape(uint16_t hcursor);
 int w16_vk_of(int key);                           // a key's VK_* code, 0 for none
 void w16_dlgwin_redraw_all(struct w16 *w);       // every open dialog shows its buffer again
@@ -986,6 +991,20 @@ int w16_icon_group(const struct ne_module *m, const struct ne_resource *grp, uin
 // the picture a handle names (32x32 at most), -1 for one that names none.
 uint16_t w16_icon_handle(const struct ne_module *m, uint16_t id, const char *name);
 int w16_icon_of_handle(uint16_t h, uint32_t *px, int *w, int *hh);
+// A program's own cursor, from its RT_GROUP_CURSOR by number or name: its
+// handle is a global block in 3.1's layout (icon16.c), 0 when the program
+// has none such. w16_cursor_index() says which of them a handle is (-1:
+// not one); w16_cursor_refresh() re-reads its block -- the task thread, at
+// SetCursor and SetClassWord; w16_cursor_image() draws index's cursor at
+// scale num/den for toywm, ARGB and `inv` 1 where it inverts the screen,
+// with the generation its bits are at -- any thread.
+#define W16_CURSOR_BASE      0x4000       // + an IDC_*'s low byte: Windows' own (IDC_ARROW 0x7F00)
+#define W16_CURSOR_IMG_MAX   128          // WIN_CURSOR_IMAGE_MAX: a side
+uint16_t w16_cursor_handle(struct w16 *w, const struct ne_module *m, uint16_t id, const char *name);
+int w16_cursor_index(uint16_t h);
+void w16_cursor_refresh(struct w16 *w, uint16_t h);
+int w16_cursor_image(int index, int scale_num, int scale_den, uint32_t *argb, uint8_t *inv,
+                     int *w, int *h, int *hot_x, int *hot_y, uint32_t *gen);
 // ARGB pixels (alpha 0 clear) drawn at (x, y) of a DC: DrawIcon's work.
 void w16_gdi_draw_argb(struct w16 *w, uint16_t hdc, int x, int y, const uint32_t *px, int pw, int ph);
 int w16_ini_get(const char *file, const char *sec, const char *key, char *out, size_t cap);

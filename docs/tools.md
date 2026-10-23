@@ -7653,6 +7653,15 @@ runs first**: a `doom1.wad` with one
   WIN87EM answering 84h for a zero divide turns it red. `shapes.exe`:
   Ellipse's rows, RoundRect's corners and a pie's radius sit where real
   3.11 drew them; the ellipse's radii one pixel larger turn it red.
+  `cursor.exe`: its own class cursor is drawn as a client image
+  (`gui state`'s cursor shape 14 and `image`), its inverting pixels
+  black over white and white over black, the black and white ones
+  unchanged; SetClassWord(GCW_HCURSOR) switches it from the next move,
+  SetCursor(NULL) hides the pointer, and bits the program GlobalLocks and
+  rewrites show at its next SetCursor. The inversion broken
+  (`wm_render.c`'s XOR) or the re-read skipped (`w16_cursor_refresh()`)
+  each turn their check red. `--only NAME,...` runs just those checks
+  (`shapes`, `own_cursor`, ... -- `main()`'s list).
   In `gui_regress.py`.
   **Run it on a fresh image**: a second run in the same guest fails the
   two scale checks (toywm remembers gdi.exe's earlier window sizes) and
@@ -7691,8 +7700,9 @@ runs first**: a `doom1.wad` with one
   imports, internal far pointers, the entry and exports in a trailing
   section; `;w16:` comment lines set the module, segments, stack and
   heap, and the resources -- strings, bitmaps, dialogs and their
-  controls, menus, accelerators -- so a test program stays one text
-  file. Each relocation is a chain of one (its site holds 0xFFFF).
+  controls, menus, accelerators, 32x32 cursors drawn as rows of `.`
+  clear, `~` invert, `#` black, `o` white -- so a test program stays one
+  text file. Each relocation is a chain of one (its site holds 0xFFFF).
   `--dump FILE` is an independent reader the host check compares with.
   `make iso` builds every sample into `/usr/share/w16/`.
 - **`gen_w16_ordinals.py`** -- writes `userland/w16/w16_names.c`, each

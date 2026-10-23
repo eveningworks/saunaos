@@ -1394,6 +1394,17 @@ static void req_cursor(int from, struct wmchan_msg *m) {
     on_window_cursor(from, m->window, m->a);
 }
 
+// A ROUND TRIP: the client unlinks its object once this says the pixels
+// are copied (abi/win_proto.h, WIN_REQ_CURSOR_IMAGE).
+static void req_cursor_image(int from, struct wmchan_msg *m) {
+    struct wmchan_msg r;
+    k_memset(&r, 0, sizeof r);
+    r.type = WIN_REQ_CURSOR_IMAGE;
+    r.a = wm_cursor_img_define(from, m->a);
+    if (r.a == 0) redraw_pending = 1;   // the shape under the pointer may be this one
+    uchan_server_reply(&g_chan, from, &r, sizeof r);
+}
+
 static void req_drag_start(int from, struct wmchan_msg *m) {
     wm_dnd_start(from, m->a);
 }
@@ -1590,6 +1601,7 @@ static void (*const wm_req_table[])(int, struct wmchan_msg *) = {
     [WIN_REQ_WINDOW_STATE] = req_window_state,
     [WIN_REQ_SET_POINTER] = req_set_pointer,
     [WIN_REQ_CURSOR] = req_cursor,
+    [WIN_REQ_CURSOR_IMAGE] = req_cursor_image,
     [WIN_REQ_DRAG_START] = req_drag_start,
     [WIN_REQ_DRAG_END] = req_drag_end,
     [WIN_REQ_SCREENSHOT] = req_screenshot,
@@ -1630,6 +1642,7 @@ void wm_client_chan_pump(void) {
     for (int i = 0; i < n; i++) {
         wm_bg_client_gone(gone[i]);
         wm_screenshot_client_gone(gone[i]);   // its screen-sharing slot
+        wm_cursor_img_client_gone(gone[i]);
         for (int w = window_count - 1; w >= 0; w--)
             if (windows[w].client_pid == gone[i])
                 on_window_destroyed(gone[i], windows[w].client_win);

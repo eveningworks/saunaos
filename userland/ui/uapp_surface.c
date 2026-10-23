@@ -345,3 +345,36 @@ void popup_dismissed(int id) {
     g_app.top.dirty = 1;
 }
 
+
+// A pointer image of this client's own (abi/win_proto.h, WIN_REQ_CURSOR_IMAGE):
+// written into a fresh object, handed to the compositor, and unlinked once its
+// reply says the pixels were copied -- so nothing stays in the kernel's table.
+int uapp_cursor_image(struct uapp *a, int id, int w, int h, int hot_x, int hot_y,
+                      const uint32_t *argb, const uint8_t *invert) {
+    (void)a;
+    if (id < 0 || id >= WIN_CURSOR_IMAGE_IDS || w < 1 || h < 1 ||
+        w > WIN_CURSOR_IMAGE_MAX || h > WIN_CURSOR_IMAGE_MAX ||
+        hot_x < 0 || hot_y < 0 || hot_x >= w || hot_y >= h) return -1;
+    char nm[SHM_NAME_MAX];
+    snprintf(nm, sizeof nm, WIN_CURSOR_NAME_FMT, sys_getpid(), id);
+    uint64_t bytes = (WIN_CURSOR_IMAGE_BYTES(w, h) + 4095) & ~4095ULL;
+    sys_shm_unlink(nm);
+    int fd = sys_shm_open(nm, bytes, SHM_CREATE | SHM_EXCL);
+    if (fd < 0) return -1;
+    buf_grant(nm);
+    uint8_t *p = sys_mmap(0, bytes, SYS_PROT_READ | SYS_PROT_WRITE, SYS_MAP_SHARED, fd, 0);
+    sys_close(fd);
+    if (p == (void *)-1) { sys_shm_unlink(nm); return -1; }
+    struct win_cursor_image hd = { (uint16_t)w, (uint16_t)h, (uint16_t)hot_x, (uint16_t)hot_y };
+    int n = w * h;
+    memcpy(p, &hd, sizeof hd);
+    memcpy(p + sizeof hd, argb, (size_t)n * 4);
+    if (invert) memcpy(p + sizeof hd + (size_t)n * 4, invert, (size_t)n);
+    else memset(p + sizeof hd + (size_t)n * 4, 0, (size_t)n);
+    // MAPPED UNTIL THE REPLY: an object with no mapping and no fd left is
+    // freed, name and all, before the compositor could open it.
+    int r = wmchan_call(WIN_REQ_CURSOR_IMAGE, 0, id, 0, 0, 0, -1);
+    sys_munmap(p, bytes);
+    sys_shm_unlink(nm);
+    return r == 0 ? 0 : -1;
+}

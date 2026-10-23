@@ -957,7 +957,43 @@ struct win_event {
                            // uniformly one thing. Idempotent, and
                            // uapp_set_cursor() drops the no-op rather
                            // than sending one per mouse move. An unknown
-                           // shape is refused, not clamped.
+                           // shape is refused, not clamped. a >=
+                           // WIN_CURSOR_IMAGE_BASE names one of the
+                           // client's own images (below); one it never
+                           // defined shows the arrow.
+
+// --- a client's own cursor IMAGE ----------------------------------------
+//
+// Wayland's wl_pointer.set_cursor, a buffer and a hotspot, plus what
+// Windows' AND/XOR cursors have and neither Wayland nor X11 can say: an
+// INVERTING pixel, the screen under it turned to its complement. A Win16
+// program's crosshair is drawn that way, so it shows on any colour.
+//
+// The client writes the image into a shm object named
+// WIN_CURSOR_NAME_FMT (pid, id), grants it to the compositor and sends
+// WIN_REQ_CURSOR_IMAGE, which REPLIES once the compositor has COPIED the
+// pixels: the client then unlinks the object. A round trip per
+// definition rather than an object per image, because the kernel's shm
+// table is shared by everything (kernel/mm/shm.c). Defining an id again
+// replaces it; a client's images go when it does.
+#define WIN_REQ_CURSOR_IMAGE 46 // a: the id (0 .. WIN_CURSOR_IMAGE_IDS-1).
+                           // REPLIES a = 0, or -1: refused (no object, a
+                           // bad size, out of memory).
+#define WIN_CURSOR_IMAGE_BASE 0x100   // WIN_REQ_CURSOR's a for image 0
+#define WIN_CURSOR_IMAGE(id)  (WIN_CURSOR_IMAGE_BASE + (id))
+#define WIN_CURSOR_IMAGE_IDS  0x1000
+#define WIN_CURSOR_IMAGE_MAX  128     // a side, in pixels: a 32x32 cursor at 4x
+#define WIN_CURSOR_NAME_FMT "wcur.%d.%d"  // owner pid, image id
+
+// The object: this header, then w*h straight-alpha ARGB pixels, then
+// w*h bytes, nonzero where the pixel INVERTS what is under it (drawn
+// after the ARGB, which is transparent there in a Windows cursor).
+struct win_cursor_image {
+    uint16_t w, h;          // 1 .. WIN_CURSOR_IMAGE_MAX
+    uint16_t hot_x, hot_y;  // inside w x h
+};
+#define WIN_CURSOR_IMAGE_BYTES(w, h) \
+    (sizeof(struct win_cursor_image) + (uint64_t)(w) * (uint64_t)(h) * 5)
 #define WIN_REQ_ACTIVATE_OWN 40 // `window`: one of the CALLER'S OWN windows.
                            // "I refused the close you just sent this
                            // window -- I am asking something in it --

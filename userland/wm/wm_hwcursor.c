@@ -32,6 +32,7 @@
 static int g_avail = -1;   // -1 unqueried; the answer never changes
 static int g_shown = 0;
 static int g_kind = -1;    // the kind the plane currently shows
+static uint32_t g_serial;  // ...and when that is a client image, which one
 static int g_stale = 1;    // theme/scale changed: rebuild whatever g_kind says
 
 static uint32_t g_sprite[HWC_DIM * HWC_DIM];
@@ -109,8 +110,42 @@ static void build_sprite(const unsigned char *outline, const unsigned char *fill
 // hidden by simply not drawing it.
 void wm_hwcursor_hide(void) { hwc_hide(); }
 
+// A client's image, on the plane only when nothing in it inverts: the
+// plane is straight ARGB, so a Windows XOR pixel is the sprite's alone.
+static int sync_client(void) {
+    const struct wm_cursor_img *c = wm_render_client_cursor();
+    if (!c || c->inverts || c->w > HWC_DIM || c->h > HWC_DIM) {
+        hwc_hide();
+        return 0;
+    }
+    if (g_kind != WM_CURSOR_CLIENT || g_serial != c->serial || g_stale) {
+        k_memcpy(g_sprite, c->argb, (size_t)c->w * (size_t)c->h * 4);
+        uint64_t up = (uint64_t)(uintptr_t)g_sprite;
+        int32_t d = (int32_t)(((uint32_t)c->w << 24) | ((uint32_t)c->h << 16) |
+                               ((uint32_t)c->hot_x << 8) | (uint32_t)c->hot_y);
+        if (fb_cursor_req(WIN_FB_CURSOR_DEFINE, (int32_t)(up & 0xFFFFFFFFu),
+                           (int32_t)(up >> 32), d) != 0) {
+            hwc_hide();
+            g_avail = 0;
+            return 0;
+        }
+        g_kind = WM_CURSOR_CLIENT;
+        g_serial = c->serial;
+        g_stale = 0;
+    }
+    if (!g_shown) {
+        if (fb_cursor_req(WIN_FB_CURSOR_SHOW, 0, 0, 0) != 0) {
+            g_avail = 0;
+            return 0;
+        }
+        g_shown = 1;
+    }
+    return 1;
+}
+
 int wm_hwcursor_sync(enum wm_cursor_kind kind) {
     if (!wm_hwcursor_available()) return 0;
+    if (kind == WM_CURSOR_CLIENT) return sync_client();
 
     const struct cursor_shape *s = cursor_theme_shape(kind);
     int sc = cursor_theme_scale();

@@ -697,7 +697,32 @@ static void draw_cursor_themed(const struct cursor_shape *s, int x, int y,
     }
 }
 
+// The client image the last resolve_cursor_kind() landed on, when it
+// answered WM_CURSOR_CLIENT. Every draw resolves right before it draws,
+// so this is never older than the shape being drawn.
+static const struct wm_cursor_img *g_client_img;
+
+const struct wm_cursor_img *wm_render_client_cursor(void) { return g_client_img; }
+
+// A client's image: its ARGB blended, then its INVERTING pixels turned to
+// the complement of what is under them -- Windows' XOR, which only the
+// software sprite can do (wm_hwcursor_sync() leaves such a shape here).
+static void draw_cursor_client(int x, int y) {
+    const struct wm_cursor_img *c = g_client_img;
+    if (!c) { draw_cursor_normal(x, y); return; }
+    struct ugfx_surface *dst = cursor_surface();
+    int ox = x - c->hot_x, oy = y - c->hot_y;
+    for (int j = 0; j < c->h; j++)
+        for (int i = 0; i < c->w; i++) {
+            uint32_t p = c->argb[j * c->w + i];
+            if (p >> 24) ugfx_blend_pixel(dst, ox + i, oy + j, p & 0xFFFFFF, (unsigned char)(p >> 24));
+            if (c->inv[j * c->w + i])
+                ugfx_put_pixel(dst, ox + i, oy + j, ugfx_get_pixel(dst, ox + i, oy + j) ^ 0xFFFFFF);
+        }
+}
+
 static void draw_cursor(int x, int y, enum wm_cursor_kind kind) {
+    if (kind == WM_CURSOR_CLIENT) { draw_cursor_client(x, y); return; }
     // A theme shape when one loaded, the built-in otherwise. That
     // either/or is the vendor-default/override pattern /etc already
     // uses: a missing or malformed theme file degrades to a working
@@ -736,6 +761,7 @@ static void draw_cursor(int x, int y, enum wm_cursor_kind kind) {
 // routing, and turns "stranded over the desktop" into "wrong inside one
 // window until the pointer crosses a boundary".
 static enum wm_cursor_kind client_cursor_at(int mx, int my) {
+    g_client_img = 0;
     // The Start menu's search field is text: the I-beam, as over any field.
     if (start_menu_open) return start_menu_text_at(mx, my) ? WM_CURSOR_TEXT : WM_CURSOR_NORMAL;
     if (context_menu_open || calendar_open || wm_overlay_modal_open()) return WM_CURSOR_NORMAL;
@@ -761,6 +787,10 @@ static enum wm_cursor_kind client_cursor_at(int mx, int my) {
         // stale (Paintbrush's hourglass, set just before its Font dialog):
         // the arrow, as Windows gives a disabled window.
         if (wm_dialog_blocker(i) >= 0) return WM_CURSOR_NORMAL;
+        if (w->client_cursor >= WIN_CURSOR_IMAGE_BASE) {
+            g_client_img = wm_cursor_img_find(w->client_pid, w->client_cursor - WIN_CURSOR_IMAGE_BASE);
+            return g_client_img ? WM_CURSOR_CLIENT : WM_CURSOR_NORMAL;
+        }
         switch (w->client_cursor) {
         case WIN_CURSOR_TEXT:     return WM_CURSOR_TEXT;
         case WIN_CURSOR_WAIT:     return WM_CURSOR_WAIT;
@@ -786,6 +816,7 @@ static enum wm_cursor_kind client_cursor_at(int mx, int my) {
 }
 
 static enum wm_cursor_kind resolve_cursor_kind(int mx, int my) {
+    g_client_img = 0;
     // The WM's own gestures outrank geometry: a window being dragged by
     // its title bar, and a drag hovering somewhere that takes no drop.
     if (dragging >= 0) return WM_CURSOR_MOVE;
@@ -860,12 +891,18 @@ void wm_render_cursor_into(struct ugfx_surface *dst, int ox, int oy) {
 // damage rect) asks the same function. That is the invariant: if these
 // two ever disagree, a cursor move leaves a stale sprite behind, which
 // is a bug this file's comments already record paying for twice.
-#define CURSOR_UNDER_MAX (CURSOR_SHAPE_MAX * 3 + 2 * CURSOR_BOX_MARGIN)
+#define CURSOR_UNDER_SIDE (CURSOR_SHAPE_MAX * 3 > WIN_CURSOR_IMAGE_MAX ? CURSOR_SHAPE_MAX * 3 : WIN_CURSOR_IMAGE_MAX)
+#define CURSOR_UNDER_MAX (CURSOR_UNDER_SIDE + 2 * CURSOR_BOX_MARGIN)
 
 static void cursor_rect(enum wm_cursor_kind kind, int x, int y,
                          int *ox, int *oy, int *w, int *h) {
     const struct cursor_shape *s = cursor_theme_shape(kind);
-    if (s) {
+    if (kind == WM_CURSOR_CLIENT && g_client_img) {
+        *ox = x - g_client_img->hot_x - CURSOR_BOX_MARGIN;
+        *oy = y - g_client_img->hot_y - CURSOR_BOX_MARGIN;
+        *w  = g_client_img->w + 2 * CURSOR_BOX_MARGIN;
+        *h  = g_client_img->h + 2 * CURSOR_BOX_MARGIN;
+    } else if (s) {
         int sc = cursor_theme_scale();
         *ox = x - s->hot_x * sc - CURSOR_BOX_MARGIN;
         *oy = y - s->hot_y * sc - CURSOR_BOX_MARGIN;
@@ -979,7 +1016,15 @@ static void draw_drag_outline(void) {
 // Saves what's under (x, y) before drawing the cursor there, so a later
 // cursor-only move can restore it. Used by both render paths.
 // What was last actually drawn, recorded by the code that drew it.
+// A client image is told apart by its serial, so moving between two of
+// them -- Paintbrush's crosshair and its roller -- is a shape change.
 static int drawn_cursor_kind = -1;
+
+static int cursor_key(enum wm_cursor_kind kind) {
+    if (kind == WM_CURSOR_CLIENT && g_client_img)
+        return (int)(0x40000000u | (g_client_img->serial & 0x3FFFFFFFu));
+    return (int)kind;
+}
 
 static void draw_cursor_at(int x, int y) {
     draw_drag_outline();
@@ -1004,24 +1049,24 @@ static void draw_cursor_at(int x, int y) {
         return;
     }
     enum wm_cursor_kind kind = resolve_cursor_kind(x, y);
-    if ((int)kind != drawn_cursor_kind) wm_screenshot_cursor_changed();
+    if (cursor_key(kind) != drawn_cursor_kind) wm_screenshot_cursor_changed();
     // NO POINTER: the client draws its own where it is. Nothing saved,
     // nothing drawn, the plane off -- the screensaver's path, tracked.
     if (kind == WM_CURSOR_NONE) {
         wm_hwcursor_hide();
-        drawn_cursor_kind = (int)kind;
+        drawn_cursor_kind = cursor_key(kind);
         return;
     }
     if (wm_hwcursor_sync(kind)) {
         // The plane shows the pointer: nothing saved, nothing drawn.
         // drawn_cursor_kind still tracks, so a shape change is still
         // what re-renders (wm_cursor_shape_changed()).
-        drawn_cursor_kind = (int)kind;
+        drawn_cursor_kind = cursor_key(kind);
         return;
     }
     save_cursor_under(x, y, kind);
     draw_cursor(x, y, kind);
-    drawn_cursor_kind = (int)kind;
+    drawn_cursor_kind = cursor_key(kind);
 }
 
 int wm_render_cursor_image(uint32_t *px, int cap, int *w, int *h, int *hx, int *hy) {
@@ -1063,7 +1108,7 @@ int wm_render_cursor_image(uint32_t *px, int cap, int *w, int *h, int *hx, int *
 }
 
 int wm_cursor_shape_changed(int mx, int my) {
-    return (int)resolve_cursor_kind(mx, my) != drawn_cursor_kind;
+    return cursor_key(resolve_cursor_kind(mx, my)) != drawn_cursor_kind;
 }
 
 // --- rounded corners --------------------------------------------------

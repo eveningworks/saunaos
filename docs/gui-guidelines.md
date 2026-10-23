@@ -1320,7 +1320,11 @@ the order they bite:
   real system converged on (Windows' `SetCursor`, Wayland's
   `cursor-shape-v1`). An app that ships its own cursor art has to find,
   load and scale a theme itself, which is the thing that was tried and
-  abandoned elsewhere.
+  abandoned elsewhere. **The one exception is a cursor that IS the
+  program's content**, not toy-os's UI: a Win16 program's own cursor
+  resources, which w16 hands toywm through `uapp_cursor_image()`
+  (`docs/decisions/gui.md`, "A client's own cursor image"). A toy-os app
+  wanting a shape the theme lacks asks for a new theme shape instead.
 - **The built-in shapes are the floor.** A theme file that is missing or
   malformed costs its own shape and nothing else. The pointer must never
   be the thing that disappears.
