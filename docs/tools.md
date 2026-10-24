@@ -8555,6 +8555,28 @@ runs first**: a `doom1.wad` with one
   Windows folder looked as if it had lost most of its files. Its control,
   seen red with `mutate.py`: capping the listing at 256 in
   `uui_fileview.c`'s reload. In `gui_regress.py`.
+- **`umsexpand_hostcheck.py`** -- `userland/lib/umsexpand.c`, the SZDD and
+  KWAJ expander w16's Windows installer runs over setup disks, compiled on
+  the host under ASan + UBSan. Round trips: `mscompress.py` writes SZDD and
+  KWAJ methods 0-3 (method 3 in each of its code-length encodings) of
+  empty, tiny, random, repetitive and >64 KiB data, and the bytes and name
+  must come back. Real disks: when `~/CodingProjects/toy-osother/win311`
+  is there (`TOYOS_W311` moves it; local only, Microsoft's files), every
+  compressed file of the English and Finnish Windows for Workgroups 3.11
+  sets must expand byte for byte to libmspack's output -- 1,141 files;
+  skipped, saying so, anywhere else. Then thousands of truncated and
+  mutated copies, each in a buffer exactly its size. `--positive-control`
+  gives MATCHLEN2 32 symbols (round trips and real disks go red; the
+  tables then overrun the scratch, which ASan names) and drops the LZSS
+  reader's check that a match's two bytes are there (the fuzz goes red).
+  In `preflight.sh`.
+- **`mscompress.py`** -- COMPRESS.EXE's two formats WRITTEN: `kwaj IN OUT
+  [--method 0-3] [--name NAME.EXT]`, `szdd IN OUT`, and `kwaj()`/`szdd()`
+  to import. Method 3's tables go out in the cheapest of the four
+  code-length encodings (`force_type=` picks one), and a file always
+  records its length -- the stream has no end marker. The other half of
+  `umsexpand_hostcheck.py`, and how a test builds a Windows setup disk from
+  its own files.
 - **`uhlp_hostcheck.py`** -- `userland/lib/uhlp.c`, the Windows Help file
   reader, compiled on the host under ASan + UBSan against files WRITTEN by
   `hlpgen.py`, so the answer is known and no Microsoft data is needed. It

@@ -83,6 +83,7 @@
 | `ulogset.h` | ulogset -- log lines held for READING: the kernel ring, the application ring, a stored boot or any /var/log file, parsed into time, level, source and subsystem, merged in time order, counted for re... |
 | `umd.h` | umd -- rendering Markdown as text for a terminal. |
 | `umemcomp.h` | Where the memory in use is, as four rows that SUM to it: Apps (every process's private bytes, QUERY_PROCMEM), Shared (shm objects, each once), Graphics (RAM held for the screen) and Kernel (the res... |
+| `umsexpand.h` | Microsoft's COMPRESS.EXE formats undone -- what EXPAND.EXE and LZEXPAND.DLL did: SZDD (Windows 3.1, MS-DOS 6) and KWAJ (Windows for Workgroups 3.11, MS-DOS 6.2x), the `FILE.EX_` on every setup disk. |
 | `unametpl.h` | A FILE-NAME TEMPLATE: literal text with <tokens> the caller fills -- "shot-<date>-<time>" -> "shot-20261007-142233". |
 | `unavhist.h` | unavhist -- BACK AND FORWARD through the folders a view has shown: the File Manager's panes and the file chooser. |
 | `unetctl.h` | The control protocol between /bin/netctl (and the desktop's network flyout) and /bin/netd, over uchan -- the initctl shape (lib/uinitctl.h). |

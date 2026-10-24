@@ -303,6 +303,12 @@ python3 tools/uhlp_hostcheck.py || fail "uhlp reader vs generated help files"
 step "uwmf_draw_hostcheck.py (a metafile played into a box: mapping, objects, text, DIBs)"
 python3 tools/uwmf_draw_hostcheck.py || fail "uwmf_draw vs generated metafiles"
 
+# The SZDD/KWAJ expander reads Windows setup disks nobody here made. Round
+# trips through tools/mscompress.py, the real 3.11 disks when this machine
+# has them (local only), then mutated copies under ASan + UBSan. ~25 s.
+step "umsexpand_hostcheck.py (SZDD and KWAJ: round trips, real disks, hostile files)"
+python3 tools/umsexpand_hostcheck.py || fail "umsexpand vs mscompress.py and libmspack"
+
 step "boot_smoke_test.py"
 python3 tools/boot_smoke_test.py || fail "boot smoke test"
 
