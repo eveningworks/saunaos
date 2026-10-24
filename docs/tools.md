@@ -8555,6 +8555,17 @@ runs first**: a `doom1.wad` with one
   Windows folder looked as if it had lost most of its files. Its control,
   seen red with `mutate.py`: capping the listing at 256 in
   `uui_fileview.c`'s reload. In `gui_regress.py`.
+- **`ufatimg_hostcheck.py`** -- `userland/lib/ufatimg.c`, FAT12/FAT16 disk
+  images read from memory (setup floppies as files), compiled on the host
+  under ASan + UBSan against MTOOLS as the second reader: a 1.44 MB floppy,
+  a 1.68 MB DMF one and a FAT16 volume it formats, with files of 0-513 and
+  300,000 bytes, a directory two deep, a deleted and a long-named file --
+  label, listings and bytes must agree. With `~/CodingProjects/toy-osother`
+  here (local only), the eight Windows for Workgroups 3.11 floppies must
+  hold exactly the install set's 568 files. Then truncated and mutated
+  images, each in a buffer exactly its size. `--positive-control` swaps
+  FAT12's nibbles (bytes go wrong) and stops checking a cluster against
+  the image's end (ASan goes red). In `preflight.sh`.
 - **`umsexpand_hostcheck.py`** -- `userland/lib/umsexpand.c`, the SZDD and
   KWAJ expander w16's Windows installer runs over setup disks, compiled on
   the host under ASan + UBSan. Round trips: `mscompress.py` writes SZDD and

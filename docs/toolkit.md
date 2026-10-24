@@ -53,6 +53,7 @@
 | `uduration.h` | A length of time typed by a person -- "2", "0.25", "90s", "1.5m", "2h", "1d" -- as whole milliseconds. |
 | `ueffect.h` | A WINDOW EFFECT'S OPTIONS -- what it declares, and what the user chose. |
 | `uelfsym.h` | uelfsym -- function names for addresses in an ELF64 file on disk, and the bytes at an address: what a crash report's backtrace needs to name a frame and to check it follows a call. |
+| `ufatimg.h` | The files on a FAT12 or FAT16 disk IMAGE held in memory -- the 1.44 MB floppies (and DMF's 1.68 MB) Windows 3.x and DOS shipped on, read so w16's installer can take `Disk01.img` as it is. |
 | `ufbs.h` | First-boot setup (FBS): whether it should run this boot, and the marker that says it has -- for the wizard (/bin/wm/system/firstboot), `fbs` and System Settings. |
 | `ufile.h` | Reading a whole file into one allocation, in one place. |
 | `ufileinfo.h` | ufileinfo -- the facts about one path, gathered once: what Properties and the File Manager's details pane show (ui/uui_fileinfo.h draws them). |

@@ -309,6 +309,11 @@ python3 tools/uwmf_draw_hostcheck.py || fail "uwmf_draw vs generated metafiles"
 step "umsexpand_hostcheck.py (SZDD and KWAJ: round trips, real disks, hostile files)"
 python3 tools/umsexpand_hostcheck.py || fail "umsexpand vs mscompress.py and libmspack"
 
+# Setup floppies as image files: FAT12/16 read from memory, against mtools'
+# reading, the real disks when here, and mutated images under ASan. ~25 s.
+step "ufatimg_hostcheck.py (FAT12/16 disk images: against mtools, real disks, hostile images)"
+python3 tools/ufatimg_hostcheck.py || fail "ufatimg vs mtools"
+
 step "boot_smoke_test.py"
 python3 tools/boot_smoke_test.py || fail "boot smoke test"
 
