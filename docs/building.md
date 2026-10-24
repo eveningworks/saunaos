@@ -227,6 +227,7 @@ broken?". The ones worth knowing first:
 | `gui_regress.py` | Every GUI test tool, each on its own fresh disk image and VM, as one pass/fail table. |
 | `gui_debug.py` | Asks the window manager what it is doing — window rects, z-order, hit-testing, damage — instead of measuring a screenshot. |
 | `predates.py` | Answers "was this already broken?" by measuring: stashes the tree, rebuilds at HEAD, runs the command, restores, compares. |
+| `test_history.py` | When did this check last fail or pass, at which commit, on which host? Every local test run is recorded with its log in `~/.local/share/toy-os/test-history/`, never in the repo. |
 
 [tools.md](tools.md) is the full reference — every script, why it
 exists, and the traps it encodes — and [testing.md](testing.md) covers

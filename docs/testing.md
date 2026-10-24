@@ -247,9 +247,12 @@ DEPENDING ON WHICH FRAME IT GOT.** When a frame that held executed code
 translations for that frame and sends every write to it down the
 self-modifying-code slow path. `info jit` shows no invalidations
 during the slowdown, and the TB count stays flat. `spin_test`'s
-`volatile` stack counter took 57-61 s of CPU instead of 0.5 s, in
-4 boots of 5 after an unrelated change moved the memory layout
-(2026-10-24, measured with a probe in `sched_test.c`). Real hardware
+`volatile` stack counter took 57-61 s of CPU instead of 0.5 s
+(measured with a probe in `sched_test.c`), so the `[sched]` KTESTs'
+30 s guards expired: 1 preflight in 5 on 2026-10-10, 5 runs of 12 on
+2026-10-15, and 4 boots of 5 on 2026-10-24 after a userland-only change
+moved the memory layout (be5c6d03, bisected). After the register
+counter (e579fe88), 9 runs of 9 passed. Real hardware
 and KVM have no such path. A spin meant to burn CPU keeps its counter
 in a REGISTER (`spin_test.c`); a test that times a ring-3 loop under
 TCG is timing the frame allocator as well.

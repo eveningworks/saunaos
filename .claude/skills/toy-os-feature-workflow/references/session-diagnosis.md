@@ -317,6 +317,17 @@ and the first is worth more than the rest.**
   worktree-isolated session use `git stash push -u -m <unique-tag>`,
   capture the SHA, and `git stash apply <sha>` -- never a bare
   `stash`/`pop`, since the stack is shared with every other worktree.
+- **A red check: ask `test_history.py "<check>"` and grep `docs/bugs.md`
+  for its NAME, before any theory** (2026-10-24). A `sched` KTEST went
+  red at the gate. It had been filed ten days earlier with exactly the
+  same signature, and I missed that entry. Two theories, each from one
+  run per side, then went into the docs and came back out: btrfs versus
+  tmpfs, then stale objects. A flake needs a RATE on each side from one
+  harness (5 runs at the old build, 5 at HEAD), then a bisect. Then a
+  probe that DUMPS STATE at the failure: the process table showed
+  spin_test charged a fair share and still not done. The `info jit`
+  counters over a whole run ruled out the emulator recompiling code.
+  The fix was a register counter (`docs/testing.md`, TCG busy loops).
 
 **A panic is diagnosable from a pasted log now** (`kernel/arch/x86_64/
 idt.c`): the relocation offset, the LINK-TIME RIP and a stack scan, all

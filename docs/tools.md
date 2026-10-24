@@ -216,7 +216,10 @@ manual steps to be worth automating:
   `copy_disk(src, dst, cwd=None)` (the sparse, reflinked copy), and
   `BodyServer` (a threaded HTTP(S) server on this machine answering
   with one body or a route table, reached from a guest as 10.0.2.2).
-  Moved in on 2026-09-30 from 67 tools' own tables, 40 `cp` lines and
+  `Results` also RECORDS the run in the local test history
+  (`test_history.py`), keeping everything printed from its construction
+  on as the log -- except under `gui_regress.py`, which records the
+  tool's row itself. Moved in on 2026-09-30 from 67 tools' own tables, 40 `cp` lines and
   `hwdata_test`/`https_test`'s servers. **Only the part that did not
   differ** (`dup_scan.py`'s rule): a table with `report()`,
   `clipboard_test.py`'s `check(ok, what)` order, and `damage_hunt.py`'s
@@ -378,7 +381,9 @@ manual steps to be worth automating:
   that one needs a disk copy and a longer boot cycle, run it yourself
   after `kernel/fs/` changes), so
   "am I safe to deliver?" is one call instead of three run by hand.
-  `--skip-clean` skips the initial `make clean`.
+  `--skip-clean` skips the initial `make clean`. Every run is recorded
+  in the local test history (`test_history.py`) with its whole output
+  and the step that failed, and every tool it runs names it as parent.
   **It refuses to run until this repository has a commit identity of its
   own.** That identity is per-repository, so a CLONE DOES NOT CARRY IT
   and a fresh checkout falls back to the global one -- the real name a
@@ -5824,7 +5829,10 @@ window without going through it will find its layout polls timing out.
   version of that check stayed green through the positive control.
 - **`gui_regress.py`** -- runs every GUI test tool, each against
   its own copy of a FRESH image and its own VM, and prints one
-  pass/fail table (~1.5 minutes; ~300 checks across ~25 tools, a snapshot rather than a maintained count). This is the standard check
+  pass/fail table -- and records a row per tool, under the script's
+  name, plus one for the run in the local test history
+  (`test_history.py`), each with its output: `--logs` is no longer the
+  only copy of a run that has scrolled away (~1.5 minutes; ~300 checks across ~25 tools, a snapshot rather than a maintained count). This is the standard check
   after touching `apps/ui/`, `userland/`, or anything the WM draws.
   Tools are **STARTED longest-first** (`COST_S`/`pick_order()`), because
   a parallel run cannot end before its slowest member does and
