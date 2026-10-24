@@ -50,6 +50,7 @@
 #include "cpu16.h"
 #include "ne.h"
 #include "w16_names.h"
+#include "lib/urgn.h"
 
 struct uapp;
 
@@ -218,8 +219,7 @@ struct w16_gdiobj {
     uint8_t type;
     uint32_t color;               // pen, brush: a COLORREF
     uint16_t style, width;        // pen, brush; a hatched brush's HS_* is `width`
-    int16_t rgn[4];               // region: its bounding rectangle...
-    uint8_t complex;              // ...and whether it is more than that rectangle
+    struct urgn rg;               // region: its rectangles (lib/urgn)
     int bw, bh, mono;             // bitmap; a pattern brush's 8x8 in px (mono: 0 and 1)
     uint32_t *px;
     uint16_t in_dc;               // bitmap: the DC it is selected into
@@ -242,7 +242,8 @@ struct w16_gdiobj {
     int map_mode, stretch_mode, fill_mode;
     int16_t worg[2], wext[2], vorg[2], vext[2];
     int has_clip;
-    int16_t clip[4];
+    int16_t clip[4];              // the clip's bounding box: what fill_target() bounds drawing by...
+    struct urgn *cliprgn;         // ...and, when the clip is more than that box, its rectangles
     int16_t break_extra, break_count;
     struct w16_gdiobj *saved;     // SaveDC's stack, allocated
     int nsaved;
@@ -942,6 +943,7 @@ extern const unsigned g_commdlg_api_n;
 int w16_dos_file(struct w16 *w, struct cpu16 *c);  // INT 21h's file calls; -1 not one
 // OpenFile's work: the handle, HFILE_ERROR (the OFSTRUCT saying why), or -1 with the fault set.
 void w16_prog_dir(struct w16 *w, char *out, size_t cap);
+const struct ne_module *w16_display_ne(struct w16 *w);   // VGA.DRV's resources: OEMBIN, OBM_ bitmaps
 int w16_open_file(struct w16 *w, uint32_t name, uint32_t ofs, uint16_t style);
 // A DOS handle in host memory, for LZEXPAND: a count, the new position, or -1; 0 or -1 for a close.
 long w16_file_read(unsigned h, void *buf, size_t n);

@@ -678,8 +678,8 @@ static int api_DrawText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // LoadBitmap(hInstance, lpBitmapName) -> HBITMAP
 // Windows: A bitmap from a BITMAP resource -- or, with hInstance NULL, one of Windows' own (the
 // check mark, scroll arrows, size box...).
-// w16: A program's own bitmap, as it is. Windows' own bitmaps are not drawn yet: 0, as for a name
-// that is not there.
+// w16: A program's own bitmap, as it is; Windows' own from the display driver SYSTEM.INI names
+// (VGA.DRV's, as USER took them) -- 0 when drive C: has none.
 static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t inst = w16_arg16(a);
@@ -688,7 +688,9 @@ static int api_LoadBitmap(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     w->cpu.r[R_AX] = 0;
     if ((name >> 16) && cpu16_str(&w->cpu, (uint16_t)(name >> 16), (uint16_t)name, sname, sizeof sname) < 0)
         return -1;
-    const struct ne_module *m = w16_module_of(w, inst);
+    // NULL with an OBM_ number: Windows' own -- the scroll arrows, the check marks -- which USER took
+    // from the display driver, as w16 does.
+    const struct ne_module *m = inst ? w16_module_of(w, inst) : !(name >> 16) ? w16_display_ne(w) : 0;
     struct ne_resource r;
     if (m && ne_resource_find(m, 2, 0, (name >> 16) ? 0 : (uint16_t)name, sname[0] ? sname : 0, &r) >= 0)
         w->cpu.r[R_AX] = w16_gdi_bitmap_of_dib(w, m->img + r.off, r.len);

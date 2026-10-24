@@ -107,6 +107,7 @@
 | `uremote.h` | The remote desktop, from any program: /etc/remote.conf (what /bin/remoted serves and who may connect), the sessions open now, and the two things anyone may do to one -- end it, or make it view only. |
 | `urename.h` | RENAMING MANY FILES AT ONCE: the new names a rule gives a set of names, and whether the set can be renamed as planned -- Dolphin's "Rename items", Thunar's Bulk Rename, PowerToys' PowerRename. |
 | `uresolv.h` | Turning a name into an address: DNS over UDP, in ring 3. |
+| `urgn.h` | A GROWABLE REGION: any number of disjoint rectangles, with the set operations Windows' GDI regions have -- intersect, union, subtract, xor -- and offset, equality, containment. |
 | `usaver.h` | Where the savers are. |
 | `usetting.h` | One setting, by qualified name, for a ring-3 program: the GET and SET halves of `SYS_SETTING` with the message built here rather than in every caller. |
 | `usetting_schema.h` | A setting DECLARED by a file, and owned by ring 3. |

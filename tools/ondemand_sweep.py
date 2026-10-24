@@ -139,6 +139,9 @@ TOOLS = [
     # that an overflow errs LARGE. Host-only, gcc alone.
     ("uregion_host", "uregion_hostcheck.py",   "visible regions are exact, or a superset on overflow", False,
      None,                                                                                   False),
+    # w16's growable GDI regions against a bitmap: exact, no cap, coalesced. Host-only, gcc alone.
+    ("urgn_host", "urgn_hostcheck.py",         "GDI regions are exact and coalesce", False,
+     None,                                                                                   False),
     # The CRT effect's vectorised passes against a plain integer model,
     # within 1 per channel. Host-only, gcc alone, under -ffreestanding.
     ("ucrt_host",   "ucrt_hostcheck.py",       "the CRT effect's passes match their integer model", False,

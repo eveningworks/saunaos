@@ -25,6 +25,11 @@
 ;                   by 5,5's kind (0002, SIMPLEREGION), then GetRgnBox's left (000F)
 ;           Desk= / Sys=  GetSysColor(COLOR_BACKGROUND), 3.1's light grey (00C0C0C0); GetSysColor(
 ;                   COLOR_BTNFACE) after SetSysColors made it blue (00FF0000) for the run
+;           Xor=    CombineRgn(RGN_XOR) of (0,0,10,10) and (5,5,15,15): its kind (0003, COMPLEXREGION), then
+;                   PtInRegion at 7,7 (0000, in both) and 2,2 (0001)
+;           Poly=   CreatePolygonRgn of the triangle (0,0) (20,0) (0,20): PtInRegion at 2,2 (0001) and 15,15 (0000)
+;           Hole=   on the 8x1 bitmap: white, ExcludeClipRect(2,0,4,1), black: GetPixel at 3 (00FFFFFF, the
+;                   hole kept white) and 6 (00000000)
 ;           LZ= / LZRead= / LZEnd= / LZText= / LZName=  LZEXPAND on a 10-byte SZDD file the probe writes to
 ;                   C:\WINDOWS and opens by its bare name -- OpenFile's search, as Control Panel opens
 ;                   CONTROL.INF: an LZ handle (0190, the first), the count read (000A), LZSeek to the end
@@ -359,6 +364,118 @@ start:
     call hex16
     mov byte [di], 0
 
+    push word 0                     ; CreateRectRgn(0, 0, 10, 10) and (5, 5, 15, 15), then XOR them
+    push word 0
+    push word 10
+    push word 10
+    W16_CALL "GDI", 64
+    mov [rgn], ax
+    push word 5
+    push word 5
+    push word 15
+    push word 15
+    W16_CALL "GDI", 64
+    mov [rgn2], ax
+    push word [rgn]                 ; CombineRgn(rgn, rgn, rgn2, RGN_XOR)
+    push word [rgn]
+    push word [rgn2]
+    push word 3
+    W16_CALL "GDI", 47
+    mov di, xor_text
+    call hex16
+    push di
+    push word [rgn]
+    push word 7
+    push word 7
+    W16_CALL "GDI", 161
+    pop di
+    call hex16
+    push di
+    push word [rgn]
+    push word 2
+    push word 2
+    W16_CALL "GDI", 161
+    pop di
+    call hex16
+    mov byte [di], 0
+    push word [rgn]
+    W16_CALL "GDI", 69
+    push word [rgn2]
+    W16_CALL "GDI", 69
+
+    push ds                         ; CreatePolygonRgn(tri, 3, ALTERNATE)
+    push word tri
+    push word 3
+    push word 1
+    W16_CALL "GDI", 63
+    mov [rgn], ax
+    mov di, poly_text
+    push di
+    push word [rgn]
+    push word 2
+    push word 2
+    W16_CALL "GDI", 161
+    pop di
+    call hex16
+    push di
+    push word [rgn]
+    push word 15
+    push word 15
+    W16_CALL "GDI", 161
+    pop di
+    call hex16
+    mov byte [di], 0
+    push word [rgn]
+    W16_CALL "GDI", 69
+
+    push word [mem]                 ; PatBlt(mem, 0, 0, 8, 1, WHITENESS)
+    push word 0
+    push word 0
+    push word 8
+    push word 1
+    push word 0x00FF
+    push word 0x0062
+    W16_CALL "GDI", 29
+    push word [mem]                 ; ExcludeClipRect(mem, 2, 0, 4, 1)
+    push word 2
+    push word 0
+    push word 4
+    push word 1
+    W16_CALL "GDI", 21
+    push word [mem]                 ; PatBlt(mem, 0, 0, 8, 1, BLACKNESS)
+    push word 0
+    push word 0
+    push word 8
+    push word 1
+    push word 0x0000
+    push word 0x0042
+    W16_CALL "GDI", 29
+    push word [mem]                 ; GetPixel(mem, 3, 0): DX:AX
+    push word 3
+    push word 0
+    W16_CALL "GDI", 83
+    mov di, hole_text
+    push ax
+    mov ax, dx
+    call hex16
+    pop ax
+    call hex16
+    push di
+    push word [mem]                 ; GetPixel(mem, 6, 0)
+    push word 6
+    push word 0
+    W16_CALL "GDI", 83
+    pop di
+    push ax
+    mov ax, dx
+    call hex16
+    pop ax
+    call hex16
+    mov byte [di], 0
+    push word [mem]                 ; SelectClipRgn(mem, NULL): the clip taken away again
+    push word 0
+    W16_CALL "GDI", 44
+
     push cs                         ; EnumFontFamilies(screen, NULL, MakeProcInstance(famproc), 0)
     push word famproc
     push word [hinst]
@@ -505,7 +622,7 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_ver, ver_text, key_verdest, verdest_text, key_vis, vis_text, key_lz, lz_text
             dw key_lzread, lzread_text, key_lzend, lzend_text, key_lztext, lz_buf, key_lzname, lz_name
             dw key_dbl, dbl_text, key_swap, swap_text, key_rgn, rgn_text, key_desk, desk_text
-            dw key_sys, sys_text, 0
+            dw key_sys, sys_text, key_xor, xor_text, key_poly, poly_text, key_hole, hole_text, 0
 key_base:   db "Base", 0
 key_async:  db "Async", 0
 key_w1000:  db "Wide1000", 0
@@ -526,6 +643,14 @@ key_vis:    db "Vis", 0
 key_lz:     db "LZ", 0
 key_dbl:    db "Dbl", 0
 key_rgn:    db "Rgn", 0
+key_xor:    db "Xor", 0
+key_poly:   db "Poly", 0
+key_hole:   db "Hole", 0
+xor_text:   times 14 db 0
+poly_text:  times 10 db 0
+hole_text:  times 18 db 0
+rgn2:       dw 0
+tri:        dw 0, 0, 20, 0, 0, 20
 key_desk:   db "Desk", 0
 key_sys:    db "Sys", 0
 rgn_text:   times 18 db 0

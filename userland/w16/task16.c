@@ -181,7 +181,6 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "DDEML",   11,  "no conversation to send in" },                       // DdeClientTransaction
     { "DDEML",   16,  "no data ever arrives" },                             // DdeGetData
     { "DDEML",   27,  "names a service no one can reach" },                 // DdeNameService
-    { "GDI",     47,  "a region is its bounding rectangle" },               // CombineRgn
     { "GDI",     53,  "no printer to make a DC for" },                  // CreateDC
     { "GDI",     123, "a palette is not realised" },                    // PlayMetaFile
     { "KERNEL",  166, "runs nothing: answers that the file is not there" }, // WinExec
@@ -223,11 +222,9 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    61,  "repaints the whole window; its children do not move" },   // ScrollWindow
     { "USER",    456, "answers no icon" },                                  // LoadIconHandler
     { "KERNEL",  64,  "answers an error: no file handle for a resource" },  // AccessResource
-    { "GDI",     63,  "a region is its bounding rectangle" },               // CreatePolygonRgn
     { "GDI",     71,  "lists no objects" },                                 // EnumObjects
     { "GDI",     307, "answers FALSE: no bearings are measured" },          // GetCharABCWidths
     { "GDI",     366, "no palette is realised" },                           // UpdateColors
-    { "GDI",     21,  "takes off only a whole side of the clip" },          // ExcludeClipRect
 };
 
 const char *w16_partly(const char *module, unsigned ordinal) {

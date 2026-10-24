@@ -433,6 +433,11 @@ static struct w16_dll *display_module(struct w16 *w) {
     return d;
 }
 
+const struct ne_module *w16_display_ne(struct w16 *w) {
+    struct w16_dll *d = display_module(w);
+    return d ? &d->ne : 0;
+}
+
 int w16_dll_start_pending(struct w16 *w) {
     for (int i = 0; i < w->ndlls; i++) {
         struct w16_dll *d = w->dlls[i];

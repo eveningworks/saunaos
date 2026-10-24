@@ -79,7 +79,16 @@ static int type_of(struct w16 *w, uint16_t h) {
 #define MM_ISOTROPIC   7
 #define MM_ANISOTROPIC 8
 
+// A DC's clip rectangles, and those of each state SaveDC kept, freed.
+static void dc_clip_free(struct w16_gdiobj *dc) {
+    for (int i = 0; i < dc->nsaved; i++)
+        if (dc->saved[i].cliprgn) { urgn_free(dc->saved[i].cliprgn); free(dc->saved[i].cliprgn); }
+    if (dc->cliprgn) { urgn_free(dc->cliprgn); free(dc->cliprgn); }
+    dc->cliprgn = 0;
+}
+
 static void dc_defaults(struct w16_gdiobj *dc) {
+    dc_clip_free(dc);
     free(dc->saved);
     dc->saved = 0;
     dc->nsaved = 0;
@@ -172,6 +181,7 @@ void w16_gdi_give_dc(struct w16 *w, uint16_t hdc) {
     struct w16_gdiobj *dc = obj(w, hdc, GDI_DC);
     if (!dc || !dc->hwnd) return;
     if (!dc->extra) { dc->taken = 0; return; }
+    dc_clip_free(dc);
     free(dc->saved);
     memset(dc, 0, sizeof *dc);
 }
@@ -223,7 +233,7 @@ uint16_t w16_gdi_screen_dc(struct w16 *w) {
 void w16_gdi_forget_window(struct w16 *w, uint16_t hwnd) {
     struct w16_wnd *x = w16_wnd_get(w, hwnd);
     struct w16_gdiobj *dc = x ? obj(w, x->dc, GDI_DC) : 0;
-    if (dc && dc->hwnd == hwnd) { free(dc->saved); memset(dc, 0, sizeof *dc); }
+    if (dc && dc->hwnd == hwnd) { dc_clip_free(dc); free(dc->saved); memset(dc, 0, sizeof *dc); }
     if (x) x->dc = 0;
 }
 
@@ -398,6 +408,8 @@ static struct kept { int x, y, w, h; uint32_t *px; } *g_kept;
 static int g_nkept, g_kept_cap;
 static const struct gdi_target *g_kept_t;
 
+static void keep_children(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t);
+
 static void restore_children(void) {
     for (int i = 0; i < g_nkept; i++) {
         struct kept *k = &g_kept[i];
@@ -408,8 +420,60 @@ static void restore_children(void) {
     g_nkept = 0;
 }
 
-static void keep_children(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t) {
+static struct kept *kept_next(void) {
+    if (g_nkept == g_kept_cap) {
+        int cap = g_kept_cap ? 2 * g_kept_cap : 8;
+        struct kept *g = realloc(g_kept, (size_t)cap * sizeof *g);
+        if (!g) return 0;
+        g_kept = g;
+        g_kept_cap = cap;
+    }
+    return &g_kept[g_nkept];
+}
+
+// (x0, y0)-(x1, y1) of t's pixels kept, cut to what the call may draw on; 0, or -1 out of memory.
+static int keep_rect(const struct gdi_target *t, int x0, int y0, int x1, int y1) {
+    if (x0 < t->x0) x0 = t->x0;
+    if (y0 < t->y0) y0 = t->y0;
+    if (x1 > t->x1) x1 = t->x1;
+    if (y1 > t->y1) y1 = t->y1;
+    if (x1 <= x0 || y1 <= y0) return 0;
+    struct kept *k = kept_next();
+    if (!k) return -1;
+    *k = (struct kept){ x0, y0, x1 - x0, y1 - y0, malloc((size_t)(x1 - x0) * (y1 - y0) * 4) };
+    if (!k->px) return -1;
+    for (int row = 0; row < k->h; row++)
+        memcpy(k->px + (size_t)row * k->w, t->px + (size_t)(y0 + row) * t->w + x0, (size_t)k->w * 4);
+    g_nkept++;
+    return 0;
+}
+
+// A CLIP OF MORE THAN ONE RECTANGLE IS DRAWN THROUGH LIKE WS_CLIPCHILDREN: fill_target() bounds the
+// call by the clip's bounding box, and what lies in that box but outside the clip -- the holes
+// ExcludeClipRect cut, the gaps of a complex SelectClipRgn -- is kept here and put back after.
+// Every drawing call then honours the region with no change of its own.
+static void keep_holes(const struct w16_gdiobj *dc, const struct gdi_target *t) {
+    if (!dc->has_clip || !dc->cliprgn || !t->px) return;
+    struct urgn holes;
+    urgn_init(&holes);
+    if (urgn_set_rect(&holes, dc->clip[0], dc->clip[1], dc->clip[2] - dc->clip[0], dc->clip[3] - dc->clip[1]) == 0 &&
+        urgn_subtract(&holes, &holes, dc->cliprgn) == 0) {
+        g_kept_t = t;
+        for (int i = 0; i < holes.n; i++) {
+            const struct urect *r = &holes.r[i];
+            if (keep_rect(t, r->x + t->ox, r->y + t->oy, r->x + r->w + t->ox, r->y + r->h + t->oy) < 0) break;
+        }
+    }
+    urgn_free(&holes);
+}
+
+static void keep_clip(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t) {
     restore_children();
+    keep_children(w, dc, t);
+    keep_holes(dc, t);
+}
+
+static void keep_children(struct w16 *w, const struct w16_gdiobj *dc, const struct gdi_target *t) {
     struct w16_wnd *x = dc->hwnd ? w16_wnd_get(w, dc->hwnd) : 0;
     if (!x || !(x->style & WS_CLIPCHILDREN) || !t->px) return;
     int n;
@@ -420,25 +484,8 @@ static void keep_children(struct w16 *w, const struct w16_gdiobj *dc, const stru
         int ox, oy, l, tp, r, b;
         w16_wnd_origin(w, v[i], &ox, &oy);
         w16_wnd_insets(v[i], &l, &tp, &r, &b);
-        int x0 = ox - l, y0 = oy - tp, x1 = x0 + v[i]->w, y1 = y0 + v[i]->h;
-        if (x0 < t->x0) x0 = t->x0;
-        if (y0 < t->y0) y0 = t->y0;
-        if (x1 > t->x1) x1 = t->x1;
-        if (y1 > t->y1) y1 = t->y1;
-        if (x1 <= x0 || y1 <= y0) continue;
-        if (g_nkept == g_kept_cap) {
-            int cap = g_kept_cap ? 2 * g_kept_cap : 8;
-            struct kept *g = realloc(g_kept, (size_t)cap * sizeof *g);
-            if (!g) break;
-            g_kept = g;
-            g_kept_cap = cap;
-        }
-        struct kept *k = &g_kept[g_nkept];
-        *k = (struct kept){ x0, y0, x1 - x0, y1 - y0, malloc((size_t)(x1 - x0) * (y1 - y0) * 4) };
-        if (!k->px) break;
-        for (int row = 0; row < k->h; row++)
-            memcpy(k->px + (size_t)row * k->w, t->px + (size_t)(y0 + row) * t->w + x0, (size_t)k->w * 4);
-        g_nkept++;
+        int x0 = ox - l, y0 = oy - tp;
+        if (keep_rect(t, x0, y0, x0 + v[i]->w, y0 + v[i]->h) < 0) break;
     }
     free(v);
 }
@@ -450,7 +497,7 @@ static struct w16_gdiobj *target(struct w16 *w, uint16_t hdc, struct gdi_target 
     if (!dc) return 0;
     if (dc->hwnd) pthread_mutex_lock(&w->lock);
     fill_target(w, dc, t);
-    if (dc->hwnd) keep_children(w, dc, t);
+    keep_clip(w, dc, t);
     return dc;
 }
 
@@ -480,6 +527,7 @@ static void hold_flash(struct w16 *w) {
 }
 
 static void gdi_done(struct w16 *w, struct w16_gdiobj *dc) {
+    if (dc && !dc->hwnd) restore_children();     // a bitmap DC's clip holes
     if (dc && dc->hwnd) {
         int flash = inverting_rop2(dc->rop2);
         restore_children();
@@ -491,6 +539,7 @@ static void gdi_done(struct w16 *w, struct w16_gdiobj *dc) {
 
 // A window DC's lock dropped after a call that only READ (GetPixel, PtVisible).
 static void gdi_read_done(struct w16 *w, struct w16_gdiobj *dc) {
+    if (dc && !dc->hwnd) restore_children();
     if (dc && dc->hwnd) {
         restore_children();
         pthread_mutex_unlock(&w->lock);
@@ -810,7 +859,7 @@ static int bit_blt(struct w16 *w, struct w16_args *a) {
     if (locked) pthread_mutex_lock(&w->lock);
     if (ddc) fill_target(w, ddc, &dt);
     if (sdc) { fill_target(w, sdc, &st); sp = &st; }
-    if (ddc && ddc->hwnd) keep_children(w, ddc, &dt);   // after the source is read, not before
+    if (ddc) keep_clip(w, ddc, &dt);             // after the source is read, not before
     if (ddc) {
         int l = x, t = y, r = x + cw, b = y + ch;
         dev_rect(ddc, &l, &t, &r, &b);
@@ -887,7 +936,7 @@ static int stretch_blt(struct w16 *w, struct w16_args *a) {
             gdi_target_whole(&tt);
         }
     }
-    if (ddc->hwnd) keep_children(w, ddc, &dt);
+    keep_clip(w, ddc, &dt);
     int64_t br = brush_of(w, ddc->brush);
     struct gdi_blit b = {
         .dst = &dt, .src = tmp ? &tt : 0, .x = dx, .y = dy, .w = dw, .h = dh,
@@ -1635,8 +1684,10 @@ static void delete_object(struct w16 *w, uint16_t h) {
         if (o->hwnd || o->screen) return;
         struct w16_gdiobj *bm = obj(w, o->bitmap, GDI_BITMAP);
         if (bm) bm->in_dc = 0;
+        dc_clip_free(o);
         free(o->saved);
     }
+    if (t == GDI_REGION) urgn_free(&o->rg);
     memset(o, 0, sizeof *o);
 }
 
@@ -2616,7 +2667,8 @@ static int api_PtVisible(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct gdi_target t;
     struct w16_gdiobj *dc = target(w, hdc, &t);
     int px = (dc ? dev_x(dc, x) : x) + t.ox, py = (dc ? dev_y(dc, y) : y) + t.oy;
-    w->cpu.r[R_AX] = dc && t.px && px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1;
+    w->cpu.r[R_AX] = dc && t.px && px >= t.x0 && py >= t.y0 && px < t.x1 && py < t.y1 &&
+                     (!dc->cliprgn || urgn_contains(dc->cliprgn, px - t.ox, py - t.oy));
     gdi_read_done(w, dc);                        // drew nothing: no repaint
     return 6;
 }
@@ -2640,7 +2692,9 @@ static int api_RectVisible(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     int x1 = (dc ? dev_x(dc, r[2]) : r[2]) + t.ox, y1 = (dc ? dev_y(dc, r[3]) : r[3]) + t.oy;
     if (x1 < x0) { int k = x0; x0 = x1; x1 = k; }      // a mapping mode can flip an axis
     if (y1 < y0) { int k = y0; y0 = y1; y1 = k; }
-    w->cpu.r[R_AX] = dc && t.px && x0 < t.x1 && y0 < t.y1 && x1 > t.x0 && y1 > t.y0;
+    w->cpu.r[R_AX] = dc && t.px && x0 < t.x1 && y0 < t.y1 && x1 > t.x0 && y1 > t.y0 &&
+                     (!dc->cliprgn || urgn_overlaps(dc->cliprgn, (x0 < x1 ? x0 : x1) - t.ox, (y0 < y1 ? y0 : y1) - t.oy,
+                                                    x1 > x0 ? x1 - x0 : x0 - x1, y1 > y0 ? y1 - y0 : y0 - y1));
     gdi_read_done(w, dc);                        // drew nothing: no repaint
     return 6;
 }
@@ -2721,21 +2775,28 @@ static int api_CreateIC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 16;
 }
 
-// --- regions: each is its bounding rectangle --------------------------------------
+// --- regions: lists of rectangles (lib/urgn), as GDI kept them ---------------------
 
 #define NULLREGION    1
 #define SIMPLEREGION  2
 #define COMPLEXREGION 3
 
-static int rgn_kind(const struct w16_gdiobj *r) {
-    if (r->rgn[2] <= r->rgn[0] || r->rgn[3] <= r->rgn[1]) return NULLREGION;
-    return r->complex ? COMPLEXREGION : SIMPLEREGION;
+static int kind_of(const struct urgn *g) {
+    return g->n == 0 ? NULLREGION : g->n == 1 ? SIMPLEREGION : COMPLEXREGION;
 }
 
+static int rgn_kind(const struct w16_gdiobj *r) { return kind_of(&r->rg); }
+
 static void rgn_set(struct w16_gdiobj *r, int l, int t, int rr, int b) {
-    if (rr <= l || b <= t) l = t = rr = b = 0;
-    r->rgn[0] = (int16_t)l; r->rgn[1] = (int16_t)t; r->rgn[2] = (int16_t)rr; r->rgn[3] = (int16_t)b;
-    r->complex = 0;
+    urgn_set_rect(&r->rg, l, t, rr - l, b - t);
+}
+
+// A region's bounding box as Windows' RECT: left, top, right, bottom.
+static void rgn_box(const struct urgn *g, int16_t out[4]) {
+    struct urect b;
+    urgn_bbox(g, &b);
+    out[0] = (int16_t)b.x; out[1] = (int16_t)b.y;
+    out[2] = (int16_t)(b.x + b.w); out[3] = (int16_t)(b.y + b.h);
 }
 
 // CreateRectRgn(nLeftRect, nTopRect, nRightRect, nBottomRect) -> HRGN
@@ -2790,25 +2851,41 @@ static int api_CreateRectRgnIndirect(struct w16 *w, unsigned ordinal, struct w16
 // InvertRgn(hDC, hRgn) -> BOOL
 // Windows: Fill a region with a brush (PaintRgn: the DC's own), draw a border round it nWidth wide
 // and nHeight tall, or invert its colours -- in logical units.
-// w16: The same over the region's rectangle -- its bounding one when CombineRgn or CreatePolygonRgn
-// made it of more than one.
+// w16: The same, rectangle by rectangle of the region; FrameRgn's border runs round each rectangle's
+// edges that face outside the region.
 static int api_FillRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t hdc = w16_arg16(a);
     struct w16_gdiobj *r = obj(w, w16_arg16(a), GDI_REGION), *dc = obj(w, hdc, GDI_DC);
     uint16_t brush = ordinal == 40 || ordinal == 41 ? w16_arg16(a) : dc ? dc->brush : 0;
     int fw = ordinal == 41 ? (int16_t)w16_arg16(a) : 0, fh = ordinal == 41 ? (int16_t)w16_arg16(a) : 0;
     int ok = r && dc;
-    if (ok && rgn_kind(r) != NULLREGION) {
-        int l = r->rgn[0], t = r->rgn[1], rr = r->rgn[2], b = r->rgn[3];
-        if (ordinal == 42) {
-            w16_gdi_invert(w, hdc, l, t, rr, b);
-        } else if (ordinal == 41) {               // the four sides, nWidth and nHeight thick
-            w16_gdi_fill(w, hdc, l, t, rr, t + fh, brush);
-            w16_gdi_fill(w, hdc, l, b - fh, rr, b, brush);
-            w16_gdi_fill(w, hdc, l, t, l + fw, b, brush);
-            w16_gdi_fill(w, hdc, rr - fw, t, rr, b, brush);
-        } else {
-            w16_gdi_fill(w, hdc, l, t, rr, b, brush);
+    if (ok && ordinal == 41) {                   // the region less itself moved in by the border
+        struct urgn in, edge;
+        urgn_init(&in);
+        urgn_init(&edge);
+        if (urgn_copy(&in, &r->rg) == 0) {
+            struct urgn m;
+            urgn_init(&m);
+            // A pixel stays inside when the region holds it shifted by every offset up to the border.
+            for (int dx = -fw + 1; dx < fw && in.n; dx++)
+                for (int dy = -fh + 1; dy < fh && in.n; dy++) {
+                    if (urgn_copy(&m, &r->rg) < 0) break;
+                    urgn_offset(&m, dx, dy);
+                    urgn_intersect(&in, &in, &m);
+                }
+            urgn_free(&m);
+            if (urgn_subtract(&edge, &r->rg, &in) == 0)
+                for (int i = 0; i < edge.n; i++)
+                    w16_gdi_fill(w, hdc, edge.r[i].x, edge.r[i].y, edge.r[i].x + edge.r[i].w,
+                                 edge.r[i].y + edge.r[i].h, brush);
+        }
+        urgn_free(&in);
+        urgn_free(&edge);
+    } else if (ok) {
+        for (int i = 0; i < r->rg.n; i++) {
+            const struct urect *q = &r->rg.r[i];
+            if (ordinal == 42) w16_gdi_invert(w, hdc, q->x, q->y, q->x + q->w, q->y + q->h);
+            else w16_gdi_fill(w, hdc, q->x, q->y, q->x + q->w, q->y + q->h, brush);
         }
     }
     w->cpu.r[R_AX] = (uint16_t)ok;
@@ -2824,11 +2901,7 @@ static int api_OffsetRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     int dx = (int16_t)w16_arg16(a), dy = (int16_t)w16_arg16(a);
     w->cpu.r[R_AX] = 0;
     if (!r) return 6;
-    if (rgn_kind(r) != NULLREGION) {
-        int complex = r->complex;
-        rgn_set(r, r->rgn[0] + dx, r->rgn[1] + dy, r->rgn[2] + dx, r->rgn[3] + dy);
-        r->complex = complex;
-    }
+    urgn_offset(&r->rg, dx, dy);
     w->cpu.r[R_AX] = (uint16_t)rgn_kind(r);
     return 6;
 }
@@ -2844,7 +2917,9 @@ static int api_GetRgnBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (!r) return 6;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 1);
     if (!p) return -1;
-    memcpy(p, r->rgn, 8);
+    int16_t box[4];
+    rgn_box(&r->rg, box);
+    memcpy(p, box, 8);
     w->cpu.r[R_AX] = (uint16_t)rgn_kind(r);
     return 6;
 }
@@ -2854,8 +2929,7 @@ static int api_GetRgnBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // RectInRegionOld(hRgn, lpRect) -> BOOL
 // Windows: Whether a point is inside a region, or any of a rectangle is; RectInRegionOld is the same
 // call's entry for programs built for Windows 3.0.
-// w16: The same, against the region's rectangle -- its bounding one when CombineRgn or
-// CreatePolygonRgn made it of more than one.
+// w16: The same.
 static int api_PtInRegion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj *r = obj(w, w16_arg16(a), GDI_REGION);
     int16_t q[4];
@@ -2867,34 +2941,25 @@ static int api_PtInRegion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     } else if (rgn_rect_in(w, w16_arg32(a), q) < 0) {
         return -1;
     }
-    int in = r && rgn_kind(r) != NULLREGION && q[0] < r->rgn[2] && r->rgn[0] < q[2] &&
-             q[1] < r->rgn[3] && r->rgn[1] < q[3];
+    int in = r && urgn_overlaps(&r->rg, q[0], q[1], q[2] - q[0], q[3] - q[1]);
     w->cpu.r[R_AX] = (uint16_t)in;
     return 6;
 }
 
 // EqualRgn(hSrcRgn1, hSrcRgn2) -> BOOL
 // Windows: Whether two regions are the same shape and place.
-// w16: Whether their rectangles are the same.
+// w16: The same: whether they hold the same pixels.
 static int api_EqualRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *r1 = obj(w, w16_arg16(a), GDI_REGION), *r2 = obj(w, w16_arg16(a), GDI_REGION);
-    w->cpu.r[R_AX] = r1 && r2 && !memcmp(r1->rgn, r2->rgn, sizeof r1->rgn) && r1->complex == r2->complex;
+    w->cpu.r[R_AX] = (uint16_t)(r1 && r2 && urgn_equal(&r1->rg, &r2->rg));
     return 4;
 }
 
 // CombineRgn(hrgnDest, hrgnSrc1, hrgnSrc2, fnCombineMode) -> int
 // Windows: Makes a region from two others -- their intersection, union, either but not both, or one
-// less the other -- of any shape the rectangles make.
-// w16: Exact while the answer is plainly a rectangle: the intersection of two rectangles, the union
-// of two where one holds the other, a difference that takes all or none of the first away. Any
-// other answer is kept as its bounding rectangle -- a difference keeps the first rectangle whole --
-// and reported COMPLEXREGION, as Windows would report it.
-// Why: w16's regions are single rectangles. That covers the uses met so far: Hearts combines
-// rectangles to say what to redraw, and redrawing a little more than needed draws the same picture.
-// Notice: A region used to clip may let a little more be painted than Windows would.
-// Whole: Regions as lists of rectangles, as Windows kept them. On the roadmap: "w16: regions as
-// more than their bounding rectangle".
+// less the other -- of any shape the rectangles make; the result's kind, or ERROR.
+// w16: The same.
 static int api_CombineRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *d = obj(w, w16_arg16(a), GDI_REGION), *s1 = obj(w, w16_arg16(a), GDI_REGION);
@@ -2902,38 +2967,15 @@ static int api_CombineRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t mode = w16_arg16(a);
     w->cpu.r[R_AX] = 0;                          // ERROR
     if (!d || !s1 || (mode != 5 && !s2)) return 8;
-    int16_t A[4], B[4] = { 0, 0, 0, 0 };
-    memcpy(A, s1->rgn, sizeof A);
-    if (s2) memcpy(B, s2->rgn, sizeof B);
-    int ac = s1->complex, bc = s2 ? s2->complex : 0;
-    int aempty = A[2] <= A[0] || A[3] <= A[1], bempty = B[2] <= B[0] || B[3] <= B[1];
-    int il = A[0] > B[0] ? A[0] : B[0], it = A[1] > B[1] ? A[1] : B[1];
-    int ir = A[2] < B[2] ? A[2] : B[2], ib = A[3] < B[3] ? A[3] : B[3];
-    int meet = il < ir && it < ib;
+    int ok;
     switch (mode) {
-    case 1:                                      // RGN_AND
-        rgn_set(d, il, it, ir, ib);
-        d->complex = meet && (ac || bc);
-        break;
-    case 2: case 3:                              // RGN_OR, RGN_XOR
-        if (aempty) { memcpy(d->rgn, B, sizeof B); d->complex = bc; break; }
-        if (bempty) { memcpy(d->rgn, A, sizeof A); d->complex = ac; break; }
-        rgn_set(d, A[0] < B[0] ? A[0] : B[0], A[1] < B[1] ? A[1] : B[1],
-                A[2] > B[2] ? A[2] : B[2], A[3] > B[3] ? A[3] : B[3]);
-        d->complex = mode == 3 ? 1 : !((il == A[0] && it == A[1] && ir == A[2] && ib == A[3]) ||
-                                       (il == B[0] && it == B[1] && ir == B[2] && ib == B[3]));
-        break;
-    case 4:                                      // RGN_DIFF
-        memcpy(d->rgn, A, sizeof A);
-        d->complex = ac || meet;
-        if (meet && il <= A[0] && it <= A[1] && ir >= A[2] && ib >= A[3]) rgn_set(d, 0, 0, 0, 0);
-        break;
-    default:                                     // RGN_COPY
-        memcpy(d->rgn, A, sizeof A);
-        d->complex = ac;
-        break;
+    case 1:  ok = urgn_intersect(&d->rg, &s1->rg, &s2->rg); break;   // RGN_AND
+    case 2:  ok = urgn_union(&d->rg, &s1->rg, &s2->rg); break;       // RGN_OR
+    case 3:  ok = urgn_xor(&d->rg, &s1->rg, &s2->rg); break;         // RGN_XOR
+    case 4:  ok = urgn_subtract(&d->rg, &s1->rg, &s2->rg); break;    // RGN_DIFF
+    default: ok = urgn_copy(&d->rg, &s1->rg); break;                 // RGN_COPY
     }
-    w->cpu.r[R_AX] = (uint16_t)rgn_kind(d);
+    if (ok == 0) w->cpu.r[R_AX] = (uint16_t)rgn_kind(d);
     return 8;
 }
 
@@ -3077,10 +3119,39 @@ static int api_DPtoLP(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 8;
 }
 
+// The DC's clip as a region, in device pixels: its rectangles, or its one rectangle, or -- with no
+// clip -- all it may draw on. 0, or -1 out of memory.
+static int clip_get(struct w16 *w, struct w16_gdiobj *dc, struct urgn *out) {
+    if (dc->has_clip && dc->cliprgn) return urgn_copy(out, dc->cliprgn);
+    if (dc->has_clip)
+        return urgn_set_rect(out, dc->clip[0], dc->clip[1], dc->clip[2] - dc->clip[0], dc->clip[3] - dc->clip[1]);
+    struct gdi_target t;
+    fill_target(w, dc, &t);
+    return urgn_set_rect(out, t.x0 - t.ox, t.y0 - t.oy, t.x1 - t.x0, t.y1 - t.y0);
+}
+
+// `g` made the DC's clip (taken over, `g` left empty): its bounding box in clip[], and its
+// rectangles kept only when it is more than that box. The clip's kind.
+static int clip_set(struct w16_gdiobj *dc, struct urgn *g) {
+    if (dc->cliprgn) { urgn_free(dc->cliprgn); free(dc->cliprgn); dc->cliprgn = 0; }
+    int16_t box[4];
+    rgn_box(g, box);
+    dc->has_clip = 1;
+    for (int i = 0; i < 4; i++) dc->clip[i] = box[i];
+    int kind = kind_of(g);
+    if (kind == COMPLEXREGION && (dc->cliprgn = malloc(sizeof *dc->cliprgn))) {
+        *dc->cliprgn = *g;
+        urgn_init(g);
+    } else {
+        urgn_free(g);
+    }
+    return kind;
+}
+
 // IntersectClipRect(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect) -> int
 // Windows: Cuts the DC's clipping region down to its overlap with a rectangle, in logical units;
 // returns what is left: NULLREGION, SIMPLEREGION or COMPLEXREGION.
-// w16: The same. A DC's clip is one rectangle, which the overlap of rectangles always is.
+// w16: The same.
 static int api_IntersectClipRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
@@ -3088,24 +3159,21 @@ static int api_IntersectClipRect(struct w16 *w, unsigned ordinal, struct w16_arg
     w->cpu.r[R_AX] = 0;                          // ERROR
     if (!dc) return 10;
     dev_rect(dc, &l, &t, &r, &b);
-    if (dc->has_clip) {
-        if (dc->clip[0] > l) l = dc->clip[0];
-        if (dc->clip[1] > t) t = dc->clip[1];
-        if (dc->clip[2] < r) r = dc->clip[2];
-        if (dc->clip[3] < b) b = dc->clip[3];
-    }
-    if (r < l) r = l;
-    if (b < t) b = t;
-    dc->has_clip = 1;
-    dc->clip[0] = (int16_t)l; dc->clip[1] = (int16_t)t; dc->clip[2] = (int16_t)r; dc->clip[3] = (int16_t)b;
-    w->cpu.r[R_AX] = r > l && b > t ? 2 : 1;
+    struct urgn g, rect;
+    urgn_init(&g);
+    urgn_init(&rect);
+    if (clip_get(w, dc, &g) == 0 && urgn_set_rect(&rect, l, t, r - l, b - t) == 0 &&
+        urgn_intersect(&g, &g, &rect) == 0)
+        w->cpu.r[R_AX] = (uint16_t)clip_set(dc, &g);
+    urgn_free(&g);
+    urgn_free(&rect);
     return 10;
 }
 
 // SelectClipRgn(hdc, hrgn) -> int
 // Windows: Makes a copy of a region, in pixels, the DC's clipping region; NULL takes the clip away.
 // Returns the region's kind.
-// w16: The same, the region being its bounding rectangle (see CombineRgn).
+// w16: The same.
 static int api_SelectClipRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
@@ -3113,9 +3181,16 @@ static int api_SelectClipRgn(struct w16 *w, unsigned ordinal, struct w16_args *a
     struct w16_gdiobj *r = obj(w, h, GDI_REGION);
     w->cpu.r[R_AX] = 0;
     if (!dc || (h && !r)) return 4;
-    dc->has_clip = r != 0;
-    if (r) memcpy(dc->clip, r->rgn, sizeof dc->clip);
-    w->cpu.r[R_AX] = r ? (uint16_t)rgn_kind(r) : 2;
+    if (!r) {                                    // the clip taken away
+        if (dc->cliprgn) { urgn_free(dc->cliprgn); free(dc->cliprgn); dc->cliprgn = 0; }
+        dc->has_clip = 0;
+        w->cpu.r[R_AX] = SIMPLEREGION;
+        return 4;
+    }
+    struct urgn g;
+    urgn_init(&g);
+    if (urgn_copy(&g, &r->rg) == 0) w->cpu.r[R_AX] = (uint16_t)clip_set(dc, &g);
+    urgn_free(&g);
     return 4;
 }
 
@@ -3135,6 +3210,14 @@ static int api_SaveDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
         if (!g) return 2;
         dc->saved = g;
         g[dc->nsaved] = *dc;
+        g[dc->nsaved].saved = 0;
+        g[dc->nsaved].nsaved = 0;
+        if (dc->cliprgn) {                       // its own copy of the clip's rectangles
+            struct urgn *c = malloc(sizeof *c);
+            if (c) urgn_init(c);
+            if (!c || urgn_copy(c, dc->cliprgn) < 0) { free(c); return 2; }
+            g[dc->nsaved].cliprgn = c;
+        }
         w->cpu.r[R_AX] = (uint16_t)++dc->nsaved;
         return 2;
     }
@@ -3143,9 +3226,13 @@ static int api_SaveDC(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct w16_gdiobj keep = dc->saved[level - 1], *stack = dc->saved;
     uint16_t bitmap = dc->bitmap, hwnd = dc->hwnd;
     uint8_t screen = dc->screen;
-    *dc = keep;
+    for (int i = level; i < dc->nsaved; i++)     // the states saved after it, dropped
+        if (stack[i].cliprgn) { urgn_free(stack[i].cliprgn); free(stack[i].cliprgn); }
+    if (dc->cliprgn) { urgn_free(dc->cliprgn); free(dc->cliprgn); }
+    int nsaved = level - 1;
+    *dc = keep;                                  // its clip's rectangles now the DC's own
     dc->saved = stack;
-    dc->nsaved = level - 1;
+    dc->nsaved = nsaved;
     dc->bitmap = bitmap;
     dc->hwnd = hwnd;
     dc->screen = screen;
@@ -3430,13 +3517,7 @@ static int api_ExtTextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // ExcludeClipRect(hdc, nLeftRect, nTopRect, nRightRect, nBottomRect) -> int
 // Windows: Cuts a rectangle out of the DC's clipping region, in logical units; returns the region's
 // kind.
-// w16: A DC's clip is one rectangle, so only an exclusion that takes a whole side off it is
-// applied (a rectangle across the full height at the left or right edge, or across the full width
-// at the top or bottom); one in the middle leaves the clip as it was.
-// Why: A DC's clip is one rectangle, and a hole in it needs a region made of several.
-// Notice: A program that excludes a rectangle from the middle of its clip draws over it.
-// Whole: Regions as more than their bounding rectangle. On the roadmap: "w16: regions as more than their
-// bounding rectangle".
+// w16: The same: a hole anywhere in the clip, drawn round by every call (keep_holes()).
 static int api_ExcludeClipRect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     struct w16_gdiobj *dc = obj(w, w16_arg16(a), GDI_DC);
@@ -3444,17 +3525,11 @@ static int api_ExcludeClipRect(struct w16 *w, unsigned ordinal, struct w16_args 
     w->cpu.r[R_AX] = 0;
     if (!dc) return 10;
     dev_rect(dc, &l, &t, &r, &b);
-    struct gdi_target tg;
-    fill_target(w, dc, &tg);
-    int c[4] = { dc->has_clip ? dc->clip[0] : tg.x0 - tg.ox, dc->has_clip ? dc->clip[1] : tg.y0 - tg.oy,
-                 dc->has_clip ? dc->clip[2] : tg.x1 - tg.ox, dc->has_clip ? dc->clip[3] : tg.y1 - tg.oy };
-    if (t <= c[1] && b >= c[3] && l <= c[0] && r > c[0]) c[0] = r < c[2] ? r : c[2];         // the left side
-    else if (t <= c[1] && b >= c[3] && r >= c[2] && l < c[2]) c[2] = l > c[0] ? l : c[0];    // the right
-    else if (l <= c[0] && r >= c[2] && t <= c[1] && b > c[1]) c[1] = b < c[3] ? b : c[3];    // the top
-    else if (l <= c[0] && r >= c[2] && b >= c[3] && t < c[3]) c[3] = t > c[1] ? t : c[1];    // the bottom
-    dc->has_clip = 1;
-    for (int i = 0; i < 4; i++) dc->clip[i] = (int16_t)c[i];
-    w->cpu.r[R_AX] = c[2] > c[0] && c[3] > c[1] ? 2 : 1;
+    struct urgn g;
+    urgn_init(&g);
+    if (clip_get(w, dc, &g) == 0 && urgn_cut_rect(&g, l, t, r - l, b - t) == 0)
+        w->cpu.r[R_AX] = (uint16_t)clip_set(dc, &g);
+    urgn_free(&g);
     return 10;
 }
 
@@ -3893,33 +3968,70 @@ static int api_ExtFloodFill(struct w16 *w, unsigned ordinal, struct w16_args *a)
     return 12;
 }
 
+// The rows of a polygon as rectangles: each pixel whose centre is inside, by the fill mode
+// (ALTERNATE: an odd number of edges crossed; WINDING: a non-zero winding), as GDI's scan-converted
+// regions are; one rectangle per span, coalesced into bands. 0, or -1 out of memory.
+static int ceil_int(double v) {
+    int i = (int)v;
+    return i < v ? i + 1 : i;
+}
+
+static int polygon_rgn(struct urgn *g, const int16_t *pt, int n, int winding) {
+    g->n = 0;
+    if (n < 3) return 0;
+    int y0 = pt[1], y1 = pt[1];
+    for (int i = 1; i < n; i++) {
+        if (pt[2 * i + 1] < y0) y0 = pt[2 * i + 1];
+        if (pt[2 * i + 1] > y1) y1 = pt[2 * i + 1];
+    }
+    struct cross { double x; int dir; } *xs = malloc(sizeof *xs * (size_t)n);
+    if (!xs) return -1;
+    int ok = 0;
+    for (int y = y0; ok == 0 && y < y1; y++) {
+        int m = 0;
+        double cy = y + 0.5;                     // the row's centre line
+        for (int i = 0; i < n; i++) {
+            int ax = pt[2 * i], ay = pt[2 * i + 1], bx = pt[2 * ((i + 1) % n)], by = pt[2 * ((i + 1) % n) + 1];
+            int lo = ay < by ? ay : by, hi = ay < by ? by : ay;
+            if (ay == by || cy < lo || cy >= hi) continue;
+            xs[m++] = (struct cross){ ax + (cy - ay) * (bx - ax) / (by - ay), by > ay ? 1 : -1 };
+        }
+        for (int i = 1; i < m; i++)              // by x
+            for (int j = i; j > 0 && xs[j].x < xs[j - 1].x; j--) { struct cross t = xs[j]; xs[j] = xs[j - 1]; xs[j - 1] = t; }
+        int wind = 0;
+        for (int i = 0; ok == 0 && i + 1 < m; i++) {
+            wind += winding ? xs[i].dir : 1;
+            if (winding ? wind == 0 : !(wind & 1)) continue;
+            // the pixels whose centre x + 0.5 lies in [xa, xb)
+            int xa = ceil_int(xs[i].x - 0.5), xb = ceil_int(xs[i + 1].x - 0.5);
+            if (xb > xa) ok = urgn_append(g, xa, y, xb - xa, 1);
+        }
+    }
+    free(xs);
+    if (ok < 0) { g->n = 0; return -1; }
+    urgn_tidy(g);
+    return 0;
+}
+
 // CreatePolygonRgn(lpPoints, nCount, nPolyFillMode) -> HRGN
-// Windows: A region the shape of a polygon.
-// w16: Its bounding rectangle: regions here are single rectangles.
-// Why: A region is one rectangle (CombineRgn says why); a polygon's shape needs the list of them.
-// Notice: A clip or a fill by this region covers the polygon's whole box.
-// Whole: Regions as more than their bounding rectangle. On the roadmap: "w16: regions as more than
-// their bounding rectangle".
+// Windows: A region the shape of a polygon, filled by ALTERNATE or WINDING.
+// w16: The same.
 static int api_CreatePolygonRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
     int16_t n = (int16_t)w16_arg16(a);
-    w16_arg16(a);
+    int winding = w16_arg16(a) == 2;             // WINDING; else ALTERNATE
     w->cpu.r[R_AX] = 0;
     if (n <= 0) return 8;
     const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (uint32_t)n * 4, 0);
     if (!p) return -1;
-    int l = 32767, t = 32767, r = -32768, b = -32768;
-    for (int i = 0; i < n; i++) {
-        int px = (int16_t)(p[4 * i] | p[4 * i + 1] << 8), py = (int16_t)(p[4 * i + 2] | p[4 * i + 3] << 8);
-        if (px < l) l = px;
-        if (px > r) r = px;
-        if (py < t) t = py;
-        if (py > b) b = py;
-    }
+    int16_t *pt = malloc(sizeof *pt * 2 * (size_t)n);
+    if (!pt) return 8;
+    for (int i = 0; i < 2 * n; i++) pt[i] = (int16_t)(p[2 * i] | p[2 * i + 1] << 8);
     struct w16_gdiobj *o;
     uint16_t h = new_obj(w, GDI_REGION, &o);
-    if (o) { rgn_set(o, l, t, r + 1, b + 1); o->complex = 1; }
+    if (o && polygon_rgn(&o->rg, pt, n, winding) < 0) { o->type = GDI_FREE; h = 0; }
+    free(pt);
     w->cpu.r[R_AX] = h;
     return 8;
 }

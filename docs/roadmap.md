@@ -1014,7 +1014,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: Paintbrush's rest -- Help, Zoom In, Get/Save Colors and Edit Colors' reach into the palette, not yet checked
 - [ ] w16: Hearts over the network -- DDEML and WinExec("NETDDE.EXE") are stand-ins; a player finds no dealer
 - [ ] w16: the hooks besides WH_CALLWNDPROC called -- WH_MSGFILTER, WH_KEYBOARD, WH_GETMESSAGE are kept and never called
-- [ ] w16: regions as more than their bounding rectangle -- CombineRgn of two that do not make a rectangle
+- [x] ~~w16: regions as more than their bounding rectangle~~ DONE 2026-10-24 -- lib/urgn rect lists; clips cut holes
 - [ ] GUI: selectable, copyable text in the read-only widgets -- `uui_markdown` and the labels have no selection (Help Viewer has)
 - [ ] w16: popup menus at a point -- TrackPopupMenu shows nothing and answers FALSE
 - [ ] w16: Help Viewer's rest -- bookmarks and annotations

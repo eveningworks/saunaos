@@ -196,6 +196,12 @@ def probe(dbg, res):
               got.get("Desk") == "00C0C0C0", got)
     res.check("SetSysColors changes what GetSysColor answers for the run: COLOR_BTNFACE blue",
               got.get("Sys") == "00FF0000", got)
+    res.check("CombineRgn XOR is exact: COMPLEXREGION, the overlap out, the rest in",
+              got.get("Xor") == "000300000001", got)
+    res.check("CreatePolygonRgn is the triangle, not its bounding box: 2,2 in, 15,15 out",
+              got.get("Poly") == "00010000", got)
+    res.check("ExcludeClipRect cuts a hole in the middle of the clip: a fill leaves it white",
+              got.get("Hole") == "00FFFFFF00000000", got)
     text = dict(re.findall(r"(\w+)=(.*)", out))
     res.check("LZOpenFile finds a bare name in C:\\WINDOWS (OpenFile's search) and gives an LZ handle",
               got.get("LZ") == "0190", got)

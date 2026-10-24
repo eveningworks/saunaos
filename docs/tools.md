@@ -7012,6 +7012,18 @@ runs first**: a `doom1.wad` with one
   below a cut, `--positive-control diff` stops a band widening right;
   each must fail. Needs only gcc.
 
+- **`urgn_hostcheck.py`** -- compiles `userland/lib/urgn.c`, the growable
+  region w16's GDI regions and DC clips are, under ASan and UBSan, and
+  replays seeded random set-rects, adds, cuts, unions, intersections,
+  subtractions, xors and offsets on four registers (an operand may be the
+  destination) on Python pixel sets: the rects must be disjoint and
+  EXACTLY the bitmap -- no cap, unlike `uregion` -- with bbox, area,
+  containment, overlap and equality agreeing; forty one-row spans must
+  coalesce to one rect, a five-step staircase to five. `--positive-control
+  cut` drops the strip below a hole, `--positive-control coalesce` merges
+  rects that share only part of an edge; each must fail. Needs only gcc.
+  In `ondemand_sweep.py` (`urgn_host`).
+
 - **`utween_hostcheck.py`** -- compiles `userland/lib/utween.c`, the
   desktop's one easing tween, with the host gcc and checks the
   PROPERTIES a motion must have rather than an oracle (there is no
