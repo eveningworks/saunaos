@@ -184,6 +184,7 @@ static int copy_tree(struct ufileop *s, const struct ufileop_policy *p,
                         report(s, p, dp, sys_errno());
                         continue;
                     }
+                    if (p->enter_dir && !p->enter_dir(p->ctx, sp)) continue;
                     queue_push(s, p, sp, dp);
                 } else {
                     copy_one(s, p, sp, dp);

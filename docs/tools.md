@@ -6478,6 +6478,13 @@ runs first**: a `doom1.wad` with one
   half needs `make live-iso` and is skipped with a message when the ISO
   is absent.
 
+  **The disk run installs with a USB stick mounted** at
+  `/media/INSTSTICK`, and reads the target back to check the stick's
+  marker file stayed behind and its mount point is there, empty: the copy
+  stays on one filesystem (`cp -x`). `installer_test.py` mounts the same
+  stick in its live session. Red on the installer before 2026-10-24,
+  which copied a 114 GB stick onto a bare-metal machine's NVMe.
+
   `--positive-control` zeroes each installed boot sector before its boot
   phase, so those checks must go RED; a clean run proves nothing until
   that has been seen. On demand only (`ondemand_sweep.py` names it) -- it

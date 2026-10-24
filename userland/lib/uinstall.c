@@ -55,6 +55,41 @@ static int is_skipped(const char *name) {
     return 0;
 }
 
+// EVERY OTHER MOUNTED FILESYSTEM STAYS BEHIND, wherever it is mounted --
+// the copy is of the system, not of what is plugged into it (`cp -x`).
+// SKIP above names three places; a USB stick auto-mounts under /media
+// and an SMB share wherever /etc/mounts.d says, and the first install
+// after automount copied a whole stick onto the target. Read fresh per
+// install: a stick plugged in between two runs is a mount the second
+// must see.
+static char (*g_mounts)[64];
+static int g_nmounts;
+
+static void load_mounts(void) {
+    free(g_mounts);
+    g_mounts = 0;
+    g_nmounts = 0;
+    struct query_fsinfo fs;
+    for (int i = 0; sys_query_record(QUERY_FSINFO, i, &fs, sizeof fs) > 0; i++) {
+        if (!(fs.flags & QUERY_FS_MOUNTED) || strcmp(fs.point, "/") == 0) continue;
+        char (*m)[64] = realloc(g_mounts, (size_t)(g_nmounts + 1) * sizeof *g_mounts);
+        if (!m) return;
+        g_mounts = m;
+        snprintf(g_mounts[g_nmounts++], sizeof *g_mounts, "%s", fs.point);
+    }
+}
+
+static int is_mount_point(const char *path) {
+    for (int i = 0; i < g_nmounts; i++)
+        if (strcmp(path, g_mounts[i]) == 0) return 1;
+    return 0;
+}
+
+static int enter_dir(void *ctx, const char *src) {
+    (void)ctx;
+    return !is_mount_point(src);
+}
+
 // --- the plan ---------------------------------------------------------
 
 int uinstall_root_disk(char *out, int cap) {
@@ -71,10 +106,9 @@ int uinstall_root_disk(char *out, int cap) {
 struct measure { uint32_t files; uint64_t bytes; };
 
 static int measure_one(void *ctx, const char *path, const struct sys_dirent *e) {
-    (void)path;
     struct measure *m = ctx;
     if (!e->is_dir) { m->files++; m->bytes += e->size; }
-    return 1;
+    return e->is_dir && is_mount_point(path) ? 0 : 1;
 }
 
 static struct uwalk g_walk;            // several KB: never on a 2 KiB frame
@@ -91,10 +125,12 @@ int uinstall_measure(uint32_t *files, uint64_t *bytes) {
     struct measure m = { 0, 0 };
     int n = list_root();
     if (n < 0) return -1;
+    load_mounts();
     for (int i = 0; i < n; i++) {
         if (is_skipped(g_top[i].name)) continue;
         char path[80];
         snprintf(path, sizeof path, "/%s", g_top[i].name);
+        if (is_mount_point(path)) continue;
         if (!g_top[i].is_dir) { m.files++; m.bytes += g_top[i].size; continue; }
         if (!uwalk_begin(&g_walk, path)) continue;
         while (uwalk_step(&g_walk, measure_one, &m)) {}
@@ -329,9 +365,11 @@ static struct ufileop g_op;   // ~30 KB, like every ufileop caller's
 static int copy_system(struct run *r) {
     const struct ufileop_policy pol = {
         .ctx = r, .on_conflict = 0, .on_progress = copy_progress, .on_error = copy_error,
+        .enter_dir = enter_dir,
     };
     int n = list_root();
     if (n < 0) return fail(r, "/", sys_errno());
+    load_mounts();
     // Sorted so the progress is the same on two machines, which is what
     // makes a transcript of a failed install comparable.
     dirsort(g_top, n, DIRSORT_NAME, 0);
@@ -341,6 +379,7 @@ static int copy_system(struct run *r) {
         char src[80], dst[80];
         snprintf(src, sizeof src, "/%s", g_top[i].name);
         snprintf(dst, sizeof dst, UINSTALL_TARGET "/%s", g_top[i].name);
+        if (is_mount_point(src)) { mkdir(dst, 0755); continue; }
         line(r, "%s", src);
         if (ufileop_copy(src, dst, &g_op, &pol) != UFILEOP_OK) ok = 0;
     }

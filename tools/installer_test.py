@@ -23,6 +23,10 @@ in the live session is there, and First-boot setup will skip exactly the
 two pages that session answered (`fbs`'s report of UFBS_ANSWERED) and
 nothing else. An installed machine gets no launcher and no notice.
 
+THE LIVE SESSION HAS A USB STICK MOUNTED, as a live session booted off
+one does: automountd puts it at /media/INSTSTICK, and the installed disk
+must have that mount point empty -- the copy stays on one filesystem.
+
 What a broken version would still pass, and why each check is there:
   * a Cancel that erased anyway -- the host reads the image's first
     sectors after it and must find no table;
@@ -53,6 +57,7 @@ from harness import Results                     # noqa: E402
 from qmp_test import QMPSession                 # noqa: E402
 import port_guard                               # noqa: E402
 from live_boot_test import build_unasked_iso, UNASKED_CFG   # noqa: E402
+from install_test import fat_stick, STICK_LABEL, STICK_MARK  # noqa: E402
 
 LIVE_ISO = "toy-os-live.iso"
 TARGET_BYTES = 512 * 1024 * 1024
@@ -146,6 +151,15 @@ def phase1(dbg, res, target):
     # What a person trying the session would set: one setup page each.
     sh(f"config set system.hostname {NAME}")
     sh("config set locale.region fi")
+
+    mounted = ""
+    for _ in range(15):
+        mounted = sh(f"ls /media/{STICK_LABEL}")
+        if STICK_MARK in mounted:
+            break
+        time.sleep(2)
+    res.check("a USB stick is mounted under /media in the live session", STICK_MARK in mounted,
+              mounted.strip()[-80:])
 
     dbg.send("gui spawn /bin/wm/system/installer")
     win = None
@@ -241,6 +255,9 @@ def phase2(dbg, res):
               carried == ["Computer name", "Region & formats"], str(carried))
     res.check("...and has not run yet", "not done" in fbs)
     res.check("an installed machine gets no launcher", "installer.desktop" not in sh("ls /home/Desktop"))
+    media = sh(f"ls /media/{STICK_LABEL}")
+    res.check("the live session's USB stick was not copied onto the disk",
+              STICK_MARK not in media and "no such" not in media.lower(), media.strip()[-80:])
     klog = sh("log -n 3000")
     res.check("...and no live-session notice", "live-session notice" not in klog)
     # Setup is due here, so the compositor shows no desktop until setup's
@@ -276,10 +293,13 @@ def run_in(args, tmp):
     target = os.path.join(tmp, "target.img")
     with open(target, "wb") as f:
         f.truncate(TARGET_BYTES)
+    stick = os.path.join(tmp, "stick.img")
+    fat_stick(stick)
     res = Results()
 
     def vm(*argv, live=True):
-        media = ["--iso", LIVE_ISO, "--boot", "cd"] if live else ["--boot", "disk"]
+        media = (["--iso", LIVE_ISO, "--boot", "cd", "--usb-stick", stick] if live
+                 else ["--boot", "disk"])
         env = dict(os.environ, TOYOS_ALLOW_STALE_ISO="1")   # judged above, by live_iso_stale()
         r = subprocess.run([sys.executable, os.path.join(HERE, "vm.py"), "--instance", str(args.instance),
                             "--disk", target, *media, *(["--kvm"] if args.kvm else []), *argv],

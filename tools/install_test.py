@@ -23,6 +23,13 @@ THREE RUNS, because they are different code paths:
          holding a 441 MB filesystem, on a machine that booted perfectly
          and used 0.4% of its disk.
 
+THE DISK RUN HAS A USB STICK PLUGGED IN, mounted by automountd at
+/media/INSTSTICK, and the install must leave it behind: the copy is of the
+system, not of every filesystem mounted under it. Until the installer
+learned that (`cp -x`), a 114 GB stick in a bare-metal machine became a
+59 GB copy onto its NVMe. The marker file must be absent from the target
+and the mount point present and empty.
+
 THE FILESYSTEM MUST FILL ITS PARTITION, and that is checked on every run
 rather than only the grown one -- it is the assertion the bug above
 walked straight through, because everything else about that install was
@@ -80,6 +87,27 @@ LIVE_ISO = "toy-os-live.iso"
 # two can disagree.
 TFS3_GROUP_BYTES = 32768 * 4096
 
+# The stick the disk run installs with: FAT32 needs ~33 MB at least.
+STICK_MB = 64
+STICK_LABEL = "INSTSTICK"
+STICK_MARK = "STICKMRK.TXT"
+
+
+def fat_stick(path):
+    """An MBR with one FAT32 partition at 1 MiB, holding the marker file."""
+    def host(*cmd, **kw):
+        return subprocess.run(list(cmd), capture_output=True, text=True, **kw)
+    with open(path, "wb") as f:
+        f.truncate(STICK_MB << 20)
+    host("sfdisk", "-q", path, input="label: dos\nstart=2048, type=c\n")
+    sectors = ((STICK_MB << 20) // 512 - 2048) // 2   # mkfs.fat counts 1 KiB blocks
+    host("mkfs.fat", "-F", "32", "-n", STICK_LABEL, "--offset", "2048", path, str(sectors))
+    mark = path + ".mark"
+    with open(mark, "w") as f:
+        f.write("this file lives on a USB stick and must not be installed\n")
+    host("mcopy", "-i", f"{path}@@1M", mark, f"::{STICK_MARK}")
+    os.remove(mark)
+
 
 class Checks:
     def __init__(self):
@@ -105,7 +133,7 @@ def vm(args, media, *cmds, timeout=600):
         # The ISO is the system; the only drive is the blank target.
         base += ["--iso", LIVE_ISO, "--boot", "cd"]
     else:
-        base += ["--virtio-disk", args.system]
+        base += ["--virtio-disk", args.system, "--usb-stick", args.stick]
     env = dict(os.environ)
     if media in ("live", "grown"):
         # iso_guard only knows how to judge toy-os.iso; the live one is
@@ -224,6 +252,14 @@ def run_media(args, c, media):
         elif media == "disk":
             add("the blank target is a disk the system did not boot from",
                 "ata0" in seen and "virtio0p3" in seen)
+            mounted = ""
+            for _ in range(10):
+                mounted = vm(args, media, "exec", f"ls /media/{STICK_LABEL}")
+                if STICK_MARK in mounted:
+                    break
+                time.sleep(2)
+            add("a USB stick is mounted under /media while it installs",
+                STICK_MARK in mounted, mounted[-120:])
 
         cmd = ("install --disk ata0 --mbr confirm" if mbr
                else "install --disk ata0 confirm")
@@ -250,6 +286,15 @@ def run_media(args, c, media):
         add("nothing was truncated or ran out of room", "no space left" not in out)
         add("it wrote a boot sector and a core image",
             "boot sector written, core image at LBA" in both)
+        if media == "disk":
+            # Read back off the TARGET, from this guest: the stick stays
+            # attached, so its own /media mount is not what is being read.
+            got = vm(args, media, "exec", f"mount ata0p{root_n} /mnt",
+                     "ls /mnt/media", f"ls /mnt/media/{STICK_LABEL}", "umount /mnt")
+            add("the stick's files stayed behind -- one filesystem only",
+                STICK_MARK not in got, got[-200:])
+            add("...and its mount point is on the target, empty",
+                STICK_LABEL in got and "no such" not in got.lower(), got[-200:])
     finally:
         vm(args, media, "stop", timeout=120)
 
@@ -438,6 +483,9 @@ def main():
     os.makedirs(args.scratch, exist_ok=True)
     args.system = os.path.join(args.scratch, "system.img")
     args.target = os.path.join(args.scratch, "target.img")
+    args.stick = os.path.join(args.scratch, "stick.img")
+    if "disk" in media:
+        fat_stick(args.stick)
 
     # A COPY of disk.img, and a sparse one: it is ~50 MB of data in a 9 GB
     # sparse file, so a hole-filling copy costs 9 GB of whatever this
@@ -452,7 +500,7 @@ def main():
             run_media(args, c, m)
 
     if not args.keep:
-        for f in (args.system, args.target):
+        for f in (args.system, args.target, args.stick):
             if os.path.exists(f):
                 os.remove(f)
     else:

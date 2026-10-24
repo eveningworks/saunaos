@@ -81,6 +81,12 @@ struct ufileop_policy {
     // other 999, which is coreutils' behaviour too. NULL discards them,
     // and the overall result still says FAILED.
     void (*on_error)(void *ctx, const char *path, int err);
+
+    // May a tree copy go INTO this source directory? 0 makes it on the
+    // destination EMPTY and copies nothing below it -- a mount point,
+    // for a copy that stays on one filesystem (`cp -x`, rsync's -x).
+    // NULL enters every directory.
+    int (*enter_dir)(void *ctx, const char *src);
 };
 
 // The working state. Caller-owned; see the header comment for why.
