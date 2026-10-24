@@ -85,21 +85,34 @@ from harness import copy_disk  # noqa: E402
 from private_tmp import private_tmp  # noqa: E402
 import test_history  # noqa: E402
 
-# How many tools run at once by default: ONE GUEST PER HARDWARE THREAD,
+def physical_cores():
+    """Cores (not SMT threads) among the CPUs this process may run on."""
+    cpus = os.sched_getaffinity(0)
+    cores = set()
+    for cpu in cpus:
+        topo = f"/sys/devices/system/cpu/cpu{cpu}/topology"
+        try:
+            with open(f"{topo}/physical_package_id") as f:
+                pkg = f.read().strip()
+            with open(f"{topo}/core_id") as f:
+                cores.add((pkg, f.read().strip()))
+        except OSError:
+            return max(1, len(cpus) // 2)
+    return len(cores)
+
+
+# How many tools run at once by default: ONE GUEST PER PHYSICAL CORE,
 # capped at 16. `-j1` restores the original serial behaviour exactly.
 #
-# THE SUITE WAITS RATHER THAN COMPUTES, which is why this is not "one per
-# physical core" any more. Measured 2026-10-09 on the 8-core/16-thread
-# dev host (fe39489f): 8 jobs 825s, 12 jobs 625-644s (three runs), 16
-# jobs 554-594s (three runs) -- while KVM at 8 jobs was 735s, only 11%
-# faster: the tools spend their time in settles, polls and real-time
-# waits, so a guest that is waiting leaves its thread to another. Every
-# failure across those six runs at 12 and 16 was a test bug since fixed
-# (window_identity_test read a log line once instead of waiting for it)
-# or an intermittent already in docs/bugs.md (occlusion, sysupdate). The
-# earlier half-the-threads rule came from gfxdemo and notepad failing
-# comparisons at five guests on an 8-core box, before the suite moved to
-# waits the app reports.
+# WHETHER THE SMT SIBLING HELPS DEPENDS ON THE HOST'S ALL-CORE CLOCK.
+# Measured 2026-10-09 on the first 8-core/16-thread host (fe39489f):
+# 8 jobs 825s, 12 jobs 625-644s, 16 jobs 554-594s, all green -- the suite
+# waits in settles and polls, so a waiting guest leaves its thread to
+# another. On its replacement (an i7-11700, 2026-10-24, 4dbec864) 16 jobs
+# took 653s with 15 tools red, every one a window or the desktop not up
+# within its wait; the same 15 passed at 8, and a full run at 8 took 979s
+# with 3 red (fmprogress, doomdata, w16). `-j 16` is still the faster run
+# on a host where it is green.
 #
 # THE FLOOR IS THE SLOWEST TOOL: ~5,950 tool-seconds over 16 jobs is
 # ~370s, and screensaver_test alone is ~260s, so past 16 the run cannot
@@ -107,7 +120,7 @@ import test_history  # noqa: E402
 # A new tool that waits on a fixed sleep rather than on what the app
 # says is what turns more jobs into flakes; COST_S orders the longest
 # first so the tail is short.
-DEFAULT_JOBS = min(16, max(2, os.cpu_count() or 4))
+DEFAULT_JOBS = min(16, max(2, physical_cores()))
 
 # In rough dependency order: the widget toolkit first, so a toolkit
 # regression is reported before the apps built on it start failing for

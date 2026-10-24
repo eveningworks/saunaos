@@ -160,7 +160,7 @@ if { [ "$local_name" != "$conv_name" ] || [ "$local_email" != "$conv_email" ]; }
 fi
 
 # Glob every instance's pidfile, not a hard-coded 0-3 list: vm.py
-# --instance goes to 15 and gui_regress now uses up to 8 (DEFAULT_JOBS),
+# --instance goes to 15 and gui_regress uses up to 16 (DEFAULT_JOBS),
 # so a guest on any of those holds disk.img's write lock and must be
 # caught here -- the whole point of the check. `.vm.pid` is slot 0;
 # `.vm.N.pid` are the rest. nullglob via the `[ -f ]` guard: an unmatched

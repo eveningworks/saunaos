@@ -72,6 +72,16 @@ physical core), which only bites a host with more than 24 threads. So the
 the sum begins to matter": the two passes complemented each other rather
 than one superseding the other.
 
+**Follow-up (2026-10-24): one guest per physical core, again.** On
+2026-10-09 the default moved to one guest per hardware thread (fe39489f),
+measured green and fastest at 16 jobs on that 8-core/16-thread host. Its
+replacement, an i7-11700 with the same thread count, turned 15 tools red
+at 16 jobs (653s, every failure a window or the desktop not up within
+its wait) and passed those 15 at 8; a full run at 8 took 979s with 3
+red -- so whether an SMT sibling is worth a guest is a property of the
+host's all-core clock, not of the suite. `-j 16` stays the faster run on
+a host where it is green.
+
 ## No per-file licence headers, and the MIT notice lives in one place
 
 Source files here carry no licence header -- not the MIT boilerplate,
