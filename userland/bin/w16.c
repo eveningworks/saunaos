@@ -678,6 +678,7 @@ static int on_user(struct uapp *a, int code, int arg) {
     }
     case W16_POST_DLG_OPEN:  w16_dlgwin_open(&g_w16, a, (uint16_t)arg); return 1;
     case W16_POST_DLG_CLOSE: w16_dlgwin_close(&g_w16, (uint16_t)arg); return 1;
+    case W16_POST_DLG_SIZE:  w16_dlgwin_resize(&g_w16, (uint16_t)arg); return 1;
     case W16_POST_DLG_PAINT: w16_dlgwin_redraw(&g_w16, (uint16_t)arg); return 0;
     case W16_POST_FAULT:
         w16_menu_close(&g_menu);

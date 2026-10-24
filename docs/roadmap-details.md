@@ -8295,9 +8295,12 @@ CPL_INIT (WFWSETUP.DLL's real-mode calls) and is out of scope.
 Where each stood on 2026-10-24, on an installed WfW 3.11 tree (`w16
 --skip-missing` lists a program's next calls):
 
-- **Color**: opens; the schemes, the colour grid and the sample are empty --
-  it draws with regions (CreateRectRgnIndirect, FillRgn, PtInRegion), and
-  SetSysColors is missing.
+- **Color**: opens collapsed on Windows Default (read from the display
+  driver's OEMBIN resource, VGA.DRV loaded for its resources only) with the
+  sample drawn -- but the sample's inner window, its texts and its OK button
+  are painted over: Color cuts two holes with ExcludeClipRect, and a DC's
+  clip is one rectangle (the region item below). SetSysColors recolours
+  what GetSysColor answers, not w16's own frames.
 - **Fonts**: lists WIN.INI's `[fonts]` (the installer writes it, as Setup
   did); the sample is empty and each font says 0 KB on disk.
 - **Mouse**: works -- the swap and the double-click speed apply to the

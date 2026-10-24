@@ -54,6 +54,7 @@
 #define SS_BLACKFRAME     0x07
 #define SS_GRAYFRAME      0x08
 #define SS_WHITEFRAME     0x09
+#define SS_USERITEM       0x0A   // 3.0's: a place the dialog paints itself (Color's sample)
 #define SS_SIMPLE         0x0B
 #define SS_LEFTNOWORDWRAP 0x0C
 #define SS_NOPREFIX       0x80
@@ -610,6 +611,7 @@ static void paint_static(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *
     case SS_BLACKFRAME: ugfx_draw_rect(s, ox, oy, x->cw, x->ch, black); return;
     case SS_GRAYFRAME:  ugfx_draw_rect(s, ox, oy, x->cw, x->ch, grey); return;
     case SS_WHITEFRAME: ugfx_draw_rect(s, ox, oy, x->cw, x->ch, white); return;
+    case SS_USERITEM: return;                    // nothing: what shows there is the dialog's own painting
     default: break;
     }
     ugfx_fill_rect(s, ox, oy, x->cw, x->ch, bg);

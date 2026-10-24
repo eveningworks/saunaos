@@ -190,6 +190,12 @@ def probe(dbg, res):
               got.get("Dbl") == "012C", got)
     res.check("SwapMouseButton answers the buttons' state before each call: not swapped, then swapped",
               got.get("Swap") == "00000001", got)
+    res.check("regions: PtInRegion in and out, OffsetRgn a SIMPLEREGION, GetRgnBox moved by it",
+              got.get("Rgn") == "000100000002000F", got)
+    res.check("GetSysColor(COLOR_BACKGROUND) is 3.1's light grey (VGA.DRV's OEMBIN), not teal",
+              got.get("Desk") == "00C0C0C0", got)
+    res.check("SetSysColors changes what GetSysColor answers for the run: COLOR_BTNFACE blue",
+              got.get("Sys") == "00FF0000", got)
     text = dict(re.findall(r"(\w+)=(.*)", out))
     res.check("LZOpenFile finds a bare name in C:\\WINDOWS (OpenFile's search) and gives an LZ handle",
               got.get("LZ") == "0190", got)

@@ -194,6 +194,16 @@ void w16_dlgwin_close(struct w16 *w, uint16_t hwnd) {
     pthread_mutex_unlock(&w->lock);
 }
 
+// Its toywm window at the dialog's new size (w16_dlg_resize()); a fullscreen one stays the screen's.
+void w16_dlgwin_resize(struct w16 *w, uint16_t hwnd) {
+    pthread_mutex_lock(&w->lock);
+    struct w16_wnd *d = w16_wnd_get(w, hwnd);
+    struct uapp_window *u = d && !d->fullscreen ? d->uwin : 0;
+    int dw = d ? w16_up(d->w) : 0, dh = d ? w16_up(d->h) : 0;
+    pthread_mutex_unlock(&w->lock);
+    if (u) uapp_window_resize(u, dw, dh);
+}
+
 void w16_dlgwin_redraw(struct w16 *w, uint16_t hwnd) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *d = w16_wnd_get(w, hwnd);

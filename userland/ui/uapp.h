@@ -476,6 +476,10 @@ void uapp_window_set_title(struct uapp_window *w, const char *title);
 // closes. Its size follows the compositor's proposal (on_draw sees it in
 // uapp_window_width/height); a window that is not RESIZABLE takes it too.
 void uapp_window_set_fullscreen(struct uapp_window *w, int on);
+// A secondary window sized by its program (a dialog that grows, Windows' MoveWindow): its next frame
+// is presented at width x height and the compositor adopts it -- a resize sends nothing, as
+// uapp_resize()'s does not. 0 when its buffer could not be made.
+int uapp_window_resize(struct uapp_window *w, int width, int height);
 // UAPP_WIN_NO_DECOR only: hand the drag of the press in progress to the
 // compositor, as uapp_move_start() does for the main window -- a dialog
 // whose caption the program draws.

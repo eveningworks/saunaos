@@ -100,27 +100,31 @@ int w16_top_fit(struct w16_wnd *win) {
     int cw = fbw - r > 1 ? fbw - r : 1, ch = fbh - b > 1 ? fbh - b : 1;
     if (win->fb && fbw == win->fbw && fbh == win->fbh && cw == win->cw && ch == win->ch) return 0;
     if (!win->fb || fbw != win->fbw || fbh != win->fbh) {
-        uint32_t *fb = malloc(((size_t)fbw * fbh + 1) * 4);
-        if (!fb) return -1;
-        // Until the program repaints -- which the emulated CPU may take a
-        // few frames over, and a drag resizes many times a second -- the
-        // frame shows the old client area where it still fits and the
-        // class background beyond it, as Windows' own erase would, never
-        // a black buffer.
         int k = win->cls;
-        uint32_t bg = k >= 0 && k < g_w16.ncls ? w16_brush_color(g_w16.cls[k].background) : 0xFFFFFF;
-        for (size_t i = 0; i < (size_t)fbw * fbh + 1; i++) fb[i] = bg;
-        int kw = win->fb && win->cw < fbw ? win->cw : fbw, kh = win->fb && win->ch < fbh ? win->ch : fbh;
-        for (int y = 0; win->fb && y < kh; y++)
-            memcpy(fb + (size_t)y * fbw, win->fb + (size_t)y * win->fbw, (size_t)kw * 4);
-        free(win->fb);
-        win->fb = fb;
-        win->fbw = fbw;
-        win->fbh = fbh;
+        if (w16_fb_resize(win, fbw, fbh, k >= 0 && k < g_w16.ncls ? w16_brush_color(g_w16.cls[k].background) : 0xFFFFFF) < 0)
+            return -1;
     }
     win->cw = cw;
     win->ch = ch;
     return 1;
+}
+
+// A top-level window's client buffer made fbw x fbh. Until the program repaints -- which the
+// emulated CPU may take a few frames over, and a drag resizes many times a second -- it shows the
+// old client area where it still fits and `bg` beyond it, as Windows' own erase would, never a
+// black buffer. 0, or -1 with the old buffer kept.
+int w16_fb_resize(struct w16_wnd *win, int fbw, int fbh, uint32_t bg) {
+    uint32_t *fb = malloc(((size_t)fbw * fbh + 1) * 4);
+    if (!fb) return -1;
+    for (size_t i = 0; i < (size_t)fbw * fbh + 1; i++) fb[i] = bg;
+    int kw = win->fb && win->cw < fbw ? win->cw : fbw, kh = win->fb && win->ch < fbh ? win->ch : fbh;
+    for (int y = 0; win->fb && y < kh; y++)
+        memcpy(fb + (size_t)y * fbw, win->fb + (size_t)y * win->fbw, (size_t)kw * 4);
+    free(win->fb);
+    win->fb = fb;
+    win->fbw = fbw;
+    win->fbh = fbh;
+    return 0;
 }
 
 void w16_wnd_set_geometry(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int nh) {

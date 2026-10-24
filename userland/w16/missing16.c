@@ -79,32 +79,11 @@
 
 // --- GDI -------------------------------------------------------------------------------------
 
-// GDI.40 FillRgn(hDC, hRgn, hBrush) -> BOOL
-// Windows: Fills a region with a brush.
-// Why: Regions are their bounding rectangles today (the roadmap's "w16: regions as more than their
-// bounding rectangle"); with real regions it is a span fill.
-// By: FAXVIEW.EXE, FRAMEWRK.DLL, MAIN.CPL, WINTUTOR.EXE
-
-// GDI.41 FrameRgn(hDC, hRgn, hBrush, nWidth, nHeight) -> BOOL
-// Windows: Draws a border round a region's edge with a brush, nWidth by nHeight thick.
-// Why: As FillRgn.
-// By: WINTUTOR.EXE
-
-// GDI.42 InvertRgn(hDC, hRgn) -> BOOL
-// Windows: Inverts the colours inside a region.
-// Why: As FillRgn.
-// By: FRAMEWRK.DLL
-
 // GDI.50 CreateBrushIndirect(lpLogBrush) -> HBRUSH
 // Windows: A brush from a LOGBRUSH: solid, hatched, patterned or hollow.
 // Why: Not written yet: the brushes it describes are the ones CreateSolidBrush, CreateHatchBrush
 // and CreatePatternBrush already make.
 // By: POWER.DRV, SCHDPLUS.EXE, USER.EXE
-
-// GDI.65 CreateRectRgnIndirect(lpRect) -> HRGN
-// Windows: A rectangular region from a RECT.
-// Why: Not written yet: CreateRectRgn from a structure -- one line.
-// By: CARDFILE.EXE, FRAMEWRK.DLL, MAIN.CPL, TERMINAL.EXE, USER.EXE, WINMETER.EXE
 
 // GDI.76 GetBkMode(hDC) -> int
 // Windows: Whether text and hatches fill their background (OPAQUE) or leave it (TRANSPARENT).
@@ -126,12 +105,6 @@
 // part.
 // Why: Windows' own: USER's. w16's DCs are clipped by w16 itself.
 // By: USER.EXE
-
-// GDI.101 OffsetRgn(hRgn, nXOffset, nYOffset) -> int
-// Windows: Moves a region.
-// Why: Not written yet: a region is a rectangle in w16 today, so this is a few lines, and it will
-// follow real regions.
-// By: FRAMEWRK.DLL, USER.EXE
 
 // GDI.105 SelectVisRgn(hDC, hRgn) -> int
 // Windows: Sets a DC's visible region -- USER's, when it hands out a window's DC.
@@ -190,11 +163,6 @@
 // Why: As SetEnvironment.
 // By: GENDRV.DLL, HPPCL5E.DRV, HPPLOT.DRV, PSCRIPT.DRV, TTY.DRV, UNIDRV.DLL
 
-// GDI.134 GetRgnBox(hRgn, lpRect) -> int
-// Windows: A region's bounding rectangle, and whether it is empty, simple or complex.
-// Why: Not written yet: in w16 today the rectangle is the region.
-// By: USER.EXE
-
 // GDI.136 RemoveFontResource(lpFilename) -> BOOL
 // Windows: Takes a font AddFontResource added away again.
 // Why: As AddFontResource.
@@ -209,11 +177,6 @@
 // Windows: Asks a printer DC's abort procedure whether to go on.
 // Why: As SetEnvironment.
 // By: EFAXDRV.DRV, GENDRV.DLL, UNIDRV.DLL
-
-// GDI.161 PtInRegion(hRgn, X, Y) -> BOOL
-// Windows: Whether a point lies inside a region.
-// Why: Not written yet: in w16 today, inside the region's rectangle; it will follow real regions.
-// By: MAIN.CPL
 
 // GDI.173 GetClipRgn(hDC) -> HRGN
 // Windows: The DC's clipping region (the handle itself, which the program must not delete).
@@ -238,11 +201,6 @@
 // GDI.180 SetDCState(hDC, hSavedDC) -> void
 // Windows: Puts back a DC's state from GetDCState's copy.
 // Why: Windows' own, as GetDCState.
-// By: USER.EXE
-
-// GDI.181 RectInRegionOld(hRgn, lpRect) -> BOOL
-// Windows: RectInRegion's older entry: whether any of a rectangle lies inside a region.
-// Why: Not written yet, nor RectInRegion itself, as PtInRegion.
 // By: USER.EXE
 
 // GDI.190 SetDCHook(hDC, lpfnHook, dwHookData) -> BOOL
@@ -1708,13 +1666,6 @@
 // Switch To.
 // Why: A program cannot reach another's window: each program is its own w16.
 // By: TASKMAN.EXE
-
-// USER.181 SetSysColors(cDspElements, lpnDspElements, lpdwRgbValues) -> void
-// Windows: Changes system colours (COLOR_*) for every program, and tells them all with
-// WM_SYSCOLORCHANGE.
-// Why: w16's colours are 3.1's defaults for its own windows; a program changing them for everyone
-// is Control Panel's job, and toy-os's theme is not its to change.
-// By: MAIN.CPL, WINTUTOR.EXE
 
 // USER.185 GrayString(hDC, hBrush, lpfnOutput, lpData, nCount, X, Y, nWidth, nHeight) -> BOOL
 // Windows: Draws text (or what an output procedure draws) dimmed, as a disabled control's label.

@@ -2762,6 +2762,127 @@ static int api_SetRectRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 10;
 }
 
+// A RECT the program passes, or writes back: -1 when it is outside its memory.
+static int rgn_rect_in(struct w16 *w, uint32_t far, int16_t r[4]) {
+    const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 0);
+    if (!p) return -1;
+    memcpy(r, p, 8);
+    return 0;
+}
+
+// CreateRectRgnIndirect(lpRect) -> HRGN
+// Windows: CreateRectRgn, from a RECT.
+// w16: The same.
+static int api_CreateRectRgnIndirect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int16_t r[4];
+    if (rgn_rect_in(w, w16_arg32(a), r) < 0) return -1;
+    struct w16_gdiobj *o;
+    uint16_t h = new_obj(w, GDI_REGION, &o);
+    if (o) rgn_set(o, r[0], r[1], r[2], r[3]);
+    w->cpu.r[R_AX] = h;
+    return 4;
+}
+
+// FillRgn(hDC, hRgn, hBrush) -> BOOL
+// PaintRgn(hDC, hRgn) -> BOOL
+// FrameRgn(hDC, hRgn, hBrush, nWidth, nHeight) -> BOOL
+// InvertRgn(hDC, hRgn) -> BOOL
+// Windows: Fill a region with a brush (PaintRgn: the DC's own), draw a border round it nWidth wide
+// and nHeight tall, or invert its colours -- in logical units.
+// w16: The same over the region's rectangle -- its bounding one when CombineRgn or CreatePolygonRgn
+// made it of more than one.
+static int api_FillRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    uint16_t hdc = w16_arg16(a);
+    struct w16_gdiobj *r = obj(w, w16_arg16(a), GDI_REGION), *dc = obj(w, hdc, GDI_DC);
+    uint16_t brush = ordinal == 40 || ordinal == 41 ? w16_arg16(a) : dc ? dc->brush : 0;
+    int fw = ordinal == 41 ? (int16_t)w16_arg16(a) : 0, fh = ordinal == 41 ? (int16_t)w16_arg16(a) : 0;
+    int ok = r && dc;
+    if (ok && rgn_kind(r) != NULLREGION) {
+        int l = r->rgn[0], t = r->rgn[1], rr = r->rgn[2], b = r->rgn[3];
+        if (ordinal == 42) {
+            w16_gdi_invert(w, hdc, l, t, rr, b);
+        } else if (ordinal == 41) {               // the four sides, nWidth and nHeight thick
+            w16_gdi_fill(w, hdc, l, t, rr, t + fh, brush);
+            w16_gdi_fill(w, hdc, l, b - fh, rr, b, brush);
+            w16_gdi_fill(w, hdc, l, t, l + fw, b, brush);
+            w16_gdi_fill(w, hdc, rr - fw, t, rr, b, brush);
+        } else {
+            w16_gdi_fill(w, hdc, l, t, rr, b, brush);
+        }
+    }
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return ordinal == 40 ? 6 : ordinal == 41 ? 10 : 4;
+}
+
+// OffsetRgn(hRgn, nXOffset, nYOffset) -> int
+// Windows: Moves a region; its kind, or ERROR.
+// w16: The same.
+static int api_OffsetRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *r = obj(w, w16_arg16(a), GDI_REGION);
+    int dx = (int16_t)w16_arg16(a), dy = (int16_t)w16_arg16(a);
+    w->cpu.r[R_AX] = 0;
+    if (!r) return 6;
+    if (rgn_kind(r) != NULLREGION) {
+        int complex = r->complex;
+        rgn_set(r, r->rgn[0] + dx, r->rgn[1] + dy, r->rgn[2] + dx, r->rgn[3] + dy);
+        r->complex = complex;
+    }
+    w->cpu.r[R_AX] = (uint16_t)rgn_kind(r);
+    return 6;
+}
+
+// GetRgnBox(hRgn, lpRect) -> int
+// Windows: The rectangle round a region; its kind, or ERROR.
+// w16: The same.
+static int api_GetRgnBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *r = obj(w, w16_arg16(a), GDI_REGION);
+    uint32_t far = w16_arg32(a);
+    w->cpu.r[R_AX] = 0;
+    if (!r) return 6;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 1);
+    if (!p) return -1;
+    memcpy(p, r->rgn, 8);
+    w->cpu.r[R_AX] = (uint16_t)rgn_kind(r);
+    return 6;
+}
+
+// PtInRegion(hRgn, X, Y) -> BOOL
+// RectInRegion(hRgn, lpRect) -> BOOL
+// RectInRegionOld(hRgn, lpRect) -> BOOL
+// Windows: Whether a point is inside a region, or any of a rectangle is; RectInRegionOld is the same
+// call's entry for programs built for Windows 3.0.
+// w16: The same, against the region's rectangle -- its bounding one when CombineRgn or
+// CreatePolygonRgn made it of more than one.
+static int api_PtInRegion(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    struct w16_gdiobj *r = obj(w, w16_arg16(a), GDI_REGION);
+    int16_t q[4];
+    if (ordinal == 161) {
+        q[0] = (int16_t)w16_arg16(a);
+        q[1] = (int16_t)w16_arg16(a);
+        q[2] = (int16_t)(q[0] + 1);
+        q[3] = (int16_t)(q[1] + 1);
+    } else if (rgn_rect_in(w, w16_arg32(a), q) < 0) {
+        return -1;
+    }
+    int in = r && rgn_kind(r) != NULLREGION && q[0] < r->rgn[2] && r->rgn[0] < q[2] &&
+             q[1] < r->rgn[3] && r->rgn[1] < q[3];
+    w->cpu.r[R_AX] = (uint16_t)in;
+    return 6;
+}
+
+// EqualRgn(hSrcRgn1, hSrcRgn2) -> BOOL
+// Windows: Whether two regions are the same shape and place.
+// w16: Whether their rectangles are the same.
+static int api_EqualRgn(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    struct w16_gdiobj *r1 = obj(w, w16_arg16(a), GDI_REGION), *r2 = obj(w, w16_arg16(a), GDI_REGION);
+    w->cpu.r[R_AX] = r1 && r2 && !memcmp(r1->rgn, r2->rgn, sizeof r1->rgn) && r1->complex == r2->complex;
+    return 4;
+}
+
 // CombineRgn(hrgnDest, hrgnSrc1, hrgnSrc2, fnCombineMode) -> int
 // Windows: Makes a region from two others -- their intersection, union, either but not both, or one
 // less the other -- of any shape the rectangles make.
@@ -3918,6 +4039,10 @@ const struct w16_api g_gdi_api[] = {
     { 37, api_Polygon },
     { 38, api_Escape },
     { 39, api_SaveDC },
+    { 40, api_FillRgn },
+    { 41, api_FillRgn },
+    { 42, api_FillRgn },
+    { 43, api_FillRgn },
     { 44, api_SelectClipRgn },
     { 45, api_SelectObject },
     { 47, api_CombineRgn },
@@ -3933,12 +4058,14 @@ const struct w16_api g_gdi_api[] = {
     { 61, api_CreatePen },
     { 63, api_CreatePolygonRgn },
     { 64, api_CreateRectRgn },
+    { 65, api_CreateRectRgnIndirect },
     { 66, api_CreateSolidBrush },
     { 67, api_DPtoLP },
     { 68, api_DeleteDC },
     { 69, api_DeleteDC },
     { 70, api_EnumFonts },
     { 71, api_EnumObjects },
+    { 72, api_EqualRgn },
     { 74, api_BitmapBits },
     { 75, api_GetBkColor },
     { 77, api_GetClipBox },
@@ -3959,10 +4086,12 @@ const struct w16_api g_gdi_api[] = {
     { 97, api_GetViewportExt },
     { 99, api_DPtoLP },
     { 100, api_LineDDA },
+    { 101, api_OffsetRgn },
     { 103, api_PtVisible },
     { 104, api_RectVisible },
     { 106, api_BitmapBits },
     { 128, api_MulDiv },
+    { 134, api_GetRgnBox },
     { 148, api_SetBrushOrg },
     { 149, api_GetBrushOrg },
     { 150, api_UnrealizeObject },
@@ -3970,9 +4099,11 @@ const struct w16_api g_gdi_api[] = {
     { 154, api_GetNearestColor },
     { 156, api_CreateDiscardableBitmap },
     { 160, api_SetMetaFileBits },
+    { 161, api_PtInRegion },
     { 162, api_SetBitmapDimension },
     { 163, api_SetBitmapDimension },
     { 172, api_SetRectRgn },
+    { 181, api_PtInRegion },
     { 307, api_GetCharABCWidths },
     { 330, api_EnumFontFamilies },
     { 345, api_SetTextAlign },
@@ -3993,6 +4124,7 @@ const struct w16_api g_gdi_api[] = {
     { 443, api_SetDIBitsToDevice },
     { 450, api_PolyPolygon },
     { 465, api_RectVisible },
+    { 466, api_PtInRegion },
 };
 const unsigned g_gdi_api_n = sizeof g_gdi_api / sizeof g_gdi_api[0];
 

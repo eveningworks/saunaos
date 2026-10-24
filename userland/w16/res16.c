@@ -7,9 +7,44 @@
 // did. The bytes are the FILE's, already checked against it by ne.c.
 #include "w16_internal.h"
 
+#include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define HRSRC_BASE 0x7000
+// A DLL's resource (or the display driver's: Color's OEMBIN) is named by its place in this list
+// instead, from HRSRC_DLL_BASE: which module, which entry, its block once loaded. The handle is
+// 16 bits, so the list stops short of HRSRC_BASE.
+#define HRSRC_DLL_BASE 0x6000
+static struct dllres { uint16_t inst; int index; uint16_t sel; } *g_dllres;
+static int g_ndllres;
+
+static struct dllres *dllres_of(uint16_t h) {
+    int i = h - HRSRC_DLL_BASE;
+    return h >= HRSRC_DLL_BASE && h < HRSRC_BASE && i < g_ndllres ? &g_dllres[i] : 0;
+}
+
+// The handle for entry `index` of the module `inst` names, made once.
+static uint16_t dllres_handle(uint16_t inst, int index) {
+    for (int i = 0; i < g_ndllres; i++)
+        if (g_dllres[i].inst == inst && g_dllres[i].index == index) return (uint16_t)(HRSRC_DLL_BASE + i);
+    if (HRSRC_DLL_BASE + g_ndllres >= HRSRC_BASE) {
+        fprintf(stderr, "w16: FindResource: no handle left for another DLL resource\n");
+        return 0;
+    }
+    struct dllres *g = realloc(g_dllres, sizeof *g * (size_t)(g_ndllres + 1));
+    if (!g) return 0;
+    g_dllres = g;
+    g_dllres[g_ndllres] = (struct dllres){ inst, index, 0 };
+    return (uint16_t)(HRSRC_DLL_BASE + g_ndllres++);
+}
+
+// A DLL resource's entry and module; -1 when `h` names none.
+static int dllres_at(struct w16 *w, uint16_t h, struct dllres **e, const struct ne_module **m, struct ne_resource *r) {
+    if (!(*e = dllres_of(h))) return -1;
+    *m = w16_module_of(w, (*e)->inst);
+    return *m && ne_resource_at(*m, (*e)->index, r) == 0 ? 0 : -1;
+}
 
 // A resource name or type: an integer when the selector is 0 (or the
 // string is "#123", which ne_resource_find() reads), else a string.
@@ -63,13 +98,13 @@ int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap) { retur
 // Windows: Finds a resource in a module's resource table -- a bitmap, an icon, a dialog template, a
 // string table, a program's own data -- by its type and its name or number, and returns a handle to
 // say which.
-// w16: Looks it up in the program's NE resource table, by number or by name, standard types and the
-// program's own alike, and returns a handle naming its place in that table; 0 when there is no such
-// resource.
+// w16: Looks it up in the NE resource table of the module hInst names -- the program's, or a DLL's
+// (the display driver's for Color) -- by number or by name, standard types and the program's own
+// alike, and returns a handle naming its place; 0 when there is no such resource.
 static int api_FindResource(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
-    w16_arg16(a);
+    uint16_t inst = w16_arg16(a);
     uint32_t lpname = w16_arg32(a), lptype = w16_arg32(a);
     uint16_t id, type;
     char name[32], tname[32];
@@ -77,6 +112,12 @@ static int api_FindResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
         res_arg(w, lptype, &type, tname, sizeof tname) < 0)
         return -1;
     struct ne_resource r;
+    const struct ne_module *m = inst ? w16_module_of(w, inst) : &w->ne;
+    if (m && m != &w->ne) {                      // a DLL's own
+        int i = ne_resource_find(m, type, tname[0] ? tname : 0, id, name[0] ? name : 0, &r);
+        c->r[R_AX] = i < 0 ? 0 : dllres_handle(inst, i);
+        return 10;
+    }
     int i = w16_res_find(w, type, tname[0] ? tname : 0, id, name[0] ? name : 0, &r);
     c->r[R_AX] = i < 0 ? 0 : (uint16_t)(HRSRC_BASE + i);
     return 10;
@@ -107,6 +148,14 @@ static int api_LoadResource(struct w16 *w, unsigned ordinal, struct w16_args *a)
     (void)ordinal;
     w16_arg16(a);
     uint16_t h = w16_arg16(a);
+    struct dllres *e;
+    const struct ne_module *m;
+    struct ne_resource r;
+    if (dllres_at(w, h, &e, &m, &r) == 0) {
+        if (!e->sel) e->sel = w16_global_alloc(w, r.len, m->img + r.off);
+        c->r[R_AX] = e->sel;
+        return 4;
+    }
     c->r[R_AX] = h >= HRSRC_BASE ? w16_res_load(w, h - HRSRC_BASE) : 0;
     return 4;
 }
@@ -144,7 +193,10 @@ static int api_SizeofResource(struct w16 *w, unsigned ordinal, struct w16_args *
     w16_arg16(a);
     uint16_t h = w16_arg16(a);
     struct ne_resource r;
-    uint32_t n = h >= HRSRC_BASE && ne_resource_at(&w->ne, h - HRSRC_BASE, &r) == 0 ? r.len : 0;
+    struct dllres *e;
+    const struct ne_module *m;
+    uint32_t n = dllres_at(w, h, &e, &m, &r) == 0 ? r.len
+               : h >= HRSRC_BASE && ne_resource_at(&w->ne, h - HRSRC_BASE, &r) == 0 ? r.len : 0;
     c->r[R_AX] = (uint16_t)n;
     c->r[R_DX] = (uint16_t)(n >> 16);
     return 4;

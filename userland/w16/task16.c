@@ -217,6 +217,7 @@ static const struct { const char *module; uint16_t ordinal; const char *note; } 
     { "USER",    121, "only WH_CALLWNDPROC is called" },                    // SetWindowsHook
     { "USER",    291, "only WH_CALLWNDPROC is called" },                    // SetWindowsHookEx
     { "USER",    416, "shows no menu and answers FALSE" },                  // TrackPopupMenu
+    { "USER",    181, "recolours what the program paints, not w16's frames" },   // SetSysColors
     { "USER",    252, "loads no driver: answers NULL" },                     // OpenDriver
     { "USER",    267, "changes no scroll bar" },                            // ShowScrollBar
     { "USER",    61,  "repaints the whole window; its children do not move" },   // ScrollWindow

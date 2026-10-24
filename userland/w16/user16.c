@@ -49,17 +49,48 @@
 #define HTVSCROLL       7
 #define WM_NCLBUTTONDBLCLK 0x00A3
 
-static const uint32_t g_syscolors[] = {
-    0xC0C0C0, 0x008080, 0x000080, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x000000, 0x000000,
+// Windows' system colours, COLOR_* order: 3.1's defaults at VGA, as VGA.DRV's OEMBIN resource gives
+// them -- COLOR_GRAYTEXT and the desktop the light grey -- then WIN.INI's [colors] over them, read
+// at the first ask as Windows read them at start, and SetSysColors' for the run.
+static uint32_t g_syscolors[] = {
+    0xC0C0C0, 0xC0C0C0, 0x000080, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x000000, 0x000000,
     0x000000, 0xFFFFFF, 0xC0C0C0, 0xC0C0C0, 0xFFFFFF, 0x000080, 0xFFFFFF, 0xC0C0C0,
     0x808080, 0xC0C0C0, 0x000000, 0x000000, 0xFFFFFF,
 };
+#define NSYSCOLORS (sizeof g_syscolors / sizeof g_syscolors[0])
 
-// COLOR_* (0..20) -> a ugfx colour; Windows' defaults -- 3.1's at VGA, where COLOR_GRAYTEXT is the
-// light grey (the reference 3.11's greyed labels, lists and menu items).
+// WIN.INI's [colors] names, COLOR_* order.
+static const char *const SYSCOLOR_KEYS[NSYSCOLORS] = {
+    "Scrollbar", "Background", "ActiveTitle", "InactiveTitle", "Menu", "Window", "WindowFrame",
+    "MenuText", "WindowText", "TitleText", "ActiveBorder", "InactiveBorder", "AppWorkspace", "Hilight",
+    "HilightText", "ButtonFace", "ButtonShadow", "GrayText", "ButtonText", "InactiveTitleText",
+    "ButtonHilight",
+};
+
+static void syscolors_read(void) {
+    static int done;
+    if (done) return;
+    done = 1;
+    for (unsigned i = 0; i < NSYSCOLORS; i++) {
+        char v[32];
+        unsigned r, g, b;
+        if (w16_ini_get("WIN.INI", "colors", SYSCOLOR_KEYS[i], v, sizeof v) && sscanf(v, "%u %u %u", &r, &g, &b) == 3 &&
+            r < 256 && g < 256 && b < 256)
+            g_syscolors[i] = r << 16 | g << 8 | b;
+    }
+}
+
+// COLOR_* (0..20) -> a ugfx colour.
 uint32_t w16_syscolor(unsigned index) {
-    uint32_t rgb = index < sizeof g_syscolors / sizeof g_syscolors[0] ? g_syscolors[index] : 0xFFFFFF;
+    syscolors_read();
+    uint32_t rgb = index < NSYSCOLORS ? g_syscolors[index] : 0xFFFFFF;
     return ugfx_rgb((uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb);
+}
+
+// SetSysColors' work: COLOR_* `index` made `rgb` (0xRRGGBB) for the run.
+void w16_syscolor_set(unsigned index, uint32_t rgb) {
+    syscolors_read();
+    if (index < NSYSCOLORS) g_syscolors[index] = rgb & 0xFFFFFF;
 }
 
 static int put_bytes(struct w16 *w, uint32_t far, const void *src, unsigned len) {
@@ -790,6 +821,8 @@ static int move_to(struct w16 *w, struct w16_wnd *x, int nx, int ny, int nw, int
         if (sized) w16_send(w, h, WM_SIZE, SIZE_RESTORED, (uint32_t)(uint16_t)x->ch << 16 | (uint16_t)x->cw);
         if (moved) w16_send(w, h, WM_MOVE, 0, (uint32_t)(uint16_t)x->y << 16 | (uint16_t)x->x);
         ok = 1;
+    } else if (x && x->kind == W16_K_DIALOG) {
+        ok = w16_dlg_resize(w, x, nx, ny, nw, nh);
     }
     return ok;
 }

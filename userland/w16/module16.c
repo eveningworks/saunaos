@@ -402,6 +402,37 @@ struct w16_dll *w16_dll_load(struct w16 *w, const char *spec, int *err) {
     return d;
 }
 
+// The display driver SYSTEM.INI's [boot] names (VGA.DRV), as the module DISPLAY -- for its
+// RESOURCES ONLY: its segments are mapped so it has a handle, but nothing is bound and no code of it
+// ever runs, since it drives the VGA itself. Control Panel's Color reads Windows Default's colours
+// from its OEMBIN resource. NULL when there is none.
+static struct w16_dll *display_module(struct w16 *w) {
+    for (int i = 0; i < w->ndlls; i++)
+        if (!strcmp(w->dlls[i]->name, "DISPLAY")) return w->dlls[i]->broken ? 0 : w->dlls[i];
+    char drv[80], host[1024], why[160];
+    if (!w16_ini_get("SYSTEM.INI", "boot", "display.drv", drv, sizeof drv) || !drv[0] ||
+        find_dll(w, drv, host, sizeof host))
+        return 0;
+    struct w16_dll *d = calloc(1, sizeof *d);
+    void *g = realloc(w->dlls, sizeof *w->dlls * (size_t)(w->ndlls + 1));
+    if (!d || !g) { free(d); return 0; }
+    w->dlls = g;
+    snprintf(d->name, sizeof d->name, "DISPLAY");
+    d->path = strdup(host);
+    d->img = read_file(host, &d->size);
+    d->resonly = d->refs = 1;
+    w->dlls[w->ndlls++] = d;
+    struct w16_image im = { &d->ne, d->seg_sel, d->path };
+    if (!d->path || !d->img || ne_parse(d->img, d->size, &d->ne) < 0 ||
+        w16_load_segments(w, &im, 0, why, sizeof why) < 0) {
+        d->broken = 1;
+        return 0;
+    }
+    d->dgroup = d->ne.autodata ? d->seg_sel[d->ne.autodata] : 0;
+    d->hinst = d->dgroup ? d->dgroup : d->seg_sel[1];
+    return d;
+}
+
 int w16_dll_start_pending(struct w16 *w) {
     for (int i = 0; i < w->ndlls; i++) {
         struct w16_dll *d = w->dlls[i];
@@ -502,7 +533,8 @@ static int api_FreeLibrary(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 // GetModuleHandle(lpModuleName) -> HMODULE
 // Windows: The handle of a module already loaded, by its name; 0 if it is not.
 // w16: The program's own, a DLL it loaded, or a Windows module's -- the handle GetProcAddress
-// takes; 0 for one not loaded.
+// takes; 0 for one not loaded. DISPLAY is the display driver SYSTEM.INI names, loaded for its
+// resources (Color's Windows Default scheme) and never run: GetProcAddress finds nothing in it.
 static int api_GetModuleHandle(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t far = w16_arg32(a);
@@ -515,6 +547,10 @@ static int api_GetModuleHandle(struct w16 *w, unsigned ordinal, struct w16_args 
     else
         for (int i = 0; i < w->ndlls; i++)
             if (!w->dlls[i]->broken && !strcmp(w->dlls[i]->name, name)) h = w->dlls[i]->hinst;
+    if (!h && same(name, "DISPLAY")) {
+        struct w16_dll *d = display_module(w);
+        h = d ? d->hinst : 0;
+    }
     w->cpu.r[R_AX] = h;
     return 4;
 }
@@ -537,7 +573,7 @@ static int api_GetProcAddress(struct w16 *w, unsigned ordinal, struct w16_args *
     if (bmod) {
         unsigned ord = (far >> 16) ? w16_builtin_ordinal(bmod, fn) : (uint16_t)far;
         if (ord) r = (uint32_t)h << 16 | ord;
-    } else {
+    } else if (!(d && d->resonly)) {             // the display driver's code is never run
         const struct ne_module *m = d ? &d->ne : &w->ne;
         const uint16_t *sel = d ? d->seg_sel : w->seg_sel;
         unsigned ord = (far >> 16) ? ne_export_find(m, fn) : (uint16_t)far;

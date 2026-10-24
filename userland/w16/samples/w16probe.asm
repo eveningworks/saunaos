@@ -21,6 +21,10 @@
 ;           Vis=    RectVisible on an 8x1 bitmap: a rectangle on it (0001), then one far off it (0000)
 ;           Dbl=    GetDoubleClickTime after SetDoubleClickTime(300): 012C
 ;           Swap=   SwapMouseButton(TRUE) then (FALSE): what each says the buttons were -- 00000001
+;           Rgn=    a region from a RECT (10,10,20,20): PtInRegion at 15,15 (0001) and 25,15 (0000), OffsetRgn
+;                   by 5,5's kind (0002, SIMPLEREGION), then GetRgnBox's left (000F)
+;           Desk= / Sys=  GetSysColor(COLOR_BACKGROUND), 3.1's light grey (00C0C0C0); GetSysColor(
+;                   COLOR_BTNFACE) after SetSysColors made it blue (00FF0000) for the run
 ;           LZ= / LZRead= / LZEnd= / LZText= / LZName=  LZEXPAND on a 10-byte SZDD file the probe writes to
 ;                   C:\WINDOWS and opens by its bare name -- OpenFile's search, as Control Panel opens
 ;                   CONTROL.INF: an LZ handle (0190, the first), the count read (000A), LZSeek to the end
@@ -275,6 +279,69 @@ start:
     push word lz_name
     W16_CALL "LZEXPAND", 10
 
+    push ds                         ; CreateRectRgnIndirect(&rgn_rect)
+    push word rgn_rect
+    W16_CALL "GDI", 65
+    mov [rgn], ax
+    mov di, rgn_text
+    push di
+    push word [rgn]                 ; PtInRegion(rgn, 15, 15)
+    push word 15
+    push word 15
+    W16_CALL "GDI", 161
+    pop di
+    call hex16
+    push di
+    push word [rgn]                 ; PtInRegion(rgn, 25, 15)
+    push word 25
+    push word 15
+    W16_CALL "GDI", 161
+    pop di
+    call hex16
+    push di
+    push word [rgn]                 ; OffsetRgn(rgn, 5, 5)
+    push word 5
+    push word 5
+    W16_CALL "GDI", 101
+    pop di
+    call hex16
+    push di
+    push word [rgn]                 ; GetRgnBox(rgn, &rgn_box): its left
+    push ds
+    push word rgn_box
+    W16_CALL "GDI", 134
+    pop di
+    mov ax, [rgn_box]
+    call hex16
+    mov byte [di], 0
+    push word [rgn]                 ; DeleteObject(rgn)
+    W16_CALL "GDI", 69
+
+    push word 1                     ; GetSysColor(COLOR_BACKGROUND): DX:AX
+    W16_CALL "USER", 180
+    mov di, desk_text
+    push ax
+    mov ax, dx
+    call hex16
+    pop ax
+    call hex16
+    mov byte [di], 0
+    push word 1                     ; SetSysColors(1, &sys_index, &sys_rgb), then GetSysColor(COLOR_BTNFACE)
+    push ds
+    push word sys_index
+    push ds
+    push word sys_rgb
+    W16_CALL "USER", 181
+    push word 15
+    W16_CALL "USER", 180
+    mov di, sys_text
+    push ax
+    mov ax, dx
+    call hex16
+    pop ax
+    call hex16
+    mov byte [di], 0
+
     push word 300                   ; SetDoubleClickTime(300), then GetDoubleClickTime
     W16_CALL "USER", 20
     W16_CALL "USER", 21
@@ -437,7 +504,8 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_border, border_text, key_border2, border2_text, key_title, title_text
             dw key_ver, ver_text, key_verdest, verdest_text, key_vis, vis_text, key_lz, lz_text
             dw key_lzread, lzread_text, key_lzend, lzend_text, key_lztext, lz_buf, key_lzname, lz_name
-            dw key_dbl, dbl_text, key_swap, swap_text, 0
+            dw key_dbl, dbl_text, key_swap, swap_text, key_rgn, rgn_text, key_desk, desk_text
+            dw key_sys, sys_text, 0
 key_base:   db "Base", 0
 key_async:  db "Async", 0
 key_w1000:  db "Wide1000", 0
@@ -457,6 +525,17 @@ key_verdest: db "VerDest", 0
 key_vis:    db "Vis", 0
 key_lz:     db "LZ", 0
 key_dbl:    db "Dbl", 0
+key_rgn:    db "Rgn", 0
+key_desk:   db "Desk", 0
+key_sys:    db "Sys", 0
+rgn_text:   times 18 db 0
+desk_text:  times 10 db 0
+sys_text:   times 10 db 0
+rgn:        dw 0
+rgn_rect:   dw 10, 10, 20, 20
+rgn_box:    times 4 dw 0
+sys_index:  dw 15                   ; COLOR_BTNFACE
+sys_rgb:    dd 0x00FF0000           ; a COLORREF: blue
 key_swap:   db "Swap", 0
 dbl_text:   times 6 db 0
 swap_text:  times 10 db 0

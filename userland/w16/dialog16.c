@@ -644,6 +644,32 @@ static void start(struct w16 *w, struct w16_wnd *d, uint32_t param, int modal) {
 
 void w16_dlg_show(struct w16 *w, struct w16_wnd *d, int modal, uint32_t param) { start(w, d, param, modal); }
 
+// MoveWindow on a dialog or popup: its frame resized and its client buffer with it -- what fits
+// kept, the rest its ground -- and its toywm window told; where it sits stays toywm's (Color shrinks
+// itself to its schemes at start, and grows for Color Palette >>).
+int w16_dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh) {
+    int f = w16_dlg_frame(d), top = w16_dlg_frame_top(d), cap = w16_dlg_caption(d);
+    int cw = nw - 2 * f > 1 ? nw - 2 * f : 1, ch = nh - top - cap - f > 1 ? nh - top - cap - f : 1;
+    int k = d->cls;
+    uint32_t bg = d->popup && k >= 0 && k < w->ncls ? w16_brush_color(w->cls[k].background) : w16_syscolor(COLOR_WINDOW);
+    pthread_mutex_lock(&w->lock);
+    d->x = nx;
+    d->y = ny;
+    int sized = cw != d->cw || ch != d->ch;
+    if (sized && w16_fb_resize(d, cw, ch, bg) < 0) { pthread_mutex_unlock(&w->lock); return 0; }
+    d->cw = cw;
+    d->ch = ch;
+    d->w = cw + 2 * f;
+    d->h = ch + top + cap + f;
+    int open = d->uwin != 0;
+    pthread_mutex_unlock(&w->lock);
+    if (!sized) return 1;
+    w16_send(w, d->hwnd, WM_SIZE, SIZE_RESTORED, (uint32_t)(uint16_t)d->ch << 16 | (uint16_t)d->cw);
+    if ((d = w16_wnd_get(w, d->hwnd))) w16_invalidate(w, d, 1);
+    if (d && open) w16_task_post_arg(w, W16_POST_DLG_SIZE, d->hwnd);
+    return 1;
+}
+
 // Its toywm window closed, and gone before the dialog may be freed.
 void w16_dlg_window_gone(struct w16 *w, struct w16_wnd *d) {
     if (d->ended == 2) return;

@@ -895,6 +895,41 @@ static int api_GetSysColor(struct w16 *w, unsigned ordinal, struct w16_args *a) 
     return 2;
 }
 
+// SetSysColors(cDspElements, lpnDspElements, lpdwRgbValues) -> void
+// Windows: Changes system colours (COLOR_*) for every program and tells them all with
+// WM_SYSCOLORCHANGE -- Control Panel's Color applying a scheme, which it writes to WIN.INI's [colors]
+// itself.
+// w16: The colours GetSysColor answers change for the program's run, and its windows hear
+// WM_SYSCOLORCHANGE and are repainted; WIN.INI's [colors] is read at the next start.
+// Why: w16 draws its own 3.1 frames, captions, menus and buttons in 3.1's default colours, not
+// through the system colours.
+// Notice: What the program paints itself in GetSysColor's colours follows a scheme; the frames,
+// captions, menus and buttons w16 draws stay in Windows Default.
+// Whole: w16's frames and controls drawn in the system colours, so a scheme recolours all of them.
+static int api_SetSysColors(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int n = (int16_t)w16_arg16(a);
+    uint32_t idx = w16_arg32(a), rgb = w16_arg32(a);
+    const uint8_t *pi = n > 0 ? cpu16_ptr(&w->cpu, (uint16_t)(idx >> 16), (uint16_t)idx, (unsigned)n * 2, 0) : 0;
+    const uint8_t *pc = n > 0 ? cpu16_ptr(&w->cpu, (uint16_t)(rgb >> 16), (uint16_t)rgb, (unsigned)n * 4, 0) : 0;
+    if (n > 0 && (!pi || !pc)) return -1;
+    for (int i = 0; i < n; i++) {
+        unsigned k = pi[2 * i] | pi[2 * i + 1] << 8;
+        uint32_t cr = (uint32_t)pc[4 * i] << 16 | (uint32_t)pc[4 * i + 1] << 8 | pc[4 * i + 2];   // 00BBGGRR
+        w16_syscolor_set(k, cr);
+    }
+    if (n > 0 && w->win.used) {                  // the main window and its dialogs hear it, then repaint
+        w16_send(w, w->win.hwnd, WM_SYSCOLORCHANGE, 0, 0);
+        w16_invalidate(w, &w->win, 1);
+        for (int i = 0; i < w->nwnds; i++)
+            if (w->wnds[i] && w->wnds[i]->used && w->wnds[i]->kind == W16_K_DIALOG) {
+                w16_send(w, w->wnds[i]->hwnd, WM_SYSCOLORCHANGE, 0, 0);
+                if (w->wnds[i]) w16_invalidate(w, w->wnds[i], 1);
+            }
+    }
+    return 10;
+}
+
 // GetDesktopWindow() -> HWND
 // Windows: The desktop window, behind every other.
 // w16: A handle standing for it: the program's screen.
@@ -2011,6 +2046,7 @@ const struct w16_api g_user_misc_api[] = {
     { 171, api_WinHelp },
     { 175, api_LoadBitmap },
     { 180, api_GetSysColor },
+    { 181, api_SetSysColors },
     { 183, api_GetCaretPos },
     { 190, api_GetUpdateRect },
     { 192, api_InSendMessage },

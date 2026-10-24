@@ -163,6 +163,18 @@ void uapp_window_set_fullscreen(struct uapp_window *w, int on) {
     wmchan_send(WIN_REQ_FULLSCREEN, (uint32_t)w->top.slot, on, 0, 0, 0);
 }
 
+int uapp_window_resize(struct uapp_window *w, int rw, int rh) {
+    if (!w || !w->top.slot || rw <= 0 || rh <= 0) return 0;
+    clamp_to_screen(&rw, &rh);
+    struct uapp_surf *s = &g_surf[w->top.slot];
+    if (s->back >= 0 && !buf_make(s, s->back, rw, rh)) return 0;
+    s->w = rw;
+    s->h = rh;
+    if (s->back >= 0) s->surface = ugfx_surface_for_pixels(s->px[s->back], rw, rh);
+    w->top.dirty = 1;
+    return 1;
+}
+
 // One event, in the dialog's OWN coordinate space -- it is a toplevel,
 // so nothing is translated. Its widgets are routed exactly as the
 // toplevel's are; what a dialog has no equivalent of (scanout, resize,

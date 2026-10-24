@@ -67,6 +67,7 @@ void ne_print_info(const struct ne_module *m);
 #define WM_ENABLE        0x000A
 #define WM_SETREDRAW     0x000B
 #define WM_SETTEXT       0x000C
+#define WM_SYSCOLORCHANGE 0x0015
 #define WM_GETTEXT       0x000D
 #define WM_GETTEXTLENGTH 0x000E
 #define WM_PAINT         0x000F
@@ -371,6 +372,7 @@ struct w16_dll {
     int refs;
     int broken;                                  // it failed to load: kept so it is not tried again
     int pending;                                 // bound at the program's load: LibEntry still to run
+    int resonly;                                 // the display driver: for its resources, never run
 };
 
 struct w16 {
@@ -463,6 +465,7 @@ extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-sa
 #define W16_POST_POINTER   12   // arg: x << 16 | y, in the main window -- SetCursorPos
 #define W16_POST_MOVE      13   // DefWindowProc took a press on the caption: the compositor runs the move
 #define W16_POST_ABOVE     14   // arg: 1 or 0 -- SetWindowPos(HWND_TOPMOST / HWND_NOTOPMOST)
+#define W16_POST_DLG_SIZE  15   // arg: a dialog's hwnd -- MoveWindow resized it: its window follows
 
 // --- task16.c --------------------------------------------------------------
 
@@ -536,6 +539,7 @@ void w16_sys_pop(struct w16 *w, uint16_t at);
 
 #define COLOR_GRAYTEXT 17
 uint32_t w16_syscolor(unsigned index);            // COLOR_* -> ugfx colour
+void w16_syscolor_set(unsigned index, uint32_t rgb);   // SetSysColors', for the run
 uint32_t w16_brush_color(uint16_t brush);
 // A window's DC, its state reset -- BeginPaint's and GetDC's.
 uint16_t w16_gdi_window_dc(struct w16 *w, uint16_t hwnd);
@@ -647,6 +651,7 @@ void w16_wnd_set_geometry(struct w16 *w, struct w16_wnd *x, int nx, int ny, int 
 // leave inside it, cleared: 1 remade, 0 already fitted, -1 out of memory.
 // The caller holds `lock` or owns the window.
 int w16_top_fit(struct w16_wnd *win);
+int w16_fb_resize(struct w16_wnd *win, int fbw, int fbh, uint32_t bg);   // its client buffer, kept where it fits
 // Invalidate x and every child of it; posts nothing (GetMessage finds it).
 void w16_invalidate(struct w16 *w, struct w16_wnd *x, int erase);
 // The next window owed a WM_PAINT, a parent before its children; NULL none.
@@ -745,6 +750,7 @@ extern const unsigned g_scroll_api_n;
 struct w16_wnd *w16_dlg_item(struct w16 *w, uint16_t dlg, uint16_t id);
 // A dialog's frame and caption, in its window's 1x pixels.
 int w16_dlg_frame(const struct w16_wnd *d);
+int w16_dlg_resize(struct w16 *w, struct w16_wnd *d, int nx, int ny, int nw, int nh);   // MoveWindow's
 int w16_dlg_frame_top(const struct w16_wnd *d);
 // A dialog's template FONT, `pt` points: W16_FONT_DIALOG and its units.
 void w16_dlg_set_font(struct w16_wnd *d, int pt);
@@ -810,6 +816,7 @@ extern const unsigned g_dialog_api_n, g_shell_api_n, g_sound_api_n;
 // Main thread: a dialog's window, from the W16_POST_DLG_* codes.
 void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd);
 void w16_dlgwin_close(struct w16 *w, uint16_t hwnd);
+void w16_dlgwin_resize(struct w16 *w, uint16_t hwnd);
 void w16_dlgwin_redraw(struct w16 *w, uint16_t hwnd);
 // The DLU -> pixel base units of the dialog font: x per 4, y per 8.
 void w16_dlg_units(int *bx, int *by);
