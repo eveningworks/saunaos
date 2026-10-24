@@ -12355,3 +12355,41 @@ stages, each its own commit.
   holds at the next 64 KiB chunk. The panel is `uui_transfers`, the
   Browser's downloads list, grown a rate, a note, Pause/Resume and a
   waiting state -- one widget for "things moving bytes", not two.
+
+## Windows 3.x is installed by toy-os's own Setup, from Microsoft's SETUP.INF
+
+Chosen 2026-10-24 from the "Install Windows 3.x in w16" canvas (the A step
+dialog, folders AND floppy images, Retro Launcher plus `w16 --install`),
+before Control Panel: Control Panel looks for its applets in
+`C:\WINDOWS\SYSTEM`, and a tree copied by hand had them in `WINDOWS`.
+
+MICROSOFT'S SETUP CANNOT RUN HERE. 3.11's `SETUP.EXE` is a DOS program
+that installs the DOS half and then starts Windows to run `WINSETUP.EXE`
+inside it; w16 runs Windows programs, not DOS, and has no Windows to
+start. DOSBox runs the real thing because it emulates the PC underneath.
+Wine is the model instead: `wineboot` builds the fake `C:\windows`
+itself, and winetricks installs Microsoft's components by unpacking
+their original media and placing each file where Windows would -- so
+toy-os reads Microsoft's own instructions, `SETUP.INF`, and does what
+they say (`userland/lib/uwinsetup.c`).
+
+WHAT IS COPIED IS MEASURED, NOT INFERRED. An INF lists every option for
+every machine; which ones Express Setup picks is decided by what it
+detected. The rules here -- the DOS lists, the `#section, 0:system`
+references, the accessories, VGA's driver and fonts and grabber, the
+PS/2 mouse, the code page's and language's files, KBDUS.DLL never --
+were written against Express Setup's own `C:\WINDOWS` on the reference
+VM, until the plan matched it file for file (256 of 256 copied files, in
+the same folder, every byte as libmspack expands it). What Setup MADE
+rather than copied -- WIN.COM, the Program Manager groups, REG.DAT, the
+swap file, the .PIFs -- is not made: w16 needs none of it, and the
+launcher's folder list is the group (`C:\WINDOWS` joins it as Windows).
+
+THE DISKS ARE CONTAINERS, NOT NUMBERS. A file is found by its name in
+any folder or image given, so a flat folder, a folder per disk, the
+floppy images or a mix all install alike; the INF's disk number is only
+what a message names. The disks are untrusted: they are read by `w16`
+(pledged, writing only drive C:), never by the dialog, which reads
+`w16 --install`'s lines. The INI files are kept when drive C: has them,
+as Setup's upgrade did; `--replace-ini` makes them afresh.
+

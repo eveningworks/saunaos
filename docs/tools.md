@@ -8555,6 +8555,40 @@ runs first**: a `doom1.wad` with one
   Windows folder looked as if it had lost most of its files. Its control,
   seen red with `mutate.py`: capping the listing at 256 in
   `uui_fileview.c`'s reload. In `gui_regress.py`.
+- **`w16_install_test.py`** -- `w16 --install` and the Install Windows 3.x
+  dialog in a guest booted from a fresh image, from `gen_win3_disks.py`'s
+  synthetic floppy images and folder. The CLI: `--dry-run` plans every file
+  and writes nothing; the install puts every file where that generator's
+  table says (sizes, and two contents read back), decoys absent; WIN.INI
+  kept, then made afresh with `--replace-ini`; a set missing CALC.EXE
+  exits 1 naming it. The dialog: Retro Launcher's bar while drive C: has no
+  Windows, the bar opening the dialog, Disks to Check to Done by its own
+  log lines, the launcher's folders gaining `C:\WINDOWS` as Windows, and
+  the bar gone once the launcher has the focus back. ~1.5 min under KVM.
+  In `ondemand_sweep.py` (`w16install`).
+- **`uwinsetup_hostcheck.py`** -- `userland/lib/uwinsetup.c`, the engine
+  behind `w16 --install` (with `ufatimg.c` and `umsexpand.c` under it),
+  compiled on the host under ASan + UBSan. Synthetic disks from
+  `gen_win3_disks.py` in all four forms (one folder, a folder per disk,
+  floppy images, a mix) must install EXACTLY that generator's own table of
+  files, folders and bytes -- decoys absent, no `.part` left; INI files kept
+  or replaced as asked; a missing file planned as missing and the install
+  stopping on it; a folder with no SETUP.INF refused. With
+  `~/CodingProjects/toy-osother` here (local only): from the English folder
+  and from its eight floppy images, every file must land where Express
+  Setup put it on the reference VM (`win311-vm/win311.img`, read with
+  mtools) and match libmspack's expansion; the Finnish set must plan with
+  nothing missing. Then mutated SETUP.INFs and damaged compressed files.
+  `--positive-control` sends `0:system` sections to WINDOWS (placement goes
+  red) and unbounds a field (UBSan goes red). In `preflight.sh`.
+- **`gen_win3_disks.py`** -- a Windows 3.x setup disk set with no Microsoft
+  file in it: a SETUP.INF in the shape of Windows for Workgroups 3.11's
+  (each section the installer reads, decoys for other hardware and
+  languages), its files KWAJ-compressed under `NAME.EX_` names, written as
+  one folder, a folder per disk, 1.44 MB floppy images or a mix
+  (`--form`). It says where each file must land from ITS OWN table, not
+  the installer's rules; `--list` prints it. Used by
+  `uwinsetup_hostcheck.py` and the guest test of `w16 --install`.
 - **`ufatimg_hostcheck.py`** -- `userland/lib/ufatimg.c`, FAT12/FAT16 disk
   images read from memory (setup floppies as files), compiled on the host
   under ASan + UBSan against MTOOLS as the second reader: a 1.44 MB floppy,

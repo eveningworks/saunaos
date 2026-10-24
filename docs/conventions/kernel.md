@@ -4983,6 +4983,17 @@ Real systems split the same way: Linux allocates (`kmalloc`, `krealloc`,
 and KDE's application lists are heap lists rebuilt when the directory
 changes.
 
+## UNDER `unveil`, A FOLDER THAT IS THERE CAN ANSWER `mkdir` WITH `EACCES` -- ASK `stat` FIRST
+
+A "make every folder on the way" loop that treats only `EEXIST` as fine
+works until it runs sandboxed: `w16 --install` unveils drive C: `rwc`
+and the rest of the tree `r`, and `mkdir("/home")` -- outside what it
+may create in -- answers EACCES, not EEXIST, although `/home` is
+plainly there. The install stopped on "permission denied" before
+writing a file. A path the program may not create in can still be one
+that exists: check `stat()` + `S_ISDIR` before `mkdir`, as
+`lib/uwinsetup.c`'s `mkdir_p` does, rather than reading the errno.
+
 ## A SANDBOXED PROGRAM THAT MUST START ANOTHER ASKS A BROKER STARTED BEFORE THE SANDBOX, AND THE BROKER IS NOT SANDBOXED.
 
 `w16` runs an untrusted Windows program and has no `proc` promise, so a

@@ -1,0 +1,9 @@
+# Install Windows 3.x -- see this directory's README.md for the format.
+# Opened by Retro Launcher (Tools, and its bar while drive C: has no
+# Windows), not from the Start menu.
+Name=Install Windows 3.x
+Exec=/bin/wm/apps/wininstall
+Category=utility
+Comment=Install Windows 3.x into w16's drive C: from its setup disks
+Icon=win16
+NoDisplay=1

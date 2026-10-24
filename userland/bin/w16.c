@@ -22,6 +22,7 @@
 #include "lib/uargs.h"
 #include "lib/umd.h"
 #include "lib/udclick.h"
+#include "lib/uwinsetup.h"   // --install
 #include "lib/uclip_page.h"   // CLIP_SHM_NAME: the clipboard an EDIT copies to
 #include "rt/sys.h"
 #include "query_abi.h"
@@ -37,6 +38,8 @@ static int g_info, g_check, g_fonts, g_sounds;
 static char g_tail[127];                 // the program's command line: DOS's 126 characters
 static const char *g_trace_path;
 static const char *g_why;                // --why CALL
+static const char *g_install;            // --install DISKS
+static int g_dry_run, g_replace_ini;
 static char g_exe[W16_PATH_MAX];         // the program, as an absolute path: its settings' key
 
 static const struct uargs_opt OPTS[] = {
@@ -51,12 +54,18 @@ static const struct uargs_opt OPTS[] = {
       NULL, &g_trace_path },
     { "why", 'w', "CALL", "say what CALL (USER.121) does and how w16 answers it, from the calls page",
       NULL, &g_why },
+    { "install", 0, "DISKS", "install Windows 3.x onto drive C: from its disks: a folder of their files, "
+      "a folder per disk, or the floppy images", NULL, &g_install },
+    { "dry-run", 'n', NULL, "with --install, say what would go where and change nothing", &g_dry_run, NULL },
+    { "replace-ini", 0, NULL, "with --install, make WIN.INI, SYSTEM.INI and CONTROL.INI afresh even "
+      "where drive C: has them", &g_replace_ini, NULL },
     { 0 },
 };
 
 static const struct uargs_prog PROG = {
     .name = "w16",
-    .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE\n--fonts\n--sounds\n--why CALL",
+    .usage = "FILE [ARGUMENT...]\n--info FILE\n--check FILE\n--fonts\n--sounds\n--why CALL\n"
+             "--install DISKS [--dry-run] [--replace-ini]",
     .summary = "Run a 16-bit Windows (Windows 3.x) program in a window, or with --info\n"
                "list what an NE executable holds and the Windows functions it imports.\n"
                "Only a few functions are implemented so far: a program that calls one\n"
@@ -972,6 +981,72 @@ static void start_help_broker(void) {
     else close(fds[1]);
 }
 
+// The C:\ path a person reads: C:\WINDOWS\SYSTEM\MAIN.CPL.
+static void install_path(const struct uwinsetup *s, const struct uws_item *it, char *out, size_t cap) {
+    snprintf(out, cap, "C:\\%s\\%s%s", uwinsetup_windir(s), it->dest == UWS_SYSTEM ? "SYSTEM\\" : "", it->name);
+}
+
+// One line a file, flushed: Retro Launcher's install dialog reads them as they come.
+static int install_progress(void *ctx, int i, int n, const struct uws_item *it, const char *what) {
+    char path[64];
+    install_path(ctx, it, path, sizeof path);
+    printf("%s %d/%d %s %s %d\n", what, i + 1, n, path, it->disk_name[0] ? it->disk_name : "-", it->disk);
+    fflush(stdout);
+    return 0;
+}
+
+// --install DISKS: the disks are read, never changed; only drive C: is written.
+static int install(const char *src) {
+    w16_prefs_load(&g_w16_prefs, 0);
+    snprintf(g_w16_drive_c, sizeof g_w16_drive_c, "%s", g_w16_prefs.drive_c);
+    mkdirs(g_w16_drive_c);
+    if (unveil("/", "r") != 0 || unveil(g_w16_drive_c, "rwc") != 0 || unveil(NULL, NULL) != 0 ||
+        pledge(g_dry_run ? "stdio rpath" : "stdio rpath wpath cpath", NULL) != 0) {
+        fprintf(stderr, "w16: cannot sandbox myself, so I will not read the disks\n");
+        return 1;
+    }
+    char err[256], path[64];
+    struct uwinsetup *s = uwinsetup_open(src, err, sizeof err);
+    if (!s) {
+        fprintf(stderr, "w16: %s\n", err);
+        return 1;
+    }
+    int n = uwinsetup_count(s), missing = uwinsetup_missing(s), files = 0;
+    for (int i = 0; i < n; i++) {
+        const struct uws_item *it = uwinsetup_item(s, i);
+        files += it->disk_name[0] || it->kind != UWS_OPTIONAL;   // Setup's own, when these disks lack it, is no file
+    }
+    printf("setup %s\nlanguage %s\ndisks %d\nfiles %d\nbytes %llu\nmissing %d\ntarget C:\\%s %s/%s\n",
+           uwinsetup_title(s), uwinsetup_lang(s), uwinsetup_containers(s), files,
+           (unsigned long long)uwinsetup_bytes(s), missing, uwinsetup_windir(s), g_w16_drive_c, uwinsetup_windir(s));
+    for (int i = 0; i < n && (g_dry_run || missing); i++) {
+        const struct uws_item *it = uwinsetup_item(s, i);
+        install_path(s, it, path, sizeof path);
+        if (it->disk_name[0] && g_dry_run)
+            printf("file %s %s disk %d\n", path, it->disk_name, it->disk);
+        else if (!it->disk_name[0] && it->kind != UWS_OPTIONAL)
+            printf("missing %s disk %d\n", path, it->disk);
+    }
+    int rc = 0;
+    if (missing && !g_dry_run) {
+        fprintf(stderr, "w16: %d file%s SETUP.INF names %s on none of these disks\n", missing,
+                missing == 1 ? "" : "s", missing == 1 ? "is" : "are");
+        rc = 1;
+    } else if (!g_dry_run) {
+        int r = uwinsetup_run(s, g_w16_drive_c, g_replace_ini ? 0 : UWS_KEEP_INI, install_progress, s,
+                              err, sizeof err);
+        if (r) {
+            fprintf(stderr, "w16: %s\n", err);
+            rc = 1;
+        } else {
+            printf("done %d files\n", files);
+        }
+    }
+    fflush(stdout);
+    uwinsetup_close(s);
+    return rc;
+}
+
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
@@ -990,6 +1065,11 @@ int main(int argc, char **argv) {
         if (a.argc) return uargs_error(&PROG, "--why takes no FILE");
         return why(g_why);
     }
+    if (g_install) {
+        if (a.argc) return uargs_error(&PROG, "--install takes its DISKS and no FILE");
+        return install(g_install);
+    }
+    if (g_dry_run || g_replace_ini) return uargs_error(&PROG, "--dry-run and --replace-ini go with --install");
     if (g_sounds) {                              // WIN.INI's [sounds] on drive C:, read in the sandbox
         if (a.argc) return uargs_error(&PROG, "--sounds takes no FILE");
         w16_prefs_load(&g_w16_prefs, 0);

@@ -275,7 +275,14 @@ Back, a History list under its button, a help file's own macros (its
 Glossary button) and the browse sequence -- with
 text you can select and copy, a right-click menu and a zoom. F1 and the Help menu reach it through
 `WinHelp()`; with the Help setting at WINHELP.EXE, Windows' own Help runs
-under w16 instead, at the same topic.
+under w16 instead, at the same topic. **Windows itself is installed from
+its own setup disks** -- a folder of their files, a folder per disk or the
+floppy images -- by Retro Launcher's **Tools > Install Windows 3.x from
+disks...** (a Disks, Check, Install, Done dialog; the launcher offers it
+in a bar while drive C: has none) or `w16 --install DISKS`: each file
+expanded from its COMPRESS.EXE `FILE.EX_` (`lib/umsexpand`, floppies read
+by `lib/ufatimg`) into the folder Windows' own Express Setup put it in,
+which `SETUP.INF` decides, and `C:\WINDOWS` added to the launcher's folders.
 
 **The File Manager** opens on **Quick access** -- pinned folders,
 recently opened files and the drives in three bands -- and its command

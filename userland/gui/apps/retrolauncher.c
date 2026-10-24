@@ -51,6 +51,7 @@
 #include "ui/uui_focus.h"
 #include "ui/uui_table.h"
 #include "ui/uui_textbox.h"
+#include "ui/uui_infobar.h"
 #include "ui/uui_toolbar.h"
 #include "w16/w16prefs.h"
 #include "retrolauncher/retrolauncher.h"
@@ -102,14 +103,35 @@ static struct uapp *g_app;
 
 enum { CMD_RUN = 1, CMD_PROPS, CMD_ADD, CMD_REMOVE, CMD_REFRESH, CMD_OPTIONS, CMD_EXIT, CMD_CALLS,
        CMD_CHANGE, CMD_RENAME, CMD_UP, CMD_DOWN, CMD_VIEW_ICONS, CMD_VIEW_DETAILS,
-       CMD_SORT_ASC, CMD_SORT_DESC, CMD_SORT0 /* + a column: nine of them */ };
+       CMD_SORT_ASC, CMD_SORT_DESC, CMD_INSTALL, CMD_SORT0 /* + a column: nine of them */ };
 enum { ID_MENU = 1, ID_TOOLBAR, ID_SIDEBAR, ID_GRID, ID_STATUS, ID_SCALE, ID_VERSION, ID_FRAME,
        ID_TRACE, ID_RUN, ID_CALLS, ID_METHOD, ID_FONTS, ID_OPT_FONTCARD, ID_DRIVEC, ID_CTX,
        ID_DRV_ADD, ID_DRV_CHANGE, ID_DRV_REMOVE, ID_TABLE, ID_SEARCH,
-       ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND, ID_HELP, ID_COLORS };
+       ID_FOL_ADD, ID_FOL_CHANGE, ID_FOL_RENAME, ID_FOL_REMOVE, ID_FOL_UP, ID_FOL_DOWN, ID_SOUNDS, ID_SOUND, ID_HELP, ID_COLORS,
+       ID_WINBAR };
 
 static struct uui_menubar g_menu;
 static struct uui_menubar g_ctx;             // a folder's right-click menu
+
+// --- Windows itself on drive C: ----------------------------------------------------
+//
+// Its programs, Control Panel and Help come from its own setup disks:
+// /bin/wm/apps/wininstall (w16 --install) puts them there. Until it has,
+// a bar above the list says so. USER.EXE in SYSTEM is the file every
+// install has and no sample does.
+#define WININSTALL_BIN "/bin/wm/apps/wininstall"
+static struct uui_infobar g_winbar;
+static int g_no_windows;
+static long long g_windir_stamp = -1;       // C:\WINDOWS's mtime when the list was read
+
+static void windows_check(const char *drive_c) {
+    char path[W16_PATH_MAX + 32];
+    struct stat st;
+    snprintf(path, sizeof path, "%s/WINDOWS/SYSTEM/USER.EXE", drive_c);
+    g_no_windows = stat(path, &st) != 0;
+    snprintf(path, sizeof path, "%s/WINDOWS", drive_c);
+    g_windir_stamp = stat(path, &st) == 0 ? (long long)st.st_mtime : -1;
+}
 static struct uui_toolbar g_tb;
 static struct uui_sidebar g_side;
 static struct uui_grid g_grid;
@@ -1281,6 +1303,7 @@ static void command(struct uapp *a, int cmd) {
         break;
     }
     case CMD_OPTIONS: open_options(); break;
+    case CMD_INSTALL: uapp_spawn(a, WININSTALL_BIN, 0); break;
     case CMD_EXIT:    uapp_quit(a, 0); break;
     default:
         if (cmd >= CMD_SORT0 && cmd < CMD_SORT0 + COL_COUNT) { g_sort = cmd - CMD_SORT0; build_view(); save_state(); log_list("sort"); }
@@ -1607,6 +1630,8 @@ static struct uui_menu_item folder_items[] = {
 };
 #define FOLDER_CTX_FIRST 2                   // the right-click menu leaves out Add folder...
 static struct uui_menu_item tools_items[] = {
+    UUI_MENU("Install Windows 3.x from disks...", CMD_INSTALL, 0),
+    UUI_MENU_SEP,
     UUI_MENU("Options...", CMD_OPTIONS, 0),
 };
 static const struct uui_menu_item menu_bar[] = {
@@ -1666,7 +1691,9 @@ static struct uui_item g_widgets[] = {
     { .ops = &uui_statusbar_ops, .widget = &g_sb,    .id = ID_STATUS,  .name = "status" },
     { .ops = &uui_menubar_ops,   .widget = &g_ctx,   .id = ID_CTX,     .name = "ctxmenu" },
     { .ops = &uui_textbox_ops,   .widget = &g_search, .id = ID_SEARCH, .name = "search" },
+    { .ops = &uui_infobar_ops,   .widget = &g_winbar, .id = ID_WINBAR, .hidden = 1, .name = "winbar" },
 };
+#define W_WINBAR ((int)(sizeof g_widgets / sizeof g_widgets[0]) - 1)
 #define W_GRID 3    // the icons; W_TABLE, the Details view, is shown instead
 #define W_TABLE 4
 #define W_PSCROLL 5 // the panel's scrolling
@@ -1691,8 +1718,17 @@ static void layout(int cw, int ch) {
     g_px = cw - g_pw;
     g_py = top;
     g_ph = body_h;
-    uui_grid_ops.set_geometry(&g_grid, sidew + 1, top, g_px - sidew - 1, body_h);
-    uui_table_ops.set_geometry(&g_table, sidew + 1, top, g_px - sidew - 1, body_h);
+    int lt = top, lh = body_h;
+    g_widgets[W_WINBAR].hidden = !g_no_windows;
+    if (g_no_windows) {                      // the list starts under the bar
+        int nbw, nb;
+        uui_infobar_ops.natural_size(&g_winbar, &nbw, &nb);
+        uui_infobar_ops.set_geometry(&g_winbar, sidew + 1, top, g_px - sidew - 1, nb);
+        lt += nb;
+        lh -= nb;
+    }
+    uui_grid_ops.set_geometry(&g_grid, sidew + 1, lt, g_px - sidew - 1, lh);
+    uui_table_ops.set_geometry(&g_table, sidew + 1, lt, g_px - sidew - 1, lh);
     g_widgets[W_GRID].hidden = g_details;
     g_widgets[W_TABLE].hidden = !g_details;
     // The settings rows exist only beside a program, each only while all of
@@ -1767,6 +1803,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
     case ID_MENU:    if ((code = uui_menubar_take_code(&g_menu)) > 0) command(a, code); break;
     case ID_TOOLBAR: if ((code = uui_toolbar_take_code(&g_tb)) > 0) command(a, code); break;
     case ID_SIDEBAR: build_view(); fill_panel(); break;
+    case ID_WINBAR:  if (uui_infobar_take(&g_winbar)) command(a, CMD_INSTALL); break;
     case ID_GRID:
         sync_sel();
         if (g_grid.selected != g_panel_for) { g_panel_for = g_grid.selected; g_pscroll = 0; }
@@ -1857,6 +1894,18 @@ static void consume_show(void);
 static void on_focus(struct uapp *a, int focused) {
     if (!focused) return;
     consume_show();
+    // Back from the installer, or anything else that changed C:\WINDOWS: read the list again.
+    long long was = g_windir_stamp;
+    int had = g_no_windows;
+    windows_check(g_def.drive_c);
+    if (was != g_windir_stamp || had != g_no_windows) {
+        // An install adds C:\WINDOWS to the folders (wininstall): read them again too.
+        w16_folders_free(g_folders, g_nfolders);
+        g_nfolders = w16_folders_load(&g_folders);
+        if (g_nfolders < 0) g_nfolders = 0;
+        folders_changed(-1);
+        command(a, CMD_REFRESH);
+    }
     for (int i = 0; i < g_nprog; i++) if (g_prog[i].checked) read_last(&g_prog[i]);
     uapp_redraw(a);
 }
@@ -2108,6 +2157,8 @@ int main(int argc, char **argv) {
     g_sb.panes[0].text = g_st_count; g_sb.panes[0].chars = 18;
     g_sb.panes[1].text = g_st_runs;  g_sb.panes[1].chars = 10;
     g_sb.panes[2].text = g_st_need;  g_sb.panes[2].chars = 26;
+    uui_infobar_init(&g_winbar, "win16", "Windows is not installed on drive C:.", "Install Windows...");
+    windows_check(g_def.drive_c);
     find_programs();
     build_sidebar();
     uui_sidebar_select_id(&g_side, -1);

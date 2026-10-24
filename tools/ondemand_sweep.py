@@ -443,6 +443,9 @@ TOOLS = [
     # A second qemu-xhci with the keyboard behind a hub on it: every
     # keystroke proves the second controller is driven.
     ("usbmulti",    "usb_multi_test.py",       "two xHCI controllers, each its own bus", True, None,                 False),
+    # w16 --install and its dialog, from gen_win3_disks.py's synthetic
+    # setup disks: the engine itself is the host check's (preflight).
+    ("w16install",  "w16_install_test.py",     "Windows 3.x from its setup disks", True, None,                     False),
     # Its own guests with extra hardware: forty PCI devices behind
     # bridges, then eleven USB devices -- past both old fixed tables.
     ("devcount",    "device_count_test.py",    "PCI past 32 devices, USB past 8",    True,  None,                   False),

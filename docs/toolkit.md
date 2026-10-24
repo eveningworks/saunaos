@@ -136,6 +136,7 @@
 | `uvisits.h` | uvisits -- the pages a person browsed to (a browser's History; the shell's command history is lib/uhistory.h): one entry per address, with when it was last visited, how often, and its title. |
 | `uvolinfo.h` | What one mounted volume or network share IS, gathered in one place: the kernel's QUERY_FSINFO record, the share's file in /etc/mounts.d and its server's last word -- for Properties' volume page and... |
 | `uwalk.h` | A DIRECTORY TREE WALK, one directory at a time, for a caller that has to stop, report progress or share a thread: the File Manager's search into subfolders and its folder sizes. |
+| `uwinsetup.h` | Windows 3.x installed from its own disks into w16's drive C: -- what its Setup did in Express mode on a VGA PC with a PS/2 mouse, file for file: SETUP.INF says which disk holds each file and whethe... |
 | `uwmchan.h` | TWP over a channel: a client's request reaching the compositor DIRECTLY instead of through the kernel. |
 | `uwmf.h` | Windows metafiles (MS-WMF): a 16-bit metafile's records, decoded and checked, one at a time, for a caller that draws them -- w16's PlayMetaFile into a GDI DC, or an image viewer into a canvas. |
 | `uzip.h` | Reading ONE member out of a .zip archive into a file or memory, and writing a new archive -- PKWARE's APPNOTE, the subset every archiver writes: stored (method 0) and deflated (method 8) members, n... |

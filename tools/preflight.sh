@@ -314,6 +314,11 @@ python3 tools/umsexpand_hostcheck.py || fail "umsexpand vs mscompress.py and lib
 step "ufatimg_hostcheck.py (FAT12/16 disk images: against mtools, real disks, hostile images)"
 python3 tools/ufatimg_hostcheck.py || fail "ufatimg vs mtools"
 
+# w16 --install's engine: synthetic disks in every form, the real WfW 3.11
+# set against Express Setup's own tree when here, hostile INFs. ~20 s.
+step "uwinsetup_hostcheck.py (Windows 3.x from its disks: placement, bytes, refusals, hostile INFs)"
+python3 tools/uwinsetup_hostcheck.py || fail "uwinsetup vs Express Setup's tree"
+
 step "boot_smoke_test.py"
 python3 tools/boot_smoke_test.py || fail "boot smoke test"
 

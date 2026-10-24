@@ -1000,6 +1000,8 @@ EXTRA_OBJS_terminal   = term/term_conf term/term_prefs term/term_panel
 # Retro Launcher reads and writes the settings w16 runs by;
 # userland/retrolauncher/ holds its calls window and what both windows share.
 EXTRA_OBJS_retrolauncher = w16/w16prefs retrolauncher/check retrolauncher/calls retrolauncher/fonts retrolauncher/sounds retrolauncher/why
+# Install Windows 3.x adds C:\WINDOWS to that launcher's folders when it is done.
+EXTRA_OBJS_wininstall = w16/w16prefs
 # Shapes keeps its teapot mesh in userland/shapes/, outside the program
 # directories for the reason userland/fm/ is (see EXTRA_OBJS_files).
 EXTRA_OBJS_gfxdemo    = shapes/teapot
