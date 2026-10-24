@@ -17,14 +17,30 @@
 // straddling 64 KiB becomes possible again. Both failures are silent.
 #include "xhci_internal.h"
 #include "heap.h"
+#include "irqflags.h"   // irq_save() -- the controller list grows under live interrupts
 
 DRIVER_DECLARE("xhci", "usb", "USB 3 xHCI host controller");
 
 // Defined here, shared through xhci_internal.h.
-struct xhci_hc g_xhci;
-struct xhci_slot *g_xhci_slots;
-volatile struct xhci_completion g_xhci_cmd_done;
-volatile struct xhci_completion g_xhci_xfer_done;
+struct xhci_hc **g_xhcis;
+unsigned g_nxhci;
+
+// PUBLISHED WITH INTERRUPTS OFF: the handler walks this list, and a
+// controller already running may interrupt while the next one probes.
+// The old array is freed only once nothing can be reading it.
+static int publish_hc(struct xhci_hc *hc) {
+    struct xhci_hc **grown = kmalloc((size_t)(g_nxhci + 1) * sizeof *grown);
+    if (!grown) return 0;
+    for (unsigned i = 0; i < g_nxhci; i++) grown[i] = g_xhcis[i];
+    grown[g_nxhci] = hc;
+    uint64_t f = irq_save();
+    struct xhci_hc **old = g_xhcis;
+    g_xhcis = grown;
+    g_nxhci++;
+    irq_restore(f);
+    kfree(old);
+    return 1;
+}
 
 // --- completion codes, as a TABLE ------------------------------------
 //
@@ -121,19 +137,19 @@ static int usb_traced(void) {
 // one Intel laptop hangs on it hard enough that the boot stops mid-log
 // line with no further output at all.
 //
-// The bound is the BAR's probed size (g_xhci.cap_len); 64 KiB is the
+// The bound is the BAR's probed size (hc->cap_len); 64 KiB is the
 // fallback for a controller whose BAR the probe could not size, and
 // the all-ones check below is what stops the runaway either way.
 #define XHCI_XECP_FALLBACK_LEN 0x10000u
 
-static void walk_xecp(uint32_t hcc1) {
+static void walk_xecp(struct xhci_hc *hc, uint32_t hcc1) {
     uint32_t off = XHCI_HCC1_XECP(hcc1) * 4;   // xECP is in DWORDS
     int hops = 0;
     USBT("usb: trace: xecp walk from +0x%x\n", off);
     while (off && hops++ < 64) {               // bounded: the chain is device-supplied
-        if (off + 4 > g_xhci.cap_len) {
+        if (off + 4 > hc->cap_len) {
             klog_printf("usb: xECP chain leaves the register window at +0x%x "
-                        "(BAR0 is 0x%x bytes) -- stopping\n", off, g_xhci.cap_len);
+                        "(BAR0 is 0x%x bytes) -- stopping\n", off, hc->cap_len);
             return;
         }
         // BEFORE the read, not only after: if the read itself is what
@@ -141,7 +157,7 @@ static void walk_xecp(uint32_t hcc1) {
         // line printed afterwards never appears, and the trace names
         // the previous offset instead of the fatal one.
         USBT("usb: trace: xecp read +0x%x\n", off);
-        uint32_t v  = mr32(g_xhci.cap, off);
+        uint32_t v  = mr32(hc->cap, off);
         USBT("usb: trace: xecp +0x%x = 0x%x\n", off, v);
 
         // ALL-ONES IS WHAT AN UNCLAIMED READ LOOKS LIKE when the bus is
@@ -154,15 +170,15 @@ static void walk_xecp(uint32_t hcc1) {
             return;
         }
         uint32_t id = XHCI_XECP_ID(v);
-        if (id == XHCI_XECP_ID_PROTO && off + 12 > g_xhci.cap_len) {
+        if (id == XHCI_XECP_ID_PROTO && off + 12 > hc->cap_len) {
             klog_printf("usb: xECP supported-protocol at +0x%x is cut off by the "
                         "register window -- stopping\n", off);
             return;
         }
         if (id == XHCI_XECP_ID_PROTO) {
             // Supported Protocol: name, then the port range it covers.
-            uint32_t name  = mr32(g_xhci.cap, off + 4);
-            uint32_t ports = mr32(g_xhci.cap, off + 8);
+            uint32_t name  = mr32(hc->cap, off + 4);
+            uint32_t ports = mr32(hc->cap, off + 8);
             uint32_t first = ports & 0xFFu, cnt = (ports >> 8) & 0xFFu;
             uint32_t major = (v >> 24) & 0xFFu;
             klog_printf("usb:  xECP %u supported-protocol USB %u.%u, ports %u..%u\n",
@@ -172,9 +188,9 @@ static void walk_xecp(uint32_t hcc1) {
             // are what companion_port() pairs, and without them a
             // device that moves between the two port numbers of one
             // socket looks like it moved sockets.
-            struct xhci_proto_range *r = major == 2 ? &g_xhci.usb2
-                                       : major == 3 ? &g_xhci.usb3 : 0;
-            if (major == 3) g_xhci.usb3_ports |= xhci_port_range_mask(first, cnt);
+            struct xhci_proto_range *r = major == 2 ? &hc->usb2
+                                       : major == 3 ? &hc->usb3 : 0;
+            if (major == 3) hc->usb3_ports |= xhci_port_range_mask(first, cnt);
             if (r && first && cnt) {
                 r->major = (uint8_t)major;
                 r->first = (uint8_t)first;
@@ -182,7 +198,7 @@ static void walk_xecp(uint32_t hcc1) {
             }
             (void)name;
         } else if (id == XHCI_XECP_ID_LEGACY) {
-            g_xhci.legsup_off = off;   // the handoff below needs to find it again
+            hc->legsup_off = off;   // the handoff below needs to find it again
             klog_printf("usb:  xECP %u usb-legacy-support (bios-owned=%u)\n",
                         id, (v & XHCI_LEGSUP_BIOS_OWNED) ? 1u : 0u);
         } else {
@@ -349,30 +365,30 @@ static void intel_pdo_log(const struct pci_device *d) {
 // Every USB3 port's PORTSC and link-error count, once, after the scan:
 // a SuperSpeed half that never trains reads RxDetect with nothing else
 // to say so.
-static void log_usb3_ports(void) {
+static void log_usb3_ports(struct xhci_hc *hc) {
     char line[256];
     int n = k_snprintf(line, sizeof line, "usb: usb3 ports:");
-    for (uint32_t i = 0; i < g_xhci.usb3.count && n > 0 && n < (int)sizeof line - 24; i++) {
-        uint32_t p = g_xhci.usb3.first - 1 + i;
-        if (p >= g_xhci.max_ports || p >= XHCI_MAX_PORTS) break;
+    for (uint32_t i = 0; i < hc->usb3.count && n > 0 && n < (int)sizeof line - 24; i++) {
+        uint32_t p = hc->usb3.first - 1 + i;
+        if (p >= hc->max_ports || p >= XHCI_MAX_PORTS) break;
         n += k_snprintf(line + n, sizeof line - n, " %u=0x%x/%u", p + 1,
-                        mr32(g_xhci.op, XHCI_PORTSC(p)),
-                        mr32(g_xhci.op, XHCI_PORTSC(p) + 8) & 0xFFFFu);
+                        mr32(hc->op, XHCI_PORTSC(p)),
+                        mr32(hc->op, XHCI_PORTSC(p) + 8) & 0xFFFFu);
     }
     klog_printf("%s\n", line);
 }
 
-static int legacy_handoff(void) {
-    if (!g_xhci.legsup_off) return 1;   // no such capability; nothing owns it
+static int legacy_handoff(struct xhci_hc *hc) {
+    if (!hc->legsup_off) return 1;   // no such capability; nothing owns it
 
-    uint32_t legsup = mr32(g_xhci.cap, g_xhci.legsup_off);
+    uint32_t legsup = mr32(hc->cap, hc->legsup_off);
     if (legsup & XHCI_LEGSUP_BIOS_OWNED) {
         klog_printf("usb: BIOS owns the controller -- requesting handoff\n");
-        mw32(g_xhci.cap, g_xhci.legsup_off, legsup | XHCI_LEGSUP_OS_OWNED);
+        mw32(hc->cap, hc->legsup_off, legsup | XHCI_LEGSUP_OS_OWNED);
 
         // The spec allows a BIOS a full second to let go.
         struct xhci_wait w; xhci_wait_start(&w, 1000);
-        while (mr32(g_xhci.cap, g_xhci.legsup_off) & XHCI_LEGSUP_BIOS_OWNED) {
+        while (mr32(hc->cap, hc->legsup_off) & XHCI_LEGSUP_BIOS_OWNED) {
             if (xhci_wait_over(&w)) {
                 klog_printf("usb: BIOS did not release the controller -- "
                             "taking it anyway\n");
@@ -380,10 +396,10 @@ static int legacy_handoff(void) {
                 // claim. Linux does the same, and leaving the BIOS bit
                 // set would leave the firmware believing it still has a
                 // device this driver is about to reset.
-                uint32_t v = mr32(g_xhci.cap, g_xhci.legsup_off);
+                uint32_t v = mr32(hc->cap, hc->legsup_off);
                 v |= XHCI_LEGSUP_OS_OWNED;
                 v &= ~XHCI_LEGSUP_BIOS_OWNED;
-                mw32(g_xhci.cap, g_xhci.legsup_off, v);
+                mw32(hc->cap, hc->legsup_off, v);
                 break;
             }
             cpu_relax();
@@ -394,12 +410,12 @@ static int legacy_handoff(void) {
     // above was granted. This is the half that stops the traps: an
     // enable left set means the next ordinary register write is another
     // trip into firmware.
-    uint32_t ctl = mr32(g_xhci.cap, g_xhci.legsup_off + XHCI_LEGCTLSTS);
+    uint32_t ctl = mr32(hc->cap, hc->legsup_off + XHCI_LEGCTLSTS);
     ctl &= XHCI_LEGACY_DISABLE_SMI;
     ctl |= XHCI_LEGACY_SMI_EVENTS;
-    mw32(g_xhci.cap, g_xhci.legsup_off + XHCI_LEGCTLSTS, ctl);
+    mw32(hc->cap, hc->legsup_off + XHCI_LEGCTLSTS, ctl);
 
-    uint32_t now = mr32(g_xhci.cap, g_xhci.legsup_off);
+    uint32_t now = mr32(hc->cap, hc->legsup_off);
     klog_printf("usb: legacy handoff done (legsup 0x%x, os-owned=%u)\n",
                 now, (now & XHCI_LEGSUP_OS_OWNED) ? 1u : 0u);
     return (now & XHCI_LEGSUP_BIOS_OWNED) ? 0 : 1;
@@ -423,24 +439,24 @@ void *xhci_alloc_frame(uint64_t *out_phys) {
     return v;
 }
 
-int xhci_reset_controller(void) {
+int xhci_reset_controller(struct xhci_hc *hc) {
     // Stop first. A controller that is running must halt before reset,
     // and HCH is how it says it has.
-    uint32_t cmd = mr32(g_xhci.op, XHCI_USBCMD);
+    uint32_t cmd = mr32(hc->op, XHCI_USBCMD);
     if (cmd & XHCI_CMD_RS) {
-        mw32(g_xhci.op, XHCI_USBCMD, cmd & ~(uint32_t)XHCI_CMD_RS);
+        mw32(hc->op, XHCI_USBCMD, cmd & ~(uint32_t)XHCI_CMD_RS);
         // The spec gives the controller 16 ms to halt.
         struct xhci_wait w; xhci_wait_start(&w, 100);
-        while (!(mr32(g_xhci.op, XHCI_USBSTS) & XHCI_STS_HCH)) {
+        while (!(mr32(hc->op, XHCI_USBSTS) & XHCI_STS_HCH)) {
             if (xhci_wait_over(&w)) {
                 klog_printf("usb: controller will not halt (usbsts 0x%x)\n",
-                            mr32(g_xhci.op, XHCI_USBSTS));
+                            mr32(hc->op, XHCI_USBSTS));
                 return 0;
             }
         }
     }
 
-    mw32(g_xhci.op, XHCI_USBCMD, XHCI_CMD_HCRST);
+    mw32(hc->op, XHCI_USBCMD, XHCI_CMD_HCRST);
 
     // Reset is done when HCRST self-clears AND CNR clears. Waiting on
     // only the first is a real bug: the controller can drop HCRST while
@@ -448,8 +464,8 @@ int xhci_reset_controller(void) {
     // window is silently discarded.
     struct xhci_wait w; xhci_wait_start(&w, 1000);
     for (;;) {
-        uint32_t c = mr32(g_xhci.op, XHCI_USBCMD);
-        uint32_t s = mr32(g_xhci.op, XHCI_USBSTS);
+        uint32_t c = mr32(hc->op, XHCI_USBCMD);
+        uint32_t s = mr32(hc->op, XHCI_USBSTS);
         if (!(c & XHCI_CMD_HCRST) && !(s & XHCI_STS_CNR)) break;
         if (xhci_wait_over(&w)) {
             klog_printf("usb: reset did not complete (usbcmd 0x%x usbsts 0x%x)\n", c, s);
@@ -464,40 +480,40 @@ int xhci_reset_controller(void) {
 // them are still ours -- so a recovery re-programs and must NOT
 // re-allocate. xhci_alloc_frame() identity-maps, so a ring's virtual address
 // is its physical one.
-void xhci_program_rings(void) {
-    xhci_ring_init(&g_xhci.cmd, (void *)g_xhci.cmd.trb, g_xhci.cmd.phys,
-                   g_xhci.cmd.count, 0);
-    xhci_ring_init(&g_xhci.evt, (void *)g_xhci.evt.trb, g_xhci.evt.phys,
-                   g_xhci.evt.count, 1);
-    g_xhci.erst[0].base = g_xhci.evt.phys;
-    g_xhci.erst[0].size = g_xhci.evt.count;
-    mw64(g_xhci.op, XHCI_DCBAAP, (uint64_t)(uintptr_t)g_xhci.dcbaa);
-    mw64(g_xhci.op, XHCI_CRCR, g_xhci.cmd.phys | XHCI_CRCR_RCS);
-    mw32(g_xhci.rt, XHCI_IR0 + XHCI_ERSTSZ, 1);
-    mw64(g_xhci.rt, XHCI_IR0 + XHCI_ERDP, g_xhci.evt.phys);
+void xhci_program_rings(struct xhci_hc *hc) {
+    xhci_ring_init(&hc->cmd, (void *)hc->cmd.trb, hc->cmd.phys,
+                   hc->cmd.count, 0);
+    xhci_ring_init(&hc->evt, (void *)hc->evt.trb, hc->evt.phys,
+                   hc->evt.count, 1);
+    hc->erst[0].base = hc->evt.phys;
+    hc->erst[0].size = hc->evt.count;
+    mw64(hc->op, XHCI_DCBAAP, (uint64_t)(uintptr_t)hc->dcbaa);
+    mw64(hc->op, XHCI_CRCR, hc->cmd.phys | XHCI_CRCR_RCS);
+    mw32(hc->rt, XHCI_IR0 + XHCI_ERSTSZ, 1);
+    mw64(hc->rt, XHCI_IR0 + XHCI_ERDP, hc->evt.phys);
     // ERSTBA LAST: writing it arms the interrupter.
-    mw64(g_xhci.rt, XHCI_IR0 + XHCI_ERSTBA, (uint64_t)(uintptr_t)g_xhci.erst);
+    mw64(hc->rt, XHCI_IR0 + XHCI_ERSTBA, (uint64_t)(uintptr_t)hc->erst);
 }
 
-static int setup_rings(void) {
+static int setup_rings(struct xhci_hc *hc) {
     uint64_t dcbaa_phys = 0, cmd_phys = 0, evt_phys = 0, erst_phys = 0;
 
     USBT("usb: trace: allocating ring frames\n");
-    g_xhci.dcbaa = (volatile uint64_t *)xhci_alloc_frame(&dcbaa_phys);
+    hc->dcbaa = (volatile uint64_t *)xhci_alloc_frame(&dcbaa_phys);
     void *cmd_seg = xhci_alloc_frame(&cmd_phys);
     void *evt_seg = xhci_alloc_frame(&evt_phys);
-    g_xhci.erst = (struct xhci_erst_entry *)xhci_alloc_frame(&erst_phys);
+    hc->erst = (struct xhci_erst_entry *)xhci_alloc_frame(&erst_phys);
 
-    if (!g_xhci.dcbaa || !cmd_seg || !evt_seg || !g_xhci.erst) {
+    if (!hc->dcbaa || !cmd_seg || !evt_seg || !hc->erst) {
         klog_printf("usb: out of contiguous frames for the controller rings\n");
         return 0;
     }
 
-    xhci_ring_init(&g_xhci.cmd, cmd_seg, cmd_phys, TRBS_PER_RING, 0);
-    xhci_ring_init(&g_xhci.evt, evt_seg, evt_phys, TRBS_PER_RING, 1);
+    xhci_ring_init(&hc->cmd, cmd_seg, cmd_phys, TRBS_PER_RING, 0);
+    xhci_ring_init(&hc->evt, evt_seg, evt_phys, TRBS_PER_RING, 1);
 
-    g_xhci.erst[0].base = evt_phys;
-    g_xhci.erst[0].size = TRBS_PER_RING;
+    hc->erst[0].base = evt_phys;
+    hc->erst[0].size = TRBS_PER_RING;
 
     // Scratchpad buffers: the controller asks for N pages of its own
     // scratch, addressed through an array installed at DCBAA[0].
@@ -509,15 +525,15 @@ static int setup_rings(void) {
     // above 4 KiB: the spec wants each buffer aligned to it, and this
     // allocator cannot promise more than 4 KiB. Refuse by name rather
     // than hand the controller a misaligned buffer.
-    uint32_t hcs2 = mr32(g_xhci.cap, XHCI_HCSPARAMS2);
+    uint32_t hcs2 = mr32(hc->cap, XHCI_HCSPARAMS2);
     uint32_t spb  = XHCI_HCS2_SPB_MAX(hcs2);
-    USBT("usb: trace: scratchpad wanted=%u pagesize=%u\n", spb, g_xhci.page_size);
+    USBT("usb: trace: scratchpad wanted=%u pagesize=%u\n", spb, hc->page_size);
     if (spb) {
-        if (g_xhci.page_size > 4096) {
+        if (hc->page_size > 4096) {
             klog_printf("usb: controller wants %u scratchpad pages of %u bytes;"
                         " this kernel's allocator aligns only to 4096, so a"
                         " >4 KiB page size needs an aligned allocator first\n",
-                        spb, g_xhci.page_size);
+                        spb, hc->page_size);
             return 0;
         }
         uint64_t arr_phys = 0;
@@ -529,11 +545,11 @@ static int setup_rings(void) {
             if (!xhci_alloc_frame(&p)) return 0;
             arr[i] = p;
         }
-        g_xhci.dcbaa[0] = arr_phys;
+        hc->dcbaa[0] = arr_phys;
         klog_printf("usb: %u scratchpad page(s)\n", spb);
     }
 
-    xhci_program_rings();
+    xhci_program_rings(hc);
     return 1;
 }
 
@@ -555,6 +571,19 @@ static int usb_disabled(void) {
     return 0;
 }
 
+// A decline before publish_hc(): nothing else has seen `hc`.
+__attribute__((format(printf, 3, 4)))
+static int decline_hc(struct xhci_hc *hc, const struct pci_device *d, const char *fmt, ...) {
+    char why[96];
+    va_list ap;
+    va_start(ap, fmt);
+    k_vsnprintf(why, sizeof why, fmt, ap);
+    va_end(ap);
+    kfree(hc->slots);
+    kfree(hc);
+    return pci_probe_decline(d, "%s", why);
+}
+
 static int usb_probe(const struct pci_device *d) {
     BOOT_REQUIRE(BOOT_SUB_PCI);
     BOOT_REQUIRE(BOOT_SUB_PMM);
@@ -566,7 +595,11 @@ static int usb_probe(const struct pci_device *d) {
                                  d->prog_if == 0x20 ? "2.0 (EHCI)" :
                                  d->prog_if == 0x10 ? "1.1 (OHCI)" :
                                  d->prog_if == 0x00 ? "1.1 (UHCI)" : "host");
-    if (g_xhci.pci) return pci_probe_decline(d, "a second xHCI controller; one is driven");
+    // EVERY xHCI CONTROLLER, each its own bus -- a Ryzen board has one in
+    // the CPU and one in the chipset, and whichever ports belong to the
+    // one left alone are dead. This used to decline all but the first.
+    for (unsigned i = 0; i < g_nxhci; i++)
+        if (g_xhcis[i]->pci == d) return pci_probe_decline(d, "already driven");
 
     uint64_t bar0 = pci_bar_mem_addr(d, 0);
     if (!bar0) return pci_probe_decline(d, "no usable memory BAR0");
@@ -576,9 +609,14 @@ static int usb_probe(const struct pci_device *d) {
         return pci_probe_decline(d, "its register window at 0x%llx could not be mapped",
                                  (unsigned long long)bar0);
 
-    g_xhci.pci = d;
-    g_xhci.cap = (volatile uint8_t *)win;
-    g_xhci.cap_len = (bar0_len && bar0_len <= 0xFFFFFFFFull) ? (uint32_t)bar0_len
+    // Private until publish_hc() below: nothing reaches it before then,
+    // so a decline before that point can simply free it.
+    struct xhci_hc *hc = kzalloc(sizeof *hc);
+    if (!hc) return pci_probe_decline(d, "no memory for the controller's state");
+    hc->index = g_nxhci;
+    hc->pci = d;
+    hc->cap = (volatile uint8_t *)win;
+    hc->cap_len = (bar0_len && bar0_len <= 0xFFFFFFFFull) ? (uint32_t)bar0_len
                                                             : XHCI_XECP_FALLBACK_LEN;
 
     // Memory space and bus mastering on; INTx stays DISABLED until every
@@ -587,40 +625,41 @@ static int usb_probe(const struct pci_device *d) {
     pci_command_update(d, PCI_CMD_MEMORY | PCI_CMD_BUS_MASTER, 0);
     pci_command_update(d, PCI_CMD_INTX_DISABLE, 0);
 
-    uint8_t  caplen = mr8(g_xhci.cap, XHCI_CAPLENGTH);
-    g_xhci.hci_version = (uint16_t)(mr32(g_xhci.cap, XHCI_CAPLENGTH) >> 16);
-    uint32_t hcs1   = mr32(g_xhci.cap, XHCI_HCSPARAMS1);
-    uint32_t hcc1   = mr32(g_xhci.cap, XHCI_HCCPARAMS1);
+    uint8_t  caplen = mr8(hc->cap, XHCI_CAPLENGTH);
+    hc->hci_version = (uint16_t)(mr32(hc->cap, XHCI_CAPLENGTH) >> 16);
+    uint32_t hcs1   = mr32(hc->cap, XHCI_HCSPARAMS1);
+    uint32_t hcc1   = mr32(hc->cap, XHCI_HCCPARAMS1);
 
-    g_xhci.op = g_xhci.cap + caplen;
-    g_xhci.rt = g_xhci.cap + (mr32(g_xhci.cap, XHCI_RTSOFF) & ~0x1Fu);
-    g_xhci.db = g_xhci.cap + (mr32(g_xhci.cap, XHCI_DBOFF)  & ~0x3u);
+    hc->op = hc->cap + caplen;
+    hc->rt = hc->cap + (mr32(hc->cap, XHCI_RTSOFF) & ~0x1Fu);
+    hc->db = hc->cap + (mr32(hc->cap, XHCI_DBOFF)  & ~0x3u);
 
-    g_xhci.max_slots = XHCI_HCS1_MAXSLOTS(hcs1);
-    g_xhci.max_intrs = XHCI_HCS1_MAXINTRS(hcs1);
-    g_xhci.max_ports = XHCI_HCS1_MAXPORTS(hcs1);
-    g_xhci.ac64      = (uint8_t)XHCI_HCC1_AC64(hcc1);
-    g_xhci.ppc       = (uint8_t)XHCI_HCC1_PPC(hcc1);
+    hc->max_slots = XHCI_HCS1_MAXSLOTS(hcs1);
+    hc->max_intrs = XHCI_HCS1_MAXINTRS(hcs1);
+    hc->max_ports = XHCI_HCS1_MAXPORTS(hcs1);
+    hc->ac64      = (uint8_t)XHCI_HCC1_AC64(hcc1);
+    hc->ppc       = (uint8_t)XHCI_HCC1_PPC(hcc1);
 
     // CSZ decides whether a context structure is 32 or 64 bytes. QEMU
     // says 32 and much real hardware says 64; reading it wrong makes
     // every context field offset wrong, and nothing reports an error --
     // the controller simply parses garbage. Recorded here and consulted
     // by everything that builds a context.
-    g_xhci.csz64 = (uint8_t)XHCI_HCC1_CSZ(hcc1);
+    hc->csz64 = (uint8_t)XHCI_HCC1_CSZ(hcc1);
 
-    klog_printf("usb: xHCI %x.%02x controller %04x:%04x at %02x:%02x.%u, BAR0 0x%llx (0x%x bytes)\n",
-                g_xhci.hci_version >> 8, g_xhci.hci_version & 0xFF,
+    klog_printf("usb: xHCI %x.%02x controller %04x:%04x at %02x:%02x.%u, BAR0 0x%llx (0x%x bytes), "
+                "bus %u\n",
+                hc->hci_version >> 8, hc->hci_version & 0xFF,
                 d->vendor_id, d->device_id, d->bus, d->device, d->function,
-                (unsigned long long)bar0, g_xhci.cap_len);
+                (unsigned long long)bar0, hc->cap_len, hc->index);
 
     // THE CAPABILITY WALK COMES FIRST, because the BIOS handoff is in
     // it and the handoff has to happen before the reset -- resetting a
     // controller the firmware still owns is a write to somebody else's
     // device. This used to run after, which is how a machine whose BIOS
     // owned the controller hung before reaching any of the rest.
-    walk_xecp(hcc1);
-    legacy_handoff();
+    walk_xecp(hc, hcc1);
+    legacy_handoff(hc);
 
     // AFTER the handoff, BEFORE the reset: routing is the firmware's to
     // hand over first, and a port that arrives during the reset is one
@@ -628,7 +667,7 @@ static int usb_probe(const struct pci_device *d) {
     intel_port_mux(d);
     intel_pdo_log(d);
 
-    if (!xhci_reset_controller()) {
+    if (!xhci_reset_controller(hc)) {
         // THE MOST IMPORTANT BOOT TO INSTRUMENT IS THE ONE WHERE THIS
         // FAILS, and it used to be the only one with no instrumentation
         // at all. A controller left dirty by a previous boot's reset
@@ -637,36 +676,35 @@ static int usb_probe(const struct pci_device *d) {
         // asked anything.
         klog_printf(KLOG_ERR "usb: giving up on the controller at probe -- "
                     "no USB this boot\n");
-        g_xhci_dead_source.name = "usb-dead";
-        g_xhci_dead_source.caps = 0;
-        g_xhci_dead_source.poll = xhci_dead_heartbeat;
-        input_register_source(&g_xhci_dead_source);
-        return pci_probe_decline(d, "the controller would not reset");
+        if (!g_xhci_dead_source.name) {   // one heartbeat, however many die
+            g_xhci_dead_source.name = "usb-dead";
+            g_xhci_dead_source.caps = 0;
+            g_xhci_dead_source.poll = xhci_dead_heartbeat;
+            input_register_source(&g_xhci_dead_source);
+        }
+        return decline_hc(hc, d, "the controller would not reset");
     }
 
     // PAGESIZE is only meaningful after reset. Bit n set means 2^(n+12).
-    uint32_t ps = mr32(g_xhci.op, XHCI_PAGESIZE) & 0xFFFFu;
-    g_xhci.page_size = ps ? (uint32_t)(4096u * (ps & (uint32_t)(-(int32_t)ps))) : 4096u;
+    uint32_t ps = mr32(hc->op, XHCI_PAGESIZE) & 0xFFFFu;
+    hc->page_size = ps ? (uint32_t)(4096u * (ps & (uint32_t)(-(int32_t)ps))) : 4096u;
 
     USBT("usb: trace: op=+0x%x rt=+0x%x db=+0x%x ac64=%u csz64=%u\n",
-         (unsigned)(g_xhci.op - g_xhci.cap), (unsigned)(g_xhci.rt - g_xhci.cap),
-         (unsigned)(g_xhci.db - g_xhci.cap), g_xhci.ac64, g_xhci.csz64);
+         (unsigned)(hc->op - hc->cap), (unsigned)(hc->rt - hc->cap),
+         (unsigned)(hc->db - hc->cap), hc->ac64, hc->csz64);
 
     // EVERY SLOT THE CONTROLLER OFFERS -- eight used to be enabled, and
-    // the ninth device was refused at Enable Slot. A probe after a failed
-    // one keeps the table it already has: the controller is the same.
-    if (!g_xhci_slots) {
-        g_xhci_slots = kzalloc((size_t)(g_xhci.max_slots + 1) * sizeof *g_xhci_slots);
-        if (!g_xhci_slots)
-            return pci_probe_decline(d, "no memory for %u slots", g_xhci.max_slots);
-        g_xhci.nslots = g_xhci.max_slots;
-    }
-    uint32_t slots = g_xhci.nslots;
+    // the ninth device was refused at Enable Slot.
+    hc->slots = kzalloc((size_t)(hc->max_slots + 1) * sizeof *hc->slots);
+    if (!hc->slots)
+        return decline_hc(hc, d, "no memory for %u slots", hc->max_slots);
+    hc->nslots = hc->max_slots;
+    uint32_t slots = hc->nslots;
     USBT("usb: trace: writing CONFIG=%u\n", slots);
-    mw32(g_xhci.op, XHCI_CONFIG, slots);
+    mw32(hc->op, XHCI_CONFIG, slots);
 
     USBT("usb: trace: setup_rings\n");
-    if (!setup_rings()) return pci_probe_decline(d, "no memory for its rings");
+    if (!setup_rings(hc)) return decline_hc(hc, d, "no memory for its rings");
     USBT("usb: trace: rings done\n");
 
     // PPC IS ON THIS LINE BECAUSE A RECOVERY DEPENDS ON IT. Port Power
@@ -676,13 +714,13 @@ static int usb_probe(const struct pci_device *d) {
     // mentioned the reason.
     klog_printf("usb: %u slots, %u interrupters, %u ports, "
                 "%u-byte contexts, %u-byte pages, port power %s\n",
-                slots, g_xhci.max_intrs, g_xhci.max_ports,
-                g_xhci.csz64 ? 64u : 32u, g_xhci.page_size,
-                g_xhci.ppc ? "software-controlled (PPC)" : "always on (no PPC)");
+                slots, hc->max_intrs, hc->max_ports,
+                hc->csz64 ? 64u : 32u, hc->page_size,
+                hc->ppc ? "software-controlled (PPC)" : "always on (no PPC)");
     // SAID, never silently cut: a port past the cap is one nothing scans.
-    if (g_xhci.max_ports > XHCI_MAX_PORTS)
+    if (hc->max_ports > XHCI_MAX_PORTS)
         klog_printf(KLOG_WARN "usb: only ports 1..%u are driven; %u..%u are ignored\n",
-                    XHCI_MAX_PORTS, XHCI_MAX_PORTS + 1, g_xhci.max_ports);
+                    XHCI_MAX_PORTS, XHCI_MAX_PORTS + 1, hc->max_ports);
 
     // --- publish first ------------------------------------------------
     //
@@ -702,44 +740,51 @@ static int usb_probe(const struct pci_device *d) {
     // Falling back is the ordinary path, not an error: no LAPIC (an
     // older CPU, or `nomsi` on the GRUB line) and no MSI capability
     // both mean the pin, exactly as before.
-    uint8_t line = pci_irq_line(d);
-    g_xhci.msi_vector = pci_msi_request(d, xhci_irq_handler);
-    g_xhci.msix = d->irq_msix;
+    if (!publish_hc(hc)) return decline_hc(hc, d, "no memory for the controller list");
 
-    if (g_xhci.msi_vector) {
-        g_xhci.irq = 0;   // nothing on a line any more
+    uint8_t line = pci_irq_line(d);
+    hc->msi_vector = pci_msi_request(d, xhci_irq_handler);
+    hc->msix = d->irq_msix;
+
+    if (hc->msi_vector) {
+        hc->irq = 0;   // nothing on a line any more
     } else if (line == IRQ_NONE) {
         klog_printf("usb: no usable INTx line (pin reports %u) -- polling\n", line);
-        g_xhci.irq = 0;
+        hc->irq = 0;
     } else {
-        g_xhci.irq = line;
+        hc->irq = line;
     }
 
-    g_xhci.present = 1;
-    if (g_xhci.irq) irq_register_handler(g_xhci.irq, xhci_irq_handler);
+    hc->present = 1;
+    // A SECOND CONTROLLER ON THE SAME LINE IS NOT REGISTERED TWICE: the
+    // one handler already asks every controller.
+    int line_taken = 0;
+    for (unsigned i = 0; i < hc->index; i++) line_taken |= g_xhcis[i]->irq == hc->irq;
+    if (hc->irq && !line_taken) irq_register_handler(hc->irq, xhci_irq_handler);
 
-    g_xhci_source.name = "usb-xhci";
-    g_xhci_source.caps = 0;              // the controller reports no events itself
+    hc->source.name = "usb-xhci";
+    hc->source.caps = 0;              // the controller reports no events itself
     // Poll ALWAYS, IRQ or not -- see xhci_poll_source()'s comment. The
     // per-HID sources still leave poll NULL when the IRQ is live; their
-    // decode rides this one.
-    g_xhci_source.poll = xhci_poll_source;
-    g_xhci_source.poll_on_wake = g_xhci.msi_vector != 0; // an MSI is not a dead line
-    g_xhci_source.irq  = g_xhci.irq;
-    g_xhci_source.msi_vector = g_xhci.msi_vector;
-    input_register_source(&g_xhci_source);
+    // decode rides this one. Every controller's source runs the same
+    // poll, which services them all: this one's says how IT is serviced.
+    hc->source.poll = xhci_poll_source;
+    hc->source.poll_on_wake = hc->msi_vector != 0; // an MSI is not a dead line
+    hc->source.irq  = hc->irq;
+    hc->source.msi_vector = hc->msi_vector;
+    input_register_source(&hc->source);
 
     // Run before arming, so a device already attached raises its port
     // change against a controller that is actually running.
-    mw32(g_xhci.op, XHCI_USBCMD, mr32(g_xhci.op, XHCI_USBCMD) | XHCI_CMD_RS);
+    mw32(hc->op, XHCI_USBCMD, mr32(hc->op, XHCI_USBCMD) | XHCI_CMD_RS);
     struct xhci_wait w; xhci_wait_start(&w, 100);
-    while (mr32(g_xhci.op, XHCI_USBSTS) & XHCI_STS_HCH) {
+    while (mr32(hc->op, XHCI_USBSTS) & XHCI_STS_HCH) {
         if (xhci_wait_over(&w)) {
             return pci_probe_decline(d, "the controller would not start (usbsts 0x%x)",
-                                     mr32(g_xhci.op, XHCI_USBSTS));
+                                     mr32(hc->op, XHCI_USBSTS));
         }
     }
-    g_xhci.running = 1;
+    hc->running = 1;
 
     // --- and enable last ----------------------------------------------
     //
@@ -747,74 +792,86 @@ static int usb_probe(const struct pci_device *d) {
     // only how the controller signals. pci_msi_enable() has already
     // disabled the pin for the MSI case, which is why the INTx clear
     // below belongs to the line case alone.
-    if (g_xhci.irq || g_xhci.msi_vector) {
-        mw32(g_xhci.rt, XHCI_IR0 + XHCI_IMAN,
-             mr32(g_xhci.rt, XHCI_IR0 + XHCI_IMAN) | XHCI_IMAN_IE);
-        mw32(g_xhci.op, XHCI_USBCMD, mr32(g_xhci.op, XHCI_USBCMD) | XHCI_CMD_INTE);
+    if (hc->irq || hc->msi_vector) {
+        mw32(hc->rt, XHCI_IR0 + XHCI_IMAN,
+             mr32(hc->rt, XHCI_IR0 + XHCI_IMAN) | XHCI_IMAN_IE);
+        mw32(hc->op, XHCI_USBCMD, mr32(hc->op, XHCI_USBCMD) | XHCI_CMD_INTE);
     }
-    if (g_xhci.irq) {
+    if (hc->irq) {
         pci_command_update(d, 0, PCI_CMD_INTX_DISABLE);   // the commit point
-        pic_clear_mask(g_xhci.irq);
+        pic_clear_mask(hc->irq);
     }
 
-    if (g_xhci.msi_vector)
+    if (hc->msi_vector)
         klog_printf("usb: running, %s on vector %u\n",
-                    g_xhci.msix ? "MSI-X" : "MSI", g_xhci.msi_vector);
+                    hc->msix ? "MSI-X" : "MSI", hc->msi_vector);
     else
         klog_printf("usb: running, %s\n",
-                    g_xhci.irq ? "interrupt-driven" : "polled");
+                    hc->irq ? "interrupt-driven" : "polled");
 
-    xhci_log_socket_map();
-    usb_query_init();
-    xhci_power_ports();
-    xhci_scan_ports();
-    log_usb3_ports();
+    xhci_log_socket_map(hc);
+    if (hc->index == 0) usb_query_init();
+    xhci_power_ports(hc);
+    xhci_scan_ports(hc);
+    log_usb3_ports(hc);
     return 0;
 }
 
 // --- introspection ----------------------------------------------------
 
-int usb_controller_present(void) { return g_xhci.present; }
-uint8_t usb_controller_irq(void) { return g_xhci.irq; }
-uint8_t usb_controller_msi_vector(void) { return g_xhci.msi_vector; }
+int usb_controller_present(void) {
+    for (unsigned i = 0; i < g_nxhci; i++) if (g_xhcis[i]->present) return 1;
+    return 0;
+}
+unsigned usb_controller_count(void) { return g_nxhci; }
+uint8_t usb_controller_irq(unsigned i) { return i < g_nxhci ? g_xhcis[i]->irq : 0; }
+uint8_t usb_controller_msi_vector(unsigned i) { return i < g_nxhci ? g_xhcis[i]->msi_vector : 0; }
 
-int usb_controller_summary(char *buf, uint32_t cap) {
-    if (!g_xhci.present || !buf || !cap) return 0;
+int usb_controller_summary(unsigned i, char *buf, uint32_t cap) {
+    if (i >= g_nxhci || !buf || !cap) return 0;
+    struct xhci_hc *hc = g_xhcis[i];
+    if (!hc->present) return 0;
     k_snprintf(buf, cap, "xHCI %04x:%04x at %02x:%02x.%u, %u ports, %s",
-               g_xhci.pci->vendor_id, g_xhci.pci->device_id,
-               g_xhci.pci->bus, g_xhci.pci->device, g_xhci.pci->function,
-               g_xhci.max_ports,
-               !g_xhci.running ? "not running"
-                 : g_xhci.msi_vector ? (g_xhci.msix ? "running (MSI-X)" : "running (MSI)")
-                 : g_xhci.irq        ? "running"
+               hc->pci->vendor_id, hc->pci->device_id,
+               hc->pci->bus, hc->pci->device, hc->pci->function,
+               hc->max_ports,
+               !hc->running ? "not running"
+                 : hc->msi_vector ? (hc->msix ? "running (MSI-X)" : "running (MSI)")
+                 : hc->irq        ? "running"
                                    : "running (polled)");
     return 1;
 }
 
-uint32_t usb_events_seen(void) { return g_xhci.events_seen; }
-uint32_t usb_irqs_seen(void)   { return g_xhci.irqs_seen; }
+uint32_t usb_events_seen(void) {
+    uint32_t n = 0;
+    for (unsigned i = 0; i < g_nxhci; i++) n += g_xhcis[i]->events_seen;
+    return n;
+}
+uint32_t usb_irqs_seen(void) {
+    uint32_t n = 0;
+    for (unsigned i = 0; i < g_nxhci; i++) n += g_xhcis[i]->irqs_seen;
+    return n;
+}
 
-void usb_dump(void) {
-    if (!g_xhci.present) {
-        klog_printf("usb: no xHCI controller\n");
-        return;
-    }
+static void dump_hc(struct xhci_hc *hc) {
+    klog_printf("usb: --- bus %u, %02x:%02x.%u ---\n", hc->index,
+                hc->pci->bus, hc->pci->device, hc->pci->function);
     klog_printf("usb: usbcmd 0x%x usbsts 0x%x crcr-lo 0x%x config 0x%x\n",
-                mr32(g_xhci.op, XHCI_USBCMD), mr32(g_xhci.op, XHCI_USBSTS),
-                mr32(g_xhci.op, XHCI_CRCR), mr32(g_xhci.op, XHCI_CONFIG));
+                mr32(hc->op, XHCI_USBCMD), mr32(hc->op, XHCI_USBSTS),
+                mr32(hc->op, XHCI_CRCR), mr32(hc->op, XHCI_CONFIG));
     klog_printf("usb: iman 0x%x erstsz %u erdp-lo 0x%x\n",
-                mr32(g_xhci.rt, XHCI_IR0 + XHCI_IMAN),
-                mr32(g_xhci.rt, XHCI_IR0 + XHCI_ERSTSZ),
-                mr32(g_xhci.rt, XHCI_IR0 + XHCI_ERDP));
+                mr32(hc->rt, XHCI_IR0 + XHCI_IMAN),
+                mr32(hc->rt, XHCI_IR0 + XHCI_ERSTSZ),
+                mr32(hc->rt, XHCI_IR0 + XHCI_ERDP));
     klog_printf("usb: cmd ring 0x%llx enq %u cyc %u\n",
-                (unsigned long long)g_xhci.cmd.phys, g_xhci.cmd.enqueue, g_xhci.cmd.cycle);
+                (unsigned long long)hc->cmd.phys, hc->cmd.enqueue, hc->cmd.cycle);
     klog_printf("usb: xfer ok %u bad %u (last cc %u \"%s\") orphan %u, "
                 "%u ep recover(ies)\n",
-                g_xhci.xfer_ok, g_xhci.xfer_bad, g_xhci.last_bad_code,
-                xhci_completion_name(g_xhci.last_bad_code), g_xhci.xfer_orphan,
-                g_xhci.ep_recoveries);
+                hc->xfer_ok, hc->xfer_bad, hc->last_bad_code,
+                xhci_completion_name(hc->last_bad_code), hc->xfer_orphan,
+                hc->ep_recoveries);
     for (int i = 0; i < MAX_EPS; i++) {
-        struct xhci_ep *e = &g_xhci_eps[i];
+        struct xhci_ep *e = &hc->eps[i];
         if (!e->in_use) continue;
         uint32_t rmask = 0;
         for (int b = 0; b < EP_DEPTH; b++) if (e->ready[b]) rmask |= (1u << b);
@@ -824,9 +881,9 @@ void usb_dump(void) {
         // an endpoint that is not Running or a device with nothing to
         // send, and only this tells them apart.
         const char *st = "?";
-        struct xhci_slot *sl = &g_xhci_slots[e->slot];
+        struct xhci_slot *sl = &hc->slots[e->slot];
         if (sl->out_ctx) {
-            volatile uint32_t *ep = ctx_at(sl->out_ctx, dci_of(e->ep_addr));
+            volatile uint32_t *ep = ctx_at(hc, sl->out_ctx, dci_of(e->ep_addr));
             switch (ep[0] & 7u) {  // dispatch-ok: the five EP states
                 case 0: st = "disabled"; break;
                 case 1: st = "running";  break;
@@ -843,29 +900,38 @@ void usb_dump(void) {
                     e->halted ? " HALTED" : "");
     }
     klog_printf("usb: evt ring 0x%llx deq %u ccs %u, %u event(s), %u irq(s)\n",
-                (unsigned long long)g_xhci.evt.phys, g_xhci.evt.dequeue, g_xhci.evt.ccs,
-                g_xhci.events_seen, g_xhci.irqs_seen);
-    klog_printf("usb: %d device(s), %u report(s) decoded, "
-                "%u set-protocol(boot) accepted\n",
-                usb_device_count(), usb_hid_reports(),
-                usb_hid_boot_protocol_count());
-    for (int i = 0; i < usb_device_count(); i++) {
-        const struct usb_device_info *d = usb_device_at(i);
-        if (d) klog_printf("usb:  dev %d port %u %04x:%04x \"%s\" class %u/%u/%u\n",
-                           i, d->port, d->vendor_id, d->product_id,
-                           d->product, d->if_class, d->if_subclass, d->if_protocol);
-    }
-    char hl[64];
-    for (int i = 0; usb_hid_describe(i, hl, sizeof hl); i++)
-        klog_printf("usb:  hid %d %s\n", i, hl);
-    for (uint32_t p = 0; p < g_xhci.max_ports && p < XHCI_MAX_PORTS; p++) {
-        uint32_t sc = mr32(g_xhci.op, XHCI_PORTSC(p));
+                (unsigned long long)hc->evt.phys, hc->evt.dequeue, hc->evt.ccs,
+                hc->events_seen, hc->irqs_seen);
+    for (uint32_t p = 0; p < hc->max_ports && p < XHCI_MAX_PORTS; p++) {
+        uint32_t sc = mr32(hc->op, XHCI_PORTSC(p));
         if (!(sc & XHCI_PORTSC_CCS) && !(sc & XHCI_PORTSC_PED)) continue;
         klog_printf("usb: port %u portsc 0x%x %s %s %s\n", p + 1, sc,
                     (sc & XHCI_PORTSC_CCS) ? "connected" : "empty",
                     (sc & XHCI_PORTSC_PED) ? "enabled" : "disabled",
                     xhci_speed_name((uint8_t)XHCI_PORTSC_SPEED(sc)));
     }
+}
+
+void usb_dump(void) {
+    if (!g_nxhci) {
+        klog_printf("usb: no xHCI controller\n");
+        return;
+    }
+    for (unsigned i = 0; i < g_nxhci; i++)
+        if (g_xhcis[i]->present) dump_hc(g_xhcis[i]);
+    klog_printf("usb: %d device(s), %u report(s) decoded, "
+                "%u set-protocol(boot) accepted\n",
+                usb_device_count(), usb_hid_reports(),
+                usb_hid_boot_protocol_count());
+    for (int i = 0; i < usb_device_count(); i++) {
+        const struct usb_device_info *d = usb_device_at(i);
+        if (d) klog_printf("usb:  dev %d bus %u port %u %04x:%04x \"%s\" class %u/%u/%u\n",
+                           i, d->hc, d->port, d->vendor_id, d->product_id,
+                           d->product, d->if_class, d->if_subclass, d->if_protocol);
+    }
+    char hl[64];
+    for (int i = 0; usb_hid_describe(i, hl, sizeof hl); i++)
+        klog_printf("usb:  hid %d %s\n", i, hl);
 }
 PCI_DRIVER("xhci", usb_matches, usb_probe);
 

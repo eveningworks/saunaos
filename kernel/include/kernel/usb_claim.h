@@ -19,25 +19,25 @@
 // where a mistake kills a process.
 
 // 0 when nobody holds it, else the holding pid.
-int usb_claim_holder_pid(uint8_t slot);
+int usb_claim_holder_pid(uint64_t slot);
 
 // Can this device be claimed at all? A device whose class driver has
 // no unbind could never be let go, the same gate PCI's remove() is.
-int usb_claim_claimable(uint8_t slot);
+int usb_claim_claimable(uint64_t slot);
 
 // Take it: unbind whatever class driver holds it, record the holder.
 // 0, or -EBUSY/-EINVAL/-EPERM.
-int usb_claim_take(uint8_t slot, uint64_t pml4, int pid);
+int usb_claim_take(uint64_t slot, uint64_t pml4, int pid);
 
 // Give it back. `rebind` re-runs the class-driver match, the way
 // DEV_RELEASE_REBIND does; without it the device is left UNBOUND.
-int usb_claim_drop(uint8_t slot, uint64_t pml4, int rebind);
+int usb_claim_drop(uint64_t slot, uint64_t pml4, int rebind);
 
 // The holder's claims die with its address space.
 void usb_claim_space_gone(uint64_t pml4);
 
 // 0 when `pml4` holds `slot`, else a negative errno. Every transfer
 // syscall's first act.
-int usb_claim_check(uint8_t slot, uint64_t pml4);
+int usb_claim_check(uint64_t slot, uint64_t pml4);
 
 #endif // KERNEL_USB_CLAIM_H

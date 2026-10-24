@@ -89,7 +89,178 @@ struct xhci_proto_range {
     uint8_t count;
 };
 
+
+// One addressed device. The contexts are the controller's view of it,
+// and ep0 is the transfer ring every control request rides on.
+struct xhci_slot {
+    uint8_t  in_use;
+    uint8_t  port;          // ROOT port; a hub child's own speed differs
+    uint8_t  speed;         // the DEVICE's speed, for endpoint intervals
+    void    *in_ctx;        // Input Context: control + slot + endpoints
+    uint64_t in_ctx_phys;
+    void    *out_ctx;       // Device Context, written BY the controller
+    uint64_t out_ctx_phys;
+    struct xhci_ring ep0;
+    uint8_t  ep0_dead;      // a control transfer timed out (xhci_slot_usable())
+};
+
+
+_Static_assert(XHCI_MAX_PORTS <= 32, "a port's pending bit must fit its uint32_t mask");
+
+static inline void pend_set(volatile uint32_t *mask, uint32_t bit) {
+    __atomic_fetch_or(mask, 1u << bit, __ATOMIC_SEQ_CST);
+}
+static inline void pend_clear(volatile uint32_t *mask, uint32_t bit) {
+    __atomic_fetch_and(mask, ~(1u << bit), __ATOMIC_SEQ_CST);
+}
+
+// Where a synchronous waiter picks up its answer. The event ring has
+// ONE consumer at a time (see the guard in xhci_service), so a
+// completion is recorded here and the waiter spins on `done` rather
+// than popping the ring itself and racing the interrupt handler.
+struct xhci_completion {
+    volatile uint8_t done;
+    uint64_t trb;           // which TRB this completes
+    uint32_t code;          // completion code
+    uint32_t residual;      // bytes NOT transferred
+    uint8_t  slot;
+    // THE WHOLE TD, not just the TRB carrying IOC. A control transfer
+    // that FAILS is reported against the stage that failed -- the Data
+    // Stage, commonly -- and the Status Stage TRB this waiter was
+    // armed on is then never executed at all. Waiting for it alone is
+    // a 2-million-poll hang per refused request, and a permanently
+    // halted endpoint after it. Zeroed when the wait completes, so a
+    // late event cannot be mistaken for the NEXT transfer's.
+    uint64_t ring_lo, ring_hi;
+    // A SHORT DATA STAGE IS NOT THE END OF A CONTROL TRANSFER: its event
+    // records how much less arrived, and the Status Stage's event, which
+    // follows, is what completes it (xHCI 4.10.1.1; Linux's
+    // process_ctrl_td waits the same way). Taking the data stage's event
+    // as the end let the Status event land on the NEXT transfer, which
+    // then "completed" before its data came -- every second USB string
+    // read on real hardware, while QEMU posts both events at once.
+    uint8_t data_short;
+};
+
+// --- MMIO -------------------------------------------------------------
+//
+// `volatile` here is not decoration and it is not about caching: without
+// it GCC hoists a status read out of a polling loop and spins on a stale
+// register forever. Copied in shape from virtio_pci.c's accessors.
+static inline uint32_t mr32(volatile uint8_t *p, uint32_t off) {
+    return *(volatile uint32_t *)(p + off);
+}
+static inline void mw32(volatile uint8_t *p, uint32_t off, uint32_t v) {
+    *(volatile uint32_t *)(p + off) = v;
+}
+static inline uint8_t mr8(volatile uint8_t *p, uint32_t off) {
+    return *(volatile uint8_t *)(p + off);
+}
+
+// A 64-bit register is written as TWO 32-bit stores, low half first.
+// A controller may declare a maximum access width and latch the whole
+// register on the high write, so the order is part of the contract
+// rather than an optimisation. virtqueue.c's common_w64() is the same
+// rule for the same reason; CRCR, DCBAAP, ERSTBA and ERDP all need it.
+static inline void mw64(volatile uint8_t *p, uint32_t off, uint64_t v) {
+    *(volatile uint32_t *)(p + off)     = (uint32_t)(v & 0xFFFFFFFFu);
+    *(volatile uint32_t *)(p + off + 4) = (uint32_t)(v >> 32);
+}
+
+
+// --- the endpoint table (xhci_xfer.c) ------------------------------------
+
+#define EP_DEPTH     16
+#define EP_SLOT_SIZE 64     // comfortably over any HID boot report
+
+struct xhci_ep {
+    uint8_t  in_use;
+    uint8_t  slot;
+    uint8_t  ep_addr;
+    uint16_t mps;
+    struct xhci_ring ring;
+    uint8_t *buf;                       // EP_DEPTH slices of EP_SLOT_SIZE
+    uint64_t buf_phys;
+    uint8_t  buf_of_trb[TRBS_PER_RING]; // which slice a given TRB filled
+    // Completed reports, oldest first. Written by the event dispatch
+    // (interrupt context), read by xhci_take_report().
+    volatile uint8_t  ready[EP_DEPTH];
+    volatile uint16_t ready_len[EP_DEPTH];
+    uint8_t  next_take;
+    // A STALL or transaction error HALTS the endpoint, and a halted
+    // endpoint ignores its doorbell forever -- so without recovery one
+    // marginal packet kills the mouse silently. Marked by the event
+    // dispatch, recovered by xhci_deferred_work().
+    volatile uint8_t halted;
+    uint8_t  recover_tries;
+
+    // BULK, either direction. Like the isochronous case and unlike the
+    // interrupt one, THE DRIVER OWNS THE BUFFERS -- an Ethernet frame is
+    // 1514 bytes and the interrupt path's slices are 64, so there is no
+    // shared geometry to borrow. Completion is a callback carrying the
+    // byte count and the buffer that was posted.
+    uint8_t  is_bulk;
+    uint8_t  own_recovery;   // its driver clears a halt itself (xhci_bulk_reset())
+    void (*bulk_done)(void *ctx, uint64_t phys, uint32_t bytes, int ok);
+    void    *bulk_ctx;
+    uint64_t buf_of_trb_phys[TRBS_PER_RING];  // which buffer a TRB's TD carried
+    uint32_t bulk_len_of_trb[TRBS_PER_RING];  // ...this TRB's share of it
+    uint32_t bulk_off_of_trb[TRBS_PER_RING];  // ...starting this far in
+    // BULK_TRB_LAST marks a TD's last TRB. BULK_TRB_SKIP marks one whose
+    // TD already completed SHORT on an earlier TRB: the TD ended there,
+    // and an event some controllers still send for the last TRB is
+    // dropped rather than delivered as a second completion.
+    uint8_t  bulk_flags_of_trb[TRBS_PER_RING];
+
+    // ISOCHRONOUS, either direction. Nothing above is used by one: the
+    // driver owns the buffer (there is no `buf` to allocate) and takes
+    // its completions through the callback rather than by polling ready[].
+    uint8_t  is_iso;
+    void   (*iso_done)(void *ctx, uint32_t bytes);
+    void    *iso_ctx;
+    volatile uint32_t iso_underruns;
+    volatile uint32_t iso_refused;   // posts turned away by a full ring
+    // Which TRBs the CALLER asked a completion for. The kernel adds its
+    // own every ISO_FORCE_IOC (see xhci_isoch_post) and must not report
+    // those, or a driver counting completions per group miscounts.
+    uint8_t  iso_want_ioc[TRBS_PER_RING];
+    // The length each TRB was posted with: the event's residual is
+    // against THAT, which on an IN endpoint is what was received.
+    uint16_t iso_len[TRBS_PER_RING];
+    uint16_t iso_since_ioc;
+};
+
+// THE RING'S ROOM IS ONLY LEARNED FROM EVENTS, so a caller that posts
+// with no IOC for a whole ring would leave it "full" for ever -- the
+// guard itself becoming the silence it exists to prevent. Well above
+// any group a driver here uses, so a well-behaved one never sees it.
+#define ISO_FORCE_IOC 64
+
+// HID interfaces (a composite receiver is two on one device) plus one
+// status-change endpoint per hub.
+#define MAX_EPS 10
+
+// --- contexts, bounded waits, the Intel routing registers --------------------
+
+// Endpoint 0 is DCI 1; an IN endpoint N is DCI 2N+1, an OUT endpoint N
+// is DCI 2N. This is the number the doorbell wants and the index the
+// contexts are laid out by.
+static inline uint32_t dci_of(uint8_t ep_addr) {
+    uint8_t num = ep_addr & 0x0F;
+    if (!num) return 1;
+    return (uint32_t)(2 * num + ((ep_addr & 0x80) ? 1 : 0));
+}
+
+struct xhci_wait { uint32_t spins; uint64_t deadline; };
+
+// ONE PER CONTROLLER, allocated at probe and never freed or moved: the
+// event drain reaches it from interrupt context. Everything that was a
+// file-scope global when there was one controller is here -- the slot
+// and endpoint tables, both completion records and the drain's guard --
+// because two controllers that shared any of it would hand one's
+// completion to the other's waiter.
 struct xhci_hc {
+    unsigned index;          // in g_xhcis, and a usb_dev_t's high byte
     const struct pci_device *pci;
     volatile uint8_t *cap;
     volatile uint8_t *op;
@@ -97,7 +268,7 @@ struct xhci_hc {
     volatile uint8_t *db;
 
     uint32_t max_slots;      // HCSPARAMS1, at most 255: a slot id is a byte
-    // Slots enabled in CONFIG, and the length of g_xhci_slots less its
+    // Slots enabled in CONFIG, and the length of hc->slots less its
     // unused slot 0. 0 until usb_probe() has the table, so a slot check
     // against it fails closed.
     uint32_t nslots;
@@ -196,92 +367,47 @@ struct xhci_hc {
     // `usb3` keeps one range, for companion_port(), and a controller may
     // list 3.0 and 3.1 separately.
     uint32_t usb3_ports;
+
+    // Indexed by slot id, which is 1-based: nslots + 1 entries, allocated
+    // by usb_probe() to what the controller offers, and never moved after
+    // -- the event drain reads it from interrupt context.
+    struct xhci_slot *slots;
+    struct xhci_ep eps[MAX_EPS];
+    volatile struct xhci_completion cmd_done;
+    volatile struct xhci_completion xfer_done;
+    volatile uint8_t in_service;     // xhci_service_hc()'s one-consumer guard
+    struct input_source source;      // its poll services every controller
+    // Re-inits this boot, bounded by XHCI_MAX_REINITS (xhci_port.c).
+    int hc_resets;
+    int hc_reset_refused;
+    uint64_t heartbeat_ns;           // the given-up heartbeat's last line
 };
 
-// One addressed device. The contexts are the controller's view of it,
-// and ep0 is the transfer ring every control request rides on.
-struct xhci_slot {
-    uint8_t  in_use;
-    uint8_t  port;          // ROOT port; a hub child's own speed differs
-    uint8_t  speed;         // the DEVICE's speed, for endpoint intervals
-    void    *in_ctx;        // Input Context: control + slot + endpoints
-    uint64_t in_ctx_phys;
-    void    *out_ctx;       // Device Context, written BY the controller
-    uint64_t out_ctx_phys;
-    struct xhci_ring ep0;
-    uint8_t  ep0_dead;      // a control transfer timed out (xhci_slot_usable())
-};
+// Every controller driven, in probe order -- a usb_dev_t's high byte.
+extern struct xhci_hc **g_xhcis;
+extern unsigned g_nxhci;
 
-extern struct xhci_hc g_xhci;
-
-_Static_assert(XHCI_MAX_PORTS <= 32, "a port's pending bit must fit its uint32_t mask");
-
-static inline void pend_set(volatile uint32_t *mask, uint32_t bit) {
-    __atomic_fetch_or(mask, 1u << bit, __ATOMIC_SEQ_CST);
-}
-static inline void pend_clear(volatile uint32_t *mask, uint32_t bit) {
-    __atomic_fetch_and(mask, ~(1u << bit), __ATOMIC_SEQ_CST);
-}
-// Indexed by slot id, which is 1-based: nslots + 1 entries, allocated by
-// usb_probe() to what the controller offers, and never moved after --
-// the event drain reads it from interrupt context.
-extern struct xhci_slot *g_xhci_slots;
-
-// Where a synchronous waiter picks up its answer. The event ring has
-// ONE consumer at a time (see the guard in xhci_service), so a
-// completion is recorded here and the waiter spins on `done` rather
-// than popping the ring itself and racing the interrupt handler.
-struct xhci_completion {
-    volatile uint8_t done;
-    uint64_t trb;           // which TRB this completes
-    uint32_t code;          // completion code
-    uint32_t residual;      // bytes NOT transferred
-    uint8_t  slot;
-    // THE WHOLE TD, not just the TRB carrying IOC. A control transfer
-    // that FAILS is reported against the stage that failed -- the Data
-    // Stage, commonly -- and the Status Stage TRB this waiter was
-    // armed on is then never executed at all. Waiting for it alone is
-    // a 2-million-poll hang per refused request, and a permanently
-    // halted endpoint after it. Zeroed when the wait completes, so a
-    // late event cannot be mistaken for the NEXT transfer's.
-    uint64_t ring_lo, ring_hi;
-    // A SHORT DATA STAGE IS NOT THE END OF A CONTROL TRANSFER: its event
-    // records how much less arrived, and the Status Stage's event, which
-    // follows, is what completes it (xHCI 4.10.1.1; Linux's
-    // process_ctrl_td waits the same way). Taking the data stage's event
-    // as the end let the Status event land on the NEXT transfer, which
-    // then "completed" before its data came -- every second USB string
-    // read on real hardware, while QEMU posts both events at once.
-    uint8_t data_short;
-};
-extern volatile struct xhci_completion g_xhci_cmd_done;
-extern volatile struct xhci_completion g_xhci_xfer_done;
-
-// --- MMIO -------------------------------------------------------------
-//
-// `volatile` here is not decoration and it is not about caching: without
-// it GCC hoists a status read out of a polling loop and spins on a stale
-// register forever. Copied in shape from virtio_pci.c's accessors.
-static inline uint32_t mr32(volatile uint8_t *p, uint32_t off) {
-    return *(volatile uint32_t *)(p + off);
-}
-static inline void mw32(volatile uint8_t *p, uint32_t off, uint32_t v) {
-    *(volatile uint32_t *)(p + off) = v;
-}
-static inline uint8_t mr8(volatile uint8_t *p, uint32_t off) {
-    return *(volatile uint8_t *)(p + off);
+// The controller a device lives on, or 0 for an id naming none.
+static inline struct xhci_hc *xhci_hc_of(usb_dev_t dev) {
+    unsigned i = USB_DEV_HC(dev);
+    return i < g_nxhci ? g_xhcis[i] : 0;
 }
 
-// A 64-bit register is written as TWO 32-bit stores, low half first.
-// A controller may declare a maximum access width and latch the whole
-// register on the high write, so the order is part of the contract
-// rather than an optimisation. virtqueue.c's common_w64() is the same
-// rule for the same reason; CRCR, DCBAAP, ERSTBA and ERDP all need it.
-static inline void mw64(volatile uint8_t *p, uint32_t off, uint64_t v) {
-    *(volatile uint32_t *)(p + off)     = (uint32_t)(v & 0xFFFFFFFFu);
-    *(volatile uint32_t *)(p + off + 4) = (uint32_t)(v >> 32);
-}
+#define INTEL_XUSB2PR    0xD0   // xHC USB2 port routing (write)
+#define INTEL_XUSB2PRM   0xD4   // ...and which ports may be routed (read)
+#define INTEL_USB3_PSSEN 0xD8   // SuperSpeed enable (write)
+#define INTEL_USB3PRM    0xDC   // ...and which may be enabled (read)
 
+static inline uint32_t ctx_size(const struct xhci_hc *hc) { return hc->csz64 ? 64u : 32u; }
+
+// Entry `i` of a context block. Entry 0 of an Input Context is the
+// Input Control Context, entry 1 is the Slot Context, and entry
+// 1 + DCI is an endpoint. In a Device (output) Context entry 0 is the
+// Slot Context, so the two are offset by one -- which is why the caller
+// names the entry rather than the endpoint.
+static inline volatile uint32_t *ctx_at(const struct xhci_hc *hc, void *base, uint32_t i) {
+    return (volatile uint32_t *)((uint8_t *)base + (uint64_t)i * ctx_size(hc));
+}
 
 // --- PORTSC, through one door ----------------------------------------
 //
@@ -294,137 +420,38 @@ static inline void mw64(volatile uint8_t *p, uint32_t off, uint64_t v) {
 // -- disables the port AND clears every change bit that happened to
 // read as 1, losing the connect event you were about to act on. Nothing
 // in this driver writes PORTSC any other way.
-static inline void portsc_rmw(uint32_t port, uint32_t set, uint32_t clear,
+static inline void portsc_rmw(struct xhci_hc *hc, uint32_t port, uint32_t set, uint32_t clear,
                        uint32_t rw1c_ack) {
-    uint32_t v = mr32(g_xhci.op, XHCI_PORTSC(port));
+    uint32_t v = mr32(hc->op, XHCI_PORTSC(port));
     v &= ~(uint32_t)XHCI_PORTSC_RW1C;   // do not clear what we did not mean to
     v &= ~(uint32_t)XHCI_PORTSC_PED;    // ...and do not disable the port
     v &= ~clear;                        // ...and only what the caller named
     v |= set;
     v |= rw1c_ack;                      // only the change bits named here
-    mw32(g_xhci.op, XHCI_PORTSC(port), v);
+    mw32(hc->op, XHCI_PORTSC(port), v);
 }
 
-static inline void portsc_write(uint32_t port, uint32_t set, uint32_t rw1c_ack) {
-    portsc_rmw(port, set, 0, rw1c_ack);
+static inline void portsc_write(struct xhci_hc *hc, uint32_t port, uint32_t set,
+                                uint32_t rw1c_ack) {
+    portsc_rmw(hc, port, set, 0, rw1c_ack);
 }
 
-
-// --- the endpoint table (xhci_xfer.c) ------------------------------------
-
-#define EP_DEPTH     16
-#define EP_SLOT_SIZE 64     // comfortably over any HID boot report
-
-struct xhci_ep {
-    uint8_t  in_use;
-    uint8_t  slot;
-    uint8_t  ep_addr;
-    uint16_t mps;
-    struct xhci_ring ring;
-    uint8_t *buf;                       // EP_DEPTH slices of EP_SLOT_SIZE
-    uint64_t buf_phys;
-    uint8_t  buf_of_trb[TRBS_PER_RING]; // which slice a given TRB filled
-    // Completed reports, oldest first. Written by the event dispatch
-    // (interrupt context), read by xhci_take_report().
-    volatile uint8_t  ready[EP_DEPTH];
-    volatile uint16_t ready_len[EP_DEPTH];
-    uint8_t  next_take;
-    // A STALL or transaction error HALTS the endpoint, and a halted
-    // endpoint ignores its doorbell forever -- so without recovery one
-    // marginal packet kills the mouse silently. Marked by the event
-    // dispatch, recovered by xhci_deferred_work().
-    volatile uint8_t halted;
-    uint8_t  recover_tries;
-
-    // BULK, either direction. Like the isochronous case and unlike the
-    // interrupt one, THE DRIVER OWNS THE BUFFERS -- an Ethernet frame is
-    // 1514 bytes and the interrupt path's slices are 64, so there is no
-    // shared geometry to borrow. Completion is a callback carrying the
-    // byte count and the buffer that was posted.
-    uint8_t  is_bulk;
-    uint8_t  own_recovery;   // its driver clears a halt itself (xhci_bulk_reset())
-    void (*bulk_done)(void *ctx, uint64_t phys, uint32_t bytes, int ok);
-    void    *bulk_ctx;
-    uint64_t buf_of_trb_phys[TRBS_PER_RING];  // which buffer a TRB's TD carried
-    uint32_t bulk_len_of_trb[TRBS_PER_RING];  // ...this TRB's share of it
-    uint32_t bulk_off_of_trb[TRBS_PER_RING];  // ...starting this far in
-    // BULK_TRB_LAST marks a TD's last TRB. BULK_TRB_SKIP marks one whose
-    // TD already completed SHORT on an earlier TRB: the TD ended there,
-    // and an event some controllers still send for the last TRB is
-    // dropped rather than delivered as a second completion.
-    uint8_t  bulk_flags_of_trb[TRBS_PER_RING];
-
-    // ISOCHRONOUS, either direction. Nothing above is used by one: the
-    // driver owns the buffer (there is no `buf` to allocate) and takes
-    // its completions through the callback rather than by polling ready[].
-    uint8_t  is_iso;
-    void   (*iso_done)(void *ctx, uint32_t bytes);
-    void    *iso_ctx;
-    volatile uint32_t iso_underruns;
-    volatile uint32_t iso_refused;   // posts turned away by a full ring
-    // Which TRBs the CALLER asked a completion for. The kernel adds its
-    // own every ISO_FORCE_IOC (see xhci_isoch_post) and must not report
-    // those, or a driver counting completions per group miscounts.
-    uint8_t  iso_want_ioc[TRBS_PER_RING];
-    // The length each TRB was posted with: the event's residual is
-    // against THAT, which on an IN endpoint is what was received.
-    uint16_t iso_len[TRBS_PER_RING];
-    uint16_t iso_since_ioc;
-};
-
-// THE RING'S ROOM IS ONLY LEARNED FROM EVENTS, so a caller that posts
-// with no IOC for a whole ring would leave it "full" for ever -- the
-// guard itself becoming the silence it exists to prevent. Well above
-// any group a driver here uses, so a well-behaved one never sees it.
-#define ISO_FORCE_IOC 64
-
-// HID interfaces (a composite receiver is two on one device) plus one
-// status-change endpoint per hub.
-#define MAX_EPS 10
-extern struct xhci_ep g_xhci_eps[MAX_EPS];
-
-// --- contexts, bounded waits, the Intel routing registers --------------------
-
-static inline uint32_t ctx_size(void) { return g_xhci.csz64 ? 64u : 32u; }
-
-// Entry `i` of a context block. Entry 0 of an Input Context is the
-// Input Control Context, entry 1 is the Slot Context, and entry
-// 1 + DCI is an endpoint. In a Device (output) Context entry 0 is the
-// Slot Context, so the two are offset by one -- which is why the caller
-// names the entry rather than the endpoint.
-static inline volatile uint32_t *ctx_at(void *base, uint32_t i) {
-    return (volatile uint32_t *)((uint8_t *)base + (uint64_t)i * ctx_size());
-}
-
-// Endpoint 0 is DCI 1; an IN endpoint N is DCI 2N+1, an OUT endpoint N
-// is DCI 2N. This is the number the doorbell wants and the index the
-// contexts are laid out by.
-static inline uint32_t dci_of(uint8_t ep_addr) {
-    uint8_t num = ep_addr & 0x0F;
-    if (!num) return 1;
-    return (uint32_t)(2 * num + ((ep_addr & 0x80) ? 1 : 0));
-}
-
-struct xhci_wait { uint32_t spins; uint64_t deadline; };
-
-#define INTEL_XUSB2PR    0xD0   // xHC USB2 port routing (write)
-#define INTEL_XUSB2PRM   0xD4   // ...and which ports may be routed (read)
-#define INTEL_USB3_PSSEN 0xD8   // SuperSpeed enable (write)
-#define INTEL_USB3PRM    0xDC   // ...and which may be enabled (read)
 
 // --- what crosses files ------------------------------------------------------
 
-extern struct input_source g_xhci_source;
 extern struct input_source g_xhci_dead_source;
-int xhci_reset_controller(void);
-void xhci_program_rings(void);
+int xhci_reset_controller(struct xhci_hc *hc);
+void xhci_program_rings(struct xhci_hc *hc);
 const char *xhci_speed_name(uint8_t s);
 void *xhci_alloc_frame(uint64_t *out_phys);
-void xhci_log_socket_map(void);
-void xhci_power_ports(void);
-void xhci_scan_ports(void);
-int xhci_recover_halted(uint8_t slot, uint32_t dci, struct xhci_ring *ring);
-void xhci_ep_post(struct xhci_ep *e, uint8_t slice);
+void xhci_log_socket_map(struct xhci_hc *hc);
+void xhci_power_ports(struct xhci_hc *hc);
+void xhci_scan_ports(struct xhci_hc *hc);
+int xhci_recover_halted(struct xhci_hc *hc, uint8_t slot, uint32_t dci, struct xhci_ring *ring);
+void xhci_ep_post(struct xhci_hc *hc, struct xhci_ep *e, uint8_t slice);
+void xhci_service_hc(struct xhci_hc *hc);
+void xhci_deferred_work_hc(struct xhci_hc *hc);
+int xhci_hc_reinit(struct xhci_hc *hc);
 void xhci_wait_start(struct xhci_wait *w, uint32_t ms);
 int xhci_wait_over(struct xhci_wait *w);
 void xhci_irq_handler(uint64_t *regs);

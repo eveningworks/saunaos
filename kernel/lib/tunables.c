@@ -305,7 +305,8 @@ static const struct setting hda_tone_setting = {
 
 // ---- kernel.usb.reset ------------------------------------------------
 //
-// Write-only, like hda_tone: a PORT NUMBER forces that root port through
+// Write-only, like hda_tone: a PORT NUMBER (BUS-PORT on a controller
+// after the first) forces that root port through
 // a real reset and re-enumerates it, and it reads back as "off". The
 // experiment for docs/bugs.md's intermittent enumeration failure, whose
 // only known cure is replugging the device -- this does the re-connect
@@ -314,15 +315,26 @@ static const struct setting hda_tone_setting = {
 
 static void usb_reset_get(char *out, uint32_t cap) { k_strlcpy(out, "off", cap); }
 
-static int usb_reset_apply(const char *value) {
-    if (!value || !value[0]) return SETTING_INVALID;
-    unsigned port = 0;
+// "PORT" on the first controller, or "BUS-PORT" -- the same `1-3` the log
+// and a device's name use for a controller after the first. 1 when it
+// parsed; ports are 1-based, as logged.
+static int parse_usb_port(const char *value, unsigned *hc, unsigned *port) {
+    unsigned n[2] = { 0, 0 }, k = 0;
+    if (!value || !value[0]) return 0;
     for (const char *c = value; *c; c++) {
-        if (*c < '0' || *c > '9') return SETTING_INVALID;
-        port = port * 10 + (unsigned)(*c - '0');
-        if (port > 255) return SETTING_INVALID;
+        if (*c == '-' && k == 0 && c != value) { k = 1; continue; }
+        if (*c < '0' || *c > '9') return 0;
+        n[k] = n[k] * 10 + (unsigned)(*c - '0');
+        if (n[k] > 255) return 0;
     }
-    if (!port) return SETTING_INVALID;   // ports are 1-based, as logged
+    *hc = k ? n[0] : 0;
+    *port = n[k];
+    return *port != 0;
+}
+
+static int usb_reset_apply(const char *value) {
+    unsigned hc, port;
+    if (!parse_usb_port(value, &hc, &port)) return SETTING_INVALID;
     // QUEUED, not performed: this runs in a SYSCALL, with interrupts
     // off, and the reset's recovery wait spins on a counter only the
     // timer interrupt advances -- done inline it never returns, which
@@ -331,7 +343,7 @@ static int usb_reset_apply(const char *value) {
     // it: a refused port and a device that would not come back are both
     // "we tried", and calling the second an invalid SETTING would be a
     // lie about what was wrong.
-    usb_diag_reset_port(port);
+    usb_diag_reset_port(hc, port);
     return SETTING_SAVED;
 }
 
@@ -363,15 +375,9 @@ static const struct setting usb_reset_setting = {
 static void usb_replug_get(char *out, uint32_t cap) { k_strlcpy(out, "off", cap); }
 
 static int usb_replug_apply(const char *value) {
-    if (!value || !value[0]) return SETTING_INVALID;
-    unsigned port = 0;
-    for (const char *c = value; *c; c++) {
-        if (*c < '0' || *c > '9') return SETTING_INVALID;
-        port = port * 10 + (unsigned)(*c - '0');
-        if (port > 255) return SETTING_INVALID;
-    }
-    if (!port) return SETTING_INVALID;   // ports are 1-based, as logged
-    usb_diag_replug_port(port);
+    unsigned hc, port;
+    if (!parse_usb_port(value, &hc, &port)) return SETTING_INVALID;
+    usb_diag_replug_port(hc, port);
     return SETTING_SAVED;
 }
 

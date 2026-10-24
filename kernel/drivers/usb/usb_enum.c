@@ -49,12 +49,26 @@
 // ring-0 stack is 16 KiB with a guard page and a 1 KiB frame budget.
 static uint8_t g_desc_buf[4096] __attribute__((aligned(64)));
 
-// By slot id, as Linux's xhci->devs[] is: each device allocated when
-// it is configured and freed when it goes, so nothing caps how many are
-// plugged in but the controller's slots. No driver keeps a pointer to
-// one past its unbind -- they key their own state by slot.
-static struct usb_device_info *g_devs[USB_SLOT_IDS];
+// By usb_dev_t, as Linux's xhci->devs[] is by slot: each device allocated
+// when it is configured and freed when it goes, so nothing caps how many
+// are plugged in but the controllers' slots. No driver keeps a pointer to
+// one past its unbind -- they key their own state by usb_dev_t. GROWN a
+// controller's worth of ids at a time, the first time one of its devices
+// enumerates.
+static struct usb_device_info **g_devs;
+static unsigned g_devs_cap;
 static int g_dev_count;
+
+static int devs_reserve(usb_dev_t id) {
+    if (id < g_devs_cap) return 1;
+    unsigned want = (USB_DEV_HC(id) + 1) * USB_SLOT_IDS;
+    struct usb_device_info **grown = krealloc(g_devs, want * sizeof *grown);
+    if (!grown) return 0;
+    for (unsigned i = g_devs_cap; i < want; i++) grown[i] = 0;
+    g_devs = grown;
+    g_devs_cap = want;
+    return 1;
+}
 
 static void fill_setup(uint8_t out[8], uint8_t type, uint8_t req,
                        uint16_t value, uint16_t index, uint16_t len) {
@@ -68,7 +82,7 @@ static void fill_setup(uint8_t out[8], uint8_t type, uint8_t req,
     out[7] = (uint8_t)(len >> 8);
 }
 
-static int get_descriptor(uint8_t slot, uint8_t type, uint8_t index,
+static int get_descriptor(usb_dev_t slot, uint8_t type, uint8_t index,
                           uint16_t langid, void *buf, uint16_t len) {
     uint8_t setup[8];
     fill_setup(setup, DIR_IN | TYPE_STANDARD | RECIP_DEVICE, REQ_GET_DESCRIPTOR,
@@ -76,7 +90,7 @@ static int get_descriptor(uint8_t slot, uint8_t type, uint8_t index,
     return xhci_control(slot, setup, buf, len, 1);
 }
 
-static int set_configuration(uint8_t slot, uint8_t value) {
+static int set_configuration(usb_dev_t slot, uint8_t value) {
     uint8_t setup[8];
     fill_setup(setup, TYPE_STANDARD | RECIP_DEVICE, REQ_SET_CONFIGURATION,
                value, 0, 0);
@@ -91,7 +105,7 @@ static int set_configuration(uint8_t slot, uint8_t value) {
 // is better than a silently shorter name. (Contrast fat32.c, where a
 // non-ASCII long name is REFUSED on create -- there the string is an
 // identity that has to round-trip, and here it is a caption.)
-void usb_read_string(uint8_t slot, uint8_t index, char *out, uint32_t cap) {
+void usb_read_string(usb_dev_t slot, uint8_t index, char *out, uint32_t cap) {
     out[0] = 0;
     if (!index || cap < 2) return;
 
@@ -187,7 +201,7 @@ int usb_parse_config_interfaces(const uint8_t *cfg, uint32_t total,
 // bytes for wTotalLength, then the rest. Clamped to the staging buffer,
 // so a device claiming more than 4 KiB is refused rather than allowed to
 // overrun.
-static int read_configuration(uint8_t slot, uint8_t index,
+static int read_configuration(usb_dev_t slot, uint8_t index,
                               uint32_t *out_total, uint8_t *out_value,
                               int patient) {
     int got = get_descriptor(slot, DESC_CONFIG, index, 0, g_desc_buf, 9);
@@ -234,7 +248,7 @@ static int read_configuration(uint8_t slot, uint8_t index,
 // keyboard, a mouse, a hub or a sound card does. The cost of being
 // wrong here is a device that used to work and stops, which is why the
 // rule is "only when index 0 offers nothing".
-static uint8_t pick_configuration(uint8_t slot, uint8_t configs,
+static uint8_t pick_configuration(usb_dev_t slot, uint8_t configs,
                                   uint8_t port, uint16_t vid, uint16_t pid,
                                   int patient) {
     if (configs <= 1) return 0;
@@ -259,40 +273,47 @@ static uint8_t pick_configuration(uint8_t slot, uint8_t configs,
 // DISABLED: the failure path frees what it allocated, which is what
 // makes the caller's reset-and-retry start from nothing instead of
 // from a wedged half-enumeration.
-int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
+int usb_enumerate_device(unsigned hc, uint8_t root_port, uint8_t parent_port,
                          uint32_t route, uint8_t depth, uint8_t speed,
-                         uint8_t parent_slot, uint8_t tt_slot, uint8_t tt_port,
+                         usb_dev_t parent_slot, uint8_t tt_slot, uint8_t tt_port,
                          int patient) {
-    int slot = xhci_address_device(root_port, route, speed, tt_slot, tt_port);
-    if (slot < 0) return -1;
+    int got_slot = xhci_address_device(hc, root_port, route, speed, tt_slot, tt_port);
+    if (got_slot < 0) return -1;
+    usb_dev_t slot = (usb_dev_t)got_slot;
+    if (!devs_reserve(slot)) {
+        klog_printf(KLOG_ERR "usb: port %u: no memory for the device table\n", parent_port);
+        xhci_disable_slot(slot);
+        return -1;
+    }
 
     // Eight bytes first, because bMaxPacketSize0 is byte 7 and the
     // controller was configured with a GUESS. Asking for all 18 before
     // correcting it is what hangs on a device whose real MPS is 64.
-    int got = get_descriptor((uint8_t)slot, DESC_DEVICE, 0, 0, g_desc_buf, 8);
+    int got = get_descriptor(slot, DESC_DEVICE, 0, 0, g_desc_buf, 8);
     if (got < 8) {
         klog_printf("usb: port %u: short device descriptor (%d)\n", parent_port, got);
-        xhci_disable_slot((uint8_t)slot);
+        xhci_disable_slot(slot);
         return -1;
     }
     uint16_t real_mps = g_desc_buf[7];
     if (speed == XHCI_SPEED_SUPER) real_mps = (uint16_t)(1u << g_desc_buf[7]);
     if (real_mps && real_mps != 8)
-        xhci_set_ep0_mps((uint8_t)slot, real_mps);
+        xhci_set_ep0_mps(slot, real_mps);
 
-    got = get_descriptor((uint8_t)slot, DESC_DEVICE, 0, 0, g_desc_buf, 18);
+    got = get_descriptor(slot, DESC_DEVICE, 0, 0, g_desc_buf, 18);
     if (got < 18) {
         klog_printf("usb: port %u: device descriptor truncated (%d)\n", parent_port, got);
-        xhci_disable_slot((uint8_t)slot);
+        xhci_disable_slot(slot);
         return -1;
     }
 
     struct usb_device_info *d = kzalloc(sizeof *d);
     if (!d) {
         klog_printf(KLOG_ERR "usb: port %u: no memory for the device\n", parent_port);
-        xhci_disable_slot((uint8_t)slot);
+        xhci_disable_slot(slot);
         return -1;
     }
+    d->hc           = (uint8_t)hc;
     d->port         = parent_port;
     d->root_port    = root_port;
     d->route        = route;
@@ -300,7 +321,7 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
     d->parent_slot  = parent_slot;
     d->tt_slot      = tt_slot;
     d->tt_port      = tt_port;
-    d->slot         = (uint8_t)slot;
+    d->slot         = slot;
     d->speed        = speed;
     d->dev_class    = g_desc_buf[4];
     d->dev_subclass = g_desc_buf[5];
@@ -314,15 +335,15 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
     // claiming more than 4 KiB of descriptors is refused rather than
     // allowed to overrun.
     uint8_t configs = g_desc_buf[17];      // bNumConfigurations
-    uint8_t pick = pick_configuration((uint8_t)slot, configs, parent_port,
+    uint8_t pick = pick_configuration(slot, configs, parent_port,
                                       d->vendor_id, d->product_id, patient);
 
     uint32_t total = 0;
     uint8_t cfg_value = 0;
-    if (!read_configuration((uint8_t)slot, pick, &total, &cfg_value, patient)) {
+    if (!read_configuration(slot, pick, &total, &cfg_value, patient)) {
         klog_printf("usb: port %u: configuration %u unreadable\n",
                     parent_port, pick);
-        xhci_disable_slot((uint8_t)slot);
+        xhci_disable_slot(slot);
         kfree(d);
         return -1;
     }
@@ -336,13 +357,13 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
         k_memcpy(d->cfg, g_desc_buf, d->cfg_len);
     }
 
-    usb_read_string((uint8_t)slot, i_manuf, d->manufacturer, sizeof d->manufacturer);
-    usb_read_string((uint8_t)slot, i_prod,  d->product,      sizeof d->product);
+    usb_read_string(slot, i_manuf, d->manufacturer, sizeof d->manufacturer);
+    usb_read_string(slot, i_prod,  d->product,      sizeof d->product);
 
-    if (set_configuration((uint8_t)slot, cfg_value) < 0) {
+    if (set_configuration(slot, cfg_value) < 0) {
         klog_printf(KLOG_ERR "usb: port %u: set configuration failed\n", parent_port);
         if (d->cfg_phys) pmm_free_contiguous(d->cfg_phys, 1);
-        xhci_disable_slot((uint8_t)slot);
+        xhci_disable_slot(slot);
         kfree(d);
         return -1;
     }
@@ -360,7 +381,7 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
     // Every route to Disable Slot detaches first, so this would be a
     // record the controller recycled under us -- said, not hidden.
     if (g_devs[slot])
-        klog_printf(KLOG_WARN "usb: slot %d reassigned while still listed\n", slot);
+        klog_printf(KLOG_WARN "usb: device %#x reassigned while still listed\n", slot);
     g_devs[slot] = d;
     g_dev_count++;
     {
@@ -391,24 +412,24 @@ int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
     return slot;
 }
 
-int usb_enumerate_port(uint8_t port, uint8_t speed, int patient) {
-    return usb_enumerate_device(port, port, 0, 0, speed, 0, 0, 0, patient);
+int usb_enumerate_port(unsigned hc, uint8_t port, uint8_t speed, int patient) {
+    return usb_enumerate_device(hc, port, port, 0, 0, speed, 0, 0, 0, patient);
 }
 
 // --- detach -----------------------------------------------------------
 
 // Depth-first: a hub's children go before the hub, because a child's
 // Disable Slot while its route still exists is the orderly direction.
-void usb_detach_slot(uint8_t slot) {
-    struct usb_device_info *d = g_devs[slot];
+void usb_detach_slot(usb_dev_t slot) {
+    struct usb_device_info *d = slot < g_devs_cap ? g_devs[slot] : 0;
     if (!d) return;
     g_devs[slot] = 0;        // off the table first, so recursion terminates
     d->in_use = 0;
     g_dev_count--;
 
-    for (int i = 1; i < USB_SLOT_IDS; i++)
+    for (unsigned i = 1; i < g_devs_cap; i++)
         if (g_devs[i] && g_devs[i]->parent_slot == slot)
-            usb_detach_slot((uint8_t)i);
+            usb_detach_slot((usb_dev_t)i);
 
     usb_unbind_drivers(d);
     xhci_disable_slot(slot);
@@ -423,17 +444,19 @@ void usb_detach_slot(uint8_t slot) {
     kfree(d);
 }
 
-uint8_t usb_root_port_slot(uint8_t root_port) {
-    for (int i = 1; i < USB_SLOT_IDS; i++)
-        if (g_devs[i] && g_devs[i]->root_port == root_port && g_devs[i]->depth == 0)
-            return (uint8_t)i;
+static int on_root_port(const struct usb_device_info *d, unsigned hc, uint8_t root_port) {
+    return d && d->hc == hc && d->root_port == root_port && d->depth == 0;
+}
+
+usb_dev_t usb_root_port_slot(unsigned hc, uint8_t root_port) {
+    for (unsigned i = 1; i < g_devs_cap; i++)
+        if (on_root_port(g_devs[i], hc, root_port)) return (usb_dev_t)i;
     return 0;
 }
 
-void usb_detach_root_port(uint8_t root_port) {
-    for (int i = 1; i < USB_SLOT_IDS; i++)
-        if (g_devs[i] && g_devs[i]->root_port == root_port && g_devs[i]->depth == 0)
-            usb_detach_slot((uint8_t)i);
+void usb_detach_root_port(unsigned hc, uint8_t root_port) {
+    for (unsigned i = 1; i < g_devs_cap; i++)
+        if (on_root_port(g_devs[i], hc, root_port)) usb_detach_slot((usb_dev_t)i);
 }
 
 // --- the table, as lsusb sees it ---------------------------------------
@@ -451,7 +474,7 @@ const uint8_t *usb_device_config(int index, uint32_t *len) {
 
 const struct usb_device_info *usb_device_at(int index) {
     if (index < 0) return 0;
-    for (int i = 1; i < USB_SLOT_IDS; i++) {
+    for (unsigned i = 1; i < g_devs_cap; i++) {
         if (!g_devs[i]) continue;
         if (index-- == 0) return g_devs[i];
     }

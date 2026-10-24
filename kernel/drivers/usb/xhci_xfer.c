@@ -11,17 +11,17 @@
 // QEMU says 32; a great deal of real hardware says 64. Reading it wrong
 // puts every field at the wrong offset and the controller reports
 // nothing at all -- it simply parses garbage. So no code here indexes a
-// context by a constant; everything goes through ctx_at().
+// context by a constant; everything goes through ctx_at(hc, ).
 
 // Ringing a doorbell is what tells the controller to look at a ring.
 // Slot 0 target 0 is the command ring; slot N target DCI is that
 // device's endpoint.
-static void ring_doorbell(uint32_t slot, uint32_t target) {
+static void ring_doorbell(struct xhci_hc *hc, uint32_t slot, uint32_t target) {
     // The ring writes must be visible before the doorbell, or the
     // controller reads a TRB that is not there yet. Free on x86, but
     // the compiler still has to be told -- see barrier.h.
     kbarrier();
-    *(volatile uint32_t *)(g_xhci.db + slot * 4) = target;
+    *(volatile uint32_t *)(hc->db + slot * 4) = target;
 }
 
 // The default max packet size for endpoint 0 at a given speed, used
@@ -57,23 +57,24 @@ static uint16_t default_mps(uint8_t speed) {
 #define XHCI_WAIT_MS       1000
 #define XHCI_WAIT_SICK_MS    50
 
-static int wait_completion(volatile struct xhci_completion *c, const char *what) {
-    uint32_t ms = g_xhci.cmd_recovered ? XHCI_WAIT_SICK_MS : XHCI_WAIT_MS;
+static int wait_completion(struct xhci_hc *hc, volatile struct xhci_completion *c,
+                           const char *what) {
+    uint32_t ms = hc->cmd_recovered ? XHCI_WAIT_SICK_MS : XHCI_WAIT_MS;
     struct xhci_wait w; xhci_wait_start(&w, ms);
     while (!c->done) {
-        xhci_service();
+        xhci_service_hc(hc);
         if (xhci_wait_over(&w)) {
             // ONE LINE PER CONTROLLER, not per command. 39 of these is
             // the probe outrunning the log CLAUDE.md warns about, and
             // the tally below is what a reader actually needs.
-            if (!g_xhci.timeout_reported) {
-                g_xhci.timeout_reported = 1;
+            if (!hc->timeout_reported) {
+                hc->timeout_reported = 1;
                 klog_printf(KLOG_ERR "usb: %s timed out after %u polls (%s)"
                             " -- later ones are counted, not logged\n",
                             what, w.spins,
                             w.deadline ? "deadline" : "poll ceiling, no usable clock");
             }
-            g_xhci.timeouts++;
+            hc->timeouts++;
             return -1;
         }
     }
@@ -90,9 +91,9 @@ static int wait_completion(volatile struct xhci_completion *c, const char *what)
 // read-only and answers "is the ring still running", and the enqueue
 // index plus cycle state say where the DRIVER thinks it is, which is
 // the half the controller cannot report.
-static void cmd_ring_report(const char *when) {
-    uint64_t crcr = (uint64_t)mr32(g_xhci.op, XHCI_CRCR) |
-                    ((uint64_t)mr32(g_xhci.op, XHCI_CRCR + 4) << 32);
+static void cmd_ring_report(struct xhci_hc *hc, const char *when) {
+    uint64_t crcr = (uint64_t)mr32(hc->op, XHCI_CRCR) |
+                    ((uint64_t)mr32(hc->op, XHCI_CRCR + 4) << 32);
     // RCS IS NOT REPORTED, AND THAT IS DELIBERATE: xHCI 5.4.5 makes
     // CRCR bits 2:0 and the pointer field read as ZERO, so printing
     // RCS=0 forever only invited the conclusion that the controller had
@@ -105,14 +106,14 @@ static void cmd_ring_report(const char *when) {
                 "our base 0x%llx usbsts 0x%x\n",
                 when, (unsigned long long)crcr,
                 (unsigned)((crcr & XHCI_CRCR_CRR) ? 1 : 0),
-                g_xhci.cmd.enqueue, g_xhci.cmd.cycle,
-                (unsigned long long)g_xhci.cmd.phys, mr32(g_xhci.op, XHCI_USBSTS));
+                hc->cmd.enqueue, hc->cmd.cycle,
+                (unsigned long long)hc->cmd.phys, mr32(hc->op, XHCI_USBSTS));
     // The first three command TRBs' control dwords: a ring the
     // controller is parsing differently shows up here as cycle bits
     // that do not match what we believe we published.
     klog_printf(KLOG_ERR "usb: cmd ring trb[0..2] ctrl %#x %#x %#x\n",
-                g_xhci.cmd.trb[0].control, g_xhci.cmd.trb[1].control,
-                g_xhci.cmd.trb[2].control);
+                hc->cmd.trb[0].control, hc->cmd.trb[1].control,
+                hc->cmd.trb[2].control);
 }
 
 // ABORT THE COMMAND RING AND PUT IT BACK, which is the only lever a
@@ -126,13 +127,13 @@ static void cmd_ring_report(const char *when) {
 // nothing is known to end with no USB at all.
 //
 // Returns 1 if the ring is running again.
-static int cmd_ring_recover(void) {
+static int cmd_ring_recover(struct xhci_hc *hc) {
     // CA is write-1 and self-clearing, and the RCS bit must be written
     // with it: this register's low bits are the ring's cycle state, and
     // dropping them here would tell the controller to expect the wrong
     // one when it restarts.
-    mw64(g_xhci.op, XHCI_CRCR, g_xhci.cmd.phys |
-                              (g_xhci.cmd.cycle ? XHCI_CRCR_RCS : 0) |
+    mw64(hc->op, XHCI_CRCR, hc->cmd.phys |
+                              (hc->cmd.cycle ? XHCI_CRCR_RCS : 0) |
                               XHCI_CRCR_CA);
 
     // The controller stops asynchronously and says so with a Command
@@ -142,9 +143,9 @@ static int cmd_ring_recover(void) {
     // cannot be starved.
     struct xhci_wait w; xhci_wait_start(&w, 50);
     for (;;) {
-        xhci_service();                       // drain whatever it does post
-        uint64_t crcr = (uint64_t)mr32(g_xhci.op, XHCI_CRCR) |
-                        ((uint64_t)mr32(g_xhci.op, XHCI_CRCR + 4) << 32);
+        xhci_service_hc(hc);                  // drain whatever it does post
+        uint64_t crcr = (uint64_t)mr32(hc->op, XHCI_CRCR) |
+                        ((uint64_t)mr32(hc->op, XHCI_CRCR + 4) << 32);
         if (!(crcr & XHCI_CRCR_CRR)) break;
         if (xhci_wait_over(&w)) {
             klog_printf(KLOG_ERR "usb: command ring will not stop -- "
@@ -157,10 +158,10 @@ static int cmd_ring_recover(void) {
     // rebuilt from scratch and CRCR re-pointed at it. xhci_ring_init()
     // re-zeroes the segment and restores cycle 1, which is what the
     // controller is told to expect on the next line.
-    xhci_ring_init(&g_xhci.cmd, (void *)g_xhci.cmd.trb, g_xhci.cmd.phys,
-                   g_xhci.cmd.count, 0);
-    mw64(g_xhci.op, XHCI_CRCR, g_xhci.cmd.phys | XHCI_CRCR_RCS);
-    cmd_ring_report("after abort");
+    xhci_ring_init(&hc->cmd, (void *)hc->cmd.trb, hc->cmd.phys,
+                   hc->cmd.count, 0);
+    mw64(hc->op, XHCI_CRCR, hc->cmd.phys | XHCI_CRCR_RCS);
+    cmd_ring_report(hc, "after abort");
     return 1;
 }
 
@@ -169,33 +170,33 @@ int xhci_selftest_cmd_recovery(void);   // below cmd_submit; see its comment
 // Enqueues one command, rings doorbell 0 and waits for its Command
 // Completion event. Returns the completion code; `out_slot` receives
 // the slot id the controller assigned, when the command allocates one.
-static int cmd_submit(uint64_t param, uint32_t control, uint8_t *out_slot) {
+static int cmd_submit(struct xhci_hc *hc, uint64_t param, uint32_t control, uint8_t *out_slot) {
     // A CONTROLLER THAT HAS BEEN GIVEN UP ON IS NOT ASKED AGAIN. Without
     // this the driver keeps queueing commands nothing will answer, at a
     // spin apiece, for the life of the boot -- which is how one dead
     // hub made a laptop take seven seconds to open a menu.
-    if (g_xhci.wedged) return -XHCI_CC_INVALID - 1;
+    if (hc->wedged) return -XHCI_CC_INVALID - 1;
 
     // ARMED BEFORE THE PUSH, and the order is load-bearing.
     // xhci_ring_push() sets the cycle bit last, which is what hands the
     // TRB to the controller -- and a controller with CRR=1 may fetch it
     // without waiting for the doorbell. A completion drained in that
-    // window would find g_xhci_cmd_done.trb still holding the PREVIOUS
+    // window would find hc->cmd_done.trb still holding the PREVIOUS
     // command's address, be rejected as stale, and cost a full 1000 ms
     // timeout on a command that actually succeeded.
-    g_xhci_cmd_done.trb  = xhci_ring_enq_phys(&g_xhci.cmd);
-    g_xhci_cmd_done.done = 0;
-    uint64_t at = xhci_ring_push(&g_xhci.cmd, param, 0, control);
+    hc->cmd_done.trb  = xhci_ring_enq_phys(&hc->cmd);
+    hc->cmd_done.done = 0;
+    uint64_t at = xhci_ring_push(&hc->cmd, param, 0, control);
     // The two must agree, or the waiter is armed for a TRB the
     // controller will never report -- every command would then time
     // out, which is a failure mode worth naming rather than deducing.
-    if (at != g_xhci_cmd_done.trb) {
+    if (at != hc->cmd_done.trb) {
         klog_printf(KLOG_ERR "usb: command armed for %#lx but pushed at "
                     "%#lx -- ring bookkeeping disagrees\n",
-                    (unsigned long)g_xhci_cmd_done.trb, (unsigned long)at);
-        g_xhci_cmd_done.trb = at;
+                    (unsigned long)hc->cmd_done.trb, (unsigned long)at);
+        hc->cmd_done.trb = at;
     }
-    ring_doorbell(0, 0);
+    ring_doorbell(hc, 0, 0);
 
     // The injector fakes the WAIT, not the controller: the command was
     // really posted above and the controller really will run it. That
@@ -203,22 +204,22 @@ static int cmd_submit(uint64_t param, uint32_t control, uint8_t *out_slot) {
     // a live ring, and is NOT a reproduction of the stalled-ring fault
     // (fault_inject.h says so at more length).
     if (fault_should_fail_usb_command() ||
-        wait_completion(&g_xhci_cmd_done, "command") < 0) {
-        usb_trace(USB_TR_CMD, 0, 0, XHCI_TRB_TYPE(control), 0xFFu); // timeout
+        wait_completion(hc, &hc->cmd_done, "command") < 0) {
+        usb_trace(USB_TR_CMD, 0, USB_DEV(hc->index, 0), XHCI_TRB_TYPE(control), 0xFFu); // timeout
         // ONCE PER CONTROLLER, not once per command: the failure mode
         // this exists for produces a timeout on every command for the
         // rest of the boot, and a report plus an abort on each of them
         // would be the probe outrunning the log that CLAUDE.md warns
         // about -- the evidence destroyed by the instrument.
-        if (!g_xhci.cmd_recovered) {
-            cmd_ring_report("timeout");
+        if (!hc->cmd_recovered) {
+            cmd_ring_report(hc, "timeout");
             // 1 = the ring is running again, 2 = the abort did not take.
             // Recording WHICH, not merely that this ran: a flag set
             // before the attempt would be satisfied by an abort that
             // failed, and the self-test below would then pass on a
             // controller left exactly as broken as it found it.
-            g_xhci.cmd_recovered = cmd_ring_recover() ? 1 : 2;
-            if (g_xhci.cmd_recovered == 1)
+            hc->cmd_recovered = cmd_ring_recover(hc) ? 1 : 2;
+            if (hc->cmd_recovered == 1)
                 klog_printf(KLOG_ERR "usb: command ring aborted and "
                                       "restarted after a timeout\n");
         } else {
@@ -230,19 +231,19 @@ static int cmd_submit(uint64_t param, uint32_t control, uint8_t *out_slot) {
             // which is bounded inside and refuses once it has had
             // enough. Arming is just a flag; it runs off the event
             // path, which is why this is safe to call from here.
-            usb_controller_reinit();
+            xhci_hc_reinit(hc);
         }
         return -XHCI_CC_INVALID - 1;
     }
-    if (out_slot) *out_slot = g_xhci_cmd_done.slot;
-    usb_trace(USB_TR_CMD, 0, g_xhci_cmd_done.slot,
-              XHCI_TRB_TYPE(control), g_xhci_cmd_done.code);
-    return (int)g_xhci_cmd_done.code;
+    if (out_slot) *out_slot = hc->cmd_done.slot;
+    usb_trace(USB_TR_CMD, 0, USB_DEV(hc->index, hc->cmd_done.slot),
+              XHCI_TRB_TYPE(control), hc->cmd_done.code);
+    return (int)hc->cmd_done.code;
 }
 
 // TURN A COMMAND RESULT INTO A FAILURE RETURN, and never by negating it
 // blindly. A completion code is POSITIVE (xHCI's own); this driver's
-// timeout is the NEGATIVE sentinel from cmd_submit() above. `-cc` on
+// timeout is the NEGATIVE sentinel from cmd_submit(hc, ) above. `-cc` on
 // that sentinel produced +1, and every caller tests `< 0` -- so a
 // timed-out Enable Slot was read as "you were given slot 1" and the
 // enumeration went on to drive, and then DISABLE, a slot belonging to
@@ -267,36 +268,40 @@ static inline int xhci_fail(int cc) {
 // A No-Op command (TRB type 23) is the probe both times: it is the one
 // command with no arguments, no side effects and nothing to clean up.
 //
-// Returns 1 pass, 0 fail, -1 no controller to test.
+// Returns 1 pass, 0 fail, -1 no controller to test. The first controller
+// is the one tested.
 int xhci_selftest_cmd_recovery(void) {
-    if (!g_xhci.op) return -1;
+    struct xhci_hc *hc = g_nxhci ? g_xhcis[0] : 0;
+    if (!hc || !hc->op) return -1;
 
-    uint8_t saved = g_xhci.cmd_recovered;
-    g_xhci.cmd_recovered = 0;             // the guard is once-per-boot; re-arm it
+    uint8_t saved = hc->cmd_recovered;
+    hc->cmd_recovered = 0;             // the guard is once-per-boot; re-arm it
 
     fault_fail_next_usb_commands(1);
-    (void)cmd_submit(0, XHCI_TRB_SET_TYPE(XHCI_TRB_NOOP_CMD), 0);
+    (void)cmd_submit(hc, 0, XHCI_TRB_SET_TYPE(XHCI_TRB_NOOP_CMD), 0);
     fault_fail_next_usb_commands(0);    // a test disarms what it arms
 
-    int fired = (g_xhci.cmd_recovered == 1);   // ran AND restarted the ring
+    int fired = (hc->cmd_recovered == 1);   // ran AND restarted the ring
     // THE ASSERTION THAT MATTERS IS THIS ONE. Recovery that runs and
     // leaves the ring unusable is worse than no recovery, because the
     // log then says it healed something it did not.
-    int cc = cmd_submit(0, XHCI_TRB_SET_TYPE(XHCI_TRB_NOOP_CMD), 0);
+    int cc = cmd_submit(hc, 0, XHCI_TRB_SET_TYPE(XHCI_TRB_NOOP_CMD), 0);
 
-    g_xhci.cmd_recovered = saved;
+    hc->cmd_recovered = saved;
     return (fired && cc == XHCI_CC_SUCCESS) ? 1 : 0;
 }
 
-int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
+int xhci_address_device(unsigned hci, uint8_t root_port, uint32_t route, uint8_t speed,
                         uint8_t tt_slot, uint8_t tt_port) {
+    struct xhci_hc *hc = hci < g_nxhci ? g_xhcis[hci] : 0;
+    if (!hc) return -1;
     uint8_t slot = 0;
-    int cc = cmd_submit(0, XHCI_TRB_SET_TYPE(XHCI_TRB_ENABLE_SLOT), &slot);
+    int cc = cmd_submit(hc, 0, XHCI_TRB_SET_TYPE(XHCI_TRB_ENABLE_SLOT), &slot);
     if (cc != XHCI_CC_SUCCESS) {
         klog_printf(KLOG_ERR "usb: enable slot failed: %s\n", xhci_completion_name((uint32_t)cc));
         return xhci_fail(cc);
     }
-    if (!slot || slot > g_xhci.nslots) {
+    if (!hc || !slot || slot > hc->nslots) {
         klog_printf("usb: controller assigned slot %u, out of range\n", slot);
         return -1;
     }
@@ -305,7 +310,7 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
     // failure below can hand cleanup to xhci_disable_slot() -- the
     // failed attempts used to leak their slots, and the retry then
     // burned a fresh one per try.
-    struct xhci_slot *sl = &g_xhci_slots[slot];
+    struct xhci_slot *sl = &hc->slots[slot];
     sl->in_use = 1;
     uint64_t ep0_phys = 0;
     sl->in_ctx  = xhci_alloc_frame(&sl->in_ctx_phys);
@@ -313,7 +318,7 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
     void *ep0_seg = xhci_alloc_frame(&ep0_phys);
     if (!sl->in_ctx || !sl->out_ctx || !ep0_seg) {
         klog_printf("usb: out of frames for slot %u\n", slot);
-        xhci_disable_slot(slot);
+        xhci_disable_slot(USB_DEV(hc->index, slot));
         return -1;
     }
     xhci_ring_init(&sl->ep0, ep0_seg, ep0_phys, TRBS_PER_RING, 0);
@@ -322,10 +327,10 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
 
     // The controller writes the Device Context, so it has to know where
     // it is BEFORE the Address Device command runs.
-    g_xhci.dcbaa[slot] = sl->out_ctx_phys;
+    hc->dcbaa[slot] = sl->out_ctx_phys;
 
     // Input Control Context: add the Slot Context (A0) and EP0 (A1).
-    volatile uint32_t *icc = ctx_at(sl->in_ctx, 0);
+    volatile uint32_t *icc = ctx_at(hc, sl->in_ctx, 0);
     icc[0] = 0;                 // drop nothing
     icc[1] = (1u << 0) | (1u << 1);
 
@@ -335,7 +340,7 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
     // fields name the HIGH-speed hub doing split transactions for a
     // low/full-speed device -- zero when there is none, and the hub
     // driver is the only caller that ever passes them.
-    volatile uint32_t *sc = ctx_at(sl->in_ctx, 1);
+    volatile uint32_t *sc = ctx_at(hc, sl->in_ctx, 1);
     sc[0] = ((uint32_t)1 << 27) |                 // context entries: EP0 only
             (((uint32_t)speed & 0xFu) << 20) |    // speed
             (route & 0xFFFFFu);                   // route string [19:0]
@@ -344,7 +349,7 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
     sc[3] = 0;
 
     // EP0 Context: a Control endpoint whose transfer ring is ep0.
-    volatile uint32_t *ep = ctx_at(sl->in_ctx, 2);
+    volatile uint32_t *ep = ctx_at(hc, sl->in_ctx, 2);
     ep[0] = 0;
     ep[1] = (3u << 1) |                            // CErr = 3
             (4u << 3) |                            // EP type 4 = Control
@@ -353,30 +358,32 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
     ep[3] = (uint32_t)(ep0_phys >> 32);
     ep[4] = 8;                                     // average TRB length
 
-    cc = cmd_submit(sl->in_ctx_phys,
+    cc = cmd_submit(hc, sl->in_ctx_phys,
                     XHCI_TRB_SET_TYPE(XHCI_TRB_ADDRESS_DEVICE) |
                     ((uint32_t)slot << 24), 0);
     if (cc != XHCI_CC_SUCCESS) {
         klog_printf(KLOG_ERR "usb: address device (slot %u) failed: %s\n",
                     slot, xhci_completion_name((uint32_t)cc));
-        xhci_disable_slot(slot);
+        xhci_disable_slot(USB_DEV(hc->index, slot));
         return xhci_fail(cc);
     }
-    return slot;
+    return USB_DEV(hc->index, slot);
 }
 
-int xhci_set_ep0_mps(uint8_t slot, uint16_t mps) {
-    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
-    struct xhci_slot *sl = &g_xhci_slots[slot];
+int xhci_set_ep0_mps(usb_dev_t dev, uint16_t mps) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    if (!hc || !slot || slot > hc->nslots || !hc->slots[slot].in_use) return -1;
+    struct xhci_slot *sl = &hc->slots[slot];
 
-    volatile uint32_t *icc = ctx_at(sl->in_ctx, 0);
+    volatile uint32_t *icc = ctx_at(hc, sl->in_ctx, 0);
     icc[0] = 0;
     icc[1] = (1u << 1);          // evaluate EP0 only
 
-    volatile uint32_t *ep = ctx_at(sl->in_ctx, 2);
+    volatile uint32_t *ep = ctx_at(hc, sl->in_ctx, 2);
     ep[1] = (ep[1] & 0x0000FFFFu) | ((uint32_t)mps << 16);
 
-    int cc = cmd_submit(sl->in_ctx_phys,
+    int cc = cmd_submit(hc, sl->in_ctx_phys,
                         XHCI_TRB_SET_TYPE(XHCI_TRB_EVALUATE_CONTEXT) |
                         ((uint32_t)slot << 24), 0);
     if (cc != XHCI_CC_SUCCESS) {
@@ -392,35 +399,41 @@ int xhci_set_ep0_mps(uint8_t slot, uint16_t mps) {
 // current ENQUEUE with its current cycle state -- everything the
 // controller had in flight is abandoned, and the caller re-posts what
 // it wants outstanding.
-int xhci_recover_halted(uint8_t slot, uint32_t dci, struct xhci_ring *ring) {
-    int cc = cmd_submit(0, XHCI_TRB_SET_TYPE(XHCI_TRB_RESET_ENDPOINT) |
+int xhci_recover_halted(struct xhci_hc *hc, uint8_t slot, uint32_t dci, struct xhci_ring *ring) {
+    int cc = cmd_submit(hc, 0, XHCI_TRB_SET_TYPE(XHCI_TRB_RESET_ENDPOINT) |
                            ((uint32_t)slot << 24) | (dci << 16), 0);
     if (cc != XHCI_CC_SUCCESS) return xhci_fail(cc);
     uint64_t deq = ring->phys + (uint64_t)ring->enqueue * sizeof(struct xhci_trb);
-    cc = cmd_submit(deq | (ring->cycle ? 1u : 0u),
+    cc = cmd_submit(hc, deq | (ring->cycle ? 1u : 0u),
                     XHCI_TRB_SET_TYPE(XHCI_TRB_SET_TR_DEQUEUE) |
                     ((uint32_t)slot << 24) | (dci << 16), 0);
     if (cc != XHCI_CC_SUCCESS) return xhci_fail(cc);
-    g_xhci.ep_recoveries++;
+    hc->ep_recoveries++;
     return 0;
 }
 
-void xhci_slot_set_hub(uint8_t slot, uint8_t n_ports, uint8_t ttt) {
-    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return;
-    volatile uint32_t *sc = ctx_at(g_xhci_slots[slot].in_ctx, 1);
+void xhci_slot_set_hub(usb_dev_t dev, uint8_t n_ports, uint8_t ttt) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    if (!hc || !slot || slot > hc->nslots || !hc->slots[slot].in_use) return;
+    volatile uint32_t *sc = ctx_at(hc, hc->slots[slot].in_ctx, 1);
     sc[0] |= (1u << 26);                                        // Hub flag
     sc[1] = (sc[1] & 0x00FFFFFFu) | ((uint32_t)n_ports << 24);  // Number of Ports
     sc[2] = (sc[2] & ~(3u << 16)) | (((uint32_t)ttt & 3u) << 16);
 }
 
-int xhci_slot_usable(uint8_t slot) {
-    return slot && slot <= g_xhci.nslots && g_xhci_slots[slot].in_use && !g_xhci_slots[slot].ep0_dead;
+int xhci_slot_usable(usb_dev_t dev) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    return hc && slot && slot <= hc->nslots && hc->slots[slot].in_use && !hc->slots[slot].ep0_dead;
 }
 
-int xhci_control(uint8_t slot, const uint8_t setup[8],
+int xhci_control(usb_dev_t dev, const uint8_t setup[8],
                  void *buf, uint16_t len, int in) {
-    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
-    struct xhci_slot *sl = &g_xhci_slots[slot];
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    if (!hc || !slot || slot > hc->nslots || !hc->slots[slot].in_use) return -1;
+    struct xhci_slot *sl = &hc->slots[slot];
     if (sl->ep0_dead) return -1;
 
     // The SETUP packet rides in the TRB itself (IDT), so there is no
@@ -449,21 +462,21 @@ int xhci_control(uint8_t slot, const uint8_t setup[8],
     // The Status Stage runs in the OPPOSITE direction to the data, and
     // IN when there was no data at all. It carries IOC, so it is the
     // TRB whose Transfer Event the waiter matches on.
-    g_xhci_xfer_done.done = 0;
-    g_xhci_xfer_done.data_short = 0;
-    g_xhci_xfer_done.residual = 0;
-    g_xhci_xfer_done.ring_lo = sl->ep0.phys;
-    g_xhci_xfer_done.ring_hi = sl->ep0.phys +
+    hc->xfer_done.done = 0;
+    hc->xfer_done.data_short = 0;
+    hc->xfer_done.residual = 0;
+    hc->xfer_done.ring_lo = sl->ep0.phys;
+    hc->xfer_done.ring_hi = sl->ep0.phys +
                           (uint64_t)sl->ep0.count * sizeof(struct xhci_trb);
     uint64_t status_trb = xhci_ring_push(&sl->ep0, 0, 0,
                               XHCI_TRB_SET_TYPE(XHCI_TRB_STATUS_STAGE) |
                               ((len && in) ? 0 : (1u << 16)) | XHCI_TRB_IOC);
-    g_xhci_xfer_done.trb = status_trb;
+    hc->xfer_done.trb = status_trb;
 
-    ring_doorbell(slot, dci_of(0));
+    ring_doorbell(hc, slot, dci_of(0));
 
-    if (wait_completion(&g_xhci_xfer_done, "control transfer") < 0) {
-        g_xhci_xfer_done.ring_lo = g_xhci_xfer_done.ring_hi = 0;
+    if (wait_completion(hc, &hc->xfer_done, "control transfer") < 0) {
+        hc->xfer_done.ring_lo = hc->xfer_done.ring_hi = 0;
         // NOT CANCELLED, so ep0 is wedged behind it: refuse what follows
         // rather than let a driver's poll spend a deadline per read --
         // an RTL8156 bind once held USB's only worker for minutes this way.
@@ -473,18 +486,18 @@ int xhci_control(uint8_t slot, const uint8_t setup[8],
         // The first four setup bytes identify the request
         // (bmRequestType, bRequest, wValue) -- enough to say WHICH
         // request went unanswered, which is the whole question.
-        usb_trace(USB_TR_CTRL, 0, slot,
+        usb_trace(USB_TR_CTRL, 0, dev,
                   (uint32_t)setup[0] | ((uint32_t)setup[1] << 8) |
                   ((uint32_t)setup[2] << 16) | ((uint32_t)setup[3] << 24),
                   0xFFu);
         return -1;
     }
-    usb_trace(USB_TR_CTRL, 0, slot,
+    usb_trace(USB_TR_CTRL, 0, dev,
               (uint32_t)setup[0] | ((uint32_t)setup[1] << 8) |
               ((uint32_t)setup[2] << 16) | ((uint32_t)setup[3] << 24),
-              g_xhci_xfer_done.code);
-    if (g_xhci_xfer_done.code != XHCI_CC_SUCCESS &&
-        g_xhci_xfer_done.code != XHCI_CC_SHORT_PACKET) {
+              hc->xfer_done.code);
+    if (hc->xfer_done.code != XHCI_CC_SUCCESS &&
+        hc->xfer_done.code != XHCI_CC_SHORT_PACKET) {
         // A STALL is a legitimate answer to a request the device does
         // not support (SET_IDLE, commonly; a class request addressed to
         // an entity it does not have) -- and every code here HALTS ep0,
@@ -493,17 +506,17 @@ int xhci_control(uint8_t slot, const uint8_t setup[8],
         // enumeration. QEMU reaches this through the transaction-error
         // path rather than STALL, which is why the set is not just the
         // one code.
-        if (g_xhci_xfer_done.code == XHCI_CC_STALL ||
-            g_xhci_xfer_done.code == XHCI_CC_BABBLE ||
-            g_xhci_xfer_done.code == XHCI_CC_USB_TRANSACTION_ERR ||
-            g_xhci_xfer_done.code == XHCI_CC_DATA_BUFFER_ERROR)
-            xhci_recover_halted(slot, 1, &sl->ep0);
-        return -(int)g_xhci_xfer_done.code;
+        if (hc->xfer_done.code == XHCI_CC_STALL ||
+            hc->xfer_done.code == XHCI_CC_BABBLE ||
+            hc->xfer_done.code == XHCI_CC_USB_TRANSACTION_ERR ||
+            hc->xfer_done.code == XHCI_CC_DATA_BUFFER_ERROR)
+            xhci_recover_halted(hc, slot, 1, &sl->ep0);
+        return -(int)hc->xfer_done.code;
     }
     // A short packet is not an error -- it is how a device says "that is
     // all there was", and the residual says how much less it sent.
     uint32_t got = len;
-    if (g_xhci_xfer_done.residual <= len) got = len - g_xhci_xfer_done.residual;
+    if (hc->xfer_done.residual <= len) got = len - hc->xfer_done.residual;
     return (int)got;
 }
 
@@ -515,21 +528,22 @@ int xhci_control(uint8_t slot, const uint8_t setup[8],
 // outstanding TRB loses every report that arrives in the window between
 // the controller completing it and the driver posting the next -- which
 // under a polled drain is a very large window. virtio_input.c keeps 64
-// buffers posted for exactly this reason.
-struct xhci_ep g_xhci_eps[MAX_EPS];
+// buffers posted for exactly this reason. The table is per controller
+// (struct xhci_hc's eps[]).
 
-static struct xhci_ep *ep_find(uint8_t slot, uint8_t ep_addr) {
+static struct xhci_ep *ep_find(struct xhci_hc *hc, uint8_t slot, uint8_t ep_addr) {
+    if (!hc) return 0;
     for (int i = 0; i < MAX_EPS; i++)
-        if (g_xhci_eps[i].in_use && g_xhci_eps[i].slot == slot && g_xhci_eps[i].ep_addr == ep_addr)
-            return &g_xhci_eps[i];
+        if (hc->eps[i].in_use && hc->eps[i].slot == slot && hc->eps[i].ep_addr == ep_addr)
+            return &hc->eps[i];
     return 0;
 }
 
 // Which endpoint owns the TRB a Transfer Event names. Address ranges
 // rather than an id, because that is all the event carries.
-static struct xhci_ep *ep_owning(uint64_t trb_phys) {
+static struct xhci_ep *ep_owning(struct xhci_hc *hc, uint64_t trb_phys) {
     for (int i = 0; i < MAX_EPS; i++) {
-        struct xhci_ep *e = &g_xhci_eps[i];
+        struct xhci_ep *e = &hc->eps[i];
         if (!e->in_use) continue;
         uint64_t lo = e->ring.phys;
         uint64_t hi = lo + (uint64_t)e->ring.count * sizeof(struct xhci_trb);
@@ -541,15 +555,15 @@ static struct xhci_ep *ep_owning(uint64_t trb_phys) {
 // The endpoint an event names when it carries no TRB pointer -- a ring
 // underrun does that, and it is an isochronous endpoint's normal way of
 // saying "you gave me nothing to send".
-static struct xhci_ep *ep_by_dci(uint8_t slot, uint32_t dci) {
+static struct xhci_ep *ep_by_dci(struct xhci_hc *hc, uint8_t slot, uint32_t dci) {
     for (int i = 0; i < MAX_EPS; i++)
-        if (g_xhci_eps[i].in_use && g_xhci_eps[i].slot == slot &&
-            dci_of(g_xhci_eps[i].ep_addr) == dci)
-            return &g_xhci_eps[i];
+        if (hc->eps[i].in_use && hc->eps[i].slot == slot &&
+            dci_of(hc->eps[i].ep_addr) == dci)
+            return &hc->eps[i];
     return 0;
 }
 
-void xhci_ep_post(struct xhci_ep *e, uint8_t slice) {
+void xhci_ep_post(struct xhci_hc *hc, struct xhci_ep *e, uint8_t slice) {
     uint64_t at = xhci_ring_push(&e->ring,
                                  e->buf_phys + (uint64_t)slice * EP_SLOT_SIZE,
                                  e->mps,
@@ -557,7 +571,7 @@ void xhci_ep_post(struct xhci_ep *e, uint8_t slice) {
                                  XHCI_TRB_IOC | XHCI_TRB_ISP);
     uint32_t idx = (uint32_t)((at - e->ring.phys) / sizeof(struct xhci_trb));
     if (idx < TRBS_PER_RING) e->buf_of_trb[idx] = slice;
-    ring_doorbell(e->slot, dci_of(e->ep_addr));
+    ring_doorbell(hc, e->slot, dci_of(e->ep_addr));
 }
 
 // The xHCI Interval field is a LOG, and how to compute it depends on
@@ -581,7 +595,7 @@ static uint32_t interval_field(uint8_t speed, uint8_t b_interval) {
 // context and issue Configure Endpoint. `ep_type` is the xHCI code (1
 // Isoch OUT, 7 Interrupt IN); `cerr` is 3 for an endpoint that retries
 // and 0 for one that cannot, which is every isochronous endpoint.
-static struct xhci_ep *ep_configure(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+static struct xhci_ep *ep_configure(struct xhci_hc *hc, uint8_t slot, uint8_t ep_addr, uint16_t mps,
                                     uint8_t interval, uint32_t ep_type,
                                     uint32_t cerr, int *out_cc) {
     *out_cc = 0;
@@ -599,14 +613,14 @@ static struct xhci_ep *ep_configure(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     // claim a device away from its class driver, which is why it never
     // showed. The SEGMENT is reused rather than reallocated -- a second
     // frame here would leak one per rebind.
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     void *seg = 0;
     uint64_t ring_phys = 0;
     if (e) {
         seg = (void *)e->ring.trb;
         ring_phys = e->ring.phys;
     } else {
-        for (int i = 0; i < MAX_EPS; i++) if (!g_xhci_eps[i].in_use) { e = &g_xhci_eps[i]; break; }
+        for (int i = 0; i < MAX_EPS; i++) if (!hc->eps[i].in_use) { e = &hc->eps[i]; break; }
         if (!e) {
             // The event drain walks this table, so it stays fixed -- and
             // says so when it is full rather than failing unexplained.
@@ -623,23 +637,23 @@ static struct xhci_ep *ep_configure(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     k_memset(seg, 0, 4096);   // a reused segment still holds old TRBs
     xhci_ring_init(&e->ring, seg, ring_phys, TRBS_PER_RING, 0);
 
-    struct xhci_slot *sl = &g_xhci_slots[slot];
+    struct xhci_slot *sl = &hc->slots[slot];
     uint32_t dci = dci_of(ep_addr);
 
-    volatile uint32_t *icc = ctx_at(sl->in_ctx, 0);
+    volatile uint32_t *icc = ctx_at(hc, sl->in_ctx, 0);
     icc[0] = 0;
     icc[1] = (1u << 0) | (1u << dci);        // slot context + this endpoint
 
     // The Slot Context has to grow: Context Entries is the HIGHEST DCI
     // in use, and a controller told 1 will simply not look at entry 3.
-    volatile uint32_t *sc = ctx_at(sl->in_ctx, 1);
+    volatile uint32_t *sc = ctx_at(hc, sl->in_ctx, 1);
     uint32_t entries = (sc[0] >> 27) & 0x1Fu;
     if (dci > entries) sc[0] = (sc[0] & 0x07FFFFFFu) | (dci << 27);
 
     // The DEVICE's speed, not the root port's: behind a hub the two
     // differ (a low-speed mouse on a full-speed hub), and the interval
     // conversion is per-speed.
-    volatile uint32_t *ep = ctx_at(sl->in_ctx, 1 + dci);
+    volatile uint32_t *ep = ctx_at(hc, sl->in_ctx, 1 + dci);
     ep[0] = interval_field(sl->speed, interval) << 16;
     ep[1] = (cerr << 1) | (ep_type << 3) | ((uint32_t)mps << 16);
     ep[2] = (uint32_t)(ring_phys & 0xFFFFFFFFu) | 1u;   // DCS = 1
@@ -651,7 +665,7 @@ static struct xhci_ep *ep_configure(uint8_t slot, uint8_t ep_addr, uint16_t mps,
 
     e->in_use = 1;   // published before the endpoint can complete anything
 
-    int cc = cmd_submit(sl->in_ctx_phys,
+    int cc = cmd_submit(hc, sl->in_ctx_phys,
                         XHCI_TRB_SET_TYPE(XHCI_TRB_CONFIGURE_ENDPOINT) |
                         ((uint32_t)slot << 24), 0);
     if (cc != XHCI_CC_SUCCESS) {
@@ -664,9 +678,11 @@ static struct xhci_ep *ep_configure(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     return e;
 }
 
-int xhci_add_interrupt_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+int xhci_add_interrupt_in(usb_dev_t dev, uint8_t ep_addr, uint16_t mps,
                           uint8_t interval) {
-    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    if (!hc || !slot || slot > hc->nslots || !hc->slots[slot].in_use) return -1;
     if (mps == 0 || mps > EP_SLOT_SIZE) return -1;
 
     uint64_t buf_phys = 0;
@@ -674,26 +690,28 @@ int xhci_add_interrupt_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     if (!buf) return -1;
 
     int cc = 0;
-    struct xhci_ep *e = ep_configure(slot, ep_addr, mps, interval, 7, 3, &cc);
+    struct xhci_ep *e = ep_configure(hc, slot, ep_addr, mps, interval, 7, 3, &cc);
     if (!e) return xhci_fail(cc);
     e->buf = (uint8_t *)buf;
     e->buf_phys = buf_phys;
 
-    for (uint8_t i = 0; i < EP_DEPTH; i++) xhci_ep_post(e, i);
+    for (uint8_t i = 0; i < EP_DEPTH; i++) xhci_ep_post(hc, e, i);
     return 0;
 }
 
-static int add_isoch(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+static int add_isoch(usb_dev_t dev, uint8_t ep_addr, uint16_t mps,
                      uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
                      void *ctx) {
-    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    if (!hc || !slot || slot > hc->nslots || !hc->slots[slot].in_use) return -1;
     if (mps == 0) return -1;
 
     int cc = 0;
     // CErr = 0: an isochronous transfer is not retried, and the spec
     // has the controller ignore the field on such an endpoint anyway.
     // Type 1 is Isoch OUT, 5 Isoch IN.
-    struct xhci_ep *e = ep_configure(slot, ep_addr, mps, interval,
+    struct xhci_ep *e = ep_configure(hc, slot, ep_addr, mps, interval,
                                      (ep_addr & 0x80) ? 5u : 1u, 0, &cc);
     if (!e) return xhci_fail(cc);
     e->is_iso   = 1;
@@ -705,31 +723,33 @@ static int add_isoch(uint8_t slot, uint8_t ep_addr, uint16_t mps,
     return 0;
 }
 
-int xhci_add_isoch_out(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+int xhci_add_isoch_out(usb_dev_t dev, uint8_t ep_addr, uint16_t mps,
                        uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
                        void *ctx) {
-    return (ep_addr & 0x80) ? -1 : add_isoch(slot, ep_addr, mps, interval, done, ctx);
+    return (ep_addr & 0x80) ? -1 : add_isoch(dev, ep_addr, mps, interval, done, ctx);
 }
 
-int xhci_add_isoch_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+int xhci_add_isoch_in(usb_dev_t dev, uint8_t ep_addr, uint16_t mps,
                       uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
                       void *ctx) {
-    return (ep_addr & 0x80) ? add_isoch(slot, ep_addr, mps, interval, done, ctx) : -1;
+    return (ep_addr & 0x80) ? add_isoch(dev, ep_addr, mps, interval, done, ctx) : -1;
 }
 
-int xhci_cancel_endpoint(uint8_t slot, uint8_t ep_addr) {
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+int xhci_cancel_endpoint(usb_dev_t dev, uint8_t ep_addr) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     if (!e) return 0;                    // never configured: nothing in flight
-    struct xhci_slot *sl = &g_xhci_slots[slot];
+    struct xhci_slot *sl = &hc->slots[slot];
     uint32_t dci = dci_of(ep_addr);
 
-    int cc = cmd_submit(0, XHCI_TRB_SET_TYPE(XHCI_TRB_STOP_ENDPOINT) |
+    int cc = cmd_submit(hc, 0, XHCI_TRB_SET_TYPE(XHCI_TRB_STOP_ENDPOINT) |
                            ((uint32_t)slot << 24) | (dci << 16), 0);
     if (cc == XHCI_CC_CONTEXT_STATE_ERR && sl->out_ctx) {
         // NOT RUNNING ALREADY -- halted on an unplug, stopped, never
         // started -- which is the state Stop asks for. Believed from the
         // controller's own context, not from the error.
-        uint32_t st = ctx_at(sl->out_ctx, dci)[0] & 7u;
+        uint32_t st = ctx_at(hc, sl->out_ctx, dci)[0] & 7u;
         if (st == 2 || st == 3) cc = XHCI_CC_SUCCESS;     // halted, stopped
     }
     if (cc != XHCI_CC_SUCCESS) {
@@ -741,7 +761,7 @@ int xhci_cancel_endpoint(uint8_t slot, uint8_t ep_addr) {
     // Past every queued TD, so a later doorbell -- a rebind posting
     // afresh -- cannot resume one whose buffer has been freed.
     uint64_t deq = e->ring.phys + (uint64_t)e->ring.enqueue * sizeof(struct xhci_trb);
-    cc = cmd_submit(deq | (e->ring.cycle ? 1u : 0u),
+    cc = cmd_submit(hc, deq | (e->ring.cycle ? 1u : 0u),
                     XHCI_TRB_SET_TYPE(XHCI_TRB_SET_TR_DEQUEUE) |
                     ((uint32_t)slot << 24) | (dci << 16), 0);
     if (cc != XHCI_CC_SUCCESS) {
@@ -790,17 +810,19 @@ static void bulk_event(struct xhci_ep *e, uint32_t idx, uint32_t code, uint32_t 
 // CErr = 3, unlike the isochronous case: a bulk transfer IS retried, and
 // a bulk endpoint DOES halt on a stall, which is what makes the existing
 // halt recovery apply to it unchanged.
-int xhci_add_bulk(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+int xhci_add_bulk(usb_dev_t dev, uint8_t ep_addr, uint16_t mps,
                   void (*done)(void *ctx, uint64_t phys, uint32_t bytes, int ok),
                   void *ctx) {
-    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return -1;
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    if (!hc || !slot || slot > hc->nslots || !hc->slots[slot].in_use) return -1;
     if (mps == 0) return -1;
 
     int cc = 0;
     uint32_t type = (ep_addr & 0x80) ? 6u : 2u;
     // bInterval is meaningless for bulk -- the controller moves data
     // whenever there is bandwidth -- and 0 is what the spec wants.
-    struct xhci_ep *e = ep_configure(slot, ep_addr, mps, 0, type, 3, &cc);
+    struct xhci_ep *e = ep_configure(hc, slot, ep_addr, mps, 0, type, 3, &cc);
     if (!e) return xhci_fail(cc);
     e->is_bulk   = 1;
     e->bulk_done = done;
@@ -813,9 +835,11 @@ int xhci_add_bulk(uint8_t slot, uint8_t ep_addr, uint16_t mps,
 // TRBs carried it. A buffer that crosses a 64 KiB boundary is split
 // there (xhci_trb_span()), so a driver may post any contiguous buffer.
 #define BULK_TD_MAX 3                     // 0x1FFFF bytes cross at most two boundaries
-int xhci_bulk_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
+int xhci_bulk_post(usb_dev_t dev, uint8_t ep_addr, uint64_t buf_phys,
                    uint32_t len) {
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     if (!e || !e->is_bulk || len > 0x1FFFFu) return -1;
     if (e->halted) return -1;
 
@@ -830,7 +854,7 @@ int xhci_bulk_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
         off[n] = at;
         td[n].p0 = (uint32_t)a;
         td[n].p1 = (uint32_t)(a >> 32);
-        td[n].status = p | (xhci_td_size(len - at - p, e->mps, g_xhci.hci_version) << 17);
+        td[n].status = p | (xhci_td_size(len - at - p, e->mps, hc->hci_version) << 17);
         td[n].control = XHCI_TRB_SET_TYPE(XHCI_TRB_NORMAL) | XHCI_TRB_ISP |
                         (last ? XHCI_TRB_IOC : XHCI_TRB_CH);
         at += p;
@@ -848,20 +872,24 @@ int xhci_bulk_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
         e->bulk_flags_of_trb[idx[i]] = (uint8_t)(i + 1 == n ? BULK_TRB_LAST : 0);
     }
     xhci_ring_commit_td(&e->ring, first);
-    ring_doorbell(e->slot, dci_of(e->ep_addr));
+    ring_doorbell(hc, e->slot, dci_of(e->ep_addr));
     return 0;
 }
 
 // Is this endpoint wedged? A bulk endpoint halts on a stall like an
 // interrupt one, and xhci_deferred_work() recovers it -- a caller that
 // stopped getting completions should ask rather than assume.
-int xhci_bulk_halted(uint8_t slot, uint8_t ep_addr) {
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+int xhci_bulk_halted(usb_dev_t dev, uint8_t ep_addr) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     return e ? e->halted : 0;
 }
 
-void xhci_bulk_own_recovery(uint8_t slot, uint8_t ep_addr) {
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+void xhci_bulk_own_recovery(usb_dev_t dev, uint8_t ep_addr) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     if (e && e->is_bulk) e->own_recovery = 1;
 }
 
@@ -872,20 +900,24 @@ void xhci_bulk_own_recovery(uint8_t slot, uint8_t ep_addr) {
 // nothing: the device's toggle would reset while Reset Endpoint -- valid
 // only on a halted endpoint -- could not reset the controller's, and the
 // next transfer would be dropped as a duplicate.
-int xhci_bulk_reset(uint8_t slot, uint8_t ep_addr) {
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+int xhci_bulk_reset(usb_dev_t dev, uint8_t ep_addr) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     if (!e || !e->is_bulk) return -1;
     if (!e->halted) return 0;
-    int rc = xhci_recover_halted(slot, dci_of(ep_addr), &e->ring);
+    int rc = xhci_recover_halted(hc, slot, dci_of(ep_addr), &e->ring);
     if (rc < 0) return rc;
     e->halted = 0;
     uint8_t setup[8] = { 0x02, 0x01, 0x00, 0x00, ep_addr, 0x00, 0x00, 0x00 };
-    return xhci_control(slot, setup, 0, 0, 0) < 0 ? -1 : 0;
+    return xhci_control(dev, setup, 0, 0, 0) < 0 ? -1 : 0;
 }
 
-int xhci_isoch_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
+int xhci_isoch_post(usb_dev_t dev, uint8_t ep_addr, uint64_t buf_phys,
                     uint32_t len, int ioc) {
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     if (!e || !e->is_iso) return -1;
 
     // **A RING-3 DRIVER THAT OVER-POSTS MUST NOT BE ABLE TO LAP THE
@@ -920,22 +952,28 @@ int xhci_isoch_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
                    XHCI_TRB_SET_TYPE(XHCI_TRB_ISOCH) | XHCI_TRB_SIA |
                    ((e->ep_addr & 0x80) ? XHCI_TRB_ISP : 0) |
                    (irq ? XHCI_TRB_IOC : 0));
-    ring_doorbell(e->slot, dci_of(e->ep_addr));
+    ring_doorbell(hc, e->slot, dci_of(e->ep_addr));
     return 0;
 }
 
-uint32_t xhci_isoch_underruns(uint8_t slot, uint8_t ep_addr) {
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+uint32_t xhci_isoch_underruns(usb_dev_t dev, uint8_t ep_addr) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     return e ? e->iso_underruns : 0;
 }
 
-uint32_t xhci_isoch_refused(uint8_t slot, uint8_t ep_addr) {
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+uint32_t xhci_isoch_refused(usb_dev_t dev, uint8_t ep_addr) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     return e ? e->iso_refused : 0;
 }
 
-int xhci_take_report(uint8_t slot, uint8_t ep_addr, void *buf, uint32_t cap) {
-    struct xhci_ep *e = ep_find(slot, ep_addr);
+int xhci_take_report(usb_dev_t dev, uint8_t ep_addr, void *buf, uint32_t cap) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    struct xhci_ep *e = ep_find(hc, slot, ep_addr);
     if (!e) return 0;
 
     uint8_t i = e->next_take;
@@ -947,18 +985,20 @@ int xhci_take_report(uint8_t slot, uint8_t ep_addr, void *buf, uint32_t cap) {
 
     e->ready[i] = 0;
     e->next_take = (uint8_t)((i + 1) % EP_DEPTH);
-    xhci_ep_post(e, i);            // straight back into circulation
+    xhci_ep_post(hc, e, i);            // straight back into circulation
     return (int)len;
 }
 
-void xhci_disable_slot(uint8_t slot) {
-    if (!slot || slot > g_xhci.nslots || !g_xhci_slots[slot].in_use) return;
-    struct xhci_slot *sl = &g_xhci_slots[slot];
+void xhci_disable_slot(usb_dev_t dev) {
+    struct xhci_hc *hc = xhci_hc_of(dev);
+    uint8_t slot = USB_DEV_SLOT(dev);
+    if (!hc || !slot || slot > hc->nslots || !hc->slots[slot].in_use) return;
+    struct xhci_slot *sl = &hc->slots[slot];
 
     // The controller first: Disable Slot stops every endpoint, so the
     // frames below have stopped being DMA targets before they are
     // freed.
-    int cc = cmd_submit(0, XHCI_TRB_SET_TYPE(XHCI_TRB_DISABLE_SLOT) |
+    int cc = cmd_submit(hc, 0, XHCI_TRB_SET_TYPE(XHCI_TRB_DISABLE_SLOT) |
                            ((uint32_t)slot << 24), 0);
 
     // AND IF IT DID NOT ANSWER, THE FRAMES ARE NOT OURS TO TAKE BACK.
@@ -978,7 +1018,7 @@ void xhci_disable_slot(uint8_t slot) {
                     slot, xhci_completion_name((uint32_t)cc));
 
     for (int i = 0; i < MAX_EPS; i++) {
-        struct xhci_ep *e = &g_xhci_eps[i];
+        struct xhci_ep *e = &hc->eps[i];
         if (!e->in_use || e->slot != slot) continue;
         e->in_use = 0;   // unpublished before its memory goes away
         if (quarantine) continue;
@@ -988,7 +1028,7 @@ void xhci_disable_slot(uint8_t slot) {
         if (e->buf_phys) pmm_free_contiguous(e->buf_phys, 1);
     }
 
-    g_xhci.dcbaa[slot] = 0;
+    hc->dcbaa[slot] = 0;
     // Guarded: the address-failure path arrives here with some of these
     // never allocated, and freeing "frame zero" would free real memory.
     if (!quarantine) {
@@ -1011,21 +1051,21 @@ void xhci_disable_slot(uint8_t slot) {
 //
 // So: write back ONLY the bit being acknowledged, never the register.
 // This is the one place either bit is written.
-static int ack_interrupt(void) {
-    uint32_t sts = mr32(g_xhci.op, XHCI_USBSTS);
+static int ack_interrupt(struct xhci_hc *hc) {
+    uint32_t sts = mr32(hc->op, XHCI_USBSTS);
     if (!(sts & XHCI_STS_EINT)) return 0;    // "was it me?" -- it was not
 
-    uint32_t iman = mr32(g_xhci.rt, XHCI_IR0 + XHCI_IMAN);
+    uint32_t iman = mr32(hc->rt, XHCI_IR0 + XHCI_IMAN);
     if (iman & XHCI_IMAN_IP)
-        mw32(g_xhci.rt, XHCI_IR0 + XHCI_IMAN, (iman & XHCI_IMAN_IE) | XHCI_IMAN_IP);
+        mw32(hc->rt, XHCI_IR0 + XHCI_IMAN, (iman & XHCI_IMAN_IE) | XHCI_IMAN_IP);
 
-    mw32(g_xhci.op, XHCI_USBSTS, XHCI_STS_EINT);
+    mw32(hc->op, XHCI_USBSTS, XHCI_STS_EINT);
     return 1;
 }
 
-static void note_port_change(void) {
-    for (uint32_t p = 0; p < g_xhci.max_ports && p < XHCI_MAX_PORTS; p++) {
-        uint32_t sc = mr32(g_xhci.op, XHCI_PORTSC(p));
+static void note_port_change(struct xhci_hc *hc) {
+    for (uint32_t p = 0; p < hc->max_ports && p < XHCI_MAX_PORTS; p++) {
+        uint32_t sc = mr32(hc->op, XHCI_PORTSC(p));
         uint32_t ack = sc & XHCI_PORTSC_RW1C;
 
         // OVER-CURRENT WAS BEING CLEARED WITHOUT EVER BEING READ. OCC
@@ -1037,37 +1077,37 @@ static void note_port_change(void) {
         // attached and nothing logged) is otherwise indistinguishable
         // from a software fault. Once per port per episode.
         if (sc & (XHCI_PORTSC_OCA | XHCI_PORTSC_OCC)) {
-            if (!g_xhci.ports[p].oc_reported) {
-                g_xhci.ports[p].oc_reported = 1;
+            if (!hc->ports[p].oc_reported) {
+                hc->ports[p].oc_reported = 1;
                 klog_printf(KLOG_ERR "usb: port %u: OVER-CURRENT (portsc "
                             "0x%x, active=%u) -- the platform is limiting "
                             "this port\n", p + 1, sc,
                             (sc & XHCI_PORTSC_OCA) ? 1u : 0u);
             }
         } else {
-            g_xhci.ports[p].oc_reported = 0;
+            hc->ports[p].oc_reported = 0;
         }
 
-        if (ack) portsc_write(p, 0, ack);
+        if (ack) portsc_write(hc, p, 0, ack);
 
-        uint8_t was = g_xhci.ports[p].connected;
+        uint8_t was = hc->ports[p].connected;
         uint8_t now = (sc & XHCI_PORTSC_CCS) ? 1 : 0;
-        g_xhci.ports[p].connected = now;
-        g_xhci.ports[p].enabled   = (sc & XHCI_PORTSC_PED) ? 1 : 0;
-        g_xhci.ports[p].speed     = (uint8_t)XHCI_PORTSC_SPEED(sc);
+        hc->ports[p].connected = now;
+        hc->ports[p].enabled   = (sc & XHCI_PORTSC_PED) ? 1 : 0;
+        hc->ports[p].speed     = (uint8_t)XHCI_PORTSC_SPEED(sc);
 
         // Hot-plug is DEFERRED, not done here: this runs inside the
         // event drain, and enumeration is synchronous control transfers
         // that would deadlock on the single-consumer guard. A plug
         // while the machine is busy still lands, because the pending
         // bit survives until the poll gets to it.
-        if (now && !was) pend_set(&g_xhci.attach_pending, p);
+        if (now && !was) pend_set(&hc->attach_pending, p);
         if (!now && was) {
-            g_xhci.ports[p].gone_sc = sc;
-            pend_set(&g_xhci.detach_pending, p);
-            pend_clear(&g_xhci.attach_pending, p);   // it left before we got there
+            hc->ports[p].gone_sc = sc;
+            pend_set(&hc->detach_pending, p);
+            pend_clear(&hc->attach_pending, p);   // it left before we got there
         }
-        if (!now && xhci_portsc_needs_warm(sc)) pend_set(&g_xhci.warm_pending, p);
+        if (!now && xhci_portsc_needs_warm(sc)) pend_set(&hc->warm_pending, p);
     }
 }
 
@@ -1084,48 +1124,48 @@ static void note_port_change(void) {
 // already acknowledged the line by the time it gets here, so nothing
 // storms, and the waiter it interrupted drains the event a moment
 // later. A lock would be the wrong shape -- there is nothing to wait
-// for, only something to skip.
-static volatile uint8_t g_in_service;
-
-void xhci_service(void) {
-    if (!g_xhci.present || !g_xhci.running) return;
-    if (g_in_service) return;
-    g_in_service = 1;
+// for, only something to skip. ONE GUARD PER CONTROLLER: each has its
+// own event ring, and a waiter on one must still be able to drain it
+// while an interrupt drains the other.
+void xhci_service_hc(struct xhci_hc *hc) {
+    if (!hc->present || !hc->running) return;
+    if (hc->in_service) return;
+    hc->in_service = 1;
 
     struct xhci_trb ev;
     int drained = 0;
-    while (xhci_ring_event_pop(&g_xhci.evt, &ev)) {
-        g_xhci.events_seen++;
+    while (xhci_ring_event_pop(&hc->evt, &ev)) {
+        hc->events_seen++;
         drained = 1;
         uint32_t type = XHCI_TRB_TYPE(ev.control);
         uint64_t src  = (uint64_t)ev.p0 | ((uint64_t)ev.p1 << 32);
         uint32_t code = (ev.status >> 24) & 0xFFu;
 
         if (type == XHCI_TRB_PORT_STATUS_CHANGE) {
-            note_port_change();
+            note_port_change(hc);
         } else if (type == XHCI_TRB_CMD_COMPLETION) {
             // MATCHED ON ITS TRB, exactly as a Transfer Event is below.
-            // This arm used to overwrite g_xhci_cmd_done.trb and set done
+            // This arm used to overwrite hc->cmd_done.trb and set done
             // unconditionally, so ANY command completion satisfied
             // whichever command was currently waiting -- and handed it
             // that event's completion code AND slot id.
             //
             // That is not hypothetical: wait_completion() gives up after
-            // a second and cmd_submit() leaves the command ON THE RING,
+            // a second and cmd_submit(hc, ) leaves the command ON THE RING,
             // so a controller that completes it late posts an event with
-            // nobody waiting for it. The next port's cmd_submit() then
+            // nobody waiting for it. The next port's cmd_submit(hc, ) then
             // took it, read the OLD command's slot id, and failed --
             // which is exactly the "address device (slot N) failed"
             // signature, and exactly why one port's stumble broke every
             // port after it (docs/bugs.md's cascade). The command ring
             // and this matcher are per-CONTROLLER, which is how a
             // per-port fault crossed ports.
-            if (src == g_xhci_cmd_done.trb) {
-                g_xhci_cmd_done.code = code;
-                g_xhci_cmd_done.slot = (uint8_t)((ev.control >> 24) & 0xFFu);
-                g_xhci_cmd_done.done = 1;
+            if (src == hc->cmd_done.trb) {
+                hc->cmd_done.code = code;
+                hc->cmd_done.slot = (uint8_t)((ev.control >> 24) & 0xFFu);
+                hc->cmd_done.done = 1;
             } else {
-                g_xhci.cmd_stale++;
+                hc->cmd_stale++;
                 // THE CODE AND THE TYPE ARE THE WHOLE DIAGNOSIS. Without
                 // them this line cannot tell a genuinely stale event
                 // from CC 24 (Command Ring Stopped), which the abort
@@ -1135,7 +1175,7 @@ void xhci_service(void) {
                 klog_printf("usb: stale command completion for trb %#lx "
                             "(waiting on %#lx) cc=%u type=%u -- ignored\n",
                             (unsigned long)src,
-                            (unsigned long)g_xhci_cmd_done.trb,
+                            (unsigned long)hc->cmd_done.trb,
                             (unsigned)code,
                             (unsigned)XHCI_TRB_TYPE(ev.control));
             }
@@ -1143,43 +1183,43 @@ void xhci_service(void) {
             // A Transfer Event names the TRB that finished. Control
             // transfers wait on their Status Stage TRB; interrupt
             // endpoints are matched by the HID layer, which lands next.
-            if (!g_xhci_xfer_done.done && src != g_xhci_xfer_done.trb &&
-                code == XHCI_CC_SHORT_PACKET && g_xhci_xfer_done.ring_hi &&
-                src >= g_xhci_xfer_done.ring_lo && src < g_xhci_xfer_done.ring_hi) {
+            if (!hc->xfer_done.done && src != hc->xfer_done.trb &&
+                code == XHCI_CC_SHORT_PACKET && hc->xfer_done.ring_hi &&
+                src >= hc->xfer_done.ring_lo && src < hc->xfer_done.ring_hi) {
                 // The data stage came up short: note by how much, and
                 // keep waiting for the Status Stage (see data_short).
-                g_xhci_xfer_done.residual   = ev.status & 0xFFFFFFu;
-                g_xhci_xfer_done.data_short = 1;
-            } else if (src == g_xhci_xfer_done.trb ||
-                (!g_xhci_xfer_done.done && g_xhci_xfer_done.ring_hi &&
-                 src >= g_xhci_xfer_done.ring_lo && src < g_xhci_xfer_done.ring_hi)) {
-                g_xhci_xfer_done.code = (code == XHCI_CC_SUCCESS && g_xhci_xfer_done.data_short)
+                hc->xfer_done.residual   = ev.status & 0xFFFFFFu;
+                hc->xfer_done.data_short = 1;
+            } else if (src == hc->xfer_done.trb ||
+                (!hc->xfer_done.done && hc->xfer_done.ring_hi &&
+                 src >= hc->xfer_done.ring_lo && src < hc->xfer_done.ring_hi)) {
+                hc->xfer_done.code = (code == XHCI_CC_SUCCESS && hc->xfer_done.data_short)
                                    ? XHCI_CC_SHORT_PACKET : code;
-                if (!g_xhci_xfer_done.data_short)
-                    g_xhci_xfer_done.residual = ev.status & 0xFFFFFFu;
-                g_xhci_xfer_done.slot     = (uint8_t)((ev.control >> 24) & 0xFFu);
-                g_xhci_xfer_done.ring_lo  = 0;
-                g_xhci_xfer_done.ring_hi  = 0;
-                g_xhci_xfer_done.done     = 1;
+                if (!hc->xfer_done.data_short)
+                    hc->xfer_done.residual = ev.status & 0xFFFFFFu;
+                hc->xfer_done.slot     = (uint8_t)((ev.control >> 24) & 0xFFu);
+                hc->xfer_done.ring_lo  = 0;
+                hc->xfer_done.ring_hi  = 0;
+                hc->xfer_done.done     = 1;
             } else if (code == XHCI_CC_RING_UNDERRUN ||
                        code == XHCI_CC_RING_OVERRUN) {
                 // No TRB pointer on these -- the endpoint is named by
                 // the event itself. An isochronous stream that has
                 // stopped being fed says exactly this, once, and it is
                 // not an error to recover from.
-                struct xhci_ep *e = ep_by_dci((uint8_t)((ev.control >> 24) & 0xFFu),
+                struct xhci_ep *e = ep_by_dci(hc, (uint8_t)((ev.control >> 24) & 0xFFu),
                                               (ev.control >> 16) & 0x1Fu);
                 if (e) e->iso_underruns++;
-                else   g_xhci.xfer_orphan++;
+                else   hc->xfer_orphan++;
             } else {
-                struct xhci_ep *e = ep_owning(src);
-                if (!e) g_xhci.xfer_orphan++;
+                struct xhci_ep *e = ep_owning(hc, src);
+                if (!e) hc->xfer_orphan++;
                 else if (code == XHCI_CC_STOPPED || code == XHCI_CC_STOPPED_LEN_INVALID ||
                          code == XHCI_CC_STOPPED_SHORT) {
                     // A TD that xhci_cancel_endpoint() interrupted: asked
                     // for, not a fault. Still delivered below, as not ok.
                 } else if (code != XHCI_CC_SUCCESS && code != XHCI_CC_SHORT_PACKET) {
-                    g_xhci.xfer_bad++; g_xhci.last_bad_code = code;
+                    hc->xfer_bad++; hc->last_bad_code = code;
                     // These four HALT the endpoint: it will ignore its
                     // doorbell until Reset Endpoint. Marked here, fixed
                     // in xhci_deferred_work() -- commands cannot be
@@ -1194,7 +1234,7 @@ void xhci_service(void) {
                          code == XHCI_CC_USB_TRANSACTION_ERR ||
                          code == XHCI_CC_DATA_BUFFER_ERROR))
                         e->halted = 1;
-                } else g_xhci.xfer_ok++;
+                } else hc->xfer_ok++;
                 if (e && e->is_bulk) {
                     // The buffer is named by the TRB that carried it, so
                     // a driver with several in flight knows WHICH one
@@ -1234,25 +1274,38 @@ void xhci_service(void) {
             }
         }
     }
-    g_in_service = 0;
+    hc->in_service = 0;
     if (drained) {
         // Advancing ERDP is what tells the controller the slots are
         // reusable. A driver that never does it appears to work on QEMU
         // (which does not enforce a full event ring) and wedges on
         // hardware. EHB is RW1C and is set here for the same reason.
-        mw64(g_xhci.rt, XHCI_IR0 + XHCI_ERDP,
-             xhci_ring_erdp(&g_xhci.evt) | XHCI_ERDP_EHB);
+        mw64(hc->rt, XHCI_IR0 + XHCI_ERDP,
+             xhci_ring_erdp(&hc->evt) | XHCI_ERDP_EHB);
     }
 }
 
+void xhci_service(void) {
+    for (unsigned i = 0; i < g_nxhci; i++) xhci_service_hc(g_xhcis[i]);
+}
+
+// ONE HANDLER FOR EVERY CONTROLLER, each asked "was it me?". The vector
+// carries no context to say which, and two controllers on one shared
+// line need exactly this anyway; a controller that did not assert
+// answers with one register read.
 void xhci_irq_handler(uint64_t *regs) {
     (void)regs;
-    if (!g_xhci.present) return;
-    // The "was it me?" must come first and must be cheap: this line is
-    // shared, so this runs on every interrupt any device on it raises.
-    if (!ack_interrupt()) return;
-    g_xhci.irqs_seen++;
-    xhci_service();
+    int mine = 0;
+    for (unsigned i = 0; i < g_nxhci; i++) {
+        struct xhci_hc *hc = g_xhcis[i];
+        // The "was it me?" must come first and must be cheap: this line is
+        // shared, so this runs on every interrupt any device on it raises.
+        if (!hc->present || !ack_interrupt(hc)) continue;
+        hc->irqs_seen++;
+        xhci_service_hc(hc);
+        mine = 1;
+    }
+    if (!mine) return;
     // The drain above only moved reports into memory and marked them
     // ready; decoding them is the HID layer's job. Done here rather
     // than inside xhci_service() so the re-entrancy guard covers the
@@ -1276,10 +1329,9 @@ void xhci_poll_source(void) {
     usb_hub_service();
     xhci_deferred_work();
     // The given-up heartbeat is the one deferred job due at a time.
-    if (g_xhci.wedged) clockevent_idle_wake_by(clocksource_now_ns() + 1000000000ull);
+    for (unsigned i = 0; i < g_nxhci; i++)
+        if (g_xhcis[i]->wedged) clockevent_idle_wake_by(clocksource_now_ns() + 1000000000ull);
 }
-
-struct input_source g_xhci_source;
 
 // A SECOND SOURCE, FOR A CONTROLLER THAT NEVER CAME UP AT ALL. The real
 // one polls hardware, so it cannot be registered before the reset

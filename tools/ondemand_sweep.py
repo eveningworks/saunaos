@@ -440,6 +440,9 @@ TOOLS = [
     # Boots its own guests with -device qemu-xhci, so it is in the sweep
     # rather than the gate: three phases and two reboots per phase.
     ("usb",         "usb_test.py",             "xHCI, and a HID keyboard and mouse", True,  None,                   False),
+    # A second qemu-xhci with the keyboard behind a hub on it: every
+    # keystroke proves the second controller is driven.
+    ("usbmulti",    "usb_multi_test.py",       "two xHCI controllers, each its own bus", True, None,                 False),
     # Its own guests with extra hardware: forty PCI devices behind
     # bridges, then eleven USB devices -- past both old fixed tables.
     ("devcount",    "device_count_test.py",    "PCI past 32 devices, USB past 8",    True,  None,                   False),

@@ -59,12 +59,13 @@
 
 struct usb_hub {
     uint8_t  in_use;
-    uint8_t  slot;
+    uint8_t  hc;
+    usb_dev_t slot;
     uint8_t  n_ports;
     uint8_t  root_port;
     uint8_t  depth;        // hubs above THIS hub
     uint8_t  speed;        // the hub's own speed
-    uint8_t  tt_slot;      // the TT the hub's own chain uses (inherited)
+    uint8_t  tt_slot;      // the TT the hub's own chain uses (inherited); a bare slot id
     uint8_t  tt_port;
     uint8_t  status_ep;
     uint32_t route;
@@ -88,7 +89,7 @@ static void wait_ms(uint32_t ms) { clocksource_delay_ms(ms); }
 // and nothing else.
 static uint8_t g_hub_desc[16] __attribute__((aligned(64)));
 
-static int hub_get_descriptor(uint8_t slot, uint8_t *buf, uint16_t len) {
+static int hub_get_descriptor(usb_dev_t slot, uint8_t *buf, uint16_t len) {
     if (len > sizeof g_hub_desc) len = sizeof g_hub_desc;
     uint8_t setup[8] = { HUB_GET_DESC_TYPE, REQ_GET_DESCRIPTOR,
                          0, DESC_HUB, 0, 0,
@@ -102,14 +103,14 @@ static int hub_get_descriptor(uint8_t slot, uint8_t *buf, uint16_t len) {
     return got;
 }
 
-static int hub_port_feature(uint8_t slot, uint8_t req, uint8_t feature,
+static int hub_port_feature(usb_dev_t slot, uint8_t req, uint8_t feature,
                             uint8_t port) {
     uint8_t setup[8] = { HUB_SET_PORT_TYPE, req, feature, 0, port, 0, 0, 0 };
     return xhci_control(slot, setup, 0, 0, 0);
 }
 
 // wPortChange in the high half, wPortStatus in the low. -1 on failure.
-static int64_t hub_port_status(uint8_t slot, uint8_t port) {
+static int64_t hub_port_status(usb_dev_t slot, uint8_t port) {
     uint8_t st[4] = { 0 };
     uint8_t setup[8] = { HUB_GET_PORT_TYPE, REQ_GET_STATUS, 0, 0, port, 0, 4, 0 };
     if (xhci_control(slot, setup, st, 4, 1) < 4) return -1;
@@ -119,7 +120,7 @@ static int64_t hub_port_status(uint8_t slot, uint8_t port) {
 
 // --- attach and detach, one hub port ------------------------------------
 
-static uint8_t child_slot_of(uint8_t hub_slot, uint8_t port) {
+static usb_dev_t child_slot_of(usb_dev_t hub_slot, uint8_t port) {
     for (int i = 0; i < usb_device_count(); i++) {
         const struct usb_device_info *d = usb_device_at(i);
         if (d && d->parent_slot == hub_slot && d->port == port) return d->slot;
@@ -164,12 +165,12 @@ static void hub_attach_port(struct usb_hub *h, uint8_t port) {
                          ((uint32_t)(port > 15 ? 15 : port) << (4 * h->depth));
         uint8_t tt_slot = h->tt_slot, tt_port = h->tt_port;
         if (h->speed == XHCI_SPEED_HIGH && speed != XHCI_SPEED_HIGH) {
-            tt_slot = h->slot;
+            tt_slot = USB_DEV_SLOT(h->slot);   // the Slot Context's own numbering
             tt_port = port;
         }
         // `attempt` doubles as the patience flag, exactly as the root
         // port's loop uses it: fast first, careful once it has failed.
-        if (usb_enumerate_device(h->root_port, port, route,
+        if (usb_enumerate_device(h->hc, h->root_port, port, route,
                                  (uint8_t)(h->depth + 1), speed,
                                  h->slot, tt_slot, tt_port, attempt) >= 0)
             return;
@@ -191,7 +192,7 @@ static void hub_port_change(struct usb_hub *h, uint8_t port) {
     if (!(change & ST_CONNECTION)) return;
 
     hub_port_feature(h->slot, REQ_CLEAR_FEATURE, C_PORT_CONNECTION, port);
-    uint8_t old = child_slot_of(h->slot, port);
+    usb_dev_t old = child_slot_of(h->slot, port);
     if (old) {
         klog_printf("usb: hub slot %u port %u: device removed\n", h->slot, port);
         usb_detach_slot(old);
@@ -255,6 +256,7 @@ static int usb_hub_bind(struct usb_device_info *d) {
         return 0;
     }
     k_memset(h, 0, sizeof *h);
+    h->hc        = d->hc;
     h->slot      = d->slot;
     h->n_ports   = n;
     h->root_port = d->root_port;
@@ -327,7 +329,7 @@ void usb_hub_service(void) {
     }
 }
 
-static void usb_hub_forget(uint8_t slot) {
+static void usb_hub_forget(usb_dev_t slot) {
     for (int i = 0; i < USB_HUB_MAX; i++)
         if (g_hubs[i].in_use && g_hubs[i].slot == slot)
             g_hubs[i].in_use = 0;

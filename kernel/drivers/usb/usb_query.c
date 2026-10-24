@@ -27,7 +27,10 @@ static uint64_t abi_speed(uint8_t s) {
 }
 
 void usb_device_id(const struct usb_device_info *info, char *out, unsigned cap) {
-    k_snprintf(out, cap, "usb:%u:%04x:%04x", info->port, info->vendor_id, info->product_id);
+    if (info->hc)
+        k_snprintf(out, cap, USB_NAME_FMT_BUS, info->hc, info->port, info->vendor_id, info->product_id);
+    else
+        k_snprintf(out, cap, USB_NAME_FMT, info->port, info->vendor_id, info->product_id);
 }
 
 static int usb_q_count(void) { return usb_device_count(); }

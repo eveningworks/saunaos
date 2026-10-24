@@ -175,7 +175,7 @@ int net_register(struct net_device *dev);
 // field empty and `netctl` says nothing about where the card sits.
 void net_location_pci(struct net_device *dev, uint8_t bus, uint8_t device,
                       uint8_t function);
-void net_location_usb(struct net_device *dev, uint8_t root_port, uint8_t port);
+void net_location_usb(struct net_device *dev, unsigned hc, uint8_t root_port, uint8_t port);
 
 // Give a registered device a different name. Refuses an empty, an
 // over-long, a badly-shaped or an already-taken name -- a name reaches

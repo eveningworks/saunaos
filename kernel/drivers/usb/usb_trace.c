@@ -23,14 +23,15 @@
 
 struct ev {
     uint64_t ns;
-    uint8_t  kind, port, slot;
+    uint8_t  kind, port;
+    uint16_t slot;            // a usb_dev_t: the controller rides in it
     uint32_t a, b;
 };
 
 static struct ev g_ev[TRACE_N];
 static uint32_t g_next;   // monotonic; index is g_next % TRACE_N
 
-void usb_trace(uint8_t kind, uint8_t port, uint8_t slot,
+void usb_trace(uint8_t kind, uint8_t port, uint16_t slot,
                uint32_t a, uint32_t b) {
     struct ev *e = &g_ev[g_next % TRACE_N];
     // clocksource_now_ns() where it can be trusted -- the same test the
@@ -62,7 +63,7 @@ static const char *kind_name(uint8_t k) {
     }
 }
 
-void usb_trace_dump(uint32_t mark, uint8_t port) {
+void usb_trace_dump(uint32_t mark, unsigned hc, uint8_t port) {
     uint32_t have = g_next - mark;            // wraps correctly, both uint32
     if (!have) return;
     if (have > TRACE_N) have = TRACE_N;       // the ring ate the rest
@@ -75,13 +76,13 @@ void usb_trace_dump(uint32_t mark, uint8_t port) {
     // not answering. Any of those makes every port after the first
     // failure fail for a reason that has nothing to do with the device
     // -- and until now nothing here looked.
-    uint32_t sts = xhci_usbsts();
+    uint32_t sts = xhci_usbsts(hc);
     // "the last N events", not "port N's events": the ring is global,
     // and that is deliberate -- when one port's failure is followed by
     // another's, what happened BETWEEN them is the evidence, and a
     // per-port filter would throw exactly that away.
-    klog_printf("usb: port %u gave up; last %u event(s); usbsts 0x%x%s%s%s\n",
-                port, shown, sts,
+    klog_printf("usb: %u-%u gave up; last %u event(s); usbsts 0x%x%s%s%s\n",
+                hc, port, shown, sts,
                 (sts & XHCI_STS_HCH) ? " HALTED" : "",
                 (sts & XHCI_STS_HSE) ? " HOST-SYSTEM-ERROR" : "",
                 (sts & XHCI_STS_CNR) ? " NOT-READY" : "");
@@ -94,7 +95,7 @@ void usb_trace_dump(uint32_t mark, uint8_t port) {
         // before one says the controller stopped answering rather than
         // the device.
         uint32_t us = e->ns > base ? (uint32_t)((e->ns - base) / 1000) : 0;
-        klog_printf("usb:   +%u us p%u s%u %s %#x -> %#x\n",
+        klog_printf("usb:   +%u us p%u s%#x %s %#x -> %#x\n",
                     us, e->port, e->slot, kind_name(e->kind), e->a, e->b);
     }
 }

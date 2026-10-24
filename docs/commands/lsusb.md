@@ -27,9 +27,13 @@ lsusb [-v] [-D] [--update]
 
 ## Description
 
-The USB devices the xHCI driver enumerated at boot, one paragraph each:
-the root port, the xHCI slot id, the vendor and product ids, the speed,
-and the interface class.
+The USB devices the xHCI driver enumerated, one paragraph each: the root
+port, the xHCI slot id, the vendor and product ids, the speed, and the
+interface class. **Every xHCI controller is driven, each its own bus**
+-- a desktop board commonly has one in the CPU and one in the chipset --
+and a device on a controller after the first leads with it: `Bus 1 Port
+3 Device 2: ...`. The first controller's lines carry no bus, as they
+always have.
 
 Names come from `/usr/share/hwdata/usb.ids`, a verbatim copy of the USB
 ID Database, seeded onto the disk image at build time — the same file

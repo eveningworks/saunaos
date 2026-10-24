@@ -64,7 +64,7 @@ DRIVER_DECLARE("cdc-ecm", "net", "USB CDC Ethernet (ECM)");
 
 struct ecm_dev {
     uint8_t in_use;
-    uint8_t slot;
+    usb_dev_t slot;
     uint8_t data_ifnum, data_alt;
     uint8_t ep_in, ep_out, ep_notify;
     uint16_t mps;
@@ -194,7 +194,7 @@ static int parse_mac(const char *s, uint8_t mac[NET_MAC_LEN]) {
 
 // --- the data path -----------------------------------------------------
 
-static int set_interface(uint8_t slot, uint8_t ifnum, uint8_t alt) {
+static int set_interface(usb_dev_t slot, uint8_t ifnum, uint8_t alt) {
     uint8_t setup[8] = { TYPE_OUT_STD_IF, REQ_SET_INTERFACE, alt, 0,
                          ifnum, 0, 0, 0 };
     return xhci_control(slot, setup, 0, 0, 0);
@@ -204,7 +204,7 @@ static int set_interface(uint8_t slot, uint8_t ifnum, uint8_t alt) {
 // not the data one -- the same wIndex trap the audio driver's feature
 // unit has, and it fails the same way: the transfer simply does not
 // work, with nothing to see.
-static int set_packet_filter(uint8_t slot, uint8_t ctrl_if, uint16_t filter) {
+static int set_packet_filter(usb_dev_t slot, uint8_t ctrl_if, uint16_t filter) {
     uint8_t setup[8] = { TYPE_OUT_CLASS_IF, REQ_SET_ETH_FILTER,
                          (uint8_t)(filter & 0xFF), (uint8_t)(filter >> 8),
                          ctrl_if, 0, 0, 0 };
@@ -402,7 +402,7 @@ static int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
     d->dev.poll = e.ep_notify ? ecm_poll : 0;
     d->dev.drv = d;
 
-    net_location_usb(&d->dev, info->root_port, info->port);
+    net_location_usb(&d->dev, info->hc, info->root_port, info->port);
     usb_device_id(info, d->dev.device_id, sizeof d->dev.device_id);
     if (!net_register(&d->dev)) {
         d->in_use = 0;
@@ -427,7 +427,7 @@ static int usb_net_bind(struct usb_device_info *info, const uint8_t *cfg,
     return 1;
 }
 
-static void usb_net_unbind(uint8_t slot) {
+static void usb_net_unbind(usb_dev_t slot) {
     struct ecm_dev *d = &g_ecm;
     if (!d->in_use || d->slot != slot) return;
     d->in_use = 0;   // unpublished before the core can call transmit()

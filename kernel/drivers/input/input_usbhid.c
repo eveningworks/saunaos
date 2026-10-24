@@ -110,7 +110,7 @@ uint16_t usb_hid_keycode(uint8_t usage) { return HID_TO_EVDEV[usage]; }
 struct hid_dev {
     uint8_t in_use;
     uint8_t is_mouse;
-    uint8_t slot;
+    usb_dev_t slot;
     uint8_t ifnum;
     uint8_t ep;
     uint8_t prev[8];        // the last keyboard report, for the differ
@@ -387,7 +387,7 @@ void usb_hid_service_all(void) {
 //
 // Returns 1 when the device is now in report protocol and `d->layout`
 // describes it.
-static int hid_try_report_protocol(struct hid_dev *d, uint8_t slot, uint8_t ifnum) {
+static int hid_try_report_protocol(struct hid_dev *d, usb_dev_t slot, uint8_t ifnum) {
     // One buffer, reused: this runs at bind time, one device at a time,
     // and a per-device copy of a descriptor nobody keeps would be 256
     // bytes each for nothing. Static rather than on the stack because
@@ -428,7 +428,7 @@ static int hid_try_report_protocol(struct hid_dev *d, uint8_t slot, uint8_t ifnu
     return 1;
 }
 
-static int hid_set_idle_and_boot(uint8_t slot, uint8_t ifnum) {
+static int hid_set_idle_and_boot(usb_dev_t slot, uint8_t ifnum) {
     uint8_t setup[8];
 
     // SET_PROTOCOL(boot). QEMU's usb-hid already reports boot-format
@@ -521,8 +521,8 @@ static int hid_bind(struct usb_device_info *info, int iface, const uint8_t *cfg,
     // An interrupt-driven source leaves poll NULL -- its decode
     // rides the controller's own always-on poll; a polled one gets
     // its thunk, indexed by the slot it landed in.
-    d->src.irq  = usb_controller_irq();
-    d->src.msi_vector = usb_controller_msi_vector();
+    d->src.irq  = usb_controller_irq(info->hc);
+    d->src.msi_vector = usb_controller_msi_vector(info->hc);
     // Interrupt-driven if the controller is, WHICHEVER way it is
     // signalled -- reading `irq` alone made every HID device on an
     // MSI controller install a poll thunk and report itself polled.

@@ -5081,6 +5081,18 @@ window without going through it will find its layout polls timing out.
   a reboot by design -- a clean report there means the tool is not
   reading back across the reboot at all.
 
+- **`usb_multi_test.py`** -- TWO xHCI controllers, each driven as its own
+  bus (`vm.py --usb xhci+two`, `make run USB=xhci+two`): a mouse on the
+  first, a hub with the keyboard behind it on the second. The keystroke
+  is the oracle and controls itself (QEMU routes keys to the usb-kbd
+  alone), so an undriven second controller types nothing. It checks both
+  buses come up, one interrupt-driven `usb-xhci` source each, `lsusb`'s
+  `Bus 1` lines and `devctl`'s `usb:1-` names beside the first
+  controller's unchanged ones, a full ring lap of keystrokes on the
+  second controller, and an unplug and replug of its keyboard. Red on
+  the driver before 2026-10-24, which drove the first controller only.
+  In `ondemand_sweep.py` (`usbmulti`), ~1 minute.
+
 - **`usb_test.py`** -- an xHCI controller and a HID boot keyboard and
   mouse (`vm.py --usb xhci` / `--usb xhci+mouse` / `--usb xhci+hub`, or
   `make run USB=xhci+mouse`). Eight phases: keyboard, ring wrap, mouse,

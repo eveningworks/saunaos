@@ -217,7 +217,7 @@ only expensive part of it.
 - [ ] SIMD: `upix_over`, Paint's layer composite, paste and text layers -- measure on the ASUS first
 - [ ] SIMD: the scaled image draw (`ugfx_blit_scaled_alpha`, `uimg_scale`) -- Image Viewer, thumbnails, the wallpaper
 - [ ] SIMD: the JPEG and MPEG-1 IDCTs (`uimg_jpeg.c`, `uvid_mpeg1.c`)
-- [ ] AVX/XSAVE support -- AVX/AVX2 fault today (FXSAVE state only, CR4.OSXSAVE off); all three test machines have AVX2
+- [ ] AVX/XSAVE support -- AVX/AVX2 fault today (FXSAVE state only, CR4.OSXSAVE off); all four test machines have AVX2
 - [x] ~~`memcpy`/`memset`/`memmove` a byte at a time, in both rings~~ DONE 2026-10-18 -- `rep movsb`/`stosb`, `cld` on every entry
 - [x] ~~`fork()`-style address-space duplication (copy-on-write)~~ DONE 2026-09-11 -- `SYS_FORK`, `/tests/fork_test`
 - [x] ~~`exec()`-style in-place process replacement~~ DONE 2026-09-11 -- `SYS_EXEC` takes `struct spawn_msg`; loads before it tears down
@@ -1197,6 +1197,7 @@ run on, not by order.
 - [ ] USB class tables sized to the devices: HID, hubs, audio, xHCI endpoints -- the interrupt path walks them; each logs when full
 - [x] ~~Device Manager and `devctl` list every device~~ DONE 2026-10-23 -- `udevice_list()` allocates the list
 - [x] ~~As many USB devices as the controller has slots~~ DONE 2026-10-23 -- devices and claims keyed by slot id
+- [x] ~~Every xHCI controller, each its own bus~~ DONE 2026-10-24 -- devices named by controller and slot (`usb_dev_t`)
 - [x] ~~Hub support (devices behind a hub, not just root ports)~~ DONE 2026-08-28 -- USB2 only; the TT path is hardware-only
 - [x] ~~Hot-plug: a device plugged in after boot enumerates, an unplugged one is torn down~~ DONE 2026-08-28
 - [x] ~~Composite devices: every boot interface binds, not just the first~~ DONE 2026-08-28

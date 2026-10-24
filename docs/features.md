@@ -88,7 +88,9 @@ removable disk's writes are on it before the call returns -- and the
 desktop says plainly when that happened.
 `/bin/lsusb` names what is attached, from the ID database and the
 device's own string descriptors under `-v`.
-xHCI only, deliberately: UHCI and OHCI are a quarter of the code and run
+Every xHCI controller is driven, each its own bus -- a desktop board
+commonly has one in the CPU and one in the chipset, and their ports all
+work. xHCI only, deliberately: UHCI and OHCI are a quarter of the code and run
 on nothing made this decade. `make run USB=xhci+mouse` reaches it —
 attaching a USB keyboard takes the keyboard *away* from PS/2, which is
 what makes its test suite self-controlling.

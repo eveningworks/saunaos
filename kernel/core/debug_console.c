@@ -263,9 +263,10 @@ static void dbg_cmd_lsdev(void) {
     }
 
     char usbline[96];
-    if (usb_controller_summary(usbline, sizeof usbline))
-        dbg_printf("USB: %s\r\n", usbline);
-    else
+    for (unsigned hc = 0; hc < usb_controller_count(); hc++)
+        if (usb_controller_summary(hc, usbline, sizeof usbline))
+            dbg_printf("USB: %s\r\n", usbline);
+    if (!usb_controller_present())
         dbg_write("USB: no controller\r\n");
 
     // The ACTIVE marker is the load-bearing half: a machine with two

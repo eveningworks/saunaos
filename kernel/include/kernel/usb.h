@@ -2,12 +2,14 @@
 #define USB_H
 
 #include <stdint.h>
+#include "query_abi.h"   // USB_DEV_HC, USB_NAME_FMT -- shared with ring 3
 
 // USB, as the rest of the kernel sees it.
 //
-// WHAT THIS IS. One xHCI host controller driver, the device enumeration
-// on top of it, and the hub driver -- the BUS. See docs/roadmap.md's
-// USB section for what is deliberately left out.
+// WHAT THIS IS. One xHCI host controller driver -- driving EVERY xHCI
+// controller the machine has, as Linux gives each its own bus -- the
+// device enumeration on top of it, and the hub driver. See
+// docs/roadmap.md's USB section for what is deliberately left out.
 //
 // THE CLASS DRIVERS ARE NOT IN kernel/drivers/usb/. A driver lives with
 // the registry it plugs into, so USB HID is in drivers/input/, USB
@@ -28,12 +30,22 @@
 // virtio_pci.c + virtqueue.c are a shared transport under four device
 // drivers and there is no `struct virtio_transport` vtable either --
 // drivers call virtqueue_submit() by name. So input_usbhid.c calls
-// xhci_control() by name. If a second controller ever arrives,
-// converting xhci.h's handful of functions is a mechanical afternoon.
+// xhci_control() by name. A second controller of the SAME kind is not a
+// second implementer: it is another `struct xhci_hc`, found through the
+// device's id below.
 
-// Tables keyed by xHCI slot id (usb_enum.c's devices, usb_claim.c's
-// claims) have this many entries: a slot id is one byte (xHCI 4.5.3),
-// so the bound is the hardware's, mirrored -- slot 0 is never assigned.
+// A DEVICE, ACROSS EVERY CONTROLLER: the controller's index in the high
+// byte and its xHCI slot id in the low. Every `slot` above the xHCI
+// driver -- usb_device_info's, a class driver's, the ring-3 ABI's -- is
+// one of these. A slot id alone is per controller (xHCI 4.5.3, one byte),
+// so the first controller's ids are the plain slot ids and the second
+// controller's slot 1 is 0x101. NEVER STORE ONE IN A uint8_t: on the
+// first controller it would work, and on every other it names a device
+// on the wrong bus.
+typedef uint16_t usb_dev_t;
+#define USB_DEV(hc, slot)  ((usb_dev_t)(((unsigned)(hc) << 8) | (uint8_t)(slot)))
+#define USB_DEV_SLOT(dev)  ((uint8_t)((dev) & 0xFFu))   // USB_DEV_HC: query_abi.h
+// Slot ids per controller, slot 0 never assigned: the hardware's bound.
 #define USB_SLOT_IDS      256
 #define USB_MAX_INTERFACES 8   // per device; a Sound Blaster G6 has 5
 
@@ -67,16 +79,20 @@ struct usb_device_info {
     uint8_t  in_use;
     uint8_t  port;          // 1-based port on its PARENT (root, or a hub)
     uint8_t  root_port;     // 1-based root port the whole chain hangs off
-    uint8_t  slot;          // xHCI slot id
+    uint8_t  hc;            // which controller: xhci.c's index, in probe order
+    usb_dev_t slot;         // the device's id (usb_dev_t), not a bare slot id
     uint8_t  speed;         // XHCI_SPEED_*
     // Topology. Route string 0 / depth 0 is a root-port device; a hub
     // child carries its hub's slot in parent_slot so a detach can take
     // the subtree down with it.
     uint32_t route;         // xHCI route string (4 bits per tier)
-    uint8_t  parent_slot;   // 0 for a root-port device
+    usb_dev_t parent_slot;  // the hub's usb_dev_t; 0 for a root-port device
     uint8_t  depth;         // hubs above this device
-    uint8_t  tt_slot;       // the high-speed hub doing this device's
-    uint8_t  tt_port;       //   split transactions; 0 when none
+    // The high-speed hub doing this device's split transactions, as the
+    // SLOT CONTEXT names it -- a bare slot id on this device's own
+    // controller, not a usb_dev_t; 0 when none.
+    uint8_t  tt_slot;
+    uint8_t  tt_port;
     uint16_t vendor_id;
     uint16_t product_id;
     uint8_t  dev_class;
@@ -129,9 +145,13 @@ void usb_query_init(void);
 // Is there a controller at all? 0 on a machine with no xHCI.
 int usb_controller_present(void);
 
-// One line about the controller, for `lsdev` and `lsusb`.
-// Returns 0 when there is none.
-int usb_controller_summary(char *buf, uint32_t cap);
+// How many controllers are driven; `hc` below counts from 0, in probe
+// (PCI) order, and is the high byte of every usb_dev_t.
+unsigned usb_controller_count(void);
+
+// One line about controller `hc`, for `lsdev` and `lsusb`.
+// Returns 0 when there is no such controller.
+int usb_controller_summary(unsigned hc, char *buf, uint32_t cap);
 
 
 int usb_device_count(void);
@@ -139,7 +159,10 @@ const struct usb_device_info *usb_device_at(int index);
 
 // "usb:14:2357:0601" -- the port on its parent, then vendor:product; the
 // name userland/lib/udevice.c gives the device, which every device_id
-// field naming a USB device has to match.
+// field naming a USB device has to match. A device on a controller
+// after the first names it before the port, "usb:1-14:2357:0601", so the
+// first controller's names -- a persisted `devctl disable` -- are
+// unchanged.
 void usb_device_id(const struct usb_device_info *info, char *out, unsigned cap);
 
 // Brings one connected root port to "configured and described", adding
@@ -156,28 +179,28 @@ void xhci_delay_ms(uint32_t ms);
 // `patient` inserts the pauses a slow device needs (see
 // usb_enum.c's read_configuration). It is 0 on the first attempt and 1
 // on a retry: fast when the device is well, careful when it is not.
-int usb_enumerate_port(uint8_t port, uint8_t speed, int patient);
+int usb_enumerate_port(unsigned hc, uint8_t port, uint8_t speed, int patient);
 
 // The same, for a device behind a hub: the route string and TT fields
 // come from the hub driver, which is the only caller that has them.
-int usb_enumerate_device(uint8_t root_port, uint8_t parent_port,
+int usb_enumerate_device(unsigned hc, uint8_t root_port, uint8_t parent_port,
                          uint32_t route, uint8_t depth, uint8_t speed,
-                         uint8_t parent_slot, uint8_t tt_slot, uint8_t tt_port,
+                         usb_dev_t parent_slot, uint8_t tt_slot, uint8_t tt_port,
                          int patient);
 
 // Tears down every device on `root_port` -- the device itself and, when
 // it is a hub, everything behind it. Called from the deferred detach
 // work; never from interrupt context (it issues commands).
-void usb_detach_root_port(uint8_t root_port);
+void usb_detach_root_port(unsigned hc, uint8_t root_port);
 
-// The slot of the device sitting directly on `root_port`, or 0 for an
+// The device sitting directly on controller `hc`'s `root_port`, or 0 for an
 // empty port. How the deferred attach tells a REAL plug from the
 // connect-change the bring-up itself raises for a device scan_ports()
 // already enumerated.
-uint8_t usb_root_port_slot(uint8_t root_port);
+usb_dev_t usb_root_port_slot(unsigned hc, uint8_t root_port);
 
 // Tears down one device (and its subtree, when it is a hub) by slot.
-void usb_detach_slot(uint8_t slot);
+void usb_detach_slot(usb_dev_t slot);
 
 // The configuration-descriptor walk, exported for the KTESTs: fills
 // `out` with up to `max` interfaces, each carrying its first
@@ -194,7 +217,7 @@ const uint8_t *usb_device_config(int index, uint32_t *len);
 // class driver can need one the enumeration had no reason to keep -- a
 // CDC-ECM adapter's MAC address is a STRING, twelve hex characters,
 // which is the only place it is written down.
-void usb_read_string(uint8_t slot, uint8_t index, char *out, uint32_t cap);
+void usb_read_string(usb_dev_t slot, uint8_t index, char *out, uint32_t cap);
 
 // --- Realtek USB Ethernet, the vendor protocol (drivers/net/rtl_usb.c) --
 
@@ -220,22 +243,23 @@ void usb_hub_service(void);
 // Diagnostic counters. These exist so a test can distinguish "the
 // driver never ran" from "the driver ran and decoded nothing", which
 // an assertion on behaviour alone cannot.
-// The controller's IRQ line, or 0 when it is polled. A HID source
-// mirrors it, so `lsdev` reports the same servicing for the device as
-// for the controller that actually fields its interrupts.
-uint8_t usb_controller_irq(void);
+// Controller `hc`'s IRQ line, or 0 when it is polled. A HID source
+// mirrors its own controller's, so `lsdev` reports the same servicing
+// for the device as for the controller that actually fields its
+// interrupts.
+uint8_t usb_controller_irq(unsigned hc);
 
 // ...or the MSI/MSI-X vector, when the controller is not on a line at
 // all. A HID source mirrors whichever is set, so `lsdev` reports the
 // device the same way it reports the controller that fields its
 // interrupts -- and so a driver does not install a poll thunk for a
 // controller that is perfectly capable of interrupting.
-uint8_t usb_controller_msi_vector(void);
+uint8_t usb_controller_msi_vector(unsigned hc);
 
-uint32_t usb_events_seen(void);
+uint32_t usb_events_seen(void);   // summed over every controller
 uint32_t usb_irqs_seen(void);
 
-// Dumps controller registers and both ring states to the kernel log.
+// Dumps every controller's registers and ring states to the kernel log.
 // The `usb` debug-console command; this is how stages 2-4 are actually
 // debugged, so it exists from the start rather than being retrofitted.
 void usb_dump(void);
@@ -246,8 +270,9 @@ void usb_dump(void);
 // whose known cure is a replug -- and a replug both re-connects the
 // port and power-cycles the device, where this does only the first. So
 // a success implicates the port state and a failure clears it.
-// Returns 1 if the device enumerated. Ports are 1-based, as logged.
-int usb_diag_reset_port(unsigned port);
+// Returns 1 if the device enumerated. Ports are 1-based, as logged, and
+// on controller `hc`.
+int usb_diag_reset_port(unsigned hc, unsigned port);
 
 // `config set kernel.usb.replug <port>`: the SOFTWARE REPLUG of that
 // port's socket -- drop its power and bring it back where the
@@ -258,7 +283,7 @@ int usb_diag_reset_port(unsigned port);
 // verified on a device that currently WORKS, instead of only when the
 // intermittent failure fires. Returns 1 if it was queued; which lever
 // ran, and whether the machine has one at all, is in the log.
-int usb_diag_replug_port(unsigned port);
+int usb_diag_replug_port(unsigned hc, unsigned port);
 
 // `kernel.usb.attach_delay`: how long a freshly connected port is left
 // alone before it is RESET, in milliseconds. The USB2 attach debounce
@@ -270,22 +295,23 @@ int usb_diag_replug_port(unsigned port);
 void usb_set_attach_delay_ms(unsigned ms);
 unsigned usb_attach_delay_ms(void);
 
-// Halt and reset the controller before the machine restarts, so devices
+// Halt and reset every controller before the machine restarts, so devices
 // see their link drop instead of being cut off mid-transfer. Called
 // from kernel/core/power.c on both the reboot and the poweroff path.
 // A no-op on a machine with no xHC. See xhci.c for why this is the one
 // lever docs/bugs.md's enumeration failure had never been given.
 void usb_shutdown(void);
 
-// Re-initialise the whole controller (kernel.usb.hcreset). See xhci_port.c.
+// Re-initialise every controller (kernel.usb.hcreset). See xhci_port.c.
 int usb_controller_reinit(void);
 
 // `system.usb_recover`: may a lost port reset the whole controller?
 // Defined beside the setting, in kernel/lib/tunables.c.
 int usb_recover_enabled(void);
 
-// The OTHER port number of `port`'s physical socket, or 0 if it has
-// none. Both are 1-based, as every port number a user sees is.
+// The OTHER port number of `port`'s physical socket on controller `hc`,
+// or 0 if it has none. Both are 1-based, as every port number a user
+// sees is.
 //
 // A USB3 socket is two ports to the controller -- one in its USB2 range
 // and one in its USB3 range -- and which one a device appears on is
@@ -294,7 +320,7 @@ int usb_recover_enabled(void);
 // within the two ranges, which is Linux's fallback when ACPI `_PLD` is
 // unavailable, and it is logged at init so a wrong guess is visible.
 // See companion_port() in xhci_port.c.
-int xhci_companion_port(unsigned port);
+int xhci_companion_port(unsigned hc, unsigned port);
 
 // The same rule with the ranges passed IN, so it can be checked without
 // a controller. All 1-based; 0 for "no companion" and for a port in

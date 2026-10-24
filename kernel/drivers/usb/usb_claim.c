@@ -18,16 +18,31 @@
 #include "futex.h"
 #include "devevent.h"
 #include "barrier.h"
+#include "heap.h"     // krealloc() -- the claim table grows per controller
 
 #define USB_CLASS_HUB 9   // the spec's value for a hub interface
 
-// By slot id, like the device table: a claim needs no free entry, so
-// it cannot run out before the controller's slots do. Held while pml4
-// is nonzero.
-static struct {
+// By usb_dev_t, like the device table: a claim needs no free entry, so
+// it cannot run out before the controllers' slots do. Grown a
+// controller's worth at a time by the first claim on it. Held while
+// pml4 is nonzero.
+struct claim {
     uint64_t pml4;
     int      pid;
-} g_claims[USB_SLOT_IDS];
+};
+static struct claim *g_claims;
+static unsigned g_claims_cap;
+
+static int claims_reserve(usb_dev_t slot) {
+    if (slot < g_claims_cap) return 1;
+    unsigned want = (USB_DEV_HC(slot) + 1) * USB_SLOT_IDS;
+    struct claim *grown = krealloc(g_claims, want * sizeof *grown);
+    if (!grown) return 0;
+    k_memset(grown + g_claims_cap, 0, (want - g_claims_cap) * sizeof *grown);
+    g_claims = grown;
+    g_claims_cap = want;
+    return 1;
+}
 
 // TWO ISOCHRONOUS ENDPOINTS, AN OUT AND AN IN: a UAC stream and its
 // feedback endpoint. Each has its own grant; a holder that needs more
@@ -37,7 +52,8 @@ static struct {
 // ring's size, so a holder that reaps as often as it posts never loses one.
 #define ISOCH_LENS 256
 struct isoch {
-    uint8_t  slot, ep, open;
+    usb_dev_t slot;
+    uint8_t  ep, open;
     uint64_t dma_phys, dma_base, dma_pages;
     // Written by the completion callback, which runs in INTERRUPT
     // CONTEXT -- volatile, and read-and-cleared by the status call.
@@ -57,19 +73,23 @@ static struct isoch g_isoch[ISOCH_MAX];
 
 static void isoch_close(struct isoch *q);
 
-static struct isoch *isoch_find(uint8_t slot, uint8_t ep) {
+static struct isoch *isoch_find(usb_dev_t slot, uint8_t ep) {
     for (int i = 0; i < ISOCH_MAX; i++)
         if (g_isoch[i].open && g_isoch[i].slot == slot && g_isoch[i].ep == ep)
             return &g_isoch[i];
     return 0;
 }
 
-static void isoch_close_slot(uint8_t slot) {
+static void isoch_close_slot(usb_dev_t slot) {
     for (int i = 0; i < ISOCH_MAX; i++)
         if (g_isoch[i].open && g_isoch[i].slot == slot) isoch_close(&g_isoch[i]);
 }
 
-static const struct usb_device_info *dev_by_slot(uint8_t slot) {
+// `slot` is a SYSCALL ARGUMENT at every public entry below, and it is
+// checked whole -- never narrowed first. A value past usb_dev_t's range
+// names no device; cut down to 16 or 8 bits it would name somebody
+// else's.
+static const struct usb_device_info *dev_by_slot(uint64_t slot) {
     for (int i = 0; i < usb_device_count(); i++) {
         const struct usb_device_info *d = usb_device_at(i);
         if (d && d->in_use && d->slot == slot) return d;
@@ -77,16 +97,16 @@ static const struct usb_device_info *dev_by_slot(uint8_t slot) {
     return 0;
 }
 
-static int slot_index(uint8_t slot) {
-    return slot && g_claims[slot].pml4 ? slot : -1;
+static int slot_index(uint64_t slot) {
+    return slot && slot < g_claims_cap && g_claims[slot].pml4 ? (int)slot : -1;
 }
 
-int usb_claim_holder_pid(uint8_t slot) {
+int usb_claim_holder_pid(uint64_t slot) {
     int i = slot_index(slot);
     return i < 0 ? 0 : g_claims[i].pid;
 }
 
-int usb_claim_check(uint8_t slot, uint64_t pml4) {
+int usb_claim_check(uint64_t slot, uint64_t pml4) {
     int i = slot_index(slot);
     if (i < 0) return -EACCES;
     return g_claims[i].pml4 == pml4 ? 0 : -EBUSY;
@@ -97,7 +117,7 @@ int usb_claim_check(uint8_t slot, uint64_t pml4) {
 // thing that makes a device un-claimable. Kept as a function anyway
 // because it is the gate a caller asks about, and the day a class
 // driver arrives that cannot let go this is the one place to say so.
-int usb_claim_claimable(uint8_t slot) {
+int usb_claim_claimable(uint64_t slot) {
     const struct usb_device_info *d = dev_by_slot(slot);
     if (!d) return 0;
     // A HUB IS NOT OFFERED. Taking one away would strand every device
@@ -108,7 +128,7 @@ int usb_claim_claimable(uint8_t slot) {
     return 1;
 }
 
-int usb_claim_take(uint8_t slot, uint64_t pml4, int pid) {
+int usb_claim_take(uint64_t slot, uint64_t pml4, int pid) {
     if (!pml4) return -EPERM;
     const struct usb_device_info *d = dev_by_slot(slot);
     if (!d) return -EINVAL;
@@ -121,19 +141,20 @@ int usb_claim_take(uint8_t slot, uint64_t pml4, int pid) {
     // owners posting to one transfer ring is not a thing to recover
     // from. Every interface's driver lets go, and `bound`/`driver` go
     // with them, so lsusb no longer reports the device as driven.
+    if (!claims_reserve(d->slot)) return -ENOMEM;
     usb_unbind_drivers((struct usb_device_info *)d);
 
     g_claims[slot].pml4 = pml4;
     g_claims[slot].pid  = pid;
-    klog_printf("usb: pid %d claimed slot %u (%04x:%04x)\n",
-                pid, slot, d->vendor_id, d->product_id);
+    klog_printf("usb: pid %d claimed device %#x (%04x:%04x)\n",
+                pid, d->slot, d->vendor_id, d->product_id);
     char id[24];
     usb_device_id(d, id, sizeof id);
     devevent_add(QUERY_DEVEV_CLAIMED, id, "", "Taken by pid %d", pid);
     return 0;
 }
 
-int usb_claim_drop(uint8_t slot, uint64_t pml4, int rebind) {
+int usb_claim_drop(uint64_t slot, uint64_t pml4, int rebind) {
     int i = slot_index(slot);
     if (i < 0) return -EACCES;
     if (pml4 && g_claims[i].pml4 != pml4) return -EACCES;
@@ -142,9 +163,9 @@ int usb_claim_drop(uint8_t slot, uint64_t pml4, int rebind) {
     // THE ENDPOINT GOES WITH THE CLAIM. A holder that drops the device
     // while TDs are posted would otherwise leave the controller
     // fetching from frames the allocator has handed to somebody else.
-    isoch_close_slot(slot);
+    isoch_close_slot((usb_dev_t)i);
     k_memset(&g_claims[i], 0, sizeof g_claims[i]);
-    klog_printf("usb: pid %d released slot %u%s\n", pid, slot,
+    klog_printf("usb: pid %d released device %#x%s\n", pid, (unsigned)i,
                 rebind ? " (rebinding)" : "");
     const struct usb_device_info *gone = dev_by_slot(slot);
     if (gone) {
@@ -217,9 +238,9 @@ int sys_usb_isoch_open(struct syscall_ctx *c) {
 
     if (!scheduler_current_mm()) { ret = -EPERM; goto out; }
     if (!vmm_copy_from_user(c->pml4, &m, c->a0, sizeof m)) { ret = -EFAULT; goto out; }
-    if ((ret = usb_claim_check((uint8_t)m.slot, c->pml4)) != 0) goto out;
+    if ((ret = usb_claim_check(m.slot, c->pml4)) != 0) goto out;
     if (!m.dma_bytes || m.dma_bytes > 64 * 1024 || !m.mps) { ret = -EINVAL; goto out; }
-    if (isoch_find((uint8_t)m.slot, (uint8_t)m.ep)) { ret = -EBUSY; goto out; }
+    if (isoch_find((usb_dev_t)m.slot, (uint8_t)m.ep)) { ret = -EBUSY; goto out; }
     // One of each direction: a second OUT is a second stream, which
     // nothing asks for.
     for (int i = 0; i < ISOCH_MAX; i++) {
@@ -249,7 +270,7 @@ int sys_usb_isoch_open(struct syscall_ctx *c) {
         goto out;
     }
 
-    q->slot = (uint8_t)m.slot;
+    q->slot = (usb_dev_t)m.slot;
     q->ep   = (uint8_t)m.ep;
     q->dma_phys = phys;
     q->dma_base = base;
@@ -258,9 +279,9 @@ int sys_usb_isoch_open(struct syscall_ctx *c) {
     q->open = 1;
 
     int r = (m.ep & 0x80)
-        ? xhci_add_isoch_in((uint8_t)m.slot, (uint8_t)m.ep, (uint16_t)m.mps,
+        ? xhci_add_isoch_in((usb_dev_t)m.slot, (uint8_t)m.ep, (uint16_t)m.mps,
                             (uint8_t)m.interval, isoch_done, q)
-        : xhci_add_isoch_out((uint8_t)m.slot, (uint8_t)m.ep, (uint16_t)m.mps,
+        : xhci_add_isoch_out((usb_dev_t)m.slot, (uint8_t)m.ep, (uint16_t)m.mps,
                              (uint8_t)m.interval, isoch_done, q);
     if (r < 0) {
         isoch_close(q);
@@ -291,8 +312,8 @@ int sys_usb_isoch_post(struct syscall_ctx *c) {
 
     if (!scheduler_current_mm()) { ret = -EPERM; goto out; }
     if (!vmm_copy_from_user(c->pml4, &m, c->a0, sizeof m)) { ret = -EFAULT; goto out; }
-    if ((ret = usb_claim_check((uint8_t)m.slot, c->pml4)) != 0) goto out;
-    struct isoch *q = isoch_find((uint8_t)m.slot, (uint8_t)m.ep);
+    if ((ret = usb_claim_check(m.slot, c->pml4)) != 0) goto out;
+    struct isoch *q = isoch_find((usb_dev_t)m.slot, (uint8_t)m.ep);
     if (!q) { ret = -EINVAL; goto out; }
     uint32_t count = m.count ? m.count : 1;
     if (count > 256) { ret = -EINVAL; goto out; }
@@ -330,7 +351,7 @@ int sys_usb_isoch_post(struct syscall_ctx *c) {
     int r = 0;
     for (uint32_t i = 0; i < count; i++) {
         uint32_t len = m.lens ? lens[i] : m.len;
-        r = xhci_isoch_post((uint8_t)m.slot, (uint8_t)m.ep,
+        r = xhci_isoch_post((usb_dev_t)m.slot, (uint8_t)m.ep,
                             q->dma_phys + m.offset + (uint64_t)i * stride, len,
                             (in || (m.ioc && i + 1 == count)) ? 1 : 0);
         if (r != 0) break;
@@ -346,8 +367,8 @@ out:
 int sys_usb_isoch_status(struct syscall_ctx *c) {
     int64_t ret;
     if (!scheduler_current_mm()) { ret = -EPERM; goto out; }
-    if ((ret = usb_claim_check((uint8_t)c->a0, c->pml4)) != 0) goto out;
-    struct isoch *q = isoch_find((uint8_t)c->a0, (uint8_t)c->a1);
+    if ((ret = usb_claim_check(c->a0, c->pml4)) != 0) goto out;
+    struct isoch *q = isoch_find((usb_dev_t)c->a0, (uint8_t)c->a1);
     if (!q) { ret = -EINVAL; goto out; }
     // READ AND CLEAR, so a caller that misses a wakeup still learns how
     // many landed rather than one.
@@ -364,8 +385,8 @@ int sys_usb_isoch_reap(struct syscall_ctx *c) {
     int64_t ret;
     if (!scheduler_current_mm()) { ret = -EPERM; goto out; }
     if (!vmm_copy_from_user(c->pml4, &m, c->a0, sizeof m)) { ret = -EFAULT; goto out; }
-    if ((ret = usb_claim_check((uint8_t)m.slot, c->pml4)) != 0) goto out;
-    struct isoch *q = isoch_find((uint8_t)m.slot, (uint8_t)m.ep);
+    if ((ret = usb_claim_check(m.slot, c->pml4)) != 0) goto out;
+    struct isoch *q = isoch_find((usb_dev_t)m.slot, (uint8_t)m.ep);
     if (!q || !(q->ep & 0x80)) { ret = -EINVAL; goto out; }
     uint32_t max = m.max < 64 ? m.max : 64, n = 0;
     while (n < max && q->lens_tail != q->lens_head) {
@@ -387,7 +408,7 @@ out:
 
 int sys_usb_claim(struct syscall_ctx *c) {
     int64_t ret = scheduler_current_mm()
-        ? usb_claim_take((uint8_t)c->a0, c->pml4, scheduler_current_pid())
+        ? usb_claim_take(c->a0, c->pml4, scheduler_current_pid())
         : -EPERM;
     c->regs[14] = (uint64_t)ret;
     return 0;
@@ -413,7 +434,7 @@ int sys_usb_control(struct syscall_ctx *c) {
 
     if (!scheduler_current_mm()) { ret = -EPERM; goto out; }
     if (!vmm_copy_from_user(c->pml4, &m, c->a0, sizeof m)) { ret = -EFAULT; goto out; }
-    if ((ret = usb_claim_check((uint8_t)m.slot, c->pml4)) != 0) goto out;
+    if ((ret = usb_claim_check(m.slot, c->pml4)) != 0) goto out;
     if (m.len > USB_CONTROL_MAX || (m.len && !m.buf)) { ret = -EINVAL; goto out; }
 
     // The two that would desync the kernel from the controller.
@@ -437,7 +458,7 @@ int sys_usb_control(struct syscall_ctx *c) {
         !vmm_copy_from_user(c->pml4, buf, m.buf, m.len)) { ret = -EFAULT; goto out; }
 
     scheduler_preempt_disable();
-    int r = xhci_control((uint8_t)m.slot, m.setup, m.len ? buf : 0,
+    int r = xhci_control((usb_dev_t)m.slot, m.setup, m.len ? buf : 0,
                          (uint16_t)m.len, m.in ? 1 : 0);
     scheduler_preempt_enable();
 
@@ -452,7 +473,7 @@ out:
 
 int sys_usb_release(struct syscall_ctx *c) {
     int64_t ret = scheduler_current_mm()
-        ? usb_claim_drop((uint8_t)c->a0, c->pml4,
+        ? usb_claim_drop(c->a0, c->pml4,
                          (c->a1 & USB_RELEASE_REBIND) ? 1 : 0)
         : -EPERM;
     c->regs[14] = (uint64_t)ret;
@@ -464,7 +485,7 @@ int sys_usb_release(struct syscall_ctx *c) {
 // restarted and has to find its device free.
 void usb_claim_space_gone(uint64_t pml4) {
     if (!pml4) return;
-    for (int i = 1; i < USB_SLOT_IDS; i++)
+    for (unsigned i = 1; i < g_claims_cap; i++)
         if (g_claims[i].pml4 == pml4)
-            usb_claim_drop((uint8_t)i, 0, 0);
+            usb_claim_drop(i, 0, 0);
 }

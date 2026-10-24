@@ -1337,6 +1337,21 @@ struct query_partition {
     uint64_t number;
 };
 
+// EVERY USB `slot` IN THIS ABI -- QUERY_USB's, QUERY_USB_IF's,
+// QUERY_USBDESC's and the ones the USB syscalls take -- names a device
+// across every controller: the controller's index (in PCI order, among
+// those the xhci driver took) in bits 15..8, its xHCI slot id below. On
+// the first controller it is the plain slot id. Pass it back as given.
+#define USB_DEV_HC(slot)    ((unsigned)(slot) >> 8)
+
+// A USB device's stable name, `devctl`'s ID and every device_id field
+// naming one: the first controller's devices by port, vendor and
+// product, every other controller's with its index before the port --
+// so the first controller's names, a persisted disable among them, are
+// the ones they always were.
+#define USB_NAME_FMT      "usb:%u:%04x:%04x"      // port, vendor, product
+#define USB_NAME_FMT_BUS  "usb:%u-%u:%04x:%04x"   // controller, port, vendor, product
+
 // QUERY_USB's record -- one enumerated USB device.
 //
 // BOTH THE IDS AND THE STRINGS ARE CARRIED, because they answer
@@ -1349,7 +1364,7 @@ struct query_partition {
 // Empty strings are normal: a device is not required to have any.
 struct query_usb {
     uint64_t port;          // 1-based root port
-    uint64_t slot;          // xHCI slot id
+    uint64_t slot;          // the device's id: controller << 8 | xHCI slot id
     uint64_t speed;         // QUERY_USB_SPEED_*
     uint64_t vendor_id;
     uint64_t product_id;

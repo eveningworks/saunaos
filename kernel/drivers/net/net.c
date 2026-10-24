@@ -78,17 +78,21 @@ void net_location_pci(struct net_device *dev, uint8_t bus, uint8_t device,
 // adapter having moved. The socket is stable, so it leads; the port is
 // kept beside it because it is what every other USB line in the log
 // says.
-void net_location_usb(struct net_device *dev, uint8_t root_port, uint8_t port) {
+// A controller after the first leads with its index, "usb1-3+15", so the
+// first controller's locations read as they always have.
+void net_location_usb(struct net_device *dev, unsigned hc, uint8_t root_port, uint8_t port) {
     if (!dev) return;
+    char bus[8] = "";
+    if (hc) k_snprintf(bus, sizeof bus, "%u-", hc);
     if (port && port != root_port) {
-        k_snprintf(dev->location, NET_LOC_MAX, "usb%u.%u", root_port, port);
+        k_snprintf(dev->location, NET_LOC_MAX, "usb%s%u.%u", bus, root_port, port);
         return;
     }
-    int peer = xhci_companion_port(root_port);
+    int peer = xhci_companion_port(hc, root_port);
     if (peer)
-        k_snprintf(dev->location, NET_LOC_MAX, "usb%u+%u", root_port, peer);
+        k_snprintf(dev->location, NET_LOC_MAX, "usb%s%u+%u", bus, root_port, peer);
     else
-        k_snprintf(dev->location, NET_LOC_MAX, "usb%u", root_port);
+        k_snprintf(dev->location, NET_LOC_MAX, "usb%s%u", bus, root_port);
 }
 
 // THE DEFAULT NAME IS THE CARD'S OWN SERIAL. The last three bytes of a

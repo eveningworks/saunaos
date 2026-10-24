@@ -2,6 +2,7 @@
 #define XHCI_H
 
 #include <stdint.h>
+#include "usb.h"         // usb_dev_t
 #include "xhci_regs.h"
 #include "xhci_ring.h"
 
@@ -31,14 +32,20 @@
 
 // --- what usb_enum.c and input_usbhid.c call ------------------------------
 
-// Enable Slot, then Address Device, for a device on root port
-// `root_port` (1-based) at `speed`, reached through `route` (the xHCI
-// route string; 0 for a root-port device). For a low/full-speed device
-// behind a HIGH-speed hub, `tt_slot`/`tt_port` name the hub doing the
-// split transactions; zero otherwise. Allocates the slot's contexts and
-// its endpoint-0 transfer ring. Returns the slot id, or a negative
-// completion code.
-int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
+// EVERY `slot` BELOW IS A usb_dev_t (usb.h): the controller's index in
+// its high byte. The driver finds the controller from it, so nothing
+// above this line ever names one -- except the two calls that create a
+// device, which have to say where.
+
+// Enable Slot, then Address Device, on controller `hc` for a device on
+// root port `root_port` (1-based) at `speed`, reached through `route`
+// (the xHCI route string; 0 for a root-port device). For a low/full-speed
+// device behind a HIGH-speed hub, `tt_slot`/`tt_port` name the hub doing
+// the split transactions -- its BARE slot id on that controller, as the
+// Slot Context wants it; zero otherwise. Allocates the slot's contexts
+// and its endpoint-0 transfer ring. Returns the device's usb_dev_t, or a
+// negative completion code.
+int xhci_address_device(unsigned hc, uint8_t root_port, uint32_t route, uint8_t speed,
                         uint8_t tt_slot, uint8_t tt_port);
 
 // Disable Slot plus teardown: frees the slot's contexts, its ep0 ring
@@ -46,7 +53,7 @@ int xhci_address_device(uint8_t root_port, uint32_t route, uint8_t speed,
 // by detach and by enumeration's own failure path -- a failed
 // enumeration used to leak its slot, which is what made a retry
 // impossible.
-void xhci_disable_slot(uint8_t slot);
+void xhci_disable_slot(usb_dev_t slot);
 
 // TAKE BACK EVERYTHING POSTED TO ONE ENDPOINT: Stop Endpoint, then the
 // dequeue moved past whatever was queued. 0 means the controller will
@@ -56,7 +63,7 @@ void xhci_disable_slot(uint8_t slot);
 // kept: a late DMA into a frame that has become a page table is an
 // unlogged reset (xhci_disable_slot()). An interrupted TD's event still
 // arrives, with ok == 0, and a driver that has unbound ignores it.
-int xhci_cancel_endpoint(uint8_t slot, uint8_t ep_addr);
+int xhci_cancel_endpoint(usb_dev_t slot, uint8_t ep_addr);
 
 // Marks the slot a HUB in its input slot context (hub flag, port count,
 // and TT think time for a high-speed hub). Takes effect with the next
@@ -64,7 +71,7 @@ int xhci_cancel_endpoint(uint8_t slot, uint8_t ep_addr);
 // the hub driver calls this before configuring the status-change
 // endpoint. The controller refuses to route through a slot not marked
 // this way.
-void xhci_slot_set_hub(uint8_t slot, uint8_t n_ports, uint8_t ttt);
+void xhci_slot_set_hub(usb_dev_t slot, uint8_t n_ports, uint8_t ttt);
 
 // Corrects endpoint 0's max packet size once the device descriptor has
 // said what it really is, via an Evaluate Context command.
@@ -74,7 +81,7 @@ void xhci_slot_set_hub(uint8_t slot, uint8_t n_ports, uint8_t ttt);
 // correcting hangs on the first device that says 64 -- and QEMU's
 // usb-kbd is full-speed, so this path is reachable in test rather than
 // theoretical. Returns 0, or a negative completion code.
-int xhci_set_ep0_mps(uint8_t slot, uint16_t mps);
+int xhci_set_ep0_mps(usb_dev_t slot, uint16_t mps);
 
 // A control transfer on endpoint 0. `setup` is the 8-byte SETUP packet
 // as the wire carries it; `buf`/`len` is the optional data stage and
@@ -86,7 +93,7 @@ int xhci_set_ep0_mps(uint8_t slot, uint16_t mps);
 // for enumeration -- which happens once, at boot, with nothing else
 // running -- and is deliberately NOT how interrupt endpoints are
 // serviced.
-int xhci_control(uint8_t slot, const uint8_t setup[8],
+int xhci_control(usb_dev_t slot, const uint8_t setup[8],
                  void *buf, uint16_t len, int in);
 
 // 0 once a control transfer on `slot` has TIMED OUT: the transfer is
@@ -94,7 +101,7 @@ int xhci_control(uint8_t slot, const uint8_t setup[8],
 // wait its full deadline too. xhci_control() then refuses at once until
 // the slot is disabled and set up again. A driver's poll loop asks this
 // to stop polling a device that has gone.
-int xhci_slot_usable(uint8_t slot);
+int xhci_slot_usable(usb_dev_t slot);
 
 // Adds one interrupt-IN endpoint to a configured device and starts its
 // transfer ring, via a Configure Endpoint command. `ep_addr`, `mps` and
@@ -105,7 +112,7 @@ int xhci_slot_usable(uint8_t slot);
 // completion. A ring with a single outstanding TRB drops every report
 // that arrives between completion and re-post -- the same reason
 // virtio_input.c keeps 64 buffers posted.
-int xhci_add_interrupt_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+int xhci_add_interrupt_in(usb_dev_t slot, uint8_t ep_addr, uint16_t mps,
                           uint8_t interval);
 
 // Adds one isochronous OUT endpoint to a configured device and starts
@@ -128,18 +135,18 @@ int xhci_add_interrupt_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
 // `done` runs FROM THE EVENT DRAIN. It may post again -- that touches
 // only its own transfer ring and a doorbell -- and must not do anything
 // that issues a COMMAND, which the drain cannot re-enter.
-int xhci_add_bulk(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+int xhci_add_bulk(usb_dev_t slot, uint8_t ep_addr, uint16_t mps,
                   void (*done)(void *ctx, uint64_t phys, uint32_t bytes, int ok),
                   void *ctx);
 
 // Queue one buffer on a bulk endpoint. Direction is the endpoint's.
-int xhci_bulk_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
+int xhci_bulk_post(usb_dev_t slot, uint8_t ep_addr, uint64_t buf_phys,
                    uint32_t len);
 
 // A bulk endpoint HALTS on a stall, unlike an isochronous one, and
 // xhci_deferred_work() recovers it. A driver whose completions stopped
 // should ask this rather than assume the device went away.
-int xhci_bulk_halted(uint8_t slot, uint8_t ep_addr);
+int xhci_bulk_halted(usb_dev_t slot, uint8_t ep_addr);
 
 // A driver whose PROTOCOL decides what a stall means -- bulk-only mass
 // storage stalls a data phase on purpose and then expects the status --
@@ -147,17 +154,17 @@ int xhci_bulk_halted(uint8_t slot, uint8_t ep_addr);
 // and the driver calls xhci_bulk_reset() (both the controller's halt and
 // the device's, CLEAR_FEATURE) from a context that may issue commands.
 // A no-op on an endpoint that is not halted: see xhci_xfer.c.
-void xhci_bulk_own_recovery(uint8_t slot, uint8_t ep_addr);
-int xhci_bulk_reset(uint8_t slot, uint8_t ep_addr);
+void xhci_bulk_own_recovery(usb_dev_t slot, uint8_t ep_addr);
+int xhci_bulk_reset(usb_dev_t slot, uint8_t ep_addr);
 
-int xhci_add_isoch_out(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+int xhci_add_isoch_out(usb_dev_t slot, uint8_t ep_addr, uint16_t mps,
                        uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
                        void *ctx);
 // ISOCHRONOUS IN, the same shape: `done` gets the bytes RECEIVED, 0 for
 // a missed or failed interval. An IN ring with nothing posted is idle,
 // so a driver that only wants a reading now and then (a UAC feedback
 // endpoint) posts one TD when it wants one.
-int xhci_add_isoch_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
+int xhci_add_isoch_in(usb_dev_t slot, uint8_t ep_addr, uint16_t mps,
                       uint8_t interval, void (*done)(void *ctx, uint32_t bytes),
                       void *ctx);
 
@@ -171,27 +178,28 @@ int xhci_add_isoch_in(uint8_t slot, uint8_t ep_addr, uint16_t mps,
 // and this posts one TRB per TD. A 192-byte packet inside one frame
 // cannot, which is why the audio driver keeps its packets in a frame of
 // its own rather than pointing into the sound core's 64 KiB ring.
-int xhci_isoch_post(uint8_t slot, uint8_t ep_addr, uint64_t buf_phys,
+int xhci_isoch_post(usb_dev_t slot, uint8_t ep_addr, uint64_t buf_phys,
                     uint32_t len, int ioc);
 
 // Ring underruns seen on that endpoint -- the stream ran dry. A
 // diagnostic counter, so a test can tell "it never played" from "it
 // played and stuttered".
-uint32_t xhci_isoch_underruns(uint8_t slot, uint8_t ep_addr);
+uint32_t xhci_isoch_underruns(usb_dev_t slot, uint8_t ep_addr);
 // Posts refused because the transfer ring had no room -- nonzero means
 // a driver queued more than it had been told completed.
-uint32_t xhci_isoch_refused(uint8_t slot, uint8_t ep_addr);
+uint32_t xhci_isoch_refused(usb_dev_t slot, uint8_t ep_addr);
 
 // Takes the next completed report from that endpoint, if one has
 // arrived, copying at most `cap` bytes. Returns the byte count, or 0
 // when nothing is pending. Re-posts the TRB, so no caller has to think
 // about ring depth.
-int xhci_take_report(uint8_t slot, uint8_t ep_addr, void *buf, uint32_t cap);
+int xhci_take_report(usb_dev_t slot, uint8_t ep_addr, void *buf, uint32_t cap);
 
-// Drains the event ring. Called from the interrupt handler and from
-// the input core's poll -- BOTH are always live now (see usb_init()'s
-// comment on why the poll is a backup rather than an either/or), and
-// the single-consumer guard inside is what makes that safe.
+// Drains EVERY controller's event ring. Called from the interrupt
+// handler and from the input core's poll -- BOTH are always live now
+// (see usb_init()'s comment on why the poll is a backup rather than an
+// either/or), and each controller's single-consumer guard is what makes
+// that safe.
 void xhci_service(void);
 
 // The work an event marks but must not do in interrupt context: root

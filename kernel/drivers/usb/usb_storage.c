@@ -66,7 +66,8 @@ struct ums_lun {
 
 struct ums {
     struct ums *next;          // the bound devices, for unbind to find by slot
-    uint8_t slot, ifnum, ep_in, ep_out;
+    usb_dev_t slot;
+    uint8_t ifnum, ep_in, ep_out;
     uint8_t dma_pinned;        // a cancel was not confirmed: never free the buffer
     uint16_t mps_in, mps_out;
     volatile int unplugged;

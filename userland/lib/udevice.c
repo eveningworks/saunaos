@@ -199,9 +199,30 @@ static int all_unreadable(const char *s) {
     return 1;
 }
 
-static void add_usb(struct dlist *l, int xhci) {
+static void usb_device_name(char *out, size_t cap, unsigned hc, unsigned port,
+                            unsigned vendor, unsigned product) {
+    if (hc) snprintf(out, cap, USB_NAME_FMT_BUS, hc, port, vendor, product);
+    else    snprintf(out, cap, USB_NAME_FMT, port, vendor, product);
+}
+
+// The tree node of the `hc`-th controller the xhci driver took -- the
+// kernel numbers them in PCI order, skipping any it declined. -1 when the
+// list has no such controller (a kernel and a listing out of step).
+static int xhci_node(const struct dlist *l, int npci, unsigned hc) {
+    for (int i = 0; i < npci; i++) {
+        const struct udevice *c = &l->v[i];
+        if (c->cls != 0x0c || c->subclass != 0x03 || c->prog_if != 0x30) continue;
+        if (strcmp(c->driver, "xhci") != 0) continue;
+        if (hc-- == 0) return i;
+    }
+    return -1;
+}
+
+static void add_usb(struct dlist *l, int npci) {
     struct query_usb q;
     QUERY_FOREACH(QUERY_USB, q, i) {
+        unsigned hc = USB_DEV_HC(q.slot);
+        int xhci = xhci_node(l, npci, hc);
         struct udevice *d = dl_add(l);
         if (!d) return;
         d->bus = UDEV_USB;
@@ -213,8 +234,9 @@ static void add_usb(struct dlist *l, int xhci) {
         d->subclass = (uint8_t)q.if_subclass;
         d->prog_if = (uint8_t)q.if_protocol;
         d->type = usb_type(&q);
-        snprintf(d->id, sizeof d->id, "usb:%u:%04x:%04x", (unsigned)q.port, d->vendor, d->device);
-        snprintf(d->location, sizeof d->location, "USB port %u", (unsigned)q.port);
+        usb_device_name(d->id, sizeof d->id, hc, (unsigned)q.port, d->vendor, d->device);
+        if (hc) snprintf(d->location, sizeof d->location, "USB bus %u port %u", hc, (unsigned)q.port);
+        else    snprintf(d->location, sizeof d->location, "USB port %u", (unsigned)q.port);
         strlcpy(d->driver, q.driver, sizeof d->driver);
         // A hub cannot be claimed (SYS_USB_CLAIM refuses it).
         d->can_disable = q.bound && strcmp(q.driver, "hub") != 0;
@@ -381,9 +403,7 @@ int udevice_list(struct udevice **list) {
     add_pci(&l);
     struct udevice *out = l.v;
     struct uhwids_entry *ids = l.ids;
-    int npci = l.n, xhci = -1;
-    for (int i = 0; i < npci; i++)
-        if (out[i].cls == 0x0c && out[i].subclass == 0x03 && out[i].prog_if == 0x30) { xhci = i; break; }
+    int npci = l.n;
     uhwids_resolve(UHWIDS_PCI, ids, npci);
     for (int i = 0; i < npci; i++) {
         struct udevice *d = &out[i];
@@ -400,7 +420,7 @@ int udevice_list(struct udevice **list) {
 
     adopt_class_drivers(out, npci);
 
-    add_usb(&l, xhci);                         // indexes ids[] by the shared n, as add_pci does
+    add_usb(&l, npci);                         // indexes ids[] by the shared n, as add_pci does
     out = l.v;
     ids = l.ids;
     int nusb = l.n - npci;

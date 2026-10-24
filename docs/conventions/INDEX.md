@@ -71,6 +71,8 @@ whenever a headline here tells you something you did not already know.
   DMA OBJECT IS ITS OWN FRAME**
 - **THE xHCI DRIVER IS FOUR FILES, AND WHAT CROSSES THEM IS
   `xhci_`-PREFIXED**
+- **EVERY xHCI CONTROLLER IS DRIVEN, AND A USB DEVICE IS A `usb_dev_t` --
+  NEVER A `uint8_t`**
 - **INPUT DEVICES REGISTER WITH THE INPUT CORE, and the canonical event
   is evdev -- including `/usr/share/kbs`, so only the PS/2 driver ever sees a
   scancode**

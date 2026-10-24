@@ -499,9 +499,15 @@ static int usbaudio_open(struct snd_dev *dev) {
     if (pick < 0) return -1;
 
     device_names(dev, &info[pick]);
-    snprintf(dev->device_id, sizeof dev->device_id, "usb:%u:%04x:%04x",
-             (unsigned)info[pick].port, (unsigned)info[pick].vendor_id,
-             (unsigned)info[pick].product_id);
+    unsigned bus = USB_DEV_HC(info[pick].slot);
+    if (bus)
+        snprintf(dev->device_id, sizeof dev->device_id, USB_NAME_FMT_BUS, bus,
+                 (unsigned)info[pick].port, (unsigned)info[pick].vendor_id,
+                 (unsigned)info[pick].product_id);
+    else
+        snprintf(dev->device_id, sizeof dev->device_id, USB_NAME_FMT,
+                 (unsigned)info[pick].port, (unsigned)info[pick].vendor_id,
+                 (unsigned)info[pick].product_id);
 
     // The service interval, then the default: 48 kHz at the deepest
     // alternate that plays it.

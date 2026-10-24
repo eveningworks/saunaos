@@ -666,8 +666,9 @@ help:
 	@echo "                             of them -- see the KCMDLINE line above"
 	@echo "     INPUT=ps2|virtio        virtio attaches keyboard/mouse/tablet BESIDE"
 	@echo "                             PS/2, so the input core has two sources"
-	@echo "     USB=none|xhci|xhci+mouse|xhci+hub an xHCI controller and USB HID"
-	@echo "                             devices; xhci+hub puts them behind a hub."
+	@echo "     USB=none|xhci|xhci+mouse|xhci+hub|xhci+two an xHCI controller and USB HID"
+	@echo "                             devices; xhci+hub puts them behind a hub,"
+	@echo "                             xhci+two the keyboard on a SECOND controller."
 	@echo "                             NOTE: attaching usb-kbd takes the keyboard"
 	@echo "                             AWAY from PS/2 -- QEMU routes keys to it"
 	@echo "   Which driver actually claimed the display: type lsdev at the serial"
@@ -2783,7 +2784,7 @@ USB_KIND = $(if $(USB),$(USB),none)
 # $(if)'s arguments on commas, so a literal one silently truncates the
 # device list -- which is how `usb-kbd` disappeared entirely the first
 # time this was written, leaving a controller with nothing plugged in.
-QEMU_USB = $(if $(filter xhci xhci+mouse xhci+hub,$(USB_KIND)),\
+QEMU_USB = $(if $(filter xhci xhci+mouse xhci+hub xhci+two,$(USB_KIND)),\
              -device qemu-xhci$(COMMA)id=xhci,)\
            $(if $(filter xhci xhci+mouse,$(USB_KIND)),\
              -device usb-kbd$(COMMA)id=usbkbd$(COMMA)bus=xhci.0,)\
@@ -2792,7 +2793,12 @@ QEMU_USB = $(if $(filter xhci xhci+mouse xhci+hub,$(USB_KIND)),\
            $(if $(filter xhci+hub,$(USB_KIND)),\
              -device usb-hub$(COMMA)id=usbhub$(COMMA)port=1$(COMMA)bus=xhci.0 \
              -device usb-kbd$(COMMA)id=usbkbd$(COMMA)bus=xhci.0$(COMMA)port=1.1 \
-             -device usb-mouse$(COMMA)id=usbmouse$(COMMA)bus=xhci.0$(COMMA)port=1.2,)
+             -device usb-mouse$(COMMA)id=usbmouse$(COMMA)bus=xhci.0$(COMMA)port=1.2,)\
+           $(if $(filter xhci+two,$(USB_KIND)),\
+             -device usb-mouse$(COMMA)id=usbmouse$(COMMA)bus=xhci.0 \
+             -device qemu-xhci$(COMMA)id=xhci2 \
+             -device usb-hub$(COMMA)id=usbhub2$(COMMA)port=1$(COMMA)bus=xhci2.0 \
+             -device usb-kbd$(COMMA)id=usbkbd$(COMMA)bus=xhci2.0$(COMMA)port=1.1,)
 
 # Networking. A NIC and a user-mode (SLIRP) network behind it.
 #
@@ -2854,7 +2860,7 @@ AUDIO_KIND = $(if $(filter usb both hda,$(AUDIO)),$(AUDIO),$(if $(AUDIO),ac97,no
 # strips a condition's literal whitespace, never its expansion's.
 # Without it the controller is attached twice and QEMU refuses the
 # duplicate id.
-AUDIO_XHCI = $(strip $(if $(filter usb both,$(AUDIO_KIND)),$(if $(filter xhci xhci+mouse xhci+hub,$(USB_KIND)),,yes),))
+AUDIO_XHCI = $(strip $(if $(filter usb both,$(AUDIO_KIND)),$(if $(filter xhci xhci+mouse xhci+hub xhci+two,$(USB_KIND)),,yes),))
 QEMU_AUDIO = $(if $(filter-out none,$(AUDIO_KIND)),               -audiodev $(AUDIODEV)$(COMMA)id=snd0$(if $(MIC),,$(COMMA)in.voices=0) -machine pcspk-audiodev=snd0                $(if $(AUDIO_XHCI),-device qemu-xhci$(COMMA)id=xhci,)               $(if $(filter ac97 both,$(AUDIO_KIND)),                 -device AC97$(COMMA)audiodev=snd0,)               $(if $(filter usb both,$(AUDIO_KIND)),                 -device usb-audio$(COMMA)id=usbaud$(COMMA)bus=xhci.0$(COMMA)audiodev=snd0,)               $(if $(filter hda,$(AUDIO_KIND)),                 -device ich9-intel-hda$(COMMA)id=hda -device hda-output$(COMMA)bus=hda.0$(COMMA)audiodev=snd0,),)
 
 QEMU_EXTRA =

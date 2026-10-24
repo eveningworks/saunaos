@@ -1266,10 +1266,11 @@ vtable -- drivers call `virtqueue_submit()` by name. So `input_usbhid.c`
 calls `xhci_control()` by name. What *was* built is `xhci.h`, a plain
 header splitting xHCI mechanics from USB semantics, because that seam
 had two real callers on the day it was written (a keyboard and a mouse)
-and mass storage would be a third. If a second controller ever appears,
-converting six functions to an ops table is a mechanical afternoon;
-building the table first would have been the cost with none of the
-benefit.
+and mass storage would be a third. If a second controller TYPE ever
+appears, converting six functions to an ops table is a mechanical
+afternoon; building the table first would have been the cost with none
+of the benefit. (A second controller of the same type is not that: see
+the next entry.)
 
 **MMIO stays write-back, and no `paging_set_uncached()` was built.**
 `boot.asm` identity-maps the low 4 GiB write-back with 2 MiB pages, so
@@ -1301,6 +1302,49 @@ What *is* required, and is not about caching at all, is `volatile` on
 every register access -- `xhci.c` copies `virtio_pci.c`'s accessors.
 Polling `USBSTS.CNR` through a non-volatile read is one hoist away from
 an infinite loop, on TCG and KVM alike.
+
+## Every xHCI controller is driven, and a USB device is named by controller and slot
+
+The driver took the first xHCI controller and declined the rest ("a
+second xHCI controller; one is driven"). Every laptop it had met had one;
+a Ryzen 3700X on an MSI X470 board has one in the CPU and another in the
+chipset, and on that machine (2026-10-24) the keyboard, mouse and USB NIC
+were all on ports nobody drove.
+
+**What real systems do.** Linux gives every host controller a `usb_bus`
+with its own bus number; a `struct usb_device` points at its bus, the
+xHCI slot id is per-controller state in `xhci_hcd`, and a device's name
+is the bus plus its port path (`1-3.2`). Windows hangs a root hub under
+each host controller in the device tree. Both are the same shape: the
+controller is part of a device's identity, and a slot id alone means
+nothing.
+
+**toy-os follows the shape at its size.** One driver, a `struct xhci_hc`
+per controller holding everything that was a file-scope global -- slot
+and endpoint tables, both completion records, the event drain's
+one-consumer guard, the recovery counters -- so no controller can hand
+its completion to another's waiter. Above the driver a device is a
+16-bit `usb_dev_t`, the controller's index in the high byte and the slot
+id in the low, rather than a pointer to a device record: every class
+driver already kept its device as an integer and keyed its own state by
+it, and the ring-3 ABI already carried that integer in a 32- or 64-bit
+field, so the id widened with NO ABI change. The first controller's ids
+are its plain slot ids, its devices' names (`usb:3:0627:0001`, a
+persisted `devctl disable` among them), lsusb lines and NIC locations
+are unchanged; a later controller's lead with its index (`usb:1-3:...`,
+`Bus 1 Port 3`, `usb1-3+15`).
+
+**The trap is a `usb_dev_t` stored in a `uint8_t`**, which works on the
+first controller and names a device on the wrong one everywhere else.
+The conversion found them with `-Wconversion` over the USB files, and
+the syscall entry points check the id WHOLE before any narrowing -- a
+`(uint8_t)` there used to turn 0x101 into slot 1.
+
+**One interrupt handler services every controller**, asking each "was it
+me?": an MSI handler here takes no context argument, and two controllers
+sharing a legacy line need exactly that loop anyway. Each controller
+registers its own `usb-xhci` input source, so `lsdev` says how EACH is
+serviced, and all of them run one poll that services every controller.
 
 ## USB took interrupts from its first commit, and the cost is one function
 

@@ -603,7 +603,7 @@ static int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
     // rtl8153_down()/up() do.
     d->dev.drv = d;
 
-    net_location_usb(&d->dev, info->root_port, info->port);
+    net_location_usb(&d->dev, info->hc, info->root_port, info->port);
     usb_device_id(info, d->dev.device_id, sizeof d->dev.device_id);
     if (!net_register(&d->dev)) {
         d->in_use = 0;
@@ -619,7 +619,7 @@ static int usb_r8153_bind(struct usb_device_info *info, const uint8_t *cfg,
     return 1;
 }
 
-static void usb_r8153_unbind(uint8_t slot) {
+static void usb_r8153_unbind(usb_dev_t slot) {
     struct rtl_usb *d = &g_rtl;
     if (!d->in_use || d->slot != slot) return;
     d->in_use = 0;   // unpublished before the core can call transmit()

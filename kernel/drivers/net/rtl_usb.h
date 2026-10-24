@@ -331,7 +331,7 @@ struct rtl_usb_ops {
 
 struct rtl_usb {
     uint8_t in_use;
-    uint8_t slot;
+    usb_dev_t slot;
     uint8_t ep_in, ep_out;
     uint16_t mps;
     uint16_t version;

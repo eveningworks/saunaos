@@ -31,7 +31,7 @@ enum usb_trace_kind {
 
 // One event. Called from the enumeration and transfer paths; cheap
 // enough to sit on them (a timestamp and four stores).
-void usb_trace(uint8_t kind, uint8_t port, uint8_t slot,
+void usb_trace(uint8_t kind, uint8_t port, uint16_t slot,
                uint32_t a, uint32_t b);
 
 // Where the ring is now. Take one before an attempt, hand it back to
@@ -43,10 +43,10 @@ uint32_t usb_trace_mark(void);
 // the CONTROLLER's own state, which is the half a per-port trace cannot
 // show: a halted controller or a host system error would explain every
 // port after the first failing at once, and nothing here was looking.
-void usb_trace_dump(uint32_t mark, uint8_t port);
+void usb_trace_dump(uint32_t mark, unsigned hc, uint8_t port);
 
-// The controller's USBSTS, so the dump can name a halted or errored
-// controller. 0 when there is no controller.
-uint32_t xhci_usbsts(void);
+// Controller `hc`'s USBSTS, so the dump can name a halted or errored
+// controller. 0 when there is no such controller.
+uint32_t xhci_usbsts(unsigned hc);
 
 #endif

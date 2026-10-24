@@ -361,6 +361,16 @@ def cmd_start(args):
                     for a in ("-device", f"usb-kbd,id=usbkbd{k},bus=xhci.0,port=1.{k}")]
             cmd += ["-device", "usb-mouse,id=usbmouse,bus=xhci.0",
                     "-device", "usb-tablet,id=usbtablet,bus=xhci.0"]
+        elif usb == "xhci+two":
+            # TWO CONTROLLERS, as a desktop board has (one in the CPU, one
+            # in the chipset): a mouse on the first, and a hub with the
+            # keyboard behind it on the SECOND -- so every keystroke that
+            # lands proves the second controller is driven, its hub
+            # included, and the first still runs beside it.
+            cmd += ["-device", "usb-mouse,id=usbmouse,bus=xhci.0",
+                    "-device", "qemu-xhci,id=xhci2",
+                    "-device", "usb-hub,id=usbhub2,port=1,bus=xhci2.0",
+                    "-device", "usb-kbd,id=usbkbd,bus=xhci2.0,port=1.1"]
         elif usb == "xhci+hub":
             # The keyboard AND mouse both sit BEHIND a usb-hub (QEMU's
             # is a USB 1.1 full-speed hub), which is the only headless
@@ -1050,7 +1060,7 @@ def main():
                          "PCI-to-PCI bridges, for a guest with more devices "
                          "than the default machine's handful")
     ap.add_argument("--usb", choices=("none", "xhci", "xhci+mouse", "xhci+hub", "xhci+wide",
-                                      "xhci+crowd"),
+                                      "xhci+crowd", "xhci+two"),
                     default="none",
                     help="attach an xHCI controller and USB HID devices. Off by "
                          "default; `xhci` adds a usb-kbd, `xhci+mouse` adds a "
@@ -1059,7 +1069,8 @@ def main():
                          "a 30-port controller with the keyboard on a port "
                          "above 16 (a 200-series Intel PCH has 22), `xhci+crowd` "
                          "eleven devices (a hub of eight keyboards, a mouse, a "
-                         "tablet). A named "
+                         "tablet), `xhci+two` a second controller with a hub and "
+                         "the keyboard on it and a mouse on the first. A named "
                          "value rather than a boolean because the mouse changes "
                          "QMP pointer routing once the guest driver polls it.")
     ap.add_argument("--usb-host", action="append", metavar="VID:PID",

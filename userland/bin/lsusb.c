@@ -379,8 +379,11 @@ int main(int argc, char **argv) {
     for (int i = 0; i < g_count; i++) {
         const struct row *r = &g_rows[i];
         const struct query_usb *d = &r->dev;
+        // A controller after the first leads with its bus, as Linux's
+        // lsusb does with every one; the first's lines are unchanged.
+        if (USB_DEV_HC(d->slot)) printf("Bus %u ", USB_DEV_HC(d->slot));
         printf("Port %u Device %u: ID %04x:%04x %s\n",
-               (unsigned)d->port, (unsigned)d->slot,
+               (unsigned)d->port, (unsigned)(d->slot & 0xFF),
                (unsigned)d->vendor_id, (unsigned)d->product_id,
                r->vendor_name[0] ? r->vendor_name : "(unknown vendor)");
         printf("  %s, %sb/s, %s\n",

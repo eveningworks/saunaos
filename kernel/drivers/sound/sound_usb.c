@@ -61,7 +61,7 @@ DRIVER_DECLARE("usb-audio", "sound", "USB audio class, UAC1 and UAC2");
 
 struct audio_dev {
     uint8_t  in_use;
-    uint8_t  slot;
+    usb_dev_t slot;
     uint8_t  running;
     struct usb_audio_stream s;
 
@@ -156,7 +156,7 @@ static struct audio_dev g_audio[USB_AUDIO_MAX];
 
 // --- the packet pump --------------------------------------------------
 
-static int set_interface(uint8_t slot, uint8_t ifnum, uint8_t alt) {
+static int set_interface(usb_dev_t slot, uint8_t ifnum, uint8_t alt) {
     uint8_t setup[8] = { TYPE_OUT_STD_IF, REQ_SET_INTERFACE, alt, 0,
                          ifnum, 0, 0, 0 };
     return xhci_control(slot, setup, 0, 0, 0);
@@ -611,7 +611,7 @@ static uint32_t interval_us(uint8_t speed, uint8_t b_interval) {
 // What the device offered, when none of it was usable. The point is
 // that "no 48 kHz stereo PCM stream" is not actionable on a machine
 // nobody here owns -- the version and the alternates are.
-static void log_refusal(uint8_t slot, const struct usb_audio_report *rep) {
+static void log_refusal(usb_dev_t slot, const struct usb_audio_report *rep) {
     if (rep->uac_major)
         klog_printf("usb-audio: slot %u: UAC %u.%02u device offers no %u Hz "
                     "stereo PCM stream (%u alternate(s)):\n", slot,
@@ -864,7 +864,7 @@ static int usb_audio_bind(struct usb_device_info *info, const uint8_t *cfg,
     return 1;
 }
 
-static void usb_audio_unbind(uint8_t slot) {
+static void usb_audio_unbind(usb_dev_t slot) {
     struct audio_dev *a = 0;
     for (int i = 0; i < USB_AUDIO_MAX; i++)
         if (g_audio[i].in_use && g_audio[i].slot == slot) { a = &g_audio[i]; break; }

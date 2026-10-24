@@ -1122,10 +1122,33 @@ ladder, attach and the deferred work (Linux's `xhci-hub.c`);
 `xhci_ring.c` is one TRB ring as a data structure. They share
 `kernel/drivers/usb/xhci_internal.h`, which nothing outside the driver
 includes. **A function or global that crosses files is named `xhci_*`**
-(the controller state is `g_xhci`): the kernel is one link, and a
+(the controllers are `g_xhcis`): the kernel is one link, and a
 generic name like `reset_port` made global is a collision waiting for
 the next driver. Root-port behaviour goes in `xhci_port.c`, never back
 into `xhci.c` (acedf0e8).
+
+## EVERY xHCI CONTROLLER IS DRIVEN, AND A USB DEVICE IS A `usb_dev_t` -- NEVER A `uint8_t`
+
+A machine may have several controllers (a Ryzen board: one in the CPU,
+one in the chipset), and each is a `struct xhci_hc` with its OWN slot
+and endpoint tables, completion records and drain guard. **Per-controller
+state goes in that struct, never at file scope** -- shared, one
+controller's completion satisfies the other's waiter. Inside the driver a
+function takes `struct xhci_hc *hc` and a bare `uint8_t slot`, which is
+that controller's numbering (and what a Slot Context's TT field wants).
+
+**Above the driver a device is a `usb_dev_t`** (`usb.h`): the
+controller's index in the high byte, the slot id in the low --
+`usb_device_info.slot`, every class driver's copy, every `xhci_*` call's
+first argument, and the ring-3 ABI's `slot` fields. **Stored in a
+`uint8_t` it still works on the first controller**, where the two
+numberings agree, and names a device on the wrong bus on every other, so
+no test on a one-controller guest can see it. Check a change with
+`-Wconversion` on the USB files, and run `usb_multi_test.py`. **A
+syscall's id is checked whole before it is narrowed** (`usb_claim.c`).
+The first controller's devices keep the names they always had;
+`USB_NAME_FMT_BUS` in `query_abi.h` is the rule for the rest. See
+`docs/decisions.md`.
 
 ## A STATE TRANSITION THAT ENDS IN A SWITCH MUST NOT BE PREEMPTIBLE
 

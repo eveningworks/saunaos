@@ -341,7 +341,8 @@ static void usb_resources(struct props *ps, const struct udevice *d) {
         static const char *const SPEED[] = { "unknown", "low (1.5 Mb/s)", "full (12 Mb/s)",
                                              "high (480 Mb/s)", "super (5 Gb/s)" };
         add(ps, "Speed", "%s", u.speed < 5 ? SPEED[u.speed] : "unknown");
-        add(ps, "Slot", "xHCI slot %u, port %u", (unsigned)u.slot, (unsigned)u.port);
+        add(ps, "Slot", "xHCI bus %u slot %u, port %u", USB_DEV_HC(u.slot),
+            (unsigned)(u.slot & 0xFF), (unsigned)u.port);
     }
     static uint8_t cfg[1024];
     unsigned len = 0;
