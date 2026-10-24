@@ -1066,6 +1066,15 @@ The gotchas it already gets right, for when you need to know why:
   file somewhere else; the only symptom is Pillow raising
   `FileNotFoundError` on a path that looks obviously correct.
 
+**An app's layout report is ON only after `enter_gui()`** (it sets
+`desktop.layout_log`, which an app reads once at start), so a tool run
+with `--in-gui` on a fresh boot, or a probe script that skips it, gets
+NO `<app>: layout` lines and every poll times out. **And an IDLE window
+draws no new frame**: once it stops changing, `layout_now()` can hand
+back an older frame still queued on the console -- read what you need
+from the frames logged WHILE it changed (`filemanager_test._ALL_BUF`),
+or wait on a predicate for the field, never on "the next frame".
+
 **Screenshots are a TESTING TOOL, not a deliverable.** Take as many as
 a check needs, into a scratch directory. Do NOT save them into
 `screenshots/` as evidence -- that convention is retired (2026-08-15, at

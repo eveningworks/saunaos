@@ -97,6 +97,8 @@ app; one shaped around an app's data stays in that app (CLAUDE.md).
 | `uui_medialist` | A playlist: a 16:9 picture, a title, a detail line and a length per row; a click or Enter plays; `current` drawn selected -- the Video Player's "Up next" |
 | `uui_label` | A line of text the LAYOUT reserves a row for |
 | `uui_textbox`, `utext` | One line of editable text; a document |
+| `uui_transfers` | Things MOVING BYTES: a row each with a bar, "got of total", the rate and time left when given, and its action -- Cancel, Pause/Resume, Show, Retry; a row may WAIT. The Browser's downloads, the File Manager's Operations panel |
+| `uui_compare` | Two files side by side to choose between (a name clash): picture, size, date, "newer"/"larger" badges, an optional "for the rest" box. A dialog's body; it decides nothing |
 | `uui_findbar` | Find: a query, "N of M", previous / next, close. It reports what was asked; the app searches and sets the count (the Terminal's floating find) |
 | `uui_menubar`, `uui_statusbar` | Menus with submenus; status panes |
 | `uui_layout`, `uui_scrollview` | Arrangement; a viewport onto more than fits |

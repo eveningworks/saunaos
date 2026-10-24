@@ -4009,8 +4009,13 @@ real scanout hardware does. Do not write a pixel assertion for one.
     stated rather than glossed. **The state is the CALLER'S** (`struct
     ufileop`, ~30 KB, file scope), the `ttf.h` arrangement, because a
     worker thread and the main thread must not share scratch.
-  - **Marked files run through a QUEUE, one child at a time**, so the
-    status line can say "Copy 3/7" and name the one that failed.
+  - **Operations run ONE AT A TIME on the worker, the rest WAITING**
+    (`fm_jobs.c`): marked files are one operation, counted in bytes
+    before it starts, shown in the Operations panel (`uui_transfers`)
+    with its rate, time left and Pause; a copy, move or delete asked for
+    meanwhile waits as a row. **A builder collects into the staging
+    list, never into the running job's state**, which the worker is
+    reading.
   - **Each pane carries its OWN path strip**, because one status line
     cannot say where two panes are, and the active one is drawn in the
     accent colour -- "which pane does F5 copy FROM" has to be answerable

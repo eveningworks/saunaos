@@ -4738,6 +4738,12 @@ per volume, on the freedesktop layout" below replaced that.)
 
 ## File operations are child processes, not loops inside the window
 
+**Superseded twice**: the copy loop moved in process over
+`lib/ufileop.h` on a worker thread (the entry on it, below), and since
+2026-10-23 operations show in an Operations panel with the whole job's
+bytes, Pause and a queue ("The File Manager's redesign" entry). Kept for
+why it started this way.
+
 F5 spawns `/bin/cp`, F8 spawns `/bin/rm`, and `on_tick()` reaps them
 with `sys_waitpid_nohang()`. The alternative -- a copy loop inside the
 GUI app -- is what GNOME Files and Explorer actually do, because they
