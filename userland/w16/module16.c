@@ -256,6 +256,19 @@ static void module_name(const char *spec, char *out, size_t cap) {
     out[n] = 0;
 }
 
+// The program's own folder as a DOS path with no trailing backslash ("C:\\GAMES"); "" when it has
+// none the program can see.
+void w16_prog_dir(struct w16 *w, char *out, size_t cap) {
+    out[0] = 0;
+    const char *slash = strrchr(w->path, '/');
+    if (!slash) return;
+    char dir[512];
+    snprintf(dir, sizeof dir, "%.*s", (int)(slash - w->path), w->path);
+    if (w16_host_to_dos(dir[0] ? dir : "/", out, cap) < 0) { out[0] = 0; return; }
+    size_t n = strlen(out);
+    if (n && out[n - 1] == '\\') out[n - 1] = 0;
+}
+
 // The DLL's host file: as named when the name is a path, else beside the
 // program, in the current folder, C:\WINDOWS\SYSTEM and C:\WINDOWS --
 // Windows' order. 0, or 2 (file not found).
@@ -264,15 +277,8 @@ static int find_dll(struct w16 *w, const char *spec, char *host, size_t cap) {
     const char *base = spec;
     for (const char *p = spec; *p; p++) if (*p == '\\' || *p == '/' || *p == ':') base = p + 1;
     snprintf(file, sizeof file, "%s%s", base, strchr(base, '.') ? "" : ".DLL");
-    char prog_dir[280] = "", dos[300];
-    const char *slash = strrchr(w->path, '/');
-    if (slash) {
-        char dir[512];
-        snprintf(dir, sizeof dir, "%.*s", (int)(slash - w->path), w->path);
-        if (w16_host_to_dos(dir[0] ? dir : "/", prog_dir, sizeof prog_dir) < 0) prog_dir[0] = 0;
-        size_t n = strlen(prog_dir);
-        if (n && prog_dir[n - 1] == '\\') prog_dir[n - 1] = 0;
-    }
+    char prog_dir[280], dos[300];
+    w16_prog_dir(w, prog_dir, sizeof prog_dir);
     for (int i = base != spec ? 0 : 1; i < 5; i++) {
         switch (i) {
         case 0: snprintf(dos, sizeof dos, "%s", spec); break;

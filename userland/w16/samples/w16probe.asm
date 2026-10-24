@@ -19,6 +19,10 @@
 ;           Ver= / VerDest=  VerFindFile of a shared file no disk has: 0, and C:\WINDOWS\SYSTEM's length
 ;                   with its NUL (0012) -- Control Panel's applets ask it at start
 ;           Vis=    RectVisible on an 8x1 bitmap: a rectangle on it (0001), then one far off it (0000)
+;           LZ= / LZRead= / LZEnd= / LZText= / LZName=  LZEXPAND on a 10-byte SZDD file the probe writes to
+;                   C:\WINDOWS and opens by its bare name -- OpenFile's search, as Control Panel opens
+;                   CONTROL.INF: an LZ handle (0190, the first), the count read (000A), LZSeek to the end
+;                   (0000000A), the expanded text, and GetExpandedName's LZPROBE.TXT
 ; Run on real Windows 3.11 for Workgroups and on w16, it is the check of both: w16_gui_test.py reads
 ; the file. No window. Its name sorts after fault.exe: tests index the samples by their place.
 ; Build: tools/gen_ne.py.
@@ -220,6 +224,55 @@ start:
     call hex16
     mov byte [di], 0
 
+    push ds                         ; _lcreat("C:\WINDOWS\LZPROBE.TX_", 0), and the SZDD bytes written
+    push word lz_path
+    push word 0
+    W16_CALL "KERNEL", 83
+    push ax
+    push ax
+    push ds
+    push word szdd
+    push word szdd_len
+    W16_CALL "KERNEL", 86           ; _lwrite
+    W16_CALL "KERNEL", 81           ; _lclose (the handle pushed first)
+    push ds                         ; LZOpenFile("LZPROBE.TX_", &lz_ofs, OF_READ)
+    push word lz_bare
+    push ds
+    push word lz_ofs
+    push word 0
+    W16_CALL "LZEXPAND", 2
+    mov [lzh], ax
+    mov di, lz_text
+    call hex16
+    mov byte [di], 0
+    push word [lzh]                 ; LZRead(h, lz_buf, 32)
+    push ds
+    push word lz_buf
+    push word 32
+    W16_CALL "LZEXPAND", 5
+    mov di, lzread_text
+    call hex16
+    mov byte [di], 0
+    push word [lzh]                 ; LZSeek(h, 0, 2): DX:AX the length
+    push word 0
+    push word 0
+    push word 2
+    W16_CALL "LZEXPAND", 4
+    push ax
+    mov ax, dx
+    mov di, lzend_text
+    call hex16
+    pop ax
+    call hex16
+    mov byte [di], 0
+    push word [lzh]                 ; LZClose(h)
+    W16_CALL "LZEXPAND", 6
+    push ds                         ; GetExpandedName("C:\WINDOWS\LZPROBE.TX_", lz_name)
+    push word lz_path
+    push ds
+    push word lz_name
+    W16_CALL "LZEXPAND", 10
+
     push cs                         ; EnumFontFamilies(screen, NULL, MakeProcInstance(famproc), 0)
     push word famproc
     push word [hinst]
@@ -363,7 +416,8 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_w100, wide100_text, key_not, not_text, key_map0, map0_text, key_map1, map1_text
             dw key_map2, map2_text, key_fam, families_text, key_tt, truetype_text, key_dash, dash_text
             dw key_border, border_text, key_border2, border2_text, key_title, title_text
-            dw key_ver, ver_text, key_verdest, verdest_text, key_vis, vis_text, 0
+            dw key_ver, ver_text, key_verdest, verdest_text, key_vis, vis_text, key_lz, lz_text
+            dw key_lzread, lzread_text, key_lzend, lzend_text, key_lztext, lz_buf, key_lzname, lz_name, 0
 key_base:   db "Base", 0
 key_async:  db "Async", 0
 key_w1000:  db "Wide1000", 0
@@ -381,6 +435,26 @@ key_title:  db "Title", 0
 key_ver:    db "Ver", 0
 key_verdest: db "VerDest", 0
 key_vis:    db "Vis", 0
+key_lz:     db "LZ", 0
+key_lzread: db "LZRead", 0
+key_lzend:  db "LZEnd", 0
+key_lztext: db "LZText", 0
+key_lzname: db "LZName", 0
+lz_path:    db "C:\WINDOWS\LZPROBE.TX_", 0
+lz_bare:    db "LZPROBE.TX_", 0
+; "Hello, w16" as COMPRESS.EXE -r wrote it: SZDD's magic, method 'A', the 'T' the name lost, the
+; length, then LZSS -- a flag byte (each bit a literal) before eight bytes, and one before the last two.
+szdd:       db "SZDD", 0x88, 0xF0, 0x27, 0x33, "A", "T"
+            dd 10
+            db 0xFF, "Hello, w", 0x03, "16"
+szdd_len    equ $ - szdd
+lzh:        dw 0
+lz_text:    times 6 db 0
+lzread_text: times 6 db 0
+lzend_text: times 10 db 0
+lz_ofs:     times 136 db 0
+lz_buf:     times 34 db 0
+lz_name:    times 64 db 0
 border_text: times 6 db 0
 border2_text: times 6 db 0
 title_text: times 6 db 0

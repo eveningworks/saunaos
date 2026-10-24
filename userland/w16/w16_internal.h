@@ -927,6 +927,17 @@ int w16_dos_chdir(const char *dos);               // 0, or a DOS error
 extern const struct w16_api g_commdlg_api[];
 extern const unsigned g_commdlg_api_n;
 int w16_dos_file(struct w16 *w, struct cpu16 *c);  // INT 21h's file calls; -1 not one
+// OpenFile's work: the handle, HFILE_ERROR (the OFSTRUCT saying why), or -1 with the fault set.
+void w16_prog_dir(struct w16 *w, char *out, size_t cap);
+int w16_open_file(struct w16 *w, uint32_t name, uint32_t ofs, uint16_t style);
+// A DOS handle in host memory, for LZEXPAND: a count, the new position, or -1; 0 or -1 for a close.
+long w16_file_read(unsigned h, void *buf, size_t n);
+long w16_file_write(unsigned h, const void *buf, size_t n);
+long w16_file_seek(unsigned h, long off, int origin);
+int w16_file_close(unsigned h);
+// lz16.c: LZEXPAND.DLL, COMPRESS.EXE's files read as if they were not compressed.
+extern const struct w16_api g_lz_api[];
+extern const unsigned g_lz_api_n;
 extern const struct w16_api g_file_api[], g_keyboard_api[];
 extern const unsigned g_file_api_n, g_keyboard_api_n;
 

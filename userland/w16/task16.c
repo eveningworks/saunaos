@@ -294,6 +294,7 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     else if (!strcmp(name, "MMSYSTEM")) r = w16_api_call(g_mmsystem_api, g_mmsystem_api_n, w, ordinal, &a);
     else if (!strcmp(name, "WIN87EM")) r = w16_api_call(g_win87em_api, g_win87em_api_n, w, ordinal, &a);
     else if (!strcmp(name, "VER")) r = w16_api_call(g_ver_api, g_ver_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "LZEXPAND")) r = w16_api_call(g_lz_api, g_lz_api_n, w, ordinal, &a);
     if (g_w16_trace && r >= 0) {                 // what it answered, as Wine's +relay ends a call with Ret
         fprintf(g_w16_trace, "  = %04x:%04x\n", c->r[R_DX], c->r[R_AX]);
         fflush(g_w16_trace);

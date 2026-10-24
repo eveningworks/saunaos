@@ -186,6 +186,14 @@ def probe(dbg, res):
               (got.get("Ver"), got.get("VerDest")) == ("0000", "0012"), got)
     res.check("RectVisible: a rectangle on the bitmap is visible, one far off it is not",
               got.get("Vis") == "00010000", got)
+    text = dict(re.findall(r"(\w+)=(.*)", out))
+    res.check("LZOpenFile finds a bare name in C:\\WINDOWS (OpenFile's search) and gives an LZ handle",
+              got.get("LZ") == "0190", got)
+    res.check("LZRead and LZSeek see the SZDD file's 10 expanded bytes, not its 24 on disk",
+              (got.get("LZRead"), got.get("LZEnd"), text.get("LZText", "").strip()) ==
+              ("000A", "0000000A", "Hello, w16"), text)
+    res.check("GetExpandedName puts back the letter COMPRESS -r stored: LZPROBE.TX_ -> LZPROBE.TXT",
+              text.get("LZName", "").strip().upper() == "C:\\WINDOWS\\LZPROBE.TXT", text)
 
 
 def gdi_checks(dbg, qmp, res, tmp):

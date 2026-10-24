@@ -1093,46 +1093,6 @@
 
 // --- LZEXPAND --------------------------------------------------------------------------------
 
-// LZEXPAND.1 LZCopy(hfSource, hfDest) -> LONG
-// Windows: Copies a file, expanding it on the way if it was compressed with COMPRESS.EXE.
-// Why: LZEXPAND is not answered yet: its compressed format (SZDD) is a small LZSS.
-// By: DRIVERS.CPL, VER.DLL, WFWSETUP.DLL, WINSETUP.EXE
-
-// LZEXPAND.2 LZOpenFile(lpFileName, lpReOpenBuf, wStyle) -> int
-// Windows: Opens a file for LZRead, expanded or not.
-// Why: As LZCopy.
-// By: MAIN.CPL, VER.DLL, WFWSETUP.DLL, WINSETUP.EXE
-
-// LZEXPAND.4 LZSeek(hFile, lOffset, nOrigin) -> LONG
-// Windows: Moves the read position in an expanded file.
-// Why: As LZCopy.
-// By: MAIN.CPL, VER.DLL
-
-// LZEXPAND.5 LZRead(hFile, lpBuffer, cbRead) -> int
-// Windows: Reads expanded bytes from a file LZOpenFile opened.
-// Why: As LZCopy.
-// By: MAIN.CPL, VER.DLL
-
-// LZEXPAND.6 LZClose(hFile) -> void
-// Windows: Closes a file LZOpenFile opened.
-// Why: As LZCopy.
-// By: MAIN.CPL, VER.DLL, WFWSETUP.DLL, WINSETUP.EXE
-
-// LZEXPAND.7 LZStart() -> int
-// Windows: Prepares for a run of CopyLZFile calls.
-// Why: As LZCopy.
-// By: WFWSETUP.DLL, WINSETUP.EXE
-
-// LZEXPAND.9 LZDone() -> void
-// Windows: Ends a run LZStart began.
-// Why: As LZCopy.
-// By: WFWSETUP.DLL, WINSETUP.EXE
-
-// LZEXPAND.10 GetExpandedName(lpszSource, lpszBuffer) -> int
-// Windows: The name a compressed file will have once expanded (README.TX_ to README.TXT).
-// Why: As LZCopy.
-// By: MAIN.CPL
-
 // --- MMSYSTEM --------------------------------------------------------------------------------
 
 // MMSYSTEM.31 DriverCallback(dwCallback, uFlags, hDevice, uMessage, dwUser, dwParam1, dwParam2) -> BOOL

@@ -132,6 +132,7 @@ struct listbox {
     uint16_t combo;                   // a combo box's list: the box hears its notifications
     int owner, strings;               // owner-drawn; and keeping strings (else an item is its data)
     int oh;                           // an owner-drawn row's height, from WM_MEASUREITEM; 0 otherwise
+    int variable;                     // LBS_OWNERDRAWVARIABLE: each item measured as it is added
 };
 
 static struct listbox *lb_of(struct w16_wnd *x) { return x->ctl; }
@@ -146,6 +147,7 @@ void w16_list_not_owner_drawn(struct w16 *w, struct w16_wnd *x) {
         lb_of(lw)->owner = 0;
         lb_of(lw)->strings = 1;
         lb_of(lw)->oh = 0;
+        lb_of(lw)->variable = 0;
     }
     pthread_mutex_unlock(&w->lock);
 }
@@ -165,17 +167,23 @@ static int item_h(const struct w16_wnd *x) {
 }
 
 // WM_MEASUREITEM to `to`: the height a row (or, item -1, a combo's shut box) is drawn at; `h`
-// when the program leaves it.
-static int measure(struct w16 *w, uint16_t to, uint16_t type, uint16_t id, int item, int width, int h) {
+// when the program leaves it. `data` is the item's, for a list measured item by item.
+static int measure_item(struct w16 *w, uint16_t to, uint16_t type, uint16_t id, int item, int width, int h,
+                        uint32_t data) {
     uint16_t at = w16_sys_push(w, 14);
     if (!at) return h;
-    uint16_t mis[7] = { type, id, (uint16_t)item, (uint16_t)width, (uint16_t)h, 0, 0 };
+    uint16_t mis[7] = { type, id, (uint16_t)item, (uint16_t)width, (uint16_t)h, (uint16_t)data,
+                        (uint16_t)(data >> 16) };
     memcpy(w->sysmem + at, mis, sizeof mis);
     w16_send(w, to, WM_MEASUREITEM, id, (uint32_t)w->sysdata << 16 | at);
     uint16_t got;
     memcpy(&got, w->sysmem + at + 8, 2);
     w16_sys_pop(w, at);
     return got > 0 && got < 256 ? got : h;
+}
+
+static int measure(struct w16 *w, uint16_t to, uint16_t type, uint16_t id, int item, int width, int h) {
+    return measure_item(w, to, type, id, item, width, h, 0);
 }
 
 // WM_DRAWITEM to `to` for one row (or the shut box's item), into the DC of `in`.
@@ -546,7 +554,11 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
         lb_of(x)->sel = -1;
         lb_of(x)->owner = (x->style & (LBS_OWNERDRAWFIXED | LBS_OWNERDRAWVARIABLE)) != 0;
         lb_of(x)->strings = !lb_of(x)->owner || (x->style & LBS_HASSTRINGS);
-        if (lb_of(x)->owner)
+        // A FIXED list's row is measured once, now; a VARIABLE one's items as each is added, which
+        // is when Windows asked -- Control Panel's Fonts measures an item from what its
+        // WM_INITDIALOG filled in, and asked first it reads nothing.
+        lb_of(x)->variable = lb_of(x)->owner && (x->style & LBS_OWNERDRAWVARIABLE);
+        if (lb_of(x)->owner && !lb_of(x)->variable)
             lb_of(x)->oh = measure(w, x->parent, ODT_LISTBOX, x->id, 0, x->cw, w16_font_line_h(x->font));
         // An empty list shows no scroll bar, unless it asks to keep it.
         x->keep_sb = (x->style & LBS_DISABLENOSCROLL) != 0;
@@ -562,14 +574,22 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
     }
     if (!l) return w16_def_window_proc(w, x, msg, wp, lp);
     if (msg >= LB_ADDSTRING && msg <= LB_FINDSTRINGEXACT) {
-        if (!l->strings && (msg == LB_ADDSTRING || msg == LB_INSERTSTRING)) {   // the "string" is the item's data
-            uint32_t r = lb_message(w, x, l, msg, wp, lp, "");
+        int adding = msg == LB_ADDSTRING || msg == LB_INSERTSTRING;
+        uint32_t r;
+        if (!l->strings && adding) {             // the "string" is the item's data
+            r = lb_message(w, x, l, msg, wp, lp, "");
             if ((int16_t)r >= 0 && (int16_t)r < l->n) l->it[(int16_t)r].data = lp;
-            return r;
+        } else {
+            char *s = is_string_msg(msg) && l->strings ? far_get(w, lp) : 0;
+            r = lb_message(w, x, l, msg, wp, lp, s);
+            free(s);
         }
-        char *s = is_string_msg(msg) && l->strings ? far_get(w, lp) : 0;
-        uint32_t r = lb_message(w, x, l, msg, wp, lp, s);
-        free(s);
+        // Rows here are one height: a variable list's is the tallest item's.
+        if (adding && l->variable && (int16_t)r >= 0 && (int16_t)r < l->n) {
+            int h = measure_item(w, x->parent, ODT_LISTBOX, x->id, (int16_t)r, x->cw,
+                                 l->oh ? l->oh : w16_font_line_h(x->font), l->it[(int16_t)r].data);
+            if (h > l->oh) l->oh = h;
+        }
         return r;
     }
     switch (msg) { // dispatch-ok: a window procedure, bounded by the messages Windows' LISTBOX answered

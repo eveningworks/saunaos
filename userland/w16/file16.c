@@ -294,11 +294,35 @@ static char *far_path(struct w16 *w, uint32_t far) {
 // OF_PARSE only works out the full path.
 // w16: The same, over the drives the program sees: a DOS path becomes a toy-os one (C: is the Win16
 // folder, Z: all of toy-os), names match without case as DOS's did, and the OFSTRUCT gets the full
-// path in capitals, as DOS gave it. A drive outside /home is read-only.
+// path in capitals, as DOS gave it. A drive outside /home is read-only. A bare name not in the
+// current folder is looked for in C:\WINDOWS, C:\WINDOWS\SYSTEM and the program's own folder,
+// Windows' order (PATH and network drives aside).
 static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint32_t name = w16_arg32(a), ofs = w16_arg32(a);
     uint16_t style = w16_arg16(a);
+    int h = w16_open_file(w, name, ofs, style);
+    if (h < 0) return -1;
+    w->cpu.r[R_AX] = (uint16_t)h;
+    return 10;
+}
+
+// One try of OpenFile's at one DOS path: a handle (1 for a test that passed), or -1 with *err DOS's code.
+static int open_once(const char *dos, uint16_t style, char *full, size_t cap, int *err) {
+    *err = 0;
+    if (style & (OF_PARSE | OF_DELETE | OF_EXIST)) {
+        char host[1024];
+        *err = w16_dos_path(dos, host, sizeof host, (style & OF_PARSE) != 0, full, cap);
+        if (!*err && (style & OF_DELETE) && unlink(host) != 0) *err = E_ACCESS;
+        if (!*err && (style & OF_EXIST) && access(host, F_OK) != 0) *err = E_FILE;
+        return *err ? -1 : 1;
+    }
+    int h = open_dos(dos, style & 3, (style & OF_CREATE) != 0, full, cap);
+    if (h < 0) { *err = -h; return -1; }
+    return h;
+}
+
+int w16_open_file(struct w16 *w, uint32_t name, uint32_t ofs, uint16_t style) {
     // OF_REOPEN reads the path the OFSTRUCT holds; nothing else of it is read
     char *dos = 0;
     if (style & OF_REOPEN) {
@@ -310,19 +334,20 @@ static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     }
     if (!dos) return -1;
     char full[DOS_PATH * 2] = "";
-    int h, err = 0;
-    if (style & (OF_PARSE | OF_DELETE | OF_EXIST)) {
-        char host[1024];
-        err = w16_dos_path(dos, host, sizeof host, (style & OF_PARSE) != 0, full, sizeof full);
-        if (!err && (style & OF_DELETE) && unlink(host) != 0) err = E_ACCESS;
-        if (!err && (style & OF_EXIST) && access(host, F_OK) != 0) err = E_FILE;
-        h = err ? -1 : 1;
-    } else {
-        h = open_dos(dos, style & 3, (style & OF_CREATE) != 0, full, sizeof full);
-        if (h < 0) { err = -h; h = -1; }
+    int err, h = open_once(dos, style, full, sizeof full, &err);
+    // A bare name not in the current folder is looked for where Windows looked: its own folder,
+    // SYSTEM, then the program's -- Control Panel opens "CONTROL.INF" so.
+    int bare = !strpbrk(dos, "\\/:");
+    char where[DOS_PATH * 2];
+    for (int i = 0; h < 0 && err == E_FILE && bare && !(style & (OF_CREATE | OF_PARSE)) && i < 3; i++) {
+        if (i == 2) w16_prog_dir(w, where, sizeof where);
+        else snprintf(where, sizeof where, "%s", i ? "C:\\WINDOWS\\SYSTEM" : "C:\\WINDOWS");
+        char path[DOS_PATH * 3];
+        if (!where[0] || snprintf(path, sizeof path, "%s\\%s", where, dos) >= (int)sizeof path) continue;
+        h = open_once(path, style, full, sizeof full, &err);
     }
     if (g_w16_trace) {
-        fprintf(g_w16_trace, "  OpenFile \"%s\" style %04x -> %d, DOS error %d\n", dos, style, h, err);
+        fprintf(g_w16_trace, "  OpenFile \"%s\" style %04x -> %d (%s), DOS error %d\n", dos, style, h, full, err);
         fflush(g_w16_trace);
     }
     free(dos);
@@ -338,9 +363,33 @@ static int api_OpenFile(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     put[2] = (uint8_t)err;
     for (size_t i = 0; i < n; i++) put[8 + i] = (uint8_t)upper(full[i]);
     put[8 + n] = 0;
-    w->cpu.r[R_AX] = h < 0 ? HFILE_ERROR : (uint16_t)h;
-    return 10;
+    return h < 0 ? HFILE_ERROR : h;
 }
+
+// --- for LZEXPAND (lz16.c): a handle read, written, moved and closed in host memory -------------
+
+long w16_file_read(unsigned h, void *buf, size_t n) {
+    struct dosfile *f = file_of(h);
+    if (!f || f->rfd < 0 || lseek(f->rfd, f->pos, SEEK_SET) < 0) return -1;
+    long r = (long)read(f->rfd, buf, n);
+    if (r > 0) f->pos += r;
+    return r < 0 ? -1 : r;
+}
+
+long w16_file_write(unsigned h, const void *buf, size_t n) {
+    struct dosfile *f = file_of(h);
+    if (!f || f->wfd < 0 || lseek(f->wfd, f->pos, SEEK_SET) < 0) return -1;
+    long r = (long)write(f->wfd, buf, n);
+    if (r > 0) f->pos += r;
+    return r < 0 ? -1 : r;
+}
+
+long w16_file_seek(unsigned h, long off, int origin) {
+    struct dosfile *f = file_of(h);
+    return f && origin >= 0 && origin <= 2 ? (long)seek(f, off, origin) : -1;
+}
+
+int w16_file_close(unsigned h) { return close_handle(h); }
 
 // _lopen(lpPathName, iReadWrite) -> HFILE
 // Windows: Opens an existing file for reading, writing or both, and returns DOS's file handle;

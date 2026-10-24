@@ -8298,12 +8298,14 @@ Where each stood on 2026-10-24, on an installed WfW 3.11 tree (`w16
 - **Color**: opens; the schemes, the colour grid and the sample are empty --
   it draws with regions (CreateRectRgnIndirect, FillRgn, PtInRegion), and
   SetSysColors is missing.
-- **Fonts**: stops on "a Windows call was passed a bad pointer".
+- **Fonts**: lists WIN.INI's `[fonts]` (the installer writes it, as Setup
+  did); the sample is empty and each font says 0 KB on disk.
 - **Mouse**: opens; SwapMouseButton and SetDoubleClickTime are missing.
-- **Sound**: stops on "an unhandled interrupt".
-- **Printers**: "The information file is damaged" -- it reads CONTROL.INF
-  through LZEXPAND (LZOpenFile, LZRead), which w16 does not have; umsexpand
-  can stand behind it.
+- **Sound**: opens; its Files list says `<none>` -- DlgDirList and
+  DlgDirSelect are stand-ins.
+- **Printers, International**: open with their lists filled -- CONTROL.INF
+  and SETUP.INF read through LZEXPAND (`userland/w16/lz16.c`), found as
+  OpenFile finds a bare name, in C:\WINDOWS and SYSTEM.
 - **Drivers**: lists SYSTEM.INI's drivers, then "Cannot load the MIDI
   Mapper driver" -- OpenDriver.
 - **Desktop, Keyboard, Ports, Date/Time**: open with every control.
