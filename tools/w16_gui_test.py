@@ -178,6 +178,14 @@ def probe(dbg, res):
     dash = int(got.get("Dash", "0"), 16)
     res.check("0x97 is an em dash at 100 pixels, as 3.1's ANSI table has it -- not a space's width",
               90 <= dash <= 110, f"{dash} px")
+    res.check("SystemParametersInfo: SPI_GETBORDER is 3.1's 3, and 5 after SPI_SETBORDER for the run",
+              (got.get("Border"), got.get("Border2")) == ("0003", "0005"), got)
+    res.check("SPI_GETICONTITLELOGFONT: MS Sans Serif 8 point at 96 dpi, height -11",
+              got.get("Title") == "FFF5", got)
+    res.check("VerFindFile: a shared file no disk has goes in C:\\WINDOWS\\SYSTEM (18 bytes with its NUL)",
+              (got.get("Ver"), got.get("VerDest")) == ("0000", "0012"), got)
+    res.check("RectVisible: a rectangle on the bitmap is visible, one far off it is not",
+              got.get("Vis") == "00010000", got)
 
 
 def gdi_checks(dbg, qmp, res, tmp):

@@ -293,9 +293,21 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     else if (!strcmp(name, "DDEML")) r = w16_api_call(g_ddeml_api, g_ddeml_api_n, w, ordinal, &a);
     else if (!strcmp(name, "MMSYSTEM")) r = w16_api_call(g_mmsystem_api, g_mmsystem_api_n, w, ordinal, &a);
     else if (!strcmp(name, "WIN87EM")) r = w16_api_call(g_win87em_api, g_win87em_api_n, w, ordinal, &a);
+    else if (!strcmp(name, "VER")) r = w16_api_call(g_ver_api, g_ver_api_n, w, ordinal, &a);
     if (g_w16_trace && r >= 0) {                 // what it answered, as Wine's +relay ends a call with Ret
         fprintf(g_w16_trace, "  = %04x:%04x\n", c->r[R_DX], c->r[R_AX]);
         fflush(g_w16_trace);
+    }
+    // --skip-missing: a diagnostic -- the call answers 0 and the program runs on, so ONE run lists
+    // every call it reaches that w16 lacks. A Pascal call's argument bytes are the names table's.
+    if ((r == -2 || (r < 0 && !c->fault)) && g_w16_skip_missing && n && n->argbytes >= 0) {
+        fprintf(stderr, "w16: MISSING %s.%u %s -- answered 0 (--skip-missing)\n", name, ordinal, n->name);
+        if (g_w16_trace) {
+            fprintf(g_w16_trace, "  MISSING, answered 0\n");
+            fflush(g_w16_trace);
+        }
+        c->r[R_AX] = c->r[R_DX] = 0;
+        return n->argbytes;
     }
     if (r == -2 || (r < 0 && !c->fault)) {
         char why[96];
@@ -307,6 +319,8 @@ static int thunk(struct cpu16 *c, uint16_t sel, uint16_t ordinal) {
     }
     return r;
 }
+
+int g_w16_skip_missing;
 
 uint16_t w16_sys_push(struct w16 *w, unsigned len) {
     unsigned at = (w->sys_top + 3) & ~3u;

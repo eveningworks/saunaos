@@ -8283,3 +8283,28 @@ session through it, so test it with a detached script that rebinds the
 device if no traffic returns (`devctl`) -- and keep a replug ready.
 
 - [ ] File Manager virtual folders (Trash, Recent, search, ZIP, folder sizes) still hold 256 entries each (`PANE_FILES`). A real folder lists whole since `uui_fileview` pages `SYS_LISTDIR_AT` into its own array (the File Manager once said "256 items (more)" for a copied Windows folder of 570 files). The virtual folders keep static arrays sized `PANE_FILES` in `fm_trash.c`, `fm_recent.c`, `fm_search.c`, `fm_archive.c` and `fm_sizes.c`; their `list` callbacks are now handed a growing buffer but stop at their own bound. Uncapping each means a growing array in its source (`docs/conventions/kernel.md`, allocate and grow).
+
+### w16: Control Panel's applets working for real
+
+Chosen 2026-10-24: the shell plus Sound, International, Color, Mouse,
+Keyboard and Fonts working, their settings Windows programs' only (WIN.INI,
+as Wine keeps them); Desktop, Ports, Printers, Date/Time, Drivers, Network
+and Fax opening and saying plainly what w16 cannot. 386 Enhanced declines at
+CPL_INIT (WFWSETUP.DLL's real-mode calls) and is out of scope.
+
+Where each stood on 2026-10-24, on an installed WfW 3.11 tree (`w16
+--skip-missing` lists a program's next calls):
+
+- **Color**: opens; the schemes, the colour grid and the sample are empty --
+  it draws with regions (CreateRectRgnIndirect, FillRgn, PtInRegion), and
+  SetSysColors is missing.
+- **Fonts**: stops on "a Windows call was passed a bad pointer".
+- **Mouse**: opens; SwapMouseButton and SetDoubleClickTime are missing.
+- **Sound**: stops on "an unhandled interrupt".
+- **Printers**: "The information file is damaged" -- it reads CONTROL.INF
+  through LZEXPAND (LZOpenFile, LZRead), which w16 does not have; umsexpand
+  can stand behind it.
+- **Drivers**: lists SYSTEM.INI's drivers, then "Cannot load the MIDI
+  Mapper driver" -- OpenDriver.
+- **Desktop, Keyboard, Ports, Date/Time**: open with every control.
+

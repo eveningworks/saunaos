@@ -1655,6 +1655,8 @@ int w16_user(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (r != -2) return r;
     r = w16_api_call(g_clip_api, g_clip_api_n, w, ordinal, a);
     if (r != -2) return r;
+    r = w16_api_call(g_sysparam_api, g_sysparam_api_n, w, ordinal, a);
+    if (r != -2) return r;
     r = w16_user_misc(w, ordinal, a);
     if (r != -2) return r;
     return w16_api_call(g_user_api, sizeof g_user_api / sizeof g_user_api[0], w, ordinal, a);

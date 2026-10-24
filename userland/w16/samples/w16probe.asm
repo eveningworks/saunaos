@@ -13,6 +13,12 @@
 ;                   many of them TrueType -- Character Map's Font list
 ;           Dash=   GetTextExtent of 0x97, the em dash in 3.1's ANSI table, in Arial at 100 pixels: an em,
 ;                   about 0064 -- not a space's width, which a byte with no glyph measured
+;           Border= / Border2=  SystemParametersInfo: SPI_GETBORDER (3.1's 3 with no WIN.INI key), then
+;                   again after SPI_SETBORDER 5 for the session (0005) -- Control Panel's Desktop
+;           Title=  SPI_GETICONTITLELOGFONT's height: MS Sans Serif 8 point at 96 dpi, FFF5 (-11)
+;           Ver= / VerDest=  VerFindFile of a shared file no disk has: 0, and C:\WINDOWS\SYSTEM's length
+;                   with its NUL (0012) -- Control Panel's applets ask it at start
+;           Vis=    RectVisible on an 8x1 bitmap: a rectangle on it (0001), then one far off it (0000)
 ; Run on real Windows 3.11 for Workgroups and on w16, it is the check of both: w16_gui_test.py reads
 ; the file. No window. Its name sorts after fault.exe: tests index the samples by their place.
 ; Build: tools/gen_ne.py.
@@ -137,6 +143,82 @@ start:
     pop si
     jmp .map
 .mapped:
+
+    push word 5                     ; SystemParametersInfo(SPI_GETBORDER, 0, &value, 0)
+    push word 0
+    push ds
+    push word value
+    push word 0
+    W16_CALL "USER", 483
+    mov ax, [value]
+    mov di, border_text
+    call hex16
+    mov byte [di], 0
+    push word 6                     ; SPI_SETBORDER 5, for this run only
+    push word 5
+    push word 0
+    push word 0
+    push word 0
+    W16_CALL "USER", 483
+    push word 5                     ; SPI_GETBORDER again
+    push word 0
+    push ds
+    push word value
+    push word 0
+    W16_CALL "USER", 483
+    mov ax, [value]
+    mov di, border2_text
+    call hex16
+    mov byte [di], 0
+    push word 31                    ; SPI_GETICONTITLELOGFONT(sizeof LOGFONT, &title_lf)
+    push word 50
+    push ds
+    push word title_lf
+    push word 0
+    W16_CALL "USER", 483
+    mov ax, [title_lf]
+    mov di, title_text
+    call hex16
+    mov byte [di], 0
+
+    push word 1                     ; VerFindFile(VFFF_ISSHAREDFILE, "NOSUCH.DLL", NULL, NULL,
+    push ds                         ;   cur, &cur_len, dest, &dest_len)
+    push word nosuch
+    push word 0
+    push word 0
+    push word 0
+    push word 0
+    push ds
+    push word ver_cur
+    push ds
+    push word cur_len
+    push ds
+    push word ver_dest
+    push ds
+    push word dest_len
+    W16_CALL "VER", 8
+    mov di, ver_text
+    call hex16
+    mov byte [di], 0
+    mov ax, [dest_len]
+    mov di, verdest_text
+    call hex16
+    mov byte [di], 0
+
+    push word [mem]                 ; RectVisible(mem, on): the 8x1 bitmap is still selected
+    push ds
+    push word rect_on
+    W16_CALL "GDI", 465
+    mov di, vis_text
+    call hex16
+    push di
+    push word [mem]                 ; RectVisible(mem, off)
+    push ds
+    push word rect_off
+    W16_CALL "GDI", 465
+    pop di
+    call hex16
+    mov byte [di], 0
 
     push cs                         ; EnumFontFamilies(screen, NULL, MakeProcInstance(famproc), 0)
     push word famproc
@@ -279,7 +361,9 @@ ext_len:    dw 8
 
 keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_text
             dw key_w100, wide100_text, key_not, not_text, key_map0, map0_text, key_map1, map1_text
-            dw key_map2, map2_text, key_fam, families_text, key_tt, truetype_text, key_dash, dash_text, 0
+            dw key_map2, map2_text, key_fam, families_text, key_tt, truetype_text, key_dash, dash_text
+            dw key_border, border_text, key_border2, border2_text, key_title, title_text
+            dw key_ver, ver_text, key_verdest, verdest_text, key_vis, vis_text, 0
 key_base:   db "Base", 0
 key_async:  db "Async", 0
 key_w1000:  db "Wide1000", 0
@@ -291,6 +375,27 @@ key_map2:   db "Map2", 0
 key_fam:    db "Families", 0
 key_tt:     db "TrueType", 0
 key_dash:   db "Dash", 0
+key_border: db "Border", 0
+key_border2: db "Border2", 0
+key_title:  db "Title", 0
+key_ver:    db "Ver", 0
+key_verdest: db "VerDest", 0
+key_vis:    db "Vis", 0
+border_text: times 6 db 0
+border2_text: times 6 db 0
+title_text: times 6 db 0
+ver_text:   times 6 db 0
+verdest_text: times 6 db 0
+vis_text:   times 10 db 0
+value:      dw 0
+title_lf:   times 50 db 0
+nosuch:     db "NOSUCH.DLL", 0
+cur_len:    dw 64
+dest_len:   dw 64
+ver_cur:    times 64 db 0
+ver_dest:   times 64 db 0
+rect_on:    dw 0, 0, 4, 1
+rect_off:   dw 20, 20, 30, 30
 dash_text:  times 6 db 0
 map0_text:  times 6 db 0
 map1_text:  times 6 db 0

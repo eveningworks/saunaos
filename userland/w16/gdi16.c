@@ -2621,6 +2621,30 @@ static int api_PtVisible(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return 6;
 }
 
+// RectVisible(hdc, lprc) -> BOOL
+// RectVisibleOld(hdc, lprc) -> BOOL
+// Windows: Whether any of a rectangle, in logical units, lies inside what the DC may draw on --
+// its clipping region; RectVisibleOld is the same call's entry for programs built for Windows 3.0.
+// w16: The same, as PtVisible: against what the DC draws on and its clip rectangle.
+static int api_RectVisible(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t hdc = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    const uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, 8, 0);
+    if (!p) return -1;
+    int16_t r[4];
+    for (int i = 0; i < 4; i++) r[i] = (int16_t)(p[2 * i] | p[2 * i + 1] << 8);
+    struct gdi_target t;
+    struct w16_gdiobj *dc = target(w, hdc, &t);
+    int x0 = (dc ? dev_x(dc, r[0]) : r[0]) + t.ox, y0 = (dc ? dev_y(dc, r[1]) : r[1]) + t.oy;
+    int x1 = (dc ? dev_x(dc, r[2]) : r[2]) + t.ox, y1 = (dc ? dev_y(dc, r[3]) : r[3]) + t.oy;
+    if (x1 < x0) { int k = x0; x0 = x1; x1 = k; }      // a mapping mode can flip an axis
+    if (y1 < y0) { int k = y0; y0 = y1; y1 = k; }
+    w->cpu.r[R_AX] = dc && t.px && x0 < t.x1 && y0 < t.y1 && x1 > t.x0 && y1 > t.y0;
+    gdi_read_done(w, dc);                        // drew nothing: no repaint
+    return 6;
+}
+
 // SetBrushOrg(hdc, X, Y) -> DWORD
 // Windows: Where a hatch or pattern brush's 8 x 8 pattern starts; the old origin.
 // w16: The same.
@@ -3936,6 +3960,7 @@ const struct w16_api g_gdi_api[] = {
     { 99, api_DPtoLP },
     { 100, api_LineDDA },
     { 103, api_PtVisible },
+    { 104, api_RectVisible },
     { 106, api_BitmapBits },
     { 128, api_MulDiv },
     { 148, api_SetBrushOrg },
@@ -3967,6 +3992,7 @@ const struct w16_api g_gdi_api[] = {
     { 442, api_CreateDIBitmap },
     { 443, api_SetDIBitsToDevice },
     { 450, api_PolyPolygon },
+    { 465, api_RectVisible },
 };
 const unsigned g_gdi_api_n = sizeof g_gdi_api / sizeof g_gdi_api[0];
 

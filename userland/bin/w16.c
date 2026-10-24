@@ -54,6 +54,8 @@ static const struct uargs_opt OPTS[] = {
       NULL, &g_trace_path },
     { "why", 'w', "CALL", "say what CALL (USER.121) does and how w16 answers it, from the calls page",
       NULL, &g_why },
+    { "skip-missing", 0, NULL, "a diagnostic: answer a call w16 lacks with 0 and run on, naming it on "
+      "stderr -- to list what a program needs next, never to run it for real", &g_w16_skip_missing, NULL },
     { "install", 0, "DISKS", "install Windows 3.x onto drive C: from its disks: a folder of their files, "
       "a folder per disk, or the floppy images", NULL, &g_install },
     { "dry-run", 'n', NULL, "with --install, say what would go where and change nothing", &g_dry_run, NULL },

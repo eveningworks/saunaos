@@ -678,11 +678,16 @@ struct w16_wnd *w16_dlg_from_template(struct w16 *w, const uint8_t *tmpl, uint32
 
 // --- the exports ------------------------------------------------------------------
 
-// The DIALOG resource a template argument names; -1 when none.
-static int find_template(struct w16 *w, uint32_t tmpl, struct ne_resource *res) {
+// The DIALOG resource a template argument names, in hInst's own module -- a DLL's
+// when a DLL asks, as Control Panel's applets do; -1 when none.
+static int find_template(struct w16 *w, uint16_t inst, uint32_t tmpl, struct ne_resource *res,
+                         const struct ne_module **in) {
     char name[64] = "";
     if (tmpl >> 16 && get_str(w, tmpl, name, sizeof name) < 0) return -2;
-    return w16_res_find(w, NE_RT_DIALOG, 0, (uint16_t)(tmpl >> 16 ? 0 : tmpl), tmpl >> 16 ? name : 0, res);
+    const struct ne_module *m = inst ? w16_module_of(w, inst) : &w->ne;
+    *in = m ? m : &w->ne;
+    int i = ne_resource_find(*in, NE_RT_DIALOG, 0, (uint16_t)(tmpl >> 16 ? 0 : tmpl), tmpl >> 16 ? name : 0, res);
+    return i < 0 ? -1 : i;
 }
 
 static int run_template(struct w16 *w, const uint8_t *p, uint32_t n, uint16_t inst, uint16_t owner, uint32_t proc,
@@ -699,11 +704,12 @@ static int dialog(struct w16 *w, struct w16_args *a, int with_param, int modal) 
     uint32_t param = with_param ? w16_arg32(a) : 0;
     int pop = with_param ? 16 : 12;
     struct ne_resource res;
-    int found = find_template(w, tmpl, &res);
+    const struct ne_module *m;
+    int found = find_template(w, inst, tmpl, &res, &m);
     if (found == -2) return -1;
     c->r[R_AX] = modal ? 0xFFFF : 0;
     if (found < 0) return pop;
-    return run_template(w, w->ne.img + res.off, res.len, inst, owner, proc, param, modal, pop);
+    return run_template(w, m->img + res.off, res.len, inst, owner, proc, param, modal, pop);
 }
 
 // A DIALOG template's dialog made, then run when modal: the dialog's

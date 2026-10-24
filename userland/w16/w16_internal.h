@@ -444,6 +444,7 @@ struct w16 {
 
 extern struct w16 g_w16;
 #include <stdio.h>
+extern int g_w16_skip_missing;                    // --skip-missing: a diagnostic, never a way to run
 extern FILE *g_w16_trace;                        // --trace FILE: each call into KERNEL/USER/GDI
 extern pthread_mutex_t g_w16_text_lock;          // ugfx's text is not thread-safe
 
@@ -941,6 +942,14 @@ char *w16_clip_get_text(int *n);
 uint16_t w16_clip_get(struct w16 *w, uint16_t format);
 void w16_clip_set(struct w16 *w, uint16_t format, uint16_t h);
 extern const struct w16_api g_clip_api[];
+// ver16.c: VER.DLL, where a file is installed and where it belongs.
+extern const struct w16_api g_ver_api[];
+extern const unsigned g_ver_api_n;
+// sysparam16.c: SystemParametersInfo, and the settings it keeps in WIN.INI.
+extern const struct w16_api g_sysparam_api[];
+extern const unsigned g_sysparam_api_n;
+// A system setting as a program sees it: this run's value, else WIN.INI's, else `dflt`.
+int w16_sysparam(const char *sec, const char *key, int dflt);
 extern const unsigned g_clip_api_n;
 // A bitmap's pixels as GDI keeps them (not copied) and its size; NULL: not
 // a bitmap. And a new colour bitmap of `px` (copied): its handle, 0 none.

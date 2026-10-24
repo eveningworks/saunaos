@@ -36,14 +36,14 @@ uint16_t w16_res_load(struct w16 *w, unsigned index) {
     return w->res_sel[index];
 }
 
-// String `id` from the RT_STRING tables into out (NUL-terminated); its
-// length, or -1 when there is none.
-int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap) {
+// String `id` from module `m`'s RT_STRING tables into out (NUL-terminated);
+// its length, or -1 when there is none.
+static int load_string_in(const struct ne_module *m, uint16_t id, char *out, unsigned cap) {
     struct ne_resource r;
     if (cap == 0) return -1;
     out[0] = 0;
-    if (ne_resource_find(&w->ne, NE_RT_STRING, 0, (uint16_t)(id / 16 + 1), 0, &r) < 0) return -1;
-    const uint8_t *p = w->ne.img + r.off, *end = p + r.len;
+    if (!m || ne_resource_find(m, NE_RT_STRING, 0, (uint16_t)(id / 16 + 1), 0, &r) < 0) return -1;
+    const uint8_t *p = m->img + r.off, *end = p + r.len;
     for (unsigned k = 0; k < (unsigned)(id % 16); k++) {
         if (p >= end) return -1;
         p += 1 + *p;
@@ -56,6 +56,8 @@ int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap) {
     out[n] = 0;
     return (int)n;
 }
+
+int w16_load_string(struct w16 *w, uint16_t id, char *out, unsigned cap) { return load_string_in(&w->ne, id, out, cap); }
 
 // FindResource(hInst, lpName, lpType) -> HRSRC
 // Windows: Finds a resource in a module's resource table -- a bitmap, an icon, a dialog template, a
@@ -162,14 +164,15 @@ int w16_kernel_res(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return w16_api_call(g_kernel_res_api, sizeof g_kernel_res_api / sizeof g_kernel_res_api[0], w, ordinal, a);
 }
 
-// USER.176 LoadString(hInst, id, lpBuffer, cbBuffer): the length copied.
+// USER.176 LoadString(hInst, id, lpBuffer, cbBuffer): the length copied -- from hInst's own
+// module, a DLL's when a DLL asks (Control Panel's applets name themselves from theirs).
 int w16_user_loadstring(struct w16 *w, struct w16_args *a) {
-    w16_arg16(a);
+    uint16_t inst = w16_arg16(a);
     uint16_t id = w16_arg16(a);
     uint32_t buf = w16_arg32(a);
     uint16_t cap = w16_arg16(a);
     char tmp[256];
-    int n = w16_load_string(w, id, tmp, sizeof tmp);
+    int n = load_string_in(inst ? w16_module_of(w, inst) : &w->ne, id, tmp, sizeof tmp);
     if (n < 0 || cap == 0) { w->cpu.r[R_AX] = 0; return 10; }
     if ((unsigned)n >= cap) n = cap - 1;
     uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(buf >> 16), (uint16_t)buf, (uint32_t)n + 1, 1);

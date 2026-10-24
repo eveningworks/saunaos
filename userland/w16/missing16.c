@@ -133,12 +133,6 @@
 // follow real regions.
 // By: FRAMEWRK.DLL, USER.EXE
 
-// GDI.104 RectVisibleOld(hDC, lpRect) -> BOOL
-// Windows: RectVisible's older entry, for programs built for Windows 3.0: whether any of a
-// rectangle lies inside a DC's clipping.
-// Why: Not written yet, nor RectVisible itself: w16's DC keeps a clip rectangle, which answers it.
-// By: CLIPBRD.EXE, COMMCTRL.DLL, CONTROL.EXE, FRAMEWRK.DLL, MPLAYER.EXE, PROGMAN.EXE, and 4 more
-
 // GDI.105 SelectVisRgn(hDC, hRgn) -> int
 // Windows: Sets a DC's visible region -- USER's, when it hands out a window's DC.
 // Why: Windows' own, as IntersectVisRect.
@@ -2129,13 +2123,6 @@
 // first; this is the older, wider protocol.
 // By: PROGMAN.EXE, WINFILE.EXE
 
-// USER.483 SystemParametersInfo(uAction, uParam, lpvParam, fuWinIni) -> BOOL
-// Windows: Reads or sets one of Windows' settings -- the screen saver, the icon spacing, the
-// keyboard speed -- by its SPI_ number.
-// Why: Not written yet: reading would answer toy-os's settings or 3.1's defaults per SPI_ value;
-// setting them is not a program's.
-// By: CONTROL.EXE, MAIN.CPL, MIDIMAP.DRV, MPLAYER.EXE, PROGMAN.EXE, SND.CPL, and 2 more
-
 // USER.499 WNetErrorText(wError, lpBuffer, nBufferSize) -> WORD
 // Windows: The text of a network error.
 // Why: The WNet calls are the network's: toy-os's SMB mounts are drives to w16, with no network
@@ -2285,11 +2272,6 @@
 // Windows: Reads a file's VERSIONINFO resource.
 // Why: As GetFileResource.
 // By: DRIVERS.CPL, WFWSETUP.DLL, WINFILE.EXE, WINSETUP.EXE
-
-// VER.8 VerFindFile(fuFlags, szFileName, szWinDir, szAppDir, szCurDir, lpuCurDirLen, szDestDir, lpuDestDirLen) -> UINT
-// Windows: Where an installer should put a file, and where an older copy is.
-// Why: As GetFileResource: Setup's.
-// By: MAIN.CPL
 
 // VER.9 VerInstallFile(fuFlags, szSrcFileName, szDestFileName, szSrcDir, szDestDir, szCurDir, szTmpFile, lpuTmpFileLen) -> DWORD
 // Windows: Copies a file into place if it is newer, expanding it on the way.
