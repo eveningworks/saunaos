@@ -241,6 +241,19 @@ checks w16's x87 against the host CPU, and `w16_gui_test.py`'s
 fpu.exe asks QEMU (`info kvm`) which to expect -- Codes=8381 under
 TCG, 83818A (the stack overflow too) under KVM or on hardware.
 
+**UNDER TCG, A BUSY LOOP ON A MEMORY COUNTER CAN RUN ~100x SLOWER,
+DEPENDING ON WHICH FRAME IT GOT.** When a frame that held executed code
+(a reaped process's text) comes back as a stack page, QEMU keeps its
+translations for that frame and sends every write to it down the
+self-modifying-code slow path. `info jit` shows no invalidations
+during the slowdown, and the TB count stays flat. `spin_test`'s
+`volatile` stack counter took 57-61 s of CPU instead of 0.5 s, in
+4 boots of 5 after an unrelated change moved the memory layout
+(2026-10-24, measured with a probe in `sched_test.c`). Real hardware
+and KVM have no such path. A spin meant to burn CPU keeps its counter
+in a REGISTER (`spin_test.c`); a test that times a ring-3 loop under
+TCG is timing the frame allocator as well.
+
 **USB PASSTHROUGH BREAKS ISOCHRONOUS OUT PACKETS WHOSE LENGTH VARIES --
 UNDER KVM AS WELL AS TCG.** 44.1 kHz at high speed is 5 or 6 frames a
 microframe; through a guest owning the G6 (`vm.py --usb-host 041e:3256`)

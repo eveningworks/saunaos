@@ -61,7 +61,12 @@ static int parse_rounds(const char *s) {
 int main(int argc, char **argv) {
     int rounds = argc > 1 ? parse_rounds(argv[1]) : OUTER_DEFAULT;
     for (int i = 0; i < rounds; i++) {
-        for (volatile uint32_t j = 0; j < SPIN_ITERS; j++) { }
+        // THE COUNTER STAYS IN A REGISTER. A `volatile` stack counter
+        // ran ~100x slower under TCG when the stack's frame had held
+        // code (QEMU keeps its translations and takes the slow path on
+        // every write to that frame), and sched_test.c's 30 s guard
+        // then failed 4 runs in 5. The empty asm keeps the loop.
+        for (uint32_t j = 0; j < SPIN_ITERS; j++) __asm__ volatile("" : "+r"(j));
     }
     sys_exit(0);
 }
