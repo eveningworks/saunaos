@@ -73,6 +73,7 @@ FILES = [
     (2, "KBDFI.DLL", S, None),           # [keyboard.tables] findll
     (1, "SETUP.INF", S, None),           # Setup keeps itself
 ]
+INI_FILES = ("WINDOWS/WIN.INI", "WINDOWS/SYSTEM.INI")
 # On the disks and named in SETUP.INF, but not for this machine: never installed.
 DECOYS = [(2, "8514.DRV"), (2, "8514SYS.FON"), (3, "SSERIFF.FON"), (2, "KBDUS.DLL"), (2, "LANGGER.DLL"),
           (2, "VGA850.FON"), (2, "CGA40850.FON"), (2, "LMOUSE.DRV")]
@@ -198,6 +199,55 @@ sound    =    2:mmsound.drv
 deu = 2:langger.dll, "German"  ,1031
 fin = 2:langsca.dll, "Finnish" ,1035
 """
+
+
+# What Setup writes into the two INI files besides the template's own lines, by THIS file's reading
+# of the INF above: WIN.INI's [fonts] (VGA-resolution and plotter raster fonts, each TrueType face),
+# SYSTEM.INI's chosen drivers, their descriptions and the keyboard. Placeholders a template leaves
+# empty are filled; a key the file already has is left as it is.
+INI_WANT = {
+    "WINDOWS/WIN.INI": {
+        "fonts": {"MS Sans Serif (VGA res)": "SSERIFE.FON", "Roman (Plotter)": "ROMAN.FON",
+                  "Arial (TrueType)": "ARIAL.FOT"},
+    },
+    "WINDOWS/SYSTEM.INI": {
+        "boot": {"shell": "progman.exe", "system.drv": "system.drv", "sound.drv": "mmsound.drv",
+                 "keyboard.drv": "keyboard.drv", "mouse.drv": "mouse.drv", "display.drv": "vga.drv",
+                 "386grabber": "vga.3gr", "fonts.fon": "vgasys.fon", "language.dll": "langsca.dll"},
+        "boot.description": {"mouse.drv": "Microsoft, or IBM PS/2", "display.drv": "VGA",
+                             "aspect": "100,96,96", "language.dll": "Finnish", "codepage": "437",
+                             "woafont.fon": "English (437)"},
+        "keyboard": {"type": "4", "keyboard.dll": "kbdfi.dll"},
+    },
+}
+
+
+def ini_sections(data):
+    """An INI's [section] -> {key: value} (keys lower case), and its lines outside any section."""
+    secs, loose, cur = {}, [], None
+    for line in data.decode("latin-1").splitlines():
+        t = line.strip()
+        if t.startswith("[") and "]" in t:
+            cur = t[1:t.index("]")].lower()
+            secs.setdefault(cur, {})
+        elif cur is None:
+            loose.append(line)
+        elif "=" in t:
+            k, _, v = t.partition("=")
+            secs[cur][k.strip().lower()] = v.strip()
+    return secs, loose
+
+
+def ini_ok(path, got, template):
+    """Whether an installed INI is its template plus INI_WANT[path]: the template's own lines first,
+    then exactly the keys wanted. A sentence saying what differs, or ''."""
+    secs, loose = ini_sections(got)
+    if loose[:len(template.decode("latin-1").splitlines())] != template.decode("latin-1").splitlines():
+        return "the template's own lines are not kept"
+    want = {sec: {k.lower(): v for k, v in keys.items()} for sec, keys in INI_WANT.get(path, {}).items()}
+    if secs != want:
+        return "sections %s, wanted %s" % (secs, want)
+    return ""
 
 
 def content(name):

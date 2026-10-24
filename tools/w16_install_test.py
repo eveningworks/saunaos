@@ -117,8 +117,17 @@ def cli(g, tmp):
         p = line.split()
         if len(p) >= 5 and p[0] == "-":
             sizes["%s/%s" % (where, p[-1])] = int(p[1])
-    bad = sorted(set(want) ^ set(sizes)) + sorted(p for p in want if p in sizes and sizes[p] != len(want[p]))
+    bad = sorted(set(want) ^ set(sizes)) + sorted(p for p in want if p in sizes and sizes[p] != len(want[p])
+                                                  and p not in gen_win3_disks.INI_FILES)
     check("every file in its folder at its size, nothing else (%d files)" % len(want), not bad, ", ".join(bad[:6]))
+    why = []
+    for p in gen_win3_disks.INI_FILES:              # its template, plus the lines Setup writes
+        text = g.sh("cat /home/Win16/" + p).split("---\n", 1)[-1].encode("latin-1")
+        w = gen_win3_disks.ini_ok(p, text.replace(b"\n", b"\r\n"), want[p])
+        if w:
+            why.append("%s: %s" % (p, w))
+    check("WIN.INI and SYSTEM.INI are their templates plus the [fonts], [boot] and [keyboard] Setup writes",
+          not why, "; ".join(why))
     out = g.sh("cat /home/Win16/WINDOWS/SYSTEM/MAIN.CPL", "cat /home/Win16/WINDOWS/WINVER.EXE")
     check("their contents expand from the KWAJ files", "test file MAIN.CPL" in out and "MZw16 installer test file WINVER" in out,
           out[:200])

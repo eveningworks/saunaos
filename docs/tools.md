@@ -8572,12 +8572,16 @@ runs first**: a `doom1.wad` with one
   `gen_win3_disks.py` in all four forms (one folder, a folder per disk,
   floppy images, a mix) must install EXACTLY that generator's own table of
   files, folders and bytes -- decoys absent, no `.part` left; INI files kept
-  or replaced as asked; a missing file planned as missing and the install
+  or replaced as asked, each with Setup's `[fonts]`, `[boot]`,
+  `[boot.description]` and `[keyboard]` lines and unchanged by a second
+  run; a missing file planned as missing and the install
   stopping on it; a folder with no SETUP.INF refused. With
   `~/CodingProjects/toy-osother` here (local only): from the English folder
   and from its eight floppy images, every file must land where Express
   Setup put it on the reference VM (`win311-vm/win311.img`, read with
-  mtools) and match libmspack's expansion; the Finnish set must plan with
+  mtools) and match libmspack's expansion, and the INI lines Setup wrote
+  must match the reference's (`REF_INI_SKIP` names the few that depend on
+  the network or Setup's own run); the Finnish set must plan with
   nothing missing. Then mutated SETUP.INFs and damaged compressed files.
   `--positive-control` sends `0:system` sections to WINDOWS (placement goes
   red) and unbounds a field (UBSan goes red). In `preflight.sh`.

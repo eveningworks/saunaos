@@ -122,7 +122,12 @@ def synthetic(exe, tmp):
         os.makedirs(c)
         out = run(exe, "run", src, c, "keep")
         got = tree(c)
-        bad = sorted(set(want) ^ set(got)) + sorted(p for p in want if p in got and got[p] != want[p])
+        bad = sorted(set(want) ^ set(got)) + sorted(p for p in want if p in got and got[p] != want[p]
+                                                    and p not in gen_win3_disks.INI_FILES)
+        for p in gen_win3_disks.INI_FILES:          # an INI is its template plus what Setup writes
+            why = gen_win3_disks.ini_ok(p, got.get(p, b""), want.get(p, b""))
+            if why:
+                bad.append("%s: %s" % (p, why))
         check("%s: the installed tree is exactly the expected %d files" % (form, len(want)),
               "run 0" in out and not bad, (out.strip().splitlines() or ["?"])[-1] + " " + ", ".join(bad[:5]))
         if form == "flat":
@@ -135,9 +140,16 @@ def synthetic(exe, tmp):
     with open(ini, "wb") as f:
         f.write(b"[mine]\r\n")
     run(exe, "run", src, c, "keep")
-    check("an existing WIN.INI is kept when asked", open(ini, "rb").read() == b"[mine]\r\n")
+    kept, _ = gen_win3_disks.ini_sections(open(ini, "rb").read())
+    check("an existing WIN.INI is kept when asked, gaining the [fonts] Setup writes",
+          "mine" in kept and kept.get("fonts", {}).get("arial (truetype)") == "ARIAL.FOT", str(kept))
+    before = {n: open(os.path.join(c, "WINDOWS", n), "rb").read() for n in ("WIN.INI", "SYSTEM.INI")}
+    run(exe, "run", src, c, "keep")
+    check("installing again changes neither INI file",
+          all(open(os.path.join(c, "WINDOWS", n), "rb").read() == b for n, b in before.items()))
     run(exe, "run", src, c, "replace")
-    check("...and replaced from WIN.SRC when not", open(ini, "rb").read() == gen_win3_disks.content("WIN.SRC"))
+    why = gen_win3_disks.ini_ok("WINDOWS/WIN.INI", open(ini, "rb").read(), gen_win3_disks.content("WIN.SRC"))
+    check("...and made afresh from WIN.SRC when not", not why, why)
 
     broken, c = os.path.join(tmp, "src-missing"), os.path.join(tmp, "C-missing")
     shutil.copytree(src, broken)
@@ -169,6 +181,37 @@ def reference_tree():
     return ref
 
 
+# Express Setup's lines this does not write: the network's, which come from a network setup w16 has
+# no network for, and SYSTEM.SRC's empty taskman.exe placeholder, which Setup removed.
+REF_INI_SKIP = {("boot.description", "network.drv"), ("boot.description", "secondnet.drv"),
+                ("boot", "taskman.exe")}
+
+
+def reference_ini(name):
+    if not os.path.exists(REF_IMG) or not shutil.which("mtype"):
+        return None
+    out = subprocess.run(["mtype", "-i", REF_IMG + "@@32256", "::/WINDOWS/" + name], capture_output=True,
+                         env=dict(os.environ, MTOOLS_SKIP_CHECK="1")).stdout
+    return gen_win3_disks.ini_sections(out)[0]
+
+
+def ini_against_reference(got):
+    """WIN.INI's [fonts] and SYSTEM.INI's [boot], [boot.description], [keyboard] as Express Setup wrote them."""
+    for name, secs in (("WIN.INI", ("fonts",)), ("SYSTEM.INI", ("boot", "boot.description", "keyboard"))):
+        ref = reference_ini(name)
+        if ref is None:
+            print("  (no reference VM here: %s not compared)" % name)
+            continue
+        ours = gen_win3_disks.ini_sections(got[name][1])[0]
+        diff = []
+        for sec in secs:
+            a, b = ours.get(sec, {}), ref.get(sec, {})
+            diff += ["[%s] %s: %r, Setup %r" % (sec, k, a.get(k), b.get(k)) for k in sorted(set(a) | set(b))
+                     if a.get(k) != b.get(k) and (sec, k) not in REF_INI_SKIP]
+        check("%s's %s as Express Setup wrote them" % (name, ", ".join("[%s]" % x for x in secs)),
+              not diff, "; ".join(diff[:4]))
+
+
 def real_disks(exe, tmp):
     if not os.path.isdir(W311):
         print("real disks: SKIPPED -- %s is not here (Microsoft's files stay local)" % W311)
@@ -186,13 +229,15 @@ def real_disks(exe, tmp):
         out = run(exe, "run", src, c, "keep")
         got = {p.split("/")[-1]: ("S" if p.startswith("WINDOWS/SYSTEM/") else "W", b) for p, b in tree(c).items()}
         wrong = [n for n, (d, _) in got.items() if ref is not None and ref.get(n) != d]
-        bytes_bad = [n for n, (_, b) in got.items()
-                     if open(os.path.join(expd, exp.get(renamed.get(n, n), "?")), "rb").read() != b] \
+        bytes_bad = [n for n, (_, b) in got.items() if n not in ("WIN.INI", "SYSTEM.INI")
+                     and open(os.path.join(expd, exp.get(renamed.get(n, n), "?")), "rb").read() != b] \
             if all(renamed.get(n, n) in exp for n in got) else ["(a file with no expanded twin)"]
         check("%s: %d files, each where Express Setup put it%s" %
               (label, len(got), "" if ref is not None else " (no reference VM here: placement not compared)"),
               "run 0" in out and not wrong and len(got) > 200, ", ".join(wrong[:6]) or out.strip()[-120:])
         check("%s: every file as libmspack expands it" % label, not bytes_bad, ", ".join(bytes_bad[:6]))
+        if label.endswith("images"):
+            ini_against_reference(got)
     fi = os.path.join(W311, "fi", "install")
     if os.path.isdir(fi):
         out = run(exe, "plan", fi)

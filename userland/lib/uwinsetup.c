@@ -36,7 +36,15 @@ struct section {
     int first, count;
 };
 
+// A line Setup would have written into WIN.INI or SYSTEM.INI: added at the end of its section
+// when the key is not there, so a kept INI gains it and keeps every value of the user's.
+struct inikey {
+    char file[12], sec[24], key[64], val[96];
+};
+
 struct uwinsetup {
+    struct inikey *ini;
+    int nini, capini;
     struct container *c;
     int nc, capc;
     char *inf;                     // SETUP.INF's text, split into lines in place
@@ -480,6 +488,118 @@ static void data_value(const struct uwinsetup *s, const char *key, char *out, si
     scopy(out, cap, v && f[0][0] ? f[0] : dflt);
 }
 
+static int nospace_eq(const char *a, const char *b);
+
+static int ini_add(struct uwinsetup *s, const char *file, const char *sec, const char *key, const char *val) {
+    if (grow((void **)&s->ini, &s->capini, s->nini + 1, sizeof *s->ini)) return -ENOMEM;
+    struct inikey *k = &s->ini[s->nini++];
+    scopy(k->file, sizeof k->file, file);
+    scopy(k->sec, sizeof k->sec, sec);
+    scopy(k->key, sizeof k->key, key);
+    scopy(k->val, sizeof k->val, val);
+    return 0;
+}
+
+// A driver's file as SYSTEM.INI names it: lower case, "MOUSE.DRV" -> "mouse.drv".
+static void lower_into(char *out, size_t cap, const char *in) {
+    size_t i = 0;
+    for (; in[i] && i + 1 < cap; i++) out[i] = low(in[i]);
+    out[i] = 0;
+}
+
+// `key = 2:file.drv, "Description", ...` in `sec`: the file (lower case) and the description;
+// 0 when there is no such line.
+static int choice(const struct uwinsetup *s, const char *sec, const char *key, char *file, size_t fcap,
+                  char *desc, size_t dcap) {
+    const char *v = value_of(s, sec, key);
+    if (!v) return 0;
+    char f[FIELDS][FIELD], name[NAME_MAX_DOS + 1];
+    int n = fields(v, f), d;
+    file[0] = desc[0] = 0;
+    if (n > 0 && file_ref(f[0], &d, name)) lower_into(file, fcap, name);
+    if (n > 1) scopy(desc, dcap, f[1]);
+    return 1;
+}
+
+// SYSTEM.INI's [boot], [boot.description] and [keyboard] for the machine w16 is, and WIN.INI's
+// [fonts] -- what Setup wrote beside the files (Control Panel's Fonts reads [fonts]). [386Enh] is
+// left out: it describes DOS virtual machines, and w16 runs none.
+static int plan_ini(struct uwinsetup *s) {
+    char file[NAME_MAX_DOS + 1], desc[96], f[FIELDS][FIELD], name[NAME_MAX_DOS + 1];
+    int r = 0, d;
+    r |= ini_add(s, "SYSTEM.INI", "boot", "shell", "progman.exe");
+    const char *mach = value_of(s, "machine", "ibm_compatible");
+    if (mach && fields(mach, f) > 0) r |= ini_add(s, "SYSTEM.INI", "boot.description", "system.drv", f[0]);
+    static const struct { const char *sec, *key, *boot; } DRV[] = {
+        { "system", "system", "system.drv" }, { "system", "sound", "sound.drv" }, { "system", "comm", "comm.drv" },
+        { "keyboard.drivers", "kbd", "keyboard.drv" },
+    };
+    for (size_t i = 0; i < sizeof DRV / sizeof DRV[0]; i++)
+        if (choice(s, DRV[i].sec, DRV[i].key, file, sizeof file, desc, sizeof desc))
+            r |= ini_add(s, "SYSTEM.INI", "boot", DRV[i].boot, file);
+    if (choice(s, "pointing.device", "ps2mouse", file, sizeof file, desc, sizeof desc)) {
+        r |= ini_add(s, "SYSTEM.INI", "boot", "mouse.drv", file);
+        r |= ini_add(s, "SYSTEM.INI", "boot.description", "mouse.drv", desc);
+    }
+    const char *vga = value_of(s, "display", "vga");
+    if (vga) {
+        int n = fields(vga, f);
+        if (n > 0 && file_ref(f[0], &d, name)) { lower_into(file, sizeof file, name); r |= ini_add(s, "SYSTEM.INI", "boot", "display.drv", file); }
+        if (n > 1) r |= ini_add(s, "SYSTEM.INI", "boot.description", "display.drv", f[1]);
+        if (n > 2) r |= ini_add(s, "SYSTEM.INI", "boot.description", "aspect", f[2]);
+        for (int k = 0; k < n; k++)
+            if (file_ref(f[k], &d, name) && ends_with(name, ".3GR")) {
+                lower_into(file, sizeof file, name);
+                r |= ini_add(s, "SYSTEM.INI", "boot", "386grabber", file);
+            }
+    }
+    static const struct { const char *sec, *boot; } FON[] = {
+        { "sysfonts", "fonts.fon" }, { "fixedfonts", "fixedfon.fon" }, { "oemfonts", "oemfonts.fon" },
+    };
+    for (size_t i = 0; i < 3; i++) {
+        const struct section *fs = section(s, FON[i].sec);
+        for (int k = 0; fs && k < fs->count; k++) {
+            int n = fields(s->lines[fs->first + k], f);
+            if (n > 2 && nospace_eq(f[2], s->res) && file_ref(f[0], &d, name)) {
+                lower_into(file, sizeof file, name);
+                r |= ini_add(s, "SYSTEM.INI", "boot", FON[i].boot, file);
+                break;
+            }
+        }
+    }
+    // The language and the keyboard layout: "" for US English, which needs neither file.
+    char lang_file[NAME_MAX_DOS + 1] = "";
+    if (choice(s, "language", s->lang, lang_file, sizeof lang_file, desc, sizeof desc)) {
+        r |= ini_add(s, "SYSTEM.INI", "boot", "language.dll", lang_file);
+        r |= ini_add(s, "SYSTEM.INI", "boot.description", "language.dll", desc);
+    }
+    const char *kt = value_of(s, "keyboard.types", "t4s0enha");
+    if (kt && fields(kt, f) > 0) r |= ini_add(s, "SYSTEM.INI", "boot.description", "keyboard.typ", f[0]);
+    r |= ini_add(s, "SYSTEM.INI", "keyboard", "type", "4");
+    char kbd_dll[NAME_MAX_DOS + 1] = "";
+    if (!same(s->keydll, "usadll")) choice(s, "keyboard.tables", s->keydll, kbd_dll, sizeof kbd_dll, desc, sizeof desc);
+    r |= ini_add(s, "SYSTEM.INI", "keyboard", "keyboard.dll", kbd_dll);
+    const char *cp = value_of(s, "codepages", s->xlat);
+    if (cp) {
+        int n = fields(cp, f);
+        r |= ini_add(s, "SYSTEM.INI", "boot.description", "codepage", s->xlat);
+        if (n > 3) r |= ini_add(s, "SYSTEM.INI", "boot.description", "woafont.fon", f[3]);
+    }
+    // WIN.INI's [fonts]: each raster font for VGA's resolution or a plotter, each TrueType face.
+    const struct section *fs = section(s, "fonts");
+    for (int k = 0; fs && k < fs->count; k++) {
+        int n = fields(s->lines[fs->first + k], f);
+        if (n > 2 && (nospace_eq(f[2], s->res) || same(f[2], "CONTINUOUSSCALING")) && file_ref(f[0], &d, name))
+            r |= ini_add(s, "WIN.INI", "fonts", f[1], name);
+    }
+    const struct section *tt = section(s, "ttfonts");
+    for (int k = 0; tt && k < tt->count; k++) {
+        int n = fields(s->lines[tt->first + k], f);
+        if (n > 1 && file_ref(f[0], &d, name)) r |= ini_add(s, "WIN.INI", "fonts", f[1], name);
+    }
+    return r ? -ENOMEM : 0;
+}
+
 static int nospace_eq(const char *a, const char *b) {
     for (;;) {
         while (*a == ' ') a++;
@@ -604,6 +724,8 @@ static int plan(struct uwinsetup *s) {
         scopy(s->items[s->nitems - 1].want, sizeof s->items[0].want, file);
     }
 
+    if ((r = plan_ini(s))) return r;
+
     // Where each is on these disks, and how big it will be.
     for (int i = 0; i < s->nitems; i++) {
         struct uws_item *it = &s->items[i];
@@ -691,6 +813,7 @@ void uwinsetup_close(struct uwinsetup *s) {
     free(s->lines);
     free(s->secs);
     free(s->items);
+    free(s->ini);
     free(s);
 }
 
@@ -793,6 +916,127 @@ static int install_one(struct uwinsetup *s, struct uws_item *it, const char *dir
     return 0;
 }
 
+// A key is there when a line in the section starts with it and '=' -- no case, spaces around it:
+// 1, or 2 when its value is empty (a template's placeholder, SYSTEM.SRC's "display.drv="), with
+// *eq where the line's end is, to fill it.
+static int has_key(const char *text, size_t a, size_t b, const char *key, size_t *eq) {
+    size_t k = strlen(key);
+    for (size_t i = a; i < b;) {
+        size_t e = i;
+        while (e < b && text[e] != '\n') e++;
+        size_t j = i;
+        while (j < e && (text[j] == ' ' || text[j] == '\t')) j++;
+        if (e - j > k) {
+            size_t m = 0;
+            while (m < k && up(text[j + m]) == up(key[m])) m++;
+            size_t t = j + m;
+            while (m == k && t < e && (text[t] == ' ' || text[t] == '\t')) t++;
+            if (m == k && t < e && text[t] == '=') {
+                size_t v = t + 1;
+                while (v < e && (text[v] == ' ' || text[v] == '\t' || text[v] == '\r')) v++;
+                *eq = t + 1;
+                return v == e ? 2 : 1;
+            }
+        }
+        i = e + 1;
+    }
+    return 0;
+}
+
+// Writes `file`'s keys into <dir>/<file>: each absent one at its section's end, a new section at
+// the file's end, in the file's own line endings; written through a .part and a rename.
+static int apply_ini(struct uwinsetup *s, const char *dir, const char *file, char *err, size_t errcap) {
+    char path[1024], part[1100];
+    if (join(path, sizeof path, dir, file) || join(part, sizeof part, dir, file)) return -ENAMETOOLONG;
+    strcat(part, ".part");
+    size_t n = 0;
+    uint8_t *old = slurp(path, INF_MAX, &n, 0);
+    char *text = malloc(n + 1);
+    if (!text) { free(old); return -ENOMEM; }
+    if (old) memcpy(text, old, n);
+    text[n] = 0;
+    free(old);
+    const char *eol = strstr(text, "\r\n") || !n ? "\r\n" : "\n";
+    int changed = 0;
+    for (int i = 0; i < s->nini; i++) {
+        const struct inikey *k = &s->ini[i];
+        if (!same(k->file, file)) continue;
+        // The section: its header's line, and where it ends (the next header, or the end).
+        size_t len = strlen(text), a = len, b = len, at = 0;
+        int found = 0;
+        while (at < len) {
+            size_t e = at;
+            while (e < len && text[e] != '\n') e++;
+            size_t j = at;
+            while (j < e && (text[j] == ' ' || text[j] == '\t')) j++;
+            if (j < e && text[j] == '[') {
+                if (found) { b = at; break; }
+                size_t q = j + 1, m = 0, sl = strlen(k->sec);
+                while (m < sl && q + m < e && up(text[q + m]) == up(k->sec[m])) m++;
+                if (m == sl && q + m < e && text[q + m] == ']') { found = 1; a = e < len ? e + 1 : e; }
+            }
+            at = e + 1;
+        }
+        size_t eq = 0;
+        int there = found ? has_key(text, a, b, k->key, &eq) : 0;
+        if (there == 1 || (there == 2 && !k->val[0])) continue;
+        if (there == 2) {                                  // the placeholder's blanks become the value
+            size_t blank = 0;
+            while (eq + blank < len && (text[eq + blank] == ' ' || text[eq + blank] == '\t')) blank++;
+            memmove(text + eq, text + eq + blank, len - eq - blank + 1);
+            len -= blank;
+            size_t vl = strlen(k->val);
+            char *t = realloc(text, len + vl + 1);
+            if (!t) { free(text); return -ENOMEM; }
+            text = t;
+            memmove(text + eq + vl, text + eq, len - eq + 1);
+            memcpy(text + eq, k->val, vl);
+            changed = 1;
+            continue;
+        }
+        // The key goes after the section's last line that is not blank, so the blank line
+        // between two sections stays between them.
+        if (found) {
+            size_t last = a;
+            for (size_t i = a; i < b;) {
+                size_t e = i;
+                while (e < b && text[e] != '\n') e++;
+                for (size_t q = i; q < e; q++)
+                    if (text[q] != ' ' && text[q] != '\t' && text[q] != '\r') { last = e < b ? e + 1 : e; break; }
+                i = e + 1;
+            }
+            b = last;
+        }
+        char line[256];
+        int ln = found ? snprintf(line, sizeof line, "%s=%s%s", k->key, k->val, eol)
+                       : snprintf(line, sizeof line, "%s[%s]%s%s=%s%s", len && text[len - 1] != '\n' ? eol : "",
+                                  k->sec, eol, k->key, k->val, eol);
+        if (ln < 0 || (size_t)ln >= sizeof line) continue;
+        size_t pos = found ? b : len;
+        if (found && pos > 0 && text[pos - 1] != '\n') {      // a section that ends the file with no newline
+            memmove(line + strlen(eol), line, (size_t)ln + 1);
+            memcpy(line, eol, strlen(eol));
+            ln += (int)strlen(eol);
+        }
+        char *t = realloc(text, len + (size_t)ln + 1);
+        if (!t) { free(text); return -ENOMEM; }
+        text = t;
+        memmove(text + pos + ln, text + pos, len - pos + 1);
+        memcpy(text + pos, line, (size_t)ln);
+        changed = 1;
+    }
+    int r = 0;
+    if (changed) {
+        FILE *f = fopen(part, "wb");
+        size_t len = strlen(text);
+        if (!f || fwrite(text, 1, len, f) != len || fclose(f) != 0) r = errno ? -errno : -EIO;
+        else if (rename(part, path) != 0 && (unlink(path), rename(part, path) != 0)) r = -errno;
+        if (r) { unlink(part); say(err, errcap, "%s: %s", path, strerror(-r)); }
+    }
+    free(text);
+    return r;
+}
+
 int uwinsetup_run(struct uwinsetup *s, const char *drive_c, int flags, uws_progress progress, void *ctx,
                   char *err, size_t errcap) {
     char win[1024], sys[1024];
@@ -821,5 +1065,6 @@ int uwinsetup_run(struct uwinsetup *s, const char *drive_c, int flags, uws_progr
         if (strcmp(what, "copy")) continue;
         if ((r = install_one(s, it, dir, err, errcap))) return r;
     }
-    return 0;
+    if ((r = apply_ini(s, win, "WIN.INI", err, errcap))) return r;
+    return apply_ini(s, win, "SYSTEM.INI", err, errcap);
 }
