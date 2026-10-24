@@ -124,6 +124,17 @@ static int find_fn(void *ctx, const char *sec, const char *key, const char *val)
     return 0;
 }
 
+static unsigned g_ini_writes;                 // w16_ini_set's, which may land within one second
+
+// A number that changes whenever FILE does -- its time and size, and w16's own writes -- so a
+// setting read on every pointer move is read again only after a change.
+uint64_t w16_ini_version(const char *file) {
+    char path[256];
+    struct stat st;
+    if (!host_path(file, path, sizeof path) || stat(path, &st) != 0) return g_ini_writes;
+    return ((uint64_t)st.st_mtime << 24 ^ (uint64_t)st.st_size) * 31 + g_ini_writes + 1;
+}
+
 // The value of [sec] key in FILE; 1 when there is one.
 int w16_ini_get(const char *file, const char *sec, const char *key, char *out, size_t cap) {
     char path[256];
@@ -176,6 +187,7 @@ size_t w16_ini_names(const char *file, const char *sec, char *out, size_t cap) {
 // Sets [sec] key=val in FILE (val NULL removes the key; key NULL removes
 // the section), rewriting the file. 1 on success.
 int w16_ini_set(const char *file, const char *sec, const char *key, const char *val) {
+    g_ini_writes++;
     char path[256];
     if (!host_path(file, path, sizeof path)) return 0;
     size_t len = 0;

@@ -127,6 +127,11 @@ void w16_units_of(struct w16 *w, const struct w16_wnd *x, int *bx, int *by) {
     w16_dlg_units(bx, by);
 }
 
+// A new window's client pixels all `rgb`: what shows before its first WM_PAINT.
+static void fill_fb(struct w16_wnd *d, uint32_t rgb) {
+    for (size_t i = 0; i < (size_t)d->fbw * d->fbh; i++) d->fb[i] = rgb;
+}
+
 struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32_t style, int cw, int ch,
                             const char *caption, uint32_t dlgproc, w16_dlgproc hostdlg) {
     int k = w16_class_find(w, "#32770");
@@ -146,6 +151,7 @@ struct w16_wnd *w16_dlg_new(struct w16 *w, uint16_t owner, uint16_t inst, uint32
     d->text = strdup(caption ? caption : "");
     d->fb = calloc((size_t)d->fbw * d->fbh + 1, 4);
     if (!d->text || !d->fb) { w16_wnd_free(w, d); return 0; }
+    fill_fb(d, w16_syscolor(COLOR_WINDOW));     // a dialog's ground until it first paints, never black
     // The dialog hears its own creation before any control exists, as
     // Windows' CreateDialog sends it: a hook watching for the next window
     // made (MFC's, attaching its CDialog) must find the dialog, not its
@@ -196,6 +202,7 @@ struct w16_wnd *w16_popup_new(struct w16 *w, int cls, const char *title, uint32_
     d->fb = calloc((size_t)d->fbw * d->fbh + 1, 4);
     d->sb[SB_HORZ] = d->sb[SB_VERT] = (struct w16_sbar){ 0, 100, 0 };
     if (!d->text || !d->fb || (k->wnd_extra && !d->extra)) { w16_wnd_free(w, d); return 0; }
+    fill_fb(d, w16_brush_color(k->background));   // its class's ground until it first paints
     // WM_CREATE with its CREATESTRUCT: lpCreateParams, hInstance, hMenu, hwndParent, cy, cx, y, x, style.
     uint16_t at = w16_sys_push(w, 34), h = d->hwnd;
     if (w->cpu.fault) return 0;
@@ -619,15 +626,18 @@ static void start(struct w16 *w, struct w16_wnd *d, uint32_t param, int modal) {
     }
     free(v);
     d->modal = modal;
-    if (d->kind == W16_K_DIALOG) {               // a main window shows as CreateWindow's do: by its style or ShowWindow
+    uint32_t r = w16_send(w, h, WM_INITDIALOG, first ? first->hwnd : 0, param);
+    // Shown once WM_INITDIALOG is answered, as Windows did: a box the procedure raises there
+    // (Drivers' "Cannot load") stands alone, and the dialog appears where it was moved to. A main
+    // window shows as CreateWindow's do: by its style or ShowWindow.
+    d = w16_wnd_get(w, h);
+    if (d && d->kind == W16_K_DIALOG && !d->ended) {
         pthread_mutex_lock(&w->lock);
         d->visible = 1;
         d->style |= WS_VISIBLE;
         pthread_mutex_unlock(&w->lock);
         w16_task_post_arg(w, W16_POST_DLG_OPEN, h);
     }
-    uint32_t r = w16_send(w, h, WM_INITDIALOG, first ? first->hwnd : 0, param);
-    d = w16_wnd_get(w, h);
     if (d && (r & 0xFFFF) && first && w16_wnd_get(w, first->hwnd)) dlg_focus(w, d, tab_target(w, d, first), 1);
     if (d) w16_invalidate(w, d, 1);
 }

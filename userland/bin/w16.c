@@ -21,7 +21,6 @@
 #include "win_proto.h"
 #include "lib/uargs.h"
 #include "lib/umd.h"
-#include "lib/udclick.h"
 #include "lib/uwinsetup.h"   // --install
 #include "lib/uclip_page.h"   // CLIP_SHM_NAME: the clipboard an EDIT copies to
 #include "rt/sys.h"
@@ -355,7 +354,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         // is spent doing so -- except a second press on the box, which
         // is 3.1's double click to close.
         if (!w16_menu_press(&g_menu, x, y) && hit == HIT_SYSMENU &&
-            now - g_sysmenu_tick <= udclick_ticks()) {
+            now - g_sysmenu_tick <= w16_dclick_ticks()) {
             syscommand(SC_CLOSE);
             g_sysmenu_tick = 0;
         }
@@ -363,6 +362,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
         return;
     }
     if (mouse_is_programs(hit)) {
+        buttons = w16_mouse_swap(buttons);
         unsigned now_down = WIN_MOUSE_BUTTONS(buttons) & 3, went = now_down & ~g_buttons;
         g_buttons = now_down;
         for (unsigned bit = 1; bit <= 2; bit <<= 1)
@@ -375,7 +375,7 @@ static void on_press(struct uapp *a, int x, int y, unsigned buttons) {
     case HIT_CAPTION:
         // A double click maximizes or restores, as on 3.1; a maximized
         // window does not move.
-        if (now - g_caption_tick <= udclick_ticks() && (g_w16.win.style & WS_MAXIMIZEBOX)) {
+        if (now - g_caption_tick <= w16_dclick_ticks() && (g_w16.win.style & WS_MAXIMIZEBOX)) {
             syscommand(max ? SC_RESTORE : SC_MAXIMIZE);
             g_caption_tick = 0;
             break;
@@ -430,6 +430,7 @@ static void on_release(struct uapp *a, int x, int y, unsigned buttons) {
         uapp_redraw(a);
         return;
     }
+    buttons = w16_mouse_swap(buttons);
     unsigned now_down = WIN_MOUSE_BUTTONS(buttons) & 3, went = g_buttons & ~now_down;
     g_buttons = now_down;
     if (mouse_is_programs(hit))
@@ -499,7 +500,7 @@ static void on_motion(struct uapp *a, int x, int y, unsigned buttons) {
     unsigned edges;
     int shape = WIN_CURSOR_DEFAULT;
     enum w16_hit hit = w16_frame_hit(&g_w16.win, x, y, &edges);
-    if (mouse_is_programs(hit)) shape = client_mouse(WM_MOUSEMOVE, mk_flags(buttons), x, y);
+    if (mouse_is_programs(hit)) shape = client_mouse(WM_MOUSEMOVE, mk_flags(w16_mouse_swap(buttons)), x, y);
     else if (hit == HIT_EDGE && !maximized()) shape = edge_cursor(edges);
     if (shape >= 0) show_cursor(a, shape);
 }

@@ -122,13 +122,13 @@ static void post_mouse(struct uapp_window *u, uint16_t msg, int x, int y, unsign
 }
 
 static void on_press(struct uapp_window *u, int x, int y, unsigned buttons) {
-    if (buttons & 1) post_mouse(u, WM_LBUTTONDOWN, x, y, buttons);
+    if (w16_mouse_swap(buttons) & 1) post_mouse(u, WM_LBUTTONDOWN, x, y, buttons);
 }
 static void on_motion(struct uapp_window *u, int x, int y, unsigned buttons) {
-    post_mouse(u, WM_MOUSEMOVE, x, y, buttons);
+    post_mouse(u, WM_MOUSEMOVE, x, y, w16_mouse_swap(buttons));
 }
 static void on_release(struct uapp_window *u, int x, int y, unsigned buttons) {
-    post_mouse(u, WM_LBUTTONUP, x, y, buttons & ~1u);
+    post_mouse(u, WM_LBUTTONUP, x, y, w16_mouse_swap(buttons) & ~1u);
 }
 
 static void on_key(struct uapp_window *u, int key, unsigned mods) {

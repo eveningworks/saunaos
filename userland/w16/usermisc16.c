@@ -1566,22 +1566,136 @@ static int api_ClassWord(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     return set ? 6 : 4;
 }
 
+// The text of a dialog's control set from C, as SetDlgItemText would.
+static void set_item_text(struct w16 *w, uint16_t dlg, uint16_t id, const char *t) {
+    struct w16_wnd *c = w16_dlg_item(w, dlg, id);
+    if (!c) return;
+    size_t n = strlen(t);
+    uint16_t at = w16_sys_push(w, (unsigned)n + 1);
+    if (w->cpu.fault) return;
+    memcpy(w->sysmem + at, t, n + 1);
+    w16_send(w, c->hwnd, WM_SETTEXT, 0, (uint32_t)w->sysdata << 16 | at);
+    w16_sys_pop(w, at);
+}
+
+#define LB_RESETCONTENT (WM_USER + 5)
+#define LB_GETCURSEL    (WM_USER + 9)
+
 // DlgDirList(hDlg, lpPathSpec, nIDListBox, nIDStaticPath, wFileType) -> int
-// DlgDirSelect(hDlg, lpString, nIDListBox) -> BOOL
-// Windows: Fills a dialog's list box with the files and drives of a directory, and reads back the
-// entry chosen in one.
-// w16: Lists nothing (DlgDirList answers 0) and chooses nothing (DlgDirSelect answers FALSE).
-// Why: Listing a directory into a list box needs the list box's own messages and the drives and
-// files of the DOS view, which nothing has asked for yet.
-// Notice: A dialog's file list stays empty and its path static unchanged.
-// Whole: A DlgDirList that fills the list with the folder's files and drives.
+// Windows: Fills a dialog's list box with a folder's files that match a pattern -- with
+// DDL_DIRECTORY its folders as [name], with DDL_DRIVES the drives as [-c-] -- after making the
+// spec's folder the current one; the pattern alone is written back to lpPathSpec, and the static
+// control gets the current folder. FALSE when the folder is not there.
+// w16: The same on the drives the program sees, names in lower case as 3.1 listed them.
 static int api_DlgDirList(struct w16 *w, unsigned ordinal, struct w16_args *a) {
-    w16_arg16(a);
-    w16_arg32(a);
-    w16_arg16(a);
-    if (ordinal == 100) { w16_arg16(a); w16_arg16(a); }
+    (void)ordinal;
+    uint16_t dlg = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    uint16_t list = w16_arg16(a), stat_id = w16_arg16(a), attr = w16_arg16(a);
+    char spec[260] = "*.*";
+    if ((far >> 16) && cpu16_str(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, spec, sizeof spec) < 0) return -1;
+    // The folder part becomes the current folder: all of a spec naming one, else what is before
+    // its pattern.
+    const char *pattern = spec;
+    int ok = 1;
+    if (!strchr(spec, '*') && !strchr(spec, '?') && spec[0] && w16_dos_chdir(spec) == 0) {
+        pattern = "*.*";
+    } else {
+        char dir[260];
+        pattern = w16_dos_split(spec, dir, sizeof dir);
+        ok = w16_dos_chdir(dir) == 0;
+    }
+    if (ok && (far >> 16)) {                     // the pattern back, as Windows left it
+        size_t n = strlen(pattern) + 1;
+        uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (unsigned)n, 1);
+        if (!p) return -1;
+        memmove(p, pattern, n);
+    }
+    struct w16_wnd *lb = ok && list ? w16_dlg_item(w, dlg, list) : 0;
+    if (lb) {
+        w16_send(w, lb->hwnd, LB_RESETCONTENT, 0, 0);
+        char path[300];
+        snprintf(path, sizeof path, "%s", pattern[0] ? pattern : "*.*");
+        if (w16_listbox_dir(w, lb, attr, path) == -1 && w->cpu.fault) return -1;
+    }
+    if (ok && stat_id) {
+        char low[160];
+        size_t n = 0;
+        for (const char *c = w16_dos_cwd(); *c && n < sizeof low - 1; c++) low[n++] = *c >= 'A' && *c <= 'Z' ? (char)(*c + 32) : *c;
+        low[n] = 0;
+        set_item_text(w, dlg, stat_id, low);
+    }
+    w->cpu.r[R_AX] = (uint16_t)ok;
+    return 12;
+}
+
+// DlgDirSelect(hDlg, lpString, nIDListBox) -> BOOL
+// Windows: The entry chosen in a DlgDirList list box, into lpString: a folder's name with a
+// backslash after it and a drive as "c:" -- TRUE for either -- or a file's name, FALSE.
+// w16: The same.
+static int api_DlgDirSelect(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    uint16_t dlg = w16_arg16(a);
+    uint32_t far = w16_arg32(a);
+    uint16_t list = w16_arg16(a);
+    struct w16_wnd *lb = w16_dlg_item(w, dlg, list);
+    int sel = lb ? (int16_t)w16_send(w, lb->hwnd, LB_GETCURSEL, 0, 0) : -1;
+    const char *t = sel >= 0 ? w16_listbox_text(lb, sel) : 0;
+    char out[160] = "";
+    int folder = 0;
+    size_t n = t ? strlen(t) : 0;
+    if (n == 5 && t[0] == '[' && t[1] == '-' && t[3] == '-') {
+        snprintf(out, sizeof out, "%c:", t[2]);
+        folder = 1;
+    } else if (n >= 2 && t[0] == '[' && t[n - 1] == ']') {
+        snprintf(out, sizeof out, "%.*s\\", (int)(n - 2), t + 1);
+        folder = 1;
+    } else if (t) {
+        snprintf(out, sizeof out, "%s", t);
+    }
+    size_t len = strlen(out) + 1;
+    uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(far >> 16), (uint16_t)far, (unsigned)len, 1);
+    if (!p) return -1;
+    memcpy(p, out, len);
+    w->cpu.r[R_AX] = (uint16_t)folder;
+    return 8;
+}
+
+// OpenDriver(lpDriverName, lpSectionName, lParam) -> HDRVR
+// Windows: Loads an installable driver -- a DLL SYSTEM.INI's [drivers] names, the MIDI Mapper or an
+// MCI device's -- and sends it DRV_LOAD, DRV_ENABLE and DRV_OPEN; its handle, or NULL.
+// w16: NULL, as for a driver that would not load, so a program says so in its own words.
+// Why: A driver is Windows' own code for hardware toy-os drives itself, and MMSYSTEM's sound is
+// toy-os's.
+// Notice: Control Panel's Drivers lists SYSTEM.INI's drivers and says "Cannot load the MIDI Mapper
+// driver"; a program asking MCI for a CD or a MIDI device finds none.
+// Whole: The MIDI Mapper and MCI's drivers loaded as w16 modules, playing through toy-os's sound.
+static int api_OpenDriver(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    (void)a;
     w->cpu.r[R_AX] = 0;
-    return ordinal == 100 ? 12 : 8;
+    return 12;
+}
+
+// CloseDriver(hDriver, lParam1, lParam2) -> LONG
+// SendDriverMessage(hDriver, wMessage, lParam1, lParam2) -> LONG
+// DefDriverProc(dwDriverIdentifier, hDriver, wMessage, lParam1, lParam2) -> LONG
+// GetDriverModuleHandle(hDriver) -> HINSTANCE
+// GetNextDriver(hDriver, dwFlags) -> HDRVR
+// Windows: An open installable driver closed, sent a message, answered for by default, its module,
+// and the next one open.
+// w16: 0: OpenDriver opens none, so there is nothing to close, send to or step through.
+static int api_Driver(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)a;
+    static const struct { unsigned ordinal; int argbytes; } ARGS[] = {
+        { 251, 12 }, { 253, 10 }, { 254, 2 }, { 255, 16 }, { 257, 6 },
+    };
+    int n = 0;
+    for (size_t i = 0; i < sizeof ARGS / sizeof ARGS[0]; i++)
+        if (ARGS[i].ordinal == ordinal) n = ARGS[i].argbytes;
+    w->cpu.r[R_AX] = 0;
+    w->cpu.r[R_DX] = 0;
+    return n;
 }
 
 // EnumTaskWindows(hTask, lpEnumFunc, lParam) -> BOOL
@@ -1877,7 +1991,7 @@ const struct w16_api g_user_misc_api[] = {
     { 83, api_FrameRect },
     { 84, api_DrawIcon },
     { 85, api_DrawText },
-    { 99, api_DlgDirList },
+    { 99, api_DlgDirSelect },
     { 100, api_DlgDirList },
     { 104, api_MessageBeep },
     { 105, api_FlashWindow },
@@ -1908,6 +2022,12 @@ const struct w16_api g_user_misc_api[] = {
     { 235, api_DefHookProc },
     { 236, api_GetCapture },
     { 244, api_EqualRect },
+    { 251, api_Driver },
+    { 252, api_OpenDriver },
+    { 253, api_Driver },
+    { 254, api_Driver },
+    { 255, api_Driver },
+    { 257, api_Driver },
     { 262, api_GetWindow },
     { 266, api_SetMessageQueue },
     { 267, api_ShowScrollBar },

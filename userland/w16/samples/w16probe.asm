@@ -19,6 +19,8 @@
 ;           Ver= / VerDest=  VerFindFile of a shared file no disk has: 0, and C:\WINDOWS\SYSTEM's length
 ;                   with its NUL (0012) -- Control Panel's applets ask it at start
 ;           Vis=    RectVisible on an 8x1 bitmap: a rectangle on it (0001), then one far off it (0000)
+;           Dbl=    GetDoubleClickTime after SetDoubleClickTime(300): 012C
+;           Swap=   SwapMouseButton(TRUE) then (FALSE): what each says the buttons were -- 00000001
 ;           LZ= / LZRead= / LZEnd= / LZText= / LZName=  LZEXPAND on a 10-byte SZDD file the probe writes to
 ;                   C:\WINDOWS and opens by its bare name -- OpenFile's search, as Control Panel opens
 ;                   CONTROL.INF: an LZ handle (0190, the first), the count read (000A), LZSeek to the end
@@ -273,6 +275,23 @@ start:
     push word lz_name
     W16_CALL "LZEXPAND", 10
 
+    push word 300                   ; SetDoubleClickTime(300), then GetDoubleClickTime
+    W16_CALL "USER", 20
+    W16_CALL "USER", 21
+    mov di, dbl_text
+    call hex16
+    mov byte [di], 0
+    push word 1                     ; SwapMouseButton(TRUE): FALSE, then (FALSE): TRUE
+    W16_CALL "USER", 186
+    mov di, swap_text
+    call hex16
+    push di
+    push word 0
+    W16_CALL "USER", 186
+    pop di
+    call hex16
+    mov byte [di], 0
+
     push cs                         ; EnumFontFamilies(screen, NULL, MakeProcInstance(famproc), 0)
     push word famproc
     push word [hinst]
@@ -417,7 +436,8 @@ keys:       dw key_base, base_text, key_async, async_text, key_w1000, wide1000_t
             dw key_map2, map2_text, key_fam, families_text, key_tt, truetype_text, key_dash, dash_text
             dw key_border, border_text, key_border2, border2_text, key_title, title_text
             dw key_ver, ver_text, key_verdest, verdest_text, key_vis, vis_text, key_lz, lz_text
-            dw key_lzread, lzread_text, key_lzend, lzend_text, key_lztext, lz_buf, key_lzname, lz_name, 0
+            dw key_lzread, lzread_text, key_lzend, lzend_text, key_lztext, lz_buf, key_lzname, lz_name
+            dw key_dbl, dbl_text, key_swap, swap_text, 0
 key_base:   db "Base", 0
 key_async:  db "Async", 0
 key_w1000:  db "Wide1000", 0
@@ -436,6 +456,10 @@ key_ver:    db "Ver", 0
 key_verdest: db "VerDest", 0
 key_vis:    db "Vis", 0
 key_lz:     db "LZ", 0
+key_dbl:    db "Dbl", 0
+key_swap:   db "Swap", 0
+dbl_text:   times 6 db 0
+swap_text:  times 10 db 0
 key_lzread: db "LZRead", 0
 key_lzend:  db "LZEnd", 0
 key_lztext: db "LZText", 0

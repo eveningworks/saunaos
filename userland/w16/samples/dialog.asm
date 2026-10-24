@@ -9,6 +9,9 @@
 ; section (Value=, Box=, Checked=, Top=), which the test reads back. At start it also holds a GetDC
 ; with NULL_PEN selected while it takes and releases a second one: NestedDC=1 when the two differ and
 ; the first still has its pen (Windows' DC cache; Paintbrush's brush strokes rely on it).
+; The Number dialog also holds a hidden list and static that DlgDirList fills from C:\W16DIR\*.TXT
+; with its folders and drives: DirOK= its answer, Dir0= .. Dir4= the first five rows, DirPath= the
+; static's folder, DirSel= / DirIsDir= DlgDirSelect of row 3 -- the test makes the folder.
 ; The Number dialog's list is owner-drawn (LBS_OWNERDRAWFIXED): its rows are
 ; measured 20 tall (WM_MEASUREITEM) and filled dark grey, the selected one
 ; black (WM_DRAWITEM) -- the test reads the bands.
@@ -27,6 +30,8 @@
 ;w16: control 100 BUTTON 1 8 34 44 14 0x50010001 "OK"
 ;w16: control 100 BUTTON 2 58 34 44 14 0x50010000 "Cancel"
 ;w16: control 100 LISTBOX 11 8 54 94 40 0x50800051 ""
+;w16: control 100 LISTBOX 12 0 0 10 10 0x40800003 ""
+;w16: control 100 STATIC 13 0 0 10 8 0x40000000 ""
 ;w16: menu 200
 ;w16: popup 200 "&File"
 ;w16: item 200 300 "&Number...\tF2"
@@ -53,6 +58,7 @@
 %define WM_MEASUREITEM 0x002C
 %define LB_ADDSTRING   0x0401
 %define LB_SETCURSEL   0x0407
+%define LB_GETTEXT     0x040A
 %define MF_CHECKED     0x0008
 %define MF_SEPARATOR   0x0800
 %define IDM_TOP        310
@@ -232,6 +238,82 @@ save_ax:
     push ds
     push word ini_file
     W16_CALL "KERNEL", 129
+    ret
+
+; [Dialog] <key>=the text at BX. DI = the key's offset in DGROUP.
+save_text:
+    push ds                         ; WritePrivateProfileString("Dialog", key, text, "DIALOG.INI")
+    push word ini_app
+    push ds
+    push di
+    push ds
+    push bx
+    push ds
+    push word ini_file
+    W16_CALL "KERNEL", 129
+    ret
+
+; DlgDirList into the hidden list 12 and static 13 of the dialog at [bp+14] (dlgproc's frame), and
+; what it gave written to DIALOG.INI.
+dirlist:
+    push word [bp+14]               ; DlgDirList(hDlg, dir_spec, 12, 13, DDL_DIRECTORY | DDL_DRIVES)
+    push ds
+    push word dir_spec
+    push word 12
+    push word 13
+    push word 0x4010
+    W16_CALL "USER", 100
+    mov di, ini_dirok
+    call save_ax
+    xor si, si
+.row:
+    mov byte [dir_text], 0
+    push si
+    push word [bp+14]               ; SendDlgItemMessage(hDlg, 12, LB_GETTEXT, si, dir_text)
+    push word 12
+    push word LB_GETTEXT
+    push si
+    push ds
+    push word dir_text
+    W16_CALL "USER", 101
+    pop si
+    mov ax, si
+    add al, '0'
+    mov [ini_dirn + 3], al
+    mov di, ini_dirn
+    mov bx, dir_text
+    push si
+    call save_text
+    pop si
+    inc si
+    cmp si, 5
+    jb .row
+    push word [bp+14]               ; GetDlgItemText(hDlg, 13, dir_text, 64)
+    push word 13
+    push ds
+    push word dir_text
+    push word 64
+    W16_CALL "USER", 93
+    mov di, ini_dirpath
+    mov bx, dir_text
+    call save_text
+    push word [bp+14]               ; SendDlgItemMessage(hDlg, 12, LB_SETCURSEL, 3, 0)
+    push word 12
+    push word LB_SETCURSEL
+    push word 3
+    push word 0
+    push word 0
+    W16_CALL "USER", 101
+    push word [bp+14]               ; DlgDirSelect(hDlg, dir_text, 12)
+    push ds
+    push word dir_text
+    push word 12
+    W16_CALL "USER", 99
+    mov di, ini_dirisdir
+    call save_ax
+    mov di, ini_dirsel
+    mov bx, dir_text
+    call save_text
     ret
 
 ; LONG FAR PASCAL WndProc(HWND, UINT, WPARAM, LPARAM), as hello.asm's.
@@ -443,6 +525,7 @@ dlgproc:
     push word 42
     push word 0
     W16_CALL "USER", 94
+    call dirlist
     mov ax, 1
     jmp .ret
 .command:
@@ -533,5 +616,12 @@ ini_top:    db "Top", 0
 ini_nested: db "NestedDC", 0
 top_text:   db "Always on &Top", 0
 row_text:   db "Row", 0
+dir_spec:   db "C:\W16DIR\*.TXT", 0
+dir_text:   times 64 db 0
+ini_dirok:  db "DirOK", 0
+ini_dirn:   db "Dir0", 0
+ini_dirpath: db "DirPath", 0
+ini_dirsel: db "DirSel", 0
+ini_dirisdir: db "DirIsDir", 0
 about_app:  db "Dialog test", 0
 about_other: db "w16's own sample", 0

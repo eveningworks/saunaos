@@ -43,6 +43,7 @@
 #define LB_GETTEXTLEN  (WM_USER + 11)
 #define LB_GETCOUNT    (WM_USER + 12)
 #define LB_SELECTSTRING (WM_USER + 13)
+#define LB_DIR         (WM_USER + 14)
 #define LB_GETTOPINDEX (WM_USER + 15)
 #define LB_FINDSTRING  (WM_USER + 16)
 #define LB_SETTOPINDEX (WM_USER + 24)
@@ -384,15 +385,19 @@ static void paint_listbox(struct w16 *w, struct w16_wnd *x, struct ugfx_surface 
     uint32_t white = w16_rgb(0xFFFFFF), black = w16_rgb(0x000000), navy = w16_rgb(0x000080);
     ugfx_fill_rect(s, ox, oy, x->cw, x->ch, white);
     if (!l || l->owner) return;                  // the rows are the parent's: paint_owned()
+    uint32_t ink = x->style & WS_DISABLED ? w16_syscolor(COLOR_GRAYTEXT) : black;   // solid on the white
     int ih = item_h(x);
     for (int i = l->top; i < l->n && (i - l->top) * ih < x->ch; i++) {
         int y = oy + (i - l->top) * ih, tx = ox + 2;
         int sel = i == l->sel;
         tx += item_icon(s, l, i, tx, y, ih);
+        // A plain list's selection and focus span the row, as 3.11's; the folder lists (owner-drawn
+        // in COMMDLG) light only the name.
         int tw = ugfx_text_width(l->it[i].text);
-        if (sel) ugfx_fill_rect(s, tx - 1, y, (tw + 2 < ox + x->cw - tx + 1 ? tw + 2 : ox + x->cw - tx + 1), ih, navy);
-        ugfx_draw_string_clipped(s, tx, y, ox + x->cw - tx, l->it[i].text, sel ? white : black, UGFX_TRANSPARENT);
-        if (l->focused && i == l->caret) w16_draw_focus(s, tx - 1, y, tw + 2 < x->cw ? tw + 2 : x->cw - 2, ih);
+        int hx = l->folders ? tx - 1 : ox, hw = l->folders ? (tw + 2 < ox + x->cw - tx + 1 ? tw + 2 : ox + x->cw - tx + 1) : x->cw;
+        if (sel) ugfx_fill_rect(s, hx, y, hw, ih, navy);
+        ugfx_draw_string_clipped(s, tx, y, ox + x->cw - tx, l->it[i].text, sel ? white : ink, UGFX_TRANSPARENT);
+        if (l->focused && i == l->caret) w16_draw_focus(s, hx, y, l->folders ? (tw + 2 < x->cw ? tw + 2 : x->cw - 2) : hw, ih);
     }
 }
 
@@ -519,6 +524,10 @@ static uint32_t lb_message(struct w16 *w, struct w16_wnd *x, struct listbox *l, 
         return (uint32_t)item_h(x);
     case LB_SETITEMHEIGHT:
         return 0;
+    case LB_DIR: {
+        int r = str ? w16_listbox_dir(w, x, wp, str) : -1;
+        return r < 0 ? LB_ERR : (uint32_t)r;
+    }
     case LB_GETITEMRECT: {
         int16_t r[4] = { 0, (int16_t)((i - l->top) * item_h(x)), (int16_t)x->cw, (int16_t)((i - l->top + 1) * item_h(x)) };
         uint8_t *p = cpu16_ptr(&w->cpu, (uint16_t)(lp >> 16), (uint16_t)lp, 8, 1);
@@ -530,9 +539,30 @@ static uint32_t lb_message(struct w16 *w, struct w16_wnd *x, struct listbox *l, 
     }
 }
 
+struct dir_add { struct w16 *w; struct w16_wnd *x; struct listbox *l; int last; };
+
+// Sorted as the list asks, except the drives: 3.1 put them after every file and folder.
+static void dir_add(void *ctx, const char *name) {
+    struct dir_add *d = ctx;
+    int drive = name[0] == '[' && name[1] == '-';
+    d->last = lb_insert(d->w, d->x, d->l, -1, name, (d->x->style & LBS_SORT) && !drive);
+}
+
+// LB_DIR's work: a DOS spec ("*.WAV", "C:\\WINDOWS\\*.*") listed into the box by w16_dir_list();
+// the index of the last item added, or LB_ERR.
+int w16_listbox_dir(struct w16 *w, struct w16_wnd *x, unsigned attr, const char *spec) {
+    struct listbox *l = lb_of(x);
+    if (!l) return -1;
+    char dir[260];
+    const char *pattern = w16_dos_split(spec, dir, sizeof dir);
+    struct dir_add d = { w, x, l, -1 };
+    if (w16_dir_list(dir, pattern[0] ? pattern : "*.*", attr, dir_add, &d) != 0) return -1;
+    return d.last;
+}
+
 static int is_string_msg(uint16_t msg) {
     return msg == LB_ADDSTRING || msg == LB_INSERTSTRING || msg == LB_FINDSTRING || msg == LB_SELECTSTRING ||
-           msg == LB_FINDSTRINGEXACT;
+           msg == LB_FINDSTRINGEXACT || msg == LB_DIR;
 }
 
 // A message to a list box with its string argument in C, for w16's own
@@ -580,7 +610,7 @@ uint32_t w16_listbox_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16
             r = lb_message(w, x, l, msg, wp, lp, "");
             if ((int16_t)r >= 0 && (int16_t)r < l->n) l->it[(int16_t)r].data = lp;
         } else {
-            char *s = is_string_msg(msg) && l->strings ? far_get(w, lp) : 0;
+            char *s = is_string_msg(msg) && (l->strings || msg == LB_DIR) ? far_get(w, lp) : 0;
             r = lb_message(w, x, l, msg, wp, lp, s);
             free(s);
         }

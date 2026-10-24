@@ -8300,13 +8300,19 @@ Where each stood on 2026-10-24, on an installed WfW 3.11 tree (`w16
   SetSysColors is missing.
 - **Fonts**: lists WIN.INI's `[fonts]` (the installer writes it, as Setup
   did); the sample is empty and each font says 0 KB on disk.
-- **Mouse**: opens; SwapMouseButton and SetDoubleClickTime are missing.
-- **Sound**: opens; its Files list says `<none>` -- DlgDirList and
-  DlgDirSelect are stand-ins.
+- **Mouse**: works -- the swap and the double-click speed apply to the
+  program's own windows (WIN.INI's keys, toy-os's own double-click setting
+  when WIN.INI has none); the tracking speed is stored and not applied.
+- **Sound**: works -- its Files list (DlgDirList) and Test, which plays
+  through toy-os's sound; with no sound card its lists are greyed, as
+  3.11's are (waveOutGetNumDevs answers 0).
 - **Printers, International**: open with their lists filled -- CONTROL.INF
   and SETUP.INF read through LZEXPAND (`userland/w16/lz16.c`), found as
   OpenFile finds a bare name, in C:\WINDOWS and SYSTEM.
-- **Drivers**: lists SYSTEM.INI's drivers, then "Cannot load the MIDI
-  Mapper driver" -- OpenDriver.
+- **Drivers**: lists SYSTEM.INI's drivers and says "Cannot load the MIDI
+  Mapper driver" -- no installable driver loads (OpenDriver answers NULL).
+- **Icon order**: Sound comes before Drivers, where 3.11 has Enhanced,
+  Drivers, Fax, Sound -- the .CPLs in the folder's order, which on toy-os's
+  disk is not FAT's.
 - **Desktop, Keyboard, Ports, Date/Time**: open with every control.
 

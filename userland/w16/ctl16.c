@@ -277,8 +277,23 @@ static int is_radio(const struct w16_wnd *x) {
     return t == BS_RADIOBUTTON || t == BS_AUTORADIOBUTTON;
 }
 
-// 3.1's grey text (GrayString): the text's ink every other pixel, a 50%
-// dither, rather than a grey colour -- over the box it was drawn in.
+// A disabled static's or list's text over a box drawn in `ink`: the ink turned COLOR_GRAYTEXT, or --
+// on a ground of that very grey, where it would vanish -- GrayString's dither. A BUTTON's label
+// (check box, radio, group) is always the dither: 3.11 drew Sound's labels light grey and
+// Solitaire's "Keep score" dithered, both on white.
+void w16_gray_text(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t ink, uint32_t ground) {
+    uint32_t grey = w16_syscolor(COLOR_GRAYTEXT);
+    if ((grey & 0xFFFFFF) == (ground & 0xFFFFFF)) { w16_gray_dither(s, x, y, w, h, ink, ground); return; }
+    for (int j = 0; j < h; j++)
+        for (int i = 0; i < w; i++) {
+            int px = x + i, py = y + j;
+            if (px < 0 || py < 0 || px >= s->w || py >= s->h) continue;
+            uint32_t *p = &s->pixels[(size_t)py * (size_t)s->w + (size_t)px];
+            if ((*p & 0xFFFFFF) == (ink & 0xFFFFFF)) *p = grey;
+        }
+}
+
+// GrayString's dither: the ink every other pixel turned `ground`.
 void w16_gray_dither(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t ink, uint32_t ground) {
     for (int j = 0; j < h; j++)
         for (int i = 0; i < w; i++) {
@@ -600,8 +615,8 @@ static void paint_static(struct w16 *w, struct w16_wnd *x, struct ugfx_surface *
     ugfx_fill_rect(s, ox, oy, x->cw, x->ch, bg);
     int align = t == SS_CENTER ? 1 : t == SS_RIGHT ? 2 : 0;
     int wrap = t != SS_SIMPLE && t != SS_LEFTNOWORDWRAP;
-    text_box(s, ox, oy, x->cw, x->ch, x->text ? x->text : "", align, !(x->style & SS_NOPREFIX), wrap,
-             (x->style & WS_DISABLED) ? grey : black, bg);
+    text_box(s, ox, oy, x->cw, x->ch, x->text ? x->text : "", align, !(x->style & SS_NOPREFIX), wrap, black, bg);
+    if (x->style & WS_DISABLED) w16_gray_text(s, ox, oy, x->cw, x->ch, black, bg);
 }
 
 uint32_t w16_static_proc(struct w16 *w, struct w16_wnd *x, uint16_t msg, uint16_t wp, uint32_t lp) {

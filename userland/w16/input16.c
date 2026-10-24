@@ -11,7 +11,6 @@
 
 #include "keyboard.h"
 #include "win_proto.h"   // WIN_CURSOR_*
-#include "lib/udclick.h"
 #include "rt/sys.h"
 
 #define VK_BACK   0x08
@@ -106,7 +105,7 @@ int w16_route_mouse(struct w16 *w, struct w16_wnd *top, uint16_t msg, uint16_t w
         uint64_t now = sys_ticks();
         int near = cx - g_last.x < 4 && g_last.x - cx < 4 && cy - g_last.y < 4 && g_last.y - cy < 4;
         int wants = to->cls >= 0 && to->cls < w->ncls && (w->cls[to->cls].style & CS_DBLCLKS);
-        dbl = wants && g_last.hwnd == hwnd && near && now - g_last.tick <= udclick_ticks();
+        dbl = wants && g_last.hwnd == hwnd && near && now - g_last.tick <= w16_dclick_ticks();
         g_last.tick = dbl ? 0 : now;
         g_last.hwnd = hwnd;
         g_last.x = cx;

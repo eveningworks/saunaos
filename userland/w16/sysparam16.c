@@ -8,6 +8,7 @@
 // THE KEYS AND DEFAULTS ARE 3.1's: a WIN.INI made from WIN.SRC holds a
 // few of them, and the rest read as Windows did with the key absent.
 #include "w16_internal.h"
+#include "lib/udclick.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -52,6 +53,10 @@ static const struct spi_key {
 #define SPI_GETICONTITLELOGFONT  31
 #define SPI_SETICONTITLELOGFONT  34
 
+// The two settings asked on every press and pointer move (below), kept until WIN.INI or the
+// session's values change.
+static struct { int valid; uint64_t ver; int dclick, swap; } g_mouse;
+
 // The session's value of a setting a program set without SPIF_UPDATEINIFILE:
 // this program's alone, as w16 is one program -- and gone with it.
 static struct { const char *key; int value; } g_session[sizeof KEYS / sizeof KEYS[0] + 4];
@@ -64,6 +69,7 @@ static int session(const char *key, int *value) {
 }
 
 static void session_set(const char *key, int value) {
+    g_mouse.valid = 0;
     for (int i = 0; i < g_nsession; i++)
         if (!strcmp(g_session[i].key, key)) { g_session[i].value = value; return; }
     if (g_nsession < (int)(sizeof g_session / sizeof g_session[0]))
@@ -79,6 +85,32 @@ int w16_sysparam(const char *sec, const char *key, int dflt) {
     if (!strcasecmp(s, "yes") || !strcasecmp(s, "true") || !strcasecmp(s, "on")) return 1;
     if (!strcasecmp(s, "no") || !strcasecmp(s, "false") || !strcasecmp(s, "off")) return 0;
     return atoi(s);
+}
+
+static void mouse_settings(void) {
+    uint64_t ver = w16_ini_version("WIN.INI");
+    if (g_mouse.valid && g_mouse.ver == ver) return;
+    g_mouse.dclick = w16_sysparam("windows", "DoubleClickSpeed", -1);   // -1: toy-os's, asked live
+    g_mouse.swap = w16_sysparam("windows", "SwapMouseButtons", 0) != 0;
+    g_mouse.ver = ver;
+    g_mouse.valid = 1;
+}
+
+// The double-click time the program's windows go by: WIN.INI's DoubleClickSpeed (WIN.SRC sets 3.1's
+// 452) or SetDoubleClickTime's, else toy-os's own -- a tree with no WIN.INI has no Windows setting.
+int w16_dclick_ms(void) {
+    mouse_settings();
+    return g_mouse.dclick > 0 ? g_mouse.dclick : udclick_ms();
+}
+
+uint64_t w16_dclick_ticks(void) { return (uint64_t)w16_dclick_ms() * USER_HZ / 1000; }
+
+// `buttons` (WIN_MOUSE_* bits) as the program hears them: left and right exchanged while
+// SwapMouseButtons is set -- in its windows only, never toy-os's.
+unsigned w16_mouse_swap(unsigned buttons) {
+    mouse_settings();
+    if (!g_mouse.swap) return buttons;
+    return (buttons & ~3u) | (buttons & 1) << 1 | (buttons & 2) >> 1;
 }
 
 static void put(const char *sec, const char *key, int value, int kind, unsigned flags) {
@@ -198,7 +230,39 @@ static int api_SystemParametersInfo(struct w16 *w, unsigned ordinal, struct w16_
     return 10;
 }
 
+// SetDoubleClickTime(wCount) -> void
+// GetDoubleClickTime() -> WORD
+// Windows: Sets, and reads, the milliseconds two clicks may be apart and still be one double click,
+// for every program; 0 sets the default, 500. Control Panel's Mouse writes WIN.INI's
+// DoubleClickSpeed itself.
+// w16: The same for the program's own windows, for its run: WIN.INI's DoubleClickSpeed when the
+// key is there, else toy-os's double-click setting (Settings > Mouse), which this never changes.
+static int api_DoubleClickTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    if (ordinal == 21) {
+        w->cpu.r[R_AX] = (uint16_t)w16_dclick_ms();
+        return 0;
+    }
+    unsigned ms = w16_arg16(a);
+    session_set("DoubleClickSpeed", ms ? (int)ms : 500);
+    return 2;
+}
+
+// SwapMouseButton(fSwap) -> BOOL
+// Windows: Exchanges the left and right buttons for every program, or puts them back; whether they
+// were exchanged before. Control Panel's Mouse writes WIN.INI's SwapMouseButtons itself.
+// w16: The same in the program's own windows, for its run; toy-os's buttons stay as they are.
+static int api_SwapMouseButton(struct w16 *w, unsigned ordinal, struct w16_args *a) {
+    (void)ordinal;
+    int on = w16_arg16(a) != 0;
+    w->cpu.r[R_AX] = (uint16_t)(w16_sysparam("windows", "SwapMouseButtons", 0) != 0);
+    session_set("SwapMouseButtons", on);
+    return 2;
+}
+
 const struct w16_api g_sysparam_api[] = {
+    { 20, api_DoubleClickTime },
+    { 21, api_DoubleClickTime },
+    { 186, api_SwapMouseButton },
     { 483, api_SystemParametersInfo },
 };
 const unsigned g_sysparam_api_n = sizeof g_sysparam_api / sizeof g_sysparam_api[0];

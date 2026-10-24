@@ -1614,18 +1614,6 @@
 // own w16 at most.
 // By: CPWIN386.CPL, DRIVERS.CPL, MAILSPL.EXE, MAIN.CPL, MSMAIL.EXE, PROGMAN.EXE, and 4 more
 
-// USER.20 SetDoubleClickTime(wCount) -> void
-// Windows: Sets the milliseconds two clicks may be apart and still be one double click, for every
-// program.
-// Why: toy-os's own setting (Settings > Mouse) is the desktop's, not a w16 program's to change.
-// By: MAIN.CPL
-
-// USER.21 GetDoubleClickTime() -> WORD
-// Windows: The milliseconds two clicks may be apart and still be one double click.
-// Why: Not written yet: w16 already reads toy-os's double-click setting for its own CS_DBLCLKS --
-// a few lines.
-// By: RECORDER.DLL, WINFILE.EXE
-
 // USER.24 RemoveProp(hWnd, lpString) -> HANDLE
 // Windows: Takes a named property off a window and answers its value.
 // Why: Not written yet: window properties (a name and a word per window) are a small table w16
@@ -1733,11 +1721,6 @@
 // Why: Not written yet: w16 draws its own disabled labels in 3.1's grey; a program's own call is
 // not there yet.
 // By: COMMDLG.DLL, FRAMEWRK.DLL, MPLAYER.EXE, PROGMAN.EXE, SOUNDREC.EXE, TERMINAL.EXE
-
-// USER.186 SwapMouseButton(fSwap) -> BOOL
-// Windows: Swaps the left and right buttons, for every program.
-// Why: toy-os's own setting (Settings > Mouse), not a w16 program's to change.
-// By: MAIN.CPL, WINTUTOR.EXE
 
 // USER.188 SetSysModalWindow(hWnd) -> HWND
 // Windows: Makes a window system-modal: no other window takes input until it closes.
@@ -1890,37 +1873,6 @@
 // Windows: The cursor shown now.
 // Why: Not written yet: w16 keeps it (SetCursor's answer), so it is a few lines.
 // By: WFWSETUP.DLL
-
-// USER.251 SendDriverMessage(hDriver, wMessage, lParam1, lParam2) -> LONG
-// Windows: Sends an installable driver a message (DRV_*) and answers its reply.
-// Why: Installable drivers (MCI, audio codecs) are Windows' own DLLs, not run under w16;
-// MMSYSTEM's sound is toy-os's.
-// By: DRIVERS.CPL, MMSYSTEM.DLL, POWER.DRV
-
-// USER.252 OpenDriver(lpDriverName, lpSectionName, lParam) -> HDRVR
-// Windows: Loads an installable driver named in SYSTEM.INI and opens it.
-// Why: As SendDriverMessage.
-// By: DRIVERS.CPL, MMSYSTEM.DLL, WINFILE.EXE
-
-// USER.253 CloseDriver(hDriver, lParam1, lParam2) -> LONG
-// Windows: Closes a driver OpenDriver opened, unloading it at its last use.
-// Why: As SendDriverMessage.
-// By: DRIVERS.CPL, MMSYSTEM.DLL, WINFILE.EXE
-
-// USER.254 GetDriverModuleHandle(hDriver) -> HINSTANCE
-// Windows: The module an open driver was loaded from.
-// Why: As SendDriverMessage.
-// By: CONTROL.EXE, MMSYSTEM.DLL
-
-// USER.255 DefDriverProc(dwDriverIdentifier, hDriver, wMessage, lParam1, lParam2) -> LONG
-// Windows: The default answers to the driver messages a driver does not handle itself.
-// Why: As SendDriverMessage.
-// By: MCICDA.DRV, MCISEQ.DRV, MCIWAVE.DRV, MIDIMAP.DRV, MMSYSTEM.DLL, MPU401.DRV, and 4 more
-
-// USER.257 GetNextDriver(hDriver, dwFlags) -> HDRVR
-// Windows: Steps through the open installable drivers.
-// Why: As SendDriverMessage.
-// By: CONTROL.EXE, POWER.DRV
 
 // USER.259 BeginDeferWindowPos(nNumWindows) -> HDWP
 // Windows: Starts a batch of window moves made all at once by EndDeferWindowPos.

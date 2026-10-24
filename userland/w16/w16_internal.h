@@ -534,6 +534,7 @@ void w16_sys_pop(struct w16 *w, uint16_t at);
 
 // --- user16.c / gdi16.c ------------------------------------------------------
 
+#define COLOR_GRAYTEXT 17
 uint32_t w16_syscolor(unsigned index);            // COLOR_* -> ugfx colour
 uint32_t w16_brush_color(uint16_t brush);
 // A window's DC, its state reset -- BeginPaint's and GetDC's.
@@ -694,6 +695,7 @@ void w16_draw_icon(struct ugfx_surface *s, struct w16 *w, int kind, int x, int y
 struct ugfx_surface;
 // 3.1's grey text (GrayString): every other pixel of `ink` in the box made `ground`, a 50% dither.
 void w16_gray_dither(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t ink, uint32_t ground);
+void w16_gray_text(struct ugfx_surface *s, int x, int y, int w, int h, uint32_t ink, uint32_t ground);
 uint32_t w16_rgb(uint32_t rgb);                   // 0xRRGGBB -> a ugfx colour, as VGA showed it
 uint32_t w16_vga(uint32_t rgb);                   // 0xRRGGBB as 3.11 at VGA showed it
 // dither16.c: the Colours setting says 16; a brush colour's 8x8 dither by screen x % 8, y % 8 as
@@ -924,6 +926,10 @@ int w16_host_to_dos(const char *host, char *out, size_t cap);
 void w16_dos_start(const char *exe);              // the current folder: the program's own
 const char *w16_dos_cwd(void);                    // the current folder, a full DOS path
 int w16_dos_chdir(const char *dos);               // 0, or a DOS error
+const char *w16_dos_split(const char *spec, char *dir, size_t cap);   // a spec's folder; its last part
+int w16_dir_list(const char *dos, const char *pattern, unsigned attr, void (*add)(void *, const char *),
+                 void *ctx);                      // DlgDirList's entries of a folder
+int w16_listbox_dir(struct w16 *w, struct w16_wnd *x, unsigned attr, const char *spec);
 extern const struct w16_api g_commdlg_api[];
 extern const unsigned g_commdlg_api_n;
 int w16_dos_file(struct w16 *w, struct cpu16 *c);  // INT 21h's file calls; -1 not one
@@ -961,6 +967,9 @@ extern const struct w16_api g_sysparam_api[];
 extern const unsigned g_sysparam_api_n;
 // A system setting as a program sees it: this run's value, else WIN.INI's, else `dflt`.
 int w16_sysparam(const char *sec, const char *key, int dflt);
+int w16_dclick_ms(void);
+uint64_t w16_dclick_ticks(void);
+unsigned w16_mouse_swap(unsigned buttons);
 extern const unsigned g_clip_api_n;
 // A bitmap's pixels as GDI keeps them (not copied) and its size; NULL: not
 // a bitmap. And a new colour bitmap of `px` (copied): its handle, 0 none.
@@ -1028,6 +1037,7 @@ int w16_cursor_image(int index, int scale_num, int scale_den, uint32_t *argb, ui
 // ARGB pixels (alpha 0 clear) drawn at (x, y) of a DC: DrawIcon's work.
 void w16_gdi_draw_argb(struct w16 *w, uint16_t hdc, int x, int y, const uint32_t *px, int pw, int ph);
 int w16_ini_get(const char *file, const char *sec, const char *key, char *out, size_t cap);
+uint64_t w16_ini_version(const char *file);
 size_t w16_ini_names(const char *file, const char *sec, char *out, size_t cap);
 int w16_ini_set(const char *file, const char *sec, const char *key, const char *val);
 

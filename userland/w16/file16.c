@@ -558,6 +558,62 @@ static int match83(const char *pat, const char *name) {
     return !*name;
 }
 
+// A DOS spec cut into its folder and its last part: "C:\\WINDOWS\\*.WAV" is C:\\WINDOWS and *.WAV,
+// "\\*.WAV" the root, "C:*.WAV" drive C:'s current folder, "*.WAV" the current one. The last part.
+const char *w16_dos_split(const char *spec, char *dir, size_t cap) {
+    const char *cut = strrchr(spec, '\\');
+    int drive = spec[0] && spec[1] == ':';
+    if (!cut && drive) {                         // that drive's current folder
+        if (upper(spec[0]) == upper(g_cwd[0])) snprintf(dir, cap, "%s", g_cwd);
+        else snprintf(dir, cap, "%c:\\", upper(spec[0]));
+        return spec + 2;
+    }
+    if (!cut) snprintf(dir, cap, "%s", g_cwd);
+    else if (cut == spec || (drive && cut == spec + 2)) snprintf(dir, cap, "%.*s\\", (int)(cut - spec), spec);
+    else snprintf(dir, cap, "%.*s", (int)(cut - spec), spec);
+    return cut ? cut + 1 : spec;
+}
+
+// DlgDirList's and LB_DIR's listing of DOS folder `dos`: each file matching `pattern`, with
+// DDL_DIRECTORY each folder as "[name]" ("[..]" below a root), with DDL_DRIVES each drive as "[-c-]"
+// -- in lower case, as 3.1 listed them. DDL_EXCLUSIVE leaves the files out unless asked for (w16's
+// are all read/write, DDL_ARCHIVE). 0, or DOS's error when the folder is not there.
+int w16_dir_list(const char *dos, const char *pattern, unsigned attr, void (*add)(void *, const char *),
+                 void *ctx) {
+    char host[1024], name[300];
+    if (w16_dos_path(dos, host, sizeof host, 0, 0, 0) != 0) return E_PATH;
+    DIR *d = opendir(host);
+    char *path = d ? malloc(1400) : 0;
+    if (!path) { if (d) closedir(d); return E_PATH; }
+    int files = !(attr & 0x8000) || (attr & 0x21), all = !strcmp(pattern, "*.*") || !strcmp(pattern, "*");
+    struct dirent *de;
+    while ((de = readdir(d))) {
+        if (!strcmp(de->d_name, ".") || !strcmp(de->d_name, "..")) continue;
+        struct stat st;
+        snprintf(path, 1400, "%s/%s", strcmp(host, "/") ? host : "", de->d_name);
+        if (stat(path, &st) != 0) continue;
+        int dir = S_ISDIR(st.st_mode);
+        if (dir ? !(attr & 0x10) : !files || (!all && !match83(pattern, de->d_name))) continue;
+        size_t n = 0;
+        if (dir) name[n++] = '[';
+        for (const char *p = de->d_name; *p && n < sizeof name - 3; p++)
+            name[n++] = *p >= 'A' && *p <= 'Z' ? (char)(*p + 32) : *p;
+        if (dir) name[n++] = ']';
+        name[n] = 0;
+        add(ctx, name);
+    }
+    closedir(d);
+    free(path);
+    size_t len = strlen(dos);
+    if ((attr & 0x10) && len > 3) add(ctx, "[..]");
+    for (char k = 'A'; (attr & 0x4000) && k <= 'Z'; k++)
+        if (drive_root(k)) {
+            char drv[6] = { '[', '-', (char)(k + 32), '-', ']', 0 };
+            add(ctx, drv);
+        }
+    return 0;
+}
+
 static int find_next(struct cpu16 *c) {
     DIR *d = opendir(g_find.host);
     if (!d) return dos_err(c, 18);

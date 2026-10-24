@@ -186,6 +186,10 @@ def probe(dbg, res):
               (got.get("Ver"), got.get("VerDest")) == ("0000", "0012"), got)
     res.check("RectVisible: a rectangle on the bitmap is visible, one far off it is not",
               got.get("Vis") == "00010000", got)
+    res.check("GetDoubleClickTime answers what SetDoubleClickTime(300) set",
+              got.get("Dbl") == "012C", got)
+    res.check("SwapMouseButton answers the buttons' state before each call: not swapped, then swapped",
+              got.get("Swap") == "00000001", got)
     text = dict(re.findall(r"(\w+)=(.*)", out))
     res.check("LZOpenFile finds a bare name in C:\\WINDOWS (OpenFile's search) and gives an LZ handle",
               got.get("LZ") == "0190", got)
@@ -860,6 +864,12 @@ def caption_line_ends(dbg, qmp, res, title):
 
 def dialogs(dbg, qmp, res):
     sh(dbg, f"rm {DLG_INI}")
+    # DlgDirList's folder: two .TXT files and one that does not match, and a folder.
+    sh(dbg, "mkdir /home/Win16")
+    sh(dbg, "mkdir /home/Win16/W16DIR")
+    sh(dbg, "mkdir /home/Win16/W16DIR/SUB")
+    for name in ("B.TXT", "A.TXT", "C.DAT"):
+        sh(dbg, f"write /home/Win16/W16DIR/{name} x")
     win = dbg.spawn("/bin/w16 /usr/share/w16/dialog.exe", DLG_TITLE)
     res.check("dialog.exe opens its window", win is not None, "no window")
     if not win:
@@ -875,6 +885,15 @@ def dialogs(dbg, qmp, res):
     dbg.send("gui key 0xF789")                    # F2
     titles = wait_titles(dbg, lambda t: "Number" in t)
     res.check("F2, an accelerator, opens the dialog", "Number" in titles, f"windows {titles}")
+    ini = sh(dbg, f"cat {DLG_INI}")
+    got = dict(re.findall(r"(\w+)=(.*)", ini))
+    rows = [got.get(f"Dir{i}", "").strip() for i in range(5)]
+    res.check("DlgDirList: the .TXT files, then [..] and the folder, sorted; the drives after them",
+              got.get("DirOK", "").strip() == "1" and rows == ["a.txt", "b.txt", "[..]", "[sub]", "[-c-]"], rows)
+    res.check("...the static shows the folder it made current, in lower case: c:\\w16dir",
+              got.get("DirPath", "").strip() == "c:\\w16dir", got.get("DirPath"))
+    res.check("DlgDirSelect of [sub] answers sub\\ and TRUE", (got.get("DirSel", "").strip(),
+              got.get("DirIsDir", "").strip()) == ("sub\\", "1"), (got.get("DirSel"), got.get("DirIsDir")))
     caption_line_ends(dbg, qmp, res, next((t for t in titles if "Number" in t), None))
     owner_drawn_list(dbg, qmp, res, next((t for t in titles if "Number" in t), None))
     for ch in "57":
@@ -892,6 +911,19 @@ def dialogs(dbg, qmp, res):
               f"windows {titles}")
     dbg.send("gui key n")
     res.check("its No answers by mnemonic: Box=7 (IDNO)", ini_has(dbg, "Box=7"), sh(dbg, f"cat {DLG_INI}"))
+    # Control Panel's Mouse swaps the buttons in WIN.INI: a LEFT click is then the program's right one.
+    sh(dbg, "write /home/Win16/WINDOWS/WIN.INI [windows]")
+    sh(dbg, "append /home/Win16/WINDOWS/WIN.INI SwapMouseButtons=1")
+    try:
+        dbg.click(win["x"] + win["w"] // 2, win["y"] + win["h"] - 20)
+        titles = wait_titles(dbg, lambda t: t.count(DLG_TITLE) == 2)
+        res.check("with WIN.INI's SwapMouseButtons=1 a left click is the program's right one: the box opens",
+                  titles.count(DLG_TITLE) == 2, f"windows {titles}")
+        if titles.count(DLG_TITLE) == 2:
+            dbg.send("gui key n")
+            wait_titles(dbg, lambda t: t.count(DLG_TITLE) == 1)
+    finally:
+        sh(dbg, "rm /home/Win16/WINDOWS/WIN.INI")
     always_on_top(dbg, res)
     dbg.send("gui key h alt")
     wait_titles(dbg, lambda t: "Popup" in t)

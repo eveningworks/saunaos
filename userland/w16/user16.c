@@ -52,10 +52,11 @@
 static const uint32_t g_syscolors[] = {
     0xC0C0C0, 0x008080, 0x000080, 0xFFFFFF, 0xFFFFFF, 0xFFFFFF, 0x000000, 0x000000,
     0x000000, 0xFFFFFF, 0xC0C0C0, 0xC0C0C0, 0xFFFFFF, 0x000080, 0xFFFFFF, 0xC0C0C0,
-    0x808080, 0x808080, 0x000000, 0x000000, 0xFFFFFF,
+    0x808080, 0xC0C0C0, 0x000000, 0x000000, 0xFFFFFF,
 };
 
-// COLOR_* (0..20) -> a ugfx colour; Windows' defaults.
+// COLOR_* (0..20) -> a ugfx colour; Windows' defaults -- 3.1's at VGA, where COLOR_GRAYTEXT is the
+// light grey (the reference 3.11's greyed labels, lists and menu items).
 uint32_t w16_syscolor(unsigned index) {
     uint32_t rgb = index < sizeof g_syscolors / sizeof g_syscolors[0] ? g_syscolors[index] : 0xFFFFFF;
     return ugfx_rgb((uint8_t)(rgb >> 16), (uint8_t)(rgb >> 8), (uint8_t)rgb);
