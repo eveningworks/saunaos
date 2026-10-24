@@ -282,7 +282,15 @@ disks...** (a Disks, Check, Install, Done dialog; the launcher offers it
 in a bar while drive C: has none) or `w16 --install DISKS`: each file
 expanded from its COMPRESS.EXE `FILE.EX_` (`lib/umsexpand`, floppies read
 by `lib/ufatimg`) into the folder Windows' own Express Setup put it in,
-which `SETUP.INF` decides, and `C:\WINDOWS` added to the launcher's folders.
+which `SETUP.INF` decides, its WIN.INI and SYSTEM.INI given the lines
+Setup wrote, and `C:\WINDOWS` added to the launcher's folders. **Windows'
+own Control Panel runs** (`CONTROL.EXE`), every applet's icon in it:
+Color (the schemes, a preview drawn as 3.11 drew it), Mouse (swapping the
+buttons, the double-click speed), Sound (assigning WAVs, Test plays
+them), Printers, International, Fonts, Desktop, Keyboard, Ports and
+Date/Time open; Drivers lists SYSTEM.INI's and says it cannot load them.
+What they change is the Windows programs' own -- WIN.INI and w16's
+state, as Wine keeps it -- never toy-os's System Settings.
 
 **The File Manager** opens on **Quick access** -- pinned folders,
 recently opened files and the drives in three bands -- and its command

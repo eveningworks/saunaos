@@ -8318,3 +8318,9 @@ Where each stood on 2026-10-24, on an installed WfW 3.11 tree (`w16
   disk is not FAT's.
 - **Desktop, Keyboard, Ports, Date/Time**: open with every control.
 
+Still to do (the item stays open): Fonts' Sample box and its "0 KB on
+disk"; Date/Time saying plainly that w16 cannot set the clock; Keyboard
+and International checked to save to WIN.INI, and w16 honouring
+KeyboardSpeed and KeyboardDelay; a side-by-side of every applet with
+the reference 3.11.
+

@@ -25,7 +25,7 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] Grow a TFS3 volume -- Disks' Resize dialog (R1), `part resize`, a shared `uui_resizebar`  *(Storage hardening)*
-- [ ] w16: Control Panel's applets working for real -- Color, Fonts, Mouse, Sound...; the rest saying what w16 cannot  *(Running 16-bit Windows programs (w16))*
+- [ ] w16: Control Panel's applets working for real -- Fonts, Date/Time, Keyboard left  *(Running 16-bit Windows programs (w16))*
 <!-- END next-up -->
 
 
@@ -986,7 +986,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: printing -- PrintDlg answers "no default printer"
 - [x] ~~w16: a program's own DLLs loaded beside it (Hearts' CARDS.DLL)~~ DONE 2026-10-20 -- LoadLibrary, GetProcAddress, by-name imports
 - [x] ~~w16: Control Panel opens with every applet's icon~~ DONE 2026-10-24 -- SPI, VerFindFile, RectVisible, a DLL's own resources
-- [ ] **NEXT** w16: Control Panel's applets working for real -- Color, Fonts, Mouse, Sound...; the rest saying what w16 cannot
+- [ ] **NEXT** w16: Control Panel's applets working for real -- Fonts, Date/Time, Keyboard left
 - [x] ~~w16: Solitaire and Hearts from Windows 3.11~~ DONE 2026-10-20 -- Hearts plays the computer's hands; MFC's hook and creation order
 - [x] ~~w16: Write from Windows 3.11~~ DONE 2026-10-20 -- .WRI files real 3.11 reads back, TrueType, ChooseFont, OLE pictures
 - [ ] w16: Write's pictures onto toy-os's clipboard -- Write promises CF_BITMAP but never renders it when asked (WM_RENDERFORMAT)
