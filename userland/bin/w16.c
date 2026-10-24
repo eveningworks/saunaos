@@ -250,9 +250,13 @@ static void on_open(struct uapp *a) {
     // The title as it is NOW: a program that retitled its window before
     // this one was up (Notepad's "Notepad - FILE.TXT") posted to no one.
     char *title = g_w16.win.text ? strdup(g_w16.win.text) : 0;
+    // ...and the size: Calculator shrinks its scientific dialog to the
+    // standard one before showing it, and that W16_POST_SIZE was dropped too.
+    int ww = w16_up(g_w16.win.w), wh = w16_up(g_w16.win.h);
     pthread_mutex_unlock(&g_w16.lock);
     if (title) uapp_set_title(a, title);
     free(title);
+    if (ww != uapp_width(a) || wh != uapp_height(a)) uapp_resize(a, ww, wh);
     if (pending) do_syscmd(a, pending);   // ShowWindow(SW_MAXIMIZE) before the window was up
     if (above) uapp_set_above(a, above - 1);   // Clock's saved Always on Top, set at start
     // The program stopped while its window was opening: the fault's box,
