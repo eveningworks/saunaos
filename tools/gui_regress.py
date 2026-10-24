@@ -83,6 +83,7 @@ sys.path.insert(0, HERE)
 import fresh_disk  # noqa: E402
 from harness import copy_disk  # noqa: E402
 from private_tmp import private_tmp  # noqa: E402
+import test_history  # noqa: E402
 
 # How many tools run at once by default: ONE GUEST PER HARDWARE THREAD,
 # capped at 16. `-j1` restores the original serial behaviour exactly.
@@ -442,7 +443,7 @@ def run_one(name, script, disk_src, timeout, keep_logs, slot, kvm=False):
         # output at all" for a tool that had printed thirty checks.
         # A PRIVATE TMPDIR, removed after: tools leave disk copies and
         # screenshots under tempfile, and /tmp is a tmpfs (private_tmp.py).
-        with private_tmp(name) as env:
+        with private_tmp(name, _child_env()) as env:
             r = subprocess.run([sys.executable, "-u", tool,
                                 "--instance", str(slot)],
                                cwd=REPO, capture_output=True, text=True,
@@ -505,7 +506,28 @@ def run_one(name, script, disk_src, timeout, keep_logs, slot, kvm=False):
 
     if rc == EXIT_SKIP:
         summary = "nothing judged -- " + summary
+    _record_tool(script, rc, time.time() - started, summary, out, f"slot {slot}")
     return (status_of(rc), time.time() - started, summary)
+
+
+def _child_env(base=None):
+    """A tool's environment: this run records its row (test_history.py)."""
+    env = dict(base if base is not None else os.environ)
+    env[test_history.BY_PARENT_ENV] = "1"
+    return env
+
+
+def _record_tool(script, rc, secs, summary, out, target):
+    """One history row per tool, under its script's name -- the name
+    harness.Results records it by when run by hand."""
+    fails = [ln.strip()[4:].strip() for ln in out.splitlines() if ln.lstrip().startswith("FAIL  ")]
+    if rc == 124:
+        fails.append("TIMEOUT")
+    elif rc not in (0, EXIT_SKIP) and not fails:
+        fails.append(summary[:200])
+    test_history.record(os.path.splitext(script)[0], status_of(rc), rc=rc, duration=secs,
+                        failures=fails, summary=summary, log_text=out, argv=[],
+                        target=target, hints=False)
 
 
 # automake's SKIP convention, which tools/harness.py's finish() follows:
@@ -577,6 +599,7 @@ def run_remote_suite(picked, args):
                                                args.timeout, args.logs)
         print(f"    {status}  ({secs:.0f}s)  {summary}\n", end="\n")
         results.append((name, status, secs, summary))
+    _RAN.append(results)
 
     print("gui_regress: summary")
     for name, status, secs, summary in results:
@@ -615,7 +638,7 @@ def run_one_remote(name, script, host, timeout, keep_logs):
     if not os.path.exists(tool):
         return ("SKIP", 0.0, f"no such tool: {script}")
 
-    env = dict(os.environ)
+    env = _child_env()
     env["TOYOS_REMOTE_HOST"] = host
     started = time.time()
     try:
@@ -655,6 +678,7 @@ def run_one_remote(name, script, host, timeout, keep_logs):
         return ("N/A", time.time() - started, unsupported[-1][:160])
     if rc == EXIT_SKIP:
         summary = "nothing judged -- " + summary
+    _record_tool(script, rc, time.time() - started, summary, out, host)
     return (status_of(rc), time.time() - started, summary)
 
 
@@ -691,7 +715,27 @@ def acquire_run_lock():
     return fh, None
 
 
+# The results of a run that ran tools, for its history row.
+_RAN = []
+
+
 def main():
+    run_id = test_history.new_id("gui_regress")
+    os.environ[test_history.PARENT_ENV] = run_id     # each tool's row names this run
+    started = time.time()
+    with test_history.capture() as printed:
+        rc = run()
+    if _RAN:
+        failed = [f"{r[0]}: {r[3]}" for r in _RAN[-1] if r[1] == "FAIL"]
+        os.environ.pop(test_history.PARENT_ENV)
+        test_history.record("gui_regress", "PASS" if rc == 0 else "FAIL", rc=rc,
+                            duration=time.time() - started, failures=failed,
+                            summary=f"{len(_RAN[-1])} tools, {len(failed)} failed",
+                            log_text="".join(printed), run_id=run_id, hints=False)
+    return rc
+
+
+def run():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("-k", "--only", action="append", metavar="NAME",
@@ -836,6 +880,7 @@ def main():
             done[name] = (status, secs, summary)
 
     results = [(name, *done[name]) for name, _s, _w in picked if name in done]
+    _RAN.append(results)
 
     print("gui_regress: summary")
     for name, status, secs, summary in results:

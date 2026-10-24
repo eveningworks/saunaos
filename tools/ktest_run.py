@@ -38,6 +38,7 @@ import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from serial_console import DEFAULT_PORT, SerialGuest  # noqa: E402
+import test_history  # noqa: E402
 
 # A HANG GUARD, sized in HOST seconds against a suite that reports ~40 s
 # of GUEST time: under TCG the guest clock lags a loaded host, and a
@@ -57,12 +58,45 @@ def fail(message, facts):
     about the run.
     """
     print(f"ktest_run: FAIL -- {message}")
+    _RUN["failures"].append(message)
     for line in facts:
         print(f"              {line}")
     return 1
 
 
+# What main() learned, for the history record written after it.
+_RUN = {"transcript": "", "failures": []}
+
+
+def failed_tests(transcript):
+    """Each failed KTEST as "name (file:line)", from the report."""
+    lines = transcript.splitlines()
+    out = []
+    for i, line in enumerate(lines):
+        if line.strip().startswith("FAIL:") and i > 0:
+            name = lines[i - 1].split(" ... ")[0].strip()
+            at = lines[i + 1].strip() if i + 1 < len(lines) else ""
+            out.append(f"{name} ({at[3:]})" if at.startswith("at ") else name)
+    if "KERNEL PANIC" in transcript:
+        out.append("KERNEL PANIC")
+    return out
+
+
 def main():
+    started = time.time()
+    with test_history.capture() as printed:
+        rc = run()
+    t = _RUN["transcript"]
+    test_history.record(
+        "ktest_run", "PASS" if rc == 0 else "FAIL", rc=rc,
+        duration=time.time() - started,
+        failures=failed_tests(t) + _RUN["failures"],
+        summary=next((l for l in t.splitlines() if l.startswith(("ktest: PASSED", "ktest: FAILED"))), ""),
+        log_text="".join(printed) + ("\n--- the whole transcript ---\n" + t if t else ""))
+    return rc
+
+
+def run():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--iso", default="toy-os.iso")
@@ -219,6 +253,7 @@ def main():
         guest.stop()
 
     transcript = guest.transcript
+    _RUN["transcript"] = transcript
     if args.verbose:
         # THE WHOLE TRANSCRIPT, boot messages included -- which is what
         # this flag has always claimed and did not do.

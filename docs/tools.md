@@ -14,6 +14,7 @@ does — and add its entry here, which `tools/check_docs.py` verifies.
 | Question | Tool |
 |---|---|
 | Is it MINE, or already broken? | `predates.py "<command>"` -- "it predates me" is a MEASUREMENT |
+| When did this check last fail, or pass -- at which commit, on which host? | `test_history.py "<check>"` -- every local run recorded, logs kept |
 | Can my test SEE the break? | `mutate.py --edit FILE OLD NEW -- <test>` -- restores and rebuilds itself |
 | Is it safe to commit? | `preflight.sh` (**stop your `vm.py` guest first**) |
 | Has the on-demand half rotted? | `ondemand_sweep.py` -- the ~30 tools no other runner covers |
@@ -6679,6 +6680,34 @@ runs first**: a `doom1.wad` with one
   leaves its temp files behind; `QMPSession.screenshot()` now deletes
   the `.ppm` it derives itself, and the hardcoded `/tmp` images in
   `osk_test`, `msi_test` and `damage_hunt` follow `TMPDIR`.
+- **`test_history.py`** -- a LOCAL record of every test run, kept in
+  `~/.local/share/toy-os/test-history/`. It is never in the repo and
+  never pushed (`TOYOS_TEST_HISTORY=DIR` moves it, `=off` stops it).
+  `preflight.sh`, `ktest_run.py`, `gui_regress.py` (a row per tool and
+  one for the run) and every tool on `harness.Results` append a line as
+  they finish. Each line holds the commit and whether the tree was
+  dirty, the verdict, the checks that failed, the duration, the
+  checkout and its filesystem, the host's kernel and QEMU and its
+  load, and a parent id tying a child run to its preflight or
+  gui_regress. Each run's whole log is gzipped under `logs/`, pruned
+  oldest first past `TOYOS_TEST_HISTORY_MAX_MB` (1024); `runs.jsonl`
+  is kept for good.
+
+      python3 tools/test_history.py                     # the last 20 runs
+      python3 tools/test_history.py "sched_test.c:114"  # first/last seen, by commit, hosts
+      python3 tools/test_history.py --tool ktest_run --last 50
+      python3 tools/test_history.py --show <id>         # one run's record and log
+
+  When a run fails, it prints a `history:` line per failed check: how
+  many of the tool's last 20 runs failed it, and when the tool last
+  passed. It exists because a failure on 2026-10-24 took hours to place:
+  it was red at HEAD and green at the last published build, the host
+  kernel had changed that morning, and nothing recorded which runs had
+  passed where. **A check is matched by its NAME** (the text before
+  ` (file:line)`), because line numbers move between commits.
+  Recording never fails a run. gui_regress.py records each tool's row
+  itself and sets `TOYOS_TEST_HISTORY_BY_PARENT` so harness.Results
+  does not record it a second time. `--selftest` runs in preflight.
 - **`predates.py`** -- answers "did this failure exist before my
   changes?" by measuring rather than guessing: stashes the tree,
   rebuilds at HEAD, runs the command you name, restores, and prints

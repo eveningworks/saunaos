@@ -26,9 +26,12 @@ summary line `finish()` prints is the one `gui_regress.py` reads:
 `<tool>: N passed, M failed`, with `, K skipped` after it when any were.
 """
 import http.server
+import os
 import ssl
 import subprocess
+import sys
 import threading
+import time
 
 
 class Results:
@@ -41,6 +44,7 @@ class Results:
         self.rows = []                 # (name, ok, detail), in order
         self.passes, self.fails = [], []
         self.skips = []                # (name, why): neither a pass nor a fail
+        self._history_start()
 
     def check(self, name, ok, detail=""):
         ok = bool(ok)
@@ -71,13 +75,44 @@ class Results:
         gui_regress.py reports as SKIP; a run with no checks at all is 1."""
         print("\n" + self.summary(tool))
         if self.fails:
-            return 1
-        if self.rows:
-            return 0
-        if self.skips:
+            rc = 1
+        elif self.rows:
+            rc = 0
+        elif self.skips:
             print(f"{tool}: nothing judged -- every check skipped")
-            return 77
-        return 1
+            rc = 77
+        else:
+            rc = 1
+        self._history_record(tool, rc)
+        return rc
+
+    # The local test history (tools/test_history.py): everything printed
+    # from construction on is kept as the run's log. Not under
+    # gui_regress.py, which records the tool's row itself; and only the
+    # first Results of a process tees.
+    _teeing = False
+
+    def _history_start(self):
+        import test_history
+        self._history = None
+        if (Results._teeing or not test_history.enabled()
+                or os.environ.get(test_history.BY_PARENT_ENV)):
+            return
+        Results._teeing = True
+        self._history = []
+        self._history_t0 = time.time()
+        sys.stdout = test_history._Tee(sys.stdout, self._history)
+        sys.stderr = test_history._Tee(sys.stderr, self._history)
+
+    def _history_record(self, tool, rc):
+        if self._history is None:
+            return
+        import test_history
+        stem = os.path.splitext(os.path.basename(sys.argv[0]))[0] or tool
+        test_history.record(stem, "PASS" if rc == 0 else "SKIP" if rc == 77 else "FAIL",
+                            rc=rc, duration=time.time() - self._history_t0,
+                            failures=[n for n, ok, _d in self.rows if not ok],
+                            summary=self.summary(tool), log_text="".join(self._history))
 
 
 def poll(fn, timeout, step=0.2):

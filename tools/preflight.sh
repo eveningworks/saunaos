@@ -76,11 +76,35 @@ python3 tools/tree_lock.py || exit 1
 exec 9>"$repo_root/.test-lock"
 flock -s 9
 mkdir -p "$repo_root/.test-lock.d" && echo "preflight.sh $*" > "$repo_root/.test-lock.d/$$"
-trap 'rm -f "$repo_root/.test-lock.d/$$"' EXIT
 export TOYOS_TEST_LOCK_HELD=$$
 
+# THE LOCAL TEST HISTORY (tools/test_history.py): this run's output is
+# kept and recorded at exit, and every tool it runs names it as parent.
+# The original stdout/stderr are saved on 3 and 4 so the exit trap can
+# close the pipe into tee -- tee has the log until it has seen EOF.
+pf_args="$*"
+pf_start=$(date +%s)
+pf_reason=""
+pf_id="$(date +%Y%m%d-%H%M%S)-preflight-$$"
+export TOYOS_TEST_HISTORY_PARENT="$pf_id"
+pf_log="$(mktemp "${TMPDIR:-/tmp}/preflight.$$.XXXXXX")"
+exec 3>&1 4>&2
+exec > >(tee -a "$pf_log") 2>&1
+pf_tee=$!
+pf_exit() {
+  local rc=$?
+  rm -f "$repo_root/.test-lock.d/$$"
+  exec 1>&3 2>&4
+  wait "$pf_tee" 2>/dev/null
+  TOYOS_TEST_HISTORY_PARENT="" python3 tools/test_history.py record --id "$pf_id" \
+    --tool preflight --rc "$rc" --duration "$(( $(date +%s) - pf_start ))" \
+    --argv "$pf_args" --log "$pf_log" ${pf_reason:+--failure "$pf_reason"}
+  rm -f "$pf_log"
+}
+trap pf_exit EXIT
+
 step() { echo "== $1 =="; }
-fail() { echo "preflight: FAIL -- $1"; exit 1; }
+fail() { pf_reason="$1"; echo "preflight: FAIL -- $1"; exit 1; }
 
 # A VM LEFT RUNNING FAILS THIS GATE MINUTES LATER, AND NOT WHERE YOU
 # LOOK. `make iso` re-seeds disk.img while a guest holds a write lock on
@@ -228,6 +252,9 @@ python3 tools/check_chains.py || fail "chain freeze"
 
 step "check_tool_commands.py (a tool driving a command that no longer exists)"
 python3 tools/check_tool_commands.py || fail "tool command check"
+
+step "test_history.py --selftest (the local run history records, reads and prunes)"
+python3 tools/test_history.py --selftest || fail "test history selftest"
 
 step "remote_hang_test.py (a remote.py wait with no end, against fakes that misbehave)"
 python3 tools/remote_hang_test.py || fail "remote.py hang check"
