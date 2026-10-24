@@ -268,8 +268,11 @@ reproduces the layout that the image it copies expects. Changing the partition
 order here without rebuilding `core.img` produces a disk that reaches GRUB and
 stops at a rescue prompt.
 
-**`/install/grub.cfg` is written verbatim, so any `KCMDLINE` baked into this
-build is baked into the target too.** A system built with `make iso
+**`/install/grub.cfg` is copied as it is, except for the menu**: a build
+whose file has `set timeout=0` (any plain `make iso`) gets `set timeout=3` on
+the target, because `update` installs no kernel without a menu to fall back on
+(`docs/commands/update.md`). **Any `KCMDLINE` baked into this build is baked
+into the target too.** A system built with `make iso
 KCMDLINE="root=ata0p3"` installs a target that also insists on `ata0p3` — which
 is right if the target's root really is its third partition (it is) and wrong
 the moment that disk is attached as something other than `ata0`.

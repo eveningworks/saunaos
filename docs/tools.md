@@ -6483,8 +6483,8 @@ runs first**: a `doom1.wad` with one
   this tool run against a stock `make iso` with no `KCMDLINE` (compare
   `hires_test.py`, which does need one).
 
-  **It runs BOTH media** (`--media disk|live|both`, default both), because
-  they are different code paths and the live one is how a real machine
+  **It runs every medium** (`--media disk|live|grown|mbr|bootloader|all`,
+  default all), because they are different code paths and the live one is how a real machine
   gets toy-os: `toy-os-live.iso`'s root is a RAM image with no `/boot` at
   all, which is why the install payload lives in `/install`. The live
   half needs `make live-iso` and is skipped with a message when the ISO
@@ -6496,6 +6496,13 @@ runs first**: a `doom1.wad` with one
   stays on one filesystem (`cp -x`). `installer_test.py` mounts the same
   stick in its live session. Red on the installer before 2026-10-24,
   which copied a 114 GB stick onto a bare-metal machine's NVMe.
+
+  **Every medium reads the target's `grub.cfg` back**: the payload's
+  `set timeout=0` must have become `set timeout=3`, with no `.bak` left
+  for `bootcfg undo` -- `update` installs no kernel without a menu, so an
+  install that copied the file as it was could never be updated. The
+  payload's own timeout is read too, or a `MENU=1` build would pass it
+  blind. Red before 2026-10-24.
 
   `--positive-control` zeroes each installed boot sector before its boot
   phase, so those checks must go RED; a clean run proves nothing until

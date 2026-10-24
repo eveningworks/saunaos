@@ -141,7 +141,9 @@ kept as `kernel.old` -- the GRUB rescue entry, *toy-os (previous
 kernel)*. So `update` **refuses to install anything** while
 `/boot/grub/grub.cfg` has `set timeout=0`: with no menu, a new
 kernel that fails to boot could not be undone. A VM built with plain
-`make iso` is in that state; `make iso MENU=1` gives it a menu. The
+`make iso` is in that state; `make iso MENU=1` gives it a menu. `install`
+gives every target a 3-second one; a machine installed before it did needs
+`bootcfg timeout 3` once. The
 gzipped kernel is sent instead of the ELF when this machine's GRUB
 records `gzio` (`/etc/grub-core.modules`).
 

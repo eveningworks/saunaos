@@ -286,6 +286,17 @@ def run_media(args, c, media):
         add("nothing was truncated or ran out of room", "no space left" not in out)
         add("it wrote a boot sector and a core image",
             "boot sector written, core image at LBA" in both)
+        # `update` installs no kernel without a menu to fall back on, and
+        # a default build's grub.cfg has none: the target must get one.
+        # The payload is read too, or a MENU=1 build passes this blind.
+        got = vm(args, media, "exec", "cat /install/grub.cfg",
+                 f"mount ata0p{boot_n} /mnt", "cat /mnt/grub/grub.cfg",
+                 "ls /mnt/grub", "umount /mnt")
+        timeouts = re.findall(r"^set timeout=(\d+)", got, re.M)
+        add("the target's grub.cfg shows a menu where the payload's had none",
+            timeouts == ["0", "3"], f"timeouts {timeouts}")
+        add("...and keeps no menu-less .bak for `bootcfg undo` to restore",
+            "grub.cfg.bak" not in got, got[-200:])
         if media == "disk":
             # Read back off the TARGET, from this guest: the stick stays
             # attached, so its own /media mount is not what is being read.

@@ -14,7 +14,7 @@
 #include "mount_abi.h"
 #include "query_abi.h"
 #include "lib/human.h"
-#include "lib/ubootcfg.h"   // ubootcfg_onoff_in()
+#include "lib/ubootcfg.h"   // ubootcfg_onoff_in(), the target's menu timeout
 #include "lib/ufbs.h"       // the target starts unmarked, with what the session answered
 #include "lib/ufile.h"
 #include "lib/ufileop.h"
@@ -396,6 +396,32 @@ static int copy_system(struct run *r) {
     return ok;
 }
 
+// AN INSTALLED SYSTEM BOOTS WITH A MENU. A default build's grub.cfg has
+// `set timeout=0`, and `update` installs no kernel without a menu to
+// pick the previous one from (docs/commands/update.md) -- so a copy left
+// that way could never be updated. A file that already shows a menu, or
+// whose timeout this does not understand, is left as it is.
+#define MENU_SECONDS 3
+static void give_menu(struct run *r) {
+    const char *path = UINSTALL_TARGET_BOOT "/grub/grub.cfg";
+    const char *why = 0;
+    struct ubootcfg *c = malloc(sizeof *c);
+    if (!c) why = "out of memory";
+    else if (ubootcfg_load(c, path) < 0) why = "it could not be read";
+    else if (c->timeout == 0) {
+        if (ubootcfg_set_timeout(c, MENU_SECONDS) < 0) why = c->why;
+        else if (ubootcfg_save(c, path, &why) == 0) {
+            // The .bak is the menu-less file; `bootcfg undo` must not bring it back.
+            unlink(UINSTALL_TARGET_BOOT "/grub/grub.cfg.bak");
+            line(r, "boot menu: %d seconds", MENU_SECONDS);
+        }
+    }
+    free(c);
+    if (why)
+        line(r, "could not give %s a boot menu (%s) -- `update` will refuse until "
+                "`bootcfg timeout %d`", path, why, MENU_SECONDS);
+}
+
 // The target's ESP: the kernel and grub.cfg, at the paths GRUB's prefix
 // names -- the volume's root, which the target shows as /boot. Written
 // from the payload rather than copied from `/boot`, which a live boot
@@ -416,6 +442,7 @@ static int copy_boot(struct run *r) {
         line(r, "%s", FILES[i][0]);
         if (ufileop_copy(FILES[i][0], FILES[i][1], &g_op, &pol) != UFILEOP_OK) return 0;
     }
+    give_menu(r);
     return 1;
 }
 
