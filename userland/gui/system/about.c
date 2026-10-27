@@ -27,8 +27,8 @@
 #include "lib/human.h"
 #include "ui/utheme.h"
 #include "lib/icon_cache.h" // icon_get() -- an icon is a NAME, not a path
-#include "version.h"        // TOYOS_VERSION*, generated -- tools/gen_version.sh
-#include "build_date.h"     // TOYOS_BUILD_DATE -- the DAY this program was built
+#include "version.h"        // SAUNAOS_VERSION*, generated -- tools/gen_version.sh
+#include "build_date.h"     // SAUNAOS_BUILD_DATE -- the DAY this program was built
 #include "cpuinfo.h"        // struct cpu_info -- SYS_CPU_INFO, the brand and topology
 #include "ui/uui_button.h"
 #include "ui/uui_focus.h"
@@ -82,8 +82,8 @@ static void fill_rows(void) {
 
     struct query_version kv;
     int have_kv = sys_query_record(QUERY_VERSION, 0, &kv, sizeof kv) >= (int)sizeof kv;
-    snprintf(g_title, sizeof g_title, "toy-os %s",
-             have_kv ? kv.version : TOYOS_VERSION);
+    snprintf(g_title, sizeof g_title, "SaunaOS %s",
+             have_kv ? kv.version : SAUNAOS_VERSION);
 
     add("SOFTWARE", 1, 0);
 
@@ -102,25 +102,25 @@ static void fill_rows(void) {
     // The same two rows as the kernel's, so the two components read as
     // a pair and a mismatch is visible as one.
     r = add("Desktop", 0, 0);
-    snprintf(r->value, sizeof r->value, "%s", TOYOS_VERSION_FULL);
+    snprintf(r->value, sizeof r->value, "%s", SAUNAOS_VERSION_FULL);
     r = add("Built", 0, 0);
-    snprintf(r->value, sizeof r->value, "%s", TOYOS_BUILD_DATE);
+    snprintf(r->value, sizeof r->value, "%s", SAUNAOS_BUILD_DATE);
     // Where the source is: the repository and the commit, without the
     // scheme, so it fits the column (/bin/about prints the full link).
     r = add("Source", 0, 0);
     {
-        const char *repo = TOYOS_SOURCE_REPO;
+        const char *repo = SAUNAOS_SOURCE_REPO;
         if (!strncmp(repo, "https://", 8)) repo += 8;
         char id[24];
-        snprintf(id, sizeof id, "%s", TOYOS_BUILD_ID);
+        snprintf(id, sizeof id, "%s", SAUNAOS_BUILD_ID);
         char *dirty = strstr(id, "-dirty");
         if (dirty) *dirty = 0;
         snprintf(r->value, sizeof r->value, "%s @ %s%s", repo, id,
-                 TOYOS_SOURCE_EXACT ? "" : ", plus local changes");
+                 SAUNAOS_SOURCE_EXACT ? "" : ", plus local changes");
     }
 
     // The row this window exists to make impossible to miss.
-    if (have_kv && strcmp(kv.build_id, TOYOS_BUILD_ID) != 0) {
+    if (have_kv && strcmp(kv.build_id, SAUNAOS_BUILD_ID) != 0) {
         r = add("", 0, 1);
         snprintf(r->value, sizeof r->value,
                  "** kernel and desktop are from different builds **");
@@ -241,14 +241,14 @@ static int row_y(int i) {
 
 static const char *const TAGLINE[] = { "x86-64 hobby", "operating system" };
 
-// g_title is "toy-os <version>"; the column shows the two on two lines.
-static const char *version_text(void) { return g_title + sizeof "toy-os"; }
+// g_title is "SaunaOS <version>"; the column shows the two on two lines.
+static const char *version_text(void) { return g_title + sizeof "SaunaOS"; }
 
 static int left_w(void) {
     int w = logo_px();
     if (ugfx_char_w() * 16 > w) w = ugfx_char_w() * 16;
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));
-    if (ugfx_text_width("toy-os") > w) w = ugfx_text_width("toy-os");
+    if (ugfx_text_width("SaunaOS") > w) w = ugfx_text_width("SaunaOS");
     ugfx_set_font(was);
     if (ugfx_text_width(version_text()) > w) w = ugfx_text_width(version_text());
     for (unsigned i = 0; i < sizeof TAGLINE / sizeof TAGLINE[0]; i++)
@@ -339,13 +339,13 @@ static void about_draw(struct uapp *a, struct uapp_draw *d) {
 
     // --- left: centred in its column ---
     int lw = left_w(), lx = pad(), cx = lx + lw / 2, y = pad();
-    const struct uimg *logo = icon_get("toyos", logo_px());
+    const struct uimg *logo = icon_get("saunaos", logo_px());
     if (logo)
         ugfx_blit_alpha(s, cx - logo->w / 2, y, logo->w, logo->h, logo->px, logo->w);
     y += logo_px() + line_h() / 2;
     const struct ugfx_font *bold = ugfx_font_session(UGFX_FONT_BOLD);
     const struct ugfx_font *was = ugfx_set_font(bold);
-    ugfx_draw_string_clipped(s, cx - ugfx_text_width("toy-os") / 2, y, lw, "toy-os",
+    ugfx_draw_string_clipped(s, cx - ugfx_text_width("SaunaOS") / 2, y, lw, "SaunaOS",
                              UTHEME_TEXT, UTHEME_PANEL_BG);
     ugfx_set_font(was);
     y += line_h();

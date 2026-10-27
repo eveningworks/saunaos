@@ -260,7 +260,7 @@ int setting_get(const char *name, char *out, uint32_t out_size) {
 //
 // **THE REGISTRY IS THE GATE, NOT THE UI.** A spinbox knows the range
 // and will not offer a value outside it, but `config set
-// system.mouse.speed 0` and a hand-edited /etc/toyos.conf reach this
+// system.mouse.speed 0` and a hand-edited /etc/saunaos.conf reach this
 // same function without passing through any widget -- and one of those
 // used to be able to freeze the pointer, which is the reason
 // mouse_config.c made speed an ENUM of named levels in the first place.

@@ -1520,7 +1520,7 @@ The Lenovo stopped answering telnet and ping halfway through a
 `speedtest` upload over its RTL8156B. It was not dead: **the kernel's
 network debugger lives on a DIFFERENT NIC** (the onboard r8169, which
 `kdebug=net` owns), so `kdebug_bridge.py --target <lenovo-ip>:50000
---key <from its grub.cfg>` and `gdb -x tools/gdb/toyos.py
+--key <from its grub.cfg>` and `gdb -x tools/gdb/saunaos.py
 build/kernel.bin` with `toy-dmesg 60` and `info threads` read the log of
 a machine nothing else could reach: five `ep 0x2 recovered from halt`
 lines at 206 s, and nothing sent after. After the maintainer's reboot,

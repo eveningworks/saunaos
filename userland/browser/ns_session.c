@@ -14,7 +14,7 @@
 
 #include "browser/ns_session.h"
 
-#define FILE_MAGIC "toy-os browser session 1"
+#define FILE_MAGIC "SaunaOS browser session 1"
 
 static void path_of(const char *dir, char *out, size_t cap) { snprintf(out, cap, "%s/session.tsv", dir); }
 

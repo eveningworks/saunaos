@@ -38,7 +38,7 @@ the decode table, and the record of a call.
 | **Linux** | `strace` over `ptrace` stops (decoding in ring 3); `perf trace` reads the `raw_syscalls` tracepoints from a kernel RING BUFFER instead, with no stop | `ptrace`; `gdbserver` speaks the remote protocol over it |
 | **FreeBSD** | **`ktrace(2)`**: the kernel appends binary records -- `KTR_SYSCALL`, `KTR_SYSRET`, `KTR_NAMEI` (a path, copied at the call), `KTR_GENIO` (I/O bytes) -- and **`kdump(1)` decodes them in ring 3**. `truss` is the ptrace-shaped alternative | `ptrace` |
 | **Windows** | ETW: the kernel logger writes system-call events into per-CPU buffers; decoding is the consumer's | debug objects (`NtCreateDebugObject`, `DbgUi`) -- a stop model of its own |
-| **toy-os today** | the kernel formats every line and writes it to the tracer's terminal | none (`docs/kdebug-design.md` keeps user-space debugging out of the kernel stub) |
+| **SaunaOS today** | the kernel formats every line and writes it to the tracer's terminal | none (`docs/kdebug-design.md` keeps user-space debugging out of the kernel stub) |
 
 **FreeBSD's `ktrace`/`kdump` split is the shape for `strace`**: a record
 stream the traced process never waits for, path strings copied at the

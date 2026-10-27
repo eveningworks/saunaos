@@ -52,7 +52,7 @@ int ucrash_load(struct ucrash *r, const char *path) {
     struct stat st;   // stat, not fstat: fstat here does not report the mtime
     if (stat(path, &st) == 0) { r->when = st.st_mtime; r->size = (unsigned)st.st_size; }
     buf[got] = '\0';
-    if (strncmp(buf, "toy-os crash report", 19)) return -1;
+    if (strncmp(buf, "SaunaOS crash report", 19)) return -1;
     char *mark = strstr(buf, "\n" MARK);
     if (mark) { r->stack_off = (long)(mark + 1 - buf) + (long)strlen(MARK); *mark = '\0'; }
     strlcpy(r->path, path, sizeof r->path);

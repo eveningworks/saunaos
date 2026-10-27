@@ -2093,7 +2093,7 @@ def run(dbg, qmp, tmp, res):
     # A FOLDER counts what is in it -- the recursive walk, which is the
     # reason this is a process and not a modal.
     dbg.send(f"sh mkdir {SRC}/sub")
-    dbg.send(f"sh cp /etc/toyos.conf {SRC}/sub/one.conf")
+    dbg.send(f"sh cp /etc/saunaos.conf {SRC}/sub/one.conf")
     wait_listing(dbg, f"{SRC}/sub", lambda names: "one.conf" in names)
     dbg.logs("properties:", clear=True)
     dbg.send(f"gui spawn {PROPERTIES_EXEC} {SRC}")
@@ -2789,7 +2789,7 @@ def run(dbg, qmp, tmp, res):
     dbg.send(f"sh rm -r {MS}")
     dbg.send(f"sh mkdir {MS}")
     for n in range(6):
-        dbg.send(f"sh cp /etc/toyos.conf {MS}/f{n}.txt")
+        dbg.send(f"sh cp /etc/saunaos.conf {MS}/f{n}.txt")
     wait_listing(dbg, MS, lambda names: "f5.txt" in names)
     for w2 in sorted(dbg.windows(), key=lambda w2: -w2["z"]):
         if w2["title"] == TITLE:
@@ -2918,7 +2918,7 @@ def run(dbg, qmp, tmp, res):
         dbg.send(f"sh rm -r {d}")
         dbg.send(f"sh mkdir {d}")
     for n in range(3):
-        dbg.send(f"sh cp /etc/toyos.conf {DD}/g{n}.txt")
+        dbg.send(f"sh cp /etc/saunaos.conf {DD}/g{n}.txt")
     dbg.send(f"sh mkdir {DD}/deep")
     dbg.send(f"sh mkdir {DD}/deep/er")
     wait_listing(dbg, DD, lambda names: "g2.txt" in names and "deep" in names)

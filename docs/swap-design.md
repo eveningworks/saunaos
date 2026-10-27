@@ -6,7 +6,7 @@ A staged plan, in the shape `docs/pagecache-design.md` and
 **Status: DESIGNED. Stages 0 and 1 are BUILT (2026-09-06); stages 2-6
 are not.**
 
-**The one-sentence version:** toy-os should be able to evict an
+**The one-sentence version:** SaunaOS should be able to evict an
 anonymous user page to a disk area and fault it back — and the two hard
 parts are not the eviction. They are reaching the disk from a context
 that must not enter the filesystem, and choosing a victim without a
@@ -70,12 +70,12 @@ background (kswapd, at watermarks) and directly in the allocator.
 **Windows NT** has a pagefile, a per-process working set trimmed by the
 balance set manager, and the **PFN database** — a per-frame array
 carrying state, share count and backing store. That array is precisely
-the metadata toy-os does not have, and NT's prototype PTE is how it
+the metadata SaunaOS does not have, and NT's prototype PTE is how it
 solves the problem rmap solves on Linux.
 
 The two agree on the things this design copies: **the swap entry lives
 in the PTE**, and **the backing store is reached without going through
-a filesystem**. toy-os deliberately differs on rmap — see keystone 2.
+a filesystem**. SaunaOS deliberately differs on rmap — see keystone 2.
 
 ## The three keystones
 

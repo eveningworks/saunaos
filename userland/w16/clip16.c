@@ -1,18 +1,18 @@
-// clip16.c -- USER's clipboard, on toy-os's (lib/uclip).
+// clip16.c -- USER's clipboard, on SaunaOS's (lib/uclip).
 //
-// ONE CLIPBOARD, toy-os's: text a program puts there is what every toy-os
-// app pastes, and toy-os's text and pictures are what the program pastes --
+// ONE CLIPBOARD, SaunaOS's: text a program puts there is what every SaunaOS
+// app pastes, and SaunaOS's text and pictures are what the program pastes --
 // converted at the edge, ANSI and "\r\n" here, UTF-8 and "\n" there; a
 // picture as CF_BITMAP and CF_DIB. A program's OWN formats (Write's
 // formatted text, an OLE object's Native data, CF_METAFILEPICT) live here
 // in w16, for as long as the clipboard is still what the program last put
-// on it: toy-os's serial says so. Another program -- each its own w16 --
+// on it: SaunaOS's serial says so. Another program -- each its own w16 --
 // gets the text and the picture of them, as a Windows program that does
 // not know a format does.
 //
 // The program's handles are the clipboard's once given (SetClipboardData),
 // freed when it is emptied, and handed back as they are; what came from
-// toy-os is made into a block once per clipboard and freed likewise.
+// SaunaOS is made into a block once per clipboard and freed likewise.
 #include "w16_internal.h"
 
 #include <stdio.h>
@@ -30,9 +30,9 @@
 
 struct fmt {
     uint16_t format;
-    uint16_t handle;      // the program's block (a bitmap's HBITMAP), or the one made from toy-os's; 0: not yet
+    uint16_t handle;      // the program's block (a bitmap's HBITMAP), or the one made from SaunaOS's; 0: not yet
     int delayed;          // SetClipboardData(format, NULL): WM_RENDERFORMAT makes it when asked
-    int ours;             // the handle came from toy-os's clipboard, not the program
+    int ours;             // the handle came from SaunaOS's clipboard, not the program
 };
 
 static struct {
@@ -40,7 +40,7 @@ static struct {
     int n, cap;
     uint16_t owner;       // EmptyClipboard's caller: the window that opened the clipboard
     uint16_t opener;      // OpenClipboard's window
-    unsigned serial;      // toy-os's clipboard as the program last left it
+    unsigned serial;      // SaunaOS's clipboard as the program last left it
     int set;              // the program has put anything since emptying
     unsigned seen;        // the serial the imported formats belong to
 } g;
@@ -51,7 +51,7 @@ int w16_clip_put_text(const char *ansi, int n) {
     char *lf = malloc((size_t)n + 1), *out = malloc((size_t)n * 3 + 1);
     int m = 0, ok = 0;
     for (int i = 0; lf && i < n; i++)
-        if (!(ansi[i] == '\r' && i + 1 < n && ansi[i + 1] == '\n')) lf[m++] = ansi[i];   // toy-os's lines end in "\n"
+        if (!(ansi[i] == '\r' && i + 1 < n && ansi[i + 1] == '\n')) lf[m++] = ansi[i];   // SaunaOS's lines end in "\n"
     long u = lf && out ? ucharset_cp1252_to_utf8(out, (size_t)n * 3 + 1, lf, (size_t)m, '?') : -1;
     if (u >= 0) ok = uclip_set_text(out, (int)u);
     free(lf);
@@ -123,7 +123,7 @@ static struct fmt *add(uint16_t format) {
     return f;
 }
 
-// What toy-os's clipboard holds now, as formats: forgotten (and freed) when
+// What SaunaOS's clipboard holds now, as formats: forgotten (and freed) when
 // it has changed since they were made.
 static void imported(struct w16 *w) {
     unsigned serial = uclip_peek_serial();
@@ -144,7 +144,7 @@ static void imported(struct w16 *w) {
     }
 }
 
-// The picture on toy-os's clipboard, decoded; 0 when it holds none.
+// The picture on SaunaOS's clipboard, decoded; 0 when it holds none.
 static int clip_image(struct uimg *im) {
     static struct uclip c;
     if (!uclip_load(&c) || uclip_kind(&c) != UCLIP_KIND_IMAGE || !uclip_image(&c)) return 0;
@@ -185,8 +185,8 @@ static uint16_t make(struct w16 *w, uint16_t format) {
     return h;
 }
 
-// A format the program put there, published to toy-os's clipboard when
-// toy-os has a kind for it: text as text, a bitmap or DIB as a picture.
+// A format the program put there, published to SaunaOS's clipboard when
+// SaunaOS has a kind for it: text as text, a bitmap or DIB as a picture.
 static void publish(struct w16 *w, const struct fmt *f) {
     uint32_t size;
     const uint8_t *p;
@@ -196,7 +196,7 @@ static void publish(struct w16 *w, const struct fmt *f) {
         w16_clip_put_text((const char *)p, (int)n);
     } else if (f->format == CF_BITMAP || f->format == CF_DIB || f->format == CF_METAFILEPICT) {
         const struct fmt *text = find(CF_TEXT);
-        if (text && (text->handle || text->delayed)) return;   // toy-os keeps one kind: the text wins
+        if (text && (text->handle || text->delayed)) return;   // SaunaOS keeps one kind: the text wins
         struct uimg im = { 0 };
         int bw = 0, bh = 0;
         uint16_t drawn = 0;
@@ -242,9 +242,9 @@ static void publish(struct w16 *w, const struct fmt *f) {
 // OpenClipboard(hWnd) -> BOOL
 // CloseClipboard() -> BOOL
 // Windows: Open the clipboard for the program to read or change, and close it.
-// w16: Both succeed. The clipboard is toy-os's, shared with every program; closing it makes the
+// w16: Both succeed. The clipboard is SaunaOS's, shared with every program; closing it makes the
 // text -- else the picture -- the program promised but has not made yet (SetClipboardData with no
-// data), so the rest of toy-os can paste it.
+// data), so the rest of SaunaOS can paste it.
 static int api_OpenClipboard(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (ordinal == 137) {
         g.opener = w16_arg16(a);
@@ -253,7 +253,7 @@ static int api_OpenClipboard(struct w16 *w, unsigned ordinal, struct w16_args *a
         fflush(g_w16_trace);
     }
     if (ordinal == 138 && current() && g.owner) {
-        // What toy-os's clipboard can hold, made now: the text, else the picture.
+        // What SaunaOS's clipboard can hold, made now: the text, else the picture.
         static const uint16_t KINDS[] = { CF_TEXT, CF_DIB, CF_BITMAP, CF_METAFILEPICT };
         for (unsigned k = 0; k < sizeof KINDS / sizeof KINDS[0]; k++) {
             struct fmt *f = find(KINDS[k]);
@@ -269,7 +269,7 @@ static int api_OpenClipboard(struct w16 *w, unsigned ordinal, struct w16_args *a
 // EmptyClipboard() -> BOOL
 // Windows: Empties the clipboard, freeing what it held, and makes the window that opened it the
 // clipboard's owner -- the one asked to render a format it promised.
-// w16: The same, toy-os's clipboard emptied too.
+// w16: The same, SaunaOS's clipboard emptied too.
 static int api_EmptyClipboard(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -286,13 +286,13 @@ static int api_EmptyClipboard(struct w16 *w, unsigned ordinal, struct w16_args *
 // Windows: Puts data on the clipboard in a format -- CF_TEXT, CF_BITMAP, CF_METAFILEPICT, CF_DIB,
 // or one RegisterClipboardFormat named -- the block then the clipboard's. With no data, the
 // owner is sent WM_RENDERFORMAT when a program asks for that format.
-// w16: The same. Text, a bitmap, a DIB and a metafile (drawn as a picture) reach toy-os's
+// w16: The same. Text, a bitmap, a DIB and a metafile (drawn as a picture) reach SaunaOS's
 // clipboard, for every program; the other formats stay with this program.
-// Why: Each Windows program is its own w16, and toy-os's clipboard holds files, text or one
+// Why: Each Windows program is its own w16, and SaunaOS's clipboard holds files, text or one
 // picture -- not a list of a Windows program's formats.
 // Notice: Copying between two Windows programs carries the text and pictures only: Write's
 // formatting, or an object, pastes as plain text in another copy of Write.
-// Whole: The Windows formats kept on toy-os's clipboard beside its own kinds.
+// Whole: The Windows formats kept on SaunaOS's clipboard beside its own kinds.
 static int api_SetClipboardData(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t format = w16_arg16(a), h = w16_arg16(a);
@@ -316,7 +316,7 @@ static int api_SetClipboardData(struct w16 *w, unsigned ordinal, struct w16_args
 // GetClipboardData(uFormat) -> HANDLE
 // Windows: The clipboard's data in a format, the clipboard's own block -- the program reads it and
 // leaves it be. A format promised but not yet made is asked of its owner first (WM_RENDERFORMAT).
-// w16: The same: what the program put there, or what toy-os's clipboard holds, as CF_TEXT and
+// w16: The same: what the program put there, or what SaunaOS's clipboard holds, as CF_TEXT and
 // CF_OEMTEXT for text and CF_BITMAP and CF_DIB for a picture.
 static int api_GetClipboardData(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -327,7 +327,7 @@ static int api_GetClipboardData(struct w16 *w, unsigned ordinal, struct w16_args
 // GetClipboardOwner() -> HWND
 // Windows: The window that last emptied the clipboard, 0 when no window owns it.
 // w16: The same while the clipboard holds what this program put there; 0 once another program --
-// any toy-os app -- has copied since.
+// any SaunaOS app -- has copied since.
 static int api_GetClipboardOwner(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -337,7 +337,7 @@ static int api_GetClipboardOwner(struct w16 *w, unsigned ordinal, struct w16_arg
 
 // EnumClipboardFormats(format) -> UINT
 // Windows: The clipboard's formats one by one: what follows `format` (0 for the first), 0 at the end.
-// w16: The same, in the order they were put there; toy-os's text as CF_TEXT and CF_OEMTEXT, its
+// w16: The same, in the order they were put there; SaunaOS's text as CF_TEXT and CF_OEMTEXT, its
 // picture as CF_BITMAP and CF_DIB.
 static int api_EnumClipboardFormats(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;

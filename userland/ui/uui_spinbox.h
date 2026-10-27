@@ -15,7 +15,7 @@
 // for exactly 150 by dragging. Every desktop that exposes a numeric
 // setting pairs the two for that reason (KDE's System Settings puts a
 // spinbox beside every slider); GNOME drops the spinbox and is regularly
-// criticised for it. toy-os had neither, which is why `mouse_speed` was
+// criticised for it. SaunaOS had neither, which is why `mouse_speed` was
 // four named levels -- see kernel/lib/mouse_config.c, which said so.
 //
 // **IT EMBEDS A uui_textbox RATHER THAN PARSING KEYS ITSELF**, because

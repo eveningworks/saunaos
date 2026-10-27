@@ -59,7 +59,7 @@ from harness import Results, poll  # noqa: E402
 
 DEFAULT_SOCK = ".vm.serial"
 SETTINGS = "/bin/wm/system/settings"
-CONF = "/etc/toyos.conf"
+CONF = "/etc/saunaos.conf"
 SETTINGS_CONF = "/etc/settings.conf"
 
 
@@ -111,7 +111,7 @@ def last(pattern):
 
 
 def stored_value(dbg, key, conf=CONF):
-    """What /etc/toyos.conf (or `conf`) actually holds for `key`, or None.
+    """What /etc/saunaos.conf (or `conf`) actually holds for `key`, or None.
 
     Straight off the disk through the serial console's own `sh`, which
     shares nothing with the path the GUI used to write it -- different
@@ -1818,7 +1818,7 @@ def main():
         # the serial console -- a different process and a different code
         # path from the one that wrote it, which is the only way to tell
         # "the app thinks it saved" from "it saved" (the reasoning every
-        # other check in this file uses for /etc/toyos.conf).
+        # other check in this file uses for /etc/saunaos.conf).
         target, target_opts = pick_saver(want="starfield")
         conf = f"/etc/savers/{target}.conf"
         spins = [o for o in target_opts if o["kind"] == "spin"]

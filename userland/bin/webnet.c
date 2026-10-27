@@ -12,7 +12,7 @@
 // cookies and hears about downloads.
 //
 // EACH FETCH IS A THREAD, as in the in-process fetcher it replaces
-// (backends/netsurf/fetch_http.c): a toy-os socket only blocks. A worker
+// (backends/netsurf/fetch_http.c): a SaunaOS socket only blocks. A worker
 // writes its own responses into its client's ring (ubulk_server_send()
 // takes the lock); the main thread reads requests and nothing else.
 //

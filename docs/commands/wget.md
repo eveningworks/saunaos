@@ -167,7 +167,7 @@ failed. A redirect from https to plain http is refused, never followed.
 **Not a downloader.** There is no retry: a failed fetch is a failed
 fetch.
 
-**No client certificates**, and no TLS *server* anywhere in toy-os —
+**No client certificates**, and no TLS *server* anywhere in SaunaOS —
 `httpd` speaks plaintext, because giving it TLS means a private key on
 disk and a decision about where it lives.
 

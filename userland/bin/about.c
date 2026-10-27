@@ -10,7 +10,7 @@
 // a laptop here read 214d29e while running 083cf8e, and nothing on it
 // could say otherwise.
 //
-// The version string is TOYOS_VERSION_FULL, not TOYOS_VERSION: on a dev
+// The version string is SAUNAOS_VERSION_FULL, not SAUNAOS_VERSION: on a dev
 // build that carries the commit id (and "-dirty" when the tree did not
 // match it), which is the only way to tell which build an image
 // actually is. A release shows the bare number, since its tag pins it.
@@ -23,15 +23,15 @@
 #include "rt/sys.h"
 #include <stdio.h>
 #include <string.h>
-#include "version.h"     // TOYOS_VERSION*, generated -- tools/gen_version.sh
-#include "build_date.h"  // TOYOS_BUILD_DATE -- the DAY this program was built
+#include "version.h"     // SAUNAOS_VERSION*, generated -- tools/gen_version.sh
+#include "build_date.h"  // SAUNAOS_BUILD_DATE -- the DAY this program was built
 
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
 
     char line[160];
     snprintf(line, sizeof line,
-             "toy-os v%s -- an x86-64 hobby kernel\n", TOYOS_VERSION);
+             "SaunaOS v%s -- an x86-64 hobby kernel\n", SAUNAOS_VERSION);
     sys_print(line);
 
     struct query_version kv;
@@ -49,17 +49,17 @@ int main(int argc, char **argv) {
     }
 
     snprintf(line, sizeof line, "  userland: %s  built %s\n",
-             TOYOS_VERSION_FULL, TOYOS_BUILD_DATE);
+             SAUNAOS_VERSION_FULL, SAUNAOS_BUILD_DATE);
     sys_print(line);
-    snprintf(line, sizeof line, "  source:   %s%s\n", TOYOS_SOURCE_URL,
-             TOYOS_SOURCE_EXACT ? "" : " (plus uncommitted changes)");
+    snprintf(line, sizeof line, "  source:   %s%s\n", SAUNAOS_SOURCE_URL,
+             SAUNAOS_SOURCE_EXACT ? "" : " (plus uncommitted changes)");
     sys_print(line);
 
     // THE COMPARISON IS ON THE BUILD ID, not the version: two builds of
     // 0.3.0-dev from different commits are exactly the case this is for,
     // and they share a version string. A "-dirty" suffix on either side
     // is a real difference and is left in the compare on purpose.
-    if (have_kernel && k_strcmp(kv.build_id, TOYOS_BUILD_ID) != 0)
+    if (have_kernel && k_strcmp(kv.build_id, SAUNAOS_BUILD_ID) != 0)
         sys_print("  ** kernel and userland are from different builds **\n");
 
     // WHAT IT IS RUNNING ON, from SMBIOS -- a line only when the firmware

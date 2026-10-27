@@ -61,7 +61,7 @@ and `clock not set` is written instead when the clock reads below a
 2020 plausibility floor. `docs/commands/log.md` has the three ways a
 clock is wrong and what each one does here.
 
-**One file per boot.** `/var/log/toyos.log` is the current boot; when
+**One file per boot.** `/var/log/saunaos.log` is the current boot; when
 `logd` starts it files the previous one under its own number as
 `/var/log/boot/<n>.log` and deletes anything past `storage.log.keep` (10).
 The counter lives in `/var/lib/logd.seq` and is `fsync`ed, for netheal's

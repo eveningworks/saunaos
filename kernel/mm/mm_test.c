@@ -416,7 +416,7 @@ KTEST("mm", "the heap's free lists agree with its blocks under churn") {
 // Under KASAN=1 every such write is a report, and its quarantine holds a
 // freed block where these expect to find it back on the free list --
 // KASAN checks the same bugs at the access instead.
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 #define NOT_UNDER_KASAN() KTEST_SKIP("KASAN=1 replaces the heap's debug red-zones")
 #else
 #define NOT_UNDER_KASAN() do { } while (0)

@@ -58,7 +58,7 @@ KTEST("klineedit", "insert at the cursor, not just at the end") {
 KTEST("klineedit", "motion: char, line ends, and words") {
     struct kline_edit e;
     kline_init_mem(&e, &ktest_mem);
-    type(&e, "cat /etc/toyos.conf");
+    type(&e, "cat /etc/saunaos.conf");
 
     KTEST_ASSERT_EQ(kline_key(&e, CTRL('a')), KLINE_REDRAW);
     KTEST_ASSERT_EQ(e.cursor, 0);
@@ -71,20 +71,20 @@ KTEST("klineedit", "motion: char, line ends, and words") {
     kline_key(&e, CTRL('f'));
     KTEST_ASSERT_EQ(e.cursor, e.len);
 
-    // Alt-B skips back over "conf", then the '.' separator, to "toyos".
+    // Alt-B skips back over "conf", then the '.' separator, to "saunaos".
     meta(&e, 'b');
-    KTEST_ASSERT_EQ(e.cursor, 15); // start of "conf"
+    KTEST_ASSERT_EQ(e.cursor, 17); // start of "conf"
     meta(&e, 'b');
-    KTEST_ASSERT_EQ(e.cursor, 9);  // start of "toyos"
+    KTEST_ASSERT_EQ(e.cursor, 9);  // start of "saunaos"
 
     meta(&e, 'f');
-    KTEST_ASSERT_EQ(e.cursor, 14); // end of "toyos"
+    KTEST_ASSERT_EQ(e.cursor, 16); // end of "saunaos"
 
     // Ctrl+arrows are the same motions.
     kline_key(&e, KEY_CTRL_ARROW_LEFT);
     KTEST_ASSERT_EQ(e.cursor, 9);
     kline_key(&e, KEY_CTRL_ARROW_RIGHT);
-    KTEST_ASSERT_EQ(e.cursor, 14);
+    KTEST_ASSERT_EQ(e.cursor, 16);
 }
 
 KTEST("klineedit", "Ctrl-W and Alt-Backspace use different word rules") {

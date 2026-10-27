@@ -1,4 +1,4 @@
-// sound16.c -- a Win16 program's sounds, through toy-os's sound daemon
+// sound16.c -- a Win16 program's sounds, through SaunaOS's sound daemon
 // (lib/usnd.h, daemon only: w16 gave up the `device` promise):
 //
 //   MMSYSTEM's sndPlaySound -- a WAV in memory (Hearts' own, from its
@@ -11,8 +11,8 @@
 //
 // WHOSE SOUND AN EVENT IS (the `sounds` setting, w16prefs.h): what
 // WIN.INI's [sounds] names on drive C:, where the file is there -- the
-// user's own Windows 3.11 sounds, never shipped with toy-os -- else
-// toy-os's own (/usr/share/sounds); toy-os's own always; or none, Off
+// user's own Windows 3.11 sounds, never shipped with SaunaOS -- else
+// SaunaOS's own (/usr/share/sounds); SaunaOS's own always; or none, Off
 // answering that there is no wave device.
 //
 // THE BYTES ARE THE PROGRAM'S: a WAV handed over in memory is read with
@@ -104,9 +104,9 @@ static int file_clip(const char *host, struct usnd_clip *out) {
 
 // --- events ---------------------------------------------------------------------------
 
-// toy-os's own sound for an event: the logon one for Windows Start and
+// SaunaOS's own sound for an event: the logon one for Windows Start and
 // Exit, the chime for every other (lib's generated set, data/usr/share/sounds).
-static const char *toyos_sound(const char *alias) {
+static const char *saunaos_sound(const char *alias) {
     if (alias && (!strcasecmp(alias, "SystemStart") || !strcasecmp(alias, "SystemExit")))
         return "/usr/share/sounds/win.wav";
     return "/usr/share/sounds/chime.wav";
@@ -131,11 +131,11 @@ int w16_sound_resolve(const char *alias, char *ini, size_t ini_cap, char *host, 
             fclose(f);
             return W16_SND_FOUND;
         }
-        snprintf(host, host_cap, "%s", toyos_sound(alias));
+        snprintf(host, host_cap, "%s", saunaos_sound(alias));
         return W16_SND_MISSING;
     }
-    snprintf(host, host_cap, "%s", toyos_sound(alias));
-    return W16_SND_TOYOS;
+    snprintf(host, host_cap, "%s", saunaos_sound(alias));
+    return W16_SND_SAUNAOS;
 }
 
 static void stop(void) {
@@ -197,9 +197,9 @@ const char *w16_beep_alias(unsigned type) {
 // SND_MEMORY, a WAV already in memory -- at once (SND_ASYNC) or before returning, looping with
 // SND_LOOP; NULL stops what plays. When nothing is found it plays the Default Beep, unless
 // SND_NODEFAULT.
-// w16: The same through toy-os's sound daemon, one sound at a time as MMSYSTEM did. An event plays
+// w16: The same through SaunaOS's sound daemon, one sound at a time as MMSYSTEM did. An event plays
 // the file drive C:'s WIN.INI names in [sounds] when the file is there -- the user's own Windows
-// 3.11 sounds -- else toy-os's own; the Sounds setting may choose toy-os's always, or none. The WAV
+// 3.11 sounds -- else SaunaOS's own; the Sounds setting may choose SaunaOS's always, or none. The WAV
 // is 8- or 16-bit PCM, read with every size checked; anything else does not play.
 static int api_sndPlaySound(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -236,7 +236,7 @@ static int api_sndPlaySound(struct w16 *w, unsigned ordinal, struct w16_args *a)
 
 // waveOutGetNumDevs() -> UINT
 // Windows: How many wave output devices -- sound cards -- there are.
-// w16: 1 when toy-os's sound daemon is running and sounds are on, else 0: a program then knows not
+// w16: 1 when SaunaOS's sound daemon is running and sounds are on, else 0: a program then knows not
 // to try.
 static int api_waveOutGetNumDevs(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;

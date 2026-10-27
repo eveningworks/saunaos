@@ -1,4 +1,4 @@
-// nsmonkey -- NetSurf's headless "monkey" front end, on toy-os.
+// nsmonkey -- NetSurf's headless "monkey" front end, on SaunaOS.
 //
 // Commands in on stdin, one per line ("WINDOW NEW file:///a.html",
 // "WINDOW REDRAW 0", "QUIT"), and everything the engine does out on
@@ -8,7 +8,7 @@
 //
 // THIS FILE REPLACES upstream's frontends/monkey/main.c, which is not
 // vendored: its loop waits in select() on stdin and the scheduler's next
-// deadline at once, and toy-os cannot wait on several things. Instead a
+// deadline at once, and SaunaOS cannot wait on several things. Instead a
 // thread reads stdin a line at a time and hands each line on through a
 // pipe the dispatcher's own fgets() then reads without blocking, and the
 // main loop runs the scheduler, polling every POLL_MS while idle
@@ -81,7 +81,7 @@ static void monkey_quit(void) {
 }
 
 // A local file's type from the table /bin/webcontent uses, not monkey's
-// mime.types reader: toy-os has no /etc/mime.types, and monkey's own
+// mime.types reader: SaunaOS has no /etc/mime.types, and monkey's own
 // fallback knows no .svg.
 static const char *ns_filetype(const char *path) { return ufileurl_mime(path); }
 

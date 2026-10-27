@@ -168,7 +168,7 @@ void kfree(void *p) { (void)p; nope("kfree"); }
         objs.append(obj)
 
     # -O0 on purpose: the probe is I/O bound, and optimising a table of
-    # thousands of entries costs minutes for nothing. No toy-os include
+    # thousands of entries costs minutes for nothing. No SaunaOS include
     # path here -- see above.
     r = subprocess.run(["gcc", "-w", "-O0", "-o", os.path.join(workdir, "probe"),
                         src, *objs, *extra_cflags], capture_output=True, text=True)
@@ -214,7 +214,7 @@ static const char *fmtd(double v) {
 }
 static void cmp(const char *what, const char *got, const char *want) {
     checks++;
-    if (strcmp(got, want)) { fails++; printf("DIFF\t%s\ttoyos=[%s]\tglibc=[%s]\n", what, got, want); }
+    if (strcmp(got, want)) { fails++; printf("DIFF\t%s\tsaunaos=[%s]\tglibc=[%s]\n", what, got, want); }
 }
 #define FMT1(fmt, arg) do {                                   \
     char g[128], w[128]; char lbl[64];                        \

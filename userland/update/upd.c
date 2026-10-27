@@ -16,7 +16,7 @@
 #include "uhttp.h"
 #include "update/upd.h"
 #include "lib/ubootlayout.h"
-#include "version.h"     // TOYOS_BUILD_ID, generated -- tools/gen_version.sh
+#include "version.h"     // SAUNAOS_BUILD_ID, generated -- tools/gen_version.sh
 
 #define MANIFEST_MAX (1024u * 1024u)
 // /boot/kernel.bin, or /boot/boot/kernel.bin on a machine whose boot
@@ -407,7 +407,7 @@ static void own_build(char *commit, size_t ccap, char *built, size_t bcap) {
         fclose(fp);
     }
     if (!commit[0]) {
-        snprintf(commit, ccap, "%s", TOYOS_BUILD_ID);
+        snprintf(commit, ccap, "%s", SAUNAOS_BUILD_ID);
         built[0] = '\0';   // the record's date would describe some other build
     }
 }
@@ -1014,7 +1014,7 @@ int upd_channel_set(const char *id) {
 int upd_show_internal(void) {
     char v[8] = "";
     if (usetting_get(UPD_INTERNAL_SETTING, v, sizeof v) && !strcmp(v, "on")) return 1;
-    return strstr(TOYOS_VERSION, "-") != NULL;   // a -dev build lists its own channel
+    return strstr(SAUNAOS_VERSION, "-") != NULL;   // a -dev build lists its own channel
 }
 
 // One tab-separated field into `out`, advancing `*s` past it.
@@ -1195,7 +1195,7 @@ void upd_machine_build(char *ver, size_t vcap, char *built, size_t bcap) {
         if (sys_query_record(QUERY_VERSION, 0, &kv, sizeof kv) >= (int)sizeof kv)
             snprintf(ver, vcap, "%s", kv.version);
         else
-            snprintf(ver, vcap, "%s", TOYOS_VERSION);
+            snprintf(ver, vcap, "%s", SAUNAOS_VERSION);
         built[0] = '\0';
     }
 }

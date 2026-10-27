@@ -38,7 +38,7 @@ Refused, with the reason:
 - a whole disk (`usb1` rather than `usb1p2`).
 
 Nothing is erased: the data stays on the disk until something is written
-over it, but nothing in toy-os can find it again.
+over it, but nothing in SaunaOS can find it again.
 
 ## Examples
 

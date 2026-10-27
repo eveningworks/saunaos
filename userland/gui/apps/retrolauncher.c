@@ -627,9 +627,9 @@ static const char *const METHOD_NAMES[] = { "Sharp", "Pixels", "Smooth" };
 static const char *const VERSION_NAMES[] = { "3.10", "3.11", "3.00" };
 static const char *const FRAME_NAMES[] = { "Windows 3.1", "The desktop's" };
 static const char *const TRACE_NAMES[] = { "Off", "On" };
-static const char *const FONTS_NAMES[] = { "Windows 3.11's own", "toy-os's stand-ins" };
-static const char *const SOUNDS_NAMES[] = { "Windows 3.11's own", "toy-os's own", "Off" };
-static const char *const HELP_NAMES[] = { "toy-os Help Viewer", "WINHELP.EXE" };
+static const char *const FONTS_NAMES[] = { "Windows 3.11's own", "SaunaOS's stand-ins" };
+static const char *const SOUNDS_NAMES[] = { "Windows 3.11's own", "SaunaOS's own", "Off" };
+static const char *const HELP_NAMES[] = { "SaunaOS Help Viewer", "WINHELP.EXE" };
 static const char *const COLORS_NAMES[] = { "256", "16, dithered (VGA)" };
 static char g_dflt_label[NSET][48];
 static const char *g_dd_items[NSET][W16_SCALE_COUNT + 1];   // the longest list, plus "Default"
@@ -979,7 +979,7 @@ static int has_ci(const char *dir, const char *name, int *fonts) {
 // A drive's Holds column, short; its card (drive_details) says the rest.
 static void drive_holds(char d, char *out, size_t cap) {
     const char *root = d == 'Z' ? "/" : drive_slot(&g_edit, d);
-    if (d == 'Z') { snprintf(out, cap, "all of toy-os"); return; }
+    if (d == 'Z') { snprintf(out, cap, "all of SaunaOS"); return; }
     int n = count_programs(root);
     char sys[W16_PATH_MAX + 32];
     snprintf(sys, sizeof sys, "%s/WINDOWS/SYSTEM", root);
@@ -1024,7 +1024,7 @@ static const char *drive_details(void *ctx, int row) {
     const char *root = d == 'Z' ? "/" : drive_slot(&g_edit, d);
     size_t n = 0, cap = 0;
     char *t = 0;
-    card_add(&t, &n, &cap, "Drive %c:\t%s\n", d, d == 'Z' ? "/ (all of toy-os)" : root);
+    card_add(&t, &n, &cap, "Drive %c:\t%s\n", d, d == 'Z' ? "/ (all of SaunaOS)" : root);
     if (d != 'Z') {
         // The programs, by name, as many as there are.
         struct sys_dirent *ents;
@@ -1043,9 +1043,9 @@ static const char *drive_details(void *ctx, int row) {
         card_add(&t, &n, &cap, "WINDOWS folder\t%s\n", has_ci(root, "WINDOWS", 0)
                  ? "Found -- programs' INI files go here" : "Not yet -- made when a program first runs");
         card_add(&t, &n, &cap, "COMMDLG.DLL\t%s\n", dll ? "Found -- the Open dialog's own pictures"
-                                                            : "Missing -- toy-os's own pictures stand in");
+                                                            : "Missing -- SaunaOS's own pictures stand in");
         if (fonts) card_add(&t, &n, &cap, "Fonts\t%d in WINDOWS\\SYSTEM\n", fonts);
-        else card_add(&t, &n, &cap, "Fonts\tNone -- toy-os's stand-ins draw the text\n");
+        else card_add(&t, &n, &cap, "Fonts\tNone -- SaunaOS's stand-ins draw the text\n");
     }
     card_add(&t, &n, &cap, "Programs may\t%s", d == 'Z' ? "read everything, and write under /home"
                                          : !strncmp(root, "/home/", 6) || !strcmp(root, "/home") || d == 'C'

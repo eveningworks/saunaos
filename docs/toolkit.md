@@ -14,7 +14,7 @@
 | `icon_cache.h` | Application icons: name -> a decoded, scaled picture, kept. |
 | `icon_grid.h` | A small reusable icon-grid geometry + drag-to-reposition helper. |
 | `rubberband.h` | Rubber-band selection: drag a rectangle over a set of items and select what it touches, the way every desktop and file manager does it. |
-| `tosh.h` | tosh -- the toy-os shell (t + OS + h), running in ring 3. |
+| `tosh.h` | tosh -- the SaunaOS shell (t + OS + h), running in ring 3. |
 | `tosh_jobs.h` | The shell's JOB TABLE: what `jobs`, `fg` and `bg` are lists of. |
 | `tunable.h` | Reading and writing a kernel TUNABLE from ring 3 -- the write half of the commands whose read half is a query provider (`heap`, `ata`, `kstack`). |
 | `uappentry.h` | The desktop's application entries -- /usr/wm/applications/*.desktop -- read one, walk them, or find the one that launches a given program. |
@@ -26,14 +26,14 @@
 | `ubootcfg.h` | GRUB's grub.cfg as an EDITABLE model: parse, change one thing, check, save -- for `bootcfg`, the Boot Manager and the Startup settings page. |
 | `ubootlayout.h` | Where GRUB's files are on the boot volume, and the one-time move from the layout before this one. |
 | `ubootmenu.h` | GRUB's menu, read from its grub.cfg, and the ONE-SHOT choice of which entry the next boot takes -- `grub-reboot`'s mechanism, for `reboot --entry` and the Leave page's "Restart into". |
-| `ubootmode.h` | The screen size GRUB sets at boot, for a display toy-os cannot set itself -- a VESA framebuffer on a card with no driver here (an RTX on a BIOS boot). |
+| `ubootmode.h` | The screen size GRUB sets at boot, for a display SaunaOS cannot set itself -- a VESA framebuffer on a card with no driver here (an RTX on a BIOS boot). |
 | `ubootwords.h` | The kernel's boot words, as a table: GENERATED from docs/boot-flags.md (tools/gen_bootwords.py), which is the only list of them -- the kernel matches its command line by substring and keeps no regi... |
 | `ubulk.h` | ubulk -- records of any size, up to UBULK_REC_MAX, between two ring-3 processes: a uchan channel for the doorbells, the discovery and the death of a client, and beside each client's uchan ring ONE... |
 | `ubytes.h` | Little-endian fields out of a byte buffer, and a read at an offset that does not come back short -- what every parser of an on-disk format here starts by writing (zip, WAD, RIFF/WAV, SoundFont). |
 | `ucapture.h` | ucapture -- run a program and take what it prints: popen("r") without a shell. |
 | `uchan.h` | uchan -- a message channel between two ring-3 processes. |
 | `uchan_page.h` | uchan -- the shared page layout for a message channel between two ring-3 processes. |
-| `ucharset.h` | Latin-1 (ISO 8859-1) and Windows-1252 to and from UTF-8, for a protocol or format older than UTF-8 meeting toy-os's text: RFB's cut text, an ID3v1 tag, a Windows program's ANSI text. |
+| `ucharset.h` | Latin-1 (ISO 8859-1) and Windows-1252 to and from UTF-8, for a protocol or format older than UTF-8 meeting SaunaOS's text: RFB's cut text, an ID3v1 tag, a Windows program's ANSI text. |
 | `uclip.h` | uclip -- the system clipboard, for a ring-3 app. |
 | `uclip_page.h` | The clipboard's shared page: the contract between every app's lib/uclip.c and /bin/clipboardd, and between no other two things. |
 | `uclock.h` | The smallest non-zero gap the monotonic clock will actually show. |
@@ -76,7 +76,7 @@
 | `uinitctl.h` | The control protocol between init and its clients -- `/bin/service`, and everything that restarts or powers off the machine -- over uchan. |
 | `uinstall.h` | Putting this running system onto another disk and making that disk boot: the five stages `install` and the installer window both run -- partition (SYS_MKPART), format (SYS_MKFS), mount (SYS_MOUNT),... |
 | `ukeymap.h` | A keyboard layout read from /usr/share/kbs/<name>: which character each key gives on each level, and which keys are dead -- a snapshot for SHOWING a layout. |
-| `ukeysym.h` | An X11 KEYSYM -- what a VNC viewer sends for a key (RFB 7.5.4) -- as something toy-os's input core takes: a Latin-1 character to type on the active layout, or an evdev keycode (abi/input_keys.h) fo... |
+| `ukeysym.h` | An X11 KEYSYM -- what a VNC viewer sends for a key (RFB 7.5.4) -- as something SaunaOS's input core takes: a Latin-1 character to type on the active layout, or an evdev keycode (abi/input_keys.h) f... |
 | `uktest.h` | KTEST's assertions in ring 3, so a test can follow its code out of the kernel with its bodies unchanged: a case is a plain function, and KTEST_ASSERT / KTEST_ASSERT_EQ fail it and return, exactly a... |
 | `ulaunch.h` | ulaunch -- is this file something to RUN, and how should it run? |
 | `uline.h` | uline -- the PAINTING half of a ring-3 line-editing front end. |

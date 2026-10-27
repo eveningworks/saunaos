@@ -7,7 +7,7 @@
 // the kernel needs it, so it lives where every other ring-3 preference does.
 
 #define UHOSTNAME_SETTING "system.hostname"
-#define UHOSTNAME_DEFAULT "toy-os"
+#define UHOSTNAME_DEFAULT "saunaos"
 #define UHOSTNAME_MAX     63          // one DNS label (RFC 1123)
 
 // The name into `out`, or UHOSTNAME_DEFAULT when unset or invalid.

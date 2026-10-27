@@ -22,7 +22,7 @@
 struct uui_diskplan_new {
     uint64_t start, count;     // 512-byte sectors
     int role;                  // UDISK_ROLE_*: firmware partitions are drawn apart
-    const char *title;         // "/boot", "toy-os"
+    const char *title;         // "/boot", "SaunaOS"
     const char *detail;        // "FAT32"; the size is added
 };
 

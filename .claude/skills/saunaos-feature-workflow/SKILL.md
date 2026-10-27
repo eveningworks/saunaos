@@ -1,13 +1,13 @@
 ---
-name: toy-os-feature-workflow
+name: saunaos-feature-workflow
 description: >
   Use this skill whenever the user asks for a new feature, fix, or change to
-  toy-os (their x86-64 hobby OS, repo at ~/CodingProjects/toy-os).
+  SaunaOS (their x86-64 hobby OS, repo at ~/CodingProjects/saunaos).
   Triggers on things like "add support for X",
   "can we improve Y", "let's build Z", or any bug report against the OS,
-  shell, GUI, or filesystem -- even if the user doesn't say "toy-os" by name,
+  shell, GUI, or filesystem -- even if the user doesn't say "SaunaOS" by name,
   treat any request touching kernel/, apps/, userland/, or the shell/GUI/
-  filesystem behavior of this OS as toy-os work. This is the end-to-end
+  filesystem behavior of this OS as SaunaOS work. This is the end-to-end
   playbook -- research the code first, present real implementation choices
   before writing anything, build and verify in QEMU with a positive control,
   write the docs in the repo's established style, and ship the change to the
@@ -15,7 +15,7 @@ description: >
   kernel/app code for this repo without consulting this skill first.
 ---
 
-# toy-os feature workflow
+# SaunaOS feature workflow
 
 Each session starts with no memory of the last; following the same
 sequence every time is what makes it a continuation rather than a fresh
@@ -50,7 +50,7 @@ reader pays for them):
 2. **Present a few real choices before writing code** (`AskUserQuestion`;
    standing instruction). Choices come from the research -- real forks
    (data layout, where a setting lives, how far to build this session).
-   **Anything visible gets MOCKUPS FIRST** -- a Design canvas in toy-os's
+   **Anything visible gets MOCKUPS FIRST** -- a Design canvas in SaunaOS's
    own palette with real data, published before asking
    (`questions-that-worked.md`). Ask whether a GUI addition should be a
    reusable `userland/ui/` widget. Skip only for an unambiguous one-liner.

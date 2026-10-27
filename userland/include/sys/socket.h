@@ -3,7 +3,7 @@
 
 // The TYPES of POSIX's <sys/socket.h>, and none of its functions.
 //
-// toy-os's sockets are its own calls (rt/sys.h's sys_net_*), which take
+// SaunaOS's sockets are its own calls (rt/sys.h's sys_net_*), which take
 // addresses as integers; there is no socket()/connect()/bind() here, and
 // they are ABSENT rather than stubbed -- unistd.h's rule: a link error
 // says "this program needs something this OS has not got", which is

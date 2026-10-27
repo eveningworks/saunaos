@@ -179,7 +179,7 @@ def main():
         # that got it wrong does not report anything, it stops at the
         # first timer tick. Reaching this line at all is the evidence.
         check("...and the machine still runs, so the 8259 still delivers",
-              "toy-os: boot target" in dmesg or "init started" in dmesg)
+              "SaunaOS: boot target" in dmesg or "init started" in dmesg)
 
         msi_line = next((ln.strip() for ln in dmesg.splitlines()
                          if "msix:" in ln or "msi:" in ln), "")

@@ -42,12 +42,12 @@ Linux is the only mainstream system that made this a filesystem.
 Windows uses one syscall with an information class --
 `NtQuerySystemInformation(class, buf, len, &returned)` -- and macOS/BSD
 uses `sysctl(mib[], ...)`, a named tree, still a syscall. The
-filesystem is the outlier, and it is the one shape toy-os cannot
+filesystem is the outlier, and it is the one shape SaunaOS cannot
 cheaply afford.
 
 ## What already exists, and what is wrong with it
 
-toy-os is most of the way to the NT shape without having named it:
+SaunaOS is most of the way to the NT shape without having named it:
 
 | syscall | what it reports |
 |---|---|
@@ -496,7 +496,7 @@ registry's default.
 Added 2026-09-01, and the last provider added for a reason rather than
 for a command: **a program cannot know what kernel it is running on.**
 
-`about` printed `TOYOS_VERSION_FULL` from `version.h`, which is baked in
+`about` printed `SAUNAOS_VERSION_FULL` from `version.h`, which is baked in
 when *that program* is compiled. That is correct exactly while the
 kernel and userland ship as one image -- and wrong the moment a machine
 is updated over the network a piece at a time. It is not a hypothetical:

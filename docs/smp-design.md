@@ -23,7 +23,7 @@ stage 2.
 `current_index`, or anything that adds a module-level buffer to a
 subsystem a syscall can reach.**
 
-**The one-sentence version:** toy-os should discover its other cores
+**The one-sentence version:** SaunaOS should discover its other cores
 through ACPI, start them, give each one its own GDT/TSS/stack and a
 per-CPU pointer to what it is running, and let them all run user code in
 parallel behind a SINGLE kernel lock -- then split that lock subsystem
@@ -70,7 +70,7 @@ into a real-mode trampoline. Linux's is `arch/x86/realmode/rm/trampoline_64.S`.
 There is no alternative shape worth considering here; this part is
 architecture, not design.
 
-**Where toy-os sits:** structurally it is pre-2.0 Linux. A preemptive
+**Where SaunaOS sits:** structurally it is pre-2.0 Linux. A preemptive
 uniprocessor kernel with no spinlock primitive, whose only mutual
 exclusion is "turn preemption off". So the BKL path is not an
 imitation of a mistake -- it is the same position Linux was in, and the

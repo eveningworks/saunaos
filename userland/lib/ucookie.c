@@ -6,7 +6,7 @@
 #include <string.h>
 #include <strings.h>
 
-#define FILE_MAGIC "# toy-os cookies 1"
+#define FILE_MAGIC "# SaunaOS cookies 1"
 
 void ucookie_jar_init(struct ucookie_jar *j) { memset(j, 0, sizeof *j); }
 

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot toy-os with its filesystem INSIDE an MBR or GPT partition.
+"""Boot SaunaOS with its filesystem INSIDE an MBR or GPT partition.
 
 WHY THIS EXISTS SEPARATELY FROM THE KTESTS
 ------------------------------------------
@@ -147,7 +147,7 @@ def to_mib(size_str):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iso", default="toy-os.iso")
+    ap.add_argument("--iso", default="saunaos.iso")
     ap.add_argument("--seed", default="seed")
     # A TEMP DIRECTORY, not the current one. These are 2 GiB images and
     # the sweep runs tools from the repo root, so defaulting to CWD

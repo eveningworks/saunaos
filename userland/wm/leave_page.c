@@ -61,7 +61,7 @@ static const char *const ANYWAY[LEAVE_ACTIONS] = { "Restart anyway", "Shut down 
 static const char *const DOING[LEAVE_ACTIONS] = { "restarting", "shutting down", "exiting to the shell" };
 static const char *const THEN[LEAVE_ACTIONS] = {
     "Then the computer restarts.", "Then the computer shuts down.",
-    "Then toy-os returns to the text shell.",
+    "Then SaunaOS returns to the text shell.",
 };
 
 // --- the apps ------------------------------------------------------------
@@ -377,7 +377,7 @@ static void draw_closing(struct ugfx_surface *s) {
     char t[128];
     int left = remaining();
     if (g_phase == PH_STUCK) {
-        k_snprintf(t, sizeof t, "%s keeping toy-os from %s", left > 1 ? "Apps are" : "An app is",
+        k_snprintf(t, sizeof t, "%s keeping SaunaOS from %s", left > 1 ? "Apps are" : "An app is",
                    DOING[g_action]);
         text_c(s, cx, top + D + u(), t, WHITE);
         k_snprintf(t, sizeof t, "Cancel to go back and save your work, or %s anyway and lose it.",

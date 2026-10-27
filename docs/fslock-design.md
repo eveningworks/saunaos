@@ -38,7 +38,7 @@ is one lock and it covers every inode on every mount.
   and the paging resource), shared or exclusive, and the log is its own
   object with its own lock.
 
-**toy-os should follow the shape** -- per-object locks, a journal with
+**SaunaOS should follow the shape** -- per-object locks, a journal with
 handles, a fixed lock order -- and deliberately NOT the size: no
 separate paging resource (there is no page cache, `docs/pagecache-
 design.md`), and no lock-free lookup (RCU walk is an SMP answer to an

@@ -635,7 +635,7 @@ static void build(void) {
     uui_label_init(&g_net2, g_net2_text);
     caption(&c_server, "System Update server");
     uui_textbox_init(&g_server, server);
-    hint(&g_server_hint, "Where System Update looks for new versions of toy-os.");
+    hint(&g_server_hint, "Where System Update looks for new versions of SaunaOS.");
     uui_label_init(&g_server_err, "");
     g_server_err.fg = UUI_ROLE(severity[UTHEME_SEV_ERROR]);
     P_NET[0] = item(&uui_label_ops, &c_net, 0, "net_caption", 0);
@@ -671,11 +671,11 @@ static void build(void) {
 
     uui_dialog_init(&g_ask);
     struct uui_wizard_desc d = {
-        .heading = "Set up toy-os",
+        .heading = "Set up SaunaOS",
         .steps = g_steps,
         .count = g_nsteps,
         .skip = "Skip setup -- keep the defaults",
-        .finish = "Start using toy-os",
+        .finish = "Start using SaunaOS",
         .can_leave = can_leave,
         .on_enter = on_enter,
         .on_finish = on_finish,

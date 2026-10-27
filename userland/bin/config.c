@@ -1,6 +1,6 @@
 // `config` -- read, change and find this machine's configuration.
 //
-// toy-os keeps its settings the way Unix does: plain `name=value` text
+// SaunaOS keeps its settings the way Unix does: plain `name=value` text
 // under /etc, editable with `edit` and readable with `cat`. That is
 // deliberate and is not changing. What it costs is the thing everyone
 // who has used /etc knows -- finding the right file, and knowing which
@@ -97,7 +97,7 @@ static int read_file(const char *path, char *buf, int cap) {
 //
 // A setting's identity is (namespace, name) -- the namespace being the
 // registered name of the file it lives in, so `font.size` in
-// /etc/toyos.conf is `system.font.size` (api/setting.h). A bare name
+// /etc/saunaos.conf is `system.font.size` (api/setting.h). A bare name
 // still works when only one setting has it; when several do, this tool
 // REFUSES and lists them rather than picking, because picking would
 // make the answer depend on registration order.

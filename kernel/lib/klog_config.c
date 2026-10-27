@@ -18,7 +18,7 @@
 #include "string.h"
 #include "initcall.h"
 
-#define KLOG_CONFIG_FILE "/etc/toyos.conf"
+#define KLOG_CONFIG_FILE "/etc/saunaos.conf"
 #define KLOG_LEVEL_KEY   "loglevel"
 
 // The names a person picks from, and what each one lets through. Every

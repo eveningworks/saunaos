@@ -1,9 +1,9 @@
-# toy-os's update server, as a systemd USER service -- installed by
+# SaunaOS's update server, as a systemd USER service -- installed by
 # `python3 tools/update_server.py --install-service`, which fills in the
 # @...@ fields. Serves /dev (this checkout, live) and /stable (published
 # snapshots); see the script's docstring and docs/commands/update.md.
 [Unit]
-Description=toy-os update server (/dev and /stable)
+Description=SaunaOS update server (/dev and /stable)
 After=network-online.target
 
 [Service]

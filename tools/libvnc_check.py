@@ -25,7 +25,7 @@ import subprocess
 import sys
 import tempfile
 
-IMAGE = "toyos-libvnc:1"
+IMAGE = "saunaos-libvnc:1"
 
 DOCKERFILE = """FROM debian:12
 RUN apt-get update && apt-get install -y --no-install-recommends gcc libc6-dev \\

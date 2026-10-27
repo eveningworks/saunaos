@@ -15,7 +15,7 @@
 // saver, and the minutes of quiet before it starts, where zero means
 // never.
 //
-// THERE IS NO LOCK SCREEN, deliberately. toy-os has no accounts and no
+// THERE IS NO LOCK SCREEN, deliberately. SaunaOS has no accounts and no
 // passwords, so a screen that demanded one would be theatre -- it would
 // stop nobody and cost a way back in. A saver goes away on the first
 // key or the first mouse movement.

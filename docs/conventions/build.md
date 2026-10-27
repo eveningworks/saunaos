@@ -24,7 +24,7 @@ this the obvious way), not from how much history it accumulated.
   headers, and ONLY those -- see below), `libc/` (the C library's
   implementation, archived as `libc.a`), `ui/` (the GUI toolkit),
   `lib/` (userland libraries that aren't UI -- `tosh`, and the
-  toy-os-internal headers that are not part of the libc's public
+  saunaos-internal headers that are not part of the libc's public
   surface), `gui/` (windowed apps), `bin/` (command-line programs),
   `tests/` (single-mechanism diagnostics), `backends/` (OUR side of a
   vendored port -- `backends/doom/` holds the DG_* platform layer, the
@@ -89,7 +89,7 @@ this the obvious way), not from how much history it accumulated.
   seeked, and the advice fails with `Seek to 0:Illegal seek`. `dd` the
   partition to a real file first.
 
-- **THE C LIBRARY IS CALLED `tolibc`** (formed like `tosh`: toy-os +
+- **THE C LIBRARY IS CALLED `tolibc`** (formed like `tosh`: SaunaOS +
   `libc`), it lives in `userland/libc/` with its public headers in
   `userland/include/`, and its archive is `libc.a` -- the NAME is for
   people, the FILENAME is what a linker expects. `userland/libc/README.md`
@@ -108,7 +108,7 @@ this the obvious way), not from how much history it accumulated.
   `dup2`/`pipe`/`getpid` all exist and are what every C programmer
   already knows; `sys_open` and friends are the layer underneath, not
   the interface. `userland/bin/` is written this way throughout, and six
-  of its programs now include no toy-os header at all.
+  of its programs now include no SaunaOS header at all.
 
   **It costs nothing to mix.** `errno` and `sys_errno()` are the SAME
   storage (`userland/rt/sys.c`), so `lib/cmd.h`'s `cmd_fail()` reports
@@ -157,7 +157,7 @@ this the obvious way), not from how much history it accumulated.
   ~30x slower than the same bytes from the kernel shell. The first raise
   (to 64 KiB) measured 3.4 -> 114.3 MB/s sequential write. **The remaining gap is
   architectural**: Linux does not flush on write at all (page cache,
-  writeback on a timer, journal commit every ~5 s), so toy-os is making
+  writeback on a timer, journal commit every ~5 s), so SaunaOS is making
   a stronger promise and paying for it. **And raising it nearly
   deadlocked pipes** -- `pipe_write()` is all-or-nothing and parks a
   writer that does not fit, which was safe only while 1024 <
@@ -417,7 +417,7 @@ this the obvious way), not from how much history it accumulated.
 - **WHAT GOES ON THE MEDIA IS `$(KERNEL_MEDIA)`, NOT `$(KERNEL)`.**
   With `option compress = yes` (the default) it is the kernel GZIPPED,
   and **GRUB decompresses it** -- by CONTENT, so the file keeps the name
-  `kernel.bin` on the media and nothing in toy-os inflates anything.
+  `kernel.bin` on the media and nothing in SaunaOS inflates anything.
   1.74 MB -> 745 KB, which is ~6 s -> ~2.7 s of every `remote.py flash`.
 
   **THE DISK NEEDS `gzio` IN ITS CORE IMAGE** (`tools/install_grub.py`'s
@@ -623,9 +623,9 @@ this the obvious way), not from how much history it accumulated.
 - **`kernel/include/api/version.h` is GENERATED, not hand-edited** --
   `tools/gen_version.sh` regenerates it from `VERSION` (repo root) as
   the first step of `make all`/`make iso`. Never edit `version.h`
-  directly. It defines three macros: `TOYOS_VERSION` (the bare string),
-  `TOYOS_BUILD_ID` (the short commit plus `-dirty` when the tree did not
-  match it) and **`TOYOS_VERSION_FULL`, which is what anything
+  directly. It defines three macros: `SAUNAOS_VERSION` (the bare string),
+  `SAUNAOS_BUILD_ID` (the short commit plus `-dirty` when the tree did not
+  match it) and **`SAUNAOS_VERSION_FULL`, which is what anything
   human-facing should display** -- `0.3.0-dev (2034bb1)` on a dev build
   and a bare `0.3.0` on a release, always. A dirty RELEASE build is a
   loud stderr warning from `gen_version.sh` instead of a display string:
@@ -636,7 +636,7 @@ this the obvious way), not from how much history it accumulated.
   it, and a value that differs every build turns every build into a full
   rebuild. See `docs/decisions.md`.
   **The build DATE lives in its own generated header for exactly that
-  reason** -- `kernel/include/api/build_date.h` (`TOYOS_BUILD_DATE`),
+  reason** -- `kernel/include/api/build_date.h` (`SAUNAOS_BUILD_DATE`),
   also written by `gen_version.sh`, at DAY granularity, and included by
   ONE file (`userland/wm/desktop.c`, the desktop's watermark). So it
   rebuilds one object at most once a day instead of the tree every
@@ -671,7 +671,7 @@ this the obvious way), not from how much history it accumulated.
   patches in name order BEFORE the host build, so `browser_hostcheck.py`'s
   oracle runs the same patched source the copy carries; a patch that no
   longer applies stops the re-vendor. A GPL file's hunk says "Changed for
-  toy-os, <date>" (GPL-2.0 2(a)). A link-time `--wrap` hook stays the
+  SaunaOS, <date>" (GPL-2.0 2(a)). A link-time `--wrap` hook stays the
   answer where a whole function is replaced from outside; a patch is for
   a change INSIDE one (`html_redraw_box()` calls itself, which no wrap
   reaches). A hand-vendored port (dash, mbedTLS, cJSON, DOOM) takes the
@@ -863,7 +863,7 @@ is how a machine ends up unbootable.
 
 **THE ORDER IS WHAT MAKES IT SURVIVABLE, and the tool refuses rather
 than working around a missing step.** `grub.cfg` already carries a
-"toy-os (previous kernel)" entry reading `/boot/kernel.old` -- but an
+"SaunaOS (previous kernel)" entry reading `/boot/kernel.old` -- but an
 installed machine has `set timeout=0`, which draws NO MENU, so that
 entry cannot be reached and a bad kernel needs a USB stick. So the
 flash checks the timeout FIRST and stops if it is zero; then copies the

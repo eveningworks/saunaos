@@ -1,4 +1,4 @@
-# A pinned QEMU version, for testing toy-os against something other than
+# A pinned QEMU version, for testing SaunaOS against something other than
 # the developer's own.
 #
 # WHY THIS EXISTS. Every automated test here runs on whatever QEMU the
@@ -25,4 +25,4 @@ RUN apt-get update -qq \
  && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
       qemu-system-x86 python3 \
  && rm -rf /var/lib/apt/lists/*
-WORKDIR /toyos
+WORKDIR /saunaos

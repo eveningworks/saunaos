@@ -2,7 +2,7 @@
 """`w16 --install` and its dialog, in a guest, from disks with no Microsoft file.
 
 lib/uwinsetup is checked on the host (tools/uwinsetup_hostcheck.py); this
-is the rest of the path, in a real toy-os: w16 reading the disks inside
+is the rest of the path, in a real SaunaOS: w16 reading the disks inside
 its sandbox, writing only drive C:, and the Install Windows 3.x dialog
 driven from Retro Launcher's bar to the folder it adds.
 

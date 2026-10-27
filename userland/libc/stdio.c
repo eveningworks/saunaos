@@ -437,7 +437,7 @@ int vprintf(const char *fmt, va_list ap) { return vfprintf(stdout, fmt, ap); }
 //
 // UNBOUNDED, which is why <stdio.h> called it deliberately absent until
 // a ported program needed it. The reversal is the same one <string.h>
-// made for strncpy: while this library served only toy-os's code,
+// made for strncpy: while this library served only SaunaOS's code,
 // refusing a footgun cost nothing; for a port-capable library, omitting
 // a function C requires does not produce a helpful message, it produces
 // a link error in somebody else's source. So it exists with the warning

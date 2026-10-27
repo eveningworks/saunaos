@@ -281,7 +281,7 @@ static int authenticate(const struct usmb_ntlm_in *in, uint8_t *out, size_t cap,
     if (in->domain && in->domain[0]) dl = usmb_to_utf16(in->domain, dom16, sizeof sc->dom16, 0);
     else if (nb_dom_len <= sizeof sc->dom16) { memcpy(dom16, nb_dom, nb_dom_len); dl = (int)nb_dom_len; }
     else dl = -1;
-    int wl = usmb_to_utf16("TOYOS", ws16, sizeof ws16, 0);
+    int wl = usmb_to_utf16("SAUNAOS", ws16, sizeof ws16, 0);
     if (ul < 0 || dl < 0 || wl < 0) return -1;
 
     // 64 bytes of fixed fields, then a payload of up to this much.

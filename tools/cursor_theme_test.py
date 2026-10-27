@@ -164,7 +164,7 @@ def main():
     # produces no log line to read and the check would report a missing
     # theme rather than a working one.
     # ESTABLISH the starting state rather than inherit it. Both settings
-    # persist to /etc/toyos.conf, which lives on the disk image and is
+    # persist to /etc/saunaos.conf, which lives on the disk image and is
     # not re-seeded by a build -- so a previous run (or a person poking
     # at the desktop) leaves its size behind, and every measurement here
     # is relative to a baseline that would then be silently wrong. This
@@ -309,7 +309,7 @@ def main():
           f'theme="{theme}" loaded={n}, was "{before_theme}"/{before_n}')
     # ...and the value on disk is still the working one, read through a
     # path the compositor is not on.
-    out = dbg.send("sh cat /etc/toyos.conf") or ""
+    out = dbg.send("sh cat /etc/saunaos.conf") or ""
     check("...and /etc still names a theme that exists",
           "cursor.theme=broken" not in out, out[-200:])
 
@@ -332,10 +332,10 @@ def main():
     # no edit to either.
     dbg.send("gui spawn /bin/config list")
     time.sleep(0.8)
-    dbg.send("sh cat /etc/toyos.conf")
+    dbg.send("sh cat /etc/saunaos.conf")
     time.sleep(0.5)
     conf = "\n".join(dbg.logs())
-    check("the settings persisted to /etc/toyos.conf",
+    check("the settings persisted to /etc/saunaos.conf",
           "cursor.theme" in conf and "cursor.size" in conf,
           "both keys present" if "cursor.theme" in conf else "missing")
 

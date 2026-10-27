@@ -48,7 +48,7 @@ trust at all.
 | **Linux VFIO** | **IOMMU, and it refuses without one.** `vfio-pci` will not give a group to userspace unless it is IOMMU-isolated, except under an explicit `enable_unsafe_noiommu_mode` that taints the kernel. |
 | **Genode, seL4** | everything is user-mode, and both say in their own documentation that a DMA-capable driver without an IOMMU is inside the TCB. |
 
-**toy-os takes UMDF's answer first and leaves DriverKit's as the exit.**
+**SaunaOS takes UMDF's answer first and leaves DriverKit's as the exit.**
 Stages 1-3 move only what needs no bus mastering. The DMA half is
 stage 5, and it is explicitly gated: either an IOMMU exists by then, or
 the driver is written down as trusted-with-physical-memory in the same

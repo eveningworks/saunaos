@@ -23,7 +23,7 @@
 //                     DLLs (LoadLibrary, GetProcAddress)
 //   ddeml16.c         DDEML, mmsystem16.c MMSYSTEM: stand-ins (no peer, no wave device)
 //   font16.c          what an HFONT is: 3.11's bitmap fonts, TrueType faces, stand-ins
-//   clip16.c          the clipboard, on toy-os's
+//   clip16.c          the clipboard, on SaunaOS's
 //   meta16.c          metafiles: PlayMetaFile, an OLE object's picture
 //   ole16.c           OLECLI's objects, and SHELL's registration database
 //
@@ -866,9 +866,9 @@ int w16_kernel_heap_call(struct w16 *w, unsigned ordinal, struct w16_args *a,
 // --- sound16.c: MMSYSTEM, MessageBeep, SOUND.DRV ------------------------------------
 
 // What an event plays (w16_sound_resolve): the file WIN.INI names, found
-// on drive C:; toy-os's own because it is not there; toy-os's own by the
+// on drive C:; SaunaOS's own because it is not there; SaunaOS's own by the
 // setting; or nothing, sounds being off.
-enum { W16_SND_FOUND, W16_SND_MISSING, W16_SND_TOYOS, W16_SND_OFF };
+enum { W16_SND_FOUND, W16_SND_MISSING, W16_SND_SAUNAOS, W16_SND_OFF };
 // An event's sound: `ini` what WIN.INI's [sounds] says ("" none), `host` the
 // file that plays. Its W16_SND_*.
 int w16_sound_resolve(const char *alias, char *ini, size_t ini_cap, char *host, size_t host_cap);
@@ -924,7 +924,7 @@ int w16_res_find(struct w16 *w, uint16_t type, const char *type_name, uint16_t i
 
 // --- file16.c -----------------------------------------------------------------
 
-// A DOS path (C: the Win16 folder, Z: the toy-os tree, else relative to
+// A DOS path (C: the Win16 folder, Z: the SaunaOS tree, else relative to
 // the current folder) as a host path, matched without case; the last
 // component may be missing when `creating`. 0, or a DOS error code;
 // `full` (optional) gets the full DOS path.
@@ -958,7 +958,7 @@ extern const unsigned g_file_api_n, g_keyboard_api_n;
 
 // --- clip16.c: the clipboard ------------------------------------------------------
 
-// Text between a program and toy-os's clipboard: Windows' ANSI and "\r\n"
+// Text between a program and SaunaOS's clipboard: Windows' ANSI and "\r\n"
 // one side, UTF-8 and "\n" the other. Put: 0 when it could not be copied.
 // Get: allocated, *n bytes and a NUL; NULL when the clipboard holds no text.
 int w16_clip_put_text(const char *ansi, int n);

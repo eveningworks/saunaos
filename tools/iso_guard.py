@@ -1,4 +1,4 @@
-"""Refuse to boot a stale toy-os.iso.
+"""Refuse to boot a stale saunaos.iso.
 
 THE BUG THIS EXISTS FOR, which has cost real time in many sessions:
 
@@ -26,7 +26,7 @@ The check is two rounds of mtime comparison:
      (kernel/ and apps/ -> build/kernel.bin, userland/ ->
      build/userland) -- catches a build that FAILED, or never ran.
   2. Each build output against the MEDIA the tests boot
-     (build/kernel.bin -> toy-os.iso, or -> build/.bootdisk on a disk
+     (build/kernel.bin -> saunaos.iso, or -> build/.bootdisk on a disk
      boot; build/userland -> build/.seeded) -- catches `make all`
      without `make iso`.
 
@@ -48,7 +48,7 @@ per file, it is exactly the question `make` itself asks, and a false
 alarm (touch a file, change nothing) costs one rebuild while a missed
 alarm costs a session.
 
-Bypass with TOYOS_ALLOW_STALE_ISO=1 when you MEAN it -- e.g. bisecting
+Bypass with SAUNAOS_ALLOW_STALE_ISO=1 when you MEAN it -- e.g. bisecting
 against a deliberately older image. It prints that it is bypassing, so
 a bypass left set in a shell cannot silently become the previous
 behaviour.
@@ -89,7 +89,7 @@ SOURCE_SUFFIXES = (".c", ".h", ".asm", ".ld")
 # the image would then report a no-op rebuild as staleness, and a guard
 # that cries wolf is a guard people switch off.
 ARTIFACT_PAIRS = (
-    ("build/kernel.bin", "toy-os.iso"),
+    ("build/kernel.bin", "saunaos.iso"),
     ("build/userland", "build/.seeded"),
 )
 
@@ -178,7 +178,7 @@ def _feeds(path: Path, artifact: str, repo: Path):
     return artifact in known
 
 
-BYPASS_ENV = "TOYOS_ALLOW_STALE_ISO"
+BYPASS_ENV = "SAUNAOS_ALLOW_STALE_ISO"
 
 
 # Trees that feed NO seeded artifact, and so must not make the seed look
@@ -246,7 +246,7 @@ IGNORED_SOURCES = {
 }
 
 
-def check_iso_fresh(repo: Path = REPO, iso_name: str = "toy-os.iso",
+def check_iso_fresh(repo: Path = REPO, iso_name: str = "saunaos.iso",
                     medium: str = "cd"):
     """Return a list of complaint strings; empty means the boot media are current.
 
@@ -256,7 +256,7 @@ def check_iso_fresh(repo: Path = REPO, iso_name: str = "toy-os.iso",
 
     `medium` is 'cd' or 'disk'. It changes only what the kernel is
     compared against, and it has to: booting from the disk, a stale
-    toy-os.iso is not evidence of anything, and a stale /boot/kernel.bin
+    saunaos.iso is not evidence of anything, and a stale /boot/kernel.bin
     is exactly the silent-clean-pass this file exists to prevent.
     """
     problems = []
@@ -406,7 +406,7 @@ def _hold_lock():
     tree_lock.hold()
 
 
-def assert_iso_fresh(repo: Path = REPO, iso_name: str = "toy-os.iso",
+def assert_iso_fresh(repo: Path = REPO, iso_name: str = "saunaos.iso",
                      medium: str = "cd"):
     """Exit non-zero with an explanation if the boot media are stale."""
     _hold_lock()
@@ -435,7 +435,7 @@ if __name__ == "__main__":
     # Usable on its own: `python3 tools/iso_guard.py` exits 0 when the
     # ISO is current, 2 when it is not.
     assert_iso_fresh()
-    print("iso_guard: toy-os.iso is current.")
+    print("iso_guard: saunaos.iso is current.")
 
 
 # --- the STAGING tree, which `remote.py flash` sends from -------------

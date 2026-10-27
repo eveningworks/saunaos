@@ -198,7 +198,7 @@ machine, because `guictl` is the same `gui` vocabulary reached from a
 program rather than from a serial console.
 
 So `tools/remote_gui.py` serves those two interfaces over telnet and
-TFTP, and `TOYOS_REMOTE_HOST` makes the two constructors hand back the
+TFTP, and `SAUNAOS_REMOTE_HOST` makes the two constructors hand back the
 remote objects. A tool reaches the laptop with no edit of its own.
 
 **Why the environment and not a `--host` flag per tool.** The flag is

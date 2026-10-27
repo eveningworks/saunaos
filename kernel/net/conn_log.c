@@ -16,7 +16,7 @@ _Static_assert(NET_ABI_HOST_MAX == QUERY_CONNLOG_HOST_MAX,
                "a resolver's name and a log record's name must be the same "
                "size, or one truncates what the other accepted");
 
-#define CONN_LOG_FILE "/etc/toyos.conf"
+#define CONN_LOG_FILE "/etc/saunaos.conf"
 
 static struct query_connlog g_ring[CONN_LOG_MAX];
 static uint64_t g_next_seq = 1;   // the NEXT record's number; 0 is "none"

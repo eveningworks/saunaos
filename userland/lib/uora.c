@@ -22,6 +22,9 @@ static int failf(char *err, int cap, int rc, const char *fmt, ...) {
     return rc;
 }
 
+// IDENTIFIERS, written into every .ora Paint saves -- the namespace and
+// its `toyos:` attribute prefix keep the pre-rename name, because a file
+// saved before then must still read back.
 #define NS "https://github.com/eveningworks/toy-os/ns/openraster"
 
 void uora_free(struct uora_layer *layers, int n) {

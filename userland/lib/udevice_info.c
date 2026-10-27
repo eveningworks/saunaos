@@ -437,9 +437,9 @@ void udevice_report(const struct udevice *list, int n, unsigned flags,
     char line[UDEV_PROP_KEY + UDEV_PROP_VAL + 16];
     struct query_version v;
     if (sys_query_record(QUERY_VERSION, 0, &v, sizeof v) == (int)sizeof v)
-        snprintf(line, sizeof line, "toy-os %s (%s) hardware report, built %s", v.version, v.build_id, v.stamp);
+        snprintf(line, sizeof line, "SaunaOS %s (%s) hardware report, built %s", v.version, v.build_id, v.stamp);
     else
-        snprintf(line, sizeof line, "toy-os hardware report");
+        snprintf(line, sizeof line, "SaunaOS hardware report");
     emit(ctx, line);
     if (!(flags & UDEV_PROPS_ADDRESSES)) emit(ctx, "Network addresses are left out.");
     static struct udev_prop p[UDEV_PROPS_MAX];

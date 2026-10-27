@@ -148,7 +148,7 @@ ones -- found live, not by review).
 **Dead keys compose in the kernel, behind every keyboard driver** (since
 2026-10-04). That is the Linux console's shape -- an accent table the
 keyboard driver consults (`KDSKBDIACR`) -- rather than X11's, where a
-client-side input method composes. toy-os has no input method and the
+client-side input method composes. SaunaOS has no input method and the
 console must compose too, so the state lives in
 `kernel/lib/keyboard_layout.c` and every driver reaches it through
 `keyboard.c`'s `key_event()`. The table is per layout and inside the
@@ -170,14 +170,14 @@ to run anything. That was the whole answer while every machine this OS
 ran on was emulated, and this entry used to say an in-kernel stub was
 "simply unnecessary".
 
-**Bare metal made it necessary.** Two laptops now run toy-os, most of
+**Bare metal made it necessary.** Two laptops now run SaunaOS, most of
 `docs/bugs.md` reproduces only on them, and no emulator stands behind a
 real CPU. The only thing that can stop one is the kernel itself -- which
 is why Linux has KGDB and Windows KD, both in the kernel image and both
 off until the boot line asks (`kgdboc=`, `bcdedit /debug on`). So
 `kernel/debug/` is a GDB Remote Serial Protocol stub, armed by
 `kdebug=ttySN` and nothing else. It speaks the standard protocol rather
-than a toy-os one because GDB, its DWARF reader and its disassembler are
+than a SaunaOS one because GDB, its DWARF reader and its disassembler are
 the expensive part, and a stock `gdb` is on every developer machine.
 
 **The shape is Linux's**: the protocol (`kernel/debug/gdbstub.c`) is
@@ -952,11 +952,11 @@ the drain lock-free: the idle path never touches a queue the handler
 owns. A device the chipset routed nowhere keeps its poll instead, so no
 device ends up with neither.
 
-## A display toy-os cannot set gets its size from GRUB, chosen in grubenv and tried once
+## A display SaunaOS cannot set gets its size from GRUB, chosen in grubenv and tried once
 
 A card with no driver here -- an NVIDIA RTX on a BIOS boot, QEMU's QXL --
 is a VESA framebuffer GRUB set before the kernel ran, and nothing in
-toy-os can change it afterwards: long mode has no `int 10h`. GRUB's own
+saunaos can change it afterwards: long mode has no `int 10h`. GRUB's own
 choice can be poor. The kernel's framebuffer request is 1280x720; a card
 whose VESA BIOS lacks that mode falls to `auto`, and GRUB's VBE `auto`
 reads the monitor's EDID through the VESA BIOS and, when that fails,
@@ -969,14 +969,14 @@ monitor: EDID over VBE failed, so 640x480, while the card's BIOS offered
 **Linux leaves this to `GRUB_GFXMODE` in `/etc/default/grub`, edited by
 hand, until its own GPU driver modesets. Windows on a BIOS machine runs
 the card's VESA BIOS in an emulator (`x86bios`) to list and switch modes
-at runtime.** toy-os takes Linux's shape -- GRUB sets the size -- and
+at runtime.** SaunaOS takes Linux's shape -- GRUB sets the size -- and
 gives it a UI and a safety net, rather than Windows': an emulated VBIOS
 needs the legacy ROM, low memory and I/O ports reachable from wherever it
 runs, works only on BIOS boots, and still cannot exceed the card's VESA
 list (2560x1440 is not on the RTX's).
 
 **The size is GRUB environment data, not an /etc setting**: GRUB is the
-only reader, and it must read it before toy-os exists. `toy_mode` is every
+only reader, and it must read it before SaunaOS exists. `toy_mode` is every
 boot's; `toy_mode_try` is the next boot's only and GRUB empties it before
 booting, the `next_entry` mechanism `reboot --entry` already trusts -- so
 a size the monitor cannot show is shown once and the reset after it is
@@ -1110,7 +1110,7 @@ time. Loading a real `.ttf` from `/usr/share/fonts` and rasterizing it
 on demand replaces where glyphs COME FROM, and the interesting decisions
 are all about where that code runs and what it is allowed to touch.
 
-**Ring 0, deliberately, and this is the one place toy-os copies Windows
+**Ring 0, deliberately, and this is the one place SaunaOS copies Windows
 rather than Linux.** Linux has no font rasterizer in the kernel at all:
 `fbcon` uses baked bitmap fonts, FreeType and fontconfig are userspace,
 and under X11 and Wayland the CLIENT rasterizes -- a compositor never
@@ -1270,7 +1270,7 @@ console is a PCI BAR, and a second driver asking about the same device
 would repeat the window. Linux settled this in `__pci_read_base()`: the
 bus enumerator sizes every BAR once, before any driver binds, and a
 driver only ever reads `pci_resource_len()`. Windows' pci.sys does the
-same in its enumerator. toy-os follows: `pci_init()` runs before
+same in its enumerator. SaunaOS follows: `pci_init()` runs before
 interrupts and before `vga_init()`, so nothing is decoding anything,
 and the result lives in `struct pci_device.bar_size[]`.
 
@@ -1370,7 +1370,7 @@ each host controller in the device tree. Both are the same shape: the
 controller is part of a device's identity, and a slot id alone means
 nothing.
 
-**toy-os follows the shape at its size.** One driver, a `struct xhci_hc`
+**SaunaOS follows the shape at its size.** One driver, a `struct xhci_hc`
 per controller holding everything that was a file-scope global -- slot
 and endpoint tables, both completion records, the event drain's
 one-consumer guard, the recovery counters -- so no controller can hand
@@ -1885,7 +1885,7 @@ Microsoft GS Wavetable Synth, a ~3 MB `gm.dls` of Roland samples);
 macOS does the same with Apple's DLS synth. Linux ships no default:
 FluidSynth or TiMidity++ plus a SoundFont somebody installs (FluidR3_GM,
 141 MB, MIT; GeneralUser GS, ~31 MB). DOS-era players used the OPL FM
-chip, which DOSBox and libADLMIDI emulate. toy-os follows Windows'
+chip, which DOSBox and libADLMIDI emulate. SaunaOS follows Windows'
 shape -- a synth plus a bank that is always present -- with Linux's
 escape hatch: any SoundFont dropped into `/usr/share/soundfonts`
 outranks the built-in one.
@@ -2022,7 +2022,7 @@ files that were removed, and writing the small part that was genuinely
 SDL's.
 
 **Switching to a different port was considered and refused.** It would
-have cost `dg_toyos.c`, the app, the `TOYKEY_*` static asserts that keep
+have cost `dg_saunaos.c`, the app, the `TOYKEY_*` static asserts that keep
 `api/keyboard.h` and `doomkeys.h` apart, the build integration and
 `doom_test.py` -- all shaped around the DG_* API -- to solve a problem
 smaller than the rewrite, and it reverses this file's own entry on
@@ -2056,8 +2056,8 @@ code reach for what the SDL port had:
     Mapped onto `__builtin_bswap` and pthreads, so `OPL_Delay()` really
     blocks rather than being stubbed.
   - `opl_sdl_driver`, named unconditionally by `opl.c`'s driver list.
-    `opl_toyos.c` exports that symbol; the driver's own `name` says
-    `toyos`, so only the C symbol is borrowed.
+    `opl_saunaos.c` exports that symbol; the driver's own `name` says
+    `saunaos`, so only the C symbol is borrowed.
 
 `-D__DJGPP__` would have suppressed the first two and was rejected: it
 changes real behaviour in five other files (`i_swap.h`'s byte swapping,
@@ -2280,7 +2280,7 @@ opposite. It exists because the standard did not work on the hardware.
 
 **The measurement that decided it.** The TP-Link UE300 offers Realtek's
 protocol as configuration 1 and CDC-ECM as configuration 2. In
-configuration 2, on a live segment, toy-os received zero frames -- and
+configuration 2, on a live segment, SaunaOS received zero frames -- and
 so did Linux's own `cdc_ether`, at SuperSpeed and again at high speed
 (`docs/bugs.md`). An oracle sharing none of this code failed
 identically, which is what turned "our driver is broken" into "this
@@ -2463,7 +2463,7 @@ by eye. The boot path still writes nothing that can black the screen.
 Broadwell GPU, and the shape it takes is the opposite of vmsvga's and
 bochs's: it never programs a mode. Linux's i915 reads out the state the
 firmware programmed and adopts it ("fastboot"), then falls back to a
-full modeset when the readout disagrees with what it wants. toy-os keeps
+full modeset when the readout disagrees with what it wants. SaunaOS keeps
 the readout and drops the fallback.
 
 **Why.** Three facts, all measured on 2026-09-02. Nothing emulates this
@@ -2533,7 +2533,7 @@ Two calls made on 2026-09-03, the first day of Intel modesetting.
 Linux keeps one `drm_edid` parser and every connector -- DP, HDMI, eDP,
 the virtio-gpu model -- hands it bytes; Windows likewise parses in the
 OS and caches the block in the registry, and the miniport only reads
-the wire. The obvious toy-os shape was a parser inside
+the wire. The obvious SaunaOS shape was a parser inside
 `intel_display.c`, since the laptop's panel was the one reason to want
 it. That was declined for a testing reason as much as a layering one:
 nothing but the laptop can run the Intel driver, so a parser there is
@@ -2560,7 +2560,7 @@ rather than a detour.** i915's fastboot reads the hardware state back
 into a `crtc_state` and runs the same comparison it uses to verify its
 own modesets (`intel_pipe_config_compare`); a mismatch there is a bug in
 the readout or in the encoder code, and it is found before a modeset,
-not by one. toy-os copies that shape: `intel_readout.c` decodes the
+not by one. SaunaOS copies that shape: `intel_readout.c` decodes the
 transcoder timings, the DDI function control, the port clock and the
 link M/N into the same `edid_timing` the parser produces, and logs
 `MATCHES` or `DIFFERS FROM` against the panel's preferred timing. The
@@ -2687,9 +2687,9 @@ FreeBSD's `ure(4)` is one file with `if (flags & 8156)` branches through
 the same functions. Neither shares a line with its PCI Realtek driver
 (`r8169.c`, `re(4)`): a different transport (MMIO against vendor
 control transfers), a different register map, and only the PHY in
-common -- which Linux keeps in phylib, a layer toy-os does not have.
+common -- which Linux keeps in phylib, a layer SaunaOS does not have.
 
-**What toy-os does.** `rtl_usb.c` is the core: the four-bytes-behind-a-
+**What SaunaOS does.** `rtl_usb.c` is the core: the four-bytes-behind-a-
 byte-enable register layer, the OCP PHY window, the 8/24-byte framing
 walk, the bulk pair, link polling, binding. `rtl8153.c` and `rtl8156.c`
 each fill a `struct rtl_usb_ops` and name the versions they drive; the
@@ -2727,7 +2727,7 @@ registry. FreeBSD's kernel config file lists `device` lines with the
 rest as `kld` modules.
 
 **The export list is one file, not beside each definition.** Linux
-puts `EXPORT_SYMBOL` under the function; toy-os puts every one in
+puts `EXPORT_SYMBOL` under the function; SaunaOS puts every one in
 `kernel/core/kexports.c`, grouped by header. The reason is what the
 list IS here: with one author and one tree the export set is a
 deliberate contract of a few dozen names, and a file that reads as the
@@ -3179,7 +3179,7 @@ and writes NOTHING), and `system.keyboard.dead_keys` (on/off, for every
 layout).
 
 **Why the active one is not persisted.** Super+Space is pressed many
-times a day; writing `/etc/toyos.conf` on each would make a keystroke a
+times a day; writing `/etc/saunaos.conf` on each would make a keystroke a
 filesystem transaction, and would make "what a boot starts with" depend
 on whichever layout happened to be active at shutdown. Windows keeps a
 default input method separate from the current one, and KDE starts from
@@ -3407,7 +3407,7 @@ post only a buffer it had placed to avoid one, and `pmm` promises page
 alignment, nothing more. Linux's `xhci-ring.c` and FreeBSD's `xhci.c`
 both split a transfer at every boundary into chained TRBs, so a USB
 driver hands the host controller any contiguous buffer and never learns
-the rule; toy-os follows. **Declined: aligning in the driver** (a
+the rule; SaunaOS follows. **Declined: aligning in the driver** (a
 power-of-two buffer on its own size), which worked for this one driver
 and left the trap armed for the next.
 
@@ -3431,7 +3431,7 @@ controller will not touch them again, and unbind runs while the slot is
 still enabled -- on an unplug, and on a ring-3 claim of a device that
 keeps running. Linux's answer is the driver's own `usb_kill_urb()` in
 `disconnect()`: each in-flight transfer is cancelled and handed back
-before the driver frees. toy-os had no per-transfer cancel, so the
+before the driver frees. SaunaOS had no per-transfer cancel, so the
 first fix (6e72bafe) freed after a confirmed Disable Slot instead,
 through release hooks `usb_detach_slot()` called by name. **Declined
 on review**: the bus core named each class driver in a fourth list beside
@@ -3460,7 +3460,7 @@ core matches and binds per INTERFACE, a driver takes a sibling with
 `usb_driver_claim_interface()` (cdc_ether its data interface, snd-usb-
 audio its streaming ones), and hubs are drivers like any other. Windows
 matches hardware and compatible ids and splits a composite device per
-interface (usbccgp). toy-os follows, in `PCI_DRIVER()`'s shape:
+interface (usbccgp). SaunaOS follows, in `PCI_DRIVER()`'s shape:
 `USB_DRIVER()` drops an entry in `.usb_drivers`, `usb_driver.c` offers
 each interface nobody holds to the first entry whose table matches, and
 the same tables answer which configuration is driveable.
@@ -3486,7 +3486,7 @@ UE300's ECM configuration had never shown working, under Linux's
 `snddrv` became the default on 2026-10-07: a `/etc/services.d/snddrv`
 descriptor, `Restart=on-failure`, `Ready=notify` and ordered before
 `soundd`. Windows starts a UMDF host per device from the PnP manager and
-Linux runs `modprobe` from udev on each device event; toy-os has neither
+Linux runs `modprobe` from udev on each device event; SaunaOS has neither
 a launcher nor hotplug for PCI, so ONE SERVICE was chosen over a
 device-event launcher -- it drives the first PCI card that plays, which
 is the machine's sound device on every machine tested. A launcher is
@@ -3566,13 +3566,13 @@ Decided 2026-10-09, with the Video Player. **What real systems do:**
 FFmpeg (libavformat + libavcodec), GStreamer and Windows' Media
 Foundation are all user-mode frameworks with the same two tables --
 containers that find each stream's packets and their times, codecs that
-turn packets into frames -- and none decodes in the kernel. toy-os
+turn packets into frames -- and none decodes in the kernel. SaunaOS
 follows: `userland/lib/uvid.h` has both tables, beside `usnd` and
 `uimg`, for the same reason those are in ring 3 (a parser of files
 anyone downloads belongs in the process that opened them).
 
 **Which codecs.** What every video is today is H.264 (or VP9/AV1), and
-every real system decodes it in HARDWARE; toy-os has no video-decode
+every real system decodes it in HARDWARE; SaunaOS has no video-decode
 engine driver and decodes on the CPU. An H.264 decoder is roughly ten
 times MPEG-1's code (CABAC, multiple reference lists, intra prediction
 modes, the in-loop deblocking filter) and its patents expired only in

@@ -114,7 +114,7 @@ static int decode(const char *in, char *out, int cap) {
     return n > 0 && out[0] == '/';
 }
 
-// DeletionDate is LOCAL time per the spec; every timestamp in toy-os is
+// DeletionDate is LOCAL time per the spec; every timestamp in SaunaOS is
 // UTC, so it is converted both ways here and nowhere else.
 static void date_local(const struct rtc_time *utc, char *out, int cap) {
     time_t e = (time_t)cal_rtc_to_epoch(utc);

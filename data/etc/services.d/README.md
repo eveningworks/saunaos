@@ -126,7 +126,7 @@ to one service cannot reshuffle unrelated ones.
 
 By default a service's standard output goes to the **application log**,
 tagged with the program's own name, and `logd` persists it to
-`/var/log/toyos.log`. So this:
+`/var/log/saunaos.log`. So this:
 
     $ log -u netd
 

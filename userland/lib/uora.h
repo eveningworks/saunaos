@@ -21,8 +21,8 @@
 #define UORA_ATTRS_MAX 16
 
 // A FOREIGN ATTRIBUTE, the spec's room for what it does not define:
-// written on the layer as `toyos:<name>="<value>"` (every reader ignores
-// another program's), read back from any `toyos:` attribute. Paint keeps
+// written on the layer as `saunaos:<name>="<value>"` (every reader ignores
+// another program's), read back from any `saunaos:` attribute. Paint keeps
 // a text layer's words and face in these.
 struct uora_attr {
     char name[24];

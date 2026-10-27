@@ -10,7 +10,7 @@
 // stronger promise than Linux or Windows make: there, a write(2) lands
 // in the page cache and returns, writeback runs on a timer, and the
 // journal commits every few seconds with one barrier for thousands of
-// operations. toy-os pays for the difference on every write, and on a
+// operations. SaunaOS pays for the difference on every write, and on a
 // real SSD it pays a great deal -- a FLUSH CACHE forces the drive's
 // DRAM to NAND, where an emulated one returns almost immediately. That
 // is why a throughput number measured in QEMU says nothing about

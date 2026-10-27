@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/gen_video.py -- the video files that ship with toy-os, and the
+"""tools/gen_video.py -- the video files that ship with SaunaOS, and the
 fixtures /tests/uvid_test checks the decoders against.
 
 Written here rather than fetched, the call tools/gen_music.py made for

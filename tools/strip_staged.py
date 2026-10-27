@@ -4,8 +4,8 @@
     python3 tools/strip_staged.py seed/sync
 
 The build compiles userland with -g, and the copies under build/ keep it
-for gdb (tools/gdb/toyos.py), panic_resolve.py and crash reports resolved
-on the host. Nothing on toy-os reads DWARF, and it was most of the staged
+for gdb (tools/gdb/saunaos.py), panic_resolve.py and crash reports resolved
+on the host. Nothing on SaunaOS reads DWARF, and it was most of the staged
 tree: 131 of 186 MiB, every byte of it read off a CD by GRUB on a live
 boot. `objcopy --strip-debug` keeps .symtab, so a crash report still names
 functions on the machine itself.

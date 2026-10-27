@@ -19,7 +19,7 @@
 #include "rt/sys.h"
 #include "lib/cmd.h"
 
-#define LOG_PATH "/var/log/toyos.log"
+#define LOG_PATH "/var/log/saunaos.log"
 #define BOOT_DIR "/var/log/boot"
 #define SEQ_PATH "/var/lib/logd.seq"
 

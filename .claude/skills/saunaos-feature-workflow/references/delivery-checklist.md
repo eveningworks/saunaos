@@ -110,7 +110,7 @@ before you start delivering -- don't reconstruct it from memory.
 
 - **Commit:** the files are already on the real checkout --
   `git add <the file list from step 2>` then commit with plain `git`
-  (identity is already configured as `toy-os <noreply@toy-os.local>`,
+  (identity is already configured as `SaunaOS <noreply@saunaos.local>`,
   confirmed via `git config user.name`/`user.email`, so no `-c
   user.name=...` flags needed).
 
@@ -179,13 +179,13 @@ before you start delivering -- don't reconstruct it from memory.
   `sh tools/release_assets.sh <version>`. It REFUSES unless the tree is
   clean (untracked files included), `v<version>` is HEAD and on origin at
   the same commit, and both images were built from that commit; then it
-  writes `build/release/<version>/`: `toy-os-live.iso`,
-  `toyos-usb.img.gz`, `toy-os-<version>-source.tar.gz` (the tag's
+  writes `build/release/<version>/`: `saunaos-live.iso`,
+  `saunaos-usb.img.gz`, `saunaos-<version>-source.tar.gz` (the tag's
   `git archive`, the source these images were built from, fixed to them
   whatever later happens to the history), `run_release.sh` and
   `SHA256SUMS` over all of them. `gh release create v<version>
   build/release/<version>/* --title ... --notes ...` attaches them.
-  (This step used to name `toy-os.iso` and `disk.img.gz`, which no
+  (This step used to name `saunaos.iso` and `disk.img.gz`, which no
   release since v0.3.0 has shipped.)
 
 ## Direct local checkout, but as a background job (worktree-isolated)
@@ -245,7 +245,7 @@ checkout -- so surface it rather than explaining it away.
 
 ## Ring-3 apps (added after the Milestone 41 work)
 
-toy-os now runs real apps as ring-3 processes, and a change touching
+SaunaOS now runs real apps as ring-3 processes, and a change touching
 them has its own checks:
 
 - Which side is this? `apps/` is kernel-space (compiled into
@@ -396,7 +396,7 @@ short version.
    commit from after that date rather than an older one, since the
    earlier bodies are deliberately not rewritten; CLAUDE.md and
    `docs/decisions.md`'s versioning entry carry the worked example. Add a `docs/decisions.md` entry only when the change answers
-   a "why does toy-os work this way" question a future session would
+   a "why does SaunaOS work this way" question a future session would
    plausibly hit again -- most changes don't need one.
 
    **A NEW COMMAND NEEDS ITS PAGE IN `docs/commands/` IN THE SAME

@@ -96,7 +96,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // panic (idt.c).
     klog_write(kversion_banner());
     klog_write("\n");
-    klog_write("toy-os: kernel_main reached, initializing...\n");
+    klog_write("SaunaOS: kernel_main reached, initializing...\n");
 
     multiboot_set_info(multiboot_info_addr);
     // Before anything else logs: a `loglevel=` that arrived too late
@@ -114,14 +114,14 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // made is sitting in a global waiting to be printed.
     uint64_t reloc_delta = kernel_reloc_delta();
     if (reloc_delta) {
-        klog_printf("toy-os: kernel relocated +0x%lx, running at 0x%lx (1 of %lu candidate bases, %s entropy)\n",
+        klog_printf("SaunaOS: kernel relocated +0x%lx, running at 0x%lx (1 of %lu candidate bases, %s entropy)\n",
                     reloc_delta, (uint64_t)(uintptr_t)__kimage_start,
                     kernel_reloc_slots(),
                     kernel_reloc_entropy_hw() ? "hardware" : "TSC -- weak");
     } else {
-        klog_printf("toy-os: kernel NOT relocated (%s)\n", kernel_reloc_note());
+        klog_printf("SaunaOS: kernel NOT relocated (%s)\n", kernel_reloc_note());
     }
-    klog_printf("toy-os: relocation table: %lu fixups, %lu bytes\n",
+    klog_printf("SaunaOS: relocation table: %lu fixups, %lu bytes\n",
                 kernel_reloc_count(), kernel_reloc_table_bytes());
 
     // As early as the log allows. boot.asm hands over a 4GiB identity map
@@ -132,9 +132,9 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // the linker symbols, so there is no reason to run any of the rest of
     // this function unprotected first.
     if (paging_enforce_wx()) {
-        klog_write("toy-os: kernel W^X applied (.text read-only+exec, everything else NX)\n");
+        klog_write("SaunaOS: kernel W^X applied (.text read-only+exec, everything else NX)\n");
     } else {
-        klog_write(KLOG_WARN "toy-os: WARNING -- kernel W^X NOT applied; split table pool exhausted\n");
+        klog_write(KLOG_WARN "SaunaOS: WARNING -- kernel W^X NOT applied; split table pool exhausted\n");
     }
 
     // The CPU's own half of the same idea, right beside it: SMEP stops
@@ -144,7 +144,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // `--cpu max` is what exercises them. See paging.h for the rule SMAP
     // imposes on every kernel access to user memory.
     int prot = paging_enable_smep_smap();
-    klog_printf("toy-os: SMEP %s, SMAP %s\n",
+    klog_printf("SaunaOS: SMEP %s, SMAP %s\n",
                  (prot & PAGING_SMEP_ON) ? "on" : "unavailable",
                  (prot & PAGING_SMAP_ON) ? "on" : "unavailable");
 
@@ -164,13 +164,13 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // since the first instruction of kernel_main() -- it sat later
     // purely because nothing earlier had asked for a frame.
     pmm_init();
-    klog_write("toy-os: physical frame allocator initialized\n");
+    klog_write("SaunaOS: physical frame allocator initialized\n");
     // The identity map over the RAM above 4 GiB, now that there are
     // frames for its page directories. Before any consumer of
     // PMM_ZONE_ANY -- the kernel heap is the first, in heap_init().
     {
         uint64_t hi = paging_extend_identity_map();
-        if (hi) klog_printf("toy-os: identity map extended by %lu MiB above 4 GiB\n", hi >> 20);
+        if (hi) klog_printf("SaunaOS: identity map extended by %lu MiB above 4 GiB\n", hi >> 20);
     }
     // KASAN=1: real shadow behind every usable RAM range -- after the
     // identity map covers all of it, since the shadow frames are zeroed
@@ -187,7 +187,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // fit what the scan finds -- a fixed one dropped every device past
     // the 32nd without a word.
     pci_init();
-    klog_write("toy-os: PCI bus enumerated\n");
+    klog_write("SaunaOS: PCI bus enumerated\n");
 
     // Display drivers register, then probe -- specific cards first, the
     // generic GRUB framebuffer last as the fallback that always claims.
@@ -215,16 +215,16 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // up, which is the whole point: they used to go past far too fast
     // to read and only existed on the serial line afterwards.
     klog_set_console_echo(1);
-    vga_write("toy-os booting...\n");
+    vga_write("SaunaOS booting...\n");
     // The logo goes up NOW and the log collects behind it (splash.h);
     // a text boot gets it back once the target is known, below.
     splash_begin();
 
     gdt_init();
-    klog_write("toy-os: GDT/TSS initialized\n");
+    klog_write("SaunaOS: GDT/TSS initialized\n");
 
     idt_init();
-    klog_write("toy-os: IDT/PIC/PIT initialized, interrupts enabled\n");
+    klog_write("SaunaOS: IDT/PIC/PIT initialized, interrupts enabled\n");
 
     // The Local APIC, in virtual wire mode so the 8259 keeps delivering
     // every legacy line. AFTER idt_init(), because the spurious vector
@@ -250,16 +250,16 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // cares -- but a process starting without it would #UD on its first
     // SSE instruction.
     if (fpu_init()) {
-        klog_write("toy-os: FPU/SSE enabled (ring-3 only, eager FXSAVE per switch)\n");
+        klog_write("SaunaOS: FPU/SSE enabled (ring-3 only, eager FXSAVE per switch)\n");
     } else {
-        klog_write(KLOG_WARN "toy-os: WARNING -- no FXSR/SSE2 reported; ring-3 float unavailable\n");
+        klog_write(KLOG_WARN "SaunaOS: WARNING -- no FXSR/SSE2 reported; ring-3 float unavailable\n");
     }
 
     // Needs the PIT already ticking (idt_init above) -- it calibrates
     // RDTSC against it. Deliberately here and not on first use: see
     // cpuinfo.h, a lazy calibration inside a syscall can't ever finish.
     cpu_info_init();
-    klog_write("toy-os: CPU identified, clock calibrated\n");
+    klog_write("SaunaOS: CPU identified, clock calibrated\n");
 
     // Now that a calibrated frequency exists, offer the TSC. It takes
     // over from the PIT source only if this CPU's TSC is INVARIANT --
@@ -319,7 +319,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     serial_irq_init(); // COM1 RX -- see serial.c for why this can't run inside serial_init() itself
     // Which port the debug console uses, if any, is debug_console_init()'s
     // line: it is opt-in, and `debugcon=ttyS0` can move it.
-    klog_printf("toy-os: serial RX enabled -- COM1%s\n",
+    klog_printf("SaunaOS: serial RX enabled -- COM1%s\n",
                 serial_dbg_separate() ? " and COM2" : "");
 
 
@@ -331,7 +331,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     initcalls_run(INIT_CORE);   // the class cores that own a table (net)
     initcalls_run(INIT_BUS);    // pci_bind() probes every PCI driver -- after heap_init(): a virtqueue is contiguous frames
 
-    klog_write("toy-os: kernel heap initialized\n");
+    klog_write("SaunaOS: kernel heap initialized\n");
 
     // No self-tests run here any more. pmm/heap/json/tfs each used to be
     // checked on every single boot -- see kernel/include/kernel/ktest.h
@@ -350,7 +350,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // /bin binaries (e.g. lspci) are no longer bootstrap-installed here
     // at boot time -- tools/tfs3_writer.py seeds them into disk.img at
     // BUILD time now (see the Makefile's `seed` step), so by the time
-    // toy-os actually boots they're already on disk. See
+    // SaunaOS actually boots they're already on disk. See
     // docs/decisions.md for why this replaced the old GRUB-module/
     // BIN_BOOTSTRAP-table approach.
     initcalls_run(INIT_CONFIG); // /etc readers: timezone, font, cursor, mouse, volume, keyboard, boot target
@@ -391,7 +391,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     klog_write(" UTC\n");
 
     scheduler_init();
-    klog_write("toy-os: scheduler initialized (continuously armed; see `schedtest`)\n");
+    klog_write("SaunaOS: scheduler initialized (continuously armed; see `schedtest`)\n");
 
     // AFTER paging_enforce_wx() above, which rewrites every PDE and
     // would put the huge pages back over these. A kernel stack that
@@ -405,7 +405,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
     // shell use THAT one, so leaving it unguarded left the overflow
     // reachable from the likeliest place to type the command.
     if (!process_guard_page_init()) {
-        klog_write(KLOG_WARN "toy-os: WARNING -- the legacy loader's kernel stack has no "
+        klog_write(KLOG_WARN "SaunaOS: WARNING -- the legacy loader's kernel stack has no "
                    "guard page (split table pool exhausted)\n");
     }
 
@@ -416,7 +416,7 @@ void kernel_main(uint64_t multiboot_info_addr) {
 
     debug_console_init(); // serial debug console (COM1) -- see docs/decisions.md; polled from keyboard_getchar()'s and wm_run()'s idle-wait loops
 
-    klog_printf("toy-os: boot target '%s'%s\n", target_get(),
+    klog_printf("SaunaOS: boot target '%s'%s\n", target_get(),
                 target_overridden() ? " (from the kernel command line)" : "");
     // A text or rescue target has no desktop to take the splash over:
     // the log and the shell are the screen (the persisted target is
@@ -444,11 +444,11 @@ void kernel_main(uint64_t multiboot_info_addr) {
         int init_pid = scheduler_spawn(INIT_PATH, 0);
         if (init_pid > 0) {
             scheduler_set_init_pid(init_pid);
-            klog_printf("toy-os: init started as pid %d (" INIT_PATH ")\n",
+            klog_printf("SaunaOS: init started as pid %d (" INIT_PATH ")\n",
                         init_pid);
             splash_stage_services();
         } else {
-            klog_printf(KLOG_WARN "toy-os: WARNING -- could not spawn " INIT_PATH
+            klog_printf(KLOG_WARN "SaunaOS: WARNING -- could not spawn " INIT_PATH
                         "; orphaned processes will hold their slots\n");
         }
     }

@@ -1,4 +1,4 @@
-# Building and running toy-os
+# Building and running SaunaOS
 
 Everything between "I have a checkout" and "it is running, and I can test
 a change": the tools to install, every way to boot it, the build
@@ -50,8 +50,8 @@ the same requirements — corrections welcome.
 ## Build and run
 
 ```bash
-git clone https://github.com/eveningworks/toy-os.git
-cd toy-os
+git clone https://github.com/eveningworks/saunaos.git
+cd saunaos
 make run
 ```
 
@@ -65,7 +65,7 @@ console history, including the boot log.
 
 ```bash
 make            # kernel.bin + the userland ELF binaries
-make iso        # + toy-os.iso; also seeds disk.img and installs GRUB on it
+make iso        # + saunaos.iso; also seeds disk.img and installs GRUB on it
 make run        # build + boot in QEMU with a graphical window
 make live-iso   # a Live CD that boots with no disk attached at all
 make usb-image  # a compact self-booting image to dd to a USB stick
@@ -133,7 +133,7 @@ and `highres=off` — see [boot-flags.md](boot-flags.md).
 
 `NOGPL=1` leaves out every program built from a port whose licence is
 GPL-only. Today that is DOOM, the one GPL component; everything else in
-toy-os is MIT, BSD or Apache-licensed and can go into a closed product
+saunaos is MIT, BSD or Apache-licensed and can go into a closed product
 with its notices. Each port's licence is declared in the Makefile
 (`PORT_LICENSE_<name>`), and the build decides from that, so a dual
 licence with a permissive option (Mbed TLS) stays in.
@@ -160,18 +160,18 @@ command line.
 ## Running a release
 
 Tagged releases live on
-[GitHub Releases](https://github.com/eveningworks/toy-os/releases). Each
+[GitHub Releases](https://github.com/eveningworks/saunaos/releases). Each
 ships two media, their source and a launcher:
 
 | Asset | What it is |
 |---|---|
-| `toy-os-live.iso` | Boots with **no disk at all** — the filesystem rides in RAM as a GRUB module, and what you write to it is gone at power off. The one to try first. |
-| `toyos-usb.img.gz` | A real 512 MB disk image. `gunzip`, `dd` it to a stick, and a machine boots it — and **keeps** what you write, which the live ISO does not. |
+| `saunaos-live.iso` | Boots with **no disk at all** — the filesystem rides in RAM as a GRUB module, and what you write to it is gone at power off. The one to try first. |
+| `saunaos-usb.img.gz` | A real 512 MB disk image. `gunzip`, `dd` it to a stick, and a machine boots it — and **keeps** what you write, which the live ISO does not. |
 | `run_release.sh` | Boots a download in QEMU with the right flags — nothing to clone or build. It picks whichever medium it finds beside it, so it runs an older release's assets as well as a current one. |
-| `toy-os-<version>-source.tar.gz` | The source code those images were built from, exactly -- the tag's tree as one archive. A built image names it too, in `/usr/share/licenses/SOURCE` and in About. |
+| `saunaos-<version>-source.tar.gz` | The source code those images were built from, exactly -- the tag's tree as one archive. A built image names it too, in `/usr/share/licenses/SOURCE` and in About. |
 | `SHA256SUMS` | Verify before you `dd`. |
 
-From either medium, `install --disk <name> confirm` writes toy-os to an
+From either medium, `install --disk <name> confirm` writes SaunaOS to an
 internal drive and makes it boot. **Both media are BIOS/CSM only.**
 
 **On real hardware.** `dd` overwrites the device you name, completely and
@@ -182,7 +182,7 @@ been tested on, and [boot-flags.md](boot-flags.md) lists the escape hatches
 (`nousb`, `noahci`, `nomsi`, `nogpe`, `nokaslr`). It does not flash
 firmware, write EFI variables or touch anything outside the disk you
 point it at, so the realistic worst case is a disk you told it to erase.
-**It is used at your own risk:** toy-os comes with no warranty (the MIT
+**It is used at your own risk:** SaunaOS comes with no warranty (the MIT
 licence's disclaimer applies, as to everything here), and nobody behind
 this project takes responsibility for data lost or hardware affected by
 running or installing it.
@@ -227,7 +227,7 @@ broken?". The ones worth knowing first:
 | `gui_regress.py` | Every GUI test tool, each on its own fresh disk image and VM, as one pass/fail table. |
 | `gui_debug.py` | Asks the window manager what it is doing — window rects, z-order, hit-testing, damage — instead of measuring a screenshot. |
 | `predates.py` | Answers "was this already broken?" by measuring: stashes the tree, rebuilds at HEAD, runs the command, restores, compares. |
-| `test_history.py` | When did this check last fail or pass, at which commit, on which host? Every local test run is recorded with its log in `~/.local/share/toy-os/test-history/`, never in the repo. |
+| `test_history.py` | When did this check last fail or pass, at which commit, on which host? Every local test run is recorded with its log in `~/.local/share/saunaos/test-history/`, never in the repo. |
 
 [tools.md](tools.md) is the full reference — every script, why it
 exists, and the traps it encodes — and [testing.md](testing.md) covers

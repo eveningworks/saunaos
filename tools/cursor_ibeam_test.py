@@ -222,7 +222,7 @@ def main():
     pr = Prober(dbg, qmp, tmp)
 
     # ESTABLISH the cursor size rather than inherit it: it persists to
-    # /etc/toyos.conf, which a build does not re-seed, so a previous
+    # /etc/saunaos.conf, which a build does not re-seed, so a previous
     # cursor_theme_test.py run leaves `large` behind and every bbox here
     # is then measured against a shape three times the size.
     dbg.send("sh config set cursor_size normal")

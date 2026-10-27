@@ -175,7 +175,7 @@ int utheme_save(const char *path, const struct utheme *t, const struct utheme_bu
     if (snprintf(tmp, sizeof tmp, "%s.tmp", path) >= (int)sizeof tmp) return 0;
     FILE *f = fopen(tmp, "w");
     if (!f) return 0;
-    fprintf(f, "# toy-os theme -- docs/theme-design.md\nName=%s\n", t->name);
+    fprintf(f, "# SaunaOS theme -- docs/theme-design.md\nName=%s\n", t->name);
     if (description && description[0]) fprintf(f, "Description=%s\n", description);
     const char *group = "";
     struct utheme copy = *t;

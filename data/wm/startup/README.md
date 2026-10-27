@@ -3,7 +3,7 @@
 Same format as `../desktop/`, seeded to `/usr/wm/startup/`. Every entry
 here is launched once when the desktop starts, in filename order.
 
-Empty on purpose right now: nothing in toy-os wants to auto-start yet,
+Empty on purpose right now: nothing in SaunaOS wants to auto-start yet,
 and an entry added "as an example" would be a process every boot pays
 for. The directory exists so that adding one is dropping a file rather
 than finding somewhere in `wm.c` to hardcode it -- which is the same

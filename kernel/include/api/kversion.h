@@ -13,7 +13,7 @@
 // build and is included by kversion.c alone, which is what keeps a
 // timestamp from rebuilding the tree (tools/gen_version.sh).
 
-// "toy-os 0.3.0-dev (426601f) built 2026-09-01 10:39:12" -- one line,
+// "SaunaOS 0.3.0-dev (426601f) built 2026-09-01 10:39:12" -- one line,
 // for the boot log and a panic. Linux calls this linux_banner.
 const char *kversion_banner(void);
 

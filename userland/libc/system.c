@@ -3,7 +3,7 @@
 // **A REAL IMPLEMENTATION, not a stub returning -1**, and what made that
 // possible is `/bin/tosh -c`. Before that flag existed this could only
 // have reported "no command processor", which POSIX does define an
-// answer for and which would have been honest -- but toy-os HAS a shell,
+// answer for and which would have been honest -- but SaunaOS HAS a shell,
 // a spawn syscall and a wait syscall, so the honest answer was simply
 // out of date.
 //

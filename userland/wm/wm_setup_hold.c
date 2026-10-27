@@ -91,6 +91,13 @@ static void span_rect(struct ugfx_surface *s, const struct splash_rect *r, uint3
     }
 }
 
+static void span_stone(struct ugfx_surface *s, const struct splash_stone *st, uint32_t c) {
+    for (int y = st->cy - st->a - st->b; y <= st->cy + st->a + st->b; y++) {
+        int x0, x1;
+        if (splash_stone_span(st, y, &x0, &x1)) ugfx_fill_rect(s, x0, y, x1 - x0 + 1, 1, c);
+    }
+}
+
 void wm_setup_hold_draw(struct ugfx_surface *s) {
     struct splash_layout l;
     splash_layout(screen_w, screen_h, &l);
@@ -99,7 +106,7 @@ void wm_setup_hold_draw(struct ugfx_surface *s) {
     // The kernel's logo, to the pixel (api/splash_layout.h): the handover
     // from its splash to this one must not move anything.
     span_rect(s, &l.plate, rgb_of(SPLASH_PLATE));
-    for (int i = 0; i < 3; i++) span_rect(s, &l.brick[i], rgb_of(SPLASH_BRICK));
+    for (int i = 0; i < SPLASH_STONES; i++) span_stone(s, &l.stone[i], rgb_of(SPLASH_STONE));
 
     // Eight dots round a ring, the lead one brightest and the tail
     // fading, a dot further on every step -- Windows' boot spinner.
@@ -115,7 +122,7 @@ void wm_setup_hold_draw(struct ugfx_surface *s) {
         ugfx_fill_circle(s, x, y, l.dot_r, ugfx_blend(bg, ugfx_rgb(255, 255, 255), a));
     }
     // The line under it, in the fixed-cell face: the kernel's own
-    // splash said "Starting toy-os..." in its baked monospace font, and
+    // splash said "Starting SaunaOS..." in its baked monospace font, and
     // the line changes here rather than its typeface.
     const char *label = g_hold == HOLD_SETUP ? "Loading setup..." : "Loading desktop...";
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_mono(UGFX_FONT_REGULAR));

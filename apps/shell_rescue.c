@@ -22,7 +22,7 @@
 //
 // WHAT IT DOES NOT DO. It cannot REPAIR a missing /bin -- there is no
 // way to write an ELF back onto the disk from a shell. Recovery is
-// booting toy-os-live.iso (which carries a TFS3 image as a GRUB module)
+// booting saunaos-live.iso (which carries a TFS3 image as a GRUB module)
 // or re-seeding from the host, the same answer a real system gives. Its
 // job is DIAGNOSIS -- see what is on the disk, and make the small
 // changes that let a boot get further -- plus `sync`, so anything it
@@ -168,7 +168,7 @@ static void rescue_list(void) {
         vga_putc('\n');
     }
     vga_write("\nThey diagnose; they cannot put /bin back. For that, boot\n");
-    vga_write("toy-os-live.iso or re-seed the image from the host.\n");
+    vga_write("saunaos-live.iso or re-seed the image from the host.\n");
 }
 
 void cmd_rescue(const char *args) {

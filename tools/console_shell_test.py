@@ -525,7 +525,7 @@ def main():
         out = dbg.send("sh cat /klog.txt") or ""
         # STRUCTURAL, not a content match, and the first draft of this
         # got it wrong in an instructive way: it looked for a boot line
-        # ("toy-os:"), which `-n 5` can never show, because -n tails the
+        # ("SaunaOS:"), which `-n 5` can never show, because -n tails the
         # NEWEST lines and those are whatever the machine did a moment
         # ago. The check failed against a working dmesg.
         #

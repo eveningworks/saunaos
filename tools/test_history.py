@@ -13,10 +13,10 @@ host's kernel and QEMU, and the run's whole log. A failure prints a
 `history:` line saying how often that check failed lately and when the
 tool last passed.
 
-LOCAL ONLY, NEVER IN THE REPO: ~/.local/share/toy-os/test-history/
-(`TOYOS_TEST_HISTORY=DIR` moves it, `=off` stops recording).
+LOCAL ONLY, NEVER IN THE REPO: ~/.local/share/saunaos/test-history/
+(`SAUNAOS_TEST_HISTORY=DIR` moves it, `=off` stops recording).
 runs.jsonl is kept for good; logs/ is gzipped and pruned oldest first
-past TOYOS_TEST_HISTORY_MAX_MB (default 1024).
+past SAUNAOS_TEST_HISTORY_MAX_MB (default 1024).
 
 A check is matched by its NAME, never its line number, which moves
 between commits. Recording never fails a run: an error is one line on
@@ -37,17 +37,17 @@ import tempfile
 import time
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-PARENT_ENV = "TOYOS_TEST_HISTORY_PARENT"
+PARENT_ENV = "SAUNAOS_TEST_HISTORY_PARENT"
 # Set by gui_regress.py in a tool's environment: it records that tool's
 # row itself (it has the output), so harness.Results must not as well.
-BY_PARENT_ENV = "TOYOS_TEST_HISTORY_BY_PARENT"
+BY_PARENT_ENV = "SAUNAOS_TEST_HISTORY_BY_PARENT"
 
 
 def history_dir():
-    d = os.environ.get("TOYOS_TEST_HISTORY", "")
+    d = os.environ.get("SAUNAOS_TEST_HISTORY", "")
     if d == "off":
         return None
-    return d or os.path.expanduser("~/.local/share/toy-os/test-history")
+    return d or os.path.expanduser("~/.local/share/saunaos/test-history")
 
 
 def enabled():
@@ -191,7 +191,7 @@ def record(tool, verdict, *, rc=None, duration=None, failures=(), summary="",
         with open(path, "a") as f:
             fcntl.flock(f, fcntl.LOCK_EX)      # gui_regress records from threads and processes
             f.write(json.dumps(row) + "\n")
-        max_mb = int(os.environ.get("TOYOS_TEST_HISTORY_MAX_MB", "1024"))
+        max_mb = int(os.environ.get("SAUNAOS_TEST_HISTORY_MAX_MB", "1024"))
         _prune(os.path.join(d, "logs"), max_mb * 1024 * 1024)
         if hints and row["failures"]:
             _hints(load(d), row, sys.stderr)
@@ -297,7 +297,7 @@ def show_log(d, rows, run_id):
 
 def selftest():
     with tempfile.TemporaryDirectory() as d:
-        os.environ["TOYOS_TEST_HISTORY"] = d
+        os.environ["SAUNAOS_TEST_HISTORY"] = d
         ok = []
         a = record("t", "PASS", rc=0, duration=1, log_text="one", hints=False)
         b = record("t", "FAIL", rc=1, failures=["a check (x.c:1)"], log_text="two", hints=False)
@@ -348,7 +348,7 @@ def main():
         return selftest()
     d = history_dir()
     if d is None:
-        print("test_history: off (TOYOS_TEST_HISTORY=off)")
+        print("test_history: off (SAUNAOS_TEST_HISTORY=off)")
         return 1
     rows = load(d)
     if a.tool:

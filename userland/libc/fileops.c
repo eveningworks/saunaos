@@ -14,7 +14,7 @@
 int remove(const char *path) { return sys_unlink(path); }
 
 // POSIX: an existing FILE at `newpath` is replaced, atomically on TFS3.
-// SYS_RENAME's refusal is the toy-os default that `mv` relies on, and it
+// SYS_RENAME's refusal is the SaunaOS default that `mv` relies on, and it
 // is the wrong answer for the write-a-temp-then-rename every portable
 // program uses to save a file (Doom's savegames, mbedTLS's key store).
 int rename(const char *oldpath, const char *newpath) {

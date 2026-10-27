@@ -1,4 +1,4 @@
-// logd -- the persistent log, /var/log/toyos.log.
+// logd -- the persistent log, /var/log/saunaos.log.
 //
 // WHY THIS EXISTS, and it is not a hypothetical. The kernel ring holds a
 // few hundred lines. Twice in one day an intermittent fault destroyed
@@ -24,7 +24,7 @@
 // kernel` matches at a fixed offset rather than hunting for a substring
 // that a MESSAGE might also contain.
 //
-// ONE FILE PER BOOT. /var/log/toyos.log is this boot; the completed ones
+// ONE FILE PER BOOT. /var/log/saunaos.log is this boot; the completed ones
 // are /var/log/boot/<n>.log, numbered by a counter in /var/lib/logd.seq
 // that survives the reboot, oldest deleted past `storage.log.keep`. It
 // kept a single rotated file until 2026-09-19, which answers "what did
@@ -50,8 +50,8 @@
 #include "query_abi.h"
 #include "applog.h"
 
-#define LOG_PATH   "/var/log/toyos.log"
-#define LOG_PREV   "/var/log/toyos.log.1"   // what this used to be; removed once
+#define LOG_PATH   "/var/log/saunaos.log"
+#define LOG_PREV   "/var/log/saunaos.log.1"   // what this used to be; removed once
 #define BOOT_DIR   "/var/log/boot"
 #define SEQ_PATH   "/var/lib/logd.seq"
 #define TAG_W      6                  // "kernel", "toywm ", "netd  "
@@ -454,10 +454,10 @@ int main(void) {
     char path[64];
 
     // THE FIRST BOOT UNDER THIS SCHEME still has a log to file. A machine
-    // upgrading from the two-file logd comes up with a toyos.log from the
+    // upgrading from the two-file logd comes up with a saunaos.log from the
     // boot before the upgrade, and that boot may be exactly the one
     // somebody is trying to read -- opening O_TRUNC over it would throw
-    // it away. Its toyos.log.1 is older and is dropped.
+    // it away. Its saunaos.log.1 is older and is dropped.
     struct stat st;
     if (!last && stat(LOG_PATH, &st) == 0) last = 1;
     unlink(LOG_PREV);

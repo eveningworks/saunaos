@@ -20,7 +20,7 @@
 
 ## Description
 
-The Debian Almquist Shell, vendored from upstream and built for toy-os.
+The Debian Almquist Shell, vendored from upstream and built for SaunaOS.
 It is a POSIX shell: pipelines, redirection, here-documents, functions,
 parameter expansion, arithmetic, job control, `trap`, and the builtins
 POSIX requires.

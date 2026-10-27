@@ -22,7 +22,7 @@
 #define UUI_SEGBAR_MAX 16
 
 struct uui_segbar_seg {
-    const char *title;    // "toyos", "Free space"
+    const char *title;    // "saunaos", "Free space"
     const char *corner;   // top right ("/boot"), or NULL
     const char *detail;   // bottom line ("119.1 GB tfs3"), or NULL
     uint64_t size;        // any unit, the same for every segment

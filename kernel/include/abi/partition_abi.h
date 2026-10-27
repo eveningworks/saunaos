@@ -27,7 +27,7 @@
 //
 // Linux's BLKPG ioctl is shaped the same way (a partition description,
 // not sectors), and Windows' IOCTL_DISK_SET_DRIVE_LAYOUT_EX likewise.
-// Both also gate it on privilege, which is the half toy-os cannot copy
+// Both also gate it on privilege, which is the half SaunaOS cannot copy
 // yet -- MKPART_CONFIRM below is the stand-in, and it is a speed bump,
 // not a permission check. Said plainly here so nobody mistakes it for
 // one.

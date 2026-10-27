@@ -6,7 +6,7 @@
 // EVERY FUNCTION HERE IS ONE LINE over rt/sys.h. The header earns its
 // place because ported code writes `read(fd, buf, n)` and `#include
 // <unistd.h>`, not because anything is implemented here -- and where a
-// POSIX call has no toy-os equivalent it is ABSENT rather than stubbed.
+// POSIX call has no SaunaOS equivalent it is ABSENT rather than stubbed.
 // A fork() that always failed would be worse than a link error: the
 // link error says "this program needs something this OS does not have",
 // which is exactly true and exactly what a porter needs to read.
@@ -16,7 +16,7 @@
 // seconds-remaining, because there is no case in which that number
 // could be anything else. fork() and exec*() ARE here (below), built
 // for a ported shell; SYS_SPAWN and <spawn.h> stay the way a program
-// written for toy-os starts another (docs/fork-design.md).
+// written for SaunaOS starts another (docs/fork-design.md).
 #include <stddef.h>
 #include <stdint.h>
 #include "rt/sys.h"

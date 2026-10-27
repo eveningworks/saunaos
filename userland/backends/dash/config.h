@@ -1,4 +1,4 @@
-/* dash's config.h, hand-written for toy-os.
+/* dash's config.h, hand-written for SaunaOS.
  *
  * **THIS IS THE PORT, ALMOST IN ITS ENTIRETY.** dash configures itself
  * through autoconf, and every probe it runs lands here as one #define --

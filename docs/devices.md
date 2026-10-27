@@ -1,4 +1,4 @@
-# Devices toy-os has drivers for
+# Devices SaunaOS has drivers for
 
 Every driver in the tree, by the class registry it plugs into. **The
 live answer on a running machine is `lsdrv -a`**, which also names the

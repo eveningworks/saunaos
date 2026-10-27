@@ -51,7 +51,7 @@ namespace (`nsxxx.c` -- building and searching the tree) from the
 interpreter (`exxx.c` -- executing opcodes). The namespace half is the
 part with a small, closed grammar. That is the half worth having.
 
-**What toy-os should copy: the split.** What it should not copy: the
+**What SaunaOS should copy: the split.** What it should not copy: the
 size, the operation regions, or the ambition. See the honest case at
 the end.
 
@@ -74,7 +74,7 @@ Each stage ships and is testable on its own.
 
 ### Stage 0 -- `acpi --dump <TABLE>`, and a fixture  *(BUILT)*
 
-Hex-dump a named ACPI table from inside toy-os, the way `lsusb -D`
+Hex-dump a named ACPI table from inside SaunaOS, the way `lsusb -D`
 dumps a USB configuration. Same argument, and it is the same argument
 that was made for USB descriptors earlier the same day: **a parser for
 firmware data must be tested against real firmware data, and a
@@ -160,7 +160,7 @@ from absent and must not be conflated with it.
 machine it was for, all 17 `_PRW`s are Methods -- 12 `Return (GPRW (gpe,
 state))`, 3 `Return (Package)`, 2 conditional -- so a reader of constant
 Names finds none of them. And none wakes from S5, so the wake set this
-stage would compute there is empty, which is what toy-os already does.
+stage would compute there is empty, which is what SaunaOS already does.
 The two-press power button had another cause: entering ACPI mode
 just before the S5 write, fixed by letting the firmware's legacy path
 power the machine off (`docs/decisions.md`).

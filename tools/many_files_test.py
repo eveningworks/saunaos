@@ -59,7 +59,7 @@ check = _res.check
 
 VID_SRC = os.path.join(REPO, "data/usr/share/videos/countdown.mpg")
 # ucrash_load() wants the header and a `program:` line; nothing else.
-CRASH = "toy-os crash report\npid: 4242\nprogram: /tests/many_files\nfault: page fault\n"
+CRASH = "SaunaOS crash report\npid: 4242\nprogram: /tests/many_files\nfault: page fault\n"
 
 
 def seed_script():

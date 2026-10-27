@@ -156,7 +156,7 @@ def run(dbg, res):
     #
     # **THE FIXTURE IS ITS OWN DIRECTORY, AND `touch` WILL NOT DO.** The
     # first version of this check touched a file in /usr/share/icons and
-    # went red against working code: toy-os's `touch` does not move an
+    # went red against working code: SaunaOS's `touch` does not move an
     # EXISTING file's mtime, so the input never reached the branch --
     # suspect the fixture before the code (CLAUDE.md). Copying a
     # different icon over it moves the mtime AND the size, and doing it

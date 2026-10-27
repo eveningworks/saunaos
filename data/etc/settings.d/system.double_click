@@ -1,5 +1,5 @@
 Type=enum
-File=/etc/toyos.conf
+File=/etc/saunaos.conf
 Label=Double-click speed
 Category=Input
 Group=Mouse

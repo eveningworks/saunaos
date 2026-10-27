@@ -4,7 +4,7 @@
 
 ## Description
 
-toy-os is a hobby x86-64 operating system, written from scratch. It
+SaunaOS is a hobby x86-64 operating system, written from scratch. It
 boots through Multiboot2 and GRUB, and is written in freestanding C and
 NASM. It has ring0/ring3 separation, per-process paging, an ELF64
 loader, a preemptive scheduler, real syscalls, disk-backed filesystems,

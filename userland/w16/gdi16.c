@@ -1917,7 +1917,7 @@ static int api_SetPixel(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // Windows: Draws a string in the DC's font and text colour, its background filled when the mode is
 // OPAQUE.
 // w16: The same, in Windows 3.11's own bitmap fonts from drive C:'s WINDOWS\SYSTEM when they are
-// there (and the Fonts setting allows), else in toy-os's stand-ins; an OPAQUE background fills the
+// there (and the Fonts setting allows), else in SaunaOS's stand-ins; an OPAQUE background fills the
 // whole cell box first, as Windows did.
 static int api_TextOut(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -2149,7 +2149,7 @@ uint16_t w16_gdi_font_new(struct w16 *w, const struct w16_logfont *lf) { return 
 // Windows: A font as near as Windows can find to what is asked: a face, a height, a weight, italic,
 // underline...; Windows picks among the fonts installed.
 // w16: The same choice among Windows 3.11's bitmap fonts on drive C: (MS Sans Serif, Courier, MS
-// Serif, Small Fonts...) by face and the nearest size; without them, toy-os's stand-ins. Bold is
+// Serif, Small Fonts...) by face and the nearest size; without them, SaunaOS's stand-ins. Bold is
 // synthesized as Windows did, with its overhang. Escapement (rotated text) is not drawn.
 static int api_CreateFont(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -2285,7 +2285,7 @@ static int enum_fonts(struct w16 *w, struct w16_args *a, int families) {
 // face is named, else each size of that face -- with its LOGFONT, its TEXTMETRIC and whether it is a
 // raster, device or TrueType font; stops when the function returns 0, and returns what it last did.
 // w16: The same, for the fonts w16 draws in: Windows 3.11's bitmap fonts from drive C:'s
-// WINDOWS\SYSTEM, each face at the sizes its .FON files hold; without them, toy-os's stand-ins
+// WINDOWS\SYSTEM, each face at the sizes its .FON files hold; without them, SaunaOS's stand-ins
 // under 3.11's names (MS Sans Serif, MS Serif, Courier) at 3.11's sizes.
 static int api_EnumFonts(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;

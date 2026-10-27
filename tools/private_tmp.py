@@ -21,7 +21,7 @@ import tempfile
 @contextlib.contextmanager
 def private_tmp(name, base_env=None):
     """Yields an environment whose TMPDIR is a fresh directory for `name`."""
-    d = tempfile.mkdtemp(prefix=f"toyos-{name}-")
+    d = tempfile.mkdtemp(prefix=f"saunaos-{name}-")
     env = dict(base_env if base_env is not None else os.environ)
     env["TMPDIR"] = d
     try:

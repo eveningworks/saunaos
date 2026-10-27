@@ -3,7 +3,7 @@
 usnd_mp2.c (MPEG-1 Layer II) against FFmpeg, on the HOST.
 
 The split tools/usnd_hostcheck.py makes for MP3, for the same reason: the
-guest's /tests/uvid_test proves the decoders work in toy-os on the
+guest's /tests/uvid_test proves the decoders work in SaunaOS on the
 fixtures somebody committed, but a video decoder's bugs hide in
 COMBINATIONS -- this quantiser with that motion range, a B picture whose
 skipped macroblocks repeat a bidirectional vector -- which is a sweep.

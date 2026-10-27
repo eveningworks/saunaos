@@ -14,7 +14,7 @@
 ;     (%rsp)      argc
 ;     8(%rsp)     argv[0] .. argv[argc-1]
 ;                 NULL          <- argv terminator
-;                 NULL          <- envp (empty; toy-os has no environment yet)
+;                 NULL          <- envp (empty; SaunaOS has no environment yet)
 ;
 ; Written in assembly rather than C with __attribute__((naked)) because
 ; reading (%rsp) is exactly the thing C has no way to express -- a naked

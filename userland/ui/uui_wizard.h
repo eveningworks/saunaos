@@ -35,11 +35,11 @@ struct uui_wizard_step {
 };
 
 struct uui_wizard_desc {
-    const char *heading;     // above the rail: "Set up toy-os"
+    const char *heading;     // above the rail: "Set up SaunaOS"
     const struct uui_wizard_step *steps;
     int count;
     const char *skip;        // the Skip button's text, NULL for none
-    const char *finish;      // Next's text on the last step: "Start using toy-os"
+    const char *finish;      // Next's text on the last step: "Start using SaunaOS"
     // Asked before Next leaves `step`; 0 keeps it (a name that is not
     // valid yet). NULL lets every step go.
     int (*can_leave)(int step);

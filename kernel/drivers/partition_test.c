@@ -72,7 +72,7 @@ KTEST("partition", "the firmware's partitions are recognised as not ours") {
     k_memcpy(pe.gpt_type_guid, TYPE_ESP, 16);
     KTEST_ASSERT(partition_is_firmware(&pe, PART_TABLE_GPT));
 
-    // The one every toy-os filesystem partition carries -- if this came
+    // The one every SaunaOS filesystem partition carries -- if this came
     // back true the OS would refuse to mount its own root.
     k_memcpy(pe.gpt_type_guid, TYPE_BASIC_DATA, 16);
     KTEST_ASSERT(!partition_is_firmware(&pe, PART_TABLE_GPT));

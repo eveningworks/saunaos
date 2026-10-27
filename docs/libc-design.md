@@ -1,4 +1,4 @@
-# tolibc -- a real C library for toy-os
+# tolibc -- a real C library for SaunaOS
 
 A staged plan, in the shape `docs/init-design.md` and
 `docs/signals-design.md` used. It answers the question
@@ -8,7 +8,7 @@ C program can be compiled against?**
 
 **Status: BUILT.** All six stages below are done, and cJSON -- a
 program nobody working on this repo wrote -- parses and re-serialises
-JSON on toy-os. What remains is named at the end of this file.
+JSON on SaunaOS. What remains is named at the end of this file.
 
 **It is also a SHARED library now** (2026-08-28,
 `docs/dynlink-design.md`): the same sources build `/lib/libc.so` in a
@@ -24,8 +24,8 @@ stays" entry is the full account, including what IS taken from musl
 (individual implementations, with attribution) and the one goal that
 would reopen the question.
 
-**It is called `tolibc`**, formed the way `tosh` was (toy-os + `sh`;
-toy-os + `libc`). It sits beside Toykit, and `userland/libc/README.md`
+**It is called `tolibc`**, formed the way `tosh` was (SaunaOS + `sh`;
+SaunaOS + `libc`). It sits beside Toykit, and `userland/libc/README.md`
 is its own front page. The archive stays `libc.a`, because a linker
 expects that name and a ported build system saying `-lc` should not have
 to know what this one is called.
@@ -34,7 +34,7 @@ to know what this one is called.
 PROJECT.** `tools/`, Toykit and the kernel toolkit all require a second
 REAL caller before a function is added. tolibc aims to be COMPLETE
 instead: if C specifies it, or POSIX specifies one that ported code
-reaches for constantly, it belongs here even when nothing in toy-os
+reaches for constantly, it belongs here even when nothing in SaunaOS
 calls it yet. The difference is the audience -- those serve code written
 here, and this serves code that has not been written yet, for which the
 alternative to a function is a link error in somebody else's source file
@@ -118,9 +118,9 @@ of these changed it.
 - **musl** is the structure to copy: one static archive, no
   configuration, no porting layer between libc and the kernel, and a
   thin typed syscall layer underneath that the libc is built on rather
-  than around. toy-os already has that split; it just stops halfway up.
+  than around. SaunaOS already has that split; it just stops halfway up.
 - **newlib** interposes a `libgloss` stub layer (`_read`, `_write`,
-  `_sbrk`) so one libc serves many targets. toy-os has exactly one
+  `_sbrk`) so one libc serves many targets. SaunaOS has exactly one
   target and should NOT pay for that indirection -- `userland/rt/` is
   already the stub layer, and adding a second would be two of them.
 - **picolibc** is the most directly relevant precedent, because its
@@ -131,7 +131,7 @@ of these changed it.
 - **PDCLib** is the minimal teaching libc; worth reading for what it
   leaves out, not for its structure.
 
-**Where toy-os should differ from all of them: the formatter stays
+**Where SaunaOS should differ from all of them: the formatter stays
 SHARED.** Every one of those projects has its own private `printf`. Here
 the formatter is `kernel/lib/kfmt.c`, compiled into ring 0 and ring 3
 from one source, and the whole toolkit convention exists to stop a
@@ -218,7 +218,7 @@ walks into that immediately. It asks `fs_exists()` now.
 
 `userland/include/` holds the C library's PUBLIC headers and is on the
 ring-3 `-I`, so `<stdio.h>`, `<string.h>` and `<stdlib.h>` resolve.
-`userland/lib/` keeps the toy-os-internal ones (`cmd.h`, `tosh.h`,
+`userland/lib/` keeps the saunaos-internal ones (`cmd.h`, `tosh.h`,
 `human.h`, `dirsort.h`, `tunable.h`, `uhistory.h`) and the
 implementation. The split is by AUDIENCE, the same call
 `kernel/include/api|abi|kernel` already made, because the alternative --
@@ -455,7 +455,7 @@ calendar bug should know which function to look in.
 
 ### Stage 6 -- proof -- DONE
 
-**cJSON 1.7.19 parses and re-serialises JSON on toy-os**, compiled from
+**cJSON 1.7.19 parses and re-serialises JSON on SaunaOS**, compiled from
 upstream's source byte for byte (`userland/ports/cjson/`, commit
 `fb16e5cf3587`, MIT). `userland/tests/cjson_test.c` is the harness and
 is ours; the 3,200 lines it links against are not.
@@ -470,7 +470,7 @@ things, and 3,200 lines compiled clean apart from them:
 - **`sprintf`**, which `<stdio.h>` had called deliberately absent
   because it cannot be given a bound. Same reversal `<string.h>` made
   for `strncpy` and for the same reason: while the library served only
-  toy-os's own code, refusing a footgun cost nothing; for a
+  SaunaOS's own code, refusing a footgun cost nothing; for a
   port-capable one, omitting a function C requires produces a link error
   in somebody else's source file rather than a helpful message. It is
   built on the sink form, so no intermediate buffer caps it.
@@ -523,7 +523,7 @@ made it valuable.
 - **`system()`**, which needed `/bin/tosh -c` to exist first. Before
   that flag this could only have reported "no command processor", which
   POSIX does define an answer for and which would have been honest but
-  out of date -- toy-os has a shell, a spawn and a wait.
+  out of date -- SaunaOS has a shell, a spawn and a wait.
 
 **AND THE ONE THAT WAS NOT A GAP BUT A BUG.** Doom died at startup with
 `W_GetNumForName: STCFN33 not found!`. The lump is `STCFN033`;
@@ -602,7 +602,7 @@ well conditioned** -- otherwise it measures floating point, not the
 library.
 
 Every expected value in `libm_test.c` was generated by the host's
-Python, not by running toy-os and writing down what it said.
+Python, not by running SaunaOS and writing down what it said.
 
 ## Stage 8 -- the environment
 
@@ -618,7 +618,7 @@ takes `envp` EXPLICITLY, the kernel stores and inherits nothing, and
 ABI. `posix_spawn` is the same shape; Windows is the outlier, where
 `CreateProcess` takes an environment and NULL means "inherit".
 
-toy-os copies the Unix split exactly, because its process model was
+SaunaOS copies the Unix split exactly, because its process model was
 already `posix_spawn`-shaped:
 
 - **`SYS_SPAWN` carries the environment explicitly** and the kernel
@@ -750,7 +750,7 @@ looks exactly like the call underneath working, which it is.
   `sleep`/`usleep`, `_exit` and `set_nonblock`. `fork()`, `execv`/
   `execve`/`execvp`, `getppid` and `<spawn.h>`'s `posix_spawn` arrived
   on 2026-09-11 (`docs/fork-design.md`); spawn is still what a program
-  written for toy-os should use.
+  written for SaunaOS should use.
 
 **WHAT THE TEST FOUND, and it is the usual shape.** Its first termios
 check asserted that a terminal starts in `TTY_LFLAG_DEFAULT` -- true of
@@ -799,14 +799,14 @@ it showed at once: NetSurf's scheduler times 10 ms callbacks on
 `gettimeofday()`, so every step of a page load waited up to a second.
 
 **STILL ABSENT, each for a reason**: `socket()` and `select()` (the
-headers carry their types only -- toy-os's sockets are its own calls,
+headers carry their types only -- SaunaOS's sockets are its own calls,
 and nothing can wait on several descriptors); `pread()`/`pwrite()`
 (the kernel has no positioned read, and an `lseek`-based one races
 between threads); the `*at()` family and `dirfd()` (the kernel resolves
 paths, not directory handles); and `uname()`, whose `nodename` is the
 `system.hostname` setting, which tolibc cannot read without the ring-3
 settings layer it sits beneath. NetSurf has a portable path past each,
-chosen in `userland/backends/netsurf/toyos_config.h`.
+chosen in `userland/backends/netsurf/saunaos_config.h`.
 
 `userland/tests/libc6_test.c` checks every addition, with expected
 values from the host's Python; two mutations (the IPv6 tie rule, the
@@ -825,7 +825,7 @@ kernel's log, `ps --sandbox` and this parser all read; `"exec"` is
 accepted as OpenBSD's name for what `proc` covers here. **Two
 deliberate differences**: an unknown word is EINVAL rather than
 ignored (a typo would otherwise give nothing up), and a non-NULL
-`execpromises` is EINVAL, because toy-os keeps ONE set that survives
+`execpromises` is EINVAL, because SaunaOS keeps ONE set that survives
 exec as it is -- a second set would have nowhere to live.
 `userland/tests/sandbox_test.c` covers both calls through these
 wrappers.
@@ -874,7 +874,7 @@ the sandbox entry).
   SEPARATE. A `/bin` program links `libc`; a GUI app links `libc` plus
   the Toykit. It matches the split-by-role convention the build already
   derives things from, and it keeps the libc's audience "any C program"
-  rather than "toy-os apps" -- which is the whole point of the
+  rather than "SaunaOS apps" -- which is the whole point of the
   port-capable target. Cheap to do while the libc is new, awkward after.
 
 ## printf's conversion coverage, audited (2026-08-24)
@@ -981,7 +981,7 @@ boundary. It is where it is because the throughput gain above it (+34%,
 then +7%) did not look worth revisiting the question for; if a future
 change makes stdio hotter, 32768 is the measured next stop.
 
-**What real systems do, and why toy-os does not.** glibc's `BUFSIZ` is
+**What real systems do, and why SaunaOS does not.** glibc's `BUFSIZ` is
 8192 and musl's and FreeBSD's are 1024 -- but glibc and FreeBSD both
 ignore it in practice and size the real buffer from `st_blksize`, the
 filesystem's preferred block, keeping the constant as a fallback. That

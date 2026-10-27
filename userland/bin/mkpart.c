@@ -214,7 +214,7 @@ int main(int argc, char **argv) {
         req.entries[i].role = roles[i];
         snprintf(req.entries[i].name, sizeof req.entries[i].name, "%s",
                  roles[i] == MKPART_ROLE_BIOS_BOOT ? "BIOS boot" :
-                 roles[i] == MKPART_ROLE_ESP ? "EFI System" : "toyos");
+                 roles[i] == MKPART_ROLE_ESP ? "EFI System" : "saunaos");
         at += sizes[i];
     }
     req.count = n;

@@ -12,7 +12,7 @@
 #include "retrolauncher/retrolauncher.h"
 
 struct sound_row {
-    char *alias, *event, *ini, *host, *status, *toyos;   // w16's fields, in one allocation each
+    char *alias, *event, *ini, *host, *status, *saunaos;   // w16's fields, in one allocation each
 };
 
 static struct sound_row *g_rows;
@@ -56,10 +56,10 @@ static void cell(void *ctx, int row, int col, char *out, int cap) {
             for (char *p = out; *p; p++) if (*p >= 'a' && *p <= 'z') *p -= 32;
         } else {
             char name[32];
-            snprintf(name, sizeof name, "%s", base(r->toyos));
+            snprintf(name, sizeof name, "%s", base(r->saunaos));
             char *dot = strrchr(name, '.');
             if (dot) *dot = 0;
-            snprintf(out, (size_t)cap, "toy-os's %s", name);
+            snprintf(out, (size_t)cap, "SaunaOS's %s", name);
         }
         break;
     case 3:
@@ -86,7 +86,7 @@ void retro_sounds_load(int mode) {
     for (char *l = g_text; l && *l; ) {
         char *nl = strchr(l, '\n');
         if (nl) *nl = 0;
-        // "sound<TAB>ALIAS<TAB>EVENT<TAB>INI<TAB>HOST<TAB>STATUS<TAB>TOYOS"
+        // "sound<TAB>ALIAS<TAB>EVENT<TAB>INI<TAB>HOST<TAB>STATUS<TAB>SAUNAOS"
         char *f[7];
         int n = 0;
         for (char *p = l; n < 7; n++) {
@@ -116,7 +116,7 @@ void retro_sounds_mode(int mode) { g_mode = mode; }
 void retro_sounds_play(int row) {
     if (row < 0 || row >= g_nrows || g_mode == W16_SOUNDS_OFF) return;
     const struct sound_row *r = &g_rows[row];
-    const char *path = plays_own(r) ? r->host : r->toyos;
+    const char *path = plays_own(r) ? r->host : r->saunaos;
     ulogf("retrolauncher: play %d %s\n", row, path);
     if (!g_usnd) {
         g_usnd = usnd_init() == 0 ? 1 : -1;

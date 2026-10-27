@@ -296,10 +296,10 @@ static uint32_t gpt_first_usable(uint32_t spb) { return GPT_PRIMARY_ENTRY_LBA + 
 // EBD0A0A2-B9E5-4433-87C0-68B6B72699C7 in GPT's mixed-endian byte
 // order, which is why the bytes below do not read left to right.
 //
-// toy-os has no type GUID of its own and does not want one: a
+// SaunaOS has no type GUID of its own and does not want one: a
 // partition type is a hint to OTHER systems about what is inside, and
 // a private GUID would only make every other OS's partition tool
-// describe a toy-os partition as unknown. This one is the most widely
+// describe a SaunaOS partition as unknown. This one is the most widely
 // recognised "generic filesystem data" answer there is -- Windows,
 // Linux and macOS all understand it, where the Linux-filesystem GUID
 // (0FC63DAF-...) is understood by one of the three.
@@ -311,7 +311,7 @@ static const uint8_t GPT_TYPE_BASIC_DATA[16] = {
 // THE TWO TYPES THAT BELONG TO THE FIRMWARE, not to whatever OS is on
 // the disk: a BIOS boot partition (21686148-...), which holds a
 // bootloader image and no filesystem at all, and an EFI System
-// Partition (C12A7328-...), which holds /boot. Both are on toy-os's own
+// Partition (C12A7328-...), which holds /boot. Both are on SaunaOS's own
 // disk now -- GRUB's core.img lives in the first and the kernel in the
 // second (tools/install_grub.py) -- and neither is ever somewhere to
 // mount a root filesystem or, much worse, somewhere to FORMAT one.

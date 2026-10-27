@@ -3,7 +3,7 @@
 
 WHY THIS EXISTS
 ---------------
-Almost everything toy-os ships is ours or is generated here, which is
+Almost everything SaunaOS ships is ours or is generated here, which is
 what keeps `LICENSE` short and a release asset unambiguous. A few things
 are neither: the Doom shareware IWAD is the standing example, and it is
 deliberately NOT in the repository (see tools/fetch_wad.py).
@@ -169,7 +169,7 @@ EXTRAS = [
 # ("Python-urllib/3.x") is refused outright by Cloudflare-fronted hosts:
 # download.blender.org answered it 403 and a named agent 206 (2026-10-10).
 # The fetchers import this rather than calling urllib.request.urlopen().
-USER_AGENT = "toy-os-fetch (+https://github.com/eveningworks/toy-os)"
+USER_AGENT = "saunaos-fetch (+https://github.com/eveningworks/saunaos)"
 
 
 def urlopen(url, timeout, context=None):
@@ -260,7 +260,7 @@ def stamp_manifest(fetched):
             os.remove(path)
         return
     with open(path, "w") as f:
-        f.write("Material in this image that is NOT covered by toy-os's\n"
+        f.write("Material in this image that is NOT covered by SaunaOS's\n"
                 "own licence. Fetched by tools/fetch_extras.py, which is\n"
                 "off by default -- this image was built with EXTRAS=1.\n\n"
                 "Publishing this image distributes what is listed here.\n\n")
@@ -286,7 +286,7 @@ def main():
                          "LICENSE=agree passes)")
     args = ap.parse_args()
 
-    auto = args.agree or os.environ.get("TOYOS_LICENSE", "") == "agree"
+    auto = args.agree or os.environ.get("SAUNAOS_LICENSE", "") == "agree"
     chosen = [e for e in EXTRAS if not args.only or e.name == args.only]
     if args.only and not chosen:
         print(f"fetch_extras: no extra named '{args.only}' -- "

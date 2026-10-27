@@ -3,7 +3,7 @@
 // doomgeneric ships no sound backend: `FEATURE_SOUND` is left
 // undefined, so `sound_modules[]` is empty and `I_InitSound` finds
 // nothing. This is the module that fills it, and it lives HERE rather
-// than in userland/ports/doom/ for the same reason dg_toyos.c does --
+// than in userland/ports/doom/ for the same reason dg_saunaos.c does --
 // the vendored tree stays byte for byte upstream.
 //
 // **DOOM ALREADY DECIDED EVERYTHING THIS FILE COULD HAVE DECIDED.**

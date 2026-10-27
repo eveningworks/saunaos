@@ -4,7 +4,7 @@ partition table onto the first few sectors of a raw disk image, for
 testing kernel/drivers/partition.c's parser (the shell's `parttable`
 command) against real, correctly-checksummed data.
 
-toy-os's own disk.img is a GPT that toy-os BOOTS from now
+SaunaOS's own disk.img is a GPT that SaunaOS BOOTS from now
 (tools/seed_disk.py builds it: a BIOS boot partition, a FAT32 /boot and
 the filesystem), so the synthetic tables below are no longer the only
 way to get one -- what they are for is feeding the PARSER shapes the
@@ -22,7 +22,7 @@ own -- kernel/drivers/partition.c's write_mbr() makes the same call.
 an image as a bootable hard disk, and it does not check any further. So
 a DATA disk carrying a table must be launched with `-boot order=d`
 (CD-ROM first) or SeaBIOS jumps into filesystem bytes and hangs with no
-serial output at all. toy-os's own disk.img is genuinely bootable now
+serial output at all. SaunaOS's own disk.img is genuinely bootable now
 (tools/install_grub.py puts GRUB on it) and boots with `order=c`; any
 image these synthetic writers touch is not, and still needs `order=d`.
 
@@ -158,7 +158,7 @@ def gpt_entry(type_guid: bytes, unique_guid: bytes, lba_start: int, lba_end: int
 def cmd_gpt(path):
     entries = [
         gpt_entry(ESP_GUID, PART1_GUID, 34, 2047, "EFI System"),
-        gpt_entry(LINUX_FS_GUID, PART2_GUID, 2048, 206847, "toy-os root"),
+        gpt_entry(LINUX_FS_GUID, PART2_GUID, 2048, 206847, "SaunaOS root"),
     ]
     entries_buf = b"".join(entries) + b"\0" * (GPT_ENTRY_SIZE * (GPT_NUM_ENTRIES - len(entries)))
     entries_crc = crc32(entries_buf)
@@ -202,7 +202,7 @@ def cmd_gpt(path):
 #
 # Everything above writes a SYNTHETIC table: fixed sizes, no backup GPT,
 # enough for the parser to chew on and not enough to put a filesystem
-# in. What follows writes a table you can actually boot toy-os from --
+# in. What follows writes a table you can actually boot SaunaOS from --
 # aligned, sized to the image, and with GPT's backup structures present.
 #
 # Kept in this file rather than in a new one because it is the same
@@ -242,7 +242,7 @@ MBR_TYPE_DATA = 0x83
 MBR_TYPE_ESP = 0xEF
 
 PART_KINDS = {
-    "data": (BASIC_DATA_GUID, MBR_TYPE_DATA, "toyos"),
+    "data": (BASIC_DATA_GUID, MBR_TYPE_DATA, "saunaos"),
     "bios": (BIOS_BOOT_GUID, MBR_TYPE_ESP, "BIOS boot"),
     "esp": (ESP_GUID, MBR_TYPE_ESP, "boot"),
 }
@@ -353,7 +353,7 @@ def real_gpt(path, spec):
     disk_guid = random_guid()
     entries = [gpt_entry(PART_KINDS[kind][0], random_guid(),
                          start, start + n - 1,
-                         PART_KINDS[kind][2] if kind != "data" else "toyos%d" % (i + 1))
+                         PART_KINDS[kind][2] if kind != "data" else "saunaos%d" % (i + 1))
                for i, (start, n, kind) in enumerate(planned)]
     entries_buf = b"".join(entries) + b"\0" * (GPT_ENTRY_SIZE * (GPT_NUM_ENTRIES - len(entries)))
     entries_crc = crc32(entries_buf)

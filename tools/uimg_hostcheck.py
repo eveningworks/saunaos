@@ -2,7 +2,7 @@
 """Check userland/lib/uimg_jpeg.c against libjpeg, on the HOST, over many files.
 
 WHY A HOST HARNESS EXISTS BESIDE THE GUEST TEST. /tests/uimg_test runs
-the decoder where it actually lives and proves it works in toy-os, but a
+the decoder where it actually lives and proves it works in SaunaOS, but a
 guest test can only carry the handful of vectors somebody committed --
 and a JPEG decoder's bugs hide in the combinations (this subsampling at
 that quality with those dimensions), which is a sweep of a few hundred

@@ -1,6 +1,6 @@
 # Decisions
 
-A short, topic-indexed answer to "why does toy-os work this way?" for
+A short, topic-indexed answer to "why does SaunaOS work this way?" for
 the choices that come up again once code has grown around them.
 `README.md`/`apps/README.md` cover architecture; this covers the
 arguments.
@@ -363,7 +363,7 @@ first before re-litigating it from scratch.
 - [`noahci` is a precedence word, not a kill switch](decisions/drivers.md#noahci-is-a-precedence-word-not-a-kill-switch)
 - [The input core: one vocabulary, a source registry, and evdev as canonical](decisions/drivers.md#the-input-core-one-vocabulary-a-source-registry-and-evdev-as-canonical)
 - [virtio-input, and the transport's first interrupts](decisions/drivers.md#virtio-input-and-the-transports-first-interrupts)
-- [A display toy-os cannot set gets its size from GRUB, chosen in grubenv and tried once](decisions/drivers.md#a-display-toy-os-cannot-set-gets-its-size-from-grub-chosen-in-grubenv-and-tried-once)
+- [A display SaunaOS cannot set gets its size from GRUB, chosen in grubenv and tried once](decisions/drivers.md#a-display-saunaos-cannot-set-gets-its-size-from-grub-chosen-in-grubenv-and-tried-once)
 - [The `bochs` driver DECLINES the display unless it can improve the mode](decisions/drivers.md#the-bochs-driver-declines-the-display-unless-it-can-improve-the-mode)
 - [gfx.c's back buffer is allocated, and the constant it used to be was a hidden ceiling on the display](decisions/drivers.md#gfxcs-back-buffer-is-allocated-and-the-constant-it-used-to-be-was-a-hidden-ceiling-on-the-display)
 - [A TrueType rasterizer in the kernel, with the baked font kept as the fallback](decisions/drivers.md#a-truetype-rasterizer-in-the-kernel-with-the-baked-font-kept-as-the-fallback)
@@ -723,7 +723,7 @@ first before re-litigating it from scratch.
 - [A window's remembered state keys on its program's path, its app_id a sub-name](decisions/gui.md#a-windows-remembered-state-keys-on-its-programs-path-its-app_id-a-sub-name)
 - [A Win16 dialog is an owned window w16 paints, its controls w16's own](decisions/gui.md#a-win16-dialog-is-an-owned-window-w16-paints-its-controls-w16s-own)
 - [A Win16 window tree: every HWND in one table, a child painting into its top-level window](decisions/gui.md#a-win16-window-tree-every-hwnd-in-one-table-a-child-painting-into-its-top-level-window)
-- [Win16's fonts and pictures come from the user's own Windows files, else toy-os's own](decisions/gui.md#win16s-fonts-and-pictures-come-from-the-users-own-windows-files-else-toy-oss-own)
+- [Win16's fonts and pictures come from the user's own Windows files, else SaunaOS's own](decisions/gui.md#win16s-fonts-and-pictures-come-from-the-users-own-windows-files-else-saunaoss-own)
 - [A file's facts and verbs come from the app that opens it](decisions/gui.md#a-files-facts-and-verbs-come-from-the-app-that-opens-it)
 - [The launcher is Retro Launcher: no "Windows" in an app's own name](decisions/gui.md#the-launcher-is-retro-launcher-no-windows-in-an-apps-own-name)
 - [Tables and Options windows are the user's to size](decisions/gui.md#tables-and-options-windows-are-the-users-to-size)
@@ -739,7 +739,7 @@ first before re-litigating it from scratch.
 - [Windows 3.11's 16-colour dither, measured rather than looked up](decisions/gui.md#windows-311s-16-colour-dither-measured-rather-than-looked-up)
 - [A client's own cursor image, with inverting pixels, copied at definition](decisions/gui.md#a-clients-own-cursor-image-with-inverting-pixels-copied-at-definition)
 - [The File Manager's redesign: a command bar that follows the selection, and operations that queue](decisions/gui.md#the-file-managers-redesign-a-command-bar-that-follows-the-selection-and-operations-that-queue)
-- [Windows 3.x is installed by toy-os's own Setup, from Microsoft's SETUP.INF](decisions/gui.md#windows-3x-is-installed-by-toy-oss-own-setup-from-microsofts-setupinf)
+- [Windows 3.x is installed by SaunaOS's own Setup, from Microsoft's SETUP.INF](decisions/gui.md#windows-3x-is-installed-by-saunaoss-own-setup-from-microsofts-setupinf)
 
 **Shell, apps & console** -- [`decisions/shell.md`](decisions/shell.md) (36 entries)
 
@@ -751,7 +751,7 @@ first before re-litigating it from scratch.
 - [The CLI editor's status bar needs its own line-wrapping pass, not a plain dump-and-let-the-console-wrap](decisions/shell.md#the-cli-editors-status-bar-needs-its-own-line-wrapping-pass-not-a-plain-dump-and-let-the-console-wrap)
 - [Timezone city list is a database file, not a hardcoded array or a config key](decisions/shell.md#timezone-city-list-is-a-database-file-not-a-hardcoded-array-or-a-config-key)
 - [Regional formats are a region plus overrides, read by libc's `setlocale()`](decisions/shell.md#regional-formats-are-a-region-plus-overrides-read-by-libcs-setlocale)
-- [`/etc` is one shared `toyos.conf` by default, not a file per setting](decisions/shell.md#etc-is-one-shared-toyosconf-by-default-not-a-file-per-setting)
+- [`/etc` is one shared `saunaos.conf` by default, not a file per setting](decisions/shell.md#etc-is-one-shared-saunaosconf-by-default-not-a-file-per-setting)
 - [The on-disk layout is a trimmed FHS, not POSIX -- and `/tests` is a deliberate exception](decisions/shell.md#the-on-disk-layout-is-a-trimmed-fhs-not-posix----and-tests-is-a-deliberate-exception)
 - [dmesg coverage: log from the one-shot call site, not the hot function itself](decisions/shell.md#dmesg-coverage-log-from-the-one-shot-call-site-not-the-hot-function-itself)
 - [Terminal's `run <name>` uses an explicit allowlist, not a blocklist](decisions/shell.md#terminals-run-name-uses-an-explicit-allowlist-not-a-blocklist)
@@ -780,7 +780,7 @@ first before re-litigating it from scratch.
 - [The pager is a library with two front ends](decisions/shell.md#the-pager-is-a-library-with-two-front-ends)
 - [`--help` is generated from the table the parser reads](decisions/shell.md#--help-is-generated-from-the-table-the-parser-reads)
 
-**Build, versioning & project docs** -- [`decisions/build.md`](decisions/build.md) (53 entries)
+**Build, versioning & project docs** -- [`decisions/build.md`](decisions/build.md) (54 entries)
 
 - [There is no changelog, milestones are named, and nothing carries a target version](decisions/build.md#there-is-no-changelog-milestones-are-named-and-nothing-carries-a-target-version)
 - [Third-party extras are FETCHED, opt-in, and the image says it carries them](decisions/build.md#third-party-extras-are-fetched-opt-in-and-the-image-says-it-carries-them)
@@ -819,7 +819,7 @@ first before re-litigating it from scratch.
 - [A second shared library, and what makes one worth building](decisions/build.md#a-second-shared-library-and-what-makes-one-worth-building)
 - [The toolkit is a shared library, and the measurement that decided it](decisions/build.md#the-toolkit-is-a-shared-library-and-the-measurement-that-decided-it)
 - [`sum` is a checksum calculator with an algorithm table, and its crc32 is not `cksum`'s](decisions/build.md#sum-is-a-checksum-calculator-with-an-algorithm-table-and-its-crc32-is-not-cksums)
-- [toy-os supplies its own compiler runtime, rather than linking libgcc](decisions/build.md#toy-os-supplies-its-own-compiler-runtime-rather-than-linking-libgcc)
+- [SaunaOS supplies its own compiler runtime, rather than linking libgcc](decisions/build.md#saunaos-supplies-its-own-compiler-runtime-rather-than-linking-libgcc)
 - [`<limits.h>` includes nothing, and that is what makes `-nostdinc` possible](decisions/build.md#limitsh-includes-nothing-and-that-is-what-makes--nostdinc-possible)
 - [mbedTLS is vendored for TLS, and BearSSL was measured and declined](decisions/build.md#mbedtls-is-vendored-for-tls-and-bearssl-was-measured-and-declined)
 - [The kernel's debug info is split out rather than compressed](decisions/build.md#the-kernels-debug-info-is-split-out-rather-than-compressed)
@@ -835,6 +835,7 @@ first before re-litigating it from scratch.
 - [NetSurf is vendored from a host build's dependency files, generated sources included](decisions/build.md#netsurf-is-vendored-from-a-host-builds-dependency-files-generated-sources-included)
 - [Our changes to a vendored port are patch files, applied before the host build](decisions/build.md#our-changes-to-a-vendored-port-are-patch-files-applied-before-the-host-build)
 - [SVG is libsvgtiny over expat, drawn by our own path plotter](decisions/build.md#svg-is-libsvgtiny-over-expat-drawn-by-our-own-path-plotter)
+- [The OS is SaunaOS; the old name stays only where changing it would break something](decisions/build.md#the-os-is-saunaos-the-old-name-stays-only-where-changing-it-would-break-something)
 
 **Workflow, testing & tooling** -- [`decisions/workflow.md`](decisions/workflow.md) (8 entries)
 
@@ -847,4 +848,4 @@ first before re-litigating it from scratch.
 - [Shared code goes in the toolkit when it is generic, not when a second caller appears](decisions/workflow.md#shared-code-goes-in-the-toolkit-when-it-is-generic-not-when-a-second-caller-appears)
 - [A running test LOCKS the tree, rather than running from a snapshot of it](decisions/workflow.md#a-running-test-locks-the-tree-rather-than-running-from-a-snapshot-of-it)
 
-<!-- 795 entries. Generated by tools/gen_decisions_index.py -- do not edit below the marker by hand. -->
+<!-- 796 entries. Generated by tools/gen_decisions_index.py -- do not edit below the marker by hand. -->

@@ -60,7 +60,7 @@ it. So a development image marked by `make iso` is marked again by the next
 one even after `fbs again`; use `fbs now`, or `fbs=on`, to see setup there.
 
 **An install skips what the live session answered.** `install` (and the
-Install toy-os window) copies the session's settings and writes
+Install SaunaOS window) copies the session's settings and writes
 `/var/lib/fbs/answered` on the new disk, naming each page one of whose
 settings the session set -- set by someone, rather than left at its built-in
 default. Setup there leaves those steps off the rail (Ready still shows what
@@ -81,7 +81,7 @@ First-boot setup does not show it.
 
 ## What it deliberately does not do
 
-- **No user account.** toy-os has no users or login yet (`docs/roadmap.md`);
+- **No user account.** SaunaOS has no users or login yet (`docs/roadmap.md`);
   when it does, that page belongs here.
 - **No language.** The interface is English only; Region sets how dates,
   times and numbers are written.

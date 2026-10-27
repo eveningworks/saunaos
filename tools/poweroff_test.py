@@ -143,7 +143,7 @@ def boot_and_run(iso, disk, machine, qemu_log, command, wait_for, timeout,
 
 
 ACPI_S5 = "acpi: S5 via"
-BANNER = ") built 20"   # the kernel's first line, once per boot: "toy-os <ver> (<id>) built <date>"
+BANNER = ") built 20"   # the kernel's first line, once per boot: "SaunaOS <ver> (<id>) built <date>"
 FALLBACK = "no ACPI poweroff path -- trying the QEMU/Bochs port"
 STS_CLEARED = "status cleared at 0x"
 
@@ -151,7 +151,7 @@ STS_CLEARED = "status cleared at 0x"
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iso", default="toy-os.iso")
+    ap.add_argument("--iso", default="saunaos.iso")
     ap.add_argument("--disk", default="disk.img",
                     help="seed image to COPY (never written to directly)")
     ap.add_argument("--work", default="poweroff_test.img")

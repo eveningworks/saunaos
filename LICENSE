@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2026 toy-os contributors
+Copyright (c) 2026 SaunaOS contributors
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -67,7 +67,7 @@ This repository vendors five third-party programs and the libraries
 the fifth is built from. None is covered by the MIT License
 above, and each keeps its own license file in its own directory.
 A built image carries each of those license files, and this file, in
-/usr/share/licenses/ (<port>.txt and toy-os.txt), so the notices travel
+/usr/share/licenses/ (<port>.txt and saunaos.txt), so the notices travel
 with the binaries as their licenses require.
 
   userland/ports/doom/    doomgeneric, a portable Doom source port
@@ -89,7 +89,7 @@ with the binaries as their licenses require.
         DISTRIBUTION, and this directory is an aggregation: it builds
         into one binary (/bin/doom) that nothing else in the system
         links against, which the build enforces through
-        EXTRA_OBJS_doom. The MIT-licensed toy-os code that binary
+        EXTRA_OBJS_doom. The MIT-licensed SaunaOS code that binary
         links (tolibc, the Toykit) is GPL-compatible, so the resulting
         /bin/doom is distributable under the GPL; the rest of this
         repository is unaffected and remains MIT. Anyone
@@ -98,7 +98,7 @@ with the binaries as their licenses require.
 
         A BUILD WITHOUT IT: `make iso NOGPL=1` leaves out every program
         built from a GPL-only port -- /bin/doom, and /tests/nsmonkey from
-        NetSurf below -- and the rest of toy-os works without them.
+        NetSurf below -- and the rest of SaunaOS works without them.
 
         The Doom IWAD is NOT part of this repository and is not
         redistributed by it -- tools/fetch_wad.py obtains one, and the
@@ -109,7 +109,7 @@ with the binaries as their licenses require.
                           and cJSON contributors, under the MIT
                           License. Full text:
                           userland/ports/cjson/LICENSE. Its copyright
-                          notice is separate from toy-os's above and
+                          notice is separate from SaunaOS's above and
                           must be preserved.
 
   userland/ports/mbedtls/ Mbed TLS, Copyright The Mbed TLS Contributors,
@@ -118,14 +118,14 @@ with the binaries as their licenses require.
                           version 2 or later. Full text:
                           userland/ports/mbedtls/LICENSE.
 
-        TOY-OS TAKES THE APACHE-2.0 OPTION, which the dual licence
+        SAUNAOS TAKES THE APACHE-2.0 OPTION, which the dual licence
         explicitly permits the recipient to choose. Apache-2.0 is a
         permissive licence and aggregates with the MIT code above
         without reaching any of it, so -- unlike the Doom port -- there
         is no reason to confine it to a single binary, and it is built
         as a shared library (/lib/libssl.so) that several programs
         link. Its copyright notices and the NOTICE-style attribution in
-        each file are separate from toy-os's and must be preserved.
+        each file are separate from SaunaOS's and must be preserved.
 
         EXCEPT IN THE NETSURF PROGRAMS. /bin/webcontent and
         /tests/nsmonkey are GPL-2.0-only and link /lib/libssl.so (through
@@ -163,7 +163,7 @@ with the binaries as their licenses require.
         tools/gen_signames.py instead, from this kernel's own signal
         numbers -- which it had to do regardless of the licence, since
         mksignames.c reads the HOST's <signal.h> and would have put
-        Linux's signal set in a toy-os shell. /bin/dash contains no GPL
+        Linux's signal set in a SaunaOS shell. /bin/dash contains no GPL
         code. The file stays in the vendored tree because the port is
         kept byte for byte and deleting it would be a divergence to
         carry forever; it is listed here so a reader of this file can
@@ -187,7 +187,7 @@ with the binaries as their licenses require.
         NetSurf code, so they stay MIT; /bin/webnet, the browser's
         network process, links one of the MIT libraries below
         (libnspsl) and no GPL code. The libraries below
-        are MIT, and every toy-os library those binaries link is MIT
+        are MIT, and every SaunaOS library those binaries link is MIT
         or, for Mbed TLS (/lib/libssl.so, reached for https), taken
         under its GPL-2.0-or-later option as stated above -- so each
         binary is distributable under GPL-2.0. docs/browser-design.md
@@ -195,7 +195,7 @@ with the binaries as their licenses require.
 
   The libraries NetSurf is built from, each under the MIT License,
   each with its own COPYING in its directory, whose copyright notice is
-  separate from toy-os's and must be preserved:
+  separate from SaunaOS's and must be preserved:
 
   userland/ports/libwapcaplet/    Copyright 2009 The NetSurf Browser Project
   userland/ports/libparserutils/  Copyright 2007-8 J-M Bell
@@ -213,7 +213,7 @@ with the binaries as their licenses require.
 
         tools/netsurf_vendor.py copies them from upstream at pinned
         commits (expat at its release tag); each directory's README.md
-        names its commit, and any patch toy-os applies to it, from
+        names its commit, and any patch SaunaOS applies to it, from
         userland/backends/<port>/patches/.
 
 ---
@@ -405,7 +405,7 @@ maintained by Stephen J. Gowdy at https://www.linux-usb.org/usb-ids.html.
 It is likewise not covered by the MIT License above.
 
 Upstream offers BOTH files under either the GNU General Public License
-version 2 or later, or the 3-clause BSD License. toy-os redistributes
+version 2 or later, or the 3-clause BSD License. SaunaOS redistributes
 them under the 3-clause BSD option, reproduced in full below. Each
 file's own header comments -- which name the maintainers -- are
 preserved verbatim in the copies shipped here. (usb.ids carries no
@@ -498,7 +498,7 @@ and seeded to /usr/share/licenses/unicode.txt beside the data.
 Everything else
 
 The MIT License at the top of this file governs the rest of this
-repository -- all original toy-os source code, documentation and
+repository -- all original SaunaOS source code, documentation and
 tooling.
 
 tools/check_licenses.py checks that this inventory stays true: every

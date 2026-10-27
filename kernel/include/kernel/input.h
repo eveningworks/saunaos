@@ -206,7 +206,7 @@ void mouse_inject_buttons(uint8_t mask);
 // which is Wayland's split and Windows' (WM_XBUTTONDOWN carries
 // XBUTTON1/2, and it is Explorer that reads them as navigation).
 //
-// X11 numbers these 8 and 9 because it spent 4..7 on the wheel. toy-os
+// X11 numbers these 8 and 9 because it spent 4..7 on the wheel. SaunaOS
 // does not inherit that: the wheel is its own event here, so the bits
 // below sit where evdev puts them.
 #define INPUT_BTN_LEFT   0x110

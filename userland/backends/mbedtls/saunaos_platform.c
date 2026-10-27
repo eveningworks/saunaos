@@ -1,4 +1,4 @@
-// The three things mbedTLS cannot get for itself on toy-os: entropy, a
+// The three things mbedTLS cannot get for itself on SaunaOS: entropy, a
 // millisecond monotonic clock, and an answer to "is this machine's
 // randomness good enough to key a connection with?".
 //
@@ -13,7 +13,7 @@
 #include "mbedtls/entropy.h"
 
 #include "rt/sys.h"
-#include "toyos_tls_entropy.h"
+#include "saunaos_tls_entropy.h"
 
 // SYS_GETRANDOM never returns a short count -- it fills the buffer or
 // fails -- so a partial read is a real error rather than something to
@@ -62,12 +62,12 @@ mbedtls_ms_time_t mbedtls_ms_time(void) {
 // this -- the fact, separate from the bytes -- and the decision is left
 // to the caller rather than taken here. `wget` refuses; a future
 // caller with a different threat model may not.
-enum toyos_entropy_grade toyos_entropy_grade(char *name, size_t cap) {
+enum saunaos_entropy_grade saunaos_entropy_grade(char *name, size_t cap) {
     struct query_random r;
     if (name && cap) name[0] = '\0';
 
     if (sys_query_record(QUERY_RANDOM, 0, &r, sizeof r) < (int)sizeof r)
-        return TOYOS_ENTROPY_UNKNOWN;
+        return SAUNAOS_ENTROPY_UNKNOWN;
 
     if (name && cap) {
         r.name[sizeof r.name - 1] = '\0';
@@ -77,7 +77,7 @@ enum toyos_entropy_grade toyos_entropy_grade(char *name, size_t cap) {
     // QUERY_RANDOM_* is ordered by trust, so this is a threshold rather
     // than a list of acceptable values -- a source added later that
     // ranks above virtio needs no change here.
-    if (r.quality >= QUERY_RANDOM_VIRTIO) return TOYOS_ENTROPY_GOOD;
-    if (r.quality == QUERY_RANDOM_JITTER) return TOYOS_ENTROPY_WEAK;
-    return TOYOS_ENTROPY_NONE;
+    if (r.quality >= QUERY_RANDOM_VIRTIO) return SAUNAOS_ENTROPY_GOOD;
+    if (r.quality == QUERY_RANDOM_JITTER) return SAUNAOS_ENTROPY_WEAK;
+    return SAUNAOS_ENTROPY_NONE;
 }

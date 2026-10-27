@@ -2,7 +2,7 @@
 
 A staged plan, in the shape `docs/signals-design.md` and
 `docs/init-design.md` used. It answers the question the storage
-measurements of 2026-09-04 left open: **toy-os pays for durability on
+measurements of 2026-09-04 left open: **SaunaOS pays for durability on
 every write, and Linux pays for it only when asked. What would it take
 to do the same?**
 
@@ -416,7 +416,7 @@ The middle column is the cachesim session's other finding: four
 programs re-reading unchanged files (lib/uconf per key, tosh's whole
 history per start) -- fixed first, so the cache was not measured
 against bugs it would merely hide. The last of them, the kernel's own
-per-key read (`etc_config_get()`, 1,241 lookups of `/etc/toyos.conf` by
+per-key read (`etc_config_get()`, 1,241 lookups of `/etc/saunaos.conf` by
 toywm's setting queries), was fixed after: `etc_config_load()` answers
 an unchanged file from memory, checked by `fs_generation_of()`.
 

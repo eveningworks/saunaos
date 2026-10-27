@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot toy-os with NO IDE controller and its filesystem on virtio-blk.
+"""Boot SaunaOS with NO IDE controller and its filesystem on virtio-blk.
 
 WHY THIS EXISTS SEPARATELY FROM THE KTESTS
 ------------------------------------------
@@ -129,7 +129,7 @@ def run_boot(iso, img, qemu_log, commands, timeout):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iso", default="toy-os.iso")
+    ap.add_argument("--iso", default="saunaos.iso")
     ap.add_argument("--disk", default="disk.img",
                     help="seed image to COPY (never written to directly)")
     ap.add_argument("--work", default="virtio_boot.img")
@@ -185,7 +185,7 @@ def main():
     # --- DISCARD, measured from the HOST ------------------------------
     #
     # A device that accepts a discard and releases nothing looks
-    # identical from inside toy-os. What it cannot fake is the ALLOCATED
+    # identical from inside SaunaOS. What it cannot fake is the ALLOCATED
     # size of the sparse image on this filesystem -- so: write 40 MiB,
     # delete it, require the blocks back. Same oracle tools/ahci_test.py
     # uses for AHCI's TRIM.

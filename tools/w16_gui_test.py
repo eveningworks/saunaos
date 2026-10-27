@@ -66,7 +66,7 @@ file is involved.
    window takes a bigger size, and a smaller one with its page scrolling,
    but has a floor.
 13. **Options > Sound**: Windows 3.11's seven events with no WIN.INI on
-   drive C:; the first row's Play plays toy-os's chime, and nothing once
+   drive C:; the first row's Play plays SaunaOS's chime, and nothing once
    the Sounds choice is Off (before OK).
 14. **Why?** on a stand-in: IsIconic's cell in fault.exe's calls window
    and its link in the details panel each open "IsIconic - partly there"
@@ -730,7 +730,7 @@ def panel_and_options(dbg, qmp, res):
 
 def sound_page(dbg, res):
     """Options > Sound: a row per event (Windows 3.11's seven, with no
-    WIN.INI on drive C:), each Play cell playing toy-os's sound for it --
+    WIN.INI on drive C:), each Play cell playing SaunaOS's sound for it --
     and none once the Sounds choice is Off, before OK."""
     def opt(key):
         for line in reversed(dbg.logs(f"retrolauncher options: layout {key} ", clear=False)):
@@ -778,7 +778,7 @@ def sound_page(dbg, res):
         dbg.click(oc["x"] + play[0] + play[2] // 3, y)
         dbg.settle(0.4)
         got = [ln for ln in dbg.logs("retrolauncher:", clear=True) if ": play " in ln]
-        res.check("the first row's Play plays toy-os's chime for the Default Beep",
+        res.check("the first row's Play plays SaunaOS's chime for the Default Beep",
                   any(ln.endswith("play 0 /usr/share/sounds/chime.wav") for ln in got), f"{got}")
         off = opt("sounds.slot 2")
         if off:
@@ -1010,7 +1010,7 @@ def colours16(dbg, qmp, res, tmp):
 
 def popup_window(dbg, qmp, res, tmp):
     """A second top-level window: popup.exe's WS_POPUP the size of the screen it is told of (640 x 480)
-    covers toy-os's whole screen, the 640 x 480 centred on black, its origin where its green corner says;
+    covers SaunaOS's whole screen, the 640 x 480 centred on black, its origin where its green corner says;
     a click in it is the program's, which destroys it, and the main window stays -- View Picture's shape."""
     win = dbg.spawn("/bin/w16 /usr/share/w16/popup.exe", POPUP_TITLE)
     res.check("popup.exe opens its main window", win is not None, "no window")
@@ -1024,7 +1024,7 @@ def popup_window(dbg, qmp, res, tmp):
         full = next((w for w in dbg.windows() if w["w"] == sw and w["h"] == sh and w.get("client_pid")), None)
         if not full:
             time.sleep(0.3)
-    res.check("a popup the size of the reported screen covers toy-os's whole screen", full is not None,
+    res.check("a popup the size of the reported screen covers SaunaOS's whole screen", full is not None,
               f"{[(w['title'], w['w'], w['h']) for w in dbg.windows()]}")
     if not full:
         return

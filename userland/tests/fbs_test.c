@@ -8,7 +8,7 @@
 //   - A parser that took the FIRST word would pass every single-word line;
 //     a line saying fbs=on then fbs=off must end off, as a later word wins.
 //   - A name check that only looked at the first character would pass
-//     "toy-os"; a trailing hyphen, a space, 64 characters and "" must fail.
+//     "saunaos"; a trailing hyphen, a space, 64 characters and "" must fail.
 //   - Mark and re-arm checked only through ufbs_done() prove the library
 //     agrees with itself; the marker's FILE is checked directly too.
 //   - The answered list read back by its own reader proves nothing about
@@ -46,7 +46,7 @@ int main(void) {
     utest_check(ubootcfg_onoff_in("noinstaller=on installer=maybe", "installer=") == 0,
                 "installer= only as a whole word, and only on or off");
 
-    utest_check(uhostname_valid("toy-os") && uhostname_valid("A1") && uhostname_valid("x"),
+    utest_check(uhostname_valid("saunaos") && uhostname_valid("A1") && uhostname_valid("x"),
                 "ordinary names are valid");
     utest_check(!uhostname_valid("") && !uhostname_valid("-a") && !uhostname_valid("a-") &&
                 !uhostname_valid("my pc") && !uhostname_valid("a.b") && !uhostname_valid("ä"),

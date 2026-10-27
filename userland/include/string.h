@@ -58,7 +58,7 @@
 // real caller.
 //
 // **strncpy() IS HERE NOW, AND THE REVERSAL IS THE POINT.** It was
-// absent on purpose while this header served only toy-os's own code:
+// absent on purpose while this header served only SaunaOS's own code:
 // its contract (no guaranteed NUL, pads the whole width) has caused
 // real bugs everywhere it exists, and k_strlcpy is better in every way.
 // But the audience changed -- a port-capable C library that omits a

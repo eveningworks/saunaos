@@ -108,7 +108,7 @@ lldiv_t lldiv(long long num, long long den);
 // column's order within ties (the behaviour every desktop table has)
 // and dirsort tie-breaks by name. Neither can be replaced by this, and
 // neither should be -- qsort is here because a C library has one, not
-// because anything in toy-os was waiting for it.
+// because anything in SaunaOS was waiting for it.
 //
 // The comparator returns <0, 0 or >0, as C's does.
 void  qsort(void *base, size_t n, size_t size,
@@ -140,7 +140,7 @@ void  srand(unsigned seed);
 // **A CHILD INHERITS BECAUSE THIS LIBRARY PASSES IT**, not because the
 // kernel keeps one: sys_spawn() hands `environ` to SYS_SPAWN, and
 // sys_spawn_env() is the form that takes one explicitly. That is
-// execv() and execve(), and toy-os copies the split deliberately.
+// execv() and execve(), and SaunaOS copies the split deliberately.
 //
 // getenv() returns a pointer INTO the environment -- valid until the
 // next setenv()/unsetenv() touching that name, as C specifies. Copy it
@@ -189,7 +189,7 @@ int  at_quick_exit(void (*fn)(void));
 // reported is already out.
 void abort(void) __attribute__((noreturn));
 
-// toy-os's, Android's android_set_abort_message(): what a crash report
+// SaunaOS's, Android's android_set_abort_message(): what a crash report
 // of a death that follows says FIRST -- its `message:` lines, the crash
 // notice's sentence. printf-formatted; the last call wins; "" forgets
 // it. Set it just before abort(): it is kept for any later crash too.

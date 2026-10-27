@@ -1,5 +1,5 @@
 // A LIT SOLID, TUMBLING. Windows' Flying Objects, and the saver that
-// shows off something toy-os actually has.
+// shows off something SaunaOS actually has.
 //
 // EVERY PIXEL COMES FROM THE SHARED GEOMETRY MODULE (api/geom.h), the
 // same `geom.c` the kernel links -- `geom_transform3` for the tumble

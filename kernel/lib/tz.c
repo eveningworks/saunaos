@@ -14,7 +14,7 @@
 //
 // Two files are still involved and it is worth keeping them straight:
 // `/etc/timezones` is the DATABASE (shipped in data/etc, staged by
-// `make iso`), and `/etc/toyos.conf`'s `timezone=<city>` key is the
+// `make iso`), and `/etc/saunaos.conf`'s `timezone=<city>` key is the
 // SELECTION. Only the second is written here.
 
 #include "tz.h"
@@ -23,7 +23,7 @@
 #include "string.h"
 
 #define TZ_DB_FILE     "/etc/timezones"
-#define TZ_CONFIG_FILE "/etc/toyos.conf"
+#define TZ_CONFIG_FILE "/etc/saunaos.conf"
 #define TZ_CONFIG_KEY  "timezone"
 
 // The value with no selection ever made. It is a real row of the

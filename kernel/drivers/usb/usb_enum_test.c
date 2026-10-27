@@ -176,7 +176,7 @@ KTEST("usb-sockets", "ranges in the other order still pair") {
 // setting changes the machine for every later tool").
 KTEST("usb", "system.usb_recover defaults to off") {
     char v[8];
-    int present = etc_config_get("/etc/toyos.conf", "usb_recover", v, sizeof v);
+    int present = etc_config_get("/etc/saunaos.conf", "usb_recover", v, sizeof v);
     if (present && k_strcmp(v, "on") == 0)
         KTEST_SKIP("this machine has usb_recover ON deliberately");
     KTEST_ASSERT_EQ(usb_recover_enabled(), 0);

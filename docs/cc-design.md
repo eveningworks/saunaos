@@ -1,4 +1,4 @@
-# A C compiler that runs on toy-os
+# A C compiler that runs on SaunaOS
 
 A staged plan, in the shape `docs/libc-design.md` and
 `docs/dynlink-design.md` used. It answers one question -- **can you
@@ -10,16 +10,16 @@ it?** -- and it deliberately does not answer the larger one next to it.
 ## This is NOT self-hosting, and that distinction is the whole document
 
 `docs/roadmap-details.md`'s out-of-scope list names **"a self-hosted C
-compiler"** among the things toy-os deliberately does not chase, beside
+compiler"** among the things SaunaOS deliberately does not chase, beside
 an own bootloader and extra CPU architectures. That line stands. It
-rules out *toy-os rebuilding toy-os*, which is a different and much
-larger thing than *toy-os compiling a program*.
+rules out *SaunaOS rebuilding SaunaOS*, which is a different and much
+larger thing than *SaunaOS compiling a program*.
 
 The measurement that settles it: this tree compiles with
 `-mcmodel=kernel`, `-mstack-protector-guard=global`,
 `-ftls-model=local-exec`, `-mno-direct-extern-access`,
 `-fno-tree-loop-distribute-patterns` and `-Wframe-larger-than`. No small
-compiler implements any of them, so "toy-os builds toy-os" means porting
+compiler implements any of them, so "SaunaOS builds SaunaOS" means porting
 GCC and Make, not porting a compiler. That is not this.
 
 What IS in scope is the line below, on the machine's own console:
@@ -41,7 +41,7 @@ Because it is real, and a plan that omits it is selling something.
 - **It is the largest vendored dependency in the tree.** mbedtls is
   203,755 lines and is a library nothing else can see. A compiler is
   comparable in size and is a *user-facing program* -- its bugs are
-  reported as "toy-os miscompiled my code", which is a support surface
+  reported as "SaunaOS miscompiled my code", which is a support surface
   this project has never had.
 - **The SDK has to be right or the compiler is a toy.** Shipping headers
   and libraries on-target (stage 0) means the on-disk copy can drift
@@ -119,7 +119,7 @@ stage 0 is worth doing on its own merits whatever happens after it.
   one binary that writes ELF directly, so it needs no binutils. `tccboot`
   famously compiled a Linux kernel at boot with it.
 
-**toy-os should follow TCC's shape and differ from Plan 9's**, and the
+**SaunaOS should follow TCC's shape and differ from Plan 9's**, and the
 reason is the measurement above rather than taste: with no `as` and no
 `ld` on the machine, a compiler that emits assembly text is not one
 project but three. Writing our own remains the more characteristic
@@ -141,7 +141,7 @@ an unconsidered one.
        v
     hello                     ET_EXEC at 0x8000000000, runs under spawn
 
-The driver is ours and stays ours. It is the piece that encodes toy-os's
+The driver is ours and stays ours. It is the piece that encodes SaunaOS's
 own link line, and keeping it separate means the vendored compiler is
 never patched to know about this OS -- the same rule
 `userland/ports/dash/` already follows (upstream byte for byte, all glue
@@ -169,25 +169,25 @@ case against).
 ### Stage 1 -- tcc vendored, cross-built, proven on the host
 
 `userland/ports/tcc/` upstream byte for byte, `userland/backends/tcc/`
-for `config.h` and any toy-os target definition, wired with
+for `config.h` and any SaunaOS target definition, wired with
 `EXTRA_OBJS_tcc`. It builds with the host gcc and runs on the HOST at
-this stage, targeting toy-os: given `hello.c` it must produce an ELF the
-toy-os kernel accepts.
+this stage, targeting SaunaOS: given `hello.c` it must produce an ELF the
+saunaos kernel accepts.
 
 Exit: a host-run `tcc` produces a binary that `spawn`s and prints on a
 booted guest. Nothing runs on the machine yet, and that is the point --
 one variable at a time.
 
-### Stage 2 -- tcc runs ON toy-os
+### Stage 2 -- tcc runs ON SaunaOS
 
-The same source built for toy-os and shipped as `/bin/tcc`. This is
+The same source built for SaunaOS and shipped as `/bin/tcc`. This is
 where the real risks are, and they are named rather than discovered:
 
 - **the ELF interpreter path** must be `/lib/ld-toy.so`; it is a
   compile-time define in tcc's config, whose exact name stage 1 confirms
   against the vendored source;
 - **the link base** must be `0x8000000000`, not tcc's default;
-- **no stack protector** -- toy-os builds everything with
+- **no stack protector** -- SaunaOS builds everything with
   `-fstack-protector-strong -mstack-protector-guard=global` and tcc
   emits no canary, so a tcc-built program simply has none. An acceptable
   difference, and one to state in `docs/commands/cc.md` rather than

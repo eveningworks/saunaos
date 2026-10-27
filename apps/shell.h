@@ -55,7 +55,7 @@ int shell_resolve_path(const char *input, char *out);
 
 // ---- PATH (apps/shell_path.c) ----
 
-// Loads PATH from /etc/toyos.conf (default "/bin;/usr/bin"), once, at
+// Loads PATH from /etc/saunaos.conf (default "/bin;/usr/bin"), once, at
 // shell startup. Exposed so apps/completion.c can enumerate the same
 // directories the shell would actually search when completing the first
 // word of a line.

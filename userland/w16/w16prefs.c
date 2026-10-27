@@ -20,7 +20,7 @@ static const char *const VERSION_WORDS[] = { "3.10", "3.11", "3.00" };
 static const char *const FAULT_WORDS[] = { "box", "report" };
 static const char *const FONTS_WORDS[] = { "win311", "standin" };
 static const char *const FROM_WORDS[] = { "run", "check", "ask", "show" };
-static const char *const SOUNDS_WORDS[] = { "win311", "toyos", "off" };
+static const char *const SOUNDS_WORDS[] = { "win311", "saunaos", "off" };
 static const char *const HELP_WORDS[] = { "viewer", "winhelp" };
 static const char *const COLORS_WORDS[] = { "256", "16" };
 

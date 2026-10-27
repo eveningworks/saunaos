@@ -33,7 +33,7 @@ KTEST("kasan", "the check finds the first bad byte, granule by granule") {
 
 // --- live: one per class of bug ------------------------------------------
 
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 // Each test's site reports once per boot (reports are per instruction),
 // so a second run of the suite on the same boot skips rather than fails.
 #define ONCE() static int fired; if (fired) KTEST_SKIP("already reported on this boot"); fired = 1

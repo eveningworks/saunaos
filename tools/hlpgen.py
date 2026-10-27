@@ -516,7 +516,7 @@ def sample():
     a macro link, keywords, a second window and enough text to need several blocks."""
     fonts = [("Helv", 20, 0, 3, 0x000000), ("Helv", 24, 1, 3, 0x000000), ("Courier New", 20, 0, 1, 0x000000),
              ("Helv", 20, 0x04, 3, 0x008000)]
-    h = Help("Sample Help", "(c) toy-os", fonts=fonts,
+    h = Help("Sample Help", "(c) SaunaOS", fonts=fonts,
              phrases=["the quick ", "brown fox", "jumps over ", "lazy dog"],
              windows=[{"name": "side", "caption": "Side", "x": 10, "y": 20, "w": 300, "h": 400}],
              macros=["CreateButton(\"b1\", \"&Home\", \"JumpContents()\")",

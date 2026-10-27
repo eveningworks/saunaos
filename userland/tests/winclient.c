@@ -1,4 +1,4 @@
-// The first ring-3 program in toy-os to own a REAL window on the
+// The first ring-3 program in SaunaOS to own a REAL window on the
 // desktop -- one that lives in the window manager's own window list,
 // with ordinary chrome, a taskbar button, focus and z-order, alongside
 // the kernel-space apps.

@@ -1,6 +1,6 @@
 # Testing quick reference
 
-Step 4 of the toy-os feature workflow, in full: how to test a change here,
+Step 4 of the SaunaOS feature workflow, in full: how to test a change here,
 from the boot smoke test up to QMP GUI checks, and the harness traps past
 sessions paid for. Moved verbatim out of SKILL.md (2026-10-05) so the
 playbook stays short; `session-testing.md` holds the longer lessons.

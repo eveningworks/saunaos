@@ -26,7 +26,7 @@
 #include "string.h"
 #include "fs.h"
 
-#define SHELL_CONFIG_FILE "/etc/toyos.conf"
+#define SHELL_CONFIG_FILE "/etc/saunaos.conf"
 #define SHELL_DEFAULT     "/bin/tosh"
 
 void shell_setting_get(char *out, uint32_t cap) {

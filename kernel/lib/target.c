@@ -9,7 +9,7 @@
 #include "string.h"
 #include "initcall.h"
 
-#define TARGET_FILE "/etc/toyos.conf"
+#define TARGET_FILE "/etc/saunaos.conf"
 #define TARGET_KEY  "default_target"
 
 // Registry-choice order, and the order `config` lists them in.

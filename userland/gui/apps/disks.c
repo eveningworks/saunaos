@@ -233,7 +233,7 @@ static const char *refusal(int cmd) {
         if (!p->point[0] && (p->role != UDISK_ROLE_DATA || !p->dev[0])) return "Nothing here can be mounted";
         if (!p->point[0] && p->type[0] && !p->readable) {
             static char why[64];
-            snprintf(why, sizeof why, "toy-os cannot read %s", udisk_fs_title(p->type));
+            snprintf(why, sizeof why, "SaunaOS cannot read %s", udisk_fs_title(p->type));
             return why;
         }
         return 0;
@@ -814,7 +814,7 @@ static void draw_details(struct ugfx_surface *s, int cw) {
     fact(s, x, &y, vx, right, "Size", a, UTHEME_TEXT);
     if (p->point[0]) snprintf(a, sizeof a, "%s, mounted at %s", p->fs, p->point);
     else if (p->type[0])
-        snprintf(a, sizeof a, "%s (not mounted%s)", udisk_fs_title(p->type), p->readable ? "" : "; toy-os cannot read it");
+        snprintf(a, sizeof a, "%s (not mounted%s)", udisk_fs_title(p->type), p->readable ? "" : "; SaunaOS cannot read it");
     else snprintf(a, sizeof a, "%s", p->role == UDISK_ROLE_BIOS ? "A boot loader, no filesystem" : "Not mounted");
     fact(s, x, &y, vx, right, "Contents", a, UTHEME_TEXT);
     if (p->total) {

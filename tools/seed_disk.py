@@ -132,7 +132,7 @@ def mark_fbs_done(disk):
 DEFAULT_PARTITION = "gpt"   # what a BLANK image gets
 
 # THE BOOTABLE LAYOUT, and the reason a blank image gets three
-# partitions rather than one: toy-os boots from its own disk, and GRUB
+# partitions rather than one: SaunaOS boots from its own disk, and GRUB
 # cannot read TFS3. So the kernel lives in a filesystem GRUB already
 # understands, in front of the one the OS uses.
 #

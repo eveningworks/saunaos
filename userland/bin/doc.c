@@ -1,7 +1,7 @@
 // doc -- the manual, read on the machine it documents.
 //
 // **`doc` IS THIS SYSTEM'S `man`, and there is no `man`.** The name man
-// is short for a thing toy-os does not have -- roff manual pages in
+// is short for a thing SaunaOS does not have -- roff manual pages in
 // numbered sections -- and every command here already has exactly one
 // page under one name. A second name for one program would be a second
 // thing to keep true, and this filesystem has no symlinks to make it

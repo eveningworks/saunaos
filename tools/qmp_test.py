@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-r"""Reusable helpers for driving toy-os in headless QEMU over QMP.
+r"""Reusable helpers for driving SaunaOS in headless QEMU over QMP.
 
 Every GUI-testing session up to this point has re-derived the same few
 gotchas from scratch (usually by hitting them first). This module exists
@@ -9,7 +9,7 @@ OS -- nothing here ships in the kernel or gets compiled by the Makefile.
 Gotchas this module already gets right for you:
 
 - The mouse driver in this kernel is PS/2 (relative deltas), not USB
-  HID -- there's no USB stack in toy-os at all. Don't reach for
+  HID -- there's no USB stack in SaunaOS at all. Don't reach for
   -device usb-tablet OR -device usb-mouse, and don't try absolute
   positioning -- it's the wrong device class for this guest, and worse,
   adding an explicit USB pointer device makes QEMU route host mouse
@@ -135,7 +135,7 @@ import iso_guard
 import port_guard
 
 
-def guarded_boot_args(disk, iso="toy-os.iso", boot="auto", ports=(), check_disk=True):
+def guarded_boot_args(disk, iso="saunaos.iso", boot="auto", ports=(), check_disk=True):
     """The `-boot`/`-cdrom` words for a launch, AFTER the guards every
     launch owes: the stale-ISO refusal, the stale-copy warning, and a
     port check for any TCP port the tool is about to listen on.
@@ -143,7 +143,7 @@ def guarded_boot_args(disk, iso="toy-os.iso", boot="auto", ports=(), check_disk=
     For a tool whose machine launch_qemu_cmd() cannot express -- no
     display head, a serial socket, an AHCI HBA, a second disk, a NIC --
     and which therefore builds its own argv. Seven did, and none reached
-    a guard: a stale toy-os.iso booted the previous build and passed,
+    a guard: a stale saunaos.iso booted the previous build and passed,
     and two serial ports clashed as a hang. Returns a list, so it drops
     into a list argv or `' '.join()`s into a string one.
 
@@ -154,7 +154,7 @@ def guarded_boot_args(disk, iso="toy-os.iso", boot="auto", ports=(), check_disk=
     and hangs in the partition table).
     """
     medium = install_grub.boot_medium(disk, None if boot == "auto" else boot)
-    if os.path.basename(iso) == "toy-os.iso":
+    if os.path.basename(iso) == "saunaos.iso":
         iso_guard.assert_iso_fresh(medium=medium)
     if check_disk:
         iso_guard.warn_if_disk_stale(disk)
@@ -168,10 +168,10 @@ def guarded_boot_args(disk, iso="toy-os.iso", boot="auto", ports=(), check_disk=
     return install_grub.qemu_boot_args(medium, iso)
 
 
-def launch_qemu_cmd(iso="toy-os.iso", disk="disk.img", serial_log="serial.log",
+def launch_qemu_cmd(iso="saunaos.iso", disk="disk.img", serial_log="serial.log",
                      qmp_port=4445, vnc_display=5, pidfile="qemu.pid",
                      kvm=False, boot="auto", disk_kind="ide"):
-    """Return the shell command to launch toy-os headlessly with QMP + a
+    """Return the shell command to launch SaunaOS headlessly with QMP + a
     working input head. Run it as a plain foreground shell command --
     `-daemonize` makes QEMU fork/detach/return on its own, so it
     survives across separate tool calls with no `setsid`/`nohup`/`&`
@@ -201,7 +201,7 @@ def launch_qemu_cmd(iso="toy-os.iso", disk="disk.img", serial_log="serial.log",
     # partition still boots off the ISO; `boot=` overrides.
     medium = install_grub.boot_medium(disk, None if boot == "auto" else boot)
 
-    if iso == "toy-os.iso":
+    if iso == "saunaos.iso":
         iso_guard.assert_iso_fresh(medium=medium)
 
     # A copy of disk.img older than the last seed -- see vm.py's note.
@@ -237,7 +237,7 @@ def launch_qemu_cmd(iso="toy-os.iso", disk="disk.img", serial_log="serial.log",
                  f"-device ide-hd,drive=sata0,bus=ahci.0 ")
     elif disk_kind == "nvme":
         drive = (f"-drive file={disk},format=raw,if=none,id=nvm0,discard=unmap "
-                 f"-device nvme,serial=toyos-nvme0,drive=nvm0 ")
+                 f"-device nvme,serial=saunaos-nvme0,drive=nvm0 ")
     else:
         drive = f"-drive file={disk},format=raw,if=ide,discard=unmap "
     boot_args = " ".join(install_grub.qemu_boot_args(medium, iso))
@@ -269,13 +269,13 @@ class QMPSession:
     screenshot helpers layered on top. One instance per QEMU process.
     """
 
-    # THE BARE-METAL MACHINE WHEN `TOYOS_REMOTE_HOST` NAMES ONE -- see
+    # THE BARE-METAL MACHINE WHEN `SAUNAOS_REMOTE_HOST` NAMES ONE -- see
     # tools/remote_gui.py. RemoteScreen serves this same surface over
     # the laptop's own screenshot program and `guictl`, and REFUSES, by
     # name, the handful of calls that need an emulator (the monitor, a
     # held button). Subclassed so `isinstance(x, QMPSession)` stays true.
     def __new__(cls, *args, **kwargs):
-        if cls is QMPSession and os.environ.get("TOYOS_REMOTE_HOST"):
+        if cls is QMPSession and os.environ.get("SAUNAOS_REMOTE_HOST"):
             from remote_gui import RemoteScreen
             return super().__new__(RemoteScreen)
         return super().__new__(cls)

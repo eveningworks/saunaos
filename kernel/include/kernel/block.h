@@ -158,7 +158,7 @@ struct block_device {
 // `root=` on the command line, and NT's PnP manager builds a device
 // object per device while the boot path comes from BCD's `osdevice`.
 //
-// toy-os had the two FUSED, and it cost exactly what you would expect.
+// SaunaOS had the two FUSED, and it cost exactly what you would expect.
 // `if (!blk_virtio_init() && !blk_ahci_init()) blk_ata_init();` short-
 // circuits, so a machine with a virtio disk never ran the AHCI driver at
 // all and its SATA disk did not exist -- unmountable, invisible to

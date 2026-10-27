@@ -119,7 +119,7 @@ and work from a shell as well:
 whenever this machine's randomness is good enough to make a key
 (RDRAND/RDSEED or virtio-rng; `random` says which). The key (`/etc/remote.key`, ECDSA P-256) is made once; the
 certificate (`/etc/remote.crt`, self-signed) names this machine's IPv4
-addresses, `127.0.0.1` and `toy-os`, and is remade when an address
+addresses, `127.0.0.1` and `SaunaOS`, and is remade when an address
 changes -- with the same key, so a viewer that remembered it is asked
 again only if the addresses differ. Its SHA-256 fingerprint is under
 Encryption in System Settings and in `remoted status`; compare it with

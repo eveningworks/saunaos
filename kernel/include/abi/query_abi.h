@@ -363,7 +363,7 @@ _Static_assert(sizeof(struct query_fontglyph) <= 256,
 // from, and when it was compiled. SCALAR.
 //
 // IT EXISTS BECAUSE A PROGRAM CANNOT KNOW THIS. `about` used to print
-// TOYOS_VERSION_FULL from its own build, which is right only while the
+// SAUNAOS_VERSION_FULL from its own build, which is right only while the
 // kernel and userland come from one image -- and wrong the moment a
 // machine is updated over the network a piece at a time. That is not
 // hypothetical: the bare-metal laptop reported 214d29e while running
@@ -1185,7 +1185,7 @@ struct query_module {
 };
 
 struct query_version {
-    char version[16];   // "0.3.0-dev" -- TOYOS_VERSION
+    char version[16];   // "0.3.0-dev" -- SAUNAOS_VERSION
     char build_id[24];  // "426601f", or "426601f-dirty", or "unknown"
     char stamp[24];     // "2026-09-01 10:39:12", to the second
 };
@@ -1216,7 +1216,7 @@ struct query_blkdev {
     char driver[16];    // "ahci", "nvme"; "" for a partition
     char device_id[24]; // its controller, udevice's naming ("pci:00:1f.2"), or ""
     // WHAT FILESYSTEM IT HOLDS, by signature (kernel/fs_ident.h) -- blkid's
-    // TYPE and LABEL, mounted or not, toy-os's own or a foreign one. ""
+    // TYPE and LABEL, mounted or not, SaunaOS's own or a foreign one. ""
     // when nothing is recognised, and on a disk that carries a partition
     // table (its partitions answer instead).
     char fstype[16];    // "ntfs", "ext4", "tfs3", "fat32"

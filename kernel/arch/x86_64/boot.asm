@@ -41,7 +41,7 @@ align 16
 global stack_bottom
 global stack_top
 stack_bottom:
-%ifdef TOYOS_KASAN
+%ifdef SAUNAOS_KASAN
     resb 32768
 %else
     resb 16384

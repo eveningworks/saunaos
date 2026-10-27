@@ -458,7 +458,7 @@ def check_boot_face_is_live(dbg):
     THE BUG THIS EXISTS FOR, and why it lives here rather than in a
     KTEST. font_face_select() only loads and validates a .ttf; the atlas
     that makes it drawable comes from gfx_set_font_px(). font_config_init()
-    called the first and -- with no `font_size` key in /etc/toyos.conf --
+    called the first and -- with no `font_size` key in /etc/saunaos.conf --
     returned before the second. So `fontface` reported a face as active
     while every glyph came from the BAKED tables, and proportional
     advances, kerning and bold all silently fell back.
@@ -633,7 +633,7 @@ def main():
 
     # --- the faces are on disk and one of them is in use ---------------
     # ESTABLISH the starting state rather than inherit it: font_face and
-    # font_size both persist to /etc/toyos.conf, which survives a build,
+    # font_size both persist to /etc/saunaos.conf, which survives a build,
     # so a previous run leaves its choice behind and every measurement
     # below is relative to a baseline that would otherwise be silently
     # wrong. Via PROP first so the switch to MONO is a real change --

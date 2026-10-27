@@ -32,7 +32,7 @@ struct rd_pixfmt {
     uint8_t rshift, gshift, bshift;
 };
 
-// What toy-os draws: 32 bits, 0x00RRGGBB, little-endian.
+// What SaunaOS draws: 32 bits, 0x00RRGGBB, little-endian.
 void rd_pixfmt_native(struct rd_pixfmt *pf);
 void rd_pixfmt_read(struct rd_pixfmt *pf, const uint8_t b[16]);
 void rd_pixfmt_write(const struct rd_pixfmt *pf, uint8_t b[16]);

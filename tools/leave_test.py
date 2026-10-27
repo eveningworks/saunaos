@@ -183,7 +183,7 @@ def run(dbg, qmp, tmp):
             check("...and picking one restarts into it (dry run)",
                   bool(said) and "previous kernel" in said, str(said))
     else:
-        # Every image this repo builds has "toy-os (previous kernel)"
+        # Every image this repo builds has "SaunaOS (previous kernel)"
         # (tools/install_grub.py): no "Restart into" is a failure, not a
         # skip -- otherwise the one path through the boot choice is
         # never run.

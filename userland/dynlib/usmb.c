@@ -98,9 +98,9 @@ static int map_status(struct usmb *s, uint32_t st) {
     return USMB_E_OTHER;
 }
 
-// ---- toy-os text <-> UTF-16LE ------------------------------------------
+// ---- SaunaOS text <-> UTF-16LE ------------------------------------------
 //
-// TOY-OS TEXT IS LATIN-1 (docs/decisions/drivers.md): a character is one
+// SAUNAOS TEXT IS LATIN-1 (docs/decisions/drivers.md): a character is one
 // byte, and the font, the keyboard and every file name agree. So a name
 // comes back as Latin-1 when Latin-1 can spell it -- and as UTF-8 when it
 // cannot, which displays as gibberish but still names the file, where a

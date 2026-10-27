@@ -132,7 +132,7 @@ void config_files_scan(void) {
     // subsystem that would naturally announce them -- and a rescan has
     // to be able to put the built-in floor back after an override was
     // withdrawn.
-    config_file_register("system", "/etc/toyos.conf",
+    config_file_register("system", "/etc/saunaos.conf",
                          "System settings", 1);
     config_file_register("timezones", "/etc/timezones",
                          "The timezone city database", 1);

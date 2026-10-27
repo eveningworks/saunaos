@@ -3,10 +3,10 @@
 A staged plan for `/bin/w16`, a ring-3 program that loads a Windows 3.x
 executable (the NE format), runs its 16-bit code on an emulated CPU, and
 implements the Win16 API it calls -- KERNEL, USER, GDI -- on top of
-toywm. It answers "can toy-os run a Windows 3.11 program, and what is
+toywm. It answers "can SaunaOS run a Windows 3.11 program, and what is
 the smallest honest route there?"
 
-**STAGES 0-2 ARE BUILT (2026-10-18)**: `w16 --info` reads a program and names its imports, the CPU interpreter matches the host's own CPU on random instructions (`tools/cpu16_hostcheck.py`), and `w16 /usr/share/w16/hello.exe` opens a Windows 3.1 window in toywm that paints, moves, resizes and closes. **Since 2026-10-19** it minimizes, maximizes and opens its control menu (click the box, or Alt+Space), all through `WM_SYSCOMMAND` so a program may refuse, and a program that faults or calls something w16 lacks shows 3.1's Application Error box and leaves a crash report naming why (`/usr/share/w16/fault.exe`). **Minesweeper, from the maintainer's own Windows 3.11, is complete** -- it plays, and its menu bar, Best Times, Custom Field, About and Help all work (stage 3 below). **Notepad, too, is complete since that evening** -- it opens, edits, finds, word-wraps, uses the toy-os clipboard and saves, through a window tree (child windows), w16's EDIT, LISTBOX and COMBOBOX, KERNEL's file calls on drives C: and Z:, and COMMDLG's Open, Save As and Find in the 3.1 look ("Win16 Notepad" canvas, O1). **Since 2026-10-20** it draws in Windows 3.11's own fonts and COMMDLG's pictures when drive C: has them, programs see drives D: to Y:, the launcher is **Retro Launcher** (`userland/retrolauncher/`) with a folder list of any length, and a program opened from the File Manager gets the run card when calls it uses are missing; **Solitaire and Hearts run since that afternoon** -- Hearts loading its own CARDS.DLL (LoadLibrary, GetProcAddress, the prologues patched to its DGROUP), an MFC program whose WH_CALLWNDPROC hook w16 calls, and both compared pixel for pixel with the reference (below). **Write runs since that evening** -- it edits, formats (the Font dialog, paragraph alignment, the ruler), saves and opens .WRI documents that round-trip with real 3.11, in TrueType faces laid out to 3.11's pixel, with the pictures and OLE objects in a document drawn but not editable (stage 3, below). Chosen that day: the emulated
+**STAGES 0-2 ARE BUILT (2026-10-18)**: `w16 --info` reads a program and names its imports, the CPU interpreter matches the host's own CPU on random instructions (`tools/cpu16_hostcheck.py`), and `w16 /usr/share/w16/hello.exe` opens a Windows 3.1 window in toywm that paints, moves, resizes and closes. **Since 2026-10-19** it minimizes, maximizes and opens its control menu (click the box, or Alt+Space), all through `WM_SYSCOMMAND` so a program may refuse, and a program that faults or calls something w16 lacks shows 3.1's Application Error box and leaves a crash report naming why (`/usr/share/w16/fault.exe`). **Minesweeper, from the maintainer's own Windows 3.11, is complete** -- it plays, and its menu bar, Best Times, Custom Field, About and Help all work (stage 3 below). **Notepad, too, is complete since that evening** -- it opens, edits, finds, word-wraps, uses the SaunaOS clipboard and saves, through a window tree (child windows), w16's EDIT, LISTBOX and COMBOBOX, KERNEL's file calls on drives C: and Z:, and COMMDLG's Open, Save As and Find in the 3.1 look ("Win16 Notepad" canvas, O1). **Since 2026-10-20** it draws in Windows 3.11's own fonts and COMMDLG's pictures when drive C: has them, programs see drives D: to Y:, the launcher is **Retro Launcher** (`userland/retrolauncher/`) with a folder list of any length, and a program opened from the File Manager gets the run card when calls it uses are missing; **Solitaire and Hearts run since that afternoon** -- Hearts loading its own CARDS.DLL (LoadLibrary, GetProcAddress, the prologues patched to its DGROUP), an MFC program whose WH_CALLWNDPROC hook w16 calls, and both compared pixel for pixel with the reference (below). **Write runs since that evening** -- it edits, formats (the Font dialog, paragraph alignment, the ruler), saves and opens .WRI documents that round-trip with real 3.11, in TrueType faces laid out to 3.11's pixel, with the pictures and OLE objects in a document drawn but not editable (stage 3, below). Chosen that day: the emulated
 CPU in ring 3 (W1 below), the Windows 3.1 look all the way (L3 on the
 "Win16 windows in toywm" mockup canvas), the code in `userland/w16/`,
 and the name **w16** -- not WOW, which is Microsoft's term. "Win16" is
@@ -71,7 +71,7 @@ LOUDLY and by name (below), never as a silent zero.
   |              w16's own classes (BUTTON, EDIT...)     |
   |   dialog16.c commdlg16.c  dialogs, the common ones   |
   |   font16.c   3.11's bitmap fonts, TrueType faces     |
-  |   clip16.c   the clipboard, on toy-os's (lib/uclip)  |
+  |   clip16.c   the clipboard, on SaunaOS's (lib/uclip)  |
   |   meta16.c   metafiles, through lib/uwmf             |
   |   ole16.c    OLECLI: objects kept, drawn, not edited |
   |  MAIN thread (uapp)                                  |
@@ -118,7 +118,7 @@ LOUDLY and by name (below), never as a silent zero.
   SendMessage like a program's. `docs/decisions/gui.md`, "A Win16 window
   tree".
 - **Two drives** (`file16.c`): C: is the Win16 folder, Z: the whole
-  toy-os tree, names matched without case; a program starts in its own
+  SaunaOS tree, names matched without case; a program starts in its own
   folder, and the common dialogs browse both.
 - **The sandbox** (`userland/bin/w16.c`): the whole tree read-only (drive
   Z:), `/home`, drive C: and `/var/lib/win16` read-write, the clipboard,
@@ -159,7 +159,7 @@ LOUDLY and by name (below), never as a silent zero.
   comment".
 - **Fonts** (`font16.c`): 3.11's raster faces from drive C:'s .FON files,
   and its TrueType ones -- Arial, Times New Roman, Courier New -- from
-  C:'s own .TTF files when the `fonts` setting allows, else from toy-os's
+  C:'s own .TTF files when the `fonts` setting allows, else from SaunaOS's
   Liberation Sans and Serif (metric twins of Arial and Times New Roman,
   made to be) and DejaVu Sans Mono, which is what Wine and every Linux
   desktop substitute too. A TrueType face is laid out by Windows' OWN
@@ -168,13 +168,13 @@ LOUDLY and by name (below), never as a silent zero.
   line breaks where 3.11's did, to the pixel. Chosen 2026-10-20 from the
   "Write: TrueType in w16" canvas over Liberation always (T1) and the
   bitmap fonts as before.
-- **The clipboard** (`clip16.c`) is toy-os's: text both ways, ANSI and
+- **The clipboard** (`clip16.c`) is SaunaOS's: text both ways, ANSI and
   "\r\n" one side and UTF-8 and "\n" the other (lib/ucharset's
-  Windows-1252), and a picture as CF_BITMAP and CF_DIB. A format toy-os
+  Windows-1252), and a picture as CF_BITMAP and CF_DIB. A format SaunaOS
   has no kind for -- Write's own, an object's Native data -- stays inside
   the w16 that put it there, which is the one stand-in. A format promised
   with no data (delayed rendering) is made when the clipboard closes, so
-  the rest of toy-os can paste it.
+  the rest of SaunaOS can paste it.
 - **OLE 1.0** (`ole16.c`): an object is read from the program's OLESTREAM
   in the persistent format of [MS-OLEDS] 2.2 and EVERY BYTE READ IS KEPT,
   so saving writes it back unchanged and a document round-trips through
@@ -231,7 +231,7 @@ enters this repo.
 **How** (both scripts are in the local-only folder, `scripts/compare/`,
 because they drive and copy Microsoft programs):
 
-1. **w16's side: `w16vm.py start`** -- a toy-os VM on slot 3 from a FRESH
+1. **w16's side: `w16vm.py start`** -- a SaunaOS VM on slot 3 from a FRESH
    copy of `disk.img` (after `make iso`; toywm remembers each app's last
    size and place in `/etc/windows.conf`, so a reused image opens the
    program wherever it was left), the programs under test copied to
@@ -330,7 +330,7 @@ because they drive and copy Microsoft programs):
 and pictures come from the user's own Windows files"): with 3.11's
 `.FON` files and COMMDLG.DLL in drive C:'s `WINDOWS\SYSTEM`, Notepad's
 text, caption and menu bar diff to ZERO pixels and Find to the caret and
-one label's pixel; without them, toy-os's stand-ins at 3.11's cells. (Its
+one label's pixel; without them, SaunaOS's stand-ins at 3.11's cells. (Its
 dropdown menus did not: measured on 2026-10-22, their rows, grey text,
 shortcut column and shadow were w16's guesses, now 3.11's -- the table
 above.)
@@ -402,8 +402,8 @@ the palette, whose mapping is not yet measured.
    voices (OpenSound, SetVoiceNote, SetVoiceAccent, StartSound) as square
    waves -- BASIC PLAY's notes, value 37 middle C, at the tempo set. An
    event plays what drive C:'s WIN.INI `[sounds]` names, when the file is
-   there (the user's own 3.11 copy, as with fonts), else toy-os's chime;
-   the `sounds` setting picks 3.11's, toy-os's or none. w16 plays through
+   there (the user's own 3.11 copy, as with fonts), else SaunaOS's chime;
+   the `sounds` setting picks 3.11's, SaunaOS's or none. w16 plays through
    `soundd` only (`usnd_set_daemon_only()`: no `device` promise), under
    the program's short title in the Volume panel.
    `tools/w16_sound_test.py` hears all three on the host.

@@ -2,7 +2,7 @@
 // message it answers (abi/setting_abi.h).
 //
 // Almost everything here drives a SCRATCH setting registered by the
-// test itself, persisting to /tmp rather than /etc/toyos.conf -- these
+// test itself, persisting to /tmp rather than /etc/saunaos.conf -- these
 // run inside the live booted kernel (ktest.h), so a test that applied a
 // real font size or timezone would be rewriting the running machine's
 // own settings, which etc_config_test.c already declines to do for the
@@ -777,7 +777,7 @@ KTEST("setting", "a legacy named speed in /etc still migrates") {
 
     // Written straight to the file, bypassing the registry -- which is
     // exactly how an old disk or a hand edit presents it.
-    if (!etc_config_set("/etc/toyos.conf", "mouse.speed", "slow")) {
+    if (!etc_config_set("/etc/saunaos.conf", "mouse.speed", "slow")) {
         setting_set("system.mouse.speed", before);
         return; // no writable /etc on this image
     }
@@ -788,7 +788,7 @@ KTEST("setting", "a legacy named speed in /etc still migrates") {
     KTEST_ASSERT(setting_set("system.mouse.speed", "125") != SETTING_INVALID);
     char on_disk[SETTING_VALUE_MAX];
     on_disk[0] = 0;
-    KTEST_ASSERT(etc_config_get("/etc/toyos.conf", "mouse.speed", on_disk, sizeof on_disk));
+    KTEST_ASSERT(etc_config_get("/etc/saunaos.conf", "mouse.speed", on_disk, sizeof on_disk));
     KTEST_ASSERT_EQ(k_strcmp(on_disk, "125"), 0);
 
     setting_set("system.mouse.speed", before);

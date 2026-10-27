@@ -4,12 +4,12 @@
 // per-pixel work at all, so this is the saver that costs least on a
 // machine where that matters.
 //
-// **IT DRAWS `toyos`, IN ITS OWN COLOURS.** The first version blitted
+// **IT DRAWS `saunaos`, IN ITS OWN COLOURS.** The first version blitted
 // the `about` icon SYMBOLIC, which is the PANEL's mode: every opaque
 // pixel becomes one flat colour, so the artwork is thrown away and what
 // bounced was a coloured rounded square. Symbolic is right for a tray
 // indicator taking the panel's ink and wrong for a LOGO, whose whole
-// job is to be recognisable. `icon_toyos` is this OS's own mark -- the
+// job is to be recognisable. `icon_saunaos` is this OS's own mark -- the
 // Start button's three stacked bricks, on a plate -- and it has colours
 // of its own to show.
 //
@@ -60,7 +60,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
     if (!g_seeded) seed(s->w, s->h);
     g_w = s->w; g_h = s->h;
     ugfx_fill_rect(s, 0, 0, s->w, s->h, 0x000000);
-    const struct uimg *ico = icon_get("toyos", g_icon_px);
+    const struct uimg *ico = icon_get("saunaos", g_icon_px);
     if (ico) ugfx_blit(s, g_x, g_y, ico->w, ico->h, ico->px, ico->w);
     // The corner count, small and dim in a corner of its own. It is the
     // only reason to keep watching, so not saying it would be perverse.

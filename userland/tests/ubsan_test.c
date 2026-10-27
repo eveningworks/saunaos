@@ -24,7 +24,7 @@ int main(void) {
                  ubsan_case_count);
     utest_checkf(ubsan_case_once(), "a site that failed twice did not report once");
 
-#ifdef TOYOS_UBSAN
+#ifdef SAUNAOS_UBSAN
     volatile int big = 0x7fffffff, one = 1;
     unsigned before = ubsan_report_count();
     volatile int sum = big + one;

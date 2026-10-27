@@ -652,7 +652,7 @@
 
 // KERNEL.103 NetBIOSCall() -> void
 // Windows: The NetBIOS interrupt (INT 5Ch), called with ES:BX at a network control block.
-// Why: toy-os's network is not NetBIOS; a network driver's call.
+// Why: SaunaOS's network is not NetBIOS; a network driver's call.
 // By: MSNET.DRV, MSSFS.DLL, NDDENB.DLL
 
 // KERNEL.104 GetCodeInfo(lpProc, lpSegInfo) -> BOOL
@@ -878,7 +878,7 @@
 
 // KERNEL.202 RegisterPtrace(lpfnPtrace) -> void
 // Windows: Installs a debugger's notification procedure.
-// Why: A debugger's: w16 has no 16-bit debugger interface (toy-os's strace watches w16 from
+// Why: A debugger's: w16 has no 16-bit debugger interface (SaunaOS's strace watches w16 from
 // outside).
 // By: TOOLHELP.DLL
 
@@ -925,7 +925,7 @@
 // KERNEL.328 _DebugOutput(wFlags, lpFormat, ...) -> void
 // Windows: Formats a message for the debug terminal (the debug build's OutputDebugString with
 // arguments).
-// Why: Not written yet: it would go to toy-os's log, as w16's trace does.
+// Why: Not written yet: it would go to SaunaOS's log, as w16's trace does.
 // By: COMMCTRL.DLL
 
 // KERNEL.334 IsBadReadPtr(lp, cb) -> BOOL
@@ -1021,7 +1021,7 @@
 
 // KEYBOARD.7 SetSpeed(nSpeed) -> int
 // Windows: Sets the keyboard's repeat rate.
-// Why: toy-os's own setting, not a program's to change.
+// Why: SaunaOS's own setting, not a program's to change.
 // By: USER.EXE
 
 // KEYBOARD.100 ScreenSwitchEnable(fEnable) -> void
@@ -1056,7 +1056,7 @@
 // MMSYSTEM.31 DriverCallback(dwCallback, uFlags, hDevice, uMessage, dwUser, dwParam1, dwParam2) -> BOOL
 // Windows: How a multimedia driver tells a program a buffer is done: a window message, a task
 // signal or a call.
-// Why: A driver's: w16 carries no multimedia drivers; its sound goes to toy-os's soundd.
+// Why: A driver's: w16 carries no multimedia drivers; its sound goes to SaunaOS's soundd.
 // By: MIDIMAP.DRV, MPU401.DRV, MSADLIB.DRV, SNDBLST.DRV, SNDBLST2.DRV, TIMER.DRV
 
 // MMSYSTEM.32 StackEnter() -> void
@@ -1071,7 +1071,7 @@
 
 // MMSYSTEM.201 midiOutGetNumDevs() -> UINT
 // Windows: How many MIDI output devices there are.
-// Why: MIDI is not answered yet: toy-os has a General MIDI synthesizer (lib/usnd_synth.c) that a
+// Why: MIDI is not answered yet: SaunaOS has a General MIDI synthesizer (lib/usnd_synth.c) that a
 // program's MIDI could play through.
 // By: MCISEQ.DRV, MIDIMAP.DRV, MPLAYER.EXE
 
@@ -1132,7 +1132,7 @@
 
 // MMSYSTEM.301 midiInGetNumDevs() -> UINT
 // Windows: How many MIDI input devices there are.
-// Why: Not written yet: w16 would answer 0 -- toy-os has no MIDI input.
+// Why: Not written yet: w16 would answer 0 -- SaunaOS has no MIDI input.
 // By: MPLAYER.EXE
 
 // MMSYSTEM.350 auxGetNumDevs() -> UINT
@@ -1270,7 +1270,7 @@
 
 // MMSYSTEM.605 timeBeginPeriod(uPeriod) -> UINT
 // Windows: Asks for timers this many milliseconds fine.
-// Why: Not written yet: w16 would answer TIMERR_NOERROR, its timers being as fine as toy-os's.
+// Why: Not written yet: w16 would answer TIMERR_NOERROR, its timers being as fine as SaunaOS's.
 // By: MCISEQ.DRV
 
 // MMSYSTEM.606 timeEndPeriod(uPeriod) -> UINT
@@ -1447,7 +1447,7 @@
 // SHELL.20 ShellExecute(hwnd, lpOperation, lpFile, lpParameters, lpDirectory, iShowCmd) -> HINSTANCE
 // Windows: Opens or prints a file with the program registered for it, or runs a program.
 // Why: A program starting another is the roadmap's "w16: one program starting or finding another";
-// toy-os's own open-with could answer the files it knows.
+// SaunaOS's own open-with could answer the files it knows.
 // By: EFAXPUMP.DLL, PACKAGER.EXE, PROGMAN.EXE, SIGVIEW.EXE, VFORMS.DLL, WINFILE.EXE
 
 // SHELL.21 FindExecutable(lpFile, lpDirectory, lpResult) -> HINSTANCE
@@ -1483,7 +1483,7 @@
 
 // SHELL.102 RegisterShellHook(hWnd, fInstall) -> BOOL
 // Windows: Asks to be told when top-level windows are made and destroyed -- a shell's own call.
-// Why: The shell is toy-os's desktop, not a w16 program.
+// Why: The shell is SaunaOS's desktop, not a w16 program.
 // By: PROGMAN.EXE
 
 // --- SOUND -----------------------------------------------------------------------------------
@@ -1568,7 +1568,7 @@
 // USER.7 ExitWindows(dwReturnCode, wReserved) -> BOOL
 // Windows: Asks every program whether Windows may end (WM_QUERYENDSESSION) and, if all agree, ends
 // Windows -- or restarts it, or reboots, by the code.
-// Why: The desktop is toy-os's: a w16 program may not log toy-os out. It would end that program's
+// Why: The desktop is SaunaOS's: a w16 program may not log SaunaOS out. It would end that program's
 // own w16 at most.
 // By: CPWIN386.CPL, DRIVERS.CPL, MAILSPL.EXE, MAIN.CPL, MSMAIL.EXE, PROGMAN.EXE, and 4 more
 
@@ -1629,7 +1629,7 @@
 
 // USER.143 CountClipboardFormats() -> int
 // Windows: How many formats the clipboard holds now.
-// Why: Not written yet: toy-os's clipboard knows what it holds; a Clipboard Viewer call.
+// Why: Not written yet: SaunaOS's clipboard knows what it holds; a Clipboard Viewer call.
 // By: CLIPBRD.EXE, CLIPSRV.EXE
 
 // USER.146 GetClipboardFormatName(wFormat, lpszFormatName, cchMax) -> int
@@ -1640,7 +1640,7 @@
 // USER.147 SetClipboardViewer(hWnd) -> HWND
 // Windows: Joins the chain of windows told (WM_DRAWCLIPBOARD) whenever the clipboard changes;
 // answers the next window in the chain.
-// Why: Not written yet: toy-os's clipboard daemon tells w16 of changes, which w16 could pass on as
+// Why: Not written yet: SaunaOS's clipboard daemon tells w16 of changes, which w16 could pass on as
 // WM_DRAWCLIPBOARD.
 // By: CLIPBRD.EXE
 
@@ -1675,7 +1675,7 @@
 
 // USER.188 SetSysModalWindow(hWnd) -> HWND
 // Windows: Makes a window system-modal: no other window takes input until it closes.
-// Why: toy-os's desktop may not be held by a w16 program; at most its own windows would be.
+// Why: SaunaOS's desktop may not be held by a w16 program; at most its own windows would be.
 // By: FRAMEWRK.DLL, PROGMAN.EXE
 
 // USER.189 GetSysModalWindow() -> HWND
@@ -1713,7 +1713,7 @@
 // USER.200 OpenComm(lpComName, cbInQueue, cbOutQueue) -> int
 // Windows: Opens a serial port (COM1:) or the parallel port (LPT1:) with queues of the sizes
 // given; answers its handle.
-// Why: w16 gives a program no serial ports: toy-os's serial lines are its debug console and log. A
+// Why: w16 gives a program no serial ports: SaunaOS's serial lines are its debug console and log. A
 // port given through would need its own setting.
 // By: CARDFILE.EXE, MAIN.CPL, PRINTMAN.EXE, RASSER.DLL, TERMINAL.EXE
 
@@ -1892,7 +1892,7 @@
 
 // USER.402 GetPriorityClipboardFormat(lpPriorityList, cEntries) -> int
 // Windows: The first format in a list that the clipboard holds, -1 if none does.
-// Why: Not written yet: toy-os's clipboard knows what it holds.
+// Why: Not written yet: SaunaOS's clipboard knows what it holds.
 // By: FRAMEWRK.DLL
 
 // USER.403 UnregisterClass(lpClassName, hInstance) -> BOOL
@@ -1988,7 +1988,7 @@
 
 // USER.499 WNetErrorText(wError, lpBuffer, nBufferSize) -> WORD
 // Windows: The text of a network error.
-// Why: The WNet calls are the network's: toy-os's SMB mounts are drives to w16, with no network
+// Why: The WNet calls are the network's: SaunaOS's SMB mounts are drives to w16, with no network
 // API behind them.
 // By: WFWNET.DRV, WINFILE.EXE
 
@@ -2040,7 +2040,7 @@
 // USER.512 WNetGetConnection(lpLocalName, lpRemoteName, cbBufferSize) -> WORD
 // Windows: The network share a drive letter or port is connected to.
 // Why: As WNetErrorText. It would answer "not a network drive" for every letter -- drive C: and
-// the rest are toy-os's folders.
+// the rest are SaunaOS's folders.
 // By: COMMDLG.DLL, CPWIN386.CPL, MAIN.CPL, MSSFS.DLL, NETFAX.DLL, OLECLI.DLL, and 5 more
 
 // USER.514 WNetDeviceMode(hWndParent) -> WORD

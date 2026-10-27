@@ -12,7 +12,7 @@ What it asserts:
     disks) and a FAT16 volume -- holding files of 0, 1, 511, 512, 513 and
     300,000 bytes, a subdirectory two deep, a deleted file and a long-named
     one: the label, every listing (8.3 names, sizes) and every file's bytes
-  - REAL DISKS, when ~/CodingProjects/toy-osother/win311/en/disks is there
+  - REAL DISKS, when ~/CodingProjects/saunaos-other/win311/en/disks is there
     (local only -- Microsoft's files): each of the eight Windows for
     Workgroups 3.11 floppies lists exactly the files of win311/en/install,
     byte for byte, under its label
@@ -44,7 +44,7 @@ import hostcheck  # noqa: E402
 ROOT = hostcheck.ROOT
 SAN = ("-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
        "-fno-sanitize-recover=undefined")
-DISKS = os.path.expanduser(os.environ.get("TOYOS_W311", "~/CodingProjects/toy-osother/win311")) + "/en"
+DISKS = os.path.expanduser(os.environ.get("SAUNAOS_W311", "~/CodingProjects/saunaos-other/win311")) + "/en"
 
 DRIVER = r"""
 #include "lib/ufatimg.h"

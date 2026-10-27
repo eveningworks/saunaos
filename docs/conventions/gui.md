@@ -2159,7 +2159,7 @@ this the obvious way), not from how much history it accumulated.
   Stage 8 of `docs/winserver-ring3-design.md`. Linux keeps evdev in the
   kernel and gives every Wayland client a socket the compositor writes;
   Windows keeps a per-thread message queue IN the kernel, which is what
-  toy-os had. Now: `win_input.c` is the one queue and it serves the one
+  SaunaOS had. Now: `win_input.c` is the one queue and it serves the one
   process holding the compositor role -- `SYS_WAIT_EVENT`/`SYS_POLL_
   EVENT`/`SYS_WAIT_READY` answer -EPERM to anyone else -- and Toykit
   parks on its inbox's futex (`uchan_client_wait()`) with no kernel
@@ -2269,7 +2269,7 @@ this the obvious way), not from how much history it accumulated.
   same rule that already made `userland/gui` mean `/bin`.
 - **A GUI TOOL REACHES A MACHINE THROUGH `QMPSession` AND
   `DebugConsole`, AND NOWHERE ELSE** -- which is what lets
-  `TOYOS_REMOTE_HOST` point the whole suite at the bare-metal machine
+  `SAUNAOS_REMOTE_HOST` point the whole suite at the bare-metal machine
   without touching a tool (`tools/remote_gui.py`,
   `gui_regress.py --host`). A tool that opens its own socket, shells out
   to `vm.py`, or hardcodes `.vm.serial` can only ever drive a VM. What
@@ -2761,7 +2761,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   EXTENSION POINT.** `uimg_load(path, &im)` gives a `struct uimg` of
   0x00RRGGBB pixels -- exactly what `ugfx_blit()` takes -- and
   `uimg_free()` releases it. **Do NOT add an image parser to the
-  kernel**: this is the one place toy-os deliberately does NOT copy its
+  kernel**: this is the one place SaunaOS deliberately does NOT copy its
   own font-parsing decision, because the console needs glyphs before any
   process exists and nothing in ring 0 needs a picture (Linux's only
   in-kernel image is an uncompressed PPM; Windows' codecs are user-mode
@@ -2777,7 +2777,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   DIFFERENT THINGS.** `uimg_encode()` / `uimg_save()` are the other half
   of the codec table, and a row now carries an `encode` slot beside its
   `decode`. Two formats, and the pair is the point rather than variety:
-  **`qoi` is what toy-os can open again** (the Image Viewer decodes it,
+  **`qoi` is what SaunaOS can open again** (the Image Viewer decodes it,
   it is lossless, and on flat UI content it beats PNG), and **`png` is
   what LEAVES the machine** -- a host, a browser, a bug report. Nothing
   here decodes PNG, so its row has `decode = NULL` and `uimg_decode()`
@@ -2815,7 +2815,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 
   **RING 3 ONLY, and that is not an oversight.** Linux carries
   `lib/zlib_inflate/` in the kernel, but to unpack its own kernel and
-  initrd; toy-os compresses neither, so there is no ring-0 caller to
+  initrd; SaunaOS compresses neither, so there is no ring-0 caller to
   compile twice for.
 
   **The decoder reads every PNG** -- each colour type at each depth the
@@ -3803,7 +3803,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   the app icon still open the window menu, and so does the desktop. That
   is the split Windows, X11 and Wayland all make -- a right-click in
   Notepad's text area opens Notepad's menu, not the system menu -- and
-  toy-os used to be the outlier, seizing the button over the WHOLE
+  SaunaOS used to be the outlier, seizing the button over the WHOLE
   window so that no ring-3 client could ever receive one. Three things
   to know. **The WM arms the press with the button that made it**
   (`content_pressed_btn` in `wm_internal.h`): a right-press armed and
@@ -3819,7 +3819,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
 
 - **DOOM IS A VENDORED PORT, LINKED INTO ONE BINARY, AND ITS BACKEND IS
   NOT IN THE VENDORED DIRECTORY.** `userland/ports/doom/` is doomgeneric
-  byte for byte; `userland/backends/doom/dg_toyos.c` is the five `DG_*` functions
+  byte for byte; `userland/backends/doom/dg_saunaos.c` is the five `DG_*` functions
   and is ours. It is an ordinary `uapp` client -- window, chrome,
   taskbar button, icon, single-instance -- with no Doom-shaped special
   case anywhere in the WM or the kernel. Five things to know.
@@ -3829,7 +3829,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   ON** -- the first are noise nobody is allowed to act on, the second is
   the Stack Clash guarantee. **`api/keyboard.h` and `doomkeys.h` cannot
   share a translation unit** (both define `KEY_F2`/`F3`/`F4`/`F10` with
-  different values), so they meet through `dg_toyos.h`, and keys cross
+  different values), so they meet through `dg_saunaos.h`, and keys cross
   it as evdev KEYCODES (`abi/input_keys.h`), which neither defines. **The IWAD is
   not in the repository** -- `tools/fetch_wad.py`, and the app says so in
   its own window when there is none, rather than showing black. And
@@ -3852,7 +3852,7 @@ real scanout hardware does. Do not write a pixel assertion for one.
   reaches for are answered from `userland/backends/doom/`: an empty
   `compat/SDL_mixer.h` (included and never used), a `compat/SDL.h` that
   maps byte swaps and a mutex/condition pair onto `__builtin_bswap` and
-  pthreads, and `opl_toyos.c` exporting `opl_sdl_driver` because
+  pthreads, and `opl_saunaos.c` exporting `opl_sdl_driver` because
   `opl.c`'s driver list names that symbol unconditionally. Not one
   vendored byte changed. `-D__DJGPP__` would have suppressed two of the
   three and was refused -- it changes real behaviour in five other

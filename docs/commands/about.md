@@ -22,10 +22,10 @@ and they diverge the moment one is updated without the other, which is what
 happens when a kernel or a binary is pushed over the network.
 
     /$ about
-    toy-os v0.3.0 -- an x86-64 hobby kernel
+    SaunaOS v0.3.0 -- an x86-64 hobby kernel
       kernel:   0.3.0-dev (426601f)  built 2026-09-01 10:39:12
       userland: 0.3.0-dev (214d29e)  built 2026-08-31
-      source:   https://github.com/eveningworks/toy-os/tree/214d29e...
+      source:   https://github.com/eveningworks/saunaos/tree/214d29e...
       ** kernel and userland are from different builds **
     Machine: QEMU Standard PC (i440FX + PIIX, 1996)
     Boot: GRUB/Multiboot2 | C + ASM | Tested on QEMU

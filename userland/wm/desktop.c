@@ -1326,7 +1326,7 @@ void desktop_draw_icons(void) {
     // for the moment you go looking for it, and a bright string in the
     // corner of every screenshot would compete with the actual content.
     //
-    // TOYOS_VERSION_FULL, not TOYOS_VERSION -- it carries the commit and
+    // SAUNAOS_VERSION_FULL, not SAUNAOS_VERSION -- it carries the commit and
     // the -dirty marker, which is the whole reason to want it on screen
     // (api/version.h). Right-aligned from its own measured width, so it
     // stays anchored when the version string or the font size changes.
@@ -1339,8 +1339,8 @@ void desktop_draw_icons(void) {
     // tools/gen_version.sh.
     {
         const char *lines[2] = {
-            "toy-os " TOYOS_VERSION_FULL,
-            "built " TOYOS_BUILD_DATE,
+            "SaunaOS " SAUNAOS_VERSION_FULL,
+            "built " SAUNAOS_BUILD_DATE,
         };
         // SHADOWED AND TRANSPARENT, because the backdrop is a
         // user-chosen photograph. This was a dim blue on a hardcoded

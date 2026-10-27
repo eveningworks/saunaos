@@ -23,7 +23,7 @@
 #include <string.h>
 #include "keyboard.h"
 #include "ui/ugfx.h"
-#include "version.h"        // TOYOS_VERSION, generated -- tools/gen_version.sh
+#include "version.h"        // SAUNAOS_VERSION, generated -- tools/gen_version.sh
 
 #define DS_SETFONT    0x40
 #define BS_TYPE       0x0F
@@ -1208,7 +1208,7 @@ static int api_MessageBox(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // Windows: Shows the About box Windows' own programs use: the program's icon and name, a line of
 // its own, and Windows' version, copyright and free memory.
 // w16: The same layout, with the program's icon and its two strings, and what runs it -- w16 on
-// toy-os -- where 3.1 named itself.
+// SaunaOS -- where 3.1 named itself.
 static int api_ShellAbout(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     uint16_t owner = w16_arg16(a);
@@ -1222,8 +1222,8 @@ static int api_ShellAbout(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     char *text = malloc(n), *cap = malloc(strlen(app) + 8);
     if (text && cap) {
         snprintf(cap, strlen(app) + 8, "About %s", app);
-        snprintf(text, n, "%s\n%s\n\nA Windows 3.x program, running in w16\non toy-os %s\n\n%s",
-                 hash ? hash : app, other, TOYOS_VERSION, w->path);
+        snprintf(text, n, "%s\n%s\n\nA Windows 3.x program, running in w16\non SaunaOS %s\n\n%s",
+                 hash ? hash : app, other, SAUNAOS_VERSION, w->path);
         static const char *const ok[] = { "OK" };
         static const uint16_t ids[] = { IDOK };
         // The program's own icon beside it, when it has one.
@@ -1273,7 +1273,7 @@ const unsigned g_dialog_api_n = sizeof g_dialog_api / sizeof g_dialog_api[0];
 // Windows: Tells File Manager that a window takes files dropped on it; a drop then arrives as
 // WM_DROPFILES.
 // w16: Accepts the call and does nothing: no drop is ever delivered.
-// Why: Dropping a file from toy-os's File Manager onto a Windows program's window needs toywm to
+// Why: Dropping a file from SaunaOS's File Manager onto a Windows program's window needs toywm to
 // carry the drop to w16, and w16 to turn it into WM_DROPFILES with DOS paths.
 // Notice: A file dropped on its window is not opened. Open... in its File menu works.
 // Whole: Drops delivered to Windows programs. On the roadmap: "w16: a file dropped on a program

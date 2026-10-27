@@ -32,7 +32,7 @@
 #include "kfmt.h"
 #include "initcall.h"
 
-#define MOUSE_CONFIG_FILE "/etc/toyos.conf"
+#define MOUSE_CONFIG_FILE "/etc/saunaos.conf"
 #define MOUSE_SPEED_KEY "mouse.speed"
 #define MOUSE_ACCEL_KEY "mouse.accel"
 #define SCROLL_STEP_KEY "scroll.step"
@@ -62,7 +62,7 @@ struct named_level { const char *name; int value; };
 #define SPEED_STEP    25
 #define SPEED_DEFAULT 100
 
-// THE OLD NAMES, STILL READ. An /etc/toyos.conf written before speed
+// THE OLD NAMES, STILL READ. An /etc/saunaos.conf written before speed
 // became a number says `mouse_speed=slow`, and a numeric parser would
 // reject it and silently leave the pointer at the default -- a setting
 // the user chose, quietly discarded on upgrade. Reading them costs four

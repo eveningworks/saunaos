@@ -25,7 +25,7 @@ fourth caller, not its first.
 
 The obvious build is an Explorer clone: a places sidebar, one content
 pane, icons, and copy/paste. Measured against this tree, that plan is
-blocked on two things toy-os does not have and would each be a milestone
+blocked on two things SaunaOS does not have and would each be a milestone
 of their own:
 
 - **The clipboard is a ring-3 service now** (`/bin/clipboardd`,
@@ -49,7 +49,7 @@ mechanism at all: the source is the active pane, the destination is the
 other one, and `F5` is copy. Nothing is carried, so nothing needs a
 carrier.
 
-That is the shape toy-os should build, and the reason is not nostalgia:
+That is the shape SaunaOS should build, and the reason is not nostalgia:
 **it is the one that needs no new system infrastructure**, and it turns
 the file manager into the app that motivates the clipboard milestone
 later rather than the app that is stuck behind it.
@@ -103,7 +103,7 @@ Checked against the tree before this was written.
   and by every common dialog. GTK has `GtkFileChooser`; Qt has
   `QFileSystemModel` + `QListView`/`QTreeView`; macOS has
   `NSOpenPanel` over the same browser view Finder uses. **Nobody ships
-  four independent implementations of "list a directory".** toy-os
+  four independent implementations of "list a directory".** SaunaOS
   currently ships three.
 - **Sorting is the widget's; comparison is the app's.** Win32's
   `ListView_SortItems`, Qt's `QSortFilterProxyModel::lessThan`, GTK's
@@ -111,13 +111,13 @@ Checked against the tree before this was written.
   `docs/decisions/gui.md` records why.
 - **Copying is a long-running, cancellable, progress-reporting job.**
   GNOME Files and Explorer both run it asynchronously with a progress
-  UI, because a synchronous copy freezes the window. toy-os has no
+  UI, because a synchronous copy freezes the window. SaunaOS has no
   threads, so the equivalent here is a CHILD PROCESS plus a
   non-blocking wait -- which is also how a shell does it.
 - **Associations are a table outside the app.** freedesktop's
   `mimeapps.list` maps a MIME type to a `.desktop` file; Windows keys
   extensions off `HKCR`. Neither hardcodes "the text editor" into the
-  file manager. toy-os should follow the SHAPE and skip the MIME
+  file manager. SaunaOS should follow the SHAPE and skip the MIME
   database: an extension list on the `.desktop` entry that already
   declares the app.
 - **Two-pane managers are keyboard-first.** `F5` copy, `F6` move, `F7`
@@ -245,7 +245,7 @@ manager holds no table of its own and a new app declares its own file
 types in the file that already declares its name, icon and command. This
 is `mimeapps.list`'s shape with the MIME database left out -- and
 leaving it out is the decision, not an omission: a MIME database is a
-second registry to seed, and toy-os has one image decoder that sniffs
+second registry to seed, and SaunaOS has one image decoder that sniffs
 magic bytes and one text editor.
 
 A file with no handler opens nothing and says so in the status bar.

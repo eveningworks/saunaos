@@ -1,4 +1,4 @@
-// NetSurf's bitmaps, as toy-os pixels (ns_bitmap.h).
+// NetSurf's bitmaps, as SaunaOS pixels (ns_bitmap.h).
 //
 // **THE FORMAT IS DECLARED, NOT CONVERTED.** bitmap_set_format() tells
 // NetSurf's decoders to write 0xAARRGGBB words, straight alpha -- what

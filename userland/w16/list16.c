@@ -329,7 +329,7 @@ static void drive(struct ugfx_surface *s, int x, int y) {
 static int item_icon(struct ugfx_surface *s, const struct listbox *l, int i, int x, int y, int ih);
 
 // A folder for the common dialogs' folder list: open, or shut.
-// toy-os's own folder, for when drive C: holds no COMMDLG.DLL to take 3.11's
+// SaunaOS's own folder, for when drive C: holds no COMMDLG.DLL to take 3.11's
 // from: drawn here, in the same manner -- a yellow and white dither, a grey
 // foot, a black edge -- but its own shapes, not traced from Microsoft's.
 // `kind` 1 an open folder, 2 a shut one, 4 the open one that is current
@@ -369,7 +369,7 @@ static void folder(struct ugfx_surface *s, int x, int y, int kind) {
     }
 }
 
-// toy-os's own TrueType mark, for when drive C: has no COMMDLG.DLL: two
+// SaunaOS's own TrueType mark, for when drive C: has no COMMDLG.DLL: two
 // capital T's, a grey one behind a black one, drawn rather than traced.
 static void tt_mark(struct ugfx_surface *s, int x, int y) {
     uint32_t black = w16_rgb(0x000000), grey = w16_rgb(0x808080);

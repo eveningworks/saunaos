@@ -24,7 +24,7 @@
 #include "idt.h"
 #include "scheduler.h"
 
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 
 _Static_assert(KASAN_SHADOW_OFFSET == KASAN_SHADOW_OFFSET_CFG,
                "kasan.h and the Makefile disagree about the shadow offset");
@@ -84,7 +84,7 @@ void kasan_unpoison(const void *addr, size_t size) {
     if (a < end) *shadow_of(a) = (int8_t)(end - a);
 }
 
-#endif // TOYOS_KASAN
+#endif // SAUNAOS_KASAN
 
 // --- the check ---------------------------------------------------------
 
@@ -102,7 +102,7 @@ size_t kasan_scan(const int8_t *shadow, uint64_t addr, size_t size) {
     return 0;
 }
 
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 
 static const char *kind_name(uint64_t bad) {
     int8_t s = *shadow_of(bad);
@@ -243,7 +243,7 @@ void kasan_run_constructors(void) {
     for (ctor_fn *f = __init_array_start; f < __init_array_end; f++) (*f)();
 }
 
-#else  // !TOYOS_KASAN: nothing instrumented, nothing to do
+#else  // !SAUNAOS_KASAN: nothing instrumented, nothing to do
 
 int kasan_enabled(void) { return 0; }
 unsigned kasan_report_count(void) { return 0; }

@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """tools/install_grub.py -- put GRUB, and the kernel, ON disk.img.
 
-toy-os boots from its own disk now: the kernel lives at /kernel.bin
-inside a FAT32 partition (toy-os mounts it at /boot), GRUB's core.img
+SaunaOS boots from its own disk now: the kernel lives at /kernel.bin
+inside a FAT32 partition (SaunaOS mounts it at /boot), GRUB's core.img
 is embedded in a BIOS boot partition in front of it, and the ISO is only one of the media rather
 than the only one. This is the tool that writes all three pieces.
 
@@ -16,7 +16,7 @@ ZFS, an encrypted root) the answer is a separate /boot, and UEFI made
 that universal -- the ESP is FAT32 because firmware speaks only FAT.
 Windows does the same with its System Reserved volume. So: FAT32, which
 mtools writes from the host with no root and no loop device, and which
-the planned FAT32 backend will one day let toy-os read for itself.
+the planned FAT32 backend will one day let SaunaOS read for itself.
 
 WHAT IT DOES NOT DO. It does not partition -- tools/seed_disk.py owns
 the table, and this tool refuses an image that has no boot partition
@@ -41,14 +41,14 @@ THE THREE PLACES A BYTE HAS TO LAND, and what makes each one work:
                segment) at 0x1f4. grub-bios-setup patches that; so does
                this, and a core.img written without it loads one sector
                and jumps into nothing.
-  FAT32 /boot  kernel.bin and grub/ at the VOLUME'S ROOT, which toy-os
+  FAT32 /boot  kernel.bin and grub/ at the VOLUME'S ROOT, which SaunaOS
                mounts at /boot -- the shape of a Linux /boot partition,
                or an ESP mounted at /boot on Arch. The ISO puts its
                kernel at its root too, so ONE grub.cfg serves both
                media and neither drifts.
 
 THE FAT VOLUME IS FORMATTED ONCE, not per build -- reformatting would
-throw away anything written into /boot from inside toy-os, which is the
+throw away anything written into /boot from inside SaunaOS, which is the
 whole point of the partition being real. The module directory carries a
 stamp naming the GRUB that wrote it, so a host GRUB upgrade re-copies
 the modules rather than leaving them one version behind core.img.
@@ -113,12 +113,12 @@ CORE_MODULES = ("biosdisk", "part_gpt", "part_msdos", "fat", "normal",
 # and this repo builds byte-identical images from identical inputs
 # (mkpart_test.py's GUIDs make the same promise). Fixed: "toy" + NUL.
 FAT_SERIAL = "746F7900"
-FAT_LABEL = "TOYOSBOOT"
+FAT_LABEL = "SAUNAOSBOOT"
 
 # The stamp that says which GRUB wrote the module directory, so a host
 # upgrade re-copies them instead of leaving a module set one version
 # behind the core.img that loads it.
-STAMP = "::/grub/i386-pc/toyos.stamp"
+STAMP = "::/grub/i386-pc/saunaos.stamp"
 
 
 def _tool(*names):
@@ -382,7 +382,7 @@ def _mdir_names(disk, esp, path):
 
 def drop_legacy(disk, esp, verbose=True):
     """Remove the pre-flat layout (::/boot/kernel.bin, ::/boot/grub) from a
-    volume this tool has just written flat. What toy-os itself put there
+    volume this tool has just written flat. What SaunaOS itself put there
     -- kernel.old, grubenv, a kernel copied in by hand -- moves up rather
     than being deleted; GRUB's modules were re-copied to ::/grub."""
     names = _mdir_names(disk, esp, "::/boot")
@@ -400,7 +400,7 @@ def drop_legacy(disk, esp, verbose=True):
     _run([_tool("mdeltree"), "-i", mtools_at(disk, esp), "::/boot"])
     if verbose:
         print(f"install_grub: {disk} -- moved ::/boot up to the volume's root "
-              "(toy-os shows it as /boot, not /boot/boot)")
+              "(SaunaOS shows it as /boot, not /boot/boot)")
 
 
 def has_boot_partition(disk):
@@ -408,7 +408,7 @@ def has_boot_partition(disk):
     return bios is not None and esp is not None
 
 
-# THE PAYLOAD toy-os NEEDS TO INSTALL ITSELF, staged into the root
+# THE PAYLOAD SaunaOS NEEDS TO INSTALL ITSELF, staged into the root
 # filesystem as ordinary files.
 #
 # WHY IT IS NOT `/boot`. On a disk boot, `/boot` is the ESP and already
@@ -416,7 +416,7 @@ def has_boot_partition(disk):
 # (GRUB loads the kernel and a filesystem image into RAM, and after that
 # nothing drives the medium; there is no USB mass-storage driver here).
 # Installing from live media is the path a real machine uses, so the
-# payload travels in the root, where every toy-os filesystem carries it
+# payload travels in the root, where every SaunaOS filesystem carries it
 # and `/bin/install` reads ONE path on every medium.
 #
 # WHAT IS NOT IN IT: GRUB's module directory, 305 files and ~4 MB.
@@ -589,7 +589,7 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
 
     # ---- 3. the two images, as FILES in the ESP ---------------------
     #
-    # So that toy-os can install itself. `/bin/install` cannot read raw
+    # So that SaunaOS can install itself. `/bin/install` cannot read raw
     # sectors -- there is no syscall for it, deliberately -- so the only
     # way it can put a bootloader on a target disk is to be handed the
     # bytes, and the only place it can get them is a file. This is where
@@ -619,7 +619,7 @@ def install(disk, kernel, grub_cfg, verbose=True, optional=False, legacy=False):
 
 
 def patch_grub_cfg(img, transform, tag="patched"):
-    """Rewrite the image's grub.cfg (/boot/grub/grub.cfg in toy-os) through `transform(text)`.
+    """Rewrite the image's grub.cfg (/boot/grub/grub.cfg in SaunaOS) through `transform(text)`.
 
     GRUB's command line is baked into that file at `make iso` time, so a
     test that needs a different boot line rewrites it inside its image
@@ -686,7 +686,7 @@ def main():
                          "passes, so a pre-existing disk.img keeps working")
     ap.add_argument("--legacy-layout", action="store_true",
                     help="write the layout before the flat one (everything under "
-                         "the volume's boot/, so toy-os shows /boot/boot) -- a "
+                         "the volume's boot/, so SaunaOS shows /boot/boot) -- a "
                          "fixture for tools/boot_migrate_test.py, never for a build")
     ap.add_argument("-q", "--quiet", action="store_true")
     args = ap.parse_args()

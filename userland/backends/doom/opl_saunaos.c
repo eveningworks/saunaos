@@ -1,11 +1,11 @@
-// The OPL driver toy-os supplies to Chocolate Doom's OPL library.
+// The OPL driver SaunaOS supplies to Chocolate Doom's OPL library.
 //
 // `opl/opl.c` dispatches every register write through an `opl_driver_t`
 // so the same code can drive a real Yamaha chip or an emulator. Its
 // driver list names `opl_sdl_driver` unconditionally, so THAT IS THE
 // SYMBOL THIS FILE EXPORTS -- a link-time substitution, which is the
 // only way to plug in without editing a vendored file (see that
-// directory's README). The struct's own `name` says `toyos`, so
+// directory's README). The struct's own `name` says `saunaos`, so
 // anything that prints it tells the truth; only the C symbol is
 // borrowed.
 //
@@ -71,7 +71,7 @@ static void timer_end_time(struct opl_timer *t) {
 
 // --- the driver ops ---------------------------------------------------
 
-long opl_toyos_render(int16_t *dst, long frames);
+long opl_saunaos_render(int16_t *dst, long frames);
 
 // **THE RENDER THREAD IS NOT AN OPTIMISATION -- INIT DEADLOCKS WITHOUT
 // IT.** `opl.c`'s InitDriver calls OPL_Detect(), which calls
@@ -89,14 +89,14 @@ static void *render_main(void *arg) {
         long space = usnd_push_space();
         if (space <= 0) { sys_sleep_ms(5); continue; }
         if (space > RENDER_MAX) space = RENDER_MAX;
-        long got = opl_toyos_render(g_stereo, space);
+        long got = opl_saunaos_render(g_stereo, space);
         if (got > 0) usnd_push(g_stereo, got);
         else sys_sleep_ms(5);
     }
     return 0;
 }
 
-static int toyos_init(unsigned port_base) {
+static int saunaos_init(unsigned port_base) {
     (void)port_base;
     if (usnd_init() != 0) return 0;          // idempotent; -EBUSY/-ENODEV are ordinary
     if (usnd_push_open() != 0) return 0;
@@ -122,7 +122,7 @@ static int toyos_init(unsigned port_base) {
     return 1;
 }
 
-static void toyos_shutdown(void) {
+static void saunaos_shutdown(void) {
     if (!g_started) return;
     g_quit = 1;
     if (g_render_on) { pthread_join(g_render, 0); g_render_on = 0; }
@@ -131,7 +131,7 @@ static void toyos_shutdown(void) {
     usnd_push_close();
 }
 
-static unsigned toyos_read_port(opl_port_t port) {
+static unsigned saunaos_read_port(opl_port_t port) {
     (void)port;
     unsigned result = 0;
     if (g_timer1.enabled && g_now > g_timer1.expire) result |= 0x80 | 0x40;
@@ -169,18 +169,18 @@ static void write_register(unsigned reg, unsigned value) {
     }
 }
 
-static void toyos_write_port(opl_port_t port, unsigned value) {
+static void saunaos_write_port(opl_port_t port, unsigned value) {
     if (port == OPL_REGISTER_PORT)  g_reg = value;
     else if (port == OPL_DATA_PORT) write_register(g_reg, value);
 }
 
-static void toyos_set_callback(uint64_t us, opl_callback_t cb, void *data) {
+static void saunaos_set_callback(uint64_t us, opl_callback_t cb, void *data) {
     pthread_mutex_lock(&g_qlock);
     if (g_queue) OPL_Queue_Push(g_queue, cb, data, g_now - g_pause_offset + us);
     pthread_mutex_unlock(&g_qlock);
 }
 
-static void toyos_clear_callbacks(void) {
+static void saunaos_clear_callbacks(void) {
     pthread_mutex_lock(&g_qlock);
     if (g_queue) OPL_Queue_Clear(g_queue);
     pthread_mutex_unlock(&g_qlock);
@@ -188,12 +188,12 @@ static void toyos_clear_callbacks(void) {
 
 // OPL_Lock/Unlock are how the game thread stops a callback running
 // while it changes the music's state. Held across the callback below.
-static void toyos_lock(void)   { pthread_mutex_lock(&g_cblock); }
-static void toyos_unlock(void) { pthread_mutex_unlock(&g_cblock); }
+static void saunaos_lock(void)   { pthread_mutex_lock(&g_cblock); }
+static void saunaos_unlock(void) { pthread_mutex_unlock(&g_cblock); }
 
-static void toyos_set_paused(int paused) { g_paused = paused; }
+static void saunaos_set_paused(int paused) { g_paused = paused; }
 
-static void toyos_adjust_callbacks(float factor) {
+static void saunaos_adjust_callbacks(float factor) {
     pthread_mutex_lock(&g_qlock);
     if (g_queue) OPL_Queue_AdjustCallbacks(g_queue, g_now, factor);
     pthread_mutex_unlock(&g_qlock);
@@ -201,17 +201,17 @@ static void toyos_adjust_callbacks(float factor) {
 
 // THE SYMBOL opl.c's DRIVER LIST NAMES. See the file header.
 opl_driver_t opl_sdl_driver = {
-    "toyos",
-    toyos_init,
-    toyos_shutdown,
-    toyos_read_port,
-    toyos_write_port,
-    toyos_set_callback,
-    toyos_clear_callbacks,
-    toyos_lock,
-    toyos_unlock,
-    toyos_set_paused,
-    toyos_adjust_callbacks,
+    "saunaos",
+    saunaos_init,
+    saunaos_shutdown,
+    saunaos_read_port,
+    saunaos_write_port,
+    saunaos_set_callback,
+    saunaos_clear_callbacks,
+    saunaos_lock,
+    saunaos_unlock,
+    saunaos_set_paused,
+    saunaos_adjust_callbacks,
 };
 
 // --- rendering --------------------------------------------------------
@@ -242,7 +242,7 @@ static void advance_time(unsigned n) {
 
 // Renders `frames` frames of interleaved stereo s16. dbopl is MONO, so
 // each sample is written to both channels -- an OPL2 had no stereo.
-long opl_toyos_render(int16_t *dst, long frames) {
+long opl_saunaos_render(int16_t *dst, long frames) {
     if (!g_started) return 0;
     long filled = 0;
 
@@ -289,4 +289,4 @@ long opl_toyos_render(int16_t *dst, long frames) {
     return filled;
 }
 
-int opl_toyos_started(void) { return g_started; }
+int opl_saunaos_started(void) { return g_started; }

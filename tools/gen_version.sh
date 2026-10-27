@@ -62,7 +62,7 @@ fi
 # along, and an honest pointer under any licence). The repository is
 # origin's when that is GitHub, so a fork's image names the fork; the
 # full commit id goes in the link, since a short one can become ambiguous.
-SOURCE_REPO="https://github.com/eveningworks/toy-os"
+SOURCE_REPO="https://github.com/eveningworks/saunaos"
 ORIGIN=$(git remote get-url origin 2>/dev/null || true)
 case "$ORIGIN" in
     git@github.com:*)     SOURCE_REPO="https://github.com/${ORIGIN#git@github.com:}" ;;
@@ -118,31 +118,31 @@ cat > "$TMP" << EOF
 // step of \`make all\`/\`make iso\` (see the Makefile). Don't hand-edit
 // this file, it gets overwritten on the very next build.
 //
-// TOYOS_VERSION is a semver-ish string ("0.1.0-dev" while in
+// SAUNAOS_VERSION is a semver-ish string ("0.1.0-dev" while in
 // development, "0.1.0" once released -- see VERSION at the repo root
 // and tools/set_version.sh). It's just whatever VERSION currently holds
 // -- this script doesn't change it. See docs/decisions.md for why this
 // replaced the earlier per-change build-number scheme.
-#define TOYOS_VERSION "$VERSION"
+#define SAUNAOS_VERSION "$VERSION"
 
 // The commit this build came from, plus "-dirty" if the working tree
 // did not match it -- i.e. if the source that produced this image
 // exists nowhere in history. "unknown" when built without git.
-#define TOYOS_BUILD_ID "$BUILD_ID"
+#define SAUNAOS_BUILD_ID "$BUILD_ID"
 
-// **What to display.** TOYOS_VERSION plus the build id on a dev build,
+// **What to display.** SAUNAOS_VERSION plus the build id on a dev build,
 // the bare version on a release (its tag already pins it), and a loud
 // "(dirty)" either way if the tree had uncommitted changes. Prefer this
-// over TOYOS_VERSION anywhere a human reads the result; reach for the
+// over SAUNAOS_VERSION anywhere a human reads the result; reach for the
 // bare macros when something needs to PARSE the version.
-#define TOYOS_VERSION_FULL "$VERSION_FULL"
+#define SAUNAOS_VERSION_FULL "$VERSION_FULL"
 
 // The source this build was made from (see tools/gen_version.sh), and
 // whether it is EXACTLY that: 0 for a dirty tree, whose changes exist in
 // no commit, or for a build made without git.
-#define TOYOS_SOURCE_REPO "$SOURCE_REPO"
-#define TOYOS_SOURCE_URL "$SOURCE_URL"
-#define TOYOS_SOURCE_EXACT $SOURCE_EXACT
+#define SAUNAOS_SOURCE_REPO "$SOURCE_REPO"
+#define SAUNAOS_SOURCE_URL "$SOURCE_URL"
+#define SAUNAOS_SOURCE_EXACT $SOURCE_EXACT
 
 #endif
 EOF
@@ -159,11 +159,11 @@ fi
 mkdir -p build/gen
 SRC_OUT="build/gen/SOURCE"
 {
-    echo "toy-os $VERSION_FULL"
+    echo "SaunaOS $VERSION_FULL"
     echo
     if [ "$BUILD_ID" = unknown ]; then
         echo "This build was made without git, so it cannot name its commit."
-        echo "toy-os's source is at:"
+        echo "SaunaOS's source is at:"
         echo "  $SOURCE_URL"
     else
         echo "The source code this build was made from:"
@@ -171,7 +171,7 @@ SRC_OUT="build/gen/SOURCE"
         case "$VERSION" in
             *-dev) ;;
             *)  echo "and as one archive, beside this release's images:"
-                echo "  $SOURCE_REPO/releases/tag/v$VERSION  (toy-os-$VERSION-source.tar.gz)" ;;
+                echo "  $SOURCE_REPO/releases/tag/v$VERSION  (saunaos-$VERSION-source.tar.gz)" ;;
         esac
         if [ "$SOURCE_EXACT" = 0 ]; then
             echo
@@ -180,7 +180,7 @@ SRC_OUT="build/gen/SOURCE"
         fi
     fi
     echo
-    echo "toy-os's own code is under the licence in LICENSE at the top of the"
+    echo "SaunaOS's own code is under the licence in LICENSE at the top of the"
     echo "source tree; what is under another licence, and which, is listed"
     echo "there too and in this directory."
 } > "$SRC_OUT.tmp.$$"
@@ -218,7 +218,7 @@ cat > "$STAMP_OUT" << EOF
 // of whatever includes it -- and if that is a widely included header,
 // of the whole tree. Ring 3 asks QUERY_VERSION; nothing else needs the
 // macro.
-#define TOYOS_BUILD_STAMP "$BUILD_STAMP"
+#define SAUNAOS_BUILD_STAMP "$BUILD_STAMP"
 
 #endif
 EOF
@@ -261,7 +261,7 @@ cat > "$DATE_TMP" << EOF
 // Include it ONLY where it is displayed. Pulling it into a widely
 // included header would recreate exactly the problem it is shaped to
 // avoid.
-#define TOYOS_BUILD_DATE "$BUILD_DATE"
+#define SAUNAOS_BUILD_DATE "$BUILD_DATE"
 
 #endif
 EOF

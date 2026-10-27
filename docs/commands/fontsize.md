@@ -25,7 +25,7 @@ Atlases are cached, so going back to a size already used is free.
 baked sizes (8, 10, 12, 14, 16, 18, 20, 24) and cannot produce a
 thirteenth out of nothing, so the request goes to the nearest one and
 this says which -- rather than reporting 13 while drawing 12. The
-persisted value in `/etc/toyos.conf` is what actually took effect.
+persisted value in `/etc/saunaos.conf` is what actually took effect.
 
 ## What it deliberately does not do
 

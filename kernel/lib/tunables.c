@@ -540,13 +540,13 @@ static const struct setting rt_watchdog_setting = {
 // from before the user changed it.
 
 static void usb_recover_get(char *out, uint32_t cap) {
-    if (!etc_config_get("/etc/toyos.conf", "usb_recover", out, cap))
+    if (!etc_config_get("/etc/saunaos.conf", "usb_recover", out, cap))
         k_strlcpy(out, "off", cap);
 }
 
 static int usb_recover_apply(const char *value) {
     if (k_strcmp(value, "on") != 0 && k_strcmp(value, "off") != 0) return SETTING_INVALID;
-    return etc_config_set("/etc/toyos.conf", "usb_recover", value)
+    return etc_config_set("/etc/saunaos.conf", "usb_recover", value)
            ? SETTING_SAVED : SETTING_UNSAVED;
 }
 
@@ -560,7 +560,7 @@ static const struct setting g_usb_recover_setting = {
     .name = "usb_recover",
     .label = "Reset USB controller to recover a port",
     .type = SETTING_TYPE_ENUM,
-    .file = "/etc/toyos.conf",
+    .file = "/etc/saunaos.conf",
     .category = TUNABLE_CATEGORY, .group = "Diagnostics",
     .choice = usb_recover_choice,
     .get = usb_recover_get, .apply = usb_recover_apply,
@@ -570,7 +570,7 @@ static const struct setting g_usb_recover_setting = {
 // definition of what "on" means.
 int usb_recover_enabled(void) {
     char v[8];
-    if (!etc_config_get("/etc/toyos.conf", "usb_recover", v, sizeof v)) return 0;
+    if (!etc_config_get("/etc/saunaos.conf", "usb_recover", v, sizeof v)) return 0;
     return k_strcmp(v, "on") == 0;
 }
 

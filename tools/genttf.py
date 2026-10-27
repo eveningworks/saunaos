@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Bakes a real TrueType font into static anti-aliased bitmap fonts for
-toy-os: generate offline, bake into a C array, commit the result. It
+saunaos: generate offline, bake into a C array, commit the result. It
 replaced a hand-authored 8x8 ASCII-art font and its authoring script,
 deleted once nothing referenced the face; the source of truth here is an
 actual .ttf rendered with FreeType (via Pillow). There is no font
-rasterizer on-target: this script never runs on toy-os itself, only on a
+rasterizer on-target: this script never runs on SaunaOS itself, only on a
 developer's machine, and its *output* (plain grayscale-alpha byte arrays)
 is what actually ships in the kernel image.
 
@@ -248,7 +248,7 @@ def render_preview():
     samples = [
         "The quick brown fox jumps",
         "over the lazy dog 0123456789",
-        "toy-os graphics mode is up.",
+        "SaunaOS graphics mode is up.",
         "ABCDEFGHIJKLMNOPQRSTUVWXYZ",
         "abcdefghijklmnopqrstuvwxyz",
         "!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~",

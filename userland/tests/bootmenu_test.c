@@ -47,17 +47,17 @@ int main(void) {
     static const char cfg[] =
         "# a comment naming menuentry \"not one\"\n"
         "set timeout=5\n"
-        "set default=\"toy-os (b)\"\n"
+        "set default=\"SaunaOS (b)\"\n"
         "if [ \"${next_entry}\" ]; then\n"
         "    set default=\"${next_entry}\"\n"
         "fi\n"
-        "menuentry 'toy-os (a)' {\n"
+        "menuentry 'SaunaOS (a)' {\n"
         "    multiboot2 /kernel.bin\n"
         "}\n"
         "submenu \"More\" {\n"
         "    menuentry \"hidden\" { boot }\n"
         "}\n"
-        "menuentry \"toy-os (b)\" --class os {\n"
+        "menuentry \"SaunaOS (b)\" --class os {\n"
         "    multiboot2 /kernel.bin debugcon\n"
         "}\n"
         "menuentry bare {\n"
@@ -68,12 +68,12 @@ int main(void) {
     static struct ubootmenu m;
     int n = ubootmenu_read(&m, CFG);
     utest_checkf(n == 3, "three top-level entries (got %d) -- the submenu's is not one", n);
-    utest_check(n == 3 && !strcmp(m.title[0], "toy-os (a)") && !strcmp(m.title[1], "toy-os (b)") &&
+    utest_check(n == 3 && !strcmp(m.title[0], "SaunaOS (a)") && !strcmp(m.title[1], "SaunaOS (b)") &&
                 !strcmp(m.title[2], "bare"), "single-quoted, double-quoted and bare titles");
     utest_checkf(m.def == 1, "`set default=` by title picks entry 1 (got %d)", m.def);
     utest_check(ubootmenu_find(&m, "2") == 2 && ubootmenu_find(&m, "3") == -1,
                 "a number names an entry in range and nothing past it");
-    utest_check(ubootmenu_find(&m, "toy-os (b)") == 1 && ubootmenu_find(&m, "toy-os") == -1,
+    utest_check(ubootmenu_find(&m, "SaunaOS (b)") == 1 && ubootmenu_find(&m, "SaunaOS") == -1,
                 "a title matches exactly, never as a prefix");
 
     static const char plain[] = "set default=0\nmenuentry \"only\" { boot }\n";
@@ -90,12 +90,12 @@ int main(void) {
     put(ENV, blk, (int)sizeof blk);
 
     static char got[2048];
-    utest_check(ubootmenu_set_next_at(ENV, "toy-os (b)") == 0, "a choice is written");
+    utest_check(ubootmenu_set_next_at(ENV, "SaunaOS (b)") == 0, "a choice is written");
     int len = get(ENV, got, sizeof got);
     got[len > 0 ? len : 0] = 0;
     utest_checkf(len == 1024, "the block is exactly 1024 bytes (got %d)", len);
     utest_check(!strncmp(got, "# GRUB Environment Block\n", 25), "with GRUB's header first");
-    utest_check(strstr(got, "\nnext_entry=toy-os (b)\n") != 0, "and next_entry naming the title");
+    utest_check(strstr(got, "\nnext_entry=SaunaOS (b)\n") != 0, "and next_entry naming the title");
     utest_check(strstr(got, "\nsaved_entry=x\n") != 0, "GRUB's own variable survives the set");
 
     utest_check(ubootmenu_set_next_at(ENV, 0) == 0, "a choice is cleared");

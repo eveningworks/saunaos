@@ -16,7 +16,7 @@
 > from it — TFS3's 32 KiB front reservation exists *because* TFS2's
 > superblock collided with the MBR.
 
-**Status: the LEGACY of toy-os's two filesystems.** TFS3
+**Status: the LEGACY of SaunaOS's two filesystems.** TFS3
 (`docs/tfs3-spec.md`) became the default for fresh images at Milestone
 15 (2026-08-14) and the only on-disk filesystem at 0adce467, which
 removed the TFS2 backend outright -- there is no second magic to probe
@@ -25,8 +25,8 @@ format itself did not move a byte, which is the point of keeping it.
 
 This is a byte-exact specification of TFS2 for writing an independent
 (read-only, ideally) tool on a
-host machine that can open a `disk.img`/`toy-os.iso`-adjacent raw disk
-image and browse its contents without booting toy-os at all.
+host machine that can open a `disk.img`/`saunaos.iso`-adjacent raw disk
+image and browse its contents without booting SaunaOS at all.
 
 **This describes on-disk version 3.** The block-addressed,
 indirect-pointer layout (12 direct block pointers + single/double/
@@ -39,7 +39,7 @@ offsets differ, and only because that one constant did.
 Older versions are **gone**: v1 (the original journaled/timestamped
 format, with each file's data inlined in its table record, capped at
 `FS_DATA_MAX` = 2048 bytes) and v2 (same layout as here, 32 slots).
-toy-os detects any version mismatch and treats the disk as unclaimed;
+SaunaOS detects any version mismatch and treats the disk as unclaimed;
 since the multi-backend VFS landed, an unclaimed-but-readable disk is
 formatted with the DEFAULT filesystem (TFS3, not TFS2 -- see
 `kernel/fs/vfs.c`'s probe loop), and an unreadable superblock is
@@ -78,7 +78,7 @@ versions. A TFS2-aware reader should check the superblock magic+version
   and bounds callers rather than any format. Within THIS page they are
   the frozen values above. A reader has to know them ahead of time
   (they're listed here) rather than discover them from the image
-  itself. A future toy-os build that changes either would also bump
+  itself. A future SaunaOS build that changes either would also bump
   the superblock version (see below), which is the signal a reader
   should treat as "this exact spec no longer applies."
 - The *total disk size* this backend assumes (`FS_DISK_TOTAL_BYTES`,
@@ -108,7 +108,7 @@ numbers, for comparison, were table 3–34, bitmap 35–610, data from LBA
 616 -- the same structures, 224 sectors earlier.
 
 `FS_DISK_TOTAL_BYTES` is a compile-time *maximum*, not a claim about
-the image: since the capacity-detection change, toy-os clamps its
+the image: since the capacity-detection change, SaunaOS clamps its
 usable block count to what the drive actually reports (IDENTIFY words
 60-61) at mount. A reader should size the bitmap region from the
 constant above (it's a fixed on-disk region either way) but shouldn't
@@ -120,7 +120,7 @@ to ignore" boundary** -- the entire disk (all the way out to
 as a *sparse* 9 GiB file (`truncate -s 9G`, see the Makefile's
 `DISK_IMG` rule) specifically so an unwritten disk costs no real space
 on the host -- most of it reads as zeros and occupies no blocks on the
-host filesystem until toy-os actually writes there.
+host filesystem until SaunaOS actually writes there.
 
 ### Deriving these offsets yourself
 
@@ -151,7 +151,7 @@ FS_DATA_START_LBA   = FS_DATA_START_BLOCK * 8
 
 A reader should treat any image whose first 5 bytes don't match
 exactly (`"TFS2"` + version `0x03`) as **not a v3 TFS2 image** --
-toy-os itself reformats on any mismatch (including a v1 image) rather
+saunaos itself reformats on any mismatch (including a v1 image) rather
 than trying to read a foreign/old-version layout, and a host-side
 reader should refuse the same way rather than guess at a different
 layout.
@@ -162,7 +162,7 @@ Write-ahead log metadata for the single mutation (if any) that was
 most recently in flight. See "Journal semantics for readers" below for
 what a *browsing* tool should actually do with this region -- short
 version: **the table (below) is the authoritative, current state; the
-journal only matters to toy-os's own crash recovery on its next real
+journal only matters to SaunaOS's own crash recovery on its next real
 boot.**
 
 | Offset | Size | Field | Value |
@@ -198,11 +198,11 @@ about journal coverage should be carried over for.
 
 ### Journal semantics for readers
 
-toy-os's own write path (`persist_record()` in `tfs.c`) is a 4-step
+SaunaOS's own write path (`persist_record()` in `tfs.c`) is a 4-step
 write-ahead sequence: stage the new record bytes in the journal data
 area -> set `commit = 1` (the durability point) -> apply the same
 bytes to the real table slot -> clear the journal (`commit = 0`). On
-its own next boot, toy-os checks this header before trusting the
+its own next boot, SaunaOS checks this header before trusting the
 table: if `commit == 1` and the journal data's checksum still matches,
 it replays those exact bytes into the target slot (safe either way,
 since the table write may or may not have already finished before a
@@ -223,13 +223,13 @@ preference:
    tool.
 2. **Surface it as information, without acting on it.** If `commit ==
    1`, tell the user "there's an unapplied pending change for slot N,
-   from an unclean shutdown -- boot toy-os once to let it finish
+   from an unclean shutdown -- boot SaunaOS once to let it finish
    recovering, then re-open this image" rather than silently guessing
    which of the two possible states (table already updated / table
    still old) is true.
 
 Do not write to the image from a browsing tool to "help" -- that's
-squarely toy-os's own job, and a tool that gets the replay logic even
+squarely SaunaOS's own job, and a tool that gets the replay logic even
 slightly wrong risks corrupting a slot that was otherwise fine.
 
 ## Table records (LBA 3 onward)
@@ -322,7 +322,7 @@ scheme:
 - **Beyond that**: the `triple_indirect` block, three levels deep.
   Capacity here is ~1024³ blocks (~4 TB) -- far past this disk's
   real 9 GiB size, so in practice triple-indirect blocks are rarely
-  if ever populated on a real toy-os image.
+  if ever populated on a real SaunaOS image.
 
 A file's total size in blocks is `ceil(size / 4096)`; the last block
 is only partially meaningful (only the first `size % 4096` bytes of
@@ -428,7 +428,7 @@ def check_journal(f):
     if commit:
         slot = struct.unpack_from("<I", hdr, 5)[0]
         print(f"NOTE: pending unapplied journal entry for slot {slot} "
-              f"(unclean shutdown) -- boot toy-os once to let it finish "
+              f"(unclean shutdown) -- boot SaunaOS once to let it finish "
               f"recovering before trusting this image fully.",
               file=sys.stderr)
 
@@ -549,7 +549,7 @@ if __name__ == "__main__":
 ```
 
 Save this as e.g. `tfs2_reader.py` and run it against a `disk.img`
-copied off toy-os's disk image -- it needs no toy-os build tooling,
+copied off SaunaOS's disk image -- it needs no SaunaOS build tooling,
 just Python 3's standard library. Run with no third argument to list
 every entry; pass a path as a second argument to dump that file's
 content to stdout.
@@ -563,12 +563,12 @@ not covered by this spec in detail, and not recommended as a first
 step -- the journal's write-ahead sequence (see above) has to be
 followed exactly (stage -> commit -> apply -> clear) for the *record*
 to be crash-safe, and getting it wrong risks corrupting the image in a
-way that's hard to distinguish from a real toy-os bug when it's next
+way that's hard to distinguish from a real SaunaOS bug when it's next
 booted. Writing file *data* correctly additionally means allocating
 blocks (updating the bitmap) and threading indirect-block pointers
 through the record -- meaningfully more bookkeeping than v1's single
 inline blob was. A browsing tool that also wants to *edit* files
-should strongly consider driving toy-os itself (e.g. via the same
+should strongly consider driving SaunaOS itself (e.g. via the same
 QMP/serial automation `tools/qmp_test.py` uses for testing) rather
 than reimplementing the write path independently, at least until
 there's a concrete need that's worth the risk.

@@ -1,6 +1,6 @@
 # Architecture portability
 
-An assessment of what it would take to make toy-os buildable for a
+An assessment of what it would take to make SaunaOS buildable for a
 second CPU architecture (RISC-V 64 is used as the running example
 throughout, since it's the most common "second arch" hobby-OS choice
 and has an active QEMU `virt` machine target), and a phased plan for
@@ -251,7 +251,7 @@ contained instead of scattered by directory convention only, and they
 remove the userland syscall-trampoline duplication noted in
 `references`-style project files as a pre-existing smell. Phase 4
 onward is real, scoped work that should only start once there's an
-actual reason to run toy-os on a second machine type -- building it
+actual reason to run SaunaOS on a second machine type -- building it
 speculatively risks carrying an unused arch tree that silently rots
 (untested code is often wrong code, the same lesson this project's own
 `CLAUDE.md` states about testing over re-reading).

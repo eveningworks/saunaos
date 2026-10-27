@@ -23,7 +23,7 @@ for years (systemd's `tmp.mount`), keeps `/var/tmp` on the disk for
 scratch that must survive, and puts runtime state in `/run` — three
 directories because they are three different promises. Windows has none
 of this: `%TEMP%` is a plain NTFS directory and the pagefile backs
-anonymous memory only. macOS is the same shape as Windows. toy-os
+anonymous memory only. macOS is the same shape as Windows. SaunaOS
 follows Linux, because Linux is the only one of the three that has the
 problem — a machine where scratch I/O is worth not paying for.
 
@@ -150,7 +150,7 @@ and Windows are fast because they do not flush on write at all -- a
 `write(2)` lands in the page cache and returns, writeback happens on a
 timer (`dirty_expire_centisecs`, 30 s), and the journal commits every
 ~5 s (`commit=5`) with one barrier for thousands of operations.
-toy-os makes a STRONGER promise -- every write durable when it returns
+SaunaOS makes a STRONGER promise -- every write durable when it returns
 -- and pays roughly a thousandfold for it. Closing that gap is a
 write-back cache, not a bigger constant. And it is not free: a 64 KiB
 buffer wants sixteen CONTIGUOUS frames, so `fd_bounce_alloc()` asks for
@@ -493,7 +493,7 @@ with two real device flushes. At 64 KiB a syscall that is 32 flushes per
 MiB written, and 512 per MiB at 4 KiB. Linux and Windows do not flush on
 write at all -- a `write(2)` lands in the page cache and returns,
 writeback runs on a timer, and the journal commits every few seconds
-with one barrier for thousands of operations. toy-os makes the stronger
+with one barrier for thousands of operations. SaunaOS makes the stronger
 promise and pays for it.
 
 **How much it pays was the part nobody knew, and it is now measured on
@@ -633,7 +633,7 @@ two snapshots: a reset would be a WRITE to a class that is a fact, and
 two readers of it must not be able to blank each other's baseline.
 
 **The trap it exposed, which is about the CLOCK rather than the disk.**
-In every default QEMU configuration toy-os runs on the PIT, because a
+In every default QEMU configuration SaunaOS runs on the PIT, because a
 guest is not offered an invariant TSC unless the CPU model says
 `+invtsc` -- QEMU masks it since it blocks migration. The PIT cannot
 resolve one driver call, so every duration reads as zero and the
@@ -815,7 +815,7 @@ being fine the moment two programs own configuration: the loser has no
 way to know it lost, and the winner depends on boot order.
 
 **The namespace is the registered NAME OF THE FILE the setting persists
-to** (`api/config_file.h`), so `font.size` in `/etc/toyos.conf` is
+to** (`api/config_file.h`), so `font.size` in `/etc/saunaos.conf` is
 `system.font.size`. That choice is what made this cheap: the namespace
 is DERIVED, not declared, so **not one `struct setting` had to change**
 and the /etc files are untouched. It also means a ring-3 program that
@@ -856,7 +856,7 @@ two settings.
 the registry out of the kernel. Several settings are kernel state whose
 `apply` mutates live subsystems (timezone, font size, keymap, cursor)
 and cannot leave ring 0; the rest belong to programs, and a ring-3
-settings daemon needs supervision, discovery and an IPC that toy-os does
+settings daemon needs supervision, discovery and an IPC that SaunaOS does
 not have yet. Qualified names were built first deliberately, because
 (namespace, name) is transport-agnostic -- it is the same identity
 whichever side of that boundary the registry ends up on.
@@ -1018,7 +1018,7 @@ vanished during a `make verify`, while the copy already written to
 tracked directory that the `seed` target copies in.
 
 Licensing: upstream offers the database under GPL-2.0-or-later **or**
-3-clause BSD. toy-os takes the BSD option, which is compatible with the
+3-clause BSD. SaunaOS takes the BSD option, which is compatible with the
 MIT repo; `LICENSE` carries the full text in a "Third-party data"
 section, following the same pattern as the baked JetBrains Mono glyph
 data (see the entry on that).
@@ -1117,7 +1117,7 @@ TFS3 landed -- same content-hash sync, same ~4.03 MB
 direct+single-indirect cap.
 
 **Content hash, not mtime.** TFS2's `created`/`modified` fields are
-toy-os's own RTC-sourced local wall-clock time (see `fs.h`'s
+saunaos's own RTC-sourced local wall-clock time (see `fs.h`'s
 `fs_stat()` comment) -- there's no epoch, and no defined relationship
 to the *host* machine's clock a comparison could lean on without
 assuming a particular skew. Comparing "is the local file newer" against
@@ -1170,11 +1170,11 @@ what the host-side tool is for.
 The previous entry deferred the host-side TFS2 writer tool and kept
 `install_bin_binaries()`'s boot-time bootstrap-install
 (`kernel/core/kernel.c`, copying a GRUB module's bytes into `/bin` the
-first time toy-os boots against a disk) as the interim way to get
+first time SaunaOS boots against a disk) as the interim way to get
 `lspci` onto disk. Once the writer tool existed and grew a `format`
 subcommand (see the entry above -- needed because `write`/`sync`
 previously required an already-formatted image, which a brand new
-`disk.img` isn't until toy-os boots and formats it once), that
+`disk.img` isn't until SaunaOS boots and formats it once), that
 interim mechanism became fully redundant: the writer tools'
 `sync`
 can format-and-seed a completely untouched `disk.img` in one call, at
@@ -1278,7 +1278,7 @@ binaries, no per-binary kernel harness. Two didn't:
   no-copy-needed `fs_read()` reasoning `elf_run_from_fs()` already
   used, just wired into the scheduler's spawn path instead of the
   one-shot run path.
-- **`elftest`/`hello.elf`** tested toy-os's raw manual-`iretq` ring-3
+- **`elftest`/`hello.elf`** tested SaunaOS's raw manual-`iretq` ring-3
   entry specifically, a different (and older) code path than
   `process_run_ring3()`'s recoverable one. Folding it into `run hello`
   means that specific raw-entry test coverage is gone -- a real
@@ -1460,7 +1460,7 @@ created by the corruption in seconds. See the commit that added it.
 
 `disk.img` is created with `truncate -s 9G`, so it costs nothing up
 front. But sparseness is only ever LOST: a block written once stays
-allocated on the host forever, even after toy-os deletes the file that
+allocated on the host forever, even after SaunaOS deletes the file that
 owned it. The bitmap bit clears, the host is never told, and the file
 only grows.
 
@@ -1483,7 +1483,7 @@ Both halves of the fix exist, deliberately:
 - **`ata_trim()`**, issued from `free_block()` (`kernel/fs/tfs.c`) as
   blocks are freed, with `discard=unmap` on every QEMU `-drive` line.
   QEMU turns the guest's TRIM into a hole punch, so an `rm` inside
-  toy-os gives the space back with no host tool involved.
+  SaunaOS gives the space back with no host tool involved.
 
 The result is measurable: `stress 150` writes 150 MB, verifies it,
 deletes it, and the image is unchanged at 2.3 MiB. Before, that run cost
@@ -1883,7 +1883,7 @@ always presentable if not always pretty. A client draws `label`
 unconditionally and never decides.
 
 **The name is still the identity.** `losangeles` is what `timezone
-<city>` matches, what `/etc/toyos.conf` stores, and what a setting's
+<city>` matches, what `/etc/saunaos.conf` stores, and what a setting's
 value is; the display name is presentation, and nothing parses it back.
 That is why the shell's `timezone` listing prints `Los Angeles
 (losangeles)` rather than the pretty name alone — a list you cannot type
@@ -2027,7 +2027,7 @@ requires — so a partitioned data disk becomes, as far as the BIOS is
 concerned, the thing to boot. It jumps into 446 bytes of filesystem data
 and stops.
 
-`toy-os.iso` is always the boot medium here and `disk.img` is always
+`saunaos.iso` is always the boot medium here and `disk.img` is always
 data, so `-boot order=d` states that in the Makefile's `QEMU_RUN`, in
 `tools/vm.py` and in `qmp_test.py`'s `launch_qemu_cmd()`. It was
 harmless before and is load-bearing now. `tools/mkpart_test.py`'s
@@ -2151,7 +2151,7 @@ filesystem a backend claims, and `root=` remains the answer to that.
 
 ## The kernel lives on the disk, and `/boot` is FAT32 because GRUB cannot read TFS3
 
-The kernel used to exist only inside `toy-os.iso`. Every boot — every
+The kernel used to exist only inside `saunaos.iso`. Every boot — every
 `make run`, every headless test — was a CD boot with `disk.img` attached
 as data beside it, which is what a live CD looks like and not what an
 installed system looks like. Moving the kernel onto the disk means one
@@ -2192,7 +2192,7 @@ And doing nothing, which keeps a system that cannot boot itself.
 **FAT32 also buys the two things next in line.** The partition is typed
 as an EFI System Partition, so the roadmap's UEFI track becomes "add a
 second core image to the same partition" rather than "design a second
-disk layout". And when the planned FAT32 backend lands, toy-os can read
+disk layout". And when the planned FAT32 backend lands, SaunaOS can read
 and write its own `/boot` — which is what it would take for this OS to
 update its own kernel.
 
@@ -2244,8 +2244,8 @@ fixed, asserting the partition NUMBER left active rather than that a
 cheerful line was printed.
 
 **What this does not do.** No UEFI boot (BIOS/i386-pc only, though the
-ESP is now where a UEFI loader would go). And nothing installs toy-os
-onto a disk from inside toy-os; `disk.img` is still built by the host.
+ESP is now where a UEFI loader would go). And nothing installs SaunaOS
+onto a disk from inside SaunaOS; `disk.img` is still built by the host.
 
 *(This entry used to end "no `/boot` visible from inside the running OS,
 because there is no FAT driver yet". There is one now —
@@ -2345,7 +2345,7 @@ it. The table is about eighty lines and a longest-prefix lookup.
 
 **Why not Linux's size.** Linux keeps a TREE of `struct mount`, crosses
 mount points during path-component walking, and carries per-process
-namespaces, bind mounts and automounts. toy-os resolves a whole
+namespaces, bind mounts and automounts. SaunaOS resolves a whole
 normalized path against a flat table of at most six entries, once, at
 the `fs_*` boundary — because its paths are already normalized before
 they arrive (`api/fs.h`), which removes the entire reason Linux
@@ -2424,7 +2424,7 @@ image instead of a 34 MiB one, which matters because the test volume is
 a `kmalloc()` and `pmm_alloc_contiguous()` fails on a fragmented machine
 long before it fails on a small one. `format()` still picks a cluster
 size that clears the 65525 floor wherever the volume is big enough, so
-nothing toy-os *writes* is out of spec.
+nothing SaunaOS *writes* is out of spec.
 
 ## Enumerating every disk is a separate question from choosing the root
 
@@ -2444,7 +2444,7 @@ later, by the VFS, from a device that is already there. NT's PnP manager
 builds a device object per device and the boot path comes from BCD's
 `osdevice`. In both, *finding* a disk is not *claiming* it.
 
-toy-os now does the same: every driver runs, every device it finds goes
+SaunaOS now does the same: every driver runs, every device it finds goes
 into a table with a name, and the root is chosen afterwards from `root=`
 or from registration order. Registration order is kept as the default
 precedence — virtio, then AHCI, then ATA — because that ordering was
@@ -2495,7 +2495,7 @@ operation; a Windows filesystem driver keeps a per-volume control block
 and the IRP names it. Neither swaps a global, and the reason is SMP: one
 current state would serialise the whole filesystem across cores.
 
-**toy-os now does the same: every `fs_ops` op takes `void *st`, the
+**SaunaOS now does the same: every `fs_ops` op takes `void *st`, the
 mount's own state, and inside a backend it travels as `sbi`** (Linux's
 name for a superblock's private info). `vfs.c`'s `FS_OP(m, op, ...)`
 passes `m->state` itself, so a call cannot be handed another mount's.
@@ -2563,12 +2563,12 @@ an ESP mounted at `/boot` (Arch) keep the partition's root AS the boot
 directory: `grub/` and `vmlinuz` at the top, GRUB's prefix
 `(hd0,gptN)/grub`. The only nesting on a Linux box is `/boot/efi/EFI/`,
 and that `EFI/` is mandated by the UEFI spec -- nothing mandated ours.
-toy-os follows: kernel and `grub/` at the volume's root, prefix `/grub`.
+SaunaOS follows: kernel and `grub/` at the volume's root, prefix `/grub`.
 
 **The shared-config property survives** because the ISO moved too: its
 kernel is at the ISO's root (`iso/kernel.bin`), so `multiboot2
 /kernel.bin` is right on both media. grub-mkrescue still owns
-`/boot/grub` on the ISO, which nothing in toy-os ever mounts. The live
+`/boot/grub` on the ISO, which nothing in SaunaOS ever mounts. The live
 ISO has its own `grub-live.cfg` and kept its paths.
 
 **An installed machine cannot just have its files moved**: its GRUB core
@@ -2595,7 +2595,7 @@ more often than anyone would remember it).
 
 ## The installer is five ordinary operations, and the kernel never learns what a bootloader is
 
-toy-os can install itself now (`/bin/install`). The question worth
+SaunaOS can install itself now (`/bin/install`). The question worth
 recording is what the KERNEL had to grow for that, because the obvious
 answer -- an install syscall -- is the wrong one.
 
@@ -2606,7 +2606,7 @@ partition an disk, make a filesystem, mount it, copy files, run
 place they need privilege is writing raw sectors, and on Linux that is
 just `open("/dev/sda", O_WRONLY)` gated by uid 0.
 
-**toy-os cannot copy that last part, and that is what shaped this.**
+**SaunaOS cannot copy that last part, and that is what shaped this.**
 There is no privilege model here, so a general write-any-sector syscall
 would be a way for any process to destroy any filesystem for the
 convenience of one rare command -- the reasoning `SYS_MKPART` already
@@ -2632,14 +2632,14 @@ stages them beside the kernel -- which is where `grub-install` puts them
 on a real system, and which works perfectly on a disk boot and not at all
 on a live one. **A live session has no `/boot`:** GRUB loads the kernel
 and a filesystem image into RAM, and after that nothing drives the
-medium, because toy-os has no USB mass-storage driver. `/boot` is an
+medium, because SaunaOS has no USB mass-storage driver. `/boot` is an
 empty mount point and the ESP does not exist.
 
 That matters because **installing from live media is how a real machine
-gets toy-os** -- it is the only arrangement where the target disk is not
+gets SaunaOS** -- it is the only arrangement where the target disk is not
 also the one being run from. So the payload is `/install` in the ROOT:
 `kernel.bin`, `grub.cfg`, `boot.img`, `core.img`, staged into the seed
-tree so that every toy-os filesystem carries it and `/bin/install` reads
+tree so that every SaunaOS filesystem carries it and `/bin/install` reads
 ONE path on every medium. The alternative -- read `/boot` when it is
 there, fall back otherwise -- is two code paths where one gets tested and
 the other is found broken later, which this project has been bitten by
@@ -2649,7 +2649,7 @@ The cost is a second copy of the kernel in every root image (~4.7 MB) and
 the drift it invites, since a running system now has `/boot/boot/
 kernel.bin` and `/install/kernel.bin` and nothing keeps them equal after
 a hand edit. Both come from one build at seed time, and updating a kernel
-in place is not a thing toy-os can do yet anyway (roadmap).
+in place is not a thing SaunaOS can do yet anyway (roadmap).
 
 The kernel reading the images off the running disk's own LBA 0 and BIOS
 boot partition was the third option: no files at all. Rejected because it
@@ -2658,7 +2658,7 @@ is guessing, and because it cannot work from a live ISO either.
 **The layout is a constraint and is stated as one.** `core.img` carries
 its prefix baked in at `grub-mkimage` time, so the copy this installs
 only finds its config if the ESP is partition 2 on the target as well.
-Real installers generate a fresh core image per target; toy-os has no
+Real installers generate a fresh core image per target; SaunaOS has no
 `grub-mkimage`, so it reproduces the layout the image it copies expects.
 Said out loud in `/bin/install`'s own comment and in its page, because
 a session reordering those partitions would get a disk that reaches GRUB
@@ -3139,7 +3139,7 @@ directories by address, `s_vfs_rename_mutex` for a cross-directory
 rename) so that holding one `i_rwsem` while waiting for the next cannot
 deadlock. It needs the order because it holds and waits.
 
-**What toy-os does instead**: never hold and wait. `t3_lock()` either
+**What SaunaOS does instead**: never hold and wait. `t3_lock()` either
 takes the lock at once or releases every lock the op holds, waits with
 the volume lock dropped, and makes FS_OP run the op again from its
 lookup. With no hold-and-wait there is no cycle to form, so there is no
@@ -3280,8 +3280,8 @@ worth naming because "allocate it" is not always right:
 
 ## The persistent log keeps one file per boot, and a boot that fills its share stops
 
-`logd` kept exactly two files until 2026-09-19: `toyos.log` for the
-current boot and `toyos.log.1` for the previous one, half the
+`logd` kept exactly two files until 2026-09-19: `saunaos.log` for the
+current boot and `saunaos.log.1` for the previous one, half the
 `storage.log.max` budget each. That answers "what did it say before I
 rebooted it", which is the right question after a machine has been
 rebooted once to recover it -- and the wrong one for a fault that
@@ -3301,7 +3301,7 @@ the counter in `/var/lib/logd.seq` so the number survives the reboot it
 is naming. `log -p 3` then means three BOOTS back, always.
 
 **And a boot that fills its share stops rather than rotating within the
-boot.** This is where toy-os deliberately differs from journald, which
+boot.** This is where SaunaOS deliberately differs from journald, which
 opens a new file and keeps going. That behaviour lets a single runaway
 logger -- the concrete case: a driver polling a device that had gone
 away, one line a second -- flush every older boot out of the retention
@@ -3375,7 +3375,7 @@ and run `fstrim.timer` weekly instead. btrfs has defaulted to
 sends delete notifications down the storage stack and re-trims weekly
 with Optimize Drives.
 
-**What toy-os does.** tfs3 queues the freed runs, merges neighbours (a
+**What SaunaOS does.** tfs3 queues the freed runs, merges neighbours (a
 pointer table usually sits next to the data it maps, so a sequential
 file collapses to a few ranges), and hands the list to
 `blkdev_trim_ranges()`. AHCI and legacy ATA pack up to 64 ranges per
@@ -3439,7 +3439,7 @@ block boundary.
 512-byte units on every device, the request queue carries
 `logical_block_size`, and a misaligned bio fails. virtio-blk's own wire
 protocol does the same -- its sector fields are 512-byte units even when
-`blk_size` is 4096 -- so toy-os's virtio driver needed no conversion at
+`blk_size` is 4096 -- so SaunaOS's virtio driver needed no conversion at
 all. Windows reports `BytesPerLogicalSector` and has its filesystems
 format to it; that is the other half, and the one FAT32 follows here.
 
@@ -3521,14 +3521,14 @@ TFS3's own comment deferred "an atomic replace" as a separate decision.
 An updater needs exactly that -- write `x.upd`, then swap it in with no
 instant where `x` is missing -- and so does every portable program that
 saves a file the POSIX way (Doom's savegames, mbedTLS's key store call
-`rename()` expecting it to replace, and on toy-os it silently failed).
+`rename()` expecting it to replace, and on SaunaOS it silently failed).
 
 **What real systems do.** POSIX `rename(2)` replaces an existing file
 atomically; Linux added `renameat2(RENAME_NOREPLACE)` as the opt-out.
 Windows is the reverse: `MoveFileEx` refuses unless given
 `MOVEFILE_REPLACE_EXISTING`.
 
-**What toy-os does.** Windows' default with POSIX's libc. The VFS keeps
+**What SaunaOS does.** Windows' default with POSIX's libc. The VFS keeps
 `fs_rename()` refusing and adds `fs_rename_replace()`; the syscall layer
 keeps `SYS_RENAME` refusing and adds `SYS_RENAME2(flags)` with
 `RENAME2_REPLACE`; libc's `rename()` asks for the replace, while `mv`
@@ -3563,7 +3563,7 @@ and `btrfs scrub` are the other shape: the kernel walks the MOUNTED
 filesystem's live structures and repairs them, and a ring-3 tool
 (`xfs_scrub`, `btrfs scrub start`) asks for it through an ioctl.
 
-**toy-os follows the second, because the first needs an unmount it
+**SaunaOS follows the second, because the first needs an unmount it
 cannot do.** The root is never unmounted, there is no initramfs to
 check it from, and TFS3's repair writes through its journal and its
 in-memory allocation state -- which a process reading the raw device
@@ -3646,13 +3646,13 @@ partition by disk signature and offset; FreeBSD's loader hands over the
 device it booted from. **The loader knows where it came from, and says
 so.**
 
-**What toy-os does.** Three rules in `choose_root_disk()`, in order:
+**What SaunaOS does.** Three rules in `choose_root_disk()`, in order:
 
 1. `root=<device>` -- unchanged, the person decides.
 2. `bootpart=<PARTUUID>`, which grub.cfg passes from `probe --part-uuid
    --set=bootpart $root` (GRUB's prefix partition, the ESP or the MBR
    boot partition). The disk carrying it is the root disk. This is the
-   systemd shape, done with the loader toy-os already ships.
+   systemd shape, done with the loader SaunaOS already ships.
 3. By content, disks in `ROOT_PRECEDENCE` order: the first with a boot
    partition (BIOS-boot/ESP, or an active MBR slot), then the first with
    any table, then the first. Old grub.cfgs, the CD, and a GRUB whose
@@ -3733,7 +3733,7 @@ of windows created at boot cannot do here.
 
 Mount uses `/mnt/<device>`, made at mount and removed at unmount, so
 two volumes never fight over `/mnt` itself. GNOME uses
-`/run/media/$USER/<label>`; toy-os has no per-user runtime directory
+`/run/media/$USER/<label>`; SaunaOS has no per-user runtime directory
 and labels are optional. A REMOVABLE disk's volumes are the exception:
 automountd mounts them at `/media/<label>` (FHS's place for them),
 because a stick is recognised by its label, and a person typing a path
@@ -3792,7 +3792,7 @@ which nothing in `docs/fslock-design.md` plans yet.
 
 ## Network shares are a ring-3 client behind a FUSE-shaped bridge, one process per share
 
-**The question.** toy-os reads Windows and Samba shares (read-only,
+**The question.** SaunaOS reads Windows and Samba shares (read-only,
 2026-10-11). Linux (`cifs.ko`) and Windows (the redirector) put the SMB
 client in the kernel; GNOME (gvfs) and KDE (KIO) put it in a library,
 where only programs written against that library see the files; FUSE
@@ -3915,7 +3915,7 @@ where the players and the wallpaper picker already list it. Apps ask
 ## The installer is a live session's window over one engine, and setup pages travel instead of being asked twice
 
 **One engine, two front ends.** The five stages moved out of
-`/bin/install` into `lib/uinstall.h`; the CLI and the Install toy-os
+`/bin/install` into `lib/uinstall.h`; the CLI and the Install SaunaOS
 window both call `uinstall_run()`, which prints nothing and reports
 through callbacks and a progress record a UI thread polls. Calamares
 and Ubiquity are each one program with a GUI; Anaconda has a text and a
@@ -3927,9 +3927,9 @@ ways to get the layout trap (`docs/commands/install.md`) wrong.
 image.** Ubuntu's and Fedora's live media boot to a desktop with an
 Install icon (casper writes `ubiquity.desktop` at boot); Debian's
 offers installer entries in the boot menu; Windows boots straight into
-Setup. toy-os does the first and the second: `installer --boot` writes
+Setup. SaunaOS does the first and the second: `installer --boot` writes
 the launcher into the RAM image's Desktop and asks the compositor for a
-notice, and the boot menu's "Install toy-os" passes `installer=on`.
+notice, and the boot menu's "Install SaunaOS" passes `installer=on`.
 Nothing is automatic on a machine that is not live, so development
 images and every GUI test never meet it, and `installer=off` turns the
 offer off on live media too. A full-screen chooser at every live boot
@@ -3947,7 +3947,7 @@ window's own buttons -- a test found it covering Next.
 macOS's installer asks nothing and Setup Assistant asks everything;
 Ubuntu's installer asks everything and has no first-boot step (bar OEM
 mode); Fedora's Anaconda asks and GNOME Initial Setup skips the pages
-it answered. toy-os is the last. The copy takes `/etc`, so the
+it answered. SaunaOS is the last. The copy takes `/etc`, so the
 settings move by themselves; the install adds `UFBS_ANSWERED` naming
 each page one of whose settings the session STORED (`stored` non-empty
 in the registry's INFO: set by someone, not left at its built-in
@@ -4018,7 +4018,7 @@ one level with counts, and settings and kernel facts share the one tree.
 never both. dconf is a path tree (`dconf list` one level, `dconf dump` a
 subtree). The Windows registry lets a key hold a default value AND
 subkeys. GSettings and macOS `defaults` are two-level (schema or domain,
-then a flat key) -- what toy-os was. BSD's sysctl puts read-only `hw.ncpu`
+then a flat key) -- what SaunaOS was. BSD's sysctl puts read-only `hw.ncpu`
 beside writable `kern.maxproc` in one tree.
 
 **Why the registry's shape for branches, not sysctl's.** Eleven settings
@@ -4053,7 +4053,7 @@ the name and the tree the same thing.
 
 **Decision (2026-10-20).** `QUERY_BLKDEV` carries each device's
 `fstype` and `label`, read from the volume's signature by
-`kernel/fs/fs_ident.c`, mounted or not and whether or not toy-os can
+`kernel/fs/fs_ident.c`, mounted or not and whether or not SaunaOS can
 mount it (NTFS, exFAT, FAT12/16/32, ext2/3/4, Btrfs, XFS, swap, ISO 9660,
 HFS+, APFS, LUKS, BitLocker, ReFS, tfs3). Disks titles a volume by its
 label and `lsblk -f` prints both. `fs_format_device()` zeroes a
@@ -4075,14 +4075,14 @@ does.
 
 **Why a TABLE OF SIGNATURES and not the mount backends' `probe()`.** A
 backend's probe only knows its own format, needs per-mount state, and
-the point is to name what toy-os CANNOT mount. The table is ORDERED:
+the point is to name what SaunaOS CANNOT mount. The table is ORDERED:
 tfs3, whose superblock is checksummed, first; FAT, recognised by a BPB
 that merely looks sane, last -- because two signatures can sit on one
 volume.
 
 **Why format wipes 128 KiB.** tfs3 never writes its first 32 KiB, so a
 partition that had been NTFS still read as NTFS after a tfs3 format, to
-the recogniser and to Windows. `mount_wipe_others()` only knows toy-os's
+the recogniser and to Windows. `mount_wipe_others()` only knows SaunaOS's
 backends. 128 KiB covers every signature the recogniser reads (Btrfs's
 is the deepest, at 64 KiB). A whole disk is never wiped: those sectors
 are its partition table.
@@ -4164,8 +4164,8 @@ Windows, Linux's driver and `fsck.exfat` all read the table from the
 disk and check only its checksum (measured: `fsck.exfat -n` calls a
 volume formatted here clean). The cost is honest and small: a case pair
 the table lacks (a rarer script's) is two different names on a volume
-toy-os formatted, as on any volume whose table lacks it. A volume made
-elsewhere keeps its own table; toy-os never rewrites it.
+saunaos formatted, as on any volume whose table lacks it. A volume made
+elsewhere keeps its own table; SaunaOS never rewrites it.
 
 **A file's clusters are contiguous when they can be (NoFatChain)** and
 grow in place; only when the next cluster is taken is the run
@@ -4188,7 +4188,7 @@ Chosen 2026-10-23 (`kernel/drivers/partition.c`'s `partition_edit_of()`,
 `SYS_PARTEDIT`, `/bin/part`).
 
 **`<disk>p<n>` is the entry's SLOT in the table**, not its position
-among the used entries. The two agree on every table toy-os writes
+among the used entries. The two agree on every table SaunaOS writes
 whole, and differ only after a hole -- which is exactly when it
 matters: deleting partition 1 must leave partition 2 called `p2`, or a
 `root=`, a mount and a person's memory of the disk all move under them.

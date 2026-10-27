@@ -1,6 +1,6 @@
 # Writing a GUI app in C
 
-A walk through a small but complete toy-os desktop app: a window with a
+A walk through a small but complete SaunaOS desktop app: a window with a
 label, a bar drawn by hand, and two buttons in a row. By the end it
 builds, appears in the Start menu, answers the mouse and the keyboard,
 and tells a test what it did.

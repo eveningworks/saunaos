@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""install_test -- does toy-os install itself onto another disk, and does
+"""install_test -- does SaunaOS install itself onto another disk, and does
 that disk then BOOT?
 
 Two phases, and the second is the one that matters. The first drives
@@ -12,7 +12,7 @@ mount the target's root, which reads exactly like a successful install.
 THREE RUNS, because they are different code paths:
 
   disk   the system on a disk, installing onto another disk.
-  live   toy-os-live.iso, whose root is a RAM image with no /boot at all
+  live   saunaos-live.iso, whose root is a RAM image with no /boot at all
          -- which is why the install payload lives in /install rather
          than being read out of /boot. Needs `make live-iso`.
   grown  a live install onto a disk that ALREADY has a table describing a
@@ -78,7 +78,7 @@ TARGET_MB = 512
 # maintainer's laptop got there.
 GROWN_MB = 4096
 
-LIVE_ISO = "toy-os-live.iso"
+LIVE_ISO = "saunaos-live.iso"
 
 # TFS3 puts T3_BPG (32768) blocks of T3_BLOCK (4096) in a group, so a
 # group is 128 MiB. The mount line names the group count, which is the
@@ -136,9 +136,9 @@ def vm(args, media, *cmds, timeout=600):
         base += ["--virtio-disk", args.system, "--usb-stick", args.stick]
     env = dict(os.environ)
     if media in ("live", "grown"):
-        # iso_guard only knows how to judge toy-os.iso; the live one is
+        # iso_guard only knows how to judge saunaos.iso; the live one is
         # built by its own target and legitimately lags.
-        env["TOYOS_ALLOW_STALE_ISO"] = "1"
+        env["SAUNAOS_ALLOW_STALE_ISO"] = "1"
     p = subprocess.run(base + list(cmds), cwd=ROOT, capture_output=True,
                        text=True, timeout=timeout, env=env)
     return p.stdout + p.stderr
@@ -396,7 +396,7 @@ def run_bootloader(args, c):
 
     base = VM + ["--instance", str(args.instance), "--disk", self_img]
     env = dict(os.environ)
-    env["TOYOS_ALLOW_STALE_ISO"] = "1"
+    env["SAUNAOS_ALLOW_STALE_ISO"] = "1"
 
     def guest(*cmds):
         p = subprocess.run(base + list(cmds), cwd=ROOT, capture_output=True,
@@ -463,7 +463,7 @@ def main():
                     help="which run to make (default every one)")
     ap.add_argument("--keep", action="store_true",
                     help="leave the images behind for inspection")
-    ap.add_argument("--scratch", default="/tmp/toyos-install-test")
+    ap.add_argument("--scratch", default="/tmp/saunaos-install-test")
     ap.add_argument("--positive-control", action="store_true",
                     help="zero the installed boot sector before each boot "
                          "phase, so the checks that prove the disk boots must "

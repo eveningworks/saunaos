@@ -20,7 +20,7 @@
 // **THE EPOCH HERE IS UNITLESS ABOUT TIMEZONES.** These convert a
 // calendar date to a day count and back; whether the date you hand in
 // is UTC or local is the CALLER's business, and the answer is in the
-// same reckoning. toy-os feeds these UTC throughout: the kernel's
+// same reckoning. SaunaOS feeds these UTC throughout: the kernel's
 // clock is UTC, every filesystem timestamp is a UTC epoch, and the
 // conversion to a local time happens in ring 3 (userland/libc/tz.c).
 //

@@ -290,7 +290,7 @@ def mz_stub():
                   0xBA, 0x0E, 0x00,              # mov dx, msg (offset 0x0E)
                   0xB4, 0x09, 0xCD, 0x21,        # mov ah,9; int 21h
                   0xB8, 0x01, 0x4C, 0xCD, 0x21])  # mov ax,4C01h; int 21h
-    code += b"Needs a Win16 host (toy-os w16).\r\n$"
+    code += b"Needs a Win16 host (SaunaOS w16).\r\n$"
     hdr = bytearray(0x40)
     total = 0x40 + len(code)
     struct.pack_into("<2sHHHHHHHHHHHHH", hdr, 0, b"MZ", total % 512, (total + 511) // 512,

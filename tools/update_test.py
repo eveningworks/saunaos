@@ -73,8 +73,8 @@ from harness import Results, copy_disk  # noqa: E402
 GATEWAY = "10.0.2.2"
 # A message every boot prints, and a same-length twin: a kernel carrying
 # the twin is a different kernel that boots identically and says so.
-BOOT_MSG = b"toy-os: kernel heap initialized"
-TWIN_MSG = b"toy-os: KERNEL heap initialized"
+BOOT_MSG = b"SaunaOS: kernel heap initialized"
+TWIN_MSG = b"SaunaOS: KERNEL heap initialized"
 
 
 Check = Results
@@ -434,7 +434,7 @@ def main():
         own = update_server._build_id().split("-")[0]   # git log never says -dirty
         recorded = "fffffff0"
         srv.notes = "\n".join([
-            "# toy-os release notes",
+            "# SaunaOS release notes",
             "aaaaaaa1 new Crash Reports lists past crashes.",
             "aaaaaaa2 internal System: HOOD-SYSTEM-LINE",
             f"{recorded} fixed RECORDED-BUILD-NOTE",

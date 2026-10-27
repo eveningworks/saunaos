@@ -248,7 +248,7 @@ int shell_resolve_path(const char *input, char *out) {
 
 // Persists across reboot the same way timezone/fontsize/keyboard do --
 // a small file under /etc. Not folded into etc_config.h's shared
-// toyos.conf though: that's a key=value store with one line per
+// saunaos.conf though: that's a key=value store with one line per
 // setting, and history entries are arbitrary shell input that can
 // itself contain '=' (e.g. `write f.txt a=b`) -- a bare one-command-
 // per-line file (like tz.c's original /etc/timezone, before it moved
@@ -334,7 +334,7 @@ static void shell_session_init(void) {
     done = 1;
 
     history_load();
-    shell_path_init(); // read PATH from /etc/toyos.conf once, see shell_path.c
+    shell_path_init(); // read PATH from /etc/saunaos.conf once, see shell_path.c
 }
 
 static void history_add(const char *line) {
@@ -450,8 +450,8 @@ static void reprint_prompt_and_line(void) {
 // Repaints rather than just moving the cursor. That was originally
 // load-bearing: the cursor erased its cell to black when it moved
 // away, so parking from mid-line left a hole where the character under
-// it had been (`cat /etc/toyos.conf` ran correctly but echoed back as
-// `cat /etc/toyos conf` -- the '.' had been under the cursor). The
+// it had been (`cat /etc/saunaos.conf` ran correctly but echoed back as
+// `cat /etc/saunaos conf` -- the '.' had been under the cursor). The
 // cursor saves and restores its pixels now, so a plain move would be
 // correct too; the repaint stays because it also normalises
 // shown_cursor/shown_len against the editor in one place, and a
@@ -693,7 +693,7 @@ void shell_main(void) {
     // with its own page -- and this is the kernel's own, which had been
     // borrowing the name. Two shells introducing themselves identically
     // is how somebody ends up wondering why Ctrl-C does nothing here.
-    vga_write("toy-os kernel shell (ring 0) -- type `help`.\n");
+    vga_write("SaunaOS kernel shell (ring 0) -- type `help`.\n");
     vga_set_color(VGA_LIGHT_GREY, VGA_BLACK);
 
     for (;;) {

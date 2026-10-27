@@ -637,7 +637,7 @@ def run_one_remote(name, script, host, timeout, keep_logs):
     """Run one tool against the BARE-METAL machine.
 
     No guest to launch, no disk to copy, no slot: there is ONE machine
-    and it is already running. `TOYOS_REMOTE_HOST` is what redirects the
+    and it is already running. `SAUNAOS_REMOTE_HOST` is what redirects the
     tool -- see tools/remote_gui.py for why that lands in the two
     constructors rather than in a flag each tool has to grow.
 
@@ -652,7 +652,7 @@ def run_one_remote(name, script, host, timeout, keep_logs):
         return ("SKIP", 0.0, f"no such tool: {script}")
 
     env = _child_env()
-    env["TOYOS_REMOTE_HOST"] = host
+    env["SAUNAOS_REMOTE_HOST"] = host
     started = time.time()
     try:
         with private_tmp(name, env) as env:

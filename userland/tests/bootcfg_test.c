@@ -24,7 +24,7 @@
 #define CFG "/tmp/bootcfg_test.cfg"
 
 static const char FIXTURE[] =
-    "# toy-os grub.cfg\n"
+    "# SaunaOS grub.cfg\n"
     "set timeout=5\n"
     "set default=1\n"
     "if [ -s $prefix/grubenv ]; then\n"
@@ -40,7 +40,7 @@ static const char FIXTURE[] =
     "    boot\n"
     "}\n"
     "\n"
-    "menuentry \"toy-os\" --class os {\n"
+    "menuentry \"SaunaOS\" --class os {\n"
     "    # Boot words: see docs/boot-flags.md\n"
     "    multiboot2 /kernel.bin nokaslr video=1920x1080\n"
     "    boot\n"
@@ -126,7 +126,7 @@ int main(void) {
     utest_checkf(t == 1 && c.count == 4 && !strcmp(c.entry[1].title, "rescue copy") &&
                  !strcmp(c.entry[1].kernel, "/kernel.old"),
                  "a copy lands after its source with the body (t=%d)", t);
-    utest_checkf(c.def == 2 && !strcmp(c.entry[c.def].title, "toy-os"),
+    utest_checkf(c.def == 2 && !strcmp(c.entry[c.def].title, "SaunaOS"),
                  "the numeric default follows its entry past the copy (def=%d)", c.def);
     utest_check(ubootcfg_remove(&c, 1) == 0 && c.len == orig.len && !memcmp(c.text, orig.text, (size_t)c.len),
                 "copy then remove gives back the original bytes");
@@ -134,10 +134,10 @@ int main(void) {
 
     // Title, default, timeout.
     c = orig;
-    utest_check(ubootcfg_set_title(&c, 1, "toy-os main") == 0 &&
-                strstr(c.text, "menuentry \"toy-os main\" --class os {\n") != 0,
+    utest_check(ubootcfg_set_title(&c, 1, "SaunaOS main") == 0 &&
+                strstr(c.text, "menuentry \"SaunaOS main\" --class os {\n") != 0,
                 "a rename keeps the entry's options");
-    utest_check(ubootcfg_set_title(&c, 0, "toy-os main") < 0 && ubootcfg_set_title(&c, 0, "a\"b") < 0 &&
+    utest_check(ubootcfg_set_title(&c, 0, "SaunaOS main") < 0 && ubootcfg_set_title(&c, 0, "a\"b") < 0 &&
                 ubootcfg_set_title(&c, 0, "12") < 0, "a duplicate, quoted or numeric title is refused");
     utest_check(ubootcfg_set_default(&c, 0) == 0 && c.def == 0 && strstr(c.text, "\nset default=0\n"),
                 "the default is rewritten in place");
@@ -168,7 +168,7 @@ int main(void) {
     c = orig;
     const char *tw[] = { "nokaslr", "clocksource=tsc" };
     t = ubootcfg_try(&c, 1, tw, 2);
-    utest_checkf(t == 2 && !strcmp(c.entry[2].title, "toy-os (trial)") && c.entry[2].nwords == 3 &&
+    utest_checkf(t == 2 && !strcmp(c.entry[2].title, "SaunaOS (trial)") && c.entry[2].nwords == 3 &&
                  !strcmp(c.entry[2].word[2], UBOOTCFG_MARK),
                  "a trial is a marked copy after its source (t=%d)", t);
     utest_check(ubootcfg_trial_find(&c) == 2 && ubootcfg_trial_source(&c, 2) == 1, "and is found as one");
@@ -251,7 +251,7 @@ int main(void) {
                 "a second pass changes nothing");
 
     // The screen-size stanza (lib/ubootmode.h): after the one-shot one,
-    // and each multiboot2 entry -- the quoted one too, it boots toy-os --
+    // and each multiboot2 entry -- the quoted one too, it boots SaunaOS --
     // sets gfxpayload on the line AFTER its boot line; never a linux one.
     utest_check(ubootcfg_parse(&orig, withlinux, wl) == 0, "the fixture parses again");
     c = orig;

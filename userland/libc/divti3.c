@@ -4,7 +4,7 @@
 // x86-64 multiplies 64x64 into 128 in one instruction (`mulq`), so
 // `unsigned __int128` MULTIPLY compiles inline and needs nothing from
 // here. There is no 128-bit DIVIDE instruction, so `a / b` on a 128-bit
-// type becomes a call to one of these names instead -- and toy-os links
+// type becomes a call to one of these names instead -- and SaunaOS links
 // -nostdlib with no libgcc, so without this file that call is an
 // undefined symbol at link time rather than anything the compiler
 // warns about.

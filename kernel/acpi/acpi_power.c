@@ -350,7 +350,7 @@ static void pm1_clear_status(const struct acpi_state *s) {
 
 // --- the S5 EXPERIMENTS: boot words that change one thing per boot ----
 //
-// Built to find why the ASUS took two presses to start after toy-os
+// Built to find why the ASUS took two presses to start after SaunaOS
 // powered it off and one after the firmware did; `acpimode=never` found
 // it (acpi_poweroff() below). Kept, as `nogpe` is, because the next
 // machine is a different machine -- one boot each:
@@ -535,7 +535,7 @@ static void s5_grace(uint32_t n) {
 // on many chipsets an SMI trap of SLP_EN -- and it is the path its own
 // power-button shutdown takes. Entering ACPI mode first takes that away
 // and hands the firmware an S5 it expects `_PTS` to have prepared, which
-// toy-os cannot run. MEASURED on the ASUS UX305FA, same build, one switch:
+// SaunaOS cannot run. MEASURED on the ASUS UX305FA, same build, one switch:
 // entering ACPI mode first, and starting again took two presses of the
 // power button; powering off in legacy mode, and it took one
 // (docs/decisions.md). Linux and Windows always enter ACPI mode at boot

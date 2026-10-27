@@ -247,7 +247,7 @@ manual steps to be worth automating:
   Makefile's `.seeded` stamp; `gui_regress.py` uses it by default.
   `drift(disk)` is check_layout's orphan list: files on the image no
   build puts there. It is INFORMATION, not a verdict -- a boot writes
-  `/etc/toyos.conf` too, and so does a test that changes a setting, so a
+  `/etc/saunaos.conf` too, and so does a test that changes a setting, so a
   name cannot say which. `predates.py` names it beside a PRE-EXISTING
   verdict, where it could change the answer.
 - **`mutate.py`** -- a positive control done safely: `--edit FILE OLD
@@ -390,7 +390,7 @@ manual steps to be worth automating:
   history rewrite once removed from every commit here, with nothing in
   git warning before the first commit puts it back. What is required is
   that a LOCAL identity is set at all, not that it matches this
-  project's own (`toy-os` / `noreply@toy-os.local`, or a cloud
+  project's own (`SaunaOS` / `noreply@saunaos.local`, or a cloud
   session's `Claude` / `noreply@anthropic.com`; it notes any other):
   demanding the exact value would refuse anyone working on
   a fork, who has every right to commit as themselves. The hazard is
@@ -569,6 +569,15 @@ manual steps to be worth automating:
   only have come through the rewritten core image, since the old tree is
   gone. Its control -- the core write skipped -- fails at "came back".
   On demand: it reboots.
+- **`rename_migrate_test.py`** -- a machine installed as toy-os keeps its
+  settings and log when it boots as SaunaOS. On a copy of `disk.img` it
+  saves a setting, stops `logd` (running, it recreates the log behind
+  the move), gives `/etc/saunaos.conf` and `/var/log/saunaos.log` their
+  old names, reboots through `vm.py reboot` (a console poll right after
+  `reboot` is still answered by the OLD boot), and checks the kernel
+  moved all three and the setting reads back; then that a machine with
+  BOTH names keeps both. Its control -- the move's call removed -- fails
+  the three move checks. On demand: it reboots.
 - **`logview_test.py`** -- the Log Viewer on a FIXTURE log it is opened
   at (`logview <file>`): an error, a warning, an ordinary line, the
   error again and a program line, planted with `vm.py put` -- not
@@ -675,7 +684,7 @@ manual steps to be worth automating:
   1500-entry folder, a name past Latin-1 and one inside it. Published on
   127.0.0.1 only; a guest reaches it as `10.0.2.2:<port>`. `--serve
   [--max SMB2_10] [--signing auto]` runs one by hand. The image
-  (`toyos-samba:1`) is BUILT ONCE with `--build`, which fetches samba
+  (`saunaos-samba:1`) is BUILT ONCE with `--build`, which fetches samba
   from deb.debian.org; nothing after that leaves the machine. A fixture,
   not a test, so no runner names it.
 
@@ -792,7 +801,7 @@ manual steps to be worth automating:
   Getting that wrong reported both services `running` while nothing
   answered the network.
 
-- **`remote.py`** -- drive a toy-os machine over the NETWORK: run
+- **`remote.py`** -- drive a SaunaOS machine over the NETWORK: run
   commands, push and pull files, or open an interactive session.
 
       python3 tools/remote.py --host <machine-ip> exec "lsusb" "dmesg"
@@ -804,7 +813,7 @@ manual steps to be worth automating:
       python3 tools/remote.py --host <machine-ip> sync --delete --dry-run seed/sync/bin /bin
       python3 tools/remote.py --host <machine-ip> --timeout 60 flash build/kernel.bin
       python3 tools/remote.py --host <machine-ip> reboot --list
-      python3 tools/remote.py --host <machine-ip> reboot --entry "toy-os (no kernel debugger)" --wait 120
+      python3 tools/remote.py --host <machine-ip> reboot --entry "SaunaOS (no kernel debugger)" --wait 120
       python3 tools/remote.py --host <machine-ip> update --from http://<dev-host-ip>:8080/dev
 
   **`update` is the ship-to-the-laptop round in one bounded command**:
@@ -1067,7 +1076,7 @@ manual steps to be worth automating:
   /channels` (tab-separated, a `default` line, `alias stable main`):
   `/dev` is this checkout's `seed/sync`, live, marked `internal`; `/main`
   (also `/stable`) is the published snapshot
-  `~/.local/share/toy-os/updates/current` points at; `/release` is the
+  `~/.local/share/saunaos/updates/current` points at; `/release` is the
   one the `release` link points at. `--publish` COPIES the current build
   into a new snapshot -- HARD-LINKING each file the main build before it
   shipped with the same crc and size -- and flips `current` atomically, a
@@ -1076,9 +1085,9 @@ manual steps to be worth automating:
   `--promote NAME [--to release]` are the rollback and the release;
   `--default` names the channel `/channels` calls the default (main). The
   server re-reads the link per request, so neither needs a restart.
-  `--install-service` fills in `tools/systemd/toy-os-update.service` and
+  `--install-service` fills in `tools/systemd/saunaos-update.service` and
   enables it under `systemd --user`; `journalctl --user -u
-  toy-os-update` is then the access log. `GET /` lists the channels; a
+  saunaos-update` is then the access log. `GET /` lists the channels; a
   request for a path outside them answers 404 naming them, which the
   client prints. Per channel, `GET <ch>/manifest` is generated
   from `seed/sync` on every request -- never a list kept beside it --
@@ -1086,7 +1095,7 @@ manual steps to be worth automating:
   agree that `/etc` and `/home` are new-files-only; `GET /files/<path>`
   serves only what the manifest names (a `/stable` snapshot freezes both
   at publish time). **A third gate, first**: `--publish` refuses a build
-  that is not exactly HEAD -- `TOYOS_BUILD_ID` with `-dirty`, an id
+  that is not exactly HEAD -- `SAUNAOS_BUILD_ID` with `-dirty`, an id
   other than HEAD's, or a working tree with changes -- because the
   snapshot's `# commit` and its release notes come from that id, and a
   build of uncommitted work ships notes that miss its own change. The
@@ -1111,7 +1120,7 @@ manual steps to be worth automating:
   `Release-note:` LINE of the message body (not git's trailer parse,
   which sees only the last paragraph) and `refs/notes/release` git notes (for a
   commit pushed without a trailer) of the build's last 200 commits (`git log`
-  from `TOYOS_BUILD_ID` in `version.h`, not HEAD), one line per commit;
+  from `SAUNAOS_BUILD_ID` in `version.h`, not HEAD), one line per commit;
   `--publish` freezes them as `notes` in the snapshot, and an older
   snapshot answers 404. The manifest carries `# commit` for the same
   reason.
@@ -1215,7 +1224,7 @@ manual steps to be worth automating:
   therefore ships the PREVIOUS build's userland, and the sync cannot
   save you: it compares the machine against that stale staging and
   truthfully reports no differences. It is a clean-looking flash that
-  changed nothing. `TOYOS_ALLOW_STALE_ISO=1` bypasses it.
+  changed nothing. `SAUNAOS_ALLOW_STALE_ISO=1` bypasses it.
   **`--force` is NOT the fix for a stale userland** and was believed to
   be for most of a session: the comparison is sound -- measured, a
   single flipped byte at unchanged size in a 512 KB file is detected and
@@ -1360,7 +1369,7 @@ manual steps to be worth automating:
   `addr2line` against the scratch build. Exit 0 clean, 1 sites found, 2
   build or control failure. On demand, in `ondemand_sweep.py`.
   **Why a copy:** an instrumented build re-seeds `disk.img` and rewrites
-  `toy-os.iso`, which a runner must not do to a checkout unasked.
+  `saunaos.iso`, which a runner must not do to a checkout unasked.
   **The positive controls are sites it EXPECTS:** `kernel/lib/ubsan_test.c`
   and `userland/tests/ubsan_test.c` each commit one signed overflow, and
   `kernel/lib/kasan_test.c` one of each KASAN class (heap overflow,
@@ -2001,7 +2010,7 @@ window without going through it will find its layout polls timing out.
   **`find_free_instance()` is NOT a lock**: two callers picking "the
   lowest free slot" in the same instant get the same answer, so it
   narrows the window and `assert_ports_free()` at the launch catches the
-  residue. `TOYOS_ALLOW_PORT_CLASH=1` bypasses it deliberately.
+  residue. `SAUNAOS_ALLOW_PORT_CLASH=1` bypasses it deliberately.
 - **`window_resize_probe.py`** -- drags a client window's resize grip
   repeatedly and prints what the compositor believes about it after each
   drag: the content size, which buffer and generation it is showing, the
@@ -2318,7 +2327,7 @@ window without going through it will find its layout polls timing out.
   here rather than committed as somebody's photograph, so the repo owns
   every pixel it carries) and `userland/tests/uimg_vectors.h` (the JPEG
   decoder's test vectors). One tool because both are "a JPEG produced by
-  libjpeg for toy-os to read back", and splitting them would leave two
+  libjpeg for SaunaOS to read back", and splitting them would leave two
   scripts with the same encoder settings to keep in step. **The vectors'
   reference pixels are LIBJPEG's, not this decoder's**, which is the
   whole point of them: a decoder compared against its own output is
@@ -2484,7 +2493,7 @@ window without going through it will find its layout polls timing out.
   `preflight.sh` starts with one. **A non-tty is REFUSED, never
   prompted** -- a captured build has nothing to answer with and a prompt
   there hangs forever, which is the mtools trap from a different
-  direction; `LICENSE=agree` (or `TOYOS_LICENSE=agree`) is how CI says
+  direction; `LICENSE=agree` (or `SAUNAOS_LICENSE=agree`) is how CI says
   yes. `--list` shows what exists and what is present.
 
   It is a registry rather than a script per item, the same shape
@@ -2503,7 +2512,7 @@ window without going through it will find its layout polls timing out.
   never behind. Positive control: a widget that never draws the frame
   fails exactly the two drawn-and-moving checks.
 - **`part_test.py`** -- `/bin/part delete` against a GPT the HOST's
-  `sfdisk` wrote, with what toy-os's whole-table writer cannot carry: a
+  `sfdisk` wrote, with what SaunaOS's whole-table writer cannot carry: a
   Linux-filesystem type, a non-ASCII name and the RequiredPartition
   attribute. The guest deletes partition 1; the host then reads the
   image: every other entry byte-identical in BOTH arrays, the disk GUID
@@ -2722,7 +2731,7 @@ window without going through it will find its layout polls timing out.
   3.0) for the Video Player, as an `EXTRAS=1` item in
   `fetch_extras.py`'s registry: the Foundation's own 640x360 release,
   PINNED BY SHA-256, extracted with Python's zipfile and transcoded by the
-  HOST's ffmpeg to MPEG-1 + MP2 (toy-os decodes neither H.264 nor AAC),
+  HOST's ffmpeg to MPEG-1 + MP2 (SaunaOS decodes neither H.264 nor AAC),
   the first three minutes by default (`--full` for all ten), into
   `data/videos-extra/` (gitignored) with the credit beside it. `--from
   ZIP` skips the download. A film tests what the generated clips cannot:
@@ -3310,7 +3319,7 @@ window without going through it will find its layout polls timing out.
   through `guictl`) and `RemoteConsole` for `DebugConsole` (the same
   `gui` vocabulary over telnet, subclassed so every helper from
   `menu_row()` to `hover_frames()` comes across and cannot drift).
-  `TOYOS_REMOTE_HOST=<ip>` is what redirects a tool, and it is read in
+  `SAUNAOS_REMOTE_HOST=<ip>` is what redirects a tool, and it is read in
   the two constructors rather than in a flag each tool has to grow --
   fifty-odd tools, fifty chances to forget. Three things it does NOT
   pretend: a call needing QEMU (`hmp()`, a held button, relative motion)
@@ -3505,7 +3514,7 @@ window without going through it will find its layout polls timing out.
   one without it; and closing the Notepad a member opened in does not
   promise where focus lands, so the test clicks the pane before typing
   again. Its positive control -- extraction not making parent folders
-  -- reddens Extract all for both formats. Whether another archiver can read what toy-os WRITES is
+  -- reddens Extract all for both formats. Whether another archiver can read what SaunaOS WRITES is
   `archive_hostcheck.py`'s question, not this one.
 
 - **`paint_test.py`** -- Paint (`gui/apps/paint.c`, `paint/paint_tools.c`)
@@ -4360,7 +4369,7 @@ window without going through it will find its layout polls timing out.
   since that one opens every app in the registry.
 - **`doom_sound_test.py`** -- **DOOM's effects and music, judged on the
   HOST**, and the only thing that exercises `userland/backends/doom/dg_sound.c`,
-  `dg_music.c` and `opl_toyos.c` at all. On demand twice over: it needs
+  `dg_music.c` and `opl_saunaos.c` at all. On demand twice over: it needs
   an IWAD (not in the repository) and boots its own AC97 guest, and it
   SKIPS cleanly without a WAD.
 
@@ -4730,7 +4739,7 @@ window without going through it will find its layout polls timing out.
   dispatching the vector. The control that DOES go red is returning 0
   from it outright -- 0 events decoded against 33 vectors delivered --
   and that is what shows the tool can see a dead path. On demand.
-- **`exfat_hostcheck.py`** -- toy-os's exFAT judged by the HOST: a
+- **`exfat_hostcheck.py`** -- SaunaOS's exFAT judged by the HOST: a
   stick formatted by `mkfs.exfat` and one the guest formats itself
   (`mkfs -t exfat`), each written by the guest (a directory, a file several
   clusters long, a non-ASCII name, a rename, a delete, a truncate), then
@@ -4838,7 +4847,7 @@ window without going through it will find its layout polls timing out.
 
   **TRIM gets its own oracle, and it is the host filesystem.** A drive
   that acknowledges DSM and discards nothing is indistinguishable from a
-  working one inside toy-os -- that exact failure shipped once in
+  working one inside SaunaOS -- that exact failure shipped once in
   `ata.c`, where the range list went out over PIO and never arrived. So
   the tool writes 40 MiB, deletes it, and requires the sparse image's
   ALLOCATED size (`st_blocks`) to come back to baseline. Both halves are
@@ -5006,8 +5015,8 @@ window without going through it will find its layout polls timing out.
   `kernel.bin` from DISK when the connection fails, which once passed a
   run where the attach had timed out. Both modes are in
   `ondemand_sweep.py`.
-- **`gdb/toyos.py`** -- gdb helpers for a stopped kernel, loaded with
-  `gdb -x tools/gdb/toyos.py build/kernel.bin`: `toy-dmesg [N]` (the klog
+- **`gdb/saunaos.py`** -- gdb helpers for a stopped kernel, loaded with
+  `gdb -x tools/gdb/saunaos.py build/kernel.bin`: `toy-dmesg [N]` (the klog
   ring, read from memory), `toy-ps` (the process table), `toy-symbols`
   (every loaded kernel module, and the SELECTED thread's program, ld-toy
   and `/lib` libraries -- rerun it after `thread N`), and an unwinder
@@ -5215,7 +5224,7 @@ window without going through it will find its layout polls timing out.
   ring buffer by the time a desktop has been up a few seconds. An oracle
   that expires fails for reasons unrelated to the code. On demand, not
   in the gate.
-- **`live_boot_test.py`** -- boots `toy-os-live.iso` with NO disk and
+- **`live_boot_test.py`** -- boots `saunaos-live.iso` with NO disk and
   asserts a shipped binary RUNS, plus that `df` reports the image's real
   size and says it does not persist. Not in `gui_regress.py` (it builds
   its own QEMU); run it after touching the block layer, TFS3's geometry
@@ -5319,7 +5328,7 @@ window without going through it will find its layout polls timing out.
   card per theme with a painter, the Amber tile carrying amber ink while
   Classic's carries none (the control), a click STAGING without writing,
   the arrow keys moving it like a radio group, and Apply writing it to
-  `/etc/toyos.conf` (read with `cat`) with the compositor's own `cursor:
+  `/etc/saunaos.conf` (read with `cat`) with the compositor's own `cursor:
   theme "amber"` line. **The card rects are CONTENT-relative**; the tool
   adds the window's content origin. Then the FONT galleries (3 checks): a
   card per face named by family, Liberation Sans's and DejaVu's Interface
@@ -5522,7 +5531,7 @@ window without going through it will find its layout polls timing out.
   and a control counts as reachable only when its WHOLE rect is inside
   the scroll view, because the clip is at the viewport edge and a
   straddling control is half routable. Seconds, no guest.
-- **`iso_guard.py`** -- refuses to boot a stale `toy-os.iso`, called
+- **`iso_guard.py`** -- refuses to boot a stale `saunaos.iso`, called
   from `vm.py` and `qmp_test.py`'s `launch_qemu_cmd()`. `make all`
   without `make iso`, or a `make iso` that FAILED, otherwise leaves the
   whole suite testing the previous build and reporting a clean PASS --
@@ -5531,7 +5540,7 @@ window without going through it will find its layout polls timing out.
   (`userland/` -> `build/userland`, not `kernel.bin`), and the seeding
   step is witnessed by `build/.seeded` rather than `disk.img`'s mtime,
   because seeding is content-hash based and a byte-identical rebuild
-  correctly rewrites nothing. `TOYOS_ALLOW_STALE_ISO=1` bypasses it, for
+  correctly rewrites nothing. `SAUNAOS_ALLOW_STALE_ISO=1` bypasses it, for
   deliberately booting an older image -- e.g. building an earlier commit
   to prove a failure predates your work. A w16 SAMPLE (`userland/w16/
   samples/*.asm`) lands in `seed/sync/`, not `build/userland`, so the
@@ -5549,7 +5558,7 @@ window without going through it will find its layout polls timing out.
   staging while the fix sat in `build/`: the second push reproduced the
   first push's symptom exactly, which reads as the fix not working
   rather than as the fix never having been sent. Same
-  `TOYOS_ALLOW_STALE_ISO=1` bypass, because it is the same mistake.
+  `SAUNAOS_ALLOW_STALE_ISO=1` bypass, because it is the same mistake.
 
   It also WARNS (never refuses) when a COPY of `disk.img` passed with
   `--disk` is older than the last seed. Testing against a copy is the
@@ -5601,7 +5610,7 @@ window without going through it will find its layout polls timing out.
   rather than an in-memory table. Two fixture traps it paid for:
   `/etc/files.conf` remembers the view mode, so it removes that file to
   get the icons view rather than inheriting whatever ran last; and
-  toy-os's `touch` does NOT move an existing file's mtime, so the
+  SaunaOS's `touch` does NOT move an existing file's mtime, so the
   staleness check copies a different icon over one instead -- the first
   version went red against working code because the input never reached
   the branch. **And a second must pass between writing the fixture and
@@ -6243,7 +6252,7 @@ runs first**: a `doom1.wad` with one
   names each holder for the message. `hold()` is called by
   `iso_guard.py`'s boot and staging checks, `harness.Results`,
   `gui_regress.py` and `ondemand_sweep.py`, and `preflight.sh` takes it
-  in shell for its whole run. A holder exports `TOYOS_TEST_LOCK_HELD`,
+  in shell for its whole run. A holder exports `SAUNAOS_TEST_LOCK_HELD`,
   which lets its OWN `make` through. Two things refuse while it is held:
   the Makefile (top-level, not `make -n` or `make help`), and `tree_lock.py
   hook`, the PreToolUse hook in `.claude/settings.json`, which denies an
@@ -6252,7 +6261,7 @@ runs first**: a `doom1.wad` with one
   merge, rebase and the like) -- read from the command with heredoc
   bodies and quoted strings removed, so a script that only WRITES those
   words is not refused. `python3 tools/tree_lock.py` says who holds it
-  (exit 1 if anyone does); `TOYOS_IGNORE_TEST_LOCK=1` bypasses both. It
+  (exit 1 if anyone does); `SAUNAOS_IGNORE_TEST_LOCK=1` bypasses both. It
   exists because the written rule ("do not rebuild while a test is
   running", in the skill's testing lessons) was broken twice in one
   session.
@@ -6372,7 +6381,7 @@ runs first**: a `doom1.wad` with one
   BIOS boot partition -- or, on an MBR, in the gap before the first
   partition -- with its own block list patched, the part
   `grub-bios-setup` normally does, and `kernel.bin` + `grub/` written at
-  the FAT32 partition's root (toy-os's `/boot`) with `mtools` -- no root,
+  the FAT32 partition's root (SaunaOS's `/boot`) with `mtools` -- no root,
   no loop device, no mount. A volume still holding the old `::/boot/`
   tree has it moved up and removed once the new core image is written;
   **`--legacy-layout`** writes that old tree instead, as a test fixture.
@@ -6386,7 +6395,7 @@ runs first**: a `doom1.wad` with one
   **`--stage-payload <dir>`** writes the four files `/bin/install` needs
   -- `kernel.bin`, `grub.cfg`, `boot.img`, `core.img` -- into a directory
   instead of onto a disk. The build points it at `seed/sync/install`, so
-  every toy-os filesystem carries `/install` and can install itself. The
+  every SaunaOS filesystem carries `/install` and can install itself. The
   `core.img` it makes has `(hd0,gpt2)/grub` baked in, which is what
   makes the ESP-is-partition-2 layout a constraint rather than a
   preference; `core.prefix` says so, and `install --bootloader` refuses
@@ -6460,8 +6469,8 @@ runs first**: a `doom1.wad` with one
   console-frame test can see a console at all. In `ondemand_sweep.py`;
   about 4 minutes under TCG. Reboots get `--timeout 180`: the burst slows
   the guest past `vm.py reboot`'s 30-second default.
-- **`installer_test.py`** -- the Install toy-os window
-  (`userland/gui/system/installer.c`) on `toy-os-live.iso` with one BLANK
+- **`installer_test.py`** -- the Install SaunaOS window
+  (`userland/gui/system/installer.c`) on `saunaos-live.iso` with one BLANK
   512 MiB IDE disk, then that disk booted with nothing else attached. In
   `ondemand_sweep.py`; about 7 minutes under TCG. Phase 0 boots a
   one-entry ISO it makes with `installer=on` (`live_boot_test.py`'s
@@ -6479,14 +6488,14 @@ runs first**: a `doom1.wad` with one
   the disk alone: rooted on `ata0p3`, the name carried, First-boot setup
   skipping EXACTLY the two pages the session set, and no launcher or
   notice on an installed machine. **The live ISO is judged by the tool
-  itself** (iso_guard only knows `toy-os.iso`): missing, or older than
+  itself** (iso_guard only knows `saunaos.iso`): missing, or older than
   the kernel, `libuapp.so`, the installer or `install`, it SKIPS (exit
   77) rather than test the previous build. Positive control: the first
   run caught the live session's launcher riding along onto the new
   machine ("an installed machine gets no launcher"), which is why the
   install now leaves `UINSTALL_LAUNCHER` behind.
 
-- **`install_test.py`** -- does toy-os install itself onto another disk,
+- **`install_test.py`** -- does SaunaOS install itself onto another disk,
   and does that disk then BOOT? Two phases, and the second is the one
   that matters: it boots the installed image with **nothing else
   attached** and asserts the machine that comes up is that one -- by its
@@ -6505,7 +6514,7 @@ runs first**: a `doom1.wad` with one
 
   **It runs every medium** (`--media disk|live|grown|mbr|bootloader|all`,
   default all), because they are different code paths and the live one is how a real machine
-  gets toy-os: `toy-os-live.iso`'s root is a RAM image with no `/boot` at
+  gets SaunaOS: `saunaos-live.iso`'s root is a RAM image with no `/boot` at
   all, which is why the install payload lives in `/install`. The live
   half needs `make live-iso` and is skipped with a message when the ISO
   is absent.
@@ -6735,8 +6744,8 @@ runs first**: a `doom1.wad` with one
   the `.ppm` it derives itself, and the hardcoded `/tmp` images in
   `osk_test`, `msi_test` and `damage_hunt` follow `TMPDIR`.
 - **`test_history.py`** -- a LOCAL record of every test run, kept in
-  `~/.local/share/toy-os/test-history/`. It is never in the repo and
-  never pushed (`TOYOS_TEST_HISTORY=DIR` moves it, `=off` stops it).
+  `~/.local/share/saunaos/test-history/`. It is never in the repo and
+  never pushed (`SAUNAOS_TEST_HISTORY=DIR` moves it, `=off` stops it).
   `preflight.sh`, `ktest_run.py`, `gui_regress.py` (a row per tool and
   one for the run) and every tool on `harness.Results` append a line as
   they finish. Each line holds the commit and whether the tree was
@@ -6744,7 +6753,7 @@ runs first**: a `doom1.wad` with one
   checkout and its filesystem, the host's kernel and QEMU and its
   load, and a parent id tying a child run to its preflight or
   gui_regress. Each run's whole log is gzipped under `logs/`, pruned
-  oldest first past `TOYOS_TEST_HISTORY_MAX_MB` (1024); `runs.jsonl`
+  oldest first past `SAUNAOS_TEST_HISTORY_MAX_MB` (1024); `runs.jsonl`
   is kept for good.
 
       python3 tools/test_history.py                     # the last 20 runs
@@ -6760,7 +6769,7 @@ runs first**: a `doom1.wad` with one
   passed where. **A check is matched by its NAME** (the text before
   ` (file:line)`), because line numbers move between commits.
   Recording never fails a run. gui_regress.py records each tool's row
-  itself and sets `TOYOS_TEST_HISTORY_BY_PARENT` so harness.Results
+  itself and sets `SAUNAOS_TEST_HISTORY_BY_PARENT` so harness.Results
   does not record it a second time. `--selftest` runs in preflight.
 - **`predates.py`** -- answers "did this failure exist before my
   changes?" by measuring rather than guessing: stashes the tree,
@@ -7481,7 +7490,7 @@ runs first**: a `doom1.wad` with one
   thread, as both are over `image_uimg.c`'s in-place threshold. Shown
   red by never asking for the redraw when the decode finishes.
 
-- **`browser_hostcheck.py`** -- NetSurf's layout on toy-os against the
+- **`browser_hostcheck.py`** -- NetSurf's layout on SaunaOS against the
   SAME pinned source built on the host (`docs/browser-design.md`,
   stage 1). Every page in `data/tests/web/` (`/tests/web` on the image)
   is opened and redrawn by the headless `monkey` front end on both
@@ -7498,7 +7507,7 @@ runs first**: a `doom1.wad` with one
   runs under `LC_ALL=C`: an inherited comma-decimal `LC_NUMERIC` writes
   a path's "WIDTH 1,000000", which `svg.html` was the first page to
   print. `nsmonkey` names a local file's type with `ufileurl_mime()`, the
-  table `/bin/webcontent` uses -- toy-os has no `/etc/mime.types`, and
+  table `/bin/webcontent` uses -- SaunaOS has no `/etc/mime.types`, and
   monkey's built-in fallback knows no `.svg`.
 
   **`--js`** runs both engines with NetSurf's `--enable_javascript=1`
@@ -7531,7 +7540,7 @@ runs first**: a `doom1.wad` with one
   (the libraries, then NetSurf's headless `monkey` front end), and copies
   exactly what that build compiled, read off the compiler's dependency
   files -- plus each port's `sources.mk`, the translation units the
-  toy-os Makefile builds. Run it to move a pin; the result is a diff of
+  SaunaOS Makefile builds. Run it to move a pin; the result is a diff of
   `userland/ports/`.
 
   **Not every `.c` is a translation unit**, which is why `sources.mk`
@@ -7539,7 +7548,7 @@ runs first**: a `doom1.wad` with one
   into another. **It never copies upstream's `testament.h`**, which
   records the build host's user name, host name and path; it writes a
   neutral one. **The work directory is NOT under `build/`**
-  (`~/.cache/toy-os/netsurf-host` by default): the Makefile includes
+  (`~/.cache/saunaos/netsurf-host` by default): the Makefile includes
   every `.d` file it finds there, and the host build leaves hundreds,
   one of which is not make syntax. The host `nsmonkey` it leaves behind
   is stage 1's oracle. Host tools: `gperf`, `perl`, `pkg-config`,
@@ -7807,7 +7816,7 @@ runs first**: a `doom1.wad` with one
   value 46 (A440), into an AC97 that QEMU's wav audiodev records. Each
   is told apart by PITCH, counted in 50 ms windows that must hold the
   band three in a row (a sound's edge window reads any pitch). Three
-  boots on copies of disk.img: the defaults (the beep is toy-os's chime,
+  boots on copies of disk.img: the defaults (the beep is SaunaOS's chime,
   not 2000 Hz), a WIN.INI on drive C: naming a 2000 Hz TEST.WAV for
   SystemAsterisk (the beep is it), and `sounds=off` (exit 0, silence).
   `--positive-control` rebuilds the sample with its WAV's rate halved:
@@ -7849,7 +7858,7 @@ runs first**: a `doom1.wad` with one
   GetDIBits, bitmap bits, INT 2Fh, a flood fill on a 1-bit bitmap, an OLE
   server's Release on revoke among them); `opendlg.exe` runs the Open dialog on its own template, its hook
   recording which of Read Only and Help show and ticking Read Only before
-  OK; `popup.exe`'s screen-sized popup covers toy-os's whole screen, its
+  OK; `popup.exe`'s screen-sized popup covers SaunaOS's whole screen, its
   640 x 480 centred on black (its green corner at the centred origin),
   and a click destroys it and leaves the main window. Taking out the flood fill's 1-bit border turns exactly its check red.
   Flipping the DIB's rows or swapping P and S in the ROP3 rule turns
@@ -7866,7 +7875,7 @@ runs first**: a `doom1.wad` with one
   window grows and shrinks to a floor; and a dialog caption's black line
   leaves white at both ends. Each of those goes red with its fix taken
   out. Options > Sound lists 3.11's seven events, a Play cell plays
-  toy-os's chime (its `play ROW PATH` log line, so a guest with no sound
+  SaunaOS's chime (its `play ROW PATH` log line, so a guest with no sound
   card still answers), and plays nothing once Off is chosen, before OK.
   `fpu.exe` (the x87 and WIN87EM): 1/0 and sqrt(-1) each reach its
   handler once as 83h and 81h, a ninth load as 8Ah -- under KVM; TCG's
@@ -8134,7 +8143,7 @@ runs first**: a `doom1.wad` with one
   It builds its own boot image per phase (`make iso KCMDLINE=...`, then
   a copy), so **it rewrites `disk.img`'s GRUB line** and puts it back at
   the end. **So it cannot run BESIDE another tool**: its rebuilds land
-  mid-run under anything else booting `toy-os.iso`, which `iso_guard`
+  mid-run under anything else booting `saunaos.iso`, which `iso_guard`
   then refuses as stale (seen with `install_test.py` alongside). On
   demand, not in any gate.
 
@@ -8316,7 +8325,7 @@ runs first**: a `doom1.wad` with one
   anything that ran after boot. Boots one guest against a COPY of
   `disk.img`; on demand.
 
-- **`partition_test.py`** -- boots toy-os with its filesystem **inside**
+- **`partition_test.py`** -- boots SaunaOS with its filesystem **inside**
   an MBR or GPT partition. The only thing that exercises `vfs.c`'s
   boot-time partition scan and `block_part.c`'s window end to end; the
   `partition` KTEST suite proves the encoder and parser agree on a RAM
@@ -8369,7 +8378,7 @@ runs first**: a `doom1.wad` with one
 
 - **`release_assets.sh <version> [outdir]`** -- a GitHub Release's
   assets, made only from a build that IS the tag: the live ISO, the USB
-  image gzipped, `toy-os-<version>-source.tar.gz` (`git archive` of the
+  image gzipped, `saunaos-<version>-source.tar.gz` (`git archive` of the
   tag) and `run_release.sh`, with `SHA256SUMS` over them, in
   `build/release/<version>/`. It refuses before writing anything unless
   VERSION matches, the tree is clean INCLUDING untracked files (every
@@ -8608,7 +8617,7 @@ runs first**: a `doom1.wad` with one
   `[boot.description]` and `[keyboard]` lines and unchanged by a second
   run; a missing file planned as missing and the install
   stopping on it; a folder with no SETUP.INF refused. With
-  `~/CodingProjects/toy-osother` here (local only): from the English folder
+  `~/CodingProjects/saunaos-other` here (local only): from the English folder
   and from its eight floppy images, every file must land where Express
   Setup put it on the reference VM (`win311-vm/win311.img`, read with
   mtools) and match libmspack's expansion, and the INI lines Setup wrote
@@ -8630,7 +8639,7 @@ runs first**: a `doom1.wad` with one
   under ASan + UBSan against MTOOLS as the second reader: a 1.44 MB floppy,
   a 1.68 MB DMF one and a FAT16 volume it formats, with files of 0-513 and
   300,000 bytes, a directory two deep, a deleted and a long-named file --
-  label, listings and bytes must agree. With `~/CodingProjects/toy-osother`
+  label, listings and bytes must agree. With `~/CodingProjects/saunaos-other`
   here (local only), the eight Windows for Workgroups 3.11 floppies must
   hold exactly the install set's 568 files. Then truncated and mutated
   images, each in a buffer exactly its size. `--positive-control` swaps
@@ -8641,8 +8650,8 @@ runs first**: a `doom1.wad` with one
   the host under ASan + UBSan. Round trips: `mscompress.py` writes SZDD and
   KWAJ methods 0-3 (method 3 in each of its code-length encodings) of
   empty, tiny, random, repetitive and >64 KiB data, and the bytes and name
-  must come back. Real disks: when `~/CodingProjects/toy-osother/win311`
-  is there (`TOYOS_W311` moves it; local only, Microsoft's files), every
+  must come back. Real disks: when `~/CodingProjects/saunaos-other/win311`
+  is there (`SAUNAOS_W311` moves it; local only, Microsoft's files), every
   compressed file of the English and Finnish Windows for Workgroups 3.11
   sets must expand byte for byte to libmspack's output -- 1,141 files;
   skipped, saying so, anywhere else. Then thousands of truncated and
@@ -8837,7 +8846,7 @@ runs first**: a `doom1.wad` with one
 ## Host tools this repo expects (not in `tools/`)
 
 Installed on the maintainer's machine rather than checked in. Nothing
-here is required to BUILD toy-os — `make all`, `make iso` and
+here is required to BUILD SaunaOS — `make all`, `make iso` and
 `preflight.sh` work without every one of them — but each removes a
 rederive-from-scratch cost, which is the same bar `tools/` holds itself
 to. Arch package names; all are in the official repos.
@@ -8926,7 +8935,7 @@ machine doing 2.4. Measured idle with HDA: ~2.4 reads/s, ~0 writes/s;
 with soundd's reload forced every pass (the positive control), 51.7/s
 naming soundd and `/etc/sound.conf`.
 
-## `tools/idle_cpu.py` -- how much CPU does toy-os burn doing NOTHING?
+## `tools/idle_cpu.py` -- how much CPU does SaunaOS burn doing NOTHING?
 
 Boots a VM, lets the desktop settle, and measures the **host's** CPU
 time for the QEMU process over a window in which nothing is sent to the

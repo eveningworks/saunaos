@@ -1,5 +1,5 @@
 // The keyboard's three settings -- the layout list, the active layout
-// and the dead-keys switch -- in the shared /etc/toyos.conf, read once at
+// and the dead-keys switch -- in the shared /etc/saunaos.conf, read once at
 // boot: the pattern tz.c and font_config.c use (see etc_config.h).
 #include "keyboard_config.h"
 #include "keyboard_layout.h"
@@ -10,7 +10,7 @@
 #include "multiboot.h"
 #include "initcall.h"
 
-#define KEYBOARD_CONFIG_FILE "/etc/toyos.conf"
+#define KEYBOARD_CONFIG_FILE "/etc/saunaos.conf"
 #define KEYBOARD_CONFIG_KEY "keyboard.layout"
 #define KEYBOARD_LAYOUTS_KEY "keyboard.layouts"
 #define KEYBOARD_DEADKEYS_KEY "keyboard.dead_keys"

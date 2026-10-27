@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Lay out the same pages with NetSurf on toy-os and on the host, and compare.
+"""Lay out the same pages with NetSurf on SaunaOS and on the host, and compare.
 
 WHAT IT CHECKS. Each page in data/tests/web/ (on the image at /tests/web)
-is opened in NetSurf's headless monkey front end on BOTH sides -- toy-os's
+is opened in NetSurf's headless monkey front end on BOTH sides -- SaunaOS's
 /tests/nsmonkey in a VM, and the host build tools/netsurf_vendor.py left
 behind, from the SAME pinned source -- then redrawn. The two outputs are
 compared on what is the engine's real answer:
@@ -18,7 +18,7 @@ never the engine's. That is the stage-1 oracle of docs/browser-design.md.
 
 WHAT IT DOES NOT COMPARE, and why. Status lines ("Fetching, Loading",
 "Done (0.8s)") and their count depend on how fast each side ran; POLL
-lines are upstream's main loop, which toy-os replaces; pointers differ by
+lines are upstream's main loop, which SaunaOS replaces; pointers differ by
 address space. Those are dropped or normalised, and the file: URL prefix
 is mapped to one token.
 
@@ -34,7 +34,7 @@ AS THAT -- "not loaded within N s" -- never as a layout difference.
     python3 tools/browser_hostcheck.py --js -k script # JavaScript on, both sides
 
 JAVASCRIPT (`--js`) runs both engines with NetSurf's own
-`--enable_javascript=1`: Duktape on toy-os (tolibc's maths, its clock,
+`--enable_javascript=1`: Duktape on SaunaOS (tolibc's maths, its clock,
 the -nostdinc build) against the same pinned Duktape on the host. Each
 side's monkey is off by default, as upstream's is.
 
@@ -238,7 +238,7 @@ def main():
             print("browser_hostcheck: could not start the VM")
             return 2
         if certdir:
-            vm(args, "put", certs["ca"], "/etc/ssl/certs/toyos-test-ca.pem")
+            vm(args, "put", certs["ca"], "/etc/ssl/certs/saunaos-test-ca.pem")
         guest = guest_runs(args, names, base)
     finally:
         vm(args, "stop", check=False)
@@ -255,7 +255,7 @@ def main():
         g_lines = guest[n]
         g = summarise(g_lines)
         if args.show == n:
-            for side, s in (("host", h), ("toy-os", g)):
+            for side, s in (("host", h), ("SaunaOS", g)):
                 print(f"--- {side}: {s[0]}\n    {s[1]}")
                 print("\n".join("    " + p for p in s[2]))
         # Done BEFORE the redraw began: a page that finished during the
@@ -265,7 +265,7 @@ def main():
                       if line.startswith("WINDOW REDRAW WIN 0 START")), len(g_lines))
         if not any("STR Done" in line for line in g_lines[:start]):
             failed += 1
-            print(f"  FAIL  {n:20s} not loaded within {args.load_s} s on toy-os "
+            print(f"  FAIL  {n:20s} not loaded within {args.load_s} s on SaunaOS "
                   f"({len(g_lines)} lines of output)")
             continue
         problems = []
@@ -276,7 +276,7 @@ def main():
         if not h[2]:
             problems.append("the HOST drew nothing -- the oracle is not working")
         if h[2] != g[2]:
-            diff = list(difflib.unified_diff(h[2], g[2], "host", "toy-os", lineterm="", n=1))
+            diff = list(difflib.unified_diff(h[2], g[2], "host", "SaunaOS", lineterm="", n=1))
             problems.append(f"{len(g[2])} plot lines, host {len(h[2])}:\n        "
                             + "\n        ".join(diff[:24]))
         if problems:

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Boot toy-os with its filesystem on a SATA drive behind an AHCI HBA.
+"""Boot SaunaOS with its filesystem on a SATA drive behind an AHCI HBA.
 
 WHY THIS EXISTS SEPARATELY FROM THE KTESTS
 ------------------------------------------
@@ -224,7 +224,7 @@ def main():
     #
     # THE ONLY ORACLE THAT CANNOT BE FOOLED BY THE GUEST. A drive that
     # acknowledges DSM and discards nothing looks identical from inside
-    # toy-os -- that exact failure shipped once in ata.c, where the
+    # SaunaOS -- that exact failure shipped once in ata.c, where the
     # range list went out over PIO and never arrived. What it cannot fake
     # is the ALLOCATED size of the sparse image on this filesystem.
     def allocated(path):

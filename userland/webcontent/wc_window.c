@@ -698,7 +698,7 @@ static void on_wheel(struct gui_window *gw, const struct wv_wheel *w) {
     scroll_by(gw, 0, -w->notches * step);
 }
 
-// toy-os's keys as NetSurf's. 0 for one it has no code for.
+// SaunaOS's keys as NetSurf's. 0 for one it has no code for.
 static uint32_t ns_key(int key, unsigned mods) {
     switch (key) {
     case '\b':            return NS_KEY_DELETE_LEFT;

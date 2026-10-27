@@ -5,7 +5,7 @@
 // QUERY_FSINFO, the same record `df` formats differently -- one fact,
 // two views, and no syscall of its own for listing.
 //
-// THE SOURCE IS A PARTITION NUMBER, NOT A PATH. toy-os has no /dev, so
+// THE SOURCE IS A PARTITION NUMBER, NOT A PATH. SaunaOS has no /dev, so
 // there is nothing to name a volume with; `mount 2 /boot` means "the
 // second partition of the boot disk". `parttable` prints the numbers.
 // A backend that needs no volume is named directly instead

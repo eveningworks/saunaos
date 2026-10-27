@@ -5,7 +5,7 @@
 
 // Font size persistence, layered on top of gfx_set_font_size()
 // (kernel/drivers/gfx.c) -- a "font.size=<n>" key in the shared
-// /etc/toyos.conf every setting lives in by default (see
+// /etc/saunaos.conf every setting lives in by default (see
 // etc_config.h), read/applied once at boot. See
 // kernel/lib/font_config.c's top comment for the exact key.
 
@@ -17,7 +17,7 @@
 // font_ttf.h bakes in -- see its own top comment).
 void font_config_init(void);
 
-// Persists `size` as /etc/toyos.conf's "font.size=<n>" key so it
+// Persists `size` as /etc/saunaos.conf's "font.size=<n>" key so it
 // survives a reboot. Does NOT call gfx_set_font_size() itself -- same
 // split as a setting's apply (selects + persists) vs a plain read
 // (applies); callers that want to change the active size call
@@ -31,7 +31,7 @@ int font_config_save(enum font_size size);
 
 // Persists an arbitrary point size, and the selected face's name (an
 // empty name meaning the baked font). Both write into the same
-// /etc/toyos.conf the size has always lived in.
+// /etc/saunaos.conf the size has always lived in.
 // APPLY: set the font, persist it, and notify every GUI client that its
 // cached metrics are stale. The entry point the shell and the settings
 // registry both use -- see font_config.c for why the notification lives

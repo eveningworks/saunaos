@@ -4,7 +4,7 @@
 #include <stdint.h>
 
 // An X11 KEYSYM -- what a VNC viewer sends for a key (RFB 7.5.4) -- as
-// something toy-os's input core takes: a Latin-1 character to type on
+// something SaunaOS's input core takes: a Latin-1 character to type on
 // the active layout, or an evdev keycode (abi/input_keys.h) for a key
 // that is not a character (arrows, F-keys, modifiers, the keypad).
 //

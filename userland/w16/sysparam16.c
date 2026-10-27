@@ -2,7 +2,7 @@
 // Windows 3.1 read them from WIN.INI at start and kept them in USER; a
 // program set one for the session, or for good with SPIF_UPDATEINIFILE.
 // w16 keeps them in WIN.INI too, and only there: they are the emulated
-// Windows' settings, never toy-os's (docs/decisions/gui.md, Wine's
+// Windows' settings, never SaunaOS's (docs/decisions/gui.md, Wine's
 // shape), and Control Panel is what changes them.
 //
 // THE KEYS AND DEFAULTS ARE 3.1's: a WIN.INI made from WIN.SRC holds a
@@ -90,14 +90,14 @@ int w16_sysparam(const char *sec, const char *key, int dflt) {
 static void mouse_settings(void) {
     uint64_t ver = w16_ini_version("WIN.INI");
     if (g_mouse.valid && g_mouse.ver == ver) return;
-    g_mouse.dclick = w16_sysparam("windows", "DoubleClickSpeed", -1);   // -1: toy-os's, asked live
+    g_mouse.dclick = w16_sysparam("windows", "DoubleClickSpeed", -1);   // -1: SaunaOS's, asked live
     g_mouse.swap = w16_sysparam("windows", "SwapMouseButtons", 0) != 0;
     g_mouse.ver = ver;
     g_mouse.valid = 1;
 }
 
 // The double-click time the program's windows go by: WIN.INI's DoubleClickSpeed (WIN.SRC sets 3.1's
-// 452) or SetDoubleClickTime's, else toy-os's own -- a tree with no WIN.INI has no Windows setting.
+// 452) or SetDoubleClickTime's, else SaunaOS's own -- a tree with no WIN.INI has no Windows setting.
 int w16_dclick_ms(void) {
     mouse_settings();
     return g_mouse.dclick > 0 ? g_mouse.dclick : udclick_ms();
@@ -106,7 +106,7 @@ int w16_dclick_ms(void) {
 uint64_t w16_dclick_ticks(void) { return (uint64_t)w16_dclick_ms() * USER_HZ / 1000; }
 
 // `buttons` (WIN_MOUSE_* bits) as the program hears them: left and right exchanged while
-// SwapMouseButtons is set -- in its windows only, never toy-os's.
+// SwapMouseButtons is set -- in its windows only, never SaunaOS's.
 unsigned w16_mouse_swap(unsigned buttons) {
     mouse_settings();
     if (!g_mouse.swap) return buttons;
@@ -160,7 +160,7 @@ static void tell(struct w16 *w, unsigned flags) {
 // keyboard speed -- by its SPI_ number; SPIF_UPDATEINIFILE writes the change to WIN.INI as well,
 // and SPIF_SENDWININICHANGE tells every window WIN.INI changed.
 // w16: The same for each of 3.1's actions, from WIN.INI with 3.1's defaults: a change lasts the
-// program's run, and WIN.INI's when asked. They are the emulated Windows' settings -- toy-os's own
+// program's run, and WIN.INI's when asked. They are the emulated Windows' settings -- SaunaOS's own
 // keyboard, mouse and screen saver are System Settings' -- and only the double-click time, the
 // border width and the beep change what w16 does; the screen saver, the wallpaper and the icon
 // spacing have no desktop of Windows' to act on. WM_WININICHANGE goes to the program's own windows.
@@ -236,7 +236,7 @@ static int api_SystemParametersInfo(struct w16 *w, unsigned ordinal, struct w16_
 // for every program; 0 sets the default, 500. Control Panel's Mouse writes WIN.INI's
 // DoubleClickSpeed itself.
 // w16: The same for the program's own windows, for its run: WIN.INI's DoubleClickSpeed when the
-// key is there, else toy-os's double-click setting (Settings > Mouse), which this never changes.
+// key is there, else SaunaOS's double-click setting (Settings > Mouse), which this never changes.
 static int api_DoubleClickTime(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     if (ordinal == 21) {
         w->cpu.r[R_AX] = (uint16_t)w16_dclick_ms();
@@ -250,7 +250,7 @@ static int api_DoubleClickTime(struct w16 *w, unsigned ordinal, struct w16_args 
 // SwapMouseButton(fSwap) -> BOOL
 // Windows: Exchanges the left and right buttons for every program, or puts them back; whether they
 // were exchanged before. Control Panel's Mouse writes WIN.INI's SwapMouseButtons itself.
-// w16: The same in the program's own windows, for its run; toy-os's buttons stay as they are.
+// w16: The same in the program's own windows, for its run; SaunaOS's buttons stay as they are.
 static int api_SwapMouseButton(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     int on = w16_arg16(a) != 0;

@@ -7,7 +7,7 @@
 // NetSurf's http: and https: fetcher, over /lib/libhttp.so (<uhttp.h>).
 // docs/browser-design.md's stage 2.
 //
-// EACH FETCH IS A THREAD, because a toy-os socket only blocks -- there is
+// EACH FETCH IS A THREAD, because a SaunaOS socket only blocks -- there is
 // no select() for NetSurf's fdset slot (left NULL) to fill. The thread
 // queues what arrives; NetSurf's poll, on the main thread, turns the
 // queue into fetch_send_callback() messages. Nothing NetSurf owns is

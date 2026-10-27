@@ -77,7 +77,7 @@ def make_certs(tmp):
     other = os.path.join(tmp, "other.pem")
     otherkey = os.path.join(tmp, "other.key")
     for cert, key, subj, san in (
-        (server, serverkey, "/CN=toyos-test", f"subjectAltName=IP:{GATEWAY},DNS:toyos-test"),
+        (server, serverkey, "/CN=saunaos-test", f"subjectAltName=IP:{GATEWAY},DNS:saunaos-test"),
         (other, otherkey, "/CN=not-the-server", "subjectAltName=DNS:not-the-server"),
     ):
         subprocess.run(
@@ -130,7 +130,7 @@ def clear_anchors(disk):
     listing = writer("ls", "/etc/ssl/certs")
     for line in listing.stdout.splitlines():
         parts = line.split()
-        # "-  1155  ino=490  toyos-test.pem" -- files only, so the "."
+        # "-  1155  ino=490  saunaos-test.pem" -- files only, so the "."
         # and ".." rows (which are "d") are skipped.
         if len(parts) < 4 or parts[0] != "-":
             continue

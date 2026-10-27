@@ -44,7 +44,7 @@ answer exactly that.
 Two lessons. **Every user-space stack needed a kernel object for the
 data path** -- Fuchsia's byte-stream socket or QNX/MINIX's "the fd is
 served by a process" -- and none of them made the fd a library fiction.
-**And toy-os's `netd` is Android's netd** -- naming and addresses over a
+**And SaunaOS's `netd` is Android's netd** -- naming and addresses over a
 kernel stack -- so the ring-3 stack gets a different name here:
 `netstack`, Fuchsia's.
 
@@ -105,7 +105,7 @@ are copied into a shared ring instead of `net_rx()`'s queue, and
 transmits go the other way. Linux's `AF_PACKET`/TAP shape, gated by the
 device claim that already exists (`dev_claim.c`; the NICs are in its
 claimable set). **Its own caller: a packet capture** (`tcpdump`'s job),
-which toy-os does not have. The kernel stack keeps every card nobody
+which SaunaOS does not have. The kernel stack keeps every card nobody
 claimed.
 
 ### Stage 2 -- a kernel stream object

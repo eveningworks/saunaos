@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""toy-os's exFAT, judged by the host: fsck.exfat and an independent reader.
+"""SaunaOS's exFAT, judged by the host: fsck.exfat and an independent reader.
 
 kernel/fs/exfat*.c reads and writes a format another OS has to accept,
-so the oracle is not toy-os. Two images, each on an emulated USB stick:
+so the oracle is not SaunaOS. Two images, each on an emulated USB stick:
 
   1. HOST-MADE: `mkfs.exfat` on the host; the guest mounts it, makes a
      directory, copies a file several clusters long, writes a file with a

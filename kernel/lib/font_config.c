@@ -1,6 +1,6 @@
 // Persists the console's font size selection across reboots, the same
 // way tz.c persists the timezone city -- a small "font.size=<n>" key
-// inside the shared /etc/toyos.conf every setting lives in by default,
+// inside the shared /etc/saunaos.conf every setting lives in by default,
 // read/applied once at boot (see kernel.c's kernel_main():
 // fs_mkdir("/etc") runs before any INIT_CONFIG initcall),
 // through the shared reader/writer in kernel/lib/etc_config.c.
@@ -22,7 +22,7 @@
 #include "win_role.h" // win_server_font_changed() -- clients cache the metrics
 #include "initcall.h"
 
-#define FONT_CONFIG_FILE "/etc/toyos.conf"
+#define FONT_CONFIG_FILE "/etc/saunaos.conf"
 #define FONT_CONFIG_KEY "font.size"
 #define FACE_CONFIG_KEY "font.face"
 #define MONO_CONFIG_KEY "font.mono"
@@ -48,7 +48,7 @@ static int font_faces_is_builtin(void) {
 // is missing -- a live boot, an image built from a tree with an empty
 // data/fonts/ -- this quietly comes to nothing and the baked font
 // draws, which is the whole point of the baked font. Compiled in rather
-// than seeded into /etc because there is no seeded toyos.conf: every
+// than seeded into /etc because there is no seeded saunaos.conf: every
 // setting here gets its default from code, and a first boot has no
 // config file to read.
 //
@@ -198,7 +198,7 @@ static int font_apply(const char *value) {
 // Choice 0 is always the baked font, so a machine with no font files
 // still has a valid two-state... one-state list, and so "go back to the
 // built-in" is reachable from Settings rather than only by editing
-// /etc/toyos.conf.
+// /etc/saunaos.conf.
 
 static int face_choice(int index, char *out, uint32_t out_size) {
     if (index == 0) { k_strlcpy(out, FACE_BUILTIN, out_size); return 1; }

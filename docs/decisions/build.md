@@ -112,7 +112,7 @@ reads.
 nothing to answer with, and `input()` there waits forever -- the same
 shape as the mtools trap this repo already records (mtools opens
 `/dev/tty`, so a captured prompt hangs). Such a build stops and names the
-flag: `LICENSE=agree`, or `TOYOS_LICENSE=agree` in the environment.
+flag: `LICENSE=agree`, or `SAUNAOS_LICENSE=agree` in the environment.
 
 ## The scripted demo tour was REMOVED, and the ring-3 migration is why
 
@@ -189,7 +189,7 @@ ceremony that didn't earn its keep -- a build number that changes
 constantly isn't meaningfully more informative than one that doesn't
 change until something's actually ready to call a version. `VERSION`
 (repo root) now holds a plain semver-ish string, `0.1.0-dev` to start,
-read into `TOYOS_VERSION` by `tools/gen_version.sh` exactly the way
+read into `SAUNAOS_VERSION` by `tools/gen_version.sh` exactly the way
 `BUILD_NUMBER` was before. It only changes via `tools/set_version.sh
 <version>`, and only for one of two reasons: starting a new dev round
 (`0.2.0-dev`) or cutting a real release (`0.2.0`, no `-dev` suffix).
@@ -220,7 +220,7 @@ working build without cloning + building is worth it.
 **v0.0.9 (first real release, cut ahead of any milestone) established
 the actual asset/publish mechanics, corrected below:**
 
-- **Three assets, not just the ISO** -- `toy-os.iso`, `disk.img.gz`,
+- **Three assets, not just the ISO** -- `saunaos.iso`, `disk.img.gz`,
   and `tools/run_release.sh`. `disk.img` alone isn't optional: it's
   where `/bin/ls`/`/bin/lspci`/the seeded test binaries actually live
   (there's no installer, so the ISO alone boots into a near-empty
@@ -313,7 +313,7 @@ Zig is at 0.13, Hyprland at 0.45, Neovim at 0.11, and Rust went from
 something you can depend on -- not the number after 0.9. Ubuntu and
 Windows avoid the question with dates (24.04, 24H2).
 
-**What toy-os does.** Each release bumps the MINOR number and the next
+**What SaunaOS does.** Each release bumps the MINOR number and the next
 dev round opens one above it: 0.5.0, then `0.6.0-dev`, ... 0.9.0, then
 0.10.0. The patch number stays free for a fix to a release that has
 already shipped (0.5.1), which the patch-step scheme would have left
@@ -327,8 +327,8 @@ this entry is the rule.
 `VERSION` changes about twice a milestone, so for the hundreds of builds
 in between, "0.3.0-dev" identified nothing: two ISOs weeks apart carried
 the same string. `tools/gen_version.sh` now also embeds
-`TOYOS_BUILD_ID` -- `git rev-parse --short HEAD`, plus `-dirty` when the
-working tree did not match it -- and `TOYOS_VERSION_FULL`, which is what
+`SAUNAOS_BUILD_ID` -- `git rev-parse --short HEAD`, plus `-dirty` when the
+working tree did not match it -- and `SAUNAOS_VERSION_FULL`, which is what
 the `about` command, the Control Panel and the About window display.
 
 The display rule, and why each half:
@@ -474,13 +474,13 @@ content-wise (both had identical diffs), but it means one commit now
 public on GitHub is authored `Claude (sandbox mirror) <claude@sandbox>`
 rather than the generic `toy-os` identity everything else got. Not
 PII, just slightly inconsistent -- worth folding into the identity
-`toy-os <noreply@toy-os.local>` if this repo's history ever gets
+`SaunaOS <noreply@saunaos.local>` if this repo's history ever gets
 rewritten again for another reason, not worth a whole rewrite on its
 own just for this.
 
 **Standing convention going forward:** every commit in this repo,
 whether made by a session or by the maintainer directly, should use
-the `toy-os <noreply@toy-os.local>` identity -- never a real name or
+the `SaunaOS <noreply@saunaos.local>` identity -- never a real name or
 personal email. It is configured in this checkout, so an ordinary
 `git commit` already does the right thing; the thing to avoid is
 overriding it.
@@ -502,7 +502,7 @@ the dev box's unsigned commits); keep it as it was; or commit as
 maintainer chose the last. It keeps what the privacy convention is FOR
 -- no commit carries the maintainer's name or address -- and it is the
 step a "require signed commits" rule on `main` would need anyway. The
-dev box still commits as `toy-os`; `preflight.sh` accepts both.
+dev box still commits as `SaunaOS`; `preflight.sh` accepts both.
 
 ## The repo lives in an organization because a personal repo has no read-only collaborator
 
@@ -528,7 +528,8 @@ point once the org holds more than this project.
 
 Two consequences worth knowing:
 
-- **The remote changed** to `git@github.com:eveningworks/toy-os.git`.
+- **The remote changed** to `git@github.com:eveningworks/toy-os.git`
+  (`saunaos.git` since the 2026-10-27 rename, the same reasoning again).
   GitHub redirects the old path, but the local remote was repointed
   rather than left depending on a redirect that dies the moment someone
   claims the old name.
@@ -872,7 +873,7 @@ a rename cannot fail.
 
 `docs/libc-design.md`'s Stage 1. The C library's public headers live in
 `userland/include/` and are reached with angle brackets; `userland/lib/`
-keeps the toy-os-internal headers (`cmd.h`, `tosh.h`, `human.h`,
+keeps the saunaos-internal headers (`cmd.h`, `tosh.h`, `human.h`,
 `dirsort.h`) and the implementation.
 
 **Why a separate directory rather than putting `userland/lib/` on the
@@ -964,7 +965,7 @@ rather than a second formatter that would have to be kept in step.
 Same audience question `userland/include/` answered for the headers, one
 layer down. A `/bin` program links the C library; a GUI app links the C
 library plus Toykit. One merged archive would have made the libc's
-audience "toy-os apps" rather than "any C program", which is the
+audience "SaunaOS apps" rather than "any C program", which is the
 opposite of what the port-capable target is for.
 
 `kernel/lib/string.c`, `knum.c`, `kfmt.c` and `heap_core.c` are in
@@ -1086,7 +1087,7 @@ the window protocol and both edges of the keyboard, all at once and for
 minutes at a time.
 
 **Linked into exactly one binary** (`EXTRA_OBJS_doom`), which is the
-cjson precedent doing real work here: doomgeneric is GPL-2 and toy-os is
+cjson precedent doing real work here: doomgeneric is GPL-2 and SaunaOS is
 MIT. The two coexist as an aggregation -- a separate program in the same
 repository -- and the per-binary link is what makes "nothing else can
 accidentally depend on GPL code" a property of the build rather than a
@@ -1118,10 +1119,10 @@ that was willing to grow for it.
 `api/keyboard.h` and doomgeneric's `doomkeys.h` both define `KEY_F2`,
 `KEY_F3`, `KEY_F4` and `KEY_F10`, with different values, and neither is
 ours to rename. So the app (`userland/gui/apps/doom.c`) includes one and
-the backend (`userland/backends/doom/dg_toyos.c`) includes the other, and they
-meet through `dg_toyos.h`, which includes neither.
+the backend (`userland/backends/doom/dg_saunaos.c`) includes the other, and they
+meet through `dg_saunaos.h`, which includes neither.
 
-That header carries toy-os's codes written out as `TOYKEY_*` literals --
+That header carries SaunaOS's codes written out as `TOYKEY_*` literals --
 a COPY, which this project normally refuses. What makes it acceptable is
 that `doom.c` `_Static_assert`s every one of them against the real macro:
 the check compiles in the file that can see both, and a drift in either
@@ -1235,7 +1236,7 @@ among the moments a line-buffered stream transmits: "when input is
 requested on an unbuffered stream, or when input is requested on a
 line-buffered stream that requires the transmission of characters from
 the host environment". glibc implements it in `_IO_new_file_underflow`
-and MSVC's CRT does the equivalent. toy-os was the outlier, and
+and MSVC's CRT does the equivalent. SaunaOS was the outlier, and
 `fflush(stdout)` after every prompt is a workaround for a libc gap
 rather than the idiom C asks for.
 
@@ -1437,7 +1438,7 @@ relocation shape, a caller that is a test, and nothing else needs it.
 `/bin` and GUI program already links that archive, and `--gc-sections`
 means a program that never calls a hash pays nothing for one sitting in
 it. So the archive was the cheap answer, and it is the wrong one for a
-reason the archive cannot fix: `libuapp.a` is *toy-os's toolkit*, and a
+reason the archive cannot fix: `libuapp.a` is *SaunaOS's toolkit*, and a
 program built against it takes a private copy of whatever it touched.
 Two programs hashing a file carry two SHA-256s in the image and two in
 memory. A shared object is one of each, and -- the part that actually
@@ -1559,7 +1560,7 @@ zero failures, which is indistinguishable from everything passing -- the
 same "what would a broken version still pass" question the test
 conventions ask.
 
-## toy-os supplies its own compiler runtime, rather than linking libgcc
+## SaunaOS supplies its own compiler runtime, rather than linking libgcc
 
 `unsigned __int128` is not an exotic type on x86-64: `mulq` multiplies
 64x64 into 128 in one instruction, so a multiply compiles inline and
@@ -1603,7 +1604,7 @@ which does no 128-bit division.
 
 GCC ships a freestanding `<limits.h>`, but it ends in `#include_next
 <limits.h>` to pick up the C library's. With no such header, a
-`-nostdinc` compile fails *inside GCC's own copy* -- which is why toy-os
+`-nostdinc` compile fails *inside GCC's own copy* -- which is why SaunaOS
 could not build anything with host headers excluded until tolibc grew
 one.
 
@@ -1612,7 +1613,7 @@ leaking into a userland compile. Nothing here passed it, so any
 `#include <sys/socket.h>` in a vendored tree silently resolved to
 `/usr/include`'s -- and a library probing with `__has_include` does not
 care what the target is, only what is on the path. Combined with GCC
-predefining `__linux__` and `__unix__` for every toy-os compile, a
+predefining `__linux__` and `__unix__` for every SaunaOS compile, a
 portable third-party library concludes it is on Linux and reaches for
 interfaces this OS does not have.
 
@@ -1673,11 +1674,11 @@ on the path -- not what the target is. This is what forced tolibc to
 grow a `<limits.h>`, since GCC's own ends in `#include_next <limits.h>`.
 
 **`-Uunix -U__unix -U__unix__ -U__linux__ -U__gnu_linux__`.** GCC
-predefines all five for every toy-os userland compile, because the host
+predefines all five for every SaunaOS userland compile, because the host
 triple is Linux. `library/common.h` reads them, defines
 `MBEDTLS_PLATFORM_IS_UNIXLIKE`, and `psa_crypto_random.c` then includes
 `<sys/time.h>` for `gettimeofday()`-based fork protection -- meaningless
-here, since toy-os has no `fork()`. **This applies to any portable
+here, since SaunaOS has no `fork()`. **This applies to any portable
 library vendored into this tree**, not just this one.
 
 ### Five generated files are committed, and that is the point
@@ -1685,7 +1686,7 @@ library vendored into this tree**, not just this one.
 Upstream ships templates, not sources, for `error.c`,
 `version_features.c`, `psa_crypto_driver_wrappers.{h,c}` and
 `ssl_debug_helpers_generated.c` -- produced by Python-with-Jinja2 and
-Perl. They are committed so **no toy-os build ever needs Python, jinja2,
+Perl. They are committed so **no SaunaOS build ever needs Python, jinja2,
 jsonschema or Perl**. A gate that starts requiring a package a fresh
 checkout may not have is the failure that keeps Docker out of
 `preflight.sh`. BearSSL commits its T0 output for the same reason, which
@@ -1693,7 +1694,7 @@ is where the idea came from.
 
 ### The configuration is written from scratch, and it is the security posture
 
-`userland/backends/mbedtls/toyos_mbedtls_config.h` enables what a client
+`userland/backends/mbedtls/saunaos_mbedtls_config.h` enables what a client
 needs and nothing else. Starting from upstream's default and disabling
 would have been quicker and leaves DES, Camellia, ARIA, DTLS and the
 whole server side enabled -- and `--gc-sections` drops those from the
@@ -1945,7 +1946,7 @@ sites nobody here will change, and a report nobody acts on trains
 people to skim the list.
 
 **The runner builds a copy of the tree.** `make UBSAN=1 iso` in the
-checkout re-seeds `disk.img` and rewrites `toy-os.iso`, and a test
+checkout re-seeds `disk.img` and rewrites `saunaos.iso`, and a test
 runner doing that unasked is the thing `ondemand_sweep.py` already
 refuses to do (`DIRTIES_IMAGE`). Overriding `BUILD`, `ISO` and
 `DISK_IMG` was the other way, and does not isolate: `iso/` and `seed/`
@@ -2035,13 +2036,13 @@ default and SAVES IT EMPTY before booting. systemd's `systemctl reboot
 macOS `bless --nextonly`. Every one of them has the boot manager clear the
 choice BEFORE it boots it.
 
-**What toy-os does: exactly grub-reboot's shape.** `userland/lib/
+**What SaunaOS does: exactly grub-reboot's shape.** `userland/lib/
 ubootmenu.c` writes the 1024-byte block (keeping GRUB's other variables),
 `grub.cfg` carries the stanza, and `loadenv` joined the core image's
-module list. The obvious alternative -- toy-os rewrites `set default=` and
+module list. The obvious alternative -- SaunaOS rewrites `set default=` and
 puts it back after a successful boot -- was declined for the reason
 every real system clears in the boot manager: an entry that never boots
-toy-os would never be put back, and the machine would boot the bad entry
+saunaos would never be put back, and the machine would boot the bad entry
 forever. Here a hang costs one reset.
 
 **`/boot` stays read-only.** The one write remounts it read-write and puts
@@ -2072,7 +2073,7 @@ structured store. `visudo` and `systemctl edit` hand out a copy and check
 it before installing. `grub-reboot`/`bcdedit /bootsequence` boot an
 entry once.
 
-**What toy-os does.** `userland/lib/ubootcfg.c` keeps the file as TEXT and
+**What SaunaOS does.** `userland/lib/ubootcfg.c` keeps the file as TEXT and
 an edit rewrites only the lines it owns (a `set`, an entry's first or
 boot line), so comments and the one-shot stanza survive byte for byte --
 grubby's shape. Generating the file was declined: the repo's `grub.cfg`
@@ -2133,13 +2134,13 @@ so there is no second parser of what `**` means.
 ## A build without GPL code is decided by each port's declared licence
 
 **2026-10-09.** `NOGPL=1` leaves out every program built from a port
-whose licence is GPL-only, so a closed product can be built from toy-os
+whose licence is GPL-only, so a closed product can be built from SaunaOS
 without deleting anything by hand. Today that is DOOM alone. The
 maintainer asked for it while weighing a move from MIT to GPL-2.0.
 
 Yocto decides the same thing by licence (`INCOMPATIBLE_LICENSE`, each
 recipe declaring its own). FreeBSD keeps a knob per GPL component
-(`WITHOUT_GPL_DTC`). toy-os follows Yocto's shape, cut down: one SPDX
+(`WITHOUT_GPL_DTC`). SaunaOS follows Yocto's shape, cut down: one SPDX
 line per port and one rule, "every alternative is GPL or AGPL". A
 knob per component would need a new knob, and someone to remember it,
 for each GPL dependency.
@@ -2164,7 +2165,7 @@ so the option still works the day they need it.
 front end ON THE HOST with upstream's own Makefiles, then copies into
 `userland/ports/` exactly the files that build compiled and the headers
 they reached, read off the compiler's `.d` files, and writes each port's
-`sources.mk` naming its translation units. The toy-os Makefile compiles
+`sources.mk` naming its translation units. The SaunaOS Makefile compiles
 those lists.
 
 **Why not a glob, as DOOM and mbedTLS have.** Both of those are one
@@ -2187,7 +2188,7 @@ vendoring tool needs them; the build does not.
 
 **Why the host build is kept around.** The same pinned source built for
 Linux is stage 1's oracle (`docs/browser-design.md`): its `nsmonkey`
-prints what it would draw, so a difference from toy-os's is a port or
+prints what it would draw, so a difference from SaunaOS's is a port or
 C-library bug, not an engine one. The work directory lives outside
 `build/`, because the Makefile includes every `.d` file under `build/`.
 
@@ -2211,7 +2212,7 @@ name sources this one does not compile (`javascript/none/`).
 
 ## Our changes to a vendored port are patch files, applied before the host build
 
-**2026-10-16.** A change toy-os makes INSIDE a vendored port is a patch
+**2026-10-16.** A change SaunaOS makes INSIDE a vendored port is a patch
 file under `userland/backends/<port>/patches/`. `tools/netsurf_vendor.py`
 resets each checkout to its pin, applies the port's patches in name
 order, builds the host oracle from that, and copies the result. The
@@ -2238,7 +2239,7 @@ a fork: the right shape for a library we stop following, the wrong one
 for an engine whose upstream fixes we want at the next pin. The licence
 was never the obstacle -- MIT and GPL-2.0 both allow changes; GPL-2.0
 asks that a changed file say so, which each hunk does ("Changed for
-toy-os, <date>").
+saunaos, <date>").
 
 **The link-time hooks stay.** Seven `--wrap` hooks replace whole
 functions from outside (`ns_boxfix.c` and the rest). A patch is for a
@@ -2276,3 +2277,44 @@ a ring's hole is a contour wound the other way, which nonzero cuts and
 two same-way contours fill where they overlap. The old plotter joined
 every subpath into one even-odd polygon of chords, which drew a hole
 there and a seam between subpaths everywhere.
+
+## The OS is SaunaOS; the old name stays only where changing it would break something
+
+toy-os was renamed SaunaOS on 2026-10-27, and the maintainer chose the
+widest scope: not only what a person reads, but paths, file names,
+macros, environment variables and the repository. One form outside the
+displayed name, `saunaos` -- `saunaos.iso`, `/etc/saunaos.conf`,
+`SAUNAOS_*` -- where toy-os had two (`toy-os`, `toyos`).
+
+What real systems do is narrower. macOS kept `/System/Library` and
+Darwin through two renames of the product; `/etc/os-release` separates
+`NAME` from the `ID` tools match on; Windows ships 64-bit code in
+`System32`. Renaming the identifiers too is the more expensive choice,
+and it cost three things that a display-only rename would not have:
+
+- **Installed machines move their files at boot.** The kernel reads
+  `/etc/saunaos.conf` at `INIT_CONFIG`, before any service could run,
+  so `vfs.c`'s `rename_from_toy_os()` moves `/etc/toyos.conf` and
+  `/var/log/toyos.log{,.1}` right after the root mount -- only where the
+  new name is free, so a machine with both keeps both
+  (`tools/rename_migrate_test.py`). A one-shot SERVICE, the shape
+  `bootmigrate` has, would run too late.
+- **Some old names are part of the past and stay.** Git history is not
+  rewritten (every cited SHA would go stale), so old commits are
+  authored `toy-os <noreply@toy-os.local>`; releases up to v0.5.0 ship
+  `toy-os-live.iso` and `toyos-usb.img.gz`, which `run_release.sh` still
+  finds; the docs that describe those events keep the names they had.
+- **Some old names are identifiers inside users' files and must not
+  change**: Paint's OpenRaster namespace URI (`uora.c`) is written into
+  every `.ora`, so a file saved before the rename still matches.
+
+The vendored ports (`userland/ports/`) and their patch files keep their
+"Changed for toy-os" comments until each port is next re-vendored: they
+are copies, edited only by the vendoring tools, and a patch that no
+longer matches its port is a worse problem than an old comment.
+
+The `toy*` COMPONENT names -- `toywm`, Toykit, `tosh`, TFS3 -- stay, like
+`ext4` and Xorg on Linux: they are what process tables, service files
+and crash reports on installed machines match on. The logo changed with
+the name, from three toy bricks to three sauna stones in the same
+outline, so the Start button kept its shape.

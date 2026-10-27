@@ -16,7 +16,7 @@
 #include "knum.h"
 #include "initcall.h"
 
-#define SOUND_CONFIG_FILE "/etc/toyos.conf"
+#define SOUND_CONFIG_FILE "/etc/saunaos.conf"
 #define VOLUME_KEY "volume"
 #define DEVICE_KEY "audio_device"
 

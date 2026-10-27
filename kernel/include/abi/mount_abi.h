@@ -11,7 +11,7 @@
 // Windows has no mount syscall at all (a volume is an object and
 // mountvol/SetVolumeMountPoint work through the object manager).
 //
-// This is Linux's shape with the two parts toy-os cannot honestly
+// This is Linux's shape with the two parts SaunaOS cannot honestly
 // carry left out. There is no `data` string, because no backend here
 // has per-filesystem options and inventing a parser for none would be
 // the second implementation of nothing. And SOURCE IS NOT A PATH: this

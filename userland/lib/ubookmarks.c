@@ -5,7 +5,7 @@
 #include <string.h>
 #include <strings.h>
 
-#define FILE_MAGIC "# toy-os bookmarks 1"
+#define FILE_MAGIC "# SaunaOS bookmarks 1"
 
 void ubookmarks_free(struct ubookmarks *bm) {
     for (int i = 0; i < bm->n; i++) {

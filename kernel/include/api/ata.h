@@ -91,7 +91,7 @@ int ata_trim_supported(void);
 //
 // Why a hobby OS wants this: with `discard=unmap` on QEMU's -drive line
 // this becomes a hole punch in the backing file, so deleting a file
-// inside toy-os gives the space back to the host instead of the image
+// inside SaunaOS gives the space back to the host instead of the image
 // growing forever. Without it, an image is sparse only until something
 // writes to it once. See ata.c's own comment for the measured numbers.
 int ata_trim(uint32_t lba, uint32_t count);

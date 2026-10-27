@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build toy-os with UBSAN=1 and/or KASAN=1 and list every site that fires.
+"""Build SaunaOS with UBSAN=1 and/or KASAN=1 and list every site that fires.
 
 WHAT IT RUNS. A copy of this tree (tracked files plus new untracked
 ones, uncommitted edits included) is built with `make UBSAN=1 KASAN=1
@@ -20,7 +20,7 @@ with where it was seen:
          link-time pc is resolved to file:line with addr2line
 
 WHY A SCRATCH COPY. `make ... iso` re-seeds disk.img and rewrites
-toy-os.iso, and a test runner must not do that to your checkout unasked
+saunaos.iso, and a test runner must not do that to your checkout unasked
 (the rule tools/ondemand_sweep.py states for DIRTIES_IMAGE). The copy
 has its own build/, iso/, seed/ and disk.img; yours are never touched.
 
@@ -211,7 +211,7 @@ def main():
     kasan = args.kasan or not args.ubsan
     phases = args.only or list(PHASES)
 
-    tree = args.keep or tempfile.mkdtemp(prefix="toyos-sanitize-")
+    tree = args.keep or tempfile.mkdtemp(prefix="saunaos-sanitize-")
     os.makedirs(tree, exist_ok=True)
     logs = os.path.join(tree, "sanitize-logs")
     os.makedirs(logs, exist_ok=True)
@@ -273,7 +273,7 @@ def main():
             print(f"sanitize_run: logs in {logs}")
         else:
             # Keep the logs, drop the tree: a finding is read from them.
-            kept = tempfile.mkdtemp(prefix="toyos-sanitize-logs-")
+            kept = tempfile.mkdtemp(prefix="saunaos-sanitize-logs-")
             shutil.copytree(logs, kept, dirs_exist_ok=True)
             shutil.rmtree(tree, ignore_errors=True)
             print(f"sanitize_run: logs kept in {kept}")

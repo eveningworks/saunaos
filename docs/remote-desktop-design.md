@@ -22,7 +22,7 @@ sessions as a **shared widget**.
 - **X11's x11vnc** reads the framebuffer and injects with XTest, mapping
   a VNC keysym back to a keycode through the current keymap.
 
-toy-os follows the shape: a separate ring-3 server (`/bin/remoted`),
+SaunaOS follows the shape: a separate ring-3 server (`/bin/remoted`),
 the screen from the compositor, the prompt and indicator in the
 compositor. It differs on INPUT -- next section.
 
@@ -106,7 +106,7 @@ own reader, which this TCP stack's retransmission timers need.
    line the session sets; the tray icon is lit while a desktop session is
    open (`tray_set_accent()`) and its flyout ends one or makes it view
    only. Ending and view-only are SIGNALS to the session (SIGTERM,
-   SIGUSR1/SIGUSR2, the latter pair new to toy-os), so the tray, Settings
+   SIGUSR1/SIGUSR2, the latter pair new to SaunaOS), so the tray, Settings
    and a shell all use the same lever and a wedged session still dies.
    `/etc/remote.conf` is `lib/uremote.h`'s, shared by the three.
 3. **BUILT (2026-10-08)** -- TLS on the server side: VeNCrypt 0.2 with
@@ -114,7 +114,7 @@ own reader, which this TCP stack's retransmission timers need.
    `MBEDTLS_SSL_SRV_C`, in `/lib/libssl.so`). An ECDSA P-256 key made once
    (`/etc/remote.key`) and refused on weak randomness; a self-signed
    certificate (`/etc/remote.crt`) that names the machine's IPv4
-   addresses, `127.0.0.1` and `toy-os`, remade by the listener when an
+   addresses, `127.0.0.1` and `SaunaOS`, remade by the listener when an
    address changes and BYTE-IDENTICAL for the same names (RFC 6979
    signatures, the serial from the key's hash, fixed dates), so its
    fingerprint survives reboots. The fingerprint is in Settings (the VNC
@@ -143,7 +143,7 @@ own reader, which this TCP stack's retransmission timers need.
 - **No anonymous TLS (TigerVNC's TLSVnc)**: mbedTLS has no anonymous
   suites, so every VeNCrypt viewer meets a certificate.
 - **The certificate names IPv4 addresses only**, and not a DNS name
-  beyond `toy-os`.
+  beyond `SaunaOS`.
 - **A character the layout has no key for is dropped**, as x11vnc drops
   it; a viewer on a different layout types what its keysyms say only
   where this layout can.

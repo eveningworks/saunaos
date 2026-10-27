@@ -116,7 +116,7 @@ terminal's FOREGROUND PROCESS GROUP. Every piece of that sentence is a
 separate mechanism, and the reason `Ctrl-C` is hard is that it is the
 last one.
 
-**Where toy-os should differ.** POSIX signals carry decades of
+**Where SaunaOS should differ.** POSIX signals carry decades of
 compatibility baggage this OS has no reason to inherit: 31 standard
 signals plus 32 realtime ones, queued delivery, `sigaltstack`,
 `SA_RESTART`, `sigprocmask`, stop/continue as separate states. Copy the
@@ -289,7 +289,7 @@ everything that turned out to be decidable.
   `SA_RESTORER` exactly; i386 Linux puts the same code in the vDSO,
   which would have meant a kernel-owned executable page mapped into
   every address space to serve a runtime every program here already
-  links. What toy-os gives up by choosing this side is that the kernel
+  links. What SaunaOS gives up by choosing this side is that the kernel
   trusts a userland pointer for control flow -- mitigated, not ignored:
   the restorer is range-checked, and a handler that returns to a bad one
   faults in ring 3 where a fault belongs.

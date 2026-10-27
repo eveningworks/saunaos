@@ -1020,7 +1020,7 @@ timer interrupt that still arrives while the CPU spins, which the LAPIC
 timer does unless interrupts are off; the NMI half is later and wants
 the performance-counter setup nothing here has yet.
 
-### An AML interpreter, so toy-os can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- not scheduled
+### An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- not scheduled
 
 Put on the roadmap 2026-10-09 (not scheduled). Firmware describes its
 own housekeeping as small programs -- AML Methods in the DSDT -- that an
@@ -1028,7 +1028,7 @@ ACPI operating system runs at the right moments: `_PTS` ("prepare to
 sleep") before a power-off, `_WAK` after a resume, and the Methods
 behind battery state, thermal zones and the lid. **Linux and Windows run
 them because they include a full interpreter** (ACPICA, ~100,000 lines;
-the NT AML engine). **toy-os deliberately does not**: it reads the
+the NT AML engine). **SaunaOS deliberately does not**: it reads the
 namespace and decodes constants (`docs/aml-design.md` stages 0-2) and
 stops before executing anything -- stage 4 there, the 60,000-line
 project of an operand stack, control flow, mutexes and OperationRegion
@@ -1037,8 +1037,8 @@ handlers for memory, I/O, PCI and the embedded controller.
 **What it costs today, and how it is worked around.** On the ASUS
 UX305FA, `_PTS` tells the embedded controller the coming sleep state;
 skipped, the machine needed two presses of the power button to start
-after a toy-os shutdown. The fix (b8913e60) lets the firmware do its own
-tidy-up instead: when it left ACPI mode off, toy-os powers off through
+after a SaunaOS shutdown. The fix (b8913e60) lets the firmware do its own
+tidy-up instead: when it left ACPI mode off, SaunaOS powers off through
 its legacy path, which takes the firmware's own preparation. That is the
 right substitute while there is no interpreter, and it is why this item
 is not urgent.
@@ -1142,7 +1142,7 @@ the next step toward it.
 
 ### In-OS documentation
 
-toy-os has an unusually large amount of written reasoning for a hobby
+SaunaOS has an unusually large amount of written reasoning for a hobby
 OS, and none of it is readable *from inside the OS*. `help` lists
 commands with a one-line description and that's the whole of it. A `man`
 command is a small amount of work that makes everything else
@@ -1239,7 +1239,7 @@ injects deliberate, precisely-known corruption for `fsck`. A
 
 ### Multi-user & file permissions
 
-New milestone, lightly scoped. toy-os is single-user with no concept of
+New milestone, lightly scoped. SaunaOS is single-user with no concept of
 "who owns this file" today -- `struct file` (`tfs.c`) has no owner/mode
 fields at all. Wants TFS3: an inode layer's inode layer first (see above). A
 first rough breakdown:
@@ -1306,7 +1306,7 @@ rather than imply otherwise.
 
 ### Desktop visual polish
 
-- [ ] **A display scale for the whole desktop.** Windows' Display > Scale and Wayland's fractional-scale-v1: one number, 100% to 200% in quarter steps, that text, controls, icons, borders, the taskbar and the cursor all follow. toy-os already lays out from the font size (`system.font.size`), so the work is what is still in pixels -- icon sizes, line and border widths, paddings -- and the icon art at the in-between sizes. Asked for 2026-10-19, alongside w16's fractional scales, and put here by the maintainer's choice.
+- [ ] **A display scale for the whole desktop.** Windows' Display > Scale and Wayland's fractional-scale-v1: one number, 100% to 200% in quarter steps, that text, controls, icons, borders, the taskbar and the cursor all follow. SaunaOS already lays out from the font size (`system.font.size`), so the work is what is still in pixels -- icon sizes, line and border widths, paddings -- and the icon art at the in-between sizes. Asked for 2026-10-19, alongside w16's fractional scales, and put here by the maintainer's choice.
 
 - [x] **A thin-at-rest scrollbar that costs no column.** DONE 2026-10-10 for the Terminal, the maintainer's ask the same day: at rest the 3 px thumb sits inside the margin, the grid takes the column back, and under the pointer the bar widens over the last column. Lists keep the reserved strip -- their rows run to the edge with no margin to hide a resting thumb in (`docs/decisions/gui.md`, "Every scrollbar is one shared state in a reserved strip").
 
@@ -2123,7 +2123,7 @@ nonzero `fat_size_32`). It is what lets `kernel/fs/fat32_test.c` use a
 volume is a `kmalloc()` and `pmm_alloc_contiguous()` fails on a
 fragmented machine long before it fails on a small one. `format()` still
 picks a cluster size clearing the floor wherever the volume allows, so
-nothing toy-os WRITES is out of spec.
+nothing SaunaOS WRITES is out of spec.
 
 **The steppable read/write pair completes in `begin()`** rather than
 genuinely stepping, as ramfs's does. Doing it properly means a second
@@ -2731,7 +2731,7 @@ and apt's or dnf's mirror list (`mirror://`, Fedora's metalink).
 - System Update lists the servers to pick from; `update --server` with
   no address prints them.
 - Open: a raw GitHub URL is readable without a login only for a public
-  repository -- check `eveningworks/toy-os`'s visibility before choosing
+  repository -- check `eveningworks/saunaos`'s visibility before choosing
   where the list lives.
 
 **Not safe alone beyond the LAN.** Today's check is CRC32 over plain
@@ -2746,7 +2746,7 @@ metadata, Microsoft's signed packages. Here: `update_server.py
 --publish` signs a snapshot's manifest with an ed25519 key that stays on
 the build host; the image carries the public key; `update` refuses a
 manifest whose signature does not verify. The vendored mbedTLS should
-cover ed25519, but whether toy-os's build enables it is not yet checked.
+cover ed25519, but whether SaunaOS's build enables it is not yet checked.
 A choice to make when building: whether a server set by hand
 (`update.server`) may stay unsigned on a private network.
 
@@ -3115,7 +3115,7 @@ above 0xFF can be named at all. Ring 3 cannot even address those six --
 anything past the ASCII count.
 
 CP437's byte positions were considered and declined (2026-09-08): they
-would draw correctly on the toy-os console and produce mojibake
+would draw correctly on the SaunaOS console and produce mojibake
 everywhere text leaves the machine -- over telnet, over serial, or
 redirected to a file -- and reading `ps` over telnet is how the
 bare-metal machine is checked.
@@ -3126,7 +3126,7 @@ extra-codepoint table without "a second copy of a table the kernel
 already owns". That is true of a copy and not of a MOVE -- the table
 belongs in an `abi/` header, where both rings read one of it.
 
-toy-os is Latin-1 end to end, deliberately (see `docs/decisions.md`:
+SaunaOS is Latin-1 end to end, deliberately (see `docs/decisions.md`:
 one byte per character keeps the console, the font atlas, and the
 filesystem's fixed-width path field all trivially indexable, and it was
 enough for the six Nordic letters that motivated it). This milestone is
@@ -3149,7 +3149,7 @@ gets bumped and it's a reformat like every other format change here.
 ### UEFI boot
 
 **MEASURED 2026-08-27, so the starting point is known rather than
-assumed.** Booting `toy-os.iso` under OVMF
+assumed.** Booting `saunaos.iso` under OVMF
 (`/usr/share/edk2/x64/OVMF_CODE.4m.fd` as pflash) fails in two stages,
 and only the first is fixed:
 
@@ -3162,7 +3162,7 @@ and only the first is fixed:
    2026-10-27.) That was a real bug on any EFI-booted medium and worth
    fixing on its own.
 2. GRUB then **page-faults inside the firmware** and the kernel never
-   runs -- no `kernel_main reached` on the serial line. So toy-os still
+   runs -- no `kernel_main reached` on the serial line. So SaunaOS still
    does not boot under UEFI at all, and stage 1 only removed the error
    that was hiding stage 2.
 
@@ -3193,7 +3193,7 @@ of what else is x86-64-specific.
 
 ### A scripting language
 
-Everything toy-os runs today it also compiles: the `/bin` binaries are
+Everything SaunaOS runs today it also compiles: the `/bin` binaries are
 built by the same Makefile as the kernel. A scripting language is the
 first thing that would let the OS run a program it wasn't built with --
 you write the script *on the machine*, in `edit`, and run it.
@@ -3520,17 +3520,17 @@ pointer grab TWS does not have), and resizing.
 
 ---
 
-Deliberately left out as out of scope for toy-os: an own bootloader (GRUB
+Deliberately left out as out of scope for SaunaOS: an own bootloader (GRUB
 is fine here), a SELF-HOSTED C compiler, and additional CPU architectures
-beyond the RISC-V backlog item above (toy-os is x86-64-first by design,
+beyond the RISC-V backlog item above (SaunaOS is x86-64-first by design,
 per the project description). [brutal-org/brutal](https://github.com/brutal-org/brutal)'s
 own roadmap has all three as goals -- not goals here.
 
 **Self-hosted is the operative word in the middle one**, and it is not
 the same as having a compiler. `roadmap.md`'s "Programming on the
-machine" plans a `cc` that compiles ordinary programs ON toy-os, and
+machine" plans a `cc` that compiles ordinary programs ON SaunaOS, and
 this file's section of the same name has the detail; what stays out of
-scope is toy-os rebuilding its own kernel and userland, which needs GCC
+scope is SaunaOS rebuilding its own kernel and userland, which needs GCC
 and Make rather than a compiler port. `docs/cc-design.md` opens with
 that distinction because it is the one a reader of this paragraph would
 otherwise get wrong.
@@ -3558,7 +3558,7 @@ and linker that writes ELF directly is one.
 with `-mcmodel=kernel`, `-mstack-protector-guard=global`,
 `-ftls-model=local-exec`, `-mno-direct-extern-access` and
 `-fno-tree-loop-distribute-patterns`. No small compiler implements any
-of them, so "toy-os builds toy-os" means porting GCC and Make.
+of them, so "SaunaOS builds SaunaOS" means porting GCC and Make.
 
 **What is already favourable, measured**: `kernel/proc/elf.c` loads
 `ET_EXEC` only, which is exactly what such a compiler emits; tolibc
@@ -3625,7 +3625,7 @@ branch, a bare name, `config list` and System Settings' first page still
 do. GSettings' answer is one compiled file every process maps
 (`glib-compile-schemas` rebuilds it when the schema directory changes);
 the Windows registry and macOS's `cfprefsd` keep the parsed state in one
-long-lived owner instead. The toy-os shape would be the former: an index
+long-lived owner instead. The SaunaOS shape would be the former: an index
 file regenerated when the directory's generation moves, read with one
 open. `tests/settingcost_test` holds today's ceilings.
 
@@ -3761,7 +3761,7 @@ usable, free" with no subtraction now: usable is every frame the
 allocator manages, high zone included, because a process can be handed
 one. The gap that remains between installed and usable is the firmware's
 own reservations plus whatever a partial 2 MiB granule cost -- not a
-zone toy-os declines to use.
+zone SaunaOS declines to use.
 
 **Planned 2026-09-02, after a code audit.** The decision, and the
 reason it is not Linux's layout, is in `docs/decisions/kernel.md`
@@ -3886,7 +3886,7 @@ free page reporting, walked from the idle loop").
 
 **Needs:** Demand paging & shared memory -- swap is demand paging with a backing store.
 
-- [ ] **An out-of-memory killer.** toy-os overcommits, so the machine
+- [ ] **An out-of-memory killer.** SaunaOS overcommits, so the machine
   running out is found at a page fault, and `map_zeroed_user_page()`
   ends THE PROCESS THAT FAULTED -- measured 2026-10-16, a page's engine
   on a 1 GiB guest; on a busy desktop it could be `toywm`. Linux picks
@@ -4027,7 +4027,7 @@ durability and structure -- integrity checking, snapshots, mount points
 
 - [x] ~~Tab completion (commands, then paths)~~ -- done, see the commit that added it (commands, paths, and per-command argument sets, shared by both shells)
 
-- [ ] Environment variables + `export` -- note `PATH` already exists as a config key read at shell startup (`/etc/toyos.conf`, see `apps/shell_path.c`); this item is the general mechanism, of which PATH would become one instance
+- [ ] Environment variables + `export` -- note `PATH` already exists as a config key read at shell startup (`/etc/saunaos.conf`, see `apps/shell_path.c`); this item is the general mechanism, of which PATH would become one instance
 
 ## Storage hardening
 
@@ -4348,7 +4348,7 @@ way to reach it -- that rendezvous is the missing primitive, and
 2 KiB chunks that is ~94 messages a second per client, comfortably
 inside `SYS_WRITE_MAX`, and two copies plus a scheduling hop are
 nothing against a 341 ms ring. A shared-memory ring per client is what
-PipeWire needs for a 2 ms target, and toy-os has no such target.
+PipeWire needs for a 2 ms target, and SaunaOS has no such target.
 
 **Doom's sound was NOT what this file used to say it would be.** The
 item read "with Doom doing its own effect mixing in userspace", which
@@ -4540,7 +4540,7 @@ on, platform glue in `userland/backends/`, a `LICENSE` entry for
 `check_licenses.py`. What is missing is underneath it.
 
 **The process model.** ash's evaluator forks for subshells, `(...)`,
-`$(...)`, pipelines and `&`, and toy-os has no `fork()` and no `exec()`
+`$(...)`, pipelines and `&`, and SaunaOS has no `fork()` and no `exec()`
 of any kind -- `SYS_SPAWN` is `posix_spawn`-shaped on purpose
 (`docs/init-design.md`, `userland/libc/README.md`). Two no-fork
 platforms already run ash, and that is the precedent to follow rather
@@ -4667,7 +4667,7 @@ an MIT tree" is true of dash's shell and not of its build:
 `src/mksignames.c` is GPL-2-or-later, taken from GNU Bash, and dash's
 own `COPYING` says so -- *"This file is not directly linked with dash.
 However, its output is."* It is the generator for the signal-name table
-`kill -l` and `trap` print. toy-os needs its own anyway, because the
+`kill -l` and `trap` print. SaunaOS needs its own anyway, because the
 table has to name OUR signal numbers, so the fix and the necessity are
 the same work; `LICENSE` and the port's `README.md` disclose the file
 until it lands.
@@ -4881,7 +4881,7 @@ caller is a test.
 
 - [ ] **Kernel command-line switches for the protections, not just `nokaslr`.** `multiboot_cmdline()` exists and kernel ASLR is its only user; `nowx`, `nonx`, `nosmap`/`nosmep` and a heap-debug switch would join it. The argument is not convenience, it is TESTING: proving a W^X or SMAP KTEST can go red currently means editing the kernel and rebuilding (see CLAUDE.md's positive-control note, and the session that read 132/132 green off a stale ISO), and a boot flag turns that into a launch argument the suite can run both ways. Two rules it has to follow, or it makes things worse: a disabled protection must be reported loudly (`dmesg` and `about`, as `nokaslr` already does with its note), and the affected KTESTs must SKIP with a reason rather than fail -- otherwise booting with `nowx` reddens six checks and the next session "fixes" the tests. Asked for 2026-08-16.
 
-- [x] ~~**A Live-CD boot: run from the ISO with no disk.**~~ -- done 2026-08-16, all three stages in one pass. The ISO carries a TFS3 image as a GRUB module, a block-device layer sits between the filesystems and the disk, and a RAM device mounts the module. Two GRUB entries: the default prefers a disk and falls back to the image, `toy-os (live)` forces the image. Proven by `tools/live_boot_test.py`, which boots with NO -drive and asserts a shipped binary runs -- "it booted" proves nothing here, since the kernel degrades to an empty RAM filesystem and still reaches a shell. The ASLR blocker was real and is fixed. Costs: the ISO is ~162 MiB because TFS3's minimum volume is one 128 MiB block group. See docs/live-cd-design.md's "What actually shipped".
+- [x] ~~**A Live-CD boot: run from the ISO with no disk.**~~ -- done 2026-08-16, all three stages in one pass. The ISO carries a TFS3 image as a GRUB module, a block-device layer sits between the filesystems and the disk, and a RAM device mounts the module. Two GRUB entries: the default prefers a disk and falls back to the image, `SaunaOS (live)` forces the image. Proven by `tools/live_boot_test.py`, which boots with NO -drive and asserts a shipped binary runs -- "it booted" proves nothing here, since the kernel degrades to an empty RAM filesystem and still reaches a shell. The ASLR blocker was real and is fixed. Costs: the ISO is ~162 MiB because TFS3's minimum volume is one 128 MiB block group. See docs/live-cd-design.md's "What actually shipped".
 
 - [ ] **Let TFS3 blocks-per-group vary for small volumes.** `bpg` is already a superblock field; both the kernel (`T3_BPG`) and `tfs3_writer.py` range-check it to exactly 32768, so the smallest TFS3 volume is 128 MiB. That is what makes the live image -- and therefore the ISO -- an order of magnitude bigger than the data in it. Touches a tested filesystem's geometry validation, so it wants its own pass with `fs_switch_test.py` and `tfs3_v1_test.py`.
 - [x] **toywm's fixed tables of user data, grown on demand.** DONE 2026-10-23. The convention is `docs/conventions/kernel.md`'s "Size it to the data". The desktop-entry registry was converted 2026-10-19; then the desktop's per-icon tables (grown together by `items_reserve()`, its folder listed by `ulistdir()`), the interned program identities (`wm_client.c`), and Close all's batch with the card that names what stayed (`close_batch.c`, `crash_notice.c`) -- and with them the rubber band's selection bitset (`lib/rubberband.c`, shared with the File Manager) and the Leave page's batch. The desktop's Delete and thumbnail runs go through `lib/uargbatch.h`, since a selection's paths outgrow one spawn's argv.
@@ -5265,12 +5265,12 @@ The whole plan, the routes and the case against each are in `docs/w16-design.md`
 - [x] ~~**w16: a fault or an unimplemented call as a crash report.**~~ DONE 2026-10-19: the Windows 3.1 Application Error box in the program's window, then `abort()` with `set_abort_message()` naming the call or the fault, CS:IP and the registers as the fault found them -- `docs/decisions/kernel.md`, "A program's last words are an address, read at the crash". `/usr/share/w16/fault.exe` faults on a click and calls ExitWindows on a right click.
 - [x] ~~**w16: INI files on drive C:, and the Win16 Programs launcher with per-program settings.**~~ DONE 2026-10-19: the profile calls read and write real INI files below `drive_c` (`/home/Win16`; a bare name is in its `WINDOWS`, as 3.1 put it). `/etc/win16.conf` holds the defaults -- scale, frame, the version GetVersion answers, what a fault does, trace, drive C: and the folders the launcher looks in -- and `/etc/win16/<program>.conf` the first six for one program, keyed by its path, as Windows' compatibility settings are keyed by the executable. The launcher (`/bin/wm/apps/win16`) learns each program's description, icon and how much of what it imports `w16` has from `w16 --check`, so it parses no program itself, and shows the last run from `/var/lib/win16/<program>.last`.
 - [x] ~~**w16: a program's missing calls in a window of their own, with names and kinds for every Win16 DLL.**~~ DONE 2026-10-19: `win16 --calls FILE` (the details panel's Missing calls... button) lists module, ordinal, function and kind with a chip per module (`ui/uui_chips.h`), a search, Copy, Save as text and Show all imports -- Dependency Walker's shape. The name table covers COMMDLG, SHELL, KEYBOARD, SOUND, SYSTEM, TOOLHELP, MMSYSTEM, DDEML, OLECLI, OLESVR, LZEXPAND, VER and WIN87EM beside KERNEL, USER and GDI, and KERNEL's constants; each export's kind comes from the generator's `KIND_RULES`. `uui_table` sorts any number of rows now (it stopped at 256, and Write imports 262).
-- [x] ~~**w16: the menu bar from the MENU resource, accelerators, dialogs from DIALOG resources, MessageBox.**~~ DONE 2026-10-19: Minesweeper's Game and Help menus, Best Times, Custom Field and About all work; `/usr/share/w16/dialog.exe` is the committed sample `w16_gui_test.py` drives. The choices that day: a dialog is an owned window (not a toolkit popup), ShellAbout in 3.1's layout with toy-os where 3.1 named itself, and WinHelp saying it cannot show a .HLP file.
+- [x] ~~**w16: the menu bar from the MENU resource, accelerators, dialogs from DIALOG resources, MessageBox.**~~ DONE 2026-10-19: Minesweeper's Game and Help menus, Best Times, Custom Field and About all work; `/usr/share/w16/dialog.exe` is the committed sample `w16_gui_test.py` drives. The choices that day: a dialog is an owned window (not a toolkit popup), ShellAbout in 3.1's layout with SaunaOS where 3.1 named itself, and WinHelp saying it cannot show a .HLP file.
 - [ ] **w16: a dialog placed where its template says.** 3.1 put a dialog at its template's x and y, in dialog units from the owner's client corner (Minesweeper's Best Times just under its counters); toywm opens an owned window centred on its owner, or on the screen when it does not fit, and has no request a client could move it with.
 - [x] ~~**w16: the other standard controls.** BUTTON's check box, radio button and group box styles, LISTBOX and COMBOBOX; a dialog naming one stops the program today with "a dialog control of class ... is not supported yet". Notepad's Find and Write's dialogs need them.~~ DONE: all of them are in `ctl16.c` and `list16.c` (Notepad's and Write's dialogs use them), and owner-drawn lists and combo boxes since 2026-10-21 (Character Map's font list) -- dialog.exe's Number dialog has one `w16_gui_test.py` reads by pixel.
 - [ ] **w16: TrueType text hinted and drawn bilevel, as 3.1 drew it.** Side by side with the reference VM (Character Map, 2026-10-21) w16's TrueType text has grey edges where 3.1 drew solid pixels from hinted outlines. Its WEIGHT is not the gap -- measured with the cells both sides draw, w16 has about 1.0-1.2x 3.11's ink (a first measurement that said "lighter" counted a row of boxes w16 did not draw). Neither cheap fix works: a coverage threshold breaks strokes without the hints (Symbol's capitals lose parts), and darkening adds ink 3.11 does not have. The route is the TrueType bytecode interpreter -- FreeType's runs the fonts' own instructions -- then whole pixels from the hinted outline.
-- [x] ~~**w16: Windows-1252's 0x80-0x9F drawn.**~~ DONE 2026-10-21: toy-os's shared glyph slots stop at ASCII and 0xA0-0xFF, so those bytes drew as spaces. A ring-3 `struct ugfx_font` may now carry its own cells for 0x7F-0x9F (`c1_glyphs`), and w16 fills them from the font it holds: a 3.11 .FON's own glyphs, a TrueType face through 3.1's ANSI table (Windows-1252 before the euro, Z-caron and z-caron, read off 3.11's Character Map), and the face's box where the table has no character. The shared slot ABI is unchanged, so only Windows programs gain them; a toy-os app showing curly quotes would still need the slots widened.
-- [ ] **w16: the sound driver's voices played.** OpenSound, SetVoiceNote and StartSound answer as if the notes played; toy-os's sound could play them as square waves, as the PC speaker did.
+- [x] ~~**w16: Windows-1252's 0x80-0x9F drawn.**~~ DONE 2026-10-21: SaunaOS's shared glyph slots stop at ASCII and 0xA0-0xFF, so those bytes drew as spaces. A ring-3 `struct ugfx_font` may now carry its own cells for 0x7F-0x9F (`c1_glyphs`), and w16 fills them from the font it holds: a 3.11 .FON's own glyphs, a TrueType face through 3.1's ANSI table (Windows-1252 before the euro, Z-caron and z-caron, read off 3.11's Character Map), and the face's box where the table has no character. The shared slot ABI is unchanged, so only Windows programs gain them; a SaunaOS app showing curly quotes would still need the slots widened.
+- [ ] **w16: the sound driver's voices played.** OpenSound, SetVoiceNote and StartSound answer as if the notes played; SaunaOS's sound could play them as square waves, as the PC speaker did.
 - [x] ~~**w16: fractional scales (1.25x to 3x) with a choice of Sharp, Pixels or Smooth.**~~ DONE 2026-10-19 from the "Win16 fractional scale" canvas: the scale steps 1, 1.25, 1.5, 1.75, 2, 2.5 and 3 (`scale16.c`, kept in quarters so a size and a pointer convert exactly both ways); `method` -- per program and in Options -- says how a pixel spreads between whole steps: Sharp (sharp-bilinear, the default), Pixels (nearest) or Smooth (bilinear), the three DOSBox and RetroArch offer; Auto is the step nearest the screen's width over 1280, so the ASUS's 1920 screen gets 1.5x.
 - [ ] **w16's fixed tables grown on demand.** The message queue (`W16_QUEUE`), remembered resources, GDI objects and timers are fixed arrays chosen in stage 2; `docs/conventions/kernel.md`'s "Size it to the data" says each grows as it is touched. The window table and the menus were born grown, and the window classes, the atoms and the local heap's blocks and handles grow since Notepad (2026-10-19).
 - [x] ~~**w16: KERNEL's constants answered from the spec's values.**~~ DONE 2026-10-19 for `__AHSHIFT`, `__AHINCR` and `__WINFLAGS`; the selector ones (`__0040H` and the rest) need real-mode memory w16 does not map. They are equates, not calls: a program imports one to have the loader patch its value in.
@@ -6838,7 +6838,7 @@ Adapter until the vendor driver loads. The stages, one flash each:
 ### GPU compositing, route 1: every display plane the pipe has, one window each
 
 KWin's and Mutter's GPU compositing stands on Mesa and the kernel's
-i915 driver; toy-os's Intel driver is display-only (modesetting, the
+i915 driver; SaunaOS's Intel driver is display-only (modesetting, the
 cursor plane, page flips). The four routes below are what that leaves,
 smallest first, and were set out on 2026-10-18 after `gui compositor`
 first split a frame by stage on the ASUS (1920x1080, transparency on: a
@@ -7146,7 +7146,7 @@ console nobody can see.
 
 freedesktop's answer is a `Terminal=` key: `false` (the default) means
 "GUI program, launch it directly", `true` means "this is a terminal
-program -- run it inside a terminal emulator". toy-os has the emulator
+program -- run it inside a terminal emulator". SaunaOS has the emulator
 already (`/bin/wm/apps/terminal` runs `/bin/tosh` on a pty), so the work
 is the key, the parse, and having the desktop spawn the Terminal with a
 command to run instead of the shell.
@@ -7250,7 +7250,7 @@ stream is a bulk transfer completing.
 - **Hot unplug of a bound adapter**, and the throughput ceiling: 3.9
   MB/s is what one HTTP fetch did, not a measured limit.
 
-**The licence constraint, for whoever extends this.** toy-os is MIT.
+**The licence constraint, for whoever extends this.** SaunaOS is MIT.
 Linux's `r8152.c` is GPL-2.0 and must not be transcribed. The reference
 is FreeBSD's `ure(4)` (`sys/dev/usb/net/if_ure.c`, `if_urereg.h`),
 BSD-2-clause, Kevin Lo, and its notice is in `LICENSE`. Register
@@ -7562,7 +7562,7 @@ out-of-order reassembly was built, with no out-of-order segments seen
 at all. The loss that day was real and the stall was real; what caused
 it was never established, so do not treat either as a standing
 property of this driver.
-The same server-side fragility is why fetches from toy-os's own `httpd`
+The same server-side fragility is why fetches from SaunaOS's own `httpd`
 truncated on BOTH the e1000 path (3.8 MB of 8) and this one: the
 in-order stack on either end.
 
@@ -7586,7 +7586,7 @@ that load, which is a bigger bucket, not a fix: a burst larger than the
 ring drops again, silently except for the counter. What a real stack
 does is queue -- Linux's `qdisc` in front of the driver, and the driver
 stopping the queue (`netif_stop_queue`) until a completion frees a
-slot. The shape for toy-os is a small per-device transmit queue in
+slot. The shape for SaunaOS is a small per-device transmit queue in
 `net.c` drained on completion, so a refusal is a wait rather than a
 loss; `e1000` and `r8169` have the same seam.
 
@@ -7855,7 +7855,7 @@ therefore cannot know a client has a modal up; all it gets is a
 which is why this is `uui_route.c` and `uapp.c` and not `userland/wm/`.
 X11 gets this for free because a cursor is a per-WINDOW attribute and a
 modal is a window; Wayland pushes it to the client for the same reason
-toy-os has to.
+saunaos has to.
 
 Three axes make a modal modal, and only two are wired: the CLICK (the
 scrim answers `hit`, fixed 2026-09-14) and the KEY (`dlg_key` returns 1
@@ -8305,10 +8305,10 @@ Where each stood on 2026-10-24, on an installed WfW 3.11 tree (`w16
 - **Fonts**: lists WIN.INI's `[fonts]` (the installer writes it, as Setup
   did); the sample is empty and each font says 0 KB on disk.
 - **Mouse**: works -- the swap and the double-click speed apply to the
-  program's own windows (WIN.INI's keys, toy-os's own double-click setting
+  program's own windows (WIN.INI's keys, SaunaOS's own double-click setting
   when WIN.INI has none); the tracking speed is stored and not applied.
 - **Sound**: works -- its Files list (DlgDirList) and Test, which plays
-  through toy-os's sound; with no sound card its lists are greyed, as
+  through SaunaOS's sound; with no sound card its lists are greyed, as
   3.11's are (waveOutGetNumDevs answers 0).
 - **Printers, International**: open with their lists filled -- CONTROL.INF
   and SETUP.INF read through LZEXPAND (`userland/w16/lz16.c`), found as
@@ -8316,7 +8316,7 @@ Where each stood on 2026-10-24, on an installed WfW 3.11 tree (`w16
 - **Drivers**: lists SYSTEM.INI's drivers and says "Cannot load the MIDI
   Mapper driver" -- no installable driver loads (OpenDriver answers NULL).
 - **Icon order**: Sound comes before Drivers, where 3.11 has Enhanced,
-  Drivers, Fax, Sound -- the .CPLs in the folder's order, which on toy-os's
+  Drivers, Fax, Sound -- the .CPLs in the folder's order, which on SaunaOS's
   disk is not FAT's.
 - **Desktop, Keyboard, Ports, Date/Time**: open with every control.
 

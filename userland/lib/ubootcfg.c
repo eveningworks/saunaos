@@ -489,7 +489,7 @@ static int has_bootpart(const struct ubootcfg_entry *en) {
     return 0;
 }
 
-// An editable toy-os entry without the word. A `linux` line boots some
+// An editable SaunaOS entry without the word. A `linux` line boots some
 // other system, whose kernel has its own idea of a boot line.
 static int wants_bootpart(const struct ubootcfg *c, int e) {
     const struct ubootcfg_entry *en = &c->entry[e];
@@ -529,10 +529,10 @@ int ubootcfg_add_bootpart(struct ubootcfg *c) {
 // it. Found by its variable, so a reworded comment is not a second copy.
 static const char VIDEO_STANZA[] =
     "\n"
-    "# THE SCREEN SIZE, for a display toy-os cannot set itself (a VESA\n"
+    "# THE SCREEN SIZE, for a display SaunaOS cannot set itself (a VESA\n"
     "# framebuffer): toy_mode, or toy_mode_try for ONE boot -- cleared here,\n"
     "# so a size the monitor cannot show is booted once. toy_mode_tried tells\n"
-    "# toy-os this boot is that trial (lib/ubootmode.h). Each entry sets\n"
+    "# SaunaOS this boot is that trial (lib/ubootmode.h). Each entry sets\n"
     "# gfxpayload AFTER its multiboot2 line, which overwrites it.\n"
     "set toy_mode_now=\"${toy_mode}\"\n"
     "if [ \"${toy_mode_try}\" ]; then\n"
@@ -557,7 +557,7 @@ static int text_has(const struct ubootcfg *c, int from, int to, const char *need
     return 0;
 }
 
-// A toy-os entry -- a multiboot2 line -- without the gfxpayload line.
+// A SaunaOS entry -- a multiboot2 line -- without the gfxpayload line.
 static int wants_video(const struct ubootcfg *c, int e) {
     const struct ubootcfg_entry *en = &c->entry[e];
     if (en->boot < 0 || en->end < 0) return 0;

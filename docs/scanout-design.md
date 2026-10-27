@@ -44,7 +44,7 @@ anything is drawn above it (a popup, an OSD) composition resumes. The
 mechanism underneath is a `dmabuf` import into KMS. The DRM **lease**
 (`drmModeCreateLease`) is the other shape: a compositor lends a whole
 CRTC and its planes to another process -- how a VR runtime takes over a
-headset -- and that process flips for itself. toy-os takes the lease's
+headset -- and that process flips for itself. SaunaOS takes the lease's
 shape with direct scanout's policy: the buffers stay the kernel's, the
 client borrows them, and the compositor decides each frame whether it
 may.

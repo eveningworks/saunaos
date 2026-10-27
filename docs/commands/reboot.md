@@ -67,7 +67,7 @@ unconditionally, and QEMU's own tables happen to agree with it.
 
 ## Restarting into one entry, once
 
-`reboot --entry "toy-os (no kernel debugger)"` is `grub-reboot` and a
+`reboot --entry "SaunaOS (no kernel debugger)"` is `grub-reboot` and a
 reboot in one command -- the shape of systemd's `systemctl reboot
 --boot-loader-entry=` and Windows' `bcdedit /bootsequence`. It writes
 `next_entry` into GRUB's environment block (`/boot/grub/grubenv`,
@@ -85,11 +85,11 @@ records without `loadenv`. `install --bootloader confirm` fixes the
 second; the first needs the stanza from the repo's `grub.cfg`.
 
     $ reboot --entries
-     0  toy-os  (default)
-     1  toy-os (no kernel debugger)
-     2  toy-os (previous kernel)
+     0  SaunaOS  (default)
+     1  SaunaOS (no kernel debugger)
+     2  SaunaOS (previous kernel)
     $ reboot --entry 1
-    reboot: next boot: toy-os (no kernel debugger)
+    reboot: next boot: SaunaOS (no kernel debugger)
 
 ## When it does nothing but halt
 

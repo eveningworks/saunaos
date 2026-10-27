@@ -408,7 +408,7 @@ def launch(disk, tmp, tag, kind, pcap=None, netdev_extra="", quiet_port=None,
     for f in (serial, pidfile, sock):
         if os.path.exists(f):
             os.remove(f)
-    boot = " ".join(guarded_boot_args(disk, os.path.join(ROOT, "toy-os.iso")))
+    boot = " ".join(guarded_boot_args(disk, os.path.join(ROOT, "saunaos.iso")))
     cmd = (f"qemu-system-x86_64 {boot}"
            f" -drive file={disk},format=raw,if=ide,discard=unmap"
            f"{nic_args(kind, pcap, netdev_extra, quiet_port)}"
@@ -873,7 +873,7 @@ def phase_udp(r, disk, tmp):
                 "udp_test: all checks passed" in out, out.strip()[-500:])
 
         _, got = udp_echo_server(UDP_ECHO_PORT)
-        payload = "toyos-udp-payload"
+        payload = "saunaos-udp-payload"
         out = sh.run(f"udp_test {GATEWAY} {UDP_ECHO_PORT} {payload}", timeout=40.0)
 
         # Give the host thread a moment to record the reply it sent.
@@ -1260,7 +1260,7 @@ def phase_connlog(r, disk, tmp):
 
 
 HTTP_PORT = 18088
-HTTP_BODY = b"toy-os fetched this\n" * 4
+HTTP_BODY = b"SaunaOS fetched this\n" * 4
 
 # BIG ENOUGH TO CROSS THE READ BUFFER AND COMPRESSIBLE ENOUGH TO MATTER.
 # A short body fits one recv() and one deflate block, which is the one
@@ -1333,15 +1333,15 @@ def phase_tcp(r, disk, tmp):
     srv, state = http_server(HTTP_PORT)
     sh, pidfile = launch(disk, tmp, "tcp", "e1000", pcap)
     try:
-        out = sh.run(f"wget http://{GATEWAY}:{HTTP_PORT}/toyos", timeout=60.0)
+        out = sh.run(f"wget http://{GATEWAY}:{HTTP_PORT}/saunaos", timeout=60.0)
         r.check("[tcp] the guest fetched the page",
-                "toy-os fetched this" in out, out.strip()[-400:])
+                "SaunaOS fetched this" in out, out.strip()[-400:])
         # THE HOST'S VIEW, which a guest agreeing with itself cannot fake:
         # python parsed a real request off a real connection.
         r.check("[tcp] a real HTTP server on the host served the request",
                 state.get("served", 0) >= 1, str(state))
         r.check("[tcp] and saw the path and agent the guest sent",
-                state.get("path") == "/toyos" and "toy-os" in state.get("agent", ""),
+                state.get("path") == "/saunaos" and "SaunaOS" in state.get("agent", ""),
                 str(state))
 
         # -O writes it to the guest's own filesystem, read back with a
@@ -1350,7 +1350,7 @@ def phase_tcp(r, disk, tmp):
         sh.run(f"wget -O /tmp/fetched.txt http://{GATEWAY}:{HTTP_PORT}/f", timeout=60.0)
         out = sh.run("cat /tmp/fetched.txt")
         r.check("[tcp] a fetched body lands on disk intact",
-                out.count("toy-os fetched this") >= 4, out.strip()[-300:])
+                out.count("SaunaOS fetched this") >= 4, out.strip()[-300:])
 
         # --- gzip Content-Encoding ---------------------------------
         #
@@ -1467,7 +1467,7 @@ def _volume_args(disk):
 
 SERVER_PORT = 18089
 SERVER_FILE = "httpd_probe.txt"
-SERVER_TEXT = "served from inside toy-os\n" * 3
+SERVER_TEXT = "served from inside SaunaOS\n" * 3
 
 # Staged in an order the answer must NOT be: the index is sorted by name,
 # so a listing that echoes the filesystem's walk order comes back with
@@ -1589,7 +1589,7 @@ def phase_server(r, disk, tmp):
         forbidden = 0
         try:
             conn = http.client.HTTPConnection("127.0.0.1", SERVER_PORT, timeout=15)
-            conn.putrequest("GET", "/../etc/toyos.conf", skip_host=True,
+            conn.putrequest("GET", "/../etc/saunaos.conf", skip_host=True,
                             skip_accept_encoding=True)
             conn.endheaders()
             forbidden = conn.getresponse().status

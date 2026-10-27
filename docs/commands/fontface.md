@@ -50,7 +50,7 @@ Pairing by FILENAME rather than by reading each font's own `name` and
 directory is small and seeded by the build, so a suffix rule keeps the
 whole registry a directory listing. Real systems do read the metadata
 (fontconfig indexes every file; DirectWrite builds a family tree) --
-they have to cope with whatever fonts a user has, and toy-os does
+they have to cope with whatever fonts a user has, and SaunaOS does
 not.
 
 Selecting a face has `/bin/fontd` parse it (`userland/lib/ttf.c`; the
@@ -58,7 +58,7 @@ kernel parses no font) and rasterize the
 101-glyph set the baked font also carries, at the size currently in
 effect, into an atlas laid out exactly like a baked one -- which is why
 the console, the desktop and every ring-3 client change together. The
-choice persists to `/etc/toyos.conf` as `font_face` and is applied on
+choice persists to `/etc/saunaos.conf` as `font_face` and is applied on
 the next boot BEFORE the size, since an arbitrary size is only
 rasterizable once a face is loaded.
 

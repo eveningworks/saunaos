@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Manage a headless toy-os VM and talk to it in TEXT.
+"""Manage a headless SaunaOS VM and talk to it in TEXT.
 
-This exists because driving toy-os for verification used to mean: write
+This exists because driving SaunaOS for verification used to mean: write
 a `qemu-system-x86_64 ... -daemonize -pidfile` line by hand, sleep, open
 a QMP session, emulate keystrokes one qcode at a time, screenshot, and
 read the PNG with your eyes. That works, but it depends on the guest's
@@ -181,7 +181,7 @@ def cmd_start(args):
     # build -- see tools/iso_guard.py. Checked here because vm.py and
     # qmp_test.py's launch_qemu_cmd() are the two places anything in
     # this repo starts a guest.
-    if args.iso == "toy-os.iso":
+    if args.iso == "saunaos.iso":
         iso_guard.assert_iso_fresh(medium=medium)
 
     # And a COPY of disk.img taken before the last seed, which runs the
@@ -230,7 +230,7 @@ def cmd_start(args):
                 "-device", "ide-hd,drive=sata0,bus=ahci.0"]
     elif getattr(args, "disk_kind", "ide") == "nvme":
         cmd += ["-drive", f"file={args.disk},format=raw,if=none,id=nvm0,discard=unmap",
-                "-device", "nvme,serial=toyos-nvme0,drive=nvm0"]
+                "-device", "nvme,serial=saunaos-nvme0,drive=nvm0"]
     else:
         cmd += ["-drive", f"file={args.disk},format=raw,if=ide,discard=unmap"]
     if args.kvm:
@@ -292,7 +292,7 @@ def cmd_start(args):
                 "-device", "ide-hd,drive=satax,bus=ahcix.0"]
     elif extra and kind == "nvme":
         cmd += ["-drive", f"file={extra},format=raw,if=none,id=nvmx,discard=unmap",
-                "-device", "nvme,serial=toyos-nvmex,drive=nvmx"]
+                "-device", "nvme,serial=saunaos-nvmex,drive=nvmx"]
     # virtio input devices, off by default so every existing test keeps
     # the PS/2 pair it was written against. With this the guest gets a
     # keyboard, a relative mouse and an absolute tablet on the virtio
@@ -999,7 +999,7 @@ def cmd_run(args):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iso", default="toy-os.iso")
+    ap.add_argument("--iso", default="saunaos.iso")
     ap.add_argument("--disk", default="disk.img")
     ap.add_argument("--boot", choices=("auto", "disk", "cd"), default="auto",
                     help="which medium to boot: the disk's own GRUB, the ISO, "

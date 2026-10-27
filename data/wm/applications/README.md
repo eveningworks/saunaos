@@ -10,7 +10,7 @@ Start menu's "Add to desktop" writes, and `about`, `files`, `notepad`,
 `settings` and `terminal` are seeded there once by the Makefile.
 
 The format is `name=value` lines with `#` comments -- the same one
-`/etc/toyos.conf` uses, read by `kernel/lib/etc_config.c`, because a
+`/etc/saunaos.conf` uses, read by `kernel/lib/etc_config.c`, because a
 second config parser to maintain would buy nothing. It is deliberately a
 small subset of freedesktop.org's `.desktop` files: the same idea and
 roughly the same keys, without the localisation, the MIME associations
@@ -114,7 +114,7 @@ File Manager lists them under Open in the right-click menu of a file this
 entry Handles, as Dolphin and Nautilus do. `%f` is the file, passed as ONE
 argument; the line is otherwise split on spaces, with no quoting.
 
-`X-Details=` is toy-os's own (freedesktop leaves `X-` keys for that): a
+`X-Details=` is SaunaOS's own (freedesktop leaves `X-` keys for that): a
 command run on a file this entry Handles, whose output lines,
 `Label<TAB>value`, the File Manager's details pane and Properties show
 under Size. The app that understands the format reads the file -- in its

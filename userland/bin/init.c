@@ -338,7 +338,7 @@ static void logf2(const char *fmt, const char *a, unsigned b, unsigned c) {
 // --- the boot target -------------------------------------------------
 
 // Asks the kernel's settings registry rather than reading
-// /etc/toyos.conf directly, so a `target=text` word on the GRUB line --
+// /etc/saunaos.conf directly, so a `target=text` word on the GRUB line --
 // which the kernel applies as a LIVE value without writing the file --
 // is what init sees. Reading the file here would silently ignore the
 // override, which is precisely the escape hatch a desktop that faults

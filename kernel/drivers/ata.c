@@ -1435,7 +1435,7 @@ int ata_dma_nonblocking_selftest(uint32_t lba, uint32_t *out_polls) {
 // Tells the drive that an LBA range no longer holds data worth keeping.
 // On real SSDs that's what keeps write amplification down; here the
 // drive is QEMU backed by a host file, and with `discard=unmap` on the
-// -drive line QEMU turns it into a hole punch -- so a toy-os `rm` gives
+// -drive line QEMU turns it into a hole punch -- so a SaunaOS `rm` gives
 // the space back to the host filesystem instead of the image growing
 // forever.
 //

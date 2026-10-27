@@ -1,4 +1,4 @@
-# What toy-os does
+# What SaunaOS does
 
 The long version of [README.md](../README.md)'s summary: what is built,
 how it works, and where the interesting decisions were. Ordered by
@@ -29,7 +29,7 @@ GRUB's own `next_entry`, so a bad word costs one power-cycle. The same
 model is in a window twice: the Boot Manager (each entry's words as a
 checklist, the file as checked text) and System Settings > System > Boot
 menu for the default, the timeout and the next restart.
-On a display toy-os cannot set itself -- a VESA framebuffer, such as an
+On a display SaunaOS cannot set itself -- a VESA framebuffer, such as an
 NVIDIA card on a BIOS boot -- the **screen size GRUB sets is chosen from
 System Settings** (Display > Screen, "Restart to try") or `bootcfg
 resolution`: the size is booted ONCE, a "Keep this resolution?" countdown
@@ -50,7 +50,7 @@ exit), `virtio-rng` feeding the entropy pool, **`virtio-gpu` as a real
 display driver** (resource, scanout, transfer-and-flush, its own cursor
 queue, and it programs the mode itself so `video=1920x1080` is honoured
 rather than left to GRUB), **`virtio-input`**, and **`virtio-balloon`
-free page reporting**, which hands memory toy-os has freed back to the
+free page reporting**, which hands memory SaunaOS has freed back to the
 host so a VM costs what it is using. One transport, so the
 next device is a driver rather than a bring-up project. On real
 hardware, **an Intel display driver** for a laptop's Broadwell GPU. It
@@ -265,7 +265,7 @@ and pictures when drive C: has them, with 3.1's menus, dialogs and
 Application Error box. Write's TrueType text breaks its lines where
 3.11's did, to the pixel; its documents round-trip with real 3.11, and
 the pictures and OLE objects in them are drawn from their stored
-picture. Text copies both ways through toy-os's clipboard. A program's
+picture. Text copies both ways through SaunaOS's clipboard. A program's
 floating point runs on a real x87 -- the computer's own, an instruction
 at a time -- so Calculator's sines and logarithms are 3.11's to the last
 digit, its "Cannot divide by zero." included. **Retro
@@ -296,7 +296,7 @@ buttons, the double-click speed), Sound (assigning WAVs, Test plays
 them), Printers, International, Fonts, Desktop, Keyboard, Ports and
 Date/Time open; Drivers lists SYSTEM.INI's and says it cannot load them.
 What they change is the Windows programs' own -- WIN.INI and w16's
-state, as Wine keeps it -- never toy-os's System Settings.
+state, as Wine keeps it -- never SaunaOS's System Settings.
 
 **The File Manager** opens on **Quick access** -- pinned folders,
 recently opened files and the drives in three bands -- and its command

@@ -11,7 +11,7 @@ What it asserts:
     writes SZDD and KWAJ methods 0-3 (method 3 in each of its four
     code-length encodings) of empty, tiny, random, repetitive and >64 KiB
     data, and the driver must give back the same bytes and name
-  - REAL DISKS, when ~/CodingProjects/toy-osother/win311 is there (it is
+  - REAL DISKS, when ~/CodingProjects/saunaos-other/win311 is there (it is
     local only -- Microsoft's files): every file of the English and
     Finnish Windows for Workgroups 3.11 sets expands byte for byte to what
     libmspack made of it (win311/<lang>/expanded). Skipped, saying so,
@@ -43,7 +43,7 @@ import mscompress  # noqa: E402
 ROOT = hostcheck.ROOT
 SAN = ("-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
        "-fno-sanitize-recover=undefined")
-W311 = os.path.expanduser(os.environ.get("TOYOS_W311", "~/CodingProjects/toy-osother/win311"))
+W311 = os.path.expanduser(os.environ.get("SAUNAOS_W311", "~/CodingProjects/saunaos-other/win311"))
 
 DRIVER = r"""
 #include "lib/umsexpand.h"

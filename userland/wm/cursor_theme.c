@@ -10,9 +10,9 @@
 #include "wm/wm_conf.h"
 
 // The shared file every setting here lives in, per CLAUDE.md's rule
-// that a setting joins /etc/toyos.conf unless it has enough keys of its
+// that a setting joins /etc/saunaos.conf unless it has enough keys of its
 // own to be unwieldy there. Two is not enough.
-#define CURSOR_CONFIG_FILE "/etc/toyos.conf"
+#define CURSOR_CONFIG_FILE "/etc/saunaos.conf"
 
 static const char *const g_names[CURSOR_SHAPE_COUNT] = {
     "arrow", "resize-h", "resize-v", "resize-diag", "text", "wait",

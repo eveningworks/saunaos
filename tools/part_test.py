@@ -2,7 +2,7 @@
 """tools/part_test.py -- `part delete` against a table a FOREIGN tool wrote.
 
 The host's own sfdisk writes a GPT onto a blank disk image, with what
-toy-os's whole-table writer cannot carry: a Linux-filesystem type GUID,
+saunaos's whole-table writer cannot carry: a Linux-filesystem type GUID,
 a non-ASCII partition name and the RequiredPartition attribute bit. The
 guest deletes partition 1 with `/bin/part`, and the HOST reads the image
 back. That split is the point: the promise is "every other byte of the

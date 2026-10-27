@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Measure what a timer configuration costs and buys, on one booted build.
 
-    python3 tools/timer_bench.py                        # this checkout's toy-os.iso/disk.img
+    python3 tools/timer_bench.py                        # this checkout's saunaos.iso/disk.img
     python3 tools/timer_bench.py --disk D --iso I --label hz250
     python3 tools/timer_bench.py --kvm --label hz1000-kvm
     python3 tools/timer_bench.py --json out.json        # one result, for comparing builds

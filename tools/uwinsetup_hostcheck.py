@@ -17,7 +17,7 @@ What it asserts:
   - refusals: a disk set missing one file plans it as missing and the
     install stops naming it, leaving nothing half-written; a folder with
     no SETUP.INF is refused with a sentence
-  - REAL DISKS, when ~/CodingProjects/toy-osother/win311 is there (local
+  - REAL DISKS, when ~/CodingProjects/saunaos-other/win311 is there (local
     only -- Microsoft's files): from the English folder and from its eight
     floppy images, every installed file lands where Express Setup put it
     on the reference VM and matches libmspack's expansion byte for byte;
@@ -49,7 +49,7 @@ import hostcheck  # noqa: E402
 ROOT = hostcheck.ROOT
 SAN = ("-O1", "-g", "-Wall", "-Wextra", "-Werror", "-fsanitize=address,undefined",
        "-fno-sanitize-recover=undefined")
-W311 = os.path.expanduser(os.environ.get("TOYOS_W311", "~/CodingProjects/toy-osother/win311"))
+W311 = os.path.expanduser(os.environ.get("SAUNAOS_W311", "~/CodingProjects/saunaos-other/win311"))
 REF_IMG = os.path.join(os.path.dirname(W311), "win311-vm", "win311.img")
 
 DRIVER = r"""

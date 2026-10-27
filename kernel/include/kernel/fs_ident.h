@@ -3,7 +3,7 @@
 
 // WHICH FILESYSTEM A VOLUME HOLDS, BY ITS SIGNATURE -- libblkid's job
 // (what `lsblk -f` and GNOME Disks show), done in the kernel because ring
-// 3 has no raw block access. It names filesystems toy-os cannot mount
+// 3 has no raw block access. It names filesystems SaunaOS cannot mount
 // (NTFS, ext4, ...) as well as its own, and reads nothing but a handful
 // of fixed sectors: a recogniser, not a mount, and never written to.
 //

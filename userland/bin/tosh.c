@@ -1,4 +1,4 @@
-// /bin/tosh -- the standalone toy-os shell.
+// /bin/tosh -- the standalone SaunaOS shell.
 //
 // The thin main() userland/lib/tosh.h has promised since it was
 // written: an editor plus a read loop. Everything a shell DOES lives in
@@ -29,7 +29,7 @@
 #include "rt/sys.h"
 #include "query_abi.h"   // QUERY_REMOTE_COMMAND
 #include "lib/tosh.h"
-#include "version.h"     // TOYOS_VERSION_FULL, for the banner
+#include "version.h"     // SAUNAOS_VERSION_FULL, for the banner
 #include <string.h>
 #include <stdlib.h>
 #include "lib/uhistory.h"
@@ -380,7 +380,7 @@ static void insert_last_arg(void) {
 
 int main(int argc, char **argv) {
     tosh_init(&g_sh, out_fd1, 0);
-    g_sh.banner = "tosh -- toy-os " TOYOS_VERSION_FULL;
+    g_sh.banner = "tosh -- SaunaOS " SAUNAOS_VERSION_FULL;
 
     // --- `-c <command>`: run ONE line and exit -----------------------
     //
@@ -502,7 +502,7 @@ int main(int argc, char **argv) {
     // call tcsetpgrp: the first read(0, ...) below does it, and
     // job_foreground()/job_done() in the tosh library move it per job.
 
-    // ONE LINE, THE BUILD: which toy-os this shell is on -- PowerShell's
+    // ONE LINE, THE BUILD: which SaunaOS this shell is on -- PowerShell's
     // banner, chosen 2026-10-06 -- since a machine that updates from a
     // dev server is often not on the build you think.
     put(g_sh.banner);

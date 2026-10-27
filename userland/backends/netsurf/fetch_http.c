@@ -218,7 +218,7 @@ static void *fh_setup(struct fetch *parent, nsurl *url, bool only_2xx, bool down
             goto fail;
     } else if (post_multipart) {
         char boundary[48];
-        snprintf(boundary, sizeof boundary, "----toyosFormBoundary%08lx%08lx",
+        snprintf(boundary, sizeof boundary, "----saunaosFormBoundary%08lx%08lx",
                  (unsigned long)rand(), (unsigned long)rand());
         f->method = "POST";
         f->body = multipart_body(post_multipart, boundary, &f->body_len);

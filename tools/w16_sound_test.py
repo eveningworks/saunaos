@@ -12,7 +12,7 @@ oracle) -- and the program's exit code says what each call answered.
 Three runs, each on its own copy of the image:
 
   1. the defaults: exit 7 (a device, the WAV played, a voice); ~1100 Hz,
-     then a sound that is NOT 2000 Hz (toy-os's chime: drive C: has no
+     then a sound that is NOT 2000 Hz (SaunaOS's chime: drive C: has no
      WIN.INI), then ~0.9 s of 440 Hz;
   2. drive C:'s WIN.INI names SystemAsterisk=test.wav, a 2000 Hz square
      this tool writes to C:\\WINDOWS: the middle sound is 2000 Hz -- the
@@ -21,7 +21,7 @@ Three runs, each on its own copy of the image:
      recording silent.
 
 What a broken build still passes: none of the pitch checks -- a WAV
-decoded at the wrong rate moves 1100 Hz, the toy-os fallback in place of
+decoded at the wrong rate moves 1100 Hz, the SaunaOS fallback in place of
 the INI's file shows as no 2000 Hz, a note table off by a semitone moves
 440. --positive-control breaks the WAV's rate (the sound plays at half
 the pitch) and must turn the first run red.
@@ -202,7 +202,7 @@ def main():
         beep = [t for t, hz in win if hz is not None and wavs and notes and wavs[-1] < t < notes[0]
                 and t not in wavs and t not in notes]
         if name == "defaults":
-            check("[defaults] MessageBeep played an event sound between them, not the INI's 2000 Hz (toy-os's chime)",
+            check("[defaults] MessageBeep played an event sound between them, not the INI's 2000 Hz (SaunaOS's chime)",
                   len(beep) >= 3 and not high, detail)
         else:
             check("[WIN.INI] MessageBeep played drive C:'s TEST.WAV, named by [sounds] SystemAsterisk (~2000 Hz)",

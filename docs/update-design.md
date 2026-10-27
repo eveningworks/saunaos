@@ -7,7 +7,7 @@ Designed 2026-09-01 as the case for a PULL beside `tools/remote.py
 sync`'s PUSH; "What was built" at the end records where the build
 departed from the design and why. Usage is `docs/commands/update.md`.
 
-**The one-sentence version:** a toy-os machine should be able to update
+**The one-sentence version:** a SaunaOS machine should be able to update
 itself from an HTTP server carrying a manifest of files and their
 checksums, so that keeping a machine current needs nothing listening on
 that machine and no host-side tool at all.
@@ -25,7 +25,7 @@ machine current, for one reason that is not about convenience:
 
 **IT REQUIRES `telnetd` AND `tftpd` TO BE RUNNING.** Both ship DISABLED,
 and `docs/commands/telnetd.md` says why in one line: neither protocol
-authenticates and toy-os has no users, so each hands the network a
+authenticates and SaunaOS has no users, so each hands the network a
 machine with the run of itself. Keeping a machine updatable currently
 means leaving it wide open, permanently, so that a push can arrive at
 some unpredictable future moment.
@@ -58,7 +58,7 @@ reads, which is not a coincidence -- it is the reason this is small:
 
 **The server is a static file server.** `tools/gen_manifest.py` over
 `seed/sync/`, then `python3 -m http.server`. Nothing dynamic, nothing
-stateful, and `/bin/httpd` plus `inetd` mean a toy-os machine can serve
+stateful, and `/bin/httpd` plus `inetd` mean a SaunaOS machine can serve
 another one.
 
 **GENERATE THE MANIFEST FROM THE STAGING TREE `make iso` SEEDS**, not
@@ -85,7 +85,7 @@ reason to distrust it ever appears.
 **AND THE CHECKSUM IS INTEGRITY, NOT AUTHENTICITY.** A hash served by
 the same unauthenticated server as the file proves the bytes arrived
 intact, not that they came from the person who built them. There is no
-signature verification, and the dev server speaks plain http (toy-os
+signature verification, and the dev server speaks plain http (SaunaOS
 has had a TLS client since `libssl.so`, but a server certificate on a
 build host is its own decision), so anyone on the segment who answers
 first is the update server. This is still strictly better than leaving
@@ -110,7 +110,7 @@ file-backed `mmap` of a shared object is a different story --
 process would fault on changed content. So: rename, never truncate in
 place, and if `SYS_MMAP`'s file-backed path ever grows a cache that
 outlives the write, revisit this. Linux answers the same question with
-`ETXTBSY`; toy-os does not check, so the discipline has to be the
+`ETXTBSY`; SaunaOS does not check, so the discipline has to be the
 client's.
 
 **3. THE KERNEL IS NOT LIKE THE REST.** `/boot` is FAT32 and mounted
@@ -224,7 +224,7 @@ installed, and the window says why.
 **Release notes are commit trailers, cut by the CLIENT.** `GET
 <channel>/notes` is one line per commit, newest first -- `<sha>
 <new|improved|fixed> <text>`, or `<sha> -` for a commit with none --
-generated from the build's own commit (`TOYOS_BUILD_ID`, not HEAD) by
+generated from the build's own commit (`SAUNAOS_BUILD_ID`, not HEAD) by
 `update_server.py`, and frozen into a `--publish` snapshot beside its
 manifest. The manifest gained a `# commit` line, so the record a machine
 keeps says which build it is; the engine reads lines until it meets that

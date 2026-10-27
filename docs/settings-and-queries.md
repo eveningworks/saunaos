@@ -138,7 +138,7 @@ at the data** — one that returns early on `off` cannot tell you when
 ## Names
 
 Every name is `namespace.name`. The namespace is the registered name of
-the file the setting lives in, so `font.size` in `/etc/toyos.conf` is
+the file the setting lives in, so `font.size` in `/etc/saunaos.conf` is
 `system.font.size`. It is derived, never declared.
 
 A **bare name works when exactly one setting has it** and is REFUSED
@@ -364,7 +364,7 @@ the shape the registry replaced, and it leaves nothing able to answer
 "what settings exist" — which is what Control Panel and `config list`
 both depend on.
 
-Put the key in `/etc/toyos.conf` by default. A feature with enough keys
+Put the key in `/etc/saunaos.conf` by default. A feature with enough keys
 to be unwieldy there gets its own `/etc/<name>.conf` and an
 `/etc/config.d` descriptor, which also gives it its own namespace.
 

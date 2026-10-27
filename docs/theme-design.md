@@ -21,7 +21,7 @@ entry on it).
 - **GNOME (libadwaita), macOS**: light/dark, high contrast and an accent
   colour; no third-party themes.
 
-toy-os copies KDE's and Windows' SHAPE: colour roles plus a few frame
+SaunaOS copies KDE's and Windows' SHAPE: colour roles plus a few frame
 styles drawn in code, plus settings applied as a bundle. It does NOT
 draw from artwork (Aurorae, `.msstyles`): that is "Artwork visual
 styles" on the roadmap.
@@ -33,7 +33,7 @@ styles" on the roadmap.
 shipped one of the same stem -- `/etc` over `/usr`, as everywhere. The
 `desktop.theme` setting names a stem.
 
-    # toy-os theme
+    # SaunaOS theme
     Name=Dark
     Description=Dark grey pages and a blue accent
 

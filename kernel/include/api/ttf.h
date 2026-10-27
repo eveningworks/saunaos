@@ -32,7 +32,7 @@
 // input.** Windows put exactly this code in ring 0 (win32k.sys/GDI) and
 // spent a decade of CVEs on it before Win10 moved font parsing out to a
 // sandboxed user-mode host; Linux never had it in the kernel at all,
-// and under Wayland/X11 the client rasterizes. toy-os deliberately
+// and under Wayland/X11 the client rasterizes. SaunaOS deliberately
 // differs (the console needs glyphs before any process exists, and
 // WIN_REQ_FONT shares one atlas so client text cannot drift from the
 // desktop's) -- so the mitigation has to be in here instead: there is

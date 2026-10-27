@@ -13,7 +13,7 @@
 // have to work before any process exists.
 //
 // What ring 0 still legitimately owns is the SETTING. `system.font.face`
-// lives in /etc/toyos.conf like every other one, the settings registry
+// lives in /etc/saunaos.conf like every other one, the settings registry
 // needs a list of valid choices for it, and `fontface` at the shell
 // needs the same list. Both are answered by listing a directory -- no
 // file is opened, and nothing here knows what a glyph is.

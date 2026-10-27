@@ -4,7 +4,7 @@
 // Pointer speed and acceleration, persisted to /etc. See
 // kernel/lib/mouse_config.c; the behaviour itself is mouse.c's.
 
-// Reads /etc/toyos.conf and applies whatever it finds. Called from
+// Reads /etc/saunaos.conf and applies whatever it finds. Called from
 // kernel_main() alongside the other *_config_init()s.
 void mouse_config_init(void);
 

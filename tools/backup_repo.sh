@@ -12,10 +12,10 @@
 # renaming the account, or rewriting history. All four have happened
 # here (see docs/decisions.md).
 #
-# What it produces, under <dest>/toy-os-<date>/:
+# What it produces, under <dest>/saunaos-<date>/:
 #
-#   toy-os.git/              mirror clone -- all refs, including refs/pull/*
-#   toy-os-local-all.bundle  single-file bundle of the LOCAL refs, which
+#   saunaos.git/              mirror clone -- all refs, including refs/pull/*
+#   saunaos-local-all.bundle  single-file bundle of the LOCAL refs, which
 #                            catches branches never pushed
 #   releases/<tag>/          every asset, plus release.json (title + notes)
 #   metadata/                repo settings, PRs, issues, release index
@@ -50,18 +50,18 @@ echo "backup_repo: $REPO -> $DEST"
 mkdir -p "$DEST/releases" "$DEST/metadata"
 
 # --- history -----------------------------------------------------------
-if [ -d "$DEST/toy-os.git" ]; then
+if [ -d "$DEST/saunaos.git" ]; then
     echo "backup_repo: refreshing existing mirror"
-    git -C "$DEST/toy-os.git" remote set-url origin "git@github.com:$REPO.git"
-    git -C "$DEST/toy-os.git" fetch --prune origin
+    git -C "$DEST/saunaos.git" remote set-url origin "git@github.com:$REPO.git"
+    git -C "$DEST/saunaos.git" fetch --prune origin
 else
-    git clone --mirror "git@github.com:$REPO.git" "$DEST/toy-os.git"
+    git clone --mirror "git@github.com:$REPO.git" "$DEST/saunaos.git"
 fi
 
 # The local repo may hold branches that were never pushed; a mirror of
 # the REMOTE cannot know about them.
-git bundle create "$DEST/toy-os-local-all.bundle" --all
-git bundle verify "$DEST/toy-os-local-all.bundle" | tail -2
+git bundle create "$DEST/saunaos-local-all.bundle" --all
+git bundle verify "$DEST/saunaos-local-all.bundle" | tail -2
 
 # --- releases ----------------------------------------------------------
 # The part a clone cannot give you.

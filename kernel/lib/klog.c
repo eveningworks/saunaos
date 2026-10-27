@@ -90,7 +90,7 @@ static void klog_write_timestamp(void) {
     // function.
     // The level goes in the STAMP because the stamp is already
     // ring-only: it costs no ABI, every reader that can see the text
-    // can see the level (`grep '<3>' /var/log/toyos.log` works), and
+    // can see the level (`grep '<3>' /var/log/saunaos.log` works), and
     // the wire stays byte-identical. Always emitted, even for info --
     // an irregular format is worse to parse than four spare bytes.
     char stamp[24];

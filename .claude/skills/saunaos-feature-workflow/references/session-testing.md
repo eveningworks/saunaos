@@ -496,7 +496,7 @@ lessons, and the first two are about tests that look like they work.**
   failure was proved not-mine by checking out the previous commit,
   rebuilding and seeing it fail identically -- which took one build
   cycle and turned "I broke this" into a recorded known issue with a
-  precise scope. `TOYOS_ALLOW_STALE_ISO=1` exists partly for this.
+  precise scope. `SAUNAOS_ALLOW_STALE_ISO=1` exists partly for this.
   Then, when the time came to fix it, **the fix was in the TEST**: it
   took `launched[0]` and assumed that was the process it had just
   spawned, true only while that list started empty -- which stopped
@@ -547,7 +547,7 @@ DRAWING checks and leaves both "loads every shape" checks green. If a
 feature has a fallback, no check may assert on the fallback's output.
 
 **A test must ESTABLISH the state it measures against.** `cursor_size`
-persists to `/etc/toyos.conf` on the disk image, which a build does not
+persists to `/etc/saunaos.conf` on the disk image, which a build does not
 re-seed -- so an earlier run's `huge` made a later baseline 9x too large
 and a ratio check read 0.44 instead of 4.00. Set what you measure
 against, and clean up after yourself so the next tool starts where it
@@ -786,7 +786,7 @@ premise is that `sh ls /` can be read one name per line to derive which
 row to click in a file dialog.
 
 Real `ls` avoids this with `isatty()`: columns to a terminal, one per
-line to a pipe. toy-os has no `isatty()`, so there is no way to make that
+line to a pipe. SaunaOS has no `isatty()`, so there is no way to make that
 choice correctly -- which means **the default has to be the parseable
 shape**, and columns became a flag.
 
@@ -1148,7 +1148,7 @@ first try in a way that meant something.
 
 Every expected value in `libm_test.c` and `libc5_test.c` was generated
 by the HOST's Python -- `math.sin`, `datetime` -- and pasted in. None
-was obtained by running toy-os and writing down what it printed.
+was obtained by running SaunaOS and writing down what it printed.
 
 That distinction is invisible when the code is right and total when it
 is wrong: a test whose expectations came from the code under test agrees

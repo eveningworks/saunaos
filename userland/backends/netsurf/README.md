@@ -1,17 +1,17 @@
-# NetSurf's toy-os side -- OURS, not vendored
+# NetSurf's SaunaOS side -- OURS, not vendored
 
 `userland/ports/netsurf/` and its libraries are upstream's
 (`tools/netsurf_vendor.py`), plus the patches in `patches/` here, which
 the tool applies -- never an edit made there, which the next re-vendor
-deletes. Everything NetSurf needs from toy-os
+deletes. Everything NetSurf needs from SaunaOS
 that upstream's tree cannot say is here, so the boundary between the
 two is a directory, as it is for `userland/backends/doom/`.
 `docs/browser-design.md` is the plan.
 
 | File | Why it exists |
 |---|---|
-| `toyos_config.h` | Force-included into every NetSurf unit in place of its `utils/config.h`, which picks features by an `#if` per OS and has no toy-os branch. Each switch is a fact about tolibc. |
-| `include/zlib.h`, `zlib_shim.c` | The corner of zlib NetSurf calls, over toy-os's own `lib/uinflate.h`. Not zlib: anything else NetSurf calls is a compile error. |
+| `saunaos_config.h` | Force-included into every NetSurf unit in place of its `utils/config.h`, which picks features by an `#if` per OS and has no SaunaOS branch. Each switch is a fact about tolibc. |
+| `include/zlib.h`, `zlib_shim.c` | The corner of zlib NetSurf calls, over SaunaOS's own `lib/uinflate.h`. Not zlib: anything else NetSurf calls is a compile error. |
 | `include/curl/curl.h` | A type NAME. Upstream's `content/fetch.c` includes the curl fetcher's header even when curl is not built. |
 | `include/dom/bindings/hubbub/`, `include/dom/bindings/xml/` | Forwarders: NetSurf includes libdom's HTML binding, and libsvgtiny its XML one, where libdom INSTALLS them; the vendored tree keeps them elsewhere. |
 | `patches/` | Our changes INSIDE NetSurf's own files, one `-p1` patch each, applied by `tools/netsurf_vendor.py` before the host build and the copy (`docs/conventions/build.md`). |

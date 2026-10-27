@@ -20,7 +20,7 @@ struct block_device;
 // nothing in the driver aware it holds a bootloader. Windows makes a
 // volume an object in the NT namespace and mounts it by drive letter or
 // reparse point; its ESP is a real volume that simply has no letter.
-// toy-os follows the SHAPE of the first -- a table, a longest-prefix
+// SaunaOS follows the SHAPE of the first -- a table, a longest-prefix
 // lookup, a generic FAT driver -- and none of the size: no per-process
 // namespaces, no bind mounts, no automounts, no fstab.
 //

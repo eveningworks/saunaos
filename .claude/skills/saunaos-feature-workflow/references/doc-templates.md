@@ -1,6 +1,6 @@
 # Doc shapes to copy, not reinvent
 
-toy-os's docs have a consistent voice across many changes. The fastest
+SaunaOS's docs have a consistent voice across many changes. The fastest
 way to keep matching it is to read a few recent entries before writing
 a new one, but if you want a template plus real excerpts to anchor the
 tone, they're below. **Check these against the live files before
@@ -56,7 +56,7 @@ GENERATED index over them. Add the entry to the right file, then run
 `tools/gen_decisions_index.py`; `tools/check_docs.py` fails the build if
 you forget. Never hand-edit the index.
 
-Only add one when the change answers a "why does toy-os work this
+Only add one when the change answers a "why does SaunaOS work this
 way" question a future session would plausibly hit again -- most
 changes don't clear that bar (the Nordic-keyboard change did, because
 "why Latin-1 and not UTF-8" and "why only 3 remapped keys" are exactly
@@ -104,7 +104,7 @@ Real example:
 For a change that was *planned but not built* (a "just plan it" answer
 to a scope question) -- this used to live in README.md's "Ideas for
 what's next" section, but that section moved to its own file,
-`docs/roadmap.md`, to keep README focused on "what toy-os can do
+`docs/roadmap.md`, to keep README focused on "what SaunaOS can do
 today." Checkbox-list format, roughly grouped into "In progress / up
 next" and "Backlog" near the top (an "At a glance" section), with full
 detail further down:
@@ -132,7 +132,7 @@ capability, and its Known gaps when one closes. A reader looking up "what does t
 support" should find a new Nordic-glyph note right next to the rest of
 the font description, not in a separate location. README.md was
 trimmed down to focus on current capabilities -- if what you're adding
-feels more like background/rationale than "what toy-os does today," it
+feels more like background/rationale than "what SaunaOS does today," it
 likely belongs in `docs/decisions.md` or `docs/roadmap.md` instead of
 growing README further.
 

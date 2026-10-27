@@ -10,7 +10,7 @@
 //
 // Everything here is written RELATIVE to gfx_char_w() rather than
 // against baked pixel numbers: the font size is a runtime setting
-// (`fontsize`, /etc/toyos.conf), so a test asserting "width == 40" would
+// (`fontsize`, /etc/saunaos.conf), so a test asserting "width == 40" would
 // pass or fail depending on the machine's config rather than on the
 // code. That is the same reason the GUI's own layout is font-derived.
 #include "gfx.h"
@@ -86,7 +86,7 @@ KTEST("gfx", "text_next/prev round trip in the middle of a string") {
     // prev(next(i)) == i everywhere a step is actually possible. Trivial
     // while one character is one byte; the point is that it stays true
     // once it isn't, which is the whole reason these are functions.
-    const char *s = "toy-os";
+    const char *s = "SaunaOS";
     for (int i = 0; i < 6; i++) {
         KTEST_ASSERT_EQ(gfx_text_prev(s, gfx_text_next(s, i)), i);
     }

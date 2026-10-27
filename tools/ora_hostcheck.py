@@ -9,7 +9,7 @@ unescaped twice), and such a file opens here and in no other painter.
 
   WRITE: the C writer saves pictures of 1 to 5 layers with random pixels
          (alpha too), random opacities, hidden ones, and names carrying
-         XML's specials and Latin-1, and toyos: attributes holding
+         XML's specials and Latin-1, and saunaos: attributes holding
          newlines, tabs, specials, Latin-1 and 3000 bytes. Python must find: "mimetype" FIRST,
          STORED, no extra field, "image/openraster"; no bad CRC; a
          stack.xml that parses, the right size, the layers TOP FIRST with
@@ -266,7 +266,7 @@ def check_write(exe, tmp, rng, fails):
             op, hid, name, px, attrs = layers[n - 1 - k]
             for ak, av in attrs:
                 if el.get(NS + ak) != av:
-                    fails.append(f"write case {case}: layer {k}'s toyos:{ak} reads {el.get(NS + ak)!r:.60}, "
+                    fails.append(f"write case {case}: layer {k}'s saunaos:{ak} reads {el.get(NS + ak)!r:.60}, "
                                  f"want {av!r:.60}")
             if el.get("name") != name:
                 fails.append(f"write case {case}: layer {k} from the top is named {el.get('name')!r}, want {name!r}")
@@ -306,7 +306,7 @@ def png_bytes(im):
 def krita_ora(path, layers, w, h, mimetype=b"image/openraster", drop_src=None):
     """layers: top first, (name_xml, opacity_str, visibility, x, y, PIL image, group)."""
     xml = [f"<?xml version='1.0' encoding='UTF-8'?>\n<image version=\"0.0.5\" w=\"{w}\" h=\"{h}\" "
-           f"xmlns:toyos=\"{NS[1:-1]}\" xmlns:krita=\"http://krita.org/ns\">\n<stack>\n"]
+           f"xmlns:saunaos=\"{NS[1:-1]}\" xmlns:krita=\"http://krita.org/ns\">\n<stack>\n"]
     open_group = False
     for i, (name, op, vis, x, y, im, group) in enumerate(layers):
         if group and not open_group:
@@ -315,7 +315,7 @@ def krita_ora(path, layers, w, h, mimetype=b"image/openraster", drop_src=None):
         if not group and open_group:
             xml.append("</stack>\n")
             open_group = False
-        extra = ' toyos:text="two&#10;lines &amp; more" krita:ignored="1" toyos:px="40"' if i == 0 else ""
+        extra = ' saunaos:text="two&#10;lines &amp; more" krita:ignored="1" saunaos:px="40"' if i == 0 else ""
         xml.append(f'<layer name="{name}" src="data/l{i}.png" x="{x}" y="{y}" opacity="{op}" visibility="{vis}"{extra}/>\n')
     if open_group:
         xml.append("</stack>\n")
@@ -366,7 +366,7 @@ def check_read(exe, tmp, rng, fails):
             got_attrs[key] = bytes.fromhex(val.rstrip("-")).decode("latin-1")
         want_attrs = {"text": "two\nlines & more", "px": "40"} if k == 2 else {}
         if got_attrs != want_attrs:
-            fails.append(f"read: layer {k}'s toyos attributes {got_attrs}, want {want_attrs}")
+            fails.append(f"read: layer {k}'s saunaos attributes {got_attrs}, want {want_attrs}")
         wname = name.replace("&amp;", "&").replace("&#233;", "\xe9")
         if dec != wname:
             fails.append(f"read: layer {k} (bottom first) named {dec!r}, want {wname!r}")

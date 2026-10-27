@@ -31,7 +31,7 @@
 
 static const char *DOC =
     "{"
-      "\"name\":\"toy-os\","
+      "\"name\":\"SaunaOS\","
       "\"version\":3,"
       "\"ratio\":3.25,"
       "\"tiny\":0.0001,"
@@ -43,7 +43,7 @@ static const char *DOC =
     "}";
 
 int main(void) {
-    utest_begin("cjson_test", "a program nobody here wrote, on toy-os's libc", 0);
+    utest_begin("cjson_test", "a program nobody here wrote, on SaunaOS's libc", 0);
     utest_notef("cJSON version %s", cJSON_Version());
 
     // --- parse --------------------------------------------------------
@@ -56,7 +56,7 @@ int main(void) {
     utest_check(1, "cJSON_Parse accepted the document");
 
     cJSON *name = cJSON_GetObjectItem(root, "name");
-    utest_check(name && cJSON_IsString(name) && strcmp(name->valuestring, "toy-os") == 0,
+    utest_check(name && cJSON_IsString(name) && strcmp(name->valuestring, "SaunaOS") == 0,
           "a string value survived parsing");
     cJSON *ver = cJSON_GetObjectItem(root, "version");
     utest_check(ver && cJSON_IsNumber(ver) && ver->valueint == 3, "an integer");
@@ -100,7 +100,7 @@ int main(void) {
                   "and the fraction survived the ROUND TRIP");
             utest_check(cJSON_GetObjectItem(again, "version")->valueint == 3,
                   "and the integer did");
-            utest_check(strcmp(cJSON_GetObjectItem(again, "name")->valuestring, "toy-os") == 0,
+            utest_check(strcmp(cJSON_GetObjectItem(again, "name")->valuestring, "SaunaOS") == 0,
                   "and the string did");
             utest_check(strcmp(cJSON_GetObjectItem(again, "escaped")->valuestring,
                          "a\"b\\c\td") == 0,

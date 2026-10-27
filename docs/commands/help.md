@@ -14,7 +14,7 @@
 the Terminal and over `telnetd` -- has its own: its built-ins, the
 command-line syntax (pipes, redirection, `&`, quoting), its keys, and
 `doc NAME` for a command's full manual, under the line its startup
-banner prints (`tosh -- toy-os 0.5.0-dev (2513429a)`, the build it is
+banner prints (`tosh -- SaunaOS 0.5.0-dev (2513429a)`, the build it is
 on).
 
 Lists the everyday commands, grouped the way this reference is grouped.

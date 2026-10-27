@@ -26,7 +26,7 @@
 // which is the other half of keeping it that way.
 // DOUBLED under KASAN=1, as Linux's KASAN_STACK_ORDER does: GCC's stack
 // redzones grow every frame with an array in it.
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 #define KSTACK_BYTES        32768
 #else
 #define KSTACK_BYTES        16384

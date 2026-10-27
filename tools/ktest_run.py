@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Runs the in-kernel test suite and turns it into a process exit code.
 
-Boots toy-os.iso headlessly, drives the `ktest` command over the serial
+Boots saunaos.iso headlessly, drives the `ktest` command over the serial
 debug console (COM1 -- see kernel/core/debug_console.c), reads the
 report back off the same wire, and exits 0 if every test passed.
 
@@ -101,7 +101,7 @@ def main():
 def run():
     ap = argparse.ArgumentParser(description=__doc__,
                                   formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iso", default="toy-os.iso")
+    ap.add_argument("--iso", default="saunaos.iso")
     ap.add_argument("--disk", default="disk.img")
     ap.add_argument("--suite", default="", help="run only this suite (e.g. fs, mm, lib)")
     ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT,
@@ -174,7 +174,7 @@ def run():
         guest.wait_for("toywm stopped", min(deadline, time.time() + 10))
 
         # AND QUIESCE THE DISK. logd persists every kernel-log line to
-        # /var/log/toyos.log once a second, and the suite logs hundreds
+        # /var/log/saunaos.log once a second, and the suite logs hundreds
         # (~48 KB over one run, measured 2026-09-11), so its appends land
         # between a test's two disk-usage reads, dirty sectors between
         # a test's two flushes, and share TFS3's deferred transaction

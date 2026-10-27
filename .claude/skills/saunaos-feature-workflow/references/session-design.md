@@ -53,7 +53,7 @@ should write code here:**
   screenshot involved. Reach for it before adding temporary
   `klog_write()` calls to a syscall handler.
 - **The console cursor saves the pixels it covers**, and its style
-  (`translucent`/`underline`/`beam`/`reverse`) is a `/etc/toyos.conf`
+  (`translucent`/`underline`/`beam`/`reverse`) is a `/etc/saunaos.conf`
   setting changed with the `cursor` command. If you touch console
   rendering, don't reintroduce "erase the cursor by filling its cell
   with the background colour" -- that assumption is what made the
@@ -482,14 +482,14 @@ desktop or the filesystem -- most of it invalidates older advice above.**
 **2026-08-16: v0.2.0 SHIPPED, Milestone 2 CLOSED, and the repo moved.
 Read this before assuming anything about the project's state.**
 
-- **The repo is `eveningworks/toy-os`** -- an organization, not a
+- **The repo is `eveningworks/saunaos`** -- an organization, not a
   personal account. It moved because a personal repo has NO read-only
   collaborator role (every collaborator gets write), and branch
   protection is unavailable on a free private repo either way -- both
   verified against the API, including that a free ORG does not unlock
   it. The maintainer's handle was renamed in the same stretch and
   scrubbed from committer metadata. Consequences: the remote is
-  `git@github.com:eveningworks/toy-os.git`, and nothing in the tree
+  `git@github.com:eveningworks/saunaos.git`, and nothing in the tree
   should name a personal account.
 - **`tools/backup_repo.sh` exists -- run it before touching the repo's
   identity or history.** `git clone --mirror` is NOT a backup here: it
@@ -572,7 +572,7 @@ Toykit widgets, or believing a green test run.**
 - **`/etc/config.d` is how a config FILE declares itself** -- one
   `Name`/`Path`/`Description` descriptor each, over a built-in floor.
   Files-only could not bootstrap (a blank disk has no such directory,
-  and a deleted descriptor would leave `/etc/toyos.conf` nameless), so
+  and a deleted descriptor would leave `/etc/saunaos.conf` nameless), so
   built-ins are the floor and a descriptor with the same name OVERRIDES
   one. That is the vendor-default/`/etc`-override pattern, and it is
   what lets a ring-3 program declare its config with no kernel change --
@@ -1060,7 +1060,7 @@ rasterizes), while Windows put font parsing in `win32k.sys` and spent a
 decade of remote-code-execution CVEs on it before moving it to a
 sandboxed user-mode host in Windows 10.
 
-That did not change the DECISION -- toy-os still parses in ring 0,
+That did not change the DECISION -- SaunaOS still parses in ring 0,
 because the console needs glyphs before any process exists and
 `WIN_REQ_FONT` exists so clients cannot drift from the desktop. What it
 changed is everything around it: the parser touches the file only
@@ -1194,7 +1194,7 @@ question rather than answering one.
 The environment milestone was presented to the maintainer as a genuine
 fork: should a child inherit its parent's environment automatically
 (Unix-like, and what most code expects), or be handed one explicitly
-(what `posix_spawn` does, and what toy-os's process model already looks
+(what `posix_spawn` does, and what SaunaOS's process model already looks
 like)? Two coherent options, real tradeoffs, worth asking about.
 
 **It is not a fork. Unix does both, by layering.** `execve()` is the
@@ -1229,7 +1229,7 @@ why those stayed small and useful.
 
 **tolibc is the deliberate exception, and the maintainer made it
 explicit**: a C library aims to be COMPLETE. If C specifies a function,
-it belongs there even when nothing in toy-os calls it, because the
+it belongs there even when nothing in SaunaOS calls it, because the
 alternative is not a smaller library -- it is a link error in somebody
 else's source file, months later, with no explanation attached.
 
@@ -1696,7 +1696,7 @@ the user can see), and the settings app keeps `choice_raw` beside
   launcher asks that one function. It is also what let an existing
   `disk.img` keep working with no migration.
 - **A NEW MEDIUM NEEDS THE STALENESS GUARD MOVED, NOT COPIED.**
-  `iso_guard.py` compared `build/kernel.bin` against `toy-os.iso`. Boot
+  `iso_guard.py` compared `build/kernel.bin` against `saunaos.iso`. Boot
   the disk and that comparison measures nothing -- a stale
   `/boot/kernel.bin` is exactly the silent clean pass it exists to
   prevent. A file inside a FAT image has no stat-able mtime, so the
@@ -1817,7 +1817,7 @@ session believing a decision that no longer holds.
 
 Linux resolves a mount per PATH COMPONENT while walking, keeps a tree of
 `struct mount`, and carries per-process namespaces, bind mounts and
-automounts. toy-os resolves a whole path against a flat table of at most
+automounts. SaunaOS resolves a whole path against a flat table of at most
 six entries, once, at the `fs_*` boundary.
 
 That is not laziness, and the reason is worth stating in the doc: paths
@@ -2261,7 +2261,7 @@ BEFORE choosing; this one was in the list and was not chosen.
 
 **A mode change is a kernel setting, not a compositor request, because
 the kernel owns the framebuffer here.** Linux puts modesetting in the
-compositor (KMS); Windows lets any process ask and tells DWM. toy-os
+compositor (KMS); Windows lets any process ask and tells DWM. SaunaOS
 grants the compositor a mapping of kernel-allocated scanouts, and the
 console draws into the first, so the Windows shape fits: the registry
 gives the setting a System Settings row, `config set`, persistence and

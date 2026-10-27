@@ -14,7 +14,7 @@ Who owns the physical console, which process group is in front of it,
 and who is holding the keyboard. It reports and changes nothing.
 
 **This is not POSIX's `tty`.** That one prints the device name of the
-terminal on stdin (`/dev/pts/3`); toy-os has no device nodes, so a path
+terminal on stdin (`/dev/pts/3`); SaunaOS has no device nodes, so a path
 printed here would be one this command made up. What it answers instead
 is the question that actually comes up on this machine: *I typed
 something and nothing happened -- who is getting my keystrokes?* On Linux

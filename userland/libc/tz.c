@@ -10,7 +10,7 @@
 // "name,offset_minutes,dst,Display Name" row per city, shipped in
 // data/etc and staged by `make iso`.
 //
-// NOT `/etc/toyos.conf` DIRECTLY, though that is where the registry
+// NOT `/etc/saunaos.conf` DIRECTLY, though that is where the registry
 // persists it. A fresh disk has no such file until something writes a
 // setting, and an `fopen` of a missing file makes the kernel log a
 // "open() rejected" line -- once per process, which put a kernel log

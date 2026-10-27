@@ -14,7 +14,7 @@ Requires QEMU (`qemu-system-x86_64`) and about 2 GB of RAM. No checkout
 needed.
 
 ```sh
-# download toy-os.iso, disk.img.gz and run_release.sh into one directory
+# download saunaos.iso, disk.img.gz and run_release.sh into one directory
 chmod +x run_release.sh
 ./run_release.sh
 ```

@@ -24,7 +24,7 @@ struct utls; // opaque
 // A TLS private key drawn from TSC jitter under an emulator is not
 // secret from anyone who can model the emulator, so utls_connect()
 // REFUSES by default and this is the override. See
-// `userland/backends/mbedtls/toyos_platform.c`.
+// `userland/backends/mbedtls/saunaos_platform.c`.
 enum utls_entropy_policy {
     UTLS_ENTROPY_REQUIRE_GOOD = 0, // refuse on jitter-only -- the default
     UTLS_ENTROPY_ALLOW_WEAK,       // proceed, and say so

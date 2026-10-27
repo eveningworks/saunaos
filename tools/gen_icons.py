@@ -57,7 +57,7 @@ INK = (255, 255, 255, 235)   # pictogram ink: white, a shade softer
 
 
 def tile(colour):
-    """A rounded plate in one hue: the toy-os logo's and a device class's."""
+    """A rounded plate in one hue: the SaunaOS logo's and a device class's."""
     im = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(im)
     d.rounded_rectangle([PAD, PAD, SIZE - PAD - 1, SIZE - PAD - 1],
@@ -1605,75 +1605,80 @@ def icon_start():
 
     Every other icon here is a pictogram of what an app IS. This one has
     no app behind it: it opens a menu of all of them. So it is an
-    identity rather than a signpost -- three stacked toy bricks, which is
-    what this OS is called.
+    identity rather than a signpost -- three sauna stones, two below and
+    one on top, which is what this OS is called (the shape is the toy
+    bricks' it replaced in 2026-10-27's rename, so the button kept its
+    outline).
 
-    THE FIRST VERSION WAS A 2x2 OF ROUNDED PANES AND WAS WRONG: that is
-    the Windows logo, near enough that the button read as somebody
-    else's. A 3x3 dot grid (GNOME's "show applications") has the same
-    problem one step removed -- it is a borrowed convention rather than
-    a mark. Every distro solves this with a shape of its own (Debian's
-    swirl, Fedora's f, Arch's mountain) and so does this.
+    A 2x2 of panes would be the Windows logo and a 3x3 dot grid GNOME's
+    "show applications": borrowed conventions rather than a mark. Every
+    distro solves this with a shape of its own (Debian's swirl, Fedora's
+    f, Arch's mountain) and so does this.
 
     NO PLATE. The Start button draws its own background
     (uui_button_draw, in the taskbar's accent colour), so a plate here
     would be a second rounded rectangle inside the first.
 
-    DRAWN AS SOLID BLOCKS WITH GAPS, not outlines: at the ~12px the
-    taskbar scales it to, an outline's interior closes up and the whole
-    mark becomes a smudge.
+    SOLID SHAPES WITH GAPS, not outlines: at the ~12px the taskbar scales
+    it to, an outline's interior closes up and the mark becomes a smudge.
+    THREE STONES, NOT MORE: four to eight were tried on the mockup canvas
+    and blurred into a speckled triangle at 20px.
     """
     im = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    brick_stack(ImageDraw.Draw(im), w=22, h=20, gap=5, bottom_y=34, left_x=7)
+    stone_stack(im, STONES_BARE)
     return im
 
 
-def brick_stack(d, w, h, gap, bottom_y, left_x):
-    """Three bricks: two on the bottom, one centred on top.
+# ONE SET OF NUMBERS, because two marks draw them -- the Start button
+# (unplated) and the OS's own logo (on a plate) -- AND the boot splash
+# draws the logo's in C: kernel/lib/splash_layout.c's
+# splash_stones_with_plate / splash_stones_bare are these, which is what
+# keeps the splash and the icon the same mark. (cx, cy, a, b, degrees),
+# a positive angle turning clockwise as SVG's rotate() does.
+STONES_WITH_PLATE = ((20, 42, 10, 8, -8), (44, 42, 10, 8, 6), (32, 23, 10, 8, 0))
+STONES_BARE = ((18, 43, 12, 9, -8), (46, 43, 12, 9, 6), (32, 21, 12, 9, 0))
 
-    ONE IMPLEMENTATION, because two marks draw it -- the Start button
-    (`icon_start`, inked and unplated, recoloured by the panel) and the
-    OS's own logo (`icon_toyos`, on a plate). They are the same identity
-    at two sizes and must not drift into two similar-but-different
-    shapes, which is exactly what a second copy of these six lines
-    would eventually become.
 
-    The stack is what makes it read as bricks rather than as three
-    rectangles, and the gaps are what keep it legible when the taskbar
-    scales it to ~12px -- see icon_start's own note on why this is solid
-    blocks and not outlines.
+def stone_stack(im, stones, ss=4):
+    """Fills each stone in INK, anti-aliased by ss x ss samples a pixel."""
+    px = im.load()
+    for cx, cy, a, b, deg in stones:
+        c, s = math.cos(math.radians(deg)), math.sin(math.radians(deg))
+        reach = max(a, b) + 1
+        for y in range(cy - reach, cy + reach + 1):
+            for x in range(cx - reach, cx + reach + 1):
+                hit = 0
+                for j in range(ss):
+                    for i in range(ss):
+                        dx = x + (i + 0.5) / ss - 0.5 - cx
+                        dy = y + (j + 0.5) / ss - 0.5 - cy
+                        u, v = dx * c + dy * s, dy * c - dx * s
+                        hit += (u * u) / (a * a) + (v * v) / (b * b) <= 1
+                if not hit:
+                    continue
+                k = hit / (ss * ss) * INK[3] / 255
+                r0, g0, b0, a0 = px[x, y]
+                a0 /= 255
+                out = k + a0 * (1 - k)
+                mix = [round((INK[n] * k + (r0, g0, b0)[n] * a0 * (1 - k)) / out) for n in range(3)]
+                px[x, y] = (*mix, round(out * 255))
+
+
+def icon_saunaos():
+    """SaunaOS's own logo: the Start button's mark, on a plate.
+
+    A logo drawing something ELSE would give the project two marks, so
+    this is the same three stones with the one thing the Start button
+    deliberately has not got: a plate. The button paints its own
+    background in the taskbar's accent, so a plate there would be a
+    rectangle inside a rectangle; here there is nothing behind it.
+
+    Smaller than icon_start's stones, inside the plate's PAD. Verified at
+    20px, which is what a menu row gets; the boot splash is the same mark
+    at 144px (kernel/lib/splash_layout.c).
     """
-    d.rounded_rectangle([left_x, bottom_y, left_x + w, bottom_y + h],
-                        radius=4, fill=INK)
-    d.rounded_rectangle([left_x + w + gap, bottom_y,
-                         left_x + w + gap + w, bottom_y + h], radius=4, fill=INK)
-    ty = bottom_y - h - gap
-    tx = left_x + (w + gap) // 2
-    d.rounded_rectangle([tx, ty, tx + w, ty + h], radius=4, fill=INK)
-
-
-def icon_toyos():
-    """toy-os's own logo: the Start button's mark, on a plate.
-
-    The identity already existed -- `icon_start` chose three stacked
-    bricks over a 2x2 of panes (Windows) and a 3x3 dot grid (GNOME), and
-    the reasoning is in its docstring. A logo drawing something ELSE
-    would give the project two marks, so this is the same shape with the
-    one thing the Start button deliberately has not got: a plate. The
-    button paints its own background in the taskbar's accent, so a plate
-    there would be a rectangle inside a rectangle; here there is nothing
-    behind it.
-
-    Sized in from icon_start's geometry rather than reusing it whole:
-    the plate's own PAD means the button's 22px bricks touch the
-    rounding. Verified at 20px, which is what a menu row gets.
-    """
-    im, d = tile((40, 96, 230))
-    # CENTRED on the plate (4..59 both ways): the group spans 10..53
-    # across and 12..51 down. It sat a pixel left and two low until
-    # 2026-10-12, which the boot splash -- the same mark at 144px --
-    # made plain (kernel/lib/splash_layout.c draws it from these numbers).
-    brick_stack(d, w=19, h=17, gap=5, bottom_y=34, left_x=10)
+    im, _ = tile((40, 96, 230))
+    stone_stack(im, STONES_WITH_PLATE)
     return im
 
 
@@ -1730,7 +1735,7 @@ ICONS = {
     "badge-warning": icon_badge_warning,
     "badge-disabled": icon_badge_disabled,
     "start": icon_start,
-    "toyos": icon_toyos,
+    "saunaos": icon_saunaos,
     "tb-up": icon_tb_up,
     "tb-down": icon_tb_down,
     "tb-tab": icon_tb_tab,

@@ -19,8 +19,8 @@ it, which the licence allows; the credit travels onto the image as
 
 The download is the Foundation's own 640x360 release (H.264 + AAC in a
 zip), PINNED BY SHA-256 -- a changed file on their server is refused,
-not played. toy-os decodes neither H.264 nor AAC, so the HOST's ffmpeg
-transcodes it to what toy-os does: MPEG-1 video and MP2 sound in an
+not played. SaunaOS decodes neither H.264 nor AAC, so the HOST's ffmpeg
+transcodes it to what SaunaOS does: MPEG-1 video and MP2 sound in an
 MPEG program stream, at the film's own 24 fps, with a 12-frame GOP so a
 seek decodes little. The first three minutes by default (~30 MB on the
 image); --full for all ten (~100 MB).
@@ -62,7 +62,7 @@ Licensed under the Creative Commons Attribution 3.0 licence:
 https://creativecommons.org/licenses/by/3.0/
 
 This copy was transcoded from the Foundation's 640x360 release to MPEG-1
-video and MP2 sound by tools/fetch_video.py, so that toy-os can play it.
+video and MP2 sound by tools/fetch_video.py, so that SaunaOS can play it.
 """
 
 

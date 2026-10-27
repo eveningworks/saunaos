@@ -36,13 +36,13 @@ enum { W16_FRAME_31, W16_FRAME_DESKTOP };
 enum { W16_VER_310, W16_VER_311, W16_VER_300 };
 enum { W16_FAULT_BOX, W16_FAULT_REPORT };
 // Whose fonts a program's text is drawn in: Windows 3.11's own .FON files
-// from C:\WINDOWS\SYSTEM where they are there, else toy-os's stand-ins.
+// from C:\WINDOWS\SYSTEM where they are there, else SaunaOS's stand-ins.
 enum { W16_FONTS_WIN311, W16_FONTS_STANDIN };
 // Whose sounds an event plays: what WIN.INI's [sounds] names on drive C:
-// where it is there (else toy-os's own), toy-os's own always, or none --
+// where it is there (else SaunaOS's own), SaunaOS's own always, or none --
 // Off answers that there is no wave device at all.
-enum { W16_SOUNDS_WIN311, W16_SOUNDS_TOYOS, W16_SOUNDS_OFF };
-// What a program's Help opens in: toy-os's Help Viewer, or Windows' own WINHELP.EXE run under w16 when
+enum { W16_SOUNDS_WIN311, W16_SOUNDS_SAUNAOS, W16_SOUNDS_OFF };
+// What a program's Help opens in: SaunaOS's Help Viewer, or Windows' own WINHELP.EXE run under w16 when
 // drive C: has it (the viewer when it does not).
 enum { W16_HELP_VIEWER, W16_HELP_WINHELP };
 // How many colours the display has: 256, as w16 draws by default, or Windows 3.11's 16-colour VGA, whose
@@ -65,7 +65,7 @@ struct w16_prefs {
     char drive_c[W16_PATH_MAX];      // drive C:; INI files live in its WINDOWS
     int method;                      // W16_METHOD_*: how a fractional scale is drawn
     int fonts;                       // W16_FONTS_*
-    // Drives D: to Y:, each a folder or "" -- C: is drive_c, Z: all of toy-os.
+    // Drives D: to Y:, each a folder or "" -- C: is drive_c, Z: all of SaunaOS.
     char drive[W16_DRIVES][W16_PATH_MAX];
     int from_files;                  // W16_FROM_*
     int add_folder;                  // a program run from elsewhere adds its folder to the launcher

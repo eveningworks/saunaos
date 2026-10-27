@@ -693,7 +693,7 @@ def stage3(args, r, q, tmp, conf):
     except (PermissionError, RuntimeError) as e:
         r.check("VeNCrypt (X509Vnc) lets a viewer in over TLS", False, repr(e))
         return
-    r.check("VeNCrypt (X509Vnc) lets a viewer in over TLS", v.name == "toy-os",
+    r.check("VeNCrypt (X509Vnc) lets a viewer in over TLS", v.name == "saunaos",
             f"{v.name} {v.tls_version}")
     r.check("...plain VNC is listed first, for viewers with no CA to give",
             v.types == [2, 19], str(v.types))
@@ -897,7 +897,7 @@ def main():
         except PermissionError as e:
             r.check("a wrong password is refused", "failed" in str(e).lower(), str(e))
         v = connect(args)
-        r.check("the right password is let in, as toy-os", v.name == "toy-os", v.name)
+        r.check("the right password is let in, as SaunaOS", v.name == "saunaos", v.name)
 
         # Park the pointer in the corner, so the one thing remoted draws
         # and QEMU's dump does not is out of the way.

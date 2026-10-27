@@ -54,7 +54,7 @@ DOCKERFILE = "tools/docker/Dockerfile.qemu"
 
 
 def build(version, base, quiet=True):
-    tag = f"toyos-qemu:{version}"
+    tag = f"saunaos-qemu:{version}"
     cmd = ["docker", "build", "-f", DOCKERFILE, "-t", tag,
            "--build-arg", f"BASE={base}", "."]
     if quiet:
@@ -98,10 +98,10 @@ def run_suite(tag, suite, virtio, timeout, run=1):
     else:
         # The guest's own record, which survives an emulator that hangs.
         args += ["--serial-log", f"{work}/serial-{tag.split(':')[-1]}-{run}.log"]
-    name = f"toyos-matrix-{os.getpid()}-{tag.split(':')[-1]}-{run}"
+    name = f"saunaos-matrix-{os.getpid()}-{tag.split(':')[-1]}-{run}"
     cmd = ["docker", "run", "--rm", "--name", name,
            "--user", f"{os.getuid()}:{os.getgid()}",
-           "-v", f"{os.getcwd()}:/toyos", tag] + args
+           "-v", f"{os.getcwd()}:/saunaos", tag] + args
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
     except subprocess.TimeoutExpired:
@@ -138,8 +138,8 @@ def main():
     ap.add_argument("--timeout", type=float, default=300.0)
     args = ap.parse_args()
 
-    if not os.path.exists("toy-os.iso"):
-        print("qemu_matrix: toy-os.iso not found -- run `make iso` first")
+    if not os.path.exists("saunaos.iso"):
+        print("qemu_matrix: saunaos.iso not found -- run `make iso` first")
         return 1
     if args.virtio and args.suite != "ktest":
         print("qemu_matrix: --virtio applies to the ktest suite only")

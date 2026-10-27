@@ -23,7 +23,7 @@
 //
 // One file, multiple settings: as of the build that added this,
 // /etc/timezone and /etc/fontsize's content both moved into a single
-// shared /etc/toyos.conf (see tz.c/font_config.c). That's a default,
+// shared /etc/saunaos.conf (see tz.c/font_config.c). That's a default,
 // not a rule this file enforces -- `path` is just a parameter, so a
 // future setting with enough of its own keys to be unwieldy sharing a
 // file (imagine a GUI app with a dozen preferences) can just pass its

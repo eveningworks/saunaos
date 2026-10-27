@@ -722,7 +722,7 @@ void vga_init(void) {
         // klog_write(), not vga_write() -- serial_init() has already run
         // by the time kernel.c calls vga_init() (see kernel.c's ordering),
         // so this reaches dmesg fine even though the physical console
-        // isn't ready to receive its own "toy-os booting..." line yet.
+        // isn't ready to receive its own "SaunaOS booting..." line yet.
         klog_write("vga: linear framebuffer console active (");
         klog_write_dec((uint32_t)gfx_width());
         klog_write("x");

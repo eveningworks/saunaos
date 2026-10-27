@@ -1,4 +1,4 @@
-# Dynamic linking for toy-os
+# Dynamic linking for SaunaOS
 
 A staged plan, in the shape `docs/libc-design.md` and
 `docs/signals-design.md` used. It answers the milestone
@@ -55,7 +55,7 @@ something.
 
 - **The memory saving here is near zero.** The payoff normally quoted --
   one copy of libc instead of one per binary -- is worth having when a
-  system runs hundreds of processes. toy-os runs about twenty-five small
+  system runs hundreds of processes. SaunaOS runs about twenty-five small
   ones, `--gc-sections` already strips each to what it calls, and
   `libc.a` is 166 KB of which any given program links a fraction.
 - **Static linking is a respectable modern choice, not a legacy one.**
@@ -131,7 +131,7 @@ Checked against the tree, not assumed.
   patches the table. Eager binding at load time is simpler, correct, and
   the right first cut -- glibc's `LD_BIND_NOW` does exactly that.
 
-**Where toy-os should differ**: no symbol versioning, no `LD_PRELOAD`,
+**Where SaunaOS should differ**: no symbol versioning, no `LD_PRELOAD`,
 no shared cache, no lazy binding in the first version. Those solve
 problems of scale and compatibility that this system does not have.
 

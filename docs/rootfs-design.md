@@ -15,7 +15,7 @@ table of situations -- but "the mounted filesystem" is now "the root
 mount", and `fs_backend_name()`/`fs_is_persistent()` answer for it
 specifically. See `docs/conventions/storage.md`.
 
-**The one-sentence version:** toy-os should mount its root from a
+**The one-sentence version:** SaunaOS should mount its root from a
 PARTITION and nowhere else on a drive, and where there is no usable
 drive it should fall back to a real in-memory filesystem instead of
 today's fiction.
@@ -159,7 +159,7 @@ paying for.
 ## A budget, because an unbounded ramfs wedges the machine
 
 `ramfs` on Linux is famously unbounded — write until the OOM killer
-arrives. toy-os has no OOM killer, and the kernel heap and the ramfs
+arrives. SaunaOS has no OOM killer, and the kernel heap and the ramfs
 would be competing for the same frames, so "write a big file" would
 take out the allocator every other subsystem depends on.
 
@@ -233,7 +233,7 @@ This is the part to read before starting. Enumerated, not estimated:
 with *nothing in it* — no `/bin`, so no `ls`, no shell but the kernel's
 own. That is not a defect to be fixed later; it is what an empty
 filesystem is. The live CD is the thing that ships binaries in RAM, and
-it stays the answer for "run toy-os without a disk".
+it stays the answer for "run SaunaOS without a disk".
 
 What ramfs is for: **the machine keeps working when the drive does
 not.** `/tmp` exists, `/etc` can be written, a config file can be

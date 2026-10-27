@@ -61,11 +61,11 @@ KTEST("mount", "the root answers for everything nothing else claims") {
     KTEST_ASSERT_EQ(root->point_len, 1);
 
     const char *sub = 0;
-    const struct mount *m = mount_resolve("/etc/toyos.conf", &sub);
+    const struct mount *m = mount_resolve("/etc/saunaos.conf", &sub);
     KTEST_ASSERT(m == root);
     // The root's sub-path is the path UNCHANGED -- stripping a "/" off
     // it would hand every backend a relative path.
-    KTEST_ASSERT_EQ(k_strcmp(sub, "/etc/toyos.conf"), 0);
+    KTEST_ASSERT_EQ(k_strcmp(sub, "/etc/saunaos.conf"), 0);
 
     m = mount_resolve("/", &sub);
     KTEST_ASSERT(m == root);

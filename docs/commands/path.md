@@ -11,7 +11,7 @@
 ## Description
 
 Shows the directories a bare command name is searched in, in order,
-with the first match winning. Set `PATH` in `/etc/toyos.conf`
+with the first match winning. Set `PATH` in `/etc/saunaos.conf`
 (semicolon- or colon-separated); the default is `/bin;/usr/bin;/tests`.
 
 `/tests` comes LAST on purpose, so `ls /bin` and tab completion lead

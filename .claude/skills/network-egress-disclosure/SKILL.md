@@ -1,6 +1,6 @@
 ---
 name: network-egress-disclosure
-description: Use when work on toy-os has sent traffic beyond the developer's own machine -- a DNS lookup, a ping, an HTTP fetch to a public host -- and a commit message is about to be written.
+description: Use when work on SaunaOS has sent traffic beyond the developer's own machine -- a DNS lookup, a ping, an HTTP fetch to a public host -- and a commit message is about to be written.
 ---
 
 # Disclosing network egress in a commit

@@ -59,7 +59,7 @@
 // QUALIFIED NAMES: a setting's identity is (namespace, name), not name.
 //
 // The namespace is the registered NAME OF THE FILE it persists to
-// (api/config_file.h) -- `system` for /etc/toyos.conf, `desktop` for
+// (api/config_file.h) -- `system` for /etc/saunaos.conf, `desktop` for
 // /etc/desktop.conf -- so it is DERIVED rather than declared, and no
 // existing `struct setting` had to change. Written `system.font.size`.
 //

@@ -69,13 +69,13 @@ int main(void) {
     memset(long_title + 1, 'a', 200);
     memcpy(long_title + 1, "\xc3\xa4", 2);   // "ä" in UTF-8
     frame(4, "TIT2", long_title, sizeof long_title);
-    frame(4, "TALB", "\3toy-os", 7);
+    frame(4, "TALB", "\3SaunaOS", 8);
     finish();
     memset(&t, 0, sizeof t);
     utags_from_id3v2(buf, n, &t, 0);
     utest_check(t.title[0] == (char)0xE4 && strlen(t.title) == UTAGS_TEXT_MAX - 1,
                 "2.4: a syncsafe-sized UTF-8 title, decoded and truncated to fit");
-    str_is(t.album, "toy-os", "2.4: the frame AFTER it is still found");
+    str_is(t.album, "SaunaOS", "2.4: the frame AFTER it is still found");
 
     // --- refused, never guessed -------------------------------------------
     begin(3);
@@ -191,8 +191,8 @@ int main(void) {
     // --- the shipped music -------------------------------------------------
     got = utags_read("/usr/share/music/first-boot.mp3", &t, 0);
     str_is(t.title, "First Boot", "first-boot.mp3's ID3 title");
-    str_is(t.artist, "toy-os", "...its artist");
-    str_is(t.album, "toy-os", "...and its album");
+    str_is(t.artist, "SaunaOS", "...its artist");
+    str_is(t.album, "SaunaOS", "...and its album");
     utest_checkf(t.length_ms == 77800, "...and its TLEN, 77800 ms (got %u)", (unsigned)t.length_ms);
     got = utags_read("/usr/share/music/first-boot.mid", &t, 0);
     str_is(t.title, "First Boot", "first-boot.mid's track name");

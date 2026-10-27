@@ -15,7 +15,7 @@ lspci [-k] [--update]
 - `-k` -- add a line per device naming **who has it**: the bound ring-0
   driver (`kernel driver: hda`), or the ring-3 process that has taken
   the device off the kernel (`claimed by pid 14`), or `no driver`.
-  Linux's `-k` prints the first of those three; the second is toy-os's
+  Linux's `-k` prints the first of those three; the second is SaunaOS's
   own, and is what a device claim looks like from outside
   (`docs/umdf-design.md`). A bound driver that **can let go** is marked
   `(claimable)` -- said only where a driver holds the device, because

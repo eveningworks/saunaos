@@ -320,7 +320,7 @@ struct snd_register_msg {
 };
 
 // Per-application gains, by application name. A file of its own rather
-// than keys in /etc/toyos.conf: these accumulate one per program ever
+// than keys in /etc/saunaos.conf: these accumulate one per program ever
 // played, which does not belong in the system's own config, and the
 // settings REGISTRY cannot hold them at all (it is a fixed catalogue of
 // build-time knobs, one System Settings row each).

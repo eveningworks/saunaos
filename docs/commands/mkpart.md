@@ -103,7 +103,7 @@ nothing is running from — making somebody type it for a disk the command is no
 touching is how the word stops meaning anything. A zeroed request names no
 disk, which is the boot disk, so the accident case is still covered.
 
-**And `confirm` is a speed bump, not a permission check.** toy-os has no privilege
+**And `confirm` is a speed bump, not a permission check.** SaunaOS has no privilege
 model — there is no uid, and `SYS_QUERY` has none either — so any process can
 set the flag that `confirm` sets. What it stops is the accident, not the
 attacker. If uids ever arrive, `sys_mkpart()` in

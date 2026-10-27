@@ -542,7 +542,7 @@ static char *build_request(struct uhttp_request *req, const struct uhttp_url *u,
     // The port is in Host only when it is not the scheme's own (RFC 9110).
     if (u->port != (u->tls ? 443 : 80)) ADD("Host: %s:%u\r\n", u->host, (unsigned)u->port);
     else ADD("Host: %s\r\n", u->host);
-    if (!caller_has(req, "user-agent:")) ADD("User-Agent: toy-os/uhttp\r\n");
+    if (!caller_has(req, "user-agent:")) ADD("User-Agent: SaunaOS/uhttp\r\n");
     if (!caller_has(req, "accept-encoding:")) ADD("Accept-Encoding: gzip\r\n");
     if (req->body || !strcmp(method, "POST") || !strcmp(method, "PUT"))
         ADD("Content-Length: %lu\r\n", (unsigned long)(req->body ? req->body_len : 0));

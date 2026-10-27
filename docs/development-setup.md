@@ -34,7 +34,7 @@ sudo usermod -aG docker "$USER"
 
 # 3. An SSH key, if you intend to push. (`gh auth login` can generate and
 #    upload one for you instead -- choose SSH when it asks.)
-ssh-keygen -t ed25519 -f ~/.ssh/github_key -C 'toy-os dev box'
+ssh-keygen -t ed25519 -f ~/.ssh/github_key -C 'SaunaOS dev box'
 cat >> ~/.ssh/config <<EOF
 
 Host github.com
@@ -48,16 +48,16 @@ cat ~/.ssh/github_key.pub     # add to GitHub -> Settings -> SSH keys
 ssh -T git@github.com         # should greet you by name
 
 # 4. Clone (substitute your fork's URL if you have one)
-git clone git@github.com:eveningworks/toy-os.git
-cd toy-os
+git clone git@github.com:eveningworks/saunaos.git
+cd saunaos
 
 # 5. THE COMMIT IDENTITY -- the step that fails silently.
 #    It is per-repository, so the clone did NOT bring one, and commits
 #    would use your GLOBAL identity: your real name and address. This
 #    project scrubbed exactly that out of every prior commit with a
 #    history rewrite, and nothing in git warns you beforehand.
-git config --local user.name  'toy-os'
-git config --local user.email 'noreply@toy-os.local'
+git config --local user.name  'SaunaOS'
+git config --local user.email 'noreply@saunaos.local'
 #    On a fork, your own name and address are fine -- the point is that
 #    it is a CHOICE rather than a leak. tools/preflight.sh refuses to run
 #    until SOME local identity is set, which is where the check lives
@@ -70,7 +70,7 @@ python3 tools/gui_regress.py --logs /tmp/gui   # every GUI tool, as one table
 # 7. gh, only for releases and `gh workflow run` -- not for push
 gh auth login                                  # choose SSH as the protocol
 
-# 8. Optional: the update server, so toy-os machines can PULL builds
+# 8. Optional: the update server, so SaunaOS machines can PULL builds
 #    (docs/commands/update.md). A systemd USER service on port 8080:
 #    /dev serves this checkout's latest `make iso`, /main the last
 #    build you published, /release the one you promoted from it.
@@ -81,7 +81,7 @@ curl -s localhost:8080/channels                # what a machine is offered
 ```
 
 **What you do not copy.** `disk.img` is gitignored and reseeded by
-`make iso`; `build/`, `toy-os.iso` and `compile_commands.json` are all
+`make iso`; `build/`, `saunaos.iso` and `compile_commands.json` are all
 regenerated. Nothing needs a GitHub token in the environment — the whole
 build and test path is offline, so you can work for a week without
 authenticating and only need it to push.

@@ -1,6 +1,6 @@
-"""GDB helpers for a stopped toy-os kernel -- Linux's scripts/gdb shape.
+"""GDB helpers for a stopped SaunaOS kernel -- Linux's scripts/gdb shape.
 
-    gdb build/kernel.bin -x tools/gdb/toyos.py -ex "target remote localhost:1235"
+    gdb build/kernel.bin -x tools/gdb/saunaos.py -ex "target remote localhost:1235"
 
 Everything here READS the stopped machine's memory from the host, so the
 kernel runs no code for it -- the reason Linux (`lx-dmesg`, `lx-ps`) and
@@ -251,7 +251,7 @@ class TrapFrameUnwinder(gdb.unwinder.Unwinder):
     garbage registers as the interrupted code's."""
 
     def __init__(self):
-        super().__init__("toy-os trap frame")
+        super().__init__("SaunaOS trap frame")
         self.lo = self.hi = self.resume = self.sys_lo = self.sys_hi = None
         # (sp, pc) of every RING-3 frame this produced. User code has no
         # symbols here, so GDB's fallback would walk its stack into

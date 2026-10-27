@@ -68,14 +68,14 @@ void wc_send_str(uint32_t type, const char *s) { wc_send(type, s, (uint32_t)strl
 // a change in System Settings applies to the next page loaded.
 static void apply_user_agent(void) {
     char which[16], ua[256];
-    if (usetting_get("browser.user_agent", which, sizeof which) < 0) strcpy(which, "toyos");
+    if (usetting_get("browser.user_agent", which, sizeof which) < 0) strcpy(which, "saunaos");
     if (!strcmp(which, "custom") &&
         usetting_get("browser.user_agent.custom", ua, sizeof ua) >= 0 && ua[0]) {
         ns_fetch_http_set_user_agent(ua);
         return;
     }
     snprintf(ua, sizeof ua, "Mozilla/5.0 (%s) NetSurf/%d.%d",
-             strcmp(which, "linux") ? "toy-os; x86_64" : "X11; Linux x86_64",
+             strcmp(which, "linux") ? "SaunaOS; x86_64" : "X11; Linux x86_64",
              netsurf_version_major, netsurf_version_minor);
     ns_fetch_http_set_user_agent(ua);
 }

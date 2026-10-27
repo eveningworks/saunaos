@@ -38,7 +38,7 @@ against it:
     query phase asserts the clock did NOT move.
 
 Usage: python3 tools/ntp_test.py [--positive-control]
-       (needs toy-os.iso + disk.img, i.e. run after `make iso`)
+       (needs saunaos.iso + disk.img, i.e. run after `make iso`)
 
 --positive-control makes the server answer with the guest's own era but
 a deliberately WRONG epoch conversion (1900 instead of 1970), which is

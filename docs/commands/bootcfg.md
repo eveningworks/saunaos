@@ -32,7 +32,7 @@
 - `undo` -- swap `grub.cfg` and `grub.cfg.bak`, so a second `undo` redoes.
 - `known` -- every boot word it accepts, with its value's shape.
 - `resolution [WxH|auto|keep|drop]` -- the screen size GRUB sets, for a
-  display toy-os cannot set itself; see "The screen size GRUB sets".
+  display SaunaOS cannot set itself; see "The screen size GRUB sets".
   Alone, it shows the size now, every boot's, a pending one and the
   sizes this machine's firmware refused.
 - `--force` -- save despite a RISKY problem the edit introduces.
@@ -76,8 +76,8 @@ update, and that must not make every edit need `--force`.
 ## Trying a change once
 
     $ bootcfg try 0 +clocksource=tsc
-      + menuentry "toy-os (trial)" { ... clocksource=tsc bootcfg.trial }
-      next boot only: "toy-os (trial)" -- the boot after is the default again
+      + menuentry "SaunaOS (trial)" { ... clocksource=tsc bootcfg.trial }
+      next boot only: "SaunaOS (trial)" -- the boot after is the default again
       Restart now?  [y/N]
 
 The trial is chosen the way `reboot --entry` chooses -- GRUB's

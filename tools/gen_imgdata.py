@@ -2,7 +2,7 @@
 """Generate the image data this repo ships: the test vectors and the wallpapers.
 
 TWO OUTPUTS, ONE TOOL, because both are "a JPEG produced by libjpeg for
-toy-os to read back" and splitting them would mean two scripts with the
+saunaos to read back" and splitting them would mean two scripts with the
 same encoder settings to keep in step.
 
   --vectors     userland/tests/uimg_vectors.h -- small JPEGs and QOIs as

@@ -25,7 +25,7 @@
 #include <stdint.h>
 #include "kasan.h"
 
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 
 #include "pmm.h"
 #include "multiboot.h"

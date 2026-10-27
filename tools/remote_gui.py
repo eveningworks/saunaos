@@ -17,7 +17,7 @@ what this module is: the same interface over telnet and TFTP
 
 HOW A TOOL ENDS UP HERE
 -----------------------
-`TOYOS_REMOTE_HOST=<ip>` in the environment, which `gui_regress.py
+`SAUNAOS_REMOTE_HOST=<ip>` in the environment, which `gui_regress.py
 --host` sets for its children. `DebugConsole.__new__` and
 `QMPSession.__new__` hand back the remote object instead, so a tool that
 says `QMPSession(port=args.qmp_port)` gets the laptop with no edit of its
@@ -104,7 +104,7 @@ atexit.register(close_session)
 
 def remote_host():
     """The machine tools should drive, or None for "use the VM"."""
-    return os.environ.get("TOYOS_REMOTE_HOST") or None
+    return os.environ.get("SAUNAOS_REMOTE_HOST") or None
 
 
 def _banner(what, host):
@@ -187,7 +187,7 @@ class RemoteConsole(DebugConsole):
         # serial socket it would have used, and we are not that machine.
         self.host = host or remote_host()
         if not self.host:
-            raise RuntimeError("RemoteConsole needs a host (TOYOS_REMOTE_HOST)")
+            raise RuntimeError("RemoteConsole needs a host (SAUNAOS_REMOTE_HOST)")
         self.sock_path = f"{self.host}:{port}"
         self._port = port
         self.timeout = timeout
@@ -336,7 +336,7 @@ class RemoteScreen(QMPSession):
         # `machine=` when something constructs this directly.
         self.host = machine or remote_host()
         if not self.host:
-            raise RuntimeError("RemoteScreen needs a host (TOYOS_REMOTE_HOST)")
+            raise RuntimeError("RemoteScreen needs a host (SAUNAOS_REMOTE_HOST)")
         self.telnet_port = telnet_port
         self.tftp_port = tftp_port
         self.timeout = timeout

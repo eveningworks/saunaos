@@ -21,7 +21,7 @@ initramfs; PCI hotplug loads by a match-table alias (`modalias`).
 registry value, and PnP loads a driver when a device carrying its
 hardware ID is enumerated. **FreeBSD:** `kld`, the same shape as Linux.
 **macOS** went the other way -- DriverKit runs drivers as user
-processes -- which toy-os has already done for the display server and
+processes -- which SaunaOS has already done for the display server and
 declined for USB and the network (no IOMMU, `docs/decisions/drivers.md`).
 
 **The shape to copy:** an object file linked in-kernel against an
@@ -29,7 +29,7 @@ export table, registering through the registries that already exist.
 **What not to copy:** modversions, module signing, a symbol namespace,
 `depmod` -- baggage a one-author kernel has no reason to carry.
 
-## What toy-os already has (measured 2026-09-09)
+## What SaunaOS already has (measured 2026-09-09)
 
 More than half of a loader, pointed in the wrong direction:
 

@@ -127,7 +127,7 @@ questions. `showkey -s` / `-k` switches the console keyboard into a raw
 mode and prints wire bytes or keycodes -- exclusive, console-only.
 `evtest /dev/input/eventN` reads the input core's own events from a
 device node -- non-exclusive, and sees everything regardless of focus.
-This is `evtest`'s shape: toy-os has no device nodes, so the log is a
+This is `evtest`'s shape: SaunaOS has no device nodes, so the log is a
 query rather than a file, but nothing here takes the keyboard away from
 anyone. `xev` and `wev` are the display-server-side equivalents.
 
@@ -137,7 +137,7 @@ stored, and `evtest` and `showkey` alike see only what arrives after
 they start; the closest it gets to answering after the fact is a
 current-state bitmap -- which keys are down *now* (`EVIOCGKEY`) -- which
 is state, not history. Its reason is scale rather than privacy, but the
-resulting posture is the one toy-os has: nothing is recorded unless
+resulting posture is the one SaunaOS has: nothing is recorded unless
 somebody asked for it.
 
 ## What it does not do

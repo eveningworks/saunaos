@@ -3,9 +3,9 @@
 // whatever CreateFont asks for. Each comes from Windows 3.11's own bitmap
 // fonts -- the .FON files in C:\WINDOWS\SYSTEM, read with lib/winfnt --
 // when the `fonts` setting allows and the file is there, else from a
-// toy-os stand-in (Liberation Sans, Serif, DejaVu Sans Mono). TRUETYPE faces
+// SaunaOS stand-in (Liberation Sans, Serif, DejaVu Sans Mono). TRUETYPE faces
 // (Arial, Times New Roman, Courier New) come from C:'s own .TTF files under the
-// same setting, else from those same toy-os fonts, which are their metric
+// same setting, else from those same SaunaOS fonts, which are their metric
 // twins -- so a line breaks where 3.11 broke it either way. Split from
 // gdi16.c: what draws is there, what a font IS is here.
 //
@@ -98,7 +98,7 @@ static const char *alias(const char *face) {
     return face;
 }
 
-// --- TrueType: the user's own from C:, else toy-os's metric twins ------------------
+// --- TrueType: the user's own from C:, else SaunaOS's metric twins ------------------
 
 struct ttface {
     char family[32];
@@ -110,7 +110,7 @@ struct ttface {
 static struct ttface *g_tt;
 static int g_ntt, g_tt_scanned;
 
-// The faces Windows 3.1 shipped as TrueType, and the toy-os files drawn in
+// The faces Windows 3.1 shipped as TrueType, and the SaunaOS files drawn in
 // their place: metric-compatible by design (Liberation), or the nearest
 // monospace (DejaVu, for Courier New).
 static const struct { const char *family; const char *file[4]; int pitch_family; } TWINS[] = {
@@ -245,7 +245,7 @@ struct inst {
 static struct inst **g_inst;                    // each its own allocation: a font in use never moves
 static int g_ninst;
 
-// A 3.11 raster font as a ugfx font: its glyphs in toy-os's slots, at its
+// A 3.11 raster font as a ugfx font: its glyphs in SaunaOS's slots, at its
 // own cell, emboldened as GDI did a raster font -- each row smeared one
 // pixel right, the advance one wider.
 static int from_real(struct inst *in) {
@@ -314,7 +314,7 @@ static void scale_up(struct w16_fontinfo *i, int want, int got) {
     i->scale_den = got;
 }
 
-// --- TrueType: the bytes toy-os's slots lack --------------------------------------------
+// --- TrueType: the bytes SaunaOS's slots lack --------------------------------------------
 
 // Windows 3.1's ANSI table from 0x7F to 0x9F, as Unicode: Windows-1252 before the euro, Z-caron and
 // z-caron (read off 3.11's Character Map in Arial). 0 is no character: the font's box.

@@ -457,13 +457,13 @@ static void key_event(struct vnc *v, int down, uint32_t keysym) {
     switch (ukeysym_lookup(keysym, &code)) {
     case UKEYSYM_CHAR: e.op = INPUT_INJECT_CHAR; break;
     case UKEYSYM_KEY:  e.op = INPUT_INJECT_KEY;  break;
-    default: return;   // a keysym toy-os has no key for
+    default: return;   // a keysym SaunaOS has no key for
     }
     e.code = code;
     inject(&e, 1);
 }
 
-// RFB's mask: 1 left, 2 middle, 4 right, 8/16 wheel up/down. toy-os's:
+// RFB's mask: 1 left, 2 middle, 4 right, 8/16 wheel up/down. SaunaOS's:
 // bit0 left, bit1 right, bit2 middle (kernel/input.h).
 static void pointer_event(struct vnc *v, uint8_t mask, int x, int y) {
     if (v->view_only) return;
@@ -715,7 +715,7 @@ static int skip(uint32_t n) {
 
 // --- the clipboard ---------------------------------------------------------
 //
-// RFB's cut text is LATIN-1 (RFB 7.5.6, 7.6.4) and toy-os's is UTF-8, so
+// RFB's cut text is LATIN-1 (RFB 7.5.6, 7.6.4) and SaunaOS's is UTF-8, so
 // each way is converted; a character past Latin-1 goes to a viewer as '?'.
 // The UTF-8 Extended Clipboard is not offered -- Debian's libvncclient,
 // Remmina's, does not speak it. Text only, as every VNC server sends.

@@ -1,5 +1,5 @@
 #!/bin/sh
-# Launches a downloaded toy-os release with the device and display
+# Launches a downloaded SaunaOS release with the device and display
 # configuration the OS actually expects -- the Makefile's `run:` target,
 # for somebody who has the download and not the repository. Ships AS a
 # release asset, so a first try boots correctly.
@@ -8,12 +8,15 @@
 # carried different ones over time and an older download must still
 # work through the same script:
 #
-#   1. toy-os-live.iso   -- boots with no disk at all. The filesystem
+#   1. saunaos-live.iso   -- boots with no disk at all. The filesystem
 #                           rides in RAM and is gone at power off.
-#   2. toyos-usb.img     -- a real 512 MB disk image. Boots itself and
+#   2. saunaos-usb.img     -- a real 512 MB disk image. Boots itself and
 #                           KEEPS what you write, which the live ISO
 #                           does not; this is the one to dd to a stick.
 #   3. toy-os.iso + disk.img -- what releases before v0.3.0 shipped.
+#
+# Releases before the 2026-10-27 rename named the first two
+# toy-os-live.iso and toyos-usb.img; each is looked for under both.
 #
 # `-boot order=` is never omitted. A disk carrying a partition table has
 # 0x55AA at LBA 0, which is all SeaBIOS checks before treating it as
@@ -42,8 +45,17 @@ gunzip_if_needed() {
     fi
 }
 
+gunzip_if_needed saunaos-usb.img
 gunzip_if_needed toyos-usb.img
 gunzip_if_needed disk.img
+
+# The first of the names given that exists, or nothing.
+first_of() {
+    for f in "$@"; do [ -f "$f" ] && { echo "$f"; return 0; }; done
+    return 0
+}
+LIVE=$(first_of saunaos-live.iso toy-os-live.iso)
+USB=$(first_of saunaos-usb.img toyos-usb.img)
 
 # -vga std: pinned explicitly so the mode is not at the mercy of a
 #   per-host QEMU default changing underneath it.
@@ -56,18 +68,18 @@ gunzip_if_needed disk.img
 COMMON="-serial stdio -vga std -display sdl,grab-mod=rctrl -m $MEM \
     -netdev user,id=n0 -device e1000,netdev=n0"
 
-if [ -f toy-os-live.iso ]; then
-    echo "starting toy-os from the live ISO -- writes go to RAM and are"
+if [ -n "$LIVE" ]; then
+    echo "starting SaunaOS from the live ISO -- writes go to RAM and are"
     echo "lost at power off. Right Ctrl releases the mouse once grabbed."
     # shellcheck disable=SC2086
-    exec qemu-system-x86_64 -boot order=d -cdrom toy-os-live.iso $COMMON
+    exec qemu-system-x86_64 -boot order=d -cdrom "$LIVE" $COMMON
 
-elif [ -f toyos-usb.img ]; then
-    echo "starting toy-os from the USB image -- an ordinary disk, so your"
+elif [ -n "$USB" ]; then
+    echo "starting SaunaOS from the USB image -- an ordinary disk, so your"
     echo "changes persist. Right Ctrl releases the mouse once grabbed."
     # shellcheck disable=SC2086
     exec qemu-system-x86_64 -boot order=c \
-        -drive file=toyos-usb.img,format=raw,if=ide,discard=unmap $COMMON
+        -drive file="$USB",format=raw,if=ide,discard=unmap $COMMON
 
 elif [ -f toy-os.iso ] && [ -f disk.img ]; then
     # The pre-0.3.0 pair. -cdrom is the primary IDE bus and the disk must
@@ -80,10 +92,11 @@ elif [ -f toy-os.iso ] && [ -f disk.img ]; then
         -drive file=disk.img,format=raw,if=ide,discard=unmap $COMMON
 
 else
-    echo "error: no toy-os medium found next to this script." >&2
+    echo "error: no SaunaOS medium found next to this script." >&2
     echo "  Expected one of:" >&2
-    echo "    toy-os-live.iso            (boots with no disk)" >&2
-    echo "    toyos-usb.img[.gz]         (a real disk; keeps your changes)" >&2
-    echo "    toy-os.iso + disk.img[.gz] (releases before v0.3.0)" >&2
+    echo "    saunaos-live.iso            (boots with no disk)" >&2
+    echo "    saunaos-usb.img[.gz]         (a real disk; keeps your changes)" >&2
+    echo "    (or toy-os-live.iso / toyos-usb.img[.gz] from before the rename)" >&2
+    echo "    toy-os.iso + disk.img[.gz]  (releases before v0.3.0)" >&2
     exit 1
 fi

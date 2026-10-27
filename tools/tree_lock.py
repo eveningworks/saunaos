@@ -21,12 +21,12 @@ for the message and is only ever READ for that: liveness is the lock.
 
 Taken by `hold()`: `iso_guard.py`'s boot and staging checks (so every
 launcher) and `preflight.sh` for its whole run. A holder exports
-`TOYOS_TEST_LOCK_HELD`, which is how the `make` a holder runs itself
+`SAUNAOS_TEST_LOCK_HELD`, which is how the `make` a holder runs itself
 (preflight, `mutate.py` inside a test) is let through. Refused while
 held: `make` (Makefile), and through the hook a source edit, a building
 `make` and a `git` command that moves the tree. Docs, `tools/` and
 `.claude/` stay editable -- none of them is in the image.
-`TOYOS_IGNORE_TEST_LOCK=1` bypasses both.
+`SAUNAOS_IGNORE_TEST_LOCK=1` bypasses both.
 """
 import fcntl
 import json
@@ -37,8 +37,8 @@ import sys
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 LOCK = os.path.join(REPO, ".test-lock")
 HOLDERS = os.path.join(REPO, ".test-lock.d")
-HELD_ENV = "TOYOS_TEST_LOCK_HELD"
-BYPASS_ENV = "TOYOS_IGNORE_TEST_LOCK"
+HELD_ENV = "SAUNAOS_TEST_LOCK_HELD"
+BYPASS_ENV = "SAUNAOS_IGNORE_TEST_LOCK"
 
 # What may change while a test runs: nothing here reaches the image.
 FREE = ("docs/", "tools/", ".claude/", "screenshots/")

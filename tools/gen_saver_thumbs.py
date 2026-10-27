@@ -4,7 +4,7 @@
 System Settings shows the savers as a gallery with a monitor above it
 (mockup G2, 2026-10-08), and a saver is a separate PROGRAM -- Settings
 cannot draw one into its own window, nor host one (Windows' preview runs
-the .scr into a child window, which toy-os has no equivalent of). So each
+the .scr into a child window, which SaunaOS has no equivalent of). So each
 saver ships a picture beside its option descriptor, as macOS screen
 savers ship a thumbnail in their bundle, and this is what makes them: it
 runs every program in /bin/wm/savers on a running VM, waits until it has

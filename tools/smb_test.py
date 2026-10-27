@@ -2,7 +2,7 @@
 """Network shares in a guest: /bin/smb, `mount -t smb`, and saved shares under /net.
 
 The protocol is checked against every dialect by tools/smb_hostcheck.py
-on the host; this is the half only a guest can show -- the toy-os
+on the host; this is the half only a guest can show -- the SaunaOS
 transport (the kernel's TCP stack), the userfs bridge between the VFS
 and a process, smbfsd's supervisor and workers, and a share that comes
 back after a reboot.

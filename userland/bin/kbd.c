@@ -23,7 +23,7 @@
 // switching the console keyboard into a raw mode -- exclusive, and
 // console-only) and `evtest` (the input core's own events, read from a
 // device node -- non-exclusive, and sees everything). This is evtest's
-// shape: toy-os has no device nodes, so the log is a query rather than a
+// shape: SaunaOS has no device nodes, so the log is a query rather than a
 // file, but nothing here takes the keyboard away from anyone.
 //
 // **THREE WAYS TO QUIT, AND THAT IS DELIBERATE.** This is a tool for a

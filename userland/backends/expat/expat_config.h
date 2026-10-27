@@ -1,4 +1,4 @@
-// expat_config.h -- what expat's configure would have written for toy-os.
+// expat_config.h -- what expat's configure would have written for SaunaOS.
 // Expat itself is vendored at userland/ports/expat/ (tools/netsurf_vendor.py),
 // for libdom's XML binding under libsvgtiny.
 //

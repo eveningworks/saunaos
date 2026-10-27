@@ -1,6 +1,6 @@
 // Tests for the ATA driver's PIO fallback path.
 //
-// The PIO path is why this file exists. It is the driver toy-os falls
+// The PIO path is why this file exists. It is the driver SaunaOS falls
 // back to when Bus-Master DMA can't be brought up -- and DMA comes up on
 // every machine this OS actually boots, so until `ata nodma` existed
 // those ~100 lines never executed at all. Code that only ever runs in an

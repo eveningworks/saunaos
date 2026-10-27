@@ -1,7 +1,7 @@
-#ifndef DG_TOYOS_H
-#define DG_TOYOS_H
+#ifndef DG_SAUNAOS_H
+#define DG_SAUNAOS_H
 
-// The seam between toy-os's Doom app and doomgeneric's platform layer.
+// The seam between SaunaOS's Doom app and doomgeneric's platform layer.
 //
 // **WHY THIS HEADER EXISTS AT ALL: TWO `KEY_*` VOCABULARIES THAT CANNOT
 // SHARE A TRANSLATION UNIT.** `kernel/include/api/keyboard.h` and
@@ -12,9 +12,9 @@
 //
 // So the two live in separate files and meet here:
 //
-//     userland/gui/apps/doom.c   toy-os side: api/keyboard.h, uapp,
+//     userland/gui/apps/doom.c   SaunaOS side: api/keyboard.h, uapp,
 //                                 ugfx. NEVER includes doomkeys.h.
-//     userland/backends/doom/dg_toyos.c   doom side: doomkeys.h, doomgeneric.h.
+//     userland/backends/doom/dg_saunaos.c   doom side: doomkeys.h, doomgeneric.h.
 //                                 NEVER includes api/keyboard.h.
 //
 // This header includes NEITHER, so both can include it. Keys cross it
@@ -35,7 +35,7 @@
 
 // --- what the app gives the backend ----------------------------------
 
-// One key transition, as toy-os reported it. `down` is 1 for a press and
+// One key transition, as SaunaOS reported it. `down` is 1 for a press and
 // 0 for a release -- which is the whole reason this port was possible,
 // and why WIN_EV_KEY_UP had to exist first: DG_GetKey()'s signature
 // takes a `pressed` flag, so a press-only OS could not answer it.

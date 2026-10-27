@@ -10,7 +10,7 @@ LOOPBACK ONLY. The container's 445 is published on 127.0.0.1, never on
 the LAN -- QEMU's SLIRP connects from the host process, so the guest
 reaches it anyway.
 
-THE IMAGE IS BUILT ONCE (`toyos-samba:1`, from debian:12 plus apt's
+THE IMAGE IS BUILT ONCE (`saunaos-samba:1`, from debian:12 plus apt's
 samba), and that build is the one step that reaches the network:
 deb.debian.org through Docker. Every run after that is local.
 
@@ -32,7 +32,7 @@ import sys
 import tempfile
 import time
 
-IMAGE = "toyos-samba:1"
+IMAGE = "saunaos-samba:1"
 DOCKERFILE = """FROM debian:12
 RUN apt-get update && apt-get install -y --no-install-recommends samba \\
     && rm -rf /var/lib/apt/lists/*
@@ -162,7 +162,7 @@ class SambaServer:
                  signing="mandatory", port=None):
         self.min, self.max, self.signing = min_protocol, max_protocol, signing
         self.port = port or free_port()
-        self.name = f"toyos-samba-{os.getpid()}-{self.port}"
+        self.name = f"saunaos-samba-{os.getpid()}-{self.port}"
         self.dir = None
         self.files = {}
 
@@ -181,7 +181,7 @@ class SambaServer:
 
     def __enter__(self):
         ensure_image()
-        self.dir = tempfile.mkdtemp(prefix="toyos-samba-")
+        self.dir = tempfile.mkdtemp(prefix="saunaos-samba-")
         os.chmod(self.dir, 0o755)
         self.files = make_files(self.dir)
         conf = os.path.join(self.dir, "smb.conf")

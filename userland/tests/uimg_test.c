@@ -2,7 +2,7 @@
 //
 // WHAT THIS ADDS OVER tools/uimg_hostcheck.py, which checks the same .c
 // file against libjpeg over a couple of hundred images: NOTHING about
-// the algorithm, and everything about toy-os. The host harness compiles
+// the algorithm, and everything about SaunaOS. The host harness compiles
 // uimg_jpeg.c with the host gcc, the host malloc and the host's idea of
 // a `long`; this one runs it in ring 3, on this heap, in a real process
 // -- the same gap /tests/klineedit_test and /tests/ttf_test exist for.

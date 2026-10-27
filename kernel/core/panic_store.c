@@ -151,7 +151,7 @@ void panic_store_save(void) {
     uint64_t first;
     uint32_t len = klog_read(from, text, cap, &first);
     panic_record_seal((void *)(uintptr_t)PANIC_STORE_BASE, (uint32_t)PANIC_STORE_SIZE,
-                      len, clocksource_now_ns(), TOYOS_VERSION_FULL);
+                      len, clocksource_now_ns(), SAUNAOS_VERSION_FULL);
     g_recovered = 0; // this boot's own record is the NEXT boot's to report
 }
 

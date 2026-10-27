@@ -38,7 +38,7 @@
 #define KASAN_HEAP_UNUSED   0xFA  // heap space never handed out
 #define KASAN_GLOBAL_REDZONE 0xF9
 
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 void kasan_poison(const void *addr, size_t size, uint8_t kind);
 void kasan_unpoison(const void *addr, size_t size);
 // A free the allocator refused -- a double free, or a pointer it never

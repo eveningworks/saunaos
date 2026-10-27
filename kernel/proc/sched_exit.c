@@ -44,7 +44,7 @@
 // learn about it first.
 //
 // NOT SENT FOR A STOP OR A CONTINUE, deliberately. POSIX sends SIGCHLD
-// for those too (absent SA_NOCLDSTOP), and toy-os does not: a stop is
+// for those too (absent SA_NOCLDSTOP), and SaunaOS does not: a stop is
 // already reported to a waiter that asked, through SYS_WUNTRACED's
 // SIGNAL_STOP_BASE (abi/signal_abi.h), which is the only consumer there
 // is. Adding a second, asynchronous route to the same news would mean

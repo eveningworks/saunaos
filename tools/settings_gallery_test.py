@@ -78,7 +78,7 @@ import port_guard  # noqa: E402
 from harness import Results  # noqa: E402
 
 KEY = "system.cursor.theme"
-CONF = "/etc/toyos.conf"
+CONF = "/etc/saunaos.conf"
 WANT = {"Classic", "Classic bold", "Graphite", "Accent", "Amber", "Aurora"}
 CARD_RE = re.compile(r"settings: gallery \d+ " + re.escape(KEY) +
                      r" card (\d+) (-?\d+) (-?\d+) (\d+) (\d+) tile (\d) shown (.+)")

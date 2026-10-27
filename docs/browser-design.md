@@ -1,6 +1,6 @@
 # A web browser
 
-A staged plan for a Web Browser app: NetSurf's engine behind a toy-os
+A staged plan for a Web Browser app: NetSurf's engine behind a SaunaOS
 window. It answers "port or write our own, what does a port actually
 need from this system, and in what order is it worth building?"
 
@@ -19,11 +19,11 @@ stage markers on the headings are the authority.
 ## The finding that shapes the whole plan
 
 **A browser engine is the largest parser of hostile input this system
-will ever run, and the only engine that fits toy-os is GPL-2.0-only.**
+will ever run, and the only engine that fits SaunaOS is GPL-2.0-only.**
 Both facts point at the same boundary: the engine lives in ONE binary,
 never in a shared library.
 
-- **Licence.** toy-os is MIT. NetSurf's core is GPL-2.0 with no "or
+- **Licence.** SaunaOS is MIT. NetSurf's core is GPL-2.0 with no "or
   later"; its libraries (libcss, libdom, libhubbub, libparserutils,
   libwapcaplet, libnsgif, libnsbmp, libnsutils, libnspsl, libnslog)
   and Duktape are MIT. DOOM already settled how GPL code lives here:
@@ -53,14 +53,14 @@ also what every real embedded web view does (below), and it is stage
   `WebContent` process behind `WKWebView`, WebView2 running the Edge
   runtime out of process, and Android's WebView in a renderer process.
   An embeddable web view is a CLIENT of an engine process, not the
-  engine. toy-os copies that shape (stage 5), not the size.
+  engine. SaunaOS copies that shape (stage 5), not the size.
 - **Hobby and small systems**: Haiku ported WebKit (WebPositive), a
   multi-year effort; SerenityOS wrote its own engine, LibWeb, which
   became Ladybird. NetSurf's own tree carries front ends for RISC OS,
   GTK, Qt, Windows, AmigaOS, Atari, BeOS/Haiku, a bare framebuffer, and
   `monkey` -- a headless one driven by text commands that prints what
   it would draw, which is this plan's first test oracle.
-- **Why not the others.** Ladybird and litehtml are C++, and toy-os
+- **Why not the others.** Ladybird and litehtml are C++, and SaunaOS
   builds no C++ (no runtime, no unwinder); either would first need a
   C++ runtime port, a project of its own. Our own engine was weighed and
   set aside: parsing tag soup correctly (the HTML5 algorithm) and the
@@ -160,7 +160,7 @@ committed with the source, so the build runs no Perl and no generator.
 commits, builds upstream's headless `monkey` front end on the host, and
 copies exactly what that build compiled -- read off the compiler's
 dependency files -- into `userland/ports/`, with each port's
-`sources.mk` naming its translation units. The toy-os Makefile compiles
+`sources.mk` naming its translation units. The SaunaOS Makefile compiles
 those 588 units with `-nostdinc`, and `/tests/nsmonkey` links. **On a
 VM it starts, registers its tables, opens a window and begins a `file:`
 fetch, then shuts down cleanly** when its input ends; loading a page to
@@ -186,7 +186,7 @@ What it took, and where each piece lives:
   libnsutils' `pread()` wrapper that only the disk cache calls, and
   libdom's XML binding (expat). The host build HID the curl-header
   problem, because libcurl's headers are installed there -- which is
-  what `-nostdinc` on the toy-os side exists to catch.
+  what `-nostdinc` on the SaunaOS side exists to catch.
 
 ### Stage 1 -- a page laid out headlessly -- DONE 2026-10-12
 
@@ -252,7 +252,7 @@ builds the URL, so `--search-url` can point a test at a local server).
 A typed host is https, except a dotted quad, localhost or an explicit
 port other than 443 -- Chrome's exclusions from its upgrade -- and,
 unlike Chrome's, there is no fallback to http when https does not
-answer. The User-Agent is `Mozilla/5.0 (toy-os; x86_64) NetSurf/3.12`,
+answer. The User-Agent is `Mozilla/5.0 (SaunaOS; x86_64) NetSurf/3.12`,
 or the Linux form or a custom string (`browser.user_agent`, System
 Settings > Network > Web Browser, read at each navigation).
 
@@ -281,7 +281,7 @@ What it took beyond the plan:
 ### Stage 3 -- the Web Browser window -- BUILT 2026-10-12, its fonts 2026-10-13
 
 `/bin/wm/apps/browser` (Start -> Internet -> Web Browser) lays out and
-draws NetSurf's pages in a toy-os window: W1's toolbar row -- back,
+draws NetSurf's pages in a SaunaOS window: W1's toolbar row -- back,
 forward, reload/stop, home, the address field, Downloads and the menu
 (both greyed until stage 4) -- over the page, with tabs. Links, typed
 addresses and paths, history, the wheel and the keyboard scroll, forms
@@ -310,7 +310,7 @@ How it is put together, in `userland/browser/` beside the app:
 
 **THE TABS ARE THE TITLE BAR'S** (`uapp_set_tabs()`, the compositor's,
 as Files has them) rather than the mockup's separate strip -- Chrome's
-and Edge's arrangement, and one toy-os already draws.
+and Edge's arrangement, and one SaunaOS already draws.
 
 **PNG, JPEG and QOI** (`userland/backends/netsurf/image_uimg.c`, the
 same day) decode through `lib/uimg.h` rather than libpng and libjpeg,
@@ -718,7 +718,7 @@ ask, as images, pop-ups and autoplay would use them.
 memory with scripts off and on, on a corpus of real script-heavy pages
 (`nsmonkey`, the same pinned Duktape on both sides):
 
-| Page | Host build | toy-os, 2 GiB |
+| Page | Host build | SaunaOS, 2 GiB |
 |---|---|---|
 | Wikipedia's "Operating system" article; Hacker News | +0-1 MiB | +0 MiB |
 | jQuery 3.7.1 / moment with every locale / React 18 | +0-1 MiB | +0.2 / +0.7 / +0.3 MiB |
@@ -728,7 +728,7 @@ So the default On costs nothing against the tab budget. A HOSTILE page
 is another matter: a script keeping what it allocates reached 1.1 GiB in
 one tab within NetSurf's 10 s script timeout (its heap's ceiling, past
 which `sbrk` refuses), and on a 1 GiB machine took the last frame -- and
-toy-os kills whichever process faults next. So **a page's engine is held
+saunaos kills whichever process faults next. So **a page's engine is held
 to a data limit** (`RLIMIT_DATA`, the app's `--memory`: a quarter of the
 machine, at most 512 MiB), and **a page that runs out of it ends**:
 Duktape gets one garbage collection, and a second failure in a row exits
@@ -784,7 +784,7 @@ against the host build):
 ## Open questions
 
 - The memory budget: what a Wikipedia article costs in NetSurf's
-  caches, measured in stage 3, against the RAM toy-os is usually run
+  caches, measured in stage 3, against the RAM SaunaOS is usually run
   with. Stage 6's scripts were measured (above) and cost a few MiB.
 
 ## The case against

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""signames.c for the dash port, from TOY-OS's signal numbers.
+"""signames.c for the dash port, from SAUNAOS's signal numbers.
 
 WHY THIS EXISTS, AND IT IS NOT ONLY THE LICENCE
 -----------------------------------------------

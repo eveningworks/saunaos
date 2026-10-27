@@ -1,4 +1,4 @@
-// Web Browser -- web pages in a toy-os window (docs/browser-design.md,
+// Web Browser -- web pages in a SaunaOS window (docs/browser-design.md,
 // stages 3 to 5).
 //
 // W1 from the design canvas: tabs in the title bar (the compositor's,

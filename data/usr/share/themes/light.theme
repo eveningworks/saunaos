@@ -1,6 +1,6 @@
-# toy-os theme -- docs/theme-design.md
+# SaunaOS theme -- docs/theme-design.md
 Name=Light
-Description=Grey pages, a blue accent and blue title bars -- toy-os as it ships
+Description=Grey pages, a blue accent and blue title bars -- SaunaOS as it ships
 
 # Window frame
 titlebar=325AA0

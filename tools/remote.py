@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drive a toy-os machine over the network: run commands, move files.
+"""Drive a SaunaOS machine over the network: run commands, move files.
 
 WHY THIS EXISTS
 ---------------
@@ -445,7 +445,7 @@ def do_update(host, port, url, reboot, wait, timeout):
         s3 = Session(host, port, 15.0)
         banner = s3.run("echo up", 10.0)
         s3.close()
-        print("\n".join(ln for ln in banner if "toy-os" in ln))
+        print("\n".join(ln for ln in banner if "SaunaOS" in ln))
     except (OSError, TimeoutError, EOFError):
         pass
     return 0
@@ -846,7 +846,7 @@ def _remote_mismatches(sess, host, tftp_port, remote_dir, want, timeout,
     base = remote_dir.rstrip("/")
     lines = "".join(f"{crc} {size} {base}/{rel}\n"
                     for rel, (crc, size) in sorted(want.items()))
-    tmp = os.path.join(tempfile.gettempdir(), "toyos_sync.sums")
+    tmp = os.path.join(tempfile.gettempdir(), "saunaos_sync.sums")
     with open(tmp, "w") as f:
         f.write(lines)
     if do_put(host, tftp_port, tmp, SUMS_REMOTE, timeout, quiet=True):
@@ -1176,7 +1176,7 @@ def _verify_offline(host, tftp_port, local, want, timeout,
             print("remote: COULD NOT READ THE KERNEL BACK. Its state is "
                   f"unknown.\nremote: {BOOT_DIR}/kernel.old still holds the "
                   "kernel this machine\nremote: is running -- pick "
-                  "\"toy-os (previous kernel)\" in GRUB if it will not boot.",
+                  "\"SaunaOS (previous kernel)\" in GRUB if it will not boot.",
                   file=sys.stderr)
             return 1
         with open(tmp, "rb") as fh:
@@ -1190,7 +1190,7 @@ def _verify_offline(host, tftp_port, local, want, timeout,
     if got != want:
         print(f"remote: FLASH DID NOT VERIFY\nremote:   want {want}"
               f"\nremote:   got  {got}\nremote: DO NOT REBOOT -- pick "
-              "\"toy-os (previous kernel)\" in GRUB if you already have.",
+              "\"SaunaOS (previous kernel)\" in GRUB if you already have.",
               file=sys.stderr)
         return 1
 
@@ -1293,7 +1293,7 @@ def do_flash(host, telnet_port, tftp_port, local, timeout, reboot,
              prune=False):
     """Replace the kernel on the machine's own boot partition.
 
-    THE RESCUE ENTRY IS THE POINT. grub.cfg already offers "toy-os
+    THE RESCUE ENTRY IS THE POINT. grub.cfg already offers "SaunaOS
     (previous kernel)" reading /boot/kernel.old, so a kernel that will
     not boot is one menu pick away from one that will -- but only if
     GRUB draws a menu at all, and an installed machine has
@@ -1592,7 +1592,7 @@ def main():
     # only stderr -- which is how a hang's location went unrecorded.
     sys.stdout.reconfigure(line_buffering=True)
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
-    ap.add_argument("--host", required=True, help="the toy-os machine")
+    ap.add_argument("--host", required=True, help="the SaunaOS machine")
     ap.add_argument("--telnet-port", type=int, default=DEFAULT_TELNET_PORT)
     ap.add_argument("--tftp-port", type=int, default=DEFAULT_TFTP_PORT)
     ap.add_argument("--timeout", type=float, default=15.0)

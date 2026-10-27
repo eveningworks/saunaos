@@ -363,7 +363,7 @@ static void tell_live(int pid) {
     }
     crash_notice_action("This is a live session",
                         "Files and settings are lost when the computer is switched off.",
-                        "installer", "Install toy-os", open_installer);
+                        "installer", "Install SaunaOS", open_installer);
     // It stays until closed or used: it arrives at boot, before anybody
     // is looking, and a 12-second card would be gone unread. An installer
     // window, however it was opened, ends it -- the card would sit over

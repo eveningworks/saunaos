@@ -222,7 +222,7 @@ static int read_configuration(usb_dev_t slot, uint8_t index,
     //
     // WHERE WE DIFFER FROM LINUX, deliberately: Linux gates it behind a
     // per-device quirk table because 100 ms on every device on every
-    // boot is a real cost, and toy-os has no quirk table and does not
+    // boot is a real cost, and SaunaOS has no quirk table and does not
     // want one. Instead the pause is on the RETRY -- the first attempt
     // stays fast, and a device that has already failed once is asked
     // again slowly. That gets the quirk's benefit with none of its cost

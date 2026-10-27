@@ -21,10 +21,10 @@
 // **THE PROTOCOL NEVER TOUCHES A SOCKET.** It talks through `struct
 // usmb_io`, so the same file builds on the host and is tested there
 // against a real Samba (`tools/smb_hostcheck.py`). usmb_dial() is the
-// toy-os transport.
+// SaunaOS transport.
 //
 // Paths are relative to the share, with '/' separators: "" or "/" is
-// the share's root. NAMES ARE TOY-OS TEXT, which is Latin-1 -- except a
+// the share's root. NAMES ARE SAUNAOS TEXT, which is Latin-1 -- except a
 // name Latin-1 cannot spell, which comes back as UTF-8 so it can still
 // be opened (and a valid UTF-8 path with such a character is read as
 // UTF-8). User names and passwords are Latin-1, as the keyboard types.
@@ -135,7 +135,7 @@ int usmb_fs_size(struct usmb *s, uint64_t *total, uint64_t *avail);
 int usmb_parse_url(const char *url, char *server, size_t scap, uint16_t *port,
                    char *share, size_t shcap, char *path, size_t pcap);
 
-// THE TOY-OS TRANSPORT: resolve `server` (a dotted quad or a DNS name),
+// THE SAUNAOS TRANSPORT: resolve `server` (a dotted quad or a DNS name),
 // connect to `port` (0 = 445) and fill `io`. 0, or USMB_E_RESOLVE /
 // USMB_E_NET / USMB_E_TIMEOUT.
 int usmb_dial(const char *server, uint16_t port, unsigned timeout_ms, struct usmb_io *io);

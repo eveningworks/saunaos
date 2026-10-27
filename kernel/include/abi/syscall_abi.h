@@ -563,7 +563,7 @@ struct listdir_request {
                           // files against a cap of 256, which stopped
                           // the installer copying /boot. Paging is what
                           // Linux does through the directory stream's
-                          // own position; toy-os has no directory
+                          // own position; SaunaOS has no directory
                           // handle, so the position is an argument.
                           //
                           // THE ORDER MUST BE STABLE ACROSS CALLS, and
@@ -836,7 +836,7 @@ struct listdir_request {
 //
 // There is no inheritance HERE, deliberately. On Unix `execve()` is the
 // primitive and takes envp explicitly; `execv()` is the C LIBRARY
-// function that passes `environ` for you. toy-os copies that split:
+// function that passes `environ` for you. SaunaOS copies that split:
 // this is execve, and libsys's sys_spawn() is execv. A kernel that
 // inherited would have to store an environment per process, and the
 // one thing every caller then wants -- "like my parent's, but with one

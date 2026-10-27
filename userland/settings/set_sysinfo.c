@@ -74,14 +74,14 @@ static void live_rows(void) {
 void sysinfo_load(void) {
     char v[128], a[32], b[32];
     g_sw_n = g_hw_n = 0;
-    snprintf(g_title, sizeof g_title, "toy-os %s", TOYOS_VERSION);
+    snprintf(g_title, sizeof g_title, "SaunaOS %s", SAUNAOS_VERSION);
 
     struct query_version kv;
     if (sys_query_record(QUERY_VERSION, 0, &kv, sizeof kv) >= (int)sizeof kv) {
         snprintf(v, sizeof v, "%s (%s), built %s", kv.version, kv.build_id, kv.stamp);
         add(g_sw, &g_sw_n, "Kernel", v);
     }
-    snprintf(v, sizeof v, "%s, built %s", TOYOS_VERSION_FULL, TOYOS_BUILD_DATE);
+    snprintf(v, sizeof v, "%s, built %s", SAUNAOS_VERSION_FULL, SAUNAOS_BUILD_DATE);
     add(g_sw, &g_sw_n, "Userland", v);
     add(g_sw, &g_sw_n, "Boot", "GRUB, Multiboot2");
     struct query_fsinfo fs;
@@ -200,7 +200,7 @@ static void draw_head(struct ugfx_surface *s, const struct uui_custom *c) {
     int x = c->x, y = c->y + pad(), w = c->w;
     // The mark and the name, centred -- the one place in Settings that is
     // about the system rather than a setting of it.
-    const struct uimg *ic = icon_get("toyos", logo());
+    const struct uimg *ic = icon_get("saunaos", logo());
     if (ic) ugfx_blit_alpha(s, x + (w - ic->w) / 2, y, ic->w, ic->h, ic->px, ic->w);
     y += logo() + 4;
     const struct ugfx_font *was = ugfx_set_font(ugfx_font_session(UGFX_FONT_BOLD));

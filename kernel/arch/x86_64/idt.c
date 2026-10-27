@@ -25,7 +25,7 @@
 #include "crash_report.h" // crash_report_write() -- the ring-3 report
 #include "uaddr.h" // uaddr_is_stack_guard() -- naming a stack overflow as one
 #include "ksyms.h" // a panic names the function, not just an address
-#include "version.h" // TOYOS_VERSION_FULL -- a photographed panic identifies its build
+#include "version.h" // SAUNAOS_VERSION_FULL -- a photographed panic identifies its build
 #include "clocksource.h" // uptime, so a panic says WHEN
 #include "kdebug.h" // the kernel debugger takes #DB/#BP/NMI when armed
 
@@ -657,7 +657,7 @@ static void isr_dispatch_body(uint64_t *regs) {
 
         // Build and uptime, so a photograph identifies itself: matching a
         // panic against the wrong build is a whole wasted round trip.
-        vga_printf("%s  up %lus\n", TOYOS_VERSION_FULL,
+        vga_printf("%s  up %lus\n", SAUNAOS_VERSION_FULL,
                     (unsigned long)(clocksource_now_ns() / 1000000000ULL));
 
         klog_printf("%s%s\n", recoverable ? "RING-3 CRASH: " : "PANIC: ",

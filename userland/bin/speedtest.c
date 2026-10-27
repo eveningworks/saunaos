@@ -171,7 +171,7 @@ static double latency_ms(const struct server *s) {
         char req[384];
         snprintf(req, sizeof req,
                  "GET /speedtest/latency.txt?x=%u HTTP/1.1\r\nHost: %s\r\n"
-                 "User-Agent: toy-os speedtest\r\nConnection: keep-alive\r\n\r\n",
+                 "User-Agent: SaunaOS speedtest\r\nConnection: keep-alive\r\n\r\n",
                  (unsigned)sys_monotonic_ns(), s->host);
         unsigned long long t0 = sys_monotonic_ns();
         int closing = 0;
@@ -211,11 +211,11 @@ static void *download_thread(void *arg) {
         char req[768];
         if (st->path)
             snprintf(req, sizeof req, "GET %s HTTP/1.1\r\nHost: %s\r\n"
-                     "User-Agent: toy-os speedtest\r\nConnection: keep-alive\r\n\r\n",
+                     "User-Agent: SaunaOS speedtest\r\nConnection: keep-alive\r\n\r\n",
                      st->path, st->host);
         else
             snprintf(req, sizeof req, "GET /download?nocache=%u.%u&size=%u HTTP/1.1\r\n"
-                     "Host: %s\r\nUser-Agent: toy-os speedtest\r\nConnection: keep-alive\r\n\r\n",
+                     "Host: %s\r\nUser-Agent: SaunaOS speedtest\r\nConnection: keep-alive\r\n\r\n",
                      (unsigned)sys_monotonic_ns(), n++, DL_SIZE, st->host);
         int closing = 0;
         if (send_all(fd, req, strlen(req)) < 0) { st->failed = 1; break; }
@@ -243,7 +243,7 @@ static void *upload_thread(void *arg) {
         if (fd < 0 && (fd = dial(st->ip, st->port)) < 0) { st->failed = 1; break; }
         char req[512];
         snprintf(req, sizeof req, "POST /upload?nocache=%u.%u HTTP/1.1\r\nHost: %s\r\n"
-                 "User-Agent: toy-os speedtest\r\nContent-Type: application/octet-stream\r\n"
+                 "User-Agent: SaunaOS speedtest\r\nContent-Type: application/octet-stream\r\n"
                  "Content-Length: %u\r\nConnection: keep-alive\r\n\r\n",
                  (unsigned)sys_monotonic_ns(), n++, st->host, UL_SIZE);
         if (send_all(fd, req, strlen(req)) < 0) { st->failed = 1; break; }

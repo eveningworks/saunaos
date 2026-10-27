@@ -26,7 +26,7 @@
 #include "string.h"
 #include "mount.h"  // the mount-epoch test
 
-// Scratch, under /tmp -- deliberately NOT /etc/toyos.conf, which holds
+// Scratch, under /tmp -- deliberately NOT /etc/saunaos.conf, which holds
 // the live machine's real settings and which a test has no business
 // rewriting (tests run inside the booted kernel, see ktest.h).
 // Built from the configured directory rather than spelled out

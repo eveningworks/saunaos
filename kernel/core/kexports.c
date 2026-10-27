@@ -49,7 +49,7 @@ EXPORT_SYMBOL(__ubsan_handle_nonnull_arg);
 EXPORT_SYMBOL(__ubsan_handle_nonnull_return_v1);
 EXPORT_SYMBOL(__ubsan_handle_invalid_builtin);
 
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 // --- KASAN=1: an instrumented module calls these. Spelled out, one per
 // line, because tools/gen_modalias.py reads this file as TEXT.
 void __asan_load1_noabort(uintptr_t);

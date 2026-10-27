@@ -23,7 +23,7 @@
 #include "gfx.h"
 #include "string.h"
 
-#define DISPLAY_CONFIG_FILE "/etc/toyos.conf"
+#define DISPLAY_CONFIG_FILE "/etc/saunaos.conf"
 #define BRIGHTNESS_KEY "brightness"
 
 #define BRIGHTNESS_MIN     5

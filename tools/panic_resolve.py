@@ -235,7 +235,7 @@ def main():
         have = None
         vh = os.path.join(REPO, "kernel", "include", "api", "version.h")
         if os.path.exists(vh):
-            m = re.search(r'TOYOS_BUILD_ID\s+"([0-9a-f]+)', open(vh).read())
+            m = re.search(r'SAUNAOS_BUILD_ID\s+"([0-9a-f]+)', open(vh).read())
             if m:
                 have = m.group(1)
         if have and not have.startswith(want.group(1)) \

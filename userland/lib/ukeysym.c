@@ -39,7 +39,7 @@ static const struct { uint16_t sym; uint16_t key; } FN[] = {
     { 0xFFE5, INPUT_KEY_CAPSLOCK },
     { 0xFFE7, INPUT_KEY_LEFTMETA },  { 0xFFE8, INPUT_KEY_RIGHTMETA },
     { 0xFFE9, INPUT_KEY_LEFTALT },
-    // Right Alt is AltGr here, as on every layout toy-os ships with one;
+    // Right Alt is AltGr here, as on every layout SaunaOS ships with one;
     // ISO_Level3_Shift is what a viewer on such a layout sends for it.
     { 0xFFEA, INPUT_KEY_RIGHTALT },  { 0xFE03, INPUT_KEY_RIGHTALT },
     { 0xFFEB, INPUT_KEY_LEFTMETA },  { 0xFFEC, INPUT_KEY_RIGHTMETA },

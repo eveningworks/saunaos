@@ -33,8 +33,8 @@ cd "$(dirname "$0")/.."
 VER="$1"
 TAG="v$VER"
 OUT="${2:-build/release/$VER}"
-LIVE="toy-os-live.iso"
-USB="toyos-usb.img"
+LIVE="saunaos-live.iso"
+USB="saunaos-usb.img"
 
 die() { echo "release_assets: REFUSING -- $*" >&2; exit 1; }
 
@@ -48,7 +48,7 @@ HEAD=$(git rev-parse HEAD)
 REMOTE=$(git ls-remote origin "refs/tags/$TAG^{}" | cut -f1)
 [ -n "$REMOTE" ] || die "origin has no $TAG (git push origin $TAG)"
 [ "$REMOTE" = "$HEAD" ] || die "origin's $TAG is $REMOTE, not HEAD"
-BUILT=$(sed -n 's/^#define TOYOS_BUILD_ID "\(.*\)"$/\1/p' kernel/include/api/version.h)
+BUILT=$(sed -n 's/^#define SAUNAOS_BUILD_ID "\(.*\)"$/\1/p' kernel/include/api/version.h)
 [ "$BUILT" = "$(git rev-parse --short HEAD)" ] ||
     die "the build is of $BUILT, not of HEAD ($(git rev-parse --short HEAD)) -- rebuild"
 for f in "$LIVE" "$USB"; do
@@ -59,7 +59,7 @@ done
 
 mkdir -p "$OUT"
 rm -f "$OUT"/*
-git archive --format=tar --prefix="toy-os-$VER/" "$TAG" | gzip -9n > "$OUT/toy-os-$VER-source.tar.gz"
+git archive --format=tar --prefix="saunaos-$VER/" "$TAG" | gzip -9n > "$OUT/saunaos-$VER-source.tar.gz"
 cp "$LIVE" "$OUT/"
 gzip -9nc "$USB" > "$OUT/$USB.gz"
 cp tools/run_release.sh "$OUT/"

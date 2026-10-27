@@ -519,7 +519,7 @@ static void internal(struct w16 *w, const struct w16_msg *m) {
 }
 
 // A short sleep with the lock let go, the caller looking again after it:
-// toy-os's condition variable has no timed wait, and a tracking loop's
+// SaunaOS's condition variable has no timed wait, and a tracking loop's
 // repeat needs only a few milliseconds' accuracy.
 static void timed_wait(struct w16 *w) {
     pthread_mutex_unlock(&w->lock);
@@ -1172,7 +1172,7 @@ static int api_GetClassInfo(struct w16 *w, unsigned ordinal, struct w16_args *a)
 // w16: The same messages in the same order -- MFC programs depend on it. A top-level window is a
 // toywm window with Windows 3.1's frame drawn by w16 (or toywm's own frame, by the Window frame
 // setting); a child is drawn into it. A second top-level window is a toywm window of its own, framed
-// as its style says; one the size of the screen (640 x 480) covers the whole of toy-os's, at the
+// as its style says; one the size of the screen (640 x 480) covers the whole of SaunaOS's, at the
 // program's scale and centred on black, as Paintbrush's View Picture covered 3.1's.
 static int api_CreateWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
@@ -1267,7 +1267,7 @@ static int api_GetMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // TranslateMessage(lpMsg) -> BOOL
 // Windows: Turns a key press into WM_CHAR with the character it types, by the keyboard layout.
 // w16: Answers FALSE and does nothing: w16 posts WM_CHAR itself as each key arrives, with the
-// character toy-os's keyboard layout gave it.
+// character SaunaOS's keyboard layout gave it.
 static int api_TranslateMessage(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -1361,7 +1361,7 @@ int w16_cursor_shape(uint16_t h) {
 // LoadIcon(hInstance, lpIconName) -> HICON
 // Windows: A cursor or an icon, from the module's resources or -- with hInstance NULL -- one of
 // Windows' own (the arrow, the hourglass, IDI_APPLICATION...).
-// w16: Windows' own cursors are toy-os's pointer shapes standing for them (arrow, I-beam,
+// w16: Windows' own cursors are SaunaOS's pointer shapes standing for them (arrow, I-beam,
 // hourglass, cross, sizes); a program's own cursor resource is drawn as it is, its inverting
 // pixels inverting what is under them, at the program's scale -- and its handle is a global block
 // in 3.1's layout, whose bits a program may lock and rewrite. An icon from the program's

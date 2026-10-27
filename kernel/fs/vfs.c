@@ -160,6 +160,7 @@ static int writable(const struct resolved *r, const char *what, const char *path
 // ---- the API --------------------------------------------------------
 
 static void ensure_layout(void);
+static void rename_from_toy_os(void);
 
 void fs_init(void) {
     ata_init(); // the disk comes up once, here -- before any backend is probed
@@ -386,6 +387,27 @@ static void ensure_layout(void) {
     // whose /etc/config.d is missing would fail for a reason the user
     // could do nothing about.
     fs_mkdir("/etc/config.d");
+    rename_from_toy_os();
+}
+
+// THE FILES NAMED AFTER THE OS, from before it was SaunaOS (2026-10-27).
+// Moved here because the kernel reads /etc/saunaos.conf at INIT_CONFIG,
+// before any service could do it. Only where the new name is free: a
+// machine that has both keeps both, and nothing is lost. Remove once no
+// machine can still have the old names.
+static void rename_from_toy_os(void) {
+    static const char *const moves[][2] = {
+        { "/etc/toyos.conf",     "/etc/saunaos.conf" },
+        { "/var/log/toyos.log",   "/var/log/saunaos.log" },
+        { "/var/log/toyos.log.1", "/var/log/saunaos.log.1" },
+    };
+    for (unsigned i = 0; i < sizeof moves / sizeof moves[0]; i++) {
+        if (!fs_exists(moves[i][0]) || fs_exists(moves[i][1])) continue;
+        if (fs_rename(moves[i][0], moves[i][1]))
+            klog_printf("vfs: moved %s to %s\n", moves[i][0], moves[i][1]);
+        else
+            klog_printf(KLOG_WARN "vfs: could not move %s to %s\n", moves[i][0], moves[i][1]);
+    }
 }
 
 // Bumped by every mutation below, on SUCCESS only -- a refused write

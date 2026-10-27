@@ -1,7 +1,7 @@
 #ifndef KEYBOARD_CONFIG_H
 #define KEYBOARD_CONFIG_H
 
-// Keyboard layout configuration in /etc/toyos.conf, layered on top of
+// Keyboard layout configuration in /etc/saunaos.conf, layered on top of
 // keyboard_layout_load() (kernel/lib/keyboard_layout.c), which owns the
 // tables. Three registry settings, all in Input > Keyboard:
 //   system.keyboard.layouts   the list Super+Space cycles, "fi,us,de";

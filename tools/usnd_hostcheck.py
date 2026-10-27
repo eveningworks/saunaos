@@ -4,7 +4,7 @@
 WHY A HOST HARNESS EXISTS BESIDE THE GUEST TEST. The same split
 tools/uimg_hostcheck.py makes for JPEG, for the same reason:
 `/tests/usnd_test` runs the decoder where it actually lives and proves it
-works in toy-os, but a guest test can only carry the vectors somebody
+works in SaunaOS, but a guest test can only carry the vectors somebody
 committed -- and an MP3 decoder's bugs hide in the COMBINATIONS (this
 bitrate at that mode with those block types), which is a sweep, not three
 files. This compiles the SAME .c with the host gcc and runs it against as

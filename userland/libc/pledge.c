@@ -30,7 +30,7 @@ static long parse(const char *s) {
 }
 
 int pledge(const char *promises, const char *execpromises) {
-    // ONE SET: toy-os's survives exec as it is, so a separate set for
+    // ONE SET: SaunaOS's survives exec as it is, so a separate set for
     // after exec has nowhere to live. Refused rather than ignored.
     if (execpromises) { errno = EINVAL; return -1; }
     if (!promises) return 0;

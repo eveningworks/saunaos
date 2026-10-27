@@ -436,7 +436,7 @@ static void layout(struct sm_layout *L) {
     }
 
     // THE FOOTER MUST HOLD ITS BUTTONS and the version beside them.
-    int foot_need = ugfx_text_width("toy-os " TOYOS_VERSION) + 3 * ch;
+    int foot_need = ugfx_text_width("SaunaOS " SAUNAOS_VERSION) + 3 * ch;
     for (int i = 0; i < foot_count(); i++) foot_need += sm_action_w(i) + 4;
     if (L->side_w + 1 + L->pane_w < foot_need) L->pane_w = foot_need - L->side_w - 1;
 
@@ -1166,7 +1166,7 @@ void start_menu_draw(int mx, int my) {
         // The version, quiet, where Kickoff puts the user's name.
         int fy = L.main_y + L.main_h;
         ugfx_draw_string_clipped(s, L.x + ch, fy + (L.foot_h - ch) / 2, L.w / 3,
-                                 "toy-os " TOYOS_VERSION, dim, glass ? UGFX_TRANSPARENT : bg);
+                                 "SaunaOS " SAUNAOS_VERSION, dim, glass ? UGFX_TRANSPARENT : bg);
     }
 
     int apps = pane_visible(&L, 0);

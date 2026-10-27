@@ -59,7 +59,7 @@ def launch(ns1, ns2, tmp, tag):
         if os.path.exists(f):
             os.remove(f)
     cmd = (f"qemu-system-x86_64 {' '.join(guarded_boot_args(ns1))}"
-           f" -device nvme,id=nvm,serial=toyos-nvme-test"
+           f" -device nvme,id=nvm,serial=saunaos-nvme-test"
            f" -drive file={ns1},format=raw,if=none,id=ns1,discard=unmap"
            f" -device nvme-ns,drive=ns1,bus=nvm,nsid=1"
            f" -drive file={ns2},format=raw,if=none,id=ns2,discard=unmap"

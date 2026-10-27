@@ -1,6 +1,6 @@
 // httpd -- serve files from this machine's own filesystem over HTTP.
 //
-// The other half of the network: `wget` proved toy-os can reach out,
+// The other half of the network: `wget` proved SaunaOS can reach out,
 // this proves something can reach IN. A browser on the host sees the
 // OS's disk.
 //
@@ -62,7 +62,7 @@ static void write_all(int fd, const char *buf, int len) {
 static void say(int fd, const char *status, const char *type, long len) {
     char head[256];
     int n = snprintf(head, sizeof head,
-                     "HTTP/1.0 %s\r\nServer: toy-os/httpd\r\nContent-Type: %s\r\n"
+                     "HTTP/1.0 %s\r\nServer: SaunaOS/httpd\r\nContent-Type: %s\r\n"
                      "Content-Length: %ld\r\nConnection: close\r\n\r\n",
                      status, type, len);
     write_all(fd, head, n);

@@ -3,7 +3,7 @@
 
 // C's <setjmp.h>: save a return point, jump back to it later.
 //
-// NOTHING IN toy-os USES THIS. It is here because ported C code does --
+// NOTHING IN SaunaOS USES THIS. It is here because ported C code does --
 // it is how a parser unwinds out of a deep recursion and how a
 // decompressor reports a corrupt stream -- and because there is no way
 // to write it in C at all: it is eight registers and a stack pointer.

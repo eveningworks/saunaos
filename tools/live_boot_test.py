@@ -152,7 +152,7 @@ def parse_df(df):
 UNASKED_CFG = """insmod all_video
 set gfxpayload=auto
 set timeout=0
-menuentry "toy-os (unasked)" {
+menuentry "SaunaOS (unasked)" {
     multiboot2 /boot/kernel.bin
     module2 /boot/live.img live.img
     boot
@@ -180,7 +180,7 @@ def build_unasked_iso(tmp, kernel, image, cfg=None):
 
 
 def foreign_disk(tmp):
-    """A disk with a real GPT and nothing toy-os can claim.
+    """A disk with a real GPT and nothing SaunaOS can claim.
 
     Not a blank image: a kernel that ignored partition tables would treat
     a blank one as "no disk" and pass phase 2 for the wrong reason.
@@ -228,7 +228,7 @@ def run_policy_phase(res, tmp):
     disk = foreign_disk(tmp)
 
     # A disk is present and nobody asked for a live session: the image
-    # must be DECLINED. The disk holds no toy-os filesystem, so the
+    # must be DECLINED. The disk holds no SaunaOS filesystem, so the
     # honest outcome is ramfs -- and saying so is itself the evidence
     # that the disk was the thing consulted.
     lines = boot_and_read_fs_lines(iso, disk, tmp, "disk")
@@ -252,7 +252,7 @@ def main():
     # ordinary one carries no module, deliberately, because GRUB reads
     # the whole thing off the CD before the kernel starts and that cost
     # belongs to the image that needs it. See the Makefile.
-    ap.add_argument("--iso", default="toy-os-live.iso")
+    ap.add_argument("--iso", default="saunaos-live.iso")
     ap.add_argument("--tmp", default="/tmp")
     ap.add_argument("--phase", choices=("both", "nodisk", "policy"),
                     default="both", help="which phase to run")

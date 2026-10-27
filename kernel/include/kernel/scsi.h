@@ -4,7 +4,7 @@
 // SCSI command blocks and the answers to them, for the transports that
 // carry SCSI: USB bulk-only (usb_storage.c) and UAS. Every one of Linux,
 // Windows and macOS puts SCSI between a USB transport and the disk; this
-// is that layer at the size toy-os needs -- the CDBs a direct-access disk
+// is that layer at the size SaunaOS needs -- the CDBs a direct-access disk
 // takes, their replies parsed, and sense data decoded -- with no hosts,
 // targets or queues. A transport runs a CDB; this builds and reads it.
 //

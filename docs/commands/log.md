@@ -53,7 +53,7 @@
 
 ## Description
 
-`log` reads the persistent log that `logd` keeps in `/var/log/toyos.log` —
+`log` reads the persistent log that `logd` keeps in `/var/log/saunaos.log` —
 the kernel's own output, tagged `kernel`, plus whatever each service
 printed, tagged with the service's name.
 
@@ -68,7 +68,7 @@ machine you have already rebooted has only the file.
 `klog_write()` (see `dmesg`'s page for why it lives there). So the file
 is greppable without this program at all:
 
-    $ grep '<3>' /var/log/toyos.log
+    $ grep '<3>' /var/log/saunaos.log
     [kernel] [0.51] <3> ata: dma write failed after 3 attempts (lba 4096)
 
 which is the property this file is built around: if `log` is broken, the
@@ -132,10 +132,10 @@ a message that merely mentions netd.
 **Everything here is a convenience over `cat` and `grep`.** The file is
 plain text:
 
-    [kernel] [0.00] toy-os 0.3.0-dev built 2026-09-06 17:11:18
+    [kernel] [0.00] SaunaOS 0.3.0-dev built 2026-09-06 17:11:18
     [kernel] [0.90] usb: port 2: connected, low-speed, enabled
 
-so `grep usb /var/log/toyos.log` works, and if this program is ever broken
+so `grep usb /var/log/saunaos.log` works, and if this program is ever broken
 the log is still readable. That property is deliberate.
 
 **`-f` is a poll**, not a notification — there is no inotify here and the

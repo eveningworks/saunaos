@@ -5,7 +5,7 @@
 > the original pre-v0.1.0 scheme recorded in the git history.
 > They are not the milestones in today's roadmap.
 
-The build-up of real ring0/ring3 privilege separation in toy-os, told
+The build-up of real ring0/ring3 privilege separation in SaunaOS, told
 as it happened -- what got added, what broke, and how each bug was
 found and fixed. Moved out of README.md because this is a full implementation
 walkthrough, not a feature list entry. See `docs/decisions.md` for

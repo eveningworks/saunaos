@@ -30,7 +30,7 @@ enum {
     // glibc's: the FIRST BYTE of the string is the week's first day,
     // 1 = Sunday, 2 = Monday.
     _NL_TIME_FIRST_WEEKDAY,
-    // toy-os's own, because POSIX has no short forms: a time of day
+    // SaunaOS's own, because POSIX has no short forms: a time of day
     // without seconds (a list column, the taskbar's compact clock) and
     // the date written out ("Thursday 1 October 2026").
     _TOY_T_FMT_HM,

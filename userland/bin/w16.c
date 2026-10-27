@@ -901,7 +901,7 @@ static void mkdirs(const char *path) {
 
 // `--sounds`: a line per event drive C:'s WIN.INI lists, else Windows
 // 3.11's own seven -- its WIN.INI name, what 3.1 called it, the file
-// [sounds] names, the file that plays, found/missing/none, and toy-os's
+// [sounds] names, the file that plays, found/missing/none, and SaunaOS's
 // own sound for it. Resolved as `sounds=win311` whatever the setting
 // says, so the launcher's Options can show each choice before OK.
 static void sounds_list(void) {
@@ -912,7 +912,7 @@ static void sounds_list(void) {
     };
     static const char *const STATUS[] = { "found", "missing", "none", "off" };
     g_w16_prefs.sounds = W16_SOUNDS_WIN311;
-    static char names[4096], ini[160], host[600], toyos[600];   // one-shot: off the stack
+    static char names[4096], ini[160], host[600], saunaos[600];   // one-shot: off the stack
     size_t n = w16_ini_names("WIN.INI", "sounds", names, sizeof names);
     const char *list[64];
     int k = 0;
@@ -921,8 +921,8 @@ static void sounds_list(void) {
         for (unsigned i = 0; i < sizeof STD / sizeof STD[0]; i++) list[k++] = STD[i].alias;
     for (int i = 0; i < k; i++) {
         int st = w16_sound_resolve(list[i], ini, sizeof ini, host, sizeof host);
-        g_w16_prefs.sounds = W16_SOUNDS_TOYOS;
-        w16_sound_resolve(list[i], toyos, sizeof toyos, toyos, sizeof toyos);
+        g_w16_prefs.sounds = W16_SOUNDS_SAUNAOS;
+        w16_sound_resolve(list[i], saunaos, sizeof saunaos, saunaos, sizeof saunaos);
         g_w16_prefs.sounds = W16_SOUNDS_WIN311;
         const char *name = list[i], *comma = strchr(ini, ',');
         for (unsigned j = 0; j < sizeof STD / sizeof STD[0]; j++)
@@ -932,7 +932,7 @@ static void sounds_list(void) {
         char *d = desc;
         while (*d == ' ') d++;
         if (comma) *(char *)comma = 0;
-        printf("sound\t%s\t%s\t%s\t%s\t%s\t%s\n", list[i], d, ini, host, STATUS[st], toyos);
+        printf("sound\t%s\t%s\t%s\t%s\t%s\t%s\n", list[i], d, ini, host, STATUS[st], saunaos);
     }
 }
 
@@ -1119,7 +1119,7 @@ int main(int argc, char **argv) {
         char snd_ring[48];
         snprintf(snd_ring, sizeof snd_ring, "shm:" SND_CLIENT_PREFIX "%d", (int)getpid());
         // Drive Z: is the whole tree to read, and /home to write as well
-        // (file16.c) -- what a program can reach of toy-os's files, Wine's
+        // (file16.c) -- what a program can reach of SaunaOS's files, Wine's
         // shape with the system's own folders kept read-only.
         ok = unveil("/", "r") == 0 && unveil("/home", "rwc") == 0
              && unveil(g_w16_drive_c, "rwc") == 0 && unveil(W16_STATE_DIR, "rwc") == 0
@@ -1148,7 +1148,7 @@ int main(int argc, char **argv) {
         return 1;
     }
     // What follows the program is its command line -- a document to open,
-    // most often -- and a toy-os path in it becomes the DOS one the
+    // most often -- and a SaunaOS path in it becomes the DOS one the
     // program can open (Z:\tests\sample.txt).
     for (int i = 1; i < a.argc; i++) {
         char dos[W16_PATH_MAX * 2];

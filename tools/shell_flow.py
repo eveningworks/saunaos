@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """tools/shell_flow.py -- a named, composable QMP flow for the PHYSICAL
-(pre-"gui") toy-os shell, mirroring what gui_flow.py's GuiFlow already
+(pre-"gui") SaunaOS shell, mirroring what gui_flow.py's GuiFlow already
 does for the GUI: bake in a repeated manual dance once instead of
 re-deriving it every testing session.
 
@@ -62,8 +62,8 @@ from qmp_test import QMPSession  # noqa: E402
 # then be silently wrong for anyone who changes the setting.
 #
 # Characters send_text() can't handle directly (lowercase letters/digits
-# only) but that show up constantly in real toy-os shell commands --
-# `run <name>` arguments, paths (`cat /etc/toyos.conf`), flags. Extend
+# only) but that show up constantly in real SaunaOS shell commands --
+# `run <name>` arguments, paths (`cat /etc/saunaos.conf`), flags. Extend
 # this table (not a hardcoded per-call combo()/send_key() dance) if a
 # future command needs a character not covered here -- see
 # qmp_test.py's own module docstring for the full qcode-name gotcha

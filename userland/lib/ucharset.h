@@ -4,7 +4,7 @@
 #include <stddef.h>
 
 // Latin-1 (ISO 8859-1) and Windows-1252 to and from UTF-8, for a protocol
-// or format older than UTF-8 meeting toy-os's text: RFB's cut text, an
+// or format older than UTF-8 meeting SaunaOS's text: RFB's cut text, an
 // ID3v1 tag, a Windows program's ANSI text.
 //
 // Both write NOTHING past `cap` and always terminate (a `cap` of 0 writes

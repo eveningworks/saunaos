@@ -1026,8 +1026,8 @@ whenever a headline here tells you something you did not already know.
   honoured by accident**
 - **`fs_ops.init()` TAKES A DEVICE, and `blk_root()` is not it**
 - **FAT32 IS A GENERIC DRIVER AND KNOWS NOTHING ABOUT BOOTLOADERS**
-- **`/boot` IS READABLE FROM INSIDE toy-os NOW, AND IT IS THE ESP**
-- **TOY-OS BOOTS FROM ITS OWN DISK, AND `/boot` IS FAT32 BECAUSE GRUB
+- **`/boot` IS READABLE FROM INSIDE SaunaOS NOW, AND IT IS THE ESP**
+- **SAUNAOS BOOTS FROM ITS OWN DISK, AND `/boot` IS FAT32 BECAUSE GRUB
   CANNOT READ TFS3**
 - **NEVER LEAVE THE BOOT ORDER OUT OF A QEMU LINE, AND ASK
   `boot_medium()` WHICH ONE**

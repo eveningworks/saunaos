@@ -65,13 +65,13 @@ int main(void) {
     utest_check(getenv("") == 0, "and so does an empty name");
 
     // --- setenv -------------------------------------------------------
-    utest_check(setenv("TOYOS_A", "one", 1) == 0, "setenv adds");
-    utest_check(strcmp(getenv("TOYOS_A"), "one") == 0, "and the value reads back");
-    utest_check(setenv("TOYOS_A", "two", 0) == 0, "setenv with overwrite=0 succeeds");
-    utest_check(strcmp(getenv("TOYOS_A"), "one") == 0, "...and leaves the old value");
-    utest_check(setenv("TOYOS_A", "two", 1) == 0, "setenv with overwrite=1");
-    utest_check(strcmp(getenv("TOYOS_A"), "two") == 0, "...replaces it");
-    utest_check(setenv("TOYOS_EQ=BAD", "x", 1) == -1, "a name containing '=' is refused");
+    utest_check(setenv("SAUNAOS_A", "one", 1) == 0, "setenv adds");
+    utest_check(strcmp(getenv("SAUNAOS_A"), "one") == 0, "and the value reads back");
+    utest_check(setenv("SAUNAOS_A", "two", 0) == 0, "setenv with overwrite=0 succeeds");
+    utest_check(strcmp(getenv("SAUNAOS_A"), "one") == 0, "...and leaves the old value");
+    utest_check(setenv("SAUNAOS_A", "two", 1) == 0, "setenv with overwrite=1");
+    utest_check(strcmp(getenv("SAUNAOS_A"), "two") == 0, "...replaces it");
+    utest_check(setenv("SAUNAOS_EQ=BAD", "x", 1) == -1, "a name containing '=' is refused");
 
     // The FIRST setenv moved the whole environment off the initial
     // stack onto the heap, and the casualties of a wrong copy would be
@@ -85,12 +85,12 @@ int main(void) {
     // --- many entries, to force the array to grow ---------------------
     char name[32];
     for (int i = 0; i < 40; i++) {
-        snprintf(name, sizeof name, "TOYOS_N%d", i);
+        snprintf(name, sizeof name, "SAUNAOS_N%d", i);
         if (setenv(name, "v", 1) != 0) { utest_check(0, "setenv failed while growing"); break; }
     }
     int found = 1;
     for (int i = 0; i < 40; i++) {
-        snprintf(name, sizeof name, "TOYOS_N%d", i);
+        snprintf(name, sizeof name, "SAUNAOS_N%d", i);
         const char *v = getenv(name);
         if (!v || strcmp(v, "v") != 0) { found = 0; break; }
     }
@@ -100,12 +100,12 @@ int main(void) {
               "and PATH still does too");
 
     // --- unsetenv -----------------------------------------------------
-    utest_check(unsetenv("TOYOS_A") == 0, "unsetenv removes");
-    utest_check(getenv("TOYOS_A") == 0, "and it is gone");
+    utest_check(unsetenv("SAUNAOS_A") == 0, "unsetenv removes");
+    utest_check(getenv("SAUNAOS_A") == 0, "and it is gone");
     utest_check(unsetenv("NEVER_EXISTED") == 0, "removing something absent is not an error");
     // unsetenv moves the LAST entry into the gap, so the entry that was
     // last is the one that would vanish if that swap were wrong.
-    utest_check(getenv("TOYOS_N39") != 0, "the entry moved into the gap is still there");
+    utest_check(getenv("SAUNAOS_N39") != 0, "the entry moved into the gap is still there");
 
     // --- putenv -------------------------------------------------------
     utest_check(putenv(putenv_buf) == 0, "putenv accepts an entry");
@@ -113,13 +113,13 @@ int main(void) {
     utest_check(putenv((char *)"NO_EQUALS_SIGN") == -1, "and refuses one with no '='");
 
     // --- THE REAL CHECK: a child inherits -----------------------------
-    utest_check(setenv("TOYOS_SECRET", "passed-down", 1) == 0, "set a variable for the child");
+    utest_check(setenv("SAUNAOS_SECRET", "passed-down", 1) == 0, "set a variable for the child");
 
     int p[2];
     if (sys_pipe(p) != 0) {
         utest_check(0, "could not make a pipe");
     } else {
-        int pid = sys_spawn("/tests/env_child", "TOYOS_SECRET", p[1]);
+        int pid = sys_spawn("/tests/env_child", "SAUNAOS_SECRET", p[1]);
         utest_check(pid > 0, "spawned /tests/env_child");
         sys_close(p[1]);   // the parent's copy, so the child's is the last writer
 

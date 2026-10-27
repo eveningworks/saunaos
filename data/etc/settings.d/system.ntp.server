@@ -1,5 +1,5 @@
 Type=string
-File=/etc/toyos.conf
+File=/etc/saunaos.conf
 Label=Time server
 Category=Time & Locale
 Group=Network Time

@@ -82,7 +82,7 @@ plan.
 - **NOMMU Linux / BusyBox**: `vfork()` + re-exec of the shell binary
   with its state serialised; no COW at all.
 
-toy-os follows Linux's SHAPE for the mechanism (refcount, COW bit in
+SaunaOS follows Linux's SHAPE for the mechanism (refcount, COW bit in
 the PTE, break on write fault) and NT's stance on the primitive: spawn
 is the door programs use, fork is the compatibility door. It differs
 from Linux in three named places -- no reverse map (a shared frame is

@@ -135,7 +135,7 @@
 // design not taken here -- it would mean a kernel-owned executable page
 // mapped into every address space to serve a runtime that every program
 // in this tree already links (userland/rt/sigtramp.asm). What the vDSO
-// buys, and what toy-os gives up by choosing the other side: the kernel
+// buys, and what SaunaOS gives up by choosing the other side: the kernel
 // never has to trust a userland pointer for control flow. Mitigated
 // rather than ignored -- the restorer is range-checked like any other
 // user pointer, and a handler that returns to a bad one faults in ring 3
@@ -253,7 +253,7 @@ struct sigframe {
 // terminal -- but only when `TOSTOP` is set, which it is not by default
 // on Linux or anywhere else, so in practice a background job's output
 // interleaves with the shell's and everyone has learned to live with
-// it. toy-os has no TOSTOP and no reason to grow one, which would leave
+// it. SaunaOS has no TOSTOP and no reason to grow one, which would leave
 // a signal number with no sender. The read side is different and is why
 // SIGTTIN is here: two readers of one keyboard is not untidy output, it
 // is keystrokes going to the wrong process.
@@ -298,7 +298,7 @@ struct sigframe {
 // A process group is an int, and every process is in exactly one. A
 // child inherits its spawner's group unless SYS_SPAWN's `pgid` says
 // otherwise -- which is how a shell puts a whole pipeline in one group
-// with no race, and is where toy-os deliberately differs from POSIX (see
+// with no race, and is where SaunaOS deliberately differs from POSIX (see
 // SYS_SETPGID in syscall_abi.h).
 //
 // SYS_SETPGID and SYS_TCSETPGRP both read 0 as "the caller's own pid",

@@ -64,7 +64,7 @@ static void console_page(const char *const *lines, uint32_t count) {
 // rather than mixed into the main list. Both go through console_page()
 // (see its own comment) for pagination, same as before the split.
 static const char *const HELP_LINES[] = {
-    "toy-os shell -- available commands:\n",
+    "SaunaOS shell -- available commands:\n",
     "\n",
     "General:\n",
     "  help          - show this list ('help tests' for developer/\n",
@@ -78,7 +78,7 @@ static const char *const HELP_LINES[] = {
     "                  `run nx_test` do exactly the same thing.\n",
     "  run <app>     - launch an app by name (explicit form of the above)\n",
     "  path          - show the directories executables are searched in,\n",
-    "                  in order (set PATH in /etc/toyos.conf)\n",
+    "                  in order (set PATH in /etc/saunaos.conf)\n",
     "  gui           - graphics mode (Esc returns here)\n",
     "  history       - list past commands (arrows browse history)\n",
     "\n",
@@ -163,7 +163,7 @@ static const char *const HELP_LINES[] = {
 #define HELP_LINE_COUNT (sizeof(HELP_LINES) / sizeof(HELP_LINES[0]))
 
 static const char *const TEST_HELP_LINES[] = {
-    "toy-os shell -- developer/diagnostic test commands:\n",
+    "SaunaOS shell -- developer/diagnostic test commands:\n",
     "(these exercise specific kernel subsystems -- see README for what\n",
     "each one actually proves; most are meant to be read via their\n",
     "diagnostic output, not used for everyday work)\n",
@@ -943,7 +943,7 @@ static void print_fontsize_choices(void) {
 // what it snapped to rather than the number that was typed. Only
 // affects the framebuffer console; the legacy 80x25 text-mode fallback
 // has one fixed cell size and cannot resize. Persists to
-// /etc/toyos.conf (font_config.h) so it survives a reboot -- the same
+// /etc/saunaos.conf (font_config.h) so it survives a reboot -- the same
 // pattern as `timezone` and `keyboard`.
 void cmd_fontsize(const char *args) {
     if (!args || k_strlen(args) == 0) {

@@ -868,7 +868,7 @@ const struct block_device *mount_partition_device(int number) {
 //
 // The caller needs 0 and -1 apart, and they now mean two different
 // things to a user: 0 is "your partitions are empty, format one", -1
-// is "this drive has no table and toy-os will not mount it". Both end
+// is "this drive has no table and SaunaOS will not mount it". Both end
 // in ramfs; only one of them is somebody's mistake.
 //
 // Order is the table's own order, not "biggest" or "first bootable" --
@@ -1422,7 +1422,7 @@ static void probe_and_mount_root(void) {
     // No table at all: a blank drive, a whole-disk volume from before
     // this rule, or something foreign. Name the fix, because the
     // migration is destructive and nobody should have to guess it.
-    klog_write("fs: this disk has NO PARTITION TABLE -- toy-os mounts a root only from a\n");
+    klog_write("fs: this disk has NO PARTITION TABLE -- SaunaOS mounts a root only from a\n");
     klog_write("fs: partition. Nothing has been written to it. On the host: "
                "`make clean-disk && make iso`;\n");
     klog_write("fs: on the machine: `mkpart --gpt <sizes> confirm`, reboot, "

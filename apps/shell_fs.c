@@ -137,7 +137,7 @@ void cmd_write_or_append(const char *args, int append) {
     // Each command writes one LINE, terminated. Neither used to, which
     // made a multi-line file impossible to author from the shell at all
     // -- `write f a` then `append f b` produced "ab", so every
-    // line-based format this system has (/etc/toyos.conf, .desktop
+    // line-based format this system has (/etc/saunaos.conf, .desktop
     // entries) could be read by the shell and never written by it.
     //
     // Refuses rather than truncating when the line will not fit, the

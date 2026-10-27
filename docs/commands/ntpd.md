@@ -27,7 +27,7 @@ keeps syncing; that is the form init runs at boot.
 **It speaks SNTP (RFC 4330), not full NTP**, and the difference is real.
 Full NTP disciplines the clock's *rate* against several servers and
 never lets time run backwards. This asks one server and **steps**. The
-reason is that toy-os's clock has no rate knob to turn: `api/ktime.h`'s
+reason is that SaunaOS's clock has no rate knob to turn: `api/ktime.h`'s
 wall clock is an epoch plus a monotonic delta, and adding a
 tick-rate adjustment is a different kernel feature from the one that
 exists. chrony and `systemd-timesyncd` are the real-world comparison;
@@ -46,7 +46,7 @@ kernel owns the clock and exposes exactly one verb for it,
 
 ## What it reads
 
-Three settings, all in `system` (`/etc/toyos.conf`), all editable in
+Three settings, all in `system` (`/etc/saunaos.conf`), all editable in
 System Settings under **Time & Locale → Network Time** and with `config`:
 
 | Setting | Default | What it is |

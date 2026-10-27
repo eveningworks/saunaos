@@ -7,7 +7,7 @@
 ;      0.3 s;
 ;   2. MessageBeep(MB_ICONASTERISK) -- the Asterisk event: WIN.INI's
 ;      [sounds] SystemAsterisk on drive C: when it names a file there,
-;      else toy-os's chime;
+;      else SaunaOS's chime;
 ;   3. SOUND.DRV: two quarter notes of value 46 (A above middle C, 440 Hz)
 ;      at 120 a minute -- a second of square wave.
 ;

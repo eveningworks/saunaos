@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/gen_audio.py -- the WAV files that ship with toy-os.
+"""tools/gen_audio.py -- the WAV files that ship with SaunaOS.
 
 Written here rather than fetched, for the reason data/wallpapers and
 data/icons are generated: a build-time dependency on a host's media

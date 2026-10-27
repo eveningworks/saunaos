@@ -104,12 +104,12 @@ def main():
 
     # A third entry with words of its own, made by the CLI, so the list
     # has something to select and a word to show ticked.
-    dbg.send('sh bootcfg copy 0 "toy-os (debug)" +loglevel=7 --force')
+    dbg.send('sh bootcfg copy 0 "SaunaOS (debug)" +loglevel=7 --force')
     before = listing(dbg)
-    if not check("the fixture entry exists (bootcfg copy)", any(t == "toy-os (debug)" for t, _, _ in before),
+    if not check("the fixture entry exists (bootcfg copy)", any(t == "SaunaOS (debug)" for t, _, _ in before),
                  f"{before}"):
         return finish()
-    debug_idx = [t for t, _, _ in before].index("toy-os (debug)")
+    debug_idx = [t for t, _, _ in before].index("SaunaOS (debug)")
     known = [ln.split()[0] for ln in dbg.send("sh bootcfg known").splitlines()
              if ln.startswith("  ") and ln.split()]
 

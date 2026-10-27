@@ -11,7 +11,7 @@
 # A test that boots this build reads the tree for minutes, and a rebuild
 # under it surfaces as a stale-build 503 or a refused boot, reported as
 # a test failure. So make refuses while a test holds the lock -- unless
-# it is the holder's OWN make (TOYOS_TEST_LOCK_HELD, which the tool
+# it is the holder's OWN make (SAUNAOS_TEST_LOCK_HELD, which the tool
 # checks). Only the top-level make asks; `make -n` and `make help` never
 # do. `filter-out --%` keeps `--jobserver-auth`'s letters out of the
 # dry-run test (the Linux kernel's form).
@@ -219,7 +219,7 @@ APPS_CFLAGS = $(subst -Wframe-larger-than=1024,-Wframe-larger-than=2048,\
 
 LDFLAGS = -n -T linker.ld -nostdlib
 
-ASMFLAGS = -f elf64 $(if $(filter 1,$(KASAN)),-DTOYOS_KASAN)
+ASMFLAGS = -f elf64 $(if $(filter 1,$(KASAN)),-DSAUNAOS_KASAN)
 
 KERNEL = $(BUILD)/kernel.bin
 
@@ -245,7 +245,7 @@ $(KERNEL_MEDIA): $(KERNEL) $(BUILD)/.compress-flag
 	    cp $(KERNEL) $@ && \
 	    echo "  COMPRESS=0: kernel.media is the plain ELF, `stat -c%s $@` bytes"; \
 	fi
-ISO = toy-os.iso
+ISO = saunaos.iso
 
 # A separate, genuinely writable raw disk image for kernel/drivers/ata.c
 # + fs.c's persistent filesystem -- NOT part of the ISO above, which
@@ -259,7 +259,7 @@ ISO = toy-os.iso
 # real block allocator + indirect pointers, specifically to support
 # multi-gigabyte files (see kernel/fs/tfs.c's FS_DISK_TOTAL_BYTES,
 # which MUST match this). `truncate` makes a sparse file -- the actual
-# bytes on YOUR disk only grow as toy-os actually writes into the
+# bytes on YOUR disk only grow as SaunaOS actually writes into the
 # image, not upfront, so creating this doesn't eat 9GiB of real space
 # by itself (most filesystems support sparse files; if yours doesn't,
 # this will actually allocate the full 9GiB up front).
@@ -628,13 +628,13 @@ $(MODULE_ALIAS): $(MODULE_KOS) kernel/core/kexports.c tools/gen_modalias.py
 	python3 tools/gen_modalias.py --exports kernel/core/kexports.c --out $@ $(MODULE_KOS)
 
 help:
-	@echo "toy-os -- available targets:"
+	@echo "SaunaOS -- available targets:"
 	@echo "  all            Build kernel.bin and the userland test ELFs (default)"
-	@echo "  iso            Build toy-os.iso, a bootable GRUB ISO (implies all)"
-	@echo "  run            Boot toy-os in QEMU with an SDL window (the DISK, once"
+	@echo "  iso            Build saunaos.iso, a bootable GRUB ISO (implies all)"
+	@echo "  run            Boot SaunaOS in QEMU with an SDL window (the DISK, once"
 	@echo "                 it carries GRUB; BOOT=cd for the ISO -- implies iso)"
-	@echo "  usb-image      Build toyos-usb.img -- compact, self-booting, for dd to a USB stick"
-	@echo "  live-iso       Build toy-os-live.iso -- carries a filesystem image, boots with NO disk"
+	@echo "  usb-image      Build saunaos-usb.img -- compact, self-booting, for dd to a USB stick"
+	@echo "  live-iso       Build saunaos-live.iso -- carries a filesystem image, boots with NO disk"
 	@echo "  NOGPL=1        On any of them: leave out every program built from GPL-only code"
 	@echo "                 (today DOOM) -- docs/building.md, \"A build with no GPL code\""
 	@echo ""
@@ -694,12 +694,12 @@ help:
 	@echo "   make run KVM=1 VIRTIO=1   ...or any mix; a per-class value such as"
 	@echo "                             VGA=std overrides what VIRTIO=1 chose"
 	@echo ""
-	@echo "  debug          Boot toy-os frozen (QEMU's -s -S) for real GDB"
+	@echo "  debug          Boot SaunaOS frozen (QEMU's -s -S) for real GDB"
 	@echo "                 debugging -- attach with: gdb build/kernel.bin -ex"
 	@echo "                 'target remote localhost:1234', then continue"
 	@echo "  test           Run the in-kernel test suite (ktest) and exit non-zero on failure"
 	@echo "  verify         Full pre-delivery check: clean build + iso + boot test + ktest"
-	@echo "  clean          Remove build outputs (build/, ELFs, the ISOs and toyos-usb.img) -- leaves disk.img alone"
+	@echo "  clean          Remove build outputs (build/, ELFs, the ISOs and saunaos-usb.img) -- leaves disk.img alone"
 	@echo "  clean-disk     Wipe disk.img -- the filesystem AND the bootloader on it;"
 	@echo "                 the next make iso rebuilds both. Use with care"
 	@echo "  version        Regenerate kernel/include/api/version.h (runs automatically as part of all/iso)"
@@ -748,7 +748,7 @@ $(BUILD)/kernel/core/kversion.o: FORCE
 # means addr2line, gdb and panic_resolve.py all still resolve.
 #
 # COMPRESS=0 ships the live filesystem image uncompressed, roughly
-# doubling toy-os-live.iso (59 MB -> 122 MB, measured). Worth having
+# doubling saunaos-live.iso (59 MB -> 122 MB, measured). Worth having
 # because GRUB is what decompresses it -- so a boot loader that does not,
 # or a hand-assembled image, needs the plain one.
 STRIP    ?= 1
@@ -785,7 +785,7 @@ $(BUILD)/.compress-flag: FORCE
 # fix. userland/dynlib/ cannot be listed: its `:=` expands the flags at
 # parse time, before there is a $<.
 UBSAN ?=
-UBSAN_CFLAGS = -fsanitize=undefined -fno-sanitize=alignment -DTOYOS_UBSAN=1
+UBSAN_CFLAGS = -fsanitize=undefined -fno-sanitize=alignment -DSAUNAOS_UBSAN=1
 UBSAN_EXCLUDE = kernel/lib/ubsan.c kernel/lib/ubsan_report.c userland/libc/ubsan_emit.c \
                 kernel/arch/x86_64/reloc.c kernel/debug/% \
                 userland/rt/% userland/ldso/% \
@@ -809,14 +809,14 @@ UBSAN_FOR = $(if $(filter 1,$(UBSAN)),$(if $(filter $(UBSAN_EXCLUDE),$<),,$(UBSA
 # KASAN_EXCLUDE: the runtime and the shadow's page tables; the heap and
 # the frame allocator, which write their own metadata inside poisoned
 # memory; the relocation walk, which runs before the shadow is mapped;
-# and the kdebug stub. Excluded files still see -DTOYOS_KASAN, which is
+# and the kdebug stub. Excluded files still see -DSAUNAOS_KASAN, which is
 # what switches the heap's redzones and quarantine on.
 KASAN ?=
 KASAN_SHADOW_OFFSET = 0xFFFFC00000000000
 KASAN_CFLAGS = -fsanitize=kernel-address -fasan-shadow-offset=$(KASAN_SHADOW_OFFSET) \
                --param asan-instrumentation-with-call-threshold=0 \
                --param asan-stack=1 --param asan-globals=1 -Wframe-larger-than=2048
-KASAN_DEFS = -DTOYOS_KASAN=1 -DKASAN_SHADOW_OFFSET_CFG=$(KASAN_SHADOW_OFFSET)ULL
+KASAN_DEFS = -DSAUNAOS_KASAN=1 -DKASAN_SHADOW_OFFSET_CFG=$(KASAN_SHADOW_OFFSET)ULL
 KASAN_EXCLUDE = kernel/lib/kasan.c kernel/mm/kasan_shadow.c kernel/lib/heap_core.c \
                 kernel/mm/pmm.c kernel/arch/x86_64/reloc.c kernel/debug/%
 KASAN_FOR = $(if $(filter 1,$(KASAN)),$(KASAN_DEFS) $(if $(filter $(KASAN_EXCLUDE),$<),,$(KASAN_CFLAGS)))
@@ -917,7 +917,7 @@ LIBUAPP      = $(BUILD)/userland/libuapp.a
 # The split is by AUDIENCE, the same call userland/include/ made for the
 # headers: a /bin program links the C library and nothing else, while a
 # GUI app links the C library plus Toykit. One archive would have made
-# the libc's audience "toy-os apps" rather than "any C program", which
+# the libc's audience "SaunaOS apps" rather than "any C program", which
 # is the opposite of what docs/libc-design.md is aiming at -- and it is
 # cheap to separate now and awkward once every program depends on the
 # merged shape.
@@ -1160,7 +1160,7 @@ NS_LIB_CFLAGS_libdom = -Iuserland/ports/expat/lib
 # NetSurf's core: upstream's include roots and the defines its Makefiles
 # pass for this configuration (tools/netsurf_vendor.py's NETSURF_FLAGS),
 # and OUR platform switches in place of its utils/config.h.
-NS_CORE_CFLAGS = -include userland/backends/netsurf/toyos_config.h \
+NS_CORE_CFLAGS = -include userland/backends/netsurf/saunaos_config.h \
                  -Iuserland/ports/netsurf -Iuserland/ports/netsurf/include \
                  -Iuserland/ports/netsurf/content/handlers \
                  -Iuserland/ports/netsurf/frontends \
@@ -1321,7 +1321,7 @@ $(BUILD)/userland/dash/gen/%.o: $(DASH_GEN)/%.c $(DASH_GEN)/.stamp $(BUILD)/.san
 	$(CC) $(DASH_CFLAGS) $< -o $@
 
 # The four host generators. Built for the BUILD machine with the host's
-# own headers -- they run here, not on toy-os.
+# own headers -- they run here, not on SaunaOS.
 $(DASH_HOST)/%: $(DASH_SRC)/%.c
 	@mkdir -p $(dir $@)
 	$(HOSTCC) -O1 -w -I$(DASH_SRC) -I$(DASH_GEN) -o $@ $<
@@ -1333,7 +1333,7 @@ $(DASH_HOST)/%: $(DASH_SRC)/%.c
 #
 # **signames.c IS OURS, NOT dash's.** Upstream's mksignames.c is GPL-2
 # from bash and reads the HOST's signal set -- so it would put Linux's
-# signals in a toy-os binary, and pull the GPL into it. See
+# signals in a SaunaOS binary, and pull the GPL into it. See
 # tools/gen_signames.py.
 # **THE GENERATORS ARE PREREQUISITES, NOT A NESTED $(MAKE).** The first
 # version built them with `$(MAKE) -s ...` inside this recipe, which
@@ -1673,10 +1673,10 @@ $(BUILD)/lib/libhash.so: $(BUILD)/userland/dynlib/uhash.o $(BUILD)/userland-pic/
 #       so without one -nostdinc fails inside GCC's own header.
 #
 #   -Uunix -U__unix -U__unix__ -U__linux__ -U__gnu_linux__
-#       GCC predefines all of these for every toy-os compile, because
+#       GCC predefines all of these for every SaunaOS compile, because
 #       the host triple is Linux. mbedTLS reads them (library/common.h)
 #       and concludes it may include <unistd.h> and <sys/time.h> for
-#       getpid()-based fork protection. toy-os has no fork, so the
+#       getpid()-based fork protection. SaunaOS has no fork, so the
 #       block is meaningless as well as unbuildable.
 #
 # Warnings off for the vendored tree and the frame warning KEPT, the
@@ -1686,7 +1686,7 @@ GCC_FREESTANDING_INC := $(shell gcc -print-file-name=include)
 MBEDTLS_CFLAGS = $(subst -Wextra,,$(subst -Wall,-w,$(LIBC_PIC_CFLAGS))) \
                  -nostdinc -isystem $(GCC_FREESTANDING_INC) \
                  -Uunix -U__unix -U__unix__ -U__linux__ -U__gnu_linux__ \
-                 -DMBEDTLS_CONFIG_FILE='"toyos_mbedtls_config.h"' \
+                 -DMBEDTLS_CONFIG_FILE='"saunaos_mbedtls_config.h"' \
                  -Iuserland/backends/mbedtls \
                  -Iuserland/ports/mbedtls/include \
                  -Iuserland/ports/mbedtls/library
@@ -1713,7 +1713,7 @@ $(BUILD)/userland-pic/backends/mbedtls/%.o: userland/backends/mbedtls/%.c $(BUIL
 	$(CC) $(subst -Wframe-larger-than=2048,-Wframe-larger-than=2048,$(LIBC_PIC_CFLAGS)) \
 	      -nostdinc -isystem $(GCC_FREESTANDING_INC) \
 	      -Uunix -U__unix -U__unix__ -U__linux__ -U__gnu_linux__ \
-	      -DMBEDTLS_CONFIG_FILE='"toyos_mbedtls_config.h"' \
+	      -DMBEDTLS_CONFIG_FILE='"saunaos_mbedtls_config.h"' \
 	      -Iuserland/backends/mbedtls -Iuserland/ports/mbedtls/include \
 	      -Iuserland/ports/mbedtls/library $< -o $@
 
@@ -1748,7 +1748,7 @@ $(LIBHTTP_SO): $(BUILD)/userland/dynlib/uhttp.o $(BUILD)/userland/dynlib/uhttp_d
 # libsmb.so -- the SMB2/3 client (<usmb.h>), for /bin/smb and
 # /bin/smbfsd. In userland/dynlib/ for libhttp's reason: its crypto
 # (<ucrypto.h>) is in libssl.so, and libuapp must not depend on mbedTLS.
-# usmb_dial.c is the toy-os transport; the protocol files also build on
+# usmb_dial.c is the SaunaOS transport; the protocol files also build on
 # the host (tools/smb_hostcheck.py).
 LIBSMB_OBJS = $(BUILD)/userland/dynlib/usmb.o $(BUILD)/userland/dynlib/usmb_auth.o \
               $(BUILD)/userland/dynlib/usmb_dial.o
@@ -1993,7 +1993,7 @@ $(DISK_IMG):
 EXTRAS ?=
 LICENSE ?=
 seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) $(LIBC_SO) $(LIBUAPP_SO) $(MODULE_KOS) $(MODULE_ALIAS) $(BUILD)/conf.mk $(KERNEL_MEDIA)
-	$(if $(EXTRAS),TOYOS_LICENSE=$(LICENSE) python3 tools/fetch_extras.py,@true)
+	$(if $(EXTRAS),SAUNAOS_LICENSE=$(LICENSE) python3 tools/fetch_extras.py,@true)
 	# WHILE THIS EXISTS seed/sync IS HALF WRITTEN, and update_server.py's
 	# /dev channel refuses rather than serve it. A failed seed leaves it
 	# behind on purpose: that tree is half written too.
@@ -2047,13 +2047,13 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# way, repeating a line, produces content whose movement is
 	# pixel-identical. See docs/filesystem-layout.md.
 	# /install -- THE FOUR FILES `install` NEEDS TO MAKE A DISK BOOT,
-	# carried by every toy-os filesystem rather than read out of /boot.
+	# carried by every SaunaOS filesystem rather than read out of /boot.
 	#
 	# A LIVE BOOT HAS NO /boot AT ALL: GRUB loads the kernel and a
 	# filesystem image into RAM and nothing drives the medium after
 	# that (there is no USB mass-storage driver here), so /boot is an
 	# empty mount point. Installing from live media is how a real
-	# machine gets toy-os, so the payload travels in the ROOT -- which
+	# machine gets SaunaOS, so the payload travels in the ROOT -- which
 	# also means /bin/install reads one path on every medium instead of
 	# one path per boot kind, the shape that rots.
 	#
@@ -2364,12 +2364,12 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	# THE NOTICES TRAVEL WITH THE BINARIES: MIT's "all copies", BSD's
 	# "documentation and/or other materials provided with the
 	# distribution", Apache's copy of the licence, the GPL's copy with the
-	# program. toy-os's own LICENSE (which carries the notices of code
+	# program. SaunaOS's own LICENSE (which carries the notices of code
 	# adapted into it, such as ure(4)'s), then each vendored port's licence
 	# file as <port>.txt -- every port, by the same file names
 	# tools/check_licenses.py requires one of, so a new port needs no
 	# line here. NOGPL=1 leaves out a GPL-only port's, as it does the port.
-	cp LICENSE $(SEED_DIR)/sync/usr/share/licenses/toy-os.txt
+	cp LICENSE $(SEED_DIR)/sync/usr/share/licenses/saunaos.txt
 	$(foreach p,$(filter-out $(if $(NOGPL),$(GPL_ONLY_PORTS)),$(PORTS)),\
 	    cp $(firstword $(wildcard $(addprefix userland/ports/$(p)/,LICENSE LICENSE.txt LICENSE.md COPYING COPYING.txt))) \
 	       $(SEED_DIR)/sync/usr/share/licenses/$(p).txt;)
@@ -2386,7 +2386,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 	fi
 	# DEBUG INFO STAYS IN build/, for gdb and panic_resolve.py; the staged
 	# copies lose it (STRIP=0 keeps it), which was 131 of 186 MiB of the
-	# tree. Nothing on toy-os reads DWARF; .symtab, which crash reports
+	# tree. Nothing on SaunaOS reads DWARF; .symtab, which crash reports
 	# name functions from, is kept. tools/strip_staged.py says what is.
 	$(if $(filter 0,$(STRIP)),@echo "  STRIP=0: staged programs keep their debug info",python3 tools/strip_staged.py $(SEED_DIR)/sync)
 	python3 tools/seed_disk.py $(DISK_IMG) $(SEED_DIR) --fbs-done
@@ -2421,7 +2421,7 @@ seed: $(DISK_IMG) $(USERLAND_ELVES) $(KERNEL) $(LDSO) $(DYNLIBS) $(SND_PLUGINS) 
 # 12s timeout and turned the build red. Measured, not guessed.
 #
 # So the live image ships the way a distribution ships one: as its own
-# image you build when you want it (`make live-iso` -> toy-os-live.iso),
+# image you build when you want it (`make live-iso` -> saunaos-live.iso),
 # leaving the ordinary ISO exactly as fast as it was. The two differ
 # only in the module and the menu.
 #
@@ -2513,7 +2513,7 @@ iso: version $(KERNEL) $(USERLAND_ELVES) seed $(BUILD)/conf.mk $(KERNEL_MEDIA)
 # The live ISO: same kernel, plus the filesystem image as a module and a
 # menu that can force it. Built into its own staging tree so it cannot
 # leave a stale module behind in the ordinary one.
-LIVE_ISO = toy-os-live.iso
+LIVE_ISO = saunaos-live.iso
 
 # A COMPACT, SELF-BOOTING IMAGE, for writing to a USB stick.
 #
@@ -2529,7 +2529,7 @@ LIVE_ISO = toy-os-live.iso
 # boot enabled. That is not a limitation of the stick; it is the same
 # one every `make run BOOT=disk` has, which is also why this path is the
 # most exercised one in the repo.
-USB_IMG  = toyos-usb.img
+USB_IMG  = saunaos-usb.img
 USB_SIZE = 512M
 
 usb-image: version $(KERNEL) $(USERLAND_ELVES) seed $(BUILD)/conf.mk $(KERNEL_MEDIA)
@@ -2652,7 +2652,7 @@ COMMA := ,
 MEM ?= 2048
 
 # FREE PAGE REPORTING, on by default: the guest hands memory it has
-# freed back to the host, so the VM costs what toy-os is using rather
+# freed back to the host, so the VM costs what SaunaOS is using rather
 # than the most it ever touched (kernel/include/kernel/page_report.h).
 # Real hardware has no such device and loses nothing.
 BALLOON ?= 1
@@ -2746,7 +2746,7 @@ QEMU_DISK_AHCI   = -device ich9-ahci,id=ahci \
 # DISK=nvme is an NVMe SSD -- kernel/drivers/nvme.c -- with the image as
 # namespace 1, which SeaBIOS boots like any disk.
 QEMU_DISK_NVME   = -drive file=$(DISK_IMG),format=raw,if=none,id=nvm0,discard=unmap \
-                   -device nvme,serial=toyos-nvme0,drive=nvm0
+                   -device nvme,serial=saunaos-nvme0,drive=nvm0
 # LIVE attaches NO -drive at all, and that is the whole point of it
 # rather than an optimisation: pointing the live ISO at disk.img would
 # let the ordinary disk path run and prove nothing about the live one.
@@ -2994,7 +2994,7 @@ run: $(RUN_PREREQ)
 # -s: shorthand for -gdb tcp::1234 -- QEMU's own built-in GDB remote
 #   stub, exposed on the standard GDB-over-QEMU port. Emulates the CPU
 #   directly, so it can already do real breakpoints/single-stepping/
-#   register+memory inspection on toy-os with ZERO kernel-side GDB
+#   register+memory inspection on SaunaOS with ZERO kernel-side GDB
 #   protocol code -- in QEMU only; `make run KDEBUG=1` is the kernel's
 #   own stub, the one bare metal has. -g in CFLAGS/USERLAND_CFLAGS above is what makes this
 #   actually useful (DWARF symbols -- function names/source lines, not

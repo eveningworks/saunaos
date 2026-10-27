@@ -301,7 +301,7 @@ def run(dbg, qmp, tmp, res):
     # ID3 name it; a player showing file names would say "first-boot".
     now = [l for l in logs if "player: now " in l]
     res.check("...and its title and artist come from the Vorbis comments",
-              any("player: now First Boot (excerpt) / toy-os" in l for l in now), f"{now[-2:]}")
+              any("player: now First Boot (excerpt) / SaunaOS" in l for l in now), f"{now[-2:]}")
     nx, ny, nw, nh = lay.screen_rect("transport.next")
     dbg.click(nx + nw // 2, ny + nh // 2)
     dbg.settle()
@@ -320,7 +320,7 @@ def run(dbg, qmp, tmp, res):
               f"log lines: {opened[-3:]}")
     now = [l for l in logs[mark:] if "player: now " in l]
     res.check("...its title and artist from the ID3 tag",
-              any("player: now First Boot / toy-os" in l for l in now), f"{now[-2:]}")
+              any("player: now First Boot / SaunaOS" in l for l in now), f"{now[-2:]}")
 
     # --- 6. repeat decides what Next does at the end --------------------
     #

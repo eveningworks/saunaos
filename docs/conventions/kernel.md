@@ -364,7 +364,7 @@ this the obvious way), not from how much history it accumulated.
   shows it ready, something has regressed to a poll loop.
 - **INIT STARTS AND SUPERVISES THE DESKTOP, and the desktop is a
   SERVICE.** `/bin/init` reads `system.default_target` -- `text` or
-  `graphical`, persisted in `/etc/toyos.conf` -- and starts every
+  `graphical`, persisted in `/etc/saunaos.conf` -- and starts every
   descriptor in `/etc/services.d` whose `Target=` matches.
   **`data/etc/services.d/README.md` is the format and the full
   behaviour** (`Restart=`, the doubling backoff and crash-loop give-up,
@@ -1585,7 +1585,7 @@ things:
   ZERO-LENGTH PACKET after it**, or the device waits for the rest of a
   frame it already has. FreeBSD spells this `force_short_xfer`; here it
   is a second, zero-length TRB.
-- **THE REFERENCE IS BSD, NOT LINUX.** toy-os is MIT, `r8152.c` is
+- **THE REFERENCE IS BSD, NOT LINUX.** SaunaOS is MIT, `r8152.c` is
   GPL-2.0, and `ure(4)` is BSD-2-clause. Register addresses and
   descriptor layouts are facts about the device; an init SEQUENCE
   adapted from someone's driver carries their notice, which is in
@@ -2159,7 +2159,7 @@ connection's retransmission timers are left to the idle loop.
 description with `applog_fd_ops`: everything it writes to fd 1 becomes
 one record in the APPLICATION ring (`api/applog.h`), tagged with the
 child's own name. `logd` drains that ring alongside the kernel's and
-writes both to `/var/log/toyos.log`, so `log -u netd` is everything
+writes both to `/var/log/saunaos.log`, so `log -u netd` is everything
 `/bin/netd` printed.
 
 **IT IS A SENTINEL, NOT AN fd.** It is not looked up, holds no resource,
@@ -2541,7 +2541,7 @@ definition of "this is a thread" -- Linux's, where `clone(CLONE_VM |
 CLONE_FILES | CLONE_SIGHAND)` produces another `task_struct` and the
 kernel has no idea it made something people call a thread. Windows NT
 made the opposite call (`KTHREAD` inside `EPROCESS`, two objects from
-the start); toy-os followed Linux because every `procs[]` walk, every
+the start); SaunaOS followed Linux because every `procs[]` walk, every
 `kill`, every wait channel and every kernel stack already keys on a slot,
 and a second entity type would have had to be threaded through all of
 them.
@@ -2764,7 +2764,7 @@ mechanism. Five things to know:
 
 - **One stream, exclusive, and the kernel NEVER mixes.** A second
   `SYS_SND_OPEN` is `-EBUSY`. Every modern OS keeps mixing in
-  userspace (PulseAudio/PipeWire, Windows' audio engine); if toy-os
+  userspace (PulseAudio/PipeWire, Windows' audio engine); if SaunaOS
   ever wants two apps audible at once, that is a userspace sound
   daemon's job, not a kernel loop.
 - **The data plane is a MAPPED RING, not a write() call** --
@@ -3710,7 +3710,7 @@ host side. Six things:
 ## A PROGRAM MUST NOT PRINT ITS OWN VERSION AS THE SYSTEM'S: ASK `QUERY_VERSION`
 
 `version.h` is baked in when a program is COMPILED, so anything printing
-`TOYOS_VERSION_FULL` is reporting itself. That is correct while kernel
+`SAUNAOS_VERSION_FULL` is reporting itself. That is correct while kernel
 and userland ship as one image and wrong the moment a machine is updated
 a piece at a time -- which is what pushing a binary or a kernel over the
 network does. `/bin/about` had this bug and misread the bare-metal

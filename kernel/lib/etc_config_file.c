@@ -45,7 +45,7 @@ int etc_config_get(const char *path, const char *key, char *out, uint32_t out_si
 
 // AN UNCHANGED FILE IS ANSWERED FROM MEMORY. Every setting's `stored`
 // value is a per-key read of its file, so a client asking about settings
-// re-read /etc/toyos.conf over a thousand times a session. Slots are keyed
+// re-read /etc/saunaos.conf over a thousand times a session. Slots are keyed
 // by the path and fs_generation_of(path) SAMPLED BEFORE THE READ: a write
 // landing during it moves the generation, and the next ask refuses the
 // entry. A write through a hard link is not seen (lib/uconf.c's blind

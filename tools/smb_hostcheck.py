@@ -11,7 +11,7 @@ serves are the files this script wrote.
 WHY ON THE HOST. Every dialect, the signing algorithm each one picks,
 NTLMv2 and the refusals are a matrix of server configurations; a guest
 boot per cell would take minutes for what this does in seconds. The
-guest half -- the toy-os transport, /bin/smb, the bridge -- is
+guest half -- the SaunaOS transport, /bin/smb, the bridge -- is
 tools/smb_test.py.
 
   python3 tools/smb_hostcheck.py                    # every dialect, every refusal
@@ -154,7 +154,7 @@ def build(tmp, control):
     srcs.append(hostcheck.stage(tmp, "userland/dynlib/usmb_auth.c", edits=CONTROL,
                                 apply=control, tool="smb_hostcheck"))
     srcs.append(hostcheck.stage(tmp, "userland/backends/mbedtls/ucrypto_mbedtls.c"))
-    # The two headers alone: userland/include also holds toy-os's libc
+    # The two headers alone: userland/include also holds SaunaOS's libc
     # headers, which must not shadow the host's.
     hostcheck.stage(tmp, "userland/include/usmb.h")
     hostcheck.stage(tmp, "userland/include/ucrypto.h")

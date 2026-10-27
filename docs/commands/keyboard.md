@@ -41,7 +41,7 @@ accent back. On Swedish and Finnish that means `~`, `^`, `` ` `` and
 to get the plain character.
 
 The choice becomes the layout a boot **starts with**: it moves to the
-front of `keyboard_layouts=` in `/etc/toyos.conf` (added there if it was
+front of `keyboard_layouts=` in `/etc/saunaos.conf` (added there if it was
 not in the list), so it survives a reboot. The list itself, Super+Space
 and dead keys on or off are System Settings' Input > Keyboard page, or
 `config set system.keyboard.layouts us,fi,de` and

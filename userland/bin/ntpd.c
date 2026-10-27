@@ -3,7 +3,7 @@
 // SNTP, RFC 4330, not full NTP. The difference is real and worth
 // stating: NTP disciplines the clock's RATE against several servers and
 // never lets time run backwards; SNTP asks ONE server and STEPS. Real
-// systems run the full thing (chrony, ntpd, w32time), and toy-os does
+// systems run the full thing (chrony, ntpd, w32time), and SaunaOS does
 // not, because a rate-adjustable clock is a different kernel feature
 // from the one that exists -- ktime is an epoch plus a monotonic delta,
 // with no tick-rate knob to turn. Anything measuring an interval uses

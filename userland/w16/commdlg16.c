@@ -6,7 +6,7 @@
 // dialog manager and the LISTBOX and COMBOBOX classes.
 //
 // The dialogs see the files the program does (file16.c): drive C:, the
-// Win16 folder, and Z:, all of toy-os. A program's hook procedure
+// Win16 folder, and Z:, all of SaunaOS. A program's hook procedure
 // (OFN_ENABLEHOOK, FR_ENABLEHOOK) hears every message first; a program's
 // own template is built from its resource, one by handle refused as
 // CDERR_NOTEMPLATE.
@@ -193,7 +193,7 @@ static void hide(struct w16 *w, struct w16_wnd *x) {
 // its bitmap 576, eight 16-by-16 pictures in a row -- open folder, the
 // current folder, a shut one, then floppy, hard disk, network, CD and RAM
 // drives -- blue (0000FF) where nothing is drawn. Read once, like any DLL,
-// by w16's NE parser; no Microsoft picture is in toy-os itself.
+// by w16's NE parser; no Microsoft picture is in SaunaOS itself.
 #define ICON_SIZE 16
 static uint32_t g_icon[W16_ICON_COUNT][ICON_SIZE * ICON_SIZE];
 static int g_icon_state;                         // 0 not tried, 1 loaded, -1 none
@@ -712,14 +712,14 @@ static int file_dialog(struct w16 *w, struct w16_args *a, int save) {
     if (types) w16_combo_changed(w, types);
     if (dl) {
         // 3.1's "letter: volume label", a drive icon before it; C: is the Win16
-        // folder, D: to Y: named for theirs, and Z: the whole toy-os tree.
+        // folder, D: to Y: named for theirs, and Z: the whole SaunaOS tree.
         w16_listbox_folders(dl, 1);
         for (char d = 'C'; d <= 'Z'; d++) {
             const char *root = w16_drive_root(d);
             if (!root) continue;
             char label[48], low[48];
             const char *base = strrchr(root, '/');
-            snprintf(label, sizeof label, "%c: %s", d, d == 'C' ? "win16" : d == 'Z' ? "toy-os" : base ? base + 1 : root);
+            snprintf(label, sizeof label, "%c: %s", d, d == 'C' ? "win16" : d == 'Z' ? "SaunaOS" : base ? base + 1 : root);
             w16_send(w, dl->hwnd, LB_SETITEMDATA,
                      (uint16_t)w16_listbox_str(w, dl, LB_ADDSTRING, 0, lowered(label, low, sizeof low)), 3);
         }
@@ -769,7 +769,7 @@ out:
 // chosen path, FALSE on Cancel.
 // w16: The same dialogs, drawn as Windows 3.1 drew them and built on w16's own dialog manager, list
 // box and combo box, over the drives the program sees -- C:, the Win16 folder; D: to Y: as set; Z:,
-// all of toy-os. A program's hook procedure hears every message first. A program's own template
+// all of SaunaOS. A program's hook procedure hears every message first. A program's own template
 // (OFN_ENABLETEMPLATE: Paintbrush's) is built from its resource and filled by the standard control
 // ids; one passed by handle is refused (CDERR_NOTEMPLATE).
 static int api_GetOpenFileName(struct w16 *w, unsigned ordinal, struct w16_args *a) {
@@ -929,10 +929,10 @@ static int api_FindText(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // program a device context for the printer chosen, to draw the pages into.
 // w16: Answers as Windows did on a machine with no printer installed: FALSE, and
 // CommDlgExtendedError says PDERR_NODEFAULTPRN. No dialog opens.
-// Why: toy-os has no printing yet: no spooler and no printer drivers, so there is nothing for the
+// Why: SaunaOS has no printing yet: no spooler and no printer drivers, so there is nothing for the
 // dialog to offer.
 // Notice: Its own message that no printer is installed, when you choose Print.
-// Whole: A printing system in toy-os, then this dialog over it. On the roadmap: "w16: printing".
+// Whole: A printing system in SaunaOS, then this dialog over it. On the roadmap: "w16: printing".
 static int api_PrintDlg(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_arg32(a);
@@ -1258,7 +1258,7 @@ static int cf_proc(struct w16 *w, struct w16_wnd *d, uint16_t msg, uint16_t wp, 
 // and a colour, with a sample; TRUE with the choice in the program's LOGFONT and CHOOSEFONT, FALSE
 // on Cancel.
 // w16: The same dialog, drawn as Windows 3.1 drew it, over the fonts w16 draws in: 3.11's bitmap
-// fonts from drive C:, TrueType faces (C:'s own .TTF files, else toy-os's metric twins) marked as
+// fonts from drive C:, TrueType faces (C:'s own .TTF files, else SaunaOS's metric twins) marked as
 // 3.1 marked them, at any size. A program's hook hears every message first. A program's own template
 // (CF_ENABLETEMPLATE: Clock's, which hides all but the face list) is built from its resource and filled
 // by the standard control ids, Apply and Help hidden unless the flags ask for them, as 3.1 hid

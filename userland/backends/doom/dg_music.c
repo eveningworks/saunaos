@@ -35,7 +35,7 @@ static boolean I_TOY_InitMusic(void) {
     }
     // The OPL driver opens the pushed source and starts the thread that
     // feeds it -- it has to, because OPL_Detect() blocks on a rendered
-    // callback before this call returns. See opl_toyos.c.
+    // callback before this call returns. See opl_saunaos.c.
     if (!music_opl_module.Init()) {
         ulogf("doom: OPL init failed\n");
         return false;

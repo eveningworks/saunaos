@@ -8,7 +8,7 @@ userland/ports/<name>/ exactly the files that build compiled -- read off
 the compiler's dependency files, never listed by hand. Generated sources
 (libcss's property parsers, libhubbub's entity and element tables,
 libparserutils' charset aliases, libnspsl's suffix table) are produced by
-that host build and vendored with the rest, so toy-os's own build runs
+that host build and vendored with the rest, so SaunaOS's own build runs
 no Perl, gperf or generator.
 
 WHY THE HOST BUILD, rather than a list of files. Upstream's Makefiles are
@@ -19,7 +19,7 @@ source reached, so nothing is copied that nothing includes.
 
 THE HOST BUILD IS ALSO STAGE 1'S ORACLE. The `nsmonkey` it leaves in the
 work directory is the same pinned source, built for Linux;
-docs/browser-design.md's stage 1 diffs its plot output against toy-os's.
+docs/browser-design.md's stage 1 diffs its plot output against SaunaOS's.
 
 **IT NEVER COPIES `testament.h`.** NetSurf generates it from the build
 host and it records the builder's user name, host name and checkout
@@ -40,7 +40,7 @@ same patched source (BACKENDS below).
 
     python3 tools/netsurf_vendor.py                 # clone, build, vendor
     python3 tools/netsurf_vendor.py --work DIR      # the host build in DIR
-                                                    # (default ~/.cache/toy-os/netsurf-host)
+                                                    # (default ~/.cache/saunaos/netsurf-host)
     python3 tools/netsurf_vendor.py --no-copy       # build the oracle only
 """
 import argparse
@@ -59,7 +59,7 @@ UPSTREAM = "https://github.com/netsurf-browser/{}.git"
 # (`-include $(shell find $(BUILD) -name '*.d')`), and the host build
 # leaves hundreds of its own -- one of them not even make syntax.
 DEFAULT_WORK = os.path.join(os.environ.get("XDG_CACHE_HOME") or
-                            os.path.expanduser("~/.cache"), "toy-os", "netsurf-host")
+                            os.path.expanduser("~/.cache"), "saunaos", "netsurf-host")
 
 # Each at its master head on the day it was vendored (2026-10-12). NetSurf
 # itself releases rarely (3.11, December 2023) while master is still
@@ -85,8 +85,8 @@ PINS = [
 HOST_TOOLS = ("buildsystem", "nsgenbind")
 LIBS = [n for n, _ in PINS if n not in HOST_TOOLS + ("netsurf",)]
 
-# The configuration: what the toy-os build will have. curl, OpenSSL,
-# libpng and libjpeg are replaced by toy-os's own (libhttp, uimg) in later
+# The configuration: what the SaunaOS build will have. curl, OpenSSL,
+# libpng and libjpeg are replaced by SaunaOS's own (libhttp, uimg) in later
 # stages; JavaScript is Duktape (stage 6); SVG is libsvgtiny, over
 # libdom's expat binding and EXPAT below. utf8proc only normalises IDN
 # hosts.
@@ -102,7 +102,7 @@ NETSURF_FLAGS = [
 
 # Compiled on the host, NOT vendored, per port.
 #   netsurf: frontends/monkey/main.c -- its loop waits in select() on
-#                stdin, which toy-os has not got; userland/tests/nsmonkey.c
+#                stdin, which SaunaOS has not got; userland/tests/nsmonkey.c
 #                replaces it.
 #            content/fs_backing_store.c -- the on-disk cache, which only
 #                monkey's main.c names. Ours runs from the memory cache
@@ -119,7 +119,7 @@ NOT_VENDORED = {
 # Not a netsurf-browser repository and not built here: the host oracle
 # links the host's own expat. Vendored from its release tag -- the
 # translation units its lib/Makefile.am lists unconditionally, plus the
-# one entropy source toy-os's configuration picks (getentropy(), over
+# one entropy source SaunaOS's configuration picks (getentropy(), over
 # SYS_GETRANDOM); the headers they reach are read off `gcc -MM`, as the
 # rest are off dependency files. expat_config.h is OURS
 # (userland/backends/expat/), what its configure would have written.
@@ -258,10 +258,10 @@ TESTAMENT = """\
  */
 #ifndef NETSURF_REVISION_TESTAMENT
 #define NETSURF_REVISION_TESTAMENT "{sha}"
-#define USERNAME "toy-os"
-#define GECOS "toy-os"
+#define USERNAME "saunaos"
+#define GECOS "saunaos"
 #define WT_ROOT "userland/ports/netsurf/"
-#define WT_HOSTNAME "toy-os"
+#define WT_HOSTNAME "saunaos"
 #define WT_COMPILEDATE "vendored"
 #define WT_BRANCHPATH "master"
 #define WT_BRANCHISMASTER 1
@@ -296,7 +296,7 @@ serves.
 
 EXTRA = {
     "netsurf": "\n- **Not taken**: `frontends/monkey/main.c` -- its loop waits in\n"
-               "  `select()`, which toy-os has not got; `userland/tests/nsmonkey.c`\n"
+               "  `select()`, which SaunaOS has not got; `userland/tests/nsmonkey.c`\n"
                "  replaces it, and `content/fs_backing_store.c`, the disk cache only\n"
                "  that main.c named. `generated/testament.h` is the tool's, not upstream's\n"
                "  (upstream's records the build host). The four stylesheets under\n"
@@ -310,7 +310,7 @@ EXTRA = {
                   "  named colours, `#include`d by `src/svgtiny_parse.c`.",
     "libnsutils": "\n- **Not taken**: `src/unistd.c` -- `nsu_pread()`/`nsu_pwrite()`, whose\n"
                   "  only caller is NetSurf's disk cache (not taken either), over\n"
-                  "  `pread()`, which toy-os has not got.",
+                  "  `pread()`, which SaunaOS has not got.",
 }
 
 
@@ -340,7 +340,7 @@ def patch_notes(name):
         lines.append(f"  - `{os.path.basename(p)}` -- {first}")
     if not lines:
         return ""
-    return ("\n- **Patched, by toy-os**, from `userland/backends/" + name + "/patches/`"
+    return ("\n- **Patched, by SaunaOS**, from `userland/backends/" + name + "/patches/`"
             " (applied to the checkout before the host build and the copy):\n" + "\n".join(lines))
 
 
@@ -357,7 +357,7 @@ checkout before every copy. `expat_config.h` is ours, in `userland/backends/expa
 - **Release**: `{tag}`, commit `{sha}` ({date})
 - **Files**: `expat/lib/`'s translation units that `lib/Makefile.am`
   lists unconditionally, plus `random_getentropy.c` (the entropy source
-  toy-os's configuration picks), the headers they reach (`gcc -MM`), and
+  SaunaOS's configuration picks), the headers they reach (`gcc -MM`), and
   `COPYING`. Under libdom's XML binding, for libsvgtiny.
 - **Licence**: `COPYING`, upstream's own file.{patches}
 """
@@ -411,7 +411,7 @@ def vendor_expat(work):
                                     patches=patch_notes("expat")))
     with open(os.path.join(dest, "sources.mk"), "w") as f:
         f.write("# Written by tools/netsurf_vendor.py: expat's translation units for\n"
-                "# toy-os's configuration, which is not every .c in it.\n"
+                "# SaunaOS's configuration, which is not every .c in it.\n"
                 "NS_SRCS_expat = \\\n")
         f.write(" \\\n".join(f"\tuserland/ports/expat/lib/{u}" for u in units) + "\n")
     print(f"  {'expat':16s} {sha[:12]}  {len(keep)} files, {len(units)} compiled")

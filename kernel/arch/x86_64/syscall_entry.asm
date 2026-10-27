@@ -99,7 +99,7 @@ syscall_entry:
     cmp qword [rsp + F_SS*8], SEL_USER_DATA
     jne syscall_exit_iret
 
-; From here RSP stops pointing at a whole frame (tools/gdb/toyos.py's
+; From here RSP stops pointing at a whole frame (tools/gdb/saunaos.py's
 ; unwinder claims syscall_entry only up to this label).
 global syscall_exit_pops
 syscall_exit_pops:

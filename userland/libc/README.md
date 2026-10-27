@@ -1,7 +1,7 @@
-# tolibc -- toy-os's C library
+# tolibc -- SaunaOS's C library
 
-**The name is formed the way `tosh` was**: toy-os + `sh` gave `tosh`,
-so toy-os + `libc` gives `tolibc`. It sits beside **Toykit**
+**The name is formed the way `tosh` was**: SaunaOS + `sh` gave `tosh`,
+so SaunaOS + `libc` gives `tolibc`. It sits beside **Toykit**
 (`userland/ui/`, the GUI toolkit) as the second thing a ring-3 program
 links, and beneath both of them is **libsys** (`userland/rt/`), the
 typed syscall layer.
@@ -64,7 +64,7 @@ kernel runs rather than a second implementation.
 **tolibc aims to be COMPLETE, not minimal.** If C specifies a function,
 or POSIX specifies one that ported code reaches for constantly
 (`strdup`, `strtok_r`, `isatty`), it belongs here even when nothing in
-toy-os calls it yet -- because the alternative is a link error in
+saunaos calls it yet -- because the alternative is a link error in
 somebody else's source file, months from now, with no explanation
 attached. That is the opposite of the bar the rest of this project holds
 (`tools/`, Toykit and the kernel toolkit all require a second REAL

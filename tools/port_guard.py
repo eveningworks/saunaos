@@ -30,7 +30,7 @@ refuse). Binding to the same address is what QEMU itself is about to do,
 so this asks the exact question that is about to be answered anyway --
 just early, and with a message that says what to do about it.
 
-Set TOYOS_ALLOW_PORT_CLASH=1 to bypass it deliberately.
+Set SAUNAOS_ALLOW_PORT_CLASH=1 to bypass it deliberately.
 """
 
 import os
@@ -38,7 +38,7 @@ import socket
 import sys
 import time
 
-BYPASS_ENV = "TOYOS_ALLOW_PORT_CLASH"
+BYPASS_ENV = "SAUNAOS_ALLOW_PORT_CLASH"
 
 
 def port_is_free(port, host="127.0.0.1"):

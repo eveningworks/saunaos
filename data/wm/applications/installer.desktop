@@ -1,7 +1,7 @@
-# Install toy-os -- see this directory's README.md for the format. In the
+# Install SaunaOS -- see this directory's README.md for the format. In the
 # Start menu only: a live session's desktop icon is written at boot by
 # `installer --boot`, so an installed machine shows none.
-Name=Install toy-os
+Name=Install SaunaOS
 Exec=/bin/wm/system/installer
 Category=system
 Comment=Put this system on a disk in this computer

@@ -8,7 +8,7 @@ struct block_device;
 // The disk cache: a WRITE-THROUGH cache of 4 KiB disk pages under every
 // filesystem, consulted by block.c's io_read() and kept current by its
 // writes -- Linux's buffer cache (the block device's own page cache),
-// at toy-os's size. docs/pagecache-design.md, "Stage 1b", has the
+// at SaunaOS's size. docs/pagecache-design.md, "Stage 1b", has the
 // measurement that chose it and what it does not do.
 //
 // KEYED BY THE WHOLE DISK AND THE ABSOLUTE SECTOR, never by the device a

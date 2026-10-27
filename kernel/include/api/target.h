@@ -5,7 +5,7 @@
 // starts (docs/init-design.md's R7a, stage 2).
 //
 // Two values today -- `text` and `graphical` -- persisted as
-// /etc/toyos.conf's `default_target` key and reachable from ring 3 as
+// /etc/saunaos.conf's `default_target` key and reachable from ring 3 as
 // the registered setting `system.default_target`. init reads it through
 // SYS_SETTING and starts the services in /etc/services.d whose
 // `Target=` matches; nothing in the kernel acts on it.
@@ -42,7 +42,7 @@
 // Called from kernel_main() after fs_init(), beside the other /etc readers and the
 // other /etc readers -- and BEFORE the init process is spawned, since
 // init asks for this value as its first act. Loads `default_target`
-// from /etc/toyos.conf (defaulting to `graphical`), then applies a
+// from /etc/saunaos.conf (defaulting to `graphical`), then applies a
 // `target=<name>` word from the kernel command line over the top
 // without persisting it.
 void target_init(void);

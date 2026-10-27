@@ -22,7 +22,7 @@
 #define PART_MAX_ENTRIES 16 // sanity cap on how many entries are read/reported
 
 // How many partitions this kernel will WRITE. Four, because that is
-// MBR's hard limit and nothing on a toy-os disk wants more -- a GPT
+// MBR's hard limit and nothing on a SaunaOS disk wants more -- a GPT
 // table still gets its full 128 on-disk slots, so a real tool can add
 // to one this kernel wrote. Reading is capped separately and higher
 // (PART_MAX_ENTRIES), since a disk arriving from elsewhere is not
@@ -30,7 +30,7 @@
 #define PART_WRITE_MAX_ENTRIES 4
 
 // WHAT A PARTITION IS FOR, as far as this kernel is willing to name it.
-// Three, because three is what a bootable toy-os disk has: GRUB's
+// Three, because three is what a bootable SaunaOS disk has: GRUB's
 // core.img in a BIOS boot partition, the kernel and grub.cfg in an ESP,
 // and the root filesystem in a data partition.
 //
@@ -125,7 +125,7 @@ int partition_read_table_of(const struct block_device *dev,
 
 // Is this partition the FIRMWARE's rather than an OS's? A GPT BIOS boot
 // partition or an EFI System Partition (MBR: type 0xEF). Both are on
-// toy-os's own disk -- GRUB's core.img and /boot/kernel.bin live in
+// SaunaOS's own disk -- GRUB's core.img and /boot/kernel.bin live in
 // them -- and the boot-time scan neither mounts from one nor offers one
 // to `fsformat`. See partition.c for the GUIDs and the reasoning.
 int partition_is_firmware(const struct partition_entry *pe,

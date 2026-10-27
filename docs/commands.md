@@ -60,7 +60,7 @@ already draining.
 ## How a command is resolved
 
 Executables run by name, with no prefix: typing `pmap` searches
-`PATH` (set in `/etc/toyos.conf`, default `/bin;/usr/bin`, searched left
+`PATH` (set in `/etc/saunaos.conf`, default `/bin;/usr/bin`, searched left
 to right with the first match winning), SPAWNS what it finds as a real
 scheduled process and waits for it -- which is what lets a `/bin`
 program be a dynamic executable. `run <name>` goes through the same

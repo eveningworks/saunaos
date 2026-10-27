@@ -2,7 +2,7 @@
 """A screen size tried at a restart: GRUB sets it once, screentrial asks,
 and every answer -- or none -- ends where it should.
 
-lib/ubootmode.h keeps the size in grubenv for a display toy-os cannot set
+lib/ubootmode.h keeps the size in grubenv for a display SaunaOS cannot set
 itself. QEMU's QXL adapter has no driver here, so it runs on GRUB's VESA
 framebuffer exactly as an RTX on a BIOS boot does. On a guest that
 reboots:

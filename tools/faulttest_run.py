@@ -141,7 +141,7 @@ def run_one(name, required, forbidden, workdir, slot, keep_logs):
     # destination filesystem (tmpfs, i.e. RAM, here).
     copy_disk(os.path.join(REPO, "disk.img"), disk)
 
-    guest = SerialGuest(os.path.join(REPO, "toy-os.iso"), disk,
+    guest = SerialGuest(os.path.join(REPO, "saunaos.iso"), disk,
                         port=DEFAULT_PORT + slot,
                         qemu_log=os.path.join(workdir, f"qemu{slot}.log"))
     ok, detail = False, "did not run"
@@ -216,8 +216,8 @@ def main():
         print(f"faulttest: no test matches -k {args.k!r}", file=sys.stderr)
         return 2
 
-    if not os.path.exists(os.path.join(REPO, "toy-os.iso")):
-        print("faulttest: toy-os.iso not found -- run `make iso` first", file=sys.stderr)
+    if not os.path.exists(os.path.join(REPO, "saunaos.iso")):
+        print("faulttest: saunaos.iso not found -- run `make iso` first", file=sys.stderr)
         return 2
 
     failures = 0

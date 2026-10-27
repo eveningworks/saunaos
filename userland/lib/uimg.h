@@ -16,7 +16,7 @@
 // and Mutter decode a wallpaper in the shell process, through Qt or
 // GdkPixbuf, and pass the result down.
 //
-// toy-os follows rather than differs, and the contrast with ttf.h is
+// SaunaOS follows rather than differs, and the contrast with ttf.h is
 // the argument: the kernel needs GLYPHS before any process exists (the
 // console draws text at boot), so its font parser had to be in ring 0
 // and every read in it is bounds-checked for that reason. Nothing in

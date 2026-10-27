@@ -43,12 +43,12 @@ cross-compiler -- host and target are both x86-64, so plain system
 - **Keep chat compact and terse.** Don't restate what a diff or a build
   log already shows.
 - **MOCK UP ANYTHING VISIBLE BEFORE CODING IT** (standing instruction,
-  2026-09-29): a Design canvas, one artboard per option, in toy-os's own
+  2026-09-29): a Design canvas, one artboard per option, in SaunaOS's own
   palette and with real data, published BEFORE the choice is asked and
   before any code -- for a new app, a redesign, even a marker in a tree.
   **Not for a change that is only TEXT** (a banner, a message): concrete
   examples in the chat are enough (2026-10-06).
-  How: `.claude/skills/toy-os-feature-workflow/references/questions-that-worked.md`.
+  How: `.claude/skills/saunaos-feature-workflow/references/questions-that-worked.md`.
 - **Before adding a feature to a GUI app, consider whether it should be
   a reusable `userland/ui/` widget** -- and ask the user either way.
 - **Act like an experienced OS/UI designer**: where a real OS has a
@@ -56,7 +56,7 @@ cross-compiler -- host and target are both x86-64, so plain system
 - **SAY WHAT REAL SYSTEMS DO, before proposing a design** -- Linux and
   Windows; for the desktop, Wayland and a compositor that implements it
   (KWin, Mutter, wlroots), or X11 where the history explains the shape.
-  Then say whether toy-os follows or deliberately differs, and why. By
+  Then say whether SaunaOS follows or deliberately differs, and why. By
   area: kernel and process model -> Linux, NT; filesystem -> ext2/3/4,
   NTFS; windowing -> Wayland (+KWin/Mutter/wlroots/XFCE), X11; settings
   -> sysctl, dconf/GSettings, macOS `defaults`, the registry; init ->
@@ -321,15 +321,15 @@ headline added to that index.** Half of that pairing is not optional.
 
 ## This checkout, and the repo it pushes to
 
-**The repo is `eveningworks/toy-os`**, an ORGANIZATION since 2026-08-16
+**The repo is `eveningworks/saunaos`**, an ORGANIZATION since 2026-08-16
 (a personal repo has no read-only collaborator role; `docs/decisions.md`).
 The maintainer's account was renamed and the old handle scrubbed by a
-history rewrite: the remote is `git@github.com:eveningworks/toy-os.git`,
+history rewrite: the remote is `git@github.com:eveningworks/saunaos.git`,
 nothing in the tree should name a personal account (`grep -rn` before
 believing a doc), and **run `tools/backup_repo.sh` before any change to
 the repo's identity or history.**
 
-- Git identity (`toy-os` / `noreply@toy-os.local`) is PER-REPOSITORY; a
+- Git identity (`SaunaOS` / `noreply@saunaos.local`) is PER-REPOSITORY; a
   clone does not carry it and `preflight.sh` refuses without one. **It
   is the privacy convention, not a default to override** -- never let a
   commit carry the maintainer's real name or email. **A Claude Code
@@ -349,7 +349,7 @@ covers every script.**
 
 ```
 make all    # kernel.bin + userland ELFs -- reaches NO boot medium
-make iso    # + toy-os.iso; seeds disk.img and installs GRUB + kernel on
+make iso    # + saunaos.iso; seeds disk.img and installs GRUB + kernel on
             # it -- run before ANY headless test
 make test   # boot headless, run the in-kernel suite
 make verify # the pre-delivery gate (= tools/preflight.sh)
@@ -495,8 +495,8 @@ ambiguous between the matrix and GitHub:
   both start`). **A clean result proves nothing until
   `--positive-control` has shown it can fail** -- true of every positive
   control here.
-- **`iso_guard.py` refuses a stale `toy-os.iso`**;
-  `TOYOS_ALLOW_STALE_ISO=1` bypasses it deliberately.
+- **`iso_guard.py` refuses a stale `saunaos.iso`**;
+  `SAUNAOS_ALLOW_STALE_ISO=1` bypasses it deliberately.
 
 ## docs/
 
@@ -522,7 +522,7 @@ first** -- the list, with what each has BUILT and when to read it, is
 
 ## Two skills live IN this repo
 
-`.claude/skills/toy-os-feature-workflow/` -- the end-to-end playbook
+`.claude/skills/saunaos-feature-workflow/` -- the end-to-end playbook
 (research first, offer real choices, build and test with proof, write
 the docs, ship). `.claude/skills/network-egress-disclosure/` -- what to
 disclose when testing reached a host outside this machine.

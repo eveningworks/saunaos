@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""tools/installer_test.py -- the Install toy-os window, on the live ISO,
+"""tools/installer_test.py -- the Install SaunaOS window, on the live ISO,
 onto a blank disk -- and then that disk, booted on its own.
 
-Phase 1 boots toy-os-live.iso with one BLANK 512 MiB IDE disk and checks
-what a live session offers before anybody asks: the "Install toy-os"
+Phase 1 boots saunaos-live.iso with one BLANK 512 MiB IDE disk and checks
+what a live session offers before anybody asks: the "Install SaunaOS"
 launcher on the desktop, the compositor's live-session notice, and NO
 First-boot setup (a live session never shows it). It sets two settings
 the way a person trying the session would -- the computer's name and the
@@ -12,8 +12,8 @@ the erase confirm, and checks from the host that the disk is still
 blank. Then it confirms, and waits for Finished.
 
 Phase 0 boots the live image with `installer=on` -- the live boot menu's
-Install toy-os entry -- and checks the window is up full screen at once
-AND that the desktop has its launcher behind it, so "Keep trying toy-os"
+Install SaunaOS entry -- and checks the window is up full screen at once
+AND that the desktop has its launcher behind it, so "Keep trying SaunaOS"
 leaves a way back in; no notice, since the window is already open. Its
 ISO is made here with grub-mkrescue, one entry; the phase SKIPS without it.
 
@@ -59,15 +59,15 @@ import port_guard                               # noqa: E402
 from live_boot_test import build_unasked_iso, UNASKED_CFG   # noqa: E402
 from install_test import fat_stick, STICK_LABEL, STICK_MARK  # noqa: E402
 
-LIVE_ISO = "toy-os-live.iso"
+LIVE_ISO = "saunaos-live.iso"
 TARGET_BYTES = 512 * 1024 * 1024
-TITLE = "Install toy-os"
+TITLE = "Install SaunaOS"
 NAME = "carried-name"
 LOG = []
 
 # What a live ISO is built from: one newer than it is a stale ISO, which
 # boots and passes against the previous build (iso_guard judges only
-# toy-os.iso).
+# saunaos.iso).
 LIVE_INPUTS = ("build/kernel.bin", "build/lib/libuapp.so", "build/userland/gui/system/installer.elf",
                "build/userland/bin/install.elf")
 
@@ -140,7 +140,7 @@ def live_iso_stale():
 def phase1(dbg, res, target):
     sh = lambda c: dbg.send(f"sh {c}")   # noqa: E731
     desktop = sh("ls /home/Desktop")
-    res.check("a live session has the Install toy-os launcher on its desktop", "installer.desktop" in desktop,
+    res.check("a live session has the Install SaunaOS launcher on its desktop", "installer.desktop" in desktop,
               desktop.strip().replace("\n", " ")[:120])
     klog = sh("log -n 3000")
     res.check("...and the compositor put up the live-session notice", "wm: live-session notice" in klog)
@@ -234,7 +234,7 @@ def phase0(dbg, res):
     res.check("installer=on opens the installer by itself", win is not None)
     res.check("...full screen", win is not None and win.get("state") == "fullscreen",
               str(win.get("state")) if win else "")
-    res.check("...with the Install toy-os launcher on the desktop behind it",
+    res.check("...with the Install SaunaOS launcher on the desktop behind it",
               "installer.desktop" in sh("ls /home/Desktop"))
     klog = sh("log -n 3000")
     res.check("...and no live-session notice", "wm: live-session notice" not in klog and
@@ -300,7 +300,7 @@ def run_in(args, tmp):
     def vm(*argv, live=True):
         media = (["--iso", LIVE_ISO, "--boot", "cd", "--usb-stick", stick] if live
                  else ["--boot", "disk"])
-        env = dict(os.environ, TOYOS_ALLOW_STALE_ISO="1")   # judged above, by live_iso_stale()
+        env = dict(os.environ, SAUNAOS_ALLOW_STALE_ISO="1")   # judged above, by live_iso_stale()
         r = subprocess.run([sys.executable, os.path.join(HERE, "vm.py"), "--instance", str(args.instance),
                             "--disk", target, *media, *(["--kvm"] if args.kvm else []), *argv],
                            cwd=REPO, capture_output=True, text=True, check=False, timeout=600, env=env)
@@ -316,7 +316,7 @@ def run_in(args, tmp):
         res.skip("installer=on", "no grub-mkrescue")
     else:
         print("installer_test: installer=on")
-        env = dict(os.environ, TOYOS_ALLOW_STALE_ISO="1")
+        env = dict(os.environ, SAUNAOS_ALLOW_STALE_ISO="1")
         base = [sys.executable, os.path.join(HERE, "vm.py"), "--instance", str(args.instance), "--disk", target,
                 "--iso", on_iso, "--boot", "cd", *(["--kvm"] if args.kvm else [])]
         run = lambda *a: subprocess.run(base + list(a), cwd=REPO, capture_output=True, text=True,   # noqa: E731

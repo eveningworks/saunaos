@@ -12,7 +12,7 @@ exFAT was taken before UAS, which no stick speaks); the others are not. The stag
 **The transport is the small part. A disk that can DISAPPEAR is the
 large one.** Bulk-only transport is a 31-byte command wrapper, a data
 phase and a 13-byte status on two bulk endpoints the xHCI driver already
-drives for Ethernet. What nothing in toy-os can do today is lose a disk:
+drives for Ethernet. What nothing in SaunaOS can do today is lose a disk:
 
 - the block registry has `blk_untrack()` for a partition re-read and
   nothing for a whole disk going away; its table is a fixed 32 entries;
@@ -38,7 +38,7 @@ once, for USB, unparks that too.
 Every one puts **SCSI between the transport and the disk**: both BOT and
 UAS carry SCSI command blocks, so the disk logic (INQUIRY, READ
 CAPACITY, READ/WRITE(10/16), SYNCHRONIZE CACHE, sense data) is written
-once and the transports are thin. toy-os copies that shape and not the
+once and the transports are thin. SaunaOS copies that shape and not the
 size: no SCSI midlayer with hosts, targets and queues -- one helper
 library that builds CDBs and decodes sense, and a per-transport
 "run this CDB" callback.
@@ -126,7 +126,7 @@ Each stage is gated, committed and usable on its own.
    three real sticks passed through to QEMU -- two Kingston DataTraveler
    3.0 (SuperSpeed) and a Silicon Motion 090c:1000 (high speed): all
    enumerated, a Windows installer's FAT32, a Windows-formatted exFAT and
-   a toy-os TFS3 stick mounted, and files written to the exFAT and FAT32
+   a SaunaOS TFS3 stick mounted, and files written to the exFAT and FAT32
    ones -- one written just before the stick was detached -- read back on
    Linux with matching sha256s, `fsck.exfat -n` calling the exFAT stick
    clean. Not yet on the laptops' own xHCI. `kernel/lib/scsi.c` (CDBs, sense; shared,

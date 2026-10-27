@@ -9,7 +9,7 @@
 // straight into one and gives it back with EM_SETHANDLE. An edit of w16's
 // own (a common dialog's) keeps its text in w16's memory instead. Either
 // way the text is NUL-terminated, Windows' "\r\n" between lines; a lone
-// "\n" breaks a line too, as Wine's edit lets it, so a toy-os text file
+// "\n" breaks a line too, as Wine's edit lets it, so a SaunaOS text file
 // reads as lines.
 //
 // LINES are recomputed from the text after every change: each line's

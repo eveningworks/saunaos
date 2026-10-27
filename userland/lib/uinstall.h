@@ -10,7 +10,7 @@
 //
 // THE LAYOUT IS A CONSTRAINT, NOT A PREFERENCE: `core.img` has its prefix
 // -- table format and partition number -- baked in at the host's
-// `grub-mkimage` time, and toy-os has no `grub-mkimage`, so the plan
+// `grub-mkimage` time, and SaunaOS has no `grub-mkimage`, so the plan
 // reproduces the layout the staged image expects (docs/commands/install.md,
 // "The trap"):
 //
@@ -24,7 +24,7 @@
 #include <stdint.h>
 #include "lib/udiskscan.h"
 
-#define UINSTALL_PAYLOAD     "/install"   // what every toy-os root carries to install itself
+#define UINSTALL_PAYLOAD     "/install"   // what every SaunaOS root carries to install itself
 #define UINSTALL_TARGET      "/mnt"       // where the target's root is mounted
 #define UINSTALL_TARGET_BOOT "/mnt/boot"
 #define UINSTALL_ESP_DEFAULT 64           // MiB

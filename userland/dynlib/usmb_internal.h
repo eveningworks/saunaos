@@ -47,10 +47,10 @@ static inline uint16_t get16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] <
 static inline uint32_t get32(const uint8_t *p) { return get16(p) | (uint32_t)get16(p + 2) << 16; }
 static inline uint64_t get64(const uint8_t *p) { return get32(p) | (uint64_t)get32(p + 4) << 32; }
 
-// Toy-os text (Latin-1, or UTF-8 for a name past it: usmb.h) -> UTF-16LE,
+// SaunaOS text (Latin-1, or UTF-8 for a name past it: usmb.h) -> UTF-16LE,
 // '/' optionally turned into '\'. Bytes written, or -1 if it does not fit.
 int usmb_to_utf16(const char *s, uint8_t *out, size_t cap, int slashes);
-// UTF-16LE -> toy-os text, NUL-terminated. -1 if it does not fit.
+// UTF-16LE -> SaunaOS text, NUL-terminated. -1 if it does not fit.
 int usmb_from_utf16(const uint8_t *in, size_t bytes, char *out, size_t cap);
 
 // ---- usmb_auth.c ----------------------------------------------------

@@ -101,7 +101,7 @@ compositor reads evdev directly.
 `GenerateConsoleCtrlEvent` was the Ctrl-C path; ConPTY is a
 pseudoconsole pair and is deliberately pty-shaped.
 
-**What toy-os should copy, and where it must differ.**
+**What SaunaOS should copy, and where it must differ.**
 
 - **Copy the SHAPE: a tty object, a discipline, a driver underneath, a
   foreground group per tty.** That is the abstraction that makes the

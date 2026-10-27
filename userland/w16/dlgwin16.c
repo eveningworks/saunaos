@@ -146,7 +146,7 @@ void w16_dlgwin_open(struct w16 *w, struct uapp *a, uint16_t hwnd) {
     pthread_mutex_lock(&w->lock);
     struct w16_wnd *d = w16_wnd_get(w, hwnd);
     int dw = d ? d->w : 0, dh = d ? d->h : 0, modal = d ? d->modal : 0;
-    // A popup covering the screen the program was told of covers toy-os's: View Picture.
+    // A popup covering the screen the program was told of covers SaunaOS's: View Picture.
     int full = d && d->popup && d->x <= 0 && d->y <= 0 && d->x + dw >= W16_SCREEN_W && d->y + dh >= W16_SCREEN_H;
     int already = d && d->uwin;
     pthread_mutex_unlock(&w->lock);

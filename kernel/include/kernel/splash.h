@@ -3,7 +3,7 @@
 
 #include <stdint.h>
 
-// THE BOOT SPLASH: the toy-os logo on a dark screen from the moment the
+// THE BOOT SPLASH: the SaunaOS logo on a dark screen from the moment the
 // framebuffer is up until the compositor claims it -- in place of the
 // scrolling kernel log and the ring-0 shell's prompt, which a graphical
 // boot used to show for a second or two. Windows' and Plymouth's
@@ -27,7 +27,7 @@ int  splash_active(void);
 
 // init has started: with `boot_messages=detailed` the line under the
 // spinner says so ("Starting services..."); the default says "Starting
-// toy-os..." throughout. The compositor carries the line on
+// SaunaOS..." throughout. The compositor carries the line on
 // (wm_setup_hold.c).
 void splash_stage_services(void);
 void splash_setting_register(void);   // system.boot_messages

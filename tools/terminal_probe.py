@@ -9,7 +9,7 @@ OS. Each is encoded here so the sixth person does not pay for them
 again:
 
   1. **A fixture smaller than one screen cannot test a pager.** The
-     first attempt ran `less /etc/toyos.conf`, which fits on one screen,
+     first attempt ran `less /etc/saunaos.conf`, which fits on one screen,
      so less exited immediately and the space meant to page it landed at
      a shell prompt. The check could not tell that from a working pager.
      /tests/sample.txt exists for this, and every line names its own

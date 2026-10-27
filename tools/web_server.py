@@ -29,7 +29,7 @@ What it serves, beside the files of a corpus directory:
   /big.html?kb=N          an HTML page of N KiB of numbered paragraphs, titled
                           "Big N" -- more than the browser's network ring
                           (lib/ubulk.h) holds, so the page waits for room
-  /auth/<path>            HTTP Basic in realm "toy-os test": 401 until the
+  /auth/<path>            HTTP Basic in realm "SaunaOS test": 401 until the
                           request carries toy / secret, then a page titled
                           "signed in /auth/<path>"
   /stats                  "connections=N requests=M" since the last /reset
@@ -198,14 +198,14 @@ def _handler(root, stats, image_delay=0.0):
                                         "<p id=end>The end.</p></body></html>"
                                         % (kb, "".join(rows))).encode(), "text/html")
             if path.startswith("/auth/"):
-                # HTTP Basic (RFC 7617), realm "toy-os test", user toy,
+                # HTTP Basic (RFC 7617), realm "SaunaOS test", user toy,
                 # password secret: what the browser's sign-in is tested on.
                 want = "Basic " + base64.b64encode(b"toy:secret").decode()
                 if self.headers.get("Authorization") == want:
                     return self._send(200, ("<html><title>signed in %s</title><p>yes</p></html>"
                                             % path).encode(), "text/html")
                 return self._send(401, b"<html><title>auth refused</title><p>No.</p></html>",
-                                  "text/html", headers=[("WWW-Authenticate", 'Basic realm="toy-os test"')])
+                                  "text/html", headers=[("WWW-Authenticate", 'Basic realm="SaunaOS test"')])
             if path == "/ua":
                 return self._send(200, (self.headers.get("User-Agent", "") + "\n").encode())
             name = os.path.normpath(path.lstrip("/")) or "index.html"
@@ -307,11 +307,11 @@ def make_ca(d, ip=GATEWAY):
     p = lambda n: os.path.join(d, n)  # noqa: E731
     _openssl("req", "-x509", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1",
              "-nodes", "-keyout", p("ca.key"), "-out", p("ca.pem"), "-days", "3650",
-             "-subj", "/CN=toy-os test CA",
+             "-subj", "/CN=SaunaOS test CA",
              "-addext", "basicConstraints=critical,CA:TRUE",
              "-addext", "keyUsage=critical,keyCertSign,cRLSign")
     out = {"ca": p("ca.pem")}
-    for name, san, days in (("good", "IP:%s,IP:127.0.0.1,DNS:toyos-test,DNS:localhost" % ip, 3650),
+    for name, san, days in (("good", "IP:%s,IP:127.0.0.1,DNS:saunaos-test,DNS:localhost" % ip, 3650),
                             ("expired", "IP:%s" % ip, -1),
                             ("wrongname", "DNS:not-this-host.example", 3650)):
         _openssl("req", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes",

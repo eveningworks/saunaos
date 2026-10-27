@@ -12,7 +12,7 @@
 // What remains is one registered setting, `system.timezone`, whose
 // value is a city name and whose choices are the lines of the database
 // file (api/setting.h's `choice_file`). Changing it writes
-// `/etc/toyos.conf` and bumps the settings generation; a ring-3 process
+// `/etc/saunaos.conf` and bumps the settings generation; a ring-3 process
 // notices the same way it notices any other setting change.
 
 // Announces the timezone to the settings registry (setting.h). Called

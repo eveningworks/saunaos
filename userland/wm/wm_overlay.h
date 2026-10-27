@@ -32,7 +32,7 @@
 // to forget; KWin and Mutter get the same from hit-testing a scene
 // graph. X11 is the counter-example this file is named after: an X
 // window receives EnterNotify only if it asked for it in its event
-// mask, and "forgot to select the event" is a classic X bug. toy-os's
+// mask, and "forgot to select the event" is a classic X bug. SaunaOS's
 // overlays are not surfaces (the panel draws them straight into the
 // compositor's own buffer), so a scene graph is not available to fall
 // out of; this table is the smallest thing that gives the same

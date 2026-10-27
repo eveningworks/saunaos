@@ -171,7 +171,7 @@ const char *uinstall_refusal(const struct udisk *d, uint64_t esp_mib, int mbr, u
     if (need && root * SECTOR_BYTES < need) {
         char n[16];
         human_size_iec(n, sizeof n, need + esp_mib * 1024 * 1024 + 2ull * 1024 * 1024);
-        snprintf(why, sizeof why, "Too small -- toy-os needs %s", n);
+        snprintf(why, sizeof why, "Too small -- SaunaOS needs %s", n);
         return why;
     }
     return 0;
@@ -297,8 +297,8 @@ static int do_partition(struct run *r) {
     req.flags = MKPART_CONFIRM;
     req.kind = p->mbr ? MKPART_KIND_MBR : MKPART_KIND_GPT;
     req.count = (uint32_t)p->nparts;
-    static const char *const GPT_NAMES[] = { "BIOS boot", "EFI System", "toyos" };
-    static const char *const MBR_NAMES[] = { "boot", "toyos" };
+    static const char *const GPT_NAMES[] = { "BIOS boot", "EFI System", "saunaos" };
+    static const char *const MBR_NAMES[] = { "boot", "saunaos" };
     for (int i = 0; i < p->nparts; i++) {
         req.entries[i].start_lba = p->part[i].start;
         req.entries[i].sectors = p->part[i].sectors;
@@ -520,7 +520,7 @@ static int run(struct run *r, unsigned flags) {
     // travels with it, so setup asks only the rest.
     unlink(UINSTALL_TARGET UFBS_MARKER);
     unlink(UINSTALL_TARGET UFBS_ANSWERED);
-    // Nor does the live session's "Install toy-os" launcher go with it.
+    // Nor does the live session's "Install SaunaOS" launcher go with it.
     char launcher[128];
     snprintf(launcher, sizeof launcher, UINSTALL_TARGET "%s/" UINSTALL_LAUNCHER, udir_path(UDIR_DESKTOP));
     unlink(launcher);

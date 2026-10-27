@@ -1,4 +1,4 @@
-# How toy-os is laid out
+# How SaunaOS is laid out
 
 Which directory holds what, and why the boundaries are where they are.
 `kernel/include/README.md` covers the header split by audience;

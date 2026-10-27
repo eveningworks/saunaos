@@ -566,7 +566,7 @@ CLAIMS = ("python v=lambda e:int(gdb.parse_and_eval(e)); "
 
 def real_gdb_run(target, res):
     r = subprocess.run(
-        ["gdb", "-nx", "-batch", "-x", os.path.join(TOOLS, "gdb", "toyos.py"), KERNEL,
+        ["gdb", "-nx", "-batch", "-x", os.path.join(TOOLS, "gdb", "saunaos.py"), KERNEL,
          "-ex", "set pagination off",
          "-ex", f"target remote {target}",
          "-ex", f"x/2i {BP_FUNC}",
@@ -610,7 +610,7 @@ def real_gdb_run(target, res):
     # toy-symbols: a module, then a dynamic program and its libraries.
     tosh = re.search(r"^\*?\s*(\d+)\s+Thread \d+ \(tosh,", out, re.M)
     r = subprocess.run(
-        ["gdb", "-nx", "-batch", "-x", os.path.join(TOOLS, "gdb", "toyos.py"), KERNEL,
+        ["gdb", "-nx", "-batch", "-x", os.path.join(TOOLS, "gdb", "saunaos.py"), KERNEL,
          "-ex", "set pagination off",
          "-ex", f"target remote {target}",
          "-ex", "info threads",

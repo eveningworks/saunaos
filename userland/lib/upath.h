@@ -11,7 +11,7 @@
 // made a third hand-rolled copy the alternative. There is already a
 // fourth-in-waiting: `apps/shell_path.c` is the KERNEL shell's version
 // of the same search, and it cannot use this one (ring 0, and it reads
-// PATH out of `/etc/toyos.conf`). That divergence is real and is why
+// PATH out of `/etc/saunaos.conf`). That divergence is real and is why
 // the search ORDER is stated in both places rather than derived.
 //
 // The list is fixed here rather than read from the environment: a

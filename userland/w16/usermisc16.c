@@ -238,7 +238,7 @@ static int api_KillTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // GetTickCount() -> DWORD
 // GetCurrentTime() -> DWORD
 // Windows: Milliseconds since Windows started.
-// w16: Milliseconds since toy-os started.
+// w16: Milliseconds since SaunaOS started.
 static int api_GetTickCount(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -484,7 +484,7 @@ static int api_FindWindow(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // (WM_SETCURSOR's default).
 // SetCursor(hCursor) -> HCURSOR
 // Windows: Changes the mouse pointer's shape now -- an hourglass while busy; returns the old one.
-// w16: The same: Windows' own cursors in toy-os's shape for them, a program's own as drawn (LoadCursor
+// w16: The same: Windows' own cursors in SaunaOS's shape for them, a program's own as drawn (LoadCursor
 // says which); NULL takes the pointer away until a window's class cursor brings it back.
 static int api_SetCursor(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
@@ -876,7 +876,7 @@ static int api_WNetGetCaps(struct w16 *w, unsigned ordinal, struct w16_args *a) 
 // Windows: Plays the sound of an event: the one for the message box icon uType names -- Asterisk,
 // Exclamation, Critical Stop, Question -- else the Default Beep; the speaker's beep without a sound
 // card.
-// w16: The same event (sndPlaySound says which file plays it), through toy-os's sound daemon.
+// w16: The same event (sndPlaySound says which file plays it), through SaunaOS's sound daemon.
 static int api_MessageBeep(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     w16_sound_event(w, w16_beep_alias(w16_arg16(a)));
@@ -1702,11 +1702,11 @@ static int api_DlgDirSelect(struct w16 *w, unsigned ordinal, struct w16_args *a)
 // Windows: Loads an installable driver -- a DLL SYSTEM.INI's [drivers] names, the MIDI Mapper or an
 // MCI device's -- and sends it DRV_LOAD, DRV_ENABLE and DRV_OPEN; its handle, or NULL.
 // w16: NULL, as for a driver that would not load, so a program says so in its own words.
-// Why: A driver is Windows' own code for hardware toy-os drives itself, and MMSYSTEM's sound is
-// toy-os's.
+// Why: A driver is Windows' own code for hardware SaunaOS drives itself, and MMSYSTEM's sound is
+// SaunaOS's.
 // Notice: Control Panel's Drivers lists SYSTEM.INI's drivers and says "Cannot load the MIDI Mapper
 // driver"; a program asking MCI for a CD or a MIDI device finds none.
-// Whole: The MIDI Mapper and MCI's drivers loaded as w16 modules, playing through toy-os's sound.
+// Whole: The MIDI Mapper and MCI's drivers loaded as w16 modules, playing through SaunaOS's sound.
 static int api_OpenDriver(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     (void)a;
@@ -2123,7 +2123,7 @@ static int api_AnsiToOem(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 // low byte, the shift state in the high (1 Shift, 2 Ctrl, 4 Alt); -1 when no key types it.
 // w16: The same, by the US layout -- the one 3.1 shipped as its default. A program asks to show or
 // match a key (Write's optional hyphen, Ctrl+Shift+-); the characters it is sent come from the
-// layout toy-os uses.
+// layout SaunaOS uses.
 static int api_VkKeyScan(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     unsigned ch = w16_arg16(a) & 0xFF;

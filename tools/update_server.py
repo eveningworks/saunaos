@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve toy-os builds to machines running /bin/update, on three channels.
+"""Serve SaunaOS builds to machines running /bin/update, on three channels.
 
     python3 tools/update_server.py                  # every channel, 0.0.0.0:8080
     python3 tools/update_server.py --publish        # this build -> `main` (preflight-passed)
@@ -23,7 +23,7 @@ THREE CHANNELS, DECLARED BY THE SERVER -- A MACHINE NAMES THE SERVER, THEN PICKS
                                  Marked `internal`: a released image lists it
                                  only when asked to (update.show_internal)
     http://<host>:8080/main      the published snapshot `current` points at,
-                                 under ~/.local/share/toy-os/updates. `/stable`
+                                 under ~/.local/share/saunaos/updates. `/stable`
                                  is the same channel, for the machines whose
                                  address still names it
     http://<host>:8080/release   the snapshot `release` points at: a `main`
@@ -44,7 +44,7 @@ last few snapshots are kept, so `--promote` is also the rollback.
 
 `/channels` is one line per channel, tab-separated, in the server's order:
 
-    # toy-os update channels
+    # SaunaOS update channels
     default main
     alias stable main
     <id> TAB <title> TAB <flags> TAB <version> TAB <built> TAB <description>
@@ -106,7 +106,7 @@ A STALE STAGING TREE IS REFUSED (503 with the reason), on `dev` per
 request and by `--publish` outright: `make all` without `make iso` leaves
 seed/sync one build behind, and a client would faithfully install the
 previous build and report success. iso_guard's check, and its
-TOYOS_ALLOW_STALE_ISO bypass.
+SAUNAOS_ALLOW_STALE_ISO bypass.
 
 WHAT IT IS NOT
 --------------
@@ -140,9 +140,9 @@ REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 # writes the kernel where that machine's GRUB reads it (upd.c).
 KERNEL_TARGET = "/boot/boot/kernel.bin"
 STORE = os.path.join(os.environ.get("XDG_DATA_HOME") or os.path.expanduser("~/.local/share"),
-                     "toy-os", "updates")
+                     "saunaos", "updates")
 SEEDING = os.path.join(REPO, "build", ".seeding")   # the Makefile's seed step, while it runs
-UNIT_NAME = "toy-os-update.service"
+UNIT_NAME = "saunaos-update.service"
 UNIT_TEMPLATE = os.path.join(REPO, "tools", "systemd", UNIT_NAME)
 VERSION_H = os.path.join(REPO, "kernel", "include", "api", "version.h")
 NOTE_KINDS = ("new", "improved", "fixed", "internal")
@@ -259,7 +259,7 @@ class Manifest:
                 self._add_kernel(lines, files)
             self._add_fbs_marker(lines, files)
             built = datetime.datetime.fromtimestamp(newest).strftime("%Y-%m-%d %H:%M")
-            head = ["# toy-os update manifest", f"# version {_version()}",
+            head = ["# SaunaOS update manifest", f"# version {_version()}",
                     f"# built {built}", f"# commit {_build_id()}"]
             return "\n".join(head + sorted(lines, key=_line_path)) + "\n", files
 
@@ -367,7 +367,7 @@ def _header(text, key):
 def channel_list(sources, default):
     """The `/channels` text for {id: source}; a source with nothing to
     serve is still listed, its version and date `-`."""
-    lines = ["# toy-os update channels", f"default {default}"]
+    lines = ["# SaunaOS update channels", f"default {default}"]
     lines += [f"alias {a} {cid}" for a, cid in ALIASES.items() if cid in sources]
     for cid, title, internal, desc in CHANNELS:
         if cid not in sources:
@@ -396,7 +396,7 @@ def _build_id():
     not HEAD now, which may be ahead of what `make iso` staged."""
     try:
         with open(VERSION_H) as fh:
-            m = re.search(r'#define TOYOS_BUILD_ID "([^"]*)"', fh.read())
+            m = re.search(r'#define SAUNAOS_BUILD_ID "([^"]*)"', fh.read())
         if m:
             return m.group(1)
     except OSError:
@@ -420,7 +420,7 @@ def _uncommitted_reason():
 def release_notes(build_id, limit=NOTES_COMMITS):
     """The notes file for a build: its last `limit` commits, newest first."""
     rev = build_id.split("-")[0]
-    lines = ["# toy-os release notes", f"# commit {build_id}"]
+    lines = ["# SaunaOS release notes", f"# commit {build_id}"]
     try:
         out = subprocess.run(
             ["git", "log", f"-n{limit}", "--abbrev=8", f"--notes={NOTES_REF}",
@@ -684,7 +684,7 @@ def make_handler(channels, throttle_kib=0, default=None, declared=None):
     prefixes = sorted(channels, key=len, reverse=True)
 
     class Handler(http.server.BaseHTTPRequestHandler):
-        server_version = "toy-os-update/2"
+        server_version = "saunaos-update/2"
 
         def log_message(self, fmt, *args):      # the access log is ours, below
             pass
@@ -704,7 +704,7 @@ def make_handler(channels, throttle_kib=0, default=None, declared=None):
             self._say(status, len(body))
 
         def _index(self):
-            lines = ["toy-os update server. Channels:"]
+            lines = ["SaunaOS update server. Channels:"]
             for p in prefixes:
                 try:
                     text, files = channels[p].snapshot()

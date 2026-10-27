@@ -2,7 +2,7 @@
 // launch one.
 //
 // **THE COMPOSITOR MATCHES BEFORE ROUTING, AND NOTHING CAN OPT OUT.**
-// That is not a toy-os invention -- a Wayland client cannot grab a key
+// That is not a SaunaOS invention -- a Wayland client cannot grab a key
 // at all, because one that could would be a keylogger, so the
 // compositor is the only thing that ever sees a binding. A fullscreen
 // app here cannot swallow Super+E for the same reason it cannot swallow

@@ -1,4 +1,4 @@
-// Install toy-os: the window that puts this running system onto a disk --
+// Install SaunaOS: the window that puts this running system onto a disk --
 // Welcome, Disk, Ready, Installing, Finished on a step rail (Calamares'
 // shape, and First-boot setup's frame). The five stages are
 // lib/uinstall.h's, the ones `install` runs, on a worker thread; this
@@ -9,10 +9,10 @@
 //
 //   installer=off           nothing at all
 //   a live session          a desktop launcher and a live-session notice
-//                           with "Install toy-os" (Ubuntu's casper and
+//                           with "Install SaunaOS" (Ubuntu's casper and
 //                           Fedora's liveinst put the same two there)
 //   installer=on            this window, full screen -- the live boot
-//                           menu's "Install toy-os" entry
+//                           menu's "Install SaunaOS" entry
 //
 // An installed machine gets none of them; the window still runs from
 // the Start menu, onto another disk, as `install --disk` does.
@@ -75,7 +75,7 @@ static int g_usable[UDISK_MAX], g_nusable;
 static uint32_t g_files;
 static uint64_t g_bytes, g_need;
 static unsigned g_carry;                  // the pages this session set (lib/ufbs.h)
-static char g_version[32] = "toy-os";
+static char g_version[32] = "SaunaOS";
 
 static int g_live;   // a live session: "keep trying" and the USB stick mean something
 static struct uinstall_plan g_plan;
@@ -221,7 +221,7 @@ static const char *refresh_plan(void) {
         after[n++] = (struct uui_diskplan_new){
             q->start, q->sectors,
             i == g_plan.root ? UDISK_ROLE_DATA : i == g_plan.boot ? UDISK_ROLE_ESP : UDISK_ROLE_BIOS,
-            i == g_plan.root ? "toy-os" : i == g_plan.boot ? "/boot" : "BIOS",
+            i == g_plan.root ? "SaunaOS" : i == g_plan.boot ? "/boot" : "BIOS",
             q->fs ? (i == g_plan.root ? "TFS3" : "FAT32") : 0,
         };
     }
@@ -241,7 +241,7 @@ static void refresh_refused(void) {
         strlcat(g_refused_text, one, sizeof g_refused_text);
     }
     snprintf(g_none_text, sizeof g_none_text, "%s",
-             g_nusable ? "" : "No disk here can take toy-os. Attach one, then reopen this window.");
+             g_nusable ? "" : "No disk here can take SaunaOS. Attach one, then reopen this window.");
 }
 
 static void refresh_welcome(void) {
@@ -291,7 +291,7 @@ static void refresh_done(void) {
     char took[16], total[16], root[16];
     uduration_clock(g_took_ms, took, sizeof took);
     if (g_prog.ok) {
-        snprintf(g_done_title, sizeof g_done_title, "toy-os is installed on %s", g_plan.disk);
+        snprintf(g_done_title, sizeof g_done_title, "SaunaOS is installed on %s", g_plan.disk);
         const char *asks = g_carry && !g_askall.checked ? "only what this session did not set"
                                                         : "how to set it up";
         if (g_live)
@@ -300,7 +300,7 @@ static void refresh_done(void) {
                      "First-boot setup asks %s.", g_plan.disk, asks);
         else
             snprintf(g_done_text, sizeof g_done_text,
-                     "%s starts toy-os on its own now; this computer still starts from the disk it "
+                     "%s starts SaunaOS on its own now; this computer still starts from the disk it "
                      "did. On %s, First-boot setup asks %s.", g_plan.disk, g_plan.disk, asks);
         human_size_iec(total, sizeof total, g_bytes);
         human_size_iec(root, sizeof root, g_plan.part[g_plan.root].sectors * 512);
@@ -311,7 +311,7 @@ static void refresh_done(void) {
     } else {
         snprintf(g_done_title, sizeof g_done_title, "The install did not finish");
         snprintf(g_done_text, sizeof g_done_text,
-                 "%s is in an unknown state and will not start toy-os. Go back to try again, "
+                 "%s is in an unknown state and will not start SaunaOS. Go back to try again, "
                  "perhaps with the other partition table.", g_plan.disk);
         fact(f, "Stopped at", "%s", uinstall_stage_name(g_prog.stage < UINSTALL_STAGES ? g_prog.stage
                                                                                       : UINSTALL_BOOTLOADER));
@@ -441,7 +441,7 @@ static void ask_erase(void) {
         { "Erase and install", ASK_ERASE, UUI_DLG_DANGER },
     };
     static char title[64];
-    snprintf(title, sizeof title, "Erase %s and install toy-os?", d->name);
+    snprintf(title, sizeof title, "Erase %s and install SaunaOS?", d->name);
     uui_dialog_set_bounds(&g_ask, 0, 0, uapp_width(g_app), uapp_height(g_app));
     // Cancel is the default: Return must never erase a disk.
     uui_dialog_open(&g_ask, title, g_ask_ptrs, n, btns, 2, 0, ASK_CANCEL);
@@ -620,7 +620,7 @@ static void build(void) {
     int cw = ugfx_char_advance('n'), lh = ugfx_char_h();
 
     // Welcome
-    para(&w_intro, g_live ? "This puts toy-os on a disk in this computer, so that it starts from that disk "
+    para(&w_intro, g_live ? "This puts SaunaOS on a disk in this computer, so that it starts from that disk "
                             "instead of the USB stick or disc."
                           : "This puts a copy of this system on another disk in this computer. The disk it "
                             "runs from now is left as it is.", 0);
@@ -662,7 +662,7 @@ static void build(void) {
     uui_checkbox_init(&g_askall, 0, 0, 0, "Ask every First-boot setup question again on the first start",
                       UUI_ROLE(window_bg), UUI_ROLE(text));
     g_askall.accent = 1;
-    para(&w_ready_note, "Install erases the disk named above and writes toy-os to it.", 1);
+    para(&w_ready_note, "Install erases the disk named above and writes SaunaOS to it.", 1);
     P_READY[0] = item(&uui_custom_ops, &g_ready_card, 0, "summary", UUI_FILL_W);
     P_READY[1] = item(&uui_checkbox_ops, &g_askall, ID_ASKALL, "ask_all", 0);
     P_READY[2] = item(&uui_label_ops, &w_ready_note, 0, "ready_note", UUI_FILL_W);
@@ -686,7 +686,7 @@ static void build(void) {
     para(&w_done_text, g_done_text, 0);
     g_done_card = (struct uui_custom){ .w = cw * 70, .h = fact_row_h(), .draw = draw_facts,
                                        .state = &g_done_facts };
-    uui_button_init(&g_keep, 0, 0, 0, 0, g_live ? "Keep trying toy-os" : "Close", UUI_ROLE(control_bg), UUI_ROLE(text),
+    uui_button_init(&g_keep, 0, 0, 0, 0, g_live ? "Keep trying SaunaOS" : "Close", UUI_ROLE(control_bg), UUI_ROLE(text),
                     ID_KEEP);
     uui_button_init(&g_shutdown, 0, 0, 0, 0, "Shut down", UUI_ROLE(control_bg), UUI_ROLE(text), ID_SHUTDOWN);
     g_keep.outlined = g_shutdown.outlined = 1;
@@ -700,8 +700,8 @@ static void build(void) {
     L_DONE = column(P_DONE, 4);
 
     static const struct { const char *title, *note, *next; struct uui_layout *page; } STEPS[S_COUNT] = {
-        { "Welcome", "Install toy-os on this computer.", 0, &L_WELCOME },
-        { "Disk", "Where toy-os goes. The whole disk is used, and everything on it is erased.", 0, &L_DISK },
+        { "Welcome", "Install SaunaOS on this computer.", 0, &L_WELCOME },
+        { "Disk", "Where SaunaOS goes. The whole disk is used, and everything on it is erased.", 0, &L_DISK },
         { "Ready", "Nothing has been changed yet.", "Install", &L_READY },
         { "Installing", "Keep the computer on. This session still works meanwhile.", 0, &L_INSTALL },
         { "Finished", 0, "Restart now", &L_DONE },
@@ -712,10 +712,10 @@ static void build(void) {
 
     uui_dialog_init(&g_ask);
     struct uui_wizard_desc d = {
-        .heading = "Install toy-os",
+        .heading = "Install SaunaOS",
         .steps = g_steps,
         .count = S_COUNT,
-        .skip = g_live ? "Quit -- keep trying toy-os" : "Quit",
+        .skip = g_live ? "Quit -- keep trying SaunaOS" : "Quit",
         .finish = "Restart now",
         .can_leave = can_leave,
         .on_enter = on_enter,
@@ -756,11 +756,11 @@ static void on_open(struct uapp *a) {
 // The launcher lives in the RAM image, so it is gone with the session,
 // and an install leaves it behind (UINSTALL_LAUNCHER). installer=on gets
 // the launcher too but no notice: the window is the way back in after
-// "Keep trying toy-os", and the notice would only be dropped again.
+// "Keep trying SaunaOS", and the notice would only be dropped again.
 static void offer(int notice) {
     static const char ENTRY[] =
         "# Written by `installer --boot` in a live session (docs/commands/install.md).\n"
-        "Name=Install toy-os\n"
+        "Name=Install SaunaOS\n"
         "Exec=" SELF "\n"
         "Category=system\n"
         "Comment=Put this system on a disk in this computer\n"
@@ -798,14 +798,14 @@ int main(int argc, char **argv) {
 
     struct query_version kv;
     if (sys_query_record(QUERY_VERSION, 0, &kv, sizeof kv) >= (int)sizeof kv)
-        snprintf(g_version, sizeof g_version, "toy-os %s", kv.version);
+        snprintf(g_version, sizeof g_version, "SaunaOS %s", kv.version);
     g_carry = ufbs_stored();
     if (uinstall_measure(&g_files, &g_bytes) == 0) g_need = uinstall_root_need(g_bytes);
     scan();
 
     g_root = (struct uui_layout){ .dir = UUI_COLUMN, .items = g_widgets, .count = 0, .margin = 1 };
     struct uapp_desc desc = {
-        .title        = "Install toy-os",
+        .title        = "Install SaunaOS",
         .app_id       = "installer",
         .layout       = &g_root,
         .on_size      = on_size,

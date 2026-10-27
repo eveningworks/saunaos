@@ -92,7 +92,7 @@ enum setting_result {
 #define SETTING_ABI_NAME_MAX  48 // the /etc key, e.g. "font.size"; = SETTING_NAME_MAX
 #define SETTING_ABI_LABEL_MAX 40 // human-facing, e.g. "Font size"
 #define SETTING_ABI_VALUE_MAX 64 // a value, as stored
-#define SETTING_ABI_FILE_MAX  40 // e.g. "/etc/toyos.conf"
+#define SETTING_ABI_FILE_MAX  40 // e.g. "/etc/saunaos.conf"
 #define SETTING_ABI_NS_MAX    24 // e.g. "system" -- see `ns` below
 // Room for "<ns>.<name>", which is what GET and SET accept in `name`.
 // INFO still writes the BARE key there and puts the namespace in `ns`.
@@ -251,7 +251,7 @@ struct setting_msg {
     char name[SETTING_ABI_QUALIFIED_MAX]; // in (GET/SET), out (INFO)
 
     // The setting's NAMESPACE -- the registered name of the file it
-    // persists to ("system" for /etc/toyos.conf). A setting's identity
+    // persists to ("system" for /etc/saunaos.conf). A setting's identity
     // is (ns, name), so two programs may both own a `theme`; see
     // api/setting.h.
     //

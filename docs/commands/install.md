@@ -36,7 +36,7 @@
 ## Description
 
 `/bin/install` puts the running system onto another disk and makes that disk
-boot. The **Install toy-os** window does the same through the same library
+boot. The **Install SaunaOS** window does the same through the same library
 (`lib/uinstall.h`), so the two cannot install two different ways. Five steps,
 each of which is an existing command's operation done through the same syscall
 that command uses:
@@ -62,7 +62,7 @@ writing to a terminal:
 
 The four files it writes onto the target's boot partitions come from
 **`/install`** — `kernel.bin`, `grub.cfg`, `boot.img`, `core.img` — which every
-toy-os filesystem carries.
+saunaos filesystem carries.
 
 Nothing here is a special path into the kernel. An installer that needed one
 would be an installer whose steps could not be checked by hand — every one of
@@ -81,7 +81,7 @@ The layout it writes:
 Run bare at a terminal, `install` asks -- Alpine's `setup-alpine` shape:
 
     /$ install
-    Install toy-os onto which disk?
+    Install SaunaOS onto which disk?
          ram0      171.0 MiB  live image                   This system is running from it
       1) ata0      512.0 MiB  QEMU HARDDISK                (empty)
     Disk [1]:
@@ -104,7 +104,7 @@ they always did. A script or a test drives it exactly as before.
 
 ## The installer window
 
-**Install toy-os** (`/bin/wm/system/installer`, System in the Start menu) is
+**Install SaunaOS** (`/bin/wm/system/installer`, System in the Start menu) is
 the same install on a step rail -- Welcome, Disk, Ready, Installing, Finished,
 First-boot setup's frame. Disk shows the disks it can use and what each holds
 now and after, Ready says what is erased and what goes with the install, and
@@ -117,12 +117,12 @@ On an installed machine the window installs onto ANOTHER disk, and its
 
 **A live session offers it unasked**: `/etc/services.d/installer` runs
 `installer --boot` after the desktop starts, which in a live session puts an
-**Install toy-os** launcher on the desktop and a notice in the corner ("This is
-a live session", with Install toy-os) that stays until it is closed or the
+**Install SaunaOS** launcher on the desktop and a notice in the corner ("This is
+a live session", with Install SaunaOS) that stays until it is closed or the
 installer opens. An installed machine gets neither. The live ISO's boot menu
-also has an **Install toy-os** entry, which opens the window full screen at
+also has an **Install SaunaOS** entry, which opens the window full screen at
 once (`installer=on`) with the launcher already on the desktop behind it, so
-"Keep trying toy-os" leaves a way back; `installer=off` offers nothing at all
+"Keep trying SaunaOS" leaves a way back; `installer=off` offers nothing at all
 (`docs/boot-flags.md`).
 
 ## What a live session's settings do
@@ -137,7 +137,7 @@ First-boot setup question again") writes no such list, so setup asks
 everything. A live session itself never shows First-boot setup
 (`docs/commands/fbs.md`).
 
-What the session's desktop held goes too -- except its **Install toy-os**
+What the session's desktop held goes too -- except its **Install SaunaOS**
 launcher, which the install leaves behind.
 
 ## Refreshing the bootloader
@@ -160,7 +160,7 @@ GRUB booted from, so a second disk cannot take the root
 (`docs/boot-flags.md`). It needs BOTH halves: a core image with GRUB's `probe`
 module, and grub.cfg lines that use it — and System Update writes neither, so
 a machine installed before it gets it from this refresh. **grub.cfg is EDITED,
-not replaced**: each toy-os (`multiboot2`) entry that can be edited as words
+not replaced**: each SaunaOS (`multiboot2`) entry that can be edited as words
 gains the two probe lines above its boot line and `bootpart=$bootpart` on it,
 exactly as `bootcfg` would edit it; a `linux` entry, an entry already carrying
 the word, and anything else in the file are left as they are, and the old file
@@ -202,9 +202,9 @@ machine can be sent a compressed kernel.
 
     install --migrate confirm
 
-The boot volume holds `kernel.bin` and `grub/` at its ROOT, which toy-os
+The boot volume holds `kernel.bin` and `grub/` at its ROOT, which SaunaOS
 shows as `/boot/kernel.bin` and `/boot/grub/` — a Linux `/boot` partition's
-shape. Disks written before 2026-10-11 kept both one level down, so toy-os
+shape. Disks written before 2026-10-11 kept both one level down, so SaunaOS
 showed `/boot/boot/...`, and their GRUB core image has `/boot/grub` baked into
 its prefix: the files cannot simply be moved. So the move is three steps around
 the one write that changes what GRUB reads (`lib/ubootlayout.h`):
@@ -231,13 +231,13 @@ written.
 ## Installing from live media
 
 **This is the path a real machine uses**, and it is why `/install` exists. Write
-`toy-os-live.iso` to a stick or a CD, boot it, and the root is a filesystem
+`saunaos-live.iso` to a stick or a CD, boot it, and the root is a filesystem
 image GRUB loaded into RAM — the machine's own disks are enumerated but nothing
 is mounted from them, so `install --disk <name>` can erase and rewrite the one
 you point it at.
 
 `/boot` is **empty** in a live session: there is no ESP, because nothing drives
-the boot medium once GRUB has loaded the kernel and the image (toy-os has no
+the boot medium once GRUB has loaded the kernel and the image (SaunaOS has no
 USB mass-storage driver). That is exactly why the payload travels in the root
 rather than being read out of `/boot` — one path on every medium.
 
@@ -263,7 +263,7 @@ rather than being read out of `/boot` — one path on every medium.
 prefix baked in at the host's `grub-mkimage` time — `(hd0,gpt2)/grub` — so
 the copy this installs only finds its config if the ESP is **partition 2** on
 the target as well. Anaconda and the Debian installer generate a fresh core
-image per target instead; toy-os has no `grub-mkimage` of its own, so it
+image per target instead; SaunaOS has no `grub-mkimage` of its own, so it
 reproduces the layout that the image it copies expects. Changing the partition
 order here without rebuilding `core.img` produces a disk that reaches GRUB and
 stops at a rescue prompt.
@@ -309,7 +309,7 @@ the second one refuses `--mbr` before erasing anything.
 Use it when the default install produced a disk the firmware will not boot.
 There is no reason to prefer it otherwise, and no reason to switch the
 machine to UEFI — **nothing here installs a UEFI bootloader**, so a UEFI-only
-machine cannot boot a toy-os install at all.
+machine cannot boot a SaunaOS install at all.
 
 ## Limits
 

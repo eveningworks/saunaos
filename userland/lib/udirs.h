@@ -7,7 +7,7 @@
 // /home/<Name> unless /etc/user-dirs.conf says otherwise
 // (`MUSIC=/home/Audio`, one line per folder; XDG's own file is
 // `XDG_MUSIC_DIR="$HOME/Music"`, read here without the decoration).
-// toy-os has no accounts, so /home is the one user's home.
+// SaunaOS has no accounts, so /home is the one user's home.
 //
 // What ships -- the wallpapers, the music, the documentation -- stays in
 // /usr/share; these start empty and are the person's own.

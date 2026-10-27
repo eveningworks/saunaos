@@ -2,7 +2,7 @@
 //
 // This file is OURS -- nothing in userland/ports/mbedtls/ is edited.
 // It is the only place in the tree that includes an mbedtls/ header
-// besides toyos_platform.c, which is what keeps the engine swappable.
+// besides saunaos_platform.c, which is what keeps the engine swappable.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -26,7 +26,7 @@
 
 #include "rt/sys.h"
 #include "utls.h"
-#include "toyos_tls_entropy.h"
+#include "saunaos_tls_entropy.h"
 
 struct utls {
     int fd;
@@ -65,7 +65,7 @@ static void say_mbed(char *err, size_t cap, const char *what, int rc) {
 #define UTLS_ERR_RECV (-0x7f01)
 
 // The BIO pair. A short read is reported as a short read and an orderly
-// close as 0, which is what read()/write() on a toy-os socket already
+// close as 0, which is what read()/write() on a SaunaOS socket already
 // do, so these are near pass-throughs.
 
 static int bio_send(void *ctx, const unsigned char *buf, size_t len) {
@@ -276,8 +276,8 @@ struct utls *utls_connect(int fd, const struct utls_config *cfg,
     // than warning because a warning printed above a page of HTML is a
     // warning nobody reads.
     char src[64];
-    enum toyos_entropy_grade grade = toyos_entropy_grade(src, sizeof src);
-    if (grade < TOYOS_ENTROPY_GOOD && cfg->entropy != UTLS_ENTROPY_ALLOW_WEAK) {
+    enum saunaos_entropy_grade grade = saunaos_entropy_grade(src, sizeof src);
+    if (grade < SAUNAOS_ENTROPY_GOOD && cfg->entropy != UTLS_ENTROPY_ALLOW_WEAK) {
         say(err, errcap,
             "this machine's randomness is %s, which is too weak to key a "
             "connection with -- give the guest a virtio-rng device, or "
@@ -304,7 +304,7 @@ struct utls *utls_connect(int fd, const struct utls_config *cfg,
     mbedtls_x509_crt_init(&t->ca);
 
     int rc;
-    const char *pers = "toy-os utls";
+    const char *pers = "SaunaOS utls";
     if ((rc = mbedtls_ctr_drbg_seed(&t->drbg, mbedtls_entropy_func, &t->entropy,
                                     (const unsigned char *)pers, strlen(pers))) != 0) {
         say_mbed(err, errcap, "seeding the RNG", rc);
@@ -554,7 +554,7 @@ static int build_cert(mbedtls_pk_context *key, const char *const *names, int nna
     if (dl > 0) mbedtls_sha256(der + sizeof der - dl, (size_t)dl, serial, 0);
     serial[0] &= 0x7F;   // positive, as DER integers must be
     char subject[96];
-    snprintf(subject, sizeof subject, "CN=%s,O=toy-os remote desktop", nnames ? names[0] : "toy-os");
+    snprintf(subject, sizeof subject, "CN=%s,O=SaunaOS remote desktop", nnames ? names[0] : "saunaos");
     int rc;
     mbedtls_x509write_crt_set_version(&crt, MBEDTLS_X509_CRT_VERSION_3);
     mbedtls_x509write_crt_set_md_alg(&crt, MBEDTLS_MD_SHA256);
@@ -577,7 +577,7 @@ static int build_cert(mbedtls_pk_context *key, const char *const *names, int nna
 
 static int seed(mbedtls_entropy_context *e, mbedtls_ctr_drbg_context *d, char *err, size_t cap) {
     char src[64];
-    if (toyos_entropy_grade(src, sizeof src) < TOYOS_ENTROPY_GOOD) {
+    if (saunaos_entropy_grade(src, sizeof src) < SAUNAOS_ENTROPY_GOOD) {
         say(err, cap, "this machine's randomness is %s, too weak to make a key that "
             "stays secret", src[0] ? src : "of unknown quality");
         return -1;
@@ -589,7 +589,7 @@ static int seed(mbedtls_entropy_context *e, mbedtls_ctr_drbg_context *d, char *e
         say(err, cap, "the crypto library would not start");
         return -1;
     }
-    const char *pers = "toy-os utls server";
+    const char *pers = "SaunaOS utls server";
     int rc = mbedtls_ctr_drbg_seed(d, mbedtls_entropy_func, e, (const unsigned char *)pers,
                                    strlen(pers));
     if (rc) { say_mbed(err, cap, "seeding the RNG", rc); return -1; }

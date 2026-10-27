@@ -377,7 +377,7 @@ divided raw block numbers -- correct only if groups started at block
 
 Every block number on disk is relative to a **volume**: a contiguous
 sector extent `{ base_lba, sector_count }`. This was designed
-partition-proof from day one, by an explicit user requirement (toy-os
+partition-proof from day one, by an explicit user requirement (SaunaOS
 should eventually boot from a TFS3 partition), and **it now does** --
 see `docs/decisions.md` and `tools/partition_test.py`.
 
@@ -572,7 +572,7 @@ Unchanged from the original draft:
 
 - **Device nodes** (types 3-5): enum values reserved (free), storage
   would reuse the fast-symlink inline area (major/minor instead of a
-  target string). Not built -- toy-os has no `/dev` concept; drivers
+  target string). Not built -- SaunaOS has no `/dev` concept; drivers
   are reached through `kapi.h`, and the standing bar is a second real
   caller.
 - **Mount points are not an inode concept.** What makes a directory a

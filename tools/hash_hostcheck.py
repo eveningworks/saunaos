@@ -2,7 +2,7 @@
 """Check /lib/libhash.so's algorithms against hashlib and zlib, on the HOST.
 
 WHY A HOST HARNESS EXISTS BESIDE THE GUEST TEST. `/tests/hash_test`
-runs the algorithms where they live and proves they work in toy-os, but
+runs the algorithms where they live and proves they work in SaunaOS, but
 a guest test can only carry the handful of vectors somebody committed --
 and a hash's bugs hide at the BOUNDARIES: the block that is exactly 64
 bytes, the one that lands the length field in the second pad block, the
@@ -80,7 +80,7 @@ def build(tmp, poison=False):
     kcrc.h is copied rather than reached with -Ikernel/include/api,
     because that directory also holds the toolkit's own string.h --
     which would shadow the host's and take memcpy/strcmp away from a
-    compile that has no toy-os libc under it.
+    compile that has no SaunaOS libc under it.
     """
     for h in ("kernel/include/api/kcrc.h", "kernel/include/api/ksha256.h",
               "userland/include/uhash.h"):

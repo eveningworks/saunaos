@@ -132,8 +132,8 @@ KTEST("fsident", "FAT32 and FAT16 by their BPB; NO NAME is no label") {
     put(71, "NO NAME    ");
     KTEST_ASSERT(ident(&id) && !k_strcmp(id.type, "fat32"));
     KTEST_ASSERT_EQ(id.label[0], 0);
-    put(71, "TOYOS      ");
-    KTEST_ASSERT(ident(&id) && !k_strcmp(id.label, "TOYOS"));
+    put(71, "SAUNAOS    ");
+    KTEST_ASSERT(ident(&id) && !k_strcmp(id.label, "SAUNAOS"));
     KTEST_ASSERT(fresh());
     w16(11, 512); g_img[13] = 4; w16(14, 1); g_img[16] = 2; w16(22, 32);
     g_img[510] = 0x55; g_img[511] = 0xaa;
@@ -163,8 +163,8 @@ KTEST("fsident", "btrfs, XFS, swap and ISO 9660 by their magic, with labels") {
     KTEST_ASSERT(fresh());
     g_img[32768] = 1;
     put(32769, "CD001");
-    put(32768 + 40, "TOYOS_LIVE                      ");
-    KTEST_ASSERT(ident(&id) && !k_strcmp(id.type, "iso9660") && !k_strcmp(id.label, "TOYOS_LIVE"));
+    put(32768 + 40, "SAUNAOS_LIVE                    ");
+    KTEST_ASSERT(ident(&id) && !k_strcmp(id.type, "iso9660") && !k_strcmp(id.label, "SAUNAOS_LIVE"));
 }
 
 KTEST("fsident", "a blank volume and an MBR are nothing") {

@@ -31,7 +31,7 @@
 // unanswerable until after the first save.
 
 #define CONFIG_NAME_MAX       24 // the umbrella name, e.g. "system"
-#define CONFIG_PATH_MAX       40 // e.g. "/etc/toyos.conf"
+#define CONFIG_PATH_MAX       40 // e.g. "/etc/saunaos.conf"
 #define CONFIG_DESC_MAX       56 // one line, for `config files`
 
 // Where descriptor files live. One file per registered config file;
@@ -82,7 +82,7 @@ struct config_file {
 // `.desktop` entries). The built-ins exist so the system can describe
 // its own configuration on a blank disk, before /etc/config.d holds
 // anything at all -- a registry that lived ONLY in files could not
-// bootstrap, and a deleted descriptor would leave /etc/toyos.conf
+// bootstrap, and a deleted descriptor would leave /etc/saunaos.conf
 // nameless.
 //
 // Returns 1, or 0 if the registry is full, an argument is missing or

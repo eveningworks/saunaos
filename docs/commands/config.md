@@ -51,7 +51,7 @@ read-only counters would bury the settings.
 
 **Settings are named `<namespace>.<name>`** — the namespace being the
 registered name of the file the setting lives in, so `font.size` in
-`/etc/toyos.conf` is `system.font.size`. A bare name still works when
+`/etc/saunaos.conf` is `system.font.size`. A bare name still works when
 only one setting has it; when several do, `config` lists them and
 refuses rather than picking. `config set` and `config unset` refuse an
 ambiguous name outright, because writing the wrong setting changes

@@ -1,6 +1,6 @@
 // automountd -- USB sticks, mounted as they arrive and tidied as they go.
 //
-// udisks2's job on a Linux desktop, at toy-os's size: a volume on a
+// udisks2's job on a Linux desktop, at SaunaOS's size: a volume on a
 // removable disk that this system can read is mounted at /media/<name>
 // when it appears; a pulled stick's mount is unmounted and its folder
 // removed; and the desktop's Eject is done HERE (lib/udrive.h's channel,

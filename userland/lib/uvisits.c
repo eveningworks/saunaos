@@ -5,7 +5,7 @@
 #include <string.h>
 #include <strings.h>
 
-#define FILE_MAGIC "# toy-os history 1"
+#define FILE_MAGIC "# SaunaOS history 1"
 
 void uvisits_free(struct uvisits *h) {
     for (int i = 0; i < h->n; i++) {

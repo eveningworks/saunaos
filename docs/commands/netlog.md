@@ -120,7 +120,7 @@ Settings under **Network**:
 
     config set system.conn_log tcp
 
-Changing it takes effect immediately and persists to `/etc/toyos.conf`.
+Changing it takes effect immediately and persists to `/etc/saunaos.conf`.
 Records already in the ring are kept.
 
 ## See also

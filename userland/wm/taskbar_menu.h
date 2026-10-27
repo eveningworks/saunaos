@@ -10,7 +10,7 @@
 //   options in between are KDE's "configure the panel where you are".
 //
 //   the START BUTTON -- the system tools, then Leave: Windows' Win+X
-//   menu, with toy-os's own programs.
+//   menu, with SaunaOS's own programs.
 //
 // Both are context_menu.c menus; their rows are this file's.
 

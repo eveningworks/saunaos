@@ -120,7 +120,7 @@ runlevels 3 and 5 before it, and both exist for the reason that applies
 here: "what this machine is for" is configuration, not code.
 
 It fits this repo unusually cheaply. A registered `struct setting`
-(`api/setting.h`) gets a Control Panel row, an `/etc/toyos.conf` key,
+(`api/setting.h`) gets a Control Panel row, an `/etc/saunaos.conf` key,
 a `config` entry and validation for free, with no new mechanism -- and
 it answers, in one stroke, both "does init own the desktop" and "how is
 init configured".
@@ -449,7 +449,7 @@ of them blocks stage 0.
    is still open is narrower: does `gui` at the shell become "ask init
    to start the desktop", or does it keep spawning one directly? The
    second is simpler and means two things can start a desktop; the
-   first needs a way to talk to init, which is an IPC toy-os does not
+   first needs a way to talk to init, which is an IPC SaunaOS does not
    have (the same gap the settings-daemon item records).
 2. **What does init do when its target's program keeps dying?**
    Restarting forever is a crash loop that hides the fault; not

@@ -7,7 +7,7 @@
 // The boot volume (FAT32, mounted at /boot) holds kernel.bin and grub/
 // at its ROOT -- /boot/kernel.bin, /boot/grub/grub.cfg -- the shape of a
 // Linux /boot partition. Disks written before that kept everything one
-// level down, so toy-os showed /boot/boot/... ; GRUB's core image on
+// level down, so SaunaOS showed /boot/boot/... ; GRUB's core image on
 // those machines has `/boot/grub` baked into its prefix.
 //
 // THE MOVE IS TWO HALVES AROUND A CORE-IMAGE WRITE, and only `install

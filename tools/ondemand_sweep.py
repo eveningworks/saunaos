@@ -245,7 +245,7 @@ TOOLS = [
     # alone. It makes its own images and never touches disk.img, so
     # wants_vm is False.
     ("install",     "install_test.py",         "self-hosted install, then boot it",  False, None,                   False),
-    # The Install toy-os window on toy-os-live.iso onto a blank disk, then
+    # The Install SaunaOS window on saunaos-live.iso onto a blank disk, then
     # that disk booted alone. Its own guests and image; SKIPS (77) when
     # the live ISO is missing or older than the build.
     ("installer",   "installer_test.py",       "the GUI installer, live ISO to a booting disk", False, None,         False),
@@ -258,18 +258,18 @@ TOOLS = [
     # disk.img, so wants_vm is False; it SKIPS cleanly without mtools,
     # which is a skip rather than a pass -- see run_one().
     ("fat32",       "fat32_test.py",           "FAT32 and /boot, against mtools",    True,  None,                   False),
-    # NetSurf's layout on toy-os against the SAME pinned source built on
+    # NetSurf's layout on SaunaOS against the SAME pinned source built on
     # the host (docs/browser-design.md, stage 1). Its own guest on a copy
     # of disk.img, so wants_vm is False; the host build is the oracle,
     # and without it this is a skip -- tools/netsurf_vendor.py makes it.
-    ("browser_host", "browser_hostcheck.py",   "NetSurf's layout, toy-os vs the host build", True,
+    ("browser_host", "browser_hostcheck.py",   "NetSurf's layout, SaunaOS vs the host build", True,
      ("netsurf_oracle", "needs the host NetSurf build: tools/netsurf_vendor.py --no-copy"),  False),
     # The same with JavaScript on, both sides (stage 6): Duktape over
     # tolibc against the same pinned Duktape on the host.
     ("browser_host_js", "browser_hostcheck.py --js", "the same, JavaScript on both sides", True,
      ("netsurf_oracle", "needs the host NetSurf build: tools/netsurf_vendor.py --no-copy"),  False),
     ("live_boot",   "live_boot_test.py",       "the Live CD's RAM image",            True,
-     ("live_iso", "no toy-os-live.iso -- run `make live-iso` first"),                        False),
+     ("live_iso", "no saunaos-live.iso -- run `make live-iso` first"),                        False),
     # Two disks on two drivers -- the one configuration no other tool
     # here boots, and the shape the enumerate-everything bug needed.
     ("multidisk",   "multidisk_test.py",       "two disks, two drivers, root=",      True,  None,                   False),
@@ -376,6 +376,9 @@ TOOLS = [
     # disk.img, boots it, lets bootmigrate run, and reboots through the
     # rewritten core image.
     ("boot_migrate", "boot_migrate_test.py",   "bootmigrate moves /boot/boot up and boots from it", True, None,    False),
+    # Boots a COPY of disk.img with the settings file and log under their
+    # pre-rename names, reboots, and checks the kernel moved them.
+    ("rename_migrate", "rename_migrate_test.py", "toy-os's /etc and /var/log names move to SaunaOS's", True, None,    False),
     # A reboot ENDS its guest (-no-reboot), so it boots its own on a COPY
     # of disk.img and reads init's lines from a file-backed serial log.
     ("shutdown",    "shutdown_test.py",        "reboot stops the services in reverse order, then the rest", True, None, False),
@@ -536,11 +539,11 @@ TOOLS = [
     # and the sweep runs these only once it exists, so a sweep never
     # touches the network. The two guest tools boot their own: serial.
     ("smb_host",    "smb_hostcheck.py",        "the SMB client vs Samba, every dialect", False,
-     ("samba", "needs Docker and the toyos-samba:1 image -- samba_server.py --build"),    False),
+     ("samba", "needs Docker and the saunaos-samba:1 image -- samba_server.py --build"),    False),
     ("smb",         "smb_test.py",             "smb, mount -t smb and saved shares, in a guest", True,
-     ("samba", "needs Docker and the toyos-samba:1 image -- samba_server.py --build"),    False),
+     ("samba", "needs Docker and the saunaos-samba:1 image -- samba_server.py --build"),    False),
     ("fm_network",  "fm_network_test.py",      "the File Manager's Network rows",    True,
-     ("samba", "needs Docker and the toyos-samba:1 image -- samba_server.py --build"),    False),
+     ("samba", "needs Docker and the saunaos-samba:1 image -- samba_server.py --build"),    False),
 ]
 
 # TOOLS THAT LEAVE disk.img CHANGED, run LAST for that reason.
@@ -591,7 +594,7 @@ def precondition_met(kind):
         # sweep must not do unasked. A skip either way.
         if not shutil.which("docker"):
             return False, why
-        r = subprocess.run(["docker", "image", "inspect", "toyos-samba:1"],
+        r = subprocess.run(["docker", "image", "inspect", "saunaos-samba:1"],
                            capture_output=True, text=True)
         return r.returncode == 0, why
     if key == "iwad":
@@ -668,7 +671,7 @@ def precondition_met(kind):
         # A separate ISO that `make iso` does not build. Missing it is a
         # precondition, not a failure -- reporting it as red would train
         # the reader to skim past a red line.
-        return os.path.exists(os.path.join(REPO, "toy-os-live.iso")), why
+        return os.path.exists(os.path.join(REPO, "saunaos-live.iso")), why
     if key == "kcmdline":
         # The BUILT config (iso/boot/grub/grub.cfg), and only its
         # `multiboot2` line. The template at the repo root is the wrong

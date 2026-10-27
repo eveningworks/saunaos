@@ -28,7 +28,7 @@ together, which no KTEST can (the suite runs inside one booted
 kernel).
 
 Usage: python3 tools/fs_switch_test.py   (builds its own disk copy;
-       needs toy-os.iso + disk.img, i.e. run after `make iso`)
+       needs saunaos.iso + disk.img, i.e. run after `make iso`)
 """
 
 import os
@@ -124,7 +124,7 @@ def main():
         # with no builtin any more (its database left ring 0 -- api/tz.h),
         # and a freshly formatted image has no /bin to run `config` from.
         # Any setting a KERNEL-side command persists answers the question.
-        out = vm_exec("fontsize 20", "rescue cat /etc/toyos.conf")
+        out = vm_exec("fontsize 20", "rescue cat /etc/saunaos.conf")
         check("a setting persists after a live reformat",
               "font.size=20" in out and "NOT saved" not in out, out[-300:])
 

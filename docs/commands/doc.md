@@ -41,7 +41,7 @@ title, category or summary mentions a disk; `doc -K write-back` searches
 the text of all of them and prints the lines that matched.
 
 **THERE IS NO `man`, AND THAT IS DELIBERATE.** `man` is short for a
-thing toy-os does not have -- roff manual pages in numbered sections --
+thing SaunaOS does not have -- roff manual pages in numbered sections --
 and every command here already has exactly one page under exactly one
 name. A second name for one program would be a second thing to keep
 true, and this filesystem could not make it free anyway: `ln` creates

@@ -492,14 +492,14 @@ outstanding. **NCQ and 64-bit addressing are REPORTED, not used**, and
     reboot.
   - **A setting's identity is (NAMESPACE, name), and the namespace is
     the registered name of its FILE** -- `system.font.size` for
-    `font.size` in `/etc/toyos.conf`. Derived, not declared. **A bare
+    `font.size` in `/etc/saunaos.conf`. Derived, not declared. **A bare
     name works only when exactly one setting has it and is REFUSED when
     several do** -- never resolved by registration order, which would
     make the answer depend on boot sequence.
   - **`/etc/config.d` is how a config FILE declares itself** -- one
     `Name`/`Path`/`Description` descriptor each, so a ring-3 program can
     register its config with no kernel change (`api/config_file.h`).
-  - **Put a new key in the shared `/etc/toyos.conf` by default**;
+  - **Put a new key in the shared `/etc/saunaos.conf` by default**;
     nothing forces one file, and a setting with enough of its own keys
     to be unwieldy there should get its own `/etc/<name>.conf` rather
     than cramming in to match convention.
@@ -660,7 +660,7 @@ time in READS.
 
 **The reading is worthless on the default QEMU clocksource.** A guest is
 not offered an invariant TSC unless the CPU model says `+invtsc` (QEMU
-masks it because it blocks migration), so toy-os falls back to the PIT,
+masks it because it blocks migration), so SaunaOS falls back to the PIT,
 which cannot resolve a single driver call -- every duration reads as
 zero and the profiler reports that nothing costs anything. Measure with
 `vm.py --kvm --cpu host,+invtsc`, and check the `clock-granularity-ns`
@@ -899,7 +899,7 @@ other layout for those machines. Four things to know.
 
 **NOTHING HERE INSTALLS A UEFI BOOTLOADER.** `install_grub.py` builds
 i386-pc GRUB only, so a machine switched to UEFI-only mode cannot boot a
-toy-os install at all -- the partition named "EFI System" is just where
+saunaos install at all -- the partition named "EFI System" is just where
 the kernel and `grub.cfg` live.
 
 ## THERE IS AN INSTALLER, AND IT IS FIVE ORDINARY OPERATIONS
@@ -918,16 +918,16 @@ Four things:
   its prefix baked in at the host's `grub-mkimage` time --
   `(hd0,gpt2)/grub` -- so the copy it installs only finds its config
   if the ESP is PARTITION 2 on the target too. Anaconda and the Debian
-  installer generate a fresh core image per target; toy-os has no
+  installer generate a fresh core image per target; SaunaOS has no
   `grub-mkimage`, so it reproduces the layout the image it copies
   expects.
 - **THE PAYLOAD IS `/install`, IN THE ROOT, NOT `/boot`.** `kernel.bin`,
   `grub.cfg`, `boot.img`, `core.img` -- staged by `tools/install_grub.py
-  --stage-payload` into every toy-os filesystem. A LIVE boot has no
+  --stage-payload` into every SaunaOS filesystem. A LIVE boot has no
   `/boot` at all (GRUB loads the kernel and a filesystem image into RAM
   and nothing drives the medium afterwards -- there is no USB
   mass-storage driver), and installing from live media is how a real
-  machine gets toy-os. One path on every medium beats one path per boot
+  machine gets SaunaOS. One path on every medium beats one path per boot
   kind, which is the shape that rots. GRUB's 305-file module directory
   is NOT in it: `core.img` already carries every module `grub.cfg`
   insmods.
@@ -991,7 +991,7 @@ files against a cap of 256, which is what stopped the installer copying
 `/boot`. The offset makes the cap a BATCH SIZE: call with `start = 0`,
 then `start += the count returned`, until fewer than `max` come back.
 
-Linux puts that position on the directory stream instead; toy-os has no
+Linux puts that position on the directory stream instead; SaunaOS has no
 directory handle, so it is an argument -- and a fourth argument means a
 request struct, which is what `SYS_MKPART` and `SYS_SPAWN` already do.
 
@@ -1072,7 +1072,7 @@ discipline the virtio drivers follow with their interrupt enables.
 the next boot; Linux is the same, and refuses to re-read a table on a
 busy disk.
 
-## TOY-OS BOOTS FROM ITS OWN DISK, AND `/boot` IS FAT32 BECAUSE GRUB CANNOT READ TFS3
+## SAUNAOS BOOTS FROM ITS OWN DISK, AND `/boot` IS FAT32 BECAUSE GRUB CANNOT READ TFS3
 
 `disk.img` carries the kernel now. A blank image gets three partitions:
 
@@ -1107,14 +1107,14 @@ iso` is the opt-in.
 NO disk, and a release is an ISO. What changed is which medium the
 ordinary path uses.
 
-**`/boot` IS visible from inside toy-os now** — there is a FAT32 driver
+**`/boot` IS visible from inside SaunaOS now** — there is a FAT32 driver
 (`kernel/fs/fat32.c`) and a mount table (`kernel/fs/mount.c`), and the
 ESP is mounted at `/boot` read-only at boot. `install_grub.py` writes
 `kernel.bin` and `grub/` at the volume's ROOT, so the running kernel is
 `/boot/kernel.bin` and GRUB's prefix is `(hd0,gpt2)/grub`. The ISO keeps
 its kernel at ITS root too, so ONE `grub.cfg` (`multiboot2 /kernel.bin`)
 serves both media. **A path in grub.cfg is relative to the boot volume,
-never to toy-os's `/`** -- `/kernel.bin` there is `/boot/kernel.bin`
+never to SaunaOS's `/`** -- `/kernel.bin` there is `/boot/kernel.bin`
 here (`ubootcfg_check()` adds the `/boot`). Do not create a TFS3 `/boot`
 beside it; see `docs/filesystem-layout.md`.
 
@@ -1689,7 +1689,7 @@ An mmap region names a PATH, not an inode (`struct mmap_region.path`),
 and libraries are demand-paged -- so a `/lib` file replaced while
 programs run feeds their not-yet-touched pages from the NEW file, and a
 process ends up executing two builds at once, with nothing reported.
-Linux avoids this because a mapping pins the old inode; toy-os does not.
+Linux avoids this because a mapping pins the old inode; SaunaOS does not.
 So `/bin/update` STAGES a set that touches `/lib` (or the kernel) as
 `<path>.upd`, lists the targets in `/var/lib/update/pending`
 (`abi/update_abi.h`), and the KERNEL renames them into place at the next

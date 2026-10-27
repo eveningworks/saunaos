@@ -113,7 +113,7 @@ Typing a bare `nx_test` runs `/bin/nx_test`; the `run` prefix is
 optional now. Three decisions in that, each with a real alternative:
 
 **PATH is shell state.** `timezone` and `font.size` live in
-`/etc/toyos.conf` behind small kernel-side modules (`tz.c`,
+`/etc/saunaos.conf` behind small kernel-side modules (`tz.c`,
 `font_config.c`) because the kernel itself consults them. Nothing in the
 kernel has any use for PATH -- it's a question about how a command line
 is interpreted, which is entirely the shell's business. So
@@ -220,13 +220,13 @@ itself caught during testing.
 ## Timezone city list is a database file, not a hardcoded array or a config key
 
 `/etc/timezones` (a CSV-style `name,offset_minutes,dst_rule` list,
-auto-seeded on first boot) and `/etc/toyos.conf`'s `timezone=<city>`
+auto-seeded on first boot) and `/etc/saunaos.conf`'s `timezone=<city>`
 key are deliberately two different files, not one -- the database
 (every city this build knows about) and the selection (which one is
 active) change for different reasons and at different rates, so they
 went through `etc_config.c`'s generic engine (selection) and a
 purpose-built small parser (database) respectively rather than forcing
-both into `toyos.conf`. This is also the concrete case **Build 357**'s
+both into `saunaos.conf`. This is also the concrete case **Build 357**'s
 "a setting with enough keys of its own gets its own file" escape hatch
 was written for -- a city list doesn't fit `key=value` shape at all.
 Editing the database only takes effect on the next boot (no live-
@@ -244,7 +244,7 @@ override's value `region` means "the region's", which is KDE's per-
 category default rather than Windows' copy-on-pick, so changing region
 later still moves every format nobody overrode.
 
-**The engine is POSIX, not a toy-os API.** `setlocale(LC_ALL, "")`
+**The engine is POSIX, not a SaunaOS API.** `setlocale(LC_ALL, "")`
 resolves LC_ALL, the category's variable, LANG, and then the system
 choice (`/etc/locale.conf`, systemd's file name, declared by
 `settings.d/locale.*` because ring 0 does nothing with it); `strftime`'s
@@ -287,12 +287,12 @@ network time is on, as `timedatectl set-time` refuses, because the next
 sync would undo it; `/bin/time -s` takes ISO 8601 in every region so a
 script's input does not depend on a setting.
 
-## `/etc` is one shared `toyos.conf` by default, not a file per setting
+## `/etc` is one shared `saunaos.conf` by default, not a file per setting
 
 `kernel/lib/etc_config.c`'s `etc_config_get()`/`etc_config_set()` is a
 generic name=value(+`#`comments) reader/writer that takes a `path` on
 every call -- it doesn't hardcode one file. `tz.c` and `font_config.c`
-both default to `/etc/toyos.conf` (see **Build 357**) rather than each
+both default to `/etc/saunaos.conf` (see **Build 357**) rather than each
 keeping its own dedicated file (`/etc/timezone`, `/etc/fontsize`, which
 is what they used to be). One shared file was the explicit choice for
 today's small, general settings; a setting with enough keys of its own
@@ -311,7 +311,7 @@ of carrying migration code for formats nothing still produces.
 
 ## The on-disk layout is a trimmed FHS, not POSIX -- and `/tests` is a deliberate exception
 
-Asked whether toy-os's own filesystem should follow "something POSIX
+Asked whether SaunaOS's own filesystem should follow "something POSIX
 likes". The premise is worth correcting, because it comes up again:
 **POSIX barely specifies filesystem layout at all.** POSIX.1 mandates
 `/`, `/tmp` and a few device paths (`/dev/null`, `/dev/tty`,
@@ -795,7 +795,7 @@ eleven help lines.
 
 **What `rescue` deliberately is not: a repair tool.** A shell cannot
 write an ELF, so nothing here can put `/bin` back. Recovery is booting
-`toy-os-live.iso` (which carries a TFS3 image as a GRUB module) or
+`saunaos-live.iso` (which carries a TFS3 image as a GRUB module) or
 re-seeding from the host -- the same answer a real system gives, which
 is "boot the install media". Its job is diagnosis: see what is on the
 disk, make the small changes that let a boot get further. `sync` is in
@@ -1011,7 +1011,7 @@ happened; where did it go?* -- and both diverge from the obvious Unix
 shape on purpose.
 
 **`tty` is not POSIX's `tty`.** That one prints the device name of the
-terminal on stdin (`/dev/pts/3`) and nothing else. toy-os has no device
+terminal on stdin (`/dev/pts/3`) and nothing else. SaunaOS has no device
 nodes, so the only path this command could print would be one it made
 up, and a fabricated `/dev/console` is worse than no answer: it looks
 like something a program could open. What it prints instead is the state
@@ -1459,7 +1459,7 @@ argparse and git's parse-options generate the help from the same
 declared table the parser reads. BSD prints a usage line and leaves the
 rest to `man`.
 
-**What toy-os does: the table, with GNU's page.** Hand-written help was
+**What SaunaOS does: the table, with GNU's page.** Hand-written help was
 declined because it is a second copy of what the parser accepts, which
 drifts the first time a flag is added -- the reason `check_docs.py`
 already compares `cmd_usage()` strings with the pages. Printing the

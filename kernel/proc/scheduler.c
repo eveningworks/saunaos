@@ -432,7 +432,7 @@ int scheduler_kstack_guard_slot(uint64_t addr) {
 
 // LINUX'S SHAPE (kernel/fork.c, set_max_threads()): process structures may
 // use at most an eighth of RAM. Floored at one chunk, so a small machine
-// keeps what toy-os always had; capped so pids can never run out
+// keeps what SaunaOS always had; capped so pids can never run out
 // (SCHED_PID_MAX is four times the ceiling: own pid, pgid, sid, spare).
 static int limit_from_ram(void) {
     uint64_t ram = pmm_total_frames() * pmm_frame_size();

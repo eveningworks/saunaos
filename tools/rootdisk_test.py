@@ -294,7 +294,7 @@ def phase_refresh(res, tmp):
 def phase_cd(res, tmp):
     print("rootdisk_test: E -- the ISO booted as a CD: GRUB's probe names no partition")
     boot = copy_disk(tmp, "rootdisk_e_disk.img")
-    iso = os.path.join(ROOT, "toy-os.iso")
+    iso = os.path.join(ROOT, "saunaos.iso")
     log = os.path.abspath(os.path.join(tmp, "rootdisk_e.log"))
     pidfile = os.path.abspath(os.path.join(tmp, "rootdisk_e.pid"))
     for p in (log, pidfile):
@@ -317,7 +317,7 @@ def phase_cd(res, tmp):
     finally:
         kill(pidfile)
     res.check("a CD boot reaches the kernel -- the probe did not stop GRUB",
-              "toy-os 0.5" in text or "mounted at /" in text, text.strip()[-200:])
+              "SaunaOS 0.5" in text or "mounted at /" in text, text.strip()[-200:])
     res.check("...which is told bootpart= names no partition, and chooses by content",
               "bootpart= names no partition" in text and "mounted at / on ata0p3" in text,
               fs_lines(text))

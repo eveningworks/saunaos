@@ -1045,7 +1045,7 @@ def check_bar(dbg, qmp, res):
     dbg.settle()
     res.check("b6. Ctrl+Shift+F opens find", layout_field(dbg, "find") == 1,
               f"find {layout_field(dbg, 'find')}")
-    type_text(dbg, "tosh")           # the banner says "tosh -- the toy-os shell"
+    type_text(dbg, "tosh")           # the banner says "tosh -- the SaunaOS shell"
     time.sleep(0.6)
     dbg.settle()
     res.check("b7. a query on screen is found",

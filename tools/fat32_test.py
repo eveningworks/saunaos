@@ -57,7 +57,7 @@ SECTOR = 512
 # A directory of our own inside the ESP. GRUB's files are never touched:
 # a driver bug that corrupted them would cost `make clean-disk && make
 # iso`, which is recoverable, but there is no reason to aim at them.
-SCRATCH = "toyostest"
+SCRATCH = "saunaostest"
 
 results = []
 

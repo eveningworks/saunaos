@@ -1,4 +1,4 @@
-# Booting from the ISO alone -- a Live CD for toy-os
+# Booting from the ISO alone -- a Live CD for SaunaOS
 
 **Status: BUILT 2026-08-16** -- stages A, B and C all landed in one
 pass; see "What actually shipped" at the bottom. The design below stands
@@ -293,7 +293,7 @@ here. The assertion has to be that a file the ISO shipped can be read.
 - **Compression.** A squashfs equivalent would make the image smaller
   and is entirely separate from where it is mounted from.
 - **Installing to disk from a live session.** Since built: `/bin/install`
-  and the Install toy-os window a live session offers
+  and the Install SaunaOS window a live session offers
   (`docs/commands/install.md`).
 - **Booting the live image on real hardware from USB.** Should follow,
   but El Torito/hybrid-ISO layout is a `grub-mkrescue` question rather

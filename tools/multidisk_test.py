@@ -6,7 +6,7 @@ WHAT THIS COVERS
 The block layer enumerates EVERY driver and every device it finds into a
 table (block.h), and the root is chosen separately -- from `root=` on the
 boot line, else driver precedence. That is Linux's split (`root=` names
-the device; drivers register everything they probe) and NT's; toy-os had
+the device; drivers register everything they probe) and NT's; SaunaOS had
 the two FUSED behind one line:
 
     if (!blk_virtio_init() && !blk_ahci_init()) blk_ata_init();

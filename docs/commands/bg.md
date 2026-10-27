@@ -36,7 +36,7 @@ table as `Stopped` before the next prompt.
 
 **It does not stop a background job's OUTPUT.** A backgrounded job's
 writes interleave with the shell's, as they do on Linux with `TOSTOP`
-unset — which is the default there too. toy-os has no `TOSTOP` and no
+unset — which is the default there too. SaunaOS has no `TOSTOP` and no
 `SIGTTOU`; see `kernel/include/abi/signal_abi.h` for why that is a
 decision rather than an omission.
 

@@ -288,7 +288,7 @@ int main(int argc, char **argv) {
         }
 
         // `lspci -k`'s line, and the same fact Linux's prints: which
-        // driver is in use. The second half is toy-os's own -- a device
+        // driver is in use. The second half is SaunaOS's own -- a device
         // a RING-3 process has taken off the kernel names that process
         // instead (docs/umdf-design.md).
         if (kernel_drivers) {

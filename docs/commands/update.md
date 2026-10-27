@@ -137,7 +137,7 @@ failed or cancelled download changes nothing. Then:
   new -- Windows applies in-use files at boot for the same reason.
 
 **The kernel** is written to `/boot` straight away, with the running one
-kept as `kernel.old` -- the GRUB rescue entry, *toy-os (previous
+kept as `kernel.old` -- the GRUB rescue entry, *SaunaOS (previous
 kernel)*. So `update` **refuses to install anything** while
 `/boot/grub/grub.cfg` has `set timeout=0`: with no menu, a new
 kernel that fails to boot could not be undone. A VM built with plain
@@ -194,7 +194,7 @@ A build reaches `main` only when it is published, after its tests, and
     python3 tools/update_server.py --promote <name>           # roll main back or forward
     python3 tools/update_server.py --promote <name> --to release
 
-A publish is a COPY (under `~/.local/share/toy-os/updates`), its
+A publish is a COPY (under `~/.local/share/saunaos/updates`), its
 unchanged files HARD-LINKED to the build before it, so rebuilding the
 checkout never changes what `main` serves, and it is
 refused unless `tools/preflight.sh` passed on exactly this tree

@@ -13,7 +13,7 @@
 // that stops reading its events is drawn Not Responding. The worker
 // writes counters and posts; only the main thread draws.
 #include "doom_internal.h"
-#include "backends/doom/dg_toyos.h"
+#include "backends/doom/dg_saunaos.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>

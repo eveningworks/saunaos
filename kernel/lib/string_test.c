@@ -8,7 +8,7 @@ static int eq(const char *a, const char *b) { return k_strcmp(a, b) == 0; }
 
 KTEST("string", "the original six still do what callers assume") {
     KTEST_ASSERT_EQ(k_strlen(""), 0);
-    KTEST_ASSERT_EQ(k_strlen("toy-os"), 6);
+    KTEST_ASSERT_EQ(k_strlen("SaunaOS"), 7);
     KTEST_ASSERT(k_strcmp("a", "a") == 0);
     KTEST_ASSERT(k_strcmp("a", "b") < 0);
     KTEST_ASSERT(k_strcmp("b", "a") > 0);

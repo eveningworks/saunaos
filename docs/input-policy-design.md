@@ -41,11 +41,11 @@ the position, and therefore the acceleration that produces it.
 | **Wayland** | ring 3: the compositor loads an XKB keymap and **ships it to each client** (`wl_keyboard.keymap`); every CLIENT translates keycodes with libxkbcommon | the compositor, through libinput, from evdev's raw deltas | the compositor (a KMS cursor plane) -- a stalled compositor freezes the cursor |
 | **X11** | the server (XKB); clients get keycodes and a mapping | the server | the server |
 | **Windows** | layout DLLs loaded by win32k (kernel mode); `ToUnicode` translates | win32k ("Enhance pointer precision") | win32k's raw input thread -- the cursor moves while an app hangs |
-| **toy-os today** | the kernel, for the console AND the desktop | the kernel (`mouse_feed_rel()`) | the kernel (`gfx_hw_cursor_move()` from `win_input_poll()`) |
+| **SaunaOS today** | the kernel, for the console AND the desktop | the kernel (`mouse_feed_rel()`) | the kernel (`gfx_hw_cursor_move()` from `win_input_poll()`) |
 
 **Two different lines.** Wayland moved translation AND acceleration
 into ring 3, and paid for it with a cursor that stalls with the
-compositor. Windows kept both in kernel mode. toy-os today is Windows'
+compositor. Windows kept both in kernel mode. SaunaOS today is Windows'
 shape, and `docs/winserver-ring3-design.md`'s "Moving input" (out of
 scope) is right that evdev itself stays -- this plan moves only what
 sits ABOVE evdev.

@@ -1358,7 +1358,7 @@ struct win_popup_pos {
 // to the asker as WIN_EV_REMOTE_ANSWER. Denied after WIN_REMOTE_ASK_S.
 #define WIN_NOTICE_REMOTE     2
 #define WIN_REMOTE_ASK_S      30
-// THIS IS A LIVE SESSION, with "Install toy-os" -- what Fedora's and
+// THIS IS A LIVE SESSION, with "Install SaunaOS" -- what Fedora's and
 // Ubuntu's live desktops say at login. `text` is unused. Only
 // /bin/wm/system/installer may ask (the compositor checks the spawn
 // path), and the action opens it.

@@ -56,7 +56,7 @@ static const struct uargs_prog PROG = {
     .summary = "Put this running system onto another disk, and make that disk boot.\n"
                "With no --disk at a terminal it asks which; `confirm` ERASES the target.",
     .opts = OPTS,
-    .notes = "The installer window (Install toy-os, on a live session's desktop) runs the same steps.",
+    .notes = "The installer window (Install SaunaOS, on a live session's desktop) runs the same steps.",
 };
 
 #define STAMP_PATH "/etc/grub-core.modules"
@@ -82,7 +82,7 @@ static void refuse(const char *why) { printf("install: %s\n", why); }
 // the prefix baked into each staged core image (`(hd0,gpt2)` against
 // `(hd0,msdos1)`) has to match it or GRUB comes up at a rescue prompt
 // having found no config. Another disk is the full installer's job.
-// grub.cfg's half of a refresh: every toy-os entry gains the bootpart=
+// grub.cfg's half of a refresh: every SaunaOS entry gains the bootpart=
 // lines the payload's grub.cfg has, so the kernel roots on the disk GRUB
 // booted from (docs/boot-flags.md). EDITED, never replaced -- the file
 // is the machine's own, bootcfg and the Boot Manager write it, and
@@ -385,7 +385,7 @@ static int run_install(void) {
 
 static int interactive(int esp, int mbr, int mbr_given) {
     int pick[UDISK_MAX];
-    printf("Install toy-os onto which disk?\n");
+    printf("Install SaunaOS onto which disk?\n");
     int n = list_disks(esp, mbr, pick, UDISK_MAX);
     if (!n) {
         printf("install: no disk here can take an install.\n");

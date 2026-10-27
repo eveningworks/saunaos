@@ -1,7 +1,7 @@
-#ifndef TOYOS_MBEDTLS_CONFIG_H
-#define TOYOS_MBEDTLS_CONFIG_H
+#ifndef SAUNAOS_MBEDTLS_CONFIG_H
+#define SAUNAOS_MBEDTLS_CONFIG_H
 
-// toy-os's mbedTLS configuration -- what a TLS CLIENT needs, and
+// SaunaOS's mbedTLS configuration -- what a TLS CLIENT needs, and
 // nothing else.
 //
 // Written from scratch rather than by editing upstream's default
@@ -17,7 +17,7 @@
 // never patches.
 //
 // The build also passes `-nostdinc` and undefines `__unix__`/`__linux__`
-// (see the Makefile), because GCC predefines those for every toy-os
+// (see the Makefile), because GCC predefines those for every SaunaOS
 // compile and mbedTLS otherwise concludes it is on Linux and reaches
 // for <sys/time.h> and the host's sockets.
 
@@ -28,7 +28,7 @@
 
 #define MBEDTLS_PLATFORM_C
 
-// toy-os has no gettimeofday and no time_t source mbedTLS knows about,
+// SaunaOS has no gettimeofday and no time_t source mbedTLS knows about,
 // so both clocks are ours. Certificate expiry needs a real wall clock
 // (SYS_GETTIME); the TLS 1.3 handshake needs a millisecond monotonic
 // one (SYS_MONOTONIC_NS), and they are NOT the same clock -- a wall
@@ -40,7 +40,7 @@
 
 // No /dev/urandom and no getrandom() by mbedTLS's reckoning: entropy
 // comes from SYS_GETRANDOM through mbedtls_hardware_poll() in
-// toyos_platform.c, which also refuses to hand out a key when
+// saunaos_platform.c, which also refuses to hand out a key when
 // QUERY_RANDOM says the source is TSC jitter.
 #define MBEDTLS_NO_PLATFORM_ENTROPY
 #define MBEDTLS_ENTROPY_HARDWARE_ALT

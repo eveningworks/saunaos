@@ -1,6 +1,6 @@
 """The build half every `*_hostcheck.py` had written for itself.
 
-A host check compiles toy-os source with the HOST's gcc beside a small C
+A host check compiles SaunaOS source with the HOST's gcc beside a small C
 driver, and compares what it computes against a foreign implementation.
 Its positive control patches a COPY of the source, never the checked-in
 file. Those three steps -- write the driver, stage the sources with the

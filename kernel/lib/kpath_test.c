@@ -22,8 +22,8 @@ KTEST("kpath", "join inserts exactly one separator") {
     KTEST_ASSERT(eq(b, "/ls"));
 
     // An absolute name replaces the directory entirely.
-    KTEST_ASSERT(k_path_join("/docs", "/etc/toyos.conf", b, sizeof b));
-    KTEST_ASSERT(eq(b, "/etc/toyos.conf"));
+    KTEST_ASSERT(k_path_join("/docs", "/etc/saunaos.conf", b, sizeof b));
+    KTEST_ASSERT(eq(b, "/etc/saunaos.conf"));
 
     // Doesn't fit -> rejected, not truncated to the wrong file.
     char small[6];
@@ -64,8 +64,8 @@ KTEST("kpath", "resolve is join+normalize, and relative is relative to base") {
     KTEST_ASSERT(k_path_resolve("/docs", "../notes.txt", b, sizeof b, &sc));
     KTEST_ASSERT(eq(b, "/notes.txt"));
 
-    KTEST_ASSERT(k_path_resolve("/docs", "/etc/toyos.conf", b, sizeof b, &sc));
-    KTEST_ASSERT(eq(b, "/etc/toyos.conf"));
+    KTEST_ASSERT(k_path_resolve("/docs", "/etc/saunaos.conf", b, sizeof b, &sc));
+    KTEST_ASSERT(eq(b, "/etc/saunaos.conf"));
 
     // Empty input means "the base itself", normalized.
     KTEST_ASSERT(k_path_resolve("/docs//", "", b, sizeof b, &sc));

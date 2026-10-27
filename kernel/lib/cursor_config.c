@@ -8,7 +8,7 @@
 #include "string.h"
 #include "initcall.h"
 
-#define CURSOR_CONFIG_FILE "/etc/toyos.conf"
+#define CURSOR_CONFIG_FILE "/etc/saunaos.conf"
 #define CURSOR_CONFIG_KEY "cursor.style"
 
 void cursor_config_init(void) {

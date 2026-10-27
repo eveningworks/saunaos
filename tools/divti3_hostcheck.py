@@ -4,7 +4,7 @@
 WHY THESE EXIST AT ALL. x86-64 multiplies 64x64 into 128 in one
 instruction, so `unsigned __int128` multiply compiles inline; there is
 no 128-bit DIVIDE instruction, so `/` and `%` on a 128-bit type become
-calls to `__udivti3` and friends, which normally live in libgcc. toy-os
+calls to `__udivti3` and friends, which normally live in libgcc. SaunaOS
 links -nostdlib with no libgcc, so `userland/libc/divti3.c` supplies
 them and a missing one is a link error rather than a warning.
 

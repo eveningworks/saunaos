@@ -3,7 +3,7 @@
 
 WHAT THIS COVERS
 ----------------
-Every LBA in toy-os's block layer counts 512-byte sectors, whatever the
+Every LBA in SaunaOS's block layer counts 512-byte sectors, whatever the
 device (Linux's `sector_t` rule, block.h). A 4K-sector disk is addressed
 as eight of them per block; the block layer refuses a transfer that is
 not whole blocks, and the partition code, TFS3, FAT32 and swap reach
@@ -31,7 +31,7 @@ THE CHECKS, and what a broken version would still pass
   4. HOST ORACLES, which the guest cannot fake: the GPT header is at byte
      4096 (block 1) and says first-usable LBA 6, not 34; the FAT32 BPB
      says 4096 bytes per sector; and mtools, reading the image with no
-     toy-os code involved, extracts the FAT32 file byte-identical to the
+     SaunaOS code involved, extracts the FAT32 file byte-identical to the
      original.
   5. The kernel logged no misaligned-transfer refusal and no IOERR --
      the one line that would mean some consumer sent a sub-block request.

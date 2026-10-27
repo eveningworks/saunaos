@@ -18,7 +18,7 @@ The maintainer asked for something to read after a process crashed
 (2026-09-02). Linux writes an ELF core -- every mapped page with
 NT_PRSTATUS notes, loaded by gdb; Windows writes a minidump of the
 registers, the stack and the module list; macOS writes a text report
-with a symbolised backtrace. toy-os writes the last two in one file:
+with a symbolised backtrace. SaunaOS writes the last two in one file:
 the text macOS writes, then the stack bytes Windows keeps.
 
 Not an ELF core, because the value of a core is a debugger that
@@ -54,7 +54,7 @@ and resets; the next boot checks the record's CRC and logd appends it to
 the end of the DEAD boot's own log file, then clears it.
 
 **Why RAM and not the disk.** Windows writes its dump through a separate,
-minimal storage stack prepared at boot for exactly this; toy-os has one
+minimal storage stack prepared at boot for exactly this; SaunaOS has one
 storage stack and a panic may be inside it, so the panic path touches no
 filesystem, lock or heap. Linux's pstore/ramoops is the shape copied: a
 reserved range, a header with a checksum, recovered on the next boot. It
@@ -94,7 +94,7 @@ the obvious answer is the wrong one here. Linux keeps a linear map of
 all RAM at `0xffff888000000000` and converts with `__va`/`__pa`; the
 offset exists to free the low addresses for user space, and every
 kernel that copied the layout inherited the conversion at every
-physical access. toy-os's user space is not in the low range -- the
+physical access. SaunaOS's user space is not in the low range -- the
 ring-3 map (`uaddr.h`) starts hundreds of GiB up -- so the only reason
 for the offset does not apply, and a linear map at offset ZERO is the
 existing identity map made longer.
@@ -144,13 +144,13 @@ about to map.
 
 Every real system that swaps can answer "which page tables point at this
 frame?". Linux builds `anon_vma` chains for it; Windows NT has the PFN
-database and prototype PTEs. toy-os deliberately answers a different
+database and prototype PTEs. SaunaOS deliberately answers a different
 question instead, and it is worth recording why, because the missing
 structure looks like an omission.
 
 **A reverse map exists to disambiguate.** It is needed when one frame
 can be referenced by many PTEs, which is what `fork()`, copy-on-write
-and `MAP_SHARED` create. toy-os has none of the three: there is no
+and `MAP_SHARED` create. SaunaOS has none of the three: there is no
 `fork()`, no COW, and no shared anonymous memory. So a swappable page
 has exactly ONE page table entry, and the reclaimer can pick a process,
 walk its page tables forward, and take pages -- it never has to start
@@ -220,7 +220,7 @@ FOR those callers, so applying it to them would be backwards.
 
 This is Linux's `lowmem_reserve_ratio`, simplified. Linux computes a
 per-zone reserve from the size of the zones ABOVE it, because it has
-several and the fallback order is long; toy-os has two, so the
+several and the fallback order is long; SaunaOS has two, so the
 arithmetic collapses to one number. Windows does not need an equivalent:
 its PFN database is flat and a driver asks for below-4GB memory
 explicitly through `MmAllocateContiguousMemorySpecifyCache`, which is
@@ -568,7 +568,7 @@ which dispatches on the `type` field of a `struct win_request_msg`
 (`kernel/include/abi/win_proto.h`). The obvious alternative, a syscall
 each, was rejected deliberately.
 
-The reason is Milestone 41's whole architectural bet. toy-os is
+The reason is Milestone 41's whole architectural bet. SaunaOS is
 building toward a GUI where apps are ring-3 processes, and the open
 question was whether the window manager itself should move to ring 3
 too (the Linux answer) or stay in the kernel (the Windows NT answer).
@@ -1028,7 +1028,7 @@ better for it: five sizes, anti-aliased, and six Latin-1 letters ASCII
 does not have.
 
 **What ring 0 kept is the SETTING, not the font.** `system.font.face`
-lives in /etc/toyos.conf like every other one, and the registry needs a
+lives in /etc/saunaos.conf like every other one, and the registry needs a
 list of valid choices -- so `font_faces.c` lists a directory and
 validates a name against it. It opens no file. Whether a `.ttf` actually
 parses is fontd's question, which is the honest limit of what ring 0 can
@@ -1148,7 +1148,7 @@ The honest consequence is that a client which ignores the request keeps
 its window. Force-closing an unresponsive one needs a "not responding"
 timeout and a way to kill a process, neither of which exists yet -- see
 `docs/roadmap.md`'s Milestone 41. Every real windowing system has the
-same handshake and the same escape hatch; toy-os has the handshake so
+same handshake and the same escape hatch; SaunaOS has the handshake so
 far.
 
 ## Single-instance is the app's decision, and the launcher always launches
@@ -1392,7 +1392,7 @@ manager becomes a ring-3 program in stage 4, and it owns
 
 **Why not files only.** A registry living purely in `/etc/config.d`
 cannot bootstrap: a blank disk has no such directory, and a deleted
-descriptor would leave `/etc/toyos.conf` nameless -- the system unable
+descriptor would leave `/etc/saunaos.conf` nameless -- the system unable
 to describe its own primary config file. So the built-ins are a FLOOR,
 and a descriptor with the same `Name` OVERRIDES one. That is the
 vendor-default/`/etc`-override pattern real systems use, and it means
@@ -1408,7 +1408,7 @@ settings go?" unanswerable until after the first save.
 
 ## A stale ISO passes every test, so the launchers refuse to boot one
 
-Every headless test here boots `toy-os.iso`, and `make all` does not
+Every headless test here boots `saunaos.iso`, and `make all` does not
 rebuild it. So `make all` alone -- or a `make iso` that FAILED on a
 compile error -- leaves the whole suite running against the previous
 build and reporting a clean PASS. It does not fail loudly; it fails as a
@@ -1436,7 +1436,7 @@ Two design points, both learned by getting them wrong first:
   correctly rewrites nothing and leaves the image untouched -- using the
   image would report a no-op rebuild as staleness.
 
-`TOYOS_ALLOW_STALE_ISO=1` bypasses it, for deliberately testing an older
+`SAUNAOS_ALLOW_STALE_ISO=1` bypasses it, for deliberately testing an older
 image (bisecting, or building an earlier commit to prove a failure
 predates your work -- which is what it was first used for). It prints
 that it is bypassing, so a stale export in a shell cannot quietly become
@@ -1933,7 +1933,7 @@ length; it was full of NULs).
 **And neither `write` nor `append` terminated its line**, so `write f a`
 followed by `append f b` produced `ab`. That made a multi-line file
 impossible to author from the shell at all -- which meant every
-line-based format this system has (`/etc/toyos.conf`, `.desktop` entries)
+line-based format this system has (`/etc/saunaos.conf`, `.desktop` entries)
 could be READ by the shell and never WRITTEN by it. Both commands write
 one terminated line now, and refuse rather than truncate a line that does
 not fit, matching kfmt's rule that a value which does not fit is written
@@ -2180,7 +2180,7 @@ moving the display server to ring 3.
 
 ## The shell is called `tosh`, and the name covers the language, not a binary
 
-`tosh` = t + OS + h, contracting "toy-os shell" the way `bash` contracts
+`tosh` = t + OS + h, contracting "SaunaOS shell" the way `bash` contracts
 "Bourne-again shell". It was unnamed until 2026-08-15, which was fine
 while there was one command line and no reason to refer to it.
 
@@ -2226,7 +2226,7 @@ no environment yet, and no auxv, because nothing consumes one and
 inventing entries nobody reads is how an ABI accumulates fiction).
 `userland/rt/crt0.asm` reads it and calls `main()`.
 
-It used to arrive in RDI/RSI instead. That was toy-os's own convention,
+It used to arrive in RDI/RSI instead. That was SaunaOS's own convention,
 fine while every `_start` was a C function taking two parameters, and a
 wall for Milestone 40's "run stock musl binaries". The register path was
 deleted rather than kept alongside the stack one: two live conventions
@@ -2742,7 +2742,7 @@ read back from `dmesg`:
   `multiboot.c`, `set_console`), so a value set before that line never
   reaches the mode switch. Set AFTER it, a size is honoured -- measured on
   QXL and on an RTX 2070's VESA BIOS, and what `toy_mode` in grub.cfg now
-  relies on (`docs/decisions/drivers.md`, "A display toy-os cannot set
+  relies on (`docs/decisions/drivers.md`, "A display SaunaOS cannot set
   gets its size from GRUB"). `gfxpayload=text` after the line was not
   tried.
 - With the header's width/height/depth set to 0/0/0 ("no preference"),
@@ -3188,7 +3188,7 @@ central thing. The handlers here now live in `kernel/proc/syscall_fd.c`,
 `kernel/net/net_syscalls.c`, `kernel/fs/fs_syscalls.c`, `kernel/proc/proc_syscalls.c`,
 `kernel/proc/win_syscalls.c` and `kernel/core/sys_syscalls.c`.
 
-**Why the trace description shares the row.** This is where toy-os
+**Why the trace description shares the row.** This is where SaunaOS
 deliberately DIFFERS from both, and the comparison is worth stating
 accurately because it is easy to assume otherwise. Linux's
 `sys_call_table[]` holds function pointers and nothing else; the names
@@ -3414,7 +3414,7 @@ that prints a report.
 
 ## init idles with SYS_SLEEP, and the alternatives were both worse
 
-Stage 1 of `docs/init-design.md` gives toy-os an init at pid 1 whose job
+Stage 1 of `docs/init-design.md` gives SaunaOS an init at pid 1 whose job
 is to reap orphans. The plan said it "reaps orphans in a `waitpid(-1)`
 loop and otherwise sleeps", and building it found that *there was no
 otherwise*: nothing in this ABI could sleep.
@@ -3444,7 +3444,7 @@ Three ways out, and the cost of each is what decided it:
 
 The third is what real systems have, even though none of them idles
 their init this way: Linux's init blocks in `epoll_wait` and is woken by
-SIGCHLD, because it has file descriptors and signals to wait on. toy-os
+SIGCHLD, because it has file descriptors and signals to wait on. SaunaOS
 has neither, so the honest primitive is a clock. init blocks in
 `waitpid(-1)` when it has children and sleeps when it does not, which is
 also the shape stage 2 needs -- a restart rate limit ("N restarts in T
@@ -3686,7 +3686,7 @@ allocator; NT's Low Fragmentation Heap is size-class buckets over the
 backend heap; real-time systems use TLSF, two levels of size classes
 with a bitmap so a search is O(1).
 
-**What toy-os did: TLSF's shape in `heap_core.c`, and a slab in front
+**What SaunaOS did: TLSF's shape in `heap_core.c`, and a slab in front
 in ring 3 only.** The block list stays -- coalescing needs address
 neighbours -- and free blocks are ALSO linked into one of 512 size
 classes: exact 16-byte classes below 1 KiB, eight slices per power of
@@ -4147,7 +4147,7 @@ looked.
 
 **Why a returned code and not a global `errno`.** A global needs
 thread-local storage the moment a process can have two threads inside a
-syscall at once, and toy-os has no TLS. A returned code needs nothing.
+syscall at once, and SaunaOS has no TLS. A returned code needs nothing.
 This is Linux's split exactly: the kernel returns `-errno` and the C
 library -- not the kernel -- turns that into `-1` plus a per-thread
 variable. NT does the same thing one layer differently, returning an
@@ -4813,7 +4813,7 @@ behalf. `posix_spawn` has the same shape. Windows is the outlier, where
 `CreateProcess` takes an environment block and NULL means "inherit from
 me".
 
-toy-os copies the Unix split, and it fits a process model that was
+SaunaOS copies the Unix split, and it fits a process model that was
 already `posix_spawn`-shaped rather than `fork`-shaped. `sys_spawn()`
 is `execv` and `sys_spawn_env()` is `execve`.
 
@@ -4951,7 +4951,7 @@ because neither can be sure which runs first and a `Ctrl-C` arriving in
 between would signal the wrong group. It is a documented race that
 POSIX papers over with a redundant call from each side.
 
-toy-os has no fork. `SYS_SPAWN` returns a process that is already
+SaunaOS has no fork. `SYS_SPAWN` returns a process that is already
 running, so there is no second side to make the redundant call from --
 the window would be genuinely unfixable rather than merely awkward. So
 the group is an argument to the spawn: `PGID_NEW` leads a new group, a
@@ -4976,7 +4976,7 @@ foreground process group. Every piece of that sentence is a separate
 mechanism, and it is why `Ctrl-C` is the last thing a system gets rather
 than the first.
 
-toy-os had no line discipline -- fd 0 was raw, with no echo control and
+SaunaOS had no line discipline -- fd 0 was raw, with no echo control and
 no cooked mode. The recognition therefore lived in `keyboard.c`, which
 is the one place a key arrives, and `kernel/tty.h` said plainly that it
 belonged somewhere else. Putting it in the driver first and moving it
@@ -5101,7 +5101,7 @@ DELETED.
 1 into evdev keycodes and `hid-input` translates HID usages into them;
 above that, everything -- the console keymap, XKB -- is keyed on
 keycodes. There is exactly one translation, at the very bottom, inside
-the LEGACY driver. toy-os had it inverted. Now `keyboard_feed_byte()` is
+the LEGACY driver. SaunaOS had it inverted. Now `keyboard_feed_byte()` is
 the only place in the kernel an AT scancode exists, and
 `keyboard_key_event(keycode, down)` is what every driver reaches --
 `input_report_key()` calls it with nothing in between.
@@ -5306,7 +5306,7 @@ one that survives a future edit rather than the one that is shortest
 today: **the notification is one function and every death calls it.**
 Linux funnels identically, through `exit_notify()` ->
 `do_notify_parent()`; the difference is that Linux has one `do_exit()`
-and toy-os has two entry points, which is exactly why the helper is
+and SaunaOS has two entry points, which is exactly why the helper is
 worth its name.
 
 The helper does two things that look like one and are not. The **wake**
@@ -5569,7 +5569,7 @@ watch keys pressed after they start. The nearest thing the input core
 keeps is a current-state bitmap (`EVIOCGKEY`: which keys are down right
 now), and the tty keeps queued input for a reader; both are state, not
 history. Its reason is scale rather than privacy -- a ring per device
-per client -- but the posture that falls out is the same one toy-os has
+per client -- but the posture that falls out is the same one SaunaOS has
 now landed on. Copy the shape, not the size -- and **check the claim**,
 which is the rule this entry briefly broke, and which is most tempting
 to skip exactly when the claim supports the conclusion already reached.
@@ -5580,7 +5580,7 @@ into `K_RAW`/`K_MEDIUMRAW` and prints what arrives -- it takes the
 keyboard, works only on the console, and needs a keyboard MODE to
 switch. `evtest` reads the input core's own events from a device node:
 non-exclusive, sees everything regardless of focus, and changes nothing.
-toy-os has no keyboard modes to add and no device nodes to read, but it
+SaunaOS has no keyboard modes to add and no device nodes to read, but it
 does have one confluence point every driver passes through
 (`keyboard_key_event()`) and a registry for facts, so the log is a
 `SYS_QUERY` class. That choice is what makes `kbd` usable inside a
@@ -5836,7 +5836,7 @@ produces another one that happens to share everything — the kernel has
 no concept named "thread" at all, and `tgid != pid` is the only thing
 that distinguishes one.
 
-toy-os took Linux's. The argument is not elegance, it is the existing
+SaunaOS took Linux's. The argument is not elegance, it is the existing
 code: `procs[]` is indexed everywhere, a pid was a slot index plus one, a
 wait channel is `&procs[i]`, a kernel stack is `kstacks[i]`, and
 `SCHED_MAX_PROCS` sizes four unrelated tables (`win_server.c`,
@@ -5871,7 +5871,7 @@ that fails quietly.
 ## A process exits as a whole, whichever thread calls exit()
 
 POSIX has two calls: `exit_group(2)` ends every thread, `exit(2)` ends
-one. toy-os has the same pair (`SYS_EXIT`, `SYS_THREAD_EXIT`) and the
+one. SaunaOS has the same pair (`SYS_EXIT`, `SYS_THREAD_EXIT`) and the
 same default, and here it is not a choice. `syscall_process_exit_cleanup()`
 destroys the address space, and a surviving thread would be resumed into
 unmapped memory a few instructions later. So `SYS_EXIT` releases the
@@ -6138,7 +6138,7 @@ a silent unmap cannot be taken back.
 
 Dynlink Stage 2 (2026-08-28). Linux's split is copied exactly one
 level up from where Linux draws it: the kernel maps the executable,
-sees `PT_INTERP`, maps the interpreter and enters it -- but toy-os's
+sees `PT_INTERP`, maps the interpreter and enters it -- but SaunaOS's
 interpreter is an ordinary fixed-base `ET_EXEC` linked at
 `ELF_LDSO_BASE` (0x8010000000, 256 MiB above the image base), so the
 SAME `elf_load()` loads both images and the kernel contains no ET_DYN
@@ -6260,7 +6260,7 @@ ICMP header: an application sends a payload and receives a payload. This
 is Linux's ping socket (its `IPPROTO_ICMP` datagram socket), not
 `SOCK_RAW`. The reason is not tidiness. A raw socket lets any process
 emit any ICMP type it likes -- forged unreachables, redirects -- and
-Linux gates that behind `CAP_NET_RAW`. **toy-os has no privilege model
+Linux gates that behind `CAP_NET_RAW`. **SaunaOS has no privilege model
 at all**, so the only gate available is not offering the primitive; a
 raw socket can arrive with the uid that would police it. The identifier
 field is the demux key, which is what it is for, and is why two `ping`s
@@ -6306,7 +6306,7 @@ fragments UDP locally when a datagram exceeds the path MTU, and sets DF
 on TCP so Path MTU Discovery can find that MTU. NT and the BSDs have the
 same shape with a fixed slot count.
 
-**What toy-os does, and where it differs.** The key, the timeout, the
+**What SaunaOS does, and where it differs.** The key, the timeout, the
 eviction and the overlap rule are Linux's. The storage is not: each
 datagram in progress is ONE 64 KiB buffer and a bitmap with a bit per
 8-byte block (the unit the offset field counts in), allocated on its
@@ -6380,7 +6380,7 @@ would have been easy to let ICMP sockets carry their own headers once
 there was a second protocol to be consistent with. The reason not to is
 unchanged and is about this kernel specifically: a raw socket lets any
 process emit any ICMP type, Linux gates that behind `CAP_NET_RAW`, and
-toy-os has no privilege model to gate with. UDP does not raise the same
+saunaos has no privilege model to gate with. UDP does not raise the same
 question, because a UDP payload is the application's by definition.
 
 **Why the port-unreachable report is sent but not received.** Sending it
@@ -6812,7 +6812,7 @@ its `_PRW`s are Methods, and none wakes from S5 (`tools/aml_walk.py
 wakes from S5, so Linux's wake set there is empty: masking everything
 IS the correct S5 answer on this machine. And a shutdown done by the
 firmware itself needs one press. So the two presses come from something
-toy-os's path does or skips -- entering ACPI mode at the last moment,
+saunaos's path does or skips -- entering ACPI mode at the last moment,
 or not running `_PTS` -- and the boot words `acpimode=` and `gpewake=`
 isolate it one boot at a time.
 
@@ -6826,9 +6826,9 @@ the sleep write, where the firmware does its own preparation -- and
 enters ACPI mode only if the machine is still running half a second
 later. In ACPI mode the firmware expects the OS to have run `_PTS`
 first; on that DSDT `_PTS` tells the embedded controller the sleep
-state and sets two chipset bits, and toy-os, with no interpreter, cannot
+state and sets two chipset bits, and SaunaOS, with no interpreter, cannot
 run it. Linux and Windows do the opposite -- ACPI mode from boot, `_PTS`
-run -- and toy-os deliberately differs because the half of that it can
+run -- and SaunaOS deliberately differs because the half of that it can
 do is the half that broke the machine. `acpimode=poweroff` keeps the old
 order for an A/B on the next machine.
 
@@ -6882,7 +6882,7 @@ touch PCI config space and the embedded controller and call each other.
 That is the price of the general answer, and it buys battery status,
 thermal zones, S3, hotplug and GPE dispatch.
 
-**toy-os wants exactly one thing out of AML.** The FADT gives the port
+**SaunaOS wants exactly one thing out of AML.** The FADT gives the port
 to write and every bit of the sleep register's layout; the only fact it
 does not carry is the three-bit sleep type for S5, and that lives in a
 `Name (\_S5, Package (...) {...})` object in the DSDT. That object's
@@ -6904,7 +6904,7 @@ stated, while this entry's own list of far-side things named "GPEs". The
 list was imprecise: what GPE *dispatch* needs is evaluation; what a wake
 SET needs is a walk.
 
-The decision now is that toy-os gets a NAMESPACE WALK -- declarations
+The decision now is that SaunaOS gets a NAMESPACE WALK -- declarations
 parsed, every Method body skipped by its PkgLength, nothing executed --
 and still no interpreter. `docs/aml-design.md` stages it and carries the
 honest case against, including the part that has not changed: the
@@ -6994,7 +6994,7 @@ under "Intel blitter acceleration" in `docs/roadmap-details.md`.
 The kernel ring holds a few hundred lines, and on 2026-09-06 a driver
 polling a device that had gone away logged a line a second and flushed a
 laptop's whole boot log — the boot that mattered could not be diagnosed
-at all. `logd` and `/var/log/toyos.log` were the answer to keeping it.
+at all. `logd` and `/var/log/saunaos.log` were the answer to keeping it.
 This is the second half: attributing what a **program** said, so
 `log -u netd` means what it says.
 
@@ -7003,10 +7003,10 @@ a service's stdout call `klog_write()` with its name prefixed, and it is
 wrong for the reason the file exists: a chatty program could then evict
 kernel evidence, which is exactly the failure being fixed. systemd's
 journal merges kernel and userspace into one store and gets away with it
-because the store is on disk and large; toy-os's is 64 records of `.bss`
+because the store is on disk and large; SaunaOS's is 64 records of `.bss`
 in front of a one-second poll. Two rings mean a program flooding its own
 ring costs only its own lines. Linux draws the same line the other way —
-`/dev/kmsg` accepts writes from userspace — and toy-os deliberately
+`/dev/kmsg` accepts writes from userspace — and SaunaOS deliberately
 differs, because a kernel ring nothing can flood is worth more here than
 one stream.
 
@@ -7541,7 +7541,7 @@ framebuffer grant.
 
 Linux holds them in a separate structure -- `tp->out_of_order_queue`, a
 list until 4.4 and an rbtree since, one entry per skb -- and every
-textbook draws reassembly as a hole list with its own storage. toy-os
+textbook draws reassembly as a hole list with its own storage. SaunaOS
 does not, and the reason is an equivalence the textbook version does not
 have available.
 
@@ -7598,7 +7598,7 @@ Windows autotunes the receive window the same way and has used CUBIC
 since Windows 10 1709. Both hold a per-socket lock that the receive
 softirq/DPC and the system call contend for.
 
-**What toy-os does, and where it deliberately stops short.**
+**What SaunaOS does, and where it deliberately stops short.**
 
 - **Window scaling, as RFC 7323 says** -- offered on every SYN,
   answered only when offered, both shifts or neither. Nothing to
@@ -7722,7 +7722,7 @@ Asked and answered 2026-09-11, when `fork()` was built (`docs/fork-design.md`).
 The obvious way to fork is to copy every page; the way every real
 system does it is copy-on-write, which needs to know how many address
 spaces reference a frame. Linux keeps that count in `struct page` and a
-reverse map beside it; NT in the PFN database. toy-os had two bitmaps
+reverse map beside it; NT in the PFN database. SaunaOS had two bitmaps
 and nothing per frame.
 
 **The count lives in `pmm`, and `pmm_free_frame()` DECREMENTS.** A
@@ -7778,7 +7778,7 @@ spurious wakeup and not a lost one.
 
 POSIX says a failed `exec` returns -1 with the process unchanged, and
 Linux honours it up to `flush_old_exec()` -- the point of no return is
-as late as the checks can be pushed. toy-os pushes it later still: the
+as late as the checks can be pushed. SaunaOS pushes it later still: the
 whole new address space, interpreter and stack are built by
 `build_image()` (the half `spawn_from_fs()` already had) into a FRESH
 PML4 while the caller's is untouched, and only a fully loaded image is
@@ -7831,7 +7831,7 @@ audio mixer out: the kernel is where mechanism goes.
 **What a C library does.** This is glibc's shape, not an invention.
 Linux's kernel knows UTC and an offset it is told; the zoneinfo
 database is read by libc, and `tzset()` is the call that re-reads it.
-toy-os was the outlier, and the roadmap had said so for months.
+SaunaOS was the outlier, and the roadmap had said so for months.
 
 **What stayed, and why it is not a half-move.** One registered setting,
 `system.timezone`, whose value is a city name. The kernel does no time
@@ -7992,7 +7992,7 @@ the opposite -- `CreateProcess` takes a command LINE, and the callee's
 runtime splits it (`CommandLineToArgvW`), which is why quoting rules on
 Windows are a property of the C runtime rather than of `cmd.exe`.
 
-toy-os keeps both forms, so it had to pick where the string form's
+SaunaOS keeps both forms, so it had to pick where the string form's
 quoting lives, and there are only two answers:
 
 - **Give the ring-0 shell a lexer** and always spawn a vector. It is the
@@ -8031,13 +8031,13 @@ sweep".
 same reason: `KERN_ERR` expands to `"\001" "3"` on the front of the
 format string, `vprintk` strips it, and a call with no prefix is
 `KERN_DEFAULT`. That is the only construction where an unmarked call
-keeps working unchanged, which is the whole requirement. toy-os copies
+keeps working unchanged, which is the whole requirement. SaunaOS copies
 it, including the numbers, so `<3>` means here what it means in anyone's
 `dmesg`.
 
 **Where it goes afterwards is the part that differs.** Linux's log has
 been a record ring since the structured-printk rewrite in 3.5, with the
-level as a 3-bit field; toy-os's `klog` stores BYTES, and making it
+level as a 3-bit field; SaunaOS's `klog` stores BYTES, and making it
 records would change `QUERY_KLOG`'s ABI, `dmesg`, `logd` and
 `crash_report.c` together — a session's work before a single level was
 useful. The cheaper option that is not merely cheaper: put it in the
@@ -8046,7 +8046,7 @@ ring's own **timestamp**. That text (`[7.03] `) is already written by
 COM1, so a level living beside it costs no ABI, leaves `serial.log`
 byte-identical for every harness that parses it, and makes the level
 visible to every reader that can already read the log — `grep '<3>'
-/var/log/toyos.log` works, and `cat` remains a working reader, which is
+/var/log/saunaos.log` works, and `cat` remains a working reader, which is
 the property `logd`'s own design note protects. The cost is ~4 bytes per
 line of a 16 KB ring and a marker readers must hide; `dmesg` and `log`
 hide it by default, as util-linux does, and show it for `--raw`.
@@ -8414,7 +8414,7 @@ threads a priority band through MMCSS. Both have **wake preemption plus
 a better level**, and neither works without the other: preemption alone
 only reorders equals, and a better level alone still waits for the tick.
 
-**What toy-os does.** `scheduler_wake_n()` raises a flag when the woken
+**What SaunaOS does.** `scheduler_wake_n()` raises a flag when the woken
 process's level is strictly better than the running one's.
 `scheduler_trap_exit()`, at the bottom of `isr_dispatch_body()`, rotates
 when that flag is set. It uses the same rotation and the same refusals
@@ -8614,7 +8614,7 @@ precision on one-shot deadlines. Raising the rate alone is the answer
 Linux gave up: 2.6.0 shipped 1000 Hz and 2.6.13 went to 250 for the
 cost, before NO_HZ existed.
 
-**So toy-os follows that shape** (`kernel/clockevent.h`):
+**So SaunaOS follows that shape** (`kernel/clockevent.h`):
 
 - **One-shot.** With a LAPIC timer and a clocksource that runs without
   the tick, the timer is armed for the earliest of a blocked process's
@@ -8698,7 +8698,7 @@ by the parent's spawn and was owned by no process.
 
 Linux gets the same guarantee from `TASK_NEW`: the task is in the table
 from the start, in a state nothing schedules, kills or reaps, and
-`wake_up_new_task()` publishes it. **toy-os uses a flag instead**
+`wake_up_new_task()` publishes it. **SaunaOS uses a flag instead**
 (`g_slot_claimed[]`, `slot_claim()`), which only the four allocators
 consult -- spawn, fork, thread create and the test fabricator. Every
 other scan of the table still sees `SCHED_UNUSED`, "not a process",
@@ -8884,7 +8884,7 @@ and writes `.rpmnew`. systemd avoids the question for units with a
 split: vendor units in `/usr/lib/systemd/system`, always replaced, and
 the owner's overrides in `/etc`.
 
-**What toy-os does: dpkg's rule, with the record it already keeps.**
+**What SaunaOS does: dpkg's rule, with the record it already keeps.**
 The manifest last applied (`/var/lib/update/installed`, the stale-file
 rule's file list) says what crc each `/etc` file was SHIPPED with. A
 changed file still carrying that crc is replaced; one that does not is
@@ -8918,7 +8918,7 @@ it at the next boot, before anything maps the file; systemd's offline
 updates (GNOME Software, PackageKit) reboot into `system-update.target`
 for the same reason.
 
-**What toy-os does.** Windows' shape, because it needs nothing new from
+**What SaunaOS does.** Windows' shape, because it needs nothing new from
 the VM layer: a set with no `/lib` file and no kernel is installed live;
 any other set is downloaded and verified to `<path>.upd`, its targets are
 listed in `/var/lib/update/pending`, and `fs_apply_pending_replacements()`
@@ -8961,7 +8961,7 @@ address space lives until the last thread drops it, and the group leader
 stays an unreapable zombie until its thread group is empty
 (`delay_group_leader()`).
 
-**toy-os copies that shape without the refcount.** Whoever ends a process
+**SaunaOS copies that shape without the refcount.** Whoever ends a process
 -- `scheduler_kill()` for a victim, `scheduler_exit_group()` for the
 running thread's exit, fault or fatal signal -- first asks whether any
 OTHER thread of the group is parked mid-call. If none is, nothing changes.
@@ -9004,7 +9004,7 @@ low pids stay with early daemons; a `struct pid` lives on while a process
 group or session names it, so a group's number is never reissued to a
 stranger; and a pid is looked up through an IDR, never derived.
 
-**toy-os copies that shape.** `procs[i].pid` is set in `slot_claim()` and
+**SaunaOS copies that shape.** `procs[i].pid` is set in `slot_claim()` and
 cleared in `slot_free()`; `pid_slot()` maps a pid through a flat 64 KiB
 table (at 32k pids a flat array is the IDR's job without the tree) and
 checks the slot still holds it, so a racing lookup misses rather than
@@ -9033,7 +9033,7 @@ task structures and stacks may use at most an eighth of RAM
 (`set_max_threads()`, floor 20) and allocates each task as it is created.
 Windows has no fixed count at all: kernel memory is the limit.
 
-**toy-os takes Linux's limit and allocates in between.** The limit is
+**SaunaOS takes Linux's limit and allocates in between.** The limit is
 `RAM / 8 / (slot + stack + ext)`, floored at one chunk (64, what the
 table always had) and capped at `SCHED_PROCS_CEILING` (8192, so the pid
 space always has room for each slot's pid, group and session): 2212 at
@@ -9076,7 +9076,7 @@ The maintainer asked for a report viewer that shows what matters rather
 than a file Notepad opens as text followed by binary (2026-10-02).
 macOS names its crash frames on the machine; Linux's coredumpctl
 unwinds with elfutils; Windows' Reliability Monitor shows a module and
-an offset and leaves the rest to WinDbg. toy-os's executables carry no
+an offset and leaves the rest to WinDbg. SaunaOS's executables carry no
 unwind tables (`.eh_frame` is in the libraries only) and no frame
 pointers, so the frames come from SCANNING the saved stack -- Google
 Breakpad's fallback when CFI is missing, which it labels "found by
@@ -9142,7 +9142,7 @@ request, by walking the page tables (`/proc/<pid>/smaps_rollup`),
 because a page's share changes whenever ANOTHER process maps or unmaps
 it, which no counter in this process sees.
 
-**toy-os does Linux's PSS walk.** `vmm_audit_space()` already walked a
+**SaunaOS does Linux's PSS walk.** `vmm_audit_space()` already walked a
 space for `meminfo --audit`; it now also sums `private_bytes` (owned
 managed frames, a copy-on-write one as 4096 / refs) and `shared_bytes`
 (borrowed managed frames). Its own fact, `QUERY_PROCMEM`, runs it per
@@ -9187,7 +9187,7 @@ when a mode is not supported (eDP panels, which have one timing).
 Wayland compositors (KWin, Mutter) list the connector's modes from
 the EDID and set them as-is.
 
-**toy-os does the same, and fills the gaps with scaling.** A size the
+**SaunaOS does the same, and fills the gaps with scaling.** A size the
 EDID lists (established, standard or CEA) with a known DMT timing at
 or below the native pixel clock is set for real; every other ladder
 size is scaled from the native timing, so the resolution list is the
@@ -9233,7 +9233,7 @@ which stops units in reverse dependency order before `reboot(2)`;
 sysvinit runs its `K` scripts and `killall5` -- and keep the syscall
 itself immediate, with `reboot -f` as the way around the manager.
 
-toy-os does the same. The callers ask init over its channel
+SaunaOS does the same. The callers ask init over its channel
 (`INITCTL_REBOOT`/`INITCTL_POWEROFF`, through `uinitctl_shutdown()`),
 init stops the services in the reverse of its start order and then
 everything else, and only init calls `SYS_POWEROFF`.
@@ -9289,7 +9289,7 @@ back when they overrun their reserved share. Pluggable schedulers were
 proposed for Linux for years and refused; `sched_ext` (6.12) is BPF
 experimentation, not how Linux schedules.
 
-**What toy-os does: Linux's shape, two classes, sized down.**
+**What SaunaOS does: Linux's shape, two classes, sized down.**
 - **`SCHED_FIFO`/`SCHED_RR` at 1..99 run before every `SCHED_OTHER`
   process**, highest priority first. Within one priority, FIFO order:
   a stamp (`rt_seq`) taken when a process goes to the BACK -- a wake,
@@ -9365,7 +9365,7 @@ starves. Windows' MMCSS raises a thread that names a task CATEGORY
 (`AvSetMmThreadCharacteristics("Pro Audio")`), bounded by the category,
 not by which program asked.
 
-**What toy-os does: rtkit's shape, keyed on the program.**
+**What SaunaOS does: rtkit's shape, keyed on the program.**
 - **The PROGRAM is checked, never the asker's say-so**: init reads the
   target pid's exec path (`QUERY_PROCPATH`, the kernel's record of what
   it was spawned or exec'd from) and matches it exactly. Matching the
@@ -9428,7 +9428,7 @@ falling back to `iret` otherwise. NMI, #DB and #MC run on IST stacks,
 because for a few instructions at each end the kernel is on the user's
 stack.
 
-**What toy-os does: Linux's shape, one CPU's worth of it.**
+**What SaunaOS does: Linux's shape, one CPU's worth of it.**
 - **One frame for both entries** (`kernel/arch/x86_64/syscall_entry.asm`):
   ss, rsp, rflags, cs, rip, error 0, vector 128 and the fifteen registers
   in `isr_common`'s order, then the same `isr_dispatch()`. Signal
@@ -9465,7 +9465,7 @@ Chosen 2026-10-16, for the Web Browser's content process (the roadmap's
 "a sandboxed content process"): stage 5 had split NetSurf into a process
 per tab, which isolated a crash and nothing else -- a page that took the
 engine over could open sockets, spawn, write anywhere and read `/home`.
-toy-os had no per-process restriction of any kind and no users.
+SaunaOS had no per-process restriction of any kind and no users.
 
 **What real systems do.** OpenBSD's `pledge(2)` drops named GROUPS of
 syscalls (`"stdio rpath inet"`) and kills a process that steps outside
@@ -9482,7 +9482,7 @@ child processes, with win32k syscalls disabled. Every browser keeps
 `file:` away from the renderer: the browser or network process reads
 local files, and only for a navigation the user made.
 
-**What toy-os does: OpenBSD's shape, plus a parent's word.**
+**What SaunaOS does: OpenBSD's shape, plus a parent's word.**
 - **One `PROMISE_*` bit per group, in every row of
   `abi/syscall_rows.h`.** The dispatcher tests the row's bit, so the
   check is one pointer test for an unsandboxed process and needs nothing
@@ -9490,7 +9490,7 @@ local files, and only for a navigation the user made.
   argument (`open` for writing, a setting write, `kill` of another pid,
   creating a beacon). seccomp's numbers were rejected because they would
   need a broker for every file the engine reads -- its fonts on every
-  page; Capsicum's because NetSurf opens by name and toy-os has no
+  page; Capsicum's because NetSurf opens by name and SaunaOS has no
   `openat` family.
 - **An unveil list of up to 16 paths, checked in
   `resolve_user_path()`**, which every path-taking syscall already
@@ -9552,10 +9552,10 @@ Chosen 2026-10-16, measuring Duktape's heap against the Web Browser's
 per-tab budget (the roadmap's "Duktape's heap per content process"). An
 ordinary page's scripts cost little -- jQuery, React, moment with every
 locale, Bootstrap and lodash together add about 1 MiB to the content
-process on toy-os, 4 MiB on the host build -- but a HOSTILE one has no
+process on SaunaOS, 4 MiB on the host build -- but a HOSTILE one has no
 bound: a loop keeping what it allocates reached 1.1 GiB in one tab on a
 2 GiB guest within NetSurf's 10 s script timeout, and on a 1 GiB guest
-it took the last frame. toy-os overcommits (`sbrk` reserves; a page
+it took the last frame. SaunaOS overcommits (`sbrk` reserves; a page
 arrives on first touch), so the machine running out is found at a page
 fault, and the process that faults dies -- the page's own engine that
 time, but the desktop's compositor just as well.
@@ -9570,7 +9570,7 @@ limit on Windows, raised for renderers on a machine with more RAM; V8
 sizes its own heap limit from physical memory too, and a renderer that
 runs out is ended -- the tab shows "Aw, Snap! Out of memory".
 
-**What toy-os does: `RLIMIT_DATA`, refused at the call that asks.**
+**What SaunaOS does: `RLIMIT_DATA`, refused at the call that asks.**
 - **The limit lives in `struct sched_mm`**, beside the break it bounds,
   and is checked in `sys_sbrk()` and a private writable `sys_mmap()`:
   past it sbrk answers -1 and mmap -ENOMEM, so `malloc()` returns NULL
@@ -9580,7 +9580,7 @@ runs out is ended -- the tab shows "Aw, Snap! Out of memory".
   limit.
 - **Not `RLIMIT_AS`**: it would count the read-only font and `/lib`
   mappings and the shm window buffers, none of which a runaway grows.
-  **Not a cgroup**: one process is the unit here, and toy-os has no
+  **Not a cgroup**: one process is the unit here, and SaunaOS has no
   reclaim for a group limit to trigger (the roadmap's direct reclaim).
   **Not a cap inside Duktape's allocator alone**: a loop creating DOM
   nodes grows libdom's heap, not Duktape's, just as fast.
@@ -9591,7 +9591,7 @@ runs out is ended -- the tab shows "Aw, Snap! Out of memory".
   (`webcontent --memory`): the app reads RAM and picks a quarter of it,
   at most 512 MiB; the engine applies it, soft and hard, before its
   sandbox. A `prlimit` on another process would need a permission rule
-  toy-os has no user to hang on.
+  SaunaOS has no user to hang on.
 - **A page out of memory ENDS** (`wc_js.c`). Duktape answers a failed
   allocation by collecting and retrying, and from its later retries
   compacts every live object, each compaction another allocation that
@@ -9713,7 +9713,7 @@ nothing links to is listed last under its own heading.
 **Fonts are the toolkit's, scaled, not the file's.** The file names Helv,
 Tms Rmn and a size in half-points. The viewer maps the family to Liberation
 Sans, Liberation Serif or DejaVu Mono and scales so a 10-point face is as
-tall as the interface font -- the look of a toy-os app, with Zoom for the
+tall as the interface font -- the look of a SaunaOS app, with Zoom for the
 rest -- rather than rasterising 3.11's bitmap fonts, which the w16 programs
 do but a viewer of any program's Help should not need.
 
@@ -9746,7 +9746,7 @@ leaves the window open, as closing it is the user's, as with Windows Help.
 ## Free memory goes back to a hypervisor by free page reporting, walked from the idle loop
 
 Chosen 2026-10-22. QEMU allocates guest RAM lazily, so a VM only costs
-the host what toy-os has touched -- but it never gets a page BACK, and a
+the host what SaunaOS has touched -- but it never gets a page BACK, and a
 machine that once ran something big costs that much until it exits.
 `kernel/mm/page_report.c` walks the frame allocator for wholly free
 2 MiB blocks and `kernel/drivers/virtio/virtio_balloon.c` hands them to
@@ -9763,14 +9763,14 @@ Free page HINTING exists for live migration only. Free page REPORTING
 guest-driven and needs no host policy: the guest reports free blocks of
 pageblock order (2 MiB on x86) a couple of seconds after they appear,
 in batches of 32. Hyper-V's Dynamic Memory and virtio-mem resize a VM;
-neither reclaims idle pages. toy-os copies reporting's shape -- a
+neither reclaims idle pages. SaunaOS copies reporting's shape -- a
 generic core in mm, one registered reporter, 2 MiB blocks, a 2 s
 delay, 32 per batch -- because "the host uses what the guest uses" is
 exactly what it does and nothing else does it.
 
 **Why the idle loop and not the free.** A report is a device round
 trip, and `pmm_free_frame()` runs with interrupts off on paths that
-must stay short. Linux defers to a workqueue; toy-os has no kernel
+must stay short. Linux defers to a workqueue; SaunaOS has no kernel
 threads, and `scheduler_idle()` is the one owner of idle work, so the
 walk runs there, a few batches per pass, asking for its wake when due.
 
@@ -9809,7 +9809,7 @@ back to the page allocator (SLUB keeps `min_partial` of them), and a
 large kmalloc bypasses slab for whole pages that go back on `kfree()`.
 tmpfs never uses kmalloc for file data -- its pages are page-cache
 pages. glibc trims the top of its heap and `munmap`s chunks it got by
-`mmap`; Windows' HeapFree decommits past a threshold. toy-os takes two
+`mmap`; Windows' HeapFree decommits past a threshold. SaunaOS takes two
 of those shapes:
 
 - **ramfs's file data is whole frames from pmm** (`chunk_new()`), as

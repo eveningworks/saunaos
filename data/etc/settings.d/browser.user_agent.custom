@@ -5,7 +5,7 @@ File=/etc/browser.conf
 Label=Custom identity
 Category=Network
 Group=Web Browser
-Default=Mozilla/5.0 (toy-os; x86_64) NetSurf/3.12
+Default=Mozilla/5.0 (SaunaOS; x86_64) NetSurf/3.12
 Requires=browser.user_agent=custom
 RequiresReason=Used when Identify as is Custom
 WhenUnmet=hide

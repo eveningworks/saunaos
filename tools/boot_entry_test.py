@@ -36,7 +36,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(HERE)
 VM = os.path.join(HERE, "vm.py")
 
-TEST_TITLE = "toy-os (text test)"
+TEST_TITLE = "SaunaOS (text test)"
 TEST_ENTRY = ('menuentry "%s" {\n    multiboot2 /kernel.bin debugcon target=text\n'
               '    boot\n}\n' % TEST_TITLE)
 

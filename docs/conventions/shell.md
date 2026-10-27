@@ -426,7 +426,7 @@ this the obvious way), not from how much history it accumulated.
 
   **Two things the rescue set is not.** It is not a repair tool -- a
   shell cannot write an ELF, so a missing `/bin` is fixed by booting
-  `toy-os-live.iso` or re-seeding from the host, exactly as a real
+  `saunaos-live.iso` or re-seeding from the host, exactly as a real
   system fixes it from install media. And it is not a fallback that
   fires by itself: `rm` with no `/bin/rm` FAILS, and says specifically
   that the program is missing and where the kernel copy is, rather than
@@ -888,7 +888,7 @@ tosh's rules, and an unterminated quote FAILS the spawn rather than
 inventing a word. That is Windows' shape -- `CommandLineToArgvW` splits
 a command line at the edge -- and deliberately not POSIX's, which has
 no string form for the kernel to split; `docs/decisions/kernel.md` has
-why toy-os keeps one.
+why SaunaOS keeps one.
 
 **THE COST IS TWO IMPLEMENTATIONS OF ONE RULE**, which is exactly the
 shape this project usually refuses. What keeps them equal is that both

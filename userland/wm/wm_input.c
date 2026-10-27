@@ -909,7 +909,7 @@ void wm_handle_right_click(int mx, int my) {
         // title bar, the app icon, the border, the taskbar button and
         // Alt+F4. That is the split Windows, X11 and Wayland all make --
         // a right-click in Notepad's text area opens Notepad's menu, not
-        // the system menu -- and this used to be the one place toy-os
+        // the system menu -- and this used to be the one place SaunaOS
         // was the outlier, seizing the button over the whole window and
         // leaving a client with no secondary click at all.
         //

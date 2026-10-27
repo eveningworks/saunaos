@@ -1,7 +1,7 @@
 #ifndef TOSH_H
 #define TOSH_H
 
-// tosh -- the toy-os shell (t + OS + h), running in ring 3. See tosh.c
+// tosh -- the SaunaOS shell (t + OS + h), running in ring 3. See tosh.c
 // for what that means and why it is not a front-end to the kernel's
 // own shell.
 //

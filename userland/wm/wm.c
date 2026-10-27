@@ -1248,7 +1248,7 @@ void wm_run(void) {
         taskbar_glide_step();   // the same, for the taskbar's buttons
 
         // Picks up a cursor theme or size changed from Control Panel or
-        // by editing /etc/toyos.conf. One generation compare per frame
+        // by editing /etc/saunaos.conf. One generation compare per frame
         // and no I/O unless it moved -- the same trick the `.desktop`
         // reload above uses.
         wmwd_phase("cursor_theme");

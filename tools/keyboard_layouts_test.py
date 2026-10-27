@@ -93,7 +93,7 @@ def main():
     shown = wait(lambda: not lay(dbg)["tray_hidden"] and lay(dbg)["codes"] == ["us", "fi", "de"])
     check("with three the item is shown and lists them in order", shown, str(lay(dbg)))
     sh(dbg, "config set system.keyboard.layout fi")
-    conf = sh(dbg, "cat /etc/toyos.conf")
+    conf = sh(dbg, "cat /etc/saunaos.conf")
     check("switching the active layout is not written to /etc",
           "keyboard.layouts=us,fi,de" in conf and "keyboard.layout=fi" not in conf, conf[-200:])
     sh(dbg, "config set system.keyboard.layout us")

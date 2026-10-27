@@ -92,7 +92,7 @@ off. **It is never stored as a field**: the level goes into the ring's
 own timestamp, which is already ring-only content that never reaches
 COM1, so `serial.log`'s format is exactly what it always was and every
 reader of the ring can see the level without a new interface. `grep '<3>'
-/var/log/toyos.log` works for the same reason.
+/var/log/saunaos.log` works for the same reason.
 
 The marker is hidden by default because this program's output is read by
 a hundred places that predate levels. `--raw` shows it.

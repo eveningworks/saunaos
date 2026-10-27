@@ -1,4 +1,4 @@
-// usmb_dial() -- the SMB client's toy-os transport: a TCP connection
+// usmb_dial() -- the SMB client's SaunaOS transport: a TCP connection
 // through the kernel stack. Separate from usmb.c so the protocol file
 // builds on the host, where tools/smb_hostcheck.py supplies a POSIX
 // transport instead.

@@ -102,7 +102,7 @@
 // last word is the size the caller asked for (kmalloc_size()'s answer,
 // since the payload is opened to exactly that); held, the two words are
 // the quarantine link and the state the block leaves in.
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 #define HEAP_KASAN_TAIL 16
 #define HEAP_KASAN_HOLD_BYTES (1u << 20)
 #else
@@ -427,7 +427,7 @@ static int header_plausible(const struct heap_block *b) {
 
 static void release(struct heap_block *b);
 
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
 static uint64_t *kasan_tail(struct heap_block *b) {
     return (uint64_t *)((uint8_t *)(b + 1) + b->size - HEAP_KASAN_TAIL);
 }
@@ -578,7 +578,7 @@ uint64_t kmalloc_size(const void *ptr) {
     const struct heap_block *b = (const struct heap_block *)ptr - 1;
     if (!header_plausible((struct heap_block *)b)) return 0;
     if (b->free != HEAP_IN_USE) return 0;
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
     return kasan_tail((struct heap_block *)b)[1];   // what was opened, exactly
 #else
     return b->size;
@@ -593,7 +593,7 @@ static void kfree_locked(void *ptr, uintptr_t ip) {
     int armed = rz_armed(ptr);
     if (armed) {
         b = (struct heap_block *)((uint8_t *)ptr - HEAP_RZ_SIZE) - 1;
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
         if (b->free == HEAP_HELD) kasan_report_bad_free(ptr, "double-free", ip);
 #endif
         if (b->free != HEAP_IN_USE) return; // double-free, same contract as below
@@ -612,13 +612,13 @@ static void kfree_locked(void *ptr, uintptr_t ip) {
                        "heap: CORRUPT HEADER at 0x%lx (size=%lu state=%lu) -- refusing to free\n",
                        (uint64_t)(uintptr_t)b, b->size, (uint64_t)b->free);
             heap_os_report(msg);
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
             kasan_report_bad_free(ptr, "invalid-free", ip);
 #endif
             return;
         }
     }
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
     if (b->free == HEAP_HELD) kasan_report_bad_free(ptr, "double-free", ip);
 #endif
     if (b->free != HEAP_IN_USE) return; // double-free -- silently ignored, same "trust the caller, don't crash" contract as pmm_free_frame()
@@ -629,7 +629,7 @@ static void kfree_locked(void *ptr, uintptr_t ip) {
         k_memset(ptr, HEAP_POISON, span);
         state = HEAP_FREE_POISONED;
     }
-#ifdef TOYOS_KASAN
+#ifdef SAUNAOS_KASAN
     kasan_hold(b, state);
 #else
     b->free = state;
@@ -706,7 +706,7 @@ void kfree(void *ptr) {
 static void *krealloc_locked(void *p, size_t n) {
     struct heap_block *b = (struct heap_block *)p - 1;
     uint64_t need = align_up(n, HEAP_ALIGN);
-#ifndef TOYOS_KASAN
+#ifndef SAUNAOS_KASAN
     if (!rz_armed(p) && header_plausible(b) && b->free == HEAP_IN_USE) {
         uint64_t old = b->size;
         struct heap_block *nx = b->next;

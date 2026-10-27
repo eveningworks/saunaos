@@ -117,7 +117,7 @@ def main():
     time.sleep(3)
     report = f"/var/crash/notepad-{pid}.crash"
     text = dbg.send(f"sh crashlog {report}") or ""
-    head = text[text.find("toy-os crash report"):] if "toy-os crash report" in text else ""
+    head = text[text.find("SaunaOS crash report"):] if "SaunaOS crash report" in text else ""
     if not check("the kill left a report", head, text.strip()[-120:]):
         return _res.finish("crashview_test")
     rip = int(re.search(r"^rip: 0x([0-9a-f]+)", head, re.M).group(1), 16)
@@ -178,7 +178,7 @@ def main():
           "uapp_run" in names and "main" in names and names.index("uapp_run") < names.index("main"),
           " <- ".join(names))
     check("crashlog prints the same frames",
-          all(f"{f[1]:#x}" in text for f in frames), text.split("toy-os crash report")[0].strip()[-200:])
+          all(f"{f[1]:#x}" in text for f in frames), text.split("SaunaOS crash report")[0].strip()[-200:])
 
     w = dbg.widgets(title).get("report")
     if check("the viewer reports its document", w is not None):

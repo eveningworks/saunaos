@@ -1,5 +1,5 @@
-#ifndef TOYOS_DOOM_COMPAT_SDL_H
-#define TOYOS_DOOM_COMPAT_SDL_H
+#ifndef SAUNAOS_DOOM_COMPAT_SDL_H
+#define SAUNAOS_DOOM_COMPAT_SDL_H
 
 // A COMPATIBILITY SHIM, not a stub -- everything here really works.
 //

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""The Web Browser: NetSurf's pages drawn in a toy-os window, and driven.
+"""The Web Browser: NetSurf's pages drawn in a SaunaOS window, and driven.
 
 WHAT IT CHECKS, and what a broken version would still pass:
 
@@ -279,7 +279,7 @@ def main():
     # The network half's servers, started before the app so its search
     # can be pointed at one. Not on bare metal: 10.0.2.2 is SLIRP's.
     net = None
-    if not os.environ.get("TOYOS_REMOTE_HOST"):
+    if not os.environ.get("SAUNAOS_REMOTE_HOST"):
         import shutil
         import tempfile
         d = tempfile.mkdtemp(prefix="browser_test.")
@@ -1197,9 +1197,9 @@ def network(dbg, net, page, at, shot):
           reqs >= 7 and conns < reqs, f"connections={conns} requests={reqs}")
 
     if net.get("certs"):
-        dbg.send(f"gui spawn /bin/wget -O /etc/ssl/certs/toyos-test-ca.pem http://{host}/ca.pem")
+        dbg.send(f"gui spawn /bin/wget -O /etc/ssl/certs/saunaos-test-ca.pem http://{host}/ca.pem")
         for _ in range(40):
-            if "BEGIN CERTIFICATE" in (dbg.send("sh cat /etc/ssl/certs/toyos-test-ca.pem") or ""):
+            if "BEGIN CERTIFICATE" in (dbg.send("sh cat /etc/ssl/certs/saunaos-test-ca.pem") or ""):
                 break
             time.sleep(0.3)
         # A new process: the trust store is parsed once per process.

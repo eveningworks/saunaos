@@ -3,7 +3,7 @@
 Compress (fm_archive.c, fm_compress.c, over lib/uarchive.h).
 
 The archives OPENED here are written on the HOST by Python's zipfile and
-tarfile -- not by anything in toy-os -- and put on the guest, so the
+tarfile -- not by anything in SaunaOS -- and put on the guest, so the
 readers are checked against foreign writers: a stored member, deflated
 ones, a folder two deep (named only by the members under it).
 
@@ -31,7 +31,7 @@ Then COMPRESS, on what was extracted, round-tripped through the reader:
    cancels it. (Choosing a folder is the same job as Extract here with
    another destination.)
 
-What this does NOT prove is that another archiver can read what toy-os
+What this does NOT prove is that another archiver can read what SaunaOS
 writes -- tools/archive_hostcheck.py does that, against Python's zipfile
 and tarfile, on the host.
 """

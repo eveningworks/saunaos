@@ -51,13 +51,13 @@ GATEWAY = "10.0.2.2"
 # not carry -- so "lspci found this name" cannot be satisfied by the
 # file that was already there.
 MARKER_ID = "0001"
-MARKER_NAME = "Toyos Test Vendor"
+MARKER_NAME = "SaunaOS Test Vendor"
 
 
 def good_body():
     lines = ["#", "#\tList of PCI ID's", "#", "# Version: 2099.01.01", "#", ""]
     lines.append(f"{MARKER_ID}  {MARKER_NAME}")
-    lines.append("\t0002  Toyos Test Device")
+    lines.append("\t0002  SaunaOS Test Device")
     for i in range(400):
         lines.append(f"{0x1000 + i:04x}  Filler Vendor {i}")
         # Padding to clear the size floor without inventing 4000 vendors:

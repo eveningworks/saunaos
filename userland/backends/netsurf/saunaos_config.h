@@ -1,4 +1,4 @@
-// NetSurf's platform switches for toy-os, in place of its utils/config.h.
+// NetSurf's platform switches for SaunaOS, in place of its utils/config.h.
 //
 // Upstream decides what a platform has with an #if per operating system
 // in utils/config.h, and has no branch for this one. The vendored tree is

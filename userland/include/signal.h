@@ -1,7 +1,7 @@
 #ifndef ULIB_SIGNAL_H
 #define ULIB_SIGNAL_H
 
-// C's <signal.h> plus the POSIX half that toy-os can actually honour.
+// C's <signal.h> plus the POSIX half that SaunaOS can actually honour.
 //
 // THIS HEADER WAS ON THE "NOT" LIST AND ITS REASON EXPIRED.
 // docs/libc-design.md ruled it out with "a libc that ships a signal()

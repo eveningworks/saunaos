@@ -1,7 +1,7 @@
 #ifndef ULIB_UBOOTMODE_H
 #define ULIB_UBOOTMODE_H
 
-// The screen size GRUB sets at boot, for a display toy-os cannot set
+// The screen size GRUB sets at boot, for a display SaunaOS cannot set
 // itself -- a VESA framebuffer on a card with no driver here (an RTX on
 // a BIOS boot). Linux's GRUB_GFXMODE, chosen from Settings or `bootcfg
 // resolution` instead of a file edited by hand.

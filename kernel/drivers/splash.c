@@ -16,7 +16,7 @@
 // desktop that crashes before drawing gets the log back after this.
 #define SPLASH_MAX_TICKS (30 * COARSE_HZ)
 
-#define MESSAGES_FILE "/etc/toyos.conf"
+#define MESSAGES_FILE "/etc/saunaos.conf"
 #define MESSAGES_KEY  "boot_messages"
 
 static volatile int g_active;
@@ -33,6 +33,13 @@ static void round_rect(const struct splash_rect *r, uint32_t color) {
     for (int row = 0; row < r->h; row++) {
         int in = splash_round_inset(r, row);
         gfx_front_fill_rect(r->x + in, r->y + row, r->w - 2 * in, 1, color);
+    }
+}
+
+static void stone(const struct splash_stone *st, uint32_t color) {
+    for (int y = st->cy - st->a - st->b; y <= st->cy + st->a + st->b; y++) {
+        int x0, x1;
+        if (splash_stone_span(st, y, &x0, &x1)) gfx_front_fill_rect(x0, y, x1 - x0 + 1, 1, color);
     }
 }
 
@@ -53,8 +60,8 @@ void splash_begin(void) {
     splash_layout(gfx_width(), gfx_height(), &g_l);
     gfx_front_fill_rect(0, 0, gfx_width(), gfx_height(), pack(SPLASH_BG));
     round_rect(&g_l.plate, pack(SPLASH_PLATE));
-    for (int i = 0; i < 3; i++) round_rect(&g_l.brick[i], pack(SPLASH_BRICK));
-    say("Starting toy-os...");
+    for (int i = 0; i < SPLASH_STONES; i++) stone(&g_l.stone[i], pack(SPLASH_STONE));
+    say("Starting SaunaOS...");
     g_until = coarse_ticks() + SPLASH_MAX_TICKS;
     g_active = 1;
     klog_write("splash: on -- Esc shows the boot log\n");
@@ -63,7 +70,7 @@ void splash_begin(void) {
 int splash_active(void) { return g_active; }
 
 // `detailed` names each stage; `simple`, the default, says "Starting
-// toy-os..." until the desktop. Read when init starts, the first moment
+// SaunaOS..." until the desktop. Read when init starts, the first moment
 // /etc is there to read.
 void splash_stage_services(void) {
     char v[16];

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Sets VERSION (repo root, plain text, one line) to a new value. This
 # is the ONLY sanctioned way to change VERSION -- don't hand-edit it.
-# Replaces tools/bump_build.sh (retired) now that toy-os uses semantic
+# Replaces tools/bump_build.sh (retired) now that SaunaOS uses semantic
 # versioning with a "-dev" suffix during development instead of a
 # build number bumped on every change -- see docs/decisions.md for the
 # full reasoning behind the switch.

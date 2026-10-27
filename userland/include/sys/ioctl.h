@@ -2,7 +2,7 @@
 #define ULIB_SYS_IOCTL_H
 
 // **ioctl() IS NOT THIS SYSTEM'S INTERFACE, AND THIS HEADER DOES NOT
-// PRETEND OTHERWISE.** toy-os gives each terminal operation its own
+// PRETEND OTHERWISE.** SaunaOS gives each terminal operation its own
 // typed syscall -- SYS_TCGETATTR, SYS_TCGETWINSZ and the rest
 // (docs/conventions/shell.md) -- because a single entry point taking an
 // untyped pointer and an integer command is exactly the shape that

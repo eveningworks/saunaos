@@ -152,7 +152,7 @@ lying than into the OS.
 case for it: before proposing a design, say what Linux and Windows do
 -- and on the desktop side, Wayland and a real compositor (KWin, Mutter,
 wlroots) or X11 where the history explains the shape.** Then say whether
-toy-os should follow or deliberately differ, and why. It changed four
+saunaos should follow or deliberately differ, and why. It changed four
 decisions today rather than decorating them: guard pages
 (`CONFIG_VMAP_STACK`, and Linux had this exact bug before 4.9), a
 syscall TABLE with per-subsystem handlers (Linux's generated

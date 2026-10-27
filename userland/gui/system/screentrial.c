@@ -8,7 +8,7 @@
 //
 // Started by init after toywm (data/etc/services.d/screentrial). Windows'
 // "Keep these display settings?", across a restart because GRUB, not
-// toy-os, sets the mode on this display.
+// SaunaOS, sets the mode on this display.
 #include "ui/uapp.h"
 #include "ui/ulog.h"
 #include "ui/uui_countdown.h"

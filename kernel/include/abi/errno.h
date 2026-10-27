@@ -11,7 +11,7 @@
 // This is Linux's kernel-side convention, and it is here for Linux's
 // reason: the alternative is a global `errno`, which needs thread-local
 // storage the moment a process can have two threads in a syscall at
-// once. toy-os has no TLS (see docs/roadmap.md), and a returned code
+// once. SaunaOS has no TLS (see docs/roadmap.md), and a returned code
 // needs none. The -1-plus-errno shape POSIX programs expect is put back
 // by libsys in ring 3 (userland/rt/sys.c's sys_errno()), which is where
 // a C library does it too -- the kernel does not owe anyone a global.

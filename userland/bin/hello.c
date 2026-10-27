@@ -1,7 +1,7 @@
 // The smallest real userland program: greet, exit. No libc, no crt0 --
 // just a freestanding ELF64 binary that makes two syscalls and returns
 // a clean exit code. This is the one to read first when you want to see
-// what a toy-os `/bin` binary minimally is.
+// what a SaunaOS `/bin` binary minimally is.
 //
 // It used to be something else: the original proof that a separately
 // compiled ELF could run in ring 3 at all, back before syscalls

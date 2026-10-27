@@ -7,7 +7,7 @@
 //
 // A menu, a dropdown list or a tooltip wants to be drawn OUTSIDE the
 // window that owns it -- on Windows it is a #32768 HWND, under Wayland an
-// xdg_popup -- and toy-os's compositor now offers the same
+// xdg_popup -- and SaunaOS's compositor now offers the same
 // (abi/win_proto.h's WIN_REQ_POPUP). But a widget knows nothing about
 // windows, channels or buffers: that is uapp's. So the two meet here, at
 // a PROVIDER the app model installs once and every widget asks through.

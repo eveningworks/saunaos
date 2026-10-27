@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/idle_cpu.py -- how much CPU does toy-os burn doing NOTHING?
+"""tools/idle_cpu.py -- how much CPU does SaunaOS burn doing NOTHING?
 
 Boots a VM, lets the desktop settle, and measures the HOST CPU time of
 the QEMU process over a window in which nothing is sent to the guest.
@@ -17,7 +17,7 @@ WHAT IT CANNOT TELL YOU
 -----------------------
 This is TCG. A large part of the reading is the emulator itself --
 translating the guest's 100 Hz timer tick costs host cycles no guest
-change can remove -- so the ABSOLUTE number is not a property of toy-os
+change can remove -- so the ABSOLUTE number is not a property of SaunaOS
 and should never be quoted as one. What it measures well is a
 DIFFERENCE, run twice against the same host with one thing changed:
 

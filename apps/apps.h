@@ -1,7 +1,7 @@
 #ifndef APPS_H
 #define APPS_H
 
-// An "app" in toy-os is a self-contained program: one C file, one entry
+// An "app" in SaunaOS is a self-contained program: one C file, one entry
 // point, registered here. There's no process isolation yet (everything
 // still runs in kernel space, one address space) -- this is a *source*
 // boundary, not a security one. It exists so:

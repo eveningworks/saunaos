@@ -760,7 +760,7 @@ static int is_static(struct w16 *w, uint32_t proto) {
 // OleCreateFromClip(lpszProtocol, lpClient, lhClientDoc, lpszObjname, lplpObject, renderopt, cfFormat) -> OLESTATUS
 // Windows: Whether the clipboard holds an object of a protocol -- "StdFileEditing" (one to edit in
 // its server) or "Static" (a picture) -- and make one from it.
-// w16: A static object from the clipboard's picture (a metafile, a DIB or a bitmap, a toy-os picture
+// w16: A static object from the clipboard's picture (a metafile, a DIB or a bitmap, a SaunaOS picture
 // included). An embedded object is refused (OLE_ERROR_FORMAT).
 // Why: An embedded object is made by its server, which w16 cannot run.
 // Notice: Paste and Paste Special paste a picture, never an object you can edit later.

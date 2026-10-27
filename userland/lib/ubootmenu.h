@@ -10,8 +10,8 @@
 // SAVES IT EMPTY before booting anything. So an entry that hangs is
 // booted once, and the next reset takes the default -- which is the
 // property that makes it safe to offer on a machine nobody is sitting
-// at. (A choice toy-os cleared after a successful boot would never be
-// cleared by an entry that fails to boot toy-os.)
+// at. (A choice SaunaOS cleared after a successful boot would never be
+// cleared by an entry that fails to boot SaunaOS.)
 //
 // It needs `loadenv` in GRUB's core image (tools/install_grub.py) and
 // the stanza at the top of grub.cfg; an older machine gets both from

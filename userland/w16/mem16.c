@@ -703,7 +703,7 @@ static int api_UnlockSegment(struct w16 *w, unsigned ordinal, struct w16_args *a
 
 // GlobalCompact(dwMinFree) -> DWORD
 // Windows: Compacts the global heap and returns the largest free block it could make.
-// w16: 1 MB: memory comes from toy-os as it is asked for, so there is always room to say yes.
+// w16: 1 MB: memory comes from SaunaOS as it is asked for, so there is always room to say yes.
 static int api_GlobalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     struct cpu16 *c = &w->cpu;
     (void)ordinal;
@@ -715,7 +715,7 @@ static int api_GlobalCompact(struct w16 *w, unsigned ordinal, struct w16_args *a
 // GlobalNotify(lpNotifyProc) -> void
 // Windows: Names the procedure Windows calls before it discards a GMEM_NOTIFY block, so the program
 // can save or give it up.
-// w16: Takes it and never calls it: no block is ever discarded, memory comes from toy-os as asked.
+// w16: Takes it and never calls it: no block is ever discarded, memory comes from SaunaOS as asked.
 static int api_GlobalNotify(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)w;
     (void)ordinal;

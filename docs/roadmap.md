@@ -1,4 +1,4 @@
-# toy-os roadmap
+# SaunaOS roadmap
 
 What is built, what is not, and **the order to build it in**. Every item
 is one line; the reasoning, the measurements and the reproductions live
@@ -279,7 +279,7 @@ everything libc-shaped is waiting on it. Full plan and staging:
 - [ ] POSIX `shm_open(3)` in tolibc, which needs `ftruncate` on an shm fd -- a size is fixed at creation today
 - [ ] `tmpfile()` and `mkstemp()` in tolibc, so a caller that does not care where scratch goes never names a path
 - [x] ~~A real C library -- staged in `docs/libc-design.md`~~ BUILT, all stages -- the proof ran twice (cJSON, then Doom)
-- [x] ~~FAT16/FAT32 driver -- `/boot` readable from inside toy-os~~ done -- FAT32 only, read-write; see the FAT32 section
+- [x] ~~FAT16/FAT32 driver -- `/boot` readable from inside SaunaOS~~ done -- FAT32 only, read-write; see the FAT32 section
 - [ ] `g_next_kernel_rsp` reentrancy fixed properly
 - [ ] `wintest` made non-modal
 - [ ] Kernel threads (a scheduler entity without an address space of its own)
@@ -989,7 +989,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] **NEXT** w16: Control Panel's applets working for real -- Fonts, Date/Time, Keyboard left
 - [x] ~~w16: Solitaire and Hearts from Windows 3.11~~ DONE 2026-10-20 -- Hearts plays the computer's hands; MFC's hook and creation order
 - [x] ~~w16: Write from Windows 3.11~~ DONE 2026-10-20 -- .WRI files real 3.11 reads back, TrueType, ChooseFont, OLE pictures
-- [ ] w16: Write's pictures onto toy-os's clipboard -- Write promises CF_BITMAP but never renders it when asked (WM_RENDERFORMAT)
+- [ ] w16: Write's pictures onto SaunaOS's clipboard -- Write promises CF_BITMAP but never renders it when asked (WM_RENDERFORMAT)
 - [x] ~~w16: arcs, pies, chords and rounded rectangles~~ DONE 2026-10-20 -- 3.11's midpoint ellipse, row for row
 - [x] ~~w16: Calculator from Windows 3.11~~ DONE 2026-10-20 -- the x87 on the host's own, WIN87EM, a dialog as the main window
 - [x] ~~w16: Clock from Windows 3.11~~ DONE 2026-10-21 -- analog, digital, No Title dragged by its face, its own Font dialog
@@ -1182,7 +1182,7 @@ run on, not by order.
 - [x] ~~An RTL8153 vendor driver for USB Ethernet~~ DONE 2026-08-31 -- `rtl_usb.c` + `rtl8153.c` now; DHCP, ICMP, 730 KB of HTTP on a UE300
 - [x] ~~An RTL8156 driver, the 2.5G USB part~~ DONE 2026-09-09 -- `rtl8156.c`, an ops table over the core; 2.5G link, DHCP, a fetch
 - [x] ~~Receive aggregation on the RTL8156 (and RTL8153)~~ DONE 2026-10-15 -- 48 KiB batches, +25-27% measured; `rtl_agg=off` compares
-- [x] ~~The ASUS needed two presses to start after a toy-os power-off~~ DONE 2026-10-09 -- the ACPI-mode switch
+- [x] ~~The ASUS needed two presses to start after a SaunaOS power-off~~ DONE 2026-10-09 -- the ACPI-mode switch
 - [x] ~~The UAC2 feedback endpoint~~ DONE 2026-10-14 -- both USB audio drivers, UAC1 and UAC2, followed within 0.1%
 - [x] ~~USB Ethernet (CDC-ECM), and the BULK transfer type it needed~~ DONE 2026-08-31 -- `net_usb_ecm.c`; RX shown on QEMU usb-net
 - [x] ~~Remote access: a shell and file transfer over the network~~ DONE 2026-08-31 -- `telnetd`, `tftpd`, `tools/remote.py`
@@ -1193,7 +1193,7 @@ run on, not by order.
 - [x] ~~Refresh the PCI/USB id databases from the internet~~ DONE 2026-09-07 -- `/bin/hwdata`; `lspci --update` hands off to it
 - [x] ~~Per-volume state in filesystem backends~~ done -- `struct t3_state`/`fat32_state`/`ramfs_state`, switched at `FS_OP`
 - [x] ~~A self-hosted installer: partition, format, copy the running system, write the bootloader~~ done -- `/bin/install`
-- [x] ~~A graphical installer, offered by a live session~~ DONE 2026-10-12 -- Install toy-os over `lib/uinstall.h`
+- [x] ~~A graphical installer, offered by a live session~~ DONE 2026-10-12 -- Install SaunaOS over `lib/uinstall.h`
 - [ ] Install beside another system: keep a disk's partitions and install into its free space -- the installer erases whole disks only
 - [ ] USB mass storage -- `docs/usb-storage-design.md`; stages 1, 2, 4, 5 BUILT 2026-10-22, UAS and root-on-a-stick to go
 - [ ] exFAT writes cluster by cluster -- batch bitmap and FAT updates per sector, keep a chain cursor
@@ -1227,7 +1227,7 @@ run on, not by order.
 - [ ] A transmit the driver refuses is a DROPPED frame (`rtl_usb` says -ENOSPC with every buffer busy) -- queue it in the stack
 - [ ] A watchdog for a USB NIC whose link stays up while traffic stops -- Linux's `dev_watchdog`; wait for a second sighting
 - [x] ~~A USB class-driver table~~ DONE 2026-10-15 -- `USB_DRIVER()`, bound per interface; `lsusb -v` names each interface's driver
-- [x] ~~**A passive open: listen and accept**, so something can connect TO toy-os~~ DONE 2026-08-29 -- `/bin/httpd` serves the filesystem
+- [x] ~~**A passive open: listen and accept**, so something can connect TO SaunaOS~~ DONE 2026-08-29 -- `/bin/httpd` serves the filesystem
 - [x] ~~**A connection per child process**~~ DONE 2026-08-29 -- `/bin/inetd`; the spawn NAMES fd 0/1, so `inetd -p 7 /bin/cat` echoes
 - [x] ~~An RTL8111/8168 driver, for the Ethernet built into most laptops~~ DONE 2026-09-05 -- `r8169.c`; DHCP and 5.5 MB of TFTP
 - [x] ~~An AQC113 (Aquantia 10G) driver, so the desktop's r8169 can be the `kdebug=net` card~~ DONE 2026-10-08 -- `aq.c`, A1 and A2
@@ -1338,7 +1338,7 @@ run on, not by order.
 - [ ] A kvmclock clocksource -- under KVM without `+invtsc` every PM-timer read is a VM exit
 - [ ] Battery + AC adapter status
 - [ ] Thermal zone reporting
-- [ ] An AML interpreter, so toy-os can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- not scheduled
+- [ ] An AML interpreter, so SaunaOS can run the firmware's own methods (`_PTS`, battery, thermal, lid) -- not scheduled
 - [ ] Deeper CPU idle than `hlt`: MWAIT C-states from a per-model table, Linux's `intel_idle` -- judged by RAPL's package energy
 - [ ] CPU frequency scaling without HWP: ratios from `MSR_PLATFORM_INFO` into `IA32_PERF_CTL`, `intel_pstate`'s legacy mode
 - [ ] S3 suspend/resume
@@ -1526,7 +1526,7 @@ split. One line per pair here; the site lists are in roadmap-details.
 - [ ] Live kernel memory inspection without halting, drgn's shape, over `remote.py` -- `docs/kdebug-design.md` stage 1
 - [ ] A lockup detector: a CPU that stops scheduling, and a task stuck in an uninterruptible wait -- Linux's `softlockup` and `hung_task`
 - [ ] A hardware watchdog that RESETS a hung machine -- Intel's TCO timer (Linux `iTCO_wdt`) or ACPI's WDAT; nothing resets one today
-- [x] ~~The kernel debugger's processes as GDB threads, and `ps`/`dmesg`~~ DONE 2026-09-27 -- threads, and `tools/gdb/toyos.py`
+- [x] ~~The kernel debugger's processes as GDB threads, and `ps`/`dmesg`~~ DONE 2026-09-27 -- threads, and `tools/gdb/saunaos.py`
 - [x] ~~Symbols for kernel modules and user programs in the debugger, and memory per thread~~ DONE 2026-09-27 -- `toy-symbols`
 - [x] ~~Send a file to the machine through the debugger~~ DONE 2026-09-28 -- `remote put`, written by `/bin/kdfiled`
 
@@ -1539,7 +1539,7 @@ section.
 
 - [ ] Stage the SDK: `userland/include/` + `rt/sys.h` to `/usr/include`, the static libraries and crt/rt objects to `/usr/lib`
 - [ ] Vendor a C compiler with an integrated assembler and linker, cross-built and proven on the host first
-- [ ] The same compiler running ON toy-os, emitting `ET_EXEC` at `0x8000000000` with `PT_INTERP=/lib/ld-toy.so`
+- [ ] The same compiler running ON SaunaOS, emitting `ET_EXEC` at `0x8000000000` with `PT_INTERP=/lib/ld-toy.so`
 - [ ] `/bin/cc`, our own driver over it, plus `docs/commands/cc.md`
 - [ ] A corpus compiled on the machine whose output is compared against the host gcc's
 - [ ] A debugger for ring-3 programs -- `ptrace`'s job, or the kdebug stub's protocol aimed at one pid, gdbserver's shape
@@ -1568,6 +1568,8 @@ Things this OS does not do yet, or does in a way worth improving --
 this to be better?".
 
 - [ ] Accents on CAPITALS are clipped at the top of the session font's squeezed cell -- A-acute and A-diaeresis look alike
+- [ ] Remove `rename_from_toy_os()` once no installed machine can still have `/etc/toyos.conf` -- one `exists` per name per mount until then
+- [ ] Installed machines keep "toy-os" GRUB titles and the `TOYOSBOOT` label until reinstalled -- System Update rewrites neither
 - [x] ~~About shows a processor COUNT, not a model~~ DONE (540dd6e5) -- `SYS_CPU_INFO` hands ring 3 the brand string and topology
 - [x] ~~Run the full gate over the About rewrite and the logo~~ DONE 2026-09-02 -- preflight and `gui_regress.py` green
 - [x] ~~A key event carries the translated code only, not the physical keycode~~ DONE 2026-09-29 -- `on_phys_key`

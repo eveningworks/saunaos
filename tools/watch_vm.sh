@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Attach a VIEW-ONLY VNC viewer to a headless toy-os VM, so a test run
+# Attach a VIEW-ONLY VNC viewer to a headless SaunaOS VM, so a test run
 # can be watched live without interfering with it.
 #
 # View-only is the whole point, not a preference. A connected viewer's
@@ -33,13 +33,13 @@ for slot in "${slots[@]}"; do
     esac
     display=$((5 + slot))
     port=$((5900 + display))
-    profile="$profile_dir/toyos-vm-slot$slot.remmina"
+    profile="$profile_dir/saunaos-vm-slot$slot.remmina"
 
     # Rewritten every run: cheap, and it keeps viewonly=1 true even if
     # the profile was edited in Remmina's UI at some point.
     cat > "$profile" <<EOF
 [remmina]
-name=toy-os VM slot $slot (:$display, view-only)
+name=SaunaOS VM slot $slot (:$display, view-only)
 protocol=VNC
 server=localhost:$port
 viewonly=1

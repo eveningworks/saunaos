@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""tools/gui_debug.py -- talk to toy-os's serial debug console, and to
+"""tools/gui_debug.py -- talk to SaunaOS's serial debug console, and to
 its `gui` command family in particular (see userland/wm/wm_debug.c).
 
 WHY THIS EXISTS
@@ -95,7 +95,7 @@ SETTLE_TIMEOUT_S = 15.0  # give up rather than hang if the queue never empties
 
 
 class DebugConsole:
-    # POINTED AT THE LAPTOP WHEN `TOYOS_REMOTE_HOST` NAMES ONE, which
+    # POINTED AT THE LAPTOP WHEN `SAUNAOS_REMOTE_HOST` NAMES ONE, which
     # `gui_regress.py --host` sets for its children. The remote object is
     # a SUBCLASS (tools/remote_gui.py) that replaces the transport and
     # nothing else, so a tool reaches real hardware without an edit of
@@ -111,7 +111,7 @@ class DebugConsole:
     _lock = threading.Lock()
 
     def __new__(cls, *args, **kwargs):
-        if cls is DebugConsole and os.environ.get("TOYOS_REMOTE_HOST"):
+        if cls is DebugConsole and os.environ.get("SAUNAOS_REMOTE_HOST"):
             from remote_gui import RemoteConsole
             return super().__new__(RemoteConsole)
         return super().__new__(cls)
@@ -1346,7 +1346,7 @@ def enter_gui(qmp, sock=".vm.serial", timeout=8.0):
     # launched -- which is exactly what this function is for. Doing it
     # per tool would mean every new tool rediscovering why its layout
     # poll times out.
-    if os.environ.get("TOYOS_REMOTE_HOST"):
+    if os.environ.get("SAUNAOS_REMOTE_HOST"):
         # ON HARDWARE THERE IS NOTHING TO TYPE AT. `gui` is a command at
         # the kernel's serial console, and the laptop has no serial
         # console in use -- which is the whole reason `guictl` exists.
@@ -1355,7 +1355,7 @@ def enter_gui(qmp, sock=".vm.serial", timeout=8.0):
         ready = wait_for_desktop(sock, timeout)
         if not ready:
             print("remote: no desktop is answering on "
-                  f"{os.environ['TOYOS_REMOTE_HOST']} -- is it at a shell prompt, "
+                  f"{os.environ['SAUNAOS_REMOTE_HOST']} -- is it at a shell prompt, "
                   "or mid-boot?", file=sys.stderr)
     else:
         ready = wait_for_desktop(sock, timeout=1.0)

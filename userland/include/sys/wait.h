@@ -17,7 +17,7 @@
 //
 // THE ENCODING IS NOT LINUX'S, deliberately. Linux packs the status into
 // bit fields (`(sig << 8) | 0x7f` and so on) for historical reasons no
-// new system has to inherit; toy-os uses three disjoint ranges, which is
+// new system has to inherit; SaunaOS uses three disjoint ranges, which is
 // readable in a log and needs no shifting. Portable code never looks --
 // it asks these macros, which is exactly why POSIX specifies the macros
 // and not the layout.

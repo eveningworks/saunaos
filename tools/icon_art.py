@@ -734,7 +734,7 @@ def win16():
 
 
 def installer():
-    # A drive with an arrow going into it: Install toy-os.
+    # A drive with an arrow going into it: Install SaunaOS.
     im = canvas()
     m = m_rr(6, 34, 58, 56, 6)
     fill(im, m, ((236, 239, 244), (188, 196, 210)))

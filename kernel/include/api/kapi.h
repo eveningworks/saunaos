@@ -40,7 +40,7 @@
 #include "elf_run.h"       // elf_run_from_fs: loads and runs a real ELF64 binary straight from the persistent filesystem -- what every /bin binary now runs through via the shell's `run <name>` (see docs/decisions.md; this replaced a dozen near-identical per-binary GRUB-module test harnesses)
 #include "debug_console.h" // debug_console_poll -- userland/wm/wm.c's event loop rides this the same way keyboard_getchar() does, so the serial debug console stays responsive while the GUI desktop is up too (see docs/decisions.md)
 #include "ktest_run.h" // ktest_run_all -- the shell's `ktest` command; writing tests needs kernel/ktest.h, see that header
-#include "version.h"   // TOYOS_VERSION -- build number, shown by the shell's `about` and the GUI About window
+#include "version.h"   // SAUNAOS_VERSION -- build number, shown by the shell's `about` and the GUI About window
 #include "string.h"    // k_strlen, k_strcmp, k_strchr/strstr/strlcpy, char classes -- freestanding, no libc
 #include "knum.h"      // numbers <-> strings: k_utoa/k_itoa/k_htoa, k_parse_* (see knum.h's top comment on the nine copies it replaced)
 #include "kfmt.h"      // k_snprintf + vga_printf/klog_printf -- one bounded formatter instead of six calls per line

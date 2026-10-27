@@ -365,7 +365,7 @@ automount, and the recommended seam.
   rather than one answer plus decoration.
 - **The preamble said what Linux and Windows do BEFORE proposing**
   (Linux's `fs/fat/` is generic with the ESP an ordinary mount; Windows'
-  ESP is a volume with no drive letter), then said which shape toy-os
+  ESP is a volume with no drive letter), then said which shape SaunaOS
   should copy and which size it should not.
 
 **What the biggest-option answer then obliged**, and this is the part to

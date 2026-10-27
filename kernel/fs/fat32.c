@@ -1,7 +1,7 @@
 // FAT32 -- the format GRUB can read, and therefore the format `/boot`
 // is in.
 //
-// WHY THIS EXISTS. toy-os's own disk is GPT: a BIOS boot partition
+// WHY THIS EXISTS. SaunaOS's own disk is GPT: a BIOS boot partition
 // holding GRUB's core.img, a FAT32 ESP holding /boot/kernel.bin and
 // /boot/grub, then TFS3. Everything past the bootloader was written by
 // host tools (mtools, tools/install_grub.py) and was unreadable from
@@ -13,7 +13,7 @@
 // WHAT REAL SYSTEMS DO. Linux's `fs/fat/` is one driver serving
 // msdos/vfat, generic over FAT12/16/32, with the ESP as an ordinary
 // mount at /boot/efi and nothing in the driver aware of what it holds.
-// Windows' FASTFAT is the same shape. toy-os follows that -- this file
+// Windows' FASTFAT is the same shape. SaunaOS follows that -- this file
 // contains no mention of a bootloader, and the read-only default lives
 // in the MOUNT POLICY (mount.c) where a policy belongs.
 //
@@ -1320,7 +1320,7 @@ static int fat32_wipe(void *st, const struct block_device *dev) {
 }
 
 // How many sectors per cluster a volume of this size should use. The
-// thresholds are mkfs.fat's, which keeps a toy-os-formatted volume
+// thresholds are mkfs.fat's, which keeps a SaunaOS-formatted volume
 // looking ordinary to every other tool -- and keeps the cluster count
 // above FAT32's 65525 floor wherever the volume is big enough for that
 // to be possible.
@@ -1428,7 +1428,7 @@ static int fat32_format(void *st, const struct block_device *dev) {
     // ---- boot sector ----
     k_memset(sbi->tmpsec, 0, SECTOR);
     sbi->tmpsec[0] = 0xEB; sbi->tmpsec[1] = 0x58; sbi->tmpsec[2] = 0x90; // the jump mkfs writes
-    k_memcpy(sbi->tmpsec + 3, "toy-os  ", 8);
+    k_memcpy(sbi->tmpsec + 3, "SaunaOS ", 8);
     wr16(sbi->tmpsec + 11, (uint16_t)bps);
     sbi->tmpsec[13] = (uint8_t)spc;
     wr16(sbi->tmpsec + 14, (uint16_t)reserved);

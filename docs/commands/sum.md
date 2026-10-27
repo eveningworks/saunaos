@@ -30,7 +30,7 @@ no file is named (or when the file is `-`).
 /$ sum -a sha256 /bin/hello
 f40c609d804d317b951ea4f2b2555aa2cce87d532e36ea1ef05ad10a7093aff3  /bin/hello
 
-/$ cat /etc/toyos.conf | sum
+/$ cat /etc/saunaos.conf | sum
 3830823995 73 -
 ```
 
@@ -86,7 +86,7 @@ ring 0 and ring 3 and there is no second implementation to drift.
 ## What it is not
 
 Not a MAC and not a password hash. SHA-256 is here to answer "did these
-bytes survive the trip"; toy-os has no crypto, no key management and no
+bytes survive the trip"; SaunaOS has no crypto, no key management and no
 constant-time anything, and nothing here should be trusted against an
 adversary who can choose the input.
 

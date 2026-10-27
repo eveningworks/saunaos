@@ -978,7 +978,7 @@ KTEST("usb-audio", "a truncated descriptor is refused rather than guessed at") {
 // the reason that is worth trusting is that a configuration states its
 // own length twice: the AC header's wTotalLength (0x013e) and the
 // configuration's (0x0269). Both come out exactly, which no wrong
-// layout does. `lsusb -D` inside toy-os prints the captured bytes.
+// layout does. `lsusb -D` inside SaunaOS prints the captured bytes.
 static const uint8_t G6_AUDIO_CFG[] = {
     0x09, 0x02, 0x69, 0x02, 0x05, 0x01, 0x00, 0x80, 0xfa, 0x08, 0x0b, 0x00,
     0x03, 0x01, 0x00, 0x20, 0x00, 0x09, 0x04, 0x00, 0x00, 0x01, 0x01, 0x01,

@@ -30,7 +30,7 @@
 //
 // This is x86-64 Linux's `__restore_rt` in glibc, doing the same job for
 // the same reason. i386 Linux puts the equivalent in the vDSO instead;
-// abi/signal_abi.h says why toy-os took this side. No CFI directives:
+// abi/signal_abi.h says why SaunaOS took this side. No CFI directives:
 // glibc's carries a hand-written unwind table so a debugger can walk
 // THROUGH a signal frame, and nothing here unwinds, so adding one would
 // be a claim this tree cannot check.

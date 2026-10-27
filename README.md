@@ -1,4 +1,4 @@
-<h1 align="center">toy-os</h1>
+<h1 align="center">SaunaOS</h1>
 
 <p align="center">
   A hobby x86-64 operating system, written from scratch in C and assembly —
@@ -8,8 +8,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/eveningworks/toy-os/actions/workflows/build.yml">
-    <img alt="release build" src="https://github.com/eveningworks/toy-os/actions/workflows/build.yml/badge.svg">
+  <a href="https://github.com/eveningworks/saunaos/actions/workflows/build.yml">
+    <img alt="release build" src="https://github.com/eveningworks/saunaos/actions/workflows/build.yml/badge.svg">
   </a>
   <img alt="Language" src="https://img.shields.io/badge/language-C%20%2B%20NASM-blue">
   <img alt="Target" src="https://img.shields.io/badge/target-x86__64-lightgrey">
@@ -22,7 +22,7 @@
 > [!NOTE]
 > **An experiment in building an operating system with Claude, and in how
 > far it can get.** All of
-> toy-os is written by [Claude Code](https://claude.com/claude-code),
+> SaunaOS is written by [Claude Code](https://claude.com/claude-code),
 > Anthropic's agentic coding tool, except the third-party ports under
 > `userland/ports/` (DOOM, Mbed TLS, dash, cJSON): a human makes the
 > design calls and decides what ships; Claude does the implementation,
@@ -36,8 +36,8 @@
 > you care about.
 
 <p align="center">
-  <img src="screenshots/readme/desktop.png" alt="toy-os desktop: the Start menu, frosted glass, open on All Apps over the Image Viewer, the File Manager, DOOM and a Terminal" width="49%">
-  <img src="screenshots/readme/apps.png" alt="toy-os apps on the floating, frosted taskbar: a shaded teapot in Shapes, the Audio Player, Minesweeper, the Calculator and the Device Manager" width="49%">
+  <img src="screenshots/readme/desktop.png" alt="SaunaOS desktop: the Start menu, frosted glass, open on All Apps over the Image Viewer, the File Manager, DOOM and a Terminal" width="49%">
+  <img src="screenshots/readme/apps.png" alt="SaunaOS apps on the floating, frosted taskbar: a shaded teapot in Shapes, the Audio Player, Minesweeper, the Calculator and the Device Manager" width="49%">
 </p>
 
 <p align="center">
@@ -85,14 +85,14 @@ of those actually is, and where the interesting decisions were.
 
 ## Try it
 
-**Without building anything:** download `toy-os-live.iso` from
-[Releases](https://github.com/eveningworks/toy-os/releases) and boot it
+**Without building anything:** download `saunaos-live.iso` from
+[Releases](https://github.com/eveningworks/saunaos/releases) and boot it
 in QEMU — `run_release.sh`, beside it, does that for you — or write
-`toyos-usb.img.gz` to a USB stick for real hardware. **BIOS/CSM only;
+`saunaos-usb.img.gz` to a USB stick for real hardware. **BIOS/CSM only;
 UEFI does not boot.**
 
 > [!WARNING]
-> **Running it is at your own risk, in a VM or on real hardware.** toy-os is a
+> **Running it is at your own risk, in a VM or on real hardware.** SaunaOS is a
 > hobby experiment and comes with no warranty: if running or installing it
 > breaks something, that is on you, not on this project. Read
 > [On real hardware](docs/building.md#running-a-release) first.
@@ -101,7 +101,7 @@ UEFI does not boot.**
 
 ```bash
 sudo apt install build-essential nasm grub-pc-bin grub-common xorriso mtools qemu-system-x86 python3
-git clone https://github.com/eveningworks/toy-os.git && cd toy-os
+git clone https://github.com/eveningworks/saunaos.git && cd saunaos
 make run
 ```
 
@@ -116,7 +116,7 @@ flag, `build.conf`, real hardware, testing a change and troubleshooting.
 
 A hobby project under active development, not production software. The
 current version is in [VERSION](VERSION); tagged builds are on
-[Releases](https://github.com/eveningworks/toy-os/releases).
+[Releases](https://github.com/eveningworks/saunaos/releases).
 
 **Works today:** real hardware and QEMU boot; the shell; three
 filesystems, partitions and an installer; the ring-3 desktop and its

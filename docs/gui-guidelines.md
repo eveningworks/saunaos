@@ -1,6 +1,6 @@
 # GUI guidelines
 
-How toy-os's GUI is supposed to look and behave. The goal in one line:
+How SaunaOS's GUI is supposed to look and behave. The goal in one line:
 **minimalist but modern -- flat, quiet, and never ambiguous about
 whether it heard you.**
 
@@ -1323,9 +1323,9 @@ the order they bite:
   `cursor-shape-v1`). An app that ships its own cursor art has to find,
   load and scale a theme itself, which is the thing that was tried and
   abandoned elsewhere. **The one exception is a cursor that IS the
-  program's content**, not toy-os's UI: a Win16 program's own cursor
+  program's content**, not SaunaOS's UI: a Win16 program's own cursor
   resources, which w16 hands toywm through `uapp_cursor_image()`
-  (`docs/decisions/gui.md`, "A client's own cursor image"). A toy-os app
+  (`docs/decisions/gui.md`, "A client's own cursor image"). A SaunaOS app
   wanting a shape the theme lacks asks for a new theme shape instead.
 - **The built-in shapes are the floor.** A theme file that is missing or
   malformed costs its own shape and nothing else. The pointer must never

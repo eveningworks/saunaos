@@ -32,7 +32,7 @@ static const struct termkey_case TERMKEY_CASES[] = {
 
     // MODIFIED KEYS ARE THE `1;N` FORM, xterm's: N is 1 + a bitmask
     // where 1 is Shift, 2 is Alt and 4 is Ctrl. So Shift+Left is
-    // `CSI 1 ; 2 D` and Ctrl+Left is `CSI 1 ; 5 D`. toy-os has codes
+    // `CSI 1 ; 2 D` and Ctrl+Left is `CSI 1 ; 5 D`. SaunaOS has codes
     // for exactly the combinations its keyboard driver folds.
     { KEY_SHIFT_ARROW_LEFT,  "\x1b[1;2D", "CSI 1;2 D" },
     { KEY_SHIFT_ARROW_RIGHT, "\x1b[1;2C", "CSI 1;2 C" },

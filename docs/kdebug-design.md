@@ -2,7 +2,7 @@
 
 A staged plan, in the shape `docs/fslock-design.md` and
 `docs/smp-design.md` use. It answers one question: **how does a real
-`gdb` stop a toy-os machine that no emulator is standing behind, set a
+`gdb` stop a SaunaOS machine that no emulator is standing behind, set a
 breakpoint in it, read and write its memory, and let it go?**
 
 **Status (2026-09-27): stage 2, the halting stub over serial, is BUILT;
@@ -17,7 +17,7 @@ later stage stands on it.**
 ## Why
 
 QEMU's own stub (`make debug`) needs no guest code, and was the whole
-answer while every toy-os machine was emulated. Two laptops run toy-os
+answer while every SaunaOS machine was emulated. Two laptops run SaunaOS
 now, and most of `docs/bugs.md` reproduces only on them; diagnosing one
 has meant klog lines, a rebuild and a reflash per question. What a
 debugger buys is asking the next question without the rebuild.
@@ -45,7 +45,7 @@ debugger buys is asking the next question without the rebuild.
   kernel runs and on a machine too wedged to run anything -- and only
   under QEMU.
 
-toy-os follows **Linux's shape for the stub** (the standard GDB protocol,
+SaunaOS follows **Linux's shape for the stub** (the standard GDB protocol,
 generic protocol code beside an arch half, armed only from the boot
 line) and **Windows' shape for the network** (a transport that owns the
 NIC through its own polled path, with a key). Copying the protocol
@@ -300,7 +300,7 @@ are the same in every space and take the ordinary path.
 `kernel/proc/sched_debug.c` is the scheduler's read-only, lock-free view
 for this, so `kernel/debug/` never includes the scheduler's internals.
 
-**`tools/gdb/toyos.py`** is Linux's `scripts/gdb` shape -- `lx-dmesg`,
+**`tools/gdb/saunaos.py`** is Linux's `scripts/gdb` shape -- `lx-dmesg`,
 `lx-ps` -- and WinDbg's `!process`: helpers that READ the stopped machine
 from the host. `toy-dmesg`, `toy-ps`, and an UNWINDER for the one frame
 GDB could not get past: `isr_common` has no CFI, so every backtrace used

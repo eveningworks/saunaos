@@ -508,7 +508,7 @@ has:
 - **Wayland** ships pixels in a `wl_buffer` (`wl_pointer.set_cursor`);
   with `cursor-shape-v1` the compositor loads an Xcursor theme, ARGB.
 
-toy-os copies that shape. A **mask** shape (`default`, `bold`) is
+SaunaOS copies that shape. A **mask** shape (`default`, `bold`) is
 unchanged and still coloured by the compositor. An **image** shape names
 straight-alpha QOI files beside its descriptor -- `image=` at 1x and
 `image2=`/`image3=` rendered natively for the size setting -- and its
@@ -651,7 +651,7 @@ The list is `/usr/wm/applications/*.desktop` now, one entry per app, scanned
 at desktop startup: freedesktop's idea, and near enough its file format
 that the entries are readable to anyone who has seen a Linux one
 (`Name=`, `Exec=`, `Icon=`, `Categories=`). The parser is
-`etc_config`'s, already in the tree for `/etc/toyos.conf` -- key=value
+`etc_config`'s, already in the tree for `/etc/saunaos.conf` -- key=value
 lines with `#` comments is exactly the format, so no second parser
 exists. **Adding an app to the desktop is dropping a file in
 `data/wm/applications/`.**
@@ -1725,7 +1725,7 @@ meaningful instead of an elaborate way to show a single page.
 
 **The applet doesn't cache its setting.** The timezone applet read the
 current city at draw time and wrote it straight back, persisting to
-`/etc/toyos.conf`. A local copy would be a second source of truth, and
+`/etc/saunaos.conf`. A local copy would be a second source of truth, and
 a shell command could change the same setting behind the window's back.
 (Both of those accessors are gone: the timezone is a registered setting
 now, and the database left ring 0 entirely -- `docs/decisions.md`.)
@@ -1876,7 +1876,7 @@ log to the physical console while booting, and the console keeps a
 scrollback ring so what scrolled past is still readable.
 
 Neither works alone. `klog_write()` went to the serial port and the
-`dmesg` ring only, so the screen showed "toy-os booting..." and then the
+`dmesg` ring only, so the screen showed "SaunaOS booting..." and then the
 shell -- scrollback would have had nothing of the boot to scroll back
 to. And echoing the log without scrollback just moves text past too fast
 to read. `kernel_main()` turns the echo on early and off again just
@@ -1939,7 +1939,7 @@ without triggering the button).
 ## ui_button/ui_button_group: Brutal-OS-inspired, but not a full retained view system
 
 Asked directly to look at Brutal OS's `libs/brutal-ui/button.c`/`.h` and
-consider whether toy-os should have "own libs for GUI apps" the same
+consider whether SaunaOS should have "own libs for GUI apps" the same
 way. Worth separating two things that question conflates: the
 *insulation boundary* (apps not reaching into WM internals) already
 existed -- every `apps/*.c` file only ever includes `wm/wm.h` (the
@@ -1947,7 +1947,7 @@ public `window_*` API) and `apps/ui/ui.h` (was `widgets.h`), never `wm_internal.
 `userland/wm/*.c`'s own private `extern` state). What Brutal's button.c
 actually demonstrates is different: a widget as a self-contained
 *object* that owns its state (`press`/`over` flags) and reacts to
-events, versus toy-os's old style of `widgets.h` being pure draw
+events, versus SaunaOS's old style of `widgets.h` being pure draw
 functions (`widget_button(x, y, w, h, ...)`) with every app hand-rolling
 its own state next to them (`calculator.c`'s `g_pressed_index`).
 
@@ -1956,7 +1956,7 @@ Went with a scaled-down version of that idea (`ui_button`/
 generic base struct every widget inherits via a cast macro
 (`ui_button$(VIEW)`), composed into a tree (`ui_view_mount()`), laid out
 with a string DSL (`"dock p-8"`), and dispatched a general `UiEvent`
-enum including `UI_EVENT_ENTER`/`UI_EVENT_LEAVE` for hover. toy-os's WM
+enum including `UI_EVENT_ENTER`/`UI_EVENT_LEAVE` for hover. SaunaOS's WM
 doesn't have (or need) most of that: there's no view tree, no
 mouse-enter/leave dispatch, no generic layout engine, and building one
 just to host a button object would be solving a problem this GUI
@@ -2226,7 +2226,7 @@ the kernel FP-free confines state movement to where the scheduler
 actually swaps ring-3 processes, which already exists
 (`scheduler.c`'s `switch_to()`).
 
-Note the toy-os-specific wrinkle, because it's a real difference from
+Note the SaunaOS-specific wrinkle, because it's a real difference from
 the systems being copied: `apps/` here is ring 0, compiled into the
 kernel image. So "userland only" is narrower than it sounds -- Calculator
 and the WM don't get float, only `userland/`'s ELFs do. If a GUI app
@@ -2961,7 +2961,7 @@ otherwise every UI would carry its own copy of the fallback.
 exactly the SETTINGS registry -- not facts, not tunables (see
 `docs/settings-and-queries.md`'s vocabulary). KDE and macOS both call it
 System Settings, and the qualifier earns its keep because a
-per-application settings window is something toy-os may grow later,
+per-application settings window is something SaunaOS may grow later,
 which is why GNOME's bare *Settings* was not taken.
 
 ## A page heading is chrome, and drawing it in the page is wrong
@@ -3705,7 +3705,7 @@ fully-background pixels.
 
 `font_face_select()` loads and validates a `.ttf`; the atlas that makes
 it drawable comes from `gfx_set_font_px()`. `font_config_init()` called
-the first and then returned early when `/etc/toyos.conf` had no
+the first and then returned early when `/etc/saunaos.conf` had no
 `font_size` key -- so a machine with a `font_face` key, or with the
 compiled-in default, had a face **active and unbuilt**. `fontface`
 reported it by name while every glyph on screen came from the baked
@@ -3748,7 +3748,7 @@ the descriptor, reported over the ABI as `imin`/`imax`/`istep`, and a
 
 **The range lives in code and is enforced by the REGISTRY.** A spinbox
 knows the bounds and will not offer a value outside them, but `config
-set system.mouse.speed 0` and a hand-edited `/etc/toyos.conf` reach
+set system.mouse.speed 0` and a hand-edited `/etc/saunaos.conf` reach
 `setting_set()` without passing through any UI. `/etc/settings.d` may
 already override a setting's *presentation* (which widget to use, and
 its word wins) -- a range is not presentation, and letting a file widen
@@ -3869,7 +3869,7 @@ never parses an image format: a client hands it a buffer of pixels, and
 KWin and Mutter decode a wallpaper in the shell process through Qt or
 GdkPixbuf.
 
-**Why toy-os follows rather than differs, when it deliberately differs
+**Why SaunaOS follows rather than differs, when it deliberately differs
 for fonts.** The font parser is in ring 0 because the CONSOLE needs
 glyphs before any process exists -- a machine that cannot draw text
 until a disk font has loaded cannot report why the disk font did not
@@ -3967,7 +3967,7 @@ every check here compares against libjpeg:
 - **`/tests/uimg_test`** runs nine committed vectors in RING 3, on this
   heap, in a real process -- the gap `/tests/klineedit_test` and
   `/tests/ttf_test` exist for. It says nothing new about the algorithm
-  and everything about toy-os.
+  and everything about SaunaOS.
 - **`tools/imgview_test.py`** compares the FRAMEBUFFER against libjpeg's
   decode of the same file. `aurora.jpg` is 1280x720 and so is the
   screen, so the default wallpaper is a pixel-for-pixel comparison with
@@ -4148,7 +4148,7 @@ client that genuinely needs to override it. X11 did the opposite --
 `_NET_WM_ICON` is pixel data the client uploads -- which means every
 toolkit ships its own scaling, an application can hand the compositor
 anything, and the same app renders differently under two window
-managers. toy-os has the Wayland arrangement already and there was no
+managers. SaunaOS has the Wayland arrangement already and there was no
 reason to add a second, worse one beside it.
 
 **Which is also why nothing new was added to the protocol.** A window
@@ -4179,7 +4179,7 @@ have drifted back from `wm_request_close()` (ASK the client) to
 
 GNOME deleted the titlebar icon and macOS never had one outside
 document proxy icons, so this is a choice rather than a necessity --
-but toy-os's chrome is Windows/KDE-shaped everywhere else, and an icon
+but SaunaOS's chrome is Windows/KDE-shaped everywhere else, and an icon
 in that corner is what makes the window menu discoverable at all.
 
 ## Text over a wallpaper is SHADOWED, because a guessed background stopped being one
@@ -4256,7 +4256,7 @@ the difference between a convention and a mechanism.
 compositor sends `wl_pointer.enter`/`leave`/`motion` to whatever
 surface is under the pointer: being a surface IS the registration, and
 there is nothing to forget. KWin and Mutter get the same property from
-hit-testing a scene graph. The honest comparison for what toy-os had is
+hit-testing a scene graph. The honest comparison for what SaunaOS had is
 X11, where a window receives `EnterNotify` only if it selected that
 event in its mask -- and "forgot to select the event" is a classic X
 bug, which is precisely what happened here. The panel's popups are not
@@ -4430,7 +4430,7 @@ Alt+Space. X11 delivers button 3 to the client, and window managers that
 want it take a MODIFIER chord instead (Alt+click in most of them,
 KWin included). Wayland has no ambiguity at all: the compositor draws
 the decorations, so anything inside the surface is the client's by
-construction. toy-os was the outlier, and not deliberately -- it was the
+construction. SaunaOS was the outlier, and not deliberately -- it was the
 shape a single-process WM had left behind.
 
 **The split now.** `wm_handle_right_click()` tests the window's CONTENT
@@ -4537,7 +4537,7 @@ watched `'w'` go down and saw `'W'` come up would clear nothing and hold
 X11 and Wayland avoid this by delivering PHYSICAL keycodes and letting
 the client translate with XKB. Doing the remembering in the driver keeps
 one vocabulary on the wire, which is the property worth having here --
-a toy-os client has no XKB and should not need one.
+a SaunaOS client has no XKB and should not need one.
 
 **The subtlety is autorepeat, and the rule is FIRST PRESS WINS.** A held
 key repeats, and the repeats are translated afresh -- so W held while
@@ -4651,7 +4651,7 @@ keyboard comes back.
 
 The obvious build is an Explorer clone: a places sidebar, one content
 pane, icons, copy/paste. Measured against this tree that plan is blocked
-on two things toy-os does not have, and each of them is a milestone of
+on two things SaunaOS does not have, and each of them is a milestone of
 its own: **there is no clipboard** and **there is no drag-and-drop**
 (both live in `docs/roadmap.md`'s "GUI clipboard + drag-and-drop",
 unstarted). Copy/paste and drag-a-file-onto-a-window ARE Explorer's two
@@ -5037,7 +5037,7 @@ supply a cursor image, and Wayland's original `wl_pointer.set_cursor`
 did the same; both meant every client loading the cursor theme, and
 Wayland eventually added `cursor-shape-v1` to undo it. Windows settled
 the same way: `WM_SETCURSOR` arrives, the app calls `SetCursor(HCURSOR)`,
-and the system paints. toy-os has no choice anyway — a client draws into
+and the system paints. SaunaOS has no choice anyway — a client draws into
 its own buffer and the sprite is composited above every window — but
 `cursor_theme.h` had already committed to the layering in its header
 comment ("an APP names a shape, the COMPOSITOR owns the theme") and
@@ -5225,7 +5225,7 @@ Fixing the paint fixes every writer at once, which neither of those does.
 open a Terminal window to show that text?" has a clear answer: no. No
 desktop shows a GUI app's diagnostics that way, and it would put a window
 in front of the user on every launch. freedesktop's `Terminal=true` is
-for programs whose INTERFACE is a terminal — `edit`, `tosh` — which toy-os
+for programs whose INTERFACE is a terminal — `edit`, `tosh` — which SaunaOS
 still cannot launch from the desktop at all. That is a real gap and it is
 on the roadmap; it is a different feature from this bug.
 
@@ -5252,7 +5252,7 @@ Reliability Monitor hold the per-app record. macOS shows "<App> quit
 unexpectedly" with Reopen and a report. KDE's DrKonqi notifies with
 Details, and GNOME's ABRT keeps a list. Linux's own kernel side is
 `signal(7)`'s "Core" default action: a crash is a signal whose default
-dumps core, which is why a `SIGSEGV` sent by `kill` counts too. toy-os
+dumps core, which is why a `SIGSEGV` sent by `kill` counts too. SaunaOS
 copies the SHAPE of all four: a notice, a dialog, a list, and a frame
 held across a compositor restart.
 
@@ -5340,7 +5340,7 @@ and both square the corners of a maximized window; Plasma does it in
 the decoration plugin and DWM in the compositor, and either way the
 compositor knows the window's shape.
 
-toy-os's compositor does not, and deliberately. The obvious design is
+SaunaOS's compositor does not, and deliberately. The obvious design is
 a per-window shape mask consulted by damage tracking, hit testing and
 the blit; that is Wayland's `wl_surface.set_opaque_region` and X11's
 SHAPE extension, and it touches every path that thinks a window is a
@@ -5378,12 +5378,12 @@ an aliased arc reads as a staircase.
 Three places could own tabbing and all three exist in the wild. Konsole,
 GNOME Terminal and Windows Terminal put the strip in the APPLICATION.
 KDE also does window tabbing in the COMPOSITOR — group any windows into
-one tabbed frame — which would have given toy-os tabs for every app from
+one tabbed frame — which would have given SaunaOS tabs for every app from
 one implementation, and Terminal would have needed no changes at all.
 And tmux does it inside the terminal PROTOCOL, which is why a tmux
 session survives losing its terminal.
 
-toy-os took the application's, and the argument is what a tab has to
+SaunaOS took the application's, and the argument is what a tab has to
 carry. A tab here is a pty, a shell, a grid, 240 lines of scrollback, an
 alternate screen and a title. A compositor-level tab is a whole window,
 so eight tabs would be eight Terminal processes — and the strip could
@@ -5603,7 +5603,7 @@ Terminal deliberately does not.** In a terminal a row of chrome is a row
 taken from the program running in it, so Windows Terminal, GNOME
 Console and Ptyxis all put the tabs, a new-tab split button and a menu
 button in ONE row and drop the menu bar. Konsole keeps one, and lets it
-be hidden. toy-os follows the first group: the bar holds the tabs, "+"
+be hidden. SaunaOS follows the first group: the bar holds the tabs, "+"
 and a ▾ listing `/etc/shells`, Find, the Session-panel toggle and ☰.
 The menu bar still exists, hidden by default (`menubar=on` shows it);
 F10 reveals it, and the ☰ menu holds the same commands, so hiding the
@@ -5620,7 +5620,7 @@ the lift anyway. The tabs FLOAT in the bar (`uui_tabs.floating`: centred,
 rounded all round, no baseline) -- Firefox's and libadwaita's tab bar --
 because on the bar's foot the white tab ran straight into the page.
 
-**The Session panel is the toy-os addition.** None of the three
+**The Session panel is the SaunaOS addition.** None of the three
 terminals shows the tab's process; here a right-hand panel does (the
 shell, its pid and group, the processes under it, scrollback use, and
 Interrupt / Send EOF / Force quit), because the shell in a tab being a
@@ -6071,7 +6071,7 @@ somebody pastes. That is why closing the app you copied from loses your
 clipboard, and why every desktop ships a clipboard manager whose entire
 job is to paste-and-re-copy in the background to work around it.
 
-toy-os copies instead. A copy hands over the bytes and they stay handed
+SaunaOS copies instead. A copy hands over the bytes and they stay handed
 over; the source may exit immediately and the paste still works.
 
 The trade is real and it is the right way round at this scale. Serving
@@ -6680,7 +6680,7 @@ Linux puts modesetting in the compositor: Mutter and KWin own KMS
 through atomic commits, allocate their own framebuffers at the new
 size and tell clients through `wl_output`. Windows lets any process ask
 through `ChangeDisplaySettings`, the display driver switches, DWM
-re-creates its surfaces and every window gets `WM_DISPLAYCHANGE`. toy-os
+re-creates its surfaces and every window gets `WM_DISPLAYCHANGE`. SaunaOS
 takes the Windows shape.
 
 **Why kernel-driven.** The compositor here does not own the
@@ -6736,7 +6736,7 @@ emulator that shows any mode, and the Intel driver has no modeset yet.
 `system.scaling` (aspect, full, center) decides where a mode smaller
 than a fixed panel lands. Linux exposes this per connector as the
 `scaling mode` property, set by the compositor; Windows' Intel driver
-puts three radio buttons in its own control panel. toy-os makes it a
+puts three radio buttons in its own control panel. SaunaOS makes it a
 registered setting beside Resolution, stored in the display layer
 (`display_scaling()`), for the reason the resolution is one: the kernel
 owns the framebuffer and the mode here, the registry gives a System
@@ -6772,7 +6772,7 @@ holds at most one. The compositor was already doing exactly this on its
 side ("newest position wins"), so nothing observable changed except that
 the flood no longer reaches the queue. **A notification outranks
 input**: Wayland never drops an event at all -- the socket fills and the
-client stalls -- and toy-os deliberately keeps dropping, because a
+client stalls -- and SaunaOS deliberately keeps dropping, because a
 stalled input path is the worse failure here; but what it sheds is the
 oldest INPUT event, raw or delivered, and only with none queued the
 oldest of all. Both are in `win_events_push()` with a KTEST each, and
@@ -6878,7 +6878,7 @@ buffer, and it papers over the timing rather than removing it.
 Wayland does not have the gap at all, because a `wl_buffer` carries its
 own dimensions and a surface adopts them at `commit`: the compositor
 keeps showing the old buffer at the old size until a new one arrives.
-toy-os had already copied the configure/ack handshake and stopped one
+SaunaOS had already copied the configure/ack handshake and stopped one
 step short of that. So the size is on the buffer now
 (`struct win_buf`), a resize rebuilds only the BACK one, and
 `WIN_EV_CLIENT_PRESENT` carries the front buffer's w/h for the WM to
@@ -6937,7 +6937,7 @@ grounds that Windows and KDE both drag windows live and an outline is
 what X11 window managers did before compositing. That was right about
 the default and wrong about the choice: KDE could delete its
 *"Display content in moving/resizing windows"* switch in Plasma 5
-because a KWin client redraws in milliseconds, and toy-os's do not.
+because a KWin client redraws in milliseconds, and SaunaOS's do not.
 Image Viewer takes 200-300 ms to become a size it was asked for under
 TCG -- it rescales a JPEG per proposed size -- while Terminal takes
 20-30 ms. A window lagging a third of a second behind the pointer is
@@ -7160,7 +7160,7 @@ captures the mouse, and a click outside cancels via `WM_CANCELMODE` --
 consumed. Neither is bounded by its parent window, neither has chrome or
 a taskbar button, and in both the OWNER stays the active window.
 
-toy-os follows that shape. Six calls, each with the obvious alternative
+SaunaOS follows that shape. Six calls, each with the obvious alternative
 it declined:
 
 1. **The compositor places the popup.** The client sends the anchor in
@@ -7293,7 +7293,7 @@ that are hidden. A mesh type (vertices + faces + per-face colour +
 `draw_mesh()`) is what every small 3D library grows next, and then a
 depth buffer, and then clipping planes.
 
-**What toy-os does.** `geom_fill_polygon()` is the roadmap's polygon
+**What SaunaOS does.** `geom_fill_polygon()` is the roadmap's polygon
 fill, even-odd and sampled at PIXEL CENTRES so two faces sharing an
 edge tile with no seam and no double coverage -- a square from (10,10)
 to (20,20) covers the same 100 pixels a rect fill would. `geom_face_
@@ -7326,9 +7326,9 @@ the kernel to put it on the client's per-process queue
 else of a display server's traffic: a Wayland client's events cross a
 Unix socket the compositor writes and the kernel merely carries.
 Windows keeps a per-thread message queue in win32k and `PostMessage`
-writes into it -- exactly the shape toy-os had, and the one Microsoft
+writes into it -- exactly the shape SaunaOS had, and the one Microsoft
 has spent two decades paying for (win32k is the kernel's largest
-attack surface). Stage 8 moves toy-os from the NT shape to the Wayland
+attack surface). Stage 8 moves SaunaOS from the NT shape to the Wayland
 shape, with shared memory in place of the socket because that is what
 the channel already was.
 
@@ -7400,7 +7400,7 @@ and the fileview and tree each implement a target in a dozen lines.
 
 **Move by default, copy with Ctrl, decided by the router.** Explorer
 moves within a volume and copies across with Ctrl forcing a copy;
-Dolphin asks Copy/Move/Link with a menu on every drop. toy-os has one
+Dolphin asks Copy/Move/Link with a menu on every drop. SaunaOS has one
 volume, so Explorer's within-volume case is the only case, and a
 question on every drop would be the menu for a choice with one answer.
 The bit lives on the payload (`d->copy`) and is set by the ROUTER from
@@ -7455,7 +7455,7 @@ what window the pointer is over once it leaves its own. Three shapes.
 window under the pointer through the server and sends it client
 messages, the data travels as a selection. Every step is a round trip
 between two processes that do not trust each other, and it needs a
-"which window is at (x, y)" query toy-os deliberately does not expose to
+"which window is at (x, y)" query SaunaOS deliberately does not expose to
 clients. Rejected.
 
 **The compositor brokers, the data rides shared memory** -- Wayland's
@@ -7499,7 +7499,7 @@ folders, the desktop shows the Desktop folder, and "Pin to" or "Create
 shortcut" adds a file. Nobody shows every installed application on
 the desktop, and nobody has for twenty years.
 
-**toy-os follows.** The database is `/usr/wm/applications`, the desktop
+**SaunaOS follows.** The database is `/usr/wm/applications`, the desktop
 is exactly `/home/Desktop`, a `.desktop` file there is a launcher read
 by the same parser (`gui_app_read_entry()`), and "Add to desktop" on a
 Start menu row writes one. A launcher on the desktop opens through the
@@ -7605,7 +7605,7 @@ refusing must not be possible: the user has touched the keyboard and
 wants the machine back, and a saver that could decline would be a way to
 lose it.
 
-**No lock screen, deliberately.** toy-os has no accounts and no
+**No lock screen, deliberately.** SaunaOS has no accounts and no
 passwords. A screen that demanded one would stop nobody and would cost a
 way back in, which is a worse trade than the protection is worth. If
 accounts ever exist, the locker is a separate program from the saver --
@@ -7665,7 +7665,7 @@ GENERATES the dialog from it, with the chosen values becoming command
 line arguments. GNOME dropped configurable savers entirely; Plasma's
 lock-screen plugins are Windows' model in QML.
 
-**Why XScreenSaver's, here.** toy-os already had every ingredient: the
+**Why XScreenSaver's, here.** SaunaOS already had every ingredient: the
 saver list is a DIRECTORY (`choice_dir`), a setting's prose comes from a
 data file (`/etc/settings.d`), and the Start menu is built from
 `.desktop` files. A declarative descriptor is the shape this project
@@ -7695,7 +7695,7 @@ avoid, since it had one hand-written applet per setting before the
 registry existed.
 
 **The values are a file per saver, not arguments.** XScreenSaver passes
-the options as argv, which toy-os could do (`SPAWN_ARGV` exists). A file
+the options as argv, which SaunaOS could do (`SPAWN_ARGV` exists). A file
 was chosen because a saver is spawned by three different things here --
 the idle clock, the Test button, and a person at a shell prompt -- and
 only the first two could be taught to build an argv. A saver run by hand
@@ -7865,7 +7865,7 @@ does not line up. Every system that has both keeps both -- GNOME's
 `font-name` beside `monospace-font-name`, Windows' UI font beside
 Consolas, macOS's system font beside SF Mono.
 
-toy-os had one, `system.font.face`, and it had to be monospace because
+SaunaOS had one, `system.font.face`, and it had to be monospace because
 the Terminal used it. So the whole desktop looked like a terminal, and
 the fix was never "pick a nicer face" -- it was that one setting could
 not express the requirement.
@@ -7960,7 +7960,7 @@ top-level window created by shared toolkit code in the calling app, and
 modal to its owner. The out-of-process chooser (`xdg-desktop-portal` on
 KDE and GNOME, macOS's `openAndSavePanelService`) exists for
 SANDBOXING: the app cannot read the filesystem, so the portal reads it
-and hands back one file. toy-os has no such boundary, so copying the
+and hands back one file. SaunaOS has no such boundary, so copying the
 portal would be copying the size rather than the shape -- and it would
 need an IPC to return the path plus a modality the compositor could not
 express anyway.
@@ -8037,7 +8037,7 @@ set when there is one, and one Undo brings it all back. Back and Forward
 (the bar, Alt+Left/Right, the mouse's thumb buttons) step through
 `lib/unavhist.h`, the File Manager's per-pane history moved into the
 toolkit so both keep one shape. There is no Properties row:
-Windows' opens Explorer's sheet, and toy-os has no shared Properties
+Windows' opens Explorer's sheet, and SaunaOS has no shared Properties
 window to open. Two toolkit pieces made it possible.
 `uapp_window_desc.on_secondary` gives a toolkit window the right-click
 an app's `on_press` already had. And while the menu is open the focus
@@ -8178,7 +8178,7 @@ comes back.
 Every system's default is to leave the pointer out -- X11's `XGetImage`,
 Windows' PrintScreen, GNOME and Spectacle's unticked checkbox -- because
 the common use is documenting what is on screen, not where the mouse
-was. toy-os follows.
+was. SaunaOS follows.
 
 What is not obvious is that "exclude it" and "include it" are each real
 work, and which one is work depends on the machine. With a SOFTWARE
@@ -8214,7 +8214,7 @@ while it was write-only.
 
 **It is ring 3 only, and the obvious-looking precedent does not
 apply.** Linux carries `lib/zlib_inflate/` in the kernel -- but to
-decompress its own kernel image and initrd. toy-os compresses neither,
+decompress its own kernel image and initrd. SaunaOS compresses neither,
 so there is no ring-0 caller, and compiling it twice would be the
 speculative generality this project's conventions warn against. The
 file names nothing kernel-side, so the day a compressed module exists it
@@ -8468,7 +8468,7 @@ QImageReader has `setAutoTransform()`, off by default for source
 compatibility and turned on by essentially every application that uses
 it.
 
-toy-os applies it in `uimg_jpeg.c`, because the library-versus-
+SaunaOS applies it in `uimg_jpeg.c`, because the library-versus-
 application argument does not transfer. libjpeg and GdkPixbuf have
 thousands of callers they cannot see, some of which genuinely want the
 stored pixels; `uimg.h` has a handful in this tree, every one of which
@@ -8578,7 +8578,7 @@ the cache exists to avoid.
 
 Nothing here was ever going to let an application grab a key. A Wayland
 client cannot, deliberately -- one that could would be a keylogger -- so
-the compositor matches every binding before routing, and toy-os already
+the compositor matches every binding before routing, and SaunaOS already
 had exactly that shape for Alt+F4. What changed is that the set became
 DATA instead of a chain of `else if`s.
 
@@ -8728,7 +8728,7 @@ Win95 shape. Windows 7 put search at the FOOT with categories as folders
 that expand in place; Windows 11 dropped folders for a pinned grid and
 an "All apps" list; GNOME went to a full-screen grid. The two-pane form
 is the one that stays legible as the list grows without needing a whole
-screen, so toy-os follows Kickoff, with Windows 7's bottom-anchored
+screen, so SaunaOS follows Kickoff, with Windows 7's bottom-anchored
 search because the field then sits directly above the Start button that
 opened the menu.
 
@@ -8778,7 +8778,7 @@ and an app nobody can find is far worse than an oddly-named folder.
 The Start menu grew folders before it had any notion of what a person
 actually uses, so every app was equally far away. Kickoff opens on
 Favorites and keeps Recent beside it; Windows 11's whole Start is those
-two lists over a search box. toy-os follows, with the folders it already
+two lists over a search box. SaunaOS follows, with the folders it already
 had underneath.
 
 **One file, `/etc/start-menu.conf`, holding both.** A pin is a
@@ -9035,7 +9035,7 @@ draw from, so ranks stay unique and a window opened later still lands
 at the end.
 
 **The order lasts the session.** Windows keeps a taskbar order only for
-pinned apps, and toy-os has no pinned taskbar apps; remembering an
+pinned apps, and SaunaOS has no pinned taskbar apps; remembering an
 unpinned app's slot across restarts would be inventing the half of
 pinning that is not visible. When pinning exists, its order is the one
 to persist.
@@ -9226,7 +9226,7 @@ moving, menus). picom on X11 reads `_NET_WM_WINDOW_OPACITY`, has
 `inactive-opacity` and a blur. In every one the CLIENT names the region
 and the COMPOSITOR owns the effect.
 
-**toy-os follows that split, and offers all three looks (Clear,
+**SaunaOS follows that split, and offers all three looks (Clear,
 Frosted, Wallpaper), chosen PER SURFACE -- taskbar, Start, menus,
 windows -- ** because each is a different trade:
 Clear is a straight blend, nearly free, and text behind it stays sharp
@@ -9476,7 +9476,7 @@ key and one slider moving several programs is worse than no slider.
 catalogue of build-time knobs, each of which renders a System Settings
 row; these keys appear one per program ever played, and could not be
 registered at runtime even if a row each were wanted. `/etc/sound.conf`
-is its own file rather than keys in `/etc/toyos.conf` for the same
+is its own file rather than keys in `/etc/saunaos.conf` for the same
 reason -- an arbitrary program's name does not belong in the system's
 own config. Both sides use the shared parser (`uconf_*` in ring 3),
 which is what stops the panel and the daemon disagreeing about what the
@@ -9562,7 +9562,7 @@ stages edits behind Apply, like this one, and reloads a module when
 `KConfigWatcher` reports its file changed. The classic Windows control
 panels mostly do not follow outside changes at all.
 
-**What toy-os does.** KDE's shape, since this window stages. Twice a
+**What SaunaOS does.** KDE's shape, since this window stages. Twice a
 second it compares the settings registry's generation -- one cheap call,
 the same one the WM uses -- and when it has moved it re-reads the
 registry and redraws the open page. **A page with edits pending is left
@@ -9586,7 +9586,7 @@ Windows, GNOME and macOS apply every change at once; KDE's System
 Settings STAGES behind Apply, with Defaults and Reset beside it, and asks
 Apply / Discard / Cancel when you leave a module with changes.
 
-**What toy-os does.** The row look of all four, and KDE's model for
+**What SaunaOS does.** The row look of all four, and KDE's model for
 changes, which this app already had (the decision above on following
 outside changes depends on it). Concretely:
 
@@ -9796,7 +9796,7 @@ re-runs it, and that is when a leave or an enter goes out.
 **This is Wayland's implicit grab** (a `wl_pointer` keeps its focus
 surface for as long as a button is down), and Win32's `SetCapture` and
 X11's automatic grab have the same shape. The obvious alternative, the
-one toy-os had, was to treat "a button is held" as "no window is
+one SaunaOS had, was to treat "a button is held" as "no window is
 hovered", so that hover highlights would not fight the press visual.
 It also sent the pressed client a LEAVE on the first held move. A
 client hears a leave as a move to `(-1, -1)` with no button bits, which
@@ -10098,7 +10098,7 @@ ids. Qt and GTK avoid it by design: `clicked()` and `currentRowChanged()`
 are different signals, and an item view emits nothing for a hover unless
 `setMouseTracking(true)` asked it to (`entered()`).
 
-**toy-os takes Qt's shape inside the one-callback-per-kind design it
+**SaunaOS takes Qt's shape inside the one-callback-per-kind design it
 already had.** A lone button's commit is `on_action(code)` -- the
 callback a `uui_button_group` already used -- and nothing else about a
 button reaches the app; `on_widget` carries value changes only. MOTION
@@ -10177,7 +10177,7 @@ go -- so it says "still open", and Cancel takes you back to it, because
 whatever it is asking is hidden behind the page.
 
 **No countdown** (GNOME's 60 s, KDE's 30 s): those exist for a shutdown
-nobody at the screen started, which toy-os never does. **The backdrop is
+nobody at the screen started, which SaunaOS never does. **The backdrop is
 one snapshot**, blurred and dimmed at the first frame: a live full-screen
 blur per frame is far beyond the software compositor's budget (the
 transparency entry above measured a cached Start menu alone at 3.4 ms).
@@ -10247,7 +10247,7 @@ followed. **Written with GCC's vector types** (`vector_size`,
 library into a freestanding build, and the vector types say the
 arithmetic in C operators. The one operation they cannot express,
 SSE2's multiply-high, is the builtin `__builtin_ia32_pmulhuw128`. No
-scalar fallback is kept, because toy-os is x86-64 only; the
+scalar fallback is kept, because SaunaOS is x86-64 only; the
 straightforward integer arithmetic lives instead as the MODEL in
 `tools/ucrt_hostcheck.py`, which the vector code must match within 1
 per channel. Result on the ASUS: 8.4 ms, 58 fps in the window.
@@ -10267,7 +10267,7 @@ switch on it. Windows 11 always lists System › For developers and gates
 behaviour behind a Developer Mode toggle there. GNOME leaves such keys to
 a separate tool (dconf Editor); macOS to `defaults` on the command line.
 
-**What toy-os does.** Android's shape, one step easier: a **Kernel and
+**What SaunaOS does.** Android's shape, one step easier: a **Kernel and
 debugging settings** checkbox on System Information, unticked by default.
 Which pages it hides is DATA -- `Debug=1` in a `category.` or `group.`
 file in `/etc/settings.d`, read by `usetting_page_debug()` -- because the
@@ -10290,7 +10290,7 @@ details pane drew its own, smaller list of the same facts.
 macOS Get Info is ONE window of collapsible sections under a preview,
 which grows as they open; edits apply as made.
 
-**What toy-os does: Get Info's shape** (chosen from mockups over tabs
+**What SaunaOS does: Get Info's shape** (chosen from mockups over tabs
 and over a compact card). Tabs hide most of what the window can show,
 and the design language makes the content the hero, so a picture sits
 on a stage tinted by it. Edits -- rename, permission bits, Opens with --
@@ -10466,7 +10466,7 @@ declaration (`wl_surface.set_opaque_region`) and damage too
 (`wl_surface.damage_buffer`), and GTK and Qt can declare damage because
 they repaint only what was invalidated.
 
-**What toy-os does, and where it differs.**
+**What SaunaOS does, and where it differs.**
 
 - **Visible regions, as wlroots does them** (`wm_render.c`,
   `lib/uregion.h`). Each window is drawn inside its rect plus shadow,
@@ -10623,7 +10623,7 @@ shape). No size cap or automatic emptying yet.
 mount's top for the same reason: moving a tree to another disk to
 "delete" it is slow, can fail half way, and needs the very space being
 freed. The system volume's bin is `/home/.Trash` (the spec's "home
-trash" -- toy-os has one home), any other persistent volume's is
+trash" -- SaunaOS has one home), any other persistent volume's is
 `<mount>/.Trash-0`. **A RAM volume and a read-only one have no bin**, and
 a delete there says so on its card and is permanent, as Windows does for
 a drive with no Recycle Bin. A selection that mixes the two kinds is one
@@ -10713,7 +10713,7 @@ would have been the obvious way, and none is required to build.
 
 **Chosen 2026-10-06 by the maintainer** (artboard C of the File Manager
 round). Explorer searches subfolders as you type because Windows Search
-keeps an index; toy-os has none, and walking a disk per keystroke is the
+keeps an index; SaunaOS has none, and walking a disk per keystroke is the
 cost Dolphin's filter bar exists to avoid. So the two stay apart:
 TYPING filters the folder you are in, as before, and ENTER walks every
 folder below it on a thread of its own (`fm_search.c`, over the shared
@@ -10753,7 +10753,7 @@ one at the end is the first a narrow pane drops.
 **Picked 2026-10-06 by the maintainer**: the File Manager's tabs in the
 TITLE BAR, as Windows 11 Explorer has them, rather than a strip inside
 the window. Explorer gets there with client-side decorations -- the app
-draws its own title bar. toy-os's title bar is the compositor's (moving,
+draws its own title bar. SaunaOS's title bar is the compositor's (moving,
 the buttons, the window menu, snapping), and handing it to a client
 would move all of that into every app that wanted a tab. So the split
 is KWin's old window tabs': **the client sends what the tabs ARE**
@@ -10876,7 +10876,7 @@ rare need and a confusing field), dates or metadata in the pattern.
 **Picked 2026-10-06** (artboard H). freedesktop's recently-used.xbel
 and Windows' Recent Items both keep ONE per-user list of what was
 opened, with the app it opened in; KDE shows it as `recentlyused:/`.
-toy-os keeps it in `/var/lib/recent` (`lib/urecent.h`), plain text
+SaunaOS keeps it in `/var/lib/recent` (`lib/urecent.h`), plain text
 rather than XBEL. **It is written where files are opened for a person,
 not by each app**: `uopen_spawn()` (a double click, `open`, the
 desktop), the File Manager's own open, and the shared file dialog on
@@ -10888,7 +10888,7 @@ command line does not record it again. The app's name is its desktop
 entry's Name=, found from the program (`uopen`) or the window's app_id
 (the dialog, `uapp_display_name()`). **Every read and rewrite holds a
 lock file**: a double click records the file and Notepad records it
-again as it opens, and a rename does not replace a file on toy-os, so
+again as it opens, and a rename does not replace a file on SaunaOS, so
 between the old list's unlink and the new one's rename an unlocked
 reader saw no list and wrote back only its own line (seen in testing).
 In the File Manager it is the `recent:/` source, banded Today /
@@ -10902,7 +10902,7 @@ disk comes back.
 **Picked 2026-10-07** (canvas O1 + P1). GNOME binds three separate
 actions -- take a screenshot, of the screen, of a window -- and
 Spectacle does the same through KDE's global shortcuts; Windows has one
-switch, "Print Screen opens screen capture". toy-os follows GNOME:
+switch, "Print Screen opens screen capture". SaunaOS follows GNOME:
 `screenshot`, `screenshot_screen` (Shift+PrtSc, `--now screen`),
 `screenshot_window` (Alt+PrtSc, `--now window`) and `screenshot_region`
 (unbound) are ordinary rows in `lib/ushortcut_actions.c` with an
@@ -10933,7 +10933,7 @@ console program a console window that closes when it ends (and opens a
 `.ps1` in Notepad on purpose); Dolphin asks about an executable script
 ("Execute / Open", with "Do not ask again") and runs an executable
 binary; GNOME Files long had "Executable text files: Display / Run /
-Ask", whose Ask offered Run in Terminal. toy-os follows KDE's shape
+Ask", whose Ask offered Run in Terminal. SaunaOS follows KDE's shape
 with GNOME's Terminal choice: **an APP opens at once, a text-mode
 program or a script asks** with a card naming its interpreter and
 showing its first lines, Run in Terminal the default because it is the
@@ -11090,7 +11090,7 @@ one deepens that cut, so slivers do not pile up beside each other.
 menu. Only Notepad had either, because it wrote its own. The Win32 EDIT
 control carries Undo / Cut / Copy / Paste / Delete / Select All built in
 (`WM_CONTEXTMENU`), and so do Qt's `QLineEdit` and GTK's `GtkEntry`.
-Apps write nothing for it. toy-os follows that shape and differs only
+Apps write nothing for it. SaunaOS follows that shape and differs only
 in where the one menu lives.
 
 **The keys went into the edit core** (`uui_edit_key()`), beside Ctrl+A
@@ -11131,7 +11131,7 @@ both ways.
 **The names are a generated subset, shipped as two text files.** GNOME
 Characters reads libunistring's compiled tables; Windows asks
 `GetCharacterName`'s resource DLL. Both carry every assigned character,
-about 150,000 names, roughly 2 MB. toy-os ships only the code points
+about 150,000 names, roughly 2 MB. SaunaOS ships only the code points
 its fonts map (`tools/gen_unicode_names.py`), a few thousand names in a
 file small enough to slurp. A name for a character no font here can
 draw would be a row the app hides. A font added later needs the
@@ -11179,7 +11179,7 @@ In every toolkit the bar is ONE implementation -- Qt's `QScrollBar`, GTK's
 `GtkScrollbar` inside `GtkScrolledWindow` -- that every scrolling view
 composes, never a per-view copy.
 
-**What toy-os does.** `uui_sbar` is a small state struct a widget embeds:
+**What SaunaOS does.** `uui_sbar` is a small state struct a widget embeds:
 the strip, hover and its eased widening (the Start menu's 150 ms out,
 400 ms linger), the thumb grab and trough paging, drawn through the
 existing overlay painter. The widget keeps its position and routes its
@@ -11386,7 +11386,7 @@ before any desktop exists, and automation skips it with an answer file
 gnome-shell session mode and writes `gnome-initial-setup-done`;
 `systemd-firstboot` is a unit gated on `ConditionFirstBoot=`, and
 `systemd.firstboot=off` on the command line skips it. So: a marker file,
-a boot word, and something started early -- toy-os takes all three.
+a boot word, and something started early -- SaunaOS takes all three.
 
 **A one-shot init service after `toywm`, not a compositor mode.** The
 service runs `firstboot --boot`, which exits at once unless the marker
@@ -11432,7 +11432,7 @@ every check after its first), and a boot word baked into the dev media
 (it would ride along onto a USB stick made from them).
 
 **An UPDATED machine is a set-up machine.** System Update ships the
-marker as an `if-missing` file, so the machines already running toy-os
+marker as an `if-missing` file, so the machines already running SaunaOS
 get it with the update that brings the wizard -- Windows does not re-run
 its setup after an update either -- and a machine's own "finished" or
 "skipped" line is never touched. A fresh install and the live ISO get no
@@ -11458,7 +11458,7 @@ nobody change them; its "Always show scrollbars" (Accessibility >
 Visual effects) is the one switch, off by default. macOS has "Show
 scroll bars: Automatically / When scrolling / Always". Plasma's Breeze
 radius is in the style plugin's code; GTK themes set `border-radius` per
-CSS node, so a theme has one value per kind of thing. toy-os takes
+CSS node, so a theme has one value per kind of thing. SaunaOS takes
 GTK's shape -- one value per GROUP -- and Windows' numbers as the
 default, and exposes the groups as Windows does not.
 
@@ -11491,8 +11491,8 @@ First-boot setup's grey hold). Windows and Fedora's Plymouth never show a
 console on a graphical boot: the firmware's logo stays up with a spinner
 until the login screen or setup appears ("flicker-free boot").
 
-So the kernel draws the toy-os mark, near-black ground, and a line of
-text ("Starting toy-os...") from the framebuffer's first moment
+So the kernel draws the SaunaOS mark, near-black ground, and a line of
+text ("Starting SaunaOS...") from the framebuffer's first moment
 (`kernel/drivers/splash.c`), and the compositor draws the SAME mark on the
 same pixels plus a turning spinner while First-boot setup loads
 (`userland/wm/wm_setup_hold.c`) -- one geometry, `kernel/lib/splash_layout.c`,
@@ -11616,7 +11616,7 @@ The decisions inside it, each one a thing a later session would ask:
   tool clicked on one re-opens it with its face and colours; a brush,
   the eraser or the fill on it asks to make it pixels first; a rotate, a
   resize or a merge into it makes it pixels without asking, as GIMP's
-  transforms do. `.ora` carries the words as `toyos:` attributes, which
+  transforms do. `.ora` carries the words as `saunaos:` attributes, which
   every other reader ignores and shows the pixels of.
 - **Shapes stay editable until let go, and are smooth by choice**
   (Windows 11 Paint's, Paint.NET's): eight handles and the frame resize
@@ -11643,7 +11643,7 @@ single pointer chosen on a process's first draw. The SIMD tier must be
 startup (AVX2, SSSE3, SSE2, then generic C as the fallback that always
 exists), each with fast paths for the operations it accelerates, and
 `PIXMAN_DISABLE` turns a tier off; Skia's `SkOpts` and glibc's IFUNC
-make the same choice once rather than per call. toy-os copies the
+make the same choice once rather than per call. SaunaOS copies the
 shape at the size it needs: one table, two tiers, a row per call so the
 indirect call is paid per row and never per pixel.
 
@@ -11824,16 +11824,16 @@ counts on that), and a MOVEABLE handle is a real one, a four-byte entry
 the block's offset lives in, so a handle survives its block moving.
 
 A PROGRAM SEES DRIVE C: AND DRIVE Z:, Wine's shape: C: is the Win16
-folder (its WINDOWS holds the INI files), Z: is the whole toy-os tree.
+folder (its WINDOWS holds the INI files), Z: is the whole SaunaOS tree.
 The sandbox follows: the tree read-only, `/home` and drive C:
 writable. Letting a Windows program change system files would buy
 nothing a user asks for and is exactly what a hostile one would want;
 Wine gives Z: full access because it has no sandbox to keep. A DOS
-handle opened for reading and writing is TWO toy-os descriptors with a
-position w16 keeps, because a toy-os descriptor reads or writes, never
+handle opened for reading and writing is TWO SaunaOS descriptors with a
+position w16 keeps, because a SaunaOS descriptor reads or writes, never
 both (`fcntl.h`).
 
-## Win16's fonts and pictures come from the user's own Windows files, else toy-os's own
+## Win16's fonts and pictures come from the user's own Windows files, else SaunaOS's own
 
 Chosen 2026-10-20, from the "Win16 real fonts option" canvas (A + B,
 every .FON), after a pixel comparison with a real Windows for Workgroups
@@ -11845,14 +11845,14 @@ and drives came from a bitmap in COMMDLG.DLL. Wine does what this does:
 it uses a Windows folder's own fonts when they are there (through
 FreeType, whose `winfnt` driver reads .FON) and draws its own otherwise.
 
-**No Microsoft font or picture is in toy-os, not even as code that
+**No Microsoft font or picture is in SaunaOS, not even as code that
 reproduces it.** A pixel-for-pixel copy is still a copy of the artwork,
 however it is stored or generated. So w16 reads the user's own files
 from drive C:'s `WINDOWS\SYSTEM` at run time -- `.FON` through
 `lib/winfnt` (checked against FreeType by `tools/winfnt_hostcheck.py`),
 COMMDLG.DLL's bitmap 576 through w16's own NE parser -- inside its
 sandbox, since both are input from outside. Without them it draws
-toy-os's own: Liberation and DejaVu at 3.11's cells (16, 13, 15) and
+saunaos's own: Liberation and DejaVu at 3.11's cells (16, 13, 15) and
 units (8x16, 7x13), and folders in the same manner (a yellow dither, a
 grey foot, a black edge) but of its own shapes. The comparison
 measurements behind every other pixel are facts about how 3.11 laid
@@ -11877,7 +11877,7 @@ it offers, in the desktop entry that already declares `Handles=`:
 - **`Actions=` and `[Desktop Action <id>]`**, freedesktop's own: each a
   Name= and an Exec= with `%f`, listed under Open in the right-click menu,
   as Dolphin and Nautilus list them.
-- **`X-Details=`**, toy-os's (freedesktop keeps `X-` keys for that): a
+- **`X-Details=`**, SaunaOS's (freedesktop keeps `X-` keys for that): a
   command whose `Label<TAB>value` lines the details pane and Properties
   show. The app reads the file in its own sandbox -- Retro Launcher asks
   `w16 --check`, which pledges before the first byte -- and the File
@@ -12024,7 +12024,7 @@ above the signature as an ordinary comment, which the generator does not
 show.
 
 **The words are our own.** `Windows:` describes what Windows 3.1 did in
-toy-os's own words, never Microsoft's documentation's text, and `w16:`
+saunaos's own words, never Microsoft's documentation's text, and `w16:`
 is read from the handler, not from what it was meant to do: several
 blocks written for this change found behaviour the old one-line comments
 did not say (GlobalAlloc refuses a block over 64 KB; InvalidateRect marks
@@ -12045,7 +12045,7 @@ for exactly this; DejaVu Sans Mono for Courier New's fixed pitch), and
 w16 does too when drive C: has no fonts. When it has them, the `fonts`
 setting that already takes 3.11's .FON files from C: takes its .TTF files
 as well: the outlines are Microsoft's, so the text is the program's own
-type, drawn by toy-os's ttf.c (3.11's hinter is not reproduced; stems are
+type, drawn by SaunaOS's ttf.c (3.11's hinter is not reproduced; stems are
 softer than the real one's).
 
 **Advances come from the font's DEVICE tables, not its outlines.**
@@ -12085,7 +12085,7 @@ user's copies, untested in w16. That is a stage of its own; drawing is
 what makes a document READABLE, and it costs none of that. The
 registration database answers as empty, so Insert Object lists nothing
 rather than offering a server that cannot start. A picture pasted from
-toy-os arrives as a static object, which needs no server in Windows
+saunaos arrives as a static object, which needs no server in Windows
 either.
 
 **Why one shared metafile decoder.** A metafile is how OLE objects and
@@ -12113,7 +12113,7 @@ QEMU and Bochs carry a softfloat floatx80.
 **w16 copies DOSBox's x86 shape.** The program's state is an FNSAVE
 image; each instruction is FRSTOR, the one instruction from a stub
 (`ESC [rax]` on a host buffer for a memory operand), FNSAVE
-(`cpu16_x87.c`). toy-os and its development host are both x86-64, so the
+(`cpu16_x87.c`). SaunaOS and its development host are both x86-64, so the
 host's x87 is always there, and being a real one is the whole point: the
 results are a 387's to the last bit, which `cpu16_hostcheck.py` holds to
 the CPU it runs on. A softfloat is thousands of lines whose FPTAN, FYL2X
@@ -12154,7 +12154,7 @@ separately; X11's `_NET_WM_STATE_ABOVE` and Win32's `WS_EX_TOPMOST` are
 both "a band of the z-order", and on both a click below a topmost window
 activates that window without lifting it over the topmost one.
 
-**toy-os copies KWin's shape.** `windows[]` stays activation order;
+**SaunaOS copies KWin's shape.** `windows[]` stays activation order;
 `wm_stacking()` derives the stacking from it -- normal, Always on Top, a
 FOCUSED fullscreen window (KWin's active layer: a screenshot overlay or a
 video must not sit under a pinned clock), then popups, a dialog in its
@@ -12183,7 +12183,7 @@ the pointer shape belongs to the surface under it, and a compositor that
 blocks a parent (KWin's modal transients) keeps showing what that parent
 last set.
 
-**toy-os follows Windows, in `client_cursor_at()`.** The owner cannot fix
+**SaunaOS follows Windows, in `client_cursor_at()`.** The owner cannot fix
 it itself, because it would have to notice a motion event it never gets;
 and asking every app to reset its cursor before opening a modal dialog is
 a rule each new app has to remember. The compositor already knows the
@@ -12199,7 +12199,7 @@ withdrawn).
 
 A Windows 3.x program sees a 640 x 480 screen (GetSystemMetrics), and a
 top-level `WS_POPUP` that size at 0, 0 is how it says "cover the
-screen": Paintbrush's View Picture is one. toy-os's screen is bigger, so
+screen": Paintbrush's View Picture is one. SaunaOS's screen is bigger, so
 there was a choice (the "w16 Paintbrush View Picture" canvas, 2026-10-22,
 picked by the maintainer): the 640 x 480 at the program's scale, centred,
 black round it (V1); scaled up to fill the screen's height (V2); or a
@@ -12211,7 +12211,7 @@ panel; Wine reports the host's own screen size to GetSystemMetrics, so a
 program's screen-sized popup there is the host's size, which a Win16
 program never planned for.
 
-**toy-os takes V1.** Every other w16 window is drawn at the program's
+**SaunaOS takes V1.** Every other w16 window is drawn at the program's
 scale, so the picture is the size it was in Paintbrush's own window and
 pixel-exact; V2's fractional step blurs a pixel-art picture through the
 smoothing; V3 is not what 3.1 showed. The popup is a toywm window of its
@@ -12259,7 +12259,7 @@ DIBs measured").
 ## A client's own cursor image, with inverting pixels, copied at definition
 
 A Win16 program ships cursors of its own -- Paintbrush has seven -- and
-w16 showed every one as toy-os's arrow, because a client could only NAME
+w16 showed every one as SaunaOS's arrow, because a client could only NAME
 a shape ("Cursor themes", above). Most of those cursors are drawn in
 INVERTING pixels, the screen under them turned to its complement, so a
 crosshair shows on black and on white alike. And Paintbrush does not
@@ -12273,7 +12273,7 @@ takes an ARGB buffer and a hotspot, and X11's cursors are two colours
 plus a mask (or Xcursor's ARGB): neither can say "invert", so Wine on
 both has to approximate such a cursor.
 
-**toy-os adds Wayland's request, plus the invert mask.**
+**SaunaOS adds Wayland's request, plus the invert mask.**
 `WIN_REQ_CURSOR_IMAGE` defines an image of the client's own -- ARGB, a
 byte per pixel saying "invert", a hotspot -- and `WIN_REQ_CURSOR` names
 it by id; `uapp_cursor_image()` is the toolkit's call. Inverting pixels
@@ -12281,7 +12281,7 @@ are drawn by the software sprite (`draw_cursor_client()`), which already
 saves what is under it; an image with none may ride the hardware plane
 like a theme shape. Picked over drawing them black with a white edge
 (which keeps every image on the plane) and over mapping each to the
-nearest toy-os shape (no protocol change), both declined on the canvas
+nearest SaunaOS shape (no protocol change), both declined on the canvas
 "w16 Paintbrush cursors" (2026-10-23), because only the first matches
 3.11 pixel for pixel.
 
@@ -12293,7 +12293,7 @@ nearest toy-os shape (no protocol change), both declined on the canvas
   object stays MAPPED until the reply, because one with no mapping and
   no fd is freed, name and all.
 - **The exception to "name a shape" is narrow.** It exists for cursors
-  that are a program's CONTENT. A toy-os app wanting a shape the theme
+  that are a program's CONTENT. A SaunaOS app wanting a shape the theme
   lacks still asks for a theme shape (`docs/gui-guidelines.md`).
 - **w16 keeps 3.1's layout, so a program may rewrite a cursor.** An
   HCURSOR is a real global block; SetCursor and SetClassWord re-read it,
@@ -12356,7 +12356,7 @@ stages, each its own commit.
   Browser's downloads list, grown a rate, a note, Pause/Resume and a
   waiting state -- one widget for "things moving bytes", not two.
 
-## Windows 3.x is installed by toy-os's own Setup, from Microsoft's SETUP.INF
+## Windows 3.x is installed by SaunaOS's own Setup, from Microsoft's SETUP.INF
 
 Chosen 2026-10-24 from the "Install Windows 3.x in w16" canvas (the A step
 dialog, folders AND floppy images, Retro Launcher plus `w16 --install`),
@@ -12370,7 +12370,7 @@ start. DOSBox runs the real thing because it emulates the PC underneath.
 Wine is the model instead: `wineboot` builds the fake `C:\windows`
 itself, and winetricks installs Microsoft's components by unpacking
 their original media and placing each file where Windows would -- so
-toy-os reads Microsoft's own instructions, `SETUP.INF`, and does what
+saunaos reads Microsoft's own instructions, `SETUP.INF`, and does what
 they say (`userland/lib/uwinsetup.c`).
 
 WHAT IS COPIED IS MEASURED, NOT INFERRED. An INF lists every option for

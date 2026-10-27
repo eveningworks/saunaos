@@ -1,5 +1,5 @@
 Type=int
-File=/etc/toyos.conf
+File=/etc/saunaos.conf
 Label=Seconds to wait for an address
 Category=Network
 Group=Recovery

@@ -1,4 +1,4 @@
-// PNG, JPEG and QOI for NetSurf, through toy-os's own lib/uimg.h.
+// PNG, JPEG and QOI for NetSurf, through SaunaOS's own lib/uimg.h.
 //
 // Upstream's png.c and jpeg.c sit on libpng and libjpeg, which are not
 // vendored: lib/uimg.h already decodes all three and is checked against

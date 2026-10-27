@@ -1,5 +1,5 @@
-#ifndef TOYOS_DOOM_COMPAT_SDL_MIXER_H
-#define TOYOS_DOOM_COMPAT_SDL_MIXER_H
+#ifndef SAUNAOS_DOOM_COMPAT_SDL_MIXER_H
+#define SAUNAOS_DOOM_COMPAT_SDL_MIXER_H
 
 // A SHIM, and deliberately empty.
 //

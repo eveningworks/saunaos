@@ -1,8 +1,8 @@
-// doomgeneric's platform layer, for toy-os.
+// doomgeneric's platform layer, for SaunaOS.
 //
 // **THE DOOM SIDE OF THE SEAM.** This file includes doomgeneric's
-// headers and NEVER `api/keyboard.h` -- see dg_toyos.h for why the two
-// cannot meet in one translation unit. Everything toy-os-shaped that
+// headers and NEVER `api/keyboard.h` -- see dg_saunaos.h for why the two
+// cannot meet in one translation unit. Everything SaunaOS-shaped that
 // this needs (a clock, a sleep) comes through `rt/sys.h`, which has no
 // `KEY_*` macros of its own.
 //
@@ -23,7 +23,7 @@
 // `int DG_GetKey(int *pressed, unsigned char *key)` -- it asks for an
 // EDGE, and a press-only OS cannot answer it. WIN_EV_KEY_UP had to exist
 // first.
-#include "dg_toyos.h"
+#include "dg_saunaos.h"
 
 #include "doomgeneric.h"
 #include "doomkeys.h"

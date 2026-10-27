@@ -1,16 +1,16 @@
 // file16.c -- a Windows program's files: the drives it sees, KERNEL's
 // file calls (OpenFile, _lopen, _lread...) and the DOS ones (INT 21h)
-// behind them, on toy-os files.
+// behind them, on SaunaOS files.
 //
 // TWO DRIVES, Wine's shape: C: is the Win16 folder (its WINDOWS holds the
-// INI files), Z: is the whole toy-os tree -- so /tests/sample.txt is
+// INI files), Z: is the whole SaunaOS tree -- so /tests/sample.txt is
 // Z:\tests\sample.txt. A program starts in the folder it was run from.
 // DOS names are matched WITHOUT CASE, one component at a time, so a
-// program's "Z:\TESTS\SAMPLE.TXT" finds toy-os's lower-case file; a new
+// program's "Z:\TESTS\SAMPLE.TXT" finds SaunaOS's lower-case file; a new
 // file keeps the case it was given.
 //
 // A DOS FILE HANDLE is 5 or more (0-4 were DOS's standard ones), an index
-// into a table that grows as files are opened. A TOY-OS DESCRIPTOR EITHER
+// into a table that grows as files are opened. A SAUNAOS DESCRIPTOR EITHER
 // READS OR WRITES (fcntl.h's O_RDWR), so a handle opened for both is two
 // of them, and the handle keeps the file position they share.
 #include "w16_internal.h"
@@ -292,8 +292,8 @@ static char *far_path(struct w16 *w, uint32_t far) {
 // Windows: Opens, creates, deletes or tests a file by its DOS path, and fills an OFSTRUCT with the
 // full path and, on failure, DOS's error code; OF_REOPEN opens the path the OFSTRUCT already holds,
 // OF_PARSE only works out the full path.
-// w16: The same, over the drives the program sees: a DOS path becomes a toy-os one (C: is the Win16
-// folder, Z: all of toy-os), names match without case as DOS's did, and the OFSTRUCT gets the full
+// w16: The same, over the drives the program sees: a DOS path becomes a SaunaOS one (C: is the Win16
+// folder, Z: all of SaunaOS), names match without case as DOS's did, and the OFSTRUCT gets the full
 // path in capitals, as DOS gave it. A drive outside /home is read-only. A bare name not in the
 // current folder is looked for in C:\WINDOWS, C:\WINDOWS\SYSTEM and the program's own folder,
 // Windows' order (PATH and network drives aside).
@@ -394,7 +394,7 @@ int w16_file_close(unsigned h) { return close_handle(h); }
 // _lopen(lpPathName, iReadWrite) -> HFILE
 // Windows: Opens an existing file for reading, writing or both, and returns DOS's file handle;
 // HFILE_ERROR if it cannot.
-// w16: The same, on a toy-os file found through the DOS path.
+// w16: The same, on a SaunaOS file found through the DOS path.
 static int api_lopen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;
     char *dos = far_path(w, w16_arg32(a));
@@ -407,7 +407,7 @@ static int api_lopen(struct w16 *w, unsigned ordinal, struct w16_args *a) {
 
 // _lcreat(lpPathName, iAttribute) -> HFILE
 // Windows: Makes a file, or empties one that exists, and opens it for reading and writing.
-// w16: The same. The DOS attribute (read-only, hidden, system) is not kept: toy-os files have none
+// w16: The same. The DOS attribute (read-only, hidden, system) is not kept: SaunaOS files have none
 // of them.
 static int api_lcreat(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     (void)ordinal;

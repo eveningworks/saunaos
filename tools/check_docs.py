@@ -41,9 +41,9 @@ CHANGELOG_OK = {
     "CLAUDE.md",
     "tools/set_version.sh",
     "tools/check_docs.py",
-    ".claude/skills/toy-os-feature-workflow/SKILL.md",
-    ".claude/skills/toy-os-feature-workflow/references/delivery-checklist.md",
-    ".claude/skills/toy-os-feature-workflow/references/doc-templates.md",
+    ".claude/skills/saunaos-feature-workflow/SKILL.md",
+    ".claude/skills/saunaos-feature-workflow/references/delivery-checklist.md",
+    ".claude/skills/saunaos-feature-workflow/references/doc-templates.md",
     "docs/decisions.md",
 }
 
@@ -94,14 +94,14 @@ MILESTONE_PROSE_BASELINE = {
     "apps/README.md": 1,
     "data/wm/startup/README.md": 1,
     "kernel/README.md": 1,
-    ".claude/skills/toy-os-feature-workflow/SKILL.md": 3,
-    ".claude/skills/toy-os-feature-workflow/references/delivery-checklist.md": 1,
-    ".claude/skills/toy-os-feature-workflow/references/doc-templates.md": 1,
-    ".claude/skills/toy-os-feature-workflow/references/questions-that-worked.md": 2,
-    ".claude/skills/toy-os-feature-workflow/references/session-design.md": 13,
-    ".claude/skills/toy-os-feature-workflow/references/session-diagnosis.md": 1,
-    ".claude/skills/toy-os-feature-workflow/references/session-gui.md": 2,
-    ".claude/skills/toy-os-feature-workflow/references/session-testing.md": 1,
+    ".claude/skills/saunaos-feature-workflow/SKILL.md": 3,
+    ".claude/skills/saunaos-feature-workflow/references/delivery-checklist.md": 1,
+    ".claude/skills/saunaos-feature-workflow/references/doc-templates.md": 1,
+    ".claude/skills/saunaos-feature-workflow/references/questions-that-worked.md": 2,
+    ".claude/skills/saunaos-feature-workflow/references/session-design.md": 13,
+    ".claude/skills/saunaos-feature-workflow/references/session-diagnosis.md": 1,
+    ".claude/skills/saunaos-feature-workflow/references/session-gui.md": 2,
+    ".claude/skills/saunaos-feature-workflow/references/session-testing.md": 1,
     "CLAUDE.md": 1,
     "docs/decisions.md": 2,
     "docs/decisions/build.md": 2,
@@ -260,7 +260,7 @@ def check_no_duplicate_roadmap_entries(problems):
 # hand -- which is where the duplication risk lives.
 BULK_EDITED = ("CLAUDE.md", "docs/roadmap.md", "docs/roadmap-details.md",
                "docs/decisions.md", "README.md", "apps/README.md",
-               ".claude/skills/toy-os-feature-workflow/SKILL.md")
+               ".claude/skills/saunaos-feature-workflow/SKILL.md")
 
 
 def check_no_duplicated_sections(problems):

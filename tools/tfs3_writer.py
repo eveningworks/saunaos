@@ -2,7 +2,7 @@
 """tools/tfs3_writer.py -- host-side TFS3 v1 read/write tool.
 
 The host-side TFS3 tool: gets files onto (or off of)
-a TFS3 disk image without booting toy-os, and is the reference
+a TFS3 disk image without booting SaunaOS, and is the reference
 implementation the kernel backend (kernel/fs/tfs3.c) is tested
 against. Format spec: docs/tfs3-design.md (block groups, 128-byte
 checksummed inodes, dirent blocks, epoch timestamps, superblock
@@ -182,7 +182,7 @@ def parse_superblock(sec: bytes):
         if magic == MAGIC and ver == 3 and fnv1a(body) == cksum:
             # The kernel's lazy, volume-sized format (kernel/fs/tfs3_internal.h).
             # Refused BY NAME: read as "not TFS3" it would be reformatted.
-            raise SystemExit("tfs3_writer: a v3 volume (formatted by a toy-os kernel) -- "
+            raise SystemExit("tfs3_writer: a v3 volume (formatted by a SaunaOS kernel) -- "
                              "this tool reads and writes v1/v2; `make clean-disk` reseeds a v2 image")
         return None
     if fnv1a(body) != cksum:

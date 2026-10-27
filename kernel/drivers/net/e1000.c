@@ -1,5 +1,5 @@
 // Intel 82540EM (8086:100E) -- the NIC QEMU's default machine already
-// has. Every toy-os boot before this driver existed had one sitting
+// has. Every SaunaOS boot before this driver existed had one sitting
 // unclaimed on the PCI bus, which is why this is the first card: it
 // needs no flag, so every existing test guest gets a network.
 //

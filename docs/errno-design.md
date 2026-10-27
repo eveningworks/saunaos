@@ -44,7 +44,7 @@ away at the ABI. The log lines are all still there -- a human reading
   RETURNED code is the ABI.
 - **`sys_errno()` is a plain global, and that is a TLS question
   deferred.** It is correct while a process has one thread, which is all
-  toy-os has; `docs/roadmap.md` carries thread-local storage and threads
+  SaunaOS has; `docs/roadmap.md` carries thread-local storage and threads
   as items, and when TLS lands this declaration moves and nothing else
   does. Recorded rather than hidden: this is the one thing in the design
   that has a known expiry.
@@ -88,7 +88,7 @@ were silently waiting on:
 - **`FILE*` and the rest of a libc need it.** `fopen` returning NULL is
   only useful with `errno` behind it, and every wrapper above that
   inherited the same gap.
-- **The one place toy-os DID distinguish two outcomes proved the
+- **The one place SaunaOS DID distinguish two outcomes proved the
   point.** `SYS_RETRY` exists because "0 means try again" made a pipe
   read report EOF the moment its writer produced something. A distinct
   value for a distinct outcome, because merging them cost a real bug.

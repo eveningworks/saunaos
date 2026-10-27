@@ -5,7 +5,7 @@
 #include <stdint.h>
 #include "pci.h"
 
-// The class/subclass pairs a QEMU machine, or the machines toy-os is
+// The class/subclass pairs a QEMU machine, or the machines SaunaOS is
 // tested on, present -- not the full class-code table, which /bin/lspci
 // reads from pci.ids. **SPELLED AS pci.ids SPELLS THEM**, so wherever
 // both have a name they agree, and the database only ever adds names.

@@ -94,7 +94,7 @@ def main():
         copy_disk(disk_src, disk)
         if certs:
             clear_anchors(disk)
-            install_anchor(disk, certs["ca"], "toyos-test-ca.pem")
+            install_anchor(disk, certs["ca"], "saunaos-test-ca.pem")
 
         print("http_test: booting")
         sh, pidfile = launch(disk, tmp, "http", "e1000")

@@ -7,7 +7,7 @@
 // for the first word of a line.
 //
 // This is deliberately SHELL state, not kernel state. `timezone` and
-// `font_size` live in /etc/toyos.conf behind a small kernel-side
+// `font_size` live in /etc/saunaos.conf behind a small kernel-side
 // tz.c/font_config.c because the kernel itself consults them; nothing
 // in the kernel has any use for PATH -- it's a question about how a
 // command line is interpreted, which is entirely the shell's business.
@@ -15,7 +15,7 @@
 // etc_config_get() and keeps the parsed result to itself. See
 // CLAUDE.md's /etc convention and docs/decisions.md.
 //
-// Format (in /etc/toyos.conf):
+// Format (in /etc/saunaos.conf):
 //
 //     PATH=/bin;/usr/bin
 //
@@ -31,7 +31,7 @@
 #include "shell_internal.h"
 #include "apps.h"
 
-#define SHELL_PATH_CONF     "/etc/toyos.conf"
+#define SHELL_PATH_CONF     "/etc/saunaos.conf"
 #define SHELL_PATH_KEY      "PATH"
 #define SHELL_PATH_MAX_DIRS 8
 // /tests comes LAST on purpose. The test binaries moved out of /bin

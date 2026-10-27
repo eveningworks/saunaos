@@ -69,8 +69,8 @@ def main():
     ap.add_argument("--keep", action="store_true", help="keep the image for poking at")
     args = ap.parse_args()
 
-    if not os.path.exists(os.path.join(ROOT, "toy-os.iso")):
-        raise SystemExit("toy-os.iso missing -- run `make iso` first")
+    if not os.path.exists(os.path.join(ROOT, "saunaos.iso")):
+        raise SystemExit("saunaos.iso missing -- run `make iso` first")
 
     tmp = tempfile.mkdtemp(prefix="tfs3v1-")
     img = os.path.join(tmp, "v1.img")

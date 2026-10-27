@@ -172,7 +172,7 @@ uint32_t crash_report_write(const char *what, const uint64_t *regs, uint64_t cr2
     uint32_t stack_len = (uint32_t)(stack_top - from);
 
     int at = 0;
-    at = hdr_put(at, "toy-os crash report v1\n");
+    at = hdr_put(at, "SaunaOS crash report v1\n");
     at = hdr_put(at, "kernel: %s\n", kversion_banner());
     at = hdr_put(at, "program: %s\n", exec);
     at = hdr_put(at, "pid: %d\n", pid);

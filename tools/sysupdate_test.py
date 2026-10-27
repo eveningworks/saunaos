@@ -74,7 +74,7 @@ class Fixture(update_server.Manifest):
         if self.plain:
             return None
         own = update_server._build_id().split("-")[0]   # git log never says -dirty
-        return "\n".join(["# toy-os release notes",
+        return "\n".join(["# SaunaOS release notes",
                           "aaaaaaa1 new Crash Reports lists past crashes.",
                           "aaaaaaa2 -",
                           "aaaaaab1 internal Sound: The sound path is 32 bits wide.",

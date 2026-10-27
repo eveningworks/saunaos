@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fast, non-GUI boot verification: boots toy-os.iso headlessly in QEMU,
+"""Fast, non-GUI boot verification: boots saunaos.iso headlessly in QEMU,
 watches the serial log for the expected kernel init sequence, and exits
 0/1 -- no QMP, no mouse/keyboard, no screenshots. Most kernel-level
 changes (a new driver, a filesystem backend, a syscall) don't actually
@@ -15,7 +15,7 @@ check for kernel/driver-level changes, and qmp_test.py for GUI changes,
 same division CLAUDE.md's testing section describes.
 
 Usage:
-    python3 tools/boot_smoke_test.py                 # uses toy-os.iso, disk.img
+    python3 tools/boot_smoke_test.py                 # uses saunaos.iso, disk.img
     python3 tools/boot_smoke_test.py --iso other.iso --timeout 15
 
 Exit code 0 = every expected line appeared and no failure pattern did,
@@ -157,7 +157,7 @@ def tail(path):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--iso", default="toy-os.iso")
+    ap.add_argument("--iso", default="saunaos.iso")
     ap.add_argument("--disk", default="disk.img")
     ap.add_argument("--timeout", type=float, default=DEFAULT_TIMEOUT)
     ap.add_argument("--serial-log", default="smoke_serial.log")

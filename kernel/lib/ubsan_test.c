@@ -26,7 +26,7 @@ KTEST("ubsan", "a site that fails twice reports once") {
 // instrumented code must reach the runtime and name this file. It fails
 // if the flags never reached kernel/, or the exclusion list swallowed it.
 KTEST("ubsan", "an instrumented kernel reports a real signed overflow") {
-#ifndef TOYOS_UBSAN
+#ifndef SAUNAOS_UBSAN
     KTEST_SKIP("not a UBSAN=1 build");
 #else
     static int fired;   // the site reports once per boot, so once per boot

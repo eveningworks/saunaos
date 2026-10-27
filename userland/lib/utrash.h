@@ -14,7 +14,7 @@
 // **ONE BIN PER VOLUME, because a delete must be a RENAME** -- copying a
 // tree to another disk to "delete" it would be slow, could fail half
 // way, and would need the space it is supposed to free. The system
-// volume's bin is `/home/.Trash` (the spec's "home trash"; toy-os has
+// volume's bin is `/home/.Trash` (the spec's "home trash"; SaunaOS has
 // one home); any other persistent volume's is `<mount>/.Trash-0` (the
 // spec's per-user top-directory bin). A RAM volume and a read-only one
 // have NONE: utrash_bin_for() says 0 and the caller deletes for real,

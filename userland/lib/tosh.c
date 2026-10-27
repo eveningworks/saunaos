@@ -1,4 +1,4 @@
-// tosh -- the toy-os shell (t + OS + h), running in RING 3.
+// tosh -- the SaunaOS shell (t + OS + h), running in RING 3.
 //
 // The kernel has its own shell (apps/shell*.c) with dozens of builtins
 // that reach straight into the filesystem, the drivers and the test
@@ -907,7 +907,7 @@ static int run_simple(struct tosh *sh, const char **argv, int argc,
     if (seq(cmd, "help")) {
         // bash's `help` in this repo's --help shape (lib/uargs.h):
         // sections, two columns, and where the full manual is.
-        emit(sh, sh->banner ? sh->banner : "tosh -- the toy-os shell");
+        emit(sh, sh->banner ? sh->banner : "tosh -- the SaunaOS shell");
         emit(sh, "\n\n"
                  "Built-in commands:\n"
                  "  cd [DIR]      change the directory (/ when DIR is left out)\n"

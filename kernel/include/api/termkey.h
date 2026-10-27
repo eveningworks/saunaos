@@ -7,7 +7,7 @@
 // that is not a character travels as an escape sequence -- Up is
 // `ESC [ A` -- because that is what every terminal since the VT100 has
 // sent and what every program that reads a terminal already knows how
-// to parse. Before this, toy-os sent the raw byte 0x91 instead: cheap,
+// to parse. Before this, SaunaOS sent the raw byte 0x91 instead: cheap,
 // and understood by exactly the programs written for this system. The
 // cost showed up the first time a real one was ported -- dash could not
 // use its own libedit, because libedit expects ANSI and got a private

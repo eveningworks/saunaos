@@ -182,7 +182,7 @@ def make_tree(base):
     long_gnu = "n" * 180 + ".bin"                                          # one component > 100
     files = {
         "docs/": None,
-        "docs/notes.txt": ("toy-os archive check\n" * 400).encode(),
+        "docs/notes.txt": ("SaunaOS archive check\n" * 400).encode(),
         "docs/empty.txt": b"",
         "random.bin": bytes(rnd.getrandbits(8) for _ in range(70000)),
         # Real prose, where the levels can differ at all: the random file

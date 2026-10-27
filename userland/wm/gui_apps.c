@@ -14,7 +14,7 @@
 // editing this table and rebuilding the kernel.
 //
 // The format is `name=value` with `#` comments, read through
-// kernel/lib/etc_config.c -- the same parser /etc/toyos.conf uses,
+// kernel/lib/etc_config.c -- the same parser /etc/saunaos.conf uses,
 // because a second config format to maintain would buy nothing. It is a
 // deliberate small subset of freedesktop.org's .desktop files: same
 // idea, same key names where they overlap, none of the localisation or

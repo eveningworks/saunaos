@@ -63,7 +63,7 @@ KTEST("ramfs", "directories nest, and a listing sees only its own children") {
 
     KTEST_ASSERT(R()->mkdir(ST, "/etc"));
     KTEST_ASSERT(R()->mkdir(ST, "/etc/services.d"));
-    KTEST_ASSERT(R()->write(ST, "/etc/toyos.conf", "k=v", 0));
+    KTEST_ASSERT(R()->write(ST, "/etc/saunaos.conf", "k=v", 0));
     KTEST_ASSERT(R()->write(ST, "/top.txt", "x", 0));
     KTEST_ASSERT(R()->is_dir(ST, "/etc/services.d"));
 

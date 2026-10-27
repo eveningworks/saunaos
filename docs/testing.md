@@ -1,4 +1,4 @@
-# Testing toy-os
+# Testing SaunaOS
 
 How to run this OS and prove a change works. CLAUDE.md keeps the rules a
 session needs before it knows to look anything up -- the build targets,
@@ -227,7 +227,7 @@ counts acknowledged batches.
 `hmp_virtio_status()` crashes, and so does its QMP twin
 `x-query-virtio-status`, even with no guest running (`-S -device
 virtio-rng-pci`). To a tool it looks like a `ConnectionResetError` --
-a dead guest, not a toy-os hang. `QMPSession` refuses both by name;
+a dead guest, not a SaunaOS hang. `QMPSession` refuses both by name;
 `info virtio-queue-status <path> <queue>` is safe and has the ring
 indices.
 
@@ -451,13 +451,13 @@ Lenovo is not always).
 ```
 python3 tools/gui_regress.py --host <machine-ip> --logs /tmp/hw
 python3 tools/gui_regress.py --host <machine-ip> --only startmenu
-TOYOS_REMOTE_HOST=<machine-ip> python3 tools/start_menu_test.py   # one tool
+SAUNAOS_REMOTE_HOST=<machine-ip> python3 tools/start_menu_test.py   # one tool
 ```
 
 **The tools are not ported, they are POINTED.** `tools/remote_gui.py`
 serves the two interfaces a GUI tool already drives -- `QMPSession` and
 `DebugConsole` -- over telnet and TFTP instead of QMP and a unix socket,
-and `TOYOS_REMOTE_HOST` makes those two constructors hand back the
+and `SAUNAOS_REMOTE_HOST` makes those two constructors hand back the
 remote objects. Nothing a tool asks for is emulator-specific: `gui menu
 --json` is the same answer from either machine, because `guictl` is the
 same `gui` vocabulary reached from a program.
@@ -543,7 +543,7 @@ testing:
   though the ISO is not what boots. It is what re-seeds `disk.img` and
   reinstalls the kernel on it; `make all` reaches no medium at all.
   `tools/iso_guard.py` compares against `build/.bootdisk` on a disk boot
-  and against `toy-os.iso` on a CD boot, so a stale one is refused
+  and against `saunaos.iso` on a CD boot, so a stale one is refused
   either way.
 - **A tool that builds its own argv still asks for its boot words:
   `qmp_test.guarded_boot_args(img, iso, ports=...)`** -- `partition_test.py`,
@@ -574,7 +574,7 @@ by adding a device to this recipe by hand. Bit an actual user session once (see 
 
 
 **The live ISO is a SEPARATE artifact, on purpose.** The
-ordinary `toy-os.iso` carries no GRUB module: a 129 MiB one took the
+ordinary `saunaos.iso` carries no GRUB module: a 129 MiB one took the
 boot smoke test from 1.6s to 7.0s locally and blew CI's 12s timeout
 outright, because GRUB reads the whole module off the emulated CD-ROM
 before the kernel starts. The live image is 24 MiB now (partial block
@@ -847,7 +847,7 @@ python3 tools/kdebug_bridge.py                      # terminal 2; key from build
 gdb build/kernel.bin -ex "target remote localhost:1235"
 ```
 
-**Load the helpers**: `gdb -x tools/gdb/toyos.py build/kernel.bin ...`
+**Load the helpers**: `gdb -x tools/gdb/saunaos.py build/kernel.bin ...`
 gives `toy-dmesg [N]`, `toy-ps`, `toy-symbols`, and a `bt` that
 continues past `isr_common` into whatever the interrupt landed on.
 `toy-symbols` loads every kernel module (so `break e1000_transmit`
