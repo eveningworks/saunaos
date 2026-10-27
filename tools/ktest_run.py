@@ -39,6 +39,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from serial_console import DEFAULT_PORT, SerialGuest  # noqa: E402
 import test_history  # noqa: E402
+from host_latency import shallow_idle  # noqa: E402
 
 # A HANG GUARD, sized in HOST seconds against a suite that reports ~40 s
 # of GUEST time: under TCG the guest clock lags a loaded host, and a
@@ -84,7 +85,8 @@ def failed_tests(transcript):
 
 def main():
     started = time.time()
-    with test_history.capture() as printed:
+    # The clockevent suite times deadlines; host_latency.py says why.
+    with test_history.capture() as printed, shallow_idle("ktest_run"):
         rc = run()
     t = _RUN["transcript"]
     test_history.record(

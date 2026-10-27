@@ -257,6 +257,16 @@ and KVM have no such path. A spin meant to burn CPU keeps its counter
 in a REGISTER (`spin_test.c`); a test that times a ring-3 loop under
 TCG is timing the frame allocator as well.
 
+**A GUEST'S TIMER IS ONLY AS PROMPT AS THE HOST CPU QEMU WAKES ON.**
+While the guest idles, QEMU sleeps on the host, and the host's cpuidle
+governor picks a deeper C-state the longer it expects to sleep -- so a
+guest's one-shot deadline comes back late in proportion to how deep that
+state is, not to anything the guest did. On the HP Z1 G8 (C3 declares
+1048 us) `sleep_test`'s 16ms sleeps came back ~550 us late and failed
+8 runs in 11; with C2/C3 held off, ~250 us and 0 in 7 (2026-10-27). A
+tool that times a guest's deadlines runs under `host_latency.py`'s
+`shallow_idle()`, as `ktest_run.py` and `usertest_run.py` do.
+
 **USB PASSTHROUGH BREAKS ISOCHRONOUS OUT PACKETS WHOSE LENGTH VARIES --
 UNDER KVM AS WELL AS TCG.** 44.1 kHz at high speed is 5 or 6 frames a
 microframe; through a guest owning the G6 (`vm.py --usb-host 041e:3256`)

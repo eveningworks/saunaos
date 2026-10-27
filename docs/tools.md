@@ -1449,6 +1449,15 @@ manual steps to be worth automating:
   reproduces them without being told a seed. **Pass `vm.py --timeout`**:
   the default is 30s and 5,000 files takes ~50s. It found the
   binary-write truncation the day it was written.
+- **`host_latency.py`** -- `with shallow_idle("tool"):` holds the HOST's CPUs out of
+  their deep idle states (`/dev/cpu_dma_latency`, cyclictest's PM QoS
+  request) while a guest's deadlines are timed; `ktest_run.py` and
+  `usertest_run.py` run under it. A guest's timer fires through QEMU,
+  which wakes from whatever C-state the host chose: on the HP Z1 G8 that
+  made `sleep_test`'s 16ms sleeps ~550 us late against ~250 us held.
+  Without permission (root, or the `audio` group) or the device (a
+  container) it holds nothing and prints `host idle states NOT held` --
+  a timing check that goes red there is measuring the host.
 - **`serial_console.py`** -- boot a guest with COM1 as a SOCKET and drive
   it as text in / text out. Not a test: the shared channel under
   `ktest_run.py` and `faulttest_run.py`, which had written half of it

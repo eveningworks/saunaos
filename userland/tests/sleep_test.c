@@ -107,8 +107,10 @@ int main(void) {
             snprintf(detail, sizeof detail, "median %llu us, worst %llu us, tick %llu Hz, mode %llu",
                      med, worst, (unsigned long long)c.tick_hz, (unsigned long long)c.tick_mode);
             snprintf(what, sizeof what, "a %dms sleep ends on its deadline", lens[l]);
+            // Printed when it passes too: the margin is what says a red
+            // run is a regression rather than the host.
+            utest_notef("%dms sleeps: %s", lens[l], detail);
             if (c.tick_mode >= 1) check(what, med < ONESHOT_MEDIAN_US, detail);
-            else printf("sleep_test: periodic tick, %dms sleeps: %s\n", lens[l], detail);
         }
     }
 

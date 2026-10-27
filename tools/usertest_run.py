@@ -50,6 +50,7 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from vm import parse_framed   # noqa: E402
 from harness import copy_disk  # noqa: E402
+from host_latency import shallow_idle  # noqa: E402
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 VM = os.path.join(REPO, "tools", "vm.py")
@@ -780,57 +781,12 @@ def run_one(args, name, spawned=False):
     return (m.group(1) if m else None), out
 
 
-def main():
-    ap = argparse.ArgumentParser(
-        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--disk", default=None,
-                    help="image to boot (default: a temporary copy of disk.img)")
-    ap.add_argument("--instance", type=int, default=0,
-                    help="vm.py slot, for running alongside another VM")
-    ap.add_argument("--serial-log", default=None, metavar="PATH",
-                    help="copy the guest's serial output to PATH (vm.py's own "
-                         "flag) -- the only record left when the emulator itself hangs")
-    ap.add_argument("--transcript", default=None, metavar="PATH",
-                    help="write every test's captured output to PATH, passed or "
-                         "not -- a program's own console output is NOT on the serial log")
-    ap.add_argument("-k", metavar="SUBSTR", default="",
-                    help="only tests whose name contains SUBSTR")
-    ap.add_argument("--list", action="store_true",
-                    help="print what is run and what is deliberately not")
-    args = ap.parse_args()
-
-    if args.list:
-        print("Run by this tool:")
-        for name, code, want, _ in TESTS:
-            note = f"exit {code}" + (f", expects {want[0]!r}" if want else "")
-            print(f"  {name:<18} {note}")
-        print("\nDeliberately NOT run:")
-        for name, why in EXCLUDED:
-            print(f"  {name:<18} {why}")
-        return 0
-
-    selected = [t for t in TESTS if args.k in t[0]]
-    if not selected:
-        print(f"usertest_run: no test matches -k {args.k!r}")
-        return 2
-
-    tmp = None
-    if not args.disk:
-        src = os.path.join(REPO, "disk.img")
-        if not os.path.exists(src):
-            print("usertest_run: no disk.img -- run `make iso` first")
-            return 2
-        # A copy, not the real image: several of these write files, and
-        # the user may have their own QEMU holding a write lock on it.
-        tmp = tempfile.NamedTemporaryFile(suffix=".img", delete=False)
-        tmp.close()
-        copy_disk(src, tmp.name)
-        args.disk = tmp.name
-
+def run_all(args, selected, tmp):
+    """Boots the guest and runs `selected`; None when it would not start."""
     try:
         if vm(args, "start").returncode != 0:
             print("usertest_run: could not start the VM")
-            return 2
+            return None
         results = []
         for name, want_code, want, forbid in selected:
             spawned = want_code is None
@@ -892,6 +848,61 @@ def main():
         vm(args, "stop", check=False)
         if tmp:
             os.unlink(tmp.name)
+    return results
+
+
+def main():
+    ap = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--disk", default=None,
+                    help="image to boot (default: a temporary copy of disk.img)")
+    ap.add_argument("--instance", type=int, default=0,
+                    help="vm.py slot, for running alongside another VM")
+    ap.add_argument("--serial-log", default=None, metavar="PATH",
+                    help="copy the guest's serial output to PATH (vm.py's own "
+                         "flag) -- the only record left when the emulator itself hangs")
+    ap.add_argument("--transcript", default=None, metavar="PATH",
+                    help="write every test's captured output to PATH, passed or "
+                         "not -- a program's own console output is NOT on the serial log")
+    ap.add_argument("-k", metavar="SUBSTR", default="",
+                    help="only tests whose name contains SUBSTR")
+    ap.add_argument("--list", action="store_true",
+                    help="print what is run and what is deliberately not")
+    args = ap.parse_args()
+
+    if args.list:
+        print("Run by this tool:")
+        for name, code, want, _ in TESTS:
+            note = f"exit {code}" + (f", expects {want[0]!r}" if want else "")
+            print(f"  {name:<18} {note}")
+        print("\nDeliberately NOT run:")
+        for name, why in EXCLUDED:
+            print(f"  {name:<18} {why}")
+        return 0
+
+    selected = [t for t in TESTS if args.k in t[0]]
+    if not selected:
+        print(f"usertest_run: no test matches -k {args.k!r}")
+        return 2
+
+    tmp = None
+    if not args.disk:
+        src = os.path.join(REPO, "disk.img")
+        if not os.path.exists(src):
+            print("usertest_run: no disk.img -- run `make iso` first")
+            return 2
+        # A copy, not the real image: several of these write files, and
+        # the user may have their own QEMU holding a write lock on it.
+        tmp = tempfile.NamedTemporaryFile(suffix=".img", delete=False)
+        tmp.close()
+        copy_disk(src, tmp.name)
+        args.disk = tmp.name
+
+    # sleep_test times deadlines; host_latency.py says why.
+    with shallow_idle("usertest_run"):
+        results = run_all(args, selected, tmp)
+    if results is None:
+        return 2
 
     if args.transcript:
         with open(args.transcript, "w") as f:
