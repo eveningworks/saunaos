@@ -2305,8 +2305,11 @@ and it cost three things that a display-only rename would not have:
   `toy-os-live.iso` and `toyos-usb.img.gz`, which `run_release.sh` still
   finds; the docs that describe those events keep the names they had.
 - **Some old names are identifiers inside users' files and must not
-  change**: Paint's OpenRaster namespace URI (`uora.c`) is written into
-  every `.ora`, so a file saved before the rename still matches.
+  change**: Paint's OpenRaster namespace URI and its `toyos:` attribute
+  prefix (`uora.c`) are written into every `.ora`, so a file saved before
+  the rename still reads back. The reader matches the prefix LITERALLY,
+  length and all -- the sweep's `saunaos:` broke every text layer, which
+  `paint_test.py` caught.
 
 The vendored ports (`userland/ports/`) and their patch files keep their
 "Changed for toy-os" comments until each port is next re-vendored: they
