@@ -26,6 +26,7 @@
 | `ubootcfg.h` | GRUB's grub.cfg as an EDITABLE model: parse, change one thing, check, save -- for `bootcfg`, the Boot Manager and the Startup settings page. |
 | `ubootlayout.h` | Where GRUB's files are on the boot volume, and the one-time move from the layout before this one. |
 | `ubootmenu.h` | GRUB's menu, read from its grub.cfg, and the ONE-SHOT choice of which entry the next boot takes -- `grub-reboot`'s mechanism, for `reboot --entry` and the Leave page's "Restart into". |
+| `ubootmode.h` | The screen size GRUB sets at boot, for a display toy-os cannot set itself -- a VESA framebuffer on a card with no driver here (an RTX on a BIOS boot). |
 | `ubootwords.h` | The kernel's boot words, as a table: GENERATED from docs/boot-flags.md (tools/gen_bootwords.py), which is the only list of them -- the kernel matches its command line by substring and keeps no regi... |
 | `ubulk.h` | ubulk -- records of any size, up to UBULK_REC_MAX, between two ring-3 processes: a uchan channel for the doorbells, the discovery and the death of a client, and beside each client's uchan ring ONE... |
 | `ubytes.h` | Little-endian fields out of a byte buffer, and a read at an offset that does not come back short -- what every parser of an on-disk format here starts by writing (zip, WAD, RIFF/WAV, SoundFont). |
@@ -182,6 +183,7 @@ Private seams of a split module, not for apps: `uimg_jpeg_int.h`, `usnd_internal
 | `uui_colourpick.h` | uui_colourpick -- ONE COLOUR, picked: by eye on a saturation and brightness square over a hue strip (ui/uui_colourfield.h), or exactly in a hex field and R, G and B fields, all following each other. |
 | `uui_compare.h` | THE TWO FILES OF A NAME CONFLICT, SIDE BY SIDE -- a dialog's body: what is coming in and what is already there, each with its picture, size and date, a badge on the side that is NEWER and the one t... |
 | `uui_confetti.h` | A CONFETTI BURST: pieces thrown up from a point, tumbling and falling under gravity, fading out at the end -- what a game shows when it is won (Microsoft Minesweeper, Google's, a Solitaire cascade'... |
+| `uui_countdown.h` | uui_countdown -- A QUESTION THAT ANSWERS ITSELF: a bold line, a sentence, a bar running down beside "Restarting in 9 seconds", and two buttons; when the time runs out the timeout's answer is taken. |
 | `uui_ctxmenu.h` | uui_ctxmenu -- a WIDGET'S OWN right-click menu, hosted by uapp: a table header's column chooser is the first. |
 | `uui_describe.h` | uui_describe.h -- a widget REPORTS ITS OWN GEOMETRY, by name. |
 | `uui_dialog.h` | A MODAL over the app's own window: a title, some lines, and a row of buttons. |

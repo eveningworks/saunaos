@@ -632,6 +632,15 @@ manual steps to be worth automating:
   in the default again -- GRUB cleared the choice. On demand: it reboots
   twice. `/tests/bootcfg_test` (in `usertest_run.py`) covers the model
   itself on fixtures.
+- **`screentrial_test.py`** -- a screen size tried at a restart, on a
+  QXL guest (no driver here, so GRUB's VESA framebuffer, as an RTX on a
+  BIOS boot): `bootcfg resolution 1024x768` comes up at 1024x768 with
+  the "Keep this resolution?" window, Enter keeps it and the next boot
+  asks nothing; 1366x768, which QXL's BIOS does not offer, comes up at
+  1280x720, is remembered in `/etc/display.conf` and restarts onto the
+  kept size; an unanswered 800x600 restarts by itself. A boot is told
+  from the one before it by a file in `/tmp` (ramfs). On demand: it
+  reboots six times, about four minutes.
 
 - **`vnc_latency.py`** -- how long a VNC viewer waits: each round moves
   the pointer, asks for an incremental update and times it; the full

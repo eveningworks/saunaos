@@ -92,6 +92,14 @@ int ubootcfg_remove(struct ubootcfg *c, int e);
 // changed, or -1 with c->why.
 int ubootcfg_bootpart_missing(const struct ubootcfg *c);
 int ubootcfg_add_bootpart(struct ubootcfg *c);
+// --- the screen size GRUB sets (lib/ubootmode.h) --------------------------
+// A stanza after the one-shot one picks toy_mode or the one-boot
+// toy_mode_try from grubenv, and each multiboot2 entry sets gfxpayload
+// from it AFTER its boot line (multiboot2 overwrites gfxpayload). How many
+// of those are missing, and adding them: the count added, or -1 with
+// c->why.
+int ubootcfg_video_missing(const struct ubootcfg *c);
+int ubootcfg_add_video(struct ubootcfg *c);
 // --- trying an entry once ------------------------------------------------
 // The trial of `e` is a copy titled "<title> (trial)" with `words` and
 // UBOOTCFG_MARK, replaced if it exists. Returns its index, or -1. The caller saves and

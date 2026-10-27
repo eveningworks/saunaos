@@ -249,5 +249,30 @@ int main(void) {
     other = c;
     utest_check(ubootcfg_add_bootpart(&c) == 0 && !strcmp(c.text, other.text),
                 "a second pass changes nothing");
+
+    // The screen-size stanza (lib/ubootmode.h): after the one-shot one,
+    // and each multiboot2 entry -- the quoted one too, it boots toy-os --
+    // sets gfxpayload on the line AFTER its boot line; never a linux one.
+    utest_check(ubootcfg_parse(&orig, withlinux, wl) == 0, "the fixture parses again");
+    c = orig;
+    utest_checkf(ubootcfg_video_missing(&c) == 4, "the stanza and three entries lack it (got %d)",
+                 ubootcfg_video_missing(&c));
+    utest_checkf(ubootcfg_add_video(&c) == 4, "all four are added (%s)", c.why ? c.why : "");
+    const char *one = strstr(c.text, "save_env next_entry\nfi\n");
+    const char *st = strstr(c.text, "set toy_mode_now=");
+    utest_check(one && st && st > one && st < strstr(c.text, "menuentry"),
+                "the stanza follows the one-shot stanza, above the first entry");
+    utest_check(strstr(c.text,
+                "    multiboot2 /kernel.bin nokaslr video=1920x1080\n"
+                "    if [ \"${toy_mode_now}\" ]; then set gfxpayload=") != 0,
+                "gfxpayload is set on the line after multiboot2, at its indentation");
+    utest_check(strstr(c.text, "    linux /vmlinuz root=/dev/sda2\n}") != 0, "a linux entry is untouched");
+    utest_checkf(c.count == 4 && c.def == 1, "entries and the default are unchanged (%d, %d)",
+                 c.count, c.def);
+    np = ubootcfg_check(&c, &orig, 0, probs, 16);
+    utest_check(!ubootcfg_has(probs, np, UBOOTCFG_BROKEN), "and the result checks out");
+    other = c;
+    utest_check(ubootcfg_video_missing(&c) == 0 && ubootcfg_add_video(&c) == 0 &&
+                !strcmp(c.text, other.text), "a second pass changes nothing");
     return utest_end();
 }

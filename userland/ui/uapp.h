@@ -70,6 +70,9 @@ struct uui_focus;   // ui/uui_focus.h -- desc.focus is a pointer, so a
 // mode). It then starts moves and resizes itself, uapp_move_start(), from
 // a press in what it drew. The taskbar button and Alt+F4 stay the WM's.
 #define UAPP_NO_DECOR  0x10
+// The window opens in the middle of the screen, not the cascade
+// (WIN_HINT_CENTRED) -- for a question with no window to stand beside.
+#define UAPP_CENTRED   0x20
 
 // Only one copy of this app at a time. With this set (and an `app_id`
 // given), uapp_run() asks TWS whether a window already carries that id

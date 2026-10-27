@@ -321,6 +321,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
         return;
     }
     if (kbd_on_widget(a, id)) { uapp_redraw(a); return; }
+    if (bootmode_on_widget(id)) { relayout_page(); uapp_redraw(a); return; }
     if (snd_on_widget(a, id)) { uapp_redraw(a); return; }
     if (adapters_on_widget(id)) { relayout_page(); uapp_redraw(a); return; }
     if (remote_on_widget(id)) { relayout_page(); uapp_redraw(a); return; }
@@ -382,6 +383,7 @@ static void on_widget(struct uapp *a, int id, int reason) {
 // ids.
 static void on_action(struct uapp *a, int code) {
     if (kbd_on_action(a, code)) { uapp_redraw(a); return; }
+    if (bootmode_on_action(code)) { relayout_page(); uapp_redraw(a); return; }
     if (snd_on_action(a, code)) { uapp_redraw(a); return; }
     if (theme_on_action(a, code)) { uapp_redraw(a); return; }
     if (adapters_on_action(code)) { relayout_page(); uapp_redraw(a); return; }
@@ -737,6 +739,7 @@ int main(int argc, char **argv) {
     sysinfo_init();
     clock_init();
     kbd_init();
+    bootmode_init();
     adapters_init();
     remote_init();
     snd_init();

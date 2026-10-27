@@ -94,6 +94,7 @@ enum { ID_TREE = 1, ID_SIDE_SPLIT, ID_BODY, ID_PAGE, ID_ADVANCED, ID_TEST,
        ID_RD_VNC, ID_RD_RDP, ID_RD_PORT, ID_RD_PW, ID_RD_PW_SAVE, ID_RD_WHEN, ID_RD_FROM,
        ID_RD_TRUSTED, ID_RD_ADD_ADDR, ID_RD_ADD_LABEL, ID_RD_ADD, ID_RD_CONN, ID_RD_ENC,
        ID_TH_CUSTOMIZE, ID_TH_SAVEAS, ID_TH_IMPORT, ID_TH_DELETE,
+       ID_BM_SIZE, ID_BM_RESTART,
        ID_SNDFMT = 60,          // .. + UUI_SNDFORMAT_IDS, Sound > Output's Format
        ID_SNDTEST = 76,         // .. + UUI_SNDTEST_IDS, Sound > Output's Test
        ID_NETADP = 80,          // .. + UUI_NETADAPTER_IDS, Network > Adapters' panel
@@ -402,6 +403,17 @@ void sysinfo_load(void);
 int  sysinfo_tick(void);
 int  sysinfo_height(void);
 int  sysinfo_copy(void);
+
+// set_bootmode.c -- Display > Screen's Resolution when GRUB sets the mode
+// (lib/ubootmode.h). bootmode_emit_slot() returns -1 for a slot it leaves
+// to emit_slot(), as kbd_emit_slot() does.
+void bootmode_init(void);
+void bootmode_page_opened(void);
+int  bootmode_emit_slot(struct uui_item *out, int n, int i,
+                        struct uui_focusable *focus, int *nfocus);
+int  bootmode_on_widget(int id);
+int  bootmode_on_action(int code);
+int  bootmode_fit(void);
 
 // set_startup.c -- System > Boot menu, GRUB's menu (not registry settings)
 extern int g_show_startup;

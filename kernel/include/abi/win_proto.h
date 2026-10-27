@@ -1061,6 +1061,11 @@ struct win_cursor_image {
 // WIN_REQ_MOVE_START. The taskbar button, focus and Alt+F4 stay the server's;
 // Alt+Space is the client's, to open the window menu its own frame draws.
 #define WIN_HINT_NO_DECOR  0x10
+// A window with nothing to stand beside -- a question asked at boot, before
+// anything else is open: placed in the middle of the work area instead
+// of the cascade, before its first frame (Mutter's and KWin's placement
+// of a parentless dialog).
+#define WIN_HINT_CENTRED   0x20
 
 // `window`: which one; a: 0 to MOVE it, else WIN_EDGE_* bits to RESIZE it
 // from those edges -- xdg_toplevel.move/.resize. Honoured only while a

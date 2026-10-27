@@ -18,6 +18,7 @@
 #include <unistd.h>
 #include "lib/ubootcfg.h"
 #include "lib/ubootwords.h"
+#include "lib/ubootmode.h"
 #include "lib/cmd.h"
 #include "lib/uargs.h"
 #include "rt/sys.h"
@@ -46,6 +47,7 @@ static const struct uargs_cmd CMDS[] = {
     { "check",   0,                    "report the file's problems" },
     { "undo",    0,                    "swap grub.cfg and grub.cfg.bak" },
     { "known",   0,                    "every boot word this accepts" },
+    { "resolution", "[WxH|auto|keep|drop]", "the screen size GRUB sets, for a display that cannot set its own" },
     { 0 },
 };
 
@@ -308,6 +310,59 @@ static int cmd_try(int argc, char **argv) {
     return 0;
 }
 
+// `resolution`: what GRUB is asked for, and changing it (lib/ubootmode.h).
+// A size is a TRIAL -- the next boot only -- kept from that boot with
+// `keep`, so a size the monitor cannot show is undone by a reset.
+static int cmd_resolution(int n, char **arg) {
+    struct ubootmode m;
+    ubootmode_read(&m);
+    if (n == 0) {
+        printf("  screen now   %dx%d\n", m.now_w, m.now_h);
+        printf("  every boot   %s\n", m.kept[0] ? m.kept : "GRUB's own choice");
+        if (m.pending[0]) printf("  next boot    %s " C_DIM "(once)" C_OFF "\n", m.pending);
+        if (m.tried[0])   printf("  this boot    a trial of %s -- `bootcfg resolution keep` or `drop`\n", m.tried);
+        printf("  offered     ");
+        int w, h;
+        for (int i = 0; ubootmode_size_at(i, &w, &h); i++) {
+            char sz[UBOOTMODE_SIZE];
+            snprintf(sz, sizeof sz, "%dx%d", w, h);
+            printf(ubootmode_refused(sz) ? " " C_DIM "%s(refused)" C_OFF : " %s", sz);
+        }
+        printf("\n");
+        if (!m.usable) printf(C_WARN "  cannot change here: %s" C_OFF "\n", m.why_not);
+        return 0;
+    }
+    if (n != 1) return wrong("resolution");
+    if (!strcmp(arg[0], "keep") || !strcmp(arg[0], "drop")) {
+        if (!m.tried[0]) { printf("bootcfg: this boot is not a trial of a screen size\n"); return 1; }
+        int keep = arg[0][0] == 'k';
+        if ((keep ? ubootmode_keep() : ubootmode_drop()) < 0) {
+            printf("bootcfg: GRUB's environment block could not be written\n");
+            return 1;
+        }
+        printf(keep ? "  kept %s for every boot\n" : "  dropped %s -- the next boot is back on the old size\n", m.tried);
+        return 0;
+    }
+    if (!m.usable) { printf("bootcfg: cannot change the screen size here: %s\n", m.why_not); return 1; }
+    int w, h, autosize = !strcmp(arg[0], "auto");
+    if (!autosize && !ubootmode_parse(arg[0], &w, &h)) {
+        printf("bootcfg: \"%s\" is not a screen size (WxH, 640x480 to 3840x2160, or auto)\n", arg[0]);
+        return 1;
+    }
+    const char *why = 0;
+    if (ubootmode_try(autosize ? 0 : arg[0], &why) < 0) { printf("bootcfg: %s\n", why); return 1; }
+    if (autosize) {
+        printf("  every boot: GRUB's own choice, from the next restart\n");
+        return 0;
+    }
+    if (ubootmode_refused(arg[0]))
+        printf(C_WARN "  this machine's firmware refused %s before" C_OFF "\n", arg[0]);
+    printf("  next boot only: %s " C_DIM "-- keep it from that boot with `bootcfg resolution keep`" C_OFF "\n", arg[0]);
+    int a = ask("  Restart now?  [y/N] ");
+    if (a == 'y' || a == 'Y') return system("/bin/reboot") != 0;
+    return 0;
+}
+
 int main(int argc, char **argv) {
     struct uargs a;
     if (uargs_parse(&a, &PROG, argc, argv)) return a.status;
@@ -317,6 +372,7 @@ int main(int argc, char **argv) {
     if ((g_keep || g_drop) && strcmp(cmd, "try")) return uargs_error(&PROG, "--keep and --drop go with try");
 
     if (!strcmp(cmd, "known")) return nrest ? wrong(cmd) : cmd_known();
+    if (!strcmp(cmd, "resolution")) return cmd_resolution(nrest, rest);
     if (!strcmp(cmd, "undo")) {
         if (nrest) return wrong(cmd);
         const char *why = 0;

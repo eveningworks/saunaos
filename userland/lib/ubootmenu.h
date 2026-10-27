@@ -20,6 +20,7 @@
 #define UBOOTMENU_DIR     "/boot/grub"
 #define UBOOTMENU_CFG     UBOOTMENU_DIR "/grub.cfg"
 #define UBOOTMENU_ENV     UBOOTMENU_DIR "/grubenv"
+#define UBOOTMENU_ENV_NEXT "next_entry"
 #define UBOOTMENU_MAX     16
 #define UBOOTMENU_TITLE   96
 
@@ -56,6 +57,16 @@ int ubootmenu_set_next(const char *title);
 
 // The same, against an explicit environment-block path -- for the test.
 int ubootmenu_set_next_at(const char *env_path, const char *title);
+
+// ANY VARIABLE in GRUB's environment block: `next_entry` above, and the
+// screen size GRUB sets (lib/ubootmode.h). get: 1 and the value in
+// `out`, or 0 when absent or the block is unreadable. set: a NULL value
+// removes it; 0, or -1 as ubootmenu_set_next(). The un-suffixed pair
+// works on UBOOTMENU_ENV, remounting /boot around the write.
+int ubootmenu_env_get(const char *name, char *out, int cap);
+int ubootmenu_env_get_at(const char *env_path, const char *name, char *out, int cap);
+int ubootmenu_env_set(const char *name, const char *value);
+int ubootmenu_env_set_at(const char *env_path, const char *name, const char *value);
 
 // /boot is mounted read-only; these remount it read-write around a
 // write and back. `dev` comes back "" when it was writable already, so

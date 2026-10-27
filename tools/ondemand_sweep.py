@@ -382,6 +382,10 @@ TOOLS = [
     # bootcfg on a real /boot, and a trial entry booted once. Reboots
     # its guest twice against a COPY of disk.img, as boot_entry does.
     ("bootcfg",     "bootcfg_test.py",         "bootcfg edits, refusals, and a trial booted once", True, None,     False),
+    # A screen size tried at a restart on QXL (GRUB's VESA framebuffer):
+    # kept, refused by the firmware, and left unanswered. Reboots its
+    # guest six times against a COPY of disk.img.
+    ("screentrial", "screentrial_test.py",     "a screen size tried once: kept, refused, unanswered", True, None, False),
 
     # --- sound --------------------------------------------------------
     # Boots its own guests with an AC97 and a wav audiodev, twice. It is

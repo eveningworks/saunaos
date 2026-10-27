@@ -31,6 +31,10 @@
   1 for the others.
 - `undo` -- swap `grub.cfg` and `grub.cfg.bak`, so a second `undo` redoes.
 - `known` -- every boot word it accepts, with its value's shape.
+- `resolution [WxH|auto|keep|drop]` -- the screen size GRUB sets, for a
+  display toy-os cannot set itself; see "The screen size GRUB sets".
+  Alone, it shows the size now, every boot's, a pending one and the
+  sizes this machine's firmware refused.
 - `--force` -- save despite a RISKY problem the edit introduces.
 - `--file=<cfg>` -- another file than `/boot/grub/grub.cfg`.
 - `-h`, `--help` -- every command and option in one page, as GNU tools
@@ -85,6 +89,44 @@ A trial carries one extra word, `bootcfg.trial`, which the kernel
 ignores. It is how a trial boot is recognised: matching the running
 command line against the entries instead goes wrong as soon as either
 is edited after boot.
+
+## The screen size GRUB sets
+
+    $ bootcfg resolution 1920x1080
+      next boot only: 1920x1080 -- keep it from that boot with `bootcfg resolution keep`
+      Restart now?  [y/N]
+
+A display with no driver here -- an NVIDIA card on a BIOS boot, QEMU's
+QXL -- shows whatever VESA mode GRUB set, and GRUB's own choice can be
+640x480: the kernel asks for 1280x720, a card without that mode falls to
+`auto`, and `auto` falls to 640x480 when the monitor's EDID cannot be read
+through the VESA BIOS. Linux's answer is `GRUB_GFXMODE` in a file edited by
+hand; this is that, with the trial `try` has.
+
+The size lives in GRUB's environment block (`lib/ubootmode.h`):
+`toy_mode` for every boot, `toy_mode_try` for the next one only -- emptied
+by GRUB before it boots, so a size the monitor cannot show is shown once
+and a reset is back on the old one. On that boot `screentrial` (started
+after the desktop, `/etc/services.d/screentrial`) asks "Keep this
+resolution?" for 15 seconds; Keep makes it `toy_mode`, and Go back or no
+answer restarts on the old size. `bootcfg resolution keep` and `drop`
+answer the same question from a shell, and `auto` goes back to GRUB's own
+choice from the next restart. System Settings > Display > Screen shows the
+same choice as a dropdown and a "Restart to try" button on such a display.
+
+A size the firmware does not offer comes up at GRUB's own size instead;
+`screentrial` says so, remembers it in `/etc/display.conf`
+(`firmware_refused=`), and restarts on the kept size when there is one.
+Settings marks it "(not offered)" from then on. The first use adds the
+stanza an older `grub.cfg` lacks -- the `toy_mode` lines after the
+one-shot one and a `gfxpayload` line after each `multiboot2` -- with the
+old file kept as `grub.cfg.bak`.
+
+**`gfxpayload` is set AFTER the `multiboot2` line**: that command
+overwrites it from the kernel's framebuffer request
+(`1280x720x32,1280x720,auto`), so one set earlier never reaches GRUB's
+mode switch. A display that sets its own mode (bochs, vmsvga, virtio,
+Intel) ignores all of this; `bootcfg resolution` says so.
 
 ## Editing the file as text
 

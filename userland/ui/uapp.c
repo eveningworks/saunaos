@@ -1149,6 +1149,9 @@ static int uapp_open(struct uapp **out, const struct uapp_desc *desc) {
     // asked for nothing: "fixed size, no minimum" is a statement, and
     // leaving TWS to assume it would be the inference this protocol
     // deliberately avoids.
+    _Static_assert(UAPP_RESIZABLE == WIN_HINT_RESIZABLE && UAPP_SCANOUT == WIN_HINT_SCANOUT &&
+                   UAPP_NO_DECOR == WIN_HINT_NO_DECOR && UAPP_CENTRED == WIN_HINT_CENTRED,
+                   "uapp's flags are sent to TWS as its hints");
     wmchan_send(WIN_REQ_HINTS, a->window,
                 (int)((desc->flags & ~UAPP_POLL) | (desc->on_phys_key ? WIN_HINT_PHYS_KEYS : 0)),
                 desc->min_w, desc->min_h, 0);

@@ -74,21 +74,33 @@ int ubootmenu_find(const struct ubootmenu *m, const char *spec) {
     return -1;
 }
 
-// `next_entry` from the environment block, or "" when none is pending.
-static void pending(char *out, int cap) {
+int ubootmenu_env_get_at(const char *env_path, const char *name, char *out, int cap) {
     static char env[ENV_SIZE + 1];
     out[0] = 0;
-    if (read_file(UBOOTMENU_ENV, env, sizeof env) < (int)sizeof ENV_HEAD - 1) return;
-    if (strncmp(env, ENV_HEAD, sizeof ENV_HEAD - 1)) return;
-    for (char *l = env; l && *l; l = strchr(l, '\n'), l = l ? l + 1 : 0) {
-        if (strncmp(l, "next_entry=", 11)) continue;
-        const char *v = l + 11;
-        int n = 0;
-        while (v[n] && v[n] != '\n' && n < cap - 1) { out[n] = v[n]; n++; }
-        out[n] = 0;
-        return;
+    if (read_file(env_path, env, sizeof env) < (int)sizeof ENV_HEAD - 1) return 0;
+    if (strncmp(env, ENV_HEAD, sizeof ENV_HEAD - 1)) return 0;
+    int nl = (int)strlen(name);
+    for (char *l = env + sizeof ENV_HEAD - 1; *l && *l != '#'; ) {
+        char *e = strchr(l, '\n');
+        if (!e) break;
+        if (!strncmp(l, name, (size_t)nl) && l[nl] == '=') {
+            const char *v = l + nl + 1;
+            int n = 0;
+            while (v + n < e && n < cap - 1) { out[n] = v[n]; n++; }
+            out[n] = 0;
+            return 1;
+        }
+        l = e + 1;
     }
+    return 0;
 }
+
+int ubootmenu_env_get(const char *name, char *out, int cap) {
+    return ubootmenu_env_get_at(UBOOTMENU_ENV, name, out, cap);
+}
+
+// `next_entry` from the environment block, or "" when none is pending.
+static void pending(char *out, int cap) { ubootmenu_env_get(UBOOTMENU_ENV_NEXT, out, cap); }
 
 int ubootmenu_read(struct ubootmenu *m, const char *cfg) {
     static char buf[CFG_MAX];
@@ -148,10 +160,11 @@ int ubootmenu_read(struct ubootmenu *m, const char *cfg) {
     return m->count;
 }
 
-int ubootmenu_set_next_at(const char *env_path, const char *title) {
+int ubootmenu_env_set_at(const char *env_path, const char *name, const char *value) {
     static char old[ENV_SIZE + 1];
     char blk[ENV_SIZE];
     int n = (int)sizeof ENV_HEAD - 1;
+    int nl = (int)strlen(name);
     memcpy(blk, ENV_HEAD, (size_t)n);
 
     // Every OTHER variable is kept: the block is GRUB's too.
@@ -160,7 +173,7 @@ int ubootmenu_set_next_at(const char *env_path, const char *title) {
             char *e = strchr(l, '\n');
             if (!e) break;
             int len = (int)(e - l) + 1;
-            if (strncmp(l, "next_entry=", 11)) {
+            if (strncmp(l, name, (size_t)nl) || l[nl] != '=') {
                 if (n + len > ENV_SIZE) return -1;
                 memcpy(blk + n, l, (size_t)len);
                 n += len;
@@ -168,17 +181,18 @@ int ubootmenu_set_next_at(const char *env_path, const char *title) {
             l = e + 1;
         }
     }
-    if (title) {
-        // GRUB escapes these two inside a value; a title needing them
+    if (value) {
+        // GRUB escapes these two inside a value; a value needing them
         // is refused rather than stored in a form GRUB reads back
         // differently.
-        if (strchr(title, '\n') || strchr(title, '\\')) return -1;
-        int len = (int)strlen(title);
-        if (n + 11 + len + 1 > ENV_SIZE) return -1;
-        memcpy(blk + n, "next_entry=", 11);
-        memcpy(blk + n + 11, title, (size_t)len);
-        blk[n + 11 + len] = '\n';
-        n += 11 + len + 1;
+        if (strchr(value, '\n') || strchr(value, '\\')) return -1;
+        int len = (int)strlen(value);
+        if (n + nl + 1 + len + 1 > ENV_SIZE) return -1;
+        memcpy(blk + n, name, (size_t)nl);
+        blk[n + nl] = '=';
+        memcpy(blk + n + nl + 1, value, (size_t)len);
+        blk[n + nl + 1 + len] = '\n';
+        n += nl + 1 + len + 1;
     }
     memset(blk + n, '#', (size_t)(ENV_SIZE - n));
 
@@ -187,6 +201,10 @@ int ubootmenu_set_next_at(const char *env_path, const char *title) {
     long w = write(fd, blk, ENV_SIZE);
     close(fd);
     return w == ENV_SIZE ? 0 : -1;
+}
+
+int ubootmenu_set_next_at(const char *env_path, const char *title) {
+    return ubootmenu_env_set_at(env_path, UBOOTMENU_ENV_NEXT, title);
 }
 
 // /boot IS READ-ONLY BY DEFAULT (kernel/fs/mount.c), so a write there
@@ -227,10 +245,12 @@ void uboot_restore(const char *dev) {
     if (sys_umount("/boot") == 0) sys_mount(&req);
 }
 
-int ubootmenu_set_next(const char *title) {
+int ubootmenu_env_set(const char *name, const char *value) {
     char dev[64];
     if (uboot_writable(dev, sizeof dev) < 0) return -1;
-    int rc = ubootmenu_set_next_at(UBOOTMENU_ENV, title);
+    int rc = ubootmenu_env_set_at(UBOOTMENU_ENV, name, value);
     uboot_restore(dev);
     return rc;
 }
+
+int ubootmenu_set_next(const char *title) { return ubootmenu_env_set(UBOOTMENU_ENV_NEXT, title); }

@@ -940,6 +940,17 @@ static void on_window_hints(int pid, uint32_t id, unsigned flags, int min_w, int
         if (!w->first_w) wm_geometry_restore(idx);
     }
 
+    // Centred before the first frame only: after it, the window is where
+    // the person has seen it.
+    if ((flags & WIN_HINT_CENTRED) && !windows[idx].first_w) {
+        struct window *w = &windows[idx];
+        int wa_h = screen_h - taskbar_h;
+        w->x = (screen_w - w->w) / 2;
+        w->y = (wa_h - w->h) / 2;
+        if (w->x < 0) w->x = 0;
+        if (w->y < 0) w->y = 0;
+    }
+
     // The resize grip appears or disappears with this, so the chrome
     // has to be repainted -- the frame only, not the content.
     wm_damage_window_rect(windows[idx].x, windows[idx].y, windows[idx].w, windows[idx].h);

@@ -9,6 +9,8 @@
 
 // driver-none: a query provider over the display class
 
+_Static_assert(QUERY_DISPLAY_CAP_MODESET == DISPLAY_CAP_MODESET, "the ABI names the kernel's bit");
+
 static int display_q_count(void) { return 1; }
 
 static void copy_str(char *dst, int cap, const char *src) {

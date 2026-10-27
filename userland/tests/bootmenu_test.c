@@ -107,6 +107,23 @@ int main(void) {
     utest_check(ubootmenu_set_next_at(ENV, "a\\b") < 0 && ubootmenu_set_next_at(ENV, "a\nb") < 0,
                 "a title GRUB would read back differently is refused");
 
+    // Any variable: two set, one read back, one removed, the others kept.
+    // The LONGER name first, so a prefix match would find it.
+    utest_check(ubootmenu_env_set_at(ENV, "toy_mode_try", "1024x768") == 0 &&
+                ubootmenu_env_set_at(ENV, "toy_mode", "1920x1080") == 0, "two variables are written");
+    static char v[64];
+    utest_check(ubootmenu_env_get_at(ENV, "toy_mode", v, sizeof v) && !strcmp(v, "1920x1080"),
+                "a variable is read by its whole name, not as the prefix of a longer one");
+    utest_check(ubootmenu_env_get_at(ENV, "toy_mode_try", v, sizeof v) && !strcmp(v, "1024x768"),
+                "and the longer one by its own");
+    utest_check(ubootmenu_env_set_at(ENV, "toy_mode_try", 0) == 0 &&
+                !ubootmenu_env_get_at(ENV, "toy_mode_try", v, sizeof v) &&
+                ubootmenu_env_get_at(ENV, "toy_mode", v, sizeof v) && !strcmp(v, "1920x1080") &&
+                ubootmenu_env_get_at(ENV, "saved_entry", v, sizeof v) && !strcmp(v, "x"),
+                "removing one keeps the rest");
+    len = get(ENV, got, sizeof got);
+    utest_checkf(len == 1024, "the block is still exactly 1024 bytes (got %d)", len);
+
     unlink(CFG);
     unlink(CFG2);
     unlink(ENV);

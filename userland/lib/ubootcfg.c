@@ -523,6 +523,89 @@ int ubootcfg_add_bootpart(struct ubootcfg *c) {
     return added;
 }
 
+// --- the screen size GRUB sets (lib/ubootmode.h) --------------------------
+//
+// The same text as the repo's grub.cfg, for a file written before it had
+// it. Found by its variable, so a reworded comment is not a second copy.
+static const char VIDEO_STANZA[] =
+    "\n"
+    "# THE SCREEN SIZE, for a display toy-os cannot set itself (a VESA\n"
+    "# framebuffer): toy_mode, or toy_mode_try for ONE boot -- cleared here,\n"
+    "# so a size the monitor cannot show is booted once. toy_mode_tried tells\n"
+    "# toy-os this boot is that trial (lib/ubootmode.h). Each entry sets\n"
+    "# gfxpayload AFTER its multiboot2 line, which overwrites it.\n"
+    "set toy_mode_now=\"${toy_mode}\"\n"
+    "if [ \"${toy_mode_try}\" ]; then\n"
+    "    set toy_mode_now=\"${toy_mode_try}\"\n"
+    "    set toy_mode_tried=\"${toy_mode_try}\"\n"
+    "    set toy_mode_try=\n"
+    "    save_env toy_mode_try toy_mode_tried\n"
+    "elif [ \"${toy_mode_tried}\" ]; then\n"
+    "    set toy_mode_tried=\n"
+    "    save_env toy_mode_tried\n"
+    "fi\n"
+    "export toy_mode_now\n";
+static const char VIDEO_LINE[] =
+    "if [ \"${toy_mode_now}\" ]; then set gfxpayload=\"${toy_mode_now}x32,${toy_mode_now},1280x720x32,1280x720,auto\"; fi";
+#define VIDEO_STANZA_MARK "toy_mode_now=\""
+#define VIDEO_LINE_MARK   "gfxpayload=\"${toy_mode_now}"
+
+static int text_has(const struct ubootcfg *c, int from, int to, const char *needle) {
+    int nl = (int)strlen(needle);
+    for (int i = c->line_at[from]; i + nl <= c->line_at[to]; i++)
+        if (!memcmp(c->text + i, needle, (size_t)nl)) return 1;
+    return 0;
+}
+
+// A toy-os entry -- a multiboot2 line -- without the gfxpayload line.
+static int wants_video(const struct ubootcfg *c, int e) {
+    const struct ubootcfg_entry *en = &c->entry[e];
+    if (en->boot < 0 || en->end < 0) return 0;
+    const char *p = c->text + c->line_at[en->boot];
+    const char *end = c->text + c->line_at[en->boot + 1];
+    return starts_word(skip_blank(p, end), end, "multiboot2") &&
+           !text_has(c, en->line, en->end, VIDEO_LINE_MARK);
+}
+
+int ubootcfg_video_missing(const struct ubootcfg *c) {
+    int n = !text_has(c, 0, c->nlines, VIDEO_STANZA_MARK);
+    for (int e = 0; e < c->count; e++) n += wants_video(c, e);
+    return n;
+}
+
+int ubootcfg_add_video(struct ubootcfg *c) {
+    int added = 0;
+    if (!text_has(c, 0, c->nlines, VIDEO_STANZA_MARK)) {
+        if (c->count == 0) { c->why = "there is no menuentry"; return -1; }
+        // After the one-shot stanza, which ends at the `fi` following its
+        // save_env; above the first entry when there is none.
+        int at = c->entry[0].line;
+        for (int ln = 0; ln < c->entry[0].line; ln++) {
+            if (!text_has(c, ln, ln + 1, "save_env next_entry")) continue;
+            for (int k = ln + 1; k < c->entry[0].line; k++) {
+                char l[UBOOTCFG_WORD];
+                ubootcfg_line(c, k, l, sizeof l);
+                const char *t = l;
+                while (is_space(*t)) t++;
+                if (!strcmp(t, "fi")) { at = k + 1; break; }
+            }
+            break;
+        }
+        if (splice(c, at, 0, VIDEO_STANZA) < 0) return -1;
+        added++;
+    }
+    for (int e = 0; e < c->count; e++) {
+        if (!wants_video(c, e)) continue;
+        static char line[sizeof VIDEO_LINE + 64];
+        char ind[64];
+        indent_of(c, c->entry[e].boot, ind, sizeof ind);
+        snprintf(line, sizeof line, "%s%s\n", ind, VIDEO_LINE);
+        if (splice(c, c->entry[e].boot + 1, 0, line) < 0) return -1;
+        added++;
+    }
+    return added;
+}
+
 // --- trying an entry once ------------------------------------------------
 
 int ubootcfg_trial_source(const struct ubootcfg *c, int t) {

@@ -375,6 +375,7 @@ void open_group(int g) {
 
     clock_page_opened();
     kbd_page_opened();
+    bootmode_page_opened();
     mouse_page_opened();
     trash_page_opened();
     snd_page_opened();
@@ -704,6 +705,7 @@ void relayout_page(void) {
                                            .flags = UUI_FILL_W, .name = "saver_monitor" };
         }
         int kn = kbd_emit_slot(PAGE, n, i, FOCUS, &FOCUS_COUNT);
+        if (kn < 0) kn = bootmode_emit_slot(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = kn >= 0 ? kn : emit_slot(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = clock_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
         n = kbd_emit_after(PAGE, n, i, FOCUS, &FOCUS_COUNT);
@@ -804,6 +806,7 @@ int refit_prose(void) {
     if (g_show_adapters && adapters_fit()) changed = 1;
     if (snd_fit()) changed = 1;
     if (mouse_fit()) changed = 1;
+    if (bootmode_fit()) changed = 1;
     if (g_show_remote && remote_fit()) changed = 1;
     if (changed) relayout_page();
     return changed;
