@@ -179,6 +179,10 @@ def main():
             qmp.move_rel(0, -40 if i % 2 == 0 else 40)
             i += 1
             time.sleep(0.03)
+        # Back on the tray icon: an odd count left the pointer 40 px up,
+        # INSIDE the box check 7 compares, which then failed on its sprite.
+        if i % 2:
+            qmp.move_rel(0, 40)
         bugs += dbg.damage_bugs()
     dbg.damage_verify(False)
     check("the card's ticking clock leaves nothing stale between ticks", bugs == [],
