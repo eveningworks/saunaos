@@ -102,6 +102,11 @@ int main(int argc, char **argv) {
     int rc = uapp_run(&d);
 
     ulogf("screentrial: %s -> answer %d\n", g_m.tried, g_answer);
+    // Answered elsewhere meanwhile (`bootcfg resolution keep` or `drop`):
+    // the question is gone, and restarting would undo nothing.
+    struct ubootmode now_m;
+    ubootmode_read(&now_m);
+    if (g_answer == A_BACK && !now_m.tried[0]) g_answer = 0;
     switch (g_answer) {
     case A_KEEP:
         if (ubootmode_keep() < 0) ulog("screentrial: could not keep the size\n");
