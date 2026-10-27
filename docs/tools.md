@@ -3647,14 +3647,16 @@ window without going through it will find its layout polls timing out.
   `gui_regress.py`.
 
 - **`fm_progress_test.py`** -- the Operations panel (`ui/uui_transfers.h`
-  over `fm_jobs.c`): F5 on a folder of six copies of `first-boot.mpg`
-  (~50 MB, so a copy lasts long enough to pause under TCG) shows one
+  over `fm_jobs.c`): F5 on a folder of twelve copies of `first-boot.mpg`
+  (~100 MB, so a copy lasts long enough to pause under TCG; 50 MB
+  finished first on the HP Z1 G8) shows one
   running row whose total is EVERY byte (the counting pass, compared
   exactly against `ls -l`); the bytes grow and a rate is measured; Pause
   holds them for 1.5 s -- measured from a frame taken AFTER the pause
   settles, since the chunk being written when it was pressed still
   lands; two more copies wait as rows and one is cancelled from its row;
-  Resume goes on; at the end the copies are whole, the queued one ran
+  Resume goes on (or finishes between polls -- a dead Resume stays
+  paused); at the end the copies are whole, the queued one ran
   and the cancelled one did not. Rows are the panel's `ops.state <row>
   <state> <got> <total> <rate>` lines. Its positive control (a Pause
   that never waits) reddens five checks. In `gui_regress.py`.
