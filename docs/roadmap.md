@@ -1071,6 +1071,9 @@ run on, not by order.
 - [ ] GPU compositing, route 3: a Mesa port -- needs the i915 uAPI, libdrm, threads and a dynamic linker
 - [ ] GPU compositing, route 4: virtio-gpu 3D (virgl) -- QEMU only, so it speeds up no real machine
 - [x] ~~Runtime mode switching: a display driver can set a mode after boot~~ DONE 2026-09-02 -- `config set resolution`, every QEMU adapter
+- [x] ~~A screen size for GRUB's VESA framebuffer, chosen in Settings and tried once~~ DONE 2026-10-27 -- `bootcfg resolution`
+- [ ] A size list the firmware really offers, not the common sizes learned by refusal -- needs VBE `4F01` per mode, a real-mode call
+- [ ] Per-row greying in `uui_dropdown`, so a refused size is disabled rather than labelled "(not offered)"
 - [x] ~~Initcall levels: drivers declare a boot slot instead of being called by name from `kernel_main()`~~ DONE 2026-09-12
 - [x] ~~Loadable drivers: `modload`, one PCI driver, `/etc/modules` -- `docs/modules-design.md`~~ DONE 2026-09-10
 - [x] ~~`virtio-net`: a NIC on the same transport~~ DONE 2026-09-12 -- `virtio_net.c` plus the `net_device` adapter

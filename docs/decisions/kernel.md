@@ -2736,8 +2736,15 @@ That rules out a cmdline flag outright.
 read back from `dmesg`:
 
 - With the header requesting 1280x720x32, `set gfxpayload=800x600x32` in
-  the menu entry changed nothing -- still 1280x720. So for multiboot2 the
-  header's request wins and `gfxpayload` is ignored.
+  the menu entry changed nothing -- still 1280x720. **That was the
+  position, not the variable** (corrected 2026-10-27): the `multiboot2`
+  command OVERWRITES `gfxpayload` from the header's request (GRUB's
+  `multiboot.c`, `set_console`), so a value set before that line never
+  reaches the mode switch. Set AFTER it, a size is honoured -- measured on
+  QXL and on an RTX 2070's VESA BIOS, and what `toy_mode` in grub.cfg now
+  relies on (`docs/decisions/drivers.md`, "A display toy-os cannot set
+  gets its size from GRUB"). `gfxpayload=text` after the line was not
+  tried.
 - With the header's width/height/depth set to 0/0/0 ("no preference"),
   the resolution *did* change (GRUB chose 1280x800), proving the header
   edit took effect -- and `set gfxpayload=text` **still** produced a

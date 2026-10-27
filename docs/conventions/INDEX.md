@@ -1185,6 +1185,7 @@ whenever a headline here tells you something you did not already know.
   PROGRAM OPTS IN**
 - **A FLASH REPLACES THE KERNEL, NEVER THE BOOTLOADER -- AND `install
   --bootloader` IS HOW A MACHINE GAINS ONE**
+- **`gfxpayload` IS SET AFTER THE `multiboot2` LINE, OR IT IS IGNORED**
 - **THE BARE-METAL KERNEL IS REPLACED WITH `remote.py flash`, AND THE
   RESCUE ENTRY NEEDS A GRUB TIMEOUT**
 - **dash's LINE EDITING IS A libedit SHIM, NOT A SECOND EDITOR**

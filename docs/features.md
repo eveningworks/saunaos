@@ -29,6 +29,12 @@ GRUB's own `next_entry`, so a bad word costs one power-cycle. The same
 model is in a window twice: the Boot Manager (each entry's words as a
 checklist, the file as checked text) and System Settings > System > Boot
 menu for the default, the timeout and the next restart.
+On a display toy-os cannot set itself -- a VESA framebuffer, such as an
+NVIDIA card on a BIOS boot -- the **screen size GRUB sets is chosen from
+System Settings** (Display > Screen, "Restart to try") or `bootcfg
+resolution`: the size is booted ONCE, a "Keep this resolution?" countdown
+asks, and no answer restarts on the old size; a size the firmware refuses
+is remembered and marked "not offered".
 
 Four block drivers behind one `block_device` registry the filesystems
 never look through: legacy IDE with Bus-Master DMA and a PIO fallback,

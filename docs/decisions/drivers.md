@@ -952,6 +952,57 @@ the drain lock-free: the idle path never touches a queue the handler
 owns. A device the chipset routed nowhere keeps its poll instead, so no
 device ends up with neither.
 
+## A display toy-os cannot set gets its size from GRUB, chosen in grubenv and tried once
+
+A card with no driver here -- an NVIDIA RTX on a BIOS boot, QEMU's QXL --
+is a VESA framebuffer GRUB set before the kernel ran, and nothing in
+toy-os can change it afterwards: long mode has no `int 10h`. GRUB's own
+choice can be poor. The kernel's framebuffer request is 1280x720; a card
+whose VESA BIOS lacks that mode falls to `auto`, and GRUB's VBE `auto`
+reads the monitor's EDID through the VESA BIOS and, when that fails,
+settles on 640x480 "because the largest mode supported by the graphics
+card may not be safe for the display device" (`video/i386/pc/vbe.c`).
+Measured 2026-10-27 on an X99 board with an RTX 2070 and a 2560x1440
+monitor: EDID over VBE failed, so 640x480, while the card's BIOS offered
+1920x1080, 1600x1200 and 1280x1024 when asked by name.
+
+**Linux leaves this to `GRUB_GFXMODE` in `/etc/default/grub`, edited by
+hand, until its own GPU driver modesets. Windows on a BIOS machine runs
+the card's VESA BIOS in an emulator (`x86bios`) to list and switch modes
+at runtime.** toy-os takes Linux's shape -- GRUB sets the size -- and
+gives it a UI and a safety net, rather than Windows': an emulated VBIOS
+needs the legacy ROM, low memory and I/O ports reachable from wherever it
+runs, works only on BIOS boots, and still cannot exceed the card's VESA
+list (2560x1440 is not on the RTX's).
+
+**The size is GRUB environment data, not an /etc setting**: GRUB is the
+only reader, and it must read it before toy-os exists. `toy_mode` is every
+boot's; `toy_mode_try` is the next boot's only and GRUB empties it before
+booting, the `next_entry` mechanism `reboot --entry` already trusts -- so
+a size the monitor cannot show is shown once and the reset after it is
+back on the old size with nothing to repair. That is why the Settings row
+says "Restart to try" and never "Apply": Windows' 15-second "Keep these
+display settings?" is the same idea, across a restart here because the
+mode cannot change without one. `screentrial` asks on that boot and
+restarts on the old size when nobody answers.
+
+**A size the firmware refuses is remembered, not re-offered blindly.**
+GRUB cannot report which modes exist to the kernel (the VBE mode list
+needs `4F01` per mode, real-mode calls), so the list offered is the
+common VESA and panel sizes, and a refusal is learned once -- GRUB falls
+back to its own choice, `screentrial` sees the screen is not what was
+asked, and `/etc/display.conf` records it.
+
+**The `gfxpayload` line goes AFTER `multiboot2`**, because that command
+overwrites the variable from the kernel's framebuffer tag; the top-level
+`set gfxpayload=auto` this grub.cfg carried since the UEFI work never did
+anything. A display that DOES set modes (bochs, vmsvga, virtio-gpu,
+Intel) ignores all of it, and the Settings row is its ordinary live one.
+
+What would replace it: a UEFI boot, where the GPU's own GOP driver reads
+the monitor and usually starts at native (the roadmap's UEFI milestone),
+or a driver for the card.
+
 ## The `bochs` driver DECLINES the display unless it can improve the mode
 
 *(Superseded in part on 2026-09-02: it now CLAIMS by adopting GRUB's

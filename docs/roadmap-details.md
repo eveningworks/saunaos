@@ -3157,8 +3157,10 @@ and only the first is fixed:
    because none of the `grub*.cfg` files loaded a video driver. GRUB's
    i386-pc core image has VBE built in, so a BIOS boot finds an adapter
    by luck; the EFI build reaches `efi_gop` only if something insmods
-   it. **Fixed** -- `insmod all_video` and `set gfxpayload=auto`. That
-   was a real bug on any EFI-booted medium and worth fixing on its own.
+   it. **Fixed** -- `insmod all_video`. (A `set gfxpayload=auto` added
+   with it did nothing -- `multiboot2` overwrites the variable -- and went
+   2026-10-27.) That was a real bug on any EFI-booted medium and worth
+   fixing on its own.
 2. GRUB then **page-faults inside the firmware** and the kernel never
    runs -- no `kernel_main reached` on the serial line. So toy-os still
    does not boot under UEFI at all, and stage 1 only removed the error

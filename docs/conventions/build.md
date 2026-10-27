@@ -833,6 +833,24 @@ the boot sector is written**, so a bad write leaves the bootloader that
 is already there. `/install` is in `flash`'s synced trees for this
 reason: a machine cannot hand on a bootloader newer than its own.
 
+## `gfxpayload` IS SET AFTER THE `multiboot2` LINE, OR IT IS IGNORED
+
+GRUB's `multiboot2` command overwrites `gfxpayload` from the kernel's
+framebuffer request tag -- `1280x720x32,1280x720,auto` from `boot.asm`
+(`loader/multiboot.c`, `set_console`). A `set gfxpayload=` at the top of
+grub.cfg, or anywhere before that line, never reaches the mode switch,
+and nothing says so: the boot just comes up at the tag's size. A size of
+our own goes on the line AFTER `multiboot2`, which is where each entry's
+`toy_mode_now` line sits (`docs/commands/bootcfg.md`, "The screen size
+GRUB sets"). The 2026-08-27 UEFI fix's `set gfxpayload=auto` was dead
+for exactly this reason. A copied or new entry needs that line too;
+`ubootcfg_add_video()` adds it to any `multiboot2` entry that lacks it.
+
+**AND GRUB'S VBE `auto` IS 640x480 WHENEVER THE MONITOR'S EDID CANNOT BE
+READ THROUGH THE VESA BIOS** -- an RTX 2070 on DisplayPort could not. So a
+VESA framebuffer at 640x480 says nothing about the card's ability; ask it
+for a size by name (`bootcfg resolution`) before concluding anything.
+
 ## THE BARE-METAL KERNEL IS REPLACED WITH `remote.py flash`, AND THE RESCUE ENTRY NEEDS A GRUB TIMEOUT
 
 `/boot` on an installed machine is FAT32 and mounts READ-ONLY
