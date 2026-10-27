@@ -144,18 +144,19 @@ static void fifo_write(uint32_t value) {
     g_fifo[SVGA_FIFO_NEXT_CMD] = after;
 }
 
+static const struct pci_device *find_dev(void) {
+    for (int i = 0; i < pci_device_count(); i++) {
+        const struct pci_device *d = pci_device_at(i);
+        if (d && d->vendor_id == VMSVGA_VENDOR && d->device_id == VMSVGA_DEVICE) return d;
+    }
+    return 0;
+}
+
 int vmsvga_init(uint32_t want_w, uint32_t want_h) {
     g_active = 0;
     g_cursor_ok = 0;
 
-    const struct pci_device *dev = 0;
-    for (int i = 0; i < pci_device_count(); i++) {
-        const struct pci_device *d = pci_device_at(i);
-        if (d && d->vendor_id == VMSVGA_VENDOR && d->device_id == VMSVGA_DEVICE) {
-            dev = d;
-            break;
-        }
-    }
+    const struct pci_device *dev = find_dev();
     if (!dev) return 0; // the ordinary -vga std case, not an error
 
     if (!pci_bar_is_io(dev->bar[0])) {
@@ -348,6 +349,7 @@ static int vmsvga_drv_probe(void) {
     // first mode the adapter accepts. vmsvga_init() already refuses a
     // request past SVGA_REG_MAX_WIDTH/HEIGHT without disturbing the
     // current mode, which is what makes trying several safe.
+    if (!find_dev()) return 0;   // no adapter: nothing to say about modes
     int w, h;
     for (int i = 0; display_mode_candidate(i, &w, &h); i++) {
         if (vmsvga_init((uint32_t)w, (uint32_t)h)) {

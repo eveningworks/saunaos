@@ -123,7 +123,8 @@ static void probe_bar_sizes(struct pci_device *d) {
         int wide = !io && pci_bar_is_64(orig) && i + 1 < nbars;
         pci_config_write32(d, off, 0xFFFFFFFFu);
         if (wide) pci_config_write32(d, (uint8_t)(off + 4), 0xFFFFFFFFu);
-        uint64_t mask = pci_config_read32(d, off) & addr_mask;
+        uint32_t readback = pci_config_read32(d, off) & addr_mask;
+        uint64_t mask = readback;
         // I/O space is 64 KiB, so only the low 16 bits of an I/O BAR's
         // mask mean anything; sign-extending it the way a 32-bit memory
         // BAR is would compute a 4 GiB port range.
@@ -133,8 +134,17 @@ static void probe_bar_sizes(struct pci_device *d) {
         if (wide) pci_config_write32(d, (uint8_t)(off + 4), d->bar[i + 1]);
         pci_config_write32(d, off, orig);
 
-        // Mask 0 is a BAR that decodes nothing; the low set bit is the size.
-        d->bar_size[i] = mask ? (~mask + 1) : 0;
+        // Mask 0 is a BAR that decodes nothing; the low set bit is the
+        // size. A register that ignored the all-ones write and whose
+        // value is no aligned block is not a BAR at all -- Linux's
+        // pci_size() test; an X99 uncore device's 0x20 was a 4 GiB "size".
+        uint64_t size = mask & (~mask + 1);
+        uint32_t valid = io ? 0xFFFCu : addr_mask;   // I/O decodes 16 bits
+        uint32_t base = orig & valid;
+        if (size && size < (1ull << 32) && (readback & valid) == base &&
+            ((base | (uint32_t)(size - 1)) & valid) != valid)
+            size = 0;
+        d->bar_size[i] = size;
         if (wide) i++;   // the upper half is not a BAR of its own
     }
 
@@ -163,9 +173,21 @@ void pci_init(void) {
 
     for (uint32_t bus = 0; bus <= 0xFF; bus++) {
         for (uint32_t device = 0; device < 32; device++) {
-            for (uint32_t function = 0; function < 8; function++) {
+            uint32_t functions = 8;
+            for (uint32_t function = 0; function < functions; function++) {
+                // NOTHING THERE READS AS 0xFFFF OR 0x0000 -- an X99 board
+                // answers 0x0000 for functions its chipset hides, which
+                // listed 15 phantom devices (Linux's
+                // pci_bus_generic_read_dev_vendor_id() refuses both).
+                // And functions 1..7 exist only behind a function 0 whose
+                // header says multi-function: pci_scan_slot()'s rule.
                 uint16_t vendor = config_read16((uint8_t)bus, (uint8_t)device, (uint8_t)function, 0x00);
-                if (vendor == 0xFFFF) continue; // no device at this bus/device/function
+                if (vendor == 0xFFFF || vendor == 0x0000) {
+                    if (function == 0) break;
+                    continue;
+                }
+                if (function == 0 && !(config_read8((uint8_t)bus, (uint8_t)device, 0, 0x0E) & 0x80))
+                    functions = 1;
 
                 if (lost || !grow(&cap)) { lost++; continue; }
 

@@ -241,14 +241,24 @@ int main(int argc, char **argv) {
         } else if (dev->msi_cap) {
             put("  [msi]");
         }
-        for (int b = 0; b < 6; b++) {
+        // A BRIDGE HAS TWO BARS, a CardBus bridge none we size: the rest
+        // of its header is bus numbers and windows, not BARs. A 64-bit
+        // BAR's upper half is part of its address, and a BAR the kernel
+        // found decodes nothing is not a resource.
+        uint8_t htype = dev->header_type & 0x7F;
+        int nbars = htype == 0 ? 6 : htype == 1 ? 2 : 0;
+        for (int b = 0; b < nbars; b++) {
             uint32_t bar = dev->bar[b];
-            if (bar == 0) continue;
+            if (bar == 0 || !dev->bar_size[b]) continue;
             int is_io = (bar & 0x1) != 0;
+            int wide = !is_io && (bar & 0x6) == 0x4 && b + 1 < nbars;
+            uint64_t addr = is_io ? (bar & 0xFFFFFFFCu) : (bar & 0xFFFFFFF0u);
+            if (wide) addr |= (uint64_t)dev->bar[b + 1] << 32;
             put("  bar");
             put_udec((uint32_t)b);
             put("=0x");
-            put_hex_digits(is_io ? (bar & 0xFFFFFFFCu) : (bar & 0xFFFFFFF0u), 8);
+            if (addr >> 32) put_hex_digits((uint32_t)(addr >> 32), 8);
+            put_hex_digits((uint32_t)addr, 8);
             put(is_io ? "(io)" : "(mem)");
             if (!is_io && dev->bar_size[b]) {
                 // Sized in the kernel at enumeration; a whole unit or nothing.
@@ -259,6 +269,7 @@ int main(int argc, char **argv) {
                 else if (sz >= (1ull << 10) && !(sz & ((1ull << 10) - 1))) { put_udec((uint32_t)(sz >> 10)); put("K"); }
                 else put_udec((uint32_t)sz);
             }
+            if (wide) b++;   // the upper half is not a BAR of its own
         }
         put("\n");
 
