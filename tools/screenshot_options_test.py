@@ -303,12 +303,22 @@ def run(dbg, res, qmp):
               f"line={line!r} fired={fired}")
 
     # Defaults puts it back (through Shift+Super+S, PrtSc being unbound).
+    # EACH STEP IS ITS OWN CHECK: a miss anywhere left the file as it was
+    # and read exactly like a Defaults that wrote nothing.
+    # The first overlay's lines are cleared, as overlay() does: its gear
+    # line answered the wait at once, and under load the click went to an
+    # overlay that had not yet laid out (2026-10-27).
+    dbg.logs("screenshot:", clear=True)
     dbg.send("gui key S shift super")
     w = window(dbg, "Screenshot", state="fullscreen")
-    deadline = time.time() + 8
+    t0 = time.time()
+    deadline = t0 + 8
     while w and time.time() < deadline and not rect(dbg, "screenshot", "gear"):
         time.sleep(0.3)
     gear = rect(dbg, "screenshot", "gear")
+    res.check("Shift+Super+S opens the overlay, gear and all", w is not None and gear is not None,
+              f"overlay={w is not None} gear={gear} {time.time() - t0:.1f} s after the window "
+              f"windows={[x['title'] for x in dbg.windows()]}")
     dbg.logs("options: layout", clear=True)
     if w and gear:
         click_rect(dbg, w, gear)
@@ -316,11 +326,16 @@ def run(dbg, res, qmp):
     deadline = time.time() + 6
     while ow and time.time() < deadline and not rect(dbg, "options", "defaults"):
         time.sleep(0.3)
+    found = {key: rect(dbg, "options", key) for key in ("defaults", "ok")}
+    res.check("...the gear opens Options again, with Defaults and OK",
+              ow is not None and all(found.values()), f"options={ow is not None} rects={found}")
     for key in ("defaults", "ok"):
-        r = rect(dbg, "options", key)
-        if ow and r:
-            click_rect(dbg, ow, r)
-    gone(dbg, "Screenshot Options")
+        if ow and found[key]:
+            click_rect(dbg, ow, found[key])
+    closed = gone(dbg, "Screenshot Options")
+    saved = dbg.logs("screenshot: options saved", clear=False)
+    res.check("...and OK closes it, saving", closed and bool(saved),
+              f"closed={closed} saved={saved}")
     dbg.send("gui key 0x1b")
     gone(dbg, "Screenshot")
     sc = sh(f"cat {SHORTCUTS}")
