@@ -9,6 +9,7 @@
 #include "scheduler.h"
 #include "multiboot.h"
 #include "io.h"       // the PIT read-back below
+#include "kfmt.h"     // klog_printf
 #include "irqflags.h"
 
 // How long to wait for the tick to advance. A COUNT rather than a
@@ -141,6 +142,10 @@ KTEST("clockevent", "an idle deadline wakes on time, not on a tick") {
         for (int j = i; j > 0 && late[j - 1] > late[j]; j--) {
             uint64_t x = late[j]; late[j] = late[j - 1]; late[j - 1] = x;
         }
+    // Logged when it passes too: the margin is what tells a slow host
+    // from a regression.
+    klog_printf("ktest: idle deadline median %lu us late, worst %lu us\n",
+                (unsigned long)(late[n / 2] / 1000), (unsigned long)(late[n - 1] / 1000));
     KTEST_ASSERT(late[n / 2] < TICK_NS / 4);
 }
 

@@ -263,9 +263,11 @@ governor picks a deeper C-state the longer it expects to sleep -- so a
 guest's one-shot deadline comes back late in proportion to how deep that
 state is, not to anything the guest did. On the HP Z1 G8 (C3 declares
 1048 us) `sleep_test`'s 16ms sleeps came back ~550 us late and failed
-8 runs in 11; with C2/C3 held off, ~250 us and 0 in 7 (2026-10-27). A
-tool that times a guest's deadlines runs under `host_latency.py`'s
-`shallow_idle()`, as `ktest_run.py` and `usertest_run.py` do.
+8 runs in 11; with C2/C3 held off, ~250 us and 0 in 7 (2026-10-27).
+The clockevent KTEST's idle deadline, limit 250 us: 127-222 us late
+unheld, 69-108 us held, 8 runs each. A tool that times a guest's
+deadlines runs under `host_latency.py`'s `shallow_idle()`, as
+`ktest_run.py` and `usertest_run.py` do.
 
 **USB PASSTHROUGH BREAKS ISOCHRONOUS OUT PACKETS WHOSE LENGTH VARIES --
 UNDER KVM AS WELL AS TCG.** 44.1 kHz at high speed is 5 or 6 frames a
