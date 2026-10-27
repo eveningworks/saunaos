@@ -33,7 +33,9 @@ from harness import Results  # noqa: E402
 
 ROOT = "/pg"
 VIDEO = "/usr/share/videos/first-boot.mpg"
-COPIES = 6
+# ~100 MB: a copy runs ~25 MB/s under TCG on the HP Z1 G8, and Pause lands
+# ~20 MB after the copy is seen moving -- 6 copies finished first there.
+COPIES = 12
 RUNNING, PAUSED, QUEUED = 0, 4, 5   # enum uui_xfer_state
 EV_PAUSE, EV_RESUME = 4, 5          # UUI_XFER_EV_*
 
@@ -153,11 +155,17 @@ def run(dbg, qmp, res):
     act = lay.opsact2.get(0) if lay else None
     if act and act[0] == EV_RESUME:
         click(dbg, qmp, lay, act[1])
-    lay = fm.wait_layout(dbg, win, lambda l: 0 in l.ops and l.ops[0][0] == RUNNING and paused
-                         and l.ops[0][1] > paused[1], timeout=10.0) or fm.last_layout()
+    # GONE ON is as good as moving: what is left can finish between two
+    # polls. A Resume that did nothing leaves both rows, the first paused;
+    # step 6 checks the copies are whole.
+    def went_on(l):
+        if len(l.ops) < 2:
+            return True
+        return l.ops[0][0] == RUNNING and paused is not None and l.ops[0][1] > paused[1]
+    lay = fm.wait_layout(dbg, win, went_on, timeout=10.0) or fm.last_layout()
     res.check("Resume goes on from where it stopped",
-              lay is not None and 0 in lay.ops and paused is not None and lay.ops[0][1] > paused[1],
-              f"resume={act} row={lay and lay.ops.get(0)} paused at {paused}")
+              lay is not None and paused is not None and went_on(lay),
+              f"resume={act} rows={lay and lay.ops} paused at {paused}")
 
     # 6.
     done = fm.wait_layout(dbg, win, lambda l: l.cancel == 0, timeout=120.0)
