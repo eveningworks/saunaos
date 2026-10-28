@@ -182,6 +182,9 @@ class VMSession:
         return table
 
 
+BULK_SERVICES = 70
+
+
 def main():
     ap = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -259,6 +262,26 @@ def main():
             if r.returncode != 0:
                 print(f"init_test: could not stage the {name} fixture\n"
                       + r.stdout + r.stderr, file=sys.stderr)
+                return 2
+
+        # MORE SERVICES THAN THE OLD FIXED TABLE HELD (64, until
+        # 2026-10-28), so the last of them is past it whatever ships.
+        # No Exec=: each is read into the table and refused a start with
+        # one log line, so seventy of them load the table without
+        # loading the boot the timing checks below measure.
+        for k in range(BULK_SERVICES):
+            f = tempfile.NamedTemporaryFile("w", suffix=".svc", delete=False)
+            f.write(f"Name=bulk{k:02d}\nTarget=graphical\nRestart=no\n")
+            f.close()
+            r = subprocess.run(
+                [sys.executable, os.path.join(REPO, "tools", "tfs3_writer.py"),
+                 "write", args.disk, f.name, f"/etc/services.d/bulk{k:02d}",
+                 *_volume_args(args.disk)],
+                cwd=REPO, capture_output=True, text=True)
+            os.unlink(f.name)
+            if r.returncode != 0:
+                print(f"init_test: could not stage bulk{k:02d}\n" + r.stdout + r.stderr,
+                      file=sys.stderr)
                 return 2
 
     vm = VMSession(args.disk, args.instance)
@@ -594,6 +617,11 @@ def main():
             out = vm.sh("service list")
             check("`service list` names the desktop",
                   "toywm" in out and "running" in out, out.strip()[:70])
+            if tmp:
+                last = f"bulk{BULK_SERVICES - 1:02d}"
+                check(f"...and all {BULK_SERVICES} bulk services, past the 64 a fixed table held",
+                      last in out and "too many services" not in vm.sh("dmesg"),
+                      f"{last} {'listed' if last in out else 'missing'}")
 
             out = vm.sh("service status toywm")
             check("`service status` reports the description too",

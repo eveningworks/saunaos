@@ -43,6 +43,8 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include "tmppath.h"
+#include "lib/ufile.h"
+#include <stdlib.h>
 
 #define CONTROL_PATH TMP_RUNDIR "/init.ctl"
 #define STATUS_PATH  TMP_RUNDIR "/init.status"
@@ -61,7 +63,9 @@
 #define SETTLE_MS    3000
 #define SETTLE_STEP  50
 
-static char g_status[8192];   // init.c's SVC_STATUS_MAX: every row at SVC_MAX
+// The whole status file, read at its own size: init grows it to every
+// service it supervises. Replaced (and the old freed) by each read.
+static char *g_status;
 
 // Defined below, beside init_pid(), which it needs: the status file,
 // asking init to publish one if it has not.
@@ -69,12 +73,16 @@ static const char *read_status(void);
 
 // The status file, or 0 if it is not there.
 static const char *read_status_file(void) {
-    int fd = open(STATUS_PATH, O_RDONLY);
-    if (fd < 0) return 0;
-    int64_t n = read(fd, g_status, sizeof g_status - 1);
-    close(fd);
-    if (n < 0) return 0;
-    g_status[n] = '\0';
+    uint8_t *buf = NULL;
+    size_t n = 0;
+    enum ufile_result r = ufile_slurp(STATUS_PATH, 0, &buf, &n);
+    if (r == UFILE_EMPTY) return "";   // there, with no rows
+    if (r != UFILE_OK) return 0;
+    char *text = realloc(buf, n + 1);   // room for the terminator
+    if (!text) { free(buf); return 0; }
+    text[n] = '\0';
+    free(g_status);
+    g_status = text;
     return g_status;
 }
 

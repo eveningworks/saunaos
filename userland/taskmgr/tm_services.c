@@ -36,6 +36,8 @@
 #include "lib/uinitctl.h"
 #include "lib/uconf.h"
 #include "tmppath.h"
+#include "lib/ufile.h"
+#include "lib/ugrow.h"
 #include "taskmgr/tm_internal.h"
 
 #define STATUS_PATH   TMP_RUNDIR "/init.status"
@@ -46,8 +48,9 @@
 
 enum { ID_TABLE = TM_ID_SVC, ID_START, ID_STOP, ID_RESTART };
 
-struct tm_service g_svc[TM_SERVICES_MAX];
+struct tm_service *g_svc;   // grown to every row init publishes
 int g_nsvc;
+static int g_svc_cap;
 static int g_rang;              // the doorbell, once
 static char g_pending[24];      // a Restart waiting for its stop to land
 
@@ -96,10 +99,12 @@ static void describe(struct tm_service *s, const struct tm_service *old, int nol
 }
 
 void tm_services_read(void) {
-    static char buf[8192];   // init.c's SVC_STATUS_MAX
-    static struct tm_service old[TM_SERVICES_MAX];
-    int fd = open(STATUS_PATH, O_RDONLY);
-    if (fd < 0) {
+    static struct tm_service *old;
+    static int old_cap;
+    uint8_t *raw = NULL;
+    size_t n = 0;
+    enum ufile_result r = ufile_slurp(STATUS_PATH, 0, &raw, &n);
+    if (r == UFILE_NOENT) {
         if (!g_rang) {
             int pid = init_pid();
             if (pid > 0) sys_kill(pid, SIGHUP);   // "somebody is reading"
@@ -107,15 +112,24 @@ void tm_services_read(void) {
         }
         return;   // the next read finds it
     }
-    int64_t n = read(fd, buf, sizeof buf - 1);
-    close(fd);
-    if (n <= 0) return;
+    if (r != UFILE_OK) return;
+    char *buf = realloc(raw, n + 1);   // room for the terminator
+    if (!buf) { free(raw); return; }
     buf[n] = '\0';
 
+    // The rows are counted first, so both tables grow once and a short
+    // allocation keeps the list it had rather than a cut-down one.
+    int rows = 0;
+    for (const char *p = buf; *p; p++) rows += *p == '\n';
+    if (!UGROW(g_svc, g_svc_cap, rows + 1) || !UGROW(old, old_cap, g_nsvc + 1)) {
+        ulogf("taskmgr: out of memory for %d services\n", rows);
+        free(buf);
+        return;
+    }
     int nold = g_nsvc;
-    memcpy(old, g_svc, sizeof old);
+    if (nold) memcpy(old, g_svc, (size_t)nold * sizeof *old);
     g_nsvc = 0;
-    for (const char *line = buf; *line && g_nsvc < TM_SERVICES_MAX; ) {
+    for (const char *line = buf; *line && g_nsvc < g_svc_cap; ) {
         const char *next = strchr(line, '\n');
         if (*line != '#') {
             struct tm_service *s = &g_svc[g_nsvc];
@@ -134,6 +148,7 @@ void tm_services_read(void) {
         if (!next) break;
         line = next + 1;
     }
+    free(buf);
 }
 
 // One verb over the channel. Returns INITCTL_* or -1 when init did not

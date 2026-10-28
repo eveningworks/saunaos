@@ -136,8 +136,7 @@ struct tm_service {
     char exec[TM_PATH_MAX];
     char desc[96];
 };
-#define TM_SERVICES_MAX 64   // init.c's SVC_MAX
-extern struct tm_service g_svc[TM_SERVICES_MAX];
+extern struct tm_service *g_svc;   // g_nsvc rows, grown on demand
 extern int g_nsvc;
 void tm_services_read(void);       // /run/init.status, cheap: a file read
 int  tm_service_of_pid(int pid);   // index into g_svc, or -1

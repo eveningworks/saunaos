@@ -120,6 +120,9 @@
 // control file at startup for that reason.
 #include "lib/uchan.h"
 #include "lib/uinitctl.h"
+#include "lib/ugrow.h"
+#include "lib/ulistdir.h"
+#include <stdarg.h>
 
 // How long init parks when nothing is due. A BACKSTOP, not a poll --
 // a child dying and a client's request both wake it -- so it is long
@@ -150,13 +153,6 @@ static int g_arrived;  // a scan added a fresh descriptor
 #define CONTROL_PATH   TMP_RUNDIR "/init.ctl"
 #define STATUS_PATH    TMP_RUNDIR "/init.status"
 
-// Static rather than on the stack, so the cap costs address space
-// instead of the ring-3 guard page; overflow is refused with a line
-// naming the descriptor, never silently. 64 because the SHIPPED set
-// alone reached 12 of the old 16, and a few enabled (telnetd, tftpd)
-// plus a few of one's own then silently lost the rest. The status file
-// below is sized to hold every row.
-#define SVC_MAX        64
 #define SVC_NAME_MAX   24
 #define SVC_EXEC_MAX   64
 #define SVC_ARGS_MAX   64
@@ -305,15 +301,15 @@ struct service {
     int  has_nice;
 };
 
-// Static, not local: USERLAND_CFLAGS carries -Wframe-larger-than=2048
-// and this table plus a 1 KiB config buffer is several times that. A
-// big local array in ring 3 does not merely overflow the 16 KiB stack,
-// it steps over the single guard page into unmapped memory.
-static struct service g_svc[SVC_MAX];
-static int g_svc_count;
+// Every service init has read, GROWN ON DEMAND (lib/ugrow.h) as
+// descriptors appear -- it held 16, then 64, and each cap silently lost
+// the services past it. A row's index is its identity for the order and
+// the edges below, so rows are only ever appended. THE ARRAY MAY MOVE
+// in load_service(): nothing keeps a `struct service *` across a scan.
+static struct service *g_svc;
+static int g_svc_count, g_svc_cap;
 static char g_target[SETTING_ABI_VALUE_MAX];
 static struct etc_config_buf g_cfg;
-static struct sys_dirent g_ents[SVC_MAX * 2];
 static char g_msg[128];
 static unsigned long long g_fs_gen;
 
@@ -469,8 +465,8 @@ static void load_service(const char *file) {
         if (k_strcmp(g_svc[i].name, name) == 0) { s = &g_svc[i]; break; }
 
     if (!s) {
-        if (g_svc_count >= SVC_MAX) {
-            logf1("init: too many services, ignoring %s\n", file);
+        if (!UGROW(g_svc, g_svc_cap, g_svc_count + 1)) {
+            logf1("init: out of memory, ignoring %s\n", file);
             return;
         }
         s = &g_svc[g_svc_count++];
@@ -633,8 +629,17 @@ static void load_service(const char *file) {
 //   console left to fix itself from, so a typo in an ordering key must
 //   never be able to reach that state.
 
-static int g_order[SVC_MAX];
-static unsigned char g_edge[SVC_MAX][SVC_MAX]; // g_edge[a][b]: a spawns before b
+// Both sized to the services at the last build_order(). g_edge is an
+// n x n matrix flattened at stride `g_edge_n`, read through edge().
+static int *g_order;
+static unsigned char *g_edge;   // edge(a, b): a spawns before b
+static int g_order_cap, g_edge_cap, g_edge_n;
+
+static unsigned char *edge(int a, int b) {
+    static unsigned char none;
+    if (a < 0 || b < 0 || a >= g_edge_n || b >= g_edge_n) { none = 0; return &none; }
+    return &g_edge[a * g_edge_n + b];
+}
 
 // The loaded service called `tok` (a token of `len` bytes, not
 // NUL-terminated), or -1.
@@ -678,15 +683,26 @@ static void add_edges(int self, const char *list, int self_first,
         }
         if (other == self) continue; // ordering against yourself is a no-op
 
-        if (self_first) g_edge[self][other] = 1;
-        else            g_edge[other][self] = 1;
+        if (self_first) *edge(self, other) = 1;
+        else            *edge(other, self) = 1;
     }
 }
 
 // Recomputes g_order[]. Called once per scan, never per pass -- the
 // graph can only change when a descriptor does.
 static void build_order(void) {
-    k_memset(g_edge, 0, sizeof g_edge);
+    static unsigned char *done;
+    static int done_cap;
+    int n = g_svc_count;
+    if (!UGROW(g_order, g_order_cap, n) || !UGROW(g_edge, g_edge_cap, n * n) ||
+        !UGROW(done, done_cap, n)) {
+        // The OLD order stays, for the services it covers; a service
+        // read since is not started until memory allows a rebuild.
+        logf1("init: out of memory ordering services%s\n", "");
+        return;
+    }
+    g_edge_n = n;
+    k_memset(g_edge, 0, (size_t)n * (size_t)n);
     for (int i = 0; i < g_svc_count; i++) {
         if (g_svc[i].after[0])  add_edges(i, g_svc[i].after, 0, "After");
         if (g_svc[i].before[0]) add_edges(i, g_svc[i].before, 1, "Before");
@@ -694,8 +710,7 @@ static void build_order(void) {
 
     // Kahn's algorithm, scanning from the front each round so the first
     // eligible service always wins -- that is what makes it stable.
-    unsigned char done[SVC_MAX];
-    k_memset(done, 0, sizeof done);
+    k_memset(done, 0, (size_t)n);
 
     for (int out = 0; out < g_svc_count; out++) {
         int pick = -1;
@@ -703,7 +718,7 @@ static void build_order(void) {
             if (done[i]) continue;
             int blocked = 0;
             for (int j = 0; j < g_svc_count; j++)
-                if (!done[j] && g_edge[j][i]) { blocked = 1; break; }
+                if (!done[j] && *edge(j, i)) { blocked = 1; break; }
             if (!blocked) pick = i;
         }
 
@@ -718,13 +733,13 @@ static void build_order(void) {
             logf1("init: ordering cycle -- starting %s anyway\n",
                   g_svc[pick].name);
             // AND THE EDGES ARE REALLY DROPPED, not merely stepped over.
-            // The sort alone could leave them in g_edge[][] because it
+            // The sort alone could leave them in g_edge because it
             // only ever reads them once; the readiness barrier reads
             // them EVERY pass, so a surviving cycle edge would be a
             // wait for something that is itself waiting -- the exact
             // "machine with nothing started" this init refuses to be
             // able to reach.
-            for (int j = 0; j < g_svc_count; j++) g_edge[j][pick] = 0;
+            for (int j = 0; j < g_svc_count; j++) *edge(j, pick) = 0;
         }
 
         done[pick] = 1;
@@ -762,8 +777,9 @@ static void load_services(int announce) {
         return;
     }
 
-    int n = sys_listdir(SERVICES_DIR, g_ents,
-                        (int)(sizeof g_ents / sizeof g_ents[0]));
+    // PAGED, at the directory's own size (lib/ulistdir.h).
+    struct sys_dirent *ents = NULL;
+    int n = ulistdir(SERVICES_DIR, &ents);
     if (n <= 0) {
         // Not an error. A machine with no service files is a machine
         // that starts nothing, which is what a bare disk image gives
@@ -774,9 +790,10 @@ static void load_services(int announce) {
 
     g_arrived = 0;
     for (int i = 0; i < n; i++) {
-        if (g_ents[i].is_dir) continue;
-        load_service(g_ents[i].name);
+        if (ents[i].is_dir) continue;
+        load_service(ents[i].name);
     }
+    free(ents);
     g_booted = 1;
     if (g_arrived) hold_fresh(now_ms() + SETTLE_MS);
 
@@ -1008,12 +1025,12 @@ static int svc_gates_dependents(const struct service *s) {
 }
 
 // Whether anything `idx` is ordered after has yet to become available.
-// Reads g_edge[][] rather than the After= text, so `Before=` on the
+// Reads g_edge rather than the After= text, so `Before=` on the
 // other end gates exactly the same way -- the two keys were made one
 // edge for precisely this reason.
 static int svc_waiting_on_deps(int idx) {
     for (int j = 0; j < g_svc_count; j++)
-        if (g_edge[j][idx] && svc_gates_dependents(&g_svc[j])) return 1;
+        if (*edge(j, idx) && svc_gates_dependents(&g_svc[j])) return 1;
     return 0;
 }
 
@@ -1226,11 +1243,12 @@ static int realtime_listing(const char *exec, int *policy, int *prio,
         snprintf(from, from_cap, "service %s", sv->name);
         return 1;
     }
-    int n = sys_listdir(REALTIME_DIR, g_ents, (int)(sizeof g_ents / sizeof g_ents[0]));
+    struct sys_dirent *ents = NULL;
+    int n = ulistdir(REALTIME_DIR, &ents);
     for (int i = 0; i < n; i++) {
-        if (g_ents[i].is_dir) continue;
+        if (ents[i].is_dir) continue;
         char path[128], want[QUERY_PROCPATH_MAX];
-        snprintf(path, sizeof path, REALTIME_DIR "/%s", g_ents[i].name);
+        snprintf(path, sizeof path, REALTIME_DIR "/%s", ents[i].name);
         if (!read_file(path, &g_cfg)) continue;
         if (!etc_config_buf_get(&g_cfg, "Exec", want, sizeof want) ||
             k_strcmp(want, exec) != 0)
@@ -1241,8 +1259,10 @@ static int realtime_listing(const char *exec, int *policy, int *prio,
         *policy = p;
         *prio = q;
         snprintf(from, from_cap, "%s", path);
+        free(ents);
         return 1;
     }
+    free(ents);
     return 0;
 }
 
@@ -1523,29 +1543,43 @@ static const char *svc_ready(const struct service *s) {
 // on every child exit and every doorbell, and a service manager that
 // rewrites a file each pass writes to the disk forever on an idle
 // machine.
-// Every row at SVC_MAX (~100 bytes each): a status that does not fit is
-// not written at all, so an undersized buffer freezes `service list`.
-#define SVC_STATUS_MAX 8192
-static char g_status[SVC_STATUS_MAX];
-static char g_status_prev[SVC_STATUS_MAX];
+// GROWN TO EVERY ROW (lib/ugrow.h). A status that cannot be built whole
+// is not written at all -- a half list would say services are missing.
+static char *g_status, *g_status_prev;
+static int g_status_cap, g_status_prev_cap;
 int g_publish;
+
+// Appends to g_status at *n, growing it; 0 when memory ran out.
+static int status_printf(int *n, const char *fmt, ...) {
+    for (;;) {
+        int room = g_status_cap - *n;
+        va_list ap;
+        va_start(ap, fmt);
+        int w = vsnprintf(room > 0 ? g_status + *n : NULL, room > 0 ? (size_t)room : 0, fmt, ap);
+        va_end(ap);
+        if (w < 0) return 0;
+        if (w < room) { *n += w; return 1; }
+        if (!UGROW(g_status, g_status_cap, *n + w + 1)) return 0;
+    }
+}
 
 static void write_status(int settled) {
     if (!g_publish || !settled) return;
 
-    int n = snprintf(g_status, sizeof g_status,
-                     "# NAME             STATE       PID  FAILS  READY    EXEC\n");
-    for (int i = 0; i < g_svc_count && n > 0 && n < (int)sizeof g_status; i++) {
+    int n = 0, ok = status_printf(&n, "# NAME             STATE       PID  FAILS  READY    EXEC\n");
+    for (int i = 0; i < g_svc_count && ok; i++) {
         struct service *s = &g_svc[i];
-        n += snprintf(g_status + n, sizeof g_status - (unsigned)n,
-                      "%-18s %-10s %4d %6d  %-7s  %s\n",
-                      s->name, svc_state(s), s->pid, s->fast_failures,
-                      svc_ready(s), s->exec);
+        ok = status_printf(&n, "%-18s %-10s %4d %6d  %-7s  %s\n",
+                           s->name, svc_state(s), s->pid, s->fast_failures,
+                           svc_ready(s), s->exec);
     }
-    if (n <= 0 || n >= (int)sizeof g_status) return;   // a formatter that
-                                                       // does not fit writes
-                                                       // nothing (kfmt.h)
-    if (k_strcmp(g_status, g_status_prev) == 0) return;
+    if (!ok) {
+        static int said;
+        if (!said) logf1("init: out of memory for the status file%s\n", "");
+        said = 1;
+        return;
+    }
+    if (g_status_prev && k_strcmp(g_status, g_status_prev) == 0) return;
 
     // **PUBLISHED, NEVER REWRITTEN IN PLACE.** A truncate-then-write
     // let `service` read the file between the two and find it EMPTY --
@@ -1568,7 +1602,7 @@ static void write_status(int settled) {
         return;
     }
     if (had_old) remove(STATUS_PATH ".old");
-    k_strlcpy(g_status_prev, g_status, sizeof g_status_prev);
+    if (UGROW(g_status_prev, g_status_prev_cap, n + 1)) k_memcpy(g_status_prev, g_status, (size_t)n + 1);
 }
 
 // Starts everything that is down and due. Returns the number of
