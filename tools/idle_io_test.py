@@ -153,7 +153,16 @@ def main():
         if not res.check("it rebooted with `cachesim`", dbg is not None,
                          (reboot.stdout + reboot.stderr).strip()[-120:]):
             return 1
-        ps = dbg.send("sh ps") or ""
+        # POLLED, bounded: the debug console answers before init has
+        # started the services, and every boot now waits first for the
+        # utf8migrate one-shot -- read once at "up 1.2s", ps listed neither.
+        ps = ""
+        deadline = time.time() + 30
+        while time.time() < deadline:
+            ps = dbg.send("sh ps") or ""
+            if "snddrv" in ps and "soundd" in ps:
+                break
+            time.sleep(1)
         # THE CASE THE BUG NEEDED. Without a ring-3 driver this boots the
         # setup every other test already had, and passes for that reason.
         res.check("snddrv and soundd are running", "snddrv" in ps and "soundd" in ps,
