@@ -593,28 +593,6 @@ def run(dbg, qmp, tmp, shot_dir, res):
             return int(n[0]), int(n[2])
         return None
 
-    # MORE TABS THAN THE OLD FIXED TABLE HELD (16, until 2026-10-28):
-    # each Ctrl-N opens one, and each closes again without asking, since
-    # a new tab is clean. Closing the LAST tab selects the new last, so
-    # this ends on the tab it started from.
-    had = (tabs() or (1, 0))[0]
-    extra = 17
-    for _ in range(extra):
-        key(dbg, "0x0e")                      # Ctrl-N
-        dbg.settle()
-    time.sleep(0.8)
-    t = tabs()
-    res.check(f"Ctrl-N opens tab {had + extra}, past the 16 a fixed table held",
-              t is not None and t[0] == had + extra and not dialog_buttons(dbg),
-              f"tabs {t}, had {had}")
-    for _ in range(extra):
-        key(dbg, "0x17")                      # Ctrl-W: clean, so no ask
-        dbg.settle()
-    time.sleep(0.8)
-    t = tabs()
-    res.check("...and closing them leaves the tabs there were",
-              t is not None and t[0] == had and not dialog_buttons(dbg), f"tabs {t}, had {had}")
-
     n0, cur0 = tabs() or (1, 0)
     key(dbg, "0x0e")                          # Ctrl-N
     dbg.settle()
@@ -652,6 +630,28 @@ def run(dbg, qmp, tmp, shot_dir, res):
         time.sleep(0.3)
     res.check("...and a new tab is untitled", fresh,
               "the title did not go back to `untitled`")
+
+    # MORE TABS THAN THE OLD FIXED TABLE HELD (16, until 2026-10-28):
+    # each Ctrl-N opens one, and each closes again without asking, since
+    # a new tab is clean. HERE, on the untitled tab just opened LAST:
+    # closing the last tab selects the new last, so this ends on it.
+    had = (tabs() or (1, 0))[0]
+    extra = 17
+    for _ in range(extra):
+        key(dbg, "0x0e")                      # Ctrl-N
+        dbg.settle()
+    time.sleep(0.8)
+    t = tabs()
+    res.check(f"Ctrl-N opens tab {had + extra}, past the 16 a fixed table held",
+              t is not None and t[0] == had + extra and not dialog_buttons(dbg),
+              f"tabs {t}, had {had}")
+    for _ in range(extra):
+        key(dbg, "0x17")                      # Ctrl-W: clean, so no ask
+        dbg.settle()
+    time.sleep(0.8)
+    t = tabs()
+    res.check("...and closing them leaves the tabs there were",
+              t is not None and t[0] == had and not dialog_buttons(dbg), f"tabs {t}, had {had}")
 
     # --- Save, on a document with no filename yet --------------------
     #
