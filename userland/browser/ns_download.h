@@ -11,7 +11,6 @@
 #include "ui/uui_transfers.h"
 
 #define NS_DOWNLOAD_DIR "/home/Downloads"
-#define NS_DOWNLOADS_MAX 16
 
 
 // The list, newest first, in the shape uui_transfers draws.

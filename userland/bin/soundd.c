@@ -37,14 +37,11 @@
 #include <stdlib.h>   // atoi -- the pid out of the ring's name
 #include "lib/uconf.h"   // /etc in ring 3, over the shared parser
 #include "lib/usndfmt.h" // each card's rate policy and width
+#include "lib/ugrow.h"
 #include "rt/sys.h"
 #include "sound_abi.h"
 #include "syscall_abi.h"
 #include "query_abi.h"
-
-// Eight is the shm table's own ceiling for audio and more voices than
-// this machine has reason to play at once.
-#define MAX_CLIENTS 8
 
 struct client {
     char     name[SHM_NAME_MAX];
@@ -57,7 +54,12 @@ struct client {
     volatile int32_t *ring;   // s32, abi/sound_abi.h
 };
 
-static struct client g_cl[MAX_CLIENTS];
+// Every ring being mixed, GROWN ON DEMAND (lib/ugrow.h): a free slot is
+// one whose `ctl` is NULL, and a slot is reused before the array grows.
+// The array may move when it grows, so nothing keeps a pointer into it
+// across adopt().
+static struct client *g_cl;
+static int g_cl_cap;
 static int g_beacon = -1;
 
 static volatile struct snd_ctl_page *g_hw;
@@ -196,7 +198,7 @@ static void stream_release(void) {
 // Any client asking to be mixed? `running` is the client's own say-so,
 // which is what it clears when it stops.
 static int anyone_playing(void) {
-    for (int i = 0; i < MAX_CLIENTS; i++)
+    for (int i = 0; i < g_cl_cap; i++)
         if (g_cl[i].ctl && g_cl[i].ctl->running) return 1;
     return 0;
 }
@@ -254,7 +256,7 @@ static int name_is_client(const char *n) {
 }
 
 static struct client *find(const char *name) {
-    for (int i = 0; i < MAX_CLIENTS; i++)
+    for (int i = 0; i < g_cl_cap; i++)
         if (g_cl[i].ctl && strcmp(g_cl[i].name, name) == 0) return &g_cl[i];
     return 0;
 }
@@ -267,9 +269,20 @@ static void drop(struct client *c) {
 
 // 1 when the ring is now a client; 0 to look again next pass.
 static int adopt(const char *name) {
-    struct client *c = 0;
-    for (int i = 0; i < MAX_CLIENTS; i++) if (!g_cl[i].ctl) { c = &g_cl[i]; break; }
-    if (!c) return 0; // full: the client writes into a ring nobody reads
+    int slot = 0;
+    while (slot < g_cl_cap && g_cl[slot].ctl) slot++;
+    if (slot == g_cl_cap) {
+        static int said;
+        if (!UGROW(g_cl, g_cl_cap, slot + 1)) {
+            // Retried every pass, so said once: its ring goes unread.
+            if (!said) fprintf(stderr, "soundd: out of memory for client %d, %s not mixed\n",
+                               slot + 1, name);
+            said = 1;
+            return 0;
+        }
+        for (int i = slot; i < g_cl_cap; i++) memset(&g_cl[i], 0, sizeof g_cl[i]);
+    }
+    struct client *c = &g_cl[slot];
 
     int fd = sys_shm_open(name, 0, 0);
     if (fd < 0) return 0;
@@ -326,7 +339,7 @@ static struct etc_config_buf g_cfg;
 static void apply_gains(void) {
     struct etc_config_buf *b = &g_cfg;
     int have = uconf_load(SND_CONFIG_FILE, b);
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    for (int i = 0; i < g_cl_cap; i++) {
         struct client *c = &g_cl[i];
         if (!c->ctl) continue;
         char v[8];
@@ -380,7 +393,16 @@ static void publish_roster(void) {
     // is not worth a lock in a page a dying daemon can leave behind.
     r->gen = r->gen + 1;
     uint32_t n = 0;
-    for (int i = 0; i < MAX_CLIENTS && n < SND_ROSTER_MAX; i++) {
+    // SND_ROSTER_MAX IS THE ABI's: the roster is one page's struct, so a
+    // client past it is mixed but not listed -- said once per overflow.
+    static int over_said;
+    int live = 0;
+    for (int i = 0; i < g_cl_cap; i++) live += g_cl[i].ctl != 0;
+    if (live > SND_ROSTER_MAX && !over_said)
+        fprintf(stderr, "soundd: %d clients, the roster lists the first %d\n",
+                live, SND_ROSTER_MAX);
+    over_said = live > SND_ROSTER_MAX;
+    for (int i = 0; i < g_cl_cap && n < SND_ROSTER_MAX; i++) {
         struct client *c = &g_cl[i];
         if (!c->ctl) continue;
         strlcpy((char *)r->e[n].app, c->app, SND_APP_MAX);
@@ -401,8 +423,9 @@ static void rescan(void) {
     // Snapshotted rather than walked twice: the namespace can change
     // between the two passes below, and a client adopted in one and
     // reported missing by the other would be dropped the same pass.
-    static char seen[MAX_CLIENTS * 2][SHM_NAME_MAX];
-    int nseen = 0;
+    static char (*seen)[SHM_NAME_MAX];
+    static int seen_cap;
+    int nseen = 0, short_of_memory = 0;
     struct query_shm rec;
     QUERY_FOREACH(QUERY_SHM, rec, i) {
         if (!name_is_client(rec.name)) continue;
@@ -415,11 +438,14 @@ static void rescan(void) {
         // thing keeping the name alive -- and then refused to adopt the
         // live ring a recycled pid created behind it.
         if (rec.flags & QUERY_SHM_UNLINKED) continue;
-        if (nseen < (int)(sizeof seen / sizeof seen[0]))
-            strlcpy(seen[nseen++], rec.name, SHM_NAME_MAX);
+        if (!UGROW(seen, seen_cap, nseen + 1)) { short_of_memory = 1; continue; }
+        strlcpy(seen[nseen++], rec.name, SHM_NAME_MAX);
     }
+    // A PARTIAL SNAPSHOT MUST NOT DROP ANYONE: a live ring missing from
+    // it would read as gone. Adopt from what it has, drop nothing.
+    if (short_of_memory) fprintf(stderr, "soundd: out of memory listing rings, no client dropped\n");
 
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    for (int i = 0; i < g_cl_cap && !short_of_memory; i++) {
         if (!g_cl[i].ctl) continue;
         int live = 0;
         for (int j = 0; j < nseen; j++)
@@ -444,7 +470,7 @@ static void rescan(void) {
 // of looping -- the kernel does exactly this for us.
 // Does every playing client have a whole chunk to give?
 static int clients_ready(void) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    for (int i = 0; i < g_cl_cap; i++) {
         const struct client *c = &g_cl[i];
         if (!c->ctl || !c->ctl->running) continue;
         uint32_t avail = (c->ctl->wr_pos + SND_RING_BYTES - c->ctl->hw_pos) % SND_RING_BYTES;
@@ -461,7 +487,7 @@ static void mix_chunk(uint32_t dst) {
     memset(acc, 0, sizeof acc);
 
     int voices = 0;
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    for (int i = 0; i < g_cl_cap; i++) {
         struct client *c = &g_cl[i];
         if (!c->ctl || !c->ctl->running) continue;
         uint32_t src = c->ctl->hw_pos;
@@ -507,7 +533,7 @@ static void mix_chunk(uint32_t dst) {
 // a client answered in the last second has not necessarily written yet,
 // and two asking at once must not each be told they are alone.
 static int others_playing(const struct client *me) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    for (int i = 0; i < g_cl_cap; i++) {
         const struct client *c = &g_cl[i];
         if (c == me || !c->ctl || !c->ctl->rate) continue;
         if (c->ctl->running || now_ms() - c->answered < 1000) return 1;
@@ -523,7 +549,7 @@ static int mixed_audio_played(void) {
 }
 
 static void answer_rates(void) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
+    for (int i = 0; i < g_cl_cap; i++) {
         struct client *c = &g_cl[i];
         if (!c->ctl) continue;
         uint32_t now = g_open ? g_hw->rate : g_target;

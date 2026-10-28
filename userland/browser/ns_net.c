@@ -7,6 +7,7 @@
 #include "browser/ns_download.h"
 #include "browser/ns_net.h"
 #include "lib/ubulk.h"
+#include "lib/ugrow.h"
 #include "lib/webnet_proto.h"
 #include "rt/sys.h"
 #include "syscall_abi.h"
@@ -23,10 +24,12 @@ static int g_post_id, g_up;
 // --- downloads, as webnet reports them --------------------------------------
 
 // Newest first: row 0 is the latest. Each row's webnet id, path and URL
-// at the same index.
-static struct uui_xfer g_items[NS_DOWNLOADS_MAX];
-static struct { uint32_t id; char path[256]; char url[1024]; } g_meta[NS_DOWNLOADS_MAX];
-static int g_count;
+// at the same index. GROWN ON DEMAND (lib/ugrow.h), so g_items may move:
+// the panel re-reads ns_downloads() on every nsapp_download_changed().
+// path and url mirror webnet's own `struct download` fields.
+static struct uui_xfer *g_items;
+static struct { uint32_t id; char path[256]; char url[1024]; } *g_meta;
+static int g_count, g_items_cap, g_meta_cap;
 
 const struct uui_xfer *ns_downloads(int *count) {
     *count = g_count;
@@ -73,9 +76,14 @@ static void on_dl(const struct ubulk_msg *m) {
     const char *p = (const char *)m->data + sizeof h;
     int i = row_of(m->id), started = 0;
     if (i < 0) {
-        if (g_count == NS_DOWNLOADS_MAX) {
-            // The oldest that has ended makes room; with every slot
-            // running, the oldest goes from the list (not from webnet).
+        int grew = UGROW(g_items, g_items_cap, g_count + 1);
+        grew &= UGROW(g_meta, g_meta_cap, g_count + 1);
+        if (!grew && !g_count) return;
+        if (!grew) {
+            // OUT OF MEMORY: the oldest that has ended makes room; with
+            // every row running, the oldest goes from the list (not from
+            // webnet).
+            ulogf("browser: out of memory for download row %d\n", g_count + 1);
             int k = g_count - 1;
             while (k > 0 && g_items[k].state == UUI_XFER_RUNNING) k--;
             memmove(&g_items[k], &g_items[k + 1], (size_t)(g_count - k - 1) * sizeof g_items[0]);

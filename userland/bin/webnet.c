@@ -34,6 +34,7 @@
 #include "lib/ubase64.h"
 #include "lib/ubulk.h"
 #include "lib/ucookie.h"
+#include "lib/ugrow.h"
 #include "lib/uargs.h"
 #include "lib/webnet_proto.h"
 #include "rt/sys.h"
@@ -104,15 +105,16 @@ struct download {
     unsigned long long last_report_ns;
 };
 
-#define DL_MAX 32
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;   // everything below
 static struct nfetch *g_fetches;
-static struct download g_dl[DL_MAX];
-static int g_ndl;
+// This session's downloads, GROWN ON DEMAND (lib/ugrow.h). The array
+// may move, so a fetch holds a download's ID, never a pointer.
+static struct download *g_dl;
+static int g_ndl, g_dl_cap;
 static uint32_t g_next_dl = 1;
 static struct ucookie_jar g_jar;
-static char *g_allow[64];     // hosts whose certificate was accepted anyway
-static int g_nallow;
+static char **g_allow;        // hosts whose certificate was accepted anyway
+static int g_nallow, g_allow_cap;
 
 // --- logins (lib/webnet_proto.h, WN_AUTH_ASK) ---
 // What a person gave, per origin and realm, for `dir` and below. Memory
@@ -299,14 +301,17 @@ static void dl_report(struct download *d, int force) {
     ubulk_server_send(&g_srv, g_app_client, WN_DL, d->id, buf, (uint32_t)n, 1000);
 }
 
-// A new download for `url`, its file opened. Under g_mu. NULL when the
-// list is full of running ones.
+// A new download for `url`, its file opened. Under g_mu. NULL only when
+// memory is out and every one listed is still running.
 static struct download *dl_new(const char *name, const char *url) {
-    if (g_ndl == DL_MAX) {
+    if (!UGROW(g_dl, g_dl_cap, g_ndl + 1)) {
         int k = 0;
         while (k < g_ndl && g_dl[k].state == WN_DL_RUNNING) k++;
-        if (k == g_ndl) return NULL;
-        g_dl[k] = g_dl[--g_ndl];
+        if (k == g_ndl) {
+            printf("webnet: out of memory for download %d, refused\n", g_ndl + 1);
+            return NULL;
+        }
+        g_dl[k] = g_dl[--g_ndl];   // forget a finished one to make room
     }
     struct download *d = &g_dl[g_ndl++];
     memset(d, 0, sizeof *d);
@@ -938,7 +943,8 @@ static void on_cert_allow(const struct ubulk_msg *m) {
     pthread_mutex_lock(&g_mu);
     int have = 0;
     for (int i = 0; i < g_nallow; i++) have |= !strcasecmp(g_allow[i], b->host);
-    if (!have && g_nallow < (int)(sizeof g_allow / sizeof g_allow[0])) g_allow[g_nallow++] = strdup(b->host);
+    if (!have && UGROW(g_allow, g_allow_cap, g_nallow + 1) && (g_allow[g_nallow] = strdup(b->host)))
+        g_nallow++;
     pthread_mutex_unlock(&g_mu);
     free(b);
 }
