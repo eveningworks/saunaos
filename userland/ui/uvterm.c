@@ -10,6 +10,8 @@
 #include "ui/uapp.h"
 #include "keyboard.h"
 #include "termkey.h"     // a keysym becomes an ANSI sequence here
+#include "lib/uutf8.h"   // cells hold characters; the stream is UTF-8
+#include "lib/uwcwidth.h" // ...and a wide one takes two cells
 
 // --- the buffers ---------------------------------------------------------------
 
@@ -23,7 +25,10 @@ static struct uvterm_cell *cells_new(int rows, int cols, int fg, int bg) {
     size_t n = (size_t)rows * (size_t)cols;
     struct uvterm_cell *p = malloc(n * sizeof *p);
     if (!p) return 0;
-    for (size_t i = 0; i < n; i++) { p[i].ch = ' '; p[i].fg = (uint8_t)fg; p[i].bg = (uint8_t)bg; }
+    for (size_t i = 0; i < n; i++) {
+        p[i].ch = ' '; p[i].fg = (uint8_t)fg; p[i].bg = (uint8_t)bg;
+        p[i].wide = UVTERM_NARROW; p[i].pad_ = 0;
+    }
     return p;
 }
 
@@ -38,7 +43,8 @@ static int grow_caps(struct uvterm *t, int rows, int cols) {
     struct uvterm_cell *ng = cells_new(nr, nc, t->fg, t->bg);
     struct uvterm_cell *nb = cells_new(t->sb_rows, nc, t->fg, t->bg);
     struct uvterm_cell *nv = cells_new(nr, nc, t->fg, t->bg);
-    char *rb = malloc((size_t)nc + 1), *ob = malloc((size_t)nc + 1);
+    // UTF-8 scratch: up to four bytes a cell.
+    char *rb = malloc((size_t)nc * 4 + 1), *ob = malloc((size_t)nc * 4 + 1);
     if (!ng || !nb || !nv || !rb || !ob) {
         free(ng); free(nb); free(nv); free(rb); free(ob);
         return 0;
@@ -61,8 +67,13 @@ static int grow_caps(struct uvterm *t, int rows, int cols) {
 }
 
 static void row_clear(const struct uvterm *t, struct uvterm_cell *row, int from) {
-    for (int c = from; c < t->cap_cols; c++) { row[c].ch = ' '; row[c].fg = t->fg; row[c].bg = t->bg; }
+    for (int c = from; c < t->cap_cols; c++) {
+        row[c].ch = ' '; row[c].fg = t->fg; row[c].bg = t->bg; row[c].wide = UVTERM_NARROW;
+    }
 }
+
+// A blank in place of what was there, colours kept -- ERASE's mode 1.
+static void blank_cell(struct uvterm_cell *c) { c->ch = ' '; c->wide = UVTERM_NARROW; }
 
 static void reset_screen(struct uvterm *t) {
     uvterm_sel_clear(t);
@@ -125,7 +136,16 @@ static void newline(struct uvterm *t) {
     if (t->cr >= t->rows) { t->cr = t->rows - 1; scroll_up(t); }
 }
 
-static void putc_raw(struct uvterm *t, char c) {
+// Writing over HALF of a wide character blanks its other half, as xterm
+// does -- a lone half would draw as nothing and copy as nothing.
+static void unpair(const struct uvterm *t, struct uvterm_cell *row, int c) {
+    if (c < 0 || c >= t->cap_cols) return;
+    if (row[c].wide == UVTERM_CONT && c > 0) blank_cell(&row[c - 1]);
+    if (row[c].wide == UVTERM_WIDE && c + 1 < t->cap_cols) blank_cell(&row[c + 1]);
+}
+
+// One decoded CHARACTER into the grid.
+static void putc_raw(struct uvterm *t, uint32_t c) {
     if (c == '\n') { t->cc = 0; newline(t); return; } // no OPOST: LF is CRLF here
     if (c == '\r') { t->cc = 0; return; }
     if (c == '\b') { if (t->cc > 0) t->cc--; return; }
@@ -134,13 +154,29 @@ static void putc_raw(struct uvterm *t, char c) {
         if (t->cc >= t->cols) { t->cc = 0; newline(t); }
         return;
     }
-    if ((unsigned char)c < 32) return; // anything else unprintable is dropped
-    if (t->cc >= t->cols) { t->cc = 0; newline(t); }
-    struct uvterm_cell *cell = &grid_row(t, t->cr)[t->cc];
+    // Anything else unprintable is dropped: the C0 controls, and the C1
+    // ones a UTF-8 stream can name (U+0080-U+009F).
+    if (c < 32 || (c >= 0x80 && c < 0xA0)) return;
+    int w = uwcwidth(c);
+    if (w > t->cols) w = 1;
+    // A WIDE CHARACTER NEVER STRADDLES THE EDGE: one that does not fit
+    // starts the next line, as xterm and VTE wrap it.
+    if (t->cc + w > t->cols) { t->cc = 0; newline(t); }
+    struct uvterm_cell *row = grid_row(t, t->cr);
+    unpair(t, row, t->cc);
+    if (w == 2) unpair(t, row, t->cc + 1);
+    struct uvterm_cell *cell = &row[t->cc];
     cell->ch = c;
     cell->fg = (uint8_t)t->vt.fg;
     cell->bg = (uint8_t)t->vt.bg;
-    t->cc++;
+    cell->wide = w == 2 ? UVTERM_WIDE : UVTERM_NARROW;
+    if (w == 2) {
+        cell[1].ch = 0;
+        cell[1].fg = cell->fg;
+        cell[1].bg = cell->bg;
+        cell[1].wide = UVTERM_CONT;
+    }
+    t->cc += w;
 }
 
 static void clamp_cursor(struct uvterm *t) {
@@ -165,7 +201,7 @@ static void ctrl(struct uvterm *t) {
     case ANSI_OP_ERASE_LINE:
         if (t->vt.a == 0) row_clear(t, grid_row(t, t->cr), t->cc);
         else if (t->vt.a == 1)
-            for (int c = 0; c <= t->cc && c < t->cap_cols; c++) grid_row(t, t->cr)[c].ch = ' ';
+            for (int c = 0; c <= t->cc && c < t->cap_cols; c++) blank_cell(&grid_row(t, t->cr)[c]);
         else row_clear(t, grid_row(t, t->cr), 0);
         break;
     case ANSI_OP_ERASE_DISPLAY:
@@ -174,7 +210,7 @@ static void ctrl(struct uvterm *t) {
             for (int r = t->cr + 1; r < t->rows; r++) row_clear(t, grid_row(t, r), 0);
         } else if (t->vt.a == 1) {
             for (int r = 0; r < t->cr; r++) row_clear(t, grid_row(t, r), 0);
-            for (int c = 0; c <= t->cc && c < t->cap_cols; c++) grid_row(t, t->cr)[c].ch = ' ';
+            for (int c = 0; c <= t->cc && c < t->cap_cols; c++) blank_cell(&grid_row(t, t->cr)[c]);
         } else {
             for (int r = 0; r < t->rows; r++) row_clear(t, grid_row(t, r), 0);
         }
@@ -211,13 +247,21 @@ static void ctrl(struct uvterm *t) {
 // A title the program sent, COPIED: the parser rewrites its own buffer on
 // the next OSC. A path is also where the program stands (tosh's title is
 // its cwd), taken even when the title is locked.
+// CUT BETWEEN CHARACTERS: a title is UTF-8, and a copy that stops inside
+// a sequence would end in a stray byte drawn as a Latin-1 letter.
+static void copy_utf8(char *dst, int cap, const char *src) {
+    int n = uutf8_cut(src, (int)strlen(src), cap - 1);
+    memcpy(dst, src, (size_t)n);
+    dst[n] = '\0';
+}
+
 static void osc_title(struct uvterm *t) {
-    if (t->vt.osc[0] == '/') strlcpy(t->cwd, t->vt.osc, sizeof t->cwd);
+    if (t->vt.osc[0] == '/') copy_utf8(t->cwd, (int)sizeof t->cwd, t->vt.osc);
     if (t->title_locked) return;
     char want[UVTERM_TITLE_MAX];
-    strlcpy(want, t->vt.osc, sizeof want);
+    copy_utf8(want, (int)sizeof want, t->vt.osc);
     // An EMPTY title asks for the host's default, never for a blank label.
-    if (!want[0] && t->default_title) strlcpy(want, t->default_title, sizeof want);
+    if (!want[0] && t->default_title) copy_utf8(want, (int)sizeof want, t->default_title);
     if (strcmp(want, t->title) == 0) return;
     strlcpy(t->title, want, sizeof t->title);
     t->title_moved = 1;
@@ -226,7 +270,14 @@ static void osc_title(struct uvterm *t) {
 void uvterm_write(struct uvterm *t, const char *buf, int len) {
     for (int i = 0; i < len; i++) {
         switch (ansi_feed(&t->vt, buf[i])) {
-        case ANSI_PASS:  putc_raw(t, buf[i]); break;
+        case ANSI_PASS: {
+            // UTF-8, decoded across calls (`t->u8`): a byte completes 0,
+            // 1 or 2 characters -- a stray byte is its Latin-1 letter.
+            uint32_t cps[2];
+            int n = kutf8_stream_feed(&t->u8, (unsigned char)buf[i], cps);
+            for (int k = 0; k < n; k++) putc_raw(t, cps[k]);
+            break;
+        }
         case ANSI_CTRL:  ctrl(t); break;
         case ANSI_OSC:   osc_title(t); break;
         case ANSI_SGR:   break; // the colours are read off the parser per cell
@@ -508,6 +559,7 @@ void uvterm_clear_scrollback(struct uvterm *t) { t->sb_count = 0; t->sb_view = 0
 
 void uvterm_reset(struct uvterm *t) {
     ansi_init(&t->vt, t->fg, t->bg);
+    memset(&t->u8, 0, sizeof t->u8);
     reset_screen(t);
     t->alt = 0;
     t->cursor_shown = 1;
@@ -580,19 +632,21 @@ static void sel_cols(const struct uvterm *t, int line, int *c0, int *c1) {
 }
 
 // Konsole's word characters, the conservative half: double-clicking a path
-// stops at a `/` rather than swallowing the line.
-static int word_char(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+// stops at a `/` rather than swallowing the line. A LETTER PAST ASCII IS
+// ONE (`Kesä`, `слово`), and a wide character's second cell belongs to it.
+static int word_char(const struct uvterm_cell *row, int c) {
+    if (row[c].wide == UVTERM_CONT) return c > 0 && word_char(row, c - 1);
+    return kutf8_isalnum(row[c].ch) || row[c].ch == '_';
 }
 
 int uvterm_sel_word(struct uvterm *t, struct uvterm_point p) {
     const struct uvterm_cell *row = uvterm_line(t, p.line);
     if (!row) return 0;
     int c = p.col >= t->cols ? t->cols - 1 : p.col;
-    if (c < 0 || !word_char(row[c].ch)) return 0;
+    if (c < 0 || !word_char(row, c)) return 0;
     int a = c, b = c;
-    while (a > 0 && word_char(row[a - 1].ch)) a--;
-    while (b + 1 < t->cols && word_char(row[b + 1].ch)) b++;
+    while (a > 0 && word_char(row, a - 1)) a--;
+    while (b + 1 < t->cols && word_char(row, b + 1)) b++;
     t->sel_a.line = t->sel_b.line = p.line;
     t->sel_a.col = a;
     t->sel_b.col = b + 1;
@@ -625,9 +679,15 @@ int uvterm_sel_text(const struct uvterm *t, char *out, int cap) {
         int end = c1;
         if (row && line < to.line)                       // trailing blanks are
             while (end > c0 && row[end - 1].ch == ' ') end--;   // padding, not text
+        // UTF-8 OUT, A CHARACTER AT A TIME: a wide character's second
+        // cell holds nothing of its own, and a cut through the copy
+        // (`cap`) never splits a sequence.
         for (int c = c0; row && c < end; c++) {
-            if (out && n < cap) out[n] = row[c].ch;
-            n++;
+            if (row[c].wide == UVTERM_CONT) continue;
+            char u[4];
+            int k = uutf8_encode(row[c].ch, u);
+            if (out && n + k <= cap) memcpy(out + n, u, (size_t)k);
+            n += k;
         }
         if (line < to.line) { if (out && n < cap) out[n] = '\n'; n++; }
     }
@@ -640,16 +700,36 @@ int uvterm_sel_text(const struct uvterm *t, char *out, int cap) {
 // A ROW AT A TIME, IN RUNS OF ONE COLOUR PAIR: per-cell drawing would be
 // 12,000 calls a frame; a run is one string call and usually one per row.
 
+// Cells [i, j) of one colour pair, at the CELL PITCH. A character whose
+// glyph is not exactly a cell wide -- a wide one, or one from a fallback
+// face -- is drawn on its own at its cell; the rest go out as one string,
+// which is the call that keeps a frame cheap.
 static void draw_run(const struct uvterm *t, struct ugfx_surface *s, int x, int y,
-                     const char *text, int n, uint8_t fg, uint8_t bg, const struct uvterm_look *k) {
-    if (n <= 0 || !t->runbuf) return;
-    memcpy(t->runbuf, text, (size_t)n);
-    t->runbuf[n] = '\0';
+                     const struct uvterm_cell *row, int i, int j,
+                     uint8_t fg, uint8_t bg, const struct uvterm_look *k) {
+    if (j <= i || !t->runbuf) return;
+    uint32_t f = k->pal[fg & 15], b = k->pal[bg & 15];
     // **THE BACKGROUND IS A RECTANGLE, NOT THE STRING CALL'S `bg`**: that
     // only blends the glyph's pixels, it does not fill the CELL -- reverse
     // video came out as dark letters on black instead of a bar.
-    if ((bg & 15) != t->bg) ugfx_fill_rect(s, x, y, n * k->cw, k->ch, k->pal[bg & 15]);
-    ugfx_draw_string(s, x, y, t->runbuf, k->pal[fg & 15], k->pal[bg & 15]);
+    if ((bg & 15) != t->bg) ugfx_fill_rect(s, x + i * k->cw, y, (j - i) * k->cw, k->ch, b);
+    int n = 0, from = i;
+    for (int q = i; q <= j; q++) {
+        int plain = q < j && row[q].wide == UVTERM_NARROW &&
+                    (row[q].ch < 0x80 || ugfx_cp_advance(row[q].ch) == k->cw);
+        if (plain) {
+            if (!n) from = q;
+            n += uutf8_encode(row[q].ch, t->runbuf + n);
+            continue;
+        }
+        if (n) {
+            t->runbuf[n] = '\0';
+            ugfx_draw_string(s, x + from * k->cw, y, t->runbuf, f, b);
+            n = 0;
+        }
+        if (q < j && row[q].wide != UVTERM_CONT && row[q].ch != ' ')
+            ugfx_draw_cp(s, x + q * k->cw, y, row[q].ch, f, b);
+    }
 }
 
 // A SELECTED CELL SWAPS ITS OWN COLOURS rather than taking a highlight,
@@ -667,11 +747,9 @@ static void draw_row(const struct uvterm *t, struct ugfx_surface *s, const struc
         // selection reaching the line's end.
         int blank = 1;
         for (int q = i; q < j; q++) if (row[q].ch != ' ') { blank = 0; break; }
-        if ((sel || !(blank && row[i].bg == t->bg)) && t->rowbuf) {
-            for (int q = i; q < j; q++) t->rowbuf[q - i] = row[q].ch;
-            draw_run(t, s, x + i * k->cw, y, t->rowbuf, j - i,
+        if (sel || !(blank && row[i].bg == t->bg))
+            draw_run(t, s, x, y, row, i, j,
                      sel ? row[i].bg : row[i].fg, sel ? row[i].fg : row[i].bg, k);
-        }
         i = j;
     }
 }
@@ -704,11 +782,11 @@ void uvterm_draw_caret(const struct uvterm *t, struct ugfx_surface *s, int x, in
     } else {
         // A BLOCK REDRAWS ITS CHARACTER in the background colour, or it
         // hides the one thing the caret points at.
+        // Over a wide character the block covers both its cells.
         const struct uvterm_cell *row = uvterm_line(t, uvterm_view_line(t, t->cr));
-        ugfx_fill_rect(s, cx, cy, k->cw, k->ch, k->cursor_rgb);
-        if (row && row[t->cc].ch != ' ') {
-            char one[2] = { row[t->cc].ch, '\0' };
-            ugfx_draw_string(s, cx, cy, one, k->pal[t->bg], k->cursor_rgb);
-        }
+        int wide = row && row[t->cc].wide == UVTERM_WIDE;
+        ugfx_fill_rect(s, cx, cy, wide ? 2 * k->cw : k->cw, k->ch, k->cursor_rgb);
+        if (row && row[t->cc].ch != ' ' && row[t->cc].wide != UVTERM_CONT)
+            ugfx_draw_cp(s, cx, cy, row[t->cc].ch, k->pal[t->bg], k->cursor_rgb);
     }
 }

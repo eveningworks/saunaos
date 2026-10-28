@@ -77,7 +77,9 @@
 #include "ui/uapp.h"
 #include "ui/utheme.h"
 #include "lib/uclip.h"
-#include "lib/ucharset.h"   // the paste's edge: UTF-8 in, Latin-1 to the shell
+#include "lib/uutf8.h"      // the find bar's query, a character at a time
+#include "lib/uwcwidth.h"    // ...measured in cells
+#include "kutf8.h"           // ...and folded past ASCII
 #include "ui/ulog.h"
 #include "ui/uui_tabs.h"
 #include "ui/uui_menubar.h"
@@ -156,7 +158,8 @@ static int g_sb_rows = 240;   // scrollback lines kept above the screen
 
 // Sessions are allocated on demand and their slots REUSED, so a
 // Terminal that never opens a second tab pays for one (a session is
-// about 220 KiB of grid, scrollback and saved screen).
+// about 600 KiB of grid, scrollback and saved screen: eight bytes a
+// cell, a character and its colours).
 
 #define TITLE_MAX UVTERM_TITLE_MAX
 
@@ -834,28 +837,47 @@ static int g_nhits, g_hits_cap;
 static int g_hit_cur = -1;   // index into g_hits, -1 for none
 static int g_find_len;
 
-static char fold(char c) { return (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c; }
+// The query, decoded: a find matches CHARACTERS in the cells, so `ä`
+// finds the cell holding U+00E4 rather than two cells of `Ã¤`.
+static uint32_t *g_q;
+static int g_q_cap;
+
+// Whether the query's `nq` characters start at cell `c` of `row`, case-
+// folded; a wide character covers its next cell, which is skipped.
+static int match_at(const struct uvterm_cell *row, int c, int nq) {
+    for (int k = 0; k < nq; k++) {
+        if (c >= g_cols || kutf8_tolower(row[c].ch) != kutf8_tolower(g_q[k])) return 0;
+        c += uwcwidth(g_q[k]);
+    }
+    return 1;
+}
 
 // `keep` holds the current hit where it was when it is still there --
 // what new output arriving under an open find bar wants.
 static void find_run(struct session *s, int keep) {
     const char *q = uui_findbar_query(&g_find);
-    int n = (int)strlen(q);
+    int bytes = (int)strlen(q), nq = 0, n = 0;   // n: the query's width in CELLS
+    for (int i = 0; i < bytes; ) {
+        int len;
+        uint32_t cp = uutf8_decode(q + i, bytes - i, &len);
+        if (len <= 0 || !UGROW(g_q, g_q_cap, nq + 1)) break;
+        g_q[nq++] = cp;
+        n += uwcwidth(cp);
+        i += len;
+    }
     struct findhit was = { -1, -1 };
     if (keep && g_hit_cur >= 0) was = g_hits[g_hit_cur];
     g_nhits = 0;
     g_hit_cur = -1;
     g_find_len = n;
-    if (s && n > 0 && n <= g_cols) {
+    if (s && nq > 0 && n <= g_cols) {
         int total = s->t.sb_count + g_rows;
         int oom = 0;
         for (int line = 0; line < total && !oom; line++) {
             const struct uvterm_cell *row = uvterm_line(&s->t, line);
             if (!row) continue;
             for (int c = 0; c + n <= g_cols; c++) {
-                int k = 0;
-                while (k < n && fold(row[c + k].ch) == fold(q[k])) k++;
-                if (k < n) continue;
+                if (!match_at(row, c, nq)) continue;
                 if (!UGROW(g_hits, g_hits_cap, g_nhits + 1)) {
                     ulogf("uterm: out of memory at %d matches\n", g_nhits);
                     oom = 1;
@@ -926,11 +948,10 @@ static void draw_hits(struct ugfx_surface *s, struct session *ses, int top) {
         int x = g_margin + c0 * cw, y = top + g_margin + r * ch;
         uint32_t hl = i == g_hit_cur ? ugfx_rgb(246, 116, 0) : ugfx_rgb(253, 188, 75);
         ugfx_fill_rect(s, x, y, n * cw, ch, hl);
-        char text[TITLE_MAX * 2];
-        if (n >= (int)sizeof text) n = (int)sizeof text - 1;
-        for (int k = 0; k < n; k++) text[k] = row[c0 + k].ch;
-        text[n] = '\0';
-        ugfx_draw_string(s, x, y, text, ugfx_rgb(35, 38, 41), hl);
+        // The hit's characters again, each at its own cell.
+        for (int k = 0; k < n; k++)
+            if (row[c0 + k].wide != UVTERM_CONT && row[c0 + k].ch != ' ')
+                ugfx_draw_cp(s, x + k * cw, y, row[c0 + k].ch, ugfx_rgb(35, 38, 41), hl);
     }
 }
 
@@ -1512,18 +1533,14 @@ static void do_paste(void) {
     int n = 0;
     const char *txt = uclip_text(&g_clip, &n);
     if (!txt || n == 0) return;
-    // THE CLIPBOARD IS UTF-8 AND THE TERMINAL STILL LATIN-1 (its cells
-    // and the shell's line editor move in docs/utf8-design.md's step 2):
-    // converted at this edge, '?' past U+00FF, as VNC does at its own --
-    // or every pasted 'ä' would reach the shell as two letters.
-    char *l1 = malloc((size_t)n + 1);
-    if (!l1) { ulog("uterm: out of memory pasting\n"); return; }
-    long m = ucharset_utf8_to_latin1(l1, (size_t)n + 1, txt, (size_t)n, '?');
-    // ONE write, not one per character: a syscall per byte for a
-    // pasted paragraph is thousands of kernel entries, and the pty
-    // takes the run happily.
-    if (m > 0) pty_send(s, l1, (int)m);
-    free(l1);
+    // THE CLIPBOARD IS UTF-8 AND SO IS THE TERMINAL (docs/utf8-design.md,
+    // step 2): the bytes go to the program as they are, and its line
+    // editor reads each sequence as one character.
+    //
+    // ONE write, not one per character: a syscall per byte for a pasted
+    // paragraph is thousands of kernel entries, and the pty takes the
+    // run happily.
+    pty_send(s, txt, n);
 }
 
 static unsigned menu_item_flags(int code) {

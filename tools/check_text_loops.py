@@ -80,7 +80,12 @@ def split_args(s, start):
 
 
 def subscripts(arg):
-    return "[" in arg
+    """A subscript of a STRING -- not a member of an array's element:
+    `row[c].ch` is a terminal cell's codepoint (ui/uvterm.h), a field of a
+    struct, and no byte of anything."""
+    if "[" not in arg:
+        return False
+    return not re.search(r"\]\s*(?:\.|->)\s*\w+\s*\)*\s*$", arg)
 
 
 # (function, index of the argument that is a character, test)
@@ -186,6 +191,8 @@ PLANTED = [
     ("    ugfx_draw_char(s, x, y, '-', fg, bg);", False),
     ("    x += ugfx_cp_advance(cp);", False),
     ("    gx += ugfx_kern(prev, (int)cp);", False),
+    ("    ugfx_draw_cp(s, x, y, row[q].ch, fg, bg);", False),
+    ("    ugfx_draw_cp(s, x, y, (uint32_t)row[q].name[0], fg, bg);", True),
 ]
 
 

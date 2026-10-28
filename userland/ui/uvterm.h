@@ -21,11 +21,18 @@
 #include <stdint.h>
 #include <pthread.h>
 #include "ansi.h"
+#include "kutf8.h"       // the stream decoder: a read can split a character
 #include "ui/ugfx.h"
 
 struct uapp;
 
-struct uvterm_cell { char ch; uint8_t fg, bg; };
+// ONE CELL OF THE GRID: a CHARACTER, not a byte (docs/utf8-design.md,
+// step 2). An East Asian Wide character takes two cells -- the first
+// UVTERM_WIDE with the character, the second UVTERM_CONT with none -- so
+// the column arithmetic stays one cell per column. A combining mark is a
+// character of its own here (the design's non-goal), one cell wide.
+enum { UVTERM_NARROW = 0, UVTERM_WIDE = 1, UVTERM_CONT = 2 };
+struct uvterm_cell { uint32_t ch; uint8_t fg, bg, wide, pad_; };
 
 // A position in the VIRTUAL buffer: lines 0..sb_count-1 are scrollback
 // and the screen follows, so a line names the same text whether it is on
@@ -65,6 +72,11 @@ struct uvterm {
     int cr, cc;                 // the cursor, in cells
     int cursor_shown;           // ESC[?25h/l
     struct ansi_parser vt;
+    // THE UTF-8 DECODER'S PENDING BYTES, beside the ANSI state and for
+    // the same reason: the reader hands over whatever one sys_read()
+    // returned, and a sequence split across two of them must still
+    // draw as ONE character.
+    struct kutf8_stream u8;
 
     // --- the program -------------------------------------------------------
     int live;                   // a program was started and not stopped
@@ -105,7 +117,7 @@ struct uvterm {
     int selecting;              // a drag is live
     int sel_on;                 // there is a selection to draw and copy
 
-    char *runbuf, *rowbuf;      // draw scratch, cap_cols + 1 each
+    char *runbuf, *rowbuf;      // draw scratch, 4 x cap_cols + 1 each (UTF-8)
 };
 
 // --- life --------------------------------------------------------------------
@@ -179,14 +191,15 @@ void uvterm_sel_clear(struct uvterm *t);
 // A press: starts a selection there, or extends one (Shift).
 void uvterm_sel_start(struct uvterm *t, struct uvterm_point p, int extend);
 void uvterm_sel_extend(struct uvterm *t, struct uvterm_point p);
-// The word under `p` (letters, digits, `_`). 0 when there is none.
+// The word under `p` (letters -- past ASCII too -- digits, `_`). 0 when
+// there is none.
 int  uvterm_sel_word(struct uvterm *t, struct uvterm_point p);
 void uvterm_sel_line(struct uvterm *t, struct uvterm_point p);
 // The whole virtual buffer, scrollback and screen.
 void uvterm_sel_all(struct uvterm *t);
-// The text as a person would retype it -- trailing blanks dropped from
-// every line but the last, a newline where it crosses a break. Its
-// length; `out` may be NULL to measure.
+// The text as a person would retype it, as UTF-8 -- trailing blanks
+// dropped from every line but the last, a newline where it crosses a
+// break. Its length in BYTES; `out` may be NULL to measure.
 int  uvterm_sel_text(const struct uvterm *t, char *out, int cap);
 
 // --- drawing -----------------------------------------------------------------

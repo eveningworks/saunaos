@@ -114,6 +114,9 @@ TESTS = [
     ("uargs_test", 0, None, None),
     # lib/ucharset.h, Latin-1 <-> UTF-8 (a VNC viewer's cut text).
     ("ucharset_test", 0, None, None),
+    # ui/uvterm.h's grid as UTF-8: a sequence split across two writes is
+    # one cell, a wide character two, a selection copies UTF-8.
+    ("uvterm_test", 0, None, None),
     # SYS_FS_CHECK by path, and /bin/fsck's exit statuses. Spawned: it
     # spawns /bin/fsck, which the legacy loader cannot.
     ("fscheck_test", None, None, None),
