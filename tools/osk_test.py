@@ -233,17 +233,19 @@ def main():
 
         # THE DEAD KEY: acute, then e, is ONE character. A panel that never
         # composed types the accent and the e (two characters), and one
-        # that swallowed the dead key types a bare e -- neither is one
-        # non-ASCII byte between x and y. (The listing is UTF-8-decoded,
-        # so a lone Latin-1 byte reads as U+FFFD.)
+        # that swallowed the dead key types a bare e -- neither is `x\u00e9y`.
+        # The name is UTF-8 on disk since docs/utf8-design.md's step 2 (the
+        # Terminal sends a typed character as UTF-8), and the listing is
+        # UTF-8-decoded, so it reads as \u00e9; before, the lone Latin-1 byte
+        # read as U+FFFD.
         kb.type_caps(list("mkdir") + fi_slash + ["x", "kc13"])
         k = dbg.json("gui osk --json")
         check("a dead key latches until its letter", k.get("pending") == 13,
               f"pending={k.get('pending')}")
         kb.type_caps(["e", "y", "Enter"])
-        after = listed(dbg, "x\ufffdy/")
-        check("dead acute then e composes to one character", "x\ufffdy/" in after,
-              "x\ufffdey/ means it never composed, xey/ that the accent was lost")
+        after = listed(dbg, "x\u00e9y/")
+        check("dead acute then e composes to one character", "x\u00e9y/" in after,
+              "x\u00b4ey/ means it never composed, xey/ that the accent was lost")
         dbg.send("sh config set system.keyboard.layout us")
         dbg.settle()
         time.sleep(0.6)
