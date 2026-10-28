@@ -172,4 +172,4 @@ it used to answer -1.
   eventually be printed.
 - **A positive control that reddens nothing means the fixture never
   reached the branch.** Testing `EMFILE` needs a test that genuinely
-  exhausts `FD_MAX`, not one that assumes it did.
+  exhausts the per-process descriptor table, not one that assumes it did.

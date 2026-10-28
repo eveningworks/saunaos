@@ -8232,9 +8232,11 @@ process and the question never arises.
 
 So here: descriptions are allocated one at a time behind a pointer
 table that doubles, a descriptor table is allocated per live address
-space, and the ceilings are what remain -- 1024 descriptions and 256
-descriptors, for the reason `fs.file-max` exists, so one runaway
-process cannot spend the kernel heap. The fd-space table grows to the
+space, and the ceilings are what remain, for the reason `fs.file-max`
+exists, so one runaway process cannot spend the kernel heap -- 1024
+descriptions and 256 descriptors when written, sized from RAM since
+2026-10-28 ("Kernel limits are sized from RAM, not settings or
+rlimits"), with the descriptor table growing too. The fd-space table grows to the
 process limit plus a few rather than a picked number: an address space
 that holds fds belongs to a process, plus the legacy `run` loader.
 
@@ -9839,3 +9841,87 @@ buffers are a few KiB and live in kept regions.
 **What it still cannot return.** A region with one live block stays, so
 a long-lived small allocation pins its 64 KiB. Slab-style per-size pages
 would bound that; nothing here measured it worth building.
+
+## Kernel limits are sized from RAM, not settings or rlimits
+
+The kernel's resource tables grow on demand, and the CEILING each one
+refuses at is computed from RAM the first time it is asked -- a fraction
+of RAM divided by what one entry costs, clamped to a floor (the old
+fixed size) and a hard ceiling -- and reported by ONE log line the first
+time a request is refused at it (`kernel/include/kernel/klimit.h`):
+
+    limits: fd: open-file descriptions: ceiling of 4017 reached (sized from 255 MiB of RAM) -- refused, and not logged again
+
+As built (2026-10-28), with the values a 256 MiB and a 2 GiB guest got:
+
+| Table | Ceiling | 256 MiB | 2 GiB |
+|---|---|---|---|
+| open-file descriptions | RAM/16 / sizeof(struct open_file) | 4017 | ~32.2k |
+| descriptors per process | an eighth of that | 502 | 4024 |
+| ramfs nodes | the mount's byte budget (node + pointer each) | -- | -- |
+| path watches | RAM/1024 / a watch, at most 65536 | ~8k | ~63k |
+| userfs shares | RAM/8 / (a mount + its 1 MiB read-ahead) | 31 | ~254 |
+| strace rings pinned | RAM/64, in KiB, at least 512 | 4 MiB | 32 MiB |
+| mmap regions per process | FIXED 1024 | 1024 | 1024 |
+
+**What real systems do.** Linux sizes `fs.file-max` from RAM at boot
+(`files_maxfiles_init()`: about 10% of memory at a nominal 1 KiB per
+file); tmpfs's `nr_inodes` defaults to half of RAM's pages; inotify's
+`max_user_watches` is RAM-scaled (a twenty-fifth of low memory over a
+watch's cost, clamped); the per-process fdtable starts at 64 and doubles
+(`expand_files()`). Each of those is ALSO a sysctl or an rlimit a person
+can change. `vm.max_map_count` is the odd one out: a fixed 65530. NT
+bounds its handle tables and pools with pool quota, again tunable.
+
+**SaunaOS copies the RAM-scaled default and deliberately not the knob.**
+A sysctl or a new rlimit is a promise to honour a number somebody types,
+a page in Settings, and a value that outlives the machine it was right
+for -- for a ceiling whose only job is to stop one runaway spending the
+kernel heap on metadata, which the RAM-derived value already does on
+every machine. The maintainer chose this shape (2026-10-28): no setting,
+no rlimit, the table growing up to a RAM-derived ceiling, one line when
+it is reached. If a workload ever needs more, the fraction moves in the
+code, where its reason is written next to it.
+
+**Why one helper.** The arithmetic is three lines and the log-once is
+three more, but five copies of them drift -- a floor forgotten here, a
+ceiling that logs per refusal there (the log ring holds a few thousand
+lines, CLAUDE.md). `struct klimit` keeps the fraction, the entry cost,
+the floor and the hard ceiling side by side at each table, and
+`klimit_test_set()` lets a KTEST reach a ceiling without allocating to
+it. The process table's own `limit_from_ram()` (scheduler.c) predates it
+and was left alone: it sizes a CONTIGUOUS array at boot rather than a
+ceiling.
+
+**Why the hard ceilings.** Each is a cost the RAM fraction does not
+see: watches are scanned on every write in the machine; a description
+index has to fit the int a descriptor stores (it was a short, which a
+table past 32767 would have wrapped); Linux's `nr_open` (1M) is the
+descriptors' cap too.
+
+**Why mmap regions stay fixed**, as `max_map_count` does: `region_of()`
+on every page fault, `overlap_of()` on every mmap and `arena_pick()`'s
+hops all scan the list linearly, so a RAM-sized ceiling would buy slower
+faults, not more memory, and `mmap_test` can only know the refusal
+point as a constant. It is a `KLIMIT_FIXED` so reaching it is still
+said. A tree of regions is what would let it move.
+
+**Why ramfs has no node ceiling at all.** Each node already takes its
+struct from the mount's byte budget (half of free memory by default);
+charging its table pointer too makes the budget the bound, and a full
+ramfs refuses a create as a full disk does. The table's comment claimed
+it was `.bss` "so the root mounts when the heap is busy" -- stale since
+ramfs state became per-mount and `kmalloc`'d; the first table is now
+allocated with that state, so a mount that gets its state gets its root.
+
+**Why the strace ceiling counts ring BYTES.** Every arm and trace pins
+the tracer's ring until the trace ends, whatever the tracer does; what
+a runaway costs is rings, and a count of traces would let one tracer pin
+a gigabyte in a single ring as easily as eight small ones.
+
+**What growing past a fixed size cost elsewhere.** The compositor's
+event queue is static (pushed from interrupt handlers) and reserved one
+notice slot per watch. It now names at most 16 watches and folds any
+more into one `WIN_FSWATCH_OVERFLOW` notice that makes toywm re-read
+every watched topic -- inotify's `IN_Q_OVERFLOW` -- so a notice is still
+never refused.

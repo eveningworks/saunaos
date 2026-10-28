@@ -474,8 +474,8 @@ after a fixed 3-second sleep, so a slower boot reported a passing test
 as truncated. It polls the verdict now, with a deadline that is a hang
 guard rather than a budget.
 
-`errno_test` was the KERNEL. There are two tables -- `FD_MAX`
-descriptors per process and `FD_DESC_MAX` open-file DESCRIPTIONS for the
+`errno_test` was the KERNEL. There are two tables -- the
+descriptors of each process and the open-file DESCRIPTIONS of the
 whole system -- and `open()` needs one of each, but `sys_open()`
 answered EMFILE whichever ran out. A caller that exhausted the shared
 table was told its OWN was full; the test believed it and required the

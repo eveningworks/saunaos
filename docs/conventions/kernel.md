@@ -4978,6 +4978,20 @@ ttys, ptys, shm objects, modules -- is `kernel/kslots.h`: objects never
 move and a freed slot's memory is kept, so a pointer held across a
 preemption reads a dead object, not freed memory.
 
+**A kernel table's CEILING is sized from RAM, through `kernel/klimit.h`,
+never a constant and never a setting.** `KLIMIT(what, fraction, entry
+bytes, floor, hard ceiling)` beside the table: RAM / fraction / entry,
+clamped, computed at first use; `klimit_hit()` where a request is
+refused logs ONE line per boot (`limits: <what>: ceiling of N
+reached`). The floor is what the fixed table used to hold; the hard
+ceiling is a cost RAM does not see (a scan on every write, an index
+type). A ceiling kept fixed on purpose is `KLIMIT_FIXED` with the
+reason by its definition (mmap regions, a linear scan per fault). No
+sysctl and no rlimit (docs/decisions/kernel.md, "Kernel limits are sized
+from RAM, not settings or rlimits"). A KTEST reaches a ceiling with
+`klimit_test_set()` and checks the line with `klimit_test_logged()`,
+rather than allocating up to it.
+
 Real systems split the same way: Linux allocates (`kmalloc`, `krealloc`,
 `xarray`) and keeps fixed arrays to the paths that cannot sleep; GLib's
 and KDE's application lists are heap lists rebuilt when the directory

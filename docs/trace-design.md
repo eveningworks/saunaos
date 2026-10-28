@@ -143,9 +143,10 @@ ring, records carry the pid, and **fork follows** (the open roadmap item
 exists") -- a forked child writes into its parent's ring, as `strace -f`
 shows.
 
-As built: up to 8 traces and 32 traced address spaces at once
-(`kernel/proc/strace.c`); a full table is `-EBUSY` at the spawn, never a
-child started untraced. Following is OPT-IN per trace
+As built: traces and traced address spaces in tables that grow
+(`kernel/proc/strace.c`, kslots), bounded by the ring memory they pin --
+a sixty-fourth of RAM; past it the spawn is `-EBUSY`, logged once, never
+a child started untraced. Following is OPT-IN per trace
 (`SPAWN_TRACE_FOLLOW`, Linux's `-f`) and covers both ways a child is
 made -- spawn and fork. The ring header's `live` counts the address
 spaces still writing, so the tracer knows when an orphaned grandchild
