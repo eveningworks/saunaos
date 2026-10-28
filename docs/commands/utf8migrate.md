@@ -22,7 +22,9 @@ The one-time move of a disk from Latin-1 to UTF-8
 the update that brought it, as the `utf8migrate` service -- before the
 desktop and the other services, which read settings from `/etc` -- and
 then never again: `/var/lib/utf8migrate` marks it done, and every later
-boot logs one line, `utf8migrate: nothing to do -- converted ...`.
+boot logs one line, `utf8migrate: nothing to do -- converted ...`. A
+disk image built from source is marked when it is made (there is
+nothing on it but UTF-8), so a fresh install never runs the walk.
 
 It does three things, on every writable TFS3 volume mounted at the time:
 

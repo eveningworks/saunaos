@@ -287,7 +287,9 @@ paste as themselves into any field.
   mode kept, times new -- there is no call to set them), logs each change
   and skip to `/var/log/utf8migrate.log` and a summary to the kernel log,
   and writes `/var/lib/utf8migrate`. `--root DIR` and `--dry-run` for a
-  disk attached later. convmv's shape with its default turned round.
+  disk attached later. convmv's shape with its default turned round. An
+  image `seed_disk.py` formats is marked as it is made -- nothing on it
+  is Latin-1, and the walk cost every fresh test image its first seconds.
 - BUILT: what it leaves alone, each logged: **w16's drives, names AS WELL
   AS contents** -- the decision named contents; names are left too,
   because w16 hands a program its file names as bytes, so a renamed file

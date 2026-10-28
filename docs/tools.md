@@ -6420,6 +6420,15 @@ runs first**: a `doom1.wad` with one
   bootable image must pass it too**, or the wizard covers the desktop and
   every GUI check after it fails (`docs/commands/fbs.md`).
 
+  **An image it FORMATS gets `utf8migrate`'s marker**
+  (`/var/lib/utf8migrate`), always: its every file came from the UTF-8
+  seed tree, so the first boot has nothing to convert -- and without the
+  marker that walk held every service back on each fresh test image
+  (`gui_regress.py`, eight guests at once), while tools that expect a
+  desktop at the prompt failed three checks. An existing image is never
+  marked, so a dev `disk.img` with history is converted at its boot.
+  `utf8migrate_boot_test.py` deletes the marker from its copy.
+
   **An EXISTING image keeps its shape.** It asks `mkpart_test.py`'s
   `volume_of()` and seeds into whatever it finds, so a checkout does not
   change layout under anybody -- `make clean-disk && make iso` is the

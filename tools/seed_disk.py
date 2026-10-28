@@ -129,6 +129,32 @@ def mark_fbs_done(disk):
         img.close()
 
 
+# utf8migrate's marker (docs/commands/utf8migrate.md), on an image this
+# tool FORMATS: everything on it came from the seed tree, which is UTF-8,
+# so there is nothing for the first boot to convert -- and that walk held
+# every service back for seconds on each fresh test image, under load,
+# while tools assumed a desktop at the prompt. An image that already
+# existed keeps whatever history it has, and is converted at its boot.
+UTF8_MARKER = "/var/lib/utf8migrate"
+
+
+def mark_utf8_done(disk):
+    sys.path.insert(0, HERE)
+    import mkpart_test
+    import tfs3_writer
+    base, sectors = mkpart_test.volume_of(disk)
+    img = tfs3_writer.Tfs3Image(disk, writable=True, base_lba=base, sectors=sectors)
+    try:
+        for d in ("/var", "/var/lib"):
+            if img.lookup(d) is None:
+                tfs3_writer.mkdir_path(img, d)
+        if img.lookup(UTF8_MARKER) is None:
+            tfs3_writer.write_file(img, b"a fresh image, seeded in UTF-8 -- nothing to convert\n",
+                                   UTF8_MARKER)
+    finally:
+        img.close()
+
+
 DEFAULT_PARTITION = "gpt"   # what a BLANK image gets
 
 # THE BOOTABLE LAYOUT, and the reason a blank image gets three
@@ -194,6 +220,7 @@ def main():
         print(f"seed_disk: {disk} is blank -- {kind.upper()}, "
               f"layout '{layout}'")
         seed_partitioned(disk, seed_dir, kind, layout)
+        mark_utf8_done(disk)
         if args.fbs_done:
             mark_fbs_done(disk)
         return
@@ -211,6 +238,8 @@ def main():
     print(f"seed_disk: {disk} is tfs3, {where}")
     extra = ["--at-lba", str(base), "--sectors", str(sectors)] if partitioned else []
     run("tfs3_writer.py", "sync", disk, seed_dir, *extra)
+    if fmt is None:
+        mark_utf8_done(disk)
     if args.fbs_done:
         mark_fbs_done(disk)
 
