@@ -5,6 +5,9 @@
 #include "fswatch.h"
 #include "fs.h"
 #include "errno.h"
+#include "klimit.h"
+#include "klog.h"
+#include "kfmt.h"
 
 // A pid no process holds, so these watches are this test's alone.
 #define TEST_PID 0x7ff0
@@ -50,25 +53,47 @@ KTEST("fswatch", "a change fires the watch on its directory, and no other") {
     KTEST_ASSERT_EQ(etc_after, 1);
 }
 
-KTEST("fswatch", "the same path twice is one watch, and a full table refuses") {
+KTEST("fswatch", "the same path twice is one watch, the table grows past 16, and its ceiling refuses, logged") {
+    enum { N = 100 };
     int a = fswatch_add(TEST_PID, "/usr/wm/applications");
     int b = fswatch_add(TEST_PID, "/usr/wm/applications/");
-    int ids[FSWATCH_MAX + 1];
-    int n = 0, refused = 0;
-    char path[16] = "/w/0";
-    for (int i = 0; i < FSWATCH_MAX + 1; i++) {
-        path[3] = (char)('a' + i);
-        ids[n] = fswatch_add(TEST_PID, path);
-        if (ids[n] == -ENOSPC) { refused = 1; break; }
-        n++;
+    char path[24];
+    int made = 0, top = 0, last = 0;
+    for (int i = 0; i < N; i++) {
+        k_snprintf(path, sizeof path, "/w/%d", i);
+        int id = fswatch_add(TEST_PID, path);
+        if (id <= 0) break;
+        if (id > top) top = id;
+        last = id;
+        made++;
     }
+    // Each of the hundred fires on its own path: the grown slots are
+    // walked, not just the first sixteen.
+    uint64_t self, parent;
+    fswatch_hash("/w/99", &self, &parent);
+    fswatch_note(self, parent);
+    uint32_t fired = fswatch_fires(last);
+
+    // The ceiling, lowered to what is live now: the next one is refused.
+    uint32_t was = klimit_test_set(&fswatch_limit, 1);
+    uint64_t mark = klog_total_bytes();
+    int past = fswatch_add(TEST_PID, "/w/past");
+    int logged = klimit_test_logged(&fswatch_limit, mark);
+    int same = fswatch_add(TEST_PID, "/w/0");   // an existing watch is not a new one
+    klimit_test_set(&fswatch_limit, was);
+
     fswatch_owner_gone(TEST_PID);
     int again = fswatch_add(TEST_PID, "/usr/wm/applications");
     fswatch_owner_gone(TEST_PID);
 
     KTEST_ASSERT(a > 0);
     KTEST_ASSERT_EQ(b, a);
-    KTEST_ASSERT(refused);
+    KTEST_ASSERT_EQ(made, N);
+    KTEST_ASSERT(top > 16);
+    KTEST_ASSERT_EQ(fired, 1);
+    KTEST_ASSERT_EQ(past, -ENOSPC);
+    KTEST_ASSERT(logged);
+    KTEST_ASSERT(same > 0);
     KTEST_ASSERT(again > 0);          // owner_gone freed every slot
 }
 

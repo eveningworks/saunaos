@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 #include "win_proto.h"
-#include "fswatch.h"   // FSWATCH_MAX: how many FSWATCH notices can be pending
 
 // The compositor's input path -- evdev's job: the kernel reads the
 // devices, queues what it read, and ONE process drains the queue. That
@@ -22,7 +21,9 @@
 // WIN_EV_FSWATCH per watch -- all in ARRIVAL ORDER with the input. Each
 // notice is idempotent and coalesces, so at most WIN_INPUT_NOTICE_RESERVE
 // are ever queued, and input never holds more than WIN_INPUT_MAX: A
-// NOTICE IS NEVER REFUSED.
+// NOTICE IS NEVER REFUSED. The watch table grows (fswatch.h), so the
+// queue names at most WIN_INPUT_FSWATCH_NAMED watches and folds any
+// more into ONE WIN_FSWATCH_OVERFLOW notice ("re-read them all").
 //
 // INPUT AT WIN_INPUT_MAX evicts its OLDEST event that is not a release --
 // the old end, because for input the most recent state is what matters
@@ -32,7 +33,9 @@
 // included -- is ever refused; only a direct win_input_push() can be,
 // and a refused release is logged.
 #define WIN_INPUT_MAX 32                             // raw input's share
-#define WIN_INPUT_NOTICE_RESERVE (3 + FSWATCH_MAX)   // FONT, SCREEN, SETTING, the watches
+#define WIN_INPUT_FSWATCH_NAMED 16                   // watch notices queued by id
+// FONT, SCREEN, SETTING, the named watches, and the overflow notice.
+#define WIN_INPUT_NOTICE_RESERVE (3 + WIN_INPUT_FSWATCH_NAMED + 1)
 #define WIN_EVENT_QUEUE_MAX (WIN_INPUT_MAX + WIN_INPUT_NOTICE_RESERVE)
 
 // Polls the mouse and keyboard and queues WIN_EV_RAW_*. A no-op with no

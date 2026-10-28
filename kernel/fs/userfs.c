@@ -46,6 +46,7 @@
 #include "caltime.h"
 #include "string.h"
 #include "errno.h"
+#include "klimit.h"
 
 #define USERFS_WAIT_MS  30000u  // one call: connect, sign in, answer
 #define USERFS_SLICE_MS 500u    // how often a waiter checks the daemon lives
@@ -96,10 +97,33 @@ struct ufs_mount {
 };
 
 static struct kmutex g_lock;
-// The shares a daemon can serve at once: the handle space SYS_USERFS
-// hands out, its own bound rather than the mount table's. Logged when hit.
-#define USERFS_MAX 16
-static struct ufs_mount *g_tab[USERFS_MAX];
+// The shares served at once: the handle space SYS_USERFS hands out, its
+// own bound rather than the mount table's. GROWN under g_lock, which
+// every reader holds, by doubling to a ceiling sized from RAM: a mount
+// costs its struct and, reading, a read-ahead window of up to
+// USERFS_RA_MAX -- an eighth of RAM at that cost. Logged once when hit.
+static struct ufs_mount **g_tab;
+static int g_tab_cap;
+struct klimit userfs_limit = KLIMIT("userfs: mounted shares", 8,
+                                    sizeof(struct ufs_mount) + USERFS_RA_MAX, 16, 65536);
+
+// A free handle slot, growing the table if none is free; -1 at the
+// ceiling (logged) or out of memory. Holding g_lock.
+static int slot_take_locked(void) {
+    for (int i = 0; i < g_tab_cap; i++) if (!g_tab[i]) return i;
+    int ceiling = (int)klimit_get(&userfs_limit);
+    if (g_tab_cap >= ceiling) { klimit_hit(&userfs_limit); return -1; }
+    int cap = g_tab_cap ? g_tab_cap * 2 : 16;
+    if (cap > ceiling) cap = ceiling;
+    struct ufs_mount **n = kzalloc((uint32_t)cap * sizeof *n);
+    if (!n) return -1;
+    if (g_tab) k_memcpy(n, g_tab, (uint32_t)g_tab_cap * sizeof *n);
+    kfree(g_tab);
+    int at = g_tab_cap;
+    g_tab = n;
+    g_tab_cap = cap;
+    return at;
+}
 
 static int owner_alive(const struct ufs_mount *um) {
     return um->owner > 0 && scheduler_pid_alive(um->owner);
@@ -420,7 +444,7 @@ const struct fs_ops userfs_ops = {
     .name = "userfs",
     .caps = FS_CAP_EPOCH_TIME,
     .volume_relative = 0,
-    .max_mounts = USERFS_MAX,
+    .max_mounts = FS_MOUNTS_ANY,   // the handle table's ceiling is the bound
     .state_free = u_state_free,
     .probe = u_refuse_dev,
     .wipe = u_refuse_dev,
@@ -461,7 +485,7 @@ int userfs_describe(const void *st, struct userfs_describe *out) {
 
 // The live mount behind `handle`, if the caller serves it.
 static struct ufs_mount *served(uint64_t handle) {
-    if (handle < 1 || handle > USERFS_MAX) return NULL;
+    if (handle < 1 || handle > (uint64_t)g_tab_cap) return NULL;
     struct ufs_mount *um = g_tab[handle - 1];
     return um && um->owner == scheduler_current_tgid() ? um : NULL;
 }
@@ -475,7 +499,7 @@ static int64_t op_mount(struct syscall_ctx *c) {
 
     // A point this backend already serves: adopt it if its server is gone.
     kmutex_lock(&g_lock);
-    for (int i = 0; i < USERFS_MAX; i++) {
+    for (int i = 0; i < g_tab_cap; i++) {
         struct ufs_mount *um = g_tab[i];
         if (!um || k_strcmp(um->point, m.point)) continue;
         if (owner_alive(um) && um->owner != me) { kmutex_unlock(&g_lock); return -EBUSY; }
@@ -489,12 +513,10 @@ static int64_t op_mount(struct syscall_ctx *c) {
         klog_printf("userfs: %s adopted by pid %d\n", m.point, me);
         return um->handle;
     }
-    int slot = -1;
-    for (int i = 0; i < USERFS_MAX && slot < 0; i++) if (!g_tab[i]) slot = i;
+    int slot = slot_take_locked();
     kmutex_unlock(&g_lock);
     if (slot < 0) {
-        klog_printf(KLOG_WARN "userfs: %d shares are mounted, the most it serves -- %s refused\n",
-                    USERFS_MAX, m.point);
+        klog_printf(KLOG_WARN "userfs: no handle for %s -- refused\n", m.point);
         return -ENOSPC;
     }
 
@@ -558,7 +580,7 @@ static int64_t op_reply(struct syscall_ctx *c) {
     int64_t rc = 0;
     kmutex_lock(&g_lock);
     struct ufs_req *found = NULL;
-    for (int i = 0; i < USERFS_MAX && !found; i++) {
+    for (int i = 0; i < g_tab_cap && !found; i++) {
         struct ufs_mount *um = g_tab[i];
         if (!um || um->owner != me) continue;
         for (struct ufs_req *r = um->head; r; r = r->next)
@@ -607,7 +629,7 @@ static int64_t op_ctl(struct syscall_ctx *c) {
     // also takes: the mount cannot be freed in between.
     kmutex_lock(&g_lock);
     struct ufs_mount *um = NULL;
-    for (int i = 0; i < USERFS_MAX && !um; i++)
+    for (int i = 0; i < g_tab_cap && !um; i++)
         if (g_tab[i] && !k_strcmp(g_tab[i]->point, u->point)) um = g_tab[i];
     rc = um ? enqueue_locked(um, r) : -ENOENT;
     kmutex_unlock(&g_lock);
@@ -632,4 +654,26 @@ int sys_userfs(struct syscall_ctx *c) {
     }
     c->regs[14] = (uint64_t)rc;
     return 0;
+}
+
+// ---- test seam -----------------------------------------------------
+
+int userfs_test_take_slots(int n) {
+    // A stand-in no lookup can match: no owner is pid -1, and every
+    // mount point starts with '/'.
+    static struct ufs_mount placeholder = { .owner = -1 };
+    int *got = kmalloc((uint32_t)n * sizeof *got);
+    if (!got) return 0;
+    int k = 0;
+    kmutex_lock(&g_lock);
+    while (k < n) {
+        int s = slot_take_locked();
+        if (s < 0) break;
+        g_tab[s] = &placeholder;
+        got[k++] = s;
+    }
+    for (int i = 0; i < k; i++) g_tab[got[i]] = NULL;
+    kmutex_unlock(&g_lock);
+    kfree(got);
+    return k;
 }

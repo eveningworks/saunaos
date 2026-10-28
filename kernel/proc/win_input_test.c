@@ -27,7 +27,6 @@
 #include "process.h"
 #include "proc_info.h"
 #include "keyboard.h"
-#include "fswatch.h"   // FSWATCH_MAX: the most watch notices there can be
 #include "input.h"   // input_report_key(): a key, as a driver reports one
 #include "mouse.h"   // mouse_feed_buttons(): edges for the poll to drain
 
@@ -360,12 +359,15 @@ KTEST("win_input", "a compositor change empties the keyboard's stream and its ow
 KTEST("win_input", "a full queue of releases sheds nothing, and every notice still fits") {
     // A release is never evicted: with nothing else to shed, a new INPUT
     // event is refused. And every notice the kernel sends -- FONT,
-    // SCREEN, SETTING, one FSWATCH per watch -- still finds a slot.
+    // SCREEN, SETTING, one FSWATCH per watch -- still finds a slot, with
+    // MORE watches firing than the queue names: those become one
+    // overflow notice.
     SKIP_IF_ROLE_HELD;
     int pid = spare_pid();
     if (!pid) KTEST_SKIP("no spare pid");
     win_server_set_compositor(pid, 0);
-    int pushed_ups = 0, took_press, took = 0, ups = 0, notices = 0;
+    enum { WATCHES = WIN_INPUT_FSWATCH_NAMED + 20 };
+    int pushed_ups = 0, took_press, took = 0, ups = 0, notices = 0, overflow = 0;
     for (int i = 0; i < WIN_INPUT_MAX; i++) {
         struct win_event up = { .type = WIN_EV_RAW_KEY_UP, .a = 'a' + i % 26 };
         pushed_ups += win_input_push(&up);
@@ -376,7 +378,7 @@ KTEST("win_input", "a full queue of releases sheds nothing, and every notice sti
     n.type = WIN_EV_FONT;    took += win_input_push(&n);
     n.type = WIN_EV_SCREEN;  took += win_input_push(&n);
     n.type = WIN_EV_SETTING; took += win_input_push(&n);
-    for (int w = 1; w <= FSWATCH_MAX; w++) {
+    for (int w = 1; w <= WATCHES; w++) {
         n.type = WIN_EV_FSWATCH;
         n.a = w;
         took += win_input_push(&n);
@@ -386,14 +388,16 @@ KTEST("win_input", "a full queue of releases sheds nothing, and every notice sti
     while (win_input_pop(&got)) {
         if (got.type == WIN_EV_RAW_KEY_UP) ups++;
         else if (got.type != WIN_EV_RAW_KEY) notices++;
+        if (got.type == WIN_EV_FSWATCH && got.a == WIN_FSWATCH_OVERFLOW) overflow++;
     }
     win_server_set_compositor(0, 0);
     KTEST_ASSERT_EQ(pushed_ups, WIN_INPUT_MAX);
     KTEST_ASSERT(!took_press);
-    KTEST_ASSERT_EQ(took, WIN_INPUT_NOTICE_RESERVE);
+    KTEST_ASSERT_EQ(took, 3 + WATCHES);           // no notice refused
     KTEST_ASSERT_EQ(full, WIN_EVENT_QUEUE_MAX);
     KTEST_ASSERT_EQ(ups, WIN_INPUT_MAX);          // every release survived
     KTEST_ASSERT_EQ(notices, WIN_INPUT_NOTICE_RESERVE);
+    KTEST_ASSERT_EQ(overflow, 1);
 }
 
 KTEST("win_input", "a coalesced notice moves to the END, and input keeps its order around notices") {
@@ -471,7 +475,7 @@ KTEST("win_input", "at the full ring, a release still evicts a press rather than
     n.type = WIN_EV_FONT;    win_input_push(&n);
     n.type = WIN_EV_SCREEN;  win_input_push(&n);
     n.type = WIN_EV_SETTING; win_input_push(&n);
-    for (int w = 1; w <= FSWATCH_MAX; w++) { n.type = WIN_EV_FSWATCH; n.a = w; win_input_push(&n); }
+    for (int w = 1; w <= WIN_INPUT_FSWATCH_NAMED + 1; w++) { n.type = WIN_EV_FSWATCH; n.a = w; win_input_push(&n); }
     for (int i = 0; i < WIN_INPUT_MAX; i++) {
         struct win_event press = key_event(i);
         win_input_push(&press);

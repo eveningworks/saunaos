@@ -47,8 +47,10 @@ void wm_watch_init(void) {
 void wm_watch_fired(int id) {
     // SEVERAL TOPICS CAN SHARE AN ID: the kernel hands back the same id
     // for the same path, and matches by hash, so bump every topic on it.
+    // WIN_FSWATCH_OVERFLOW: more fired than the kernel's queue named --
+    // every watched topic re-reads.
     for (int t = 0; t < WM_TOPIC_COUNT; t++)
-        if (g_id[t] > 0 && g_id[t] == id) g_gen[t]++;
+        if (g_id[t] > 0 && (g_id[t] == id || id == WIN_FSWATCH_OVERFLOW)) g_gen[t]++;
 }
 
 void wm_watch_setting(void) {

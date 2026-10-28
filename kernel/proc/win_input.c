@@ -31,8 +31,9 @@
 //
 // **AND A NOTICE IS NEVER REFUSED.** The kernel's notices are FONT,
 // SCREEN, SETTING and one FSWATCH per watch, each idempotent: a newer
-// copy REMOVES the older and goes to the end, so at most
-// WIN_INPUT_NOTICE_RESERVE are ever queued. Input -- polled or pushed --
+// copy REMOVES the older and goes to the end -- and a watch past the
+// WIN_INPUT_FSWATCH_NAMED already queued becomes the one OVERFLOW
+// notice -- so at most WIN_INPUT_NOTICE_RESERVE are ever queued. Input -- polled or pushed --
 // never holds more than the rest (WIN_INPUT_MAX): past that its oldest
 // unmarked event goes, and with none the NEW input is refused. So a
 // notice always finds room, and nothing marked is ever evicted.
@@ -149,6 +150,23 @@ static int enqueue(const struct win_event *ev, int edge) {
         if (q.count == WIN_EVENT_QUEUE_MAX) return refuse(ev, release);
         q.ninput++;
     } else {
+        // A watch not queued yet, with WIN_INPUT_FSWATCH_NAMED already
+        // queued, goes in as the OVERFLOW notice instead (win_proto.h).
+        struct win_event ov;
+        if (ev->type == WIN_EV_FSWATCH && ev->a != WIN_FSWATCH_OVERFLOW) {
+            int named = 0, here = 0;
+            for (int i = 0; i < q.count; i++) {
+                const struct win_event *e = &q.ring[(q.head + i) % WIN_EVENT_QUEUE_MAX];
+                if (e->type != WIN_EV_FSWATCH || e->a == WIN_FSWATCH_OVERFLOW) continue;
+                named++;
+                if (e->a == ev->a) here = 1;
+            }
+            if (!here && named >= WIN_INPUT_FSWATCH_NAMED) {
+                ov = *ev;
+                ov.a = WIN_FSWATCH_OVERFLOW;
+                ev = &ov;
+            }
+        }
         for (int i = 0; i < q.count; i++)
             if (coalesces(&q.ring[(q.head + i) % WIN_EVENT_QUEUE_MAX], ev)) { remove_at(i); break; }
         // The reserve covers the kernel's four notice types; more notices

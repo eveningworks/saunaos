@@ -2774,7 +2774,8 @@ struct sys_rlimit {
                              // change posts WIN_EV_FSWATCH with the
                              // returned id (> 0). -EPERM from anyone
                              // else -- the kernel's event queue is the
-                             // compositor's; -ENOSPC past FSWATCH_MAX.
+                             // compositor's; -ENOSPC past a ceiling
+                             // sized from RAM (logged once).
                              // Watches end with the process. A path need
                              // not exist yet; creating it is a change.
 #define SYS_FS_GENERATION_OF 138 // RDI = a path. SYS_FS_GENERATION scoped

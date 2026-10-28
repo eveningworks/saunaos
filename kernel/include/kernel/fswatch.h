@@ -17,10 +17,14 @@
 //
 // MATCHED BY HASH, not by string: a watch stores the FNV-1a of its
 // path, and vfs.c hands over the hashes of a changed path and of its
-// parent. A stepped write finishes with no path in hand, and 16 slots of
-// FS_PATH_MAX would be 64 KiB of kernel data to avoid a collision whose
+// parent. A stepped write finishes with no path in hand, and a path of
+// FS_PATH_MAX per watch would be 4 KiB each to avoid a collision whose
 // only cost is one spurious reload.
-#define FSWATCH_MAX 16
+//
+// THE TABLE GROWS, to a ceiling sized from RAM (fswatch_limit, logged
+// once when reached) -- inotify's max_user_watches is RAM-scaled too.
+struct klimit;
+extern struct klimit fswatch_limit;   // for a KTEST: klimit_test_set()
 
 // The hashes of `path` and of its parent directory ("/" for a top-level
 // name). `path` is absolute and canonical, as vfs.c receives it; a
@@ -28,7 +32,7 @@
 void fswatch_hash(const char *path, uint64_t *self, uint64_t *parent);
 
 // Registers `path` for `pid`. Returns the id (> 0), the SAME id for a
-// path that pid already watches, or -ENOSPC when the table is full.
+// path that pid already watches, -ENOSPC at the ceiling, or -ENOMEM.
 int fswatch_add(int pid, const char *path);
 
 // Something at `self` changed; its parent is `parent`. Fires each watch

@@ -32,8 +32,9 @@
 //    and makes create, delete and rename each unlink-and-relink three
 //    fields that must agree. This way every one of those is a single
 //    field write that cannot leave a dangling link. The cost is a scan
-//    of RAMFS_MAX_NODES pointers per lookup -- not what a directory
-//    listing will be waiting on.
+//    of the node table per lookup -- as long as the most nodes this
+//    mount has held at once, never a fixed maximum -- not what a
+//    directory listing will be waiting on.
 //
 // 2. FILE DATA IS ONE FRAME PER CHUNK, STRAIGHT FROM pmm. One buffer
 //    per file would need a physically contiguous run as large as the
@@ -84,11 +85,16 @@ static uint8_t *chunk_new(void) {
 
 static void chunk_free(uint8_t *c) { pmm_free_frame((uint64_t)(uintptr_t)c); }
 
-// The table is .bss rather than heap: it is the one allocation that
-// must succeed for the filesystem to exist at all, and a root
-// filesystem that fails to mount because the heap was busy is the
-// situation ramfs is here to prevent. 4096 * 8 bytes = 32 KiB.
-#define RAMFS_MAX_NODES 4096
+// THE NODE TABLE GROWS, from this many pointers, doubling. There is
+// no node-count ceiling of its own: every node takes its struct AND
+// its table pointer from the mount's byte budget (decision 3), so the
+// budget -- half of free memory by default -- is what bounds the
+// count, and a full ramfs refuses a create the way a full disk does.
+// The first table is allocated with the mount's state, before the
+// root exists, so a mount that can allocate its state can hold its
+// root (it was a fixed 4096 in that state, 32 KiB, until 2026-10-28).
+#define RAMFS_NODES_FIRST 64
+#define RAMFS_NODE_COST (sizeof(struct rnode) + sizeof(struct rnode *))
 
 // Chunk pointers per file: the first array holds this many, and it
 // DOUBLES after that -- a fixed step re-copied the array every 128 KiB
@@ -113,7 +119,9 @@ struct rnode {
 // (fs_ops.h). nodes[] IS the filesystem, so a second ramfs mount is
 // simply a second tree.
 struct ramfs_state {
-    struct rnode *nodes[RAMFS_MAX_NODES];
+    struct rnode **nodes;   // `cap` entries; NULL = free. Under the mount's lock
+    int cap;
+    int free_hint;          // no free entry below this; a hint, rechecked
     int mounted;
     uint64_t budget;   // bytes ramfs may hold, decided at mount
     uint64_t used;     // bytes it currently holds
@@ -173,30 +181,47 @@ static void free_chunks(struct ramfs_state *sbi, struct rnode *n) {
 }
 
 static void node_free(struct ramfs_state *sbi, int idx) {
+    if (idx < 0 || idx >= sbi->cap) return;
     struct rnode *n = sbi->nodes[idx];
     if (!n) return;
     free_chunks(sbi, n);
     kfree(n);
     sbi->nodes[idx] = 0;
-    budget_give(sbi, sizeof(struct rnode));
+    if (idx < sbi->free_hint) sbi->free_hint = idx;
+    budget_give(sbi, RAMFS_NODE_COST);
+}
+
+// Doubles the node table. Every caller holds the mount's lock, and
+// nothing keeps a pointer into the table across a call -- an index is
+// what a node is known by.
+static int nodes_grow(struct ramfs_state *sbi) {
+    int cap = sbi->cap ? sbi->cap * 2 : RAMFS_NODES_FIRST;
+    struct rnode **n = kzalloc((uint32_t)cap * sizeof *n);
+    if (!n) return 0;
+    if (sbi->nodes) {
+        k_memcpy(n, sbi->nodes, (uint32_t)sbi->cap * sizeof *n);
+        kfree(sbi->nodes);
+    }
+    sbi->nodes = n;
+    sbi->cap = cap;
+    return 1;
 }
 
 static int node_alloc(struct ramfs_state *sbi, const char *name, int parent, int is_dir) {
-    if (!budget_take(sbi, sizeof(struct rnode))) return -1;
-    for (int i = 0; i < RAMFS_MAX_NODES; i++) {
-        if (sbi->nodes[i]) continue;
-        struct rnode *n = kmalloc(sizeof(struct rnode));
-        if (!n) { budget_give(sbi, sizeof(struct rnode)); return -1; }
-        k_memset(n, 0, sizeof *n);
-        k_strlcpy(n->name, name, RAMFS_NAME_MAX);
-        n->parent = (int32_t)parent;
-        n->is_dir = (uint8_t)(is_dir != 0);
-        n->created = n->modified = now_epoch();
-        sbi->nodes[i] = n;
-        return i;
-    }
-    budget_give(sbi, sizeof(struct rnode));
-    return -1;
+    if (!budget_take(sbi, RAMFS_NODE_COST)) return -1;
+    int i = sbi->free_hint;
+    while (i < sbi->cap && sbi->nodes[i]) i++;
+    if (i == sbi->cap && !nodes_grow(sbi)) { budget_give(sbi, RAMFS_NODE_COST); return -1; }
+    struct rnode *n = kmalloc(sizeof(struct rnode));
+    if (!n) { budget_give(sbi, RAMFS_NODE_COST); return -1; }
+    k_memset(n, 0, sizeof *n);
+    k_strlcpy(n->name, name, RAMFS_NAME_MAX);
+    n->parent = (int32_t)parent;
+    n->is_dir = (uint8_t)(is_dir != 0);
+    n->created = n->modified = now_epoch();
+    sbi->nodes[i] = n;
+    sbi->free_hint = i + 1;
+    return i;
 }
 
 // ---- paths ----------------------------------------------------------
@@ -214,7 +239,7 @@ static int name_matches(const struct rnode *n, const char *seg, int len) {
 }
 
 static int find_child(struct ramfs_state *sbi, int parent, const char *seg, int len) {
-    for (int i = 0; i < RAMFS_MAX_NODES; i++) {
+    for (int i = 0; i < sbi->cap; i++) {
         struct rnode *n = sbi->nodes[i];
         if (!n || n->parent != parent) continue;
         if (name_matches(n, seg, len)) return i;
@@ -294,7 +319,7 @@ static int resolve_new(struct ramfs_state *sbi, const char *path, int *out_paren
 }
 
 static int has_children(struct ramfs_state *sbi, int idx) {
-    for (int i = 0; i < RAMFS_MAX_NODES; i++)
+    for (int i = 0; i < sbi->cap; i++)
         if (sbi->nodes[i] && sbi->nodes[i]->parent == idx) return 1;
     return 0;
 }
@@ -399,9 +424,10 @@ static int ramfs_wipe(void *st, const struct block_device *dev) {
 }
 
 static void drop_everything(struct ramfs_state *sbi) {
-    for (int i = 1; i < RAMFS_MAX_NODES; i++) node_free(sbi, i);
-    if (sbi->nodes[0]) node_free(sbi, 0);
+    for (int i = 1; i < sbi->cap; i++) node_free(sbi, i);
+    node_free(sbi, 0);
     sbi->used = 0;
+    sbi->free_hint = 0;
 }
 
 static int ramfs_format(void *st, const struct block_device *dev) {
@@ -441,8 +467,9 @@ static int ramfs_init(void *st, const struct block_device *dev, uint64_t size_by
 
     // The root. If this fails the machine has no filesystem at all,
     // which is exactly what ramfs exists to prevent -- so it is the one
-    // allocation whose failure is worth a loud line.
-    sbi->nodes[0] = kmalloc(sizeof(struct rnode));
+    // allocation whose failure is worth a loud line. Slot 0: the state
+    // came with a table (ramfs_state_alloc()).
+    sbi->nodes[0] = sbi->cap ? kmalloc(sizeof(struct rnode)) : 0;
     if (!sbi->nodes[0]) {
         klog_write(KLOG_ERR "ramfs: cannot allocate a root directory -- not mounted\n");
         return -1;
@@ -451,7 +478,8 @@ static int ramfs_init(void *st, const struct block_device *dev, uint64_t size_by
     sbi->nodes[0]->parent = -1;
     sbi->nodes[0]->is_dir = 1;
     sbi->nodes[0]->created = sbi->nodes[0]->modified = now_epoch();
-    sbi->used = sizeof(struct rnode);
+    sbi->used = RAMFS_NODE_COST;
+    sbi->free_hint = 1;
     sbi->mounted = 1;
 
     ramfs_log_budget(sbi, why);
@@ -700,7 +728,7 @@ static void ramfs_list(void *st, const char *dir_path, fs_list_cb cb, void *ctx)
     // EVERY child, with no cap of its own: SYS_LISTDIR_AT pages by
     // re-walking and skipping in the callback, so a backend that stops
     // early makes the entries past it unreachable at any offset.
-    for (int i = 0; i < RAMFS_MAX_NODES; i++) {
+    for (int i = 0; i < sbi->cap; i++) {
         struct rnode *n = sbi->nodes[i];
         if (!n || n->parent != dir) continue;
         cb(ctx, n->name, (uint32_t)n->size, n->is_dir);
@@ -748,7 +776,7 @@ static int ramfs_check(void *st, int repair, struct fs_check_result *out, struct
     // pointer, and a leaked chunk would be a kernel heap bug rather
     // than a filesystem one. What IS worth reporting is the shape of
     // what is here, so `fsck` says something true instead of nothing.
-    for (int i = 0; i < RAMFS_MAX_NODES; i++) {
+    for (int i = 0; i < sbi->cap; i++) {
         if (!sbi->nodes[i]) continue;
         out->records_used++;
         for (uint32_t c = 0; c < sbi->nodes[i]->chunk_cap; c++)
@@ -760,9 +788,9 @@ static int ramfs_check(void *st, int repair, struct fs_check_result *out, struct
 // ---- per-mount state ------------------------------------------------
 
 static void *ramfs_state_alloc(void) {
-    struct ramfs_state *st = kmalloc(sizeof *st);
+    struct ramfs_state *st = kzalloc(sizeof *st);
     if (!st) return NULL;
-    k_memset(st, 0, sizeof *st);
+    if (!nodes_grow(st)) { kfree(st); return NULL; }   // the root's slot, now
     return st;
 }
 
@@ -770,7 +798,7 @@ static void ramfs_state_free(void *st) {
     struct ramfs_state *sbi = st;
     if (!sbi) return;
     drop_everything(sbi);                 // every node, and the chunks under it
-    node_free(sbi, 0);
+    kfree(sbi->nodes);
     kfree(sbi);
 }
 

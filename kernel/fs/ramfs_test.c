@@ -360,3 +360,43 @@ KTEST("ramfs", "list emits every child, past the old SYS_LISTDIR batch size") {
 
     ramfs_test_unmount();
 }
+
+KTEST("ramfs", "the node table grows past the 4096 it was fixed at, and the budget bounds it") {
+    // Each node costs its struct and its table pointer from the budget,
+    // so 2 MiB holds several thousand empty files and is the only bound.
+    enum { N = 4200 };
+    KTEST_ASSERT(ramfs_test_mount(2 * 1024 * 1024));
+    KTEST_ASSERT(R()->mkdir(ST, "/n"));
+    char path[32];
+    int made = 0;
+    for (int i = 0; i < N; i++) {
+        k_snprintf(path, sizeof path, "/n/f%d", i);
+        if (!R()->touch(ST, path)) break;
+        made++;
+    }
+    struct list_count n = { 0, 0 };
+    R()->list(ST, "/n", count_cb, &n);
+    struct fs_stat_info last;
+    k_snprintf(path, sizeof path, "/n/f%d", N - 1);
+    int found = R()->stat(ST, path, &last);
+    ramfs_test_unmount();
+
+    // A small budget refuses a create cleanly, well before any count,
+    // and leaves a filesystem that still answers.
+    KTEST_ASSERT(ramfs_test_mount(16 * 1024));
+    int small = 0;
+    for (int i = 0; i < N; i++) {
+        k_snprintf(path, sizeof path, "/s%d", i);
+        if (!R()->touch(ST, path)) break;
+        small++;
+    }
+    int still = R()->is_dir(ST, "/") && R()->exists(ST, "/s0");
+    ramfs_test_unmount();
+
+    KTEST_ASSERT_EQ(made, N);
+    KTEST_ASSERT_EQ(n.seen, N);
+    KTEST_ASSERT(found);
+    KTEST_ASSERT(last.ino > 4096);
+    KTEST_ASSERT(small > 0 && small < N);
+    KTEST_ASSERT(still);
+}

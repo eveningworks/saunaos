@@ -243,8 +243,11 @@
 // in the queue -- one pending per watch, one SETTING -- so a program
 // writing all day costs one event, not a backlog. inotify's watch
 // descriptors and Windows' WM_SETTINGCHANGE, delivered where the
-// compositor already waits.
+// compositor already waits. a == WIN_FSWATCH_OVERFLOW (0, never an id)
+// means MORE watches fired than the queue names one by one: re-read
+// what EVERY watch was for -- inotify's IN_Q_OVERFLOW.
 #define WIN_EV_FSWATCH    38
+#define WIN_FSWATCH_OVERFLOW 0
 #define WIN_EV_SETTING    39
 #define WIN_EV_POPUP_DONE 33 // `window`: a popup of this client the compositor
                              // DISMISSED -- a press landed outside every

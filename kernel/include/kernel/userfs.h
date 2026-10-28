@@ -20,4 +20,11 @@ struct userfs_describe {
 // `st` is a userfs mount's state (struct mount's). Always 1.
 int userfs_describe(const void *st, struct userfs_describe *out);
 
+// The handle table's ceiling (klimit.h), and a KTEST seam: takes up to
+// `n` handle slots as a mount would, without mounting, gives them all
+// back, and returns how many it got.
+struct klimit;
+extern struct klimit userfs_limit;
+int userfs_test_take_slots(int n);
+
 #endif
