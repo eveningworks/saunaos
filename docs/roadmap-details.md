@@ -5375,6 +5375,17 @@ it serves. Small, and it makes everything above it discoverable.*
 
 ## Known issues and papercuts (unscheduled)
 
+### Full repaints where a small rect would do -- toywm's bare `redraw_pending = 1`, apps repainting a whole window
+
+Asked for 2026-10-28, after the File Manager's drag label sat still on the ASUS until the mouse stopped. The cause was one line: `wm_dnd_motion()` set `redraw_pending = 1` on every pass of toywm's loop while a drag was held, and `redraw_pending` with no damage reported is a FULL-SCREEN recompose (`wm_render_frame()` treats no damage as "unknown, be safe"). A fast mouse wakes the loop hundreds of times a second, so the ASUS composed ~1030 full 1080p frames in one five-second drag, and under QEMU with fast motion toywm took 1.54 s of CPU in 1.5 s while the File Manager got 0.03 s -- the app was starved, not slow. Fixed by damaging only the label's old and new boxes, and by asking for nothing at all while the pointer is over the source window, whose toolkit draws its own ghost.
+
+**The same shape almost certainly exists elsewhere.** Two places to look:
+
+- **The compositor** -- every bare `redraw_pending = 1` in `userland/wm/` that has no `wm_damage_rect()` beside it buys a full-screen frame. Each one is cheap when it fires once (a click, a window opening), and a bug when something can make it fire per input event or per loop pass. `grep -n "redraw_pending = 1" userland/wm/*.c` and read each for "can a moving pointer or a held button reach this every pass?". Known candidates: a focus change's title colour; the calendar, context menu and confirm dialog (their own roadmap line).
+- **The apps** -- a uapp client repaints and presents its WHOLE window for any change (`flush()` in `userland/ui/uapp.c`), so a small thing that moves with the pointer costs a full-window repaint per motion: the File Manager's in-window drag ghost is one. The toolkit's own fix is "The toolkit repaints only INVALIDATED widgets"; until then, look for per-motion `dirty = 1` with nothing in the window changing but a small overlay.
+
+**How to measure each candidate:** `gui compositor --json` before and after driving it -- `frame_full.n` is cumulative, so its delta is the number of full-screen frames the action cost; `windows.frames` and `copies.client_px` show how often clients presented. **Test with FAST motion**: `vm.py` plus `QMPSession.move_rel()` with no sleep (~1600 events a second) reproduces what a real mouse does; `warp_cursor()` is ~0.3 s a step and hides the whole class. A CPU split from `DebugConsole.processes()` (toywm against the app) says who is starved. `filemanager_test.py`'s "a drag inside its own window costs the compositor no full-screen frames" is the worked example of a check.
+
 ### The kernel ships ~62 KB of `.eh_frame` unwind tables nothing can ever read
 
 **DONE 2026-09-12.** The loaded image lost exactly 155,328 bytes

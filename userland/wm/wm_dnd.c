@@ -21,6 +21,7 @@
 // only as a release nothing accepted -- the file having moved anyway.
 #include "wm_internal.h"
 #include "wm_dnd.h"
+#include "wm_rawin.h"
 #include "desktop.h"
 #include "ui/uui.h"
 #include "ui/utheme.h"
@@ -34,6 +35,13 @@ static int g_src_pid;      // the dragging client, 0 for the desktop
 static int g_over;         // window index under the pointer, or -1
 static int g_took_drop;    // set on the tick a drop went to a window
 static char g_label[32];
+// The label as last DAMAGED, so the next change repaints its old box
+// and its new one and nothing else.
+static int g_ghost_on, g_gx, g_gy, g_gw, g_gh;
+// What the target window was last told, so a held still pointer sends
+// it nothing: each DRAG_OVER costs it a page copy and a repaint.
+static int g_sent_x, g_sent_y;
+static unsigned g_sent_mods;
 
 int wm_dnd_active(void) { return g_active; }
 int wm_dnd_took_drop(void) { return g_took_drop; }
@@ -44,6 +52,8 @@ static void begin(int pid, int count) {
     g_src_pid = pid;
     g_over = -1;
     g_took_drop = 0;
+    g_ghost_on = 0;
+    g_sent_x = g_sent_y = -1;
     if (count == 1) k_snprintf(g_label, sizeof g_label, "1 item");
     else k_snprintf(g_label, sizeof g_label, "%d items", count);
 }
@@ -106,16 +116,54 @@ int wm_dnd_refused_at(int mx, int my) {
     return 0;
 }
 
+// The label's box for the pointer at (mx, my); 0 when none is drawn
+// there -- over the source's own window its toolkit draws the ghost.
+static int ghost_rect(int mx, int my, int *x, int *y, int *w, int *h) {
+    for (int i = 0; i < window_count && g_src_pid; i++) {
+        const struct window *win = &windows[i];
+        if (win->client_pid == g_src_pid && win->state != WIN_MINIMIZED &&
+            uui_hit(win->x, win->y, win->w, win->h, mx, my)) return 0;
+    }
+    // Over a desktop icon that takes drops, the label says what it does.
+    const char *label = desktop_drop_label() ? desktop_drop_label() : g_label;
+    *x = mx + 14;
+    *y = my + 14;
+    *w = ugfx_text_width(label) + 12;
+    *h = ugfx_char_h() + 6;
+    return 1;
+}
+
+// A FRAME ONLY WHEN THE LABEL CHANGED, and only its old and new boxes.
+// This used to ask for a full-screen repaint on every pass of the loop
+// while a drag was held: a fast mouse wakes the loop hundreds of times
+// a second, and the recomposes starved the source app of the CPU it
+// needed to move its own ghost (the File Manager's label sat still
+// until the mouse stopped, on the ASUS).
+static void ghost_update(int mx, int my) {
+    int x = 0, y = 0, w = 0, h = 0;
+    int on = ghost_rect(mx, my, &x, &y, &w, &h);
+    if (on == g_ghost_on &&
+        (!on || (x == g_gx && y == g_gy && w == g_gw && h == g_gh))) return;
+    if (g_ghost_on) wm_damage_rect(g_gx - 1, g_gy - 1, g_gw + 2, g_gh + 2);
+    if (on) wm_damage_rect(x - 1, y - 1, w + 2, h + 2);
+    g_ghost_on = on;
+    g_gx = x; g_gy = y; g_gw = w; g_gh = h;
+    redraw_pending = 1;
+}
+
 void wm_dnd_motion(int mx, int my, uint8_t buttons) {
     g_took_drop = 0;
     if (!g_active) return;
     int t = target_under(mx, my);
     if (buttons & 0x1) {
         int over = t >= 0 ? t : -1;
-        if (over != g_over) { leave_current(); g_over = over; }
+        unsigned mods = wm_rawin_pointer_mods();
+        int news = mx != g_sent_x || my != g_sent_y || mods != g_sent_mods;
+        if (over != g_over) { leave_current(); g_over = over; news = 1; }
+        g_sent_x = mx; g_sent_y = my; g_sent_mods = mods;
         desktop_drop_hover(t == NOWHERE ? mx : -1, t == NOWHERE ? my : -1);
-        if (t >= 0) wm_client_send_mouse(&windows[t], WIN_EV_DRAG_OVER, mx, my, 0);
-        redraw_pending = 1;   // the ghost moved
+        if (t >= 0 && news) wm_client_send_mouse(&windows[t], WIN_EV_DRAG_OVER, mx, my, 0);
+        ghost_update(mx, my);   // after the hover, which can change the label
         return;
     }
     // The release. Over a window: its drop. Over the desktop
@@ -147,17 +195,10 @@ void wm_dnd_motion(int mx, int my, uint8_t buttons) {
 // artwork would be one program's guess at another's icon.
 void wm_dnd_draw(int mx, int my) {
     if (!g_active) return;
-    int inside_source = 0;
-    for (int i = 0; i < window_count && g_src_pid; i++) {
-        const struct window *w = &windows[i];
-        if (w->client_pid == g_src_pid && w->state != WIN_MINIMIZED &&
-            uui_hit(w->x, w->y, w->w, w->h, mx, my)) inside_source = 1;
-    }
-    if (inside_source) return;
-    // Over a desktop icon that takes drops, the label says what it does.
+    int x, y, w, h;
+    if (!ghost_rect(mx, my, &x, &y, &w, &h)) return;
     const char *label = desktop_drop_label() ? desktop_drop_label() : g_label;
-    int tw = ugfx_text_width(label);
-    int x = mx + 14, y = my + 14, w = tw + 12, h = ugfx_char_h() + 6;
+    int tw = w - 12;
     ugfx_fill_rect(wm_surface(), x, y, w, h, UTHEME_PANEL_BG);
     ugfx_draw_rect(wm_surface(), x, y, w, h, UTHEME_BORDER);
     ugfx_draw_string_clipped(wm_surface(), x + 6, y + 3, tw, label, UTHEME_TEXT, UTHEME_PANEL_BG);

@@ -3020,6 +3020,7 @@ def run(dbg, qmp, tmp, res):
     # or COPIES with Ctrl. Asserted through the SHELL's listing, which
     # is the independent witness.
     print("drag and drop")
+    full_frames = []   # the compositor's full repaints while each drag was held
 
     def drag_rows(view_row, x1, y1, ctrl=False):
         """Press on `view_row` (confirmed), carry the pointer to (x1, y1)
@@ -3032,12 +3033,14 @@ def run(dbg, qmp, tmp, res):
             qmp.key_down("ctrl")
         qmp.mouse_down()
         time.sleep(0.2)
+        n0 = dbg.json("gui compositor --json")["frame_full"]["n"]
         mid = None
         for i in range(1, 7):
             dbg.warp_cursor(qmp, x0 + (x1 - x0) * i // 6, y0 + (y1 - y0) * i // 6)
             if i == 6:
                 time.sleep(0.25)
                 mid = layout_now(dbg, win)
+        full_frames.append(dbg.json("gui compositor --json")["frame_full"]["n"] - n0)
         qmp.mouse_up()
         if ctrl:
             qmp.key_up("ctrl")
@@ -3051,6 +3054,14 @@ def run(dbg, qmp, tmp, res):
               mid is not None and mid.drag == (1, 1, 0) and mid.drop and
               mid.drop[1] == -1,
               f"drag={mid and mid.drag} drop={mid and mid.drop}")
+    # Inside its own window the app draws the ghost, so the compositor
+    # has nothing to repaint but the pointer. It once recomposed the
+    # whole screen on every pass of its loop while a drag was held, and
+    # starved the app until the mouse stopped (a few seconds of this
+    # drag held still are dozens of full frames).
+    res.check("a drag inside its own window costs the compositor no full-screen frames",
+              bool(full_frames) and full_frames[-1] <= 3,
+              f"full frames while held: {full_frames}")
     moved = wait_listing(dbg, DDST, lambda names: "g0.txt" in names)
     res.check("dropping a file on the other pane MOVES it",
               moved and "g0.txt" not in listing(dbg, DD),
