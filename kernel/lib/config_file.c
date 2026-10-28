@@ -13,6 +13,7 @@
 #include "kpath.h"
 #include "heap.h"   // kmalloc -- the scan's state is the call's
 #include "kfmt.h"   // klog_printf
+#include "klog.h"   // KLOG_ERR
 
 // Grown on demand. A grown table's OLD ARRAY IS KEPT, never freed, so a
 // pointer config_file_find() handed out before the growth still reads
@@ -182,7 +183,15 @@ void config_files_scan(void) {
         // whole index.
         if (!etc_config_load(full, &x->buf)) continue;   // unreadable or oversize: skipped
         if (!etc_config_buf_get(&x->buf, "Name", name, sizeof name)) continue;
-        if (!etc_config_buf_get(&x->buf, "Path", path, sizeof path)) continue;
+        if (!etc_config_buf_get(&x->buf, "Path", path, sizeof path)) {
+            // CONFIG_PATH_MAX stays (a kernel table, fixed per record),
+            // so a Path= past it is SAID, not just skipped.
+            char probe[256];
+            if (etc_config_buf_get(&x->buf, "Path", probe, sizeof probe))
+                klog_printf(KLOG_ERR "config: %s: Path= is %u bytes, max %u -- skipped\n",
+                            x->names[i], (unsigned)k_strlen(probe), CONFIG_PATH_MAX - 1);
+            continue;
+        }
         if (!etc_config_buf_get(&x->buf, "Description", desc, sizeof desc)) desc[0] = '\0';
         if (!name[0] || path[0] != '/') continue;
 

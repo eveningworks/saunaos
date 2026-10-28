@@ -32,6 +32,7 @@
 #include "lib/ulogset.h"
 #include "lib/uclip.h"
 #include "lib/uconf.h"
+#include "lib/ugrow.h"
 #include "rt/sys.h"
 #include <dirent.h>
 #include <fcntl.h>
@@ -40,16 +41,16 @@
 #include <string.h>
 #include <unistd.h>
 
-// Bounded, and the newest win. A quiet boot on the test laptop is ~600
-// lines; one with a driver retrying is thousands, and a stored boot is
-// read from its END so its start is what is lost (ulogset_read_file).
+// A RETENTION WINDOW, NOT A CAP ON A LIST: the newest win, as in the
+// klog ring this views. A quiet boot on the test laptop is ~600 lines;
+// one with a driver retrying is thousands, and a stored boot is read
+// from its END so its start is what is lost (ulogset_read_file).
+// reload() logs how many went.
 #define MAX_LINES 4000
 
 #define LOG_DIR    "/var/log"
 #define BOOT_DIR   "/var/log/boot"
 #define CONF_PATH  "/etc/logview.conf"
-#define MAX_SOURCES 64
-#define SOURCE_LABEL 32
 
 enum {
     ID_MENU = 1, ID_TB, ID_SOURCE, ID_SHOW, ID_FROM, ID_SEARCH, ID_LIST,
@@ -69,10 +70,12 @@ static struct ulog_filter g_filter = { .only = -1 };
 
 // --- sources: this boot, stored boots, other files ------------------------
 
-struct source { char label[SOURCE_LABEL]; char path[64]; int live; };
-static struct source g_src[MAX_SOURCES];
-static const char *g_src_items[MAX_SOURCES];
-static int g_nsrc;
+// Every log there is, GROWN ON DEMAND (lib/ugrow.h); a source's label
+// and path are one allocation sized to them. Listed once, at start.
+struct source { char *label, *path; int live; };
+static struct source *g_src;
+static const char **g_src_items;
+static int g_nsrc, g_src_cap, g_src_items_cap;
 
 static int cmp_boot_desc(const void *a, const void *b) {
     const struct source *x = a, *y = b;
@@ -81,10 +84,17 @@ static int cmp_boot_desc(const void *a, const void *b) {
 }
 
 static void add_source(const char *label, const char *path, int live) {
-    if (g_nsrc >= MAX_SOURCES) return;
+    size_t ll = strlen(label) + 1, pl = strlen(path) + 1;
+    char *mem = malloc(ll + pl);
+    if (!mem || !UGROW(g_src, g_src_cap, g_nsrc + 1) ||
+        !UGROW(g_src_items, g_src_items_cap, g_nsrc + 1)) {
+        free(mem);
+        ulogf("logview: out of memory, %s not listed\n", path[0] ? path : label);
+        return;
+    }
     struct source *s = &g_src[g_nsrc++];
-    snprintf(s->label, sizeof s->label, "%s", label);
-    snprintf(s->path, sizeof s->path, "%s", path);
+    s->label = memcpy(mem, label, ll);
+    s->path = memcpy(mem + ll, path, pl);
     s->live = live;
 }
 
@@ -97,11 +107,11 @@ static void scan_sources(void) {
     DIR *d = opendir(BOOT_DIR);
     if (d) {
         struct dirent *e;
-        while ((e = readdir(d)) && g_nsrc < MAX_SOURCES - 16) {
+        while ((e = readdir(d))) {
             if (e->d_type == DT_DIR) continue;
             unsigned long long n = strtoull(e->d_name, 0, 10);
             if (!n) continue;
-            char label[SOURCE_LABEL], path[64];
+            char label[32], path[sizeof BOOT_DIR + sizeof e->d_name];
             snprintf(label, sizeof label, "Boot %llu", n);
             snprintf(path, sizeof path, BOOT_DIR "/%s", e->d_name);
             add_source(label, path, 0);
@@ -112,9 +122,9 @@ static void scan_sources(void) {
     d = opendir(LOG_DIR);
     if (d) {
         struct dirent *e;
-        while ((e = readdir(d)) && g_nsrc < MAX_SOURCES) {
+        while ((e = readdir(d))) {
             if (e->d_type == DT_DIR || !strstr(e->d_name, ".log")) continue;
-            char path[64];
+            char path[sizeof LOG_DIR + sizeof e->d_name];
             snprintf(path, sizeof path, LOG_DIR "/%s", e->d_name);
             add_source(e->d_name, path, 0);
         }
@@ -140,7 +150,7 @@ static char g_show_lbl[3][24];
 static const char *g_show_items[3] = { g_show_lbl[0], g_show_lbl[1], g_show_lbl[2] };
 static const char *const FROM_ITEMS[] = { "All sources", "Kernel", "Programs" };
 static char g_only_lbl[32], g_mute_lbl[48], g_unmute_lbl[32];
-static char g_st_lines[32], g_st_err[24], g_st_warn[24], g_st_src[SOURCE_LABEL], g_st_follow[16];
+static char g_st_lines[32], g_st_err[24], g_st_warn[24], g_st_src[48], g_st_follow[16];
 
 static const struct uui_menu_item file_items[] = {
     UUI_MENU("Save shown lines as...", CMD_SAVE, "Ctrl+S"),
@@ -277,6 +287,9 @@ static void reload(void) {
         ulogset_read_file(&g_set, s->path, name ? name + 1 : s->path);
     }
     ulogset_finish(&g_set);
+    if (g_set.dropped)
+        ulogf("logview: %s: the oldest %d lines not shown, the newest %d kept\n",
+              s->label, g_set.dropped, MAX_LINES);
     if (g_only_id.have) g_filter.only = find_line(&g_only_id);
     ulogset_filter(&g_set, &g_filter);
     uui_loglist_refresh(&g_list);
@@ -717,11 +730,14 @@ int main(int argc, char **argv) {
     if (argc > 1 && argv[1][0]) {
         int k = -1;
         for (int i = 0; i < g_nsrc; i++) if (!strcmp(g_src[i].path, argv[1])) k = i;
-        if (k < 0 && g_nsrc < MAX_SOURCES) {
+        if (k < 0) {
             const char *name = strrchr(argv[1], '/');
+            int had = g_nsrc;
             add_source(name ? name + 1 : argv[1], argv[1], 0);
-            g_src_items[g_nsrc - 1] = g_src[g_nsrc - 1].label;
-            k = g_nsrc - 1;
+            if (g_nsrc > had) {
+                g_src_items[g_nsrc - 1] = g_src[g_nsrc - 1].label;
+                k = g_nsrc - 1;
+            }
         }
         if (k >= 0) g_source_index = k;
     }

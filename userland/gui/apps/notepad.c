@@ -54,7 +54,6 @@
 #define PATH_MAX_LEN 256         // NOT FS_PATH_MAX -- this app's own
                                  // buffers; a longer path is REFUSED
                                  // (path_fits), never truncated.
-#define MAX_DOCS 16              // tabs
 #define UNDO_BYTES (256 * 1024)  // each document's edit history
 
 // --- widget ids -------------------------------------------------------
@@ -130,8 +129,10 @@ struct doc {
     int crlf;                  // the file came with CRLF line endings
 };
 
-static struct doc *g_docs[MAX_DOCS];
-static int g_ndocs;
+// The tabs' documents, grown on demand (lib/ugrow.h) with g_tablist
+// beside them; each holds its own capacity, since one may fail alone.
+static struct doc **g_docs;
+static int g_ndocs, g_docs_cap;
 static int g_cur;
 
 static struct doc *cur(void) { return g_docs[g_cur]; }
@@ -189,7 +190,8 @@ static struct uui_menubar g_menu;
 static struct uui_menubar g_ctx;   // the context menu -- no bar of its own
 static struct uui_toolbar g_tb;
 static struct uui_tabs g_tabs;
-static struct uui_tab g_tablist[MAX_DOCS];
+static struct uui_tab *g_tablist;   // g_tabs.tabs: re-aimed when it moves
+static int g_tablist_cap;
 static struct uui_findbar g_find;
 static int g_find_open;
 static struct uui_splitter g_split;
@@ -440,7 +442,13 @@ static int preview_for(const char *path) {
 }
 
 static struct doc *doc_new(void) {
-    if (g_ndocs >= MAX_DOCS) { set_status("too many tabs -- close one first"); return NULL; }
+    if (!UGROW(g_docs, g_docs_cap, g_ndocs + 1) ||
+        !UGROW(g_tablist, g_tablist_cap, g_ndocs + 1)) {
+        ulogf("notepad: out of memory for tab %d\n", g_ndocs + 1);
+        set_status("out of memory -- close a tab first");
+        return NULL;
+    }
+    g_tabs.tabs = g_tablist;
     struct doc *d = (struct doc *)calloc(1, sizeof *d);
     if (!d) { set_status("out of memory"); return NULL; }
     if (!doc_reserve(d, 0)) { free(d); set_status("out of memory"); return NULL; }
@@ -1335,43 +1343,58 @@ static void recent_sync_menu(void) {
 }
 
 // A list of paths, one a line: /var/lib/notepad/recent and .../session.
-static int paths_read(const char *file, char out[][PATH_MAX_LEN], int max) {
-    static char buf[NP_RECENT_MAX * PATH_MAX_LEN + MAX_DOCS * PATH_MAX_LEN];
+// Each path is handed to `fn` until it answers 0; the file is read whole,
+// at its own size. How many were handed over.
+static int paths_each(const char *file, int (*fn)(const char *path, void *ctx), void *ctx) {
+    uint8_t *buf = NULL;
     size_t got = 0;
-    enum ufile_result r = ufile_read_into(file, buf, sizeof buf - 1, &got);
-    if (r != UFILE_OK && r != UFILE_SHORT) return 0;
-    buf[got] = '\0';
+    if (ufile_slurp(file, 0, &buf, &got) != UFILE_OK) return 0;
     int n = 0;
-    for (char *p = buf; *p && n < max;) {
-        char *e = p;
-        while (*e && *e != '\n') e++;
-        int len = (int)(e - p);
+    for (size_t i = 0; i < got; ) {
+        size_t e = i;
+        while (e < got && buf[e] != '\n') e++;
+        size_t len = e - i;
         if (len > 0 && len < PATH_MAX_LEN) {
-            memcpy(out[n], p, (size_t)len);
-            out[n][len] = '\0';
+            char p[PATH_MAX_LEN];
+            memcpy(p, buf + i, len);
+            p[len] = '\0';
             n++;
+            if (!fn(p, ctx)) break;
         }
-        p = *e ? e + 1 : e;
+        i = e + 1;
     }
+    free(buf);
     return n;
 }
 
-static void paths_write(const char *file, char paths[][PATH_MAX_LEN], int n) {
+// The file a list is written to, emptied; -1 when it cannot be.
+static int paths_create(const char *file) {
     sys_mkdir("/var/lib");
     sys_mkdir(NOTEPAD_STATE_DIR);
-    int fd = sys_open(file, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
+    return sys_open(file, SYS_O_WRITE | SYS_O_CREAT | SYS_O_TRUNC);
+}
+
+static void paths_line(int fd, const char *path) {
+    sys_write(fd, path, strlen(path));
+    sys_write(fd, "\n", 1);
+}
+
+static void recent_save(void) {
+    int fd = paths_create(NOTEPAD_RECENT);
     if (fd < 0) return;
-    for (int i = 0; i < n; i++) {
-        sys_write(fd, paths[i], strlen(paths[i]));
-        sys_write(fd, "\n", 1);
-    }
+    for (int i = 0; i < g_recent_count; i++) paths_line(fd, g_recent[i]);
     sys_close(fd);
 }
 
-static void recent_save(void) { paths_write(NOTEPAD_RECENT, g_recent, g_recent_count); }
+static int recent_take(const char *path, void *ctx) {
+    (void)ctx;
+    strlcpy(g_recent[g_recent_count++], path, PATH_MAX_LEN);
+    return g_recent_count < NP_RECENT_MAX;
+}
 
 static void recent_load(void) {
-    g_recent_count = g_conf.recent_max > 0 ? paths_read(NOTEPAD_RECENT, g_recent, NP_RECENT_MAX) : 0;
+    g_recent_count = 0;
+    if (g_conf.recent_max > 0) paths_each(NOTEPAD_RECENT, recent_take, NULL);
     if (g_recent_count > g_conf.recent_max) g_recent_count = g_conf.recent_max;
     recent_sync_menu();
 }
@@ -1386,17 +1409,20 @@ static void recent_clear(void) {
 // THE TABS, written when the window starts closing -- before the asks
 // for unsaved tabs remove them one by one. Unnamed tabs are not kept.
 static void session_save(void) {
-    static char paths[MAX_DOCS][PATH_MAX_LEN];
-    int n = 0;
+    int fd = paths_create(NOTEPAD_SESSION);
+    if (fd < 0) return;
     for (int i = 0; i < g_ndocs; i++)
-        if (g_docs[i]->path[0]) strlcpy(paths[n++], g_docs[i]->path, PATH_MAX_LEN);
-    paths_write(NOTEPAD_SESSION, paths, n);
+        if (g_docs[i]->path[0]) paths_line(fd, g_docs[i]->path);
+    sys_close(fd);
+}
+
+static int session_take(const char *path, void *ctx) {
+    open_path((struct uapp *)ctx, path);
+    return 1;
 }
 
 static void session_restore(struct uapp *a) {
-    static char paths[MAX_DOCS][PATH_MAX_LEN];
-    int n = paths_read(NOTEPAD_SESSION, paths, MAX_DOCS);
-    for (int i = 0; i < n; i++) open_path(a, paths[i]);
+    int n = paths_each(NOTEPAD_SESSION, session_take, a);
     if (n) ulogf("notepad: reopened %d tab(s)\n", n);
 }
 
