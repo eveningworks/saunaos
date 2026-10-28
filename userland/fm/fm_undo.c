@@ -78,8 +78,9 @@ void undo_record_job(int op, const char *what, char (*paths)[PATH_MAX_LEN],
     struct ufu_op *rec = ufileundo_begin(&g_undo, kind, label);
     for (int i = 0; i < n; i++) {
         if (!results[i][0]) continue;
-        if (kind == UFU_TRASH) ufileundo_add(rec, paths[i], 0, results[i]);
-        else ufileundo_add(rec, paths[i], results[i], 0);
+        int ok = kind == UFU_TRASH ? ufileundo_add(rec, paths[i], 0, results[i])
+                                   : ufileundo_add(rec, paths[i], results[i], 0);
+        if (!ok) { ulogf("files: out of memory recording undo at item %d of %d\n", i + 1, n); break; }
     }
     ufileundo_commit(&g_undo, rec);
     ulogf("files: undo recorded \"%s\" (%d step%s)\n", label, rec->count, rec->count == 1 ? "" : "s");

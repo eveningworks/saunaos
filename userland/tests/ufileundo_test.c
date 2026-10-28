@@ -125,6 +125,30 @@ int main(void) {
     utest_checkf(e == -EEXIST && exists(DIR "/sub/p.txt") && exists(DIR "/q.txt"),
                  "a step onto a taken name is refused; the next step still runs (e=%d)", e);
 
+    // MORE STEPS THAN THE OLD FIXED OPERATION HELD (64, until
+    // 2026-10-28): 70 files moved as one operation all come back.
+    enum { MANY = 70 };
+    sys_mkdir(DIR "/many");
+    op = ufileundo_begin(&g_u, UFU_MOVE, "many");
+    int added = 0;
+    for (int i = 0; i < MANY; i++) {
+        char a[64], b[64];
+        snprintf(a, sizeof a, DIR "/m%02d", i);
+        snprintf(b, sizeof b, DIR "/many/m%02d", i);
+        make(b);
+        added += ufileundo_add(op, a, b, 0);
+    }
+    ufileundo_commit(&g_u, op);
+    utest_checkf(added == MANY, "an operation records all %d steps (%d)", MANY, added);
+    e = run(0);
+    int back = 0;
+    for (int i = 0; i < MANY; i++) {
+        char a[64];
+        snprintf(a, sizeof a, DIR "/m%02d", i);
+        back += exists(a);
+    }
+    utest_checkf(!e && back == MANY, "...and undoing it moves all %d back (%d, e=%d)", MANY, back, e);
+
     ufileop_remove(rm, 1, &g_s, 0);
     return utest_end();
 }

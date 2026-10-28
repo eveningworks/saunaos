@@ -31,9 +31,8 @@
 
 #include "lib/ufileop.h"
 
-#define UFU_PATH  256
-#define UFU_STEPS 64     // one operation's items -- the File Manager's queue
-#define UFU_DEPTH 8      // operations kept
+#define UFU_PATH  256    // the File Manager's PATH_MAX_LEN, mirrored
+#define UFU_DEPTH 8      // operations kept -- how far back Undo reaches
 
 enum ufu_kind { UFU_MOVE = 1, UFU_RENAME, UFU_COPY, UFU_CREATE, UFU_TRASH };
 
@@ -43,11 +42,14 @@ struct ufu_step {
     char bin[UFU_PATH];  // where it is in the bin, while it is there
 };
 
+// AN OPERATION'S STEPS GROW WITH IT (lib/ugrow.h): one per item the
+// operation acted on, however many were selected. The journal owns them;
+// a slot keeps its array for the next operation recorded into it.
 struct ufu_op {
     int kind;
-    int count;
+    int count, cap;
     char label[64];      // "Move 3 items to Pictures", for a menu or a toast
-    struct ufu_step step[UFU_STEPS];
+    struct ufu_step *step;
 };
 
 struct ufileundo {
@@ -59,7 +61,7 @@ struct ufileundo {
 // Start recording an operation (it is not undoable until committed).
 // Drops anything that could have been redone.
 struct ufu_op *ufileundo_begin(struct ufileundo *u, int kind, const char *label);
-// One step of the operation being recorded. 0 when it is full.
+// One step of the operation being recorded. 0 when memory ran out.
 int ufileundo_add(struct ufu_op *op, const char *a, const char *b, const char *bin);
 // Keep it -- or drop it, when it ended up with no steps.
 void ufileundo_commit(struct ufileundo *u, struct ufu_op *op);

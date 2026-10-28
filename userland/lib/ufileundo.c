@@ -1,6 +1,8 @@
 // The file-operation undo journal -- see ufileundo.h.
 #include "lib/ufileundo.h"
 #include "lib/utrash.h"
+#include "lib/ugrow.h"
+#include <stdlib.h>
 #include <string.h>
 #include <errno.h>
 #include "rt/sys.h"
@@ -8,7 +10,11 @@
 struct ufu_op *ufileundo_begin(struct ufileundo *u, int kind, const char *label) {
     u->count = u->at;              // what could have been redone is gone
     if (u->count == UFU_DEPTH) {   // full: the oldest falls off
+        free(u->op[0].step);
         memmove(&u->op[0], &u->op[1], sizeof u->op[0] * (UFU_DEPTH - 1));
+        // The last slot's steps moved down with it: it starts empty.
+        u->op[UFU_DEPTH - 1].step = NULL;
+        u->op[UFU_DEPTH - 1].cap = 0;
         u->count--;
         u->at--;
     }
@@ -20,7 +26,7 @@ struct ufu_op *ufileundo_begin(struct ufileundo *u, int kind, const char *label)
 }
 
 int ufileundo_add(struct ufu_op *op, const char *a, const char *b, const char *bin) {
-    if (op->count >= UFU_STEPS) return 0;
+    if (!UGROW(op->step, op->cap, op->count + 1)) return 0;
     struct ufu_step *s = &op->step[op->count++];
     strlcpy(s->a, a ? a : "", sizeof s->a);
     strlcpy(s->b, b ? b : "", sizeof s->b);

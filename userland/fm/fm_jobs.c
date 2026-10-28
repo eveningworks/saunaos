@@ -39,11 +39,13 @@
 // SYS_FS_GENERATION moves -- which a copy in progress makes it do. A
 // queue reading marks as it went would lose them halfway through its
 // own work.
-#define JOB_MAX 64
-
+//
+// THE RUNNING JOB'S ARRAYS GROW TO ITS ITEMS (job_reserve(), lib/ugrow.h)
+// -- they held 64 -- and only while no job runs: the worker reads them.
 static char g_job_what[32];
-static char g_job_path[JOB_MAX][PATH_MAX_LEN];
-static int g_job_isdir[JOB_MAX];
+static char (*g_job_path)[PATH_MAX_LEN];
+static int *g_job_isdir;
+static int g_job_path_cap, g_job_isdir_cap;
 int g_job_count, g_job_at;
 static int g_job_op;
 static char g_job_dest[PATH_MAX_LEN];
@@ -51,7 +53,8 @@ static int g_job_failures;
 // WHERE EACH ITEM ENDED UP, written by the worker: the final path of a
 // move or copy, an item's place in the bin, "" when nothing was done or
 // the step could not be safely undone. What the undo journal records.
-static char g_job_result[JOB_MAX][PATH_MAX_LEN];
+static char (*g_job_result)[PATH_MAX_LEN];
+static int g_job_result_cap;
 // What to do once an extraction is done: 1 go to the folder, 2 open the
 // one file (opening a member of an archive extracts it to /tmp first,
 // Explorer's way).
@@ -140,19 +143,21 @@ static int into_itself(const struct pending *p) {
     return 0;
 }
 
-// The running job, from a staged or a queued one. JOB_MAX is the undo
-// journal's bound per operation (fm_undo.c), so past it the rest is
-// logged rather than silently lost.
+static int job_reserve(int n);
+
+// The running job, from a staged or a queued one. Out of memory runs the
+// items that fit and logs the rest.
 static void install(const struct pending *p) {
     g_job_count = g_job_at = g_job_failures = 0;
     g_job_op = p->op;
     strlcpy(g_job_what, p->what, sizeof g_job_what);
     strlcpy(g_job_dest, p->dest, sizeof g_job_dest);
-    for (int i = 0; i < p->count && g_job_count < JOB_MAX; i++) {
+    int fit = job_reserve(p->count);
+    for (int i = 0; i < p->count && g_job_count < fit; i++) {
         strlcpy(g_job_path[g_job_count], p->path[i], PATH_MAX_LEN);
         g_job_isdir[g_job_count++] = p->isdir[i];
     }
-    if (p->count > JOB_MAX) ulogf("files: %d items, one operation holds %d\n", p->count, JOB_MAX);
+    if (p->count > fit) ulogf("files: out of memory, %d of %d items run\n", fit, p->count);
 }
 
 enum { STAGE_DROPPED, STAGE_RUN, STAGE_QUEUED };
@@ -386,7 +391,25 @@ static int g_cur_index;
 // far through ALL of it rather than through one file.
 static int g_counting, g_by_bytes;
 static unsigned long long g_bytes_total, g_bytes_done;
-static unsigned long long g_item_bytes[JOB_MAX];
+static unsigned long long *g_item_bytes;
+static int g_item_bytes_cap;
+
+// Every per-item array of the running job grown to `n` items (at least
+// one: an archive's or compress's single result). How many fit -- `n`,
+// or fewer when memory ran out. Never while a job runs.
+static int job_reserve(int n) {
+    if (n < 1) n = 1;
+    int ok = UGROW(g_job_path, g_job_path_cap, n);
+    ok &= UGROW(g_job_isdir, g_job_isdir_cap, n);
+    ok &= UGROW(g_job_result, g_job_result_cap, n);
+    ok &= UGROW(g_item_bytes, g_item_bytes_cap, n);
+    if (ok) return n;
+    int fit = g_job_path_cap;
+    if (g_job_isdir_cap < fit) fit = g_job_isdir_cap;
+    if (g_job_result_cap < fit) fit = g_job_result_cap;
+    if (g_item_bytes_cap < fit) fit = g_item_bytes_cap;
+    return fit;
+}
 static unsigned long long g_item_base;    // bytes of the items before this one
 static unsigned long long g_file_base;    // ...and of this item's files before this file
 static unsigned long long g_file_size;
@@ -609,7 +632,8 @@ static int c_progress(void *ctx, unsigned long long done, unsigned long long tot
 // archive is the single result, and every member is named from the
 // folder they share.
 static void compress_all(void) {
-    static const char *names[JOB_MAX];
+    const char **names = malloc(sizeof *names * (size_t)(g_job_count ? g_job_count : 1));
+    if (!names) { worker_error(0, g_cmp_out, ENOMEM); return; }
     for (int i = 0; i < g_job_count; i++) names[i] = k_path_basename(g_job_path[i]);
     pthread_mutex_lock(&g_lock);
     strlcpy(g_cur_name, k_path_basename(g_cmp_out), sizeof g_cur_name);
@@ -617,6 +641,7 @@ static void compress_all(void) {
     char err[128];
     int rc = uarchive_create(g_cmp_out, g_cmp_kind, g_cmp_level, g_job_dest, names, g_job_count,
                              c_progress, 0, err, sizeof err);
+    free(names);
     if (rc < 0) {
         if (!g_cancel) worker_error(0, g_cmp_out, -rc);
         ulogf("files: compress %s: %s\n", g_cmp_out, err);
@@ -1010,6 +1035,7 @@ void do_extract_archive(const char *archive, const char *dest, int then) {
     g_job_op = CMD_EXTRACT;
     strlcpy(g_job_what, "Extract", sizeof g_job_what);
     strlcpy(g_job_dest, dest, sizeof g_job_dest);
+    if (!job_reserve(1)) { set_note("out of memory"); return; }
     snprintf(g_job_path[0], PATH_MAX_LEN, "%s%s", FM_ARC, archive);
     g_job_isdir[0] = 1;
     g_job_count = 1;
@@ -1030,6 +1056,7 @@ void do_extract(int all, const char *dest, int then) {
         g_job_op = CMD_EXTRACT;
         strlcpy(g_job_what, "Extract", sizeof g_job_what);
         strlcpy(g_job_dest, dest, sizeof g_job_dest);
+        if (!job_reserve(1)) { set_note("out of memory"); return; }
         snprintf(g_job_path[0], PATH_MAX_LEN, "%s%s", FM_ARC, archive);
         g_job_isdir[0] = 1;
         g_job_count = 1;
@@ -1051,7 +1078,9 @@ void fm_job_undo(struct ufu_op *op, int redo) {
     g_job_redo = redo;
     strlcpy(g_job_what, redo ? "Redo" : "Undo", sizeof g_job_what);
     g_job_dest[0] = '\0';
-    g_job_count = op->count < JOB_MAX ? op->count : JOB_MAX;
+    g_job_count = job_reserve(op->count);
+    if (g_job_count > op->count) g_job_count = op->count;
+    if (g_job_count < op->count) ulogf("files: out of memory, %d of %d steps run\n", g_job_count, op->count);
     for (int i = 0; i < g_job_count; i++) {
         const struct ufu_step *s = &op->step[i];
         strlcpy(g_job_path[i], s->b[0] ? s->b : s->a, PATH_MAX_LEN);
@@ -1257,7 +1286,7 @@ void commit_delete(void) {
         g_job_op = CMD_PURGE;
         strlcpy(g_job_what, "Empty", sizeof g_job_what);
         g_job_dest[0] = '\0';
-        g_job_count = bin_paths(g_job_path, JOB_MAX);
+        g_job_count = bin_paths(g_job_path, job_reserve(bin_count()));
         for (int i = 0; i < g_job_count; i++) g_job_isdir[i] = 0;
         start_job();
         break;
