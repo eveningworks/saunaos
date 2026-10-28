@@ -26,6 +26,7 @@
 #include "lib/utmppath.h"
 
 #include "lib/utest.h"
+#include "lib/ugrow.h"   // UGROW -- the dup()ed descriptors, as many as the kernel allows
 
 // Reports the code as well as the verdict, so a failure says what it
 // actually got instead of only that it was wrong.
@@ -130,8 +131,8 @@ int main(void) {
     // --- EMFILE: exhaust this process's table for real ------------------
     //
     // **FILLED WITH dup(), NOT WITH open(), AND THAT IS THE WHOLE
-    // POINT.** There are two tables -- FD_MAX descriptors per process
-    // and FD_DESC_MAX open-file DESCRIPTIONS for the whole system -- and
+    // POINT.** There are two tables -- descriptors per process and
+    // open-file DESCRIPTIONS for the whole system -- and
     // open() needs one of each. On a machine with a dozen services
     // alive the shared one runs out FIRST, so an open loop stops with
     // this process's table half empty and every conclusion drawn from
@@ -140,15 +141,15 @@ int main(void) {
     // intermittently, for months. dup() takes only a descriptor -- it
     // shares the description it copies -- so this loop fills the one
     // table it means to and cannot be affected by anything else running.
-    // STATIC, and sized past the kernel's per-space ceiling: FD_MAX is
-    // 256 now that the table grows (kernel/include/kernel/syscalls.h),
-    // and an array too small to reach it makes this loop end with the
-    // table half full -- which is the exact false conclusion the
-    // comment above warns about, arrived at from the other direction.
-    // Static because 300 ints is past the ring-3 frame budget.
-    static int held[300];
+    // GROWN, NOT SIZED: the kernel's per-process ceiling is derived
+    // from RAM (kernel/include/kernel/syscalls.h), and an array too small
+    // to reach it makes this loop end with the table half full -- the
+    // exact false conclusion the comment above warns about, arrived at
+    // from the other direction.
+    int *held = NULL, held_cap = 0;
     int n = 0;
-    while (n < (int)(sizeof held / sizeof held[0])) {
+    for (;;) {
+        if (!UGROW(held, held_cap, n + 1)) break;
         int h = sys_dup(0);
         if (h < 0) break;
         held[n++] = h;
@@ -164,7 +165,9 @@ int main(void) {
     check_errno(sys_errno(), EMFILE, "open() with a full descriptor table");
     utest_notef("ENOENT and EMFILE are distinct: %s", ENOENT != EMFILE ? "yes" : "NO");
 
+    utest_notef("%d dup()s filled the descriptor table", n);
     for (int i = 0; i < n; i++) sys_close(held[i]);
+    free(held);
 
     // --- EBADF, its three shapes --------------------------------------
     char buf[8];

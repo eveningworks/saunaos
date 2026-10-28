@@ -81,12 +81,20 @@ struct tty; // kernel/tty.h -- fd_tty() below, without dragging it in here
 // fixes a count at compile time.
 //
 // So: descriptions are allocated one at a time and the table of them
-// grows; a descriptor table is allocated per live address space. What
-// is left here is the ceiling each one refuses at, which exists for
-// the reason fs.file-max does -- one runaway process must not be able
-// to spend the kernel heap.
-#define FD_DESC_MAX  1024 // open-file DESCRIPTIONS, system-wide ceiling
-#define FD_MAX       256  // DESCRIPTORS per address space (0..255)
+// grows; a descriptor table is allocated per live address space and
+// grows too. What is left is the ceiling each one refuses at, which
+// exists for the reason fs.file-max does -- one runaway process must
+// not be able to spend the kernel heap -- and it is SIZED FROM RAM at
+// first use (klimit.h), logged once when reached:
+//   descriptions, system-wide:  RAM/16 / sizeof(struct open_file)
+//   descriptors, per process:   an eighth of that (RLIMIT_NOFILE's
+//                               share of fs.file-max, as on Linux)
+#define FD_TABLE_FIRST 64   // a new descriptor table's size; doubles from there
+struct klimit;
+extern struct klimit fd_desc_limit;   // for a KTEST: klimit_test_set()
+extern struct klimit fd_proc_limit;
+int fd_desc_ceiling(void);            // klimit_get(&fd_desc_limit)
+int fd_proc_ceiling(void);            // klimit_get(&fd_proc_limit)
 
 // The fd-space table grows to the process limit plus a few: an address
 // space that can hold fds belongs to a process, plus the legacy `run`

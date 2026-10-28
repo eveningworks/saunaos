@@ -21,6 +21,7 @@
 #include "tty.h" // terminals -- fd 0 is one, and so is a pty end
 #include "net.h"     // net_sock_peer() -- fd_peer_ip()
 #include "string.h"
+#include "klimit.h"
 
 // A BOUNCE BUFFER FOR ONE TRANSFER, sized to what this call actually
 // needs rather than to the maximum.
@@ -59,37 +60,56 @@ void *fd_bounce_alloc(uint64_t *len) {
 // tidiness.)
 static struct open_file **g_desc;
 static int g_desc_cap;
+static int g_desc_hint;   // no free description below this; a hint, rechecked
+
+// THE CEILINGS, from RAM (klimit.h). A description costs its struct --
+// FS_PATH_MAX of name included -- plus its pointer; a sixteenth of RAM
+// may go to them. A descriptor table may hold an eighth of that: one
+// process can take a share of the system's open files, not all of them.
+struct klimit fd_desc_limit = KLIMIT("fd: open-file descriptions", 16,
+                                     sizeof(struct open_file) + sizeof(void *), 1024, 1u << 20);
+struct klimit fd_proc_limit = KLIMIT("fd: descriptors per process", 16 * 8,
+                                     sizeof(struct open_file) + sizeof(void *), 256, 1u << 20);
+int fd_desc_ceiling(void) { return (int)klimit_get(&fd_desc_limit); }
+int fd_proc_ceiling(void) { return (int)klimit_get(&fd_proc_limit); }
 
 struct open_file *fd_desc_at(int i) {
-    if (i < 0 || i >= g_desc_cap) return NULL;
-    return g_desc[i];
+    int cap = __atomic_load_n(&g_desc_cap, __ATOMIC_ACQUIRE);
+    if (i < 0 || i >= cap) return NULL;
+    return __atomic_load_n(&g_desc, __ATOMIC_ACQUIRE)[i];
 }
-int fd_desc_count(void) { return g_desc_cap; }
+int fd_desc_count(void) { return __atomic_load_n(&g_desc_cap, __ATOMIC_ACQUIRE); }
 
 // Grows the pointer table by doubling. The descriptions themselves are
-// untouched, so nothing a caller holds is invalidated.
+// untouched, so nothing a caller holds is invalidated. THE OLD TABLE IS
+// NEVER FREED -- kslots.h's rule: a reader preempted between loading
+// the array and indexing it still holds it, and every table ever
+// retired sums to less than the live one. Table first, capacity last.
 static int desc_table_grow(void) {
+    int ceiling = fd_desc_ceiling();
     int cap = g_desc_cap ? g_desc_cap * 2 : 32;
-    if (cap > FD_DESC_MAX) cap = FD_DESC_MAX;
+    if (cap > ceiling) cap = ceiling;
     if (cap <= g_desc_cap) return 0;
     struct open_file **n = kzalloc((uint32_t)cap * sizeof *n);
     if (!n) return 0;
-    if (g_desc) {
-        k_memcpy(n, g_desc, (uint32_t)g_desc_cap * sizeof *n);
-        kfree(g_desc);
-    }
-    g_desc = n;
-    g_desc_cap = cap;
+    if (g_desc) k_memcpy(n, g_desc, (uint32_t)g_desc_cap * sizeof *n);
+    __atomic_store_n(&g_desc, n, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_desc_cap, cap, __ATOMIC_RELEASE);
     return 1;
 }
 
 // One descriptor table per ADDRESS SPACE, allocated when that space
-// first wants an fd. A table of pointers scanned linearly: it is
-// touched once per fd operation rather than per byte, and the count is
-// bounded by the process table.
+// first wants an fd, and GROWN BY DOUBLING from FD_TABLE_FIRST up to
+// fd_proc_ceiling() -- Linux's expand_files(). `d` and `cloexec` are one
+// allocation; a grown pair is published before `cap`, and the old pair
+// goes on `retired` rather than to kfree() (a thread of the same
+// process may be reading it), freed when the space is released.
+struct fd_retired { struct fd_retired *next; void *mem; };
 struct fd_space {
     uint64_t pml4;      // 0 = free slot
-    short    d[FD_MAX]; // d[fd] = index into a description, or -1
+    int      cap;       // descriptors behind `d`
+    int      next_fd;   // no free descriptor below this (Linux's next_fd)
+    int     *d;         // d[fd] = index into a description, or -1
     // **PER DESCRIPTOR, NOT PER DESCRIPTION.** open_file::nonblock is on
     // the description and is shared by every dup; close-on-exec is the
     // opposite and has to be, because a dup made precisely to survive an
@@ -97,7 +117,8 @@ struct fd_space {
     // Same split as Linux's. AND IT BELONGS TO THE NUMBER WHILE IT IS
     // OPEN: closing, reusing or dup'ing onto a number clears it, or the
     // next file given that number inherits a stranger's mark.
-    uint8_t  cloexec[FD_MAX];
+    uint8_t *cloexec;
+    struct fd_retired *retired;
 };
 // Grown by doubling, as g_desc is, up to the process limit plus the
 // kernel's own few: one table per live address space.
@@ -120,9 +141,94 @@ static int spaces_grow(void) {
     return 1;
 }
 
+// Makes room for descriptor `fd` in `sp`: 1, or 0 at the ceiling (logged
+// once) or out of memory. EVERY WRITER OF A TABLE HOLDS THE PREEMPTION
+// GUARD, so two threads of one process cannot both grow it or both take
+// one free number (kmalloc is allowed under it -- it is the heap's lock).
+static int space_reserve(struct fd_space *sp, int fd) {
+    if (fd < sp->cap) return 1;
+    int ceiling = fd_proc_ceiling();
+    if (fd >= ceiling) { klimit_hit(&fd_proc_limit); return 0; }
+    int cap = sp->cap ? sp->cap : FD_TABLE_FIRST;
+    while (cap <= fd) cap *= 2;
+    if (cap > ceiling) cap = ceiling;
+    struct fd_retired *old = sp->d ? kmalloc(sizeof *old) : NULL;
+    int *d = kmalloc((uint32_t)cap * (sizeof(int) + 1));
+    if (!d || (sp->d && !old)) { kfree(d); kfree(old); return 0; }
+    uint8_t *cx = (uint8_t *)(d + cap);
+    for (int i = 0; i < cap; i++) d[i] = -1;
+    k_memset(cx, 0, (uint32_t)cap);
+    if (sp->d) {
+        k_memcpy(d, sp->d, (uint32_t)sp->cap * sizeof(int));
+        k_memcpy(cx, sp->cloexec, (uint32_t)sp->cap);
+        old->mem = sp->d;
+        old->next = sp->retired;
+        sp->retired = old;
+    }
+    __atomic_store_n(&sp->d, d, __ATOMIC_RELEASE);
+    __atomic_store_n(&sp->cloexec, cx, __ATOMIC_RELEASE);
+    __atomic_store_n(&sp->cap, cap, __ATOMIC_RELEASE);
+    return 1;
+}
+
+// The description index at `fd`, or -1 -- safe against a concurrent grow.
+static int slot_di(const struct fd_space *sp, int fd) {
+    int cap = __atomic_load_n(&sp->cap, __ATOMIC_ACQUIRE);
+    if (fd < 0 || fd >= cap) return -1;
+    return __atomic_load_n(&sp->d, __ATOMIC_ACQUIRE)[fd];
+}
+
+// Points `fd` (in range) at `di`. A number's close-on-exec mark goes
+// with whatever it named before.
+static void slot_set(struct fd_space *sp, int fd, int di) {
+    sp->d[fd] = di;
+    sp->cloexec[fd] = 0;
+}
+
+static void slot_clear(struct fd_space *sp, int fd) {
+    sp->d[fd] = -1;
+    sp->cloexec[fd] = 0;
+    if (fd < sp->next_fd) sp->next_fd = fd;
+}
+
+// The lowest free descriptor at or above `min`, with room reserved for
+// it; -1 at the ceiling or out of memory. Preemption guard held.
+static int lowest_free(struct fd_space *sp, int min) {
+    int fd = min > sp->next_fd ? min : sp->next_fd;
+    while (fd < sp->cap && sp->d[fd] >= 0) fd++;
+    if (!space_reserve(sp, fd)) return -1;
+    if (min <= sp->next_fd) sp->next_fd = fd + 1;
+    return fd;
+}
+
+// Frees a released space's grown arrays, keeping the struct for reuse.
+static void space_drop_arrays(struct fd_space *sp) {
+    while (sp->retired) {
+        struct fd_retired *r = sp->retired;
+        sp->retired = r->next;
+        kfree(r->mem);
+        kfree(r);
+    }
+    kfree(sp->d);
+    sp->d = NULL;
+    sp->cloexec = NULL;
+    sp->cap = 0;
+    sp->next_fd = 0;
+}
+
 int fd_desc_alloc(const struct fd_ops *ops, int aux_idx) {
-    for (int i = 0; ; i++) {
-        if (i >= g_desc_cap && !desc_table_grow()) return -1;  // at the ceiling
+    // From the hint, then once more from 0 before growing: the hint is
+    // only a hint, and growing past a free slot would reach the ceiling
+    // with descriptions to spare.
+    int from = g_desc_hint;
+    for (int i = from; ; i++) {
+        if (i >= g_desc_cap) {
+            if (from) { from = 0; i = -1; continue; }
+            if (!desc_table_grow()) {
+                if (g_desc_cap >= fd_desc_ceiling()) klimit_hit(&fd_desc_limit);
+                return -1;
+            }
+        }
         if (!g_desc[i]) {
             g_desc[i] = kzalloc(sizeof **g_desc);
             if (!g_desc[i]) return -1;
@@ -141,6 +247,7 @@ int fd_desc_alloc(const struct fd_ops *ops, int aux_idx) {
 
         g_desc[i]->refs = 1;
         g_desc[i]->ops = ops;
+        g_desc_hint = i + 1;
         if (ops->open) ops->open(g_desc[i], aux_idx);
         return i;
     }
@@ -160,6 +267,7 @@ void fd_desc_unref(int di) {
     // back, a pty end's far side told. Each owner's comment says why.
     if (f->ops->release) f->ops->release(f);
     f->ops = NULL;
+    if (di < g_desc_hint) g_desc_hint = di;
 }
 
 static struct tty *g_kernel_tty;
@@ -202,9 +310,12 @@ int fd_space_open(uint64_t pml4) {
         g_spaces[slot] = sp;
     }
 
+    // A reused table's arrays went with its dead process (fd_release_all()).
+    if (!space_reserve(sp, FD_STDERR)) {
+        klog_write("fd: out of memory for a descriptor table\n");
+        return -1;
+    }
     sp->pml4 = pml4;
-    for (int i = 0; i < FD_MAX; i++) sp->d[i] = -1;
-    k_memset(sp->cloexec, 0, sizeof sp->cloexec);   // a reused table's are a dead process's
 
     // The three a process starts with: ALL THREE ON THE CONSOLE, one
     // description named three times -- what login(1) hands a shell on a
@@ -221,9 +332,10 @@ int fd_space_open(uint64_t pml4) {
         return -1;
     }
     fd_desc_at(con)->refs += 2; // one reference per descriptor
-    sp->d[FD_STDIN]  = (short)con;
-    sp->d[FD_STDOUT] = (short)con;
-    sp->d[FD_STDERR] = (short)con;
+    slot_set(sp, FD_STDIN, con);
+    slot_set(sp, FD_STDOUT, con);
+    slot_set(sp, FD_STDERR, con);
+    sp->next_fd = FD_STDERR + 1;
     return 0;
 }
 
@@ -241,19 +353,17 @@ static struct fd_space *space_get(uint64_t pml4) {
 int fd_install(uint64_t pml4, int di) {
     struct fd_space *sp = space_get(pml4);
     if (!sp || di < 0) return -1;
-    for (int i = 0; i < FD_MAX; i++) {
-        if (sp->d[i] >= 0) continue;
-        sp->d[i] = (short)di;
-        sp->cloexec[i] = 0;
-        return i;
-    }
-    return -1;
+    scheduler_preempt_disable();
+    int fd = lowest_free(sp, 0);
+    if (fd >= 0) slot_set(sp, fd, di);
+    scheduler_preempt_enable();
+    return fd;
 }
 
 int fd_desc_index(uint64_t pml4, int fd) {
     struct fd_space *sp = space_get(pml4);
-    if (!sp || fd < 0 || fd >= FD_MAX) return -1;
-    int di = sp->d[fd];
+    if (!sp) return -1;
+    int di = slot_di(sp, fd);
     if (di < 0 || !fd_desc_at(di)->refs) return -1;
     return di;
 }
@@ -275,7 +385,9 @@ struct open_file *fd_get(uint64_t pml4, int fd) {
 // question worth asking is not "what is this process reading" but "is
 // it serving a connection".
 uint32_t fd_peer_ip(uint64_t pml4) {
-    for (int fd = 0; fd < FD_MAX; fd++) {
+    struct fd_space *sp = space_find(pml4);
+    int cap = sp ? __atomic_load_n(&sp->cap, __ATOMIC_ACQUIRE) : 0;
+    for (int fd = 0; fd < cap; fd++) {
         struct open_file *f = fd_get(pml4, fd);
         if (!f || f->ops != &socket_fd_ops) continue;
         uint32_t ip = 0;
@@ -288,12 +400,13 @@ uint32_t fd_peer_ip(uint64_t pml4) {
 
 int fd_close(uint64_t pml4, int fd) {
     struct fd_space *sp = space_get(pml4);
-    if (!sp || fd < 0 || fd >= FD_MAX) return -1;
-    int di = sp->d[fd];
+    if (!sp) return -1;
+    scheduler_preempt_disable();
+    int di = slot_di(sp, fd);
+    if (di >= 0) slot_clear(sp, fd);
+    scheduler_preempt_enable();
     if (di < 0) return -1;
-    sp->d[fd] = -1;
-    sp->cloexec[fd] = 0;
-    fd_desc_unref(di);
+    fd_desc_unref(di);   // outside the guard: a release may sleep
     return 0;
 }
 
@@ -311,42 +424,49 @@ int fd_dup_from(uint64_t pml4, int oldfd, int min) {
     if (!sp) return -EBADF;
     int di = fd_desc_index(pml4, oldfd);
     if (di < 0) return -EBADF;
-    if (min >= FD_MAX) return -EMFILE;
-    for (int fd = min; fd < FD_MAX; fd++) {
-        if (sp->d[fd] >= 0) continue;
+    scheduler_preempt_disable();
+    int fd = lowest_free(sp, min);
+    if (fd >= 0) {
         fd_desc_at(di)->refs++;
-        sp->d[fd] = (short)di;
-        sp->cloexec[fd] = 0;
-        return fd;
+        slot_set(sp, fd, di);
     }
-    return -EMFILE;
+    scheduler_preempt_enable();
+    return fd >= 0 ? fd : -EMFILE;
+}
+
+// Points descriptor `fd` at `di`, taking a reference; whatever it named
+// before is unref'd (outside the guard -- a release may sleep). -1 when
+// `fd` is past this process's ceiling (a bad number, not logged: POSIX's
+// EBADF for dup2) or the table cannot grow.
+static int put_at(struct fd_space *sp, int fd, int di) {
+    if (fd < 0 || fd >= fd_proc_ceiling()) return -1;
+    scheduler_preempt_disable();
+    if (!space_reserve(sp, fd)) { scheduler_preempt_enable(); return -1; }
+    int was = sp->d[fd];
+    if (was == di) { scheduler_preempt_enable(); return fd; }   // do not unref it
+    fd_desc_at(di)->refs++;
+    slot_set(sp, fd, di);   // POSIX: the copy survives an exec
+    scheduler_preempt_enable();
+    if (was >= 0) fd_desc_unref(was);
+    return fd;
 }
 
 int fd_dup2(uint64_t pml4, int oldfd, int newfd) {
     struct fd_space *sp = space_get(pml4);
-    if (!sp || newfd < 0 || newfd >= FD_MAX) return -1;
+    if (!sp) return -1;
     int di = fd_desc_index(pml4, oldfd);
     if (di < 0) return -1;
     // POSIX: dup2(fd, fd) is a no-op and specifically does NOT close.
     // Getting that wrong destroys the stream it was asked to preserve.
     if (oldfd == newfd) return newfd;
-    if (sp->d[newfd] >= 0) fd_desc_unref(sp->d[newfd]);
-    fd_desc_at(di)->refs++;
-    sp->d[newfd] = (short)di;
-    sp->cloexec[newfd] = 0;   // POSIX: the copy survives an exec
-    return newfd;
+    return put_at(sp, newfd, di);
 }
 
 int fd_set_desc(uint64_t pml4, int fd, int di) {
     struct fd_space *sp = space_get(pml4);
-    if (!sp || fd < 0 || fd >= FD_MAX) return -1;
+    if (!sp) return -1;
     { struct open_file *g = fd_desc_at(di); if (!g || !g->refs) return -1; }
-    if (sp->d[fd] == di) return fd; // already there -- do not unref it
-    if (sp->d[fd] >= 0) fd_desc_unref(sp->d[fd]);
-    fd_desc_at(di)->refs++;
-    sp->d[fd] = (short)di;
-    sp->cloexec[fd] = 0;
-    return fd;
+    return put_at(sp, fd, di);
 }
 
 void fd_inherit(uint64_t child, uint64_t parent) {
@@ -376,13 +496,14 @@ void fd_inherit(uint64_t child, uint64_t parent) {
     // STARTUPINFO pass by default, for the same reason: they are the
     // streams a child is *meant* to be given, and everything else is
     // the parent's private business.
+    // The child's table is FD_TABLE_FIRST from fd_space_open(), and
+    // nothing else runs in it yet.
     for (int i = 0; i <= FD_STDERR; i++) {
-        if (cs->d[i] >= 0) { fd_desc_unref(cs->d[i]); cs->d[i] = -1; }
-        cs->cloexec[i] = 0;
-        int di = ps->d[i];
+        if (cs->d[i] >= 0) { fd_desc_unref(cs->d[i]); slot_clear(cs, i); }
+        int di = slot_di(ps, i);
         if (di < 0 || !fd_desc_at(di)->refs) continue;
         fd_desc_at(di)->refs++;
-        cs->d[i] = (short)di;
+        slot_set(cs, i, di);
     }
 }
 
@@ -392,24 +513,27 @@ void fd_clone(uint64_t child, uint64_t parent) {
     if (fd_space_open(child) < 0) return;
     struct fd_space *cs = space_find(child);
     if (!cs || !ps) return;
-    for (int i = 0; i < FD_MAX; i++) {
-        if (cs->d[i] >= 0) { fd_desc_unref(cs->d[i]); cs->d[i] = -1; }
-        cs->cloexec[i] = 0;
+    for (int i = 0; i < cs->cap; i++)
+        if (cs->d[i] >= 0) { fd_desc_unref(cs->d[i]); slot_clear(cs, i); }
+    // The parent's whole table, at its size: the child is not running
+    // yet, and the parent is the caller, so neither table moves under us.
+    if (!space_reserve(cs, ps->cap - 1)) return;
+    for (int i = 0; i < ps->cap; i++) {
         int di = ps->d[i];
         if (di < 0 || !fd_desc_at(di)->refs) continue;
         fd_desc_at(di)->refs++;
-        cs->d[i] = (short)di;
+        slot_set(cs, i, di);
         cs->cloexec[i] = ps->cloexec[i];   // fork copies the marks; the exec reads them
     }
+    cs->next_fd = 0;   // a hint only: the lowest free is searched from here
 }
 
 // Query or change a descriptor's close-on-exec flag. `op` is -1 to
 // query, 0 to clear, 1 to set. Returns the flag as it was BEFORE the
 // call, or -EBADF.
 int fd_cloexec(uint64_t pml4, int fd, int op) {
-    if (fd < 0 || fd >= FD_MAX) return -EBADF;
     struct fd_space *sp = space_find(pml4);
-    if (!sp || sp->d[fd] < 0) return -EBADF;
+    if (!sp || slot_di(sp, fd) < 0) return -EBADF;
     int was = sp->cloexec[fd] ? 1 : 0;
     if (op == 0 || op == 1) sp->cloexec[fd] = (uint8_t)op;
     return was;
@@ -420,7 +544,7 @@ int fd_cloexec(uint64_t pml4, int fd, int op) {
 void fd_close_on_exec(uint64_t pml4) {
     struct fd_space *sp = space_find(pml4);
     if (!sp) return;
-    for (int fd = 0; fd < FD_MAX; fd++) {
+    for (int fd = 0; fd < sp->cap; fd++) {
         if (!sp->cloexec[fd] || sp->d[fd] < 0) continue;
         fd_close(pml4, fd);
     }
@@ -637,12 +761,13 @@ void fd_release_all(uint64_t pml4_phys) {
     // child dying.
     struct fd_space *sp = space_find(pml4_phys);
     if (sp) {
-        for (int i = 0; i < FD_MAX; i++) {
+        for (int i = 0; i < sp->cap; i++) {
             if (sp->d[i] < 0) continue;
             fd_desc_unref(sp->d[i]);
             sp->d[i] = -1;
         }
-        sp->pml4 = 0; // the table itself is reusable now
+        sp->pml4 = 0; // the struct is reusable now; its arrays are not kept
+        space_drop_arrays(sp);
     }
 }
 

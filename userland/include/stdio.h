@@ -76,8 +76,9 @@ extern FILE *const stderr;
 #define BUFSIZ 16384
 
 // Streams a program may have open at once, over and above the three
-// standard ones. Bounded by the kernel's own FD_MAX (16 descriptors per
-// address space), so a bigger number here could not be honoured anyway.
+// standard ones: libc's own stream table (libc/stdio.c). The kernel's
+// descriptor table is far larger and grows, so this is the bound a
+// program meets first.
 #define FOPEN_MAX 8
 
 #define _IOFBF 0 // fully buffered
