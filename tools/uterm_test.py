@@ -1923,6 +1923,134 @@ def prefs_checks(dbg, qmp, tmp, win, res):
         dbg.settle()
 
 
+def u8_sum_ok(dbg, path, want):
+    """Whether `path` holds exactly the bytes `want`, by `sum -a sha256`
+    -- the serial console mangles non-ASCII OUTPUT, so the bytes are
+    compared as a hash rather than read back."""
+    import hashlib
+    h = hashlib.sha256(want).hexdigest()
+    for _ in range(20):
+        out = dbg.send(f"sh sum -a sha256 {path}") or ""
+        if h in out:
+            return True, out
+        time.sleep(0.25)
+    return False, out
+
+
+def type_layout(qmp, keys):
+    """Physical keys through the REAL keyboard path -- QMP into the PS/2
+    controller, the kernel's layout, the compositor -- never `gui key`,
+    which injects a character the layout never translated. Each entry is
+    a qcode or a list of qcodes pressed together (AltGr is `alt_r`)."""
+    for k in keys:
+        if isinstance(k, list):
+            qmp.combo(k)
+        else:
+            qmp.send_key(k)
+        time.sleep(0.12)
+
+
+def check_utf8(dbg, qmp, tmp, res):
+    """UTF-8 in the Terminal (docs/utf8-design.md, step 2): a name stored
+    as UTF-8 is DRAWN as its letters, TYPED on a real layout, and a key
+    past Latin-1 reaches the program as its UTF-8 bytes.
+
+    THE MOTIVATING CASE, end to end: a folder `Kesä` (the bytes 4B 65 73
+    C3 A4) is listed by `ls` as FOUR cells, not `KesÃ¤`'s five, and a
+    double-click selects the whole word -- five bytes; and `cd Kesä`,
+    with the ä TYPED on the Finnish layout through QMP, lands there,
+    which `pwd` proves on disk. Before step 2 the terminal drew each byte
+    as a Latin-1 cell and the layout typed ä as the single byte E4, so
+    `cd` named a folder that does not exist.
+    """
+    d = "/tmp/u8"
+    dbg.send(f"sh rm -r {d}")
+    dbg.send(f"sh mkdir {d}")
+    dbg.send(f"sh mkdir {d}/Kesä")
+    dbg.send("sh config set system.keyboard.layouts us,fi,pl,ro,ee")
+    dbg.send("sh config set system.keyboard.layout fi")
+    win = fresh_terminal(dbg, res, "u")
+    if not win:
+        return
+    try:
+        type_line(dbg, f"cd {d}")
+        cols = layout_field(dbg, "cols") or 80
+        row0 = (layout_field(dbg, "cursor") or 0) // cols
+        type_line(dbg, "ls")
+        cw, chh = layout_field(dbg, "cell") or 8, None
+        for l in reversed(dbg.logs("uterm: layout cursor", clear=False)):
+            parts = l.split()
+            if "cell" in parts:
+                chh = int(parts[parts.index("cell") + 2])
+                break
+        chh = chh or 16
+        margin = layout_field(dbg, "margin") or 0
+        chrome = layout_field(dbg, "chrome") or 0
+        c = win["content"]
+        gx, gy = c["x"] + margin, c["y"] + chrome + margin + (row0 + 1) * chh
+
+        def cell_ink(i):
+            return ink(qmp, tmp, f"u8_cell{i}.png", (gx + i * cw, gy, gx + (i + 1) * cw, gy + chh))
+        inked = [cell_ink(i) for i in range(7)]
+        # `Kesä/` is five cells; `KesÃ¤/` was six. The fifth (index 4)
+        # holds the `/`, the sixth must be empty.
+        res.check("u1. `ls` draws the UTF-8 name `Kesä/` in five cells, not `KesÃ¤/`'s six",
+                  all(inked[i] > 0 for i in range(5)) and inked[5] == 0,
+                  f"ink per cell {inked}")
+
+        # A double-click on its first letter selects the WORD: letters
+        # past ASCII are word characters, and the copy is UTF-8.
+        x, y = gx + cw // 2, gy + chh // 2
+        dbg.send(f"gui click {x} {y}")
+        time.sleep(0.1)
+        dbg.send(f"gui click {x} {y}")
+        dbg.settle()
+        sel = layout_field(dbg, "selbytes")
+        res.check("u2. a double-click selects `Kesä` whole -- five UTF-8 bytes",
+                  sel == 5, f"selbytes {sel}")
+        dbg.click(c["x"] + c["w"] // 2, c["y"] + c["h"] - 4)   # drop it, keep focus
+        dbg.settle()
+
+        # TYPED: `cd Kes` as characters, then the ä as the Finnish
+        # layout's key right of Ö (AC11, qcode `apostrophe`).
+        type_text(dbg, "cd Kes")
+        type_layout(qmp, ["apostrophe"])
+        key(dbg, "0x0d")
+        dbg.settle()
+        time.sleep(0.6)
+        type_line(dbg, f"pwd > {d}/pwd.txt")
+        ok, out = u8_sum_ok(dbg, f"{d}/pwd.txt", f"{d}/Kesä\n".encode())
+        res.check("u3. `cd Kesä` with the ä typed on the Finnish layout lands in the folder",
+                  ok, out.strip()[:120])
+
+        # PAST LATIN-1: Polish AltGr+a is ą (C4 85), Romanian AltGr+s is
+        # ș (C8 99), and Estonian's dead caron then s composes š (C5 A1)
+        # -- each typed into `cat` and read back from the file.
+        for lay, keys, want, label in (
+                ("pl", [["alt_r", "a"]], "ą", "u4. Polish AltGr+a reaches the program as ą (C4 85)"),
+                ("ro", [["alt_r", "s"]], "ș", "u5. Romanian AltGr+s reaches the program as ș (C8 99)"),
+                ("ee", ["grave_accent", "s"], "š",
+                 "u6. Estonian's dead caron, then s, composes š (C5 A1)")):
+            dbg.send(f"sh config set system.keyboard.layout {lay}")
+            time.sleep(0.4)
+            f = f"{d}/{lay}.txt"
+            type_line(dbg, f"cat > {f}", settle=0.6)
+            type_layout(qmp, keys)
+            key(dbg, "0x0d")
+            key(dbg, "0x04")      # Ctrl-D ends cat's input
+            dbg.settle()
+            time.sleep(0.5)
+            ok, out = u8_sum_ok(dbg, f, (want + "\n").encode())
+            res.check(label, ok, out.strip()[:120])
+    finally:
+        dbg.send("sh config set system.keyboard.layout us")
+        dbg.send("sh config set system.keyboard.layouts us")
+        key(dbg, "0x03")
+        dbg.settle()
+        dbg.key("f4", mods="alt")
+        dbg.settle()
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0],
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -1930,6 +2058,8 @@ def main():
     ap.add_argument("--in-gui", action="store_true")
     ap.add_argument("--shot", metavar="DIR")
     ap.add_argument("--tmp", default="/tmp")
+    ap.add_argument("--only", choices=("utf8",),
+                    help="run one block: utf8 (the UTF-8 checks, step 2)")
     args = ap.parse_args()
     port_guard.resolve_instance(args, "uterm_test")
 
@@ -1942,6 +2072,9 @@ def main():
     dbg = DebugConsole(args.sock)
     res = Result()
     try:
+        if args.only == "utf8":
+            check_utf8(dbg, qmp, args.tmp, res)
+            return finish(res)
         run(dbg, qmp, args.tmp, args.shot, res)
         check_tabs(dbg, qmp, args.tmp, res)
         check_chrome(dbg, qmp, res)
@@ -1953,9 +2086,13 @@ def main():
         check_selection(dbg, qmp, args.tmp, res)
         check_resize(dbg, qmp, args.tmp, res)
         check_bar(dbg, qmp, res)
+        check_utf8(dbg, qmp, args.tmp, res)
     finally:
         dbg.close()
+    return finish(res)
 
+
+def finish(res):
     print(f"\nuterm_test: {len(res.passes)} passed, {len(res.fails)} failed")
     for f in res.fails:
         print("  FAILED:", f)

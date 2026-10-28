@@ -1011,6 +1011,45 @@ def utf8_checks(dbg, qmp, tmp, res):
         res.check("utf8: Right steps over ż, Backspace takes both its bytes, a typed U+017C "
                   "saves as C5 BC -- the file is exactly 61 58 C5 BC 0A",
                   bool(got), f"sum said {out.strip()[:120]!r}, want {wsum[:16]}... ({want.hex()})")
+
+        # TYPED PAST LATIN-1 (step 2): the REAL keyboard path -- QMP
+        # into the PS/2 controller, the kernel's layout, the compositor --
+        # never `gui key`, which hands Notepad a character no layout
+        # translated. Polish AltGr+a is ą, Romanian AltGr+s is ș, and
+        # Estonian's dead caron (the key left of 1) then s composes š.
+        # The file opens with the caret at its start, so they land before
+        # its own `aż`.
+        f = "/tmp/np_utf8_layouts.txt"
+        dbg.send(f"sh rm {f}")
+        dbg.send(f"sh cp {UTF8_DIR}/edit.txt {f}")
+        dbg.send("sh config set system.keyboard.layouts us,pl,ro,ee")
+        try:
+            pid, win, g = open_file(dbg, qmp, f, pids)
+            if not win:
+                res.check("utf8: Notepad opens the layouts fixture", False)
+                return
+            for lay, keys in (("pl", [["alt_r", "a"]]), ("ro", [["alt_r", "s"]]),
+                              ("ee", ["grave_accent", "s"])):
+                dbg.send(f"sh config set system.keyboard.layout {lay}")
+                time.sleep(0.4)
+                for k in keys:
+                    if isinstance(k, list):
+                        qmp.combo(k)
+                    else:
+                        qmp.send_key(k)
+                    time.sleep(0.15)
+                dbg.settle(0.2)
+            key(dbg, CTRL_S)
+            want = "ąșšaż\n".encode("utf-8")
+            wsum = hashlib.sha256(want).hexdigest()
+            got = poll(lambda: (lambda o: o if wsum in o else None)(dbg.send(f"sh sum -a sha256 {f}")), 8)
+            out = dbg.send(f"sh sum -a sha256 {f}")
+            res.check("utf8: Polish AltGr+a, Romanian AltGr+s and Estonian dead caron + s type "
+                      "ą ș š into Notepad, saved as C4 85 C8 99 C5 A1",
+                      bool(got), f"sum said {out.strip()[:120]!r}, want {want.hex()}")
+        finally:
+            dbg.send("sh config set system.keyboard.layout us")
+            dbg.send("sh config set system.keyboard.layouts us")
     finally:
         for p in pids:
             kill_pid(dbg, p)
