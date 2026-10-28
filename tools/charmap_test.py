@@ -12,8 +12,9 @@ where "it is drawn" is the claim, against pixels:
      cannot draw -- and the detail tile shows it in ink.
   3. Copy, then PASTE INTO THE SEARCH BOX: the round trip through the
      clipboard finds the same one character. The copy's own log line is
-     not trusted to say the bytes were right. Twice: the arrow goes as
-     UTF-8, e-acute as its one Latin-1 byte (text here is Latin-1).
+     not trusted to say the bytes were right. Twice: the arrow and
+     e-acute both go as UTF-8 (the clipboard is UTF-8, always --
+     docs/utf8-design.md), two bytes for the e-acute.
   4. A double-click adds it to the text line, which then has ink, and
      Backspace on the grid takes it off again.
   5. A letter typed on the focused Block list moves to Greek and Coptic
@@ -178,8 +179,9 @@ def run(dbg, qmp, tmp, res):
         f"the copied character pasted into the search finds itself alone ({lay.state}, "
         f"{[ln for ln in LOG if 'charmap: search' in ln][-1:]})")
 
-    # 3b. A Latin-1 character copies as its one byte, which a text field
-    # here holds as itself -- pasted back, the search still finds it.
+    # 3b. A Latin-1 character copies as its UTF-8 too (two bytes, not the
+    # one Latin-1 byte this copied before UTF-8) -- pasted back, the
+    # search still finds it.
     for _ in range(3):
         dbg.key(KEY_BS, settle=False)
     typed(dbg, "U+00E9")
@@ -191,8 +193,8 @@ def run(dbg, qmp, tmp, res):
     dbg.key("0x16")
     lay = wait(dbg, content, lambda lay: lay.state["count"] == 1 and lay.state["cp"] == 0xE9)
     copied = [ln for ln in LOG if "charmap: copied" in ln]
-    chk(res, lay.state["cp"] == 0xE9 and copied and "1 bytes, Latin-1" in copied[-1],
-        f"e-acute copies as one Latin-1 byte and pastes back ({lay.state}, {copied[-1:]})")
+    chk(res, lay.state["cp"] == 0xE9 and copied and "2 bytes, UTF-8" in copied[-1],
+        f"e-acute copies as UTF-8 and pastes back ({lay.state}, {copied[-1:]})")
     for _ in range(2):
         dbg.key(KEY_BS, settle=False)
     typed(dbg, "U+2192")

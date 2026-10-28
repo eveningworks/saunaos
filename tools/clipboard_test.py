@@ -37,6 +37,11 @@ one needs:
      still hold what check 2 put there -- a truncating clipboard would
      replace it with the first 64 KB of pci.ids, which is exactly the
      failure the refusal exists to prevent.
+  6. **The clipboard is UTF-8, always** (docs/utf8-design.md, step 1).
+     A LATIN-1 file copied whole and pasted into an empty one saves as
+     that text's UTF-8 -- each stray byte re-encoded as its letter -- read
+     back by `sum -a sha256` against Python's own encoding. Before step 1
+     the paste wrote the Latin-1 bytes back unchanged.
 
 Usage (the VM must already be up):
 
@@ -311,6 +316,33 @@ def run(dbg, qmp, tmp, res):
     out2 = dbg.send("sh cat " + SAVE_PATH + "2") or ""
     res.check(PHRASE in out2 and "PCI" not in out2,
               "an oversized copy was refused and left the clipboard alone")
+
+    # --- check 6: the clipboard is UTF-8, always -----------------------
+    import hashlib
+    latin1 = "/tests/utf8/latin1.txt"
+    u8_path = "/var/tmp/clip_utf8.txt"
+    dbg.send("sh rm " + u8_path)
+    dbg.send("sh touch " + u8_path)
+    for path, then in ((latin1, (CTRL_A, CTRL_C)), (u8_path, (CTRL_V, CTRL_S))):
+        dbg.send("gui spawn %s %s" % (NOTEPAD, path))
+        time.sleep(2.0)
+        dbg.settle()
+        r = content_rect(dbg, path.rsplit("/", 1)[-1])
+        if not r:
+            res.check(False, "Notepad opened " + path)
+            return
+        qmp.click_at(r[0] + r[2] // 2, r[1] + r[3] // 2)
+        dbg.settle()
+        for k in then:
+            key(dbg, k)
+            dbg.settle()
+        time.sleep(1.0)
+    want = hashlib.sha256(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..",
+                                            "data", "tests", "utf8", "latin1.txt"), "rb")
+                          .read().decode("latin-1").encode("utf-8")).hexdigest()
+    out6 = dbg.send("sh sum -a sha256 " + u8_path) or ""
+    res.check(want in out6,
+              "a Latin-1 file copied and pasted saves as UTF-8 (%s)" % out6.strip()[:80])
 
 
 def main():

@@ -279,25 +279,22 @@ static uint32_t selected_cp(void) {
     return g_grid.selected >= 0 && g_grid.selected < g_ncps ? g_cps[g_grid.selected] : 0;
 }
 
-// Text here is Latin-1 (docs/decisions/drivers.md), so characters that
-// all fit are copied as Latin-1 and paste as themselves anywhere; one
-// past U+00FF makes the whole copy UTF-8, the only encoding that can
-// carry it -- X11's STRING beside UTF8_STRING, as one entry.
+// THE CLIPBOARD IS UTF-8, ALWAYS (docs/utf8-design.md): every character
+// is copied as its UTF-8 and pastes as itself into any field. The old
+// "Latin-1 when it fits" rule retired with step 1 (docs/decisions/gui.md).
 static void copy_text(const uint32_t *cps, int n, const char *what) {
     char buf[MAX_TEXT * 4 + 1];
-    int o = 0, wide = 0;
-    for (int i = 0; i < n; i++) wide |= cps[i] > 0xFF;
+    int o = 0;
     for (int i = 0; i < n; i++) {
         char u[5];
-        int k = wide ? uunicode_utf8(cps[i], u) : 1;
-        if (!wide) u[0] = (char)cps[i];
+        int k = uunicode_utf8(cps[i], u);
         memcpy(buf + o, u, (size_t)k);
         o += k;
     }
     buf[o] = '\0';
-    if (uclip_set_text(buf, o)) snprintf(g_note, sizeof g_note, "Copied %s%s", what, wide ? " as UTF-8" : "");
+    if (uclip_set_text(buf, o)) snprintf(g_note, sizeof g_note, "Copied %s", what);
     else snprintf(g_note, sizeof g_note, "Could not copy");
-    ulogf("charmap: copied %d character(s), %d bytes, %s\n", n, o, wide ? "UTF-8" : "Latin-1");
+    ulogf("charmap: copied %d character(s), %d bytes, UTF-8\n", n, o);
 }
 
 static void add_selected(void) {

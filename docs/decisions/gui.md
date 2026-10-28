@@ -11119,7 +11119,7 @@ through its focus ring.
 right-click menu, such as the File Manager's, could open that menu on
 top of the edit menu.
 
-## The Character Map ships its own names, and copies Latin-1 when it can
+## The Character Map ships its own names, and copies UTF-8
 
 **Characters and fonts are one app with a rail, not two.** GNOME
 splits them (Characters, Fonts); Windows' `charmap` has a font list
@@ -11147,18 +11147,18 @@ point from the `.ttf` itself, with `lib/ttf.h`, into a small cache in
 the client: a Wayland client's own text rendering, at a client's own
 memory cost.
 
-**Copy puts Latin-1 on the clipboard when every character fits, and
-UTF-8 only when one does not.** Text on this system is Latin-1 (the
-"Latin-1, not UTF-8" entry in `docs/decisions/drivers.md`), so UTF-8
-"é" would paste into Notepad as "Ã©". X11 offers both a `STRING`
-(Latin-1) and a `UTF8_STRING` target, and Windows both `CF_TEXT` and
-`CF_UNICODETEXT`. This clipboard holds one text entry, so the copy
-picks: Latin-1 bytes when it can, because they paste as themselves
-everywhere today; UTF-8 when it cannot, because it is the only encoding
-here that carries an arrow at all, and the one the UTF-8 migration will
-read. Replacing the character with "?" would lose it outright. The
-status bar says "as UTF-8" when that happened. Search accepts a pasted
-character in either form.
+**Copy puts UTF-8 on the clipboard, always** (since UTF-8 step 1,
+`docs/utf8-design.md`, "Decided here", 8). Until then text on this
+system was Latin-1, so the copy picked Latin-1 bytes when every
+character fitted and UTF-8 only when one did not -- one entry standing
+in for X11's `STRING` beside `UTF8_STRING` and Windows' `CF_TEXT` beside
+`CF_UNICODETEXT`. Step 1 made every `ugfx` string UTF-8 and the
+clipboard UTF-8 (`uclip_set_text()` re-encodes a stray Latin-1 byte as
+its letter), so the Latin-1 branch would now paste "é" as a stray byte
+rather than as itself; it retired, and with it the status bar's "as
+UTF-8". The edges that need another encoding convert at their own
+border: w16 to Windows-1252, VNC and the Terminal (until step 2) to
+Latin-1. Search still accepts a pasted character in either form.
 
 ## Every scrollbar is one shared state in a reserved strip
 

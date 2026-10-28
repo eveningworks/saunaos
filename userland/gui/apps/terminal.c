@@ -77,6 +77,7 @@
 #include "ui/uapp.h"
 #include "ui/utheme.h"
 #include "lib/uclip.h"
+#include "lib/ucharset.h"   // the paste's edge: UTF-8 in, Latin-1 to the shell
 #include "ui/ulog.h"
 #include "ui/uui_tabs.h"
 #include "ui/uui_menubar.h"
@@ -1511,10 +1512,18 @@ static void do_paste(void) {
     int n = 0;
     const char *txt = uclip_text(&g_clip, &n);
     if (!txt || n == 0) return;
+    // THE CLIPBOARD IS UTF-8 AND THE TERMINAL STILL LATIN-1 (its cells
+    // and the shell's line editor move in docs/utf8-design.md's step 2):
+    // converted at this edge, '?' past U+00FF, as VNC does at its own --
+    // or every pasted 'ä' would reach the shell as two letters.
+    char *l1 = malloc((size_t)n + 1);
+    if (!l1) { ulog("uterm: out of memory pasting\n"); return; }
+    long m = ucharset_utf8_to_latin1(l1, (size_t)n + 1, txt, (size_t)n, '?');
     // ONE write, not one per character: a syscall per byte for a
     // pasted paragraph is thousands of kernel entries, and the pty
     // takes the run happily.
-    pty_send(s, txt, n);
+    if (m > 0) pty_send(s, l1, (int)m);
+    free(l1);
 }
 
 static unsigned menu_item_flags(int code) {

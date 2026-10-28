@@ -3,6 +3,7 @@
 // is not in this any more.
 #include "lib/uclip.h"
 #include "lib/uimg.h"
+#include "lib/uutf8.h"   // the clipboard is UTF-8: stray bytes become their Latin-1 letter
 #include "rt/sys.h"
 #include "syscall_abi.h"
 #include <stdio.h>
@@ -272,9 +273,24 @@ int uclip_set_text(const char *s, int n) {
     g_out.op = UCLIP_COPY;
     g_out.kind = UCLIP_KIND_TEXT;
     g_out.count = 1;
-    g_out.len = (uint32_t)n + 1;          // the NUL is payload
-    memcpy(g_out.data, s, (size_t)n);
-    g_out.data[n] = '\0';
+    // Copied a CHARACTER at a time: a valid sequence as it is, a stray
+    // byte re-encoded as its Latin-1 letter (uclip.h) -- which may grow
+    // the text, so the bound is checked on what is written.
+    int o = 0;
+    for (int i = 0; i < n;) {
+        int k;
+        uint32_t cp = uutf8_decode(s + i, n - i, &k);
+        if (k <= 0) k = 1;
+        char u[4];
+        int m = k > 1 ? k : uutf8_encode(cp, u);
+        if (o + m > UCLIP_TEXT_MAX) return 0;
+        if (k > 1) memcpy(g_out.data + o, s + i, (size_t)k);
+        else memcpy(g_out.data + o, u, (size_t)m);
+        o += m;
+        i += k;
+    }
+    g_out.len = (uint32_t)o + 1;          // the NUL is payload
+    g_out.data[o] = '\0';
     return commit();
 }
 

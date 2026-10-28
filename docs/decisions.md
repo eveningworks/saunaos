@@ -707,7 +707,7 @@ first before re-litigating it from scratch.
 - [A live wallpaper is a background client, and not a window](decisions/gui.md#a-live-wallpaper-is-a-background-client-and-not-a-window)
 - [The cube's debris is a height per column, not a physics engine](decisions/gui.md#the-cubes-debris-is-a-height-per-column-not-a-physics-engine)
 - [A text field's edit menu is the toolkit's, reached through one widget slot](decisions/gui.md#a-text-fields-edit-menu-is-the-toolkits-reached-through-one-widget-slot)
-- [The Character Map ships its own names, and copies Latin-1 when it can](decisions/gui.md#the-character-map-ships-its-own-names-and-copies-latin-1-when-it-can)
+- [The Character Map ships its own names, and copies UTF-8](decisions/gui.md#the-character-map-ships-its-own-names-and-copies-utf-8)
 - [Every scrollbar is one shared state in a reserved strip](decisions/gui.md#every-scrollbar-is-one-shared-state-in-a-reserved-strip)
 - [A desktop icon is a drop target, and the Recycle Bin is a desktop entry](decisions/gui.md#a-desktop-icon-is-a-drop-target-and-the-recycle-bin-is-a-desktop-entry)
 - [The compositor never decodes a picture: `/bin/thumb` does](decisions/gui.md#the-compositor-never-decodes-a-picture-binthumb-does)

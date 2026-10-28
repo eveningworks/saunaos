@@ -119,10 +119,18 @@ int  uclip_clear(void);
 // One call each way, because a text clipboard has nothing to build up:
 // there is exactly one entry and the app already holds it.
 
-// Puts `n` characters on the clipboard as TEXT. Returns 0 without
-// touching the clipboard if they do not fit (`n > UCLIP_TEXT_MAX`) or
-// the server refused -- a caller should say which to the person, since
-// "nothing happened" is the one outcome a Copy must never have.
+// Puts `n` bytes of text on the clipboard. Returns 0 without touching
+// the clipboard if they do not fit (`n > UCLIP_TEXT_MAX`, or more once
+// converted) or the server refused -- a caller should say which to the
+// person, since "nothing happened" is the one outcome a Copy must never
+// have.
+//
+// **THE CLIPBOARD IS UTF-8, ALWAYS** (docs/utf8-design.md, "Decided
+// here", 8). A byte that does not start a valid sequence is taken as its
+// Latin-1 letter and stored as that letter's UTF-8 -- the same rule the
+// drawing uses -- so text copied out of an old Latin-1 file, or from the
+// terminal's Latin-1 cells, pastes as itself everywhere. A paster reads
+// UTF-8 and converts at its own edge if it must (w16, VNC, the terminal).
 //
 // It takes its own buffer, so nothing the CALLER holds has to be
 // clipboard-sized.
