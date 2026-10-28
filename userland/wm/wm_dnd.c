@@ -71,7 +71,7 @@ void wm_dnd_end(int pid) {
     if (!g_active || (g_src_pid && pid != g_src_pid)) return;
     leave_current();
     g_active = 0;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // The topmost window under the pointer whose CONTENT the pointer is
@@ -148,7 +148,7 @@ static void ghost_update(int mx, int my) {
     if (on) wm_damage_rect(x - 1, y - 1, w + 2, h + 2);
     g_ghost_on = on;
     g_gx = x; g_gy = y; g_gw = w; g_gh = h;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void wm_dnd_motion(int mx, int my, uint8_t buttons) {
@@ -186,7 +186,7 @@ void wm_dnd_motion(int mx, int my, uint8_t buttons) {
     // the release handed the File Manager an empty payload (measured:
     // the pane accepted mid-drag and nothing moved). The next drag's
     // begin overwrites it, and nothing reads it between drags.
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // The ghost, drawn by the compositor once the pointer is outside the

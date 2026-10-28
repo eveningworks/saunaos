@@ -238,7 +238,7 @@ void calendar_open_now(void) {
 void calendar_close(void) {
     if (!calendar_open) return;
     calendar_open = 0;   // where it was drawn is damaged by the core (wm_overlay.h)
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void page_month(int delta) {

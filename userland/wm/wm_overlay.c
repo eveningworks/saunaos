@@ -245,7 +245,7 @@ void wm_overlay_poll_geometry(void) {
         // Both rects: the one being vacated and the one being taken.
         wm_damage_window_rect(g_drawn[i].x, g_drawn[i].y, g_drawn[i].w, g_drawn[i].h);
         wm_damage_window_rect(x, y, w, h);
-        redraw_pending = 1;
+        WM_REDRAW();
     }
 }
 
@@ -260,7 +260,7 @@ void wm_overlay_damage(const char *name) {
         if (g_drawn[i].w > 0)
             wm_damage_window_rect(g_drawn[i].x, g_drawn[i].y,
                                   g_drawn[i].w, g_drawn[i].h);
-        redraw_pending = 1;
+        WM_REDRAW();
         return;
     }
 }

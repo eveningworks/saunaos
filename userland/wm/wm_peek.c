@@ -138,7 +138,7 @@ static void set_highlight(uint32_t seq) {
     g_highlight_seq = seq;
     // The whole desktop above the strip dims or undims.
     wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void wm_peek_close(void) {
@@ -196,7 +196,7 @@ void wm_peek_hover(const int *wins, int n, int bx, int bw, int mx, int my) {
         if (!wm_peek_open && now - g_hot_since >= UUI_TOOLTIP_DELAY_TICKS &&
             !wm_overlay_any_open()) {
             wm_peek_open = 1;
-            redraw_pending = 1;
+            WM_REDRAW();
         }
     } else if (on_card(mx, my)) {
         g_grace_since = 0;

@@ -129,11 +129,21 @@ def run_sequence(sw, inject=False):
         # frame's damage box does not include. A verifier that cannot see
         # this sees nothing. A few frames, not one: the drag's first
         # rendered frame is a cursor-only move.
+        # UNPACED, and the lever cleared after: an injected drag arrives
+        # faster than any mouse, so a paced compositor folds it into a
+        # frame or two and the shrunk frames outlived it -- the control
+        # then missed its own miss, and the leftover shrink surfaced
+        # later as a "bug" in whatever drew next (the Start menu).
         w = sw.visible()[-1]
+        dbg.send("gui pacing off")
         dbg.send("gui damage shrink 4")
-        sw.step(f"injected miss: drag {w['title']}",
-                f"gui drag {w['x'] + w['w'] // 2} {w['y'] + 12} "
-                f"{w['x'] + w['w'] // 2 + 60} {w['y'] + 12 + 40}")
+        try:
+            sw.step(f"injected miss: drag {w['title']}",
+                    f"gui drag {w['x'] + w['w'] // 2} {w['y'] + 12} "
+                    f"{w['x'] + w['w'] // 2 + 60} {w['y'] + 12 + 40}")
+        finally:
+            dbg.send("gui damage shrink 0")
+            dbg.send("gui pacing on")
 
     # Raise each in turn: z-order churn with no geometry change, which
     # compute_window_damage() cannot see on its own.

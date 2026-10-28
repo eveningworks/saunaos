@@ -106,7 +106,7 @@ void close_all_begin(const int *idx, int n) {
     }
     int asked = close_batch_ask(&g_all);
     wm_logf("closeall: asking %d window(s) to close\n", asked);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // "Notepad", from the app's own entry -- the app id is a handle, not a name.

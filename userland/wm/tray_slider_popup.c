@@ -104,12 +104,12 @@ static int over_track(const struct tray_slider_geom *g, int mx, int my) {
 
 void tray_slider_damage(const struct tray_slider_geom *g) {
     wm_damage_window_rect(g->x, g->y, g->w, g->h);   // plus its shadow (wm_shadow.h)
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void damage(struct tray_slider_popup *p) {
     if (p->damage) p->damage();
-    else redraw_pending = 1;
+    else WM_REDRAW();
 }
 
 void tray_slider_open(struct tray_slider_popup *p) {
@@ -139,7 +139,7 @@ void tray_slider_set_level(struct tray_slider_popup *p, int level, int commit_no
     p->pending_at = commit_now ? 0 : sys_monotonic_ns();
     if (p->on_level) p->on_level();
     if (p->open) damage(p);
-    else redraw_pending = 1;   // the tray item may show the level
+    else WM_REDRAW();   // the tray item may show the level
 }
 
 void tray_slider_poll(struct tray_slider_popup *p) {
@@ -174,7 +174,7 @@ void tray_slider_poll(struct tray_slider_popup *p) {
     // well as the new one (wm_overlay.h); open and close already went
     // through it, and this path did not.
     if (p->open) damage(p);
-    else redraw_pending = 1;
+    else WM_REDRAW();
 }
 
 // --- input ------------------------------------------------------------

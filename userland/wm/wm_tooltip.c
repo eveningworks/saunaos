@@ -91,7 +91,7 @@ void wm_tooltip_update(void) {
     box_h = h;
     wm_tooltip_open = 1;
     wm_tooltip_damage();
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 int wm_tooltip_rect(int *x, int *y, int *w, int *h) {

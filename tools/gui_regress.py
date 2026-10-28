@@ -182,6 +182,7 @@ TOOLS = [
     ("wingeom", "window_geometry_test.py", "windows come back where you left them"),
     ("capcorner", "caption_corner_test.py", "a maximized window closes from the top-right screen corner"),
     ("compositor", "compositor_test.py", "raw input to a ring-3 compositor"),
+    ("pacing",     "frame_pacing_test.py", "frames paced to the refresh: a fast drag capped, unpaced it is not, a lone press waits for nothing"),
     ("screen", "screen_surface_test.py", "a ring-3 compositor's screen surface"),
     ("compdeath", "compositor_death_test.py", "the compositor death path (R7)"),
     ("cursor", "cursor_theme_test.py", "cursor themes: shapes as data files, size, fallback"),

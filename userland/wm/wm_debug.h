@@ -67,6 +67,8 @@ struct dbg_out {
 // makes that visible instead of silent.
 void dbg_out_write(struct dbg_out *o, const char *s);
 void dbg_out_printf(struct dbg_out *o, const char *fmt, ...);
+// `gui frames [reset]`: full-screen frames by the site that asked (wm_redraw.c).
+void wm_redraw_report(struct dbg_out *o, int reset);
 
 // Holds `bytes` at the end of the sink back, so a caller that MUST be
 // able to finish -- a JSON emitter that owes a `]}` -- can guarantee

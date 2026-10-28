@@ -25,8 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] Grow a TFS3 volume -- Disks' Resize dialog (R1), `part resize`, a shared `uui_resizebar`  *(Storage hardening)*
-- [ ] Pace composing to the vblank -- a hand drag on the ASUS composed 8161 frames, 8143 within a refresh of the last  *(virtio, and a real GPU driver)*
-- [ ] Full repaints where a small rect would do -- toywm's bare `redraw_pending = 1`, apps repainting a whole window  *(Known limitations and papercuts (unscheduled))*
 <!-- END next-up -->
 
 
@@ -1074,7 +1072,8 @@ run on, not by order.
 - [ ] The calendar, context menu and confirm dialog should declare their own damage, as the Start menu already does
 - [ ] Intel modesetting: external outputs on DDI B-D, a second EDID and hotplug -- waits for a laptop with a usable port
 - [x] ~~Intel gen9 on the Kaby Lake desktop over HDMI: readout, adopt, GMBUS EDID, scaler modes, HDMI modeset~~ DONE 2026-10-04
-- [ ] **NEXT** Pace composing to the vblank -- a hand drag on the ASUS composed 8161 frames, 8143 within a refresh of the last
+- [x] ~~Compose at most one frame per refresh~~ DONE 2026-10-28 -- the first change after quiet at once; a fast drag 216 -> 74 frames/s
+- [ ] Pace composing to the vblank -- a hand drag on the ASUS composed 8161 frames, 8143 within a refresh of the last
 - [ ] Intel blitter acceleration on the BCS ring -- declined 2026-09-03; the 2026-09-17 frame time reopens it
 - [x] ~~A fullscreen state, and direct scanout for a fullscreen client~~ DONE 2026-09-11 -- a lease, `docs/scanout-design.md`
 - [ ] The Broadwell sprite plane: a MAXIMIZED window scanned out, the desktop composed around it -- `docs/scanout-design.md` stage 4
@@ -1620,7 +1619,7 @@ this to be better?".
 - [x] ~~The WM's context menu has no keyboard~~ DONE 2026-10-01 -- `context_menu_key()` on the overlay registry's key op
 - [ ] Widget-local RGB literals bypass `utheme` -- ~12 widgets unconverted, plus five colours no palette role matches
 - [x] ~~System Settings' focus ring is the PAGE's controls -- Tab reaches neither the sidebar nor the buttons~~ DONE 2026-09-28
-- [ ] **NEXT** Full repaints where a small rect would do -- toywm's bare `redraw_pending = 1`, apps repainting a whole window
+- [x] ~~Full repaints where a small rect would do~~ DONE 2026-10-28 -- `gui frames`; four sites cut, 16 -> 1 in ~500
 - [ ] Disk Mark's size and location dropdowns cannot be typed at while CLOSED -- the app routes no keys, so only the overlay path reaches it
 - [ ] On a machine with no invariant TSC, CPU percentages round to 0% for sub-tick work
 - [ ] `gfxbench`'s numbers are only meaningful under KVM or on real hardware

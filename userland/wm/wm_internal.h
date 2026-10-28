@@ -346,6 +346,14 @@ extern int title_hover_kind;
 extern int title_tab_idx;
 
 extern int redraw_pending;
+// ASK FOR A FRAME, SAYING WHERE: every site does it through this, so a
+// frame that ends up a FULL-SCREEN repaint (no damage reported) is
+// charged to the sites that asked for it -- `gui frames` lists them, the
+// audit's instrument for "a whole frame where a rect would do". The
+// first such site cost the File Manager its drag (wm_dnd.c).
+#define WM_REDRAW() wm_redraw_at(__FILE__, __LINE__)
+void wm_redraw_at(const char *file, int line);
+void wm_redraw_charge(int has_damage);   // wm_render_frame(), once a frame
 // Window damage is SHRUNK by a margin for the next `n` rendered frames
 // (wm_render.c) -- the damage sweep's positive control, reached as
 // `gui damage shrink <n>`.
@@ -365,6 +373,7 @@ int  wm_damage_shrink_px(void);   // the inset to apply now, 0 when the lever is
 // for the same event); this only narrows WHERE the next repaint
 // touches, not WHETHER one happens. Defined in wm_render.c.
 void wm_damage_rect(int x, int y, int w, int h);
+int  wm_damage_pending(void);   // damage recorded since the last frame
 
 // Window lifecycle -- defined in wm.c, used by wm_input.c (opening from
 // the Start menu, closing via the title-bar X).
@@ -561,6 +570,11 @@ void wm_debug_damage(int *out_x, int *out_y, int *out_w, int *out_h);
 uint32_t wm_scene_frames(void);
 // The tray clock's updates so far (wm.c), each of which asks for a frame.
 unsigned wm_clock_ticks(void);
+// Frame pacing (wm.c): passes that owed a frame and waited for the
+// refresh, and the switch `gui pacing` flips for a comparison.
+unsigned wm_frames_paced(void);
+int wm_pacing(void);
+void wm_set_pacing(int on);
 
 // Windows DRAWN, and CULLED -- skipped because the opaque windows above
 // them left nothing of them visible in the frame's damage (wm_render.c's

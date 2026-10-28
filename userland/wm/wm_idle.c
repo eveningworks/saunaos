@@ -61,7 +61,7 @@ static void forget_cursor(void) {
     uint8_t buttons;
     wm_rawin_mouse(&mx, &my, &buttons);
     wm_damage_rect(mx - 4, my - 4, 40, 48);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void start_saver(void) {

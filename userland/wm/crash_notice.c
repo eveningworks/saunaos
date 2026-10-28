@@ -275,7 +275,7 @@ static void tell_file(int kind, unsigned flags, const char *path) {
     if (kind != WIN_NOTICE_SCREENSHOT || !fit_path(path)) return;
     if (flags & WIN_NOTICE_F_FLASH) {
         wm_flash_start();
-        redraw_pending = 1;
+        WM_REDRAW();
     }
     // THE ACTION A TEST WAITS FOR: the flash lasts a quarter of a second.
     ulogf("wm: notice %s%s %s\n", (flags & WIN_NOTICE_F_FLASH) ? "flash " : "",

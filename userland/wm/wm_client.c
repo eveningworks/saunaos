@@ -144,7 +144,7 @@ static void mark_not_responding(int pid) {
         if (w->client_pid != pid || !wm_client_is_client_window(w) || w->not_responding) continue;
         w->not_responding = 1;
         wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H);   // the title text changes
-        redraw_pending = 1;
+        WM_REDRAW();
         wm_logf("wm: client pid %d is not responding: its input backlog is full\n", pid);
     }
 }
@@ -405,7 +405,7 @@ static int on_window_created(int pid, uint32_t id,
     // buffer -- so this may send it a resize to ask for one; see
     // wm_geometry.c.
     if (!wm_geometry_restore(window_count - 1)) wm_geometry_fit(window_count - 1);
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_damage_rect(0, screen_h - taskbar_h, screen_w, taskbar_h); // the strip re-ranks; its button waits for its first frame
 
     wm_logf("wm: client pid %d opened window %u (%dx%d)\n", pid, id, w, h);
@@ -493,7 +493,7 @@ static int on_popup_created(int pid, uint32_t id, uint32_t parent_id, int w, int
 
     windows[window_count].open_seq = wm_next_open_seq();
     window_count++;
-    redraw_pending = 1;  // compute_window_damage() sees a new rect
+    WM_REDRAW();  // compute_window_damage() sees a new rect
     return 1;
 }
 
@@ -562,7 +562,7 @@ static int on_dialog_created(int pid, uint32_t id, uint32_t owner_id,
     windows[window_count].open_seq = wm_next_open_seq();
     window_count++;
     wm_focus_created(window_count - 1);
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_logf("wm: client pid %d opened dialog %u (%dx%d) of %u\n", pid, id, w, h, owner_id);
     return 1;
 }
@@ -647,7 +647,7 @@ void wm_client_popups_dismiss(int owner) {
         w->client_pid = 0;
         close_window(i);
     }
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // `front` is which of the window's two buffers now holds finished
@@ -739,7 +739,7 @@ static void on_window_present(int pid, uint32_t id, int front, uint32_t gen,
         win->client_damage_all = 0;   // the whole window, just now
         wm_maximize_presented(idx);
         if (first) wm_anim_open(idx);
-        redraw_pending = 1;
+        WM_REDRAW();
         // An interactive resize sends its next proposal now: one FRAME
         // in flight at a time, so the client's real repaint sets the
         // pace rather than its syscall latency.
@@ -795,7 +795,7 @@ static void on_window_present(int pid, uint32_t id, int front, uint32_t gen,
         wm_resize_shown(idx, 0);
         return;
     }
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_resize_shown(idx, 0);
 }
 
@@ -907,7 +907,7 @@ static void on_window_title(int pid, uint32_t id, const char *title) {
     // Found by `gui damage verify on` once the client-content noise
     // stopped drowning it out (docs/decisions.md).
     wm_damage_rect(0, screen_h - taskbar_h, screen_w, taskbar_h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // The client declaring how its window should behave. This is the other
@@ -954,7 +954,7 @@ static void on_window_hints(int pid, uint32_t id, unsigned flags, int min_w, int
     // The resize grip appears or disappears with this, so the chrome
     // has to be repainted -- the frame only, not the content.
     wm_damage_window_rect(windows[idx].x, windows[idx].y, windows[idx].w, windows[idx].h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // Defined below with the rest of the liveness code, which reads more
@@ -1068,7 +1068,7 @@ static int raise_window_at(int i) {
     // second launch gives the user -- same reasoning as the taskbar
     // button's, so it uses the same repair.
     wm_ensure_reachable(window_count - 1);
-    redraw_pending = 1;
+    WM_REDRAW();
     return 1;
 }
 
@@ -1341,7 +1341,7 @@ static void req_tabs(int from, struct wmchan_msg *m) {
     w->ntabs = n;
     w->active_tab = m->b >= 0 && m->b < n ? m->b : 0;
     wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void req_tab(int from, struct wmchan_msg *m) {
@@ -1353,7 +1353,7 @@ static void req_tab(int from, struct wmchan_msg *m) {
     w->tab[m->a][i] = '\0';
     w->tab_icon[m->a] = m->b;
     wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void wm_client_send_tab(struct window *win, int tab, int action) {
@@ -1424,7 +1424,7 @@ static void req_cursor_image(int from, struct wmchan_msg *m) {
     k_memset(&r, 0, sizeof r);
     r.type = WIN_REQ_CURSOR_IMAGE;
     r.a = wm_cursor_img_define(from, m->a);
-    if (r.a == 0) redraw_pending = 1;   // the shape under the pointer may be this one
+    if (r.a == 0) WM_REDRAW();   // the shape under the pointer may be this one
     uchan_server_reply(&g_chan, from, &r, sizeof r);
 }
 
@@ -2213,7 +2213,7 @@ static void on_window_pong(int pid, uint32_t id, uint32_t serial) {
         // limited to that damage, and the title text then changed
         // outside it -- damage_sweep.py caught it under a ghost.
         wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H);
-        redraw_pending = 1;
+        WM_REDRAW();
     }
 }
 
@@ -2245,7 +2245,7 @@ int wm_client_check_liveness(void) {
         if (!w->not_responding) {
             w->not_responding = 1;
             wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H); // the title text changes
-            redraw_pending = 1;
+            WM_REDRAW();
             wm_logf("wm: client pid %d is not responding\r\n", w->client_pid);
         }
         // Only a window the user has actually asked to close earns a

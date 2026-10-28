@@ -91,7 +91,7 @@ static char clock_date[24];
 static int tray_ready;
 
 static void tray_damage(void) {
-    redraw_pending = 1;
+    WM_REDRAW();
     // Before the main loop exists there is nothing to scope, and
     // damaging here would narrow the first frame -- see above.
     if (tray_ready) wm_damage_rect(0, screen_h - taskbar_h, screen_w, taskbar_h);
@@ -193,7 +193,7 @@ void tray_animate(void) {
         it->frame = f;
         int x, y, w, h;
         if (tray_item_rect(i, &x, &y, &w, &h)) {
-            redraw_pending = 1;
+            WM_REDRAW();
             wm_damage_rect(x, y, w, h);
         }
     }

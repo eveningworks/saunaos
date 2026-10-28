@@ -134,7 +134,7 @@ static void adopt(void) {
     uui_popup_set_glass(g_on && g_alpha[WM_GLASS_MENU] < 255 ? menu_painter : 0);
     // EVERY glass surface changes at once: damage it all, since a frame
     // that also carries some other damage would otherwise be limited to it.
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_damage_rect(0, 0, screen_w, screen_h);
 }
 
@@ -491,7 +491,7 @@ static void track_drag(void) {
             (w->client_pid == last_pid && w->client_win == last_win))
             wm_damage_window_rect(w->x, w->y, w->w, w->h);
     }
-    redraw_pending = 1;
+    WM_REDRAW();
     last_pid = pid;
     last_win = id;
 }

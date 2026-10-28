@@ -2409,6 +2409,9 @@ void wm_damage_verify_set(int on) {
 
 int wm_damage_verify_enabled(void) { return verify_enabled; }
 
+// Damage recorded and not yet composed: what a site asks a frame for.
+int wm_damage_pending(void) { return damage_x1 > damage_x0; }
+
 // The cursor's own damage. It is alpha-BLENDED, so it must always be
 // composited over a freshly-drawn scene: if the pixels underneath
 // aren't redrawn first, each frame blends the sprite over the previous
@@ -2625,6 +2628,7 @@ void wm_render_frame(int mx, int my) {
     // the first frame) means "unknown, be safe" -- full screen.
     if (damage_x1 > damage_x0) grow_damage_for_glass();
     int has_damage = damage_x1 > damage_x0;
+    wm_redraw_charge(has_damage);
 
     render_scene(mx, my, has_damage);
     g_cull.drawn = g_win_drawn;

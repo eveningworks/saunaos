@@ -358,7 +358,7 @@ void network_animate(void) {
     g_busy_slice = slice;
     struct network_geom g;
     network_geometry(&g);
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_damage_rect(g.x, g.y, g.w, g.hero_h + 1);
 }
 

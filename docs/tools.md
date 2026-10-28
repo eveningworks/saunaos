@@ -3197,7 +3197,11 @@ window without going through it will find its layout polls timing out.
 - **`damage_sweep.py`'s positive control injects its miss.** `gui damage
   shrink <n>` (a test lever in `wm_render.c`) insets every
   `wm_damage_window_rect()` by 48 px for the next `n` rendered frames;
-  `--positive-control` shrinks four frames before a drag and expects the
+  `--positive-control` shrinks four frames before a drag -- with
+  `gui pacing off` around it and the lever cleared after, since a paced
+  compositor folds an injected drag into a frame or two and the shrunk
+  frames outlived it, surfacing later as a phantom Start-menu "bug" --
+  and expects the
   verifier to report the border the window vacated. Shrink rather than
   drop, because a frame whose damage is all dropped has none, and a frame
   with no damage is a full repaint -- correct by construction. Until
@@ -5314,6 +5318,17 @@ window without going through it will find its layout polls timing out.
   exactly TWO of the ten, because the other eight are regression cover
   for stage 4a's role-clear path rather than tests of R7 -- read that
   before trusting a green run. In `gui_regress.py`.
+- **`frame_pacing_test.py`** -- the compositor composes at most one
+  frame per refresh (`userland/wm/wm.c`, "FRAMES ARE PACED TO THE
+  REFRESH"): a Calculator window shaken by its title bar with FAST
+  relative QMP motion (no sleep; `warp_cursor()` never reaches the cap)
+  composes no more frames a second than the monitor's EDID refresh
+  (`lsdisplay`) plus a margin; the SAME drag after `gui pacing off`
+  composes more, which is the positive control built in; and after a
+  quiet moment a single press moves no `paced` counter -- a frame clock
+  would have delayed it. A mutant that delays every frame fails the
+  first and third. In `gui_regress.py` as `pacing`.
+
 - **`compositor_test.py`** -- M41 stage 2's raw input path to a
   registered ring-3 compositor (`userland/tests/compclient.c`), 16
   checks. Its design point: every injected input is asserted TWICE, once

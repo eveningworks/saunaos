@@ -425,7 +425,7 @@ static int desktop_files_reload(void) {
             }
         if (edited) {
             desktop_files_parse();
-            redraw_pending = 1;
+            WM_REDRAW();
             wm_damage_rect(0, 0, screen_w, screen_h);
         }
         // A picture that finished arriving, or a folder that gained one,
@@ -647,7 +647,7 @@ static void wallpaper_reload(void) {
     // tools/imgview_test.py stay green: the tool cannot tell the two
     // apart, and its comment says so rather than claiming a bug this
     // fixed.
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_damage_rect(0, 0, screen_w, screen_h);
 
     // "fit" letterboxes the whole picture; "fill" covers the screen and
@@ -769,7 +769,7 @@ static void arrange_reload(void) {
     g_show_trash = bin;
     // A new order from anywhere -- the menu or System Settings -- is a sort.
     if (resorted) resort();
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_damage_rect(0, 0, screen_w, screen_h);
 }
 
@@ -783,7 +783,7 @@ static void folder_opts_reload(int first) {
         desktop_entries_changed();
     if (g_fo.thumbs != was.thumbs || g_fo.thumb_max_mb != was.thumb_max_mb) thumbs_reset();
     if (k_memcmp(&g_fo, &was, sizeof was) != 0) {
-        redraw_pending = 1;
+        WM_REDRAW();
         wm_damage_rect(0, 0, screen_w, screen_h);
     }
 }
@@ -799,7 +799,7 @@ static void icon_size_reload(void) {
                 k_strcmp(word, "large") == 0 ? 64 : 48;
     thumbs_reset();   // made at the old size
     reflow_overflow();
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_damage_rect(0, 0, screen_w, screen_h);
 }
 
@@ -855,7 +855,7 @@ void desktop_poll_config(void) {
         if (full != g_bin_full) {
             g_bin_full = full;
             for (int i = 0; i < item_count(); i++) if (item_is_bin(i)) damage_icon_hl(i);
-            redraw_pending = 1;
+            WM_REDRAW();
         }
         if (!g_expire_due) expire_soon(EXPIRE_SETTLE);
     }
@@ -904,7 +904,7 @@ uint32_t desktop_background_gen(void) { return g_background_gen; }
 
 void desktop_background_changed(void) {
     g_background_gen++;
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_damage_rect(0, 0, screen_w, screen_h);
 }
 
@@ -1114,7 +1114,7 @@ static void thumbs_refresh(void) {
             if (g_thumb[i].px || !wants_thumb(&g_files[i])) continue;
             if (uthumb_load_cached(path, &g_files[i].modified, px, &g_thumb[i]) == 0) {
                 damage_icon_hl(i);
-                redraw_pending = 1;
+                WM_REDRAW();
             } else if (ask) {
                 ask_add(&want[0], path);
             }
@@ -1132,7 +1132,7 @@ static void thumbs_refresh(void) {
             if (!k_path_join(path, kids[k].name, kid, sizeof kid)) continue;
             if (g_peek[i][got].px || uthumb_load_cached(kid, &kids[k].modified, peek_px, &g_peek[i][got]) == 0) {
                 damage_icon_hl(i);
-                redraw_pending = 1;
+                WM_REDRAW();
             } else if (too_fresh(&kids[k].modified)) {
                 waiting = 1;
             } else if (ask) {
@@ -1407,7 +1407,7 @@ void desktop_entries_changed(void) {
     // clock damaged its strip in the same frame: new icons went undrawn
     // and old ones stayed where they had been.
     wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 int desktop_icon_selected(int i) { return rb_is_selected(&sel, i); }
@@ -1441,7 +1441,7 @@ void desktop_update_hover(int mx, int my, int on_desktop) {
     damage_icon_hl(g_hover);
     damage_icon_hl(now);
     g_hover = now;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 int desktop_hovered_icon(void) { return g_hover; }
@@ -1506,7 +1506,7 @@ void desktop_handle_click(int mx, int my) {
         // the band is for.
         rb_begin(&sel, mx, my, mode);
         last_click_index = -1;
-        redraw_pending = 1;
+        WM_REDRAW();
         free(sel_before);
         return;
     }
@@ -1563,7 +1563,7 @@ void desktop_handle_click(int mx, int my) {
 
     damage_selection_change(sel_before);
     free(sel_before);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // Whether (col, row) already belongs to some OTHER icon (not `exclude`,
@@ -1707,13 +1707,13 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
             if (rb_selected_count(&sel) != before) {
                 wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
             }
-            redraw_pending = 1;
+            WM_REDRAW();
             return;
         }
         rb_end(&sel);
         damage_band();          // erase the outline
         wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
-        redraw_pending = 1;
+        WM_REDRAW();
         return;
     }
 
@@ -1751,7 +1751,7 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
             int bottom = (old_py > drag_py ? old_py : drag_py) + g.cell_h;
             wm_damage_rect(0, top, screen_w, bottom - top);
         }
-        redraw_pending = 1;
+        WM_REDRAW();
         return;
     }
 
@@ -1764,7 +1764,7 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
         wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
         icon_drag_end(&drag);
         group_drag = 0;
-        redraw_pending = 1;
+        WM_REDRAW();
         return;
     }
     desktop_drop_hover(-1, -1);   // a click, or a drop that was nobody's
@@ -1810,7 +1810,7 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
         icon_drag_end(&drag);
         group_drag = 0;
         if (g_auto_arrange) positions_loaded = 0;
-        redraw_pending = 1;
+        WM_REDRAW();
         single_click_open(open_now);
         return;
     }
@@ -1832,7 +1832,7 @@ void desktop_update_drag(int mx, int my, uint8_t buttons) {
         positions_loaded = 0;
         wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
     }
-    redraw_pending = 1;
+    WM_REDRAW();
     single_click_open(open_now);
 }
 
@@ -2222,7 +2222,7 @@ void desktop_drop_hover(int mx, int my) {
         break;
     default: g_drop_label[0] = '\0'; break;
     }
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 const char *desktop_drop_label(void) { return g_drop_on >= 0 ? g_drop_label : 0; }
@@ -2236,7 +2236,7 @@ static int drop_onto_target(char paths[][PATH_BUF], int n) {
     damage_icon_hl(t);
     g_drop_on = -1;
     g_drop_verb = DROP_NONE;
-    redraw_pending = 1;
+    WM_REDRAW();
     static char dest[PATH_BUF];
     if (verb == DROP_MOVE || verb == DROP_COPY) {
         item_path(t, dest, sizeof dest);
@@ -2415,7 +2415,7 @@ static int rename_rect(int *x, int *y, int *w, int *h) {
 
 static void damage_rename(void) {
     if (g_rename >= 0) damage_icon_hl(g_rename);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void begin_rename(int i) {
@@ -2599,7 +2599,7 @@ static void menu_refresh(void *ctx) {
     (void)ctx;
     desktop_entries_changed();
     wm_damage_rect(0, 0, screen_w, screen_h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // Sort by name: the default layout, re-derived and SAVED, so a desktop
@@ -2629,7 +2629,7 @@ static void resort(void) {
     for (int i = 0; i < item_count(); i++)
         if (icon_col[i] >= 0) save_position(i);
     wm_damage_rect(0, 0, screen_w, screen_h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // The last row opens System Settings, found by its app id so a renamed
@@ -2697,7 +2697,7 @@ void desktop_handle_right_click(int mx, int my) {
         // The click selects the icon first, unless it is already in the
         // set -- right-clicking one of five must offer to act on five.
         if (!rb_is_selected(&sel, idx)) { rb_clear(&sel); rb_select(&sel, idx, 1); }
-        redraw_pending = 1;
+        WM_REDRAW();
         // The Recycle Bin alone is a place, not a file: Open and Empty.
         if (item_is_bin(idx) && rb_selected_count(&sel) == 1) {
             items[k++] = (struct context_menu_item){ .label = "Open", .on_select = menu_open_item,

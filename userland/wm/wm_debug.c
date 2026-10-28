@@ -1743,7 +1743,9 @@ static void cmd_compositor(struct dbg_out *o, int json) {
         dbg_out_printf(o, "\"desktop\":{\"passes\":%u,\"px_drawn\":%llu},", cs.desk_passes,
                     cs.desk_px_drawn);
         dbg_out_printf(o, "\"copies\":{\"client_px\":%llu,\"present_px\":%llu},"
-                          "\"frames_soon\":%u}\r\n", cs.client_px, cs.present_px, cs.frames_soon);
+                          "\"frames_soon\":%u,\"pacing\":%s,\"paced\":%u}\r\n",
+                    cs.client_px, cs.present_px, cs.frames_soon,
+                    wm_pacing() ? "true" : "false", wm_frames_paced());
     } else if (!pid) {
         dbg_out_write(o, "compositor: none registered\r\n");
     } else {
@@ -1760,6 +1762,8 @@ static void cmd_compositor(struct dbg_out *o, int json) {
                     pf.budget_us, pf.over, pp.over);
         dbg_out_printf(o, "  composed within a refresh of the frame before: %u of %u "
                           "(the display shows only the newest)\r\n", cs.frames_soon, cs.frames);
+        dbg_out_printf(o, "  pacing %s: %u passes owed a frame and waited for the refresh\r\n",
+                    wm_pacing() ? "on" : "off", wm_frames_paced());
         dbg_out_printf(o, "  windows drawn/culled: last frame %u/%u, %u/%u over %u frames\r\n",
                     cs.drawn, cs.culled, cs.drawn_total, cs.culled_total, cs.frames);
         dbg_out_printf(o, "  desktop: %u wallpaper passes, %llu px\r\n",
@@ -2198,7 +2202,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
             setenv("UGFX_SIMD", ugfx_simd(), 1);
             wm_glass_forget();
             wm_damage_rect(0, 0, screen_w, screen_h);
-            redraw_pending = 1;
+            WM_REDRAW();
         }
         dbg_out_printf(o, "simd: %s\r\n", ugfx_simd());
         return 1;
@@ -2244,7 +2248,7 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
             char *onoff = next_tok(&p);
             if (onoff) {
                 ugfx_screen_present_full(k_strcmp(onoff, "on") == 0);
-                redraw_pending = 1;   // the buffers are stale by whatever it was doing
+                WM_REDRAW();   // the buffers are stale by whatever it was doing
             }
         }
         dbg_out_printf(o, "present: full=%s buffers=%d\r\n",
@@ -2538,6 +2542,28 @@ int wm_debug_dispatch_out(char *line, struct dbg_out *o) {
                    (unsigned)wm_idle_seconds(), wm_idle_saver_pid(),
                    wm_idle_saver_name(), wm_idle_minutes());
         dbg_out_write(o, buf);
+        return 1;
+    }
+
+    // FRAME PACING (wm.c): off composes a frame per input again, so a
+    // test can measure what pacing saves on the same build.
+    // WHO ASKED FOR EACH FULL-SCREEN FRAME (wm_redraw.c).
+    if (k_strcmp(sub, "frames") == 0) {
+        const char *arg = next_tok(&p);
+        wm_redraw_report(o, arg && k_strcmp(arg, "reset") == 0);
+        return 1;
+    }
+
+    if (k_strcmp(sub, "pacing") == 0) {
+        const char *arg = next_tok(&p);
+        if (arg && (k_strcmp(arg, "on") == 0 || k_strcmp(arg, "off") == 0))
+            wm_set_pacing(k_strcmp(arg, "on") == 0);
+        else if (arg) {
+            dbg_out_write(o, "usage: gui pacing [on|off]\r\n");
+            return 1;
+        }
+        dbg_out_printf(o, "gui: pacing %s, %u passes waited\r\n",
+                       wm_pacing() ? "on" : "off", wm_frames_paced());
         return 1;
     }
 

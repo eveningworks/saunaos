@@ -77,7 +77,7 @@ static void open_common(const char *message, void (*on_yes)(void), void (*on_no)
 
 static void close_dialog(void) {
     confirm_dialog_open = 0;   // where it was drawn is damaged by the core (wm_overlay.h)
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void confirm_dialog_draw(void) {

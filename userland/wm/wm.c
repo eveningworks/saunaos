@@ -259,7 +259,7 @@ void wm_set_above(int idx, int above) {
     // Its whole footprint changes depth, and so does every window it
     // overlaps -- a full repaint is the honest damage for a rare event.
     wm_damage_rect(0, 0, screen_w, screen_h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // Does popup p hang, through any chain of popups, off windows[focus]?
@@ -307,6 +307,13 @@ void wm_focus_sync(void) {
     if (old >= 0) wm_client_send_focus(&windows[old], 0);
     if (f >= 0) wm_client_send_focus(&windows[f], 1);
     g_focus_told = seq;
+    // BOTH TITLE BARS CHANGE COLOUR, and the taskbar's lit button moves:
+    // damaged here, where focus changes, rather than left to whichever
+    // click asked for a full-screen frame (wm_redraw.c found those).
+    if (old >= 0) wm_damage_window_rect(windows[old].x, windows[old].y, windows[old].w, windows[old].h);
+    if (f >= 0) wm_damage_window_rect(windows[f].x, windows[f].y, windows[f].w, windows[f].h);
+    wm_damage_rect(0, screen_h - taskbar_h, screen_w, taskbar_h);
+    WM_REDRAW();
     // AN INHIBITOR DIES WITH ITS WINDOW'S FOCUS (abi/win_proto.h).
     wm_shortcut_focus_changed(f);
 }
@@ -322,7 +329,7 @@ void wm_focus_created(int idx) {
 
 void window_invalidate(struct window *win) {
     wm_damage_window_rect(win->x, win->y, win->w, win->h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // --- read-only window introspection (see wm.h's declarations) ---
@@ -522,7 +529,7 @@ void open_app(const struct gui_app *app) {
         if (existing >= 0) {
             wm_window_unminimize(existing);
             bring_to_front(existing);
-            redraw_pending = 1;
+            WM_REDRAW();
             return;
         }
     }
@@ -577,7 +584,7 @@ void open_app(const struct gui_app *app) {
     // not see a slot the count does not cover yet.
     if (!wm_geometry_restore(window_count - 1)) wm_geometry_fit(window_count - 1);
     if (app->on_open) app->on_open(win);
-    redraw_pending = 1;
+    WM_REDRAW();
     // A new taskbar button appears -- compute_window_damage()
     // (wm_render.c) will damage the new window's own rect (its
     // last_w == 0 sentinel), but the taskbar strip is a separate area.
@@ -678,7 +685,7 @@ static void wm_force_quit_yes(void) {
     // exactly the case a catchable signal cannot reach.
     sys_kill(g_force_quit_pid, SIGKILL);
     g_force_quit_pid = 0;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void wm_force_quit_no(void) {
@@ -701,9 +708,9 @@ static void wm_force_quit_no(void) {
             break;
         }
     }
-    redraw_pending = 1; // the title bar drops "(Not Responding)" for now
+    WM_REDRAW(); // the title bar drops "(Not Responding)" for now
     g_force_quit_pid = 0;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void wm_offer_force_quit(int idx) {
@@ -740,7 +747,7 @@ void wm_bring_forward(int idx) {
     wm_window_unminimize(idx);
     wm_ensure_reachable(idx);
     raise_with_dialogs(idx);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void wm_request_close(int idx) {
@@ -826,7 +833,7 @@ void close_window(int idx) {
 
     for (int i = idx; i < window_count - 1; i++) windows[i] = windows[i + 1];
     window_count--;
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_focus_sync();   // whoever inherits it is told, minimized or not
 
 }
@@ -924,7 +931,7 @@ static void poll_desktop_entries(void) {
                     (uint32_t)((t2 - t1) * 10));
     }
     wm_damage_rect(0, 0, screen_w, screen_h - taskbar_h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // ---- main loop ----
@@ -1000,7 +1007,7 @@ void wm_layout_changed(void) {
         if (w->y < 0) w->y = 0;
     }
     wm_render_reset();
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // A drawn overlay has closed and its frame is owed (wm_overlay.h's close
@@ -1009,6 +1016,47 @@ void wm_layout_changed(void) {
 static int overlay_close_frame(void) {
     return wm_overlay_close_pending() && !wm_scanout_active();
 }
+
+// FRAMES ARE PACED TO THE REFRESH, NOT TO THE INPUT. The first change
+// after a quiet moment is composed at once; while changes keep coming
+// -- a drag, a scroll, a fast mouse waking the loop hundreds of times a
+// second -- the next frame waits until one refresh after the last, and
+// everything that arrived meanwhile is folded into it. The flip is a
+// mailbox, so the newest frame is what the next vblank shows either
+// way; a frame composed sooner than that was never seen. Mutter and
+// KWin go further and start each frame just before the vblank, which
+// needs the driver to say when one happens (docs/roadmap.md, "Pace
+// composing to the vblank"). The hardware cursor is never held back.
+static uint64_t g_frame_ns;        // one refresh; 0 until asked
+static uint64_t g_last_frame_ns;   // when the last composed frame began
+static int g_pacing = 1;           // `gui pacing off` compares without it
+static unsigned g_frames_paced;    // passes that owed a frame and waited
+static int g_cursor_owed;          // a software cursor move held back
+
+// The monitor's refresh from its EDID, else 60 Hz. The NATIVE timing's:
+// a mode faster than the panel's own is not one SaunaOS sets.
+static uint64_t frame_interval_ns(void) {
+    if (!g_frame_ns) {
+        struct query_display d;
+        g_frame_ns = 1000000000ull / 60;
+        if (sys_query_record(QUERY_DISPLAY, 0, &d, sizeof d) >= (int)sizeof d &&
+            (d.flags & QUERY_DISPLAY_F_EDID) && d.refresh_mhz >= 24000 &&
+            d.refresh_mhz <= 360000)
+            g_frame_ns = 1000000000000ull / d.refresh_mhz;
+    }
+    return g_frame_ns;
+}
+
+// How long until a frame may be composed: 0 when one may go now.
+static uint64_t frame_wait_ns(uint64_t now) {
+    if (!g_pacing || !g_last_frame_ns) return 0;
+    uint64_t due = g_last_frame_ns + frame_interval_ns();
+    return now >= due ? 0 : due - now;
+}
+
+unsigned wm_frames_paced(void) { return g_frames_paced; }
+int wm_pacing(void) { return g_pacing; }
+void wm_set_pacing(int on) { g_pacing = on != 0; }
 
 // The tray clock's once-a-second updates, for `gui state`: a test that
 // must tell a frame it caused from the clock's own lines up on these.
@@ -1125,7 +1173,7 @@ void wm_run(void) {
     title_btn_pressed_active = 0;
     title_hover_win = -1;
     title_hover_kind = -1;
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_exit_requested = 0;
 
     wm_render_reset(); // first frame must be a full repaint -- see wm_render.c
@@ -1195,8 +1243,15 @@ void wm_run(void) {
                 uint64_t in_ms = due > now_ns ? (due - now_ns + 999999) / 1000000 : 0;
                 if (in_ms < wait_ms) wait_ms = (uint32_t)in_ms;
             }
-            if (redraw_pending || overlay_close_frame() ||
-                wm_debug_work_pending() || wm_rawin_pending()) wait_ms = 0;
+            if (wm_debug_work_pending() || wm_rawin_pending()) {
+                wait_ms = 0;
+            } else if (redraw_pending || overlay_close_frame() || g_cursor_owed) {
+                // A frame is owed: park until it is due, not until the
+                // next input -- ROUNDED UP, as the timer above is.
+                uint64_t w = frame_wait_ns(sys_monotonic_ns());
+                uint32_t ms = (uint32_t)((w + 999999) / 1000000);
+                if (ms < wait_ms) wait_ms = ms;
+            }
             // A ghost in flight wants a frame every WM_ANIM_FRAME_MS, not
             // the idle park (wm_anim.h).
             if ((wm_anim_active() || start_menu_animating()) && wait_ms > WM_ANIM_FRAME_MS)
@@ -1478,7 +1533,7 @@ void wm_run(void) {
         // moving each overlay's hover into one table and dropping the
         // `redraw_pending = 1` the per-overlay code had carried -- while
         // fixing the same symptom on the volume flyout.
-        if (mouse_moved && wm_overlay_hover(mx, my, buttons)) redraw_pending = 1;
+        if (mouse_moved && wm_overlay_hover(mx, my, buttons)) WM_REDRAW();
 
         // Closes the Start menu once a just-clicked row's brief flash
         // has shown long enough -- independent of clicks/movement, so
@@ -1659,12 +1714,12 @@ void wm_run(void) {
                         // SUPER+SPACE ENDS ON SUPER'S RELEASE: the
                         // picked layout becomes the active one.
                         layout_switch_commit();
-                        redraw_pending = 1;
+                        WM_REDRAW();
                     } else if (!g_super_used && !wm_overlay_modal_open() &&
                                !wm_shortcut_inhibited(f)) {
                         if (start_menu_open) start_menu_close();
                         else start_menu_open_now();
-                        redraw_pending = 1;
+                        WM_REDRAW();
                     }
                 } else if (key != -1 && !key_down) {
                     // A RELEASE GOES STRAIGHT TO THE FOCUSED CLIENT, and
@@ -1692,21 +1747,21 @@ void wm_run(void) {
                     // release takes the pick (layout_popup.h). Before the
                     // overlays, because the switcher IS one and its next
                     // Space must reach this branch, not its key handler.
-                    redraw_pending = 1;
+                    WM_REDRAW();
                 } else if (wm_overlay_key(key, key_mods)) {
                     // AN OPEN OVERLAY OWNS THE KEYBOARD, which is what lets
                     // the Start menu be typed into -- xdg_popup's grab, and
                     // Windows' menu loop, both put the keyboard here. It
                     // consumes only what it acts on (see wm_overlay.h), so a
                     // shortcut is not shadowed by a popup being open.
-                    redraw_pending = 1;
+                    WM_REDRAW();
                 } else if (!wm_shortcut_inhibited(f) &&
                            wm_shortcut_fire(key, key_mods)) {
                     // A BOUND KEY NEVER REACHES A WINDOW. Checked before
                     // Alt+F4 and before routing, because a shortcut is the
                     // compositor's and an app cannot be allowed to shadow
                     // one (wm_shortcut.c).
-                    redraw_pending = 1;
+                    WM_REDRAW();
                 } else if ((key == 't' || key == 'T' || key == 0x14) && f >= 0 &&
                            (key_mods & KEY_MOD_CTRL) && (key_mods & KEY_MOD_SUPER) &&
                            !(key_mods & KEY_MOD_ALT) && !wm_shortcut_inhibited(f)) {
@@ -1729,10 +1784,10 @@ void wm_run(void) {
                     if (mx0 < 8) mx0 = 8;
                     if (my0 < 8) my0 = 8;
                     wm_open_window_menu(f, mx0, my0);
-                    redraw_pending = 1;
+                    WM_REDRAW();
                 } else if (key == KEY_F4 && (key_mods & KEY_MOD_ALT) && f >= 0) {
                     wm_request_close(f); // may shift windows[] -- f is dead after this
-                    redraw_pending = 1;
+                    WM_REDRAW();
                 } else if (kt >= 0 && key != -1 && wm_client_is_client_window(&windows[kt])) {
                     // Focused window belongs to a ring-3 client: the
                     // key becomes a protocol message rather than a
@@ -1740,13 +1795,13 @@ void wm_run(void) {
                     // the key is the WM's decision, and it doesn't
                     // change because the recipient is a process.
                     wm_client_send_key(&windows[kt], key, key_mods);
-                    redraw_pending = 1;
+                    WM_REDRAW();
                 } else if (f >= 0 && key != -1 && windows[f].app && windows[f].app->on_key) {
                     windows[f].app->on_key(&windows[f], key, key_mods);
                 } else if (f < 0 && key != -1 && !wm_overlay_modal_open()) {
                     // No window has the focus: the DESKTOP is the focus,
                     // and its icons take Ctrl+C/X/V and Delete.
-                    if (desktop_handle_key(key, key_mods)) redraw_pending = 1;
+                    if (desktop_handle_key(key, key_mods)) WM_REDRAW();
                 }
                 if (f >= 0 && wheel != 0) {
                     // A client gets the same notches as a message. Until
@@ -1764,7 +1819,7 @@ void wm_run(void) {
                 // reporting precisely rather than falling back to a full
                 // repaint for every keystroke.
                 if (f >= 0) wm_damage_window_rect(windows[f].x, windows[f].y, windows[f].w, windows[f].h);
-                redraw_pending = 1;
+                WM_REDRAW();
             }
 
             if (key != -1) any_key = 1;
@@ -1802,17 +1857,32 @@ void wm_run(void) {
 
         wmwd_phase("render");
         int rendered = 0;
-        if (redraw_pending || overlay_close_frame()) {
+        uint64_t frame_now = sys_monotonic_ns();
+        int frame_due = frame_wait_ns(frame_now) == 0;
+        int cursor_moved = mouse_moved || wm_cursor_shape_changed(mx, my);
+        if ((redraw_pending || overlay_close_frame()) && frame_due) {
             redraw_pending = 0;
+            g_cursor_owed = 0;   // the frame draws the cursor where it is
+            g_last_frame_ns = frame_now;
             wm_render_frame(mx, my);
             rendered = 1;
             wm_maximize_frame_done();
-        } else if (mouse_moved || wm_cursor_shape_changed(mx, my)) {
+        } else if (cursor_moved || g_cursor_owed) {
             // The shape moves while the mouse does not: a client answers
             // a motion event frames later, by which time the pointer has
-            // usually stopped.
-            wm_render_cursor_move(mx, my);
+            // usually stopped. A hardware cursor is a register write and
+            // goes at once; a software one is a present, paced as a frame.
+            if (wm_hwcursor_active()) {
+                wm_render_cursor_move(mx, my);
+            } else if (frame_due && !redraw_pending && !overlay_close_frame()) {
+                g_cursor_owed = 0;
+                g_last_frame_ns = frame_now;
+                wm_render_cursor_move(mx, my);
+            } else {
+                g_cursor_owed = 1;
+            }
         }
+        if (!rendered && (redraw_pending || overlay_close_frame())) g_frames_paced++;
 
         // THE DESKTOP IS USABLE AT ITS FIRST COMPOSITED FRAME, and that
         // is why the announcement is here and not at the compositor

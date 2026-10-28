@@ -80,7 +80,7 @@ static void refused(const char *why) {
     wm_logf("leave: %s\n", why);
     g_phase = PH_CHOOSE;
     close_batch_reset(&g_apps);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void perform(void) {
@@ -148,7 +148,7 @@ static void begin(int action) {
     wm_logf("leave: %s chosen, asking %d app(s) to close\n", NAME[action], asked);
     g_phase = PH_CLOSING;
     g_focus = 0;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void leave_page_poll(void) {
@@ -161,7 +161,7 @@ void leave_page_poll(void) {
         wm_logf("leave: %d app(s) did not close\n", remaining());
         changed = 1;
     }
-    if (changed) redraw_pending = 1;
+    if (changed) WM_REDRAW();
 }
 
 // --- opening and closing -------------------------------------------------------
@@ -196,7 +196,7 @@ void leave_page_show(enum leave_action focus) {
         k_snprintf(g_into_link, sizeof g_into_link, "Restart into: %s", g_boot.title[other]);
     }
     wm_logf("leave: page open, %s focused\n", NAME[focus]);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void leave_page_cancel(void) {
@@ -208,7 +208,7 @@ void leave_page_cancel(void) {
     g_snap = 0;
     g_snap_w = g_snap_h = g_snap_ok = 0;
     wm_logf("leave: closed\n");
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // --- layout -----------------------------------------------------------------
@@ -460,7 +460,7 @@ int leave_page_handle_click(int mx, int my) {
     if (!leave_page_open) return 0;
     layout();
     g_pressed = ctl_at(mx, my);   // armed here, committed on release
-    redraw_pending = 1;
+    WM_REDRAW();
     return 1;                     // modal: nothing under it hears the click
 }
 
@@ -479,7 +479,7 @@ int leave_page_hover_at(int mx, int my) {
     return g_hot + 1;
 }
 
-void leave_page_damage(void) { redraw_pending = 1; }
+void leave_page_damage(void) { WM_REDRAW(); }
 
 int leave_page_key(int key, uint8_t mods) {
     (void)mods;
@@ -496,13 +496,13 @@ int leave_page_key(int key, uint8_t mods) {
             else begin(g_focus);
             return 1;
         }
-        redraw_pending = 1;
+        WM_REDRAW();
         return 1;
     }
     if (g_phase == PH_STUCK) {
         if (key == KEY_ARROW_RIGHT || key == KEY_ARROW_LEFT || key == '\t') g_focus = !g_focus;
         else if (enter) { if (g_focus) perform(); else leave_page_cancel(); return 1; }
-        redraw_pending = 1;
+        WM_REDRAW();
     }
     return 1;   // modal: keys go nowhere else while it is up
 }

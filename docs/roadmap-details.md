@@ -5378,7 +5378,7 @@ it serves. Small, and it makes everything above it discoverable.*
 
 ## Known issues and papercuts (unscheduled)
 
-### Full repaints where a small rect would do -- toywm's bare `redraw_pending = 1`, apps repainting a whole window
+### Full repaints where a small rect would do
 
 Asked for 2026-10-28, after the File Manager's drag label sat still on the ASUS until the mouse stopped. The cause was one line: `wm_dnd_motion()` set `redraw_pending = 1` on every pass of toywm's loop while a drag was held, and `redraw_pending` with no damage reported is a FULL-SCREEN recompose (`wm_render_frame()` treats no damage as "unknown, be safe"). A fast mouse wakes the loop hundreds of times a second, so the ASUS composed ~1030 full 1080p frames in one five-second drag, and under QEMU with fast motion toywm took 1.54 s of CPU in 1.5 s while the File Manager got 0.03 s -- the app was starved, not slow. Fixed by damaging only the label's old and new boxes, and by asking for nothing at all while the pointer is over the source window, whose toolkit draws its own ghost.
 
@@ -5386,6 +5386,19 @@ Asked for 2026-10-28, after the File Manager's drag label sat still on the ASUS 
 
 - **The compositor** -- every bare `redraw_pending = 1` in `userland/wm/` that has no `wm_damage_rect()` beside it buys a full-screen frame. Each one is cheap when it fires once (a click, a window opening), and a bug when something can make it fire per input event or per loop pass. `grep -n "redraw_pending = 1" userland/wm/*.c` and read each for "can a moving pointer or a held button reach this every pass?". Known candidates: a focus change's title colour; the calendar, context menu and confirm dialog (their own roadmap line).
 - **The apps** -- a uapp client repaints and presents its WHOLE window for any change (`flush()` in `userland/ui/uapp.c`), so a small thing that moves with the pointer costs a full-window repaint per motion: the File Manager's in-window drag ghost is one. The toolkit's own fix is "The toolkit repaints only INVALIDATED widgets"; until then, look for per-motion `dirty = 1` with nothing in the window changing but a small overlay.
+
+**DONE 2026-10-28 for the compositor.** Every ask is `WM_REDRAW()` now,
+recording its site, and `gui frames` charges each full-screen frame to
+the sites that asked (`userland/wm/wm_redraw.c`). A damage-sweep random
+walk of 40 interactions measured 16 full-screen frames in 510 before;
+four sites carried them all -- a press inside an app, its release, a
+press on a title bar, and a held move that had not moved -- plus a focus
+change that damaged nothing and leaned on those frames for its title
+colours. After: 1 in 503. The convention is "Damaging a rect does not
+ask for a frame -- `WM_REDRAW()` too, and only when something changed"
+(`docs/conventions/gui.md`). **The apps' half is not done**: a uapp
+client still repaints and presents its whole window for any change, and
+that is the toolkit line "The toolkit repaints only INVALIDATED widgets".
 
 **How to measure each candidate:** `gui compositor --json` before and after driving it -- `frame_full.n` is cumulative, so its delta is the number of full-screen frames the action cost; `windows.frames` and `copies.client_px` show how often clients presented. **Test with FAST motion**: `vm.py` plus `QMPSession.move_rel()` with no sleep (~1600 events a second) reproduces what a real mouse does; `warp_cursor()` is ~0.3 s a step and hides the whole class. A CPU split from `DebugConsole.processes()` (toywm against the app) says who is starved. `filemanager_test.py`'s "a drag inside its own window costs the compositor no full-screen frames" is the worked example of a check.
 
@@ -6895,6 +6908,16 @@ routes 2 and 3 at most.
 `gui compositor` now counts those ("composed within a refresh of the frame before"). An injected `guictl drag` composed 180 of 183 frames inside a refresh of the previous, but injected input arrives as fast as toywm takes it, so that was only an upper bound.
 
 **MEASURED BY HAND, 2026-10-19**: Notepad dragged with a USB mouse on the ASUS, the counter reset first -- 8161 frames composed, 8143 of them within a refresh of the frame before; damage-limited p50 1.6 ms, p99 2.3 ms; about 13.8 s of composing in all. The drag was not timed, but 8161 frames at 60 Hz would be 136 s of showing them, so most were never seen: the compositor composes back to back while the mouse moves. Worth building for battery.
+
+**THE CAP IS BUILT (2026-10-28)**, the half of this that needs no
+vblank: toywm composes at most one frame per refresh (the EDID's, else
+60 Hz) -- the first change after a quiet moment at once, everything
+arriving within a refresh of the last frame folded into the next one,
+the hardware cursor never held back (`userland/wm/wm.c`, "FRAMES ARE
+PACED TO THE REFRESH"; `tools/frame_pacing_test.py`). Under QEMU a fast
+window drag went from 216 frames a second to 74 against a 75 Hz monitor.
+What is left is the ALIGNMENT below, which turns the CPU saving into a
+latency one too.
 
 Building it needs the kernel to say where the beam is -- the pipe's scanline register (`PIPEDSL`) and the mode's timings give the time to the next vblank, which is how i915 computes vblank timestamps -- exposed to the compositor, with QEMU's displays answering "unknown"; then toywm composes at the next vblank minus the p99 render time, folding the input that arrives meanwhile into that one frame.
 

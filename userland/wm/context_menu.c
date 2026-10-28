@@ -115,7 +115,7 @@ static void damage_level(int level) {
 void context_menu_damage(void) {
     if (!context_menu_open) return;
     for (int l = 0; l < uui_menubar_depth(&g_menu); l++) damage_level(l);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 int context_menu_showing(const struct context_menu_item *items) {
@@ -234,7 +234,7 @@ void context_menu_close(void) {
     uui_menubar_close(&g_menu);
     context_menu_open = 0;
     wm_overlay_set_parent(0);   // the chain ends with its child
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void context_menu_draw(int mx, int my) {
@@ -270,7 +270,7 @@ int context_menu_hover_at(int mx, int my) {
         if (uui_menubar_popup_rect(&g_menu, l, &x, &y, &w, &h) &&
             x == ox[l] && y == oy[l] && w == ow[l] && h == oh[l]) continue;
         wm_damage_window_rect(ox[l], oy[l], ow[l], oh[l]);   // and the shadow it cast
-        redraw_pending = 1;
+        WM_REDRAW();
     }
 
     // The token: any two rows must differ, the same row must repeat.
@@ -301,7 +301,7 @@ int context_menu_handle_click(int mx, int my) {
     context_menu_open = uui_menubar_is_open(&g_menu);
     if (!context_menu_open) wm_overlay_set_parent(0);
     context_menu_damage();   // a submenu the press opened
-    redraw_pending = 1;
+    WM_REDRAW();
     return 1;
 }
 
@@ -319,6 +319,6 @@ int context_menu_key(int key, uint8_t mods) {
     context_menu_open = uui_menubar_is_open(&g_menu);
     if (!context_menu_open) wm_overlay_set_parent(0);
     context_menu_damage();
-    redraw_pending = 1;
+    WM_REDRAW();
     return 1;
 }

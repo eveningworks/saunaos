@@ -57,7 +57,7 @@ void wm_setup_hold_poll(void) {
         if (!g_drawn) return;
         g_hold = HOLD_NONE;
         wm_damage_rect(0, 0, screen_w, screen_h);
-        redraw_pending = 1;
+        WM_REDRAW();
         return;
     }
     int up = setup_on_screen();
@@ -68,14 +68,14 @@ void wm_setup_hold_poll(void) {
             splash_layout(screen_w, screen_h, &l);
             int e = l.spin_r + l.dot_r + 2;
             wm_damage_rect(l.spin_cx - e, l.spin_cy - e, 2 * e, 2 * e);
-            redraw_pending = 1;
+            WM_REDRAW();
         }
         return;
     }
     g_hold = 0;
     wm_logf("wm: the desktop is let go -- %s\n", up ? "First-boot setup is up" : "setup never drew, timed out");
     wm_damage_rect(0, 0, screen_w, screen_h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 int wm_setup_hold_active(void) { return g_hold; }

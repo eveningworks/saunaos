@@ -170,7 +170,7 @@ int wm_bg_present(int pid, uint32_t id, int front, uint32_t gen, int w, int h, u
     if (full) {
         g_frames++;
         wm_damage_rect(0, 0, screen_w, screen_h);
-        redraw_pending = 1;
+        WM_REDRAW();
     }
     return 1;
 }
@@ -179,7 +179,7 @@ int wm_bg_destroy(int pid, uint32_t id) {
     if (!g_win.open || pid != g_win.client_pid || id != g_win.client_win) return 0;
     drop_surface();
     wm_damage_rect(0, 0, screen_w, screen_h);
-    redraw_pending = 1;
+    WM_REDRAW();
     return 1;
 }
 
@@ -197,7 +197,7 @@ void wm_bg_client_gone(int pid) {
     g_running[0] = '\0';
     drop_surface();
     wm_damage_rect(0, 0, screen_w, screen_h);
-    redraw_pending = 1;
+    WM_REDRAW();
     // A CLIENT THAT KEEPS DYING BEFORE ITS FIRST FRAME is broken, not
     // unlucky: the picture stays until the settings change.
     if (++g_failures < FAILURES_MAX) g_retry_at = sys_ticks() + RETRY_TICKS;

@@ -318,7 +318,7 @@ static void adopt(void) {
         on = !(v[0] == 'o' && v[1] == 'f' && v[2] == 'f');
     if (on != g_enabled) {
         g_enabled = on;
-        redraw_pending = 1;   // a full frame: nothing reported damage for the shadows
+        WM_REDRAW();   // a full frame: nothing reported damage for the shadows
     }
 }
 

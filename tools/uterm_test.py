@@ -1934,7 +1934,12 @@ def u8_sum_ok(dbg, path, want):
         if h in out:
             return True, out
         time.sleep(0.25)
-    return False, out
+    # What the file DOES hold, as well as it survives the serial console:
+    # its size and its text say whether a key was wrong, missing, or a
+    # whole later command was typed into it.
+    size = (dbg.send(f"sh wc -c {path}") or "").strip().splitlines()[-1:]
+    text = (dbg.send(f"sh cat {path}") or "").strip().splitlines()[-3:]
+    return False, f"{out.strip()} | size {size} | text {text!r}"
 
 
 def type_layout(qmp, keys):
@@ -2035,13 +2040,18 @@ def check_utf8(dbg, qmp, tmp, res):
             time.sleep(0.4)
             f = f"{d}/{lay}.txt"
             type_line(dbg, f"cat > {f}", settle=0.6)
-            type_layout(qmp, keys)
-            key(dbg, "0x0d")
-            key(dbg, "0x04")      # Ctrl-D ends cat's input
+            # ONE INPUT PATH for the line: the letter, Enter and Ctrl-D
+            # all through QMP's keyboard. Mixed with `gui key`, which
+            # the compositor takes from a different queue, nothing
+            # orders them -- an Enter that overtook the letter left
+            # Ctrl-D mid-line, `cat` kept reading, and the next command
+            # was typed into this file (2 runs in 6 once frames were
+            # paced, which moved the loop's timing).
+            type_layout(qmp, keys + ["ret", ["ctrl", "d"]])
             dbg.settle()
             time.sleep(0.5)
             ok, out = u8_sum_ok(dbg, f, (want + "\n").encode())
-            res.check(label, ok, out.strip()[:120])
+            res.check(label, ok, out.strip()[:300])
     finally:
         dbg.send("sh config set system.keyboard.layout us")
         dbg.send("sh config set system.keyboard.layouts us")

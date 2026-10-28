@@ -1021,7 +1021,7 @@ EXTRA_OBJS_lscodec    = shared/hda_codec
 # Listed rather than wildcarded on purpose: a stray .c dropped into
 # userland/wm/ should fail to link with an undefined symbol, not get
 # silently absorbed into the desktop.
-EXTRA_OBJS_toywm      = wm/wm wm/wm_rawin wm/wm_render wm/wm_prof wm/wm_input wm/wm_client \
+EXTRA_OBJS_toywm      = wm/wm wm/wm_rawin wm/wm_render wm/wm_prof wm/wm_redraw wm/wm_input wm/wm_client \
                         wm/wm_debug wm/wm_tray wm/wm_taskbar wm/wm_watchdog wm/wm_watch wm/wm_shortcut \
                         wm/desktop wm/start_menu wm/start_store wm/context_menu wm/taskbar_menu \
                         wm/calendar_popup \

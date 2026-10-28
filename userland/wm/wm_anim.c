@@ -218,7 +218,7 @@ static void finish(struct anim *a) {
     a->snap = 0;
     a->kind = NONE;
     a->pid = 0;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static struct anim *slot_for(int pid, uint32_t win) {
@@ -474,7 +474,7 @@ void wm_anim_step(void) {
         if (!utween_active(&a->tw)) { finish(a); continue; }
         any = 1;
     }
-    if (any) redraw_pending = 1;
+    if (any) WM_REDRAW();
 }
 
 // ONE TILE'S RECT THIS FRAME, and whether it is on screen at all.

@@ -61,7 +61,7 @@ static void lease_end(void) {
     g_lessee_pid = 0;
     ugfx_screen_forget(&g_wm_screen, back);
     wm_damage_rect(0, 0, screen_w, screen_h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void lease_start(int idx) {

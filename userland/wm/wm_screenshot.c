@@ -389,7 +389,7 @@ int wm_screenshot_capture(int from, int mode, unsigned flags,
     // about the copy.
     if (flags & WIN_SHOT_NO_SELF) {
         wm_damage_rect(0, 0, screen_w, screen_h);
-        redraw_pending = 1;
+        WM_REDRAW();
     }
 
     char name[WIN_SHOT_NAME_MAX];

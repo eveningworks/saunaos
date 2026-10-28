@@ -165,7 +165,7 @@ static int want_deflated(void) {
 // The band, and the shadow a floating panel casts above it.
 static void damage_strip(void) {
     int m = wm_shadow_margin();
-    redraw_pending = 1;
+    WM_REDRAW();
     wm_damage_rect(0, screen_h - taskbar_h - m, screen_w, taskbar_h + m);
 }
 
@@ -1043,7 +1043,7 @@ void taskbar_activate(int i) {
     } else {
         raise_with_dialogs(i);
     }
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // The PRESS only arms the button: whether it was a click or the start of
@@ -1135,7 +1135,7 @@ static void bring_forward(int i) {
     wm_window_unminimize(i);
     wm_ensure_reachable(i);
     raise_with_dialogs(i);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 #define TB_DND_RAISE_TICKS 50   // a drag resting this long on a button raises its window

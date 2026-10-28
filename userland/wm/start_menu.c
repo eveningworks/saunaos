@@ -578,7 +578,7 @@ static void sb_scroll_to(const struct sm_layout *L, int first) {
     if (first == scroll) return;
     scroll = first;
     start_menu_damage();
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void start_menu_geometry(int *out_x, int *out_y, int *out_w, int *out_h,
@@ -768,7 +768,7 @@ int start_menu_wheel(int mx, int my, int notches) {
     if (scroll > total - L.pane_rows) scroll = total - L.pane_rows;
     if (scroll < 0) scroll = 0;
     start_menu_damage();
-    redraw_pending = 1;
+    WM_REDRAW();
     return 1;
 }
 
@@ -1022,7 +1022,7 @@ void start_menu_toggle_pin(const char *app_id) {
         scroll = 0;
     }
     start_menu_damage();
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // --- open / close -----------------------------------------------------
@@ -1100,7 +1100,7 @@ void start_menu_close(void) {
     flash_row = -1;
     hover_token = 0;
     damage_start_button();   // the menu's own rect is the core's (wm_overlay.h)
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // --- drawing ----------------------------------------------------------
@@ -1328,7 +1328,7 @@ static int activate(int n) {
         scroll = 0;
         search_clear();
         start_menu_damage();
-        redraw_pending = 1;
+        WM_REDRAW();
         return 0;
     }
     if (n < L.cats + acts) {
@@ -1381,7 +1381,7 @@ int start_menu_handle_click(int mx, int my) {
             hover_token = TOK_SCROLLBAR;
             sb_set_wide(1);
             start_menu_damage();
-            redraw_pending = 1;
+            WM_REDRAW();
             return 1;
         }
     }
@@ -1396,7 +1396,7 @@ int start_menu_handle_click(int mx, int my) {
         uui_caret_reset();
         g_search_drag = 1;
         start_menu_damage();
-        redraw_pending = 1;
+        WM_REDRAW();
         return 1;
     }
 
@@ -1411,7 +1411,7 @@ int start_menu_handle_click(int mx, int my) {
         // the same frame it landed. start_menu_update() closes it.
         flash(n);
     }
-    redraw_pending = 1;
+    WM_REDRAW();
     return 1;
 }
 
@@ -1465,7 +1465,7 @@ int start_menu_key(int key, uint8_t mods) {
             uui_caret_reset();
             if (search_sync()) query_changed();
             start_menu_damage();
-            redraw_pending = 1;
+            WM_REDRAW();
             return 1;
         }
     }
@@ -1481,7 +1481,7 @@ int start_menu_key(int key, uint8_t mods) {
         if (query_len) {
             search_clear();
             query_changed();
-            redraw_pending = 1;
+            WM_REDRAW();
         } else {
             start_menu_close();
         }
@@ -1497,7 +1497,7 @@ int start_menu_key(int key, uint8_t mods) {
             int row = sel_row >= 0 ? sel_row : first;
             int n = L.cats + foot_count() + (row - first);
             if (activate(n)) flash(n);
-            redraw_pending = 1;
+            WM_REDRAW();
         }
         return 1;
     case KEY_ARROW_DOWN:
@@ -1509,7 +1509,7 @@ int start_menu_key(int key, uint8_t mods) {
         } else if (rows > 0) sel_row = (sel_row + 1 >= rows) ? 0 : sel_row + 1;
         scroll_to_selection(&L);
         start_menu_damage();
-        redraw_pending = 1;
+        WM_REDRAW();
         return 1;
     case KEY_ARROW_UP:
         // A grid's top line goes back to NO selection, where Left and
@@ -1518,7 +1518,7 @@ int start_menu_key(int key, uint8_t mods) {
         else if (rows > 0) sel_row = (sel_row <= 0) ? rows - 1 : sel_row - 1;
         scroll_to_selection(&L);
         start_menu_damage();
-        redraw_pending = 1;
+        WM_REDRAW();
         return 1;
     // A PAGE IS THE PANE, which is what makes Page Down land where the
     // eye already is rather than at some fixed count of rows.
@@ -1532,7 +1532,7 @@ int start_menu_key(int key, uint8_t mods) {
         if (sel_row >= rows) sel_row = rows - 1;
         scroll_to_selection(&L);
         start_menu_damage();
-        redraw_pending = 1;
+        WM_REDRAW();
         return 1;
     }
     case KEY_HOME:
@@ -1541,7 +1541,7 @@ int start_menu_key(int key, uint8_t mods) {
         if (rows > 0) sel_row = (key == KEY_HOME) ? 0 : rows - 1;
         scroll_to_selection(&L);
         start_menu_damage();
-        redraw_pending = 1;
+        WM_REDRAW();
         return 1;
     case KEY_ARROW_LEFT:
     case KEY_ARROW_RIGHT:
@@ -1557,7 +1557,7 @@ int start_menu_key(int key, uint8_t mods) {
             if (to >= 0 && to < rows) sel_row = to;
             scroll_to_selection(&L);
             start_menu_damage();
-            redraw_pending = 1;
+            WM_REDRAW();
             return 1;
         }
         if (L.cats > 0) {
@@ -1567,7 +1567,7 @@ int start_menu_key(int key, uint8_t mods) {
             sel_row = -1;
             scroll = 0;   // a different folder is read from its top
             start_menu_damage();
-            redraw_pending = 1;
+            WM_REDRAW();
         }
         return 1;
     default:
@@ -1581,7 +1581,7 @@ int start_menu_key(int key, uint8_t mods) {
     uui_caret_reset();
     if (search_sync()) query_changed();
     start_menu_damage();
-    redraw_pending = 1;
+    WM_REDRAW();
     return 1;
 }
 
@@ -1600,7 +1600,7 @@ void start_menu_update(void) {
     }
     if (start_menu_animating()) {
         start_menu_damage();
-        redraw_pending = 1;
+        WM_REDRAW();
     }
 
     if (flash_row < 0) return;
@@ -1623,7 +1623,7 @@ void start_menu_update_press(int mx, int my, uint8_t buttons) {
         if (!(buttons & 0x1)) { g_search_drag = 0; return; }
         uui_textbox_ops.motion(&g_search, mx, my, buttons);
         start_menu_damage();
-        redraw_pending = 1;
+        WM_REDRAW();
         return;
     }
     if (!start_menu_open || (!sb_drag && !sb_page)) return;
@@ -1635,7 +1635,7 @@ void start_menu_update_press(int mx, int my, uint8_t buttons) {
         sb_page = 0;
         if (!uui_hit(bx, by, bw, bh, mx, my)) { hover_token = 0; sb_set_wide(0); }
         start_menu_damage();
-        redraw_pending = 1;
+        WM_REDRAW();
         return;
     }
     int total = pane_lines(&L);
@@ -1671,7 +1671,7 @@ int start_menu_scrollbar_grow(void) { return start_menu_open ? sb_amount() : 0; 
 int start_menu_wait_ms(void) {
     if (!start_menu_open) return -1;
     int w = uui_caret_wait_ms();
-    if (w == 0) { start_menu_damage(); redraw_pending = 1; }
+    if (w == 0) { start_menu_damage(); WM_REDRAW(); }
     if (hover_cat >= 0) {   // and for a hovered folder's dwell
         uint64_t now = sys_monotonic_ns();
         int d = hover_cat_ns > now ? (int)((hover_cat_ns - now + 999999) / 1000000) : 0;

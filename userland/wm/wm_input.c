@@ -50,7 +50,7 @@ static void drag_outline_set(int idx, int x, int y, int w, int h) {
     drag_outline_x = x; drag_outline_y = y;
     drag_outline_w = w; drag_outline_h = h;
     if (idx >= 0) wm_damage_rect(x, y, w, h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void drag_outline_clear(void) { drag_outline_set(-1, 0, 0, 0, 0); }
@@ -249,7 +249,7 @@ void wm_begin_resize(int ri, int edges, int mx, int my) {
     // "already sent" size can no longer be trusted.
     resize_sent_w = resize_sent_h = -1;
     resize_inflight = 0;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // A move of window i begins, the pointer at mx,my: a press on its title
@@ -267,7 +267,7 @@ void wm_begin_move(int i, int mx, int my) {
     } else {
         bring_to_front(i);
     }
-    redraw_pending = 1;
+    if (wm_damage_pending()) WM_REDRAW();   // a raise damaged its rects; a front window changed nothing
 }
 
 void wm_handle_left_click(int mx, int my) {
@@ -305,7 +305,7 @@ void wm_handle_left_click(int mx, int my) {
         taskbar_start_hit_rect(&sx, &sy, &sw, &sh);
         if (uui_hit(sx, sy, sw, sh, mx, my)) {
             start_menu_open_now();   // closes the other popups itself
-            redraw_pending = 1;
+            WM_REDRAW();
             return;
         }
         // THE CLOCK OPENS THE CALENDAR, and the rect comes from the tray
@@ -355,7 +355,7 @@ void wm_handle_left_click(int mx, int my) {
         int blocker = wm_dialog_blocker(i);
         if (blocker >= 0) {
             bring_to_front(blocker);
-            redraw_pending = 1;
+            WM_REDRAW();
             return;
         }
 
@@ -380,7 +380,7 @@ void wm_handle_left_click(int mx, int my) {
                 title_btn_pressed_active = 1;
                 title_hover_win = -1;
                 title_hover_kind = -1;
-                redraw_pending = 1;
+                WM_REDRAW();
                 return;
             }
             // THE TABS: a tab is chosen on PRESS (Explorer's and every
@@ -395,7 +395,7 @@ void wm_handle_left_click(int mx, int my) {
                 w = &windows[window_count - 1];
                 wm_client_send_tab(w, tab, WIN_TAB_SELECT);
                 wm_damage_rect(w->x, w->y, w->w, WM_TITLEBAR_H);
-                redraw_pending = 1;
+                WM_REDRAW();
                 return;
             }
             if (tk == 4 || tk == 5) {
@@ -406,7 +406,7 @@ void wm_handle_left_click(int mx, int my) {
                 title_hover_win = -1;
                 title_hover_kind = -1;
                 damage_title_buttons(i);
-                redraw_pending = 1;
+                WM_REDRAW();
                 return;
             }
             // THE APP ICON OPENS THE WINDOW MENU, on PRESS -- a menu
@@ -427,7 +427,7 @@ void wm_handle_left_click(int mx, int my) {
                 // chrome does -- the same thing the menu bar does with
                 // its own titles.
                 wm_open_window_menu(window_count - 1, ix, iy + isz);
-                redraw_pending = 1;
+                WM_REDRAW();
                 return;
             }
 
@@ -440,7 +440,7 @@ void wm_handle_left_click(int mx, int my) {
                 title_click_pid = 0;   // a third click is a fresh first one
                 bring_to_front(i);
                 wm_toggle_maximize(window_count - 1);
-                redraw_pending = 1;
+                WM_REDRAW();
                 return;
             }
             title_click_pid = w->client_pid;
@@ -494,7 +494,10 @@ void wm_handle_left_click(int mx, int my) {
             // drawing into its own buffer and presenting.
             wm_client_send_mouse(&windows[fi], WIN_EV_MOUSE_DOWN, mx, my, 1);
         }
-        redraw_pending = 1;
+        // A FRAME ONLY FOR WHAT CHANGED: a client draws its own press,
+        // and a raise or a focus change has damaged its rects -- an
+        // unconditional ask here was a full-screen frame per click.
+        if (windows[fi].app || wm_damage_pending()) WM_REDRAW();
         return;
     }
     // Nothing else claimed it -- the click landed on the desktop
@@ -537,14 +540,14 @@ void wm_window_minimize(int i) {
     wm_anim_minimize(i);
     windows[i].min_prev = windows[i].state;
     windows[i].state = WIN_MINIMIZED;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void wm_window_unminimize(int i) {
     if (windows[i].state != WIN_MINIMIZED) return;
     wm_anim_restore(i);
     windows[i].state = windows[i].min_prev == WIN_MAXIMIZED ? WIN_MAXIMIZED : WIN_NORMAL;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 int wm_window_maximized(const struct window *w) {
@@ -635,7 +638,7 @@ static void wm_toggle_maximize(int i) {
             windows[i].w = screen_w; windows[i].h = screen_h - taskbar_h;
         }
     }
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 // A client's own Maximize or Restore (WIN_REQ_WINDOW_STATE): the same
@@ -694,7 +697,7 @@ void wm_set_fullscreen(int i, int on) {
         }
     }
     wm_damage_window_rect(w->x, w->y, w->w, w->h);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 static void ctx_toggle_fullscreen_window(void *ctx) {
@@ -730,7 +733,7 @@ static void ctx_restore_window(void *ctx) {
     wm_window_unminimize(i);
     wm_ensure_reachable(i);
     raise_with_dialogs(i);
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 void wm_open_window_menu(int idx, int mx, int my) {
@@ -898,7 +901,7 @@ void wm_handle_right_click(int mx, int my) {
         int blocker = wm_dialog_blocker(i);
         if (blocker >= 0) {
             bring_to_front(blocker);
-            redraw_pending = 1;
+            WM_REDRAW();
             return;
         }
 
@@ -928,7 +931,7 @@ void wm_handle_right_click(int mx, int my) {
             content_pressed = fi;
             content_pressed_btn = 0x2;
             wm_client_send_mouse(&windows[fi], WIN_EV_MOUSE_DOWN, mx, my, 2);
-            redraw_pending = 1;
+            WM_REDRAW();
             return;
         }
 
@@ -1163,10 +1166,13 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
             // about where the window will land.
             if (move_outline_mode) {
                 drag_outline_set(dragging, nx, ny, w->w, w->h);
-            } else {
+            } else if (nx != w->x || ny != w->y) {
+                // Only a real move: this runs every pass while the title
+                // is held, and a still or edge-clamped window asked for
+                // a full-screen frame of nothing each time.
                 w->x = nx;
                 w->y = ny;
-                redraw_pending = 1;
+                WM_REDRAW();
             }
         } else {
             // RELEASED: the window goes where the outline was.
@@ -1236,7 +1242,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
                 w->x = newx;
                 w->y = newy;
                 wm_damage_window_rect(w->x, w->y, w->w, w->h);
-                redraw_pending = 1;
+                WM_REDRAW();
             }
 
             if (resize_outline_mode) {
@@ -1255,7 +1261,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
             } else {
                 w->w = neww;
                 w->h = newh;
-                redraw_pending = 1;
+                WM_REDRAW();
             }
         } else {
             // RELEASED. In outline mode this is the only size anyone is
@@ -1276,7 +1282,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
                     w->x = fx;
                     w->y = fy;
                     wm_damage_window_rect(w->x, w->y, w->w, w->h);
-                    redraw_pending = 1;
+                    WM_REDRAW();
                 }
                 if (is_client) {
                     resize_ask(resizing, fw - wm_chrome_w(w), fh - wm_chrome_h(w));
@@ -1285,7 +1291,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
                     w->w = fw;
                     w->h = fh;
                     wm_damage_window_rect(w->x, w->y, w->w, w->h);
-                    redraw_pending = 1;
+                    WM_REDRAW();
                 }
             } else if (is_client) {
                 resize_pump();
@@ -1302,7 +1308,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
                 int ccy = my - window_content_y(w);
                 w->app->on_drag(w, ccx, ccy);
             }
-            redraw_pending = 1;
+            WM_REDRAW();
         } else {
             content_dragging = -1;
         }
@@ -1321,7 +1327,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
             if (w->app && w->app->on_press) {
                 int ccx = mx - window_content_x(w);
                 int ccy = my - window_content_y(w);
-                if (w->app->on_press(w, ccx, ccy)) redraw_pending = 1;
+                if (w->app->on_press(w, ccx, ccy)) WM_REDRAW();
             }
             // A client gets the drag as MOUSE_MOVE with the button
             // held, which is what lets its widgets re-hit-test and
@@ -1337,7 +1343,7 @@ void wm_update_drag_resize(int mx, int my, uint8_t buttons) {
             // correctly do nothing (docs/gui-guidelines.md).
             wm_client_send_mouse(w, WIN_EV_MOUSE_UP, mx, my, 0);
             content_pressed = -1;
-            redraw_pending = 1;
+            if (w->app || wm_damage_pending()) WM_REDRAW();   // as the press
         }
     }
 }
@@ -1364,7 +1370,7 @@ void wm_update_title_btn_press(int mx, int my, uint8_t buttons) {
         if (now_over != title_btn_pressed_active) {
             title_btn_pressed_active = now_over;
             damage_title_buttons(title_btn_armed_win);
-            redraw_pending = 1;
+            WM_REDRAW();
         }
         return;
     }
@@ -1417,7 +1423,7 @@ void wm_update_title_btn_press(int mx, int my, uint8_t buttons) {
     title_btn_armed_win = -1;
     title_btn_armed_kind = -1;
     title_btn_pressed_active = 0;
-    redraw_pending = 1;
+    WM_REDRAW();
 }
 
 int content_hover_win = -1;
@@ -1488,7 +1494,7 @@ void wm_update_content_hover(int mx, int my, uint8_t buttons) {
         if (content_hover_win >= 0 && content_hover_win < window_count) {
             struct window *prev = &windows[content_hover_win];
             if (prev->app && prev->app->on_hover) {
-                if (prev->app->on_hover(prev, -1, -1)) redraw_pending = 1;
+                if (prev->app->on_hover(prev, -1, -1)) WM_REDRAW();
             }
             // Same "you are being left" signal for a client. Sent as a
             // move to (-1,-1) in its own coordinates, which its widgets
@@ -1515,7 +1521,7 @@ void wm_update_content_hover(int mx, int my, uint8_t buttons) {
     if (!w->app || !w->app->on_hover) return;
     int ccx = mx - window_content_x(w);
     int ccy = my - window_content_y(w);
-    if (w->app->on_hover(w, ccx, ccy)) redraw_pending = 1;
+    if (w->app->on_hover(w, ccx, ccy)) WM_REDRAW();
 }
 
 // Recomputes title_hover_win/kind from the live mouse position -- see
@@ -1549,6 +1555,6 @@ void wm_update_title_hover(int mx, int my) {
         damage_title_buttons(win);               // the one gaining it
         title_hover_win = win;
         title_hover_kind = kind;
-        redraw_pending = 1;
+        WM_REDRAW();
     }
 }

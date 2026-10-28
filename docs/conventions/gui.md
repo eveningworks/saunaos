@@ -4747,7 +4747,7 @@ console says which, and lists what IS registered, because "no answer"
 otherwise reads as "not running" and sends the reader looking in the
 wrong place.
 
-## DAMAGING A RECT DOES NOT ASK FOR A FRAME -- SET `redraw_pending` TOO
+## DAMAGING A RECT DOES NOT ASK FOR A FRAME -- `WM_REDRAW()` TOO, AND ONLY WHEN SOMETHING CHANGED
 
 `wm_damage_rect()` accumulates a rectangle and nothing else. It does not
 schedule a repaint, and `wm.c`'s frame loop only calls
@@ -4755,9 +4755,24 @@ schedule a repaint, and `wm.c`'s frame loop only calls
 otherwise takes the CURSOR-ONLY path, which moves the sprite and
 repaints no scene at all.
 
-So **anything that changes what the screen should show must set
-`redraw_pending`**, not merely damage. Damage says WHERE to repaint;
-`redraw_pending` says WHETHER to.
+So **anything that changes what the screen should show must ask for a
+frame**, not merely damage. Damage says WHERE to repaint; the ask says
+WHETHER to. **The ask is `WM_REDRAW()`, never `redraw_pending = 1`**
+(since 2026-10-28): it records its file and line, and a frame that ends
+with no damage -- a FULL-SCREEN repaint -- is charged to every site that
+asked for it. `gui frames` lists them, worst first.
+
+**AND ASK ONLY WHEN SOMETHING CHANGED.** An ask with nothing damaged is
+a full-screen frame of nothing. The first audit (2026-10-28) found every
+click inside an app costing two -- the press and the release asked
+unconditionally though a client draws its own press -- plus a held title
+bar asking every pass whether the window moved or not, and a drag
+between windows asking every pass. A site that may change nothing asks
+`if (wm_damage_pending())`, or compares before it writes; a state change
+DAMAGES its own rects where it happens (focus changes damage both title
+bars and the taskbar in `wm_focus_sync()`). After a change to the loop,
+run `damage_sweep.py --random` and read `gui frames`: on a fresh guest
+the first audit's walk ended at 1 full-screen frame in about 500.
 
 **The failure is silent and looks like slowness, not breakage.** A
 change that only damages appears on the next frame something ELSE asks
@@ -4795,8 +4810,8 @@ rect DAMAGES it (`wm_damage_rect()`) and sets the flag; the title-bar
 buttons' hover and press do now (`damage_title_buttons()`), as the
 tray and Start menu always did. `tools/hover_test.py`'s animating-
 window check is the regression, and it discriminates on `--vga
-virtio`. Bare `redraw_pending = 1` sites beside a possible client
-present are the audit `docs/roadmap.md` lists.
+virtio`. The audit of bare asks beside a possible client present is
+`gui frames` (above).
 
 ## THE COMPOSITOR SLEEPS BETWEEN FRAMES, AND TWO THINGS MUST DEFEAT THE WAIT.
 
@@ -4819,7 +4834,12 @@ ring-3 memory, so pushing to it wakes nobody -- and the loop consumes
 ONE per iteration on purpose, so a press would block with its release
 still queued and every GUI tool would hang. `wm_debug_work_pending()` is
 the guard. And a repaint already owed should not wait, which is also
-what keeps the first frame prompt.
+what keeps the first frame prompt -- **since 2026-10-28 no LONGER than
+one refresh after the last frame**: an owed frame waits until then and
+folds in everything that arrived meanwhile (`wm.c`, "FRAMES ARE PACED TO
+THE REFRESH"), so a burst of input costs one frame per refresh, not one
+per event. The first change after a quiet moment still goes at once.
+`gui pacing off` puts the old behaviour back for a comparison.
 
 The corollary for anything added to the loop: **work that must happen on
 a cadence is now bounded by that wait, not by the tick.** A new poll
