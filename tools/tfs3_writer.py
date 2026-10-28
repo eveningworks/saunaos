@@ -811,6 +811,23 @@ def cmd_format(args):
 
 
 # ---- path plumbing shared by write/mkdir/sync ----------------------------
+#
+# INSIDE THIS FILE A NAME IS A str WHOSE CHARACTERS ARE THE DISK'S BYTES
+# (decoded as Latin-1, the one codec that maps every byte to itself).
+# A HOST name arrives as Python's fs-decoded str and must cross through
+# its BYTES: encoding 'Käse' straight to Latin-1 wrote E4 where the host
+# had C3 A4 -- a Latin-1 name on an image the OS reads as UTF-8 -- and a
+# host name with a stray byte could not be written at all.
+
+def disk_path(host):
+    """A host path (fs-decoded str) in this file's byte-per-char form."""
+    return os.fsencode(host).decode("latin-1")
+
+
+def host_path(disk):
+    """The inverse, for printing a disk name on the host."""
+    return os.fsdecode(disk.encode("latin-1"))
+
 
 def split_parent(path):
     path = "/" + "/".join(c for c in path.split("/") if c)
@@ -969,19 +986,19 @@ def cmd_info(args):
 
 def cmd_ls(args):
     img = Tfs3Image(args.disk, base_lba=getattr(args, "at_lba", 0), sectors=getattr(args, "sectors", 0))
-    ino = img.lookup(args.path or "/")
+    ino = img.lookup(disk_path(args.path or "/"))
     if ino is None:
         raise SystemExit(f"no such path: {args.path}")
     for name, e_ino in sorted(img.dirents(ino)):
         node = img.read_inode(e_ino)
         kind = "d" if node["type"] == TYPE_DIR else "-"
-        print(f"{kind} {node['size']:>10} ino={e_ino:<6} {name}")
+        print(f"{kind} {node['size']:>10} ino={e_ino:<6} {host_path(name)}")
     img.close()
 
 
 def cmd_read(args):
     img = Tfs3Image(args.disk, base_lba=getattr(args, "at_lba", 0), sectors=getattr(args, "sectors", 0))
-    ino = img.lookup(args.src)
+    ino = img.lookup(disk_path(args.src))
     if ino is None:
         raise SystemExit(f"no such file: {args.src}")
     data = img.read_file_data(ino)
@@ -998,21 +1015,21 @@ def cmd_write(args):
     with open(args.src, "rb") as f:
         data = f.read()
     img = Tfs3Image(args.disk, writable=True, base_lba=getattr(args, "at_lba", 0), sectors=getattr(args, "sectors", 0))
-    ino = write_file(img, data, args.dst)
+    ino = write_file(img, data, disk_path(args.dst))
     print(f"wrote {len(data)} bytes -> {args.dst} (ino {ino})")
     img.close()
 
 
 def cmd_mkdir(args):
     img = Tfs3Image(args.disk, writable=True, base_lba=getattr(args, "at_lba", 0), sectors=getattr(args, "sectors", 0))
-    ino = mkdir_path(img, args.path)
+    ino = mkdir_path(img, disk_path(args.path))
     print(f"mkdir {args.path} (ino {ino})")
     img.close()
 
 
 def cmd_delete(args):
     img = Tfs3Image(args.disk, writable=True, base_lba=getattr(args, "at_lba", 0), sectors=getattr(args, "sectors", 0))
-    delete_path(img, args.path)
+    delete_path(img, disk_path(args.path))
     print(f"deleted {args.path}")
     img.close()
 
@@ -1032,10 +1049,10 @@ def cmd_sync(args):
         for dirpath, dirnames, filenames in os.walk(root):
             rel = os.path.relpath(dirpath, root)
             for d in sorted(dirnames):
-                target = "/" + os.path.normpath(os.path.join(rel, d)).lstrip("./")
+                target = disk_path("/" + os.path.normpath(os.path.join(rel, d)).lstrip("./"))
                 mkdir_path(img, target)
             for fn in sorted(filenames):
-                target = "/" + os.path.normpath(os.path.join(rel, fn)).lstrip("./")
+                target = disk_path("/" + os.path.normpath(os.path.join(rel, fn)).lstrip("./"))
                 with open(os.path.join(dirpath, fn), "rb") as f:
                     data = f.read()
                 existing = img.lookup(target)

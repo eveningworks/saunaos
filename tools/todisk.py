@@ -62,10 +62,13 @@ def walk(folder):
     for dirpath, dirnames, filenames in os.walk(folder):
         dirnames.sort()
         rel = os.path.relpath(dirpath, folder)
+        # Guest paths in the writer's byte-per-char form (tfs3_writer's
+        # disk_path()): a host's UTF-8 name lands as the same UTF-8 bytes.
         for d in dirnames:
-            dirs.append("/" + os.path.normpath(os.path.join(rel, d)).lstrip("./"))
+            dirs.append(t3.disk_path("/" + os.path.normpath(os.path.join(rel, d)).lstrip("./")))
         for fn in sorted(filenames):
-            files.append((os.path.join(dirpath, fn), "/" + os.path.normpath(os.path.join(rel, fn)).lstrip("./")))
+            files.append((os.path.join(dirpath, fn),
+                          t3.disk_path("/" + os.path.normpath(os.path.join(rel, fn)).lstrip("./"))))
     return dirs, files
 
 
@@ -106,7 +109,7 @@ def main():
                 same += 1
                 continue
             wrote += 1
-            print(f"todisk: {'would write' if args.dry_run else 'write'} {guest} ({len(data)} bytes)")
+            print(f"todisk: {'would write' if args.dry_run else 'write'} {t3.host_path(guest)} ({len(data)} bytes)")
             if not args.dry_run:
                 t3.write_file(img, data, guest)
     finally:
