@@ -426,6 +426,13 @@ struct uapp_window_desc {
     // A lone uui_button committed: its code. uapp_desc.on_action's rule.
     void (*on_action)(struct uapp_window *w, int code);
     void (*on_key)(struct uapp_window *w, int key, unsigned mods);
+    // A key came up while this window had the focus: uapp_desc.on_key_up's rule (straight to the
+    // window, never the focus ring; an up with no down is ignored).
+    void (*on_key_up)(struct uapp_window *w, int key, unsigned mods);
+    // Keys by position and the focus coming and going: uapp_desc.on_phys_key's and on_focus's
+    // rules -- setting on_phys_key asks for them, and on_focus(0) is every held key up.
+    void (*on_phys_key)(struct uapp_window *w, int keycode, int down, unsigned mods);
+    void (*on_focus)(struct uapp_window *w, int focused);
     // The user asked for it to go away (the X, Alt+F4, the window
     // menu). NULL closes it; a handler that wants to refuse simply does
     // not call uapp_window_close(), which is uapp_desc.on_close's rule.

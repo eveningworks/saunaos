@@ -116,11 +116,11 @@ struct uapp_window *uapp_window_open(struct uapp *a, const struct uapp_window_de
             d->top.router.count = 0;
     }
     // ONE hints message: it states every flag, so two would undo each other.
-    if (desc->flags & (UAPP_WIN_NO_DECOR | UAPP_WIN_RESIZABLE)) {
+    if ((desc->flags & (UAPP_WIN_NO_DECOR | UAPP_WIN_RESIZABLE)) || desc->on_phys_key) {
         int resizable = (desc->flags & UAPP_WIN_RESIZABLE) != 0;
         wmchan_send(WIN_REQ_HINTS, (uint32_t)slot,
                     ((desc->flags & UAPP_WIN_NO_DECOR) ? WIN_HINT_NO_DECOR : 0) |
-                    (resizable ? WIN_HINT_RESIZABLE : 0),
+                    (resizable ? WIN_HINT_RESIZABLE : 0) | (desc->on_phys_key ? WIN_HINT_PHYS_KEYS : 0),
                     resizable ? (desc->min_w > 0 ? desc->min_w : w) : 0,
                     resizable ? (desc->min_h > 0 ? desc->min_h : h) : 0, 0);
     }
@@ -548,6 +548,15 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         return;
     case WIN_EV_KEY:
         top_key(&w->top, ev);
+        return;
+    case WIN_EV_KEY_UP:                          // uapp.c's rule: the window's alone
+        if (d->on_key_up) d->on_key_up(w, ev->a, ev->mods);
+        return;
+    case WIN_EV_KEY_PHYS:
+        if (d->on_phys_key) d->on_phys_key(w, ev->a, ev->b, ev->mods);
+        return;
+    case WIN_EV_FOCUS:
+        if (d->on_focus) d->on_focus(w, ev->a != 0);
         return;
     case WIN_EV_MOUSE_DOWN:
         w->top.mouse_x = ev->a;
