@@ -54,9 +54,14 @@ that does a job and is finished, like `tmpfs` mounting the scratch
 directory.
 `service` reports it as `done` or `failed` by its exit code, because a
 one-shot is down either way and the code is the only thing left that
-says whether it worked. Nothing is ordered after a one-shot yet -- and
-`After=` on one would mean "after it was SPAWNED" unless it also
-declares `Ready=notify`, which a program that exits cannot use.
+says whether it worked. `After=` on a one-shot means "after it was
+SPAWNED" -- unless it also declares `Ready=notify`: then its EXIT
+releases the barrier (a one-shot that has had its run can never
+announce, so init stops waiting), which is how `utf8migrate` makes the
+whole boot wait for it without ever calling `sys_notify_ready()`. **A
+service held at a barrier does not hold the ones `After=` IT** -- they
+are launch order only -- so such a one-shot names every service it must
+precede in its own `Before=`.
 
 A restart waits a backoff that doubles from 0 ms to a cap, and a service
 that keeps dying QUICKLY is declared a crash loop and left down with a

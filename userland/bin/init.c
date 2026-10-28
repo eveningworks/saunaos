@@ -160,8 +160,10 @@ static int g_arrived;  // a scan added a fresh descriptor
 // resolved to indices only once the WHOLE directory has been scanned --
 // a descriptor may name a service whose file has not been read yet, so
 // resolving as we parse would depend on listdir order, which is exactly
-// what this feature exists to stop depending on.
-#define SVC_DEPS_MAX   64
+// what this feature exists to stop depending on. A list that fills the
+// field is LOGGED, because a cut one names half a service (utf8migrate's
+// Before= lost "netd" at 64 bytes).
+#define SVC_DEPS_MAX   256
 
 // A service that dies within this of starting counts as a FAST failure,
 // which is what a crash loop is made of. Anything longer ran, did
@@ -508,6 +510,11 @@ static void load_service(const char *file) {
         s->after[0] = '\0';
     if (!etc_config_buf_get(&g_cfg, "Before", s->before, sizeof s->before))
         s->before[0] = '\0';
+    if (k_strlen(s->after) == sizeof s->after - 1 || k_strlen(s->before) == sizeof s->before - 1) {
+        snprintf(g_msg, sizeof g_msg, "init: %s: an After=/Before= list is %u bytes or more -- cut\n",
+                 s->name, (unsigned)(sizeof s->after - 1));
+        sys_eprint(g_msg);
+    }
 
     char restart[16];
     s->restart = SVC_RESTART_ON_FAILURE;

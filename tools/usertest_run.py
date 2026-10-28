@@ -120,6 +120,9 @@ TESTS = [
     # SYS_FS_CHECK by path, and /bin/fsck's exit statuses. Spawned: it
     # spawns /bin/fsck, which the legacy loader cannot.
     ("fscheck_test", None, None, None),
+    # /bin/utf8migrate over a fixture of raw Latin-1 names and contents,
+    # judged by bytes, then run twice more. Spawned: it spawns the program.
+    ("utf8migrate_test", None, None, None),
     # A process mapping a device's register file and READING it --
     # stage 1 of docs/umdf-design.md. The KTESTs beside dev_bar_check()
     # cover every refusal and cannot cover this one: they run on the

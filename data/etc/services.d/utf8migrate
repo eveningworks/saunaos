@@ -1,0 +1,19 @@
+# Converts Latin-1 file names, and the text files under /etc and /home,
+# to UTF-8 -- once; /var/lib/utf8migrate marks it done, so every later
+# boot costs one stat. docs/commands/utf8migrate.md.
+#
+# A ONE-SHOT AT BOOT rather than a step of System Update, for
+# bootmigrate's reason: the update that brings it runs the PREVIOUS
+# updater. BEFORE EVERY OTHER SERVICE, BY NAME, because they read /etc's
+# settings -- a service held at this barrier does not hold the ones
+# After= it, so naming netd alone let ntpd start first. `Ready=notify` is
+# what makes them WAIT: it never announces, and its exit releases them
+# (README.md, "Ready="). A huge /home could outrun the timeout, and then
+# the rest start anyway. A new service belongs on this list.
+Name=utf8migrate
+Description=Convert Latin-1 names and text files to UTF-8, once
+Exec=/bin/utf8migrate
+Restart=no
+Ready=notify
+ReadyTimeout=60000
+Before=automountd bootmigrate clipboardd devices firstboot fontd installer kdfiled logd netd netheal ntpd remoted screentrial smbfsd snddrv soundd tmpfs tosh toywm

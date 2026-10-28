@@ -258,6 +258,9 @@ TOOLS = [
     # disk.img, so wants_vm is False; it SKIPS cleanly without mtools,
     # which is a skip rather than a pass -- see run_one().
     ("fat32",       "fat32_test.py",           "FAT32 and /boot, against mtools",    True,  None,                   False),
+    # Two boots of its own guest on a COPY of disk.img seeded with
+    # Latin-1 names from the host, read back on the host after each.
+    ("utf8boot",    "utf8migrate_boot_test.py", "the UTF-8 conversion runs once at boot", True, None,                 False),
     # NetSurf's layout on SaunaOS against the SAME pinned source built on
     # the host (docs/browser-design.md, stage 1). Its own guest on a copy
     # of disk.img, so wants_vm is False; the host build is the oracle,
