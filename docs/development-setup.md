@@ -111,9 +111,13 @@ instead, and differs in seven ways:
   apt-get update -qq -o Acquire::Retries=3
   apt-get install -y -qq -o Acquire::Retries=3 \
     nasm grub-pc-bin grub-common xorriso mtools libxkbcommon-tools \
-    qemu-system-x86 ccache shellcheck dosfstools
+    x11proto-dev qemu-system-x86 ccache shellcheck dosfstools
   python3 -m pip install -q --root-user-action=ignore pillow
   ```
+
+  `x11proto-dev` is `keysymdef.h`, which names every keyboard letter
+  past Latin-1; `tools/gen_kbs.py` refuses to run without it (Arch:
+  `xorgproto`, normally already there).
 
   `dosfstools` is `mkfs.fat` and `fsck.fat`: without it `fat32_test.py`
   and the two USB-stick tools skip rather than run.

@@ -229,8 +229,13 @@ def keysym_unicode(name):
                     if k:
                         _KEYSYM_UNICODE[k.group(1)] = int(k.group(2), 16)
         except OSError:
-            print(f"gen_kbs: {KEYSYMDEF} not found -- named non-Latin-1 "
-                  "keysyms cannot be checked for national letters", file=sys.stderr)
+            # REFUSED, not warned past: without the header every named
+            # letter past Latin-1 (`aogonek`, `scaron`) is unknown, and a
+            # layout written without them is Polish with no ą -- a build
+            # that still passes. GitHub's runner lacked it once.
+            sys.exit(f"gen_kbs: {KEYSYMDEF} not found -- it names every letter "
+                     "past Latin-1 (aogonek, scaron); install x11proto-dev "
+                     "(Debian/Ubuntu) or xorgproto (Arch)")
     return _KEYSYM_UNICODE.get(name)
 
 

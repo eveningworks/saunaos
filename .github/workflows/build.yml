@@ -76,7 +76,9 @@ jobs:
           # libx11-data carries X11's Compose table, which gen_kbs.py reads
           # for dead-key pairs; without it the pairs come from unicodedata
           # and a few (circumflex + digit -> superscript) go missing.
-          sudo apt-get install -y -qq -o Acquire::Retries=3 nasm grub-pc-bin grub-common xorriso qemu-system-x86 mtools libxkbcommon-tools libx11-data
+          # x11proto-dev is keysymdef.h, which names every letter past
+          # Latin-1 (aogonek, scaron); gen_kbs.py refuses to run without it.
+          sudo apt-get install -y -qq -o Acquire::Retries=3 nasm grub-pc-bin grub-common xorriso qemu-system-x86 mtools libxkbcommon-tools libx11-data x11proto-dev
 
       - name: make clean && make all
         run: make clean && make all
