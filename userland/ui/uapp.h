@@ -433,6 +433,8 @@ struct uapp_window_desc {
     // rules -- setting on_phys_key asks for them, and on_focus(0) is every held key up.
     void (*on_phys_key)(struct uapp_window *w, int keycode, int down, unsigned mods);
     void (*on_focus)(struct uapp_window *w, int focused);
+    // Wheel notches the window's widgets did not take: uapp_desc.on_wheel's rule (+ is up).
+    void (*on_wheel)(struct uapp_window *w, int notches);
     // The user asked for it to go away (the X, Alt+F4, the window
     // menu). NULL closes it; a handler that wants to refuse simply does
     // not call uapp_window_close(), which is uapp_desc.on_close's rule.

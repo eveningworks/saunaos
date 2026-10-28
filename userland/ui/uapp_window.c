@@ -598,7 +598,7 @@ void dlg_dispatch(struct uapp_window *w, const struct win_event *ev) {
         if (d->on_release) d->on_release(w, ev->a, ev->b, WIN_MOUSE_BUTTONS(ev->mods));
         return;
     case WIN_EV_WHEEL:
-        top_wheel(&w->top, (int)ev->a);
+        if (!top_wheel(&w->top, (int)ev->a) && d->on_wheel) d->on_wheel(w, (int)ev->a);
         return;
     case WIN_EV_RESIZE: {
         // uapp_resize()'s answer for a dialog. A fixed one declines by
