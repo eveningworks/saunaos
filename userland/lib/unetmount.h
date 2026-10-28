@@ -50,8 +50,9 @@ int unetmount_load(const char *name, struct unetmount *out);
 // Writes the whole file, published by a rename. 1, or 0.
 int unetmount_save(const struct unetmount *m);
 int unetmount_remove(const char *name);
-// The saved names, sorted; how many (at most `max`).
-int unetmount_list(char (*names)[UNETMOUNT_NAME_MAX], int max);
+// The saved names, sorted, into `*names` GROWN to fit (`*cap` its
+// capacity, the caller's to keep); how many.
+int unetmount_list(char (**names)[UNETMOUNT_NAME_MAX], int *cap);
 
 // ---- share ADDRESSES: smb://nas/media/Films, //nas/media, \\nas\media ----
 //

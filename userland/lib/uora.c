@@ -1,6 +1,7 @@
 // OpenRaster -- see lib/uora.h.
 #include "lib/uora.h"
 #include "lib/uzip.h"
+#include "lib/ugrow.h"
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -75,7 +76,7 @@ static int add_png(struct uzip_writer *w, const char *name, const struct uimg *i
 
 int uora_save(const char *path, const struct uora_layer *layers, int n, const struct uimg *merged,
               char *err, int errcap) {
-    if (n < 1 || n > UORA_LAYERS_MAX) return failf(err, errcap, -EINVAL, "%d layers", n);
+    if (n < 1) return failf(err, errcap, -EINVAL, "%d layers", n);
     int w = layers[0].img.w, h = layers[0].img.h;
     for (int i = 0; i < n; i++)
         if (layers[i].img.w != w || layers[i].img.h != h || !layers[i].img.px)
@@ -231,17 +232,21 @@ int uora_load(const char *path, struct uora_layer **out, int *n, int *w, int *h,
         free(xml);
         return failf(err, errcap, -EINVAL, "stack.xml has no picture size");
     }
-    struct uora_layer *L = calloc(UORA_LAYERS_MAX, sizeof *L);
-    if (!L) { free(xml); return failf(err, errcap, -ENOMEM, "out of memory"); }
-    int count = 0;
+    // AS MANY LAYERS AS THE FILE HAS (lib/ugrow.h): a caller that takes
+    // fewer refuses the picture itself, by name, rather than this
+    // dropping the ones past a number of its own.
+    struct uora_layer *L = NULL;
+    int count = 0, cap = 0, partial = 0;   // partial: L[count] is begun, not counted
     rc = 0;
     // Each <layer .../>, in the file's top-first order.
     for (const char *q = img_end; rc == 0 && q + 6 < xend; q++) {
         if (strncmp(q, "<layer", 6) || !(q[6] == ' ' || q[6] == '\n' || q[6] == '\t' || q[6] == '/')) continue;
         const char *te = memchr(q, '>', (size_t)(xend - q));
         if (!te) { rc = failf(err, errcap, -EINVAL, "stack.xml ends inside a layer"); break; }
-        if (count == UORA_LAYERS_MAX) { rc = failf(err, errcap, -E2BIG, "more than %d layers", UORA_LAYERS_MAX); break; }
+        if (!UGROW(L, cap, count + 1)) { rc = failf(err, errcap, -ENOMEM, "out of memory"); break; }
         struct uora_layer *l = &L[count];
+        memset(l, 0, sizeof *l);
+        partial = 1;
         char src[UZIP_NAME_MAX];
         if (attr(q, te, "src", src, sizeof src) != 1) { rc = failf(err, errcap, -EINVAL, "a layer has no src"); break; }
         // A NAME LONGER THAN OURS IS CUT, not refused: the picture matters
@@ -298,11 +303,12 @@ int uora_load(const char *path, struct uora_layer **out, int *n, int *w, int *h,
         }
         uimg_free(&part);
         count++;
+        partial = 0;
         q = te;
     }
     free(xml);
     if (rc == 0 && count == 0) rc = failf(err, errcap, -EINVAL, "stack.xml names no layers");
-    if (rc < 0) { uora_free(L, count + 1); return rc; }
+    if (rc < 0) { uora_free(L, count + partial); return rc; }
     // Bottom first.
     for (int i = 0, j = count - 1; i < j; i++, j--) { struct uora_layer t = L[i]; L[i] = L[j]; L[j] = t; }
     *out = L;

@@ -28,6 +28,7 @@
 #include "lib/ubootcfg.h" // --bootloader also brings grub.cfg up to bootpart=
 #include "lib/ubootlayout.h"
 #include "lib/udiskscan.h"
+#include "lib/ugrow.h"
 #include "lib/uduration.h"
 #include "lib/uinstall.h"
 #include "lib/uprogress.h"
@@ -238,13 +239,17 @@ static int refresh_bootloader(int confirmed) {
 
 // --- choosing a disk -------------------------------------------------------
 
-static struct udisk_scan g_scan;   // ~10 KB: never on the stack
+static struct udisk_scan g_scan;
+static int *g_pick, g_pick_cap;    // list_disks()'s numbered disks, one per disk
 static uint64_t g_need;            // bytes the root must hold, once measured
 
 // Every whole disk, numbered when it can take an install; the rest say
 // why not. Returns how many are numbered, with their indexes in `pick`.
-static int list_disks(int esp, int mbr, int *pick, int max) {
-    int n = 0;
+static int list_disks(int esp, int mbr) {
+    int n = 0, max = 0;
+    if (UGROW(g_pick, g_pick_cap, g_scan.ndisks > 0 ? g_scan.ndisks : 1)) max = g_pick_cap;
+    else fprintf(stderr, "install: out of memory listing %d disks\n", g_scan.ndisks);
+    int *pick = g_pick;
     for (int i = 0; i < g_scan.ndisks; i++) {
         const struct udisk *d = &g_scan.disks[i];
         char size[16], what[64] = "";
@@ -384,9 +389,8 @@ static int run_install(void) {
 // --- the questions ----------------------------------------------------------
 
 static int interactive(int esp, int mbr, int mbr_given) {
-    int pick[UDISK_MAX];
     printf("Install SaunaOS onto which disk?\n");
-    int n = list_disks(esp, mbr, pick, UDISK_MAX);
+    int n = list_disks(esp, mbr);
     if (!n) {
         printf("install: no disk here can take an install.\n");
         return 1;
@@ -398,7 +402,7 @@ static int interactive(int esp, int mbr, int mbr_given) {
         printf("install: no disk %s -- nothing was changed.\n", reply);
         return 1;
     }
-    struct udisk *d = &g_scan.disks[pick[choice - 1]];
+    struct udisk *d = &g_scan.disks[g_pick[choice - 1]];
     if (!mbr_given) {
         if (!ask("Partition table -- GPT, or MBR for firmware that won't boot GPT [GPT]: ",
                  reply, sizeof reply)) return 1;
@@ -468,9 +472,8 @@ int main(int argc, char **argv) {
 
     if (!f_disk) {
         if (g_tty) return interactive(esp, f_mbr, f_mbr);
-        int pick[UDISK_MAX];
         printf("Disks this can install onto:\n");
-        list_disks(esp, f_mbr, pick, UDISK_MAX);
+        list_disks(esp, f_mbr);
         printf("Next: install --disk NAME   (prints the plan; add `confirm` to go ahead)\n");
         return 1;
     }

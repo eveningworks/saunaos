@@ -49,6 +49,7 @@
 #include "lib/human.h"
 #include "lib/icon_cache.h"
 #include "lib/uimg.h"
+#include "lib/ugrow.h"
 #include "lib/uduration.h"
 #include "lib/ufbs.h"
 #include "lib/uinitctl.h"
@@ -71,7 +72,7 @@ static struct uapp *g_app;
 // --- what the machine has ------------------------------------------------
 
 static struct udisk_scan g_scan;          // ~10 KB: never on the stack
-static int g_usable[UDISK_MAX], g_nusable;
+static int *g_usable, g_nusable, g_usable_cap;   // grown to the disks
 static uint32_t g_files;
 static uint64_t g_bytes, g_need;
 static unsigned g_carry;                  // the pages this session set (lib/ufbs.h)
@@ -98,6 +99,10 @@ static struct udisk *chosen(void) {
 static void scan(void) {
     udisk_scan(&g_scan);
     g_nusable = 0;
+    if (!UGROW(g_usable, g_usable_cap, g_scan.ndisks)) {
+        ulogf("installer: out of memory listing %d disks\n", g_scan.ndisks);
+        return;
+    }
     for (int i = 0; i < g_scan.ndisks; i++)
         if (!uinstall_refusal(&g_scan.disks[i], UINSTALL_ESP_DEFAULT, cur_mbr(), g_need))
             g_usable[g_nusable++] = i;

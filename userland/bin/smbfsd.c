@@ -34,6 +34,8 @@
 #include "userfs_abi.h"
 #include "signal_abi.h"
 #include "lib/unetmount.h"
+#include "lib/ugrow.h"
+#include "lib/ulistdir.h"
 #include "usmb.h"
 
 #define RUN_DIR       "/run/smbfsd"
@@ -613,8 +615,6 @@ static int serve_saved(const char *name) {
 // The supervisor
 // ======================================================================
 
-#define MAX_SHARES 16
-
 struct child {
     char name[UNETMOUNT_NAME_MAX];
     struct unetmount cfg;       // what it was started with (hash aside)
@@ -625,8 +625,10 @@ struct child {
     unsigned backoff_ms;
 };
 
-static struct child g_kids[MAX_SHARES];
-static int g_nkids;
+// One per descriptor in /etc/mounts.d, grown (lib/ugrow.h); it held 16
+// and left the rest unserved. A `struct child *` lives for one pass.
+static struct child *g_kids;
+static int g_nkids, g_kids_cap;
 
 // Only the SHARE makes a worker a different one: its credentials are
 // re-read at every connect (reload_credentials()), so the worker's own
@@ -660,8 +662,9 @@ static void stop(struct child *k) {
 }
 
 static void reconcile(void) {
-    char names[MAX_SHARES][UNETMOUNT_NAME_MAX];
-    int n = unetmount_list(names, MAX_SHARES);
+    static char (*names)[UNETMOUNT_NAME_MAX];
+    static int names_cap;
+    int n = unetmount_list(&names, &names_cap);
     for (int i = 0; i < g_nkids; i++) g_kids[i].gone = 1;
     for (int j = 0; j < n; j++) {
         struct unetmount m;
@@ -679,7 +682,10 @@ static void reconcile(void) {
             }
             continue;
         }
-        if (g_nkids == MAX_SHARES) break;
+        if (!UGROW(g_kids, g_kids_cap, g_nkids + 1)) {
+            fprintf(stderr, "smbfsd: out of memory, %s not served\n", names[j]);
+            continue;
+        }
         k = &g_kids[g_nkids++];
         memset(k, 0, sizeof *k);
         snprintf(k->name, sizeof k->name, "%s", names[j]);
@@ -696,9 +702,8 @@ static void reconcile(void) {
 // Workers a previous supervisor left behind keep their mounts until they
 // are told to stop; the new workers then adopt the mounts.
 static void stop_strays(void) {
-    struct sys_dirent *ents = malloc(sizeof *ents * 32);
-    if (!ents) return;
-    int n = sys_listdir(RUN_DIR, ents, 32);
+    struct sys_dirent *ents = NULL;
+    int n = ulistdir(RUN_DIR, &ents);
     for (int i = 0; i < n; i++) {
         char path[96], buf[16];
         snprintf(path, sizeof path, "%s/%s", RUN_DIR, ents[i].name);

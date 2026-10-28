@@ -13,6 +13,8 @@
 #include "lib/uconf.h"
 #include "etc_config.h"
 #include "query_abi.h"
+#include "lib/ugrow.h"
+#include "lib/ulistdir.h"
 
 int unetmount_name_ok(const char *name) {
     size_t n = strlen(name);
@@ -120,16 +122,19 @@ int unetmount_remove(const char *name) {
 
 static int cmp_name(const void *a, const void *b) { return strcmp(a, b); }
 
-int unetmount_list(char (*names)[UNETMOUNT_NAME_MAX], int max) {
-    struct sys_dirent *ents = malloc(sizeof *ents * 64);
-    if (!ents) return 0;
-    int n = sys_listdir(UNETMOUNT_DIR, ents, 64), out = 0;
-    for (int i = 0; i < n && out < max; i++) {
+int unetmount_list(char (**names)[UNETMOUNT_NAME_MAX], int *cap) {
+    struct sys_dirent *ents = NULL;
+    int n = ulistdir(UNETMOUNT_DIR, &ents), out = 0;   // the whole folder, paged
+    if (n > 0 && !UGROW(*names, *cap, n)) {
+        fprintf(stderr, "netmount: out of memory listing %d mounts\n", n);
+        n = 0;
+    }
+    for (int i = 0; i < n; i++) {
         if (ents[i].is_dir || !unetmount_name_ok(ents[i].name)) continue;
-        snprintf(names[out++], UNETMOUNT_NAME_MAX, "%s", ents[i].name);
+        snprintf((*names)[out++], UNETMOUNT_NAME_MAX, "%s", ents[i].name);
     }
     free(ents);
-    qsort(names, (size_t)out, UNETMOUNT_NAME_MAX, cmp_name);
+    if (out) qsort(*names, (size_t)out, UNETMOUNT_NAME_MAX, cmp_name);
     return out;
 }
 

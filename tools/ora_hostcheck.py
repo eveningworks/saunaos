@@ -9,7 +9,7 @@ unescaped twice), and such a file opens here and in no other painter.
 
   WRITE: the C writer saves pictures of 1 to 5 layers with random pixels
          (alpha too), random opacities, hidden ones, and names carrying
-         XML's specials and Latin-1, and saunaos: attributes holding
+         XML's specials and Latin-1, and toyos: attributes (the pre-rename prefix, kept for files already written) holding
          newlines, tabs, specials, Latin-1 and 3000 bytes. Python must find: "mimetype" FIRST,
          STORED, no extra field, "image/openraster"; no bad CRC; a
          stack.xml that parses, the right size, the layers TOP FIRST with
@@ -140,8 +140,8 @@ SABOTAGE = [
      "    for (int i = 0, j = count - 1; i < j; i++, j--) { struct uora_layer t = L[i]; L[i] = L[j]; L[j] = t; }",
      "    (void)0;"),
     ("userland/lib/uora.c",
-     """const char *rep = u >= 0x80 ? num : *s == '&' ? "&amp;" :""",
-     """const char *rep = u >= 0x80 ? num : *s == '&' ? "&" :"""),
+     """const char *rep = ref ? num : *s == '&' ? "&amp;" :""",
+     """const char *rep = ref ? num : *s == '&' ? "&" :"""),
 ]
 
 SYS_SHIM = r'''
@@ -306,7 +306,7 @@ def png_bytes(im):
 def krita_ora(path, layers, w, h, mimetype=b"image/openraster", drop_src=None):
     """layers: top first, (name_xml, opacity_str, visibility, x, y, PIL image, group)."""
     xml = [f"<?xml version='1.0' encoding='UTF-8'?>\n<image version=\"0.0.5\" w=\"{w}\" h=\"{h}\" "
-           f"xmlns:saunaos=\"{NS[1:-1]}\" xmlns:krita=\"http://krita.org/ns\">\n<stack>\n"]
+           f"xmlns:toyos=\"{NS[1:-1]}\" xmlns:krita=\"http://krita.org/ns\">\n<stack>\n"]
     open_group = False
     for i, (name, op, vis, x, y, im, group) in enumerate(layers):
         if group and not open_group:
@@ -315,7 +315,7 @@ def krita_ora(path, layers, w, h, mimetype=b"image/openraster", drop_src=None):
         if not group and open_group:
             xml.append("</stack>\n")
             open_group = False
-        extra = ' saunaos:text="two&#10;lines &amp; more" krita:ignored="1" saunaos:px="40"' if i == 0 else ""
+        extra = ' toyos:text="two&#10;lines &amp; more" krita:ignored="1" toyos:px="40"' if i == 0 else ""
         xml.append(f'<layer name="{name}" src="data/l{i}.png" x="{x}" y="{y}" opacity="{op}" visibility="{vis}"{extra}/>\n')
     if open_group:
         xml.append("</stack>\n")
@@ -393,6 +393,14 @@ def check_read(exe, tmp, rng, fails):
     checks += 1
     if run(exe, "read", bad)[0].startswith("load 0"):
         fails.append("read: a layer whose PNG is missing is accepted")
+    # MORE LAYERS THAN THE READER'S OLD FIXED TABLE (64, until 2026-10-28):
+    # all 70 come back, bottom first, none dropped.
+    many = [(f"L{i}", "1", "visible", 0, 0, mid, False) for i in range(70)]
+    krita_ora(bad, many, w, h)
+    checks += 1
+    got = run(exe, "read", bad)
+    if not got or got[0] != "load 0 -" or got[1].split()[3] != "70":
+        fails.append(f"read: a 70-layer .ora reads as {got[:2]}")
     # And our own file, read back by ours (the round trip Paint does).
     checks += 1
     rt = run(exe, "read", os.path.join(tmp, "w0.ora"))

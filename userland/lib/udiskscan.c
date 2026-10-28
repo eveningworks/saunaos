@@ -5,6 +5,7 @@
 #include "rt/sys.h"
 #include "query_abi.h"
 #include "lib/udiskscan.h"
+#include "lib/ugrow.h"
 
 static int role_of(const struct udisk_part *p, int kind) {
     static const uint8_t BASIC[16] = { 0xA2, 0xA0, 0xD0, 0xEB, 0xE5, 0xB9, 0x33, 0x44,
@@ -33,13 +34,23 @@ static void set_ident(struct udisk_part *p, const struct query_blkdev *b) {
     p->readable = (b->fs_flags & QUERY_BLK_FS_MOUNTABLE) != 0;
 }
 
+struct udisk *udisk_add(struct udisk_scan *s) {
+    if (!UGROW(s->disks, s->disks_cap, s->ndisks + 1)) {
+        fprintf(stderr, "udiskscan: out of memory at disk %d\n", s->ndisks + 1);
+        return 0;
+    }
+    struct udisk *d = &s->disks[s->ndisks++];
+    memset(d, 0, sizeof *d);
+    return d;
+}
+
 void udisk_scan(struct udisk_scan *s) {
     s->ndisks = s->nram = 0;
     struct query_blkdev b;
     QUERY_FOREACH(QUERY_BLKDEV, b, i) {
-        if (b.parent[0] || s->ndisks >= UDISK_MAX) continue;
-        struct udisk *d = &s->disks[s->ndisks++];
-        memset(d, 0, sizeof *d);
+        if (b.parent[0]) continue;
+        struct udisk *d = udisk_add(s);
+        if (!d) continue;
         snprintf(d->name, sizeof d->name, "%s", b.name);
         snprintf(d->model, sizeof d->model, "%s", b.model);
         snprintf(d->driver, sizeof d->driver, "%s", b.driver);
@@ -111,7 +122,7 @@ void udisk_scan(struct udisk_scan *s) {
             p->used = f.used_bytes;
             p->total = f.total_bytes;
             p->root = (f.flags & QUERY_FS_ROOT) != 0;
-        } else if (!f.device[0] && s->nram < UDISK_RAM_MAX) {
+        } else if (!f.device[0] && UGROW(s->ram, s->ram_cap, s->nram + 1)) {
             struct udisk_ram *r = &s->ram[s->nram++];
             snprintf(r->point, sizeof r->point, "%s", f.point);
             snprintf(r->fs, sizeof r->fs, "%s", f.name);

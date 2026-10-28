@@ -27,8 +27,7 @@
 static struct udisk_scan g_scan;
 
 static struct udisk *add(const char *name, uint64_t sectors, int persistent, int block) {
-    struct udisk *d = &g_scan.disks[g_scan.ndisks++];
-    memset(d, 0, sizeof *d);
+    struct udisk *d = udisk_add(&g_scan);
     snprintf(d->name, sizeof d->name, "%s", name);
     d->sectors = sectors;
     d->persistent = persistent;

@@ -16,7 +16,6 @@
 
 #include "lib/uimg.h"
 
-#define UORA_LAYERS_MAX 64
 #define UORA_NAME_MAX 64
 #define UORA_ATTRS_MAX 16
 

@@ -15,10 +15,12 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include "partition.h"   // PART_MAX_ENTRIES
 
-#define UDISK_MAX       8
-#define UDISK_PARTS_MAX 16
-#define UDISK_RAM_MAX   6
+// A disk's partitions are the KERNEL's bound, mirrored: QUERY_PARTITION
+// reports at most PART_MAX_ENTRIES of one table. The disks and the RAM
+// volumes are as many as there are, grown (lib/ugrow.h).
+#define UDISK_PARTS_MAX PART_MAX_ENTRIES
 #define UDISK_MIB       2048ull     // sectors
 #define UDISK_GPT_TAIL  34          // the backup header and entries at the end
 
@@ -52,15 +54,21 @@ struct udisk {
 
 struct udisk_ram { char point[64], fs[16]; uint64_t used, total; };
 
+// Zero-initialised is empty. The arrays are the scan's own and kept for
+// the next one, so a scan is never copied by value. THEY MAY MOVE on a
+// rescan: re-find a `struct udisk *` by name (udisk_named()) after one.
 struct udisk_scan {
-    struct udisk disks[UDISK_MAX];
-    int ndisks;
-    struct udisk_ram ram[UDISK_RAM_MAX];
-    int nram;
+    struct udisk *disks;
+    int ndisks, disks_cap;
+    struct udisk_ram *ram;
+    int nram, ram_cap;
 };
 
-// Fill `s` from the kernel's tables. ~10 KB: static, or the heap.
+// Fill `s` from the kernel's tables.
 void udisk_scan(struct udisk_scan *s);
+// A new zeroed disk at the end of `s`, or NULL when memory ran out
+// (logged) -- what udisk_scan() fills, and a test's fixture.
+struct udisk *udisk_add(struct udisk_scan *s);
 struct udisk *udisk_named(struct udisk_scan *s, const char *name);
 
 // Partitions in disk order (sorts `d` in place).
