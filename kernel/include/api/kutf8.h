@@ -116,6 +116,102 @@ static inline int kutf8_count(const char *s, int n) {
     return k;
 }
 
+// Is the whole of `s` valid UTF-8? `n` bytes, or up to the NUL when `n`
+// is negative. Valid means every byte belongs to a sequence RFC 3629
+// accepts -- what the transition rule decodes as itself, not as a stray.
+static inline int kutf8_valid(const char *s, int n) {
+    int i = 0;
+    while (n < 0 ? s[i] != 0 : i < n) {
+        int len;
+        uint32_t cp = kutf8_decode(s + i, n < 0 ? -1 : n - i, &len);
+        if (len == 1 && cp >= 0x80) return 0;
+        i += len;
+    }
+    return 1;
+}
+
+// `n` bytes of `s` (n < 0: up to the NUL) re-encoded so they are valid
+// UTF-8 WITH THE TRANSITION RULE: a valid sequence is kept, and a byte
+// that starts none becomes its Latin-1 letter -- so the result spells
+// exactly what the text was drawn as before. Writes a NUL; the byte
+// count, or -1 when `cap` is too small (nothing useful is in `out`).
+static inline int kutf8_from_latin1(const char *s, int n, char *out, int cap) {
+    int i = 0, o = 0;
+    while (n < 0 ? s[i] != 0 : i < n) {
+        int len;
+        uint32_t cp = kutf8_decode(s + i, n < 0 ? -1 : n - i, &len);
+        char b[4];
+        int k = kutf8_encode(cp, b);
+        if (o + k + 1 > cap) return -1;
+        for (int j = 0; j < k; j++) out[o++] = b[j];
+        i += len;
+    }
+    if (cap < 1) return -1;
+    out[o] = 0;
+    return o;
+}
+
+// --- UTF-16, for the disk formats and protocols that store it ------------
+//
+// exFAT and FAT32's long names, SMB, NTFS one day: each stores UTF-16LE and
+// SaunaOS keeps UTF-8, so the two directions live here once. LITTLE-ENDIAN
+// BYTES rather than uint16_t, so a caller hands its on-disk buffer as it
+// is (an aligned host-order uint16_t array is the same thing on x86).
+
+// UTF-8 `s` (`n` bytes, or up to the NUL when negative) into UTF-16LE at
+// `out`, `cap` code units. STRICT: invalid UTF-8 is -1, as is a name that
+// does not fit -- a name that cannot be written exactly is not written.
+// The count of code units on success.
+static inline int kutf8_to_utf16le(const char *s, int n, void *out, int cap) {
+    unsigned char *o = (unsigned char *)out;
+    int i = 0, u = 0;
+    while (n < 0 ? s[i] != 0 : i < n) {
+        int len;
+        uint32_t cp = kutf8_decode(s + i, n < 0 ? -1 : n - i, &len);
+        if (len == 1 && cp >= 0x80) return -1;
+        i += len;
+        if (cp >= 0x10000) {
+            if (u + 2 > cap) return -1;
+            cp -= 0x10000;
+            uint32_t hi = 0xD800 + (cp >> 10), lo = 0xDC00 + (cp & 0x3FF);
+            o[2 * u] = (unsigned char)hi; o[2 * u + 1] = (unsigned char)(hi >> 8); u++;
+            o[2 * u] = (unsigned char)lo; o[2 * u + 1] = (unsigned char)(lo >> 8); u++;
+        } else {
+            if (u + 1 > cap) return -1;
+            o[2 * u] = (unsigned char)cp; o[2 * u + 1] = (unsigned char)(cp >> 8); u++;
+        }
+    }
+    return u;
+}
+
+// `units` UTF-16LE code units at `in` as UTF-8 into `out` (`cap` bytes,
+// NUL included). A surrogate pair is one character; an UNPAIRED surrogate
+// is U+FFFD (what Windows' own converter and Linux's nls give). Stops at
+// the first character that does not fit, keeping the NUL: the byte count,
+// or -1 when it stopped early.
+static inline int kutf8_from_utf16le(const void *in, int units, char *out, int cap) {
+    const unsigned char *p = (const unsigned char *)in;
+    if (cap < 1) return -1;
+    int o = 0;
+    for (int i = 0; i < units; i++) {
+        uint32_t cp = (uint32_t)p[2 * i] | ((uint32_t)p[2 * i + 1] << 8);
+        if (cp >= 0xD800 && cp < 0xDC00 && i + 1 < units) {
+            uint32_t lo = (uint32_t)p[2 * i + 2] | ((uint32_t)p[2 * i + 3] << 8);
+            if (lo >= 0xDC00 && lo < 0xE000) {
+                cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                i++;
+            }
+        }
+        if (cp >= 0xD800 && cp < 0xE000) cp = 0xFFFD;
+        char b[4];
+        int k = kutf8_encode(cp, b);
+        if (o + k + 1 > cap) { out[o] = 0; return -1; }
+        for (int j = 0; j < k; j++) out[o++] = b[j];
+    }
+    out[o] = 0;
+    return o;
+}
+
 // A UTF-8 decoder FED ONE BYTE AT A TIME, for a stream that arrives in
 // pieces -- a terminal's reads split a sequence wherever they like, and
 // a sequence split across two writes must still be ONE character. Zero

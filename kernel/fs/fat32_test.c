@@ -264,6 +264,41 @@ KTEST("fat32", "a long file name round-trips, and is not its 8.3 alias") {
     restore();
 }
 
+static int img_has(const void *needle, uint32_t n) {
+    for (uint32_t i = 0; i + n <= g_img_sectors * 512u; i++)
+        if (!k_memcmp(g_img + i, needle, n)) return 1;
+    return 0;
+}
+
+struct find_name { const char *want; int seen; };
+static void find_name_cb(void *ctx, const char *name, uint32_t size, int is_dir) {
+    (void)size; (void)is_dir;
+    struct find_name *f = ctx;
+    if (!k_strcmp(name, f->want)) f->seen = 1;
+}
+
+// UTF-8 here, UTF-16 on the disk, and Windows' alias: the HOST's view of
+// the same names is tools/fat32_test.py's.
+KTEST("fat32", "a long name past ASCII is UTF-16 on the disk, with a '_' alias") {
+    if (!fresh()) { KTEST_SKIP("could not allocate a 512 KiB test volume"); }
+    KTEST_ASSERT(F()->write(ST, "/K\xc3\xa4se.txt", "cheese", 0));
+    KTEST_ASSERT(F()->exists(ST, "/K\xc3\xa4se.txt"));
+    // One '_' for the one character, and the long name's 'a-umlaut' as the
+    // UTF-16 unit E4 00 -- not its two UTF-8 bytes, and not '?'.
+    KTEST_ASSERT(img_has("K_SE~1  TXT", 11));
+    KTEST_ASSERT(img_has("K\0\xe4\0s\0e\0", 8));
+    // A character past the BMP is a surrogate pair, and lists back whole.
+    const char *emoji = "/\xf0\x9f\x8d\xb5 tea.txt";            // U+1F375
+    KTEST_ASSERT(F()->write(ST, emoji, "t", 0));
+    KTEST_ASSERT(img_has("\x3c\xd8\x75\xdf", 4));
+    struct find_name f = { emoji + 1, 0 };
+    F()->list(ST, "/", find_name_cb, &f);
+    KTEST_ASSERT(f.seen);
+    // Invalid UTF-8 is refused rather than guessed at.
+    KTEST_ASSERT(!F()->write(ST, "/K\xe4se.txt", "latin1", 0));
+    restore();
+}
+
 // Multi-cluster, with an ADDRESS-DERIVED pattern: a constant fill
 // cannot detect two file offsets mapping to one cluster, because both
 // read back the constant and look perfect. /tests/memtest makes the

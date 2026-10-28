@@ -32,10 +32,15 @@
 //    the same code with sub-block I/O going through blkdev_*_partial().
 //    That is correct and slow -- one 512-byte sector per transfer --
 //    which is fine for an ESP and would not be for a data volume.
-//  * NOT UNICODE. Long names are read as UCS-2 and anything outside
-//    ASCII becomes '?'; creating a name with a non-ASCII byte is
-//    refused. This kernel has no Unicode anywhere else either, and a
-//    half-done encoding is worse than a stated limit.
+//  * NOT CASE-FOLDING PAST ASCII. Long names are UTF-16 on the disk and
+//    UTF-8 here (api/kutf8.h's converters, shared with exFAT and SMB):
+//    read with surrogate pairs, an unpaired one as U+FFFD; created only
+//    from valid UTF-8, as exFAT refuses. Lookups fold ASCII case and
+//    compare every other byte exactly -- Windows folds through its
+//    up-case table, and inventing a partial Unicode fold here would make
+//    two names equal on one side and different on the other. Linux's
+//    vfat with `utf8` does the same. A SHORT name with bytes past ASCII
+//    (a DOS-era code-page name, no long name) is passed through as bytes.
 //  * NOT JOURNALLED, because FAT is not. TFS3's credit-counted
 //    transactions have no analogue here: an interrupted write leaves
 //    the volume in whatever state the last completed sector left it,
@@ -65,6 +70,7 @@
 #include "heap.h"
 #include "tz.h"
 #include "timer.h"
+#include "kutf8.h"
 #include <stddef.h>
 
 #define SECTOR 512u
@@ -91,14 +97,18 @@
 #define DIRENT_FREE 0xE5
 #define DIRENT_END  0x00
 
-// Longest single path component this driver will create or report.
-// FAT allows 255; FS_PATH_MAX is 64 for a WHOLE path here, so anything
-// longer could never be named again once created.
+// Longest single path component this driver will create or report, in
+// BYTES of UTF-8. FAT allows 255 UTF-16 units; a listing hands ring 3 at
+// most 63 bytes (struct sys_dirent's name), so a longer name could be
+// created and never listed whole. One stored longer -- by another OS --
+// is reported by its 8.3 name instead, which still names it.
 #define FAT_NAME_MAX 63
 
-// LFN carries 13 UCS-2 characters per entry.
+// LFN carries 13 UTF-16 code units per entry, and a set at most 20
+// (255 units, the format's limit) -- read whole, so a name too long for
+// FAT_NAME_MAX is recognised as one rather than cut.
 #define LFN_CHARS 13
-#define LFN_MAX_ENTRIES ((FAT_NAME_MAX + LFN_CHARS) / LFN_CHARS)
+#define LFN_MAX_ENTRIES 20
 
 // ---- state ----------------------------------------------------------
 //
@@ -398,7 +408,8 @@ static char down(char c) { return (c >= 'A' && c <= 'Z') ? (char)(c - 'A' + 'a')
 // FAT IS CASE-INSENSITIVE AND CASE-PRESERVING, which is not a quirk to
 // paper over: it is the format's rule, other operating systems rely on
 // it, and a driver that compared case-sensitively would fail to find
-// GRUB's own files.
+// GRUB's own files. ASCII ONLY: a byte past ASCII is compared exactly
+// (the top comment says why there is no Unicode fold).
 static int name_eq(const char *a, const char *b) {
     while (*a && *b) {
         if (up(*a) != up(*b)) return 0;
@@ -525,19 +536,17 @@ static void ent_set_cluster(uint8_t *e, uint32_t c) {
     wr16(e + 26, (uint16_t)(c & 0xFFFF));
 }
 
-// Copies the ASCII of one LFN entry's 13 UCS-2 slots into `dst`.
-// Returns how many were real characters (a set's last entry is padded
-// with a NUL then 0xFFFF).
-static int lfn_chars(const uint8_t *e, char *dst) {
+// Copies one LFN entry's 13 UTF-16 slots into `dst`, as code units.
+// Returns how many were real (a set's last entry is padded with a NUL
+// then 0xFFFF). A surrogate pair may straddle two entries, so pairing
+// waits for the whole set (walk_next()).
+static int lfn_chars(const uint8_t *e, uint16_t *dst) {
     static const int offs[LFN_CHARS] = {1,3,5,7,9, 14,16,18,20,22,24, 28,30};
     int n = 0;
     for (int i = 0; i < LFN_CHARS; i++) {
         uint16_t u = rd16(e + offs[i]);
         if (u == 0x0000 || u == 0xFFFF) break;
-        // NOT UNICODE (see this file's top comment): anything outside
-        // ASCII becomes '?' rather than being mangled into a byte that
-        // would then fail to match on lookup.
-        dst[n++] = (u < 0x80) ? (char)u : '?';
+        dst[n++] = u;
     }
     return n;
 }
@@ -552,10 +561,11 @@ struct dirwalk {
     uint32_t off;          // byte offset in the loaded sector
     uint32_t cur_sector;   // the LBA currently in dirsec
     int loaded;
-    // LFN accumulation
-    char lfn[FAT_NAME_MAX + 1 + LFN_CHARS];
+    // LFN accumulation, in UTF-16 code units
+    uint16_t lfn[LFN_MAX_ENTRIES * LFN_CHARS];
     int lfn_len;
     uint8_t lfn_sum;
+    int lfn_total;         // the set's entry count, from its first (0x40) entry
     int lfn_count;
     uint32_t lfn_sector, lfn_offset;
     int done;
@@ -621,18 +631,15 @@ static int walk_next(struct fat32_state *sbi, struct dirwalk *w, struct dirent_i
                 w->lfn_len = 0;
                 w->lfn_count = 0;
                 w->lfn_sum = e[13];
+                w->lfn_total = index;
                 w->lfn_sector = w->cur_sector;
                 w->lfn_offset = w->off;
             }
             if (index >= 1 && index <= LFN_MAX_ENTRIES && e[13] == w->lfn_sum) {
-                char part[LFN_CHARS + 1];
-                int n = lfn_chars(e, part);
                 int at = (index - 1) * LFN_CHARS;
-                if (at + n <= FAT_NAME_MAX) {
-                    for (int i = 0; i < n; i++) w->lfn[at + i] = part[i];
-                    if (at + n > w->lfn_len) w->lfn_len = at + n;
-                    w->lfn_count++;
-                }
+                int n = lfn_chars(e, w->lfn + at);
+                if (at + n > w->lfn_len) w->lfn_len = at + n;
+                w->lfn_count++;
             } else {
                 w->lfn_len = 0; w->lfn_count = 0; // orphaned or too long -- ignore the set
             }
@@ -656,11 +663,14 @@ static int walk_next(struct fat32_state *sbi, struct dirwalk *w, struct dirent_i
         // A LONG NAME IS ONLY THIS ENTRY'S IF ITS CHECKSUM MATCHES.
         // Otherwise the set belongs to something that was deleted and
         // this entry's real name is its 8.3 one.
-        if (w->lfn_len > 0 && w->lfn_sum == short_name_checksum(e)) {
-            int n = w->lfn_len;
-            if (n > FAT_NAME_MAX) n = FAT_NAME_MAX;
-            k_memcpy(out->name, w->lfn, (uint32_t)n);
-            out->name[n] = '\0';
+        // A long name too long for FAT_NAME_MAX in UTF-8 is reported by
+        // the short name -- but the set is still this entry's, so a
+        // delete or rename removes it with the entry.
+        // A set missing an entry has a hole in the middle of its name.
+        if (w->lfn_len > 0 && w->lfn_sum == short_name_checksum(e) &&
+            w->lfn_count == w->lfn_total) {
+            if (kutf8_from_utf16le(w->lfn, w->lfn_len, out->name, FAT_NAME_MAX + 1) < 0)
+                short_name_unpack(e, e[12], out->name);
             out->loc.lfn_count = w->lfn_count;
             out->loc.lfn_start_sector = w->lfn_sector;
             out->loc.lfn_start_offset = w->lfn_offset;
@@ -892,12 +902,11 @@ static int dir_find_run(struct fat32_state *sbi, uint32_t dir_cluster, int need,
 // a name every other driver reads backwards -- which is exactly what
 // this did on its first outing, and what mtools would have shown.
 static int dir_write_set(struct fat32_state *sbi, uint32_t sector, uint32_t off, const uint8_t *raw11,
-                         uint8_t nt_flags, const char *longname, int lfn_entries,
+                         uint8_t nt_flags, const uint16_t *longname, int namelen, int lfn_entries,
                          uint8_t attr, uint32_t cluster, uint32_t size) {
     uint8_t sum = short_name_checksum(raw11);
     uint16_t date, time;
     now_fat(&date, &time);
-    int namelen = (int)k_strlen(longname);
     static const int offs[LFN_CHARS] = {1,3,5,7,9, 14,16,18,20,22,24, 28,30};
 
     for (int index = lfn_entries; index >= 1; index--) {
@@ -916,7 +925,7 @@ static int dir_write_set(struct fat32_state *sbi, uint32_t sector, uint32_t off,
             // that is 0xFFFF -- padding a set with zeroes instead makes
             // the name look 13 characters long to a reader that stops
             // at the first NUL and finds none.
-            if (at < namelen) u = (uint16_t)(uint8_t)longname[at];
+            if (at < namelen) u = longname[at];
             else if (at == namelen) u = 0x0000;
             else u = 0xFFFF;
             wr16(e + offs[c], u);
@@ -960,6 +969,19 @@ static int dir_free_run(struct fat32_state *sbi, uint32_t sector, uint32_t off, 
 // up until nothing in the directory collides -- Windows' rule, and the
 // reason two long names starting the same way do not overwrite one
 // another's short entry.
+//
+// ONE '_' PER CHARACTER past ASCII, not per byte: "Käse.txt" is
+// "K_SE~1.TXT", as Windows writes it when the character has no
+// equivalent short-name character (this driver keeps no OEM code page).
+static int alias_char(const char **p) {
+    int len;
+    uint32_t cp = kutf8_decode(*p, -1, &len);
+    *p += len > 0 ? len : 1;
+    char c = cp < 0x80 ? up((char)cp) : '_';
+    if (!is_shortname_char(c) || c == ' ' || c == '.') c = '_';
+    return c;
+}
+
 static int make_alias(struct fat32_state *sbi, uint32_t dir_cluster, const char *name, uint8_t *out11) {
     const char *dot = 0;
     for (const char *p = name; *p; p++) if (*p == '.') dot = p;
@@ -968,22 +990,15 @@ static int make_alias(struct fat32_state *sbi, uint32_t dir_cluster, const char 
         k_memset(out11, ' ', 11);
         int base_len = (n < 10) ? 6 : 5;
         int w = 0;
-        for (const char *p = name; *p && w < base_len; p++) {
-            if (p == dot) break;
-            char c = up(*p);
-            if (!is_shortname_char(c) || c == ' ' || c == '.') c = '_';
-            out11[w++] = (uint8_t)c;
-        }
+        for (const char *p = name; *p && p != dot && w < base_len;)
+            out11[w++] = (uint8_t)alias_char(&p);
         if (w == 0) out11[w++] = '_';
         out11[w++] = '~';
         if (n >= 10) out11[w++] = (uint8_t)('0' + n / 10);
         out11[w++] = (uint8_t)('0' + n % 10);
         if (dot) {
-            for (int i = 0; i < 3 && dot[1 + i]; i++) {
-                char c = up(dot[1 + i]);
-                if (!is_shortname_char(c) || c == ' ' || c == '.') c = '_';
-                out11[8 + i] = (uint8_t)c;
-            }
+            const char *p = dot + 1;
+            for (int i = 0; i < 3 && *p; i++) out11[8 + i] = (uint8_t)alias_char(&p);
         }
 
         // Collision check against every SHORT name in the directory.
@@ -1027,19 +1042,22 @@ static int dir_create(struct fat32_state *sbi, uint32_t dir_cluster, const char 
     if (namelen > FAT_NAME_MAX) return 0;
     for (int i = 0; i < namelen; i++) {
         unsigned char c = (unsigned char)name[i];
-        // NOT UNICODE, and the refusal is deliberate: a name this
-        // driver cannot represent must not be created, because it could
-        // never be looked up again.
-        if (c < 0x20 || c >= 0x80) return 0;
+        if (c < 0x20) return 0;
         if (k_strchr("\\/:*?\"<>|", (char)c)) return 0;
     }
+    // INVALID UTF-8 IS REFUSED, as exFAT refuses it: the long name is
+    // UTF-16, and a byte with no character to stand for could only be
+    // written as a guess that never matches on lookup again.
+    uint16_t name16[FAT_NAME_MAX];
+    int units = kutf8_to_utf16le(name, namelen, name16, FAT_NAME_MAX);
+    if (units <= 0) return 0;
 
     uint8_t raw11[11], nt_flags = 0;
     int lfn_entries = 0;
     if (!short_name_pack(name, raw11, &nt_flags)) {
         if (!make_alias(sbi, dir_cluster, name, raw11)) return 0;
         nt_flags = 0;
-        lfn_entries = (namelen + LFN_CHARS - 1) / LFN_CHARS;
+        lfn_entries = (units + LFN_CHARS - 1) / LFN_CHARS;
     }
 
     uint32_t first = 0;
@@ -1054,7 +1072,7 @@ static int dir_create(struct fat32_state *sbi, uint32_t dir_cluster, const char 
         if (first) chain_free(sbi, first);
         return 0;
     }
-    if (!dir_write_set(sbi, sector, off, raw11, nt_flags, name, lfn_entries, attr, first, 0)) {
+    if (!dir_write_set(sbi, sector, off, raw11, nt_flags, name16, units, lfn_entries, attr, first, 0)) {
         // A HALF-WRITTEN SET IS WORSE THAN NO SET: the LFN entries
         // without their short entry are an orphan run that every reader
         // has to skip, and this one reported as a nameless file.

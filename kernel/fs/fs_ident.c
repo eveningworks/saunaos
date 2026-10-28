@@ -10,6 +10,7 @@
 #include "block.h"
 #include "heap.h"
 #include "string.h"
+#include "kutf8.h"
 #include <stddef.h>
 
 #define IDENT_BUF 4096u
@@ -47,29 +48,14 @@ static void label8(struct ident *id, const uint8_t *p, size_t n) {
     l[k] = 0;
 }
 
-// A UTF-16LE label of `units` code units, as UTF-8. A surrogate pair is
-// beyond any label a person types here and becomes '?'.
+// A UTF-16LE label of `units` code units (up to a NUL), as UTF-8 through
+// api/kutf8.h's converter -- a label too long stops at a whole character.
 static void label16(struct ident *id, const uint8_t *p, size_t units) {
     char *l = id->out->label;
-    size_t k = 0, cap = sizeof id->out->label;
-    for (size_t i = 0; i < units; i++) {
-        uint16_t c = le16(p + 2 * i);
-        if (!c) break;
-        if (c >= 0xd800 && c < 0xe000) c = '?';
-        if (c < 0x80) {
-            if (k + 2 > cap) break;
-            l[k++] = (char)c;
-        } else if (c < 0x800) {
-            if (k + 3 > cap) break;
-            l[k++] = (char)(0xc0 | c >> 6);
-            l[k++] = (char)(0x80 | (c & 0x3f));
-        } else {
-            if (k + 4 > cap) break;
-            l[k++] = (char)(0xe0 | c >> 12);
-            l[k++] = (char)(0x80 | ((c >> 6) & 0x3f));
-            l[k++] = (char)(0x80 | (c & 0x3f));
-        }
-    }
+    size_t n = 0;
+    while (n < units && le16(p + 2 * n)) n++;
+    kutf8_from_utf16le(p, (int)n, l, (int)sizeof id->out->label);
+    size_t k = k_strlen(l);
     while (k && l[k - 1] == ' ') k--;
     l[k] = 0;
 }

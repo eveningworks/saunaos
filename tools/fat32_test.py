@@ -28,11 +28,17 @@ WHAT A BROKEN VERSION WOULD STILL PASS, and therefore what is asserted:
     produces.
   - "a file written reads back" passes on a driver whose format is
     privately wrong, since it is reading its own bytes -- so the file is
-    read back on the HOST with mtools, and a 185 KiB BINARY is compared
+    read back on the HOST with mtools, and the seeded /bin/ls BINARY is compared
     byte for byte rather than a short string.
   - "the volume still works" passes on a driver leaking clusters or
     cross-linking chains, which nothing observable would show for a long
     time -- so `fsck.fat` is the last word.
+  - "a name past ASCII works" passes on a driver that writes UTF-8 bytes
+    into the UTF-16 slots and reads them back the same wrong way -- so
+    the HOST writes `Käse.txt` and a CJK name (mtools, in a UTF-8
+    locale) for the guest to list, the GUEST copies them (`cp -r` keeps
+    the names, which the serial console could not type) for mtools to
+    list, and `mdir` shows the '_' alias Windows would write.
 
 ON DEMAND, not in the gate: it boots twice against a copy of disk.img
 and needs `mtools` and `dosfstools` on the host. Same category as
@@ -53,6 +59,8 @@ import vm  # noqa: E402
 from harness import copy_disk  # noqa: E402
 
 SECTOR = 512
+UHOST = "u8host"     # non-ASCII names the host writes
+UGUEST = "u8guest"   # ...and the guest's copies of them
 
 # A directory of our own inside the ESP. GRUB's files are never touched:
 # a driver bug that corrupted them would cost `make clean-disk && make
@@ -117,9 +125,12 @@ def mrun(args):
     # /dev/tty. Under capture_output a question therefore vanishes and
     # the tool waits forever on a terminal nobody can see it waiting on.
     # Without a controlling terminal it fails instead, and says why.
+    # A UTF-8 LOCALE, or mtools turns every long name past ASCII into '_'
+    # on its way to and from the disk's UTF-16.
+    env = dict(os.environ, LC_ALL="C.UTF-8")
     try:
         return subprocess.run(args, capture_output=True, text=True,
-                              stdin=subprocess.DEVNULL,
+                              stdin=subprocess.DEVNULL, env=env,
                               start_new_session=True, timeout=120)
     except subprocess.TimeoutExpired:
         print(f"fat32_test: {os.path.basename(args[0])} timed out -- "
@@ -156,6 +167,17 @@ def main():
     if start_lba is None:
         print("fat32_test: SKIP -- this image has no ESP (run `make clean-disk && make iso`)")
         return 0
+
+    # NAMES PAST ASCII, written by the HOST before the guest boots.
+    at = mtools_at(img, start_lba)
+    unames = {"Käse.txt": "juusto\n", "日本語.txt": "nihongo\n"}
+    made = mrun(["mmd", "-i", at, f"::/{UHOST}"]).returncode == 0
+    for name, body in unames.items():
+        src = os.path.join(tmp, "u8src.txt")
+        with open(src, "w") as fh:
+            fh.write(body)
+        made = made and mrun(["mcopy", "-i", at, src, f"::/{UHOST}/{name}"]).returncode == 0
+    check("mtools wrote the non-ASCII names", made)
 
     # `--instance auto` prints the slot it took; everything after has to
     # reach the SAME guest, so it is resolved once here.
@@ -244,6 +266,14 @@ def main():
         g.sh(f"cp /bin/ls /boot/{SCRATCH}/ls.copy")
         g.sh("sync")
 
+        # The host's names as the guest lists them, then copied BY the
+        # guest -- cp -r creates each name from what the listing said.
+        uls = g.sh(f"ls /boot/{UHOST}")
+        for name in unames:
+            check(f"the guest lists the host's {name}", name in uls, uls.strip()[:200])
+        g.sh(f"cp -r /boot/{UHOST} /boot/{UGUEST}")
+        g.sh("sync")
+
         ls = g.sh(f"rescue ls /boot/{SCRATCH}")
         check("the long name is listed as itself", longname in ls, ls.strip()[:160])
         check("the binary is there and the right size", "185" in ls or "ls.copy" in ls,
@@ -284,18 +314,28 @@ def main():
     t = mrun(["mtype", "-i", at, f"::/{SCRATCH}/{longname}"])
     check("mtools reads the contents", "longname-ok" in t.stdout, (t.stdout + t.stderr)[:200])
 
+    d = mrun(["mdir", "-i", at, f"::/{UGUEST}"])
+    for name, body in unames.items():
+        check(f"mtools lists the guest's {name}", name in d.stdout, (d.stdout + d.stderr)[:300])
+        t = mrun(["mtype", "-i", at, f"::/{UGUEST}/{name}"])
+        check("...and reads it", t.stdout == body, (t.stdout + t.stderr)[:120])
+    # Windows' alias for a name past ASCII: one '_' per character, ~1.
+    check("the guest's alias is Windows' K_SE~1.TXT", "K_SE~1   TXT" in d.stdout, d.stdout[:300])
+
     extracted = os.path.join(tmp, "ls.fromfat")
     c = mrun(["mcopy", "-n", "-i", at, f"::/{SCRATCH}/ls.copy", extracted])
     ok = c.returncode == 0 and os.path.exists(extracted)
-    reference = os.path.join("build", "userland", "bin", "ls.elf")
+    # The SEEDED copy, not build/'s: the seed strips symbols, so the
+    # build artifact is four times the size of what /bin/ls holds.
+    reference = os.path.join("seed", "sync", "bin", "ls")
     if ok and os.path.exists(reference):
         # BYTE FOR BYTE against the build artifact -- the strongest check
         # here, and the one a size comparison would let through.
         same = open(extracted, "rb").read() == open(reference, "rb").read()
-        check("a 185 KiB binary round-trips byte for byte", same,
+        check("/bin/ls round-trips byte for byte", same,
               f"{os.path.getsize(extracted)} bytes extracted")
     else:
-        check("a 185 KiB binary round-trips byte for byte", False,
+        check("/bin/ls round-trips byte for byte", False,
               (c.stdout + c.stderr)[:200])
 
     if have("fsck.fat"):

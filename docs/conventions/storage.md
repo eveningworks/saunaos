@@ -1360,9 +1360,11 @@ format nothing here uses, so a non-FAT32 volume is refused by name);
 field to the block layer's 512-byte units, so a 4096-byte-sector volume
 runs the same code -- correctly and slowly, one 512-byte sector per
 transfer); **not
-Unicode** (long names are read as UCS-2 and anything outside ASCII
-becomes `?`; creating such a name is refused, because it could never be
-looked up again); and **not journalled, because FAT is not** — an
+case-folding past ASCII** (long names are UTF-16 on the disk and UTF-8
+here through `api/kutf8.h`, shared with exFAT and SMB; invalid UTF-8 is
+refused on create, and lookups fold ASCII case only -- a partial Unicode
+fold would make two names equal on one side and different on the
+other); and **not journalled, because FAT is not** — an
 interrupted write leaves whatever the last completed sector left, which
 is a real reason to prefer TFS3 for anything that matters and a real
 reason `/boot` is read-only unless asked otherwise.

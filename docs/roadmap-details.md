@@ -2092,10 +2092,14 @@ through `blkdev_*_partial()`, so a FAT32 on a 4K-sector disk is a
 read-modify-write per 512 bytes. Fine for an ESP; see the roadmap item
 under NVMe / modern storage if one is ever a data volume.
 
-**Not Unicode.** Long names are read as UCS-2 and anything outside ASCII
-becomes `?`; creating such a name is REFUSED, because it could never be
-looked up again. This kernel has no Unicode anywhere else either, and a
-half-done encoding is worse than a stated limit.
+**Long names are UTF-16, case-folded in ASCII only.** Since 2026-10-28
+(UTF-8 step 3) a long name is read from UTF-16 into UTF-8 -- a surrogate
+pair whole, an unpaired one as U+FFFD -- and created from UTF-8, invalid
+UTF-8 refused as exFAT refuses it, with Windows' `_`-per-character
+`~1` alias. Lookups fold ASCII case and compare the rest exactly. A long
+name past 63 bytes of UTF-8 (what a listing carries) is reported by its
+8.3 name. A short name with bytes past ASCII -- a DOS code-page name --
+is passed through as bytes.
 
 **Not journalled, because FAT is not.** An interrupted write leaves
 whatever the last completed sector left. There is no analogue of TFS3's

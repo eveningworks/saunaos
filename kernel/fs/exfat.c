@@ -30,6 +30,7 @@
 #include "caltime.h"
 #include "ktime.h"
 #include "errno.h"
+#include "kutf8.h"
 
 // ---- little-endian fields -------------------------------------------------
 
@@ -225,69 +226,17 @@ uint16_t exf_name_hash(struct exfat_state *x, const uint16_t *name, int len) {
 // ---- names: UTF-8 here, UTF-16 on the disk ---------------------------------
 
 // A component of `in` (up to '/' or NUL) into UTF-16. -1 for invalid
-// UTF-8 or a name too long; else the code-unit count.
+// UTF-8 or a name too long; else the code-unit count. The converters are
+// api/kutf8.h's, shared with FAT32's long names, SMB and fs_ident.
 int exf_utf8_to16(const char *in, uint16_t *out, int cap) {
     int n = 0;
-    const uint8_t *p = (const uint8_t *)in;
-    while (*p && *p != '/') {
-        uint32_t cp;
-        int more;
-        if (*p < 0x80)          { cp = *p; more = 0; }
-        else if ((*p >> 5) == 6) { cp = *p & 0x1F; more = 1; }
-        else if ((*p >> 4) == 14) { cp = *p & 0x0F; more = 2; }
-        else if ((*p >> 3) == 30) { cp = *p & 0x07; more = 3; }
-        else return -1;
-        p++;
-        for (int i = 0; i < more; i++, p++) {
-            if ((*p & 0xC0) != 0x80) return -1;
-            cp = cp << 6 | (*p & 0x3F);
-        }
-        if (cp >= 0x10000) {
-            if (n + 2 > cap) return -1;
-            cp -= 0x10000;
-            out[n++] = (uint16_t)(0xD800 + (cp >> 10));
-            out[n++] = (uint16_t)(0xDC00 + (cp & 0x3FF));
-        } else {
-            if (n + 1 > cap) return -1;
-            out[n++] = (uint16_t)cp;
-        }
-    }
-    return n;
+    while (in[n] && in[n] != '/') n++;
+    return kutf8_to_utf16le(in, n, out, cap);
 }
 
-static int put_utf8(char *out, int at, int cap, uint32_t cp) {
-    int need = cp < 0x80 ? 1 : cp < 0x800 ? 2 : cp < 0x10000 ? 3 : 4;
-    if (at + need >= cap) return -1;
-    if (need == 1) out[at] = (char)cp;
-    else if (need == 2) { out[at] = (char)(0xC0 | cp >> 6); out[at + 1] = (char)(0x80 | (cp & 0x3F)); }
-    else if (need == 3) {
-        out[at] = (char)(0xE0 | cp >> 12);
-        out[at + 1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        out[at + 2] = (char)(0x80 | (cp & 0x3F));
-    } else {
-        out[at] = (char)(0xF0 | cp >> 18);
-        out[at + 1] = (char)(0x80 | ((cp >> 12) & 0x3F));
-        out[at + 2] = (char)(0x80 | ((cp >> 6) & 0x3F));
-        out[at + 3] = (char)(0x80 | (cp & 0x3F));
-    }
-    return at + need;
-}
-
+// A name that does not fit `cap` stops at the last whole character.
 static void utf16_to8(const uint16_t *in, int len, char *out, int cap) {
-    int at = 0;
-    for (int i = 0; i < len; i++) {
-        uint32_t cp = in[i];
-        if (cp >= 0xD800 && cp < 0xDC00 && i + 1 < len && in[i + 1] >= 0xDC00 && in[i + 1] < 0xE000) {
-            cp = 0x10000 + ((cp - 0xD800) << 10) + (in[i + 1] - 0xDC00);
-            i++;
-        } else if (cp >= 0xD800 && cp < 0xE000) {
-            cp = 0xFFFD;   // an unpaired surrogate
-        }
-        int next = put_utf8(out, at, cap, cp);
-        if (next < 0) break;
-        at = next;
-    }
-    out[at] = 0;
+    kutf8_from_utf16le(in, len, out, cap);
 }
 
 // ---- entry sets ---------------------------------------------------------
