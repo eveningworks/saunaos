@@ -8911,6 +8911,13 @@ to. Arch package names; all are in the official repos.
           [ "$d" = userland/ports ] || printf -- '--only-dir %s ' "$d"; done) .
   ```
 
+  **Its hooks are deliberately NOT in `.claude/settings.json`** -- only
+  the `graft`/`trail` permissions are. Its per-message suggestions match
+  on words and mostly named unrelated code (cb1754bb). **An upgrade
+  rewrites `settings.json`**, adding the hooks, a status line and more
+  permissions; check `git status` after one and commit nothing but the
+  permissions.
+
 - **`docker`** — `qemu_matrix.py` needs it, and nothing else does.
 
 - **`gperf`, `perl`, `pkg-config`, `patch`, expat** — `netsurf_vendor.py`

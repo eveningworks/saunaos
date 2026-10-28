@@ -116,7 +116,9 @@ reader pays for them):
   `saunaos-build` (Opus: one multi-file track; isolation `worktree`).
 - **A helper costs ~33k tokens to START with a short tool list, ~55k with
   every tool** (measured 2026-10-28; Haiku ~$0.004, Sonnet ~$0.08, Opus
-  ~$0.17) -- worth it for work bigger than that, never for two greps.
+  ~$0.17) -- worth it for work bigger than that, never for two greps. A
+  whole `saunaos-search` lookup measured 49k tokens in 6 calls, so most
+  of it is the start; one known file is cheaper read inline.
 - **Many items: size them first.** With the jev skill installed,
   `router.py size-list` sorts a list into inline / agent / unsure;
   `.claude/jev-router.json` says where each size goes in this repo.
