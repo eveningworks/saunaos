@@ -424,6 +424,9 @@ int fd_dup_from(uint64_t pml4, int oldfd, int min) {
     if (!sp) return -EBADF;
     int di = fd_desc_index(pml4, oldfd);
     if (di < 0) return -EBADF;
+    // A floor past the ceiling is a bad argument, not a table that
+    // filled: refused without the ceiling's log line.
+    if (min >= fd_proc_ceiling()) return -EMFILE;
     scheduler_preempt_disable();
     int fd = lowest_free(sp, min);
     if (fd >= 0) {

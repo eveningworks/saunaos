@@ -118,6 +118,7 @@ static int refuse(const struct win_event *ev, int release) {
 // 1 queued (or merged), 0 refused. Interrupts are off.
 static int enqueue(const struct win_event *ev, int edge) {
     int release = is_release(ev) || edge == EDGE_UP;
+    struct win_event ov;   // an overflow notice stands in for `ev`: lives to the write below
     if (is_input(ev->type)) {
         // MOTION IS A STATE, NOT A BACKLOG (Windows holds one WM_MOUSEMOVE
         // per queue; X compresses MotionNotify). A move with the same
@@ -152,7 +153,6 @@ static int enqueue(const struct win_event *ev, int edge) {
     } else {
         // A watch not queued yet, with WIN_INPUT_FSWATCH_NAMED already
         // queued, goes in as the OVERFLOW notice instead (win_proto.h).
-        struct win_event ov;
         if (ev->type == WIN_EV_FSWATCH && ev->a != WIN_FSWATCH_OVERFLOW) {
             int named = 0, here = 0;
             for (int i = 0; i < q.count; i++) {
