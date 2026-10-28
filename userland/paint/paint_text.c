@@ -468,10 +468,8 @@ void text_draw_over(struct ugfx_surface *s, const struct uui_paintcanvas *c) {
             int from = a > l.start ? a : l.start, to = b < l.end ? b : l.end;
             int brk = b > l.end && l.next > l.end && a <= l.end;   // it runs on past this line's break
             if (from < to || brk) {
-                int sx0 = 0, sx1;
-                for (int i = l.start; i < from; i++) sx0 += ugfx_char_advance(g_buf[i]);
-                sx1 = sx0;
-                for (int i = from; i < to; i++) sx1 += ugfx_char_advance(g_buf[i]);
+                int sx0 = utextflow_width(g_buf, l.start, from);
+                int sx1 = sx0 + utextflow_width(g_buf, from, to);
                 if (brk) sx1 += ugfx_char_w() / 2;
                 int rx0, ry0, rx1, ry1;
                 uui_paintcanvas_to_screen(c, bx + sx0, by + k * lh, &rx0, &ry0);

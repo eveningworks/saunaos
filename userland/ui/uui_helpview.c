@@ -373,7 +373,7 @@ static void add_text_atoms(struct lay *L, struct pctx *P, const struct uhlp_run 
                 }
                 if (w > room) {                           // longer than a whole line: cut it
                     int fit = ugfx_text_fit_chars(u + i, room > 8 ? room : 8);
-                    if (fit < 1) fit = 1;
+                    if (fit < 1) fit = ugfx_text_next(u + i, 0);   // one CHARACTER
                     if ((size_t)fit < take) {
                         take = (size_t)fit;
                         w = ugfx_text_width_n(u + i, (int)take);

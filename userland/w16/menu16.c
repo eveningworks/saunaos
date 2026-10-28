@@ -188,6 +188,7 @@ static void draw_menu(struct w16_menu *m, struct ugfx_surface *s) {
         }
         ugfx_draw_string_clipped(s, PAD_L, ty, W - PAD_L - PAD_R, t, fg, UGFX_TRANSPARENT);
         if (at >= 0) {
+            // text-loop-ok: w16 text is a Windows code page -- one byte, one character
             int ux = PAD_L + ugfx_text_width_n(t, at), uw = ugfx_text_width_n(t + at, 1);
             ugfx_fill_rect(s, ux, ty + w16_font_ascent(ugfx_font_current()) + 1, uw, 1, fg);
         }

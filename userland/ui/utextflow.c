@@ -2,15 +2,19 @@
 #include "ui/utextflow.h"
 #include "ui/ugfx.h"
 
+// Every index is a BYTE offset on a character boundary; the text is
+// UTF-8, decoded a character at a time (docs/utf8-design.md).
 void utextflow_line(const char *s, int n, int start, int wrap_w, struct utextflow_line *out) {
     int x = 0, run = -1, run_x = 0, cand_end = -1, cand_next = -1, cand_w = 0;
-    for (int i = start; i < n; i++) {
-        char c = s[i];
+    for (int i = start, nx; i < n; i = nx) {
+        uint32_t c;
+        nx = ugfx_text_decode(s, i, n, &c);
+        if (nx <= i) nx = i + 1;   // a NUL inside the run: one byte, as before
         if (c == '\n') {
             *out = (struct utextflow_line){ start, i, i + 1, x, 0 };
             return;
         }
-        int adv = ugfx_char_advance(c);
+        int adv = ugfx_cp_advance(c);
         if (c == ' ') {
             // A SPACE NEVER BREAKS A LINE: trailing blanks are invisible,
             // so letting them overflow costs nothing a reader sees.
@@ -43,9 +47,14 @@ int utextflow_measure(const char *s, int n, int wrap_w, int *widest) {
     return lines;
 }
 
-static int width_of(const char *s, int from, int to) {
+int utextflow_width(const char *s, int from, int to) {
     int w = 0;
-    for (int i = from; i < to; i++) w += ugfx_char_advance(s[i]);
+    uint32_t cp;
+    for (int i = from, nx; i < to; i = nx) {
+        nx = ugfx_text_decode(s, i, to, &cp);
+        if (nx <= i) nx = i + 1;
+        w += ugfx_cp_advance(cp);
+    }
     return w;
 }
 
@@ -57,7 +66,7 @@ void utextflow_point(const char *s, int n, int wrap_w, int index, int *x, int *l
         // A HARD BREAK'S END IS THE NEXT LINE'S START, and the caret
         // there belongs to the next line, as in every editor.
         if (index < l.next || l.last) {
-            *x = width_of(s, l.start, index < l.end ? index : l.end);
+            *x = utextflow_width(s, l.start, index < l.end ? index : l.end);
             *line = k;
             return;
         }
@@ -77,8 +86,11 @@ int utextflow_line_bounds(const char *s, int n, int wrap_w, int line, int *end) 
 
 int utextflow_index(const char *s, int n, int wrap_w, int x, int line) {
     int end, i = utextflow_line_bounds(s, n, wrap_w, line < 0 ? 0 : line, &end);
-    for (int pen = 0; i < end; i++) {
-        int adv = ugfx_char_advance(s[i]);
+    uint32_t cp;
+    for (int pen = 0, nx; i < end; i = nx) {
+        nx = ugfx_text_decode(s, i, end, &cp);
+        if (nx <= i) nx = i + 1;
+        int adv = ugfx_cp_advance(cp);
         if (x < pen + adv / 2) return i;
         pen += adv;
     }

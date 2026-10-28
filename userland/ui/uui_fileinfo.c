@@ -316,7 +316,7 @@ static void value(struct ugfx_surface *s, int x, int y, int vw, const char *k, c
     char buf[UUI_FI_VALUE + 4];
     if (!strcmp(k, "Where") && ugfx_text_width(v) > vw) {
         const char *t = v;
-        while (*t && ugfx_text_width(t) + ugfx_text_width("...") > vw) t++;
+        while (*t && ugfx_text_width(t) + ugfx_text_width("...") > vw) t += ugfx_text_next(t, 0);
         snprintf(buf, sizeof buf, "...%s", t);
         v = buf;
     }

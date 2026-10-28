@@ -238,6 +238,9 @@ python3 tools/check_control_states.py || fail "control states check"
 step "check_text_measure.py (a character count used as a text width)"
 python3 tools/check_text_measure.py || fail "text measurement check"
 
+step "check_text_loops.py (a byte of a string measured or drawn as a character)"
+python3 tools/check_text_loops.py || fail "text loop check"
+
 step "check_drivers.py (a driver that declares itself to nothing)"
 python3 tools/check_drivers.py || fail "driver declaration check"
 

@@ -30,5 +30,7 @@ void utextflow_point(const char *s, int n, int wrap_w, int index, int *x, int *l
 int  utextflow_index(const char *s, int n, int wrap_w, int x, int line);
 // The first index of line `line`, and the line's drawn end -- Home and End.
 int  utextflow_line_bounds(const char *s, int n, int wrap_w, int line, int *end);
+// The pixel width of s[from, to), measured the way a line is (no kerning).
+int  utextflow_width(const char *s, int from, int to);
 
 #endif

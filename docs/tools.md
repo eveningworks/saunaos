@@ -8457,6 +8457,18 @@ runs first**: a `doom1.wad` with one
   `SYS_*` constants are numbers -- having a row is the definition, and
   the flags and limits sharing the prefix are simply not rows. In
   `preflight.sh`.
+- **`check_text_loops.py`** -- fails the build on a BYTE of a string
+  measured or drawn as a CHARACTER: `ugfx_char_advance(x)` /
+  `ugfx_draw_char(.., x, ..)` with anything but a character literal,
+  `ugfx_cp_advance()` / `ugfx_draw_cp()` / `ugfx_kern()` given a
+  subscript (`s[i]`), and `ugfx_text_width_n(x, 1)`. Strings are UTF-8
+  (`docs/utf8-design.md`), so such a loop draws `é` as `Ã©`, and it
+  compiles and looks right on every ASCII string anyone tests with --
+  the reason it is a ratchet rather than a review note. Step with
+  `ugfx_text_decode()` instead. Waiver `text-loop-ok: <reason>`, whose
+  one legitimate reason is a CODE PAGE (w16's Windows-1252, where a byte
+  is a character). `--positive-control` runs it over planted lines of
+  every shape and a literal that must pass.
 - **`check_text_measure.py`** -- fails the build on a character COUNT
   used as a text WIDTH. `ugfx_char_w()` is the WIDEST advance in the
   face, so `n * ugfx_char_w()` measured a string correctly only while

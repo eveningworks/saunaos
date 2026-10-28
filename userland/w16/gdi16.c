@@ -2430,6 +2430,7 @@ static int api_GetCharWidth(struct w16 *w, unsigned ordinal, struct w16_args *a)
     pthread_mutex_lock(&g_w16_text_lock);
     const struct ugfx_font *was = ugfx_set_font(w16_font_of(hfont));
     for (unsigned i = 0; i < n; i++) {
+        // text-loop-ok: a Windows code page -- one byte IS one character here
         int adv = w16_font_scaled(hfont, ugfx_char_advance((char)(first + i)));
         p[2 * i] = (uint8_t)adv;
         p[2 * i + 1] = (uint8_t)(adv >> 8);

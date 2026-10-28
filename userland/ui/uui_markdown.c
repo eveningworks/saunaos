@@ -95,11 +95,21 @@ static int font_h(const struct ugfx_font *f) {
     return h;
 }
 
-static int char_px(const struct ugfx_font *f, char c) {
+static int char_px(const struct ugfx_font *f, uint32_t cp) {
     const struct ugfx_font *was = ugfx_set_font(f);
-    int a = ugfx_char_advance(c);
+    int a = ugfx_cp_advance(cp);
     ugfx_set_font(was);
     return a;
+}
+
+// The character starting at txt[i] of a run of `n`: its codepoint, and
+// the index after it. Decoded in the CHARACTER'S OWN FONT's mode, so a
+// code span in a code-page font would still read a byte at a time.
+static int run_char(const struct ugfx_font *f, const char *txt, int i, int n, uint32_t *cp) {
+    const struct ugfx_font *was = ugfx_set_font(f);
+    int nx = ugfx_text_decode(txt, i, n, cp);
+    ugfx_set_font(was);
+    return nx > i ? nx : i + 1;
 }
 
 // --- drawing primitives ----------------------------------------------
@@ -140,9 +150,13 @@ static void put_run(struct md_ctx *c, int x, int y, const char *txt,
         li = c->m->link_n++;
         strlcpy(c->m->link[li].target, target, sizeof c->m->link[li].target);
     }
-    for (int i = 0; i < n; i++) {
+    for (int i = 0, nx; i < n; i = nx) {
+        // A CHARACTER at a time, styled by its first byte: a UTF-8
+        // sequence is one glyph, never two Latin-1 ones.
         const struct ugfx_font *f = style_font(c->m, st[i], level);
-        int adv = char_px(f, txt[i]);
+        uint32_t cp;
+        nx = run_char(f, txt, i, n, &cp);
+        int adv = char_px(f, cp);
         int line_h = font_h(f);
         int in_link = li >= 0 && i >= la && i < lb;
         uint32_t fg = UTHEME_TEXT;
@@ -157,11 +171,11 @@ static void put_run(struct md_ctx *c, int x, int y, const char *txt,
             ugfx_fill_rect(c->s, x, y, adv, line_h, code_bg());
         }
         const struct ugfx_font *was = ugfx_set_font(f);
-        ugfx_draw_char(c->s, x, y, txt[i], fg,
-                        (st[i] & UMD_STYLE_CODE) && !in_link ? code_bg() : UTHEME_WHITE);
+        ugfx_draw_cp(c->s, x, y, cp, fg,
+                     (st[i] & UMD_STYLE_CODE) && !in_link ? code_bg() : UTHEME_WHITE);
         ugfx_set_font(was);
         x += adv;
-        if (in_link && i == lb - 1) {
+        if (in_link && nx >= lb && i < lb) {
             ugfx_fill_rect(c->s, lx, y + line_h - 1, x - lx, 1, fg);   // the underline
             c->m->link[li].x = lx;
             c->m->link[li].y = y;
@@ -212,12 +226,23 @@ static void md_sink(void *ctx, char ch, unsigned style) {
         flush_word(c, 1);
         return;
     }
-    // An overlong token is placed as a CONTINUATION rather than dropped.
-    if (c->wn >= WORD_CAP - 1) flush_word(c, 1);
+    // An overlong token is placed as a CONTINUATION rather than dropped
+    // -- and cut BETWEEN characters: a continuation byte stays with its
+    // lead while there is room for a whole sequence (4 bytes).
+    int cont = ((unsigned char)ch & 0xC0) == 0x80;
+    if (c->wn >= WORD_CAP - 1 || (c->wn >= WORD_CAP - 4 && !cont)) flush_word(c, 1);
     c->w[c->wn] = ch;
     c->st[c->wn] = style;
     c->wn++;
-    c->w_px += char_px(style_font(c->m, style, c->level), ch);
+    // The width is the WORD's, re-measured by character: a byte's own
+    // advance means nothing until its sequence is complete.
+    c->w_px = 0;
+    for (int i = 0, nx; i < c->wn; i = nx) {
+        const struct ugfx_font *f = style_font(c->m, c->st[i], c->level);
+        uint32_t cp;
+        nx = run_char(f, c->w, i, c->wn, &cp);
+        c->w_px += char_px(f, cp);
+    }
 }
 
 // Ends the current flowed block and leaves the pen on a fresh line.
@@ -366,9 +391,10 @@ static int walk(struct uui_markdown *m, struct ugfx_surface *s,
                 int x = c.ox + c.left + body_h / 2;
                 const char *v = fence ? ln : txt;
                 int vn = fence ? n : tn;
-                for (int k = 0; k < vn; k++) {
-                    ugfx_draw_char(s, x, c.oy + c.pen_y, v[k], UTHEME_TEXT, code_bg());
-                    x += ugfx_char_advance(v[k]);
+                uint32_t cp;
+                for (int k = 0, nx; (nx = ugfx_text_decode(v, k, vn, &cp)) > k; k = nx) {
+                    ugfx_draw_cp(s, x, c.oy + c.pen_y, cp, UTHEME_TEXT, code_bg());
+                    x += ugfx_cp_advance(cp);
                 }
                 ugfx_set_font(was);
             }
@@ -421,9 +447,10 @@ static int walk(struct uui_markdown *m, struct ugfx_surface *s,
                 if (kind == UMD_BULLET) {
                     ugfx_draw_char(s, x, c.oy + c.pen_y, '-', UTHEME_ACCENT, UTHEME_WHITE);
                 } else {
-                    for (int k = 0; k < arg && ln[k] != ' '; k++) {
-                        ugfx_draw_char(s, x, c.oy + c.pen_y, ln[k], UTHEME_ACCENT, UTHEME_WHITE);
-                        x += ugfx_char_advance(ln[k]);
+                    uint32_t cp;
+                    for (int k = 0, nx; (nx = ugfx_text_decode(ln, k, arg, &cp)) > k && cp != ' '; k = nx) {
+                        ugfx_draw_cp(s, x, c.oy + c.pen_y, cp, UTHEME_ACCENT, UTHEME_WHITE);
+                        x += ugfx_cp_advance(cp);
                     }
                 }
                 ugfx_set_font(was);

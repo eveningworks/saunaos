@@ -771,6 +771,7 @@ void w16_menubar_draw(struct ugfx_surface *s, struct w16 *w, int x, int y, int w
         int tx = x + xs[i] + pad();
         ugfx_draw_string_clipped(s, tx, ty, width - xs[i], plain, fg, UGFX_TRANSPARENT);
         if (mark >= 0)
+            // text-loop-ok: w16 text is a Windows code page -- one byte, one character
             ugfx_fill_rect(s, tx + ugfx_text_width_n(plain, mark), ty + w16_font_ascent(ugfx_font_current()) + 1, ugfx_text_width_n(plain + mark, 1), 1, fg);
         if (grey && lit) w16_gray_dither(s, x + xs[i], y, ws[i], W16_MENU_H - 1, white, navy);
         free(plain);

@@ -163,7 +163,9 @@ static void report(void) {
     ugfx_set_font(ugfx_font_session(UGFX_FONT_REGULAR));
     int plain = ugfx_text_width(KERN_SAMPLE);
     int unkerned = 0;
-    for (int i = 0; KERN_SAMPLE[i]; i++) unkerned += ugfx_char_advance(KERN_SAMPLE[i]);
+    uint32_t cp;
+    for (int i = 0, nx; (nx = ugfx_text_decode(KERN_SAMPLE, i, -1, &cp)) > i; i = nx)
+        unkerned += ugfx_cp_advance(cp);
     ulogf("fontdemo: kern \"%s\" plain %d unkerned %d\n", KERN_SAMPLE, plain, unkerned);
 
     ugfx_set_font(was);

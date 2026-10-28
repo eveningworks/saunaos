@@ -95,7 +95,7 @@ static void on_draw(struct uapp *a, struct uapp_draw *d) {
                       (uint32_t)(g * g_ink_b / 255);
             }
             // text-measure-ok: mono family, selected above -- a cell grid by design.
-        ugfx_draw_char(s, c * cw, row * ch, glyph(), col, 0x000000);
+        ugfx_draw_cp(s, c * cw, row * ch, (unsigned char)glyph(), col, 0x000000);
         }
     }
 }

@@ -2,6 +2,7 @@
 #include "ui/uui_label.h"
 #include "ui/uui_widget.h"
 #include <stddef.h>
+#include "lib/uutf8.h"   // cutting a line between characters
 
 void uui_label_init(struct uui_label *l, const char *text) {
     l->x = l->y = l->w = l->h = 0;
@@ -71,9 +72,14 @@ void uui_label_natural_size(const struct uui_label *l, int *out_w, int *out_h) {
 // reasoning about.
 const char *uui_label_wrap_next(const char *src, int max_w, char *out, int cap) {
     while (*src == ' ') src++;             // no leading space on a fresh line
-    int fit = ugfx_text_fit_chars(src, max_w);
-    if (fit <= 0) fit = 1;                 // always consume something
-    if (fit >= cap) fit = cap - 1;
+    int fit = ugfx_text_fit_chars(src, max_w);   // bytes, a character boundary
+    if (fit <= 0) fit = ugfx_text_next(src, 0);  // always consume something: one CHARACTER
+    if (fit >= cap) {
+        int len = fit;
+        while (src[len]) len++;
+        fit = uutf8_cut(src, len, cap - 1);
+        if (fit <= 0) fit = cap - 1;          // a cap below one character: bytes, still progress
+    }
 
     int take = fit;
     if (src[fit] != '\0' && src[fit] != ' ') {
@@ -134,7 +140,8 @@ static void uui_label_draw_body(struct ugfx_surface *s, const struct uui_label *
                 int n = 0;
                 while (line[n]) n++;
                 while (n > 0 && ugfx_text_width(line) + ugfx_text_width("...") > l->w) {
-                    line[--n] = '\0';
+                    n = ugfx_text_prev(line, n);   // a whole CHARACTER off the end
+                    line[n] = '\0';
                 }
                 if (n + 3 < (int)sizeof line) {
                     line[n] = '.'; line[n+1] = '.'; line[n+2] = '.'; line[n+3] = '\0';

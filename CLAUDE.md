@@ -207,6 +207,7 @@ the waiver. `docs/tools.md` has what each one looks for.
 | `check_drivers.py` | a `.c` under `kernel/drivers/` with no `DRIVER_DECLARE`. It is FILE-SCOPE DATA, not a call inside `init()` | `driver-none:` |
 | `check_dispatch.py` | a dispatch chain over ~20 branches that should be a table (this project already has `display_driver`, `block_device`, `clocksource`, `syscall_table.c`) | `dispatch-ok:` |
 | `check_font_state.py` | a function that calls `ugfx_set_font()` and never puts the old font back (it zoomed a whole window once) | `font-ok:` |
+| `check_text_loops.py` | a BYTE of a string measured or drawn as a character (`ugfx_char_advance(s[i])`) -- strings are UTF-8; step with `ugfx_text_decode()` | `text-loop-ok:` |
 | `check_control_states.py` | a menu bar or toolbar with no `item_flags`: no command is ever greyed | `flags-ok:` |
 | `check_layout.py` | a staged file with no tracked source behind it | -- |
 

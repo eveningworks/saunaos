@@ -1359,8 +1359,13 @@ static void draw_window_chrome(struct window *win, int idx, int focused) {
     char title_buf[WIN_TITLE_MAX + 20];
     int avail_px = r.min_x - text_x;
     int max_chars = avail_px > 0 ? ugfx_text_fit_chars(shown, avail_px) : 0;
-    int i = 0;
-    for (; shown[i] && i < max_chars && i < (int)sizeof title_buf - 1; i++) title_buf[i] = shown[i];
+    int i = max_chars;   // bytes, ending on a character boundary
+    if (i > (int)sizeof title_buf - 1) {
+        // The BUFFER is short, not the pixels: cut between characters.
+        i = 0;
+        for (int nx; (nx = ugfx_text_next(shown, i)) > i && nx <= (int)sizeof title_buf - 1;) i = nx;
+    }
+    for (int k = 0; k < i; k++) title_buf[k] = shown[k];
     title_buf[i] = '\0';
     if (th->title_align == UTHEME_TITLE_CENTER && !win->ntabs) {
         // Centred on the WINDOW, as GNOME does, but never left of where

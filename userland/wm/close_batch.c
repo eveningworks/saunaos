@@ -161,8 +161,9 @@ static void tell_stayed(void) {
         int tw = keep == (int)k_strlen(wide) ? ugfx_text_width(wide)
                : ugfx_text_width_n(wide, keep) + ugfx_text_width("..");
         int len = stayed_sentence(sub, sizeof sub, first, second, left, asking, closed, tw);
-        if (keep <= 1 || (len < (int)sizeof sub && crash_notice_sub_fits(sub))) break;
-        keep--;
+        if (keep <= ugfx_text_next(wide, 0) || (len < (int)sizeof sub && crash_notice_sub_fits(sub)))
+            break;
+        keep = ugfx_text_prev(wide, keep);   // a CHARACTER at a time, never half of one
     }
     if (!seq) wm_logf("closeall: no memory for the windows left -- the card cannot act on them\n");
     crash_notice_stayed(title, sub, g_icon[0] && !g_mixed ? g_icon : 0, seq, n);
