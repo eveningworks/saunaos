@@ -44,7 +44,7 @@ running `kbd` with no arguments turns it on for as long as it runs.
 | `+ms` | since the previous event; 10ms resolution (the PIT) |
 | `scan` | the PS/2 wire byte, release bit included; `--` if not from PS/2 |
 | `code` | the Linux evdev keycode -- what every driver here speaks |
-| `produced` | what entered the console byte stream; `--` for nothing |
+| `produced` | the key the layout produced -- a character quoted, past ASCII with its codepoint (`'ą' U+0105`), a special by name; `--` for nothing |
 | `mods` | Shift, Ctrl, Alt, AltGr held when it was processed |
 | `edge` | `down` or `up` |
 

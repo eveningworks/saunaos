@@ -19,9 +19,15 @@ active.
     # keyboard de
     Keyboard layout set to de.
 
-The names are XKB's (`de`, `fr`, `se`...): every layout whose letters
-Latin-1 can type, listed in `tools/gen_kbs.py`'s `LAYOUTS` (`gen_kbs.py
---choices` prints them with their display names). System Settings >
+The names are XKB's (`de`, `fr`, `se`...): 25 layouts, listed in
+`tools/gen_kbs.py`'s `LAYOUTS` (`gen_kbs.py --choices` prints them with
+their display names) -- Albanian `al`, German (Austria) `at`, Belgian
+`be`, Portuguese (Brazil) `br`, French (Canada) `ca`, German
+(Switzerland) `ch`, German `de`, Danish `dk`, Estonian `ee`, Spanish
+`es`, Finnish `fi`, Faroese `fo`, French `fr`, English (UK) `gb`,
+Icelandic `is`, Italian `it`, Spanish (Latin America) `latam`, Latvian
+`lv`, Dutch `nl`, Norwegian `no`, Polish `pl`, Portuguese `pt`, Romanian
+`ro`, Swedish `se` and English (US) `us`. System Settings >
 Input > Keyboard shows them by name, A to Z; `ls /usr/share/kbs` is the list
 on a given disk.
 
@@ -73,16 +79,17 @@ included, and lights the PS/2 LED; NumLock's off-state (the keypad as
 arrows) is deliberately not modelled -- the keypad always types the
 characters on its keycaps.
 
-**It cannot type outside Latin-1.** The kernel's key path and its layout
-files are one byte per character (docs/decisions/drivers.md; GUI text
-itself is UTF-8 since docs/utf8-design.md's step 1), so Estonian,
-Latvian, Polish and Romanian -- whose own letters are all outside it --
-are not shipped (`tools/gen_kbs.py --check` names the letters). The UTF-8 migration on
-docs/roadmap.md is what lifts that. The on-screen keyboard still draws
-and types US whatever is set here.
+**A letter past Latin-1 is typed, and the physical console shows it as
+`?`.** A layout's characters are Unicode codepoints (Polish AltGr+a is
+`ą`, Romanian AltGr+s is `ș`) and reach a program as UTF-8
+(docs/utf8-design.md, step 2), so a desktop window and the Terminal show
+them; the kernel console's baked font is ASCII and Latin-1, and draws
+anything past it as `?` -- the bytes the program received are the right
+ones either way.
 
 **It lists nothing.** There is no `keyboard --list`; the layouts are
 whatever files exist, so `ls /usr/share/kbs` is the listing.
 
-**It holds one layout.** Several layouts with a switching shortcut, and
-a picture of the layout in Settings, are on docs/roadmap.md.
+**It sets the active layout only.** The list Super+Space walks is
+`system.keyboard.layouts`, and the picture of a layout is System
+Settings' Keyboard page.

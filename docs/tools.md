@@ -47,7 +47,10 @@ installed -- the v2.304 release reproduces the committed tables byte for
 byte), `gen_kbs.py` (generates the `seed/sync/usr/share/kbs/<layout>`
 keyboard-layout data files, dead keys included, from Linux's own XKB
 data; `--all` for every layout in its `LAYOUTS` table, `--check` to
-re-measure that each still fits Latin-1, `--choices` for the Settings
+re-measure that each still fits the format (a codepoint for every key,
+its dead keys within the kernel's fixed accent table; it reads
+`/usr/include/X11/keysymdef.h` for a named keysym past Latin-1),
+`--choices` for the Settings
 display names -- see `docs/decisions.md` on layouts being data files),
 `qmp_test.py`
 (QEMU/QMP GUI testing helpers — see `docs/testing.md`), `boot_smoke_test.py` (fast
@@ -1391,7 +1394,8 @@ manual steps to be worth automating:
 - **`usertest_run.py`** -- runs the self-checking ring-3 diagnostics in
   `/tests` (`libc_test`, `fpu_test`, `klineedit_test`, `newsyscalls_test`,
   `file_test`, `write_test`, `exit_test`, `random_test`, `memtest`,
-  `guard_test`, `malloc_test`, `wrap_test`, `focusring_test`) as one
+  `guard_test`, `malloc_test`, `wrap_test`, `focusring_test`,
+  `uvterm_test` -- the Terminal's grid as UTF-8 -- and more) as one
   pass/fail table, asserting BOTH an
   exit code and required output. In `preflight.sh`. It fills a real gap:
   `make test` runs inside the kernel and `gui_regress.py` covers the
@@ -2967,6 +2971,19 @@ window without going through it will find its layout polls timing out.
 - **`uterm_test.py`** -- drives the RING-3 Terminal, which is a real
   TERMINAL EMULATOR now: a pty with `/bin/tosh` on the far end.
 
+  **Its `u` block is UTF-8 end to end** (`--only utf8` runs just it;
+  docs/utf8-design.md, step 2): a folder `Kesä` made over the debug
+  console is listed by `ls` in five cells, not `KesÃ¤/`'s six (ink per
+  CELL, the sixth required empty); a double-click selects the word whole
+  (`selbytes` 5); `cd Kesä` with the ä TYPED on the Finnish layout through
+  QMP -- the real keyboard path, never `gui key`, which injects a
+  character no layout translated -- lands there, read back as `pwd`'s
+  bytes by `sum -a sha256` (the serial console mangles non-ASCII output);
+  and Polish AltGr+a, Romanian AltGr+s and Estonian's dead caron then s
+  reach `cat` as C4 85, C8 99 and C5 A1. All seven are red on the step-1
+  build (fc4f6bea); the typing ones were what found a pty master's bytes
+  being encoded a second time as keys.
+
   **Its `b` block is the one-bar chrome** -- the Session panel by F9 and
   by its button, find (with a query that cannot match as the control,
   and the cursor field proving the typing never reached the shell), the
@@ -3028,7 +3045,11 @@ window without going through it will find its layout polls timing out.
   report a position for any more, so the layout log reports the
   emulator's CURSOR, which is what would be wrong if `\r` or overwrite
   were mishandled.
-- **`notepad_client_test.py`** -- drives the RING-3 Notepad and asserts
+- **`notepad_client_test.py`** -- drives the RING-3 Notepad. `--only
+  utf8` runs its UTF-8 block: the `/tests/utf8` corpus by pixels, editing
+  by the saved bytes, and (step 2) Polish AltGr+a, Romanian AltGr+s and
+  Estonian's dead caron then s typed through QMP on their layouts and
+  saved as C4 85, C8 99 and C5 A1. The rest asserts
   tabs (New opens one and does not ask, Ctrl-W closes a clean one back to
   the tab it came from and asks for a modified one), the edit history
   (undoing everything typed makes the title CLEAN again -- dirty is a
@@ -8468,7 +8489,9 @@ runs first**: a `doom1.wad` with one
   `ugfx_text_decode()` instead. Waiver `text-loop-ok: <reason>`, whose
   one legitimate reason is a CODE PAGE (w16's Windows-1252, where a byte
   is a character). `--positive-control` runs it over planted lines of
-  every shape and a literal that must pass.
+  every shape and a literal that must pass. A subscript followed by a
+  MEMBER (`row[c].ch`, a terminal cell's codepoint) is a struct field,
+  not a byte, and is not flagged; `row[c].name[0]` still is.
 - **`check_text_measure.py`** -- fails the build on a character COUNT
   used as a text WIDTH. `ugfx_char_w()` is the WIDEST advance in the
   face, so `n * ugfx_char_w()` measured a string correctly only while

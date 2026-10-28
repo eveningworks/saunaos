@@ -4542,8 +4542,9 @@ before UTF-8 draws as it did -- and never U+FFFD. Three things follow:
 
 The clipboard follows the same rule: `uclip_set_text()` stores UTF-8,
 re-encoding a stray Latin-1 byte as its letter, and an edge that needs
-another encoding converts at its own border (w16 to Windows-1252; VNC
-and, until step 2, the Terminal to Latin-1).
+another encoding converts at its own border (w16 to Windows-1252, VNC to
+Latin-1). The Terminal takes it as it is: since step 2 its cells hold
+characters and the shell's line editor reads UTF-8.
 
 ## A TAB IS A SESSION, AND `uui_tabs` IS THE STRIP.
 

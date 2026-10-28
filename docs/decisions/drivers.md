@@ -80,18 +80,25 @@ first concrete milestone toward the TCP/IP prerequisites README.md's
 
 ## Nordic keyboard/character support: Latin-1, not UTF-8
 
-**In the KERNEL, a character is one byte of Latin-1 (ISO-8859-1):
-ASCII, plus the Latin-1 Supplement 0xA0-0xFF -- ring 3's GUI is UTF-8
-since UTF-8 step 1 (`docs/utf8-design.md`); the console, the key path and
-the filesystems follow in later steps.** Every byte-buffer boundary in this
-kernel (`scrollback_cell`, file content, `SYS_WRITE`/`SYS_READ`'s
-buffer+length) assumes one byte is one character is one glyph cell, and
-Latin-1 keeps that true; UTF-8 would break it everywhere a multi-byte
-letter crossed one. It began (build 501) as six Nordic letters baked
-after ASCII; since 2026-10-04 the font carries the whole 0xA0-0xFF block
-and the keyboard layouts type all of it. The ceiling is the point to
-move past, and `docs/roadmap.md`'s UTF-8 migration is where that
-happens -- not by widening this further.
+**SUPERSEDED BY UTF-8 (`docs/utf8-design.md`): a typed character is a
+Unicode CODEPOINT since step 2 (2026-10-28), what crosses a TTY is its
+UTF-8, and the kernel console decodes UTF-8 onto this font, drawing a
+character past it as `?`.** Ring 3's GUI became UTF-8 in step 1; the
+filesystems' names follow in step 3. What stays from this entry is the
+FONT: the baked console font and the session atlas are still these 191
+Latin-1 slots, and the Private Use Area home of the specials below is
+what let codepoints share the key stream. The rest is the history of how
+the system was Latin-1 end to end.
+
+**Before step 2, a character was one byte of Latin-1 (ISO-8859-1):
+ASCII, plus the Latin-1 Supplement 0xA0-0xFF.** Every byte-buffer
+boundary in this kernel (`scrollback_cell`, file content,
+`SYS_WRITE`/`SYS_READ`'s buffer+length) assumed one byte is one character
+is one glyph cell, and Latin-1 kept that true. It began (build 501) as six
+Nordic letters baked after ASCII; since 2026-10-04 the font carries the
+whole 0xA0-0xFF block and the keyboard layouts typed all of it. The
+ceiling was the point to move past, and the UTF-8 migration is where that
+happened -- not by widening this further.
 
 **The font's slots are arithmetic, not a table.** ASCII 32-126 is slots
 0-94 and Latin-1 0xA0-0xFF is 95-190 (`font_ttf_slot()` in the generated
@@ -126,7 +133,9 @@ written `key >= 32 && key < 127` and a seventh worded differently
 (`c < 128` in the kernel shell) that a grep for the first six missed;
 it was found only by typing. `IS_PRINTABLE_KEY()` (`api/keyboard.h`) is
 the one gate now, and a key is an `int` everywhere -- the layout's
-tables are `uint16_t` for the same reason.
+tables are `uint32_t` since step 2, a codepoint reaching U+10FFFF, with
+the dead-key symbols moved past it (`KB_SYM_DEAD_BASE` 0x110000; they
+sat at 0x100, where Latin Extended-A begins).
 
 ## Keyboard layouts are data files (`/usr/share/kbs/<name>`) generated from Linux's own XKB data, not a compiled-in enum
 

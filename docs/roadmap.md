@@ -323,22 +323,23 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [ ] Versioning, or a written decision to ignore it while there's one consumer of every library
 
 ### UTF-8 migration
-**Needs:** nothing -- the plan is `docs/utf8-design.md` (2026-10-28), four steps; step 1 (the GUI) BUILT 2026-10-28, step 2 (terminal, shell, layouts) next.
+**Needs:** nothing -- the plan is `docs/utf8-design.md` (2026-10-28), four steps; steps 1 (the GUI) and 2 (terminal, shell, layouts, kernel console) BUILT 2026-10-28, step 3 (the disk) next.
 
-- [ ] UTF-8 decode/encode helpers in `string.c` -- ring 3 has `lib/uutf8.h` (step 1); the kernel's are step 4
-- [ ] Console + `gfx_draw_string()` decoding multi-byte sequences
+- [x] ~~UTF-8 decode/encode helpers in `string.c`~~ DONE 2026-10-28 -- `api/kutf8.h`, header-only, both rings
+- [x] ~~Console decoding multi-byte sequences~~ DONE 2026-10-28 -- `?` past its Latin-1 font
+- [ ] Ring 0's own `gfx_draw_string()` still draws bytes -- nothing hands it UTF-8 yet
 - [x] ~~A font atlas keyed by codepoint~~ DONE 2026-10-28 in ring 3 -- `ui/ugfx_glyph.c` past the atlas; the console is step 4
 - [ ] Box-drawing for `ps --tree`, which draws `pstree -A`'s ASCII because U+2500's block is unreachable -- the first concrete caller
-- [ ] Keyboard layout files emitting codepoints, not Latin-1 bytes
-- [ ] Layouts waiting on codepoints: Estonian, Latvian, Polish, Romanian -- `tools/gen_kbs.py --check` names their letters
+- [x] ~~Keyboard layout files emitting codepoints, not Latin-1 bytes~~ DONE 2026-10-28 -- dead keys past U+10FFFF, the key path 32 bits
+- [x] ~~Layouts waiting on codepoints: Estonian, Latvian, Polish, Romanian~~ DONE 2026-10-28 -- 25 layouts
 - [ ] Filesystem path handling (both backends) audited for multi-byte names
 - [ ] A migration story for existing Latin-1 content on disk
 - [ ] Audit every `char`-sized assumption first
 - [x] ~~Decide the internal representation~~ DONE 2026-10-28 -- UTF-8 in every `char *`, decoded at the edges
-- [ ] Column width vs byte length vs codepoint count -- `utext` decodes (step 1); the terminal's cells are step 2
-- [ ] Cursor movement and backspace over multi-byte characters in `klineedit.c`
+- [x] ~~Column width vs byte length vs codepoint count~~ DONE 2026-10-28 -- `utext`, the terminal's cells, `uline_paint()`
+- [x] ~~Cursor movement and backspace over multi-byte characters in `klineedit.c`~~ DONE 2026-10-28
 - [x] ~~Combining marks, or an explicit decision to reject them~~ DONE 2026-10-28 -- a mark draws as its own character
-- [ ] Invalid sequences as their Latin-1 letter (decided 2026-10-28) -- applied in ring 3; terminal and kernel are steps 2 and 4
+- [x] ~~Invalid sequences as their Latin-1 letter~~ DONE 2026-10-28 -- ring 3, the terminal, the line editor, the console
 - [ ] A conversion tool for existing Latin-1 files on disk
 - [ ] `uglyph` (Character Map, the browser) onto the glyph cache's hash/LRU core -- it still scans 384 entries per glyph
 - [ ] Kerning across a cached glyph: Greek and Cyrillic pairs sit at plain advances (step 1's written-down trade)

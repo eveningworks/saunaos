@@ -76,8 +76,8 @@ whenever a headline here tells you something you did not already know.
 - **INPUT DEVICES REGISTER WITH THE INPUT CORE, and the canonical event
   is evdev -- including `/usr/share/kbs`, so only the PS/2 driver ever sees a
   scancode**
-- **A KEY IS AN `int`: A CHARACTER IS ONE LATIN-1 BYTE, A `KEY_*` SPECIAL
-  IS ABOVE 0xFF**
+- **A KEY IS AN `int`: A CHARACTER IS A CODEPOINT, A `KEY_*` SPECIAL IS
+  IN THE PRIVATE USE AREA**
 - **A COMPOSITOR READS ONE ORDERED STREAM OF EDGES, AND NO RELEASE IS
   EVER SHED**
 - **`kbd` PRINTS EVERY STAGE OF A KEYPRESS, AND ITS KERNEL LOG IS OFF BY

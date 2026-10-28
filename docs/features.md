@@ -16,13 +16,16 @@ way" for anything here, and `docs/roadmap.md` says what is not built.
 long-mode transition done by hand. Linear RGB framebuffer falling back
 to 80×25 VGA text. PS/2 keyboard and mouse sharing the 8042 through one
 dispatcher, with keyboard layouts as *data files* generated from Linux's
-own XKB data: every XKB layout Latin-1 can type (`tools/gen_kbs.py`'s
-`LAYOUTS`), four levels
+own XKB data: 25 European layouts (`tools/gen_kbs.py`'s `LAYOUTS`,
+Estonian, Latvian, Polish and Romanian among them), four levels
 with Shift+AltGr, and dead keys composed in the kernel behind every
-keyboard driver, Windows-style. Text is UTF-8 in the GUI (ring 3
-decodes every string; a stray Latin-1 byte draws as its letter) and
-Latin-1 in the kernel console, the key path and the filesystems -- the
-font carries 0xA0-0xFF in both rings. PIT, CMOS RTC, PC speaker, MBR/GPT partition parsing.
+keyboard driver, Windows-style. Text is UTF-8 everywhere a person types
+or reads it: the GUI decodes every string (a stray Latin-1 byte draws
+as its letter), a typed key is a codepoint and reaches a terminal as
+its UTF-8, the Terminal's cells and the shell's line editor step by
+character, and the kernel console decodes UTF-8 onto its Latin-1 font
+(`?` past it). File names on disk are still converted in step 3 of
+`docs/utf8-design.md`. PIT, CMOS RTC, PC speaker, MBR/GPT partition parsing.
 The installed `grub.cfg` is edited from inside the OS by `bootcfg`
 (grubby's shape, plus a visudo-style `edit`), checked before it is saved
 -- unknown boot words, unclosed braces, a missing kernel -- with the old
@@ -203,7 +206,8 @@ it *itself*, in ring 3, with the same rasterizer — what every Wayland
 client does. A GUI app's text past U+00FF (Greek, Cyrillic, box
 drawing) comes from a per-process glyph cache rasterized from the face's
 own `.ttf`, then DejaVu Sans Mono, then an outlined box. The honest
-limits: the kernel console draws only the baked ASCII + Latin-1 set, and
+limits: the kernel console draws only the baked ASCII + Latin-1 set (a
+character past it is `?`), and
 kerning comes from the legacy `kern` table only, between two atlas
 characters.
 

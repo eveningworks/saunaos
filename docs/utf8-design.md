@@ -5,9 +5,10 @@ where text is drawn or edited -- the move past Latin-1's 191 characters
 that `docs/decisions/drivers.md` ("Nordic keyboard/character support:
 Latin-1, not UTF-8") always named as the exit.
 
-Written 2026-10-28. **Step 1 BUILT 2026-10-28** (the GUI: drawing,
-editing, the clipboard); steps 2-4 are not. Step markers go on the list
-below as they land.
+Written 2026-10-28. **Steps 1 and 2 BUILT 2026-10-28** (the GUI:
+drawing, editing, the clipboard; then the terminal, the shell's line
+editor, the TTY, the kernel console and typing past Latin-1); steps 3
+and 4 are not. Step markers go on the list below as they land.
 
 ## The finding that shapes the plan
 
@@ -223,15 +224,52 @@ paste as themselves into any field.
 
 ### Step 2 -- the terminal, the shell, and typing past Latin-1
 
-- `uvterm` cells hold codepoints with widths; the decoder's pending
-  bytes live in `struct uvterm` beside the ANSI state, because a read
-  can split a sequence (one per call would turn it into two `�`).
-- `klineedit` by character in both rings; `termkey_encode()` emits UTF-8.
-- Layouts emit codepoints: dead-key symbols move out of the codepoint
-  range, the kernel's key path widens to 32 bits, `gen_kbs.py` emits
-  past Latin-1, and the TTY encodes typed characters as UTF-8 (Linux's
-  Unicode keyboard mode). **Unlocks Estonian, Latvian, Polish and
-  Romanian.**
+- BUILT: one decoder for both rings, `api/kutf8.h` (header-only;
+  `lib/uutf8.h` is it under ring-3 names), with a byte-at-a-time
+  `kutf8_stream` for a stream that arrives in pieces, and the case pairs
+  and "is a letter" a line editor and a layout need (ASCII, Latin-1,
+  Latin Extended, Greek, Cyrillic -- not Unicode's full tables).
+- BUILT: `uvterm` cells hold a codepoint and a width (`UVTERM_WIDE`, then
+  a `UVTERM_CONT` cell); the decoder's pending bytes live in `struct
+  uvterm` beside the ANSI state, so a sequence split across two reads
+  draws once (`/tests/uvterm_test`). A row draws in runs at the cell
+  pitch, a glyph not exactly a cell wide on its own; selection copies
+  UTF-8 and a word includes letters past ASCII; the OSC title is cut
+  between characters; the find bar matches characters. A cell is eight
+  bytes now (three before), which is what scrollback costs.
+- BUILT: `klineedit` by character in both rings -- Left/Right, Backspace,
+  Delete, Ctrl-T (a rotation, since the two characters' lengths differ),
+  word motion (a letter past ASCII is a word character), Alt-U/L/C (a
+  case change can change a character's length); `uline_paint()` and Tab's
+  listing count columns by character and width. `termkey_feed()`
+  assembles a UTF-8 sequence into ONE key, a broken one giving its lead
+  back as its Latin-1 letter with the byte re-fed (`termkey_refeed()`),
+  and `termkey_encode()` emits UTF-8. The kernel shell reads keys through
+  the same decoder; Ctrl-R's pattern is UTF-8.
+- BUILT: layouts emit codepoints. Dead-key symbols sit past U+10FFFF
+  (`KB_SYM_DEAD_BASE` 0x110000), the tables and compose output are 32
+  bits, Caps Lock pairs letters past Latin-1 (XKB's ALPHABETIC), and the
+  kernel's key path and the TTY queue carry 32 bits; the TTY encodes a
+  typed character as UTF-8 (Linux's Unicode keyboard mode) and its
+  canonical-mode erase takes a whole character (Linux's IUTF8).
+  `gen_kbs.py` emits any codepoint and five more dead keys (breve, dot
+  above, double acute, caron, ogonek), checked against the kernel's fixed
+  accent table. **Estonian, Latvian, Polish and Romanian ship**: 25
+  layouts. The on-screen keyboard labels and types them.
+- BUILT: a pty master's write goes to the line discipline as bytes, not
+  through `tty_input()` -- which takes a KEY and, once a key could be a
+  codepoint, encoded the UTF-8 the Terminal had already sent a second
+  time. Found by the typing checks, not by reading.
+- BUILT, pulled forward from step 4: the kernel console decodes UTF-8
+  onto its Latin-1 font, `?` past it, one decoder for every writer and
+  allocation-free (decision 10).
+- BUILT: w16 maps a typed codepoint past Latin-1 to its Windows-1252
+  byte (the euro sign, S-caron, OE) and types nothing for one without
+  (`ucharset_cp1252_byte()`).
+- NOT NEEDED: `ls` and `ps` pad no name -- a name is their last column.
+- NOT DONE: the kernel's own `gfx_draw_string()` (ring-0 GUI text) still
+  draws bytes; nothing reaches it with UTF-8 today. Combining marks stay
+  one cell (the non-goal).
 
 ### Step 3 -- the disk
 
@@ -249,7 +287,8 @@ paste as themselves into any field.
 ### Step 4 -- the rest
 
 - VNC's Extended Clipboard (UTF-8 both ways), `ps --tree`'s box drawing,
-  the kernel console's decode, the roadmap's remaining UTF-8 items.
+  the roadmap's remaining UTF-8 items. (The kernel console's decode came
+  forward into step 2, which is what first sent it UTF-8.)
 
 ## Testing
 
@@ -264,8 +303,12 @@ Each step's checks go red on the build before it (the positive control):
   bytes (checked through the saved file, not the screen), a masked field
   of `żż` shows two stars.
 - **The static check** red on a planted byte loop.
-- **Step 2**: a sequence split across two pty reads draws once; a Polish
-  layout types `ą` into the terminal and `cat` shows it.
+- **Step 2**: a sequence split across two pty reads draws once
+  (`/tests/uvterm_test`); a folder `Kesä` lists in four cells and `cd
+  Kesä` typed on the Finnish layout lands there; Polish, Romanian and an
+  Estonian dead key type `ą` `ș` `š` into the Terminal (`cat`) and into
+  Notepad (saved bytes) -- `uterm_test.py --only utf8`,
+  `notepad_client_test.py --only utf8`, all red on the step-1 build.
 - **Step 3**: a disk image seeded with Latin-1 names and files, converted,
   listed through the shell, then converted again with nothing changed.
 

@@ -7,7 +7,8 @@ decisions: `docs/decisions/drivers.md`, "Dead keys compose in the kernel,
 behind every keyboard driver", and the injection entry's "two
 translators drift" (same file, `SYS_INPUT_INJECT`).
 
-**STAGE 1 IS BUILT (2026-10-09); nothing after it is scheduled.** The
+**STAGE 1 IS BUILT (2026-10-09), and stage 3 (2026-10-28, as UTF-8's
+step 2); stages 2 and 4 are not scheduled.** The
 stage markers are on the headings.
 
 ## The finding that shapes the plan
@@ -112,12 +113,15 @@ follows). **Autorepeat moves with it** -- the WM generates repeats on a
 timer, the way every Wayland client does, which gives USB and virtio
 keyboards repeat if the hardware check above finds them without it.
 
-### Stage 3 -- codepoints on the desktop
+### Stage 3 -- codepoints on the desktop -- BUILT 2026-10-28, without stage 2
 
-The compositor's path carries a 32-bit codepoint where Latin-1 fits
-today, and the layout files emit codepoints (the open roadmap item). The
-console keeps Latin-1 until the tty speaks UTF-8 -- a separate project,
-and the place the two rings will differ on purpose.
+The key path carries a 32-bit codepoint and the layout files emit them
+-- done as docs/utf8-design.md's step 2, with the KERNEL still the
+translator: stage 2 turned out not to be a prerequisite, since the
+kernel's own path widened as easily as the compositor's would have. The
+console did not keep Latin-1 either: the TTY speaks UTF-8 (a typed
+character crosses it as its UTF-8) and the kernel console decodes it,
+drawing `?` past its font.
 
 ### Stage 4 -- injection follows
 
