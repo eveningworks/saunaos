@@ -174,11 +174,21 @@ int wm_geometry_restore(int idx) {
     // big one, and nothing afterwards could correct it -- the present
     // that would have carried the truth matched `client_w/h`, which
     // this had not touched.
+    //
+    // AND AGAINST WHAT WAS LAST ASKED, not only what the client has: a
+    // client that draws its own frame is restored twice before its first
+    // frame -- at create, its chrome subtracted, then again when its
+    // NO_DECOR hint says there is none (wm_client.c) -- and the second
+    // answer equals the size it was created at, so comparing with that
+    // alone never sent it, and the first, smaller proposal stood: w16's
+    // Control Panel lost the chrome's size at every launch.
     if (wm_client_is_client_window(win)) {
         int content_w = w - wm_chrome_w(win);
         int content_h = h - wm_chrome_h(win);
+        int asked = win->ev_resize_w > 0 &&
+                    (content_w != win->ev_resize_w || content_h != win->ev_resize_h);
         if (content_w > 0 && content_h > 0 &&
-            (content_w != win->client_w || content_h != win->client_h)) {
+            (content_w != win->client_w || content_h != win->client_h || asked)) {
             wm_client_send_resize(win, content_w, content_h);
         }
     } else {

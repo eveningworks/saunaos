@@ -35,6 +35,9 @@ WHAT IT ASSERTS
   above write) is still read, so nobody's sizes reset; two programs on
   ONE executable told apart by their sub-id (w16's hello and gdi, both
   /bin/w16) each restore their own
+- a window that draws its own frame, saved at exactly the size it asks
+  for, reopens at that size launch after launch -- not smaller by
+  toywm's chrome each time
 
     python3 tools/vm.py start
     python3 tools/window_geometry_test.py
@@ -258,6 +261,29 @@ def run(dbg, qmp, res):
     res.check("two programs on one executable each restore their own geometry",
               hg == (100, 100, 420, 260) and gg == (520, 120, 300, 220),
               f"hello {hg}, gdi {gg}")
+    close_all(dbg)
+
+    # 5d. A CLIENT-FRAMED WINDOW SAVED AT THE SIZE IT ASKS FOR keeps it,
+    #     launch after launch. It is restored twice before its first
+    #     frame (with toywm's chrome subtracted, then without), and when
+    #     the second answer equalled its own size it was never sent: the
+    #     window lost the chrome at every launch -- w16's Control Panel,
+    #     which saves its size and asks for it again.
+    dbg.send(f"sh write {CONF} ")
+    time.sleep(0.5)
+    first = dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", "Hello (Win16)")
+    own = (first["w"], first["h"]) if first else None
+    dbg.close_window("Hello (Win16)")
+    sizes = []
+    for _ in range(2):
+        if own:
+            set_conf(dbg, f"/bin/w16:w16-hello=120,110,{own[0]},{own[1]}")
+            time.sleep(0.5)
+        again = dbg.spawn("/bin/w16 /usr/share/w16/hello.exe", "Hello (Win16)")
+        sizes.append((again["w"], again["h"]) if again else None)
+        dbg.close_window("Hello (Win16)")
+    res.check("a client-framed window saved at its own size reopens at it, twice", own is not None
+              and sizes == [own, own], f"its own {own}, reopened at {sizes}")
     close_all(dbg)
 
     # 6. A FIXED-SIZE APP KEEPS ITS OWN SIZE, whatever the file says.
