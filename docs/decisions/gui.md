@@ -8843,11 +8843,14 @@ wrapped line. The strip was simply the odd one out, and the fix is
 `ugfx_draw_string_elided()` in the toolkit: its third caller is what
 earns it a place there rather than a third copy.
 
-**The mark is `..`, not an ellipsis character.** The font is indexed
-from ASCII 32 (`kernel/drivers/font_ttf.c`), so U+2026 draws as nothing
--- an elided line would be indistinguishable from a complete one, which
-is the exact failure being fixed. The desktop's captions worked this out
-first; it is now written once where every caller can reach it.
+**The mark is `..`, not an ellipsis character.** The atlas is ASCII +
+Latin-1 (`kernel/drivers/font_ttf.c`), so U+2026 drew as nothing when
+this was written -- an elided line would be indistinguishable from a
+complete one, which is the exact failure being fixed. Since UTF-8 step 1
+the glyph cache can draw it, but a face without one draws a box, and
+`..` reads the same in every face, so it stayed. The desktop's captions
+worked this out first; it is now written once where every caller can
+reach it.
 
 **And eliding does not answer "what does it say".** So the panel grew a
 tooltip: hover a row, wait, read the whole thing. Four options were

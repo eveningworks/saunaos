@@ -323,23 +323,25 @@ Staged in `docs/dynlink-design.md`, including the case against.
 - [ ] Versioning, or a written decision to ignore it while there's one consumer of every library
 
 ### UTF-8 migration
-**Needs:** nothing -- the plan is `docs/utf8-design.md` (2026-10-28), four steps; step 1 is the GUI.
+**Needs:** nothing -- the plan is `docs/utf8-design.md` (2026-10-28), four steps; step 1 (the GUI) BUILT 2026-10-28, step 2 (terminal, shell, layouts) next.
 
-- [ ] UTF-8 decode/encode helpers in `string.c`
+- [ ] UTF-8 decode/encode helpers in `string.c` -- ring 3 has `lib/uutf8.h` (step 1); the kernel's are step 4
 - [ ] Console + `gfx_draw_string()` decoding multi-byte sequences
-- [ ] A font atlas keyed by codepoint rather than by byte -- `font_ttf_slot()` maps ASCII then Latin-1 0xA0-0xFF, so Latin-1 is the ceiling
+- [x] ~~A font atlas keyed by codepoint~~ DONE 2026-10-28 in ring 3 -- `ui/ugfx_glyph.c` past the atlas; the console is step 4
 - [ ] Box-drawing for `ps --tree`, which draws `pstree -A`'s ASCII because U+2500's block is unreachable -- the first concrete caller
 - [ ] Keyboard layout files emitting codepoints, not Latin-1 bytes
 - [ ] Layouts waiting on codepoints: Estonian, Latvian, Polish, Romanian -- `tools/gen_kbs.py --check` names their letters
 - [ ] Filesystem path handling (both backends) audited for multi-byte names
 - [ ] A migration story for existing Latin-1 content on disk
 - [ ] Audit every `char`-sized assumption first
-- [ ] Decide the internal representation: decode to codepoints at the edges, or carry UTF-8 throughout
-- [ ] Column width vs byte length vs codepoint count -- three different numbers that are currently the same one
+- [x] ~~Decide the internal representation~~ DONE 2026-10-28 -- UTF-8 in every `char *`, decoded at the edges
+- [ ] Column width vs byte length vs codepoint count -- `utext` decodes (step 1); the terminal's cells are step 2
 - [ ] Cursor movement and backspace over multi-byte characters in `klineedit.c`
-- [ ] Combining marks, or an explicit decision to reject them
-- [ ] Invalid sequences: reject, or replace with U+FFFD -- pick one and apply it everywhere
+- [x] ~~Combining marks, or an explicit decision to reject them~~ DONE 2026-10-28 -- a mark draws as its own character
+- [ ] Invalid sequences as their Latin-1 letter (decided 2026-10-28) -- applied in ring 3; terminal and kernel are steps 2 and 4
 - [ ] A conversion tool for existing Latin-1 files on disk
+- [ ] `uglyph` (Character Map, the browser) onto the glyph cache's hash/LRU core -- it still scans 384 entries per glyph
+- [ ] Kerning across a cached glyph: Greek and Cyrillic pairs sit at plain advances (step 1's written-down trade)
 
 ### A scripting language
 **Needs:** Runtime + interop -- a scripting language with no allocator is an exercise in avoiding one.
@@ -727,7 +729,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~Load a TTF from disk at runtime, not only the glyphs `tools/genttf.py` bakes in~~ DONE 2026-08-20 -- `kernel/lib/ttf.c`
 - [x] ~~A real glyph cache, since rasterizing per frame is not viable~~ DONE 2026-08-20 -- an atlas per (face, size)
 - [x] ~~Per-glyph advance widths, instead of one fixed cell per character~~ DONE 2026-08-20 -- `gfx_char_advance()`/`ugfx_char_advance()`
-- [ ] The atlas is still the BAKED 191-glyph set (ASCII + Latin-1), so a loaded face's other 3,000 glyphs are unreachable -- needs UTF-8
+- [x] ~~A face's glyphs past the 191-slot atlas are unreachable~~ DONE 2026-10-28 in ring 3 -- `ui/ugfx_glyph.c` draws them
 - [x] ~~No weights: one face, one weight~~ DONE 2026-08-21 -- a `-bold` file is a weight of its family, synthesized where there is none
 - [ ] Hinting -- glyphs are rendered unhinted, which is visible below about 10px (the baked font was hinted offline)
 - [x] ~~Kerning pairs from the font's own tables~~ DONE 2026-08-21 -- format-0 `kern`, baked into the atlas as a dense slot matrix

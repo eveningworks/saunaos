@@ -73,8 +73,9 @@ included, and lights the PS/2 LED; NumLock's off-state (the keypad as
 arrows) is deliberately not modelled -- the keypad always types the
 characters on its keycaps.
 
-**It cannot type outside Latin-1.** The font and every text buffer are
-one byte per character (docs/decisions/drivers.md), so Estonian,
+**It cannot type outside Latin-1.** The kernel's key path and its layout
+files are one byte per character (docs/decisions/drivers.md; GUI text
+itself is UTF-8 since docs/utf8-design.md's step 1), so Estonian,
 Latvian, Polish and Romanian -- whose own letters are all outside it --
 are not shipped (`tools/gen_kbs.py --check` names the letters). The UTF-8 migration on
 docs/roadmap.md is what lifts that. The on-screen keyboard still draws

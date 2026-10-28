@@ -106,7 +106,7 @@ app; one shaped around an app's data stays in that app (CLAUDE.md).
 | `uui_wizard` | A whole window of STEPS: a rail of them on the left (a reached step can be clicked back to, never one ahead), the page under "STEP n OF N" and a display-size heading, Back / Next along a bar at the bottom, an optional Skip under the rail; Next asks the app's `can_leave()` -- First-boot setup |
 | `uui_tiles` (not a widget) | A gallery card's PICTURE for a cursor set or a wallpaper, decoded once per card -- System Settings' and First-boot setup's |
 | `uui_canvas` | Drawing, clipped, when no widget fits |
-| `uglyph` (not a widget) | ANY character of a font FILE at any size, from a cache -- what the session font's ASCII + Latin-1 cannot draw (an arrow, Greek, box drawing). The Character Map's glyphs |
+| `uglyph` (not a widget) | ANY character of a font FILE, in a face and size you choose, from its own cache -- the Character Map's grid and previews. Ordinary text needs no widget: `ugfx` draws a character the atlas lacks (an arrow, Greek, box drawing) from its glyph cache |
 
 **The same data can take several shapes.** A radio list, a segmented
 control, a dropdown and a slider all take the same `options` array and

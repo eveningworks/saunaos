@@ -1638,16 +1638,15 @@ size (any size, not just a baked one), and text is MEASURED through
 reasoning; what follows is only what is still missing, and why each piece
 is where it is.
 
-**The 101-glyph ceiling is the one that actually limits the feature, and
-it is not a font problem.** A runtime atlas rasterizes exactly the set
-`tools/genttf.py` bakes -- ASCII 32-126 plus six Nordic letters -- so
-DejaVu Sans Mono's other ~3,270 glyphs are loaded, parsed, and
-unreachable. That set is deliberate and is the same one everywhere, which
-is what makes an atlas a drop-in for a baked variant; widening it means
-answering "what is a character?" first, and this OS says Latin-1 (see
-`docs/decisions/drivers.md`'s Nordic/Latin-1 entry). So this unblocks
-behind UTF-8 migration rather than inside this milestone. Until then the
-honest description is a real font renderer drawing a 1980s character set.
+**The atlas ceiling was the one that limited the feature, and it was not
+a font problem.** A runtime atlas rasterizes exactly the set
+`tools/genttf.py` bakes -- ASCII 32-126 plus Latin-1 0xA0-0xFF -- so
+DejaVu Sans Mono's other ~3,000 glyphs are not in it. That set is
+deliberate and is the same one everywhere, which is what makes an atlas a
+drop-in for a baked variant. **Ring 3 is past it** (UTF-8 step 1,
+2026-10-28): `ui/ugfx_glyph.c` rasterizes any other character on first
+use from the face's own `.ttf`. The kernel console still draws the baked
+set -- the UTF-8 migration's step 4.
 
 **Weights are blocked by there being one active face.** `font_face.c`
 holds one selected face and one atlas per size of it, so `-Bold.ttf` can
@@ -3107,12 +3106,13 @@ the item list:
 
 **A CONCRETE CALLER EXISTS NOW: `ps --tree`.** It draws `pstree -A`'s
 ASCII (`|--`, a backtick, `|`) because the box-drawing block is
-unreachable, and the reason is worth stating precisely rather than as
-"no Unicode": the session font is 191 slots, ASCII and Latin-1, reached
-through `font_ttf_slot()` (`api/font_ttf.h`), and `ugfx.c`'s
-`glyph_index()` takes an `unsigned char` -- nothing above 0xFF can be
-named at all. **The plan is `docs/utf8-design.md`** (2026-10-28): its
-steps, the decisions taken and the questions still open.
+unreachable in the TERMINAL and the kernel console, and the reason is
+worth stating precisely rather than as "no Unicode": the console's font
+is 191 slots, ASCII and Latin-1, reached through `font_ttf_slot()`
+(`api/font_ttf.h`), and the terminal's cell holds one byte. GUI text
+draws any character since step 1 (`ui/ugfx_glyph.c`). **The plan is
+`docs/utf8-design.md`** (2026-10-28): its steps, and the decisions
+taken.
 
 CP437's byte positions were considered and declined (2026-09-08): they
 would draw correctly on the SaunaOS console and produce mojibake
@@ -3120,13 +3120,8 @@ everywhere text leaves the machine -- over telnet, over serial, or
 redirected to a file -- and reading `ps` over telnet is how the
 bare-metal machine is checked.
 
-One objection recorded in `ugfx.c` does NOT survive inspection, and is
-worth noting before the work starts: it says ring 3 cannot have the
-extra-codepoint table without "a second copy of a table the kernel
-already owns". That is true of a copy and not of a MOVE -- the table
-belongs in an `abi/` header, where both rings read one of it.
-
-SaunaOS is Latin-1 end to end, deliberately (see `docs/decisions.md`:
+SaunaOS WAS Latin-1 end to end, deliberately, and still is outside the
+GUI (see `docs/decisions.md`:
 one byte per character keeps the console, the font atlas, and the
 filesystem's fixed-width path field all trivially indexable, and it was
 enough for the six Nordic letters that motivated it). This milestone is
@@ -3134,11 +3129,11 @@ the exit path, for when "enough" stops being true -- a filename in a
 language that isn't covered, or a text file from anywhere else.
 
 It's a wide change rather than a deep one, which is exactly why it wants
-its own milestone instead of being smuggled into a font change: decode/
-encode helpers, a console that advances by codepoint rather than by
-byte, a font atlas keyed by codepoint (today's is a flat array indexed by
-byte value), keyboard layout files that emit codepoints, and a TFS2 path
-field that becomes a byte budget rather than a character count.
+its own milestone instead of being smuggled into a font change. Ring 3's
+side is built (step 1: decode helpers in `lib/uutf8.h`, the glyph cache,
+the edit cores); what remains is a terminal cell and a console that
+advance by codepoint, keyboard layout files that emit codepoints, and a
+path field that becomes a byte budget rather than a character count.
 
 The part that needs deciding early, not late: what happens to content
 already on disk. A file whose name contains byte 0xE5 (`å` in Latin-1) is

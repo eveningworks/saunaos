@@ -19,8 +19,10 @@ dispatcher, with keyboard layouts as *data files* generated from Linux's
 own XKB data: every XKB layout Latin-1 can type (`tools/gen_kbs.py`'s
 `LAYOUTS`), four levels
 with Shift+AltGr, and dead keys composed in the kernel behind every
-keyboard driver, Windows-style. Text is Latin-1 end to end -- the font
-carries 0xA0-0xFF in both rings. PIT, CMOS RTC, PC speaker, MBR/GPT partition parsing.
+keyboard driver, Windows-style. Text is UTF-8 in the GUI (ring 3
+decodes every string; a stray Latin-1 byte draws as its letter) and
+Latin-1 in the kernel console, the key path and the filesystems -- the
+font carries 0xA0-0xFF in both rings. PIT, CMOS RTC, PC speaker, MBR/GPT partition parsing.
 The installed `grub.cfg` is edited from inside the OS by `bootcfg`
 (grubby's shape, plus a visudo-style `edit`), checked before it is saved
 -- unknown boot words, unclosed braces, a missing kernel -- with the old
@@ -198,10 +200,12 @@ kernel and mapped read-only into every window, so all text matches the
 desktop's setting by construction rather than by each app being
 careful. An app needing something that font cannot express rasterizes
 it *itself*, in ring 3, with the same rasterizer — what every Wayland
-client does. The honest limit: a loaded face is rasterized into the
-same 101-glyph set the baked one carries, so its other few thousand
-glyphs are parsed and unreachable until UTF-8 lands, and kerning comes
-from the legacy `kern` table only.
+client does. A GUI app's text past U+00FF (Greek, Cyrillic, box
+drawing) comes from a per-process glyph cache rasterized from the face's
+own `.ttf`, then DejaVu Sans Mono, then an outlined box. The honest
+limits: the kernel console draws only the baked ASCII + Latin-1 set, and
+kerning comes from the legacy `kern` table only, between two atlas
+characters.
 
 **Transparency.** The taskbar, Start, every menu (the desktop's and
 each app's) and, by choice, windows can be glass: clear, frosted (a live

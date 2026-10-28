@@ -350,24 +350,24 @@ this the obvious way), not from how much history it accumulated.
     `32`), and that is not a convenience: a space cannot be passed as an
     argument through any shell here, and a space is exactly what you
     compare a suspected-blank glyph against.
-- **A LOADED FACE STILL ONLY DRAWS 101 GLYPHS.** The boundary that
-  surprises people who have just seen a
+- **AN ATLAS IS THE 191 BAKED SLOTS, AND RING 3 DRAWS THE REST FROM A
+  GLYPH CACHE.** The boundary that surprises people who have just seen a
   real TTF load. An atlas rasterizes exactly the set `tools/genttf.py`
-  bakes -- ASCII 32-126 plus six Nordic letters (`font_ttf.h`'s
-  `FONT_TTF_GLYPH_COUNT`) -- so DejaVu Sans Mono's other ~3,270 glyphs
-  are parsed and unreachable, and anything outside the set falls back to
-  `?`. That set is deliberate: it is what makes an atlas a DROP-IN for a
-  baked variant everywhere from `gfx_draw_char()` to a client's own
-  glyph indexing, and widening it means answering "what is a character?"
-  first -- this OS says Latin-1 (`docs/decisions/drivers.md`), so it
-  waits on UTF-8. **Do not "fix" it by widening the atlas alone**: the
-  slot order is ABI, shared through `WIN_REQ_FONT`, so a client built
-  against the old count indexes into the wrong glyph rather than failing.
+  bakes -- ASCII 32-126 plus Latin-1 0xA0-0xFF (`font_ttf.h`'s
+  `FONT_TTF_GLYPH_COUNT`) -- so a face's other ~3,000 glyphs are not in
+  it, and the kernel console draws anything outside the set as `?`. That
+  set is deliberate: it is what makes an atlas a DROP-IN for a baked
+  variant everywhere from `gfx_draw_char()` to a client's own glyph
+  indexing. **Do not "fix" it by widening the atlas alone**: the slot
+  order is ABI, shared through `WIN_REQ_FONT`, so a client built against
+  the old count indexes into the wrong glyph rather than failing. In ring
+  3 a character past U+00FF is drawn by `ui/ugfx_glyph.c`'s per-process
+  cache (the font's `.ttf`, then DejaVu Sans Mono, then a box) -- that is
+  the way past the ceiling, not a bigger atlas.
 
-  (A ring-3 PRIVATE font is narrower still -- 95 slots, ASCII only --
-  because `ugfx`'s `glyph_index()` is `c - 32` and cannot address the
-  six extras whatever an atlas holds. Rasterizing them would produce
-  glyphs nothing can ask for.)
+  (A ring-3 PRIVATE font has the same 191 slots -- `PRIV_SLOTS` in
+  `ugfx.c` -- and records its file, so characters past them take the
+  cache path too.)
 
 - **A FONT IS A HANDLE IN RING 3 AND A CONTEXT FLAG IN RING 0.** Ring 3
   passes `const struct ugfx_font *`, and `ugfx_set_font()` returns the
@@ -2352,9 +2352,9 @@ this the obvious way), not from how much history it accumulated.
   selection.
 - **TEXT THAT DOES NOT FIT IS MARKED, NOT JUST CUT** --
   `ugfx_draw_string_elided()`, which draws what fits and then `..`. The
-  mark is two ASCII dots and NOT U+2026, because the font is indexed
-  from ASCII 32 and an ellipsis glyph draws as nothing, which would make
-  an elided line indistinguishable from a complete one. The desktop's
+  mark is two ASCII dots and NOT U+2026, because the atlas is ASCII +
+  Latin-1: the glyph cache can draw U+2026 now, but a face without one
+  draws a box, where `..` reads the same in every face. The desktop's
   icon captions have always done this; the Start menu's strip and rows
   do now, and anything new that clips should.
 - **THE PANEL HAS A TOOLTIP, AND IT TAKES NO INPUT** --
@@ -4516,6 +4516,34 @@ only under the toolkit's own names for a saved font (`was`, `saved`,
 bracket, or a screensaver that owns the whole screen. `--positive-control`
 takes the restores out of the widget that shipped the bug and checks that
 it is refused.
+
+## A STRING IS UTF-8: STEP IT BY CHARACTER, AND EVERY INDEX IS A BYTE OFFSET ON A CHARACTER BOUNDARY.
+
+Since UTF-8 step 1 (`docs/utf8-design.md`) every ring-3 `char *` is
+UTF-8, decoded where it is drawn or edited. A byte that starts no valid
+sequence is ONE character, drawn as its Latin-1 letter -- so text from
+before UTF-8 draws as it did -- and never U+FFFD. Three things follow:
+
+- **Step with `ugfx_text_decode()`, `ugfx_text_next()` and
+  `ugfx_text_prev()`, never `i + 1`**, and measure or draw the
+  codepoint (`ugfx_cp_advance()`, `ugfx_draw_cp()`).
+  `ugfx_char_advance()`/`ugfx_draw_char()` take one byte as Latin-1 --
+  right for `'n'`, wrong for `s[i]`, which draws `ż` as `Å¼`.
+  `tools/check_text_loops.py` fails the build on that shape.
+- **Every index the text calls take or return is a BYTE offset**, on a
+  boundary: `ugfx_text_width_n(s, n)` is the first `n` bytes,
+  `ugfx_text_fit_chars()` returns bytes. A cut for a buffer goes through
+  `uutf8_cut()` (`lib/uutf8.h`), or the last character is split and its
+  lead byte draws as a stray letter.
+- **A font with its own 0x7F-0x9F cells is a CODE-PAGE font** (w16's
+  Windows-1252) and is decoded one byte per character
+  (`ugfx_font_codepage()`). Text drawn in it must already be in that
+  code page; convert at the edge, as w16's clipboard does.
+
+The clipboard follows the same rule: `uclip_set_text()` stores UTF-8,
+re-encoding a stray Latin-1 byte as its letter, and an edge that needs
+another encoding converts at its own border (w16 to Windows-1252; VNC
+and, until step 2, the Terminal to Latin-1).
 
 ## A TAB IS A SESSION, AND `uui_tabs` IS THE STRIP.
 

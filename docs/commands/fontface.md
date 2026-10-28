@@ -91,10 +91,11 @@ GPOS (which is most modern OpenType fonts) renders unkerned. Doing that
 properly means a shaping engine -- HarfBuzz exists for this -- and is a
 deliberate stopping point, not an oversight.
 
-**It does not give you more than the 101 baked glyph slots.** A loaded
-face has thousands of glyphs and the atlas rasterizes the same set the
-baked font carries. Widening that is the UTF-8 migration, not a
-constant.
+**The atlas holds only the 191 baked slots (ASCII + Latin-1).** A loaded
+face has thousands of glyphs; the kernel console never draws the rest.
+GUI text past U+00FF comes from the ring-3 glyph cache
+(`userland/ui/ugfx_glyph.c`), rasterized from this face's own `.ttf`
+rather than from the atlas.
 
 **`builtin` is not a face.** It is the absence of one: the glyph tables
 `tools/genttf.py` baked into the kernel image, which is what the machine

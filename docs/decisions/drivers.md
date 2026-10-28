@@ -80,8 +80,10 @@ first concrete milestone toward the TCP/IP prerequisites README.md's
 
 ## Nordic keyboard/character support: Latin-1, not UTF-8
 
-**A character is one byte of Latin-1 (ISO-8859-1): ASCII, plus the
-Latin-1 Supplement 0xA0-0xFF.** Every byte-buffer boundary in this
+**In the KERNEL, a character is one byte of Latin-1 (ISO-8859-1):
+ASCII, plus the Latin-1 Supplement 0xA0-0xFF -- ring 3's GUI is UTF-8
+since UTF-8 step 1 (`docs/utf8-design.md`); the console, the key path and
+the filesystems follow in later steps.** Every byte-buffer boundary in this
 kernel (`scrollback_cell`, file content, `SYS_WRITE`/`SYS_READ`'s
 buffer+length) assumes one byte is one character is one glyph cell, and
 Latin-1 keeps that true; UTF-8 would break it everywhere a multi-byte
@@ -1191,8 +1193,10 @@ than fail -- so widening it is a protocol change, not a constant. And
 the question underneath it is "what is a character?", which this OS has
 already answered as Latin-1 (see the Nordic/Latin-1 entry above); a
 loaded font does not change that answer, so the ceiling belongs to UTF-8
-migration and not here. `docs/roadmap-details.md` states it as the
-limitation it is.
+migration and not here -- and ring 3 went past it in step 1 by caching
+rasterized glyphs per process (`ui/ugfx_glyph.c`) rather than widening
+the atlas, which keeps the slot ABI. The kernel console still stops at
+the baked set.
 
 **A face is named by its filename, and the baked font is not a face.**
 `dejavu-sans-mono.ttf` is `dejavu-sans-mono`, the same convention cursor

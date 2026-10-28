@@ -324,6 +324,13 @@ does not commit the kernel-space GUI to anything.
 
 **Decision: no GUI string type.** Widgets keep taking `const char *`.
 
+**BUILT 2026-10-28 (UTF-8 step 1, `docs/utf8-design.md`):** the
+chokepoints below exist as `ugfx_text_decode()` / `ugfx_text_next()` /
+`_prev()` and `ugfx_text_index_at_x()`, and `tools/check_text_loops.py`
+enforces "no widget does character arithmetic itself". The glyph-map
+point is answered by a per-process glyph cache, not a wider atlas. What
+follows is the reasoning, not the state.
+
 UTF-8 is byte-compatible with ASCII by design -- that is the entire
 point of the encoding -- so the parameter type survives the migration
 untouched. What does not survive is **arithmetic on the bytes**, and a
