@@ -7877,6 +7877,16 @@ runs first**: a `doom1.wad` with one
   out. Options > Sound lists 3.11's seven events, a Play cell plays
   SaunaOS's chime (its `play ROW PATH` log line, so a guest with no sound
   card still answers), and plays nothing once Off is chosen, before OK.
+  `w16probe.exe` (2026-10-28, Control Panel's Fonts, Date/Time and
+  Keyboard): an extended-selection list counts and lists its selection,
+  a variable owner-drawn list keeps each row's height, GetRasterizerCaps,
+  AddFontResource, DOS's set date and time on Windows' own clock (a
+  30th of February refused), and GetFileResource on gdi.exe's bitmap; a
+  physical 1 held 1.75 s in dialog.exe's Number box types `111` at
+  WIN.INI's KeyboardDelay=3 and KeyboardSpeed=0 (QMP's key_down, since
+  only a physical press repeats). A list with no multiple selection, one
+  row height for all, and SaunaOS's repeats passed through each turn
+  their check red.
   `fpu.exe` (the x87 and WIN87EM): 1/0 and sqrt(-1) each reach its
   handler once as 83h and 81h, a ninth load as 8Ah -- under KVM; TCG's
   x87 has no stack fault, and the test asks QEMU which it is -- masked,

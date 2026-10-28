@@ -293,8 +293,11 @@ Setup wrote, and `C:\WINDOWS` added to the launcher's folders. **Windows'
 own Control Panel runs** (`CONTROL.EXE`), every applet's icon in it:
 Color (the schemes, a preview drawn as 3.11 drew it), Mouse (swapping the
 buttons, the double-click speed), Sound (assigning WAVs, Test plays
-them), Printers, International, Fonts, Desktop, Keyboard, Ports and
-Date/Time open; Drivers lists SYSTEM.INI's and says it cannot load them.
+them), Fonts (each font's sample and size on disk), Keyboard (a held key
+repeats at its delay and speed in every Windows program, a USB keyboard's
+too), Date/Time (Windows' own clock, while Control Panel runs) and
+International (WIN.INI's `[intl]`) work; Printers, Desktop and Ports
+open; Drivers lists SYSTEM.INI's and says it cannot load them.
 What they change is the Windows programs' own -- WIN.INI and w16's
 state, as Wine keeps it -- never SaunaOS's System Settings.
 

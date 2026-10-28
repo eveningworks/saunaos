@@ -8286,6 +8286,19 @@ device if no traffic returns (`devctl`) -- and keep a replug ready.
 
 - [ ] File Manager virtual folders (Trash, Recent, search, ZIP, folder sizes) still hold 256 entries each (`PANE_FILES`). A real folder lists whole since `uui_fileview` pages `SYS_LISTDIR_AT` into its own array (the File Manager once said "256 items (more)" for a copied Windows folder of 570 files). The virtual folders keep static arrays sized `PANE_FILES` in `fm_trash.c`, `fm_recent.c`, `fm_search.c`, `fm_archive.c` and `fm_sizes.c`; their `list` callbacks are now handed a growing buffer but stop at their own bound. Uncapping each means a growing array in its source (`docs/conventions/kernel.md`, allocate and grow).
 
+### `w16_gui_test.py`'s `a popup the size of the reported screen covers SaunaOS's whole screen` FAILS
+
+Repro: a fresh `disk.img` copy, `vm.py --instance 4 --kvm start`, then
+`w16_gui_test.py --instance 4 --only popup_window`: `1 passed, 1 failed`,
+the window list holding only `Popup test` 200 x 100. `w16 --trace` of
+`/usr/share/w16/popup.exe` shows `CreateWindow PopupFull style 90000000 at
+0,0 size 640,480 parent 2001` and then only `GetMessage`; `dmesg` has the
+main window's `opened window 0` and no `opened dialog`. So the popup's
+`W16_POST_DLG_OPEN` (user16.c's `popup_show()`) either never reaches
+`w16_dlgwin_open()` or that returns before `uapp_window_open()` -- not
+yet looked at. It passed 4 of 5 runs on 2026-10-27 at 547825cb, before
+the rename (35bf4171).
+
 ### w16: Control Panel's applets working for real
 
 Chosen 2026-10-24: the shell plus Sound, International, Color, Mouse,
@@ -8320,9 +8333,26 @@ Where each stood on 2026-10-24, on an installed WfW 3.11 tree (`w16
   disk is not FAT's.
 - **Desktop, Keyboard, Ports, Date/Time**: open with every control.
 
-Still to do (the item stays open): Fonts' Sample box and its "0 KB on
-disk"; Date/Time saying plainly that w16 cannot set the clock; Keyboard
-and International checked to save to WIN.INI, and w16 honouring
-KeyboardSpeed and KeyboardDelay; a side-by-side of every applet with
-the reference 3.11.
+Finished 2026-10-28 (3729b57d), each side by side with the reference:
+
+- **Fonts**: the list is LBS_EXTENDEDSEL, and w16's list box had no
+  multiple selection, so LB_GETSELCOUNT's LB_ERR read as "more than one
+  font". The sample needs GetFileResource (a .FOT's resource 204 names
+  its .TTF), AddFontResource and the .FOT loaded with LoadLibrary, and
+  its Sample box is an LBS_OWNERDRAWVARIABLE list whose rows each keep
+  their own height (Courier's 10, 12 and 15 point). "0 KB" is 3.11's own
+  answer while nothing is selected. Pixel for pixel, the list, the Sample
+  box and the buttons sit a pixel off 3.11's (the "last pixels" item).
+- **Date/Time** sets the date and time the moment a field is left (INT
+  21h 2Bh, 2Dh). They set Windows' own clock, an offset kept in memory,
+  so only Control Panel sees it, until it closes (chosen 2026-10-28: each
+  program is its own w16, and SaunaOS's clock is never Windows' to set).
+  Its fields are one-line multiline edits for ES_CENTER, which 3.1
+  honoured only there.
+- **Keyboard** saves KeyboardDelay and KeyboardSpeed, and a held key
+  repeats on them in every Windows program: w16 pairs each physical
+  press (WIN_EV_KEY_PHYS) with its key and repeats it itself, dropping
+  SaunaOS's PS/2 repeats -- so USB keyboards repeat in Windows programs,
+  as they do nowhere else in SaunaOS yet.
+- **International** saves to WIN.INI's `[intl]` (Finland checked).
 

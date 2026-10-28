@@ -25,7 +25,6 @@ buildable now. Something that MISBEHAVES is not here -- that is
 `docs/bugs.md`.
 
 - [ ] Grow a TFS3 volume -- Disks' Resize dialog (R1), `part resize`, a shared `uui_resizebar`  *(Storage hardening)*
-- [ ] w16: Control Panel's applets working for real -- Fonts, Date/Time, Keyboard left  *(Running 16-bit Windows programs (w16))*
 <!-- END next-up -->
 
 
@@ -981,12 +980,12 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [x] ~~w16: KERNEL's constants (`__WINFLAGS`, `__AHSHIFT`...) answered from the spec's values~~ DONE 2026-10-19 -- the selector ones remain
 - [x] ~~Stage 3: the standard controls (BUTTON, EDIT, LISTBOX, STATIC) and file I/O~~ DONE 2026-10-19 -- Notepad is complete
 - [ ] w16: a combo box's list reaching past its dialog's edge -- it opens upward when it cannot open down
-- [ ] w16: the last pixels from real 3.11 -- the menu bar's title spacing, a list box's top, Switch To... on the control menu
+- [ ] w16: the last pixels from real 3.11 -- the menu bar's title spacing, a list box's top, Switch To... on the control menu, Fonts
 - [ ] w16: a file dropped on a program (WM_DROPFILES) -- DragAcceptFiles is answered, nothing is ever dropped
 - [ ] w16: printing -- PrintDlg answers "no default printer"
 - [x] ~~w16: a program's own DLLs loaded beside it (Hearts' CARDS.DLL)~~ DONE 2026-10-20 -- LoadLibrary, GetProcAddress, by-name imports
 - [x] ~~w16: Control Panel opens with every applet's icon~~ DONE 2026-10-24 -- SPI, VerFindFile, RectVisible, a DLL's own resources
-- [ ] **NEXT** w16: Control Panel's applets working for real -- Fonts, Date/Time, Keyboard left
+- [x] ~~w16: Control Panel's applets working for real~~ DONE 2026-10-28 -- Fonts' samples, Date/Time's own clock, Keyboard's repeat
 - [x] ~~w16: Solitaire and Hearts from Windows 3.11~~ DONE 2026-10-20 -- Hearts plays the computer's hands; MFC's hook and creation order
 - [x] ~~w16: Write from Windows 3.11~~ DONE 2026-10-20 -- .WRI files real 3.11 reads back, TrueType, ChooseFont, OLE pictures
 - [ ] w16: Write's pictures onto SaunaOS's clipboard -- Write promises CF_BITMAP but never renders it when asked (WM_RENDERFORMAT)
@@ -1095,6 +1094,7 @@ run on, not by order.
 - [x] ~~Dead keys on or off~~ DONE 2026-10-05 -- `system.keyboard.dead_keys`, for every layout at once
 - [x] ~~The on-screen keyboard should draw the CONFIGURED layout, not its own copy of US QWERTY~~ DONE 2026-10-09 -- the shared translator
 - [ ] A virtual-keyboard protocol, so the on-screen keyboard can be a ring-3 app instead of compositor code
+- [ ] A held key repeats on USB and virtio keyboards -- only PS/2's typematic repeats; `docs/input-policy-design.md` stage 2
 - [x] ~~The keyboard translator in ring 3 too, for the on-screen keyboard~~ DONE 2026-10-09 -- `docs/input-policy-design.md` stage 1
 
 - [ ] `settings_init()` as initcalls too -- the last hand list; its order is the Settings sidebar's, so it needs an explicit order first
