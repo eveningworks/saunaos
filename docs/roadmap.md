@@ -642,7 +642,8 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] Let TFS3 blocks-per-group vary for small volumes
 - [x] ~~toywm's fixed tables of user data, grown on demand: desktop icons, program identities, Close all's batch~~ DONE 2026-10-23
 - [x] ~~Fixed tables grown on demand: ttys/ptys, shm, modules, config files, tosh's jobs, seven apps' lists, three finds~~ DONE 2026-10-23
-- [ ] The fixed tables still left: Notepad's 16 documents, soundd's 8 clients, the tray's 8 icons, init's 64 services, ld.so's 24 libraries
+- [x] ~~The fixed tables still left: Notepad, soundd, the tray, init, ld.so and a dozen more~~ DONE 2026-10-28
+- [ ] The ring-3 tables kept for now: GRUB's entries, Places and pins, Paint's layers, remote desktop's trusted viewers
 - [x] ~~Raw input to the compositor~~ DONE 2026-08-18
 - [x] ~~A ring-3 allocator, and four smaller syscalls~~ DONE 2026-08-18
 - [x] ~~An abstract transport behind that protocol~~ DONE 2026-08-18 -- `struct win_transport`, deleted 2026-09-09 unvalidated
@@ -884,7 +885,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] A content index for search -- Contents reads every text file per search; Windows Search and Tracker keep one
 - [ ] The Operations panel's Run now, and operations side by side -- one runs at a time; Compress, Extract, Undo and Empty still say "busy"
 - [ ] More details columns -- Dimensions, Created, Owner
-- [ ] An operation's item list sized to the selection -- `fm_jobs.c` holds 64 (`JOB_MAX`, the undo journal's bound) and logs the rest
+- [x] ~~An operation's item list sized to the selection~~ DONE 2026-10-28 -- the job's arrays and the undo journal's steps grow
 - [x] ~~Properties of a volume or share~~ DONE 2026-10-11 -- a used/free ring and its facts (`uui_volinfo`), and in the details pane
 - [x] ~~Personal folders under /home~~ DONE 2026-10-11 -- Documents, Music, Pictures, Videos, Downloads; `lib/udirs.h`, moved once
 - [ ] A personal folder's Location: move it from its Properties, written to `/etc/user-dirs.conf` -- Windows' Location tab
@@ -1031,7 +1032,7 @@ The desktop is in ring 3 already. These are what it still lacks.
 - [ ] w16: a NASM sample that edits and saves, so the GUI test covers the EDIT, the files and COMMDLG without Notepad
 - [ ] Stage 4: real programs (the user's own copies), each run's unimplemented-import list worked through
 - [ ] Several top-level windows per uapp process, which real Win16 programs need -- owned dialogs done 2026-10-19
-- [ ] w16's fixed tables grown on demand: the message queue, GDI objects, timers -- classes and local-heap blocks grow since 2026-10-19
+- [x] ~~w16's fixed tables grown on demand: the message queue, GDI objects, timers~~ DONE 2026-10-28 -- and resources
 - [x] ~~w16: fractional scales (1.25x to 3x) with a choice of Sharp, Pixels or Smooth~~ DONE 2026-10-19
 
 ## Hardware
