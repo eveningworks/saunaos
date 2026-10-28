@@ -40,7 +40,9 @@
 
 #define FONT_DIR   "/usr/share/fonts/"
 #define POLL_MS    250
-#define FACE_MAX   32
+// A face's NAME, as its setting holds it: the ABI's value length,
+// mirrored -- 32 cut a longer stem short.
+#define FACE_MAX   SETTING_ABI_VALUE_MAX
 
 // **ONE FACE PER FAMILY.** The UI family is what menus and labels draw
 // with and the monospace one is what a terminal's grid needs; a single

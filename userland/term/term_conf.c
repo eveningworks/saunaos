@@ -14,6 +14,9 @@
 #include "lib/uprefs.h"
 #include "rt/sys.h"
 #include "ui/ulog.h"
+#include "lib/ugrow.h"
+#include "lib/ulistdir.h"
+#include "lib/ufile.h"
 
 // --- colour schemes ---------------------------------------------------
 
@@ -134,16 +137,22 @@ static int scheme_name_of(const char *file, char *out, int cap) {
     return 1;
 }
 
-int term_scheme_list(char names[][TERM_NAME_MAX],
-                      char labels[][TERM_LABEL_MAX], int max) {
-    static struct sys_dirent ents[TERM_SCHEME_MAX * 2];
-    int n = sys_listdir(TERM_SCHEME_DIR, ents,
-                         (int)(sizeof ents / sizeof ents[0]));
+int term_scheme_list(char (**names_out)[TERM_NAME_MAX], int *ncap,
+                     char (**labels_out)[TERM_LABEL_MAX], int *lcap) {
+    struct sys_dirent *ents = NULL;
+    int n = ulistdir(TERM_SCHEME_DIR, &ents);   // the whole folder, paged
     if (n <= 0) return 0;
     dirsort(ents, n, DIRSORT_NAME, 0);
+    if (!UGROW(*names_out, *ncap, n) || !UGROW(*labels_out, *lcap, n)) {
+        fprintf(stderr, "terminal: out of memory listing %d schemes\n", n);
+        free(ents);
+        return 0;
+    }
+    char (*names)[TERM_NAME_MAX] = *names_out;
+    char (*labels)[TERM_LABEL_MAX] = *labels_out;
 
     int count = 0;
-    for (int i = 0; i < n && count < max; i++) {
+    for (int i = 0; i < n; i++) {
         if (ents[i].is_dir) continue;
         if (!scheme_name_of(ents[i].name, names[count], TERM_NAME_MAX)) continue;
         // The LABEL costs a file read each, and there are at most a
@@ -153,6 +162,7 @@ int term_scheme_list(char names[][TERM_NAME_MAX],
         strlcpy(labels[count], s.label, TERM_LABEL_MAX);
         count++;
     }
+    free(ents);
     return count;
 }
 
@@ -247,29 +257,35 @@ int term_conf_save(const struct term_conf *c, const struct term_conf *old) {
 // chsh and GDM read. Only paths that exist are offered: a listed shell
 // that is not installed would be a menu row that opens a tab and closes
 // it again.
-int term_shells_list(char paths[][TERM_SHELL_MAX], int max) {
+int term_shells_list(char (**paths_out)[TERM_SHELL_MAX], int *cap) {
     int n = 0;
-    static char buf[1024];
-    int got = 0;
-    int fd = sys_open(TERM_SHELLS_PATH, 0);
-    if (fd >= 0) {
-        got = sys_read(fd, buf, sizeof buf - 1);
-        sys_close(fd);
-    }
-    if (got < 0) got = 0;
-    buf[got] = '\0';
-    for (char *line = buf; *line && n < max; ) {
+    uint8_t *raw = NULL;
+    size_t got = 0;
+    char *buf = NULL;
+    if (ufile_slurp(TERM_SHELLS_PATH, 0, &raw, &got) == UFILE_OK && (buf = realloc(raw, got + 1)))
+        buf[got] = '\0';
+    else
+        free(raw);
+    char (*paths)[TERM_SHELL_MAX] = *paths_out;
+    for (char *line = buf; line && *line; ) {
         char *end = strchr(line, '\n');
         if (end) *end = '\0';
         while (*line == ' ' || *line == '\t') line++;
         int len = (int)strlen(line);
         while (len > 0 && (line[len - 1] == ' ' || line[len - 1] == '\r')) line[--len] = '\0';
         struct sys_stat st;
-        if (line[0] == '/' && len < TERM_SHELL_MAX && sys_stat(line, &st) == 0)
+        if (line[0] == '/' && len < TERM_SHELL_MAX && sys_stat(line, &st) == 0) {
+            if (!UGROW(*paths_out, *cap, n + 1)) {
+                fprintf(stderr, "terminal: out of memory at shell %d of /etc/shells\n", n + 1);
+                break;
+            }
+            paths = *paths_out;
             strlcpy(paths[n++], line, TERM_SHELL_MAX);
+        }
         if (!end) break;
         line = end + 1;
     }
-    if (n == 0 && max > 0) strlcpy(paths[n++], "/bin/tosh", TERM_SHELL_MAX);
+    free(buf);
+    if (n == 0 && UGROW(*paths_out, *cap, 1)) strlcpy((*paths_out)[n++], "/bin/tosh", TERM_SHELL_MAX);
     return n;
 }

@@ -147,8 +147,6 @@ void upd_plan_free(struct upd_plan *p);
 // older one, or an address that already names one channel -- is used as
 // it is, one channel, as before.
 
-#define UPD_CHANNELS_MAX 8
-
 struct upd_channel {
     char id[24];          // what the URL and the setting say: "main"
     char title[32];       // what a person reads: "Main"
@@ -158,9 +156,12 @@ struct upd_channel {
     char desc[96];
 };
 
+// AS MANY CHANNELS AS THE SERVER DECLARES (lib/ugrow.h): `ch` is the
+// struct's own, kept and reused by the next fetch into it -- a zeroed
+// struct is an empty list, and the array is never freed.
 struct upd_channels {
-    int count;
-    struct upd_channel ch[UPD_CHANNELS_MAX];
+    int count, cap;
+    struct upd_channel *ch;
     int dflt;             // index of the server's default, or -1
     int chosen;           // index upd_resolve() used, or -1 for a server with no list
 };

@@ -26,6 +26,8 @@
 #include "lib/uclip.h"
 #include "lib/usetting.h"
 #include "lib/uunicode.h"
+#include "lib/ugrow.h"
+#include "lib/ulistdir.h"
 #include "ui/uapp.h"
 #include "ui/uglyph.h"
 #include "ui/uui_fontsample.h"
@@ -44,7 +46,6 @@
 #include "keyboard.h"
 
 #define FONT_DIR   "/usr/share/fonts"
-#define MAX_FACES  8
 #define MAX_CPS    4096
 #define MAX_TEXT   64
 #define SAMPLE     "The quick brown fox jumps over the lazy dog"
@@ -65,10 +66,12 @@ struct face {
 };
 
 static struct uapp *g_app;
-static struct face g_faces[MAX_FACES];
-static int g_nfaces, g_cur;
+// Every family in FONT_DIR, grown as listed (lib/ugrow.h); moved only by
+// load_faces(), which a qsort already does, so nothing points into it.
+static struct face *g_faces;
+static int g_nfaces, g_cur, g_faces_cap, g_font_names_cap;
 static int g_page = PAGE_CHARS;
-static const char *g_font_names[MAX_FACES];
+static const char **g_font_names;
 
 // Characters: the grid's contents, the block list, the text to copy.
 static uint32_t g_cps[MAX_CPS];
@@ -105,11 +108,15 @@ static int by_family(const void *a, const void *b) {
 }
 
 static void load_faces(void) {
-    static struct sys_dirent e[64];
-    int n = sys_listdir(FONT_DIR, e, 64);
-    for (int i = 0; i < n && g_nfaces < MAX_FACES; i++) {
+    struct sys_dirent *e = NULL;
+    int n = ulistdir(FONT_DIR, &e);   // the whole folder, paged
+    for (int i = 0; i < n; i++) {
         char stem[48];
         if (!uui_fontface_family_file(e[i].name, stem, sizeof stem)) continue;
+        if (!UGROW(g_faces, g_faces_cap, g_nfaces + 1)) {
+            ulogf("charmap: out of memory at font family %d\n", g_nfaces + 1);
+            break;
+        }
         struct face *f = &g_faces[g_nfaces];
         memset(f, 0, sizeof *f);
         if (!uui_fontface_open(&f->ff, FONT_DIR, stem)) continue;
@@ -142,7 +149,9 @@ static void load_faces(void) {
                 snprintf(f->licence, sizeof f->licence, "%s", e[k].name);
         g_nfaces++;
     }
-    qsort(g_faces, (size_t)g_nfaces, sizeof g_faces[0], by_family);
+    free(e);
+    if (g_nfaces) qsort(g_faces, (size_t)g_nfaces, sizeof g_faces[0], by_family);
+    if (!UGROW(g_font_names, g_font_names_cap, g_nfaces)) g_nfaces = 0;   // logged below as none
     for (int i = 0; i < g_nfaces; i++) g_font_names[i] = g_faces[i].ff.family;
     ulogf("charmap: %d font famil%s, %d names\n", g_nfaces, g_nfaces == 1 ? "y" : "ies", uunicode_named_count());
 }

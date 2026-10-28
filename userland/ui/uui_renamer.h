@@ -12,14 +12,13 @@
 #include "ui/uapp.h"
 #include "lib/urename.h"
 
-#define UUI_RENAMER_MAX 256   // names in one dialog
-
 // `olds[i]` becomes `news[i]` for each of the `n` that change, all in
 // `dir`. Called once, on Rename; the window is closed after.
 typedef void (*uui_renamer_done)(void *ctx, const char *dir, char (*olds)[URENAME_NAME],
                                  char (*news)[URENAME_NAME], int n);
 
-// Opens the dialog over `names` (copied) in `dir`; one at a time.
+// Opens the dialog over `names` (copied: as many as there are) in `dir`;
+// one at a time. Out of memory opens nothing, and logs.
 void uui_renamer_open(struct uapp *a, const char *dir, char (*names)[URENAME_NAME], int n,
                       uui_renamer_done done, void *ctx);
 int  uui_renamer_is_open(void);

@@ -329,9 +329,10 @@ static const struct uui_menu_item burger_items[] = {
 // The ▾ beside the "+": a new tab with a named shell. Rebuilt from
 // /etc/shells each time it opens, so an installed shell appears without
 // a restart.
-static char g_shells[TERM_SHELLS_MAX][TERM_SHELL_MAX];
-static int g_nshells;
-static struct uui_menu_item g_newtab_items[TERM_SHELLS_MAX + 2];
+static char (*g_shells)[TERM_SHELL_MAX];   // grown: term_shells_list()
+static int g_nshells, g_shells_cap;
+static struct uui_menu_item *g_newtab_items;   // the shells, a rule, Options...
+static int g_newtab_cap;
 
 enum { TB_NEWTAB = 0, TB_FIND, TB_PANEL, TB_MENU, TB_COUNT };
 static const struct uui_toolbar_item tb_items[TB_COUNT] = {
@@ -1551,7 +1552,11 @@ static void on_prefs_commit(const struct term_conf *next);
 // The ▾ list: one row per installed shell, the configured one marked
 // with the binding that opens it, then Options.
 static void open_newtab_menu(void) {
-    g_nshells = term_shells_list(g_shells, TERM_SHELLS_MAX);
+    g_nshells = term_shells_list(&g_shells, &g_shells_cap);
+    if (!UGROW(g_newtab_items, g_newtab_cap, g_nshells + 2)) {
+        ulogf("terminal: out of memory for the New tab menu\n");
+        return;
+    }
     char sys[SETTING_ABI_VALUE_MAX];
     const char *def = g_conf.shell[0] ? g_conf.shell : shell_path(sys, sizeof sys);
     int n = 0;

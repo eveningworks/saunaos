@@ -40,6 +40,7 @@
 #include "ui/uui_webview.h"
 #include "ui/uui_siteperm.h"
 #include "ui/ulog.h"
+#include "lib/ugrow.h"
 #include "lib/usiteperm.h"
 #include "lib/usetting.h"
 #include "rt/sys.h"
@@ -242,9 +243,11 @@ static void wv_visited(struct uui_webview *v, const char *url, const char *title
 
 // Hosts whose https did not answer this session (WV_DOWNGRADED): tried
 // over http first from then on, as Chrome keeps its fallback list.
-#define HTTP_HOSTS_MAX 32
-static char g_http_hosts[HTTP_HOSTS_MAX][128];
-static int g_nhttp_hosts;
+// The hosts let down to http this session, grown (lib/ugrow.h): it held
+// 32 and stopped remembering without a word. A host is the 128 the
+// webview hands over.
+static char (*g_http_hosts)[128];
+static int g_nhttp_hosts, g_http_hosts_cap;
 // `--upgrade-local`: a test's way to have an address and port tried over
 // https too, against a server on this machine that speaks only http.
 static int g_upgrade_local;
@@ -259,7 +262,11 @@ static int http_host(const char *in) {
 static void wv_downgraded(struct uui_webview *v, const char *host) {
     (void)v;
     ulogf("browser: https fallback %s\n", host);
-    if (http_host(host) || g_nhttp_hosts == HTTP_HOSTS_MAX) return;
+    if (http_host(host)) return;
+    if (!UGROW(g_http_hosts, g_http_hosts_cap, g_nhttp_hosts + 1)) {
+        ulogf("browser: out of memory, %s not remembered as http\n", host);
+        return;
+    }
     snprintf(g_http_hosts[g_nhttp_hosts++], sizeof g_http_hosts[0], "%s", host);
 }
 
@@ -726,9 +733,10 @@ static void place_page(void) {
 
 // Asks not yet answered, oldest first; the dialog shows the first one
 // whose tab is in front.
-#define LOGINS_MAX 8
-static struct login { uint32_t id; int pid, retry, secure; char host[128], realm[128]; } g_login[LOGINS_MAX];
-static int g_nlogin;
+// The sign-ins asked for and not yet answered, oldest first, grown
+// (lib/ugrow.h); a `struct login *` lives for one call.
+static struct login { uint32_t id; int pid, retry, secure; char host[128], realm[128]; } *g_login;
+static int g_nlogin, g_login_cap;
 static uint32_t g_login_shown;   // the ask the dialog is up for; 0 when none
 // The user name last given, and for which host: a retry starts with it,
 // so only the password is typed again. Never the password.
@@ -791,7 +799,8 @@ static void login_show_next(void) {
 }
 
 void nsapp_login_ask(uint32_t id, int pid, int retry, int secure, const char *host, const char *realm) {
-    if (g_nlogin == LOGINS_MAX) {
+    if (!UGROW(g_login, g_login_cap, g_nlogin + 1)) {
+        ulogf("browser: out of memory, the sign-in for %s is cancelled\n", host);
         ns_net_login_answer(id, NULL, NULL);
         return;
     }

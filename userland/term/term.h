@@ -25,7 +25,6 @@
 
 #define TERM_NAME_MAX    24   // a scheme's file name, without .scheme
 #define TERM_LABEL_MAX   32   // its `Name=`, which is what a UI shows
-#define TERM_SCHEME_MAX  16   // schemes one directory may offer
 
 // --- a colour scheme --------------------------------------------------
 
@@ -52,10 +51,11 @@ void term_scheme_builtin(struct term_scheme *out);
 // built-in palette, so a caller needs no separate failure path.
 int term_scheme_load(const char *name, struct term_scheme *out);
 
-// Every scheme in TERM_SCHEME_DIR, sorted, names only. Returns the
-// count; `labels[i]` is the matching `Name=` for a UI to show.
-int term_scheme_list(char names[][TERM_NAME_MAX],
-                      char labels[][TERM_LABEL_MAX], int max);
+// Every scheme in TERM_SCHEME_DIR, sorted, names only, into `*names` and
+// `*labels` -- each GROWN to fit, its capacity beside it, the caller's to
+// keep. Returns the count; `labels[i]` is the matching `Name=` a UI shows.
+int term_scheme_list(char (**names)[TERM_NAME_MAX], int *ncap,
+                     char (**labels)[TERM_LABEL_MAX], int *lcap);
 
 // --- the preferences --------------------------------------------------
 
@@ -121,8 +121,9 @@ int term_conf_save(const struct term_conf *c, const struct term_conf *old);
 // The shells /etc/shells lists, in file order. Returns the count. A
 // missing file still offers SHELL_FALLBACK, so the list is never empty.
 #define TERM_SHELLS_PATH "/etc/shells"
-#define TERM_SHELLS_MAX  8
-int term_shells_list(char paths[][TERM_SHELL_MAX], int max);
+// Every shell listed that exists, into `*paths` -- GROWN to fit, `*cap`
+// its capacity; the caller keeps both for the next call. How many.
+int term_shells_list(char (**paths)[TERM_SHELL_MAX], int *cap);
 
 // --- the Options window (term_prefs.c) --------------------------------
 //

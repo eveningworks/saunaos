@@ -8,6 +8,7 @@
 #include "fm_internal.h"
 #include "ui/uui_renamer.h"
 #include "ui/ulog.h"
+#include <stdlib.h>
 #include "kpath.h"
 #include <stdio.h>
 #include "ui/uui_dialog.h"
@@ -101,7 +102,8 @@ void answer_prompt(int code) {
 static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NAME],
                              char (*news)[URENAME_NAME], int n) {
     (void)ctx;
-    static char tmp[UUI_RENAMER_MAX][URENAME_NAME];
+    char (*tmp)[URENAME_NAME] = malloc(sizeof *tmp * (size_t)(n > 0 ? n : 1));
+    if (!tmp) { set_note("out of memory -- nothing was changed"); return; }
     char a[PATH_MAX_LEN], b[PATH_MAX_LEN];
     int moved = 0, failed = 0;
     for (int i = 0; i < n; i++) {
@@ -116,6 +118,7 @@ static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NA
                 sys_rename(a, b);
         set_note("could not rename them -- nothing was changed");
         reload_panes();
+        free(tmp);
         return;
     }
     int done = 0;
@@ -126,6 +129,7 @@ static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NA
         if (k_path_join(dir, olds[i], b, sizeof b)) sys_rename(a, b);
         snprintf(news[i], URENAME_NAME, "%s", olds[i]);
     }
+    free(tmp);
     ulogf("files: renamed %d of %d\n", done, n);
     snprintf(g_stat_note, sizeof g_stat_note, "renamed %d item%s", done, done == 1 ? "" : "s");
     if (done) undo_record_renames(dir, olds, news, n);
@@ -135,12 +139,14 @@ static void rename_many_done(void *ctx, const char *dir, char (*olds)[URENAME_NA
 
 void rename_many_open(struct uapp *a) {
     struct uui_fileview *fv = active();
-    static char names[UUI_RENAMER_MAX][URENAME_NAME];
     char path[PATH_MAX_LEN];
     int marks = uui_fileview_mark_count(fv), n = 0;
-    for (int i = 0; i < marks && n < UUI_RENAMER_MAX; i++)
+    char (*names)[URENAME_NAME] = malloc(sizeof *names * (size_t)(marks > 0 ? marks : 1));
+    if (!names) { set_note("out of memory"); return; }
+    for (int i = 0; i < marks; i++)
         if (uui_fileview_marked_path(fv, i, path, sizeof path))
             strlcpy(names[n++], k_path_basename(path), URENAME_NAME);
-    if (n < 2) { set_note("mark two or more to rename them together"); return; }
-    uui_renamer_open(a, uui_fileview_dir(fv), names, n, rename_many_done, 0);
+    if (n < 2) set_note("mark two or more to rename them together");
+    else uui_renamer_open(a, uui_fileview_dir(fv), names, n, rename_many_done, 0);   // copies them
+    free(names);
 }

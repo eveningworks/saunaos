@@ -33,6 +33,7 @@
 #include "lib/uconf.h"
 #include "lib/uopen.h"
 #include "lib/uappentry.h"
+#include "lib/ugrow.h"
 #include "etc_config.h"
 #include "kpath.h"
 #include "query_abi.h"
@@ -97,20 +98,25 @@ const char *tm_status_text(const struct tm_proc *p) {
 
 // --- desktop entries -----------------------------------------------------
 
-#define TM_APPS_MAX 48
-struct tm_app g_apps[TM_APPS_MAX];
+// Every desktop entry, GROWN ON DEMAND (lib/ugrow.h): it held 48.
+struct tm_app *g_apps;
 int g_napps;
+static int g_apps_cap;
 
 // Read ONCE at start: a program installed while Task Manager is open is
 // shown under its process name until the next start, which is the
 // cheaper wrong answer than a directory walk every tick.
 static int add_app(const struct uappentry *e, void *ctx) {
     (void)ctx;
+    if (!UGROW(g_apps, g_apps_cap, g_napps + 1)) {
+        ulogf("taskmgr: out of memory at %d desktop entries\n", g_napps);
+        return 1;   // stop the walk: the rest show under their process names
+    }
     struct tm_app *a = &g_apps[g_napps++];
     strlcpy(a->exec, e->exec, sizeof a->exec);
     strlcpy(a->name, e->name, sizeof a->name);
     strlcpy(a->icon, e->icon, sizeof a->icon);
-    return g_napps >= TM_APPS_MAX;
+    return 0;
 }
 
 static void load_apps(void) { uappentry_each(add_app, 0); }

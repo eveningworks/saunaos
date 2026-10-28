@@ -43,6 +43,7 @@
 #include "ui/uui_dialog.h"
 #include "ui/uui_choicelist.h"
 #include "ui/ulog.h"
+#include "lib/ugrow.h"
 #include "ui/utheme.h"
 #include "update/upd.h"
 
@@ -104,10 +105,12 @@ static struct uui_button g_change, g_check, g_main, g_chan_btn;
 static char g_main_label[48];
 static struct uui_dialog g_dlg;
 static struct uui_choicelist g_choices;
-static struct uui_choice g_choice[UPD_CHANNELS_MAX];
-static int g_choice_ch[UPD_CHANNELS_MAX];   // channel index per row
-static char g_choice_tags[UPD_CHANNELS_MAX][24], g_choice_val[UPD_CHANNELS_MAX][64];
-static const char *g_choice_badge[UPD_CHANNELS_MAX];
+// One row per channel the server lists, grown with g_chs (lib/ugrow.h);
+// g_choices is re-aimed at g_choice every time the rows are built.
+struct choice_row { int ch; char tags[24], val[64]; const char *badge; };
+static struct uui_choice *g_choice;
+static struct choice_row *g_choice_row;
+static int g_choice_cap, g_choice_row_cap;
 static char g_dlg_line[3][160];
 static const char *g_dlg_rows[3] = { g_dlg_line[0], g_dlg_line[1], g_dlg_line[2] };
 static int g_back_to = -1;                 // the channel the going-back question is about
@@ -733,7 +736,9 @@ static void start_test(struct uapp *a) {
 
 // "Release, Main and Dev" -- the channels this machine would list.
 static void channel_names(const struct upd_channels *c, char *out, size_t cap) {
-    int shown[UPD_CHANNELS_MAX], n = 0, internal = upd_show_internal();
+    int n = 0, internal = upd_show_internal();
+    int *shown = malloc(sizeof *shown * (size_t)(c->count > 0 ? c->count : 1));
+    if (!shown) { out[0] = 0; return; }
     for (int i = 0; i < c->count; i++)
         if (!c->ch[i].internal || internal) shown[n++] = i;
     out[0] = 0;
@@ -741,6 +746,7 @@ static void channel_names(const struct upd_channels *c, char *out, size_t cap) {
         size_t l = strlen(out);
         snprintf(out + l, cap - l, "%s%s", k == 0 ? "" : k == n - 1 ? " and " : ", ", c->ch[shown[k]].title);
     }
+    free(shown);
 }
 
 static void test_done(struct uapp *a) {
@@ -812,30 +818,36 @@ static void open_channels(struct uapp *a) {
     int n = 0, sel = 0, internal = upd_show_internal();
     char mv[48], mb[48];
     upd_machine_build(mv, sizeof mv, mb, sizeof mb);
-    for (int i = 0; i < g_chs.count && n < UPD_CHANNELS_MAX; i++) {
+    if (!UGROW(g_choice, g_choice_cap, g_chs.count) ||
+        !UGROW(g_choice_row, g_choice_row_cap, g_chs.count)) {
+        ulogf("sysupdate: out of memory for %d channel rows\n", g_chs.count);
+        return;
+    }
+    for (int i = 0; i < g_chs.count; i++) {
         const struct upd_channel *c = &g_chs.ch[i];
+        struct choice_row *r = &g_choice_row[n];
         if (c->internal && !internal && i != g_chs.chosen) continue;
-        snprintf(g_choice_tags[n], sizeof g_choice_tags[n], "%s%s%s", i == g_chs.dflt ? "default" : "",
+        snprintf(r->tags, sizeof r->tags, "%s%s%s", i == g_chs.dflt ? "default" : "",
                  i == g_chs.dflt && c->internal ? " " : "", c->internal ? "internal" : "");
         // The date AND time: two builds a day on one channel are normal.
         int tone = UUI_BADGE_PLAIN;
-        g_choice_badge[n] = 0;
+        r->badge = 0;
         if (c->version[0]) {
-            snprintf(g_choice_val[n], sizeof g_choice_val[n], "%s%s%s", c->version,
+            snprintf(r->val, sizeof r->val, "%s%s%s", c->version,
                      c->built[0] ? " - " : "", c->built);
             if (mv[0]) {
                 int cmp = upd_build_cmp(c->version, c->built, mv, mb);
-                g_choice_badge[n] = cmp > 0 ? "newer" : cmp < 0 ? "older" : "this build";
+                r->badge = cmp > 0 ? "newer" : cmp < 0 ? "older" : "this build";
                 tone = cmp > 0 ? UUI_BADGE_ACCENT : cmp < 0 ? UUI_BADGE_WARN : UUI_BADGE_PLAIN;
             }
         } else {
-            snprintf(g_choice_val[n], sizeof g_choice_val[n], "nothing yet");
+            snprintf(r->val, sizeof r->val, "nothing yet");
         }
-        g_choice[n] = (struct uui_choice){ c->title, g_choice_tags[n], c->desc, g_choice_val[n],
-                                           g_choice_badge[n], tone };
-        ulogf("sysupdate: channel row %d %s '%s' %s\n", n, c->id, g_choice_val[n],
-              g_choice_badge[n] ? g_choice_badge[n] : "-");
-        g_choice_ch[n] = i;
+        g_choice[n] = (struct uui_choice){ c->title, r->tags, c->desc, r->val,
+                                           r->badge, tone };
+        ulogf("sysupdate: channel row %d %s '%s' %s\n", n, c->id, r->val,
+              r->badge ? r->badge : "-");
+        r->ch = i;
         if (i == g_chs.chosen) sel = n;
         n++;
     }
@@ -916,7 +928,7 @@ static void dialog_answer(struct uapp *a, int code) {
     uui_dialog_set_body(&g_dlg, 0, 0, 0);
     if (chooser) {
         int r = g_choices.selected;
-        if (code == DLG_USE && r >= 0 && r < g_choices.count) channel_chosen(a, g_choice_ch[r]);
+        if (code == DLG_USE && r >= 0 && r < g_choices.count) channel_chosen(a, g_choice_row[r].ch);
     } else if (g_back_to >= 0 && (code == DLG_WAIT || code == DLG_BACK)) {
         check_channel(a, g_back_to, code == DLG_BACK);
         g_back_to = -1;

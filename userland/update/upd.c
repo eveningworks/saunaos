@@ -1,6 +1,7 @@
 // See upd.h, and docs/update-design.md for the why.
 #include <stdarg.h>
 #include <stdio.h>
+#include "lib/ugrow.h"
 #include <stdlib.h>
 #include <string.h>
 #include <fcntl.h>
@@ -1027,10 +1028,15 @@ static void field(char **s, char *out, size_t cap) {
 
 // The list's text into `chs`; the aliases (`alias stable main`) into
 // `alias`/`target`, one of them, for upd_resolve()'s migration.
+// Empty, the array kept for the next list.
+static void chs_reset(struct upd_channels *c) {
+    c->count = 0;
+    c->dflt = c->chosen = -1;
+}
+
 static int parse_channels(char *text, struct upd_channels *chs, char *alias, char *target, size_t acap) {
     char dflt[24] = "";
-    memset(chs, 0, sizeof *chs);
-    chs->dflt = chs->chosen = -1;
+    chs_reset(chs);
     if (alias) alias[0] = target[0] = '\0';
     char *save = 0;
     for (char *l = strtok_r(text, "\n", &save); l; l = strtok_r(0, "\n", &save)) {
@@ -1043,8 +1049,13 @@ static int parse_channels(char *text, struct upd_channels *chs, char *alias, cha
             (void)acap;
             continue;
         }
-        if (chs->count == UPD_CHANNELS_MAX || !strchr(l, '\t')) continue;
+        if (!strchr(l, '\t')) continue;
+        if (!UGROW(chs->ch, chs->cap, chs->count + 1)) {
+            fprintf(stderr, "update: out of memory at channel %d, the rest not listed\n", chs->count + 1);
+            break;
+        }
         struct upd_channel *c = &chs->ch[chs->count];
+        memset(c, 0, sizeof *c);
         char flags[32];
         char *s = l;
         field(&s, c->id, sizeof c->id);
@@ -1076,8 +1087,7 @@ static int fetch_channels(const char *server, struct upd_channels *out, char *al
     req.sink = grow_sink;
     req.sink_ctx = &b;
     int rc = uhttp_fetch(&req);
-    memset(out, 0, sizeof *out);
-    out->dflt = out->chosen = -1;
+    chs_reset(out);
     if (rc != 0 || !req.status) {
         snprintf(err, errcap, "could not fetch %s: %s", url, req.err[0] ? req.err : "no answer");
         free(b.p);
@@ -1127,7 +1137,9 @@ int upd_resolve(const char *server_in, const char *channel, char *url, size_t ca
                     char cur[UPD_URL_MAX] = "";
                     upd_server_get(cur, sizeof cur);
                     if (!strcmp(cur, server_in) && upd_server_set(parent) == 0) upd_channel_set(id);
+                    struct upd_channels t = *chs;   // swapped: each keeps an array
                     *chs = up;
+                    up = t;
                     snprintf(server, sizeof server, "%s", parent);
                     snprintf(want, sizeof want, "%s", id);
                     split = 1;

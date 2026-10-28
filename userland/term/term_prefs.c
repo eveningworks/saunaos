@@ -16,6 +16,7 @@
 #include "ui/uapp.h"
 #include "ui/ugfx.h"
 #include "ui/ulog.h"
+#include "lib/ugrow.h"
 #include "ui/utheme.h"
 #include "ui/uui_checkbox.h"
 #include "ui/uui_dropdown.h"
@@ -74,17 +75,18 @@ static struct uui_dropdown g_shell;
 static const int NEWTAB_VALUES[] = { TERM_NEWTAB_HOME, TERM_NEWTAB_HERE };
 
 // The schemes, loaded whole so each card can paint its own palette.
-static char g_names[TERM_SCHEME_MAX][TERM_NAME_MAX];
-static char g_labels[TERM_SCHEME_MAX][TERM_LABEL_MAX];
-static const char *g_label_ptr[TERM_SCHEME_MAX];
-static struct term_scheme g_sch[TERM_SCHEME_MAX];
-static int g_scheme_count;
+// Grown to the folder (lib/ugrow.h); each keeps its own capacity.
+static char (*g_names)[TERM_NAME_MAX];
+static char (*g_labels)[TERM_LABEL_MAX];
+static const char **g_label_ptr;
+static struct term_scheme *g_sch;
+static int g_scheme_count, g_names_cap, g_labels_cap, g_label_ptr_cap, g_sch_cap;
 
 // The shell list: "System default (tosh)", then /etc/shells.
-static char g_shells[TERM_SHELLS_MAX][TERM_SHELL_MAX];
-static int g_nshells;
+static char (*g_shells)[TERM_SHELL_MAX];
+static int g_nshells, g_shells_cap, g_shell_ptr_cap;
 static char g_sysdefault[48];
-static const char *g_shell_ptr[TERM_SHELLS_MAX + 1];
+static const char **g_shell_ptr;   // "System default", then g_shells
 
 // A card: a few lines of a real session in that scheme's colours --
 // `ls` with its directories in bright cyan, as ls draws them, and the
@@ -245,12 +247,16 @@ void term_prefs_open(struct uapp *a, const struct term_conf *c,
     g_edit = *c;
     g_on_commit = on_commit;
 
-    g_scheme_count = term_scheme_list(g_names, g_labels, TERM_SCHEME_MAX);
+    g_scheme_count = term_scheme_list(&g_names, &g_names_cap, &g_labels, &g_labels_cap);
+    if (!UGROW(g_label_ptr, g_label_ptr_cap, g_scheme_count) || !UGROW(g_sch, g_sch_cap, g_scheme_count))
+        g_scheme_count = 0;   // logged below: the gallery is empty rather than wrong
+    if (!g_scheme_count) ulogf("terminal: no colour schemes listed\n");
     for (int i = 0; i < g_scheme_count; i++) {
         g_label_ptr[i] = g_labels[i];
         term_scheme_load(g_names[i], &g_sch[i]);
     }
-    g_nshells = term_shells_list(g_shells, TERM_SHELLS_MAX);
+    g_nshells = term_shells_list(&g_shells, &g_shells_cap);
+    if (!UGROW(g_shell_ptr, g_shell_ptr_cap, 1 + g_nshells)) g_nshells = 0;
     char sys[64];
     if (!usetting_get("system.shell", sys, sizeof sys) || !sys[0]) strlcpy(sys, "/bin/tosh", sizeof sys);
     const char *base = strrchr(sys, '/');

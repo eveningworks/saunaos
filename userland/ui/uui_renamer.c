@@ -13,6 +13,8 @@
 #include "ui/uui_table.h"
 #include "ui/uui_focus.h"
 #include "ui/utheme.h"
+#include "ui/ulog.h"
+#include "lib/ugrow.h"
 
 enum { RN_MODE = 1, RN_PATTERN, RN_START, RN_DIGITS, RN_FIND, RN_REPL, RN_CASE_MATCH,
        RN_CASING, RN_KEEP, RN_TABLE, RN_OK, RN_CANCEL };
@@ -21,8 +23,10 @@ enum { RN_MODE = 1, RN_PATTERN, RN_START, RN_DIGITS, RN_FIND, RN_REPL, RN_CASE_M
 // at a time, and the names alone are tens of KB.
 static struct uapp_window *g_win;
 static char g_dir[512];
-static char g_old[UUI_RENAMER_MAX][URENAME_NAME], g_new[UUI_RENAMER_MAX][URENAME_NAME];
-static int g_status[UUI_RENAMER_MAX], g_n, g_changes, g_bad;
+// Grown to the names given (lib/ugrow.h); kept for the next dialog.
+static char (*g_old)[URENAME_NAME], (*g_new)[URENAME_NAME];
+static int *g_status, g_n, g_changes, g_bad;
+static int g_old_cap, g_new_cap, g_status_cap;
 static uui_renamer_done g_done;
 static void *g_ctx;
 
@@ -103,12 +107,16 @@ static void close_window(void) {
 static void commit(void) {
     replan();
     if (g_ok.disabled) return;
-    static char olds[UUI_RENAMER_MAX][URENAME_NAME], news[UUI_RENAMER_MAX][URENAME_NAME];
+    // In place: the OK rows packed to the front of g_old/g_new, which
+    // the closed dialog no longer reads.
+    char (*olds)[URENAME_NAME] = g_old, (*news)[URENAME_NAME] = g_new;
     int k = 0;
     for (int i = 0; i < g_n; i++)
         if (g_status[i] == URENAME_OK) {
-            memcpy(olds[k], g_old[i], URENAME_NAME);
-            memcpy(news[k], g_new[i], URENAME_NAME);
+            if (k != i) {
+                memcpy(olds[k], g_old[i], URENAME_NAME);
+                memcpy(news[k], g_new[i], URENAME_NAME);
+            }
             k++;
         }
     uui_renamer_done done = g_done;
@@ -149,7 +157,11 @@ static struct uui_item item(const struct uui_widget_ops *ops, void *w, int id, c
 void uui_renamer_open(struct uapp *a, const char *dir, char (*names)[URENAME_NAME], int n,
                       uui_renamer_done done, void *ctx) {
     if (g_win || n <= 0) return;
-    if (n > UUI_RENAMER_MAX) n = UUI_RENAMER_MAX;
+    if (!UGROW(g_old, g_old_cap, n) || !UGROW(g_new, g_new_cap, n) ||
+        !UGROW(g_status, g_status_cap, n)) {
+        ulogf("renamer: out of memory for %d names\n", n);
+        return;
+    }
     strlcpy(g_dir, dir, sizeof g_dir);
     for (int i = 0; i < n; i++) strlcpy(g_old[i], names[i], URENAME_NAME);
     g_n = n;

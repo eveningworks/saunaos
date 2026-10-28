@@ -70,7 +70,7 @@ const char *tm_status_text(const struct tm_proc *p);
 
 // A desktop entry: what an Exec= path is called and drawn as.
 struct tm_app { char exec[TM_PATH_MAX]; char name[TM_NAME_MAX]; char icon[24]; };
-extern struct tm_app g_apps[];
+extern struct tm_app *g_apps;   // g_napps of them, grown
 extern int g_napps;
 
 // The same history for the pid selected on the Processes page. Reset
