@@ -428,8 +428,8 @@ int window_process_pending(void);
 
 // Registers a new tray item with the given initial text (truncated to
 // TRAY_TEXT_MAX - 1 chars). Returns a handle to pass to
-// tray_set_text()/tray_unregister(), or -1 if the tray is full (see
-// TRAY_MAX_ITEMS in wm_tray.c).
+// tray_set_text()/tray_unregister(), or -1 if memory for a new slot ran
+// out (the tray grows; it logs).
 int tray_register(const char *initial_text);
 
 // Updates a tray item's text in place (truncated to TRAY_TEXT_MAX - 1

@@ -1,9 +1,7 @@
 // See wm_tray.h for the WM-internal half of this API and wm.h for the
 // app-facing half (tray_register()/tray_set_text()/tray_unregister()).
 //
-// A fixed array of slots rather than a linked list -- same "WM-global,
-// small, fixed" shape as windows[] in wm_internal.h, and there's no
-// real need for more items than fit in a taskbar strip anyway. Slot 0
+// An array of slots rather than a linked list, grown on demand. Slot 0
 // is always the built-in clock (registered by tray_init()); apps that
 // register later get whatever slot is free, not necessarily in order,
 // so `active` is what actually matters, not slot index continuity.
@@ -22,12 +20,9 @@
 #include "wm_glass.h"
 #include "wm_anim.h"        // wm_anim_enabled(): a still frame with animations off
 #include "ui/uui_primitives.h" // uui_state_bg(), uui_fill_round_rect()
+#include "ui/ulog.h"
+#include "lib/ugrow.h"
 
-// Eight: the clock, the on-screen keyboard, volume, brightness, the
-// network and the remote-activity indicator, with room for the next
-// one. A hidden item KEEPS its slot (see below), so this is the
-// number of items that exist, not the number on screen.
-#define TRAY_MAX_ITEMS 8
 
 struct tray_item {
     int active;
@@ -57,7 +52,12 @@ struct tray_item {
     int frame;
 };
 
-static struct tray_item tray_items[TRAY_MAX_ITEMS];
+// GROWN ON DEMAND (lib/ugrow.h): a slot index is a tray id and its
+// left-to-right position, so the array grows at the end and never
+// shifts. A hidden item KEEPS its slot (see below), so `tray_cap`
+// counts items that exist, not items on screen.
+static struct tray_item *tray_items;
+static int tray_cap;
 static int clock_tray_id = -1;
 // The clock's second line, the short date in the locale's spelling.
 static char clock_date[24];
@@ -130,7 +130,7 @@ int tray_want_shown(const char *key, int hardware_present) {
 }
 
 void tray_set_hidden(int tray_id, int hidden) {
-    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return;
+    if (tray_id < 0 || tray_id >= tray_cap) return;
     if (!tray_items[tray_id].active) return;
     if (tray_items[tray_id].hidden == !!hidden) return;
     tray_items[tray_id].hidden = !!hidden;
@@ -138,19 +138,19 @@ void tray_set_hidden(int tray_id, int hidden) {
 }
 
 int tray_is_hidden(int tray_id) {
-    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return 0;
+    if (tray_id < 0 || tray_id >= tray_cap) return 0;
     return tray_items[tray_id].hidden;
 }
 
 void tray_set_accent(int tray_id, int on) {
-    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS || !tray_items[tray_id].active) return;
+    if (tray_id < 0 || tray_id >= tray_cap || !tray_items[tray_id].active) return;
     if (tray_items[tray_id].accent == !!on) return;
     tray_items[tray_id].accent = !!on;
     tray_damage();
 }
 
 void tray_set_icon(int tray_id, const char *icon) {
-    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return;
+    if (tray_id < 0 || tray_id >= tray_cap) return;
     if (!tray_items[tray_id].active) return;
     tray_set_anim(tray_id, 0);
     if (tray_items[tray_id].icon == icon) return;   // nothing to repaint
@@ -159,7 +159,7 @@ void tray_set_icon(int tray_id, const char *icon) {
 }
 
 void tray_set_anim(int tray_id, const struct tray_anim *a) {
-    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return;
+    if (tray_id < 0 || tray_id >= tray_cap) return;
     struct tray_item *it = &tray_items[tray_id];
     if (!it->active || it->anim == a) return;
     it->anim = a;
@@ -169,7 +169,7 @@ void tray_set_anim(int tray_id, const struct tray_anim *a) {
 }
 
 const char *tray_icon_now(int tray_id) {
-    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return 0;
+    if (tray_id < 0 || tray_id >= tray_cap) return 0;
     const struct tray_item *it = &tray_items[tray_id];
     if (!it->anim) return it->icon;
     return wm_anim_enabled() ? it->anim->frames[it->frame] : it->anim->still;
@@ -185,7 +185,7 @@ static int frame_at(const struct tray_item *it, uint64_t now) {
 void tray_animate(void) {
     if (!wm_anim_enabled()) return;
     uint64_t now = sys_monotonic_ns();
-    for (int i = 0; i < TRAY_MAX_ITEMS; i++) {
+    for (int i = 0; i < tray_cap; i++) {
         struct tray_item *it = &tray_items[i];
         if (!it->active || it->hidden || !it->anim) continue;
         int f = frame_at(it, now);
@@ -203,7 +203,7 @@ int tray_wait_ms(void) {
     if (!wm_anim_enabled()) return -1;
     uint64_t now = sys_monotonic_ns();
     int best = -1;
-    for (int i = 0; i < TRAY_MAX_ITEMS; i++) {
+    for (int i = 0; i < tray_cap; i++) {
         const struct tray_item *it = &tray_items[i];
         if (!it->active || it->hidden || !it->anim) continue;
         uint64_t ms = (now - it->anim_t0) / 1000000ull;
@@ -214,19 +214,24 @@ int tray_wait_ms(void) {
 }
 
 int tray_register(const char *initial_text) {
-    for (int i = 0; i < TRAY_MAX_ITEMS; i++) {
-        if (tray_items[i].active) continue;
-        tray_items[i].active = 1;
-        tray_items[i].icon = 0;
-        tray_copy_text(tray_items[i].text, initial_text);
-        tray_damage();
-        return i;
+    int i = 0;
+    while (i < tray_cap && tray_items[i].active) i++;
+    if (i == tray_cap) {
+        if (!UGROW(tray_items, tray_cap, i + 1)) {
+            ulogf("wm: tray: out of memory for item %d, not shown\n", i + 1);
+            return -1;
+        }
+        for (int j = i; j < tray_cap; j++) tray_items[j] = (struct tray_item){ 0 };
     }
-    return -1;
+    tray_items[i].active = 1;
+    tray_items[i].icon = 0;
+    tray_copy_text(tray_items[i].text, initial_text);
+    tray_damage();
+    return i;
 }
 
 void tray_set_text(int tray_id, const char *text) {
-    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return;
+    if (tray_id < 0 || tray_id >= tray_cap) return;
     if (!tray_items[tray_id].active) return;
     // The same text is no frame: the clock sets itself every second, and
     // without seconds it changes once a minute.
@@ -238,7 +243,7 @@ void tray_set_text(int tray_id, const char *text) {
 }
 
 void tray_unregister(int tray_id) {
-    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS) return;
+    if (tray_id < 0 || tray_id >= tray_cap) return;
     if (!tray_items[tray_id].active) return;
     tray_items[tray_id].active = 0;
     tray_damage();
@@ -353,7 +358,7 @@ static int tray_walk(int want, int *out_x, int *out_w,
     // which is the one position no desktop puts a tray icon in. Windows,
     // KDE and GNOME all pin the clock to the end of the strip.
     for (int pass = 0; pass < 2; pass++)
-    for (int i = TRAY_MAX_ITEMS - 1; i >= 0; i--) {
+    for (int i = tray_cap - 1; i >= 0; i--) {
         if (!tray_items[i].active || tray_items[i].hidden) continue;
         if ((pass == 0) != (i == clock_tray_id)) continue;
         // Measured, never strlen * char_w: the face is proportional now.
@@ -435,7 +440,7 @@ int tray_pressed_item(void) { return tray_pressed; }
 // item does not change where the clock is drawn but would change any
 // guess phrased that way.
 int tray_item_rect(int tray_id, int *out_x, int *out_y, int *out_w, int *out_h) {
-    if (tray_id < 0 || tray_id >= TRAY_MAX_ITEMS || !tray_items[tray_id].active)
+    if (tray_id < 0 || tray_id >= tray_cap || !tray_items[tray_id].active)
         return 0;
     int x = 0, w = 0;
     tray_walk(tray_id, &x, &w, 0, 0);

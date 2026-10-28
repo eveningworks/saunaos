@@ -887,8 +887,9 @@ static void cmd_taskbar(struct dbg_out *o, int json) {
     const struct taskbar_palette *pal = taskbar_palette();
     static const char *const button_names[] = { "labelled", "icons" };
     char start_mark_buf[48];
-    static struct taskbar_button btns[64];
-    int nb = taskbar_layout(btns, 64);
+    static struct taskbar_button *btns;
+    static int btns_cap;
+    int nb = taskbar_layout_grown(&btns, &btns_cap);
 
     if (json) {
         // The MARK's own rect goes in beside the button's, from the same

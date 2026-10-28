@@ -20,6 +20,8 @@
 #include "ui/utheme.h"
 #include "close_batch.h"   // taskbar_close_app()
 #include "taskbar_menu.h"  // the strip's and the Start button's menus
+#include "lib/ugrow.h"
+#include "wm_log.h"
 
 #define TB_GAP 4
 
@@ -32,10 +34,12 @@ static int btn_floor(void) { return 3 * ugfx_char_w() + 2 * TB_PAD; }
 
 static int g_hidden;
 // The windows behind the overflow button, by open_seq, in strip order --
-// filled by taskbar_layout(), read by the overflow menu.
-#define TB_HIDDEN_MAX 64
-static uint32_t g_hidden_seq[TB_HIDDEN_MAX];
-static int g_hidden_n;
+// filled by taskbar_layout(), read by the overflow menu. Grown to one
+// per window before each layout; `g_hidden_idx` is note_hidden()'s
+// scratch, the slots' windows for their ranks.
+static uint32_t *g_hidden_seq;
+static int *g_hidden_idx;
+static int g_hidden_cap, g_hidden_idx_cap, g_hidden_n;
 static int g_ovf_x, g_ovf_w;   // the overflow button; w 0 = there is none
 
 int taskbar_hidden(void) { return g_hidden; }
@@ -475,8 +479,9 @@ static int make_label(char *dst, int cap, const char *src, int w, int count) {
 int taskbar_button_rect_for(int idx, int *x, int *y, int *w, int *h) {
     // STATIC: 3.5 KB of buttons on a 16 KiB ring-3 stack is what the
     // frame budget exists to catch, and the WM has one thread.
-    static struct taskbar_button b[64];
-    int n = taskbar_layout(b, 64);
+    static struct taskbar_button *b;
+    static int cap;
+    int n = taskbar_layout_grown(&b, &cap);
     struct taskbar_geom g;
     taskbar_geom(&g);
     *y = g.btn_y; *h = g.btn_h;
@@ -647,9 +652,10 @@ void taskbar_overflow_metrics(struct taskbar_ovf_metrics *m) {
 // insertion-sorted into place -- each window is in one group, so the
 // whole strip costs O(N^2), not a next_in_order() walk per group.
 static void note_hidden(int starter, int grouped) {
-    static int idx[TB_HIDDEN_MAX];   // the slots' windows, for their ranks
+    int *idx = g_hidden_idx;
+    int lim = g_hidden_cap < g_hidden_idx_cap ? g_hidden_cap : g_hidden_idx_cap;
     if (!grouped) {
-        if (g_hidden_n < TB_HIDDEN_MAX) g_hidden_seq[g_hidden_n++] = windows[starter].open_seq;
+        if (g_hidden_n < lim) g_hidden_seq[g_hidden_n++] = windows[starter].open_seq;
         return;
     }
     int from = g_hidden_n, n = g_hidden_n;
@@ -657,7 +663,7 @@ static void note_hidden(int starter, int grouped) {
         if (unlisted(j) || !same_app(j, starter)) continue;
         uint32_t r = windows[j].task_rank;
         int at = n;
-        if (n == TB_HIDDEN_MAX) {   // full: keep the earliest ranks
+        if (n == lim) {   // full (out of memory): keep the earliest ranks
             if (n == from || r > windows[idx[n - 1]].task_rank) continue;
             at = n - 1;
         } else {
@@ -670,9 +676,30 @@ static void note_hidden(int starter, int grouped) {
     g_hidden_n = n;
 }
 
+static void glide_reserve(int n);
+
+int taskbar_layout_grown(struct taskbar_button **b, int *cap) {
+    static int said;
+    int need = window_count > 0 ? window_count : 1;
+    if (!UGROW(*b, *cap, need) && !said) {
+        said = 1;
+        wm_logf("taskbar: out of memory for %d buttons, the rest overflow\n", need);
+    }
+    return taskbar_layout(*b, *cap);
+}
+
 int taskbar_layout(struct taskbar_button *out, int max) {
     g_hidden = 0;
     g_hidden_n = 0;
+    {
+        static int said;
+        int ok = UGROW(g_hidden_seq, g_hidden_cap, window_count);
+        ok &= UGROW(g_hidden_idx, g_hidden_idx_cap, window_count);
+        if (!ok && !said) {
+            said = 1;
+            wm_logf("taskbar: out of memory listing %d hidden windows\n", window_count);
+        }
+    }
     g_ovf_w = 0;
     stamp_unopened();
     struct taskbar_geom g;
@@ -782,12 +809,14 @@ int taskbar_layout(struct taskbar_button *out, int max) {
         g_ovf_w = ovf;
     }
     if (g_drag.dragging) apply_drag(out, count, w);
+    glide_reserve(count);
     return count;
 }
 
 void taskbar_start_rect(int *x, int *y, int *w, int *h) {
-    static struct taskbar_button b[64];   // static: see taskbar_button_rect_for()
-    taskbar_layout(b, 64);                // places g_start_x
+    static struct taskbar_button *b;   // static: see taskbar_layout_grown()
+    static int cap;
+    taskbar_layout_grown(&b, &cap);    // places g_start_x
     struct taskbar_geom g;
     taskbar_geom(&g);
     *x = g_start_x; *y = g.btn_y;
@@ -828,9 +857,10 @@ void taskbar_update_hover(int mx, int my, uint8_t buttons) {
         if (uui_hit(sx, sy, sw, sh, mx, my)) {
             want = TASKBAR_HOVER_START;
         } else {
-            static struct taskbar_button b[64];
+            static struct taskbar_button *b;
+            static int cap;
             static char ovf_tip[32];
-            int n = taskbar_layout(b, 64);
+            int n = taskbar_layout_grown(&b, &cap);
             int ox, ow, hidden = taskbar_overflow(&ox, &ow);
             if (hidden && uui_hit(ox, screen_h - taskbar_h, ow, taskbar_h, mx, my)) {
                 want = TASKBAR_HOVER_OVERFLOW;
@@ -881,8 +911,6 @@ void taskbar_update_hover(int mx, int my, uint8_t buttons) {
 
 // ---- clicks ----------------------------------------------------------
 
-#define TB_BUTTONS_MAX 64
-
 // The group popup's rows. Static because context_menu_open_at() keeps
 // the caller's array for as long as the menu is open (context_menu.h),
 // so a stack local would be a dangling read the moment this returns.
@@ -914,10 +942,15 @@ int taskbar_app_windows(int idx) {
 
 void taskbar_close_app(int idx) {
     if (taskbar_app_windows(idx) <= 0) return;
-    static int which[64];
+    static int *which;
+    static int cap;
+    if (!UGROW(which, cap, window_count)) {
+        wm_logf("taskbar: out of memory to close %d windows\n", window_count);
+        return;
+    }
     int n = 0;
     uint32_t seq = 0;
-    for (int j; n < 64 && (j = next_in_order(&seq)) >= 0; )
+    for (int j; n < cap && (j = next_in_order(&seq)) >= 0; )
         if (!unlisted(j) && same_app(idx, j)) which[n++] = j;
     close_all_begin(which, n);
 }
@@ -1016,8 +1049,9 @@ void taskbar_activate(int i) {
 // The PRESS only arms the button: whether it was a click or the start of
 // a drag is decided by what the pointer does next (taskbar_update_press).
 int taskbar_handle_click(int mx, int my) {
-    static struct taskbar_button btns[TB_BUTTONS_MAX];
-    int n = taskbar_layout(btns, TB_BUTTONS_MAX);
+    static struct taskbar_button *btns;
+    static int cap;
+    int n = taskbar_layout_grown(&btns, &cap);
     int ty = screen_h - taskbar_h;
     int ox, ow;
     if (taskbar_overflow(&ox, &ow) && uui_hit(ox, ty, ow, taskbar_h, mx, my)) {
@@ -1062,8 +1096,9 @@ int taskbar_drag_state(int *armed, int *dragging) {
 // FIRST, and the drop would swap the row the user just arranged into
 // the overflow list.
 static void commit_order(void) {
-    static struct taskbar_button b[TB_BUTTONS_MAX];
-    int n = taskbar_layout(b, TB_BUTTONS_MAX);
+    static struct taskbar_button *b;
+    static int cap;
+    int n = taskbar_layout_grown(&b, &cap);
     uint32_t first_new = 0;
     for (int k = 0; k < n; k++) {
         int starter = -1;
@@ -1074,8 +1109,11 @@ static void commit_order(void) {
         if (b[k].count == 1) { windows[starter].task_rank = wm_next_open_seq(); continue; }
         // A group: its members in their current rank order.
         uint32_t seq = 0;
-        int members[TB_BUTTONS_MAX], m = 0;
-        for (int i; m < TB_BUTTONS_MAX && (i = next_in_order(&seq)) >= 0; )
+        static int *members;
+        static int mcap;
+        if (!UGROW(members, mcap, window_count)) continue;   // its old ranks stay
+        int m = 0;
+        for (int i; m < mcap && (i = next_in_order(&seq)) >= 0; )
             if (strip_window(i) && same_app(i, starter)) members[m++] = i;
         for (int j = 0; j < m; j++) windows[members[j]].task_rank = wm_next_open_seq();
     }
@@ -1110,8 +1148,9 @@ void taskbar_update_press(int mx, int my, uint8_t buttons) {
     static uint32_t dnd_key;
     static uint64_t dnd_since;
     if (wm_dnd_active() && down && my >= screen_h - taskbar_h && !wm_top_covers_screen()) {
-        static struct taskbar_button b[TB_BUTTONS_MAX];
-        int n = taskbar_layout(b, TB_BUTTONS_MAX);
+        static struct taskbar_button *b;
+        static int cap;
+        int n = taskbar_layout_grown(&b, &cap);
         uint32_t key = 0;
         int first = -1;
         for (int k = 0; k < n; k++)
@@ -1151,8 +1190,9 @@ void taskbar_update_press(int mx, int my, uint8_t buttons) {
     if (g_drag.dragging) {
         commit_order();
     } else {
-        static struct taskbar_button b[TB_BUTTONS_MAX];
-        int n = taskbar_layout(b, TB_BUTTONS_MAX);
+        static struct taskbar_button *b;
+        static int cap;
+        int n = taskbar_layout_grown(&b, &cap);
         for (int k = 0; k < n; k++) {
             if (b[k].key != g_drag.key) continue;
             if (!uui_hit(b[k].x, screen_h - taskbar_h, b[k].w, taskbar_h, mx, my)) break;
@@ -1169,26 +1209,38 @@ void taskbar_update_press(int mx, int my, uint8_t buttons) {
 // ---- the glide ----------------------------------------------------------
 
 #define TB_GLIDE_MS 150
-#define TB_GLIDE_MAX 64
 
+// AN EVICTING CACHE, one entry per button on the strip: a button the
+// cache has not seen takes the least recently asked entry. Grown to the
+// most buttons a layout has placed (glide_reserve()), so no button on
+// screen evicts another's tween.
 static struct glide {
     uint32_t key;
     int target;
     struct utween tw;
     uint64_t used;        // the frame it was last asked about; oldest is reused
-} g_glide[TB_GLIDE_MAX];
+} *g_glide;
+static int g_glide_cap;
 static uint64_t g_frame;
 static int g_gliding, g_gliding_prev;
 static uint32_t g_glide_frames;   // frames that drew a glide, ever -- a test's counter
 static uint64_t g_glide_drawn_ns; // when the last glide frame was drawn
+
+static void glide_reserve(int n) {
+    int had = g_glide_cap;
+    if (!UGROW(g_glide, g_glide_cap, n)) return;   // the cache just evicts more
+    for (int k = had; k < g_glide_cap; k++) g_glide[k] = (struct glide){ 0 };
+}
 
 int taskbar_gliding(void) { return g_gliding_prev; }
 uint32_t taskbar_glide_frames(void) { return g_glide_frames; }
 
 int taskbar_draw_x(const struct taskbar_button *b) {
     unsigned long long now = sys_monotonic_ns();
+    if (g_glide_cap <= 0) glide_reserve(1);
+    if (g_glide_cap <= 0) return b->x;   // out of memory: no glide
     struct glide *e = 0, *oldest = &g_glide[0];
-    for (int k = 0; k < TB_GLIDE_MAX; k++) {
+    for (int k = 0; k < g_glide_cap; k++) {
         if (g_glide[k].key == b->key) { e = &g_glide[k]; break; }
         if (g_glide[k].used < oldest->used) oldest = &g_glide[k];
     }
@@ -1241,8 +1293,9 @@ void taskbar_glide_step(void) {
 }
 
 int taskbar_handle_right_click(int mx, int my) {
-    static struct taskbar_button btns[TB_BUTTONS_MAX];
-    int n = taskbar_layout(btns, TB_BUTTONS_MAX);
+    static struct taskbar_button *btns;
+    static int cap;
+    int n = taskbar_layout_grown(&btns, &cap);
     int ty = screen_h - taskbar_h;
     int ox, ow;
     if (taskbar_overflow(&ox, &ow) && uui_hit(ox, ty, ow, taskbar_h, mx, my)) {

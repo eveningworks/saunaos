@@ -7,6 +7,8 @@
 #include "ui/uui_menubar.h"
 #include "ui/uui_popup.h"
 #include "ui/utheme.h"
+#include "ui/ulog.h"
+#include "lib/ugrow.h"
 #include "kapi.h"
 
 int context_menu_open = 0;
@@ -23,21 +25,27 @@ static struct uui_menubar g_menu;
 // CODE, so the code indexes g_src back to the caller's own item and its
 // on_select/ctx pair -- which is what lets desktop.c go on packing a
 // gui_app pointer or a window index into a row.
-// Past these a menu is TRUNCATED rather than overrunning: the rows that
-// fit still work, which is the failure a WM menu can survive.
-#define CM_MAX_ROWS 32
-#define CM_MAX_SUB  96   // every row of every submenu, both levels together
-#define CM_CODES    (CM_MAX_ROWS + CM_MAX_SUB)
-
-static struct uui_menu_item g_items[CM_MAX_ROWS];
-static struct uui_menu_item g_subs[CM_MAX_SUB];
-static const struct context_menu_item *g_src[CM_CODES];
+// SIZED TO THE MENU before a row is translated: a submenu's rows are a
+// pointer into g_subs, so it must not move once the first is handed
+// out. Out of memory keeps the old arrays and TRUNCATES to them -- the
+// rows that fit still work, which is the failure a WM menu can survive.
+static struct uui_menu_item *g_items, *g_subs;
+static const struct context_menu_item **g_src;
+static int g_items_cap, g_subs_cap, g_src_cap;
 static int g_ncodes, g_subn;
 
 static int add_code(const struct context_menu_item *it) {
-    if (g_ncodes >= CM_CODES) return -1;
+    if (g_ncodes >= g_src_cap) return -1;
     g_src[g_ncodes] = it;
     return g_ncodes++;
+}
+
+// The submenu rows below `s`, `depth` levels down: what g_subs holds.
+static int sub_rows(const struct context_menu_item *s, int depth) {
+    if (!s->sub || s->sub_count <= 0 || depth <= 0) return 0;
+    int n = s->sub_count;
+    for (int j = 0; j < s->sub_count; j++) n += sub_rows(&s->sub[j], depth - 1);
+    return n;
 }
 
 // One row, and its submenu below it to `depth` more levels.
@@ -50,9 +58,9 @@ static void translate_row(const struct context_menu_item *s, struct uui_menu_ite
     d->icon = s->icon;
     d->tint = s->tint;
     d->style = s->strip ? UUI_MIS_STRIP : 0;
-    if (!s->sub || s->sub_count <= 0 || depth <= 0 || g_subn >= CM_MAX_SUB) return;
+    if (!s->sub || s->sub_count <= 0 || depth <= 0 || g_subn >= g_subs_cap) return;
     int k = s->sub_count;
-    if (g_subn + k > CM_MAX_SUB) k = CM_MAX_SUB - g_subn;
+    if (g_subn + k > g_subs_cap) k = g_subs_cap - g_subn;
     struct uui_menu_item *rows = &g_subs[g_subn];
     g_subn += k;   // claimed before recursing, so a nested level packs after it
     d->sub = rows;
@@ -63,7 +71,14 @@ static void translate_row(const struct context_menu_item *s, struct uui_menu_ite
 static int build(const struct context_menu_item *src, int count) {
     g_ncodes = 0;
     g_subn = 0;
-    int n = count > CM_MAX_ROWS ? CM_MAX_ROWS : count;
+    int subs = 0;
+    for (int i = 0; i < count; i++) subs += sub_rows(&src[i], 2);
+    int ok = UGROW(g_items, g_items_cap, count);
+    ok &= UGROW(g_subs, g_subs_cap, subs);
+    ok &= UGROW(g_src, g_src_cap, count + subs);
+    if (!ok)
+        ulogf("wm: context menu: out of memory for %d rows, showing what fits\n", count + subs);
+    int n = count > g_items_cap ? g_items_cap : count;
     for (int i = 0; i < n; i++) translate_row(&src[i], &g_items[i], 2);
     return n;
 }

@@ -1592,8 +1592,9 @@ static void draw_taskbar(void) {
     }
 
     // THE WINDOW BUTTONS.
-    static struct taskbar_button btns[64];
-    int nb = taskbar_layout(btns, 64);
+    static struct taskbar_button *btns;
+    static int btns_cap;
+    int nb = taskbar_layout_grown(&btns, &btns_cap);
     int isz = taskbar_icon_size();
     int armed = 0, dragging = 0;
     taskbar_drag_state(&armed, &dragging);
