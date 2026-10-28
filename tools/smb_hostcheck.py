@@ -159,6 +159,7 @@ def build(tmp, control):
     hostcheck.stage(tmp, "userland/include/usmb.h")
     hostcheck.stage(tmp, "userland/include/ucrypto.h")
     hostcheck.stage(tmp, "userland/dynlib/usmb_internal.h")
+    hostcheck.stage(tmp, "kernel/include/api/kutf8.h")    # the UTF-16 converters
     lib = os.path.join(ROOT, "userland/ports/mbedtls/library")
     srcs += [os.path.join(lib, f + ".c") for f in MBEDTLS_FILES]
     flags = ("-O2", "-w", '-DMBEDTLS_CONFIG_FILE="host_config.h"')
@@ -207,10 +208,16 @@ def dialect_cell(run, dialect):
         rc, out = run.call(srv, "media", u, p, "get", "big.bin")
         run.check(f"{dialect} get big.bin", rc == 0 and hashlib.sha256(out).hexdigest() == srv.sha256("media/big.bin"),
                   f"{len(out)} bytes")
-        for name in (samba_server.UNICODE_NAME, samba_server.LATIN1_NAME):
+        # Names go out as UTF-8 -> UTF-16 (the listing above is the way
+        # back), and a stray Latin-1 byte goes out as its letter.
+        for name in (samba_server.UNICODE_NAME, samba_server.LATIN1_NAME, samba_server.CJK_NAME):
             rc, out = run.call(srv, "media", u, p, "get", samba_server.wire_name(name))
             run.check(f"{dialect} get {samba_server.wire_name(name)!r}",
                       rc == 0 and out == srv.files[f"media/{name}"], out[:80])
+        latin1 = samba_server.LATIN1_NAME.encode("latin-1")
+        rc, out = run.call(srv, "media", u, p, "get", latin1)
+        run.check(f"{dialect} get {latin1!r} (a stray Latin-1 name)",
+                  rc == 0 and out == srv.files[f"media/{samba_server.LATIN1_NAME}"], out[:80])
         rc, out = run.call(srv, "media", u, p, "get", "sub/nested/deep.txt")
         run.check(f"{dialect} get nested", rc == 0 and out == srv.files["media/sub/nested/deep.txt"], out[:80])
         rc, out = run.call(srv, "media", u, p, "get", "empty.txt")

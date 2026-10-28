@@ -24,10 +24,9 @@
 // SaunaOS transport.
 //
 // Paths are relative to the share, with '/' separators: "" or "/" is
-// the share's root. NAMES ARE SAUNAOS TEXT, which is Latin-1 -- except a
-// name Latin-1 cannot spell, which comes back as UTF-8 so it can still
-// be opened (and a valid UTF-8 path with such a character is read as
-// UTF-8). User names and passwords are Latin-1, as the keyboard types.
+// the share's root. NAMES ARE SAUNAOS TEXT, which is UTF-8, both ways; a
+// stray byte that is not UTF-8 goes out as its Latin-1 letter. User names
+// and passwords too, as the keyboard types them.
 #include <stddef.h>
 #include <stdint.h>
 

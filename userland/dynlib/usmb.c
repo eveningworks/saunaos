@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "usmb_internal.h"
+#include "kutf8.h"
 
 enum {
     CMD_NEGOTIATE = 0, CMD_SESSION_SETUP = 1, CMD_LOGOFF = 2, CMD_TREE_CONNECT = 3,
@@ -100,51 +101,19 @@ static int map_status(struct usmb *s, uint32_t st) {
 
 // ---- SaunaOS text <-> UTF-16LE ------------------------------------------
 //
-// SAUNAOS TEXT IS LATIN-1 (docs/decisions/drivers.md): a character is one
-// byte, and the font, the keyboard and every file name agree. So a name
-// comes back as Latin-1 when Latin-1 can spell it -- and as UTF-8 when it
-// cannot, which displays as gibberish but still names the file, where a
-// '?' in its place would make it unreachable. Going the other way, a
-// string that is valid UTF-8 AND holds a code point above U+00FF is read
-// as UTF-8 (one of those names, handed back); anything else is Latin-1.
-
-// The next UTF-8 code point at *p, or -1 for a malformed sequence.
-static int32_t utf8_next(const unsigned char **pp) {
-    const unsigned char *p = *pp;
-    int32_t c;
-    int n;
-    if (*p < 0x80) { c = *p; n = 0; }
-    else if ((*p & 0xe0) == 0xc0) { c = *p & 0x1f; n = 1; }
-    else if ((*p & 0xf0) == 0xe0) { c = *p & 0x0f; n = 2; }
-    else if ((*p & 0xf8) == 0xf0) { c = *p & 0x07; n = 3; }
-    else return -1;
-    p++;
-    for (int i = 0; i < n; i++, p++) {
-        if ((*p & 0xc0) != 0x80) return -1;
-        c = c << 6 | (*p & 0x3f);
-    }
-    *pp = p;
-    return c;
-}
-
-// Is `s` a name only UTF-8 can spell? Valid throughout, and past Latin-1.
-static int needs_utf8(const char *s) {
-    const unsigned char *p = (const unsigned char *)s;
-    int wide = 0;
-    while (*p) {
-        int32_t c = utf8_next(&p);
-        if (c < 0) return 0;
-        if (c > 0xff) wide = 1;
-    }
-    return wide;
-}
+// SAUNAOS TEXT IS UTF-8 (docs/utf8-design.md), so every name goes out as
+// UTF-8 -> UTF-16 and comes back as UTF-16 -> UTF-8 -- what Linux's cifs
+// does with `iocharset=utf8`. A byte that starts no valid sequence is its
+// Latin-1 letter on the way out (the transition rule, api/kutf8.h), so a
+// name typed before the conversion still reaches its file. A server name
+// with an unpaired surrogate comes back with U+FFFD in its place.
 
 int usmb_to_utf16(const char *s, uint8_t *out, size_t cap, int slashes) {
     size_t o = 0;
-    int utf8 = needs_utf8(s);
-    const unsigned char *p = (const unsigned char *)s;
-    while (*p) {
-        uint32_t c = utf8 ? (uint32_t)utf8_next(&p) : *p++;
+    for (int i = 0; s[i];) {
+        int len;
+        uint32_t c = kutf8_decode(s + i, -1, &len);
+        i += len;
         if (slashes && c == '/') c = '\\';
         if (c >= 0x10000) {
             if (o + 4 > cap) return -1;
@@ -161,35 +130,9 @@ int usmb_to_utf16(const char *s, uint8_t *out, size_t cap, int slashes) {
     return (int)o;
 }
 
-// The code point at in[i] (a surrogate pair is one), advancing *i.
-static uint32_t utf16_next(const uint8_t *in, size_t bytes, size_t *i) {
-    uint32_t c = get16(in + *i);
-    *i += 2;
-    if (c >= 0xd800 && c < 0xdc00 && *i + 1 < bytes) {
-        uint32_t lo = get16(in + *i);
-        if (lo >= 0xdc00 && lo < 0xe000) { c = 0x10000 + ((c - 0xd800) << 10) + (lo - 0xdc00); *i += 2; }
-    }
-    return c;
-}
-
 int usmb_from_utf16(const uint8_t *in, size_t bytes, char *out, size_t cap) {
-    int wide = 0;
-    for (size_t i = 0; i + 1 < bytes;) if (utf16_next(in, bytes, &i) > 0xff) wide = 1;
-    size_t o = 0;
-    for (size_t i = 0; i + 1 < bytes;) {
-        uint32_t c = utf16_next(in, bytes, &i);
-        uint8_t b[4];
-        int n;
-        if (!wide || c < 0x80) { b[0] = (uint8_t)c; n = 1; }
-        else if (c < 0x800) { b[0] = (uint8_t)(0xc0 | c >> 6); b[1] = (uint8_t)(0x80 | (c & 0x3f)); n = 2; }
-        else if (c < 0x10000) { b[0] = (uint8_t)(0xe0 | c >> 12); b[1] = (uint8_t)(0x80 | ((c >> 6) & 0x3f)); b[2] = (uint8_t)(0x80 | (c & 0x3f)); n = 3; }
-        else { b[0] = (uint8_t)(0xf0 | c >> 18); b[1] = (uint8_t)(0x80 | ((c >> 12) & 0x3f)); b[2] = (uint8_t)(0x80 | ((c >> 6) & 0x3f)); b[3] = (uint8_t)(0x80 | (c & 0x3f)); n = 4; }
-        if (o + (size_t)n + 1 > cap) return -1;
-        memcpy(out + o, b, (size_t)n);
-        o += (size_t)n;
-    }
-    out[o] = '\0';
-    return (int)o;
+    if (cap > 0x7fffffff) cap = 0x7fffffff;
+    return kutf8_from_utf16le(in, (int)(bytes / 2), out, (int)cap);
 }
 
 static uint64_t ft_to_unix(uint64_t ft) {

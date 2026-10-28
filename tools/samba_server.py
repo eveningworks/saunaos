@@ -45,17 +45,14 @@ DIALECTS = ("SMB2_02", "SMB2_10", "SMB3_00", "SMB3_02", "SMB3_11")
 WIRE = {"SMB2_02": 0x0202, "SMB2_10": 0x0210, "SMB3_00": 0x0300,
         "SMB3_02": 0x0302, "SMB3_11": 0x0311}
 MANY = 1500                     # entries in media/many -- several QUERY_DIRECTORY rounds
-UNICODE_NAME = "Ünïcødé — name.txt"     # the dash is past Latin-1: comes back as UTF-8
-LATIN1_NAME = "Café Ünïcødé.txt"         # all Latin-1: comes back as Latin-1 bytes
+UNICODE_NAME = "Ünïcødé — name.txt"     # the dash is past Latin-1
+LATIN1_NAME = "Café Ünïcødé.txt"         # all Latin-1 letters -- still UTF-8 on the client
+CJK_NAME = "日本語 ✓.txt"                # three bytes a character, both ways
 
 
 def wire_name(name):
-    """A name as the client hands it back (usmb.h): Latin-1 when Latin-1
-    can spell it, UTF-8 when it cannot."""
-    try:
-        return name.encode("latin-1")
-    except UnicodeEncodeError:
-        return name.encode("utf-8")
+    """A name as the client hands it back (usmb.h): UTF-8, always."""
+    return name.encode("utf-8")
 
 SMB_CONF = """[global]
   server role = standalone server
@@ -122,6 +119,7 @@ def make_files(root):
     put("media/big.bin", rng.randbytes(3 * 1024 * 1024 + 12345))
     put(f"media/{UNICODE_NAME}", "ünïcødé contents\n".encode())
     put(f"media/{LATIN1_NAME}", b"latin-1 name\n")
+    put(f"media/{CJK_NAME}", "日本語 contents\n".encode())
     put("media/sub/nested/deep.txt", b"three levels down\n")
     put("media/empty.txt", b"")
     for i in range(MANY):
