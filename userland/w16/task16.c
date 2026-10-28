@@ -110,6 +110,7 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
 
     pthread_mutex_init(&w->lock, 0);
     pthread_cond_init(&w->cond, 0);
+    if (!w16_queue_room(w)) return load_fail(path, "out of memory");
     w->cursor_now = W16_CURSOR_BASE;  // the arrow: what SetCursor first answers
     w16_register_builtins(w);
     return 0;
@@ -361,6 +362,27 @@ uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hw
 
 // --- the queue -------------------------------------------------------------
 
+int w16_queue_room(struct w16 *w) {
+    if (w->qcap && (w->qtail + 1) % w->qcap != w->qhead) return 1;
+    // Full (or not made yet): a ring twice the size, unwrapped from the head.
+    unsigned n = w->qcap ? (w->qtail + w->qcap - w->qhead) % w->qcap : 0;
+    unsigned cap = w->qcap ? w->qcap * 2 : 64;
+    struct w16_msg *q = cap > w->qcap ? malloc(sizeof *q * cap) : NULL;
+    if (!q) {
+        static int said;
+        if (!said) fprintf(stderr, "w16: out of memory for message %u, posts dropped\n", n + 1);
+        said = 1;
+        return 0;
+    }
+    for (unsigned k = 0; k < n; k++) q[k] = w->q[(w->qhead + k) % w->qcap];
+    free(w->q);
+    w->q = q;
+    w->qcap = cap;
+    w->qhead = 0;
+    w->qtail = n;
+    return 1;
+}
+
 void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam,
                        unsigned mods) {
     pthread_mutex_lock(&w->lock);
@@ -370,7 +392,7 @@ void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wpar
     // with the pointer instead of replaying every place it passed.
     if (msg == WM_MOUSEMOVE)
         for (unsigned i = w->qtail; i != w->qhead; ) {
-            i = (i + W16_QUEUE - 1) % W16_QUEUE;
+            i = (i + w->qcap - 1) % w->qcap;
             struct w16_msg *q = &w->q[i];
             if (q->message < WM_MOUSEMOVE || q->message > 0x0209) continue;
             if (q->message == WM_MOUSEMOVE && q->hwnd == hwnd && q->wparam == wparam) {
@@ -381,10 +403,9 @@ void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wpar
             }
             break;
         }
-    unsigned next = (w->qtail + 1) % W16_QUEUE;
-    if (next != w->qhead) {
+    if (w16_queue_room(w)) {
         w->q[w->qtail] = (struct w16_msg){ hwnd, msg, wparam, lparam, (uint8_t)mods };
-        w->qtail = next;
+        w->qtail = (w->qtail + 1) % w->qcap;
     }
     pthread_cond_signal(&w->cond);
     pthread_mutex_unlock(&w->lock);

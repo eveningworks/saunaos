@@ -201,10 +201,13 @@ struct w16_msg {
     uint8_t mods;
 };
 
-#define W16_QUEUE    256
-#define W16_MAX_RES  512          // resources whose loaded block is remembered
-#define W16_GDI_MAX  1024         // GDI objects alive at once
-#define W16_TIMERS   16
+// GDI HANDLES ARE 16-BIT WORDS, W16_GDI_BASE + 4 * slot (gdi16.c), so the
+// handle space is the bound, mirrored: the slots past 0xFFFF have no
+// handle to name them. The slots are allocated a block at a time and
+// never move -- a `struct w16_gdiobj *` is held across a new object.
+#define W16_GDI_BASE   0x6000
+#define W16_GDI_SLOTS  ((0x10000 - W16_GDI_BASE) / 4)
+#define W16_GDI_BLOCK  256
 
 // A local-heap block, kept host-side (mem16.c).
 struct w16_lblock {
@@ -388,8 +391,8 @@ struct w16 {
 
     pthread_mutex_t lock;
     pthread_cond_t cond;                         // the task waits for messages on this
-    struct w16_msg q[W16_QUEUE];
-    unsigned qhead, qtail;
+    struct w16_msg *q;                           // a ring, grown when full: w16_queue_room()
+    unsigned qcap, qhead, qtail;
     int quit_posted;
     uint16_t quit_code;
 
@@ -417,13 +420,15 @@ struct w16 {
     int ndlls;
     struct { uint16_t sel; char name[16]; } *thunks;   // a Windows module's thunk selector each
     int nthunks;
-    uint16_t res_sel[W16_MAX_RES];               // a loaded resource's global block
-    struct w16_gdiobj gdi[W16_GDI_MAX];          // gdi16.c; handle = GDI_BASE + 4 * index
+    uint16_t *res_sel;                           // a loaded resource's global block, by index;
+    int res_cap;                                 // grown to the module's resources (res16.c)
+    struct w16_gdiobj *gdi[W16_GDI_SLOTS / W16_GDI_BLOCK];   // gdi16.c: blocks, NULL until used
     int fb_dirty;                                // a window DC drew: post a repaint
     uint64_t committed_ms;                       // when w16_gdi_flush() last took a frame
     uint64_t flash_ms;                           // when an inverting window-DC draw last ran (gdi16.c's hold_flash)
     int painting;                                // BeginPaint calls not yet ended: a window DC drawing is a repaint's
-    struct w16_timer timer[W16_TIMERS];          // set by the task, fired by the main thread
+    struct w16_timer *timer;                     // set by the task, fired by the main thread;
+    int ntimers, timer_cap;                      // grown, under `lock`
     uint16_t capture;                            // SetCapture's window, 0 none; under `lock`
     uint16_t cursor_now;                         // the HCURSOR shown: SetCursor's answer; under `lock`
     uint16_t menu;                               // SetMenu's HMENU, the bar under the caption
@@ -478,6 +483,10 @@ int w16_load(struct w16 *w, const uint8_t *img, uint32_t size, const char *path,
 const struct ne_module *w16_module_of(struct w16 *w, uint16_t inst);
 void *w16_task_main(void *arg);
 void w16_post_msg(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam);
+// Room for one more queued message, the ring grown when it is full.
+// Under `lock`. 0 when memory ran out (logged once): the post is lost,
+// as one into a full queue was on Windows.
+int w16_queue_room(struct w16 *w);
 void w16_post_msg_mods(struct w16 *w, uint16_t hwnd, uint16_t msg, uint16_t wparam, uint32_t lparam,
                        unsigned mods);
 uint32_t w16_call_wndproc(struct w16 *w, uint16_t sel, uint16_t off, uint16_t hwnd,

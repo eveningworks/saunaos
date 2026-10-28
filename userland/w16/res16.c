@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "lib/ugrow.h"
 
 #define HRSRC_BASE 0x7000
 // A DLL's resource (or the display driver's: Color's OEMBIN) is named by its place in this list
@@ -63,7 +64,15 @@ int w16_res_find(struct w16 *w, uint16_t type, const char *type_name, uint16_t i
 
 // The resource's bytes as a global block, made once.
 uint16_t w16_res_load(struct w16 *w, unsigned index) {
-    if (index >= W16_MAX_RES) return 0;
+    if (index >= w->ne.nres) return 0;
+    if ((int)index >= w->res_cap) {
+        int had = w->res_cap;
+        if (!UGROW(w->res_sel, w->res_cap, (int)w->ne.nres)) {
+            fprintf(stderr, "w16: out of memory remembering resource %u\n", index);
+            return 0;
+        }
+        memset(w->res_sel + had, 0, sizeof *w->res_sel * (size_t)(w->res_cap - had));
+    }
     if (w->res_sel[index]) return w->res_sel[index];
     struct ne_resource r;
     if (ne_resource_at(&w->ne, index, &r) < 0) return 0;

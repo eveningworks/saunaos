@@ -29,7 +29,7 @@
 #include "ui/ugfx.h"
 
 #define STOCK_BASE 0x5000      // GetStockObject(i) -> STOCK_BASE + i
-#define GDI_BASE   0x6000
+#define GDI_BASE   W16_GDI_BASE
 #define TRANSPARENT 1
 #define OPAQUE      2
 #define R2_COPYPEN  13
@@ -47,21 +47,40 @@
 
 // --- the object table --------------------------------------------------------
 
-static struct w16_gdiobj *obj(struct w16 *w, uint16_t h, int type) {
-    if (h < GDI_BASE || (h - GDI_BASE) % 4) return 0;
-    unsigned i = (h - GDI_BASE) / 4u;
-    if (i >= W16_GDI_MAX || w->gdi[i].type != type) return 0;
-    return &w->gdi[i];
+// Slot `i`, or NULL past the handle space or in a block never allocated.
+static struct w16_gdiobj *slot(struct w16 *w, unsigned i) {
+    if (i >= W16_GDI_SLOTS || !w->gdi[i / W16_GDI_BLOCK]) return 0;
+    return &w->gdi[i / W16_GDI_BLOCK][i % W16_GDI_BLOCK];
 }
 
+// The slot handle `h` names, whatever is in it.
+static struct w16_gdiobj *slot_of(struct w16 *w, uint16_t h) {
+    if (h < GDI_BASE || (h - GDI_BASE) % 4) return 0;
+    return slot(w, (h - GDI_BASE) / 4u);
+}
+
+static struct w16_gdiobj *obj(struct w16 *w, uint16_t h, int type) {
+    struct w16_gdiobj *o = slot_of(w, h);
+    return o && o->type == type ? o : 0;
+}
+
+// The first free slot, a new block when every allocated one is full.
+// Past the handle space, or out of memory, no object: 0, logged once.
 static uint16_t new_obj(struct w16 *w, int type, struct w16_gdiobj **out) {
-    for (unsigned i = 0; i < W16_GDI_MAX; i++)
-        if (w->gdi[i].type == GDI_FREE) {
-            memset(&w->gdi[i], 0, sizeof w->gdi[i]);
-            w->gdi[i].type = (uint8_t)type;
-            *out = &w->gdi[i];
-            return (uint16_t)(GDI_BASE + 4 * i);
+    for (unsigned b = 0; b < W16_GDI_SLOTS / W16_GDI_BLOCK; b++) {
+        if (!w->gdi[b] && !(w->gdi[b] = calloc(W16_GDI_BLOCK, sizeof *w->gdi[b]))) break;
+        for (unsigned k = 0; k < W16_GDI_BLOCK; k++) {
+            struct w16_gdiobj *o = &w->gdi[b][k];
+            if (o->type != GDI_FREE) continue;
+            memset(o, 0, sizeof *o);
+            o->type = (uint8_t)type;
+            *out = o;
+            return (uint16_t)(GDI_BASE + 4 * (b * W16_GDI_BLOCK + k));
         }
+    }
+    static int said;
+    if (!said) fprintf(stderr, "w16: no GDI object free (the 16-bit handle space, or memory)\n");
+    said = 1;
     *out = 0;
     return 0;
 }
@@ -71,8 +90,8 @@ static int type_of(struct w16 *w, uint16_t h) {
         unsigned i = h - STOCK_BASE;
         return i <= NULL_BRUSH ? GDI_BRUSH : i <= NULL_PEN ? GDI_PEN : GDI_FONT;
     }
-    if (h < GDI_BASE || (h - GDI_BASE) % 4 || (h - GDI_BASE) / 4u >= W16_GDI_MAX) return GDI_FREE;
-    return w->gdi[(h - GDI_BASE) / 4u].type;
+    struct w16_gdiobj *o = slot_of(w, h);
+    return o ? o->type : GDI_FREE;
 }
 
 #define MM_TEXT        1
@@ -1674,7 +1693,7 @@ static uint16_t select_object(struct w16 *w, uint16_t hdc, uint16_t h) {
 static void delete_object(struct w16 *w, uint16_t h) {
     int t = type_of(w, h);
     if (t == GDI_FREE || h < GDI_BASE) return;   // stock objects are never deleted
-    struct w16_gdiobj *o = &w->gdi[(h - GDI_BASE) / 4u];
+    struct w16_gdiobj *o = slot_of(w, h);
     if (t == GDI_BITMAP) {
         if (o->in_dc) return;                    // still selected: Windows refuses
         free(o->px);

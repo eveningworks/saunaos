@@ -375,10 +375,10 @@ uint16_t w16_set_focus(struct w16 *w, uint16_t hwnd) {
 static void drop_queued(struct w16 *w, uint16_t hwnd) {
     pthread_mutex_lock(&w->lock);
     unsigned out = w->qhead;
-    for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % W16_QUEUE)
-        if (w->q[i].hwnd != hwnd) w->q[(out++) % W16_QUEUE] = w->q[i];
-    w->qtail = out % W16_QUEUE;
-    for (int i = 0; i < W16_TIMERS; i++)
+    for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % w->qcap)
+        if (w->q[i].hwnd != hwnd) w->q[(out++) % w->qcap] = w->q[i];
+    w->qtail = out % w->qcap;
+    for (int i = 0; i < w->ntimers; i++)
         if (w->timer[i].used && w->timer[i].hwnd == hwnd) w->timer[i].used = 0;
     if (w->capture == hwnd) w->capture = 0;
     pthread_mutex_unlock(&w->lock);

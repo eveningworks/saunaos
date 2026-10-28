@@ -19,6 +19,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include "lib/ugrow.h"
 
 
 uint64_t w16_now_ms(void) {
@@ -163,10 +164,14 @@ static int wsprintf16(struct w16 *w) {
 static uint16_t set_timer(struct w16 *w, uint16_t hwnd, uint16_t id, uint32_t ms, uint32_t proc) {
     pthread_mutex_lock(&w->lock);
     struct w16_timer *t = 0;
-    for (int i = 0; i < W16_TIMERS; i++)
+    for (int i = 0; i < w->ntimers; i++)
         if (w->timer[i].used && w->timer[i].id == id && w->timer[i].hwnd == hwnd) t = &w->timer[i];
-    for (int i = 0; !t && i < W16_TIMERS; i++)
+    for (int i = 0; !t && i < w->ntimers; i++)
         if (!w->timer[i].used) t = &w->timer[i];
+    // None free: the table grows (it held 16); a failure leaves SetTimer
+    // answering 0, as Windows did when its timers ran out.
+    if (!t && UGROW(w->timer, w->timer_cap, w->ntimers + 1)) t = &w->timer[w->ntimers++];
+    else if (!t) fprintf(stderr, "w16: out of memory for timer %d\n", w->ntimers + 1);
     if (t) {
         *t = (struct w16_timer){ .hwnd = hwnd, .id = id, .proc = proc, .interval_ms = ms ? ms : 1,
                                  .due_ms = w16_now_ms() + (ms ? ms : 1), .used = 1 };
@@ -179,7 +184,7 @@ void w16_set_timer(struct w16 *w, uint16_t hwnd, uint16_t id, uint32_t ms) { set
 
 void w16_kill_timer(struct w16 *w, uint16_t hwnd, uint16_t id) {
     pthread_mutex_lock(&w->lock);
-    for (int i = 0; i < W16_TIMERS; i++)
+    for (int i = 0; i < w->ntimers; i++)
         if (w->timer[i].used && w->timer[i].id == id && w->timer[i].hwnd == hwnd) w->timer[i].used = 0;
     pthread_mutex_unlock(&w->lock);
 }
@@ -187,13 +192,12 @@ void w16_kill_timer(struct w16 *w, uint16_t hwnd, uint16_t id) {
 void w16_timers_fire(struct w16 *w) {
     uint64_t now = w16_now_ms();
     pthread_mutex_lock(&w->lock);
-    for (int i = 0; i < W16_TIMERS; i++) {
+    for (int i = 0; i < w->ntimers; i++) {
         struct w16_timer *t = &w->timer[i];
         if (!t->used || t->pending || now < t->due_ms) continue;
-        unsigned next = (w->qtail + 1) % W16_QUEUE;
-        if (next == w->qhead) break;
+        if (!w16_queue_room(w)) break;
         w->q[w->qtail] = (struct w16_msg){ t->hwnd ? t->hwnd : w->win.hwnd, WM_TIMER, t->id, t->proc, 0 };
-        w->qtail = next;
+        w->qtail = (w->qtail + 1) % w->qcap;
         t->pending = 1;
         t->due_ms = now + t->interval_ms;
         pthread_cond_signal(&w->cond);
@@ -225,7 +229,7 @@ static int api_KillTimer(struct w16 *w, unsigned ordinal, struct w16_args *a) {
     uint16_t hwnd = w16_arg16(a), id = w16_arg16(a);
     pthread_mutex_lock(&w->lock);
     int found = 0;
-    for (int i = 0; i < W16_TIMERS; i++)
+    for (int i = 0; i < w->ntimers; i++)
         if (w->timer[i].used && w->timer[i].id == id && w->timer[i].hwnd == hwnd) {
             w->timer[i].used = 0;
             found = 1;

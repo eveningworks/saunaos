@@ -498,13 +498,13 @@ static int wanted(struct w16 *w, const struct msg_filter *f, uint16_t hwnd, uint
 
 static void take(struct w16 *w, unsigned i) {
     // Out of the middle of the ring: the ones after it close up.
-    for (unsigned j = i; (j + 1) % W16_QUEUE != w->qtail; j = (j + 1) % W16_QUEUE)
-        w->q[j] = w->q[(j + 1) % W16_QUEUE];
-    w->qtail = (w->qtail + W16_QUEUE - 1) % W16_QUEUE;
+    for (unsigned j = i; (j + 1) % w->qcap != w->qtail; j = (j + 1) % w->qcap)
+        w->q[j] = w->q[(j + 1) % w->qcap];
+    w->qtail = (w->qtail + w->qcap - 1) % w->qcap;
 }
 
 static void clear_timer_pending(struct w16 *w, uint16_t id) {
-    for (int i = 0; i < W16_TIMERS; i++)
+    for (int i = 0; i < w->ntimers; i++)
         if (w->timer[i].used && w->timer[i].id == id) w->timer[i].pending = 0;
 }
 
@@ -538,7 +538,7 @@ static int next_message(struct w16 *w, const struct msg_filter *f, int remove, i
     pthread_mutex_lock(&w->lock);
     for (;;) {
         int found = 0, again = 0;
-        for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % W16_QUEUE) {
+        for (unsigned i = w->qhead; i != w->qtail; i = (i + 1) % w->qcap) {
             if (w->q[i].message == W16_WM_MENUOPEN || w->q[i].message == W16_WM_ACTIVATE) {
                 struct w16_msg req = w->q[i];
                 take(w, i);
